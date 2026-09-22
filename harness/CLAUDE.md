@@ -89,6 +89,8 @@ cd /home/yipeng/3dcodeverse/harness
 3dcodeverse make "..." --track scene --language scene_threejs --rounds 2 --max-minutes 60
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader
 3dcodeverse make "..." --image ref.png --candidates 3 --rounds 2 --dim height=0.45 --must "three legs" --texture --no-run
+3dcodeverse make "..." --no-pick            # a run = baseline + --rounds refine rounds (fixed); make then picks a round → deliverable/ unless --no-pick
+3dcode pick <slug> [--by score|pairwise] [--round N] [--texture] [--judge MODEL]   # hand over a round (codeverse3d/addons/select.py)
 3dcode resume <slug> · 3dcode status <slug> · 3dcode render <slug> [--mode wire] · 3dcode judge <slug> [--model ... --n 3]
 3dcode texture pass <slug> [--no-judge] · 3dcode texture scene-pack <slug> · 3dcode texture show <slug>
 3dcode tools list · 3dcode tools measure --workspace runs/<slug> · 3dcode mcp --workspace runs/<slug>

@@ -389,24 +389,14 @@ rec = get_track(spec.track, **options).run(spec, ws, resume=False) -> RunRecord 
 # services=, judge=, agent=, model=, runtime=, policy=RoundPolicy, settings=, planner_model=, n_candidates=
 # (CLI --candidates > spec.options.candidates > settings.default_candidates); StaticObject | Articulated | Scene | Graphics
 BaseTrack.run(spec, ws, *, resume=False, force=False) -> RunRecord   # get_track returns a tracks.lifecycle.BaseTrack
-from codeverse3d.orchestrator import RoundPolicy, StopPolicy, StopDecision, pick_best_round, judge_sigma, \
-    best_score, last_gain, REWRITE_KIND, build_refine_instructions, compact_instructions
-RoundPolicy(max_rounds=4, plateau_window=2, min_delta=0.02, target=0.8, max_refine_tasks=6,
-            max_instructions_per_task=6, parallel_min_tasks=2, n_candidates=1, pairwise_margin=0.03,
-            pairwise_min_confidence=0.6, judge_samples=1,
-            judge_model="", regression_sigma=1.0,                                 # money stops (docs/COST.md §5)
-            marginal_sigma=1.5, marginal_from_round=3,                            # r03+ must beat 1.5σ
-            detail_rounds=None, detail_min_score=0.45, detail_bbox_tol_m=0.005   # surface-detail round, tri-state:
-            # None = the track default (lifecycle.DEFAULT_DETAIL_ROUNDS=1 when supports_detail_round, else 0),
-            # 0 = off, N = N; $C3D_DETAIL_ROUNDS overrides all (the A/B switch).  Injected policies keep it.
-            )   # lifecycle.build_context binds n_candidates + judge_model with ONE dataclasses.replace;
-                # RoundPolicy.target is ALWAYS overridden by the rubric pass threshold in BaseTrack.after_plan
-policy.sigma / .regression_delta / .marginal_delta   # judge_sigma() reads cost.routing.JUDGE_NOISE — THE σ table
-StopPolicy(policy).evaluate(history, budget_ok=True) -> StopDecision(reason, strategy="same"|"switch"|"detail", detail)
-    # (.reason is the StopReason); strategy "switch" = ONE whole-artifact rewrite round (kind REWRITE_KIND),
-    # "detail" = ONE surface-detail round (kind DETAIL_KIND) — a plateau/diminishing stop is converted into it
-    # only when detail_blocked(history, policy) == "" (clean gates, built, judged, within σ of best, budget left)
-from codeverse3d.orchestrator import DETAIL_KIND, KIND_FOR_STRATEGY, detail_blocked   # THE strategy → kind dict
+from codeverse3d.orchestrator import RoundPolicy, build_refine_instructions, compact_instructions, gate_error_count
+RoundPolicy(max_rounds=4, max_refine_tasks=6, max_instructions_per_task=6, parallel_min_tasks=2,
+            n_candidates=1, judge_samples=1)   # lifecycle.build_context binds n_candidates with ONE dataclasses.replace
+    # Δ 2026-09-22 FIXED rounds: a run is the baseline + max_rounds refine rounds, EACH built on the round before
+    # it; only the clock (BudgetGuard) or a hard failure ends it early.  Gone with the judgement stops: StopPolicy /
+    # StopDecision, pick_best_round, judge_sigma, best_score, last_gain, REWRITE_KIND / DETAIL_KIND /
+    # KIND_FOR_STRATEGY / detail_blocked, RunState.best_* / update_best, and the RoundPolicy fields plateau_window,
+    # min_delta, target, pairwise_*, judge_model, regression_sigma, marginal_*, detail_*.
 from codeverse3d.orchestrator import BudgetGuard, usage_delta
 BudgetGuard(budget, start_time=None, *, soft_fraction=1.0)            # no run= / ledger=
     .charge(usage, *, stage="other", enforce=True)   # (Δ 2026-08-30: role/label/round_index/outcome gone)
@@ -418,27 +408,25 @@ BudgetGuard(budget, start_time=None, *, soft_fraction=1.0)            # no run= 
     # add(...) = charge(enforce=False) — "not enforced" never means "not seen".
     .by_stage / .stage_summary() / .mark()   # what a round burned, live (by_round[i] deleted — no reader;
     #                                          per-round money is CallCost.round in telemetry/cost.jsonl)
-from codeverse3d.tracks.candidates import CandidateRecord, rank_candidates, decide_best   # pure decision logic
-from codeverse3d.tracks.candidates import run_best_of_n, choose_best_round, quick_render   # N parallel baselines in <ws>/_cand/c<k>
+from codeverse3d.tracks.candidates import CandidateRecord, rank_candidates   # the one in-loop choice left
+from codeverse3d.tracks.candidates import run_best_of_n, quick_render   # N parallel baselines in <ws>/_cand/c<k>
 # each candidate IS steps._run_round(kind="candidate") in its sub-workspace: render=quick_render(ctx, round_index, build,
 # measurement, *, pipeline) (4 views + the articulated pose views), geometry_views=False, its own events.jsonl and a
 # one-sample judge → _cand/c<k>/judge/r00.json (a degraded verdict stays score None); crashed candidate retried once;
-# selection by build_ok → quick score → fewer gate errors, pairwise within margin (booked stage=Stage.PAIRWISE);
+# selection by build_ok → quick score → fewer gate errors → the earlier candidate (no pairwise since 2026-09-22);
 # winner copied back, normal r00 pipeline follows; rounds/candidates.json IS record.extra["candidates"] (n, selected,
-# candidates[], pairwise)
+# candidates[])
 from codeverse3d.tracks.articulated_object import default_motion_checks, expected_direction   # gate "motion_direction"
 from codeverse3d.tracks.static_object import silhouette_gate, reference_refine_tasks  # gate "reference_silhouette" (IoU<0.6 → WARN + refine task)
 from codeverse3d.tracks.depth import depth_budget, DepthBudget, scope_groups, PartScope, interfaces_text, \
     scoped_generation_enabled                          # complexity-aware budgets + per-part scoped generation
 depth_budget(plan, *, build_timeout_s=300) -> DepthBudget   # min/target/max triangles + max_build_s sized from
     # the plan's LEAF count (parts × instances × children); .as_prompt() is the DETAIL BUDGET block every
-    # generate/refine/detail template shows in place of a flat "≤ 300k tris"
+    # generate/refine template shows in place of a flat "≤ 300k tris"
 scope_groups(plan, *, files_for, max_groups=6, parts_per_scope=3, min_parts=8) -> [PartScope]
     # [] = one session owns the object (small plan, no per-part file ownership, or $C3D_SCOPED_PARTS=off);
     # otherwise attachment-subtree groups whose files are disjoint, so the sessions run in parallel
 interfaces_text(plan, scope) -> str    # the planned boxes of the neighbours this scope must weld to
-from codeverse3d.tracks.static_object import drift_gate, detail_instructions, DRIFT_GATE   # gate "detail_drift":
-    # ERROR when a detail round moved/resized/removed a part or changed the overall extents (tol from policy)
 from codeverse3d.tracks.prompting import base_prompt_context, reference_images, file_for_target_factory, \
     scope_context, budget_for, detail_budget_text      # Δ split out of
 from codeverse3d.tracks.prompting import select_cookbook_chapters, is_always_chapter
@@ -509,7 +497,8 @@ generation prompts.
 ```python
 from codeverse3d.texturing.run import texture_pass, texture_requested, load_report
 texture_requested(spec) -> bool   # THE owner of "does this run texture?" (Spec.options.texture, or
-    # the legacy "texture" tag).  Asked by tracks.lifecycle.finalise AND by the texture_pass spatial
+    # the legacy "texture" tag).  Asked by the CLI hand-over after the run (make/resume → addons.select.package(
+    # texture=…), which textures the PICKED round — Δ 2026-09-22, finalise no longer does) AND by the texture_pass spatial
     # tool, which refuses in a run that did not ask — the tool is registered for every object track,
     # so `texture: false` used to be bypassable from inside an agent session.
 texture_pass(ws, spec, plan, *, model_id, image_model=None, judge=True, judge_model_id=None, rubric=None,
@@ -526,15 +515,38 @@ from codeverse3d.texturing.plan import scene_texture_pack, texture_pack_prompt  
 
 ## record/ + addons/ + cli/
 ```python
-from codeverse3d.record.record import finalize_record, load_record, iter_runs, best_round_index, best_round_record
-from codeverse3d.addons.gallery.index import hero_view          # (ws, rec) -> (rel, label, n_views): the card image, rebased via ws
-from codeverse3d.record.record import complexity_block, round_complexity   # objective complexity of what shipped
-    # finalize_record fills record.extra["complexity"] = the BEST round's vector + plan_parts /
-    # parts_per_plan_part / by_round; every rounds_summary row gains "complexity" (the index or None)
+from codeverse3d.record.record import finalize_record, load_record, iter_runs, effective_judgment, effective_score
+    # Δ 2026-09-22: best_round_index / best_round_record are gone, and fill_derived no longer derives a best round,
+    # baseline or final score — which round counts is addons.select's question
+from codeverse3d.record.deliverable import keep_round_artifacts, round_outputs, build_deliverable, load_deliverable
+    # keep_round_artifacts(ws, round_index) -> [names]: steps._run_round copies a BUILT round's hand-over files
+    #   (object.glb object.stl object.step robot.urdf preview.gif frames_sheet.png meshes/*.glb) to artifacts/rNN/
+    # round_outputs(ws, rnd) -> Path | None: artifacts/rNN/, else artifacts/ for the best round a pre-2026-09-22
+    #   record.json names, else None
+    # build_deliverable(ws, record, round_index, *, clean=True) -> RunDeliverable: deliverable/ for ONE round —
+    #   its commit's code + its kept files + its sheet (+ graphics: its judged frames; + a shipped texture pack
+    #   whose report names this round's GLB); never rebuilds.  Only addons.select.package calls it.
+from codeverse3d.addons import select       # which round of a FINISHED run to hand over (cli/ + addons only)
+select.round_rows(run_dir, *, record=None) -> [RoundRow{index, kind, score (effective), passed (the judge's own
+    # verdict for THAT round), gate_errors, build_ok, commit, cost_usd, minutes}]
+select.pick(run_dir, *, by="score"|"pairwise", pairwise_model=None, record=None, judge=None) -> int | None
+    # highest effective score → fewer gate errors → the earlier round; None when no round was judged.  "pairwise":
+    # the top two within PAIRWISE_MARGIN=0.03 go to judges.pairwise.PairwiseJudge (position-swapped); the runner-up
+    # wins at confidence ≥ 0.6; one paid verdict per (pair, model), cached at artifacts/judge/rAA_vs_rBB_pairwise.json
+select.summarise(run_dir, *, record=None) -> RunSummary{rounds, stop_reason, baseline_score (r00's effective
+    # score), picked_round, picked_score, delta, method}: selection.json's round when the run was packaged, else pick()
+select.package(run_dir, round_index, *, texture=False, method="round", image_model=None) -> Path (deliverable/)
+    # + selection.json {round, method, scores, textured, selected_at}; texture=True runs the pass on that round's
+    # kept GLB unless a report already covers those bytes; a failed pass never fails the hand-over
+from codeverse3d.addons.gallery.index import hero_view          # (ws, rec, picked) -> (rel, label, n_views): the card image
+from codeverse3d.record.record import complexity_block, round_complexity   # objective complexity of what was built
+    # finalize_record fills record.extra["complexity"] = the LAST measured round's vector + plan_parts /
+    # parts_per_plan_part / by_round; every rounds_summary row gains "complexity" (the index or None); readers
+    # that show one round (gallery, dataset) read that round's own round_complexity
 from codeverse3d.addons.dataset.export import export_samples   # (runs_dir, out_dir, *, min_score=None, only_passed=False,
     # include_unbuilt=False, captions_dir=None, drop_duplicates=False) -> ExportReport{…, n_duplicates, duplicates, tiers}
-from codeverse3d.addons.dataset.quality import quality_tier, prompt_hash, find_duplicates   # tiers: A passed & 0 gate errors, B passed,
-                                                                                    # C best ≥ 0.6, D else; dedupe = (code fingerprint, prompt)
+from codeverse3d.addons.dataset.quality import quality_tier, prompt_hash, find_duplicates   # tiers (of the exported round's verdict):
+                                                          # A passed & 0 gate errors, B passed, C score ≥ 0.6, D else; dedupe = (code fingerprint, prompt)
 from codeverse3d.addons.dataset.pairs import build_pairs       # (runs_dir, out_jsonl, *, min_delta=0.05) -> n
 from codeverse3d.addons.dataset.refine import build_refine, transitions, RefineTransition, REFINE_KINDS, outcome_of
     # build_refine(runs_dir, out_jsonl, **kw) -> (rows written, Counter of drop reasons); writes via a .part file
@@ -573,7 +585,7 @@ from codeverse3d.addons.gallery.urls import safe_join          # (root, rel) -> 
 from codeverse3d.addons.gallery.urls import content_type        # .glb→model/gltf-binary, .py/.js/.frag→text/plain; charset=utf-8
 from codeverse3d.addons.dataset.index import build_index, query, summary   # sqlite + parquet: adds quality_tier, gate_errors, cost_usd,
                                                                    # rounds, status, code_fingerprint, prompt_hash, duplicate_of, has_captions
-3dcodeverse make [--profile economy|balanced|quality]|resume|status|show|render|judge|tools|mcp
+3dcodeverse make [--profile economy|balanced|quality] [--no-pick]|resume [--no-pick]|pick|status|show|render|judge|tools|mcp
              |texture {pass,scene-pack,show}|cost {<slug>,show,cache,prices,profiles,estimate}
              |flywheel {export,pairs,refine,caption,index}|gallery {serve,build}
              |bench {run,report}|doctor    # alias: 3dcode
@@ -583,24 +595,27 @@ from codeverse3d.addons.dataset.index import build_index, query, summary   # sql
 `EventLog.emit(event, **data)` writes `{"t", "event", ...}` (**Δ** key is `event`).
 Event names: `run.start`, `stage.start/done`, `plan.done`, `workspace.materialized`,
 `round.start`, `generate.done`, `build.done`, `gates.done`, `judge.done`,
-`round.done`, `best.updated`, `refine.planned`, `recipes.seeded` (graphics: names written this call, present on disk, chapters), `asset.judged`, `assets.done`,
+`round.done`, `refine.planned`, `recipes.seeded` (graphics: names written this call, present on disk, chapters), `asset.judged`, `assets.done`,
 `zones.done`, `assemble.done`, `round.no_change`, `candidates.start`,
-`candidate.start/done/failed/retry/selected`, `pairwise.done`,
+`candidate.start/done/failed/retry/selected`, `resume.reconciled` (…, `restored_last_round`),
 `texture.start/plan/generated/applied/gate/done`, `budget.exceeded`,
-`finalise.rebuild`, `stop`, `run.done` / `run.failed`.
+`finalise.rebuild`, `stop` (reason, rounds), `run.done` (status, rounds, last_score) / `run.failed`;
+after the run: `pick.pairwise`, `pick.packaged`, `texture.skipped` / `texture.failed` (addons.select).
 Cost events: **`cost.round`** (per round: `stages{stage → $}`, `judge_usd`, `total_usd`,
-`agent_turns` (= AgentResult.turns), `score`, `previous_best`, `wasted`, `waste_reason` ∈ aborted | build_failed |
-unjudged | regression | zero_delta, `run_usd`) — emitted for aborted rounds too;
-`judge.skipped` (reason), `generate.turn_cap` (label, max_turns, turns, cost_usd),
-`strategy.switch` (regression → whole-artifact rewrite), `budget.overrun` (a post-loop
-texture pass crossed the ceiling; the loop is already finished, so not `budget.exceeded`).
-`RoundRecord` gained `pairwise: PairwiseNote | None` (Δ 2026-08-30) — the paid tie-break
-verdict, stored so `reconcile_resume` REPLAYS it (`candidates.replay_best_round`) instead
-of re-ranking on score and reversing a comparison the run bought.  `PairwiseNote` moved
-from `codeverse3d.tracks.candidates` to `codeverse3d.contracts.run` (it is pure data).
+`agent_turns` (= AgentResult.turns), `score`, `wasted`, `waste_reason` ∈ aborted | build_failed |
+unjudged, `run_usd`) — emitted for aborted rounds too (Δ 2026-09-22: `previous_best` and the
+regression / zero_delta reasons went with the in-run best: a lower-scored round is kept, not wasted);
+`judge.skipped` (reason), `generate.turn_cap` (label, max_turns, turns, cost_usd).
+Δ 2026-09-22: `best.updated`, `strategy.switch`, `round.refine_from_best`, `pairwise.done` and
+`budget.overrun` are gone, and so is `RoundRecord.pairwise` (the in-run tie-break note; an old
+rNN.json that carries one still loads, the key ignored).  `PairwiseNote` lives in `addons.select`.
 `RunRecord` (record.json): spec, plan, workspace, status, rounds[RoundRecord],
-best_round, baseline_score, final_score, total_usage, environment,
+total_usage, environment,
 prompt_hashes{contract, cookbook, generate, refine}, error, extra{stop_reason,
 rubric, budget, cost_by_stage, aborted_rounds?, rounds_summary, candidates? (the
 rounds/candidates.json payload), texturing?, captions?}.  `total_usage` is the BudgetGuard total whenever it
-exceeds the sum of the rounds (aborted rounds, retried sessions, texture pass).
+exceeds the sum of the rounds (aborted rounds, retried sessions); a texture pass bought by a pick is in
+telemetry/cost.jsonl, not in `total_usage`.  Δ 2026-09-22: no `best_round` / `baseline_score` /
+`final_score` (old records carry them: ignored — `addons.select.summarise` answers), and `status` is only
+the stop reason: max_rounds | budget | agent_quota | no_change | no_refine_tasks | judge_unavailable |
+failed (an old `passed` / `plateau` loads as `stopped`).

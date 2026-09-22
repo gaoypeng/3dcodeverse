@@ -25,8 +25,8 @@ format).
 ## 0. The system, in one paragraph
 
 A request becomes an iterated loop: **plan → generate code → build → deterministic gates →
-render → VLM judge → refine**, for N rounds under a wall-clock and dollar budget, delivering
-the best round and recording every round.  The generator is a coding agent writing real
+render → VLM judge → refine**, for a fixed N rounds under a wall-clock budget, recording every
+round and handing over the best-scored one after the run.  The generator is a coding agent writing real
 source (Blender `bpy`, CadQuery, three.js, GLSL, or a URDF robot plus a `bpy` link builder);
 the gates are program analysis, not model calls (lint, connectivity, dimensional contract,
 and — on the articulated track — a joint sweep that collides every link pair in every sampled

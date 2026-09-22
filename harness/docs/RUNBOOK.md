@@ -56,11 +56,14 @@ python -m pytest tests -q -m live                      # OPT-IN: real API calls
 ```
 Useful flags (`3dcode make --help`): `--generator`, `--planner`, `--judge`, `--captioner`
 (backend ids, §3), `--image <png>` (repeatable; reference images → `ReferenceJudge` +
-silhouette gate + IoU refine tasks), `--rounds N` (refine rounds after the baseline),
+silhouette gate + IoU refine tasks), `--rounds N` (refine rounds after the baseline — a
+run does exactly N, each built on the one before it, unless the clock or a hard failure
+stops it; there is no pass / plateau / regression stop since 2026-09-22),
 `--candidates N` (best-of-N baseline: N parallel candidates in `<ws>/_cand/`,
-quick-judged, pairwise tie-break, winner kept; multiplies baseline cost ≈ N;
-default from `settings.default_candidates`), `--texture` (run the texture pass after
-finalise; see §6), `--max-minutes`, `--dim height=0.45`, `--must`,
+quick-judged, the highest quick score kept (fewer gate errors on a tie); multiplies baseline
+cost ≈ N; default from `settings.default_candidates`), `--texture` (texture the PICKED round
+after the run; see §6), `--no-pick` (package nothing: no `deliverable/`, no `selection.json` —
+`3dcode pick` later), `--max-minutes`, `--dim height=0.45`, `--must`,
 `--must-not`, `--style`, `--tag`, `--seed`, `--slug`, `--runs-dir`, `--force`,
 `--no-run` (workspace + spec.json only — except that `--reference` still runs its
 paid grounding pass first, since the grounded spec is what it writes).
@@ -108,9 +111,12 @@ artifacts in `artifacts/` (`object.glb`, `robot.urdf` + `meshes/`, scene
 `metrics.json`, texturing `object_textured.glb` + `textures/`), per-round renders in
 `artifacts/renders/rNN/`, gate JSON in `artifacts/gates/rNN/`, verdicts in
 `artifacts/judge/rNN.json`, transcripts in `trajectories/<label>_rNN/` (retries in
-`<label>.a2_rNN`), events in `events.jsonl`, the flywheel record in `record.json`.
-`3dcode status <slug>` prints the rounds table (best round starred), cost and the last
-events.
+`<label>.a2_rNN`), events in `events.jsonl`, the flywheel record in `record.json`.  The tree
+and `artifacts/` end at the LAST round; every round's own built files stay in
+`artifacts/rNN/`, and after the run `deliverable/` + `selection.json` hold the round a pick
+handed over (RUN_LAYOUT.md).  `3dcode status <slug>` prints the stop reason, baseline → picked
+score, the rounds table (the picked round starred, each round's own judge verdict), cost and
+the last events.
 
 ### Looking at results locally
 
@@ -123,12 +129,13 @@ events.
 **directories** too, so every link works: contact sheet, full-size renders, `record.json`,
 `plan.json`/`spec.json`, the `src/` tree (browsable, line-numbered, `raw` = text/plain),
 `object.glb` (orbit viewer on the vendored three.js — no network), articulation sheets,
-`preview.gif`, frames, textures.  The page has a live summary strip (n, pass rate,
-mean/median score, total $, $ per passing artifact, wall clock — **recomputed per filter**),
+`preview.gif`, frames, textures.  The page has a live summary strip (n = judged · unjudged ·
+error, mean/median score, total $, wall clock — **recomputed per filter**; no pass rate: a run
+is not passed or failed),
 filters (track / language / tier / backend / verdict / battery + text search over
 prompt+slug) and sort (score / cost / time / name) that never reload, a card ⇄ table
 toggle, light/dark, and a detail page per run (`/run/<battery>/<slug>`) with every round,
-the best round's judge verdict + issues + improvement plan, the measurement table, the
+the picked round's judge verdict + issues + improvement plan, the measurement table, the
 full render set, the cost breakdown and the code.
 
 Filters live in the query string, so a view can be curled or bookmarked:
@@ -142,9 +149,20 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 ## 5. Resume, re-render, re-judge, texture, export
 
 ```bash
-3dcode resume <slug> [--candidates N]     # continues from run_state + stages/*.json (input-hash cached).  The budget
+3dcode resume <slug> [--candidates N] [--no-pick]
+                                        # continues from run_state + stages/*.json (input-hash cached) and from the
+                                        # LAST round (a run recorded before 2026-09-22 that restored its best round
+                                        # is put back on its last).  A max_rounds run resumes only with a raised
+                                        # --rounds, a budget run with any raised cap; an agent_quota or failed run
+                                        # resumes as is; the other stops are finished.  The budget
                                         # SNAPSHOT is restored: money/calls/active-minutes already spent still count,
                                         # so a raised --max-minutes grants only the difference (downtime never counts)
+3dcode pick <slug> [--by score|pairwise] [--round N] [--texture] [--judge MODEL]
+                                        # hand over a round: deliverable/ + selection.json (addons/select).  score =
+                                        # highest effective score, ties → fewer gate errors → the earlier round;
+                                        # pairwise = the pairwise judge between the top two when within 0.03 (one
+                                        # paid verdict per pair, cached); --round N = that round; --texture = the
+                                        # texture pass on it first.  `make`/`resume` run `pick --by score` for you
 3dcode render <slug> [--round N] [--mode shaded|wire|normals|clay|silhouette] [--out dir]
 3dcode judge <slug> [--round N] [--rubric static_object_v1] [--model gemini:gemini-3.1-pro-preview] [--n 3]
                                         # re-judges a round's recorded renders → artifacts/judge/rNN_cli.json
@@ -216,9 +234,10 @@ scoreless cells afterwards — delete the row from `results.jsonl` and the run d
 then `bench run --id <prompt>`.
 
 A refine session that dies on the VENDOR's usage limit ("You've hit your usage limit … try again at
-Sep 14th", `RESOURCE_EXHAUSTED`, `insufficient_quota`) stops the run at `agent_quota` with status
-`budget`: the best round ships, and the record says the agent's budget ended, not the code's
-improvement (cmp8, 2026-09-09, filed three such runs as `plateau` before this).
+Sep 14th", `RESOURCE_EXHAUSTED`, `insufficient_quota`) stops the run at `agent_quota`: every round
+so far is kept and picked from as usual, the record says the agent's budget ended, not the code's
+improvement (cmp8, 2026-09-09, filed three such runs as `plateau` before this), and `3dcode resume`
+continues it once the limit resets.
 
 **A cell can also lose its renders to the box rather than to itself.**  When the machine
 runs out of memory Chrome reaps the render tab and the driver reports
@@ -244,7 +263,7 @@ asserts that the specific fixes the arm exists to measure are present.
 
 **A new worktree needs `runtime_js/node_modules` before it can run a battery.**  Without it
 `render_glb` dies on every round, the judge is skipped for want of renders, and the cells
-come back `status=plateau` with `score=None` — an arm that reads as healthy and measures
+came back `status=plateau` (today: `judge_unavailable`) with `score=None` — an arm that reads as healthy and measures
 nothing (2026-09-04, the mimic-off arm).  `npm ci` in `runtime_js/`, or COPY the
 directory from a worktree that has it (the `package.json` is the same file).  The row now (a symlink gave two 404s on every render of one worktree on 2026-09-07 — `serve.cjs` refuses a real path outside its root — while another probe served through one; copy and be sure)
 says `no verdict in any of N round(s)` when this happens.
@@ -255,7 +274,10 @@ stages are reused — this also recovers from Gemini 503 storms).  Ctrl-C is saf
 
 ## 6. Texture pass
 
-`3dcode texture pass <slug>` (or `--texture` on `make`): one VLM material plan →
+`3dcode pick <slug> --texture` (or `--texture` on `make`, which picks after the run) textures the
+PICKED round's own `artifacts/rNN/object.glb` — once per round: a pass that already started from
+those bytes is re-used, never re-bought; `3dcode texture pass <slug>` textures the canonical
+`artifacts/object.glb`, i.e. the LAST round.  Either way: one VLM material plan →
 tileable texture images (gemini-3.1-flash-image, ~$0.07/tile, cached by prompt) →
 world-metre UVs → `artifacts/object_textured.glb` → seam gate + before/after judge
 gate (ships only when the score does not drop and the materials criterion improves).

@@ -31,15 +31,18 @@ layered on top of the language — for four **tracks**:
   of files, no tools) handled inside `tracks/generation.py`.
 
 Every run is: **spec → plan → skeleton → [scene stages] → baseline round
-(optionally best-of-N candidates) → refine rounds → finalise → record**, with an
-optional post-hoc **texture pass**.  The record (plus git history of `src/`) is
-the flywheel unit.
+(optionally best-of-N candidates) → `max_rounds` refine rounds → finalise → record**.
+Which round to hand over is decided AFTER the run, by the `addons/select` reader
+(`3dcode pick`; `3dcode make` calls it by score): it writes `deliverable/` for that
+round and runs the optional **texture pass** on it.  The record (plus git history of
+`src/` and every round's kept build) is the flywheel unit.
 
 ## 1. Design laws (from the reference post-mortems)
 
 1. **Code is truth; artifacts are derived.**  Raw code in `src/` is the
-   deliverable; GLB/renders are regenerated from it (finalise restores the best
-   commit and rebuilds).  Textures are a *derived asset pack*
+   deliverable; GLB/renders are regenerated from it.  Every round is a commit and
+   keeps its own built files under `artifacts/rNN/`, so any round can be handed over
+   without a rebuild; the workspace ends at the last round.  Textures are a *derived asset pack*
    (`object_textured.glb` + `artifacts/textures/`); `object.glb` is never touched.
 2. **Concrete beats abstract.**  Contracts are delivered as skeleton code, exact
    numbers and copyable snippets (cookbooks), never as clauses.
@@ -167,19 +170,19 @@ codeverse3d/
                       (world-metre unwrap, PBR map set, application + material normalisation),
                       materials.py (named material library), run.py (texture_pass); __init__.py is
                       docstring-only — import from the submodules
-  orchestrator.py     the round loop's LIBRARY, not the loop: round POLICIES (RoundPolicy /
-                      StopPolicy / pick_best_round), refine-task compilation + grouping,
+  orchestrator.py     the round loop's LIBRARY, not the loop: the round knobs (RoundPolicy —
+                      no stop knob besides max_rounds), refine-task compilation + grouping,
                       StageRunner + RunState (resume), BudgetGuard.  The loop itself is
                       tracks/lifecycle.py:_round_loop → tracks/steps.py:run_round.  A best-of-N
                       candidate IS steps._run_round(kind='candidate') in a _cand/c<k> sub-workspace
                       with two knobs (render=candidates.quick_render, geometry_views=False), its
                       own _cand/c<k>/events.jsonl and a one-sample judge
   tracks/             __init__.py (get_track(track, **options) → a lifecycle.BaseTrack),
-                      lifecycle.py, steps.py, candidates.py (best-of-N + the pure candidate/pairwise
-                      decision logic), generation.py (agent + single-shot strategies + the file
+                      lifecycle.py, steps.py, candidates.py (best-of-N baseline candidates and
+                      their ranking), generation.py (agent + single-shot strategies + the file
                       envelope), repair.py, planner.py, prompting.py (prompt helpers, split from common),
-                      common.py (RunContext, Services), static_object.py (+ the detail round and the
-                      reference-image gates), articulated_object.py (+ the planned-motion gate),
+                      common.py (RunContext, Services), static_object.py (+ the reference-image
+                      gates), articulated_object.py (+ the planned-motion gate),
                       scene.py, scene_assets.py (+ cheap single-shot asset generation),
                       zone_layout.py (L2 zone director: per-zone structured layout calls + deterministic validator),
                       graphics.py (the whole graphics track: planner hooks, prompt context, frame
@@ -195,7 +198,9 @@ codeverse3d/
                       skills_hook.py (the round's view of codeverse3d/skills: attach before generating,
                       probe reads after — a no-op under C3D_SKILLS=0; on by default since 2026-09-22)
   record/             what every run WRITES: record.py (finalize_record, load_record, iter_runs,
-                      best_round_record), deliverable.py, telemetry.py, _git.py (files at a round's commit)
+                      effective_judgment), deliverable.py (every round's kept build under
+                      artifacts/rNN/, and deliverable/ for ONE round — built by addons/select),
+                      telemetry.py, _git.py (files at a round's commit)
   addons/             optional tools that READ finished runs; outside cli/ nothing imports them
                       (tests/core/test_addons_boundary.py).  dataset/ = export.py, pack.py, pairs.py,
                       refine.py, captions.py, index.py, sample.py, quality.py (tiers + code fingerprints +
@@ -217,7 +222,7 @@ codeverse3d/
   prompts/            EVERY piece of prompt material the harness writes, and the only place it
                       lives: <lang>/{system,contract,cookbook}.md (incl. glsl_shader/,
                       opengl_python/), system/* (harness contract, single-shot envelope,
-                      role_{scope,detail,repair}.j2), texturing/*.md, tracks/*.j2.
+                      role_{scope,asset,repair}.j2), texturing/*.md, tracks/*.j2.
                       catalog.py answers "what exists and how does each piece reach the model"
                       — including the ONE language-id → prompts/<dir> mapping, which used to be
                       copied four times and missing in a fifth.  sections.py splits that
@@ -268,6 +273,8 @@ tests/                agents blender_cadquery core cost flywheel_cli gallery gra
 ```
 runs/<slug>/
   spec.json  plan.json  run_state.json  record.json  events.jsonl
+  selection.json  (after a pick) the round deliverable/ holds, how it was chosen, every round's score
+  deliverable/    (after a pick) that round's code + artifacts + sheet + manifest.json (RUN_LAYOUT.md)
   src/            agent-authored RAW code (git repo; commits: spec, skeleton, pre:/agent:<label>, rNN <kind>)
   public/         (scene) compiled assets public/assets/<snake>.glb; (textured scenes) public/textures/*.png + manifest.json
   _assets/<snake>/  (scene) sub-workspaces for blender_glb assets (gitignored)
@@ -281,11 +288,14 @@ runs/<slug>/
                          alias; runs before 2026-08-23 have the root file only)
   run_state.json  stages + rounds done; extra carries budget_snapshot and spec_fingerprint only
   artifacts/      object.glb object.stl|step robot.urdf meshes/ articulation.json build.json census.json
-                  measurement.json … ; graphics: frames/fNN_tT.png frames_sheet.png preview.gif metrics.json
-                  texturing: object_textured.glb textures/{<id>.png, texture_plan.json, texturing.json, gate/}
+                  measurement.json … — the LAST round's build; graphics: frames/fNN_tT.png frames_sheet.png
+                  preview.gif metrics.json; texturing (a pick's --texture): object_textured.glb
+                  textures/{<id>.png, texture_plan.json, texturing.json, gate/}
+    rNN/          the round's own build, copied when it built: object.glb object.stl|step robot.urdf
+                  meshes/*.glb preview.gif frames_sheet.png (only what a hand-over needs)
     renders/rNN/  view_<name>.png sheet.png views.json (judge flags) (+ poses/ articulated; <cam>_t<t>.png metrics.json scenes)
     gates/rNN/    lint_<lang>.json connectivity.json contract.json joint_sweep.json motion_direction.json … (+ *_tool.json)
-    judge/rNN.json (+ rNN_cli.json from `3dcode judge`)
+    judge/rNN.json (+ rNN_cli.json from `3dcode judge`; rAA_vs_rBB_pairwise.json from `3dcode pick --by pairwise`)
     tool_renders/rNN_<hash>/
   trajectories/<label>_rNN/  prompt.md transcript.jsonl stdout.json stderr.log result.json
                              (a retried label lands in <label>.a2_rNN — first attempt preserved)
@@ -408,7 +418,7 @@ citation auditable.  Floors,
 deterministic caps from gate findings (`data["kind"]`), console errors, missing
 must-acceptance and
 `missing_views` rules apply on top; degraded verdicts are glitches, not scores.
-`PairwiseJudge` (position-swapped, tie on disagreement); `ReferenceJudge` for
+`PairwiseJudge` (position-swapped, tie on disagreement; only `3dcode pick --by pairwise` asks it); `ReferenceJudge` for
 image-conditioned specs.
 Rubrics: `static_object_v1` (0.72), `articulated_v1` (requires pose sheet),
 `scene_v1` (frame-gate caps), `asset_v1`, `reference_v1`, `shader_v1` (0.70).
@@ -435,14 +445,11 @@ round 0 "baseline": generate → build_with_repair → measure → gates → ren
     session that owns the entry file, placement and the connectivity/contract gates.  $C3D_SCOPED_PARTS=off
     restores the single whole-object session; single-shot always uses it.)
    (--candidates N: N parallel baselines in <ws>/_cand/c<k>, quick 4-view judge, crashed candidate retried once,
-    selection build_ok → quick score → fewer gate errors with pairwise tie-break; winner copied back, normal r00 follows)
-repeat while StopPolicy says continue (≤ max_rounds refine rounds, plateau_window=2 / min_delta=0.02,
-                                       target = rubric threshold, budget ok):
-   money stops, sized by the judge's MEASURED noise σ (cost/routing.JUDGE_NOISE: pro 0.030, flash 0.083):
-     regression — last round scored < best − 1σ ⇒ never another round of the same shape: the first one
-                  switches strategy (ONE whole-artifact rewrite, kind "rewrite"), a second stops the run
-     diminishing_returns — from r03 on, only start when the last gain > 1.5σ AND best < target
-   refine tasks = gate ERRORS (fix hints, authoring-frame numbers) ∪ failed must-acceptance ∪ judge improvement plan
+    selection build_ok → quick score → fewer gate errors → the earlier candidate; winner copied back, normal r00 follows)
+then max_rounds refine rounds, EACH built on the round before it — FIXED rounds (owner, 2026-09-22): no pass,
+plateau, regression or diminishing-returns stop, no rewrite or surface-detail round, no refine-from-best:
+   refine tasks = the previous round's gate ERRORS (fix hints, authoring-frame numbers) ∪ failed must-acceptance
+   ∪ its judge improvement plan
    (≤ 6 tasks, ≤ 6 compacted instruction lines each; reference runs add an IoU task when silhouette IoU < 0.6)
    fan out when ≥ 2 file-disjoint groups AND every task maps to files (threejs/blender parts, scene zones/assets/env)
    generate (no HARNESS turn cap by default — claude-code runs under AgentJob.max_turns=60 (+6-turn wrap-up),
@@ -450,19 +457,18 @@ repeat while StopPolicy says continue (≤ max_rounds refine rounds, plateau_win
              a cap the machine sets (C3D_AGENT_MAX_TURNS / limits.agent_max_turns; no profile sets one) still buys a wrap-up session
              that lands a final build + summary instead of being killed) → build+repair (error-focused,
              escalates on identical signatures) → gates → … → judge (SKIPPED only where the verdict is never
-             bought at all: no judge/renders or budget already exceeded)
-   pick_best_round: highest score, tie → fewer gate errors; |Δ| < pairwise_margin (0.03) → position-swapped
-   PairwiseJudge decides (replace only at confidence ≥ 0.6; note persisted in rNN.json)
+             bought at all: no judge or no renders — a round that finishes past the clock is still judged)
+   → commit src/ (the round's commit) and copy its build to artifacts/rNN/
+   a round left without a verdict (judge outage / degraded) is re-judged once before the next is planned
    every round emits cost.round {stage → $, judge $, agent turns, wasted flag}; a round that raises mid-way
    still reports what it burned (rounds/aborted_rNN.json + record.extra["aborted_rounds"])
-   a plateau / diminishing_returns stop on a CLEAN artifact (built, judged, no gate ERROR, score ≥ 0.45 and
-   within σ of the best) is converted into ONE round of kind "detail" instead: surface detail only — bevels,
-   panel lines, fasteners, wear, material variation — with the silhouette, placement and part list frozen and
-   a deterministic `detail_drift` gate that ERRORs if any part box moved > 5 mm.  Measured on 88 refine-round
-   pairs: the part count never changed once and mean Δgeometry_detail was +0.003, so detail needed its own
-   round; the rounds that added geometry DURING repair lost 0.075 assembly_fit.  $C3D_DETAIL_ROUNDS=0 is off.
-stop reasons: pass | plateau | budget | max_rounds | no_change | no_refine_tasks | regression | diminishing_returns
-finalise: restore best commit, rebuild so artifacts match delivered code, finalize_record → record.json
+stop reasons: max_rounds | budget (the wall clock — BudgetGuard / max_minutes) | agent_quota | no_change (a refine
+              round's sessions changed nothing) | no_refine_tasks | judge_unavailable | failed
+              (a record from before 2026-09-22 may say passed / plateau: it loads as `stopped`)
+finalise: the workspace ENDS AT THE LAST ROUND — src/ a cut round left dirty is put back and that round rebuilt;
+          finalize_record → record.json.  No best round, no deliverable/, no texture pass in the run.
+after the run (`3dcode make`, unless --no-pick): addons/select.pick(by="score") — highest effective score, ties →
+          fewer gate errors → the earlier round — then package(): deliverable/ + selection.json (+ --texture)
 ```
 Track-specific gates: static `connectivity` + `contract` (+ `reference_silhouette`),
 articulated + `joint_sweep` + `motion_direction` (URDF axis vs plan motion text),
@@ -484,7 +490,10 @@ a discarded load does not), graphics `gl_frames` (NaN/black/blown/static/flicker
 
 ## 8. Texturing (derived asset pack)
 
-`texturing.run.texture_pass(ws, spec, plan, model_id=…)` — after (or outside) a run:
+`texturing.run.texture_pass(ws, spec, plan, model_id=…)` — never inside a run: `3dcode pick
+--texture` (and `make --texture`, which picks after the run) texture the PICKED round's kept
+`artifacts/rNN/object.glb`; a standalone `3dcode texture pass` textures the canonical one, i.e.
+the last round:
 one VLM **material plan** (parts → shared texture ids, family, projection,
 `tile_size_m`; cached) → text-to-image tiles (`GeminiImageModel`,
 gemini-3.1-flash-image; mirror cross-fade makes them tileable, `seam_score ≤ 0.08`
@@ -526,7 +535,7 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
 * Scene judging is deliberately narrow: the judge sees the scene's OWN cameras (first,
   and the detail crop is taken from one of them) plus at most three overview-rig tiles;
   the harness's eye-level rig is a diagnostic only.  A `must` acceptance item the harness
-  cannot verify caps a run at 0.60 AND fails it, so on the scene track only the spec's
+  cannot verify caps a round at 0.60 AND fails its verdict, so on the scene track only the spec's
   `must_have` list keeps that priority (the plan's own checklist is `should`).
 * Articulated: candidate selection uses the quick 4-view sheet (not pose views);
   mimic joints are honoured (the sweep drives independent joints only and resolves
@@ -536,8 +545,8 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
   derived pack); `userData.tick` cannot survive export.
 * agy exposes no per-workspace MCP, cost or served model.
 * Anthropic / OpenAI backends are mock-tested only (no keys on this box).
-* Budget checks run between steps: a refine round that finishes its judge and then
-  trips the budget is not promoted to best — give scenes `--max-minutes 60`.
+* Budget checks run between steps: a round the clock cuts mid-way is rolled back (its
+  spend stays in `aborted_rounds`) — give scenes `--max-minutes 60`.
 * Gemini flash 503 storms happen; dead keys and 429s rotate freely now, but a
   sustained outage can still fail a round (`3dcode resume` re-uses cached stages).
 * A few single-file wrappers were once over the old ~400-line guideline; the rule
@@ -547,8 +556,9 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
 
 `record.json` per run + git history; `3dcode flywheel export` writes sample folders
 (`<out>/<track>/<language>/<slug>/{code.<ext>, src/**, robot.urdf, meta.json,
-captions.json, renders/}`) with **quality tiers** (A passed & 0 gate errors, B
-passed, C best ≥ 0.6, D else), acceptance checklists, gate summaries and
+captions.json, renders/}`) of the PICKED round (`addons/select`; the last built round
+when none was judged) with **quality tiers** from that round's verdict (A passed & 0 gate
+errors, B passed, C score ≥ 0.6, D else), acceptance checklists, gate summaries and
 `(code fingerprint, prompt)` dedupe (`--drop-duplicates`; side-car captions via
 `--captions-dir`); `metadata.parquet`/`.jsonl` + sqlite index carry tier, gate
 errors, cost, fingerprints, `duplicate_of`; `--pack` tars with byte-range locators.

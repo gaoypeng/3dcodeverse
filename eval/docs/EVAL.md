@@ -63,17 +63,22 @@ deterministic contract check.
 3dcode bench run bench/prompts/static_objects_v1.yaml --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --out bench/out/static_v1_gemcli
 3dcode bench report bench/out/static_v1_apiagent
 ```
-Each item = one full `3dcode make` run (its own workspace under `--out`); `results.jsonl`
-rows carry `score_baseline`, `score_final`, `passed`, `rounds`, `cost_usd`, `minutes`,
-`status`, `generator`, `judge`.  `report.md/html` tabulates per tier and category:
-mean baseline → final (the harness delta), pass rate, cost, time.  Keep `--judge` fixed
-across arms; vary only `--generator` (and `--planner` if that is the variable).
-Resumable: re-running the same `--out` skips finished ids.
+Each item = one full `3dcode make` run (its own workspace under `--out`) followed by the
+hand-over `make` does — `addons/select.pick` by score, then `package` (deliverable/ +
+selection.json); `results.jsonl` rows carry `score_baseline`, `score_picked` (rows written
+before 2026-09-22 say `score_final`), `picked_round`, `rounds`, `cost_usd`, `minutes`,
+`status` (the stop reason), `generator`, `judge`.  No `passed` column: since 2026-09-22 a run
+is not passed or failed.  `report.md/html` tabulates per tier and category: mean baseline →
+picked (the harness delta), cost, time.  Keep `--judge` fixed across arms; vary only
+`--generator` (and `--planner` if that is the variable).  Resumable: re-running the same
+`--out` skips finished ids.
 
-Reading the numbers: *baseline* (round 0) is the raw-model-with-contract result;
-*final − baseline* is what the refine loop buys; the pass rate at the rubric threshold
-(0.72 for `static_object_v1`) is the headline.  Observed so far (flash judge,
-n=1, single runs): chair 0.67 → 0.74, bench 0.64 → 0.89, cabinet 0.68 → 0.93,
+Reading the numbers: *baseline* (round 0) is the raw-model-with-contract result; *picked −
+baseline* is what the refine loop buys — but the picked round is the best-scored of the
+baseline + `--rounds` refine rounds, so that delta is ≥ 0 by construction and carries the
+judge's noise as a maximum over n draws: compare arms on the picked score itself, at the
+same `--rounds`.  Observed before 2026-09-22 (flash judge, n=1, single runs, runs that
+stopped on a pass): chair 0.67 → 0.74, bench 0.64 → 0.89, cabinet 0.68 → 0.93,
 scene 0.56 → 0.58 after one refine.
 
 ## 4. Harness vs raw one-shot (`bench/compare_backends.py`)
@@ -159,8 +164,8 @@ Pending: rerun the parked sol battery, then terra, then luna, then the claude-co
 ## 5. Comparing backends inside the harness
 
 Same battery, same `--judge`, different `--generator` (`api-agent:*`, `single-shot:*`,
-`gemini-cli:*`, `claude-code:*`, `codex:*`, `agy:*`).  Report baseline, final, delta,
-pass rate, cost, time per tier; optionally feed the best rounds of two arms through
+`gemini-cli:*`, `claude-code:*`, `codex:*`, `agy:*`).  Report baseline, picked, delta,
+cost, time per tier; optionally feed the picked rounds of two arms through
 `PairwiseJudge.compare(spec, renders_a, renders_b)` (`flywheel pairs` already emits
 cross-backend candidate pairs keyed by prompt hash).
 
@@ -638,7 +643,8 @@ Until this date a profile that injected a `judge_samples>1` policy (economy, qua
 silently zeroed the static track's surface-detail round while balanced kept it; all
 three profiles now get it, and `C3D_DETAIL_ROUNDS` remains the A/B switch.  Any
 economy/quality-vs-balanced comparison straddling this commit compares different
-round counts.
+round counts.  (2026-09-22: the detail round is gone with the other judgement-driven rounds;
+`C3D_DETAIL_ROUNDS` is a dead switch, and every run is the baseline + `--rounds`.)
 
 **2026-08-29 — per-language system prompts: NULL, three independent A/Bs.**  The
 one-line system prompts were replaced with evidence-grounded ones mined from each

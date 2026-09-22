@@ -45,6 +45,10 @@ superseded compare battery) is excluded.
 | recorded vs measured | `record.total_usage` says $85.08; the ledger finds **$86.30** (§6) |
 | re-priced with the corrected table | **$89.10** (+3.2%, §7) |
 
+(The pass count and the $ per passing artifact are this audit's.  Since 2026-09-22 a run is
+not passed or failed — it runs its fixed rounds and a pick hands one over — so `3dcode cost`
+reports $ per run and no longer counts passes.)
+
 **The money is generation, not judging.**  Nine dollars in ten are the coding
 agent writing and rewriting code; the judge is a rounding error next to it
 (7.2%), the planner is noise (0.8%).  Any cost programme that starts with "use a
@@ -188,6 +192,15 @@ model — **88% of the clock is waiting for a model**, 12% is the harness
 | unpromoted judge — a verdict on a round that never became best | 23 | $1.37 | 1.6% |
 | repair loop that never converged (run did not pass) | 4 | $1.31 | 1.5% |
 | **total** | 59 | **$27.35** | **31.7%** |
+
+> **2026-09-22 — three of these kinds are gone.**  "Regression", "zero-delta round" and
+> "unpromoted judge" measured money against the IN-RUN best round, and the owner removed
+> the in-run best with the judgement stops: a run is now the baseline + `--rounds` refine
+> rounds, each built on the round before it, every round is kept, and which one to hand
+> over is picked after the run (`addons/select`).  A round that scored lower is a candidate
+> for that pick, not waste, so `3dcode cost` no longer reports those kinds (nor the
+> `cost.round` `regression` / `zero_delta` flags).  "Repair loop that never converged" is
+> now repair money spent in a round that still did not build; post-budget stays.
 
 Concrete examples:
 
@@ -349,7 +362,7 @@ Savings are estimated **on this data set** (61 runs, $86.30) unless stated.
 
 | # | change | est. saving | confidence | where |
 |---|---|---|---|---|
-| 1 | **Stop refining after r01 unless the last delta ≥ 0.05.**  r02+r03 cost $12.16 and bought +1.44 score points across 8 of 20 rounds. | **$9–12 (10–13%)** | high (measured) | `RoundPolicy` (min_delta 0.02 → 0.05 from r02, or plateau_window 1 after r01) |
+| 1 | ~~**Stop refining after r01 unless the last delta ≥ 0.05.**  r02+r03 cost $12.16 and bought +1.44 score points across 8 of 20 rounds.~~  **Removed 2026-09-22**: the round count is fixed (owner) — spend less with a lower `--rounds` or a profile, not with a judgement stop. | $9–12 (10–13%) | high (measured) | `--rounds` / `cost/profiles.py` |
 | 2 | **Check the budget *before* starting a round, against the estimated round cost**, not only between steps. | **$8.76 (9.7%)** | high (measured waste) | `orchestrator.py` (`BudgetGuard`) + `tracks/steps.py`; use `codeverse3d.cost.estimate_call` / median round cost |
 | 3 | ~~**Cap agent turns at ~25 and compact old tool results.**  39.3% of the agent bill is turn ≥20; 19 of the 33 sessions that ran ≥50 turns were cut off by their own budget.~~  **Tested, rejected: +$0.02 and −0.21 score** (A/B, n=3 per arm, §17) — the cap is off by default. | est. $8–15, **measured $0** | high (A/B) | `DEFAULT_AGENT_MAX_TURNS=0`; `$C3D_AGENT_MAX_TURNS` / `Settings.limits.agent_max_turns` still set one |
 | 4 | **Fold the off-record spend into the budget** (cut rounds, post-hoc texture passes). | $0 saved, **$1.22 of blindness removed** | high | §6; the ledger (`codeverse3d.cost.record_call`) makes it automatic |
@@ -698,7 +711,8 @@ tool is registered for every object track, so the coding agent could buy a pass 
 any run.  That is why the quality run below shows a ledger 9.5 % above its record:
 the pass ran twice, once from inside a round-2 agent session.
 `codeverse3d.texturing.run.texture_requested(spec)` is now the single owner;
-`tracks.lifecycle.finalise` and the tool both ask it, and the tool refuses with a
+the CLI hand-over after the run (`make`/`resume` → `addons.select.package`, which textures the
+PICKED round since 2026-09-22 — finalise no longer does) and the tool both ask it, and the tool refuses with a
 usage error (costing $0) in a run whose spec says no.  `3dcode texture pass <slug>`
 is an explicit user instruction and is unaffected.
 
@@ -805,7 +819,7 @@ out of tree (no such test ships here):
 |---|---|---|
 | `no file change` | **removed** | unreachable: a generation result is `ok` only when a file changed, so `run_generation_tasks` raises `RoundFailed` (→ the loop's `no_change` plateau) before any judge question is asked |
 | `build not repaired within the repair budget` | **removed** | a broken build never reaches the judge at all (`run_round` judges only when `build.ok`), so it only ever fired on a round that BUILT but still lint-failed — and the loop's `rejudge_round` then bought the same verdict one iteration later.  Measured on the reproduction: 3 rounds "skipped", 2 verdicts re-bought as `judge.retry`, and the last round left **without a score — it was the best of the three (0.7)** and could not be promoted |
-| `budget already exceeded` | **kept** | the loop's next `budget_ok` check ends the run, so the verdict is never bought later.  Guard, not a measured saving: 0 of the 108 recorded rounds bought a verdict after the budget ended, so this branch has saved $0 so far — it is kept because the state is knowable in advance and the run is over either way (§5) |
+| `budget already exceeded` | kept, then **removed 2026-09-22** | the loop's next `budget_ok` check ends the run, so the verdict was never bought later.  Guard, not a measured saving: 0 of the 108 recorded rounds bought a verdict after the budget ended.  Removed with the in-run best: a round's verdict is now what lets a pick choose it after the run, and the generation it scores is already paid for |
 | `no judge` / `no renders` | **kept** | pre-existing guards (nothing to buy).  The third pre-existing reason, `gate errors` behind `judge_on_gate_errors=False`, went 2026-09-21: no caller ever set it |
 
 Two changes were needed to make the kept branches real:
@@ -813,16 +827,16 @@ Two changes were needed to make the kept branches real:
 1. `rejudge_round` re-buys a verdict only after the judge was *tried* and failed
    or came back degraded — never one that policy deliberately skipped.  Otherwise
    every skip is a `judge.retry` with the same price tag.
-2. `pick_best_round` never promotes a round that did not build, and when no round has
-   a score at all it falls back to the built round with the **fewest gate errors**
-   (later on a tie) instead of simply the last one — an unjudged round that broke
-   the gates can no longer displace the clean artifact that came before it.
+2. `pick_best_round` never promoted a round that did not build.  (Removed 2026-09-22 with
+   the in-run best; `addons/select.pick` picks among JUDGED rounds only, so an unbuilt or
+   unjudged round is never handed over by score.)
 
-The two controls that DID survive are unchanged and re-verified after this
-correction: the regression "switch then stop" rule and the r03+ marginal stop
-still cut 2 runs / **$1.14** with **0 best rounds lost** over the 107 recorded
-rounds (`waste-and-accounting/replay_stops.py`), and every round still emits its
-`cost.round` event.
+The two controls that DID survive this correction — the regression "switch then stop"
+rule and the r03+ marginal stop, which cut 2 runs / **$1.14** with **0 best rounds lost**
+over the 107 recorded rounds (`waste-and-accounting/replay_stops.py`) — were **removed on
+2026-09-22** with every other judgement stop: the owner fixed the round count (baseline +
+`--rounds`, cut short only by the clock or a hard failure) and moved the choice of round to
+after the run.  Every round still emits its `cost.round` event.
 
 ---
 
