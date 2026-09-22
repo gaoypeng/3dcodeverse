@@ -115,7 +115,8 @@ system settings listed the four + the control, all `[Enabled]`, from
 * The two gemini sessions were killed by a provider storm, not by skills; both still left
   their tool trace (found by `.project_root` + mtime, not `session_id`, for exactly this
   case).  They also expose a cost gap outside this lane: a killed gemini-cli session is
-  recorded at $0 although its chat record holds ~$0.34 of tokens.
+  recorded at $0 although its chat record holds ~$0.34 of tokens (closed the same day:
+  the chat record is such a session's usage — `agents/backends.read_gemini_chats`).
 * codex's MCP server did not start in this rig (codex hands MCP servers a scrubbed env; the
   lane worktree is on `PYTHONPATH`, not installed), so it spent its session probing the
   server by hand — a rig artefact, not a skills result.

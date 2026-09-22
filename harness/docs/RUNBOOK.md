@@ -77,11 +77,11 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 
 | id | what runs | notes |
 |---|---|---|
-| `gemini-cli:gemini-3.7-flash` (default) | `gemini -p … --approval-mode yolo --skip-trust --output-format json`; every spatial tool over MCP | cheapest agentic path; transcripts feed repair-pair mining; see gotchas below |
+| `gemini-cli:gemini-3.7-flash` (default) | `gemini -m … --approval-mode yolo --skip-trust --output-format json`, prompt on stdin; every spatial tool over MCP | cheapest agentic path; transcripts feed repair-pair mining; see gotchas below |
 | `single-shot:gemini:gemini-3.7-flash` | one structured-output call → multi-file envelope, no tools | fastest/cheapest; baseline for "raw model" deltas |
-| `claude-code:<model>` | `claude -p … --dangerously-skip-permissions --mcp-config trajectories/<label>_rNN/mcp.json --strict-mcp-config …` | local subscription — test lightly |
-| `codex:<model>[@<effort>]` | `codex exec --json -C ws --sandbox workspace-write -c model_reasoning_effort=high … -c mcp_servers.3dcode.…` | subscription; MCP tools need `default_tools_approval_mode="approve"` (harness passes it); reasoning effort is always stated (`Settings.agents.codex_reasoning_effort`, default `high`; `codex:gpt-5.6-sol@medium` per id, `""` to defer to `~/.codex/config.toml`) |
-| `agy:<model>` | `agy --print … --add-dir ws` | no per-workspace MCP: tools via `3dcode tools <name> --json … --workspace .`; no served-model or cost reporting |
+| `claude-code:<model>` | `claude -p --dangerously-skip-permissions --setting-sources project --settings '{"skillOverrides":…}' --mcp-config trajectories/<label>_rNN/mcp.json --strict-mcp-config …`, prompt on stdin, `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1` | local subscription — test lightly; no user setting source, so `~/.claude/settings.json` (effortLevel, hooks, env) does not reach a session |
+| `codex:<model>[@<effort>]` | `codex exec --json -C ws --sandbox workspace-write -c model_reasoning_effort=high -c skills.bundled.enabled=false -c mcp_servers.3dcode.… -`, prompt on stdin | subscription; MCP tools need `default_tools_approval_mode="approve"` (harness passes it); reasoning effort is always stated (`Settings.agents.codex_reasoning_effort`, default `high`; `codex:gpt-5.6-sol@medium` per id, `""` to defer to `~/.codex/config.toml`) |
+| `agy:<model>` | `agy --add-dir ws --log-file trajectories/<label>_rNN/agy.log …`, prompt on stdin (no `--print`: `--print -` sends "-") | no per-workspace MCP: tools via `3dcode tools <name> --json … --workspace .`; no served-model or cost reporting; truncates a prompt past ~175 kB itself |
 | `gemini:* / anthropic:* / openai:*` | ChatModel for planner / judge / captioner / single-shot | Anthropic/OpenAI untested live here |
 
 ### gemini-cli gotchas (handled by `agents/backends.py`; do not undo)
@@ -91,8 +91,13 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
   (else workspace MCP servers are silently ignored even with `--skip-trust`).
 * Workspace `.gemini/settings.json` sets `context.fileFiltering.respectGitIgnore=false`
   so the fine-grained `.geminiignore` (not the git ignore) decides what the agent can
-  read: build/census/measurement JSON and its own `task_prompt.md` stay readable,
-  renders/judge output/transcripts stay hidden.
+  read: build/census/measurement JSON stay readable, renders/judge output and the whole
+  `trajectories/` stay hidden (the prompt comes on stdin; there is no prompt file).
+* The system settings also disable gemini-cli's two built-in skills (`skills.disabled`),
+  so a session lists only the routed bundles.
+* Usage when the CLI printed no envelope (watchdog kill; a give-up after its own 503
+  retries, which writes an error object to STDERR and exits 247): the attempt's chat
+  record under `~/.gemini/tmp/<project>/chats/` — `result.json` `usage_from` says which.
 * One pool key injected as `GEMINI_API_KEY`; other credential env stripped; retries
   prefer a different key (never raise KeyPoolExhausted out of a session).
 * Cost accounting: `tokens.prompt` (total, incl. cached) is the input count; each

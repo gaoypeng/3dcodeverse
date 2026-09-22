@@ -53,6 +53,18 @@ Bundles reach a session only through its vendor's native skill loader: the harne
 hands the agent no second index (the loader's own would list the same skills twice) and no tool;
 the body file gets one MANDATORY sentence.
 
+**And a session sees nothing but the routed bundles** (2026-09-22).  Every CLI also lists
+skills of its own; each is switched off with the CLI's documented knob where it has one
+(`agents/backends.py`), checked at zero cost against the real binaries with a local fake API
+(the claude `init` event, the codex and gemini request bodies) and `codex debug prompt-input`:
+
+| CLI | listed besides the routed bundles | switch | left |
+|---|---|---|---|
+| `claude-code` 2.1.280 | 26: bundled (`update-config`, `code-review`, `loop`, …), account-synced (`deep-research`, `anthropic-skills:*`, …) | `--setting-sources project` (synced skills and plugins come with the "user" source) + `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1` + `--settings {"skillOverrides": {"design": "off", "doctor": "off"}}` (the two that survive the bundled switch by design) | nothing — and the owner's `~/.claude/settings.json` (effortLevel, hooks, env) no longer reaches a session |
+| `codex` 0.155.1 | 5 `.system` (imagegen, openai-docs, plugin-creator, skill-creator, skill-installer) | `-c skills.bundled.enabled=false` | any user root (`~/.codex/skills`, `~/.agents/skills`): no stable switch; none here |
+| `gemini-cli` 0.53.0 | 2 built-ins (skill-creator, antigravity-support) — `gemini skills list` hides them, the model does not | `skills.disabled` in the per-session system settings (by name) | the user roots (`~/.gemini/skills`, `~/.agents/skills`): no switch; none here |
+| `agy` 1.2.8 | 5 built-ins (agy-customizations, antigravity-guide, generative_ui, migrate-workflows, permissioned-github; `agy -p /skills` lists them without a turn) | none per session: built-ins survive even an agent's `inherit_user: false` | all 5 |
+
 **Adding a backend is one row in that table.**  A test (`tests/skills/test_delivery.py`)
 fails if per-backend knowledge leaks back out into the other modules, and another checks
 that `prompting.py` agrees with the policy rather than re-deriving it.
@@ -233,7 +245,7 @@ failure verdict as `failed`), then one `tool_trace` row that closes the session
 | backend | source | skill activation looks like |
 |---|---|---|
 | claude-code | `--output-format stream-json --verbose` (was `json`, which carried no tool stream); the `init` event's `skills` list is kept as `skills_index` | `Skill {"skill": name}` |
-| gemini-cli | its chat record, `~/.gemini/tmp/<project>/chats/session-*.jsonl`, found by the project's `.project_root` + mtime — so a session the watchdog killed before it printed JSON still has one.  `--output-format json` stays: it has per-tool COUNTS only, and `stream-json` drops the `thoughts` tokens pricing needs | `activate_skill {"name": name}` |
+| gemini-cli | its chat record, `~/.gemini/tmp/<project>/chats/session-*.jsonl`, found by the project's `.project_root` + mtime — so a session the watchdog killed before it printed JSON still has one (and, since 2026-09-22, its usage: `read_gemini_chats` reads calls, tokens and times in one pass).  `--output-format json` stays: it has per-tool COUNTS only, and `stream-json` drops the `thoughts` tokens pricing needs | `activate_skill {"name": name}` |
 | codex | the `exec --json` events it already streamed (`command_execution`, `mcp_tool_call`, `file_change`) | a `sed`/`cat` of `…/<name>/SKILL.md` |
 | agy | its conversation database, `~/.gemini/antigravity-cli/conversations/<conversation_id>.db` — a schema-free walk of each step's protobuf for (call id, tool, JSON args) | `view_file` of `…/<name>/SKILL.md` |
 

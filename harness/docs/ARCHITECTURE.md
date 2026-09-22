@@ -115,9 +115,11 @@ codeverse3d/
                       probe: no retries, no backoff), schema_utils.py (strict schema), registry.py
   agents/             registry.py (the CodingAgent protocol + dispatch — every backend is a
                       vendor CLI; the in-process api-agent died 2026-08-28), backends.py
-                      (gemini-cli / claude-code / codex / antigravity), cli_common.py (sessions,
-                      the watchdog clocks, the transcript, retry trajectory naming,
-                      files_changed attribution), materialize.py
+                      (gemini-cli / claude-code / codex / antigravity: argv, env, each CLI's own
+                      record read back — envelope, chat record / stream, retry reports), cli_common.py
+                      (sessions, the watchdog clocks, the prompt on stdin, the transcript, retry
+                      trajectory naming, files_changed attribution, THE failure vocabulary,
+                      provider_wait), materialize.py
   languages/          LanguageRuntime + RuntimeLayout (base.py: every runtime states its file layout —
                       expected_files / files_for — and the tracks ask it); one merged module per language since 2026-08-28 —
                       blender/ cadquery/ threejs/ urdf/ scene_threejs/ glsl_shader/ opengl_python/ are each
@@ -318,7 +320,8 @@ runs/<slug>/
     judge/rNN.json (+ rNN_cli.json from `3dcode judge`; rAA_vs_rBB_pairwise.json from `3dcode pick --by pairwise`)
     tool_renders/rNN_<hash>/
   trajectories/<label>_rNN/  prompt.md transcript.jsonl stdout.json stderr.log result.json
-                             (a retried label lands in <label>.a2_rNN — first attempt preserved)
+                             (+ gemini_settings.json · mcp.json (claude) · agy.log (agy's own CLI log));
+                             a retried label lands in <label>.a2_rNN — first attempt preserved
   AGENTS.md GEMINI.md CLAUDE.md .gemini/settings.json .3dcode/cookbook.md .geminiignore .aiexclude
 ```
 
@@ -485,6 +488,10 @@ plateau, regression or diminishing-returns stop, no rewrite or surface-detail ro
    a round left without a verdict (judge outage / degraded) is re-judged once before the next is planned
    every round emits cost.round {stage → $, judge $, agent turns, wasted flag}; a round that raises mid-way
    still reports what it burned (rounds/aborted_rNN.json + record.extra["aborted_rounds"])
+   a round whose every task failed raises RoundFailed, TYPED (2026-09-22 — the loop never reads its message):
+   .quota (a backend saw the vendor's usage limit) → agent_quota; .transient (a session died of a provider
+   failure — AgentResult.transient, or a ModelError outage) → the SAME round re-runs once, baseline included;
+   neither → no_change (a refine round) / the run fails (the baseline)
 stop reasons: max_rounds | budget (the wall clock — BudgetGuard / max_minutes) | agent_quota | no_change (a refine
               round's sessions changed nothing) | no_refine_tasks | judge_unavailable | failed
               (a record from before 2026-09-22 may say passed / plateau: it loads as `stopped`)
@@ -571,7 +578,13 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
 * Scenes: fps is a relative cost; camera-in-geometry can miss open-back enclosures.
 * threejs: textures are stripped on GLB export (the texture pass re-adds them as a
   derived pack); `userData.tick` cannot survive export.
-* agy exposes no per-workspace MCP, cost or served model.
+* agy exposes no per-workspace MCP, cost or served model; a killed agy session books no
+  usage (its tokens are in the envelope only).  A killed codex session neither (usage is
+  per turn and `--ephemeral` leaves no rollout); a killed claude-code session books its
+  per-message usage, whose output side is a floor.  A killed or given-up gemini-cli
+  session books its chat record (exact).
+* Vendor sessions see only the routed skill bundles, except agy (5 built-ins; no
+  per-session switch) and any user-level skill root codex or gemini-cli might grow.
 * Anthropic / OpenAI backends are mock-tested only (no keys on this box).
 * Budget checks run between steps: a round the clock cuts mid-way is rolled back (its
   spend stays in `aborted_rounds`) — give scenes `--max-minutes 60`.

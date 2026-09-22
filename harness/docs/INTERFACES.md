@@ -181,6 +181,19 @@ res = agent.run(AgentJob(workspace=..., prompt=..., label="baseline", timeout_s=
 res.ok, res.exit_reason  # completed | timeout | error | budget | model_substituted
 res.turns                # claude-code num_turns · codex turn.completed count · agy num_turns · gemini-cli 0 (not on the wire)
 res.files_changed (git-derived, attributed per session), res.usage, res.transcript_path, res.tool_calls, res.errors
+res.transient            # a provider failure a retry may get through (5xx / overloaded / 429 / dropped connection)
+res.quota                # Δ 2026-09-22 the vendor's usage limit is spent — never also transient
+res.provider_wait_s      # Δ seconds of duration_s lost to provider errors (cli_common.provider_wait; codex: 0.0)
+# Δ 2026-09-22 the prompt reaches EVERY CLI on stdin (cli_common.invoke; no -p / --print / positional text,
+#   codex "-"), byte for byte; the >100 kB task_prompt.md stub is gone.  The transcript's invoke row keeps
+#   argv + stdin_bytes.  res.usage is the CLI's envelope; with none (killed / given up) gemini-cli's comes
+#   from its chat record (read_gemini_chats) and claude-code's from its stream's per-message usage
+#   (output a floor); result.json "usage_from" says which.  A session sees only the routed skill bundles:
+#   claude --setting-sources project + CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1 + --settings skillOverrides;
+#   codex -c skills.bundled.enabled=false; gemini-cli skills.disabled (its two built-ins); agy: no switch.
+from codeverse3d.agents.cli_common import is_transient_failure, is_quota_failure, is_rate_limited, provider_wait
+# THE failure vocabulary (one place; the backends apply it to what the CLI said about the call that ended
+# its session) and provider_wait(failures=[(t, backoff_s)], end, progress=[t] | None) -> seconds
 ```
 `AgentJob` carries typed job context: `round`, `kind`, `language`, `track`,
 `mcp_command` (override), `files_hint` (workspace-relative files/dirs the task is
@@ -504,6 +517,12 @@ GenerationTask.phase: int = 0   # tasks run in parallel WITHIN a phase, phases i
     # entry file and the placement gates.  Every other caller is phase 0, i.e. unchanged.
 generate(ws, *, agent_id, task, ..., budget=BudgetGuard) -> GenerationResult
     # GenerationResult.storm: every session died on a transient streak (AgentResult.transient) and wrote nothing
+    # Δ 2026-09-22 GenerationResult.transient / .quota carry the backend's typed class; a call that RAISED is
+    #   GenerationResult.from_error(label, e) — transient = tracks.generation.is_model_outage(e) (ModelError
+    #   retryable or 429/5xx; moved from scene_assets, the one exception classifier)
+from codeverse3d.tracks.steps import RoundFailed   # RoundFailed(message, *, transient=False, quota=False);
+    # RoundFailed.of(results, default) — the round loop reads .quota (→ agent_quota) and .transient (→ re-run
+    # the round once), never the message (looks_transport / looks_quota deleted)
 tracks.common.generate_for(ctx: RunContext, task: GenerationTask) -> GenerationResult
     # THE call every stage makes (env, zones, rounds, repairs, asset ladder, judged fix): generate()
     # with everything ctx knows, and a storm-dead task retried through single_shot_ctx(ctx) (D68)
