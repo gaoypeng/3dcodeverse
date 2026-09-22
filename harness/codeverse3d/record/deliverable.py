@@ -118,7 +118,7 @@ def _copy_artifacts(ws: Workspace, record: RunRecord, w: _Writer) -> None:
     for name, role in _ARTIFACT_ROLES:
         if name == "object_textured.glb" and not tex.get("shipped"):
             # a texture pass that did not ship is not a deliverable, even if a stray
-            # canonical file exists (same gate flywheel/sample.copy_textured applies)
+            # canonical file exists (same gate addons/dataset/sample.copy_textured applies)
             continue
         w.add_file(ws.artifacts / name, name, role)
     meshes = ws.artifacts / "meshes"

@@ -5,10 +5,10 @@ request into an engineering brief, which — together with a **plan budget deriv
 from the request** — goes into one structured ``ChatRequest`` (system prompt from
 ``prompts/tracks/plan_<track>.j2``, ``response_schema`` = the plan model's JSON
 schema, reference images inline).  The answer is validated IN CODE by the pydantic
-plan models; a plan the schema rejects is re-asked once with the exact validation
-errors (then ``PlanningError``), and a plan that validates but is
-boxes-at-different-sizes against its budget is re-asked once with that specific
-complaint (then shipped anyway — a mediocre plan beats no plan).  The harness
+plan models; a plan the schema rejects is re-asked twice with the exact validation
+errors, plus one restart from the request when it is degenerate (then ``PlanningError``),
+and a plan that validates but is boxes-at-different-sizes against its budget is re-asked
+once with that specific complaint (then shipped anyway — a mediocre plan beats no plan).  The harness
 finally appends deterministic acceptance items derived from the spec constraints
 and folds the brief + sub-parts into the plan's own text (generated artifacts are
 weak links — framework-owned requirements never rely on the model remembering them).
@@ -698,7 +698,7 @@ def restart_enabled() -> bool:
 #: an invalid plan attempt is written here, so a run that DIES at the plan stage still says
 #: what the model wrote.  Pydantic truncates the offending value in its message, so the
 #: event log alone cannot answer "what did it actually write?" — the question every
-#: plan-stage failure class starts from (docs/PAPER_WRITING.md §5.1).
+#: plan-stage failure class starts from (eval/docs/PAPER_WRITING.md §5.1).
 INVALID_PLAN_DIR = "stages/plan/invalid"
 #: bound per file: a plan is a few kB; anything larger is a runaway answer and the head of
 #: it is what says so

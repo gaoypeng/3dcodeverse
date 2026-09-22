@@ -274,7 +274,7 @@ def language_system_prompt(language: Language, *, role: str = "", tools: bool = 
     # gl_probe is instructing something it has no tools to do, and the self-check loop is
     # the whole point of the graphics prompt.  `tools` lets the file say so itself.
     # (The v0 two-sentence arm of the system-prompt A/B was retired 2026-08-29: a
-    # three-way null, docs/EVAL.md.)
+    # three-way null, eval/docs/EVAL.md.)
     base = render(f"{d}/system.md", tools=tools).strip()
     if not role:
         return base
@@ -609,8 +609,7 @@ TURN_DISCIPLINE = """## Turn discipline (every tool call is a full round trip â€
   calls in that same reply, then call `build` once.  Do not write one file per turn.
 - `build` already runs check_connectivity and check_contract: read its CONNECTIVITY / CONTRACT
   sections, fix what they list, build again.  Do not call those two tools separately.
-- Do not read a file back after writing or editing it: the write result reports its line count and
-  syntax verdict.
+- Do not read a file back after writing or editing it: `build` reports what is wrong with it.
 - Call `render_sheet` once before you finish; `measure` at most once."""
 
 #: the refine prompt inlines the files a scoped task edits when they are few and small, so the

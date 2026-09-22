@@ -232,7 +232,7 @@ def complexity_block(record: RunRecord) -> dict[str, Any] | None:
     The vector is the one measured on the BEST round — the round whose code is
     restored and rebuilt at finalise, so it describes the artifact actually
     shipped.  ``plan_parts`` / ``parts_per_plan_part`` say whether the build
-    reached the plan's ambition or collapsed it (docs/COMPLEXITY.md)."""
+    reached the plan's ambition or collapsed it (eval/docs/COMPLEXITY.md)."""
     best = best_round_record(record)
     cx = round_complexity(best) if best is not None else None
     if cx is None:
@@ -330,7 +330,7 @@ def is_run_dir(p: Path) -> bool:
 
 
 def battery_label(root: Path | str) -> str:
-    """Label for a scan root: the battery name for ``bench/out/<battery>/runs``,
+    """Label for a scan root: the battery name for ``eval/bench/out/<battery>/runs``,
     else the directory's own name (the same rule the gallery sections use)."""
     root = Path(root)
     if root.name == "runs" and root.parent.name and root.parent.parent.name == "out":

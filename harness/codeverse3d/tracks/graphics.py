@@ -433,7 +433,7 @@ class GraphicsTrack(BaseTrack):
     plan_model = GraphicsPlan
     generate_template = "tracks/generate_graphics.j2"
     refine_template = "tracks/refine_graphics.j2"
-    # planner hooks: own template/example/acceptance, T=0.5, 16k tokens (no 3D frame)
+    # planner hooks: own template/example/acceptance, T=0.5, 65 536 tokens (no 3D frame)
     plan_template = PLAN_TEMPLATE
     plan_temperature = PLAN_TEMPERATURE
     plan_max_output_tokens = PLAN_MAX_OUTPUT_TOKENS

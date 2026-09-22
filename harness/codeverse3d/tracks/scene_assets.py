@@ -3,10 +3,10 @@
 * ``threejs`` assets → ``src/assets/<snake>.js`` exporting ``build<Pascal>`` —
   generated **single-shot** (one chat call) + a deterministic node check + ONE
   error-feedback repair; a full agent session is the escalation, not the default
-  (see ``scene_asset_gen``: agent sessions cost 10× and 10 minutes per file).
+  (agent sessions cost 10× and 10 minutes per file).
 * ``blender_glb`` assets are **heroes**: a sub-workspace under ``<ws>/_assets/<snake>``
-  runs the Blender runtime (skeleton → generate → build+repair) with a real agent
-  session and the GLB is copied to ``public/assets/<snake>.glb``.
+  runs the Blender runtime and climbs the SAME single-shot ladder (``_ladder``) before
+  an agent session; the GLB is copied to ``public/assets/<snake>.glb``.
 
 Near-identical props are merged into one factory with an ``opts.variant``; the
 list is capped at ``MAX_ASSETS`` in plan (= priority) order, and harder when the
@@ -383,7 +383,7 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     climbs → the GLB checked like a module → ``public/assets/<snake>.glb``.
 
     Until 2026-09-07 a hero got a one-part plan, a full agent session first, and no check
-    of the GLB it produced.  Measured over the 18 recorded heroes (bench/out, 2026-08-25 →
+    of the GLB it produced.  Measured over the 18 recorded heroes (eval/bench/out, 2026-08-25 →
     09-05): 15 first sessions killed at the asset timeout (booked at $0 — a killed CLI
     reports no usage), 12 GLBs one joined mesh with vertex paint (the one-part plan plus
     the Blender contract's "one object per plan part" leave no other way to colour it, so

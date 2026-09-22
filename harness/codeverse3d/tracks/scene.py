@@ -10,9 +10,8 @@ Cost/latency shaping (the baseline used to eat the whole budget, leaving the
 refine rounds nothing):
 
 * assets are single-shot by default (``scene_assets``);
-* **small zones are batched** — a zone that places ≤ 3 assets is written
-  together with its neighbour in ONE session that exclusively owns both files,
-  while big zones keep the parallel fan-out;
+* **one session writes every zone** (D70) and exclusively owns their files;
+  ``scene.js`` is assembled deterministically, without a session;
 * every stage session gets a timeout clipped to the wall-clock actually left;
 * the baseline runs against a **soft sub-budget** (``soft_budget_fraction``);
   when it is spent the stages degrade (single-shot instead of an agent session,
@@ -281,9 +280,9 @@ class SceneTrack(BaseTrack):
         """Route this stage's bundles into the workspace and inline them if single-shot.
 
         WHY this is not just ``steps.run_round``'s job.  A scene builds its whole baseline
-        in ``prepare()``: ``_env_stage`` writes the lighting, ``_zones_stage`` the contents,
-        ``_assemble_stage`` the cameras — three real agent sessions that never passed
-        through ``steps.run_round``, the ONE place that called ``attach_for_round``.  The
+        in ``prepare()``: ``_env_stage`` writes the lighting and ``_zones_stage`` the
+        contents — agent sessions that never passed through ``steps.run_round``, the ONE
+        place that called ``attach_for_round`` (``scene.js`` is assembled, not written).  The
         router has always had ``kinds=("env", "zone", "compose")`` rows for the four scene
         bundles (registry R14-R21), so they were selected for these very stages and then
         delivered to nobody: measured 2026-08-25 at 0 opens out of 30 listings, while round
@@ -293,8 +292,8 @@ class SceneTrack(BaseTrack):
 
         ``index=0`` because these stages ARE round 0's generation; there is no earlier
         round, so ``_previous_findings`` correctly returns nothing and only the plan-signal
-        and kind rows can fire.  Attaching once per stage (not once per task) keeps the
-        parallel zone sessions from racing each other's AGENTS.md write.
+        and kind rows can fire.  Attaching once per stage (not once per task) keeps it
+        to one AGENTS.md write per stage.
         """
         skills_hook.attach_for_round(gen, index=0, kind=stage_kind)
         return skills_hook.with_inlined_skill(gen, tasks)

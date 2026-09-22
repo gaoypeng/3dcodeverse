@@ -86,7 +86,7 @@ REFERENCE_RUBRIC = "reference_v1"
 
 #: surface-detail rounds a track that implements one gets by default.  ``RoundPolicy.detail_rounds``
 #: is None (= this default) unless a caller chose a number; ``C3D_DETAIL_ROUNDS`` overrides both
-#: (0 = off — the A/B switch for docs/EVAL.md).
+#: (0 = off — the A/B switch for eval/docs/EVAL.md).
 DEFAULT_DETAIL_ROUNDS = 1
 
 
@@ -191,7 +191,7 @@ class BaseTrack:
     plan_model: type[Plan]
     generate_template: str = ""
     refine_template: str = ""
-    #: planner knobs (GraphicsTrack: own template/example, T=0.5, 16k tokens)
+    #: planner knobs (GraphicsTrack: own template/example, T=0.5, 65 536 tokens)
     plan_template: str | None = None  # None → tracks/plan_<track>.j2
     plan_temperature: float = 0.4
     plan_max_output_tokens: int = 24000

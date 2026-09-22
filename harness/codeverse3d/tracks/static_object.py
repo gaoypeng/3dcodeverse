@@ -1,7 +1,7 @@
 """StaticObjectTrack: plan → skeleton → baseline → refine rounds → finalise.
 
 Languages: blender (bpy) · cadquery · threejs.  Per-part parallel refinement
-is used when the language owns one file per part (threejs) and ≥ 3
+is used when the language owns one file per part (threejs, blender) and ≥ 2
 file-disjoint task groups exist; otherwise one whole-object refine task.
 """
 

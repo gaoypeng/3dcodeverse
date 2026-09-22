@@ -1,7 +1,7 @@
 """Shared track machinery: the run context, the services seam, prompt context.
 
 ``Services`` is the tracks' injection seam: every call into a sibling package
-(models, agents, runtimes, spatial tools, judges, flywheel) goes through one
+(models, agents, runtimes, spatial tools, judges, record) goes through one
 method here so a test can subclass it with fakes (``tests/orchestrator_tracks/
 fakes.py``) and an articulated test double can synthesise joint sweeps from the
 plan.  The targets are modules of this same package — never optional — and are

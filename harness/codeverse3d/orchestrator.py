@@ -945,10 +945,10 @@ class BudgetSnapshot(BaseModel):
     """What survives a resume (``run_state.extra["budget_snapshot"]``).
 
     The four accumulator fields of :class:`BudgetGuard` plus cumulative ACTIVE
-    seconds.  Grace (``grace_minutes``) and config (ceilings, soft
-    fraction, run, ledger) are EXCLUDED on purpose: grace is per-attempt salvage
-    headroom — persisting it would ratchet the hard ceiling — and config always
-    comes from the current spec/settings."""
+    seconds.  Grace (``grace_minutes``) and config (ceilings, soft fraction) are
+    EXCLUDED on purpose: grace is per-attempt salvage headroom — persisting it
+    would ratchet the hard ceiling — and config always comes from the current
+    spec/settings."""
 
     spent: Usage
     billed_usd: float

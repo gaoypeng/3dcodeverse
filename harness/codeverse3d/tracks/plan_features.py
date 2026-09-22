@@ -7,7 +7,7 @@ runtime (``parse_features`` / ``plan_feature_on``) was deleted 2026-08-28 per it
 instruction, and the six names with it (2026-09-22); what remains is the guard rail —
 :data:`LIVE_SWITCHES` / :data:`DEAD_SWITCHES` (kept honest by
 ``tests/orchestrator_tracks/test_plan_features.py``, which greps the tree) and the
-``--pin-plan`` blocker rule ``bench/ab_plan.py`` consults so a paired A/B cannot
+``--pin-plan`` blocker rule ``eval/bench/ab_plan.py`` consults so a paired A/B cannot
 silently pin away the very thing it is testing.
 """
 
@@ -18,7 +18,7 @@ PLAN_FEATURES_ENV = "C3D_PLAN_FEATURES"
 #: env switches that act AFTER planning — ``--pin-plan`` may share one plan across arms
 #: that differ only by these.  Anything not listed is treated as plan-side: refusing to
 #: pin costs one noisy A/B, pinning wrongly costs a confident wrong answer
-#: (docs/EVAL.md §8.1 measured it — the A/A's worst pair differed 1 part vs 10).
+#: (eval/docs/EVAL.md §8.1 measured it — the A/A's worst pair differed 1 part vs 10).
 GENERATION_SIDE_ENV: frozenset[str] = frozenset({"C3D_SKILLS", "C3D_SKILLS_MAX", "C3D_SKILLS_UNVERIFIED",
                                                  "C3D_SKILLS_ONLY",
                                                  "C3D_DETAIL_ROUNDS", "C3D_REFERENCE_DIFF",

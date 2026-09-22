@@ -20,7 +20,7 @@ Measured on the recorded corpus (183 judged rounds / 81 runs, see the wave's
    machine were given the same numbers, so the number said nothing.
 
 The *measurement* side of the same question — how much artifact actually got built,
-on eight objective axes — is ``codeverse3d/spatial/complexity.py`` + ``docs/COMPLEXITY.md``.
+on eight objective axes — is ``codeverse3d/spatial/complexity.py`` + ``eval/docs/COMPLEXITY.md``.
 This module is the *target* side: what THIS plan should be allowed and asked to spend.
 
 Hence: :func:`depth_budget` (how many triangles / how much build time this *plan*
@@ -307,8 +307,8 @@ def budget_gate(measurement: Any, build: Any, budget: DepthBudget) -> Any:
     Deterministic, so the judge is never asked "does it look detailed enough" —
     code answers it.  Over the ceiling is an ERROR (the build is too heavy to ship);
     under the floor and over the build-time budget are WARNs, because a thin object
-    is a quality problem, not a broken one — the static track turns the thin WARN
-    into a refine task through ``extra_refine_tasks``.
+    is a quality problem, not a broken one — the static track deliberately does NOT
+    turn the thin WARN into a refine task: density is the detail round's job.
     """
     from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
 
