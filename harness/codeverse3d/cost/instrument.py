@@ -51,6 +51,7 @@ from codeverse3d.cost.ledger import (
     open_run_ledger,
     record_call,
 )
+from codeverse3d.cost.tally import Tally, book_time, open_tallies
 from codeverse3d.cost.types import Role, Stage, stage_for_label
 
 log = logging.getLogger(__name__)
@@ -85,15 +86,19 @@ class MeteredChatModel:
     def generate(self, request: ChatRequest) -> ChatResponse:
         call_id = uuid4().hex  # joins the per-attempt rows to the call's logical row
         # captured NOW: a hedge loser lands after this call returned, in a thread with
-        # no context — neither the run's ledger, its name, nor the stage/role/round
-        # attribution (the loser's row used to fall back to the bare label) is reachable
+        # no context — neither the run's ledger, its name, the stage/role/round
+        # attribution (the loser's row used to fall back to the bare label) nor the
+        # open tallies are reachable
         ledger = default_ledger()
         run = run_binding().run
         ctx = attribute(label=request.label)
+        tallies = open_tallies()
         booked: list[int] = []  # round-trips that already billed themselves as "extra"
+        trips = _RoundTrips()
 
         def attempt_row(rec: AttemptRecord) -> None:
-            if self._record_attempt(request, call_id, rec, ledger, run, ctx):
+            trips.add(rec)
+            if self._record_attempt(request, call_id, rec, ledger, run, ctx, tallies):
                 booked.append(rec.attempt)
 
         t0 = time.perf_counter()
@@ -104,19 +109,21 @@ class MeteredChatModel:
             # a failed call may still have been billed: ModelError.usage carries what the
             # provider charged (a bad-JSON reply costs like a good one) — but only when
             # the round-trips did not already book it, or the last one counts twice
+            ms = int((time.perf_counter() - t0) * 1000)
             usage = getattr(exc, "usage", None)
             usage = usage if isinstance(usage, Usage) else Usage(backend=self.provider, model=self.model)
+            book_time(ms / 1000, trips.lost_ms(ms, usage.latency_ms) / 1000)
             if booked:
                 usage = Usage(backend=usage.backend, model=usage.model, latency_ms=usage.latency_ms)
-            self._record(usage, request, outcome=_outcome(exc),
-                         ms=int((time.perf_counter() - t0) * 1000),
+            self._record(usage, request, outcome=_outcome(exc), ms=ms,
                          attempts=getattr(exc, "attempts", 0), call_id=call_id)
             raise
+        ms = int((time.perf_counter() - t0) * 1000)
+        book_time(ms / 1000, trips.lost_ms(ms, resp.usage.latency_ms) / 1000)
         # which key served it and how many round-trips it took (gemini.py puts both in
         # ``raw``); until 2026-08-26 no telemetry row carried either, so the per-key
         # distribution of calls could only be probed, never read
-        self._record(resp.usage, request, outcome="ok",
-                     ms=int((time.perf_counter() - t0) * 1000),
+        self._record(resp.usage, request, outcome="ok", ms=ms,
                      key=resp.raw.get("key"), attempts=resp.raw.get("attempts", 0),
                      call_id=call_id)
         return resp
@@ -133,7 +140,7 @@ class MeteredChatModel:
 
     def _record_attempt(self, request: ChatRequest, call_id: str, rec: AttemptRecord,
                         ledger: CostLedger | None, run: str = "",
-                        ctx: CallContext | None = None) -> bool:
+                        ctx: CallContext | None = None, tallies: tuple[Tally, ...] | None = None) -> bool:
         """One row per round-trip.  A round-trip that was DISCARDED and still cost money
         (a billed-but-invalid reply, a hedge loser that landed) is money nothing else
         records, so it goes in as ``source="extra"`` and counts in every total; the rest
@@ -150,11 +157,40 @@ class MeteredChatModel:
                         latency_ms=rec.usage.latency_ms,
                         source="extra" if extra else "attempt", key=_key_suffix(rec.key),
                         call_id=call_id, attempt=rec.attempt, discarded=rec.discarded,
-                        ledger=ledger)
+                        ledger=ledger, tallies=tallies)
         except Exception as e:  # pragma: no cover - accounting must never break a call
             log.debug("cost: could not record attempt %s#%d: %s", request.label, rec.attempt, e)
             return False
         return extra
+
+
+class _RoundTrips:
+    """The round-trips of ONE logical call, as the backend reported them through the attempt
+    sink (``models.retry.rotate_with_retries``), reduced to what the minutes need: how long
+    the ones that got an answer took, and whether any failed without one."""
+
+    def __init__(self) -> None:
+        self.answered_ms = 0  # the winner, and a reply that came back unusable (bad JSON, empty)
+        self.failed = False  # a round-trip with no answer at all: 503 / 429 / timeout / transport / dead key
+        self.seen = False
+
+    def add(self, rec: AttemptRecord) -> None:
+        self.seen = True
+        if rec.discarded and rec.outcome == "ok":
+            return  # a hedge loser that answered ran beside the winner, not before it
+        if rec.usage.latency_ms:
+            self.answered_ms += rec.usage.latency_ms
+        elif rec.outcome != "ok":
+            self.failed = True
+
+    def lost_ms(self, wall_ms: int, answer_ms: int) -> int:
+        """The call's milliseconds lost to provider errors: everything outside its answered
+        round-trips once one failed without an answer — its failed tries, their back-off and
+        the key waits between them.  A backend that reports no round-trips (the SDK adapters)
+        is charged everything outside the answer it returned."""
+        if not self.seen:
+            return max(0, wall_ms - answer_ms)
+        return max(0, wall_ms - self.answered_ms) if self.failed else 0
 
 
 def _key_suffix(key: object) -> str:
@@ -203,8 +239,11 @@ class MeteredAgent:
         t0 = time.perf_counter()
         with call_context(round=job.round, stage=stage, role=Role.GENERATOR, label=job.label):
             result = self._inner.run(job)
+        wall_s = time.perf_counter() - t0
+        # the CLI's own retries of 503 / 429 / token-limit errors, read from its log
+        book_time(wall_s, float(result.provider_wait_s or 0.0))
         # an opaque CLI: its session row is the only record
-        self._record_session(job, result, stage, int((time.perf_counter() - t0) * 1000))
+        self._record_session(job, result, stage, int(wall_s * 1000))
         return result
 
     def _record_session(self, job: AgentJob, result: AgentResult, stage: Stage, ms: int) -> None:

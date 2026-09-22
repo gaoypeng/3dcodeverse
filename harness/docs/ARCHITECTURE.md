@@ -163,6 +163,7 @@ codeverse3d/
                       profiles.py (economy|balanced|quality; cli._common.resolve_dial is THE resolver)
                       billing.py (SUBSCRIPTION_BACKENDS/bills_usd — which backends take real dollars,
                       so the ledger bills real money and not list price; docs/COST.md §25)
+                      tally.py (a block's money = its ledger rows, its lost seconds → StepTime; COST §31)
                       guard.py reconstruct.py (old runs)
   judges/             base.py (JudgeInput; `round_input` + `plan_summary(plan, language)`, the ONE payload
                       builder and plan digest the in-run judge, `3dcode judge`, calibration, the texture

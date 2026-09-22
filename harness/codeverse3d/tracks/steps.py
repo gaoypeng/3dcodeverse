@@ -37,7 +37,8 @@ from codeverse3d.contracts.artifacts import (
 )
 from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.plan import AcceptanceItem, Plan
-from codeverse3d.contracts.run import RoundRecord
+from codeverse3d.contracts.run import RoundRecord, StepTime
+from codeverse3d.cost.tally import timed
 from codeverse3d.judges.base import round_input
 from codeverse3d.judges.rubrics import is_degraded
 from codeverse3d.orchestrator import BudgetExceeded, usage_delta
@@ -115,13 +116,15 @@ def load_round_journal(ws: Workspace) -> list[RoundRecord]:
     return out
 
 
-def run_generation_tasks(ctx: RunContext, tasks: Sequence[GenerationTask]) -> list[GenerationResult]:
+def run_generation_tasks(ctx: RunContext, tasks: Sequence[GenerationTask], *,
+                         steps: list[StepTime] | None = None) -> list[GenerationResult]:
     """Run tasks (parallel when > 1).  Raises ``RoundFailed`` when none succeeded.
 
     ``GenerationTask.phase`` sequences the round: tasks run in parallel WITHIN a
     phase, phases in ascending order.  Every task is phase 0 unless a track says
     otherwise, so this is a no-op for every existing caller; per-part scoped
-    generation uses it so the assembly session sees the part files first.
+    generation uses it so the assembly session sees the part files first.  Each
+    phase is one ``generate`` step in ``steps``.
     """
     if not tasks:
         return []
@@ -132,7 +135,7 @@ def run_generation_tasks(ctx: RunContext, tasks: Sequence[GenerationTask]) -> li
         for ph in phases:
             picked = [(i, t) for i, t in enumerate(tasks) if t.phase == ph]
             try:
-                got = _run_phase(ctx, [t for _, t in picked])
+                got = _run_phase(ctx, [t for _, t in picked], steps)
             except RoundFailed as e:
                 # a phase in which nothing succeeded is not automatically a dead round:
                 # the earlier phases may have written the parts.  Record the failures
@@ -146,19 +149,22 @@ def run_generation_tasks(ctx: RunContext, tasks: Sequence[GenerationTask]) -> li
         if not ok_any:
             raise RoundFailed.of(results_seq, "no generation task succeeded")
         return results_seq
-    return _run_phase(ctx, list(tasks))
+    return _run_phase(ctx, list(tasks), steps)
 
 
-def _run_phase(ctx: RunContext, tasks: Sequence[GenerationTask]) -> list[GenerationResult]:
-    """One parallel batch of generation tasks (the pre-phase behaviour, unchanged)."""
+def _run_phase(ctx: RunContext, tasks: Sequence[GenerationTask],
+               steps: list[StepTime] | None = None) -> list[GenerationResult]:
+    """One parallel batch of generation tasks — one ``generate`` step: its sessions run side
+    by side, so they share one clock."""
 
     def _one(task: GenerationTask) -> GenerationResult:
         return generate_for(ctx, task)
 
     # fan_out also for ONE task: a crashing generator (503 storm, parse error) becomes a failed
     # result → RoundFailed (a refine round then stops the run as no_change) instead of killing it.
-    results = fan_out(list(tasks), _one, max_workers=ctx.settings.limits.max_parallel_agents,
-                      label="generate", item_name=lambda t: t.label)
+    with timed("generate", [] if steps is None else steps, round_index=tasks[0].round if tasks else None):
+        results = fan_out(list(tasks), _one, max_workers=ctx.settings.limits.max_parallel_agents,
+                          label="generate", item_name=lambda t: t.label)
     out: list[GenerationResult] = []
     budget_stop: Exception | None = None
     for task, r in zip(tasks, results, strict=True):
@@ -201,15 +207,16 @@ def run_round(
     clay views): the two knobs a best-of-N candidate turns (``candidates.run_best_of_n``
     calls it directly for each candidate in its sub-workspace)."""
     mark = ctx.budget.mark()
+    steps: list[StepTime] = []
     try:
         return _run_round(ctx, index=index, kind=kind, tasks=tasks, pipeline=pipeline, instructions=instructions,
                           previous=previous, files_hint=files_hint, extra_usage=extra_usage,
-                          extra_notes=extra_notes)
+                          extra_notes=extra_notes, steps=steps)
     except BaseException as e:
         # the round died half-way (budget stop, 503 storm, RoundFailed).  Whatever it
         # burned is already in the guard: report it so the round is not invisible.
         burned = usage_delta(ctx.budget.spent, mark)
-        record_aborted_round(ctx, index=index, kind=kind, usage=burned, error=f"{type(e).__name__}: {e}")
+        record_aborted_round(ctx, index=index, kind=kind, usage=burned, error=f"{type(e).__name__}: {e}", steps=steps)
         raise
 
 
@@ -227,8 +234,10 @@ def _run_round(
     extra_notes: Sequence[str] = (),
     render: RenderFn | None = None,
     geometry_views: bool = True,
+    steps: list[StepTime] | None = None,
 ) -> RoundRecord:
     t0 = time.time()
+    steps = [] if steps is None else steps
     ctx.events.emit("round.start", round=index, kind=kind, n_tasks=len(tasks))
     rec = RoundRecord(index=index, kind=kind, agent_backend=ctx.agent_id, instructions=list(instructions),
                       started_at=datetime.now(UTC))
@@ -243,7 +252,7 @@ def _run_round(
     # generated with a strictly smaller library than a --candidates 1 baseline (review 2026-08-29)
     skill_kind = "baseline" if kind == "candidate" else kind
     skills_hook.attach_for_round(ctx, index=index, kind=skill_kind)
-    gens = run_generation_tasks(ctx, skills_hook.with_inlined_skill(ctx, tasks))
+    gens = run_generation_tasks(ctx, skills_hook.with_inlined_skill(ctx, tasks), steps=steps)
     turns = 0
     for g in gens:
         usage = usage + g.usage
@@ -254,8 +263,9 @@ def _run_round(
         cost["generate"] = round(sum(g.usage.cost_usd for g in gens), 6)
     ctx.ws.commit(f"r{index:02d} {kind}: generated")
 
-    outcome: RepairOutcome = build_with_repair(ctx, round_index=index, label=f"r{index:02d}_{kind}",
-                                               files_hint=list(files_hint))
+    with timed("build", steps, round_index=index):
+        outcome: RepairOutcome = build_with_repair(ctx, round_index=index, label=f"r{index:02d}_{kind}",
+                                                   files_hint=list(files_hint))
     usage = usage + outcome.usage
     if outcome.usage.cost_usd:
         cost["repair"] = round(outcome.usage.cost_usd, 6)
@@ -268,10 +278,12 @@ def _run_round(
         )
 
     if outcome.build.ok:
-        rec.measurement = pipeline.measure(ctx, outcome.build)
-        gates.extend(pipeline.gates(ctx, index, outcome.build, rec.measurement))
+        with timed("gates", steps, round_index=index):
+            rec.measurement = pipeline.measure(ctx, outcome.build)
+            gates.extend(pipeline.gates(ctx, index, outcome.build, rec.measurement))
         try:
-            rec.renders = (render or pipeline.render)(ctx, index, outcome.build, rec.measurement)
+            with timed("render", steps, round_index=index):
+                rec.renders = (render or pipeline.render)(ctx, index, outcome.build, rec.measurement)
         except RenderError as e:
             # A render that times out (measured 2026-08-26, art_verify camera_tripod: the
             # refine round built in 1.2 s, then render_glb.mjs hit its 330 s timeout with
@@ -284,7 +296,8 @@ def _run_round(
             ctx.events.emit("render.failed", round=index, error=str(e)[:400])
         post = getattr(pipeline, "post_render_gates", None)
         if callable(post) and rec.renders is not None:
-            gates.extend(post(ctx, index, rec.renders))
+            with timed("gates", steps, round_index=index):
+                gates.extend(post(ctx, index, rec.renders))
         # the build's own reports (scene_probe + shader_preflight, gl_frames) after the
         # track's: the judge's warning list is capped and reads them in this order
         gates.extend(outcome.build.gates)
@@ -296,8 +309,9 @@ def _run_round(
             notes.append(f"judge skipped ({skip})")
             ctx.events.emit("judge.skipped", round=index, reason=skip)
         else:
-            rec.judgment, judge_usage = _judge(ctx, pipeline, index, outcome.build, gates, rec, previous, notes,
-                                               geometry_views=geometry_views)
+            with timed("judge", steps, round_index=index):
+                rec.judgment, judge_usage = _judge(ctx, pipeline, index, outcome.build, gates, rec, previous, notes,
+                                                   geometry_views=geometry_views)
             if rec.judgment is not None or judge_usage.cost_usd:
                 # a degraded/crashed verdict was still PAID: fold its usage into the
                 # round's usage and cost["judge"] so rec.usage and the cost.round event
@@ -323,6 +337,7 @@ def _run_round(
         keep_round_artifacts(ctx.ws, index)
     rec.usage = usage
     rec.duration_s = round(time.time() - t0, 2)
+    rec.steps = steps
     rec.notes = "; ".join(notes)
     ctx.ws.write_json(round_record_path(ctx, index), rec)
     ctx.events.emit("round.done", round=index, kind=kind, commit=rec.commit[:10], score=rec.score,
@@ -400,16 +415,19 @@ def _waste_flag(*, build_ok: bool, judged: bool, aborted: str) -> tuple[bool, st
     return False, ""
 
 
-def record_aborted_round(ctx: RunContext, *, index: int, kind: str, usage: Usage, error: str) -> None:
+def record_aborted_round(ctx: RunContext, *, index: int, kind: str, usage: Usage, error: str,
+                         steps: Sequence[StepTime] = ()) -> None:
     """A round that raised half-way still reports what it burned.
 
     Its record is written next to the round records as ``aborted_rNN.json`` (never
     ``rNN.json``: the round did not happen, and ``load_round_journal`` must not
-    resume from it), a ``cost.round`` event is emitted, and the usage is remembered
-    in ``ctx.extra`` so the run record can carry it.  Accounting a stop must never
-    raise on top of the stop that is already happening."""
+    resume from it), a ``cost.round`` event is emitted, the usage is remembered
+    in ``ctx.extra`` so the run record can carry it, and the steps it did run join the
+    run-level steps (``RunState.steps``): their minutes were spent.  Accounting a stop
+    must never raise on top of the stop that is already happening."""
     try:
-        rec = RoundRecord(index=index, kind=kind, agent_backend=ctx.agent_id, usage=usage,
+        ctx.state.steps.extend(steps)
+        rec = RoundRecord(index=index, kind=kind, agent_backend=ctx.agent_id, usage=usage, steps=list(steps),
                           notes=f"aborted: {error}")
         path = ctx.ws.root / "rounds" / f"aborted_r{index:02d}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -491,7 +509,9 @@ def rejudge_round(ctx: RunContext, pipeline: RoundPipeline, rec: RoundRecord, pr
         return False
     ctx.events.emit("judge.retry", round=rec.index)
     notes: list[str] = [rec.notes] if rec.notes else []
-    judgment, judge_usage = _judge(ctx, pipeline, rec.index, rec.build, list(rec.gates), rec, previous, notes)
+    # a round recorded before step timing keeps counting its own clock (RoundRecord.minutes)
+    with timed("judge", rec.steps if rec.steps is not None else [], round_index=rec.index):
+        judgment, judge_usage = _judge(ctx, pipeline, rec.index, rec.build, list(rec.gates), rec, previous, notes)
     if judgment is None:
         # the retry failed AGAIN — but it was still paid for: keep the money and the
         # failure note on the persisted record so totals and resume can see them.

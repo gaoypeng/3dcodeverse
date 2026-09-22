@@ -1553,3 +1553,42 @@ Secondary observation, not a controlled comparison: the paired sd of the battery
 this code is 0.131 against the A/A's 0.225 on the old code (n_for_power for ±0.02: ~172
 pairs against ~506).  Different runs and different arms, so it is an observation — but the
 direction is the one the fix predicts, since a retry storm is variance.
+
+## 31. Minutes: the steps of a run, minus provider errors (2026-09-22)
+
+The owner's definition: time every step of a run from start to end, do not count the time lost
+to 503 / token-limit / overloaded errors, and report the sum (按步骤记录并扣除错误时间).  It
+replaced six definitions that disagreed by up to 8x (on 52 resumed runs the record span said
+209 h where the active clock said 24.6 h): the record span (gallery), the bench process's wall
+clock (bench report), the compare cell's wall clock, the cost audit's active time, the budget
+guard's `elapsed_min` (ab_view) and telemetry-else-Σ-rounds (complexity_report).
+
+**What is timed.**  `contracts.run.StepTime{step, round, wall_s, lost_s}`, one per step:
+`plan`, `skeleton`, the scene's `textures`, `assets+env+layouts` (the three run side by side, so
+they are ONE step), `zones`, `assemble`, best-of-N `candidates` — run-level, on
+`RunRecord.steps` (persisted in `run_state.json` as they happen, the part of an aborted round
+that ran included) — and per round `generate` (one per phase: a phase's sessions run side by
+side), `build` (+ repair), `gates`, `render`, `judge` (+ a re-judge), on `RoundRecord.steps`.
+**`RunRecord.minutes`** = Σ (wall − lost) / 60 over all of them: THE number, the one every reader
+reports (`addons/select` per round, the gallery, `3dcode cost`, eval/bench).
+
+**What is lost.**  `cost/tally.py`: a step opens a `Tally`; the meters book into every open one.
+An agent session books its `AgentResult.provider_wait_s` (the CLI's own 503 / 429 retries, read
+from its log by the agents).  An API call books everything outside its answered round-trips once
+one of them failed without an answer — the failed tries, their back-off and the key waits
+(`cost.instrument._RoundTrips`, fed by the per-attempt sink `models.retry.rotate_with_retries`
+already reports through; a backend that reports no round-trips — the SDK adapters — is charged
+everything outside the answer it returned).  A reply that came back unusable (bad JSON, empty)
+is the model's own time and is not lost.  Calls in one thread add up; threads side by side (fan-out
+sessions, judge samples, candidates) lose `max(wall) − max(wall − lost)` — what the slowest thread
+would have been spared.
+
+**One fallback.**  A record or a round written before step timing (`steps is None`) counts its own
+clock: the run's `extra["budget"]["elapsed_min"]` (all 470 archived records carry it), a round's
+`duration_s`.
+
+**Minutes are a statistic, `max_minutes` is a limit.**  `orchestrator.BudgetGuard` keeps counting
+every active second, errors included — it has to stop a run inside a 503 storm, which is exactly
+when the minutes stand still.  A run can therefore stop on `budget` with its minutes well under
+`max_minutes` (the stool run of 2026-09-22b: 51 minutes on the clock, a 2 100 s baseline session
+killed after its 503 / 429 retries).

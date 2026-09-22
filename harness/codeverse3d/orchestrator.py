@@ -25,9 +25,10 @@ from pydantic import BaseModel, Field, ValidationError
 from codeverse3d.contracts.artifacts import GateReport, Judgment
 from codeverse3d.contracts.common import Budget, Usage
 from codeverse3d.contracts.plan import AcceptanceItem, Plan
-from codeverse3d.contracts.run import RoundRecord, RunStatus
+from codeverse3d.contracts.run import RoundRecord, RunStatus, StepTime
 from codeverse3d.conventions import to_snake
 from codeverse3d.cost.billing import bills_usd
+from codeverse3d.cost.tally import timed
 from codeverse3d.proc import EventLog
 from codeverse3d.workspace import Workspace
 
@@ -55,6 +56,8 @@ class RunState(BaseModel):
 
     status: RunStatus = RunStatus.PLANNING
     stages: dict[str, StageState] = Field(default_factory=dict)
+    steps: list[StepTime] = Field(default_factory=list, description="run-level timed steps, every session's "
+                                  "(a stage, best-of-N, the part of an aborted round that ran) — the run's minutes")
     materialized_for: str = Field(default="", description="agent kind the workspace was materialised for")
     stop_reason: str = ""
     error: str = ""
@@ -139,8 +142,11 @@ class StageRunner:
         *,
         inputs: Any = "",
         model: type[BaseModel] | None = None,
+        timed_step: bool = True,
     ) -> T:
-        """Run ``fn`` unless a cached result for the same ``inputs`` exists."""
+        """Run ``fn`` unless a cached result for the same ``inputs`` exists.  A stage that runs
+        is a timed step of the run (``RunState.steps``) — unless ``timed_step=False``: a stage
+        that runs beside its siblings is timed once, as their group, by its caller."""
         h = hash_inputs(inputs)
         path = self.result_path(name)
         prior = self.state.stages.get(name)
@@ -166,7 +172,11 @@ class StageRunner:
         self.events.emit("stage.start", stage=name, inputs_hash=h)
         t0 = time.time()
         try:
-            result = fn()
+            if timed_step:
+                with timed(name, self.state.steps):
+                    result = fn()
+            else:
+                result = fn()
         except Exception as e:
             self.events.emit("stage.failed", stage=name, error=f"{type(e).__name__}: {e}",
                              duration_s=round(time.time() - t0, 2))

@@ -197,6 +197,25 @@ class RunStatus(StrEnum):
         return cls.STOPPED if value in ("passed", "plateau") else None
 
 
+class StepTime(BaseModel):
+    """One timed step of a run: the clock it took and the part of that clock it lost to
+    provider errors — 503 / 429 / overloaded / timeout retries and their back-off, inside a
+    vendor CLI (``AgentResult.provider_wait_s``) or an API call (``cost.instrument``).  The
+    run's minutes are the sum of ``wall_s - lost_s`` over its steps (owner, 2026-09-22).
+    Parallel work — fan-out sessions, judge samples, the scene's assets beside its env — is
+    ONE step, so no second of the clock is counted twice."""
+
+    step: str = Field(description="plan | skeleton | textures | assets+env+layouts | zones | assemble | candidates"
+                                  " | generate | build | gates | render | judge")
+    round: int | None = Field(default=None, description="the round the step belongs to; None = a run-level stage")
+    wall_s: float = 0.0
+    lost_s: float = Field(default=0.0, description="seconds of wall_s lost to provider errors")
+
+    @property
+    def active_s(self) -> float:
+        return max(0.0, self.wall_s - self.lost_s)
+
+
 class RoundRecord(BaseModel):
     index: int
     kind: str = Field(description="baseline | refine | repair | texture | asset:<name> ...")
@@ -212,12 +231,23 @@ class RoundRecord(BaseModel):
     skills: SkillsUsage | None = Field(
         default=None, description="skills attached to this round's sessions, and which were actually read")
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    duration_s: float = 0.0
+    duration_s: float = Field(default=0.0, description="the round's clock, provider errors included")
+    steps: list[StepTime] | None = Field(
+        default=None, description="the round's timed steps (generate / build / gates / render / judge); "
+                                  "None = recorded before 2026-09-22")
     notes: str = ""
 
     @property
     def score(self) -> float | None:
         return self.judgment.overall if self.judgment else None
+
+    @property
+    def minutes(self) -> float:
+        """The round's minutes: its steps' ``wall_s - lost_s``.  A round recorded before step
+        timing (``steps is None``) counts its own clock, ``duration_s``."""
+        if self.steps is None:
+            return self.duration_s / 60.0
+        return sum(s.active_s for s in self.steps) / 60.0
 
 
 # --------------------------------------------------------------------------- telemetry (settings + cost)
@@ -351,4 +381,24 @@ class RunRecord(BaseModel):
     error: str = ""
     telemetry: RunTelemetry | None = Field(
         default=None, description="settings snapshot + cost ledger + environment (written by finalize_record)")
+    steps: list[StepTime] | None = Field(
+        default=None, description="the run-level timed steps (plan, the prepare stages, best-of-N, the part of "
+                                  "an aborted round that ran); None = recorded before 2026-09-22")
     extra: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def minutes(self) -> float | None:
+        """THE minutes of a run, the one number every reader reports: the ``wall_s - lost_s``
+        of every step, run-level and round, so time lost to 503 / 429 / token-limit errors
+        does not count (owner, 2026-09-22).  It is a statistic, not the budget: the
+        ``max_minutes`` clock (``orchestrator.BudgetGuard``) counts every active second,
+        errors included, because it must stop a run even in a 503 storm.
+
+        A record written before step timing (``steps is None``) counts its own clock
+        instead: the budget's active minutes, ``extra["budget"]["elapsed_min"]`` (None when
+        even that is missing)."""
+        if self.steps is None:
+            budget = self.extra.get("budget")
+            elapsed = budget.get("elapsed_min") if isinstance(budget, dict) else None
+            return float(elapsed) if isinstance(elapsed, (int, float)) else None
+        return sum(s.active_s for s in self.steps) / 60.0 + sum(r.minutes for r in self.rounds)

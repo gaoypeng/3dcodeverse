@@ -29,6 +29,7 @@ from codeverse3d.contracts.artifacts import BuildResult, Measurement, RenderSet
 from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK
+from codeverse3d.cost.tally import timed
 from codeverse3d.orchestrator import BudgetExceeded, gate_error_count
 from codeverse3d.proc import EventLog, fan_out
 from codeverse3d.tracks.common import RunContext
@@ -72,16 +73,20 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
                         duration_s=cand.duration_s, cost_usd=round(rec.usage.cost_usd, 4), commit=rec.commit[:10])
         return cand
 
-    results = fan_out(list(range(n)), _one, max_workers=ctx.settings.limits.max_parallel_agents, label="candidates",
-                      item_name=lambda k: f"c{k}")
+    # the candidates run side by side: one step of the run's minutes (each candidate round
+    # keeps its own steps in its sub-workspace)
+    with timed("candidates", ctx.state.steps, round_index=0):
+        results = fan_out(list(range(n)), _one, max_workers=ctx.settings.limits.max_parallel_agents,
+                          label="candidates", item_name=lambda k: f"c{k}")
     # one retry for candidates that crashed (transient 503s, parse failures) — not for budget stops
     retry = [k for k, r in enumerate(results) if isinstance(r, Exception) and not isinstance(r, BudgetExceeded)]
     if retry and ctx.budget.ok():
         for k in retry:
             ctx.events.emit("candidate.retry", candidate=k, error=f"{type(results[k]).__name__}: {results[k]}"[:300])
             subs[k] = make_candidate_context(track, ctx, k)
-        again = fan_out(retry, _one, max_workers=ctx.settings.limits.max_parallel_agents, label="candidates-retry",
-                        item_name=lambda k: f"c{k}")
+        with timed("candidates", ctx.state.steps, round_index=0):
+            again = fan_out(retry, _one, max_workers=ctx.settings.limits.max_parallel_agents, label="candidates-retry",
+                            item_name=lambda k: f"c{k}")
         for k, r in zip(retry, again, strict=True):
             results[k] = r
     records: list[CandidateRecord] = []

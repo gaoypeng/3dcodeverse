@@ -39,6 +39,7 @@ from codeverse3d.contracts.common import TRACK_INFO, Track
 from codeverse3d.contracts.plan import Plan, ScenePlan, ZonePlan
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import to_snake
+from codeverse3d.cost.tally import timed
 from codeverse3d.judges.base import judged_subset
 from codeverse3d.languages.scene_threejs import zone_file
 from codeverse3d.orchestrator import StageRunner, TaskGroup, compact_instructions
@@ -213,8 +214,9 @@ class SceneTrack(BaseTrack):
             ctx.extra["textures"] = runner.stage("textures", lambda: self._textures_stage(ctx), inputs={"plan": plan}) or {}
         stage_fns: dict[str, Any] = {"assets": lambda: run_asset_stage(ctx),
                                      "env": lambda: self._env_stage(ctx), "layouts": _layouts}
-        results = fan_out(list(stage_fns.items()), lambda kv: runner.stage(kv[0], kv[1], inputs=key),
-                          max_workers=2, label="assets+env", item_name=lambda kv: kv[0])
+        with timed("+".join(stage_fns), ctx.state.steps):  # side by side: ONE step of the run's minutes
+            results = fan_out(list(stage_fns.items()), lambda kv: runner.stage(kv[0], kv[1], inputs=key, timed_step=False),
+                              max_workers=2, label="assets+env", item_name=lambda kv: kv[0])
         staged = dict(zip(stage_fns, results, strict=True))
         first_exc = next((r for r in results if isinstance(r, Exception)), None)
         if first_exc is not None:

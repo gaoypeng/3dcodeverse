@@ -682,6 +682,7 @@ class BaseTrack:
                                                        if a not in prior_aborted]
         return RunRecord(
             spec=ctx.spec, plan=ctx.plan, workspace=str(ctx.ws.root), status=status, rounds=rounds, total_usage=total,
+            steps=list(ctx.state.steps),
             environment={"python": platform.python_version(), "host": platform.node(), "track": self.track.value,
                          "language": ctx.language.value, "generator": ctx.agent_id},
             prompt_hashes={**prior_hashes, **dict(ctx.prompt_hashes)}, started_at=ctx.state.started_at,

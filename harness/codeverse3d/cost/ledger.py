@@ -27,6 +27,7 @@ from typing import Any
 
 from codeverse3d.contracts.common import Usage
 from codeverse3d.cost.context import CallContext, _stage, attribute
+from codeverse3d.cost.tally import Tally, book_usage
 from codeverse3d.cost.types import (
     CallCost,
     CostBucket,
@@ -256,9 +257,12 @@ def record_call(
     ledger: CostLedger | str | Path | None = None,
     ts: float | None = None,
     reprice: bool = False,
+    tallies: tuple[Tally, ...] | None = None,
     **extra: Any,
 ) -> CallCost:
-    """Append one priced call to the ledger and return the row.
+    """Append one priced call to the ledger, book it into the open tallies
+    (``cost.tally`` — or ``tallies``, captured by a caller whose row lands later in a
+    thread with no context), and return the row.
 
     Callers pass the ``Usage`` they already hold::
 
@@ -309,6 +313,11 @@ def record_call(
     target = ledger if isinstance(ledger, CostLedger) else (CostLedger(ledger) if ledger else default_ledger())
     if target is not None:
         target.append(row)
+    if source != "attempt":  # an attempt row's tokens are already on its call's own row
+        book_usage(Usage(backend=row.backend, model=row.model, input_tokens=row.input_tokens,
+                         output_tokens=row.output_tokens, cached_tokens=row.cached_tokens,
+                         thoughts_tokens=row.thoughts_tokens, tool_calls=row.tool_calls,
+                         cost_usd=row.cost_usd, latency_ms=row.latency_ms), tallies)
     return row
 
 
