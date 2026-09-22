@@ -34,6 +34,18 @@ def _images(msgs):
     return [p for p in _parts(msgs) if isinstance(p, ImagePart)]
 
 
+def test_the_scene_rig_rule_names_every_harness_camera_and_no_authored_prefix():
+    """Authored cameras carry the plan's names (``cam_i`` is only scene_host's fallback for an
+    unnamed one) and the eye-level rig is the harness's too: the judge was told authored views
+    are ``cam_*`` and nothing about ``eye_*``."""
+    from codeverse3d.conventions import SCENE_VIEWS
+    from codeverse3d.judges.prompt_builder import RIG_RULES
+
+    rule = RIG_RULES["scene_cams"]
+    assert "cam_*" not in rule
+    assert all(f"{v.name.split('_')[0]}_*" in rule for v in SCENE_VIEWS)
+
+
 def test_system_has_role_rubric_anchors_and_defects():
     system = build_system_prompt(R)
     assert "BLIND JUDGE" in system

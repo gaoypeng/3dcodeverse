@@ -68,3 +68,27 @@ def test_parallel_orderings_accumulate_in_order(tmp_path, cache_dir):
     assert res.usage.cost_usd == pytest.approx(0.002) and res.usage.input_tokens == 2000
 
 
+
+
+def test_a_scene_pair_is_ranked_as_a_scene_from_the_views_the_judge_saw(tmp_path, cache_dir):
+    """Every candidate used to be ranked as an OBJECT from its whole render set: a scene's
+    own camera sank behind the overview rig, and a view the verdict judge never saw
+    (``judge=False``) could fill a montage slot."""
+    from codeverse3d.contracts.artifacts import RenderSet, RenderView
+    from codeverse3d.contracts.common import Language, Track
+    from tests.judges.conftest import draw_chair
+
+    def scene_renders(d):
+        d.mkdir(parents=True)
+        names = [("overview_front_right", True), ("overview_back_left", True), ("overview_top", True),
+                 ("eye_front", True), ("unjudged_extra", False), ("Establishing", True)]
+        return RenderSet(views=[RenderView(name=n, path=str(draw_chair(d / f"{n}.png")), judge=j)
+                                for n, j in names], renderer="fake")
+
+    model = FakeChatModel(by_label={":fwd": [_reply("A")], ":swap": [_reply("B")]})
+    spec = make_spec(track=Track.SCENE, language=Language.SCENE_THREEJS)
+    PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare(
+        spec, scene_renders(tmp_path / "a"), scene_renders(tmp_path / "b"))
+    labels = [p.label for p in image_parts(next(r for r in model.requests if r.label == "pairwise:fwd"))]
+    assert "top-left = Establishing" in labels[0]
+    assert not any("unjudged_extra" in lbl for lbl in labels)

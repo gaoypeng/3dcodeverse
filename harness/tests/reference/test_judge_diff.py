@@ -76,8 +76,10 @@ def test_diff_can_be_switched_off(ref_input, cache_dir):
     assert all(not r.label.startswith("reference_diff") for r in model.requests)
 
 
-def test_diff_off_via_env(ref_input, cache_dir, monkeypatch):
-    monkeypatch.setenv("C3D_REFERENCE_DIFF", "off")
+@pytest.mark.parametrize("value", ["off", "of"])
+def test_diff_off_via_env(ref_input, cache_dir, monkeypatch, value):
+    """A typo is a control run, not the variant (config.env_flag): "of" used to read as ON."""
+    monkeypatch.setenv("C3D_REFERENCE_DIFF", value)
     model = FakeChatModel(by_label={"judge": [good_reply(REF, ["A1", "A2"], 0.8)]})
     _judge(model, cache_dir=cache_dir).judge(ref_input)
     assert all(not r.label.startswith("reference_diff") for r in model.requests)

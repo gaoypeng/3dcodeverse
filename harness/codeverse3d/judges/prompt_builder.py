@@ -15,9 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-import os
 import random
-import threading
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -40,6 +38,7 @@ from codeverse3d.contracts.plan import AcceptanceItem
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import OBJECT_CLAY_VIEWS, OBJECT_VIEWS, SCENE_VIEWS, ViewPreset
 from codeverse3d.judges.rubrics import VETO_PENETRATION_DEPTH_M, Rubric
+from codeverse3d.proc import unique_tmp
 from codeverse3d.spatial.connectivity import PENETRATION_ERROR_M, PENETRATION_WARN_M
 from codeverse3d.spatial.measure import measure_summary_table
 from codeverse3d.spatial.sheet import crop_region, load_font, montage_2x2
@@ -81,12 +80,6 @@ def view_az_el(view: RenderView) -> tuple[float, float] | None:
     return None
 
 
-def _cache_key(src: Path, max_px: int, label: str) -> str:
-    st = src.stat()
-    h = hashlib.sha1(f"{src.resolve()}|{st.st_mtime_ns}|{st.st_size}|{max_px}|{label}".encode())
-    return h.hexdigest()[:20]
-
-
 def prepare_image(
     src: str | Path, *, label: str = "", max_px: int = 768, cache_dir: Path | None = None
 ) -> Path:
@@ -94,12 +87,9 @@ def prepare_image(
 
     Returns the cached PNG path.  Raises ``JudgeImageError`` if the source is missing.
     """
-    src = Path(src)
-    if not src.is_file():
-        raise JudgeImageError(f"judge image missing: {src}")
     cache = Path(cache_dir) if cache_dir else default_cache_dir()
     cache.mkdir(parents=True, exist_ok=True)
-    out = cache / f"{_cache_key(src, max_px, label)}.png"
+    out = cache / f"{_key([_stat(str(src)), str(max_px), label])}.png"  # _stat raises JudgeImageError
     if out.is_file():
         return out
     with Image.open(src) as im:
@@ -110,7 +100,7 @@ def prepare_image(
             im = im.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
         if label:
             im = _with_label_strip(im, label)
-        tmp = out.with_name(f"{out.stem}.{os.getpid()}-{threading.get_ident()}.tmp.png")  # unique per writer: concurrent judges share the cache
+        tmp = unique_tmp(out)  # unique per writer: concurrent judges share the cache
         im.save(tmp, format="PNG", optimize=True)
         tmp.replace(out)  # atomic; a concurrent identical write simply wins last
     return out
@@ -353,10 +343,6 @@ def _stat(p: str) -> str:
     return f"{path.resolve()}|{st.st_mtime_ns}|{st.st_size}"
 
 
-def _tmp(out: Path) -> Path:
-    return out.with_name(f"{out.stem}.{os.getpid()}-{threading.get_ident()}.tmp.png")
-
-
 def render_montage(m: Montage, *, cache_dir: Path | None = None, tile_px: int = 512) -> Path:
     """Build (or fetch from cache) the PNG for one montage; pass-through sheets return their source.
 
@@ -372,13 +358,13 @@ def render_montage(m: Montage, *, cache_dir: Path | None = None, tile_px: int = 
         v = m.tiles[0]
         out = cache / f"crop_{_key([_stat(v.path), str(m.crop), str(tile_px)])}.png"
         if not out.is_file():
-            tmp = crop_region(v.path, _tmp(out), m.crop or (0.0, 0.0, 1.0, 1.0), min_px=tile_px)
+            tmp = crop_region(v.path, unique_tmp(out), m.crop or (0.0, 0.0, 1.0, 1.0), min_px=tile_px)
             tmp.replace(out)
         return out
     images = [(tile_label(v), v.path) for v in m.tiles]
     out = cache / f"montage_{_key([_stat(p) + '|' + lbl for lbl, p in images] + [str(tile_px)])}.png"
     if not out.is_file():
-        tmp = montage_2x2(images, _tmp(out), tile=tile_px)
+        tmp = montage_2x2(images, unique_tmp(out), tile=tile_px)
         tmp.replace(out)
     return out
 
@@ -512,7 +498,7 @@ def measurement_section(m: Measurement | None) -> str:
 
 
 #: MEASURED STRUCTURE clips.  p90 of the 321 stored static_object rounds that report a
-#: contact count is 26 contacts (2026-08-30, scratch corpus_ledger.py over bench/out); the
+#: contact count is 26 contacts (2026-08-30, scratch corpus_ledger.py over eval/bench/out); the
 #: whole block has to stay near 500 tokens on such a round, so contacts and planned joins
 #: are cut with an "… n more" rather than listed to the end.
 LEDGER_MAX_CONTACTS = 24
@@ -548,7 +534,7 @@ def contact_ledger(gates: list[GateReport]) -> tuple[GateReport, GateFinding] | 
 def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: int = 8) -> str:
     """The judge's gate facts.  ERRORs are listed as recorded.  With a contact ledger the
     connectivity WARNs are not prose any more: the audit of 420 judged static rounds
-    (2026-08-30, docs/EVAL.md §6) found the judge marking interpenetration on every gate
+    (2026-08-30, eval/docs/EVAL.md §6) found the judge marking interpenetration on every gate
     ERROR (69/69) and on 110 rounds whose only evidence was a WARN the rubric tells it to
     ignore — it read the gate's sentences, not the images (same images, gate text removed:
     13 of 24 flags flipped).  So the WARNs become one measured line and a MEASURED STRUCTURE
@@ -827,7 +813,7 @@ RIG_RULES: dict[str, str] = {
     ),
     "geometry": "The GEOMETRY-ONLY montage shows the same object without materials/lighting: use it for holes, inverted (black) faces, intersections and floating parts; use the SHADED montage for materials and detail.",
     "poses": "POSE tiles show the SAME object with joints moved by the harness (tile label = joint@value or rest). Judge articulation only from them and the joint table.",
-    "scene_cams": "Views named overview_* are harness cameras fitted to the scene bounds (layout X-ray); views named cam_* are the scene's own authored cameras (grade composition/lighting on those); 't=' is the animation time.",
+    "scene_cams": "Views named overview_* and eye_* are harness cameras fitted to the scene bounds (layout X-ray); every other view is one of the scene's own authored cameras (grade composition/lighting on those); 't=' is the animation time.",
     "scene_craft": "On the authored cameras also read the CRAFT of the picture, not only its contents: depth layering (is there anything within a few metres framing the shot, and anything on the horizon), ground variation (blended materials, paths, dressed edges vs one flat colour), variety among repeated natural elements, small-prop dressing, and aerial perspective (distant things hazier than near ones). The same camera at two times appears as separate tiles — compare them pixel-for-pixel before answering nothing_moves.",
     "object": "All views show the same object. Use top + low views for symmetry, footprint and ground contact.",
 }

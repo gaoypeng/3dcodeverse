@@ -684,7 +684,7 @@ SCORING_VERSION = 2
 """The arithmetic downstream of the model, stamped into every ``ScoreBreakdown``.
 
 A stored verdict is reproducible from its samples only under the version that wrote
-it (``bench/rejudge_offline.py --identity`` compares nothing else); an older stamp is
+it (``eval/bench/rejudge_offline.py --identity`` compares nothing else); an older stamp is
 drift to report, not a fault.
 
 0 — before 2026-08-26 (no stamp on disk): majority vote, penalties, the cap ladder.

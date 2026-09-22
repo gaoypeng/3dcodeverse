@@ -18,24 +18,23 @@ to treat as a glitch, never as a score.
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import logging
-import os
 import re
 import shutil
-import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from codeverse3d.config import get_settings
+from codeverse3d.config import env_flag, get_settings
 from codeverse3d.contracts.artifacts import Judgment, RenderView
 from codeverse3d.contracts.chat import ChatRequest, ChatResponse
 from codeverse3d.contracts.common import Usage
 from codeverse3d.judges.base import SLICE_TRACKS, JudgeInput
 from codeverse3d.judges.prompt_builder import (
+    _key,
+    _stat,
     build_judge_messages,
     connectivity_error_pairs,
     default_cache_dir,
@@ -52,7 +51,7 @@ from codeverse3d.judges.rubrics import (
     wire_schema,
 )
 from codeverse3d.models.base import ChatModel, ModelError
-from codeverse3d.proc import fan_out
+from codeverse3d.proc import fan_out, unique_tmp
 from codeverse3d.reference import compare, conflict_note
 from codeverse3d.spatial.silhouette import best_view_match, compare_silhouette
 
@@ -280,13 +279,10 @@ class VlmJudge:
         from codeverse3d.spatial.sections import SliceManifest, judge_slices
 
         cache = Path(self.cache_dir) if self.cache_dir else default_cache_dir()
-        st = glb.stat()
-        key = hashlib.sha1(
-            f"{glb.resolve()}|{st.st_mtime_ns}|{st.st_size}|{pairs}".encode()).hexdigest()[:20]
-        out_dir = cache / f"slices_{key}"
+        out_dir = cache / f"slices_{_key([_stat(str(glb)), str(pairs)])}"
         mpath = out_dir / "manifest.json"
         if not mpath.is_file():
-            tmp = cache / f"slices_{key}.{os.getpid()}-{threading.get_ident()}.tmp"
+            tmp = unique_tmp(out_dir)
             shutil.rmtree(tmp, ignore_errors=True)
             try:
                 judge_slices(glb, pairs, tmp)
@@ -359,7 +355,8 @@ def iou_to_score(iou: float) -> float:
 
 
 def _diff_enabled(flag: bool) -> bool:
-    return flag and os.environ.get(_ENV_DIFF, "on").strip().lower() not in ("0", "off", "false", "no")
+    """``$C3D_REFERENCE_DIFF`` at call time; a typo reads as OFF (``config.env_flag``)."""
+    return flag and env_flag(_ENV_DIFF, True)
 
 
 def _is_synth(note: str) -> bool:

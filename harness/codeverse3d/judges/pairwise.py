@@ -22,8 +22,9 @@ from pydantic import BaseModel, Field
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import RenderSet
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart, TextPart
-from codeverse3d.contracts.common import Usage
+from codeverse3d.contracts.common import Track, Usage
 from codeverse3d.contracts.spec import Spec
+from codeverse3d.judges.base import judged_subset
 from codeverse3d.judges.prompt_builder import (
     MONTAGE_TILE_PX,
     brief_section,
@@ -167,7 +168,7 @@ class PairwiseJudge:
         )
         parts: list[TextPart | ImagePart] = [TextPart(text=text)]
         for tag, rs in (("A", first), ("B", second)):
-            for lbl, ip in self._side_images(tag, rs):
+            for lbl, ip in self._side_images(tag, rs, scene=spec.track is Track.SCENE):
                 parts.append(TextPart(text=lbl))
                 parts.append(ip)
         parts.append(TextPart(text="Compare A and B and return the JSON object."))
@@ -177,9 +178,11 @@ class PairwiseJudge:
             max_wait_s=900.0, label=label,
         )
 
-    def _side_images(self, tag: str, rs: RenderSet) -> list[tuple[str, ImagePart]]:
-        """One 2×2 montage of the candidate's most informative views (plus its pose sheet / geometry montage if any)."""
-        montages = plan_montages(rs, scene=False, max_montages=2, detail_crops=0)
+    def _side_images(self, tag: str, rs: RenderSet, *, scene: bool) -> list[tuple[str, ImagePart]]:
+        """One 2×2 montage of the candidate's most informative views (plus its pose sheet / geometry
+        montage if any), from the views the verdict judge saw, ranked for the track: a scene's
+        own cameras first, as the verdict judge ranks them."""
+        montages = plan_montages(judged_subset(rs), scene=scene, max_montages=2, detail_crops=0)
         out: list[tuple[str, ImagePart]] = []
         for i, m in enumerate(montages, 1):
             if len(m.tiles) > self.views_per_side:
