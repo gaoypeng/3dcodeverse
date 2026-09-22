@@ -5,7 +5,12 @@ argv: ``gemini -p <prompt> -m <model> --approval-mode yolo --skip-trust --output
 * env hardening: host secrets stripped, one pool key as ``GEMINI_API_KEY``,
   ``GEMINI_CLI_SYSTEM_SETTINGS_PATH`` (per session, in the trajectory dir) forcing
   api-key auth + dynamic model configuration (otherwise an unknown model is *silently*
-  substituted), the 3dcode MCP server and ``mcp.allowed``, Node heap cap, no self-relaunch.
+  substituted), ``skills.enabled``, the 3dcode MCP server and ``mcp.allowed``, Node heap
+  cap, no self-relaunch.
+* tool trace: gemini-cli's own chat record of the session (``~/.gemini/tmp/<project>/
+  chats/session-*.jsonl``) is folded into the transcript as ``tool_call`` rows
+  (``cli_common.record_tool_calls``) — ``--output-format json`` carries only per-tool
+  COUNTS, and ``stream-json`` would cost the per-model ``thoughts`` tokens pricing needs.
 * JSON envelope ``{session_id, response, stats:{models:{<m>:{tokens:{prompt,
   input, candidates, cached, thoughts}}}, tools:{totalCalls}}}`` → Usage (+ cost
   via pricing).  ``tokens.prompt`` is the TOTAL prompt size and ``tokens.input``
@@ -19,9 +24,15 @@ argv: ``gemini -p <prompt> -m <model> --approval-mode yolo --skip-trust --output
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
 import json
 import logging
+import os
+import re
+import sqlite3
 import time
+from collections.abc import Iterable, Mapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -29,6 +40,7 @@ from typing import Any
 from codeverse3d.agents.cli_common import (
     CompletedProc,
     Session,
+    ToolCall,
     begin_session,
     deliver_prompt,
     exists_on_path,
@@ -40,6 +52,7 @@ from codeverse3d.agents.cli_common import (
     is_quota_failure,
     is_transient_failure,
     mcp_command_for,
+    record_tool_calls,
     release_session,
     tail,
     watchdog_error,
@@ -50,17 +63,27 @@ from codeverse3d.contracts.agent import AgentJob, AgentResult
 from codeverse3d.contracts.common import Usage
 from codeverse3d.models.pricing import estimate_cost
 from codeverse3d.models.retry import KeyPool, KeyPoolExhausted
-from codeverse3d.proc import run_subprocess
+from codeverse3d.proc import read_jsonl_lenient, run_subprocess
 
 log = logging.getLogger(__name__)
 
 SYSTEM_SETTINGS = {
     # folderTrust must be OFF: with it on, gemini-cli silently disables the workspace
-    # .gemini/settings.json mcpServers (even with --skip-trust) → no 3dcode tools.
+    # .gemini/settings.json mcpServers (even with --skip-trust) → no 3dcode tools.  It is
+    # also what keeps the WORKSPACE skill roots visible: 0.53's SkillManager.discoverSkills
+    # skips <ws>/.gemini/skills and <ws>/.agents/skills when the folder is not trusted, and
+    # isTrustedFolder() is true exactly when folderTrust is off.
     "security": {"auth": {"selectedType": "gemini-api-key"}, "folderTrust": {"enabled": False}},
     "experimental": {"dynamicModelConfiguration": True},
     "general": {"topicUpdateNarration": False},
+    # default true in 0.53, but a user's ~/.gemini/settings.json (or an agent-written
+    # ws/.gemini/settings.json) could turn it off; this file is merged LAST, so the routed
+    # bundles stay indexed and ``activate_skill`` stays registered (2026-09-22)
+    "skills": {"enabled": True},
 }
+#: gemini-cli's skill-activation tool (0.53: ``activate_skill``, arg ``name``); the body
+#: comes back in the tool result, so its call — not a file read — is the activation
+GEMINI_SKILL_TOOL = "activate_skill"
 #: how long a retry waits for a *different* healthy key before reusing the same one
 RETRY_KEY_WAIT_S = 10.0
 #: attempts allowed when the failure is a quota 429 (transient non-quota failures keep 2)
@@ -109,6 +132,47 @@ def write_system_settings(path: Path | None = None, *, mcp_command: list[str] | 
 def parse_gemini_json(stdout: str) -> dict[str, Any] | None:
     """The CLI prints one (indented, multi-line) JSON object, possibly after log noise."""
     return find_json_object(stdout, lambda d: True)
+
+
+def gemini_chat_records(ws_root: Path, since: float, env: Mapping[str, str] | None = None) -> list[Path]:
+    """gemini-cli's OWN record of the sessions it ran in ``ws_root`` since ``since`` (epoch s).
+
+    0.53 appends every session to ``<home>/.gemini/tmp/<project>/chats/session-<ts>-<id8>.jsonl``
+    (``<home>`` is ``GEMINI_CLI_HOME`` or ``~``) and names the project dir's workspace in its
+    ``.project_root``.  Found by that marker plus mtime rather than by ``session_id``: a
+    session the watchdog killed printed no JSON envelope, and its record is still on disk.
+    Sessions on one workspace are serialised (``cli_common.EXCLUSIVE_KINDS``), so every
+    record written after ``since`` is this session's."""
+    home = Path((env if env is not None else os.environ).get("GEMINI_CLI_HOME") or Path.home())
+    want = {str(ws_root), str(Path(ws_root).resolve())}
+    for marker in (home / ".gemini" / "tmp").glob("*/.project_root"):
+        try:
+            if marker.read_text().strip() not in want:
+                continue
+        except OSError:
+            continue
+        return sorted(p for p in (marker.parent / "chats").rglob("session-*.json*")
+                      if p.is_file() and p.stat().st_mtime >= since)
+    return []
+
+
+def gemini_tool_calls(records: Iterable[Path]) -> list[ToolCall]:
+    """Every tool call in those chat records, once per call id (the record is append-only:
+    a message is re-written as it progresses, and the last copy wins)."""
+    calls: dict[str, ToolCall] = {}
+    for path in records:
+        for row in read_jsonl_lenient(path, dicts_only=True):
+            update = row.get("$set") if isinstance(row.get("$set"), dict) else {}
+            for msg in (row, *(update.get("messages") or [])):
+                for tc in (msg.get("toolCalls") if isinstance(msg, dict) else None) or []:
+                    if not isinstance(tc, dict):
+                        continue
+                    name = str(tc.get("name") or "")
+                    args = tc.get("args") if isinstance(tc.get("args"), dict) else {}
+                    calls[str(tc.get("id") or f"{path.name}#{len(calls)}")] = ToolCall(
+                        tool=name, args=args, skill=str(args.get("name") or "") if name == GEMINI_SKILL_TOOL else "",
+                        failed=tc.get("status") in ("error", "cancelled"))
+    return list(calls.values())
 
 
 def _model_usage(tok: dict[str, Any], name: str) -> Usage:
@@ -235,8 +299,10 @@ class GeminiCliAgent(_CliAgent):
                 attempts += 1
                 used.add(key)
                 try:
-                    proc = invoke(s, self.build_argv(prompt), self.build_env(s, key), prompt=prompt, attempt=attempts,
+                    started, env = time.time(), self.build_env(s, key)
+                    proc = invoke(s, self.build_argv(prompt), env, prompt=prompt, attempt=attempts,
                                   soft_timeout_s=next_soft, model=self.model, key_tail=key[-4:])
+                    self._record_trace(s, started, env)
                     outcome = self._interpret(s, proc)
                     usage_total = usage_total + outcome["usage"]
                     # the pool is shared with every API call: a hang, a substituted model or the
@@ -276,6 +342,17 @@ class GeminiCliAgent(_CliAgent):
             )
         finally:
             release_session(s)
+
+    def _record_trace(self, s: Session, started: float, env: Mapping[str, str]) -> None:
+        """This attempt's tool calls, from gemini-cli's own chat record — never fatal."""
+        try:
+            records = gemini_chat_records(s.ws.root, started, env)
+            if records:
+                record_tool_calls(s, gemini_tool_calls(records), source="gemini-cli chat record")
+            else:
+                s.notes.append("no gemini-cli chat record found for this attempt: tool trace missing")
+        except Exception as e:  # noqa: BLE001 — the trace is telemetry; a session must never fail on it
+            log.debug("gemini-cli chat record unreadable: %s", e)
 
     def _interpret(self, s: Session, proc: CompletedProc) -> dict[str, Any]:
         parsed = parse_gemini_json(proc.stdout)
@@ -327,15 +404,63 @@ def _compose_prompt(job: AgentJob) -> str:
 #: ignoring them.  It only ever opens files already inside the workspace.
 ALLOWED_TOOLS = ("Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "Skill",
                  "Bash(node:*)", "Bash(python:*)", "Bash(python3:*)", "Bash(ls:*)", f"mcp__{MCP_SERVER_NAME}__*")
+#: claude-code's skill-activation tool (2.1.280: input ``{"skill": <name>, "args"?}``)
+CLAUDE_SKILL_TOOL = "Skill"
 
 
 def parse_claude_json(stdout: str) -> dict[str, Any] | None:
-    """The ``type == "result"`` envelope, else the last JSON line (a stream-json array
-    without a result event is no envelope)."""
+    """The ``type == "result"`` envelope, else the one JSON document ``--output-format
+    json`` printed.  A stream (a stream-json array, or the JSONL ``--output-format
+    stream-json`` writes) without its result event is no envelope: its last line is an
+    assistant turn of a session that never finished."""
     env = find_json_object(stdout, lambda d: d.get("type") == "result")
     if env is not None or stdout.lstrip().startswith("["):
         return env
+    if sum(1 for line in stdout.splitlines() if line.lstrip().startswith("{")) > 1:
+        return None
     return find_json_object(stdout, lambda d: True)
+
+
+class ClaudeStream:
+    """Folded view over ``--output-format stream-json``: the tool calls the session made,
+    and the skill index its ``init`` event reported (the list the model was shown).
+
+    Since 2026-09-22 the backend streams instead of printing one envelope: the envelope
+    (the last, ``type == "result"`` line) is unchanged, and the lines before it are the
+    only record of which skills the session activated (docs/SKILLS.md §9 — "the logs
+    contain zero occurrences of any c3d- name" under ``--output-format json``)."""
+
+    def __init__(self) -> None:
+        self.calls: list[ToolCall] = []
+        self.skills: list[str] | None = None
+        self._at: dict[str, int] = {}  # tool_use id → index in calls, for its tool_result
+
+    def feed(self, line: str) -> None:
+        line = line.strip()
+        if not line.startswith("{"):
+            return
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            return  # a >1 MB line arrives chunked (proc._LINE_CAP_BYTES): a Write, never a Skill call
+        if not isinstance(ev, dict):
+            return
+        if ev.get("type") == "system" and ev.get("subtype") == "init":
+            self.skills = [str(x) for x in ev.get("skills") or []]
+        elif ev.get("type") in ("assistant", "user"):
+            for block in (ev.get("message") or {}).get("content") or []:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "tool_use":
+                    name = str(block.get("name") or "")
+                    args = block.get("input") if isinstance(block.get("input"), dict) else {}
+                    self._at[str(block.get("id"))] = len(self.calls)
+                    self.calls.append(ToolCall(tool=name, args=args, skill=str(args.get("skill") or "")
+                                               if name == CLAUDE_SKILL_TOOL else ""))
+                elif block.get("type") == "tool_result" and block.get("is_error") is True:
+                    i = self._at.get(str(block.get("tool_use_id")))
+                    if i is not None:
+                        self.calls[i] = dataclasses.replace(self.calls[i], failed=True)
 
 
 def usage_from_envelope(env: dict[str, Any], model: str) -> Usage:
@@ -395,7 +520,10 @@ class ClaudeCodeAgent(_CliAgent):
 
     def build_argv(self, s: Session, prompt: str) -> list[str]:
         job = s.job
-        argv = [self.binary, "-p", prompt, "--output-format", "json", "--dangerously-skip-permissions",
+        # stream-json (+ the --verbose it requires in -p mode): same final envelope, plus the
+        # tool calls the skill read probe reads as ground truth (ClaudeStream)
+        argv = [self.binary, "-p", prompt, "--output-format", "stream-json", "--verbose",
+                "--dangerously-skip-permissions",
                 "--max-turns", str(job.max_turns), "--no-session-persistence",
                 "--allowedTools", ",".join(ALLOWED_TOOLS)]
         if self.model:
@@ -427,7 +555,9 @@ class ClaudeCodeAgent(_CliAgent):
             if not ok:
                 return failed(s, "error", why)
             prompt = deliver_prompt(s, job.prompt)
-            proc = invoke(s, self.build_argv(s, prompt), self.build_env(s), prompt=prompt)
+            stream = ClaudeStream()
+            proc = invoke(s, self.build_argv(s, prompt), self.build_env(s), prompt=prompt, on_stdout=stream.feed)
+            record_tool_calls(s, stream.calls, source="claude-code stream-json", skills_index=stream.skills)
             env = parse_claude_json(proc.stdout)
             usage = usage_from_envelope(env, self.model) if env else Usage(backend=self.kind, model=self.model)
             usage.latency_ms = usage.latency_ms or int(proc.duration_s * 1000)
@@ -466,6 +596,10 @@ class ClaudeCodeAgent(_CliAgent):
 # ===================================================================== codex
 STDIN_PROMPT_BYTES = 100_000
 _TOOL_ITEMS = ("command_execution", "file_change", "mcp_tool_call", "web_search", "tool_call")
+#: the item fields a tool trace keeps: what was run, never what came back.  codex has no
+#: skill tool — it lists skills in its prompt and opens SKILL.md with a shell command, so
+#: the command string IS the activation record (0.155.1)
+_TRACE_KEYS = ("command", "server", "tool", "arguments", "changes", "query")
 
 #: what ``-c model_reasoning_effort=`` accepts; ``""`` means "leave it to ~/.codex/config.toml"
 REASONING_EFFORTS = ("", "minimal", "low", "medium", "high", "xhigh")
@@ -504,6 +638,7 @@ class CodexEvents:
                                           "reasoning_output_tokens": 0, "cache_write_input_tokens": 0}
         self.thread_id = ""
         self.n_events = 0
+        self.calls: list[ToolCall] = []
 
     def feed(self, line: str) -> None:
         line = line.strip()
@@ -524,6 +659,9 @@ class CodexEvents:
                 self.messages.append(str(item.get("text", "")))
             elif it in _TOOL_ITEMS:
                 self.tool_calls += 1
+                self.calls.append(ToolCall(tool=it, args={k: item[k] for k in _TRACE_KEYS if k in item},
+                                           failed=item.get("status") in ("failed", "declined")
+                                           or item.get("exit_code") not in (None, 0)))
         elif t == "turn.completed":
             self.turns_completed += 1
             for k in self.usage_raw:
@@ -594,6 +732,7 @@ class CodexAgent(_CliAgent):
             events = CodexEvents()
             proc = invoke(s, argv, self.build_env(s), prompt=prompt, stdout_name="stdout.jsonl",
                           on_stdout=events.feed, stdin=prompt if via_stdin else None)
+            record_tool_calls(s, events.calls, source="codex exec --json")
             usage = events.usage(self.model)
             usage.latency_ms = int(proc.duration_s * 1000)
             text = "\n\n".join(m for m in events.messages if m.strip())
@@ -677,6 +816,89 @@ def parse_agy_json(stdout: str) -> dict[str, Any] | None:
     return find_json_object(stdout, lambda d: "response" in d or "status" in d)
 
 
+#: where agy 1.2.2 keeps each conversation: one SQLite file named by the envelope's
+#: ``conversation_id``, a ``steps`` table whose ``step_payload`` is protobuf
+AGY_CONVERSATIONS = Path.home() / ".gemini" / "antigravity-cli" / "conversations"
+#: a tool call inside a step payload is three consecutive strings — its id, the tool name,
+#: the JSON arguments (``call_4419682`` · ``view_file`` · ``{"AbsolutePath": ...}``), read out
+#: of recorded conversations; no schema needed, and a tool result step that echoes the
+#: call is folded by the id
+_AGY_CALL_ID = re.compile(r"call_\w+")
+_AGY_TOOL = re.compile(r"[a-z][a-z0-9_]*")
+
+
+def _varint(buf: bytes, i: int) -> tuple[int, int]:
+    value = shift = 0
+    while True:
+        if i >= len(buf) or shift > 63:
+            raise ValueError("bad varint")
+        b = buf[i]
+        i += 1
+        value |= (b & 0x7F) << shift
+        shift += 7
+        if not b & 0x80:
+            return value, i
+
+
+def _pb_strings(buf: bytes, depth: int = 0) -> list[str]:
+    """Every printable UTF-8 string in a protobuf message, nested messages included, in
+    wire order — a schema-free walk; raises ValueError on bytes that are not protobuf."""
+    out: list[str] = []
+    i = 0
+    while i < len(buf):
+        key, i = _varint(buf, i)
+        wire = key & 7
+        if key >> 3 == 0:
+            raise ValueError("field number 0")
+        if wire == 0:
+            _, i = _varint(buf, i)
+        elif wire in (1, 5):
+            i += 8 if wire == 1 else 4
+        elif wire == 2:
+            n, i = _varint(buf, i)
+            chunk, i = buf[i:i + n], i + n
+            if len(chunk) != n:
+                raise ValueError("truncated field")
+            try:
+                text = chunk.decode("utf-8")
+            except UnicodeDecodeError:
+                text = ""
+            if text and all(ch.isprintable() or ch in "\n\r\t" for ch in text):
+                out.append(text)
+            elif depth < 8 and chunk:
+                with contextlib.suppress(ValueError):  # a bytes field, not a nested message
+                    out += _pb_strings(chunk, depth + 1)
+        else:
+            raise ValueError(f"wire type {wire}")
+    return out
+
+
+def agy_tool_calls(db: Path) -> list[ToolCall]:
+    """Every tool call recorded in one agy conversation database, once per call id.
+
+    agy 1.2.2 has no skill tool: its prompt lists the skills and the model opens
+    ``SKILL.md`` with ``view_file``, so the file path IS the activation record."""
+    calls: dict[str, ToolCall] = {}
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        for (payload,) in con.execute("SELECT step_payload FROM steps ORDER BY idx"):
+            try:
+                strs = _pb_strings(payload or b"")
+            except ValueError:
+                continue
+            for call_id, tool, raw in zip(strs, strs[1:], strs[2:], strict=False):
+                if not (_AGY_CALL_ID.fullmatch(call_id) and _AGY_TOOL.fullmatch(tool) and raw.startswith("{")):
+                    continue
+                try:
+                    args = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                calls.setdefault(call_id, ToolCall(tool=tool, args=args if isinstance(args, dict) else {}))
+    finally:
+        con.close()
+    return list(calls.values())
+
+
 def usage_from_agy(env: dict[str, Any], model: str) -> Usage:
     u = env.get("usage") or {}
     return Usage(
@@ -714,6 +936,19 @@ class AntigravityAgent(_CliAgent):
     def build_env(self, s: Session) -> dict[str, str]:
         return hardened_env(s.ws, s.job)
 
+    def _record_trace(self, s: Session, conversation_id: str) -> int:
+        """The session's tool calls, from agy's own conversation database — never fatal.
+        Returns how many (agy's JSON envelope carries no tool count of its own)."""
+        db = AGY_CONVERSATIONS / f"{conversation_id}.db" if conversation_id else None
+        if db is None or not db.is_file():
+            s.notes.append("no agy conversation record found for this session: tool trace missing")
+            return 0
+        try:
+            return record_tool_calls(s, agy_tool_calls(db), source="agy conversation db")
+        except Exception as e:  # noqa: BLE001 — the trace is telemetry; a session must never fail on it
+            log.debug("agy conversation %s unreadable: %s", db, e)
+            return 0
+
     def run(self, job: AgentJob) -> AgentResult:
         ok, why = self.available()
         s = begin_session(job, self.kind)
@@ -723,6 +958,7 @@ class AntigravityAgent(_CliAgent):
             prompt = deliver_prompt(s, _compose_prompt_agy(s))
             proc = invoke(s, self.build_argv(s, prompt), self.build_env(s), prompt=prompt)
             env = parse_agy_json(proc.stdout)
+            n_calls = self._record_trace(s, str((env or {}).get("conversation_id") or ""))
             served = self.served_model()
             usage = usage_from_agy(env, served) if env else Usage(backend=self.kind, model=served)
             usage.latency_ms = usage.latency_ms or int(proc.duration_s * 1000)
@@ -743,8 +979,9 @@ class AntigravityAgent(_CliAgent):
                 errors.append("empty response")
             else:
                 ok, reason = True, "completed"
+            usage.tool_calls = n_calls
             return finish_session(
-                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=0,
+                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=n_calls,
                 turns=int((env or {}).get("num_turns") or 0), errors=errors,
                 rc=proc.rc, killed_reason=proc.killed_reason,
                 conversation_id=(env or {}).get("conversation_id", ""), num_turns=(env or {}).get("num_turns", 0),

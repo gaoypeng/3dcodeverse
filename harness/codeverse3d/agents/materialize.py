@@ -19,8 +19,11 @@ new one (docs/COST.md §13 measured and reverted a second head at +2,925 tokens/
 Nothing here needs to change for the CLIs to see them: codex's per-tool approval override
 below is scoped to ``mcp_servers.3dcode.*`` and cannot reach its skills loader, and
 gemini-cli's ``activate_skill`` consent is already covered by ``--approval-mode yolo``.
-claude-code needed one change — ``Skill`` in its ``--allowedTools``
-(``agents/backends.ALLOWED_TOOLS``).
+The per-backend wiring lives in ``agents/backends.py``: claude-code needs ``Skill`` in its
+``--allowedTools`` (``ALLOWED_TOOLS``), gemini-cli needs ``skills.enabled`` and folder trust
+off in its per-session system settings (``SYSTEM_SETTINGS``: 0.53 skips both workspace skill
+roots in an untrusted folder), and each backend records what its CLI activated
+(``cli_common.record_tool_calls``) — re-read against the installed CLIs 2026-09-22.
 
 Ignore files: ``.geminiignore`` / ``.aiexclude`` hide only noise (:data:`IGNORE_LINES`);
 ``.gemini/settings.json`` gets ``context.fileFiltering.respectGitIgnore=false`` because the

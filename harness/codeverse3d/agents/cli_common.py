@@ -621,6 +621,63 @@ def watchdog_error(proc: CompletedProc) -> str:
     return f"killed by watchdog ({proc.killed_reason}) after {proc.duration_s:.0f}s"
 
 
+# --------------------------------------------------------------------------- tool trace
+#: The CLI's OWN record of what it called, normalised into ``transcript.jsonl`` by every
+#: backend after its session: one :data:`TOOL_CALL_ROW` per call, then ONE
+#: :data:`TOOL_TRACE_ROW` saying "this session's calls are all here" — a session without
+#: it left no trace, and its silence must not read as "called nothing".  The skill read
+#: probe (``skills/telemetry.py``) reads these rows instead of file atimes, which its own
+#: control bundle caught "reading" in 27 of 33 sessions (docs/SKILLS.md §9).  Arguments are
+#: compacted to :data:`TRACE_ARG_CHARS` per value: a path survives, a file body does not.
+TOOL_CALL_ROW = "tool_call"
+TOOL_TRACE_ROW = "tool_trace"
+TRACE_ARG_CHARS = 400
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    """One tool call as the CLI reported it.  ``skill`` names the bundle when the call was
+    the CLI's own skill-activation tool (claude-code ``Skill``, gemini-cli ``activate_skill``),
+    so a reader of the trace never needs any vendor's tool vocabulary; ``failed`` is the
+    CLI's own verdict on the call (a ``sed`` of a mis-expanded skill path read nothing —
+    codex 0.155.1 did exactly that on its first try, 2026-09-22)."""
+
+    tool: str
+    args: Mapping[str, Any] = field(default_factory=dict)
+    skill: str = ""
+    failed: bool = False
+
+
+def _compact(value: Any, limit: int = TRACE_ARG_CHARS) -> Any:
+    if isinstance(value, Mapping):
+        return {str(k): _compact(v, limit) for k, v in value.items()}
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def record_tool_calls(s: Session, calls: Iterable[ToolCall], *, source: str,
+                      skills_index: Sequence[str] | None = None) -> int:
+    """Append one session's tool calls and the closing :data:`TOOL_TRACE_ROW`; returns the count.
+
+    ``source`` says where the backend read them (its event stream, its chat record);
+    ``skills_index`` is the skill list the CLI itself reported as available, when it
+    reports one (claude-code's ``init`` event) — the proof the index reached the model."""
+    n = 0
+    for c in calls:
+        row: dict[str, Any] = {"tool": c.tool, "args": _compact(dict(c.args))}
+        if c.skill:
+            row["skill"] = c.skill
+        if c.failed:
+            row["failed"] = True
+        s.traj.append(TOOL_CALL_ROW, **row)
+        n += 1
+    extra: dict[str, Any] = {"skills_index": list(skills_index)} if skills_index is not None else {}
+    s.traj.append(TOOL_TRACE_ROW, calls=n, source=source, **extra)
+    return n
+
+
 # --------------------------------------------------------------------------- failures
 _TRANSIENT_RE = re.compile(
     r"(\b429\b|RESOURCE_EXHAUSTED|rate.?limit|quota|\b503\b|UNAVAILABLE|overloaded|"
