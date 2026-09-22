@@ -97,6 +97,16 @@ Arms:
   plan, repair); `x` ∈ `claude-code[:model]` · `codex[:model]` · `gemini|anthropic|openai:<model>`.
 * `oneshot+repair:<x>` — same plus ≤ `--repair-attempts` build-error-feedback retries
   (labelled; never judge feedback).
+* `agent:<generator-id>` — the **bare agent** (`bench/_bare_agent.py`, 2026-09-22): the same vendor
+  CLI and model the harness drives, the one-shot brief + minimal contract, a shell with the
+  machine's own tools (Blender, node + three + puppeteer, python + moderngl, glslangValidator) and
+  `--max-minutes` of wall clock — and no plan, no 3dcode MCP tools, no cookbook, no gates, no
+  judge, no starter library, no deterministic repairs.  It answers "give the same agent the same
+  minutes and a Blender": the harness's lift over it is what the harness itself adds.  Smoke
+  (dining chair, 15 min): the agent wrote its own test + render scripts, looked at its PNGs, 0.682.
+  Two known asymmetries: a session killed by a 503 storm has no single-shot fallback (the harness
+  has D68), so on a storm day this arm loses more cells to `infra_failed`; and its USD is 0 when
+  the CLI dies before printing stats.
 
 Every arm ends with a `src/model.py` copied into a fresh eval workspace and scored by
 the same `FixedEvaluator` (`BlenderRuntime` lint+build → measure → connectivity →

@@ -95,7 +95,7 @@ from codeverse3d.workspace import Workspace  # noqa: E402
 
 log = logging.getLogger(__name__)
 
-ArmKind = Literal["harness", "oneshot", "oneshot+repair"]
+ArmKind = Literal["harness", "oneshot", "oneshot+repair", "agent"]
 
 
 # ----------------------------------------------------------------------------- arms / options
@@ -111,9 +111,13 @@ class Arm(BaseModel):
 
 def parse_arm(text: str) -> Arm:
     kind, sep, target = text.strip().partition(":")
-    if not sep or not target or kind not in ("harness", "oneshot", "oneshot+repair"):
-        raise ValueError(f"bad arm {text!r}: expected harness:<generator-id> | oneshot:<target> | oneshot+repair:<target>")
-    if kind != "harness":
+    if not sep or not target or kind not in ("harness", "oneshot", "oneshot+repair", "agent"):
+        raise ValueError(f"bad arm {text!r}: expected harness:<generator-id> | oneshot:<target> | oneshot+repair:<target>"
+                         " | agent:<generator-id>")
+    if kind == "agent":
+        from codeverse3d.agents.registry import parse_agent_id
+        parse_agent_id(target)  # validates the vendor id early
+    elif kind != "harness":
         get_oneshot_backend(target)  # validates the target early
     return Arm(raw=text.strip(), kind=kind, target=target)  # type: ignore[arg-type]
 
@@ -148,7 +152,7 @@ class CompareOptions(BaseModel):
 
 
 def spec_for(battery: Battery, item: BenchPrompt, arm: Arm, opts: CompareOptions) -> Spec:
-    generator = arm.target if arm.kind == "harness" else f"single-shot:{arm.target}"
+    generator = arm.target if arm.kind in ("harness", "agent") else f"single-shot:{arm.target}"
     backends = get_settings().backends(generator=generator, judge=opts.loop_judge, planner=opts.planner)
     return build_spec(battery, item, backends=backends, rounds=opts.rounds,
                       max_minutes=opts.max_minutes, tag0="compare", extra_tags=(arm.kind,))
@@ -277,6 +281,24 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOption
         shutil.copytree(run_ws.root / "public", eval_ws.root / "public", dirs_exist_ok=True)
 
 
+def _run_bare_agent(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOptions,
+                    deps: CompareDeps, res: CellResult) -> None:
+    """``agent:<generator-id>``: the same vendor CLI with a shell and the harness arm's minutes, nothing else
+    (``bench/_bare_agent.py``)."""
+    from bench._bare_agent import run_bare_agent
+
+    if spec.track is Track.SCENE:  # the render host's scaffold, exactly as a one-shot scene cell gets it
+        deps.evaluator.runtime(spec.language).skeleton(eval_ws, None)
+    result = run_bare_agent(spec, arm.target, cell, eval_ws, minutes=opts.max_minutes)
+    res.gen_cost_usd = result.usage.cost_usd
+    res.tool_calls = result.tool_calls
+    res.gen_seconds = result.duration_s
+    res.harness_status = result.exit_reason
+    if not (eval_ws.root / entry_of(spec)).is_file():
+        res.error = f"bare agent delivered no {entry_of(spec)} ({result.exit_reason}: {'; '.join(result.errors)[:300]})"
+        res.error_is_infra = bool(result.transient)
+
+
 def _new_cell(item: BenchPrompt, arm: Arm, out: Path, opts: CompareOptions) -> tuple[Path, CellResult]:
     """The cell's directory and its identity row.  ONE place knows what identifies a row,
     so run_matrix's synthesized last-resort row is shaped like every real one."""
@@ -299,6 +321,8 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
         with run_ledger(cell, run=f"{item.id}:{arm.slug}"):
             if arm.kind == "harness":
                 _run_harness(spec, cell, eval_ws, opts, deps, res)
+            elif arm.kind == "agent":
+                _run_bare_agent(arm, spec, cell, eval_ws, opts, deps, res)
             else:
                 _generate_oneshot(arm, spec, cell, eval_ws, opts, deps, res)
             # A one-shot arm whose LAST attempt was lost to the provider has not finished
@@ -307,7 +331,7 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
             # evaluated and scored 0 — a hard zero for someone else's downtime, the exact
             # asymmetry tests/compare_bench/test_infra_failures.py exists to end.  Drop the
             # cell instead (infra_failed); --redo-status re-runs the lost attempt only.
-            truncated = arm.kind != "harness" and res.error_is_infra
+            truncated = arm.kind not in ("harness", "agent") and res.error_is_infra
             if (eval_ws.root / entry_of(spec)).is_file() and not truncated:
                 outcome = deps.evaluator.evaluate(eval_ws, spec)
                 eval_ws.write_json(eval_ws.root / "eval.json", outcome)
