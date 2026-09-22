@@ -33,6 +33,7 @@ from typing import Any
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
+from bench.stats import mean_ci, n_to_resolve  # noqa: E402
 from codeverse3d.addons.skill_targets import (  # noqa: E402
     SRC_ARTIFACT,
     SRC_BUILD,
@@ -313,20 +314,19 @@ def ab_rows(arms: dict[str, Path], targets: list[Target], *, which: str,
 
 
 def confidence(deltas: list[float], control_mean: float, effect: float = 0.25) -> dict[str, Any]:
-    """Paired sd, the 2 SE band, and how many pairs a given effect would need.
+    """Paired sd, the 95 % t-interval's half-width, and how many pairs a given effect needs.
 
-    Same shape as the Confidence block ``bench/ab_plan.py`` prints for the judged score
-    (docs/EVAL.md §8), because the question is the same one and the answer is not: a
-    deterministic count has its own sd and it is NOT zero.  ``effect`` is the fraction of
-    the control mean that counts as a real move.
+    The same rule as the Confidence block ``bench/ab_plan.py`` prints for the judged score
+    (``bench/stats.py``, docs/EVAL.md §8), because the question is the same one and the
+    answer is not: a deterministic count has its own sd and it is NOT zero.  ``effect`` is
+    the fraction of the control mean that counts as a real move.
     """
-    if len(deltas) < 2:
+    ci = mean_ci(deltas)
+    if ci.sd is None:
         return {"sd": None, "se": None, "ci95": None, "n_to_resolve": None}
-    sd = statistics.stdev(deltas)
-    se = sd / len(deltas) ** 0.5
     want = abs(control_mean) * effect
-    n = None if not want or not sd else max(2, int(round((2 * sd / want) ** 2)))
-    return {"sd": sd, "se": se, "ci95": 2 * se, "n_to_resolve": n,
+    return {"sd": ci.sd, "se": ci.se, "ci95": ci.half,
+            "n_to_resolve": n_to_resolve(ci.sd, want) if want and ci.sd else None,
             "resolvable_effect": want}
 
 
@@ -351,7 +351,7 @@ def print_battery(rows: list[dict], per_run: bool) -> None:
 
 def print_ab(rows: list[dict], per_run: bool) -> None:
     print(f"{'skill':<28} {'metric':<28} {'dir':<5} {'n':>4} {'control':>9} {'variant':>9} "
-          f"{'delta':>9}  b/w/t  {'sd':>8} {'+/-2SE':>8}  n to resolve 25%")
+          f"{'delta':>9}  b/w/t  {'sd':>8} {'+/-95%t':>8}  n to resolve 25%")
     for r in rows:
         if not r["n"]:
             print(f"{r['skill']:<28} {r['metric']:<28} {r['direction']:<5}    0   (no paired run)")

@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import statistics
 import sys
 from datetime import datetime
@@ -42,6 +41,7 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
 from bench.run_bench import Battery, BenchPrompt  # noqa: E402
+from bench.stats import sign_test  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.contracts.artifacts import RenderSet, RenderView  # noqa: E402
 from codeverse3d.contracts.common import Language, Track  # noqa: E402
@@ -220,17 +220,6 @@ def sheet(row_id: str, theirs: list[Path], ours: list[Path], out_png: Path, thum
 
 
 # ----------------------------------------------------------------------------- summary
-def sign_test(deltas: list[float]) -> tuple[int, int, float]:
-    """(n_nonzero, n_positive, two-sided exact binomial p) for ours − theirs."""
-    nz = [d for d in deltas if d != 0]
-    n, k = len(nz), sum(1 for d in nz if d > 0)
-    if n == 0:
-        return 0, 0, 1.0
-    cdf = lambda m: sum(math.comb(n, i) for i in range(m + 1)) / 2 ** n  # noqa: E731
-    p = min(1.0, 2 * min(cdf(k), 1 - cdf(k - 1)))
-    return n, k, p
-
-
 def summary_md(rows: list[Row]) -> str:
     done = [r for r in rows if r.ours is not None and r.delta is not None]
     lines = ["# h2h_scene_v1 — scene track vs scene_multifile(_graphics)", "",
@@ -245,10 +234,10 @@ def summary_md(rows: list[Row]) -> str:
                      f"{t.duration_s / 60:.1f} / {t.cost_usd:.2f} | {f'{o.minutes:.1f} / {o.cost_usd:.2f}' if o else '—'} | {t.n_views}/{o.n_views if o else 0} |")
     if done:
         d = [r.delta for r in done if r.delta is not None]
-        n, k, p = sign_test(d)
+        up, down, p = sign_test(d)
         sd = statistics.stdev(d) if len(d) > 1 else 0.0
         lines += ["", f"**Paired (n={len(d)})**: mean Δ = {statistics.mean(d):+.3f}, sd = {sd:.3f}, "
-                  f"sign test: ours better on {k}/{n} (two-sided p = {p:.3f}).",
+                  f"sign test: ours better on {up}/{up + down} (two-sided p = {'n/a' if p is None else f'{p:.3f}'}).",
                   f"Mean minutes/scene: theirs {statistics.mean(r.theirs.duration_s for r in done) / 60:.1f}, ours {statistics.mean(r.ours.minutes for r in done if r.ours):.1f}; "
                   f"mean $/scene: theirs {statistics.mean(r.theirs.cost_usd for r in done):.2f}, ours {statistics.mean(r.ours.cost_usd for r in done if r.ours):.2f}."]
     else:

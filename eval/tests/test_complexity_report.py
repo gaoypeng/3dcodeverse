@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from bench import complexity_report as CR
+from bench.stats import correlation
 from codeverse3d.contracts.artifacts import Measurement
 
 REPO = Path(__file__).resolve().parents[1]
@@ -59,8 +60,8 @@ def test_collect_and_report_over_a_battery(tmp_path: Path) -> None:
     assert rows[0]["plan_parts"] == 2 and rows[0]["n_materials"] == 3
     # the whole point of the study: a monotone fall shows up as a strong negative r
     xs, ys = CR._pairs(rows, "index", "overall")
-    assert CR.pearson(xs, ys) < -0.98
-    assert CR.spearman(xs, ys) == pytest.approx(-1.0)
+    assert correlation(xs, ys) < -0.98
+    assert correlation(xs, ys, ranked=True) == pytest.approx(-1.0)
     money = CR.dollars_per_point(rows)
     assert money["runs"] == 3 and money["total_usd"] == pytest.approx(5.0)
     assert money["usd_per_point"] == pytest.approx(5.0 / (100 * (0.35 + 0.55 + 0.75)), abs=5e-5)

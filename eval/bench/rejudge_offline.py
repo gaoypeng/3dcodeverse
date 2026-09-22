@@ -43,18 +43,22 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from codeverse3d.addons.calibration import _run_label
-from codeverse3d.contracts.artifacts import GateReport, Severity
-from codeverse3d.contracts.plan import AcceptanceItem
-from codeverse3d.contracts.run import RoundRecord
-from codeverse3d.judges.rubrics import (
+for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
+    sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
+
+from bench.stats import correlation  # noqa: E402
+from codeverse3d.addons.calibration import _run_label  # noqa: E402
+from codeverse3d.contracts.artifacts import GateReport, Severity  # noqa: E402
+from codeverse3d.contracts.plan import AcceptanceItem  # noqa: E402
+from codeverse3d.contracts.run import RoundRecord  # noqa: E402
+from codeverse3d.judges.rubrics import (  # noqa: E402
     SCORING_VERSION,
     JudgeOutput,
     Rubric,
     aggregate_samples,
     load_rubric,
 )
-from codeverse3d.proc import read_json_or_none
+from codeverse3d.proc import read_json_or_none  # noqa: E402
 
 TOL = 1e-9
 
@@ -204,12 +208,6 @@ def replay_round(path: Path, rubric: Rubric | None = None) -> ReplayRow | None:
     )
 
 
-def _pearson(xs: list[float], ys: list[float]) -> float | None:
-    if len(xs) < 3 or len(set(xs)) < 2 or len(set(ys)) < 2:
-        return None
-    return round(statistics.correlation(xs, ys), 4)
-
-
 def replay_corpus(roots: list[Path], *, rubric_name: str, rubric: Rubric | None = None,
                   kinds: set[str] | None = None) -> ReplayReport:
     rows: list[ReplayRow] = []
@@ -255,7 +253,7 @@ def replay_corpus(roots: list[Path], *, rubric_name: str, rubric: Rubric | None 
         spike_600_after=sum(1 for v in after if abs(v - 0.6) < 1e-6),
         sd_before=round(statistics.pstdev(before), 4) if len(before) > 1 else 0.0,
         sd_after=round(statistics.pstdev(after), 4) if len(after) > 1 else 0.0,
-        pearson_errors_before=_pearson(errs, before), pearson_errors_after=_pearson(errs, after),
+        pearson_errors_before=correlation(errs, before), pearson_errors_after=correlation(errs, after),
         cap_counts_before=dict(caps_b), cap_counts_after=dict(caps_a),
         defect_counts_before=dict(def_b), defect_counts_after=dict(def_a),
         overridden_counts=dict(Counter(d for r in ok for d in r.overridden)),

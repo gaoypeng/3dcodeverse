@@ -118,12 +118,13 @@ def test_the_cli_runs_over_a_synthetic_battery(tmp_path, capsys):
 
 def test_the_confidence_block_says_how_many_pairs_an_effect_needs():
     from bench.skill_targets import confidence
+    from bench.stats import t975
 
     c = confidence([-1.0, 1.0, -1.0, 1.0], control_mean=4.0)
     assert c["sd"] == pytest.approx(1.1547, rel=1e-3)
-    assert c["ci95"] == pytest.approx(2 * c["se"])
+    assert c["ci95"] == pytest.approx(t975(3) * c["se"])    # the 95 % t-interval, 3 df
     assert c["resolvable_effect"] == 1.0                     # 25% of a control mean of 4
-    assert c["n_to_resolve"] == 5                            # (2*1.1547/1.0)^2
+    assert c["n_to_resolve"] == 8                            # first n with t(n-1)*1.1547/sqrt(n) <= 1.0
     assert confidence([1.0], control_mean=4.0)["sd"] is None
 
 

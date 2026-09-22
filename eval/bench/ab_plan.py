@@ -38,8 +38,8 @@ arm regenerates instead of resuming its old answer (:func:`archive_cell`).
 What the verdict does NOT tell you: the generator is stochastic, so a paired delta carries
 the spread of two independent generations, not the judge's ±0.02 sampling noise.  Run
 ``--aa`` (both arms identical) on the same battery to measure that floor; every summary
-prints the paired sd, the 2 SE band and how many pairs this spread would need before
-±0.02 is resolvable (``bench/_ab_report.NOISE_SIGMAS``).  Measured 2026-08-24: two A/A
+prints the paired sd, the 95 % t-interval and how many pairs this spread would need
+before ±0.02 is resolvable (``bench/stats.py``).  Measured 2026-08-24: two A/A
 runs of one prompt came back +0.344 and -0.100 — "keep" and "revert" from identical code.
 
 Layout of ``--out``: ``ab.json`` (the arms, options and variant env) ·
@@ -236,7 +236,7 @@ def child_env(arm: str, opts: AbOptions, base: dict[str, str] | None = None) -> 
 
     Under ``--aa`` the variant arm gets the CONTROL environment: the two arms then run
     byte-identical code and the measured delta is the rig's own noise floor, which is the
-    number every A/B verdict has to be read against (``bench/_ab_report.NOISE_SIGMAS``).
+    number every A/B verdict has to be read against (the Confidence block of ``summary.md``).
     """
     env = dict(os.environ if base is None else base)
     for k in opts.variant_env:

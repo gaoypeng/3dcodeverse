@@ -11,7 +11,8 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from bench._compare_report import CellResult  # noqa: E402
-from bench.paired_compare import analyse, latest_cells, main, paired, t975  # noqa: E402
+from bench.paired_compare import analyse, latest_cells, main, paired  # noqa: E402
+from bench.stats import t975  # noqa: E402
 
 HA, OA = "harness:gemini-cli:gemini-3.6-flash", "oneshot:gemini:x"
 
@@ -51,11 +52,6 @@ def test_interval_crossing_zero_is_unsupported_and_tiers_split():
     assert set(by) == {"all", "easy", "hard"}
     assert by["all"].n == 4 and by["all"].verdict == "unsupported" and by["all"].ci95_low < 0 < by["all"].ci95_high
     assert by["easy"].n == 2 and by["hard"].n == 2 and by["hard"].wins == 1 and by["hard"].losses == 1
-
-
-def test_t_quantiles_are_monotone_and_end_at_normal():
-    assert t975(1) > t975(5) > t975(30) > t975(59) > t975(1000) == 1.96
-    assert t975(0) != t975(0)  # nan for no degrees of freedom
 
 
 def test_cli_writes_paired_md_and_json(tmp_path):

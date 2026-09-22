@@ -310,25 +310,37 @@ def test_stream_attempt_budget_and_504_are_infra():
 
 
 def test_the_ab_viewer_refuses_to_call_a_winner_it_cannot_support():
+    """B − A per brief — the pairs the page shows — and the 95 % t-interval of its mean."""
     from bench.ab_view import Run, verdict
 
     def arm(name, *scores):
-        return [Run(slug=f"{name}{i}", arm=name, picked=s, status="max_rounds") for i, s in enumerate(scores)]
+        return [Run(slug=f"{name}{i}", arm=name, brief=f"brief {i}", picked=s, status="max_rounds")
+                for i, s in enumerate(scores)]
 
     cases = [
-        ((0.7,), (0.9,), "Inconclusive"),
-        ((0.70, 0.72), (0.74, 0.76), "Inconclusive"),
-        ((0.50, 0.70, 0.90), (0.56, 0.76, 0.96), "Inconclusive"),
+        ((0.7,), (0.9,), "Inconclusive"),                                 # one pair
+        ((0.70, 0.72), (0.74, 0.76), "Inconclusive"),                     # two pairs
+        ((0.50, 0.70, 0.90), (0.56, 0.66, 0.96), "Inconclusive"),         # +0.06 / -0.04 / +0.06
         ((0.30, 0.32, 0.31), (0.80, 0.82, 0.81), "B wins"),
+        # the same +0.06 on every brief is a consistent paired gain: the unpaired rule this
+        # replaced called it noise because the BRIEFS differ by more than 0.06 — the very
+        # variance pairing on the brief removes
+        ((0.50, 0.70, 0.90), (0.56, 0.76, 0.96), "B wins"),
     ]
     for a_scores, b_scores, expected in cases:
         head, _ = verdict(arm("a", *a_scores), arm("b", *b_scores))
         assert head.startswith(expected), head
 
     # a run that never scored must not be counted as an observation
-    a = arm("a", 0.5, 0.5) + [Run(slug="a9", arm="a", picked=None, status="failed")]
+    a = arm("a", 0.5, 0.5) + [Run(slug="a9", arm="a", brief="brief 9", picked=None, status="failed")]
     head, why = verdict(a, arm("b", 0.5))
-    assert head.startswith("Inconclusive") and "1 of 1" in why
+    assert head.startswith("Inconclusive") and "1 of 1" in why and "2 of 3" in why
+
+    # a brief run twice in one arm is its LAST run, as on the page; a brief only one arm ran is no pair
+    b = arm("b", 0.1, 0.1, 0.1) + [Run(slug="b0r", arm="b", brief="brief 0", picked=0.9),
+                                   Run(slug="bx", arm="b", brief="brief x", picked=0.0)]
+    head, why = verdict(arm("a", 0.5, 0.5, 0.5), b)
+    assert head.startswith("Inconclusive") and "over 3 paired briefs" in why
 
 def test_the_default_generator_and_the_cost_router_name_the_same_model():
     """`3dcode cost` prints the default=True GENERATOR route as "the default"; if it disagrees with

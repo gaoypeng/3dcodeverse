@@ -30,6 +30,7 @@ from pathlib import Path
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
+from bench.stats import mean_ci  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 
 SHEET_W = 1100
@@ -95,35 +96,44 @@ def load_run(run_dir: Path, arm: str) -> Run:
     return r
 
 
-#: scored runs per arm below which this function will not name a winner, whatever the
-#: numbers say.  A reference harness on the same model tier measured a run-to-run score
-#: sd of 0.159 against a re-judge sd of 0.013, giving a minimum detectable effect of
-#: 0.081 at n=30 — and it published, then retracted, several prompt findings because a
-#: promising first replicate turned out to be noise pointing the right way
-#: (interpenetration −0.40 in replicate 1, +0.03 in replicate 2, pooled p=0.405).
-MIN_RUNS_PER_ARM = 3
+#: scored pairs below which this function will not name a winner, whatever the numbers
+#: say.  A reference harness on the same model tier measured a run-to-run score sd of
+#: 0.159 against a re-judge sd of 0.013, giving a minimum detectable effect of 0.081 at
+#: n=30 — and it published, then retracted, several prompt findings because a promising
+#: first replicate turned out to be noise pointing the right way (interpenetration −0.40
+#: in replicate 1, +0.03 in replicate 2, pooled p=0.405).
+MIN_PAIRS = 3
+
+
+def paired_by_brief(a: list[Run], b: list[Run]) -> dict[str, tuple[Run | None, Run | None]]:
+    """``{brief: (A run, B run)}`` — the pairing the page shows and the verdict reads.  A
+    brief run twice in one arm (a redo) is its LAST run, the rule of every bench journal."""
+    ka: dict[str, Run] = {}
+    kb: dict[str, Run] = {}
+    for rs, by in ((a, ka), (b, kb)):
+        for r in rs:
+            by[r.brief or r.slug] = r
+    return {k: (ka.get(k), kb.get(k)) for k in {**ka, **kb}}
 
 
 def verdict(a: list[Run], b: list[Run]) -> tuple[str, str]:
-    """(headline, why) — refuses to call a winner the sample cannot support."""
-    sa = [x.picked for x in a if x.picked is not None]
-    sb = [x.picked for x in b if x.picked is not None]
-    if len(sa) < MIN_RUNS_PER_ARM or len(sb) < MIN_RUNS_PER_ARM:
-        return ("Inconclusive — not enough scored runs",
-                f"arm A scored {len(sa)} of {len(a)} runs, arm B {len(sb)} of {len(b)}; this needs "
-                f"at least {MIN_RUNS_PER_ARM} per arm before a winner is named. A run that died "
-                "before it scored is not an observation about the arm — it is a missing one.")
-    ma, mb = statistics.mean(sa), statistics.mean(sb)
-    # WITHIN-arm spread: how much runs of the SAME arm disagree.  Pooling both arms would
-    # fold the effect being measured into the yardstick and flatter any real difference.
-    within = max(statistics.pstdev(sa), statistics.pstdev(sb), 1e-9)
-    if abs(mb - ma) < within:
-        return (f"Inconclusive — Δ {mb - ma:+.3f} is inside the within-arm spread ({within:.3f})",
-                f"A {ma:.3f} (n={len(sa)}) vs B {mb:.3f} (n={len(sb)}). Runs of the same arm differ "
-                "by more than the arms differ from each other, so this is not evidence.")
-    return (f"B {'wins' if mb > ma else 'loses'} by {mb - ma:+.3f}",
-            f"A {ma:.3f} (n={len(sa)}) vs B {mb:.3f} (n={len(sb)}); within-arm spread {within:.3f}. "
-            "Worth a confirming replicate before it is believed.")
+    """(headline, why): B − A per paired brief and the 95 % t-interval of its mean
+    (``bench/stats.py``) — no winner unless that interval excludes zero."""
+    deltas = [rb.picked - ra.picked for ra, rb in paired_by_brief(a, b).values()
+              if ra is not None and rb is not None and ra.picked is not None and rb.picked is not None]
+    if len(deltas) < MIN_PAIRS:
+        scored_a, scored_b = (sum(x.picked is not None for x in rs) for rs in (a, b))
+        return ("Inconclusive — not enough scored pairs",
+                f"{len(deltas)} brief(s) scored in both arms (arm A scored {scored_a} of {len(a)} runs, arm B "
+                f"{scored_b} of {len(b)}); this needs at least {MIN_PAIRS} before a winner is named. A run that "
+                "died before it scored is not an observation about the arm — it is a missing one.")
+    ci = mean_ci(deltas)
+    if not ci.separated:
+        return (f"Inconclusive — Δ {ci.mean:+.3f} ± {ci.half:.3f} includes zero",
+                f"B − A over {ci.n} paired briefs: the 95 % t-interval of the mean includes zero — the pairs "
+                "disagree with each other by more than the mean moved, so this is not evidence.")
+    return (f"B {'wins' if ci.mean > 0 else 'loses'} by {ci.mean:+.3f} ± {ci.half:.3f}",
+            f"B − A over {ci.n} paired briefs, 95 % t-interval. Worth a confirming replicate before it is believed.")
 
 
 def _num(v: object) -> str:
@@ -192,16 +202,11 @@ def build(runs_dir: Path, a_prefix: str, b_prefix: str, *, title: str,
     a = [load_run(d, "A") for d in sorted(runs_dir.iterdir()) if d.is_dir() and d.name.startswith(a_prefix)]
     b = [load_run(d, "B") for d in sorted(runs_dir.iterdir()) if d.is_dir() and d.name.startswith(b_prefix)]
     head, why = verdict(a, b)
-
-    # pair on the brief — the only thing that makes two runs comparable
-    by_brief: dict[str, dict[str, Run]] = {}
-    for r in a + b:
-        by_brief.setdefault(r.brief or r.slug, {})[r.arm] = r
     pairs = []
-    for i, (brief, arms) in enumerate(by_brief.items()):
+    for i, (brief, (ra, rb)) in enumerate(paired_by_brief(a, b).items()):
         # deterministic side-swap so the eye is not primed, stable across reloads
         flip = bool(sum(ord(c) for c in brief) % 2)
-        pairs.append(_pair(i, brief, arms.get("A"), arms.get("B"), flip))
+        pairs.append(_pair(i, brief, ra, rb, flip))
 
     return TEMPLATE.format(
         title=html.escape(title), head=html.escape(head), why=html.escape(why),

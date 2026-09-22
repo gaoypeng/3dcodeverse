@@ -24,7 +24,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
 import sys
 from collections.abc import Iterable, Sequence
 from pathlib import Path
@@ -33,8 +32,8 @@ from typing import Any
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
+from bench.stats import correlation  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
-from codeverse3d.addons.calibration import _ranks  # noqa: E402 — tie-averaged ranks, one copy
 from codeverse3d.contracts.run import RunId  # noqa: E402
 from codeverse3d.proc import read_json_or_none  # noqa: E402
 from codeverse3d.record.record import find_run_dirs  # noqa: E402
@@ -198,32 +197,13 @@ def _pairs(rows: Sequence[Row], x: str, y: str) -> tuple[list[float], list[float
     return xs, ys
 
 
-def pearson(xs: Sequence[float], ys: Sequence[float]) -> float | None:
-    n = len(xs)
-    if n < 3:
-        return None
-    mx, my = sum(xs) / n, sum(ys) / n
-    sxy = sum((a - mx) * (b - my) for a, b in zip(xs, ys, strict=False))
-    sxx = sum((a - mx) ** 2 for a in xs)
-    syy = sum((b - my) ** 2 for b in ys)
-    if sxx <= 0 or syy <= 0:
-        return None
-    return sxy / math.sqrt(sxx * syy)
-
-
-def spearman(xs: Sequence[float], ys: Sequence[float]) -> float | None:
-    if len(xs) < 3:
-        return None
-    return pearson(_ranks(xs), _ranks(ys))
-
-
 def correlations(rows: Sequence[Row], targets: Sequence[str], predictors: Sequence[str]) -> list[dict[str, Any]]:
     out = []
     for t in targets:
         entry: dict[str, Any] = {"target": t}
         for p in predictors:
             xs, ys = _pairs(rows, p, t)
-            entry[p] = (pearson(xs, ys), spearman(xs, ys), len(xs))
+            entry[p] = (correlation(xs, ys), correlation(xs, ys, ranked=True), len(xs))
         out.append(entry)
     return out
 

@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import statistics
 import sys
 from collections import defaultdict
@@ -35,27 +34,9 @@ for _p in (REPO, Path(__file__).resolve().parents[1]):      # its codeverse3d + 
         sys.path.insert(0, str(_p))
 
 from bench._ab_report import _fmt as _f  # noqa: E402
-from bench._ab_report import _sign_test  # noqa: E402
 from bench._compare_report import CellResult  # noqa: E402
 from bench._jsonl import read_jsonl  # noqa: E402
-
-# two-sided 97.5 % Student-t quantiles by degrees of freedom (df 1..30, then 40/60/120, ∞);
-# a table, not scipy: the [urdf] extra is optional and this must run on a [dev] install
-_T975 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262,
-         10: 2.228, 11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145, 15: 2.131, 16: 2.120, 17: 2.110,
-         18: 2.101, 19: 2.093, 20: 2.086, 21: 2.080, 22: 2.074, 23: 2.069, 24: 2.064, 25: 2.060,
-         26: 2.056, 27: 2.052, 28: 2.048, 29: 2.045, 30: 2.042, 40: 2.021, 60: 2.000, 120: 1.980}
-
-
-def t975(df: int) -> float:
-    if df <= 0:
-        return math.nan
-    if df in _T975:
-        return _T975[df]
-    for bound in (40, 60, 120):
-        if df < bound:
-            return _T975[bound]
-    return 1.960
+from bench.stats import mean_ci, sign_test  # noqa: E402
 
 
 class PairedStats(BaseModel):
@@ -147,27 +128,22 @@ def paired(cells: dict[tuple[str, str], CellResult], harness_arm: str, oneshot_a
     if st.n == 0:
         st.verdict = "too few pairs"
         return st
-    deltas = list(st.deltas.values())
+    ci = mean_ci(list(st.deltas.values()))
     st.mean_harness = round(statistics.fmean(hs), 4)
     st.mean_oneshot = round(statistics.fmean(os_), 4)
-    st.mean_delta = round(statistics.fmean(deltas), 4)
-    st.wins = sum(d > 0 for d in deltas)
-    st.losses = sum(d < 0 for d in deltas)
+    st.mean_delta = round(ci.mean, 4)
+    st.wins, st.losses, st.sign_p = sign_test(list(st.deltas.values()))
     st.ties = st.n - st.wins - st.losses
-    st.sign_p = _sign_test(deltas)["sign_p"]  # type: ignore[assignment]
     st.pass_rate_harness = round(sum(hp) / len(hp), 4) if hp else None
     st.pass_rate_oneshot = round(sum(op) / len(op), 4) if op else None
     st.build_ok_harness = round(sum(hb) / st.n, 4)
     st.build_ok_oneshot = round(sum(ob) / st.n, 4)
-    if st.n >= 2:
-        sd = statistics.stdev(deltas)
-        se = sd / math.sqrt(st.n)
-        half = t975(st.n - 1) * se
-        st.sd_delta, st.se_delta = round(sd, 4), round(se, 4)
-        st.ci95_low, st.ci95_high = round(st.mean_delta - half, 4), round(st.mean_delta + half, 4)
-        st.verdict = "supported" if (st.ci95_low > 0 or st.ci95_high < 0) else "unsupported"
-    else:
+    if ci.half is None:
         st.verdict = "too few pairs"
+        return st
+    st.sd_delta, st.se_delta = round(ci.sd, 4), round(ci.se, 4)
+    st.ci95_low, st.ci95_high = round(st.mean_delta - ci.half, 4), round(st.mean_delta + ci.half, 4)
+    st.verdict = "supported" if ci.separated else "unsupported"
     return st
 
 

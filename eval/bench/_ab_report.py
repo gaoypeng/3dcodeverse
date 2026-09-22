@@ -14,7 +14,6 @@ report can never be argued into "keep" by hand.
 from __future__ import annotations
 
 import json
-import math
 import statistics
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +21,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from bench._compare_report import CellResult
+from bench.stats import mean_ci, n_to_resolve, sign_test
 
 CONTROL = "control"
 VARIANT = "variant"
@@ -36,24 +36,19 @@ KEEP_DELTA = 0.02
 REVERT_DELTA = -0.02
 #: this many regressing prompts is a revert even when the mean looks fine
 REVERT_REGRESSIONS = 2
-#: how many standard errors the mean delta must clear before the rig claims to have
-#: SEPARATED the change from run-to-run noise.  2 is the usual ~95 % two-sided band.
-#:
-#: This is reported, never enforced: the keep/revert rule above is the protocol
-#: (docs/EVAL.md §8) and a report must not be able to argue itself out of it.  But the
-#: rule alone is dangerously confident.  Measured 2026-08-24 with two A/A runs — arms
-#: identical by construction — on the SAME prompt (`ctrl_med_dining_chair`, rounds 1):
-#:
-#:     0.591 vs 0.934  ->  delta +0.344  ->  verdict **keep**
-#:     0.700 vs 0.600  ->  delta -0.100  ->  verdict **revert**
-#:
-#: Nothing was under test either time, and the rule returned opposite decisions.  Those
-#: four same-code measurements of one prompt have sd 0.160, so a paired delta has
-#: sd ~0.226 and an 8-prompt mean has a 2 SE band of ±0.16 — eight times the ±0.02 the
-#: decision turns on.  The generator is stochastic; a paired delta carries the spread of
-#: two independent generations, not the judge's ±0.02 sampling noise.  So every summary
-#: states the spread beside the verdict, and says plainly when the threshold is inside it.
-NOISE_SIGMAS = 2.0
+# The keep/revert rule above is the protocol (docs/EVAL.md §8) and a report must not be
+# able to argue itself out of it — but the rule alone is dangerously confident.  Measured
+# 2026-08-24 with two A/A runs — arms identical by construction — on the SAME prompt
+# (`ctrl_med_dining_chair`, rounds 1):
+#
+#     0.591 vs 0.934  ->  delta +0.344  ->  verdict **keep**
+#     0.700 vs 0.600  ->  delta -0.100  ->  verdict **revert**
+#
+# Nothing was under test either time, and the rule returned opposite decisions.  The
+# generator is stochastic; a paired delta carries the spread of two independent
+# generations, not the judge's ±0.02 sampling noise.  So every summary states the paired
+# 95 % t-interval beside the verdict (``bench/stats.py``), reported, never enforced, and
+# says plainly when the threshold is inside it.
 
 
 class PairOutcome(BaseModel):
@@ -79,8 +74,9 @@ class Verdict(BaseModel):
     reason: str = ""
     sd_delta: float | None = Field(default=None, description="stdev of the paired deltas — the rig's own noise (None at n<2)")
     se_delta: float | None = Field(default=None, description="standard error of the mean delta, sd/sqrt(n)")
-    separated: bool = Field(default=False, description="|mean delta| >= NOISE_SIGMAS * se: the decision is outside the noise")
-    n_for_power: int | None = Field(default=None, description="pairs this spread needs for NOISE_SIGMAS*se to fit inside KEEP_DELTA")
+    ci_half: float | None = Field(default=None, description="half-width of the 95 % t-interval, t(0.975, n-1) * se")
+    separated: bool = Field(default=False, description="the 95 % t-interval excludes zero: the decision is outside the noise")
+    n_for_power: int | None = Field(default=None, description="pairs this spread needs for the t-interval to fit inside KEEP_DELTA")
     n_up: int = Field(default=0, description="pairs where the variant scored higher (delta > 0)")
     n_down: int = Field(default=0, description="pairs where the variant scored lower (delta < 0)")
     sign_p: float | None = Field(default=None, description="two-sided exact sign test on n_up vs n_down; None with no non-zero deltas")
@@ -97,7 +93,7 @@ class Verdict(BaseModel):
         if self.separated:
             return ""
         need = f"~{self.n_for_power} paired prompts" if self.n_for_power else "more paired prompts"
-        return (f"NOT separated from noise: |mean delta| < {NOISE_SIGMAS:g} SE ({NOISE_SIGMAS * self.se_delta:+.3f}). "
+        return (f"NOT separated from noise: the 95 % t-interval (±{self.ci_half:.3f}) includes zero. "
                 f"At this spread {need} would be needed to resolve {KEEP_DELTA:+.2f}. Treat the decision as a screen.")
 
 
@@ -143,8 +139,16 @@ def verdict_of(pairs: list[PairOutcome]) -> Verdict:
         return Verdict(decision="inconclusive", n_pairs=0, mean_delta=None, median_delta=None,
                        reason="no prompt has both arms scored")
     mean, median = round(statistics.fmean(deltas), 4), round(statistics.median(deltas), 4)
+    # the noise block: reported, never enforced.  The SIGN of each delta is far cheaper to
+    # move than the mean — 7 of 8 in one direction is p = 0.07, a bar an eight-prompt
+    # battery can clear where a ±0.02 mean at a paired sd near 0.23 never will.
+    ci = mean_ci(deltas)
+    up, down, sign_p = sign_test(deltas)
     v = Verdict(decision="inconclusive", n_pairs=len(deltas), mean_delta=mean, median_delta=median,
-                regressions=regressions, **_spread(deltas, mean), **_sign_test(deltas))
+                regressions=regressions, n_up=up, n_down=down, sign_p=sign_p, separated=ci.separated)
+    if ci.sd is not None:  # one pair has no spread to state
+        v.sd_delta, v.se_delta, v.ci_half = round(ci.sd, 4), round(ci.se, 4), round(ci.half, 4)
+        v.n_for_power = n_to_resolve(ci.sd, KEEP_DELTA)
     if mean <= REVERT_DELTA or len(regressions) >= REVERT_REGRESSIONS:
         v.decision, v.reason = "revert", (f"mean delta {mean:+.3f} <= {REVERT_DELTA:+.2f}" if mean <= REVERT_DELTA
                                           else f"{len(regressions)} regressions (>= {REVERT_REGRESSIONS})")
@@ -154,43 +158,6 @@ def verdict_of(pairs: list[PairOutcome]) -> Verdict:
         v.reason = (f"mean delta {mean:+.3f} inside ({REVERT_DELTA:+.2f}, {KEEP_DELTA:+.2f})" if not regressions
                     else f"mean delta {mean:+.3f} but {len(regressions)} regression(s): {', '.join(regressions)}")
     return v
-
-
-def _sign_test(deltas: list[float]) -> dict[str, object]:
-    """How CONSISTENT the change is, as opposed to how big its mean is.
-
-    The mean is hostage to the generation spread (see :data:`NOISE_SIGMAS`): at a paired
-    sd near 0.23 an eight-prompt mean cannot resolve 0.02 and never will.  The SIGN of
-    each paired delta is far cheaper to move — a real improvement tends to help most
-    prompts a little, and 7 of 8 in one direction is p = 0.07 on the exact two-sided sign
-    test, a bar an eight-prompt battery can actually clear.  Reported, not enforced: the
-    keep/revert rule is the protocol.  Zero deltas are dropped, as the test requires.
-    """
-    up = sum(d > 0 for d in deltas)
-    down = sum(d < 0 for d in deltas)
-    n = up + down
-    if n == 0:
-        return {"n_up": 0, "n_down": 0, "sign_p": None}
-    k = max(up, down)
-    tail = sum(math.comb(n, i) for i in range(k, n + 1)) / 2 ** n
-    return {"n_up": up, "n_down": down, "sign_p": round(min(1.0, 2 * tail), 4)}
-
-
-def _spread(deltas: list[float], mean: float) -> dict[str, object]:
-    """The noise block of a :class:`Verdict`: how wide the paired deltas are, and what
-    that width does to the decision.
-
-    ``n_for_power`` inverts the standard error: to get ``NOISE_SIGMAS * sd/sqrt(n)`` down
-    to ``KEEP_DELTA`` you need ``n = (NOISE_SIGMAS*sd/KEEP_DELTA)**2`` pairs.  It is the
-    honest answer to "would one more prompt settle this?" and it is usually brutal.
-    """
-    if len(deltas) < 2:
-        return {"sd_delta": None, "se_delta": None, "separated": False, "n_for_power": None}
-    sd = statistics.stdev(deltas)
-    se = sd / math.sqrt(len(deltas))
-    return {"sd_delta": round(sd, 4), "se_delta": round(se, 4),
-            "separated": abs(mean) >= NOISE_SIGMAS * se,
-            "n_for_power": math.ceil((NOISE_SIGMAS * sd / KEEP_DELTA) ** 2) if sd > 0 else 1}
 
 
 class ArmSummary(BaseModel):
@@ -256,8 +223,8 @@ def render_summary(pairs: list[PairOutcome], rows: list[CellResult], *, title: s
         f"median delta {_fmt(v.median_delta, True)} · regressions (delta <= {REGRESSION_DELTA:+.2f}): "
         f"{', '.join(v.regressions) or 'none'}", "",
         "## Confidence", "",
-        f"paired sd {_fmt(v.sd_delta)} · SE {_fmt(v.se_delta)} · {NOISE_SIGMAS:g} SE band "
-        f"{_fmt(v.mean_delta, True)} ± {_fmt(NOISE_SIGMAS * v.se_delta if v.se_delta else None)} · "
+        f"paired sd {_fmt(v.sd_delta)} · SE {_fmt(v.se_delta)} · 95 % t-interval "
+        f"{_fmt(v.mean_delta, True)} ± {_fmt(v.ci_half)} · "
         f"separated from noise: {'yes' if v.separated else 'NO'}",
         f"sign consistency: {v.n_up} up / {v.n_down} down · exact two-sided sign test p = "
         f"{'—' if v.sign_p is None else f'{v.sign_p:.3f}'} — the signal an 8-prompt battery can actually carry",
@@ -292,7 +259,7 @@ def write_report(out: Path, rows: list[CellResult], prompt_order: list[tuple[str
     return v
 
 
-__all__ = ["ARMS", "CONTROL", "KEEP_DELTA", "NOISE_SIGMAS", "REGRESSION_DELTA", "REVERT_DELTA",
+__all__ = ["ARMS", "CONTROL", "KEEP_DELTA", "REGRESSION_DELTA", "REVERT_DELTA",
            "REVERT_REGRESSIONS", "VARIANT",
            "ArmSummary", "PairOutcome", "Verdict", "arm_summary", "pair_up", "render_summary", "verdict_of",
            "write_report"]

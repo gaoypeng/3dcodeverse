@@ -46,8 +46,8 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
 from bench._fixed_eval import RUBRIC  # noqa: E402
-from bench.h2h_scene import sign_test  # noqa: E402
 from bench.run_bench import Battery, BenchPrompt  # noqa: E402
+from bench.stats import sign_test  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 
 JUDGE_MODEL = "gemini:gemini-3.1-pro-preview"
@@ -224,10 +224,9 @@ def _stats(rows: list[Row], *, visual: bool = False) -> str:
     if not d:
         return "n=0 (no pair judged on both sides)"
     sd = statistics.stdev(d) if len(d) > 1 else 0.0
-    wins, losses = sum(x > 0 for x in d), sum(x < 0 for x in d)
-    n_nz, _, p = sign_test(d)
+    wins, losses, p = sign_test(d)
     return (f"n={len(d)}  mean Δ(ours−theirs)={statistics.mean(d):+.3f}  sd={sd:.3f}  "
-            f"wins/losses/ties={wins}/{losses}/{len(d) - wins - losses}  sign-test p={'n/a' if n_nz == 0 else f'{p:.3f}'}")
+            f"wins/losses/ties={wins}/{losses}/{len(d) - wins - losses}  sign-test p={'n/a' if p is None else f'{p:.3f}'}")
 
 
 def summary_md(rows: list[Row]) -> str:

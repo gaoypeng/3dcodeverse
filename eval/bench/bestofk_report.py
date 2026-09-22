@@ -38,6 +38,7 @@ from pathlib import Path
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
+from bench.stats import mean_ci  # noqa: E402
 from codeverse3d.proc import read_jsonl_lenient  # noqa: E402
 
 #: judge repeatability on the calibration set (docs/PAPER_WRITING.md §2), used only to
@@ -125,13 +126,10 @@ def curve(one: dict[str, list[float]], harness: dict[str, float], ks: list[int])
         if not pairs:
             continue
         deltas = [h - b for _, b, h in pairs]
-        wins = sum(1 for d in deltas if d > 0)
-        losses = sum(1 for d in deltas if d < 0)
-        mean = statistics.mean(deltas)
-        se = statistics.stdev(deltas) / math.sqrt(len(deltas)) if len(deltas) > 1 else 0.0
+        ci = mean_ci(deltas)
         out.append({"k": k, "n": len(pairs), "best_of_k": statistics.mean(b for _, b, _ in pairs),
-                    "harness": statistics.mean(h for _, _, h in pairs), "delta": mean,
-                    "ci": 1.96 * se, "wins": wins, "losses": losses,
+                    "harness": statistics.mean(h for _, _, h in pairs), "delta": ci.mean,
+                    "ci": ci.half, "wins": sum(d > 0 for d in deltas), "losses": sum(d < 0 for d in deltas),
                     "curse": JUDGE_SIGMA * math.sqrt(2 * math.log(k)) if k > 1 else 0.0})
     return out
 
@@ -161,9 +159,9 @@ def report(root: Path, against: Path, *, baseline_prefix: str = "oneshot:") -> s
              "", "| k | n | best-of-k | harness | harness − best-of-k | 95 % CI | W/L | curse bound |",
              "|--:|--:|--:|--:|--:|---|---|--:|"]
     for row in curve(one, harness, ks):
+        ci = "—" if row["ci"] is None else f"[{row['delta'] - row['ci']:+.3f}, {row['delta'] + row['ci']:+.3f}]"
         lines.append(f"| {row['k']} | {row['n']} | {row['best_of_k']:.3f} | {row['harness']:.3f} | "
-                     f"{row['delta']:+.3f} | [{row['delta'] - row['ci']:+.3f}, {row['delta'] + row['ci']:+.3f}] | "
-                     f"{row['wins']}/{row['losses']} | {row['curse']:+.3f} |")
+                     f"{row['delta']:+.3f} | {ci} | {row['wins']}/{row['losses']} | {row['curse']:+.3f} |")
     counts = sorted({len(v) for v in one.values()})
     lines += ["", f"reps per prompt: {counts[0]}–{counts[-1]}"]
     return "\n".join(lines)

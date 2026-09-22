@@ -15,7 +15,6 @@ if str(REPO) not in sys.path:
 from bench._ab_report import (  # noqa: E402
     CONTROL,
     KEEP_DELTA,
-    NOISE_SIGMAS,
     VARIANT,
     PairOutcome,
     arm_summary,
@@ -42,6 +41,7 @@ from bench.ab_plan import (  # noqa: E402
     worker_argv,
 )
 from bench.run_bench import Battery  # noqa: E402
+from bench.stats import n_to_resolve, t975  # noqa: E402
 
 BATTERY = REPO / "bench" / "prompts" / "compare_v1.yaml"
 
@@ -128,9 +128,10 @@ def test_a_verdict_states_the_spread_it_was_decided_on():
     "keep" — so the report has to carry the noise beside the word."""
     v = verdict_of(_pairs(0.30, -0.20, 0.10, 0.05, -0.10, 0.25, 0.02, -0.15))
     assert v.sd_delta is not None and v.se_delta == pytest.approx(v.sd_delta / 8 ** 0.5, abs=1e-3)
+    assert v.ci_half == pytest.approx(t975(7) * v.se_delta, abs=1e-3), "the 95 % t-interval, n - 1 = 7 df"
     assert not v.separated and "NOT separated from noise" in v.caution
     # the honest answer to "would one more prompt settle this?": at this spread, hundreds
-    assert v.n_for_power == pytest.approx((NOISE_SIGMAS * v.sd_delta / KEEP_DELTA) ** 2, rel=0.01)
+    assert v.n_for_power == pytest.approx(n_to_resolve(v.sd_delta, KEEP_DELTA), rel=0.01)
     assert v.n_for_power > 100
 
 
