@@ -232,7 +232,7 @@ console.log(JSON.stringify({ util: GLSL_UTIL, inShader: m.fragmentShader.include
   patchedFsDefine: shader.fragmentShader.includes('#define ASTRA_FRAG'),
   patchedVsDefine: shader.vertexShader.includes('#define ASTRA_FRAG') }));
 """)
-    for fn in ("astraStroke", "astraFacing", "astraFallAge", "astraStagger", "astraHueBreak", "astraFresnel"):
+    for fn in ("astraStroke", "astraFacing", "astraStagger", "astraHueBreak", "astraFresnel"):
         assert f"{fn}(" in out["util"], fn
     assert "fwidth(v)" in out["util"] and out["inShader"]
     # fwidth is fragment-only and the util block ships in BOTH stages.

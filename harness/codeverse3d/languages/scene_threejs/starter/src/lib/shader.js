@@ -125,12 +125,6 @@ export const GLSL_UTIL = [
     'float astraFacing(vec3 n, vec3 v) {',
     '  return abs(dot(normalize(n), normalize(v)));',
     '}',
-    // Free fall: distance goes as time squared, so a packet's AGE is the
-    // square root of how far it has dropped. Riding features at a
-    // constant rate in age is what makes falling water accelerate.
-    'float astraFallAge(float drop) {',
-    '  return sqrt(clamp(drop, 0.0, 1.6));',
-    '}',
     // Decorrelate neighbouring filaments. Offsets under 2*PI leave them
     // correlated and their fronts weave a herringbone across the sheet.
     'float astraStagger(float x) {',

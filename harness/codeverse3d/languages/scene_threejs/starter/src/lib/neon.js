@@ -652,13 +652,6 @@ function trailMaterial(name, color, dir, count, rate, gain, hot, fore,
             'uniform vec3 uColor; uniform float uDir; uniform float uCount;',
             'uniform float uRate; uniform float uGain; uniform float uHot;',
             'uniform float uFore; uniform float uKey; uniform float uVary;',
-            // The phase one vehicle rides. Written as its own function
-            // so the direction it travels is a property of the source,
-            // not something only a rendered frame could tell you.
-            'float astraTrailPhase(float v, float dir, float t,',
-            '                      float rate, float count) {',
-            '  return fract(dir * v * count - t * rate);',
-            '}',
             TEMP_GLSL,
         ].join('\n'),
         fragmentMain: [

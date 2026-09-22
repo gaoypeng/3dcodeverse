@@ -303,16 +303,27 @@ def test_the_two_lanes_of_traffic_run_in_opposite_directions():
     """Warm one way and red the other is what says a road has two
     directions.  Both lanes riding the same sign of `uDir` is a road where
     every vehicle travels the same way — measured by tracking each lane's
-    comet HEADS along the shipped phase function."""
-    out = measure(_GLSL_AS_JS + """
+    comet HEADS along the phase the fragment stage actually renders."""
+    out = measure("""
 import { makeLightTrails } from './lib/neon.js';
 
+// The phase main() RENDERS — its own `s` line and `fract(s)`, lifted out
+// with the uniforms bound — not a helper nothing in the shader calls.
+const renderedPhase = (src) => {
+  const m = /float s = ([^;]+);\\s*float f = fract\\(s\\);/.exec(src);
+  if (!m) throw new Error('no rendered phase in the shipped source');
+  const s = new Function('uDir', 'vTrailUv', 'uCount', 'uTime', 'uRate',
+                         'return ' + m[1] + ';');
+  return (v, dir, t, rate, count) => {
+    const x = s(dir, { y: v }, count, t, rate);
+    return x - Math.floor(x);
+  };
+};
 const g = makeLightTrails({ path: [[-20, 0, 0], [20, 0, 0]], count: 5,
                             speed: 14, seed: 7 });
 const heads = (mesh, t) => {
   const u = mesh.material.uniforms;
-  const phase = glslFn(mesh.material.fragmentShader, 'astraTrailPhase',
-                       ['v', 'dir', 't', 'rate', 'count']);
+  const phase = renderedPhase(mesh.material.fragmentShader);
   const at = (v) => phase(v, u.uDir.value, t, u.uRate.value,
                           u.uCount.value);
   const out = [];
