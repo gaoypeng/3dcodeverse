@@ -18,7 +18,7 @@ LIBRARY = all_skills()
 TRACKS = ("static_object", "articulated_object", "scene", "graphics")
 LANGUAGES = ("blender", "cadquery", "threejs", "urdf_blender", "scene_threejs",
              "glsl_shader", "opengl_python")
-KINDS = ("baseline", "part", "detail", "refine", "rebuild", "repair", "env", "zone",
+KINDS = ("baseline", "part", "refine", "rebuild", "repair", "env", "zone",
          "asset", "asset_fix", "reference")
 #: the boolean plan signals the table may test (n_parts / joint_types are derived)
 FLAGS = tuple(k for k in SIGNAL_KEYS if k not in ("n_parts", "joint_types"))

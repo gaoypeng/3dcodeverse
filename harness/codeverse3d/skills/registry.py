@@ -52,7 +52,6 @@ LINT_PART_NOT_IMPORTED = "lint/part_not_imported"
 LINT_LINK_NAME = "lint/link_name"
 LINT_API_TRAP = "lint/api_trap"
 SHADER_COMPILE_OR_BINDING = "shader/compile_or_binding"
-DETAIL_DRIFT = "detail_drift/part_moved"
 RUNTIME_SLOW = "render_console/slow_or_error"
 
 #: (gate predicate, message regex, kind).  Order matters: first match wins.
@@ -78,7 +77,6 @@ _RULES: tuple[tuple[str, str, str], ...] = (
     ("scene_frames", r"BELOW the ground|inside / touching geometry", SCENE_CAMERA_PLACEMENT),
     ("gl_frames", r"frame-to-frame|visual detail|do not change over time"
                  r"|essentially black|blown out|NaN/Inf|no frames were rendered", GL_MOTION_OR_DETAIL),
-    ("detail_drift", r"moved|resized|removed|added", DETAIL_DRIFT),
     ("render_console", r"frame rate|error", RUNTIME_SLOW),
     ("shader_preflight", r".", SHADER_COMPILE_OR_BINDING),
     ("lint", r"never imported", LINT_PART_NOT_IMPORTED),
@@ -130,7 +128,7 @@ def _iter_findings(obj: object):
 OBJECT_TRACKS = ("static_object", "articulated_object")
 BLENDER_LANGS = ("blender", "urdf_blender")
 THREEJS_LANGS = ("scene_threejs", "threejs")
-BUILD_KINDS = ("baseline", "part", "detail", "refine", "rebuild", "repair")
+BUILD_KINDS = ("baseline", "part", "refine", "rebuild", "repair")
 #: kinds that attach nothing on their own (design §5.2 law 4): short, narrow sessions the
 #: corpus attaches no defect class to.  A gate-fired row still reaches them.
 QUIET_KINDS = ("asset", "asset_fix", "reference")
@@ -174,7 +172,7 @@ ROUTES: tuple[Route, ...] = (
     # R3 and R4 are object tracks only: the sheet's proof loop is measure / check_contract /
     # isolate, and a scene session has none of those tools (both reached scene sessions until 2026-09-22)
     Route("R3", "c3d-bbox-contract", 65, tracks=OBJECT_TRACKS,
-          kinds=("baseline", "part", "detail", "refine", "rebuild"),
+          kinds=("baseline", "part", "refine", "rebuild"),
           why="this session owns dimensions, and the plan's numbers are the contract"),
     Route("R4", "c3d-bbox-contract", 95, tracks=OBJECT_TRACKS, kinds=("repair", "refine", "rebuild"),
           findings=("contract/*",),
@@ -183,7 +181,7 @@ ROUTES: tuple[Route, ...] = (
     # after its description was revised.  See docs/SKILLS_LEDGER.md (the bundle's text is in git history).  The id is
     # not reused — a route id is how a ledger row and a run record refer to a routing decision.
     Route("R6", "c3d-repeats-and-mirrors", 55, tracks=OBJECT_TRACKS,
-          kinds=("baseline", "part", "detail", "refine", "rebuild"),
+          kinds=("baseline", "part", "refine", "rebuild"),
           requires_any=("has_instances", "has_symmetry"),
           why="the plan repeats or mirrors a part, and the contract gate measures each instance"),
     Route("R7", "c3d-repeats-and-mirrors", 90, kinds=("repair", "refine"), findings=("contract/instance_bbox",),

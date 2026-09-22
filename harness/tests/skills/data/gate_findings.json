@@ -105,13 +105,6 @@
    "origin": "codeverse3d source (gate not yet represented in bench/out)"
   },
   {
-   "gate": "detail_drift",
-   "severity": "error",
-   "message": "part 'DraftingStoolLegs0' moved 8.9 mm / resized 16.9 mm during the detail round (tolerance 5 mm)",
-   "n": 10,
-   "kind": "detail_drift/part_moved"
-  },
-  {
    "gate": "gl_frames",
    "severity": "warn",
    "message": "very large frame-to-frame change (max |Δ| 0.392); flicker or hard cuts",

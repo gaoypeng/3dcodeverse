@@ -29,7 +29,7 @@ _INLINE_CODE = re.compile(r"`([^`\n]+)`")
 _CONST = re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b")
 _GATE_SLUG = re.compile(
     r"\b(?:connectivity|contract|joint_sweep|motion_direction|scene_frames|gl_frames|lint"
-    r"|shader|detail_drift|render_console|shader_preflight)/[a-z_]+\b")
+    r"|shader|render_console|shader_preflight)/[a-z_]+\b")
 #: a snake_case token in backticks is CLAIMED to be a name in this harness.  Which live
 #: vocabulary it belongs to does not matter — that it belongs to one of them does.
 _HARNESS_SHAPED = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$")
