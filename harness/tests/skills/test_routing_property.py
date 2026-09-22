@@ -19,7 +19,7 @@ TRACKS = ("static_object", "articulated_object", "scene", "graphics")
 LANGUAGES = ("blender", "cadquery", "threejs", "urdf_blender", "scene_threejs",
              "glsl_shader", "opengl_python")
 KINDS = ("baseline", "part", "detail", "refine", "rebuild", "repair", "env", "zone",
-         "compose", "asset", "asset_fix", "reference")
+         "asset", "asset_fix", "reference")
 #: the boolean plan signals the table may test (n_parts / joint_types are derived)
 FLAGS = tuple(k for k in SIGNAL_KEYS if k not in ("n_parts", "joint_types"))
 JUNK = ("", "  ", "no_such_track", "STATIC_OBJECT", "static object", "1", "../etc")

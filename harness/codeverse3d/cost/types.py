@@ -22,8 +22,9 @@ class Stage(StrEnum):
     PLAN = "plan"
     #: SKELETON / GATES / RENDER are *deterministic harness work* (no model call at
     #: all); kept in the enum so latency can be attributed to them from events
-    #: (``report.STAGE_ORDER``, ``audit.stage_latency``).  ASSEMBLE is NOT one of
-    #: them — the scene track's ``compose`` task is an agent session that bills.
+    #: (``report.STAGE_ORDER``, ``audit.stage_latency``).  ASSEMBLE is deterministic too
+    #: since the scene track's ``compose`` agent session was removed (2026-09-22); older
+    #: ledgers still carry it.
     SKELETON = "skeleton"
     ASSETS = "assets"
     ENV = "env"
@@ -64,7 +65,6 @@ _KIND_STAGES: dict[str, Stage] = {
     "asset": Stage.ASSETS,
     "asset_fix": Stage.ASSETS,
     "zone": Stage.ZONES,
-    "compose": Stage.ASSEMBLE,
 }
 
 #: label prefix → stage, longest prefix wins (``asset_stone_lantern`` → assets)

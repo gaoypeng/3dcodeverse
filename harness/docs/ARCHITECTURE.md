@@ -310,7 +310,7 @@ summary:
   errors map to `src/<file>.py:line`.
 * **threejs** (static): `src/parts/<snake>.js` each `export function build<Pascal>(THREE) → THREE.Group`
   at world pose (Y-up, +Z front, meters); `src/object.js` `export function build(THREE)`.
-  Export is **as authored** (no re-centring; `--normalise` is a dataset-only flag);
+  Export is **as authored** (no re-centring);
   `InstancedMesh` is baked to plain `<Name>_<i>` meshes (trimesh ignores
   EXT_mesh_gpu_instancing); an exported `selfcheck(THREE, root)` is called and a
   throw fails the build as `SelfCheckError`; NaN-geometry errors name mesh + part

@@ -171,12 +171,13 @@ ROUTES: tuple[Route, ...] = (
     Route("R2", "c3d-part-contact", 95, kinds=("repair", "refine", "rebuild"),
           findings=("connectivity/*", "joint_sweep/*"),
           why="the previous round's connectivity/joint gate fired"),
-    # object tracks only: the sheet's proof loop is measure / check_contract / isolate, and a
-    # scene session has none of those tools (it was attached to scene zone sessions until 2026-09-22)
+    # R3 and R4 are object tracks only: the sheet's proof loop is measure / check_contract /
+    # isolate, and a scene session has none of those tools (both reached scene sessions until 2026-09-22)
     Route("R3", "c3d-bbox-contract", 65, tracks=OBJECT_TRACKS,
           kinds=("baseline", "part", "detail", "refine", "rebuild"),
           why="this session owns dimensions, and the plan's numbers are the contract"),
-    Route("R4", "c3d-bbox-contract", 95, kinds=("repair", "refine", "rebuild"), findings=("contract/*",),
+    Route("R4", "c3d-bbox-contract", 95, tracks=OBJECT_TRACKS, kinds=("repair", "refine", "rebuild"),
+          findings=("contract/*",),
           why="the previous round's contract gate fired"),
     # R5 was c3d-form-manifest, retired 2026-08-25: read 2/19 (11%, CI [3%,31%]) before and
     # after its description was revised.  See docs/SKILLS_LEDGER.md (the bundle's text is in git history).  The id is
@@ -203,7 +204,7 @@ ROUTES: tuple[Route, ...] = (
           findings=("joint_sweep/*", "motion_direction/*"),
           why="a joint_sweep or motion_direction gate fired on the previous round"),
     Route("R14", "c3d-scene-composition", 75, tracks=("scene",), languages=("scene_threejs",),
-          kinds=("baseline", "env", "zone", "compose", "refine"),
+          kinds=("baseline", "env", "zone", "refine"),
           why="scene layout and camera framing"),
     Route("R15", "c3d-scene-composition", 95, tracks=("scene",), languages=("scene_threejs",),
           findings=(SCENE_CAMERA_PLACEMENT,),
@@ -215,7 +216,7 @@ ROUTES: tuple[Route, ...] = (
           findings=(SCENE_DARK_OR_FLAT,),
           why="the frame gate called the render dark or flat"),
     Route("R18", "c3d-scene-motion", 70, tracks=("scene",), languages=("scene_threejs",),
-          kinds=("baseline", "zone", "refine", "compose"),
+          kinds=("baseline", "zone", "refine"),
           why="animation_life 0.431 is the lowest criterion in the whole corpus"),
     Route("R19", "c3d-scene-motion", 90, tracks=("scene",), languages=("scene_threejs",),
           findings=(GL_MOTION_OR_DETAIL,),
@@ -244,13 +245,13 @@ ROUTES: tuple[Route, ...] = (
           kinds=("baseline", "env", "refine"),
           why="the sky bake is the light source every PBR surface reflects; 4/9 reference scenes shipped it inverted"),
     Route("R26", "c3d-scene-water", 85, tracks=("scene",), languages=("scene_threejs",),
-          kinds=("baseline", "env", "zone", "compose", "refine"), requires_any=("wants_water",),
+          kinds=("baseline", "env", "zone", "refine"), requires_any=("wants_water",),
           why="the plan's own words ask for water; metallic water is the reference's most-shipped material mistake"),
     Route("R27", "c3d-scene-night", 85, tracks=("scene",), languages=("scene_threejs",),
-          kinds=("baseline", "env", "zone", "compose", "refine"), requires_any=("wants_night",),
+          kinds=("baseline", "env", "zone", "refine"), requires_any=("wants_night",),
           why="the plan's own words ask for night; shafts/emissive discipline is measured in the reference ledger"),
     Route("R28", "c3d-scene-materials", 65, tracks=("scene",), languages=("scene_threejs",),
-          kinds=("baseline", "zone", "compose", "refine"),
+          kinds=("baseline", "zone", "refine"),
           why="flat albedo and identical twins are the reference audit's most-cited surface defects"),
 )
 

@@ -266,7 +266,7 @@ def test_task_stage_names_the_cost_bucket_a_task_spends_in():
     assert t("baseline") == "baseline" and t("refine") == "refine" and t("repair") == "repair"
     assert t("rebuild") == "repair"           # regenerating after a failed build IS repair money
     assert t("zone") == "zones" and t("asset") == "assets" and t("asset_fix") == "assets"
-    assert t("compose") == "assemble" and t("env") == "env"
+    assert t("env") == "env"
     # the static track's surface-detail round is refine money, not "other" — it filed as
     # Stage.OTHER until 2026-08-30 because _LABEL_STAGES had no "detail" prefix
     assert t("detail") == "refine" and t("detail", "detail_seat") == "refine"

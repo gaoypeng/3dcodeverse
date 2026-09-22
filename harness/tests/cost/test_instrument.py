@@ -111,14 +111,14 @@ def test_a_cli_agent_we_cannot_see_inside_gets_one_session_row(tmp_path: Path):
 
 
 def test_a_session_row_is_filed_by_the_task_kind(tmp_path: Path):
-    """``job.kind`` is a bare task kind (``zone``, ``compose``, ``rebuild``); until 2026-08-29
+    """``job.kind`` is a bare task kind (``zone``, ``rebuild``, ``asset``); until 2026-08-29
     only the label PREFIXES were known here, so every scene zone session was ``other``."""
     with run_ledger(tmp_path, run="r1"):
-        for kind, label in (("zone", "zone_courtyard"), ("compose", "compose"), ("rebuild", "rebuild"),
+        for kind, label in (("zone", "zone_courtyard"), ("rebuild", "rebuild"),
                             ("asset", "asset_koi"), ("candidate", "baseline_c1")):
             MeteredAgent(CliAgent(FakeChat())).run(
                 AgentJob(workspace=str(tmp_path), prompt="p", label=label, round=0, kind=kind))
-    assert [r.stage for r in load_ledger(tmp_path)] == [Stage.ZONES, Stage.ASSEMBLE, Stage.REPAIR,
+    assert [r.stage for r in load_ledger(tmp_path)] == [Stage.ZONES, Stage.REPAIR,
                                                         Stage.ASSETS, Stage.CANDIDATE]
 
 

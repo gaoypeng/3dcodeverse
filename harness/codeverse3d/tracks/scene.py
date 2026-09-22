@@ -283,7 +283,7 @@ class SceneTrack(BaseTrack):
         in ``prepare()``: ``_env_stage`` writes the lighting and ``_zones_stage`` the
         contents — agent sessions that never passed through ``steps.run_round``, the ONE
         place that called ``attach_for_round`` (``scene.js`` is assembled, not written).  The
-        router has always had ``kinds=("env", "zone", "compose")`` rows for the four scene
+        router has always had ``kinds=("env", "zone")`` rows for the four scene
         bundles (registry R14-R21), so they were selected for these very stages and then
         delivered to nobody: measured 2026-08-25 at 0 opens out of 30 listings, while round
         0's ``baseline_tasks`` returned ``[]`` and so listed them to a session that did not

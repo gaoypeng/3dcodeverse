@@ -67,7 +67,7 @@ blows the ceiling; the budget belongs on the shapes that fill the silhouette.
 
 ## There is no CSG
 
-`runtime_js/package.json` ships `three`, `puppeteer` and `three-mesh-bvh` only —
+`runtime_js/package.json` ships `three` and `puppeteer` only —
 there is no `three-bvh-csg`, no `Brush`, no `Evaluator`, and the lint allows
 imports of `three`, `three/addons/*` and relative files under `src/` and nothing
 else. So a boolean operation is not available to you at all, in either
