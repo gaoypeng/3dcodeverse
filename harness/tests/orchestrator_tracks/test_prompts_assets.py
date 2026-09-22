@@ -22,7 +22,7 @@ from tests.orchestrator_tracks.fakes import FakeAgent, FakeJudge, FakeRuntime, F
 
 TEMPLATES = {"plan_static", "plan_articulated", "plan_scene", "generate_static", "generate_articulated", "refine_object", "repair",
              "generate_static_part", "assemble_static", "detail_object",
-             "scene_asset", "scene_env", "scene_zone", "scene_compose", "scene_refine"}
+             "scene_asset", "scene_env", "scene_zone", "scene_refine"}
 
 
 def _asset_module(job) -> str:
@@ -117,7 +117,7 @@ def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     from codeverse3d.tracks.scene import SceneTrack
 
     st = SceneTrack(services=services)
-    for tpl, extra in (("scene_env", {}), ("scene_compose", {}),
+    for tpl, extra in (("scene_env", {}),
                        ("scene_zone", dict(zone_name="Quay", zone_description="d", zone_bbox="b", zone_contents=["Bollard"], zone_file="src/zones/quay.js", neighbours=["Water: x"])),
                        ("scene_refine", dict(round_index=1, tasks=["t"], targets=["Quay"], files=["src/zones/quay.js"], edit_only_these=False, judge_summary="j", current_files={}))):
         out = render(f"tracks/{tpl}.j2", **st._ctx(ctx, **extra))

@@ -31,10 +31,14 @@ from codeverse3d.contracts.common import Language, Usage
 from codeverse3d.contracts.plan import Plan
 from codeverse3d.contracts.run import RunRecord
 from codeverse3d.conventions import to_snake
-from codeverse3d.tracks.common import Services, ServiceUnavailable
+from codeverse3d.tracks.common import Services
 from codeverse3d.workspace import Workspace
 
 FAIL_MARK = "RAISE_BUILD_ERROR"
+
+
+class ServiceUnavailable(RuntimeError):
+    """This fake has no implementation for the service (the test did not provide one)."""
 
 
 # ----------------------------------------------------------------------------- runtime
@@ -257,7 +261,7 @@ def _png(path: Path, size: int = 32) -> None:
 
 class FakeServices(Services):
     def __init__(self, *, runtime_factory: Callable[[Language], Any] | None = None, judge: Any | None = None,
-                 contract_errors: int = 0, assemble: bool = False, sweep_errors: int = 0, pairwise: Any | None = None,
+                 contract_errors: int = 0, assemble: bool = True, sweep_errors: int = 0, pairwise: Any | None = None,
                  silhouette_iou: float | None = None, motion_errors: int = 0):
         self.runtime_factory = runtime_factory or (lambda lang: FakeRuntime(lang))
         self._judge = judge

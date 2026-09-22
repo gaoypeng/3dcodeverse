@@ -47,8 +47,8 @@ from codeverse3d.spatial.frame_motion import motion_text_for
 from codeverse3d.spatial.render_scene import perf_detail
 from codeverse3d.texturing.plan import texture_pack_prompt
 from codeverse3d.tracks import skills_hook
-from codeverse3d.tracks.common import RunContext, ServiceUnavailable, generate_for, single_shot_ctx
-from codeverse3d.tracks.generation import GenerationResult, GenerationTask
+from codeverse3d.tracks.common import RunContext, generate_for, single_shot_ctx
+from codeverse3d.tracks.generation import GenerationTask
 from codeverse3d.tracks.lifecycle import BaseTrack
 from codeverse3d.tracks.prompting import (
     SCENE_FILES,
@@ -348,38 +348,28 @@ class SceneTrack(BaseTrack):
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         t0 = time.time()
         # one author for the whole world (D70; the fan-out control arm was removed 2026-09-21)
-        batches = [list(plan.zones)]
-        if any(len(b) > 1 for b in batches):
-            ctx.events.emit("zones.batched", batches=[[z.name for z in b] for b in batches])
-
-        # once, before the fan-out: every zone session shares one workspace, so three
-        # parallel attaches would race the same AGENTS.md.  The zone rows (R3 "zone",
-        # R14/R18 "zone") are identical for every batch, so one route is the right route.
+        zones = list(plan.zones)
+        if len(zones) > 1:
+            ctx.events.emit("zones.batched", batches=[[z.name for z in zones]])
         zone_gen = self._strategy(ctx, "zones")
         skills_hook.attach_for_round(zone_gen, index=0, kind="zone")
-
-        def _one(batch: list[ZonePlan]) -> GenerationResult:
-            task = skills_hook.with_inlined_skill(zone_gen, [self._zone_task(zone_gen, batch)])[0]
-            return generate_for(zone_gen, task)
-
-        results = fan_out(batches, _one, max_workers=ctx.settings.limits.max_parallel_agents, label="zones",
-                          item_name=lambda b: "+".join(z.name for z in b))
         out: dict[str, Any] = {}
-        for batch, r in zip(batches, results, strict=True):
-            if isinstance(r, Exception):
-                # BudgetExceeded included: the sibling zones' paid modules are still
-                # recorded + committed; the guard's boundary check below stops the run.
-                for zone in batch:
-                    out[zone.name] = {"ok": False, "notes": f"{type(r).__name__}: {r}"}
-            else:
-                written = {c.path for c in r.files_changed}
-                for zone in batch:
-                    rel = zone_file(zone)
-                    # a batched session must have produced EVERY file it owns; the skeleton
-                    # left a stub at every zone path, so existence proves nothing — the file
-                    # must have been reported as changed or actually rewritten in this stage
-                    ok = r.ok and (len(batch) == 1 or rel in written or _touched(ctx.ws.root / rel, t0))
-                    out[zone.name] = {"ok": ok, "files": [rel] if ok else [], "notes": r.notes}
+        try:
+            task = skills_hook.with_inlined_skill(zone_gen, [self._zone_task(zone_gen, zones)])[0]
+            r = generate_for(zone_gen, task)
+        except Exception as e:  # noqa: BLE001 — BudgetExceeded included: the stage is still
+            # recorded + committed; the guard's boundary check below stops the run
+            log.warning("zones session failed: %s: %s", type(e).__name__, e)
+            out = {zone.name: {"ok": False, "notes": f"{type(e).__name__}: {e}"} for zone in zones}
+        else:
+            written = {c.path for c in r.files_changed}
+            for zone in zones:
+                rel = zone_file(zone)
+                # a session that owns several zones must have produced EVERY file; the skeleton
+                # left a stub at every zone path, so existence proves nothing — the file
+                # must have been reported as changed or actually rewritten in this stage
+                ok = r.ok and (len(zones) == 1 or rel in written or _touched(ctx.ws.root / rel, t0))
+                out[zone.name] = {"ok": ok, "files": [rel] if ok else [], "notes": r.notes}
         self._record_skills(zone_gen, "zone")
         ctx.ws.commit("zones")
         ctx.events.emit("zones.done", ok=[k for k, v in out.items() if v["ok"]], failed=[k for k, v in out.items() if not v["ok"]])
@@ -428,22 +418,10 @@ class SceneTrack(BaseTrack):
                               timeout_s=ctx.budget.timeout_s(ZONE_TIMEOUT_S * max(1, len(batch)), floor_s=180))
 
     def _assemble_stage(self, ctx: RunContext) -> dict[str, Any]:
-        try:
-            result = ctx.services.assemble_scene(ctx.ws, ctx.plan)
-            ctx.ws.commit("assemble")
-            ctx.events.emit("assemble.done", deterministic=True)
-            return {"ok": True, "deterministic": True, "result": result}  # StageRunner.stage jsonables it
-        except ServiceUnavailable as e:
-            ctx.events.emit("assemble.fallback", reason=str(e))
-        prompt = render("tracks/scene_compose.j2", **self._ctx(ctx))
-        ctx.record_prompt("scene_compose", prompt)
-        task = GenerationTask(label="compose", prompt=prompt, system=self.system_prompt(ctx), files_hint=["src/scene.js"], round=0,
-                              kind="compose", temperature=0.4, owns_entry=True, images=reference_images(ctx))
-        task = self._deliver_skills(ctx, "compose", [task])[0]
-        res = generate_for(ctx, task)
-        self._record_skills(ctx, "compose")
-        ctx.ws.commit("compose")
-        return {"ok": res.ok, "deterministic": False, "files": [c.path for c in res.files_changed], "notes": res.notes}
+        result = ctx.services.assemble_scene(ctx.ws, ctx.plan)
+        ctx.ws.commit("assemble")
+        ctx.events.emit("assemble.done", deterministic=True)
+        return {"ok": True, "deterministic": True, "result": result}  # StageRunner.stage jsonables it
 
     def prepare_salvage(self, ctx: RunContext) -> bool:
         """The budget stopped a stage before round 0: assemble whatever the stages DID

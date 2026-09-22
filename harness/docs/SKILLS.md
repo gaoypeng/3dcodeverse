@@ -538,9 +538,10 @@ so; the rest are live.
   generated the whole baseline (`_env_stage`, `_zones_stage`, `_assemble_stage`) without ever
   reaching `skills_hook.attach_for_round`, which lived only in `steps.run_round`; and
   `baseline_tasks` returned `[]`, so round 0 listed four bundles to a session that did not
-  exist. Measured at **0 opens / 30 listings**. The three stages now attach and record with
-  their own kind. `tests/skills/test_delivery_reaches_the_session.py` runs a real
-  two-zone-session scene and proves env/zone/compose attach exactly once, before generation,
+  exist. Measured at **0 opens / 30 listings**. The generating stages now attach and record with
+  their own kind (`scene.js` is assembled without a session since the compose fallback went,
+  2026-09-22). `tests/skills/test_delivery_reaches_the_session.py` runs a real
+  two-zone-session scene and proves env/zone attach exactly once, before generation,
   with matching telemetry. **The scene bundles' read rate against working delivery
   is UNMEASURED — that is the next wave's first experiment.**
 * ~~**`api-agent` has no skill affordance.**~~ **FIXED earlier**, and re-measured here: with

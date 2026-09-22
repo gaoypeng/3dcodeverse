@@ -6,8 +6,7 @@ method here so a test can subclass it with fakes (``tests/orchestrator_tracks/
 fakes.py``) and an articulated test double can synthesise joint sweeps from the
 plan.  The targets are modules of this same package — never optional — and are
 imported lazily only to keep ``tracks`` importable without loading Blender,
-Chrome or a model client.  ``ServiceUnavailable`` is what a FAKE raises for a
-service the test did not provide.  Nothing here touches a network.
+Chrome or a model client.  Nothing here touches a network.
 """
 
 from __future__ import annotations
@@ -40,11 +39,6 @@ from codeverse3d.tracks.generation import (
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
-
-
-class ServiceUnavailable(RuntimeError):
-    """A test double has no implementation for this service (``scene._assemble_stage``
-    falls back to an agent compose session on it)."""
 
 
 def _import(path: str, name: str) -> Any:

@@ -187,8 +187,6 @@ def _scene_writer(job, ws):
         return {rel: f"export function build(){{}} // {label}\n" for rel in job.files_hint}
     if label.startswith("zone_"):
         return {f"src/zones/{label[5:]}.js": f"export function build(){{}} // {label}\n"}
-    if label == "compose":
-        return {"src/scene.js": "export function createScene(){}\n"}
     if label.startswith("refine"):
         return {f: f"// refined by {label}\n" for f in job.prompt.split("EDIT ONLY THESE FILES")[-1].splitlines() if False} or {"src/scene.js": f"// {label}\n"}
     return {"src/scene.js": "// x\n"}
@@ -202,7 +200,7 @@ def test_scene_track_stages_and_rounds(tmp_path, settings):
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=1, prompt="a small harbour at dusk")
     ws = Workspace(tmp_path / "runs" / "harbour")
     agent = FakeAgent(_scene_writer)
-    services = FakeServices(assemble=False)
+    services = FakeServices()
     track = SceneTrack(services=services, judge=FakeJudge(scores=(0.6, 0.7), targets=("Quay", "Water")), agent=agent,
                        planner_model=_planner(plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.SCENE_THREEJS))
     rec = track.run(spec, ws)
@@ -210,8 +208,7 @@ def test_scene_track_stages_and_rounds(tmp_path, settings):
     # Quay and Water are both small zones (≤ 3 placements) → ONE batched session owning both files
     # assets ∥ env: the combined stage's three sessions interleave freely; order resumes at zones
     assert set(labels[:3]) == {"asset_fishing_boat", "asset_bollard", "env"} and "zones_quay_water" in labels
-    assert "compose" in labels  # assembler unavailable → composer agent fallback
-    assert labels.index("env") < labels.index("zones_quay_water") < labels.index("compose")
+    assert "compose" not in labels and labels.index("env") < labels.index("zones_quay_water")  # scene.js is assembled
     assert (ws.src / "assets" / "fishing_boat.js").is_file() and (ws.src / "zones" / "quay.js").is_file() and (ws.src / "scene.js").is_file()
     zone_prompt = next(j.prompt for j in agent.jobs if j.label == "zones_quay_water")
     assert "buildFishingBoat" in zone_prompt and "8.00×3.50×3.00" in zone_prompt and "Neighbouring zones" in zone_prompt

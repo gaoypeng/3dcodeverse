@@ -139,7 +139,7 @@ def test_the_effects_catalog_reaches_the_scene_prompts_and_only_those():
     assert effects_catalog_text(Language.GLSL_SHADER) == ""
 
     tpl = PROMPTS_DIR / "tracks"
-    for name in ("scene_env.j2", "scene_zone.j2", "scene_refine.j2", "scene_compose.j2"):
+    for name in ("scene_env.j2", "scene_zone.j2", "scene_refine.j2"):
         assert "effects_catalog" in (tpl / name).read_text(), name
     # the asset session authors BLENDER bpy, so it must NOT carry the table
     assert "effects_catalog" not in (tpl / "scene_asset.j2").read_text()

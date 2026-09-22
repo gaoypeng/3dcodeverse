@@ -476,7 +476,7 @@ GenerationTask.phase: int = 0   # tasks run in parallel WITHIN a phase, phases i
 generate(ws, *, agent_id, task, ..., budget=BudgetGuard, max_turns=0, wrapup_turns=6) -> GenerationResult
     # GenerationResult.storm: every session died on a transient streak (AgentResult.transient) and wrote nothing
 tracks.common.generate_for(ctx: RunContext, task: GenerationTask) -> GenerationResult
-    # THE call every stage makes (env, zones, compose, rounds, repairs, asset ladder, judged fix): generate()
+    # THE call every stage makes (env, zones, rounds, repairs, asset ladder, judged fix): generate()
     # with everything ctx knows, and a storm-dead task retried through single_shot_ctx(ctx) (D68)
 tracks.common.single_shot_agent_id(agent_id, chat_model_id='') -> str · single_shot_ctx(ctx) -> RunContext | None
     # moved from tracks.scene_assets 2026-09-07 (never scene-specific)

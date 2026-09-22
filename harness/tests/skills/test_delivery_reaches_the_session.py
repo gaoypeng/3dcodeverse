@@ -2,14 +2,14 @@
 
 The read loop measured c3d-scene-composition / -lighting / -motion at 0 opens out of 3
 listings each and read it as a wording problem.  It was not: the scene track did all of
-its baseline generation in ``prepare()`` — the env, zones and compose stages called
+its baseline generation in ``prepare()`` — the env and zones stages called
 ``tracks.generation.generate`` directly — while ``skills_hook.attach_for_round`` was only
 reached from ``steps.run_round``.  ``SceneTrack.baseline_tasks`` returns ``[]``, so round 0
 listed the bundles to a round that had no generation task to consume them.  That was
 exactly "listed 3, opened 0", and no rewrite of a SKILL.md could have fixed it.
 
-CLOSED 2026-08-25 (curate wave): ``SceneTrack._env_stage`` / ``_zones_stage`` /
-``_assemble_stage`` now go through ``_deliver_skills`` + ``_record_skills``.  These tests
+CLOSED 2026-08-25 (curate wave): ``SceneTrack._env_stage`` / ``_zones_stage`` now go
+through the skill hook + ``_record_skills`` (``scene.js`` is assembled, no session).  These tests
 keep every agent-driving module on the hook, so the gap cannot reopen quietly.  The scene
 bundles' read rate is UNMEASURED against this delivery — that is the next wave's first
 experiment, and until it runs their ledger rows stay ``mixed``/``inherited``, not
@@ -46,7 +46,7 @@ def scene_run(tmp_path, monkeypatch):
                      prompt="a small harbour at dusk")
     ws = Workspace(tmp_path / "runs" / "harbour_skills")
     agent = FakeAgent(_scene_writer)
-    track = SceneTrack(services=FakeServices(assemble=False), judge=FakeJudge(scores=(0.6,)),
+    track = SceneTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)),
                        agent=agent, planner_model=_planner(plan.model_dump(mode="json")),
                        settings=Settings(), runtime=FakeRuntime(Language.SCENE_THREEJS))
     rec = track.run(spec, ws)
@@ -58,17 +58,14 @@ def test_every_scene_generation_stage_gets_skills_before_its_sessions(scene_run)
     rec, agent, ws = scene_run
     events = EventLog(ws.events_path).read()
     attachments = [e for e in events if e.get("event") == "skills.attached"]
-    by_kind = {e["kind"]: e for e in attachments if e.get("kind") in {"env", "zone", "compose"}}
+    by_kind = {e["kind"]: e for e in attachments if e.get("kind") in {"env", "zone"}}
 
-    assert Counter(e.get("kind") for e in attachments) >= Counter(
-        {"env": 1, "zone": 1, "compose": 1}
-    )
+    assert Counter(e.get("kind") for e in attachments) >= Counter({"env": 1, "zone": 1})
     assert all(sum(e.get("kind") == kind for e in attachments) == 1 for kind in by_kind)
     assert {"c3d-scene-composition", "c3d-scene-lighting"} <= set(by_kind["env"]["skills"])
     assert {"c3d-scene-composition", "c3d-scene-motion", "c3d-bbox-contract"} <= set(
         by_kind["zone"]["skills"]
     )
-    assert {"c3d-scene-composition", "c3d-scene-motion"} <= set(by_kind["compose"]["skills"])
 
     def belongs(kind: str, event: dict) -> bool:
         label = str(event.get("label", ""))
@@ -81,7 +78,7 @@ def test_every_scene_generation_stage_gets_skills_before_its_sessions(scene_run)
         generated_at = [i for i, event in enumerate(events) if belongs(kind, event)]
         assert generated_at and all(attach_at < i for i in generated_at), kind
     assert sum(belongs("zone", event) for event in events) == 1  # D70: one session owns every zone file
-    assert Counter(job.kind for job in agent.jobs) >= Counter({"env": 1, "zone": 1, "compose": 1})
+    assert Counter(job.kind for job in agent.jobs) >= Counter({"env": 1, "zone": 1})
 
     telemetry_path = ws.root / "telemetry" / "skills.jsonl"
     assert telemetry_path.is_file()
