@@ -91,7 +91,8 @@ lib/browser/*.js      page-side ESM (served through /__runtime/): renderer.js (T
 probe_scene.mjs       scene build gate: boot src/scene.js, census, update(t,dt), first-camera checks;
                       --compile folds the full shader preflight into the SAME boot (shader_report);
                       --sun-azimuth returns harness-fitted overview + per-group camera specs (lib/orbit.mjs)
-check_shaders.mjs     standalone shader preflight (static GLSL audits + GPU compile, file:line mapped)
+check_shaders.mjs     the effect-library tests' compile driver: the same preflight as probe_scene --compile,
+                      plus --module to scope the static audit to one fixture file
 render_scene.mjs      authored cameras + orbit rig renders at times, metrics.json/views.json
 lib/host_env.mjs      ESM adapters over gpu_launch.cjs + serve.cjs (launchBrowser, serveWorkspace)
 lib/host_page.mjs     node-side page driver: serve ws, launch, boot scene, collect errors, releaseBrowser

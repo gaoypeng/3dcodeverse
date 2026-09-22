@@ -1,7 +1,8 @@
 /**
- * Shader preflight report builder, shared by the standalone tool
- * (`check_shaders.mjs`) and the combined build probe (`probe_scene.mjs
- * --compile`).  Two node-side stages over one report shape:
+ * Shader preflight report builder, shared by the build probe (`probe_scene.mjs
+ * --compile` — the scene build's gate and the `shader_probe` tool's verdict) and
+ * the effect-library tests' compile driver (`check_shaders.mjs`).  Two node-side
+ * stages over one report shape:
  *
  *   staticShaderReport(ws, module)  — walk src/**, run the static GLSL audits
  *   compileIntoReport(report, ...)  — on an already-booted host page, force-
@@ -79,7 +80,7 @@ export async function compileIntoReport(report, files, host) {
   const { page, boot } = host;
   const { errors, warnings } = report;
   if (!boot.ok) {
-    errors.push({ file: 'src/scene.js', line: null, kind: 'boot', message: `scene did not boot at stage '${boot.stage}': ${boot.error}`.slice(0, 1200), fix_hint: 'fix the import/runtime error first; then re-run check_shaders' });
+    errors.push({ file: 'src/scene.js', line: null, kind: 'boot', message: `scene did not boot at stage '${boot.stage}': ${boot.error}`.slice(0, 1200), fix_hint: 'fix the import/runtime error first; then compile again' });
   } else {
     const comp = await page.evaluate((spec) => window.__c3v.compileAll(spec || undefined), null);
     const shaderErrors = comp.shader_errors.map(({ _key, ...e }) => e);

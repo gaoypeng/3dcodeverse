@@ -1,9 +1,10 @@
-"""Scene probes: import/census gate and shader compile preflight.
+"""Scene probes: the import/census gate and the shader-preflight report reader.
 
-* ``probe_scene(ws)``    → (GateReport 'scene_probe', census)  — the scene build gate
-* ``check_shaders(ws)``  → GateReport 'shader_preflight' (file:line + fix hints)
-
-Both drive the node host (``runtime_js/*.mjs``) via ``run_scene_script``.
+* ``probe_scene(ws)``  → (GateReport 'scene_probe', census) — the standalone probe
+  (the ``scene_probe`` tool, ``check_placement(rebuild=true)``)
+* ``probe_report`` / ``shader_report`` — the two gates, pure over the driver JSON; the
+  scene build (``languages.scene_threejs.probe_and_preflight``: one
+  ``probe_scene.mjs --compile`` boot) and the ``shader_probe`` tool read both through them.
 """
 
 from __future__ import annotations
@@ -144,7 +145,7 @@ def probe_report(summary: dict[str, Any], *, duration_ms: int = 0) -> tuple[Gate
                                hint="compile the Blender asset to public/assets/<name>.glb (the scene renders without it until then)"))
     for e in s.get("shader_errors", []):
         findings.append(_f(gate, Severity.ERROR, f"shader {e.get('stage')}: {e.get('message')} at: {e.get('source_line', '')}",
-                           target=e.get("material") or "shader", hint="run check_shaders for file:line mapping"))
+                           target=e.get("material") or "shader", hint="run shader_probe for the file:line mapping"))
     if boot.get("raf_calls"):
         findings.append(_f(gate, Severity.WARN, f"scene called requestAnimationFrame {boot['raf_calls']}x; animation must live in update(t, dt)",
                            target="src/scene.js", hint="delete your own render loop; the host drives update()"))
@@ -186,26 +187,10 @@ def _census_findings(c: dict[str, Any]) -> list[GateFinding]:
     return out
 
 
-def check_shaders(ws: Workspace, *, timeout_s: float = 90.0) -> GateReport:
-    """Static GLSL audits + GPU compile preflight with file:line mapped errors."""
-    t0 = time.time()
-    gate = SHADER_GATE
-    out_json = ws.artifacts / "shader_preflight.json"
-    args = ["--ws", str(ws.root), "--out", str(out_json), "--timeout-ms", str(int(timeout_s * 1000))]
-    findings: list[GateFinding] = []
-    try:
-        res = run_scene_script("check_shaders.mjs", args, timeout_s=timeout_s + 20)
-    except SceneRenderError as e:
-        findings.append(_f(gate, Severity.ERROR, f"shader preflight could not run: {e}", target="src/scene.js",
-                           hint="harness/driver failure; retry or report", harness_failure=True))
-        return GateReport(gate=gate, passed=False, findings=findings, duration_ms=int((time.time() - t0) * 1000))
-    return shader_report(res.summary, duration_ms=int((time.time() - t0) * 1000))
-
-
 def shader_report(report: dict[str, Any], *, duration_ms: int = 0) -> GateReport:
-    """Interpret a shader-preflight report (``check_shaders.mjs`` summary, or the
-    ``shader_report`` block of ``probe_scene.mjs --compile``) into the
-    ``shader_preflight`` GateReport.  Pure over the driver JSON."""
+    """Interpret a shader-preflight report (the ``shader_report`` block of
+    ``probe_scene.mjs --compile``) into the ``shader_preflight`` GateReport.  Pure over
+    the driver JSON."""
     gate = SHADER_GATE
     findings: list[GateFinding] = []
     rep = report

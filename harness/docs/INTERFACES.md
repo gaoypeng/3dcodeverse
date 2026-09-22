@@ -234,7 +234,7 @@ BuildResult.error_type spellings (languages/_common.py): MISSING_ENTRY = "Missin
 | `CadQueryRuntime` | `src/model.py` | trailing selector on the stack → parent solid exported + warning (ExportError when no solid exists); helper-module errors map to `src/<file>.py:line`; object.glb/stl/step |
 | `ThreeJsRuntime` | `src/object.js`, `src/parts/*.js` | **Δ export as authored** (census `placement_offset`); InstancedMesh baked to `<Name>_<i>` meshes (`instanced_meshes_baked`); exported `selfcheck(THREE, root)` is called (throw → SelfCheckError); NaN geometry errors name mesh/part → routed to `src/parts/<snake>.js` |
 | `UrdfBlenderRuntime` | `src/model.py`, `src/robot.urdf` | object.glb (Y-up, node=link, joint extras), meshes/<link>.glb (raw Z-up link frames); link name `world` is reserved (lint ERROR + UrdfError); robot GLB root gets `__root` suffix on name clash |
-| `SceneThreeJsRuntime` | `src/scene.js`, `src/zones/*.js`, `src/assets/*.js`, `src/env.js`, `src/shaders/*.js` | glb_path=None; ok iff the probe and the shader preflight (one `probe_scene.mjs --compile` boot) both pass; both reports ride `BuildResult.gates` |
+| `SceneThreeJsRuntime` | `src/scene.js`, `src/zones/*.js`, `src/assets/*.js`, `src/env.js`, `src/shaders/*.js` | glb_path=None; ok iff `probe_and_preflight(ws, *, timeout_s=None) -> (scene_probe, shader_preflight, census)` (one `probe_scene.mjs --compile` boot) passes both; both reports ride `BuildResult.gates`, and the `shader_probe` tool reports the same call |
 | `GlslShaderRuntime` | `src/shader.frag`, `src/common.glsl`, `src/buffer_a.frag` (+ the harness-owned `src/recipes.glsl` when seeded) | harness owns `#version`/uniforms/`out` (wrap.HEADER: u_time/u_resolution/u_mouse/u_frame/u_prev/u_noise + iTime/iChannel* aliases); `wrap.compose(shader, common, recipes_src=…)` pastes header < recipes < common < shader; build renders judge frames via GlHost; compile errors → GlslCompileError at mapped src file:line (recipes.glsl included); lint ERROR `redefines_recipe` when an agent file defines a recipes.glsl name; artifacts frames/, frames_sheet.png, preview.gif, metrics.json |
 | `OpenGLPythonRuntime` | `src/program.py`, `src/*.glsl` | `setup(ctx,w,h)->state` + `render(ctx,state,t,frame,fbo)` run in a moderngl subprocess (`wrappers/run_gl.py`); exceptions map to src/program.py:line, in-string GLSL errors carry both line numbers |
 
@@ -249,7 +249,7 @@ once through `_common.compose_build_result` and replaces with the final `BuildRe
 EVERY runtime `artifacts/build.json` is the BuildResult (urdf_blender after its post-wrapper
 checks).  `opengl_python/wrappers/run_gl.py` is the moderngl runner; threejs/scene
 export+render live in `runtime_js/` (`export_glb.mjs`, `render_glb.mjs`,
-`render_scene.mjs`, `probe_scene.mjs`, `check_shaders.mjs`, `lib/instances.mjs`).
+`render_scene.mjs`, `probe_scene.mjs`, `lib/instances.mjs`; `check_shaders.mjs` is the effect-library tests' compile driver).
 **Placement policy (all languages)**: nothing re-centres or drops to ground at
 export; the build warns and the contract/connectivity gates report it.
 **Δ Node ESM resolution**: bare `import 'three'` needs

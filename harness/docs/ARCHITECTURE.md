@@ -265,7 +265,7 @@ eval/bench/                run_bench.py + report.py (the battery launcher, `pyth
                       concurrency_probe.py (in-flight knee sweep), complexity_report.py,
                       prompts/{static_objects_v1 (24), articulated_v1 (12), scenes_v1 (12), compare_v1 (8)}.yaml
 runtime_js/           export_glb.mjs (placement policy, instance baking, selfcheck) render_glb.mjs
-                      render_scene.mjs probe_scene.mjs check_shaders.mjs gpu_launch.cjs serve.cjs
+                      render_scene.mjs probe_scene.mjs check_shaders.mjs (the lib tests' compile driver) gpu_launch.cjs serve.cjs
                       lib/{resolve_three, scene_host, host_coverage, host_census, host_placement, orbit, instances,
                       census, glsl_audit, browser/…}
                       browser/post.js — scene post chain: GTAO + SELECTIVE bloom (an emissive

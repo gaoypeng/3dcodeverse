@@ -19,9 +19,9 @@ booted page -> window.__c3v.compileAll()      -> shader_errors[]       -> errors
                                     -> GateReport(gate="shader_preflight")
 ```
 
-`passed` is `report.ok and no ERROR finding`. The agent-facing tool is `shader_probe`
-(`Compile every GLSL/ShaderMaterial in the scene headlessly and report shader errors with line
-numbers`); the same report is produced automatically on every `scene_threejs` build.
+`passed` is `report.ok and no ERROR finding`. The agent-facing tool is `shader_probe`; it runs
+the build's own probe and preflight (one `probe_scene.mjs --compile` boot), so its verdict is
+the build's, and every `scene_threejs` round carries the report among its gates.
 
 A compile error carries `stage`, `material`, the offending `source_line`, surrounding
 `context`, and a `fix_hint` derived from the driver message. When the same GLSL line appears in

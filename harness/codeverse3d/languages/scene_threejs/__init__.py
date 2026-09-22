@@ -771,13 +771,12 @@ class SceneThreeJsRuntime:
         (``BuildResult.gates``, which the round appends to its gates) and land
         under ``artifacts/gates/`` as well."""
         t0 = time.time()
-        tmo = min(float(timeout_s or get_settings().limits.build_timeout_s), 120.0)
         ws.artifacts.mkdir(parents=True, exist_ok=True)
         # a probe/driver crash must not leave the previous round's census or the root
         # driver outputs (scene_probe.json / shader_preflight.json) looking current;
         # census.json is only rewritten `if census:` below, so it MUST be wiped here
         ws.stage_artifacts("census.json", "scene_probe.json", "shader_preflight.json", "build.json").invalidate()
-        probe, shaders, census = _probe_and_preflight(ws, timeout_s=tmo)
+        probe, shaders, census = probe_and_preflight(ws, timeout_s=timeout_s)
         if census:
             (ws.artifacts / "census.json").write_text(json.dumps(census, indent=1))
         gates_dir = ws.artifacts / "gates"
@@ -804,7 +803,7 @@ class SceneThreeJsRuntime:
             census=census,
             gates=[probe, shaders],
             # a driver that could not run is not a defect in the scene; `probes.probe_report`
-            # and `_probe_and_preflight` already mark it, and `build_with_repair` reads this
+            # and `probe_and_preflight` already mark it, and `build_with_repair` reads this
             # so the round does not spend its repair budget rewriting working code
             harness_failure=bool(first is not None and first.data.get("harness_failure")),
         )
@@ -812,18 +811,20 @@ class SceneThreeJsRuntime:
         return res
 
 
-def _probe_and_preflight(ws: Workspace, *, timeout_s: float) -> tuple[GateReport, GateReport, dict]:
-    """One ``probe_scene.mjs --compile`` run → (scene_probe, shader_preflight, census).
+def probe_and_preflight(ws: Workspace, *, timeout_s: float | None = None) -> tuple[GateReport, GateReport, dict]:
+    """One ``probe_scene.mjs --compile`` run → (scene_probe, shader_preflight, census): the
+    build's two gates, and the ``shader_probe`` tool's verdict.
 
     The driver boots the scene once and runs both stages on the same page;
     when the scene never boots the preflight is skipped, matching the old
-    two-call behaviour (a failed-empty shader gate).
+    two-call behaviour (a failed-empty shader gate).  ``timeout_s`` defaults to
+    the build timeout, capped at 120 s.
     """
-    from codeverse3d.contracts.artifacts import GateFinding
     from codeverse3d.spatial.probes import PROBE_GATE, SHADER_GATE, probe_report, shader_report
     from codeverse3d.spatial.render_scene import SceneRenderError, probe_env_args, run_scene_script
 
     t0 = time.time()
+    timeout_s = min(float(timeout_s or get_settings().limits.build_timeout_s), 120.0)
     args = [
         "--ws", str(ws.root), "--compile",
         "--out", str(ws.artifacts / "scene_probe.json"),

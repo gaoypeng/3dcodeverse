@@ -135,5 +135,5 @@ export function fixHintFor(message) {
   if (/redefinition|already defined|redeclaration/i.test(m)) return 'you declared something three.js already injects (position, uv, normal, projectionMatrix, modelViewMatrix, cameraPosition, or a chunk varying); delete your declaration';
   if (/l-value|constant expression/i.test(m)) return 'assigning to a read-only/attribute; copy it to a local first';
   if (/gl_FragColor/i.test(m)) return 'with glslVersion GLSL3 write to your own `out vec4`; otherwise drop glslVersion';
-  return 'fix the quoted GLSL line; run check_shaders again';
+  return 'fix the quoted GLSL line; run shader_probe again';
 }

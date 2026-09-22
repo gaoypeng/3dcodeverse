@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 /**
- * Shader compile preflight for a scene_threejs workspace (standalone tool;
- * the scene build runs the same stages through `probe_scene.mjs --compile`).
+ * Shader compile preflight for a scene_threejs workspace — the effect-library
+ * tests' compile driver (tests/scene_runtime/lib/_probe.py).  The scene build and
+ * the `shader_probe` tool run the same two stages through `probe_scene.mjs
+ * --compile`; this driver exists for `--module`, which scopes the static audit to
+ * one fixture file.
  *
  *   node check_shaders.mjs --ws <ws> [--module src/shaders/x.js] [--gpu auto] [--out report.json]
  *

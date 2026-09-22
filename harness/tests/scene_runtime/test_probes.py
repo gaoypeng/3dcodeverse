@@ -5,7 +5,8 @@ from __future__ import annotations
 import pytest
 
 from codeverse3d.contracts.artifacts import Severity
-from codeverse3d.spatial.probes import check_shaders, probe_scene
+from codeverse3d.languages.scene_threejs import probe_and_preflight
+from codeverse3d.spatial.probes import probe_scene
 from tests.scene_runtime.conftest import needs_browser
 
 pytestmark = [pytest.mark.node, needs_browser]
@@ -57,11 +58,17 @@ def test_probe_scene_catches_update_throw_and_console_errors(starter_ws):
     assert "update boom" in msgs and "custom failure 42" in msgs
 
 
-def test_check_shaders_runs_raw_like_the_build_probe(ws, tmp_path, monkeypatch):
-    """The shader_probe tool booted with the post chain ON (openHost's default) while the
+def preflight(ws):
+    """The shader_preflight report the build and the ``shader_probe`` tool both read."""
+    return probe_and_preflight(ws)[1]
+
+
+def test_the_shader_preflight_runs_raw(ws, tmp_path, monkeypatch):
+    """The shader_probe tool once booted with the post chain ON (openHost's default) while the
     build's probe_scene --compile runs raw, so it compiled — and counted, and would have
     blamed on the scene — the harness's own GTAO / bloom / grade programs.  Only the chain
-    reads `scene.userData.grade`, so a read of it means the chain was built."""
+    reads `scene.userData.grade`, so a read of it means the chain was built.  The tool now
+    reports the build's own probe + preflight, which must stay raw."""
     from codeverse3d.spatial.render_scene import render_scene
 
     ws.src.mkdir(parents=True, exist_ok=True)
@@ -72,7 +79,7 @@ def test_check_shaders_runs_raw_like_the_build_probe(ws, tmp_path, monkeypatch):
         "  Object.defineProperty(scene.userData, 'grade', { get() { console.error('post chain built'); return undefined; } });\n"
         "  return { scene, cameras: [{ name: 'x', position: [3, 3, 3], lookAt: [0, 0, 0], fov: 50 }], update() {} }; }\n"
     )
-    rep = check_shaders(ws)
+    rep = preflight(ws)
     assert rep.passed and not [f for f in rep.findings if "post chain built" in f.message], [f.message for f in rep.findings]
     # control: a scene render DOES build the chain, and the read shows up
     monkeypatch.delenv("C3D_POST", raising=False)
@@ -80,14 +87,14 @@ def test_check_shaders_runs_raw_like_the_build_probe(ws, tmp_path, monkeypatch):
     assert any("post chain built" in e for e in rs.console_errors), rs.console_errors
 
 
-def test_check_shaders_clean_on_example(starter_ws):
-    rep = check_shaders(starter_ws)
+def test_preflight_clean_on_example(starter_ws):
+    rep = preflight(starter_ws)
     assert rep.gate == "shader_preflight" and rep.passed, [(f.target, f.message) for f in rep.findings]
     info = [f for f in rep.findings if f.severity == Severity.INFO]
     assert info and info[0].data.get("programs", 0) >= 3
 
 
-def test_check_shaders_maps_compile_error_to_file_line(starter_ws):
+def test_preflight_maps_compile_error_to_file_line(starter_ws):
     p = starter_ws.src / "shaders" / "water.js"
     text = p.read_text()
     needle = "float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);"
@@ -95,7 +102,7 @@ def test_check_shaders_maps_compile_error_to_file_line(starter_ws):
     text = text.replace(needle, "float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0) * undefinedThing;")
     p.write_text(text)
     line = next(i for i, ln in enumerate(text.splitlines(), 1) if "undefinedThing" in ln)
-    rep = check_shaders(starter_ws)
+    rep = preflight(starter_ws)
     assert not rep.passed
     err = rep.errors[0]
     assert err.target == f"src/shaders/water.js:{line}", err
@@ -104,7 +111,7 @@ def test_check_shaders_maps_compile_error_to_file_line(starter_ws):
     assert err.fix_hint
 
 
-def test_check_shaders_on_before_compile_patch_error(starter_ws):
+def test_preflight_on_before_compile_patch_error(starter_ws):
     (starter_ws.src / "shaders" / "glow.js").write_text(
         "import * as THREE from 'three';\n"
         "export function makeGlow(T = THREE) {\n"
@@ -126,18 +133,18 @@ def test_check_shaders_on_before_compile_patch_error(starter_ws):
     )
     assert "makeGlow(THREE)" in text
     p.write_text(text)
-    rep = check_shaders(starter_ws)
+    rep = preflight(starter_ws)
     assert not rep.passed
     err = rep.errors[0]
     assert err.target == "src/shaders/glow.js:6", err
     assert "missingUniform" in err.message
 
 
-def test_check_shaders_static_audit_without_compile(starter_ws):
+def test_preflight_static_audit_without_compile(starter_ws):
     (starter_ws.src / "shaders" / "bad.js").write_text(
         "export const frag = `\n#version 300 es\nvoid main() { gl_FragColor = vec4(uTime); }`;\n"
     )
-    rep = check_shaders(starter_ws)
+    rep = preflight(starter_ws)
     kinds = {f.data.get("kind") for f in rep.errors}
     assert {"version_directive", "undeclared_uniform", "unbound_uniform"} <= kinds
     assert any(f.target == "src/shaders/bad.js:2" for f in rep.errors)
@@ -190,5 +197,8 @@ def test_probe_result_tool_semantics(starter_ws, monkeypatch):
     assert not res2.gate.passed and not res2.ok
     assert res2.errors and "could not run" in res2.errors[0]
     assert res2.gate.errors[0].data.get("harness_failure") is True
-    rep = probes_mod.check_shaders(starter_ws)
-    assert not rep.passed and rep.errors[0].data.get("harness_failure") is True
+    import codeverse3d.spatial.render_scene as rs_mod
+
+    monkeypatch.setattr(rs_mod, "run_scene_script", fake_run_crash)   # the build's probe + preflight
+    probe, shaders, _ = probe_and_preflight(starter_ws)
+    assert probe.errors[0].data.get("harness_failure") is True and not shaders.passed and not shaders.findings
