@@ -47,6 +47,7 @@ prompt = sys.stdin.read()
 assert "--dangerously-skip-permissions" in args and "--output-format" in args
 assert "--strict-mcp-config" in args
 assert "FAKE_SERVICE_API_KEY" not in os.environ
+assert args[args.index("--setting-sources") + 1] == "project" and os.environ["CLAUDE_CODE_DISABLE_BUNDLED_SKILLS"] == "1"
 mode = os.environ.get("FAKE_MODE", "ok")
 if mode == "usage_limit":  # the subscription is spent: a result event, is_error, and claude's own words
     print(json.dumps({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
@@ -108,6 +109,23 @@ def test_argv_includes_mcp_when_materialized(tmp_ws: Workspace):
     assert "mcp__3dcode__*" in argv[argv.index("--allowedTools") + 1]
     s2 = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "claude-code")
     assert "--mcp-config" not in a.build_argv(s2)
+
+
+def test_a_session_sees_only_the_routed_skills(tmp_ws: Workspace):
+    """claude-code 2.1.280 listed 26 skills besides the routed bundles (2026-09-22 rig).  No
+    "user" setting source drops the account-synced skills and plugins; the env switch drops the
+    bundled ones; the two that survive it by design are hidden by name.  Checked against a local
+    fake API: the init event then lists exactly the routed bundles."""
+    from codeverse3d.agents.backends import CLAUDE_SETTINGS
+
+    a = ClaudeCodeAgent("sonnet", binary="claude")
+    s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "claude-code")
+    argv = a.build_argv(s)
+    assert argv[argv.index("--setting-sources") + 1] == "project"
+    assert json.loads(argv[argv.index("--settings") + 1]) == CLAUDE_SETTINGS == {
+        "skillOverrides": {"design": "off", "doctor": "off"}}
+    assert a.build_env(s)["CLAUDE_CODE_DISABLE_BUNDLED_SKILLS"] == "1"
+    assert "--disable-slash-commands" not in argv   # claude-code: "Disable all skills" — the routed ones too
 
 
 def test_the_usage_limit_is_quota_not_a_transient_death(tmp_ws: Workspace, fake_bin, monkeypatch):

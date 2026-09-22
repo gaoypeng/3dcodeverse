@@ -30,6 +30,7 @@ ws = args[args.index("-C") + 1]
 assert args[-1] == "-", "the prompt comes on stdin"
 prompt = sys.stdin.read()
 assert "FAKE_SERVICE_API_KEY" not in os.environ
+assert "skills.bundled.enabled=false" in args
 os.makedirs(os.path.join(ws, "src"), exist_ok=True)
 open(os.path.join(ws, "src", "hello.txt"), "w").write(prompt[:5])
 mode = os.environ.get("FAKE_MODE", "ok")
@@ -74,6 +75,8 @@ def test_argv_with_mcp_overrides(tmp_ws: Workspace):
     assert argv[argv.index("--sandbox") + 1] == "workspace-write" and "--skip-git-repo-check" in argv
     joined = " ".join(argv)
     assert 'mcp_servers.3dcode.command="' in joined and "mcp_servers.3dcode.args=[" in joined and argv[-1] == "-"
+    # the routed bundles only: codex's five bundled .system skills are switched off (codex debug prompt-input)
+    assert argv[argv.index("skills.bundled.enabled=false") - 1] == "-c"
     # codex exec has nobody to answer the per-tool approval elicitation → every MCP call would be cancelled
     assert 'mcp_servers.3dcode.default_tools_approval_mode="approve"' in argv
     assert argv[argv.index("--model") + 1] == "gpt-5.6-sol"

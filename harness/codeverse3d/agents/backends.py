@@ -6,8 +6,8 @@ prompt on stdin (every backend: ``cli_common.invoke``).
 * env hardening: host secrets stripped, one pool key as ``GEMINI_API_KEY``,
   ``GEMINI_CLI_SYSTEM_SETTINGS_PATH`` (per session, in the trajectory dir) forcing
   api-key auth + dynamic model configuration (otherwise an unknown model is *silently*
-  substituted), ``skills.enabled``, the 3dcode MCP server and ``mcp.allowed``, Node heap
-  cap, no self-relaunch.
+  substituted), ``skills.enabled`` with the CLI's own built-in skills disabled, the 3dcode
+  MCP server and ``mcp.allowed``, Node heap cap, no self-relaunch.
 * gemini-cli's own chat record of the attempt (``~/.gemini/tmp/<project>/chats/
   session-*.jsonl``, found by ``gemini_chat_records``) is read once (``read_gemini_chats``):
   its tool calls become the transcript's ``tool_call`` rows (``cli_common.record_tool_calls``;
@@ -77,6 +77,12 @@ from codeverse3d.proc import read_jsonl_lenient, run_subprocess
 
 log = logging.getLogger(__name__)
 
+#: the skills gemini-cli 0.53 ships in its own install (``bundle/builtin/``): listed to the model
+#: next to the routed bundles, and ``skills.disabled`` is the only switch — by name (2026-09-22).
+#: The user-level roots (``~/.gemini/skills``, ``~/.agents/skills``) have no settings switch at
+#: all; none exist on this machine.
+GEMINI_BUILTIN_SKILLS = ("skill-creator", "antigravity-support")
+
 SYSTEM_SETTINGS = {
     # folderTrust must be OFF: with it on, gemini-cli silently disables the workspace
     # .gemini/settings.json mcpServers (even with --skip-trust) → no 3dcode tools.  It is
@@ -88,8 +94,9 @@ SYSTEM_SETTINGS = {
     "general": {"topicUpdateNarration": False},
     # default true in 0.53, but a user's ~/.gemini/settings.json (or an agent-written
     # ws/.gemini/settings.json) could turn it off; this file is merged LAST, so the routed
-    # bundles stay indexed and ``activate_skill`` stays registered (2026-09-22)
-    "skills": {"enabled": True},
+    # bundles stay indexed and ``activate_skill`` stays registered (2026-09-22).  The
+    # CLI's own built-ins are off: a session sees the bundles the harness routed, nothing else
+    "skills": {"enabled": True, "disabled": list(GEMINI_BUILTIN_SKILLS)},
 }
 #: gemini-cli's skill-activation tool (0.53: ``activate_skill``, arg ``name``); the body
 #: comes back in the tool result, so its call — not a file read — is the activation
@@ -525,6 +532,19 @@ ALLOWED_TOOLS = ("Read", "Edit", "Write", "MultiEdit", "Glob", "Grep", "Skill",
                  "Bash(node:*)", "Bash(python:*)", "Bash(python3:*)", "Bash(ls:*)", f"mcp__{MCP_SERVER_NAME}__*")
 #: claude-code's skill-activation tool (2.1.280: input ``{"skill": <name>, "args"?}``)
 CLAUDE_SKILL_TOOL = "Skill"
+#: A harness session sees the bundles the harness routed into ``<ws>/.claude/skills`` and
+#: nothing else.  claude-code 2.1.280 otherwise lists 26 more (2026-09-22 rig): the account-
+#: synced skills and plugins (``anthropic-skills:*``, ``deep-research``, …) come with the
+#: "user" setting source, so ``--setting-sources project`` drops them — and with them the
+#: owner's ~/.claude/settings.json (hooks, env, effortLevel: sessions ran at its "xhigh" and
+#: now run at the CLI's default "high"): a session no longer inherits whoever runs the
+#: harness.  The bundled skills go with ``CLAUDE_CODE_DISABLE_BUNDLED_SKILLS`` (build_env);
+#: ``design`` and ``doctor`` survive that switch by design and are hidden by name through the
+#: documented ``skillOverrides`` setting.  Checked against a local fake API and in one live
+#: subscription session (2026-09-22): the init event lists exactly the routed bundles, and
+#: subscription auth does not need the user setting source.
+CLAUDE_SETTING_SOURCES = "project"
+CLAUDE_SETTINGS = {"skillOverrides": {"design": "off", "doctor": "off"}}
 
 
 def parse_claude_json(stdout: str) -> dict[str, Any] | None:
@@ -675,6 +695,7 @@ class ClaudeCodeAgent(_CliAgent):
         argv = [self.binary, "-p", "--output-format", "stream-json", "--verbose",
                 "--dangerously-skip-permissions",
                 "--max-turns", str(job.max_turns), "--no-session-persistence",
+                "--setting-sources", CLAUDE_SETTING_SOURCES, "--settings", json.dumps(CLAUDE_SETTINGS),
                 "--allowedTools", ",".join(ALLOWED_TOOLS)]
         if self.model:
             argv += ["--model", self.model]
@@ -696,7 +717,9 @@ class ClaudeCodeAgent(_CliAgent):
 
     def build_env(self, s: Session) -> dict[str, str]:
         # keep ANTHROPIC_API_KEY if the user relies on it; subscription auth needs nothing
-        return hardened_env(s.ws, s.job, keep={"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"})
+        env = hardened_env(s.ws, s.job, keep={"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"})
+        env["CLAUDE_CODE_DISABLE_BUNDLED_SKILLS"] = "1"   # see CLAUDE_SETTINGS
+        return env
 
     def run(self, job: AgentJob) -> AgentResult:
         ok, why = self.available()
@@ -750,6 +773,12 @@ class ClaudeCodeAgent(_CliAgent):
 
 
 # ===================================================================== codex
+#: ``-c`` for every codex session: the routed bundles in ``<ws>/.agents/skills`` only.  codex
+#: 0.155.1 otherwise lists its five bundled ``.system`` skills (imagegen, openai-docs,
+#: plugin-creator, skill-creator, skill-installer) next to them — gone with this switch
+#: (``codex debug prompt-input``, 2026-09-22).  User-level roots (``~/.codex/skills``,
+#: ``~/.agents/skills``) have no stable switch; none exist on this machine.
+CODEX_SKILL_OVERRIDES = ("-c", "skills.bundled.enabled=false")
 _TOOL_ITEMS = ("command_execution", "file_change", "mcp_tool_call", "web_search", "tool_call")
 #: the item fields a tool trace keeps: what was run, never what came back.  codex has no
 #: skill tool — it lists skills in its prompt and opens SKILL.md with a shell command, so
@@ -867,6 +896,7 @@ class CodexAgent(_CliAgent):
         if self.model:
             argv += ["--model", self.model]
         argv += effort_overrides(self.reasoning_effort)
+        argv += CODEX_SKILL_OVERRIDES
         if job.spatial_tools:
             argv += codex_mcp_overrides(mcp_command_for(s.ws, job))
         argv.append("-")

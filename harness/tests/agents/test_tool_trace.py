@@ -188,6 +188,14 @@ def test_gemini_system_settings_pin_skills_on_and_keep_the_workspace_trusted(tmp
     assert data["security"]["folderTrust"] == {"enabled": False}
 
 
+def test_gemini_sessions_see_the_routed_bundles_and_not_the_clis_own(tmp_path):
+    """0.53 lists its two built-in skills (bundle/builtin/) to the model next to the routed
+    bundles — seen in the request body a local fake API received, 2026-09-22 — and
+    ``skills.disabled`` (by name) is the only switch; the fake API then saw neither."""
+    data = json.loads(write_system_settings(tmp_path / "s.json").read_text())
+    assert data["skills"]["disabled"] == ["skill-creator", "antigravity-support"]
+
+
 def test_the_chat_record_is_the_usage_of_a_session_that_printed_no_envelope(tmp_path):
     """Every reply once (the record re-writes a message as it progresses), its tokens in the
     envelope's ``stats.models`` shape — the sum reproduced two live envelopes to the token."""
