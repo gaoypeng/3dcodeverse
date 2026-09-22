@@ -32,7 +32,7 @@ says `import { makeGrass } from '../lib/grass.js';`, `src/scene.js` says
 | moss, damp near water, dried mud | `patchMoss` · `patchMoisture` · `patchCrackedMud` — `lib/damp.js` |
 | a polished or wet floor | `makeMirrorFloor(w, d)` — `lib/wetground.js`; spends the same one-RTT budget as `makeOcean` |
 | rock, cliff, ground | `patchTriplanar` · `patchSlopeSplat` — `lib/terrain_shade.js` |
-| ground and cliff geometry | `ground({ size, heightAt })` · `cliff` — `lib/terrain.js` |
+| ground and cliff geometry | `ground({ size, rand: mulberry32(seed), relief, flat })` returns `{ mesh, height }` — seat every asset at height(x, z); with no seeded rand the ground is flat · `cliff({ length, height, rand })` — `lib/terrain.js` |
 | placing a camera or a prop by intent | `seat` · `establishingShot` · `faceToward` · `alongPath` · `crowdOn` — `lib/place.js` |
 | a cliff that reads as rock | `patchRockStrata` · `patchErosionStreaks` — `lib/strata.js`; bedding by world altitude, so every cliff in a scene shares one bedding plane |
 | the land between the content and the horizon | `makeOutskirts({ inner, baseY, heightAt, shellRadius, colors, seed })` — `lib/environment.js`; seam-matched relief, field patchwork and wooded clusters.  A bare oversized ground plane measured as "a diorama on a vast, empty flat plane" |
@@ -57,7 +57,7 @@ says `import { makeGrass } from '../lib/grass.js';`, `src/scene.js` says
 | a surface that has stood somewhere | `patchDripStains` · `patchRust` · `patchDust` — `lib/aging.js` |
 | any surface at all | `patchMicroBreakup` · `patchEdgeWear` — `lib/surface_wear.js` |
 | paper, wax, jade, petals; oil film, beetle shell | `patchTranslucency` · `patchIridescence` — `lib/finish.js` |
-| a person | `figure({ pose })` · `sit` · `walk` · `carry` — `lib/figure.js` |
+| a person | `figure({ height, fem, rand })` · `sit` · `walk` · `carry` — `lib/figure.js`; a pose is one of those three calls on the figure, not an option — left alone it stands |
 | the same asset hundreds of times, in one draw call | `instanceAsset` · `scatterGrid` — `lib/instancing.js` · `mergeStatic(meshes)` — `lib/merge.js` |
 | a textured standard material without a texture file | `brick` · `granite` · `cobble` · `asphalt` · `weatheredWood` · `brushedSteel` · `fabric` · `foliage` · `soil` · `skin` · `glass` (21 in all) · `tint(mat, variant)` — `lib/materials.js` |
 | noise on the CPU (heightfields the shader must agree with) | `fbm2` · `fbm3` · `mulberry32` · `displaceY` — `lib/noise.js` |
@@ -70,9 +70,11 @@ material, in any order — they are composed into one program.  Two patches may
 not define the same GLSL helper name with different bodies; the library prefixes
 its own (`astra…`), so prefix yours.
 
-**2. `make*` entries return a Group resting on y = 0 with
-`userData.tick(t, dt)` — and OUR contract drives it from `update(t, dt)`, not
-from a `tick` of your own.**  Fan out in `scene.js`:
+**2. A `make*` entry that moves carries its own per-frame hook —
+`userData.tick(t, dt)` on most, `userData.update(t)` on `makeRain`,
+`makeSplashes`, `makePuddle`, `makeClouds`, `makeCirrus`, `makeOcean` and
+`makeRainRings` — and OUR contract drives it from `update(t, dt)`, not from a
+`tick` of your own.**  Fan out in `scene.js`:
 
 ```js
 function update(t, dt) {
@@ -81,17 +83,19 @@ function update(t, dt) {
 }
 ```
 
-and in a zone, call the effect's own tick from the group's `update`:
+and in a zone, call the effect's own hook from the group's `update`:
 
 ```js
-const rain = makeRain({ extent: 40 });
+const rain = makeRain();
 g.add(rain);
-g.userData.update = (t, dt) => { rain.userData.tick(t, dt); };
+g.userData.update = (t, dt) => { rain.userData.update(t, dt); };
 ```
 
+Calling `.tick` on one of those seven throws, and the host then turns
+`update()` off for the whole scene — every animation in it freezes.
 Anything built with `patchStandard` is driven instead by one
 `tickShaders(scene, t)` — call it once, in `scene.js`'s `update`.  An effect
-whose tick is never called stands still.
+whose hook is never called stands still.
 
 **3. Shadows.**  Displaced vegetation casts REAL moving shadows: flags,
 banners, reeds and flowers by default; grass and wheat behind `shadows: true`
