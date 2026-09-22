@@ -876,6 +876,5 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
 * A free-form `dict` judge schema (rejected: flash skips criteria).
 * Storing URDF meshes Y-up and converting on load (rejected: breaks foreign loaders).
 * Per-asset judging for threejs scene assets — done 2026-09-07 (D66: `render_asset` on the scene runtime).
-* Proposed and not yet done (owner-level files): `ToolCallPart.extra` for provider
-  state; `n_samples` in Settings.  (Done since first written: `Workspace._git`
+* Proposed and not yet done (owner-level files): `n_samples` in Settings.  (Done since first written: `Workspace._git`
   lock + index.lock retry; the `languages/**` package-data globs.)

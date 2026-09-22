@@ -11,7 +11,7 @@ raised, on authored cameras:
 Standing in one is what the shot is; you see straight through it.  The near-geometry
 probe counted them because it raycast and bbox-tested every visible mesh.
 
-Same rule as the placement gate (`backdrop.nonSolid`, D54), one spelling for both.
+Same rule as the placement gate (`backdrop.nonSolid`, D55), one spelling for both.
 """
 
 from __future__ import annotations

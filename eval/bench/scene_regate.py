@@ -17,7 +17,7 @@ shown to be quiet; read the NEW column and the ones that stayed.
 
 `scene_frames` is not re-run here: its findings need pixels, so re-evaluating it costs a
 render per camera rather than one probe.  Use `runtime_js/render_scene.mjs` directly for
-that (see D54's greenhouse measurement).
+that (see D55's greenhouse measurement).
 """
 
 from __future__ import annotations

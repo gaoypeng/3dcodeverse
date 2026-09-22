@@ -3,7 +3,7 @@
 The harness measures interpenetration twice.  ``spatial/connectivity`` samples 600 points
 per surface, requires a minimum share of them to lie inside the other part, and calls
 2 mm a WARN and 10 mm an ERROR.  ``spatial/joints_collide`` (the ``joint_sweep`` gate)
-probes the posed meshes densely and reports at a 1 mm tolerance.  Same physical quantity,
+probes the posed meshes densely and reports at a 2 mm tolerance.  Same physical quantity,
 different sensitivity, and the LAXER one is the gate that fails a round.
 
     python bench/penetration_thresholds.py bench/out            # every recorded run below it
