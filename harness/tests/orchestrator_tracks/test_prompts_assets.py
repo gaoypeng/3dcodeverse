@@ -181,7 +181,7 @@ def test_a_model_outage_is_not_an_escalation_signal() -> None:
     """A 503 reaches the asset stage only after models.retry spent its whole storm budget
     waiting; escalating to a full agent session then costs 10× and hits the same wall."""
     from codeverse3d.models.base import ModelError
-    from codeverse3d.tracks.scene_assets import is_model_outage
+    from codeverse3d.tracks.generation import is_model_outage
 
     assert is_model_outage(ModelError("high demand", retryable=True, status=503))
     assert is_model_outage(ModelError("overloaded", status=529))

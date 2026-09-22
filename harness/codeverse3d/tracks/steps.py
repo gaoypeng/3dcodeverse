@@ -71,47 +71,27 @@ RenderFn = Callable[[RunContext, int, BuildResult, Measurement | None], RenderSe
 
 
 class RoundFailed(RuntimeError):
-    """Every generation task of a round failed — nothing to build."""
+    """Every generation task of a round failed — nothing to build.
 
+    Typed, so the round loop never reads the message: ``transient`` — a task died of a
+    provider failure (a vendor-CLI 503 storm, a dropped socket, a ``ModelError`` outage), so
+    the round is re-run once before the failure may mean anything; ``quota`` — the vendor's
+    usage limit is spent, so the run stops as ``agent_quota``.  Neither — the agents ran
+    and changed nothing: a ``no_change`` stop.  The flags come from each backend's own
+    classification (``AgentResult``) through ``GenerationResult``; until 2026-09-22 the loop
+    substring-matched the joined notes, with a vocabulary that had drifted from the backends'
+    (a codex usage limit reached the loop only because the loop's list said "usage limit")."""
 
-#: error-text markers that mean a round DIED IN TRANSPORT (vendor CLI crash, 503
-#: storm, dropped socket) rather than the agent declining the work.  They match
-#: ``RoundFailed`` messages, which join ``GenerationResult.notes`` as composed by
-#: ``agents/backends.py`` (``rc=N; response=<empty>; stderr tail: ...``) or by
-#: ``_run_phase`` from a raised ``ModelError`` (``... timed out``, ``503``).
-_TRANSPORT_MARKS = (
-    "response=<empty>", "no result envelope", "503", "unavailable", "overloaded",
-    "timed out", "etimedout", "econnreset", "socket hang up", "connection reset",
-)
+    def __init__(self, message: str, *, transient: bool = False, quota: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
+        self.quota = quota
 
-
-#: the vendor's own usage limit — the agent is gone until it resets, whatever we retry
-_QUOTA_MARKS = (
-    "hit your usage limit", "usage limit", "purchase more credits", "quota exceeded", "insufficient_quota",
-    "insufficient credits", "billing hard limit",
-)
-
-
-def looks_quota(msg: str) -> bool:
-    """True when a ``RoundFailed`` message says the VENDOR's usage limit is spent.
-
-    Not a transport death (a retry meets the same wall) and not an agent verdict (the
-    code did not stop improving): cmp8 (2026-09-09) filed three runs as ``plateau`` on
-    "You've hit your usage limit … try again at Sep 14th"."""
-    low = msg.lower()
-    return any(m in low for m in _QUOTA_MARKS)
-
-
-def looks_transport(msg: str) -> bool:
-    """True when a ``RoundFailed`` message carries a transport-death signature.
-
-    An agent that ran fine and chose to change nothing reports ``rc=0;
-    response=ok`` or plain task notes — none of the markers.  A marker therefore
-    separates "the session never really happened" (worth exactly one retry) from
-    "the agent declined" (a ``no_change`` stop to respect).
-    """
-    low = msg.lower()
-    return any(m in low for m in _TRANSPORT_MARKS)
+    @classmethod
+    def of(cls, results: Sequence[GenerationResult], default: str) -> RoundFailed:
+        """The round's failure: every task's notes, and the typed flags of any of them."""
+        return cls("; ".join(f"{r.label}: {r.notes}" for r in results) or default,
+                   transient=any(r.transient for r in results), quota=any(r.quota for r in results))
 
 
 def round_record_path(ctx: RunContext, index: int) -> Path:
@@ -153,18 +133,18 @@ def run_generation_tasks(ctx: RunContext, tasks: Sequence[GenerationTask]) -> li
             picked = [(i, t) for i, t in enumerate(tasks) if t.phase == ph]
             try:
                 got = _run_phase(ctx, [t for _, t in picked])
-            except RoundFailed:
+            except RoundFailed as e:
                 # a phase in which nothing succeeded is not automatically a dead round:
                 # the earlier phases may have written the parts.  Record the failures
-                # and let the final check below decide.
-                got = [GenerationResult(ok=False, notes="phase produced no change", label=t.label)
-                       for _, t in picked]
+                # (and why they failed) and let the final check below decide.
+                got = [GenerationResult(ok=False, notes="phase produced no change", label=t.label,
+                                        transient=e.transient, quota=e.quota) for _, t in picked]
             for (i, _), r in zip(picked, got, strict=True):
                 out[i] = r
             ok_any = ok_any or any(r.ok for r in got)
         results_seq = [out[i] for i in range(len(tasks))]
         if not ok_any:
-            raise RoundFailed("; ".join(f"{r.label}: {r.notes}" for r in results_seq) or "no generation task succeeded")
+            raise RoundFailed.of(results_seq, "no generation task succeeded")
         return results_seq
     return _run_phase(ctx, list(tasks))
 
@@ -186,13 +166,13 @@ def _run_phase(ctx: RunContext, tasks: Sequence[GenerationTask]) -> list[Generat
             if isinstance(r, BudgetExceeded) and budget_stop is None:
                 budget_stop = r  # a failed item; the siblings' paid results still land in ``out``
             ctx.events.emit("generate.failed", label=task.label, error=f"{type(r).__name__}: {r}")
-            out.append(GenerationResult(ok=False, notes=f"{type(r).__name__}: {r}", label=task.label))
+            out.append(GenerationResult.from_error(task.label, r))
         else:
             out.append(r)
     if not any(r.ok for r in out):
         if budget_stop is not None:
             raise budget_stop  # nothing usable survived the phase
-        raise RoundFailed("; ".join(f"{r.label}: {r.notes}" for r in out) or "no generation task succeeded")
+        raise RoundFailed.of(out, "no generation task succeeded")
     ctx.budget.check()  # phase boundary: single-shot money is booked non-enforcing upstream
     return out
 

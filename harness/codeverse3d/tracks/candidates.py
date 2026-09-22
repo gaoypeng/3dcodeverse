@@ -32,7 +32,7 @@ from codeverse3d.conventions import OBJECT_VIEWS_QUICK
 from codeverse3d.orchestrator import BudgetExceeded, gate_error_count
 from codeverse3d.proc import EventLog, fan_out
 from codeverse3d.tracks.common import RunContext
-from codeverse3d.tracks.generation import GenerationTask
+from codeverse3d.tracks.generation import GenerationTask, is_model_outage
 from codeverse3d.tracks.steps import (
     RoundFailed,
     RoundPipeline,
@@ -101,7 +101,10 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
     if not any(r.commit for r in records):
         if budget_stop is not None:
             raise budget_stop  # nothing usable survived: the budget stop stands
-        raise RoundFailed("; ".join(f"{r.label}: {r.notes}" for r in records) or "every candidate failed")
+        died = [r for r in results if isinstance(r, Exception)]
+        raise RoundFailed("; ".join(f"{r.label}: {r.notes}" for r in records) or "every candidate failed",
+                          transient=any(e.transient if isinstance(e, RoundFailed) else is_model_outage(e) for e in died),
+                          quota=any(isinstance(e, RoundFailed) and e.quota for e in died))
     best = rank_candidates(records)[0]
     records[best].selected = True
     usage = sum((r.usage for r in records), Usage())

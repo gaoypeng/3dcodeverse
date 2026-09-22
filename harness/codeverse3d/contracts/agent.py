@@ -83,7 +83,11 @@ class AgentResult(BaseModel):
         description="seconds of ``duration_s`` the session lost to provider errors — 503 / 429 / "
         "overloaded / token-limit retries and their back-off inside the CLI — read from the CLI's "
         "own log; 0.0 when none were seen or the CLI does not expose them.  A step's effective "
-        "time is ``duration_s - provider_wait_s`` (owner, 2026-09-22)",
+        "time is ``duration_s - provider_wait_s`` (owner, 2026-09-22).  Sources "
+        "(cli_common.provider_wait): gemini-cli its stderr retry lines against its chat record — a "
+        "lower bound, its 5xx back-off is unannounced — plus the key rotation between attempts; "
+        "claude-code its stream-json ``api_retry`` events; agy the retry lines of its ``--log-file``; "
+        "codex none (its HTTP client retries without an event)",
     )
     tool_calls: int = 0
     turns: int = Field(
@@ -93,8 +97,15 @@ class AgentResult(BaseModel):
     errors: list[str] = Field(default_factory=list)
     transient: bool = Field(
         default=False,
-        description="the session died on a transient-failure streak (503 / UNAVAILABLE / 429 in the CLI's "
-        "own retry loop) and produced nothing — a 503 storm, not the task; the cheap single-shot "
-        "path, hedged across keys, may still get through (measured 2026-09-07: 23 of 24 gemini-cli "
-        "sessions in one evening)",
+        description="the session died of a provider failure a retry may get through — 5xx / UNAVAILABLE / "
+        "overloaded / a 429 rate limit / a dropped connection, as the CLI itself reported it — not of "
+        "the task: the round loop re-runs such a round once, and a session that also wrote nothing falls "
+        "back to the cheap single-shot path, hedged across keys (measured 2026-09-07: 23 of 24 gemini-cli "
+        "sessions of one evening died in a 503 storm)",
+    )
+    quota: bool = Field(
+        default=False,
+        description="the vendor's usage limit or credits are spent (codex 'You've hit your usage limit', "
+        "claude 'usage limit reached', an OpenAI insufficient_quota): nothing gets through until it "
+        "resets, so the round loop stops the run as agent_quota instead of retrying the round",
     )

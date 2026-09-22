@@ -57,8 +57,6 @@ from codeverse3d.tracks.steps import (
     RoundPipeline,
     failed_acceptance,
     load_round_journal,
-    looks_quota,
-    looks_transport,
     rejudge_round,
     run_round,
     sum_usage,
@@ -534,7 +532,7 @@ class BaseTrack:
                                     previous=previous, files_hint=ctx.runtime.expected_files(ctx.plan),
                                     extra_notes=self.round_extra_notes(ctx))
             except RoundFailed as e:
-                if looks_quota(str(e)):
+                if e.quota:
                     # The vendor's own usage limit: not a transport death (a retry meets the
                     # same wall) — the agent is gone until the limit resets.  cmp8
                     # (2026-09-09): three runs filed a plateau on "You've hit your usage
@@ -543,13 +541,15 @@ class BaseTrack:
                     if index == 0:
                         raise
                     return _stop(RunStatus.AGENT_QUOTA)
-                if index not in transport_retried and looks_transport(str(e)):
-                    # A vendor-CLI crash / 503 storm / dropped socket is not an agent
+                if index not in transport_retried and e.transient:
+                    # A 503 storm / dropped socket / overloaded provider is not an agent
                     # verdict — the session never really happened.  Re-run the SAME
                     # round once, baseline included (rc=247 alone killed three whole
                     # runs on 2026-08-29), before letting the failure mean anything.
                     # ``continue`` re-enters through the loop head, so the budget and
-                    # round ceilings still guard the retry.
+                    # round ceilings still guard the retry.  Typed since 2026-09-22
+                    # (RoundFailed.transient): a session that merely timed out on its own
+                    # work, or a CLI that crashed with no provider error, is not retried.
                     transport_retried.add(index)
                     ctx.events.emit("round.transport_retry", round=index, detail=str(e)[:500])
                     continue

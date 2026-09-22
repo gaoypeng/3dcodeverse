@@ -46,7 +46,7 @@ from codeverse3d.tracks.common import (
     generate_for,
     single_shot_ctx,
 )
-from codeverse3d.tracks.generation import GenerationTask, is_single_shot
+from codeverse3d.tracks.generation import GenerationTask, is_model_outage, is_single_shot
 from codeverse3d.tracks.planner import plan as run_planner
 from codeverse3d.tracks.prompting import (
     base_prompt_context,
@@ -101,18 +101,6 @@ class AssetResult(BaseModel):
     clips: int = Field(default=0, description="glTF animation clips the hero GLB carries (a keyframed Blender part)")
 
 
-def is_model_outage(e: BaseException) -> bool:
-    """Is this a *service* failure (the model is down) rather than a bad answer?
-
-    A 503 capacity storm reaches us only after ``models.retry`` has already spent its
-    whole storm budget waiting, so the escalation the harness would normally do —
-    a full agent session, ten times the money and ten minutes — hits the same wall.
-    """
-    from codeverse3d.models.base import ModelError
-
-    if isinstance(e, ModelError):
-        return bool(e.retryable) or e.status in (429, 500, 502, 503, 504, 529)
-    return False
 
 
 def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], alias: dict[str, str] | None = None) -> str:

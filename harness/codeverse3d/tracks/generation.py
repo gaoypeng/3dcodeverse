@@ -330,14 +330,39 @@ class GenerationResult(BaseModel):
     )
     transient: bool = Field(
         default=False,
-        description="the last session died on a transient-failure streak with no final answer "
-        "(AgentResult.transient) — whatever it wrote before the wall is in files_changed",
+        description="the last session died of a provider failure (AgentResult.transient), or the call "
+        "raised one (a ModelError the retry layer marks retryable or answers 429/5xx: is_model_outage) — "
+        "whatever it wrote before the wall is in files_changed",
+    )
+    quota: bool = Field(
+        default=False,
+        description="the last session met the vendor's usage limit (AgentResult.quota): no retry gets "
+        "through until it resets",
     )
     storm: bool = Field(
         default=False,
         description="transient AND nothing was written — the agent route is down, not the task; "
         "tracks fall back to the hedged single-shot path (tracks.common.generate_for)",
     )
+
+    @classmethod
+    def from_error(cls, label: str, e: BaseException) -> GenerationResult:
+        """The failed result of a generation call that RAISED, classified by the error's type
+        rather than its message: the round loop reads ``transient`` / ``quota``, never text."""
+        return cls(ok=False, notes=f"{type(e).__name__}: {e}", label=label, transient=is_model_outage(e))
+
+
+def is_model_outage(e: BaseException) -> bool:
+    """Is this a *service* failure (the model is down) rather than a bad answer?
+
+    Read off the ``ModelError`` the models layer raises — ``retryable`` or an HTTP status of
+    capacity / rate limiting — never off its message.  A 503 capacity storm reaches us only
+    after ``models.retry`` has already spent its whole storm budget waiting."""
+    from codeverse3d.models.base import ModelError
+
+    if isinstance(e, ModelError):
+        return bool(e.retryable) or e.status in (429, 500, 502, 503, 504, 529)
+    return False
 
 
 # ----------------------------------------------------------------------------- strategies
@@ -607,6 +632,9 @@ def run_agent_task(
         not changes
         and not acc.wrapped
         and res.exit_reason not in ("timeout", "budget")
+        # a provider failure or a spent usage limit is not a bail: a second session meets the
+        # same wall (the storm fallback and the round loop's one retry handle a transient)
+        and not (res.transient or res.quota)
     ):
         if events is not None:
             events.emit("generate.silent_bail", label=task.label, exit_reason=res.exit_reason)
@@ -650,6 +678,7 @@ def run_agent_task(
         sessions=acc.sessions,
         turn_capped=acc.wrapped,
         transient=bool(res.transient),
+        quota=bool(res.quota),
         storm=not changes and bool(res.transient),
     )
 

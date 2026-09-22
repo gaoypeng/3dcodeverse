@@ -1,9 +1,14 @@
-"""The transport-retry lever: a round killed in TRANSPORT (vendor CLI crash, 503
-storm, dropped socket) is re-run exactly once before the failure may mean
-anything; an agent that ran fine and DECLINED the work is still a plateau.
+"""The transport-retry lever: a round killed by the PROVIDER (a 503 storm, a dropped
+socket, an overloaded API) is re-run exactly once before the failure may mean anything;
+an agent that ran fine and DECLINED the work is still a no_change stop; the vendor's
+spent usage limit stops the run as agent_quota.
 
 Shipped after 2026-08-29: rc=247 gemini-cli crashes killed three whole runs at
-baseline, and a refine-round crash was delivered as a fake plateau (microscope)."""
+baseline, and a refine-round crash was delivered as a fake plateau (microscope).
+Typed since 2026-09-22: each backend classifies its own CLI's failure
+(``AgentResult.transient`` / ``.quota``), the flags ride ``GenerationResult`` into
+``RoundFailed``, and the loop reads them — it matched substrings of the joined
+notes before, with a vocabulary that had drifted from the backends'."""
 from __future__ import annotations
 
 import pytest
@@ -11,9 +16,11 @@ import pytest
 from codeverse3d.contracts.agent import AgentJob, AgentResult
 from codeverse3d.contracts.common import Language, Usage
 from codeverse3d.contracts.run import RunStatus
+from codeverse3d.models.base import ModelError
 from codeverse3d.proc import EventLog
+from codeverse3d.tracks.generation import GenerationResult
 from codeverse3d.tracks.static_object import StaticObjectTrack
-from codeverse3d.tracks.steps import RoundFailed, looks_quota, looks_transport
+from codeverse3d.tracks.steps import RoundFailed
 from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
@@ -25,57 +32,30 @@ from tests.orchestrator_tracks.fakes import (
 )
 from tests.orchestrator_tracks.test_tracks import _agent_writer as _writer
 
-# --------------------------------------------------------------- signature unit
+# --------------------------------------------------------------- the typed failure
 
-TRANSPORT = [
-    "generate: rc=247; response=<empty>; stderr tail: Error: 503 UNAVAILABLE",
-    "refine: rc=1; response=<empty>; stderr tail: at process.processTicksAndRejections",
-    "refine: ModelError: Gemini request timed out: The read operation timed out",
-    "assembly: rc=3; no result envelope; stderr tail: read ECONNRESET",
-    "gen: ApiError: 503 the model is overloaded",
-]
-VERDICTS = [
-    "refine: exit=no_changes",
-    "refine: exit=completed; errors=['skipped out-of-root paths: notes.md']",
-    "no generation task succeeded",
-    "every candidate failed",
-    "refine: the agents judged the requested edits unnecessary",
-]
+def test_round_failed_carries_the_flags_of_its_tasks_never_their_words():
+    ok = GenerationResult(ok=False, notes="exit=completed; errors=['503 in a code comment']", label="a")
+    storm = GenerationResult(ok=False, notes="exit=error", label="b", transient=True)
+    spent = GenerationResult(ok=False, notes="exit=error", label="c", quota=True)
+    assert not RoundFailed.of([ok], "x").transient      # a word in the notes is only a word
+    e = RoundFailed.of([ok, storm], "x")
+    assert e.transient and not e.quota and str(e) == "a: exit=completed; errors=['503 in a code comment']; b: exit=error"
+    assert RoundFailed.of([ok, spent], "x").quota
+    assert str(RoundFailed.of([], "no generation task succeeded")) == "no generation task succeeded"
 
 
-QUOTA = [
-    "refine: exit=error; errors=[\"You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to "
-    "purchase more credits or try again at Sep 14th, 2026 6:25 PM.\"]",
-    "generate: RESOURCE_EXHAUSTED: quota exceeded for this project",
-    "refine: insufficient_quota: You exceeded your current quota",
-]
-
-
-@pytest.mark.parametrize("msg", TRANSPORT)
-def test_transport_signatures_match(msg):
-    assert looks_transport(msg)
-
-
-@pytest.mark.parametrize("msg", QUOTA)
-def test_quota_signatures_are_quota_not_transport(msg):
-    """cmp8 (2026-09-09): the vendor's usage limit ran out mid-battery and three runs were
-    filed as plateau — a retry meets the same wall, and the code did not stop improving."""
-    assert looks_quota(msg) and not looks_transport(msg)
-
-
-@pytest.mark.parametrize("msg", TRANSPORT + VERDICTS)
-def test_transport_and_verdict_messages_are_not_quota(msg):
-    assert not looks_quota(msg)
-
-
-@pytest.mark.parametrize("msg", VERDICTS)
-def test_agent_verdicts_do_not_match(msg):
-    assert not looks_transport(msg)
+def test_a_raised_error_is_classified_by_its_type():
+    assert GenerationResult.from_error("g", ModelError("Gemini request timed out", retryable=True, status=408)).transient
+    assert GenerationResult.from_error("g", ModelError("Gemini API error 503", status=503)).transient
+    assert not GenerationResult.from_error("g", ModelError("bad request", status=400)).transient
+    assert not GenerationResult.from_error("g", ValueError("503 in the message")).transient
 
 
 # --------------------------------------------------------------- track fixtures
 
 CRASH = ["rc=247; response=<empty>; stderr tail: Error: 503 UNAVAILABLE (crash-test)"]
+QUOTA = "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits."
 
 
 class CrashingAgent(FakeAgent):
@@ -90,7 +70,8 @@ class CrashingAgent(FakeAgent):
         if job.round == self.crash_round and self.left != 0:
             self.left -= 1
             self.jobs.append(job)
-            return AgentResult(ok=False, exit_reason="error", errors=list(CRASH), usage=Usage(cost_usd=0.01))
+            return AgentResult(ok=False, exit_reason="error", errors=list(CRASH), usage=Usage(cost_usd=0.01),
+                               transient=True)
         return super().run(job)
 
 
@@ -108,7 +89,8 @@ class CrashUntilRetried(FakeAgent):
         retried = any(e["event"] == "round.transport_retry" for e in EventLog(ws.events_path).read())
         if job.round == self.crash_round and not retried:
             self.jobs.append(job)
-            return AgentResult(ok=False, exit_reason="error", errors=list(CRASH), usage=Usage(cost_usd=0.01))
+            return AgentResult(ok=False, exit_reason="error", errors=list(CRASH), usage=Usage(cost_usd=0.01),
+                               transient=True)
         return super().run(job)
 
 
@@ -122,7 +104,7 @@ class QuotaAfterBaseline(FakeAgent):
         if job.round == 0:
             return super().run(job)
         self.jobs.append(job)
-        return AgentResult(ok=False, exit_reason="error", errors=[QUOTA[0]], usage=Usage(cost_usd=0.0))
+        return AgentResult(ok=False, exit_reason="error", errors=[QUOTA], usage=Usage(cost_usd=0.0), quota=True)
 
 
 class IdleAfterBaseline(FakeAgent):
@@ -180,6 +162,31 @@ def test_baseline_transport_crash_is_retried_once_then_fails(tmp_path, chair_pla
         _track(agent, (0.9,), chair_plan, settings).run(make_spec(max_rounds=2), ws)
     evs = _events(ws)
     assert evs.count("round.transport_retry") == 1 and "run.failed" in evs
+
+
+class CrashAfterBaseline(FakeAgent):
+    """Baseline works; every refine session dies with a transport-looking message that its
+    backend did NOT classify transient (a CLI crash with no provider error)."""
+
+    def __init__(self):
+        super().__init__(_writer)
+
+    def run(self, job: AgentJob) -> AgentResult:
+        if job.round == 0:
+            return super().run(job)
+        self.jobs.append(job)
+        return AgentResult(ok=False, exit_reason="error", usage=Usage(cost_usd=0.01),
+                           errors=["rc=1; response=<empty>; stderr tail: at process.processTicksAndRejections"])
+
+
+def test_an_untyped_crash_is_no_longer_a_transport_retry(tmp_path, chair_plan, settings):
+    """The words "response=<empty>" used to buy a retry of the whole round; only the backend's
+    own verdict does now (0 of 34 recorded gemini-cli error exits lacked a provider signature)."""
+    ws = Workspace(tmp_path / "runs" / "crash")
+    rec = _track(CrashAfterBaseline(), (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
+    assert rec.status is RunStatus.NO_CHANGE
+    evs = _events(ws)
+    assert "round.transport_retry" not in evs and "round.no_change" in evs
 
 
 def test_an_idle_agent_is_a_no_change_stop_not_a_retry(tmp_path, chair_plan, settings):

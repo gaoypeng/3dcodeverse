@@ -239,4 +239,7 @@ def generate_for(ctx: RunContext, task: GenerationTask) -> GenerationResult:
                      budget=sub.budget, events=sub.events)
     again.usage = res.usage + again.usage
     again.notes = f"agent session died in a 503 storm ({res.notes[:120]}) → single-shot: {again.notes}"
+    # the cheap route did not get through either: the task still died of the storm (the round
+    # loop's one retry keys on it — RoundFailed.transient)
+    again.transient = again.transient or not again.ok
     return again
