@@ -35,7 +35,8 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
 from bench.scene_stats import scene_records  # noqa: E402
 from codeverse3d.config import get_settings  # noqa: E402
 from codeverse3d.contracts.artifacts import Severity  # noqa: E402
-from codeverse3d.spatial.scene_placement import placement_gate_safe  # noqa: E402
+from codeverse3d.spatial.scene_placement import placement_gate  # noqa: E402
+from codeverse3d.workspace import Workspace  # noqa: E402
 
 GATE = "scene_placement"
 
@@ -71,33 +72,17 @@ def probe(ws: Path, *, timeout_s: float) -> dict | None:
     return payload.get("census") if (payload.get("boot") or {}).get("ok") else None
 
 
-def stage_layouts(run: Path) -> dict:
-    """The per-zone layouts the run recorded.  `contract_findings` needs them: the
-    instance-budget check ("zone X holds ~179 instances but its layout budgeted 443")
-    has no basis without them, and leaving them out makes a REAL finding look like one
-    the gate change removed — which is what happened the first time this ran."""
-    f = run / "stages" / "layouts.json"
-    if not f.is_file():
-        return {}
-    try:
-        data = json.loads(f.read_text())
-    except (OSError, ValueError):
-        return {}
-    # the stage file is the envelope {stage, inputs_hash, result}; the gate wants the
-    # result, which is the zone-name -> layout mapping
-    inner = data.get("result") if isinstance(data, dict) else None
-    return inner if isinstance(inner, dict) else {}
-
-
 def regate(run: Path, *, timeout_s: float) -> dict:
     record = json.loads((run / "record.json").read_text())
     before = recorded_errors(record)
     census = probe(run, timeout_s=timeout_s)
     if census is None:
         return {"run": run.name, "booted": False, "before": before, "after": None}
-    # the round's own entry point, so this measures the GATE and not a copy of it
-    # (it owns the per-kind cap and the indoor inference as well)
-    report = placement_gate_safe(census, plan=record.get("plan") or {}, layouts=stage_layouts(run))
+    # the round's own entry point (D82), so this measures the GATE and not a copy of it: it
+    # reads the zone layouts and the assets the asset stage could not build from stages/ —
+    # a first version of this script passed the layouts envelope unopened and a REAL density
+    # finding read as one the gate change had removed
+    report = placement_gate(Workspace(run), census, record.get("plan") or {})
     after = [f.message for f in (report.findings if report else []) if f.severity == Severity.ERROR]
     return {"run": run.name, "booted": True, "before": before, "after": after}
 

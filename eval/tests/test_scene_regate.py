@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from bench.scene_regate import _head, recorded_errors, scene_runs, stage_layouts
+from bench.scene_regate import _head, recorded_errors, regate, scene_runs
 
 
 def _run(root: Path, name: str, *, track: str = "scene", with_src: bool = True) -> Path:
@@ -25,20 +25,28 @@ def _run(root: Path, name: str, *, track: str = "scene", with_src: bool = True) 
     return d
 
 
-def test_the_layouts_envelope_is_opened(tmp_path: Path) -> None:
-    """`stages/layouts.json` is `{stage, inputs_hash, result}`; the gate wants `result`,
-    which is the zone-name -> layout mapping."""
+def test_regate_reads_the_stage_records_the_round_gate_reads(tmp_path: Path, monkeypatch) -> None:
+    """The layouts envelope is opened (coastal_village's real density finding came back) and an
+    asset the asset stage never built is not "missing": re-gating calls the round's own entry
+    point, which reads both from ``stages/``."""
+    import bench.scene_regate as sr
+
     run = _run(tmp_path, "a")
+    plan = {"zones": [{"name": "VillageQuay", "contents": ["Bollard", "BronzeCenser"]}], "assets": []}
+    (run / "record.json").write_text(json.dumps({"spec": {"track": "scene"}, "plan": plan, "rounds": []}))
     (run / "stages").mkdir()
-    (run / "stages" / "layouts.json").write_text(json.dumps({
-        "stage": "layouts", "inputs_hash": "abc",
-        "result": {"VillageQuay": {"zone": "VillageQuay", "placements": [1, 2]}},
-    }))
-    assert stage_layouts(run) == {"VillageQuay": {"zone": "VillageQuay", "placements": [1, 2]}}
-
-
-def test_a_run_without_layouts_yields_an_empty_mapping(tmp_path: Path) -> None:
-    assert stage_layouts(_run(tmp_path, "b")) == {}
+    (run / "stages" / "layouts.json").write_text(json.dumps({"stage": "layouts", "inputs_hash": "abc", "result": {
+        "VillageQuay": {"placements": [{"asset": "Bollard", "count": 43}], "ground_cover": 400}}}))
+    (run / "stages" / "assets.json").write_text(json.dumps({"stage": "assets", "inputs_hash": "abc", "result": {
+        "BronzeCenser": {"name": "BronzeCenser", "ok": False}}}))
+    census = {"fog": {"type": "Fog"}, "background": "#aabbcc",
+              "groups": [{"name": "VillageQuay", "instances": 179}],
+              "placement": {"assets": [{"name": "Bollard", "zone": "VillageQuay", "ground_gap_m": 0.0,
+                                        "support": "Ground"}], "pairs": []}}
+    monkeypatch.setattr(sr, "probe", lambda ws, timeout_s: census)
+    after = regate(run, timeout_s=1.0)["after"]
+    assert any("holds ~179 instances but its layout budgeted 443" in m for m in after), after
+    assert not any("BronzeCenser" in m for m in after), after
 
 
 def test_only_scene_runs_with_a_workspace_are_re_gated(tmp_path: Path) -> None:
