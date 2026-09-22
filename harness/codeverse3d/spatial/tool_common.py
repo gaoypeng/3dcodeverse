@@ -66,25 +66,6 @@ def reference_path(ctx: ToolContext, index: int, *, tool: str) -> tuple[Path, di
     return p, ref
 
 
-def _latest_build_status(ws: Workspace) -> dict[str, Any] | None:
-    """The newest of ``artifacts/build_last.json`` (written by the build tools) and
-    ``artifacts/build.json`` (written by the language runtimes), or None when
-    neither is readable — a workspace whose GLB was placed by hand (tests,
-    imports, first-measure flows) stays usable."""
-    cands: list[tuple[float, Path]] = []
-    for name in ("build_last.json", "build.json"):
-        p = ws.artifacts / name
-        try:
-            cands.append((p.stat().st_mtime, p))
-        except OSError:
-            continue
-    for _, p in sorted(cands, key=lambda c: c[0], reverse=True):
-        data = read_json_or_none(p)
-        if data is not None:
-            return data
-    return None
-
-
 def glb_path(ctx: ToolContext) -> Path:
     """``artifacts/object.glb``, refusing when the LATEST build did not produce it.
 
@@ -92,7 +73,9 @@ def glb_path(ctx: ToolContext) -> Path:
     texture tools) operate on the previous round's geometry as if it were current
     after a failed or lint-blocked build."""
     p = ctx.workspace.artifacts / "object.glb"
-    status = _latest_build_status(ctx.workspace)
+    # build.json is THE build status: every runtime publishes its final BuildResult there and
+    # a lint refusal writes one too; unreadable/absent stays permissive (a GLB placed by hand)
+    status = read_json_or_none(ctx.workspace.artifacts / "build.json")
     # status FIRST: a failed build publishes nothing, so the file is missing for a
     # reason the agent needs — it was told "run build first" right after its build
     # failed on RestPenetration and spent the rest of its turns looking for the

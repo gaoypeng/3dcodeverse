@@ -182,15 +182,15 @@ _LINT_WARNS_SHOWN = 10
 def _lint_gate(ctx: ToolContext, rt: Any, *, verb: str) -> tuple[Observation | None, list[str]]:
     """Lint before any build-running tool builds: (refusal observation | None, warning
     lines).  Lint ERRORs skip the build (docs/DECISIONS.md L5) and are recorded as the
-    LATEST build status — without that the previous round's build_last.json (ok: true)
-    + object.glb stayed readable as current."""
+    LATEST build status — without that the previous build.json (ok: true) + object.glb
+    stayed readable as current."""
     ws = ctx.workspace
     lint: GateReport = rt.lint(ws)
     errs = lint_lines(lint, ws.root, errors_only=True)
     warns = lint_lines(lint, ws.root, errors_only=False)
     if not errs:
         return None, warns
-    ws.write_json(ws.artifacts / "build_last.json",
+    ws.write_json(ws.artifacts / "build.json",
                   BuildResult(ok=False, language=language_of(ctx), error_type="LintError",
                               error_message="\n".join(errs)[:4000]))
     text = f"LINT FAILED — fix these before {verb}:\n" + "\n".join(errs)
@@ -221,7 +221,6 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     if refused is not None:
         return refused
     br: BuildResult = rt.build(ws, timeout_s=get_settings().limits.build_timeout_s)
-    ws.write_json(ws.artifacts / "build_last.json", br)
     if not br.ok:
         return _build_failed(ctx, br, lint_warns)
     numbers: dict[str, Any] = {"stage": "build", "ok": br.ok, "duration_ms": br.duration_ms}
@@ -671,7 +670,6 @@ def _run_build(ctx: ToolContext, *, times: list[float], width: int = 0, height: 
     if width and height:
         kw.update(width=width, height=height)
     br: BuildResult = rt.build(ws, **kw)
-    ws.write_json(ws.artifacts / "build_last.json", br)
     if not br.ok:
         return _build_failed(ctx, br, warns), br, warns
     return None, br, warns

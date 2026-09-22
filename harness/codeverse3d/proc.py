@@ -439,7 +439,7 @@ def write_json_atomic(path: Path, data: Any) -> None:
     zero-byte JSON at the published path — and B's own ``replace()`` died with
     FileNotFoundError.  That is not hypothetical here: the scene track fans zone agents
     out over ONE workspace root and every agent's MCP ``build`` tool writes
-    ``artifacts/build_last.json`` and ``artifacts/measurement.json`` through this
+    ``artifacts/build.json`` and ``artifacts/measurement.json`` through this
     function, and a clobbered ``run_state.json`` is an unresumable run
     (``RunState.load`` refuses to guess).  Last writer to rename still wins.
     """

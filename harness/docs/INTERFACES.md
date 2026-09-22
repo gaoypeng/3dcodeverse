@@ -249,9 +249,10 @@ are the pure helpers `3dcode doctor` reuses for its `node` row.
 
 ## spatial/
 
-`tool_common.glb_path` refuses (`ToolUsageError`) when the newest of
-`build_last.json`/`build.json` says the last build failed — tools never measure or
-texture a stale GLB; missing/unreadable status stays permissive (hand-placed GLBs).
+`tool_common.glb_path` refuses (`ToolUsageError`) when `artifacts/build.json` says the last
+build failed — the one build status: every runtime publishes its final BuildResult there and
+a tool's lint refusal writes a `LintError` one (`build_last.json` is gone, 2026-09-22).  Tools
+never measure or texture a stale GLB; missing/unreadable status stays permissive (hand-placed GLBs).
 ```python
 from codeverse3d.spatial.render import render_glb
 from codeverse3d.contracts.artifacts import RENDER_MODES   # ('shaded','wire','normals','silhouette','clay') — THE mode tuple (no 'depth')

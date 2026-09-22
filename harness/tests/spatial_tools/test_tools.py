@@ -115,10 +115,14 @@ class _FakeRuntime:
         return GateReport(gate="lint:blender", passed=not self.lint_errors, findings=f)
 
     def build(self, ws, *, timeout_s=None):
+        """Publishes its result as build.json — the contract every real runtime keeps."""
         if self.build_ok:
-            return BuildResult(ok=True, language="blender", glb_path=str(self.glb), duration_ms=12, census={"warnings": ["[EXPORT_WARN] no materials"]})
-        return BuildResult(ok=False, language="blender", error_type="NameError", error_message="name 'bpyx' is not defined",
-                           error_file=str(ws.src / "model.py"), error_line=7, stderr_tail="\n".join(f"l{i}" for i in range(60)) + f"\n  File \"{ws.src}/model.py\", line 7")
+            res = BuildResult(ok=True, language="blender", glb_path=str(self.glb), duration_ms=12, census={"warnings": ["[EXPORT_WARN] no materials"]})
+        else:
+            res = BuildResult(ok=False, language="blender", error_type="NameError", error_message="name 'bpyx' is not defined",
+                              error_file=str(ws.src / "model.py"), error_line=7, stderr_tail="\n".join(f"l{i}" for i in range(60)) + f"\n  File \"{ws.src}/model.py\", line 7")
+        ws.write_json(ws.artifacts / "build.json", res)
+        return res
 
     def contract_doc(self):
         return "# Fake contract\n\n## Export\nthe harness exports.\n"
@@ -137,8 +141,7 @@ def test_build_tool_success(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPa
     assert obs.ok and obs.text.startswith("BUILD OK") and "Leg ×4" in obs.text
     assert "lint warnings" in obs.text and "uses bpy.ops.render" in obs.text and "build warnings" in obs.text
     assert str(stool_ctx.workspace.root) not in obs.text
-    assert (stool_ctx.workspace.artifacts / "build_last.json").is_file()
-    assert json.loads((stool_ctx.workspace.artifacts / "build_last.json").read_text())["ok"] is True
+    assert json.loads((stool_ctx.workspace.artifacts / "build.json").read_text())["ok"] is True
     assert (stool_ctx.workspace.artifacts / "measurement.json").is_file()
 
 
@@ -205,13 +208,13 @@ def test_build_that_leaves_no_readable_glb_is_a_failure(stool_ctx: ToolContext, 
 
 def test_build_failure_refuses_stale_glb(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     """A failed build after a success: the old object.glb survives as evidence but
-    glb_path refuses to treat it as current (build_last.json says ok:false)."""
+    glb_path refuses to treat it as current (build.json says ok:false)."""
     _patch_runtime(monkeypatch, _FakeRuntime(glb=stool_ctx.workspace.artifacts / "object.glb"))
     assert get_tool("build").call(stool_ctx, {}).ok
     assert get_tool("measure").call(stool_ctx, {}).ok  # ok:true status → still usable
     _patch_runtime(monkeypatch, _FakeRuntime(build_ok=False))
     assert not get_tool("build").call(stool_ctx, {}).ok
-    assert json.loads((stool_ctx.workspace.artifacts / "build_last.json").read_text())["ok"] is False
+    assert json.loads((stool_ctx.workspace.artifacts / "build.json").read_text())["ok"] is False
     assert (stool_ctx.workspace.artifacts / "object.glb").is_file()  # evidence stays on disk
     for name in ("measure", "render_views", "check_connectivity"):
         obs = get_tool(name).call(stool_ctx, {})
@@ -219,23 +222,23 @@ def test_build_failure_refuses_stale_glb(stool_ctx: ToolContext, monkeypatch: py
 
 
 def test_build_lint_fail_refuses_stale_glb(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A lint refusal is the latest build status: the previous build_last.json
+    """A lint refusal is the latest build status: the previous build.json
     (ok: true) + object.glb are no longer readable as current."""
     _patch_runtime(monkeypatch, _FakeRuntime(glb=stool_ctx.workspace.artifacts / "object.glb"))
     assert get_tool("build").call(stool_ctx, {}).ok
     _patch_runtime(monkeypatch, _FakeRuntime(lint_errors=True))
     obs = get_tool("build").call(stool_ctx, {})
     assert not obs.ok and obs.text.startswith("LINT FAILED")
-    last = json.loads((stool_ctx.workspace.artifacts / "build_last.json").read_text())
+    last = json.loads((stool_ctx.workspace.artifacts / "build.json").read_text())
     assert last["ok"] is False and last["error_type"] == "LintError"
     obs = get_tool("measure").call(stool_ctx, {})
     assert not obs.ok and "build FAILED" in obs.text
 
 
 def test_hand_placed_glb_without_build_status_still_measures(stool_ctx: ToolContext) -> None:
-    """No build_last.json / build.json → glb_path stays permissive: first-measure
-    flows and hand-assembled (test/import) workspaces keep working."""
-    assert not (stool_ctx.workspace.artifacts / "build_last.json").exists()
+    """No build.json → glb_path stays permissive: first-measure flows and
+    hand-assembled (test/import) workspaces keep working."""
+    assert not (stool_ctx.workspace.artifacts / "build.json").exists()
     assert get_tool("measure").call(stool_ctx, {}).ok
 
 
@@ -562,7 +565,7 @@ def test_a_failed_build_tells_the_agent_WHY_not_to_build_again(tmp_ws):
 
     ctx = ToolContext(workspace=tmp_ws, language="urdf_blender", track="articulated_object")
     tmp_ws.artifacts.mkdir(parents=True, exist_ok=True)
-    tmp_ws.write_json(tmp_ws.artifacts / "build_last.json",
+    tmp_ws.write_json(tmp_ws.artifacts / "build.json",
                       BuildResult(ok=False, language="urdf_blender", error_type="RestPenetration",
                                   error_message="links interpenetrate by 140.0 mm at lid/base"))
     with pytest.raises(ToolUsageError) as e:

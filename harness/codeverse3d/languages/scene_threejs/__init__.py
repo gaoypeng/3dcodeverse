@@ -760,7 +760,7 @@ class SceneThreeJsRuntime(RuntimeDocs):
             # so the round does not spend its repair budget rewriting working code
             harness_failure=bool(first is not None and first.data.get("harness_failure")),
         )
-        (ws.artifacts / "build.json").write_text(json.dumps(res.model_dump(mode="json"), indent=1))
+        ws.write_json(ws.artifacts / "build.json", res)
         return res
 
 

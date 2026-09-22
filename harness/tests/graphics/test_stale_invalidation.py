@@ -60,14 +60,14 @@ def test_missing_entry_clears_frames_and_result(tmp_ws: Workspace) -> None:
     assert json.loads((tmp_ws.artifacts / "build.json").read_text())["ok"] is False
 
 
-def test_gl_tool_lint_fail_records_failed_build_last(tmp_ws: Workspace) -> None:
+def test_gl_tool_lint_fail_records_the_failed_build_status(tmp_ws: Workspace) -> None:
     """A lint refusal in the gl tools is the LATEST build status — the previous
-    round's build_last.json (ok: true) must not stay readable as current."""
+    round's build.json (ok: true) must not stay readable as current."""
     (tmp_ws.src / "shader.frag").write_text(
         "#version 330 core\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(1.0); }\n")
-    tmp_ws.write_json(tmp_ws.artifacts / "build_last.json", {"ok": True})
+    tmp_ws.write_json(tmp_ws.artifacts / "build.json", {"ok": True})
     ctx = ToolContext(workspace=tmp_ws, language="glsl_shader", track="graphics")
     obs = get_tool("gl_probe").call(ctx, {})
     assert not obs.ok and "LINT FAILED" in obs.text
-    last = json.loads((tmp_ws.artifacts / "build_last.json").read_text())
+    last = json.loads((tmp_ws.artifacts / "build.json").read_text())
     assert last["ok"] is False and last["error_type"] == "LintError"

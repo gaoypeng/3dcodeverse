@@ -87,7 +87,7 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
         lines = tuple(ln for ln in (tmp_ws.root / f).read_text().splitlines() if ln.strip())
         assert lines == IGNORE_LINES
         assert "artifacts/" not in lines and "trajectories/" not in lines
-        for readable in ("artifacts/census.json", "artifacts/build_last.json", "artifacts/measurement.json",
+        for readable in ("artifacts/census.json", "artifacts/build.json", "artifacts/measurement.json",
                          "artifacts/gates/r00/contract_tool.json", "artifacts/tool_renders/r00_ab/sheet.png",
                          "trajectories/baseline_r00/task_prompt.md", "src/model.py", ".3dcode/cookbook.md"):
             assert not ignored(readable, lines), readable
