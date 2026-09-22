@@ -82,9 +82,9 @@ linear 0.02 to 0.05 moves the frame from 0.08 to 0.20. Small increases pay near 
 * **The fill is the opposite hue from the key.** Hemisphere light is sky colour above,
   ground bounce below; keep its colour at least 60 degrees of hue from the sun's. Warm key
   plus warm fill is the monochrome-orange soup that gets marked down.
-* **Emissive is a material, not a light.** An emissive surface glows in the image and
-  illuminates nothing — and the default pipeline renders without bloom, so it must look
-  right unaided. Pair every lantern, window or fire with a small PointLight.
+* **Emissive is a material, not a light.** An emissive surface glows in the image (the
+  default post chain blooms it) and illuminates nothing. Pair every lantern, window or fire
+  with a small PointLight.
 * **Fog colour is the sky's horizon colour**, never white or grey unless the brief says
   overcast, and never a black background.
 

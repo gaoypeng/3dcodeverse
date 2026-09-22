@@ -79,8 +79,8 @@ and only the static `chunk_dropped` rule protects you.
 
 ## 4. A minimal citizen shader
 
-Full boilerplate: `codeverse3d/prompts/scene_threejs/glsl_cookbook.md`, section "The boilerplate:
-makeShaderMaterial". The smallest thing that passes every rule above:
+Full boilerplate: `makeShaderMaterial(opts)` in `src/lib/shader.js` (scene workspaces). The
+smallest thing that passes every rule above:
 
 ```js
 const VS = `

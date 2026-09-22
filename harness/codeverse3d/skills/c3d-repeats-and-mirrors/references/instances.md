@@ -2,7 +2,7 @@
 
 Everything here was read out of the live harness on 2026-08-25:
 `codeverse3d/spatial/contract.py`, `codeverse3d/contracts/plan.py`,
-`codeverse3d/conventions.py`, `codeverse3d/tracks/plan_examples.py`,
+`codeverse3d/conventions.py`, `codeverse3d/tracks/planner.py`,
 `codeverse3d/prompts/blender/cookbook.md`, and 2,121 gate reports under `bench/out`.
 
 ## 1. Exactly how the gate matches a name to a plan part

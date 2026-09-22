@@ -106,8 +106,8 @@ planned animation was absent while the code for it sat in `src/`.
 ```js
 export async function createScene({ THREE, renderer, loaders }) {
   const scene = new THREE.Scene();
-  const env = buildEnv(THREE, scene);
-  const zones = [buildGrove(THREE, ctx), buildHarbour(THREE, ctx)];
+  const ctx = { THREE, scene, renderer, loaders }, env = buildEnv(ctx);
+  const zones = [buildGrove(ctx), buildHarbour(ctx)];
   scene.add(...zones);
   const movers = [env, ...zones].filter(Boolean);
   return {

@@ -1,8 +1,8 @@
 # joint_sweep and motion_direction — depth
 
 Read out of the live harness on 2026-08-25: `codeverse3d/spatial/joints_sweep.py`,
-`joints_poses.py`, `joints_model.py`, `codeverse3d/languages/urdf/runtime.py`,
-`codeverse3d/tracks/motion.py`, `codeverse3d/tracks/articulated_object.py`,
+`joints_poses.py`, `joints_model.py`, `codeverse3d/languages/urdf/__init__.py`,
+`codeverse3d/tracks/articulated_object.py`,
 `codeverse3d/conventions.py`; plus every `joint_sweep` and `motion_direction` report under
 `bench/out` (26 `urdf_blender` runs, 50 judged rounds).
 
@@ -10,15 +10,15 @@ Read out of the live harness on 2026-08-25: `codeverse3d/spatial/joints_sweep.py
 
 | constant | value | module | what it decides |
 |---|---|---|---|
-| `FK_TOL_M` | 0.001 m | `languages/urdf/runtime.py` | build fails `FkInconsistent` above this |
-| `REST_PENETRATION_MAX_M` | 0.005 m | `languages/urdf/runtime.py` | build fails `RestPenetration` above this |
+| `FK_TOL_M` | 0.001 m | `languages/urdf/__init__.py` | build fails `FkInconsistent` above this |
+| `REST_PENETRATION_MAX_M` | 0.005 m | `languages/urdf/__init__.py` | build fails `RestPenetration` above this |
 | `tol_m` | 0.002 m | `joints_sweep.sweep_collisions` | overlaps shallower than this are not reported |
 | `rest_max_m` | 0.005 m | `joints_sweep.sweep_findings` | rest / rigid overlap: WARN below, ERROR above |
 | `contact_gap_m` | 0.002 m (`CONTACT_GAP_M`) | `conventions.py` | a `fixed` child must be this close to its parent |
 | `hinge_clearance_m` | 0.010 m | `joints_sweep` | a moving child must be this close to its parent |
 | ERROR on attachment | gap over 0.030 m | `joints_sweep.sweep_findings` | `hinge_clearance_m * 3` |
 | depth rounding | 0.1 mm | `joints_sweep` | float32 mesh coordinates carry no finer meaning |
-| random poses | 8, seed 0 | `languages/urdf/runtime.py` | only when more than one joint moves |
+| random poses | 8, seed 0 | `languages/urdf/__init__.py` | only when more than one joint moves |
 | motion probe | limit of larger magnitude, capped at 0.35 rad | `joints_sweep.motion_direction_check` | prismatic uses the full limit |
 | motion pass test | `cos(observed, expected) > 0.5` | same | a 60 degree cone |
 
@@ -122,7 +122,8 @@ physical crossbar."
 +z / up / open_up         (0, 0, 1)      -z / down / open_down    (0, 0, -1)
 ```
 
-`tracks/motion.py::expected_direction` maps the plan's prose onto those keys. Precedence:
+`tracks/articulated_object.py::expected_direction` maps the plan's prose onto those keys.
+Precedence:
 
 1. Any of `-y +y -z +z -x +x` found as a whole token returns immediately.
 2. Otherwise the longest matching phrase, in the module's fixed order. Phrases that mean

@@ -20,9 +20,9 @@ metadata:
 **When:** your scene builds a `THREE.ShaderMaterial` / `RawShaderMaterial`, or patches a built-in
 material through `onBeforeCompile`, or `shader_preflight` said something.
 
-The GLSL recipes are in `codeverse3d/prompts/scene_threejs/glsl_cookbook.md` — start from its
-`makeShaderMaterial` and its 16 pitfalls. What follows is the part the cookbook does not say:
-**which of those pitfalls a gate will catch, at what severity, and which ones nothing catches.**
+In a scene workspace the GLSL boilerplate is `makeShaderMaterial(opts)` in `src/lib/shader.js` —
+start from it. What follows is the part it does not say:
+**which pitfalls a gate will catch, at what severity, and which ones nothing catches.**
 
 ## The detection map
 
@@ -82,7 +82,7 @@ mat.userData.update = (t) => { mat.uniforms.uTime.value = t; };   // driven from
 keeps full contrast while everything around it recedes — the classic "cardboard cut-out in the
 haze". Both the static pass and the runtime pass flag it, so it costs you two warnings.
 
-Three things are required together and the cookbook's `makeShaderMaterial` does all three:
+Three things are required together and `src/lib/shader.js`'s `makeShaderMaterial` does all three:
 `fog: true` on the material, `THREE.UniformsLib.fog` merged into `uniforms`, and
 `#include <fog_pars_fragment>` plus `#include <fog_fragment>` (fog **last** in `main`, after
 tone mapping and colour space, matching three's own materials). For an additive glow, fade
@@ -101,13 +101,15 @@ Verified against this runtime on 2026-08-25 — believing them costs a repair ro
 1. **"Always add the `logdepthbuf_*` chunks or your effect vanishes behind geometry."**
    `runtime_js/lib/browser/renderer.js` takes `logDepth` and it **defaults to false**; the only
    switch is `render_scene.mjs --log-depth`, and nothing in `codeverse3d/` ever passes it. So the
-   logarithmic depth buffer is **off in every harness render**. Keep the cookbook's chunks —
-   they compile to nothing without `USE_LOGDEPTHBUF` and would be needed if it were ever turned
-   on — but they can never be the cause of what you are looking at. Do not spend a round there.
+   logarithmic depth buffer is **off in every harness render**. Keep the chunks
+   `makeShaderMaterial` injects — they compile to nothing without `USE_LOGDEPTHBUF` and would be
+   needed if it were ever turned on — but they can never be the cause of what you are looking at.
+   Do not spend a round there.
 2. **"Guard against the GTAO / post-processing pass overriding your material."**
-   There is no `EffectComposer`, no GTAO and no post-processing anywhere in `runtime_js`; the
-   default pipeline renders straight to the canvas. The failure mode (instanced quads collapsing
-   to the origin in the override-material pass) **cannot occur here**.
+   Object renders go straight to the canvas, but scene renders go through a post chain
+   (`runtime_js/lib/browser/post.js`: GTAO + an emissive bloom + a grade, on by default), and
+   GTAO draws with an override material — so in a scene the failure mode (instanced quads
+   collapsing to the origin in the override-material pass) **can occur**.
 3. **"Patch chaining is safe."** It is not, and this one is real: `chunk_dropped` (WARN) fires
    when a `.replace('#include <x>', ...)` does not put `#include <x>` back. Always prepend the
    original include. Two differently patched `MeshStandardMaterial`s also share one compiled
@@ -119,10 +121,10 @@ Verified against this runtime on 2026-08-25 — believing them costs a repair ro
 The gate proves your shader **compiles and is bound**. It says nothing about whether it is
 *visible* or *right*: colours crushed by the ACES plus sRGB output chain, transparent water
 z-fighting the shore, a patched material whose clone lost its `onBeforeCompile`, a shared
-program cache key, an effect placed outside every camera's frustum. Nothing in the harness
-renders the scene without your shader to compare against, so look at the frames yourself:
-`scene_views` (or `render_views`) at two different times, and check that the thing you wrote
-changed something.
+program cache key, an effect placed outside every camera's frustum. Only `effect_ablation`
+(scenes) renders the scene without your shader to compare against; otherwise look at the
+frames yourself: `scene_views` (or `render_views`) at two different times, and check that the
+thing you wrote changed something.
 
 Full audit source lines, the fix-hint texts, and a minimal citizen shader:
 `references/shader-gate.md`.

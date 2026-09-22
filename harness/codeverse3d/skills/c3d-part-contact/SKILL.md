@@ -32,7 +32,7 @@ Measured on the 102 graded blender runs that have a connectivity report (mined 2
 
 Floating parts get fixed, because they are ERRORs. Interpenetration and crumbs mostly do
 not: three quarters of the runs that started buried shipped buried. And it is expensive —
-`docs/COMPLEXITY.md` section 6, over 160 recorded rounds with both a score and a
+`eval/docs/COMPLEXITY.md` section 6, over 160 recorded rounds with both a score and a
 connectivity report, mean `assembly_fit` falls 0.709 (nothing buried) to 0.505 (a part more
 than half buried), and the plain **count of penetrating pairs** is the strongest single
 predictor of that criterion (r = -0.258). `assembly_fit` is already the lowest-scoring
