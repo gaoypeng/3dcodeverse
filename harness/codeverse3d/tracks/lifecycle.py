@@ -26,7 +26,8 @@ from codeverse3d.contracts.plan import Plan
 from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.cost.context import run_binding
-from codeverse3d.cost.instrument import run_ledger
+from codeverse3d.cost.instrument import metered_agent, metered_chat_model, run_ledger
+from codeverse3d.cost.ledger import ledger_usage, load_ledger
 from codeverse3d.orchestrator import (
     BudgetExceeded,
     BudgetGuard,
@@ -59,42 +60,12 @@ from codeverse3d.tracks.steps import (
     load_round_journal,
     rejudge_round,
     run_round,
-    sum_usage,
 )
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
 REFERENCE_RUBRIC = "reference_v1"
-
-
-def _reconcile_billed_from_ledger(budget: BudgetGuard, ws: Workspace, events: EventLog) -> None:
-    """Adopt the run ledger's total when it exceeds the restored snapshot.
-
-    The snapshot is saved at boundaries; the ledger is appended per CALL, so a crash
-    between a round's spend and its save loses that money from the snapshot but never
-    from the ledger.  Taking the larger of the two makes resume charge for everything
-    the provider actually billed — silently under-counting is how a resumed run walks
-    past its ceiling.  Attempt rows stay excluded (the winner is already on the logical
-    row), and so do subscription-backend rows: their ``cost_usd`` is notional, not money
-    (the same ``bills_usd`` predicate the live path uses — ``BudgetGuard.charge``), so a
-    codex/claude/agy run resumed offline keeps billed at $0.  A missing or unreadable
-    ledger simply leaves the snapshot alone.  ``load_ledger(root)`` reads the one ledger
-    the metered models/agents write, ``telemetry/cost.jsonl``; the root-level
-    ``cost_ledger.jsonl`` leg went on 2026-08-30 (an audit of every run under $HOME found
-    677 symlinks to that name and zero real files — ``LEDGER_NAME`` is the alias only)."""
-    try:
-        from codeverse3d.cost.billing import bills_usd
-        from codeverse3d.cost.ledger import load_ledger
-
-        billed = sum(float(r.cost_usd or 0.0) for r in load_ledger(ws.root) if bills_usd(r.backend))
-    except Exception as e:  # noqa: BLE001 — accounting repair must never block a resume
-        log.debug("ledger reconcile skipped: %s", e)
-        return
-    if billed > budget.billed_usd + 1e-9:
-        events.emit("resume.billed_reconciled", snapshot_usd=round(budget.billed_usd, 6),
-                    ledger_usd=round(billed, 6))
-        budget.billed_usd = billed
 
 
 def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
@@ -273,13 +244,13 @@ class BaseTrack:
                 self.prepare(ctx, runner)
                 stop = self._round_loop(ctx, rounds)
             except BudgetExceeded as e:
-                events.emit("budget.exceeded", reason=e.reason, spent_usd=round(e.spent_usd, 4))
+                events.emit("budget.exceeded", reason=e.reason)
                 stop, error = RunStatus.BUDGET, e.reason
                 self._salvage_baseline(ctx, rounds)
             except Exception as e:  # noqa: BLE001 — persist a FAILED record, then fail loud
                 error = f"{type(e).__name__}: {e}"
                 events.emit("run.failed", error=error, traceback=traceback.format_exc()[-3000:])
-                self._save_budget(ctx)  # mid-round charges must survive for resume
+                self._save_budget(ctx)  # the clock and the step log must survive for resume
                 state.status, state.error = RunStatus.FAILED, error
                 state.save(ws)
                 rec = self._record(ctx, rounds, RunStatus.FAILED, error=error)
@@ -377,11 +348,9 @@ class BaseTrack:
         budget = BudgetGuard(spec.budget, soft_fraction=self.soft_budget_fraction)
         snap = state.extra.get("budget_snapshot")
         if snap:
-            # full guard state: money, calls, buckets AND active minutes keep counting,
-            # so a raised cap (--max-minutes / --rounds) grants only the difference,
-            # never a fresh full cap.
+            # the active minutes keep counting, so a raised cap (--max-minutes / --rounds)
+            # grants only the difference, never a fresh full cap
             budget.restore(BudgetSnapshot.model_validate(snap))
-        _reconcile_billed_from_ledger(budget, ws, events)
         policy = self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds)
         policy = replace(policy, n_candidates=self._resolve_candidates(spec, settings))
         # reference images: static objects are scored with reference_v1 (adds the measured silhouette
@@ -389,7 +358,10 @@ class BaseTrack:
         rubric = REFERENCE_RUBRIC if spec.references and self.track is Track.STATIC_OBJECT else self.rubric
         ctx = RunContext(spec=spec, ws=ws, events=events, settings=settings, budget=budget, runtime=runtime,
                          services=self.services, state=state, policy=policy, track=self.track, rubric=rubric,
-                         agent_id=spec.backends.generator, agent=self._agent, model=self._model)
+                         agent_id=spec.backends.generator,
+                         # metered like the ones services hand out: an injected agent or model spends
+                         # money too, and the ledger is the only record of it
+                         agent=metered_agent(self._agent), model=metered_chat_model(self._model))
         ctx.contract_text = language_text(spec.language, "contract.md")
         ctx.cookbook_rel = language_prompt(spec.language, "cookbook.md")
         ctx.cookbook_text = language_text(spec.language, "cookbook.md")
@@ -438,10 +410,10 @@ class BaseTrack:
         ctx.state.status = RunStatus.PLANNING
         ctx.state.save(ctx.ws)
         try:
-            plan = run_planner(ctx.spec, ctx.spec.backends.planner, self.plan_model, ctx.ws, model=self._planner_model,
-                               events=ctx.events, budget=ctx.budget)
+            plan = run_planner(ctx.spec, ctx.spec.backends.planner, self.plan_model, ctx.ws,
+                               model=metered_chat_model(self._planner_model), events=ctx.events, budget=ctx.budget)
         finally:
-            self._save_budget(ctx)  # charged on success AND PlanningError
+            self._save_budget(ctx)  # the clock and the plan step, on success AND PlanningError
         return plan
 
     # ------------------------------------------------------------------ stages
@@ -602,7 +574,7 @@ class BaseTrack:
         cut mid-way can leave src/ past it, so it is put back and rebuilt — the only restore a
         run does (every round's own build is kept under artifacts/rNN/, and choosing a round
         to hand over is ``codeverse3d.addons.select``'s job, after the run)."""
-        self._save_budget(ctx)  # aborted-round / stage charges must survive for resume
+        self._save_budget(ctx)  # the clock and an aborted round's steps must survive for resume
         last = rounds[-1] if rounds else None
         rebuild_err = ""
         rebuild_ok = False
@@ -634,7 +606,7 @@ class BaseTrack:
         self.services.finalize_record(ctx.ws, rec)
         ctx.events.emit("run.done", status=status.value, rounds=len(rounds),
                         last_score=last.score if last is not None else None,
-                        cost_usd=round(rec.total_usage.cost_usd, 4))
+                        cost_usd=round(rec.total_usage.cost_usd, 4), minutes=rec.minutes)
         return rec
 
     @staticmethod
@@ -650,21 +622,18 @@ class BaseTrack:
             return False
 
     def _record(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, error: str) -> RunRecord:
-        total = sum_usage(rounds)
-        # planner, aborted rounds, retried sessions: all in the guard,
-        # none of them in ``rounds`` — the guard is the honest total (docs/COST.md §6).
-        if ctx.budget.spent.cost_usd > total.cost_usd:
-            total = ctx.budget.spent
+        """The run record.  Its ``total_usage`` is the sum of the run's ledger at list price —
+        every billed row once: the planner, the scene stages, aborted rounds, retried sessions,
+        round-trips the provider billed and the call discarded — not a sum kept here."""
         cands = ctx.ws.root / "rounds" / "candidates.json"  # best-of-N summary: the file is the one copy
         extra: dict[str, Any] = {"stop_reason": status.value, "rubric": ctx.rubric, "budget": ctx.budget.summary(),
                                  "n_candidates": ctx.policy.n_candidates,
-                                 "candidates": ctx.ws.read_json(cands) if cands.is_file() else None,
-                                 "cost_by_stage": ctx.budget.stage_summary()}
+                                 "candidates": ctx.ws.read_json(cands) if cands.is_file() else None}
         if ctx.extra.get("finalise_rebuild_failed"):
             extra["finalise_rebuild_failed"] = ctx.extra["finalise_rebuild_failed"]
         if ctx.extra.get("aborted_rounds"):
             # rounds the budget (or a crash) cut after the money was spent: they are not
-            # in ``rounds``, so name them here and keep their dollars in total_usage.
+            # in ``rounds``, so name them here (their dollars are in the ledger, the total).
             extra["aborted_rounds"] = ctx.extra["aborted_rounds"]
         # A resume rewrite must not drop what earlier sessions / other packages put on
         # the record post-hoc (flywheel captions, texturing/run.record_texturing, prior
@@ -681,8 +650,8 @@ class BaseTrack:
             extra["aborted_rounds"] = prior_aborted + [a for a in ctx.extra["aborted_rounds"]
                                                        if a not in prior_aborted]
         return RunRecord(
-            spec=ctx.spec, plan=ctx.plan, workspace=str(ctx.ws.root), status=status, rounds=rounds, total_usage=total,
-            steps=list(ctx.state.steps),
+            spec=ctx.spec, plan=ctx.plan, workspace=str(ctx.ws.root), status=status, rounds=rounds,
+            total_usage=ledger_usage(load_ledger(ctx.ws.root)), steps=list(ctx.state.steps),
             environment={"python": platform.python_version(), "host": platform.node(), "track": self.track.value,
                          "language": ctx.language.value, "generator": ctx.agent_id},
             prompt_hashes={**prior_hashes, **dict(ctx.prompt_hashes)}, started_at=ctx.state.started_at,

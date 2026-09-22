@@ -8,6 +8,8 @@ import pytest
 
 from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import ScenePlan, StaticPlan
+from codeverse3d.cost.instrument import metered_chat_model, run_ledger
+from codeverse3d.cost.ledger import load_ledger
 from codeverse3d.orchestrator import BudgetGuard, RoundPolicy, RunState
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.common import RunContext
@@ -105,7 +107,7 @@ def test_generate_single_shot_writes_files_and_charges(tmp_ws):
     task = GenerationTask(label="baseline", prompt="build it", system="sys", files_hint=["src/model.py"])
     res = generate(tmp_ws, agent_id="single-shot:gemini:x", task=task, model=model, budget=budget, events=events)
     assert res.ok and [c.path for c in res.files_changed] == ["src/model.py"] and (tmp_ws.src / "model.py").read_text() == "import bpy\n"
-    assert budget.spent.cost_usd == pytest.approx(0.002)
+    assert res.usage.cost_usd == pytest.approx(0.002)
     # the label carries the round so the cost ledger can attribute a single-shot call
     assert "=== FILE:" in model.requests[0].system and model.requests[0].label == "baseline:r00"
     assert (tmp_ws.trajectories / "baseline_r00" / "response.md").is_file()
@@ -138,10 +140,11 @@ def _valid_plan_dict() -> dict:
 def test_planner_validates_retries_and_writes(tmp_ws):
     spec = make_spec()
     answers = [{"object_name": "X"}, _valid_plan_dict()]
-    model = FakeChatModel(lambda req: answers.pop(0))
+    model = metered_chat_model(FakeChatModel(lambda req: answers.pop(0)))
     events = EventLog(tmp_ws.events_path)
     budget = BudgetGuard(spec.budget)
-    p = plan(spec, "fake:planner", StaticPlan, tmp_ws, model=model, events=events, budget=budget)
+    with run_ledger(tmp_ws.root):
+        p = plan(spec, "fake:planner", StaticPlan, tmp_ws, model=model, events=events, budget=budget)
     assert isinstance(p, StaticPlan) and p.object_name == "DiningChair" and tmp_ws.plan_path.is_file()
     assert len(model.requests) == 2 and "failed validation" in model.requests[1].messages[-1].text
     assert model.requests[0].response_schema is not None and "PascalCase" in model.requests[0].system
@@ -151,7 +154,7 @@ def test_planner_validates_retries_and_writes(tmp_ws):
     # deterministic acceptance items from constraints were appended
     texts = " ".join(a.text for a in p.acceptance)
     assert "height = 0.820" in texts and "Includes: armrests" in texts
-    assert budget.spent.cost_usd == pytest.approx(0.004)
+    assert sum(r.cost_usd for r in load_ledger(tmp_ws.root)) == pytest.approx(0.004)  # both calls, paid
     kinds = [e["event"] for e in events.read()]
     assert "plan.invalid" in kinds and "plan.done" in kinds
 
@@ -252,7 +255,7 @@ def test_build_with_repair_single_shot_sends_file_contents_and_stops_at_max(tmp_
     assert not out.ok and len(out.attempts) == 2  # max_repair_attempts=2 in make_spec
     assert "--- src/model.py ---" in seen[0].messages[0].text and "import bpy" in seen[0].messages[0].text
     assert seen[1].temperature > seen[0].temperature  # escalation on identical signature
-    assert ctx.budget.spent.cost_usd == pytest.approx(0.004)
+    assert out.usage.cost_usd == pytest.approx(0.004)
 
 
 def test_format_error_report_and_cookbook_section():

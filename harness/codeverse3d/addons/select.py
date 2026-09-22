@@ -219,14 +219,19 @@ def package(run_dir: Path | str, round_index: int, *, texture: bool = False, met
 
     ``texture=True`` runs the texture pass on that round's own GLB first, unless a pass
     already started from those exact bytes (a paid pass is never bought twice); a pack
-    ships into the deliverable only when its judge gate shipped it."""
+    ships into the deliverable only when its judge gate shipped it.  The record is then
+    re-packaged, so its total takes in what the pick paid for (a texture pass, a pairwise
+    verdict): the run's money is its ledger's (``record.package_run``)."""
     ws = Workspace(run_dir)
     rec = load_record(ws)
     rnd = next((r for r in rec.rounds if r.index == round_index), None)
     if rnd is None:
         raise ValueError(f"no round {round_index} in {ws.root} (rounds: {[r.index for r in rec.rounds]})")
     if texture:
-        rec = _texture(ws, rec, round_index, image_model=image_model)
+        _texture(ws, rec, round_index, image_model=image_model)
+        rec = load_record(ws)  # the pass wrote extra["texturing"]
+    package_run(ws, rec)
+    ws.write_json(ws.record_path, rec)
     manifest = build_deliverable(ws, rec, round_index)
     sel = Selection(round=round_index, method=method, scores={r.index: r.score for r in round_rows(ws.root, record=rec)},
                     textured=any(f.path == "deliverable/object_textured.glb" for f in manifest.files))
@@ -236,8 +241,8 @@ def package(run_dir: Path | str, round_index: int, *, texture: bool = False, met
     return ws.deliverable
 
 
-def _texture(ws: Workspace, rec: RunRecord, index: int, *, image_model: Any | None) -> RunRecord:
-    """The texture pass on round ``index``'s GLB; returns the record as the pass left it."""
+def _texture(ws: Workspace, rec: RunRecord, index: int, *, image_model: Any | None) -> None:
+    """The texture pass on round ``index``'s GLB (it records itself on ``record.json``)."""
     from codeverse3d.texturing.run import texture_pass, texture_supported
 
     if not texture_supported(rec.spec.track):
@@ -249,7 +254,7 @@ def _texture(ws: Workspace, rec: RunRecord, index: int, *, image_model: Any | No
         raise ValueError(f"round {index} kept no object.glb to texture (artifacts/r{index:02d}/)")
     if texture_report_for(ws, glb) is not None:
         EventLog(ws.events_path).emit("texture.skipped", reason="already_textured_this_artifact", round=index)
-        return rec
+        return
     sheet = ws.rebase(rnd.renders.contact_sheet) if rnd.renders is not None and rnd.renders.contact_sheet else None
     events = EventLog(ws.events_path)
     try:
@@ -258,8 +263,3 @@ def _texture(ws: Workspace, rec: RunRecord, index: int, *, image_model: Any | No
     except Exception as e:  # noqa: BLE001 — a derived asset pack: the hand-over goes out without it
         log.warning("texture pass failed on round %d: %s", index, e)
         events.emit("texture.failed", round=index, error=f"{type(e).__name__}: {e}")
-        return rec
-    rec = load_record(ws)  # the pass wrote extra["texturing"]; its spend is post-run: refresh telemetry/
-    package_run(ws, rec)
-    ws.write_json(ws.record_path, rec)
-    return rec

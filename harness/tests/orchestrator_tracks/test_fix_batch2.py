@@ -7,7 +7,7 @@ import json
 import pytest
 
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Judgment, Severity
-from codeverse3d.contracts.common import Language, Track, Usage
+from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse3d.contracts.run import RoundRecord, RunStatus
 from codeverse3d.orchestrator import RoundPolicy, RunState
@@ -24,6 +24,7 @@ from tests.orchestrator_tracks.fakes import (
     FakeRuntime,
     FakeServices,
     _planner,
+    bill_verdict,
 )
 
 
@@ -31,9 +32,9 @@ def _writer(job, ws):
     return {"src/object.js": f"// {job.label} r{job.round}\nexport function build(THREE) {{ return new THREE.Group(); }}\n"}
 
 
-def degraded_verdict(cost: float = 0.003) -> Judgment:
+def degraded_verdict(cost: float = 0.003, round_index: int = 0) -> Judgment:
     return Judgment(rubric="fake_v1", judge_backend="fake", scores={}, overall=0.0, passed=False,
-                    summary="judge_error: 503 UNAVAILABLE", usage=Usage(backend="fake", cost_usd=cost),
+                    summary="judge_error: 503 UNAVAILABLE", usage=bill_verdict(cost, round_index),  # paid all the same
                     raw=json.dumps({"status": "degraded"}))
 
 
@@ -49,7 +50,7 @@ class ScriptedJudge(FakeJudge):
         i = min(len(self.all_calls), len(self.script) - 1)
         self.all_calls.append(inp)
         if self.script[i] == "degraded":
-            return degraded_verdict()
+            return degraded_verdict(round_index=inp.round_index)
         self.calls = self.all_calls[: i]  # FakeJudge indexes by len(calls)
         out = super().judge(inp)
         out = out.model_copy(update={"overall": float(self.script[i]), "passed": float(self.script[i]) >= 0.8,
@@ -72,8 +73,8 @@ def test_judged_round_survives_budget_ceiling_crossed_by_judge(tmp_path, chair_p
     assert rec.status is RunStatus.BUDGET and rec.extra["stop_reason"] == "budget"
     assert len(rec.rounds) == 1 and rec.rounds[0].score == pytest.approx(0.55)
     assert (ws.root / "rounds" / "r00.json").is_file() and ws.judge_path(0).is_file()
-    # the judge cost is still in the totals
-    assert rec.total_usage.cost_usd > 0.05
+    # the judge cost is still in the totals, and in the round's
+    assert rec.total_usage.cost_usd > 0.05 and rec.rounds[0].usage.cost_usd > 0.05
 
 
 # --------------------------------------------------------------------- finding: finalise with a dirty tree at the last commit
@@ -93,12 +94,10 @@ def test_finalise_restores_the_last_round_when_an_aborted_round_dirtied_src(tmp_
     text = (ws.src / "object.js").read_text()
     assert "baseline r0" in text and "refine" not in text  # restored, not the aborted round's edits
     assert ws.changed_files() == []  # tree clean at the delivered commit
-    # finding lifecycle.py:256 — the aborted round's charges survive into run_state for resume
-    state = RunState.load(ws)
-    spent = state.extra["budget_snapshot"]["spent"]
-    assert spent["cost_usd"] == pytest.approx(0.025, abs=1e-6)
-    snap = state.extra["budget_snapshot"]
-    assert snap["billed_usd"] == pytest.approx(0.025, abs=1e-6) and snap["calls"] > 0
+    # finding lifecycle.py:256 — the aborted round's money survives for resume: it is on the
+    # ledger (planner 0.002 + baseline agent 0.01 + judge 0.003 + the aborted refine agent 0.01)
+    assert rec.total_usage.cost_usd == pytest.approx(0.025, abs=1e-6)
+    assert rec.extra["aborted_rounds"][0]["cost_usd"] == pytest.approx(0.01, abs=1e-6)
 
 
 # --------------------------------------------------------------------- finding: finalise rebuild fails after invalidation
@@ -163,11 +162,9 @@ def test_spent_usage_saved_when_a_round_crashes(tmp_path, chair_plan, settings):
                               runtime=FakeRuntime(Language.THREEJS))
     with pytest.raises(RuntimeError, match="gate exploded"):
         track.run(spec, ws)
-    state = RunState.load(ws)
-    spent = state.extra["budget_snapshot"]["spent"]
     # planner 0.002 + r0 agent 0.01 + r0 judge 0.003 + r1 agent 0.01 — the r1 charge must not vanish
-    assert spent["cost_usd"] == pytest.approx(0.025, abs=1e-6)
-    assert state.extra["budget_snapshot"]["billed_usd"] == pytest.approx(0.025, abs=1e-6)
+    assert json.loads(ws.record_path.read_text())["total_usage"]["cost_usd"] == pytest.approx(0.025, abs=1e-6)
+    assert json.loads((ws.root / "rounds" / "aborted_r01.json").read_text())["usage"]["cost_usd"] == pytest.approx(0.01)
 
 
 # --------------------------------------------------------------------- finding: degraded judge verdicts are glitches, not scores
@@ -187,16 +184,13 @@ def test_degraded_verdict_never_scores_and_run_stops_as_judge_unavailable(tmp_pa
     # the degraded summary never reaches a refine prompt
     assert len(judge.all_calls) == 3
     # audit f1/f3: both degraded verdicts were PAID and the glitch note survives the
-    # round's notes join — money and note reach the persisted record and cost.round
+    # round's notes join — money and note reach the persisted record
     r1 = rec.rounds[1]
     assert "judge degraded" in r1.notes
     assert r1.usage.cost_usd == pytest.approx(0.016, abs=1e-6)  # agent 0.01 + 2 x degraded 0.003
     saved = json.loads((ws.root / "rounds" / "r01.json").read_text())
     assert "judge degraded" in saved["notes"]
     assert saved["usage"]["cost_usd"] == pytest.approx(0.016, abs=1e-6)
-    r1_cost = next(e for e in EventLog(ws.events_path).read()
-                   if e["event"] == "cost.round" and e["round"] == 1)
-    assert r1_cost["judge_usd"] == pytest.approx(0.003) and r1_cost["waste_reason"] == "unjudged"
 
 
 def test_degraded_verdict_recovers_via_rejudge_of_same_commit(tmp_path, chair_plan, settings):
@@ -214,15 +208,7 @@ def test_degraded_verdict_recovers_via_rejudge_of_same_commit(tmp_path, chair_pl
     assert [j.round for j in agent.jobs] == [0, 1, 2, 3]
     saved = RoundRecord.model_validate(json.loads((ws.root / "rounds" / "r01.json").read_text()))
     assert saved.judgment is not None and saved.judgment.overall == pytest.approx(0.85)
-    # audit f2: the recovery re-emits a CORRECTED cost.round so the audit stream stops
-    # counting r01 as wasted=unjudged; f1: every paid verdict is on the round's usage
-    r1_costs = [e for e in EventLog(ws.events_path).read()
-                if e["event"] == "cost.round" and e["round"] == 1]
-    assert len(r1_costs) == 2
-    first, corrected = r1_costs
-    assert first["wasted"] is True and first["waste_reason"] == "unjudged" and first["corrected"] is False
-    assert corrected["corrected"] is True and corrected["wasted"] is False
-    assert corrected["score"] == pytest.approx(0.85) and corrected["judge_usd"] == pytest.approx(0.003)
+    # audit f1: every paid verdict is on the round's usage
     assert rec.rounds[1].usage.cost_usd == pytest.approx(0.016, abs=1e-6)  # agent + degraded + rejudge
     assert "judge degraded" in rec.rounds[1].notes and "judge degraded" in saved.notes
 

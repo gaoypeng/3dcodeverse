@@ -119,7 +119,8 @@ def test_every_bench_prompt_opens_its_own_run_ledger(tmp_path: Path):
     res = run_battery(battery, out, BenchOptions(parallel=2, limit=3), run_fn=run)
     assert len(res) == 3
     for r in res:
-        rows = load_ledger(Path(r.workspace))
+        # the fake run's own rows (make_fake_run writes a ledger like a run) + the metered call
+        rows = [row for row in load_ledger(Path(r.workspace)) if row.label == "api-agent:baseline:t0"]
         assert len(rows) == 1, f"{r.id}: {rows}"
         assert rows[0].run == r.id and rows[0].cost_usd > 0  # and not a sibling's row
 

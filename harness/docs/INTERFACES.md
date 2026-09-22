@@ -114,7 +114,7 @@ record_call(usage, *, run="", round=None, stage=None, role=None, label="", backe
     # Δ everything left out is resolved from the ambient context + the call label (cost.context);
     # unknown model -> $0 and price_source="unknown" (flagged, never silently dropped); never raises.
 from codeverse3d.cost.instrument import (run_ledger, metered_chat_model, metered_agent,
-                                       MeteredAgent, MeteredChatModel, metering_enabled)
+                                       MeteredAgent, MeteredChatModel)   # always on: no off switch
 with run_ledger(ws.root, run=slug):        # binds the run, points record_call at <run>/telemetry/cost.jsonl
     ...                                    # (its one name: no root alias since 2026-09-22)
     # NESTS by holding ContextVar tokens (bound_run / bound_ledger) — context-local ONLY, no
@@ -126,7 +126,7 @@ with run_ledger(ws.root, run=slug):        # binds the run, points record_call a
     # agents.get_coding_agent returns a MeteredAgent (registry wrap, from the first call) → ambient
     #   round/stage for the session and one source='session' row (n_calls, latency, outcome,
     #   AgentResult.turns) — every backend is a vendor CLI whose calls the harness cannot see.
-    #   These two are the ONLY ledger writers; BudgetGuard writes no row.
+    #   These two (+ the image model's own row) are the ONLY ledger writers; BudgetGuard keeps no money.
     #   The rule is the BACKEND, never "did a row get written while it ran": a CLI session with one
     #   in-process tool call used to be dropped entirely.
 from codeverse3d.cost.context import CallContext, call_context, bound_run, context_from_label, SELF_DESCRIBING
@@ -454,17 +454,18 @@ RoundPolicy(max_rounds=4, max_refine_tasks=6, max_instructions_per_task=6, paral
     # StopDecision, pick_best_round, judge_sigma, best_score, last_gain, REWRITE_KIND / DETAIL_KIND /
     # KIND_FOR_STRATEGY / detail_blocked, RunState.best_* / update_best, and the RoundPolicy fields plateau_window,
     # min_delta, target, pairwise_*, judge_model, regression_sigma, marginal_*, detail_*.
-from codeverse3d.orchestrator import BudgetGuard, usage_delta
-BudgetGuard(budget, start_time=None, *, soft_fraction=1.0)            # no run= / ledger=
-    .charge(usage, *, stage="other", enforce=True)   # (Δ 2026-08-30: role/label/round_index/outcome gone)
-    # THE door every dollar goes through: accumulate → bucket by stage → enforce the ceilings.
-    # The per-call record (role, label, round, outcome) is the LEDGER row; the guard bucketing them a
-    # second time fed nothing but itself.
-    # It writes NO ledger row: cost.instrument.MeteredAgent (one source='session' row per CLI session) and
-    # MeteredChatModel (one row per call) are the only writers of telemetry/cost.jsonl.
-    # add(...) = charge(enforce=False) — "not enforced" never means "not seen".
-    .by_stage / .stage_summary() / .mark()   # what a round burned, live (by_round[i] deleted — no reader;
-    #                                          per-round money is CallCost.round in telemetry/cost.jsonl)
+from codeverse3d.orchestrator import BudgetGuard, BudgetSnapshot
+BudgetGuard(budget, start_time=None, *, soft_fraction=1.0)            # THE CLOCK, nothing else (Δ 2026-09-22)
+    .check() / .ok() / .elapsed_minutes() / .timeout_s(want_s, *, floor_s, soft) / .soft_exceeded()
+    .grant_grace(minutes=) / .snapshot() -> BudgetSnapshot{active_s} / .restore(snap) / .summary() -> {elapsed_min,
+    max_minutes}
+    # Δ 2026-09-22: charge / add / mark / stage_summary / spent / billed_usd / by_stage and usage_delta are gone —
+    # the ledger (telemetry/cost.jsonl) is the only record of money; a run's total is its sum at list price
+    # (record.package_run / BaseTrack._record), a round's cost the rows booked inside it (cost.tally.tally)
+from codeverse3d.cost.tally import tally, timed, book_usage, book_time   # a block's money + lost seconds
+with tally() as t: ...                     # t.usage = the ledger rows booked inside (nests; fan_out copies it)
+with timed("judge", steps, round_index=i): ...   # appends StepTime{step, round, wall_s, lost_s} (docs/COST.md §31)
+RunRecord.minutes / RoundRecord.minutes    # Σ (wall − lost) over the steps; no steps → its own clock
 from codeverse3d.tracks.candidates import CandidateRecord, rank_candidates   # the one in-loop choice left
 from codeverse3d.tracks.candidates import run_best_of_n, quick_render   # N parallel baselines in <ws>/_cand/c<k>
 # each candidate IS steps._run_round(kind="candidate") in its sub-workspace: render=quick_render(ctx, round_index, build,
@@ -544,8 +545,9 @@ skip_judge_reason(ctx, *, renders, ignore_budget=False) -> str    # "" = judge i
 run_round(ctx, *, index, kind, tasks, pipeline, ..., previous_best=None) -> RoundRecord
     # steps._run_round (the same round, no aborted-round record) also takes render: RenderFn | None (swaps the
     # pipeline's render; candidates pass quick_render) and geometry_views=False (skips the clay/normals views)
-    # emits cost.round {stages{}, judge_usd, total_usd, agent_turns, wasted, waste_reason}; on ANY exception it
-    # records what the round burned (rounds/aborted_rNN.json, ctx.extra["aborted_rounds"]) and re-raises
+    # rec.usage = the ledger rows the round booked (its tally) + extra_usage; rec.steps = generate (per phase) /
+    # build / gates / render / judge; on ANY exception it records what the round burned and the steps it ran
+    # (rounds/aborted_rNN.json, ctx.extra["aborted_rounds"], RunState.steps) and re-raises
 from codeverse3d.tracks.planner import plan, ensure_acceptance, plan_example, plan_temperature
 plan(spec, model_id, plan_model, ws, *, model=None, events=None, budget=None) -> Plan   # no runtime= (the contract is the catalog's)
     # Δ 2026-09-22: every track, graphics included, through ONE loop that dispatches on spec.track — PLAN_TEMPLATES,
@@ -610,8 +612,8 @@ select.package(run_dir, round_index, *, texture=False, method="round", image_mod
 from codeverse3d.addons.gallery.index import hero_view          # (ws, rec, picked) -> (rel, label, n_views): the card image
 from codeverse3d.record.record import complexity_block, round_complexity   # objective complexity of what was built
     # finalize_record fills record.extra["complexity"] = the LAST measured round's vector + plan_parts /
-    # parts_per_plan_part / by_round; every rounds_summary row gains "complexity" (the index or None); readers
-    # that show one round (gallery, dataset) read that round's own round_complexity
+    # parts_per_plan_part / by_round; readers that show one round (gallery, dataset) read that round's own
+    # round_complexity (a dataset sample's rounds_summary rows carry it)
 from codeverse3d.addons.dataset.export import export_samples   # (runs_dir, out_dir, *, min_score=None, only_passed=False,
     # include_unbuilt=False, captions_dir=None, drop_duplicates=False) -> ExportReport{…, n_duplicates, duplicates, tiers}
 from codeverse3d.addons.dataset.quality import quality_tier, prompt_hash, find_duplicates   # tiers (of the exported round's verdict):
@@ -672,21 +674,20 @@ Event names: `run.start`, `stage.start/done`, `plan.done`, `workspace.materializ
 `texture.start/plan/generated/applied/gate/done`, `budget.exceeded`,
 `finalise.rebuild`, `stop` (reason, rounds), `run.done` (status, rounds, last_score) / `run.failed`;
 after the run: `pick.pairwise`, `pick.packaged`, `texture.skipped` / `texture.failed` (addons.select).
-Cost events: **`cost.round`** (per round: `stages{stage → $}`, `judge_usd`, `total_usd`,
-`agent_turns` (= AgentResult.turns), `score`, `wasted`, `waste_reason` ∈ aborted | build_failed |
-unjudged, `run_usd`) — emitted for aborted rounds too (Δ 2026-09-22: `previous_best` and the
-regression / zero_delta reasons went with the in-run best: a lower-scored round is kept, not wasted);
-`judge.skipped` (reason), `generate.turn_cap` (label, max_turns, turns, cost_usd).
+Cost events: `judge.skipped` (reason), `generate.turn_cap` (label, max_turns, turns, cost_usd);
+`run.done` carries the run's `cost_usd` (the ledger's) and `minutes`.  Δ 2026-09-22: `cost.round` is
+gone — no reader, and its per-round {stage → $} restated the ledger (`summarise(rows)` by round and stage).
 Δ 2026-09-22: `best.updated`, `strategy.switch`, `round.refine_from_best`, `pairwise.done` and
 `budget.overrun` are gone, and so is `RoundRecord.pairwise` (the in-run tie-break note; an old
 rNN.json that carries one still loads, the key ignored).  `PairwiseNote` lives in `addons.select`.
-`RunRecord` (record.json): spec, plan, workspace, status, rounds[RoundRecord],
-total_usage, environment,
+`RunRecord` (record.json): spec, plan, workspace, status, rounds[RoundRecord{…, usage, duration_s, steps}],
+total_usage, environment, steps (run-level StepTime rows; `minutes` = the property over all of them),
 prompt_hashes{contract, cookbook, generate, refine}, error, extra{stop_reason,
-rubric, budget, cost_by_stage, aborted_rounds?, rounds_summary, candidates? (the
-rounds/candidates.json payload), texturing?, captions?}.  `total_usage` is the BudgetGuard total whenever it
-exceeds the sum of the rounds (aborted rounds, retried sessions); a texture pass bought by a pick is in
-telemetry/cost.jsonl, not in `total_usage`.  Δ 2026-09-22: no `best_round` / `baseline_score` /
+rubric, budget{elapsed_min, max_minutes} (the clock), aborted_rounds?, candidates? (the
+rounds/candidates.json payload), texturing?, captions?}.  `total_usage` is the sum of telemetry/cost.jsonl at
+list price — every billed row once, aborted rounds, retried sessions and billed-but-discarded round-trips
+included; a texture pass a pick buys joins it when `select.package` re-packages the run.  Δ 2026-09-22: no
+`cost_by_stage` / `rounds_summary` (written, never read), no `best_round` / `baseline_score` /
 `final_score` (old records carry them: ignored — `addons.select.summarise` answers), and `status` is only
 the stop reason: max_rounds | budget | agent_quota | no_change | no_refine_tasks | judge_unavailable |
 failed (an old `passed` / `plateau` loads as `stopped`).

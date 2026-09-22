@@ -630,10 +630,6 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
         except Exception as e:  # noqa: BLE001
             events.emit("asset.judge_failed", asset=asset.name, error=f"{type(e).__name__}: {e}")
             return None
-        # book the money non-enforcing like every other judge site (steps.py, candidates.py):
-        # the verdict is already paid for, and raising here would discard it.  The stage
-        # boundary enforces the ceiling.
-        ctx.budget.add(verdict.usage, stage="judge")
         write_json_atomic(d / "judge.json", verdict.model_dump(mode="json"))  # replayable, like a round's judge/rNN.json
         if is_degraded(verdict):
             # a degraded verdict is no verdict: score stays None and `judged` False, and the

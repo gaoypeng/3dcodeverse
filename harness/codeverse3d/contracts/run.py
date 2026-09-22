@@ -303,10 +303,13 @@ class StageCost(BaseModel):
 
 
 class CostSummary(BaseModel):
-    """The money ledger: what the run cost, where, and against which budget."""
+    """``telemetry/cost.json``: the run's ledger rows summarised — what the run cost, where, and
+    its minutes against ``max_minutes``.  A summary written before 2026-09-22 also carries
+    ``ledger_usd`` / ``unattributed_usd`` / ``post_run_usd`` (the record's total and the ledger
+    were two numbers then) and a span as ``wall_clock_s``: unknown keys, ignored."""
 
     schema_version: int = 1
-    total_usd: float = 0.0
+    total_usd: float = Field(default=0.0, description="the ledger's sum at list price = record.total_usage")
     minutes: float | None = Field(default=None, description="RunRecord.minutes when the record was written")
     max_minutes: float = 0.0
     n_calls: int = 0
@@ -314,13 +317,7 @@ class CostSummary(BaseModel):
     by_stage: list[StageCost] = Field(default_factory=list)
     by_role: dict[str, float] = Field(default_factory=dict, description="planner/generator/judge/… → USD")
     by_model: dict[str, float] = Field(default_factory=dict, description="model → USD")
-    by_round: list[dict[str, Any]] = Field(default_factory=list, description="index / kind / cost_usd / seconds / score")
-    ledger_usd: float = Field(default=0.0, description="sum of the per-call rows in telemetry/usage.jsonl")
-    unattributed_usd: float = Field(
-        default=0.0, description="total_usd - ledger_usd when positive: money with no per-call row")
-    post_run_usd: float = Field(
-        default=0.0, description="ledger_usd - total_usd when positive: priced calls the run total does not "
-                                 "include (a texture pass that ran after the loop, …)")
+    by_round: list[dict[str, Any]] = Field(default_factory=list, description="index / kind / cost_usd / minutes / score")
 
 
 class RunTelemetry(BaseModel):

@@ -15,7 +15,7 @@ from codeverse3d.contracts.artifacts import (
     Judgment,
     Severity,
 )
-from codeverse3d.contracts.common import Budget, Usage
+from codeverse3d.contracts.common import Budget
 from codeverse3d.contracts.plan import AcceptanceItem
 from codeverse3d.contracts.run import RunStatus
 from codeverse3d.orchestrator import (
@@ -32,15 +32,13 @@ from codeverse3d.proc import EventLog, fan_out
 
 
 # ----------------------------------------------------------------------------- budget
-def test_budget_guard_charges_and_raises():
+def test_budget_guard_raises_past_its_ceiling():
     g = BudgetGuard(Budget(max_minutes=10.0))
-    g.charge(Usage(cost_usd=0.02))
-    g.charge(Usage(cost_usd=0.02))
     assert g.ok()
     g._active_s = 11 * 60                                        # noqa: SLF001 — past the ceiling
     with pytest.raises(BudgetExceeded) as ei:
-        g.charge(Usage(cost_usd=0.02))
-    assert "max_minutes" in ei.value.reason and g.spent.cost_usd == pytest.approx(0.06)
+        g.check()
+    assert "max_minutes" in ei.value.reason and not g.ok()
 
 
 def test_budget_guard_time_ceiling():

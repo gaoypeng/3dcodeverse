@@ -253,8 +253,6 @@ class Settings(BaseSettings):
         "a 55 800-token plan needs ~930 s and died at the socket, its tokens billed and discarded. "
         "Owner's rule 2026-08-27: time may be generous, errors may not.")
     profile: str = Field(default="balanced", description="economy | balanced | quality")
-    cost_ledger: bool = Field(default=True, description="append one priced row per model call "
-                              "to the run's telemetry/cost.jsonl (or a per-process log)")
 
     # ------------------------------------------------------------------ switches
     # The A/B switches and runtime overrides, each read as C3D_<NAME> at the call that uses

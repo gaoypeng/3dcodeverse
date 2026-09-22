@@ -29,7 +29,7 @@ from codeverse3d.contracts.artifacts import BuildResult, Measurement, RenderSet
 from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK
-from codeverse3d.cost.tally import timed
+from codeverse3d.cost.tally import tally, timed
 from codeverse3d.orchestrator import BudgetExceeded, gate_error_count
 from codeverse3d.proc import EventLog, fan_out
 from codeverse3d.tracks.common import RunContext
@@ -62,8 +62,10 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
         ctx.events.emit("candidate.start", candidate=k, workspace=str(sub.ws.root))
         # kind="candidate" is what the cost ledger files the sessions under (Stage.CANDIDATE)
         tasks_k = [t.model_copy(update={"label": f"{t.label}_{label}", "kind": "candidate"}) for t in tasks]
-        rec = _run_round(sub, index=0, kind="candidate", tasks=tasks_k, pipeline=pipeline, files_hint=list(files_hint),
-                         render=partial(quick_render, pipeline=pipeline), geometry_views=False)
+        with tally() as spent:  # the candidate's cost: the ledger rows it books
+            rec = _run_round(sub, index=0, kind="candidate", tasks=tasks_k, pipeline=pipeline,
+                             files_hint=list(files_hint), render=partial(quick_render, pipeline=pipeline),
+                             geometry_views=False, spent=spent)
         build_ok = rec.build is not None and rec.build.ok
         cand = CandidateRecord(index=k, label=label, workspace=str(sub.ws.root), commit=rec.commit, build_ok=build_ok,
                                score=rec.score, gate_errors=gate_error_count(rec), usage=rec.usage,

@@ -24,11 +24,10 @@ So there is **no default cap** (``DEFAULT_AGENT_MAX_TURNS`` is 0 → the backend
 stays **graceful**: the session is not killed but asked, in a short wrap-up
 (``DEFAULT_WRAPUP_TURNS``), for one last build + summary.
 
-**Every dollar is charged.**  Both strategies spend through ``BudgetGuard.charge`` in
-the stage the task belongs to, so a retried session (``<label>.a2``) and a wrap-up
-session are visible to the guard, the record and the ledger even when the *next*
-attempt then raises.  The label, round and outcome of each call are on the ledger row
-``cost.instrument`` writes, not on the guard (2026-08-30).
+**Every dollar is on the ledger.**  Both strategies spend through the metered model or
+agent (``cost.instrument``), one row per call or session — a retried session
+(``<label>.a2``) and a wrap-up session included, even when the *next* attempt then
+raises.  The run's clock (``BudgetGuard``) is checked at the session boundary.
 """
 
 from __future__ import annotations
@@ -414,13 +413,11 @@ def generate_files(
     )
     resp = model.generate(req)
     # + every paid round-trip the winner does not represent (a billed-but-invalid
-    # response, a late hedge loser): the ledger records those as source="extra";
-    # without this the guard never sees them (measured $0.18 on one call).
+    # response, a late hedge loser): the ledger records those as source="extra"
     usage = resp.usage + (resp.raw.get("wasted_usage") or Usage())
-    # book the money WITHOUT enforcing: the response is already paid for, and raising
-    # here would discard it before transcript/parse/write_files.  The ceiling is
-    # enforced at the round's phase boundary instead (steps._run_phase).
-    _charge(budget, usage, task=task, enforce=False)
+    # the clock is not enforced here: the response is already paid for, and raising would
+    # discard it before transcript/parse/write_files — the round's phase boundary does
+    # (steps._run_phase)
     retry = False
     if _is_truncated(resp):
         # cut off by max_output_tokens: the envelope is unterminated — one retry with a
@@ -443,8 +440,6 @@ def generate_files(
                                          "max_wait_s": _deadline_preflight(budget, RETRY_DEADLINE_S)})
             resp = model.generate(req)
             usage = usage + resp.usage
-            _charge(budget, resp.usage, task=task,
-                    enforce=False)
     traj = ws.trajectory_dir(task.label.replace("/", "_"), task.round)
     (traj / "prompt.md").write_text(f"# system\n{system}\n\n# user\n{task.prompt}\n")
     (traj / "response.md").write_text(resp.text or "")
@@ -504,32 +499,6 @@ def generate_files(
         transcript_path=str(traj / "response.md"),
         label=task.label,
     )
-
-
-def task_stage(task: GenerationTask) -> str:
-    """The cost stage one generation task spends in: its kind through
-    ``cost.types.stage_for_label`` — the SAME vocabulary ``MeteredAgent`` files the
-    session row by — else the label, which ``record_call`` maps the same way
-    (``asset_koi`` → assets, ``r00_baseline_repair1`` → repair)."""
-    from codeverse3d.cost.types import Stage, stage_for_label
-
-    stage = stage_for_label(task.kind)
-    return str(stage) if stage is not Stage.OTHER else (task.label or "other")
-
-
-def _charge(budget: Any | None, usage: Usage, *, task: GenerationTask, enforce: bool = True) -> None:
-    """Spend through the guard in the stage this task belongs to.
-
-    ``enforce=False`` books the dollar without raising — the single-shot path uses it
-    so a paid response is still parsed and written to disk; the ceiling is enforced at
-    the round's phase boundary (``steps._run_phase``) after the work is persisted.
-
-    Label, round and outcome are NOT passed on (2026-08-30): the guard buckets by stage
-    and enforces, and the per-call record with all three is the ledger row
-    ``cost.instrument`` writes."""
-    if budget is None:
-        return
-    budget.charge(usage, stage=task_stage(task), enforce=enforce)
 
 
 def _deadline_preflight(budget: Any | None, wait_s: float, *, soft: bool = False,
@@ -686,10 +655,11 @@ def run_agent_task(
 class _SessionAcc:
     """Runs the agent sessions of ONE task and keeps their accounting.
 
-    Each session is charged the moment it returns (label ``<task>``/``<task>.a2``
-    for the retry, ``<task>.wrapup`` for the landing session), so a crash in a
-    later session can never erase what an earlier one already spent — the ``.a2``
-    hole of docs/COST.md §6."""
+    Each session is a ledger row the moment it returns (label ``<task>``/``<task>.a2`` for
+    the retry, ``<task>.wrapup`` for the landing session — ``cost.instrument.MeteredAgent``),
+    so a crash in a later session can never erase what an earlier one already spent — the
+    ``.a2`` hole of docs/COST.md §6.  The run's clock is checked after each session that
+    did any work, as the guard's charge did before money left it."""
 
     def __init__(self, *, task: GenerationTask, budget: Any | None):
         self.task = task
@@ -722,8 +692,8 @@ class _SessionAcc:
             return None
         self.usage = self.usage + res.usage
         self.turns += session_turns(res)
-        if res.usage.cost_usd or res.usage.input_tokens or res.usage.output_tokens:  # an empty session books no call
-            _charge(self.budget, res.usage, task=self.task)
+        if self.budget is not None and (res.usage.cost_usd or res.usage.input_tokens or res.usage.output_tokens):
+            self.budget.check()
         return res
 
 

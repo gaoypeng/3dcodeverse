@@ -42,8 +42,8 @@ def test_finalize_and_load_record(fake_run):
     assert not {"best_round", "baseline_score", "final_score"} & stored.keys()  # the run names no best (2026-09-22)
     assert loaded.environment["python"] and loaded.environment["codeverse3d"]
     assert "three" in loaded.environment and "node" in loaded.environment
-    assert len(loaded.extra["rounds_summary"]) == 2
-    assert loaded.extra["rounds_summary"][1]["score"] == 0.80
+    assert "rounds_summary" not in loaded.extra, "written, never read: gone 2026-09-22"
+    assert loaded.total_usage.cost_usd == pytest.approx(0.06), "the total is the ledger's"
 
 
 def test_iter_runs_and_errors(runs_dir: Path):

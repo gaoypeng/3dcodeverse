@@ -827,12 +827,10 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
     against the same ceiling.
 
     ``budget`` (the run's ``BudgetGuard``; ``guard`` below, because ``budget`` becomes this
-    request's PlanBudget) is booked with a non-enforcing ``add`` the moment each call is
-    PAID — brief, first call, every re-ask — so success, ``PlanningError`` and a crash on a
-    LATER attempt all leave the earlier dollars in the guard.  ``PlanningError`` still
-    carries the total usage for guard-less callers; when a guard is given those dollars are
-    already booked and the caller must NOT charge them again.  The ceilings are enforced
-    once, after the plan is written."""
+    request's PlanBudget) only clips each call's wait to the clock left; every call is a
+    ledger row of its own (the metered model), so success, ``PlanningError`` and a crash on
+    a LATER attempt all leave the earlier dollars on the ledger.  ``PlanningError`` carries
+    the total usage for a caller that wants it."""
     guard = budget
     if model is None:
         from codeverse3d.models import get_chat_model
@@ -841,8 +839,6 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
     brief, usage = (None, Usage())
     if brief_enabled(spec):
         brief, usage = expand_brief(spec, model_id, model=model, events=events)
-        if guard is not None and (usage.cost_usd or usage.input_tokens or usage.output_tokens):
-            guard.add(usage, stage="plan")
     budget = plan_budget(spec, brief)
     unit = "passes" if spec.track is Track.GRAPHICS else "parts"
     system = build_system_prompt(spec, plan_model, budget=budget)
@@ -880,9 +876,6 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
                 events.emit("plan.truncated", attempt=attempt, max_output_tokens=tokens, thinking=thinking)
             continue
         usage = usage + resp.usage
-        if guard is not None:
-            # booked where it is paid: a later attempt that raises cannot erase this dollar
-            guard.add(resp.usage, stage="plan")
         try:
             raw = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text)
         except ValueError:  # JsonParseError: nothing parsed — the re-ask below says so

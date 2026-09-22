@@ -1,9 +1,9 @@
 """Run records: finalise / load / iterate.
 
 ``finalize_record`` is the last step of every track run: it fills the
-environment (tool versions + harness git sha) and the totals when the track left
-them empty, adds a compact per-round summary under ``record.extra["rounds_summary"]``,
-writes ``telemetry/`` (see docs/RUN_LAYOUT.md) and writes ``record.json`` atomically.  ``deliverable/`` is not
+environment (tool versions + harness git sha), reads the run's total off its cost ledger
+(``telemetry/cost.jsonl``, the one record of money), writes ``telemetry/`` (see
+docs/RUN_LAYOUT.md) and writes ``record.json`` atomically.  ``deliverable/`` is not
 the run's: which round to hand over is ``codeverse3d.addons.select``'s question
 (2026-09-22).  Telemetry is best-effort: a run is never failed by it.
 """
@@ -22,8 +22,8 @@ from typing import Any, NamedTuple
 
 from codeverse3d import __version__
 from codeverse3d.config import get_settings
-from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.run import RoundRecord, RunId, RunRecord
+from codeverse3d.cost.ledger import existing_ledger_path, ledger_usage, load_ledger
 from codeverse3d.proc import version_line
 from codeverse3d.workspace import Workspace
 
@@ -149,7 +149,7 @@ def round_complexity(r: RoundRecord) -> dict[str, Any] | None:
 
 
 def round_summary(r: RoundRecord) -> dict[str, Any]:
-    """Compact per-round digest (for record.extra, dashboards and the CLI).
+    """Compact per-round digest (the dataset sample's ``rounds_summary``).
 
     A degraded judgment shows up as score/passed None + ``judge_degraded``."""
     j = effective_judgment(r)
@@ -166,28 +166,19 @@ def round_summary(r: RoundRecord) -> dict[str, Any]:
         "issues": len(j.issues) if j else 0,
         "judge_degraded": r.judgment is not None and j is None,
         "cost_usd": round(r.usage.cost_usd, 6),
-        "duration_s": round(r.duration_s, 1),
+        "minutes": round(r.minutes, 2),
         "complexity": cx.get("index") if cx else None,
     }
 
 
-def _sum_usage(rounds: list[RoundRecord]) -> Usage:
-    """Round usage already includes the round's judge call (tracks/steps.py) — do not add it twice."""
-    return sum((r.usage for r in rounds), Usage())
-
-
 def fill_derived(record: RunRecord) -> RunRecord:
-    """Fill total_usage/finished_at/environment when absent, the per-round summary and the
-    complexity block.  No best round, baseline or final score: which round counts is
-    ``addons.select``'s question (2026-09-22)."""
-    if record.total_usage.cost_usd == 0 and record.total_usage.input_tokens == 0 and record.rounds:
-        record.total_usage = _sum_usage(record.rounds)
+    """Fill finished_at/environment when absent and the complexity block.  No best round,
+    baseline or final score: which round counts is ``addons.select``'s question (2026-09-22)."""
     if record.finished_at is None:
         record.finished_at = datetime.now(UTC)
     env = dict(environment_versions())
     env.update(record.environment)  # the track's own entries win
     record.environment = env
-    record.extra["rounds_summary"] = [round_summary(r) for r in record.rounds]
     block = complexity_block(record)
     if block is not None:
         record.extra["complexity"] = block
@@ -216,12 +207,18 @@ def complexity_block(record: RunRecord) -> dict[str, Any] | None:
 
 # --------------------------------------------------------------------------- io
 def package_run(ws: Workspace, record: RunRecord) -> None:
-    """Materialise ``telemetry/`` and mirror it onto the record.
+    """Read the run's total off its ledger, materialise ``telemetry/`` and mirror it onto the
+    record.  ``record.total_usage`` is the sum of ``telemetry/cost.jsonl`` at list price — every
+    billed row once: the planner, an aborted round, a retried session, a round-trip the
+    provider billed and the call discarded, and post-run work (a pick's texture pass) once it
+    joined the ledger.  A run with no ledger keeps what it has.
 
     Best-effort by contract: a failure is logged and the run still gets its
     ``record.json`` (the old layout is always enough to read a run)."""
     from codeverse3d.record.telemetry import build_telemetry
 
+    if existing_ledger_path(ws.root) is not None:
+        record.total_usage = ledger_usage(load_ledger(ws.root))
     try:
         ws.ensure_layout()
     except OSError as e:  # read-only mount, exotic filesystem

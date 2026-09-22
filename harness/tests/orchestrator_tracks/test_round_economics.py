@@ -10,6 +10,8 @@ from codeverse3d.contracts.agent import AgentJob, AgentResult
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import Language, Usage
 from codeverse3d.contracts.run import RoundRecord, RunStatus
+from codeverse3d.cost.instrument import MeteredAgent, run_ledger
+from codeverse3d.cost.ledger import load_ledger
 from codeverse3d.orchestrator import RoundPolicy
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.generation import (
@@ -90,17 +92,18 @@ def test_hitting_the_cap_asks_for_a_landing_instead_of_killing_the_session(tmp_w
     monkeypatch.setenv("C3D_AGENT_MAX_TURNS", "28")
     events = EventLog(tmp_ws.events_path)
     agent = _TurnAgent(writes_on=2)          # session 1 burns its turns and writes nothing
-    guard = _guard()
-    res = run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="refine", prompt="do the work", round=1,
-                                                                 kind="refine"),
-                         budget=guard, events=events)
+    with run_ledger(tmp_ws.root):
+        res = run_agent_task(tmp_ws, agent=MeteredAgent(agent),
+                             task=GenerationTask(label="refine", prompt="do the work", round=1, kind="refine"),
+                             budget=_guard(), events=events)
     assert len(agent.jobs) == 2 and turn_capped(_result_of(agent, 0)) and agent.jobs[0].max_turns == 28
     wrap = agent.jobs[1]
     assert wrap.max_turns == DEFAULT_WRAPUP_TURNS and "LAST session" in wrap.prompt and "do the work" in wrap.prompt
     assert res.ok and res.turn_capped and res.sessions == 2
-    # both sessions are paid for and both are in the guard, under their own labels
-    assert res.usage.cost_usd == pytest.approx(0.4) and guard.spent.cost_usd == pytest.approx(0.4)
-    assert guard.by_stage["refine"] == pytest.approx(0.4)
+    # both sessions are paid for and each is a ledger row of its own
+    assert res.usage.cost_usd == pytest.approx(0.4)
+    rows = load_ledger(tmp_ws.root)
+    assert len(rows) == 2 and all(r.stage == "refine" and r.cost_usd == pytest.approx(0.2) for r in rows)
     kinds = [e["event"] for e in events.read()]
     assert "generate.turn_cap" in kinds
     done = next(e for e in events.read() if e["event"] == "generate.done")
@@ -115,13 +118,13 @@ def test_a_crashing_second_session_never_erases_what_the_first_one_spent(tmp_ws)
                 raise RuntimeError("503 storm")
             return super().run(job)
 
-    guard = _guard()
     agent = _Flaky(writes_on=99)
-    res = run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="refine", prompt="p", round=2, kind="refine"),
-                         budget=guard)
-    assert len(agent.jobs) == 2 and not res.ok
-    assert guard.spent.cost_usd == pytest.approx(0.2) and res.usage.cost_usd == pytest.approx(0.2)
-    assert "503 storm" in res.notes and guard.by_stage["refine"] == pytest.approx(0.2)
+    with run_ledger(tmp_ws.root):
+        res = run_agent_task(tmp_ws, agent=MeteredAgent(agent),
+                             task=GenerationTask(label="refine", prompt="p", round=2, kind="refine"), budget=_guard())
+    assert len(agent.jobs) == 2 and not res.ok and "503 storm" in res.notes
+    (row,) = load_ledger(tmp_ws.root)  # the first session's row stands
+    assert res.usage.cost_usd == pytest.approx(0.2) and row.cost_usd == pytest.approx(0.2) and row.round == 2
 
 
 def _result_of(agent, i):
@@ -135,11 +138,8 @@ def _guard():
     return BudgetGuard(Budget(max_minutes=100))
 
 
-def test_task_stage_names_the_cost_bucket_a_task_spends_in():
-    from codeverse3d.tracks.generation import task_stage
-
-    def t(kind: str, label: str = "x") -> str:
-        return task_stage(GenerationTask(label=label, prompt="p", kind=kind))
+def test_a_task_kind_names_the_stage_its_session_row_is_filed_under():
+    from codeverse3d.cost.types import stage_for_label as t  # what MeteredAgent files a session by
 
     assert t("baseline") == "baseline" and t("refine") == "refine" and t("repair") == "repair"
     assert t("rebuild") == "repair"           # regenerating after a failed build IS repair money
@@ -147,9 +147,7 @@ def test_task_stage_names_the_cost_bucket_a_task_spends_in():
     assert t("env") == "env"
     # the static track's surface-detail round (gone 2026-09-22) was refine money, not "other":
     # the recorded runs that have one still file it there
-    assert t("detail") == "refine" and t("detail", "detail_seat") == "refine"
-    # an unknown kind falls back to the label, which record_call maps by prefix
-    assert t("something_new", "asset_koi") == "asset_koi"
+    assert t("detail") == "refine" and t("detail_seat") == "refine"
 
 
 # ----------------------------------------------------------------------------- judge skipping
@@ -250,20 +248,16 @@ def test_a_regression_changes_nothing_about_the_loop_and_every_round_reports_its
     events = EventLog(ws.events_path).read()
     assert not [e for e in events if e["event"] in ("strategy.switch", "round.refine_from_best")]
     assert not [j for j in agent.jobs if "made the artifact WORSE" in j.prompt]
-    # every round reports what it burned
-    costs = [e for e in events if e["event"] == "cost.round"]
-    assert len(costs) == 4 and all("generate" in c["stages"] for c in costs)
-    assert costs[0]["agent_turns"] == 0  # the fake agent keeps no transcript
-    assert [c["wasted"] for c in costs] == [False] * 4 and "previous_best" not in costs[1]
-    assert costs[2]["judge_usd"] > 0 and costs[2]["run_usd"] >= costs[1]["run_usd"]
-    assert rec.extra["cost_by_stage"]["judge"] > 0 and rec.extra["cost_by_stage"]["refine"] > 0
-    # ... and the run opens its own priced ledger (telemetry/cost.jsonl) even outside the CLI;
-    # the ONE writer is the metered agent/model, so the injected fakes (a bare FakeAgent, a
-    # FakeJudge with no chat model) leave it empty — see test_cost_accounting for the rows a
-    # metered session writes
-    from codeverse3d.cost.ledger import load_ledger
-
-    assert load_ledger(ws.root) == [] and not (ws.root / "cost_ledger.jsonl").exists()
+    # every round's cost is the ledger rows it booked — the injected agent and planner are
+    # metered like the ones services hand out, and the fake judge bills a row per verdict as a
+    # real one's model does — and the run's total is its ledger's, the planner included, with
+    # no per-stage copy on the record
+    assert all(r.usage.cost_usd >= 0.02 + 0.003 for r in rec.rounds)
+    rows = load_ledger(ws.root)
+    assert {r.stage for r in rows} == {"plan", "baseline", "refine", "judge"}
+    assert rec.total_usage.cost_usd == pytest.approx(sum(r.cost_usd for r in rows))
+    assert rec.total_usage.cost_usd > sum(r.usage.cost_usd for r in rec.rounds)
+    assert "cost_by_stage" not in rec.extra and not [e for e in events if e["event"] == "cost.round"]
 
 
 def test_a_lint_stuck_run_keeps_every_score_instead_of_deferring_the_verdict(tmp_path, chair_plan, settings):
@@ -306,9 +300,9 @@ def test_a_round_that_raises_still_reports_what_it_burned(tmp_path, chair_plan, 
     assert rec.extra["aborted_rounds"][0]["index"] == 1
     # the aborted round is NOT resumable state, and its money is in the total
     assert [r.index for r in rec.rounds] == [0]
-    assert rec.total_usage.cost_usd >= sum(r.usage.cost_usd for r in rec.rounds)
-    cut = next(e for e in EventLog(ws.events_path).read() if e["event"] == "cost.round" and e["round"] == 1)
-    assert cut["wasted"] is True and cut["waste_reason"] == "aborted" and cut["total_usd"] > 0
+    assert rec.extra["aborted_rounds"][0]["cost_usd"] == pytest.approx(aborted["usage"]["cost_usd"])
+    assert rec.total_usage.cost_usd == pytest.approx(
+        sum(r.usage.cost_usd for r in rec.rounds) + aborted["usage"]["cost_usd"] + 0.002)  # + the planner
 
 
 def test_fan_out_workers_inherit_the_callers_context():

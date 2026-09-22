@@ -135,13 +135,12 @@ produces no diff.
   provenance, stage, role, outcome), written by the metered models and agents while the
   run happens.  It is the only record of money; a run without one (recorded before
   2026-08-23) has no rows — nothing is reconstructed.
-* **`cost.json`** (`CostSummary`) — the run-layout view of those rows: total vs
-  budget, wall clock vs `max_minutes`, tokens, per stage (`plan / assets / env /
-  zones / baseline / refine / repair / judge / pairwise / texture / …`), per
-  role, per model, per round, plus `ledger_usd`, `unattributed_usd` (the
-  ledger's residual row) and `post_run_usd` (priced calls outside the run total,
-  e.g. the texture pass or pairwise verdict a pick bought after the run).
-  `record.total_usage` stays the authority on what the run cost.
+* **`cost.json`** (`CostSummary`) — the run-layout view of those rows, computed by the
+  ledger's own `summarise`: the total (= `record.total_usage`, the ledger's sum at list
+  price — post-run work a pick buys joins it the next time the run is packaged), tokens, per
+  stage (`plan / assets / env / zones / baseline / refine / repair / judge / pairwise /
+  texture / …`), per role, per model, per round, and the run's minutes against
+  `max_minutes`.
 
 ## `record.json`
 

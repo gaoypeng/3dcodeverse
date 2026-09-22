@@ -13,8 +13,8 @@ the second number existed the harness could not tell them apart.
 Reconciled against the code and the recorded corpus on **2026-08-24**.
 
 * the vector: `codeverse3d/spatial/complexity.py`
-* where it is stored: `Measurement.extra["complexity"]`, `record.extra["complexity"]`,
-  `record.extra["rounds_summary"][i]["complexity"]`, the gallery card + detail page
+* where it is stored: `Measurement.extra["complexity"]` (every round's own: `record.record.round_complexity`),
+  `record.extra["complexity"]`, the gallery card + detail page
 * the study: `bench/complexity_report.py`
 * the ladder battery: `bench/prompts/complexity_v3.yaml`
 

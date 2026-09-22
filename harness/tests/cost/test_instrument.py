@@ -253,9 +253,7 @@ def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Pat
     # and the default ledger were ALSO process globals that the first thread to exit
     # republished, so this plain main-thread call appended to a finished run's file
     # under that run's name instead of going to the per-process log.
-    monkeypatch.setenv("C3D_COST_LEDGER", str(tmp_path / "process.jsonl"))
-    monkeypatch.setattr(ledger_mod, "_fallback", None)
-    monkeypatch.setattr(ledger_mod, "_fallback_read", False)
+    monkeypatch.setattr(ledger_mod, "_fallback", ledger_mod.CostLedger(tmp_path / "process.jsonl"))
     assert run_binding().run == ""
     record_call(Usage(cost_usd=0.5), label="baseline")
     assert [r.run for r in load_ledger(tmp_path / "process.jsonl")] == [""]

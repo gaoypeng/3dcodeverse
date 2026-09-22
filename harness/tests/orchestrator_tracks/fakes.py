@@ -234,7 +234,17 @@ class FakeJudge:
         return Judgment(rubric="fake_v1", judge_backend="fake", scores={"geometry": s, "material": s}, overall=s, passed=s >= 0.8,
                         summary=f"round {inp.round_index} score {s}", issues=[JudgeIssue(target=self.targets[0], kind="geometry", severity="major",
                                                                                           detail="too thin", evidence="front")],
-                        improvement_plan=plan, acceptance_results=acc, usage=Usage(backend="fake", cost_usd=self.cost))
+                        improvement_plan=plan, acceptance_results=acc, usage=bill_verdict(self.cost, inp.round_index))
+
+
+def bill_verdict(cost: float, round_index: int) -> Usage:
+    """What a real judge's metered model does per verdict: one ledger row (the ledger is
+    the only record of money), filed as the round's judge call."""
+    from codeverse3d.cost.ledger import record_call
+
+    usage = Usage(backend="fake", cost_usd=cost)
+    record_call(usage, label=f"judge:fake_v1:r{round_index:02d}:s0")
+    return usage
 
 
 # ----------------------------------------------------------------------------- services

@@ -98,19 +98,21 @@ def test_judge_context_needs_no_run_context(tmp_path):
     assert ScenePipeline().judge_context(ws, None, 0, build, []) == ""
 
 
-def test_graphics_planner_hooks_charge_budget_on_planning_error(tmp_ws):
+def test_graphics_planner_hooks_book_a_planning_error_on_the_ledger(tmp_ws):
     import pytest
 
     from codeverse3d.contracts.plan import GraphicsPlan
     from codeverse3d.contracts.spec import Budget
+    from codeverse3d.cost.instrument import metered_chat_model, run_ledger
+    from codeverse3d.cost.ledger import load_ledger
     from codeverse3d.orchestrator import BudgetGuard
     from codeverse3d.tracks.planner import PlanningError
     from codeverse3d.tracks.planner import plan as run_planner
 
     spec = make_spec(Track.GRAPHICS, Language.GLSL_SHADER)
     budget = BudgetGuard(Budget(max_minutes=10))
-    always_bad = FakeChatModel(lambda req: {"title": "x"})
-    with pytest.raises(PlanningError):
+    always_bad = metered_chat_model(FakeChatModel(lambda req: {"title": "x"}))
+    with run_ledger(tmp_ws.root), pytest.raises(PlanningError):
         run_planner(spec, "fake:planner", GraphicsPlan, tmp_ws, model=always_bad, budget=budget)
-    assert budget.spent.cost_usd > 0, "a failed re-ask is still paid for"
+    assert sum(r.cost_usd for r in load_ledger(tmp_ws.root)) > 0, "a failed re-ask is still paid for"
 

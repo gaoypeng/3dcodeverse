@@ -167,8 +167,6 @@ def _one_layout(zone: ZonePlan, plan: ScenePlan, model: Any, budget: Any, events
                                           response_schema=ZoneLayout.model_json_schema(), temperature=0.3,
                                           thinking="low", max_output_tokens=LAYOUT_MAX_TOKENS,
                                           max_wait_s=max_wait_s, label="zone-layout"))
-        if budget is not None:
-            budget.add(resp.usage, stage="plan")
         raw = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text or "{}")
         layout = ZoneLayout.model_validate(raw)
         layout.zone = zone.name   # the name is an input, never model-invented

@@ -59,8 +59,9 @@ round and runs the optional **texture pass** on it.  The record (plus git histor
 7. **Cheap first.**  Lint → build → deterministic gates → montaged views → VLM.
 8. **Separate generator from judge.**  The judge sees spec + renders +
    measurements + acceptance list; never the generator's reasoning.
-9. **Cost is a budget, not a log.**  Hard per-run ceilings (`BudgetGuard`), key
-   pools with per-key limiters, every call yields a `Usage`.
+9. **Money is measured, time is bounded.**  The wall clock is the hard per-run ceiling
+   (`BudgetGuard`), key pools have per-key limiters, and every call is one row of the
+   run's ledger, `telemetry/cost.jsonl` — the only record of money.
 10. **Reproducible.**  Prompt/rubric/cookbook hashes and tool versions are
     recorded on every run (`record.prompt_hashes`, `record.environment`).
 11. **Export as authored.**  No wrapper re-centres, rescales or grounds the
@@ -161,8 +162,6 @@ codeverse3d/
                       MeteredAgent — one row per ChatModel.generate; one session row only for a backend
                       that does NOT meter itself; run_ledger nests + is context-local so bench --parallel works)
                       profiles.py (economy|balanced|quality; cli._common.resolve_dial is THE resolver)
-                      billing.py (SUBSCRIPTION_BACKENDS/bills_usd — which backends take real dollars,
-                      so the ledger bills real money and not list price; docs/COST.md §25)
                       tally.py (a block's money = its ledger rows, its lost seconds → StepTime; COST §31)
                       guard.py
   judges/             base.py (JudgeInput; `round_input` + `plan_summary(plan, language)`, the ONE payload
@@ -184,7 +183,7 @@ codeverse3d/
                       docstring-only — import from the submodules
   orchestrator.py     the round loop's LIBRARY, not the loop: the round knobs (RoundPolicy —
                       no stop knob besides max_rounds), refine-task compilation + grouping,
-                      StageRunner + RunState (resume), BudgetGuard.  The loop itself is
+                      StageRunner + RunState (resume), BudgetGuard (the clock).  The loop itself is
                       tracks/lifecycle.py:_round_loop → tracks/steps.py:run_round.  A best-of-N
                       candidate IS steps._run_round(kind='candidate') in a _cand/c<k> sub-workspace
                       with two knobs (render=candidates.quick_render, geometry_views=False), its
@@ -308,8 +307,9 @@ runs/<slug>/
   telemetry/cost.jsonl   THE ledger: one row per metered call / CLI session, opened by BaseTrack.run — the
                          only record of money (runs before 2026-09-22 also carry a root cost_ledger.jsonl
                          and a telemetry/usage.jsonl symlink to it; nothing reads them)
-  run_state.json  status + stages; extra carries budget_snapshot and spec_fingerprint only — the round
-                  history is rounds/rNN.json + each round's commit alone (no copy since 2026-09-22)
+  run_state.json  status + stages + the run-level step log (steps); extra carries budget_snapshot (the clock's
+                  active seconds) and spec_fingerprint only — the round history is rounds/rNN.json + each
+                  round's commit alone (no copy since 2026-09-22)
   artifacts/      object.glb object.stl|step robot.urdf meshes/ build.json census.json
                   measurement.json … — the LAST round's build; graphics: frames/fNN_tT.png frames_sheet.png
                   preview.gif metrics.json; texturing (a pick's --texture): object_textured.glb
@@ -487,8 +487,8 @@ plateau, regression or diminishing-returns stop, no rewrite or surface-detail ro
              bought at all: no judge or no renders — a round that finishes past the clock is still judged)
    → commit src/ (the round's commit) and copy its build to artifacts/rNN/
    a round left without a verdict (judge outage / degraded) is re-judged once before the next is planned
-   every round emits cost.round {stage → $, judge $, agent turns, wasted flag}; a round that raises mid-way
-   still reports what it burned (rounds/aborted_rNN.json + record.extra["aborted_rounds"])
+   a round's cost is the ledger rows it booked (a cost.tally) and its steps are timed (RoundRecord.steps); a round
+   that raises mid-way still reports what it burned (rounds/aborted_rNN.json + record.extra["aborted_rounds"])
    a round whose every task failed raises RoundFailed, TYPED (2026-09-22 — the loop never reads its message):
    .quota (a backend saw the vendor's usage limit) → agent_quota; .transient (a session died of a provider
    failure — AgentResult.transient, or a ModelError outage) → the SAME round re-runs once, baseline included;

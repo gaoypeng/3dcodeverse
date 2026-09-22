@@ -66,7 +66,6 @@ def test_soft_budget_degrades_before_the_hard_cap_and_grace_reopens_it():
     assert g.ok() and g.hard_minutes == pytest.approx(15.0)
     g.grant_grace(minutes=1.0)  # never shrinks
     assert g.hard_minutes == pytest.approx(15.0)
-    assert g.summary()["soft_fraction"] == 0.55
 
 
 def test_timeout_is_clipped_to_the_wall_clock_left():

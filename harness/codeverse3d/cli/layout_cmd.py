@@ -237,18 +237,13 @@ def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
     cost, settings = tele.cost, tele.settings
     if cost is not None:
         u = cost.tokens
-        budget_line = fmt_usd(cost.total_usd)
         console.print(kv_table("cost", {
-            "spent / budget": budget_line,
+            "spent": f"{fmt_usd(cost.total_usd)} (the ledger, list price)",
             "minutes": ("-" if record.minutes is None else f"{record.minutes:.1f}")
                        + f" (the clock's ceiling: {cost.max_minutes:.0f} min)",
             "tokens": f"in {u.input_tokens:,} (cached {u.cached_tokens:,}) · out {u.output_tokens:,} · "
                       f"thoughts {u.thoughts_tokens:,} · {u.tool_calls} tool calls",
             "model calls": cost.n_calls,
-            **({"post-run calls": f"{fmt_usd(cost.post_run_usd)} priced outside the run total (texture pass …)"}
-               if cost.post_run_usd >= 0.0005 else {}),
-            **({"unattributed": f"{fmt_usd(cost.unattributed_usd)} with no per-call row (ledger residual)"}
-               if cost.unattributed_usd >= 0.0005 else {}),
             "by role": " · ".join(f"{r} {fmt_usd(v)}" for r, v in sorted(cost.by_role.items(), key=lambda kv: -kv[1])) or "-",
             "by model": " · ".join(f"{m or '(unknown)'} {fmt_usd(v)}" for m, v in sorted(cost.by_model.items(), key=lambda kv: -kv[1])),
             "rounds": " · ".join(f"r{r['index']} {r['kind']} {fmt_usd(r['cost_usd'])}" for r in cost.by_round),

@@ -284,8 +284,6 @@ def _cost_panel(entry: RunEntry, ws: Workspace, rec: RunRecord) -> str:
 
         _kv("calls", str(cost.n_calls)),
         _kv("minutes", "—" if rec.minutes is None else f"{rec.minutes:.1f}"),
-        _kv("unattributed", f"${cost.unattributed_usd:.4f}"),
-        _kv("post-run", f"${cost.post_run_usd:.4f}"),
     ])
     by_model = "".join(_kv(k, f"${v:.4f}") for k, v in sorted(cost.by_model.items(), key=lambda kv: -kv[1]))
     by_role = "".join(_kv(k, f"${v:.4f}") for k, v in sorted(cost.by_role.items(), key=lambda kv: -kv[1]))

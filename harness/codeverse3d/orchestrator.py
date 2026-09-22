@@ -1,5 +1,5 @@
 """Orchestration: the stage runner with resume, run state, the round policy
-(RoundPolicy), refine-task compilation and the budget.
+(RoundPolicy), refine-task compilation and the budget clock.
 
 One module since 2026-08-28: the seven-file package predates the 1,500-line cap,
 nobody ever imported the package itself, and refine_tasks existed only to be
@@ -23,11 +23,10 @@ from typing import Any, Literal, TypeVar
 from pydantic import BaseModel, Field, ValidationError
 
 from codeverse3d.contracts.artifacts import GateReport, Judgment
-from codeverse3d.contracts.common import Budget, Usage
+from codeverse3d.contracts.common import Budget
 from codeverse3d.contracts.plan import AcceptanceItem, Plan
 from codeverse3d.contracts.run import RoundRecord, RunStatus, StepTime
 from codeverse3d.conventions import to_snake
-from codeverse3d.cost.billing import bills_usd
 from codeverse3d.cost.tally import timed
 from codeverse3d.proc import EventLog
 from codeverse3d.workspace import Workspace
@@ -448,26 +447,22 @@ def gate_error_count(r: RoundRecord) -> int:
 
 
 # ===================================================================== budget
-
-#: stage label used when a caller does not say where the money went
-OTHER_STAGE = "other"
-
-
 class BudgetExceeded(RuntimeError):
-    """Raised when a run crosses its USD or wall-clock ceiling."""
+    """Raised when a run crosses its wall-clock ceiling (``max_minutes``)."""
 
-    def __init__(self, reason: str, *, spent_usd: float):
+    def __init__(self, reason: str):
         super().__init__(reason)
         self.reason = reason
-        self.spent_usd = spent_usd
 
 
 class BudgetGuard:
-    """Thread-safe accumulator of ``Usage`` against a ``Budget``.
+    """The run's clock against ``Budget.max_minutes`` — a LIMIT, not a statistic.
 
-    ``charge`` adds usage and then calls ``check``; ``check`` raises
-    ``BudgetExceeded`` when ``max_minutes`` is exceeded.  Cost is accumulated for the
-    ledger and the run record; the wall clock is the ceiling.
+    It counts every active second, provider errors included, because it has to stop a run
+    even in a 503 storm; the run's minutes (``RunRecord.minutes``, docs/COST.md §31) leave
+    those errors out and never stop anything.  ``check`` raises ``BudgetExceeded`` past the
+    ceiling; ``ok`` is its non-raising twin.  Money is not the guard's (2026-09-22): the
+    ledger, ``telemetry/cost.jsonl``, is the one record of it.
     """
 
     def __init__(
@@ -482,89 +477,27 @@ class BudgetGuard:
         #: ACTIVE seconds carried over from previous sessions of this run (``restore``
         #: sets it from the snapshot); downtime between sessions never counts.
         self._active_s: float = 0.0
-        self.spent = Usage()
-        #: the share of ``spent.cost_usd`` that is money someone is actually charged.
-        #: The ceilings enforce THIS, not ``spent.cost_usd`` — a backend on a flat-rate
-        #: subscription prices its tokens notionally and must not consume a spend guard.
-        #: See ``cost/billing.py`` for why, and what still bounds a subscription run.
-        self.billed_usd = 0.0
         self._lock = threading.Lock()
-        self.calls = 0
-        #: fraction of the hard ceilings the *baseline* may use (1.0 = no soft cap)
+        #: fraction of the hard ceiling the *baseline* may use (1.0 = no soft cap)
         self.soft_fraction = min(1.0, max(0.0, float(soft_fraction)))
         #: one-off extension of the HARD wall-clock ceiling (finalise/salvage headroom)
         self.grace_minutes = 0.0
-        #: stage -> USD, so a stop can say where the money went
-        self.by_stage: dict[str, float] = {}
-
-    # ----------------------------------------------------------------- accounting
-    def charge(self, usage: Usage | None, *, stage: str = OTHER_STAGE, enforce: bool = True) -> None:
-        """THE door every dollar goes through — for bucketing and enforcement only.
-
-        Accumulates ``usage``, buckets it by ``stage`` and — when ``enforce`` — raises
-        ``BudgetExceeded`` if a hard ceiling is now crossed.
-        The ledger row is NOT written here: ``cost.instrument`` (MeteredAgent /
-        MeteredChatModel) is the one writer, one priced row per real call.  Until
-        2026-08-29 this method kept a second, aggregate writer that fired whenever no
-        ``run_ledger()`` was active — a direct ``track.run()`` without the CLI, or any
-        run with ``C3D_COST_LEDGER=off`` (the guard's own ledger was opened
-        unconditionally), so ledger-off runs of that era carry one unpriced row per
-        charge; a ledger-off run now writes nothing at all.  Role, label and round
-        went with that second writer (2026-08-30): ``CallCost`` carries all three per
-        call, so the guard bucketing them a second time fed nothing but itself."""
-        if usage is None:
-            return
-        with self._lock:
-            self.spent = self.spent + usage
-            if bills_usd(getattr(usage, "backend", None)):
-                self.billed_usd += float(usage.cost_usd)
-            self.calls += 1
-            key = stage or OTHER_STAGE
-            self.by_stage[key] = self.by_stage.get(key, 0.0) + float(usage.cost_usd)
-        if enforce:
-            self.check()
-
-    def add(self, usage: Usage | None, *, stage: str = OTHER_STAGE) -> None:
-        """Account for ``usage`` WITHOUT enforcing the ceilings.
-
-        For work that is already done and persisted (a completed judge verdict,
-        a pairwise tie-break, the texture pass): the money is spent either way,
-        and raising here would throw away a finished, paid-for result.  The
-        round loop stops at its next ``ok()`` check instead.  The dollar is
-        still bucketed — "not enforced" never means "not seen"."""
-        self.charge(usage, stage=stage, enforce=False)
-
-    def mark(self) -> Usage:
-        """Snapshot of the running total — diff it with :func:`usage_delta` to see
-        what a round burned even when the round itself raised half-way."""
-        return self.spent.model_copy(deep=True)
 
     # ----------------------------------------------------------------- resume snapshot
     def snapshot(self) -> BudgetSnapshot:
-        """Point-in-time guard state for ``run_state.json`` so a resume continues the
-        SAME budget instead of a fresh one.  Grace and config are deliberately absent:
-        grace is one attempt's salvage headroom — persisting it would ratchet the hard
-        ceiling run over run, and the ceilings always come from the current spec."""
+        """The clock for ``run_state.json``, so a resume continues the SAME budget instead of
+        a fresh one.  Grace and config are deliberately absent: grace is one attempt's salvage
+        headroom — persisting it would ratchet the hard ceiling run over run, and the ceiling
+        always comes from the current spec."""
         with self._lock:
-            return BudgetSnapshot(
-                spent=self.spent.model_copy(deep=True),
-                billed_usd=self.billed_usd,
-                calls=self.calls,
-                by_stage=dict(self.by_stage),
-                active_s=self._active_s + (time.time() - self.start_time),
-            )
+            return BudgetSnapshot(active_s=self._active_s + (time.time() - self.start_time))
 
     def restore(self, snap: BudgetSnapshot) -> None:
-        """Adopt a snapshot: money, calls and buckets keep counting; ``start_time``
-        stays *now*, so ``elapsed_minutes`` is prior ACTIVE seconds plus this session
-        — never the downtime in between.  The ceilings come from the (possibly raised)
-        spec budget, so a raised cap (``--max-minutes`` / ``--rounds``) grants exactly
+        """Adopt a snapshot: ``start_time`` stays *now*, so ``elapsed_minutes`` is prior ACTIVE
+        seconds plus this session — never the downtime in between.  The ceiling comes from
+        the (possibly raised) spec budget, so a raised cap (``--max-minutes``) grants exactly
         the difference, never a fresh full cap."""
         with self._lock:
-            self.spent = snap.spent.model_copy(deep=True)
-            self.billed_usd = float(snap.billed_usd)
-            self.calls = int(snap.calls)
-            self.by_stage = dict(snap.by_stage)
             self._active_s = float(snap.active_s)
             self.start_time = time.time()
 
@@ -586,14 +519,10 @@ class BudgetGuard:
             self.grace_minutes = max(self.grace_minutes, max(0.0, float(minutes)))
 
     def check(self) -> None:
-        """Raise ``BudgetExceeded`` if any hard ceiling has been crossed."""
-        spent = self.billed_usd
+        """Raise ``BudgetExceeded`` if the hard ceiling has been crossed."""
         elapsed = self.elapsed_minutes()
         if elapsed > self.hard_minutes:
-            raise BudgetExceeded(
-                f"elapsed {elapsed:.1f} min exceeds max_minutes {self.hard_minutes:.1f}",
-                spent_usd=spent,
-            )
+            raise BudgetExceeded(f"elapsed {elapsed:.1f} min exceeds max_minutes {self.hard_minutes:.1f}")
 
     # ----------------------------------------------------------------- soft cap
     def soft_minutes(self) -> float:
@@ -629,51 +558,14 @@ class BudgetGuard:
         left = max(0.0, (self.soft_minutes() if soft else self.hard_minutes) - self.elapsed_minutes()) * 60.0
         return int(max(floor_s, min(float(want_s), left) if left > 0 else floor_s))
 
-    def summary(self) -> dict[str, float | int]:
-        return {
-            "spent_usd": round(self.billed_usd, 4),
-            # what it WOULD have cost at list price; equal to spent_usd unless a
-            # subscription backend ran (cost/billing.py)
-            "notional_usd": round(self.spent.cost_usd, 4),
-            "elapsed_min": round(self.elapsed_minutes(), 2),
-            "soft_fraction": round(self.soft_fraction, 3),
-            "calls": self.calls,
-            "input_tokens": self.spent.input_tokens,
-            "output_tokens": self.spent.output_tokens,
-        }
-
-    def stage_summary(self) -> dict[str, float]:
-        """``{stage: USD}`` over the whole run (what the ``cost.round`` events add up to)."""
-        return {k: round(v, 6) for k, v in sorted(self.by_stage.items(), key=lambda kv: -kv[1])}
+    def summary(self) -> dict[str, float]:
+        """``record.extra["budget"]``: the clock at the end, beside its ceiling."""
+        return {"elapsed_min": round(self.elapsed_minutes(), 2), "max_minutes": self.budget.max_minutes}
 
 
 class BudgetSnapshot(BaseModel):
-    """What survives a resume (``run_state.extra["budget_snapshot"]``).
+    """What survives a resume (``run_state.extra["budget_snapshot"]``): cumulative ACTIVE
+    seconds.  A snapshot written before 2026-09-22 also carries the guard's money
+    (``spent`` / ``billed_usd`` / ``calls`` / ``by_stage``): unknown keys, ignored."""
 
-    The four accumulator fields of :class:`BudgetGuard` plus cumulative ACTIVE
-    seconds.  Grace (``grace_minutes``) and config (ceilings, soft fraction) are
-    EXCLUDED on purpose: grace is per-attempt salvage headroom — persisting it
-    would ratchet the hard ceiling — and config always comes from the current
-    spec/settings."""
-
-    spent: Usage
-    billed_usd: float
-    calls: int
-    by_stage: dict[str, float]
-    active_s: float
-
-
-def usage_delta(after: Usage, before: Usage) -> Usage:
-    """``after - before`` field by field (never negative).  Used to report what a
-    round burned when it raised before it could fold its own usage together."""
-    return Usage(
-        backend=after.backend or before.backend,
-        model=after.model or before.model,
-        input_tokens=max(0, after.input_tokens - before.input_tokens),
-        output_tokens=max(0, after.output_tokens - before.output_tokens),
-        cached_tokens=max(0, after.cached_tokens - before.cached_tokens),
-        thoughts_tokens=max(0, after.thoughts_tokens - before.thoughts_tokens),
-        tool_calls=max(0, after.tool_calls - before.tool_calls),
-        cost_usd=max(0.0, after.cost_usd - before.cost_usd),
-        latency_ms=max(0, after.latency_ms - before.latency_ms),
-    )
+    active_s: float = 0.0

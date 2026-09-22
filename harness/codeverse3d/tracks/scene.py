@@ -255,8 +255,7 @@ class SceneTrack(BaseTrack):
         notes: list[str] = ctx.extra.setdefault("degraded", [])
         if note not in notes:
             notes.append(note)
-            ctx.events.emit("budget.degraded", note=note, spent_usd=round(ctx.budget.spent.cost_usd, 4),
-                            elapsed_min=round(ctx.budget.elapsed_minutes(), 2))
+            ctx.events.emit("budget.degraded", note=note, elapsed_min=round(ctx.budget.elapsed_minutes(), 2))
 
     # ---- the stage session ------------------------------------------------
     def _stage_session(self, ctx: RunContext, stage: str, kind: str,
@@ -299,9 +298,6 @@ class SceneTrack(BaseTrack):
             ctx.events.emit("textures.stage_failed", error=f"{type(e).__name__}: {e}"[:300])
             return {}
         manifest = pack.manifest()
-        # post-hoc, like the object texture pass (lifecycle): the images are on disk either
-        # way, and the round loop's next ok() check is where a crossed ceiling stops the run
-        ctx.budget.add(pack.usage, stage="texture")
         ctx.ws.commit("textures")
         ctx.events.emit("textures.done", n=len(manifest), cost_usd=round(pack.usage.cost_usd, 4), source=pack.source)
         return manifest

@@ -145,10 +145,10 @@ def test_the_pack_has_the_last_word_over_the_recipes(template: str):
     assert out.index("RECIPE_MARKER") < out.index("TEXTURE_BLOCK_MARKER")
 
 
-def test_the_stage_puts_the_pack_on_the_run_budget(monkeypatch, tmp_path):
-    """The pack is an image-model call the run pays for; every other paid stage goes
-    through the guard (`BudgetGuard.add`, post-hoc, like the object texture pass), so a
-    ceiling can be crossed by a paid stage the run never saw."""
+def test_the_stage_writes_the_pack_and_books_nothing_itself(monkeypatch, tmp_path):
+    """The pack is paid for through the metered image and chat models: its money is on the
+    run's ledger (the only record of it), and the stage has no second book to keep — a
+    context with no budget at all is enough."""
     from types import SimpleNamespace
 
     import codeverse3d.reference as reference
@@ -161,14 +161,11 @@ def test_the_stage_puts_the_pack_on_the_run_budget(monkeypatch, tmp_path):
     monkeypatch.setattr(plan_mod, "scene_texture_pack", lambda *a, **k: pack)
     monkeypatch.setattr(reference, "_image_model", lambda _m: None)
 
-    added: list[tuple[Usage, str]] = []
     ctx = SimpleNamespace(
         plan=None,
         ws=SimpleNamespace(public=tmp_path / "public", commit=lambda *_a, **_k: None),
         spec=SimpleNamespace(backends=SimpleNamespace(planner=None)),
         settings=SimpleNamespace(cache_dir=tmp_path / "cache"),
         events=SimpleNamespace(emit=lambda *a, **k: None),
-        budget=SimpleNamespace(add=lambda u, *, stage: added.append((u, stage))),
     )
     assert S.SceneTrack()._textures_stage(ctx) == MANIFEST  # type: ignore[arg-type]
-    assert added == [(usage, "texture")]

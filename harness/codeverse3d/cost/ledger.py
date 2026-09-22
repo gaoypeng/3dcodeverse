@@ -53,11 +53,6 @@ log = logging.getLogger(__name__)
 TELEMETRY_DIR = "telemetry"
 TELEMETRY_LEDGER = f"{TELEMETRY_DIR}/cost.jsonl"
 
-#: env var that points ``record_call`` at a ledger when no path is passed
-#: (``off`` / ``0`` / ``none`` disables ledger writing for the process)
-LEDGER_ENV = "C3D_COST_LEDGER"
-_LEDGER_OFF = frozenset({"off", "0", "no", "none", "false"})
-
 DIMENSIONS = ("run", "stage", "role", "backend", "model", "provider", "round", "outcome")
 
 #: backends that bill us themselves (a subscription CLI reporting ``total_cost_usd``).
@@ -88,7 +83,6 @@ class CostLedger:
 
 _fallback_lock = threading.Lock()
 _fallback: CostLedger | None = None
-_fallback_read = False
 
 #: sentinel: "this execution context did not state a ledger"
 _UNSET: Any = object()
@@ -113,22 +107,21 @@ def bound_ledger(path: str | Path) -> Iterator[CostLedger]:
         _default_var.reset(token)
 
 
-def default_ledger() -> CostLedger | None:
-    """The ledger :func:`record_call` writes to when no ``ledger=`` is given:
-    whatever :func:`bound_ledger` bound here, else ``$C3D_COST_LEDGER``, else the
-    per-process fallback log (:func:`process_ledger_path`) so a call made outside
-    any run — ``3dcode judge``, a bench script, a notebook — is still accounted for.
-    ``C3D_COST_LEDGER=off`` turns writing off entirely."""
-    global _fallback, _fallback_read
+def default_ledger() -> CostLedger:
+    """The ledger :func:`record_call` writes to when no ``ledger=`` is given: whatever
+    :func:`bound_ledger` bound here, else the per-process fallback log
+    (:func:`process_ledger_path`), so a call made outside any run — ``3dcode judge``, a
+    bench script, a notebook — is still accounted for.  There is no off switch: the
+    ledger is the only record of money (``C3D_COST_LEDGER``, which read ``off`` or a path —
+    and, as a Settings field, made every command die on anything but a boolean — went
+    2026-09-22)."""
+    global _fallback
     led = _default_var.get()
     if led is not _UNSET:
         return led
     with _fallback_lock:
-        if _fallback_read:
-            return _fallback
-        env = os.environ.get(LEDGER_ENV, "").strip()
-        _fallback = None if env.lower() in _LEDGER_OFF else CostLedger(env or process_ledger_path())
-        _fallback_read = True
+        if _fallback is None:
+            _fallback = CostLedger(process_ledger_path())
         return _fallback
 
 
@@ -292,9 +285,7 @@ def record_call(
         **price_fields,
         **extra,
     )
-    target = ledger if isinstance(ledger, CostLedger) else (CostLedger(ledger) if ledger else default_ledger())
-    if target is not None:
-        target.append(row)
+    (ledger if isinstance(ledger, CostLedger) else CostLedger(ledger) if ledger else default_ledger()).append(row)
     if source != "attempt":  # an attempt row's tokens are already on its call's own row
         book_usage(Usage(backend=row.backend, model=row.model, input_tokens=row.input_tokens,
                          output_tokens=row.output_tokens, cached_tokens=row.cached_tokens,
@@ -339,6 +330,15 @@ def _key(row: CallCost, dim: str) -> str:
         return "-" if row.round is None else f"r{row.round:02d}"
     value = getattr(row, dim, "")
     return str(value) if value != "" else "(none)"
+
+
+def ledger_usage(rows: Iterable[CallCost]) -> Usage:
+    """The money and tokens of ``rows`` as one ``Usage`` — how a run's ``total_usage`` is read
+    off its ledger (list price; attempt rows are already out: ``load_ledger``)."""
+    t = summarise(rows, dimensions=()).total
+    return Usage(input_tokens=t.input_tokens, output_tokens=t.output_tokens, cached_tokens=t.cached_tokens,
+                 thoughts_tokens=t.thoughts_tokens, tool_calls=t.tool_calls, cost_usd=t.cost_usd,
+                 latency_ms=t.latency_ms)
 
 
 def summarise(rows: Iterable[CallCost], *, dimensions: Sequence[str] = DIMENSIONS) -> Summary:

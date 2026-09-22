@@ -225,47 +225,22 @@ def test_notes_survive_a_judge_crash(tmp_path, chair_plan, settings):
     assert "judge failed: RuntimeError: vlm 500" in saved["notes"]
 
 
-def test_resume_charges_for_spend_the_snapshot_missed(tmp_path, chair_plan, settings):
-    """The ledger is appended per CALL, the snapshot saved at boundaries: a crash between
-    a round's spend and its save handed the resumed run that money back — silently
-    under-counting is how a resumed run walks past its ceiling."""
+def test_a_resumed_runs_total_is_its_ledger_whatever_a_session_saved(tmp_path):
+    """The ledger is appended per CALL; a session's own bookkeeping is saved at boundaries.
+    A crash between a call and a save used to hand the resumed run that money back.  The
+    record's total is read off the ledger when it is written, so nothing a crash kept out
+    of a snapshot can go missing — and a subscription backend's row counts at list price
+    like any other (the billed / notional split went with the guard's money, 2026-09-22)."""
+    from codeverse3d.contracts.run import RunRecord
     from codeverse3d.cost.ledger import open_run_ledger
     from codeverse3d.cost.types import CallCost
-    from codeverse3d.orchestrator import BudgetGuard, BudgetSnapshot
-    from codeverse3d.tracks.lifecycle import _reconcile_billed_from_ledger
+    from codeverse3d.record.record import package_run
 
     ws = Workspace(tmp_path / "runs" / "r")
     ws.create()
     led = open_run_ledger(ws.root)
-    for cost in (0.30, 0.12):                       # what the provider actually billed
-        led.append(CallCost(run=ws.root.name, model="gemini:flash", label="planner", cost_usd=cost))
-    guard = BudgetGuard(make_spec().budget)
-    guard.restore(BudgetSnapshot(spent=guard.spent, billed_usd=0.10,   # the boundary save missed 0.32
-                                 calls=1, by_stage={}, active_s=0.0))
-    _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
-    assert guard.billed_usd == pytest.approx(0.42), "resume must charge for every billed call"
-    guard.billed_usd = 5.0                           # a snapshot AHEAD of the ledger wins
-    _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
-    assert guard.billed_usd == pytest.approx(5.0), "reconcile never lowers what was already billed"
-
-
-def test_resume_reconcile_keeps_subscription_spend_notional(tmp_path, settings):
-    """A codex/claude/agy ledger row is priced at list rates but bills $0 (bills_usd):
-    resuming a subscription-backend run offline must not flip billed from $0 to the
-    notional sum — reconcile shares the exact predicate the live spend path uses."""
-    from codeverse3d.cost.ledger import open_run_ledger
-    from codeverse3d.cost.types import CallCost
-    from codeverse3d.orchestrator import BudgetGuard
-    from codeverse3d.tracks.lifecycle import _reconcile_billed_from_ledger
-
-    ws = Workspace(tmp_path / "runs" / "sub")
-    ws.create()
-    led = open_run_ledger(ws.root)
-    led.append(CallCost(run=ws.root.name, backend="codex", model="gpt-5.6-sol", label="generator", cost_usd=7.7))
-    led.append(CallCost(run=ws.root.name, backend="claude-code", model="sonnet", cost_usd=1.1))
-    guard = BudgetGuard(make_spec().budget)
-    _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
-    assert guard.billed_usd == 0.0, "subscription cost is notional; resume must keep billed at $0"
-    led.append(CallCost(run=ws.root.name, backend="gemini", model="gemini-3.7-flash", cost_usd=0.25))
-    _reconcile_billed_from_ledger(guard, ws, EventLog(ws.events_path))
-    assert guard.billed_usd == pytest.approx(0.25), "the API-billed row still counts in full"
+    for backend, cost in (("gemini", 0.30), ("gemini", 0.12), ("codex", 7.7)):  # session 1, the crash, session 2
+        led.append(CallCost(run=ws.root.name, backend=backend, model="m", label="planner", cost_usd=cost))
+    rec = RunRecord(spec=make_spec(), workspace=str(ws.root))
+    package_run(ws, rec)
+    assert rec.total_usage.cost_usd == pytest.approx(8.12)

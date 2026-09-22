@@ -54,11 +54,10 @@ class Role(StrEnum):
     OTHER = "other"
 
 
-#: a bare ``GenerationTask.kind`` whose money belongs to a differently-named stage.  ONE
-#: vocabulary for both spend paths: ``MeteredAgent.run`` files the session row by
-#: ``job.kind`` and ``tracks.generation.task_stage`` buckets the guard by the same kind —
-#: until 2026-08-29 only the tracks side knew these, so every scene zone / compose /
-#: asset / rebuild session landed in the ledger as ``other``.
+#: a bare ``GenerationTask.kind`` whose money belongs to a differently-named stage:
+#: ``MeteredAgent.run`` files the session row by ``job.kind`` — until 2026-08-29 only the
+#: tracks side knew these, so every scene zone / compose / asset / rebuild session landed in
+#: the ledger as ``other``.
 _KIND_STAGES: dict[str, Stage] = {
     "generate": Stage.BASELINE,
     "rebuild": Stage.REPAIR,

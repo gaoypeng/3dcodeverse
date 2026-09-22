@@ -33,8 +33,8 @@ from codeverse3d.contracts.run import (
     SettingsSnapshot,
     StageCost,
 )
-from codeverse3d.cost.ledger import TELEMETRY_LEDGER, load_ledger
-from codeverse3d.cost.types import Stage
+from codeverse3d.cost.ledger import TELEMETRY_LEDGER, load_ledger, summarise
+from codeverse3d.cost.types import CallCost, Stage
 from codeverse3d.proc import read_json_or_none, write_json_atomic
 from codeverse3d.workspace import Workspace
 
@@ -187,68 +187,37 @@ def stage_order() -> tuple[str, ...]:
     return tuple(s.value for s in Stage)
 
 
-def ledger_rows(ws: Workspace) -> list[dict[str, Any]]:
-    """The run's priced per-call rows, ``telemetry/cost.jsonl`` (none when it has no ledger).
-    The cost package owns the pricing and the double-counting rules — this bucket never
-    re-implements them."""
+def ledger_rows(ws: Workspace) -> list[CallCost]:
+    """The run's priced per-call rows, ``telemetry/cost.jsonl`` (none when it has no ledger)."""
     try:
-        return [r.model_dump(mode="json") for r in load_ledger(ws.root)]
+        return load_ledger(ws.root)
     except Exception as e:  # noqa: BLE001 - accounting must never fail a run
         log.warning("cost ledger unreadable for %s: %s", ws.root, e)
         return []
 
 
-def _num(row: dict[str, Any], key: str) -> float:
-    v = row.get(key)
-    return float(v) if isinstance(v, (int, float)) else 0.0
-
-
-def cost_summary(record: RunRecord, rows: list[dict[str, Any]]) -> CostSummary:
-    """Money + tokens: totals, per stage, per role, per model, per round, budget, wall clock."""
-    by_stage: dict[str, StageCost] = {}
-    by_model: dict[str, float] = {}
-    by_role: dict[str, float] = {}
-    residual = 0.0
-    for row in rows:
-        stage = str(row.get("stage") or "other")
-        sc = by_stage.setdefault(stage, StageCost(stage=stage))
-        sc.calls += int(row.get("n_calls") or 1)
-        sc.input_tokens += int(_num(row, "input_tokens"))
-        sc.output_tokens += int(_num(row, "output_tokens"))
-        sc.cached_tokens += int(_num(row, "cached_tokens"))
-        sc.thoughts_tokens += int(_num(row, "thoughts_tokens"))
-        sc.cost_usd += _num(row, "cost_usd")
-        sc.seconds += _num(row, "latency_ms") / 1000.0
-        model = str(row.get("model") or row.get("model_id") or "(unknown)")
-        by_model[model] = round(by_model.get(model, 0.0) + _num(row, "cost_usd"), 6)
-        role = str(row.get("role") or "other")
-        by_role[role] = round(by_role.get(role, 0.0) + _num(row, "cost_usd"), 6)
-        if str(row.get("source")) == "residual" or str(row.get("label")) == "unattributed":
-            residual += _num(row, "cost_usd")
-    for sc in by_stage.values():
-        sc.cost_usd = round(sc.cost_usd, 6)
-        sc.seconds = round(sc.seconds, 1)
-    order = stage_order()
-    ordered = [by_stage[s] for s in order if s in by_stage]
-    ordered += [sc for s, sc in sorted(by_stage.items()) if s not in order]
-    total = float(record.total_usage.cost_usd)
-    ledger = round(sum(_num(r, "cost_usd") for r in rows), 6)
+def cost_summary(record: RunRecord, rows: list[CallCost]) -> CostSummary:
+    """The ledger rows as the run layout shows them: total, per stage / role / model (the
+    ledger's own ``summarise`` — money by stage is computed there and nowhere else), per round,
+    and the run's minutes against ``max_minutes``."""
+    summ = summarise(rows, dimensions=("stage", "role", "model"))
+    rank = {s: i for i, s in enumerate(stage_order())}
+    by_stage = [StageCost(stage=b.key, calls=b.n_calls, input_tokens=b.input_tokens, output_tokens=b.output_tokens,
+                          cached_tokens=b.cached_tokens, thoughts_tokens=b.thoughts_tokens,
+                          cost_usd=round(b.cost_usd, 6), seconds=round(b.latency_ms / 1000.0, 1))
+                for b in sorted(summ.dimension("stage").values(), key=lambda b: (rank.get(b.key, len(rank)), b.key))]
     minutes = record.minutes
-    budget = record.spec.budget
     return CostSummary(
-        total_usd=round(total, 6),
+        total_usd=round(summ.total.cost_usd, 6),
         minutes=None if minutes is None else round(minutes, 2),
-        max_minutes=budget.max_minutes,
-        n_calls=sum(int(r.get("n_calls") or 1) for r in rows),
+        max_minutes=record.spec.budget.max_minutes,
+        n_calls=summ.total.n_calls,
         tokens=record.total_usage,
-        by_stage=ordered,
-        by_role=by_role,
-        by_model=by_model,
+        by_stage=by_stage,
+        by_role={k: round(b.cost_usd, 6) for k, b in summ.dimension("role").items()},
+        by_model={k: round(b.cost_usd, 6) for k, b in summ.dimension("model").items()},
         by_round=[{"index": r.index, "kind": r.kind, "cost_usd": round(r.usage.cost_usd, 6),
-                   "seconds": round(r.duration_s, 1), "score": r.score} for r in record.rounds],
-        ledger_usd=ledger,
-        unattributed_usd=round(residual, 6),
-        post_run_usd=round(max(0.0, ledger - total - residual), 6),
+                   "minutes": round(r.minutes, 2), "score": r.score} for r in record.rounds],
     )
 
 

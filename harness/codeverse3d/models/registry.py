@@ -2,8 +2,7 @@
 
 Every model handed out here is wrapped by ``codeverse3d.cost.instrument`` so each
 call lands in the cost ledger (the run's ``telemetry/cost.jsonl`` when a run is
-active, otherwise a per-process log).  ``C3D_COST_LEDGER=off`` /
-``Settings.cost_ledger=false`` returns the bare model."""
+active, otherwise a per-process log) — always: the ledger is the only record of money."""
 
 from __future__ import annotations
 

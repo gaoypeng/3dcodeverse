@@ -262,26 +262,17 @@ class MeteredAgent:
 
 # --------------------------------------------------------------------------- factories
 def metered_chat_model(model: Any) -> Any:
-    """Wrap ``model`` unless it is already metered or metering is off."""
-    if model is None or isinstance(model, MeteredChatModel) or not metering_enabled():
+    """Wrap ``model`` unless it is already metered.  Metering cannot be switched off: the
+    ledger is the only record of money (the ``C3D_COST_LEDGER=off`` switch went 2026-09-22)."""
+    if model is None or isinstance(model, MeteredChatModel):
         return model
     return MeteredChatModel(model)
 
 
 def metered_agent(agent: Any) -> Any:
-    if agent is None or isinstance(agent, MeteredAgent) or not metering_enabled():
+    if agent is None or isinstance(agent, MeteredAgent):
         return agent
     return MeteredAgent(agent)
-
-
-def metering_enabled() -> bool:
-    """``Settings.cost_ledger`` (env ``C3D_COST_LEDGER=off`` also disables it)."""
-    try:
-        from codeverse3d.config import get_settings
-
-        return bool(get_settings().cost_ledger)
-    except Exception:  # pragma: no cover
-        return True
 
 
 # --------------------------------------------------------------------------- run activation
@@ -303,9 +294,6 @@ def run_ledger(workspace: str | Path, *, run: str = "", create: bool = True) -> 
     harness run inside it keeps both, and ``bench.run_bench`` can run N prompts in
     N threads without their rows mixing — a save-and-restore by value could not,
     because a fresh worker saved whatever a sibling had published last."""
-    if not metering_enabled():
-        yield None
-        return
     ws = Path(workspace)
     if not create and existing_ledger_path(ws) is None:
         with bound_run(run or ws.name):
@@ -316,5 +304,4 @@ def run_ledger(workspace: str | Path, *, run: str = "", create: bool = True) -> 
         yield ledger
 
 
-__all__ = ["MeteredAgent", "MeteredChatModel", "metered_agent", "metered_chat_model",
-           "metering_enabled", "run_ledger"]
+__all__ = ["MeteredAgent", "MeteredChatModel", "metered_agent", "metered_chat_model", "run_ledger"]
