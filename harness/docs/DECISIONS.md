@@ -39,17 +39,18 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   keyword-matched cookbook section) and escalate temperature/thinking (single-shot)
   or add a "same error again" notice (agents) on identical error signatures.
 * **D3 `RoundPolicy.max_rounds` counts refine rounds after the baseline.**  `3dcode make
-  --rounds 2` = baseline + up to 2 refine rounds.  The rubric's `pass_threshold`
-  overrides `RoundPolicy.target` when no explicit policy is injected.
+  --rounds 2` = baseline + 2 refine rounds — exactly 2 since D80, which also deleted
+  `RoundPolicy.target` (the rubric's `pass_threshold` now sets only the judge's per-round `passed`).
 * **D4 Parallel refine only when it is safe.**  Fan out only when at least
   `RoundPolicy.parallel_min_tasks` (default 2) file-disjoint groups exist and every task
   maps to a file (threejs parts, scene zones/assets/env);
   single-file languages get one whole-object task.  Consequence: `Workspace` itself
   holds a per-root lock + index.lock retry (workspace.py).
-* **D5 A refine round that changes no file is a plateau, not a crash.**  Emits
-  `round.no_change` and stops with the best round so far.
-* **D6 Finalise restores the best commit and rebuilds.**  Artifacts always match the
-  delivered code; export copies `artifacts/object.glb` trusting that.
+* **D5 A refine round that changes no file stops the run, not a crash.**  Emits
+  `round.no_change`; since D80 the status is `no_change` and the workspace stays at the last round.
+* **D6 Finalise leaves the workspace at the LAST round (D80; was: restores the best commit).**  Only
+  a round cut mid-way (clock, crash) leaves `src/` past it, so that is restored and rebuilt;
+  artifacts match the last round's code, and every round's own build is kept in `artifacts/rNN/`.
 * **D7 Stage cache by input hash.**  `StageRunner` stores `stages/<name>.json` keyed by a
   hash of the inputs, so `3dcode resume` re-runs only what changed; the budget guard is
   restored from `run_state.extra.budget_snapshot` (`BudgetSnapshot`: spent usage, billed
@@ -149,14 +150,14 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
 * **D27 Blender wrapper resets the active layer collection** after clearing the scene (a
   deleted factory "Collection" leaves `bpy.context.collection == None`, breaking the
   common `bpy.context.collection.objects.link` pattern) — found live, pinned by tests.
-* **D28 `StopPolicy` "max_rounds" maps to `RunStatus.PLATEAU`** (no dedicated status in
-  contracts); the true reason is in `record.extra["stop_reason"]` / `RunState.stop_reason`.
+* **D28 Superseded by D80:** `StopPolicy` is gone and `RunStatus` names every stop itself
+  (`max_rounds`, `budget`, …); a record's `passed` / `plateau` status reads as `stopped`.
 * **D29 Best-of-N baseline + pairwise tie-break (second wave).**  `--candidates N` runs N
   baseline candidates in parallel throw-away sub-workspaces (`<ws>/_cand/c<k>`), ranks them
   by quick 4-view judge score → fewer gate errors, breaks near-ties pairwise, copies the
-  winner back; after each round a score within `pairwise_margin` (0.03) of the best is
-  treated as judge noise and a position-swapped `PairwiseJudge` decides (confidence ≥ 0.6
-  to replace).  Every candidate is charged to the run budget.
+  winner back.  Every candidate is charged to the run budget.  The per-round pairwise
+  tie-break went with D80 (and the candidates' near-tie pairwise with it): pairwise is now
+  `3dcode pick --by pairwise`, after the run (margin 0.03, confidence ≥ 0.6, `addons/select.py`).
 * **D30 Judge protocol v2 + pro default (third wave).**  The judge sees ≤ 3 labelled
   2×2 montages (+ ≤ 2 detail crops, ≤ 1024 px) instead of sheet + 9 views; the wire
   schema is observe-then-score (defect checklist + acceptance before criteria);
@@ -296,22 +297,11 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   `default_ledger_path` gone; `bound_run` and `bound_ledger` hold ContextVar tokens —
   `cost/context.py`, COST §12).  Standing rule: **a thread that may bill a model is spawned through
   `proc.fan_out`, never a bare pool** (`texturing/generate.py` was the last one).
-  (c) **A paid verdict is never re-bought or reversed.**  `PairwiseNote` moved into
-  `contracts/run.py` and onto `RoundRecord`; `reconcile_resume` replays it
-  (`candidates.replay_best_round`).  Reconciliation may re-rank; it may not undo a comparison the
-  run paid for.  **The guarantee is forward-only** — 0 of the 1 466 `rounds/rNN.json` on disk carry
-  the field, so for every existing run `replay_best_round` degenerates to the pre-2026-08-30
-  `BestSelector().pick`, which is why nothing on disk changed behaviour.  Of the 30 recorded dirs
-  whose stored best disagrees with a plain re-rank, exactly one is re-enterable by `3dcode resume`
-  (20 are `plateau`, refused without `--force`; 9 name generator kinds deleted 2026-08-28).
-  KNOWN DIVERGENCE, unresolved: on the re-judge path `_promote_best` runs TWICE for one index
-  (`lifecycle._round_loop`) — once with `judgment=None`, which lets `choose_best_round`'s
-  `score is None` branch move the incumbent onto a round an earlier pairwise kept out, and again
-  after `rejudge_round`.  `replay_best_round` models one promotion per index, so after a judge
-  outage the live loop and the replay can pick different rounds (reproduced: live r1, replay r0).
-  Replay's answer is the one that honours the earlier verdict; the live loop is what reverses it
-  inside the unscored window.  Fixing the LIVE side is the change this law implies, and it is not
-  made here.
+  (c) **A paid verdict is never re-bought or reversed.**  Then: `PairwiseNote` on `RoundRecord`,
+  replayed by `reconcile_resume` (`candidates.replay_best_round`).  Since D80 the loop buys no
+  pairwise verdict at all; `3dcode pick --by pairwise` caches its one verdict per (pair, model) in
+  `artifacts/judge/rAA_vs_rBB_pairwise.json` and re-reads it — same law, one place.  The replay and
+  its known live-vs-replay divergence (a re-judge promoted twice) went with the best round.
   (d) **One render-cache authority.**  `spatial/tool_common.py` may name a deterministic out_dir;
   only `spatial/render.py` decides a PNG is still good (why the `renderset.json` marker went: the
   `cached_render_glb` docstring in `spatial/tool_common.py`).
@@ -781,13 +771,10 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   none, because the judge repeats it** — precision over recall, and every number names the surface
   it was measured against.
 
-* **D73 A refine after a regression builds on the best round, and the plan's cameras are
-  repaired out of a blocked view (2026-09-09).**  Loop 22: 0.66 → 0.61 → 0.47 and 0.60 → 0.32,
-  each refine session handed the round before it while the best sat in git until finalise;
-  and `PylonSlopeVista` stayed cut by a snow bank for three rounds because cameras belong to
-  the plan and no session moved one.  After StopPolicy's `switch` (a regression past the
-  judge's noise) `src/` is restored to the best round and the tasks come from ITS verdict
-  (`round.refine_from_best`); `repairCameraSpec` counts a lens staring at a surface
+* **D73 The plan's cameras are repaired out of a blocked view (2026-09-09).**  (Its first half —
+  a refine after a regression builds on the best round — was undone by D80: a refine builds on
+  the round before it.)  `PylonSlopeVista` stayed cut by a snow bank for three rounds because
+  cameras belong to the plan and no session moved one.  `repairCameraSpec` counts a lens staring at a surface
   (`near_rays`), a sightline cut before half the distance and a terrain overhead as "not
   clear" and searches back, up and sideways out of it; a camera NAMED for a hero whose hero
   centre is outside its frustum is re-aimed at it first (loop 25's `LanternDetail` shot the
@@ -808,7 +795,7 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   battery needs it — module, test and catalog row together, since
   `test_every_call_the_catalog_advertises_is_a_real_export` pins catalog == `lib_files()`.
 * **D75 The core is what a run needs; what READS finished runs is `codeverse3d/addons`
-  (2026-09-21).**  `codeverse3d/flywheel` mixed the record every run writes (Law 6) with the tools
+  (2026-09-21).**  `codeverse/flywheel` (the package before D78) mixed the record every run writes (Law 6) with the tools
   that turn a tree of finished runs into something else.  The first is now `codeverse3d/record`
   (`record.py`, `deliverable.py`, `telemetry.py`, `_git.py` — `record.py`'s whole import closure);
   the second is `codeverse3d/addons`: `gallery`, `dataset` (export, pack, pairs, refine, captions,
@@ -826,8 +813,8 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   `mcp__3dcode__<name>`) and the workspace git author.  Runs recorded earlier stay readable and
   resumable: `.3dcv` is still harness-owned and gitignored, a legacy `3dcv` server entry is
   still cleaned from a workspace `.mcp.json`, `eval/bench/session_stats` reads both tool prefixes.
-  NOT renamed: the `C3D_` settings prefix (it would silently drop every existing config),
-  the `c3d-*` skill names, the `3dcv_*` LLaMA-Factory dataset names.  The contributor CLI in
+  NOT renamed then: the `CV3D_` settings prefix and the `cv3d-*` skill names (both renamed by D78,
+  which reads the old names), the `3dcv_*` LLaMA-Factory dataset names.  The contributor CLI in
   `toolkits/3dcode_cli` gave up the script name and is `3dcode-data` (its distribution name,
   package and credentials path are unchanged; `VENDORED.md` records the difference from upstream).
 * **D77 Evaluation lives next to the harness, not inside it (2026-09-21).**  `harness/bench` →
@@ -864,6 +851,31 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   `--profile` no longer overrides a user-set judge size or turn cap; claude-code usage counts the whole
   prompt and an overloaded exit is transient; shader_probe compiles without the post chain; host warnings
   reach the log; the effects catalog documents `userData.update`, `ground({rand})` and `figure()` as built.
+
+* **D80 Fixed rounds; every round kept; the pick is a reader's (owner, 2026-09-22).**  A run is the
+  baseline plus `--rounds` refine rounds, each built on the round before it.  It stops early only on
+  the clock (`budget`), the vendor's quota (`agent_quota`) or a hard failure: a refine round that
+  changed nothing (`no_change`), a last round with nothing to ask for (`no_refine_tasks` — 2 of 923
+  recorded verdicts had an empty improvement plan) or no verdict even after one re-judge
+  (`judge_unavailable`).  Gone: `StopPolicy` (pass / plateau / regression / diminishing returns —
+  37 % of 466 recorded runs stopped on one of those before `--rounds` ran out), the rewrite and
+  surface-detail rounds, refine-from-best, the in-loop pairwise, `RunState.best_*`,
+  `pick_best_round`, `RoundPolicy.target`.  A run is never passed or failed; the judge's `passed`
+  is per round.  Every round keeps its build in `artifacts/rNN/` (plus its commit, renders and
+  verdict); `codeverse3d/addons/select.py` picks the round to hand over (highest judged score →
+  fewer gate errors → earlier; `--by pairwise` asks the pairwise judge inside 0.03) and packages it
+  into `deliverable/` + `selection.json`; `3dcode make` / `resume` call it unless `--no-pick`, and
+  `3dcode pick <slug> [--round N]` re-picks.  The texture pass runs on the picked round only.
+  Records before this read on: `passed` / `plateau` load as `stopped`, a state's `best_*` keys are
+  ignored and a resume goes on from the last round.  Readers (gallery, dataset, cost report,
+  calibration, eval/bench) all ask `select`; bench rows say `score_picked` / `picked_round`.
+* **D81 Skills are ON by default (owner, 2026-09-22).**  `C3D_SKILLS` and `C3D_SKILLS_UNVERIFIED`
+  default on; `C3D_SKILLS=0` is the off switch, so an A/B's no-skills arm must name it.  Evidence:
+  one session per vendor CLI (gemini-cli ×2, claude-code, codex, agy) activated every routed bundle
+  — 20 of 20, all before writing code — and never the control.  Reads are now ground truth: each
+  backend records its CLI's own tool calls in `transcript.jsonl` and the read probe reads those
+  first (the atime probe was wrong on every session).  gemini-cli pins `skills.enabled`,
+  claude-code streams JSON; `.agents/` is harness-owned and git-ignored.  SKILLS_LEDGER §0b.
 
 ## Rejected / deferred
 
