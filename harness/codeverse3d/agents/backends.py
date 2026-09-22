@@ -194,7 +194,8 @@ def read_gemini_chats(records: Iterable[Path]) -> GeminiChatLog:
     own usage metadata (``input`` = promptTokenCount, the TOTAL prompt), so their sum is the
     envelope's ``stats.models`` to the token: checked on two completed sessions of the
     2026-09-22 live runs (917 248 / 704 375 cached / 18 767 / 5 306, and 1 056 300 / 907 666
-    / 5 464 / 5 047).  What it misses: a utility call outside the main chat (none in either)."""
+    / 5 464 / 5 047).  What it misses: a utility call outside the main chat (none in either)
+    and a subagent's own record (``chats/<session id>/``; none on this machine)."""
     calls: dict[str, ToolCall] = {}
     replies: dict[str, dict[str, Any]] = {}
     times: list[float] = []
@@ -624,6 +625,8 @@ class ClaudeStream:
         starts); ``output_tokens`` is a FLOOR — stream-json repeats the block each message
         started with, before its output was counted (a finished 2026-09-22 session: 154 of
         30 106).  Priced from the table: the ``total_cost_usd`` event never came."""
+        if not self.messages:   # died before its first reply: nothing billed, nothing to price
+            return Usage(backend="claude-code", model=model)
         keys = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens")
         total = {k: sum(int(u.get(k) or 0) for u in self.messages.values()) for k in keys}
         usage = usage_from_envelope({"usage": total}, self.served or model)
