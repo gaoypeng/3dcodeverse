@@ -274,7 +274,8 @@ the worker, because three parallel sessions share one workspace and would race t
 `AGENTS.md`. `tests/skills/test_delivery_reaches_the_session.py` now holds every
 agent-driving module to the hook, pins the per-stage kinds, and pins the fan-out placement.
 (Since D70 the zones stage is ONE session; the fan-out arm was removed 2026-09-21 and the
-test now pins one attach before that one session.)
+test now pins one attach before that one session.  Since 2026-09-22 env and zones share one
+wrapper, `SceneTrack._stage_session`, in place of `_deliver_skills` / `_record_skills`.)
 
 **What I expect it to do.** `dark_or_flat_frames` is **4.38 per run on the first gated
 round with 0 of 8 runs clean** — the largest untouched headroom in the library, sitting in

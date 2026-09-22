@@ -48,7 +48,7 @@ from codeverse3d.spatial.render_scene import perf_detail
 from codeverse3d.texturing.plan import texture_pack_prompt
 from codeverse3d.tracks import skills_hook
 from codeverse3d.tracks.common import RunContext, generate_for, single_shot_ctx
-from codeverse3d.tracks.generation import GenerationTask
+from codeverse3d.tracks.generation import GenerationResult, GenerationTask
 from codeverse3d.tracks.lifecycle import BaseTrack
 from codeverse3d.tracks.prompting import (
     base_prompt_context,
@@ -268,37 +268,29 @@ class SceneTrack(BaseTrack):
             ctx.events.emit("budget.degraded", note=note, spent_usd=round(ctx.budget.spent.cost_usd, 4),
                             elapsed_min=round(ctx.budget.elapsed_minutes(), 2))
 
-    # ---- skills -----------------------------------------------------------
-    def _deliver_skills(self, gen: RunContext, stage_kind: str,
-                        tasks: Sequence[GenerationTask]) -> list[GenerationTask]:
-        """Route this stage's bundles into the workspace and inline them if single-shot.
+    # ---- the stage session ------------------------------------------------
+    def _stage_session(self, ctx: RunContext, stage: str, kind: str,
+                       task_for: Callable[[RunContext], GenerationTask]) -> GenerationResult:
+        """The one way a baseline stage (env, zones) runs its session: the strategy the soft budget
+        leaves (``_strategy``), the task built for it, this stage's skills routed into the workspace
+        and — single-shot — inlined, the session, its skills telemetry and the stage's commit.  A
+        session that raises still leaves its telemetry and its commit before the exception goes on.
 
-        WHY this is not just ``steps.run_round``'s job.  A scene builds its whole baseline
-        in ``prepare()``: ``_env_stage`` writes the lighting and ``_zones_stage`` the
-        contents — agent sessions that never passed through ``steps.run_round``, the ONE
-        place that called ``attach_for_round`` (``scene.js`` is assembled, not written).  The
-        router has always had ``kinds=("env", "zone")`` rows for the four scene
-        bundles (registry R14-R21), so they were selected for these very stages and then
-        delivered to nobody: measured 2026-08-25 at 0 opens out of 30 listings, while round
-        0's ``baseline_tasks`` returned ``[]`` and so listed them to a session that did not
-        exist.  That is the whole of the scene bundles' "unread", and no wording could
-        have fixed it.
-
-        ``index=0`` because these stages ARE round 0's generation; there is no earlier
-        round, so ``_previous_findings`` correctly returns nothing and only the plan-signal
-        and kind rows can fire.  Attaching once per stage (not once per task) keeps it
-        to one AGENTS.md write per stage.
-        """
-        skills_hook.attach_for_round(gen, index=0, kind=stage_kind)
-        return skills_hook.with_inlined_skill(gen, tasks)
-
-    def _record_skills(self, gen: RunContext, stage_kind: str) -> None:
-        """Close the stage's telemetry row so the denominator counts sessions, not stages.
-
-        Without this a scene run reports ``skills.attached`` three times and ``skills.read``
-        never, which reads in ``3dcode skills report`` as "listed, unread" — the same false
-        signal the delivery gap itself produced."""
-        skills_hook.record_usage(gen, index=0, kind=stage_kind)
+        The skills are this hook's job, not ``steps.run_round``'s: a scene builds its whole baseline
+        in ``prepare()``, in sessions that never pass through ``run_round`` (``scene.js`` is
+        assembled, not written), so the router's ``kinds=("env", "zone")`` rows were selected and
+        delivered to nobody — 0 opens out of 30 listings, measured 2026-08-25.  ``index=0``: these
+        stages ARE round 0's generation.  One attach per stage keeps it to one AGENTS.md write, and
+        closing the telemetry row per session keeps ``3dcode skills report`` from reading a stage's
+        listing as "listed, unread"."""
+        gen = self._strategy(ctx, stage)
+        task = task_for(gen)
+        skills_hook.attach_for_round(gen, index=0, kind=kind)
+        try:
+            return generate_for(gen, skills_hook.with_inlined_skill(gen, [task])[0])
+        finally:
+            skills_hook.record_usage(gen, index=0, kind=kind)
+            ctx.ws.commit(stage)
 
     def _textures_stage(self, ctx: RunContext) -> dict[str, Any]:
         """Generate the scene's tileable texture pack into ``public/textures/``.
@@ -325,17 +317,15 @@ class SceneTrack(BaseTrack):
         return manifest
 
     def _env_stage(self, ctx: RunContext) -> dict[str, Any]:
-        gen = self._strategy(ctx, "env")
-        prompt = render("tracks/scene_env.j2", **self._ctx(gen, recipes=cookbook_sections(gen, ENV_RECIPES)))
+        res = self._stage_session(ctx, "env", "env", self._env_task)
+        return {"ok": res.ok, "files": [c.path for c in res.files_changed], "notes": res.notes}
+
+    def _env_task(self, ctx: RunContext) -> GenerationTask:
+        prompt = render("tracks/scene_env.j2", **self._ctx(ctx, recipes=cookbook_sections(ctx, ENV_RECIPES)))
         ctx.record_prompt("scene_env", prompt)
-        task = GenerationTask(label="env", prompt=prompt, system=self.system_prompt(ctx), files_hint=["src/env.js"], round=0, kind="env",
+        return GenerationTask(label="env", prompt=prompt, system=self.system_prompt(ctx), files_hint=["src/env.js"], round=0, kind="env",
                               temperature=0.5, timeout_s=ctx.budget.timeout_s(ENV_TIMEOUT_S, floor_s=120),
                               images=reference_images(ctx))
-        task = self._deliver_skills(gen, "env", [task])[0]
-        res = generate_for(gen, task)
-        self._record_skills(gen, "env")
-        ctx.ws.commit("env")
-        return {"ok": res.ok, "files": [c.path for c in res.files_changed], "notes": res.notes}
 
     def _zones_stage(self, ctx: RunContext) -> dict[str, Any]:
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
@@ -344,18 +334,15 @@ class SceneTrack(BaseTrack):
         zones = list(plan.zones)
         if len(zones) > 1:
             ctx.events.emit("zones.batched", batches=[[z.name for z in zones]])
-        zone_gen = self._strategy(ctx, "zones")
-        skills_hook.attach_for_round(zone_gen, index=0, kind="zone")
-        out: dict[str, Any] = {}
         try:
-            task = skills_hook.with_inlined_skill(zone_gen, [self._zone_task(zone_gen, zones)])[0]
-            r = generate_for(zone_gen, task)
+            r = self._stage_session(ctx, "zones", "zone", lambda gen: self._zone_task(gen, zones))
         except Exception as e:  # noqa: BLE001 — BudgetExceeded included: the stage is still
             # recorded + committed; the guard's boundary check below stops the run
             log.warning("zones session failed: %s: %s", type(e).__name__, e)
             out = {zone.name: {"ok": False, "notes": f"{type(e).__name__}: {e}"} for zone in zones}
         else:
             written = {c.path for c in r.files_changed}
+            out = {}
             for zone in zones:
                 rel = zone_file(zone.name)
                 # a session that owns several zones must have produced EVERY file; the skeleton
@@ -363,8 +350,6 @@ class SceneTrack(BaseTrack):
                 # must have been reported as changed or actually rewritten in this stage
                 ok = r.ok and (len(zones) == 1 or rel in written or _touched(ctx.ws.root / rel, t0))
                 out[zone.name] = {"ok": ok, "files": [rel] if ok else [], "notes": r.notes}
-        self._record_skills(zone_gen, "zone")
-        ctx.ws.commit("zones")
         ctx.events.emit("zones.done", ok=[k for k, v in out.items() if v["ok"]], failed=[k for k, v in out.items() if not v["ok"]])
         ctx.budget.check()  # stage boundary: stop only after the finished zones are committed
         return out

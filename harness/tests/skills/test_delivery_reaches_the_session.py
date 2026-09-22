@@ -9,7 +9,7 @@ listed the bundles to a round that had no generation task to consume them.  That
 exactly "listed 3, opened 0", and no rewrite of a SKILL.md could have fixed it.
 
 CLOSED 2026-08-25 (curate wave): ``SceneTrack._env_stage`` / ``_zones_stage`` now go
-through the skill hook + ``_record_skills`` (``scene.js`` is assembled, no session).  These tests
+through the skill hook (``SceneTrack._stage_session``; ``scene.js`` is assembled, no session).  These tests
 keep every agent-driving module on the hook, so the gap cannot reopen quietly.  The scene
 bundles' read rate is UNMEASURED against this delivery — that is the next wave's first
 experiment, and until it runs their ledger rows stay ``mixed``/``inherited``, not
