@@ -160,8 +160,9 @@ unless you type `--host` yourself; it never serves a path outside the declared r
                                         # is put back on its last).  A max_rounds run resumes only with a raised
                                         # --rounds, a budget run with any raised cap; an agent_quota or failed run
                                         # resumes as is; the other stops are finished.  The budget
-                                        # SNAPSHOT is restored: money/calls/active-minutes already spent still count,
-                                        # so a raised --max-minutes grants only the difference (downtime never counts)
+                                        # SNAPSHOT is restored: the active minutes already spent still count, so a
+                                        # raised --max-minutes grants only the difference (downtime never counts);
+                                        # the money is the ledger's, and the step log (the run's minutes) carries on
 3dcode pick <slug> [--by score|pairwise] [--round N] [--texture] [--judge MODEL]
                                         # hand over a round: deliverable/ + selection.json (addons/select).  score =
                                         # highest effective score, ties → fewer gate errors → the earlier round;
@@ -360,7 +361,8 @@ turns, and a hard prompt burns the whole hour without one judged round — measu
 `codeverse3d.models.health.probe()` shows the generator below the 0.75 bar, launch (or redo) with
 `--max-minutes 120 --wait-for-provider 60`, and redo the storm's rows rather than reading them:
 `--redo-status error,infra_failed,budget` (add `build_failed` only when a harness defect, not the
-model, produced the zero — check `cell.json`'s `error`).
+model, produced the zero — check `cell.json`'s `error`).  The rows' `minutes` stay comparable across
+weather: they leave the provider's errors out (docs/COST.md §31); the ceiling does not.
 
 ## 8. Extending (plugin paths)
 
