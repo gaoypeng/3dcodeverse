@@ -11,14 +11,15 @@ import pytest
 from PIL import Image
 
 from codeverse3d.config import Settings
-from codeverse3d.contracts.artifacts import BuildResult, GateReport
+from codeverse3d.contracts.artifacts import BuildResult
 from codeverse3d.contracts.common import Backends, Budget, Language, Track
 from codeverse3d.contracts.plan import GraphicsPlan
 from codeverse3d.contracts.run import RunStatus
 from codeverse3d.contracts.spec import Constraints, Spec
 from codeverse3d.judges.rubrics import load_rubric
 from codeverse3d.languages._gl_common import finish_build, judge_times
-from codeverse3d.languages.glsl_shader import lint_workspace, write_skeleton
+from codeverse3d.languages.glsl_shader import GlslShaderRuntime
+from codeverse3d.languages.opengl_python import OpenGLPythonRuntime
 from codeverse3d.proc import EventLog
 from codeverse3d.prompts import render
 from codeverse3d.spatial.gl_render import GlFrame, GlResult, gif_times
@@ -47,20 +48,15 @@ def _frame(path: Path, t: float, static: bool) -> None:
     Image.fromarray((rgb * 255).astype(np.uint8), "RGB").save(path)
 
 
-class FakeGlRuntime:
-    """glsl_shader runtime without GL: writes synthetic frames through the real ``finish_build``."""
+class FakeGlRuntime(GlslShaderRuntime):
+    """glsl_shader runtime without GL: writes synthetic frames through the real ``finish_build``
+    (the real runtime's layout, skeleton and lint)."""
 
-    language = Language.GLSL_SHADER
     entry_globs = ("src/shader.frag", "src/common.glsl")
 
     def __init__(self) -> None:
+        super().__init__()
         self.builds = 0
-
-    def skeleton(self, ws: Workspace, plan: Any) -> list[Path]:
-        return write_skeleton(ws, plan)
-
-    def lint(self, ws: Workspace) -> GateReport:
-        return lint_workspace(ws)
 
     def build(self, ws: Workspace, *, timeout_s: int | None = None, **kw: Any) -> BuildResult:
         self.builds += 1
@@ -245,7 +241,7 @@ def test_templates_render_and_rubric_loads(tmp_path, settings):
     assert {c.id for c in rubric.caps} >= {"nan_pixels", "static_frames", "black_or_blown", "build_error"}
     spec = make_spec(language=Language.OPENGL_PYTHON, generator="single-shot:fake:fake-model")
     ws = Workspace(tmp_path / "runs" / "tpl").create()
-    track = GraphicsTrack(services=_services(), settings=settings, runtime=FakeGlRuntime())
+    track = GraphicsTrack(services=_services(), settings=settings, runtime=OpenGLPythonRuntime())  # nothing is built
     from codeverse3d.orchestrator import RunState
 
     ctx = track.build_context(spec, ws, EventLog(ws.events_path), RunState.load_or_new(ws, resume=False))

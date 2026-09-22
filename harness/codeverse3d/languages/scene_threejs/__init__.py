@@ -234,6 +234,50 @@ def _env_for_plan(plan: ScenePlan) -> str:
     return header + text
 
 
+# ===================================================================== layout
+#: what a whole-scene session edits: the entry and the environment (every zone and asset module
+#: has its own session and its own file below)
+SCENE_FILES: tuple[str, ...] = ("src/scene.js", "src/env.js")
+#: refine targets that are the environment's, whatever the plan calls its zones
+ENV_WORDS = frozenset({"env", "environment", "lighting", "sky", "fog", "ground", "water", "light"})
+
+
+def zone_file(name: str) -> str:
+    """``src/zones/<snake>.js`` — the module that builds zone ``name``."""
+    return f"src/zones/{to_snake(name)}.js"
+
+
+def asset_file(asset: AssetPlan) -> str:
+    """A three.js asset's factory module; a Blender hero's compiled GLB (built in its own sub-workspace)."""
+    snake = to_snake(asset.name)
+    return f"src/assets/{snake}.js" if asset.kind == "threejs" else f"public/assets/{snake}.glb"
+
+
+def scene_files_for(plan: Plan | None, target: str, *, alias: dict[str, str] | None = None) -> list[str]:
+    """The files that own a scene refine target.  A three.js asset is fixed in its factory — a merged
+    asset's (``alias``: the dedupe note) in its survivor's, its own file being only the variant shim; a
+    hero ships as a GLB, so it is fixed where it is placed: the zones that list it.  Cameras belong to
+    ``scene.js``, env words to ``env.js``; "Zone/Asset" (the placement gate) to the zone's file."""
+    zone_plans = list(getattr(plan, "zones", None) or [])
+    zones = {to_snake(z.name) for z in zone_plans}
+    assets = {to_snake(a.name): a for a in (getattr(plan, "assets", None) or [])}
+    survivor = {to_snake(k): v for k, v in (alias or {}).items()}
+    key = to_snake(target)
+    if key in zones:
+        return [zone_file(key)]
+    if key in assets:
+        if assets[key].kind == "threejs":
+            return [asset_file(assets[key].model_copy(update={"name": survivor.get(key, key)}))]
+        return [zone_file(z.name) for z in zone_plans if key in {to_snake(c) for c in z.contents}]
+    if key in {to_snake(c.name) for c in (getattr(plan, "cameras", None) or [])} or key in ("camera", "cameras", "composition"):
+        return ["src/scene.js"]
+    if key in ENV_WORDS:
+        return ["src/env.js"]
+    if "/" in target and to_snake(target.split("/", 1)[0]) in zones:
+        return [zone_file(target.split("/", 1)[0])]
+    return []
+
+
 def _asset_stub(a: AssetPlan) -> str:
     snake, pascal = to_snake(a.name), to_pascal(a.name)
     w, h, d = (max(0.05, float(v)) for v in a.approx_size_m)
@@ -324,9 +368,9 @@ def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
     assets = {to_snake(a.name): a for a in plan.assets}
     for a in plan.assets:
         if a.kind == "threejs":
-            _write(ws.src / "assets" / f"{to_snake(a.name)}.js", _asset_stub(a), written)
+            _write(ws.root / asset_file(a), _asset_stub(a), written)
     for z in plan.zones:
-        _write(ws.src / "zones" / f"{to_snake(z.name)}.js", _zone_stub(z, assets), written)
+        _write(ws.root / zone_file(z.name), _zone_stub(z, assets), written)
     _write(ws.src / "scene.js", _scene_for_plan(plan), written)
     (ws.public / "assets").mkdir(parents=True, exist_ok=True)
     return written
@@ -680,6 +724,12 @@ def assemble(ws: Workspace, plan: ScenePlan | None = None, *, cameras: str = "de
 class SceneThreeJsRuntime:
     language = Language.SCENE_THREEJS
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.SCENE_THREEJS], "src/zones/*.js", "src/assets/*.js", "src/env.js", "src/shaders/*.js")
+
+    def expected_files(self, plan: Plan | None) -> list[str]:
+        return list(SCENE_FILES)
+
+    def files_for(self, plan: Plan | None, target: str, *, alias: dict[str, str] | None = None) -> list[str]:
+        return scene_files_for(plan, target, alias=alias)
 
     def skeleton(self, ws: Workspace, plan: Plan | None) -> list[Path]:
         return write_skeleton(ws, plan)

@@ -360,14 +360,16 @@ model, produced the zero — check `cell.json`'s `error`).
 
 * **New language**: enum in `contracts/common.py::Language` (+ `TRACK_LANGUAGES`,
   `ENTRY_FILE`, `LANGUAGE_LABEL`), frame in `conventions.LANGUAGE_FRAME`;
-  `languages/<lang>/__init__.py` (one merged module per language; the contract text is
-  `prompts/<lang>/contract.md`) implementing `LanguageRuntime`, and a python-executed build
-  wrapper beside the others in `languages/wrappers/` (import `_wrapper_common`; read its report
-  with `_common.compose_build_result`, which publishes the final `build.json`); branch in `languages/base.py::get_runtime`;
-  `prompts/<lang>/contract.md` + `cookbook.md` (every snippet must run —
-  `tests/prompts` executes them); part→file mapping via `runtime.file_for_part`
-  (blender has it; `tracks/prompting.file_for_target_factory` picks it up and maps
-  every whole-object target to `[entry]` — no runtime `file_for_target` hook).
+  `languages/<lang>/__init__.py` (one merged module per language) implementing
+  `LanguageRuntime` — its file layout included: subclass `languages/base.RuntimeLayout`
+  (entry + `extra_files`, and `part_file` for a one-file-per-part language) or answer
+  `expected_files(plan)` / `files_for(plan, target)` yourself, as the scene runtime does; the
+  tracks never restate it.  A python-executed build wrapper goes beside the others in
+  `languages/wrappers/` (import `_wrapper_common`; read its report with
+  `_common.compose_build_result`, which publishes the final `build.json`); branch in
+  `languages/base.py::get_runtime`; `prompts/<lang>/{system,contract,cookbook}.md` (found by
+  `prompts/catalog.language_prompt`; every cookbook snippet must run — `tests/prompts`
+  executes them).
 * **New spatial tool**: pydantic args + `@tool("name", Args, "…", tracks=(…),
   languages=(…), cost_hint=…)` in `spatial/tools.py`; available to tracks, MCP and prompt cards at once.
   Update `tests/spatial_tools` EXPECTED_TOOLS.
@@ -379,13 +381,14 @@ model, produced the zero — check `cell.json`'s `error`).
 * **New backend**: ChatModel → `models/<provider>.py` + registry + prices;
   CodingAgent → `agents/backends.py` using `cli_common` + registry + `materialize.py`.
 * **New track**: subclass `tracks/lifecycle.py::BaseTrack` (hooks: `make_pipeline`,
-  `prepare`, `baseline_tasks`, `refine_tasks`, `round_files_hint`; `system_prompt`
+  `prepare`, `baseline_tasks`, `refine_tasks`; `system_prompt`
   defaults to `language_system_prompt(ctx.language, tools=not ctx.single_shot)` and
-  `refine_file_for_target` to `file_for_target_factory(ctx)` — override only for
+  `refine_file_for_target` to the runtime's `files_for` — override only for
   role-specific prompts), a `RoundPipeline`,
-  plan model in `contracts/plan.py`, `.j2` prompts, branch in `tracks/__init__.py`
-  (`get_track` forwards `**options` to constructors).  `tracks/graphics.py` is the
-  template for a track with its own planner and no GLB.
+  plan model in `contracts/plan.py`, `.j2` prompts, the planner's per-track rows in
+  `tracks/planner.py` (template, example, temperature, acceptance), branch in
+  `tracks/__init__.py` (`get_track` forwards `**options` to constructors).
+  `tracks/graphics.py` is the template for a track with no GLB.
 * **New bench battery**: `eval/bench/prompts/<name>.yaml` with `name, track, language,
   prompts[{id, tier, category, prompt, must_have, dimensions_m}]`.
 

@@ -276,17 +276,6 @@ def seed_recipes(ctx: RunContext) -> list[str]:
 
 
 # ===================================================================== prompt context + frames
-EXPECTED_FILES: dict[Language, list[str]] = {
-    Language.GLSL_SHADER: ["src/shader.frag", "src/common.glsl"],
-    Language.OPENGL_PYTHON: ["src/program.py"],
-}
-
-
-# ----------------------------------------------------------------------------- prompt context
-def graphics_expected_files(ctx: RunContext) -> list[str]:
-    return list(EXPECTED_FILES.get(ctx.language, ["src/shader.frag"]))
-
-
 def passes_table(plan: GraphicsPlan | None) -> str:
     if plan is None or not plan.passes:
         return "(no passes)"
@@ -307,7 +296,7 @@ def graphics_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "style": plan.style if plan else "", "resolution": f"{res[0]}x{res[1]}", "duration": f"{plan.duration_s:g}" if plan else "8",
         "passes_table": passes_table(plan), "motion": plan.motion if plan else "", "key_visuals": list(plan.key_visuals) if plan else [],
         "uniforms": ", ".join(plan.uniforms) if plan and plan.uniforms else "u_time, u_resolution",
-        "expected_files": graphics_expected_files(ctx), "judge_times": "0, 1, 2.5, 4, 6 s", **extra})
+        "expected_files": ctx.runtime.expected_files(ctx.plan), "judge_times": "0, 1, 2.5, 4, 6 s", **extra})
 
 
 # ----------------------------------------------------------------------------- renders / gates
@@ -397,7 +386,7 @@ class GraphicsTrack(BaseTrack):
 
     # ------------------------------------------------------------------ baseline
     def baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
-        files = graphics_expected_files(ctx)
+        files = ctx.runtime.expected_files(ctx.plan)
         prompt = render(self.generate_template, **graphics_prompt_context(
             ctx, skeleton_files=skeleton_files(ctx) if ctx.single_shot else {}, previous_error=""))
         ctx.record_prompt("generate", prompt)
@@ -405,15 +394,12 @@ class GraphicsTrack(BaseTrack):
                                kind="baseline", temperature=0.6, thinking="medium", owns_entry=True,
                                images=reference_images(ctx))]
 
-    def round_files_hint(self, ctx: RunContext) -> list[str]:
-        return graphics_expected_files(ctx)
-
     def generate_context(self, ctx: RunContext, **extra: Any) -> dict[str, Any]:
         return graphics_prompt_context(ctx, **extra)
 
     # ------------------------------------------------------------------ refine (scaffold hook; never fans out)
     def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
-        files = graphics_expected_files(ctx)
+        files = ctx.runtime.expected_files(ctx.plan)
         prompt = render(self.refine_template, **graphics_prompt_context(
             ctx, round_index=index, tasks=[t.line() for t in group.tasks], targets=group.targets, files=files,
             judge_summary=judge_digest(last), frame_notes=frame_stats_text(ctx.ws),

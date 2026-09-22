@@ -21,6 +21,7 @@ from codeverse3d.languages._ast_lint import (
     safe_parse,
 )
 from codeverse3d.languages._common import MISSING_ENTRY, compose_build_result, strip_blender_noise
+from codeverse3d.languages.base import RuntimeLayout
 from codeverse3d.proc import run_subprocess, scrub_secrets
 from codeverse3d.workspace import Workspace
 
@@ -693,11 +694,12 @@ def blender_env() -> dict[str, str]:
     return env
 
 
-class BlenderRuntime:
+class BlenderRuntime(RuntimeLayout):
     """LanguageRuntime for ``Language.BLENDER``."""
 
     language = Language.BLENDER
     entry_globs: tuple[str, ...] = (ENTRY_REL, "src/parts/*.py")
+    part_file = staticmethod(part_file_rel)
 
     def __init__(self, *, blender: str | None = None, settings: Settings | None = None):
         self._settings = settings or get_settings()
@@ -712,12 +714,6 @@ class BlenderRuntime:
 
     def entry_file(self, ws: Workspace) -> Path:
         return ws.root / ENTRY_REL
-
-    @staticmethod
-    def file_for_part(part_name: str) -> str:
-        """Workspace-relative file that owns a plan part: ``src/parts/<snake>.py``
-        (the tracks call this via ``getattr`` to fan out per-part refinement)."""
-        return part_file_rel(part_name)
 
     def build_command(
         self, ws: Workspace, *, stl: bool = True, blend: bool = False, seed: int = 0,

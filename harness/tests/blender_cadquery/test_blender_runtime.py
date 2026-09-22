@@ -44,7 +44,7 @@ def test_protocol_and_registry() -> None:
     rt = get_runtime("blender")
     assert isinstance(rt, BlenderRuntime) and isinstance(rt, LanguageRuntime)
     assert rt.entry_globs == ("src/model.py", "src/parts/*.py") and rt.language.value == "blender"
-    assert rt.file_for_part("Seat Cushion") == "src/parts/seat_cushion.py"  # tracks call this via getattr
+    assert rt.part_file("Seat Cushion") == "src/parts/seat_cushion.py"  # the layout the tracks ask for
     contract = language_text(rt.language, "contract.md")
     assert "bpy" in contract and "Z is up" in contract
 

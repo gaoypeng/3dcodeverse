@@ -146,13 +146,14 @@ def test_static_track_failure_writes_failed_record_and_raises(tmp_path, chair_pl
     assert RunState.load(ws).status is RunStatus.FAILED
 
 
-def test_static_track_blender_whole_object_refine(tmp_path, chair_plan, settings):
-    """blender = whole-object language: refine is ONE task; prompt carries measured-vs-plan numbers in Z-up."""
-    spec = make_spec(language=Language.BLENDER, max_rounds=1)
+def test_static_track_whole_object_refine(tmp_path, chair_plan, settings):
+    """cadquery = whole-object language (its runtime names no per-part file): refine is ONE task;
+    the prompt carries measured-vs-plan numbers in Z-up."""
+    spec = make_spec(language=Language.CADQUERY, max_rounds=1)
     ws = Workspace(tmp_path / "runs" / "chair5")
     agent = FakeAgent(lambda job, ws: {"src/model.py": f"import bpy  # {job.label}\n"})
     track = StaticObjectTrack(services=FakeServices(contract_errors=2), judge=FakeJudge(scores=(0.5, 0.6)), agent=agent,
-                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.BLENDER))
+                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.CADQUERY))
     rec = track.run(spec, ws)
     assert [j.label for j in agent.jobs] == ["baseline", "refine"]
     p = agent.jobs[1].prompt

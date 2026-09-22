@@ -6,14 +6,11 @@ from __future__ import annotations
 
 from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import ScenePlan
-from codeverse3d.orchestrator import RunState
-from codeverse3d.proc import EventLog
 from codeverse3d.tracks import get_track
 from codeverse3d.tracks.graphics import GraphicsTrack
 from codeverse3d.tracks.planner import plan_example
-from codeverse3d.tracks.prompting import file_for_target_factory
 from codeverse3d.tracks.scene import SceneTrack
-from codeverse3d.tracks.static_object import StaticObjectTrack, expected_files
+from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
@@ -75,40 +72,34 @@ def test_connectivity_gate_receives_spec_language(tmp_path, chair_plan, settings
     assert services.connectivity_languages == ["threejs"]
 
 
-# --------------------------------------------------------------------- (e) blender multi-file expected files / targets
-class BlenderishRuntime(FakeRuntime):
-    def __init__(self):
-        super().__init__(Language.BLENDER)
+# --------------------------------------------------------------------- (e) every runtime states its file layout
+def test_each_runtime_states_which_file_owns_what(chair_plan):
+    """The runtime owns the file layout its skeleton writes; the tracks ask it (``expected_files`` /
+    ``files_for``) instead of restating it — they did in four places, and the scene copy sent a
+    refine aimed at a GLB hero into ``src/assets/<hero>.js``, a module nothing imports."""
+    from codeverse3d.contracts.plan import ScenePlan
+    from codeverse3d.languages import get_runtime
 
-    @staticmethod
-    def file_for_part(part_name: str) -> str:
-        from codeverse3d.conventions import to_snake
-
-        return f"src/parts/{to_snake(part_name)}.py"
-
-    @staticmethod
-    def file_for_target(target: str) -> list[str]:
-        from codeverse3d.conventions import to_snake
-
-        if target.strip().lower() in ("", "overall", "assembly", "object", "model"):
-            return ["src/model.py"]
-        return [f"src/parts/{to_snake(target)}.py"]
-
-
-def test_blender_expected_files_and_whole_object_targets(tmp_path, chair_plan, settings):
-    spec = make_spec(language=Language.BLENDER)
-    ws = Workspace(tmp_path / "runs" / "b")
-    ws.create()
-    track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=BlenderishRuntime())
-    ctx = track.build_context(spec, ws, EventLog(ws.events_path), RunState())
-    ctx.plan = chair_plan
-    files = expected_files(ctx)
-    assert files[0] == "src/model.py" and "src/parts/seat.py" in files and "src/parts/front_leg.py" in files
-    fft = file_for_target_factory(ctx)
-    assert fft is not None
-    assert fft("overall") == ["src/model.py"]  # via runtime.file_for_target, never src/object.js
-    assert fft("assembly") == ["src/model.py"] and fft("object") == ["src/model.py"]
-    assert fft("Seat") == ["src/parts/seat.py"]
+    per_part = {Language.BLENDER: ("src/model.py", ".py"), Language.THREEJS: ("src/object.js", ".js")}
+    for lang, (entry, ext) in per_part.items():
+        rt = get_runtime(lang)
+        assert rt.expected_files(chair_plan) == [entry, *(f"src/parts/{p}{ext}" for p in ("seat", "front_leg", "back_leg",
+                                                                                            "backrest", "armrest"))]
+        assert rt.files_for(chair_plan, "Seat") == [f"src/parts/seat{ext}"] and rt.files_for(chair_plan, "overall") == [entry]
+        assert rt.files_for(chair_plan, "assembly") == rt.files_for(chair_plan, "object") == [entry]
+        assert rt.files_for(chair_plan, "BackLeg_1") == []  # an instance name is not a planned part
+    whole = {Language.CADQUERY: ["src/model.py"], Language.URDF_BLENDER: ["src/model.py", "src/robot.urdf"],
+             Language.GLSL_SHADER: ["src/shader.frag", "src/common.glsl"], Language.OPENGL_PYTHON: ["src/program.py"]}
+    for lang, files in whole.items():
+        rt = get_runtime(lang)
+        assert rt.expected_files(chair_plan) == files and rt.files_for(chair_plan, "Seat") == [] == rt.files_for(chair_plan, "overall")
+    scene = get_runtime(Language.SCENE_THREEJS)
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE))  # Quay places Bollard (three.js) and Crate (the hero)
+    assert scene.expected_files(plan) == ["src/scene.js", "src/env.js"]
+    assert scene.files_for(plan, "Quay") == ["src/zones/quay.js"] and scene.files_for(plan, "Bollard") == ["src/assets/bollard.js"]
+    assert scene.files_for(plan, "Crate") == ["src/zones/quay.js"]  # a hero is fixed where it is placed
+    assert scene.files_for(plan, "Overview") == ["src/scene.js"] and scene.files_for(plan, "fog") == ["src/env.js"]
+    assert scene.files_for(plan, "Quay/Bollard") == ["src/zones/quay.js"] and scene.files_for(plan, "overall") == []
 
 
 # --------------------------------------------------------------------- (f) no texture pass in the run

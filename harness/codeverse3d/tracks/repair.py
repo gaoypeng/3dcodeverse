@@ -122,7 +122,7 @@ def files_for_repair(ctx: RunContext, build: BuildResult, lint: GateReport, file
             cands.append(_rel(ctx, f.target))
     cands.extend(files_hint)
     if not cands:
-        for glob in getattr(ctx.runtime, "entry_globs", ()) or ():
+        for glob in ctx.runtime.entry_globs:
             cands.extend(str(p.relative_to(ctx.ws.root)) for p in sorted(ctx.ws.root.glob(glob)))
     return current_files(ctx, list(dict.fromkeys(cands)), MAX_REPAIR_CONTEXT_CHARS)
 

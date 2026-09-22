@@ -15,6 +15,7 @@ from codeverse3d.contracts.chat import ChatResponse
 from codeverse3d.contracts.common import Language, Track, Usage
 from codeverse3d.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse3d.contracts.run import RoundRecord
+from codeverse3d.languages.scene_threejs import zone_file
 from codeverse3d.orchestrator import RefineTask, RunState, TaskGroup
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.generation import (
@@ -26,7 +27,7 @@ from codeverse3d.tracks.generation import (
     write_files,
 )
 from codeverse3d.tracks.planner import plan_example
-from codeverse3d.tracks.scene import SceneTrack, zone_file
+from codeverse3d.tracks.scene import SceneTrack
 from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
 
@@ -206,13 +207,13 @@ def test_scene_constructors_enforce_their_file_sets(tmp_path, settings, monkeypa
     ctx.plan = plan
     zone = plan.zones[0]
     zt = track._zone_task(ctx, [zone])
-    assert zt.edit_only and not zt.owns_entry and zt.files_hint == [zone_file(zone)]
+    assert zt.edit_only and not zt.owns_entry and zt.files_hint == [zone_file(zone.name)]
     if len(plan.zones) >= 2:
         bt = track._zone_task(ctx, list(plan.zones[:2]))
-        assert bt.edit_only and bt.files_hint == [zone_file(z) for z in plan.zones[:2]]
+        assert bt.edit_only and bt.files_hint == [zone_file(z.name) for z in plan.zones[:2]]
     last = RoundRecord(index=0, kind="baseline", build=BuildResult(ok=True, language="scene_threejs"))
     group = TaskGroup(tasks=[RefineTask(target=zone.name, kind="geometry", instruction="denser",
-                                        priority=2, files=[zone_file(zone)])], files=[zone_file(zone)])
+                                        priority=2, files=[zone_file(zone.name)])], files=[zone_file(zone.name)])
     assert track._refine_task(ctx, group, last, 1, parallel=True).edit_only is True
     assert track._refine_task(ctx, group, last, 1, parallel=False).edit_only is False
 

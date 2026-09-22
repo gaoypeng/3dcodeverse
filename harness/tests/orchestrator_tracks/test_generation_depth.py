@@ -173,6 +173,6 @@ def test_the_depth_templates_render_with_strict_undefined(tmp_path, settings):
     part = render("tracks/generate_static_part.j2", **scope_context(ctx, scope, files=list(scope.files),
                                                                    expected_files=list(scope.files)))
     assert "Interfaces" in part and "DO NOT create or edit it" in part and scope.names[0] in part
-    entry = track.entry_files(ctx)
+    entry = ctx.runtime.expected_files(ctx.plan)[:1]
     asm = render("tracks/assemble_static.j2", **base_prompt_context(ctx, files=entry, expected_files=entry))
     assert "you own placement, not geometry" in asm and "check_connectivity" in asm

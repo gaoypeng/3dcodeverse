@@ -26,6 +26,7 @@ from codeverse3d.languages._gl_common import (
     resolution_for,
     traceback_location,
 )
+from codeverse3d.languages.base import RuntimeLayout
 from codeverse3d.spatial.gl_render import GlHost, GlResult, gif_times
 from codeverse3d.workspace import Workspace
 
@@ -335,7 +336,7 @@ def write_skeleton(ws: Workspace, plan: Plan | None) -> list[Path]:
 
 
 # ===================================================================== runtime
-class OpenGLPythonRuntime:
+class OpenGLPythonRuntime(RuntimeLayout):
     language = Language.OPENGL_PYTHON
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.OPENGL_PYTHON], "src/*.glsl")
 

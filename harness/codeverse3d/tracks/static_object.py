@@ -43,8 +43,6 @@ from codeverse3d.tracks.lifecycle import BaseTrack
 from codeverse3d.tracks.prompting import (
     base_prompt_context,
     budget_for,
-    expected_files,
-    file_for_target_factory,
     judge_digest,
     judged_sheet,
     language_system_prompt,
@@ -162,7 +160,7 @@ class StaticObjectTrack(BaseTrack):
         scoped = self.scoped_baseline_tasks(ctx)
         if scoped:
             return scoped
-        files = expected_files(ctx)
+        files = ctx.runtime.expected_files(ctx.plan)
         prompt = render(
             self.generate_template,
             **base_prompt_context(
@@ -201,16 +199,11 @@ class StaticObjectTrack(BaseTrack):
             return cached
         got = scope_groups(
             ctx.plan,
-            files_for=file_for_target_factory(ctx),
+            files_for=self.refine_file_for_target(ctx),
             max_groups=max(2, int(getattr(ctx.settings.limits, "max_parallel_agents", 6) or 6)),
         )
         ctx.extra["scopes"] = got
         return got
-
-    def entry_files(self, ctx: RunContext) -> list[str]:
-        """The assembly session's files: the entry, and nothing else."""
-        files = expected_files(ctx)
-        return files[:1] or ["src/model.py"]
 
     def scoped_baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
         """Fan the baseline out: one session per few parts (phase 0), then ONE assembly
@@ -250,7 +243,7 @@ class StaticObjectTrack(BaseTrack):
                     edit_only=True,
                 )
             )
-        entry = self.entry_files(ctx)
+        entry = ctx.runtime.expected_files(ctx.plan)[:1]  # the assembly session's files: the entry, nothing else
         assemble = render(
             self.assemble_template, **base_prompt_context(ctx, files=entry, expected_files=entry)
         )
@@ -283,9 +276,6 @@ class StaticObjectTrack(BaseTrack):
         return language_system_prompt(ctx.language, role="scope",
                                       n_parts=len(scope.parts), names=", ".join(scope.names))
 
-    def round_files_hint(self, ctx: RunContext) -> list[str]:
-        return expected_files(ctx)
-
     # ------------------------------------------------------------------ refine (scaffold hooks)
     def extra_refine_tasks(self, ctx: RunContext, last: RoundRecord) -> Sequence[RefineTask]:
         # NB: the `detail_budget` WARN is deliberately NOT turned into a refine task.  Measured:
@@ -299,7 +289,7 @@ class StaticObjectTrack(BaseTrack):
         # scope is real whenever the judge's targets resolved to files — parallel or not.
         # A group whose targets did not resolve (target "overall") keeps the whole tree.
         scoped = parallel or bool(group.files)
-        files = group.files if scoped else expected_files(ctx)
+        files = group.files if scoped else ctx.runtime.expected_files(ctx.plan)
         lines = compact_instructions(group.tasks, max_lines=ctx.policy.max_instructions_per_task)
         prompt = render(
             self.refine_template,

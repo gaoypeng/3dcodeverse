@@ -239,25 +239,16 @@ def test_articulated_motion_direction_gate_feeds_refine_and_judge(tmp_path, sett
     assert any(v.name == "pose_DrawerSlide_upper" for v in rec.rounds[0].renders.views)
 
 
-# ----------------------------------------------------------------------------- per-part files via runtime.file_for_part
-def test_expected_files_and_targets_follow_runtime_file_for_part(tmp_path, chair_plan, settings):
-    from codeverse3d.conventions import to_snake
-    from codeverse3d.tracks.prompting import file_for_target_factory
-    from codeverse3d.tracks.static_object import expected_files
-
-    class PartsRuntime(FakeRuntime):
-        @staticmethod
-        def file_for_part(name: str) -> str:
-            return f"src/parts/{to_snake(name)}.py"
-
-    spec = make_spec(language=Language.BLENDER, max_rounds=0)
-    track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=PartsRuntime(Language.BLENDER))
+# ----------------------------------------------------------------------------- per-part files come from the runtime
+def test_expected_files_and_targets_follow_the_runtime_layout(tmp_path, chair_plan, settings):
     from codeverse3d.orchestrator import RunState
 
+    spec = make_spec(language=Language.BLENDER, max_rounds=0)
+    track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.BLENDER))
     ctx = track.build_context(spec, Workspace(tmp_path / "ws").create(), EventLog(tmp_path / "e.jsonl"), RunState())
     ctx.plan = chair_plan
-    assert expected_files(ctx)[:3] == ["src/model.py", "src/parts/seat.py", "src/parts/front_leg.py"]
-    fft = file_for_target_factory(ctx)
+    assert ctx.runtime.expected_files(ctx.plan)[:3] == ["src/model.py", "src/parts/seat.py", "src/parts/front_leg.py"]
+    fft = track.refine_file_for_target(ctx)
     assert fft("Seat") == ["src/parts/seat.py"] and fft("overall") == ["src/model.py"] and fft("BackLeg_1") == []
 
 

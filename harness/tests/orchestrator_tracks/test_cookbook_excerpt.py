@@ -38,6 +38,7 @@ def test_every_track_sends_the_whole_cookbook(monkeypatch) -> None:
     stage knows which chapters it needs (scene's env/zone recipes, graphics' recipe
     seeding); it is not right as a way to shrink the reference itself.
     """
+    from codeverse3d.languages import get_runtime
     from codeverse3d.tracks import graphics as graphics_steps
     from codeverse3d.tracks.prompting import base_prompt_context
 
@@ -47,7 +48,7 @@ def test_every_track_sends_the_whole_cookbook(monkeypatch) -> None:
                           track=Track.GRAPHICS, language=Language.GLSL_SHADER,
                           contract_text="CONTRACT", cookbook_rel="glsl_shader/cookbook.md",
                           cookbook_text=big, tool_cards="", single_shot=True, extra={},
-                          runtime=SimpleNamespace(entry_globs=()))
+                          runtime=get_runtime(Language.GLSL_SHADER))
     monkeypatch.setattr("codeverse3d.tracks.prompting.constraints_text", lambda spec: "")
     monkeypatch.setattr("codeverse3d.tracks.prompting.reference_note", lambda ctx: "")
     monkeypatch.setattr("codeverse3d.tracks.prompting.acceptance_lines", lambda plan: "")

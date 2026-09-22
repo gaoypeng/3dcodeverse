@@ -36,6 +36,7 @@ from codeverse3d.contracts.plan import AssetPlan, BBox, PartPlan, ScenePlan, Sta
 from codeverse3d.contracts.spec import Constraints, Spec
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
 from codeverse3d.judges.rubrics import is_degraded
+from codeverse3d.languages.scene_threejs import asset_file
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import fan_out, read_json_or_none, write_json_atomic, write_text_atomic
 from codeverse3d.prompts import render
@@ -51,7 +52,6 @@ from codeverse3d.tracks.prompting import (
     base_prompt_context,
     constraints_text,
     current_files,
-    expected_files,
     language_system_prompt,
     reference_images,
     skeleton_files,
@@ -113,11 +113,6 @@ def is_model_outage(e: BaseException) -> bool:
     if isinstance(e, ModelError):
         return bool(e.retryable) or e.status in (429, 500, 502, 503, 504, 529)
     return False
-
-
-def asset_file(asset: AssetPlan) -> str:
-    snake = to_snake(asset.name)
-    return f"src/assets/{snake}.js" if asset.kind == "threejs" else f"public/assets/{snake}.glb"
 
 
 def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], alias: dict[str, str] | None = None) -> str:
@@ -429,7 +424,7 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     if not ctx.single_shot:
         ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=sub.contract_text, cookbook_rel=sub.cookbook_rel,
                                  spatial_tools=True)
-    files = expected_files(sub)
+    files = sub.runtime.expected_files(sub.plan)
     timeout_s = asset_timeout_s(ctx, 180)
     label = f"asset_{snake}"
 

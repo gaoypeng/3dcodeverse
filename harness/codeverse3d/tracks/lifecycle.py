@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import platform
 import traceback
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -48,8 +48,6 @@ from codeverse3d.tracks.generation import GenerationTask, single_shot_model_id
 from codeverse3d.tracks.planner import plan as run_planner
 from codeverse3d.tracks.prompting import (
     base_prompt_context,
-    expected_files,
-    file_for_target_factory,
     language_system_prompt,
     refine_inline_files,
 )
@@ -185,9 +183,6 @@ class BaseTrack:
     def system_prompt(self, ctx: RunContext) -> str:
         return language_system_prompt(ctx.language, tools=not ctx.single_shot)
 
-    def round_files_hint(self, ctx: RunContext) -> list[str]:
-        return []
-
     def round_extra_notes(self, ctx: RunContext) -> list[str]:
         """Notes folded into every round record (e.g. 'the baseline was degraded')."""
         return list(ctx.extra.get("degraded") or [])
@@ -202,9 +197,9 @@ class BaseTrack:
         return (ctx.ws.root / "rounds" / "candidates.json").is_file()
 
     # ---- refine hooks (the scaffold below is shared; tracks fill in the task)
-    def refine_file_for_target(self, ctx: RunContext) -> Any:
-        """``target → [files]`` mapper for refine tasks (None = whole-object language)."""
-        return file_for_target_factory(ctx)
+    def refine_file_for_target(self, ctx: RunContext) -> Callable[[str], list[str]]:
+        """``target → [files]`` for refine tasks: the runtime's layout (``[]`` = no owner)."""
+        return lambda target: ctx.runtime.files_for(ctx.plan, target)
 
     def extra_refine_tasks(self, ctx: RunContext, last: RoundRecord) -> Sequence[Any]:
         """Harness-derived tasks prepended to the judge's (e.g. reference IoU)."""
@@ -212,7 +207,7 @@ class BaseTrack:
 
     def generate_context(self, ctx: RunContext, **extra: Any) -> dict[str, Any]:
         """Template context for ``generate_template`` (baseline / rebuild prompts)."""
-        extra.setdefault("expected_files", expected_files(ctx))
+        extra.setdefault("expected_files", ctx.runtime.expected_files(ctx.plan))
         return base_prompt_context(ctx, **extra)
 
     def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
@@ -242,7 +237,7 @@ class BaseTrack:
 
     def _rebuild_task(self, ctx: RunContext, last: RoundRecord, index: int) -> GenerationTask:
         """Regenerate after a failed build: the generate prompt + the error report."""
-        files = self.round_files_hint(ctx)
+        files = ctx.runtime.expected_files(ctx.plan)
         lint = next((g for g in last.gates if g.gate.startswith("lint")), GateReport(gate="lint", passed=True))
         report = format_error_report(last.build, lint, ctx.cookbook_text) if last.build else "build did not run"
         prompt = render(self.generate_template, **self.generate_context(
@@ -545,10 +540,10 @@ class BaseTrack:
             ctx.state.save(ctx.ws)
             try:
                 if index == 0 and tasks and ctx.policy.n_candidates > 1:
-                    rec = run_best_of_n(self, ctx, tasks, pipeline, files_hint=self.round_files_hint(ctx))
+                    rec = run_best_of_n(self, ctx, tasks, pipeline, files_hint=ctx.runtime.expected_files(ctx.plan))
                 else:
                     rec = run_round(ctx, index=index, kind=kind, tasks=tasks, pipeline=pipeline, instructions=instructions,
-                                    previous=previous, files_hint=self.round_files_hint(ctx),
+                                    previous=previous, files_hint=ctx.runtime.expected_files(ctx.plan),
                                     extra_notes=self.round_extra_notes(ctx))
             except RoundFailed as e:
                 if looks_quota(str(e)):
@@ -602,7 +597,7 @@ class BaseTrack:
                 ctx.events.emit("budget.salvage_skipped", reason="nothing buildable to salvage")
                 return
             rec = run_round(ctx, index=0, kind="baseline", tasks=[], pipeline=self.make_pipeline(), instructions=[],
-                            previous=None, files_hint=self.round_files_hint(ctx),
+                            previous=None, files_hint=ctx.runtime.expected_files(ctx.plan),
                             extra_notes=["salvaged: the budget stopped the run before round 0", *self.round_extra_notes(ctx)])
         except Exception as e:  # noqa: BLE001 — the run is already stopping; never mask the budget stop
             log.warning("salvage round failed: %s", e)

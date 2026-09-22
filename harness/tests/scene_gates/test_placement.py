@@ -13,6 +13,7 @@ from codeverse3d.contracts.artifacts import BuildResult, Severity
 from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
 from codeverse3d.judges.rubrics import apply_caps, load_rubric
+from codeverse3d.languages import get_runtime
 from codeverse3d.orchestrator import build_refine_instructions
 from codeverse3d.spatial.scene_placement import (
     GATE,
@@ -21,7 +22,6 @@ from codeverse3d.spatial.scene_placement import (
     placement_gate_safe,
     placement_table_text,
 )
-from codeverse3d.tracks.prompting import file_for_target_factory
 from codeverse3d.tracks.scene import ScenePipeline
 
 
@@ -141,8 +141,8 @@ def _plan():
 def test_error_findings_become_zone_routed_refine_tasks_one_per_asset():
     plan = _plan()
     r = placement_findings(_table(_row("Lantern", gap=0.3), _row("Bench", gap=0.4), _row("Vase", zone="House", gap=0.5)))
-    ctx = SimpleNamespace(runtime=SimpleNamespace(), plan=plan, language=Language.SCENE_THREEJS, extra={})
-    tasks = build_refine_instructions(None, [r], [], plan, file_for_target=file_for_target_factory(ctx))
+    rt = get_runtime(Language.SCENE_THREEJS)
+    tasks = build_refine_instructions(None, [r], [], plan, file_for_target=lambda target: rt.files_for(plan, target))
     assert sorted((t.target, tuple(t.files)) for t in tasks) == [("House/Vase", ("src/zones/house.js",)), ("Yard/Bench", ("src/zones/yard.js",)),
                                                                  ("Yard/Lantern", ("src/zones/yard.js",))]
     assert all(t.kind == f"gate:{GATE}" and "lower " in t.instruction for t in tasks)

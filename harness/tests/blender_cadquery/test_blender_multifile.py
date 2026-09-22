@@ -99,7 +99,7 @@ def test_live_four_part_multifile_skeleton_builds(tmp_ws, four_part_plan, blende
     paths = rt.skeleton(tmp_ws, four_part_plan)
     assert [p.relative_to(tmp_ws.root).as_posix() for p in paths] == [
         "src/model.py", "src/parts/seat.py", "src/parts/leg.py", "src/parts/foot_ring.py", "src/parts/seat_plate.py"]
-    assert rt.file_for_part("FootRing") == "src/parts/foot_ring.py"
+    assert rt.expected_files(four_part_plan) == [p.relative_to(tmp_ws.root).as_posix() for p in paths]  # the layout IS the skeleton
     lint = rt.lint(tmp_ws)
     assert lint.passed, [(f.target, f.message) for f in lint.errors]
     r = rt.build(tmp_ws, timeout_s=120)

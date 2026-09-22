@@ -85,7 +85,9 @@ def test_hero_prompt_carries_the_scene_and_blenders_own_tools(tmp_ws, settings):
     assert "CARDS(static_object/blender)" in job.prompt and "CARDS(scene/" not in job.prompt
     # the plan's detail budget, not a flat number; the layout it must fill
     assert "40k" not in job.prompt and "DETAIL BUDGET" in job.prompt
-    assert job.files_hint == ["src/model.py"] and job.timeout_s <= SA.asset_timeout_s(ctx, 180)
+    # the blender layout: the entry + one file per planned part (the one-part sheet here)
+    assert job.files_hint == ["src/model.py", f"src/parts/{SA.to_snake(hero.name)}.py"]
+    assert job.timeout_s <= SA.asset_timeout_s(ctx, 180)
     # the sub-run's plan.json is the plan the prompt was built from
     sub = tmp_ws.root / "_assets" / SA.to_snake(hero.name)
     assert json.loads((sub / "plan.json").read_text())["object_name"] == hero.name

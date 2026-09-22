@@ -111,7 +111,8 @@ codeverse3d/
                       (gemini-cli / claude-code / codex / antigravity), cli_common.py (sessions,
                       the watchdog clocks, the transcript, retry trajectory naming,
                       files_changed attribution), materialize.py
-  languages/          LanguageRuntime (base.py); one merged module per language since 2026-08-28 —
+  languages/          LanguageRuntime + RuntimeLayout (base.py: every runtime states its file layout —
+                      expected_files / files_for — and the tracks ask it); one merged module per language since 2026-08-28 —
                       blender/ cadquery/ threejs/ urdf/ scene_threejs/ glsl_shader/ opengl_python/ are each
                       a single __init__.py (lint → skeleton → runtime, in dependency order) beside their
                       data (starter/, opengl_python/wrappers/run_gl.py; the contract text is

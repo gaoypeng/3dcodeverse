@@ -23,6 +23,7 @@ from codeverse3d.languages._js_lint import (
 from codeverse3d.languages._js_lint import (
     node_check_syntax as check_syntax,  # module-level name: tests monkeypatch it
 )
+from codeverse3d.languages.base import RuntimeLayout
 from codeverse3d.proc import read_json_or_none
 from codeverse3d.spatial.node import NodeError, NodeResult, run_node, runtime_js_dir
 from codeverse3d.workspace import Workspace
@@ -267,9 +268,13 @@ def lint_workspace(ws: Workspace) -> GateReport:
 
 
 # ===================================================================== skeleton
+def part_file_rel(part_name: str) -> str:
+    """``'Seat Cushion'`` → ``'src/parts/seat_cushion.js'`` (workspace-relative)."""
+    return f"src/parts/{to_snake(part_name)}.js"
+
+
 def part_file(ws: Workspace, part_name: str) -> Path:
-    """``src/parts/<snake>.js`` for a plan part name."""
-    return ws.src / "parts" / f"{to_snake(part_name)}.js"
+    return ws.root / part_file_rel(part_name)
 
 
 def _fmt(v: float) -> str:
@@ -337,11 +342,12 @@ BUILD_JSON = "build.json"
 NODE_MEM_LIMIT_GB = 8.0  # RLIMIT_AS for the export process (geometry-bomb protection)
 
 
-class ThreeJsRuntime:
+class ThreeJsRuntime(RuntimeLayout):
     """LanguageRuntime for ``Language.THREEJS`` (raw ESM three.js, exported via node)."""
 
     language = Language.THREEJS
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.THREEJS], "src/parts/*.js")
+    part_file = staticmethod(part_file_rel)
 
     # ------------------------------------------------------------------ skeleton / lint
     def skeleton(self, ws: Workspace, plan: Plan) -> list[Path]:
@@ -435,8 +441,8 @@ class ThreeJsRuntime:
         """
         if ws is None or not isinstance(part, str) or not part.strip():
             return ""
-        rel = Path("src") / "parts" / f"{to_snake(part)}.js"
-        return rel.as_posix() if (ws.root / rel).is_file() else ""
+        rel = part_file_rel(part)
+        return rel if (ws.root / rel).is_file() else ""
 
     @staticmethod
     def _write_build_json(ws: Workspace, result: BuildResult) -> None:

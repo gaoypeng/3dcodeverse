@@ -2,8 +2,8 @@
 
 Everything a template may reference is produced here from the spec, the plan
 and the run context — exact numbers (bbox tables in meters), acceptance lines,
-the language frame doc, reference-image notes — plus ``file_for_target_factory``
-which maps a refine target (part / zone / asset) to the files that own it.
+the language frame doc, reference-image notes.  Which file owns what is the
+runtime's answer (``LanguageRuntime.expected_files`` / ``files_for``).
 """
 
 from __future__ import annotations
@@ -31,9 +31,6 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 MAX_SKELETON_CHARS = 14_000
-
-#: the files a scene refine task falls back to when the group has no file ownership
-SCENE_FILES: tuple[str, ...] = ("src/scene.js", "src/env.js")
 
 
 def parts_table(plan: Plan) -> str:
@@ -302,7 +299,7 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "part_details": part_details(plan) if plan else "",
         "joints_table": joints_table(plan) if plan else "",
         "acceptance": acceptance_lines(plan),
-        "entry_files": ", ".join(getattr(ctx.runtime, "entry_globs", ()) or ()),
+        "entry_files": ", ".join(ctx.runtime.entry_globs),
         "n_parts": len(getattr(plan, "parts", []) or []) if plan else 0,
         "detail_budget": detail_budget_text(ctx),
         "root_link": getattr(plan, "root_link", "") if plan else "",
@@ -440,28 +437,6 @@ def reference_note(ctx: RunContext) -> str:
 
 
 # ----------------------------------------------------------------------------- files + round digests
-def expected_files(ctx: RunContext) -> list[str]:
-    """Files the generator is expected to produce for this language + plan."""
-    lang = ctx.language
-    parts = getattr(ctx.plan, "parts", None) or []
-    if lang is Language.THREEJS:
-        return ["src/object.js"] + [f"src/parts/{to_snake(p.name)}.js" for p in parts]
-    if lang is Language.URDF_BLENDER:
-        return ["src/model.py", "src/robot.urdf"]
-    files = ["src/model.py"]
-    custom = getattr(ctx.runtime, "file_for_part", None)  # blender: src/parts/<snake>.py per part
-    if callable(custom):
-        for p in parts:
-            try:
-                rel = custom(p.name)
-            except Exception as e:  # noqa: BLE001
-                log.warning("runtime.file_for_part failed for %s: %s", p.name, e)
-                continue
-            if rel and str(rel) not in files:
-                files.append(str(rel))
-    return files
-
-
 def skeleton_files(ctx: RunContext, max_chars: int = MAX_SKELETON_CHARS) -> dict[str, str]:
     """Current src/ files (the skeleton), trimmed, for single-shot prompts."""
     return current_files(
@@ -586,70 +561,3 @@ AGENT_OUTPUT_RULES = """HOW TO FINISH (agent mode): edit files under src/ only (
 Before you finish you MUST run the `build` tool and fix every error it reports; then run `measure`
 (objects) or `scene_probe` (scenes) once and compare the numbers with the plan.  Do not write
 reports, READMEs or notes — only the code files.  Stop when the build is clean."""
-
-
-def file_for_target_factory(ctx: RunContext):
-    """Return ``target → [files]`` for the current language, or ``None`` when the
-    language is whole-object (one file).  Prefers ``runtime.file_for_part``."""
-    rt = ctx.runtime
-    plan = ctx.plan
-    custom = getattr(rt, "file_for_part", None)
-    part_names = {to_snake(p.name): p.name for p in (getattr(plan, "parts", None) or [])}
-    lang = ctx.language
-
-    if lang is Language.THREEJS or callable(custom):
-        entry = "src/object.js" if lang is Language.THREEJS else "src/model.py"
-
-        def _per_part(target: str) -> list[str]:
-            key = to_snake(target)
-            if key in part_names:
-                if callable(custom):
-                    try:
-                        out = custom(part_names[key])
-                        if out:
-                            return (
-                                [str(out)]
-                                if isinstance(out, (str, Path))
-                                else [str(p) for p in out]
-                            )
-                    except Exception as e:  # noqa: BLE001
-                        log.warning("runtime.file_for_part failed for %s: %s", target, e)
-                return [f"src/parts/{key}.js"] if lang is Language.THREEJS else [entry]
-            if key in ("overall", "assembly", "object", ""):
-                return [entry]
-            return []
-
-        return _per_part
-
-    if lang is Language.SCENE_THREEJS:
-        zone_plans = list(getattr(plan, "zones", None) or [])
-        zones = {to_snake(z.name) for z in zone_plans}
-        assets = {to_snake(a.name): a.kind for a in (getattr(plan, "assets", None) or [])}
-        # a merged asset's own file is only the variant shim: the geometry is its survivor's
-        alias = {to_snake(k): to_snake(v) for k, v in (ctx.extra.get("asset_alias") or {}).items()}
-        cameras = {to_snake(c.name) for c in (getattr(plan, "cameras", None) or [])}
-
-        def _scene(target: str) -> list[str]:
-            key = to_snake(target)
-            if key in zones:
-                return [f"src/zones/{key}.js"]
-            if key in assets:
-                if assets[key] == "threejs":
-                    return [f"src/assets/{alias.get(key, key)}.js"]
-                # a hero is public/assets/<snake>.glb, built in its own sub-workspace: the scene
-                # fixes it where it is placed — the zones that list it — else as a whole
-                return [f"src/zones/{to_snake(z.name)}.js" for z in zone_plans if key in {to_snake(c) for c in z.contents}]
-            if key in cameras or key in ("camera", "cameras", "composition"):
-                return ["src/scene.js"]
-            if key in ("env", "environment", "lighting", "sky", "fog", "ground", "water", "light"):
-                return ["src/env.js"]
-            # "Zone/Asset" — the scene_placement gate names the asset but the fix lives in the
-            # zone's file; keeping the asset in the target keeps one refine task per asset
-            if "/" in target:
-                zone_key = to_snake(target.split("/", 1)[0])
-                if zone_key in zones:
-                    return [f"src/zones/{zone_key}.js"]
-            return []
-
-        return _scene
-    return None

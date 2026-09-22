@@ -31,6 +31,7 @@ from codeverse3d.contracts.common import Language, Usage
 from codeverse3d.contracts.plan import Plan
 from codeverse3d.contracts.run import RunRecord
 from codeverse3d.conventions import to_snake
+from codeverse3d.languages import get_runtime
 from codeverse3d.tracks.common import Services
 from codeverse3d.workspace import Workspace
 
@@ -43,7 +44,8 @@ class ServiceUnavailable(RuntimeError):
 
 # ----------------------------------------------------------------------------- runtime
 class FakeRuntime:
-    """Writes a tiny GLB (one box per part) on build; fails when a src file contains FAIL_MARK."""
+    """Writes a tiny GLB (one box per part) on build; fails when a src file contains FAIL_MARK.
+    Its file layout (``expected_files`` / ``files_for``) is the real runtime's for the language."""
 
     def __init__(self, language: Language = Language.THREEJS, *, lint_error_mark: str = "LINT_ERROR"):
         self.language = language
@@ -51,6 +53,8 @@ class FakeRuntime:
         self.lint_error_mark = lint_error_mark
         self.builds = 0
         self.lock = threading.Lock()
+        layout = get_runtime(language)
+        self.expected_files, self.files_for = layout.expected_files, layout.files_for
 
     def skeleton(self, ws: Workspace, plan: Plan) -> list[Path]:
         out = []

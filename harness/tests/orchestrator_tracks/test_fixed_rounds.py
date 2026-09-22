@@ -24,7 +24,7 @@ def _track(chair_plan, settings, scores, *, agent=None) -> StaticObjectTrack:
     agent = agent or FakeAgent(lambda job, ws: {"src/model.py": f"import bpy  # {job.label} r{job.round}\n"})
     return StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=scores), agent=agent,
                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
-                             runtime=FakeRuntime(Language.BLENDER))
+                             runtime=FakeRuntime(Language.CADQUERY))
 
 
 @pytest.mark.parametrize("scores", [
@@ -36,7 +36,7 @@ def _track(chair_plan, settings, scores, *, agent=None) -> StaticObjectTrack:
 def test_a_run_is_the_baseline_plus_max_rounds_whatever_the_judge_says(tmp_path, chair_plan, settings, scores,
                                                                        max_rounds):
     ws = Workspace(tmp_path / "runs" / "fixed")
-    rec = _track(chair_plan, settings, scores).run(make_spec(language=Language.BLENDER, max_rounds=max_rounds), ws)
+    rec = _track(chair_plan, settings, scores).run(make_spec(language=Language.CADQUERY, max_rounds=max_rounds), ws)
     assert len(rec.rounds) == max_rounds + 1
     assert [r.kind for r in rec.rounds] == ["baseline"] + ["refine"] * max_rounds
     assert rec.status is RunStatus.MAX_ROUNDS and rec.extra["stop_reason"] == "max_rounds"
@@ -50,7 +50,7 @@ def test_only_the_clock_stops_a_run_early(tmp_path, chair_plan, settings):
     ws = Workspace(tmp_path / "runs" / "clock")
     with fake_clock():
         rec = _track(chair_plan, settings, (0.5, 0.6, 0.7, 0.8), agent=agent).run(
-            make_spec(language=Language.BLENDER, max_rounds=4, max_minutes=10.0), ws)
+            make_spec(language=Language.CADQUERY, max_rounds=4, max_minutes=10.0), ws)
     assert rec.status is RunStatus.BUDGET and 1 <= len(rec.rounds) < 5
 
 
@@ -66,7 +66,7 @@ def test_every_refine_starts_from_the_previous_rounds_commit(tmp_path, chair_pla
 
     ws = Workspace(tmp_path / "runs" / "prev")
     rec = _track(chair_plan, settings, (0.70, 0.30, 0.50), agent=FakeAgent(writer)).run(
-        make_spec(language=Language.BLENDER, max_rounds=2), ws)
+        make_spec(language=Language.CADQUERY, max_rounds=2), ws)
     assert seen[1] == "import bpy  # written in r0\n"
     assert seen[2] == "import bpy  # written in r1\n", "r02 must refine r01, not the higher-scored r00"
     assert rec.rounds[2].instructions, "the tasks come from r01's verdict and gates"
@@ -103,8 +103,8 @@ def test_every_round_keeps_its_build_and_any_round_can_be_packaged(tmp_path, cha
     track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5, 0.8, 0.6)),
                               agent=FakeAgent(lambda job, ws: {"src/model.py": f"import bpy  # written in r{job.round}\n"}),
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
-                              runtime=_RoundStampRuntime(Language.BLENDER))
-    rec = track.run(make_spec(language=Language.BLENDER, max_rounds=2), ws)
+                              runtime=_RoundStampRuntime(Language.CADQUERY))
+    rec = track.run(make_spec(language=Language.CADQUERY, max_rounds=2), ws)
     kept = [ws.round_artifacts(i) / "object.glb" for i in range(3)]
     assert all(p.is_file() for p in kept) and (ws.round_artifacts(1) / "object.stl").is_file()
     assert len({p.read_bytes() for p in kept}) == 3, "each round keeps its OWN build"

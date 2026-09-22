@@ -11,6 +11,7 @@ import pytest
 from codeverse3d.config import Settings, seed_recipes_enabled
 from codeverse3d.contracts.common import HARNESS_OWNED_SRC, Language, Track
 from codeverse3d.contracts.plan import GraphicsPlan
+from codeverse3d.languages import get_runtime
 from codeverse3d.languages.glsl_shader import (
     COMMON_GLSL,
     GlslShaderRuntime,
@@ -68,7 +69,7 @@ def _ctx(ws: Workspace, brief: str = AURORA, *, plan: GraphicsPlan | None = None
                            spec=SimpleNamespace(prompt=brief, constraints=SimpleNamespace(dimensions_m={}, max_triangles=None, style="",
                                                                                           must_have=[], must_not=[]), references=[]),
                            language=language, track=Track.GRAPHICS, ws=ws, extra={}, events=EventLog(ws.events_path),
-                           contract_text="", tool_cards="", single_shot=False, runtime=SimpleNamespace(entry_globs=()))
+                           contract_text="", tool_cards="", single_shot=False, runtime=get_runtime(language))
 
 
 def _defs(text: str) -> list[str]:

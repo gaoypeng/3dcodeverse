@@ -23,6 +23,7 @@ from codeverse3d.languages._gl_common import (  # noqa: F401 — re-exported
     parse_glsl_log,
     resolution_for,
 )
+from codeverse3d.languages.base import RuntimeLayout
 from codeverse3d.spatial.gl_render import GlHost, GlResult, gif_times
 from codeverse3d.workspace import Workspace
 
@@ -378,9 +379,10 @@ def write_skeleton(ws: Workspace, plan: Plan | None) -> list[Path]:
 
 
 # ===================================================================== runtime
-class GlslShaderRuntime:
+class GlslShaderRuntime(RuntimeLayout):
     language = Language.GLSL_SHADER
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.GLSL_SHADER], COMMON, BUFFER_A)
+    extra_files = (COMMON,)
 
     def __init__(self, *, host: GlHost | None = None):
         self._host = host

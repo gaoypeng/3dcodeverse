@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from codeverse3d.config import scene_textures_enabled
@@ -39,6 +39,7 @@ from codeverse3d.contracts.plan import Plan, ScenePlan, ZonePlan
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import to_snake
 from codeverse3d.judges.base import judged_subset
+from codeverse3d.languages.scene_threejs import zone_file
 from codeverse3d.orchestrator import StageRunner, TaskGroup, compact_instructions
 from codeverse3d.proc import fan_out
 from codeverse3d.prompts import render
@@ -50,7 +51,6 @@ from codeverse3d.tracks.common import RunContext, generate_for, single_shot_ctx
 from codeverse3d.tracks.generation import GenerationTask
 from codeverse3d.tracks.lifecycle import BaseTrack
 from codeverse3d.tracks.prompting import (
-    SCENE_FILES,
     base_prompt_context,
     bbox_line,
     cookbook_sections,
@@ -357,7 +357,7 @@ class SceneTrack(BaseTrack):
         else:
             written = {c.path for c in r.files_changed}
             for zone in zones:
-                rel = zone_file(zone)
+                rel = zone_file(zone.name)
                 # a session that owns several zones must have produced EVERY file; the skeleton
                 # left a stub at every zone path, so existence proves nothing — the file
                 # must have been reported as changed or actually rewritten in this stage
@@ -376,7 +376,7 @@ class SceneTrack(BaseTrack):
         attribution and the refine fan-out stay file-disjoint."""
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         names = [z.name for z in batch]
-        files = [zone_file(z) for z in batch]
+        files = [zone_file(z.name) for z in batch]
         recipes = cookbook_sections(ctx, ZONE_RECIPES)
         briefs = []
         for i, zone in enumerate(batch):
@@ -384,7 +384,7 @@ class SceneTrack(BaseTrack):
             # a batched session reads ONE copy of the recipes (they are identical per zone)
             briefs.append(render("tracks/scene_zone.j2", **self._ctx(ctx, recipes=recipes if i == 0 else "", zone_name=zone.name, zone_description=zone.description,
                                                                     zone_bbox=bbox_line(zone.bbox), zone_contents=zone.contents,
-                                                                    zone_file=zone_file(zone), neighbours=neighbours,
+                                                                    zone_file=zone_file(zone.name), neighbours=neighbours,
                                                                     layout=layout_block(ctx.extra.get("layouts", {}).get(zone.name)))))
         ctx.record_prompt("scene_zone", briefs[0])
         if len(batch) == 1:
@@ -421,7 +421,7 @@ class SceneTrack(BaseTrack):
         write (the skeleton guarantees a stub per zone) so the run still delivers a
         built, rendered, judged scene instead of no score at all."""
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
-        zones = [z for z in plan.zones if (ctx.ws.root / zone_file(z)).is_file()]
+        zones = [z for z in plan.zones if (ctx.ws.root / zone_file(z.name)).is_file()]
         if not zones:
             return False
         ctx.extra.setdefault("asset_api", asset_api_summary(plan, ctx.extra.get("assets") or {}, ctx.extra.get("asset_alias")))
@@ -437,12 +437,13 @@ class SceneTrack(BaseTrack):
     def baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
         return []  # generation happened in the stages; round 0 = build → render → judge
 
-    def round_files_hint(self, ctx: RunContext) -> list[str]:
-        return list(SCENE_FILES)
-
     # ------------------------------------------------------------------ refine (scaffold hooks)
+    def refine_file_for_target(self, ctx: RunContext) -> Callable[[str], list[str]]:
+        """The runtime's layout, with the dedupe note: a merged asset is fixed in its survivor's factory."""
+        return lambda target: ctx.runtime.files_for(ctx.plan, target, alias=ctx.extra.get("asset_alias"))
+
     def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
-        files = group.files or list(SCENE_FILES)
+        files = group.files or ctx.runtime.expected_files(ctx.plan)
         lines = compact_instructions(group.tasks, max_lines=ctx.policy.max_instructions_per_task)
         prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, recipes=refine_recipes(ctx, files), round_index=index, tasks=lines,
                                                               targets=group.targets, files=files, edit_only_these=parallel,
@@ -466,7 +467,7 @@ class SceneTrack(BaseTrack):
             rel = last.build.error_file.removeprefix(str(ctx.ws.root)).lstrip("/")
             if (ctx.ws.root / rel).is_file():
                 files = [rel]
-        files = files or self.round_files_hint(ctx)
+        files = files or ctx.runtime.expected_files(ctx.plan)
         prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, recipes="", round_index=index, tasks=lines, targets=["build"],
                                                              files=files, edit_only_these=False,
                                                              judge_summary="(no judgment: the scene did not build — fix the errors above first)",
@@ -500,10 +501,6 @@ def refine_recipes(ctx: RunContext, files: Sequence[str]) -> str:
     if any("/zones/" in f for f in files) or not names:
         names += list(ZONE_RECIPES)
     return cookbook_sections(ctx, names)
-
-
-def zone_file(zone: ZonePlan) -> str:
-    return f"src/zones/{to_snake(zone.name)}.js"
 
 
 def _touched(path: Any, since: float) -> bool:

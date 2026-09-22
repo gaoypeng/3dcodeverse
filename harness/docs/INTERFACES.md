@@ -209,6 +209,14 @@ rt.language; rt.entry_globs
 rt.lint(ws) -> GateReport                              # gate = "lint:<language>"
 rt.build(ws, *, timeout_s=None, **per_runtime) -> BuildResult   # Δ BuildResult.error_file is WORKSPACE-relative for
 rt.skeleton(ws, plan) -> list[Path]                    #   every runtime ("src/model.py", "src/parts/leg.py", "src/helpers.py")
+rt.expected_files(plan) -> list[str]                   # Δ 2026-09-22 THE file layout, asked by every track: the files a
+rt.files_for(plan, target) -> list[str]                #   whole-artifact session writes (entry first) / the files that own a refine
+    # target ([] = no owner → one whole-artifact task).  languages/base.RuntimeLayout answers for the object + graphics
+    # runtimes (entry + extra_files, + part_file per part for blender / three.js); the scene runtime answers with
+    # languages/scene_threejs.{SCENE_FILES, zone_file, asset_file, scene_files_for} (files_for(..., alias=) — the dedupe
+    # note).  Gone: tracks/prompting.expected_files / file_for_target_factory / SCENE_FILES, graphics EXPECTED_FILES,
+    # BaseTrack.round_files_hint, StaticObjectTrack.entry_files, scene.zone_file, scene_assets.asset_file,
+    # BlenderRuntime.file_for_part (now part_file)
 from codeverse3d.prompts.catalog import language_prompt, language_text
 language_prompt(language, name) -> str   # "<dir>/<name>" under prompts/ (urdf_blender → urdf/): THE per-language prompt
 language_text(language, name) -> str     # its text, "" for a file the language does not ship (Δ 2026-09-22: replaces
@@ -219,7 +227,7 @@ BuildResult.error_type spellings (languages/_common.py): MISSING_ENTRY = "Missin
 ```
 | runtime | entry_globs | notes / artifacts |
 |---|---|---|
-| `BlenderRuntime` | `src/model.py`, `src/parts/*.py` | **Δ multi-file**: `file_for_part(name) -> "src/parts/<snake>.py"` (`def build_<snake>()`); lint = `layout.lint_workspace` over every src/*.py; skeleton writes model.py + per-part files; object.glb/stl, build.json, census.json |
+| `BlenderRuntime` | `src/model.py`, `src/parts/*.py` | **Δ multi-file**: `part_file(name) -> "src/parts/<snake>.py"` (`def build_<snake>()`); lint = `layout.lint_workspace` over every src/*.py; skeleton writes model.py + per-part files; object.glb/stl, build.json, census.json |
 | `CadQueryRuntime` | `src/model.py` | trailing selector on the stack → parent solid exported + warning (ExportError when no solid exists); helper-module errors map to `src/<file>.py:line`; object.glb/stl/step |
 | `ThreeJsRuntime` | `src/object.js`, `src/parts/*.js` | **Δ export as authored** (census `placement_offset`); InstancedMesh baked to `<Name>_<i>` meshes (`instanced_meshes_baked`); exported `selfcheck(THREE, root)` is called (throw → SelfCheckError); NaN geometry errors name mesh/part → routed to `src/parts/<snake>.js` |
 | `UrdfBlenderRuntime` | `src/model.py`, `src/robot.urdf` | object.glb (Y-up, node=link, joint extras), meshes/<link>.glb (raw Z-up link frames); link name `world` is reserved (lint ERROR + UrdfError); robot GLB root gets `__root` suffix on name clash |
@@ -450,8 +458,8 @@ scope_groups(plan, *, files_for, max_groups=6, parts_per_scope=3, min_parts=8) -
     # [] = one session owns the object (small plan, no per-part file ownership, or $C3D_SCOPED_PARTS=off);
     # otherwise attachment-subtree groups whose files are disjoint, so the sessions run in parallel
 interfaces_text(plan, scope) -> str    # the planned boxes of the neighbours this scope must weld to
-from codeverse3d.tracks.prompting import base_prompt_context, reference_images, file_for_target_factory, \
-    scope_context, budget_for, detail_budget_text      # Δ split out of
+from codeverse3d.tracks.prompting import base_prompt_context, reference_images, scope_context, budget_for, \
+    detail_budget_text      # Δ split out of
 from codeverse3d.tracks.prompting import select_cookbook_chapters, is_always_chapter
     # select_cookbook_chapters(ctx, brief, *, budget=9000, always=COOKBOOK_ALWAYS) -> list[Section]: the header +
     # always-on chapters + the brief's chapters (whole, cookbook order, inside budget)
