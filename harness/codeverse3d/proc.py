@@ -453,7 +453,7 @@ def read_json_or_none(path: Path | str, *, errors: str | None = None) -> dict[st
 
     The one tolerant reader behind every "use it if it is there" side-car: it
     replaced identical ``try: json.loads(read_text()) except (OSError, ValueError)``
-    copies in ``flywheel/telemetry.read_json``, ``bench/complexity_report._read_json``,
+    copies in ``record/telemetry.read_json``, ``eval/bench/complexity_report._read_json``,
     ``gallery/index._measurement_complexity`` / ``_spec_fields``,
     ``cli/inspect_cmd._best_round_of_record``, ``runlock._holder``,
     ``languages/threejs/__init__.py``'s plan loader, ``cost/reconstruct._read_json``,
@@ -480,7 +480,7 @@ def iter_jsonl_lines(path: Path | str) -> Iterator[tuple[int, str]]:
     Missing file → nothing; decoded UTF-8 with ``errors="replace"`` so one bad byte
     (or a SIGKILL mid-append) costs at most that line.  Shared by
     :func:`read_jsonl_lenient` and by the model-validating readers that keep their own
-    per-line parse (``cost/ledger.load_ledger``, ``bench/_jsonl.read_jsonl``).
+    per-line parse (``cost/ledger.load_ledger``, ``eval/bench/_jsonl.read_jsonl``).
     """
     p = Path(path)
     if not p.is_file():

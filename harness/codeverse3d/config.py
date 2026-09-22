@@ -97,7 +97,7 @@ class Limits(BaseModel):
         "write_file / edit_file, inline the files a refine task edits, and ask the baseline "
         "session for every file in its first turn (docs/COST.md §29).  OFF until the A/B "
         "reads out; `C3D_FEWER_TURNS=1` (read at call time by `fewer_turns_enabled`) is "
-        "what `bench/ab_plan.py --variant-env` flips.",
+        "what `eval/bench/ab_plan.py --variant-env` flips.",
     )
     seed_recipes: bool = Field(
         default=True,
@@ -107,7 +107,7 @@ class Limits(BaseModel):
         "(tracks/graphics.py:seed_recipes; pasted above src/common.glsl at build time).  "
         "ON by default: measured 2026-08-26 (refs_v2_graphics, aurora brief, gemini-3.7-flash) "
         "the prompt carried the verified curtain() recipe five times and the agent used it zero "
-        "times — round 0 was again a comb of bars (comb_artefact, 0.33); and (bench/out/seed_v1) "
+        "times — round 0 was again a comb of bars (comb_artefact, 0.33); and (eval/bench/out/seed_v1) "
         "recipes seeded into the agent's own common.glsl were overwritten before the end of the run.  "
         "`C3D_SEED_RECIPES=0` (read at call time by `seed_recipes_enabled`) is the control arm.",
     )
@@ -145,7 +145,7 @@ class Rate(BaseModel):
         "LOST — 30.0/45.4 calls/min without it vs 18.2/20.0 with it, because Gemini's 503s are "
         "intermittent rather than a clean outage, so parking every worker starves the unlucky call "
         "(docs/COST.md §21).  The mechanism and its counters are kept so the experiment is "
-        "reproducible: C3D_RATE__STORM_GATE=1, or bench/concurrency_probe.py --storm-gate.")
+        "reproducible: C3D_RATE__STORM_GATE=1, or eval/bench/concurrency_probe.py --storm-gate.")
     hedge: int = Field(
         default=2, ge=1,
         description="keys a retry is raced on once a call has met its first 503 (1 = off).  Measured "
@@ -171,7 +171,7 @@ class Judge(BaseModel):
 
 
 #: The fewer-turns switch (docs/COST.md §29).  Read at CALL time by
-#: :func:`fewer_turns_enabled`, never only through the cached Settings: ``bench/ab_plan.py``
+#: :func:`fewer_turns_enabled`, never only through the cached Settings: ``eval/bench/ab_plan.py``
 #: differs its arms by environment alone, and a value frozen at first ``get_settings()``
 #: would hand the variant the control's behaviour (the CQ-5 lesson, tracks/plan_features.py).
 FEWER_TURNS_ENV = "C3D_FEWER_TURNS"
@@ -223,7 +223,7 @@ def scene_textures_enabled() -> bool:
     describes it (``texture_pack_prompt`` — whose docstring already says "for zone/env
     generation") have existed since the texturing work, but nothing in ``tracks/scene.py``
     called either: the switch `Spec.options.texture` does nothing on this track and the
-    generator was never told a pack could exist.  Measured on bench/out/scene_baseline
+    generator was never told a pack could exist.  Measured on eval/bench/out/scene_baseline
     (2026-09-05): four of the five scored cells' judge complaints are the GROUND being a
     flat untextured colour, in near-identical words, and that is the most consistent
     defect in the battery.

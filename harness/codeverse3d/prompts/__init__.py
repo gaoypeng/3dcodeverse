@@ -24,16 +24,9 @@ _env = Environment(
     autoescape=False,
 )
 
-#: same environment, but an unknown name renders empty instead of raising — used only
-#: as the fallback above, never as the default.
-_lenient_env = Environment(
-    loader=FileSystemLoader(str(PROMPTS_DIR)),
-    undefined=ChainableUndefined,
-    trim_blocks=True,
-    lstrip_blocks=True,
-    keep_trailing_newline=True,
-    autoescape=False,
-)
+#: same environment (loader + flags; its own template cache), but an unknown name renders
+#: empty instead of raising — used only as the fallback in :func:`render`, never as the default.
+_lenient_env = _env.overlay(undefined=ChainableUndefined)
 
 
 @lru_cache(maxsize=256)

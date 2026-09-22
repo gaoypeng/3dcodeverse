@@ -105,10 +105,13 @@ def check_node() -> list[Row]:
     return rows
 
 
+#: ``release()``, never ``browser.close()``: by default the handle is the daemon's SHARED
+#: browser, and close() sends CDP Browser.close, which takes it down under any concurrent
+#: run rendering on it.  release() disconnects a shared browser and closes an owned one.
 _PROBE_JS = (
     "const {launchBrowser}=require(process.argv[1]);"
     "launchBrowser({gpu:'auto'}).then(async r=>{console.log(JSON.stringify({gpu:r.gpu,renderer:r.renderer}));"
-    "await r.browser.close();process.exit(0)}).catch(e=>{console.log(JSON.stringify({error:String(e&&e.message||e)}));process.exit(1)})"
+    "await r.release();process.exit(0)}).catch(e=>{console.log(JSON.stringify({error:String(e&&e.message||e)}));process.exit(1)})"
 )
 
 
@@ -188,12 +191,6 @@ def check_pool(live: bool) -> list[Row]:
     return rows
 
 
-def _rate_cap() -> int:
-    from codeverse3d.config import get_settings
-
-    return int(getattr(get_settings().rate, "max_in_flight", 0) or 0)
-
-
 def check_keys(live: bool) -> list[Row]:
     s = get_settings()
     n = len(s.gemini_api_keys)
@@ -202,7 +199,7 @@ def check_keys(live: bool) -> list[Row]:
         from codeverse3d.models.health import pool_budget
 
         pb = pool_budget()
-        cap = _rate_cap()
+        cap = int(s.rate.max_in_flight or 0)
         rows.append((
             "pool sharing",
             "OK" if pb.fits(cap) else "WARN",
