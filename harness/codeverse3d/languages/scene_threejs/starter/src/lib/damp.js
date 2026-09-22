@@ -29,40 +29,22 @@
  */
 
 import * as THREE from 'three';
-import { patchStandard, composeRoughness } from './shader.js';
-
-// Named as terrain_shade, waterside, surface_wear, aging and
-// accumulation name them, so a material wearing several libraries
-// declares ONE pair; the vertex locals are dm* because those five own
-// astraWp, wsP, wrP, agP and acP.
-const WORLD_VARYINGS = [
-  'varying vec3 vAstraWorld;',
-  'varying vec3 vAstraWorldN;',
-].join('\n');
+import {
+  patchStandard, composeRoughness, baseRoughness, frac, glslAxes, glslCurv,
+  glslTriNoise, seedVec3, toColor, towardRoughness, unit, upVector,
+  worldBase,
+} from './shader.js';
 
 // All three patches read these, so they are declared once, in the base.
 // astraDamp*, not a neighbour's spelling: patchStandard THROWS when two
 // chained patches give one function name two different bodies.
 const DAMP_HEAD = [
-  'vec3 astraDampAxes(vec3 n) {',
-  '  vec3 w = abs(n * n * n);',
-  '  return w / max(w.x + w.y + w.z, 1e-4);',
-  '}',
+  glslAxes('astraDampAxes'),
   // Three world-plane projections blended by the normal: growth has to
   // break up the same way on a boulder, a wall and a bridge soffit.
-  'float astraDampNoise(vec3 p, vec3 w) {',
-  '  return astraNoise2(p.yz + 29.3) * w.x',
-  '       + astraNoise2(p.zx + 63.1) * w.y',
-  '       + astraNoise2(p.xy + 97.7) * w.z;',
-  '}',
-  // Curvature in 1/m: how far the normal turns per metre of surface
-  // under one pixel. NEGATIVE is the concave crevice that holds water.
-  // Zero across a hard, unwelded edge.
-  'float astraDampCurv(vec3 n, vec3 p) {',
-  '  vec3 dx = dFdx(p), dy = dFdy(p);',
-  '  float d = dot(dx, dx) + dot(dy, dy);',
-  '  return (dot(dFdx(n), dx) + dot(dFdy(n), dy)) / max(d, 1e-12);',
-  '}',
+  glslTriNoise('astraDampNoise', 29.3, 63.1, 97.7),
+  // NEGATIVE curvature is the concave crevice that holds water.
+  glslCurv('astraDampCurv'),
   'vec2 astraDampSite(vec2 c) {',
   '  return c + vec2(astraHash21(c), astraHash21(c + 37.7));',
   '}',
@@ -97,74 +79,16 @@ const DAMP_HEAD = [
   '}',
 ].join('\n');
 
-// One base for all three. `transformed` is still object-space after
-// <begin_vertex>, so the instance transform is folded in by hand or
-// every scattered copy takes its weather from the world origin.
-const BASE = {
-  name: 'damp:base',
-  vertexHead: WORLD_VARYINGS,
-  vertexBody: [
-    '  vec4 dmP = vec4(transformed, 1.0);',
-    '  vec3 dmN = normal;',
-    '#ifdef USE_INSTANCING',
-    '  dmP = instanceMatrix * dmP;',
-    '  dmN = mat3(instanceMatrix) * dmN;',
-    '#endif',
-    '  vAstraWorld = (modelMatrix * dmP).xyz;',
-    '  vAstraWorldN = normalize((modelMatrix * vec4(dmN, 0.0)).xyz);',
-  ].join('\n'),
-  fragmentHead: [WORLD_VARYINGS, DAMP_HEAD].join('\n'),
-};
+// One base for all three, on the world varyings every library shares;
+// the vertex locals are dm* because terrain_shade, waterside,
+// surface_wear, aging and accumulation own astraWp, wsP, wrP, agP and acP.
+const BASE = worldBase('damp:base', 'dmP', 'dmN', DAMP_HEAD);
 
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-  return new THREE.Color(
-      value === undefined || value === null ? fallback : value);
-}
-
-/** Clamp to 0..1 without importing MathUtils for one call. */
-function unit(value) {
-  return Math.max(0, Math.min(1, value));
-}
-
-/** fract(), which JS's % gets wrong for a negative seed. */
-function frac(x) {
-  return x - Math.floor(x);
-}
-
-/** astraHash11 from GLSL_UTIL, so CPU and shader agree on a seed. */
-function hash11(x) {
-  let p = frac(x * 0.1031);
-  p *= p + 33.33;
-  return frac(p * (p + p));
-}
-
-/**
- * Turn a seed into a noise-space offset, so two materials differ.
- *
- * The offset is a UNIFORM: a seed baked into the GLSL would be fixed
- * for every material sharing the cache key. The constants differ from
- * surface_wear's, aging's and accumulation's, or one seed would grow
- * this library's moss along that library's blotches.
- */
-function seedOffset(seed, salt) {
-  return new THREE.Vector3(
-      hash11(seed + salt + 2.71), hash11(seed + salt + 6.83),
-      hash11(seed + salt + 11.29)).multiplyScalar(40);
-}
-
-/**
- * Read an `up`-style option as a unit vector, never as NaN.
- *
- * A degenerate vector would divide by zero in the shader and paint the
- * object black, so a zero-length one falls back to world up.
- */
-function upVector(value) {
-  const v = new THREE.Vector3(0, 1, 0);
-  if (value) v.fromArray(value.toArray ? value.toArray() : value);
-  if (!(v.lengthSq() > 1e-9)) v.set(0, 1, 0);
-  return v.normalize();
-}
+// The constants differ from surface_wear's, aging's and accumulation's,
+// or one seed would grow this library's moss along that library's
+// blotches.
+const seedOffset = (seed, salt) =>
+  seedVec3(seed + salt, 2.71, 6.83, 11.29, 40);
 
 /**
  * Read `north` as the HORIZONTAL direction that stays shaded.
@@ -185,25 +109,6 @@ function northVector(value, up) {
     v.crossVectors(up, axis);
   }
   return v.normalize();
-}
-
-/**
- * Move the material's gloss toward the cover's, never past it.
- *
- * Roughness is per MATERIAL here, so a cover can only say how much of
- * the surface is no longer the material: `blend` 0 leaves it alone, 1
- * hands the whole material to the cover's own roughness.
- */
-function towardRoughness(material, target, blend) {
-  const base = baseRoughness(material);
-  if (!(base > 0)) return 1;
-  return 1 + (target / base - 1) * unit(blend);
-}
-
-/** The roughness the material was AUTHORED with, before any cover. */
-function baseRoughness(material) {
-  const store = material.userData.astraRoughness;
-  return store ? store.base : material.roughness;
 }
 
 /**
@@ -359,7 +264,6 @@ export function patchMoss(material, opts = {}) {
       uMossNorth: { value: northVector(opts.north, up) },
       uMossSeed: { value: seedOffset(seed, 0.4) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform float uMossAmt;',
       'uniform vec3 uMossColor;',
@@ -523,7 +427,6 @@ export function patchMoisture(material, opts = {}) {
       uMoistAmt: { value: strength },
       uMoistSeed: { value: seedOffset(seed, 2.9) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform float uMoistY;',
       'uniform float uMoistReach;',
@@ -655,7 +558,6 @@ export function patchCrackedMud(material, opts = {}) {
       uMudWet: { value: wet },
       uMudSeed: { value: seedOffset(seed, 5.1) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform float uMudScale;',
       'uniform float uMudDepth;',

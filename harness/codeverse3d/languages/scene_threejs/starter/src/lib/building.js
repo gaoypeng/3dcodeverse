@@ -125,6 +125,28 @@ function revealMat() {
 }
 
 /**
+ * One merged mesh per `[geometries, material, name]` part, then one per
+ * lit-room class in `litBins`, added to `root` in that order. Empty
+ * parts are skipped.
+ */
+function addMerged(root, parts, litBins) {
+  litBins.forEach((geos, i) => parts.push(
+      [geos, litMat(LIT_CLASSES[i]), i ? 'LitRooms' + (i + 1) : 'LitRooms']));
+  for (const [geos, mat, nm] of parts) {
+    if (!geos.length) continue;
+    const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos, false);
+    if (!merged) continue;
+    const m = new THREE.Mesh(merged, mat);
+    m.name = nm;
+    // The shell and the lit cards live inside the openings; casting
+    // from them only stipples the reveal they are meant to fill.
+    m.castShadow = nm !== 'Reveals' && !nm.startsWith('LitRooms');
+    m.receiveShadow = true;
+    root.add(m);
+  }
+}
+
+/**
  * Build a block with modelled openings, a plinth and a cornice.
  *
  * @param {object} opts
@@ -270,25 +292,11 @@ export function block(opts = {}) {
 
   const root = new THREE.Group();
   root.name = opts.name || 'Block';
-  const parts = [[wall, wallMat, 'Walls'],
-                 [trim, trimMat, 'Trim'],
-                 [glassBins[0], glassMats[0], 'Glazing'],
-                 [glassBins[1], glassMats[1], 'Glazing2'],
-                 [dark, darkMat, 'Reveals']];
-  litBins.forEach((geos, i) => parts.push(
-      [geos, litMat(LIT_CLASSES[i]), i ? 'LitRooms' + (i + 1) : 'LitRooms']));
-  for (const [geos, mat, nm] of parts) {
-    if (!geos.length) continue;
-    const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos, false);
-    if (!merged) continue;
-    const m = new THREE.Mesh(merged, mat);
-    m.name = nm;
-    // The shell and the lit cards live inside the openings; casting
-    // from them only stipples the reveal they are meant to fill.
-    m.castShadow = nm !== 'Reveals' && !nm.startsWith('LitRooms');
-    m.receiveShadow = true;
-    root.add(m);
-  }
+  addMerged(root, [[wall, wallMat, 'Walls'],
+                   [trim, trimMat, 'Trim'],
+                   [glassBins[0], glassMats[0], 'Glazing'],
+                   [glassBins[1], glassMats[1], 'Glazing2'],
+                   [dark, darkMat, 'Reveals']], litBins);
   root.userData.forward = '-Z';
   root.userData.floors = floors + (baseH > 0 ? 1 : 0);
   return root;
@@ -698,25 +706,13 @@ export function cottage(opts = {}) {
   // to be merged into the Roof mesh and came out terracotta: red
   // rectangles pasted on a white wall, which is what the flat-facade
   // complaint actually looked like on a cottage.
-  const parts = [[walls, wallMat, 'Walls'],
-                 [roof, roofMat, 'Roof'],
-                 [stack, MAT.brick({ color: 0x8f5843, variant: rand() }),
-                  'Chimney'],
-                 [trim, trimMat, 'Trim'],
-                 [door, doorMat, 'Door'],
-                 [glass, glassMat, 'Glazing']];
-  litBins.forEach((geos, i) => parts.push(
-      [geos, litMat(LIT_CLASSES[i]), i ? 'LitRooms' + (i + 1) : 'LitRooms']));
-  for (const [geos, mat, nm] of parts) {
-    if (!geos.length) continue;
-    const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos, false);
-    if (!merged) continue;
-    const m = new THREE.Mesh(merged, mat);
-    m.name = nm;
-    m.castShadow = !nm.startsWith('LitRooms');
-    m.receiveShadow = true;
-    root.add(m);
-  }
+  addMerged(root, [[walls, wallMat, 'Walls'],
+                   [roof, roofMat, 'Roof'],
+                   [stack, MAT.brick({ color: 0x8f5843, variant: rand() }),
+                    'Chimney'],
+                   [trim, trimMat, 'Trim'],
+                   [door, doorMat, 'Door'],
+                   [glass, glassMat, 'Glazing']], litBins);
   root.userData.forward = '-Z';
   root.userData.ridgeY = h + pitch;
   return root;
@@ -765,7 +761,6 @@ export function tower(opts = {}) {
     root.add(mast);
   }
   root.userData.forward = '-Z';
-  void rand;
   return root;
 }
 

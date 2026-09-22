@@ -55,7 +55,6 @@ export function lowSunAmount(sunY) {
   return 1 - THREE.MathUtils.smoothstep(sunY, 0.02, 0.35);
 }
 
-const _up = new THREE.Vector3(0, 1, 0);
 const _tmp = new THREE.Vector3();
 
 /**

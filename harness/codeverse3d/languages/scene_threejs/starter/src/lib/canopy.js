@@ -29,18 +29,13 @@
 
 import * as THREE from 'three';
 import { fbm3, mulberry32 } from './noise.js';
-import { patchStandard, shadowLike, tickShaders } from './shader.js';
+import {
+  glslLocalDir, patchStandard, shadowLike, tickShaders, unit,
+} from './shader.js';
 import { patchLeafSSS } from './foliage_shade.js';
 import { windOf } from './grass.js';
 
-const LOCAL_DIR = [
-  'vec3 leafLocalDir(vec3 w) {',
-  '  mat3 m = mat3(modelMatrix);',
-  '  return vec3(dot(w, m[0]) / max(dot(m[0], m[0]), 1e-6),',
-  '              dot(w, m[1]) / max(dot(m[1], m[1]), 1e-6),',
-  '              dot(w, m[2]) / max(dot(m[2], m[2]), 1e-6));',
-  '}',
-].join('\n');
+const LOCAL_DIR = glslLocalDir('leafLocalDir');
 
 /**
  * Build the leaf mass for one or more crowns.
@@ -95,7 +90,7 @@ export function makeCanopy(opts = {}) {
       ? Math.max(0.05, Math.min(0.4, thin * 0.12))
       : opts.size;
   const seed = opts.seed === undefined ? 7 : opts.seed;
-  const shell = clamp01(opts.shell === undefined ? 0.72 : opts.shell);
+  const shell = unit(opts.shell === undefined ? 0.72 : opts.shell);
   const droop = opts.droop === undefined ? 0.35 : opts.droop;
   const hue = opts.hue === undefined ? 0.3 : opts.hue;
   // Albedos, not screen colours: a scene sun runs at 5-6, so a hex that
@@ -119,11 +114,6 @@ export function makeCanopy(opts = {}) {
 /** Clamp to -1..1: the hue offset is scaled by `hue` downstream. */
 function clampSigned(v) {
   return Math.max(-1, Math.min(1, v));
-}
-
-/** Clamp to 0..1 without importing MathUtils for three calls. */
-function clamp01(v) {
-  return Math.max(0, Math.min(1, v));
 }
 
 /**
@@ -153,7 +143,7 @@ function shadeOf(c) {
  */
 function sunUp(dir) {
   if (!dir || dir.y === undefined) return 1;
-  return clamp01((dir.y + 0.09) / 0.09);
+  return unit((dir.y + 0.09) / 0.09);
 }
 
 /** Read `crowns`, or the single-crown spelling, into one list. */
@@ -269,7 +259,7 @@ function leafField(crowns, opts, shell, size, seed) {
       vary[k * 4 + 2] = rand() * Math.PI * 2;      // twist / phase
       // Depth into the crown, plus a lift for the leaves the sky sees:
       // a canopy is lit from ABOVE, not evenly over its shell.
-      vary[k * 4 + 3] = clamp01(t * (0.72 + 0.28 * (dy * 0.5 + 0.5)));
+      vary[k * 4 + 3] = unit(t * (0.72 + 0.28 * (dy * 0.5 + 0.5)));
       box.expandByPoint(new THREE.Vector3(px, py, pz));
     }
   }

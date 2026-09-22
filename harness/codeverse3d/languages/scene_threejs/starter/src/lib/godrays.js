@@ -30,6 +30,7 @@
 
 import * as THREE from 'three';
 
+import { lehmer } from './noise.js';
 import {
     instancedQuad, makeShaderMaterial, sweepProfile, tickShaders, keepOutOfDepthPasses } from './shader.js';
 
@@ -135,7 +136,7 @@ export function makeGodRays(opts = {}) {
     const runLen = run.length();
     if (runLen > 1e-6) run.divideScalar(runLen); else run.set(0, 0, 1);
 
-    const rnd = prng(seed);
+    const rnd = lehmer(seed);
     const shafts = [];
     const drop = height / -dir.y;
     // A shaft's LENGTH is the drop divided by the slant, so a low sun
@@ -242,12 +243,6 @@ function slantDir(v) {
     if (d.y > 0) d.negate();
     if (d.y > -0.25) { d.y = -0.25; d.normalize(); }
     return d;
-}
-
-/** 16807 LCG: same seed, same field, on every machine. */
-function prng(seed) {
-    let s = (seed >>> 0) || 1;
-    return () => ((s = (s * 16807) % 2147483647) / 2147483647);
 }
 
 /**
@@ -510,7 +505,7 @@ function poolMesh(shafts, dir, run, side, color, air, spark) {
 function moteMesh(shafts, dir, side, perp, width, color, air, spark, seed) {
     const n = Math.max(30, shafts.length * 44);
     const geom = instancedQuad(n, 1, 1, fieldRadius(shafts, dir) + width);
-    const rnd = prng((seed >>> 0) * 7 + 13);
+    const rnd = lehmer((seed >>> 0) * 7 + 13);
     const org = new Float32Array(n * 3), off = new Float32Array(n * 3);
     const data = new Float32Array(n * 4);
     for (let i = 0; i < n; i++) {
@@ -635,13 +630,7 @@ function moteMaterial(dir, side, perp, color, air, spark, width) {
             // a ball of cotton.
             '  float a = (pow(1.0 - d, 3.4) + 0.14 * pow(1.0 - d, 1.3))',
             '      * life * vTwinkle * exp(-vLife * 1.2) * 1.05 * uAmp;',
-            '#ifdef USE_FOG',
-            '  #ifdef FOG_EXP2',
-            '  a *= exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);',
-            '  #else',
-            '  a *= 1.0 - smoothstep(fogNear, fogFar, vFogDepth);',
-            '  #endif',
-            '#endif',
+            _FOG_FADE,
             '  if (a < 0.003) discard;',
             '  gl_FragColor = vec4(mix(uColor, uAir, vMist),',
             '      clamp(a, 0.0, 1.0));',

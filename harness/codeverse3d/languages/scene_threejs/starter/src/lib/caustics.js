@@ -11,27 +11,13 @@
  */
 
 import * as THREE from 'three';
-import { patchStandard } from './shader.js';
+import { patchStandard, toColor, WORLD_VARYINGS, worldBody } from './shader.js';
 
-// Named as terrain_shade and waterside name them, so a submerged bank
-// wearing a splat, a waterline and this declares ONE pair.
-const WORLD_VARYINGS = [
-  'varying vec3 vAstraWorld;',
-  'varying vec3 vAstraWorldN;',
-].join('\n');
-
-// `transformed` is still object-space after <begin_vertex>, so an
-// instanced boulder takes the origin's depth unless this is folded in.
-const CAU_VERTEX = [
-  '  vec4 cauWp = vec4(transformed, 1.0);',
-  '  vec3 cauWn = normal;',
-  '#ifdef USE_INSTANCING',
-  '  cauWp = instanceMatrix * cauWp;',
-  '  cauWn = mat3(instanceMatrix) * cauWn;',
-  '#endif',
-  '  vAstraWorld = (modelMatrix * cauWp).xyz;',
-  '  vAstraWorldN = normalize((modelMatrix * vec4(cauWn, 0.0)).xyz);',
-].join('\n');
+// The world varyings terrain_shade and waterside share, so a submerged
+// bank wearing a splat, a waterline and this declares ONE pair; the
+// instance transform folded in, or an instanced boulder takes the
+// origin's depth.
+const CAU_VERTEX = worldBody('cauWp', 'cauWn');
 
 const CAU_HEAD = [
   'uniform float uCauLevel;',
@@ -148,12 +134,6 @@ const CAU_BODY = [
   '  totalEmissiveRadiance += cauTint * diffuseColor.rgb',
   '      * (cauNet * cauK * uCauAmt);',
 ].join('\n');
-
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-  return new THREE.Color(
-      value === undefined || value === null ? fallback : value);
-}
 
 /**
  * Metres a sunbeam slides sideways per metre of depth, REFRACTED.

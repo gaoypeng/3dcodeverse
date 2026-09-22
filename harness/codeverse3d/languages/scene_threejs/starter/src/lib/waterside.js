@@ -16,64 +16,13 @@
  */
 
 import * as THREE from 'three';
-import { patchStandard, composeRoughness } from './shader.js';
+import {
+  composeRoughness, toColor, unit, withBase, worldBase,
+} from './shader.js';
 
-// Named as terrain_shade names them, so a bank wearing a splat and a
-// waterline declares ONE pair (patchStandard dedupes varyings).
-const WORLD_VARYINGS = [
-  'varying vec3 vAstraWorld;',
-  'varying vec3 vAstraWorldN;',
-].join('\n');
-
-// One base for all three. `transformed` is still object-space after
-// <begin_vertex>, so the instance transform is folded in by hand or
-// every scattered rock takes its waterline from the world origin.
-const BASE = {
-  name: 'waterside:base',
-  vertexHead: WORLD_VARYINGS,
-  vertexBody: [
-    '  vec4 wsP = vec4(transformed, 1.0);',
-    '  vec3 wsN = normal;',
-    '#ifdef USE_INSTANCING',
-    '  wsP = instanceMatrix * wsP;',
-    '  wsN = mat3(instanceMatrix) * wsN;',
-    '#endif',
-    '  vAstraWorld = (modelMatrix * wsP).xyz;',
-    '  vAstraWorldN = normalize((modelMatrix * vec4(wsN, 0.0)).xyz);',
-  ].join('\n'),
-  fragmentHead: WORLD_VARYINGS,
-};
-
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-  return new THREE.Color(
-      value === undefined || value === null ? fallback : value);
-}
-
-/** Clamp to 0..1 without importing MathUtils for one call. */
-function unit(value) {
-  return Math.max(0, Math.min(1, value));
-}
-
-/**
- * Apply the shared world-space base, then the patch itself.
- *
- * `patchStandard` replaces a patch of the SAME name in place, so the
- * base costs one vertex body however many of these a material wears.
- */
-function withBase(material, part) {
-  // A raw ShaderMaterial (the addon Water, anything from
-  // makeShaderMaterial) has neither hook, so the patch is a silent
-  // no-op — the one failure mode nothing else here would report.
-  if (material && material.isShaderMaterial) {
-    console.warn(
-        part.name + ': ' + (material.name || 'material') + ' is a raw ' +
-        'ShaderMaterial with no <color_fragment> hook, so this patch ' +
-        'does nothing. Patch a standard-material surface instead.');
-  }
-  patchStandard(material, BASE);
-  return patchStandard(material, part);
-}
+// One base for all three, on the world varyings terrain_shade shares, so
+// a bank wearing a splat and a waterline declares ONE pair.
+const BASE = worldBase('waterside:base', 'wsP', 'wsN');
 
 /**
  * Darken and gloss the ground below a waterline, fading out above it.
@@ -122,7 +71,7 @@ export function patchShoreWet(material, opts = {}) {
   const sat = opts.saturate === undefined ? 0.35 : opts.saturate;
   const sheen = opts.sheen === undefined ? 0.22 : opts.sheen;
   composeRoughness(material, 'waterside:wet', Math.max(gloss, 0));
-  return withBase(material, {
+  return withBase(material, BASE, {
     name: 'waterside:shoreWet',
     uniforms: {
       uWetY: { value: level },
@@ -218,7 +167,7 @@ export function patchShoreFoam(material, opts = {}) {
   const speed = opts.speed === undefined ? 0.6 : opts.speed;
   const strength = opts.strength === undefined ? 0.85 : opts.strength;
   const reach = opts.reach === undefined ? 3 : opts.reach;
-  return withBase(material, {
+  return withBase(material, BASE, {
     name: 'waterside:shoreFoam',
     uniforms: {
       uFoamY: { value: level },
@@ -371,7 +320,7 @@ export function patchShallowWater(material, opts = {}) {
   const fade = opts.edgeFade === undefined
       ? (material && material.transparent ? 0.55 : 1)
       : unit(opts.edgeFade);
-  return withBase(material, {
+  return withBase(material, BASE, {
     name: 'waterside:shallow',
     uniforms: {
       uShoalBed: { value: fitBedPlane(opts.bedAt, bounds, bedLevel) },

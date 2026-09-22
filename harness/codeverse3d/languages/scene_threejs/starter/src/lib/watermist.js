@@ -42,17 +42,12 @@
 
 import * as THREE from 'three';
 
+import { lehmer } from './noise.js';
 import { instancedQuad, makeShaderMaterial, tickShaders, keepOutOfDepthPasses } from './shader.js';
 
 // Free fall. It is written twice on purpose — in the vertex shader and
 // in the CPU mirror `userData.sample` — so both read this one number.
 const _G = 9.81;
-
-/** 16807 LCG: same seed, same field, on every machine. */
-function prng(seed) {
-    let s = (seed >>> 0) || 1;
-    return () => ((s = (s * 16807) % 2147483647) / 2147483647);
-}
 
 /** A THREE.Vector3 from a vector, an [x,y,z] array or nothing. */
 function toVec3(v) {
@@ -150,7 +145,7 @@ export function makeWaterMist(opts = {}) {
         opts.sunColor === undefined ? 0xfff2e0 : opts.sunColor);
     const flow = toFlow(opts.drift);
     const heightAt = opts.heightAt || null;
-    const rnd = prng(opts.seed === undefined ? 5 : opts.seed);
+    const rnd = lehmer(opts.seed === undefined ? 5 : opts.seed);
 
     // Cards no wider than the bank is deep. A ray that crosses the
     // bank must meet SEVERAL of them or the one it meets paints its
@@ -447,7 +442,7 @@ export function makeSpray(opts = {}) {
     const sun = toSun(opts.sunDir);
     const sunColor = new THREE.Color(
         opts.sunColor === undefined ? 0xfff2e0 : opts.sunColor);
-    const rnd = prng(opts.seed === undefined ? 3 : opts.seed);
+    const rnd = lehmer(opts.seed === undefined ? 3 : opts.seed);
 
     // A droplet lives one whole arc, so the field is exactly the launch
     // rate times the longest flight — no particle count to guess.

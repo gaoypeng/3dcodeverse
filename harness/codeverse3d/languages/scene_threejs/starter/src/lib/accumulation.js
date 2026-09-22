@@ -26,109 +26,33 @@
  */
 
 import * as THREE from 'three';
-import { patchStandard, composeRoughness } from './shader.js';
-
-// Named as terrain_shade, waterside, surface_wear and aging name them,
-// so a material wearing several libraries declares ONE pair; the vertex
-// locals are ac* because those four own astraWp, wsP, wrP and agP.
-const WORLD_VARYINGS = [
-  'varying vec3 vAstraWorld;',
-  'varying vec3 vAstraWorldN;',
-].join('\n');
+import {
+  patchStandard, composeRoughness, glslAxes, glslCurv, glslTriNoise,
+  seedVec3, toColor, towardRoughness, unit, upVector, worldBase,
+} from './shader.js';
 
 // Both patches read these, so they are declared once, in the base.
 // astraAcc*, not a neighbour's spelling: patchStandard THROWS when two
 // chained patches give one function name two different bodies.
 const ACC_HEAD = [
-  'vec3 astraAccAxes(vec3 n) {',
-  '  vec3 w = abs(n * n * n);',
-  '  return w / max(w.x + w.y + w.z, 1e-4);',
-  '}',
+  glslAxes('astraAccAxes'),
   // Three world-plane projections blended by the normal: a deposit
   // must break up the same way on a wall, a roof and a boulder.
-  'float astraAccNoise(vec3 p, vec3 w) {',
-  '  return astraNoise2(p.yz + 23.1) * w.x',
-  '       + astraNoise2(p.zx + 57.7) * w.y',
-  '       + astraNoise2(p.xy + 91.3) * w.z;',
-  '}',
-  // Curvature in 1/m: how far the normal turns per metre of surface
-  // under one pixel. NEGATIVE is the concave lee that holds what a
-  // convex edge sheds. Zero across a hard, unwelded edge.
-  'float astraAccCurv(vec3 n, vec3 p) {',
-  '  vec3 dx = dFdx(p), dy = dFdy(p);',
-  '  float d = dot(dx, dx) + dot(dy, dy);',
-  '  return (dot(dFdx(n), dx) + dot(dFdy(n), dy)) / max(d, 1e-12);',
-  '}',
+  glslTriNoise('astraAccNoise', 23.1, 57.7, 91.3),
+  // NEGATIVE curvature is the concave lee that holds what a convex
+  // edge sheds.
+  glslCurv('astraAccCurv'),
 ].join('\n');
 
-// One base for both. `transformed` is still object-space after
-// <begin_vertex>, so the instance transform is folded in by hand or
-// every scattered copy takes its weather from the world origin.
-const BASE = {
-  name: 'acc:base',
-  vertexHead: WORLD_VARYINGS,
-  vertexBody: [
-    '  vec4 acP = vec4(transformed, 1.0);',
-    '  vec3 acN = normal;',
-    '#ifdef USE_INSTANCING',
-    '  acP = instanceMatrix * acP;',
-    '  acN = mat3(instanceMatrix) * acN;',
-    '#endif',
-    '  vAstraWorld = (modelMatrix * acP).xyz;',
-    '  vAstraWorldN = normalize((modelMatrix * vec4(acN, 0.0)).xyz);',
-  ].join('\n'),
-  fragmentHead: [WORLD_VARYINGS, ACC_HEAD].join('\n'),
-};
+// One base for both, on the world varyings every library shares; the
+// vertex locals are ac* because terrain_shade, waterside, surface_wear
+// and aging own astraWp, wsP, wrP and agP.
+const BASE = worldBase('acc:base', 'acP', 'acN', ACC_HEAD);
 
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-  return new THREE.Color(
-      value === undefined || value === null ? fallback : value);
-}
-
-/** Clamp to 0..1 without importing MathUtils for one call. */
-function unit(value) {
-  return Math.max(0, Math.min(1, value));
-}
-
-/** fract(), which JS's % gets wrong for a negative seed. */
-function frac(x) {
-  return x - Math.floor(x);
-}
-
-/** astraHash11 from GLSL_UTIL, so CPU and shader agree on a seed. */
-function hash11(x) {
-  let p = frac(x * 0.1031);
-  p *= p + 33.33;
-  return frac(p * (p + p));
-}
-
-/**
- * Turn a seed into a noise-space offset, so two materials differ.
- *
- * The offset is a UNIFORM: a seed baked into the GLSL would be fixed
- * for every material sharing the cache key. The constants differ from
- * surface_wear's and aging's, or one seed would drift this library's
- * snow along that library's blotches.
- */
-function seedOffset(seed, salt) {
-  return new THREE.Vector3(
-      hash11(seed + salt + 1.61), hash11(seed + salt + 8.09),
-      hash11(seed + salt + 13.77)).multiplyScalar(56);
-}
-
-/**
- * Read `up`-style options as a unit vector, never as NaN.
- *
- * A degenerate vector would divide by zero in the shader and paint the
- * object black, so a zero-length one falls back to world up.
- */
-function upVector(value) {
-  const v = new THREE.Vector3(0, 1, 0);
-  if (value) v.fromArray(value.toArray ? value.toArray() : value);
-  if (!(v.lengthSq() > 1e-9)) v.set(0, 1, 0);
-  return v.normalize();
-}
+// The constants differ from surface_wear's and aging's, or one seed
+// would drift this library's snow along that library's blotches.
+const seedOffset = (seed, salt) =>
+  seedVec3(seed + salt, 1.61, 8.09, 13.77, 56);
 
 /**
  * Read `wind` as a direction it blows TOWARD, length 0..1 = strength.
@@ -142,20 +66,6 @@ function windVector(value, fallback) {
   else if (fallback) v.fromArray(fallback);
   if (v.lengthSq() > 1) v.normalize();
   return v;
-}
-
-/**
- * Move the material's gloss toward the cover's, never past it.
- *
- * Roughness is per MATERIAL here, so a cover can only say how much of
- * the surface is no longer the material: `blend` 0 leaves it alone, 1
- * hands the whole material to the cover's own roughness.
- */
-function towardRoughness(material, target, blend) {
-  const store = material.userData.astraRoughness;
-  const base = store ? store.base : material.roughness;
-  if (!(base > 0)) return 1;
-  return 1 + (target / base - 1) * unit(blend);
 }
 
 /**
@@ -236,7 +146,6 @@ export function patchSnow(material, opts = {}) {
       uSnowWarm: { value: new THREE.Vector4(warm.x, warm.y, warm.z, warmR) },
       uSnowSeed: { value: seedOffset(seed, 0.7) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform float uSnowDepth;',
       'uniform vec3 uSnowColor;',
@@ -413,7 +322,6 @@ export function patchSand(material, opts = {}) {
       uSandUp: { value: upVector(opts.up) },
       uSandSeed: { value: seedOffset(seed, 3.9) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform float uSandAmt;',
       'uniform vec3 uSandColor;',

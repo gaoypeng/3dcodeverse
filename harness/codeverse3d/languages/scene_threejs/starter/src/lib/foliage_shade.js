@@ -10,7 +10,7 @@
  */
 
 import * as THREE from 'three';
-import { patchStandard } from './shader.js';
+import { glslLocalDir, patchStandard } from './shader.js';
 
 // three applies instanceMatrix in <project_vertex>, AFTER the body
 // patched in here, so anything that needs world space at this point has
@@ -24,18 +24,7 @@ const SHARED_VERTEX_HEAD = [
   '  return (modelMatrix * vec4(p, 1.0)).xyz;',
   '#endif',
   '}',
-  // A world direction as the LOCAL offset that moves this surface one
-  // metre along it. compose(pos, quat, scale) leaves the basis columns
-  // orthogonal, so that inverse is one projection per column.
-  'vec3 astraFolLocalDir(vec3 w) {',
-  '  mat3 m = mat3(modelMatrix);',
-  '#ifdef USE_INSTANCING',
-  '  m = m * mat3(instanceMatrix);',
-  '#endif',
-  '  return vec3(dot(w, m[0]) / max(dot(m[0], m[0]), 1e-6),',
-  '              dot(w, m[1]) / max(dot(m[1], m[1]), 1e-6),',
-  '              dot(w, m[2]) / max(dot(m[2], m[2]), 1e-6));',
-  '}',
+  glslLocalDir('astraFolLocalDir', true),
 ].join('\n');
 
 // Goes on once however many patches a material carries: patchStandard

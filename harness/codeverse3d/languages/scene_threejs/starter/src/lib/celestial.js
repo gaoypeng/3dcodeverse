@@ -37,6 +37,7 @@
 
 import * as THREE from 'three';
 
+import { lehmer } from './noise.js';
 import {
     instancedQuad, keepOutOfDepthPasses, makeShaderMaterial,
     tickShaders } from './shader.js';
@@ -51,12 +52,6 @@ const ORDER_AURORA = -1.60;
 const ORDER_SHIMMER = 20;
 
 const _SIZE = new THREE.Vector2();
-
-/** 16807 LCG: same seed, same sky, on every machine. */
-function prng(seed) {
-    let s = (seed >>> 0) || 1;
-    return () => ((s = (s * 16807) % 2147483647) / 2147483647);
-}
 
 /**
  * Copy the frame drawn so far into a texture the shimmer can sample.
@@ -170,7 +165,7 @@ export function makeHeatShimmer(opts = {}) {
     // 30 m one, where a fixed count would give the big card boulders.
     const cells = opts.cells === undefined
         ? Math.max(2.5, height / 0.95) : opts.cells;
-    const rnd = prng(opts.seed === undefined ? 5 : opts.seed);
+    const rnd = lehmer(opts.seed === undefined ? 5 : opts.seed);
 
     // The billboard sweeps a sphere about the card's centre, which is
     // half a card up: a stated radius, never instancedQuad's 10 km
@@ -350,7 +345,7 @@ export function makeStars(opts = {}) {
     const ambient = Math.min(Math.max(
         opts.ambient === undefined ? 0.2 : opts.ambient, 0), 1);
     const bright = ambient >= 0.35;
-    const rnd = prng(seed);
+    const rnd = lehmer(seed);
     // Galactic pole: the band is a great circle, so one vector fixes
     // where it crosses the sky.
     const pole = new THREE.Vector3(0.34, 0.83, -0.44).normalize();
@@ -626,7 +621,7 @@ export function makeAurora(opts = {}) {
     const bright = ambient >= 0.35;
     const color = opts.color
         ? new THREE.Color(opts.color) : new THREE.Color(0x54ffa8);
-    const rnd = prng(seed);
+    const rnd = lehmer(seed);
     const n = 3 + Math.round(activity * 4);
     const base = radius * 0.30;
     const swing = radius * (0.02 + 0.10 * activity);

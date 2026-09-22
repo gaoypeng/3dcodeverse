@@ -24,8 +24,9 @@ import * as THREE from 'three';
 import { mulberry32 } from './noise.js';
 import { windOf } from './grass.js';
 import {
-  composeRoughness, instancedQuad, keepOutOfDepthPasses, makeShaderMaterial,
-  patchStandard, tickShaders,
+  composeRoughness, glslLocalDir, instancedQuad, keepOutOfDepthPasses,
+  makeShaderMaterial, patchStandard, readVec3, seedVec3, tickShaders,
+  toColor, unit,
 } from './shader.js';
 
 const _TAU = Math.PI * 2;
@@ -53,48 +54,7 @@ const BARK_KINDS = {
             crack: [0.07, 0.35], plate: [0, 0], node: 0.34, rough: 0.72 },
 };
 
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-  return new THREE.Color(
-      value === undefined || value === null ? fallback : value);
-}
-
-/** Read a Vector3, an array or an {x,y,z} into a Vector3. */
-function toVec(p, fx, fy, fz) {
-  if (!p) return new THREE.Vector3(fx, fy, fz);
-  if (Array.isArray(p)) return new THREE.Vector3(p[0], p[1], p[2]);
-  return new THREE.Vector3(p.x, p.y, p.z);
-}
-
-/** Clamp to 0..1 without importing MathUtils for four calls. */
-function unit(v) {
-  return Math.max(0, Math.min(1, v));
-}
-
-/** fract(), which JS's % gets wrong for a negative seed. */
-function frac(x) {
-  return x - Math.floor(x);
-}
-
-/** astraHash11 from GLSL_UTIL, so CPU and shader agree on a seed. */
-function hash11(x) {
-  let p = frac(x * 0.1031);
-  p *= p + 33.33;
-  return frac(p * (p + p));
-}
-
-/**
- * A seed as a noise-space offset, because the seed is a UNIFORM.
- *
- * The first material to compile the shared cache key fixes the GLSL for
- * every other material wearing this patch, so a seed baked into the
- * source would be every trunk's seed.
- */
-function seedOffset(seed) {
-  return new THREE.Vector3(
-      hash11(seed + 0.29), hash11(seed + 4.13), hash11(seed + 9.67))
-      .multiplyScalar(48);
-}
+const seedOffset = (seed) => seedVec3(seed, 0.29, 4.13, 9.67, 48);
 
 const BARK_VARYINGS = [
   'varying vec3 vAstraBarkP;',
@@ -109,15 +69,7 @@ const BARK_VARYINGS = [
 const BARK_VERTEX_HEAD = [
   BARK_VARYINGS,
   'uniform vec3 uBarkSun;',
-  'vec3 astraBarkLocalDir(vec3 w) {',
-  '  mat3 m = mat3(modelMatrix);',
-  '#ifdef USE_INSTANCING',
-  '  m = m * mat3(instanceMatrix);',
-  '#endif',
-  '  return vec3(dot(w, m[0]) / max(dot(m[0], m[0]), 1e-6),',
-  '              dot(w, m[1]) / max(dot(m[1], m[1]), 1e-6),',
-  '              dot(w, m[2]) / max(dot(m[2], m[2]), 1e-6));',
-  '}',
+  glslLocalDir('astraBarkLocalDir', true),
 ].join('\n');
 
 const BARK_FRAGMENT_HEAD = [
@@ -314,7 +266,7 @@ export function patchBark(material, opts = {}) {
   const depth = unit(opts.depth === undefined ? 0.55 : opts.depth);
   const mossy = unit(opts.mossy === undefined ? 0.12 : opts.mossy);
   const seed = opts.seed === undefined ? 1 : opts.seed;
-  const axis = toVec(opts.axis, 0, 1, 0);
+  const axis = readVec3(opts.axis, 0, 1, 0);
   if (axis.lengthSq() < 1e-9) axis.set(0, 1, 0);
   // A node count in FIELD units: the along-axis coordinate is already
   // divided by scale * aniso, so a spacing in metres has to come back
@@ -337,7 +289,7 @@ export function patchBark(material, opts = {}) {
       uBarkAxis: { value: axis.normalize() },
       uBarkTint: { value: toColor(opts.tint, kind.tint) },
       uBarkMossColor: { value: toColor(opts.mossColor, 0x46551f) },
-      uBarkSun: { value: toVec(opts.sun, 0.45, 0.78, 0.35).normalize() },
+      uBarkSun: { value: readVec3(opts.sun, 0.45, 0.78, 0.35).normalize() },
       uBarkSeed: { value: seedOffset(seed) },
     },
     vertexHead: BARK_VERTEX_HEAD,
@@ -550,7 +502,7 @@ export function makeImposters(opts = {}) {
     color: toColor(opts.color, kind.color),
     second: toColor(opts.trunkColor, kind.second),
     sun: opts.sunDir === undefined && light
-        ? light.sunDir : toVec(opts.sunDir, 0.45, 0.78, 0.35).normalize(),
+        ? light.sunDir : readVec3(opts.sunDir, 0.45, 0.78, 0.35).normalize(),
     // Irradiance, not a screen colour.
     sunColor: opts.sunColor === undefined
         ? (light ? light.sunColor : DAY_SUN.clone())

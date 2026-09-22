@@ -8,27 +8,11 @@
  * fog and depth chunks stay exactly as they were.
  */
 
-import * as THREE from 'three';
-import { patchStandard } from './shader.js';
+import { patchStandard, toColor, worldBase } from './shader.js';
 
-// The whole interface between the stages. `transformed` is still
-// object-space at <begin_vertex>, so the instance transform has to be
-// folded in here or every scattered rock projects from the origin.
-const WORLD_VARYINGS = [
-  'varying vec3 vAstraWorld;',
-  'varying vec3 vAstraWorldN;',
-].join('\n');
-
-const WORLD_BODY = [
-  '  vec4 astraWp = vec4(transformed, 1.0);',
-  '  vec3 astraWn = normal;',
-  '#ifdef USE_INSTANCING',
-  '  astraWp = instanceMatrix * astraWp;',
-  '  astraWn = mat3(instanceMatrix) * astraWn;',
-  '#endif',
-  '  vAstraWorld = (modelMatrix * astraWp).xyz;',
-  '  vAstraWorldN = normalize((modelMatrix * vec4(astraWn, 0.0)).xyz);',
-].join('\n');
+// The whole interface between the stages: the world varyings every
+// library shares, written once by this base.
+const WORLD = worldBase('terrain:world', 'astraWp', 'astraWn');
 
 // astraFbm2 sums 0.5, 0.25, ... so its top end moves with the octave
 // count; rescaled to 0..1, one mix factor means the same at any count.
@@ -206,12 +190,6 @@ const SPLAT_BODY_OVER_TRI = [SPLAT_CORE, SPLAT_TAIL_OVER_TRI].join('\n');
 // +/-5 m snow band survives float32 (at 1e9 it would collapse to NaN).
 const SNOW_OFF = 1e6;
 
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-  return new THREE.Color(
-      value === undefined || value === null ? fallback : value);
-}
-
 /** Clamp to the 1..6 astraFbm2 actually loops over. */
 function toOctaves(value) {
   return Math.max(1, Math.min(6, Math.round(value)));
@@ -226,13 +204,7 @@ function toOctaves(value) {
  * landed on the same bank material.
  */
 function withWorld(material) {
-  return patchStandard(material, {
-    name: 'terrain:world',
-    vertexHead: WORLD_VARYINGS,
-    fragmentHead: WORLD_VARYINGS,
-    vertexBody: WORLD_BODY,
-    util: true,
-  });
+  return patchStandard(material, WORLD);
 }
 
 
@@ -278,7 +250,6 @@ export function patchTriplanar(material, opts = {}) {
       uTriSharp: { value: Math.max(1, sharpness) },
       uTriOct: { value: toOctaves(oct) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [FBM_UNIT, GRAIN, TRI_HEAD].join('\n'),
     fragmentBody: TRI_BODY,
   });
@@ -357,7 +328,6 @@ export function patchSlopeSplat(material, opts = {}) {
             ? Math.max(1e-2, band) : Math.max(1, band),
       },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [FBM_UNIT, GRAIN, SPLAT_HEAD].join('\n'),
     fragmentBody: overTri ? SPLAT_BODY_OVER_TRI : SPLAT_BODY,
   });

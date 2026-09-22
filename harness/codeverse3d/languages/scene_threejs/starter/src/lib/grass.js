@@ -27,23 +27,15 @@
 
 import * as THREE from 'three';
 import { fbm2, mulberry32 } from './noise.js';
-import { patchStandard, shadowLike, tickShaders } from './shader.js';
+import {
+  glslLocalDir, patchStandard, shadowLike, tickShaders, unit,
+} from './shader.js';
 
 // Blade shape: enough rows to curve, one column because the width is
 // swept in the shader. 4 rows is where a bent blade stops faceting.
 const BLADE_ROWS = 4;
 
-// A world direction as the LOCAL offset that moves this surface one
-// metre along it — the same projection foliage_shade.js uses, valid
-// because compose() leaves the basis columns orthogonal.
-const LOCAL_DIR = [
-  'vec3 grassLocalDir(vec3 w) {',
-  '  mat3 m = mat3(modelMatrix);',
-  '  return vec3(dot(w, m[0]) / max(dot(m[0], m[0]), 1e-6),',
-  '              dot(w, m[1]) / max(dot(m[1], m[1]), 1e-6),',
-  '              dot(w, m[2]) / max(dot(m[2], m[2]), 1e-6));',
-  '}',
-].join('\n');
+const LOCAL_DIR = glslLocalDir('grassLocalDir');
 
 /**
  * Cover a patch of ground in grass.
@@ -80,7 +72,7 @@ export function makeGrass(opts = {}) {
   const density = opts.density === undefined ? 180 : opts.density;
   const height = opts.height === undefined ? 0.42 : opts.height;
   const seed = opts.seed === undefined ? 11 : opts.seed;
-  const patchy = clamp01(opts.patchy === undefined ? 0.5 : opts.patchy);
+  const patchy = unit(opts.patchy === undefined ? 0.5 : opts.patchy);
   const maxBlades = opts.maxBlades === undefined ? 60000 : opts.maxBlades;
   // Albedos, not screen colours: a scene sun runs at 5-6, so a hex
   // that already looks like sunlit grass tone-maps to pale felt.
@@ -107,11 +99,6 @@ export function makeGrass(opts = {}) {
   }
   g.userData.tick = (t) => tickShaders(g, t);
   return g;
-}
-
-/** Clamp to 0..1 without importing MathUtils for two calls. */
-function clamp01(v) {
-  return Math.max(0, Math.min(1, v));
 }
 
 /**
@@ -165,7 +152,7 @@ function clumpField(seed, extent) {
   return (x, z) => {
     // Contrast, or every patch lands mid-field and the whole extent is
     // one wash: a tussock is either there or it is not.
-    const v = clamp01(0.5 + (raw(x, z) - mean) / (2.6 * sd));
+    const v = unit(0.5 + (raw(x, z) - mean) / (2.6 * sd));
     return 0.45 * v + 0.55 * v * v * (3 - 2 * v);
   };
 }
@@ -211,7 +198,7 @@ function plantField(extent, density, maxBlades, height, patchy, seed,
       // Measured, +-6 deg read as a single albedo at any distance
       // (local hue spread 8 deg against 25-45 in a photograph).
       vary.push((rand() - 0.5) * 1.3, rand(),
-                clamp01(0.75 * (1 - c) + (rand() - 0.5) * 0.18),
+                unit(0.75 * (1 - c) + (rand() - 0.5) * 0.18),
                 (rand() - 0.5) * 0.85);
       maxH = Math.max(maxH, h);
       n++;

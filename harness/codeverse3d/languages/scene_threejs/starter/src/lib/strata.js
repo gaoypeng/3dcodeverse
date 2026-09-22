@@ -20,14 +20,10 @@
  */
 
 import * as THREE from 'three';
-import { patchStandard, composeRoughness } from './shader.js';
-
-// Named as terrain_shade, aging, surface_wear and waterside name them,
-// so a material wearing several libraries carries ONE world position.
-const WORLD_VARYINGS = [
-  'varying vec3 vAstraWorld;',
-  'varying vec3 vAstraWorldN;',
-].join('\n');
+import {
+  patchStandard, composeRoughness, glslCurv, hash11, seedVec3, toColor,
+  unit, worldBase,
+} from './shader.js';
 
 // Helpers both patches share, all astraStrata-prefixed: GLSL has one
 // global namespace, and a chained patch redefining a neighbour's
@@ -67,14 +63,8 @@ const STRATA_HEAD = [
   '  }',
   '  return clamp((s / w - 0.5) * 2.2 + 0.5, 0.0, 1.0);',
   '}',
-  // Total curvature in 1/m: how far the normal turns per metre of
-  // surface under one pixel. Positive convex, negative the concave that
-  // holds water, and ZERO across a hard unwelded edge.
-  'float astraStrataCurv(vec3 n, vec3 p) {',
-  '  vec3 dx = dFdx(p), dy = dFdy(p);',
-  '  float d = dot(dx, dx) + dot(dy, dy);',
-  '  return (dot(dFdx(n), dx) + dot(dFdy(n), dy)) / max(d, 1e-12);',
-  '}',
+  // Total curvature: negative is the concave that holds water.
+  glslCurv('astraStrataCurv'),
   // The same, restricted to ONE surface direction. A lip is convex
   // along the flow and a rib is convex across it, and they do opposite
   // things to a run, so the two halves have to be separable.
@@ -91,24 +81,10 @@ const STRATA_HEAD = [
   '}',
 ].join('\n');
 
-// `transformed` is still object-space after <begin_vertex>, so the
-// instance transform is folded in by hand or every scattered boulder
-// takes its bedding from the mesh origin.
-const BASE = {
-  name: 'strata:base',
-  vertexHead: WORLD_VARYINGS,
-  vertexBody: [
-    '  vec4 stbP = vec4(transformed, 1.0);',
-    '  vec3 stbN = normal;',
-    '#ifdef USE_INSTANCING',
-    '  stbP = instanceMatrix * stbP;',
-    '  stbN = mat3(instanceMatrix) * stbN;',
-    '#endif',
-    '  vAstraWorld = (modelMatrix * stbP).xyz;',
-    '  vAstraWorldN = normalize((modelMatrix * vec4(stbN, 0.0)).xyz);',
-  ].join('\n'),
-  fragmentHead: [WORLD_VARYINGS, STRATA_HEAD].join('\n'),
-};
+// On the world varyings terrain_shade, aging, surface_wear and waterside
+// share, so a material wearing several libraries carries ONE world
+// position.
+const BASE = worldBase('strata:base', 'stbP', 'stbN', STRATA_HEAD);
 
 // A pale sandstone, an iron-rich tan, a grey-green marl and a dark
 // red-brown mudstone: enough spread that a thin dark bed between two
@@ -134,42 +110,10 @@ const BASE = {
 // reaches G/R = 1 in the render is one grain-multiply away from green.
 const BEDS = [0xcc9f78, 0x8e6541, 0x74583f, 0x5b3a23];
 
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-  return new THREE.Color(
-      value === undefined || value === null ? fallback : value);
-}
-
-/** Clamp to 0..1 without importing MathUtils for one call. */
-function unit(value) {
-  return Math.max(0, Math.min(1, value));
-}
-
-/** fract(), which JS's % gets wrong for a negative seed. */
-function frac(x) {
-  return x - Math.floor(x);
-}
-
-/** astraHash11 from GLSL_UTIL, so CPU and shader agree on a seed. */
-function hash11(x) {
-  let p = frac(x * 0.1031);
-  p *= p + 33.33;
-  return frac(p * (p + p));
-}
-
-/**
- * Turn a seed into a noise-space offset, so two rocks differ.
- *
- * The offset is a UNIFORM: a seed baked into the GLSL would be fixed
- * for every material sharing the cache key. The constants differ from
- * aging's and surface_wear's, or one seed would lay these runs down the
- * middle of that library's stains.
- */
-function seedOffset(seed, salt) {
-  return new THREE.Vector3(
-      hash11(seed + salt + 1.63), hash11(seed + salt + 6.41),
-      hash11(seed + salt + 11.09)).multiplyScalar(52);
-}
+// The constants differ from aging's and surface_wear's, or one seed
+// would lay these runs down the middle of that library's stains.
+const seedOffset = (seed, salt) =>
+  seedVec3(seed + salt, 1.63, 6.41, 11.09, 52);
 
 /**
  * Resample any palette to the four tones the shader ramps through.
@@ -271,7 +215,6 @@ export function patchRockStrata(material, opts = {}) {
       uStrataC2: { value: beds[2] },
       uStrataC3: { value: beds[3] },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform vec3 uStrataUp;',
       'uniform float uStrataSpacing;',
@@ -464,7 +407,6 @@ export function patchErosionStreaks(material, opts = {}) {
       uErosScale: { value: Math.max(1e-3, scale) },
       uErosSeed: { value: seedOffset(seed, 3.7) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform float uErosAmt;',
       'uniform vec3 uErosColor;',

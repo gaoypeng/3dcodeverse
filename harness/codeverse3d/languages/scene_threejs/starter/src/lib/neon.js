@@ -23,7 +23,7 @@ import * as THREE from 'three';
 
 import {
     keepOutOfDepthPasses, makeShaderMaterial, patchStandard, sweepProfile,
-    tickShaders } from './shader.js';
+    tickShaders, toColor } from './shader.js';
 
 const _UP = new THREE.Vector3(0, 1, 0);
 
@@ -75,12 +75,6 @@ const TEMP_GLSL = [
 function seedKey(seed) {
     const s = Math.abs(Math.round(seed === undefined ? 1 : seed)) % 9973;
     return ((s * 16807) % 9973) * 0.011;
-}
-
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-    return new THREE.Color(
-        value === undefined || value === null ? fallback : value);
 }
 
 /** A point in any accepted spelling as its own Vector3. */

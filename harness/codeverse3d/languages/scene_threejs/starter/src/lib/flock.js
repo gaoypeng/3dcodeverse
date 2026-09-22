@@ -32,17 +32,12 @@
 import * as THREE from 'three';
 
 import { mulberry32 } from './noise.js';
-import { instancedQuad, makeShaderMaterial, tickShaders, keepOutOfDepthPasses } from './shader.js';
+import {
+    instancedQuad, makeShaderMaterial, readVec3, tickShaders, keepOutOfDepthPasses,
+} from './shader.js';
 
 const _TAU = Math.PI * 2;
 const _MAX_PTS = 8;   // the size of the shader's uPath array
-
-/** Read a Vector3, an array or an {x,y,z} into a Vector3. */
-function _toVec(p, fx = 0, fy = 0, fz = 0) {
-    if (!p) return new THREE.Vector3(fx, fy, fz);
-    if (Array.isArray(p)) return new THREE.Vector3(p[0], p[1], p[2]);
-    return new THREE.Vector3(p.x, p.y, p.z);
-}
 
 /** Default route: a shallow ellipse over the scene, gently undulating. */
 function _defaultPath(extent, height) {
@@ -96,7 +91,7 @@ export function makeFlock(opts = {}) {
     // A rook's back is nearer 4%, and that is what reads as a bird.
     const color = new THREE.Color(
         opts.color === undefined ? (kind ? 0x9fb4c2 : 0x36393f) : opts.color);
-    const sun = _toVec(opts.sunDir, 0.45, 0.78, 0.35).normalize();
+    const sun = readVec3(opts.sunDir, 0.45, 0.78, 0.35).normalize();
     // Defaults are a daylight rig's own two colours; a caller with a
     // rig should hand over its sun and its sky and stop guessing.
     const sunCol = new THREE.Color(
@@ -105,7 +100,7 @@ export function makeFlock(opts = {}) {
         opts.skyColor === undefined ? 0x93b4dd : opts.skyColor);
 
     const pts = (opts.path && opts.path.length >= 3
-        ? opts.path.map((p) => _toVec(p))
+        ? opts.path.map((p) => readVec3(p))
         : _defaultPath(extent, height)).slice(0, _MAX_PTS);
     // Uniform Catmull-Rom, closed: the same curve the shader evaluates,
     // so `speed` is honest metres per second rather than a loop rate.

@@ -33,25 +33,16 @@
  * leaching out of, and nothing in this file may hardcode a light.
  */
 
-import * as THREE from 'three';
-import { patchStandard, composeRoughness } from './shader.js';
-
-// Named as terrain_shade, waterside and surface_wear name them, so a
-// material wearing several libraries declares ONE pair; the vertex
-// locals are ag* because those three own astraWp, wsP and wrP.
-const WORLD_VARYINGS = [
-  'varying vec3 vAstraWorld;',
-  'varying vec3 vAstraWorldN;',
-].join('\n');
+import {
+  patchStandard, composeRoughness, glslAxes, glslCurv, matteFactor,
+  seedVec3, toColor, unit, upVector, worldBase,
+} from './shader.js';
 
 // All three patches read these, so they are declared once, in the base.
 // Names are age-prefixed rather than shared with surface_wear's: a
 // neighbour's helper is only there when that neighbour was applied.
 const AGE_HEAD = [
-  'vec3 astraAgeAxes(vec3 n) {',
-  '  vec3 w = abs(n * n * n);',
-  '  return w / max(w.x + w.y + w.z, 1e-4);',
-  '}',
+  glslAxes('astraAgeAxes'),
   // The vertical-streak field: three world-plane projections blended by
   // the normal, world Y compressed by `lift` in the two upright ones so
   // a feature is taller than wide on ANY face. lift 1.0 = blotches.
@@ -60,90 +51,28 @@ const AGE_HEAD = [
   '       + astraNoise2(p.xz + 41.9) * w.y',
   '       + astraNoise2(vec2(p.x, p.y * lift) + 73.1) * w.z;',
   '}',
-  // Curvature in 1/m: how far the normal turns per metre of surface
-  // under one pixel. Positive is convex (swept clean), negative the
-  // concave lee that holds. Zero across a hard, unwelded edge.
-  'float astraAgeCurv(vec3 n, vec3 p) {',
-  '  vec3 dx = dFdx(p), dy = dFdy(p);',
-  '  float d = dot(dx, dx) + dot(dy, dy);',
-  '  return (dot(dFdx(n), dx) + dot(dFdy(n), dy)) / max(d, 1e-12);',
-  '}',
+  // Positive curvature is convex (swept clean), negative the concave
+  // lee that holds.
+  glslCurv('astraAgeCurv'),
 ].join('\n');
 
-// One base for all three. `transformed` is still object-space after
-// <begin_vertex>, so the instance transform is folded in by hand or
-// every scattered copy weathers from the world origin.
-const BASE = {
-  name: 'aging:base',
-  vertexHead: WORLD_VARYINGS,
-  vertexBody: [
-    '  vec4 agP = vec4(transformed, 1.0);',
-    '  vec3 agN = normal;',
-    '#ifdef USE_INSTANCING',
-    '  agP = instanceMatrix * agP;',
-    '  agN = mat3(instanceMatrix) * agN;',
-    '#endif',
-    '  vAstraWorld = (modelMatrix * agP).xyz;',
-    '  vAstraWorldN = normalize((modelMatrix * vec4(agN, 0.0)).xyz);',
-  ].join('\n'),
-  fragmentHead: [WORLD_VARYINGS, AGE_HEAD].join('\n'),
-};
+// One base for all three, on the world varyings every library shares;
+// the vertex locals are ag* because terrain_shade, waterside and
+// surface_wear own astraWp, wsP and wrP.
+const BASE = worldBase('aging:base', 'agP', 'agN', AGE_HEAD);
 
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-  return new THREE.Color(
-      value === undefined || value === null ? fallback : value);
-}
+// The constants differ from surface_wear's, or one seed would land this
+// library's stains on that one's blotches.
+const seedOffset = (seed, salt) =>
+  seedVec3(seed + salt, 0.29, 5.13, 9.47, 48);
 
-/** Clamp to 0..1 without importing MathUtils for one call. */
-function unit(value) {
-  return Math.max(0, Math.min(1, value));
-}
-
-/** fract(), which JS's % gets wrong for a negative seed. */
-function frac(x) {
-  return x - Math.floor(x);
-}
-
-/** astraHash11 from GLSL_UTIL, so CPU and shader agree on a seed. */
-function hash11(x) {
-  let p = frac(x * 0.1031);
-  p *= p + 33.33;
-  return frac(p * (p + p));
-}
-
-/**
- * Turn a seed into a noise-space offset, so two materials differ.
- *
- * The offset is a UNIFORM: a seed baked into the GLSL would be fixed
- * for every material that shares the cache key. The constants differ
- * from surface_wear's, or one seed would land this library's stains on
- * that one's blotches.
- */
-function seedOffset(seed, salt) {
-  return new THREE.Vector3(
-      hash11(seed + salt + 0.29), hash11(seed + salt + 5.13),
-      hash11(seed + salt + 9.47)).multiplyScalar(48);
-}
-
-/**
- * A roughening factor one patch cannot push past fully rough.
- *
- * Every effect here is matte, so each raises roughness; roughness only
- * means anything up to 1, and the material may start near it.
- *
- * The `add` each patch passes used to be token — a fully rusted steel
- * tank moved from 0.45 to 0.50 and went on mirroring the sky, which
- * washed the oxide off the frame at every distance. A crust of oxide,
- * dust or dried grime is one of the matte-est things there is, so these
- * now buy real roughness: the cap keeps a surface that already starts
- * rough from moving at all.
- */
-function matteFactor(material, add) {
-  const store = material.userData.astraRoughness;
-  const base = store ? store.base : material.roughness;
-  return base > 0 ? Math.min(1 + add, 1 / base) : 1;
-}
+// Every effect here is matte, so each raises roughness through
+// `matteFactor`. The `add` each patch passes used to be token — a fully
+// rusted steel tank moved from 0.45 to 0.50 and went on mirroring the
+// sky, which washed the oxide off the frame at every distance. A crust
+// of oxide, dust or dried grime is one of the matte-est things there
+// is, so these now buy real roughness: the cap keeps a surface that
+// already starts rough from moving at all.
 
 /**
  * The vertical streaks that run down from every ledge, sill and joint.
@@ -215,7 +144,6 @@ export function patchDripStains(material, opts = {}) {
       uDripGate: { value: gated ? 1 : 0 },
       uDripSeed: { value: seedOffset(seed, 0) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform float uDripAmt;',
       'uniform vec3 uDripColor;',
@@ -353,7 +281,6 @@ export function patchRust(material, opts = {}) {
       uRustScale: { value: Math.max(1e-3, scale) },
       uRustSeed: { value: seedOffset(seed, 2.3) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform float uRustAmt;',
       'uniform vec3 uRustColor;',
@@ -456,9 +383,7 @@ export function patchRust(material, opts = {}) {
 export function patchDust(material, opts = {}) {
   const strength = opts.strength === undefined ? 0.3 : opts.strength;
   const seed = opts.seed === undefined ? 1 : opts.seed;
-  const up = new THREE.Vector3(0, 1, 0);
-  if (opts.up) up.fromArray(opts.up.toArray ? opts.up.toArray() : opts.up);
-  if (!(up.lengthSq() > 1e-9)) up.set(0, 1, 0);
+  const up = upVector(opts.up);
   composeRoughness(material, 'aging:dust',
                    matteFactor(material, 0.55 * unit(strength)));
   patchStandard(material, BASE);
@@ -467,10 +392,9 @@ export function patchDust(material, opts = {}) {
     uniforms: {
       uDustAmt: { value: unit(strength) },
       uDustColor: { value: toColor(opts.color, 0xb8b2a6) },
-      uDustUp: { value: up.normalize() },
+      uDustUp: { value: up },
       uDustSeed: { value: seedOffset(seed, 4.7) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform float uDustAmt;',
       'uniform vec3 uDustColor;',

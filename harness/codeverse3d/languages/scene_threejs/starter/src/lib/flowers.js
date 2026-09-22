@@ -31,8 +31,8 @@ import { patchTranslucency } from './finish.js';
 import { patchLeafSSS } from './foliage_shade.js';
 import { mulberry32 } from './noise.js';
 import {
-  instancedQuad, keepOutOfDepthPasses, patchStandard, shadowLike,
-  tickShaders,
+  glslLocalDir, glslWob, instancedQuad, keepOutOfDepthPasses, patchStandard,
+  shadowLike, tickShaders, wobX, wobZ,
 } from './shader.js';
 
 const _TAU = Math.PI * 2;
@@ -414,14 +414,7 @@ const PLANT_VERTEX_HEAD = [
   'attribute vec4 iVar;',
   'varying vec4 vFlow;',
   'varying vec3 vFlowVar;',
-  // A world direction as the LOCAL offset that moves this surface one
-  // metre along it, valid while the basis columns stay orthogonal.
-  'vec3 flowLocalDir(vec3 w) {',
-  '  mat3 m = mat3(modelMatrix);',
-  '  return vec3(dot(w, m[0]) / max(dot(m[0], m[0]), 1e-6),',
-  '              dot(w, m[1]) / max(dot(m[1], m[1]), 1e-6),',
-  '              dot(w, m[2]) / max(dot(m[2], m[2]), 1e-6));',
-  '}',
+  glslLocalDir('flowLocalDir'),
   // The gust field grass.js rides: streaks running downwind, so a
   // scene's meadow and its flowers are pushed by the same air.
   'float flowSway(vec3 root, float ph, float lag) {',
@@ -655,25 +648,8 @@ const _FALL_KINDS = {
   },
 };
 
-// Two octaves with a fixed envelope, so the slide is bounded by 1 and
-// the stated volume is exactly the volume the field occupies. The GLSL
-// below is these two functions, spelled the same.
-function _wobX(f, p, t) {
-  return Math.sin(f * t + p) * 0.75 + Math.sin(f * 1.9 * t + p * 2.1) * 0.25;
-}
-
-function _wobZ(f, p, t) {
-  return Math.cos(f * t + p) * 0.75 + Math.cos(f * 2.3 * t + p * 1.6) * 0.25;
-}
-
-const _FALL_WOB_GLSL = [
-  'float flowFallWobX(float f, float p, float t) {',
-  '  return sin(f * t + p) * 0.75 + sin(f * 1.9 * t + p * 2.1) * 0.25;',
-  '}',
-  'float flowFallWobZ(float f, float p, float t) {',
-  '  return cos(f * t + p) * 0.75 + cos(f * 2.3 * t + p * 1.6) * 0.25;',
-  '}',
-].join('\n');
+// The slide: `wobX`/`wobZ` on the CPU mirror, the same pair in GLSL.
+const _FALL_WOB_GLSL = glslWob('flowFallWob');
 
 /** Wrap v into [-lim, lim), the CPU mirror of GLSL mod(). */
 function _wrap(v, lim) {
@@ -797,10 +773,10 @@ export function makeFalling(opts = {}) {
     const y = (pos[k * 3 + 1] - fall * fal[k * 4] * t) % drop;
     return new THREE.Vector3(
         _wrap(pos[k * 3] + drift.x * t, lim)
-            + wob * _wobX(swing[k * 4], swing[k * 4 + 1], t),
+            + wob * wobX(swing[k * 4], swing[k * 4 + 1], t),
         (y < 0 ? y + drop : y) + span,
         _wrap(pos[k * 3 + 2] + drift.y * t, lim)
-            + wob * _wobZ(swing[k * 4 + 2], swing[k * 4 + 3], t));
+            + wob * wobZ(swing[k * 4 + 2], swing[k * 4 + 3], t));
   };
   return g;
 }

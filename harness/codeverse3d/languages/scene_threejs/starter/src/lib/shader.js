@@ -37,6 +37,7 @@
  */
 
 import * as THREE from 'three';
+import { lehmer } from './noise.js';
 
 /**
  * Shared GLSL helpers. Include with `${GLSL_UTIL}` in a head string.
@@ -137,6 +138,157 @@ export const GLSL_UTIL = [
     '        + sin(x * 57.0 + 2.3) * 0.60) * 4.3;',
     '}',
 ].join('\n');
+
+// ---------------------------------------------------------------------
+// Library-internal helpers the effect modules share. None of them is in
+// the catalog: they exist so one body is written once, not fifteen times.
+
+/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
+export function toColor(value, fallback) {
+    return new THREE.Color(
+        value === undefined || value === null ? fallback : value);
+}
+
+/** Clamp to 0..1. */
+export function unit(value) {
+    return Math.max(0, Math.min(1, value));
+}
+
+/** fract(), which JS's % gets wrong for a negative seed. */
+export function frac(x) {
+    return x - Math.floor(x);
+}
+
+/** astraHash11 from GLSL_UTIL, so CPU and shader agree on a seed. */
+export function hash11(x) {
+    let p = frac(x * 0.1031);
+    p *= p + 33.33;
+    return frac(p * (p + p));
+}
+
+/**
+ * Turn a seed into a noise-space offset, so two materials differ.
+ *
+ * The offset is a UNIFORM: a seed baked into the GLSL would be fixed for
+ * every material sharing the cache key, because the first one to compile
+ * a key decides the source for all of them. `s` is the seed (plus the
+ * patch's own salt); `a`, `b`, `c` and the scale `k` are per LIBRARY, or
+ * one seed would lay one library's field along another's blotches.
+ */
+export function seedVec3(s, a, b, c, k) {
+    return new THREE.Vector3(hash11(s + a), hash11(s + b), hash11(s + c))
+        .multiplyScalar(k);
+}
+
+/** Read a Vector3, an array or an {x,y,z} into a new Vector3. */
+export function readVec3(p, fx = 0, fy = 0, fz = 0) {
+    if (!p) return new THREE.Vector3(fx, fy, fz);
+    if (Array.isArray(p)) return new THREE.Vector3(p[0], p[1], p[2]);
+    return new THREE.Vector3(p.x, p.y, p.z);
+}
+
+/**
+ * Read an `up`-style option as a unit vector, never as NaN.
+ *
+ * A degenerate vector would divide by zero in the shader and paint the
+ * object black, so a zero-length one falls back to world up.
+ */
+export function upVector(value) {
+    const v = new THREE.Vector3(0, 1, 0);
+    if (value) v.fromArray(value.toArray ? value.toArray() : value);
+    if (!(v.lengthSq() > 1e-9)) v.set(0, 1, 0);
+    return v.normalize();
+}
+
+// GLSL several libraries each carry under their OWN name. A chained
+// material wears several libraries at once and patchStandard throws when
+// two patches give one function name two different bodies, so every
+// library keeps its prefix (astraAcc..., astraWear...) and these write
+// the body once. Each returns its lines joined by '\n'.
+
+/** `vec3 name(vec3 n)`: triplanar weights, the cubed normal normalised. */
+export function glslAxes(name) {
+    return [
+        `vec3 ${name}(vec3 n) {`,
+        '  vec3 w = abs(n * n * n);',
+        '  return w / max(w.x + w.y + w.z, 1e-4);',
+        '}',
+    ].join('\n');
+}
+
+/**
+ * `float name(vec3 p, vec3 w)`: astraNoise2 on the three world planes,
+ * blended by the weights `w`; `a`, `b`, `c` offset the planes apart.
+ */
+export function glslTriNoise(name, a, b, c) {
+    return [
+        `float ${name}(vec3 p, vec3 w) {`,
+        `  return astraNoise2(p.yz + ${a}) * w.x`,
+        `       + astraNoise2(p.zx + ${b}) * w.y`,
+        `       + astraNoise2(p.xy + ${c}) * w.z;`,
+        '}',
+    ].join('\n');
+}
+
+/**
+ * `float name(vec3 n, vec3 p)`: curvature in 1/m — how far the normal
+ * turns per metre of surface under one pixel. Positive is convex,
+ * negative the concave lee; ZERO across a hard, unwelded edge.
+ * Fragment stage only (screen derivatives).
+ */
+export function glslCurv(name) {
+    return [
+        `float ${name}(vec3 n, vec3 p) {`,
+        '  vec3 dx = dFdx(p), dy = dFdy(p);',
+        '  float d = dot(dx, dx) + dot(dy, dy);',
+        '  return (dot(dFdx(n), dx) + dot(dFdy(n), dy)) / max(d, 1e-12);',
+        '}',
+    ].join('\n');
+}
+
+/**
+ * `vec3 name(vec3 w)`: a world direction as the LOCAL offset that moves
+ * this surface one metre along it — one projection per basis column,
+ * valid because compose() leaves the columns orthogonal. `instanced`
+ * folds in instanceMatrix, which three applies after the vertex hook.
+ */
+export function glslLocalDir(name, instanced = false) {
+    return [
+        `vec3 ${name}(vec3 w) {`,
+        '  mat3 m = mat3(modelMatrix);',
+        ...(instanced ? ['#ifdef USE_INSTANCING',
+                         '  m = m * mat3(instanceMatrix);', '#endif'] : []),
+        '  return vec3(dot(w, m[0]) / max(dot(m[0], m[0]), 1e-6),',
+        '              dot(w, m[1]) / max(dot(m[1], m[1]), 1e-6),',
+        '              dot(w, m[2]) / max(dot(m[2], m[2]), 1e-6));',
+        '}',
+    ].join('\n');
+}
+
+/**
+ * Two octaves of sway with a fixed envelope, so the slide is bounded by
+ * 1 and a field's stated volume is exactly the volume it occupies.
+ * `wobX`/`wobZ` on the CPU; `glslWob(prefix)` is the same pair in GLSL,
+ * spelled the same, named `<prefix>X` / `<prefix>Z`.
+ */
+export function wobX(f, p, t) {
+    return Math.sin(f * t + p) * 0.75 + Math.sin(f * 1.9 * t + p * 2.1) * 0.25;
+}
+
+export function wobZ(f, p, t) {
+    return Math.cos(f * t + p) * 0.75 + Math.cos(f * 2.3 * t + p * 1.6) * 0.25;
+}
+
+export function glslWob(prefix) {
+    return [
+        `float ${prefix}X(float f, float p, float t) {`,
+        '  return sin(f * t + p) * 0.75 + sin(f * 1.9 * t + p * 2.1) * 0.25;',
+        '}',
+        `float ${prefix}Z(float f, float p, float t) {`,
+        '  return cos(f * t + p) * 0.75 + cos(f * 2.3 * t + p * 1.6) * 0.25;',
+        '}',
+    ].join('\n');
+}
 
 const FOG_PARS_V = '#include <fog_pars_vertex>';
 const FOG_V = '#include <fog_vertex>';
@@ -603,6 +755,71 @@ export function patchStandard(material, opts = {}) {
     return material;
 }
 
+/**
+ * The world position and normal the surface patches shade from.
+ *
+ * Named once for every library that reads them, so a material wearing
+ * several declares ONE pair (patchStandard drops a repeated varying);
+ * each library writes them from its OWN vertex locals, because two
+ * bodies declaring one local is a compile error.
+ */
+export const WORLD_VARYINGS = [
+    'varying vec3 vAstraWorld;',
+    'varying vec3 vAstraWorldN;',
+].join('\n');
+
+/**
+ * The vertex body that writes WORLD_VARYINGS from locals `p` and `n`.
+ *
+ * `transformed` is still object-space after <begin_vertex>, so the
+ * instance transform is folded in by hand, or every scattered copy is
+ * shaded as though it stood at the world origin.
+ */
+export function worldBody(p, n) {
+    return [
+        `  vec4 ${p} = vec4(transformed, 1.0);`,
+        `  vec3 ${n} = normal;`,
+        '#ifdef USE_INSTANCING',
+        `  ${p} = instanceMatrix * ${p};`,
+        `  ${n} = mat3(instanceMatrix) * ${n};`,
+        '#endif',
+        `  vAstraWorld = (modelMatrix * ${p}).xyz;`,
+        `  vAstraWorldN = normalize((modelMatrix * vec4(${n}, 0.0)).xyz);`,
+    ].join('\n');
+}
+
+/**
+ * A library's base patch: the world varyings and their vertex body, and
+ * `head` — the helpers all of that library's patches read — in the
+ * fragment stage. Apply it before each of them: patchStandard replaces a
+ * patch of the SAME name in place, so the base costs one body however
+ * many of the library's patches a material wears.
+ */
+export function worldBase(name, p, n, head) {
+    return {
+        name,
+        vertexHead: WORLD_VARYINGS,
+        vertexBody: worldBody(p, n),
+        fragmentHead: head ? [WORLD_VARYINGS, head].join('\n')
+            : WORLD_VARYINGS,
+    };
+}
+
+/** Apply a library's `base`, then the patch itself. */
+export function withBase(material, base, part) {
+    // A raw ShaderMaterial (the addon Water, anything from
+    // makeShaderMaterial) has neither hook, so the patch is a silent
+    // no-op — the one failure mode nothing else here would report.
+    if (material && material.isShaderMaterial) {
+        console.warn(
+            part.name + ': ' + (material.name || 'material') + ' is a raw ' +
+            'ShaderMaterial with no <color_fragment> hook, so this patch ' +
+            'does nothing. Patch a standard-material surface instead.');
+    }
+    patchStandard(material, base);
+    return patchStandard(material, part);
+}
+
 
 /**
  * Compose a roughness multiplier from several patches, in one place.
@@ -645,6 +862,36 @@ export function composeRoughness(material, key, factor, floor = 0.04) {
     // material compose straight past the top of the range.
     material.roughness = Math.min(1, Math.max(floor, r));
     return material.roughness;
+}
+
+/** The roughness the material was AUTHORED with, before any cover. */
+export function baseRoughness(material) {
+    const store = material.userData.astraRoughness;
+    return store ? store.base : material.roughness;
+}
+
+/**
+ * A roughening factor one patch cannot push past fully rough.
+ *
+ * Roughness only means anything up to 1, and the material may start
+ * near it.
+ */
+export function matteFactor(material, add) {
+    const base = baseRoughness(material);
+    return base > 0 ? Math.min(1 + add, 1 / base) : 1;
+}
+
+/**
+ * Move the material's gloss toward a cover's, never past it.
+ *
+ * Roughness is per MATERIAL here, so a cover can only say how much of
+ * the surface is no longer the material: `blend` 0 leaves it alone, 1
+ * hands the whole material to the cover's own roughness.
+ */
+export function towardRoughness(material, target, blend) {
+    const base = baseRoughness(material);
+    if (!(base > 0)) return 1;
+    return 1 + (target / base - 1) * unit(blend);
 }
 
 
@@ -729,8 +976,7 @@ export function instanceVariation(mesh, opts = {}) {
     const { seed = 1, hue = 0.34, scale = 0.12, apply = true } = opts;
     const count = mesh.count || 0;
     if (!count) return mesh;
-    let s = seed >>> 0 || 1;
-    const rand = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+    const rand = lehmer(seed);
     const data = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
         data[i * 3] = (rand() * 2 - 1) * hue;

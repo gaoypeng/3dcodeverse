@@ -16,71 +16,16 @@
  * front lighting, so neither can be albedo.
  */
 
-import * as THREE from 'three';
-import { patchStandard, composeRoughness } from './shader.js';
+import {
+  patchStandard, composeRoughness, seedVec3, toColor, unit, worldBase,
+} from './shader.js';
 
-// Named as terrain_shade, waterside, surface_wear and aging name them,
-// so a material wearing several libraries declares ONE pair; the vertex
-// locals are fn* because those four own astraWp, wsP, wrP and agP.
-const WORLD_VARYINGS = [
-  'varying vec3 vAstraWorld;',
-  'varying vec3 vAstraWorldN;',
-].join('\n');
+// On the world varyings every library shares; the vertex locals are fn*
+// because terrain_shade, waterside, surface_wear and aging own astraWp,
+// wsP, wrP and agP.
+const BASE = worldBase('finish:base', 'fnP', 'fnN');
 
-// `transformed` is still object-space after <begin_vertex>, so the
-// instance transform is folded in by hand or every scattered copy is
-// shaded as though it stood at the world origin.
-const BASE = {
-  name: 'finish:base',
-  vertexHead: WORLD_VARYINGS,
-  vertexBody: [
-    '  vec4 fnP = vec4(transformed, 1.0);',
-    '  vec3 fnN = normal;',
-    '#ifdef USE_INSTANCING',
-    '  fnP = instanceMatrix * fnP;',
-    '  fnN = mat3(instanceMatrix) * fnN;',
-    '#endif',
-    '  vAstraWorld = (modelMatrix * fnP).xyz;',
-    '  vAstraWorldN = normalize((modelMatrix * vec4(fnN, 0.0)).xyz);',
-  ].join('\n'),
-  fragmentHead: WORLD_VARYINGS,
-};
-
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-  return new THREE.Color(
-      value === undefined || value === null ? fallback : value);
-}
-
-/** Clamp to 0..1 without importing MathUtils for one call. */
-function unit(value) {
-  return Math.max(0, Math.min(1, value));
-}
-
-/** fract(), which JS's % gets wrong for a negative seed. */
-function frac(x) {
-  return x - Math.floor(x);
-}
-
-/** astraHash11 from GLSL_UTIL, so CPU and shader agree on a seed. */
-function hash11(x) {
-  let p = frac(x * 0.1031);
-  p *= p + 33.33;
-  return frac(p * (p + p));
-}
-
-/**
- * Turn a seed into a noise-space offset, so two materials differ.
- *
- * The offset is a UNIFORM: a seed baked into the GLSL would be fixed for
- * every other material that shares this patch's cache key, because the
- * first one to compile a key decides the source for all of them.
- */
-function seedOffset(seed) {
-  return new THREE.Vector3(
-      hash11(seed + 0.29), hash11(seed + 5.11), hash11(seed + 9.67))
-      .multiplyScalar(48);
-}
+const seedOffset = (seed) => seedVec3(seed, 0.29, 5.11, 9.67, 48);
 
 const TRANS_HEAD = [
   'uniform float uTrsThick;',
@@ -252,8 +197,7 @@ export function patchTranslucency(material, opts = {}) {
       uTrsPow: { value: Math.max(0.1, power) },
       uTrsSeed: { value: seedOffset(seed) },
     },
-    vertexHead: WORLD_VARYINGS,
-    fragmentHead: [WORLD_VARYINGS, TRANS_HEAD].join('\n'),
+    fragmentHead: TRANS_HEAD,
     fragmentBody: TRANS_BODY,
   });
 }
@@ -448,8 +392,7 @@ export function patchIridescence(material, opts = {}) {
       uIriIor: { value: Math.max(1.01, ior) },
       uIriSeed: { value: seedOffset(seed + 0.5) },
     },
-    vertexHead: WORLD_VARYINGS,
-    fragmentHead: [WORLD_VARYINGS, IRID_HEAD].join('\n'),
+    fragmentHead: IRID_HEAD,
     fragmentBody: IRID_BODY,
   });
 }

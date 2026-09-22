@@ -49,18 +49,14 @@
 
 import * as THREE from 'three';
 
-import { instancedQuad, keepOutOfDepthPasses, makeShaderMaterial, tickShaders }
-    from './shader.js';
+import { lehmer } from './noise.js';
+import {
+    glslWob, instancedQuad, keepOutOfDepthPasses, makeShaderMaterial,
+    tickShaders, wobX, wobZ } from './shader.js';
 
 // Terminal fall of medium rain. Written once because the slant, the
 // sheet length and the streak rate must all read the same number.
 const _RAIN_FALL = 9.0;
-
-/** 16807 LCG: same seed, same field, on every machine. */
-function prng(seed) {
-    let s = (seed >>> 0) || 1;
-    return () => ((s = (s * 16807) % 2147483647) / 2147483647);
-}
 
 /** Horizontal velocity in xz from a number, an array or a vector. */
 function toWind(v, dx, dz) {
@@ -74,26 +70,8 @@ function toWind(v, dx, dz) {
     return new THREE.Vector2(dx, dz);
 }
 
-// Two octaves with a fixed envelope, so the swing is bounded by 1 and
-// the field's stated volume is exactly the volume it occupies.
-function _wobX(f, p, t) {
-    return Math.sin(f * t + p) * 0.75
-        + Math.sin(f * 1.9 * t + p * 2.1) * 0.25;
-}
-
-function _wobZ(f, p, t) {
-    return Math.cos(f * t + p) * 0.75
-        + Math.cos(f * 2.3 * t + p * 1.6) * 0.25;
-}
-
-const _WOB_GLSL = [
-    'float astraVeilWobX(float f, float p, float t) {',
-    '  return sin(f * t + p) * 0.75 + sin(f * 1.9 * t + p * 2.1) * 0.25;',
-    '}',
-    'float astraVeilWobZ(float f, float p, float t) {',
-    '  return cos(f * t + p) * 0.75 + cos(f * 2.3 * t + p * 1.6) * 0.25;',
-    '}',
-].join('\n');
+// The swing: `wobX`/`wobZ` on the CPU mirror, the same pair in GLSL.
+const _WOB_GLSL = glslWob('astraVeilWob');
 
 /** Wrap v into [-half, half), the CPU mirror of GLSL mod(). */
 function _wrap(v, extent, half) {
@@ -272,7 +250,7 @@ export function makeRainVeil(opts = {}) {
     const color = new THREE.Color(
         opts.color === undefined ? 0xb9c6d4 : opts.color);
     const autoTint = opts.color === undefined ? color : null;
-    const rnd = prng(opts.seed === undefined ? 7 : opts.seed);
+    const rnd = lehmer(opts.seed === undefined ? 7 : opts.seed);
 
     const axis = new THREE.Vector3(wind.x, -_RAIN_FALL, wind.y).normalize();
     // Length ALONG the slanted axis that spans `height` vertically, so
@@ -507,7 +485,7 @@ export function makeSnowfall(opts = {}) {
     const drift = toWind(opts.drift, 0.35, 0);
     const color = new THREE.Color(
         opts.color === undefined ? 0xf2f7ff : opts.color);
-    const rnd = prng(opts.seed === undefined ? 9 : opts.seed);
+    const rnd = lehmer(opts.seed === undefined ? 9 : opts.seed);
     const autoTint = opts.color === undefined ? color : null;
 
     // A bigger flake carries more mass per unit drag, so it falls
@@ -564,11 +542,11 @@ export function makeSnowfall(opts = {}) {
         const y = pos[k * 3 + 1] - fall * flake[k * 4 + 1] * t;
         return new THREE.Vector3(
             _wrap(pos[k * 3] + drift.x * t
-                + wob * _wobX(swing[k * 4], swing[k * 4 + 1], t),
+                + wob * wobX(swing[k * 4], swing[k * 4 + 1], t),
                   extent, half),
             y - Math.floor(y / height) * height,
             _wrap(pos[k * 3 + 2] + drift.y * t
-                + wob * _wobZ(swing[k * 4 + 2], swing[k * 4 + 3], t),
+                + wob * wobZ(swing[k * 4 + 2], swing[k * 4 + 3], t),
                   extent, half));
     };
     return g;
@@ -702,7 +680,7 @@ export function makeMotes(opts = {}) {
         opts.size === undefined ? 0.024 : opts.size);
     const color = new THREE.Color(
         opts.color === undefined ? 0xfff2d8 : opts.color);
-    const rnd = prng(opts.seed === undefined ? 13 : opts.seed);
+    const rnd = lehmer(opts.seed === undefined ? 13 : opts.seed);
 
     const half = extent * 0.5;
     // Dust does not fall so much as fail to stay up.
@@ -757,9 +735,9 @@ export function makeMotes(opts = {}) {
         const k = Math.min(count - 1, Math.max(0, i | 0));
         const y = pos[k * 3 + 1] - settle * t;
         return new THREE.Vector3(
-            pos[k * 3] + wob * _wobX(swing[k * 4], swing[k * 4 + 1], t),
+            pos[k * 3] + wob * wobX(swing[k * 4], swing[k * 4 + 1], t),
             y - Math.floor(y / height) * height,
-            pos[k * 3 + 2] + wob * _wobZ(swing[k * 4 + 2],
+            pos[k * 3 + 2] + wob * wobZ(swing[k * 4 + 2],
                 swing[k * 4 + 3], t));
     };
     return g;

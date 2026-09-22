@@ -12,7 +12,7 @@
  */
 
 import * as THREE from 'three';
-import { patchStandard } from './shader.js';
+import { patchStandard, toColor } from './shader.js';
 
 const WIN_VARYINGS = [
   'varying vec2 vWinUv;',
@@ -228,12 +228,6 @@ const WIN_BODY = [
   '      + max(winRoom + winGrain, 0.0) * 0.05)',
   '      * ((1.0 - winOn) * winPane);',
 ].join('\n');
-
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-  return new THREE.Color(
-      value === undefined || value === null ? fallback : value);
-}
 
 /**
  * A seed becomes a far-apart WHOLE-NUMBER lattice offset.

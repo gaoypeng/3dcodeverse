@@ -382,23 +382,6 @@ export function alignAlong(obj, dir, forward) {
 }
 
 /**
- * Face an object the same way as the thing it sits on or in — a
- * person must look the way the chair looks, not AT the chair (the
- * classic 180-degree seating error).
- *
- * @param {THREE.Object3D} obj The figure being seated.
- * @param {THREE.Object3D} seatObj The chair/bench/stool.
- * @param {string} [forward] The figure's forward from assets_api.json.
- * @param {string} [seatForward] The seat's forward from assets_api.json.
- * @returns {THREE.Object3D} obj
- */
-export function matchFacing(obj, seatObj, forward, seatForward) {
-  const f = fwdVec(seatForward).applyEuler(
-      new THREE.Euler(0, seatObj.rotation.y, 0));
-  return alignAlong(obj, f, forward);
-}
-
-/**
  * Sample a route as a closed or open path and walk objects along it.
  *
  * Returns positions AND tangents, so callers cannot place a vehicle

@@ -44,84 +44,25 @@
  *     by 0.35 * strength for wear that covers a fraction of it. 0.12.
  */
 
-import * as THREE from 'three';
-import { patchStandard, composeRoughness } from './shader.js';
-
-// Named as terrain_shade and waterside name them, so a material wearing
-// a splat, a waterline and wear declares ONE pair (patchStandard
-// dedupes varyings); the locals are prefixed wr because those two
-// vertex bodies already own astraWp and wsP.
-const WORLD_VARYINGS = [
-  'varying vec3 vAstraWorld;',
-  'varying vec3 vAstraWorldN;',
-].join('\n');
+import {
+  patchStandard, composeRoughness, glslAxes, glslTriNoise, hash11, seedVec3,
+  toColor, unit, worldBase,
+} from './shader.js';
 
 // Both patches read the same two fields, so they are built once. A
 // planar UV would smear either of them into vertical streaks on a wall,
 // and these patches land on walls.
 const WEAR_HEAD = [
-  'vec3 astraWearAxes(vec3 n) {',
-  '  vec3 w = abs(n * n * n);',
-  '  return w / max(w.x + w.y + w.z, 1e-4);',
-  '}',
-  'float astraWearNoise(vec3 p, vec3 w) {',
-  '  return astraNoise2(p.yz + 13.7) * w.x',
-  '       + astraNoise2(p.zx + 41.3) * w.y',
-  '       + astraNoise2(p.xy + 71.9) * w.z;',
-  '}',
+  glslAxes('astraWearAxes'),
+  glslTriNoise('astraWearNoise', 13.7, 41.3, 71.9),
 ].join('\n');
 
-const BASE = {
-  name: 'wear:base',
-  vertexHead: WORLD_VARYINGS,
-  vertexBody: [
-    '  vec4 wrP = vec4(transformed, 1.0);',
-    '  vec3 wrN = normal;',
-    '#ifdef USE_INSTANCING',
-    '  wrP = instanceMatrix * wrP;',
-    '  wrN = mat3(instanceMatrix) * wrN;',
-    '#endif',
-    '  vAstraWorld = (modelMatrix * wrP).xyz;',
-    '  vAstraWorldN = normalize((modelMatrix * vec4(wrN, 0.0)).xyz);',
-  ].join('\n'),
-  fragmentHead: [WORLD_VARYINGS, WEAR_HEAD].join('\n'),
-};
+// On the world varyings terrain_shade and waterside share, so a material
+// wearing a splat, a waterline and wear declares ONE pair; the locals
+// are prefixed wr because those two vertex bodies own astraWp and wsP.
+const BASE = worldBase('wear:base', 'wrP', 'wrN', WEAR_HEAD);
 
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-  return new THREE.Color(
-      value === undefined || value === null ? fallback : value);
-}
-
-/** Clamp to 0..1 without importing MathUtils for one call. */
-function unit(value) {
-  return Math.max(0, Math.min(1, value));
-}
-
-/** fract(), which JS's % gets wrong for a negative seed. */
-function frac(x) {
-  return x - Math.floor(x);
-}
-
-/** astraHash11 from GLSL_UTIL, so CPU and shader agree on a seed. */
-function hash11(x) {
-  let p = frac(x * 0.1031);
-  p *= p + 33.33;
-  return frac(p * (p + p));
-}
-
-/**
- * Turn a seed into a noise-space offset, so two materials differ.
- *
- * An offset is a UNIFORM: the seed must not reach the GLSL, or the
- * first material to compile the shared cache key would fix its own
- * seed for every other material wearing the same patch.
- */
-function seedOffset(seed) {
-  return new THREE.Vector3(
-      hash11(seed + 0.17), hash11(seed + 3.71), hash11(seed + 7.13))
-      .multiplyScalar(64);
-}
+const seedOffset = (seed) => seedVec3(seed, 0.17, 3.71, 7.13, 64);
 
 /**
  * Break up the flat, even surface that reads as moulded plastic.
@@ -179,7 +120,6 @@ export function patchMicroBreakup(material, opts = {}) {
       uMicroHue: { value: hue },
       uMicroSeed: { value: seedOffset(seed) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform float uMicroScale;',
       'uniform float uMicroAmt;',
@@ -291,7 +231,6 @@ export function patchEdgeWear(material, opts = {}) {
       uEdgeWidth: { value: Math.max(1e-3, width) },
       uEdgeSeed: { value: seedOffset(seed + 0.5) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform float uEdgeAmt;',
       'uniform vec3 uEdgeColor;',

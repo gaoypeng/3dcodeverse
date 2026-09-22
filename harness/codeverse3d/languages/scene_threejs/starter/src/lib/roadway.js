@@ -37,32 +37,24 @@
  */
 
 import * as THREE from 'three';
-import { patchStandard, composeRoughness } from './shader.js';
+import {
+  patchStandard, composeRoughness, glslAxes, glslTriNoise, matteFactor,
+  seedVec3, toColor, unit, WORLD_VARYINGS,
+} from './shader.js';
 
-// Named as terrain_shade, surface_wear, aging, accumulation and strata
-// name them, so a material wearing several libraries carries ONE world
-// position; vAstraRoad is this library's own and no neighbour's.
-const WORLD_VARYINGS = [
-  'varying vec3 vAstraWorld;',
-  'varying vec3 vAstraWorldN;',
-  'varying vec4 vAstraRoad;',
-].join('\n');
+// The world varyings terrain_shade, surface_wear, aging, accumulation and
+// strata share, so a material wearing several libraries carries ONE
+// world position; vAstraRoad is this library's own and no neighbour's.
+const ROAD_VARYINGS = [WORLD_VARYINGS, 'varying vec4 vAstraRoad;'].join('\n');
 
 // All three patches read these, so they are declared once, in the
 // frame. astraRoad*, not a neighbour's spelling: patchStandard THROWS
 // when two chained patches give one function name two different bodies.
 const ROAD_HEAD = [
-  'vec3 astraRoadAxes(vec3 n) {',
-  '  vec3 w = abs(n * n * n);',
-  '  return w / max(w.x + w.y + w.z, 1e-4);',
-  '}',
+  glslAxes('astraRoadAxes'),
   // Three world-plane projections blended by the normal: the top of a
   // kerb and its face have to carry the same grit.
-  'float astraRoadNoise(vec3 p, vec3 w) {',
-  '  return astraNoise2(p.yz + 31.7) * w.x',
-  '       + astraNoise2(p.zx + 67.3) * w.y',
-  '       + astraNoise2(p.xy + 13.9) * w.z;',
-  '}',
+  glslTriNoise('astraRoadNoise', 31.7, 67.3, 13.9),
   // A fine field is TEXTURE up close and STATIC once a pixel spans a
   // cycle of it, so every grain here is faded out by the world size of
   // its own pixel. `cycle` is metres per repeat.
@@ -109,54 +101,11 @@ const FRAME_HEAD = [
   'uniform float uRoadHalf;',
 ].join('\n');
 
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-  return new THREE.Color(
-      value === undefined || value === null ? fallback : value);
-}
-
-/** Clamp to 0..1 without importing MathUtils for one call. */
-function unit(value) {
-  return Math.max(0, Math.min(1, value));
-}
-
-/** fract(), which JS's % gets wrong for a negative seed. */
-function frac(x) {
-  return x - Math.floor(x);
-}
-
-/** astraHash11 from GLSL_UTIL, so CPU and shader agree on a seed. */
-function hash11(x) {
-  let p = frac(x * 0.1031);
-  p *= p + 33.33;
-  return frac(p * (p + p));
-}
-
-/**
- * Turn a seed into a noise-space offset, so two materials differ.
- *
- * The offset is a UNIFORM: a seed baked into the GLSL would be fixed
- * for every material sharing the cache key. The constants differ from
- * surface_wear's, aging's and accumulation's, or one seed would lay
- * this library's grit along that library's blotches.
- */
-function seedOffset(seed, salt) {
-  return new THREE.Vector3(
-      hash11(seed + salt + 2.11), hash11(seed + salt + 6.37),
-      hash11(seed + salt + 11.83)).multiplyScalar(40);
-}
-
-/**
- * A roughening factor one patch cannot push past fully rough.
- *
- * Grit and weeds are matte, roughness only means anything up to 1, and
- * the material may start near it.
- */
-function matteFactor(material, add) {
-  const store = material.userData.astraRoughness;
-  const base = store ? store.base : material.roughness;
-  return base > 0 ? Math.min(1 + add, 1 / base) : 1;
-}
+// The constants differ from surface_wear's, aging's and accumulation's,
+// or one seed would lay this library's grit along that library's
+// blotches.
+const seedOffset = (seed, salt) =>
+  seedVec3(seed + salt, 2.11, 6.37, 11.83, 40);
 
 /** Read a direction option, never as a zero vector the GPU divides by. */
 function dirVector(value, fallback) {
@@ -204,8 +153,8 @@ function withFrame(material, opts) {
       uRoadCenter: { value: center.clone() },
       uRoadHalf: { value: half },
     },
-    vertexHead: [WORLD_VARYINGS, FRAME_HEAD].join('\n'),
-    fragmentHead: [WORLD_VARYINGS, FRAME_HEAD, ROAD_HEAD].join('\n'),
+    vertexHead: [ROAD_VARYINGS, FRAME_HEAD].join('\n'),
+    fragmentHead: [ROAD_VARYINGS, FRAME_HEAD, ROAD_HEAD].join('\n'),
     vertexBody: FRAME_BODY,
   });
 }
@@ -290,7 +239,6 @@ export function patchRoadSurface(material, opts = {}) {
       uRoadLane: { value: lane },
       uRoadSeed: { value: seedOffset(seed, 0.9) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform float uRoadAgg;',
       'uniform float uRoadWear;',
@@ -479,7 +427,6 @@ export function patchSeamBand(material, opts = {}) {
       uSeamWeed: { value: new THREE.Color(0x53602f) },
       uSeamSeed: { value: seedOffset(seed, 5.3) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform float uSeamWidth;',
       'uniform vec3 uSeamColor;',
@@ -607,7 +554,6 @@ export function patchTracks(material, opts = {}) {
       uTrkOffset: { value: opts.offset === undefined ? 0 : opts.offset },
       uTrkSeed: { value: seedOffset(seed, 8.7) },
     },
-    vertexHead: WORLD_VARYINGS,
     fragmentHead: [
       'uniform float uTrkCount;',
       'uniform float uTrkDepth;',

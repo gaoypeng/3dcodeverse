@@ -22,22 +22,11 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { patchNeonSpill } from './neon.js';
 import { fbm2, mulberry32, noiseDataTexture } from './noise.js';
 import {
-  composeRoughness, keepOutOfDepthPasses, makeShaderMaterial, patchStandard,
-  tickShaders,
+  baseRoughness, composeRoughness, keepOutOfDepthPasses, makeShaderMaterial,
+  patchStandard, tickShaders, toColor, unit,
 } from './shader.js';
 
 const _UP = new THREE.Vector3(0, 1, 0);
-
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-  return new THREE.Color(
-      value === undefined || value === null ? fallback : value);
-}
-
-/** Clamp to 0..1 without importing MathUtils for one call. */
-function unit(value) {
-  return Math.max(0, Math.min(1, value));
-}
 
 /** A point in any accepted spelling as its own Vector3. */
 function toVec(p) {
@@ -274,8 +263,7 @@ export function patchCurtainWall(material, opts = {}) {
   const reflect = opts.reflect === undefined ? 0.22 : unit(opts.reflect);
   // Glass is the smoothest thing on a street; roughness is a MATERIAL
   // property here (no patch can reach the per-pixel one).
-  const base = material.userData.astraRoughness
-      ? material.userData.astraRoughness.base : material.roughness;
+  const base = baseRoughness(material);
   composeRoughness(material, 'urban:curtain',
                    base > 0 ? Math.max(0.05, 0.10 / base) : 1);
   return patchStandard(material, {

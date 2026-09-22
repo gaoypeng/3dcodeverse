@@ -1,7 +1,8 @@
 /**
  * Seeded noise substrate: fBm fields, procedural DataTextures, and
  * terrain displacement. ImprovedNoise is UNSEEDED and the platform's
- * global RNG is banned, so `mulberry32` is the one sanctioned PRNG and
+ * global RNG is banned, so `mulberry32` is the sanctioned PRNG (`lehmer`
+ * only keeps the older effects tuned on it where they were) and
  * fbm2/fbm3 seed the lattice via per-octave domain offsets. Other lib
  * modules build on this — keep the exported signatures stable.
  * (The ban is stated without naming the call: the scene_threejs lint
@@ -28,6 +29,20 @@ export function mulberry32(seed) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/**
+ * The 16807 (Park-Miller) stream the older effects were tuned on —
+ * celestial, godrays, veils, watermist, submerged and
+ * `instanceVariation`. Kept because moving them to `mulberry32` would
+ * move every star, shaft and drop they place; new code takes that.
+ *
+ * @param {number} seed Any integer; 0 is taken as 1.
+ * @returns {() => number} A function returning uniform values in (0, 1).
+ */
+export function lehmer(seed) {
+  let s = (seed >>> 0) || 1;
+  return () => ((s = (s * 16807) % 2147483647) / 2147483647);
 }
 
 // Seed-derived per-octave domain offsets; they also de-align octave

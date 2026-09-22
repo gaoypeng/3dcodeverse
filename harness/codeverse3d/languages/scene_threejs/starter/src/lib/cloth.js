@@ -44,7 +44,9 @@ import * as THREE from 'three';
 
 import { windOf } from './grass.js';
 import { mulberry32 } from './noise.js';
-import { patchStandard, shadowLike, tickShaders } from './shader.js';
+import {
+  glslLocalDir, patchStandard, shadowLike, tickShaders, unit,
+} from './shader.js';
 
 const _TAU = Math.PI * 2;
 const _G = 9.81;
@@ -60,11 +62,6 @@ const _WAVE_MODES = [
   [1, 0], [0, 1], [1, 1], [1, -1], [2, 1], [1, 2],
   [2, -1], [2, 2], [3, 1], [1, 3], [3, 2], [2, 3],
 ];
-
-/** Clamp to 0..1 without importing MathUtils for a handful of calls. */
-function clamp01(v) {
-  return Math.max(0, Math.min(1, v));
-}
 
 /**
  * Rotations about Y that send local +X (or +Z) to a world XZ heading.
@@ -176,7 +173,7 @@ function flagSheet(width, height, rad, color, wind, rand) {
   const pos = geom.attributes.position;
   const env = new Float32Array(pos.count * 4);
   for (let i = 0; i < pos.count; i++) {
-    const u = clamp01((pos.getX(i) - rad) / Math.max(width, 1e-6));
+    const u = unit((pos.getX(i) - rad) / Math.max(width, 1e-6));
     // u^1.6, not u: a linear envelope reads as a sheet hinged at the
     // mast, and the growth toward the fly is the whole cue.
     env[i * 4] = u;
@@ -433,7 +430,7 @@ function bannerCloth(width, drop, folds, color, wind, rand) {
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i) / Math.max(width, 1e-6) + 0.5;
     const f = prof(x);
-    data[i * 4] = clamp01(-pos.getY(i) / Math.max(drop, 1e-6));
+    data[i * 4] = unit(-pos.getY(i) / Math.max(drop, 1e-6));
     data[i * 4 + 1] = f.v;
     data[i * 4 + 2] = f.d / Math.max(width, 1e-6);
     data[i * 4 + 3] = f.s;
@@ -543,12 +540,12 @@ function foldProfile(folds, rand) {
   }
   const mid = cum[N] / 2;
   return (x) => {
-    const t = clamp01(x) * N;
+    const t = unit(x) * N;
     const i = Math.min(N - 1, Math.floor(t));
     const f = t - i;
     return {
-      v: raw(clamp01(x)) / peak,
-      d: slope(clamp01(x)),
+      v: raw(unit(x)) / peak,
+      d: slope(unit(x)),
       s: cum[i] + (cum[i + 1] - cum[i]) * f - mid,
     };
   };
@@ -771,7 +768,7 @@ function gustTexture(seed, size = 128) {
   }
   const data = new Uint8Array(size * size * 4);
   for (let i = 0; i < raw.length; i++) {
-    const v = Math.round(255 * clamp01(0.5 + 0.5 * raw[i] / peak));
+    const v = Math.round(255 * unit(0.5 + 0.5 * raw[i] / peak));
     data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = v;
     data[i * 4 + 3] = 255;
   }
@@ -919,14 +916,7 @@ const STALK_HEAD = [
   'attribute vec3 iVar;',
   'varying vec4 vWheat;',
   'varying float vWheatTone;',
-  // A world direction as the LOCAL offset that moves this surface
-  // one metre along it, valid while the basis stays orthogonal.
-  'vec3 clothLocalDir(vec3 w) {',
-  '  mat3 m = mat3(modelMatrix);',
-  '  return vec3(dot(w, m[0]) / max(dot(m[0], m[0]), 1e-6),',
-  '              dot(w, m[1]) / max(dot(m[1], m[1]), 1e-6),',
-  '              dot(w, m[2]) / max(dot(m[2], m[2]), 1e-6));',
-  '}',
+  glslLocalDir('clothLocalDir'),
 ].join('\n');
 
 const STALK_VERTEX = [

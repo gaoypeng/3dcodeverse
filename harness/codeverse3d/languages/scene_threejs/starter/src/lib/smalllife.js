@@ -25,7 +25,8 @@ import { mulberry32 } from './noise.js';
 // cannot drift apart on the same `wind` option.
 import { windOf } from './grass.js';
 import {
-  instancedQuad, makeShaderMaterial, patchStandard, shadowLike, tickShaders,
+  glslLocalDir, instancedQuad, makeShaderMaterial, patchStandard, readVec3,
+  shadowLike, tickShaders, unit,
 } from './shader.js';
 
 const _TAU = Math.PI * 2;
@@ -60,18 +61,6 @@ const _KINDS = {
     size: 0.055, color: 0xc8ff7a,
   },
 };
-
-/** Read a Vector3, an array or an {x,y,z} into a Vector3. */
-function _toVec(p, fx = 0, fy = 0, fz = 0) {
-  if (!p) return new THREE.Vector3(fx, fy, fz);
-  if (Array.isArray(p)) return new THREE.Vector3(p[0], p[1], p[2]);
-  return new THREE.Vector3(p.x, p.y, p.z);
-}
-
-/** Clamp to 0..1 without importing MathUtils for four calls. */
-function clamp01(v) {
-  return Math.max(0, Math.min(1, v));
-}
 
 // A swarm is drawn UNLIT, so the scene's own lights have to reach it as a
 // number. Re-read every `_RELIGHT` ticks: a traverse is cheap, but not 60
@@ -161,7 +150,7 @@ export function makeInsects(opts = {}) {
   const seed = opts.seed === undefined ? 11 : opts.seed;
   const color = new THREE.Color(
       opts.color === undefined ? kind.color : opts.color);
-  const center = _toVec(opts.center, 0, height * 0.5, 0);
+  const center = readVec3(opts.center, 0, height * 0.5, 0);
   const half = new THREE.Vector3(extent, height * 0.5, extent);
   const amp = new THREE.Vector3(
       kind.wander * extent, kind.rise * height * 0.5, kind.wander * extent);
@@ -514,8 +503,8 @@ function reedField(extent, density, height, waterY, ground, wind, seed,
       const bed = ground ? ground(x, z) : 0;
       const depth = waterY - bed;
       const h = height * (0.6 + 0.7 * rand());
-      const dry = clamp01(1 + depth / 0.3);
-      const deep = 1 - 0.6 * clamp01((depth - h * 0.7) / h);
+      const dry = unit(1 + depth / 0.3);
+      const deep = 1 - 0.6 * unit((depth - h * 0.7) / h);
       if (rand() > dry * deep) continue;
       // Radians of tip bend at a full gust: a taller stem is a longer
       // lever, and each one carries its own stiffness.
@@ -523,7 +512,7 @@ function reedField(extent, density, height, waterY, ground, wind, seed,
       const head = rand() < 0.45 && depth < h * 0.85
           ? 0.010 + 0.006 * rand() : 0;
       pos.push(x, bed, z);
-      shape.push(h, 0.004 + 0.003 * rand(), clamp01(depth / h), head);
+      shape.push(h, 0.004 + 0.003 * rand(), unit(depth / h), head);
       bend.push(wind.amp * stiff, wind.amp * stiff * _SUB_DAMP,
                 rand() * _TAU, 0.04 + 0.14 * rand());
       // phase, hue, tone, dryness — dead stems a MINORITY, since a
@@ -648,14 +637,7 @@ const STEM_HEAD = [
   'varying vec4 vReed;',
   'varying vec4 vReedVar;',
   'varying vec2 vReedW;',
-  // A world direction as the LOCAL offset that moves this surface
-  // one metre along it, valid while the basis stays orthogonal.
-  'vec3 reedLocalDir(vec3 w) {',
-  '  mat3 m = mat3(modelMatrix);',
-  '  return vec3(dot(w, m[0]) / max(dot(m[0], m[0]), 1e-6),',
-  '              dot(w, m[1]) / max(dot(m[1], m[1]), 1e-6),',
-  '              dot(w, m[2]) / max(dot(m[2], m[2]), 1e-6));',
-  '}',
+  glslLocalDir('reedLocalDir'),
 ].join('\n');
 
 const STEM_VERTEX = [

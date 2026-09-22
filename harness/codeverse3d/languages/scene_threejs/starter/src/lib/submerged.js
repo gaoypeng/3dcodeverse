@@ -20,9 +20,10 @@
  */
 
 import * as THREE from 'three';
+import { lehmer } from './noise.js';
 import {
-  patchStandard, composeRoughness, makeShaderMaterial, instancedQuad,
-  keepOutOfDepthPasses,
+  composeRoughness, makeShaderMaterial, instancedQuad, keepOutOfDepthPasses,
+  toColor, unit, withBase, worldBase,
 } from './shader.js';
 
 // Water absorbs red an order of magnitude faster than blue, and that
@@ -34,48 +35,10 @@ const EXT_RATIO = new THREE.Vector3(1.0, 0.26, 0.10);
 // water plane, and stays inside the 2 cm an asset's base is allowed.
 const LIFT = 0.012;
 
-// Named as caustics and waterside name them, so a submerged bank
-// wearing a waterline, a net and this declares ONE pair.
-const WORLD_VARYINGS = [
-  'varying vec3 vAstraWorld;',
-  'varying vec3 vAstraWorldN;',
-].join('\n');
-
-// One base for both patches. `transformed` is still object-space after
-// <begin_vertex>, so the instance transform is folded in by hand or
-// every scattered cobble takes its depth from the world origin.
-const BASE = {
-  name: 'submerged:base',
-  vertexHead: WORLD_VARYINGS,
-  vertexBody: [
-    '  vec4 subWp = vec4(transformed, 1.0);',
-    '  vec3 subWn = normal;',
-    '#ifdef USE_INSTANCING',
-    '  subWp = instanceMatrix * subWp;',
-    '  subWn = mat3(instanceMatrix) * subWn;',
-    '#endif',
-    '  vAstraWorld = (modelMatrix * subWp).xyz;',
-    '  vAstraWorldN = normalize((modelMatrix * vec4(subWn, 0.0)).xyz);',
-  ].join('\n'),
-  fragmentHead: WORLD_VARYINGS,
-};
-
-/** Take a THREE.Color, a hex or nothing, never sharing the instance. */
-function toColor(value, fallback) {
-  return new THREE.Color(
-      value === undefined || value === null ? fallback : value);
-}
-
-/** Clamp to 0..1 without importing MathUtils for one call. */
-function unit(value) {
-  return Math.max(0, Math.min(1, value));
-}
-
-/** Deterministic 0..1 stream: a shipped factory owns its own RNG. */
-function rng(seed) {
-  let s = (seed >>> 0) || 1;
-  return () => ((s = (s * 16807) % 2147483647) / 2147483647);
-}
+// One base for both patches, on the world varyings caustics and
+// waterside share, so a submerged bank wearing a waterline, a net and
+// this declares ONE pair.
+const BASE = worldBase('submerged:base', 'subWp', 'subWn');
 
 /**
  * A seed becomes a far-apart lattice offset, not a one-cell shift.
@@ -100,26 +63,6 @@ function extinctionVec(value) {
   }
   const k = value === undefined ? 0.35 : Math.max(0, value);
   return EXT_RATIO.clone().multiplyScalar(k);
-}
-
-/**
- * Apply the shared world-space base, then the patch itself.
- *
- * `patchStandard` replaces a patch of the SAME name in place, so the
- * base costs one vertex body however many of these a material wears.
- */
-function withBase(material, part) {
-  // A raw ShaderMaterial (the addon Water, anything from
-  // makeShaderMaterial) has neither hook, so the patch is a silent
-  // no-op — the one failure mode nothing else here would report.
-  if (material && material.isShaderMaterial) {
-    console.warn(
-        part.name + ': ' + (material.name || 'material') + ' is a raw ' +
-        'ShaderMaterial with no <color_fragment> hook, so this patch ' +
-        'does nothing. Patch a standard-material surface instead.');
-  }
-  patchStandard(material, BASE);
-  return patchStandard(material, part);
 }
 
 const UNDER_HEAD = [
@@ -271,7 +214,7 @@ export function patchUnderwater(material, opts = {}) {
         + 'MeshBasicMaterial and a raw ShaderMaterial do not have. '
         + 'Patch a lit material instead.');
   }
-  return withBase(material, {
+  return withBase(material, BASE, {
     name: 'submerged:underwater',
     uniforms: {
       uSubLevel: { value: level },
@@ -417,7 +360,7 @@ export function makeRainRings(opts = {}) {
   const count = Math.max(1, opts.count === undefined ? 320 : opts.count);
   const width = opts.width === undefined ? 0.055 : opts.width;
   const opacity = opts.opacity === undefined ? 0.42 : opts.opacity;
-  const rand = rng(opts.seed === undefined ? 7 : opts.seed);
+  const rand = lehmer(opts.seed === undefined ? 7 : opts.seed);
 
   const off = new Float32Array(count * 3);
   const ext = new Float32Array(count * 3);
@@ -656,7 +599,7 @@ export function patchThinIce(material, opts = {}) {
   // one thing here that cannot be a uniform.
   composeRoughness(material, 'submerged:thinIce',
                    0.18 + 0.62 * unit(frost));
-  return withBase(material, {
+  return withBase(material, BASE, {
     name: 'submerged:thinIce',
     uniforms: {
       uIceThick: { value: Math.max(thick, 1e-3) },
