@@ -142,6 +142,8 @@ async function main() {
     } catch (e) { sceneErr('post readback failed', e); }
     metrics.shader_errors = (await page.evaluate(() => window.__c3v.shaderErrors())).map(({ _key, ...e }) => e);
     metrics.update_errors = await page.evaluate(() => window.__c3v.updateErrors());
+    // the whole run's, not boot's: coverage failures are pushed while camera checks run
+    metrics.host_warnings = await page.evaluate(() => window.__c3v.hostWarnings());
     Object.assign(metrics, errorSummary(host.errors, boot));
     for (const e of sceneErrors) if (!metrics.console_errors.includes(e)) metrics.console_errors.push(e);
     metrics.ok = metrics.console_errors.length === 0 && metrics.shader_errors.length === 0;

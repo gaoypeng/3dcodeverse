@@ -700,6 +700,7 @@ window.__c3v = {
   ablation,
   fps,
   post: () => (state.postInfo ? { ...state.postInfo } : null),
+  hostWarnings: () => state.hostWarnings.slice(),
   shaderErrors: () => state.shaderErrors.slice(),
   updateErrors: () => state.updateErrors.slice(),
   cameras: () => state.cameras.slice(),

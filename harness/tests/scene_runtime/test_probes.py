@@ -57,6 +57,29 @@ def test_probe_scene_catches_update_throw_and_console_errors(starter_ws):
     assert "update boom" in msgs and "custom failure 42" in msgs
 
 
+def test_check_shaders_runs_raw_like_the_build_probe(ws, tmp_path, monkeypatch):
+    """The shader_probe tool booted with the post chain ON (openHost's default) while the
+    build's probe_scene --compile runs raw, so it compiled — and counted, and would have
+    blamed on the scene — the harness's own GTAO / bloom / grade programs.  Only the chain
+    reads `scene.userData.grade`, so a read of it means the chain was built."""
+    from codeverse3d.spatial.render_scene import render_scene
+
+    ws.src.mkdir(parents=True, exist_ok=True)
+    (ws.src / "scene.js").write_text(
+        "import * as THREE from 'three';\n"
+        "export function createScene() { const scene = new THREE.Scene(); scene.add(new THREE.AmbientLight());\n"
+        "  scene.add(new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial()));\n"
+        "  Object.defineProperty(scene.userData, 'grade', { get() { console.error('post chain built'); return undefined; } });\n"
+        "  return { scene, cameras: [{ name: 'x', position: [3, 3, 3], lookAt: [0, 0, 0], fov: 50 }], update() {} }; }\n"
+    )
+    rep = check_shaders(ws)
+    assert rep.passed and not [f for f in rep.findings if "post chain built" in f.message], [f.message for f in rep.findings]
+    # control: a scene render DOES build the chain, and the read shows up
+    monkeypatch.delenv("C3D_POST", raising=False)
+    rs = render_scene(ws, tmp_path / "control", orbit=False, times=(0.0,), width=160, height=90, fps_seconds=0, sheet=False)
+    assert any("post chain built" in e for e in rs.console_errors), rs.console_errors
+
+
 def test_check_shaders_clean_on_example(starter_ws):
     rep = check_shaders(starter_ws)
     assert rep.gate == "shader_preflight" and rep.passed, [(f.target, f.message) for f in rep.findings]

@@ -73,6 +73,7 @@ const {{ serveDirs, importMapHtml }} = require({json.dumps(str(runtime_js_dir() 
     glb: await get('/a.glb'), json: await get('/sub/b.json'), page: await get('/__p.html'),
     three: await get('/__runtime/node_modules/three/build/three.module.js'),
     escape: await get('/../s.cjs'), missing: await get('/nope.png'), fav: await get('/favicon.ico'),
+    malformed: await get('/100%.png'), after: await get('/a.glb'),   // decodeURIComponent throws on '%.p'
     importmap: importMapHtml(),
   }};
   await srv.close();
@@ -85,6 +86,7 @@ const {{ serveDirs, importMapHtml }} = require({json.dumps(str(runtime_js_dir() 
     assert out["page"]["status"] == 200 and "text/html" in out["page"]["type"]
     assert out["three"]["status"] == 200 and out["three"]["len"] > 100000 and out["three"]["type"] == "text/javascript"
     assert out["escape"]["status"] == 404 and out["missing"]["status"] == 404 and out["fav"]["status"] == 204
+    assert out["malformed"]["status"] == 404 and out["after"]["status"] == 200   # the server survived it
     im = json.loads(out["importmap"].split(">", 1)[1].rsplit("<", 1)[0])["imports"]
     assert im["three"].startswith("/__runtime/") and im["three/addons/"].endswith("/examples/jsm/")
     assert "http" not in json.dumps(im)

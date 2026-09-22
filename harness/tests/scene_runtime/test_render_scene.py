@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -174,6 +175,43 @@ def test_render_scene_clears_stale_metrics(fake_runtime, ws, tmp_path):
     assert all(v.name != "stale" for v in rs.views)
 
 
+# The post chain cannot read this grade, so it is never built and every frame renders RAW
+# (a boot-time host warning); the box refuses the coverage instrument's flat-white mask pass
+# (a warning pushed while the camera checks run, i.e. AFTER boot).
+_HOST_WARNING_SCENE = """
+import * as THREE from 'three';
+export function createScene() {
+  const scene = new THREE.Scene();
+  scene.add(new THREE.AmbientLight(0xffffff, 1.0));
+  Object.defineProperty(scene.userData, 'grade', { get() { throw new Error('grade unreadable'); } });
+  const box = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+  box.name = 'Box';
+  box.onBeforeRender = (r, s) => { if (s.overrideMaterial && s.overrideMaterial.isMeshBasicMaterial) throw new Error('no masks'); };
+  scene.add(box);
+  return { scene, cameras: [{ name: 'cam', position: [0, 1, 4], lookAt: [0, 0, 0], fov: 50 }], update() {} };
+}
+"""
+
+
+@pytest.mark.node
+@needs_browser
+def test_host_warnings_reach_metrics_and_the_log(ws, caplog):
+    """Host warnings were copied into boot.host_warnings once, at the END of boot, and nothing
+    read even that copy: a scene rendered and judged without its post chain, or with the
+    coverage instrument (content_small / hero_unseen) switched off, left no trace at all."""
+    ws.src.mkdir(parents=True, exist_ok=True)
+    (ws.src / "scene.js").write_text(_HOST_WARNING_SCENE)
+    out = ws.renders_dir(0)
+    with caplog.at_level(logging.WARNING, logger=rs_mod.__name__):
+        rs = render_scene(ws, out, orbit=False, times=(0.0,), width=320, height=180, fps_seconds=0, sheet=False)
+    warnings = read_metrics(out)["host_warnings"]
+    assert any(w.startswith("post chain unavailable") and "grade unreadable" in w for w in warnings), warnings
+    assert any(w.startswith("coverage failed for cam") and "no masks" in w for w in warnings), warnings
+    logged = [r.getMessage() for r in caplog.records]
+    assert any("post chain unavailable" in m for m in logged) and any("coverage failed for cam" in m for m in logged)
+    assert [v.name for v in rs.views] == ["cam"]   # the frame itself still renders
+
+
 @pytest.mark.node
 @needs_browser
 def test_update_throw_mid_render_yields_frames_and_console_error(starter_ws):
@@ -257,6 +295,7 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, ws, tmp_path
     settle / camera-repair / auto-exposure flags as the standalone probe and
     render paths — it used to pass none of them."""
     import codeverse3d.languages.scene_threejs as st
+    import codeverse3d.spatial.ablation as ablation_mod
     import codeverse3d.spatial.probes as probes_mod
 
     captured: dict[str, list[str]] = {}
@@ -267,7 +306,8 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, ws, tmp_path
 
     monkeypatch.setattr(probes_mod, "run_scene_script", fake_run)
     monkeypatch.setattr(rs_mod, "run_scene_script", fake_run)
-    for k in ("C3D_SETTLE", "C3D_CAMERA_REPAIR", "C3D_AUTO_EXPOSURE"):
+    monkeypatch.setattr(ablation_mod, "run_scene_script", fake_run)
+    for k in ("C3D_SETTLE", "C3D_CAMERA_REPAIR", "C3D_AUTO_EXPOSURE", "C3D_POST"):
         monkeypatch.delenv(k, raising=False)
 
     # defaults: camera repair ON everywhere, settle on (no flag), exposure off
@@ -279,11 +319,20 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, ws, tmp_path
         render_scene(ws, tmp_path / "out_flags", cameras=[CameraPlan(name="c", position=(1, 2, 3), look_at=(0, 0, 0), fov=45)],
                      orbit=False, times=(0.0,), sheet=False)
     assert _flags(captured["render_scene.mjs"]) == ["--camera-repair"]
+    # effect_ablation measures the frames the judge sees: it used to run with repair OFF
+    # and the post chain ON whatever C3D_POST said
+    with pytest.raises(SceneRenderError):
+        ablation_mod.ablate_scene(ws)
+    assert _flags(captured["ablate_scene.mjs"]) == ["--camera-repair"] and "--no-post" not in captured["ablate_scene.mjs"]
 
     # the A/B words reach every path, including the combined build
     monkeypatch.setenv("C3D_SETTLE", "0")
     monkeypatch.setenv("C3D_CAMERA_REPAIR", "false")
+    monkeypatch.setenv("C3D_POST", "0")
     st._probe_and_preflight(ws, timeout_s=5.0)
     assert _flags(captured["probe_scene.mjs"]) == ["--no-settle"]
     probes_mod.probe_scene(ws)
     assert _flags(captured["probe_scene.mjs"]) == ["--no-settle"]
+    with pytest.raises(SceneRenderError):
+        ablation_mod.ablate_scene(ws)
+    assert _flags(captured["ablate_scene.mjs"]) == ["--no-settle"] and "--no-post" in captured["ablate_scene.mjs"]

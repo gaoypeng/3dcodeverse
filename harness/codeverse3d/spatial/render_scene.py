@@ -226,6 +226,8 @@ def render_scene(
         driver_error = str(e).splitlines()[0][:500]
         res = NodeResult(rc=2, stdout="", stderr="", last_json={"error": driver_error}, duration_ms=0)
     metrics = read_json_or_none(out_dir / "metrics.json") or {}
+    for w in metrics.get("host_warnings") or []:   # e.g. a post chain that could not be built: judged RAW
+        log.warning("render_scene host warning: %s", w)
     _store_motion(out_dir, metrics)
     views: list[RenderView] = []
     for v in metrics.get("views", []):

@@ -109,7 +109,15 @@ async function serveDirs(opts = {}) {
   const routes = opts.routes || {};
 
   const server = http.createServer((req, res) => {
-    const urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
+    let urlPath;
+    try {
+      urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
+    } catch (_e) {
+      // a malformed escape (`/assets/100%.png`) is a missing file, not a crashed driver
+      res.statusCode = 404;
+      res.end(`not found: ${req.url}`);
+      return;
+    }
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 'no-store');
 

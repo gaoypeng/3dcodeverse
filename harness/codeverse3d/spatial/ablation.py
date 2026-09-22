@@ -36,7 +36,12 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse3d.proc import read_json_or_none
-from codeverse3d.spatial.render_scene import SceneRenderError, run_scene_script
+from codeverse3d.spatial.render_scene import (
+    SceneRenderError,
+    post_chain_args,
+    probe_env_args,
+    run_scene_script,
+)
 from codeverse3d.workspace import Workspace
 
 #: census.json key the compact report lands under
@@ -169,6 +174,7 @@ def ablate_scene(
     ]
     if frames:
         args.append("--frames")
+    args += probe_env_args() + post_chain_args()   # the judge's frames: same repair / settle / post policy
     res = run_scene_script("ablate_scene.mjs", args, timeout_s=timeout_s + 20)
     return _report(res.summary, out, duration_ms=int((time.time() - t0) * 1000))
 

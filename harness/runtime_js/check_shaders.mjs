@@ -37,7 +37,8 @@ async function main() {
 
   let host = null;
   try {
-    host = await openHost(ws, { width: 256, height: 144, gpu: args.gpu });
+    // raw, like the build's `probe_scene --compile`: the post chain's own programs are not the scene's
+    host = await openHost(ws, { width: 256, height: 144, gpu: args.gpu, post: false });
     await compileIntoReport(report, files, host);
     await host.close();
   } catch (e) {

@@ -5,6 +5,7 @@
  *
  *   node ablate_scene.mjs --ws <ws> [--out <dir>] [--t 1.5] [--frames] [--max-materials 8]
  *        [--gpu auto] [--timeout-ms 120000]
+ *        [--no-settle] [--camera-repair] [--auto-exposure] [--no-post]   (render_scene's switches)
  *
  * Boots the host once (512x288) and calls `window.__c3v.ablation()` (lib/host_ablation.mjs):
  * every authored camera is rendered as authored and again with every ShaderMaterial /
@@ -23,6 +24,8 @@ import { armWatchdog, dataUrlToPng, ensureDir, fail, finish, parseCli, safeName,
 import { createTimeoutMs, errorSummary, openHost } from './lib/host_page.mjs';
 
 const args = parseCli({
+  'no-settle': { type: 'boolean', default: false }, 'camera-repair': { type: 'boolean', default: false },
+  'auto-exposure': { type: 'boolean', default: false }, 'no-post': { type: 'boolean', default: false },
   ws: {}, out: { default: '' }, t: { default: '1.5' }, 'max-materials': { default: '8' },
   frames: { type: 'boolean', default: false }, gpu: { default: process.env.C3D_RENDER_GPU || 'auto' },
   'timeout-ms': { default: '120000' },
@@ -42,6 +45,8 @@ async function main() {
     host = await openHost(args.ws, {
       width: 512, height: 288, gpu: args.gpu,
       createSceneTimeoutMs: createTimeoutMs(timeoutMs),
+      settle: !args['no-settle'], cameraRepair: !!args['camera-repair'],
+      autoExposure: !!args['auto-exposure'], post: !args['no-post'],
     });
   } catch (e) {
     return fail(`host failed: ${e.message}`);
