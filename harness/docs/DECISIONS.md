@@ -1274,6 +1274,15 @@ written) that were accepted because the code works that way and the tests pin it
   did not route).  Needs `pip install -e harness` once.  NOT renamed: the `astra3d` key-file path, the
   local conda env `cv3d-eval` (renaming it would move an environment another session is using), and
   recorded data (`eval/bench/data`, anything under a runs directory).
+* **D79 Second cleanup pass (2026-09-22): what changed behaviour.**  Six lanes deleted ~1.2k net lines
+  (dead parameters, copies of shared helpers, the compose agent session, the library's duplicated world-space
+  bases — the effect modules' compiled shaders are byte-identical, checked by fingerprint) and fixed ~30 bugs.
+  The deltas a run shows: the scene judge is told authored cameras by their plan names, not `cam_*`
+  (`judge_prompt_hash` moved for every rubric); calibration and pairwise judge the payload the in-run judge
+  sees; routes R3/R4 attach c3d-bbox-contract to object tracks only (scene sessions lack its tools);
+  `--profile` no longer overrides a user-set judge size or turn cap; claude-code usage counts the whole
+  prompt and an overloaded exit is transient; shader_probe compiles without the post chain; host warnings
+  reach the log; the effects catalog documents `userData.update`, `ground({rand})` and `figure()` as built.
 
 ## Rejected / deferred
 
