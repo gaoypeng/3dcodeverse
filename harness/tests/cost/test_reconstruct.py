@@ -18,7 +18,7 @@ def test_reconstructs_and_reconciles(fake_run: Path):
     assert abs(led.ledger_usd - led.recorded_usd) < 1e-6, "rows must reconcile to record.total_usage"
     stages = {r.stage for r in led.rows}
     assert Stage.BASELINE in stages and Stage.JUDGE in stages and Stage.PLAN in stages
-    assert led.track == "static_object" and led.passed is True
+    assert led.track == "static_object" and led.round_scores == [0.8] and led.round_built == [None]
 
 
 def test_generate_event_does_not_double_count_its_session(fake_run: Path):

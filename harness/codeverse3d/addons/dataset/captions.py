@@ -24,13 +24,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from codeverse3d.addons.dataset.sample import code_files_for_round
+from codeverse3d.addons.dataset.sample import code_files_for_round, exported_round
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
 from codeverse3d.contracts.run import RunRecord
 from codeverse3d.prompts import prompt_hash
 from codeverse3d.record import _git
-from codeverse3d.record.record import best_round_record
 from codeverse3d.workspace import Workspace
 
 MAX_CODE_CHARS = 12_000
@@ -99,7 +98,7 @@ def _system_prompt() -> str:
 
 
 def _round_images(ws: Workspace, record: RunRecord) -> tuple[list[ImagePart], list[str]]:
-    rnd = best_round_record(record)
+    rnd = exported_round(ws, record)
     images: list[ImagePart] = []
     used: list[str] = []
     if rnd is None or rnd.renders is None:
@@ -122,7 +121,7 @@ def _round_images(ws: Workspace, record: RunRecord) -> tuple[list[ImagePart], li
 
 
 def _code_excerpt(ws: Workspace, record: RunRecord) -> str:
-    rnd = best_round_record(record)
+    rnd = exported_round(ws, record)
     files, _src = code_files_for_round(ws, rnd)
     entry = ENTRY_FILE[record.spec.language]
     ordered = {k: files[k] for k in sorted(files, key=lambda k: (k != entry, k))}
@@ -158,7 +157,7 @@ def caption_sample(
     ws: Workspace, record: RunRecord, model_id: str, *, model: object | None = None,
     out_dir: Path | str | None = None, slug: str | None = None
 ) -> Captions:
-    """Caption the best round of ``record``.
+    """Caption the round of ``record`` a sample is made of (``sample.exported_round``).
 
     Default: store into ``record.extra["captions"]`` + ``<ws>/captions.json`` and
     refresh what a caption changes: telemetry/ (``package_run``), ``record.json``, and
@@ -199,7 +198,7 @@ def caption_sample(
                                ChatMessage.user("Fix these problems and return the JSON again:\n- " + "\n- ".join(problems))]
     if caps is None or problems:
         raise CaptionError(f"{ws.root}: captions rejected after retry: {problems}")
-    rnd = best_round_record(record)
+    rnd = exported_round(ws, record)
     prov = CaptionProvenance(captioner=model_id, round_index=rnd.index if rnd else None,
                              images_used=used, code_chars=len(code),
                              prompt_hash=prompt_hash(system), cost_usd=cost)

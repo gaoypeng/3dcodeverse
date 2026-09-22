@@ -16,7 +16,7 @@ def test_cost_show(fake_run: Path, tmp_path: Path):
     out = tmp_path / "report.md"
     r = runner.invoke(app, ["cost", "show", str(fake_run), "--md", str(out)])
     assert r.exit_code == 0, r.output
-    assert "passing" in r.stdout and "judge" in r.stdout
+    assert "per run" in r.stdout and "passing" not in r.stdout and "judge" in r.stdout
     assert out.is_file() and "## Per stage" in out.read_text()
 
 

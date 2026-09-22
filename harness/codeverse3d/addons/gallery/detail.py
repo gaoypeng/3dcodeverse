@@ -2,8 +2,8 @@
 
 Everything the harness recorded about one run, in the order you actually ask
 for it: what it produced, how each round went, what the judge said about the
-best round, what the deterministic measurement says, every render, where the
-money went, and the code itself.  The record is re-read per request, so a run a
+picked round (``addons/select``), what the deterministic measurement says, every
+render, where the money went, and the code itself.  The record is re-read per request, so a run a
 bench is still writing shows its latest rounds without a restart.
 """
 
@@ -19,8 +19,8 @@ from codeverse3d.addons.gallery.model import RunEntry
 from codeverse3d.addons.gallery.theme import esc, footer, page_shell, top_bar
 from codeverse3d.addons.gallery.urls import UrlMaker
 from codeverse3d.contracts.common import ENTRY_FILE
-from codeverse3d.contracts.run import RunRecord
-from codeverse3d.record.record import best_round_record, effective_judgment
+from codeverse3d.contracts.run import RoundRecord, RunRecord
+from codeverse3d.record.record import effective_judgment
 from codeverse3d.workspace import Workspace
 
 DETAIL_CSS = CODE_CSS + """
@@ -38,8 +38,8 @@ DETAIL_CSS = CODE_CSS + """
 .linkrow{display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:var(--s-3);font-size:var(--fs-sm);
   overflow-wrap:anywhere}
 .badges{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:var(--s-3);align-items:center}
-.best{background:var(--accent-soft)}
-.best td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.picked{background:var(--accent-soft)}
+.picked td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 details.round{border-top:1px solid var(--line);padding:var(--s-2) 0}
 details.round summary{cursor:pointer;font-size:var(--fs-sm)}
 .jump{display:flex;flex-wrap:wrap;gap:6px;margin:var(--s-4) 0 0;position:sticky;top:52px;z-index:10;
@@ -73,6 +73,10 @@ def _panel(title: str, inner: str, *, anchor: str = "", extra_head: str = "") ->
 
 
 # --------------------------------------------------------------------------- sections
+def _picked(entry: RunEntry, rec: RunRecord) -> RoundRecord | None:
+    return next((r for r in rec.rounds if r.index == entry.picked_round), None)
+
+
 def _hero(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
     """One big legible view + the facts.  Every other angle is in ``renders`` below,
     which is where a grid belongs — the top of the page answers "what is this?"."""
@@ -83,15 +87,14 @@ def _hero(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
             f"alt='{esc(label)} — {esc(entry.slug)}' loading='eager'>"
             f"<figcaption>{esc(label)}</figcaption></a>") if image else \
         "<div class='empty'>no render</div>"
-    redundant = not entry.status or (entry.passed and entry.status == "passed")
     badges = (f"{tier_tag(entry)}{verdict_tag(entry)}"
-              + ("" if redundant else f"<span class='tag'>{esc(entry.status)}</span>")
+              + (f"<span class='tag' title='why the run stopped'>{esc(entry.status)}</span>" if entry.status else "")
               + f"<span class='tag'>{esc(entry.track)}</span><span class='tag'>{esc(entry.language)}</span>")
     delta = ("—" if entry.score is None or entry.baseline_score is None
              else format(entry.score - entry.baseline_score, "+.3f"))
     facts = "".join([
         _kv("score", f"<b>{fmt(entry.score)}</b> (baseline {fmt(entry.baseline_score)}, Δ {delta})"),
-        _kv("rounds", f"{entry.rounds} · best r{entry.best_round if entry.best_round is not None else '–'}"),
+        _kv("rounds", f"{entry.rounds} · picked r{entry.picked_round if entry.picked_round is not None else '–'}"),
         _kv("gate errors", str(entry.gate_errors) + (
             " — " + ", ".join(f"{k}:{v}" for k, v in entry.gate_summary.items()) if entry.gate_summary else "")),
         _kv("cost", f"${entry.cost_usd:.3f}" + (f" · {entry.minutes:.1f} min" if entry.minutes is not None else "")),
@@ -119,8 +122,8 @@ def _rounds_table(entry: RunEntry, urls: UrlMaker) -> str:
         build = "—" if r.build_ok is None else ("ok" if r.build_ok else "failed")
         gates = str(r.gate_errors) + (" (" + ", ".join(f"{k}:{v}" for k, v in r.gates.items()) + ")" if r.gates else "")
         sheet = f"<a href='{esc(urls.file(entry, r.sheet))}'>all views</a>" if r.sheet else "—"
-        best = " class='best'" if r.index == entry.best_round else ""
-        rows.append(f"<tr{best}><td class='n'>{r.index}</td><td>{esc(r.kind)}</td>"
+        picked = " class='picked'" if r.index == entry.picked_round else ""
+        rows.append(f"<tr{picked}><td class='n'>{r.index}</td><td>{esc(r.kind)}</td>"
                     f"<td class='n'>{fmt(r.score)}</td><td>{verdict}</td><td class='n'>{esc(gates)}</td>"
                     f"<td>{build}</td><td class='n'>{r.cost_usd:.3f}</td><td class='n'>{r.duration_s:.0f}</td>"
                     f"<td><code class='xs'>{esc(r.commit)}</code></td><td>{sheet}</td></tr>")
@@ -130,11 +133,11 @@ def _rounds_table(entry: RunEntry, urls: UrlMaker) -> str:
                   f"<tbody>{body}</tbody></table></div>", anchor="rounds")
 
 
-def _judgment_panel(rec: RunRecord, best: int | None) -> str:
-    rnd = best_round_record(rec)
+def _judgment_panel(entry: RunEntry, rec: RunRecord) -> str:
+    rnd = _picked(entry, rec)
     j = effective_judgment(rnd) if rnd is not None else None
     if j is None:
-        return _panel("judge", "<p class='faint small'>the best round has no (non-degraded) verdict.</p>",
+        return _panel("judge", "<p class='faint small'>no round has a (non-degraded) verdict.</p>",
                       anchor="judge")
     scores = "".join(_kv(k, f"{v:.3f}") for k, v in sorted(j.scores.items()))
     issues = "".join(
@@ -151,7 +154,7 @@ def _judgment_panel(rec: RunRecord, best: int | None) -> str:
     inner = (
         f"<p class='small muted'>rubric <code>{esc(j.rubric)}</code> · {esc(j.judge_backend)} · "
         f"n={j.n_samples} · std {j.score_std:.3f} · overall <b>{j.overall:.3f}</b> "
-        f"({'passed' if j.passed else 'failed'})</p>"
+        f"(the judge: {'pass' if j.passed else 'fail'})</p>"
         f"<p style='margin-top:var(--s-2)'>{esc(j.summary)}</p>"
         f"<div class='kvs' style='margin-top:var(--s-3)'>{scores}</div>"
         + (f"<h3 style='margin-top:var(--s-4)'>strengths</h3><ul class='plain'>{strengths}</ul>" if strengths else "")
@@ -159,11 +162,11 @@ def _judgment_panel(rec: RunRecord, best: int | None) -> str:
         + f"<h3 style='margin-top:var(--s-4)'>improvement plan</h3><ul class='plain'>{plan}</ul>"
         + (f"<h3 style='margin-top:var(--s-4)'>acceptance</h3><div class='facts'>{accept}</div>" if accept else "")
     )
-    return _panel(f"judge — best round r{best}", inner, anchor="judge")
+    return _panel(f"judge — picked round r{rnd.index}", inner, anchor="judge")
 
 
-def _measurement_panel(rec: RunRecord) -> str:
-    rnd = best_round_record(rec)
+def _measurement_panel(entry: RunEntry, rec: RunRecord) -> str:
+    rnd = _picked(entry, rec)
     m = rnd.measurement if rnd is not None else None
     if m is None:
         m = next((r.measurement for r in reversed(rec.rounds) if r.measurement is not None), None)
@@ -225,14 +228,14 @@ def _complexity_panel(entry: RunEntry, rec: RunRecord) -> str:
     trail = block.get("by_round")
     if isinstance(trail, list) and len(trail) > 1:
         rows.append(_kv("by round", " → ".join(f"{float(x):.2f}" for x in trail)))
-    note = ("<p class='xs faint'>objective complexity of the delivered artifact "
+    note = ("<p class='xs faint'>objective complexity of the picked round's artifact "
             "(codeverse3d/spatial/complexity.py) — difficulty, not quality; see eval/docs/COMPLEXITY.md</p>")
     return _panel("complexity", f"<div class='kvs'>{''.join(rows)}</div>{note}", anchor="complexity")
 
 
 def _renders_panel(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
     ws = Workspace(entry.path)
-    rnd = best_round_record(rec)
+    rnd = _picked(entry, rec)
     figs: list[tuple[str, str]] = []
     if rnd is not None and rnd.renders is not None:
         for v in rnd.renders.views:
@@ -351,7 +354,6 @@ document.addEventListener('keydown',function(e){
 def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord, *,
                   prev: RunEntry | None = None, nxt: RunEntry | None = None) -> str:
     """Full detail page for a run whose record parsed."""
-    best = entry.best_round
     nav = "".join(f"<a href='#{a}'>{a}</a>" for a in
                   ("rounds", "judge", "complexity", "measurement", "renders", "cost", "code"))
     body = (
@@ -364,9 +366,9 @@ def render_detail(entry: RunEntry, urls: UrlMaker, ws: Workspace, rec: RunRecord
         + _hero(entry, urls, rec)
         + f"<nav class='jump' aria-label='sections'>{nav}</nav>"
         + _rounds_table(entry, urls)
-        + _judgment_panel(rec, best)
+        + _judgment_panel(entry, rec)
         + _complexity_panel(entry, rec)
-        + _measurement_panel(rec)
+        + _measurement_panel(entry, rec)
         + _renders_panel(entry, urls, rec)
         + _cost_panel(entry, ws, rec)
         + _code_panel(entry, urls, rec)

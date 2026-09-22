@@ -6,10 +6,10 @@ initial filter is applied **server-side** (so ``curl '/?track=graphics'`` and a
 no-JS browser both see the right runs and the right summary) and then re-applied
 client-side on every keystroke without a reload.
 
-The summary is a *breakdown*, not a scoreboard: four disjoint buckets that add up
-to the number of runs on screen (``89 shown = 40 passed + 40 failed + 4 unjudged
-+ 5 error``).  "pass 50% (40/80), not ok 5" against "89 runs" is arithmetic the
-reader has to do — and cannot.
+The summary is a *breakdown*, not a scoreboard: disjoint buckets that add up to the
+number of runs on screen (``89 shown = 80 judged + 4 unjudged + 5 error``), next to the
+mean / median picked-round score.  There is no pass rate: a run is not passed or failed
+(2026-09-22).
 """
 
 from __future__ import annotations
@@ -54,13 +54,9 @@ def _summary_strip(entries: list[RunEntry], total: int) -> str:
         f"<span class='seg {VERDICT_META[b][1]}' id='vs-{b}' style='flex:{s.breakdown[b]}'"
         f" title='{s.breakdown[b]} {b}'></span>" for b in VERDICTS)
     chips = "".join(_verdict_chip(b, s.breakdown[b], total=s.n) for b in VERDICTS)
-    per_pass = "—" if s.usd_per_pass is None else f"${s.usd_per_pass:.2f}"
-    nums = (f"<span title='mean / median best score'>score <b class='num' id='s-score'>"
+    nums = (f"<span title='mean / median score of the picked rounds'>score <b class='num' id='s-score'>"
             f"{fmt(s.mean_score)} / {fmt(s.median_score)}</b></span>"
             f"<span>spend <b class='num' id='s-cost'>${s.total_usd:.2f}</b></span>"
-            f"<span title='total spend divided by the number of passing runs'>per pass "
-            f"<b class='num' id='s-perpass'>"
-            f"{per_pass}</b></span>"
             f"<span>wall clock <b class='num' id='s-time'>"
             f"{(f'{s.minutes / 60:.1f} h' if s.minutes >= 90 else f'{round(s.minutes)} min')}</b></span>")
     shown = f"{s.n}" if s.n == total else f"{s.n} <span class='faint'>of {total}</span>"

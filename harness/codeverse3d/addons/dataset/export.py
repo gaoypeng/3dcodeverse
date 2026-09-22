@@ -41,7 +41,7 @@ from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.run import RunId, RunRecord
 from codeverse3d.proc import sha256_file
 from codeverse3d.record._git import CODE_ROOTS
-from codeverse3d.record.record import FoundRun, best_round_record, iter_runs
+from codeverse3d.record.record import FoundRun, iter_runs
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -118,7 +118,7 @@ def export_one(
     one the key falls back to the directory basename (flat layouts only)."""
     key = run_id.slug if run_id is not None else S.sample_key(ws)
     dest = out_dir / S.sample_rel_dir(record, key)
-    rnd = best_round_record(record)
+    rnd = S.exported_round(ws, record)
     files, code_source = S.code_files_for_round(ws, rnd)
     if not files:
         raise S.SampleError("no code files in src/ (nothing to export)")
@@ -158,8 +158,8 @@ def export_samples(
 ) -> ExportReport:
     """Export every eligible run under ``runs_dir`` into ``out_dir`` and rebuild the index.
 
-    The best round is chosen by ``record.best_round`` or the
-    highest judged score.  Runs whose best round never built are skipped unless
+    The exported round is the one ``addons/select`` picks (the highest judged score, or
+    what the run's ``selection.json`` handed over).  Runs whose round never built are skipped unless
     ``include_unbuilt`` (failed runs are still useful for repair pairs, not as
     dataset samples).  Byte-identical duplicates (same raw ``code_sha256`` + prompt)
     are marked ``duplicate_of`` and, with ``drop_duplicates``, left out of the index
@@ -198,17 +198,17 @@ def export_samples(
 
     for ws, rec, rid in found:
         rep.n_runs += 1
-        rnd = best_round_record(rec)
+        rnd = S.exported_round(ws, rec)
         j = S.effective_judgment(rnd) if rnd is not None else None
         score = j.overall if j is not None else None
         if rnd is None:
             _skip(ws.root, rid, "no rounds")
             continue
         if not include_unbuilt and not (rnd.build is not None and rnd.build.ok):
-            _skip(ws.root, rid, "best round did not build")
+            _skip(ws.root, rid, "the exported round did not build")
             continue
-        if only_passed and not (j is not None and j.passed):
-            _skip(ws.root, rid, "not passed")
+        if only_passed and not (j is not None and j.passed):  # the judge's verdict on THAT round
+            _skip(ws.root, rid, "the judge did not pass the exported round")
             continue
         if min_score is not None and (score is None or score < min_score):
             _skip(ws.root, rid, f"score {score} < min_score {min_score}")
@@ -405,7 +405,7 @@ class ManifestFilters(BaseModel):
     only_passed: bool = False
     include_unbuilt: bool = False
     drop_duplicates: bool = False
-    best_round: bool = True
+    picked_round: bool = Field(default=True, description="each sample is the round addons/select picks")
     captions_dir: str = ""
 
 

@@ -240,7 +240,7 @@ app.add_typer(
 )
 app.add_typer(bench_app, name="bench", help="Prompt batteries: run + report.")
 app.add_typer(
-    cost_app, name="cost", help="Cost audit: per stage/role/model, waste, $ per passing artifact."
+    cost_app, name="cost", help="Cost audit: per stage/role/model, waste, $ per run."
 )
 app.add_typer(doctor_app, name="doctor", help="Environment checks.")
 app.add_typer(

@@ -7,10 +7,11 @@ stamps every row with its run's track / language / status, and aggregates:
 * token composition (input / cached / output / thoughts) and the effective
   $/1k-token rate each bucket actually paid;
 * latency next to the money — wall clock, model time, harness (non-model) time;
-* **waste**: rounds that scored worse than the round before, judge verdicts paid
-  for on rounds that were never promoted, repair loops that never converged,
-  degraded verdicts, best-of-N candidates that lost, and spend after the budget
-  was already blown.
+* **waste**: repair loops that never got their round to build, degraded verdicts,
+  best-of-N candidates that lost, and spend after the budget was already blown.
+  Nothing is waste for scoring below another round: since 2026-09-22 every round is
+  kept and any of them can be the one handed over (the "regression", "zero_delta_round"
+  and "unpromoted_judge" kinds measured against an in-run best that no longer exists).
 
 Everything is measured from the recorded telemetry; nothing is estimated except
 where a row says so (``price_source == "event-cost"`` — the event recorded a
@@ -19,7 +20,7 @@ cost but no tokens).
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -36,28 +37,11 @@ AUDIT_DIMENSIONS = ("run", "track", "language", "stage", "role", "backend", "mod
 class WasteItem:
     """One dollar that bought nothing (or bought a worse artifact)."""
 
-    kind: str  # regression | unpromoted_judge | repair_no_converge | degraded_judge |
-    #          # lost_candidate | post_budget | zero_delta_round
+    kind: str  # repair_no_converge | degraded_judge | lost_candidate | post_budget
     run: str
     usd: float
     detail: str = ""
     round: int | None = None
-
-
-@dataclass
-class RoundCost:
-    run: str
-    index: int
-    usd: float
-    score: float | None
-    prev_score: float | None
-    promoted: bool = False
-
-    @property
-    def delta(self) -> float | None:
-        if self.score is None or self.prev_score is None:
-            return None
-        return self.score - self.prev_score
 
 
 @dataclass
@@ -83,18 +67,8 @@ class Audit:
         return len(self.runs)
 
     @property
-    def n_passed(self) -> int:
-        return sum(1 for r in self.runs if r.passed)
-
-    @property
     def usd_per_run(self) -> float:
         return self.total_usd / self.n_runs if self.n_runs else 0.0
-
-    @property
-    def usd_per_passing_artifact(self) -> float:
-        """Total spend (including the runs that failed) divided by the artifacts
-        that actually passed — the only cost-per-unit that matters for a dataset."""
-        return self.total_usd / self.n_passed if self.n_passed else float("inf")
 
     @property
     def wall_s(self) -> float:
@@ -120,47 +94,20 @@ class Audit:
         return calls / len(rounds) if rounds else 0.0
 
 
-def _round_costs(led: RunLedger) -> list[RoundCost]:
-    out: list[RoundCost] = []
-    best = None
-    for idx, score in enumerate(led.round_scores):
-        usd = sum(r.cost_usd for r in led.rows if r.round == idx)
-        promoted = score is not None and (best is None or score > best)
-        rc = RoundCost(run=led.run, index=idx, usd=usd, score=score, prev_score=best, promoted=promoted)
-        if promoted:
-            best = score
-        out.append(rc)
-    return out
-
-
-def _waste(led: RunLedger, rounds: Sequence[RoundCost]) -> list[WasteItem]:
+def _waste(led: RunLedger) -> list[WasteItem]:
     items: list[WasteItem] = []
-    for rc in rounds:
-        if rc.index == 0:
-            continue
-        if rc.delta is not None and rc.delta < 0:
-            items.append(WasteItem("regression", led.run, rc.usd, round=rc.index,
-                                   detail=f"r{rc.index:02d} scored {rc.score:.3f} vs {rc.prev_score:.3f} "
-                                          f"({rc.delta:+.3f}) — the round was paid for and thrown away"))
-        elif rc.delta is not None and abs(rc.delta) < 0.005:
-            items.append(WasteItem("zero_delta_round", led.run, rc.usd, round=rc.index,
-                                   detail=f"r{rc.index:02d} moved the score by {rc.delta:+.3f}"))
-    # judge verdicts on rounds that never became best
     for row in led.rows:
-        if row.stage is not Stage.JUDGE and row.role is not Role.JUDGE:
-            continue
-        rc = next((r for r in rounds if r.index == row.round), None)
-        if rc is not None and not rc.promoted and rc.index > 0:
-            items.append(WasteItem("unpromoted_judge", led.run, row.cost_usd, round=row.round,
-                                   detail=f"judge verdict for r{row.round:02d}, which never became best"))
-        if row.outcome == "degraded":
+        if row.outcome == "degraded" and (row.stage is Stage.JUDGE or row.role is Role.JUDGE):
             items.append(WasteItem("degraded_judge", led.run, row.cost_usd, round=row.round,
                                    detail="degraded verdict (glitch, not a score) — paid for, not usable"))
-    # repair loops that never produced a passing run
-    repair = [r for r in led.rows if r.stage is Stage.REPAIR]
-    if repair and not led.passed:
+    # repair loops that never got their round to build
+    unbuilt = {i for i, ok in enumerate(led.round_built) if ok is False}
+    repair = [r for r in led.rows if r.stage is Stage.REPAIR and r.round in unbuilt]
+    if repair:
         items.append(WasteItem("repair_no_converge", led.run, sum(r.cost_usd for r in repair),
-                               detail=f"{len(repair)} repair call(s) in a run that ended '{led.status}'"))
+                               detail=f"{len(repair)} repair call(s) in round(s) "
+                                      f"{', '.join(f'r{i:02d}' for i in sorted({r.round for r in repair}))} "
+                                      f"that still did not build"))
     # best-of-N candidates that lost (their whole sub-workspace is thrown away).  Two label
     # forms: a live ledger row is ``baseline_c<k>`` (the candidate clone's label), a
     # reconstructed one ``c<k>:baseline``.  Generator sessions only — the quick-judge rows
@@ -174,8 +121,7 @@ def _waste(led: RunLedger, rounds: Sequence[RoundCost]) -> list[WasteItem]:
                                detail=f"best-of-N: {', '.join(names)} lost to {won or '(unknown)'}"))
     # anything spent on a round that finished after the budget was blown
     if led.stop_reason in ("budget",) or led.status == "budget":
-        last = rounds[-1] if rounds else None
-        extra = [r for r in led.rows if r.round is not None and last is not None and r.round > last.index]
+        extra = [r for r in led.rows if r.round is not None and led.n_rounds and r.round > led.n_rounds - 1]
         if extra:
             items.append(WasteItem("post_budget", led.run, sum(r.cost_usd for r in extra),
                                    detail=f"round r{extra[0].round:02d} completed after the budget was already gone"))
@@ -202,10 +148,9 @@ def audit_runs(paths: Iterable[str | Path], *, recheck: bool = False) -> Audit:
             row.track = led.track or "?"
             row.language = led.language or "?"
             row.status = led.status or "?"
-        rounds = _round_costs(led)
         audit.runs.append(led)
         audit.rows += led.rows
-        audit.waste += _waste(led, rounds)
+        audit.waste += _waste(led)
     audit.summary = summarise(audit.rows, dimensions=AUDIT_DIMENSIONS)
     audit.runs.sort(key=lambda r: -r.ledger_usd)
     audit.waste.sort(key=lambda w: -w.usd)

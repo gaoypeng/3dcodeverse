@@ -113,7 +113,7 @@ def render_card(entry: RunEntry, urls: UrlMaker, *, hidden: bool = False) -> str
     name = entry.title or entry.slug
     head = (f"<div class='titlerow'>{tier_tag(entry)}"
             f"<a class='name' href='{esc(urls.detail(entry))}' title='{esc(entry.slug)}'>{esc(name)}</a>"
-            f"<span class='score num' title='best score'>{fmt(entry.score)}</span></div>")
+            f"<span class='score num' title='the picked round\'s score'>{fmt(entry.score)}</span></div>")
     prompt = (f"<p class='prompt' title='{esc(entry.prompt)}'>{esc(entry.prompt)}</p>"
               if entry.prompt else "")
     if entry.state != "ok":
@@ -127,19 +127,17 @@ def render_card(entry: RunEntry, urls: UrlMaker, *, hidden: bool = False) -> str
     if entry.baseline_score is not None and entry.score is not None:
         cls = "up" if entry.score >= entry.baseline_score else "down"
         delta = f" <span class='{cls}'>{entry.score - entry.baseline_score:+.3f}</span>"
-    best = f"r{entry.best_round}" if entry.best_round is not None else "r–"
+    picked = f"r{entry.picked_round}" if entry.picked_round is not None else "r–"
     cx = complexity_chip(entry)
     facts2 = (f"<span>{fmt(entry.baseline_score)} → <b>{fmt(entry.score)}</b>{delta}</span>"
-              f"<span>{best}/{entry.rounds}</span>"
+              f"<span title='picked round / rounds run'>{picked}/{entry.rounds}</span>"
               f"<span>${entry.cost_usd:.2f}</span>"
               + (f"<span>{entry.minutes:.0f} min</span>" if entry.minutes is not None else "")
               + cx)
     gates = (f"<span class='tag pill-warn'>{entry.gate_errors} gate err</span>" if entry.gate_errors
              else "<span class='tag pill-ok'>gates clean</span>")
-    # the run status only earns a chip when it says something the verdict does not
-    # ("passed" next to a green `passed` pill is noise; "plateau"/"budget"/"failed" is not)
-    redundant = not entry.status or (entry.passed and entry.status == "passed")
-    status = "" if redundant else f"<span class='tag'>{esc(entry.status)}</span>"
+    # why the run stopped (max_rounds / budget / agent_quota / …) — never a pass or a fail
+    status = f"<span class='tag' title='why the run stopped'>{esc(entry.status)}</span>" if entry.status else ""
     caption = f"<p class='xs faint clamp1'>{esc(entry.caption)}</p>" if entry.caption else ""
     err = f"<div class='err clamp2' title='{esc(entry.error)}'>{esc(entry.error[:300])}</div>" \
         if entry.error else ""
@@ -157,7 +155,7 @@ def render_card(entry: RunEntry, urls: UrlMaker, *, hidden: bool = False) -> str
 TABLE_HEAD = ("<tr><th class='pickcol'><span class='sr'>select</span></th><th class='thumbcol'></th>"
               "<th class='runcol'>run</th><th>verdict</th><th class='track'>track</th>"
               "<th class='lang'>lang</th><th class='backend'>backend</th><th class='tier'>tier</th>"
-              "<th class='n base'>base</th><th class='n'>best</th><th class='n delta'>Δ</th>"
+              "<th class='n base'>base</th><th class='n'>picked</th><th class='n delta'>Δ</th>"
               "<th class='n'>gates</th><th class='n'>$</th><th class='n min'>min</th>"
               "<th class='rowlinks'>links</th></tr>")
 

@@ -28,9 +28,9 @@ def test_build_index_sections_and_states(gallery_tree: dict[str, Path]):
 
 def test_entry_fields_and_links(gallery_tree: dict[str, Path]):
     entry = entry_for_dir("runs", gallery_tree["runs"] / "wooden_chair_ab12cd34")
-    assert entry.state == "ok" and entry.passed is True and entry.tier == "A"
+    assert entry.state == "ok" and entry.verdict == "judged" and entry.tier == "A"
     assert entry.score == 0.80 and entry.baseline_score == 0.55 and entry.rounds == 2
-    assert entry.best_round == 1 and entry.minutes is not None
+    assert entry.picked_round == 1 and entry.minutes is not None
     assert entry.sheet == "artifacts/renders/r01/sheet.png"
     labels = [link.label for link in entry.links]
     assert labels[:2] == ["workspace", "record.json"]
@@ -68,13 +68,11 @@ def test_filter_and_sort_and_summary(gallery_tree: dict[str, Path]):
     threejs = [e for e in entries if match(e, {"lang": "threejs"})]
     assert [e.slug for e in threejs] == ["lamp_three"]
     assert [e.slug for e in entries if match(e, {"q": "TOASTER"})] == ["ctrl_med_toaster"]
-    assert [e.slug for e in entries if match(e, {"pass": "fail"})] == ["lamp_three"]
     assert {e.slug for e in entries if match(e, {"battery": "static_v9"})} == {
         "art_easy_hinge", "ctrl_med_toaster", "half_written", "not_started"}
     s = summarize([e for e in entries if e.state == "ok"])
-    assert s.n == 4 and s.n_judged == 4 and s.n_passed == 3
-    assert s.pass_rate == 0.75 and s.mean_score is not None and s.median_score is not None
-    assert s.total_usd > 0 and s.usd_per_pass == round(s.total_usd / 3, 4)
+    assert s.n == 4 and s.n_judged == 4 and s.mean_score is not None and s.median_score is not None
+    assert s.total_usd > 0 and not hasattr(s, "pass_rate")
     facets = index.facets()
     assert facets["track"] == ["articulated_object", "static_object"]
     assert facets["battery"] == ["runs", "static_v9"]

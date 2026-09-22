@@ -209,7 +209,7 @@ def test_show_works_on_an_old_layout_run(tmp_path: Path):
     ws, _ = old_layout_run(tmp_path)
     r = _show(ws.root.name, ws.root.parent)
     assert r.exit_code == 0, r.output
-    assert "old layout" in r.output and "computed on the fly" in r.output
+    assert "no deliverable/ yet" in r.output and "computed on the fly" in r.output
     assert "COST & SETTINGS" in r.output and "models per role" in r.output
     assert not ws.telemetry.exists()  # show never writes
 

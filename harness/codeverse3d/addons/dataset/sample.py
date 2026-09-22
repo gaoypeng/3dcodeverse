@@ -22,6 +22,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse3d import __version__
+from codeverse3d.addons import select
 from codeverse3d.addons.dataset.quality import (
     QualityTier,
     code_fingerprint,
@@ -91,7 +92,7 @@ class SampleMeta(BaseModel):
     judge_backend: str = ""
     judge_rubric: str = ""
     score: float | None = None
-    passed: bool | None = None
+    passed: bool | None = Field(default=None, description="the judge's own verdict for the exported round")
     baseline_score: float | None = None
     acceptance_results: dict[str, bool] = Field(default_factory=dict)
     acceptance: list[AcceptanceEntry] = Field(default_factory=list, description="plan checklist + verdicts")
@@ -102,7 +103,7 @@ class SampleMeta(BaseModel):
         default=None, description="objective complexity index of the exported artifact (spatial/complexity.py)")
     complexity_band: str = Field(default="", description="trivial | simple | moderate | complex | intricate")
     rounds: int = 0
-    best_round: int | None = None
+    round: int | None = Field(default=None, description="the exported round (addons/select's pick)")
     rounds_summary: list[dict[str, Any]] = Field(default_factory=list, description="compact per-round digest")
     stop_reason: str = ""
     code_commit: str = ""
@@ -138,9 +139,20 @@ def sample_rel_dir(record: RunRecord, key: str) -> Path:
     return Path(record.spec.track.value) / record.spec.language.value / key
 
 
+def exported_round(ws: Workspace, record: RunRecord) -> RoundRecord | None:
+    """The round a sample is made of: the one ``addons/select`` picks, else — a run with no
+    judged round — its last round that built (a score-less, tier-D sample), else its last."""
+    picked = select.summarise(ws.root, record=record).picked_round
+    rnd = next((r for r in record.rounds if r.index == picked), None)
+    if rnd is None:
+        built = [r for r in record.rounds if r.build is not None and r.build.ok]
+        rnd = (built or record.rounds or [None])[-1]
+    return rnd
+
+
 def code_files_for_round(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes], str]:
     """Raw code tree for a round → ``(files, source)`` where source is ``commit``,
-    ``deliverable`` (the packaged snapshot of the best round) or ``working_tree``."""
+    ``deliverable`` (the packaged snapshot of the handed-over round) or ``working_tree``."""
     if rnd is not None and rnd.commit and _git.commit_exists(ws, rnd.commit):
         return _git.read_tree_at(ws, rnd.commit), "commit"
     packaged = _deliverable_code(ws)
@@ -211,7 +223,7 @@ def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str
         if sheet.is_file():
             _cp(sheet, f"sheet{sheet.suffix or '.png'}")
     if not any(o.startswith("renders/sheet") for o in out):
-        packaged = ws.deliverable / "sheet.png"  # new layout keeps the best sheet here
+        packaged = ws.deliverable / "sheet.png"  # the handed-over round's sheet
         _cp(packaged if packaged.is_file() else None, "sheet.png")
     glb = deliverable_path(ws, "object.glb")
     if glb is not None and glb.stat().st_size < MAX_GLB_BYTES:
@@ -320,7 +332,7 @@ def build_meta(
         judge_rubric=j.rubric if j else "",
         score=j.overall if j else None,
         passed=j.passed if j else None,
-        baseline_score=record.baseline_score,
+        baseline_score=select.summarise(ws.root, record=record).baseline_score,
         acceptance_results=dict(j.acceptance_results) if j else {},
         acceptance=acceptance_entries(record, rnd),
         gate_errors=n_gate_errors,
@@ -329,7 +341,7 @@ def build_meta(
         complexity=cx.get("index") if cx else None,
         complexity_band=str(cx.get("band") or "") if cx else "",
         rounds=len(record.rounds),
-        best_round=rnd.index if rnd is not None else None,
+        round=rnd.index if rnd is not None else None,
         rounds_summary=[round_summary(r) for r in record.rounds],
         stop_reason=str(record.extra.get("stop_reason", "") or ""),
         code_commit=rnd.commit if rnd is not None else "",

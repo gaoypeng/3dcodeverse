@@ -454,8 +454,7 @@ def read_json_or_none(path: Path | str, *, errors: str | None = None) -> dict[st
     The one tolerant reader behind every "use it if it is there" side-car: it
     replaced identical ``try: json.loads(read_text()) except (OSError, ValueError)``
     copies in ``record/telemetry.read_json``, ``eval/bench/complexity_report._read_json``,
-    ``gallery/index._measurement_complexity`` / ``_spec_fields``,
-    ``cli/inspect_cmd._best_round_of_record``, ``runlock._holder``,
+    ``gallery/index._measurement_complexity`` / ``_spec_fields``, ``runlock._holder``,
     ``languages/threejs/__init__.py``'s plan loader, ``cost/reconstruct._read_json``,
     ``spatial/_render_common.read_json`` and ``cli/_judge.plan_summary_for`` — all
     the same algorithm, differing only in whether they also checked ``isinstance(dict)``

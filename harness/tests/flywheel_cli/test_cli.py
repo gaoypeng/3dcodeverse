@@ -489,8 +489,8 @@ def test_texture_is_not_offered_on_tracks_that_have_no_glb(tmp_path: Path):
 
 
 # --------------------------------------------------- render must not publish the wrong round
-def _round_guard_ws(tmp_path: Path, *, best: int, tree: int):
-    """A workspace whose record names `best` while the render tree sits at `tree`."""
+def _round_guard_ws(tmp_path: Path, *, tree: int, best: int | None = None):
+    """A workspace whose render tree sits at `tree` (an old record may still name a `best`)."""
     import json as _json
 
     from codeverse3d.workspace import Workspace
@@ -499,28 +499,22 @@ def _round_guard_ws(tmp_path: Path, *, best: int, tree: int):
     ws.create()
     for i in range(tree + 1):
         (ws.artifacts / "renders" / f"r{i:02d}").mkdir(parents=True, exist_ok=True)
-    ws.record_path.write_text(_json.dumps({"best_round": best}))
+    if best is not None:
+        ws.record_path.write_text(_json.dumps({"best_round": best}))
     return ws
 
 
 def test_render_only_labels_the_working_tree_round(tmp_path: Path):
-    """Implicit and explicit round selection must never label another tree's code."""
+    """The tree ends at the last round (2026-09-22), so a plain render IS that round; a
+    --round that names another one would label another round's code, and is refused."""
     from codeverse3d.cli._common import CliError
     from codeverse3d.cli.inspect_cmd import _render_round_or_refuse
 
-    ws = _round_guard_ws(tmp_path, best=3, tree=4)
+    ws = _round_guard_ws(tmp_path, tree=4, best=3)
+    assert _render_round_or_refuse(ws, None) == 4, "an old record's best_round no longer matters"
     with pytest.raises(CliError) as ei:
-        _render_round_or_refuse(ws, None)
-    msg = str(ei.value)
-    assert "BEST round is r3" in msg and "working tree is at r4" in msg
-    assert "deliverable" in msg, "it must point at the packaged best round"
-    assert "--round 4" in msg, "and offer the explicit escape"
-    assert ei.value.exit_code == 2
-    with pytest.raises(CliError):
         _render_round_or_refuse(ws, 3)
+    msg = str(ei.value)
+    assert "working tree, which is at round 4" in msg and "3dcode pick" in msg and ei.value.exit_code == 2
     assert _render_round_or_refuse(ws, 4) == 4, "rendering the tree's own round is fine"
-    # The common case stays quiet: no record, or best == tree, just renders.
-    assert _render_round_or_refuse(_round_guard_ws(tmp_path / "a", best=2, tree=2), None) == 2
-    ws = _round_guard_ws(tmp_path / "b", best=1, tree=1)
-    ws.record_path.unlink()  # a run that has not written a record yet
-    assert _render_round_or_refuse(ws, None) == 1
+    assert _render_round_or_refuse(_round_guard_ws(tmp_path / "b", tree=1), None) == 1

@@ -153,10 +153,10 @@ def index_cmd(
         from rich.table import Table
 
         t = Table(title="summary")
-        for col in ("track", "language", "generator", "n", "pass", "baseline", "final", "Δ", "cost"):
+        for col in ("track", "language", "generator", "n", "baseline", "picked", "Δ", "cost"):
             t.add_column(col)
         for r in summary(out_sqlite):
             t.add_row(r["track"], r["language"], r["generator"], str(r["n"]),
-                      f"{(r['pass_rate'] or 0):.2f}", f"{(r['baseline_mean'] or 0):.3f}", f"{(r['final_mean'] or 0):.3f}",
+                      f"{(r['baseline_mean'] or 0):.3f}", f"{(r['picked_mean'] or 0):.3f}",
                       f"{(r['delta_mean'] or 0):+.3f}", f"${(r['cost_usd'] or 0):.2f}")
         console.print(t)

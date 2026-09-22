@@ -89,11 +89,9 @@ class RunLedger:
     generator: str = ""
     status: str = ""
     stop_reason: str = ""
-    passed: bool = False
-    baseline_score: float | None = None
-    final_score: float | None = None
     n_rounds: int = 0
     round_scores: list[float | None] = field(default_factory=list)
+    round_built: list[bool | None] = field(default_factory=list)  # per round: did its build (+repair) succeed
     recorded_usd: float = 0.0
     wall_s: float = 0.0   # time the run was actually working (budget elapsed / stage+round durations)
     span_s: float = 0.0   # first to last event — includes time queued behind other runs
@@ -271,7 +269,6 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
         track=str(spec.get("track") or ""), language=str(spec.get("language") or ""),
         generator=str(backends.get("generator") or ""),
         status=str(record.get("status") or ""), stop_reason=str(extra.get("stop_reason") or ""),
-        baseline_score=record.get("baseline_score"), final_score=record.get("final_score"),
         recorded_usd=float(total.cost_usd),
     )
     cands = _read_json(root / "rounds" / "candidates.json") or (extra.get("candidates") or {})
@@ -279,7 +276,6 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
         led.selected_candidate = f"c{cands['selected']}"
     rounds = record.get("rounds") or []
     led.n_rounds = len(rounds)
-    led.passed = bool(record.get("status") == "passed")
 
     live_rows = _live_rows(root, run=run, recheck=recheck)
     led.source = "live" if live_rows else "reconstructed"
@@ -303,6 +299,7 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
         idx = int(r.get("index") or 0)
         judgment = r.get("judgment") or {}
         led.round_scores.append((judgment or {}).get("overall"))
+        led.round_built.append((r.get("build") or {}).get("ok"))
         ju = _usage(judgment.get("usage"))
         if ju.input_tokens or ju.cost_usd:
             judged_rounds.add(idx)
@@ -396,8 +393,8 @@ def reconstruct_cell(cell_dir: str | Path, *, recheck: bool = False) -> RunLedge
     run = RunId(battery="", rel=f"{root.parent.name}/{root.name}").slug  # <prompt>__<arm>
     led = RunLedger(run=run, path=root, track="static_object", language="blender",
                     generator=str(cell.get("arm") or root.name),
-                    status=str(cell.get("status") or ""), passed=bool(cell.get("passed")),
-                    final_score=cell.get("score"), n_rounds=1,
+                    status=str(cell.get("status") or ""), round_scores=[cell.get("score")],
+                    round_built=[cell.get("build_ok")], n_rounds=1,
                     wall_s=float(cell.get("wall_s") or 0.0), model_s=float(cell.get("gen_seconds") or 0.0))
     live = _live_rows(root, run=run, recheck=recheck)
     if live:  # the cell wrote its own ledger while it ran: one priced row per real call

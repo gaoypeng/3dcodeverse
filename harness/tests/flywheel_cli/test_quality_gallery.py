@@ -94,7 +94,7 @@ def test_export_meta_tiers_duplicates_and_captions_sidecar(runs_dir: Path, tmp_p
     assert meta["quality_tier"] == "A" and meta["gate_errors"] == 0 and meta["gate_summary"] == {"lint": 0}
     assert meta["acceptance"] == [{"id": "a1", "text": "", "how": "", "priority": "", "passed": True}]
     assert len(meta["code_fingerprint"]) == 64 and meta["prompt_hash"] == prompt_hash("a wooden dining chair")
-    assert [r["index"] for r in meta["rounds_summary"]] == [0, 1] and meta["best_round"] == 1
+    assert [r["index"] for r in meta["rounds_summary"]] == [0, 1] and meta["round"] == 1
     u_meta = json.loads((out / "articulated_object" / "urdf_blender" / "cabinet_urdf" / "meta.json").read_text())
     assert "meshes/Body.glb" in u_meta["files"] and (out / "articulated_object" / "urdf_blender" / "cabinet_urdf" / "meshes" / "Body.glb").is_file()
     # side-car captions are picked up for lamp_three only

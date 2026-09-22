@@ -1,12 +1,15 @@
 """Render an :class:`~codeverse3d.addons.costreport.audit.Audit` as markdown or a console table.
 
-Pure formatting: every number comes from the audit, nothing is recomputed here.
+Pure formatting: every number comes from the audit, nothing is recomputed here — the
+per-run baseline / picked scores come from ``addons/select`` (a one-shot compare cell,
+which has no record.json, reports its one score).
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 
+from codeverse3d.addons import select
 from codeverse3d.addons.costreport.audit import (
     Audit,
     cached_input_share,
@@ -14,6 +17,7 @@ from codeverse3d.addons.costreport.audit import (
     stage_latency,
     uncached_if_no_cache,
 )
+from codeverse3d.cost.reconstruct import RunLedger
 from codeverse3d.cost.routing import pro_break_even, routing_table
 from codeverse3d.cost.types import CostBucket
 
@@ -78,14 +82,27 @@ def dimension_table(audit: Audit, dim: str, *, limit: int | None = None, order: 
     return table(BUCKET_HEADERS, bucket_rows(buckets, audit.total_usd))
 
 
+def _scores(r: RunLedger) -> tuple[float | None, float | None]:
+    """``(baseline, picked)``: round 0's score and the round ``addons/select`` picks."""
+    if (r.path / "record.json").is_file():
+        try:
+            s = select.summarise(r.path)
+            return s.baseline_score, s.picked_score
+        except Exception:  # noqa: BLE001 - an unreadable record still gets its cost row
+            return None, None
+    score = r.round_scores[0] if r.round_scores else None  # a one-shot cell: one round
+    return score, score
+
+
 def runs_table(audit: Audit, *, limit: int = 20) -> str:
     rows = []
     for r in audit.runs[:limit]:
+        baseline, picked = _scores(r)
         rows.append([r.run, r.track or "-", _usd(r.ledger_usd), r.n_rounds,
-                     f"{r.baseline_score:.3f}" if r.baseline_score is not None else "-",
-                     f"{r.final_score:.3f}" if r.final_score is not None else "-",
-                     r.status, f"{r.wall_s / 60:.1f}", f"{r.model_s / 60:.1f}"])
-    return table(("run", "track", "USD", "rounds", "baseline", "final", "status", "wall min", "model min"), rows)
+                     f"{baseline:.3f}" if baseline is not None else "-",
+                     f"{picked:.3f}" if picked is not None else "-",
+                     r.stop_reason or r.status, f"{r.wall_s / 60:.1f}", f"{r.model_s / 60:.1f}"])
+    return table(("run", "track", "USD", "rounds", "baseline", "picked", "stop", "wall min", "model min"), rows)
 
 
 def waste_table(audit: Audit) -> str:
@@ -100,8 +117,7 @@ def summary_lines(audit: Audit) -> list[str]:
     cached, total_in, cache_usd = cached_input_share(audit)
     no_cache = uncached_if_no_cache(audit)
     return [
-        f"- runs: **{audit.n_runs}** ({audit.n_passed} passed) — total **{_usd(audit.total_usd)}**, "
-        f"{_usd(audit.usd_per_run)} per run, **{_usd(audit.usd_per_passing_artifact)} per passing artifact**",
+        f"- runs: **{audit.n_runs}** — total **{_usd(audit.total_usd)}**, {_usd(audit.usd_per_run)} per run",
         f"- tokens: {_tok(total_in)} input of which **{_share(cached, total_in):.0f}% cached** "
         f"({_tok(audit.summary.total.output_tokens)} output, {_tok(audit.summary.total.thoughts_tokens)} thoughts)",
         f"- prompt caching already saves **{_usd(no_cache - audit.total_usd)}** "

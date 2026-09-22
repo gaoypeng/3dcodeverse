@@ -120,8 +120,9 @@ section.battery > h2{display:flex;gap:var(--s-2) var(--s-3);align-items:baseline
 .tier{font-weight:750;color:var(--accent-fg);min-width:20px;justify-content:center}
 .tier.A{background:var(--tier-a)} .tier.B{background:var(--tier-b)}
 .tier.C{background:var(--tier-c)} .tier.D{background:var(--tier-d)}
-.pill-pass,.v-pass.tag,.pill-ok{color:var(--ok);background:var(--ok-soft)}
-.pill-fail,.v-fail.tag{color:var(--bad);background:var(--bad-soft)}
+.pill-pass,.pill-ok{color:var(--ok);background:var(--ok-soft)}
+.pill-fail{color:var(--bad);background:var(--bad-soft)}
+.v-judged.tag{color:var(--accent);background:var(--accent-soft)}
 .pill-warn,.v-err.tag{color:var(--warn);background:var(--warn-soft)}
 .v-none.tag{color:var(--fg-3);background:var(--chip)}
 .pill-accent{color:var(--accent);background:var(--accent-soft)}
@@ -171,7 +172,7 @@ footer.foot{max-width:var(--maxw);margin:0 auto;padding:var(--s-4);color:var(--f
 """
 
 INDEX_CSS = """
-/* --- status rail: four disjoint buckets that add up to the runs on screen --- */
+/* --- status rail: disjoint buckets that add up to the runs on screen ------- */
 .summary{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-3);
   margin:var(--s-3) 0 var(--s-2);padding:8px var(--s-3);background:var(--surface);
   border:1px solid var(--line);border-radius:var(--r-2)}
@@ -186,14 +187,13 @@ INDEX_CSS = """
 .vchip .pct{font-size:var(--fs-xs);opacity:.7}
 .vchip:hover{filter:brightness(.97)}
 :root[data-theme="dark"] .vchip:hover{filter:brightness(1.2)}
-.vchip.v-pass{color:var(--ok);background:var(--ok-soft)}
-.vchip.v-fail{color:var(--bad);background:var(--bad-soft)}
+.vchip.v-judged{color:var(--accent);background:var(--accent-soft)}
 .vchip.v-err{color:var(--warn);background:var(--warn-soft)}
 .vchip[aria-pressed="true"]{outline:2px solid currentColor;outline-offset:1px}
 .vbar{display:flex;height:8px;flex:1 1 160px;min-width:120px;border-radius:999px;overflow:hidden;
   background:var(--sunken)}
 .vbar .seg{display:block;min-width:0;transition:flex-grow .2s}
-.vbar .seg.v-pass{background:var(--ok)} .vbar .seg.v-fail{background:var(--bad)}
+.vbar .seg.v-judged{background:var(--accent)}
 .vbar .seg.v-none{background:var(--line-strong)} .vbar .seg.v-err{background:var(--warn)}
 .sumnums{display:flex;flex-wrap:wrap;gap:2px var(--s-3);font-size:var(--fs-sm);color:var(--fg-3);
   margin-left:auto}
@@ -222,11 +222,10 @@ details.filters[open] > summary{border-bottom:1px solid var(--line)}
 .card{position:relative;background:var(--surface);border:1px solid var(--line);
   border-left:6px solid var(--line-strong);border-radius:var(--r-2);overflow:hidden;
   display:flex;flex-direction:column;box-shadow:var(--shadow)}
-.card.v-pass{border-left-color:var(--ok)}
-.card.v-fail{border-left-color:var(--bad)}
+.card.v-judged{border-left-color:var(--accent)}
 .card.v-err{border-left-color:var(--warn)}
 .card.v-none{border-left-color:var(--line-strong)}
-.card.v-fail,.card.v-err{background:color-mix(in srgb,var(--surface) 94%,var(--bad-soft))}
+.card.v-err{background:color-mix(in srgb,var(--surface) 94%,var(--bad-soft))}
 .card .shot{position:relative;display:block;background-color:var(--shot-bg);
   background-image:repeating-conic-gradient(var(--shot-check) 0% 25%,transparent 0% 50%);
   background-size:22px 22px;aspect-ratio:4/3;overflow:hidden;
@@ -295,8 +294,7 @@ td.pickcol .pick{opacity:1;position:static;background:none;padding:0}
 td.thumbcol,th.thumbcol{width:66px;padding:3px 6px}
 img.rowthumb{width:52px;height:40px;object-fit:contain;background:var(--shot-bg);border-radius:var(--r-1);
   display:block;box-shadow:inset 0 0 0 1px var(--shot-ring)}
-tr.v-fail td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
-tr.v-pass td:first-child{box-shadow:inset 3px 0 0 var(--ok)}
+tr.v-judged td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 tr.v-err td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
 tr.picked{background:var(--accent-soft)}
 td.rowlinks a{margin-right:8px}
@@ -399,8 +397,8 @@ INDEX_JS = r"""
 var node=document.getElementById('gallery-data');
 if(!node) return;
 var DATA=JSON.parse(node.textContent);
-var KEYS=['q','track','lang','tier','backend','pass','verdict','battery'];
-var BUCKETS=['passed','failed','unjudged','error'];
+var KEYS=['q','track','lang','tier','backend','verdict','battery'];
+var BUCKETS=['judged','unjudged','error'];
 var els={};
 KEYS.concat(['sort']).forEach(function(k){els[k]=document.getElementById('f-'+k);});
 var F={};
@@ -416,7 +414,6 @@ function match(r){
   if(F.lang && r.lang!==F.lang) return false;
   if(F.tier && r.tier!==F.tier) return false;
   if(F.backend && r.backend!==F.backend) return false;
-  if(F.pass && r.pass!==F.pass) return false;
   if(F.verdict && r.verdict!==F.verdict) return false;
   if(F.battery && r.battery!==F.battery) return false;
   return true;
@@ -433,16 +430,15 @@ function cmp(a,b){
 function fmt(v,d){return (v===null||v===undefined)?'—':Number(v).toFixed(d);}
 function set(id,txt){var e=document.getElementById(id); if(e) e.textContent=txt;}
 
-/* the strip's promise: the four buckets always add up to the runs on screen */
+/* the strip's promise: the buckets always add up to the runs on screen */
 function summarize(rows){
-  var scored=[],total=0,mins=0,passed=0;
-  var b={passed:0,failed:0,unjudged:0,error:0};
+  var scored=[],total=0,mins=0;
+  var b={judged:0,unjudged:0,error:0};
   rows.forEach(function(r){
     if(typeof r.score==='number') scored.push(r.score);
     total+=r.cost||0; mins+=r.minutes||0;
     if(b[r.verdict]===undefined) b[r.verdict]=0;
     b[r.verdict]++;
-    if(r.verdict==='passed') passed++;
   });
   var mean=scored.length?scored.reduce(function(a,c){return a+c;},0)/scored.length:null;
   var srt=scored.slice().sort(function(a,c){return a-c;});
@@ -459,7 +455,6 @@ function summarize(rows){
   });
   set('s-score', fmt(mean,3)+' / '+fmt(med,3));
   set('s-cost', '$'+total.toFixed(2));
-  set('s-perpass', passed?'$'+(total/passed).toFixed(2):'—');
   set('s-time', mins>=90?(mins/60).toFixed(1)+' h':Math.round(mins)+' min');
 }
 

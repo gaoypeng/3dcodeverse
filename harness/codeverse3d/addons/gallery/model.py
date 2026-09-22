@@ -5,8 +5,10 @@ Two small vocabularies live here so the page renderers never invent wording:
 * :func:`humanize_view` — the render pipeline's machine view names
   (``front_right_34``, ``t=2.5s``, ``pose_door_hinge@upper``) become the words a
   person would say ("Front Right ¾", "t = 2.5 s", "Pose · door_hinge@upper");
-* :data:`VERDICTS` — the four **disjoint** triage buckets every run falls into
-  exactly once, so a status breakdown always sums to the number of runs shown.
+* :data:`VERDICTS` — the three **disjoint** triage buckets every run falls into
+  exactly once, so a status breakdown always sums to the number of runs shown.  None of
+  them is a pass or a fail: a run has none since 2026-09-22 — its card shows the score of
+  the round ``addons/select`` picks.
 """
 
 from __future__ import annotations
@@ -17,14 +19,13 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-#: the four buckets, in the order they are always displayed
-VERDICTS = ("passed", "failed", "unjudged", "error")
+#: the three buckets, in the order they are always displayed
+VERDICTS = ("judged", "unjudged", "error")
 
 #: bucket → (short label, css class, what it means)
 VERDICT_META: dict[str, tuple[str, str, str]] = {
-    "passed": ("passed", "v-pass", "judged and over the rubric threshold"),
-    "failed": ("failed", "v-fail", "judged and under the rubric threshold"),
-    "unjudged": ("unjudged", "v-none", "the run finished but has no verdict"),
+    "judged": ("judged", "v-judged", "a round was judged: the card shows the picked round's score"),
+    "unjudged": ("unjudged", "v-none", "the run finished but no round has a verdict"),
     "error": ("error", "v-err", "no record.json, or a corrupt / half-written one"),
 }
 
@@ -92,7 +93,7 @@ LinkKind = Literal["file", "dir", "code", "viewer"]
 RunState = Literal["ok", "pending", "broken"]
 
 #: filter names the index page and ``/api/runs`` both understand
-FILTER_KEYS = ("q", "track", "lang", "tier", "backend", "pass", "verdict", "battery")
+FILTER_KEYS = ("q", "track", "lang", "tier", "backend", "verdict", "battery")
 
 
 class RunLink(BaseModel):
@@ -104,7 +105,8 @@ class RunLink(BaseModel):
 
 
 class RoundRow(BaseModel):
-    """One refine round, flattened for the detail page's rounds table."""
+    """One round, flattened for the detail page's rounds table (``passed`` is the judge's
+    own verdict for THAT round — a fact about the round, never about the run)."""
 
     index: int
     kind: str = ""
@@ -142,16 +144,15 @@ class RunEntry(BaseModel):
     status: str = ""
     caption: str = ""
 
-    score: float | None = None
+    score: float | None = Field(default=None, description="the picked round's score (addons/select)")
     baseline_score: float | None = None
-    passed: bool | None = None
     tier: str = "D"
     gate_errors: int = 0
     gate_summary: dict[str, int] = Field(default_factory=dict)
     cost_usd: float = 0.0
     minutes: float | None = None
     rounds: int = 0
-    best_round: int | None = None
+    picked_round: int | None = Field(default=None, description="the round addons/select hands over")
 
     complexity: float | None = Field(
         default=None, description="objective complexity index of the delivered artifact (spatial/complexity.py)")
@@ -159,10 +160,10 @@ class RunEntry(BaseModel):
     complexity_axes: dict[str, float] = Field(
         default_factory=dict, description="the measured axes behind the index, for the detail page")
 
-    sheet: str = Field(default="", description="run-relative contact sheet (best round)")
+    sheet: str = Field(default="", description="run-relative contact sheet (picked round)")
     hero: str = Field(default="", description="run-relative single hero view (the card's image)")
     hero_label: str = Field(default="", description="what the hero view shows, humanised")
-    n_views: int = Field(default=0, description="how many individual views the best round has")
+    n_views: int = Field(default=0, description="how many individual views the picked round has")
     links: list[RunLink] = Field(default_factory=list)
     round_rows: list[RoundRow] = Field(default_factory=list)
     cost_by_stage: dict[str, float] = Field(default_factory=dict)
@@ -174,21 +175,15 @@ class RunEntry(BaseModel):
         return f"{self.battery}/{self.slug}"
 
     @property
-    def pass_state(self) -> str:
-        return "pass" if self.passed else ("fail" if self.passed is False else "na")
-
-    @property
     def verdict(self) -> str:
         """The triage bucket — exactly one of :data:`~codeverse3d.addons.gallery.model.VERDICTS`.
 
-        The four are disjoint *and* exhaustive on purpose: a status breakdown built
+        The three are disjoint *and* exhaustive on purpose: a status breakdown built
         from them always sums to the number of runs on screen.  A run whose record
         is missing or corrupt is an ``error``, never a silent "unjudged"."""
         if self.state != "ok":
             return "error"
-        if self.passed is None:
-            return "unjudged"
-        return "passed" if self.passed else "failed"
+        return "unjudged" if self.score is None else "judged"
 
     @property
     def card_image(self) -> str:
@@ -204,7 +199,7 @@ class RunEntry(BaseModel):
         return {
             "key": self.key, "battery": self.battery, "slug": self.slug, "name": self.title or self.slug,
             "track": self.track, "lang": self.language, "backend": self.generator, "tier": self.tier,
-            "pass": self.pass_state, "verdict": self.verdict, "score": self.score, "path": self.path,
+            "verdict": self.verdict, "score": self.score, "path": self.path,
             "cost": round(self.cost_usd, 6), "minutes": self.minutes, "state": self.state,
             "complexity": self.complexity, "text": self.search_text(),
         }
@@ -221,26 +216,23 @@ class RootSection(BaseModel):
 class Summary(BaseModel):
     """The numbers in the summary strip — computed over whatever is *currently* selected.
 
-    ``breakdown`` is the load-bearing one: four disjoint buckets that **sum to
-    ``n``**, so the strip can state "89 runs = 40 passed · 40 failed · 4 unjudged
-    · 5 error" instead of the old un-addable "89 runs / 50% (40/80) / not ok 5"."""
+    ``breakdown`` is the load-bearing one: disjoint buckets that **sum to ``n``**, so the
+    strip can state "89 runs = 80 judged · 4 unjudged · 5 error".  There is no pass rate:
+    a run is not passed or failed (2026-09-22) — the scores say how the runs went."""
 
     n: int = 0
     n_judged: int = 0
-    n_passed: int = 0
     breakdown: dict[str, int] = Field(default_factory=dict,
                                       description="verdict bucket → count; sums to n")
-    pass_rate: float | None = None
     mean_score: float | None = None
     median_score: float | None = None
     total_usd: float = 0.0
-    usd_per_pass: float | None = None
     minutes: float = 0.0
     broken: int = 0
 
 
 def verdict_breakdown(entries: list[RunEntry]) -> dict[str, int]:
-    """``{bucket: count}`` over all four buckets (zeros included), summing to ``len(entries)``."""
+    """``{bucket: count}`` over every bucket (zeros included), summing to ``len(entries)``."""
     counts = dict.fromkeys(VERDICTS, 0)
     for e in entries:
         counts[e.verdict] += 1
@@ -250,17 +242,13 @@ def verdict_breakdown(entries: list[RunEntry]) -> dict[str, int]:
 def summarize(entries: list[RunEntry]) -> Summary:
     """Summary strip for ``entries`` (the same arithmetic the page's JS does)."""
     scored = [e.score for e in entries if e.score is not None]
-    judged = [e for e in entries if e.passed is not None]
-    passed = [e for e in judged if e.passed]
     total = sum(e.cost_usd for e in entries)
     return Summary(
-        n=len(entries), n_judged=len(judged), n_passed=len(passed),
+        n=len(entries), n_judged=len(scored),
         breakdown=verdict_breakdown(entries),
-        pass_rate=(len(passed) / len(judged)) if judged else None,
         mean_score=round(statistics.fmean(scored), 4) if scored else None,
         median_score=round(statistics.median(scored), 4) if scored else None,
         total_usd=round(total, 4),
-        usd_per_pass=round(total / len(passed), 4) if passed else None,
         minutes=round(sum(e.minutes or 0.0 for e in entries), 1),
         broken=sum(1 for e in entries if e.state != "ok"),
     )
@@ -307,10 +295,7 @@ def match(entry: RunEntry, flt: dict[str, str]) -> bool:
         if want and want != value:
             return False
     want_verdict = (flt.get("verdict") or "").strip()
-    if want_verdict and want_verdict != entry.verdict:
-        return False
-    want_pass = (flt.get("pass") or "").strip()
-    return not (want_pass and want_pass != entry.pass_state)
+    return not (want_verdict and want_verdict != entry.verdict)
 
 
 def sort_entries(entries: list[RunEntry], key: str) -> list[RunEntry]:

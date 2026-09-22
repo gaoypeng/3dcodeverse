@@ -68,7 +68,7 @@ def _spark(entry: RunEntry) -> str:
     top = max(r.score or 0.0 for r in rows) or 1.0
     bars = "".join(
         f"<i style='height:{max(3, round(26 * (r.score or 0.0) / top))}px'"
-        f"{' class=best' if r.index == entry.best_round else ''}"
+        f"{' class=best' if r.index == entry.picked_round else ''}"
         f" title='r{r.index} {r.score:.3f}'></i>" for r in rows)
     return f"<div class='spark'>{bars}</div>"
 
@@ -122,7 +122,7 @@ def render_compare(entries: list[RunEntry], urls: UrlMaker, *, note: str = "") -
         _row("gate errors", entries, lambda e: str(e.gate_errors) + (
             " <span class='xs faint'>" + esc(", ".join(f"{k}:{v}" for k, v in e.gate_summary.items()))
             + "</span>" if e.gate_summary else "")),
-        _row("rounds", entries, lambda e: f"{e.rounds} · best r{e.best_round if e.best_round is not None else '–'}"),
+        _row("rounds", entries, lambda e: f"{e.rounds} · picked r{e.picked_round if e.picked_round is not None else '–'}"),
         _row("cost", entries, lambda e: f"${e.cost_usd:.3f}"),
         _row("wall clock", entries, lambda e: "—" if e.minutes is None else f"{e.minutes:.1f} min"),
         _row("track", entries, lambda e: esc(e.track)),
@@ -165,7 +165,7 @@ def csv_safe(value: object) -> object:
 
 CSV_COLUMNS = ("battery", "slug", "title", "verdict", "tier", "track", "language", "generator",
                "judge", "score", "baseline_score", "delta", "gate_errors", "cost_usd", "minutes",
-               "rounds", "best_round", "status", "state", "path", "prompt")
+               "rounds", "picked_round", "status", "state", "path", "prompt")
 
 
 def export_csv(entries: list[RunEntry]) -> str:
@@ -182,6 +182,6 @@ def export_csv(entries: list[RunEntry]) -> str:
             "" if e.baseline_score is None else f"{e.baseline_score:.4f}",
             "" if delta is None else f"{delta:+.4f}", e.gate_errors, f"{e.cost_usd:.4f}",
             "" if e.minutes is None else f"{e.minutes:.2f}", e.rounds,
-            "" if e.best_round is None else e.best_round, e.status, e.state, e.path, e.prompt,
+            "" if e.picked_round is None else e.picked_round, e.status, e.state, e.path, e.prompt,
         ]])
     return buf.getvalue()

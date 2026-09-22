@@ -9,8 +9,8 @@ tabulates, per round: gate error count, the stored overall, the new mean/std,
 per-criterion std, defects and caps.  Across rounds it reports the Pearson and
 Spearman correlation between gate error counts and the new scores (expected
 negative), and between stored and new overalls.  Optionally renders a clay /
-normals geometry set for a best round that stored none (``artifacts/object.glb``) so
-the geometry montage is exercised.  Output goes to ``out_dir`` (never into the run).
+normals geometry set for the picked round (``addons/select``) when it stored none — from
+its own ``artifacts/rNN/object.glb`` — so the geometry montage is exercised.  Output goes to ``out_dir`` (never into the run).
 
 CLI: ``python -m codeverse3d.addons.calibration runs/a runs/b --model gemini:gemini-3.7-flash --n 3 --out scratch/``
 """
@@ -28,6 +28,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from codeverse3d.addons import select
 from codeverse3d.cli._judge import build_judge_input, make_judge, rubric_for
 from codeverse3d.contracts.artifacts import Judgment, RenderSet
 from codeverse3d.contracts.run import RoundRecord, RunRecord
@@ -35,7 +36,6 @@ from codeverse3d.contracts.spec import Spec
 from codeverse3d.judges.base import JudgeInput
 from codeverse3d.judges.rubrics import is_degraded
 from codeverse3d.judges.vlm_judge import VlmJudge
-from codeverse3d.proc import read_json_or_none
 from codeverse3d.record.record import RecordError, load_record
 from codeverse3d.workspace import Workspace
 
@@ -65,7 +65,7 @@ class RoundCase(BaseModel):
     gate_errors: int
     gate_warnings: int
     stored: Judgment | None = None
-    is_best: bool = False
+    is_picked: bool = False
     glb: str | None = None
 
 
@@ -162,11 +162,11 @@ def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[Ro
     ws = Workspace(run_dir)
     try:
         run = load_record(ws)
-    except RecordError:  # an interrupted run: rounds/ + spec.json (+ whatever best_round it left)
-        run = RunRecord(spec=Spec.model_validate_json(ws.spec_path.read_text()), workspace=str(run_dir),
-                        best_round=(read_json_or_none(ws.record_path) or {}).get("best_round"))
-    best = run.best_round
-    glb = run_dir / "artifacts" / "object.glb"
+        picked = select.summarise(run_dir, record=run).picked_round
+    except RecordError:  # an interrupted run: rounds/ + spec.json
+        run = RunRecord(spec=Spec.model_validate_json(ws.spec_path.read_text()), workspace=str(run_dir))
+        picked = None
+    canonical = run_dir / "artifacts" / "object.glb"  # where a round's GLB was before rounds kept their own
     cases: list[RoundCase] = []
     for path in sorted((run_dir / "rounds").glob("r*.json")):
         rec = RoundRecord.model_validate_json(path.read_text())
@@ -180,16 +180,16 @@ def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[Ro
             inp=build_judge_input(ws, run, rec),
             gate_errors=sum(len(g.errors) for g in rec.gates),
             gate_warnings=sum(1 for g in rec.gates for f in g.findings if f.severity.value == "warn"),
-            stored=rec.judgment, is_best=(best == rec.index) if best is not None else False,
-            glb=str(glb) if glb.is_file() else None,
+            stored=rec.judgment, is_picked=picked == rec.index,
+            glb=next((str(p) for p in (ws.round_artifacts(rec.index) / "object.glb", canonical) if p.is_file()), None),
         ))
-    if best is None and cases:  # no record: treat the last round as the one the GLB belongs to
-        cases[-1].is_best = True
+    if picked is None and cases:  # no record / nothing judged: the tree's GLB is its last round's
+        cases[-1].is_picked = True
     return cases
 
 
 def render_geometry_views(case: RoundCase, out_dir: Path, mode: str) -> RenderSet | None:
-    """Clay/normals renders of the run's final GLB for the best round (object tracks only)."""
+    """Clay/normals renders of the picked round's GLB (object tracks only)."""
     if not case.glb or case.inp.spec.track.value == "scene":
         return None
     from codeverse3d.conventions import OBJECT_CLAY_VIEWS
@@ -288,7 +288,7 @@ def calibrate(
         raise ValueError(f"no judgeable rounds found under {list(map(str, run_dirs))}")
     geometry: dict[int, RenderSet | None] = {}
     for i, c in enumerate(cases):  # a round's stored clay views win; render only where there are none
-        want = geometry_mode and c.is_best and c.inp.geometry_views is None
+        want = geometry_mode and c.is_picked and c.inp.geometry_views is None
         geometry[i] = render_geometry_views(c, out, geometry_mode) if want else None
 
     def kind(c: RoundCase) -> tuple[str, bool]:  # what make_judge's choice of class depends on
@@ -322,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--model", default=None, help="chat model id, e.g. gemini:gemini-3.7-flash")
     ap.add_argument("--n", type=int, default=3, help="samples per round")
     ap.add_argument("--out", default=".", help="output directory (json + md)")
-    ap.add_argument("--geometry", default="clay", help="clay | normals | none (geometry montage for the best round)")
+    ap.add_argument("--geometry", default="clay", help="clay | normals | none (geometry montage for the picked round)")
     ap.add_argument("--rounds", default="", help="comma-separated round indices (default all)")
     ap.add_argument("--thinking", default="low")
     ap.add_argument("--workers", type=int, default=4)

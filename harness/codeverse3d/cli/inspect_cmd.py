@@ -2,9 +2,9 @@
 
 Owns the three read-mostly commands on a finished (or in-flight) workspace: the
 ``status`` summary (spec / run_state / record / candidates / recent events), the
-``render`` command with its round-label refusal (`_render_round_or_refuse`) and the
-graphics-track frame copy, and the ``judge`` re-judge that writes
-``artifacts/judge/rNN_cli.json``.  Its sibling ``cli/main.py`` owns the typer app,
+``render`` command (the working tree, which ends at the run's last round) with its
+round-label refusal and the graphics-track frame copy, and the ``judge`` re-judge that
+writes ``artifacts/judge/rNN_cli.json`` (default: the round ``addons/select`` picks).  Its sibling ``cli/main.py`` owns the typer app,
 ``make`` / ``resume`` (spec building + track dispatch), ``mcp`` and the registration
 of every command — including these three, which it registers with ``app.command``
 like ``layout_cmd.py``'s ``show``.
@@ -192,16 +192,14 @@ def judge(
     """Re-judge a round with the SAME inputs as the in-run judge (renders + measurement +
     gates + acceptance + plan digest + previous verdict + stored clay views); writes
     artifacts/judge/rNN_cli.json."""
+    from codeverse3d.addons import select
     from codeverse3d.cli import _judge as J
     from codeverse3d.record.record import load_record
 
     ws = C.open_workspace(slug, runs_dir)
     rec = load_record(ws)
-    idx = (
-        round_index
-        if round_index is not None
-        else (rec.best_round if rec.best_round is not None else _latest_round(ws))
-    )
+    picked = select.pick(ws.root, record=rec) if round_index is None else None
+    idx = round_index if round_index is not None else (picked if picked is not None else _latest_round(ws))
     rnd = J.load_round(ws, rec, idx)
     if rnd is None or rnd.renders is None or not rnd.renders.views:
         raise C.CliError(f"round {idx} has no renders (rounds/r{idx:02d}.json / record.json)")
@@ -284,50 +282,22 @@ def _render_graphics(ws, spec: Spec, out_dir: Path) -> None:
 def _render_round_or_refuse(ws, round_index: int | None) -> int:
     """Which round this render is labelled as — refusing when the label would lie.
 
-    ``render`` renders the WORKING TREE, which sits at the last round the run wrote.
-    ``--round`` only chose the output folder, so `3dcode render X --round 3` wrote
-    r03-labelled images of round 4's code, and with no flag at all a run whose best round
-    was not its last silently published its worst one.
-
-    Measured 2026-08-25 on tsr_scn_neon_alley: judge by round 0.338 / 0.375 / 0.529 /
-    0.632 / 0.000 — round 4 rendered completely blank, all eight tiles empty.  The harness
-    correctly kept r3 and the deliverable is correct, but the tree was left at r4, so a
-    plain `3dcode render` re-rendered eight blank frames and was very nearly shipped.
-
-    So: no flag renders the tree only when the tree IS the best round; otherwise this
-    refuses and points at ``deliverable/``, which already holds the best round's code,
-    sheet and a manifest naming the commit.  Rendering a round other than the tree's would
-    need that round checked out, which this command does not do — hence a refusal rather
-    than a mislabelled image.
+    ``render`` renders the WORKING TREE, which ends at the last round the run wrote
+    (2026-09-22: nothing restores an earlier round).  ``--round`` only chose the output
+    folder, so `3dcode render X --round 3` wrote r03-labelled images of round 4's code.
+    Rendering another round would need it checked out, which this command does not do —
+    every round's own renders are already in ``artifacts/renders/rNN/``, and
+    ``3dcode pick <slug> --round N`` packages any round with its GLB.
     """
     tree = _latest_round(ws)
-    best = _best_round_of_record(ws)
-    if round_index is not None:
-        if round_index != tree:
-            raise C.CliError(
-                f"cannot render round {round_index}: `render` renders the working tree, which is at "
-                f"round {tree}, and --round only labels the output folder.  The best round's code, "
-                f"renders and manifest are already packaged in {ws.deliverable} — read "
-                f"{ws.deliverable / 'sheet.png'}, or `3dcode resume {ws.root.name}` to keep iterating.",
-                code=2)
-        return round_index
-    if best is not None and best != tree:
+    if round_index is not None and round_index != tree:
         raise C.CliError(
-            f"refusing to render: this run's BEST round is r{best} but the working tree is at "
-            f"r{tree}, so this would render the wrong round — and r{tree} may be why it was not "
-            f"chosen.  Read {ws.deliverable / 'sheet.png'} (the packaged best round), or pass "
-            f"--round {tree} to render the tree anyway.",
+            f"cannot render round {round_index}: `render` renders the working tree, which is at "
+            f"round {tree}, and --round only labels the output folder.  Round {round_index}'s renders "
+            f"are in {ws.renders_dir(round_index)}; `3dcode pick {ws.root.name} --round {round_index}` "
+            f"packages it.",
             code=2)
     return tree
-
-
-def _best_round_of_record(ws) -> int | None:
-    """``record.best_round``, or None when there is no readable record yet."""
-    rec = read_json_or_none(ws.record_path)
-    if rec is None:
-        return None
-    best = rec.get("best_round")
-    return best if isinstance(best, int) else None
 
 
 def _latest_round(ws) -> int:

@@ -52,7 +52,7 @@ def cost(
     recheck: Annotated[bool, typer.Option("--recheck", help="re-price every call with today's table")] = False,
     md: Annotated[Path | None, typer.Option("--md", help="also write the full markdown report here")] = None,
 ) -> None:
-    """Cost breakdown: per stage, per role, per model, waste, $ per passing artifact.
+    """Cost breakdown: per stage, per role, per model, waste, $ per run.
 
     ``3dcode cost <slug>`` reports one run from its own ledger; ``--runs-dir <dir>``
     aggregates every run under a root (a bench battery)."""

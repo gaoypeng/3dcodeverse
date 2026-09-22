@@ -1,9 +1,10 @@
 """The triage affordances: the status breakdown, the hero view, label humanisation,
 multi-select routing (compare / CSV) and the detail page's neighbour links.
 
-The invariant worth a test is the arithmetic one: the four verdict buckets are
-disjoint and exhaustive, so the strip's "n runs shown = a + b + c + d" is true for
-*any* selection — including one holding half-written records.
+The invariant worth a test is the arithmetic one: the verdict buckets are disjoint and
+exhaustive, so the strip's "n runs shown = a + b + c" is true for *any* selection —
+including one holding half-written records.  None of them is a pass or a fail
+(2026-09-22): a run is judged, unjudged or unreadable.
 """
 
 from __future__ import annotations
@@ -35,14 +36,14 @@ from codeverse3d.addons.gallery.urls import UrlMaker
 
 
 # --------------------------------------------------------------------------- breakdown
-def test_the_four_buckets_are_disjoint_and_sum_to_n(gallery_tree: dict[str, Path]):
+def test_the_buckets_are_disjoint_and_sum_to_n(gallery_tree: dict[str, Path]):
     entries = build_index([gallery_tree["runs"], gallery_tree["battery"]]).entries()
     s = summarize(entries)
     assert s.n == 6
     assert set(s.breakdown) == set(VERDICTS)
     assert sum(s.breakdown.values()) == s.n
-    # the tree holds 3 passing, 1 failing, and 2 runs with no usable record
-    assert s.breakdown == {"passed": 3, "failed": 1, "unjudged": 0, "error": 2}
+    # the tree holds 4 judged runs and 2 with no usable record
+    assert s.breakdown == {"judged": 4, "unjudged": 0, "error": 2}
     # every entry lands in exactly one bucket
     assert sorted(e.verdict for e in entries) == sorted(
         k for k, n in s.breakdown.items() for _ in range(n))
@@ -53,7 +54,7 @@ def test_a_run_with_no_record_is_error_not_unjudged(gallery_tree: dict[str, Path
     by_slug = {e.slug: e for e in entries}
     assert by_slug["half_written"].verdict == "error"   # corrupt record
     assert by_slug["not_started"].verdict == "error"    # no record at all
-    assert by_slug["half_written"].passed is None       # ...and still unjudged in the old sense
+    assert by_slug["half_written"].score is None        # ...and nothing to score
 
 
 def test_breakdown_of_an_empty_selection_is_all_zeroes():
@@ -68,13 +69,12 @@ def test_the_page_states_the_breakdown_and_it_adds_up(gallery_tree: dict[str, Pa
     for bucket in VERDICTS:
         assert f"id='vc-{bucket}'" in markup
     assert "runs shown" in markup
-    # the old un-addable "pass rate / not ok" pair of tiles is gone
-    assert "PASS RATE" not in markup.upper()
+    # no pass rate and no pass/fail bucket: a run is not passed or failed
+    assert "PASS RATE" not in markup.upper() and "per pass" not in markup and "vc-passed" not in markup
 
 
 # --------------------------------------------------------------------------- verdict filter
-@pytest.mark.parametrize(("verdict", "n"), [("passed", 3), ("failed", 1), ("error", 2),
-                                            ("unjudged", 0)])
+@pytest.mark.parametrize(("verdict", "n"), [("judged", 4), ("error", 2), ("unjudged", 0)])
 def test_verdict_filter_selects_exactly_its_bucket(gallery_tree: dict[str, Path], verdict: str, n: int):
     entries = build_index([gallery_tree["runs"], gallery_tree["battery"]]).entries()
     kept = [e for e in entries if match(e, {"verdict": verdict})]
@@ -85,8 +85,8 @@ def test_verdict_filter_reaches_the_api_and_the_page(gallery_tree: dict[str, Pat
     app = GalleryApp([gallery_tree["runs"], gallery_tree["battery"]])
     payload = json.loads(app.route("/api/runs", {"verdict": "error"}).body)
     assert payload["n"] == 2 and {r["state"] for r in payload["runs"]} == {"broken", "pending"}
-    page = app.route("/", {"verdict": "failed"}).body.decode()
-    assert "<option value='failed' selected>" in page
+    page = app.route("/", {"verdict": "judged"}).body.decode()
+    assert "<option value='judged' selected>" in page
 
 
 # --------------------------------------------------------------------------- hero view
@@ -108,7 +108,7 @@ def test_hero_falls_back_to_the_sheet_when_a_round_has_no_views(tmp_path: Path):
     ws, rec = make_fake_run(tmp_path / "runs", "noviews")
     for rnd in rec.rounds:
         rnd.renders = None
-    assert hero_view(ws, rec) == ("", "", 0)
+    assert hero_view(ws, rec, 1) == ("", "", 0) and hero_view(ws, rec, None) == ("", "", 0)
 
 
 # --------------------------------------------------------------------------- labels
@@ -210,7 +210,7 @@ def test_export_csv_route_and_columns(gallery_tree: dict[str, Path]):
     assert "attachment" in r.headers["Content-Disposition"]
     lines = r.body.decode().strip().splitlines()
     assert lines[0] == ",".join(CSV_COLUMNS) and len(lines) == 2
-    assert "wooden_chair_ab12cd34" in lines[1] and ",passed," in lines[1]
+    assert "wooden_chair_ab12cd34" in lines[1] and ",judged," in lines[1]
 
 
 def test_export_csv_without_a_selection_exports_the_current_filter(gallery_tree: dict[str, Path]):

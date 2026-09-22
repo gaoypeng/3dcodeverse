@@ -19,8 +19,7 @@ from codeverse3d.addons.costreport.report import console, markdown
 
 def test_audit_of_one_run(fake_run: Path):
     audit = audit_runs([fake_run.parent])
-    assert audit.n_runs == 1 and audit.n_passed == 1
-    assert audit.usd_per_passing_artifact == pytest.approx(audit.total_usd)
+    assert audit.n_runs == 1 and audit.usd_per_run == pytest.approx(audit.total_usd)
     assert audit.summary.dimension("track")["static_object"].cost_usd == pytest.approx(audit.total_usd)
     assert audit.calls_per_round() > 0
     cached, total, usd = cached_input_share(audit)
@@ -47,25 +46,31 @@ def test_a_run_that_booked_no_money_still_reports(tmp_path: Path):
     assert "0%" in console(audit) and "# Cost audit" in markdown(audit)
 
 
-def test_waste_finds_a_regression(fake_run: Path, tmp_path: Path):
-    """A refine round that scores below the best is money spent on a worse artifact."""
+def test_a_lower_scoring_round_is_not_waste_but_a_repair_that_never_built_is(fake_run: Path, tmp_path: Path):
+    """Every round is kept and any can be handed over (2026-09-22), so scoring below an
+    earlier round is no longer waste; repair money in a round that still did not build is."""
     import shutil
 
     ws = tmp_path / "regressed"
     shutil.copytree(fake_run, ws)
     record = json.loads((ws / "record.json").read_text())
-    r0 = record["rounds"][0]
-    r1 = json.loads(json.dumps(r0))
-    r1["index"] = 1
-    r1["kind"] = "refine"
+    r1 = json.loads(json.dumps(record["rounds"][0]))
+    r1.update(index=1, kind="refine")
     r1["judgment"]["overall"] = 0.5  # worse than r00's 0.8
-    record["rounds"].append(r1)
-    record["total_usage"]["cost_usd"] *= 2
+    r2 = json.loads(json.dumps(r1))
+    r2.update(index=2, judgment=None, build={"ok": False, "language": "blender"})
+    record["rounds"] += [r1, r2]
+    record["total_usage"]["cost_usd"] *= 3
     (ws / "record.json").write_text(json.dumps(record))
-    audit = audit_runs([ws])
-    kinds = audit.waste_by_kind()
-    assert "regression" in kinds and kinds["regression"][1] > 0
-    assert any("scored 0.500 vs 0.800" in w.detail for w in audit.waste)
+    ledger = ws / "telemetry" / "cost.jsonl"
+    ledger.parent.mkdir(exist_ok=True)
+    ledger.write_text("\n".join(json.dumps({"run": ws.name, "round": i, "stage": stage, "role": "generator",
+                                            "label": label, "model": "gemini-3.7-flash", "cost_usd": 0.05})
+                                for i, stage, label in ((1, "refine", "refine"), (2, "repair", "r02_refine_repair1")))
+                      + "\n")
+    kinds = audit_runs([ws]).waste_by_kind()
+    assert not {"regression", "zero_delta_round", "unpromoted_judge"} & set(kinds)
+    assert kinds["repair_no_converge"] == (1, pytest.approx(0.05))
 
 
 def test_report_renders(fake_run: Path):
@@ -73,7 +78,7 @@ def test_report_renders(fake_run: Path):
     md = markdown(audit)
     for heading in ("Per stage", "Per role", "Where a dollar bought nothing", "Routing"):
         assert f"## {heading}" in md
-    assert "per passing artifact" in md
+    assert "per passing artifact" not in md and "per run" in md
     assert "judge" in console(audit)
 
 

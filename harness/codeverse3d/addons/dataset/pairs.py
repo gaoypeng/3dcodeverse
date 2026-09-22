@@ -18,8 +18,9 @@ Output is JSONL, one object per pair.  All kinds share::
   (``notes`` say "repair attempts: N (fixed)"): the ``rNN <kind>: generated``
   commit is the rejected state, the round's final commit the chosen one; the
   error message comes from the round's failing ``build.done`` events.
-* ``cross_backend`` the same (prompt, track, language) run under ≥ 2 generators;
-  best vs each other candidate with Δ ≥ ``min_delta``.
+* ``cross_backend`` the same (prompt, track, language) run under ≥ 2 generators; each
+  run is its picked round (``addons/select``), the top one against each other candidate
+  with Δ ≥ ``min_delta``.
 """
 
 from __future__ import annotations
@@ -29,11 +30,12 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from codeverse3d.addons import select
 from codeverse3d.addons.dataset.quality import prompt_hash
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.proc import read_jsonl_lenient
 from codeverse3d.record import _git
-from codeverse3d.record.record import best_round_record, effective_judgment, iter_runs
+from codeverse3d.record.record import effective_judgment, iter_runs
 from codeverse3d.workspace import Workspace
 
 __all__ = ["build_pairs", "preference_pairs", "repair_pairs", "in_round_repair_pairs",
@@ -215,10 +217,10 @@ def cross_backend_pairs(
             continue
         cands = []
         for ws, rec, slug in runs:
-            best = best_round_record(rec)
-            if best is None or effective_judgment(best) is None:  # unjudged or degraded verdict
-                continue
-            cands.append((ws, rec, slug, best))
+            picked = select.summarise(ws.root, record=rec).picked_round  # None = no judged round
+            rnd = next((r for r in rec.rounds if r.index == picked), None)
+            if rnd is not None:
+                cands.append((ws, rec, slug, rnd))
         if len(cands) < 2:
             continue
         cands.sort(key=lambda c: effective_judgment(c[3]).overall, reverse=True)  # type: ignore[union-attr]

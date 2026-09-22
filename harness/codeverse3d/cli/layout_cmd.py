@@ -80,13 +80,15 @@ def _legacy_deliverable_rows(ws: Workspace) -> dict[str, Any]:
 
 
 def print_deliverable(ws: Workspace, record: RunRecord) -> None:
+    from codeverse3d.addons import select
     from codeverse3d.record.deliverable import load_deliverable
 
     _section("DELIVERABLE — what the run produced")
     spec = record.spec
+    s = select.summarise(ws.root, record=record)
     head = {"prompt": spec.prompt, "track": spec.track.value, "language": spec.language.value,
-            "status": record.status.value, "best round": record.best_round,
-            "score": fmt_score(record.final_score), "workspace": ws.root}
+            "stop": s.stop_reason, "picked round": f"{s.picked_round} (by {s.method})",
+            "score": fmt_score(s.picked_score), "workspace": ws.root}
     d = load_deliverable(ws)
     if d is not None:
         head["code"] = f"{d.entry or 'deliverable/src/'} @ {d.commit[:12] or '-'} ({d.code_source})"
@@ -97,25 +99,27 @@ def print_deliverable(ws: Workspace, record: RunRecord) -> None:
         for name, why in d.skipped.items():
             warn(f"not packaged: {name} — {why}")
     else:
-        console.print(kv_table("artifacts (old layout — no deliverable/)",
+        console.print(kv_table("artifacts (no deliverable/ yet — `3dcode pick` packages a round)",
                                _legacy_deliverable_rows(ws)))
 
 
 # --------------------------------------------------------------------------- (b) evidence
 def print_evidence(ws: Workspace, record: RunRecord) -> None:
+    from codeverse3d.addons import select
     from codeverse3d.addons.dataset.sample import gate_error_summary
-    from codeverse3d.record.record import best_round_record, effective_judgment
+    from codeverse3d.record.record import effective_judgment
 
     _section("QUALITY EVIDENCE — why we believe it")
-    rnd = best_round_record(record)
+    s = select.summarise(ws.root, record=record)
+    rnd = next((r for r in record.rounds if r.index == s.picked_round), None)
     j = effective_judgment(rnd) if rnd is not None else None
     gates = gate_error_summary(rnd)
     rows: dict[str, Any] = {
-        "baseline → best": f"{fmt_score(record.baseline_score)} → {fmt_score(record.final_score)}",
+        "baseline → picked": f"{fmt_score(s.baseline_score)} → {fmt_score(s.picked_score)}",
         "rubric": (j.rubric if j else "") or str(record.extra.get("rubric") or "-"),
-        "passed": "-" if j is None else j.passed,
+        "judge on that round": "-" if j is None else ("pass" if j.passed else "fail"),
         "gate errors": f"{sum(gates.values())} ({', '.join(f'{g}:{n}' for g, n in gates.items() if n) or 'none'})",
-        "stop reason": str(record.extra.get("stop_reason") or "-"),
+        "stop reason": s.stop_reason or "-",
     }
     if j is not None:
         acc = j.acceptance_results or {}

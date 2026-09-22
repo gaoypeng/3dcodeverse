@@ -15,6 +15,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from codeverse3d.addons import select
 from codeverse3d.addons.dataset.quality import quality_tier
 from codeverse3d.addons.dataset.sample import gate_error_summary, telemetry_digest
 from codeverse3d.addons.gallery.model import (
@@ -30,8 +31,6 @@ from codeverse3d.proc import read_json_or_none
 from codeverse3d.record.record import (
     RecordError,
     battery_label,
-    best_round_index,
-    best_round_record,
     effective_judgment,
     find_run_dirs,
     is_run_dir,
@@ -81,11 +80,11 @@ def _round_sheet(ws: Workspace, rec: RunRecord, index: int) -> str:
     return _first_file(ws.root, f"artifacts/renders/r{index:02d}/sheet.png")
 
 
-def best_sheet(ws: Workspace, rec: RunRecord) -> str:
-    """Contact sheet of the best round, falling back to the packaged deliverable sheet."""
-    best = best_round_index(rec)
-    if best is not None:
-        rel = _round_sheet(ws, rec, best)
+def picked_sheet(ws: Workspace, rec: RunRecord, picked: int | None) -> str:
+    """Contact sheet of the picked round, else the latest round that has one, else the
+    packaged deliverable sheet."""
+    if picked is not None:
+        rel = _round_sheet(ws, rec, picked)
         if rel:
             return rel
     for rnd in reversed(rec.rounds):
@@ -102,13 +101,13 @@ HERO_PREFERENCE = ("front_right_high", "back_left_high", "front_right_low",
                    "front_right_34", "back_left_34", "low_front_left", "front")
 
 
-def hero_view(ws: Workspace, rec: RunRecord) -> tuple[str, str, int]:
-    """``(rel, label, n_views)`` — the ONE image a card should show.
+def hero_view(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[str, str, int]:
+    """``(rel, label, n_views)`` — the ONE image a card should show (from the picked round).
 
     A card that shows an 8-up contact sheet at 320 px shows eight unreadable
     thumbnails; one 320 px hero view is legible.  Costs a single ``is_file``
     beyond what the record already told us, so the index stays cheap."""
-    rnd = best_round_record(rec)
+    rnd = next((r for r in rec.rounds if r.index == picked), None)
     if rnd is None or rnd.renders is None or not rnd.renders.views:
         return "", "", 0
     views = [v for v in rnd.renders.views if not v.name.startswith(("pose_", "articulation"))]
@@ -122,8 +121,8 @@ def hero_view(ws: Workspace, rec: RunRecord) -> tuple[str, str, int]:
     return rel, humanize_view(chosen.name), len(views)
 
 
-def _articulation_sheet(ws: Workspace, best: int | None) -> str:
-    order = [best] if best is not None else []
+def _articulation_sheet(ws: Workspace, picked: int | None) -> str:
+    order = [picked] if picked is not None else []
     order += [int(p.name[1:]) for p in sorted((ws.artifacts / "renders").glob("r[0-9][0-9]"), reverse=True)
               if p.is_dir()]
     for idx in order:
@@ -133,7 +132,7 @@ def _articulation_sheet(ws: Workspace, best: int | None) -> str:
     return ""
 
 
-def entry_links(ws: Workspace, rec: RunRecord | None, best: int | None) -> list[RunLink]:
+def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> list[RunLink]:
     """The working links of a card: workspace, record, code, sheet, GLB, track extras."""
     run = ws.root
     links = [RunLink(label="workspace", rel="", kind="dir"),
@@ -143,7 +142,7 @@ def entry_links(ws: Workspace, rec: RunRecord | None, best: int | None) -> list[
             links.append(RunLink(label=name, rel=name))
     if (run / "src").is_dir():
         links.append(RunLink(label="src/", rel="src", kind="code"))
-    sheet = best_sheet(ws, rec) if rec is not None else ""
+    sheet = picked_sheet(ws, rec, picked) if rec is not None else ""
     if sheet:
         links.append(RunLink(label="sheet", rel=sheet))
     glb = _first_file(run, "deliverable/object.glb", "artifacts/object.glb")
@@ -159,7 +158,7 @@ def entry_links(ws: Workspace, rec: RunRecord | None, best: int | None) -> list[
     urdf = _first_file(run, "deliverable/robot.urdf", "artifacts/robot.urdf", "src/robot.urdf")
     if urdf:
         links.append(RunLink(label="robot.urdf", rel=urdf))
-    art = _articulation_sheet(ws, best)
+    art = _articulation_sheet(ws, picked)
     if art:
         links.append(RunLink(label="articulation", rel=art))
     gif = _first_file(run, "deliverable/preview.gif", "artifacts/preview.gif")
@@ -207,15 +206,17 @@ def _measurement_complexity(ws: Workspace) -> dict | None:
     return block if isinstance(block, dict) else None
 
 
-def _complexity(ws: Workspace, rec: RunRecord) -> tuple[float | None, str, dict[str, float]]:
-    """``(index, band, axes)`` of the delivered artifact: the record's own
-    complexity block, else the best round's measurement, else the measurement
-    file on disk.  A run built before the complexity vector existed has none
-    (``eval/bench/complexity_report.py`` recomputes those from the GLB)."""
-    from codeverse3d.record.record import complexity_block
+def _complexity(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[float | None, str, dict[str, float]]:
+    """``(index, band, axes)`` of the picked round's artifact: its own measurement,
+    else the record's complexity block, else the measurement file on disk.  A run built
+    before the complexity vector existed has none (``eval/bench/complexity_report.py``
+    recomputes those from the GLB)."""
+    from codeverse3d.record.record import round_complexity
 
+    rnd = next((r for r in rec.rounds if r.index == picked), None)
     try:
-        block = rec.extra.get("complexity") or complexity_block(rec) or _measurement_complexity(ws)
+        block = ((round_complexity(rnd) if rnd is not None else None) or rec.extra.get("complexity")
+                 or _measurement_complexity(ws))
     except Exception:  # noqa: BLE001 - a card is never worth an exception
         block = None
     if not isinstance(block, dict) or block.get("index") is None:
@@ -228,33 +229,34 @@ def entry_from_record(battery: str, ws: Workspace, rec: RunRecord, *, slug: str 
     """A complete card from a parsed record (never raises: every field degrades).
 
     ``slug`` is the RunId slug the scan minted; without one the directory basename is
-    used (correct for flat layouts only — nested battery runs are all named ``run``)."""
-    best = best_round_index(rec)
-    rnd = best_round_record(rec)
+    used (correct for flat layouts only — nested battery runs are all named ``run``).
+    The card is the round ``addons/select`` picks: its score, sheet, hero and tier."""
+    summary = select.summarise(ws.root, record=rec)
+    picked = summary.picked_round
+    rnd = next((r for r in rec.rounds if r.index == picked), None)
     j = effective_judgment(rnd) if rnd is not None else None
     gates = gate_error_summary(rnd)
     n_err = sum(gates.values())
     minutes = ((rec.finished_at - rec.started_at).total_seconds() / 60.0) if rec.finished_at else None
     digest = telemetry_digest(ws, rec)
     caps = rec.extra.get("captions") or {}
-    hero, hero_label, n_views = hero_view(ws, rec)
+    hero, hero_label, n_views = hero_view(ws, rec, picked)
     plan = rec.plan
-    cx_index, cx_band, cx_axes = _complexity(ws, rec)
+    cx_index, cx_band, cx_axes = _complexity(ws, rec, picked)
     return RunEntry(
         battery=battery, slug=slug or ws.root.name, path=str(ws.root), state="ok",
         title=(getattr(plan, "object_name", "") or getattr(plan, "title", "") or "") if plan else "",
         prompt=rec.spec.prompt, track=rec.spec.track.value, language=rec.spec.language.value,
         generator=rec.spec.backends.generator, judge=rec.spec.backends.judge,
-        status=rec.status.value, error=rec.error, caption=str(caps.get("instruction", "") or ""),
-        score=j.overall if j else rec.final_score, baseline_score=rec.baseline_score,
-        passed=j.passed if j else None,
+        status=summary.stop_reason, error=rec.error, caption=str(caps.get("instruction", "") or ""),
+        score=summary.picked_score, baseline_score=summary.baseline_score,
         tier=quality_tier(passed=j.passed if j else None, gate_errors=n_err, score=j.overall if j else None),
         gate_errors=n_err, gate_summary={k: v for k, v in gates.items() if v},
         cost_usd=rec.total_usage.cost_usd, minutes=round(minutes, 1) if minutes is not None else None,
-        rounds=len(rec.rounds), best_round=best,
+        rounds=len(rec.rounds), picked_round=picked,
         complexity=cx_index, complexity_band=cx_band, complexity_axes=cx_axes,
-        sheet=best_sheet(ws, rec), hero=hero, hero_label=hero_label, n_views=n_views,
-        links=entry_links(ws, rec, best), round_rows=round_rows(ws, rec),
+        sheet=picked_sheet(ws, rec, picked), hero=hero, hero_label=hero_label, n_views=n_views,
+        links=entry_links(ws, rec, picked), round_rows=round_rows(ws, rec),
         cost_by_stage={k: round(v, 4) for k, v in (digest.get("by_stage") or {}).items()},
         models=dict(digest.get("models") or {}),
     )

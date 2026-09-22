@@ -75,7 +75,7 @@ def test_static_build_parses_and_is_self_contained(gallery_tree: dict[str, Path]
     assert markup.startswith("<!doctype html>")
     assert "data:image/jpeg;base64," in markup            # --embed inlined the sheets
     assert any(u.startswith("file://") for u in checker.urls)  # links point at the run dirs
-    assert "gallery-data" in checker.ids and "s-perpass" in checker.ids
+    assert "gallery-data" in checker.ids and "s-cost" in checker.ids and "s-perpass" not in checker.ids
     assert markup.count("<article class='card") == 6
     for slug in ("wooden_chair_ab12cd34", "half_written", "not_started"):
         assert slug in markup

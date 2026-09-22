@@ -51,48 +51,53 @@ def fmt_usd(v: float) -> str:
     return f"${v:.4f}"
 
 
-def rounds_table(record: RunRecord) -> Table:
-    t = Table(title="rounds (* = best)", show_lines=False)
+def rounds_table(record: RunRecord, picked: int | None) -> Table:
+    """One row per round; "passed" is the judge's own verdict for THAT round."""
+    t = Table(title="rounds (* = picked)", show_lines=False)
     for col in ("#", "kind", "build", "gate err", "score", "passed", "cost", "secs", "commit"):
         t.add_column(col, justify="right" if col in ("#", "gate err", "score", "cost", "secs") else "left")
     for r in record.rounds:
         build = "-" if r.build is None else ("ok" if r.build.ok else "[red]FAIL[/red]")
         j = r.judgment
         passed = "-" if j is None else ("[green]yes[/green]" if j.passed else "no")
-        best = "*" if record.best_round is not None and r.index == record.best_round else ""
-        t.add_row(f"{r.index}{best}", r.kind, build, str(sum(len(g.errors) for g in r.gates)), fmt_score(r.score),
+        mark = "*" if r.index == picked else ""
+        t.add_row(f"{r.index}{mark}", r.kind, build, str(sum(len(g.errors) for g in r.gates)), fmt_score(r.score),
                   passed, fmt_usd(r.usage.cost_usd), f"{r.duration_s:.0f}", r.commit[:8])
     return t
 
 
 def print_record_summary(record: RunRecord, ws_root: Path | None = None) -> None:
+    """The run in one panel — its stop reason, the baseline and the round ``addons/select``
+    picks (never a pass or a fail: a run has none) — and a row per round."""
+    from codeverse3d.addons import select
+
     spec = record.spec
-    status_col = {"passed": "green", "failed": "red", "budget": "yellow", "plateau": "yellow"}.get(record.status.value, "cyan")
+    root = Path(ws_root or record.workspace)
+    s = select.summarise(root, record=record)
+    status_col = {"failed": "red", "budget": "yellow", "agent_quota": "yellow"}.get(record.status.value, "cyan")
     lines = [
         f"[bold]{spec.prompt}[/bold]",
         f"track={spec.track.value}  language={spec.language.value}  generator={spec.backends.generator}",
-        f"status=[{status_col}]{record.status.value}[/{status_col}]  baseline={fmt_score(record.baseline_score)}  "
-        f"best={fmt_score(record.final_score)} (round {record.best_round})  rounds={len(record.rounds)}  "
+        f"stop=[{status_col}]{s.stop_reason}[/{status_col}]  baseline={fmt_score(s.baseline_score)}  "
+        f"picked={fmt_score(s.picked_score)} (round {s.picked_round}, by {s.method})  rounds={s.rounds}  "
         f"cost={fmt_usd(record.total_usage.cost_usd)}",
     ]
     if record.error:
         lines.append(f"[red]error: {record.error}[/red]")
     if ws_root is not None:
         lines.append(f"workspace: {ws_root}")
-        from codeverse3d.record.record import best_round_record
-
-        best = best_round_record(record)
-        if best is not None and best.renders is not None and best.renders.contact_sheet:
+        picked = next((r for r in record.rounds if r.index == s.picked_round), None)
+        if picked is not None and picked.renders is not None and picked.renders.contact_sheet:
             # rebase, never print the stored string: record.json holds the ABSOLUTE path
             # of the host that produced the run, so a moved/archived run printed a sheet
             # that does not exist while the real one sat under this root.
-            lines.append(f"sheet: {Workspace(ws_root).rebase(best.renders.contact_sheet)}")
-        glb = ws_root / "artifacts" / "object.glb"
-        if glb.is_file():
-            lines.append(f"glb: {glb}")
+            lines.append(f"sheet: {Workspace(ws_root).rebase(picked.renders.contact_sheet)}")
+        handed = ws_root / "deliverable"
+        if (handed / "manifest.json").is_file():
+            lines.append(f"deliverable: {handed}")
     console.print(Panel("\n".join(lines), title="run", expand=False))
     if record.rounds:
-        console.print(rounds_table(record))
+        console.print(rounds_table(record, s.picked_round))
 
 
 def kv_table(title: str, rows: dict[str, Any]) -> Table:

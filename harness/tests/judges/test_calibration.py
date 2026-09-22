@@ -44,7 +44,7 @@ def test_plan_digest_and_load_cases(tmp_path):
     cases = load_run_cases(run)
     assert [c.round_index for c in cases] == [0, 1] and cases[0].gate_errors == 1 and cases[1].gate_errors == 0
     assert cases[0].rubric == "static_object_v1" and len(cases[0].inp.acceptance) == 2
-    assert cases[1].is_best and not cases[0].is_best and cases[0].glb is None
+    assert cases[1].is_picked and not cases[0].is_picked and cases[0].glb is None  # no usable record: the last round
     assert cases[0].inp.plan_summary == "Chair: a chair. Overall 0.50×0.50×0.90 m. Parts: Seat, Leg×4."
     assert plan_digest({"title": "Harbour", "summary": "s", "zones": [{"name": "quay"}], "cameras": [{"name": "cam_hero"}], "setting": "dusk"}) \
         == "Harbour: s Zones: quay. Cameras: cam_hero. Setting: dusk."
