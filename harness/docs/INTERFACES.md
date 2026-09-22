@@ -337,8 +337,12 @@ cross_section(glb, axis, at, out_png, *, parts=None) -> Observation   # the tool
     # the SELECTED parts' bbox; loops / filled area / hollow ratio + the same renderer's image (overlaps plain, never
     # hatched); a plane that cuts nothing answers in text with no image
 from codeverse3d.spatial.joints import load_urdf, fk, sweep_collisions, urdf_to_glb, render_poses   # RESERVED_LINK_NAMES={'world'}
+from codeverse3d.spatial.joints import sweep_gate, find_urdf, SWEEP_GATE
+sweep_gate(ws) -> (GateReport "joint_sweep", Robot | None)   # THE verdict (Δ 2026-09-22): pose_samples → sweep_collisions →
+    # aggregate_findings(sweep_findings) + buried_links.  tracks/articulated_object.default_joint_sweep (the round's gate,
+    # + pose renders) and the joint_sweep TOOL (spatial/tools.py: gate_observation of it + a narrowed pose sheet) both
+    # report exactly this; the tool used to run its own sweep (fail on any overlap > 2 mm or any gap, no buried links)
 from codeverse3d.spatial.joints_collide import components   # (names, edges) -> list[set[str]]: THE union-find (connectivity + sweep)
-# the joint_sweep TOOL body lives in spatial/tools.py (no joint_sweep_observation helper; render_poses takes no renderer=)
 # joints_collide.py: deterministic penetration (oriented islands + fixed-direction parity ray test; python-fcl is a
 # core dependency, the trimesh fallback is deterministic too)
 from codeverse3d.spatial.gl_render import GlHost, GlResult, GlHostError, write_contact_sheet, write_gif

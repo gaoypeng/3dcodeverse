@@ -2,22 +2,32 @@
 direction.  Collision bodies live in :mod:`joints_collide` (FCL for the boolean
 collide / distance queries; deterministic per-island containment for the
 penetration depth — FCL's mesh-mesh contact depths are per-triangle artefacts).
+:func:`sweep_gate` is THE ``joint_sweep`` verdict: the round's gate and the tool's.
 """
 
 from __future__ import annotations
 
+import logging
 import math
+import time
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import trimesh
 from pydantic import BaseModel, Field
 
-from codeverse3d.contracts.artifacts import GateFinding, Severity
+from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse3d.conventions import CONTACT_GAP_M
 from codeverse3d.spatial import joints_collide as collide
-from codeverse3d.spatial.joints_model import Robot, UrdfError, fk
-from codeverse3d.spatial.joints_poses import pose_label
+from codeverse3d.spatial.joints_model import Robot, UrdfError, fk, load_urdf
+from codeverse3d.spatial.joints_poses import pose_label, pose_samples
+from codeverse3d.workspace import Workspace
+
+log = logging.getLogger(__name__)
+
+#: the articulated track's gate id — every finding this module emits carries it
+SWEEP_GATE = "joint_sweep"
 
 
 # ------------------------------------------------------------------ report types
@@ -191,7 +201,7 @@ def _summarise(per_pose: list[PoseReport], n_links: int, islands: dict[str, int]
 def sweep_findings(report: SweepReport, *, rest_max_m: float = 0.005, hinge_clearance_m: float = 0.01) -> list[GateFinding]:
     """Turn a sweep report into gate findings (ERROR for rest penetration > ``rest_max_m``,
     overlaps in moved poses and floating links beyond ``hinge_clearance_m``; WARN otherwise)."""
-    gate = "articulation"
+    gate = SWEEP_GATE
     out: list[GateFinding] = []
     for pr in report.per_pose:
         for o in pr.overlaps:
@@ -316,7 +326,7 @@ def buried_links(robot: Robot, *, samples: int = BURIED_SAMPLES, fraction: float
                 continue
             if frac >= fraction:
                 out.append(GateFinding(
-                    gate="articulation", severity=Severity.ERROR, target=name,
+                    gate=SWEEP_GATE, severity=Severity.ERROR, target=name,
                     message=f"link '{name}' lies entirely inside '{other}' at rest ({frac * 100:.0f}% of its surface): "
                             f"it can neither be seen nor move",
                     fix_hint=f"move '{name}' outside '{other}' (or cut a pocket in '{other}' where it sits) so the part "
@@ -324,6 +334,46 @@ def buried_links(robot: Robot, *, samples: int = BURIED_SAMPLES, fraction: float
                     data={"kind": "buried", "inside": other, "fraction": round(frac, 3)}))
                 break
     return out
+
+
+# ------------------------------------------------------------------ the gate
+def find_urdf(ws: Workspace) -> Path | None:
+    """The built ``artifacts/robot.urdf``, else the authored ``src/robot.urdf``."""
+    for cand in (ws.artifacts / "robot.urdf", ws.src / "robot.urdf"):
+        if cand.is_file():
+            return cand
+    return None
+
+
+def sweep_gate(ws: Workspace) -> tuple[GateReport, Robot | None]:
+    """THE ``joint_sweep`` verdict on the built robot, and the robot (None when none loaded).
+
+    Every pose of :func:`pose_samples` collided, the findings one per link pair
+    (:func:`aggregate_findings`, D50), plus :func:`buried_links`.  The round's gate
+    (``tracks/articulated_object.default_joint_sweep``, which adds the pose renders) and
+    the ``joint_sweep`` tool both report exactly this, so the agent's check and the
+    round's can no longer disagree (until 2026-09-22 the tool failed any overlap past
+    2 mm and any gap, the gate had a 5 mm rest / 30 mm hinge WARN band and buried links).
+    """
+    urdf = find_urdf(ws)
+    if urdf is None:
+        return GateReport.of(SWEEP_GATE, [GateFinding(
+            gate=SWEEP_GATE, severity=Severity.ERROR, target="robot.urdf", message="no robot.urdf found after build",
+            fix_hint="write src/robot.urdf (native URDF) referencing meshes/<link>.glb for every link")]), None
+    t0 = time.time()
+    try:
+        robot = load_urdf(urdf, ws.artifacts / "meshes")
+        report = sweep_collisions(robot, pose_samples(robot))
+    except UrdfError as e:
+        return GateReport.of(SWEEP_GATE, [GateFinding(
+            gate=SWEEP_GATE, severity=Severity.ERROR, target="robot.urdf", message=f"URDF sweep failed: {e}",
+            fix_hint="fix robot.urdf so every link has a mesh under meshes/<link>.glb and joints form one tree")]), None
+    findings = aggregate_findings(sweep_findings(report))
+    try:
+        findings += buried_links(robot)
+    except Exception as e:  # noqa: BLE001 — an extra check never fails the gate
+        log.warning("buried-link check failed: %s", e)
+    return GateReport.of(SWEEP_GATE, findings, duration_ms=int((time.time() - t0) * 1000)), robot
 
 
 # ------------------------------------------------------------------ motion direction
@@ -390,23 +440,3 @@ def motion_direction_check(robot: Robot, joint: str, expected: str, *, probe: fl
                        message=((f"{joint} (driven by {drive})" if driven_by is not None else f"{joint}")
                                 + f": child '{j.child}' moves {tuple(round(float(v),3) for v in d)} for q={probe:+.3g}; "
                                 f"expected {expected} ({'ok' if ok else 'WRONG — flip the axis sign or swap limits'})"))
-
-
-def summary_text(report: SweepReport) -> str:
-    """Compact human/LLM-readable summary of a sweep."""
-    s = report.summary
-    lines = [f"pose sweep: {s.n_poses} poses, {s.n_links} links, backend={s.backend}"]
-    if s.max_penetration_m > 0:
-        lines.append(f"max penetration {s.max_penetration_m*1000:.1f} mm at pose {s.worst_pose} between {s.worst_pair}; overlapping poses: {s.overlapping_poses}")
-    else:
-        lines.append("no overlaps deeper than tolerance in any pose")
-    if s.floating_links:
-        lines.append(f"floating links (not touching the grounded assembly): {s.floating_links}")
-    multi = {k: v for k, v in s.link_islands.items() if v > 1}
-    if multi:
-        lines.append(f"links made of several disconnected islands: {multi}")
-    return "\n".join(lines)
-
-
-def report_numbers(report: SweepReport) -> dict[str, Any]:
-    return report.summary.model_dump(mode="json")

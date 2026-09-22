@@ -10,7 +10,6 @@ from codeverse3d.spatial.joints import (
     load_urdf,
     motion_direction_check,
     pose_samples,
-    summary_text,
     sweep_collisions,
     sweep_findings,
 )
@@ -28,7 +27,6 @@ def test_good_design_has_no_overlaps(tmp_path):
     assert rep.summary.max_penetration_m == 0.0
     assert rep.summary.floating_links == []
     assert rep.per_pose[0].n_contacts == 1  # door touches body at rest
-    assert "no overlaps" in summary_text(rep)
     assert sweep_findings(rep) == []
 
 

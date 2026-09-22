@@ -132,7 +132,8 @@ codeverse3d/
                       contract.py (authoring-frame hints), sections.py (the cross_section tool and the
                       D48 judge slices: one matplotlib section renderer), silhouette.py, probes.py,
                       complexity.py (objective complexity vector -> Measurement.extra, eval/docs/COMPLEXITY.md),
-                      joints*.py + joints_collide.py (deterministic penetration), registry.py,
+                      joints*.py + joints_collide.py (deterministic penetration; joints_sweep.sweep_gate is
+                      THE joint_sweep verdict — the round's gate and the tool's), registry.py,
                       tools.py (every @tool registration since 2026-08-28; every import is a plain
                       one — codeverse3d.languages is imported inside the tool bodies),
                       mcp_server.py (MCP name: 3dcode).

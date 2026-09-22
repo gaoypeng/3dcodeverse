@@ -34,8 +34,6 @@ from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
 
-SWEEP_GATE = "joint_sweep"
-
 
 class ArticulatedPipeline(ObjectPipeline):
     """Object gates + joint sweep; object views + pose views."""
@@ -91,6 +89,8 @@ class ArticulatedPipeline(ObjectPipeline):
         return rs
 
     def judge_context(self, ws: Workspace, plan: Plan | None, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
+        from codeverse3d.spatial.joints import SWEEP_GATE
+
         report = next((g for g in gates if g.gate == SWEEP_GATE), None)
         motion = next((g for g in gates if g.gate == MOTION_GATE), None)
         lines = ["Articulation sheet: the pose_* views show the object at rest, each joint at its lower and upper limit."]
@@ -121,32 +121,15 @@ def default_joint_sweep(ws: Workspace, plan: Plan | None, out_dir: Path) -> tupl
     # the Services.joint_sweep signature: it is the interface's information, and the test
     # double (tests/orchestrator_tracks/fakes.py) synthesises its poses and findings from
     # plan.joints because it has no URDF to read.
-    """Adapter to ``codeverse3d.spatial.joints``: load → pose samples →
-    ``sweep_collisions`` → ``sweep_findings`` (gate) and ``render_poses`` (pose views +
+    """The round's ``joint_sweep`` gate — ``spatial.joints.sweep_gate``, the verdict the
+    ``joint_sweep`` tool reports too — and ``render_poses`` (pose views +
     ``articulation_sheet.png`` for the judge)."""
     from codeverse3d.spatial import joints
 
-    urdf = _find_urdf(ws)
-    if urdf is None:
-        return GateReport(gate=SWEEP_GATE, passed=False, findings=[GateFinding(
-            gate=SWEEP_GATE, severity=Severity.ERROR, target="robot.urdf", message="no robot.urdf found after build",
-            fix_hint="write src/robot.urdf (native URDF) referencing meshes/<link>.glb for every link")]), []
-    t0 = time.time()
-    try:
-        robot = joints.load_urdf(urdf, ws.artifacts / "meshes")
-        report = joints.sweep_collisions(robot, joints.pose_samples(robot))
-    except joints.UrdfError as e:
-        return GateReport(gate=SWEEP_GATE, passed=False, findings=[GateFinding(
-            gate=SWEEP_GATE, severity=Severity.ERROR, target="robot.urdf", message=f"URDF sweep failed: {e}",
-            fix_hint="fix robot.urdf so every link has a mesh under meshes/<link>.glb and joints form one tree")]), []
-    findings = [f.model_copy(update={"gate": SWEEP_GATE})
-                for f in joints.aggregate_findings(joints.sweep_findings(report))]
-    try:
-        findings += [f.model_copy(update={"gate": SWEEP_GATE}) for f in joints.buried_links(robot)]
-    except Exception as e:  # noqa: BLE001 — an extra check never fails the gate
-        log.warning("buried-link check failed: %s", e)
-    gate = GateReport.of(SWEEP_GATE, findings, duration_ms=int((time.time() - t0) * 1000))
+    gate, robot = joints.sweep_gate(ws)
     views: list[RenderView] = []
+    if robot is None:
+        return gate, views
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
         for label, rs in joints.render_poses(robot, out_dir):
@@ -159,20 +142,13 @@ def default_joint_sweep(ws: Workspace, plan: Plan | None, out_dir: Path) -> tupl
         # 2026-08-26: 330 s in render_glb.mjs with three articulated runs sharing the
         # browser) used to raise out of gates() and fail the run before its first round.
         log.warning("pose renders failed; the sweep gate stands without a sheet: %s", e)
-        gate.findings.append(GateFinding(gate=SWEEP_GATE, severity=Severity.WARN, target="poses",
+        gate.findings.append(GateFinding(gate=joints.SWEEP_GATE, severity=Severity.WARN, target="poses",
                                          message=f"pose renders failed ({str(e)[:160]}); the judge sees no articulation sheet this round",
                                          fix_hint="nothing to fix in the code: a render timeout under load"))
     sheet = out_dir / joints.ARTICULATION_SHEET_NAME
     if sheet.is_file():
         views.insert(0, RenderView(name="articulation_sheet", path=str(sheet), mode="shaded"))
     return gate, views
-
-
-def _find_urdf(ws: Workspace) -> Path | None:
-    for cand in (ws.artifacts / "robot.urdf", ws.src / "robot.urdf"):
-        if cand.is_file():
-            return cand
-    return None
 
 
 # ===================================================================== planned-motion gate
@@ -373,7 +349,7 @@ def default_motion_checks(ws: Workspace, plan: Plan | None) -> GateReport | None
         return None
     from codeverse3d.spatial import joints as sj
 
-    urdf = _find_urdf(ws)
+    urdf = sj.find_urdf(ws)
     if urdf is None:
         return None
     t0 = time.time()

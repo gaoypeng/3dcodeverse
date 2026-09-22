@@ -99,8 +99,8 @@ def test_multi_material_link_keeps_materials(tmp_path):
 
 
 def test_joint_sweep_tool_offline(tmp_path, monkeypatch):
-    """The ``joint_sweep`` tool body lives in spatial.tools: collision sweep over every
-    joint, renders narrowed to ``joints`` (+ rest) through ``render_poses``."""
+    """The ``joint_sweep`` tool reports the round's gate (``sweep_gate``) over every joint;
+    its renders are narrowed to ``joints`` (+ rest) through ``render_poses``."""
     import codeverse3d.spatial.tools as ts
     from codeverse3d.spatial.registry import ToolContext, get_tool
     from codeverse3d.workspace import Workspace
@@ -118,9 +118,9 @@ def test_joint_sweep_tool_offline(tmp_path, monkeypatch):
         return []
 
     monkeypatch.setattr(ts, "render_poses", fake_render_poses)
-    obs = get_tool("joint_sweep").call(ctx, {"joints": ["hinge"], "n_samples": 5})
-    assert obs.ok and obs.numbers["max_penetration_m"] == 0.0
-    assert obs.text.startswith("JOINT SWEEP: PASS")
+    obs = get_tool("joint_sweep").call(ctx, {"joints": ["hinge"]})
+    assert obs.ok and obs.numbers["errors"] == 0
+    assert obs.text.startswith("joint_sweep: PASS")
     assert rendered == [["rest", "hinge@upper"]] and obs.images[0].endswith(ARTICULATION_SHEET_NAME)  # lower=0 dedupes into rest
     obs = get_tool("joint_sweep").call(ctx, {})
     assert rendered[-1] is None          # empty joints = the full sheet (render_poses default)
@@ -129,8 +129,10 @@ def test_joint_sweep_tool_offline(tmp_path, monkeypatch):
 def test_joint_sweep_penetration_is_a_verdict_not_an_mcp_error(tmp_path, monkeypatch):
     """A sweep that finds a penetration RAN: ``failed`` stays False (63% of 1404 recorded
     joint_sweep calls answered FAIL, and each one reported as an MCP error bought a retry
-    at ~117k prompt tokens), and the FAIL verdict leads the text."""
+    at ~117k prompt tokens), and the FAIL verdict leads the text.  The verdict is the
+    round's: the tool and ``sweep_gate`` say the same thing about the same robot."""
     import codeverse3d.spatial.tools as ts
+    from codeverse3d.spatial.joints import sweep_gate
     from codeverse3d.spatial.registry import ToolContext, get_tool
     from codeverse3d.workspace import Workspace
     from tests.urdf_joints.conftest import write_prims_robot
@@ -142,9 +144,10 @@ def test_joint_sweep_penetration_is_a_verdict_not_an_mcp_error(tmp_path, monkeyp
     ctx = ToolContext(workspace=ws, language="urdf_blender", track="articulated_object")
     obs = get_tool("joint_sweep").call(ctx, {})
     assert not obs.ok and not obs.failed
-    assert obs.text.startswith("JOINT SWEEP: FAIL — penetration ") and "tolerance" in obs.text
-    assert "pose sweep:" in obs.text                     # the detail the agent acts on is still there
-    assert obs.numbers["max_penetration_m"] > 0.1
+    assert obs.text.startswith("joint_sweep: FAIL — 1 error(s)")
+    assert "links 'body|door' overlap in 2 of the sampled poses" in obs.text and "fix:" in obs.text
+    gate, _ = sweep_gate(ws)
+    assert not gate.passed and [f.message for f in gate.errors][0] in obs.text
 
 
 def test_robot_named_like_a_link_keeps_frame_and_placement(tmp_path):

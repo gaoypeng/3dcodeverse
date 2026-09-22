@@ -24,14 +24,8 @@ from codeverse3d.spatial.contract import check_contract as _check_contract
 from codeverse3d.spatial.contract import planned_joins
 from codeverse3d.spatial.frame_metrics import frame_summary_text
 from codeverse3d.spatial.joints_export import ARTICULATION_SHEET_NAME, render_poses
-from codeverse3d.spatial.joints_model import UrdfError, load_urdf
-from codeverse3d.spatial.joints_poses import limit_poses, pose_samples
-from codeverse3d.spatial.joints_sweep import (
-    SweepReport,
-    report_numbers,
-    summary_text,
-    sweep_collisions,
-)
+from codeverse3d.spatial.joints_poses import limit_poses
+from codeverse3d.spatial.joints_sweep import sweep_gate
 from codeverse3d.spatial.measure import GlbLoadError, measure_glb, measure_summary_table
 from codeverse3d.spatial.observe import (
     build_failure_lines,
@@ -427,26 +421,8 @@ def _iou_verdict(res: dict[str, Any]) -> str:
 
 # ===================================================================== articulation
 class JointSweepArgs(BaseModel):
-    joints: list[str] = Field(default=[], description="joint names to sweep (empty = all)")
-    n_samples: int = Field(default=8, ge=2, le=32, description="poses per joint across its range")
-
-
-def _sweep_verdict(report: SweepReport) -> tuple[bool, str]:
-    """(passed, headline) of a collision sweep — the ONE place that decides both.
-
-    The headline leads the observation because a sweep that finds a penetration is a
-    RESULT, not a tool error (62% of 1445 recorded joint_sweep calls answered FAIL):
-    without it the model reads 'pose sweep: 12 poses…' and has to infer the verdict.
-    """
-    s = report.summary
-    reasons = []
-    if s.max_penetration_m > report.tol_m:
-        reasons.append(f"penetration {s.max_penetration_m * 1000:.1f} mm > tolerance {report.tol_m * 1000:.1f} mm")
-    if s.floating_links:
-        reasons.append(f"{len(s.floating_links)} floating link(s): {', '.join(s.floating_links[:6])}")
-    if reasons:
-        return False, "JOINT SWEEP: FAIL — " + "; ".join(reasons) + " (the sweep ran; fix the links below)"
-    return True, "JOINT SWEEP: PASS — no penetration beyond tolerance, every link attached"
+    joints: list[str] = Field(default=[], description="joints whose limit poses to RENDER (empty = all); "
+                                                      "the collision check always covers every joint")
 
 
 def _poses_for(robot, joints: list[str] | None) -> list[tuple[str, dict[str, float]]] | None:
@@ -461,31 +437,31 @@ def _poses_for(robot, joints: list[str] | None) -> list[tuple[str, dict[str, flo
     return [(label, q) for label, q in limit_poses(robot) if label == "rest" or label.split("@")[0] in want]
 
 
-@tool("joint_sweep", JointSweepArgs, "Sweep URDF joints through their ranges: self-collision / limit findings for ALL joints, "
-      "plus pose renders. Pass joints=[...] for the joints you changed — rendering every joint's poses is the slow part "
-      "(three views per pose); the collision check always covers the whole robot.",
+@tool("joint_sweep", JointSweepArgs, "The round's joint_sweep gate on the built URDF — every joint through its range, "
+      "one finding per link pair (overlap, unattached, buried) with its fix — plus pose renders. Pass joints=[...] for "
+      "the joints you changed — rendering every joint's poses is the slow part (three views per pose); the collision "
+      "check always covers the whole robot.",
       tracks=(Track.ARTICULATED_OBJECT.value,), cost_hint="slow")
 def joint_sweep(ctx: ToolContext, args: JointSweepArgs) -> Observation:
-    """``joints`` narrows the RENDER to those joints' limit poses (plus rest).  The collision
+    """The round's own verdict (``joints_sweep.sweep_gate``) — until 2026-09-22 the tool ran a
+    second sweep with its own rules and could pass what the round then failed, or the reverse.
+
+    ``joints`` narrows the RENDER to those joints' limit poses (plus rest).  The collision
     sweep still covers every joint — a change to one joint can collide with another, and
     that check is cheap.  Rendering is not: every pose is a GLB export plus three views, so
     a 10-joint object renders ~63 images per call, and agents call this 3-8 times a round.
     Measured 2026-08-25: articulated rounds ran a median 1007 s against 497 s for static
     objects, with the agent session — mostly waiting on sweeps — as the whole difference."""
     ws = ctx.workspace
-    urdf = ws.artifacts / "robot.urdf"
-    if not urdf.is_file():
+    if not (ws.artifacts / "robot.urdf").is_file():
         return Observation.error("joint_sweep: artifacts/robot.urdf not found — run `build` first")
-    try:
-        robot = load_urdf(urdf, ws.artifacts / "meshes")
-        report = sweep_collisions(robot, pose_samples(robot, n_random=args.n_samples, seed=0))
-    except UrdfError as e:
-        return Observation.error(f"joint_sweep: {e}")
-    out_dir = tool_out_dir(ctx, "joints")
-    render_poses(robot, out_dir, poses=_poses_for(robot, args.joints or None))
-    ok, headline = _sweep_verdict(report)
-    return Observation(ok=ok, text=f"{headline}\n{summary_text(report)}", numbers=report_numbers(report),
-                       images=[str(out_dir / ARTICULATION_SHEET_NAME)])
+    report, robot = sweep_gate(ws)
+    images: list[str] = []
+    if robot is not None:
+        out_dir = tool_out_dir(ctx, "joints")
+        render_poses(robot, out_dir, poses=_poses_for(robot, args.joints or None))
+        images.append(str(out_dir / ARTICULATION_SHEET_NAME))
+    return gate_observation(report, images=images)
 
 
 # ===================================================================== scenes
