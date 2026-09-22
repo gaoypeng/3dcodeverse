@@ -155,7 +155,8 @@ function spawnLockPath(backend) {
 }
 
 function reuseEnabled() {
-  return !/^(off|0|false)$/i.test(process.env.C3D_BROWSER_REUSE || '');
+  // the Settings Flag words (codeverse3d/config.py): off/0/false/no turn it off
+  return !/^\s*(off|0|false|no)\s*$/i.test(process.env.C3D_BROWSER_REUSE || '');
 }
 
 function readJson(p) {
