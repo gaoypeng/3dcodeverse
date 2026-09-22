@@ -151,6 +151,44 @@ def test_package_hands_over_one_round_and_says_why(tmp_path):
         select.package(ws.root, 7)
 
 
+def test_a_scene_or_graphics_round_packages_from_its_own_commit_and_renders(tmp_path):
+    """A scene round's hand-over is its commit (src/ + public/, GLB assets included); a
+    graphics round's is its commit + its judged frames (renders/rNN) + the sheet and GIF it
+    kept under artifacts/rNN/.  Round 0 of two packages round 0's bytes, never the last's."""
+    for track, language, entry in ((Track.SCENE, Language.SCENE_THREEJS, "src/scene.js"),
+                                   (Track.GRAPHICS, Language.GLSL_SHADER, "src/shader.frag")):
+        ws = Workspace(tmp_path / language.value).create()
+        spec = Spec(id=language.value, track=track, language=language, prompt="p")
+        recs = []
+        for i in range(2):
+            (ws.root / entry).parent.mkdir(parents=True, exist_ok=True)
+            (ws.root / entry).write_text(f"// round {i}\n")
+            if track is Track.SCENE:
+                (ws.root / "public" / "assets").mkdir(parents=True, exist_ok=True)
+                (ws.root / "public" / "assets" / "tree.glb").write_bytes(b"glTF tree " + bytes([i]))
+            else:
+                kept = ws.round_artifacts(i)
+                kept.mkdir(parents=True, exist_ok=True)
+                (kept / "preview.gif").write_bytes(b"GIF89a" + bytes([i]))
+                tiny_png(kept / "frames_sheet.png", (i, 0, 0))
+            views = [RenderView(name=f"t{t}", path=str(tiny_png(ws.renders_dir(i) / f"f{t:02d}_t{t}.png", (i, t, 0))))
+                     for t in range(2)]
+            recs.append(RoundRecord(index=i, kind="baseline" if i == 0 else "refine", commit=ws.commit(f"r{i:02d}"),
+                                    build=BuildResult(ok=True, language=language.value),
+                                    renders=RenderSet(views=views, contact_sheet=str(tiny_png(ws.renders_dir(i) / "sheet.png"))),
+                                    judgment=Judgment(rubric="r", scores={}, overall=0.5 + i / 10, passed=False)))
+        ws.write_json(ws.record_path, RunRecord(spec=spec, workspace=str(ws.root), status=RunStatus.MAX_ROUNDS, rounds=recs))
+        out = select.package(ws.root, 0)
+        assert (out / entry).read_text() == "// round 0\n"
+        if track is Track.SCENE:
+            assert (out / "public" / "assets" / "tree.glb").read_bytes() == b"glTF tree \x00"
+        else:
+            assert sorted(q.name for q in (out / "frames").iterdir()) == ["f00_t0.png", "f01_t1.png"]
+            assert (out / "frames" / "f01_t1.png").read_bytes() == (ws.renders_dir(0) / "f01_t1.png").read_bytes()
+            assert (out / "preview.gif").read_bytes() == b"GIF89a\x00"
+            assert (out / "frames_sheet.png").read_bytes() == (ws.round_artifacts(0) / "frames_sheet.png").read_bytes()
+
+
 def _fake_texture_pass(calls: list, *, shipped: bool = True, fail: bool = False):
     import codeverse3d.texturing.run as trun
 
