@@ -12,12 +12,12 @@ from collections.abc import Sequence
 from codeverse3d.addons import select
 from codeverse3d.addons.costreport.audit import (
     Audit,
+    RunLedger,
     cached_input_share,
     price_confidence,
     stage_latency,
     uncached_if_no_cache,
 )
-from codeverse3d.cost.reconstruct import RunLedger
 from codeverse3d.cost.types import CostBucket
 
 STAGE_ORDER = ("plan", "skeleton", "assets", "env", "zones", "assemble", "baseline", "candidate",
@@ -89,8 +89,7 @@ def _scores(r: RunLedger) -> tuple[float | None, float | None]:
             return s.baseline_score, s.picked_score
         except Exception:  # noqa: BLE001 - an unreadable record still gets its cost row
             return None, None
-    score = r.round_scores[0] if r.round_scores else None  # a one-shot cell: one round
-    return score, score
+    return r.cell_score, r.cell_score  # a one-shot cell: one round
 
 
 def runs_table(audit: Audit, *, limit: int = 20) -> str:
@@ -100,8 +99,9 @@ def runs_table(audit: Audit, *, limit: int = 20) -> str:
         rows.append([r.run, r.track or "-", _usd(r.ledger_usd), r.n_rounds,
                      f"{baseline:.3f}" if baseline is not None else "-",
                      f"{picked:.3f}" if picked is not None else "-",
-                     r.stop_reason or r.status, f"{r.wall_s / 60:.1f}", f"{r.model_s / 60:.1f}"])
-    return table(("run", "track", "USD", "rounds", "baseline", "picked", "stop", "wall min", "model min"), rows)
+                     r.stop_reason or r.status, "-" if r.minutes is None else f"{r.minutes:.1f}",
+                     f"{r.model_s / 60:.1f}"])
+    return table(("run", "track", "USD", "rounds", "baseline", "picked", "stop", "minutes", "model min"), rows)
 
 
 def waste_table(audit: Audit) -> str:
@@ -122,7 +122,8 @@ def summary_lines(audit: Audit) -> list[str]:
         f"- prompt caching already saves **{_usd(no_cache - audit.total_usd)}** "
         f"({_share(no_cache - audit.total_usd, no_cache):.0f}% of what this traffic would cost uncached); "
         f"cache reads still cost {_usd(cache_usd)}",
-        f"- clock: {audit.wall_s / 3600:.1f} h of run time, {audit.model_s / 3600:.1f} h of it waiting on models",
+        f"- time: {audit.minutes / 60:.1f} h of run steps (provider errors left out), "
+        f"{audit.model_s / 3600:.1f} h of model calls (side by side ones counted each)",
         f"- calls: {audit.summary.total.n_calls:,} model calls, {audit.calls_per_round():.0f} per round",
         f"- identified waste: **{_usd(audit.waste_total())}** ({_share(audit.waste_total(), audit.total_usd):.0f}% of spend)",
     ]

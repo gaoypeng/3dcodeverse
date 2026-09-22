@@ -1,6 +1,6 @@
 """The cost of finished runs, read back: ``3dcode cost`` and its markdown report.
 
-* ``audit``    ``audit_runs(paths)`` → ``Audit`` (reconstruct + aggregate every run under the paths, waste)
+* ``audit``    ``audit_runs(paths)`` → ``Audit`` (every run's ledger under the paths, aggregated, + waste)
 * ``report``   ``console(audit)`` · ``markdown(audit)``
 * ``caching``  what prompt caching saved, per session
 

@@ -164,7 +164,7 @@ codeverse3d/
                       billing.py (SUBSCRIPTION_BACKENDS/bills_usd — which backends take real dollars,
                       so the ledger bills real money and not list price; docs/COST.md §25)
                       tally.py (a block's money = its ledger rows, its lost seconds → StepTime; COST §31)
-                      guard.py reconstruct.py (old runs)
+                      guard.py
   judges/             base.py (JudgeInput; `round_input` + `plan_summary(plan, language)`, the ONE payload
                       builder and plan digest the in-run judge, `3dcode judge`, calibration, the texture
                       gate and eval all use; the pure replay helpers), rubrics.py + rubrics/*.yaml (defect checklists, the wire
@@ -305,9 +305,9 @@ runs/<slug>/
                   judge/r00.json (one-sample judge on quick_render views)
   stages/<name>.json   rounds/rNN.json   rounds/candidates.json   rounds/aborted_rNN.json (a round the
                        budget/a crash cut: what it burned, never resumed from)
-  telemetry/cost.jsonl   live ledger: one row per metered call / CLI session, opened by BaseTrack.run
-                         (cost_ledger.jsonl at the root is a relative symlink to it, kept for the run-layout
-                         alias; runs before 2026-08-23 have the root file only)
+  telemetry/cost.jsonl   THE ledger: one row per metered call / CLI session, opened by BaseTrack.run — the
+                         only record of money (runs before 2026-09-22 also carry a root cost_ledger.jsonl
+                         and a telemetry/usage.jsonl symlink to it; nothing reads them)
   run_state.json  status + stages; extra carries budget_snapshot and spec_fingerprint only — the round
                   history is rounds/rNN.json + each round's commit alone (no copy since 2026-09-22)
   artifacts/      object.glb object.stl|step robot.urdf meshes/ build.json census.json

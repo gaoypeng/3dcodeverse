@@ -19,7 +19,7 @@ def test_create_makes_the_three_buckets(tmp_path: Path):
     evidence = ws.root / EVIDENCE_DIR
     assert evidence.is_symlink() and os.readlink(evidence) == "artifacts"
     assert evidence.resolve() == ws.artifacts.resolve()
-    assert ws.cost_path.parent == ws.telemetry and ws.usage_path.name == "usage.jsonl"
+    assert ws.cost_path.parent == ws.telemetry
 
 
 def test_telemetry_aliases_point_at_the_root_files(tmp_path: Path):

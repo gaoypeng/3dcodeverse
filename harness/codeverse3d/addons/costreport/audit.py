@@ -1,21 +1,20 @@
 """Cost audit over a directory of runs: where the money and the minutes go.
 
-``audit_runs(paths)`` reconstructs a ledger per run (``reconstruct.py``),
-stamps every row with its run's track / language / status, and aggregates:
+``audit_runs(paths)`` reads every run's own ledger (``telemetry/cost.jsonl``, the one record
+of money — docs/COST.md §12) and its record, stamps every row with the run's track /
+language / status, and aggregates:
 
 * $ per run, per track, per stage, per role, per backend, per model;
 * token composition (input / cached / output / thoughts) and the effective
   $/1k-token rate each bucket actually paid;
-* latency next to the money — wall clock, model time, harness (non-model) time;
-* **waste**: repair loops that never got their round to build, degraded verdicts,
-  best-of-N candidates that lost, and spend after the budget was already blown.
-  Nothing is waste for scoring below another round: since 2026-09-22 every round is
-  kept and any of them can be the one handed over (the "regression", "zero_delta_round"
-  and "unpromoted_judge" kinds measured against an in-run best that no longer exists).
+* time next to the money — the run's minutes (``RunRecord.minutes``) and its model time;
+* **waste**: repair loops that never got their round to build, best-of-N candidates that
+  lost, and spend in a round the clock cut.  Nothing is waste for scoring below another
+  round: since 2026-09-22 every round is kept and any of them can be the one handed over.
 
-Everything is measured from the recorded telemetry; nothing is estimated except
-where a row says so (``price_source == "event-cost"`` — the event recorded a
-cost but no tokens).
+A directory with no ledger has no rows and is left out: the reconstruction of pre-ledger
+runs from their trajectories, verdicts and events went on 2026-09-22 (434 of 467 archived
+runs carry a ledger; the 33 without are five v1 batteries outside the repo).
 """
 
 from __future__ import annotations
@@ -24,9 +23,110 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from codeverse3d.cost.ledger import summarise
-from codeverse3d.cost.reconstruct import RunLedger, find_runs, reconstruct
-from codeverse3d.cost.types import CallCost, Role, Stage, Summary
+from codeverse3d.contracts.common import Usage
+from codeverse3d.contracts.run import RunId
+from codeverse3d.cost.ledger import load_ledger, price_call, summarise
+from codeverse3d.cost.types import CallCost, Stage, Summary
+from codeverse3d.proc import read_json_or_none
+from codeverse3d.record.record import SUBRUN_DIRS, RecordError, load_record
+
+
+@dataclass
+class RunLedger:
+    """One run's (or compare cell's) ledger rows plus what a cost report says about it."""
+
+    run: str = ""
+    path: Path = Path()
+    track: str = ""
+    language: str = ""
+    status: str = ""
+    stop_reason: str = ""
+    n_rounds: int = 0
+    round_built: list[bool | None] = field(default_factory=list)  # per round: did its build (+repair) succeed
+    selected_candidate: str = ""  # "c1" when the run ran best-of-N and c1 won
+    minutes: float | None = None  # RunRecord.minutes (a one-shot cell: its cell.json minutes)
+    cell_score: float | None = None  # a one-shot compare cell's one score (it has no record)
+    written_usd: float = 0.0  # the rows as written, before a --recheck re-priced them
+    rows: list[CallCost] = field(default_factory=list)
+
+    @property
+    def ledger_usd(self) -> float:
+        return sum(r.cost_usd for r in self.rows)
+
+    @property
+    def model_s(self) -> float:
+        return sum(r.latency_ms for r in self.rows) / 1000.0
+
+
+def _rows(root: Path, led: RunLedger, *, recheck: bool) -> None:
+    """Add ``root``'s own ledger rows to ``led`` — stamped with its run name where a battery
+    copied them without one, and re-priced from today's table when ``recheck``."""
+    for row in load_ledger(root):
+        led.written_usd += row.cost_usd
+        row.run = row.run or led.run
+        if recheck:
+            usage = Usage(backend=row.backend, model=row.model_id or row.model, input_tokens=row.input_tokens,
+                          cached_tokens=row.cached_tokens, output_tokens=row.output_tokens,
+                          thoughts_tokens=row.thoughts_tokens, tool_calls=row.tool_calls, cost_usd=row.recorded_usd)
+            cost, fields = price_call(usage, backend=row.backend, model=row.model_id or row.model,
+                                      cache_write_tokens=row.cache_write_tokens, reprice=True)
+            row = row.model_copy(update={"cost_usd": cost, **fields})
+        led.rows.append(row)
+
+
+def read_run(run_dir: Path, *, name: str = "", recheck: bool = False) -> RunLedger:
+    """A run directory: its ledger rows and its record's facts (an unreadable record keeps the rows)."""
+    led = RunLedger(run=name or run_dir.name, path=run_dir)
+    try:
+        rec = load_record(run_dir)
+    except RecordError:
+        rec = None
+    if rec is not None:
+        led.track, led.language, led.status = rec.spec.track.value, rec.spec.language.value, rec.status.value
+        led.stop_reason = str(rec.extra.get("stop_reason") or "")
+        led.n_rounds, led.minutes = len(rec.rounds), rec.minutes
+        led.round_built = [None if r.build is None else r.build.ok for r in rec.rounds]
+        cands = read_json_or_none(run_dir / "rounds" / "candidates.json") or rec.extra.get("candidates") or {}
+        if isinstance(cands, dict) and cands.get("selected") is not None:
+            led.selected_candidate = f"c{cands['selected']}"
+    _rows(run_dir, led, recheck=recheck)
+    return led
+
+
+def read_cell(cell_dir: Path, *, name: str, recheck: bool = False) -> RunLedger:
+    """A ``compare_backends`` / ``ab_plan`` cell.  A harness arm is its run plus the cell's own
+    ledger (the fixed evaluator's judge, a repair arm's extra generations); a one-shot or
+    bare-agent arm is the cell ledger alone, described by ``cell.json`` and ``eval/spec.json``."""
+    if (cell_dir / "run" / "record.json").is_file():
+        led = read_run(cell_dir / "run", name=name, recheck=recheck)
+    else:
+        cell = read_json_or_none(cell_dir / "cell.json") or {}
+        spec = read_json_or_none(cell_dir / "eval" / "spec.json") or {}
+        minutes = cell.get("minutes")
+        led = RunLedger(run=name, path=cell_dir, track=str(spec.get("track") or ""),
+                        language=str(spec.get("language") or ""), status=str(cell.get("status") or ""),
+                        n_rounds=1, round_built=[cell.get("build_ok")], cell_score=cell.get("score"),
+                        minutes=float(cell.get("wall_s") or 0.0) / 60 if minutes is None else float(minutes))
+    _rows(cell_dir, led, recheck=recheck)
+    return led
+
+
+def find_runs(root: str | Path) -> list[Path]:
+    """Every run directory under ``root`` (a dir with ``record.json``) and every compare cell
+    (a dir with ``cell.json``; one that wraps a harness run is named by the cell, not its
+    ``run/``).  Sub-workspaces (``_assets/``, ``_cand/``) are part of their run."""
+    base = Path(root)
+    if (base / "record.json").is_file() or (base / "cell.json").is_file():
+        return [base]
+    out: set[Path] = set()
+    for marker in ("record.json", "cell.json"):
+        for path in base.rglob(marker):
+            d = path.parent
+            if SUBRUN_DIRS & set(d.relative_to(base).parts):
+                continue
+            out.add(d.parent if d.name == "run" and (d.parent / "cell.json").is_file() else d)
+    return sorted(out)
+
 
 #: dimensions the audit always aggregates on
 AUDIT_DIMENSIONS = ("run", "track", "language", "stage", "role", "backend", "model", "provider",
@@ -37,7 +137,7 @@ AUDIT_DIMENSIONS = ("run", "track", "language", "stage", "role", "backend", "mod
 class WasteItem:
     """One dollar that bought nothing (or bought a worse artifact)."""
 
-    kind: str  # repair_no_converge | degraded_judge | lost_candidate | post_budget
+    kind: str  # repair_no_converge | lost_candidate | post_budget
     run: str
     usd: float
     detail: str = ""
@@ -59,8 +159,8 @@ class Audit:
         return self.summary.total.cost_usd
 
     @property
-    def recorded_usd(self) -> float:
-        return sum(r.recorded_usd for r in self.runs)
+    def written_usd(self) -> float:
+        return sum(r.written_usd for r in self.runs)
 
     @property
     def n_runs(self) -> int:
@@ -71,8 +171,8 @@ class Audit:
         return self.total_usd / self.n_runs if self.n_runs else 0.0
 
     @property
-    def wall_s(self) -> float:
-        return sum(r.wall_s for r in self.runs)
+    def minutes(self) -> float:
+        return sum(r.minutes or 0.0 for r in self.runs)
 
     @property
     def model_s(self) -> float:
@@ -96,10 +196,6 @@ class Audit:
 
 def _waste(led: RunLedger) -> list[WasteItem]:
     items: list[WasteItem] = []
-    for row in led.rows:
-        if row.outcome == "degraded" and (row.stage is Stage.JUDGE or row.role is Role.JUDGE):
-            items.append(WasteItem("degraded_judge", led.run, row.cost_usd, round=row.round,
-                                   detail="degraded verdict (glitch, not a score) — paid for, not usable"))
     # repair loops that never got their round to build
     unbuilt = {i for i, ok in enumerate(led.round_built) if ok is False}
     repair = [r for r in led.rows if r.stage is Stage.REPAIR and r.round in unbuilt]
@@ -108,15 +204,13 @@ def _waste(led: RunLedger) -> list[WasteItem]:
                                detail=f"{len(repair)} repair call(s) in round(s) "
                                       f"{', '.join(f'r{i:02d}' for i in sorted({r.round for r in repair}))} "
                                       f"that still did not build"))
-    # best-of-N candidates that lost (their whole sub-workspace is thrown away).  Two label
-    # forms: a live ledger row is ``baseline_c<k>`` (the candidate clone's label), a
-    # reconstructed one ``c<k>:baseline``.  Generator sessions only — the quick-judge rows
-    # inside a candidate carry no candidate marker on either path.
+    # best-of-N candidates that lost (their whole sub-workspace is thrown away): the candidate
+    # clone's sessions are labelled ``baseline_c<k>``.  Generator sessions only — the
+    # quick-judge rows inside a candidate carry no candidate marker.
     won = led.selected_candidate
-    losers = [r for r in led.rows if r.stage is Stage.CANDIDATE
-              and not (won and (r.label.startswith(f"{won}:") or r.label.endswith(f"_{won}")))]
+    losers = [r for r in led.rows if r.stage is Stage.CANDIDATE and not (won and r.label.endswith(f"_{won}"))]
     if losers:
-        names = sorted({_candidate_of(r.label) for r in losers})
+        names = sorted({r.label.rsplit("_", 1)[-1] for r in losers})
         items.append(WasteItem("lost_candidate", led.run, sum(r.cost_usd for r in losers),
                                detail=f"best-of-N: {', '.join(names)} lost to {won or '(unknown)'}"))
     # anything spent on a round that finished after the budget was blown
@@ -128,33 +222,33 @@ def _waste(led: RunLedger) -> list[WasteItem]:
     return items
 
 
-def _candidate_of(label: str) -> str:
-    """``c1:baseline`` → ``c1``; ``baseline_c1`` → ``c1``."""
-    head, sep, _ = label.partition(":")
-    return head if sep else label.rsplit("_", 1)[-1]
-
-
 def audit_runs(paths: Iterable[str | Path], *, recheck: bool = False) -> Audit:
-    """Reconstruct + aggregate every run under ``paths`` (files, run dirs or trees)."""
-    dirs: list[Path] = []
-    for p in paths:
-        dirs += find_runs(p)
+    """Read + aggregate every run and cell under ``paths`` (run dirs or trees).  A run is named
+    by its place under the path it was found from (``RunId``), so an A/B battery's control and
+    variant cells of one prompt stay two runs."""
     audit = Audit()
-    for d in dirs:
-        led = reconstruct(d, recheck=recheck)
-        if not led.rows:
-            continue
-        for row in led.rows:
-            row.track = led.track or "?"
-            row.language = led.language or "?"
-            row.status = led.status or "?"
-        audit.runs.append(led)
-        audit.rows += led.rows
-        audit.waste += _waste(led)
+    for root in map(Path, paths):
+        for d in find_runs(root):
+            name = RunId(battery="", rel=d.relative_to(root).as_posix() if d != root else d.name).slug
+            led = read_cell(d, name=name, recheck=recheck) if (d / "cell.json").is_file() else \
+                read_run(d, name=name, recheck=recheck)
+            _add(audit, led)
     audit.summary = summarise(audit.rows, dimensions=AUDIT_DIMENSIONS)
     audit.runs.sort(key=lambda r: -r.ledger_usd)
     audit.waste.sort(key=lambda w: -w.usd)
     return audit
+
+
+def _add(audit: Audit, led: RunLedger) -> None:
+    if not led.rows:
+        return
+    for row in led.rows:
+        row.track = led.track or "?"
+        row.language = led.language or "?"
+        row.status = led.status or "?"
+    audit.runs.append(led)
+    audit.rows += led.rows
+    audit.waste += _waste(led)
 
 
 # --------------------------------------------------------------------------- derived views
@@ -190,7 +284,7 @@ def price_confidence(audit: Audit) -> dict[str, float]:
     """$ by how trustworthy the price row behind it is."""
     out: dict[str, float] = {}
     for r in audit.rows:
-        key = r.price_source if r.price_source in ("unknown", "provider-reported", "event-cost", "residual") \
+        key = r.price_source if r.price_source in ("unknown", "provider-reported") \
             else ("approximate" if r.price_approximate else "verified")
         out[key] = out.get(key, 0.0) + r.cost_usd
     return dict(sorted(out.items(), key=lambda kv: -kv[1]))

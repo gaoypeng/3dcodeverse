@@ -257,14 +257,13 @@ def test_a_regression_changes_nothing_about_the_loop_and_every_round_reports_its
     assert [c["wasted"] for c in costs] == [False] * 4 and "previous_best" not in costs[1]
     assert costs[2]["judge_usd"] > 0 and costs[2]["run_usd"] >= costs[1]["run_usd"]
     assert rec.extra["cost_by_stage"]["judge"] > 0 and rec.extra["cost_by_stage"]["refine"] > 0
-    # ... and the run opens its own priced ledger (telemetry/cost.jsonl + the root alias) even
-    # outside the CLI; the ONE writer is the metered agent/model, so the injected fakes
-    # (a bare FakeAgent, a FakeJudge with no chat model) leave it empty — see
-    # test_cost_accounting for the rows a metered session writes
+    # ... and the run opens its own priced ledger (telemetry/cost.jsonl) even outside the CLI;
+    # the ONE writer is the metered agent/model, so the injected fakes (a bare FakeAgent, a
+    # FakeJudge with no chat model) leave it empty — see test_cost_accounting for the rows a
+    # metered session writes
     from codeverse3d.cost.ledger import load_ledger
 
-    assert (ws.root / "cost_ledger.jsonl").is_symlink()  # -> telemetry/cost.jsonl, created on first row
-    assert load_ledger(ws.root) == []
+    assert load_ledger(ws.root) == [] and not (ws.root / "cost_ledger.jsonl").exists()
 
 
 def test_a_lint_stuck_run_keeps_every_score_instead_of_deferring_the_verdict(tmp_path, chair_plan, settings):

@@ -20,7 +20,6 @@ from codeverse3d.record.record import load_record, package_run
 from codeverse3d.record.telemetry import (
     build_telemetry,
     ledger_rows,
-    live_ledger_path,
     load_telemetry,
     stage_order,
 )
@@ -78,7 +77,7 @@ def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run)
     assert (ws.deliverable / "object.glb").is_file() and (ws.deliverable / "sheet.png").is_file()
     for f in d.files:
         assert (ws.root / f.path).is_file() and f.bytes > 0 and len(f.sha256) == 64
-    assert ws.settings_path.is_file() and ws.cost_path.is_file() and ws.usage_path.is_file()
+    assert ws.settings_path.is_file() and ws.cost_path.is_file()
     cost = json.loads(ws.cost_path.read_text())
     assert cost["total_usd"] == rec.total_usage.cost_usd
     assert cost["by_round"]
@@ -109,41 +108,20 @@ def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run)
     assert (ws.artifacts / "object.glb").read_bytes().startswith(b"glTF")
 
 
-def test_telemetry_handles_reconstructed_live_and_unavailable_ledgers(fake_run, monkeypatch):
+def test_telemetry_summarises_the_runs_own_ledger(fake_run):
     ws, rec = fake_run
-    # Historic records reconstruct rows and reconcile them to the recorded total.
-    rows, source = ledger_rows(ws)
-    assert source == "reconstructed"  # no live cost_ledger.jsonl in this run
-    assert rows and all("stage" in r and "cost_usd" in r for r in rows)
+    ledger = ws.root / "telemetry" / "cost.jsonl"
+    ledger.unlink()
+    assert ledger_rows(ws) == []  # a run with no ledger has no rows (nothing is reconstructed)
     tele = build_telemetry(ws, rec, write=False)
-    cost = tele.cost
-    assert cost is not None
-    assert cost.total_usd == rec.total_usage.cost_usd
-    assert abs(cost.ledger_usd - cost.total_usd) < 1e-9
-    assert cost.by_role["judge"] > 0 and cost.unattributed_usd > 0  # judge verdicts + the residual
-    assert {s.stage for s in cost.by_stage} <= set(stage_order())
-
-    # A live ledger is aliased, not copied.
-    live = live_ledger_path(ws)
-    live.write_text(json.dumps({"stage": "plan", "role": "planner", "label": "plan", "cost_usd": 0.5,
-                                "model": "gemini-3.7-flash", "n_calls": 1}) + "\n")
+    assert tele.cost is not None and tele.cost.n_calls == 0 and tele.settings is not None
+    ledger.write_text(json.dumps({"stage": "plan", "role": "planner", "label": "plan", "cost_usd": 0.5,
+                                  "model": "gemini-3.7-flash", "n_calls": 1}) + "\n")
     tele = build_telemetry(ws, rec)
-    assert tele.files["usage_source"] == "live"
-    assert ws.usage_path.is_symlink() and ws.usage_path.resolve() == live.resolve()
+    assert tele.files["ledger"] == "telemetry/cost.jsonl"
     assert tele.cost is not None and tele.cost.by_stage[0].stage == "plan"
-
-    # A core-only install still emits settings and the record-level total.
-    import codeverse3d.record.telemetry as T
-
-    def boom(*_a, **_k):
-        raise ImportError("codeverse3d.cost is not installed")
-
-    monkeypatch.setattr(T, "live_ledger_path", boom)
-    rows, source = T.ledger_rows(ws)
-    assert rows == [] and source == "unavailable"
-    tele = T.build_telemetry(ws, rec, write=False)
-    assert tele.cost is not None and tele.cost.total_usd == rec.total_usage.cost_usd
-    assert tele.cost.n_calls == 0 and tele.settings is not None  # settings never depend on the ledger
+    assert {s.stage for s in tele.cost.by_stage} <= set(stage_order())
+    assert not (ws.telemetry / "usage.jsonl").exists(), "one ledger, one name"
 
 
 def test_the_settings_snapshot_records_the_temperature_the_track_planned_at(tmp_path):

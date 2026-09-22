@@ -8,7 +8,7 @@ three separate buckets:
 |---|---|---|
 | `deliverable/` | **what did I get?** | ONE round, the one a pick chose (`3dcode pick`; `3dcode make` picks by score after the run): its code snapshot, its artifact (`object.glb` / `robot.urdf` + `meshes/` / `frames/` + `preview.gif` / the scene bundle), its contact sheet, `captions.json`, `manifest.json` |
 | `evidence/` (= `artifacts/`) | **why should I believe it?** | every round's own build (`rNN/`), `renders/rNN/`, `gates/rNN/`, `judge/rNN.json`, `measurement.json`, `census.json`, `textures/`, `tool_renders/` |
-| `telemetry/` | **what did it cost and how was it configured?** | `settings.json`, `cost.json`, `usage.jsonl`, plus `events.jsonl`, `run_state.json`, `stages/`, `trajectories/` |
+| `telemetry/` | **what did it cost and how was it configured?** | `cost.jsonl` (the ledger), `settings.json`, `cost.json`, plus `events.jsonl`, `run_state.json`, `stages/`, `trajectories/` |
 
 The run's **identity** stays at the root, where every tool has always looked for it:
 
@@ -23,7 +23,7 @@ runs/<slug>/
   evidence/  ->  artifacts/                  (b) the proof
   artifacts/      the last round's build, rNN/ (each round's own), renders/ gates/ judge/ measurement.json …
   telemetry/      (c) the accounting
-    settings.json cost.json usage.jsonl
+    cost.jsonl  settings.json cost.json
     events.jsonl -> ../events.jsonl
     run_state.json -> ../run_state.json
     stages -> ../stages
@@ -56,11 +56,9 @@ symlink.  Which side is physical was not a matter of taste:
   is picked, and both on the fly by `3dcode show` / the exporters for a run that
   predates them — old runs are read as-is, never rewritten.  `deliverable/` is self-contained so it can be zipped and handed to
   someone (the flywheel exporter only falls back to it when git cannot answer).
-  `telemetry/usage.jsonl` is the one file that can be either: a real
-  reconstructed ledger, or a symlink to the run's live `telemetry/cost.jsonl`
-  when it has one (the root `cost_ledger.jsonl` is itself a symlink alias; a
-  real root file exists only in runs before 2026-08-23) — same rule as
-  everywhere else, one physical copy.
+  `telemetry/cost.jsonl` is the ledger itself, appended while the run happens, and has
+  one name: the root `cost_ledger.jsonl` and `telemetry/usage.jsonl` symlinks runs written
+  before 2026-09-22 carry are no longer written or read.
 
 `.gitignore` inside the run ignores `deliverable/`, `telemetry/` and `evidence`
 (as well as `artifacts/`, `stages/`, `trajectories/`, …) so the derived buckets
@@ -132,17 +130,11 @@ produces no diff.
   configures nothing, kept so old records still read back); a
   value a call site hard-codes per task is left empty with `source` saying so,
   never guessed.
-* **`usage.jsonl`** — one priced row per model call, in the
+* **`cost.jsonl`** — THE ledger: one priced row per model call or CLI session, in the
   **`codeverse3d.cost` ledger format** (`CallCost`: tokens, unit prices, price
-  provenance, stage, role, outcome).  There is exactly one ledger in the
-  harness: when the run wrote a live one (`<run>/telemetry/cost.jsonl`; the root
-  `cost_ledger.jsonl` is a symlink alias, a real root file only in pre-2026-08-23 runs)
-  `telemetry/usage.jsonl` is a symlink to it, otherwise
-  `cost.reconstruct.reconstruct_run` rebuilds the rows from the trajectories,
-  the recorded judge verdicts and the priced events.  This bucket never
-  re-implements pricing or the double-counting rules — it only gives the ledger
-  a stable place in the run directory (`telemetry.files["usage_source"]` says
-  `live` / `reconstructed` / `unavailable`).
+  provenance, stage, role, outcome), written by the metered models and agents while the
+  run happens.  It is the only record of money; a run without one (recorded before
+  2026-08-23) has no rows — nothing is reconstructed.
 * **`cost.json`** (`CostSummary`) — the run-layout view of those rows: total vs
   budget, wall clock vs `max_minutes`, tokens, per stage (`plan / assets / env /
   zones / baseline / refine / repair / judge / pairwise / texture / …`), per

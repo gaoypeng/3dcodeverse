@@ -9,9 +9,8 @@
     3dcode cost profiles                    # the economy / balanced / quality dial
     3dcode cost estimate gemini:… --in 12000 --out 800
 
-A run that wrote a live ledger (``telemetry/cost.jsonl``) is read from it — one
-priced row per real model call.  Older runs are reconstructed from their
-trajectories, verdicts and events, so all 61 reference runs still audit.
+Every run is read from its own ledger (``telemetry/cost.jsonl``) — one priced row per
+real model call; a run recorded before the ledger existed (2026-08-23) has none.
 """
 
 from __future__ import annotations
@@ -94,46 +93,21 @@ def _report(paths: list[Path], *, md: Path | None, recheck: bool, limit: int, pe
 
     audit = audit_runs(paths, recheck=recheck)
     if not audit.runs:
-        raise typer.BadParameter(f"no runs with a record.json under {', '.join(str(p) for p in paths)}")
+        raise typer.BadParameter(f"no run with a cost ledger under {', '.join(str(p) for p in paths)}")
     console.print(text_report(audit), soft_wrap=True)
-    if len(audit.runs) == 1:
-        _single_run_lines(audit.runs[0])
-    elif per_run:
+    if per_run:
         console.print("")
         console.print(runs_table(audit, limit=limit), soft_wrap=True)
-    live = sum(1 for r in audit.runs if r.source == "live")
-    console.print(f"[dim]ledger source: {live} live / {len(audit.runs) - live} reconstructed[/dim]")
     if recheck:
-        drift = audit.total_usd - audit.recorded_usd
-        warn(f"re-priced total ${audit.total_usd:.4f} vs recorded ${audit.recorded_usd:.4f} ({drift:+.4f})")
+        drift = audit.total_usd - audit.written_usd
+        warn(f"re-priced total ${audit.total_usd:.4f} vs ${audit.written_usd:.4f} as written ({drift:+.4f})")
         for run in audit.runs:
-            for note in run.notes:
-                console.print(f"  {run.run}: {note}")
+            if abs(run.ledger_usd - run.written_usd) > 0.005:
+                console.print(f"  {run.run}: ${run.ledger_usd - run.written_usd:+.4f}")
     if md:
         md.parent.mkdir(parents=True, exist_ok=True)
         md.write_text(markdown(audit, title=f"Cost audit — {', '.join(str(p) for p in paths)}"))
         ok(f"wrote {md}")
-
-
-def _single_run_lines(run: object) -> None:
-    """Reconciliation for one run: the ledger against what the record was billed."""
-    from codeverse3d.cli._common import kv_table
-
-    ledger = float(getattr(run, "ledger_usd", 0.0))
-    recorded = float(getattr(run, "recorded_usd", 0.0))
-    drift = ledger - recorded
-    pct = (100.0 * drift / recorded) if recorded else 0.0
-    rows = {
-        "source": getattr(run, "source", "?"),
-        "ledger": f"${ledger:.4f} over {len(getattr(run, 'rows', []))} calls",
-        "record.total_usage": f"${recorded:.4f}",
-        "difference": f"${drift:+.4f} ({pct:+.2f}%)",
-        "status": f"{getattr(run, 'status', '')} ({getattr(run, 'stop_reason', '')})",
-    }
-    console.print("")
-    console.print(kv_table("reconciliation", rows))
-    for note in getattr(run, "notes", []):
-        warn(note)
 
 
 # --------------------------------------------------------------------------- prices
@@ -208,17 +182,13 @@ def cache(
     runs_dir: Annotated[Path | None, typer.Option("--runs-dir")] = None,
 ) -> None:
     """Did prompt caching actually happen?  Per session: the cold first call, the
-    cached share, the dollars the cache saved and the dollars the cold head cost.
-
-    Only a live ledger has per-call ``cached_tokens``; reconstructed runs show
-    what their transcripts recorded."""
+    cached share, the dollars the cache saved and the dollars the cold head cost."""
     from codeverse3d.addons.costreport.caching import session_cache
     from codeverse3d.cost.ledger import load_ledger
-    from codeverse3d.cost.reconstruct import reconstruct_run
 
     for arg in paths:
         root = _resolve(str(arg), runs_dir)
-        rows = load_ledger(root) or reconstruct_run(root).rows
+        rows = load_ledger(root)
         sessions = session_cache(rows)
         if not sessions:
             warn(f"{root}: no priced calls found")

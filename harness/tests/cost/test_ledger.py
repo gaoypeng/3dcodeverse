@@ -86,14 +86,11 @@ def test_a_bound_ledger_takes_the_calls_that_name_no_file(tmp_path: Path):
     assert len(load_ledger(tmp_path / "default.jsonl")) == 1  # the binding is gone with the block
 
 
-def test_a_run_has_exactly_one_ledger_file_and_the_root_name_is_its_symlink(tmp_path: Path):
-    """``open_run_ledger`` writes only ``telemetry/cost.jsonl``; the root
-    ``cost_ledger.jsonl`` others still open by name is a symlink to it, so the reader
-    must not treat that name as a second, separate ledger."""
+def test_a_run_has_exactly_one_ledger_file(tmp_path: Path):
+    """``open_run_ledger`` writes only ``telemetry/cost.jsonl``, and that is the only name read."""
     led = open_run_ledger(tmp_path)
     assert existing_ledger_path(tmp_path) is None  # nothing written yet
     record_call(_usage(), run="r", stage="baseline", ledger=led)
     assert existing_ledger_path(tmp_path) == tmp_path / "telemetry" / "cost.jsonl"
-    alias = tmp_path / "cost_ledger.jsonl"
-    assert alias.is_symlink() and len(load_ledger(alias)) == 1
-    assert len(load_ledger(tmp_path)) == 1  # the directory reads the one file, not two
+    assert sorted(p.name for p in tmp_path.rglob("*.jsonl")) == ["cost.jsonl"]
+    assert len(load_ledger(tmp_path)) == 1

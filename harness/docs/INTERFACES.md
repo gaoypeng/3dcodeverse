@@ -116,7 +116,7 @@ record_call(usage, *, run="", round=None, stage=None, role=None, label="", backe
 from codeverse3d.cost.instrument import (run_ledger, metered_chat_model, metered_agent,
                                        MeteredAgent, MeteredChatModel, metering_enabled)
 with run_ledger(ws.root, run=slug):        # binds the run, points record_call at <run>/telemetry/cost.jsonl
-    ...                                    # (+ a <run>/cost_ledger.jsonl symlink for the run-layout alias)
+    ...                                    # (its one name: no root alias since 2026-09-22)
     # NESTS by holding ContextVar tokens (bound_run / bound_ledger) — context-local ONLY, no
     #   process-wide default — so bench.run_bench / compare_backends hold one ledger per prompt
     #   across N threads, and a thread that may bill a model goes through proc.fan_out.
@@ -158,8 +158,8 @@ from codeverse3d.models.pricing import price_provenance    # (provider, model) -
 ```
 `3dcode cost <slug|path>…` · `3dcode cost --runs-dir <root>` · `3dcode cost cache <slug>` ·
 `3dcode cost prices [--stale] [--days N] [--unverified]` · `3dcode cost profiles` · `3dcode cost estimate`.
-A run with a live ledger is read from it (`RunLedger.source == "live"`); older runs are
-reconstructed, so all 61 recorded runs keep auditing.
+Every run is read from its ledger alone (`addons.costreport.audit.read_run` / `read_cell` /
+`find_runs`); `cost/reconstruct.py` and its rebuild of pre-ledger runs went on 2026-09-22.
 
 ## agents/
 ```python
@@ -631,7 +631,8 @@ from codeverse3d.record._git import read_tree_at, diff_between, changed_files_be
 from codeverse3d.record.record import unique_files, SUBRUN_DIRS, BATTERY_MARKERS
     # unique_files(root, name) -> [Path]: every file called `name` under root ONCE per file on disk (follows
     # the run/telemetry/trajectories symlink and collapses it; skips SUBRUN_DIRS = {_cand, _assets}) — the
-    # one walker behind eval/bench/session_stats.py, eval/bench/coupling_stats.py and cost.reconstruct.find_runs
+    # one walker behind eval/bench/session_stats.py and eval/bench/coupling_stats.py (costreport.audit.find_runs
+    # skips SUBRUN_DIRS the same way)
     # diff_between(ws, before, after, *, max_bytes=None) -> (text, untruncated size, was_truncated)
     # changed_files_between(ws, before, after) -> [path];  commit_exists(ws, commit) -> bool
     # both under GIT_SAFE_DIFF_FLAGS (--no-ext-diff --no-textconv) on top of workspace.GIT_SAFE_FLAGS

@@ -27,7 +27,7 @@ def test_cost_show_recheck_reports_drift(fake_run: Path):
 
 def test_cost_show_on_an_empty_tree_fails_cleanly(tmp_path: Path):
     r = runner.invoke(app, ["cost", "show", str(tmp_path)])
-    assert r.exit_code != 0 and "no runs" in r.output
+    assert r.exit_code != 0 and "no run with a cost ledger" in r.output
 
 
 def test_cost_prices_and_estimate():
@@ -49,9 +49,9 @@ def _live_ledger(run: Path, rows: list[dict]) -> None:
 def test_cost_takes_a_bare_run_path_or_slug(fake_run: Path):
     r = runner.invoke(app, ["cost", str(fake_run)])
     assert r.exit_code == 0, r.output
-    assert "reconciliation" in r.output and "reconstructed" in r.output
+    assert "| fake_run | static_object |" in r.output
     r = runner.invoke(app, ["cost", fake_run.name, "--runs-dir", str(fake_run.parent)])
-    assert r.exit_code == 0 and "reconciliation" in r.output
+    assert r.exit_code == 0 and "| fake_run | static_object |" in r.output
 
 
 def test_cost_runs_dir_aggregates_a_battery(fake_run: Path, tmp_path: Path):
@@ -59,8 +59,8 @@ def test_cost_runs_dir_aggregates_a_battery(fake_run: Path, tmp_path: Path):
     assert r.exit_code == 0 and "runs: 1" in r.output
 
 
-def test_a_live_ledger_is_read_instead_of_being_reconstructed(fake_run: Path):
-    """The run wrote its own rows while it ran: they ARE the ledger."""
+def test_the_ledger_is_the_money(fake_run: Path):
+    """The run wrote its own rows while it ran: they ARE the money, whatever the record says."""
     _live_ledger(fake_run, [
         {"run": fake_run.name, "round": 0, "stage": "baseline", "role": "generator",
          "backend": "gemini", "provider": "gemini", "model": "gemini-3.7-flash",
@@ -72,10 +72,7 @@ def test_a_live_ledger_is_read_instead_of_being_reconstructed(fake_run: Path):
     ])
     r = runner.invoke(app, ["cost", str(fake_run)])
     assert r.exit_code == 0, r.output
-    assert "1 live / 0 reconstructed" in r.output
-    assert "$0.0999" in r.output  # the ledger's own judge dollar, not the reconstruction's $0.036
-    # what the ledger does not explain is reported, never hidden
-    assert "unattributed" in r.output or "difference" in r.output
+    assert "$0.0999" in r.output and "$0.1200" in r.output  # the ledger's own dollars
 
 
 def test_cost_reports_the_calls_per_key_when_the_ledger_recorded_them(fake_run: Path, tmp_path: Path):

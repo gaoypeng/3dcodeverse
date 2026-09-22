@@ -25,6 +25,7 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import Backends, Language, Track, Usage
 from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus, StepTime
 from codeverse3d.contracts.spec import Spec
+from codeverse3d.cost.ledger import record_call
 from codeverse3d.workspace import Workspace
 
 
@@ -112,6 +113,12 @@ def make_fake_run(
             build=BuildResult(ok=True, language=language.value),
         ))
     (ws.artifacts / "object.glb").write_bytes(b"glTF\x02\x00\x00\x00" + bytes([len(scores) - 1]) * 16)  # the last round
+    # the ledger its calls wrote: the planner, then one session per round ($0.06, the record's total)
+    ledger = ws.telemetry / "cost.jsonl"
+    record_call(Usage(backend="gemini", model="gemini-3.7-flash", input_tokens=500, cost_usd=0.02),
+                run=slug, stage="plan", label="planner", ledger=ledger)
+    for r in rounds[:2]:
+        record_call(r.usage, run=slug, round=r.index, stage=r.kind, label=r.kind, source="session", ledger=ledger)
     rec = RunRecord(spec=spec, workspace=str(ws.root), status=RunStatus.MAX_ROUNDS, rounds=rounds,
                     total_usage=Usage(cost_usd=0.06, input_tokens=2000, output_tokens=1000),
                     steps=[StepTime(step="plan", wall_s=30.0, lost_s=6.0)], finished_at=datetime.now(UTC),

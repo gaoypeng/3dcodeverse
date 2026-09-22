@@ -72,14 +72,14 @@ def tool_rates(sessions: list[Path]) -> tuple[Counter, Counter]:
 def token_rates(sessions: list[Path]) -> dict[str, float]:
     """Prompt/cached tokens and requests for each session's MAIN model.
 
-    ``cost.reconstruct._gemini_cli_usages`` owns the envelope — including the older
+    ``agents.backends._model_usage`` owns the envelope — including the older
     ``tokens.input`` schema this file would otherwise read as zero — so the tokens come
     from it rather than from a second parser.  A session's ``models`` map also carries
     gemini-cli's own bookkeeping model (one request per session for the session title),
     and docs/COST.md §30 counts main-role requests: the model with the most requests IS
     the main role, and mixing the other in moves ``uncached per request`` by ~3 %.
     """
-    from codeverse3d.cost.reconstruct import _gemini_cli_usages
+    from codeverse3d.agents.backends import _model_usage
 
     prompt = cached = requests = 0
     for path in sessions:
@@ -91,9 +91,7 @@ def token_rates(sessions: list[Path]) -> dict[str, float]:
         if not models:
             continue
         main = max(models, key=lambda n: int(((models[n] or {}).get("api") or {}).get("totalRequests") or 0))
-        usage = next((u for u in _gemini_cli_usages(stdout) if u.model == main), None)
-        if usage is None:
-            continue
+        usage = _model_usage((models[main] or {}).get("tokens") or {}, main)
         prompt += usage.input_tokens
         cached += usage.cached_tokens
         requests += int(((models[main] or {}).get("api") or {}).get("totalRequests") or 0)

@@ -272,7 +272,7 @@ def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
     if computed:
         console.print("[dim]computed on the fly (no telemetry/ in this run)[/dim]")
     else:
-        console.print(f"[dim]telemetry: {ws.cost_path} · {ws.usage_path} · {ws.settings_path}[/dim]")
+        console.print(f"[dim]telemetry: {ws.cost_path} · {ws.telemetry / 'cost.jsonl'} · {ws.settings_path}[/dim]")
 
 
 # --------------------------------------------------------------------------- command

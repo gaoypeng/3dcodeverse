@@ -1,18 +1,15 @@
-"""Run telemetry: the resolved settings snapshot + the money ledger.
+"""Run telemetry: the resolved settings snapshot + the summary of the money ledger.
 
-Three files under ``<run>/telemetry/`` (see docs/RUN_LAYOUT.md):
+Beside the ledger itself, ``telemetry/cost.jsonl`` (one priced row per model call, written
+while the run happens — ``codeverse3d.cost``), two files under ``<run>/telemetry/`` (see
+docs/RUN_LAYOUT.md):
 
 * ``settings.json`` — how the run was configured: model id per role, thinking
   level / temperature / judge samples, rounds + budget, rubric and its content
   hash, prompt & cookbook hashes, tool versions, harness git sha, key-pool size,
   price-table hash, render + limit settings.
-* ``usage.jsonl`` — one priced row per model call.  The rows are
-  ``codeverse3d.cost`` ledger rows (``CallCost``): the live ledger of the run when
-  it has one, else ``cost.reconstruct.reconstruct_run`` rebuilds them from the
-  trajectories, judge verdicts and priced events.  There is exactly one ledger
-  in the harness; this bucket only gives it a stable place in the run directory.
-* ``cost.json`` — the run-layout summary of those rows: totals, per stage, per
-  role, per model, per round, budget vs spent, wall clock.
+* ``cost.json`` — the run-layout summary of the ledger rows: totals, per stage, per
+  role, per model, per round, the run's minutes against ``max_minutes``.
 
 The same content is mirrored into ``record.telemetry`` so a consumer that only
 has ``record.json`` sees it too.  Nothing here is required for a run to
@@ -25,8 +22,6 @@ import hashlib
 import inspect
 import json
 import logging
-import os
-from pathlib import Path
 from typing import Any
 
 from codeverse3d.contracts.common import TRACK_INFO
@@ -38,9 +33,9 @@ from codeverse3d.contracts.run import (
     SettingsSnapshot,
     StageCost,
 )
-from codeverse3d.cost.ledger import LEDGER_NAME
+from codeverse3d.cost.ledger import TELEMETRY_LEDGER, load_ledger
 from codeverse3d.cost.types import Stage
-from codeverse3d.proc import read_json_or_none, write_json_atomic, write_text_atomic
+from codeverse3d.proc import read_json_or_none, write_json_atomic
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -192,30 +187,15 @@ def stage_order() -> tuple[str, ...]:
     return tuple(s.value for s in Stage)
 
 
-def live_ledger_path(ws: Workspace) -> Path:
-    """``<run>/cost_ledger.jsonl`` — the ledger written while the run happens, when there is one."""
-    return ws.root / LEDGER_NAME
-
-
-def ledger_rows(ws: Workspace) -> tuple[list[dict[str, Any]], str]:
-    """Priced per-call rows for the run → ``(rows, source)``.
-
-    Source is ``live`` (the run's own ``cost_ledger.jsonl``), ``reconstructed``
-    (rebuilt by ``codeverse3d.cost.reconstruct`` from trajectories / verdicts /
-    events) or ``unavailable``.  The cost package owns the pricing and the
-    double-counting rules — this bucket never re-implements them."""
+def ledger_rows(ws: Workspace) -> list[dict[str, Any]]:
+    """The run's priced per-call rows, ``telemetry/cost.jsonl`` (none when it has no ledger).
+    The cost package owns the pricing and the double-counting rules — this bucket never
+    re-implements them."""
     try:
-        live = live_ledger_path(ws)
-        if live.is_file():
-            from codeverse3d.cost.ledger import load_ledger
-
-            return [r.model_dump(mode="json") for r in load_ledger(live)], "live"
-        from codeverse3d.cost.reconstruct import reconstruct_run
-
-        return [r.model_dump(mode="json") for r in reconstruct_run(ws.root).rows], "reconstructed"
+        return [r.model_dump(mode="json") for r in load_ledger(ws.root)]
     except Exception as e:  # noqa: BLE001 - accounting must never fail a run
-        log.warning("cost ledger unavailable for %s: %s", ws.root, e)
-        return [], "unavailable"
+        log.warning("cost ledger unreadable for %s: %s", ws.root, e)
+        return []
 
 
 def _num(row: dict[str, Any], key: str) -> float:
@@ -273,38 +253,16 @@ def cost_summary(record: RunRecord, rows: list[dict[str, Any]]) -> CostSummary:
 
 
 # --------------------------------------------------------------------------- io
-def write_usage_jsonl(path: Path, rows: list[dict[str, Any]]) -> Path:
-    return write_text_atomic(path, "".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in rows))
-
-
-def _place_usage_rows(ws: Workspace, rows: list[dict[str, Any]], source: str) -> str:
-    """Write ``telemetry/usage.jsonl`` — or, when the run already carries a live
-    ledger at its root, alias it there so only one physical copy exists."""
-    if source == "live":
-        rel = live_ledger_path(ws).name
-        if ws.usage_path.exists() and not ws.usage_path.is_symlink():
-            ws.usage_path.unlink()
-        if not ws.usage_path.is_symlink():
-            try:
-                os.symlink(f"../{rel}", ws.usage_path)
-            except OSError:  # no symlinks here: fall back to a copy
-                write_usage_jsonl(ws.usage_path, rows)
-        return rel
-    write_usage_jsonl(ws.usage_path, rows)
-    return ws.usage_path.name
-
-
 def build_telemetry(ws: Workspace, record: RunRecord, *, write: bool = True) -> RunTelemetry:
     """Compute (and by default persist) ``telemetry/`` for one run."""
-    rows, source = ledger_rows(ws)
+    rows = ledger_rows(ws)
     tele = RunTelemetry(
         settings=settings_snapshot(record),
         cost=cost_summary(record, rows),
         environment=dict(record.environment),
         files={"settings": "telemetry/settings.json",
                "cost": "telemetry/cost.json",
-               "usage": "telemetry/usage.jsonl",
-               "usage_source": source,
+               "ledger": TELEMETRY_LEDGER,
                "events": "telemetry/events.jsonl",
                "run_state": "telemetry/run_state.json",
                "stages": "telemetry/stages",
@@ -314,7 +272,6 @@ def build_telemetry(ws: Workspace, record: RunRecord, *, write: bool = True) -> 
         ws.ensure_layout()
         write_json_atomic(ws.settings_path, tele.settings.model_dump(mode="json") if tele.settings else {})
         write_json_atomic(ws.cost_path, tele.cost.model_dump(mode="json") if tele.cost else {})
-        _place_usage_rows(ws, rows, source)
     return tele
 
 

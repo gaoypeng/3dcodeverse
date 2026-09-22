@@ -15,10 +15,13 @@ Reproduce:
 3dcode cost prices [--unverified]                          # the price table + provenance
 ```
 
-The audit is `codeverse3d/addons/costreport/audit.py`; it reconstructs a per-call ledger from
-old runs (`codeverse3d/cost/reconstruct.py`), so it works on every run recorded so
-far — no re-instrumentation needed.  `eval/bench/out/compare_v1_full` (a partial,
-superseded compare battery) is excluded.
+The audit is `codeverse3d/addons/costreport/audit.py`.  Part I was measured with a
+reconstruction of per-call rows from those runs' trajectories, verdicts and events
+(`cost/reconstruct.py`); every run since 2026-08-23 writes its own ledger, the reconstruction
+went on 2026-09-22 (434 of 467 archived runs carry a ledger; the 33 without are five v1
+batteries outside the repo), and `3dcode cost` now reads the ledger alone — so Part I's
+figures are the audit's record, not something this tree re-derives.
+`eval/bench/out/compare_v1_full` (a partial, superseded compare battery) is excluded.
 
 > **Re-run 2026-08-23 (wave 3).**  Every figure in Part I below was recomputed
 > after a de-duplication bug in the reconstruction was fixed (§6): a retried agent
@@ -275,8 +278,8 @@ the live ledger (§12) writes one row per call at the time of the call, the
 `BudgetGuard` charges the planner, aborted rounds, retried sessions and the
 texture pass through the same door, and a post-hoc pass joins the run's ledger
 (`3dcode texture pass` opens it with `create=False`).  A run recorded from now on
-cannot have an off-record dollar; the reconstruction path exists for the 61 runs
-recorded before it.
+cannot have an off-record dollar; the reconstruction that audited the 61 runs recorded
+before it went on 2026-09-22, and with it `tests/cost/test_reconstruct.py`.
 
 ## 7. Price hygiene (checked 2026-08-23)
 
@@ -385,11 +388,11 @@ the model, is what makes the artifact), and cheaper judges (§8).
 ```python
 from codeverse3d.cost import record_call, load_ledger, summarise
 
-with run_ledger(ws.root):                       # <run>/telemetry/cost.jsonl (cost_ledger.jsonl = symlink alias)
+with run_ledger(ws.root):                       # <run>/telemetry/cost.jsonl
     record_call(res.usage, run=ws.slug, round=idx, stage="refine", role="generator",
                 label=job.label, outcome=res.exit_reason)     # one append-only JSONL row
 
-rows = load_ledger(ws.root)                     # telemetry/cost.jsonl, else the pre-2026-08-23 root file
+rows = load_ledger(ws.root)                     # telemetry/cost.jsonl
 summarise(rows).dimension("stage")["judge"].cost_usd
 ```
 
@@ -399,11 +402,6 @@ prices actually used, price_source + price_approximate + price_checked
 (provenance), cost_usd, recorded_usd, latency_ms, cache_hit, outcome, n_calls,
 source`.  Writing never raises and never blocks a run; unknown models are
 recorded at $0 **and flagged**, never silently dropped.
-
-Until the call sites are wired, `codeverse3d.cost.reconstruct` rebuilds the same
-rows from `record.json` + `events.jsonl` + `trajectories/**` — that is what this
-audit runs on, and it reconciles to `record.total_usage` on every run (or says
-why it does not, §6).
 
 One helper exists for the callers:
 
@@ -476,8 +474,7 @@ landed in `other`.  Candidate generation sessions carry `stage=candidate` with l
 `stage=pairwise` (its ledger row carries `role=judge`, label `pairwise:…`).  Role, label and
 round live on the `CallCost` row, never on the guard — `BudgetGuard.charge/add` take
 `(usage, *, stage, enforce)` only since 2026-08-30 (D45).  `audit.lost_candidate` counts
-generator sessions only and reads both label forms — `baseline_c<k>` (live) and
-`c<k>:baseline` (reconstructed).
+generator sessions only, by their `baseline_c<k>` label.
 
 **Who opens a ledger.**  `3dcode make` / `3dcode resume` (`cli.main._run_track`),
 `3dcode texture pass` (with `create=False`), **and the bench drivers** —
@@ -497,10 +494,9 @@ token counts, the three **unit prices actually used** plus their provenance
 `cache_hit`, outcome and `n_calls`.  Writing never raises and never blocks: a
 pricing failure logs and keeps the recorded dollar.
 
-**Where it lands.**  `<run>/telemetry/cost.jsonl` (the run-layout telemetry
-bucket), with `<run>/cost_ledger.jsonl` left as a relative symlink so
-`record.telemetry.live_ledger_path` and the `telemetry/usage.jsonl` alias keep
-working — one physical copy.  A call made with no run context (a `3dcode judge`
+**Where it lands.**  `<run>/telemetry/cost.jsonl` (the run-layout telemetry bucket) — its
+one name since 2026-09-22: the root `cost_ledger.jsonl` and `telemetry/usage.jsonl` aliases
+are no longer written or read.  A call made with no run context (a `3dcode judge`
 outside a run, a bench script, a notebook) goes to a per-process log under
 `<cache_dir>/cost/`; `C3D_COST_LEDGER=off` disables writing entirely.
 
@@ -511,11 +507,11 @@ opens the run ledger itself.  The guard's own aggregate writer and its
 (`3dcode make`, the bench drivers) opened `run_ledger` first, so it never wrote there —
 and with `C3D_COST_LEDGER=off` it wrote anyway, which is now really off.
 
-**Reading it.**  `cost.reconstruct.reconstruct_run` prefers a live ledger and
-falls back to rebuilding from trajectories / verdicts / events, so
-`3dcode cost` and the run layout's `telemetry/cost.json`
-both pick the live rows up automatically and the 61 recorded runs keep auditing
-(`RunLedger.source` says `live` or `reconstructed`).
+**Reading it.**  `3dcode cost` (`addons/costreport/audit.read_run` / `read_cell`) and the run
+layout's `telemetry/cost.json` read `telemetry/cost.jsonl` and nothing else; a run without one
+has no rows.  A run in a battery is named by its place under the audited path (`RunId`), so an
+A/B battery's control and variant cells of one prompt stay two runs (they shared one label
+while the name was the cell's last two path segments).
 
 ### Verified on two fresh live runs
 
@@ -1270,7 +1266,7 @@ once **every** key in the pool has 503'd inside one logical call (a 22-key pool 
 times first).  What this buys per call is the whole storm wait it used to pay first (median
 5 s × the storm streak, up to 900 s); what it costs is one more round-trip on a fresh key.
 Follow-ups worth measuring: rank keys by recent latency (the 30 s keys are consistent), and
-record the key index in `telemetry/usage.jsonl` so the distribution of calls per key can be
+record the key index in `telemetry/cost.jsonl` so the distribution of calls per key can be
 read instead of probed.
 
 **Amended 2026-08-27 (owner's rule):** the first cut of this gated the rotation behind a

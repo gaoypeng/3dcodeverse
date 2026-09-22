@@ -196,10 +196,6 @@ class Workspace:
         return self.telemetry / "cost.json"
 
     @property
-    def usage_path(self) -> Path:
-        return self.telemetry / "usage.jsonl"
-
-    @property
     def settings_path(self) -> Path:
         return self.telemetry / "settings.json"
 

@@ -129,13 +129,11 @@ def test_get_coding_agent_hands_out_a_metered_agent(monkeypatch: pytest.MonkeyPa
     assert isinstance(registry.get_coding_agent("gemini-cli:m"), MeteredAgent)
 
 
-def test_run_ledger_writes_telemetry_and_leaves_a_root_alias(tmp_path: Path):
+def test_run_ledger_writes_the_one_telemetry_file(tmp_path: Path):
     with run_ledger(tmp_path, run="r1"):
         MeteredChatModel(FakeChat()).generate(ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
-    assert (tmp_path / "telemetry" / "cost.jsonl").is_file()
-    alias = tmp_path / "cost_ledger.jsonl"
-    assert alias.is_symlink() and alias.is_file()  # resolves to the telemetry copy
-    assert len(load_ledger(tmp_path)) == 1 == len(load_ledger(alias))
+    assert (tmp_path / "telemetry" / "cost.jsonl").is_file() and len(load_ledger(tmp_path)) == 1
+    assert not (tmp_path / "cost_ledger.jsonl").exists(), "the root alias went on 2026-09-22"
 
 
 def test_accounting_never_breaks_a_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -176,7 +174,6 @@ def test_post_hoc_work_never_creates_a_partial_ledger(tmp_path: Path):
         MeteredChatModel(FakeChat()).generate(
             ChatRequest(messages=[ChatMessage.user("x")], label="judge:static_object_v1:r00:s0"))
     assert not (tmp_path / "telemetry" / "cost.jsonl").exists()
-    assert not (tmp_path / "cost_ledger.jsonl").exists()
     # but a run that already keeps one is appended to
     with run_ledger(tmp_path, run="old"):
         MeteredChatModel(FakeChat()).generate(ChatRequest(messages=[ChatMessage.user("x")], label="planner"))

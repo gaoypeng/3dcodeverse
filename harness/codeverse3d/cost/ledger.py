@@ -47,15 +47,11 @@ from codeverse3d.proc import iter_jsonl_lines
 
 log = logging.getLogger(__name__)
 
-#: the ledger of a run lives in its telemetry bucket (docs/RUN_LAYOUT.md §telemetry)
+#: the ledger of a run lives in its telemetry bucket (docs/RUN_LAYOUT.md §telemetry) — the
+#: one name it has: the root ``cost_ledger.jsonl`` and ``telemetry/usage.jsonl`` aliases went
+#: on 2026-09-22 (runs written before keep them as dangling-safe symlinks nobody reads)
 TELEMETRY_DIR = "telemetry"
 TELEMETRY_LEDGER = f"{TELEMETRY_DIR}/cost.jsonl"
-
-#: alias name at the run root: a relative symlink :func:`open_run_ledger` leaves
-#: pointing at the telemetry copy, so ``record.telemetry.live_ledger_path`` and
-#: anything that learned this path before the telemetry bucket existed still reads
-#: the one physical file.
-LEDGER_NAME = "cost_ledger.jsonl"
 
 #: env var that points ``record_call`` at a ledger when no path is passed
 #: (``off`` / ``0`` / ``none`` disables ledger writing for the process)
@@ -151,31 +147,17 @@ def process_ledger_path() -> Path:
 
 
 def existing_ledger_path(workspace: str | Path) -> Path | None:
-    """The ledger file a run actually has, or ``None``.
-
-    Only ``telemetry/cost.jsonl``: the root :data:`LEDGER_NAME` is the symlink
-    :func:`open_run_ledger` leaves pointing at it, and a walk of every run under
-    ``$HOME`` on 2026-08-30 found 677 such symlinks and not one real file there."""
+    """The ledger file a run actually has, or ``None``: ``telemetry/cost.jsonl``, the only one
+    read (a walk of every run under ``$HOME`` on 2026-08-30 found 677 root ``cost_ledger.jsonl``
+    files, every one a symlink to it)."""
     p = Path(workspace) / TELEMETRY_LEDGER
     return p if p.is_file() else None
 
 
 def open_run_ledger(workspace: str | Path) -> CostLedger:
-    """The run's live ledger, ready to append to.
-
-    Writes to ``telemetry/cost.jsonl`` and leaves ``<run>/cost_ledger.jsonl`` as a
-    relative symlink to it, so there is exactly one physical copy and the run
-    layout's ``live_ledger_path`` / ``telemetry/usage.jsonl`` alias keep working."""
-    root = Path(workspace)
-    path = root / TELEMETRY_LEDGER
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        alias = root / LEDGER_NAME
-        if not alias.exists() and not alias.is_symlink():
-            os.symlink(TELEMETRY_LEDGER, alias)
-    except OSError as e:  # pragma: no cover - read-only dir / no symlinks
-        log.debug("cost: could not prepare the run ledger at %s: %s", path, e)
-    return CostLedger(path)
+    """The run's ledger, ``telemetry/cost.jsonl``, ready to append to (the file is created by
+    its first row)."""
+    return CostLedger(Path(workspace) / TELEMETRY_LEDGER)
 
 
 #: context._stage is the same function; ledger already imports from context.  NOT true
