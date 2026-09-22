@@ -111,7 +111,7 @@ class VlmJudge:
         self.rubric: Rubric = rubric if isinstance(rubric, Rubric) else load_rubric(rubric)
         # Every sample of one call normally sees the montages and tiles in a different order
         # (shuffle_seed below), so score_std is a view-ORDER robustness figure — the number
-        # cost/routing.JUDGE_NOISE was tabulated from.  fixed_order sends the identical
+        # docs/COST.md §8's judge noise was tabulated from.  fixed_order sends the identical
         # prompt n times: the re-judge σ of the model itself, which is what the loop's
         # stop thresholds and the pairwise margin are actually keyed to (audit 2026-08-30;
         # brilliana measured 0.013 vs 0.035 between the two on 512 calls).

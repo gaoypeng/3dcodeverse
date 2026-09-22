@@ -34,7 +34,6 @@ from codeverse3d.contracts.artifacts import Judgment, RenderSet
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.judges.base import JudgeInput
-from codeverse3d.judges.rubrics import is_degraded
 from codeverse3d.judges.vlm_judge import VlmJudge
 from codeverse3d.record.record import RecordError, load_record
 from codeverse3d.workspace import Workspace
@@ -252,7 +251,7 @@ def _judge_case(case: RoundCase, judge: VlmJudge, geometry: RenderSet | None, ou
         caps=[c["rule"] for c in raw.get("caps", {}).get("caps_applied", [])],
         passed=j.passed, n_used=j.n_samples, geometry_views=inp.geometry_views is not None,
         cost_usd=j.usage.cost_usd, duration_s=round(time.time() - t0, 1), summary=j.summary,
-        error=j.summary if is_degraded(j) else "",
+        error=j.summary if j.degraded else "",
     )
 
 

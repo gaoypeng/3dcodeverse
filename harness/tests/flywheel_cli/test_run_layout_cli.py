@@ -127,14 +127,25 @@ def test_telemetry_summarises_the_runs_own_ledger(fake_run):
 
 def test_the_settings_snapshot_records_the_temperature_the_track_planned_at(tmp_path):
     """The planner row reported ``planner.plan()``'s default 0.4 for every run — a default
-    no track uses: each passes its own ``plan_temperature``, and graphics plans at 0.5."""
+    no track uses: each passes its own ``plan_temperature``, and graphics plans at 0.5.  The
+    track stamps what it ran with (``record.extra["sampling"]``), the judge's knobs too; a
+    record without the stamp leaves them empty instead of guessing."""
+    from types import SimpleNamespace
+
     from codeverse3d.contracts.common import Language
     from codeverse3d.record.telemetry import settings_snapshot
+    from codeverse3d.tracks.graphics import GraphicsTrack
+    from codeverse3d.tracks.static_object import StaticObjectTrack
 
-    for language, want in ((Language.GLSL_SHADER, 0.5), (Language.BLENDER, 0.4)):
+    judge = SimpleNamespace(temperature=0.2, thinking="low", n_samples=3)
+    for language, track, want in ((Language.GLSL_SHADER, GraphicsTrack(), 0.5),
+                                  (Language.BLENDER, StaticObjectTrack(), 0.4)):
         _ws, rec = make_fake_run(tmp_path / language.value, language=language)
-        planner = next(r for r in settings_snapshot(rec).roles if r.role == "planner")
-        assert (planner.temperature, planner.source) == (want, "default"), language
+        assert next(r for r in settings_snapshot(rec).roles if r.role == "planner").temperature is None
+        rec.extra["sampling"] = track.sampling(judge)
+        roles = {r.role: r for r in settings_snapshot(rec).roles}
+        assert (roles["planner"].temperature, roles["planner"].source) == (want, "run"), language
+        assert (roles["judge"].temperature, roles["judge"].thinking, roles["judge"].n_samples) == (0.2, "low", 3)
 
 
 def test_rejected_texture_pass_is_not_delivered_or_linked(fake_run):

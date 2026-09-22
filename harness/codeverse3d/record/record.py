@@ -121,11 +121,7 @@ def effective_judgment(r: RoundRecord):
     """The round's judgment, or ``None`` when it is a degraded (judge-outage)
     verdict — the flywheel must treat those as 'no score', never as a 0.0."""
     j = r.judgment
-    if j is None:
-        return None
-    from codeverse3d.judges.rubrics import is_degraded
-
-    return None if is_degraded(j) else j
+    return None if j is None or j.degraded else j
 
 
 def effective_score(r: RoundRecord) -> float | None:

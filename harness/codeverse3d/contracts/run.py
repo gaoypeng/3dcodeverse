@@ -254,10 +254,10 @@ class RoundRecord(BaseModel):
 class RoleSettings(BaseModel):
     """Resolved model settings for ONE role of a run (planner/generator/judge/…).
 
-    ``source`` says where the sampling knobs came from: ``spec`` (frozen on the
-    Spec), ``default`` (the harness default, read from the call site's typed
-    defaults) or ``unknown`` (the call site hard-codes it per task — the value
-    is left empty rather than guessed)."""
+    ``source`` says where the sampling knobs came from: ``run`` (stamped by the track as it
+    ran, ``record.extra["sampling"]``) or ``spec`` (only the model is known — a vendor CLI owns
+    its knobs; the values are left empty rather than guessed).  Records before 2026-09-22 say
+    ``default`` (read off the call sites' signature defaults)."""
 
     role: str
     model: str = ""

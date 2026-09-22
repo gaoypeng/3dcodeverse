@@ -24,7 +24,7 @@ fooling ourselves.  Tools: `bench/run_bench.py`, `bench/compare_backends.py`,
    items, so harness and one-shot are judged alike).
 3. **Scores are code-computed.**  Weighted criteria, floors, caps from gate findings,
    `passed = overall ≥ threshold ∧ no floor ∧ all must-acceptance`; the ledger is in
-   `Judgment.raw` (ScoreBreakdown).  Degraded verdicts (`is_degraded`) are re-run, not
+   `Judgment.raw` (ScoreBreakdown).  Degraded verdicts (`Judgment.degraded`) are re-run, not
    counted.
 4. **Stratified batteries.**  Prompts are fixed YAML with ids, tiers (easy/medium/hard)
    and categories; report per tier, never only the mean.

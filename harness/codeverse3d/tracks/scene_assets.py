@@ -35,7 +35,6 @@ from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import AssetPlan, BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse3d.contracts.spec import Constraints, Spec
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
-from codeverse3d.judges.rubrics import is_degraded
 from codeverse3d.languages.scene_threejs import asset_file
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import fan_out, read_json_or_none, write_json_atomic, write_text_atomic
@@ -631,7 +630,7 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
             events.emit("asset.judge_failed", asset=asset.name, error=f"{type(e).__name__}: {e}")
             return None
         write_json_atomic(d / "judge.json", verdict.model_dump(mode="json"))  # replayable, like a round's judge/rNN.json
-        if is_degraded(verdict):
+        if verdict.degraded:
             # a degraded verdict is no verdict: score stays None and `judged` False, and the
             # fix pass is skipped (its improvement_plan is empty by construction).
             events.emit("asset.judge_degraded", asset=asset.name)

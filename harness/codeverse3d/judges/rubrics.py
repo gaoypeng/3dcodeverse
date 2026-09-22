@@ -957,13 +957,3 @@ def degraded_judgment(
         usage=usage,
         raw=json.dumps(breakdown, ensure_ascii=False),
     )
-
-
-def is_degraded(j: Judgment) -> bool:
-    """True when a Judgment is a judge glitch rather than a score."""
-    if j.summary.startswith("judge_error:"):
-        return True
-    try:
-        return json.loads(j.raw).get("status") == "degraded"
-    except (json.JSONDecodeError, AttributeError, TypeError):
-        return False

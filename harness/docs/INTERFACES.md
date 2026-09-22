@@ -416,7 +416,7 @@ build_judge_messages(inp, rubric, *, …, extra_images=None (PREpended: referenc
     # provenance_elicitation appends one sentence to the DEFECT CHECKLIST bullet.  Defaults build the byte-identical
     # pre-D48 payload; judge_prompt_hash(rubric) is unchanged either way (per-round content stays outside the hash)
 connectivity_error_pairs(gates) -> list[(a, b)]   # the gate's ERROR penetration pairs via finding.target/data.other
-from codeverse3d.judges.rubrics import is_degraded, aggregate_samples, SCORING_VERSION   # ScoreBreakdown adds defects,
+from codeverse3d.judges.rubrics import aggregate_samples, SCORING_VERSION   # (Judgment.degraded: a glitch, not a score)  ScoreBreakdown adds defects,
     # defect_votes (majority; a defect tie → absent, an acceptance tie → representative sample, D36 as amended
     # 2026-08-30), tie_broken, defect_penalty, overall_after_defects, overridden (defects the measured-absent
     # veto switched off), scoring_version (= SCORING_VERSION, 2; older records carry 0), judge_prompt_hash (D37);

@@ -19,7 +19,6 @@ succeed: every builder degrades to "what could be read".
 from __future__ import annotations
 
 import hashlib
-import inspect
 import json
 import logging
 from typing import Any
@@ -62,41 +61,6 @@ def backend_kind(model_id: str) -> str:
     return model_id.split(":", 1)[0] if ":" in model_id else model_id
 
 
-def _sig_default(fn: Any, name: str) -> Any:
-    try:
-        param = inspect.signature(fn).parameters[name]
-    except (TypeError, ValueError, KeyError):  # pragma: no cover - defensive
-        return None
-    return None if param.default is inspect.Parameter.empty else param.default
-
-
-def _judge_defaults() -> dict[str, Any]:
-    try:
-        from codeverse3d.judges.vlm_judge import VlmJudge
-    except Exception:  # pragma: no cover - sub-package missing
-        return {}
-    init = VlmJudge.__init__
-    return {"temperature": _sig_default(init, "temperature"), "thinking": _sig_default(init, "thinking"),
-            "n_samples": _sig_default(init, "n_samples")}
-
-
-def _planner_defaults(record: RunRecord) -> dict[str, Any]:
-    """The temperature THIS track plans at (``planner.plan_temperature``: graphics 0.5, the rest 0.4)."""
-    from codeverse3d.tracks.planner import plan_temperature
-
-    return {"temperature": plan_temperature(record.spec.track)}
-
-
-def _generator_defaults(model_id: str) -> dict[str, Any]:
-    """HISTORICAL shim, read-only: CLI agents own their sampling knobs and only the
-    in-process ``api-agent`` (deleted 2026-08-28) exposed ours.  The constants reproduce
-    its shipped defaults so a pre-deletion record still reports what it ran with; they
-    configure nothing."""
-    if backend_kind(model_id) != "api-agent":
-        return {}
-    return {"temperature": 0.3, "thinking": "low"}
-
-
 def _rubric_name(record: RunRecord) -> str:
     name = str(record.extra.get("rubric") or "")
     if name:
@@ -121,23 +85,21 @@ def rubric_hash(name: str) -> str:
 
 
 def _role_settings(record: RunRecord) -> list[RoleSettings]:
+    """The model per role from the spec; the sampling knobs from what the track stamped as it
+    ran (``record.extra["sampling"]``: the planner's temperature, the judge's temperature /
+    thinking / samples).  A vendor CLI owns its own knobs, and a record written before
+    2026-09-22 carries none: left empty, never guessed."""
     b = record.spec.backends
-    plan_d, judge_d = _planner_defaults(record), _judge_defaults()
-    spec: list[tuple[str, str, dict[str, Any]]] = [
-        ("planner", b.planner, plan_d),
-        ("generator", b.generator, _generator_defaults(b.generator)),
-        ("judge", b.judge, judge_d),
-        ("captioner", b.captioner, {}),
-    ]
+    sampling = record.extra.get("sampling") or {}
     roles: list[RoleSettings] = []
-    for role, model_id, defaults in spec:
-        temperature = defaults.get("temperature")
+    for role, model_id in (("planner", b.planner), ("generator", b.generator), ("judge", b.judge),
+                           ("captioner", b.captioner)):
+        knobs = sampling.get(role) or {}
+        temperature = knobs.get("temperature")
         roles.append(RoleSettings(
-            role=role, model=model_id, backend=backend_kind(model_id),
-            thinking=str(defaults.get("thinking") or ""),
+            role=role, model=model_id, backend=backend_kind(model_id), thinking=str(knobs.get("thinking") or ""),
             temperature=float(temperature) if isinstance(temperature, (int, float)) else None,
-            n_samples=defaults.get("n_samples") if role == "judge" else None,
-            source="default" if defaults else "spec",
+            n_samples=knobs.get("n_samples") if role == "judge" else None, source="run" if knobs else "spec",
         ))
     return roles
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from enum import StrEnum
 from typing import Any, Literal
@@ -216,3 +217,14 @@ class Judgment(BaseModel):
     score_std: float = 0.0
     usage: Usage = Field(default_factory=Usage)
     raw: str = ""
+
+    @property
+    def degraded(self) -> bool:
+        """A judge glitch (an outage, an unparseable verdict), never a score: its 0.0 must not
+        reach a pick or a refine plan (``judges.rubrics.degraded_judgment`` writes one)."""
+        if self.summary.startswith("judge_error:"):
+            return True
+        try:
+            return json.loads(self.raw).get("status") == "degraded"
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            return False

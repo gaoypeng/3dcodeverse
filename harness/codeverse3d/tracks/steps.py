@@ -40,7 +40,6 @@ from codeverse3d.contracts.plan import AcceptanceItem, Plan
 from codeverse3d.contracts.run import RoundRecord, StepTime
 from codeverse3d.cost.tally import Tally, tally, timed
 from codeverse3d.judges.base import round_input
-from codeverse3d.judges.rubrics import is_degraded
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import fan_out
 from codeverse3d.record.deliverable import keep_round_artifacts
@@ -406,7 +405,7 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
         notes.append(f"judge failed: {type(e).__name__}: {e}")
         return None
     ctx.ws.write_json(ctx.ws.judge_path(index), judgment)
-    if is_degraded(judgment):
+    if judgment.degraded:
         # a glitch, never a score: keep the raw verdict on disk, but do not let 0.0
         # poison a pick or a refine plan (judges/rubrics.degraded_judgment contract)
         ctx.events.emit("judge.degraded", round=index, error=judgment.summary[:300],

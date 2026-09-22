@@ -47,6 +47,7 @@ from codeverse3d.tracks.candidates import run_best_of_n
 from codeverse3d.tracks.common import RunContext, Services
 from codeverse3d.tracks.generation import GenerationTask, single_shot_model_id
 from codeverse3d.tracks.planner import plan as run_planner
+from codeverse3d.tracks.planner import plan_temperature
 from codeverse3d.tracks.prompting import (
     base_prompt_context,
     language_system_prompt,
@@ -628,7 +629,8 @@ class BaseTrack:
         cands = ctx.ws.root / "rounds" / "candidates.json"  # best-of-N summary: the file is the one copy
         extra: dict[str, Any] = {"stop_reason": status.value, "rubric": ctx.rubric, "budget": ctx.budget.summary(),
                                  "n_candidates": ctx.policy.n_candidates,
-                                 "candidates": ctx.ws.read_json(cands) if cands.is_file() else None}
+                                 "candidates": ctx.ws.read_json(cands) if cands.is_file() else None,
+                                 "sampling": self.sampling(ctx.judge)}
         if ctx.extra.get("finalise_rebuild_failed"):
             extra["finalise_rebuild_failed"] = ctx.extra["finalise_rebuild_failed"]
         if ctx.extra.get("aborted_rounds"):
@@ -658,6 +660,14 @@ class BaseTrack:
             finished_at=datetime.now(UTC), error=error,
             extra=extra,
         )
+
+    def sampling(self, judge: Any) -> dict[str, dict[str, Any]]:
+        """``record.extra["sampling"]``: the knobs this run's API roles sampled with — the
+        planner's temperature (``plan_temperature``: graphics 0.5, the rest 0.4) and the judge's
+        own temperature / thinking / samples.  The settings snapshot reads it."""
+        knobs = {k: getattr(judge, k) for k in ("temperature", "thinking", "n_samples")
+                 if isinstance(getattr(judge, k, None), (int, float, str))}
+        return {"planner": {"temperature": plan_temperature(self.track)}, **({"judge": knobs} if knobs else {})}
 
     @staticmethod
     def _prior_record_fields(ws: Workspace) -> tuple[dict[str, Any], dict[str, str]]:

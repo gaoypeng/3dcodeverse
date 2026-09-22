@@ -3,7 +3,7 @@ import json
 import pytest
 
 from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse3d.judges.rubrics import is_degraded, load_rubric
+from codeverse3d.judges.rubrics import load_rubric
 from codeverse3d.judges.vlm_judge import VlmJudge
 from codeverse3d.models.base import ModelError
 from tests.judges.conftest import FakeChatModel, good_reply, image_parts
@@ -137,7 +137,7 @@ def test_degraded_after_exhausting_attempts(judge_input, cache_dir):
     model = FakeChatModel(default=ModelError("boom", retryable=True))
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)
     assert not j.passed and j.overall == 0.0 and j.summary.startswith("judge_error:")
-    assert is_degraded(j) and json.loads(j.raw)["status"] == "degraded"
+    assert j.degraded and json.loads(j.raw)["status"] == "degraded"
     assert len(model.requests) == 3  # max_attempts
     assert j.n_samples == 0
 
@@ -154,7 +154,7 @@ def test_partial_samples_still_score(judge_input, cache_dir):
 def test_non_retryable_error_stops_at_once(judge_input, cache_dir):
     model = FakeChatModel(default=ModelError("bad request", retryable=False))
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)
-    assert is_degraded(j) and len(model.requests) == 1
+    assert j.degraded and len(model.requests) == 1
 
 
 def test_base_judge_rejects_measured_rubric(judge_input, cache_dir):
@@ -212,7 +212,7 @@ def test_judge_prompt_hash_is_recorded_in_every_verdict(judge_input, cache_dir):
     assert raw["rubric_hash"] == R.content_hash() and raw["judge_prompt_hash"] != raw["rubric_hash"]
     # a degraded verdict carries it too, so a glitch is still attributable to a protocol
     d = _judge(FakeChatModel([ModelError("down", retryable=False)]), cache_dir=cache_dir).judge(judge_input)
-    assert is_degraded(d) and json.loads(d.raw)["judge_prompt_hash"] == judge_prompt_hash(R)
+    assert d.degraded and json.loads(d.raw)["judge_prompt_hash"] == judge_prompt_hash(R)
     assert _judge(FakeChatModel([]), cache_dir=cache_dir).prompt_hash == judge_prompt_hash(R)
 
 
@@ -280,7 +280,7 @@ def test_a_sample_stops_when_its_budget_is_spent(judge_input, cache_dir, monkeyp
 
     model = FakeChatModel(default=spent)
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)
-    assert is_degraded(j) and len(model.requests) == 1, "max_attempts=3, but the budget is gone"
+    assert j.degraded and len(model.requests) == 1, "max_attempts=3, but the budget is gone"
     assert "sample budget" in j.summary
     # the budget is a dial: a caller that can afford more gets the attempts back
     model = FakeChatModel(default=spent)

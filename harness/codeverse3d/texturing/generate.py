@@ -30,7 +30,6 @@ from codeverse3d.contracts.plan import AcceptanceItem, StaticPlan
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK, ViewPreset
 from codeverse3d.judges.base import JudgeInput, plan_summary
-from codeverse3d.judges.rubrics import is_degraded
 from codeverse3d.proc import fan_out, unique_tmp
 
 #: seam score above which a texture is considered NOT tileable (after make_tileable)
@@ -353,7 +352,7 @@ def judge_gate(
     res.judgment_before, res.judgment_after = jb, ja
     res.usage = jb.usage + ja.usage
     res.duration_s = round(time.time() - t0, 2)
-    if is_degraded(jb) or is_degraded(ja):
+    if jb.degraded or ja.degraded:
         res.reason = "judge degraded on one side — not shipped"
         return res
     res.overall_before, res.overall_after = float(jb.overall), float(ja.overall)

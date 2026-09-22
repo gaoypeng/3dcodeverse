@@ -35,6 +35,9 @@ from codeverse3d.contracts.chat import (
     TextPart,
 )
 from codeverse3d.contracts.common import Usage
+from codeverse3d.cost.context import AttemptRecord, attempt_sink
+from codeverse3d.cost.ledger import record_call
+from codeverse3d.cost.types import Role, Stage
 from codeverse3d.models.base import ModelError
 from codeverse3d.models.parts import Stopwatch, attempt_timeout_s, image_bytes, retry_budget_s
 from codeverse3d.models.pricing import estimate_cost, per_image_usd
@@ -468,14 +471,8 @@ class GeminiModel:
         place a budget guard can see that money) and feeds the ledger's per-attempt sink
         when the metering layer installed one (``cost.instrument.MeteredChatModel``).
         Captured once per logical call so a hedge loser landing later, in its own thread,
-        still reports through it.  Imported lazily: the models package must not import
-        the cost package at module level (``cost.ledger`` imports ``models.pricing``)."""
-        try:
-            from codeverse3d.cost.context import AttemptRecord, attempt_sink
-
-            sink = attempt_sink()
-        except Exception:  # pragma: no cover - accounting must never break a call
-            AttemptRecord = sink = None
+        still reports through it."""
+        sink = attempt_sink()
 
         def on_attempt(t: _Try, no: int, discarded: bool) -> None:
             if t.err is None:
@@ -588,15 +585,9 @@ def _is_model_missing(err: ModelError) -> bool:
 
 def _record(usage: Usage, n_images: int) -> None:
     """One ledger row per image batch (the image model is not a ChatModel, so
-    ``models.registry`` cannot meter it).  Never raises."""
-    try:
-        from codeverse3d.cost import record_call
-        from codeverse3d.cost.types import Role, Stage
-
-        record_call(usage, stage=Stage.TEXTURE, role=Role.IMAGE, label="image",
-                    backend="gemini-image", model=usage.model, n_calls=max(1, n_images))
-    except Exception:  # noqa: BLE001 - accounting must never break a texture pass
-        pass
+    ``models.registry`` cannot meter it).  ``record_call`` never raises."""
+    record_call(usage, stage=Stage.TEXTURE, role=Role.IMAGE, label="image",
+                backend="gemini-image", model=usage.model, n_calls=max(1, n_images))
 
 
 class GeminiImageModel:

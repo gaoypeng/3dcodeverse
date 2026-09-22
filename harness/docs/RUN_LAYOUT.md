@@ -124,12 +124,12 @@ produces no diff.
   seed; texture flag; rubric name **and its content hash**; prompt / cookbook
   hashes; tool versions (python, blender, node, three, chrome, puppeteer);
   harness version + git sha; key-pool size; **price-table hash**; resolved
-  render and limit settings.  Sampling values are read from the call sites'
-  typed defaults (`VlmJudge.__init__`, `tracks/planner.plan_temperature(track)`, and
-  `record/telemetry.py::_generator_defaults` — a historical shim that
-  configures nothing, kept so old records still read back); a
-  value a call site hard-codes per task is left empty with `source` saying so,
-  never guessed.
+  render and limit settings.  Sampling values are what the track stamped as it ran,
+  `record.extra["sampling"]` (the planner's `plan_temperature(track)`, the judge's own
+  temperature / thinking / samples; `source="run"`) — a vendor CLI owns its knobs, and a
+  record written before 2026-09-22 carries no stamp, so they are left empty, never guessed
+  (they were read off the call sites' signature defaults, which reported the default judge
+  sample count whatever the run used).
 * **`cost.jsonl`** — THE ledger: one priced row per model call or CLI session, in the
   **`codeverse3d.cost` ledger format** (`CallCost`: tokens, unit prices, price
   provenance, stage, role, outcome), written by the metered models and agents while the

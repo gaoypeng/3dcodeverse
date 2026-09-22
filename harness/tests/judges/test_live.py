@@ -13,7 +13,6 @@ from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import RenderSet
 from codeverse3d.contracts.plan import AcceptanceItem
 from codeverse3d.judges.base import JudgeInput
-from codeverse3d.judges.rubrics import is_degraded
 from codeverse3d.judges.vlm_judge import VlmJudge
 from tests.judges.conftest import make_measurement, make_renders, make_spec
 
@@ -71,7 +70,7 @@ def test_live_vlm_judge_two_samples(tmp_path):
     print(f"\nLIVE source={source}\noverall={j.overall} std={j.score_std} passed={j.passed} n={j.n_samples}"
           f"\nscores={j.scores}\nacceptance={j.acceptance_results}\ncaps={raw.get('caps')}\nsample_errors={raw.get('sample_errors')}"
           f"\nusage={j.usage}\nsummary={j.summary}\nplan={[i.instruction for i in j.improvement_plan]}")
-    assert not is_degraded(j), j.summary
+    assert not j.degraded, j.summary
     assert j.n_samples == 2 and raw["sample_errors"] == []  # parsed first try
     assert 0.0 < j.overall < 1.0
     assert set(j.scores) == {c.id for c in judge.rubric.criteria}
@@ -92,7 +91,7 @@ def test_live_judge_separates_crafted_from_crude(tmp_path):
     gd, cd = json.loads(good.raw), json.loads(crude.raw)
     print(f"\nLIVE stool overall={good.overall} uncapped={gd['overall_uncapped']} defects={[d for d, o in gd['defects'].items() if o]}"
           f"\nLIVE crude overall={crude.overall} uncapped={cd['overall_uncapped']} defects={[d for d, o in cd['defects'].items() if o]}")
-    assert not is_degraded(good) and not is_degraded(crude)
+    assert not good.degraded and not crude.degraded
     assert good.overall - crude.overall >= 0.25
     assert any(cd["defects"].values())  # the crude drawing trips the checklist
 
@@ -124,5 +123,5 @@ def test_live_reference_judge(tmp_path):
     j = ReferenceJudge(MODEL, cache_dir=tmp_path / "cache").judge(inp)
     raw = json.loads(j.raw)
     print(f"\nLIVE reference overall={j.overall} passed={j.passed} scores={j.scores}\nsummary={j.summary}\nusage={j.usage}")
-    assert not is_degraded(j) and raw["sample_errors"] == []
+    assert not j.degraded and raw["sample_errors"] == []
     assert j.scores["silhouette_match"] >= 0.95  # reference is the render itself
