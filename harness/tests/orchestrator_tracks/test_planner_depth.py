@@ -28,8 +28,8 @@ from codeverse3d.tracks.planner import (
     build_system_prompt,
     build_user_prompt,
     plan_example,
-    plan_with_usage,
 )
+from codeverse3d.tracks.planner import plan as run_planner
 from codeverse3d.workspace import Workspace
 
 from .fakes import FakeChatModel
@@ -346,13 +346,12 @@ def test_truncated_plans_keep_growing_output_room(tmp_path, monkeypatch):
                 raise ModelError("structured output unavailable (finish_reason=MAX_TOKENS; raise max_output_tokens)")
             return good
 
-        plan, _u = plan_with_usage(_spec(must=8), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
-        return seen, plan
+        return seen, run_planner(_spec(must=8), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
 
     for failures in (1, 2):
-        seen, plan = run(failures)
+        seen, got = run(failures)
         assert len(seen) == failures + 1 and seen == sorted(set(seen))
-        assert len(plan.parts) == 9
+        assert len(got.parts) == 9
 
 
 def test_a_model_error_that_is_not_truncation_still_propagates(tmp_path, monkeypatch):
@@ -366,7 +365,7 @@ def test_a_model_error_that_is_not_truncation_still_propagates(tmp_path, monkeyp
         raise ModelError("every key is dead")
 
     with pytest.raises(ModelError, match="every key is dead"):
-        plan_with_usage(_spec(), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
+        run_planner(_spec(), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
 
 
 # ----------------------------------------------------------------------------- the loop
@@ -385,10 +384,10 @@ def test_planner_spends_one_quality_reask_then_ships_the_plan(tmp_path, monkeypa
         return thin
 
     spec = _spec(must=10)
-    plan, _usage = plan_with_usage(spec, "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
+    got = run_planner(spec, "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
     assert calls["n"] == 1 + MAX_QUALITY_REASKS
     assert "Only 3 parts" in calls["complaints"][0]
-    assert len(plan.parts) == 3 and ws.plan_path.is_file()
+    assert len(got.parts) == 3 and ws.plan_path.is_file()
 
 
 def test_a_good_plan_costs_exactly_one_call(tmp_path, monkeypatch):
@@ -402,8 +401,8 @@ def test_a_good_plan_costs_exactly_one_call(tmp_path, monkeypatch):
         calls["n"] += 1
         return good
 
-    plan, _u = plan_with_usage(_spec(must=8), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
-    assert calls["n"] == 1 and len(plan.parts) == 9
+    got = run_planner(_spec(must=8), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
+    assert calls["n"] == 1 and len(got.parts) == 9
 
 
 def test_brief_and_plan_are_one_model_and_the_events_say_so(tmp_path, monkeypatch):
@@ -429,12 +428,12 @@ def test_brief_and_plan_are_one_model_and_the_events_say_so(tmp_path, monkeypatc
             self.rows.append((name, kw))
 
     ev = _Events()
-    plan, _u = plan_with_usage(_spec(must=10), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder), events=ev)
+    got = run_planner(_spec(must=10), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder), events=ev)
     assert seen["n"] == 2
     done = next(kw for name, kw in ev.rows if name == "plan.done")
     assert done["brief"] is True and done["target_parts"] == 10 and done["quality_reasks"] == 0
     assert any(name == "plan.brief" for name, _ in ev.rows)
-    assert [a for a in plan.acceptance if a.id.startswith("sig")]
+    assert [a for a in got.acceptance if a.id.startswith("sig")]
 
 
 def test_a_model_name_leak_is_rejected_not_modelled():

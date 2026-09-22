@@ -11,7 +11,6 @@ the round.  The switch is read at CALL time (see ``skills/config.py`` for why).
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Sequence
 from pathlib import Path
@@ -21,6 +20,7 @@ from pydantic import ValidationError
 
 from codeverse3d.contracts.artifacts import GateReport
 from codeverse3d.contracts.run import SkillsUsage
+from codeverse3d.proc import read_json_or_none
 from codeverse3d.tracks.common import RunContext
 
 log = logging.getLogger(__name__)
@@ -40,12 +40,8 @@ def _previous_findings(ctx: RunContext, index: int) -> list[GateReport]:
     if not d.is_dir():
         return []
     for p in sorted(d.glob("r*.json"), reverse=True):
-        try:
-            data = json.loads(p.read_text())
-        except (OSError, json.JSONDecodeError) as e:
-            log.debug("skills: unreadable round record %s: %s", p, e)
-            continue
-        if int(data.get("index", -1)) >= index:
+        data = read_json_or_none(p)
+        if data is None or int(data.get("index", -1)) >= index:  # unreadable, or not before this round
             continue
         gates = data.get("gates") or []
         if gates:

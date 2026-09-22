@@ -391,3 +391,18 @@ def test_prompt_block_lists_the_seeded_names(tmp_path) -> None:
         judge_summary="Previous score 0.3", frame_notes="(no frame metrics)", current_files={}))
     assert "harness-owned, read-only `src/recipes.glsl`" in ref and "do not copy them into common.glsl" in ref
     assert all(f"`{n}`" in ref for n in names)
+
+
+def test_a_single_shot_repair_never_inlines_the_harness_owned_recipes(tmp_path) -> None:
+    """``repair.files_for_repair`` re-implemented ``prompting.current_files`` without its
+    harness-owned rule, so a build error naming src/recipes.glsl pasted the read-only
+    file into the single-shot repair prompt as a failing file to rewrite."""
+    from codeverse3d.contracts.artifacts import BuildResult, GateReport
+    from codeverse3d.tracks.repair import files_for_repair
+
+    ws = _ws(tmp_path, skeleton=False)
+    _recipes(ws).write_text("float hash12(vec2 p) { return 0.0; }\n")
+    (ws.src / "shader.frag").write_text(SHADER)
+    ctx = SimpleNamespace(ws=ws, language=Language.GLSL_SHADER, runtime=SimpleNamespace())
+    build = BuildResult(ok=False, language="glsl_shader", error_file=str(_recipes(ws)))
+    assert list(files_for_repair(ctx, build, GateReport(gate="lint", passed=True), ["src/shader.frag"])) == ["src/shader.frag"]

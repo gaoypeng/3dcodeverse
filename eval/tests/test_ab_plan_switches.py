@@ -35,3 +35,20 @@ def test_ab_plan_still_accepts_a_live_switch(monkeypatch, capsys):
 
     assert len(seen) == 2, capsys.readouterr()
     assert "C3D_PLAN_BRIEF" in seen[0]
+
+
+def test_a_dead_switch_does_not_block_pin_plan(monkeypatch, capsys):
+    """C3D_PLAN_FEATURES is read by nothing, so it cannot change a plan: next to a
+    generation-side switch it must not make --pin-plan refuse the A/B (until 2026-09-22
+    its never-implemented feature names did)."""
+    import bench.ab_plan as A
+
+    seen: list[dict[str, str]] = []
+
+    class _V:
+        decision, reason, caution = "keep", "stubbed", ""
+
+    monkeypatch.setattr(A, "run_ab", lambda battery, out, opts, **kw: (seen.append(opts.variant_env), _V())[1])
+    A.main(["--prompts", "p.yaml", "--out", "o", "--no-preflight", "--allow-siblings", "--pin-plan",
+            "--variant-env", "C3D_PLAN_FEATURES=all", "--variant-env", "C3D_SKILLS=1"])
+    assert seen == [{"C3D_PLAN_FEATURES": "all", "C3D_SKILLS": "1"}], capsys.readouterr()

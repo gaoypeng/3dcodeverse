@@ -34,7 +34,7 @@ from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.run import PairwiseNote, RoundRecord
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK
 from codeverse3d.cost.types import Stage
-from codeverse3d.orchestrator import BestSelector, BudgetExceeded, gate_error_count
+from codeverse3d.orchestrator import BudgetExceeded, gate_error_count, pick_best_round
 from codeverse3d.proc import EventLog, fan_out
 from codeverse3d.tracks.common import RunContext
 from codeverse3d.tracks.generation import GenerationTask
@@ -114,9 +114,7 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
         raise RoundFailed("; ".join(f"{r.label}: {r.notes}" for r in records) or "every candidate failed")
     best, note = select_candidate(ctx, records, renders)
     records[best].selected = True
-    usage = Usage()
-    for rec in records:
-        usage = usage + rec.usage
+    usage = sum((r.usage for r in records), Usage())
     if note is not None:
         usage = usage + note.usage
     ctx.ws.write_json(ctx.ws.root / "rounds" / "candidates.json",
@@ -162,7 +160,7 @@ def make_candidate_context(track: Any, ctx: RunContext, k: int) -> RunContext:
 
 
 def quick_render(ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None, *,
-                 pipeline: RoundPipeline | None = None) -> RenderSet | None:
+                 pipeline: RoundPipeline) -> RenderSet | None:
     """Cheap renders for ranking a candidate — by the route THIS track actually has.
 
     An object has a GLB and gets the reduced-view, reduced-resolution rig, which is the
@@ -191,8 +189,6 @@ def quick_render(ctx: RunContext, round_index: int, build: BuildResult, measurem
             if pose:
                 rs.views = list(rs.views) + list(pose)
             return rs
-        if pipeline is None:
-            return None
         return pipeline.render(ctx, round_index, build, measurement)
     except Exception as e:  # noqa: BLE001 — a candidate without renders is ranked by gates only
         log.warning("quick render failed for %s: %s", ctx.ws.root, e)
@@ -237,7 +233,7 @@ def adopt_candidate(ctx: RunContext, sub_ws: Workspace) -> None:
 
 
 # ----------------------------------------------------------------------------- best round (pairwise tie-break)
-def choose_best_round(ctx: RunContext, rounds: list[RoundRecord], selector: BestSelector, new_index: int) -> int | None:
+def choose_best_round(ctx: RunContext, rounds: list[RoundRecord], new_index: int) -> int | None:
     """Index of the best round after ``rounds[new_index]`` finished.
 
     Ordinary ranking (score → fewer gate errors) unless the new round's score is
@@ -263,10 +259,10 @@ def choose_best_round(ctx: RunContext, rounds: list[RoundRecord], selector: Best
                 ctx.ws.write_json(round_record_path(ctx, new_index), new)
                 ctx.events.emit("pairwise.done", stage="rounds", a=note.a, b=note.b, winner=note.winner, confidence=note.confidence,
                                 accepted=note.accepted, error=note.error, cost_usd=round(note.usage.cost_usd, 4))
-    return replay_best_round(rounds, selector=selector)
+    return replay_best_round(rounds)
 
 
-def replay_best_round(journal: Sequence[RoundRecord], selector: BestSelector | None = None) -> int | None:
+def replay_best_round(journal: Sequence[RoundRecord]) -> int | None:
     """The best index, walking the journal sequentially and honouring stored verdicts.
 
     Each round is an incumbent-vs-challenger step: a round carrying a
@@ -274,17 +270,16 @@ def replay_best_round(journal: Sequence[RoundRecord], selector: BestSelector | N
     ranking has nothing to say, so the stored verdict — replace or keep — is FINAL
     (a later round can never revive a rejected challenger by global re-ranking, and a
     kill before the state save cannot reverse a paid ~$0.05 judgement — 18 such runs
-    on disk, 2026-08-30); every other round advances by the two-way ``BestSelector``
+    on disk, 2026-08-30); every other round advances by the two-way :func:`pick_best_round`
     rule, whose key is a total order — absent verdicts this equals the global pick."""
-    selector = selector or BestSelector()
     best: int | None = None
     for i, rec in enumerate(journal):
         if rec.pairwise is not None and best is not None and best != i:
             if rec.pairwise.accepted:
                 best = i
         elif best is None:
-            best = selector.pick(journal[:i + 1])
-        elif selector.pick([journal[best], rec]) == 1:
+            best = pick_best_round(journal[:i + 1])
+        elif pick_best_round([journal[best], rec]) == 1:
             best = i
     return best
 

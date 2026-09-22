@@ -198,10 +198,7 @@ def round_summary(r: RoundRecord) -> dict[str, Any]:
 
 def _sum_usage(rounds: list[RoundRecord]) -> Usage:
     """Round usage already includes the round's judge call (tracks/steps.py) — do not add it twice."""
-    total = Usage()
-    for r in rounds:
-        total = total + r.usage
-    return total
+    return sum((r.usage for r in rounds), Usage())
 
 
 def fill_derived(record: RunRecord) -> RunRecord:
@@ -277,12 +274,11 @@ def package_run(ws: Workspace, record: RunRecord) -> None:
         log.warning("telemetry not written for %s: %s", ws.root, e)
 
 
-def finalize_record(ws: Workspace, record: RunRecord, *, package: bool = True) -> Path:
+def finalize_record(ws: Workspace, record: RunRecord) -> Path:
     """Fill derived fields + environment, package the run and write ``record.json``."""
     record.workspace = record.workspace or str(ws.root)
     fill_derived(record)
-    if package:
-        package_run(ws, record)
+    package_run(ws, record)
     ws.write_json(ws.record_path, record)
     return ws.record_path
 

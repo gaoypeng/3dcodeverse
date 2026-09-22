@@ -18,12 +18,11 @@ every session at 28 turns.  A controlled A/B rejected it — same prompt, n=3 pe
 arm: capped $1.381 / **0.479**, uncapped $1.360 / **0.684** (docs/COST.md §17).
 A session cut off mid-task leaves work the next round pays for again.
 
-So there is **no default cap** (``DEFAULT_AGENT_MAX_TURNS`` and
-``RoundPolicy.agent_max_turns`` are 0 → the backend's own ``AgentJob.max_turns``).
-A caller may still set one (``GenerationTask.max_turns`` > ``generate(max_turns=…)``
-> ``C3D_AGENT_MAX_TURNS`` > ``Settings.limits.agent_max_turns``; no cost profile
-sets one), and a cap that IS set stays **graceful**: the session is not killed
-but asked, in a short wrap-up (``agent_wrapup_turns``), for one last build + summary.
+So there is **no default cap** (``DEFAULT_AGENT_MAX_TURNS`` is 0 → the backend's own
+``AgentJob.max_turns``).  A machine may still set one (``C3D_AGENT_MAX_TURNS`` >
+``Settings.limits.agent_max_turns``; no cost profile sets one), and a cap that IS set
+stays **graceful**: the session is not killed but asked, in a short wrap-up
+(``DEFAULT_WRAPUP_TURNS``), for one last build + summary.
 
 **Every dollar is charged.**  Both strategies spend through ``BudgetGuard.charge`` in
 the stage the task belongs to, so a retried session (``<label>.a2``) and a wrap-up
@@ -47,6 +46,7 @@ from pydantic import BaseModel, Field
 from codeverse3d.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse3d.contracts.common import Usage
+from codeverse3d.proc import read_json_or_none
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -295,9 +295,6 @@ class GenerationTask(BaseModel):
     thinking: str = "medium"
     max_output_tokens: int = 65_536   # the model's declared ceiling; unused tokens cost nothing
     timeout_s: int | None = None
-    max_turns: int = Field(
-        default=0, description="model turns for an agent session (0 = the harness default)"
-    )
     write_roots: list[str] = Field(default_factory=lambda: ["src", "public"])
     edit_only: bool = Field(
         default=False,
@@ -549,15 +546,12 @@ def run_agent_task(
     settings: Any | None = None,
     budget: Any | None = None,
     events: Any | None = None,
-    max_turns: int = 0,
-    wrapup_turns: int = DEFAULT_WRAPUP_TURNS,
 ) -> GenerationResult:
     """CodingAgent path.  ``ok`` = the agent changed files (envelope-vs-disk truth).
 
-    A turn cap is applied only when a caller asks for one (``task.max_turns`` >
-    ``max_turns`` > ``C3D_AGENT_MAX_TURNS`` > ``Settings.limits.agent_max_turns``
-    > :data:`DEFAULT_AGENT_MAX_TURNS`, which is 0 = the backend's own
-    ``AgentJob.max_turns``; a 28-turn default was measured and rejected, see the
+    A turn cap is applied only when the machine asks for one (``C3D_AGENT_MAX_TURNS`` >
+    ``Settings.limits.agent_max_turns`` > :data:`DEFAULT_AGENT_MAX_TURNS`, which is 0 = the
+    backend's own ``AgentJob.max_turns``; a 28-turn default was measured and rejected, see the
     module docstring).  Hitting whatever cap is in force is not a failure: one
     short wrap-up session is asked for a final build and a summary, so the money
     already spent leaves a buildable workspace instead of a session that was cut
@@ -572,7 +566,7 @@ def run_agent_task(
     # window of its own (repair) is still bounded by the soft share, so a failing
     # baseline cannot eat the refine rounds' half.  (Both found by review 2026-08-29.)
     timeout = _deadline_preflight(budget, timeout, soft=task.timeout_s is None)
-    turns_cap = task.max_turns or max_turns or agent_max_turns()  # 0 = leave AgentJob's own default
+    turns_cap = agent_max_turns()  # 0 = leave AgentJob's own default
     # typed job context honoured by every CodingAgent: round → trajectory dir + ToolContext,
     # language/track → spatial tool filtering, files_hint → the edit_only scope.
     language, track = _spec_lang_track(ws)
@@ -613,7 +607,7 @@ def run_agent_task(
                 session_usd=round(acc.usage.cost_usd, 4),
             )
         wrap = job.model_copy(
-            update={"prompt": WRAPUP_PROMPT + prompt, "max_turns": max(2, int(wrapup_turns))}
+            update={"prompt": WRAPUP_PROMPT + prompt, "max_turns": DEFAULT_WRAPUP_TURNS}
         )
         res = acc.run(agent, wrap, wrapup=True, optional=True) or res
         changes = res.files_changed or changes or _attributed_fallback(ws, task, before)
@@ -765,12 +759,7 @@ def _images_block(images: list[ImagePart], ws: Workspace) -> str:
 
 def _spec_lang_track(ws: Workspace) -> tuple[str, str]:
     """Best-effort ``(language, track)`` from the workspace's spec.json ("" when absent)."""
-    if not ws.spec_path.is_file():
-        return "", ""
-    try:
-        spec_d = ws.read_json(ws.spec_path)
-    except Exception:  # noqa: BLE001 — best effort context only
-        return "", ""
+    spec_d = read_json_or_none(ws.spec_path) or {}
     return str(spec_d.get("language", "")), str(spec_d.get("track", ""))
 
 
@@ -835,8 +824,6 @@ def generate(
     settings: Any | None = None,
     budget: Any | None = None,
     events: Any | None = None,
-    max_turns: int = 0,
-    wrapup_turns: int = DEFAULT_WRAPUP_TURNS,
 ) -> GenerationResult:
     """Dispatch to the single-shot or the coding-agent strategy by ``agent_id``.
 
@@ -867,6 +854,4 @@ def generate(
         settings=settings,
         budget=budget,
         events=events,
-        max_turns=max_turns,
-        wrapup_turns=wrapup_turns,
     )

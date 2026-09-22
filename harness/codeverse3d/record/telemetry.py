@@ -128,7 +128,6 @@ def rubric_hash(name: str) -> str:
 
 def _role_settings(record: RunRecord) -> list[RoleSettings]:
     b = record.spec.backends
-    observed = record.extra.get("sampling") or {}  # forward hook: a track may record real values
     plan_d, judge_d = _planner_defaults(), _judge_defaults()
     spec: list[tuple[str, str, dict[str, Any]]] = [
         ("planner", b.planner, plan_d),
@@ -138,37 +137,31 @@ def _role_settings(record: RunRecord) -> list[RoleSettings]:
     ]
     roles: list[RoleSettings] = []
     for role, model_id, defaults in spec:
-        values = dict(defaults)
-        source = "default" if defaults else "spec"
-        if isinstance(observed.get(role), dict):
-            values.update(observed[role])
-            source = "observed"
-        temperature = values.get("temperature")
+        temperature = defaults.get("temperature")
         roles.append(RoleSettings(
             role=role, model=model_id, backend=backend_kind(model_id),
-            thinking=str(values.get("thinking") or ""),
+            thinking=str(defaults.get("thinking") or ""),
             temperature=float(temperature) if isinstance(temperature, (int, float)) else None,
-            n_samples=values.get("n_samples") if role == "judge" else None,
-            source=source,
+            n_samples=defaults.get("n_samples") if role == "judge" else None,
+            source="default" if defaults else "spec",
         ))
     return roles
 
 
-def settings_snapshot(record: RunRecord, *, key_pool_size: int | None = None) -> SettingsSnapshot:
+def settings_snapshot(record: RunRecord) -> SettingsSnapshot:
     """The resolved 'how was this run configured' block (no secrets, ever)."""
     spec = record.spec
     rubric = _rubric_name(record)
     render: dict[str, Any] = {}
     limits: dict[str, Any] = {}
-    keys = key_pool_size
+    keys = 0
     try:
         from codeverse3d.config import get_settings
 
         s = get_settings()
         render = s.render.model_dump(mode="json")
         limits = s.limits.model_dump(mode="json")
-        if keys is None:
-            keys = len(s.gemini_api_keys)
+        keys = len(s.gemini_api_keys)
     except Exception as e:  # pragma: no cover - settings should always load
         log.debug("settings unavailable: %s", e)
     env = dict(record.environment)
@@ -184,7 +177,7 @@ def settings_snapshot(record: RunRecord, *, key_pool_size: int | None = None) ->
         tool_versions={k: v for k, v in env.items() if k in _TOOL_KEYS},
         harness_version=env.get("codeverse3d", ""),
         harness_git_sha=env.get("harness_git_sha", ""),
-        key_pool_size=int(keys or 0),
+        key_pool_size=keys,
         price_table_version=price_table_version(),
         render=render,
         limits=limits,

@@ -22,6 +22,7 @@ from codeverse3d.orchestrator import (
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.generation import (
     DEFAULT_AGENT_MAX_TURNS,
+    DEFAULT_WRAPUP_TURNS,
     GenerationTask,
     agent_max_turns,
     run_agent_task,
@@ -181,17 +182,13 @@ class _TurnAgent:
 
 def test_agent_sessions_are_uncapped_by_default(tmp_ws, monkeypatch):
     monkeypatch.delenv("C3D_AGENT_MAX_TURNS", raising=False)
-    assert DEFAULT_AGENT_MAX_TURNS == 0 and RoundPolicy().agent_max_turns == 0
+    assert DEFAULT_AGENT_MAX_TURNS == 0
     agent = _TurnAgent(writes_on=1)
     task = GenerationTask(label="baseline", prompt="p", round=0, kind="baseline")
     run_agent_task(tmp_ws, agent=agent, task=task)
     assert agent.jobs[0].max_turns == AgentJob(workspace="w", prompt="p").max_turns  # the backend's own default
     assert agent_max_turns() == 0  # "no cap asked for"
-    # ... and every explicit way of asking for one still works
-    run_agent_task(tmp_ws, agent=agent, task=task, max_turns=12)
-    assert agent.jobs[-1].max_turns == 12
-    run_agent_task(tmp_ws, agent=agent, task=task.model_copy(update={"max_turns": 7}), max_turns=12)
-    assert agent.jobs[-1].max_turns == 7  # the task wins over the policy
+    # ... and the machine's way of asking for one still works
     monkeypatch.setenv("C3D_AGENT_MAX_TURNS", "9")
     assert agent_max_turns() == 9
     run_agent_task(tmp_ws, agent=agent, task=task)
@@ -200,26 +197,28 @@ def test_agent_sessions_are_uncapped_by_default(tmp_ws, monkeypatch):
     assert agent_max_turns() == DEFAULT_AGENT_MAX_TURNS == 0
 
 
-def test_the_policy_cap_is_plumbed_through_the_round(tmp_path, spec, settings):
+def test_the_configured_cap_is_plumbed_through_the_round(tmp_path, spec, settings, monkeypatch):
     from codeverse3d.tracks.steps import run_generation_tasks
 
+    monkeypatch.setenv("C3D_AGENT_MAX_TURNS", "15")
     agent = _TurnAgent(writes_on=1)
-    ctx = _ctx(tmp_path, spec, settings, policy=RoundPolicy(agent_max_turns=15), agent=agent)
+    ctx = _ctx(tmp_path, spec, settings, agent=agent)
     run_generation_tasks(ctx, [GenerationTask(label="baseline", prompt="p", round=0, kind="baseline")])
     assert agent.jobs[0].max_turns == 15
-    assert agent.jobs[1].max_turns == RoundPolicy().agent_wrapup_turns  # ... and the landing session
+    assert agent.jobs[1].max_turns == DEFAULT_WRAPUP_TURNS  # ... and the landing session
 
 
-def test_hitting_the_cap_asks_for_a_landing_instead_of_killing_the_session(tmp_ws):
+def test_hitting_the_cap_asks_for_a_landing_instead_of_killing_the_session(tmp_ws, monkeypatch):
+    monkeypatch.setenv("C3D_AGENT_MAX_TURNS", "28")
     events = EventLog(tmp_ws.events_path)
     agent = _TurnAgent(writes_on=2)          # session 1 burns its turns and writes nothing
     guard = _guard()
     res = run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="refine", prompt="do the work", round=1,
-                                                                 kind="refine", max_turns=28),
-                         budget=guard, events=events, wrapup_turns=5)
-    assert len(agent.jobs) == 2 and turn_capped(_result_of(agent, 0))
+                                                                 kind="refine"),
+                         budget=guard, events=events)
+    assert len(agent.jobs) == 2 and turn_capped(_result_of(agent, 0)) and agent.jobs[0].max_turns == 28
     wrap = agent.jobs[1]
-    assert wrap.max_turns == 5 and "LAST session" in wrap.prompt and "do the work" in wrap.prompt
+    assert wrap.max_turns == DEFAULT_WRAPUP_TURNS and "LAST session" in wrap.prompt and "do the work" in wrap.prompt
     assert res.ok and res.turn_capped and res.sessions == 2
     # both sessions are paid for and both are in the guard, under their own labels
     assert res.usage.cost_usd == pytest.approx(0.4) and guard.spent.cost_usd == pytest.approx(0.4)
@@ -329,17 +328,17 @@ def test_a_round_with_gate_errors_whose_verdict_was_lost_is_rejudged(tmp_path, s
 
 
 def test_a_round_that_broke_the_gates_does_not_displace_a_clean_one():
-    from codeverse3d.orchestrator import BestSelector
+    from codeverse3d.orchestrator import pick_best_round
 
     def r(i, *, build_ok=True, errors=0):
         return RoundRecord(index=i, kind="refine", build=BuildResult(ok=build_ok, language="l"),
                            gates=_gates(errors), commit=f"c{i}")
 
-    assert BestSelector().pick([r(0), r(1, build_ok=False)]) == 0        # broken build never wins
-    assert BestSelector().pick([r(0), r(1, errors=4)]) == 0              # clean r00 keeps the crown
-    assert BestSelector().pick([r(0, errors=4), r(1)]) == 1
-    assert BestSelector().pick([r(0), r(1)]) == 1                        # tie → the later one
-    assert BestSelector().pick([r(0, build_ok=False)]) is None
+    assert pick_best_round([r(0), r(1, build_ok=False)]) == 0        # broken build never wins
+    assert pick_best_round([r(0), r(1, errors=4)]) == 0              # clean r00 keeps the crown
+    assert pick_best_round([r(0, errors=4), r(1)]) == 1
+    assert pick_best_round([r(0), r(1)]) == 1                        # tie → the later one
+    assert pick_best_round([r(0, build_ok=False)]) is None
 
 
 class _Pipeline:

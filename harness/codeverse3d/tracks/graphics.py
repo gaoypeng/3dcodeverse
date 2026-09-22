@@ -37,18 +37,15 @@ from codeverse3d.orchestrator import TaskGroup
 from codeverse3d.prompts import render
 from codeverse3d.prompts.sections import Section, split_sections
 from codeverse3d.tracks.common import RunContext
-from codeverse3d.tracks.generation import SINGLE_SHOT_FORMAT, GenerationTask
+from codeverse3d.tracks.generation import GenerationTask
 from codeverse3d.tracks.lifecycle import BaseTrack, StageRunner
 from codeverse3d.tracks.planner import add_acceptance_item
 from codeverse3d.tracks.prompting import (
-    AGENT_OUTPUT_RULES,
-    acceptance_lines,
-    constraints_text,
+    base_prompt_context,
     is_always_chapter,
     judge_digest,
     judged_sheet,
     reference_images,
-    reference_note,
     refine_inline_files,
     select_cookbook_chapters,
     skeleton_files,
@@ -344,26 +341,18 @@ def passes_table(plan: GraphicsPlan | None) -> str:
 
 
 def graphics_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
-    """Every variable the graphics templates may reference (StrictUndefined)."""
+    """Every variable the graphics templates may reference (StrictUndefined): the base
+    context (``prompting.base_prompt_context``) plus the graphics plan's own fields."""
     plan = ctx.plan if isinstance(ctx.plan, GraphicsPlan) else None
     res = plan.resolution if plan else (1280, 720)
-    d: dict[str, Any] = {
-        "track": ctx.track.value, "language": ctx.language.value, "contract": ctx.contract_text,
-        "cookbook_rel": ctx.cookbook_rel, "cookbook_excerpt": ctx.cookbook_text, "tool_cards": ctx.tool_cards,
+    return base_prompt_context(ctx, **{
         # the recipes seed_recipes() put in the harness-owned src/recipes.glsl before the session ([] = no block)
         "seeded_recipes": list(ctx.extra.get(EXTRA_KEY) or []),
-        "single_shot": ctx.single_shot, "output_format": SINGLE_SHOT_FORMAT if ctx.single_shot else AGENT_OUTPUT_RULES,
-        "spec_prompt": ctx.spec.prompt, "constraints": constraints_text(ctx.spec),
-        "title": plan.title if plan else "Untitled effect", "plan_summary": plan.summary if plan else "",
+        "title": plan.title if plan else "Untitled effect",
         "style": plan.style if plan else "", "resolution": f"{res[0]}x{res[1]}", "duration": f"{plan.duration_s:g}" if plan else "8",
         "passes_table": passes_table(plan), "motion": plan.motion if plan else "", "key_visuals": list(plan.key_visuals) if plan else [],
         "uniforms": ", ".join(plan.uniforms) if plan and plan.uniforms else "u_time, u_resolution",
-        "acceptance": acceptance_lines(plan), "entry_files": ", ".join(getattr(ctx.runtime, "entry_globs", ()) or ()),
-        "expected_files": graphics_expected_files(ctx), "reference_note": reference_note(ctx),
-        "judge_times": "0, 1, 2.5, 4, 6 s",
-    }
-    d.update(extra)
-    return d
+        "expected_files": graphics_expected_files(ctx), "judge_times": "0, 1, 2.5, 4, 6 s", **extra})
 
 
 # ----------------------------------------------------------------------------- renders / gates

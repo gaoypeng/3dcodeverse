@@ -54,7 +54,7 @@ def test_soft_budget_degrades_before_the_hard_cap_and_grace_reopens_it():
     g = BudgetGuard(Budget(max_minutes=10.0), soft_fraction=0.55)
     g.start_time = 0.0
     g.elapsed_minutes = lambda: clock["t"]                       # type: ignore[method-assign]
-    assert g.soft_ok() and g.soft_remaining()["minutes"] == pytest.approx(5.5)
+    assert g.soft_ok() and g.timeout_s(3600, floor_s=0) == 330  # 5.5 soft minutes left
     clock["t"] = 6.0
     assert not g.soft_ok() and "soft cap" in g.soft_exceeded()
     assert g.ok()  # the HARD ceiling is untouched: degrade, do not die

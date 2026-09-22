@@ -48,7 +48,7 @@ def test_every_dead_switch_is_really_dead(name: str):
 
 
 def test_the_plan_features_switch_is_declared_dead():
-    """It is: the six KNOWN_FEATURES are not implemented anywhere, so an arm that differs
+    """It is: none of its six features was ever implemented, so an arm that differs
     only by C3D_PLAN_FEATURES is byte-identical to its control."""
     assert F.PLAN_FEATURES_ENV in F.DEAD_SWITCHES
     assert F.dead_env_keys({F.PLAN_FEATURES_ENV: "all"}) == [F.PLAN_FEATURES_ENV]
@@ -58,28 +58,24 @@ def test_the_plan_features_switch_is_declared_dead():
 
 # --------------------------------------------------------------------- pin-plan safety
 def test_a_generation_side_switch_may_share_one_plan():
-    """`contacts` renders a table into the BUILDER's prompt from an unchanged plan, so
-    both arms can be seeded with the same plan.json and the paired delta stops carrying
-    the planner's spread — the dominant variance term (docs/EVAL.md §8.1)."""
+    """A switch that acts after planning cannot change the plan, so both arms can be
+    seeded with the same plan.json and the paired delta stops carrying the planner's
+    spread — the dominant variance term (eval/docs/EVAL.md §8.1)."""
     from codeverse3d.tracks.plan_features import pin_plan_blockers
 
-    assert pin_plan_blockers({"C3D_PLAN_FEATURES": "contacts"}) == []
     for name in sorted(F.GENERATION_SIDE_ENV):
         assert pin_plan_blockers({name: "1"}) == [], name
     assert pin_plan_blockers({}) == []
 
 
-def test_a_plan_side_switch_is_refused_by_name():
-    """Pinning `fit` would hand both arms one plan and so silently delete the change
-    under test — the rig would then report "no effect" with confidence."""
+def test_a_dead_switch_blocks_nothing_but_a_live_neighbour_still_does():
+    """No code reads C3D_PLAN_FEATURES, so it cannot change a plan: it never blocks
+    --pin-plan (until 2026-09-22 its six never-implemented feature names did)."""
     from codeverse3d.tracks.plan_features import pin_plan_blockers
 
-    assert pin_plan_blockers({"C3D_PLAN_FEATURES": "fit"}) == [
-        "C3D_PLAN_FEATURES=fit changes the plan itself"]
-    # one plan-side name in a list of otherwise-safe ones still blocks
-    assert pin_plan_blockers({"C3D_PLAN_FEATURES": "contacts,fit"}) == [
-        "C3D_PLAN_FEATURES=fit changes the plan itself"]
-    assert len(pin_plan_blockers({"C3D_PLAN_FEATURES": "all"})) == 5
+    assert pin_plan_blockers({"C3D_PLAN_FEATURES": "fit"}) == []
+    assert pin_plan_blockers({"C3D_PLAN_FEATURES": "all", "C3D_PLAN_BRIEF": "off"}) == [
+        "C3D_PLAN_BRIEF is not known to act after planning"]
 
 
 def test_an_unclassified_switch_defaults_to_refusing():
@@ -92,10 +88,3 @@ def test_an_unclassified_switch_defaults_to_refusing():
     assert pin_plan_blockers({"C3D_PLAN_BRIEF": "off"}) == [
         "C3D_PLAN_BRIEF is not known to act after planning"]
 
-
-def test_every_known_feature_is_classified():
-    """A new feature must be put on one side or the other in the same commit; otherwise
-    it silently inherits 'plan-side' and nobody notices the A/B got noisier."""
-    from codeverse3d.tracks.plan_features import GENERATION_SIDE, KNOWN_FEATURES
-
-    assert set(KNOWN_FEATURES) > GENERATION_SIDE

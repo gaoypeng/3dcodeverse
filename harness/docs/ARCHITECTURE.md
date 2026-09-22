@@ -167,13 +167,13 @@ codeverse3d/
                       materials.py (named material library), run.py (texture_pass); __init__.py is
                       docstring-only — import from the submodules
   orchestrator.py     the round loop's LIBRARY, not the loop: round POLICIES (RoundPolicy /
-                      StopPolicy / BestSelector), refine-task compilation + grouping,
+                      StopPolicy / pick_best_round), refine-task compilation + grouping,
                       StageRunner + RunState (resume), BudgetGuard.  The loop itself is
                       tracks/lifecycle.py:_round_loop → tracks/steps.py:run_round.  A best-of-N
                       candidate IS steps._run_round(kind='candidate') in a _cand/c<k> sub-workspace
                       with two knobs (render=candidates.quick_render, geometry_views=False), its
                       own _cand/c<k>/events.jsonl and a one-sample judge
-  tracks/             __init__.py (get_track(track, **options) + the TrackPipeline protocol),
+  tracks/             __init__.py (get_track(track, **options) → a lifecycle.BaseTrack),
                       lifecycle.py, steps.py, candidates.py (best-of-N + the pure candidate/pairwise
                       decision logic), generation.py (agent + single-shot strategies + the file
                       envelope), repair.py, planner.py, prompting.py (prompt helpers, split from common),
@@ -187,9 +187,9 @@ codeverse3d/
                       shown; AgentJob.read_only, C3D_SEED_RECIPES),
                       planner.py (the ONE planner loop + the cached EngineeringBrief
                       (C3D_PLAN_BRIEF), plan budgets and the worked examples),
-                      plan_features.py (C3D_PLAN_FEATURES: one switch per plan-loop change, so each
-                      can be A/B'd alone, + pin_plan_blockers() deciding when two arms may share
-                      one plan — eval/docs/EVAL.md §8.1),
+                      plan_features.py (the A/B switch registry: LIVE_SWITCHES / DEAD_SWITCHES,
+                      + pin_plan_blockers() deciding when two arms may share one plan —
+                      eval/docs/EVAL.md §8.1),
                       depth.py,
                       skills_hook.py (the round's view of codeverse3d/skills: attach before generating,
                       probe reads after — a no-op unless C3D_SKILLS is on)
@@ -443,11 +443,11 @@ repeat while StopPolicy says continue (≤ max_rounds refine rounds, plateau_win
    fan out when ≥ 2 file-disjoint groups AND every task maps to files (threejs/blender parts, scene zones/assets/env)
    generate (no HARNESS turn cap by default — claude-code runs under AgentJob.max_turns=60 (+6-turn wrap-up),
              the other vendor CLIs have no turn cap at all; 28 was A/B'd and rejected, +$0.02/−0.21 score, docs/COST.md §17;
-             a cap a caller sets (C3D_AGENT_MAX_TURNS / task; no profile sets one) still buys a wrap-up session
+             a cap the machine sets (C3D_AGENT_MAX_TURNS / limits.agent_max_turns; no profile sets one) still buys a wrap-up session
              that lands a final build + summary instead of being killed) → build+repair (error-focused,
              escalates on identical signatures) → gates → … → judge (SKIPPED only where the verdict is never
              bought at all: no judge/renders or budget already exceeded)
-   BestSelector: highest score, tie → fewer gate errors; |Δ| < pairwise_margin (0.03) → position-swapped
+   pick_best_round: highest score, tie → fewer gate errors; |Δ| < pairwise_margin (0.03) → position-swapped
    PairwiseJudge decides (replace only at confidence ≥ 0.6; note persisted in rNN.json)
    every round emits cost.round {stage → $, judge $, agent turns, wasted flag}; a round that raises mid-way
    still reports what it burned (rounds/aborted_rNN.json + record.extra["aborted_rounds"])

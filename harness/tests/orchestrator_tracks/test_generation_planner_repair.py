@@ -231,7 +231,7 @@ def test_build_with_repair_agent_path_escalates_on_same_error(tmp_ws, settings):
 
     ctx = _ctx(tmp_ws, settings, "fake:x", agent=FakeAgent(writer), cookbook="## Intro\nhello\n## RuntimeError boom\nuse boom fix snippet\n")
     out = build_with_repair(ctx, round_index=0, label="r00")
-    assert out.ok and out.repaired and len(out.attempts) == 2
+    assert out.ok and len(out.attempts) == 2
     assert "BUILD FAILED" in prompts[0] and "src/model.py:3" in prompts[0] and "boom fix snippet" in prompts[0]
     assert "SAME ERROR AS THE PREVIOUS ATTEMPT" in prompts[1] and "SAME ERROR" not in prompts[0]
     kinds = [e["event"] for e in ctx.events.read()]

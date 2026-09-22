@@ -388,17 +388,14 @@ from codeverse3d.tracks import get_track
 rec = get_track(spec.track, **options).run(spec, ws, resume=False) -> RunRecord   # Δ kwargs forwarded to the constructor:
 # services=, judge=, agent=, model=, runtime=, policy=RoundPolicy, settings=, planner_model=, n_candidates=
 # (CLI --candidates > spec.options.candidates > settings.default_candidates); StaticObject | Articulated | Scene | Graphics
-TrackPipeline.run(spec, ws, *, resume=False, force=False) -> RunRecord
-from codeverse3d.orchestrator import RoundPolicy, StopPolicy, StopDecision, BestSelector, judge_sigma, \
-    best_score, last_gain, best_index, REWRITE_KIND, build_refine_instructions, compact_instructions
+BaseTrack.run(spec, ws, *, resume=False, force=False) -> RunRecord   # get_track returns a tracks.lifecycle.BaseTrack
+from codeverse3d.orchestrator import RoundPolicy, StopPolicy, StopDecision, pick_best_round, judge_sigma, \
+    best_score, last_gain, REWRITE_KIND, build_refine_instructions, compact_instructions
 RoundPolicy(max_rounds=4, plateau_window=2, min_delta=0.02, target=0.8, max_refine_tasks=6,
             max_instructions_per_task=6, parallel_min_tasks=2, n_candidates=1, pairwise_margin=0.03,
             pairwise_min_confidence=0.6, judge_samples=1,
             judge_model="", regression_sigma=1.0,                                 # money stops (docs/COST.md §5)
             marginal_sigma=1.5, marginal_from_round=3,                            # r03+ must beat 1.5σ
-            agent_max_turns=0, agent_wrapup_turns=6,     # 0 = the backend's own AgentJob.max_turns (claude-code 60
-            # +6 wrap-up; gemini-cli/codex/agy no turn cap); a 28-turn cap was A/B'd and rejected (+$0.02, −0.21
-            # score, docs/COST.md §17); wrapup applies to a cap a caller sets
             detail_rounds=None, detail_min_score=0.45, detail_bbox_tol_m=0.005   # surface-detail round, tri-state:
             # None = the track default (lifecycle.DEFAULT_DETAIL_ROUNDS=1 when supports_detail_round, else 0),
             # 0 = off, N = N; $C3D_DETAIL_ROUNDS overrides all (the A/B switch).  Injected policies keep it.
@@ -473,29 +470,29 @@ GenerationTask.phase: int = 0   # tasks run in parallel WITHIN a phase, phases i
     # (tracks.steps.run_generation_tasks).  Only user: the scoped baseline — phase 0 = one session per
     # part group (`baseline_<parts>`, own files only), phase 1 = ONE `assemble` session that owns the
     # entry file and the placement gates.  Every other caller is phase 0, i.e. unchanged.
-generate(ws, *, agent_id, task, ..., budget=BudgetGuard, max_turns=0, wrapup_turns=6) -> GenerationResult
+generate(ws, *, agent_id, task, ..., budget=BudgetGuard) -> GenerationResult
     # GenerationResult.storm: every session died on a transient streak (AgentResult.transient) and wrote nothing
 tracks.common.generate_for(ctx: RunContext, task: GenerationTask) -> GenerationResult
     # THE call every stage makes (env, zones, rounds, repairs, asset ladder, judged fix): generate()
     # with everything ctx knows, and a storm-dead task retried through single_shot_ctx(ctx) (D68)
 tracks.common.single_shot_agent_id(agent_id, chat_model_id='') -> str · single_shot_ctx(ctx) -> RunContext | None
     # moved from tracks.scene_assets 2026-09-07 (never scene-specific)
-    # GenerationResult adds turns / sessions / turn_capped.  A turn cap is applied ONLY if a caller
-    # asks: task.max_turns > max_turns > $C3D_AGENT_MAX_TURNS > settings.limits.agent_max_turns >
+    # GenerationResult adds turns / sessions / turn_capped.  A turn cap is applied ONLY if the machine
+    # asks: $C3D_AGENT_MAX_TURNS > settings.limits.agent_max_turns >
     # DEFAULT_AGENT_MAX_TURNS (0 = leave AgentJob.max_turns at the backend's own default — a 28-turn
     # default was measured and rejected, docs/COST.md §17).  A session that hits a cap that IS set is
     # asked for a final build + summary (WRAPUP_PROMPT) instead of being killed.
     # EVERY session (attempt 1, <label>.a2 retry, <label>.wrapup) is charged as it ends.
-from codeverse3d.tracks.repair import build_with_repair   # RepairOutcome(.ok/.repaired/.max_attempts, attempts, usage); build_with_repair(ctx, *, round_index, label, files_hint=None, max_attempts=None, timeout_s=None) — timeout_s clips every repair session (a scene asset's window)
+from codeverse3d.tracks.repair import build_with_repair   # RepairOutcome(.ok/.max_attempts, attempts, usage); build_with_repair(ctx, *, round_index, label, files_hint=None, max_attempts=None, timeout_s=None) — timeout_s clips every repair session (a scene asset's window)
 # scene assets (tracks/scene_assets.py): build_threejs_asset / build_blender_asset climb ONE ladder (_ladder: single-shot → check → one feedback repair → agent session); a hero's parts come from the static planner (hero_plan); SceneThreeJsRuntime.render_asset(ws, name, out_dir) renders a module on the hero's quick rig; the assembled scene.js plays every GLB clone's clips (clone.userData.clipOffset de-phases a copy)
 # languages/blender.write_blender_skeleton(ws, plan, *, ground_tol_m=0.002) — the self-check's stands-on-z=0 tolerance (a scene hero passes 0.02)
 from codeverse3d.tracks.steps import run_round, skip_judge_reason, emit_round_cost, record_aborted_round
 skip_judge_reason(ctx, *, renders, ignore_budget=False) -> str    # "" = judge it.  ONLY states where the
     # verdict is never bought at all: no judge / no renders / budget already exceeded
     # (docs/COST.md §17 — "no file change" and "build not repaired" were removed)
-run_round(ctx, *, index, kind, tasks, pipeline, ..., previous_best=None, render=None, geometry_views=True) -> RoundRecord
-    # render: RenderFn | None swaps the pipeline's render (candidates pass quick_render); geometry_views=False skips
-    # the clay/normals views
+run_round(ctx, *, index, kind, tasks, pipeline, ..., previous_best=None) -> RoundRecord
+    # steps._run_round (the same round, no aborted-round record) also takes render: RenderFn | None (swaps the
+    # pipeline's render; candidates pass quick_render) and geometry_views=False (skips the clay/normals views)
     # emits cost.round {stages{}, judge_usd, total_usd, agent_turns, wasted, waste_reason}; on ANY exception it
     # records what the round burned (rounds/aborted_rNN.json, ctx.extra["aborted_rounds"]) and re-raises
 from codeverse3d.tracks.planner import plan, ensure_acceptance    # graphics uses tracks/graphics.plan_graphics

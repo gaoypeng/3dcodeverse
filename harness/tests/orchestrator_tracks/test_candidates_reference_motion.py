@@ -431,9 +431,6 @@ def test_a_track_without_a_glb_still_gets_candidate_renders():
     assert got == "frames-renderset", "no GLB must fall back to the track's own renderer"
     assert pipe.calls == [(0, build, "MEAS")]
 
-    # and with nothing to fall back to, it still degrades quietly rather than raising
-    assert quick_render(_Ctx(), 0, build, None) is None
-
 
 def test_an_object_candidate_still_uses_the_cheap_rig(tmp_path):
     """The fallback must not make the object path more expensive: a GLB still goes through

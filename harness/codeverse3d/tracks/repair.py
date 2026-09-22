@@ -22,7 +22,7 @@ from codeverse3d.prompts import render
 from codeverse3d.tracks import skills_hook
 from codeverse3d.tracks.common import RunContext, generate_for
 from codeverse3d.tracks.generation import GenerationResult, GenerationTask
-from codeverse3d.tracks.prompting import base_prompt_context, language_system_prompt
+from codeverse3d.tracks.prompting import base_prompt_context, current_files, language_system_prompt
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +40,6 @@ class RepairOutcome(BaseModel):
     lint: GateReport
     attempts: list[GenerationResult] = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)
-    repaired: bool = False
     max_attempts: int = Field(default=0, description="repair budget this outcome ran under")
 
     @property
@@ -113,7 +112,8 @@ def relevant_cookbook_section(cookbook: str, error_text: str, *, max_chars: int 
 
 
 def files_for_repair(ctx: RunContext, build: BuildResult, lint: GateReport, files_hint: list[str]) -> dict[str, str]:
-    """Current contents of the failing file(s) (≤ 40k chars total) for single-shot repair."""
+    """Current contents of the failing file(s) (≤ 40k chars total) for single-shot repair —
+    inlined by ``prompting.current_files``, which never inlines a harness-owned file."""
     cands: list[str] = []
     if build.error_file:
         cands.append(_rel(ctx, build.error_file))
@@ -124,20 +124,7 @@ def files_for_repair(ctx: RunContext, build: BuildResult, lint: GateReport, file
     if not cands:
         for glob in getattr(ctx.runtime, "entry_globs", ()) or ():
             cands.extend(str(p.relative_to(ctx.ws.root)) for p in sorted(ctx.ws.root.glob(glob)))
-    out: dict[str, str] = {}
-    total = 0
-    for rel in dict.fromkeys(cands):
-        p = ctx.ws.root / rel
-        if not p.is_file():
-            continue
-        text = p.read_text(errors="replace")
-        if total + len(text) > MAX_REPAIR_CONTEXT_CHARS:
-            text = text[: max(0, MAX_REPAIR_CONTEXT_CHARS - total)] + "\n// ... truncated ..."
-        out[rel] = text
-        total += len(text)
-        if total >= MAX_REPAIR_CONTEXT_CHARS:
-            break
-    return out
+    return current_files(ctx, list(dict.fromkeys(cands)), MAX_REPAIR_CONTEXT_CHARS)
 
 
 def _rel(ctx: RunContext, path: str) -> str:
@@ -217,7 +204,6 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
             # another session would spend its whole window at the same wall
             ctx.events.emit("repair.storm", round=round_index, attempt=attempt, notes=res.notes[:200])
             break
-    outcome.repaired = outcome.ok and attempt > 0
     return outcome
 
 

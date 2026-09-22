@@ -36,7 +36,7 @@ def test_resume_restores_money_calls_and_active_time_but_not_downtime():
     g1.add(Usage(backend="gemini", cost_usd=0.05), stage="judge")
     g1.start_time -= 120  # two minutes of ACTIVE work in the first session
     snap = g1.snapshot()
-    assert snap.version == 1 and snap.active_s == pytest.approx(120, abs=2)
+    assert snap.active_s == pytest.approx(120, abs=2)
 
     # the exact round-trip run_state.json takes: model_dump(mode="json") → validate
     revived = BudgetSnapshot.model_validate(json.loads(json.dumps(snap.model_dump(mode="json"))))
@@ -72,7 +72,7 @@ def test_a_raised_cap_grants_only_the_difference_and_grace_never_persists():
     g2.restore(snap)
     assert g2.grace_minutes == 0.0
     assert g2.billed_usd == pytest.approx(0.9), "the spend is restored, not reset"
-    assert g2.remaining()["minutes"] == pytest.approx(7.0, abs=0.1)  # 15 − 8, never a fresh 15
+    assert g2.timeout_s(3600, floor_s=0, soft=False) == pytest.approx(7 * 60, abs=6)  # 15 − 8, never a fresh 15
 
 
 def test_build_context_restores_the_budget_snapshot(tmp_path, settings):
@@ -197,8 +197,7 @@ def test_a_budget_tripped_candidate_still_lets_the_sibling_be_adopted(tmp_path, 
 
     def writer(job, ws_):
         if ws_.root.name == "c0":  # <ws>/_cand/c0 trips the ceiling mid-generation
-            raise BudgetExceeded("elapsed 9.99 min exceeds max_minutes 5.00",
-                                 spent_usd=9.99, elapsed_min=9.99)
+            raise BudgetExceeded("elapsed 9.99 min exceeds max_minutes 5.00", spent_usd=9.99)
         return {"src/object.js": f"// {job.label} in {ws_.root.name}\n"
                                  "export function build(THREE) { return new THREE.Group(); }\n"}
 
@@ -285,7 +284,7 @@ def test_a_skeleton_only_budget_trip_still_salvages_nothing(tmp_path, chair_plan
     adopted winner, so the salvage hook must keep saying no off-scene."""
 
     def writer(job, ws_):
-        raise BudgetExceeded("elapsed 11.0 min exceeds max_minutes 10.0", spent_usd=1.0, elapsed_min=11.0)
+        raise BudgetExceeded("elapsed 11.0 min exceeds max_minutes 10.0", spent_usd=1.0)
 
     ws = Workspace(tmp_path / "runs" / "bare")
     track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(writer),

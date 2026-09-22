@@ -29,7 +29,6 @@ from codeverse3d.cost.context import run_binding
 from codeverse3d.cost.instrument import run_ledger
 from codeverse3d.orchestrator import (
     KIND_FOR_STRATEGY,
-    BestSelector,
     BudgetExceeded,
     BudgetGuard,
     BudgetSnapshot,
@@ -46,7 +45,7 @@ from codeverse3d.orchestrator import (
     hash_inputs,
     plan_refine_groups,
 )
-from codeverse3d.proc import EventLog
+from codeverse3d.proc import EventLog, read_json_or_none
 from codeverse3d.prompts import render
 from codeverse3d.tracks.candidates import choose_best_round, replay_best_round, run_best_of_n
 from codeverse3d.tracks.common import (
@@ -741,7 +740,7 @@ class BaseTrack:
 
     def _promote_best(self, ctx: RunContext, rounds: list[RoundRecord], index: int) -> None:
         """Rank round ``index`` in (pairwise tie-break included), promote the best, save."""
-        best = choose_best_round(ctx, rounds, BestSelector(), index)
+        best = choose_best_round(ctx, rounds, index)
         ctx.state.best_considered_through = index  # this round HAS been ranked
         if best is not None and ctx.state.update_best(best, rounds[best].commit, rounds[best].score):
             ctx.events.emit("best.updated", round=best, score=rounds[best].score)
@@ -899,7 +898,6 @@ class BaseTrack:
         hook compares content hashes so a texture pass from an EARLIER round (whose
         GLB has since been rebuilt) does not suppress the final one."""
         import hashlib
-        import json as _json
 
         from codeverse3d.texturing.run import report_path
 
@@ -908,7 +906,7 @@ class BaseTrack:
         if not report.is_file() or not glb.is_file():
             return False
         try:
-            data = _json.loads(report.read_text())
+            data = read_json_or_none(report) or {}
             prev = Path(str(data.get("glb_in") or ""))
             if not prev.is_file():
                 return False

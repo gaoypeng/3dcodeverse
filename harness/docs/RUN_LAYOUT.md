@@ -103,8 +103,7 @@ the packager produces no diff.
   `record/telemetry.py::_generator_defaults` — a historical shim that
   configures nothing, kept so old records still read back); a
   value a call site hard-codes per task is left empty with `source` saying so,
-  never guessed.  A track may publish real values as
-  `record.extra["sampling"][<role>]` and they win (`source: observed`).
+  never guessed.
 * **`usage.jsonl`** — one priced row per model call, in the
   **`codeverse3d.cost` ledger format** (`CallCost`: tokens, unit prices, price
   provenance, stage, role, outcome).  There is exactly one ledger in the

@@ -19,7 +19,6 @@ from codeverse3d.contracts.common import Budget, Usage
 from codeverse3d.contracts.plan import AcceptanceItem
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.orchestrator import (
-    BestSelector,
     BudgetExceeded,
     BudgetGuard,
     RefineTask,
@@ -27,20 +26,12 @@ from codeverse3d.orchestrator import (
     RunState,
     StageRunner,
     StopPolicy,
-    best_index,
     build_refine_instructions,
     hash_inputs,
+    pick_best_round,
     plan_parallel_groups,
 )
 from codeverse3d.proc import EventLog, fan_out
-
-
-def test_best_index_prefers_score_then_task_count_then_recency():
-    assert best_index([(0.5, 0), (0.7, 2), (0.7, 1), (0.6, 0)]) == 2
-    assert best_index([(0.7, 1), (0.7, 1)]) == 1
-    assert best_index([(0.9, 3), (0.8, 0)]) == 0
-    with pytest.raises(ValueError):
-        best_index([])
 
 
 # ----------------------------------------------------------------------------- budget
@@ -59,7 +50,7 @@ def test_budget_guard_time_ceiling():
     g = BudgetGuard(Budget(max_minutes=0.0001), start_time=time.time() - 10)
     with pytest.raises(BudgetExceeded):
         g.check()
-    assert g.remaining()["minutes"] == 0.0
+    assert g.timeout_s(600, floor_s=0, soft=False) == 0  # no wall clock left
 
 
 # ----------------------------------------------------------------------------- fanout
@@ -180,11 +171,13 @@ def test_stop_policy_decisions():
     assert sp.evaluate([_round(0, 0.5), _round(1, None, build_ok=False), _round(2, None, build_ok=False)]).reason == "continue"
 
 
-def test_best_selector_prefers_score_then_fewer_errors():
+def test_pick_best_round_prefers_score_then_fewer_errors_then_recency():
     rounds = [_round(0, 0.5), _round(1, 0.7, errors=2), _round(2, 0.7, errors=0), _round(3, 0.6)]
-    assert BestSelector().pick(rounds) == 2
-    assert BestSelector().pick([]) is None
-    assert BestSelector().pick([_round(0, None, build_ok=False), _round(1, None, build_ok=True)]) == 1
+    assert pick_best_round(rounds) == 2
+    assert pick_best_round([_round(0, 0.7, errors=1), _round(1, 0.7, errors=1)]) == 1  # full tie → the later one
+    assert pick_best_round([_round(0, 0.9, errors=3), _round(1, 0.8)]) == 0  # score outranks gate errors
+    assert pick_best_round([]) is None
+    assert pick_best_round([_round(0, None, build_ok=False), _round(1, None, build_ok=True)]) == 1
 
 
 # ----------------------------------------------------------------------------- refine instructions

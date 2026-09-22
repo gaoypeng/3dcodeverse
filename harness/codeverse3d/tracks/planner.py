@@ -560,7 +560,7 @@ def plan_example(track: Track) -> dict[str, Any]:
 P = TypeVar("P", bound=BaseModel)
 
 #: re-ask budgets — a plan the SCHEMA rejects and a plan the QUALITY gate rejects are
-#: different failures and get separate chances (see ``plan_with_usage``).
+#: different failures and get separate chances (see ``plan``).
 MAX_VALIDATION_REASKS = 2  # was 1: compare_art_v2 lost 5 of 14 articulated prompts at this gate (2026-08-25)
 MAX_QUALITY_REASKS = 1
 #: a validation failure whose plan is DEGENERATE (joints naming links the plan never lists)
@@ -782,25 +782,8 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
          template: str | None = None, example: dict[str, Any] | None = None, temperature: float = 0.4,
          max_output_tokens: int = 24000, finalise: FinalisePlan | None = None,
          event_stats: EventStats | None = None) -> P:
-    """Plan and write ``ws.plan_path``.  ``model`` may be injected (tests).
-
-    Every attempt's money is booked inside ``plan_with_usage`` the moment it is
-    paid (brief, first call, each re-ask) — success, ``PlanningError`` and a crash
-    on a LATER attempt all leave the earlier dollars in the guard.  The ceilings
-    are enforced once here, after the plan is written."""
-    result, _ = plan_with_usage(spec, model_id, plan_model, ws, model=model, events=events, guard=budget,
-                                runtime=runtime, template=template, example=example, temperature=temperature,
-                                max_output_tokens=max_output_tokens, finalise=finalise, event_stats=event_stats)
-    if budget is not None:
-        budget.check()
-    return result
-
-
-def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Workspace, *, model: Any | None = None,
-                    events: Any | None = None, guard: Any | None = None, runtime: Any | None = None, template: str | None = None,
-                    example: dict[str, Any] | None = None, temperature: float = 0.4, max_output_tokens: int = 24000,
-                    finalise: FinalisePlan | None = None, event_stats: EventStats | None = None) -> tuple[P, Usage]:
-    """Optional brief expansion → one structured planner call → up to two re-asks.
+    """Plan and write ``ws.plan_path``: optional brief expansion → one structured planner
+    call → re-asks (schema, quality, a degenerate-plan restart).  ``model`` may be injected (tests).
 
     Parameterised by the track hooks: ``template``/``example`` (system prompt),
     ``finalise`` (post-validation fixup, default = ``ensure_acceptance(normalise_names(...))``)
@@ -818,12 +801,14 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
     instead of killing the run — the deeper plan is longer JSON and Gemini bills thinking
     against the same ceiling.
 
-    ``guard`` (a ``BudgetGuard``; named so because ``budget`` is this function's local
-    PlanBudget) is booked with a non-enforcing ``add`` the moment each call is PAID —
-    brief, first call, every re-ask — so a later attempt that raises can never erase an
-    earlier attempt's dollars.  ``PlanningError`` still carries the total usage for
-    guard-less callers; when ``guard`` is given those dollars are already booked and the
-    caller must NOT charge them again (:func:`plan` just runs one final ``check()``)."""
+    ``budget`` (the run's ``BudgetGuard``; ``guard`` below, because ``budget`` becomes this
+    request's PlanBudget) is booked with a non-enforcing ``add`` the moment each call is
+    PAID — brief, first call, every re-ask — so success, ``PlanningError`` and a crash on a
+    LATER attempt all leave the earlier dollars in the guard.  ``PlanningError`` still
+    carries the total usage for guard-less callers; when a guard is given those dollars are
+    already booked and the caller must NOT charge them again.  The ceilings are enforced
+    once, after the plan is written."""
+    guard = budget
     if model is None:
         from codeverse3d.models import get_chat_model
 
@@ -943,7 +928,9 @@ def plan_with_usage[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P]
             events.emit("plan.done", model=model_id, **stats,
                         cost_usd=round(usage.cost_usd, 4), prompt_hash=prompt_hash(system), attempt=attempt,
                         brief=brief is not None, quality_reasks=requeried, restarts=restarts, **budget.as_dict())
-        return result, usage
+        if guard is not None:
+            guard.check()
+        return result
     raise PlanningError(f"plan did not validate after re-ask: {last_error}", usage)
 
 
@@ -1081,5 +1068,5 @@ __all__ = ["MAX_PLAN_RESTARTS", "MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS",
            "PLAN_RESTART_ENV", "PLAN_TOKENS_MAX", "PlanningError", "add_acceptance_item",
            "articulation_acceptance", "build_system_prompt", "build_user_prompt", "default_event_stats",
            "ensure_acceptance", "missing_link_names", "normalise_names", "plan",
-           "degenerate_plan", "plan_example", "plan_tokens", "plan_with_usage", "restart_enabled",
+           "degenerate_plan", "plan_example", "plan_tokens", "restart_enabled",
            "restart_note"]

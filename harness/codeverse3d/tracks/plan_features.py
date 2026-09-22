@@ -4,8 +4,8 @@ Born as the switchboard for the plan-loop-engineering wave (CQ-5): six features 
 declared under ``C3D_PLAN_FEATURES``, none was ever implemented, and one A/B run is on
 record printing "keep, mean delta +0.344" for two byte-identical arms.  The feature
 runtime (``parse_features`` / ``plan_feature_on``) was deleted 2026-08-28 per its own
-instruction; the six names stay only so ``pin_plan_blockers`` can classify a pinned
-A/B, and what else remains is the guard rail — :data:`LIVE_SWITCHES` / :data:`DEAD_SWITCHES` (kept honest by
+instruction, and the six names with it (2026-09-22); what remains is the guard rail —
+:data:`LIVE_SWITCHES` / :data:`DEAD_SWITCHES` (kept honest by
 ``tests/orchestrator_tracks/test_plan_features.py``, which greps the tree) and the
 ``--pin-plan`` blocker rule ``bench/ab_plan.py`` consults so a paired A/B cannot
 silently pin away the very thing it is testing.
@@ -15,18 +15,6 @@ from __future__ import annotations
 
 PLAN_FEATURES_ENV = "C3D_PLAN_FEATURES"
 
-#: the six switch names the wave defined.  Nothing reads them at runtime any more —
-#: they remain because ``pin_plan_blockers`` still classifies a C3D_PLAN_FEATURES
-#: value inside a MIXED A/B env, and that classification must not silently widen.
-FIT = "fit"
-CONTACTS = "contacts"
-GRAPH = "graph"
-GRAPH_BUDGET = "graph_budget"
-GRAPH_EXAMPLE = "graph_example"
-CONSISTENCY = "consistency"
-KNOWN_FEATURES: tuple[str, ...] = (FIT, CONTACTS, GRAPH, GRAPH_BUDGET, GRAPH_EXAMPLE, CONSISTENCY)
-#: the one generation-side switch; ``pin_plan_blockers`` treats the rest as plan-side
-GENERATION_SIDE: frozenset[str] = frozenset({CONTACTS})
 #: env switches that act AFTER planning — ``--pin-plan`` may share one plan across arms
 #: that differ only by these.  Anything not listed is treated as plan-side: refusing to
 #: pin costs one noisy A/B, pinning wrongly costs a confident wrong answer
@@ -42,20 +30,11 @@ def pin_plan_blockers(variant_env: dict[str, str]) -> list[str]:
 
     Empty list = every switch this A/B changes acts after planning, so both arms can be
     seeded with the same ``plan.json`` and the paired difference stops carrying the
-    planner's spread (the dominant variance term, docs/EVAL.md §8.1).
+    planner's spread (the dominant variance term, eval/docs/EVAL.md §8.1).  A
+    :data:`DEAD_SWITCHES` key blocks nothing: no code reads it, so it cannot change a plan.
     """
-    blockers: list[str] = []
-    for key, value in sorted(variant_env.items()):
-        if key == PLAN_FEATURES_ENV:
-            names = set(KNOWN_FEATURES) if value.strip() == "all" else {
-                n.strip().lstrip("-") for n in value.split(",") if n.strip()}
-            for name in sorted(names & (set(KNOWN_FEATURES) - GENERATION_SIDE)):
-                blockers.append(f"{PLAN_FEATURES_ENV}={name} changes the plan itself")
-        elif key in GENERATION_SIDE_ENV:
-            continue
-        else:
-            blockers.append(f"{key} is not known to act after planning")
-    return blockers
+    return [f"{key} is not known to act after planning" for key in sorted(variant_env)
+            if key not in GENERATION_SIDE_ENV and key not in DEAD_SWITCHES]
 
 #: Plan-loop switches the tree ACTUALLY reads, name → the module that reads it.  Kept
 #: honest by tests/orchestrator_tracks/test_plan_features.py, which greps the tree.
@@ -93,7 +72,7 @@ LIVE_SWITCHES: dict[str, str] = {
 #: it: a rig that cannot tell a live switch from a dead one produces confident verdicts
 #: about nothing.  A name leaves this dict in the same commit as the code that reads it.
 DEAD_SWITCHES: dict[str, str] = {
-    PLAN_FEATURES_ENV: "no feature in KNOWN_FEATURES is implemented; nothing reads this variable",
+    PLAN_FEATURES_ENV: "none of its six features was ever implemented; nothing reads this variable",
 }
 
 
@@ -102,6 +81,5 @@ def dead_env_keys(env: dict[str, str]) -> list[str]:
     return sorted(k for k in env if k in DEAD_SWITCHES)
 
 
-__all__ = ["CONSISTENCY", "CONTACTS", "DEAD_SWITCHES", "FIT", "GENERATION_SIDE",
-           "GENERATION_SIDE_ENV", "GRAPH", "GRAPH_BUDGET", "GRAPH_EXAMPLE", "KNOWN_FEATURES",
-           "LIVE_SWITCHES", "PLAN_FEATURES_ENV", "dead_env_keys", "pin_plan_blockers"]
+__all__ = ["DEAD_SWITCHES", "GENERATION_SIDE_ENV", "LIVE_SWITCHES", "PLAN_FEATURES_ENV", "dead_env_keys",
+           "pin_plan_blockers"]

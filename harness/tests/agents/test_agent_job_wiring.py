@@ -58,7 +58,7 @@ def test_session_window_is_clipped_to_the_hard_clock_not_the_soft_share(tmp_ws: 
     spent); re-clipping it against the SOFT share handed it the 120 s floor (2026-08-29)."""
     guard = BudgetGuard(Budget(max_minutes=100), soft_fraction=0.5)
     guard.start_time -= 60 * 60  # 60 of 100 minutes gone: the soft share is spent, 40 min remain
-    assert guard.soft_remaining()["minutes"] == 0
+    assert not guard.soft_ok()
     agent = StubAgent()
     run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="refine", prompt="p", timeout_s=900), budget=guard)
     assert agent.jobs[0].timeout_s == 900

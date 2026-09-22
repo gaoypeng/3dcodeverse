@@ -209,8 +209,6 @@ def run_round(
     extra_usage: Usage | None = None,
     extra_notes: Sequence[str] = (),
     previous_best: float | None = None,
-    render: RenderFn | None = None,
-    geometry_views: bool = True,
 ) -> RoundRecord:
     """Execute one round and persist its record.  Budget is charged as it goes.
 
@@ -219,15 +217,15 @@ def run_round(
     judge only.  ``extra_usage`` / ``extra_notes`` fold pre-round work
     (candidate generation) into the record; ``previous_best`` is the best score
     before this round, used only to flag the round as wasted in ``cost.round``.
-    ``render`` replaces ``pipeline.render`` and ``geometry_views=False`` skips the
-    clay views: the two knobs a best-of-N candidate turns (``candidates.run_best_of_n``
-    runs each candidate as this round in its sub-workspace)."""
+    ``_run_round`` (the same round without the aborted-round record) also takes
+    ``render`` (replaces ``pipeline.render``) and ``geometry_views=False`` (skips the
+    clay views): the two knobs a best-of-N candidate turns (``candidates.run_best_of_n``
+    calls it directly for each candidate in its sub-workspace)."""
     mark = ctx.budget.mark()
     try:
         return _run_round(ctx, index=index, kind=kind, tasks=tasks, pipeline=pipeline, instructions=instructions,
                           previous=previous, files_hint=files_hint, extra_usage=extra_usage,
-                          extra_notes=extra_notes, previous_best=previous_best, render=render,
-                          geometry_views=geometry_views)
+                          extra_notes=extra_notes, previous_best=previous_best)
     except BaseException as e:
         # the round died half-way (budget stop, 503 storm, RoundFailed).  Whatever it
         # burned is already in the guard: report it so the round is not invisible.
@@ -565,7 +563,4 @@ def failed_acceptance(ctx: RunContext, judgment: Judgment | None) -> list[Accept
 
 
 def sum_usage(rounds: Sequence[RoundRecord]) -> Usage:
-    total = Usage()
-    for r in rounds:
-        total = total + r.usage
-    return total
+    return sum((r.usage for r in rounds), Usage())

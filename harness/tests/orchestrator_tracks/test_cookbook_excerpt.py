@@ -48,14 +48,10 @@ def test_every_track_sends_the_whole_cookbook(monkeypatch) -> None:
                           contract_text="CONTRACT", cookbook_rel="glsl_shader/cookbook.md",
                           cookbook_text=big, tool_cards="", single_shot=True, extra={},
                           runtime=SimpleNamespace(entry_globs=()))
-    monkeypatch.setattr(graphics_steps, "constraints_text", lambda spec: "")
-    monkeypatch.setattr(graphics_steps, "reference_note", lambda ctx: "")
-    monkeypatch.setattr(graphics_steps, "acceptance_lines", lambda plan: "")
-    assert graphics_steps.graphics_prompt_context(ctx)["cookbook_excerpt"] == big
-
     monkeypatch.setattr("codeverse3d.tracks.prompting.constraints_text", lambda spec: "")
     monkeypatch.setattr("codeverse3d.tracks.prompting.reference_note", lambda ctx: "")
     monkeypatch.setattr("codeverse3d.tracks.prompting.acceptance_lines", lambda plan: "")
+    assert graphics_steps.graphics_prompt_context(ctx)["cookbook_excerpt"] == big
     assert base_prompt_context(ctx)["cookbook_excerpt"] == big
     assert base_prompt_context(ctx)["contract"] == "CONTRACT"
 

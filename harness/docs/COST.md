@@ -351,7 +351,7 @@ Savings are estimated **on this data set** (61 runs, $86.30) unless stated.
 |---|---|---|---|---|
 | 1 | **Stop refining after r01 unless the last delta ≥ 0.05.**  r02+r03 cost $12.16 and bought +1.44 score points across 8 of 20 rounds. | **$9–12 (10–13%)** | high (measured) | `RoundPolicy` (min_delta 0.02 → 0.05 from r02, or plateau_window 1 after r01) |
 | 2 | **Check the budget *before* starting a round, against the estimated round cost**, not only between steps. | **$8.76 (9.7%)** | high (measured waste) | `orchestrator.py` (`BudgetGuard`) + `tracks/steps.py`; use `codeverse3d.cost.estimate_call` / median round cost |
-| 3 | ~~**Cap agent turns at ~25 and compact old tool results.**  39.3% of the agent bill is turn ≥20; 19 of the 33 sessions that ran ≥50 turns were cut off by their own budget.~~  **Tested, rejected: +$0.02 and −0.21 score** (A/B, n=3 per arm, §17) — the cap is off by default. | est. $8–15, **measured $0** | high (A/B) | `RoundPolicy.agent_max_turns=0`; still settable per caller |
+| 3 | ~~**Cap agent turns at ~25 and compact old tool results.**  39.3% of the agent bill is turn ≥20; 19 of the 33 sessions that ran ≥50 turns were cut off by their own budget.~~  **Tested, rejected: +$0.02 and −0.21 score** (A/B, n=3 per arm, §17) — the cap is off by default. | est. $8–15, **measured $0** | high (A/B) | `DEFAULT_AGENT_MAX_TURNS=0`; `$C3D_AGENT_MAX_TURNS` / `Settings.limits.agent_max_turns` still set one |
 | 4 | **Fold the off-record spend into the budget** (cut rounds, post-hoc texture passes). | $0 saved, **$1.22 of blindness removed** | high | §6; the ledger (`codeverse3d.cost.record_call`) makes it automatic |
 | 5 | **Scene track: 73% of scene spend is assets+zones, 0/5 passed.**  Trim the per-zone context (each zone session re-sends the whole scene contract) and judge assets before zones start. | ~$1/run of $2.83 | medium | `tracks/scene*.py` |
 | 6 | **Drop `oneshot:claude-code` from default compare arms** ($1.04/artifact at 0.673 — the worst score per dollar measured). | bench-only | high | `eval/bench/compare_backends.py` arms |
@@ -784,11 +784,11 @@ same budget and box; 3 runs per arm; scripts and run dirs in
 and 0.205 of a score point**: a session stopped at turn 28 leaves work the next
 round pays for again, and the wrap-up session it buys is not free either.
 
-So there is no default cap: `RoundPolicy.agent_max_turns = 0` and
-`tracks.generation.DEFAULT_AGENT_MAX_TURNS = 0` leave `AgentJob.max_turns` at the
-backend's own default.  The plumbing stays for callers who choose one —
-`GenerationTask.max_turns` > `generate(max_turns=…)` > `$C3D_AGENT_MAX_TURNS` >
-`Settings.limits.agent_max_turns` — and a cap that IS set still lands gracefully
+So there is no default cap: `tracks.generation.DEFAULT_AGENT_MAX_TURNS = 0` leaves
+`AgentJob.max_turns` at the backend's own default.  The plumbing stays for a machine
+that chooses one — `$C3D_AGENT_MAX_TURNS` > `Settings.limits.agent_max_turns` (the
+per-policy / per-task / `generate(max_turns=…)` knobs, never set by any caller, went
+2026-09-22) — and a cap that IS set still lands gracefully
 (wrap-up session, `generate.turn_cap` event).  **Nothing sets one by default any
 more**: the profiles independently dropped their own caps in the same wave
 (`cost/profiles.py` carries none), so a cap now only exists when a
@@ -811,7 +811,7 @@ Two changes were needed to make the kept branches real:
 1. `rejudge_round` re-buys a verdict only after the judge was *tried* and failed
    or came back degraded — never one that policy deliberately skipped.  Otherwise
    every skip is a `judge.retry` with the same price tag.
-2. `BestSelector` never promotes a round that did not build, and when no round has
+2. `pick_best_round` never promotes a round that did not build, and when no round has
    a score at all it falls back to the built round with the **fewest gate errors**
    (later on a tie) instead of simply the last one — an unjudged round that broke
    the gates can no longer displace the clean artifact that came before it.

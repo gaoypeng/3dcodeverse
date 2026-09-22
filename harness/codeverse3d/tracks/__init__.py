@@ -1,31 +1,21 @@
 """Tracks: static_object · articulated_object · scene · graphics.
 
-``get_track(Track.X)`` builds the pipeline; ``TrackPipeline`` is the protocol the
+``get_track(Track.X)`` builds the track: a ``lifecycle.BaseTrack``, whose ``run()`` the
 orchestrator drives.  (Formerly ``tracks/base.py`` — folded into the package root
 2026-08-28: its only importer was this ``__init__``.)
 """
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from codeverse3d.contracts.common import Track
-from codeverse3d.contracts.run import RunRecord
-from codeverse3d.contracts.spec import Spec
-from codeverse3d.workspace import Workspace
+
+if TYPE_CHECKING:
+    from codeverse3d.tracks.lifecycle import BaseTrack
 
 
-class TrackPipeline(Protocol):
-    track: Track
-    rubric: str  # judges/rubrics/<rubric>.yaml
-
-    def run(self, spec: Spec, ws: Workspace, *, resume: bool = False, force: bool = False) -> RunRecord:
-        """Full pipeline: plan → baseline → rounds → finalise.  Must be resumable;
-        ``force`` re-plans a resumed run whose spec changed (archives the old rounds)."""
-        ...
-
-
-def get_track(track: Track | str, **options: Any) -> TrackPipeline:
+def get_track(track: Track | str, **options: Any) -> BaseTrack:
     """Track instance for ``track``.  ``options`` are forwarded to the track
     constructor (e.g. ``n_candidates=2`` for a best-of-N baseline, ``policy=``)."""
     t = Track(track)
@@ -46,4 +36,4 @@ def get_track(track: Track | str, **options: Any) -> TrackPipeline:
     return SceneTrack(**options)
 
 
-__all__ = ["TrackPipeline", "get_track"]
+__all__ = ["get_track"]

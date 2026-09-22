@@ -162,7 +162,6 @@ def test_a_stored_pairwise_rejection_is_final(chair_plan):
     and replay agree, whether the later round is worse or failed to score at all."""
     from codeverse3d.contracts.artifacts import BuildResult, Judgment
     from codeverse3d.contracts.run import PairwiseNote, RoundRecord
-    from codeverse3d.orchestrator import BestSelector
     from codeverse3d.tracks.candidates import choose_best_round, replay_best_round
 
     def rec(i, score, pairwise=None):
@@ -179,9 +178,9 @@ def test_a_stored_pairwise_rejection_is_final(chair_plan):
     assert replay_best_round([r0, r1, r2]) == 0, "a worse later round must not revive the rejected r1"
     ctx = SimpleNamespace(state=SimpleNamespace(best_round=0),
                           policy=SimpleNamespace(pairwise_margin=0.03, pairwise_min_confidence=0.6))
-    assert choose_best_round(ctx, [r0, r1, r2], BestSelector(), 2) == 0, "live must agree with replay"
+    assert choose_best_round(ctx, [r0, r1, r2], 2) == 0, "live must agree with replay"
     r2b = rec(2, None)  # the new round never scored (build crash)
-    assert choose_best_round(ctx, [r0, r1, r2b], BestSelector(), 2) == 0
+    assert choose_best_round(ctx, [r0, r1, r2b], 2) == 0
     # an ACCEPTED verdict still promotes the challenger, and survives later worse rounds
     accepted = PairwiseNote(a="r00", b="r01", winner="b", confidence=0.9, accepted=True)
     assert replay_best_round([r0, rec(1, 0.72, pairwise=accepted), r2]) == 1

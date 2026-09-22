@@ -1,5 +1,5 @@
 """Orchestration: the stage runner with resume, run state, the round loop
-(RoundPolicy / StopPolicy / BestSelector), refine-task compilation and the budget.
+(RoundPolicy / StopPolicy / pick_best_round), refine-task compilation and the budget.
 
 One module since 2026-08-28: the seven-file package predates the 1,500-line cap,
 nobody ever imported the package itself, and refine_tasks existed only to be
@@ -497,13 +497,6 @@ class RoundPolicy:
     regression_sigma: float = 1.0  # a round below (best − this × σ) regressed: change shape or stop
     marginal_sigma: float = 1.5  # from marginal_from_round on, the last gain must beat this × σ
     marginal_from_round: int = 3  # first refine round index the marginal-value test applies to
-    # ---- agent session shape.  A 28-turn cap was TESTED AND REJECTED: a controlled
-    # A/B on one prompt (n=3 per arm, same generator/judge/budget) cost $1.381 mean at
-    # 0.479 mean score capped, against $1.360 at 0.684 uncapped — no saving and −0.205
-    # score (docs/COST.md §17).  0 = no policy cap: the session runs under the backend's
-    # own AgentJob.max_turns.  Callers who want one set it explicitly (no cost profile does).
-    agent_max_turns: int = 0  # 0 = the backend's own AgentJob.max_turns (claude-code 60; the other vendors have no turn cap)
-    agent_wrapup_turns: int = 6  # turns granted to land a final build + summary when a cap IS set
     # ---- depth.  Measured (wave "generation-depth"): across 88 consecutive refine-round pairs the
     # built part count changed ZERO times and mean Δgeometry_detail was +0.003 — the refine loop is
     # a repair loop and never adds anything.  The rounds that DID add geometry did it while assembly
@@ -722,33 +715,20 @@ def last_gain(history: Sequence[RoundRecord]) -> float | None:
     return float(history[-1].score) - before
 
 
-def best_index(rounds: Sequence[tuple[float, int]]) -> int:
-    """Index of the best round: higher score, tie → fewer errors, tie → later round."""
-    if not rounds:
-        raise ValueError("best_index needs at least one round")
-    # the three-clause running max WAS this key: greater score, then fewer errors,
-    # then later index (the third clause `score == bs and n_err == be` is the tie-break)
-    return max(range(len(rounds)), key=lambda i: (rounds[i][0], -rounds[i][1], i))
-
-
-class BestSelector:
+def pick_best_round(rounds: Sequence[RoundRecord]) -> int | None:
     """Best round = highest score, then fewer gate errors, then later.
 
-    ``best_index`` above owns the ranking rule.  A round that
-    did not build is never picked (it has no score, and delivering code that does
-    not run is never an improvement); when NO round has a score the fallback is
-    the built round with the fewest gate errors — later on a tie — so a round that
+    A round that did not build is never picked (it has no score, and delivering code
+    that does not run is never an improvement); when NO round has a score the fallback
+    is the built round with the fewest gate errors — later on a tie — so a round that
     broke the gates cannot displace a clean earlier artifact just by being last."""
-
-    def pick(self, rounds: Sequence[RoundRecord]) -> int | None:
-        scored = [(i, r) for i, r in enumerate(rounds) if r.score is not None and not _build_failed(r)]
-        if scored:
-            k = best_index([(float(r.score), gate_error_count(r)) for _, r in scored])  # type: ignore[arg-type]
-            return scored[int(k)][0]
-        built = [i for i, r in enumerate(rounds) if r.build is not None and r.build.ok]
-        if not built:
-            return None
-        return min(built, key=lambda i: (gate_error_count(rounds[i]), -i))
+    scored = [i for i, r in enumerate(rounds) if r.score is not None and not _build_failed(r)]
+    if scored:
+        return max(scored, key=lambda i: (float(rounds[i].score), -gate_error_count(rounds[i]), i))  # type: ignore[arg-type]
+    built = [i for i, r in enumerate(rounds) if r.build is not None and r.build.ok]
+    if not built:
+        return None
+    return min(built, key=lambda i: (gate_error_count(rounds[i]), -i))
 
 
 def gate_error_count(r: RoundRecord) -> int:
@@ -770,11 +750,10 @@ OTHER_STAGE = "other"
 class BudgetExceeded(RuntimeError):
     """Raised when a run crosses its USD or wall-clock ceiling."""
 
-    def __init__(self, reason: str, *, spent_usd: float, elapsed_min: float):
+    def __init__(self, reason: str, *, spent_usd: float):
         super().__init__(reason)
         self.reason = reason
         self.spent_usd = spent_usd
-        self.elapsed_min = elapsed_min
 
 
 class BudgetGuard:
@@ -908,7 +887,6 @@ class BudgetGuard:
             raise BudgetExceeded(
                 f"elapsed {elapsed:.1f} min exceeds max_minutes {self.hard_minutes:.1f}",
                 spent_usd=spent,
-                elapsed_min=elapsed,
             )
 
     # ----------------------------------------------------------------- soft cap
@@ -928,10 +906,6 @@ class BudgetGuard:
         """True while the baseline still has its share of the budget."""
         return not self.soft_exceeded()
 
-    def soft_remaining(self) -> dict[str, float]:
-        """Headroom left inside the soft sub-budget (never negative)."""
-        return {"minutes": max(0.0, self.soft_minutes() - self.elapsed_minutes())}
-
     def ok(self) -> bool:
         """True when no ceiling is crossed (non-raising variant of ``check``)."""
         try:
@@ -940,19 +914,13 @@ class BudgetGuard:
             return False
         return True
 
-    def remaining(self) -> dict[str, float]:
-        """Remaining wall clock: ``{"minutes": ..., "fraction": ...}`` (no money key since the USD ceiling went, fbf89a5)."""
-        minutes = max(0.0, self.hard_minutes - self.elapsed_minutes())
-        frac = minutes / self.hard_minutes if self.hard_minutes > 0 else 0.0
-        return {"minutes": minutes, "fraction": frac}
-
     def timeout_s(self, want_s: float, *, floor_s: float = 60.0, soft: bool = True) -> int:
         """``want_s`` clipped to the wall-clock actually left (soft cap when ``soft``).
 
         A generation session must never be allowed to outlive the run's budget:
         the greenhouse scene lost 54 minutes to zone agents that kept working
         after the ceiling had already been crossed."""
-        left = (self.soft_remaining()["minutes"] if soft else self.remaining()["minutes"]) * 60.0
+        left = max(0.0, (self.soft_minutes() if soft else self.hard_minutes) - self.elapsed_minutes()) * 60.0
         return int(max(floor_s, min(float(want_s), left) if left > 0 else floor_s))
 
     def summary(self) -> dict[str, float | int]:
@@ -982,7 +950,6 @@ class BudgetSnapshot(BaseModel):
     headroom — persisting it would ratchet the hard ceiling — and config always
     comes from the current spec/settings."""
 
-    version: int = 1
     spent: Usage
     billed_usd: float
     calls: int

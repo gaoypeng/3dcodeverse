@@ -36,7 +36,8 @@ from codeverse3d.contracts.plan import AssetPlan, BBox, PartPlan, ScenePlan, Sta
 from codeverse3d.contracts.spec import Constraints, Spec
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
 from codeverse3d.judges.rubrics import is_degraded
-from codeverse3d.proc import fan_out, write_json_atomic, write_text_atomic
+from codeverse3d.orchestrator import BudgetExceeded
+from codeverse3d.proc import fan_out, read_json_or_none, write_json_atomic, write_text_atomic
 from codeverse3d.prompts import render
 from codeverse3d.tracks.common import (
     RunContext,
@@ -202,20 +203,13 @@ def _spec_hashes_path(ctx: RunContext) -> Path:
 
 def _spec_hash_matches(ctx: RunContext, asset: AssetPlan) -> bool:
     """False when unrecorded (pre-fix runs regenerate once, then reuse)."""
-    try:
-        recorded = json.loads(_spec_hashes_path(ctx).read_text())
-    except (OSError, ValueError):
-        return False
-    return recorded.get(asset.name) == _asset_spec_hash(asset)
+    return (read_json_or_none(_spec_hashes_path(ctx)) or {}).get(asset.name) == _asset_spec_hash(asset)
 
 
 def _record_spec_hashes(ctx: RunContext, results: dict[str, AssetResult], assets: list[AssetPlan]) -> None:
     by_name = {a.name: a for a in assets}
     path = _spec_hashes_path(ctx)
-    try:
-        recorded = json.loads(path.read_text())
-    except (OSError, ValueError):
-        recorded = {}
+    recorded = read_json_or_none(path) or {}
     for name, r in results.items():
         if r.ok and name in by_name:
             recorded[name] = _asset_spec_hash(by_name[name])
@@ -297,8 +291,6 @@ def _ladder(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Language, 
                 res = _generate_asset(sub, asset, rel, language=language, attempt=attempt, files=files,
                                       feedback=feedback)
             except Exception as e:  # noqa: BLE001 — a bad answer escalates; a dead model does not
-                from codeverse3d.orchestrator import BudgetExceeded
-
                 if isinstance(e, BudgetExceeded):
                     raise
                 outage = is_model_outage(e)
@@ -340,8 +332,6 @@ def _ladder(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Language, 
                 res2 = _generate_asset(sub, asset, rel, language=language, attempt=2, files=files,
                                        feedback=repair_feedback(chk, rel))
             except Exception as e:  # noqa: BLE001 — same rule as the ladder's own single-shots
-                from codeverse3d.orchestrator import BudgetExceeded
-
                 if isinstance(e, BudgetExceeded):
                     raise
                 log.warning("storm repair of %s failed: %s", asset.name, e)
@@ -519,8 +509,6 @@ def hero_plan(sub: RunContext, asset: AssetPlan) -> StaticPlan:
             plan = run_planner(spec2, spec2.backends.planner, StaticPlan, sub.ws, model=model, events=sub.events,
                                budget=sub.budget, runtime=sub.runtime, **track._plan_kwargs(spec2))
     except Exception as e:  # noqa: BLE001 — PlanningError / outage: the sheet still says what the prop is
-        from codeverse3d.orchestrator import BudgetExceeded
-
         if isinstance(e, BudgetExceeded):
             raise
         log.warning("hero planner failed for %s, using the one-part sheet: %s", asset.name, e)
@@ -1033,11 +1021,8 @@ def write_dedupe_note(ws: Workspace, alias: dict[str, str]) -> None:
 
 def read_dedupe_note(ws: Workspace) -> dict[str, str] | None:
     """The merge map the asset stage used, or None when no stage has run in this workspace."""
-    p = ws.root / "stages" / "asset_aliases.json"
-    try:
-        return dict(json.loads(p.read_text()).get("alias") or {})
-    except (OSError, ValueError):
-        return None
+    data = read_json_or_none(ws.root / "stages" / "asset_aliases.json")
+    return None if data is None else dict(data.get("alias") or {})
 
 
 def write_variant_shims(ws: Workspace, alias: dict[str, str], available: set[str]) -> list[str]:

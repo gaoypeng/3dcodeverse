@@ -237,8 +237,7 @@ def generate_for(ctx: RunContext, task: GenerationTask) -> GenerationResult:
     loop, while every single-shot in the same minutes got through; the stages that lost
     their session shipped the skeleton env and empty zones and judged 0.00-0.14."""
     res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
-                   budget=ctx.budget, events=ctx.events,
-                   max_turns=ctx.policy.agent_max_turns, wrapup_turns=ctx.policy.agent_wrapup_turns)
+                   budget=ctx.budget, events=ctx.events)
     if not res.storm or ctx.single_shot:
         return res
     sub = single_shot_ctx(ctx)
@@ -246,8 +245,7 @@ def generate_for(ctx: RunContext, task: GenerationTask) -> GenerationResult:
         return res
     ctx.events.emit("generate.storm_fallback", label=task.label, sessions=res.sessions, notes=res.notes[:300])
     again = generate(sub.ws, agent_id=sub.agent_id, task=task, agent=sub.agent, model=sub.model, settings=sub.settings,
-                     budget=sub.budget, events=sub.events,
-                     max_turns=sub.policy.agent_max_turns, wrapup_turns=sub.policy.agent_wrapup_turns)
+                     budget=sub.budget, events=sub.events)
     again.usage = res.usage + again.usage
     again.notes = f"agent session died in a 503 storm ({res.notes[:120]}) → single-shot: {again.notes}"
     return again
