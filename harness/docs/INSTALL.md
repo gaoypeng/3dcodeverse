@@ -501,11 +501,12 @@ that the keys work end to end):
 | `pool sharing` | WARN | this process's configured concurrency does not fit beside sibling harness processes | wait for the siblings or set `C3D_MAX_IN_FLIGHT` to the headroom printed in the row |
 | `gemini pool` (`--live`) | WARN | a key is benched as dead | that key 401/403'd; rotate or remove it — the pool re-probes it after an hour.  The row also shows in-flight, RPM/TPM headroom used and this process's 429/5xx counts |
 | `storm gate` (`--live`) | WARN | a capacity storm is running | provider-side (`503 high demand`), not an install problem; the gate is off by default (docs/COST.md §21) and the row only appears when something enabled it |
-| `skills switch` | WARN | skills are disabled | expected by default; set `C3D_SKILLS=on` only when you want skill routing |
+| `skills switch` | WARN | skills are disabled (`C3D_SKILLS=0`) | skills are on by default since 2026-09-22; unset `C3D_SKILLS` unless this is an A/B control arm |
 | `skills library` | WARN / FAIL | no bundles were found, or one or more bundles are invalid | use a full checkout and validate the named bundle under `codeverse3d/skills/<name>/` |
 | `skills routing` | WARN | a routed skill has no installed bundle | restore the missing bundle from the checkout or update the stale route |
 | `skills discovery` | OK | always informational | shows the agent-native directories where bundles are materialised |
 | `claude-code Skill tool` | FAIL | the Claude backend would deny native skill activation | update/reinstall the harness so `Skill` is present in Claude Code's allowed tools |
+| `gemini-cli skills setting` | FAIL | the per-session gemini-cli system settings do not pin `skills.enabled` | update/reinstall the harness; without the pin a user's `skills.enabled: false` hides every bundle from gemini-cli |
 
 ---
 

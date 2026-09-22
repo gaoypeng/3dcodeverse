@@ -7,8 +7,10 @@ called earned.
 
 **Library: 17 bundles** (13 + the 2026-09-01 scene-graphics port: atmosphere, water,
 night, materials — routes R25-R28, evidence `inherited-unverified` from the
-scene_multifile_graphics reference ledger). All 17 ship **OFF** (`C3D_SKILLS` unset). Zero have a measured
-effect. §5 says why that is the honest default and what would change it.
+scene_multifile_graphics reference ledger). **All 17 route by default since 2026-09-22**
+(`C3D_SKILLS` and `C3D_SKILLS_UNVERIFIED` default on; `C3D_SKILLS=0` is the off switch) —
+the owner's call, on the live evidence in §0b.  They shipped OFF from 2026-08-25 to
+2026-09-22; §5 records why that was the honest default then.  Zero have a measured effect.
 
 Three files hold it up:
 
@@ -64,6 +66,73 @@ Skills stay OFF.  Pairs still in flight (carousel_horse, lever_espresso, smock_w
 gate_valve, turbocharger, marimba, jacobs_chuck redo) land in `results.jsonl` per driver;
 merge with `python eval/bench/skill_targets.py` or the paired readout (scratch `fancy_readout.py`
 — rows are only paired when both arms are `scored`).
+
+## 0b. 2026-09-22 — all four vendor CLIs load the bundles; default ON
+
+**Question.**  With `api-agent` gone (2026-08-28), does each vendor CLI the harness drives
+actually see the routed bundles and load them — and can we tell from the CLI's own record
+instead of from atime?
+
+**Rig** (scratch, not a battery).  One workspace per CLI, built through the harness's own
+code path: `Workspace.create` → `spec.json` (static_object / blender) →
+`agents.materialize.materialize_workspace` → `skills.attach_skills(kind="baseline")` with a
+chair plan (4 parts, 4 mirrored legs, 3 slats).  The router picked **four** bundles —
+`c3d-blender-forms` (R8), `c3d-part-contact` (R1), `c3d-bbox-contract` (R3),
+`c3d-repeats-and-mirrors` (R6) — and materialised the never-routed control
+`zz-c3d-read-control` beside them in both roots.  Each session was launched by
+`get_coding_agent("<kind>:<model>").run(AgentJob(..., kind="baseline", spatial_tools=True))`
+— the metered backend and the argv/env/settings builders the round loop uses — with the
+blender `system.md` as `system_append` and a chair brief that never mentions skills (the
+only skills text in the session is the harness's one mandate sentence in the body file).
+Workspaces under an untrusted `/tmp` path on purpose.  Reads come from the tool trace each
+backend now writes (`agents/cli_common.record_tool_calls`); the atime probe was run on the
+same workspace afterwards for comparison.
+
+**Static checks first, no model call:** `gemini skills list` under the harness's per-session
+system settings listed the four + the control, all `[Enabled]`, from
+`<ws>/.agents/skills`; `codex debug prompt-input` in an untrusted workspace rendered a
+`## Skills` section with the four + the control as `r1/<name>/SKILL.md`, `r1` =
+`<ws>/.agents/skills` (plus codex's five `.system` skills).
+
+| CLI · model | exit | index the model was shown | activated (surfaced) | refs (deep) | control | atime probe, same session | cost |
+|---|---|---|---|---|---|---|---|
+| gemini-cli 0.53.0 · gemini-3.7-flash, session 1 | timeout 1 202 s — a `fetch failed` / 503 storm inside the CLI's retry loop | the 4 + control (`gemini skills list`) | **4 / 4** — `activate_skill` ×4 in its FIRST turn | 0 | untouched | 4/4 deep, control "read" (blind) | harness $0 (no envelope); its chat record: 1.19 M prompt (0.92 M cached), 19.0 k out+thoughts ≈ **$0.34** |
+| gemini-cli 0.53.0 · gemini-3.7-flash, session 2 | timeout 902 s — same storm | same | **4 / 4** — `activate_skill` ×4 in its first turn | 0 | untouched | 4/4 deep, control "read" (blind) | harness $0; chat record ≈ **$0.34** |
+| claude-code 2.1.280 · sonnet (served claude-sonnet-5) | completed, 294 s, 25 turns, 20 calls | `init.skills`: the 4 + control (+ 26 bundled / user-level) | **4 / 4** — `Skill` ×4, its first four calls | 0 | untouched | 4/4 deep, control "read" (blind) | $0.955 reported (subscription) |
+| codex 0.155.1 · gpt-5.6-luna (effort high) | completed, 545 s, 29 calls | `## Skills`: the 4 + control (+ 5 `.system`) | **4 / 4** — `sed` of each `SKILL.md`; its first `sed` mis-expanded `r1` as `r0`, exited 2 and is NOT credited (`failed`) | 0 | untouched | 4/4 deep, control "read" (blind) | ≈ $0.085 at API prices (subscription) |
+| agy 1.2.2 · gemini-3.7-flash-medium | completed, 102 s, 22 calls | its first four calls were the four absolute `SKILL.md` paths, no listing before them | **4 / 4** — `view_file` ×4 | 0 | untouched | 4/4 deep, control "read" (blind) | $0 (subscription) |
+
+**Read-out.**
+* **Every CLI loaded every routed bundle, unprompted, and never the control** — 20 of 20
+  activations across five sessions, all before the agent wrote a line of code.  codex said
+  so in its first message ("I'm using the chair-relevant 3D skills: Blender form construction,
+  bbox/contract control, part-contact checks, and mirrored/repeated-part handling").
+* **No session opened a single `references/` file.**  The depth tier is unused on a baseline;
+  the old "deep" 100%s were git (§4 of docs/SKILLS.md).  This is now a measured 0, not an
+  unmeasured one — the first honest reading of the design's depth metric.
+* **The atime probe was wrong on every session** and its control said so each time — the
+  reason the probe now reads transcripts first.
+* The two gemini sessions were killed by a provider storm, not by skills; both still left
+  their tool trace (found by `.project_root` + mtime, not `session_id`, for exactly this
+  case).  They also expose a cost gap outside this lane: a killed gemini-cli session is
+  recorded at $0 although its chat record holds ~$0.34 of tokens.
+* codex's MCP server did not start in this rig (codex hands MCP servers a scrubbed env; the
+  lane worktree is on `PYTHONPATH`, not installed), so it spent its session probing the
+  server by hand — a rig artefact, not a skills result.
+
+**Gaps closed** (code, 2026-09-22): gemini-cli `skills.enabled` pinned in the per-session
+system settings (merged last; a user's `false` would have hidden every bundle); claude-code
+switched to `--output-format stream-json --verbose` (its `json` output carried no tool
+calls); every backend writes its CLI's tool calls into `transcript.jsonl` and the read probe
+reads them first; agy's `AgentResult.tool_calls` is the trace count (was always 0).
+**Verified not to be gaps:** gemini-cli folder trust (off ⇒ trusted ⇒ both workspace roots
+load; ON would skip them), codex trust (none needed), agy's `--disable-slash-commands` (only
+`/name` prompt expansion), claude-code's `Skill` in `--allowedTools` (present since 2026-08-25).
+
+**Decision:** `C3D_SKILLS` and `C3D_SKILLS_UNVERIFIED` default ON (docs/SKILLS.md §6, the
+2026-09-22 note).  An A/B of skills now names its no-skills arm explicitly:
+`eval/bench/ab_plan.py --variant-env C3D_SKILLS=0` (ab_plan's control inherits the driver's
+env minus the variant keys, so `C3D_SKILLS=1` would be two identical arms).
 
 ## 0. What this wave decided (2026-08-25, curate)
 
@@ -273,7 +342,7 @@ it lands these four rows stay `mixed`, not `measured`.
 
 ---
 
-## 5. What ships, and why the answer is "nothing"
+## 5. What ships, and why the answer was "nothing" (2026-08-25; superseded 2026-09-22, §0b)
 
 The library does **not** have to share one switch. `C3D_SKILLS_ONLY` restricts the library
 *before* routing, so shipping a subset is one env var:

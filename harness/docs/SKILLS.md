@@ -14,9 +14,12 @@ themselves** — proven live, see §7.  (The in-process `api-agent`, the one bac
 needed harness-side injection, was deleted 2026-08-28; bundles now reach a session only
 through its vendor's native skill loader.)
 
-Everything is behind `C3D_SKILLS`. **It ships OFF**, because `api-agent` read 0 of 5
-routed bundles in the measured A/B while the three subscription CLIs read all five.
-§6 has the numbers.
+Everything is behind `C3D_SKILLS`, and **since 2026-09-22 it is ON by default** —
+`C3D_SKILLS=0` turns it off (an A/B's no-skills arm must now say so).  It shipped OFF from
+2026-08-25 because `api-agent` read 0 of 5 routed bundles in the measured A/B; that backend
+was deleted 2026-08-28, and on 2026-09-22 all four vendor CLIs were watched, through their
+own transcripts, indexing the bundles and activating the matching ones unprompted.  §6
+keeps the history; its dated note has the reasons and the evidence.
 
 ---
 
@@ -35,8 +38,18 @@ one file, `skills/prompting.py`:
 | `claude-code` | `.claude/skills` |
 | `codex`, `gemini-cli`, `agy` | `.agents/skills` |
 
-It was read out of the shipped binaries, not assumed.  Bundles reach a session only
-through its vendor's native skill loader: the harness writes them under the discovery root and
+It was read out of the shipped binaries, not assumed — and re-read 2026-09-22 against the
+installed versions, with what each CLI needs to see the bundles and what its own record of
+a session says it did with them:
+
+| CLI (2026-09-22) | workspace roots · user roots | what must hold | what the model is shown | activation, as its own record logs it |
+|---|---|---|---|---|
+| `claude-code` 2.1.280 | `.claude/skills` · `~/.claude/skills` (+ claude.ai-synced skills, plugins) | `Skill` in `--allowedTools`; never `--disable-slash-commands` ("Disable all skills") | name + description list; stream-json `init` event's `skills` | `Skill` tool `{"skill": name}`, then `Read` of `references/` |
+| `gemini-cli` 0.53.0 | `.gemini/skills`, `.agents/skills` — **only in a trusted folder** · `~/.gemini/skills`, `~/.agents/skills` | `skills.enabled` (default true; the harness pins it in the per-session system settings, merged last) and folder trust (`folderTrust.enabled=false` ⇒ trusted) | `<available_skills>` XML (name, description, location) in the system prompt + `activate_skill` with an enum of names | `activate_skill` `{"name": name}` returns the body; `read_file` for `references/` |
+| `codex` 0.155.1 | `.agents/skills` of the working root (`-C <ws>`, also the repo root) · `$CODEX_HOME/skills` (+ `.system`) | nothing — listed from an untrusted `/tmp` workspace too (`codex debug prompt-input`) | `## Skills` section: name, description and an aliased path `r1/<name>/SKILL.md` with a `### Skill roots` table | a shell `sed`/`cat` of `SKILL.md` (an `exec --json` `command_execution` item) |
+| `agy` 1.2.2 | `.agents/skills` under the repo root · a global customization root under `~/.gemini/` | nothing; `--disable-slash-commands` only stops `/name` expansion of the prompt (1.1.9 changelog) | a skills section of its system prompt (paths included: its first calls were the four absolute `SKILL.md` paths, with no listing before them) | `view_file` of `SKILL.md` (a step in its conversation database) |
+
+Bundles reach a session only through its vendor's native skill loader: the harness writes them under the discovery root and
 hands the agent no second index (the loader's own would list the same skills twice) and no tool;
 the body file gets one MANDATORY sentence.
 
@@ -66,7 +79,14 @@ The spec's three tiers, and what each costs us per turn:
 | 2 · body | the whole `SKILL.md` | on activation | 1,081–2,223 tokens, once |
 | 3 · depth | `references/*.md` | when the agent chooses to go deeper | as read |
 
-The same three tiers are the read probe. `materialize_skills` writes every file with
+**Since 2026-09-22 the probe reads the CLI's own record first** (§4): every backend folds
+its session's tool calls into `transcript.jsonl`, and a bundle is *surfaced* when a call
+activated it or named its `SKILL.md`, *deep* when a call named a file under its
+`references/` (`SkillsUsage.evidence == "transcript"`).  The atime probe below is the
+fallback for a session that left no trace — and the rest of this section is why it can only
+be a fallback.
+
+The same three tiers are the atime read probe. `materialize_skills` writes every file with
 `atime == mtime`; the root filesystem is ext4 with `relatime`, so the first read afterwards
 bumps `atime`:
 
@@ -126,10 +146,13 @@ This is the difference between a metric and a number that would have read 100% f
 | `c3d-scene-night` | scene | scene_threejs | **inherited-unverified** | 56 | 656 | R27 |
 | `c3d-scene-materials` | scene | scene_threejs | **inherited-unverified** | 78 | 832 | R28 |
 
-**All seventeen ship OFF** (`C3D_SKILLS` unset). Zero have a measured effect; see
-`docs/SKILLS_LEDGER.md` §5 for why that is the honest default and what flips one on.
-Shipping a subset needs no new machinery — `C3D_SKILLS_ONLY` restricts the library before
-routing, so `C3D_SKILLS=1 C3D_SKILLS_ONLY=<names>` is the vehicle when a bundle earns it.
+**All seventeen route by default since 2026-09-22** (`C3D_SKILLS` and
+`C3D_SKILLS_UNVERIFIED` both default on; `C3D_SKILLS=0` turns the system off,
+`C3D_SKILLS_UNVERIFIED=0` drops the six `inherited-unverified` bundles).  The cap of 5 per
+session still holds.  Zero have a measured effect — they route because the owner made skills
+part of the product and every backend now loads them natively (§6, 2026-09-22), not because
+an A/B promoted them.  Measuring a subset needs no new machinery: `C3D_SKILLS_ONLY` restricts
+the library before routing, measured against a `C3D_SKILLS=0` arm.
 
 ### Retired
 
@@ -151,9 +174,9 @@ declares **one deterministic quantity it claims to move**, in its own frontmatte
 `python eval/bench/skill_targets.py eval/bench/out` prints them all — per battery or paired across an
 A/B's two arms — and **`docs/SKILLS_LEDGER.md` is the row-by-row maintenance surface**.
 
-`cadquery-forms` and `threejs-forms` stay `inherited-unverified` and routed off: their
-languages have **4 (cadquery) and 3 (threejs) graded runs** against the 20 the rule
-requires (design §5.2 law 3).
+`cadquery-forms` and `threejs-forms` stay `inherited-unverified` — routed by default since
+2026-09-22, but unranked: their languages have **4 (cadquery) and 3 (threejs) graded runs**
+against the 20 the rule requires (design §5.2 law 3).
 
 ## 3. Routing
 
@@ -195,9 +218,30 @@ index and never helps, and a test fails on both halves of that.
 ## 4. Telemetry
 
 Per round, `RoundRecord.skills` carries a `SkillsUsage`: what was listed, what was
-surfaced, what was read deep, `index_tokens`, `body_tokens_read`. Each attached body's hash
-goes into `record.prompt_hashes` as `skill:<name>`, so "what text decided this run" stays
-answerable. Per session, `telemetry/skills.jsonl` gets one line.
+surfaced, what was read deep, `index_tokens`, `body_tokens_read`, and `evidence` — where the
+reads came from. Each attached body's hash goes into `record.prompt_hashes` as
+`skill:<name>`, so "what text decided this run" stays answerable. Per session,
+`telemetry/skills.jsonl` gets one line.
+
+### Ground truth: the CLI's own record (2026-09-22)
+
+Each backend now writes what its CLI says it called into `trajectories/<label>/transcript.jsonl`
+— one `tool_call` row per call (arguments compacted to 400 characters a value; the CLI's own
+failure verdict as `failed`), then one `tool_trace` row that closes the session
+(`agents/cli_common.record_tool_calls`).  Where each one reads it:
+
+| backend | source | skill activation looks like |
+|---|---|---|
+| claude-code | `--output-format stream-json --verbose` (was `json`, which carried no tool stream); the `init` event's `skills` list is kept as `skills_index` | `Skill {"skill": name}` |
+| gemini-cli | its chat record, `~/.gemini/tmp/<project>/chats/session-*.jsonl`, found by the project's `.project_root` + mtime — so a session the watchdog killed before it printed JSON still has one.  `--output-format json` stays: it has per-tool COUNTS only, and `stream-json` drops the `thoughts` tokens pricing needs | `activate_skill {"name": name}` |
+| codex | the `exec --json` events it already streamed (`command_execution`, `mcp_tool_call`, `file_change`) | a `sed`/`cat` of `…/<name>/SKILL.md` |
+| agy | its conversation database, `~/.gemini/antigravity-cli/conversations/<conversation_id>.db` — a schema-free walk of each step's protobuf for (call id, tool, JSON args) | `view_file` of `…/<name>/SKILL.md` |
+
+`skills/telemetry.probe_reads` credits only sessions logged after the attach
+(`SkillsMaterialized.attached_at`), and uses the transcript only when **every** such session
+closed a trace — a partial trace under-counts exactly as the blind probe over-counts.  Under
+transcript evidence `control_read` means the AGENT opened the control: counted by
+`3dcode skills report` (and flagged), never dropped as blind.
 
 ```
 3dcode skills report eval/bench/out/<battery>          # deep-read rate per skill per backend
@@ -212,7 +256,23 @@ The read rate is the FIRST readout, before any score: `read_cookbook` was called
 zone sessions on `scenes_v1_flash` although the prompt named five chapters by title, and
 shipping a nicer file format without measuring reads would repeat that at a new price.
 
-### Measured, on an ordinary build task
+### Measured, on an ordinary build task — 2026-09-22, from the transcripts
+
+A harness-built static_object/blender workspace (four routed bundles + the control), each
+CLI launched by its own backend's `run()`, a chair brief that never mentions skills:
+
+| CLI · model | index the CLI showed the model | activated (surfaced) | deep | control | atime probe on the same session |
+|---|---|---|---|---|---|
+| gemini-cli 0.53.0 · gemini-3.7-flash (×2) | `gemini skills list`: the 4 + control | **4 / 4** in both sessions, all in the first turn (`activate_skill`); both later killed by a provider storm | 0 | untouched | 4/4 deep, control "read" → blind |
+| claude-code 2.1.280 · sonnet | `init.skills`: the 4 + control (+ 26 bundled / user-level) | **4 / 4** (`Skill`) | 0 | untouched | 4/4 deep, control "read" → blind |
+| codex 0.155.1 · gpt-5.6-luna | `## Skills`: the 4 + control (+ 5 `.system`) | **4 / 4** (`sed` of `SKILL.md`) | 0 | untouched | 4/4 deep, control "read" → blind |
+| agy 1.2.2 · gemini-3.7-flash-medium | its first four calls were the four `SKILL.md` paths | **4 / 4** (`view_file`) | 0 | untouched | 4/4 deep, control "read" → blind |
+
+Every CLI read every routed body and no reference file; the atime probe on the same four
+sessions reported every reference "read" and the control opened — git, not the agent.
+Details, costs and commands: `docs/SKILLS_LEDGER.md` §0b.
+
+### Measured 2026-08-25, on the atime probe
 
 Not a compliance prompt — "write `src/model.py` and `src/parts/*.py` for a four-legged
 dining chair, follow whatever conventions this workspace documents", five routed bundles
@@ -296,7 +356,35 @@ Two contradiction checks are worth separating, because they answer different que
 
 ## 6. Does it help? The A/B
 
-**Verdict: ship OFF behind `C3D_SKILLS`.**
+### 2026-09-22: default ON
+
+**The owner's call, and the evidence behind it.**  Everything below this note is the
+2026-08-25/26 history, kept as written.  What changed since it was written:
+
+1. **The reason for OFF is gone.**  Reason 1 of the verdict below is `api-agent`'s 0 % read
+   rate — and `api-agent` was deleted 2026-08-28.  Every backend left is a vendor CLI with a
+   native skill loader, and the ground-truth channel this section wished it had (§9, "CLI
+   backends' read rate is UNMEASURED") now exists: each backend logs its CLI's own tool calls.
+2. **All four CLIs load the bundles, unprompted, and it is proven from their transcripts**
+   (§4 table; `docs/SKILLS_LEDGER.md` §0b): gemini-cli, claude-code, codex and agy each
+   activated **4 of 4** routed bundles on an ordinary chair brief, none touched the control,
+   none read a reference file.  The discovery wiring was re-read from the installed binaries
+   and two gaps were closed: gemini-cli's `skills.enabled` is now pinned in the per-session
+   system settings (a user's `false` would have hidden every bundle), and claude-code streams
+   (`stream-json`) so its `Skill` calls are on record.
+3. **An effect is still unmeasured, and that is now the A/B's job, not the default's.**  The
+   shipping bar in reason 2 cannot be cleared by anything at n = 8 (its own A/A fails it);
+   skills are part of the product.  An A/B of skills now names its no-skills arm
+   explicitly: `eval/bench/ab_plan.py --variant-env C3D_SKILLS=0` — ab_plan's control is the
+   driver's env minus the variant's keys, so `--variant-env C3D_SKILLS=1` is now two
+   identical arms, and the OFF arm has to be the variant (its delta reads OFF − ON).
+
+What default ON costs: the mandate sentence (41 tokens) in every session's body file, plus
+the bodies the CLI chooses to activate — measured 2026-09-22 at all four of four, i.e. up
+to the cap of five bodies (1,081–2,223 tokens each) per session.  `C3D_SKILLS_MAX` is the
+cost knob; `C3D_SKILLS=0` the off switch.
+
+**Verdict (2026-08-25/26, superseded 2026-09-22): ship OFF behind `C3D_SKILLS`.**
 
 ### The rig
 
@@ -399,7 +487,7 @@ unprompted (§4) and codex's output carried the skill's number. The difference i
 affordance: a CLI has a first-class skill tool its runtime surfaces, and `api-agent` has a
 line in a long markdown file plus a generic `read_file`.
 
-### Verdict
+### Verdict (2026-08-25/26 — superseded by the 2026-09-22 note above)
 
 **Ship OFF behind `C3D_SKILLS`**, and not because the number was negative:
 
@@ -466,6 +554,14 @@ the read probe itself plus a magic word that only lives in `references/`.
 | codex | 0.149.0 | `.agents/skills/` | yes | yes | yes |
 | claude-code | 2.1.245 | `.claude/skills/` | yes | yes | yes |
 | agy (antigravity) | 1.1.20 | `.agents/skills/` | yes | yes | yes |
+
+Re-checked 2026-09-22 on gemini-cli 0.53.0, claude-code 2.1.280, codex 0.155.1 and agy
+1.2.2, through the harness's own launch path and read from each CLI's own transcript (§4):
+same roots, all four activate the routed bundles.  Two more things that could only be
+settled against the binaries: gemini-cli skips BOTH workspace roots in an untrusted folder
+(`SkillManager.discoverSkills`), which the harness's `folderTrust.enabled=false` already
+avoids; and agy's `--disable-slash-commands`, which the harness passes, only stops `/name`
+expansion of the prompt — its model still reads the bundles.
 
 All four discover the library natively, with no injection from us. Two things this settled
 that had only been argued statically:
@@ -570,16 +666,15 @@ so; the rest are live.
   `rounds[].gates` before spending anything on that bundle.
 * ~~**`eval/bench/_fixed_eval.FixedEvaluator` is blender-only.**~~ Fixed 2026-08-26; the entry
   lives in `docs/SKILLS_LEDGER.md` §4.
-* **The atime probe is blind in any git workspace, and its control proves it.** The control
-  bundle came back "opened" in 27 of 33 sessions; the only 6 sessions where it stayed clean
-  were the 6 scene sessions, where nothing was delivered. So the shipped report is honest
-  only where there was nothing to see. Trajectory `read_skill` calls were the ground truth;
-  that channel went with `api-agent` (2026-08-28).
-* **CLI backends' read rate is UNMEASURED — not 5/5.** `agents/backends.py` runs claude-code with
-  `--output-format json`, which returns only the final result and no tool stream; the logs
-  contain zero occurrences of any `c3d-` name. Switching to `--output-format stream-json`
-  would give the CLI arm the same exact ground truth api-agent had. The earlier "5 of 5"
-  claim rested on the atime probe and should not be repeated.
+* ~~**The atime probe is blind in any git workspace, and its control proves it.**~~ **Worked
+  around 2026-09-22**: the probe reads each CLI's own tool calls first (§4) and falls back to
+  atime only for a session that left no trace.  The atime probe itself is as blind as ever —
+  on the four 2026-09-22 sessions it called every reference "read" and the control opened,
+  where the transcripts show no reference read and the control untouched.  (`.agents/` is
+  not in the workspace `.gitignore`, so every `git add -A` reads that root; `.claude/` is.)
+* ~~**CLI backends' read rate is UNMEASURED — not 5/5.**~~ **Measured 2026-09-22** from the
+  transcripts: 4 of 4 surfaced on every CLI, 0 deep (§4).  claude-code now runs
+  `--output-format stream-json`, so its `Skill` calls are on record.
 * **`codex` can drop a round from the denominator.** It emitted `skills.attached` with no
   `skills.read` and no `skills.jsonl` row, so an attached round can silently vanish from
   `3dcode skills report`.
@@ -600,8 +695,9 @@ so; the rest are live.
   blender runs" is a *slice*; without each claim declaring its query, a tight recomputation
   compares two different populations. Enforced today: a claim may not exceed what `eval/bench/out`
   holds, `measured` needs n ≥ 20, every rate names its battery / n / date.
-* **`cadquery` and `threejs` bundles are routed off** until each language reaches 20 graded
-  runs. As of this wave: cadquery **4**, threejs **3**.
+* **`cadquery` and `threejs` bundles are unranked** until each language reaches 20 graded
+  runs. As of this wave: cadquery **4**, threejs **3**.  (Routed by default since 2026-09-22,
+  with every other `inherited-unverified` bundle; `C3D_SKILLS_UNVERIFIED=0` drops them.)
 * **Router PRECISION is not reported.** The read rate says how often a listed skill was read;
   nothing says how often a skill was read whose defect class never fired in that run. That
   number decides whether the cap of 5 is too generous.

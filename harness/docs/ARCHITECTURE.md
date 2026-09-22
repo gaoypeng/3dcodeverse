@@ -141,7 +141,8 @@ codeverse3d/
                       model.py (Skill/Selection + the SKILL.md loader), prompting.py
                       (per-backend delivery policy + the index/mandate text),
                       materialize.py,
-                      telemetry.py (the read probe), config.py (call-time switches)
+                      telemetry.py (the read probe: the CLIs' own tool calls first, atime as
+                      fallback), config.py (call-time switches; skills ON by default since 2026-09-22)
   cost/               types.py (CallCost/Stage/Role) ledger.py (append-only telemetry/cost.jsonl + price provenance)
                       context.py (per-call > ambient attribution) instrument.py (MeteredChatModel /
                       MeteredAgent — one row per ChatModel.generate; one session row only for a backend
@@ -192,7 +193,7 @@ codeverse3d/
                       eval/docs/EVAL.md §8.1),
                       depth.py,
                       skills_hook.py (the round's view of codeverse3d/skills: attach before generating,
-                      probe reads after — a no-op unless C3D_SKILLS is on)
+                      probe reads after — a no-op under C3D_SKILLS=0; on by default since 2026-09-22)
   record/             what every run WRITES: record.py (finalize_record, load_record, iter_runs,
                       best_round_record), deliverable.py, telemetry.py, _git.py (files at a round's commit)
   addons/             optional tools that READ finished runs; outside cli/ nothing imports them
