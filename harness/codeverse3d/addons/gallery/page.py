@@ -149,7 +149,7 @@ def render_index(index: GalleryIndex, urls: UrlMaker, *, title: str = "3dcode ga
                  flt: dict[str, str] | None = None, sort: str = "score", view: str = "cards",
                  note: str = "", extra_html: str = "") -> str:
     """The whole index page as one HTML document.  ``extra_html`` (already
-    escaped markup, e.g. bench/report.py's stats tables) goes under the summary strip."""
+    escaped markup, e.g. eval/bench/report.py's stats tables) goes under the summary strip."""
     flt = {k: (flt or {}).get(k, "") for k in FILTER_KEYS}
     all_entries = index.entries()
     selected = [e for e in all_entries if match(e, flt)]

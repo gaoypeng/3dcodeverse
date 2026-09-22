@@ -1,6 +1,6 @@
 """The geometry-detail anchors must stay *countable*.
 
-The corpus study (docs/COMPLEXITY.md) found geometry_detail to be the weakest
+The corpus study (eval/docs/COMPLEXITY.md) found geometry_detail to be the weakest
 criterion (static mean 0.667, 2 of 44 runs at ≥ 0.9) and, worse, almost blind to
 objective geometry: r = +0.05 against the complexity index and +0.19 against
 feature density.  The fix was to make the anchors count REFINEMENT KINDS and

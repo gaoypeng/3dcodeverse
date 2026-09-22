@@ -54,7 +54,7 @@ def test_real_failure_is_not_retried(tmp_path, monkeypatch):
     assert calls == [100]
 
 
-# The string below is verbatim from bench/out/scene_baseline (2026-09-05): with the box
+# The string below is verbatim from eval/bench/out/scene_baseline (2026-09-05): with the box
 # at load 93 and swap full, Chrome reaped the render tab and every driver reported it
 # this way.  "detached frame" was not in TRANSIENT_MARKERS, so the object path did not
 # retry it either — it only ever matched the "Target closed" spelling.

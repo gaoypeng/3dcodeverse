@@ -139,7 +139,7 @@ _LAYOUT_DIRS = frozenset(BATTERY_MARKERS)
 def _identity(root: Path, found: Any) -> tuple[str, str]:
     """``(battery, run)`` for a run, taken from where it PHYSICALLY lives.
 
-    ``bench/out``'s batteries symlink each other's cells (54 of 239 runs are reachable
+    ``eval/bench/out``'s batteries symlink each other's cells (54 of 239 runs are reachable
     twice), so labelling by the path a scan happened to reach first credits a run to a
     battery it never ran in."""
     try:
@@ -157,7 +157,7 @@ def transitions(runs_dir: Path | str, *, threshold: float = MIN_PREFERENCE_DELTA
                 drops: Counter[str] | None = None) -> Iterator[RefineTransition]:
     """Every exportable refine transition under ``runs_dir``; every one that is not is counted.
 
-    A run reachable through more than one path (54 of 239 under ``bench/out``, where the
+    A run reachable through more than one path (54 of 239 under ``eval/bench/out``, where the
     batteries symlink each other's cells) is exported once, under the battery it physically
     lives in."""
     drops = drops if drops is not None else Counter()

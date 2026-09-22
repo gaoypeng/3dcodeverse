@@ -10,7 +10,7 @@ Three rules the rows obey:
 
 * **Deterministic only.**  Every row is read from a gate report, a build result or a
   measured artefact — never from the judge.  An 8-prompt A/A of the judged score gave
-  paired sd 0.202 and needs ~408 paired prompts to resolve +0.02 (``docs/EVAL.md`` §8);
+  paired sd 0.202 and needs ~408 paired prompts to resolve +0.02 (``eval/docs/EVAL.md`` §8);
   a skills A/B read out on ``score`` at n=8 is a coin toss.  These do not carry that
   variance.
 * **One owner per quantity.**  ``contract/instance_bbox`` belongs to
@@ -20,7 +20,7 @@ Three rules the rows obey:
   deterministic instrument can see says so here rather than borrowing a judged
   criterion and calling it evidence.
 
-``bench/skill_targets.py`` is the readout; ``tests/skills/test_targets.py`` pins the
+``eval/bench/skill_targets.py`` is the readout; ``tests/skills/test_targets.py`` pins the
 rows against the live gate vocabulary and against each bundle's own frontmatter.
 """
 
@@ -81,7 +81,7 @@ TARGETS: tuple[Target, ...] = (
         kinds=("connectivity/interpenetration",),
         languages=OBJECT_LANGS,
         why="the plain count of penetrating pairs is the strongest single predictor of "
-            "assembly_fit (r = -0.258, docs/COMPLEXITY.md §6) and the bundle exists to lower it",
+            "assembly_fit (r = -0.258, eval/docs/COMPLEXITY.md §6) and the bundle exists to lower it",
     ),
     Target(
         skill="c3d-bbox-contract",
@@ -141,7 +141,7 @@ TARGETS: tuple[Target, ...] = (
         languages=("cadquery",),
         why="the bundle's own framing is 'the kernel rules that decide whether the script "
             "builds at all'; an OCC kernel refusal is a build failure, not a gate finding",
-        caveat="no baseline exists: bench/out holds zero graded cadquery runs.",
+        caveat="no baseline exists: eval/bench/out holds zero graded cadquery runs.",
     ),
     Target(
         skill="c3d-threejs-forms",
@@ -153,7 +153,7 @@ TARGETS: tuple[Target, ...] = (
         languages=("threejs",),
         why="the bundle's distinct claim is the traps that make a threejs part silently ship "
             "nothing (bevel_depth 0, no computeVertexNormals); the contract gate calls that a missing part",
-        caveat="no baseline exists: bench/out holds zero graded threejs runs.",
+        caveat="no baseline exists: eval/bench/out holds zero graded threejs runs.",
     ),
     Target(
         skill="c3d-scene-composition",

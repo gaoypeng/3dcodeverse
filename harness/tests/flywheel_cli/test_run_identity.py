@@ -1,6 +1,6 @@
 """Run identity (RunId): the slug rule, and that nested batteries no longer collide.
 
-The real bench/out tree holds 396 run dirs with only 169 distinct basenames — 211 are
+The real eval/bench/out tree holds 396 run dirs with only 169 distinct basenames — 211 are
 literally ``run`` (compare_backends ``cells/<id>/<arm>/run``, ab_plan
 ``arms/<arm>/cells/<id>/<slug>/run``).  Keying anything on ``ws.root.name`` therefore
 made exports rmtree each other, blew the SQLite PRIMARY KEY, collapsed gallery entries

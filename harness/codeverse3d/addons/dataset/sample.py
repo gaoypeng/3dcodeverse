@@ -292,7 +292,7 @@ def build_meta(
     gates = gate_error_summary(rnd)
     n_gate_errors = sum(gates.values())
     # difficulty next to quality: a tier-A five-box stool and a tier-A machine are
-    # not the same training sample (docs/COMPLEXITY.md)
+    # not the same training sample (eval/docs/COMPLEXITY.md)
     cx = record.extra.get("complexity") or (round_complexity(rnd) if rnd is not None else None)
     name = ""
     if record.plan is not None:

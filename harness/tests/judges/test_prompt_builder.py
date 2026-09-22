@@ -206,7 +206,7 @@ def test_a_passed_connectivity_gate_tells_the_judge_a_seam_is_not_daylight():
 
 
 # ===================================================================== the contact ledger (2026-08-30)
-#: the connectivity gate's ledger for a real p90 round — bench/out/codex_tiers_v3/cells/
+#: the connectivity gate's ledger for a real p90 round — eval/bench/out/codex_tiers_v3/cells/
 #: cmp_hard_violin/harness_codex_gpt-5.6-sol r00 (16 parts, 26 contacts), re-run through
 #: ``check_connectivity(planned_edges=planned_joins(plan, measurement))`` on 2026-08-30.
 #: 23 overlaps, one open planned join (the tailpiece never reaches the endpin button).
@@ -240,7 +240,7 @@ CONTRACT_FAIL = GateReport(gate="contract", passed=False, findings=[
 
 
 def test_ledger_turns_penetration_warn_prose_into_one_measured_line():
-    """The audit (docs/EVAL.md §6): 110 of 237 interpenetration flags cited only WARNs the rubric
+    """The audit (eval/docs/EVAL.md §6): 110 of 237 interpenetration flags cited only WARNs the rubric
     says to ignore; same images with the gate text removed flipped 13 of 24.  The eleven
     'interpenetrate by' sentences of this round become one measured line, ERRORs stay."""
     from codeverse3d.judges.prompt_builder import gates_section

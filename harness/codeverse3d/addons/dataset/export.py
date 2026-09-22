@@ -2,7 +2,7 @@
 
 ``export_samples(runs_dir, out_dir)`` writes one sample folder per run (see
 ``sample.py`` for the layout), records every file it wrote — sha256 each — in
-``<out>/dataset_manifest.json`` (``flywheel/manifest.py``) and builds the text
+``<out>/dataset_manifest.json`` (:func:`write_manifest`, below) and builds the text
 index FROM those manifest entries, never from a directory rescan (so repeated
 exports into the same folder stay consistent and nothing the selection did not
 choose can leak into the index):

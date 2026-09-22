@@ -211,7 +211,7 @@ def _complexity(ws: Workspace, rec: RunRecord) -> tuple[float | None, str, dict[
     """``(index, band, axes)`` of the delivered artifact: the record's own
     complexity block, else the best round's measurement, else the measurement
     file on disk.  A run built before the complexity vector existed has none
-    (``bench/complexity_report.py`` recomputes those from the GLB)."""
+    (``eval/bench/complexity_report.py`` recomputes those from the GLB)."""
     from codeverse3d.record.record import complexity_block
 
     try:
@@ -294,7 +294,7 @@ def entry_for_dir(battery: str, run_dir: Path, *, slug: str | None = None) -> Ru
 def _pending_direct_children(root: Path, found: set[Path]) -> list[Path]:
     """Direct children with a spec.json but no record.json yet — a bench mid-write
     still deserves a readable (pending) card.  Only DIRECT children qualify: a run is
-    otherwise gated on record.json exactly like ``flywheel.record.is_run_dir``, because
+    otherwise gated on record.json exactly like ``record.record.is_run_dir``, because
     accepting spec-only directories during descent counted every nested ``eval/``
     judge workspace of a battery cell as a phantom run."""
     if not root.is_dir():

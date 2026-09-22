@@ -177,6 +177,53 @@ def test_no_reload_still_finds_a_new_run_by_url(gallery_tree: dict[str, Path]):
     assert app.route("/run/runs/late_arrival").status == 200
 
 
+def test_unknown_compare_keys_cost_one_rescan_not_one_each(gallery_tree: dict[str, Path],
+                                                            monkeypatch: pytest.MonkeyPatch):
+    """``?runs=`` with N unknown keys ran N full scans of every root, and capped the keys
+    only after looking every one of them up."""
+    import codeverse3d.addons.gallery.server as server
+
+    app = GalleryApp([gallery_tree["runs"]])
+    real, scans = server.build_index, []
+    monkeypatch.setattr(server, "build_index", lambda roots: scans.append(1) or real(roots))
+    entries, missing = app.picked(["runs/nope_a", "runs/nope_b", "runs/wooden_chair_ab12cd34"])
+    assert len(scans) == 1 and missing == ["runs/nope_a", "runs/nope_b"] and len(entries) == 1
+    _, _, note = app._picked({"runs": ",".join(f"runs/nope_{i}" for i in range(20))})
+    assert len(scans) == 2 and note.startswith(f"showing the first {server.MAX_COMPARE} of 20 selected runs")
+
+
+def test_a_waiting_rescan_never_replaces_a_newer_index(gallery_tree: dict[str, Path],
+                                                       monkeypatch: pytest.MonkeyPatch):
+    """The rescan-on-miss assigned ``self.index`` without the lock, so a slow, older scan
+    could land after a newer one and put a stale index back."""
+    import codeverse3d.addons.gallery.server as server
+
+    app = GalleryApp([gallery_tree["runs"]])
+    real, scans = server.build_index, []
+    monkeypatch.setattr(server, "build_index", lambda roots: scans.append(1) or real(roots))
+
+    class _Lock:  # a lock that says when a caller starts waiting for it
+        def __init__(self) -> None:
+            self.inner, self.waiting = threading.Lock(), threading.Event()
+
+        def __enter__(self) -> None:
+            self.waiting.set()
+            self.inner.acquire()
+
+        def __exit__(self, *exc: object) -> None:
+            self.inner.release()
+
+    app._lock = lock = _Lock()
+    lock.inner.acquire()                                   # another thread is mid-rescan ...
+    t = threading.Thread(target=app.picked, args=(["runs/brand_new"],))
+    t.start()
+    assert lock.waiting.wait(5)
+    app.index = newer = real(app.roots)                    # ... and publishes a newer index
+    lock.inner.release()
+    t.join(5)
+    assert scans == [] and app.index is newer
+
+
 # --------------------------------------------------------------------------- over a real socket
 def test_over_a_loopback_socket(app: GalleryApp):
     httpd = make_server(app, DEFAULT_HOST, 0)

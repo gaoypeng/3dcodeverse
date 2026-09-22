@@ -9,14 +9,13 @@ from __future__ import annotations
 import hashlib
 import re
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 _COMMENT = re.compile(r"^\s*(#|//|\*|/\*).*$")
 _TRAILING_COMMENT = re.compile(r"\s+(#|//).*$")
-VOXEL_RES = 16
 
 
 def normalise_code(text: str) -> str:
@@ -32,32 +31,27 @@ def normalise_code(text: str) -> str:
     return "\n".join(out)
 
 
-def code_fingerprint(files: Mapping[str, str | bytes]) -> str:
-    """Order-independent sha256 over ``(path, normalised code)`` pairs."""
+def _digest(files: Mapping[str, str | bytes], content: Callable[[str | bytes], bytes]) -> str:
+    """Order-independent sha256 over ``path \0 content(data) \0`` for every file."""
     h = hashlib.sha256()
     for path in sorted(files):
-        data = files[path]
-        text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data
-        h.update(path.encode())
-        h.update(b"\0")
-        h.update(normalise_code(text).encode())
-        h.update(b"\0")
+        for part in (path.encode(), content(files[path])):
+            h.update(part)
+            h.update(b"\0")
     return h.hexdigest()
+
+
+def code_fingerprint(files: Mapping[str, str | bytes]) -> str:
+    """Order-independent sha256 over ``(path, normalised code)`` pairs."""
+    return _digest(files, lambda data: normalise_code(
+        data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data).encode())
 
 
 def code_sha256(files: Mapping[str, str | bytes]) -> str:
     """Order-independent sha256 over the RAW ``(path, bytes)`` pairs — the
     exact-content counterpart of :func:`code_fingerprint` (no normalisation,
     no lossy decode)."""
-    h = hashlib.sha256()
-    for path in sorted(files):
-        data = files[path]
-        raw = data.encode("utf-8") if isinstance(data, str) else data
-        h.update(path.encode())
-        h.update(b"\0")
-        h.update(raw)
-        h.update(b"\0")
-    return h.hexdigest()
+    return _digest(files, lambda data: data.encode("utf-8") if isinstance(data, str) else data)
 
 
 # ===================================================================== quality

@@ -226,7 +226,7 @@ def _complexity_panel(entry: RunEntry, rec: RunRecord) -> str:
     if isinstance(trail, list) and len(trail) > 1:
         rows.append(_kv("by round", " → ".join(f"{float(x):.2f}" for x in trail)))
     note = ("<p class='xs faint'>objective complexity of the delivered artifact "
-            "(codeverse3d/spatial/complexity.py) — difficulty, not quality; see docs/COMPLEXITY.md</p>")
+            "(codeverse3d/spatial/complexity.py) — difficulty, not quality; see eval/docs/COMPLEXITY.md</p>")
     return _panel("complexity", f"<div class='kvs'>{''.join(rows)}</div>{note}", anchor="complexity")
 
 

@@ -122,10 +122,13 @@ class GalleryApp:
             self.index = build_index(self.roots)
 
     # ----------------------------------------------------------------- helpers
-    def _entry(self, battery: str, slug: str) -> RunEntry | None:
-        entry = self.index.find(battery, slug)
-        if entry is None:  # a run created since the last scan
-            self.index = build_index(self.roots)
+    def _entry(self, battery: str, slug: str, *, rescan: bool = True) -> RunEntry | None:
+        index = self.index
+        entry = index.find(battery, slug)
+        if entry is None and rescan:  # a run created since the last scan
+            with self._lock:  # one scan at a time, and a waiter never replaces a newer index
+                if self.index is index:
+                    self.index = build_index(self.roots)
             entry = self.index.find(battery, slug)
         return entry
 
@@ -137,26 +140,28 @@ class GalleryApp:
         return sort_entries([e for e in self.index.entries() if match(e, flt)], query.get("sort", "score"))
 
     def picked(self, keys: list[str]) -> tuple[list[RunEntry], list[str]]:
-        """``(entries, unknown_keys)`` for ``battery/slug`` keys, in the order given."""
-        found, missing = [], []
+        """``(entries, unknown_keys)`` for ``battery/slug`` keys, in the order given — with at
+        most ONE re-scan, however many keys are unknown (it was one full scan per key)."""
+        found, missing, scanned = [], [], False
         for key in keys:
             battery, _, slug = key.partition("/")
-            entry = self._entry(battery, slug) if slug else None
+            entry = self._entry(battery, slug, rescan=not scanned) if slug else None
             if entry is None:
                 missing.append(key)
+                scanned = scanned or bool(slug)
             else:
                 found.append(entry)
         return found, missing
 
     def _picked(self, query: dict[str, str]) -> tuple[list[RunEntry], UrlMaker, str]:
-        """What ``?runs=`` names, capped, with a note about anything dropped."""
+        """What ``?runs=`` names, capped BEFORE any lookup, with a note about anything dropped."""
         self.refresh()
         keys = parse_keys(query.get("runs", ""))
-        entries, missing = self.picked(keys)
         notes = []
-        if len(entries) > MAX_COMPARE:
-            notes.append(f"showing the first {MAX_COMPARE} of {len(entries)} selected runs")
-            entries = entries[:MAX_COMPARE]
+        if len(keys) > MAX_COMPARE:
+            notes.append(f"showing the first {MAX_COMPARE} of {len(keys)} selected runs")
+            keys = keys[:MAX_COMPARE]
+        entries, missing = self.picked(keys)
         if missing:
             notes.append("unknown: " + ", ".join(missing[:6]))
         return entries, self.urls, " · ".join(notes)

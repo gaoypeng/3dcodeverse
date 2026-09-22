@@ -7,7 +7,7 @@ the pipe buffer was cut mid-JSON and the caller saw no parsable last line.
 Measured 2026-09-06 on the starter scene, `probe_scene.mjs --compile`: written to a file
 the summary is 10 462 bytes and parses; through a pipe it was **exactly 8192** and did not.
 That is the real mechanism behind every "driver output lost" and "[?] scene did not boot"
-in `bench/out/scene_baseline` / `scene_textures` — it depends on how big the census is, not
+in `eval/bench/out/scene_baseline` / `scene_textures` — it depends on how big the census is, not
 on how busy the machine is, which is why it read as weather for two batteries.  In
 `scene_textures/japanese_garden` it cost the round all three repair attempts and the
 texture use the arm existed to measure.

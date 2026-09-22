@@ -7,7 +7,7 @@
 * ``calibration``    judge repeatability / calibration over recorded runs
                      (``python -m codeverse3d.addons.calibration``)
 * ``skill_targets``  each skill bundle's falsifiable claim, measured (``3dcode skills …``,
-                     ``bench/skill_targets.py``)
+                     ``eval/bench/skill_targets.py``)
 
 The boundary is one-way and pinned by ``tests/core/test_addons_boundary.py``: an addon may
 import anything in ``codeverse3d``; outside ``codeverse3d.cli`` nothing in ``codeverse3d`` imports an
