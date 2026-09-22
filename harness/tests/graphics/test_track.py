@@ -22,14 +22,9 @@ from codeverse3d.languages.glsl_shader import lint_workspace, write_skeleton
 from codeverse3d.proc import EventLog
 from codeverse3d.prompts import render
 from codeverse3d.spatial.gl_render import GlFrame, GlResult, gif_times
-from codeverse3d.tracks import get_track
-from codeverse3d.tracks.graphics import (
-    GraphicsTrack,
-    ensure_graphics_acceptance,
-    graphics_prompt_context,
-    plan_example,
-)
-from codeverse3d.tracks.planner import PlanningError
+from codeverse3d.tracks import get_track, planner
+from codeverse3d.tracks.graphics import GraphicsTrack, graphics_prompt_context
+from codeverse3d.tracks.planner import PlanningError, ensure_acceptance
 from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.fakes import FakeAgent, FakeChatModel, FakeJudge, FakeServices
 
@@ -101,14 +96,14 @@ def _services(**kw):
     return FakeServices(runtime_factory=lambda lang: FakeGlRuntime(), **kw)
 
 
+def plan_example() -> dict[str, Any]:
+    return planner.plan_example(Track.GRAPHICS)
+
+
 def _plan(spec, ws, model, budget=None):
-    """What plan_graphics() used to be: run_planner with GraphicsTrack's own hooks.
-    The wrapper was a second spelling of _plan_kwargs and had no production caller,
-    so the tests go through the hooks the live path actually uses."""
-    from codeverse3d.tracks.graphics import GraphicsTrack
-    from codeverse3d.tracks.planner import plan as run_planner
-    return run_planner(spec, "fake:planner", GraphicsPlan, ws, model=model, budget=budget,
-                       **GraphicsTrack()._plan_kwargs(spec))
+    """The planner as the live path calls it: everything graphics-specific (template, worked
+    example, T = 0.5, acceptance) is dispatched on ``spec.track`` inside it."""
+    return planner.plan(spec, "fake:planner", GraphicsPlan, ws, model=model, budget=budget)
 
 
 def test_graphics_track_end_to_end(tmp_path, settings):
@@ -237,15 +232,14 @@ def test_planner_reask_and_acceptance(tmp_ws):
     ids = [a.id for a in plan.acceptance]
     assert "must1" in ids and "a3" in ids  # spec must_have appended, motion item already present in the example
     # a plan without a motion acceptance item gets one; no 'ground contact' ever
-    p2 = ensure_graphics_acceptance(GraphicsPlan.model_validate({**plan_example(), "acceptance": []}), spec)
+    p2 = ensure_acceptance(GraphicsPlan.model_validate({**plan_example(), "acceptance": []}), spec)
     assert any(a.id.startswith("motion") for a in p2.acceptance) and not any("ground" in a.text.lower() for a in p2.acceptance)
     always_bad = FakeChatModel(lambda req: {"title": "x"})
     with pytest.raises(PlanningError):
         _plan(spec, tmp_ws, always_bad)
-    from codeverse3d.tracks.graphics import PLAN_TEMPLATE
-    from codeverse3d.tracks.planner import build_system_prompt
-    sys_prompt = build_system_prompt(spec, GraphicsPlan, template=PLAN_TEMPLATE, example=plan_example())
+    sys_prompt = planner.build_system_prompt(spec, GraphicsPlan)
     assert "ART-DIRECTOR" in sys_prompt and "NeonRainWindow" in sys_prompt
+    assert model.requests[0].temperature == 0.5 and model.requests[0].max_output_tokens == planner.PLAN_TOKENS_MAX
 
 
 def test_templates_render_and_rubric_loads(tmp_path, settings):

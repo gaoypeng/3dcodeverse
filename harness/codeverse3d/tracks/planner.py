@@ -1,4 +1,10 @@
-"""Planner: spec → validated Plan (StaticPlan / ArticulatedPlan / ScenePlan).
+"""Planner: spec → validated Plan (StaticPlan / ArticulatedPlan / ScenePlan / GraphicsPlan).
+
+The ONE owner of what differs per track at planning time — the system-prompt template
+(``PLAN_TEMPLATES``), the worked example (``plan_example``), the sampling temperature
+(``plan_temperature``), the output-token floor, the plan budget's unit (graphics counts
+passes) and the deterministic acceptance items (``ensure_acceptance``): all dispatched on
+``spec.track``, so no track class parameterises the loop.
 
 An optional cheap **brief expansion** (``expand_brief``, below) turns the one-line
 request into an engineering brief, which — together with a **plan budget derived
@@ -20,7 +26,6 @@ import hashlib
 import json
 import logging
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
@@ -482,6 +487,26 @@ def enrich_plan(plan_obj: Any, brief: EngineeringBrief | None) -> Any:
 # ===================================================================== worked examples
 def plan_example(track: Track) -> dict[str, Any]:
     """Compact, valid worked example per track (concrete beats abstract)."""
+    if track is Track.GRAPHICS:
+        return {
+            "title": "Neon rain on a window", "summary": "Looking through a rain-streaked window at a neon-lit street at night; "
+            "drops run down the glass, city lights turn into coloured bokeh discs that pulse.",
+            "style": "cyberpunk night: deep indigo/black base, magenta + cyan neon accents, warm sodium highlights; soft, filmic",
+            "resolution": [1280, 720], "duration_s": 8.0,
+            "passes": [
+                {"name": "CityBokeh", "kind": "fullscreen", "description": "background: 40-60 blurred bokeh discs (hash-placed, 3 depth layers, cyan/magenta/amber), slow horizontal parallax, pulsing brightness"},
+                {"name": "RainDrops", "kind": "fullscreen", "description": "grid-cell drops with hash offsets, running trails (fract(t) per cell), refraction offset applied when sampling the background"},
+                {"name": "Grade", "kind": "postprocess", "description": "vignette, slight chromatic aberration, tonemap + gamma"},
+            ],
+            "uniforms": ["u_time", "u_resolution"],
+            "motion": "drops slide down with gravity and wobble; bokeh drifts left 0.02/s and pulses at 0.5-1 Hz; no hard cuts",
+            "key_visuals": ["rain drops with trails on glass", "blurred neon bokeh discs", "dark night street behind", "magenta/cyan palette"],
+            "acceptance": [
+                {"id": "a1", "text": "Raindrops with trails visibly run down the glass (compare t=0 and t=1)", "how": "visual", "priority": "must"},
+                {"id": "a2", "text": "Blurred coloured bokeh lights are visible in the background", "how": "visual", "priority": "must"},
+                {"id": "a3", "text": "Frames change over time (no static image)", "how": "probe", "priority": "must"},
+            ],
+        }
     if track is Track.SCENE:
         return {
             "title": "Harbour at dusk", "summary": "Small fishing harbour: quay, two boats, lighthouse, calm water.",
@@ -747,7 +772,16 @@ PLAN_TEMPLATES: dict[Track, str] = {
     Track.STATIC_OBJECT: "tracks/plan_static.j2",
     Track.ARTICULATED_OBJECT: "tracks/plan_articulated.j2",
     Track.SCENE: "tracks/plan_scene.j2",
+    Track.GRAPHICS: "tracks/plan_graphics.j2",   # no 3D frame: passes, uniforms, motion
 }
+#: the output-token floor ``plan_tokens`` grows from; a graphics plan starts at the model's ceiling
+PLAN_OUTPUT_FLOOR = 24_000
+
+
+def plan_temperature(track: Track) -> float:
+    """What the planner samples at: 0.5 for a shader brief, 0.4 for everything else.  THE value —
+    ``record/telemetry`` reports this function, not a default it guesses."""
+    return 0.5 if track is Track.GRAPHICS else 0.4
 
 
 class PlanningError(RuntimeError):
@@ -761,12 +795,11 @@ class PlanningError(RuntimeError):
         self.usage = usage or Usage()
 
 
-#: hook types (BaseTrack subclasses parameterise the ONE planner loop with these)
-FinalisePlan = Callable[[Any], Any]
-EventStats = Callable[[Any], dict[str, Any]]
-
-
-def default_event_stats(plan_obj: Any) -> dict[str, Any]:
+def plan_event_stats(plan_obj: Any) -> dict[str, Any]:
+    """The ``plan.done`` payload: a graphics plan counts passes, every other plan parts and zones."""
+    passes = getattr(plan_obj, "passes", None)
+    if passes is not None:
+        return {"n_passes": len(passes), "n_acceptance": len(plan_obj.acceptance)}
     parts = getattr(plan_obj, "parts", []) or []
     return {"n_parts": len(parts),
             "n_zones": len(getattr(plan_obj, "zones", []) or []),
@@ -779,16 +812,11 @@ def default_event_stats(plan_obj: Any) -> dict[str, Any]:
 
 
 def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Workspace, *, model: Any | None = None,
-         events: Any | None = None, budget: Any | None = None, runtime: Any | None = None,
-         template: str | None = None, example: dict[str, Any] | None = None, temperature: float = 0.4,
-         max_output_tokens: int = 24000, finalise: FinalisePlan | None = None,
-         event_stats: EventStats | None = None) -> P:
+         events: Any | None = None, budget: Any | None = None, runtime: Any | None = None) -> P:
     """Plan and write ``ws.plan_path``: optional brief expansion → one structured planner
     call → re-asks (schema, quality, a degenerate-plan restart).  ``model`` may be injected (tests).
-
-    Parameterised by the track hooks: ``template``/``example`` (system prompt),
-    ``finalise`` (post-validation fixup, default = ``ensure_acceptance(normalise_names(...))``)
-    and ``event_stats`` (extra ``plan.done`` payload).
+    Everything that differs per track is looked up from ``spec.track`` (module docstring);
+    the validated plan is finalised by ``ensure_acceptance(normalise_names(...))``.
 
     The two re-asks have SEPARATE budgets and different complaints:
     ``MAX_VALIDATION_REASKS`` for a plan the schema rejects, ``MAX_QUALITY_REASKS`` for a
@@ -821,7 +849,7 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
             guard.add(usage, stage="plan")
     budget = plan_budget(spec, brief)
     unit = "passes" if spec.track is Track.GRAPHICS else "parts"
-    system = build_system_prompt(spec, plan_model, runtime=runtime, template=template, example=example, budget=budget)
+    system = build_system_prompt(spec, plan_model, runtime=runtime, budget=budget)
     user = build_user_prompt(spec, brief=brief, budget=budget, unit=unit)
     images = [ImagePart(path=r.path, label=f"{r.role}: {r.note}".strip(": ")) for r in spec.references]
     messages = [ChatMessage.user(user, images=images or None)]
@@ -829,13 +857,13 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
     schema = plan_model.model_json_schema()
     last_error = ""
     invalid = requeried = grown = restarts = 0
-    tokens = plan_tokens(budget, max_output_tokens)
+    tokens = plan_tokens(budget, PLAN_TOKENS_MAX if spec.track is Track.GRAPHICS else PLAN_OUTPUT_FLOOR)
     thinking = "medium"
     wait_scale = 1.0
     # 4 = the first call + truncation retries; it was 2 + the geometry re-ask's 2 (D49, code
     # removed 2026-09-21) — the total is kept so a default run has the attempts it always had
     for attempt in range(4 + MAX_VALIDATION_REASKS + MAX_QUALITY_REASKS + MAX_PLAN_RESTARTS):
-        req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=temperature,
+        req = ChatRequest(messages=messages, system=system, response_schema=schema, temperature=plan_temperature(spec.track),
                           thinking=thinking, max_output_tokens=tokens, label=f"planner{'-retry' if attempt else ''}",
                           max_wait_s=plan_wait_s(tokens, guard, scale=wait_scale))
         try:
@@ -921,12 +949,10 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
         normalised = list(getattr(result, "normalisations", None) or [])
         if normalised and events is not None:
             events.emit("plan.normalised", attempt=attempt, n=len(normalised), items=normalised[:8])
-        result = finalise(result) if finalise is not None else ensure_acceptance(normalise_names(result), spec)
-        result = enrich_plan(result, brief)
+        result = enrich_plan(ensure_acceptance(normalise_names(result), spec), brief)
         ws.write_json(ws.plan_path, result)
         if events is not None:
-            stats = (event_stats or default_event_stats)(result)
-            events.emit("plan.done", model=model_id, **stats,
+            events.emit("plan.done", model=model_id, **plan_event_stats(result),
                         cost_usd=round(usage.cost_usd, 4), prompt_hash=prompt_hash(system), attempt=attempt,
                         brief=brief is not None, quality_reasks=requeried, restarts=restarts, **budget.as_dict())
         if guard is not None:
@@ -942,18 +968,16 @@ def _echo(raw: Any, text: str) -> ChatMessage:
 
 # ----------------------------------------------------------------------------- prompts
 def build_system_prompt(spec: Spec, plan_model: type[BaseModel], *, runtime: Any | None = None,
-                        template: str | None = None, example: dict[str, Any] | None = None,
                         budget: PlanBudget | None = None) -> str:
-    template = template or PLAN_TEMPLATES[spec.track]
     lang: Language = spec.language
     budget = budget or plan_budget(spec)
     return render(
-        template,
+        PLAN_TEMPLATES[spec.track],
         track=spec.track.value,
         language=lang.value,
         frame_doc=frame_doc(LANGUAGE_FRAME[lang.value]),
         contract=language_contract(lang, runtime),
-        example_json=json.dumps(example if example is not None else plan_example(spec.track), indent=1),
+        example_json=json.dumps(plan_example(spec.track), indent=1),
         schema_fields=", ".join(plan_model.model_json_schema().get("properties", {}).keys()),
         target_parts=budget.target_parts,
         min_parts=budget.min_parts,
@@ -1000,21 +1024,28 @@ def ensure_acceptance[P: BaseModel](plan_obj: P, spec: Spec) -> P:
     wishes were capping finished scenes at 0.60.  The spec's ``must_have`` list is the
     contract with the user, so on that track the plan's own items stay on the checklist as
     ``should`` (the judge still answers them, the refine loop still reads them) and only the
-    spec-derived items keep ``must``."""
+    spec-derived items keep ``must``.  A shader has no size, triangle count or ground: the graphics
+    track gets the spec's checklist and, when the plan animates, one probe item that the frames
+    change (never 'ground contact')."""
     items: list[AcceptanceItem] = list(plan_obj.acceptance)
     if spec.track is Track.SCENE:
         items = [a if a.priority == "should" else a.model_copy(update={"priority": "should"}) for a in items]
     c = spec.constraints
-    if c.dimensions_m:
+    solid = spec.track is not Track.GRAPHICS
+    if solid and c.dimensions_m:
         dims = ", ".join(f"{k} = {v:.3f} m" for k, v in c.dimensions_m.items())
         add_acceptance_item(items, "dim", f"Overall dimensions match the request within 5%: {dims}", "measure")
-    if c.max_triangles:
+    if solid and c.max_triangles:
         add_acceptance_item(items, "tri", f"Triangle count ≤ {c.max_triangles}", "measure")
     for m in c.must_have:
         add_acceptance_item(items, "must", f"Includes: {m}", "visual")
     for m in c.must_not:
         add_acceptance_item(items, "not", f"Does NOT include: {m}", "visual")
-    if spec.track is not Track.SCENE and not any(a.how == "measure" for a in items):
+    if not solid:
+        planned_motion = getattr(plan_obj, "motion", "").strip()
+        if planned_motion and not any(w in a.text.lower() for a in items for w in ("static", "motion", "change over time")):
+            add_acceptance_item(items, "motion", "Frames change over time as planned (not a static image)", "probe")
+    elif spec.track is not Track.SCENE and not any(a.how == "measure" for a in items):
         add_acceptance_item(items, "ground", "Object stands on the ground plane (lowest point at up=0) with its footprint centred", "measure")
     items.extend(articulation_acceptance(plan_obj, items))
     plan_obj.acceptance = items
@@ -1067,7 +1098,7 @@ def normalise_names[P: BaseModel](plan_obj: P) -> P:
 
 __all__ = ["MAX_PLAN_RESTARTS", "MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS",
            "PLAN_RESTART_ENV", "PLAN_TOKENS_MAX", "PlanningError", "add_acceptance_item",
-           "articulation_acceptance", "build_system_prompt", "build_user_prompt", "default_event_stats",
+           "articulation_acceptance", "build_system_prompt", "build_user_prompt", "plan_event_stats",
            "ensure_acceptance", "missing_link_names", "normalise_names", "plan",
-           "degenerate_plan", "plan_example", "plan_tokens", "restart_enabled",
+           "degenerate_plan", "plan_example", "plan_temperature", "plan_tokens", "restart_enabled",
            "restart_note"]

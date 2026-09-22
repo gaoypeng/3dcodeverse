@@ -189,12 +189,14 @@ codeverse3d/
                       gates), articulated_object.py (+ the planned-motion gate),
                       scene.py, scene_assets.py (+ cheap single-shot asset generation),
                       zone_layout.py (L2 zone director: per-zone structured layout calls + deterministic validator),
-                      graphics.py (the whole graphics track: planner hooks, prompt context, frame
+                      graphics.py (the whole graphics track: prompt context, frame
                       RenderSet, and recipe seeding into the harness-owned, read-only
                       src/recipes.glsl — measured: flash calls a recipe on disk, not one it is
                       shown; AgentJob.read_only, C3D_SEED_RECIPES),
                       planner.py (the ONE planner loop + the cached EngineeringBrief
-                      (C3D_PLAN_BRIEF), plan budgets and the worked examples),
+                      (C3D_PLAN_BRIEF), plan budgets and the worked examples — and the ONE owner of
+                      what differs per track when planning: template, example, temperature, output
+                      floor, acceptance, all dispatched on spec.track),
                       plan_features.py (the A/B switch registry: LIVE_SWITCHES / DEAD_SWITCHES,
                       + pin_plan_blockers() deciding when two arms may share one plan —
                       eval/docs/EVAL.md §8.1),

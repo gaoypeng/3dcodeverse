@@ -104,7 +104,6 @@ def test_graphics_planner_hooks_charge_budget_on_planning_error(tmp_ws):
     from codeverse3d.contracts.plan import GraphicsPlan
     from codeverse3d.contracts.spec import Budget
     from codeverse3d.orchestrator import BudgetGuard
-    from codeverse3d.tracks.graphics import GraphicsTrack
     from codeverse3d.tracks.planner import PlanningError
     from codeverse3d.tracks.planner import plan as run_planner
 
@@ -112,7 +111,6 @@ def test_graphics_planner_hooks_charge_budget_on_planning_error(tmp_ws):
     budget = BudgetGuard(Budget(max_minutes=10))
     always_bad = FakeChatModel(lambda req: {"title": "x"})
     with pytest.raises(PlanningError):
-        run_planner(spec, "fake:planner", GraphicsPlan, tmp_ws, model=always_bad, budget=budget,
-                    **GraphicsTrack()._plan_kwargs(spec))
+        run_planner(spec, "fake:planner", GraphicsPlan, tmp_ws, model=always_bad, budget=budget)
     assert budget.spent.cost_usd > 0, "a failed re-ask is still paid for"
 

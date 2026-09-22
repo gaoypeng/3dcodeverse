@@ -492,13 +492,10 @@ def hero_plan(sub: RunContext, asset: AssetPlan) -> StaticPlan:
     demands, per-part bboxes, ``style_notes`` and an acceptance list — what a static_object
     run gets, from the code that gives it to them.
     """
-    from codeverse3d.tracks.static_object import StaticObjectTrack
-
-    track = StaticObjectTrack(services=sub.services, settings=sub.settings)
     try:
         model = sub.services.chat_model(sub.spec.backends.planner)
         plan = run_planner(sub.spec, sub.spec.backends.planner, StaticPlan, sub.ws, model=model, events=sub.events,
-                           budget=sub.budget, runtime=sub.runtime, **track._plan_kwargs(sub.spec))
+                           budget=sub.budget, runtime=sub.runtime)
         features = hero_features(asset.description)
         if len(plan.parts) <= HERO_THIN_PLAN_PARTS and len(features) > HERO_THIN_PLAN_PARTS:
             # a one-part answer for a prop whose sheet names several features (the windmill got
@@ -508,7 +505,7 @@ def hero_plan(sub: RunContext, asset: AssetPlan) -> StaticPlan:
             sub.events.emit("asset.plan_thin", asset=asset.name, n_parts=len(plan.parts), features=features)
             spec2 = sub.spec.model_copy(update={"constraints": sub.spec.constraints.model_copy(update={"must_have": features})})
             plan = run_planner(spec2, spec2.backends.planner, StaticPlan, sub.ws, model=model, events=sub.events,
-                               budget=sub.budget, runtime=sub.runtime, **track._plan_kwargs(spec2))
+                               budget=sub.budget, runtime=sub.runtime)
     except Exception as e:  # noqa: BLE001 — PlanningError / outage: the sheet still says what the prop is
         if isinstance(e, BudgetExceeded):
             raise

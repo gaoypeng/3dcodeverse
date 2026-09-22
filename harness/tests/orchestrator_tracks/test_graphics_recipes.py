@@ -35,11 +35,11 @@ from codeverse3d.tracks.graphics import (
     graphics_prompt_context,
     is_skeleton_common,
     parse_functions,
-    plan_example,
     recipe_chapters,
     seed_recipes,
     seeded_on_disk,
 )
+from codeverse3d.tracks.planner import plan_example
 from codeverse3d.workspace import Workspace
 
 AURORA = "Aurora borealis over a mountain ridge with a frozen lake, dense stars, green and violet curtains"
@@ -211,7 +211,7 @@ def test_brief_and_plan_visuals_select_recipes(tmp_path) -> None:
     assert "vec2 dropsLayer(vec2 uv, float t, float scale)" in text and "vec3 bokehSoft(vec2 p, float t)" in text
 
     ws = _ws(tmp_path / "plan")
-    plan = GraphicsPlan.model_validate({**plan_example(), "key_visuals": ["an aurora curtain over the ridge"]})
+    plan = GraphicsPlan.model_validate({**plan_example(Track.GRAPHICS), "key_visuals": ["an aurora curtain over the ridge"]})
     names = seed_recipes(_ctx(ws, "a landscape", plan=plan))
     assert "curtain" in names and "bokehSoft" not in names
     # the seed follows the prompt's selection exactly, budget included: for "a city at night" the Light +
@@ -375,7 +375,7 @@ def test_lint_flags_a_redefinition_of_a_seeded_recipe(tmp_path) -> None:
 
 def test_prompt_block_lists_the_seeded_names(tmp_path) -> None:
     ws = _ws(tmp_path)
-    ctx = _ctx(ws, plan=GraphicsPlan.model_validate({**plan_example(), "key_visuals": ["green aurora curtains", "dense stars"]}))
+    ctx = _ctx(ws, plan=GraphicsPlan.model_validate({**plan_example(Track.GRAPHICS), "key_visuals": ["green aurora curtains", "dense stars"]}))
     names = seed_recipes(ctx)
     d = graphics_prompt_context(ctx, skeleton_files={}, previous_error="")
     assert [r["name"] for r in d["seeded_recipes"]] == names

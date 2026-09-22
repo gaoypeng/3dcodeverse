@@ -41,7 +41,7 @@ def test_live_plan_generate_build_judge(tmp_path, keys_ok):
     ws = Workspace(tmp_path / "live_gfx").create()
     model = get_chat_model(MODEL)
     from codeverse3d.tracks.planner import plan as run_planner
-    plan = run_planner(spec, MODEL, GraphicsPlan, ws, model=model, **GraphicsTrack()._plan_kwargs(spec))
+    plan = run_planner(spec, MODEL, GraphicsPlan, ws, model=model)
     assert isinstance(plan, GraphicsPlan) and plan.passes and plan.key_visuals and plan.motion
     rt = GlslShaderRuntime()
     rt.skeleton(ws, plan)

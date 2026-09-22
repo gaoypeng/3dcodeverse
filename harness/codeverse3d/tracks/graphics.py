@@ -2,11 +2,12 @@
 
 Languages: glsl_shader (Shadertoy-style fragment shader) · opengl_python (raw
 moderngl program).  Reuses ``BaseTrack`` (lifecycle) and ``run_round`` (steps)
-unchanged; the track-specific pieces are the planner hooks (template / example /
-acceptance, below), the prompt context (no 3D frame), the
-``gl_frames`` gate (frame statistics from the build) and the render step (the
-sampled frames + contact sheet as the RenderSet the ``shader_v2`` judge sees).
-Refinement is always one whole-program task.
+unchanged; the track-specific pieces are the recipe seeding, the prompt context
+(no 3D frame), the ``gl_frames`` gate (frame statistics from the build) and the render
+step (the sampled frames + contact sheet as the RenderSet the ``shader_v2`` judge sees).
+Planning is ``tracks/planner.py``'s, like every track's (template, worked example,
+T = 0.5, acceptance: all dispatched on the track there).  Refinement is always one
+whole-program task.
 """
 
 from __future__ import annotations
@@ -28,9 +29,8 @@ from codeverse3d.contracts.artifacts import (
     Severity,
 )
 from codeverse3d.contracts.common import HARNESS_OWNED_SRC, TRACK_INFO, Language, Track
-from codeverse3d.contracts.plan import AcceptanceItem, GraphicsPlan, Plan
+from codeverse3d.contracts.plan import GraphicsPlan, Plan
 from codeverse3d.contracts.run import RoundRecord
-from codeverse3d.contracts.spec import Spec
 from codeverse3d.languages._gl_common import SHEET_NAME, read_metrics
 from codeverse3d.languages.glsl_shader import COMMON_GLSL, FUNC_DEF, strip_comments
 from codeverse3d.orchestrator import TaskGroup
@@ -39,7 +39,6 @@ from codeverse3d.prompts.sections import Section, split_sections
 from codeverse3d.tracks.common import RunContext
 from codeverse3d.tracks.generation import GenerationTask
 from codeverse3d.tracks.lifecycle import BaseTrack, StageRunner
-from codeverse3d.tracks.planner import add_acceptance_item
 from codeverse3d.tracks.prompting import (
     base_prompt_context,
     is_always_chapter,
@@ -276,55 +275,11 @@ def seed_recipes(ctx: RunContext) -> list[str]:
     return [r.name for r in new]
 
 
-# ===================================================================== planner hooks + prompt context + frames
-PLAN_TEMPLATE = "tracks/plan_graphics.j2"
-PLAN_TEMPERATURE = 0.5
-PLAN_MAX_OUTPUT_TOKENS = 65_536   # the model's declared output ceiling; unused tokens cost nothing
+# ===================================================================== prompt context + frames
 EXPECTED_FILES: dict[Language, list[str]] = {
     Language.GLSL_SHADER: ["src/shader.frag", "src/common.glsl"],
     Language.OPENGL_PYTHON: ["src/program.py"],
 }
-
-
-# ----------------------------------------------------------------------------- planner
-def plan_example() -> dict[str, Any]:  # the graphics worked example (planner hook)
-    return {
-        "title": "Neon rain on a window", "summary": "Looking through a rain-streaked window at a neon-lit street at night; "
-        "drops run down the glass, city lights turn into coloured bokeh discs that pulse.",
-        "style": "cyberpunk night: deep indigo/black base, magenta + cyan neon accents, warm sodium highlights; soft, filmic",
-        "resolution": [1280, 720], "duration_s": 8.0,
-        "passes": [
-            {"name": "CityBokeh", "kind": "fullscreen", "description": "background: 40-60 blurred bokeh discs (hash-placed, 3 depth layers, cyan/magenta/amber), slow horizontal parallax, pulsing brightness"},
-            {"name": "RainDrops", "kind": "fullscreen", "description": "grid-cell drops with hash offsets, running trails (fract(t) per cell), refraction offset applied when sampling the background"},
-            {"name": "Grade", "kind": "postprocess", "description": "vignette, slight chromatic aberration, tonemap + gamma"},
-        ],
-        "uniforms": ["u_time", "u_resolution"],
-        "motion": "drops slide down with gravity and wobble; bokeh drifts left 0.02/s and pulses at 0.5-1 Hz; no hard cuts",
-        "key_visuals": ["rain drops with trails on glass", "blurred neon bokeh discs", "dark night street behind", "magenta/cyan palette"],
-        "acceptance": [
-            {"id": "a1", "text": "Raindrops with trails visibly run down the glass (compare t=0 and t=1)", "how": "visual", "priority": "must"},
-            {"id": "a2", "text": "Blurred coloured bokeh lights are visible in the background", "how": "visual", "priority": "must"},
-            {"id": "a3", "text": "Frames change over time (no static image)", "how": "probe", "priority": "must"},
-        ],
-    }
-
-
-def ensure_graphics_acceptance(plan: GraphicsPlan, spec: Spec) -> GraphicsPlan:
-    """Spec must_have / must_not → visual items; planned motion → a probe item (never 'ground contact')."""
-    items: list[AcceptanceItem] = list(plan.acceptance)
-    for m in spec.constraints.must_have:
-        add_acceptance_item(items, "must", f"Includes: {m}", "visual")
-    for m in spec.constraints.must_not:
-        add_acceptance_item(items, "not", f"Does NOT include: {m}", "visual")
-    if plan.motion.strip() and not any("static" in a.text.lower() or "motion" in a.text.lower() or "change over time" in a.text.lower() for a in items):
-        add_acceptance_item(items, "motion", "Frames change over time as planned (not a static image)", "probe")
-    plan.acceptance = items
-    return plan
-
-
-def graphics_event_stats(plan: GraphicsPlan) -> dict[str, Any]:
-    """``plan.done`` payload for graphics (passes, not parts/zones)."""
-    return {"n_passes": len(plan.passes), "n_acceptance": len(plan.acceptance)}
 
 
 # ----------------------------------------------------------------------------- prompt context
@@ -424,25 +379,11 @@ class GraphicsTrack(BaseTrack):
     plan_model = GraphicsPlan
     generate_template = "tracks/generate_graphics.j2"
     refine_template = "tracks/refine_graphics.j2"
-    # planner hooks: own template/example/acceptance, T=0.5, 65 536 tokens (no 3D frame)
-    plan_template = PLAN_TEMPLATE
-    plan_temperature = PLAN_TEMPERATURE
-    plan_max_output_tokens = PLAN_MAX_OUTPUT_TOKENS
     # refinement is always ONE whole-program task
     allow_refine_fanout = False
 
     def make_pipeline(self) -> GraphicsPipeline:
         return GraphicsPipeline()
-
-    # ------------------------------------------------------------------ planner hooks
-    def plan_example(self, spec: Spec) -> dict[str, Any]:
-        return plan_example()
-
-    def finalise_plan(self, plan_obj: Any, spec: Spec) -> Any:
-        return ensure_graphics_acceptance(plan_obj, spec)
-
-    def plan_event_stats(self, plan_obj: Any) -> dict[str, Any]:
-        return graphics_event_stats(plan_obj)
 
     # ------------------------------------------------------------------ prepare
     def prepare(self, ctx: RunContext, runner: StageRunner) -> None:

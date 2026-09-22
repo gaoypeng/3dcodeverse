@@ -86,15 +86,10 @@ def _judge_defaults() -> dict[str, Any]:
 
 
 def _planner_defaults(record: RunRecord) -> dict[str, Any]:
-    """The temperature THIS track plans at (``BaseTrack.plan_temperature``: graphics 0.5, the
-    rest 0.4).  ``planner.plan()``'s own default is never the one used — every track passes
-    its own — so reading it reported 0.4 for every graphics run."""
-    try:
-        from codeverse3d.tracks import get_track
+    """The temperature THIS track plans at (``planner.plan_temperature``: graphics 0.5, the rest 0.4)."""
+    from codeverse3d.tracks.planner import plan_temperature
 
-        return {"temperature": get_track(record.spec.track).plan_temperature}
-    except Exception:  # pragma: no cover
-        return {}
+    return {"temperature": plan_temperature(record.spec.track)}
 
 
 def _generator_defaults(model_id: str) -> dict[str, Any]:

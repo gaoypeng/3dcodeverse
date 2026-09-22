@@ -1,9 +1,9 @@
 """BaseTrack: the resumable plan → prepare → rounds → finalise lifecycle.
 
 Concrete tracks (static / articulated / scene / graphics) override the hooks
-(``plan_model``, ``make_pipeline``, ``prepare``, ``baseline_tasks``, the planner
-knobs ``plan_template``/``plan_example``/``finalise_plan`` and the refine
-scaffold's ``_refine_task``).  All bookkeeping — workspace, events, budget, run
+(``plan_model``, ``make_pipeline``, ``prepare``, ``baseline_tasks`` and the refine
+scaffold's ``_refine_task``); what differs per track at PLANNING time is
+``tracks/planner.py``'s alone.  All bookkeeping — workspace, events, budget, run
 state, stage cache, the fixed round count, record — lives here once.  Which round of a
 finished run to hand over is not the core's question: ``codeverse3d.addons.select``.
 """
@@ -50,9 +50,7 @@ from codeverse3d.tracks.common import (
     load_prompt_or,
 )
 from codeverse3d.tracks.generation import GenerationTask, single_shot_model_id
-from codeverse3d.tracks.planner import default_event_stats, ensure_acceptance, normalise_names
 from codeverse3d.tracks.planner import plan as run_planner
-from codeverse3d.tracks.planner import plan_example as default_plan_example
 from codeverse3d.tracks.prompting import (
     base_prompt_context,
     expected_files,
@@ -142,18 +140,13 @@ class SpecChanged(RuntimeError):
 
 class BaseTrack:
     """Shared lifecycle.  Subclasses set ``track``, ``rubric``, ``plan_model``
-    and parameterise the ONE planner loop / refine scaffold via the hook
-    attributes below (``plan_template``, ``plan_example``, ``_refine_task`` …)."""
+    and parameterise the refine scaffold via the hooks below (``_refine_task`` …)."""
 
     track: Track
     rubric: str
     plan_model: type[Plan]
     generate_template: str = ""
     refine_template: str = ""
-    #: planner knobs (GraphicsTrack: own template/example, T=0.5, 65 536 tokens)
-    plan_template: str | None = None  # None → tracks/plan_<track>.j2
-    plan_temperature: float = 0.4
-    plan_max_output_tokens: int = 24000
     #: refine fan-out (graphics is always ONE whole-program task)
     allow_refine_fanout: bool = True
     #: share of the run budget the BASELINE may use (1.0 = no soft cap).  The scene
@@ -212,19 +205,6 @@ class BaseTrack:
         not be thrown away by a ceiling trip at the r00 boundary.  A bare skeleton
         still returns False."""
         return (ctx.ws.root / "rounds" / "candidates.json").is_file()
-
-    # ---- planner hooks (tracks/planner.py runs the one loop)
-    def plan_example(self, spec: Spec) -> dict[str, Any]:
-        """Worked example JSON for the plan system prompt."""
-        return default_plan_example(spec.track)
-
-    def finalise_plan(self, plan_obj: Any, spec: Spec) -> Any:
-        """Post-validation fixup (names + deterministic acceptance items)."""
-        return ensure_acceptance(normalise_names(plan_obj), spec)
-
-    def plan_event_stats(self, plan_obj: Any) -> dict[str, Any]:
-        """Extra ``plan.done`` payload (n_parts/n_zones… per track)."""
-        return default_event_stats(plan_obj)
 
     # ---- refine hooks (the scaffold below is shared; tracks fill in the task)
     def refine_file_for_target(self, ctx: RunContext) -> Any:
@@ -482,15 +462,10 @@ class BaseTrack:
         ctx.state.save(ctx.ws)
         try:
             plan = run_planner(ctx.spec, ctx.spec.backends.planner, self.plan_model, ctx.ws, model=self._planner_model,
-                               events=ctx.events, budget=ctx.budget, runtime=ctx.runtime, **self._plan_kwargs(ctx.spec))
+                               events=ctx.events, budget=ctx.budget, runtime=ctx.runtime)
         finally:
             self._save_budget(ctx)  # charged on success AND PlanningError
         return plan
-
-    def _plan_kwargs(self, spec: Spec) -> dict[str, Any]:
-        return {"template": self.plan_template, "example": self.plan_example(spec),
-                "temperature": self.plan_temperature, "max_output_tokens": self.plan_max_output_tokens,
-                "finalise": lambda p: self.finalise_plan(p, spec), "event_stats": self.plan_event_stats}
 
     # ------------------------------------------------------------------ stages
     def stage_skeleton(self, ctx: RunContext, runner: StageRunner) -> list[str]:

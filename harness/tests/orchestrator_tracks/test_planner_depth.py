@@ -27,7 +27,6 @@ from codeverse3d.tracks.planner import (
     MAX_QUALITY_REASKS,
     build_system_prompt,
     build_user_prompt,
-    plan_example,
 )
 from codeverse3d.tracks.planner import plan as run_planner
 from codeverse3d.workspace import Workspace
@@ -136,9 +135,7 @@ def test_plan_templates_render_the_budget_numbers():
     for track, language, model in ((Track.STATIC_OBJECT, Language.BLENDER, StaticPlan),
                                    (Track.GRAPHICS, Language.GLSL_SHADER, GraphicsPlan)):
         spec = _spec(must=9, track=track, language=language)
-        template = "tracks/plan_graphics.j2" if track is Track.GRAPHICS else None
-        out = build_system_prompt(spec, model, template=template, example=plan_example(Track.STATIC_OBJECT),
-                                  budget=B.plan_budget(spec))
+        out = build_system_prompt(spec, model, budget=B.plan_budget(spec))
         assert str(B.plan_budget(spec).target_parts) in out
 
 
