@@ -24,8 +24,7 @@ def no_brief_expansion(monkeypatch) -> None:
     Also clear the global Settings cache around each test: ``get_settings()`` is an
     ``lru_cache`` singleton that snapshots ``C3D_*`` env vars at first construction, so
     whichever test happens to touch it first bakes ITS monkeypatched env into every later
-    test in the worker — ``test_fewer_turns`` failed alone and passed in file order for
-    exactly this reason."""
+    test in the worker."""
     from codeverse3d.config import get_settings
 
     monkeypatch.setenv("C3D_PLAN_BRIEF", "off")

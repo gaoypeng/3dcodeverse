@@ -1389,6 +1389,13 @@ caps refine fan-out per round and inlines the whole part set under a size budget
 turn-discipline prompt on its own, since "finish in fewer turns" is where the must-item misses
 come from.
 
+**Deleted 2026-09-22 (owner).**  The switch stayed OFF and the follow-up never ran, so the whole
+bundle went: `C3D_FEWER_TURNS` / `Limits.fewer_turns`, the checks folded into `build`, the
+turn-discipline block in four templates, and the refine prompt's inlined files for agent
+sessions (single-shot still gets them: it has no read tool).  The OFF prompts render byte for
+byte as before.  The mechanical half never outlived the api-agent anyway: `write_file` was
+that agent's tool.
+
 ## 30. A tool's FAIL verdict is not an MCP error (2026-09-02)
 
 `spatial/mcp_server.py` returned `is_error = not obs.ok`, and `obs.ok` was the tool's

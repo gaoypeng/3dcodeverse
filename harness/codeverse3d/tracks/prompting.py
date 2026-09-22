@@ -13,7 +13,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from codeverse3d.config import fewer_turns_enabled
 from codeverse3d.contracts.chat import ImagePart
 from codeverse3d.contracts.common import HARNESS_OWNED_SRC, Language, Track, is_harness_owned
 from codeverse3d.contracts.plan import Plan, StaticPlan
@@ -304,9 +303,6 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "detail_budget": detail_budget_text(ctx),
         "root_link": getattr(plan, "root_link", "") if plan else "",
         "reference_note": reference_note(ctx),
-        # a string, "" when off: templates render it with one {% if %} and stay byte-identical
-        # for the control arm
-        "turn_discipline": TURN_DISCIPLINE if (fewer_turns_enabled() and not ctx.single_shot) else "",
         # The want -> call table for the effect library that ships in every
         # scene_threejs workspace (D51).  "" for every other language (no such file), so
         # the templates that carry it stay byte-identical elsewhere.
@@ -447,26 +443,10 @@ def skeleton_files(ctx: RunContext, max_chars: int = MAX_SKELETON_CHARS) -> dict
     )
 
 
-def refine_inline_files(ctx: RunContext, rels: Sequence[str], *, scoped: bool) -> dict[str, str]:
-    """The files a refine task may edit, inlined for the prompt — or ``{}``.
-
-    Single-shot always gets them (it has no read tool).  An agent session gets them only
-    under ``fewer_turns`` and only when the task is scoped to ≤ ``INLINE_MAX_FILES`` files
-    totalling ≤ ``INLINE_MAX_CHARS`` — measured: a refine session spends 5.2 of its 24
-    turns on read_file, mostly on the files the task just named.  Larger sets are NOT
-    truncated into the prompt (a half file is worse than a read): they stay on disk.
-    """
-    if ctx.single_shot:
-        return current_files(ctx, rels)
-    if not (fewer_turns_enabled() and scoped) or not rels or len(rels) > INLINE_MAX_FILES:
-        return {}
-    paths = [ctx.ws.root / r for r in rels]
-    if not all(p.is_file() for p in paths):
-        return {}
-    if sum(p.stat().st_size for p in paths) > INLINE_MAX_CHARS:
-        return {}
-    files = current_files(ctx, rels, max_chars=INLINE_MAX_CHARS + 1)
-    return files if sum(len(t) for t in files.values()) <= INLINE_MAX_CHARS else {}
+def refine_inline_files(ctx: RunContext, rels: Sequence[str]) -> dict[str, str]:
+    """The files a refine task may edit, inlined for the prompt — single-shot only (it has
+    no read tool); an agent session reads them itself, so it gets ``{}``."""
+    return current_files(ctx, rels) if ctx.single_shot else {}
 
 
 def current_files(
@@ -540,23 +520,6 @@ def measurement_vs_plan(
     gate_lines = [f"- {f.as_line(with_gate=True)}" for g in last.gates for f in g.errors][:12]
     return "\n".join(lines + gate_lines)
 
-
-#: fewer_turns (docs/COST.md §29): the baseline session hit the 60-turn cap in every measured
-#: run — 22.5 write_file + 8 build + 7.5 read_file + 4.6 check_connectivity + 4.1 check_contract
-#: per session, each a 4 s round trip re-sending a 35–70 k context.  The cap itself is NOT the
-#: lever (§17: a 28-turn cap cost 0.205 of a score point); the block asks for fewer, fuller turns.
-TURN_DISCIPLINE = """## Turn discipline (every tool call is a full round trip — spend as few as you can)
-- FIRST reply: write EVERY file listed under "Files you must produce" as multiple `write_file`
-  calls in that same reply, then call `build` once.  Do not write one file per turn.
-- `build` already runs check_connectivity and check_contract: read its CONNECTIVITY / CONTRACT
-  sections, fix what they list, build again.  Do not call those two tools separately.
-- Do not read a file back after writing or editing it: `build` reports what is wrong with it.
-- Call `render_sheet` once before you finish; `measure` at most once."""
-
-#: the refine prompt inlines the files a scoped task edits when they are few and small, so the
-#: session's first turn is the edit, not a read_file (fewer_turns, docs/COST.md §29)
-INLINE_MAX_FILES = 3
-INLINE_MAX_CHARS = 12_000
 
 AGENT_OUTPUT_RULES = """HOW TO FINISH (agent mode): edit files under src/ only (and public/ for compiled assets).
 Before you finish you MUST run the `build` tool and fix every error it reports; then run `measure`

@@ -102,15 +102,6 @@ class ToolDef:
     tracks: tuple[str, ...] = ()  # empty = all
     languages: tuple[str, ...] = ()  # empty = all
     cost_hint: str = "fast"  # fast | slow
-    #: optional call-time suffix for the description (a switch-dependent sentence, e.g.
-    #: "includes CONNECTIVITY / CONTRACT" when C3D_FEWER_TURNS is on).  Returns "" for none.
-    describe_extra: Callable[[], str] | None = None
-
-    def describe(self) -> str:
-        """The description the agent sees NOW: the static text plus the switch-dependent
-        suffix, so a tool card / native tool spec tracks the tool's real behaviour."""
-        extra = self.describe_extra() if self.describe_extra is not None else ""
-        return f"{self.description} {extra.strip()}" if extra and extra.strip() else self.description
 
     def schema(self) -> dict[str, Any]:
         """JSON schema of the arguments object (for native tool calling / MCP)."""
@@ -122,7 +113,7 @@ class ToolDef:
         """Prompt card: name, one-line purpose, args with descriptions."""
         props = self.schema().get("properties", {})
         req = set(self.schema().get("required", []))
-        lines = [f"- `{self.name}` ({self.cost_hint}): {self.describe()}"]
+        lines = [f"- `{self.name}` ({self.cost_hint}): {self.description}"]
         for k, v in props.items():
             typ = v.get("type", "any")
             d = v.get("description", "")
@@ -159,7 +150,6 @@ def tool(
     tracks: tuple[str, ...] = (),
     languages: tuple[str, ...] = (),
     cost_hint: str = "fast",
-    describe_extra: Callable[[], str] | None = None,
 ) -> Callable[[Callable[[ToolContext, Any], Observation]], Callable[[ToolContext, Any], Observation]]:
     def deco(fn: Callable[[ToolContext, Any], Observation]) -> Callable[[ToolContext, Any], Observation]:
         sig = inspect.signature(fn)
@@ -167,8 +157,7 @@ def tool(
             raise TypeError(f"tool {name}: fn must be fn(ctx, args)")
         if name in _REGISTRY:
             raise ValueError(f"tool {name} registered twice")
-        _REGISTRY[name] = ToolDef(name, args_model, description, fn, tracks, languages, cost_hint,
-                                  describe_extra)
+        _REGISTRY[name] = ToolDef(name, args_model, description, fn, tracks, languages, cost_hint)
         return fn
 
     return deco

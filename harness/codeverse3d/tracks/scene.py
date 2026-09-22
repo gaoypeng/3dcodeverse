@@ -423,7 +423,7 @@ class SceneTrack(BaseTrack):
         prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, recipes=refine_recipes(ctx, files), round_index=index, tasks=lines,
                                                               targets=group.targets, files=files, edit_only_these=parallel,
                                                               judge_summary=judge_digest(last),
-                                                              current_files=refine_inline_files(ctx, files, scoped=False)))
+                                                              current_files=refine_inline_files(ctx, files)))
         ctx.record_prompt("scene_refine", prompt)
         # parallel groups are file-disjoint by plan_refine_groups: enforce the split they promised
         return GenerationTask(label=f"refine_{group.label}" if parallel else "refine", prompt=prompt, system=self.system_prompt(ctx),
@@ -445,7 +445,7 @@ class SceneTrack(BaseTrack):
         prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, recipes="", round_index=index, tasks=[report], targets=["build"],
                                                              files=files, edit_only_these=False,
                                                              judge_summary="(no judgment: the scene did not build — fix the errors above first)",
-                                                             current_files=refine_inline_files(ctx, files, scoped=False)))
+                                                             current_files=refine_inline_files(ctx, files)))
         ctx.record_prompt("scene_refine", prompt)
         return GenerationTask(label="rebuild", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
                               kind="rebuild", temperature=0.7, thinking="high",

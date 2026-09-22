@@ -241,7 +241,7 @@ class BaseTrack:
         lint = next((g for g in last.gates if g.gate.startswith("lint")), GateReport(gate="lint", passed=True))
         report = format_error_report(last.build, lint, ctx.cookbook_text) if last.build else "build did not run"
         prompt = render(self.generate_template, **self.generate_context(
-            ctx, skeleton_files=refine_inline_files(ctx, files, scoped=False), previous_error=report))
+            ctx, skeleton_files=refine_inline_files(ctx, files), previous_error=report))
         return GenerationTask(label="rebuild", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
                               kind="rebuild", temperature=0.7, thinking="high")
 

@@ -302,9 +302,7 @@ class StaticObjectTrack(BaseTrack):
                 edit_only_these=scoped,
                 judge_summary=judge_digest(last),
                 measurement_notes=measurement_vs_plan(last, ctx.plan, ctx.language),
-                # single-shot: always; agent session: under fewer_turns, when the scoped
-                # set is ≤ 3 files / ≤ 12 k chars — the first turn is then the edit
-                current_files=refine_inline_files(ctx, files, scoped=scoped),
+                current_files=refine_inline_files(ctx, files),   # single-shot only
             ),
         )
         ctx.record_prompt("refine", prompt)

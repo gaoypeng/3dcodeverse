@@ -91,14 +91,6 @@ class Limits(BaseModel):
         "which is what ships: a 28-turn cap cost $0.02 more and 0.205 of a score point in its "
         "own A/B — docs/COST.md §17 — so no profile sets one; name it here if you want one).",
     )
-    fewer_turns: bool = Field(
-        default=False,
-        description="fold the cheap gates into `build`, report a per-file lint verdict from "
-        "write_file / edit_file, inline the files a refine task edits, and ask the baseline "
-        "session for every file in its first turn (docs/COST.md §29).  OFF until the A/B "
-        "reads out; `C3D_FEWER_TURNS=1` (read at call time by `fewer_turns_enabled`) is "
-        "what `eval/bench/ab_plan.py --variant-env` flips.",
-    )
     seed_recipes: bool = Field(
         default=True,
         description="graphics / glsl_shader: paste the cookbook recipes the brief calls for "
@@ -170,12 +162,10 @@ class Judge(BaseModel):
         "Slice render is local CPU; no profile touches this dial (the channel measured ≤ $0).")
 
 
-#: The fewer-turns switch (docs/COST.md §29).  Read at CALL time by
-#: :func:`fewer_turns_enabled`, never only through the cached Settings: ``eval/bench/ab_plan.py``
+#: The recipe-seeding switch (Limits.seed_recipes).  Read at CALL time by
+#: :func:`seed_recipes_enabled`, never only through the cached Settings: ``eval/bench/ab_plan.py``
 #: differs its arms by environment alone, and a value frozen at first ``get_settings()``
 #: would hand the variant the control's behaviour (the CQ-5 lesson, tracks/plan_features.py).
-FEWER_TURNS_ENV = "C3D_FEWER_TURNS"
-#: The recipe-seeding switch (Limits.seed_recipes); same call-time contract as FEWER_TURNS_ENV.
 SEED_RECIPES_ENV = "C3D_SEED_RECIPES"
 #: wire the scene texture pack into the scene loop (a stage before env/zones, and the
 #: pack description in both prompts).  OFF by default: it adds an image-model call per
@@ -208,12 +198,6 @@ def env_flag(env: str, fallback: bool) -> bool:
             logging.getLogger(__name__).warning("%s; treating it as off", e)
             return False
     return fallback
-
-
-def fewer_turns_enabled() -> bool:
-    """Is the fewer-turns bundle on for THIS call?  ``$C3D_FEWER_TURNS`` when it is set,
-    else ``Settings.limits.fewer_turns``."""
-    return env_flag(FEWER_TURNS_ENV, get_settings().limits.fewer_turns)
 
 
 def scene_textures_enabled() -> bool:
@@ -249,7 +233,6 @@ class Settings(BaseSettings):
         "C3D_MAX_IN_FLIGHT": ("rate", "max_in_flight"),
         # the spelling every doc and gpu_launch.cjs use; only C3D_RENDER__GPU was read
         "C3D_RENDER_GPU": ("render", "gpu"),
-        FEWER_TURNS_ENV: ("limits", "fewer_turns"),
         SEED_RECIPES_ENV: ("limits", "seed_recipes"),
     }
 

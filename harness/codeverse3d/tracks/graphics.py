@@ -401,7 +401,7 @@ class GraphicsTrack(BaseTrack):
         prompt = render(self.refine_template, **graphics_prompt_context(
             ctx, round_index=index, tasks=[t.line() for t in group.tasks], targets=group.targets, files=files,
             judge_summary=judge_digest(last), frame_notes=frame_stats_text(ctx.ws),
-            current_files=refine_inline_files(ctx, files, scoped=False)))
+            current_files=refine_inline_files(ctx, files)))
         ctx.record_prompt("refine", prompt)
         return GenerationTask(label="refine", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
                               kind="refine", temperature=0.5, thinking="medium", owns_entry=True,

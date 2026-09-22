@@ -469,7 +469,7 @@ def test_load_plan_recognises_graphics_plan(tmp_ws: Workspace) -> None:
     assert isinstance(loaded, GraphicsPlan) and loaded.title == "Neon rain"
 
 
-# --------------------------------------------------------------------------- fewer_turns: build folds the gates in
+# --------------------------------------------------------------------------- the gate tools on a stool
 def _stool_plan_with_missing_backrest() -> StaticPlan:
     return StaticPlan(object_name="Stool", summary="s", overall_bbox=BBox(center=(0, 0, 0.225), extents=(0.4, 0.4, 0.45)),
                       parts=[PartPlan(name="Seat", role="r", description="d", bbox=BBox(center=(0, 0, 0.43), extents=(0.4, 0.4, 0.04))),
@@ -493,59 +493,6 @@ def test_connectivity_tool_resolves_instance_names_like_the_track_does(stool_ctx
     assert ledger["planned_unresolved"] == []
     assert {(a, b) for a, b, *_ in ledger["planned"]} == {(f"Leg_{i}", "Seat") for i in range(4)}
     assert {row[3] for row in ledger["planned"] if row[0] == "Leg_3"} == {"open"}   # the 5 mm floating leg
-
-
-def test_build_folds_connectivity_and_contract_in_when_fewer_turns(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    """docs/COST.md §29: ~25 check_connectivity + ~19 check_contract calls per run, each a 4 s
-    round trip for a < 0.5 s check.  With the switch on, one build observation carries both."""
-    monkeypatch.setenv("C3D_FEWER_TURNS", "1")
-    ws = stool_ctx.workspace
-    ws.write_json(ws.plan_path, _stool_plan_with_missing_backrest())
-    _patch_runtime(monkeypatch, _FakeRuntime(glb=ws.artifacts / "object.glb"))
-    obs = get_tool("build").call(stool_ctx, {})
-    assert obs.ok and obs.text.startswith("BUILD OK")             # the build itself succeeded
-    head, verdict = obs.text.splitlines()[:2]
-    assert verdict.startswith("CHECKS: connectivity FAIL") and "contract FAIL" in verdict and "build again" in verdict
-    assert "CONNECTIVITY: FAIL" in obs.text and "Leg_3" in obs.text          # the floating leg, with its fix hint
-    assert "CONTRACT: FAIL" in obs.text and "Backrest" in obs.text and "missing" in obs.text
-    assert "fix:" in obs.text
-    assert obs.numbers["connectivity_errors"] >= 1 and obs.numbers["contract_errors"] >= 1
-    assert obs.numbers["checks_passed"] is False
-    assert len(obs.text) <= 3000                                    # the existing build limit holds
-    gates = ws.gates_dir(stool_ctx.round_index)
-    assert (gates / "connectivity_tool.json").is_file() and (gates / "contract_tool.json").is_file()
-    # the separate tools still exist for an agent that insists
-    assert {"check_connectivity", "check_contract"} <= {t.name for t in list_tools()}
-
-
-def test_build_folded_checks_pass_on_a_solid_stool(tmp_ws: Workspace, solid_stool_glb: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("C3D_FEWER_TURNS", "on")
-    (tmp_ws.artifacts / "object.glb").write_bytes(solid_stool_glb.read_bytes())
-    tmp_ws.spec_path.write_text(json.dumps({"id": "t", "track": "static_object", "language": "blender", "prompt": "a stool"}))
-    ctx = ToolContext(workspace=tmp_ws, language="blender", track="static_object")
-    _patch_runtime(monkeypatch, _FakeRuntime(glb=tmp_ws.artifacts / "object.glb"))
-    obs = get_tool("build").call(ctx, {})
-    verdict = obs.text.splitlines()[1]
-    assert verdict.startswith("CHECKS: connectivity PASS") and "no separate check_connectivity" in verdict
-    assert "CONTRACT: skipped — no plan.json" in obs.text          # no plan → no contract, said so
-    assert obs.numbers["checks_passed"] is True and "contract_errors" not in obs.numbers
-
-
-def test_build_card_and_observation_are_unchanged_when_fewer_turns_is_off(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("C3D_FEWER_TURNS", raising=False)
-    ws = stool_ctx.workspace
-    ws.write_json(ws.plan_path, _stool_plan_with_missing_backrest())
-    _patch_runtime(monkeypatch, _FakeRuntime(glb=ws.artifacts / "object.glb"))
-    obs = get_tool("build").call(stool_ctx, {})
-    assert "CONNECTIVITY" not in obs.text and "CONTRACT" not in obs.text and "CHECKS:" not in obs.text
-    assert "checks_passed" not in obs.numbers
-    card_off = get_tool("build").card()
-    description = get_tool("build").description
-    assert "check_connectivity" not in card_off
-    monkeypatch.setenv("C3D_FEWER_TURNS", "1")
-    card_on = get_tool("build").card()
-    assert "do not call those two tools separately" in card_on and card_on.startswith(card_off.splitlines()[0][:40])
-    assert get_tool("build").description == description                    # the static text never changes
 
 
 def test_a_failed_build_tells_the_agent_WHY_not_to_build_again(tmp_ws):

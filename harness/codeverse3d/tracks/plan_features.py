@@ -20,8 +20,7 @@ PLAN_FEATURES_ENV = "C3D_PLAN_FEATURES"
 #: pin costs one noisy A/B, pinning wrongly costs a confident wrong answer
 #: (eval/docs/EVAL.md §8.1 measured it — the A/A's worst pair differed 1 part vs 10).
 GENERATION_SIDE_ENV: frozenset[str] = frozenset({"C3D_SKILLS", "C3D_SKILLS_MAX", "C3D_SKILLS_UNVERIFIED",
-                                                 "C3D_SKILLS_ONLY", "C3D_REFERENCE_DIFF",
-                                                 "C3D_FEWER_TURNS", "C3D_SEED_RECIPES"})
+                                                 "C3D_SKILLS_ONLY", "C3D_REFERENCE_DIFF", "C3D_SEED_RECIPES"})
 
 
 def pin_plan_blockers(variant_env: dict[str, str]) -> list[str]:
@@ -49,10 +48,6 @@ LIVE_SWITCHES: dict[str, str] = {
     "C3D_SKILLS_MAX": "codeverse3d/skills/config.py",
     "C3D_SKILLS_UNVERIFIED": "codeverse3d/skills/config.py",
     "C3D_SKILLS_ONLY": "codeverse3d/skills/config.py",
-    # fewer turns (docs/COST.md §29): build folds the gates in, write_file lints, the refine
-    # prompt inlines its files, the baseline prompt asks for every file in turn 1.  One
-    # switch, read at call time by config.fewer_turns_enabled; acts after planning.
-    "C3D_FEWER_TURNS": "codeverse3d/config.py",
     "C3D_SEED_RECIPES": "codeverse3d/config.py",
     # wire the scene texture pack into the scene loop: a stage before env/zones, and the
     # pack description (texturing.plan.texture_pack_prompt) in both prompts.  OFF by
@@ -72,6 +67,7 @@ LIVE_SWITCHES: dict[str, str] = {
 DEAD_SWITCHES: dict[str, str] = {
     PLAN_FEATURES_ENV: "none of its six features was ever implemented; nothing reads this variable",
     "C3D_DETAIL_ROUNDS": "the surface-detail round went with the judgement stops that offered it (2026-09-22)",
+    "C3D_FEWER_TURNS": "the fewer-turns bundle was deleted after its A/B read out flat (2026-09-22, COST §29)",
 }
 
 
