@@ -1,8 +1,9 @@
 """reconcile_resume: on resume, the durable round journal is the truth.
 
-One test per audited failure mode — the two crash windows between a round write and the
-state save, a planner outage wiping ``record.rounds``, ``--force``/no-``--force`` after a
-spec edit, judge notes lost to a local list, and spend the budget snapshot missed.
+One test per audited failure mode — the crash window between a round write and the state
+save, a run recorded before 2026-09-22 (it restored its best round), a planner outage wiping
+``record.rounds``, ``--force``/no-``--force`` after a spec edit, judge notes lost to a local
+list, and spend the budget snapshot missed.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from codeverse3d.contracts.common import Language
+from codeverse3d.contracts.run import RunStatus
 from codeverse3d.orchestrator import RoundPolicy, RunState
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.lifecycle import SpecChanged
@@ -66,88 +68,67 @@ def completed_run(tmp_path, chair_plan, settings):
 
 
 # --------------------------------------------------------------------- (a) crash window
-def test_crash_between_round_write_and_state_save_delivers_the_newer_round(completed_run):
-    """rNN.json + its commit are durable but mark_round_done/update_best lived only in
-    memory until _save_budget — with a possible PAID pairwise call in between.  A crash in
-    that window plus an immediate stop on resume delivered the STALE best."""
+def test_crash_between_round_write_and_state_save_ends_at_the_newer_round(completed_run):
+    """rNN.json + its commit are durable but mark_round_done lived only in memory until
+    the state save.  A crash in that window left the state one round behind the journal
+    (and here the tree on the older round): the resume rebuilds the state from the journal
+    and the run ends on the LAST round."""
     run = completed_run(max_rounds=1)
     rec1, ws = run.record, run.ws
-    assert rec1.best_round == 1 and len(rec1.rounds) == 2
+    assert len(rec1.rounds) == 2
     # rewind state.json to what a crash between the r01 write and the state save leaves
     state = json.loads(ws.state_path.read_text())
     state["completed_rounds"], state["current_round"] = [0], 1
     state["round_commits"] = {"0": rec1.rounds[0].commit}
-    state["best_round"], state["best_commit"], state["best_score"] = 0, rec1.rounds[0].commit, 0.5
     ws.state_path.write_text(json.dumps(state))
-    ws.restore(rec1.rounds[0].commit)  # ...and the tree at the stale best, as delivered
-    ws.commit("stale delivery")
+    ws.restore(rec1.rounds[0].commit)
+    ws.commit("stale tree")
 
     rec2 = run.rerun(resume=True)
-    # the immediate stop (max_rounds) now delivers the NEWER paid round
-    assert rec2.best_round == 1 and rec2.final_score == pytest.approx(0.7)
     assert [r.index for r in rec2.rounds] == [0, 1]
     assert "refine" in (ws.src / "model.py").read_text(), "round 1's code must be restored"
     st = RunState.load(ws)
-    assert st.completed_rounds == [0, 1] and st.best_round == 1
-    assert st.best_commit == rec1.rounds[1].commit
+    assert st.completed_rounds == [0, 1] and st.round_commits[1] == rec1.rounds[1].commit
     ev = [e for e in EventLog(ws.events_path).read() if e["event"] == "resume.reconciled"]
-    assert ev and ev[-1]["state_was_stale"] is True and ev[-1]["best_changed"] is True
+    assert ev and ev[-1]["state_was_stale"] is True and ev[-1]["restored_last_round"] == 1
 
 
-def test_a_self_consistent_state_with_an_unranked_round_still_re_ranks(completed_run):
-    """The sharper crash shape (reproduced by review, 2026-08-27): the round was saved
-    BEFORE best selection, so completed_rounds/round_commits matched the journal exactly
-    while best_round still pointed at the older round — nothing looked stale, reconcile
-    believed it, and the run DELIVERED r0=0.5 over the paid r1=0.7.  ``best_considered_
-    through`` makes the repair independent of write ordering."""
+def test_an_old_run_that_restored_its_best_round_resumes_from_its_last(completed_run, settings):
+    """A run recorded before 2026-09-22 ended on a "restore best round rNN" commit, with its
+    run_state.json and record.json naming that best round and status ``passed``.  Both still
+    load; the resume puts src/ back on the LAST round and the next round refines THAT one."""
     run = completed_run(max_rounds=1)
     rec1, ws = run.record, run.ws
-    assert rec1.best_round == 1 and rec1.rounds[1].score == pytest.approx(0.7)
-
-    state = json.loads(ws.state_path.read_text())      # journal-consistent, best stale
-    assert state["completed_rounds"] == [0, 1]
-    state["best_round"], state["best_commit"], state["best_score"] = 0, rec1.rounds[0].commit, 0.5
-    state["best_considered_through"] = 0               # r1 was written but never ranked
+    state = json.loads(ws.state_path.read_text())
+    state.update(status="passed", stop_reason="pass", best_round=0, best_commit=rec1.rounds[0].commit,
+                 best_score=0.5, best_considered_through=1)
     ws.state_path.write_text(json.dumps(state))
-    ws.restore(rec1.rounds[0].commit)
-    ws.commit("stale delivery")
+    record = json.loads(ws.record_path.read_text())
+    record.update(status="passed", best_round=0, baseline_score=0.5, final_score=0.5)
+    ws.record_path.write_text(json.dumps(record))
+    ws.restore(rec1.rounds[0].commit)       # what the old finalise did
+    ws.commit("restore best round r00")
 
-    rec2 = run.rerun(resume=True)
-    assert rec2.best_round == 1 and rec2.final_score == pytest.approx(0.7)
-    ev = [e for e in EventLog(ws.events_path).read() if e["event"] == "resume.reconciled"][-1]
-    assert ev["state_was_stale"] is False and ev["unranked_rounds"] is True and ev["best_changed"] is True
+    seen: list[tuple[int, str]] = []
+
+    def writer(job, ws_):
+        seen.append((job.round, (ws_.src / "model.py").read_text()))
+        return _writer(job, ws_)
+
+    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(writer),
+                              planner_model=_planner(run.plan), settings=settings,
+                              runtime=FakeRuntime(Language.BLENDER), policy=RoundPolicy(max_rounds=2))
+    rec2 = track.run(make_spec(language=Language.BLENDER, max_rounds=2), ws, resume=True)
+    assert [r.index for r in rec2.rounds] == [0, 1, 2] and rec2.status is RunStatus.MAX_ROUNDS
+    assert seen and all(rnd == 2 for rnd, _ in seen), "only the new round generated"
+    assert seen[0][1] == _code_at(ws, rec1.rounds[1].commit) != _code_at(ws, rec1.rounds[0].commit), "round 2 refines round 1"
+    ev = [e for e in EventLog(ws.events_path).read() if e["event"] == "resume.reconciled"]
+    assert ev[-1]["restored_last_round"] == 1
+    assert ws.head() == rec2.rounds[-1].commit and _code_at(ws, ws.head()) == (ws.src / "model.py").read_text()
 
 
-def test_a_stored_pairwise_rejection_is_final(chair_plan):
-    """A paid pairwise REJECTION of a challenger (r1 within margin, judge said keep r0)
-    used to be silently overturned once ANY later round landed: both the live
-    ``choose_best_round`` and the resume ``replay_best_round`` re-ranked the WHOLE
-    journal on score alone and crowned the rejected r1.  The verdict is final: live
-    and replay agree, whether the later round is worse or failed to score at all."""
-    from codeverse3d.contracts.artifacts import BuildResult, Judgment
-    from codeverse3d.contracts.run import PairwiseNote, RoundRecord
-    from codeverse3d.tracks.candidates import choose_best_round, replay_best_round
-
-    def rec(i, score, pairwise=None):
-        j = None if score is None else Judgment(rubric="r", scores={}, overall=score, passed=False)
-        return RoundRecord(index=i, kind="baseline" if i == 0 else "refine", commit=f"c{i}",
-                           build=BuildResult(ok=score is not None, language="blender", entrypoint="src/main.py"),
-                           judgment=j, pairwise=pairwise)
-
-    r0 = rec(0, 0.70)
-    rejected = PairwiseNote(a="r00", b="r01", winner="a", confidence=0.9, accepted=False)
-    r1 = rec(1, 0.72, pairwise=rejected)  # outscores r0, but the paid verdict said keep r0
-    r2 = rec(2, 0.50)
-    assert replay_best_round([r0, r1]) == 0
-    assert replay_best_round([r0, r1, r2]) == 0, "a worse later round must not revive the rejected r1"
-    ctx = SimpleNamespace(state=SimpleNamespace(best_round=0),
-                          policy=SimpleNamespace(pairwise_margin=0.03, pairwise_min_confidence=0.6))
-    assert choose_best_round(ctx, [r0, r1, r2], 2) == 0, "live must agree with replay"
-    r2b = rec(2, None)  # the new round never scored (build crash)
-    assert choose_best_round(ctx, [r0, r1, r2b], 2) == 0
-    # an ACCEPTED verdict still promotes the challenger, and survives later worse rounds
-    accepted = PairwiseNote(a="r00", b="r01", winner="b", confidence=0.9, accepted=True)
-    assert replay_best_round([r0, rec(1, 0.72, pairwise=accepted), r2]) == 1
+def _code_at(ws: Workspace, commit: str) -> str:
+    return ws._git("show", f"{commit}:src/model.py").stdout  # noqa: SLF001
 
 
 # --------------------------------------------------------------------- (b) history wipe
@@ -218,7 +199,7 @@ def test_a_spec_edit_without_force_is_refused_before_anything_runs(completed_run
     assert not (ws.root / "rounds" / "pre_force").exists()
     assert (ws.root / "rounds" / "r00.json").is_file()
     st = RunState.load(ws)
-    assert st.best_round == 0 and st.completed_rounds == [0]
+    assert st.completed_rounds == [0]
     assert json.loads(ws.record_path.read_text())["status"] != "failed"
 
     # the sanctioned budget raise (outside the fingerprint) still resumes plainly

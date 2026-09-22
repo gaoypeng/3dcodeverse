@@ -311,7 +311,7 @@ def _finish(ws: Workspace, report: TextureReport, t0: float, events: EventLog, u
 
 
 def report_path(ws: Workspace) -> Path:
-    """THE location of the texture report — the finalise double-buy guard reads it too."""
+    """THE location of the texture report — ``addons.select``'s double-buy guard reads it too."""
     return ws.artifacts / TEXTURES_DIR / REPORT_NAME
 
 

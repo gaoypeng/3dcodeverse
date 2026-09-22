@@ -1,5 +1,6 @@
-"""Shared fixtures: a synthetic run (git repo with two commits, tiny PNGs,
-record.json with two judged rounds) — no models, Blender or node required."""
+"""Shared fixtures: a synthetic run (git repo with two commits, tiny PNGs, each round's
+kept GLB under artifacts/rNN/, record.json with two judged rounds) — no models, Blender or
+node required."""
 
 from __future__ import annotations
 
@@ -78,6 +79,9 @@ def make_fake_run(
             (ws.src / "parts").mkdir(exist_ok=True)
             (ws.src / "parts" / "leg.py").write_text("LEG = 0.04\n")
         commit = c0 if i == 0 else ws.commit(f"round {i}")
+        kept = ws.round_artifacts(i)
+        kept.mkdir(parents=True, exist_ok=True)
+        (kept / "object.glb").write_bytes(b"glTF\x02\x00\x00\x00" + bytes([i]) * 16)
         rd = ws.renders_dir(i)
         views = [RenderView(name=n, path=str(tiny_png(rd / f"view_{n}.png"))) for n in ("front", "top")]
         sheet = tiny_png(rd / "sheet.png", (0, 0, 200))
@@ -107,9 +111,8 @@ def make_fake_run(
             index=len(rounds), kind="repair", commit=fixed, instructions=["fix the syntax error at line 2"],
             build=BuildResult(ok=True, language=language.value),
         ))
-    (ws.artifacts / "object.glb").write_bytes(b"glTF\x02\x00\x00\x00" + b"\0" * 16)
-    rec = RunRecord(spec=spec, workspace=str(ws.root), status=RunStatus.MAX_ROUNDS,
-                    rounds=rounds, best_round=1, baseline_score=scores[0], final_score=scores[1],
+    (ws.artifacts / "object.glb").write_bytes(b"glTF\x02\x00\x00\x00" + bytes([len(scores) - 1]) * 16)  # the last round
+    rec = RunRecord(spec=spec, workspace=str(ws.root), status=RunStatus.MAX_ROUNDS, rounds=rounds,
                     total_usage=Usage(cost_usd=0.06, input_tokens=2000, output_tokens=1000),
                     finished_at=datetime.now(UTC),
                     environment={"blender": "Blender 5.0.1"})

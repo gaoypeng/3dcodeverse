@@ -127,7 +127,7 @@ def test_detail_links_are_offered_only_when_the_target_has_them(gallery_tree: di
     assert "/run/runs/wooden_chair_ab12cd34" in markup
     assert "/file/runs/wooden_chair_ab12cd34/artifacts/renders/r01/sheet.png" in markup
     assert "/code/runs/wooden_chair_ab12cd34/src" in markup
-    assert "/viewer/runs/wooden_chair_ab12cd34/artifacts/object.glb" in markup
+    assert "/viewer/runs/wooden_chair_ab12cd34/artifacts/r01/object.glb" in markup   # the picked round's
     # the static form never advertises server-only routes
     static = render_static(index, embed=False)
     assert "/run/runs/" not in static and "/viewer/" not in static

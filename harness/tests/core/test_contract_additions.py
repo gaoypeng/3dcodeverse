@@ -110,8 +110,7 @@ def test_records_written_before_the_2026_08_30_field_retirements_still_load():
     job = AgentJob.model_validate({"workspace": "/w", "prompt": "p",
                                    "images": [{"path": "renders/sheet.png", "label": "sheet"}]})
     assert job.prompt == "p" and not hasattr(job, "images")
-    # and the field this batch ADDED round-trips through the round journal
+    # the in-run pairwise note this batch added went with the in-run best round (2026-09-22)
     rec = RoundRecord.model_validate({"index": 1, "kind": "refine",
                                       "pairwise": {"a": "r00", "b": "r01", "winner": "a", "confidence": 0.9}})
-    assert rec.pairwise is not None and rec.pairwise.accepted is False
-    assert RoundRecord(index=0, kind="baseline").pairwise is None
+    assert rec.index == 1 and not hasattr(rec, "pairwise")

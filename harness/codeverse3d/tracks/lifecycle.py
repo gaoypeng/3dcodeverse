@@ -4,7 +4,8 @@ Concrete tracks (static / articulated / scene / graphics) override the hooks
 (``plan_model``, ``make_pipeline``, ``prepare``, ``baseline_tasks``, the planner
 knobs ``plan_template``/``plan_example``/``finalise_plan`` and the refine
 scaffold's ``_refine_task``).  All bookkeeping — workspace, events, budget, run
-state, stage cache, best tracking, the fixed round count, record — lives here once.
+state, stage cache, the fixed round count, record — lives here once.  Which round of a
+finished run to hand over is not the core's question: ``codeverse3d.addons.select``.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ from codeverse3d.orchestrator import (
 )
 from codeverse3d.proc import EventLog
 from codeverse3d.prompts import render
-from codeverse3d.tracks.candidates import choose_best_round, replay_best_round, run_best_of_n
+from codeverse3d.tracks.candidates import run_best_of_n
 from codeverse3d.tracks.common import (
     RunContext,
     Services,
@@ -325,7 +326,7 @@ class BaseTrack:
 
         The journal (``rounds/rNN.json`` + its git commit, written at the end of every
         round) is the durable record; the state file is a cache of it that a crash can
-        leave stale — round persisted, ``mark_round_done``/best never saved.  On resume:
+        leave stale — round persisted, ``mark_round_done`` never saved.  On resume:
 
         1. **Spec identity.**  ``state.extra["spec_fingerprint"]`` (hash of
            :func:`plan_stage_inputs`, stamped on first run) must match the spec we are
@@ -335,12 +336,11 @@ class BaseTrack:
            to ``rounds/pre_force/`` — old rounds are never paired with a new spec/plan.
         2. **Journal integrity.**  Trailing rounds whose commit git does not have are
            dropped (half-written journal), with a ``resume.dropped_rounds`` event.
-        3. **Rebuild.**  ``completed_rounds``/``round_commits`` come from the journal;
-           when the state disagrees with it (rounds it never promoted, a best pointing
-           at the wrong commit) the best is recomputed with :func:`replay_best_round`,
-           which re-walks the journal applying the pairwise verdicts the rounds stored
-           — never buying a new one, never reversing one already paid for.
-           A state that already agrees keeps its best untouched.
+        3. **Rebuild.**  ``completed_rounds``/``round_commits`` come from the journal, and
+           the working tree goes back on the LAST round's commit when anything left it
+           elsewhere — a crash mid-round, or the finalise of a run recorded before
+           2026-09-22, which restored its best round.  The next round refines the round
+           before it, always.
 
         Returns the loop's initial round history.  A fresh (non-resume) run only
         stamps the fingerprint and starts empty."""
@@ -367,7 +367,6 @@ class BaseTrack:
             journal = []
             state.stages.pop("plan", None)  # the plan must be rebuilt from the edited spec
             state.completed_rounds, state.round_commits, state.current_round = [], {}, 0
-            state.best_round, state.best_commit, state.best_score = None, "", None
         state.extra["spec_fingerprint"] = fp
         kept: list[RoundRecord] = []
         dropped: list[int] = []
@@ -387,32 +386,13 @@ class BaseTrack:
             state.completed_rounds = [r.index for r in journal]
             state.round_commits = dict(journal_commits)
             state.current_round = len(journal)
-        best = state.best_round
-        best_invalid = best is not None and (best >= len(journal) or journal[best].commit != state.best_commit)
-        # a round the journal has but best selection never saw: the state can look
-        # perfectly consistent (completed_rounds and commits agree) and still name a
-        # stale best, which is then restored and DELIVERED over the newer paid round
-        unranked = bool(journal) and state.best_considered_through < journal[-1].index
-        best_changed = False
-        # an empty journal used to have its own arm; it is subsumed — with journal == []
-        # this condition is always true (best_invalid when a best is set, `best is None`
-        # otherwise) and replay_best_round([]) is None, which clears the best the same
-        # way.  The only divergence, blanking a stale best_commit while best_round is
-        # None, is unobservable: no reader touches best_commit without best_round.
-        if stale or best_invalid or unranked or best is None:
-            pick = replay_best_round(journal)
-            if pick is None:
-                best_changed = best is not None
-                state.best_round, state.best_commit, state.best_score = None, "", None
-            elif pick != best or journal[pick].commit != state.best_commit:
-                state.update_best(pick, journal[pick].commit, journal[pick].score)
-                best_changed = True
-        if journal:
-            state.best_considered_through = journal[-1].index  # every journal round is now ranked
+        restored = bool(journal) and self._needs_restore(ws, journal[-1].commit)
+        if restored:
+            ws.restore(journal[-1].commit)
+            ws.commit(f"resume from the last round r{journal[-1].index:02d}")
         state.save(ws)
         events.emit("resume.reconciled", rounds=len(journal), dropped=dropped, state_was_stale=stale,
-                    unranked_rounds=unranked, best_round=state.best_round, best_score=state.best_score,
-                    best_changed=best_changed, spec_fingerprint=fp)
+                    restored_last_round=journal[-1].index if restored else None, spec_fingerprint=fp)
         return journal
 
 
@@ -560,7 +540,7 @@ class BaseTrack:
         transport_retried: set[int] = set()
 
         def _stop(reason: RunStatus) -> RunStatus:
-            ctx.events.emit("stop", reason=reason.value, rounds=len(rounds), best=ctx.state.best_round)
+            ctx.events.emit("stop", reason=reason.value, rounds=len(rounds))
             return reason
 
         while True:
@@ -582,7 +562,7 @@ class BaseTrack:
                     rejudged.add(last.index)
                     prev_j = rounds[-2].judgment if len(rounds) > 1 else None
                     if rejudge_round(ctx, pipeline, last, previous=prev_j):
-                        self._promote_best(ctx, rounds, last.index)
+                        self._save_budget(ctx)
                         continue  # plan the next round from the recovered verdict
                 tasks, instructions = self.refine_tasks(ctx, last)
                 kind = "refine"
@@ -627,23 +607,10 @@ class BaseTrack:
                 ctx.events.emit("round.no_change", round=index, detail=str(e)[:500])
                 return _stop(RunStatus.NO_CHANGE)
             rounds.append(rec)
-            # ONE save, AFTER the best is chosen — never a durable "round done" with a
-            # not-yet-updated best.  Saving the round first (an earlier attempt at
-            # shrinking the paid-pairwise crash window) made a crash in that window look
-            # SELF-CONSISTENT to reconcile_resume — journal and completed_rounds agreed,
-            # so it kept the stale best and delivered the worse round (r0=0.5 kept over
-            # r1=0.7).  Crashing before this save leaves state behind the journal, which
-            # reconcile detects (stale) and repairs by re-ranking; that is the safe side.
+            # a crash before this save leaves the state behind the journal, which
+            # reconcile_resume detects (stale) and repairs from the journal
             ctx.state.mark_round_done(index, rec.commit)
-            self._promote_best(ctx, rounds, index)
-
-    def _promote_best(self, ctx: RunContext, rounds: list[RoundRecord], index: int) -> None:
-        """Rank round ``index`` in (pairwise tie-break included), promote the best, save."""
-        best = choose_best_round(ctx, rounds, index)
-        ctx.state.best_considered_through = index  # this round HAS been ranked
-        if best is not None and ctx.state.update_best(best, rounds[best].commit, rounds[best].score):
-            ctx.events.emit("best.updated", round=best, score=rounds[best].score)
-        self._save_budget(ctx)
+            self._save_budget(ctx)
 
     def _salvage_baseline(self, ctx: RunContext, rounds: list[RoundRecord]) -> None:
         """A stage tripped the budget BEFORE round 0 ever ran (the greenhouse scene:
@@ -673,7 +640,7 @@ class BaseTrack:
             return
         rounds.append(rec)
         ctx.state.mark_round_done(0, rec.commit)
-        self._promote_best(ctx, rounds, 0)
+        self._save_budget(ctx)
 
     def _save_budget(self, ctx: RunContext) -> None:
         snap = ctx.budget.snapshot()
@@ -682,21 +649,25 @@ class BaseTrack:
 
     # ------------------------------------------------------------------ finalise
     def finalise(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, error: str = "") -> RunRecord:
+        """Write the record.  The workspace ENDS AT THE LAST ROUND: a round the budget or a crash
+        cut mid-way can leave src/ past it, so it is put back and rebuilt — the only restore a
+        run does (every round's own build is kept under artifacts/rNN/, and choosing a round
+        to hand over is ``codeverse3d.addons.select``'s job, after the run)."""
         self._save_budget(ctx)  # aborted-round / stage charges must survive for resume
-        best = ctx.state.best_round
+        last = rounds[-1] if rounds else None
         rebuild_err = ""
         rebuild_ok = False
-        if best is not None and best < len(rounds) and rounds[best].commit and self._needs_restore(ctx, rounds[best].commit):
-            ctx.ws.restore(rounds[best].commit)
-            ctx.ws.commit(f"restore best round r{best:02d}")
+        if last is not None and last.commit and self._needs_restore(ctx.ws, last.commit):
+            ctx.ws.restore(last.commit)
+            ctx.ws.commit(f"back to the last round r{last.index:02d}")
             try:
                 build = ctx.runtime.build(ctx.ws, timeout_s=ctx.settings.limits.build_timeout_s)
-                ctx.events.emit("finalise.rebuild", round=best, ok=build.ok)
+                ctx.events.emit("finalise.rebuild", round=last.index, ok=build.ok)
                 if not build.ok:  # the runtime invalidated the canonical artifact FIRST — it is gone
                     rebuild_err = f"{build.error_type or 'BuildFailed'}: {build.error_message}"[:300]
                 else:
                     rebuild_ok = True
-            except Exception as e:  # noqa: BLE001 — the best round already built once; report, don't fail
+            except Exception as e:  # noqa: BLE001 — the round already built once; report, don't fail
                 rebuild_err = f"{type(e).__name__}: {e}"[:300]
                 ctx.events.emit("finalise.rebuild_failed", error=rebuild_err)
         if rebuild_err:
@@ -712,28 +683,26 @@ class BaseTrack:
         self._save_budget(ctx)  # saves state too
         rec = self._record(ctx, rounds, status, error=error)
         self.services.finalize_record(ctx.ws, rec)
-        ctx.events.emit("run.done", status=status.value, best_round=rec.best_round,
-                        final_score=rec.final_score, cost_usd=round(rec.total_usage.cost_usd, 4))
+        ctx.events.emit("run.done", status=status.value, rounds=len(rounds),
+                        last_score=last.score if last is not None else None,
+                        cost_usd=round(rec.total_usage.cost_usd, 4))
         return rec
 
     @staticmethod
-    def _needs_restore(ctx: RunContext, best_commit: str) -> bool:
-        """src/ != best commit: HEAD moved on, OR an aborted round dirtied the tree
+    def _needs_restore(ws: Workspace, commit: str) -> bool:
+        """src/ != ``commit``: HEAD moved on, OR an aborted round dirtied the tree
         without committing (budget stop mid-generation) — HEAD alone cannot see that."""
-        if ctx.ws.head() != best_commit:
+        if ws.head() != commit:
             return True
         try:
-            return bool(ctx.ws.changed_files())
+            return bool(ws.changed_files())
         except Exception as e:  # noqa: BLE001 — a git hiccup must not block finalise
             log.warning("changed_files failed in finalise: %s", e)
             return False
 
     def _record(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, error: str) -> RunRecord:
-        best = ctx.state.best_round
-        baseline = rounds[0].score if rounds else None
-        final = rounds[best].score if best is not None and best < len(rounds) else None
         total = sum_usage(rounds)
-        # planner, aborted rounds, retried sessions, the texture pass: all in the guard,
+        # planner, aborted rounds, retried sessions: all in the guard,
         # none of them in ``rounds`` — the guard is the honest total (docs/COST.md §6).
         if ctx.budget.spent.cost_usd > total.cost_usd:
             total = ctx.budget.spent
@@ -763,8 +732,7 @@ class BaseTrack:
             extra["aborted_rounds"] = prior_aborted + [a for a in ctx.extra["aborted_rounds"]
                                                        if a not in prior_aborted]
         return RunRecord(
-            spec=ctx.spec, plan=ctx.plan, workspace=str(ctx.ws.root), status=status, rounds=rounds, best_round=best,
-            baseline_score=baseline, final_score=final, total_usage=total,
+            spec=ctx.spec, plan=ctx.plan, workspace=str(ctx.ws.root), status=status, rounds=rounds, total_usage=total,
             environment={"python": platform.python_version(), "host": platform.node(), "track": self.track.value,
                          "language": ctx.language.value, "generator": ctx.agent_id},
             prompt_hashes={**prior_hashes, **dict(ctx.prompt_hashes)}, started_at=ctx.state.started_at,

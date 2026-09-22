@@ -109,7 +109,7 @@ def looks_transport(msg: str) -> bool:
     An agent that ran fine and chose to change nothing reports ``rc=0;
     response=ok`` or plain task notes — none of the markers.  A marker therefore
     separates "the session never really happened" (worth exactly one retry) from
-    "the agent declined" (a plateau verdict to respect).
+    "the agent declined" (a ``no_change`` stop to respect).
     """
     low = msg.lower()
     return any(m in low for m in _TRANSPORT_MARKS)
@@ -177,7 +177,7 @@ def _run_phase(ctx: RunContext, tasks: Sequence[GenerationTask]) -> list[Generat
         return generate_for(ctx, task)
 
     # fan_out also for ONE task: a crashing generator (503 storm, parse error) becomes a failed
-    # result → RoundFailed (refine rounds treat that as a plateau) instead of killing the run.
+    # result → RoundFailed (a refine round then stops the run as no_change) instead of killing it.
     results = fan_out(list(tasks), _one, max_workers=ctx.settings.limits.max_parallel_agents,
                       label="generate", item_name=lambda t: t.label)
     out: list[GenerationResult] = []
@@ -298,8 +298,8 @@ def _run_round(
             # refine round built in 1.2 s, then render_glb.mjs hit its 330 s timeout with
             # three articulated runs and two readouts sharing the browser) used to raise
             # out of the round and record the whole run `failed` -- with a judged round 0
-            # already on disk.  The round is kept: build, measurement and gates stand, the
-            # judge is skipped (no renders), and the loop delivers the best round so far.
+            # already on disk.  The round is kept: build, measurement and gates stand and
+            # the judge is skipped (no renders), so a pick passes over it.
             rec.renders = None
             notes.append(f"render failed: {str(e)[:200]}")
             ctx.events.emit("render.failed", round=index, error=str(e)[:400])
@@ -309,9 +309,7 @@ def _run_round(
         n_err = sum(len(g.errors) for g in gates)
         ctx.events.emit("gates.done", round=index, n_gates=len(gates), n_errors=n_err,
                         tri_count=rec.measurement.tri_count if rec.measurement else None)
-        # a candidate's verdict is the ONLY thing that picks the code r00 starts from, so it is
-        # bought even past the ceiling — unlike a refine verdict, which could promote nothing
-        skip = skip_judge_reason(ctx, renders=rec.renders, ignore_budget=kind == "candidate")
+        skip = skip_judge_reason(ctx, renders=rec.renders)
         if skip:
             notes.append(f"judge skipped ({skip})")
             ctx.events.emit("judge.skipped", round=index, reason=skip)
@@ -327,7 +325,7 @@ def _run_round(
             if rec.judgment is not None:
                 # add, never charge: the verdict exists and is paid for — raising here
                 # would drop a fully judged round before it is committed/recorded
-                # (the loop stops at its next budget_ok check instead, AFTER best promotion).
+                # (the loop stops at its next budget check instead).
                 ctx.budget.add(rec.judgment.usage, stage="judge")
     else:
         notes.append(f"build failed: {outcome.build.error_type}: {outcome.build.error_message[:200]}")
@@ -351,7 +349,7 @@ def _run_round(
 
 
 # ----------------------------------------------------------------------------- cost of a round
-def skip_judge_reason(ctx: RunContext, *, renders: RenderSet | None, ignore_budget: bool = False) -> str:
+def skip_judge_reason(ctx: RunContext, *, renders: RenderSet | None) -> str:
     """Why this round must NOT be judged (``""`` = judge it).
 
     Only states in which the verdict is never bought at all — a skip that the
@@ -359,12 +357,9 @@ def skip_judge_reason(ctx: RunContext, *, renders: RenderSet | None, ignore_budg
     ``judge.retry`` plus a lost score:
 
     * ``no judge configured`` / ``no renders`` — there is nothing to buy.
-    * ``budget already exceeded`` — the loop's next ``budget_ok`` check ends the
-      run, so this verdict could not promote anything.  Measured: 2 verdicts /
-      $0.09 in the audit were bought past the run's wall clock (docs/COST.md §5).
-      ``ignore_budget`` exempts the best-of-N candidates: their verdict picks the
-      code r00 starts from, so skipping it wastes the N generations already paid for.
 
+    A round that finished past the wall clock is still judged (2026-09-22): its verdict is
+    what lets ``addons.select`` pick it, and the generation it scores is already paid for.
     A broken build never gets here (``run_round`` judges only when the build is
     ok) and a round in which nothing changed never gets here either
     (``run_generation_tasks`` raises :class:`RoundFailed` first)."""
@@ -372,8 +367,6 @@ def skip_judge_reason(ctx: RunContext, *, renders: RenderSet | None, ignore_budg
         return "no judge configured"
     if renders is None or not renders.views:
         return "no renders"
-    if not ctx.budget.ok() and not ignore_budget:
-        return "budget already exceeded"
     return ""
 
 
@@ -497,7 +490,7 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
     ctx.ws.write_json(ctx.ws.judge_path(index), judgment)
     if is_degraded(judgment):
         # a glitch, never a score: keep the raw verdict on disk, pay for it, but do not
-        # let 0.0 poison plateau/best/refine (judges/rubrics.degraded_judgment contract)
+        # let 0.0 poison a pick or a refine plan (judges/rubrics.degraded_judgment contract)
         ctx.budget.add(judgment.usage, stage="judge")
         ctx.events.emit("judge.degraded", round=index, error=judgment.summary[:300],
                         cost_usd=round(judgment.usage.cost_usd, 4))

@@ -127,7 +127,7 @@ def diff_between(ws: Workspace, before: str, after: str, *, max_bytes: int | Non
 
     ``total_bytes`` is what git actually produced, so a capped row still records the
     size it was capped from.  The useful shas are the ones recorded on the rounds,
-    never ``HEAD`` — a finished run ends on a "restore best round rNN" commit — and a
+    never ``HEAD`` — a run recorded before 2026-09-22 may end on a "restore best round rNN" commit — and a
     sha the repository no longer holds raises rather than diffing against an empty
     tree: ``git diff`` itself refuses an unknown object, so no pre-check is needed.
     """

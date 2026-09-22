@@ -1,5 +1,5 @@
 """Orchestration: the stage runner with resume, run state, the round policy
-(RoundPolicy / pick_best_round), refine-task compilation and the budget.
+(RoundPolicy), refine-task compilation and the budget.
 
 One module since 2026-08-28: the seven-file package predates the 1,500-line cap,
 nobody ever imported the package itself, and refine_tasks existed only to be
@@ -46,22 +46,15 @@ class StageState(BaseModel):
 
 
 class RunState(BaseModel):
-    """Everything the orchestrator needs to resume a run."""
+    """Everything the orchestrator needs to resume a run.  A state saved before 2026-09-22
+    also names a best round (``best_round`` / ``best_commit`` / ``best_score`` /
+    ``best_considered_through``): unknown keys, ignored — a resume goes on from the LAST round."""
 
     status: RunStatus = RunStatus.PLANNING
     stages: dict[str, StageState] = Field(default_factory=dict)
     current_round: int = Field(default=0, description="index of the round in progress / next to run")
     completed_rounds: list[int] = Field(default_factory=list)
     round_commits: dict[int, str] = Field(default_factory=dict)
-    best_round: int | None = None
-    best_commit: str = ""
-    best_score: float | None = None
-    #: highest round index that has been THROUGH best selection (choose_best_round,
-    #: including its paid pairwise comparison).  Persisted so a resume can tell
-    #: "the best was deliberately kept" from "this round was never considered" —
-    #: without it, a state that merely LOOKS consistent with the journal kept a
-    #: stale best and delivered the worse round (2026-08-27).  -1 = nothing yet.
-    best_considered_through: int = -1
     materialized_for: str = Field(default="", description="agent kind the workspace was materialised for")
     stop_reason: str = ""
     error: str = ""
@@ -98,12 +91,6 @@ class RunState(BaseModel):
             self.completed_rounds.append(index)
         self.round_commits[index] = commit
         self.current_round = index + 1
-
-    def update_best(self, index: int, commit: str, score: float | None) -> bool:
-        """Record ``index`` as best; returns True when it changed."""
-        changed = self.best_round != index
-        self.best_round, self.best_commit, self.best_score = index, commit, score
-        return changed
 
 
 class StateCorrupt(RuntimeError):
@@ -453,30 +440,8 @@ class RoundPolicy:
     judge_samples: int = 1  # VLM judge samples per round (flash: std ≈ 0.001 between samples → 1 is enough)
 
 
-def pick_best_round(rounds: Sequence[RoundRecord]) -> int | None:
-    """Best round = highest score, then fewer gate errors, then later.
-
-    A round that did not build is never picked (it has no score, and delivering code
-    that does not run is never an improvement); when NO round has a score the fallback
-    is the built round with the fewest gate errors — later on a tie — so a round that
-    broke the gates cannot displace a clean earlier artifact just by being last."""
-    scored = [i for i, r in enumerate(rounds) if r.score is not None and not _build_failed(r)]
-    if scored:
-        return max(scored, key=lambda i: (float(rounds[i].score), -gate_error_count(rounds[i]), i))  # type: ignore[arg-type]
-    built = [i for i, r in enumerate(rounds) if r.build is not None and r.build.ok]
-    if not built:
-        return None
-    return min(built, key=lambda i: (gate_error_count(rounds[i]), -i))
-
-
 def gate_error_count(r: RoundRecord) -> int:
     return sum(len(g.errors) for g in r.gates)
-
-
-def _build_failed(r: RoundRecord) -> bool:
-    """The round is KNOWN not to build (a record with no build at all is not a failure:
-    resumed/rejudged records may carry a score without one)."""
-    return r.build is not None and not r.build.ok
 
 
 # ===================================================================== budget

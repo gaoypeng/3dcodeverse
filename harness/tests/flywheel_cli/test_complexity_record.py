@@ -41,7 +41,7 @@ def _round(index: int, score: float, cx: float | None) -> RoundRecord:
     )
 
 
-def _record(rounds: list[RoundRecord], best: int | None = None) -> RunRecord:
+def _record(rounds: list[RoundRecord]) -> RunRecord:
     bbox = BBox(center=(0.0, 0.0, 0.0), extents=(0.1, 0.1, 0.1))
     plan = StaticPlan(object_name="Thing", summary="a thing",
                       overall_bbox=BBox(center=(0.0, 0.5, 0.0), extents=(1.0, 1.0, 1.0)),
@@ -50,15 +50,15 @@ def _record(rounds: list[RoundRecord], best: int | None = None) -> RunRecord:
     return RunRecord(
         spec=Spec(id="t", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a thing",
                   backends=Backends()),
-        plan=plan, workspace="/tmp/x", status=RunStatus.MAX_ROUNDS, rounds=rounds, best_round=best,
+        plan=plan, workspace="/tmp/x", status=RunStatus.MAX_ROUNDS, rounds=rounds,
         started_at=datetime.now(UTC),
     )
 
 
-def test_record_carries_the_delivered_artifact_complexity() -> None:
-    rec = fill_derived(_record([_round(0, 0.60, 0.42), _round(1, 0.80, 0.55)], best=1))
+def test_record_carries_the_last_rounds_complexity_and_the_trail() -> None:
+    rec = fill_derived(_record([_round(0, 0.80, 0.42), _round(1, 0.60, 0.55)]))
     block = rec.extra["complexity"]
-    assert block["index"] == 0.55           # the BEST round's build, not the last measured
+    assert block["index"] == 0.55           # the build the run ENDS at, whatever it scored
     assert block["plan_parts"] == 4
     assert block["parts_per_plan_part"] == pytest.approx(2.0)
     assert block["by_round"] == [0.42, 0.55]
@@ -66,11 +66,11 @@ def test_record_carries_the_delivered_artifact_complexity() -> None:
 
 
 def test_complexity_block_falls_back_to_the_last_measured_round() -> None:
-    rec = _record([_round(0, 0.6, 0.42), _round(1, 0.5, None)], best=1)
+    rec = _record([_round(0, 0.6, 0.42), _round(1, 0.5, None)])
     assert complexity_block(rec)["index"] == 0.42
 
 
 def test_no_measurement_means_no_block() -> None:
-    rec = fill_derived(_record([_round(0, 0.6, None)], best=0))
+    rec = fill_derived(_record([_round(0, 0.6, None)]))
     assert "complexity" not in rec.extra
     assert round_summary(rec.rounds[0])["complexity"] is None

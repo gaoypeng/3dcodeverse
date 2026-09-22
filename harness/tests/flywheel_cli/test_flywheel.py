@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from codeverse3d.addons import select
 from codeverse3d.addons.dataset.export import export_samples
 from codeverse3d.addons.dataset.index import build_index, summary
 from codeverse3d.addons.dataset.pack import pack_samples, verify_locators
@@ -22,7 +23,6 @@ from codeverse3d.contracts.run import RunRecord
 from codeverse3d.record import _git
 from codeverse3d.record.record import (
     RecordError,
-    best_round_index,
     finalize_record,
     iter_runs,
     load_record,
@@ -34,28 +34,16 @@ from codeverse3d.workspace import Workspace
 
 def test_finalize_and_load_record(fake_run):
     ws, rec = fake_run
-    rec.best_round = None
-    rec.final_score = None
     rec.environment = {}
     path = finalize_record(ws, rec)
     assert path == ws.record_path and path.is_file()
     loaded = load_record(ws)
-    assert loaded.best_round == 1 and loaded.final_score == 0.80 and loaded.baseline_score == 0.55
+    stored = json.loads(path.read_text())
+    assert not {"best_round", "baseline_score", "final_score"} & stored.keys()  # the run names no best (2026-09-22)
     assert loaded.environment["python"] and loaded.environment["codeverse3d"]
     assert "three" in loaded.environment and "node" in loaded.environment
     assert len(loaded.extra["rounds_summary"]) == 2
     assert loaded.extra["rounds_summary"][1]["score"] == 0.80
-
-
-def test_best_round_fallbacks(fake_run):
-    ws, rec = fake_run
-    rec.best_round = None
-    assert best_round_index(rec) == 1
-    for r in rec.rounds:
-        r.judgment = None
-    assert best_round_index(rec) == 1  # last built round
-    rec.rounds = []
-    assert best_round_index(rec) is None
 
 
 def test_iter_runs_and_errors(runs_dir: Path):
@@ -356,10 +344,10 @@ def test_degraded_round_is_not_a_zero_score(tmp_path: Path):
                                            "judgment": _degrade(rec.rounds[1].judgment)})
     last = rec.rounds[1].model_copy(update={"index": 2})
     rec.rounds = [rec.rounds[0], mid, last]
-    rec.best_round = None
     assert effective_judgment(mid) is None and effective_score(mid) is None
     assert round_summary(mid)["score"] is None and round_summary(mid)["judge_degraded"] is True
-    assert best_round_index(rec) == 2  # 0.64 beats 0.62; the degraded 0.0 never competes
+    ws.write_json(ws.record_path, rec)
+    assert select.pick(ws.root) == 2  # 0.64 beats 0.62; the degraded 0.0 never competes
     pairs = preference_pairs(ws, rec, min_delta=0.05)
     # old behaviour: chosen=r2 rejected=r1(degraded) with delta 0.64 — a pure noise pair
     assert pairs == []
@@ -367,15 +355,13 @@ def test_degraded_round_is_not_a_zero_score(tmp_path: Path):
     assert len(pairs) == 1 and pairs[0]["rejected"]["round"] == 0 and pairs[0]["chosen"]["round"] == 2
 
 
-def test_degraded_best_round_exports_unscored(tmp_path: Path):
+def test_a_run_with_only_degraded_verdicts_exports_unscored(tmp_path: Path):
     from tests.flywheel_cli.conftest import make_fake_run
 
     ws, rec = make_fake_run(tmp_path / "runs", scores=(0.5, 0.9))
     for r in rec.rounds:
         if r.judgment is not None:
             r.judgment = _degrade(r.judgment)
-    rec.best_round = 1
-    rec.baseline_score = rec.final_score = None
     ws.write_json(ws.record_path, rec)
     out = tmp_path / "ds"
     rep = export_samples(ws.root.parent, out)

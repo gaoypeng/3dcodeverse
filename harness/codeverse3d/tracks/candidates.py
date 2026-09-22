@@ -29,7 +29,7 @@ from codeverse3d.contracts.artifacts import BuildResult, Measurement, RenderSet
 from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK
-from codeverse3d.orchestrator import BudgetExceeded, gate_error_count, pick_best_round
+from codeverse3d.orchestrator import BudgetExceeded, gate_error_count
 from codeverse3d.proc import EventLog, fan_out
 from codeverse3d.tracks.common import RunContext
 from codeverse3d.tracks.generation import GenerationTask
@@ -196,35 +196,6 @@ def adopt_candidate(ctx: RunContext, sub_ws: Workspace) -> None:
         shutil.copytree(sub_ws.trajectories, ctx.ws.trajectories, dirs_exist_ok=True)
 
 
-# ----------------------------------------------------------------------------- best round
-def choose_best_round(ctx: RunContext, rounds: list[RoundRecord], new_index: int) -> int | None:
-    """Index of the best round after ``rounds[new_index]`` finished (no pairwise tie-break is
-    bought any more; verdicts stored by earlier runs are still honoured by the replay)."""
-    return replay_best_round(rounds)
-
-
-def replay_best_round(journal: Sequence[RoundRecord]) -> int | None:
-    """The best index, walking the journal sequentially and honouring stored verdicts.
-
-    Each round is an incumbent-vs-challenger step: a round carrying a
-    :class:`PairwiseNote` was decided inside ``policy.pairwise_margin``, where score
-    ranking has nothing to say, so the stored verdict — replace or keep — is FINAL
-    (a later round can never revive a rejected challenger by global re-ranking, and a
-    kill before the state save cannot reverse a paid ~$0.05 judgement — 18 such runs
-    on disk, 2026-08-30); every other round advances by the two-way :func:`pick_best_round`
-    rule, whose key is a total order — absent verdicts this equals the global pick."""
-    best: int | None = None
-    for i, rec in enumerate(journal):
-        if rec.pairwise is not None and best is not None and best != i:
-            if rec.pairwise.accepted:
-                best = i
-        elif best is None:
-            best = pick_best_round(journal[:i + 1])
-        elif pick_best_round([journal[best], rec]) == 1:
-            best = i
-    return best
-
-
 # ===================================================================== decision logic
 class CandidateRecord(BaseModel):
     """One best-of-N baseline candidate (generated in its own sub-workspace)."""
@@ -251,5 +222,5 @@ def rank_candidates(records: Sequence[CandidateRecord]) -> list[int]:
     return [r.index for r in sorted(records, key=lambda r: r.sort_key(), reverse=True)]
 
 
-__all__ = ["CAND_DIR", "CandidateRecord", "adopt_candidate", "choose_best_round", "make_candidate_context",
-           "quick_render", "rank_candidates", "replay_best_round", "run_best_of_n"]
+__all__ = ["CAND_DIR", "CandidateRecord", "adopt_candidate", "make_candidate_context", "quick_render",
+           "rank_candidates", "run_best_of_n"]

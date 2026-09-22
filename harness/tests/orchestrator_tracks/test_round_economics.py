@@ -169,14 +169,13 @@ def test_skip_judge_reasons_are_only_states_where_the_verdict_is_never_bought(tm
 
     ctx = _ctx(tmp_path, spec, settings)
     # gate errors are no reason: the gates say what is broken, the verdict says whether
-    # the shape is right, and only the verdict can promote the round
+    # the shape is right, and only the verdict lets a pick choose the round
     assert skip_judge_reason(ctx, renders=_renders()) == ""
     assert skip_judge_reason(ctx, renders=None) == "no renders"
-    # ... the budget/clock stop: the loop's next budget_ok check ends the run, so this
-    # verdict cannot promote anything (audit: 2 verdicts / $0.09 bought past the clock)
-    ctx.budget.add(Usage(cost_usd=99.0), stage="refine")
+    # a round that finished past the clock is still judged: its generation is paid for and
+    # an unjudged round can never be picked (2026-09-22)
     ctx.budget._active_s = (ctx.budget.budget.max_minutes + 1) * 60   # noqa: SLF001
-    assert skip_judge_reason(ctx, renders=_renders()) == "budget already exceeded"
+    assert not ctx.budget.ok() and skip_judge_reason(ctx, renders=_renders()) == ""
     ctx.judge = None
     assert skip_judge_reason(ctx, renders=_renders()) == "no judge configured"
 
@@ -202,20 +201,6 @@ def test_a_round_with_gate_errors_whose_verdict_was_lost_is_rejudged(tmp_path, s
     rec = RoundRecord(index=1, kind="refine", build=BuildResult(ok=True, language="l"),
                       gates=_gates(2), renders=_renders())
     assert rejudge_round(ctx, _pipeline(), rec) is True and len(ctx.judge.calls) == 1
-
-
-def test_a_round_that_broke_the_gates_does_not_displace_a_clean_one():
-    from codeverse3d.orchestrator import pick_best_round
-
-    def r(i, *, build_ok=True, errors=0):
-        return RoundRecord(index=i, kind="refine", build=BuildResult(ok=build_ok, language="l"),
-                           gates=_gates(errors), commit=f"c{i}")
-
-    assert pick_best_round([r(0), r(1, build_ok=False)]) == 0        # broken build never wins
-    assert pick_best_round([r(0), r(1, errors=4)]) == 0              # clean r00 keeps the crown
-    assert pick_best_round([r(0, errors=4), r(1)]) == 1
-    assert pick_best_round([r(0), r(1)]) == 1                        # tie → the later one
-    assert pick_best_round([r(0, build_ok=False)]) is None
 
 
 class _Pipeline:
@@ -299,7 +284,6 @@ def test_a_lint_stuck_run_keeps_every_score_instead_of_deferring_the_verdict(tmp
     assert [e for e in events if e["event"] == "judge.skipped"] == []
     assert [e for e in events if e["event"] == "judge.retry"] == []
     assert [r.score for r in rec.rounds] == [0.5, 0.6, 0.7]
-    assert rec.best_round == 2 and rec.final_score == pytest.approx(0.7)
     # one verdict per round, bought once
     assert len([e for e in events if e["event"] == "judge.done"]) == len(rec.rounds) == len(judge.calls)
 

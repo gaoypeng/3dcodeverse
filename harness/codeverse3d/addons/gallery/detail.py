@@ -221,10 +221,12 @@ def _complexity_panel(entry: RunEntry, rec: RunRecord) -> str:
         v = entry.complexity_axes.get(axis, block.get(axis))
         if isinstance(v, (int, float)):
             rows.append(_kv(label, spec.format(float(v))))
-    if isinstance(block.get("plan_parts"), int) and block["plan_parts"]:
-        rows.append(_kv("plan parts", str(block["plan_parts"])))
-        if block.get("parts_per_plan_part") is not None:
-            rows.append(_kv("built / planned parts", f"{float(block['parts_per_plan_part']):.2f}"))
+    plan_parts = block.get("plan_parts")
+    if isinstance(plan_parts, int) and plan_parts:
+        rows.append(_kv("plan parts", str(plan_parts)))
+        built = entry.complexity_axes.get("part_count", block.get("part_count"))  # the picked round's
+        if isinstance(built, (int, float)):
+            rows.append(_kv("built / planned parts", f"{float(built) / plan_parts:.2f}"))
     trail = block.get("by_round")
     if isinstance(trail, list) and len(trail) > 1:
         rows.append(_kv("by round", " → ".join(f"{float(x):.2f}" for x in trail)))

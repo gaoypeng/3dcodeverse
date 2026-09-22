@@ -48,8 +48,6 @@ def test_a_card_links_the_picked_rounds_own_glb(tmp_path: Path):
     from tests.flywheel_cli.conftest import make_fake_run
 
     ws, _ = make_fake_run(tmp_path / "runs", "kept_rounds", scores=(0.9, 0.6))   # the pick is r00
-    (ws.round_artifacts(0)).mkdir(parents=True)
-    (ws.round_artifacts(0) / "object.glb").write_bytes(b"glTF r00")
     links = {ln.label: ln.rel for ln in entry_for_dir("runs", ws.root).links}
     assert links["glb"] == "artifacts/r00/object.glb"
     select.package(ws.root, 0)

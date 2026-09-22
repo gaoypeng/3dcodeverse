@@ -245,7 +245,6 @@ def test_the_adopted_best_of_n_winner_survives_a_boundary_budget_stop(tmp_path, 
     rec = track.run(make_spec(max_rounds=0), ws)
     assert rec.status is RunStatus.BUDGET
     assert len(rec.rounds) == 1 and rec.rounds[0].score == pytest.approx(0.6)
-    assert rec.best_round == 0 and rec.final_score == pytest.approx(0.6)
     ev = [e["event"] for e in EventLog(ws.events_path).read()]
     assert "budget.salvage" in ev and "budget.salvage_skipped" not in ev
 

@@ -32,7 +32,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.common import TRACK_INFO, Usage
-from codeverse3d.contracts.run import PairwiseNote, RunRecord
+from codeverse3d.contracts.run import RunRecord
 from codeverse3d.cost.context import call_context
 from codeverse3d.cost.types import Role, Stage
 from codeverse3d.judges.base import judged_subset, resolve_paths
@@ -88,6 +88,20 @@ class Selection(BaseModel):
     scores: dict[int, float | None] = Field(default_factory=dict, description="every round's effective score")
     textured: bool = Field(default=False, description="the deliverable carries a shipped texture pack of this round")
     selected_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class PairwiseNote(BaseModel):
+    """One paid pairwise verdict — does round ``b`` beat round ``a``? — as cached in
+    ``artifacts/judge/rAA_vs_rBB_pairwise.json`` so a second ``3dcode pick`` re-reads it."""
+
+    a: str = Field(description="label of the top-scored round")
+    b: str = Field(description="label of the runner-up")
+    winner: Literal["a", "b", "tie"] = "tie"
+    confidence: float = 0.0
+    accepted: bool = Field(default=False, description="True when the runner-up is picked instead")
+    reasons: list[str] = Field(default_factory=list)
+    usage: Usage = Field(default_factory=Usage)
+    error: str = ""
 
 
 # --------------------------------------------------------------------------- rows

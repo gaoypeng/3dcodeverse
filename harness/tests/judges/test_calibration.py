@@ -140,5 +140,5 @@ def test_calibration_judges_what_the_in_run_judge_saw(tmp_path, monkeypatch):
     assert set(made) == {"_Ref"}
     r1 = next(inp for inp in seen if inp.round_index == 1)
     assert r1.previous is not None and r1.previous.overall == 0.55
-    assert r1.geometry_views is not None and r1.glb_path == str(ws.artifacts / "object.glb")
+    assert r1.geometry_views is not None and r1.glb_path == str(ws.round_artifacts(1) / "object.glb")  # the round's own
     assert next(row for row in table.rows if row.round == 1).geometry_views

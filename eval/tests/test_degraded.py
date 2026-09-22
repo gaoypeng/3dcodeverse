@@ -34,7 +34,7 @@ def _track(status: RunStatus, stop_reason: str, rounds: int, cost: float, aborte
     def run(spec, ws, resume):
         ws.src.mkdir(parents=True, exist_ok=True)
         (ws.root / "src" / "model.py").write_text(GOOD.format(score=0.6))
-        rec = RunRecord(spec=spec, workspace=str(ws.root), status=status, final_score=0.6,
+        rec = RunRecord(spec=spec, workspace=str(ws.root), status=status,
                         rounds=[RoundRecord(index=i, kind="baseline" if i == 0 else "refine") for i in range(rounds)],
                         total_usage=Usage(cost_usd=cost),
                         extra={"stop_reason": stop_reason, "aborted_rounds": [{"index": rounds}] * aborted})

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import time
 
 import pytest
 from pydantic import BaseModel
 
 from codeverse3d.contracts.artifacts import (
-    BuildResult,
     GateFinding,
     GateReport,
     ImprovementItem,
@@ -17,7 +17,7 @@ from codeverse3d.contracts.artifacts import (
 )
 from codeverse3d.contracts.common import Budget, Usage
 from codeverse3d.contracts.plan import AcceptanceItem
-from codeverse3d.contracts.run import RoundRecord
+from codeverse3d.contracts.run import RunStatus
 from codeverse3d.orchestrator import (
     BudgetExceeded,
     BudgetGuard,
@@ -26,7 +26,6 @@ from codeverse3d.orchestrator import (
     StageRunner,
     build_refine_instructions,
     hash_inputs,
-    pick_best_round,
     plan_parallel_groups,
 )
 from codeverse3d.proc import EventLog, fan_out
@@ -68,11 +67,22 @@ def test_fan_out_preserves_order_and_captures_exceptions():
 def test_run_state_roundtrip(tmp_ws):
     st = RunState()
     st.mark_round_done(0, "abc")
-    st.update_best(0, "abc", 0.5)
     st.save(tmp_ws)
     again = RunState.load(tmp_ws)
-    assert again is not None and again.best_round == 0 and again.current_round == 1 and again.round_commits[0] == "abc"
-    assert RunState.load_or_new(tmp_ws, resume=False).best_round is None
+    assert again is not None and again.current_round == 1 and again.round_commits[0] == "abc"
+    assert RunState.load_or_new(tmp_ws, resume=False).completed_rounds == []
+
+
+def test_a_run_state_saved_before_2026_09_22_still_loads(tmp_ws):
+    """It named a best round and could end ``passed`` / ``plateau``: the keys are ignored
+    and the status reads as ``stopped`` — a resume goes on from the last round."""
+    tmp_ws.state_path.write_text(json.dumps({
+        "status": "passed", "stop_reason": "pass", "current_round": 2, "completed_rounds": [0, 1],
+        "round_commits": {"0": "a0", "1": "a1"}, "best_round": 0, "best_commit": "a0", "best_score": 0.81,
+        "best_considered_through": 1}))
+    st = RunState.load(tmp_ws)
+    assert st is not None and st.status is RunStatus.STOPPED and st.round_commits == {0: "a0", 1: "a1"}
+    assert "best_round" not in st.model_dump() and RunStatus("plateau") is RunStatus.STOPPED
 
 
 def test_stage_runner_caches_by_input_hash(tmp_ws):
@@ -143,22 +153,6 @@ def test_stage_runner_raises_and_records_nothing(tmp_ws):
         runner.stage("bad", boom, inputs="y")
     assert "bad" not in runner.state.stages
     assert hash_inputs({"a": [1, 2]}) == hash_inputs({"a": (1, 2)})
-
-
-# ----------------------------------------------------------------------------- best round
-def _round(i: int, score: float | None, errors: int = 0, build_ok: bool = True) -> RoundRecord:
-    j = Judgment(rubric="r", scores={"a": score}, overall=score, passed=score >= 0.8) if score is not None else None
-    gates = [GateReport(gate="g", passed=errors == 0, findings=[GateFinding(gate="g", severity=Severity.ERROR, message="e")] * errors)]
-    return RoundRecord(index=i, kind="x", judgment=j, gates=gates, build=BuildResult(ok=build_ok, language="l"), commit=f"c{i}")
-
-
-def test_pick_best_round_prefers_score_then_fewer_errors_then_recency():
-    rounds = [_round(0, 0.5), _round(1, 0.7, errors=2), _round(2, 0.7, errors=0), _round(3, 0.6)]
-    assert pick_best_round(rounds) == 2
-    assert pick_best_round([_round(0, 0.7, errors=1), _round(1, 0.7, errors=1)]) == 1  # full tie → the later one
-    assert pick_best_round([_round(0, 0.9, errors=3), _round(1, 0.8)]) == 0  # score outranks gate errors
-    assert pick_best_round([]) is None
-    assert pick_best_round([_round(0, None, build_ok=False), _round(1, None, build_ok=True)]) == 1
 
 
 # ----------------------------------------------------------------------------- refine instructions

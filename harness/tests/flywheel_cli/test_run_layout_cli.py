@@ -32,16 +32,19 @@ runner = CliRunner()
 
 
 def strip_layout(ws: Workspace) -> Workspace:
-    """Turn a freshly created workspace back into a pre-2026-08-23 run directory."""
+    """Turn a freshly created workspace back into a pre-2026-08-23 run directory: no
+    telemetry/ or deliverable/, no per-round builds — only the canonical one, of the best
+    round its record.json names."""
     for name, _ in LAYOUT_ALIASES:
         p = ws.root / name
         if p.is_symlink():
             p.unlink()
-    for d in (ws.deliverable, ws.telemetry):
+    for d in (ws.deliverable, ws.telemetry, *ws.artifacts.glob("r[0-9][0-9]")):
         shutil.rmtree(d, ignore_errors=True)
     rec = json.loads(ws.record_path.read_text())
     rec.pop("telemetry", None)
     rec.pop("deliverable", None)
+    rec["best_round"] = max((r for r in rec["rounds"] if r.get("judgment")), key=lambda r: r["judgment"]["overall"])["index"]
     ws.record_path.write_text(json.dumps(rec, indent=2))
     return ws
 
@@ -158,15 +161,25 @@ def test_the_settings_snapshot_records_the_temperature_the_track_planned_at(tmp_
 def test_rejected_texture_pass_is_not_delivered_or_linked(fake_run):
     """Belt and braces: a stray canonical object_textured.glb from a rejected pass
     is skipped by the deliverable AND by the gallery links (both gate on shipped)."""
+    from codeverse3d.texturing.run import report_path
+
     ws, rec = fake_run
     (ws.artifacts / "object_textured.glb").write_bytes(b"glTF\x02" + b"\0" * 16)
-    rec.extra["texturing"] = {"shipped": False, "glb_textured": "artifacts/object_textured.glb"}
+    report_path(ws).parent.mkdir(parents=True, exist_ok=True)
+
+    def texturing(shipped: bool) -> None:  # the pass report names the round GLB it started from
+        rec.extra["texturing"] = {"shipped": shipped, "glb_textured": "artifacts/object_textured.glb"}
+        ws.write_json(report_path(ws), {**rec.extra["texturing"], "glb_in": "artifacts/r01/object.glb"})
+
+    texturing(False)
     build_deliverable(ws, rec, 1)
     assert not (ws.deliverable / "object_textured.glb").exists()
     entry = entry_from_record("runs", ws, rec)
     assert "textured glb" not in {ln.label for ln in entry.links}
-    # ... and a SHIPPED pass is delivered and linked
-    rec.extra["texturing"] = {"shipped": True, "glb_textured": "artifacts/object_textured.glb"}
+    # ... and a SHIPPED pass is delivered and linked — with the round it textured, only
+    texturing(True)
+    build_deliverable(ws, rec, 0)
+    assert not (ws.deliverable / "object_textured.glb").exists()
     build_deliverable(ws, rec, 1)
     assert (ws.deliverable / "object_textured.glb").is_file()
     entry = entry_from_record("runs", ws, rec)

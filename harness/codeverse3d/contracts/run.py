@@ -197,28 +197,6 @@ class RunStatus(StrEnum):
         return cls.STOPPED if value in ("passed", "plateau") else None
 
 
-class PairwiseNote(BaseModel):
-    """What a tie-break compared and what it concluded.
-
-    Lives on the round record because the comparison is a PAID judge call (~$0.05):
-    ``rNN.json`` is the durable artifact, so a resume replays the verdict instead of
-    re-ranking on score alone and silently reversing it
-    (``tracks.candidates.replay_best_round``)."""
-
-    a: str = Field(description="label of the incumbent (current best)")
-    b: str = Field(description="label of the challenger (new round / other candidate)")
-    winner: Literal["a", "b", "tie"] = "tie"
-    confidence: float = 0.0
-    accepted: bool = Field(default=False, description="True when the challenger replaces the incumbent")
-    reasons: list[str] = Field(default_factory=list)
-    usage: Usage = Field(default_factory=Usage)
-    error: str = ""
-
-    def line(self) -> str:
-        verdict = {"a": f"{self.a} wins", "b": f"{self.b} wins", "tie": "tie"}[self.winner]
-        return f"pairwise {self.a} vs {self.b}: {verdict} (confidence {self.confidence:.2f}) → {'replace' if self.accepted else 'keep'}"
-
-
 class RoundRecord(BaseModel):
     index: int
     kind: str = Field(description="baseline | refine | repair | texture | asset:<name> ...")
@@ -236,9 +214,6 @@ class RoundRecord(BaseModel):
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     duration_s: float = 0.0
     notes: str = ""
-    pairwise: PairwiseNote | None = Field(
-        default=None, description="the paid tie-break verdict that ranked this round against the "
-                                  "incumbent best, when one was bought; None = ranked on score alone")
 
     @property
     def score(self) -> float | None:
@@ -358,14 +333,16 @@ class RunDeliverable(BaseModel):
 
 
 class RunRecord(BaseModel):
+    """One run.  A record written before 2026-09-22 also names a best round, a baseline and a
+    final score (``best_round`` / ``baseline_score`` / ``final_score``) and a round may carry a
+    ``pairwise`` tie-break note: unknown keys, ignored — ``addons.select`` answers which round
+    to hand over, after the run."""
+
     spec: Spec
     plan: StaticPlan | ArticulatedPlan | ScenePlan | GraphicsPlan | None = None
     workspace: str
     status: RunStatus = RunStatus.PLANNING
     rounds: list[RoundRecord] = Field(default_factory=list)
-    best_round: int | None = None
-    baseline_score: float | None = None
-    final_score: float | None = None
     total_usage: Usage = Field(default_factory=Usage)
     environment: dict[str, str] = Field(default_factory=dict, description="tool versions, git sha, host")
     prompt_hashes: dict[str, str] = Field(default_factory=dict)

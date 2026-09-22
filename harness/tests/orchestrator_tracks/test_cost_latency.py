@@ -325,12 +325,11 @@ def test_a_budget_stop_before_round_zero_still_delivers_a_judged_round(tmp_path,
         rec = track.run(spec, ws)
     assert rec.status is RunStatus.BUDGET and rec.extra["stop_reason"] == "budget"
     # …and, unlike the greenhouse run, it has a score
-    assert rec.best_round == 0 and rec.final_score == pytest.approx(0.58)
-    assert len(rec.rounds) == 1 and rec.rounds[0].renders is not None
+    assert len(rec.rounds) == 1 and rec.rounds[0].renders is not None and rec.rounds[0].score == pytest.approx(0.58)
     assert "salvaged" in rec.rounds[0].notes
     ev = [json.loads(x) for x in (ws.root / "events.jsonl").read_text().splitlines() if x.strip()]
     names = [e["event"] for e in ev]
-    assert "budget.salvage" in names and names.count("best.updated") == 1
+    assert "budget.salvage" in names
     salvage = next(e for e in ev if e["event"] == "budget.salvage")
     assert salvage["grace_minutes"] > 0
 
@@ -440,7 +439,7 @@ def test_an_imperfect_asset_stays_available_but_a_broken_one_does_not(tmp_path, 
     assert not bad.ok and bad.fatal and "missing export" in bad.errors[0]
 
 
-def test_a_scene_round_judged_at_the_ceiling_is_still_promoted(tmp_path, settings):
+def test_a_scene_round_judged_at_the_ceiling_keeps_its_verdict(tmp_path, settings):
     plan = _threejs_scene_plan()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=2)
     ws = Workspace(tmp_path / "runs" / "ceiling")
@@ -450,10 +449,8 @@ def test_a_scene_round_judged_at_the_ceiling_is_still_promoted(tmp_path, setting
                        runtime=FakeRuntime(Language.SCENE_THREEJS))
     with fake_clock():
         rec = track.run(spec, ws)
-    assert rec.status is RunStatus.BUDGET and rec.best_round == 0 and rec.final_score == pytest.approx(0.61)
-    assert len(rec.rounds) == 1 and rec.rounds[0].judgment is not None
+    assert rec.status is RunStatus.BUDGET and len(rec.rounds) == 1 and rec.rounds[0].score == pytest.approx(0.61)
     names = [json.loads(x)["event"] for x in (ws.root / "events.jsonl").read_text().splitlines() if x.strip()]
-    assert names.index("best.updated") < names.index("stop")
     assert "budget.salvage" not in names, "round 0 already exists: nothing to salvage"
     assert len(judge.calls) == 1
 

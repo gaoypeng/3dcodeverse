@@ -68,11 +68,11 @@ ROUTES: tuple[Route, ...] = (
     # ------------------------------------------------------------------ judge
     Route(Role.JUDGE, "gemini:gemini-3.1-pro-preview", 0.060,
           "σ 0.030, pearson(gate errors, score) +0.63",
-          "every decision that persists: best-round selection, pass/fail, dataset tiering",
+          "every verdict that persists: the round a pick hands over, dataset tiering",
           default=True),
     Route(Role.JUDGE, "gemini:gemini-3.7-flash", 0.027,
           "σ 0.083 and pearson −0.33 (anti-correlated with the gates)",
-          "in-loop refine hints only, where a wrong rank costs one round, never for pass/fail"),
+          "in-loop refine hints only — its scores are what a pick then ranks, so not where the pick matters"),
     # ------------------------------------------------------------------ image
     Route(Role.IMAGE, "gemini:gemini-3.1-flash-image", 0.067,
           "per 1024² tile; a texture pass is ~2 tiles + plan + gate ≈ $0.13",

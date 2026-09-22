@@ -72,6 +72,9 @@ def test_every_refine_starts_from_the_previous_rounds_commit(tmp_path, chair_pla
     assert rec.rounds[2].instructions, "the tasks come from r01's verdict and gates"
     events = [e["event"] for e in EventLog(ws.events_path).read()]
     assert "round.refine_from_best" not in events and "strategy.switch" not in events
+    # ... and the run ENDS at its last round: no restore of a better-scored one
+    assert "restore" not in ws._git("log", "--format=%s").stdout  # noqa: SLF001
+    assert ws.head() == rec.rounds[-1].commit and (ws.src / "model.py").read_text() == "import bpy  # written in r2\n"
 
 
 class _RoundStampRuntime(FakeRuntime):
@@ -106,6 +109,7 @@ def test_every_round_keeps_its_build_and_any_round_can_be_packaged(tmp_path, cha
     assert all(p.is_file() for p in kept) and (ws.round_artifacts(1) / "object.stl").is_file()
     assert len({p.read_bytes() for p in kept}) == 3, "each round keeps its OWN build"
     assert not (ws.round_artifacts(1) / "census.json").exists(), "only what a hand-over needs is kept"
+    assert (ws.artifacts / "object.glb").read_bytes() == kept[2].read_bytes(), "the canonical build is the last round's"
     # any round packages without a rebuild: its commit's code + its own GLB
     builds = track._runtime.builds
     for i in (1, 0):

@@ -236,23 +236,6 @@ class FakeJudge:
                         improvement_plan=plan, acceptance_results=acc, usage=Usage(backend="fake", cost_usd=self.cost))
 
 
-class FakePairwise:
-    """Scripted pairwise verdicts: ``verdicts`` is consumed in order (last one repeats)."""
-
-    def __init__(self, verdicts: Sequence[tuple[str, float]] = (("tie", 0.3),), cost: float = 0.004):
-        self.verdicts = list(verdicts)
-        self.cost = cost
-        self.calls: list[tuple[Any, Any, Any, str]] = []
-
-    def compare(self, spec: Any, renders_a: Any, renders_b: Any, *, rubric: str = "static_object_v1") -> Any:
-        from codeverse3d.judges.pairwise import PairwiseResult
-
-        i = min(len(self.calls), len(self.verdicts) - 1)
-        self.calls.append((spec, renders_a, renders_b, rubric))
-        winner, conf = self.verdicts[i]
-        return PairwiseResult(winner=winner, confidence=conf, reasons=[f"scripted verdict {i}"], usage=Usage(backend="fake", cost_usd=self.cost))
-
-
 # ----------------------------------------------------------------------------- services
 def _png(path: Path, size: int = 32) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)

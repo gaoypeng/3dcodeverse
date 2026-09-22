@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from codeverse3d.addons import select
 from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import ArticulatedPlan, ScenePlan
 from codeverse3d.contracts.run import RunRecord, RunStatus
@@ -56,14 +57,14 @@ def test_static_track_end_to_end_agent_path(tmp_path, chair_plan, settings):
     # FIXED rounds: 0.85 would once have stopped the run as a pass; the baseline + 3 refine rounds run
     assert isinstance(rec, RunRecord) and rec.status is RunStatus.MAX_ROUNDS
     assert [r.kind for r in rec.rounds] == ["baseline", "refine", "refine", "refine"]
-    assert rec.baseline_score == pytest.approx(0.55) and rec.final_score == pytest.approx(0.85) and rec.best_round == 3
+    assert [r.score for r in rec.rounds] == [0.55, 0.7, 0.85, 0.85]
     assert rec.total_usage.cost_usd > 0 and rec.extra["stop_reason"] == "max_rounds"
     assert ws.record_path.is_file() and ws.plan_path.is_file() and ws.state_path.is_file()
     state = RunState.load(ws)
     assert state.status is RunStatus.MAX_ROUNDS and state.completed_rounds == [0, 1, 2, 3]
     assert services.materialized == ["fake"] and (ws.root / "AGENTS.md").is_file()
     kinds = [e["event"] for e in EventLog(ws.events_path).read()]
-    for k in ("run.start", "stage.done", "plan.done", "round.start", "build.done", "gates.done", "judge.done", "round.done", "best.updated", "stop", "run.done"):
+    for k in ("run.start", "stage.done", "plan.done", "round.start", "build.done", "gates.done", "judge.done", "round.done", "stop", "run.done"):
         assert k in kinds, k
     # per-round artifacts
     assert (ws.root / "rounds" / "r00.json").is_file() and ws.judge_path(2).is_file() and (ws.gates_dir(1) / "contract.json").is_file()
@@ -310,8 +311,8 @@ def test_get_track_dispatch():
 def test_a_render_timeout_degrades_the_round_instead_of_failing_the_run(tmp_path, chair_plan, settings):
     """Measured 2026-08-26 (art_verify camera_tripod): the refine round built in 1.2 s, then
     render_glb.mjs hit its 330 s timeout under load and the run was recorded `failed` with a
-    judged round 0 on disk.  The round keeps build/gates, skips the judge, and the run
-    delivers its best round."""
+    judged round 0 on disk.  The round keeps build/gates and skips the judge, so a pick
+    hands over the judged round 0."""
     from codeverse3d.spatial.render import RenderError
 
     class _Services(FakeServices):
@@ -326,7 +327,7 @@ def test_a_render_timeout_degrades_the_round_instead_of_failing_the_run(tmp_path
                               agent=FakeAgent(_agent_writer), planner_model=_planner(chair_plan.model_dump(mode="json")),
                               settings=settings, runtime=FakeRuntime(Language.THREEJS))
     rec = track.run(spec, ws)
-    assert rec.status is not RunStatus.FAILED and rec.best_round == 0 and rec.final_score == pytest.approx(0.55)
+    assert rec.status is not RunStatus.FAILED and select.pick(ws.root) == 0
     r1 = rec.rounds[1]
     assert r1.build is not None and r1.build.ok and r1.renders is None and r1.judgment is None
     assert "render failed" in r1.notes

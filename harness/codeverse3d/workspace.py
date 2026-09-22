@@ -183,7 +183,7 @@ class Workspace:
 
     @property
     def deliverable(self) -> Path:
-        """(a) the hand-over folder: best-round code + canonical artifact + sheet + captions."""
+        """(a) the hand-over folder: one round's code + artifact + sheet + captions (``3dcode pick``)."""
         return self.root / DELIVERABLE_DIR
 
     @property

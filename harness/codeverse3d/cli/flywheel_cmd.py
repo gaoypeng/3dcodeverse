@@ -24,7 +24,7 @@ def export_cmd(
     only_passed: Annotated[bool, typer.Option("--only-passed")] = False,
     pack: Annotated[bool, typer.Option("--pack", help="also pack samples-NNN.tar + byte-range locators")] = False,
     tar_prefix: Annotated[str, typer.Option("--tar-prefix", help="repo-root-relative prefix for the tar column")] = "",
-    include_unbuilt: Annotated[bool, typer.Option("--include-unbuilt", help="also export runs whose best round never built")] = False,
+    include_unbuilt: Annotated[bool, typer.Option("--include-unbuilt", help="also export runs whose exported round never built")] = False,
     captions_dir: Annotated[Path | None, typer.Option("--captions-dir", help="side-car captions written by `caption --out`")] = None,
     drop_duplicates: Annotated[bool, typer.Option("--drop-duplicates", help="leave byte-identical duplicates (raw code sha256 + prompt) out of the index, manifest and tars (recorded under the manifest's dropped); normalised ones are only marked near_duplicate_of")] = False,
 ) -> None:

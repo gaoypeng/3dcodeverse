@@ -1,10 +1,9 @@
 """Run records: finalise / load / iterate.
 
 ``finalize_record`` is the last step of every track run: it fills the
-environment (tool versions + harness git sha), derives best/baseline/final
-scores and totals when the track left them empty, adds a compact per-round
-summary under ``record.extra["rounds_summary"]``, writes ``telemetry/`` (see
-docs/RUN_LAYOUT.md) and writes ``record.json`` atomically.  ``deliverable/`` is not
+environment (tool versions + harness git sha) and the totals when the track left
+them empty, adds a compact per-round summary under ``record.extra["rounds_summary"]``,
+writes ``telemetry/`` (see docs/RUN_LAYOUT.md) and writes ``record.json`` atomically.  ``deliverable/`` is not
 the run's: which round to hand over is ``codeverse3d.addons.select``'s question
 (2026-09-22).  Telemetry is best-effort: a run is never failed by it.
 """
@@ -135,30 +134,6 @@ def effective_score(r: RoundRecord) -> float | None:
     return j.overall if j is not None else None
 
 
-def best_round_index(record: RunRecord) -> int | None:
-    """The round to export: ``record.best_round`` when valid, else the highest
-    judged score (ties → fewer gate errors), else the last round with a
-    successful build, else the last round.  Degraded judgments count as unjudged."""
-    by_index = {r.index: r for r in record.rounds}
-    if record.best_round is not None and record.best_round in by_index:
-        return record.best_round
-    if not record.rounds:
-        return None
-    judged = [r for r in record.rounds if effective_judgment(r) is not None]
-    if judged:
-        best = max(judged, key=lambda r: (effective_score(r), -_n_gate_errors(r), r.index))  # type: ignore[arg-type]
-        return best.index
-    built = [r for r in record.rounds if r.build is not None and r.build.ok]
-    if built:
-        return built[-1].index
-    return record.rounds[-1].index
-
-
-def best_round_record(record: RunRecord) -> RoundRecord | None:
-    idx = best_round_index(record)
-    return next((r for r in record.rounds if r.index == idx), None)
-
-
 def _n_gate_errors(r: RoundRecord) -> int:
     return sum(len(g.errors) for g in r.gates)
 
@@ -202,15 +177,9 @@ def _sum_usage(rounds: list[RoundRecord]) -> Usage:
 
 
 def fill_derived(record: RunRecord) -> RunRecord:
-    """Fill best/baseline/final/total_usage/finished_at/environment when absent."""
-    if record.best_round is None:
-        record.best_round = best_round_index(record)
-    scored = [r for r in record.rounds if effective_score(r) is not None]
-    if record.baseline_score is None and scored:
-        record.baseline_score = effective_score(scored[0])
-    if record.final_score is None and record.best_round is not None:
-        best = best_round_record(record)
-        record.final_score = effective_score(best) if best else None
+    """Fill total_usage/finished_at/environment when absent, the per-round summary and the
+    complexity block.  No best round, baseline or final score: which round counts is
+    ``addons.select``'s question (2026-09-22)."""
     if record.total_usage.cost_usd == 0 and record.total_usage.input_tokens == 0 and record.rounds:
         record.total_usage = _sum_usage(record.rounds)
     if record.finished_at is None:
@@ -226,17 +195,12 @@ def fill_derived(record: RunRecord) -> RunRecord:
 
 
 def complexity_block(record: RunRecord) -> dict[str, Any] | None:
-    """``record.extra["complexity"]``: the delivered artifact's complexity vector
-    plus what the plan asked for.
-
-    The vector is the one measured on the BEST round — the round whose code is
-    restored and rebuilt at finalise, so it describes the artifact actually
-    shipped.  ``plan_parts`` / ``parts_per_plan_part`` say whether the build
-    reached the plan's ambition or collapsed it (eval/docs/COMPLEXITY.md)."""
-    best = best_round_record(record)
-    cx = round_complexity(best) if best is not None else None
-    if cx is None:
-        cx = next((c for c in (round_complexity(r) for r in reversed(record.rounds)) if c), None)
+    """``record.extra["complexity"]``: the complexity vector of the last measured round —
+    the build ``src/`` and ``artifacts/`` end at — plus what the plan asked for and the
+    per-round trail.  ``plan_parts`` / ``parts_per_plan_part`` say whether the build
+    reached the plan's ambition or collapsed it (eval/docs/COMPLEXITY.md).  A reader that
+    wants the picked round's vector reads that round's own (:func:`round_complexity`)."""
+    cx = next((c for c in (round_complexity(r) for r in reversed(record.rounds)) if c), None)
     if cx is None:
         return None
     plan_parts = len(record.plan.parts) if record.plan is not None else 0
