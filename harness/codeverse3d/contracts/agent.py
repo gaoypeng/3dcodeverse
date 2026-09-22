@@ -78,6 +78,13 @@ class AgentResult(BaseModel):
     transcript_path: str = ""
     usage: Usage = Field(default_factory=Usage)
     duration_s: float = 0.0
+    provider_wait_s: float = Field(
+        default=0.0, ge=0.0,
+        description="seconds of ``duration_s`` the session lost to provider errors — 503 / 429 / "
+        "overloaded / token-limit retries and their back-off inside the CLI — read from the CLI's "
+        "own log; 0.0 when none were seen or the CLI does not expose them.  A step's effective "
+        "time is ``duration_s - provider_wait_s`` (owner, 2026-09-22)",
+    )
     tool_calls: int = 0
     turns: int = Field(
         default=0, description="model turns as the backend counts them (claude-code num_turns, codex "
