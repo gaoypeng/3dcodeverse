@@ -46,6 +46,7 @@ from codeverse3d.proc import fan_out
 from codeverse3d.prompts import render
 from codeverse3d.spatial.frame_motion import motion_text_for
 from codeverse3d.spatial.render_scene import perf_detail
+from codeverse3d.spatial.scene_placement import placement_gate
 from codeverse3d.texturing.plan import texture_pack_prompt
 from codeverse3d.tracks import skills_hook
 from codeverse3d.tracks.common import RunContext, generate_for, single_shot_ctx
@@ -101,23 +102,13 @@ class ScenePipeline:
         return None
 
     def gates(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> list[GateReport]:
-        out: list[GateReport] = []
         # scene_placement (2026-08-26): floating / sunken / unsupported / interpenetrating assets from
         # the probe census's placement table — the first deterministic placement gate on this track
-        # (before it, the scene_v1 floating_part cap could never fire).  Advisory instrumentation:
-        # a failure is a WARN finding, never an exception, so it cannot kill a round.
-        try:
-            from codeverse3d.spatial.scene_placement import placement_gate_safe
-
-            placement = placement_gate_safe(build.census, plan=ctx.plan, layouts=ctx.extra.get("layouts"),
-                                            unavailable=[n for n, r in (ctx.extra.get("assets") or {}).items() if not getattr(r, "ok", True)])
-        except Exception as e:  # noqa: BLE001
-            log.warning("scene placement gate unavailable: %s", e)
-            placement = GateReport(gate="scene_placement", passed=True, findings=[GateFinding(
-                gate="scene_placement", severity=Severity.WARN, target="scene", message=f"placement probe failed: {e}"[:400])])
-        if placement is not None:
-            out.append(placement)
-        return out
+        # (before it, the scene_v1 floating_part cap could never fire) — plus the plan checks.  The
+        # check_placement tool returns the same verdict.  Advisory instrumentation: a failure is a
+        # WARN finding, never an exception, so it cannot kill a round.
+        placement = placement_gate(ctx.ws, build.census, ctx.plan)
+        return [placement] if placement is not None else []
 
     def render(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> RenderSet:
         r = ctx.settings.render

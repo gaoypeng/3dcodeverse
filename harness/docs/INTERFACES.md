@@ -321,11 +321,13 @@ from codeverse3d.spatial.contract import check_contract           # frame of fix
 from codeverse3d.spatial.measure import measure_glb, world_transform, node_name_findings   # (Δ 2026-08-30) world frames are composed
     # by walking the graph's edge matrices (trimesh's get() dropped a root pivot's rotation); a GLB with duplicate / unnamed nodes
     # lands a finding in Measurement.extra["findings"] — trimesh re-parents renamed nodes and the numbers are approximate
-from codeverse3d.spatial.scene_placement import placement_findings, placement_gate_safe, placement_census, placement_table_text
+from codeverse3d.spatial.scene_placement import placement_findings, placement_gate, placement_gate_safe, placement_census, placement_table_text
 placement_findings(table, *, indoor=False) -> GateReport   # gate "scene_placement"; data.kind ∈ floating | sunken |
     # unsupported | interpenetration | summary | probe_failed; target "Zone/Asset" (routes to src/zones/<zone>.js);
     # messages carry the scene_v1 floating_part cap words; reads artifacts/census.json["placement"] (host_placement.mjs)
-placement_gate_safe(census, *, plan=None, layouts=None, unavailable=()) -> GateReport | None   # round gate: None without a table, WARN on failure, never raises; `unavailable` = assets the stage could not build (not "missing planned contents")
+placement_gate(ws, census, plan) -> GateReport | None   # THE verdict (Δ 2026-09-22): ScenePipeline.gates and the check_placement
+    # tool both return it — placement_gate_safe fed the zone layouts and the unbuilt assets from ws/stages/{layouts,assets}.json
+placement_gate_safe(census, *, plan=None, layouts=None, unavailable=()) -> GateReport | None   # the pure core: None without a table, WARN on failure, never raises; `unavailable` = assets the stage could not build (not "missing planned contents")
 from codeverse3d.spatial.scene_placement import setting_text          # (plan: dict | model) -> the indoor/outdoor setting line
 from codeverse3d.spatial.silhouette import compare_silhouette    # the reference gate + compare_reference's IoU (no tool of its own)
 from codeverse3d.spatial.sections import judge_slices, SliceManifest, JUDGE_SLICE_PLANES   # (D48)

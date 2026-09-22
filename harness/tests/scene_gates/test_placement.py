@@ -148,9 +148,11 @@ def test_error_findings_become_zone_routed_refine_tasks_one_per_asset():
     assert all(t.kind == f"gate:{GATE}" and "lower " in t.instruction for t in tasks)
 
 
-def test_pipeline_gates_are_placement_alone_and_never_raise():
+def test_pipeline_gates_are_placement_alone_and_never_raise(tmp_path):
+    from codeverse3d.workspace import Workspace
+
     plan = _plan()
-    ctx = SimpleNamespace(runtime=SimpleNamespace(), plan=plan, extra={})
+    ctx = SimpleNamespace(runtime=SimpleNamespace(), plan=plan, extra={}, ws=Workspace(tmp_path / "run").create())
     build = BuildResult(ok=True, language="scene_threejs", census={"totals": {"meshes": 3}, "placement": _table(_row("Lantern", gap=0.3))})
     gates = ScenePipeline().gates(ctx, 0, build, None)
     assert [g.gate for g in gates] == [GATE] and not gates[-1].passed
@@ -175,6 +177,30 @@ def test_check_placement_reads_the_last_census_and_the_table_text(tmp_path):
     assert not obs.ok and "indoor tolerance 2 cm" in obs.text
     text = placement_table_text(table)
     assert "Yard/Lantern | +0.300 | Ground | 0.000 | - | - | -" in text and "Yard/Rock | +0.000 | Ground | 0.300 | Terrain" in text
+
+
+def test_check_placement_returns_the_round_gates_verdict(tmp_path):
+    """One verdict: the tool reads the same census, plan and stage records the round gate does,
+    so the plan checks it used to leave out (fog, zone contents, ...) are in it, and an asset
+    the asset stage could not build is not "missing" in either (2026-09-22)."""
+    from codeverse3d.spatial.registry import ToolContext, get_tool
+    from codeverse3d.workspace import Workspace
+
+    ws = Workspace(tmp_path / "run").create()
+    census = {"totals": {}, "fog": None, "placement": _table(_row("Lantern", gap=0.3))}
+    (ws.artifacts / "census.json").write_text(json.dumps(census))
+    plan = _contract_plan()
+    ws.plan_path.write_text(plan.model_dump_json())
+    ws.stages.mkdir(parents=True, exist_ok=True)
+    (ws.stages / "assets.json").write_text(json.dumps(
+        {"stage": "assets", "inputs_hash": "h", "result": {"Bench": {"name": "Bench", "kind": "threejs", "ok": False}}}))
+    obs = get_tool("check_placement").call(ToolContext(workspace=ws, language=Language.SCENE_THREEJS.value), {})
+    gate = ScenePipeline().gates(SimpleNamespace(ws=ws, plan=plan, extra={}), 0,
+                                 BuildResult(ok=True, language="scene_threejs", census=census), None)[0]
+    assert not obs.ok and not gate.passed and obs.numbers["errors"] == len(gate.errors)
+    assert all(f.message in obs.text for f in gate.errors)
+    kinds = {f.data.get("kind") for f in gate.findings}
+    assert {"floating", "no_fog", "zone_empty"} <= kinds and "missing_content" not in kinds   # Bench was never built
 
 
 # --------------------------------------------------------------------- plan-aware contract checks

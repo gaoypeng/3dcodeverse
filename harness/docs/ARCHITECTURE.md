@@ -124,7 +124,8 @@ codeverse3d/
   spatial/            node.py, render.py, observe.py, tool_common.py (shared tool plumbing),
                       render_scene.py (judge view subset, content-fitted orbit),
                       frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),
-                      scene_placement.py (scene_placement gate + check_placement tool: floating / sunken /
+                      scene_placement.py (scene_placement gate = the check_placement tool's verdict,
+                      placement_gate(ws, census, plan) for both: floating / sunken /
                       unsupported / interpenetration per placed asset from the probe census's placement
                       table, runtime_js/lib/host_placement.mjs; added 2026-08-26),
                       gl_render.py (GlHost), frame_stats.py (gl_frames),

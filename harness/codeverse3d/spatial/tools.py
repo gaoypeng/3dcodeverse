@@ -43,12 +43,8 @@ from codeverse3d.spatial.observe import (
 from codeverse3d.spatial.probes import check_shaders, probe_scene
 from codeverse3d.spatial.registry import NoArgs, Observation, ToolContext, ToolUsageError, tool
 from codeverse3d.spatial.render_scene import read_metrics, render_scene
-from codeverse3d.spatial.scene_placement import (
-    is_interior,
-    placement_findings,
-    placement_table_text,
-)
 from codeverse3d.spatial.scene_placement import placement_census as _placement_census
+from codeverse3d.spatial.scene_placement import placement_gate, placement_table_text
 from codeverse3d.spatial.sections import cross_section as _cross_section
 from codeverse3d.spatial.sheet import contact_sheet
 from codeverse3d.spatial.silhouette import compare_silhouette as _compare_silhouette
@@ -531,24 +527,26 @@ class CheckPlacementArgs(BaseModel):
 
 
 @tool("check_placement", CheckPlacementArgs,
-      "Deterministic placement check of the last build (scene only): per placed asset the gap from its feet to what is "
-      "under them, burial depth, water, contacts, plus 3-D interpenetrations between assets — findings read "
-      "'floating / sunken / unsupported / interpenetration' with 'lower X by 0.23 m onto Terrain' hints. Reads the "
-      "census of the last build/scene_probe; rebuild=true probes again. Tag a deliberately airborne thing with "
-      "obj.userData.placement = 'free'.",
+      "The round's scene_placement gate on the last build (scene only): per placed asset the gap from its feet to what "
+      "is under them, burial depth, water, contacts, plus 3-D interpenetrations between assets — findings read "
+      "'floating / sunken / unsupported / interpenetration' with 'lower X by 0.23 m onto Terrain' hints — and the "
+      "plan checks (fog, backdrop, zone contents, scale, bounds). Reads the census of the last build/scene_probe; "
+      "rebuild=true probes again. Tag a deliberately airborne thing with obj.userData.placement = 'free'.",
       languages=(Language.SCENE_THREEJS.value,), cost_hint="fast")
 def check_placement(ctx: ToolContext, args: CheckPlacementArgs) -> Observation:
-    census = _placement_census(ctx.workspace, force_probe=args.rebuild)
-    indoor = False
-    if ctx.workspace.plan_path.is_file():
+    ws = ctx.workspace
+    census = _placement_census(ws, force_probe=args.rebuild)
+    plan = None
+    if ws.plan_path.is_file():
         try:
-            indoor = is_interior(load_plan(ctx.workspace.plan_path))
+            plan = load_plan(ws.plan_path)
         except ToolUsageError:
-            indoor = False
-    table = census.get("placement") or {}
-    report = placement_findings(table, indoor=indoor)
+            plan = None
+    report = placement_gate(ws, census, plan)
+    if report is None:
+        return Observation.error("check_placement: the census carries no placement table")
     obs = gate_observation(report, title="placement check")
-    return obs.model_copy(update={"text": truncate(obs.text + "\n\n" + placement_table_text(table))})
+    return obs.model_copy(update={"text": truncate(obs.text + "\n\n" + placement_table_text(census["placement"]))})
 
 
 # ===================================================================== graphics

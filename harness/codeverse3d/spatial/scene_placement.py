@@ -591,6 +591,24 @@ def setting_text(plan: Any) -> str:
     return " ".join(str(getattr(plan, k, "") or "") for k in ("setting", "environment", "title"))
 
 
+def placement_gate(ws: Workspace, census: dict[str, Any] | None, plan: Any) -> GateReport | None:
+    """THE ``scene_placement`` verdict: the round's gate (``ScenePipeline.gates``) and the
+    ``check_placement`` tool both return it, on the same inputs — the census, the plan and
+    what the run's stages recorded in the workspace (the L2 zone layouts, the assets the
+    asset stage could not build).  Until 2026-09-22 the tool reported
+    :func:`placement_findings` alone, so it never showed the plan checks (fog, backdrop,
+    zone contents, scale, bounds, density) the round then failed on."""
+    assets = _stage_result(ws, "assets")
+    unavailable = [name for name, r in assets.items() if isinstance(r, dict) and not r.get("ok", True)]
+    return placement_gate_safe(census, plan=plan, layouts=_stage_result(ws, "layouts"), unavailable=unavailable)
+
+
+def _stage_result(ws: Workspace, name: str) -> dict[str, Any]:
+    """A cached stage's result (``orchestrator.StageRunner`` writes ``stages/<name>.json``), ``{}`` when absent."""
+    res = (read_json_or_none(ws.stages / f"{name}.json") or {}).get("result")
+    return res if isinstance(res, dict) else {}
+
+
 def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None,
                         layouts: dict[str, Any] | None = None, unavailable: Sequence[str] = ()) -> GateReport | None:
     """Round-gate entry: ``None`` when the census has no placement table (scene did not
