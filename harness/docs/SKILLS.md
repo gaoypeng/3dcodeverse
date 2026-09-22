@@ -11,8 +11,8 @@ names the cookbook section to fetch. Two libraries of truth would be worse than 
 `SKILL.md` is an open standard (agentskills.io, Dec 2025), which is why the format below is
 not ours to bend: **claude-code, codex, gemini-cli and agy discover these bundles
 themselves** — proven live, see §7.  (The in-process `api-agent`, the one backend that
-needed harness-side injection, was deleted 2026-08-28, and its routed index and
-`read_skill` tool with it.)
+needed harness-side injection, was deleted 2026-08-28; bundles now reach a session only
+through its vendor's native skill loader.)
 
 Everything is behind `C3D_SKILLS`. **It ships OFF**, because `api-agent` read 0 of 5
 routed bundles in the measured A/B while the three subscription CLIs read all five.
@@ -25,7 +25,7 @@ routed bundles in the measured A/B while the three subscription CLIs read all fi
 **One library, one policy, thin adapters.**  The bundles under `codeverse3d/skills/<name>/`
 are plain [agentskills.io](https://agentskills.io/specification) `SKILL.md` directories and
 know nothing about any backend — anyone can `cp -r codeverse3d/skills/<name> ~/.claude/skills/`
-and use them without this harness at all.  `router.py` picks the set from typed inputs.
+and use them without this harness at all.  `registry.py` picks the set from typed inputs.
 
 Everything that genuinely differs between coding agents is **one bit**, and it lives in
 one file, `skills/prompting.py`:
@@ -35,13 +35,25 @@ one file, `skills/prompting.py`:
 | `claude-code` | `.claude/skills` |
 | `codex`, `gemini-cli`, `agy` | `.agents/skills` |
 
-It was read out of the shipped binaries, not assumed.  All four have a native loader, so
-none is handed a second index (it would list the same skills twice): the body file gets one
-MANDATORY sentence.
+It was read out of the shipped binaries, not assumed.  Bundles reach a session only
+through its vendor's native skill loader: the harness writes them under the discovery root and
+hands the agent no second index (the loader's own would list the same skills twice) and no tool;
+the body file gets one MANDATORY sentence.
 
 **Adding a backend is one row in that table.**  A test (`tests/skills/test_delivery.py`)
 fails if per-backend knowledge leaks back out into the other modules, and another checks
 that `prompting.py` agrees with the policy rather than re-deriving it.
+
+### Why only native loaders
+
+Measured 2026-08-25, same library, same workspace, same task: `codex`, `claude-code` and
+`agy` each read **5 of 5** routed bundles unprompted through their own loaders.
+`api-agent` read **0 of 5** — not from unwillingness (it made **52 `read_file` calls** that
+session, and called `read_cookbook` twice), but because the bundles sit in hidden
+directories its `list_files` deliberately skips, and the index was prose in a 2.3 kB system
+prompt competing with the contract and the rules.  Prose is not an affordance.  The
+`read_skill` tool built to fix that was deleted with `api-agent` on 2026-08-28; every backend
+left discovers the bundles through its own loader.
 
 
 ## 1. The model: progressive disclosure, and why it is also the measurement
@@ -62,7 +74,7 @@ bumps `atime`:
 * `atime(references/*.md) > mtime` → **deep**: something opened the body's depth file.
 
 A bundle with no `references/` reports `deep_measurable: false` rather than quietly
-scoring 0. `api-agent` owns its own `read_file`, so it logs exact reads with turn numbers.
+scoring 0. `api-agent` owned its own `read_file`, so it logged exact reads with turn numbers.
 
 ### The probe carries its own falsification, because it had to
 
@@ -92,7 +104,7 @@ This is the difference between a metric and a number that would have read 100% f
 
 ## 2. The library
 
-**Thirteen bundles.** `lines`/`tokens` are the body, against caps of 350 and 2,500.
+**Seventeen bundles.** `lines`/`tokens` are the body, against caps of 350 and 2,500.
 
 | skill | track | language | evidence | lines | tokens | routes |
 |---|---|---|---|---|---|---|
@@ -109,6 +121,10 @@ This is the difference between a metric and a number that would have read 100% f
 | `c3d-opengl-pipeline` | graphics | opengl_python | mixed | 98 | 1,497 | R23, R24-opengl |
 | `c3d-cadquery-forms` | any | cadquery | **inherited-unverified** | 82 | 1,482 | R10 |
 | `c3d-threejs-forms` | static_object | threejs | **inherited-unverified** | 120 | 1,929 | R11 |
+| `c3d-scene-atmosphere` | scene | scene_threejs | **inherited-unverified** | 78 | 936 | R25 |
+| `c3d-scene-water` | scene | scene_threejs | **inherited-unverified** | 71 | 806 | R26 |
+| `c3d-scene-night` | scene | scene_threejs | **inherited-unverified** | 56 | 656 | R27 |
+| `c3d-scene-materials` | scene | scene_threejs | **inherited-unverified** | 78 | 832 | R28 |
 
 **All seventeen ship OFF** (`C3D_SKILLS` unset). Zero have a measured effect; see
 `docs/SKILLS_LEDGER.md` §5 for why that is the honest default and what flips one on.
@@ -119,7 +135,7 @@ routing, so `C3D_SKILLS=1 C3D_SKILLS_ONLY=<names>` is the vehicle when a bundle 
 
 | skill | cut | why |
 |---|---|---|
-| `c3d-form-manifest` | 2026-08-25 | opened **2 of 19** times (11%, CI [3%, 31%]) — unread before *and* after its description was rewritten to lead with the trigger. The only bundle whose read-rate interval excluded every other's, and it cost ~1,917 tokens in 19 of the 27 sessions that could have read it. Text and full numbers: `docs/skills-attic/c3d-form-manifest/` |
+| `c3d-form-manifest` | 2026-08-25 | opened **2 of 19** times (11%, CI [3%, 31%]) — unread before *and* after its description was rewritten to lead with the trigger. The only bundle whose read-rate interval excluded every other's, and it cost ~1,917 tokens in 19 of the 27 sessions that could have read it. Text and full numbers: git history (`docs/skills-attic/` was removed 2026-09-21) |
 
 An attic bundle is not loaded: `all_skills()` reads `codeverse3d/skills/*/SKILL.md` only, so it
 costs no index line and no tokens. Its route id (**R5**) is retired and never reused — a run
@@ -242,7 +258,7 @@ the `live` cases drive a real CLI.
 | `test_freshness.py` | every tool, gate kind, rubric criterion, constant, switch, sibling skill and cookbook section a bundle names still exists |
 | `test_router.py` / `test_routing_property.py` | the four routing laws, by row and over the whole input space |
 | `test_telemetry.py` | the read probe, **including the control that catches git reading the tree** |
-| `test_packaging.py` | **a built wheel contains all 13 `SKILL.md`, all 13 `references/`, all 9 `_claims`** |
+| `test_packaging.py` | **a built wheel contains all 17 `SKILL.md`, all 17 `references/`, all 9 `_claims`** |
 | `test_live_discovery.py` | §7 — a real CLI actually finds and opens a bundle |
 
 Two contradiction checks are worth separating, because they answer different questions:
@@ -333,7 +349,7 @@ The plan-loop wave hit the same thing hours earlier
 (`eval/bench/out/plan_loop/C0/invalid_attempt1_maintree_import`) and worked around it with
 `PYTHONPATH` in a launch script. It is fixed in the code now — bootstrap first, a guard
 that refuses to start against a foreign `codeverse3d`, and
-`tests/compare_bench/test_worktree_import.py` — because a workaround protects whoever
+`eval/tests/test_worktree_import.py` — because a workaround protects whoever
 remembers it, not the run.
 
 ### What this A/B actually measured
@@ -454,7 +470,7 @@ the read probe itself plus a magic word that only lives in `references/`.
 All four discover the library natively, with no injection from us. Two things this settled
 that had only been argued statically:
 
-* `Skill` was **absent** from `ALLOWED_TOOLS` in `agents/claude_code.py`, so claude-code
+* `Skill` was **absent** from `ALLOWED_TOOLS` in `agents/backends.py`, so claude-code
   would have denied its own skill tool. Added; `3dcode doctor --skills` now checks it.
 * gemini-cli's `activate_skill` consent prompt does not block us under
   `--approval-mode yolo`. This was the one claim that could not be verified statically.
@@ -552,18 +568,17 @@ so; the rest are live.
   pipeline step, so it reaches no `record.json`. `c3d-threejs-shader-traps` is therefore
   **not instrumented**, which is a stronger statement than "always clean". Merge it into
   `rounds[].gates` before spending anything on that bundle.
-* **`eval/bench/_fixed_eval.FixedEvaluator` is blender-only.** It pins `get_runtime(BLENDER)` and
-  runs only lint and connectivity — never contract, joint_sweep, scene_frames or gl_frames.
-  The *judged* column of any non-blender A/B is meaningless. The primary readout is safe:
-  `eval/bench/skill_targets.py` reads each arm's own harness record.
+* ~~**`eval/bench/_fixed_eval.FixedEvaluator` is blender-only.**~~ Fixed 2026-08-26; the entry
+  lives in `docs/SKILLS_LEDGER.md` §4.
 * **The atime probe is blind in any git workspace, and its control proves it.** The control
   bundle came back "opened" in 27 of 33 sessions; the only 6 sessions where it stayed clean
   were the 6 scene sessions, where nothing was delivered. So the shipped report is honest
-  only where there was nothing to see. Use trajectory `read_skill` calls as ground truth.
-* **CLI backends' read rate is UNMEASURED — not 5/5.** `claude_code.py` uses
+  only where there was nothing to see. Trajectory `read_skill` calls were the ground truth;
+  that channel went with `api-agent` (2026-08-28).
+* **CLI backends' read rate is UNMEASURED — not 5/5.** `agents/backends.py` runs claude-code with
   `--output-format json`, which returns only the final result and no tool stream; the logs
   contain zero occurrences of any `c3d-` name. Switching to `--output-format stream-json`
-  would give the CLI arm the same exact ground truth api-agent has. The earlier "5 of 5"
+  would give the CLI arm the same exact ground truth api-agent had. The earlier "5 of 5"
   claim rested on the atime probe and should not be repeated.
 * **`codex` can drop a round from the denominator.** It emitted `skills.attached` with no
   `skills.read` and no `skills.jsonl` row, so an attached round can silently vanish from

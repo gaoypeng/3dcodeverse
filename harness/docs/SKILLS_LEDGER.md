@@ -255,11 +255,14 @@ it lands these four rows stay `mixed`, not `measured`.
   have reported "no effect" for a switch it never tested. **Fixed** (`entry_of(spec)` reads
   `contracts.common.ENTRY_FILE`). This is why no graphics or three.js bundle has ever had a
   readable A/B.
-* **`eval/bench/_fixed_eval.FixedEvaluator` is blender-only.** It pins `get_runtime(BLENDER)` and
-  runs only lint and connectivity — never contract, joint_sweep, scene_frames or gl_frames.
-  Not fixed; it does not sink the primary readout, because `eval/bench/skill_targets.py` reads
-  each arm's own harness record. Know that the *judged* column of any non-blender A/B is
-  meaningless.
+* **`eval/bench/_fixed_eval.FixedEvaluator` was blender-only.** It pinned `get_runtime(BLENDER)`
+  and ran only lint and connectivity, so the *judged* column of any non-blender A/B was
+  meaningless. **Fixed** 2026-08-26: each cell builds with its own language's runtime
+  (`eval/tests/test_fixed_eval_language.py`); articulated cells add the joint sweep, graphics
+  cells their frame metrics, scene cells (2026-09-07) the `scene_frames` gate — contract still
+  never runs (it has no plan). It never sank the primary readout either:
+  `eval/bench/skill_targets.py` reads each arm's own harness record. (`docs/SKILLS.md` §9 points
+  here.)
 * **`telemetry.record_exact_read` is wired to `read_file` only** (`agents/api_agent.py`), so
   `read_skill` — api-agent's actual read channel — never reaches `skill_reads.jsonl`.
   *(Moot since 2026-08-28: the api-agent and its `read_skill` channel were deleted with it;

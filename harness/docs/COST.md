@@ -391,12 +391,13 @@ rows from `record.json` + `events.jsonl` + `trajectories/**` — that is what th
 audit runs on, and it reconciles to `record.total_usage` on every run (or says
 why it does not, §6).
 
-Two helpers exist for the callers:
+One helper exists for the callers:
 
 * `estimate_call(model_id, prompt=…, n_images=…, output_tokens=…)` →
-  `CostEstimate` before the call; `CostGuard(budget_usd).check(est)` decides.
-  An unpriceable model is **allowed but flagged** — refusing to run because we
-  cannot price something would be worse than running it.
+  `CostEstimate` before the call (the `CostGuard` that decided on it had no caller and
+  was deleted 2026-08-28).  An unpriceable model is **allowed but flagged**
+  (`price_source="unknown"`, $0) — refusing to run because we cannot price something
+  would be worse than running it.
 
 ## 11. Caveats
 
@@ -484,7 +485,7 @@ pricing failure logs and keeps the recorded dollar.
 
 **Where it lands.**  `<run>/telemetry/cost.jsonl` (the run-layout telemetry
 bucket), with `<run>/cost_ledger.jsonl` left as a relative symlink so
-`flywheel.telemetry.live_ledger_path` and the `telemetry/usage.jsonl` alias keep
+`record.telemetry.live_ledger_path` and the `telemetry/usage.jsonl` alias keep
 working — one physical copy.  A call made with no run context (a `3dcode judge`
 outside a run, a bench script, a notebook) goes to a per-process log under
 `<cache_dir>/cost/`; `C3D_COST_LEDGER=off` disables writing entirely.
@@ -753,8 +754,9 @@ the window, `--unverified` keeps the old status filter.  Today: 52 rows, 6 flagg
 (`claude-haiku-4`, `o1-mini`, `gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.2-codex`,
 `gemini-2.5-flash-image`), none stale.
 
-Two tests hold the line: `test_every_recorded_model_id_resolves_to_a_price` (no
-silent $0 — a model that billed us in any recorded run must have a row) and
+Two tests hold the line: `test_supported_model_ids_resolve_to_a_price` (no
+silent $0 — every model id a default, route, CLI example or backend contract exposes
+must have a row) and
 `test_every_price_row_was_checked_within_the_maintenance_window` (re-read the
 providers' pages and bump `CHECKED`; never raise the threshold).  Every ledger row
 carries the provenance of the price it used, so a dollar can always be traced to a
@@ -1074,8 +1076,8 @@ plumbing through several layers and deserves its own measured change.
 > idle box — zero `3dcode` processes running, the naive gate returned **3**, and even the
 > bracket trick `pgrep -f '[b]in/3dcode make'` returned **2**, because the wrapper shell's
 > argv also carries the string.  Used in `while [ $(gate) -ge 3 ]; do sleep 60; done` that
-> blocks forever on nothing.  `codeverse3d.models.health.sibling_processes()` reads `/proc`
-> and excludes its own pid; `pool_budget()` wraps it with the in-flight arithmetic:
+> blocks forever on nothing.  `codeverse3d.models.health.pool_budget()` reads `/proc`,
+> excludes its own pid and does the in-flight arithmetic:
 > ```
 > python3 -c "from codeverse3d.models.health import pool_budget; print(pool_budget())"
 > ```
@@ -1302,7 +1304,7 @@ defaulted so old rows load); `3dcode cost` adds a per-key table and a
 ## 28. Where the time goes — the 2026-08-26 audit
 
 51 storm-day runs against 52 baseline runs, every stage and every model call, scripts in
-`eval/bench/time_audit/` (read-only over `eval/bench/out`).  The numbers that decide what to build next:
+`bench/time_audit/` (read-only over `bench/out`; a one-off, deleted 2026-08-28).  The numbers that decide what to build next:
 
 * A blender object run is **1 811 s** median on a healthy provider and **4 726 s** under the storm;
   build + gates + render together are 3–19 % of a baseline run and 1–4 % of a storm run.  The

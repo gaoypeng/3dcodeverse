@@ -78,7 +78,7 @@ Moving to another Python later is the same four-line change (`requires-python`, 
 |---|---|---|---|
 | **Python 3.13** | yes | 3.13.9 (`/home/yipeng/miniconda3/bin/python`) | nothing runs; `requires-python = ">=3.13"` (§2.1) |
 | **pip + venv** | yes | pip 25.3, `python -m venv` | `setup.sh` cannot install the package.  A stock Debian/Ubuntu `/usr/bin/python3` ships **without** pip and is PEP 668 `EXTERNALLY-MANAGED`, so `pip install -e harness` refuses even once pip is present: `sudo apt install python3-venv python3-pip`, then use a virtualenv |
-| **git** | yes | 2.53.0 | run workspaces are git repos (one commit per round); `Workspace.create()` and the flywheel trajectory/pair miners fail |
+| **git** | yes | 2.53.0 | run workspaces are git repos (one commit per round); `Workspace.create()` and the flywheel pair miners fail |
 | **node ≥ 20.6** | yes, except for the `graphics` track | v24.14.0 (npm 11.9.0) | the `threejs` / `scene_threejs` languages disappear **and no object renders happen at all**: `spatial/render.py` renders *every* GLB (Blender-built and CadQuery-built included) with three.js in headless Chrome. Only `graphics` (moderngl) is node-free |
 | **Blender 4.2+ / 5.x** | optional | 5.0.1 (`~/.local/bin/blender-5.0`) | `blender` and `urdf_blender` languages unavailable → the `static_object` default language and the whole `articulated_object` track cannot build (`BlenderNotFoundError`); scenes lose planner-chosen bpy GLB assets |
 | **EGL-capable GPU stack** | optional | ANGLE / D3D12 / RTX 5090 Laptop | headless Chrome falls back to **SwiftShader** and moderngl to **llvmpipe** — everything still renders, just several times slower; no correctness change |
@@ -502,7 +502,7 @@ that the keys work end to end):
 | `gemini pool` (`--live`) | WARN | a key is benched as dead | that key 401/403'd; rotate or remove it — the pool re-probes it after an hour.  The row also shows in-flight, RPM/TPM headroom used and this process's 429/5xx counts |
 | `storm gate` (`--live`) | WARN | a capacity storm is running | provider-side (`503 high demand`), not an install problem; the gate is off by default (docs/COST.md §21) and the row only appears when something enabled it |
 | `skills switch` | WARN | skills are disabled | expected by default; set `C3D_SKILLS=on` only when you want skill routing |
-| `skills library` | WARN / FAIL | no bundles were found, or one or more bundles are invalid | use a full checkout and validate the named bundle under `codeverse3d/skills/library/` |
+| `skills library` | WARN / FAIL | no bundles were found, or one or more bundles are invalid | use a full checkout and validate the named bundle under `codeverse3d/skills/<name>/` |
 | `skills routing` | WARN | a routed skill has no installed bundle | restore the missing bundle from the checkout or update the stale route |
 | `skills discovery` | OK | always informational | shows the agent-native directories where bundles are materialised |
 | `claude-code Skill tool` | FAIL | the Claude backend would deny native skill activation | update/reinstall the harness so `Skill` is present in Claude Code's allowed tools |
@@ -577,7 +577,7 @@ headless-Chrome endpoint file — do not delete it while renders are running).
 
 **Your data is not in either cache.**  `runs/`, `eval/bench/out/` and any exported
 dataset are the flywheel output — delete them deliberately, never as part of a
-cleanup.  On this machine `harness/bench/out/` is read-only reference material
+cleanup.  On this machine `eval/bench/out/` is read-only reference material
 (the early `e2e_*` reference runs were archived off-repo on 2026-08-29).
 
 Uninstalling does not touch `~/.config/3dcodeverse/config.yaml`,

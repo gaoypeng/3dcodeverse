@@ -1,7 +1,7 @@
 # Cross-package interfaces (as built)
 
 This file lists the signatures other packages may rely on.  Types live in
-`codeverse3d/contracts/`; protocols in `models/base.py`, `agents/base.py`,
+`codeverse3d/contracts/`; protocols in `models/base.py`, `agents/registry.py`,
 `languages/base.py`, `spatial/registry.py`, `tracks/__init__.py` (judges are
 duck-typed `.judge(JudgeInput) -> Judgment`; `judges/base.py` defines no protocol).
 Where the build deviated from the original plan the deviation is called out as
@@ -34,7 +34,7 @@ GateFinding.as_line(with_gate=False, with_severity=False, with_target=False, wit
 RenderView.judge: bool | None      # stamped True/False at render time; None = legacy round (every stored view is judged)
 RenderSet.out_dir: str             # directory the views (+ views.json/metrics.json) were written to ("" on old rounds)
 from codeverse3d.config import get_settings, env_flag       # env_flag(env, fallback) -> bool: on/off/1/0/true/false/yes/no;
-    # unset/empty -> fallback; garbage -> warning + fallback (Settings value), never a silent switch
+    # unset/empty -> fallback; garbage -> warning + False (off, NOT the fallback), never a crash
 get_settings().backends(planner=..., generator=..., judge=..., captioner=...) -> Backends
     # settings defaults (default_planner/... mirror contracts Backends literals; + default_captioner);
     # truthy keyword overrides win, None/"" falls through, unknown role -> TypeError
@@ -60,7 +60,7 @@ means the last OK build.  `Workspace.restore_paths(commit, paths)` = per-path
 from codeverse3d.models import get_chat_model            # (model_id) -> ChatModel, lru-cached, thread-safe
 resp = m.generate(ChatRequest(messages=[...], system=..., response_schema=..., temperature=..., thinking=..., label=..., max_wait_s=None))
 #   max_wait_s: the longest this ONE call may spend, retries included (None = models.retry.RETRY_DEADLINE_S = 900 s);
-#   GeminiModel clips its retry deadline to it; api_agent 20-120 s per turn, VlmJudge 240 s per sample, planner 300 s
+#   GeminiModel clips its retry deadline to it; VlmJudge 240 s per sample, planner 300 s
 #   resp.raw["key"] = "…ab12" (the key that answered), resp.raw["attempts"] = round-trips issued (hedged siblings included)
 resp.parsed / resp.text / resp.usage   # Usage always has cost_usd (models.pricing)
 from codeverse3d.models.retry import KeyPool, KeyPoolExhausted
@@ -495,7 +495,7 @@ run_round(ctx, *, index, kind, tasks, pipeline, ..., previous_best=None) -> Roun
     # pipeline's render; candidates pass quick_render) and geometry_views=False (skips the clay/normals views)
     # emits cost.round {stages{}, judge_usd, total_usd, agent_turns, wasted, waste_reason}; on ANY exception it
     # records what the round burned (rounds/aborted_rNN.json, ctx.extra["aborted_rounds"]) and re-raises
-from codeverse3d.tracks.planner import plan, ensure_acceptance    # graphics uses tracks/graphics.plan_graphics
+from codeverse3d.tracks.planner import plan, ensure_acceptance    # graphics too, through its hooks (GraphicsTrack.plan_template / plan_example)
 ```
 `run_round` = generate → commit → `build_with_repair` → measure → gates → render →
 post-render gates → judge → commit.  Post-render gates: static `reference_silhouette`
@@ -524,7 +524,7 @@ from codeverse3d.texturing.plan import scene_texture_pack, texture_pack_prompt  
 # under public/textures/ for scene prompts (URL /public/textures/<name>.png)
 ```
 
-## flywheel/ + cli/
+## record/ + addons/ + cli/
 ```python
 from codeverse3d.record.record import finalize_record, load_record, iter_runs, best_round_index, best_round_record
 from codeverse3d.addons.gallery.index import hero_view          # (ws, rec) -> (rel, label, n_views): the card image, rebased via ws

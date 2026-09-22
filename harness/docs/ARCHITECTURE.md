@@ -85,7 +85,7 @@ codeverse3d/
                       child's lifecycle: group kill on ANY exception, bounded pumps, stdin writer;
                       run_subprocess, tail, write_json_atomic, scrub_secrets) and the tolerant readers/writer
                       (read_json_or_none, iter_jsonl_lines, read_jsonl_lenient, append_jsonl_line) —
-                      shared by languages/spatial/cli/cost/flywheel/gallery/bench.  RULE: any
+                      shared by languages/spatial/cli/cost/record/addons and eval/bench.  RULE: any
                       stdlib-only file / JSON / JSONL helper lives HERE; grep proc.py before writing a
                       try/except read (the 2026-08-26 review found the same tolerant read written
                       eight times because this module had not grown it).  Also home, since
@@ -253,10 +253,10 @@ runtime_js/           export_glb.mjs (placement policy, instance baking, selfche
                       them) + a colour grade that is the identity unless the scene sets
                       `scene.userData.grade`.  ON for scene renders, `C3D_POST=0` / `--no-post`
                       to disable; object renders never come through this driver.
-tests/                agents bench_prompts blender_cadquery compare_bench core cost flywheel_cli gallery graphics
+tests/                agents blender_cadquery core cost flywheel_cli gallery graphics
                       install judges languages models orchestrator_tracks prompts reference scene_gates
                       scene_prompts scene_runtime skills spatial_tools texturing threejs_render urdf_joints
-                      (24 dirs; 2 077 offline, 1 950 of them pure python)
+                      (22 dirs; 2 077 offline, 1 950 of them pure python; the bench tests are ../eval/tests)
 ```
 
 ## 3. Workspace layout (one run, as observed)
@@ -348,10 +348,10 @@ summary:
 `@tool(name, ArgsModel, description, *, tracks=(), languages=(), cost_hint)` registers
 `fn(ctx, args) -> Observation` → (a) direct call from tracks, (b) the stdio MCP
 server (name `3dcode`) for the vendor CLIs, (c) a native tool schema for any embedder
-(`ToolDef.schema()`), (d) a prompt card.  The 19 tools: `build`, `measure`,
+(`ToolDef.schema()`), (d) a prompt card.  The 20 tools: `build`, `measure`,
 `render_views`, `render_sheet`, `isolate`, `cross_section`, `check_connectivity`,
 `check_contract`, `check_placement`, `compare_silhouette`, `compare_reference`,
-`joint_sweep` (articulated), `shader_probe`, `scene_probe`, `scene_views` (scene),
+`joint_sweep` (articulated), `shader_probe`, `scene_probe`, `scene_views`, `effect_ablation` (scene),
 `gl_probe`, `gl_frames` (graphics), `texture_pass`, `texture_preview` (object tracks).
 
 An `Observation` carries two different answers: `ok` is the **verdict** and `failed`
@@ -409,7 +409,7 @@ image-conditioned specs.
 Rubrics: `static_object_v1` (0.72), `articulated_v1` (requires pose sheet),
 `scene_v1` (frame-gate caps), `asset_v1`, `reference_v1`, `shader_v1` (0.70).
 
-**Calibration (2026-08-23, `judges/calibration.py`, n=3 on the e2e rounds):**
+**Calibration (2026-08-23, `addons/calibration.py`, n=3 on the e2e rounds):**
 flash `gemini-3.7-flash` mean overall std 0.083, pearson(gate errors, score) −0.33;
 pro `gemini-3.1-pro-preview` std 0.030, pearson +0.63, and separation on a
 crafted-vs-crude-vs-wrong triplet 0.60 / 0.00 / 0.25 (flash 0.91 / 0.00 / 0.20 —
@@ -561,7 +561,7 @@ turns those rows into training files; the harness writes the measurement, not th
 trainer's format.  `flywheel caption` adds
 {detailed, instruction, factory} captions (image-grounded, brand-free, `--out` for
 side-car mode); the gallery is `3dcode gallery build --embed`
-(the flywheel package has no renderer of its own).
+(the dataset addon has no renderer of its own).
 
 `codeverse3d/addons/gallery/` is the **local** answer to the same question: `3dcode gallery
 serve` indexes `runs/` + every `eval/bench/out/*/runs`, serves the page **and the run
@@ -570,5 +570,5 @@ in an orbit viewer built on the vendored three.js, `record.json`), and re-reads 
 run's record per request so a battery that is still writing shows up live.  A run
 with no record yet is a *pending* card, a half-written one a *broken* card.  Two
 gates keep it safe: a URL can only name a `(battery, slug)` the scanner found under
-a declared root, and `paths.safe_join` refuses anything that escapes that run
+a declared root, and `urls.safe_join` refuses anything that escapes that run
 directory.  `3dcode gallery build [--embed]` writes the same page as one file.

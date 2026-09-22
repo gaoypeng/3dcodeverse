@@ -153,10 +153,10 @@ provenance — use the cost package's own command, `3dcode cost show <runs-dir>`
 ## Back-compatibility contract
 
 * Old runs load unchanged — `load_record`, `3dcode status`, `3dcode judge`,
-  `3dcode render`, `flywheel export/pairs/gallery/index` all work with no
+  `3dcode render`, `flywheel export/pairs/index`, `gallery` all work with no
   `deliverable/` or `telemetry/` present.
 * Consumers resolve artifacts through
-  `flywheel.deliverable.deliverable_path(ws, name)`: `deliverable/<name>` first,
+  `record.deliverable.deliverable_path(ws, name)`: `deliverable/<name>` first,
   `artifacts/<name>` second.
 * `flywheel export` reads the packaged code snapshot only when git cannot answer
   (`meta.code_source == "deliverable"`), and adds a compact `meta.telemetry`

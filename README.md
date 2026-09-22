@@ -9,9 +9,9 @@ training corpora; and a finetuning study that trains open models on that data.
 ```
  harness/                    toolkits/                        finetune/
  API models write 3D code ─▶ curate + verify + package ─────▶ train & evaluate open models
- plan→generate→gate→render    corpus → LLaMA-Factory sets      LoRA / full SFT / DPO
- →judge→refine, per-run       (real compilers & renderers      3DCodeBench + per-dialect
- flywheel records             check every sample)               executors
+ plan→generate→gate→render    corpus → LLaMA-Factory sets      LoRA / full SFT / DPO;
+ →judge→refine, per-run       (real compilers & renderers      scored by eval/llm/ (3DCodeBench
+ flywheel records             check every sample)               + per-dialect executors)
         ▲                                                            │
         └──────────── better generators / judges ◀───────────────────┘
 ```
@@ -22,7 +22,7 @@ Python dist `3dcodeverse` (import `codeverse3d`, CLI `3dcodeverse` / `3dcode`).
 LLMs write raw 3D code across four tracks — `static_object` ·
 `articulated_object` · `scene` · `graphics` — in seven languages; the harness
 owns everything around the code: typed plans, deterministic gates
-(connectivity, contract, joint sweeps, frame metrics), a 19-tool spatial
+(connectivity, contract, joint sweeps, frame metrics), a 20-tool spatial
 toolbox served to coding agents over MCP, labelled multi-view renders, a
 rubric VLM judge with binary defect checklists and code-computed caps, an
 optional text-to-image texture pass, and a git-versioned record of every round
@@ -65,9 +65,10 @@ the Hub.  See [`toolkits/README.md`](toolkits/README.md).
 ## [`finetune/`](finetune/) — training open models on 3DCodeVerse
 
 Reproducible finetuning recipes on **unpatched LLaMA-Factory** (LoRA and
-ZeRO-3 full-parameter SFT, execution- and geometry-feedback DPO) plus the
-execution-based evaluation stack: 3DCodeBench (generate → run in Blender →
-Chamfer / F-score against ground truth) and held-out per-dialect executors.
+ZeRO-3 full-parameter SFT, execution- and geometry-feedback DPO).  The
+execution-based evaluation stack — 3DCodeBench (generate → run in Blender →
+Chamfer / F-score against ground truth) and held-out per-dialect executors — is
+[`eval/llm/`](eval/llm/).
 Headline (Qwen3.5-9B, 3DCodeBench execution rate): zero-shot **0%** → LoRA on
 5k Blender samples **75–82%** → + execution-feedback DPO **96.2%**; the full
 270k-sample multi-dialect mix reaches **90.1%**, and Qwen3.5-27B v2 scores

@@ -115,8 +115,8 @@ events.
 ### Looking at results locally
 
 ```bash
-3dcode gallery serve                       # ./runs + every ./bench/out/*/runs → http://127.0.0.1:8765/
-3dcode gallery serve eval/bench/out/static_v2_flash/runs --port 9000 --reload --no-open
+3dcode gallery serve                       # ./runs + every eval/bench/out/*/runs → http://127.0.0.1:8765/
+3dcode gallery serve ../eval/bench/out/static_v2_flash/runs --port 9000 --reload --no-open
 3dcode gallery build --out gallery.html [--embed]      # one self-contained file (--embed inlines the sheets)
 ```
 `serve` indexes the run roots (records only — ~85 runs in ~0.15 s) and serves the run
@@ -267,11 +267,11 @@ call the `texture_pass` / `texture_preview` tools mid-session.
 ## 7. Benchmarks
 
 ```bash
-3dcode bench run eval/bench/prompts/static_objects_v1.yaml --generator single-shot:gemini:gemini-3.7-flash \
-    --judge gemini:gemini-3.1-pro-preview --rounds 2 --parallel 4 [--tier easy] [--id furn_easy_stool] [--limit 6] [--out eval/bench/out/x]
-3dcode bench report eval/bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
-python eval/bench/compare_backends.py --prompts eval/bench/prompts/compare_v1.yaml \
-    --arms harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out eval/bench/out/compare_v1
+3dcode bench run ../eval/bench/prompts/static_objects_v1.yaml --generator single-shot:gemini:gemini-3.7-flash \
+    --judge gemini:gemini-3.1-pro-preview --rounds 2 --parallel 4 [--tier easy] [--id furn_easy_stool] [--limit 6] [--out ../eval/bench/out/x]
+3dcode bench report ../eval/bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
+python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml \
+    --arms harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
 ```
 Results stream to `results.jsonl` (resumable).  Batteries: `static_objects_v1` (24),
 `articulated_v1` (12), `scenes_v1` (12), `compare_v1` (8, harness-vs-one-shot).

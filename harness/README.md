@@ -17,12 +17,12 @@ renders, judges, refines, textures and records every run as data-flywheel materi
 * **Judging:** rubric VLM judge (default `gemini-3.1-pro-preview`) on labelled 2×2
   montages with binary defect checklists; code-computed scores, floors and caps from
   deterministic gates; pairwise, ranking and reference judges; best-of-N candidates;
-  a calibration harness (`judges/calibration.py`).
+  a calibration harness (`addons/calibration.py`).
 * **Texturing:** optional text-to-image pass — VLM material plan → seamless tiles →
   world-metre UVs → `object_textured.glb`, shipped only when a before/after judge
   gate agrees; scene texture packs for prompts.
 * **Flywheel:** git-versioned `src/` per round, `record.json`, sample export with
-  quality tiers + dedupe (+ parquet, tar locators), preference/repair/trajectory
+  quality tiers + dedupe (+ parquet, tar locators), preference/repair/cross-backend
   pairs, captions, sqlite index, HTML gallery.
 * **Looking at results:** `3dcode gallery serve` — a local page over `runs/` +
   `eval/bench/out/*/runs` with filters, a per-filter summary strip and a detail page per run;
@@ -63,7 +63,7 @@ codeverse3d/
                    gallery (the runs browser), dataset (export, tiers, preference/repair pairs,
                    captions, sqlite index), costreport (`3dcode cost`), calibration, skill_targets
   cli/             the typer CLI · doctor.py  the environment checks behind `3dcode doctor`
-eval/bench/             the evaluation harness around the harness: run_bench, compare_backends
+../eval/bench/     the evaluation harness around the harness: run_bench, compare_backends
                    (A/B matrix), ab_plan, infra-failure classification
 runtime_js/        node side: three@0.182 + headless-Chrome render/probe hosts
 ```
