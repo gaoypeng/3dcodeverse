@@ -22,10 +22,9 @@ from codeverse3d.languages._gl_common import (  # noqa: F401 — re-exported
     load_plan,
     make_host,
     parse_glsl_log,
-    preview_times,
     resolution_for,
 )
-from codeverse3d.spatial.gl_render import GlHost, GlResult
+from codeverse3d.spatial.gl_render import GlHost, GlResult, gif_times
 from codeverse3d.workspace import Workspace
 
 # ===================================================================== wrap
@@ -427,7 +426,7 @@ class GlslShaderRuntime(RuntimeDocs):
         res = host.render_fragment_shader(
             image.source, ws.artifacts, width=w, height=h, times=times or judge_times(duration),
             buffer_a_src=buffer_a.source if buffer_a else None, feedback=image.uses_feedback or buffer_a is not None,
-            extra_times=preview_times(duration) if preview else (),
+            extra_times=gif_times(duration or 8.0) if preview else (),
         )
         census = {"convention": image.convention, "has_common": (ws.root / COMMON).is_file(), "has_buffer_a": buffer_a is not None,
                   "has_recipes": (ws.root / RECIPES).is_file(), "resolution": [w, h]}

@@ -340,12 +340,11 @@ class CadQueryRuntime(RuntimeDocs):
     def entry_file(self, ws: Workspace) -> Path:
         return ws.src / "model.py"
 
-    def build_command(self, ws: Workspace, *, seed: int = 0, tri_limit: int = MAX_TRIS_OBJECT,
-                      tolerance: float = 0.001, angular_tolerance: float = 0.15) -> list[str]:
+    def build_command(self, ws: Workspace, *, seed: int = 0, tri_limit: int = MAX_TRIS_OBJECT) -> list[str]:
+        """The wrapper's own --tolerance / --angular-tolerance defaults are the tessellation."""
         return [
             self._python, str(WRAPPER), "--script", str(self.entry_file(ws)), "--out", str(ws.artifacts),
             "--rlimit-gb", str(self._rlimit_gb), "--tri-limit", str(tri_limit), "--seed", str(seed),
-            "--tolerance", str(tolerance), "--angular-tolerance", str(angular_tolerance),
         ]
 
     # ------------------------------------------------------------------ protocol

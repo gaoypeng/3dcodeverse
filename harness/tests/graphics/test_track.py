@@ -17,11 +17,11 @@ from codeverse3d.contracts.plan import GraphicsPlan
 from codeverse3d.contracts.run import RunStatus
 from codeverse3d.contracts.spec import Constraints, Spec
 from codeverse3d.judges.rubrics import load_rubric
-from codeverse3d.languages._gl_common import finish_build, judge_times, preview_times
+from codeverse3d.languages._gl_common import finish_build, judge_times
 from codeverse3d.languages.glsl_shader import lint_workspace, write_skeleton
 from codeverse3d.proc import EventLog
 from codeverse3d.prompts import render
-from codeverse3d.spatial.gl_render import GlFrame, GlResult
+from codeverse3d.spatial.gl_render import GlFrame, GlResult, gif_times
 from codeverse3d.tracks import get_track
 from codeverse3d.tracks.graphics import (
     GraphicsPipeline,
@@ -76,7 +76,7 @@ class FakeGlRuntime:
                            error_message="src/shader.frag:3: error: `nope' undeclared")
             return finish_build(ws, res, language="glsl_shader", error_file="src/shader.frag", error_line=3)
         frames = []
-        for i, t in enumerate(judge_times(8.0) + preview_times(8.0, 4)):
+        for i, t in enumerate(judge_times(8.0) + gif_times(8.0, 4)):
             p = ws.artifacts / "frames" / f"f{i:02d}_t{t:06.2f}.png"
             _frame(p, t, STATIC_MARK in src)
             frames.append(GlFrame(index=i, time=t, path=str(p), judge=i < 5))

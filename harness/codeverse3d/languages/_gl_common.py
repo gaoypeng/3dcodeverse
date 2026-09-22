@@ -5,7 +5,7 @@
 ``artifacts/preview.gif``, ``artifacts/metrics.json`` (frame stats + the
 ``gl_frames`` gate), ``artifacts/build.json`` — and a typed :class:`BuildResult`
 (``glb_path`` is always None: the deliverable is code + frames).
-``judge_times`` / ``preview_times`` derive the sampled times from the plan's duration.
+``judge_times`` derives the judged times from the plan's duration.
 ``make_host`` is the one place a runtime turns settings into a :class:`GlHost`.
 
 GLSL info-log parsing lives here too (:class:`GlslMessage`, :class:`LineMap`,
@@ -29,7 +29,6 @@ from codeverse3d.spatial.gl_render import (
     RESULT_NAME,
     GlHost,
     GlResult,
-    gif_times,
     write_contact_sheet,
     write_gif,
 )
@@ -95,10 +94,6 @@ def judge_times(duration_s: float | None) -> list[float]:
     if len(ts) < 3:
         ts = [round(i * d / 4, 3) for i in range(5)]
     return ts
-
-
-def preview_times(duration_s: float | None, n: int = 12) -> list[float]:
-    return gif_times(float(duration_s or 8.0), n)
 
 
 def finish_build(ws: Workspace, res: GlResult, *, language: str, error_file: str = "", error_line: int | None = None,

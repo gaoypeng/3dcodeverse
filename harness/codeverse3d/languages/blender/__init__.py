@@ -723,12 +723,12 @@ class BlenderRuntime(RuntimeDocs):
 
     def build_command(
         self, ws: Workspace, *, stl: bool = True, blend: bool = False, seed: int = 0,
-        tri_limit: int = MAX_TRIS_OBJECT, rlimit_gb: float | None = None,
+        tri_limit: int = MAX_TRIS_OBJECT,
     ) -> list[str]:
         cmd = [
             self.blender_binary(), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
             "--script", str(self.entry_file(ws)), "--out", str(ws.artifacts),
-            "--rlimit-gb", str(rlimit_gb if rlimit_gb is not None else self._settings.limits.bpy_rlimit_gb),
+            "--rlimit-gb", str(self._settings.limits.bpy_rlimit_gb),
             "--tri-limit", str(tri_limit), "--seed", str(seed),
         ]
         if stl:

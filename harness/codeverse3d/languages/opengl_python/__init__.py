@@ -24,11 +24,10 @@ from codeverse3d.languages._gl_common import (
     load_plan,
     make_host,
     parse_glsl_log,
-    preview_times,
     resolution_for,
     traceback_location,
 )
-from codeverse3d.spatial.gl_render import GlHost, GlResult
+from codeverse3d.spatial.gl_render import GlHost, GlResult, gif_times
 from codeverse3d.workspace import Workspace
 
 # ===================================================================== lint
@@ -369,7 +368,7 @@ class OpenGLPythonRuntime(RuntimeDocs):
             w, h = int(width), int(height)
         duration = plan.duration_s if plan else None
         res = self.host(timeout_s).run_program(program, ws.artifacts, width=w, height=h, times=times or judge_times(duration),
-                                               extra_times=preview_times(duration) if preview else (), cwd=ws.src)
+                                               extra_times=gif_times(duration or 8.0) if preview else (), cwd=ws.src)
         err_file, err_line, err_msg = "", None, None
         if not res.ok:
             err_file, err_line = traceback_location(res.traceback, program)
