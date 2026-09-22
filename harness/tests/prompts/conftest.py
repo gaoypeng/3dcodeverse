@@ -37,7 +37,6 @@ PROMPT_FILES = [
     "urdf/cookbook.md",
     "scene_threejs/contract.md",
     "scene_threejs/cookbook.md",
-    "scene_threejs/glsl_cookbook.md",
 ]
 
 _FENCE = re.compile(r"```(\w[\w-]*)\n(.*?)```", re.DOTALL)

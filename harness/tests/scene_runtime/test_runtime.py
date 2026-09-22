@@ -22,7 +22,6 @@ def test_runtime_registered_conforms_and_writes_skeleton(ws):
     assert "src/scene.js" in rt.entry_globs and "src/zones/*.js" in rt.entry_globs
     doc = language_text(rt.language, "contract.md")
     assert "createScene" in doc and "update(t, dt)" in doc
-    assert "`#include <...>` alone on its line" in language_text(rt.language, "glsl_cookbook.md")
     paths = rt.skeleton(ws, None)
     assert (ws.src / "scene.js") in paths
 

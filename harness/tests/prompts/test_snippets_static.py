@@ -129,7 +129,7 @@ def test_js_blocks_syntax(rel: str, tmp_path) -> None:
 def test_glsl_strings_are_sane() -> None:
     """GLSL lives inside JS template strings; audit the obvious silent killers
     INSIDE the js code blocks (prose may mention them as pitfalls)."""
-    for rel in ("scene_threejs/glsl_cookbook.md", "scene_threejs/cookbook.md"):
+    for rel in ("scene_threejs/cookbook.md",):
         for b, body in enumerate(blocks(rel, "js")):
             assert not re.search(r"^\s*#version", body, re.MULTILINE), \
                 f"{rel} js block {b}: never write #version in ShaderMaterial GLSL"
@@ -148,9 +148,6 @@ def test_glsl_strings_are_sane() -> None:
                     # raw GLSL line inside a template literal: must stand alone
                     assert re.fullmatch(r"#include <\w+>", line), \
                         f"{rel} js block {b}: #include must be alone on its line: {line!r}"
-    lib = read_prompt("scene_threejs/glsl_cookbook.md")
-    for fn in ("c3vHash21", "c3vNoise2", "c3vFbm2", "c3vFresnel"):
-        assert fn in lib
 
 
 def test_singleshot_example_parses_with_harness_parser() -> None:

@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import subprocess
 
@@ -213,36 +212,6 @@ console.log('SCENE_OK', r.cameras.map((c) => c.name).join(','));
 """
     out = run_node_module(tmp_path, runner)
     assert "SCENE_OK" in out
-
-
-@pytest.mark.node
-def test_glsl_cookbook_compiles_in_chrome(tmp_path) -> None:
-    """Every make*Material factory compiles in a real WebGL context (GPU or SwiftShader),
-    on a Mesh and on an InstancedMesh, with fog + log-depth renderer settings."""
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("node not available")
-    mod = "import * as THREE from 'three';\n" + "".join(
-        "\n" + strip_imports_exports(b) for b in blocks("scene_threejs/glsl_cookbook.md", "js")
-    )
-    names = sorted(set(re.findall(r"function (make\w*Material)\(", mod)))
-    assert len(names) >= 8, f"expected the GLSL factories, found {names}"
-    mod += "\nexport { " + ", ".join(names) + " };\n"
-    link = tmp_path / "node_modules"
-    if not link.exists():
-        from tests.prompts.conftest import RUNTIME_JS
-
-        link.symlink_to(RUNTIME_JS / "node_modules")
-    (tmp_path / "glsl_mod.mjs").write_text(mod)
-    proc = subprocess.run(
-        [node, str(HELPERS / "glsl_compile.mjs"), str(tmp_path), "glsl_mod.mjs"],
-        capture_output=True, text=True, timeout=300,
-    )
-    assert proc.stdout.strip(), f"no output: {proc.stderr[-2000:]}"
-    report = json.loads(proc.stdout.strip().splitlines()[-1])
-    assert report.get("ok"), f"GLSL compile failures: {json.dumps(report, indent=2)[:4000]}"
-    checked = {r["name"] for r in report["results"]}
-    assert set(names) <= checked
 
 
 @pytest.mark.node
