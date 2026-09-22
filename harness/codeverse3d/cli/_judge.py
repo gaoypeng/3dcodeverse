@@ -22,13 +22,7 @@ from codeverse3d.contracts.common import TRACK_INFO
 from codeverse3d.contracts.plan import AcceptanceItem
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.contracts.spec import Spec
-from codeverse3d.judges.base import (
-    SLICE_TRACKS,
-    JudgeInput,
-    judged_subset,
-    plan_digest,
-    resolve_paths,
-)
+from codeverse3d.judges.base import SLICE_TRACKS, judged_subset, plan_digest, resolve_paths
 from codeverse3d.proc import read_json_or_none
 from codeverse3d.workspace import Workspace
 
@@ -96,7 +90,9 @@ def clay_geometry_views(ws: Workspace, index: int) -> RenderSet | None:
     return RenderSet(views=views, renderer="stored") if views else None
 
 
-def build_judge_input(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> JudgeInput:
+def build_judge_input(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> Any:
+    from codeverse3d.judges.base import JudgeInput
+
     acceptance: list[AcceptanceItem] = list(getattr(rec.plan, "acceptance", []) or [])
     if not acceptance and ws.plan_path.is_file():
         try:
