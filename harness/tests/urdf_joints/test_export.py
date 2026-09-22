@@ -9,8 +9,8 @@ import pytest
 import trimesh
 from PIL import Image
 
-from codeverse.contracts.artifacts import RenderSet, RenderView
-from codeverse.spatial.joints import (
+from codeverse3d.contracts.artifacts import RenderSet, RenderView
+from codeverse3d.spatial.joints import (
     ARTICULATION_SHEET_NAME,
     UrdfError,
     load_urdf,
@@ -53,7 +53,7 @@ def test_urdf_to_glb_hierarchy_and_extras(tmp_path):
 
 
 def test_render_poses_with_fake_renderer_builds_sheet(tmp_path, monkeypatch):
-    import codeverse.spatial.joints_export as je
+    import codeverse3d.spatial.joints_export as je
 
     urdf, meshes = write_mesh_robot(tmp_path)
     r = load_urdf(urdf, meshes)
@@ -87,7 +87,7 @@ def test_multi_material_link_keeps_materials(tmp_path):
     b.apply_translation((0, 0, 0.3))
     b.visual = trimesh.visual.TextureVisuals(material=trimesh.visual.material.PBRMaterial(name="metal", baseColorFactor=[200, 200, 210, 255]))
     (meshes / "body.glb").write_bytes(trimesh.Scene([a, b]).export(file_type="glb"))
-    from codeverse.spatial.joints import load_urdf as _load
+    from codeverse3d.spatial.joints import load_urdf as _load
 
     r = _load(urdf, meshes)
     assert len(r.links["body"].submeshes) == 2 and len(r.links["body"].mesh.split(only_watertight=False)) == 2
@@ -101,9 +101,9 @@ def test_multi_material_link_keeps_materials(tmp_path):
 def test_joint_sweep_tool_offline(tmp_path, monkeypatch):
     """The ``joint_sweep`` tool body lives in spatial.tools: collision sweep over every
     joint, renders narrowed to ``joints`` (+ rest) through ``render_poses``."""
-    import codeverse.spatial.tools as ts
-    from codeverse.spatial.registry import ToolContext, get_tool
-    from codeverse.workspace import Workspace
+    import codeverse3d.spatial.tools as ts
+    from codeverse3d.spatial.registry import ToolContext, get_tool
+    from codeverse3d.workspace import Workspace
 
     ws = Workspace(tmp_path / "ws").create()
     ctx = ToolContext(workspace=ws, language="urdf_blender", track="articulated_object")
@@ -130,9 +130,9 @@ def test_joint_sweep_penetration_is_a_verdict_not_an_mcp_error(tmp_path, monkeyp
     """A sweep that finds a penetration RAN: ``failed`` stays False (63% of 1404 recorded
     joint_sweep calls answered FAIL, and each one reported as an MCP error bought a retry
     at ~117k prompt tokens), and the FAIL verdict leads the text."""
-    import codeverse.spatial.tools as ts
-    from codeverse.spatial.registry import ToolContext, get_tool
-    from codeverse.workspace import Workspace
+    import codeverse3d.spatial.tools as ts
+    from codeverse3d.spatial.registry import ToolContext, get_tool
+    from codeverse3d.workspace import Workspace
     from tests.urdf_joints.conftest import write_prims_robot
 
     ws = Workspace(tmp_path / "ws").create()
@@ -151,7 +151,7 @@ def test_robot_named_like_a_link_keeps_frame_and_placement(tmp_path):
     """``<robot name="body">`` with a root link ``body``: scene-graph node names must be
     unique, so the root node gets a ``__root`` suffix instead of aliasing the link node
     (which silently dropped the Z-up→Y-up rotation and the door's joint placement)."""
-    from codeverse.spatial.measure import measure_glb
+    from codeverse3d.spatial.measure import measure_glb
 
     urdf, meshes = write_mesh_robot(tmp_path)
     urdf.write_text(urdf.read_text().replace('<robot name="cab">', '<robot name="body">'))

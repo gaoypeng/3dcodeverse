@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import copy
 
-from codeverse.contracts.common import Language, Track
-from codeverse.contracts.plan import ArticulatedPlan
-from codeverse.tracks.planner import plan, plan_example
+from codeverse3d.contracts.common import Language, Track
+from codeverse3d.contracts.plan import ArticulatedPlan
+from codeverse3d.tracks.planner import plan, plan_example
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import FakeChatModel, FakeRuntime
 
@@ -21,7 +21,7 @@ def _spec():
 
 
 def test_every_moving_joint_gets_an_articulation_acceptance_item(tmp_ws):
-    from codeverse.tracks.planner import articulation_acceptance
+    from codeverse3d.tracks.planner import articulation_acceptance
 
     good = _good()
     good["acceptance"] = [a for a in good["acceptance"] if a.get("how") != "articulation"]

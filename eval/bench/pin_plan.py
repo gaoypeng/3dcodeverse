@@ -12,7 +12,7 @@ instead of two — cheaper, not more expensive, unlike averaging k generations.
 
 Only valid when the switch cannot change planning: sharing a plan across a plan-side switch
 would silently delete the thing under test and the rig would then report "no effect" with
-confidence.  ``codeverse.tracks.plan_features.pin_plan_blockers`` decides that, and callers
+confidence.  ``codeverse3d.tracks.plan_features.pin_plan_blockers`` decides that, and callers
 must consult it — this module refuses to guess.
 """
 
@@ -90,11 +90,11 @@ def plan_once(spec: Any, ws_root: Path) -> str:
     cache HIT); and through ``_plan_stage`` rather than the bare planner so the call is
     charged to a budget and its spend is saved, exactly as in a run.
     """
-    from codeverse.orchestrator import RunState, StageRunner
-    from codeverse.proc import EventLog
-    from codeverse.tracks import get_track
-    from codeverse.tracks.lifecycle import plan_stage_inputs
-    from codeverse.workspace import Workspace
+    from codeverse3d.orchestrator import RunState, StageRunner
+    from codeverse3d.proc import EventLog
+    from codeverse3d.tracks import get_track
+    from codeverse3d.tracks.lifecycle import plan_stage_inputs
+    from codeverse3d.workspace import Workspace
 
     ws = Workspace(Path(ws_root))
     ws.create()

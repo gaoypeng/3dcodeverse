@@ -7,8 +7,8 @@ import ast
 import numpy as np
 import pytest
 
-from codeverse.contracts.plan import ArticulatedPlan, BBox, JointPlan, PartPlan
-from codeverse.languages.urdf import (
+from codeverse3d.contracts.plan import ArticulatedPlan, BBox, JointPlan, PartPlan
+from codeverse3d.languages.urdf import (
     compute_urdf_frames,
     lint_model_text,
     lint_urdf_text,
@@ -16,8 +16,8 @@ from codeverse.languages.urdf import (
     render_urdf,
     write_skeleton,
 )
-from codeverse.spatial.joints import fk, load_urdf
-from codeverse.workspace import Workspace
+from codeverse3d.spatial.joints import fk, load_urdf
+from codeverse3d.workspace import Workspace
 
 
 def test_frames_chain(cabinet_plan):
@@ -99,8 +99,8 @@ def test_write_skeleton(tmp_path, drawer_plan):
 
 
 def test_skeleton_rejects_static_plan(tmp_path):
-    from codeverse.contracts.plan import StaticPlan
-    from codeverse.languages.urdf import UrdfBlenderRuntime
+    from codeverse3d.contracts.plan import StaticPlan
+    from codeverse3d.languages.urdf import UrdfBlenderRuntime
 
     sp = StaticPlan(object_name="x", summary="s", overall_bbox=BBox(center=(0, 0, 0), extents=(1, 1, 1)),
                     parts=[PartPlan(name="A", role="r", description="d", bbox=BBox(center=(0, 0, 0), extents=(1, 1, 1)))])

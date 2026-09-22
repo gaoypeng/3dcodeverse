@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from codeverse.contracts.artifacts import Severity
-from codeverse.spatial.render import RenderError
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.spatial.render import RenderError
 
 
 def test_pose_render_failure_keeps_the_measured_sweep(tmp_path, monkeypatch):
     """art_verify architect_lamp, 2026-08-26: render_glb.mjs timed out after 330 s inside
     render_poses with three articulated runs sharing the browser; gates() raised and the run
     was recorded failed before its first round."""
-    import codeverse.tracks.articulated_object as art
-    from codeverse.spatial import joints
+    import codeverse3d.tracks.articulated_object as art
+    from codeverse3d.spatial import joints
 
     urdf = tmp_path / "src" / "robot.urdf"
     urdf.parent.mkdir(parents=True)

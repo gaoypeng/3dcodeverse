@@ -6,7 +6,7 @@ import pytest
 import trimesh
 from PIL import Image
 
-from codeverse.spatial.sections import SliceManifest, cross_section, judge_slices
+from codeverse3d.spatial.sections import SliceManifest, cross_section, judge_slices
 
 
 def test_cross_section_stool(stool_glb: Path, tmp_path: Path) -> None:

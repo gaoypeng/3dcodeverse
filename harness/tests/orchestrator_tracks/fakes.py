@@ -12,8 +12,8 @@ import numpy as np
 import trimesh
 from PIL import Image
 
-from codeverse.contracts.agent import AgentJob, AgentResult
-from codeverse.contracts.artifacts import (
+from codeverse3d.contracts.agent import AgentJob, AgentResult
+from codeverse3d.contracts.artifacts import (
     BuildResult,
     GateFinding,
     GateReport,
@@ -26,13 +26,13 @@ from codeverse.contracts.artifacts import (
     RenderView,
     Severity,
 )
-from codeverse.contracts.chat import ChatRequest, ChatResponse
-from codeverse.contracts.common import Language, Usage
-from codeverse.contracts.plan import Plan
-from codeverse.contracts.run import RunRecord
-from codeverse.conventions import to_snake
-from codeverse.tracks.common import Services, ServiceUnavailable
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.chat import ChatRequest, ChatResponse
+from codeverse3d.contracts.common import Language, Usage
+from codeverse3d.contracts.plan import Plan
+from codeverse3d.contracts.run import RunRecord
+from codeverse3d.conventions import to_snake
+from codeverse3d.tracks.common import Services, ServiceUnavailable
+from codeverse3d.workspace import Workspace
 
 FAIL_MARK = "RAISE_BUILD_ERROR"
 
@@ -241,7 +241,7 @@ class FakePairwise:
         self.calls: list[tuple[Any, Any, Any, str]] = []
 
     def compare(self, spec: Any, renders_a: Any, renders_b: Any, *, rubric: str = "static_object_v1") -> Any:
-        from codeverse.judges.pairwise import PairwiseResult
+        from codeverse3d.judges.pairwise import PairwiseResult
 
         i = min(len(self.calls), len(self.verdicts) - 1)
         self.calls.append((spec, renders_a, renders_b, rubric))

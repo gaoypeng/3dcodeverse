@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.texturing.materials import (
+from codeverse3d.texturing.materials import (
     BARE_METAL_FAMILIES,
     COARSE_TO_FINE,
     MATERIALS,
@@ -16,7 +16,7 @@ from codeverse.texturing.materials import (
     pbr_for,
     saturation,
 )
-from codeverse.texturing.plan import FAMILY_DEFAULTS
+from codeverse3d.texturing.plan import FAMILY_DEFAULTS
 
 
 def test_every_family_is_self_consistent():

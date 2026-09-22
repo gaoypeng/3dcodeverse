@@ -7,17 +7,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Judgment, Severity
-from codeverse.contracts.common import Language, Track, Usage
-from codeverse.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
-from codeverse.contracts.run import RoundRecord, RunStatus
-from codeverse.orchestrator import RoundPolicy, RunState
-from codeverse.proc import EventLog
-from codeverse.prompts import load_text
-from codeverse.tracks.planner import plan_example
-from codeverse.tracks.scene import SceneTrack
-from codeverse.tracks.static_object import ObjectPipeline, StaticObjectTrack
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Judgment, Severity
+from codeverse3d.contracts.common import Language, Track, Usage
+from codeverse3d.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
+from codeverse3d.contracts.run import RoundRecord, RunStatus
+from codeverse3d.orchestrator import RoundPolicy, RunState
+from codeverse3d.proc import EventLog
+from codeverse3d.prompts import load_text
+from codeverse3d.tracks.planner import plan_example
+from codeverse3d.tracks.scene import SceneTrack
+from codeverse3d.tracks.static_object import ObjectPipeline, StaticObjectTrack
+from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import fake_clock, make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
@@ -126,7 +126,7 @@ def test_a_failed_finalise_rebuild_cannot_finalize_silently(tmp_path, chair_plan
             return super().build(ws, timeout_s=timeout_s)
 
     textured = []
-    from codeverse.tracks.lifecycle import BaseTrack
+    from codeverse3d.tracks.lifecycle import BaseTrack
     monkeypatch.setattr(BaseTrack, "_texture_wanted", staticmethod(lambda ctx: True))
     monkeypatch.setattr(BaseTrack, "_texture_pass", lambda self, ctx: textured.append(True))
 

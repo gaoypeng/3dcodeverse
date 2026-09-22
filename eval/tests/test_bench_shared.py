@@ -66,7 +66,7 @@ def test_the_harness_arm_looks_for_each_languages_own_entry_file():
     has ever had a readable A/B: both arms scored 0.0 and the rig called that "no effect".
     """
     from bench.compare_backends import entry_of
-    from codeverse.contracts.common import ENTRY_FILE, Language
+    from codeverse3d.contracts.common import ENTRY_FILE, Language
 
     for language, entry in ENTRY_FILE.items():
         spec = SimpleNamespace(language=language)

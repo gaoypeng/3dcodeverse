@@ -9,14 +9,14 @@ from typing import Any
 import pytest
 from PIL import Image, ImageDraw
 
-from codeverse.contracts.artifacts import Measurement, PartMeasure, RenderSet, RenderView
-from codeverse.contracts.chat import ChatRequest, ChatResponse, ImagePart
-from codeverse.contracts.common import Language, Track, Usage
-from codeverse.contracts.plan import AcceptanceItem
-from codeverse.contracts.spec import Spec
-from codeverse.judges.base import JudgeInput
-from codeverse.judges.rubrics import Rubric
-from codeverse.models.base import ModelError
+from codeverse3d.contracts.artifacts import Measurement, PartMeasure, RenderSet, RenderView
+from codeverse3d.contracts.chat import ChatRequest, ChatResponse, ImagePart
+from codeverse3d.contracts.common import Language, Track, Usage
+from codeverse3d.contracts.plan import AcceptanceItem
+from codeverse3d.contracts.spec import Spec
+from codeverse3d.judges.base import JudgeInput
+from codeverse3d.judges.rubrics import Rubric
+from codeverse3d.models.base import ModelError
 
 VIEW_NAMES = ("front_right_high", "back_left_high", "front", "top")
 

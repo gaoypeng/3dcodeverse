@@ -7,7 +7,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from codeverse.cli.main import app
+from codeverse3d.cli.main import app
 
 runner = CliRunner()
 

@@ -14,7 +14,7 @@ import subprocess
 
 import pytest
 
-from codeverse.config import get_settings
+from codeverse3d.config import get_settings
 from tests.scene_runtime.conftest import needs_node
 
 pytestmark = [pytest.mark.node, needs_node]

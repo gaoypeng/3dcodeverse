@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.contracts.artifacts import GateFinding, Severity
-from codeverse.spatial.joints import (
+from codeverse3d.contracts.artifacts import GateFinding, Severity
+from codeverse3d.spatial.joints import (
     UrdfError,
     load_urdf,
     motion_direction_check,
@@ -14,7 +14,7 @@ from codeverse.spatial.joints import (
     sweep_collisions,
     sweep_findings,
 )
-from codeverse.spatial.joints_sweep import MAX_PAIR_FINDINGS, aggregate_findings
+from codeverse3d.spatial.joints_sweep import MAX_PAIR_FINDINGS, aggregate_findings
 from tests.urdf_joints.conftest import (
     write_carcass_drawer_robot,
     write_mesh_robot,
@@ -94,8 +94,8 @@ def test_motion_direction(tmp_path):
 
 
 def test_trimesh_fallback_backend(tmp_path, monkeypatch):
-    import codeverse.spatial.joints_collide as jc
-    import codeverse.spatial.joints_sweep as js
+    import codeverse3d.spatial.joints_collide as jc
+    import codeverse3d.spatial.joints_sweep as js
 
     monkeypatch.setattr(jc, "_fcl", None)
     r = load_urdf(write_prims_robot(tmp_path / "cab.urdf", axis_z=+1))
@@ -110,7 +110,7 @@ def test_agent_style_meshes_penetration_is_real_and_deterministic(tmp_path, monk
     """Non-watertight, inverted-winding links (the wrapper's usual output): a clean design
     must report no overlap and a drawer driven 30 mm through the side panel must be caught —
     identically on every call (no random ray re-casts) and on both backends."""
-    import codeverse.spatial.joints_collide as jc
+    import codeverse3d.spatial.joints_collide as jc
 
     if not fcl:
         monkeypatch.setattr(jc, "_fcl", None)
@@ -156,7 +156,7 @@ def test_joints_argument_narrows_the_render_to_those_joints(monkeypatch, tmp_pat
     rendered every joint's limit poses (three views each). Measured 2026-08-25: articulated
     rounds ran a median 1007 s vs 497 s for static objects, agents calling the sweep 3-8
     times a round on 10-joint objects (~63 renders a call)."""
-    from codeverse.spatial import tools as ts
+    from codeverse3d.spatial import tools as ts
 
     class _J:
         def __init__(self, name, lo, hi, type="revolute"): self.name, self.lower, self.upper, self.type = name, lo, hi, type

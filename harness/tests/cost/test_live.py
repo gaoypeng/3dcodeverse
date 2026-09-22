@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.contracts.chat import ChatMessage, ChatRequest
-from codeverse.cost.guard import estimate_call
+from codeverse3d.contracts.chat import ChatMessage, ChatRequest
+from codeverse3d.cost.guard import estimate_call
 
 pytestmark = pytest.mark.live
 
@@ -18,13 +18,13 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def _stable_text() -> str:
-    from codeverse.judges.prompt_builder import build_system_prompt
-    from codeverse.judges.rubrics import load_rubric
+    from codeverse3d.judges.prompt_builder import build_system_prompt
+    from codeverse3d.judges.rubrics import load_rubric
 
     return "\n".join([
         build_system_prompt(load_rubric("static_object_v1")),
-        (REPO / "codeverse/prompts/blender/contract.md").read_text(),
-        (REPO / "codeverse/prompts/blender/cookbook.md").read_text(),
+        (REPO / "codeverse3d/prompts/blender/contract.md").read_text(),
+        (REPO / "codeverse3d/prompts/blender/cookbook.md").read_text(),
     ])
 
 
@@ -35,7 +35,7 @@ def _send(model, text: str):
 
 def test_estimate_is_within_15_percent_of_the_bill():
     """The pre-send estimate has to be good enough to route on."""
-    from codeverse.models import get_chat_model
+    from codeverse3d.models import get_chat_model
 
     text = _stable_text()[:20_000]
     est = estimate_call("gemini:gemini-3.7-flash", prompt=text, output_tokens=40)
@@ -52,10 +52,10 @@ def test_a_metered_run_reconciles_with_its_own_record(tmp_path: Path):
     the threshold here is the 1% the wave asked for."""
     from typer.testing import CliRunner
 
-    from codeverse.cli.main import app
-    from codeverse.cost.ledger import load_ledger
-    from codeverse.record.record import load_record
-    from codeverse.workspace import Workspace
+    from codeverse3d.cli.main import app
+    from codeverse3d.cost.ledger import load_ledger
+    from codeverse3d.record.record import load_record
+    from codeverse3d.workspace import Workspace
 
     runs = tmp_path / "runs"
     r = CliRunner().invoke(app, [

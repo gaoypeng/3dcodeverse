@@ -65,7 +65,7 @@ def test_quoted_test_counts_are_possible() -> None:
 
 
 def test_a_build_does_not_dirty_the_tree() -> None:
-    paths = ("harness/build/lib/codeverse/__init__.py", "harness/dist/x.whl",
+    paths = ("harness/build/lib/codeverse3d/__init__.py", "harness/dist/x.whl",
              "build/lib/x.py", "dist/x.tar.gz")
     for path in paths:
         r = subprocess.run(["git", "check-ignore", "-q", path], cwd=HARNESS.parent)

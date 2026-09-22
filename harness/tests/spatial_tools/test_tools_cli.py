@@ -6,8 +6,8 @@ import json
 
 from typer.testing import CliRunner
 
-from codeverse.cli._common import console, print_observation
-from codeverse.spatial.registry import Observation, ToolContext
+from codeverse3d.cli._common import console, print_observation
+from codeverse3d.spatial.registry import Observation, ToolContext
 
 
 def _panel_title(obs: Observation) -> str:
@@ -37,7 +37,7 @@ def test_cli_exit_code_follows_the_verdict_not_the_failure(stool_ctx: ToolContex
     already exited 1 on a FAIL; the exit code speaks to the human or script at the terminal,
     while the MCP boundary — the one that costs money when a verdict is called an error —
     reports ``failed`` alone."""
-    from codeverse.cli.main import app
+    from codeverse3d.cli.main import app
 
     runner = CliRunner()
     ws = str(stool_ctx.workspace.root)

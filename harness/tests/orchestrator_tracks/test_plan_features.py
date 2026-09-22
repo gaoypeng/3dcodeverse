@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.tracks import plan_features as F
+from codeverse3d.tracks import plan_features as F
 
 # --------------------------------------------------------------------------- CQ-5
 HARNESS = Path(__file__).resolve().parents[2]
@@ -18,11 +18,11 @@ HARNESS = Path(__file__).resolve().parents[2]
 def _sources() -> tuple[tuple[str, str], ...]:
     """(relpath, text) for every harness source, read ONCE per session.
 
-    Only ``codeverse`` counts: a switch is live when the HARNESS reads it.  The evaluation
+    Only ``codeverse3d`` counts: a switch is live when the HARNESS reads it.  The evaluation
     scripts (``eval/bench``) set switches for an A/B; they are not what makes one live.
     """
     out = []
-    for p in (HARNESS / "codeverse").rglob("*.py"):
+    for p in (HARNESS / "codeverse3d").rglob("*.py"):
         if p.name != "plan_features.py":
             out.append((str(p.relative_to(HARNESS)), p.read_text(errors="replace")))
     return tuple(out)
@@ -49,11 +49,11 @@ def test_every_dead_switch_is_really_dead(name: str):
 
 def test_the_plan_features_switch_is_declared_dead():
     """It is: the six KNOWN_FEATURES are not implemented anywhere, so an arm that differs
-    only by CV3D_PLAN_FEATURES is byte-identical to its control."""
+    only by C3D_PLAN_FEATURES is byte-identical to its control."""
     assert F.PLAN_FEATURES_ENV in F.DEAD_SWITCHES
     assert F.dead_env_keys({F.PLAN_FEATURES_ENV: "all"}) == [F.PLAN_FEATURES_ENV]
-    assert F.dead_env_keys({"CV3D_PLAN_BRIEF": "off"}) == []
-    assert F.dead_env_keys({F.PLAN_FEATURES_ENV: "all", "CV3D_PLAN_BRIEF": "off"}) == [F.PLAN_FEATURES_ENV]
+    assert F.dead_env_keys({"C3D_PLAN_BRIEF": "off"}) == []
+    assert F.dead_env_keys({F.PLAN_FEATURES_ENV: "all", "C3D_PLAN_BRIEF": "off"}) == [F.PLAN_FEATURES_ENV]
 
 
 # --------------------------------------------------------------------- pin-plan safety
@@ -61,9 +61,9 @@ def test_a_generation_side_switch_may_share_one_plan():
     """`contacts` renders a table into the BUILDER's prompt from an unchanged plan, so
     both arms can be seeded with the same plan.json and the paired delta stops carrying
     the planner's spread — the dominant variance term (docs/EVAL.md §8.1)."""
-    from codeverse.tracks.plan_features import pin_plan_blockers
+    from codeverse3d.tracks.plan_features import pin_plan_blockers
 
-    assert pin_plan_blockers({"CV3D_PLAN_FEATURES": "contacts"}) == []
+    assert pin_plan_blockers({"C3D_PLAN_FEATURES": "contacts"}) == []
     for name in sorted(F.GENERATION_SIDE_ENV):
         assert pin_plan_blockers({name: "1"}) == [], name
     assert pin_plan_blockers({}) == []
@@ -72,30 +72,30 @@ def test_a_generation_side_switch_may_share_one_plan():
 def test_a_plan_side_switch_is_refused_by_name():
     """Pinning `fit` would hand both arms one plan and so silently delete the change
     under test — the rig would then report "no effect" with confidence."""
-    from codeverse.tracks.plan_features import pin_plan_blockers
+    from codeverse3d.tracks.plan_features import pin_plan_blockers
 
-    assert pin_plan_blockers({"CV3D_PLAN_FEATURES": "fit"}) == [
-        "CV3D_PLAN_FEATURES=fit changes the plan itself"]
+    assert pin_plan_blockers({"C3D_PLAN_FEATURES": "fit"}) == [
+        "C3D_PLAN_FEATURES=fit changes the plan itself"]
     # one plan-side name in a list of otherwise-safe ones still blocks
-    assert pin_plan_blockers({"CV3D_PLAN_FEATURES": "contacts,fit"}) == [
-        "CV3D_PLAN_FEATURES=fit changes the plan itself"]
-    assert len(pin_plan_blockers({"CV3D_PLAN_FEATURES": "all"})) == 5
+    assert pin_plan_blockers({"C3D_PLAN_FEATURES": "contacts,fit"}) == [
+        "C3D_PLAN_FEATURES=fit changes the plan itself"]
+    assert len(pin_plan_blockers({"C3D_PLAN_FEATURES": "all"})) == 5
 
 
 def test_an_unclassified_switch_defaults_to_refusing():
     """Refusing to pin costs one noisy A/B; pinning wrongly costs a confident wrong
     answer.  So the default for anything unknown is: do not pin."""
-    from codeverse.tracks.plan_features import pin_plan_blockers
+    from codeverse3d.tracks.plan_features import pin_plan_blockers
 
-    assert pin_plan_blockers({"CV3D_MYSTERY_KNOB": "1"}) == [
-        "CV3D_MYSTERY_KNOB is not known to act after planning"]
-    assert pin_plan_blockers({"CV3D_PLAN_BRIEF": "off"}) == [
-        "CV3D_PLAN_BRIEF is not known to act after planning"]
+    assert pin_plan_blockers({"C3D_MYSTERY_KNOB": "1"}) == [
+        "C3D_MYSTERY_KNOB is not known to act after planning"]
+    assert pin_plan_blockers({"C3D_PLAN_BRIEF": "off"}) == [
+        "C3D_PLAN_BRIEF is not known to act after planning"]
 
 
 def test_every_known_feature_is_classified():
     """A new feature must be put on one side or the other in the same commit; otherwise
     it silently inherits 'plan-side' and nobody notices the A/B got noisier."""
-    from codeverse.tracks.plan_features import GENERATION_SIDE, KNOWN_FEATURES
+    from codeverse3d.tracks.plan_features import GENERATION_SIDE, KNOWN_FEATURES
 
     assert set(KNOWN_FEATURES) > GENERATION_SIDE

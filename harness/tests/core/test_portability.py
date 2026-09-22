@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.spatial.node import (
+from codeverse3d.spatial.node import (
     NODE_MIN,
     NODE_MIN_STR,
     NodeError,
@@ -22,7 +22,7 @@ from codeverse.spatial.node import (
     parse_node_version,
     require_node_version,
 )
-from codeverse.workspace import Workspace
+from codeverse3d.workspace import Workspace
 
 HARNESS = Path(__file__).resolve().parents[2]
 PY_FLOOR = (3, 13)
@@ -40,8 +40,8 @@ def test_setup_and_runtime_js_declare_the_same_runtime_floors() -> None:
 def test_package_data_ships_every_file_a_runtime_reads() -> None:
     """Every runtime data file matches a live package-data glob."""
     cfg = tomllib.loads((HARNESS / "pyproject.toml").read_text())
-    globs = cfg["tool"]["setuptools"]["package-data"]["codeverse"]
-    pkg = HARNESS / "codeverse"
+    globs = cfg["tool"]["setuptools"]["package-data"]["codeverse3d"]
+    pkg = HARNESS / "codeverse3d"
     shipped: set[Path] = set()
     for g in globs:
         hits = {p for p in pkg.glob(g) if p.is_file()}
@@ -51,13 +51,13 @@ def test_package_data_ships_every_file_a_runtime_reads() -> None:
             if p.is_file() and p.suffix not in (".py", ".pyc") and "__pycache__" not in p.parts}
     missing = sorted(str(p.relative_to(pkg)) for p in data - shipped)
     assert not missing, f"data files no wheel would ship: {missing}"
-    excluded = cfg["tool"]["setuptools"]["exclude-package-data"]["codeverse"]
+    excluded = cfg["tool"]["setuptools"]["exclude-package-data"]["codeverse3d"]
     assert any("__pycache__" in g for g in excluded), "a wheel must not carry the build host's bytecode"
 
 
 def test_write_example_refuses_to_write_nothing(tmp_path, monkeypatch) -> None:
     """A package missing its starter tree fails instead of writing an empty scene."""
-    import codeverse.languages.scene_threejs as skeleton
+    import codeverse3d.languages.scene_threejs as skeleton
 
     monkeypatch.setattr(skeleton, "STARTER_DIR", tmp_path / "gone" / "src")
     with pytest.raises(FileNotFoundError, match="starter tree missing"):
@@ -82,11 +82,11 @@ def test_node_version_parsing_and_gate() -> None:
         msg = node_version_error(version)
         assert ".".join(map(str, version)) in msg
         assert NODE_MIN_STR in msg
-        assert "CV3D_BINARIES__NODE" in msg and "nvm" in msg
+        assert "C3D_BINARIES__NODE" in msg and "nvm" in msg
 
 
 def test_run_node_enforces_the_version_floor(tmp_path, monkeypatch) -> None:
-    import codeverse.spatial.node as node_mod
+    import codeverse3d.spatial.node as node_mod
 
     script = tmp_path / "noop.mjs"
     script.write_text("console.log('{}')\n")

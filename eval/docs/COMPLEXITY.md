@@ -1,6 +1,6 @@
 # Complexity — measuring how much artifact the harness can actually build
 
-> **Paths in this document.** `bench/…` is relative to `eval/` (this folder's parent); `codeverse/…`, `tests/…`,
+> **Paths in this document.** `bench/…` is relative to `eval/` (this folder's parent); `codeverse3d/…`, `tests/…`,
 > `runtime_js/…` and the other `docs/…` files are relative to `harness/`.  Recorded battery output (`bench/out/…`)
 > is run data and is not in git.
 
@@ -12,7 +12,7 @@ the second number existed the harness could not tell them apart.
 
 Reconciled against the code and the recorded corpus on **2026-08-24**.
 
-* the vector: `codeverse/spatial/complexity.py`
+* the vector: `codeverse3d/spatial/complexity.py`
 * where it is stored: `Measurement.extra["complexity"]`, `record.extra["complexity"]`,
   `record.extra["rounds_summary"][i]["complexity"]`, the gallery card + detail page
 * the study: `bench/complexity_report.py`

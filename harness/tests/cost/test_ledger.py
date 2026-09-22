@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codeverse.contracts.common import Usage
-from codeverse.cost import CostLedger, load_ledger, record_call, summarise
-from codeverse.cost.ledger import bound_ledger, existing_ledger_path, open_run_ledger
-from codeverse.cost.types import Role, Stage
+from codeverse3d.contracts.common import Usage
+from codeverse3d.cost import CostLedger, load_ledger, record_call, summarise
+from codeverse3d.cost.ledger import bound_ledger, existing_ledger_path, open_run_ledger
+from codeverse3d.cost.types import Role, Stage
 
 
 def _usage(**kw: object) -> Usage:

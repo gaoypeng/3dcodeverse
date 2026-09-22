@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.addons.costreport.audit import audit_runs
-from codeverse.contracts.common import Usage
-from codeverse.cost import find_runs, reconstruct
-from codeverse.cost.types import Role, Stage
+from codeverse3d.addons.costreport.audit import audit_runs
+from codeverse3d.contracts.common import Usage
+from codeverse3d.cost import find_runs, reconstruct
+from codeverse3d.cost.types import Role, Stage
 
 
 def test_reconstructs_and_reconciles(fake_run: Path):
@@ -123,8 +123,8 @@ def test_a_live_ledger_files_losing_candidates_as_waste(fake_run: Path, tmp_path
     not the reconstructed ``c<k>:baseline`` — and the waste detector must read both."""
     import shutil
 
-    from codeverse.cost.instrument import run_ledger
-    from codeverse.cost.ledger import record_call
+    from codeverse3d.cost.instrument import run_ledger
+    from codeverse3d.cost.ledger import record_call
 
     ws = tmp_path / "live_cands"
     shutil.copytree(fake_run, ws)

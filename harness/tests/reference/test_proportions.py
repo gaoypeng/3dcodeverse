@@ -7,14 +7,14 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
-from codeverse.reference import (
+from codeverse3d.reference import (
     ASPECT_TOL,
     conflict_note,
     dimension_conflict,
     expected_aspect_range,
     expected_front_aspect,
 )
-from codeverse.spatial.silhouette import silhouette_aspect
+from codeverse3d.spatial.silhouette import silhouette_aspect
 from tests.reference.conftest import make_spec
 
 
@@ -33,7 +33,7 @@ def test_silhouette_aspect(tmp_path: Path):
 
 def test_expected_aspect_is_a_band_over_every_horizontal_extent():
     """A brief never says which face a photo shows, so the expectation is a range."""
-    from codeverse.contracts.spec import Constraints
+    from codeverse3d.contracts.spec import Constraints
 
     assert expected_aspect_range(make_spec()) == (0.14 / 0.30, 0.14 / 0.30)   # width == depth
     chair = make_spec(constraints=Constraints(dimensions_m={"width": 0.45, "depth": 0.50, "height": 0.9}))
@@ -46,7 +46,7 @@ def test_expected_aspect_is_a_band_over_every_horizontal_extent():
 
 def test_a_slightly_wide_photo_inside_the_band_is_not_a_conflict(tmp_path: Path):
     """The measured chair case: brief band 0.50-0.56, photo 0.64 -> 16 % outside, kept."""
-    from codeverse.contracts.spec import Constraints
+    from codeverse3d.contracts.spec import Constraints
 
     chair = make_spec(constraints=Constraints(dimensions_m={"width": 0.45, "depth": 0.50, "height": 0.9}))
     info = dimension_conflict(chair, _box(tmp_path / "chair.png", 128, 200))  # 0.64 w/h
@@ -72,7 +72,7 @@ def test_the_coffee_grinder_case_is_flagged(tmp_path: Path):
 
 
 def test_no_stated_dimensions_is_never_a_conflict(tmp_path: Path):
-    from codeverse.contracts.spec import Constraints
+    from codeverse3d.contracts.spec import Constraints
     spec = make_spec(constraints=Constraints())
     assert dimension_conflict(spec, _box(tmp_path / "x.png", 300, 100))["conflict"] is False
 

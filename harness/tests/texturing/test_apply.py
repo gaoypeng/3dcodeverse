@@ -7,10 +7,10 @@ from pathlib import Path
 import numpy as np
 import trimesh
 
-from codeverse.spatial.measure import measure_glb
-from codeverse.texturing.apply import apply_textures, node_part_lookup
-from codeverse.texturing.generate import generate_textures
-from codeverse.texturing.plan import default_plan
+from codeverse3d.spatial.measure import measure_glb
+from codeverse3d.texturing.apply import apply_textures, node_part_lookup
+from codeverse3d.texturing.generate import generate_textures
+from codeverse3d.texturing.plan import default_plan
 from tests.texturing.conftest import FakeImageModel
 
 

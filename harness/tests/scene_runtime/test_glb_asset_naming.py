@@ -21,9 +21,9 @@ import json
 
 import pytest
 
-from codeverse.contracts.plan import CameraPlan
-from codeverse.languages.scene_threejs import render_scene_js
-from codeverse.spatial.node import run_node
+from codeverse3d.contracts.plan import CameraPlan
+from codeverse3d.languages.scene_threejs import render_scene_js
+from codeverse3d.spatial.node import run_node
 from tests.scene_runtime.conftest import needs_node
 
 pytestmark = [pytest.mark.node, needs_node]
@@ -106,7 +106,7 @@ def test_a_procedural_asset_is_rendered_on_the_hero_rig(tmp_ws):
     """`render_asset` is the hook `scene_assets` judges a threejs asset through: the module is
     exported by the object track's exporter and rendered on the quick rig a hero's GLB gets.
     Nothing defined it until 2026-09-07, so 0 of 860 recorded procedural assets were judged."""
-    from codeverse.languages.scene_threejs import SceneThreeJsRuntime
+    from codeverse3d.languages.scene_threejs import SceneThreeJsRuntime
 
     (tmp_ws.src / "assets").mkdir(parents=True, exist_ok=True)
     (tmp_ws.src / "assets" / "crate.js").write_text(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from codeverse.cost.context import (
+from codeverse3d.cost.context import (
     CallContext,
     attribute,
     bound_run,
@@ -10,7 +10,7 @@ from codeverse.cost.context import (
     context_from_label,
     current,
 )
-from codeverse.cost.types import Role, Stage
+from codeverse3d.cost.types import Role, Stage
 
 
 def test_label_tells_stage_role_and_round():

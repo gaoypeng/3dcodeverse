@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.contracts.agent import AgentJob, AgentResult
-from codeverse.contracts.common import Language, Usage
-from codeverse.contracts.run import RunStatus
-from codeverse.proc import EventLog
-from codeverse.tracks.static_object import StaticObjectTrack
-from codeverse.tracks.steps import RoundFailed, looks_quota, looks_transport
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.agent import AgentJob, AgentResult
+from codeverse3d.contracts.common import Language, Usage
+from codeverse3d.contracts.run import RunStatus
+from codeverse3d.proc import EventLog
+from codeverse3d.tracks.static_object import StaticObjectTrack
+from codeverse3d.tracks.steps import RoundFailed, looks_quota, looks_transport
+from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,

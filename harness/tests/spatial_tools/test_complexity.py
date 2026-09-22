@@ -10,14 +10,14 @@ import numpy as np
 import pytest
 import trimesh
 
-from codeverse.spatial.complexity import (
+from codeverse3d.spatial.complexity import (
     COMPLEXITY_WEIGHTS,
     ComplexityVector,
     band_of,
     complexity_of_glb,
     complexity_of_parts,
 )
-from codeverse.spatial.measure import measure_glb, part_meshes
+from codeverse3d.spatial.measure import measure_glb, part_meshes
 
 
 def _export(path: Path, parts: dict[str, trimesh.Trimesh]) -> Path:
@@ -106,7 +106,7 @@ def test_silhouette_frame_beats_block(tmp_path: Path) -> None:
 
 
 def test_deterministic(tmp_path: Path) -> None:
-    import codeverse.spatial.measure as measure
+    import codeverse3d.spatial.measure as measure
 
     glb = detailed_scene(tmp_path / "rich.glb")
     first = complexity_of_glb(glb)

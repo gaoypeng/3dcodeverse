@@ -15,7 +15,7 @@ Backends (``get_oneshot_backend``):
 * ``codex`` / ``codex:<model>[@<effort>]`` — ``codex exec`` read-only sandbox, JSONL
   events, ``-c model_reasoning_effort=`` (default ``high``, see
   ``Settings.agents.codex_reasoning_effort``) (subscription; model default when none given).
-* ``gemini:<m>`` / ``anthropic:<m>`` / ``openai:<m>`` — ``codeverse.models``
+* ``gemini:<m>`` / ``anthropic:<m>`` / ``openai:<m>`` — ``codeverse3d.models``
   chat model, one ``ChatRequest``.
 
 Every call runs in a scratch directory *outside* the repository so the CLIs
@@ -36,23 +36,23 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field
 
 from bench._infra import is_infra_failure
-from codeverse.agents.backends import (
+from codeverse3d.agents.backends import (
     effort_overrides,
     parse_claude_json,
     parse_codex_jsonl,
     split_model_effort,
     usage_from_envelope,
 )
-from codeverse.agents.cli_common import is_secret_env, run_with_watchdog, tail
-from codeverse.config import get_settings
-from codeverse.contracts.artifacts import BuildResult, GateReport
-from codeverse.contracts.chat import ChatMessage, ChatRequest
-from codeverse.contracts.common import ENTRY_FILE, Language, Usage
-from codeverse.contracts.spec import Spec
-from codeverse.conventions import LANGUAGE_FRAME, frame_doc
-from codeverse.tracks.generation import MultiFileParseError, parse_multifile
-from codeverse.tracks.repair import format_error_report
-from codeverse.workspace import Workspace
+from codeverse3d.agents.cli_common import is_secret_env, run_with_watchdog, tail
+from codeverse3d.config import get_settings
+from codeverse3d.contracts.artifacts import BuildResult, GateReport
+from codeverse3d.contracts.chat import ChatMessage, ChatRequest
+from codeverse3d.contracts.common import ENTRY_FILE, Language, Usage
+from codeverse3d.contracts.spec import Spec
+from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc
+from codeverse3d.tracks.generation import MultiFileParseError, parse_multifile
+from codeverse3d.tracks.repair import format_error_report
+from codeverse3d.workspace import Workspace
 
 MODEL_FILE = "src/model.py"
 URDF_FILE = "src/robot.urdf"
@@ -87,7 +87,7 @@ _OUTPUT_RULE = (f"You have NO tools in this session: you cannot write files, run
                 f"```python fenced code block and nothing else (no prose before or after, no partial snippets).")
 
 #: The URDF (track articulated_object, language urdf_blender) minimal contract: the SAME
-#: bpy rules for the link meshes plus the frame recipe of codeverse/prompts/urdf/contract.md
+#: bpy rules for the link meshes plus the frame recipe of codeverse3d/prompts/urdf/contract.md
 #: (D18) condensed to its rules — no worked example, no cookbook, no skeleton: the one-shot
 #: arm gets what a careful reader of the contract would know, nothing the harness builds.
 _URDF_CONTRACT_BODY = """You write TWO files.
@@ -136,7 +136,7 @@ _OUTPUT_RULE_URDF = (f"You have NO tools in this session: you cannot write files
 
 
 #: The GLSL (track graphics, language glsl_shader) minimal contract: what the harness prepends
-#: and expects, condensed from codeverse/prompts/glsl_shader/contract.md — no cookbook, no
+#: and expects, condensed from codeverse3d/prompts/glsl_shader/contract.md — no cookbook, no
 #: recipes file, no frame-metric self-check.
 _GLSL_CONTRACT_BODY = """You write ONE file, `{shader_file}`: the BODY of a Shadertoy-style fragment shader (GLSL 330 core).
 The harness prepends these lines itself — do NOT write them (redeclaring any is an error):
@@ -155,7 +155,7 @@ _OUTPUT_RULE_GLSL = (f"You have NO tools in this session: you cannot write files
                      f"```glsl fenced code block and nothing else (no prose before or after, no partial snippets).")
 
 #: The scene (track scene, language scene_threejs) minimal contract: the createScene shape and the
-#: import rule of codeverse/prompts/scene_threejs/contract.md — no starter library, no zones,
+#: import rule of codeverse3d/prompts/scene_threejs/contract.md — no starter library, no zones,
 #: no assets, no cookbook, no gates table.
 _SCENE_CONTRACT_BODY = """You write ONE file, `{scene_file}`, an ES module for three.js r182:
   export async function createScene({{ THREE, renderer, loaders }}) → {{ scene, cameras, update(t, dt) }}
@@ -192,7 +192,7 @@ def files_for(language: Language) -> list[str]:
 
 
 def minimal_contract(language: Language = Language.BLENDER) -> str:
-    """Frame/units come from ``codeverse.conventions`` (the single source of truth)."""
+    """Frame/units come from ``codeverse3d.conventions`` (the single source of truth)."""
     if language is Language.URDF_BLENDER:
         return _URDF_CONTRACT_BODY.format(model_file=MODEL_FILE, urdf_file=URDF_FILE,
                                           frame=frame_doc(LANGUAGE_FRAME["urdf_blender"]))
@@ -329,12 +329,12 @@ def write_answer_files(ws: Workspace, text: str, language: Language = Language.B
 # ----------------------------------------------------------------------------- common
 def _scratch_cwd(label: str) -> Path:
     """A fresh directory outside any repo: no CLAUDE.md/AGENTS.md/.git context can leak in."""
-    return Path(tempfile.mkdtemp(prefix=f"cv3d_oneshot_{label}_"))
+    return Path(tempfile.mkdtemp(prefix=f"c3d_oneshot_{label}_"))
 
 
 def _clean_env(keep: set[str]) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k in keep or not is_secret_env(k)}
-    env["CV3D_AGENT_CONTEXT"] = "1"
+    env["C3D_AGENT_CONTEXT"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
     return env
 
@@ -447,7 +447,7 @@ class CodexOneShot:
 
 # ----------------------------------------------------------------------------- API chat model
 class ApiOneShot:
-    """One ``ChatRequest`` through ``codeverse.models`` (``gemini:*`` / ``anthropic:*`` / ``openai:*``)."""
+    """One ``ChatRequest`` through ``codeverse3d.models`` (``gemini:*`` / ``anthropic:*`` / ``openai:*``)."""
 
     kind = "api"
 
@@ -463,7 +463,7 @@ class ApiOneShot:
     @property
     def model(self) -> Any:
         if self._model is None:
-            from codeverse.models import get_chat_model
+            from codeverse3d.models import get_chat_model
 
             self._model = get_chat_model(self.model_id)
         return self._model

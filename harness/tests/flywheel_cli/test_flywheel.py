@@ -10,24 +10,24 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.addons.dataset.export import export_samples
-from codeverse.addons.dataset.index import build_index, summary
-from codeverse.addons.dataset.pack import pack_samples, verify_locators
-from codeverse.addons.dataset.pairs import build_pairs
-from codeverse.addons.dataset.quality import (
+from codeverse3d.addons.dataset.export import export_samples
+from codeverse3d.addons.dataset.index import build_index, summary
+from codeverse3d.addons.dataset.pack import pack_samples, verify_locators
+from codeverse3d.addons.dataset.pairs import build_pairs
+from codeverse3d.addons.dataset.quality import (
     code_fingerprint,
     normalise_code,
 )
-from codeverse.contracts.run import RunRecord
-from codeverse.record import _git
-from codeverse.record.record import (
+from codeverse3d.contracts.run import RunRecord
+from codeverse3d.record import _git
+from codeverse3d.record.record import (
     RecordError,
     best_round_index,
     finalize_record,
     iter_runs,
     load_record,
 )
-from codeverse.workspace import Workspace
+from codeverse3d.workspace import Workspace
 
 # --------------------------------------------------------------------------- record
 
@@ -41,7 +41,7 @@ def test_finalize_and_load_record(fake_run):
     assert path == ws.record_path and path.is_file()
     loaded = load_record(ws)
     assert loaded.best_round == 1 and loaded.final_score == 0.80 and loaded.baseline_score == 0.55
-    assert loaded.environment["python"] and loaded.environment["codeverse"]
+    assert loaded.environment["python"] and loaded.environment["codeverse3d"]
     assert "three" in loaded.environment and "node" in loaded.environment
     assert len(loaded.extra["rounds_summary"]) == 2
     assert loaded.extra["rounds_summary"][1]["score"] == 0.80
@@ -117,7 +117,7 @@ def test_a_symlink_is_not_exported_as_a_file_of_its_target(fake_run) -> None:
     as a blob whose content IS the link target, so ``src/link.py -> model.py`` came back
     as a one-line file saying ``model.py`` — and with ``--with-code`` that goes into a
     training sample."""
-    from codeverse.record._git import read_tree_at
+    from codeverse3d.record._git import read_tree_at
 
     ws, _rec = fake_run
     (ws.src / "model.py").write_text("import bpy\n")
@@ -289,7 +289,7 @@ def test_build_index_and_queries(runs_dir: Path, tmp_path: Path):
 # --------------------------------------------------------------------------- finding: repair pairs (pairs.py:115)
 def test_repair_pairs_match_structurally_not_by_kind(tmp_path: Path):
     """Lifecycle labels the fixing round 'refine' — repair pairs must not need kind='repair'."""
-    from codeverse.addons.dataset.pairs import repair_pairs
+    from codeverse3d.addons.dataset.pairs import repair_pairs
     from tests.flywheel_cli.conftest import make_fake_run
 
     ws, rec = make_fake_run(tmp_path / "runs", with_repair=True)
@@ -309,7 +309,7 @@ def test_in_round_repair_pairs_from_generated_commit(tmp_path: Path):
     """build_with_repair fixes inside one round: generated commit → final commit."""
     import json as _json
 
-    from codeverse.addons.dataset.pairs import in_round_repair_pairs
+    from codeverse3d.addons.dataset.pairs import in_round_repair_pairs
     from tests.flywheel_cli.conftest import make_fake_run
 
     ws, rec = make_fake_run(tmp_path / "runs")
@@ -344,8 +344,8 @@ def _degrade(judgment):
 
 
 def test_degraded_round_is_not_a_zero_score(tmp_path: Path):
-    from codeverse.addons.dataset.pairs import preference_pairs
-    from codeverse.record.record import effective_judgment, effective_score, round_summary
+    from codeverse3d.addons.dataset.pairs import preference_pairs
+    from codeverse3d.record.record import effective_judgment, effective_score, round_summary
     from tests.flywheel_cli.conftest import make_fake_run
 
     ws, rec = make_fake_run(tmp_path / "runs", scores=(0.62, 0.64))
@@ -387,7 +387,7 @@ def test_degraded_best_round_exports_unscored(tmp_path: Path):
 
 # --------------------------------------------------------------------------- graphics + textured exports
 def test_export_graphics_sample(tmp_path: Path):
-    from codeverse.contracts.common import Language
+    from codeverse3d.contracts.common import Language
     from tests.flywheel_cli.conftest import make_fake_run, tiny_png
 
     ws, rec = make_fake_run(tmp_path / "runs", "rain_glsl", prompt="neon rain", language=Language.GLSL_SHADER)
@@ -429,8 +429,8 @@ def test_export_includes_textured_assets_when_shipped(fake_run, tmp_path: Path):
 
 def test_battery_layouts_are_discovered_by_flywheel_and_gallery(tmp_path):
     """All three battery layouts resolve runs; eval siblings never become gallery runs."""
-    from codeverse.addons.gallery.index import scan_root
-    from codeverse.record.record import find_run_dirs, iter_runs
+    from codeverse3d.addons.gallery.index import scan_root
+    from codeverse3d.record.record import find_run_dirs, iter_runs
 
     battery = tmp_path / "static_v2_flash"          # run_bench: runs/<id>
     (battery / "runs" / "some_run").mkdir(parents=True)
@@ -460,7 +460,7 @@ def test_battery_layouts_are_discovered_by_flywheel_and_gallery(tmp_path):
 
 
 def test_empty_run_roots_distinguish_a_failed_battery_from_legitimate_empty_input(tmp_path):
-    from codeverse.record.record import iter_runs
+    from codeverse3d.record.record import iter_runs
 
     battery = tmp_path / "compare_empty"
     (battery / "cells" / "cmp_med_chair").mkdir(parents=True)
@@ -481,7 +481,7 @@ def test_parquet_keeps_the_complexity_columns_the_exporter_writes(tmp_path):
     """The fixed Arrow schema preserves exported complexity columns."""
     import pyarrow.parquet as pq
 
-    from codeverse.addons.dataset.export import parquet_schema, write_parquet
+    from codeverse3d.addons.dataset.export import parquet_schema, write_parquet
 
     row = dict.fromkeys(parquet_schema().names)
     row.update(id="x", key="k", complexity=7.5, complexity_band="high")
@@ -526,7 +526,7 @@ def test_pack_refuses_before_writing_anything_when_pyarrow_is_missing(runs_dir: 
     """Packing refuses before writing when its optional dependency is absent."""
     from typer.testing import CliRunner
 
-    from codeverse.cli.main import app
+    from codeverse3d.cli.main import app
 
     _block_pyarrow(monkeypatch)
     out = tmp_path / "ds_pack"

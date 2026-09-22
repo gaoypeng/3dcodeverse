@@ -9,10 +9,10 @@ from typing import Any
 import pytest
 from PIL import Image, ImageDraw
 
-from codeverse.contracts.chat import ChatRequest, ChatResponse
-from codeverse.contracts.common import Language, Track, Usage
-from codeverse.contracts.spec import Constraints, Spec
-from codeverse.models.base import ModelError
+from codeverse3d.contracts.chat import ChatRequest, ChatResponse
+from codeverse3d.contracts.common import Language, Track, Usage
+from codeverse3d.contracts.spec import Constraints, Spec
+from codeverse3d.models.base import ModelError
 
 
 class FakeChat:

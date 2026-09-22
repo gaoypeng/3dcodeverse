@@ -1,6 +1,6 @@
 # 3dcodeverse — standing context
 
-Backend harness (python package `codeverse`, CLI `3dcodeverse` / short alias `3dcode`,
+Backend harness (python package `codeverse3d`, CLI `3dcodeverse` / short alias `3dcode`,
 repo path `/home/yipeng/3dcodeverse/harness`) for LLM-written **raw** 3D code:
 Blender bpy · CadQuery · Three.js · URDF · GLSL / OpenGL, across four tracks
 (`static_object`, `articulated_object`, `scene`, `graphics`), with pluggable
@@ -23,8 +23,8 @@ score-vs-complexity corpus study) before changing anything.
 
 ## Laws (do not break)
 1. Generated code is raw language — never an SDK/helper import; the harness owns
-   wrappers/exporters (`codeverse/languages/*/wrappers`, `runtime_js/`).
-2. `codeverse/contracts/` is data-only and shared; `conventions.py` is the only
+   wrappers/exporters (`codeverse3d/languages/*/wrappers`, `runtime_js/`).
+2. `codeverse3d/contracts/` is data-only and shared; `conventions.py` is the only
    place that states frames/units/naming.  Import, never restate.
 3. Deterministic gates/measurements run by the harness; VLM only for perception.
    Score is computed in code from rubric weights; caps/floors are explicit.
@@ -40,7 +40,7 @@ score-vs-complexity corpus study) before changing anything.
 ## Supported versions (what other people can run this on)
 python **3.13** (one fixed version — owner's decision 2026-08-26; no floor, no matrix) ·
 node **20.6+** · Blender 4.2+ · Linux x86_64.  **There is no CI** (removed 2026-08-26 by the
-owner): run `ruff check codeverse tests` and the offline suite locally BEFORE every
+owner): run `ruff check codeverse3d tests` and the offline suite locally BEFORE every
 push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The version lives in
 `pyproject` `requires-python` + ruff `target-version` + `setup.sh`, and
 `spatial/node.py:NODE_MIN` + `runtime_js/package.json` `engines` for node, pinned together by
@@ -48,13 +48,13 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
 
 ## Environment (this machine)
 - Gemini keys: `~/.config/astra3d/gemini_keys.env` (21 keys) → `get_settings().gemini_api_keys`
-  (or `GEMINI_API_KEYS` / `GEMINI_API_KEY` env).  Settings: `~/.config/codeverse/config.yaml`
-  or `./codeverse.yaml`, env prefix `CV3D_` (`CV3D_RENDER__GPU=off`, `CV3D_RUNS_DIR=…`,
-  `CV3D_DEFAULT_CANDIDATES=2`).
+  (or `GEMINI_API_KEYS` / `GEMINI_API_KEY` env).  Settings: `~/.config/3dcodeverse/config.yaml`
+  or `./3dcodeverse.yaml`, env prefix `C3D_` (the pre-D78 `CV3D_*` names are still read) (`C3D_RENDER__GPU=off`, `C3D_RUNS_DIR=…`,
+  `C3D_DEFAULT_CANDIDATES=2`).
 - Blender 5.0.1 headless: `~/.local/bin/blender-5.0` (always `--factory-startup`; clear scene).
 - Node 24 (floor 20.6) + `runtime_js/node_modules` (three@0.182, puppeteer; chrome cached).  Headless
   Chrome WebGL uses the GPU on WSL2 with `--use-angle=gl-egl` + Mesa d3d12 env (see
-  `runtime_js/gpu_launch.cjs`; `CV3D_RENDER_GPU=on|off|auto`); SwiftShader fallback.
+  `runtime_js/gpu_launch.cjs`; `C3D_RENDER_GPU=on|off|auto`); SwiftShader fallback.
   Bare ESM `import 'three'` needs `--import runtime_js/lib/resolve_three.mjs`
   (`spatial.node.run_node(three_hook=True)`) — `NODE_PATH` alone does not work;
   that hook is `module.registerHooks` on node ≥ 22.15, `module.register` below.
@@ -74,8 +74,8 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
   range).  Judge default `gemini-3.1-pro-preview` (`Settings.default_judge`; tracks use
   n_samples=1); flash + `--n 3` is the cheap fallback, pro for calibration/eval.
 - Live runs under `runs/` (`e2e_*`): read-only reference material; never modify.
-- Every model call is priced into the run's `telemetry/cost.jsonl` (`codeverse.cost.instrument`;
-  `CV3D_COST_LEDGER=off` to disable).  `docs/COST.md` Part II has the measured cost controls.
+- Every model call is priced into the run's `telemetry/cost.jsonl` (`codeverse3d.cost.instrument`;
+  `C3D_COST_LEDGER=off` to disable).  `docs/COST.md` Part II has the measured cost controls.
 
 ## Commands
 ```
@@ -83,7 +83,7 @@ pip install -e /home/yipeng/3dcodeverse/harness   # once (entry points: 3dcodeve
 cd /home/yipeng/3dcodeverse/harness
 3dcodeverse doctor [--live] [--no-gpu] [--json]
 3dcodeverse make "a mid-century wooden dining chair" --track static_object --language blender
-3dcodeverse make "..." --profile economy|balanced|quality   # one dial: models, judge n, rounds, candidates, texture, ceilings (--profile == CV3D_PROFILE)
+3dcodeverse make "..." --profile economy|balanced|quality   # one dial: models, judge n, rounds, candidates, texture, ceilings (--profile == C3D_PROFILE)
 3dcodeverse make "..." --track static_object --language threejs --generator gemini-cli:gemini-3.7-flash
 3dcodeverse make "..." --track articulated_object --language urdf_blender
 3dcodeverse make "..." --track scene --language scene_threejs --rounds 2 --max-minutes 60
@@ -98,10 +98,10 @@ cd /home/yipeng/3dcodeverse/harness
 3dcode flywheel caption <slug> [--out dir]   # the gallery is `3dcode gallery build --embed`
 3dcode gallery serve [ROOTS...] [--port 8765] [--reload] · 3dcode gallery build --out gallery.html [--embed]
 3dcode bench run eval/bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview
-python -m codeverse.addons.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
+python -m codeverse3d.addons.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
 python eval/bench/complexity_report.py eval/bench/out --recursive   # score-vs-complexity + $/complexity point (eval/docs/COMPLEXITY.md)
 python eval/bench/compare_backends.py --prompts eval/bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out eval/bench/out/compare_v1
-python -m pytest tests -q -m "not live"            # 2 714 tests, ~65 s (real Blender + headless Chrome + CadQuery)
+python -m pytest tests -q -m "not live"            # 2 717 tests, ~65 s (real Blender + headless Chrome + CadQuery)
 python -m pytest tests -q -m "not live and not blender and not node"   # pure python: 2 166 tests, ~40 s   (the 224 bench tests: `cd eval && python -m pytest`)
 # (the counts drift every commit — `--collect-only` is the answer, not a number in this file)
 # both run PARALLEL by default (pytest-xdist, -n auto --dist worksteal, in pyproject addopts).

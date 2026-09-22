@@ -9,7 +9,7 @@ battery could not be resumed *at all* and its already-paid rows could not even b
 reported — the operator had to hand-edit ``results.jsonl`` or re-buy the battery.
 
 Skip the bad line, keep the rest, say so once — the same contract
-``codeverse.cost.ledger.load_ledger`` has always had ("a truncated last line never
+``codeverse3d.cost.ledger.load_ledger`` has always had ("a truncated last line never
 loses the rest of the file").
 """
 
@@ -21,7 +21,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from codeverse.proc import iter_jsonl_lines
+from codeverse3d.proc import iter_jsonl_lines
 
 log = logging.getLogger(__name__)
 

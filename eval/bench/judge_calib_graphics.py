@@ -29,13 +29,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from codeverse.addons.calibration import spearman
-from codeverse.contracts.artifacts import GateReport, RenderSet
-from codeverse.contracts.spec import Spec
-from codeverse.judges.base import JudgeInput, plan_digest
-from codeverse.judges.vlm_judge import VlmJudge
-from codeverse.tracks.graphics import frame_stats_text
-from codeverse.workspace import Workspace
+from codeverse3d.addons.calibration import spearman
+from codeverse3d.contracts.artifacts import GateReport, RenderSet
+from codeverse3d.contracts.spec import Spec
+from codeverse3d.judges.base import JudgeInput, plan_digest
+from codeverse3d.judges.vlm_judge import VlmJudge
+from codeverse3d.tracks.graphics import frame_stats_text
+from codeverse3d.workspace import Workspace
 
 OUT_ROOT = Path(__file__).resolve().parent / "out"
 

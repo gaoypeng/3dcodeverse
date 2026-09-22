@@ -1,6 +1,6 @@
 # 3dcodeverse harness — architecture
 
-Package `codeverse`, CLI `3dcodeverse` (short alias `3dcode`), repo location
+Package `codeverse3d`, CLI `3dcodeverse` (short alias `3dcode`), repo location
 `/home/yipeng/3dcodeverse/harness`.  Backend only.  Python 3.13 (one fixed version), a small Node
 runtime (`runtime_js/`) for everything Three.js / headless Chrome, and moderngl
 for the graphics track.  Reconciled against the code and the live runs on
@@ -67,10 +67,10 @@ the flywheel unit.
 ## 2. Package map (as built)
 
 ```
-codeverse/
+codeverse3d/
   conventions.py      frames (LANGUAGE_FRAME, GLB_FRAME), units, OBJECT_VIEWS/_QUICK/_CLAY_VIEWS, SCENE_VIEWS,
                       to_snake/to_pascal/slugify, MAX_TRIS_*, BBOX_TOLERANCE_M, CONTACT_GAP_M  (THE source)
-  config.py           Settings (CV3D_* env, ~/.config/codeverse/config.yaml; role defaults come from
+  config.py           Settings (C3D_* env, ~/.config/3dcodeverse/config.yaml; role defaults come from
                       contracts Backends; Settings.backends(**overrides) builds a Spec's Backends;
                       default_candidates=1)
   contracts/          pydantic: common (Track, Language, Usage, Budget, Backends, TRACK_INFO registry,
@@ -93,7 +93,7 @@ codeverse/
                       run dir: an fcntl.flock at <runs>/.locks/<slug>.lock whose record NAMES the
                       holder, printed by `3dcode status`) and the bounded parallel fan-out
                       (fan_out); sha256_file and version_line live here too — still a leaf:
-                      imports nothing from codeverse
+                      imports nothing from codeverse3d
   models/             ChatModel (base.py), parts.py; gemini.py (the whole Gemini stack:
                       request/response shapes, dead-key + free 429 rotation, the image model);
                       anthropic.py openai.py (each with its own request/response shapes);
@@ -124,7 +124,7 @@ codeverse/
                       base colour — changed-pixel fraction per camera and per material,
                       runtime_js/lib/host_ablation.mjs + ablate_scene.mjs; rebuilt 2026-09-01 as an
                       instrument after the 08-28 cleanup deleted the unused counterfactual path.
-                      The scene build folds the field into its census only under CV3D_ABLATION=1 —
+                      The scene build folds the field into its census only under C3D_ABLATION=1 —
                       a second browser boot, so opt-in; the tool always writes it to census.json),
                       gl_render.py (GlHost), frame_stats.py (gl_frames),
                       sheet.py (montage_2x2, crop_region), measure.py, connectivity.py,
@@ -132,8 +132,8 @@ codeverse/
                       complexity.py (objective complexity vector -> Measurement.extra, eval/docs/COMPLEXITY.md),
                       joints*.py + joints_collide.py (deterministic penetration), registry.py,
                       tools.py (every @tool registration since 2026-08-28, the joint_sweep body included;
-                      spatial siblings are plain imports — lazy() guards only codeverse.languages /
-                      codeverse.texturing and tool_common's node renderer), mcp_server.py (MCP name: 3dcode).
+                      spatial siblings are plain imports — lazy() guards only codeverse3d.languages /
+                      codeverse3d.texturing and tool_common's node renderer), mcp_server.py (MCP name: 3dcode).
                       Render modes are contracts.artifacts.RENDER_MODES (shaded wire normals silhouette
                       clay — no 'depth'); build error_type spellings are languages/_common.MISSING_ENTRY
                       ("MissingEntryFile") and BUILD_TIMEOUT ("BuildTimeout") for every runtime
@@ -184,15 +184,15 @@ codeverse/
                       graphics.py (the whole graphics track: planner hooks, prompt context, frame
                       RenderSet, and recipe seeding into the harness-owned, read-only
                       src/recipes.glsl — measured: flash calls a recipe on disk, not one it is
-                      shown; AgentJob.read_only, CV3D_SEED_RECIPES),
+                      shown; AgentJob.read_only, C3D_SEED_RECIPES),
                       planner.py (the ONE planner loop + the cached EngineeringBrief
-                      (CV3D_PLAN_BRIEF), plan budgets and the worked examples),
-                      plan_features.py (CV3D_PLAN_FEATURES: one switch per plan-loop change, so each
+                      (C3D_PLAN_BRIEF), plan budgets and the worked examples),
+                      plan_features.py (C3D_PLAN_FEATURES: one switch per plan-loop change, so each
                       can be A/B'd alone, + pin_plan_blockers() deciding when two arms may share
                       one plan — eval/docs/EVAL.md §8.1),
                       depth.py,
-                      skills_hook.py (the round's view of codeverse/skills: attach before generating,
-                      probe reads after — a no-op unless CV3D_SKILLS is on)
+                      skills_hook.py (the round's view of codeverse3d/skills: attach before generating,
+                      probe reads after — a no-op unless C3D_SKILLS is on)
   record/             what every run WRITES: record.py (finalize_record, load_record, iter_runs,
                       best_round_record), deliverable.py, telemetry.py, _git.py (files at a round's commit)
   addons/             optional tools that READ finished runs; outside cli/ nothing imports them
@@ -218,7 +218,7 @@ codeverse/
                       — including the ONE language-id → prompts/<dir> mapping, which used to be
                       copied four times and missing in a fifth.  sections.py splits that
                       markdown into chapters so a STAGE can name the recipes it needs.
-                      The other half of the split: codeverse/skills/ is what an AGENT chooses
+                      The other half of the split: codeverse3d/skills/ is what an AGENT chooses
                       to read (SKILL.md + references/ + a _claims file pinning its numbers to
                       live constants).  A file that tries to be both is the bug this prevents.
   cli/                main.py (app wiring, make/resume/mcp + the tools/bench/gallery
@@ -226,7 +226,7 @@ codeverse/
                       flywheel_cmd.py, texture_cmd.py, cost_cmd.py (`3dcode cost`), layout_cmd.py, doctor.py
                       (`--skills` checks the library + its discovery wiring),
                       skills_cmd.py (`3dcode skills list|show|validate|report` — the read-rate report)
-eval/bench/                run_bench.py, report.py (renders through codeverse/addons/gallery), compare_backends.py
+eval/bench/                run_bench.py, report.py (renders through codeverse3d/addons/gallery), compare_backends.py
                       (preflights every model it needs; --wait-for-provider / --no-preflight),
                       _infra.py (outage vs model failure: infra_failed / budget_exhausted, eval/docs/EVAL.md §7),
                       pin_plan.py (seed one plan into both arms so the paired delta stops carrying
@@ -251,7 +251,7 @@ runtime_js/           export_glb.mjs (placement policy, instance baking, selfche
                       mask, not a luminance bright-pass: on our renderer the sky dome at 1.88
                       linear outshines every authored emissive, so a threshold cannot separate
                       them) + a colour grade that is the identity unless the scene sets
-                      `scene.userData.grade`.  ON for scene renders, `CV3D_POST=0` / `--no-post`
+                      `scene.userData.grade`.  ON for scene renders, `C3D_POST=0` / `--no-post`
                       to disable; object renders never come through this driver.
 tests/                agents bench_prompts blender_cadquery compare_bench core cost flywheel_cli gallery graphics
                       install judges languages models orchestrator_tracks prompts reference scene_gates
@@ -290,7 +290,7 @@ runs/<slug>/
 
 ## 4. Per-language authoring contracts (raw code; the harness owns export)
 
-Authoritative text lives in `codeverse/prompts/<lang>/contract.md` (+ cookbook);
+Authoritative text lives in `codeverse3d/prompts/<lang>/contract.md` (+ cookbook);
 summary:
 
 * **blender** (multi-file): `src/model.py` entry + `src/parts/<snake>.py` each
@@ -428,7 +428,7 @@ round 0 "baseline": generate → build_with_repair → measure → gates → ren
    (object tracks, ≥ 8 plan parts, a language with one file per part, an agent backend: the baseline FANS OUT
     per part — phase 0 = one scoped session per attachment subtree (its parts + the planned boxes of the
     neighbours it must weld to + the shared detail budget, its own files only), phase 1 = ONE "assemble"
-    session that owns the entry file, placement and the connectivity/contract gates.  $CV3D_SCOPED_PARTS=off
+    session that owns the entry file, placement and the connectivity/contract gates.  $C3D_SCOPED_PARTS=off
     restores the single whole-object session; single-shot always uses it.)
    (--candidates N: N parallel baselines in <ws>/_cand/c<k>, quick 4-view judge, crashed candidate retried once,
     selection build_ok → quick score → fewer gate errors with pairwise tie-break; winner copied back, normal r00 follows)
@@ -443,7 +443,7 @@ repeat while StopPolicy says continue (≤ max_rounds refine rounds, plateau_win
    fan out when ≥ 2 file-disjoint groups AND every task maps to files (threejs/blender parts, scene zones/assets/env)
    generate (no HARNESS turn cap by default — claude-code runs under AgentJob.max_turns=60 (+6-turn wrap-up),
              the other vendor CLIs have no turn cap at all; 28 was A/B'd and rejected, +$0.02/−0.21 score, docs/COST.md §17;
-             a cap a caller sets (CV3D_AGENT_MAX_TURNS / task; no profile sets one) still buys a wrap-up session
+             a cap a caller sets (C3D_AGENT_MAX_TURNS / task; no profile sets one) still buys a wrap-up session
              that lands a final build + summary instead of being killed) → build+repair (error-focused,
              escalates on identical signatures) → gates → … → judge (SKIPPED only where the verdict is never
              bought at all: no judge/renders or budget already exceeded)
@@ -456,7 +456,7 @@ repeat while StopPolicy says continue (≤ max_rounds refine rounds, plateau_win
    panel lines, fasteners, wear, material variation — with the silhouette, placement and part list frozen and
    a deterministic `detail_drift` gate that ERRORs if any part box moved > 5 mm.  Measured on 88 refine-round
    pairs: the part count never changed once and mean Δgeometry_detail was +0.003, so detail needed its own
-   round; the rounds that added geometry DURING repair lost 0.075 assembly_fit.  $CV3D_DETAIL_ROUNDS=0 is off.
+   round; the rounds that added geometry DURING repair lost 0.075 assembly_fit.  $C3D_DETAIL_ROUNDS=0 is off.
 stop reasons: pass | plateau | budget | max_rounds | no_change | no_refine_tasks | regression | diminishing_returns
 finalise: restore best commit, rebuild so artifacts match delivered code, finalize_record → record.json
 ```
@@ -563,7 +563,7 @@ trainer's format.  `flywheel caption` adds
 side-car mode); the gallery is `3dcode gallery build --embed`
 (the flywheel package has no renderer of its own).
 
-`codeverse/addons/gallery/` is the **local** answer to the same question: `3dcode gallery
+`codeverse3d/addons/gallery/` is the **local** answer to the same question: `3dcode gallery
 serve` indexes `runs/` + every `eval/bench/out/*/runs`, serves the page **and the run
 directories** on 127.0.0.1 (so every link opens: sheet, renders, `src/`, `object.glb`
 in an orbit viewer built on the vendored three.js, `record.json`), and re-reads a

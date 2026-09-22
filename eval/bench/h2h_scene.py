@@ -39,13 +39,13 @@ from PIL import Image, ImageDraw
 from pydantic import BaseModel
 
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
-    sys.path.insert(0, str(_p))  # this tree's codeverse (harness/) + the `bench` package (eval/)
+    sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
 from bench.run_bench import Battery, BenchPrompt  # noqa: E402
-from codeverse.contracts.artifacts import RenderSet, RenderView  # noqa: E402
-from codeverse.contracts.common import Language, Track  # noqa: E402
-from codeverse.contracts.spec import Spec  # noqa: E402
-from codeverse.proc import read_jsonl_lenient  # noqa: E402
+from codeverse3d.contracts.artifacts import RenderSet, RenderView  # noqa: E402
+from codeverse3d.contracts.common import Language, Track  # noqa: E402
+from codeverse3d.contracts.spec import Spec  # noqa: E402
+from codeverse3d.proc import read_jsonl_lenient  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 BATTERY = HERE / "prompts" / "h2h_scene_v1.yaml"
@@ -171,7 +171,7 @@ def spec_for(item: BenchPrompt) -> Spec:
 
 def judge_side(judge: Any, spec: Spec, views: list[RenderView], cache: Path) -> dict[str, Any]:
     """One fixed-judge verdict, cached as JSON (re-runs never re-pay)."""
-    from codeverse.judges.base import JudgeInput
+    from codeverse3d.judges.base import JudgeInput
 
     if cache.is_file():
         return json.loads(cache.read_text())
@@ -259,7 +259,7 @@ def main() -> None:
     ap.add_argument("--n-samples", type=int, default=2)
     ap.add_argument("--out", type=Path, default=OUT)
     ns = ap.parse_args()
-    from codeverse.judges.vlm_judge import VlmJudge
+    from codeverse3d.judges.vlm_judge import VlmJudge
 
     judge = VlmJudge(rubric=RUBRIC, model_id=JUDGE_MODEL, n_samples=ns.n_samples, label="h2h")
     battery = Battery.load(BATTERY)

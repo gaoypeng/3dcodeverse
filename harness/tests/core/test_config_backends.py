@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.config import Settings
-from codeverse.contracts.common import Backends
+from codeverse3d.config import Settings
+from codeverse3d.contracts.common import Backends
 
 
 def test_settings_defaults_mirror_backends():
@@ -39,5 +39,5 @@ def test_backends_rejects_unknown_role():
 
 
 def test_env_override_still_wins(monkeypatch):
-    monkeypatch.setenv("CV3D_DEFAULT_CAPTIONER", "gemini:from-env")
+    monkeypatch.setenv("C3D_DEFAULT_CAPTIONER", "gemini:from-env")
     assert Settings().backends().captioner == "gemini:from-env"

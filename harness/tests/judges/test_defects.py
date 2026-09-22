@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from codeverse.contracts.artifacts import RenderSet, RenderView
-from codeverse.judges.rubrics import (
+from codeverse3d.contracts.artifacts import RenderSet, RenderView
+from codeverse3d.judges.rubrics import (
     JudgeParseError,
     RubricError,
     aggregate_samples,
@@ -15,7 +15,7 @@ from codeverse.judges.rubrics import (
     rubric_from_dict,
     wire_schema,
 )
-from codeverse.judges.vlm_judge import VlmJudge
+from codeverse3d.judges.vlm_judge import VlmJudge
 from tests.judges.conftest import FakeChatModel, good_reply
 
 R = load_rubric("static_object_v1")
@@ -111,7 +111,7 @@ def test_defect_vote_ties_are_absent(judge_input, cache_dir, caplog):
     Acceptance ties still follow the representative (the test below): a must-item tie
     decides pass/fail, and that policy is the owner's."""
     flagged_first = FakeChatModel(by_label={":s0": [_reply(0.9, ["render_artifacts"])], ":s1": [_reply(0.9)]})
-    with caplog.at_level("WARNING", logger="codeverse.judges.vlm_judge"):
+    with caplog.at_level("WARNING", logger="codeverse3d.judges.vlm_judge"):
         j = VlmJudge("static_object_v1", chat_model=flagged_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)
     assert "n_samples=2 is even" in caplog.text
     raw = json.loads(j.raw)
@@ -158,7 +158,7 @@ def test_missing_views_cap_for_articulated():
 
 
 def test_interpenetrate_message_matches_penetration_cap():
-    from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+    from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
     g = GateReport(gate="connectivity", passed=False, findings=[GateFinding(
         gate="connectivity", severity=Severity.ERROR, target="Leg", message="'Leg' and 'Seat' interpenetrate by ≈15 mm")])
     assert apply_caps(R, 0.9, [g], {}, []).overall == 0.7
@@ -166,7 +166,7 @@ def test_interpenetrate_message_matches_penetration_cap():
 
 
 def test_joint_sweep_touches_nothing_caps_articulated():
-    from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+    from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
     g = GateReport(gate="joint_sweep", passed=False, findings=[GateFinding(
         gate="joint_sweep", severity=Severity.ERROR, target="DrawerKnob",
         message="link 'DrawerKnob' touches nothing connected to the root at pose rest (nearest 'Carcass' at 56.4 mm)")])

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.contracts.plan import AcceptanceItem
-from codeverse.contracts.spec import ReferenceImage
-from codeverse.judges.base import JudgeInput
-from codeverse.judges.rubrics import load_rubric
-from codeverse.judges.vlm_judge import ReferenceJudge
-from codeverse.reference import SYNTH_NOTE
+from codeverse3d.contracts.plan import AcceptanceItem
+from codeverse3d.contracts.spec import ReferenceImage
+from codeverse3d.judges.base import JudgeInput
+from codeverse3d.judges.rubrics import load_rubric
+from codeverse3d.judges.vlm_judge import ReferenceJudge
+from codeverse3d.reference import SYNTH_NOTE
 from tests.judges.conftest import (
     FakeChatModel,
     draw_chair,
@@ -77,7 +77,7 @@ def test_diff_can_be_switched_off(ref_input, cache_dir):
 
 
 def test_diff_off_via_env(ref_input, cache_dir, monkeypatch):
-    monkeypatch.setenv("CV3D_REFERENCE_DIFF", "off")
+    monkeypatch.setenv("C3D_REFERENCE_DIFF", "off")
     model = FakeChatModel(by_label={"judge": [good_reply(REF, ["A1", "A2"], 0.8)]})
     _judge(model, cache_dir=cache_dir).judge(ref_input)
     assert all(not r.label.startswith("reference_diff") for r in model.requests)
@@ -100,8 +100,8 @@ def test_best_view_iou_beats_a_fixed_front_view(ref_input, cache_dir, tmp_path):
 def test_reference_that_contradicts_the_brief_scores_neutral(tmp_path, cache_dir):
     """A picture whose proportions disagree with the stated dimensions must not drag
     the score down: the brief wins and the measured criterion goes neutral."""
-    from codeverse.contracts.spec import Constraints
-    from codeverse.judges.vlm_judge import NEUTRAL_SCORE
+    from codeverse3d.contracts.spec import Constraints
+    from codeverse3d.judges.vlm_judge import NEUTRAL_SCORE
 
     png = draw_chair(tmp_path / "wide.png", legs=4)  # ~2:1 wide silhouette
     spec = make_spec(references=[ReferenceImage(path=str(png), role="target", note=f"{SYNTH_NOTE} [front, x]")],
@@ -118,7 +118,7 @@ def test_reference_that_contradicts_the_brief_scores_neutral(tmp_path, cache_dir
 
 
 def test_part_names_are_read_from_both_plan_digest_shapes():
-    from codeverse.judges.vlm_judge import _plan_part_names
+    from codeverse3d.judges.vlm_judge import _plan_part_names
 
     class One:
         plan_summary = ("Chair: a chair. Overall 0.5x0.5x0.9 m. "

@@ -6,9 +6,9 @@ import json
 import logging
 import sys
 
-from codeverse.agents.cli_common import default_mcp_command
-from codeverse.agents.materialize import CV3D_DIR, codex_mcp_overrides, materialize_workspace
-from codeverse.workspace import Workspace
+from codeverse3d.agents.cli_common import default_mcp_command
+from codeverse3d.agents.materialize import C3D_DIR, codex_mcp_overrides, materialize_workspace
+from codeverse3d.workspace import Workspace
 
 CONTRACT = "## blender contract\nWrite pure bpy into src/model.py."
 
@@ -24,7 +24,7 @@ def test_writes_three_bodies_same_content(tmp_ws: Workspace):
     assert bodies[0] == bodies[1] == bodies[2]
     body = bodies[0]
     assert "ONLY under `src/` and `public/`" in body
-    assert "never import from `codeverse`" in body.lower() or "Never import from `codeverse`" in body
+    assert "never import from `codeverse3d`" in body.lower() or "Never import from `codeverse3d`" in body
     assert CONTRACT.splitlines()[0] in body
     assert "Spatial tools (3dcode)" in body
 
@@ -70,7 +70,7 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
     long-prompt file (trajectories/<label>_rNN/task_prompt.md) must NOT be ignored."""
     import fnmatch
 
-    from codeverse.agents.materialize import IGNORE_LINES
+    from codeverse3d.agents.materialize import IGNORE_LINES
 
     _mat(tmp_ws)
 
@@ -106,11 +106,11 @@ def test_spatial_disabled_drops_server_and_documents_absence(tmp_ws: Workspace):
 def test_cookbook_copied_when_found(tmp_ws: Workspace, tmp_path, caplog):
     cb = tmp_path / "cookbook.md"
     cb.write_text("# cookbook\nsnippet")
-    with caplog.at_level(logging.WARNING, logger="codeverse.agents.materialize"):
+    with caplog.at_level(logging.WARNING, logger="codeverse3d.agents.materialize"):
         _mat(tmp_ws, cookbook=str(cb))
-    assert (tmp_ws.root / CV3D_DIR / "cookbook.md").read_text().startswith("# cookbook")
-    assert f"{CV3D_DIR}/cookbook.md" in (tmp_ws.root / "AGENTS.md").read_text()
-    assert not [r for r in caplog.records if r.name == "codeverse.agents.materialize"], \
+    assert (tmp_ws.root / C3D_DIR / "cookbook.md").read_text().startswith("# cookbook")
+    assert f"{C3D_DIR}/cookbook.md" in (tmp_ws.root / "AGENTS.md").read_text()
+    assert not [r for r in caplog.records if r.name == "codeverse3d.agents.materialize"], \
         "a resolved cookbook must not warn"
 
 
@@ -119,7 +119,7 @@ def test_missing_cookbook_warns_where_someone_can_see_it(tmp_ws: Workspace, capl
     (an articulated run told the agent "No cookbook is available" while its 24 kB cookbook sat
     on disk).  It used to land in a `Materialized.warnings` list every caller threw away; the
     log line is the whole signal now, so it has to fire."""
-    with caplog.at_level(logging.WARNING, logger="codeverse.agents.materialize"):
+    with caplog.at_level(logging.WARNING, logger="codeverse3d.agents.materialize"):
         _mat(tmp_ws, cookbook="nope/cookbook.md")
     assert any("cookbook not found" in r.getMessage() and "nope/cookbook.md" in r.getMessage()
                for r in caplog.records)
@@ -130,7 +130,7 @@ def test_kind_specific_tool_hint(tmp_ws: Workspace):
     _mat(tmp_ws, kind="claude-code")
     assert "mcp__3dcode__" in (tmp_ws.root / "CLAUDE.md").read_text()
     _mat(tmp_ws, kind="agy")
-    assert "codeverse.cli.main tools" in (tmp_ws.root / "AGENTS.md").read_text()
+    assert "codeverse3d.cli.main tools" in (tmp_ws.root / "AGENTS.md").read_text()
 
 
 def test_codex_overrides_are_valid_toml_fragments():

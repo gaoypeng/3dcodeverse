@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from codeverse.contracts.artifacts import (
+from codeverse3d.contracts.artifacts import (
     BuildResult,
     GateFinding,
     GateReport,
@@ -12,11 +12,11 @@ from codeverse.contracts.artifacts import (
     PartMeasure,
     Severity,
 )
-from codeverse.contracts.common import Language
-from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
-from codeverse.contracts.run import RoundRecord
-from codeverse.conventions import MAX_TRIS_OBJECT, to_snake
-from codeverse.orchestrator import (
+from codeverse3d.contracts.common import Language
+from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
+from codeverse3d.contracts.run import RoundRecord
+from codeverse3d.conventions import MAX_TRIS_OBJECT, to_snake
+from codeverse3d.orchestrator import (
     DETAIL_KIND,
     KIND_FOR_STRATEGY,
     REWRITE_KIND,
@@ -24,14 +24,14 @@ from codeverse.orchestrator import (
     StopPolicy,
     detail_blocked,
 )
-from codeverse.tracks.depth import (
+from codeverse3d.tracks.depth import (
     PartScope,
     depth_budget,
     interfaces_text,
     scope_groups,
     scoped_generation_enabled,
 )
-from codeverse.tracks.static_object import DRIFT_GATE, detail_instructions, drift_gate
+from codeverse3d.tracks.static_object import DRIFT_GATE, detail_instructions, drift_gate
 
 from .conftest import make_spec
 from .fakes import FakeAgent, FakeRuntime, FakeServices
@@ -104,11 +104,11 @@ def test_interfaces_text_names_only_the_neighbours_outside_the_scope(chair_plan)
 
 
 def test_scoped_generation_can_be_switched_off(monkeypatch):
-    monkeypatch.setenv("CV3D_SCOPED_PARTS", "off")
+    monkeypatch.setenv("C3D_SCOPED_PARTS", "off")
     assert scoped_generation_enabled() is False
-    monkeypatch.setenv("CV3D_SCOPED_PARTS", "on")
+    monkeypatch.setenv("C3D_SCOPED_PARTS", "on")
     assert scoped_generation_enabled() is True
-    monkeypatch.delenv("CV3D_SCOPED_PARTS")
+    monkeypatch.delenv("C3D_SCOPED_PARTS")
     assert scoped_generation_enabled() is True
 
 
@@ -209,10 +209,10 @@ def big_plan(n: int = 11) -> StaticPlan:
 
 
 def _ctx(tmp_path, plan, settings, *, language=Language.THREEJS, agent_id="fake-agent:m"):
-    from codeverse.orchestrator import RunState
-    from codeverse.proc import EventLog
-    from codeverse.tracks.static_object import StaticObjectTrack
-    from codeverse.workspace import Workspace
+    from codeverse3d.orchestrator import RunState
+    from codeverse3d.proc import EventLog
+    from codeverse3d.tracks.static_object import StaticObjectTrack
+    from codeverse3d.workspace import Workspace
 
     ws = Workspace(tmp_path / "runs" / "d").create()
     track = StaticObjectTrack(services=FakeServices(), agent=FakeAgent(lambda job: None), settings=settings,
@@ -240,10 +240,10 @@ def test_scoped_baseline_fans_out_and_the_assembly_session_owns_the_entry(tmp_pa
 
 
 def test_scoping_off_single_shot_or_a_small_plan_falls_back_to_one_task(tmp_path, chair_plan, settings, monkeypatch):
-    monkeypatch.setenv("CV3D_SCOPED_PARTS", "off")
+    monkeypatch.setenv("C3D_SCOPED_PARTS", "off")
     track, ctx = _ctx(tmp_path, big_plan(), settings)
     assert [t.label for t in track.baseline_tasks(ctx)] == ["baseline"]
-    monkeypatch.delenv("CV3D_SCOPED_PARTS")
+    monkeypatch.delenv("C3D_SCOPED_PARTS")
     t2, c2 = _ctx(tmp_path / "ss", big_plan(), settings, agent_id="single-shot:fake:m")
     assert [t.label for t in t2.baseline_tasks(c2)] == ["baseline"]      # one envelope, no sessions
     t3, c3 = _ctx(tmp_path / "small", chair_plan, settings)
@@ -274,8 +274,8 @@ def test_detail_tasks_are_scoped_frozen_and_arm_the_drift_gate(tmp_path, setting
 
 def test_phases_run_in_order_and_a_failed_phase_does_not_kill_the_round(tmp_path, chair_plan, settings):
     """``run_generation_tasks`` is the only place that knows about phases."""
-    from codeverse.tracks.generation import GenerationResult, GenerationTask
-    from codeverse.tracks.steps import run_generation_tasks
+    from codeverse3d.tracks.generation import GenerationResult, GenerationTask
+    from codeverse3d.tracks.steps import run_generation_tasks
 
     track, ctx = _ctx(tmp_path, chair_plan, settings)
     order: list[str] = []
@@ -284,7 +284,7 @@ def test_phases_run_in_order_and_a_failed_phase_does_not_kill_the_round(tmp_path
         order.append(task.label)
         return GenerationResult(ok=task.label != "b", label=task.label, notes="")
 
-    import codeverse.tracks.common as common  # the one seam every stage generates through
+    import codeverse3d.tracks.common as common  # the one seam every stage generates through
     orig = common.generate
     common.generate = fake_generate
     try:
@@ -300,8 +300,8 @@ def test_phases_run_in_order_and_a_failed_phase_does_not_kill_the_round(tmp_path
 
 def test_the_three_depth_templates_render_with_strict_undefined(tmp_path, settings):
     """StrictUndefined: a variable the template names and the track does not provide is a crash."""
-    from codeverse.prompts import render
-    from codeverse.tracks.prompting import base_prompt_context, judge_digest, scope_context
+    from codeverse3d.prompts import render
+    from codeverse3d.tracks.prompting import base_prompt_context, judge_digest, scope_context
 
     track, ctx = _ctx(tmp_path, big_plan(), settings)
     scope = track.scopes(ctx)[0]
@@ -320,10 +320,10 @@ def test_the_three_depth_templates_render_with_strict_undefined(tmp_path, settin
 def test_a_full_run_spends_exactly_one_detail_round_after_the_plateau(tmp_path, chair_plan, settings):
     """End to end on fakes: flat scores → plateau → ONE round of kind 'detail', gated by
     detail_drift, and never a second one."""
-    from codeverse.contracts.run import RunStatus
-    from codeverse.tracks.static_object import DRIFT_GATE as _DRIFT
-    from codeverse.tracks.static_object import StaticObjectTrack
-    from codeverse.workspace import Workspace
+    from codeverse3d.contracts.run import RunStatus
+    from codeverse3d.tracks.static_object import DRIFT_GATE as _DRIFT
+    from codeverse3d.tracks.static_object import StaticObjectTrack
+    from codeverse3d.workspace import Workspace
 
     from .fakes import FakeJudge
     from .test_fix_batch2 import _planner, _writer

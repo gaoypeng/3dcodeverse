@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from codeverse.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
-from codeverse.languages.scene_threejs import STARTER_DIR, lint, write_example, write_skeleton
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
+from codeverse3d.languages.scene_threejs import STARTER_DIR, lint, write_example, write_skeleton
+from codeverse3d.workspace import Workspace
 from tests.scene_runtime.conftest import needs_node
 
 
@@ -76,7 +76,7 @@ def test_both_skeleton_paths_ship_the_effect_library(tmp_path):
     PRODUCTION path.  It shipped `PATTERN_FILES` only, so a planned run would have
     carried the effects catalog in its prompt with no `src/lib/` to import from —
     every `from './lib/grass.js'` an agent wrote would have been a build error."""
-    from codeverse.languages.scene_threejs import lib_files
+    from codeverse3d.languages.scene_threejs import lib_files
 
     names = {p.name for p in lib_files()}
     assert len(names) >= 40 and "grass.js" in names and "shader.js" in names
@@ -94,7 +94,7 @@ def test_the_library_is_harness_owned_so_an_agent_cannot_rewrite_it():
     HARNESS_OWNED_SRC is what makes `_enforce_scope` revert a session's write to
     it — the same protection `src/recipes.glsl` has had since 2026-08-26, when a
     seeded file the agent COULD rewrite was measured gone by the end of the run."""
-    from codeverse.contracts.common import HARNESS_OWNED_SRC, Language, is_harness_owned
+    from codeverse3d.contracts.common import HARNESS_OWNED_SRC, Language, is_harness_owned
 
     owned = HARNESS_OWNED_SRC[Language.SCENE_THREEJS]
     assert owned == ("src/lib/",)
@@ -115,7 +115,7 @@ def test_the_lint_does_not_judge_the_library_as_agent_code(tmp_path):
     node-only font fallback imports `node:module` / `node:fs/promises` / `node:url`,
     which the browser half never reaches) plus 12 "large file" WARNs telling the
     agent to split files it does not own — a red gate on every scene run."""
-    from codeverse.contracts.artifacts import Severity
+    from codeverse3d.contracts.artifacts import Severity
 
     ws = Workspace(tmp_path / "ws")
     write_example(ws)
@@ -129,9 +129,9 @@ def test_the_effects_catalog_reaches_the_scene_prompts_and_only_those():
     """A catalog the prompt never carries teaches nothing (the same failure the
     inlined cookbook chapters exist for).  It is keyed on LANGUAGE: a blender
     asset session inside a scene run must not be told to import three.js modules."""
-    from codeverse.contracts.common import Language
-    from codeverse.prompts import PROMPTS_DIR
-    from codeverse.tracks.prompting import effects_catalog_text
+    from codeverse3d.contracts.common import Language
+    from codeverse3d.prompts import PROMPTS_DIR
+    from codeverse3d.tracks.prompting import effects_catalog_text
 
     text = effects_catalog_text(Language.SCENE_THREEJS)
     assert "makeGrass" in text and "makeCanopy" in text and "lib/shader.js" in text
@@ -152,8 +152,8 @@ def test_every_call_the_catalog_advertises_is_a_real_export():
     `instanceAll`, `hash` are none of them exports here)."""
     import re
 
-    from codeverse.languages.scene_threejs import lib_files
-    from codeverse.prompts import PROMPTS_DIR
+    from codeverse3d.languages.scene_threejs import lib_files
+    from codeverse3d.prompts import PROMPTS_DIR
 
     exports: set[str] = set()
     modules = {p.name for p in lib_files()}

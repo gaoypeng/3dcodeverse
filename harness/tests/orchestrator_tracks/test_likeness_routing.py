@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from codeverse.contracts.common import Track
-from codeverse.contracts.spec import ReferenceImage
-from codeverse.tracks.lifecycle import BaseTrack
-from codeverse.tracks.prompting import reference_note
+from codeverse3d.contracts.common import Track
+from codeverse3d.contracts.spec import ReferenceImage
+from codeverse3d.tracks.lifecycle import BaseTrack
+from codeverse3d.tracks.prompting import reference_note
 
 
 def _ctx(track: Track, refs: list[str], *, single_shot: bool = False) -> SimpleNamespace:

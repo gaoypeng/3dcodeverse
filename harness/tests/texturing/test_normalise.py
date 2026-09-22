@@ -7,9 +7,9 @@ from pathlib import Path
 import trimesh
 from PIL import Image
 
-from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
-from codeverse.spatial.measure import load_scene, measure_glb
-from codeverse.texturing.apply import classify, normalise_materials
+from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
+from codeverse3d.spatial.measure import load_scene, measure_glb
+from codeverse3d.texturing.apply import classify, normalise_materials
 
 
 def _pbr(name: str, metallic, roughness, colour=(120, 120, 120, 255), **kw):

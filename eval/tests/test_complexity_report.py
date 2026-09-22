@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from bench import complexity_report as CR
-from codeverse.contracts.artifacts import Measurement
+from codeverse3d.contracts.artifacts import Measurement
 
 REPO = Path(__file__).resolve().parents[1]
 

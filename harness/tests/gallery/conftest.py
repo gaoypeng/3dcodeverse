@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.contracts.common import Language
+from codeverse3d.contracts.common import Language
 from tests.flywheel_cli.conftest import make_fake_run, tiny_png
 
 

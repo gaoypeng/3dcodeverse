@@ -15,8 +15,8 @@ Reproduce:
 3dcode cost prices [--unverified]                          # the price table + provenance
 ```
 
-The audit is `codeverse/addons/costreport/audit.py`; it reconstructs a per-call ledger from
-old runs (`codeverse/cost/reconstruct.py`), so it works on every run recorded so
+The audit is `codeverse3d/addons/costreport/audit.py`; it reconstructs a per-call ledger from
+old runs (`codeverse3d/cost/reconstruct.py`), so it works on every run recorded so
 far — no re-instrumentation needed.  `eval/bench/out/compare_v1_full` (a partial,
 superseded compare battery) is excluded.
 
@@ -340,7 +340,7 @@ matter how many samples you buy.  Pro is the cheap option for anything that
 persists.  Concretely, the 112 verdicts in this data set cost $6.48 with the pro
 judge and would cost $24.2 as "cheap" flash at n=8.
 
-`codeverse/cost/routing.py` holds this table in code
+`codeverse3d/cost/routing.py` holds this table in code
 (`ROUTES`, `pro_break_even()`, `samples_for_precision()`).
 
 ## 9. Ranked optimisation opportunities
@@ -350,9 +350,9 @@ Savings are estimated **on this data set** (61 runs, $86.30) unless stated.
 | # | change | est. saving | confidence | where |
 |---|---|---|---|---|
 | 1 | **Stop refining after r01 unless the last delta ≥ 0.05.**  r02+r03 cost $12.16 and bought +1.44 score points across 8 of 20 rounds. | **$9–12 (10–13%)** | high (measured) | `RoundPolicy` (min_delta 0.02 → 0.05 from r02, or plateau_window 1 after r01) |
-| 2 | **Check the budget *before* starting a round, against the estimated round cost**, not only between steps. | **$8.76 (9.7%)** | high (measured waste) | `orchestrator.py` (`BudgetGuard`) + `tracks/steps.py`; use `codeverse.cost.estimate_call` / median round cost |
+| 2 | **Check the budget *before* starting a round, against the estimated round cost**, not only between steps. | **$8.76 (9.7%)** | high (measured waste) | `orchestrator.py` (`BudgetGuard`) + `tracks/steps.py`; use `codeverse3d.cost.estimate_call` / median round cost |
 | 3 | ~~**Cap agent turns at ~25 and compact old tool results.**  39.3% of the agent bill is turn ≥20; 19 of the 33 sessions that ran ≥50 turns were cut off by their own budget.~~  **Tested, rejected: +$0.02 and −0.21 score** (A/B, n=3 per arm, §17) — the cap is off by default. | est. $8–15, **measured $0** | high (A/B) | `RoundPolicy.agent_max_turns=0`; still settable per caller |
-| 4 | **Fold the off-record spend into the budget** (cut rounds, post-hoc texture passes). | $0 saved, **$1.22 of blindness removed** | high | §6; the ledger (`codeverse.cost.record_call`) makes it automatic |
+| 4 | **Fold the off-record spend into the budget** (cut rounds, post-hoc texture passes). | $0 saved, **$1.22 of blindness removed** | high | §6; the ledger (`codeverse3d.cost.record_call`) makes it automatic |
 | 5 | **Scene track: 73% of scene spend is assets+zones, 0/5 passed.**  Trim the per-zone context (each zone session re-sends the whole scene contract) and judge assets before zones start. | ~$1/run of $2.83 | medium | `tracks/scene*.py` |
 | 6 | **Drop `oneshot:claude-code` from default compare arms** ($1.04/artifact at 0.673 — the worst score per dollar measured). | bench-only | high | `eval/bench/compare_backends.py` arms |
 | 7 | **Gate the texture pass on the materials criterion** (< 0.7) — 5 passes ran, 2 shipped, $1.10 spent. | ~$0.5 | medium | `texturing/run.py` |
@@ -366,10 +366,10 @@ Not recommended on the evidence: cheaper generation models (a bare one-shot
 flash scored 0.14 and produced no buildable code in 3 of 5 cells — the loop, not
 the model, is what makes the artifact), and cheaper judges (§8).
 
-## 10. The cost ledger (`codeverse/cost/`)
+## 10. The cost ledger (`codeverse3d/cost/`)
 
 ```python
-from codeverse.cost import record_call, load_ledger, summarise
+from codeverse3d.cost import record_call, load_ledger, summarise
 
 with run_ledger(ws.root):                       # <run>/telemetry/cost.jsonl (cost_ledger.jsonl = symlink alias)
     record_call(res.usage, run=ws.slug, round=idx, stage="refine", role="generator",
@@ -386,7 +386,7 @@ prices actually used, price_source + price_approximate + price_checked
 source`.  Writing never raises and never blocks a run; unknown models are
 recorded at $0 **and flagged**, never silently dropped.
 
-Until the call sites are wired, `codeverse.cost.reconstruct` rebuilds the same
+Until the call sites are wired, `codeverse3d.cost.reconstruct` rebuilds the same
 rows from `record.json` + `events.jsonl` + `trajectories/**` — that is what this
 audit runs on, and it reconciles to `record.total_usage` on every run (or says
 why it does not, §6).
@@ -425,7 +425,7 @@ out not to pay.
 
 ## 12. The live ledger
 
-`codeverse.cost.instrument` meters the two places money is actually spent:
+`codeverse3d.cost.instrument` meters the two places money is actually spent:
 
 * **`MeteredChatModel`** wraps everything `models.get_chat_model` hands out, so one
   `CallCost` row is appended per `ChatModel.generate` — planner, judges,
@@ -487,14 +487,14 @@ bucket), with `<run>/cost_ledger.jsonl` left as a relative symlink so
 `flywheel.telemetry.live_ledger_path` and the `telemetry/usage.jsonl` alias keep
 working — one physical copy.  A call made with no run context (a `3dcode judge`
 outside a run, a bench script, a notebook) goes to a per-process log under
-`<cache_dir>/cost/`; `CV3D_COST_LEDGER=off` disables writing entirely.
+`<cache_dir>/cost/`; `C3D_COST_LEDGER=off` disables writing entirely.
 
 **No double counting.**  `BudgetGuard` only buckets and enforces; `MeteredAgent` /
 `MeteredChatModel` are the one writer of `telemetry/cost.jsonl`, and `BaseTrack.run`
 opens the run ledger itself.  The guard's own aggregate writer and its
 `per_call_metering()` sentinel were deleted 2026-08-29: every production entry point
 (`3dcode make`, the bench drivers) opened `run_ledger` first, so it never wrote there —
-and with `CV3D_COST_LEDGER=off` it wrote anyway, which is now really off.
+and with `C3D_COST_LEDGER=off` it wrote anyway, which is now really off.
 
 **Reading it.**  `cost.reconstruct.reconstruct_run` prefers a live ledger and
 falls back to rebuilding from trajectories / verdicts / events, so
@@ -607,7 +607,7 @@ verdict vs $0.172 baseline** (n=3, 3.1-pro, 14 conn-dirty rows) — the two extr
 small PNGs are outweighed by shorter narration — and a clean round's payload is
 byte-identical, so at production dirty ratios the channel amortises to **≤ $0**.
 The slice render itself is local CPU (shapely + matplotlib, a few seconds).  No
-profile carries a dial for it; `CV3D_JUDGE__SLICES=off` is the kill switch.
+profile carries a dial for it; `C3D_JUDGE__SLICES=off` is the kill switch.
 
 ### The crop-count experiment — INCONCLUSIVE, not adopted
 
@@ -633,7 +633,7 @@ restored.  Buying a fifth of a cent per verdict is not worth a payload change we
 cannot show is harmless, and at n=1 per arm the experiment cannot show it: it
 needs ~n=8 per arm to resolve 0.048 against σ=0.030, which costs more than the
 change saves on the 112 verdicts in this data set.  A caller that wants a smaller
-payload can still say so (`VlmJudge(detail_crops=…)` / `CV3D_JUDGE__DETAIL_CROPS`);
+payload can still say so (`VlmJudge(detail_crops=…)` / `C3D_JUDGE__DETAIL_CROPS`);
 no profile says it for them.
 
 Both halves of §14 confirm §8's conclusion: on judging, the lever is *how many
@@ -643,16 +643,16 @@ verdicts*, not how big each one is.
 
 `Settings.profile` + `3dcode make --profile economy|balanced|quality` set model per
 role, judge samples, refine rounds, best-of-N width, the texture pass and the
-budget ceilings together (`codeverse/cost/profiles.py`).
+budget ceilings together (`codeverse3d/cost/profiles.py`).
 
-**One resolver, both entry points.**  `codeverse.cli._common.resolve_dial` is the
+**One resolver, both entry points.**  `codeverse3d.cli._common.resolve_dial` is the
 only place the dial is read, and it returns a `ResolvedDial` with every field.
 `--profile X` *forces* the dial over a value the user stated in `config.yaml` /
-`CV3D_*`; `CV3D_PROFILE=X` (or `profile:` in the config file) sets the same dial
+`C3D_*`; `C3D_PROFILE=X` (or `profile:` in the config file) sets the same dial
 as a *default*, so a value you stated yourself survives it.  With nothing else
 stated the two paths resolve **identically** — which they did not before: the CLI
 read `candidates` and `texture` off the *flag* rather than off the resolved
-profile, so `CV3D_PROFILE=quality` silently ran best-of-1 with no texture pass.
+profile, so `C3D_PROFILE=quality` silently ran best-of-1 with no texture pass.
 `tests/cost/test_profiles.py` asserts every field of the dial from both entry
 points, per profile.  An explicit CLI flag still beats both, and
 `Spec.options.profile` now records the resolved name **whichever way it was
@@ -684,7 +684,7 @@ levers measured to raise a score, so they belong to quality.
   (§17: a 28-turn cap cost $0.02 more and 0.205 of a score point over 3 runs per
   arm), so there is no default cap anywhere now: `Profile.max_turns` is 0 in all
   three profiles and `tracks.generation.DEFAULT_AGENT_MAX_TURNS` is 0.
-  `Settings.limits.agent_max_turns` / `CV3D_AGENT_MAX_TURNS` remain the knob for a
+  `Settings.limits.agent_max_turns` / `C3D_AGENT_MAX_TURNS` remain the knob for a
   run or a machine that wants one by name.
 * **economy's 1 detail crop.**  §14: two independent draws of the crop experiment
   disagreed by 1.6× the judge's σ over a $0.0024/verdict saving.  Every profile
@@ -696,7 +696,7 @@ to answer "does this run texture?" independently — `Spec.options.texture`, a
 tool is registered for every object track, so the coding agent could buy a pass in
 any run.  That is why the quality run below shows a ledger 9.5 % above its record:
 the pass ran twice, once from inside a round-2 agent session.
-`codeverse.texturing.run.texture_requested(spec)` is now the single owner;
+`codeverse3d.texturing.run.texture_requested(spec)` is now the single owner;
 `tracks.lifecycle.finalise` and the tool both ask it, and the tool refuses with a
 usage error (costing $0) in a run whose spec says no.  `3dcode texture pass <slug>`
 is an explicit user instruction and is unaffected.
@@ -787,12 +787,12 @@ round pays for again, and the wrap-up session it buys is not free either.
 So there is no default cap: `RoundPolicy.agent_max_turns = 0` and
 `tracks.generation.DEFAULT_AGENT_MAX_TURNS = 0` leave `AgentJob.max_turns` at the
 backend's own default.  The plumbing stays for callers who choose one —
-`GenerationTask.max_turns` > `generate(max_turns=…)` > `$CV3D_AGENT_MAX_TURNS` >
+`GenerationTask.max_turns` > `generate(max_turns=…)` > `$C3D_AGENT_MAX_TURNS` >
 `Settings.limits.agent_max_turns` — and a cap that IS set still lands gracefully
 (wrap-up session, `generate.turn_cap` event).  **Nothing sets one by default any
 more**: the profiles independently dropped their own caps in the same wave
 (`cost/profiles.py`, all three at `max_turns=0`), so a cap now only exists when a
-run, a bench arm or `$CV3D_AGENT_MAX_TURNS` asks for it by name.
+run, a bench arm or `$C3D_AGENT_MAX_TURNS` asks for it by name.
 
 ### `skip_judge_reason` — two of four branches removed
 
@@ -888,7 +888,7 @@ quota would allow 1 000 per key.  So the meaningful limiter is a *token* rate:
   `Settings.rate.tpm_per_key` (default 1 000 000) via `shared_pool`, whose registry key
   now includes the quota so two different quotas cannot silently share one set of buckets.
 * `acquire(tokens_hint=…)` **reserves** the estimated prompt tokens of the pending call.
-  The estimate is `codeverse.models.retry.request_tokens`, a thin wrapper over
+  The estimate is `codeverse3d.models.retry.request_tokens`, a thin wrapper over
   `cost.guard.estimate_call` that walks the whole request (system prompt, tool schemas,
   response schema, tool results, a flat 1 290 per image).
 * `report(key, outcome, tokens=actual, reserved=hint)` **reconciles**: the bucket is
@@ -968,7 +968,7 @@ storm independently spends a full failed round-trip to learn what its siblings a
 know, then sleeps on its own private backoff schedule.  That is the 2 833 waits / 17.7 h
 in §18.
 
-`codeverse/models/retry.py` adds a process-wide `StormGate` per model (`retry.py:449`):
+`codeverse3d/models/retry.py` adds a process-wide `StormGate` per model (`retry.py:449`):
 
 * the first worker to see a 503 calls `hit()`, which closes the gate for a short,
   escalating window (never longer than `MAX_WAIT_S` — patience comes from the *number*
@@ -1010,7 +1010,7 @@ time.  A single sustained outage is the case the gate was designed for and is no
 covered by this measurement — that is why the mechanism is kept rather than deleted.
 So `Settings.rate.storm_gate` defaults to **False**.  The mechanism, its counters and
 the probe flag are kept so the experiment is reproducible
-(`CV3D_RATE__STORM_GATE=1`, or `eval/bench/concurrency_probe.py --storm-gate`) — the same
+(`C3D_RATE__STORM_GATE=1`, or `eval/bench/concurrency_probe.py --storm-gate`) — the same
 treatment §13 gave cache-friendly prompt ordering.
 
 **Caveat on the knee under a storm.**  §20's knee optimises *throughput* — total calls
@@ -1074,10 +1074,10 @@ plumbing through several layers and deserves its own measured change.
 > idle box — zero `3dcode` processes running, the naive gate returned **3**, and even the
 > bracket trick `pgrep -f '[b]in/3dcode make'` returned **2**, because the wrapper shell's
 > argv also carries the string.  Used in `while [ $(gate) -ge 3 ]; do sleep 60; done` that
-> blocks forever on nothing.  `codeverse.models.health.sibling_processes()` reads `/proc`
+> blocks forever on nothing.  `codeverse3d.models.health.sibling_processes()` reads `/proc`
 > and excludes its own pid; `pool_budget()` wraps it with the in-flight arithmetic:
 > ```
-> python3 -c "from codeverse.models.health import pool_budget; print(pool_budget())"
+> python3 -c "from codeverse3d.models.health import pool_budget; print(pool_budget())"
 > ```
 
 §20 measured the concurrency knee at 64 in-flight and shipped it as the default.  That
@@ -1085,7 +1085,7 @@ number was measured with **one process and nothing else running**, and the limit
 configures is per-process by construction:
 
 ```python
-_pools: dict[tuple[str, ...], KeyPool] = {}      # codeverse/models/gemini.py — MODULE level
+_pools: dict[tuple[str, ...], KeyPool] = {}      # codeverse3d/models/gemini.py — MODULE level
 def shared_pool(...):  """One KeyPool per distinct (key list, quota) so limiters are process-wide."""
 ```
 
@@ -1126,9 +1126,9 @@ Three consequences:
 3. **Operational rule until a cross-process limiter exists**: keep the SUM of
    `max_in_flight` across every harness process on the machine at or below the measured
    knee (64).  One battery at 64, or N batteries at `64 / N` each via
-   `CV3D_MAX_IN_FLIGHT=<n>` (`CV3D_RATE__MAX_IN_FLIGHT` is the same knob; the flat name was
+   `C3D_MAX_IN_FLIGHT=<n>` (`C3D_RATE__MAX_IN_FLIGHT` is the same knob; the flat name was
    read by nothing until 2026-08-24 — three launches that "set" it ran at 64).
-   `codeverse.models.health.pool_budget()` reads every sibling's cap from `/proc/<pid>/environ`
+   `codeverse3d.models.health.pool_budget()` reads every sibling's cap from `/proc/<pid>/environ`
    and reports used / headroom; `3dcode doctor`'s `pool sharing` row prints it, and
    `eval/bench/ab_plan.py` refuses to start only when its own need does not FIT the headroom.
    The first version of this rule counted *processes* and made every agent wait for an
@@ -1147,7 +1147,7 @@ Three consequences:
    it.  Whenever an entry point is added or renamed, update both lists.
 
 The real fix is a machine-wide limiter — a file-locked token bucket under
-`~/.cache/codeverse/` that every process shares — so the quota is enforced where it
+`~/.cache/codeverse3d/` that every process shares — so the quota is enforced where it
 actually lives.  Not built here: it needs crash/staleness handling and its own A/B, and
 it should be measured against the operational rule above rather than assumed better.
 
@@ -1276,7 +1276,7 @@ since 2026-08-29 takes the same `max_total_s = ChatRequest.max_wait_s` (clipped 
 
 
 *The retry of a 503 is hedged across keys* (`rotate_with_retries(hedge=2)`; `Settings.rate.hedge`,
-`CV3D_RATE__HEDGE=1` for the A/B).  Logged sleep was only 645 s per cell median — **13 % of the
+`C3D_RATE__HEDGE=1` for the A/B).  Logged sleep was only 645 s per cell median — **13 % of the
 wait**; `(wait − sleep) / storm lines` = **21.5 s per failed attempt** (p90 28.5, ~50 s late in a
 storm): the cost of a 503 is the round-trip the provider holds before rejecting, not the ≤ 5 s
 backoff.  Storm streaks average **4.7 attempts** (1 101 episodes / 5 143 lines).  From a call's
@@ -1338,11 +1338,11 @@ pages leaked by SIGKILLed clients — every render timeout leaks one), and then 
 `runtime_js/`: (1) `gpu_launch.cjs` connect canary — one bounded `pages()` (6 s) per connect; an
 unresponsive or overgrown (>12 pages) browser is poisoned and a fresh daemon spawned (~1 s once,
 measured: leak 14 pages → next render 3.5 s, then 0.7 s steady); (2) `browser_daemon.cjs` reaps
-pages older than `CV3D_PAGE_TTL_MS` (default 8 min > every harness ceiling); (3) cleanup steps in
+pages older than `C3D_PAGE_TTL_MS` (default 8 min > every harness ceiling); (3) cleanup steps in
 `render_glb.mjs` / `host_page.mjs` are time-bounded (≤3 s each) — the record is on disk before
 cleanup runs.  Step-level stderr breadcrumbs (`[render_glb] <step> +ms`) stay in for the next audit.
 
-## 29. Fewer turns — first turn read out (`CV3D_FEWER_TURNS`, `turns_v1`, 2026-08-26)
+## 29. Fewer turns — first turn read out (`C3D_FEWER_TURNS`, `turns_v1`, 2026-08-26)
 
 Six blender prompts, plan-pinned pairs, flash, 3 rounds, storm afternoon; variant = `build` folds
 connectivity + contract in, `write_file` returns a lint verdict, refine inlines ≤ 3 files, the

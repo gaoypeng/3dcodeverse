@@ -44,7 +44,7 @@ Sampling at T = 0.7, top-p 0.95, seeds 0..N−1 (`run_eval --samples N`).
 ## 4. Rubric-judged suites (harness batteries, no GT)
 
 Execution rate is always reported. Quality needs a judge: the harness's calibrated VLM judge
-(`harness/codeverse/judges`, Gemini pro, 14-view rig, `static_object_v1` rubric, threshold 0.72, σ ≈ 0.03 at
+(`harness/codeverse3d/judges`, Gemini pro, 14-view rig, `static_object_v1` rubric, threshold 0.72, σ ≈ 0.03 at
 n=3) is the reference implementation — see `docs/inventory_harness_bench.md` §2 for how to call it on a
 GLB. No judge is bundled here yet; if one is added it must be pairwise with swapped order and report κ against a
 human-labelled subset (LLM judges have position/length bias — survey §2e).

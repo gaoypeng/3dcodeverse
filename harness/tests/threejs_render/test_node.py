@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.spatial.node import NodeError, parse_last_json, run_node, runtime_js_dir
+from codeverse3d.spatial.node import NodeError, parse_last_json, run_node, runtime_js_dir
 
 
 def test_parse_last_json_picks_last_object():

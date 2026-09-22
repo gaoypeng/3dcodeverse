@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from codeverse.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZoneLayout, ZonePlan
-from codeverse.tracks.zone_layout import layout_block, layout_zones, validate_layout
+from codeverse3d.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZoneLayout, ZonePlan
+from codeverse3d.tracks.zone_layout import layout_block, layout_zones, validate_layout
 
 
 def _plan() -> ScenePlan:
@@ -143,8 +143,8 @@ def test_a_run_past_its_ceiling_buys_no_layout_calls():
     to 2 x 300 s per zone."""
     import time
 
-    from codeverse.contracts.common import Budget
-    from codeverse.orchestrator import BudgetGuard
+    from codeverse3d.contracts.common import Budget
+    from codeverse3d.orchestrator import BudgetGuard
 
     model = _Model([])   # any call would pop an empty queue and explode the test
     guard = BudgetGuard(Budget(max_minutes=30), start_time=time.time() - 45 * 60)
@@ -156,8 +156,8 @@ def test_layout_waits_are_clipped_to_the_remaining_run_clock():
     """A call that does go out asks for min(LAYOUT_WAIT_S, wall clock left), floored."""
     import time
 
-    from codeverse.contracts.common import Budget
-    from codeverse.orchestrator import BudgetGuard
+    from codeverse3d.contracts.common import Budget
+    from codeverse3d.orchestrator import BudgetGuard
 
     class _Recorder(_Model):
         def __init__(self, answers):

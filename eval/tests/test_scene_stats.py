@@ -72,7 +72,7 @@ def test_the_median_score_is_read_off_the_real_Judgment_shape(tmp_path: Path) ->
     record the median line was silently skipped — and no test caught it, because the
     fixtures wrote `judgment: {}`.  Building the fixture from the model itself is what
     stops that drifting again."""
-    from codeverse.contracts.artifacts import Judgment
+    from codeverse3d.contracts.artifacts import Judgment
 
     def judged(name: str, overall: float) -> None:
         d = tmp_path / name / "run"

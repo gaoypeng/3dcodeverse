@@ -35,7 +35,7 @@ const args = parseCli({
   // so its shader report names the scene's own programs and nothing of ours.  The
   // flag parses (drivers share a switch list) and changes nothing.
   'no-post': { type: 'boolean', default: false },
-  ws: {}, out: {}, gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' }, 'timeout-ms': { default: '60000' },
+  ws: {}, out: {}, gpu: { default: process.env.C3D_RENDER_GPU || 'auto' }, 'timeout-ms': { default: '60000' },
   scene: { default: 'src/scene.js' },
   compile: { type: 'boolean', default: false }, 'shaders-out': { default: '' }, 'sun-azimuth': { default: '' },
 });

@@ -8,16 +8,16 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.agents.backends import (
+from codeverse3d.agents.backends import (
     ClaudeCodeAgent,
     parse_claude_json,
     primary_served_model,
     usage_from_envelope,
 )
-from codeverse.agents.cli_common import begin_session
-from codeverse.agents.materialize import materialize_workspace
-from codeverse.contracts.agent import AgentJob
-from codeverse.workspace import Workspace
+from codeverse3d.agents.cli_common import begin_session
+from codeverse3d.agents.materialize import materialize_workspace
+from codeverse3d.contracts.agent import AgentJob
+from codeverse3d.workspace import Workspace
 
 ENVELOPE = {
     "type": "result", "subtype": "success", "is_error": False, "duration_ms": 4200, "duration_api_ms": 3900,
@@ -70,10 +70,10 @@ def test_parse_envelope_variants():
 
 def test_argv_includes_mcp_when_materialized(tmp_ws: Workspace):
     materialize_workspace(tmp_ws, agent_kind="claude-code", contract_md="c", cookbook_rel="", spatial_tools=True,
-                          mcp_command=["python", "-m", "codeverse.spatial.mcp_server", "--workspace", str(tmp_ws.root)])
+                          mcp_command=["python", "-m", "codeverse3d.spatial.mcp_server", "--workspace", str(tmp_ws.root)])
     a = ClaudeCodeAgent("sonnet", binary="claude")
     s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", system_append="S", max_turns=7,
-                           mcp_command=["python", "-m", "codeverse.spatial.mcp_server", "--workspace", str(tmp_ws.root)]),
+                           mcp_command=["python", "-m", "codeverse3d.spatial.mcp_server", "--workspace", str(tmp_ws.root)]),
                       "claude-code")
     argv = a.build_argv(s, "p")
     assert argv[:3] == ["claude", "-p", "p"]

@@ -6,8 +6,8 @@ import math
 
 import pytest
 
-from codeverse.contracts.plan import CameraPlan
-from codeverse.languages.scene_threejs import (
+from codeverse3d.contracts.plan import CameraPlan
+from codeverse3d.languages.scene_threejs import (
     ZoneProbe,
     assemble,
     cameras_from_specs,
@@ -137,7 +137,7 @@ def test_assemble_with_async_zone_boots(starter_ws):
     )
     res = assemble(starter_ws)
     assert "orchard" in res.zones_included and res.zones_failed == {}
-    from codeverse.spatial.probes import probe_scene
+    from codeverse3d.spatial.probes import probe_scene
 
     probe = probe_scene(starter_ws)
     assert probe.gate.passed, [(f.target, f.message) for f in probe.gate.findings]

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
-from codeverse.spatial.silhouette import compare_silhouette, foreground_mask
+from codeverse3d.spatial.silhouette import compare_silhouette, foreground_mask
 
 
 def _disc(path: Path, size: tuple[int, int], box: tuple[int, int, int, int], bg=(240, 240, 240), fg=(30, 30, 30)) -> Path:
@@ -62,7 +62,7 @@ def test_a_photo_the_background_model_failed_on_is_unreliable(tmp_path: Path) ->
     import numpy as np
     from PIL import Image
 
-    from codeverse.spatial.silhouette import _bbox_cover
+    from codeverse3d.spatial.silhouette import _bbox_cover
 
     rng = np.random.default_rng(0)
     busy = tmp_path / "busy.jpg"
@@ -78,7 +78,7 @@ def test_a_photo_the_background_model_failed_on_is_unreliable(tmp_path: Path) ->
 def test_a_render_that_fills_its_frame_is_still_reliable(tmp_path: Path) -> None:
     """The bar must not condemn the render side. Real single-view renders measured at
     bbox coverage 0.60-0.69; a tight crop must still pass."""
-    from codeverse.spatial.silhouette import _bbox_cover
+    from codeverse3d.spatial.silhouette import _bbox_cover
 
     tight = _disc(tmp_path / "tight.png", (300, 300), (12, 12, 288, 288))
     assert 0.80 < _bbox_cover(foreground_mask(tight)) < 0.98

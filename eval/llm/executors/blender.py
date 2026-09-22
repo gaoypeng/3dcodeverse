@@ -20,7 +20,7 @@ RUNNER = Path(__file__).with_name("blender_runner.py")
 def run(code: str, workdir: str, timeout: int = 300) -> dict:
     blender = config.find_blender()
     if blender is None:
-        return {"status": "CRASH", "error": "blender not found (set CV3D_BLENDER)", "latency_s": 0.0, "mesh": None}
+        return {"status": "CRASH", "error": "blender not found (set C3D_BLENDER)", "latency_s": 0.0, "mesh": None}
     wd = Path(workdir).resolve()
     wd.mkdir(parents=True, exist_ok=True)
     script, glb, rep_path = wd / "code.py", wd / "out.glb", wd / "exec.json"

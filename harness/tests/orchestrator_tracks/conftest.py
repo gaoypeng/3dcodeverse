@@ -6,10 +6,10 @@ import contextlib
 
 import pytest
 
-from codeverse.config import Settings
-from codeverse.contracts.common import Backends, Budget, Language, Track
-from codeverse.contracts.plan import AcceptanceItem, BBox, PartPlan, StaticPlan
-from codeverse.contracts.spec import Constraints, Spec
+from codeverse3d.config import Settings
+from codeverse3d.contracts.common import Backends, Budget, Language, Track
+from codeverse3d.contracts.plan import AcceptanceItem, BBox, PartPlan, StaticPlan
+from codeverse3d.contracts.spec import Constraints, Spec
 
 
 @pytest.fixture(autouse=True)
@@ -18,17 +18,17 @@ def no_brief_expansion(monkeypatch) -> None:
 
     A fake planner model answers one canned plan per request; the extra brief call would
     eat it and every ``FakeChatModel(lambda req: answers.pop(0))`` in here would go one
-    answer out of step.  The tests that exercise the brief set ``CV3D_PLAN_BRIEF=on``
+    answer out of step.  The tests that exercise the brief set ``C3D_PLAN_BRIEF=on``
     themselves (``test_planner_depth.py``).
 
     Also clear the global Settings cache around each test: ``get_settings()`` is an
-    ``lru_cache`` singleton that snapshots ``CV3D_*`` env vars at first construction, so
+    ``lru_cache`` singleton that snapshots ``C3D_*`` env vars at first construction, so
     whichever test happens to touch it first bakes ITS monkeypatched env into every later
     test in the worker — ``test_fewer_turns`` failed alone and passed in file order for
     exactly this reason."""
-    from codeverse.config import get_settings
+    from codeverse3d.config import get_settings
 
-    monkeypatch.setenv("CV3D_PLAN_BRIEF", "off")
+    monkeypatch.setenv("C3D_PLAN_BRIEF", "off")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
@@ -79,7 +79,7 @@ FAKE_CLOCK = {"minutes": 0.0}
 @contextlib.contextmanager
 def fake_clock():
     """Point BudgetGuard's wall clock at FAKE_CLOCK for the duration of a test."""
-    from codeverse.orchestrator import BudgetGuard
+    from codeverse3d.orchestrator import BudgetGuard
 
     real = BudgetGuard.elapsed_minutes
     FAKE_CLOCK["minutes"] = 0.0

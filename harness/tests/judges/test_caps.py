@@ -1,6 +1,6 @@
-from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse.contracts.plan import AcceptanceItem
-from codeverse.judges.rubrics import apply_caps, load_rubric
+from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse3d.contracts.plan import AcceptanceItem
+from codeverse3d.judges.rubrics import apply_caps, load_rubric
 
 R = load_rubric("static_object_v1")
 
@@ -61,7 +61,7 @@ def test_scene_console_and_shader_caps():
 
 # ------------------------------------------- a passed gate vetoes the checklist's claim
 def _connectivity(passed: bool, *msgs: tuple[str, str]):
-    from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+    from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
     sev = {"error": Severity.ERROR, "warn": Severity.WARN, "info": Severity.INFO}
     return GateReport(gate="connectivity", passed=passed,
                       findings=[GateFinding(gate="connectivity", severity=sev[s], target="", message=m) for s, m in msgs])
@@ -72,7 +72,7 @@ def test_a_floating_claim_the_connectivity_gate_measured_absent_neither_penalise
     'all 9 parts connected, gap <= 2 mm'; the judge marked floating_part present on a dark
     seam and defect:floating_part capped the run at 0.6 (uncapped 0.72) against 0.96 for a
     sibling the eye cannot tell apart.  Gates decide geometry (law 3)."""
-    from codeverse.judges.rubrics import load_rubric, measured_absent, veto_measured_defects
+    from codeverse3d.judges.rubrics import load_rubric, measured_absent, veto_measured_defects
 
     rubric = load_rubric("static_object_v1")
     passed = [_connectivity(True, ("info", "all 9 parts are connected (9 contacts, gap <= 2 mm)"),
@@ -84,7 +84,7 @@ def test_a_floating_claim_the_connectivity_gate_measured_absent_neither_penalise
 
 
 def test_a_real_floating_part_still_caps():
-    from codeverse.judges.rubrics import load_rubric, measured_absent
+    from codeverse3d.judges.rubrics import load_rubric, measured_absent
 
     rubric = load_rubric("static_object_v1")
     failed = [_connectivity(False, ("error", "part 'Seat' is floating 12 mm above 'Leg'"))]
@@ -96,8 +96,8 @@ def test_a_real_floating_part_still_caps():
 def test_scene_placement_gate_measures_the_floating_asset_claim():
     """scene_v1 (2026-08-26): the placement gate and the checklist defect share an id, so a passed
     gate vetoes the VLM's floating/sunken claim and an ERROR there caps the round at 0.7."""
-    from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-    from codeverse.judges.rubrics import apply_caps, load_rubric, measured_absent
+    from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+    from codeverse3d.judges.rubrics import apply_caps, load_rubric, measured_absent
 
     rubric = load_rubric("scene_v1")
     passed = [GateReport(gate="scene_placement", passed=True, findings=[GateFinding(
@@ -117,7 +117,7 @@ def test_a_passed_connectivity_gate_vetoes_the_interpenetration_claim():
     them citing only WARNs the rubric says to ignore, and this veto had fired for it 0 times —
     the cap rule is ``penetration_error``, the defect ``interpenetration``, and the match was
     on id.  ``CapRule.measures`` now carries the defect id."""
-    from codeverse.judges.rubrics import measured_absent, veto_measured_defects
+    from codeverse3d.judges.rubrics import measured_absent, veto_measured_defects
 
     passed = [_connectivity(True, ("info", "all 9 parts are connected (9 contacts, gap <= 2 mm)"),
                             ("warn", "'Seat' and 'Leg' overlap by 1.4 mm (weld)"))]
@@ -133,7 +133,7 @@ def test_a_passed_connectivity_gate_vetoes_the_interpenetration_claim():
 def test_a_failing_contract_gate_does_not_disable_the_connectivity_veto():
     """53 of the 62 blocked cases (2026-08-30): the rules watched gate "*", so a contract ERROR
     about the bbox switched off a veto the connectivity gate had earned."""
-    from codeverse.judges.rubrics import measured_absent
+    from codeverse3d.judges.rubrics import measured_absent
 
     contract = GateReport(gate="contract", passed=False, findings=[GateFinding(
         gate="contract", severity=Severity.ERROR, target="bbox", message="height 0.31 m vs plan 0.45 m (31% off)")])
@@ -149,7 +149,7 @@ def test_graded_acceptance_cap_keeps_the_gradient_but_not_the_pass():
     unverified must item out of ten scored exactly like ten out of ten."""
     import pytest
 
-    from codeverse.judges.rubrics import (
+    from codeverse3d.judges.rubrics import (
         AcceptanceVerdict,
         CriterionScore,
         JudgeOutput,
@@ -180,7 +180,7 @@ def test_a_defect_vote_tie_is_absent_and_an_acceptance_tie_still_follows_the_rep
 
     import pytest
 
-    from codeverse.judges.rubrics import (
+    from codeverse3d.judges.rubrics import (
         AcceptanceVerdict,
         CriterionScore,
         JudgeOutput,

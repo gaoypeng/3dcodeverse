@@ -9,13 +9,13 @@
 comparison), `COMPLEXITY.md` (the complexity vector and the score-vs-complexity study),
 `PAPER_WRITING.md`.  `tests/` tests the `bench` scripts.
 
-The dependency is one-way: `bench` and `llm` import `codeverse` (the harness package); nothing under
+The dependency is one-way: `bench` and `llm` import `codeverse3d` (the harness package); nothing under
 `harness/` imports anything here, and the harness test suite passes without this folder.  The two
 evaluations share one set of battery files — `bench/prompts/*.yaml` — and `llm` reads the ten it can
 ask one-shot from there (`llm/config.py: HARNESS_BATTERIES`).
 
 ```bash
-pip install -e ../harness                     # once; both evaluations import codeverse
+pip install -e ../harness                     # once; both evaluations import codeverse3d
 cd eval
 3dcode bench run bench/prompts/static_objects_v1.yaml --generator gemini-cli:gemini-3.7-flash
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.7-flash,oneshot:gemini:gemini-3.7-flash --out bench/out/compare_v1
@@ -26,6 +26,6 @@ ruff check .
 
 Run data is never in git: `bench/out/` (battery output) and `llm/data/prompts/*.jsonl` (built by
 `python -m llm.build_prompts` from the gated Hub assets) are ignored.  Every `bench` script bootstraps
-its own import path — `../harness` for THIS tree's `codeverse`, `.` for the `bench` package — so an
+its own import path — `../harness` for THIS tree's `codeverse3d`, `.` for the `bench` package — so an
 editable install of a different checkout cannot silently stand in for the tree under test
 (`tests/test_worktree_import.py`).

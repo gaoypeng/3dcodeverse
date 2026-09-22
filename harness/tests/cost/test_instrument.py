@@ -6,17 +6,17 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.contracts.agent import AgentJob, AgentResult
-from codeverse.contracts.chat import ChatMessage, ChatRequest, ChatResponse
-from codeverse.contracts.common import Usage
-from codeverse.cost.context import run_binding
-from codeverse.cost.instrument import (
+from codeverse3d.contracts.agent import AgentJob, AgentResult
+from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ChatResponse
+from codeverse3d.contracts.common import Usage
+from codeverse3d.cost.context import run_binding
+from codeverse3d.cost.instrument import (
     MeteredAgent,
     MeteredChatModel,
     run_ledger,
 )
-from codeverse.cost.ledger import load_ledger, record_call
-from codeverse.cost.types import Role, Stage
+from codeverse3d.cost.ledger import load_ledger, record_call
+from codeverse3d.cost.types import Role, Stage
 
 
 def _usage(**kw: object) -> Usage:
@@ -123,7 +123,7 @@ def test_a_session_row_is_filed_by_the_task_kind(tmp_path: Path):
 
 
 def test_get_coding_agent_hands_out_a_metered_agent(monkeypatch: pytest.MonkeyPatch):
-    from codeverse.agents import registry
+    from codeverse3d.agents import registry
 
     monkeypatch.setattr(registry, "_build_agent", lambda aid: CliAgent(FakeChat()))
     assert isinstance(registry.get_coding_agent("gemini-cli:m"), MeteredAgent)
@@ -142,7 +142,7 @@ def test_accounting_never_breaks_a_call(tmp_path: Path, monkeypatch: pytest.Monk
     def boom(*a: object, **k: object) -> None:
         raise RuntimeError("ledger on fire")
 
-    monkeypatch.setattr("codeverse.cost.instrument.record_call", boom)
+    monkeypatch.setattr("codeverse3d.cost.instrument.record_call", boom)
     with run_ledger(tmp_path, run="r1"):
         resp = MeteredChatModel(FakeChat()).generate(ChatRequest(messages=[ChatMessage.user("x")]))
     assert resp.text == "ok"
@@ -159,7 +159,7 @@ def test_the_proxy_forwards_everything_else():
 
 
 def test_get_chat_model_hands_out_a_metered_model(monkeypatch: pytest.MonkeyPatch):
-    from codeverse.models import registry
+    from codeverse3d.models import registry
 
     monkeypatch.setattr(registry, "_build_chat_model", lambda mid: FakeChat())
     registry.get_chat_model.cache_clear()
@@ -238,7 +238,7 @@ def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Pat
     """`bench.run_bench` runs N prompts in N threads; their rows must not mix."""
     from concurrent.futures import ThreadPoolExecutor
 
-    from codeverse.cost import ledger as ledger_mod
+    from codeverse3d.cost import ledger as ledger_mod
 
     def one(name: str) -> None:
         with run_ledger(tmp_path / name, run=name):
@@ -256,7 +256,7 @@ def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Pat
     # and the default ledger were ALSO process globals that the first thread to exit
     # republished, so this plain main-thread call appended to a finished run's file
     # under that run's name instead of going to the per-process log.
-    monkeypatch.setenv("CV3D_COST_LEDGER", str(tmp_path / "process.jsonl"))
+    monkeypatch.setenv("C3D_COST_LEDGER", str(tmp_path / "process.jsonl"))
     monkeypatch.setattr(ledger_mod, "_fallback", None)
     monkeypatch.setattr(ledger_mod, "_fallback_read", False)
     assert run_binding().run == ""
@@ -298,7 +298,7 @@ def test_a_full_key_never_reaches_the_ledger(tmp_path: Path):
 
 
 def test_a_failed_call_records_its_attempts_but_no_key(tmp_path: Path):
-    from codeverse.models.base import ModelError
+    from codeverse3d.models.base import ModelError
 
     err = ModelError("503 high demand", retryable=True, status=503, attempts=7)
     with run_ledger(tmp_path, run="r1"), pytest.raises(ModelError):
@@ -310,8 +310,8 @@ def test_a_failed_call_records_its_attempts_but_no_key(tmp_path: Path):
 def test_per_key_buckets_and_tries_per_call(tmp_path: Path):
     from types import SimpleNamespace
 
-    from codeverse.addons.costreport.report import BUCKET_HEADERS, bucket_rows, keyed_buckets
-    from codeverse.cost.ledger import record_call, summarise
+    from codeverse3d.addons.costreport.report import BUCKET_HEADERS, bucket_rows, keyed_buckets
+    from codeverse3d.cost.ledger import record_call, summarise
 
     led = tmp_path / "cost.jsonl"
     rows = [
@@ -331,7 +331,7 @@ def test_per_key_buckets_and_tries_per_call(tmp_path: Path):
 # ------------------------------------------------------- per-attempt rows (audit 2026-08-27)
 def test_a_billed_but_invalid_attempt_is_in_the_total_exactly_once(tmp_path: Path):
     """A charged invalid attempt is counted exactly once beside its winner."""
-    from codeverse.cost.ledger import summarise
+    from codeverse3d.cost.ledger import summarise
     from tests.models.test_gemini import make_model, text_response
 
     m, _log, _ = make_model([text_response("not json"), text_response('{"ok": true}')])
@@ -359,9 +359,9 @@ def test_a_hedge_losers_tokens_reach_the_ledger_when_it_lands(tmp_path: Path):
     import threading
     import time as _time
 
-    from codeverse.models.base import ModelError
-    from codeverse.models.gemini import GeminiModel
-    from codeverse.models.retry import KeyPool
+    from codeverse3d.models.base import ModelError
+    from codeverse3d.models.gemini import GeminiModel
+    from codeverse3d.models.retry import KeyPool
     from tests.models.test_gemini import text_response
 
     release_k2 = threading.Event()
@@ -401,7 +401,7 @@ def test_a_hedge_losers_tokens_reach_the_ledger_when_it_lands(tmp_path: Path):
     logical, = [r for r in load_ledger(tmp_path) if r.source == "live"]
     # endswith, not ==: the 2-char fake key is shorter than the …last-4 redaction
     assert logical.key.endswith("k3") and logical.call_id == loser.call_id
-    from codeverse.cost.ledger import summarise
+    from codeverse3d.cost.ledger import summarise
     assert summarise(load_ledger(tmp_path)).total.cost_usd == pytest.approx(
         logical.cost_usd + loser.cost_usd), "the loser is in the total exactly once"
 
@@ -410,7 +410,7 @@ def test_zone_layout_rows_agree_with_the_guard(tmp_path: Path):
     """tracks/zone_layout.py labels its planner calls 'zone-layout' and charges the
     guard as stage='plan' — unclassified, the ledger filed the same dollars under
     other/other, so the two owners disagreed on every zone-layout cent (V10c)."""
-    from codeverse.cost.types import role_for_stage, stage_for_label
+    from codeverse3d.cost.types import role_for_stage, stage_for_label
 
     assert stage_for_label("zone-layout") is Stage.PLAN
     assert role_for_stage(stage_for_label("zone-layout")) is Role.PLANNER
@@ -426,7 +426,7 @@ def test_a_late_hedge_loser_keeps_its_stage_role_and_round(tmp_path: Path):
     (baseline/None) instead of the originating call's candidate/r0 attribution."""
     import threading
 
-    from codeverse.cost.context import AttemptRecord, attempt_sink, call_context
+    from codeverse3d.cost.context import AttemptRecord, attempt_sink, call_context
 
     loser_usage = _usage(cost_usd=0.30)
 
@@ -459,7 +459,7 @@ def test_a_late_hedge_loser_keeps_its_stage_role_and_round(tmp_path: Path):
 
 def test_a_failed_calls_error_row_carries_what_was_billed(tmp_path: Path):
     """A final ModelError carries its billed usage into the error row."""
-    from codeverse.models.base import ModelError
+    from codeverse3d.models.base import ModelError
 
     err = ModelError("bad json after retries", retryable=True, attempts=6, usage=_usage())
     with run_ledger(tmp_path, run="r1"), pytest.raises(ModelError):

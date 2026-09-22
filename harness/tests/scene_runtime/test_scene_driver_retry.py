@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import pytest
 
-import codeverse.spatial.render_scene as RS
-from codeverse.spatial.node import NodeResult
-from codeverse.spatial.render_scene import SceneRenderError, run_scene_script
+import codeverse3d.spatial.render_scene as RS
+from codeverse3d.spatial.node import NodeResult
+from codeverse3d.spatial.render_scene import SceneRenderError, run_scene_script
 
 DETACHED = "render failed: Attempted to use detached Frame '10276B428E350BFA074A02AF37D52E6C'."
 
@@ -43,8 +43,8 @@ def test_a_lost_browser_is_retried_on_an_owned_browser(monkeypatch):
     r = run_scene_script("render_scene.mjs", ["--ws", "x"], timeout_s=10)
     assert r.summary["n_views"] == 8, "the second attempt's result is the one returned"
     assert len(envs) == 2, "a browser loss must be retried"
-    assert envs[0].get("CV3D_BROWSER_REUSE") is None
-    assert envs[1]["CV3D_BROWSER_REUSE"] == "off", "the retry must not reuse the browser that died"
+    assert envs[0].get("C3D_BROWSER_REUSE") is None
+    assert envs[1]["C3D_BROWSER_REUSE"] == "off", "the retry must not reuse the browser that died"
 
 
 def test_a_scene_that_failed_is_not_retried(monkeypatch):
@@ -84,7 +84,7 @@ def test_a_driver_that_exits_0_with_no_summary_is_retried(monkeypatch):
     ])
     r = run_scene_script("probe_scene.mjs", ["--ws", "x"], timeout_s=10)
     assert r.summary["boot"]["ok"] is True
-    assert len(envs) == 2 and envs[1]["CV3D_BROWSER_REUSE"] == "off"
+    assert len(envs) == 2 and envs[1]["C3D_BROWSER_REUSE"] == "off"
 
 
 def test_a_driver_that_answered_is_not_retried_for_a_failing_verdict(monkeypatch):
@@ -105,4 +105,4 @@ def test_a_transient_host_failure_is_retried_on_the_same_browser(monkeypatch):
     ])
     r = run_scene_script("render_scene.mjs", ["--ws", "x"], timeout_s=10)
     assert r.summary["n_views"] == 8 and len(envs) == 2
-    assert envs[1].get("CV3D_BROWSER_REUSE") is None, "a timeout is not a browser loss"
+    assert envs[1].get("C3D_BROWSER_REUSE") is None, "a timeout is not a browser loss"

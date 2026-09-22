@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import codeverse.languages.glsl_shader as wrap
-from codeverse.contracts.common import ENTRY_FILE, Language
-from codeverse.languages import _gl_common
-from codeverse.spatial.gl_render import GlHost
+import codeverse3d.languages.glsl_shader as wrap
+from codeverse3d.contracts.common import ENTRY_FILE, Language
+from codeverse3d.languages import _gl_common
+from codeverse3d.spatial.gl_render import GlHost
 
 
 def test_wrap_reexports_moved_glsl_log_types() -> None:
@@ -22,12 +22,12 @@ def test_make_host_prefers_injected_host() -> None:
 
 
 def test_runtimes_lead_with_the_entry_file_table() -> None:
-    from codeverse.languages.blender import ENTRY_REL, BlenderRuntime
-    from codeverse.languages.cadquery import CadQueryRuntime
-    from codeverse.languages.glsl_shader import GlslShaderRuntime
-    from codeverse.languages.opengl_python import OpenGLPythonRuntime
-    from codeverse.languages.threejs import ThreeJsRuntime
-    from codeverse.languages.urdf import UrdfBlenderRuntime
+    from codeverse3d.languages.blender import ENTRY_REL, BlenderRuntime
+    from codeverse3d.languages.cadquery import CadQueryRuntime
+    from codeverse3d.languages.glsl_shader import GlslShaderRuntime
+    from codeverse3d.languages.opengl_python import OpenGLPythonRuntime
+    from codeverse3d.languages.threejs import ThreeJsRuntime
+    from codeverse3d.languages.urdf import UrdfBlenderRuntime
 
     assert ENTRY_FILE[Language.BLENDER] == ENTRY_REL
     for rt in (BlenderRuntime, CadQueryRuntime, GlslShaderRuntime, OpenGLPythonRuntime,

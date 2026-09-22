@@ -6,17 +6,17 @@ import json
 
 import pytest
 
-from codeverse.contracts.common import Language, Track
-from codeverse.contracts.plan import ArticulatedPlan, ScenePlan
-from codeverse.contracts.run import RunRecord, RunStatus
-from codeverse.orchestrator import RoundPolicy, RunState
-from codeverse.proc import EventLog
-from codeverse.tracks import get_track
-from codeverse.tracks.articulated_object import ArticulatedObjectTrack
-from codeverse.tracks.planner import plan_example
-from codeverse.tracks.scene import SceneTrack
-from codeverse.tracks.static_object import StaticObjectTrack
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.common import Language, Track
+from codeverse3d.contracts.plan import ArticulatedPlan, ScenePlan
+from codeverse3d.contracts.run import RunRecord, RunStatus
+from codeverse3d.orchestrator import RoundPolicy, RunState
+from codeverse3d.proc import EventLog
+from codeverse3d.tracks import get_track
+from codeverse3d.tracks.articulated_object import ArticulatedObjectTrack
+from codeverse3d.tracks.planner import plan_example
+from codeverse3d.tracks.scene import SceneTrack
+from codeverse3d.tracks.static_object import StaticObjectTrack
+from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import fake_clock, make_spec
 from tests.orchestrator_tracks.fakes import (
     FAIL_MARK,
@@ -36,7 +36,7 @@ def _agent_writer(job, ws):
         if "| " in line and line.startswith("| ") and not line.startswith("| part") and not line.startswith("|---"):
             name = line.split("|")[1].strip()
             if name:
-                from codeverse.conventions import to_snake
+                from codeverse3d.conventions import to_snake
 
                 files[f"src/parts/{to_snake(name)}.js"] = f"export function build{name}(THREE) {{ /* {job.label} r{job.round} */ return new THREE.Group(); }}\n"
     # every round edits something (a real refine agent changes code; identical output = plateau)
@@ -314,7 +314,7 @@ def test_a_render_timeout_degrades_the_round_instead_of_failing_the_run(tmp_path
     render_glb.mjs hit its 330 s timeout under load and the run was recorded `failed` with a
     judged round 0 on disk.  The round keeps build/gates, skips the judge, and the run
     delivers its best round."""
-    from codeverse.spatial.render import RenderError
+    from codeverse3d.spatial.render import RenderError
 
     class _Services(FakeServices):
         def render_object(self, glb, out_dir, *, views, width, height):

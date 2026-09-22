@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 import bench.rejudge_offline as ro
-from codeverse.contracts.artifacts import (
+from codeverse3d.contracts.artifacts import (
     GateFinding,
     GateReport,
     Judgment,
@@ -23,9 +23,9 @@ from codeverse.contracts.artifacts import (
     RenderView,
     Severity,
 )
-from codeverse.contracts.plan import AcceptanceItem
-from codeverse.contracts.run import RoundRecord
-from codeverse.judges.rubrics import (
+from codeverse3d.contracts.plan import AcceptanceItem
+from codeverse3d.contracts.run import RoundRecord
+from codeverse3d.judges.rubrics import (
     SCORING_VERSION,
     AcceptanceVerdict,
     CriterionScore,

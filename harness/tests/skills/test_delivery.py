@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.skills.prompting import (
+from codeverse3d.skills.prompting import (
     AGENTS_SKILL_ROOT,
     CLAUDE_SKILL_ROOT,
     delivery_for,
@@ -54,11 +54,11 @@ def test_claude_code_reads_its_own_root_and_nobody_else_does():
 @pytest.mark.parametrize("kind", known_backends())
 def test_every_consumer_agrees_with_the_policy(kind):
     """`prompting` must not re-derive what `delivery` decides — one source, or they drift."""
-    from codeverse.skills.prompting import NATIVE_LOADERS, skill_path
+    from codeverse3d.skills.prompting import NATIVE_LOADERS, skill_path
 
     d = delivery_for(kind)
     assert (kind in NATIVE_LOADERS) is d.native_loader
-    assert skill_path("cv3d-x", agent_kind=kind) == f"{d.root}/cv3d-x/SKILL.md"
+    assert skill_path("c3d-x", agent_kind=kind) == f"{d.root}/c3d-x/SKILL.md"
 
 
 def test_adding_a_backend_is_one_row():
@@ -66,7 +66,7 @@ def test_adding_a_backend_is_one_row():
     delivery.py, this catches it.  `prompting` may name the backends it re-exports."""
     import pathlib
 
-    root = pathlib.Path(__file__).resolve().parents[2] / "codeverse"
+    root = pathlib.Path(__file__).resolve().parents[2] / "codeverse3d"
     names = ("claude-code", "gemini-cli", "codex")
     offenders = []
     for py in (root / "skills").rglob("*.py"):

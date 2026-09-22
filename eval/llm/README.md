@@ -8,10 +8,10 @@ path resolved from the environment (`config.py`) instead of `/wekafs/...`.
 
 ```
 llm/
-  config.py            paths + tool discovery (CV3D_EVAL_DATA, CV3D_TOOLS, CV3D_BLENDER, …); `python -m llm.config` = doctor
+  config.py            paths + tool discovery (C3D_EVAL_DATA, C3D_TOOLS, C3D_BLENDER, …); `python -m llm.config` = doctor
   download.py          pull the assets from the Hub (needs a token with access to ilabai/*)
   build_prompts.py     Hub assets → data/prompts/<suite>.jsonl   (one schema for every suite)
-  build_refs.py        execute the reference programs → $CV3D_EVAL_DATA/refs/<suite>/<id>/ref.{glb,stl}
+  build_refs.py        execute the reference programs → $C3D_EVAL_DATA/refs/<suite>/<id>/ref.{glb,stl}
   suites.py            suite registry: dialect, decoding defaults, which metrics apply, tags
   generate.py          backends: vllm (local, text+image) · openai-compatible (vLLM server / API) · anthropic · reference
   extract.py           dialect-aware code extraction from free-form answers (think blocks, multiple fences)
@@ -55,7 +55,7 @@ Tags: `headline` (3dcodebench_text), `text`, `vlm`, `official`, `heldout`, `long
 ```bash
 # 0. environment: conda env cv3d-eval + Blender 5.0.1 + OpenSCAD + glslang + Chromium, no sudo (~15 min, re-runnable)
 bash llm/setup.sh
-export CV3D_EVAL_DATA=~/3dcodeverse_data/3dcodeverse_eval CV3D_TOOLS=~/3dcodeverse_data/tools   # defaults
+export C3D_EVAL_DATA=~/3dcodeverse_data/3dcodeverse_eval C3D_TOOLS=~/3dcodeverse_data/tools   # defaults
 python -m llm.config                     # doctor: every tool and asset it can / cannot find
 
 # 1. assets (token with access to ilabai/*: `hf auth login`)
@@ -80,7 +80,7 @@ python -m llm.run_eval ... --judge-model gpt-5.4 --judge-base-url https://…/v1
 python -m llm.judge pairwise --run-a qwen3_8b --run-b official_gpt-5.5 --suite 3dcodebench_official_text --judge-model …
 
 # 6. tables
-python -m llm.report --root $CV3D_EVAL_DATA/out
+python -m llm.report --root $C3D_EVAL_DATA/out
 ```
 
 What is measured, per suite: execution → geometry vs GT (F@0.05, Chamfer, IoU) → structural integrity of the
@@ -88,8 +88,8 @@ mesh itself (floating parts, fragmentation, watertight, stability) → official 
 DINOv3) → optional VLM judge. `docs/metrics.md` defines each; the answer to "is the object good" is F@0.05 /
 SigLIP-2 when a GT exists, and the structural fields + judge when it does not.
 
-Outputs: `$CV3D_EVAL_OUT/<run>/<suite>[/sN]/{<id>/{code.*, raw.txt, exec/…}, gens.jsonl, gen_stats.json,
-exec_results.jsonl, metrics.jsonl, summary.json}` and `$CV3D_EVAL_OUT/report.md`.
+Outputs: `$C3D_EVAL_OUT/<run>/<suite>[/sN]/{<id>/{code.*, raw.txt, exec/…}, gens.jsonl, gen_stats.json,
+exec_results.jsonl, metrics.jsonl, summary.json}` and `$C3D_EVAL_OUT/report.md`.
 
 ## Prompt row schema (`data/prompts/*.jsonl`)
 
@@ -100,7 +100,7 @@ exec_results.jsonl, metrics.jsonl, summary.json}` and `$CV3D_EVAL_OUT/report.md`
  "reference": {"code": "…", "mesh": "refs/3dcodebench/AgaveMonocot_seed0/ref.glb", "renders": ["…Image_005.png", …]},
  "meta": {"factory": "AgaveMonocot", "caption_type": "instruction", "source": "YipengGao/3DCode/3DCodeBench"}}
 ```
-Paths are relative to `$CV3D_EVAL_DATA`. Adding a suite = adding a JSONL in this schema (+ one line in
+Paths are relative to `$C3D_EVAL_DATA`. Adding a suite = adding a JSONL in this schema (+ one line in
 `suites.SUITES` for decoding defaults / metrics).
 
 ## What the numbers mean
@@ -123,7 +123,7 @@ three.js 40/40 — identical to the report's reference counts.
 ## Reusing the harness judge
 
 The harness batteries (`../bench/prompts/*.yaml`, the ten in `config.HARNESS_BATTERIES`) have no ground truth; their quality score is the calibrated
-Gemini VLM judge in `harness/codeverse/judges` (14-view rig, rubric `static_object_v1`, σ ≈ 0.03 at n=3).
+Gemini VLM judge in `harness/codeverse3d/judges` (14-view rig, rubric `static_object_v1`, σ ≈ 0.03 at n=3).
 `docs/inventory_harness_bench.md` §7 shows the minimal call sequence (`FixedEvaluator`, `h2h_glb.py`) to
 judge a GLB produced here without the agentic pipeline.
 

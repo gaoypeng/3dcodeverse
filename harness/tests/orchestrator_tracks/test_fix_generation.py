@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from codeverse.contracts.agent import AgentResult
-from codeverse.contracts.chat import ChatResponse
-from codeverse.contracts.common import Usage
-from codeverse.proc import EventLog
-from codeverse.tracks.generation import (
+from codeverse3d.contracts.agent import AgentResult
+from codeverse3d.contracts.chat import ChatResponse
+from codeverse3d.contracts.common import Usage
+from codeverse3d.proc import EventLog
+from codeverse3d.tracks.generation import (
     GenerationTask,
     generate_files,
     parse_multifile,
     run_agent_task,
 )
-from codeverse.workspace import Workspace
+from codeverse3d.workspace import Workspace
 
 FULL = "=== FILE: src/model.py ===\nimport bpy\nprint('ok')\n=== END FILE ==="
 TRUNCATED = "=== FILE: src/model.py ===\nimport bpy\nbpy.ops.mesh.primitive_cube_add(size=0.4, location=(0, 0,"

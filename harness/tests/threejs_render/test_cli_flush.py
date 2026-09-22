@@ -19,7 +19,7 @@ import json
 
 import pytest
 
-from codeverse.spatial.node import run_node, runtime_js_dir
+from codeverse3d.spatial.node import run_node, runtime_js_dir
 from tests.scene_runtime.conftest import needs_node
 
 pytestmark = [pytest.mark.node, needs_node]

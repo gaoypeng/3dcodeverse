@@ -11,10 +11,10 @@ import json
 
 import pytest
 
-from codeverse.contracts.common import Language, Track
-from codeverse.contracts.plan import ArticulatedPlan
-from codeverse.proc import EventLog
-from codeverse.tracks.planner import (
+from codeverse3d.contracts.common import Language, Track
+from codeverse3d.contracts.plan import ArticulatedPlan
+from codeverse3d.proc import EventLog
+from codeverse3d.tracks.planner import (
     MAX_PLAN_RESTARTS,
     PLAN_RESTART_ENV,
     PlanningError,
@@ -126,7 +126,7 @@ def test_a_rejected_plan_is_written_where_a_dead_run_can_be_read(tmp_ws):
     """A run that dies at the plan stage used to leave nothing but the pydantic message,
     which truncates the offending value — so "what did the model actually write?", the
     question every plan-stage failure class starts from, had no answer at all."""
-    from codeverse.tracks.planner import INVALID_PLAN_DIR
+    from codeverse3d.tracks.planner import INVALID_PLAN_DIR
 
     model = FakeChatModel(lambda req: _degenerate())
     with pytest.raises(PlanningError):

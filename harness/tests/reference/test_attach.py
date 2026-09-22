@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codeverse.contracts.spec import ReferenceImage
-from codeverse.reference import (
+from codeverse3d.contracts.spec import ReferenceImage
+from codeverse3d.reference import (
     SYNTH_NOTE,
     SYNTH_TAG,
     PlausibilityVerdict,

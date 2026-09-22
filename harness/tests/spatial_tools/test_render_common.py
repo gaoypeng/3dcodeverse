@@ -11,10 +11,10 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from codeverse.conventions import OBJECT_VIEWS, SCENE_VIEWS
-from codeverse.spatial import _render_common as rc
-from codeverse.spatial.registry import ToolContext, ToolUnavailable, get_tool
-from codeverse.workspace import Workspace
+from codeverse3d.conventions import OBJECT_VIEWS, SCENE_VIEWS
+from codeverse3d.spatial import _render_common as rc
+from codeverse3d.spatial.registry import ToolContext, ToolUnavailable, get_tool
+from codeverse3d.workspace import Workspace
 
 
 # --------------------------------------------------------------------------- _render_common
@@ -37,7 +37,7 @@ def test_view_specs_is_the_one_camera_payload() -> None:
     assert all(set(s) == {"name", "azimuth", "elevation"} for s in specs)
     assert all(isinstance(s["azimuth"], float) and isinstance(s["elevation"], float) for s in specs)
     # what the scene driver receives is exactly this, JSON-encoded
-    from codeverse.spatial.render_scene import _views_json
+    from codeverse3d.spatial.render_scene import _views_json
 
     assert json.loads(_views_json(SCENE_VIEWS)) == rc.view_specs(SCENE_VIEWS)
 
@@ -48,7 +48,7 @@ def test_build_sheet_uses_the_settings_grid_and_guards_empty(tmp_path: Path) -> 
         Image.new("RGB", (64, 64), (10 * i, 0, 0)).save(tmp_path / f"v{i}.png")
     out = rc.build_sheet([(f"v{i}", tmp_path / f"v{i}.png") for i in range(2)], tmp_path / "sheet.png")
     assert out and Path(out).is_file()
-    from codeverse.config import get_settings
+    from codeverse3d.config import get_settings
 
     tile = get_settings().render.sheet_tile
     with Image.open(out) as im:
@@ -57,7 +57,7 @@ def test_build_sheet_uses_the_settings_grid_and_guards_empty(tmp_path: Path) -> 
 
 # --------------------------------------------------------------------------- sheet: cells + gif
 def test_contact_sheet_keeps_a_non_square_cell(tmp_path: Path) -> None:
-    from codeverse.spatial.sheet import LABEL_H, PAD, contact_sheet, tile_size
+    from codeverse3d.spatial.sheet import LABEL_H, PAD, contact_sheet, tile_size
 
     src = tmp_path / "wide.png"
     Image.new("RGB", (1280, 720), (30, 60, 90)).save(src)
@@ -69,8 +69,8 @@ def test_contact_sheet_keeps_a_non_square_cell(tmp_path: Path) -> None:
 
 
 def test_gl_contact_sheet_and_gif_go_through_the_shared_writers(tmp_path: Path) -> None:
-    from codeverse.spatial.gl_render import GlFrame, write_contact_sheet, write_gif
-    from codeverse.spatial.sheet import LABEL_H, PAD
+    from codeverse3d.spatial.gl_render import GlFrame, write_contact_sheet, write_gif
+    from codeverse3d.spatial.sheet import LABEL_H, PAD
 
     frames = []
     for i in range(3):
@@ -89,7 +89,7 @@ def test_gl_contact_sheet_and_gif_go_through_the_shared_writers(tmp_path: Path) 
 
 # --------------------------------------------------------------------------- parts loader
 def test_solid_parts_is_cached_parts_without_the_empty_ones(stool_glb: Path) -> None:
-    from codeverse.spatial.measure import cached_parts, solid_parts
+    from codeverse3d.spatial.measure import cached_parts, solid_parts
 
     solid = solid_parts(stool_glb)
     assert solid and list(solid) == [k for k, v in cached_parts(stool_glb).items() if v is not None and len(v.faces)]
@@ -97,8 +97,8 @@ def test_solid_parts_is_cached_parts_without_the_empty_ones(stool_glb: Path) -> 
 
 
 def test_shared_number_formatters() -> None:
-    from codeverse.spatial.connectivity import _fmt_vec as conn_vec
-    from codeverse.spatial.measure import fmt_extent_cm, fmt_vec
+    from codeverse3d.spatial.connectivity import _fmt_vec as conn_vec
+    from codeverse3d.spatial.measure import fmt_extent_cm, fmt_vec
 
     assert fmt_extent_cm([0.34, 0.47]) == "34.0×47.0"
     assert fmt_vec([-0.00001, 0.5, 0]) == "(+0.000, +0.500, +0.000)"     # never '-0.000'
@@ -108,7 +108,7 @@ def test_shared_number_formatters() -> None:
 
 # --------------------------------------------------------------------------- tool plumbing
 def test_tool_out_dir_is_round_stamped(stool_ctx: ToolContext) -> None:
-    from codeverse.spatial.tool_common import render_cache_dir, tool_out_dir
+    from codeverse3d.spatial.tool_common import render_cache_dir, tool_out_dir
 
     d = tool_out_dir(stool_ctx, "sections")
     assert d.is_dir() and d.name == f"r{stool_ctx.round_index:02d}_sections"
@@ -125,8 +125,8 @@ def test_cached_render_glb_leaves_the_cache_to_render_glb(stool_ctx: ToolContext
     the same stamp served stale PNGs and a copied workspace served views pointing into the
     ORIGINAL one.  ``render.render_glb`` (sha256 + CACHE_VERSION + rig signature) decides now.
     """
-    import codeverse.spatial.tool_common as tc
-    from codeverse.contracts.artifacts import RenderSet, RenderView
+    import codeverse3d.spatial.tool_common as tc
+    from codeverse3d.contracts.artifacts import RenderSet, RenderView
 
     calls: list[Path] = []
 
@@ -160,7 +160,7 @@ def test_store_in_cache_survives_a_concurrent_identical_writer(tmp_path: Path, m
     import threading
     import time
 
-    from codeverse.spatial import render as R
+    from codeverse3d.spatial import render as R
 
     out = tmp_path / "out"
     out.mkdir()
@@ -199,7 +199,7 @@ def test_object_render_cache_is_keyed_by_gpu_mode(stool_glb: Path, tmp_path: Pat
     the key ('auto' fragments from 'on'/'off' by design — owner default)."""
     from types import SimpleNamespace
 
-    from codeverse.spatial import render as R
+    from codeverse3d.spatial import render as R
 
     runs: list[tuple[str, Path]] = []
 
@@ -225,13 +225,13 @@ def test_object_render_cache_is_keyed_by_gpu_mode(stool_glb: Path, tmp_path: Pat
 def test_tool_unavailable_is_reported_by_the_registry(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     """No tool catches ToolUnavailable itself any more — ToolDef.call does it for
     all of them, with the tool's own registered name."""
-    import codeverse.spatial.tool_common as tc
+    import codeverse3d.spatial.tool_common as tc
 
     def boom(module, attr):
         raise ToolUnavailable(f"{module} not importable")
 
     monkeypatch.setattr(tc, "lazy", boom)
-    monkeypatch.setattr("codeverse.spatial.tools.lazy", boom)
+    monkeypatch.setattr("codeverse3d.spatial.tools.lazy", boom)
     ws = stool_ctx.workspace
     (ws.artifacts / "object_textured.glb").write_bytes((ws.artifacts / "object.glb").read_bytes())
     for name in ("build", "render_views", "texture_preview"):
@@ -244,9 +244,9 @@ def test_tool_unavailable_is_reported_by_the_registry(stool_ctx: ToolContext, mo
 
 
 def test_gl_metrics_summary_is_the_one_frame_stats_formatter(tmp_ws: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
-    from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-    from codeverse.spatial.frame_stats import FrameStat, SequenceStats
-    from codeverse.spatial.tool_common import gl_metrics_summary
+    from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+    from codeverse3d.spatial.frame_stats import FrameStat, SequenceStats
+    from codeverse3d.spatial.tool_common import gl_metrics_summary
 
     stats = SequenceStats(frames=[FrameStat(time=0.0, path="f0.png", mean_lum=0.4, std_lum=0.2, pct_black=0.0,
                                             pct_blown=0.0, colourfulness=0.3, edge_density=0.05)], mean_diff=0.0)
@@ -255,7 +255,7 @@ def test_gl_metrics_summary_is_the_one_frame_stats_formatter(tmp_ws: Workspace, 
                     fix_hint="animate with u_time", data={"kind": "static"}),
         GateFinding(gate="gl_frames", severity=Severity.INFO, message="ignored"),
     ])
-    monkeypatch.setattr("codeverse.languages._gl_common.read_metrics", lambda ws: (stats, gate))
+    monkeypatch.setattr("codeverse3d.languages._gl_common.read_metrics", lambda ws: (stats, gate))
     lines, numbers, ok = gl_metrics_summary(tmp_ws, hints=True, root=tmp_ws.root)
     body = "\n".join(lines)
     assert not ok and "frames=1" in body and "[static]" in body and "fix: animate with u_time" in body
@@ -263,12 +263,12 @@ def test_gl_metrics_summary_is_the_one_frame_stats_formatter(tmp_ws: Workspace, 
     assert numbers["gate_errors"] == 1 and numbers["n_frames"] == 1 and numbers["gate_passed"] is False
     no_hints, _, _ = gl_metrics_summary(tmp_ws, hints=False)
     assert "fix:" not in "\n".join(no_hints)
-    monkeypatch.setattr("codeverse.languages._gl_common.read_metrics", lambda ws: None)
+    monkeypatch.setattr("codeverse3d.languages._gl_common.read_metrics", lambda ws: None)
     assert gl_metrics_summary(tmp_ws) == (["(no frame metrics)"], {}, True)
 
 
 def test_render_scene_still_exports_runtime_js_dir() -> None:
     """Public symbol kept while the definition moved to spatial.node."""
-    from codeverse.spatial import node, render_scene
+    from codeverse3d.spatial import node, render_scene
 
     assert render_scene.runtime_js_dir() == node.runtime_js_dir()

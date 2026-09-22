@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
-import codeverse.spatial.tools  # noqa: F401  (registers every tool)
-from codeverse.contracts.artifacts import RenderSet, RenderView
-from codeverse.reference import SYNTH_NOTE
-from codeverse.spatial.registry import ToolContext, get_tool
-from codeverse.workspace import Workspace
+import codeverse3d.spatial.tools  # noqa: F401  (registers every tool)
+from codeverse3d.contracts.artifacts import RenderSet, RenderView
+from codeverse3d.reference import SYNTH_NOTE
+from codeverse3d.spatial.registry import ToolContext, get_tool
+from codeverse3d.workspace import Workspace
 from tests.spatial_tools.conftest import build_stool
 
 
@@ -42,7 +42,7 @@ def ctx(tmp_ws: Workspace, tmp_path: Path, monkeypatch) -> ToolContext:
             out.append(RenderView(name=v.name, path=str(p), width=size, height=size, mode=mode))
         return RenderSet(views=out, renderer="fake")
 
-    monkeypatch.setattr("codeverse.spatial.tools.cached_render_glb", fake_render)
+    monkeypatch.setattr("codeverse3d.spatial.tools.cached_render_glb", fake_render)
     return ToolContext(workspace=tmp_ws, language="blender", track="static_object")
 
 

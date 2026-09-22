@@ -2,10 +2,10 @@ import json
 
 import pytest
 
-from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse.judges.rubrics import is_degraded, load_rubric
-from codeverse.judges.vlm_judge import VlmJudge
-from codeverse.models.base import ModelError
+from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse3d.judges.rubrics import is_degraded, load_rubric
+from codeverse3d.judges.vlm_judge import VlmJudge
+from codeverse3d.models.base import ModelError
 from tests.judges.conftest import FakeChatModel, good_reply, image_parts
 
 R = load_rubric("static_object_v1")
@@ -163,7 +163,7 @@ def test_base_judge_rejects_measured_rubric(judge_input, cache_dir):
 
 
 def test_missing_render_is_loud(judge_input, cache_dir):
-    from codeverse.judges.prompt_builder import JudgeImageError
+    from codeverse3d.judges.prompt_builder import JudgeImageError
     judge_input.renders.views[0].path = "/nonexistent/x.png"
     with pytest.raises(JudgeImageError):
         _judge(FakeChatModel([good_reply(R, IDS)]), cache_dir=cache_dir).judge(judge_input)
@@ -181,12 +181,12 @@ def test_no_acceptance_items(judge_input, cache_dir):
 def test_judge_payload_size_comes_from_the_settings_dial(monkeypatch):
     """``Settings.judge`` (set coherently by a cost profile) sizes the verdict's
     images unless the caller states its own."""
-    from codeverse.config import Settings, get_settings
-    from codeverse.judges.vlm_judge import VlmJudge
+    from codeverse3d.config import Settings, get_settings
+    from codeverse3d.judges.vlm_judge import VlmJudge
 
     s = Settings()
     s.apply_profile("economy", force=True)
-    monkeypatch.setattr("codeverse.judges.vlm_judge.get_settings", lambda: s)
+    monkeypatch.setattr("codeverse3d.judges.vlm_judge.get_settings", lambda: s)
     j = VlmJudge(rubric="static_object_v1", model_id="fake:fake-1")
     # no profile shrinks the payload: 768 px bills the same as 1024 on Gemini and is
     # noisier, the 2→1 crop cut did not survive a second draw (docs/COST.md §14), and
@@ -196,7 +196,7 @@ def test_judge_payload_size_comes_from_the_settings_dial(monkeypatch):
     explicit = VlmJudge(rubric="static_object_v1", model_id="fake:fake-1", max_px=768, detail_crops=1)
     assert explicit.max_px == 768 and explicit.detail_crops == 1
     s2 = Settings(judge={"detail_crops": 0, "max_px": 512})
-    monkeypatch.setattr("codeverse.judges.vlm_judge.get_settings", lambda: s2)
+    monkeypatch.setattr("codeverse3d.judges.vlm_judge.get_settings", lambda: s2)
     s2.apply_profile("economy")  # a stated payload survives a profile
     assert VlmJudge(rubric="static_object_v1", model_id="fake:fake-1").detail_crops == 0
     get_settings.cache_clear()
@@ -204,7 +204,7 @@ def test_judge_payload_size_comes_from_the_settings_dial(monkeypatch):
 
 # ----------------------------------------------------------------------------- D37 judge protocol hash
 def test_judge_prompt_hash_is_recorded_in_every_verdict(judge_input, cache_dir):
-    from codeverse.judges.prompt_builder import judge_prompt_hash
+    from codeverse3d.judges.prompt_builder import judge_prompt_hash
 
     j = _judge(FakeChatModel([good_reply(R, IDS, 0.8)]), cache_dir=cache_dir).judge(judge_input)
     raw = json.loads(j.raw)
@@ -217,9 +217,9 @@ def test_judge_prompt_hash_is_recorded_in_every_verdict(judge_input, cache_dir):
 
 
 def test_judge_prompt_hash_tracks_the_protocol_not_the_run(monkeypatch):
-    from codeverse.judges import prompt_builder as pb
-    from codeverse.judges.prompt_builder import judge_prompt_hash
-    from codeverse.judges.rubrics import wire_schema
+    from codeverse3d.judges import prompt_builder as pb
+    from codeverse3d.judges.prompt_builder import judge_prompt_hash
+    from codeverse3d.judges.rubrics import wire_schema
 
     base = judge_prompt_hash(R)
     assert judge_prompt_hash(R) == base  # deterministic
@@ -241,7 +241,7 @@ def _fake_clock(monkeypatch):
     import time as real_time
     from types import SimpleNamespace
 
-    import codeverse.judges.vlm_judge as mod
+    import codeverse3d.judges.vlm_judge as mod
 
     clock = {"t": 0.0}
     monkeypatch.setattr(mod, "time", SimpleNamespace(monotonic=lambda: clock["t"], time=real_time.time,
@@ -254,7 +254,7 @@ def test_each_sample_has_a_retry_budget_and_hands_what_is_left_to_the_model(judg
     (audit 2026-08-26 §2); two storm-day rounds lost 1 162 s and 927 s to 3 x 300 s timeouts
     before a second sample answered in 128 s.  A sample now has SAMPLE_BUDGET_S = 240 s for all
     its attempts, and every attempt tells the model how much of it remains."""
-    from codeverse.judges.vlm_judge import SAMPLE_BUDGET_S
+    from codeverse3d.judges.vlm_judge import SAMPLE_BUDGET_S
 
     clock = _fake_clock(monkeypatch)
 
@@ -270,7 +270,7 @@ def test_each_sample_has_a_retry_budget_and_hands_what_is_left_to_the_model(judg
 
 
 def test_a_sample_stops_when_its_budget_is_spent(judge_input, cache_dir, monkeypatch):
-    from codeverse.judges.vlm_judge import SAMPLE_BUDGET_S
+    from codeverse3d.judges.vlm_judge import SAMPLE_BUDGET_S
 
     clock = _fake_clock(monkeypatch)
 
@@ -293,7 +293,7 @@ def test_a_sample_stops_when_its_budget_is_spent(judge_input, cache_dir, monkeyp
 
 def test_the_last_attempt_still_gets_a_real_try(judge_input, cache_dir, monkeypatch):
     """A few seconds of budget would be a deadline the model cannot use; the floor is 20 s."""
-    from codeverse.judges.vlm_judge import SAMPLE_BUDGET_S, SAMPLE_MIN_WAIT_S
+    from codeverse3d.judges.vlm_judge import SAMPLE_BUDGET_S, SAMPLE_MIN_WAIT_S
 
     clock = _fake_clock(monkeypatch)
 
@@ -309,11 +309,11 @@ def test_the_last_attempt_still_gets_a_real_try(judge_input, cache_dir, monkeypa
 def test_scene_and_graphics_keep_the_pre_d47_montage_ceiling():
     """PR #3 review: montages 3→5 was measured only on the D47 object rig; the other
     tracks keep 3 until someone measures them, and an explicit caller value wins."""
-    from codeverse.contracts.artifacts import RenderSet
-    from codeverse.contracts.common import Language, Track
-    from codeverse.contracts.spec import Spec
-    from codeverse.judges.base import JudgeInput
-    from codeverse.judges.vlm_judge import VlmJudge
+    from codeverse3d.contracts.artifacts import RenderSet
+    from codeverse3d.contracts.common import Language, Track
+    from codeverse3d.contracts.spec import Spec
+    from codeverse3d.judges.base import JudgeInput
+    from codeverse3d.judges.vlm_judge import VlmJudge
 
     def inp(track, language):
         spec = Spec(id="t", track=track, language=language, prompt="p")

@@ -6,12 +6,12 @@ import json
 
 import pytest
 
-from codeverse.contracts.common import Language, Track
-from codeverse.contracts.plan import ScenePlan, StaticPlan
-from codeverse.orchestrator import BudgetGuard, RoundPolicy, RunState
-from codeverse.proc import EventLog
-from codeverse.tracks.common import RunContext
-from codeverse.tracks.generation import (
+from codeverse3d.contracts.common import Language, Track
+from codeverse3d.contracts.plan import ScenePlan, StaticPlan
+from codeverse3d.orchestrator import BudgetGuard, RoundPolicy, RunState
+from codeverse3d.proc import EventLog
+from codeverse3d.tracks.common import RunContext
+from codeverse3d.tracks.generation import (
     SINGLE_SHOT_FORMAT,
     GenerationError,
     GenerationTask,
@@ -21,14 +21,14 @@ from codeverse.tracks.generation import (
     safe_relpath,
     write_files,
 )
-from codeverse.tracks.planner import (
+from codeverse3d.tracks.planner import (
     PlanningError,
     build_system_prompt,
     ensure_acceptance,
     plan,
     plan_example,
 )
-from codeverse.tracks.repair import (
+from codeverse3d.tracks.repair import (
     build_with_repair,
     format_error_report,
     relevant_cookbook_section,
@@ -145,7 +145,7 @@ def test_planner_validates_retries_and_writes(tmp_ws):
     assert isinstance(p, StaticPlan) and p.object_name == "DiningChair" and tmp_ws.plan_path.is_file()
     assert len(model.requests) == 2 and "failed validation" in model.requests[1].messages[-1].text
     assert model.requests[0].response_schema is not None and "PascalCase" in model.requests[0].system
-    from codeverse.tracks.planner import PLAN_MAX_WAIT_S, plan_wait_s
+    from codeverse3d.tracks.planner import PLAN_MAX_WAIT_S, plan_wait_s
 
     assert all(PLAN_MAX_WAIT_S <= r.max_wait_s <= plan_wait_s(r.max_output_tokens) for r in model.requests)
     # deterministic acceptance items from constraints were appended
@@ -160,7 +160,7 @@ def test_planner_validation_reasks_and_ceiling(tmp_ws):
     model = FakeChatModel(lambda req: {"bad": 1})
     with pytest.raises(PlanningError):
         plan(make_spec(), "fake:planner", StaticPlan, tmp_ws, model=model)
-    from codeverse.tracks.planner import MAX_VALIDATION_REASKS
+    from codeverse3d.tracks.planner import MAX_VALIDATION_REASKS
 
     assert len(model.requests) == 1 + MAX_VALIDATION_REASKS == 3
 
@@ -176,7 +176,7 @@ def test_planner_scene_example_validates_and_prompts_render():
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS)
     s = build_system_prompt(spec, ScenePlan)
     assert "zones" in s and "Y is UP" in s
-    from codeverse.contracts.plan import ArticulatedPlan
+    from codeverse3d.contracts.plan import ArticulatedPlan
 
     assert isinstance(ArticulatedPlan.model_validate(plan_example(Track.ARTICULATED_OBJECT)), ArticulatedPlan)
     assert "pivot" in build_system_prompt(make_spec(Track.ARTICULATED_OBJECT, Language.URDF_BLENDER), ArticulatedPlan)
@@ -193,7 +193,7 @@ def test_ensure_acceptance_is_idempotent():
 
 
 def test_scene_plan_items_are_advisory_and_only_the_spec_must_haves_gate():
-    from codeverse.contracts.plan import AcceptanceItem
+    from codeverse3d.contracts.plan import AcceptanceItem
 
     p = ScenePlan.model_validate(plan_example(Track.SCENE))
     p.acceptance = [AcceptanceItem(id="a1", text="parapet is 1.05 m high", how="measure", priority="must"),
@@ -256,7 +256,7 @@ def test_build_with_repair_single_shot_sends_file_contents_and_stops_at_max(tmp_
 
 
 def test_format_error_report_and_cookbook_section():
-    from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
+    from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 
     b = BuildResult(ok=False, language="threejs", error_type="TypeError", error_message="Cannot read properties of null (reading 'fillStyle')",
                     error_file="src/parts/base.js", error_line=12, stderr_tail="\n".join(f"line{i}" for i in range(60)))

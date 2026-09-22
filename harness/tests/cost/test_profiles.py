@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from codeverse.cli._common import resolve_dial
-from codeverse.cli.main import app
-from codeverse.config import Settings, get_settings
-from codeverse.cost.profiles import PROFILE_NAMES, PROFILES, get_profile, profile_table
-from codeverse.orchestrator import RoundPolicy
+from codeverse3d.cli._common import resolve_dial
+from codeverse3d.cli.main import app
+from codeverse3d.config import Settings, get_settings
+from codeverse3d.cost.profiles import PROFILE_NAMES, PROFILES, get_profile, profile_table
+from codeverse3d.orchestrator import RoundPolicy
 
 runner = CliRunner()
 
@@ -53,7 +53,7 @@ def test_balanced_is_todays_defaults():
 def test_a_value_the_user_configured_survives_the_profile_unless_forced():
     s = Settings(default_generator="codex:gpt-5.6-sol")
     s.apply_profile("economy")
-    assert s.default_generator == "codex:gpt-5.6-sol"  # config.yaml / CV3D_* wins over a default dial
+    assert s.default_generator == "codex:gpt-5.6-sol"  # config.yaml / C3D_* wins over a default dial
     assert s.default_judge == "gemini:gemini-3.7-flash"  # everything unstated still moves
     s.apply_profile("economy", force=True)
     assert s.default_generator == "single-shot:gemini:gemini-3.7-flash"
@@ -61,14 +61,14 @@ def test_a_value_the_user_configured_survives_the_profile_unless_forced():
 
 def test_one_stated_judge_field_does_not_disable_the_whole_judge_block(monkeypatch):
     """A stated judge field freezes only itself, not the whole section."""
-    monkeypatch.setenv("CV3D_JUDGE__MAX_PX", "800")
+    monkeypatch.setenv("C3D_JUDGE__MAX_PX", "800")
     s = Settings()
     s.apply_profile("quality")
     assert s.judge.max_px == 800, "the field the user stated wins"
     assert s.judge.samples == 3, "every field the user did NOT state still follows the profile"
     assert s.judge.montages == 5 and s.judge.detail_crops == 2
     # and the same dial, whichever way the profile was named (cost/profiles.py's invariant)
-    monkeypatch.setenv("CV3D_PROFILE", "quality")
+    monkeypatch.setenv("C3D_PROFILE", "quality")
     get_settings.cache_clear()
     try:
         settings = get_settings()
@@ -93,7 +93,7 @@ def test_unknown_profile_is_a_clear_error():
 def test_a_bogus_profile_name_is_a_typed_cli_error_not_a_traceback(monkeypatch, tmp_path):
     """An invalid environment profile yields one clean validation error."""
     runner = CliRunner()
-    monkeypatch.setenv("CV3D_PROFILE", "bogus")
+    monkeypatch.setenv("C3D_PROFILE", "bogus")
     get_settings.cache_clear()
     try:
         r = runner.invoke(app, ["doctor"])
@@ -103,7 +103,7 @@ def test_a_bogus_profile_name_is_a_typed_cli_error_not_a_traceback(monkeypatch, 
         assert "Traceback" not in out
     finally:
         get_settings.cache_clear()
-    monkeypatch.delenv("CV3D_PROFILE")
+    monkeypatch.delenv("C3D_PROFILE")
     get_settings.cache_clear()
     r = runner.invoke(app, ["make", "x", "--profile", "bogus", "--no-run",
                             "--runs-dir", str(tmp_path / "runs"), "--slug", "b2"])
@@ -143,9 +143,9 @@ def test_no_profile_flag_leaves_the_defaults_alone(tmp_path: Path):
 
 
 def test_judge_samples_reach_the_round_policy_only_when_a_profile_asks(tmp_path: Path):
-    from codeverse.cli import _common as C
-    from codeverse.contracts.common import Budget, Language, Track
-    from codeverse.contracts.spec import Spec
+    from codeverse3d.cli import _common as C
+    from codeverse3d.contracts.common import Budget, Language, Track
+    from codeverse3d.contracts.spec import Spec
 
     spec = Spec(id="x", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="p",
                 budget=Budget(max_rounds=3))
@@ -161,16 +161,16 @@ def test_judge_samples_reach_the_round_policy_only_when_a_profile_asks(tmp_path:
 # --------------------------------------------------------------- flag == env var
 def _dial_from_flag(name: str):
     """The dial `3dcode make --profile <name>` resolves to."""
-    from codeverse.cli import _common as C
+    from codeverse3d.cli import _common as C
 
     return C.resolve_dial(Settings(), name)
 
 
 def _dial_from_env(name: str, monkeypatch):
-    """The dial `CV3D_PROFILE=<name> 3dcode make` resolves to (the real settings path)."""
-    from codeverse.cli import _common as C
+    """The dial `C3D_PROFILE=<name> 3dcode make` resolves to (the real settings path)."""
+    from codeverse3d.cli import _common as C
 
-    monkeypatch.setenv("CV3D_PROFILE", name)
+    monkeypatch.setenv("C3D_PROFILE", name)
     get_settings.cache_clear()
     try:
         return C.resolve_dial(get_settings(), None)
@@ -211,11 +211,11 @@ def test_each_profile_resolves_to_its_documented_dial(name, expected, monkeypatc
 
 @pytest.mark.parametrize("name", PROFILE_NAMES)
 def test_the_env_var_reaches_the_spec_a_make_writes(name, tmp_path: Path, monkeypatch):
-    """End to end: CV3D_PROFILE alone must produce the same spec shape as --profile."""
-    from codeverse.cost.profiles import PROFILES
+    """End to end: C3D_PROFILE alone must produce the same spec shape as --profile."""
+    from codeverse3d.cost.profiles import PROFILES
 
     p = PROFILES[name]
-    monkeypatch.setenv("CV3D_PROFILE", name)
+    monkeypatch.setenv("C3D_PROFILE", name)
     get_settings.cache_clear()
     runs = tmp_path / "runs"
     r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--slug", "pot"])

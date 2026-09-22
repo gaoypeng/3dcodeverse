@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.record import record as record_mod
-from codeverse.record.record import _harness_git_sha, environment_versions
+from codeverse3d.record import record as record_mod
+from codeverse3d.record.record import _harness_git_sha, environment_versions
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}(-dirty)?$")
 
@@ -34,7 +34,7 @@ def test_harness_git_sha_from_a_tracked_file_and_dirty_marker(tmp_path):
     if shutil.which("git") is None:
         pytest.skip("git not installed")
     repo = tmp_path / "repo"
-    pkg = repo / "harness" / "codeverse" / "record"
+    pkg = repo / "harness" / "codeverse3d" / "record"
     pkg.mkdir(parents=True)
     mod = pkg / "record.py"
     mod.write_text("# tracked\n")
@@ -51,7 +51,7 @@ def test_harness_git_sha_from_a_tracked_file_and_dirty_marker(tmp_path):
     assert _harness_git_sha(mod) == head
     mod.write_text("# edited\n")
     assert _harness_git_sha(mod) == head + "-dirty"
-    # harness/ is the tree, not harness/codeverse: an edited renderer changes what a run measures
+    # harness/ is the tree, not harness/codeverse3d: an edited renderer changes what a run measures
     _git("checkout", "-q", "--", ".", cwd=repo)
     assert _harness_git_sha(mod) == head
     renderer.write_text("// edited\n")
@@ -68,7 +68,7 @@ def test_harness_git_sha_is_empty_for_an_untracked_copy(tmp_path):
     (repo / "tracked.txt").write_text("x")
     _git("-c", "user.email=t@t", "-c", "user.name=t", "add", "-A", cwd=repo)
     _git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init", cwd=repo)
-    copy = repo / ".venv" / "lib" / "codeverse" / "record" / "record.py"
+    copy = repo / ".venv" / "lib" / "codeverse3d" / "record" / "record.py"
     copy.parent.mkdir(parents=True)
     copy.write_text("# untracked copy\n")
     assert _harness_git_sha(copy) == ""

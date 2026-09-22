@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.contracts.artifacts import RenderSet
+from codeverse3d.contracts.artifacts import RenderSet
 
 GPU = "ANGLE (NVIDIA Corporation, NVIDIA RTX 6000 Ada Generation, Vulkan)"
 CPU = "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
@@ -45,9 +45,9 @@ def test_a_cpu_measurement_is_not_offered_as_a_frame_rate() -> None:
 def test_the_gate_does_not_fire_on_a_cpu_frame_rate() -> None:
     from types import SimpleNamespace
 
-    from codeverse.contracts.artifacts import GateReport
-    from codeverse.contracts.plan import BBox, CameraPlan, ScenePlan, ZonePlan
-    from codeverse.tracks.scene import ScenePipeline
+    from codeverse3d.contracts.artifacts import GateReport
+    from codeverse3d.contracts.plan import BBox, CameraPlan, ScenePlan, ZonePlan
+    from codeverse3d.tracks.scene import ScenePipeline
 
     bb = BBox(center=(0, 0, 0), extents=(10, 5, 10))
     plan = ScenePlan(title="t", summary="s", setting="meadow", mood="calm", bounds=bb, environment="sunny",
@@ -73,7 +73,7 @@ def test_the_gate_does_not_fire_on_a_cpu_frame_rate() -> None:
 def test_the_judge_is_told_a_cpu_number_is_not_the_scene() -> None:
     """Dropping it silently would hide a genuinely heavy scene from a reader, so the
     line stays — labelled, with an instruction not to raise an issue from it."""
-    from codeverse.judges.prompt_builder import view_rig_section
+    from codeverse3d.judges.prompt_builder import view_rig_section
 
     cpu = view_rig_section(RenderSet(renderer=CPU, fps=2.0), [], scene=True)
     gpu = view_rig_section(RenderSet(renderer=GPU, fps=11.5), [], scene=True)
@@ -88,7 +88,7 @@ def test_a_probe_with_no_boot_record_is_a_harness_failure_not_a_verdict() -> Non
     "[?] scene did not boot" with an identical signature while its own
     artifacts/scene_probe.json recorded `ok: true, boot.ok: true, stage: ready`, and the
     workspace boots in 600 ms today, unchanged."""
-    from codeverse.spatial.probes import probe_report
+    from codeverse3d.spatial.probes import probe_report
 
     report, census = probe_report({})
     assert not report.passed and census == {}
@@ -108,8 +108,8 @@ def test_a_harness_failure_finding_makes_the_probe_result_not_ok() -> None:
     one and nothing else therefore used to come back ok / no errors / no findings — a probe
     that reads healthy and measured nothing, the exact shape that let desert_canyon's lost
     output pass as a verdict about the scene."""
-    from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-    from codeverse.spatial.probes import _result
+    from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+    from codeverse3d.spatial.probes import _result
 
     harness = GateReport(gate="scene_probe", passed=False, findings=[GateFinding(
         gate="scene_probe", severity=Severity.ERROR, target="src/scene.js",

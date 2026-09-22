@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.contracts.chat import (
+from codeverse3d.contracts.chat import (
     ChatMessage,
     ChatRequest,
     ImagePart,
 )
-from codeverse.contracts.plan import StaticPlan
-from codeverse.models import get_chat_model
+from codeverse3d.contracts.plan import StaticPlan
+from codeverse3d.models import get_chat_model
 
 pytestmark = pytest.mark.live
 
@@ -19,7 +19,7 @@ MODEL = "gemini:gemini-3.7-flash"
 
 @pytest.fixture(scope="module")
 def model():
-    from codeverse.config import get_settings
+    from codeverse3d.config import get_settings
 
     if not get_settings().gemini_api_keys:
         pytest.skip("no gemini keys")

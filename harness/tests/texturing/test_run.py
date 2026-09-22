@@ -6,15 +6,15 @@ import json
 import shutil
 from pathlib import Path
 
-from codeverse.contracts.run import RunRecord
-from codeverse.texturing.run import (
+from codeverse3d.contracts.run import RunRecord
+from codeverse3d.texturing.run import (
     TextureReport,
     TextureServices,
     latest_sheet,
     load_report,
     texture_pass,
 )
-from codeverse.workspace import Workspace
+from codeverse3d.workspace import Workspace
 from tests.texturing.conftest import FakeImageModel, FakeJudge, fake_render
 
 

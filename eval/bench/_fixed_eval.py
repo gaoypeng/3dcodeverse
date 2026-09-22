@@ -17,13 +17,19 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from codeverse.config import Settings, get_settings
-from codeverse.contracts.artifacts import BuildResult, GateReport, Judgment, Measurement, RenderSet
-from codeverse.contracts.common import TRACK_INFO, Language, Track
-from codeverse.contracts.plan import AcceptanceItem
-from codeverse.contracts.spec import Spec
-from codeverse.conventions import OBJECT_VIEWS
-from codeverse.workspace import Workspace
+from codeverse3d.config import Settings, get_settings
+from codeverse3d.contracts.artifacts import (
+    BuildResult,
+    GateReport,
+    Judgment,
+    Measurement,
+    RenderSet,
+)
+from codeverse3d.contracts.common import TRACK_INFO, Language, Track
+from codeverse3d.contracts.plan import AcceptanceItem
+from codeverse3d.contracts.spec import Spec
+from codeverse3d.conventions import OBJECT_VIEWS
+from codeverse3d.workspace import Workspace
 
 RUBRIC = "static_object_v1"
 
@@ -91,7 +97,7 @@ class FixedEvaluator:
         """
         lang = Language(language)
         if lang not in self._runtimes:
-            from codeverse.languages import get_runtime
+            from codeverse3d.languages import get_runtime
 
             self._runtimes[lang] = get_runtime(lang)
         return self._runtimes[lang]
@@ -103,7 +109,7 @@ class FixedEvaluator:
 
     def _vlm_judge(self, rubric: str) -> Any:
         if rubric not in self._judges:
-            from codeverse.judges.vlm_judge import VlmJudge
+            from codeverse3d.judges.vlm_judge import VlmJudge
 
             self._judges[rubric] = VlmJudge(rubric=rubric, model_id=self.judge_model, n_samples=self.n_samples)
         return self._judges[rubric]
@@ -123,7 +129,7 @@ class FixedEvaluator:
         """
         rubric = self.rubric if self._pinned else rubric_for(spec)
         if spec.track is Track.GRAPHICS and spec.references:
-            from codeverse.judges.vlm_judge import LikenessJudge
+            from codeverse3d.judges.vlm_judge import LikenessJudge
 
             return LikenessJudge(self.judge_model, n_samples=self.n_samples, rubric=rubric)
         return self._vlm_judge(rubric)
@@ -135,10 +141,10 @@ class FixedEvaluator:
         return build, lint
 
     def evaluate(self, ws: Workspace, spec: Spec) -> EvalOutcome:
-        from codeverse.judges.base import JudgeInput
-        from codeverse.spatial.connectivity import check_connectivity
-        from codeverse.spatial.measure import measure_glb
-        from codeverse.spatial.render import render_glb
+        from codeverse3d.judges.base import JudgeInput
+        from codeverse3d.spatial.connectivity import check_connectivity
+        from codeverse3d.spatial.measure import measure_glb
+        from codeverse3d.spatial.render import render_glb
 
         build, lint = self.build(ws, spec.language)
         out = EvalOutcome(build=build, lint=lint, gates=[lint])
@@ -158,7 +164,7 @@ class FixedEvaluator:
                 # the same deterministic articulation evidence the track gives its judge: the
                 # joint sweep (collisions over every joint's range) and the pose sheet / pose
                 # tiles, read straight from the built URDF — no plan, so every arm is treated alike
-                from codeverse.tracks.articulated_object import default_joint_sweep
+                from codeverse3d.tracks.articulated_object import default_joint_sweep
 
                 sweep, pose_views = default_joint_sweep(ws, None, ws.renders_dir(0) / "poses")
                 out.gates.append(sweep)
@@ -176,9 +182,9 @@ class FixedEvaluator:
         """Scene: the authored cameras plus the orbit rig at t = 0 and 1.5 s, the scene_frames gate,
         the scene rubric — the pictures the loop's judge sees, minus the loop's plan (2026-09-07:
         the compare bench had no scene branch, so a scene cell built, then returned unjudged)."""
-        from codeverse.judges.base import JudgeInput
-        from codeverse.spatial.frame_metrics import frame_gate_from_renders
-        from codeverse.spatial.render_scene import render_scene
+        from codeverse3d.judges.base import JudgeInput
+        from codeverse3d.spatial.frame_metrics import frame_gate_from_renders
+        from codeverse3d.spatial.render_scene import render_scene
         try:
             out.renders = render_scene(ws, ws.renders_dir(0), orbit=True, times=(0.0, 1.5), sheet=True)
             out.gates.append(frame_gate_from_renders(ws.renders_dir(0)))
@@ -191,9 +197,9 @@ class FixedEvaluator:
 
     def _evaluate_frames(self, ws: Workspace, spec: Spec, out: EvalOutcome) -> EvalOutcome:
         """Graphics: the judged frames + the gl_frames gate + the frame metrics, as the loop does."""
-        from codeverse.judges.base import JudgeInput
-        from codeverse.languages._gl_common import read_metrics
-        from codeverse.tracks.graphics import frame_stats_text, frames_render_set
+        from codeverse3d.judges.base import JudgeInput
+        from codeverse3d.languages._gl_common import read_metrics
+        from codeverse3d.tracks.graphics import frame_stats_text, frames_render_set
 
         try:
             out.renders = frames_render_set(ws, out.build, 0)

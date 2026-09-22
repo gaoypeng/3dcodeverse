@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.judges.rubrics import load_rubric
-from codeverse.prompts import load_text
+from codeverse3d.judges.rubrics import load_rubric
+from codeverse3d.prompts import load_text
 
 #: cookbook chapter titles selected by the scene prompt builder
 QUALITY_CHAPTERS = [
@@ -34,7 +34,7 @@ def cookbook() -> str:
 
 @pytest.mark.parametrize("title", QUALITY_CHAPTERS)
 def test_cookbook_quality_chapter_is_selectable(cookbook: str, title: str) -> None:
-    from codeverse.prompts.sections import find_section, split_sections
+    from codeverse3d.prompts.sections import find_section, split_sections
 
     s = find_section(split_sections(cookbook), title)
     assert s is not None and s.title.startswith(title)
@@ -57,7 +57,7 @@ def test_planner_is_told_that_must_acceptance_caps_the_run() -> None:
     """One unmet `must` caps the run at 0.60 (judges.caps.missing_must_acceptance).  A scene
     whose pictures score 0.81 must not lose 0.13 because the planner over-specified a detail
     and then marked it `must` — measured on cq_japanese_garden_v2 r00 (0.809 → 0.729 → 0.60)."""
-    from codeverse.judges.rubrics import load_rubric
+    from codeverse3d.judges.rubrics import load_rubric
 
     caps = {c.id: c for c in load_rubric("scene_v1").caps}
     assert caps["missing_must_acceptance"].cap == 0.60
@@ -116,7 +116,7 @@ def test_scene_rubric_has_the_diorama_anchor() -> None:
 
 
 def test_extra_anchor_levels_reach_the_judge_prompt() -> None:
-    from codeverse.judges.prompt_builder import _rubric_block
+    from codeverse3d.judges.prompt_builder import _rubric_block
 
     block = _rubric_block(load_rubric("scene_v1"))
     assert "0.5: The scene reads as a diorama" in block
@@ -130,10 +130,10 @@ def test_the_quality_chapters_travel_INSIDE_the_zone_and_env_prompts() -> None:
     """Naming a chapter is not teaching it: on scenes_v1 not one of the 20 zone/env
     sessions fetched cookbook chapters on demand, so the chapters that decide the score are inlined
     into the brief itself (`tracks.prompting.cookbook_sections`)."""
-    from codeverse.tracks.scene import ENV_RECIPES, ZONE_RECIPES
+    from codeverse3d.tracks.scene import ENV_RECIPES, ZONE_RECIPES
 
     cookbook = load_text("scene_threejs/cookbook.md")
-    from codeverse.prompts.sections import find_section, split_sections
+    from codeverse3d.prompts.sections import find_section, split_sections
 
     secs = split_sections(cookbook)
     for names in (ENV_RECIPES, ZONE_RECIPES):
@@ -146,8 +146,8 @@ def test_the_quality_chapters_travel_INSIDE_the_zone_and_env_prompts() -> None:
 def test_cookbook_sections_inlines_whole_chapters_and_clips_safely(tmp_path) -> None:
     from types import SimpleNamespace
 
-    from codeverse.tracks.prompting import cookbook_sections
-    from codeverse.tracks.scene import ZONE_RECIPES
+    from codeverse3d.tracks.prompting import cookbook_sections
+    from codeverse3d.tracks.scene import ZONE_RECIPES
 
     ctx = SimpleNamespace(cookbook_text=load_text("scene_threejs/cookbook.md"))
     text = cookbook_sections(ctx, ZONE_RECIPES)
@@ -164,7 +164,7 @@ def test_the_env_and_zone_briefs_hand_the_enclosure_to_env_for_an_interior() -> 
     """2026-09-07: six interior runs were "not enclosed" because no brief said whose the walls
     are.  The env brief claims them (and the openings, and the light) only when the plan
     says interior; the zone brief forbids building them and puts fixtures flush to the bounds."""
-    from codeverse.prompts import render
+    from codeverse3d.prompts import render
 
     base = dict(title="t", spec_prompt="p", setting="s", mood="m", bounds="b", environment="e", frame_doc="", contract="",
                 zones_table="", cameras="", effects="", animation="", asset_api="", textures="", recipes="", constraints_text="",
@@ -183,7 +183,7 @@ def test_the_env_and_zone_briefs_hand_the_enclosure_to_env_for_an_interior() -> 
 def test_the_zone_brief_says_builders_are_already_at_size() -> None:
     """2026-09-08 (loop 14 round 0): a 1.15 m stove placed at 3.60 m and 0.48 m lamps at 0.03 m —
     the asset API states every size, and nothing told the zone author to place at scale 1."""
-    from codeverse.prompts import render
+    from codeverse3d.prompts import render
 
     base = dict(title="t", spec_prompt="p", setting="s", mood="m", bounds="b", environment="e", frame_doc="", contract="",
                 zones_table="", cameras="", effects="", animation="", asset_api="", textures="", recipes="", constraints_text="",

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from codeverse.judges.rubrics import (
+from codeverse3d.judges.rubrics import (
     JudgeParseError,
     load_rubric,
     parse_judge_output,

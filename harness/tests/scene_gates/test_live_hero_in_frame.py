@@ -12,9 +12,9 @@ import math
 
 import pytest
 
-from codeverse.spatial.frame_metrics import HERO_MIN_FRAC, frame_gate_from_renders
-from codeverse.spatial.render_scene import read_metrics, render_scene
-from codeverse.workspace import Workspace
+from codeverse3d.spatial.frame_metrics import HERO_MIN_FRAC, frame_gate_from_renders
+from codeverse3d.spatial.render_scene import read_metrics, render_scene
+from codeverse3d.workspace import Workspace
 from tests.scene_runtime.conftest import needs_browser
 from tests.scene_runtime.glb_fixture import write_box_glb
 

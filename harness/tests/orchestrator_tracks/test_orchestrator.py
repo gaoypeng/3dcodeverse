@@ -7,7 +7,7 @@ import time
 import pytest
 from pydantic import BaseModel
 
-from codeverse.contracts.artifacts import (
+from codeverse3d.contracts.artifacts import (
     BuildResult,
     GateFinding,
     GateReport,
@@ -15,10 +15,10 @@ from codeverse.contracts.artifacts import (
     Judgment,
     Severity,
 )
-from codeverse.contracts.common import Budget, Usage
-from codeverse.contracts.plan import AcceptanceItem
-from codeverse.contracts.run import RoundRecord
-from codeverse.orchestrator import (
+from codeverse3d.contracts.common import Budget, Usage
+from codeverse3d.contracts.plan import AcceptanceItem
+from codeverse3d.contracts.run import RoundRecord
+from codeverse3d.orchestrator import (
     BestSelector,
     BudgetExceeded,
     BudgetGuard,
@@ -32,7 +32,7 @@ from codeverse.orchestrator import (
     hash_inputs,
     plan_parallel_groups,
 )
-from codeverse.proc import EventLog, fan_out
+from codeverse3d.proc import EventLog, fan_out
 
 
 def test_best_index_prefers_score_then_task_count_then_recency():

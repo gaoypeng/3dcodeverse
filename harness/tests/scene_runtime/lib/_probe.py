@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 HARNESS = Path(__file__).resolve().parents[3]
-LIB_DIR = HARNESS / "codeverse" / "languages" / "scene_threejs" / "starter" / "src" / "lib"
+LIB_DIR = HARNESS / "codeverse3d" / "languages" / "scene_threejs" / "starter" / "src" / "lib"
 RESOLVE_HOOK = HARNESS / "runtime_js" / "lib" / "resolve_three.mjs"
 NODE_MODULES = HARNESS / "runtime_js" / "node_modules"
 
@@ -42,7 +42,7 @@ def measure(script: str, libs: tuple[str, ...] = (), *, timeout_s: float = 120.0
     """Run ``script`` (an ES module; ``import ... from './lib/x.js'``) and parse its
     last stdout line as JSON.  The script is responsible for ``console.log(JSON...)``."""
     _three_ready()
-    with tempfile.TemporaryDirectory(prefix="cv3d-libprobe-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="c3d-libprobe-") as tmp:
         root = Path(tmp)
         _stage(root, libs)
         (root / "probe.mjs").write_text(script, encoding="utf-8")
@@ -85,7 +85,7 @@ def compile_scene(scene_src: str, libs: tuple[str, ...] = (), *,
     workaround around it (consolidation, 2026-09-01).
     """
     _three_ready()
-    with tempfile.TemporaryDirectory(prefix="cv3d-compile-scene-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="c3d-compile-scene-") as tmp:
         root = Path(tmp)
         (root / "src").mkdir()
         _stage(root / "src", libs)

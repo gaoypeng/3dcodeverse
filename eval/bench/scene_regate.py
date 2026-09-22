@@ -30,12 +30,12 @@ import tempfile
 from pathlib import Path
 
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
-    sys.path.insert(0, str(_p))  # this tree's codeverse (harness/) + the `bench` package (eval/)
+    sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
 from bench.scene_stats import scene_records  # noqa: E402
-from codeverse.config import get_settings  # noqa: E402
-from codeverse.contracts.artifacts import Severity  # noqa: E402
-from codeverse.spatial.scene_placement import placement_gate_safe  # noqa: E402
+from codeverse3d.config import get_settings  # noqa: E402
+from codeverse3d.contracts.artifacts import Severity  # noqa: E402
+from codeverse3d.spatial.scene_placement import placement_gate_safe  # noqa: E402
 
 GATE = "scene_placement"
 

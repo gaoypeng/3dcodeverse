@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 import trimesh
 
-from codeverse.languages.threejs import ThreeJsRuntime
-from codeverse.workspace import Workspace
+from codeverse3d.languages.threejs import ThreeJsRuntime
+from codeverse3d.workspace import Workspace
 
 pytestmark = pytest.mark.node
 
@@ -91,9 +91,9 @@ def test_build_keeps_source_placement_and_warns(stool_ws: Workspace):
 def test_build_per_plan_placement_passes_contract_even_when_union_is_off_centre(stool_ws: Workspace):
     """Plan parts whose union footprint is NOT centred (backrest-style skew): an object
     built exactly per plan must not be reported as 'centre off' for every part."""
-    from codeverse.contracts.plan import StaticPlan
-    from codeverse.spatial.contract import check_contract
-    from codeverse.spatial.measure import measure_glb
+    from codeverse3d.contracts.plan import StaticPlan
+    from codeverse3d.spatial.contract import check_contract
+    from codeverse3d.spatial.measure import measure_glb
 
     (stool_ws.src / "object.js").write_text(
         "import * as THREE from 'three';\nexport function build(T) { const g = new THREE.Group(); g.name = 'Sign';\n"
@@ -116,8 +116,8 @@ def test_build_per_plan_placement_passes_contract_even_when_union_is_off_centre(
 def test_build_bakes_instanced_meshes_for_trimesh(stool_ws: Workspace):
     """InstancedMesh must not export as EXT_mesh_gpu_instancing (trimesh ignores it):
     measure/connectivity must see every instance exactly like the census does."""
-    from codeverse.spatial.connectivity import check_connectivity
-    from codeverse.spatial.measure import measure_glb
+    from codeverse3d.spatial.connectivity import check_connectivity
+    from codeverse3d.spatial.measure import measure_glb
 
     (stool_ws.src / "object.js").write_text(
         "import * as THREE from 'three';\nexport function build(T) { const g = new THREE.Group(); g.name = 'Fence';\n"

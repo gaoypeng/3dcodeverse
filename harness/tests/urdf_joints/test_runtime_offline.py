@@ -7,12 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
-import codeverse.languages.urdf as rt_mod
-from codeverse.contracts.common import Language
-from codeverse.languages import get_runtime
-from codeverse.languages.urdf import UrdfBlenderRuntime
-from codeverse.proc import ProcResult
-from codeverse.workspace import Workspace
+import codeverse3d.languages.urdf as rt_mod
+from codeverse3d.contracts.common import Language
+from codeverse3d.languages import get_runtime
+from codeverse3d.languages.urdf import UrdfBlenderRuntime
+from codeverse3d.proc import ProcResult
+from codeverse3d.workspace import Workspace
 from tests.urdf_joints.conftest import box_glb
 
 BODY = ((0, 0, 0.4), (0.6, 0.4, 0.8))

@@ -8,7 +8,7 @@ written) that were accepted because the code works that way and the tests pin it
 
 * **L1 Raw code only.**  Generated code never imports an SDK/helper; the harness owns
   wrappers and exporters (`languages/*/wrappers`, `runtime_js/`).  Consequence: every
-  language needs a standalone wrapper that cannot import `codeverse` (Blender's python
+  language needs a standalone wrapper that cannot import `codeverse3d` (Blender's python
   cannot see the package anyway).
 * **L2 One contracts package, one conventions module.**  `contracts/` is data-only;
   `conventions.py` is the only place stating frames/units/naming.  Consequence: plan
@@ -67,7 +67,7 @@ written) that were accepted because the code works that way and the tests pin it
   command and a `warnings` list — and every production caller discarded it
   (`tracks/common.Services.materialize` is itself typed `-> None`), so the one signal on it, an
   unresolved cookbook, was written and never read.  That warning is now a `log.warning` on
-  `codeverse.agents.materialize`, where a run log shows it; the model is gone.
+  `codeverse3d.agents.materialize`, where a run log shows it; the model is gone.
   The codex `-c` overrides are NOT on it (`codex_overrides` was deleted
   2026-08-29): the codex backend builds `codex_mcp_overrides(mcp_command)` per session.
   The cookbook is copied to `ws/.3dcode/cookbook.md` (gemini-cli cannot read outside the
@@ -87,7 +87,7 @@ written) that were accepted because the code works that way and the tests pin it
   `src/package.json {"type":"module"}` (idempotent).
 * **D14 render_glb gained keyword-only extras (Δ).**  `anim_time, shadow, gpu, timeout_s,
   use_cache`; all original args/defaults unchanged; renders are cached by
-  sha(glb)+params under `~/.cache/codeverse/renders/`.
+  sha(glb)+params under `~/.cache/codeverse3d/renders/`.
 * **D15 `check_contract(measurement, plan, *, language, tol_m)` (Δ).**  `language` is
   required for the Z-up → Y-up plan-box conversion.  `cross_section` adds `absolute`,
   `size`; `compare_silhouette` returns `ref_aspect, render_aspect, reliable` (IoU on
@@ -222,7 +222,7 @@ written) that were accepted because the code works that way and the tests pin it
   Context: `ci.yml` listed 7 of 24 directories, so 828 pure-python tests — every
   docs-vs-code drift guard among them — never ran on a PR.  Decision: the local pre-push
   suite is `pytest tests -m "not live"` over every test directory (add `and not blender
-  and not node` for the pure-python subset), after `ruff check codeverse tests` (and `cd eval && ruff check . && python -m pytest` for the evaluation code);
+  and not node` for the pure-python subset), after `ruff check codeverse3d tests` (and `cd eval && ruff check . && python -m pytest` for the evaluation code);
   there is no CI — the owner removed the GitHub workflow on 2026-08-26 (6ac06a9), so this
   names a command every push is preceded by, not a job.
 
@@ -260,9 +260,9 @@ written) that were accepted because the code works that way and the tests pin it
   `_ast_lint.BASE_FORBIDDEN_IMPORTS` (pickle, threading, importlib, webbrowser, ftplib,
   smtplib, …) — since 2026-08-29 urdf's `model.py` lint is on it too (those became
   ERRORs there) plus an explicit allow-list `{bpy, bmesh, mathutils, math, random, numpy}`;
-  anything else imported is a WARN, a `codeverse` self-import an ERROR.
+  anything else imported is a WARN, a `codeverse3d` self-import an ERROR.
 * **D44 The 2026-08-29 cleanup: delete, do not relocate (owner).**  Context: an external
-  review of `codeverse` proposed executor / policy abstractions (a `RoundExecutor`, a
+  review of `codeverse3d` proposed executor / policy abstractions (a `RoundExecutor`, a
   `CandidateRunner`, a metering seam, a per-track prompt-policy object).  Decision: all
   rejected — each moved code between files without deleting any (L4: a merge must delete).
   What was done instead: (a) **candidates are rounds** — `run_candidate` / `quick_judge`
@@ -271,14 +271,14 @@ written) that were accepted because the code works that way and the tests pin it
   and a one-sample judge; (b) **one ledger writer** — `BudgetGuard` buckets and enforces
   only, `MeteredAgent` / `MeteredChatModel` write `telemetry/cost.jsonl`, and
   `BaseTrack.run` opens the run ledger itself (`per_call_metering`, `_ledger_row`,
-  `run_ledger_path` deleted; `CV3D_COST_LEDGER=off` now really writes nothing);
+  `run_ledger_path` deleted; `C3D_COST_LEDGER=off` now really writes nothing);
   (c) **a garbage env flag is OFF** — `config.env_flag` reads on/off/1/0/true/false/yes/no;
   unset or empty is the caller's fallback (usually the Settings value), but an unparseable
   value warns and reads as OFF, so a typo in a bench command is a control run, never a
   silent arm (and never the variant, which a fallback of `True` would have handed it); (d) one MCP command (`default_mcp_command`, `sys.executable`),
   one JSON-envelope finder, one union-find, one sha256, one `ask_structured`, one
   `RENDER_MODES`; the retired mechanisms (`3dcode migrate-runs`, turntables + ffmpeg, the
-  `CV3D_SYSPROMPT=v0` arm, `shader_presence` / counterfactual renders, the in-process
+  `C3D_SYSPROMPT=v0` arm, `shader_presence` / counterfactual renders, the in-process
   turn-cap backstop, the concurrent-session registry) are gone with their docs.
 
 * **D45 The 2026-08-30 batch: verified before applied.**  Context: a second external review
@@ -289,7 +289,7 @@ written) that were accepted because the code works that way and the tests pin it
   at high severity.  Decision: apply what reproduced, and prefer the fix that deletes.
   (a) **`material_index` has a warning and a recipe.**  One mesh object per plan part means
   per-feature colour inside a part is per-polygon `material_index` — a string that appeared
-  NOWHERE in `codeverse/`, the prompts, the skills or the docs, while `_census.py` warned only
+  NOWHERE in `codeverse3d/`, the prompts, the skills or the docs, while `_census.py` warned only
   about a mesh with NO material.  `h2h_microscope_x1b` authored 31 materials and 19 `tag_faces`
   calls that all silently no-opped (`bmesh.ops.create_cube` returns `{'verts'}`, so
   `res["faces"]` raises), shipped an 11-slot arm in one off-white, and lost 0.271 to
@@ -502,7 +502,7 @@ written) that were accepted because the code works that way and the tests pin it
   $0.172** baseline — cheaper — so amortised ≤ $0 and no profile dial moves.
   Shipped: `spatial.sections.judge_slices` (+ typed `SliceManifest` beside the PNGs —
   citations stay auditable), `JudgeInput.glb_path`, `Settings.judge.slices`
-  ("on-error" default | "off", `CV3D_JUDGE__SLICES`), slices appended AFTER the
+  ("on-error" default | "off", `C3D_JUDGE__SLICES`), slices appended AFTER the
   montages/crops with the F2/F3 rig text and the elicitation sentence in the DEFECT
   CHECKLIST bullet; clean rounds byte-identical (test-pinned), `judge_prompt_hash`
   untouched.
@@ -570,10 +570,10 @@ written) that were accepted because the code works that way and the tests pin it
   gemini-cli generator, judge pro n = 3): score Δ +0.064 [−0.188, +0.315]; final gate
   errors 0.00 vs 0.25; round-0 distinct joint_sweep targets 0.54 vs 0.25; the re-ask fired
   in 7/14 cells.  No measurable gain — with gemini-cli generation round-0 sweep errors are
-  near zero either way — so `CV3D_PLAN_GEOMETRY` ships OFF (=1 enables;
+  near zero either way — so `C3D_PLAN_GEOMETRY` ships OFF (=1 enables;
   `plan_features.LIVE_SWITCHES`).
   **Removed 2026-09-21:** the experiment is closed — `tracks/plan_checks.py`, the re-ask in
-  `tracks/planner.py`, the `CV3D_PLAN_GEOMETRY` switch and their tests are deleted; the
+  `tracks/planner.py`, the `C3D_PLAN_GEOMETRY` switch and their tests are deleted; the
   numbers above are the record.
 * **D50 Joint-sweep findings reach the fixer aggregated per link pair (2026-08-28).**
   Context: one compare_art_v3 run produced 59 penetration findings for a handful of pairs
@@ -607,7 +607,7 @@ written) that were accepted because the code works that way and the tests pin it
   debuggable.
 
   **What shipped.**  52 modules / 28.8k lines (44 / 24.8k since D74) under
-  `codeverse/languages/scene_threejs/starter/src/lib/`, ported module-by-module against
+  `codeverse3d/languages/scene_threejs/starter/src/lib/`, ported module-by-module against
   the reference's own test per module, adapted to OUR renderer contract (their exposure
   1.1 → our 1.0; their log-depth on → ours off, so their logdepth chunks are harmless
   no-ops; their renderer-contract assertions dropped).  Every module was rendered through
@@ -621,7 +621,7 @@ written) that were accepted because the code works that way and the tests pin it
   (headless ANGLE/D3D12, e.g. godrays 21 programs / 6 custom materials).
 
   **Companion side track**: a post chain for scene renders
-  (`runtime_js/lib/browser/post.js`, ON by default, `--no-post` / `CV3D_POST=0`):
+  (`runtime_js/lib/browser/post.js`, ON by default, `--no-post` / `C3D_POST=0`):
   RenderPass → finite clamp → GTAO → SELECTIVE emissive bloom → grade → OutputPass, 18
   tests.  The bloom is NOT the reference's luminance bright-pass: measured on this
   renderer every daylight scene tops out at 1.883 linear (the sky dome) while the
@@ -659,7 +659,7 @@ written) that were accepted because the code works that way and the tests pin it
 
 * **D52 The articulated wave measured its own instrument first, and then only the loss
   events (2026-09-02/03).**  Context: four articulated levers (the D49 geometry re-ask, a
-  pro planner, a deterministic repair bundle, `CV3D_FEWER_TURNS`) all measured inside
+  pro planner, a deterministic repair bundle, `C3D_FEWER_TURNS`) all measured inside
   ±0.13 on 12-14 paired prompts, which is not evidence that they do nothing.  Decision:
   calibrate, then change the channel.
   * **The instrument.**  A/A on `articulated_v2` (`eval/bench/ab_plan.py --aa --pin-plan`,
@@ -672,7 +672,7 @@ written) that were accepted because the code works that way and the tests pin it
     result sat inside that band, and the rig printed "revert" from identical arms.
   * **The channel that works.**  `eval/bench/plan_stage_bench.py` runs the plan stage
     ALONE (≈$0.03 and ≈85 s per call), so a 280-call arm is affordable where a 14-cell
-    battery is not.  `CV3D_PLAN_RESTART` (a plan that names links it never lists is
+    battery is not.  `C3D_PLAN_RESTART` (a plan that names links it never lists is
     re-sampled from the original request instead of edited in context) measured on 560
     calls, both arms in the same window: planner losses **4.7 % (13/277) → 0.7 % (2/276)**,
     Fisher exact two-sided **p = 0.0067**; the restart fires on 14 % of calls and recovers
@@ -716,7 +716,7 @@ written) that were accepted because the code works that way and the tests pin it
     NOT reproduced by it and is withdrawn: no tested mechanism explains its shape (1.87x on
     calls and requests against 1.06x on sessions), while the before column reproduces to
     the digit.  docs/COST.md §30 carries that and the selector.
-  * **`CV3D_LEAN_PROMPT` stays OFF, now with a number.**  Paired battery on
+  * **`C3D_LEAN_PROMPT` stays OFF, now with a number.**  Paired battery on
     `articulated_v2` (12 pairs, plan pinned, same fixed judge): mean Δ **+0.030**, paired
     sd 0.131, **2 SE ±0.076**, 8 up / 3 down (p 0.227), one regression — inconclusive by
     the rig's own rule — and no cost saving ($3.51 vs $3.66 per scored cell), which is the
@@ -816,11 +816,11 @@ written) that were accepted because the code works that way and the tests pin it
      scene funnel (`spatial/render_scene.run_scene_script`) had no retry at all; the object
      path had one since 2026-08-28 but its marker tuple knew only the "Target closed"
      spelling.  One vocabulary, `spatial/node.BROWSER_LOST_MARKERS`, now serves both, and
-     the retry runs with `CV3D_BROWSER_REUSE=off` because the shared browser advertised in
+     the retry runs with `C3D_BROWSER_REUSE=off` because the shared browser advertised in
      the cache is the suspect.  Exactly one retry: a box out of memory stays out of memory.
   2. **Two runtime trees never share a browser.**  The daemon endpoint, its spawn lock and
      its failure file carry a digest of the `runtime_js` that spawned them, so a worktree
-     and the main checkout cannot advertise over each other inside one `CV3D_CACHE_DIR`.
+     and the main checkout cannot advertise over each other inside one `C3D_CACHE_DIR`.
      RUNBOOK had asked operators to remember this since the coupled battery lost an arm to
      it; nothing enforced it.
   3. **A finding that names a dead browser is reported apart from a defect.**
@@ -910,7 +910,7 @@ written) that were accepted because the code works that way and the tests pin it
   prints for a human to paste, and `Spec.options.texture` does nothing on this track.
   Decision: a `textures` stage runs before env and zones (they can only name files that
   exist when their prompts are built) and `_ctx` — the one place both prompts get their
-  context — carries the manifest.  **`CV3D_SCENE_TEXTURES` is off by default**: it costs
+  context — carries the manifest.  **`C3D_SCENE_TEXTURES` is off by default**: it costs
   an image-model call per run, measured at $0.15 for two 512 px textures (seam score
   0.001) and an estimated $1-2 per run at ten 1024 px ones, and what that buys is a
   measurement nobody has made.  Consequence for the Blender question: the material class
@@ -1116,7 +1116,7 @@ written) that were accepted because the code works that way and the tests pin it
   grounds anything (L7): harness-owned starter geometry, like `worldShell` (D51), that the
   agent edits.
 
-* **D70 One author for the whole world — `CV3D_ONE_WORLD_SESSION`, ON by default since the
+* **D70 One author for the whole world — `C3D_ONE_WORLD_SESSION`, ON by default since the
   fixed-judge confirmation of the session that is told its window (2026-09-08).**  Under one fixed judge (gemini-3.1-pro-preview, n=2, the brief's
   must_have list) and one model on both sides (`codex:gpt-6-astra@low`), a bare one-file scene
   — one author, no plan, no lib, no assets, no tools — scored 0.894 on the clockmaker's
@@ -1132,7 +1132,7 @@ written) that were accepted because the code works that way and the tests pin it
   gates and rounds are unchanged — with the session window scaled by the zone count and the
   batch header saying whose coherence it is.  A boolean, not a batch size: the hypothesis is
   "one author", and a bench arm sets it after Settings is cached (`env_flag`, as
-  `CV3D_SCENE_TEXTURES` does).  **Measured (loop 17, the same three briefs, in-loop judge):**
+  `C3D_SCENE_TEXTURES` does).  **Measured (loop 17, the same three briefs, in-loop judge):**
   round 0 clockmaker 0.17 → 0.69, boat 0.51 → 0.58, NYC 0.44 → 0.43; best round 0.75 → 0.82
   PASS, 0.73 → 0.60, 0.60 → 0.77 PASS — two passes where the fan-out had none, and the
   interior's round 0 four times higher.  **The fixed-judge confirmation did not reproduce
@@ -1151,7 +1151,7 @@ written) that were accepted because the code works that way and the tests pin it
   harness keeps its heroes, gates, library and rounds on top of that.
   **Removed 2026-09-21:** the experiment is closed — the fan-out control arm
   (`plan_zone_batches`, its two batching constants, the small-neighbours batch header) and
-  the `CV3D_ONE_WORLD_SESSION` switch are deleted; one session owning every zone file is the
+  the `C3D_ONE_WORLD_SESSION` switch are deleted; one session owning every zone file is the
   only path, unchanged.
 
 * **D71 The starter's outdoor world ships from the library (2026-09-08).**  The starter's
@@ -1225,15 +1225,15 @@ written) that were accepted because the code works that way and the tests pin it
   buys nothing.  Restore any of them from git history (the commit before this one) if a
   battery needs it — module, test and catalog row together, since
   `test_every_call_the_catalog_advertises_is_a_real_export` pins catalog == `lib_files()`.
-* **D75 The core is what a run needs; what READS finished runs is `codeverse/addons` (2026-09-21).**
-  `codeverse/flywheel` mixed two things: the record every run writes (Law 6) and the tools that
-  turn a tree of finished runs into something else.  The first is now `codeverse/record`
+* **D75 The core is what a run needs; what READS finished runs is `codeverse3d/addons` (2026-09-21).**
+  `codeverse3d/flywheel` mixed two things: the record every run writes (Law 6) and the tools that
+  turn a tree of finished runs into something else.  The first is now `codeverse3d/record`
   (`record.py`, `deliverable.py`, `telemetry.py`, `_git.py` — `record.py`'s whole import closure);
-  the second is `codeverse/addons`: `gallery`, `dataset` (export, pack, pairs, refine, captions,
+  the second is `codeverse3d/addons`: `gallery`, `dataset` (export, pack, pairs, refine, captions,
   index, sample, quality), `costreport` (audit, report, caching — booking money WHILE a run
-  happens stays in `codeverse/cost`), `calibration.py`, `skill_targets.py`.  The boundary is
-  one-way and tested (`tests/core/test_addons_boundary.py`): outside `codeverse/cli` nothing
-  imports an addon, so `codeverse.cost` and `codeverse.skills` stopped re-exporting `audit_runs`
+  happens stays in `codeverse3d/cost`), `calibration.py`, `skill_targets.py`.  The boundary is
+  one-way and tested (`tests/core/test_addons_boundary.py`): outside `codeverse3d/cli` nothing
+  imports an addon, so `codeverse3d.cost` and `codeverse3d.skills` stopped re-exporting `audit_runs`
   and `check_claims`.  This is a MOVE, which L4 does not count as a simplification — it is
   recorded as an organisation decision by the owner, and it shipped together with real
   deletions: `flywheel/code_quality.py` (written into every record, read by nothing), the
@@ -1245,8 +1245,8 @@ written) that were accepted because the code works that way and the tests pin it
   `mcp__3dcode__<name>`) and the workspace git author.  Runs recorded earlier stay readable and
   resumable: `.3dcv` is still harness-owned and gitignored, a legacy `3dcv` server entry is
   still cleaned from a workspace `.mcp.json`, `eval/bench/session_stats` reads both tool prefixes.
-  NOT renamed: the `CV3D_` settings prefix (it would silently drop every existing config),
-  the `cv3d-*` skill names, the `3dcv_*` LLaMA-Factory dataset names.  The contributor CLI in
+  NOT renamed: the `C3D_` settings prefix (it would silently drop every existing config),
+  the `c3d-*` skill names, the `3dcv_*` LLaMA-Factory dataset names.  The contributor CLI in
   `toolkits/3dcode_cli` gave up the script name and is `3dcode-data` (its distribution name,
   package and credentials path are unchanged; `VENDORED.md` records the difference from upstream).
 * **D77 Evaluation lives next to the harness, not inside it (2026-09-21).**  `harness/bench` →
@@ -1254,13 +1254,26 @@ written) that were accepted because the code works that way and the tests pin it
   `bench`), `finetune/3dcodeverse_eval` → `eval/llm` (evaluates a bare LLM/VLM; the 2026-09-08
   rewrite replaces the older tracked copy), the evaluation write-ups (EVAL, COMPLEXITY,
   PAPER_WRITING) → `eval/docs`, and the 24 test files of the bench scripts → `eval/tests`.  The
-  dependency is one-way and now visible in the tree: `eval/*` imports `codeverse`, nothing under
+  dependency is one-way and now visible in the tree: `eval/*` imports `codeverse3d`, nothing under
   `harness/` imports `bench`, and the harness suite passes without `eval/`.  Mixed test files were
   split where they straddled the line (`test_targets`, `test_plan_features`, `test_complexity_record`).
   `3dcode bench run|report` stays as the launcher and finds the package at `<repo>/eval`
   (`cli/_common.EVAL_ROOT`).  The two evaluations share one set of battery files
   (`eval/bench/prompts`; `llm` names the ten it can ask one-shot).  Run data — `eval/bench/out`,
   `eval/llm/data/prompts/*.jsonl` — is not in git.
+* **D78 One name family: `3dcodeverse` · `codeverse3d` · `C3D` (owner, 2026-09-22).**  A Python
+  import name cannot start with a digit, so the package that was `codeverse` is now **`codeverse3d`**
+  (the distribution, the repo and the `3dcodeverse` command keep the digit-first form; the short
+  command stays `3dcode`).  The abbreviation is **`C3D`** — never "CV", which reads as Computer
+  Vision: the settings prefix `CV3D_*` → `C3D_*`, the skill bundles `cv3d-*` → `c3d-*` (the read
+  control is `zz-c3d-read-control`), contextvar/tmp names `cv3d_*` → `c3d_*`.  Config files are
+  `~/.config/3dcodeverse/config.yaml` and `./3dcodeverse.yaml`.  What keeps working without a change:
+  `CV3D_X` in a shell is copied to `C3D_X` at first import with one warning
+  (`codeverse3d/__init__._adopt_legacy_env`); the old config file names are read UNDER the new ones;
+  a resumed workspace drops its old `cv3d-*` skill folders (the materializer removes every folder it
+  did not route).  Needs `pip install -e harness` once.  NOT renamed: the `astra3d` key-file path, the
+  local conda env `cv3d-eval` (renaming it would move an environment another session is using), and
+  recorded data (`eval/bench/data`, anything under a runs directory).
 
 ## Rejected / deferred
 

@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
-from codeverse.languages.blender import BlenderRuntime
-from codeverse.prompts import PROMPTS_DIR
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
+from codeverse3d.languages.blender import BlenderRuntime
+from codeverse3d.prompts import PROMPTS_DIR
+from codeverse3d.workspace import Workspace
 
 _LABELLED_PY = re.compile(r"`((?:src|public)/[^`]+)`\n```py\n(.*?)```", re.DOTALL)
 

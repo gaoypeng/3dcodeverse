@@ -9,21 +9,21 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from codeverse.addons.dataset.export import export_samples
-from codeverse.addons.gallery import build_static
-from codeverse.addons.gallery.index import entry_from_record
-from codeverse.cli.main import app
-from codeverse.contracts.run import RunRecord
-from codeverse.record.deliverable import build_deliverable, deliverable_path, load_deliverable
-from codeverse.record.record import load_record, package_run
-from codeverse.record.telemetry import (
+from codeverse3d.addons.dataset.export import export_samples
+from codeverse3d.addons.gallery import build_static
+from codeverse3d.addons.gallery.index import entry_from_record
+from codeverse3d.cli.main import app
+from codeverse3d.contracts.run import RunRecord
+from codeverse3d.record.deliverable import build_deliverable, deliverable_path, load_deliverable
+from codeverse3d.record.record import load_record, package_run
+from codeverse3d.record.telemetry import (
     build_telemetry,
     ledger_rows,
     live_ledger_path,
     load_telemetry,
     stage_order,
 )
-from codeverse.workspace import LAYOUT_ALIASES, Workspace
+from codeverse3d.workspace import LAYOUT_ALIASES, Workspace
 
 from .conftest import make_fake_run
 
@@ -127,10 +127,10 @@ def test_telemetry_handles_reconstructed_live_and_unavailable_ledgers(fake_run, 
     assert tele.cost is not None and tele.cost.by_stage[0].stage == "plan"
 
     # A core-only install still emits settings and the record-level total.
-    import codeverse.record.telemetry as T
+    import codeverse3d.record.telemetry as T
 
     def boom(*_a, **_k):
-        raise ImportError("codeverse.cost is not installed")
+        raise ImportError("codeverse3d.cost is not installed")
 
     monkeypatch.setattr(T, "live_ledger_path", boom)
     rows, source = T.ledger_rows(ws)

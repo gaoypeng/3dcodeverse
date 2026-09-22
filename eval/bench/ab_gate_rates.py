@@ -1,7 +1,7 @@
 """Paired, per-prompt DETERMINISTIC readouts of an ab_plan run: what the gates measured.
 
 The judged score carries the planner's variance (docs/EVAL.md 8.1); these do not carry the
-judge's.  They are what cv3d-part-contact and cv3d-bbox-contract are FOR, so they are the
+judge's.  They are what c3d-part-contact and c3d-bbox-contract are FOR, so they are the
 primary readout and the score is the second.
 """
 from __future__ import annotations

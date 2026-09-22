@@ -25,15 +25,15 @@ from collections import Counter
 from pathlib import Path
 
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
-    sys.path.insert(0, str(_p))  # this tree's codeverse (harness/) + the `bench` package (eval/)
+    sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
-from codeverse.languages.urdf import REST_PENETRATION_MAX_M  # noqa: E402
-from codeverse.record.record import unique_files  # noqa: E402
-from codeverse.spatial.connectivity import (  # noqa: E402
+from codeverse3d.languages.urdf import REST_PENETRATION_MAX_M  # noqa: E402
+from codeverse3d.record.record import unique_files  # noqa: E402
+from codeverse3d.spatial.connectivity import (  # noqa: E402
     PENETRATION_ERROR_M,
     PENETRATION_WARN_M,
 )
-from codeverse.spatial.joints_sweep import sweep_collisions, sweep_findings  # noqa: E402
+from codeverse3d.spatial.joints_sweep import sweep_collisions, sweep_findings  # noqa: E402
 
 #: candidate ERROR thresholds in metres, including the one that ships
 CANDIDATES = (0.001, 0.002, 0.005, PENETRATION_ERROR_M)

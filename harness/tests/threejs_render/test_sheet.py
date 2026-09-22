@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from codeverse.spatial.sheet import LABEL_H, PAD, contact_sheet
+from codeverse3d.spatial.sheet import LABEL_H, PAD, contact_sheet
 
 
 def _png(path: Path, color, size=(120, 80)):

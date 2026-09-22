@@ -3,12 +3,12 @@ prompt section, a hard-clock session window, the backend's turn count."""
 
 from __future__ import annotations
 
-from codeverse.contracts.agent import AgentJob, AgentResult
-from codeverse.contracts.chat import ImagePart
-from codeverse.contracts.common import Budget, Usage
-from codeverse.orchestrator import BudgetGuard
-from codeverse.tracks.generation import GenerationTask, run_agent_task
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.agent import AgentJob, AgentResult
+from codeverse3d.contracts.chat import ImagePart
+from codeverse3d.contracts.common import Budget, Usage
+from codeverse3d.orchestrator import BudgetGuard
+from codeverse3d.tracks.generation import GenerationTask, run_agent_task
+from codeverse3d.workspace import Workspace
 
 
 class StubAgent:

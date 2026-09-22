@@ -11,7 +11,7 @@
 set -euo pipefail
 
 # The supported floor (docs/INSTALL.md §2.1).  Pinned to pyproject's requires-python
-# and to codeverse/spatial/node.py NODE_MIN by tests/core/test_portability.py.
+# and to codeverse3d/spatial/node.py NODE_MIN by tests/core/test_portability.py.
 MIN_PY_MINOR=13      # python 3.13 (one fixed version)
 MIN_NODE_MAJOR=20    # node 20.6+ (`node --import` module hooks)
 MIN_NODE_MINOR=6
@@ -125,7 +125,7 @@ else
   info "node     not found (three.js / scene / GLB export tracks will not run)"
 fi
 
-if command -v blender-5.0 >/dev/null 2>&1 || command -v blender >/dev/null 2>&1 || [ -n "${CV3D_BINARIES__BLENDER:-}" ]; then
+if command -v blender-5.0 >/dev/null 2>&1 || command -v blender >/dev/null 2>&1 || [ -n "${C3D_BINARIES__BLENDER:-}" ]; then
   info "blender  found"
 else
   info "blender  not found (optional: blender / urdf_blender tracks unavailable — docs/INSTALL.md §6)"
@@ -173,13 +173,13 @@ if [ "$DO_DOCTOR" -eq 1 ]; then
   # own entry point is not on PATH, so the old `command -v 3dcodeverse` branch ran a
   # pre-existing install and printed an all-green table for an environment this script
   # never touched — the closing doctor is the installer's only verification.
-  if "$PY" -c 'import codeverse' >/dev/null 2>&1; then
-    "$PY" -m codeverse.cli.main doctor ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} || true
+  if "$PY" -c 'import codeverse3d' >/dev/null 2>&1; then
+    "$PY" -m codeverse3d.cli.main doctor ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} || true
   elif command -v 3dcodeverse >/dev/null 2>&1; then
-    info "codeverse not importable by $PY — falling back to the 3dcodeverse on PATH"
+    info "codeverse3d not importable by $PY — falling back to the 3dcodeverse on PATH"
     3dcodeverse doctor ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"} || true
   else
-    info "codeverse not importable by $PY and 3dcodeverse not on PATH — skipping doctor"
+    info "codeverse3d not importable by $PY and 3dcodeverse not on PATH — skipping doctor"
   fi
 fi
 

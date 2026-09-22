@@ -25,11 +25,11 @@ from collections import Counter
 from pathlib import Path
 
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
-    sys.path.insert(0, str(_p))  # this tree's codeverse (harness/) + the `bench` package (eval/)
+    sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
-from codeverse.proc import read_jsonl_lenient  # noqa: E402
-from codeverse.record.record import unique_files  # noqa: E402
-from codeverse.spatial.node import browser_was_lost  # noqa: E402
+from codeverse3d.proc import read_jsonl_lenient  # noqa: E402
+from codeverse3d.record.record import unique_files  # noqa: E402
+from codeverse3d.spatial.node import browser_was_lost  # noqa: E402
 
 #: pipeline stages in the order the scene track runs them
 STAGES = ("plan", "skeleton", "assets", "env", "layouts", "assemble", "generate", "build")

@@ -7,18 +7,23 @@ import shutil
 
 import pytest
 
-from codeverse.config import get_settings
-from codeverse.contracts.agent import AgentResult
-from codeverse.contracts.common import Budget, Language, Track
-from codeverse.contracts.plan import AssetPlan, ScenePlan, ZonePlan
-from codeverse.contracts.run import RunStatus
-from codeverse.orchestrator import BudgetExceeded, BudgetGuard, RoundPolicy, RunState
-from codeverse.proc import EventLog
-from codeverse.tracks.common import RunContext, generate_for, single_shot_agent_id, single_shot_ctx
-from codeverse.tracks.generation import GenerationTask
-from codeverse.tracks.planner import plan_example
-from codeverse.tracks.scene import SceneTrack
-from codeverse.tracks.scene_assets import (
+from codeverse3d.config import get_settings
+from codeverse3d.contracts.agent import AgentResult
+from codeverse3d.contracts.common import Budget, Language, Track
+from codeverse3d.contracts.plan import AssetPlan, ScenePlan, ZonePlan
+from codeverse3d.contracts.run import RunStatus
+from codeverse3d.orchestrator import BudgetExceeded, BudgetGuard, RoundPolicy, RunState
+from codeverse3d.proc import EventLog
+from codeverse3d.tracks.common import (
+    RunContext,
+    generate_for,
+    single_shot_agent_id,
+    single_shot_ctx,
+)
+from codeverse3d.tracks.generation import GenerationTask
+from codeverse3d.tracks.planner import plan_example
+from codeverse3d.tracks.scene import SceneTrack
+from codeverse3d.tracks.scene_assets import (
     asset_api_summary,
     check_threejs_asset,
     dedupe_assets,
@@ -26,7 +31,7 @@ from codeverse.tracks.scene_assets import (
     select_assets,
     variant_index,
 )
-from codeverse.workspace import Workspace
+from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import fake_clock, make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
@@ -100,7 +105,7 @@ def test_dedupe_is_a_no_op_for_unrelated_assets_and_reaches_the_zone_prompt():
 
 
 def _zone(name: str, n: int) -> ZonePlan:
-    from codeverse.contracts.plan import BBox
+    from codeverse3d.contracts.plan import BBox
 
     return ZonePlan(name=name, description=name, bbox=BBox(center=(0, 0, 0), extents=(10, 5, 10)),
                     contents=[f"A{i}" for i in range(n)])
@@ -359,7 +364,7 @@ def _writer(job, ws):
 
 @needs_node
 def test_a_merged_asset_leaves_a_working_shim_not_the_placeholder_box(tmp_path, settings, monkeypatch):
-    import codeverse.tracks.scene_assets as sa
+    import codeverse3d.tracks.scene_assets as sa
 
     monkeypatch.setattr(sa, "MAX_ASSETS", 1)  # force the rescue path with a tiny plan
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
@@ -473,7 +478,7 @@ def test_a_model_outage_escalates_the_asset_instead_of_losing_it(tmp_path, setti
 
 @pytest.mark.node
 def test_the_shot_after_an_outage_is_a_plain_generation_not_a_repair(tmp_path, settings):
-    from codeverse.models.base import ModelError
+    from codeverse3d.models.base import ModelError
 
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     plan = plan.model_copy(update={"assets": [_asset("Bollard", (0.3, 0.5, 0.3))], "zones": []})
@@ -495,8 +500,8 @@ def test_the_shot_after_an_outage_is_a_plain_generation_not_a_repair(tmp_path, s
 
 
 def test_a_generation_session_never_outlives_the_wall_budget():
-    from codeverse.contracts.spec import Budget
-    from codeverse.orchestrator import BudgetGuard
+    from codeverse3d.contracts.spec import Budget
+    from codeverse3d.orchestrator import BudgetGuard
 
     g = BudgetGuard(Budget(max_minutes=30.0, max_rounds=4))
     assert g.timeout_s(1800, floor_s=120.0) == pytest.approx(1800, abs=60)   # fresh run: full session
@@ -508,9 +513,9 @@ def test_a_generation_session_never_outlives_the_wall_budget():
 
 
 def test_one_asset_cannot_eat_the_scene_run():
-    from codeverse.contracts.spec import Budget
-    from codeverse.orchestrator import BudgetGuard
-    from codeverse.tracks.scene_assets import (
+    from codeverse3d.contracts.spec import Budget
+    from codeverse3d.orchestrator import BudgetGuard
+    from codeverse3d.tracks.scene_assets import (
         ASSET_AGENT_TIMEOUT_S,
         ASSET_SESSION_SHARE,
         asset_timeout_s,

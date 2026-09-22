@@ -4,10 +4,10 @@ GLB's part names, so the gate's contact ledger can list each planned join as con
 
 from __future__ import annotations
 
-from codeverse.contracts.artifacts import Measurement, PartMeasure
-from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
-from codeverse.spatial.contract import planned_joins
-from codeverse.tracks.static_object import ObjectPipeline
+from codeverse3d.contracts.artifacts import Measurement, PartMeasure
+from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
+from codeverse3d.spatial.contract import planned_joins
+from codeverse3d.tracks.static_object import ObjectPipeline
 from tests.orchestrator_tracks.test_integrations2 import _static_run
 
 
@@ -59,7 +59,7 @@ def test_planned_joins_drop_what_the_mesh_does_not_have():
 def test_judge_context_stays_empty_because_the_block_lives_in_gates_section(tmp_path, chair_plan):
     """The block is rendered from the stored GateReport, so ``3dcode judge <slug>`` on a recorded
     round gets it too; a judge_context copy would be a second source of the same facts."""
-    from codeverse.contracts.artifacts import BuildResult
-    from codeverse.workspace import Workspace
+    from codeverse3d.contracts.artifacts import BuildResult
+    from codeverse3d.workspace import Workspace
 
     assert ObjectPipeline().judge_context(Workspace(tmp_path / "w"), chair_plan, 0, BuildResult(ok=True, language="threejs"), []) == ""

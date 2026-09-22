@@ -18,7 +18,7 @@ training corpora; and a finetuning study that trains open models on that data.
 
 ## [`harness/`](harness/) — the generation harness
 
-Python dist `3dcodeverse` (import `codeverse`, CLI `3dcodeverse` / `3dcode`).
+Python dist `3dcodeverse` (import `codeverse3d`, CLI `3dcodeverse` / `3dcode`).
 LLMs write raw 3D code across four tracks — `static_object` ·
 `articulated_object` · `scene` · `graphics` — in seven languages; the harness
 owns everything around the code: typed plans, deterministic gates

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codeverse.contracts.artifacts import Severity
-from codeverse.languages.blender import lint_blender_file, lint_blender_source
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.languages.blender import lint_blender_file, lint_blender_source
 
 GOOD = '''
 import bpy

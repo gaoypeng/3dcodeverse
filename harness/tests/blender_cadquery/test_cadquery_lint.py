@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from codeverse.contracts.artifacts import Severity
-from codeverse.languages.cadquery import lint_cadquery_source
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.languages.cadquery import lint_cadquery_source
 
 GOOD = '''
 import cadquery as cq

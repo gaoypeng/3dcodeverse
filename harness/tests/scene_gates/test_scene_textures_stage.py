@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.config import SCENE_TEXTURES_ENV, get_settings, scene_textures_enabled
-from codeverse.tracks.plan_features import LIVE_SWITCHES
+from codeverse3d.config import SCENE_TEXTURES_ENV, get_settings, scene_textures_enabled
+from codeverse3d.tracks.plan_features import LIVE_SWITCHES
 
 
 @pytest.fixture(autouse=True)
@@ -42,11 +42,11 @@ def test_the_switch_is_off_by_default_and_readable_at_call_time(monkeypatch):
 def test_the_switch_is_registered_as_live():
     """An A/B arm that differs only by a switch no code reads is byte-identical to its
     control; `plan_features` refuses such an arm, and only if the name is declared."""
-    assert LIVE_SWITCHES[SCENE_TEXTURES_ENV] == "codeverse/config.py"
+    assert LIVE_SWITCHES[SCENE_TEXTURES_ENV] == "codeverse3d/config.py"
 
 
 def _render(name: str, **extra):
-    from codeverse.prompts import render
+    from codeverse3d.prompts import render
 
     base = dict(
         title="t", setting="a yard", mood="calm", bounds="0 0 0 / 10 5 10", environment="sunny",
@@ -68,7 +68,7 @@ MANIFEST = {
 
 @pytest.mark.parametrize("template", ["scene_env.j2", "scene_zone.j2"])
 def test_the_pack_reaches_both_prompts(template: str):
-    from codeverse.texturing.plan import texture_pack_prompt
+    from codeverse3d.texturing.plan import texture_pack_prompt
 
     snippet = texture_pack_prompt(MANIFEST)
     with_pack = _render(template, textures=snippet)
@@ -78,7 +78,7 @@ def test_the_pack_reaches_both_prompts(template: str):
 
 @pytest.mark.parametrize("template", ["scene_env.j2", "scene_zone.j2"])
 def test_no_pack_adds_nothing_to_either_prompt(template: str):
-    from codeverse.texturing.plan import texture_pack_prompt
+    from codeverse3d.texturing.plan import texture_pack_prompt
 
     assert texture_pack_prompt({}) == ""
     empty = _render(template, textures="")
@@ -91,8 +91,8 @@ def test_the_prompt_context_carries_the_manifest_the_stage_produced(monkeypatch)
     exactly the state the loop was in before this."""
     from types import SimpleNamespace
 
-    import codeverse.tracks.scene as S
-    from codeverse.contracts.plan import BBox, CameraPlan, ScenePlan, ZonePlan
+    import codeverse3d.tracks.scene as S
+    from codeverse3d.contracts.plan import BBox, CameraPlan, ScenePlan, ZonePlan
 
     seen: dict = {}
     monkeypatch.setattr(S, "base_prompt_context", lambda ctx, **kw: seen.update(kw) or kw)
@@ -130,7 +130,7 @@ def test_the_pack_says_outright_that_the_ground_is_what_it_is_for():
     colour blend — the plan's own ground sentence, the cookbook chapter "Ground that reads
     real (blend, paths, edges — never one flat colour)", and that chapter's position after
     the block — against one passive list.  A passive offer loses."""
-    from codeverse.texturing.plan import texture_pack_prompt
+    from codeverse3d.texturing.plan import texture_pack_prompt
 
     text = texture_pack_prompt(GROUND_MANIFEST)
     assert "The ground is what this pack is for" in text
@@ -141,7 +141,7 @@ def test_the_pack_says_outright_that_the_ground_is_what_it_is_for():
 
 
 def test_a_pack_with_no_ground_map_makes_no_ground_claim():
-    from codeverse.texturing.plan import texture_pack_prompt
+    from codeverse3d.texturing.plan import texture_pack_prompt
 
     props = {k: v for k, v in GROUND_MANIFEST.items() if v["role"] == "prop"}
     text = texture_pack_prompt(props)
@@ -162,10 +162,10 @@ def test_the_stage_puts_the_pack_on_the_run_budget(monkeypatch, tmp_path):
     ceiling can be crossed by a paid stage the run never saw."""
     from types import SimpleNamespace
 
-    import codeverse.reference as reference
-    import codeverse.texturing.plan as plan_mod
-    import codeverse.tracks.scene as S
-    from codeverse.contracts.common import Usage
+    import codeverse3d.reference as reference
+    import codeverse3d.texturing.plan as plan_mod
+    import codeverse3d.tracks.scene as S
+    from codeverse3d.contracts.common import Usage
 
     usage = Usage(cost_usd=0.07)
     pack = SimpleNamespace(manifest=lambda: MANIFEST, usage=usage, source="vlm")

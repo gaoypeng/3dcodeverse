@@ -14,13 +14,13 @@ from typing import Any
 
 import pytest
 
-from codeverse.languages.blender import BlenderRuntime
+from codeverse3d.languages.blender import BlenderRuntime
 
-CENSUS = Path(__file__).resolve().parents[2] / "codeverse" / "languages" / "blender" / "wrappers" / "_census.py"
+CENSUS = Path(__file__).resolve().parents[2] / "codeverse3d" / "languages" / "blender" / "wrappers" / "_census.py"
 
 
 def _census_module() -> Any:
-    """``_census`` is executed BY Blender (it must not import codeverse), so load it by path."""
+    """``_census`` is executed BY Blender (it must not import codeverse3d), so load it by path."""
     spec = importlib.util.spec_from_file_location("census_under_test", CENSUS)
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None

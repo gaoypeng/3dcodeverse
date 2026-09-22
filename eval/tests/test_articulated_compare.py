@@ -23,11 +23,11 @@ from bench._oneshot import (  # noqa: E402
     write_answer_files,
 )
 from bench.run_bench import Battery  # noqa: E402
-from codeverse.contracts.artifacts import BuildResult, GateReport  # noqa: E402
-from codeverse.contracts.common import Language, Track  # noqa: E402
-from codeverse.contracts.spec import Constraints, Spec  # noqa: E402
-from codeverse.tracks.generation import MultiFileParseError  # noqa: E402
-from codeverse.workspace import Workspace  # noqa: E402
+from codeverse3d.contracts.artifacts import BuildResult, GateReport  # noqa: E402
+from codeverse3d.contracts.common import Language, Track  # noqa: E402
+from codeverse3d.contracts.spec import Constraints, Spec  # noqa: E402
+from codeverse3d.tracks.generation import MultiFileParseError  # noqa: E402
+from codeverse3d.workspace import Workspace  # noqa: E402
 
 PROMPTS = REPO / "bench" / "prompts"
 PY = "import bpy\nprint(1)\n"
@@ -91,7 +91,7 @@ def test_rubric_for_is_the_one_track_to_rubric_mapping():
     """PR #1 shipped `RUBRIC_BY_TRACK` in _compare_report beside main's `judge_for`; one mechanism now:
     rubric_for(spec | track) = TRACK_INFO's rubric, used by the evaluator default, judge_for and the report."""
     import bench._compare_report as report
-    from codeverse.contracts.common import TRACK_INFO
+    from codeverse3d.contracts.common import TRACK_INFO
 
     assert not hasattr(report, "RUBRIC_BY_TRACK")
     lang = {Track.STATIC_OBJECT: Language.BLENDER, Track.ARTICULATED_OBJECT: Language.URDF_BLENDER,
@@ -115,11 +115,11 @@ def test_articulated_cells_add_the_joint_sweep_and_the_pose_sheet(monkeypatch, t
     renders, and the judge is the cell's (articulated_v1) — keyed on the SPEC's track."""
     from types import SimpleNamespace
 
-    import codeverse.spatial.connectivity as conn
-    import codeverse.spatial.measure as meas
-    import codeverse.spatial.render as rend
-    import codeverse.tracks.articulated_object as art
-    from codeverse.contracts.artifacts import RenderSet, RenderView
+    import codeverse3d.spatial.connectivity as conn
+    import codeverse3d.spatial.measure as meas
+    import codeverse3d.spatial.render as rend
+    import codeverse3d.tracks.articulated_object as art
+    from codeverse3d.contracts.artifacts import RenderSet, RenderView
 
     ws = Workspace(tmp_path / "ws").create()
     glb = tmp_path / "m.glb"

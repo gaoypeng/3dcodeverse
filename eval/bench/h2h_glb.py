@@ -42,7 +42,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
-    sys.path.insert(0, str(_p))  # this tree's codeverse (harness/) + the `bench` package (eval/)
+    sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
 from bench._fixed_eval import RUBRIC  # noqa: E402
 from bench.h2h_scene import sign_test  # noqa: E402
@@ -133,7 +133,7 @@ def our_side(runs_dir: Path, item_id: str) -> Side:
 
 # ----------------------------------------------------------------------------- evaluate
 def build_spec(battery: Battery, item: BenchPrompt) -> Any:
-    from codeverse.contracts.spec import Spec
+    from codeverse3d.contracts.spec import Spec
 
     return Spec(id=f"h2h/{item.id}", track=battery.track, language=item.language or battery.language,
                 prompt=item.prompt, tags=["h2h", *item.tags])
@@ -141,12 +141,12 @@ def build_spec(battery: Battery, item: BenchPrompt) -> Any:
 
 def evaluate(side: Side, spec: Any, out_dir: Path, judge: Any) -> Side:
     """measure → connectivity → render → judge, exactly the FixedEvaluator order."""
-    from codeverse.config import get_settings
-    from codeverse.conventions import OBJECT_VIEWS
-    from codeverse.judges.base import JudgeInput
-    from codeverse.spatial.connectivity import check_connectivity
-    from codeverse.spatial.measure import measure_glb
-    from codeverse.spatial.render import render_glb
+    from codeverse3d.config import get_settings
+    from codeverse3d.conventions import OBJECT_VIEWS
+    from codeverse3d.judges.base import JudgeInput
+    from codeverse3d.spatial.connectivity import check_connectivity
+    from codeverse3d.spatial.measure import measure_glb
+    from codeverse3d.spatial.render import render_glb
 
     if side.error or not side.glb:
         return side
@@ -245,8 +245,8 @@ def summary_md(rows: list[Row]) -> str:
 
 # ----------------------------------------------------------------------------- main
 def run(batteries: list[Path], gallery: Path, bench_out: Path, out: Path, *, ids: set[str], theirs_only: bool, force: bool) -> list[Row]:
-    from codeverse.cost import run_ledger
-    from codeverse.judges.vlm_judge import VlmJudge
+    from codeverse3d.cost import run_ledger
+    from codeverse3d.judges.vlm_judge import VlmJudge
 
     judge = VlmJudge(rubric=RUBRIC, model_id=JUDGE_MODEL, n_samples=N_SAMPLES)
     rows: list[Row] = []

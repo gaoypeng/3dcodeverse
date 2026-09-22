@@ -2,7 +2,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from codeverse.contracts.artifacts import (
+from codeverse3d.contracts.artifacts import (
     GateFinding,
     GateReport,
     ImprovementItem,
@@ -11,8 +11,8 @@ from codeverse.contracts.artifacts import (
     RenderView,
     Severity,
 )
-from codeverse.contracts.chat import ImagePart, TextPart
-from codeverse.judges.prompt_builder import (
+from codeverse3d.contracts.chat import ImagePart, TextPart
+from codeverse3d.judges.prompt_builder import (
     TEXT_BUDGET_CHARS,
     build_judge_messages,
     build_system_prompt,
@@ -20,7 +20,7 @@ from codeverse.judges.prompt_builder import (
     prepare_image,
     view_az_el,
 )
-from codeverse.judges.rubrics import load_rubric
+from codeverse3d.judges.rubrics import load_rubric
 from tests.judges.conftest import draw_chair, make_renders
 
 R = load_rubric("static_object_v1")
@@ -95,7 +95,7 @@ def test_shuffle_is_deterministic_and_changes_order(tmp_path, judge_input, cache
 def test_geometry_views_add_a_montage(tmp_path, judge_input, cache_dir):
     """The clay montage rides the pipeline's OWN cameras (OBJECT_CLAY_VIEWS) and labels
     them — the clay 'top' is el 88 while the rig's shaded 'top' is el 90 (D47)."""
-    from codeverse.conventions import OBJECT_CLAY_VIEWS
+    from codeverse3d.conventions import OBJECT_CLAY_VIEWS
 
     clay = []
     for v in OBJECT_CLAY_VIEWS:
@@ -145,7 +145,7 @@ def test_gates_previous_and_budget(judge_input, cache_dir):
 
 
 def test_scene_rig_paragraph(judge_input, cache_dir):
-    from codeverse.contracts.common import Language, Track
+    from codeverse3d.contracts.common import Language, Track
     judge_input.spec = judge_input.spec.model_copy(update={"track": Track.SCENE, "language": Language.SCENE_THREEJS})
     judge_input.renders.console_errors = ["ReferenceError: foo"]
     judge_input.renders.fps = 48.0
@@ -179,8 +179,8 @@ def test_a_passed_connectivity_gate_tells_the_judge_a_seam_is_not_daylight():
     said 'all 9 parts connected, gap <= 2 mm'; the judge read the dark seam under the pedestal
     as 'floating in mid-air, a clear daylight gap' (CRITICAL) and scored structure_plausibility
     0.4 against 1.0 for the near-identical sibling.  A measured contact outranks a shadow."""
-    from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-    from codeverse.judges.prompt_builder import gates_section
+    from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+    from codeverse3d.judges.prompt_builder import gates_section
 
     ok = GateReport(gate="connectivity", passed=True, findings=[
         GateFinding(gate="connectivity", severity=Severity.INFO, target="", message="all 9 parts are connected")])
@@ -231,7 +231,7 @@ def test_ledger_turns_penetration_warn_prose_into_one_measured_line():
     """The audit (docs/EVAL.md §6): 110 of 237 interpenetration flags cited only WARNs the rubric
     says to ignore; same images with the gate text removed flipped 13 of 24.  The eleven
     'interpenetrate by' sentences of this round become one measured line, ERRORs stay."""
-    from codeverse.judges.prompt_builder import gates_section
+    from codeverse3d.judges.prompt_builder import gates_section
 
     rep = _ledger_report()
     assert sum("interpenetrate" in f.message for f in rep.findings) == 13  # one WARN sentence per overlap over the weld line
@@ -262,7 +262,11 @@ def test_ledger_turns_penetration_warn_prose_into_one_measured_line():
 
 def test_ledger_block_stays_near_500_tokens_on_the_p90_round():
     """chars/4 is this module's own token convention (``TEXT_BUDGET_CHARS = 24_000 ≈ 6k``)."""
-    from codeverse.judges.prompt_builder import LEDGER_MAX_CONTACTS, LEDGER_MAX_JOINS, gates_section
+    from codeverse3d.judges.prompt_builder import (
+        LEDGER_MAX_CONTACTS,
+        LEDGER_MAX_JOINS,
+        gates_section,
+    )
 
     text = gates_section([_ledger_report(), GateReport(gate="contract", passed=True)])
     assert len(_ledger_lines(text)) / 4 <= 500
@@ -283,7 +287,7 @@ def test_ledger_block_stays_near_500_tokens_on_the_p90_round():
 
 
 def test_ledger_error_pairs_are_errors_not_welds_and_a_failed_gate_earns_no_passed_paragraph():
-    from codeverse.judges.prompt_builder import gates_section
+    from codeverse3d.judges.prompt_builder import gates_section
 
     d = {"parts": ["Arm", "Post", "Seat", "Leg"], "contact_gap_mm": 2.0, "contacts": [["Arm", "Post", 0.0], ["Post", "Leg", 0.0]],
          "overlaps": [["Arm", "Post", 14.0, 1.2], ["Post", "Leg", 1.1, 0.05], ["Seat", "Leg", 0.3, 0.01]],
@@ -301,7 +305,7 @@ def test_ledger_error_pairs_are_errors_not_welds_and_a_failed_gate_earns_no_pass
 
 
 def test_ledger_ground_line_and_single_part_and_grouped_warnings():
-    from codeverse.judges.prompt_builder import gates_section
+    from codeverse3d.judges.prompt_builder import gates_section
 
     hover = dict(LEDGER_VIOLIN, parts=["Top", "Leg_0", "Leg_1", "Leg_2"], contacts=[], overlaps=[], planned=[],
                  ground_gap_mm={"Top": 700.0, "Leg_0": 3.1, "Leg_1": 3.1, "Leg_2": 0.3})
@@ -333,7 +337,7 @@ def test_gates_section_without_a_ledger_is_byte_identical_to_the_pre_ledger_text
     """A recorded round has no ledger finding: ``3dcode judge <old-slug>`` must build the exact text
     the stored verdict saw.  Expected strings were captured from ``gates_section`` at 4ddde32,
     before the ledger path existed (scratch capture_baseline.py, 2026-08-30)."""
-    from codeverse.judges.prompt_builder import gates_section
+    from codeverse3d.judges.prompt_builder import gates_section
 
     C = "connectivity"
     def F(sev, msg, target=None, gate=C, data=None):
@@ -364,10 +368,10 @@ def test_gates_section_without_a_ledger_is_byte_identical_to_the_pre_ledger_text
 def test_judge_prompt_hash_does_not_cover_the_per_run_gate_text():
     """The ledger block rides on v1's hash: ``judge_prompt_hash`` covers the system prompt, the
     rig rules and the wire schema only, so a paired re-judge, not the hash, is what measures it."""
-    from codeverse.judges.prompt_builder import judge_prompt_hash
+    from codeverse3d.judges.prompt_builder import judge_prompt_hash
 
     h = judge_prompt_hash(R)
-    import codeverse.judges.prompt_builder as pb
+    import codeverse3d.judges.prompt_builder as pb
     original = pb.gates_section
     try:
         pb.gates_section = lambda gates, **kw: "NOT THE SAME TEXT"

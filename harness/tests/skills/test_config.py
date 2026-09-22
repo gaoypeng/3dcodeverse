@@ -2,15 +2,15 @@
 
 ``tracks/plan_features.py`` exists because a wave A/B'd a switch nothing read and printed
 "keep, mean delta +0.344" for two byte-identical arms.  These tests are what keep
-``CV3D_SKILLS`` from becoming that switch.
+``C3D_SKILLS`` from becoming that switch.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from codeverse.skills import config as C
-from codeverse.tracks import plan_features as F
+from codeverse3d.skills import config as C
+from codeverse3d.tracks import plan_features as F
 
 
 def test_off_by_default(monkeypatch):
@@ -45,5 +45,5 @@ def test_the_switches_are_registered_as_live_not_dead():
     for env in (C.SKILLS_ENV, C.SKILLS_MAX_ENV, C.SKILLS_UNVERIFIED_ENV):
         assert env in F.LIVE_SWITCHES, f"{env} must be declared so ab_plan accepts an arm using it"
         assert env not in F.DEAD_SWITCHES
-        assert F.LIVE_SWITCHES[env] == "codeverse/skills/config.py"
+        assert F.LIVE_SWITCHES[env] == "codeverse3d/skills/config.py"
     assert F.dead_env_keys({C.SKILLS_ENV: "on"}) == []

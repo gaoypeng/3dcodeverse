@@ -30,7 +30,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 REPO = Path(__file__).resolve().parents[2] / "harness"   # the harness tree these scripts evaluate
-for _p in (REPO, Path(__file__).resolve().parents[1]):      # its codeverse + the `bench` package (eval/)
+for _p in (REPO, Path(__file__).resolve().parents[1]):      # its codeverse3d + the `bench` package (eval/)
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 

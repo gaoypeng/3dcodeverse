@@ -11,16 +11,16 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.contracts.plan import ArticulatedPlan
-from codeverse.languages.urdf import lint_workspace, render_urdf
-from codeverse.spatial.joints import (
+from codeverse3d.contracts.plan import ArticulatedPlan
+from codeverse3d.languages.urdf import lint_workspace, render_urdf
+from codeverse3d.spatial.joints import (
     UrdfError,
     load_urdf,
     motion_direction_check,
     pose_samples,
     sweep_collisions,
 )
-from codeverse.spatial.joints_model import fk, resolve_q
+from codeverse3d.spatial.joints_model import fk, resolve_q
 from tests.urdf_joints.conftest import box_glb
 
 RIB = """<?xml version="1.0"?>
@@ -88,8 +88,8 @@ def test_pose_samples_drive_only_the_degrees_of_freedom(tmp_path):
 def test_the_contact_sheet_and_joint_narrowing_show_only_input_joints(tmp_path):
     """`limit_poses` feeds the articulation sheet and `joint_sweep(joints=...)`: a tile for
     a driven joint would be the rest pose with a label saying it moved."""
-    from codeverse.spatial.joints_model import fk
-    from codeverse.spatial.joints_poses import limit_poses
+    from codeverse3d.spatial.joints_model import fk
+    from codeverse3d.spatial.joints_poses import limit_poses
 
     r = _robot(tmp_path)
     labels = [lab for lab, _ in limit_poses(r)]
@@ -126,8 +126,8 @@ def test_a_broken_coupling_is_refused_at_load(tmp_path, bad, msg):
 
 
 def test_the_skeleton_writes_the_plan_s_coupling(cabinet_plan):
-    from codeverse.contracts.plan import MimicPlan
-    from codeverse.languages.urdf import compute_urdf_frames
+    from codeverse3d.contracts.plan import MimicPlan
+    from codeverse3d.languages.urdf import compute_urdf_frames
 
     plan = cabinet_plan.model_copy(deep=True)
     plan.joints[0].mimic = MimicPlan(joint="handle_mount", multiplier=2.0, offset=0.1)
@@ -138,7 +138,7 @@ def test_the_skeleton_writes_the_plan_s_coupling(cabinet_plan):
 
 
 def test_the_lint_accepts_a_real_coupling_and_names_a_broken_one(tmp_path, monkeypatch):
-    from codeverse.workspace import Workspace
+    from codeverse3d.workspace import Workspace
 
     ws = Workspace(tmp_path / "ws").create()
     (ws.src / "robot.urdf").write_text(RIB)
@@ -155,8 +155,8 @@ def _plan(**joint_overrides):
     """The worked articulated example with a second joint that can carry a coupling."""
     import copy
 
-    from codeverse.contracts.common import Track
-    from codeverse.tracks.planner import plan_example
+    from codeverse3d.contracts.common import Track
+    from codeverse3d.tracks.planner import plan_example
 
     d = copy.deepcopy(plan_example(Track.ARTICULATED_OBJECT))
     d["parts"].append({"name": "Lid", "role": "top lid", "description": "a flat lid", "attach_to": "Cabinet",
@@ -206,7 +206,7 @@ def test_a_mimic_of_an_instanced_driver_follows_the_first_instance():
     """An instanced driver exists only as ``<name>_1..._n``; writing the plan's bare name
     made the skeleton fail its own lint and `load_urdf` (a scissor/pantograph plan is the
     likely place to hit it)."""
-    from codeverse.languages.urdf import compute_urdf_frames
+    from codeverse3d.languages.urdf import compute_urdf_frames
 
     d = _plan()
     d["parts"][1]["instances"] = 2                      # the drawer, driven by DrawerSlide
@@ -227,8 +227,8 @@ def test_the_three_layers_reject_the_same_near_zero_multiplier(tmp_path):
     (< 1e-12), so a coupling the planner could not write was one the URDF path took.
     All three read ``MIMIC_MIN_MULTIPLIER`` now.
     """
-    from codeverse.contracts.common import MIMIC_MIN_MULTIPLIER
-    from codeverse.workspace import Workspace
+    from codeverse3d.contracts.common import MIMIC_MIN_MULTIPLIER
+    from codeverse3d.workspace import Workspace
 
     dead = 1e-10  # under the shared floor, over the 1e-12 the loader and the lint used
     assert dead < MIMIC_MIN_MULTIPLIER
@@ -249,7 +249,7 @@ def test_the_lint_sees_a_cycle_the_per_joint_pass_could_not(tmp_path):
     """``rib_a`` follows ``rib_b`` follows ``rib_a``: no single <mimic> element is wrong,
     only the graph is.  The lint checked one joint at a time and passed this file; the
     loader then refused it, so the failure landed after the build instead of before."""
-    from codeverse.workspace import Workspace
+    from codeverse3d.workspace import Workspace
 
     ws = Workspace(tmp_path / "ws").create()
     (ws.src / "robot.urdf").write_text(RIB.replace('<mimic joint="runner_slide" multiplier="4" offset="0"/>',
@@ -262,7 +262,7 @@ def test_the_lint_sees_a_cycle_the_per_joint_pass_could_not(tmp_path):
 def test_an_unknown_target_is_reported_once_not_once_per_follower():
     """The chain walk exists to find cycles.  Every joint it walks through is itself in
     the set and reports its own broken target, so the walk must not report it again."""
-    from codeverse.contracts.common import MimicSpec, mimic_issues
+    from codeverse3d.contracts.common import MimicSpec, mimic_issues
 
     issues = mimic_issues([
         MimicSpec(key="a", name="a", movable=True, target="ghost"),
@@ -276,7 +276,7 @@ def test_the_lint_warns_when_a_coupling_drives_past_the_follower_s_own_limits(tm
     coupling reaches exactly 1.2, so the file that ships is silent.  At multiplier 5 it
     reaches 1.5 and the limits and the multiplier disagree; the sweep then poses the joint
     where its own <limit> says it cannot go."""
-    from codeverse.workspace import Workspace
+    from codeverse3d.workspace import Workspace
 
     ws = Workspace(tmp_path / "ws").create()
     (ws.src / "model.py").write_text("import bpy\n")
@@ -305,7 +305,7 @@ def test_the_skeleton_says_when_only_the_first_instance_of_a_driver_is_followed(
     file that ships says so, beside the ``<mimic>`` — written where the instancing is
     known, because a lint cannot tell an instance from a joint an agent named ``hinge_2``.
     """
-    from codeverse.languages.urdf import compute_urdf_frames
+    from codeverse3d.languages.urdf import compute_urdf_frames
 
     d = _plan()
     d["parts"][1]["instances"] = 2
@@ -318,7 +318,7 @@ def test_the_skeleton_says_when_only_the_first_instance_of_a_driver_is_followed(
 def test_the_lint_does_not_mistake_hand_named_joints_for_instances(tmp_path):
     """``hinge_1`` / ``hinge_2`` named by an agent are two joints, not one instanced
     driver: a follower of ``hinge_1`` must not be told to couple ``hinge_2`` too."""
-    from codeverse.workspace import Workspace
+    from codeverse3d.workspace import Workspace
 
     urdf = (RIB.replace('joint name="runner_slide"', 'joint name="runner_slide_1"')
                .replace('<mimic joint="runner_slide" ', '<mimic joint="runner_slide_1" ')
@@ -340,7 +340,7 @@ def test_the_exported_pose_glb_moves_the_followers_like_fk_does(tmp_path):
     import numpy as np
     import trimesh
 
-    from codeverse.spatial.joints_export import ZUP_TO_YUP, urdf_to_glb
+    from codeverse3d.spatial.joints_export import ZUP_TO_YUP, urdf_to_glb
 
     robot = _robot(tmp_path)
     q = {"runner_slide": 0.3}
@@ -381,7 +381,7 @@ def test_a_self_joint_says_which_links_collided():
     normalisation says so."""
     import pytest as _pytest
 
-    from codeverse.contracts.plan import JointPlan
+    from codeverse3d.contracts.plan import JointPlan
 
     common = {"type": "revolute", "axis": [0, 0, 1], "pivot": [0, 0, 0],
               "lower": 0.0, "upper": 1.0, "rest": 0.0}

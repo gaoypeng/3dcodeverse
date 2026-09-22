@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from codeverse.spatial import gl_render
-from codeverse.spatial.gl_render import (
+from codeverse3d.spatial import gl_render
+from codeverse3d.spatial.gl_render import (
     GlFrame,
     GlHost,
     GlHostError,

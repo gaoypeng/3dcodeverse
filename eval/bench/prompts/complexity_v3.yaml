@@ -8,7 +8,7 @@
 # sections, mouldings, mechanism) are switched on in a documented order.
 #
 # Every prompt declares `expected_complexity: [lo, hi]`, the band the BUILT artifact's
-# objective complexity index (codeverse/spatial/complexity.py, docs/COMPLEXITY.md)
+# objective complexity index (codeverse3d/spatial/complexity.py, docs/COMPLEXITY.md)
 # should land in.  A run that scores well but lands BELOW its band did the easy thing
 # instead of the asked thing — the report calls that out as LOW, and it is the failure
 # mode this battery exists to catch.  `expected_complexity` is not read by run_bench

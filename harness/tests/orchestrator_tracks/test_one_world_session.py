@@ -7,13 +7,13 @@ written by separate sessions of at most two small zones, sat at 0.17 and 0.30-0.
 """
 from __future__ import annotations
 
-from codeverse.contracts.common import Language, Track
-from codeverse.contracts.plan import ScenePlan
-from codeverse.orchestrator import RunState
-from codeverse.proc import EventLog
-from codeverse.tracks.planner import plan_example
-from codeverse.tracks.scene import ZONE_TIMEOUT_S, SceneTrack, zone_file
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.common import Language, Track
+from codeverse3d.contracts.plan import ScenePlan
+from codeverse3d.orchestrator import RunState
+from codeverse3d.proc import EventLog
+from codeverse3d.tracks.planner import plan_example
+from codeverse3d.tracks.scene import ZONE_TIMEOUT_S, SceneTrack, zone_file
+from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import FakeRuntime, FakeServices
 

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from codeverse.addons.skill_targets import (
+from codeverse3d.addons.skill_targets import (
     BY_SKILL,
     DIRECTIONS,
     METRICS,
@@ -18,15 +18,15 @@ from codeverse.addons.skill_targets import (
     gate_kinds_claimed,
     target_for,
 )
-from codeverse.skills import bundle_dirs, skills_dir
-from codeverse.skills.registry import ROUTED_SKILLS, finding_kind
+from codeverse3d.skills import bundle_dirs, skills_dir
+from codeverse3d.skills.registry import ROUTED_SKILLS, finding_kind
 
 BUNDLES = bundle_dirs()
 pytestmark = pytest.mark.skipif(not BUNDLES, reason=f"no bundles in {skills_dir()} yet")
 
 
 def _live_kinds() -> set[str]:
-    from codeverse.skills import registry
+    from codeverse3d.skills import registry
 
     return {v for k, v in vars(registry).items()
             if k.isupper() and isinstance(v, str) and "/" in v}
@@ -111,7 +111,7 @@ def test_3dcode_skills_list_shows_every_bundles_claim():
     """The ledger has to be visible from the CLI, or it is a document nobody opens."""
     from typer.testing import CliRunner
 
-    from codeverse.cli.main import app
+    from codeverse3d.cli.main import app
 
     r = CliRunner().invoke(app, ["skills", "list"])
     assert r.exit_code == 0

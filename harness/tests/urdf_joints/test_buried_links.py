@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codeverse.contracts.artifacts import Severity
-from codeverse.spatial.joints import buried_links, load_urdf
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.spatial.joints import buried_links, load_urdf
 from tests.urdf_joints.conftest import box_glb
 
 URDF = """<?xml version="1.0"?>

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.contracts.artifacts import Severity
-from codeverse.languages.scene_threejs import lint
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.languages.scene_threejs import lint
 from tests.scene_runtime.conftest import needs_node
 
 pytestmark = [pytest.mark.node, needs_node]

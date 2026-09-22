@@ -1,6 +1,6 @@
 # Paper writing: everything measured, and where it came from
 
-> **Paths in this document.** `bench/…` is relative to `eval/` (this folder's parent); `codeverse/…`, `tests/…`,
+> **Paths in this document.** `bench/…` is relative to `eval/` (this folder's parent); `codeverse3d/…`, `tests/…`,
 > `runtime_js/…` and the other `docs/…` files are relative to `harness/`.  Recorded battery output (`bench/out/…`)
 > is run data and is not in git.
 
@@ -154,18 +154,18 @@ They are recorded so nobody re-runs them expecting a different answer.
 
 | lever | battery / method | n pairs | Δ | 2 SE | sign | disposition |
 |---|---|--:|--:|---|---|---|
-| **Plan-time geometry re-ask** (`CV3D_PLAN_GEOMETRY`, D49) | `compare_art_v4` pf vs pf0 | 14 | +0.064 | ±0.25 | 6/6/2 | shipped **OFF**; code removed 2026-09-21 (D49), the numbers stand |
+| **Plan-time geometry re-ask** (`C3D_PLAN_GEOMETRY`, D49) | `compare_art_v4` pf vs pf0 | 14 | +0.064 | ±0.25 | 6/6/2 | shipped **OFF**; code removed 2026-09-21 (D49), the numbers stand |
 | **Pro planner** (`gemini-3.1-pro` vs `3.7-flash`) | `compare_art_v4` pp vs pf | 13 | +0.090 | ±0.23 | 9/2/2 | keep flash: 2–10× plan cost, 5/14 cells lost to provider limits |
-| **Deterministic repairs** (`CV3D_ART_REPAIRS`, a bundle since removed; its axis flip lives on as upstream's `CV3D_AXIS_REPAIR`, ON by default) | `ab_repairs`, plan pinned | 12 | −0.039 | ±0.105 | 2/5/5 | the bundle does not ship; the axis flip fired in 1 of 12 cells |
-| **Fewer turns** (`CV3D_FEWER_TURNS`) | `ab_fewer_turns`, plan pinned | 14 | +0.015 | ±0.126 | 6/5/3 | ships **OFF**; −12 % tool calls, $/cell unchanged |
-| **Lean prompt** (`CV3D_LEAN_PROMPT`) | `wave2_lean`, plan pinned | 12 | +0.030 | ±0.076 | 8/3/1 | ships **OFF**; −45.7 % generate prompt chars, $3.51 vs $3.66 per cell; code removed 2026-09-03 in review (D52); the numbers stand, the second prompt path does not. |
+| **Deterministic repairs** (`C3D_ART_REPAIRS`, a bundle since removed; its axis flip lives on as upstream's `C3D_AXIS_REPAIR`, ON by default) | `ab_repairs`, plan pinned | 12 | −0.039 | ±0.105 | 2/5/5 | the bundle does not ship; the axis flip fired in 1 of 12 cells |
+| **Fewer turns** (`C3D_FEWER_TURNS`) | `ab_fewer_turns`, plan pinned | 14 | +0.015 | ±0.126 | 6/5/3 | ships **OFF**; −12 % tool calls, $/cell unchanged |
+| **Lean prompt** (`C3D_LEAN_PROMPT`) | `wave2_lean`, plan pinned | 12 | +0.030 | ±0.076 | 8/3/1 | ships **OFF**; −45.7 % generate prompt chars, $3.51 vs $3.66 per cell; code removed 2026-09-03 in review (D52); the numbers stand, the second prompt path does not. |
 
 Two of these carry a second, non-score reading worth keeping:
 
 * The geometry re-ask **fired in 7 of 14 cells** and retro-fires on 8 of 14 recorded
   compare_art_v3 plans (mean score 0.362 for the plans it complains about vs 0.610 for the
   clean ones) — it identifies bad plans, it just does not fix enough of them to show.
-* `CV3D_FEWER_TURNS` and `CV3D_LEAN_PROMPT` both cut tokens without cutting dollars.  The
+* `C3D_FEWER_TURNS` and `C3D_LEAN_PROMPT` both cut tokens without cutting dollars.  The
   reason is in §6: the token growth is quadratic in turns but lands in the cache, so the
   bill is not where the tokens are.
 
@@ -185,7 +185,7 @@ then reproduces that answer through **both** in-context re-asks.  The two re-ask
 the week before changed nothing (29/30 vs 28/30 valid, same window) — the model conditions
 on its own broken output.
 
-**The change** (`CV3D_PLAN_RESTART`, ON with a kill switch): on that failure the
+**The change** (`C3D_PLAN_RESTART`, ON with a kill switch): on that failure the
 conversation is rebuilt from the original request plus the rule the answer broke, instead
 of appending the broken plan and a complaint.
 
@@ -323,7 +323,7 @@ spins, the pantograph mirror's tilt.  (An earlier reading of the same table trea
 joint there is none.)  Then two
 build-and-judge arms, baseline round only, differing by two edits — the `mimic` field
 typed to `None` so the planner cannot fill it, and the paragraph asking for it removed
-from `codeverse/prompts/tracks/plan_articulated.j2` (`bench/data/coupled/`; the nomimic
+from `codeverse3d/prompts/tracks/plan_articulated.j2` (`bench/data/coupled/`; the nomimic
 umbrella cell scored nothing — no verdict in any round, the shape `bench run` now reports
 as an error — so the score row has nine pairs, not ten):
 
@@ -566,13 +566,13 @@ a test enforces by grepping the tree; a switch nothing reads once produced "keep
 
 | switch | what it does | default | why |
 |---|---|---|---|
-| `CV3D_PLAN_GEOMETRY` | plan-time geometry re-ask (attachment gap, hinge pivot, swept collision) | **off** | +0.064 ±0.25, no measurable gain (§4); **removed from the tree 2026-09-21** (D49) |
-| `CV3D_PLAN_RESTART` | re-sample a collapsed plan (one top-level part **and** dangling links) from the original request | **on**, kill switch | 4.7 % → 0.7 % planner mortality, p = 0.0067 (§5.1); narrowed 2026-09-03 and re-measured three-arm: dangling-link deaths 3/140 off vs 0/276, p = 0.038 (exploratory, after three null overall-rate tests — §5.1) |
-| `CV3D_AXIS_REPAIR` (upstream, `tracks/articulated_object.py`) | axis flip on a reversed joint + buried-link check | **on** (upstream default; the A/B ran it against off) | −0.039 ±0.105, fired 1/12 (§4) |
-| `CV3D_LEAN_PROMPT` | drop duplicated contract/tool cards, select cookbook chapters, focus the refine prompt | **off** | +0.030 ±0.076, no cost saving (§4); **removed from the tree 2026-09-03**; last carried on `ziyao/articulated-wave-2` before commit `4cbb28c`. |
-| `CV3D_FEWER_TURNS` (pre-existing) | fold gate checks into build, inline refine files | **off** | +0.015 ±0.126, dollars flat (§4) |
-| `CV3D_AXIS_REPAIR` (upstream) | deterministic axis rewrite from the measured motion | on | upstream's, kept |
-| `CV3D_SCENE_TEXTURES` | wire the scene texture pack into the loop: a stage before env/zones, and `texture_pack_prompt` in both prompts | **off** | added 2026-09-05 (D58) and NOT yet measured.  Four of five scored cells of the first scene battery complain the ground is a flat untextured colour, in near-identical words; the pack generator existed and had never been called from the loop.  Costs an image-model call per run (measured $0.15 for two 512 px textures, seam 0.001) |
+| `C3D_PLAN_GEOMETRY` | plan-time geometry re-ask (attachment gap, hinge pivot, swept collision) | **off** | +0.064 ±0.25, no measurable gain (§4); **removed from the tree 2026-09-21** (D49) |
+| `C3D_PLAN_RESTART` | re-sample a collapsed plan (one top-level part **and** dangling links) from the original request | **on**, kill switch | 4.7 % → 0.7 % planner mortality, p = 0.0067 (§5.1); narrowed 2026-09-03 and re-measured three-arm: dangling-link deaths 3/140 off vs 0/276, p = 0.038 (exploratory, after three null overall-rate tests — §5.1) |
+| `C3D_AXIS_REPAIR` (upstream, `tracks/articulated_object.py`) | axis flip on a reversed joint + buried-link check | **on** (upstream default; the A/B ran it against off) | −0.039 ±0.105, fired 1/12 (§4) |
+| `C3D_LEAN_PROMPT` | drop duplicated contract/tool cards, select cookbook chapters, focus the refine prompt | **off** | +0.030 ±0.076, no cost saving (§4); **removed from the tree 2026-09-03**; last carried on `ziyao/articulated-wave-2` before commit `4cbb28c`. |
+| `C3D_FEWER_TURNS` (pre-existing) | fold gate checks into build, inline refine files | **off** | +0.015 ±0.126, dollars flat (§4) |
+| `C3D_AXIS_REPAIR` (upstream) | deterministic axis rewrite from the measured motion | on | upstream's, kept |
+| `C3D_SCENE_TEXTURES` | wire the scene texture pack into the loop: a stage before env/zones, and `texture_pack_prompt` in both prompts | **off** | added 2026-09-05 (D58) and NOT yet measured.  Four of five scored cells of the first scene battery complain the ground is a flat untextured colour, in near-identical words; the pack generator existed and had never been called from the loop.  Costs an image-model call per run (measured $0.15 for two 512 px textures, seam 0.001) |
 
 Not switched, because they are bug fixes rather than levers: the MCP verdict/failed split
 (§5.2), `<mimic>` support (§5.3), the provider-failure markers and retries (§5.4), the
@@ -588,14 +588,14 @@ python bench/ab_plan.py --prompts bench/prompts/articulated_v2.yaml --aa --pin-p
     --n-samples 3 --rounds 3 --out bench/out/aa_articulated
 # a switch A/B (generation-side switches only; plan-side is refused for --pin-plan)
 python bench/ab_plan.py --prompts bench/prompts/articulated_v2.yaml \
-    --variant-env CV3D_FEWER_TURNS=1 --pin-plan --out bench/out/fewer_turns
+    --variant-env C3D_FEWER_TURNS=1 --pin-plan --out bench/out/fewer_turns
 # harness vs one-shot
 python bench/compare_backends.py --prompts bench/prompts/articulated_v2.yaml \
     --arms harness:gemini-cli:gemini-3.7-flash,oneshot+repair:gemini:gemini-3.7-flash \
     --judge gemini:gemini-3.1-pro-preview --judge-samples 3 --out bench/out/art
 # the loss-event channel: the plan stage alone, one row per call
 python bench/plan_stage_bench.py --tree . --label restart_on --reps 20 \
-    --out bench/data/plan_stage/restart_on.jsonl --env CV3D_PLAN_RESTART=1
+    --out bench/data/plan_stage/restart_on.jsonl --env C3D_PLAN_RESTART=1
 python bench/plan_stage_report.py bench/data/plan_stage/*.jsonl
 # the corpus the loop produces
 3dcode flywheel refine bench/out refine.jsonl --with-code

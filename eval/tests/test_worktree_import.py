@@ -1,8 +1,8 @@
-"""A bench script run from a worktree must use THAT worktree's `codeverse`.
+"""A bench script run from a worktree must use THAT worktree's `codeverse3d`.
 
 WHY this is worth a test of its own: it has silently voided two A/B runs.
 ``ab_plan.spawn_cell`` starts each child as a FILE path, so ``sys.path[0]`` is ``bench/``
-and the cwd is not on the path.  Any ``import codeverse`` before the script's own
+and the cwd is not on the path.  Any ``import codeverse3d`` before the script's own
 ``sys.path`` bootstrap therefore resolves through whatever editable install is present
 (``__editable__.3dcodeverse-<v>.pth`` installs a meta-path finder pinned to the tree it was
 installed from).  Both arms then run the same foreign code, every switch under test is
@@ -23,7 +23,7 @@ import pytest
 
 HARNESS = Path(__file__).resolve().parents[2] / "harness"
 BENCH = Path(__file__).resolve().parents[1] / "bench"
-CODEVERSE_IMPORT = re.compile(r"^\s*(?:from|import)\s+codeverse\b", re.M)
+CODEVERSE_IMPORT = re.compile(r"^\s*(?:from|import)\s+codeverse3d\b", re.M)
 #: every bench module that bootstraps sys.path because it is also run as a script
 SCRIPTS = sorted(p for p in BENCH.glob("*.py")
                  if "sys.path.insert" in p.read_text() and CODEVERSE_IMPORT.search(p.read_text()))
@@ -40,16 +40,16 @@ def test_the_sys_path_bootstrap_comes_before_any_codeverse_import(script: Path):
     first = CODEVERSE_IMPORT.search(text)
     assert first is not None  # filtered by SCRIPTS
     assert first.start() > boot, (
-        f"{script.name} imports codeverse at line {text[:first.start()].count(chr(10)) + 1}, "
+        f"{script.name} imports codeverse3d at line {text[:first.start()].count(chr(10)) + 1}, "
         f"before its sys.path bootstrap at line {text[:boot].count(chr(10)) + 1}. A child "
-        f"spawned by file path would resolve codeverse through the editable install instead "
+        f"spawned by file path would resolve codeverse3d through the editable install instead "
         f"of this tree, and the A/B would compare a tree against itself.")
 
 
 def test_the_guard_refuses_a_foreign_codeverse_for_real(tmp_path: Path):
     """Not "the string is in the file": actually make the bad thing happen.
 
-    A foreign ``codeverse`` is pre-imported into ``sys.modules``, then ab_plan is run as
+    A foreign ``codeverse3d`` is pre-imported into ``sys.modules``, then ab_plan is run as
     ``__main__``.  It must die with its own message rather than proceed to compare a tree
     with itself.
     """
@@ -57,13 +57,13 @@ def test_the_guard_refuses_a_foreign_codeverse_for_real(tmp_path: Path):
     import sys
 
     other = tmp_path / "other"
-    (other / "codeverse").mkdir(parents=True)
-    (other / "codeverse" / "__init__.py").write_text("")
-    (other / "codeverse" / "_compat.py").write_text("from datetime import timezone as _t\nUTC = _t.utc\n")
+    (other / "codeverse3d").mkdir(parents=True)
+    (other / "codeverse3d" / "__init__.py").write_text("")
+    (other / "codeverse3d" / "_compat.py").write_text("from datetime import timezone as _t\nUTC = _t.utc\n")
     src = (
         "import sys, runpy\n"
         f"sys.path.insert(0, {str(other)!r})\n"
-        "import codeverse\n"
+        "import codeverse3d\n"
         "sys.argv = ['ab_plan.py', '--help']\n"
         f"runpy.run_path({str(BENCH / 'ab_plan.py')!r}, run_name='__main__')\n"
     )
@@ -73,9 +73,9 @@ def test_the_guard_refuses_a_foreign_codeverse_for_real(tmp_path: Path):
 
 
 def test_the_guard_actually_compares_the_resolved_package_to_this_tree():
-    import codeverse
+    import codeverse3d
     from bench.ab_plan import REPO, _assert_local_codeverse
 
-    assert Path(codeverse.__file__).resolve().parent == REPO / "codeverse", (
-        "the test suite itself is importing a foreign codeverse")
+    assert Path(codeverse3d.__file__).resolve().parent == REPO / "codeverse3d", (
+        "the test suite itself is importing a foreign codeverse3d")
     _assert_local_codeverse()          # must not raise in a correctly-resolved tree

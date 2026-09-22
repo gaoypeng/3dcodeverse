@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import trimesh
 
-from codeverse.spatial.measure import (
+from codeverse3d.spatial.measure import (
     GlbLoadError,
     instance_groups,
     measure_glb,
@@ -70,7 +70,7 @@ def test_unnamed_single_mesh(tmp_path: Path) -> None:
 def test_cyclic_scene_graph_does_not_hang(tmp_path: Path) -> None:
     """A GLB node named like the loader's base frame ('world') closes a cycle in the
     scene graph; measuring must terminate (with the geometry still counted once)."""
-    from codeverse.spatial.measure import _subtree_nodes, part_meshes
+    from codeverse3d.spatial.measure import _subtree_nodes, part_meshes
 
     box = trimesh.creation.box((0.2, 0.2, 0.2))
     scene = trimesh.Scene(base_frame="root")
@@ -83,7 +83,7 @@ def test_cyclic_scene_graph_does_not_hang(tmp_path: Path) -> None:
 
 # --------------------------------------------------------------------- parse memo (F24)
 def test_cached_parts_identity_and_invalidation(stool_glb: Path) -> None:
-    from codeverse.spatial.measure import cached_parts
+    from codeverse3d.spatial.measure import cached_parts
 
     p1 = cached_parts(stool_glb)
     p2 = cached_parts(stool_glb)
@@ -106,7 +106,7 @@ def test_measure_glb_memoized_and_isolated(stool_glb: Path) -> None:
 
 def test_load_scene_is_never_cached(stool_glb: Path) -> None:
     """Texturing mutates scenes in place — load_scene must hand out fresh objects."""
-    from codeverse.spatial.measure import load_scene
+    from codeverse3d.spatial.measure import load_scene
 
     s1 = load_scene(stool_glb)
     s2 = load_scene(stool_glb)
@@ -144,7 +144,7 @@ def test_world_transform_composes_every_edge_up_to_the_root() -> None:
     the brilliana desk lamp (an upright lamp measured lying down, 2026-08-30); the edge
     walk is what the render rig agrees with.  Here: the rotation on world→pivot must reach
     a grandchild, composed in the right order."""
-    from codeverse.spatial.measure import world_transform
+    from codeverse3d.spatial.measure import world_transform
 
     sc = _root_pivot_scene()
     t = world_transform(sc, "Post_1")
@@ -170,7 +170,7 @@ def test_duplicate_or_unnamed_glTF_nodes_are_named_in_the_findings(tmp_path: Pat
     import json
     import struct
 
-    from codeverse.spatial.measure import gltf_node_names, node_name_findings
+    from codeverse3d.spatial.measure import gltf_node_names, node_name_findings
 
     raw = _root_pivot_scene().export(file_type="glb")
     (n,) = struct.unpack("<I", raw[12:16])

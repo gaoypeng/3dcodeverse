@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codeverse.skills.registry import ROUTED_SKILLS, ROUTES, Route, finding_kind, finding_kinds
+from codeverse3d.skills.registry import ROUTED_SKILLS, ROUTES, Route, finding_kind, finding_kinds
 
 DATA = Path(__file__).parent / "data" / "gate_findings.json"
 GOLDEN = json.loads(DATA.read_text())["findings"]
@@ -53,7 +53,7 @@ def test_finding_kinds_accepts_reports_findings_and_strings():
 
 # --------------------------------------------------------------------------- the table
 #: Retired ids remain reserved because run records refer to routing decisions by id.
-RETIRED_RULES = {"R5": "cv3d-form-manifest, cut 2026-08-25 (read 2/19); docs/SKILLS_LEDGER.md"}
+RETIRED_RULES = {"R5": "c3d-form-manifest, cut 2026-08-25 (read 2/19); docs/SKILLS_LEDGER.md"}
 
 
 def test_rule_ids_are_unique_and_the_design_numbers_are_all_present():
@@ -73,7 +73,7 @@ def test_every_routed_skill_is_actually_in_the_library():
 
     A route naming an absent bundle is silently skipped by the router, so this would not
     crash a run — it would just make the ledger describe routing that never happens."""
-    from codeverse.skills import all_skills
+    from codeverse3d.skills import all_skills
 
     assert not (set(r.skill for r in ROUTES) - set(all_skills()))
 
@@ -90,7 +90,7 @@ def test_every_row_carries_a_reason_and_a_known_skill():
     for r in ROUTES:
         assert r.why and len(r.why) > 20, r.rule
         assert r.skill in ROUTED_SKILLS
-        assert r.skill.startswith("cv3d-")
+        assert r.skill.startswith("c3d-")
 
 
 def test_route_finding_patterns_are_real_kinds_or_families():
@@ -103,7 +103,7 @@ def test_route_finding_patterns_are_real_kinds_or_families():
 
 
 def test_matches_finding_supports_exact_and_family_patterns():
-    row = Route("X", "cv3d-part-contact", 95, findings=("connectivity/*", "joint_sweep/link_overlap"))
+    row = Route("X", "c3d-part-contact", 95, findings=("connectivity/*", "joint_sweep/link_overlap"))
     assert row.matches_finding(["connectivity/floating_part"]) == "connectivity/floating_part"
     assert row.matches_finding(["joint_sweep/link_overlap"]) == "joint_sweep/link_overlap"
     assert row.matches_finding(["joint_sweep/disconnected"]) is None

@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2] / "codeverse"
+ROOT = Path(__file__).resolve().parents[2] / "codeverse3d"
 
-#: leaf → the codeverse packages it must NOT import
+#: leaf → the codeverse3d packages it must NOT import
 FORBIDDEN: dict[str, tuple[str, ...]] = {
     "judges": ("tracks", "flywheel", "cli", "orchestrator", "agents", "gallery", "skills", "texturing"),
     "workspace.py": ("tracks", "flywheel", "cli", "orchestrator", "agents", "gallery", "skills", "texturing",
@@ -43,7 +43,7 @@ def test_leaf_layer_never_imports_upward(leaf: str) -> None:
     bad = []
     for f in files:
         for lineno, mod in _imports(f):
-            if not mod.startswith("codeverse."):
+            if not mod.startswith("codeverse3d."):
                 continue
             head = mod.split(".")[1]
             if head in FORBIDDEN[leaf] or f"{head}.py" in FORBIDDEN[leaf]:

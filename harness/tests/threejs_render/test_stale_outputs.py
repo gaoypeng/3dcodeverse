@@ -11,10 +11,10 @@ import json
 
 import pytest
 
-import codeverse.languages.threejs as rt_mod
-from codeverse.languages.threejs import ThreeJsRuntime
-from codeverse.spatial.node import NodeError, NodeResult
-from codeverse.workspace import Workspace
+import codeverse3d.languages.threejs as rt_mod
+from codeverse3d.languages.threejs import ThreeJsRuntime
+from codeverse3d.spatial.node import NodeError, NodeResult
+from codeverse3d.workspace import Workspace
 
 
 def _ws_with_stale(tmp_path) -> Workspace:

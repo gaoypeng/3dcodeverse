@@ -6,7 +6,7 @@ import threading
 
 import pytest
 
-from codeverse.models.retry import MAX_WAIT_S, StormGate, all_gates, storm_gate
+from codeverse3d.models.retry import MAX_WAIT_S, StormGate, all_gates, storm_gate
 
 
 class Clock:

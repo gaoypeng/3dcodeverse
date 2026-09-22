@@ -1,6 +1,6 @@
 import pytest
 
-from codeverse.judges.rubrics import RubricError, list_rubrics, load_rubric, rubric_from_dict
+from codeverse3d.judges.rubrics import RubricError, list_rubrics, load_rubric, rubric_from_dict
 
 EXPECTED = {"static_object_v1", "articulated_v1", "scene_v1", "asset_v1", "reference_v1"}
 
@@ -61,7 +61,7 @@ def test_content_hash_stable():
 def test_cap_rule_measures_defaults_to_its_own_id_and_the_object_rubrics_name_interpenetration():
     """2026-08-30: ``penetration_error`` had never vetoed ``interpenetration`` because the veto
     matched on id; the object rubrics now say which checklist defect each gate rule measures."""
-    from codeverse.judges.rubrics import CapRule
+    from codeverse3d.judges.rubrics import CapRule
 
     assert CapRule(id="floating_part", cap=0.6).measures == ["floating_part"]
     assert CapRule(id="penetration_error", cap=0.7, measures=["interpenetration"]).measures == ["interpenetration"]
@@ -85,8 +85,8 @@ def test_cap_rules_are_not_part_of_the_judge_prompt():
     are scored in code and never rendered to the judge (prompt_builder._rubric_block)."""
     import yaml
 
-    from codeverse.judges.prompt_builder import judge_prompt_hash
-    from codeverse.judges.rubrics import RUBRICS_DIR, rubric_from_dict
+    from codeverse3d.judges.prompt_builder import judge_prompt_hash
+    from codeverse3d.judges.rubrics import RUBRICS_DIR, rubric_from_dict
 
     r = load_rubric("static_object_v1")
     data = yaml.safe_load((RUBRICS_DIR / "static_object_v1.yaml").read_text())

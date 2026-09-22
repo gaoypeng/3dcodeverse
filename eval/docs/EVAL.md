@@ -1,13 +1,13 @@
 # Evaluation protocol
 
-> **Paths in this document.** `bench/…` is relative to `eval/` (this folder's parent); `codeverse/…`, `tests/…`,
+> **Paths in this document.** `bench/…` is relative to `eval/` (this folder's parent); `codeverse3d/…`, `tests/…`,
 > `runtime_js/…` and the other `docs/…` files are relative to `harness/`.  Recorded battery output (`bench/out/…`)
 > is run data and is not in git.
 
 How we decide whether the harness (plan → generate → gate → render → judge →
 refine) beats raw generation, and whether one backend beats another, without
 fooling ourselves.  Tools: `3dcode bench`, `bench/compare_backends.py`,
-`codeverse.judges.{vlm_judge, pairwise, calibration, metrics}`.
+`codeverse3d.judges.{vlm_judge, pairwise, calibration, metrics}`.
 
 ## 1. Principles
 
@@ -35,7 +35,7 @@ fooling ourselves.  Tools: `3dcode bench`, `bench/compare_backends.py`,
    and wall time; compare at equal budget where possible.
 7. **Reproducibility.**  `record.prompt_hashes` (contract/cookbook/generate/refine),
    rubric content hash (`ScoreBreakdown.rubric_hash`), `record.environment` (python,
-   codeverse, blender, node, three, host) are stored per run; keep seeds fixed
+   codeverse3d, blender, node, three, host) are stored per run; keep seeds fixed
    (`--seed`).
 
 ## 2. Batteries (`bench/prompts/`)
@@ -125,7 +125,7 @@ unstated effort silently changes what a codex arm measures.
 
 **Incomplete: `harness:codex:gpt-5.6-sol` has 2 evaluated cells, `harness:gemini-cli:gemini-3.6-flash` 2, `oneshot:gemini:gemini-3.7-flash` 7; harness terra / luna have none** — flash (the planner) answered on 0/6 keys and pro (the judge) intermittently for the whole window, so only the 8 compare_v2 prompts are covered and none of compare_v3's 4 new prompts has run.  Full table, per-prompt grid and re-pricing notes: `bench/out/codex_tiers_v3/report.md`.
 
-Fixed judge `gemini:gemini-3.1-pro-preview` for every cell; `infra_failed` / outage-text cells excluded (`dropped`), not scored 0; codex USD re-priced from recorded tokens with `codeverse.models.pricing` (terra/luna price rows post-date the runs, so `results.jsonl` shows 0.00 for terra).  All 44 codex invocations (24 one-shot argv, 20 harness trajectory argv) carry `--model gpt-5.6-<tier>` and `-c model_reasoning_effort=high`; the un-tiered `oneshot:codex` arm resolves to sol@high via `~/.codex/config.toml`.
+Fixed judge `gemini:gemini-3.1-pro-preview` for every cell; `infra_failed` / outage-text cells excluded (`dropped`), not scored 0; codex USD re-priced from recorded tokens with `codeverse3d.models.pricing` (terra/luna price rows post-date the runs, so `results.jsonl` shows 0.00 for terra).  All 44 codex invocations (24 one-shot argv, 20 harness trajectory argv) carry `--model gpt-5.6-<tier>` and `-c model_reasoning_effort=high`; the un-tiered `oneshot:codex` arm resolves to sol@high via `~/.codex/config.toml`.
 
 | arm | n | dropped | mean | median | pass | build ok | $gen/run real | $gen/run notional | $/pass |
 |---|---|---|---|---|---|---|---|---|---|
@@ -144,7 +144,7 @@ Judge adds ~$0.10–0.12 real per cell to every arm.  What can and cannot be sai
 * **One-shot tier ranking**, n=8: sol 0.627 > terra 0.481 > luna 0.344, and it survives dropping each arm's best and worst prompt (0.609 > 0.491 > 0.302).  It does not hold on pass rate (terra 2/8 vs sol 1/8, luna 1/8).
 * **$ per passing artifact**: notional (subscription) luna 0.11 < terra 0.55 < sol 2.7 one-shot; harness sol 7.23 (0.26 real + 6.97 notional).  Real spend on the API arms bought no pass (flash harness $1.27, flash one-shot $0.30).  One or two passes per arm — prices of single artifacts, not rates.
 
-Pending: rerun the parked sol battery, then terra, then luna, then the claude-code / gemini one-shot baselines on the 4 new prompts (one process, `CV3D_MAX_IN_FLIGHT=16`, `--wait-for-provider 240`, `--redo-status infra_failed`).
+Pending: rerun the parked sol battery, then terra, then luna, then the claude-code / gemini one-shot baselines on the 4 new prompts (one process, `C3D_MAX_IN_FLIGHT=16`, `--wait-for-provider 240`, `--redo-status infra_failed`).
 
 ## 5. Comparing backends inside the harness
 
@@ -156,10 +156,10 @@ cross-backend candidate pairs keyed by prompt hash).
 
 ## 6. Judge calibration
 
-`codeverse.addons.calibration` re-judges recorded rounds without touching the runs:
+`codeverse3d.addons.calibration` re-judges recorded rounds without touching the runs:
 
 ```bash
-python -m codeverse.addons.calibration <run-dir> [<run-dir> ...] \
+python -m codeverse3d.addons.calibration <run-dir> [<run-dir> ...] \
     --model gemini:gemini-3.1-pro-preview --n 3 --out out/calib [--geometry clay|normals|none] [--rounds 0,1]
 # run dirs: any recorded run, e.g. bench/out/<battery>/runs/<slug>
 ```
@@ -402,8 +402,8 @@ Three details are the whole correctness of it:
   re-plan per arm while reporting itself pinned — the one failure this must not have.
 * **`pin_plan_blockers` gates the flag** and `main` refuses the run when it is non-empty.
   Pinning a plan-side switch deletes the thing under test and the rig would then report
-  "no effect" with confidence.  `CV3D_SKILLS*` are in `GENERATION_SIDE_ENV`, so the skills
-  wave is pinnable; `CV3D_PLAN_BRIEF` is not, and `--pin-plan` rejects it.
+  "no effect" with confidence.  `C3D_SKILLS*` are in `GENERATION_SIDE_ENV`, so the skills
+  wave is pinnable; `C3D_PLAN_BRIEF` is not, and `--pin-plan` rejects it.
 
 Pinning is orthogonal to `--aa`, and an A/A that will be read against a pinned A/B must be
 pinned too — otherwise the floor carries a variance term the A/B has already removed and
@@ -417,9 +417,9 @@ recorded corpus, before spending anything:
 
 | target | baseline | paired sd (est.) | pairs to resolve a 25% move |
 |---|---|---|---|
-| `cv3d-glsl-craft` / mean_edge_density | 0.234, spread 0.031–0.464 | 0.207 unpaired | ~50 unpaired — pinning + pairing is what makes it affordable |
-| `cv3d-urdf-joints` / joint_sweep_errors | 6.91 mean, 20 of 23 runs at **0**, tail 8/50/101 | ~32.6 | **~1420** (~89 even to see the metric go to zero) |
-| `cv3d-scene-composition` / camera_placement_findings | 0.25 on round 1, **0.00** by the last round | ~0.71 | **~512** (~32 to eliminate every fault) |
+| `c3d-glsl-craft` / mean_edge_density | 0.234, spread 0.031–0.464 | 0.207 unpaired | ~50 unpaired — pinning + pairing is what makes it affordable |
+| `c3d-urdf-joints` / joint_sweep_errors | 6.91 mean, 20 of 23 runs at **0**, tail 8/50/101 | ~32.6 | **~1420** (~89 even to see the metric go to zero) |
+| `c3d-scene-composition` / camera_placement_findings | 0.25 on round 1, **0.00** by the last round | ~0.71 | **~512** (~32 to eliminate every fault) |
 
 Two of those three are answered by arithmetic, not by a battery.  Running them anyway and
 reporting "no effect" would be the rig lying about what it can see.
@@ -467,10 +467,10 @@ any battery was bought** — which is the point of measuring the floor first.
 
 | bundle | target | what decided it |
 |---|---|---|
-| `cv3d-glsl-craft` | mean_edge_density | its **own pinned A/A**: paired sd **0.128**, ±2 SE **0.180**, control mean 0.092 → **123 pairs** to resolve a 25% move.  The A/A's identical arms differed by **+0.069**, three times any effect an 8-pair A/B could claim. |
-| `cv3d-repeats-and-mirrors` | contract_instance_findings | 132 of 164 corpus runs already at 0; the pinned A/A's one completed pair tied 1.000 → 1.000 |
-| `cv3d-urdf-joints` | joint_sweep_errors | arithmetic: 20 of 23 runs at 0 with a tail of 8/50/101, paired sd ≈ 32.6 → **~1420 pairs** for 25%, ~89 merely to drive it to zero |
-| `cv3d-scene-composition` | camera_placement_findings | undeliverable (§ below) *and* 0.25 → 0.00 across the corpus → ~512 pairs |
+| `c3d-glsl-craft` | mean_edge_density | its **own pinned A/A**: paired sd **0.128**, ±2 SE **0.180**, control mean 0.092 → **123 pairs** to resolve a 25% move.  The A/A's identical arms differed by **+0.069**, three times any effect an 8-pair A/B could claim. |
+| `c3d-repeats-and-mirrors` | contract_instance_findings | 132 of 164 corpus runs already at 0; the pinned A/A's one completed pair tied 1.000 → 1.000 |
+| `c3d-urdf-joints` | joint_sweep_errors | arithmetic: 20 of 23 runs at 0 with a tail of 8/50/101, paired sd ≈ 32.6 → **~1420 pairs** for 25%, ~89 merely to drive it to zero |
+| `c3d-scene-composition` | camera_placement_findings | undeliverable (§ below) *and* 0.25 → 0.00 across the corpus → ~512 pairs |
 
 Two things are worth keeping from it.
 
@@ -611,13 +611,13 @@ under `bench/out/`.
 (`None` = the track default, `lifecycle.DEFAULT_DETAIL_ROUNDS=1` where supported; `0` = off).
 Until this date a profile that injected a `judge_samples>1` policy (economy, quality)
 silently zeroed the static track's surface-detail round while balanced kept it; all
-three profiles now get it, and `CV3D_DETAIL_ROUNDS` remains the A/B switch.  Any
+three profiles now get it, and `C3D_DETAIL_ROUNDS` remains the A/B switch.  Any
 economy/quality-vs-balanced comparison straddling this commit compares different
 round counts.
 
 **2026-08-29 — per-language system prompts: NULL, three independent A/Bs.**  The
 one-line system prompts were replaced with evidence-grounded ones mined from each
-language's recorded failure corpus (the `CV3D_SYSPROMPT=v0` arm kept the old ones for
+language's recorded failure corpus (the `C3D_SYSPROMPT=v0` arm kept the old ones for
 the A/B; arm and `system_v0.md` files were deleted 2026-08-29 after the null).  Three
 paired A/Bs all read null: glsl CLI (n=10/arm, Δ+0.003, within-arm σ 0.18), blender
 single-shot (8 pairs, paired Δ−0.027), blender CLI on 3.6-flash (10/10 pairs, paired
@@ -651,9 +651,9 @@ means and mechanism evidence are read.
 **Levers landed** (each commit message carries the measured motivation):
 env-skeleton lint ERROR (251d099); boot-time settle (35168da) + slope-conformal guard
 (e71221a); assets ∥ env (1ddea7f); plan-aware contract gates (1bdfd32); L2 zone layouts
-(beb6605) + camera clearance (58da6b3) + `CV3D_ZONE_LAYOUTS` switch (020316d); opt-in camera
-repair (0365fef, `CV3D_CAMERA_REPAIR=1`); opt-in auto-exposure (78d397c,
-`CV3D_AUTO_EXPOSURE=1`).
+(beb6605) + camera clearance (58da6b3) + `C3D_ZONE_LAYOUTS` switch (020316d); opt-in camera
+repair (0365fef, `C3D_CAMERA_REPAIR=1`); opt-in auto-exposure (78d397c,
+`C3D_AUTO_EXPOSURE=1`).
 
 **Longitudinal arms:**
 
@@ -826,7 +826,7 @@ battery) and the agents applied none of them.  Measurement existed; execution
 didn't follow → shipped `dd88944` deterministic axis repair
 (`repair_motion_axes`: anti-parallel → negate authored axis, orthogonal →
 write suggested_axis; runs before the sweep so poses/renders/judge see the
-fix; INFO finding tells the agent not to undo it; `CV3D_AXIS_REPAIR=0`).
+fix; INFO finding tells the agent not to undo it; `C3D_AXIS_REPAIR=0`).
 Confounds recorded honestly: this arm ran on 3.6-flash (3.7 outage, 000×3
 probes), and `21c34c1` transport-retry landed mid-battery (these runs predate
 it).  Validation arm `art_axr_v1` (same briefs, 3.7, both levers live) is in
@@ -903,7 +903,7 @@ the session sceneloop scratchpad; runs under its runs/ dir):
   — RETRY-RATE REDUCTION is the ranked lever.
 * **Refuted from stored data ($0):** 3.6-flash for asset single-shots — retry-rate 0.39 vs
   3.7's 0.27 AND $/first 0.0184 vs 0.0116 (era confound noted).  3.7 stays the asset model.
-* **First skills A/B** (the 4 ported bundles, CV3D_SKILLS_ONLY, 6 prompts x {off,on},
+* **First skills A/B** (the 4 ported bundles, C3D_SKILLS_ONLY, 6 prompts x {off,on},
   generator gemini-cli:3.6-flash under provider degradation, planner pro, single run per arm):
   meanΔ(on−off) = −0.068, pairs [koi −0.07, neon −0.49, lake +0.25, alley −0.53, ruins 0.00,
   snow +0.45], sd(d) ≈ 0.39 → a ±0.1 effect is UNRESOLVABLE at n=6.  Attach integrity was

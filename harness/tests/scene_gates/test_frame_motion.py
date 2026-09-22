@@ -14,9 +14,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from codeverse.contracts.artifacts import Severity
-from codeverse.spatial.frame_metrics import frame_findings, stored_motion
-from codeverse.spatial.frame_motion import (
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.spatial.frame_metrics import frame_findings, stored_motion
+from codeverse3d.spatial.frame_motion import (
     MOVING_FRAC,
     motion_from_dir,
     motion_rows,

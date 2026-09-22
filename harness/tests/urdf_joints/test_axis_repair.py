@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse.tracks.articulated_object import MOTION_GATE, repair_motion_axes
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse3d.tracks.articulated_object import MOTION_GATE, repair_motion_axes
+from codeverse3d.workspace import Workspace
 
 URDF = """<?xml version="1.0"?>
 <robot name="cab">
@@ -82,7 +82,7 @@ def test_warn_and_unknown_joints_are_skipped(tmp_path):
 
 
 def test_kill_switch_disables(tmp_path, monkeypatch):
-    monkeypatch.setenv("CV3D_AXIS_REPAIR", "0")
+    monkeypatch.setenv("C3D_AXIS_REPAIR", "0")
     ws = _ws(tmp_path)
     assert repair_motion_axes(ws, _report(_finding("Hinge", cos=-1.0))) == []
     assert _axis_of(ws, "Hinge") == (0.0, 0.0, -1.0)
@@ -99,7 +99,7 @@ def test_a_paired_axis_tag_keeps_the_joints_limit():
     """PR #3 review: '/>' never occurs inside '</axis>', so the old splice searched past
     the paired tag, landed on the NEXT self-closing element and deleted the joint's
     <limit/> — an invalid revolute joint shipped to src/ and artifacts/."""
-    from codeverse.tracks.articulated_object import _set_axis_in_urdf_text
+    from codeverse3d.tracks.articulated_object import _set_axis_in_urdf_text
 
     for axis_form in ('<axis xyz="1 0 0"></axis>', '<axis xyz="1 0 0"/>'):
         urdf = ('<robot name="r"><joint name="h" type="revolute">\n'
@@ -117,8 +117,8 @@ def test_suggested_axis_is_expressed_in_the_joint_frame(tmp_path):
     motion when installed."""
     import numpy as np
 
-    from codeverse.spatial.joints_model import load_urdf
-    from codeverse.spatial.joints_sweep import motion_direction_check
+    from codeverse3d.spatial.joints_model import load_urdf
+    from codeverse3d.spatial.joints_sweep import motion_direction_check
 
     urdf = tmp_path / "r.urdf"
     urdf.write_text(

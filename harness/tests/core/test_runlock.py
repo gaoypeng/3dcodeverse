@@ -1,4 +1,4 @@
-"""One writer per run directory — see codeverse/runlock.py."""
+"""One writer per run directory — see codeverse3d/runlock.py."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.proc import (
+from codeverse3d.proc import (
     LOCKS_DIR,
     RunLocked,
     exclusive,
@@ -25,7 +25,7 @@ def _child_script(run_root: Path, ready: Path, go: Path) -> str:
     return (
         "import sys, time, pathlib\n"
         f"sys.path.insert(0, {str(HARNESS_ROOT)!r})\n"
-        "from codeverse.proc import exclusive, RunLocked\n"
+        "from codeverse3d.proc import exclusive, RunLocked\n"
         f"root, ready, go = pathlib.Path({str(run_root)!r}), pathlib.Path({str(ready)!r}), pathlib.Path({str(go)!r})\n"
         "try:\n"
         "    with exclusive(root, what='child'):\n"
@@ -118,7 +118,7 @@ def test_a_second_thread_is_refused_and_the_first_keeps_the_lock(tmp_path: Path)
 
 def test_a_failed_record_write_leaks_nothing(tmp_path: Path, monkeypatch):
     """A failed holder-record write leaks neither fd nor in-process registry."""
-    import codeverse.proc as R
+    import codeverse3d.proc as R
 
     run_root = tmp_path / "runs" / "slug"
     run_root.mkdir(parents=True)
@@ -159,7 +159,7 @@ def test_force_refuses_to_wipe_a_run_another_holder_is_using(tmp_path: Path):
     import subprocess
     import sys
 
-    from codeverse.cli._common import CliError, mutating
+    from codeverse3d.cli._common import CliError, mutating
 
     run_root = tmp_path / "runs" / "held_run"
     run_root.mkdir(parents=True)

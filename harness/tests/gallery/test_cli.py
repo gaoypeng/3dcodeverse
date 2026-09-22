@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from codeverse.cli.main import app, resolve_roots
+from codeverse3d.cli.main import app, resolve_roots
 
 runner = CliRunner()
 
@@ -56,8 +56,8 @@ def test_default_roots_from_cwd(gallery_tree: dict[str, Path], monkeypatch: pyte
 
 def test_no_roots_anywhere_is_a_clear_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("CV3D_RUNS_DIR", str(tmp_path / "absent"))
-    from codeverse.config import get_settings
+    monkeypatch.setenv("C3D_RUNS_DIR", str(tmp_path / "absent"))
+    from codeverse3d.config import get_settings
 
     get_settings.cache_clear()
     try:

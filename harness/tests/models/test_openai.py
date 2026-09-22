@@ -8,9 +8,9 @@ from typing import Any
 import httpx
 import pytest
 
-from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
-from codeverse.models.base import ModelError
-from codeverse.models.openai import (
+from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
+from codeverse3d.models.base import ModelError
+from codeverse3d.models.openai import (
     OpenAIModel,
     build_kwargs,
     classify_exception,
@@ -193,9 +193,9 @@ def test_empty_and_classify():
 
 
 def test_base_url_from_settings(monkeypatch):
-    from codeverse.config import get_settings
+    from codeverse3d.config import get_settings
 
-    monkeypatch.setenv("CV3D_OPENAI_BASE_URL", "http://localhost:8000/v1")
+    monkeypatch.setenv("C3D_OPENAI_BASE_URL", "http://localhost:8000/v1")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     get_settings.cache_clear()
     try:

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from codeverse.contracts.artifacts import Severity
-from codeverse.languages.glsl_shader import (
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.languages.glsl_shader import (
     HEADER,
     compose,
     detect_convention,
@@ -12,8 +12,8 @@ from codeverse.languages.glsl_shader import (
     lint_workspace,
     parse_glsl_log,
 )
-from codeverse.languages.opengl_python import lint_source
-from codeverse.languages.opengl_python import lint_workspace as lint_program_ws
+from codeverse3d.languages.opengl_python import lint_source
+from codeverse3d.languages.opengl_python import lint_workspace as lint_program_ws
 
 SHADER = "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = fragCoord / u_resolution.xy;\n    fragColor = vec4(uv, 0.5 + 0.5*sin(u_time), 1.0);\n}\n"
 COMMON = "float hash(float n) { return fract(sin(n) * 43758.5453); }\n"

@@ -16,11 +16,11 @@ import pytest
 import trimesh
 from PIL import Image
 
-from codeverse.contracts.artifacts import Judgment, RenderSet, RenderView
-from codeverse.contracts.chat import ChatResponse
-from codeverse.contracts.common import Language, Track, Usage
-from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
-from codeverse.contracts.spec import Spec
+from codeverse3d.contracts.artifacts import Judgment, RenderSet, RenderView
+from codeverse3d.contracts.chat import ChatResponse
+from codeverse3d.contracts.common import Language, Track, Usage
+from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
+from codeverse3d.contracts.spec import Spec
 
 
 def _box(ext: tuple[float, float, float], center: tuple[float, float, float]) -> trimesh.Trimesh:
@@ -145,7 +145,7 @@ class FakeImageModel:
     """Deterministic procedural textures (seeded by the prompt) for offline tests.
     Records every prompt it was asked for in ``calls``.
 
-    Lived in ``codeverse.texturing.generate`` until 2026-08-30, where nothing in a
+    Lived in ``codeverse3d.texturing.generate`` until 2026-08-30, where nothing in a
     real run could reach it: no setting, env var or CLI flag selects it, and the
     keyless path raises ``ModelError`` rather than falling back to a fake."""
 
@@ -169,7 +169,7 @@ class FakeImageModel:
         with self._lock:
             self.calls.append(prompt)
         if any(s in prompt for s in self.fail_on):
-            from codeverse.models.base import ModelError
+            from codeverse3d.models.base import ModelError
 
             raise ModelError(f"fake image model refused: {prompt[:40]}", retryable=False)
         if self.latency_s:

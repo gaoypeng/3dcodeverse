@@ -55,5 +55,5 @@ CadQuery 200/200 (report: 199/200), OpenSCAD 50/50, GLSL 178/200 compile, three.
 
 ## C. Local re-scores (this machine, `docs/results/`)
 
-Filled in by the runs under `$CV3D_EVAL_OUT` (`report.py`): frontier logs replayed under the official protocol,
+Filled in by the runs under `$C3D_EVAL_OUT` (`report.py`): frontier logs replayed under the official protocol,
 the reference self-test, and the open 8B/9B runs. See `docs/results/README.md`.

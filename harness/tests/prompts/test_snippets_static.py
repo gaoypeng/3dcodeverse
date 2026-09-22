@@ -91,8 +91,8 @@ def test_xml_examples_follow_the_enforced_frame_recipe(rel: str, tmp_path) -> No
     consistency rule the build enforces: meshes hold WORLD coordinates, so FK(q=0) of a
     link composed with its visual origin is the identity (visual origin = −link frame).
     This is the recipe the reviewer found the docs contradicting (visual origin 0 0 0)."""
-    from codeverse.languages.urdf import lint_urdf_text
-    from codeverse.spatial.joints import fk, load_urdf
+    from codeverse3d.languages.urdf import lint_urdf_text
+    from codeverse3d.spatial.joints import fk, load_urdf
 
     checked = 0
     for i, body in enumerate(blocks(rel, "xml")):
@@ -154,7 +154,7 @@ def test_glsl_strings_are_sane() -> None:
 
 
 def test_singleshot_example_parses_with_harness_parser() -> None:
-    gen = pytest.importorskip("codeverse.tracks.generation")
+    gen = pytest.importorskip("codeverse3d.tracks.generation")
     text = read_prompt("system/singleshot_format.md")
     example = blocks("system/singleshot_format.md", "text")[-1]
     files = gen.parse_multifile(example)

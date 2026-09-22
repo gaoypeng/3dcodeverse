@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import trimesh
 
-from codeverse.contracts.plan import ArticulatedPlan, BBox, JointPlan, PartPlan
+from codeverse3d.contracts.plan import ArticulatedPlan, BBox, JointPlan, PartPlan
 
 CABINET_PRIMS = """<robot name="cab">
 <link name="body"><visual><origin xyz="0 0 0.4"/><geometry><box size="0.6 0.4 0.8"/></geometry></visual></link>

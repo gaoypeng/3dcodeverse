@@ -15,12 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.addons.dataset.export import export_samples, load_captions
-from codeverse.addons.dataset.index import build_index as build_sqlite_index
-from codeverse.addons.dataset.pairs import build_pairs
-from codeverse.addons.dataset.sample import SampleError
-from codeverse.contracts.run import RunId
-from codeverse.record.record import FoundRun, battery_label, iter_runs, run_id_for, unique_files
+from codeverse3d.addons.dataset.export import export_samples, load_captions
+from codeverse3d.addons.dataset.index import build_index as build_sqlite_index
+from codeverse3d.addons.dataset.pairs import build_pairs
+from codeverse3d.addons.dataset.sample import SampleError
+from codeverse3d.contracts.run import RunId
+from codeverse3d.record.record import FoundRun, battery_label, iter_runs, run_id_for, unique_files
 from tests.flywheel_cli.conftest import make_fake_run
 
 
@@ -130,7 +130,7 @@ def test_nested_run_identity_survives_every_flywheel_consumer(tmp_path: Path):
     assert runs == {"cmp_a_stool__armx", "cmp_b_lamp__armx"}
 
     # Caption sidecars are equally isolated.
-    from codeverse.addons.dataset.captions import caption_sample
+    from codeverse3d.addons.dataset.captions import caption_sample
     from tests.flywheel_cli.test_captions import GOOD, FakeModel
 
     side = tmp_path / "caps"

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from codeverse.texturing.generate import SEAM_MAX, generate_textures, prompt_key
+from codeverse3d.texturing.generate import SEAM_MAX, generate_textures, prompt_key
 from tests.texturing.conftest import FakeImageModel
 
 
@@ -36,7 +36,7 @@ def test_generate_records_failures_per_texture(tmp_path: Path):
 
 
 def test_generate_accepts_texture_plan_and_empty(tmp_path: Path, chair_plan):
-    from codeverse.texturing.plan import default_plan
+    from codeverse3d.texturing.plan import default_plan
 
     tp = default_plan(chair_plan)
     ts = generate_textures(tp, tmp_path, FakeImageModel(), size=64, cache_dir=tmp_path / "c")

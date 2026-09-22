@@ -6,7 +6,7 @@
 # machinist_vise 11.4 / 0.60 · spiral_stair 20.6 / 0.60 · drafting_table 30.2 / 0.60.
 # Run with:
 #   python bench/ab_plan.py --prompts bench/prompts/turns_v1.yaml --out bench/out/turns_v1 \
-#     --pin-plan --variant-env CV3D_FEWER_TURNS=1 \
+#     --pin-plan --variant-env C3D_FEWER_TURNS=1 \
 #     --generator gemini-cli:gemini-3.6-flash --judge gemini:gemini-3.1-pro-preview \
 #     --rounds 3 --max-minutes 120 --max-in-flight 8 --allow-siblings
 name: turns_v1
@@ -14,7 +14,7 @@ track: static_object
 language: blender
 description: >
   fewer-turns A/B slice: 6 static_objects_v2 blender prompts (2 medium controls, 4 hard) with
-  static_v2_flash baselines, run paired with --pin-plan and --variant-env CV3D_FEWER_TURNS=1.
+  static_v2_flash baselines, run paired with --pin-plan and --variant-env C3D_FEWER_TURNS=1.
 prompts:
   - id: ctrl_med_dining_chair
     tier: medium

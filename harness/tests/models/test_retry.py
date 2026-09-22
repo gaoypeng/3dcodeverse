@@ -8,10 +8,10 @@ import time
 
 import pytest
 
-from codeverse.contracts.common import Usage
-from codeverse.models.base import ModelError
-from codeverse.models.gemini import HTTP_TIMEOUT_FLOOR_S
-from codeverse.models.retry import (
+from codeverse3d.contracts.common import Usage
+from codeverse3d.models.base import ModelError
+from codeverse3d.models.gemini import HTTP_TIMEOUT_FLOOR_S
+from codeverse3d.models.retry import (
     ACQUIRE_TIMEOUT_S,
     MAX_WAIT_S,
     RETRY_DEADLINE_S,
@@ -85,7 +85,7 @@ def test_with_retries_stops_on_non_retryable_and_exhaustion():
 def test_with_retries_honours_a_deadline_and_stamps_attempts():
     """The SDK adapters' loop: ``ChatRequest.max_wait_s`` bounds the whole call and the
     raised ModelError says how many round-trips were issued (the ledger's error row)."""
-    from codeverse.models.base import ModelError
+    from codeverse3d.models.base import ModelError
 
     calls = 0
 

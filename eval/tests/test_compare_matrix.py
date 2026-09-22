@@ -222,10 +222,10 @@ def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
     tree, not into the per-process fallback log (docs/COST.md §12).  The harness arm
     gets a nested ledger for its own run; the cell's own ledger holds the spend that
     sits OUTSIDE that run (the fixed evaluator's judge) — the §6 gap."""
-    from codeverse.contracts.chat import ChatMessage, ChatRequest, ChatResponse
-    from codeverse.contracts.common import Usage
-    from codeverse.cost.instrument import MeteredChatModel
-    from codeverse.cost.ledger import load_ledger
+    from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ChatResponse
+    from codeverse3d.contracts.common import Usage
+    from codeverse3d.cost.instrument import MeteredChatModel
+    from codeverse3d.cost.ledger import load_ledger
 
     class FakeChat:
         provider, model, id = "gemini", "gemini-3.7-flash", "gemini:gemini-3.7-flash"

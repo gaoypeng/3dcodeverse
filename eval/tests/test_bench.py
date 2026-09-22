@@ -9,8 +9,8 @@ import pytest
 
 from bench.report import build_report, load_results
 from bench.run_bench import Battery, BenchOptions, run_battery
-from codeverse.contracts.run import RunRecord, RunStatus
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.run import RunRecord, RunStatus
+from codeverse3d.workspace import Workspace
 from tests.conftest import make_fake_run
 
 REPO = Path(__file__).resolve().parents[1]
@@ -91,10 +91,10 @@ def test_run_battery_resume_and_report(tmp_path: Path):
 def test_every_bench_prompt_opens_its_own_run_ledger(tmp_path: Path):
     """The batteries produce most of the runs; without a ledger their per-call rows
     went to the per-process fallback log instead of the run (docs/COST.md §12)."""
-    from codeverse.contracts.chat import ChatMessage, ChatRequest, ChatResponse
-    from codeverse.contracts.common import Usage
-    from codeverse.cost.instrument import MeteredChatModel
-    from codeverse.cost.ledger import load_ledger
+    from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ChatResponse
+    from codeverse3d.contracts.common import Usage
+    from codeverse3d.cost.instrument import MeteredChatModel
+    from codeverse3d.cost.ledger import load_ledger
 
     class FakeChat:
         provider, model, id = "gemini", "gemini-3.7-flash", "gemini:gemini-3.7-flash"
@@ -170,7 +170,7 @@ def test_a_provider_outage_is_not_model_latency_and_not_an_error():
 def test_the_runner_classifies_the_outage_that_reaches_it(tmp_path: Path):
     """The status has to be recorded in the first place — the reporter can only honour
     what run_battery wrote."""
-    from codeverse.models.base import ModelError
+    from codeverse3d.models.base import ModelError
 
     battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"
     out = tmp_path / "bench_out"

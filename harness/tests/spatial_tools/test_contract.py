@@ -4,10 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.contracts.artifacts import GateFinding, Measurement, PartMeasure, Severity
-from codeverse.contracts.plan import BBox, CameraPlan, PartPlan, ScenePlan, StaticPlan, ZonePlan
-from codeverse.spatial.contract import check_contract, match_parts, plan_bbox_to_glb, planned_joins
-from codeverse.spatial.measure import measure_glb
+from codeverse3d.contracts.artifacts import GateFinding, Measurement, PartMeasure, Severity
+from codeverse3d.contracts.plan import BBox, CameraPlan, PartPlan, ScenePlan, StaticPlan, ZonePlan
+from codeverse3d.spatial.contract import (
+    check_contract,
+    match_parts,
+    plan_bbox_to_glb,
+    planned_joins,
+)
+from codeverse3d.spatial.measure import measure_glb
 
 
 def _stool_plan(**overrides) -> StaticPlan:

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import ast
 
-import codeverse.languages.blender as blender_lint
-import codeverse.languages.cadquery as cadquery_lint
-import codeverse.languages.opengl_python as opengl_lint
-import codeverse.languages.urdf as urdf_lint
-from codeverse.contracts.artifacts import GateFinding, Severity
-from codeverse.languages._ast_lint import BASE_FORBIDDEN_IMPORTS, check_imports, dotted
+import codeverse3d.languages.blender as blender_lint
+import codeverse3d.languages.cadquery as cadquery_lint
+import codeverse3d.languages.opengl_python as opengl_lint
+import codeverse3d.languages.urdf as urdf_lint
+from codeverse3d.contracts.artifacts import GateFinding, Severity
+from codeverse3d.languages._ast_lint import BASE_FORBIDDEN_IMPORTS, check_imports, dotted
 
 # ----------------------------------------------------------------- superset (drift fails here)
 
@@ -94,7 +94,7 @@ def test_safe_parse_turns_parser_crashes_into_findings(monkeypatch):
     a lint ERROR the agent can act on instead."""
     import ast
 
-    from codeverse.languages._ast_lint import describe_parse_failure, safe_parse
+    from codeverse3d.languages._ast_lint import describe_parse_failure, safe_parse
 
     tree, exc = safe_parse("x = 1\n")
     assert isinstance(tree, ast.Module) and exc is None
@@ -120,11 +120,11 @@ def test_safe_parse_turns_parser_crashes_into_findings(monkeypatch):
 def test_every_python_lint_survives_a_parser_crash(monkeypatch):
     import ast
 
-    from codeverse.contracts.artifacts import Severity
-    from codeverse.languages.blender import lint_blender_source
-    from codeverse.languages.cadquery import lint_cadquery_source
-    from codeverse.languages.opengl_python import lint_source as lint_gl
-    from codeverse.languages.urdf import lint_model_text
+    from codeverse3d.contracts.artifacts import Severity
+    from codeverse3d.languages.blender import lint_blender_source
+    from codeverse3d.languages.cadquery import lint_cadquery_source
+    from codeverse3d.languages.opengl_python import lint_source as lint_gl
+    from codeverse3d.languages.urdf import lint_model_text
 
     real = ast.parse
 
@@ -147,7 +147,7 @@ def test_every_python_lint_survives_a_parser_crash(monkeypatch):
 def test_real_deeply_nested_source_does_not_escape_the_lint():
     """A 40 000-term binary chain: on 3.11 this is the SystemError, on 3.12+ a RecursionError,
     on some builds a plain SyntaxError — whichever, the lint returns a report."""
-    from codeverse.languages.blender import lint_blender_source
+    from codeverse3d.languages.blender import lint_blender_source
 
     deep = "import bpy\nx = " + " + ".join(["1"] * 40_000) + "\n"
     rep = lint_blender_source(deep)
@@ -158,8 +158,8 @@ def test_the_runtime_registry_covers_every_language():
     """get_runtime was a 7-branch if-chain whose last arm was an unreachable
     fall-through; as a table, a missing row is a KeyError at call time instead.  This
     is the drift guard that makes the table safe."""
-    from codeverse.contracts.common import Language
-    from codeverse.languages.base import _RUNTIMES, get_runtime
+    from codeverse3d.contracts.common import Language
+    from codeverse3d.languages.base import _RUNTIMES, get_runtime
 
     assert set(_RUNTIMES) == set(Language), "every Language needs a runtime row"
     for lang in Language:

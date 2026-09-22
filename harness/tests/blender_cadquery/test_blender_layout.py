@@ -7,7 +7,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from codeverse.languages.blender import (
+from codeverse3d.languages.blender import (
     WRAPPER,
     build_fn_name,
     lint_workspace,

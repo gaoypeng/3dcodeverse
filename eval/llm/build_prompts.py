@@ -6,10 +6,10 @@ One JSONL row per task, one schema for every suite::
      "suite": str,              e.g. "3dcodebench_text"
      "dialect": str,            blender | cadquery | openscad | glsl | threejs
      "messages": [{"role": "system"|"user", "content": str}],    the chat prompt sent to the model
-     "images": [str],           image paths relative to $CV3D_EVAL_DATA (VLM suites only), one <image> tag
+     "images": [str],           image paths relative to $C3D_EVAL_DATA (VLM suites only), one <image> tag
                                 per image appears in the user message
      "reference": {"code": str|null, "mesh": str|null, "renders": [str]},   ground truth (code inline; mesh/renders
-                                relative to $CV3D_EVAL_DATA, filled by build_refs.py / download.py)
+                                relative to $C3D_EVAL_DATA, filled by build_refs.py / download.py)
      "meta": {...}}             source ids, caption type, tier, must_have, ...
 
 Suites built here (sizes are what the assets give):
@@ -46,7 +46,7 @@ SYSTEM_BENCH_IMGTEXT = ("You are an expert in procedural 3D modeling with Blende
                         "description of an object, write a complete, standalone Blender 5 Python script that builds the requested "
                         "object from scratch (clear the default scene first). Output ONLY the code in one ```python block.")
 
-# one-shot system prompts for the harness batteries (derived from harness/codeverse/prompts/<lang>/contract.md)
+# one-shot system prompts for the harness batteries (derived from harness/codeverse3d/prompts/<lang>/contract.md)
 SYSTEM_BATTERY = {
     "blender": ("You are an expert Blender (bpy) modeller writing raw code. Write ONE complete, standalone Blender 5 Python "
                 "script that builds the requested object from scratch in an emptied scene. Conventions: Z-up, the object's "

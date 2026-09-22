@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import json
 
-import codeverse.spatial.tools  # noqa: F401 — registers the gl_* tools
-from codeverse.languages.glsl_shader import GlslShaderRuntime
-from codeverse.spatial.gl_render import GlResult
-from codeverse.spatial.registry import ToolContext, get_tool
-from codeverse.workspace import Workspace
+import codeverse3d.spatial.tools  # noqa: F401 — registers the gl_* tools
+from codeverse3d.languages.glsl_shader import GlslShaderRuntime
+from codeverse3d.spatial.gl_render import GlResult
+from codeverse3d.spatial.registry import ToolContext, get_tool
+from codeverse3d.workspace import Workspace
 
 
 class _FailingHost:

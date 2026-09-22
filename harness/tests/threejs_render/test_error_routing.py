@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codeverse.languages.threejs import ThreeJsRuntime
-from codeverse.spatial.node import NodeResult
-from codeverse.workspace import Workspace
+from codeverse3d.languages.threejs import ThreeJsRuntime
+from codeverse3d.spatial.node import NodeResult
+from codeverse3d.workspace import Workspace
 
 
 def _res(error: dict) -> NodeResult:

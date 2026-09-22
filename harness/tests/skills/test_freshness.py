@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.skills import bundle_dirs, iter_skills, skills_dir
-from codeverse.skills.registry import ROUTED_SKILLS, ROUTES
-from codeverse.spatial.registry import list_tools
+from codeverse3d.skills import bundle_dirs, iter_skills, skills_dir
+from codeverse3d.skills.registry import ROUTED_SKILLS, ROUTES
+from codeverse3d.spatial.registry import list_tools
 
 BUNDLES = bundle_dirs()
 SKILLS = list(iter_skills()) if BUNDLES else []
@@ -47,7 +47,7 @@ FOREIGN: dict[str, str] = {
     # variables inside a bundle's own worked examples
     "SEAT_T": "example constant", "SEAT_Z": "example constant",
     "X_0": "example part name", "X_3": "example part name",
-    "CV3D_SKILLS_UNVERIFIED": "our own switch, named in prose as an env var",
+    "C3D_SKILLS_UNVERIFIED": "our own switch, named in prose as an env var",
 }
 
 LIVE_TOOLS = {t.name for t in list_tools()}
@@ -55,7 +55,7 @@ LIVE_TOOLS = {t.name for t in list_tools()}
 
 def _module_constants() -> set[str]:
     out: set[str] = set()
-    for p in (HARNESS / "codeverse").rglob("*.py"):
+    for p in (HARNESS / "codeverse3d").rglob("*.py"):
         for m in re.finditer(r"^([A-Z][A-Z0-9_]*)\s*[:=]", p.read_text(errors="ignore"), re.M):
             out.add(m.group(1))
     return out
@@ -65,7 +65,7 @@ LIVE_CONSTANTS = _module_constants()
 
 
 def _live_gate_kinds() -> set[str]:
-    from codeverse.skills import registry
+    from codeverse3d.skills import registry
 
     return {v for k, v in vars(registry).items()
             if k.isupper() and isinstance(v, str) and "/" in v}
@@ -86,7 +86,7 @@ def _live_vocabulary() -> set[str]:
     day a name is renamed out of the codebase.
     """
     words: set[str] = set()
-    for root, exts in ((HARNESS / "codeverse", {".py", ".md", ".j2", ".yaml", ".yml", ".toml"}),
+    for root, exts in ((HARNESS / "codeverse3d", {".py", ".md", ".j2", ".yaml", ".yml", ".toml"}),
                        (HARNESS.parent / "eval" / "bench", {".py", ".yaml", ".yml"}),   # battery + prompt ids a bundle cites
                        (HARNESS / "runtime_js", {".js", ".mjs", ".glsl", ".json"})):
         if not root.is_dir():
@@ -94,8 +94,8 @@ def _live_vocabulary() -> set[str]:
         for p in root.rglob("*"):
             if (not p.is_file() or p.suffix not in exts or "out" in p.parts
                     or "node_modules" in p.parts or "__pycache__" in p.parts
-                    or p.parent.name.startswith("cv3d-") or "_claims" in p.parts
-                    or p.parent.parent.name.startswith("cv3d-")):
+                    or p.parent.name.startswith("c3d-") or "_claims" in p.parts
+                    or p.parent.parent.name.startswith("c3d-")):
                 continue
             words |= set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", p.read_text(errors="ignore")))
     out = HARNESS.parent / "eval" / "bench" / "out"
@@ -138,7 +138,7 @@ def _defined_callables() -> set[str]:
     """Every function the harness itself defines — python source plus the cookbooks'
     fenced snippets (a bundle may tell the agent to call ``radial_array`` by name)."""
     out: set[str] = set()
-    for root, pattern in ((HARNESS / "codeverse", "*.py"), (HARNESS / "codeverse" / "prompts", "*.md")):
+    for root, pattern in ((HARNESS / "codeverse3d", "*.py"), (HARNESS / "codeverse3d" / "prompts", "*.md")):
         for p in root.rglob(pattern):
             if "__pycache__" not in p.parts:
                 out |= set(_DEF_RE.findall(p.read_text(errors="ignore")))
@@ -187,7 +187,7 @@ def test_every_bundle_document_only_cites_live_vocabulary():
         unknown = sorted(set(_CONST.findall(prose)) - LIVE_CONSTANTS - FOREIGN.keys())
         assert not unknown, f"{label} names unknown constants: {unknown}"
 
-        siblings = set(re.findall(r"\bcv3d-[a-z0-9-]+\b", raw))
+        siblings = set(re.findall(r"\bc3d-[a-z0-9-]+\b", raw))
         assert siblings <= have, f"{label} points at missing skills: {sorted(siblings - have)}"
 
 
@@ -206,9 +206,9 @@ def _cookbook_sections_named_by(s) -> tuple[str, ...]:
 
 def test_every_named_cookbook_section_exists():
     """T4's other half: a skill may point at the cookbook, never invent a heading."""
-    from codeverse.prompts import load_text
-    from codeverse.prompts.catalog import PROMPT_DIRS
-    from codeverse.prompts.sections import split_sections
+    from codeverse3d.prompts import load_text
+    from codeverse3d.prompts.catalog import PROMPT_DIRS
+    from codeverse3d.prompts.sections import split_sections
 
     # the language-id → prompts/<dir> mapping has ONE home now (prompts/catalog.py);
     # this test used to import the third of its copies
@@ -234,7 +234,7 @@ def test_every_named_cookbook_section_exists():
 
 
 def test_every_live_constant_named_by_a_skill_has_a_claim():
-    from codeverse.addons.skill_targets import load_claims
+    from codeverse3d.addons.skill_targets import load_claims
 
     for s in SKILLS:
         pinned = {

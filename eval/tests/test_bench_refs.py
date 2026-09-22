@@ -10,7 +10,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bench"))
 from run_bench import Battery, BenchPrompt, discover_references  # noqa: E402
 
-from codeverse.contracts.common import Track  # noqa: E402
+from codeverse3d.contracts.common import Track  # noqa: E402
 
 
 def test_folder_images_attach_in_name_order_with_track_roles(tmp_path):

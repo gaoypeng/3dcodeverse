@@ -6,11 +6,11 @@ import json
 
 import pytest
 
-from codeverse.contracts.agent import AgentJob, AgentResult
-from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, Judgment, Severity
-from codeverse.contracts.common import Language, Usage
-from codeverse.contracts.run import RoundRecord, RunStatus
-from codeverse.orchestrator import (
+from codeverse3d.contracts.agent import AgentJob, AgentResult
+from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Judgment, Severity
+from codeverse3d.contracts.common import Language, Usage
+from codeverse3d.contracts.run import RoundRecord, RunStatus
+from codeverse3d.orchestrator import (
     DEFAULT_JUDGE_SIGMA,
     REWRITE_KIND,
     RoundPolicy,
@@ -19,17 +19,17 @@ from codeverse.orchestrator import (
     judge_sigma,
     last_gain,
 )
-from codeverse.proc import EventLog
-from codeverse.tracks.generation import (
+from codeverse3d.proc import EventLog
+from codeverse3d.tracks.generation import (
     DEFAULT_AGENT_MAX_TURNS,
     GenerationTask,
     agent_max_turns,
     run_agent_task,
     turn_capped,
 )
-from codeverse.tracks.lifecycle import BaseTrack
-from codeverse.tracks.static_object import StaticObjectTrack
-from codeverse.workspace import Workspace
+from codeverse3d.tracks.lifecycle import BaseTrack
+from codeverse3d.tracks.static_object import StaticObjectTrack
+from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import fake_clock, make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
@@ -48,7 +48,7 @@ def _round(i: int, score: float | None, kind: str = "refine") -> RoundRecord:
 
 # ----------------------------------------------------------------------------- judge noise table
 def test_judge_sigma_comes_from_the_one_measured_table():
-    from codeverse.cost.routing import JUDGE_NOISE
+    from codeverse3d.cost.routing import JUDGE_NOISE
 
     assert judge_sigma("gemini:gemini-3.1-pro-preview") == pytest.approx(JUDGE_NOISE["gemini-3.1-pro-preview"][0])
     assert judge_sigma("gemini:gemini-3.7-flash") == pytest.approx(0.083)
@@ -81,7 +81,7 @@ def test_a_regression_buys_a_change_of_shape_then_stops():
 
 
 def test_a_sub_noise_dip_never_burns_the_strategy_switch():
-    from codeverse.orchestrator import meaningful_regression
+    from codeverse3d.orchestrator import meaningful_regression
 
     sp = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, judge_model="gemini:gemini-3.1-pro-preview",
                                 marginal_from_round=99))
@@ -180,7 +180,7 @@ class _TurnAgent:
 
 
 def test_agent_sessions_are_uncapped_by_default(tmp_ws, monkeypatch):
-    monkeypatch.delenv("CV3D_AGENT_MAX_TURNS", raising=False)
+    monkeypatch.delenv("C3D_AGENT_MAX_TURNS", raising=False)
     assert DEFAULT_AGENT_MAX_TURNS == 0 and RoundPolicy().agent_max_turns == 0
     agent = _TurnAgent(writes_on=1)
     task = GenerationTask(label="baseline", prompt="p", round=0, kind="baseline")
@@ -192,16 +192,16 @@ def test_agent_sessions_are_uncapped_by_default(tmp_ws, monkeypatch):
     assert agent.jobs[-1].max_turns == 12
     run_agent_task(tmp_ws, agent=agent, task=task.model_copy(update={"max_turns": 7}), max_turns=12)
     assert agent.jobs[-1].max_turns == 7  # the task wins over the policy
-    monkeypatch.setenv("CV3D_AGENT_MAX_TURNS", "9")
+    monkeypatch.setenv("C3D_AGENT_MAX_TURNS", "9")
     assert agent_max_turns() == 9
     run_agent_task(tmp_ws, agent=agent, task=task)
     assert agent.jobs[-1].max_turns == 9
-    monkeypatch.setenv("CV3D_AGENT_MAX_TURNS", "nonsense")
+    monkeypatch.setenv("C3D_AGENT_MAX_TURNS", "nonsense")
     assert agent_max_turns() == DEFAULT_AGENT_MAX_TURNS == 0
 
 
 def test_the_policy_cap_is_plumbed_through_the_round(tmp_path, spec, settings):
-    from codeverse.tracks.steps import run_generation_tasks
+    from codeverse3d.tracks.steps import run_generation_tasks
 
     agent = _TurnAgent(writes_on=1)
     ctx = _ctx(tmp_path, spec, settings, policy=RoundPolicy(agent_max_turns=15), agent=agent)
@@ -252,14 +252,14 @@ def _result_of(agent, i):
 
 
 def _guard():
-    from codeverse.contracts.common import Budget
-    from codeverse.orchestrator import BudgetGuard
+    from codeverse3d.contracts.common import Budget
+    from codeverse3d.orchestrator import BudgetGuard
 
     return BudgetGuard(Budget(max_minutes=100))
 
 
 def test_task_stage_names_the_cost_bucket_a_task_spends_in():
-    from codeverse.tracks.generation import task_stage
+    from codeverse3d.tracks.generation import task_stage
 
     def t(kind: str, label: str = "x") -> str:
         return task_stage(GenerationTask(label=label, prompt="p", kind=kind))
@@ -277,7 +277,7 @@ def test_task_stage_names_the_cost_bucket_a_task_spends_in():
 
 # ----------------------------------------------------------------------------- judge skipping
 def _renders():
-    from codeverse.contracts.artifacts import RenderSet, RenderView
+    from codeverse3d.contracts.artifacts import RenderSet, RenderView
 
     return RenderSet(views=[RenderView(name="front", path="x.png")], renderer="fake")
 
@@ -288,7 +288,7 @@ def _gates(errors: int = 0):
 
 
 def test_skip_judge_reasons_are_only_states_where_the_verdict_is_never_bought(tmp_path, spec, settings):
-    from codeverse.tracks.steps import skip_judge_reason
+    from codeverse3d.tracks.steps import skip_judge_reason
 
     ctx = _ctx(tmp_path, spec, settings)
     # gate errors are no reason: the gates say what is broken, the verdict says whether
@@ -306,7 +306,7 @@ def test_skip_judge_reasons_are_only_states_where_the_verdict_is_never_bought(tm
 
 
 def test_a_round_that_changed_no_file_never_reaches_the_judge_question(tmp_path, spec, settings):
-    from codeverse.tracks.steps import RoundFailed, run_generation_tasks
+    from codeverse3d.tracks.steps import RoundFailed, run_generation_tasks
 
     class _Idle:
         kind, model = "fake", "m"
@@ -320,7 +320,7 @@ def test_a_round_that_changed_no_file_never_reaches_the_judge_question(tmp_path,
 
 
 def test_a_round_with_gate_errors_whose_verdict_was_lost_is_rejudged(tmp_path, spec, settings):
-    from codeverse.tracks.steps import rejudge_round
+    from codeverse3d.tracks.steps import rejudge_round
 
     ctx = _ctx(tmp_path, spec, settings, name="rebuy")
     rec = RoundRecord(index=1, kind="refine", build=BuildResult(ok=True, language="l"),
@@ -329,7 +329,7 @@ def test_a_round_with_gate_errors_whose_verdict_was_lost_is_rejudged(tmp_path, s
 
 
 def test_a_round_that_broke_the_gates_does_not_displace_a_clean_one():
-    from codeverse.orchestrator import BestSelector
+    from codeverse3d.orchestrator import BestSelector
 
     def r(i, *, build_ok=True, errors=0):
         return RoundRecord(index=i, kind="refine", build=BuildResult(ok=build_ok, language="l"),
@@ -357,9 +357,9 @@ def _pipeline():
 
 
 def _ctx(tmp_path, spec, settings, *, policy: RoundPolicy | None = None, agent=None, name: str = "skip"):
-    from codeverse.contracts.common import Budget
-    from codeverse.orchestrator import BudgetGuard, RunState
-    from codeverse.tracks.common import RunContext
+    from codeverse3d.contracts.common import Budget
+    from codeverse3d.orchestrator import BudgetGuard, RunState
+    from codeverse3d.tracks.common import RunContext
 
     ws = Workspace(tmp_path / "runs" / name)
     ws.create()
@@ -404,7 +404,7 @@ def test_the_loop_switches_shape_after_a_regression_and_emits_cost_rounds(tmp_pa
     # outside the CLI; the ONE writer is the metered agent/model, so the injected fakes
     # (a bare FakeAgent, a FakeJudge with no chat model) leave it empty — see
     # test_cost_accounting for the rows a metered session writes
-    from codeverse.cost.ledger import load_ledger
+    from codeverse3d.cost.ledger import load_ledger
 
     assert (ws.root / "cost_ledger.jsonl").is_symlink()  # -> telemetry/cost.jsonl, created on first row
     assert load_ledger(ws.root) == []
@@ -459,7 +459,7 @@ def test_a_round_that_raises_still_reports_what_it_burned(tmp_path, chair_plan, 
 def test_fan_out_workers_inherit_the_callers_context():
     import contextvars
 
-    from codeverse.proc import fan_out
+    from codeverse3d.proc import fan_out
 
     var: contextvars.ContextVar[str] = contextvars.ContextVar("attr", default="process-default")
     var.set("run-42")
@@ -470,8 +470,8 @@ def test_fan_out_workers_inherit_the_callers_context():
 
 
 def test_a_run_past_its_hard_ceiling_cannot_start_another_session(tmp_ws):
-    from codeverse.contracts.spec import Budget
-    from codeverse.orchestrator import BudgetExceeded, BudgetGuard
+    from codeverse3d.contracts.spec import Budget
+    from codeverse3d.orchestrator import BudgetExceeded, BudgetGuard
 
     g = BudgetGuard(Budget(max_minutes=30.0, max_rounds=4))
     g.start_time -= 36 * 60  # ceiling long crossed, nothing billed along the way
@@ -490,7 +490,7 @@ def test_a_refine_after_a_regression_restores_the_best_round_and_plans_from_its_
     and the tasks come from its verdict; a same-shape refine keeps building on the last round."""
     from types import SimpleNamespace
 
-    from codeverse.workspace import Workspace
+    from codeverse3d.workspace import Workspace
 
     ws = Workspace(tmp_path / "run").create()
     (ws.src / "scene.js").write_text("// r0: the good one\n")

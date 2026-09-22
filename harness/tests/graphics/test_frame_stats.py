@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from codeverse.contracts.artifacts import Severity
-from codeverse.spatial.frame_stats import frame_gate, sequence_stats
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.spatial.frame_stats import frame_gate, sequence_stats
 
 
 def _png(path, arr):

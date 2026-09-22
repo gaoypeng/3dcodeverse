@@ -17,10 +17,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from codeverse.conventions import OBJECT_VIEWS_QUICK
-from codeverse.spatial import render as render_mod
-from codeverse.spatial.node import runtime_js_dir
-from codeverse.spatial.render import render_glb
+from codeverse3d.conventions import OBJECT_VIEWS_QUICK
+from codeverse3d.spatial import render as render_mod
+from codeverse3d.spatial.node import runtime_js_dir
+from codeverse3d.spatial.render import render_glb
 
 #: the page-side modules that decide what a frame LOOKS like (host plumbing —
 #: lib/cli.mjs, lib/host_env.mjs, lib/host_page.mjs — deliberately stays out: it
@@ -112,7 +112,7 @@ def test_orbit_views_share_one_camera_distance(stool_glb: Path, tmp_path: Path):
     resolution.  Under the 14-view rig (D47) the band spans three elevation rings whose
     exact fits genuinely differ, so the 10 % cap leaves a bounded spread between rings;
     within a ring the distance must still be one number."""
-    from codeverse.conventions import OBJECT_VIEWS
+    from codeverse3d.conventions import OBJECT_VIEWS
 
     render_glb(stool_glb, tmp_path / "o", views=OBJECT_VIEWS, width=192, height=192,
                sheet=False, use_cache=False)

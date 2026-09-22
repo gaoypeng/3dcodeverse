@@ -19,7 +19,7 @@
 // CACHE_DIR; launchBrowser connects to it when present, spawns the daemon when
 // absent, and falls back to a plain owned launch when the daemon cannot help.
 // `release()` disconnects from a shared browser (the daemon reaps it after
-// ~90 s idle) and closes an owned one.  `CV3D_BROWSER_REUSE=off` disables
+// ~90 s idle) and closes an owned one.  `C3D_BROWSER_REUSE=off` disables
 // sharing entirely.
 'use strict';
 
@@ -29,7 +29,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const CACHE_DIR = process.env.CV3D_CACHE_DIR || path.join(os.homedir(), '.cache', 'codeverse');
+const CACHE_DIR = process.env.C3D_CACHE_DIR || path.join(os.homedir(), '.cache', 'codeverse3d');
 const CACHE_PATH = path.join(CACHE_DIR, 'gpu_probe.json');
 const NEGATIVE_TTL_MS = 20 * 60 * 1000; // how long a "no GPU" verdict is trusted
 const PROTOCOL_TIMEOUT_MS = 15 * 60 * 1000; // big frame batches exceed puppeteer's 180 s default
@@ -134,7 +134,7 @@ async function tryGpu(puppeteer) {
 
 // --------------------------------------------------------------------- sharing
 // A git worktree and the main checkout each run THEIR OWN runtime_js but share
-// ~/.cache/codeverse unless the operator remembers CV3D_CACHE_DIR, so both daemons
+// ~/.cache/codeverse3d unless the operator remembers C3D_CACHE_DIR, so both daemons
 // used to advertise into one `browser_<backend>.json`: the second overwrote the
 // first, the first exited on its superseded-endpoint check, and clients of both
 // trees landed on a single browser whose page budget and canary were sized for one.
@@ -163,7 +163,7 @@ function spawnLockPath(backend) {
 }
 
 function reuseEnabled() {
-  return !/^(off|0|false)$/i.test(process.env.CV3D_BROWSER_REUSE || '');
+  return !/^(off|0|false)$/i.test(process.env.C3D_BROWSER_REUSE || '');
 }
 
 function readJson(p) {
@@ -313,7 +313,7 @@ async function gpuBrowser(puppeteer) {
  * @returns {Promise<{browser: object, gpu: boolean, renderer: string, shared: boolean, release: () => Promise<void>}>}
  */
 async function launchBrowser(opts = {}) {
-  const mode = String(opts.gpu || process.env.CV3D_RENDER_GPU || 'auto').toLowerCase();
+  const mode = String(opts.gpu || process.env.C3D_RENDER_GPU || 'auto').toLowerCase();
   const puppeteer = loadPuppeteer(opts.puppeteer);
   if (!['auto', 'on', 'off'].includes(mode)) throw new Error(`gpu must be auto|on|off, got ${mode}`);
 

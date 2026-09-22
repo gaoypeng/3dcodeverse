@@ -1,0 +1,279 @@
+name: scene_v1
+version: 1
+track_hint: scene
+pass_threshold: 0.70
+description: >
+  Rubric for a procedural 3D SCENE (a place) judged on its authored cameras plus a
+  fitted overview rig, at one or more animation times, with a probe digest (fps,
+  console/shader errors, census).  The scene owns its lighting, sky and fog: grade
+  the picture it makes, and the place it depicts.
+
+extra_instructions: >
+  Views named overview_* are HARNESS cameras fitted to the scene bounds — nobody framed
+  them; use them only for layout, coverage, floating/sunken objects and scale, and never
+  as evidence that a picture is badly composed, badly lit or under-dressed.  Every other
+  view is one of the scene's OWN authored cameras (PascalCase plan names such as
+  Establishing / BridgeView) — grade composition, lighting, atmosphere and effects on
+  those alone.  Views at different times (t=...) show animation, but they reach you in
+  different montage images: do NOT judge motion by comparing them — the harness measures
+  the pixel change between the two times per camera and states it in the context; that
+  measurement decides `nothing_moves` and every "it must move" acceptance item.  The probe
+  digest lists console/shader errors and fps measured by the harness; treat those as facts.
+  A gate finding that starts with "harness rig view" describes one of the harness's own
+  cameras, not the scene: never turn it into a defect against the scene.
+  Use zone and asset names from the plan digest as targets.
+  A scene a person would screenshot belongs at 0.8+; a recognisable place with one
+  dead zone / flat lighting / floating asset sits near 0.5; an unlit, empty or
+  unreadable scene sits at 0.1-0.3.
+  Craft on this track is mostly about five things, so look for each of them explicitly
+  before scoring: (1) the GROUND — is it several blended materials with paths, wear and
+  dressed edges, or one flat colour with a hard bbox line; (2) VEGETATION / repeated
+  natural elements — several silhouettes with size and hue variation in clusters, or one
+  shape stamped in a ring; (3) DEPTH — is there something in the near foreground framing
+  the shot, a subject in the midground and a horizon above, or is it a small diorama alone
+  on a big empty plane; (4) DRESSING — the small props (pebbles, leaves, tools, cups,
+  cables, litter) that make a place look used; (5) ATMOSPHERE — fog/haze giving aerial
+  perspective, coloured (sky-lit) shade, and a key light whose hue differs from the fill.
+  A scene can be entirely correct against the brief and still sit at 0.5 because it fails
+  all five; say so in the issues rather than inventing a fidelity complaint.
+
+criteria:
+  - id: brief_fidelity
+    weight: 0.18
+    floor: 0.30
+    title: Brief fidelity
+    description: >
+      Does the scene depict the place the brief describes, with every named element
+      (landmarks, zones, weather, time of day, activity) present and recognisable,
+      arranged as the brief implies?
+    anchors:
+      "1.0": Every named element is present and recognisable; setting, era, weather and time of day are unmistakable.
+      "0.7": The place reads right; one named element is token or hard to find.
+      "0.4": The place reads right but named elements are missing, or the time of day / weather contradicts the brief.
+      "0.1": Wrong kind of place, or an unreadable world.
+
+  - id: composition_and_camera
+    weight: 0.14
+    floor: 0.25
+    title: Composition and camera
+    description: >
+      Do the authored cameras make readable, well-framed pictures — a focal subject,
+      foreground/midground/background, horizon placed deliberately, nothing clipped by
+      the near plane, no camera inside geometry, no shot that shows only sky or ground?
+    anchors:
+      "1.0": Every authored camera is a composed shot — a foreground element within a few metres frames the edge, the subject fills the middle distance, a horizon band sits above, and the subject is what the camera is aimed at.
+      "0.7": Shots are readable and aimed at the subject, but one layer is missing (no foreground, or a bare horizon) or one shot is flat / off-centre.
+      "0.5": The scene reads as a diorama photographed from outside — subject centred on a large empty plane, no foreground, nothing on the horizon.
+      "0.4": One authored camera shows nothing useful (sky, ground, the inside of a wall), or the establishing shot is aimed at the bounds centre rather than the subject, or a shot is badly clipped.
+      "0.1": Most shots are unusable or the camera is inside geometry.
+
+  - id: lighting_atmosphere
+    weight: 0.14
+    floor: 0.25
+    title: Lighting and atmosphere
+    description: >
+      Is the lighting readable and atmospheric — a consistent sun/moon direction,
+      present soft shadows, sky that matches the mood, aerial perspective / fog giving
+      depth, exposure neither blown nor crushed, coloured (sky-lit) shade rather than
+      black?
+    anchors:
+      "1.0": Clear mood executed consistently; warm key against a cooler fill (or the reverse); soft accurate shadows with smooth edges; fog/haze gives visible aerial perspective with distance; shade carries sky colour.
+      "0.7": Good lighting with one weakness (slightly flat shadows, slightly heavy fog, or a horizon with no atmospheric falloff).
+      "0.5": Lit but airless — no haze or depth cue, key and fill share one hue so the frame is monochrome, or shadow edges are visibly stair-stepped.
+      "0.4": Flat shadowless light, or noticeably under/over-exposed, or sky contradicting the light, or black (unfilled) shadows.
+      "0.1": Near-black, blown white, or unlit.
+
+  - id: asset_quality_detail
+    weight: 0.14
+    title: Asset quality and detail
+    description: >
+      Are the individual assets refined beyond primitives and varied — buildings with
+      roofs/windows/setbacks, trees with trunk and canopy, vehicles and street
+      furniture where the place calls for them — without copy-paste monotony?
+    anchors:
+      "1.0": Assets are crafted and varied — several silhouettes per family, per-instance size and hue variation, wear and small props everywhere; closeups hold up.
+      "0.7": Assets are decent with some repetition, a few plain ones, or thin set dressing.
+      "0.5": Hero assets are fine but everything around them is one repeated primitive and the place is undressed — no small props, no litter, no ground cover.
+      "0.4": Mostly plain boxes / cones, or one shape stamped everywhere, or a solid object faked as a flat coloured plane.
+      "0.1": Primitive blobs or an empty world.
+
+  - id: spatial_coherence_scale
+    weight: 0.12
+    floor: 0.25
+    title: Spatial coherence and scale
+    description: >
+      Is the layout believable as a place (streets connect, shoreline continuous,
+      buildings face roads, spacing realistic), everything sits ON the ground/terrain
+      (nothing floating or sunken), and relative sizes agree on what a metre is?
+    anchors:
+      "1.0": Layout reads as a real place; everything grounded; sizes agree.
+      "0.7": Minor oddities (a slightly floating prop, a slightly large car) that do not break the read.
+      "0.4": A clearly floating/sunken asset, an intersection of objects, or one glaring scale error.
+      "0.1": Uniform scatter, many floating objects, or scale chaos.
+
+  - id: materials_shaders_effects
+    weight: 0.12
+    title: Materials, shaders and effects
+    description: >
+      Do surfaces read as materials (water with specular life, glass, foliage,
+      concrete) and do the planned effects (custom shaders, particles, post-processing)
+      visibly exist and look intentional — not magenta, not noise, not a flat tint?
+    anchors:
+      "1.0": Materials convincing; every planned effect is visible and adds to the picture.
+      "0.7": Materials sensible; effects present but subtle or slightly crude.
+      "0.4": A planned effect is missing or broken (flat water, no particles, a black shader), or a placeholder material is visible.
+      "0.1": Placeholder surfaces throughout or broken shaders dominate.
+
+  - id: animation_life
+    weight: 0.08
+    title: Animation and life
+    description: >
+      Comparing frames at different times, does something move as the plan says
+      (water, foliage, vehicles, lights, characters) in a plausible way, and is the
+      scene alive rather than frozen?
+    anchors:
+      "1.0": Planned motion is visible and natural across the time samples.
+      "0.7": Some planned motion visible; subtle or partial.
+      "0.4": Frames are identical although motion was planned, or motion is implausible (rigid glide, clipping).
+      "0.1": Nothing moves and/or motion breaks the scene.
+
+  - id: technical_cleanliness
+    weight: 0.08
+    floor: 0.30
+    title: Technical cleanliness
+    description: >
+      No z-fighting, no magenta/default materials, no missing faces, no visible world
+      edge cliff, no console or shader errors in the probe digest, acceptable fps.
+    anchors:
+      "1.0": Clean renders, zero console/shader errors, healthy fps.
+      "0.7": A minor artefact or a single non-fatal warning.
+      "0.4": Visible z-fighting / missing faces / hard world edge, or a console error.
+      "0.1": Broken renders, shader failures, or the scene does not run.
+
+# Binary checklist (judge answers, code scores: penalty subtracted, cap applied).
+defects:
+  - id: wrong_place
+    text: The scene is a different kind of place than the brief describes (or an unreadable world).
+    cap: 0.30
+  - id: camera_unusable
+    text: >
+      One of the SCENE'S OWN authored cameras shows only sky / ground / the inside of a wall,
+      or is clipped by the near plane.  (Never answer this for an overview_* harness view.)
+    penalty: 0.08
+    cap: 0.60
+  - id: unlit_or_blown
+    text: >
+      One of the SCENE'S OWN authored cameras is near-black, blown to white, or lit from a
+      direction that contradicts the sky.  (Never answer this for an overview_* harness view:
+      a rig shot taken at street level under a rooftop, or from above a night scene, is dark
+      because of where the harness put it.)
+    penalty: 0.08
+    cap: 0.60
+  - id: floating_or_sunken_asset
+    text: An asset clearly hovers above or sinks into the ground / terrain in an overview view.
+    penalty: 0.06
+    cap: 0.70
+  - id: empty_zone
+    text: A zone named in the plan is empty or contains only a ground plane.
+    penalty: 0.06
+  - id: placeholder_material
+    text: Magenta / default-grey / untextured flat surfaces dominate a view.
+    penalty: 0.05
+    cap: 0.75
+  - id: nothing_moves
+    text: >
+      The harness's MEASURED MOTION line says no authored camera changed between the animation
+      times although motion was planned.  Answer this from that measurement only — never from
+      comparing tiles by eye, and never because you cannot see what moved.
+    penalty: 0.05
+  - id: world_edge_visible
+    text: A hard world edge / terrain cliff / missing horizon is visible from an authored camera.
+    penalty: 0.04
+  - id: flat_ground
+    text: The ground is one flat untextured colour — no material blending, no paths or worn areas, and where objects meet it the seam is a hard undressed line.
+    penalty: 0.04
+  - id: monotonous_vegetation
+    text: A repeated natural element (trees, rocks, plants, crowd) is one shape stamped many times — no variation in silhouette, size or hue, and placed in a ring or a grid rather than clusters.
+    penalty: 0.04
+  - id: empty_midground
+    text: An authored camera has no depth layering — nothing in the near foreground and/or nothing on the horizon, so the subject sits alone on a large empty plane.
+    penalty: 0.04
+  - id: undressed_scene
+    text: The place has no small props or clutter (pebbles, leaves, tools, cups, cables, litter, ground cover) — it looks like a showroom of a few large objects.
+    penalty: 0.03
+  - id: thin_atmosphere
+    text: No visible aerial perspective — distant things are as saturated and contrasty as near things, there is no haze/fog falloff, and the key and fill light share one hue.
+    penalty: 0.03
+
+caps:
+  - id: floating_or_sunken_asset
+    when: gate
+    gate: "scene_placement"
+    severity: error
+    kinds: [floating, sunken, unsupported]
+    cap: 0.7
+    note: >
+      the scene_placement gate (2026-08-26) measures every placed asset's gap to what is under it;
+      an ERROR there caps at 0.7, and because this id matches the checklist defect of the same
+      name, a PASSED gate vetoes the VLM's "floating or sunken asset" claim (judges/caps.measured_absent)
+  - id: build_error
+    when: gate
+    gate: "build*"
+    severity: error
+    cap: 0.0
+  - id: shader_error
+    when: gate
+    gate: "*"
+    severity: error
+    kinds: [shader, glsl, webgl, compile]
+    cap: 0.5
+  - id: console_error
+    when: console
+    cap: 0.6
+    note: runtime JS errors seen while rendering
+  - id: camera_in_geometry
+    when: gate
+    gate: "*"
+    severity: error
+    kinds: [camera_in_geometry, camera_clipped, camera_inside, camera_underground, point_blank, blank_view, dead_render]
+    cap: 0.5
+  # scene_frames gate (codeverse3d.spatial.frame_metrics): deterministic frame quality of the
+  # authored cameras — a crushed dusk, a blown sky, a one-colour frame or an establishing shot
+  # that shows a tiny island of content can never score as a finished picture.
+  - id: dark_frame
+    when: gate
+    gate: "scene_frames"
+    severity: error
+    kinds: [dark_frame]
+    cap: 0.55
+    note: mean luminance < 0.12 or > 35 % near-black pixels on an authored camera
+  - id: blown_frame
+    when: gate
+    gate: "scene_frames"
+    severity: error
+    kinds: [blown_frame]
+    cap: 0.6
+    note: "> 20 % pure-white pixels on an authored camera"
+  - id: flat_frame
+    when: gate
+    gate: "scene_frames"
+    severity: error
+    kinds: [flat_frame]
+    cap: 0.65
+    note: one luminance band holds > 92 % of an authored frame
+  - id: content_small
+    when: gate
+    gate: "scene_frames"
+    severity: error
+    kinds: [content_small]
+    cap: 0.6
+    note: establishing shot covers < 20 % content (rest is sky/ground)
+  - id: floating_part
+    when: gate
+    gate: "*"
+    severity: error
+    kinds: [floating, sunken, unsupported]
+    cap: 0.6
+  - id: missing_must_acceptance
+    when: acceptance
+    cap: 0.6

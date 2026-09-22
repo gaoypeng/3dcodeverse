@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from codeverse.config import FEWER_TURNS_ENV, Settings, fewer_turns_enabled, get_settings
-from codeverse.contracts.common import Language
-from codeverse.orchestrator import RefineTask, TaskGroup
-from codeverse.tracks.plan_features import LIVE_SWITCHES
-from codeverse.tracks.prompting import INLINE_MAX_CHARS, INLINE_MAX_FILES, TURN_DISCIPLINE
+from codeverse3d.config import FEWER_TURNS_ENV, Settings, fewer_turns_enabled, get_settings
+from codeverse3d.contracts.common import Language
+from codeverse3d.orchestrator import RefineTask, TaskGroup
+from codeverse3d.tracks.plan_features import LIVE_SWITCHES
+from codeverse3d.tracks.prompting import INLINE_MAX_CHARS, INLINE_MAX_FILES, TURN_DISCIPLINE
 
 from .conftest import make_spec
 from .fakes import FakeAgent, FakeRuntime, FakeServices
@@ -17,10 +17,10 @@ LEG = "import bpy\n\n\ndef build_leg():\n    return bpy.context.object  # LEG-BO
 
 
 def _ctx(tmp_path, plan, settings, *, language=Language.BLENDER, agent_id="fake-agent:m"):
-    from codeverse.orchestrator import RunState
-    from codeverse.proc import EventLog
-    from codeverse.tracks.static_object import StaticObjectTrack
-    from codeverse.workspace import Workspace
+    from codeverse3d.orchestrator import RunState
+    from codeverse3d.proc import EventLog
+    from codeverse3d.tracks.static_object import StaticObjectTrack
+    from codeverse3d.workspace import Workspace
 
     ws = Workspace(tmp_path / "runs" / "d").create()
     track = StaticObjectTrack(services=FakeServices(), agent=FakeAgent(lambda job: None), settings=settings,
@@ -58,9 +58,9 @@ def test_switch_contract(monkeypatch):
     monkeypatch.delenv(FEWER_TURNS_ENV)
     get_settings.cache_clear()
     assert Settings().limits.fewer_turns is False
-    monkeypatch.setenv("CV3D_LIMITS__FEWER_TURNS", "true")
+    monkeypatch.setenv("C3D_LIMITS__FEWER_TURNS", "true")
     assert Settings().limits.fewer_turns is True
-    assert LIVE_SWITCHES[FEWER_TURNS_ENV] == "codeverse/config.py"
+    assert LIVE_SWITCHES[FEWER_TURNS_ENV] == "codeverse3d/config.py"
 
 
 # --------------------------------------------------------------------------- refine: the files ride along
@@ -109,7 +109,7 @@ def test_single_shot_refine_still_inlines_regardless_of_the_switch(tmp_path, cha
 
 # --------------------------------------------------------------------------- baseline: every file in turn one
 def test_baseline_prompt_carries_the_turn_discipline_block(tmp_path, chair_plan, settings, monkeypatch):
-    monkeypatch.setenv("CV3D_SCOPED_PARTS", "off")
+    monkeypatch.setenv("C3D_SCOPED_PARTS", "off")
     monkeypatch.setenv(FEWER_TURNS_ENV, "1")
     track, ctx = _ctx(tmp_path, chair_plan, settings)
     (task,) = track.baseline_tasks(ctx)
@@ -129,7 +129,7 @@ def test_baseline_prompt_carries_the_turn_discipline_block(tmp_path, chair_plan,
 def test_scoped_baseline_and_assembly_prompts_carry_it_too(tmp_path, settings, monkeypatch):
     from .test_generation_depth import big_plan
 
-    monkeypatch.delenv("CV3D_SCOPED_PARTS", raising=False)
+    monkeypatch.delenv("C3D_SCOPED_PARTS", raising=False)
     monkeypatch.setenv(FEWER_TURNS_ENV, "1")
     track, ctx = _ctx(tmp_path, big_plan(), settings, language=Language.THREEJS)
     tasks = track.baseline_tasks(ctx)

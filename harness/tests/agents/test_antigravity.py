@@ -7,16 +7,16 @@ import shutil
 
 import pytest
 
-from codeverse.agents.backends import (
+from codeverse3d.agents.backends import (
     AntigravityAgent,
     available_models,
     parse_agy_json,
     resolve_model,
     usage_from_agy,
 )
-from codeverse.agents.cli_common import begin_session
-from codeverse.contracts.agent import AgentJob
-from codeverse.workspace import Workspace
+from codeverse3d.agents.cli_common import begin_session
+from codeverse3d.contracts.agent import AgentJob
+from codeverse3d.workspace import Workspace
 
 ENVELOPE = {"conversation_id": "c1", "status": "SUCCESS", "response": "DONE\n", "duration_seconds": 3.0, "num_turns": 1,
             "usage": {"input_tokens": 18589, "output_tokens": 494, "thinking_tokens": 413, "cache_read_tokens": 12199, "total_tokens": 19083}}

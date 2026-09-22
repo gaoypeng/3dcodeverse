@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 
-from codeverse.agents.cli_common import (
+from codeverse3d.agents.cli_common import (
     Trajectory,
     attribute_changes,
     begin_session,
@@ -16,9 +16,9 @@ from codeverse.agents.cli_common import (
     is_secret_env,
     is_transient_failure,
 )
-from codeverse.contracts.agent import AgentJob, FileChange
-from codeverse.contracts.common import Usage
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.agent import AgentJob, FileChange
+from codeverse3d.contracts.common import Usage
+from codeverse3d.workspace import Workspace
 
 
 def test_secret_detection():
@@ -34,7 +34,7 @@ def test_hardened_env_strips_secrets_and_adds_guards(tmp_ws: Workspace, monkeypa
     env = hardened_env(tmp_ws, job, keep={"ANTHROPIC_API_KEY"})
     assert "OPENAI_API_KEY" not in env and "FAKE_SERVICE_API_KEY" not in env
     assert env["ANTHROPIC_API_KEY"] == "sk-y" and env["KEEPME"] == "1" and env["EXTRA"] == "2"
-    assert env["CV3D_AGENT_CONTEXT"] == "1" and env["GIT_CEILING_DIRECTORIES"] == str(tmp_ws.root.parent)
+    assert env["C3D_AGENT_CONTEXT"] == "1" and env["GIT_CEILING_DIRECTORIES"] == str(tmp_ws.root.parent)
 
 
 def test_session_roundtrip_tracks_files_and_writes_result(tmp_ws: Workspace):
@@ -108,12 +108,12 @@ def test_trajectory_jsonl_and_result(tmp_path):
 
 
 def test_mcp_command_resolution(tmp_ws: Workspace):
-    from codeverse.agents.cli_common import default_mcp_command, mcp_command_for
-    from codeverse.agents.materialize import materialize_workspace
+    from codeverse3d.agents.cli_common import default_mcp_command, mcp_command_for
+    from codeverse3d.agents.materialize import materialize_workspace
 
     job = AgentJob(workspace=str(tmp_ws.root), prompt="p", language="blender", track="static_object", round=2)
     cmd = mcp_command_for(tmp_ws, job)
-    assert cmd[1:3] == ["-m", "codeverse.spatial.mcp_server"] and "--language" in cmd and cmd[cmd.index("--round") + 1] == "2"
+    assert cmd[1:3] == ["-m", "codeverse3d.spatial.mcp_server"] and "--language" in cmd and cmd[cmd.index("--round") + 1] == "2"
     job2 = AgentJob(workspace=str(tmp_ws.root), prompt="p", mcp_command=["python", "-m", "x"])
     assert mcp_command_for(tmp_ws, job2) == ["python", "-m", "x"]
     # a workspace .mcp.json NEVER wins: the agent works in that directory and could
@@ -128,7 +128,7 @@ def test_mcp_command_resolution(tmp_ws: Workspace):
 
 
 def test_gemini_system_settings_disable_folder_trust(tmp_path):
-    from codeverse.agents.backends import write_system_settings
+    from codeverse3d.agents.backends import write_system_settings
 
     p = write_system_settings(tmp_path / "s.json")
     data = json.loads(p.read_text())

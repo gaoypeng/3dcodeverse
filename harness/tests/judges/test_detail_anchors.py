@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.contracts.plan import AcceptanceItem
-from codeverse.judges.prompt_builder import build_system_prompt
-from codeverse.judges.rubrics import _rule_hit, load_rubric
+from codeverse3d.contracts.plan import AcceptanceItem
+from codeverse3d.judges.prompt_builder import build_system_prompt
+from codeverse3d.judges.rubrics import _rule_hit, load_rubric
 
 #: rubric -> the id of its geometry-detail criterion
 DETAIL_CRITERION = {

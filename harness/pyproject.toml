@@ -10,7 +10,7 @@ readme = "README.md"
 # One fixed version: 3.13 (owner's decision 2026-08-26 — no floor, no matrix; the
 # one fixed version, 3.13 (owner, 2026-08-26): developed and measured on it; no CI (tests run locally before a push).
 # Nothing in the package uses a 3.11+ stdlib name directly — the three that were used
-# old codeverse/_compat.py shims are gone: StrEnum, datetime.UTC, tomllib are stdlib here).
+# old codeverse3d/_compat.py shims are gone: StrEnum, datetime.UTC, tomllib are stdlib here).
 requires-python = ">=3.13"
 license = { text = "Apache-2.0" }
 classifiers = [
@@ -53,11 +53,11 @@ dev = ["pytest>=8", "pytest-timeout>=2.3", "pytest-xdist>=3.6", "ruff>=0.5", "py
        "skills-ref>=0.1.1"]
 
 [project.scripts]
-3dcode = "codeverse.cli.main:app"
-3dcodeverse = "codeverse.cli.main:app"
+3dcode = "codeverse3d.cli.main:app"
+3dcodeverse = "codeverse3d.cli.main:app"
 
 [tool.setuptools.packages.find]
-include = ["codeverse*"]
+include = ["codeverse3d*"]
 
 [tool.setuptools.package-data]
 # Every non-python file a runtime reads at call time.  The scene starter tree was once
@@ -69,11 +69,11 @@ include = ["codeverse*"]
 # ships none of them routes an empty set, and the failure is silent (the run still passes,
 # the skill simply never appears).  tests/skills/test_packaging.py builds a wheel and
 # asserts the files are in it.
-codeverse = ["prompts/**/*", "judges/rubrics/*.yaml", "languages/**/wrappers/*",
+codeverse3d = ["prompts/**/*", "judges/rubrics/*.yaml", "languages/**/wrappers/*",
              "languages/**/starter/**/*", "skills/**/*"]
 
 [tool.setuptools.exclude-package-data]
-codeverse = ["**/__pycache__/*"]   # a wheel must not carry the build host's bytecode
+codeverse3d = ["**/__pycache__/*"]   # a wheel must not carry the build host's bytecode
 
 [tool.ruff]
 line-length = 100

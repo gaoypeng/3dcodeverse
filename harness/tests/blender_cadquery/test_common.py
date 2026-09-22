@@ -1,16 +1,16 @@
-"""Unit tests for codeverse.languages._common (offline)."""
+"""Unit tests for codeverse3d.languages._common (offline)."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from codeverse.languages._common import (
+from codeverse3d.languages._common import (
     ProcResult,
     compose_build_result,
     strip_blender_noise,
 )
-from codeverse.proc import write_json_atomic
+from codeverse3d.proc import write_json_atomic
 
 
 def test_strip_blender_noise() -> None:

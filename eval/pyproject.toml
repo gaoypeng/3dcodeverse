@@ -10,7 +10,7 @@ select = ["E", "W", "F", "I", "B", "UP", "SIM"]
 ignore = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["bench", "codeverse", "tests"]
+known-first-party = ["bench", "codeverse3d", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

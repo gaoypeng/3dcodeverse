@@ -11,7 +11,7 @@ from .. import config
 def run(code: str, workdir: str, timeout: int = 120) -> dict:
     exe = config.find_openscad()
     if exe is None:
-        return {"status": "CRASH", "error": "openscad not found (set CV3D_OPENSCAD)", "latency_s": 0.0, "mesh": None}
+        return {"status": "CRASH", "error": "openscad not found (set C3D_OPENSCAD)", "latency_s": 0.0, "mesh": None}
     wd = Path(workdir).resolve()
     wd.mkdir(parents=True, exist_ok=True)
     scad, stl = wd / "code.scad", wd / "out.stl"

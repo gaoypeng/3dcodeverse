@@ -14,16 +14,16 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.config import get_settings
+from codeverse3d.config import get_settings
 
-PROMPTS_DIR = Path(__file__).resolve().parents[2] / "codeverse" / "prompts"
+PROMPTS_DIR = Path(__file__).resolve().parents[2] / "codeverse3d" / "prompts"
 #: the scene starter's harness-owned library (D51): a scene workspace always has it at
 #: `src/lib/`, so a snippet may import from it exactly as an agent's file would
-STARTER_LIB = Path(__file__).resolve().parents[2] / "codeverse" / "languages" / "scene_threejs" / "starter" / "src" / "lib"
+STARTER_LIB = Path(__file__).resolve().parents[2] / "codeverse3d" / "languages" / "scene_threejs" / "starter" / "src" / "lib"
 RUNTIME_JS = Path(__file__).resolve().parents[2] / "runtime_js"
 HELPERS = Path(__file__).resolve().parent / "helpers"
 
-#: every file this package owns (relative to codeverse/prompts/)
+#: every file this package owns (relative to codeverse3d/prompts/)
 PROMPT_FILES = [
     "system/harness_contract.md",
     "system/singleshot_format.md",

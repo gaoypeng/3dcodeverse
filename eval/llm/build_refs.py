@@ -1,6 +1,6 @@
 """Build reference meshes by executing the reference programs of every suite that has them.
 
-Writes $CV3D_EVAL_DATA/refs/<suite>/<id>/ref.{glb|stl} plus refs/<suite>/ref_exec.jsonl, then re-runs
+Writes $C3D_EVAL_DATA/refs/<suite>/<id>/ref.{glb|stl} plus refs/<suite>/ref_exec.jsonl, then re-runs
 build_prompts so the prompt rows point at the meshes.  Executing the reference through the *same* executor
 as the model outputs is also the executor's self-test: the report's sanity figure for 3DCodeBench is
 Chamfer ≈ 0.016 / F@0.05 ≈ 1.0 between a re-executed reference and the shipped GT.
@@ -72,7 +72,7 @@ def extract_canonical(tar_path: Path) -> None:
     """Pull renders/object.glb for every factory out of the 3dcodebench factories_geo tar."""
     import pyarrow.parquet as pq
 
-    meta = pq.read_table(config.CV3D_HUB / "3dcodebench" / "factories_geo" / "metadata.parquet").to_pylist()
+    meta = pq.read_table(config.C3D_HUB / "3dcodebench" / "factories_geo" / "metadata.parquet").to_pylist()
     want = {m["key"].replace("Factory_geo", "") + "_seed0": m for m in meta}   # AgaveMonocotFactory_geo -> AgaveMonocot_seed0
     tasks = {r["id"] for r in load_prompts("3dcodebench_text")}
     n = 0

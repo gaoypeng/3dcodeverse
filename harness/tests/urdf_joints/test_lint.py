@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from codeverse.contracts.artifacts import Severity
-from codeverse.languages.urdf import lint_model_text, lint_urdf_text, lint_workspace
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.languages.urdf import lint_model_text, lint_urdf_text, lint_workspace
+from codeverse3d.workspace import Workspace
 
 GOOD = """<?xml version="1.0"?>
 <robot name="cab">
@@ -120,7 +120,7 @@ def test_model_lint():
     assert f[0].severity == Severity.ERROR and "SyntaxError" in f[0].message and f[0].data["line"] == 1
     f = lint_model_text("import math\n", [])
     assert any("never imports bpy" in m for m in _msgs(f, Severity.ERROR))
-    f = lint_model_text("import bpy\nfrom codeverse.x import y\n", [])
+    f = lint_model_text("import bpy\nfrom codeverse3d.x import y\n", [])
     assert any("harness" in m for m in _msgs(f, Severity.ERROR))
 
 

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from codeverse.contracts.common import Language, Track
-from codeverse.contracts.spec import ReferenceImage
-from codeverse.judges.rubrics import load_rubric
-from codeverse.judges.vlm_judge import LIKENESS_NOTE, LikenessJudge
+from codeverse3d.contracts.common import Language, Track
+from codeverse3d.contracts.spec import ReferenceImage
+from codeverse3d.judges.rubrics import load_rubric
+from codeverse3d.judges.vlm_judge import LIKENESS_NOTE, LikenessJudge
 from tests.judges.conftest import FakeChatModel, draw_chair, good_reply, image_parts, make_spec
 
 

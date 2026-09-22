@@ -186,7 +186,7 @@ def test_doctor_checks_every_module_of_every_optional_extra(monkeypatch) -> None
     """Every optional dependency is checked and attributed to its install extra."""
     import importlib
 
-    from codeverse.doctor import _OPTIONAL_DEPS, _PY_DEPS, check_python_deps
+    from codeverse3d.doctor import _OPTIONAL_DEPS, _PY_DEPS, check_python_deps
 
     with (HARNESS / "pyproject.toml").open("rb") as fh:
         extras = tomllib.load(fh)["project"]["optional-dependencies"]
@@ -228,10 +228,10 @@ def test_doctor_checks_every_module_of_every_optional_extra(monkeypatch) -> None
 
 def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
     """Run real checks under deterministic stand-ins; require every row in the fix table."""
-    from codeverse import doctor as doctor_mod
-    from codeverse.config import Settings
-    from codeverse.models.health import PoolBudget
-    from codeverse.proc import ProcResult
+    from codeverse3d import doctor as doctor_mod
+    from codeverse3d.config import Settings
+    from codeverse3d.models.health import PoolBudget
+    from codeverse3d.proc import ProcResult
 
     settings = SimpleNamespace(
         gemini_api_keys=("fake",), anthropic_api_key="", openai_api_key="",
@@ -244,12 +244,12 @@ def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
     monkeypatch.setattr(doctor_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(doctor_mod, "_ver", lambda *args, **kwargs: (True, "v1"))
     monkeypatch.setattr(
-        "codeverse.proc.run_subprocess",
+        "codeverse3d.proc.run_subprocess",
         lambda *args, **kwargs: ProcResult(0, '{"gpu": true, "renderer": "fake"}', "", False, 1),
     )
-    monkeypatch.setattr("codeverse.models.health.pool_budget", lambda: PoolBudget(1, 64))
+    monkeypatch.setattr("codeverse3d.models.health.pool_budget", lambda: PoolBudget(1, 64))
     monkeypatch.setattr(
-        "codeverse.models.get_chat_model",
+        "codeverse3d.models.get_chat_model",
         lambda model: SimpleNamespace(generate=lambda request: SimpleNamespace(
             text="pong", usage=SimpleNamespace(cost_usd=0.0))),
     )
@@ -257,8 +257,8 @@ def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
         "name": "gemini:test", "storming": False, "storms": 0, "hits": 0,
         "probes": 0, "parked_s": 0, "closed_for_s": 0,
     })
-    monkeypatch.setattr("codeverse.models.retry.all_gates", lambda: [gate])
-    monkeypatch.setattr("codeverse.skills.registry.ROUTED_SKILLS", ("missing",))
+    monkeypatch.setattr("codeverse3d.models.retry.all_gates", lambda: [gate])
+    monkeypatch.setattr("codeverse3d.skills.registry.ROUTED_SKILLS", ("missing",))
 
     rows = doctor_mod.run_doctor(live=True, gpu=True, skills=True)
 
@@ -272,7 +272,7 @@ def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
     rows += doctor_mod.check_node()  # the alternate row when runtime_js cannot resolve
 
     pool_detail = next(detail for name, _, detail in rows if name == "pool sharing")
-    mentioned_settings = set(re.findall(r"\b(CV3D_[A-Z0-9_]+)=", pool_detail))
+    mentioned_settings = set(re.findall(r"\b(C3D_[A-Z0-9_]+)=", pool_detail))
     assert mentioned_settings and mentioned_settings <= set(Settings._FLAT_ALIASES), (
         f"doctor recommends setting unknown variables: {sorted(mentioned_settings - set(Settings._FLAT_ALIASES))}")
 
@@ -307,7 +307,7 @@ def test_architecture_package_map_covers_every_module():
 
     missing = sorted(
         str(m.relative_to(root))
-        for m in (root / "codeverse").rglob("*.py")
+        for m in (root / "codeverse3d").rglob("*.py")
         if m.name != "__init__.py" and not m.name.startswith("_")
         and "wrappers" not in m.parts and not documented(m)
     )

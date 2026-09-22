@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.contracts.artifacts import (
+from codeverse3d.contracts.artifacts import (
     BuildResult,
     GateFinding,
     GateReport,
@@ -21,10 +21,10 @@ from codeverse.contracts.artifacts import (
     RenderView,
     Severity,
 )
-from codeverse.contracts.common import Backends, Language, Track, Usage
-from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
-from codeverse.contracts.spec import Spec
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.common import Backends, Language, Track, Usage
+from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus
+from codeverse3d.contracts.spec import Spec
+from codeverse3d.workspace import Workspace
 
 
 def tiny_png(path: Path, rgb: tuple[int, int, int] = (200, 30, 30), size: int = 4) -> Path:

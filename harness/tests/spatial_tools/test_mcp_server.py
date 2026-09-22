@@ -11,8 +11,8 @@ import pytest
 from PIL import Image
 from pydantic import ValidationError
 
-from codeverse.spatial.mcp_server import build_context, encode_image, main, observation_content
-from codeverse.spatial.registry import Observation, ToolContext
+from codeverse3d.spatial.mcp_server import build_context, encode_image, main, observation_content
+from codeverse3d.spatial.registry import Observation, ToolContext
 
 
 def test_build_context_infers_from_spec(stool_ctx: ToolContext) -> None:
@@ -48,7 +48,7 @@ def test_result_payload_is_bounded_by_outcome(tmp_path: Path) -> None:
     40 000-char truncation does not fire for a multi-part MCP result."""
     from PIL import Image
 
-    from codeverse.spatial.mcp_server import MAX_TEXT_CHARS, max_images_for
+    from codeverse3d.spatial.mcp_server import MAX_TEXT_CHARS, max_images_for
 
     pngs = []
     for i in range(5):
@@ -73,7 +73,7 @@ def test_the_byte_bound_keeps_the_sheet_drops_the_rest_and_says_so(tmp_path: Pat
     worst of both — and the text must say what did not come."""
     from PIL import Image
 
-    from codeverse.spatial.mcp_server import MAX_IMAGE_BYTES, encode_image
+    from codeverse3d.spatial.mcp_server import MAX_IMAGE_BYTES, encode_image
 
     def noise(name: str, side: int) -> str:
         rnd = __import__("random").Random(len(name))
@@ -108,7 +108,7 @@ def test_an_oversized_sheet_is_downscaled_not_dropped(tmp_path: Path) -> None:
     is the sheet; it gets re-encoded smaller until it fits, and the text says so."""
     from PIL import Image
 
-    from codeverse.spatial.mcp_server import MAX_IMAGE_BYTES
+    from codeverse3d.spatial.mcp_server import MAX_IMAGE_BYTES
 
     big = tmp_path / "sheet.png"
     Image.effect_noise((1600, 4200), 90).convert("RGB").save(big)   # noise: PNG cannot shrink it
@@ -123,7 +123,7 @@ def test_an_oversized_sheet_is_downscaled_not_dropped(tmp_path: Path) -> None:
 def test_every_bound_holds_including_the_note(tmp_path: Path) -> None:
     """The "not attached" note used to be appended AFTER the hard slice, so the ceiling
     was soft by the length of the note."""
-    from codeverse.spatial.mcp_server import MAX_TEXT_CHARS
+    from codeverse3d.spatial.mcp_server import MAX_TEXT_CHARS
 
     heavy = tmp_path / "heavy.png"
     Image.effect_noise((1600, 4200), 90).convert("RGB").save(heavy)
@@ -142,8 +142,8 @@ def test_is_error_is_failed_not_the_verdict(stool_ctx: ToolContext) -> None:
     ``make_server``'s source, which passes for any code that merely mentions the name."""
     from mcp import types
 
-    from codeverse.spatial import mcp_server
-    from codeverse.spatial.registry import NoArgs, ToolDef
+    from codeverse3d.spatial import mcp_server
+    from codeverse3d.spatial.registry import NoArgs, ToolDef
 
     fakes = [
         ToolDef(name="verdict", args_model=NoArgs, description="a gate that answers FAIL",
@@ -194,7 +194,7 @@ def test_stdio_roundtrip(stool_ctx: ToolContext, tmp_path: Path) -> None:
     errlog = (tmp_path / "server.err").open("w")
 
     async def run():
-        params = StdioServerParameters(command=sys.executable, args=["-m", "codeverse.spatial.mcp_server", "--workspace", str(stool_ctx.workspace.root)])
+        params = StdioServerParameters(command=sys.executable, args=["-m", "codeverse3d.spatial.mcp_server", "--workspace", str(stool_ctx.workspace.root)])
         async with stdio_client(params, errlog=errlog) as (r, w), ClientSession(r, w) as s:
             await s.initialize()
             tools = await s.list_tools()

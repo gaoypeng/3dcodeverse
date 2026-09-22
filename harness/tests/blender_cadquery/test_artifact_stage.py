@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.workspace import Workspace
+from codeverse3d.workspace import Workspace
 
 
 def _seed(ws: Workspace) -> None:

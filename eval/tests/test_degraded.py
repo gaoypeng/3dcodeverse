@@ -25,8 +25,8 @@ from bench.compare_backends import (  # noqa: E402
     run_cell,
 )
 from bench.run_bench import Battery  # noqa: E402
-from codeverse.contracts.common import Usage  # noqa: E402
-from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus  # noqa: E402
+from codeverse3d.contracts.common import Usage  # noqa: E402
+from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus  # noqa: E402
 from tests.conftest import BATTERY, GOOD, FakeEvaluator  # noqa: E402
 
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.contracts.common import Usage
-from codeverse.models.pricing import (
+from codeverse3d.contracts.common import Usage
+from codeverse3d.models.pricing import (
     IMAGE_USD_BY_SIZE,
     PRICES,
     PROVENANCE,
@@ -105,8 +105,8 @@ def test_every_price_row_was_checked_within_the_maintenance_window():
     ``CHECKED`` — do not raise the threshold."""
     from datetime import date, datetime
 
-    from codeverse.cli.cost_cmd import STALE_AFTER_DAYS
-    from codeverse.models.pricing import PRICES, price_provenance
+    from codeverse3d.cli.cost_cmd import STALE_AFTER_DAYS
+    from codeverse3d.models.pricing import PRICES, price_provenance
 
     stale = []
     for prov, model in sorted(PRICES):
@@ -123,8 +123,8 @@ def test_every_price_row_was_checked_within_the_maintenance_window():
 
 def test_a_ledger_row_carries_the_provenance_of_the_price_it_used(tmp_path):
     """The audit trail: which row produced this dollar, and can we stand behind it."""
-    from codeverse.contracts.common import Usage as U
-    from codeverse.cost import record_call
+    from codeverse3d.contracts.common import Usage as U
+    from codeverse3d.cost import record_call
 
     row = record_call(U(backend="gemini", model="gemini-3.1-pro-preview", input_tokens=1_000,
                         output_tokens=100), run="r", stage="judge", ledger=tmp_path / "l.jsonl")

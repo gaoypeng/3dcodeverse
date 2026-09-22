@@ -11,12 +11,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from codeverse.contracts.artifacts import Judgment, Measurement
-from codeverse.contracts.common import Backends, Language, Track, Usage
-from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
-from codeverse.contracts.run import RoundRecord, RunRecord, RunStatus
-from codeverse.contracts.spec import Spec
-from codeverse.record.record import complexity_block, fill_derived, round_summary
+from codeverse3d.contracts.artifacts import Judgment, Measurement
+from codeverse3d.contracts.common import Backends, Language, Track, Usage
+from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
+from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus
+from codeverse3d.contracts.spec import Spec
+from codeverse3d.record.record import complexity_block, fill_derived, round_summary
 
 
 def _measurement(index: float, parts: int = 8) -> Measurement:

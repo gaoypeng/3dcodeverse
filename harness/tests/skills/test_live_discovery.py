@@ -16,10 +16,10 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.agents.registry import get_coding_agent
-from codeverse.contracts.agent import AgentJob
-from codeverse.skills.materialize import materialize_skills
-from codeverse.skills.telemetry import probe_reads
+from codeverse3d.agents.registry import get_coding_agent
+from codeverse3d.contracts.agent import AgentJob
+from codeverse3d.skills.materialize import materialize_skills
+from codeverse3d.skills.telemetry import probe_reads
 from tests.skills.conftest import write_bundle
 
 pytestmark = pytest.mark.live
@@ -50,22 +50,22 @@ def test_the_cli_discovers_and_opens_a_materialised_skill(tmp_path: Path, kind: 
         (ws / name).write_text("# 3dcode workspace\n\nRead this file before acting.\n")
 
     lib = tmp_path / "library"
-    write_bundle(lib, "cv3d-live-probe",
+    write_bundle(lib, "c3d-live-probe",
                  description="Answer the magic-word question. Use when a task asks for the magic word.",
                  body="Read `references/magic.md` and reply with the word it contains.",
                  references={"magic.md": f"The magic word is {MAGIC}.\n"})
-    from codeverse.skills import load_skill
-    from codeverse.skills.materialize import write_index
-    from codeverse.skills.prompting import index_block
+    from codeverse3d.skills import load_skill
+    from codeverse3d.skills.materialize import write_index
+    from codeverse3d.skills.prompting import index_block
 
-    skill = load_skill("cv3d-live-probe", lib)
+    skill = load_skill("c3d-live-probe", lib)
     materialize_skills(ws, [skill])
     write_index(ws, index_block([skill], kind))
 
     res = agent.run(AgentJob(workspace=str(ws), prompt=PROMPT, spatial_tools=False,
                              max_turns=8, timeout_s=300, label="skills_live"))
 
-    from codeverse.skills.model import Selection, SkillsMaterialized
+    from codeverse3d.skills.model import Selection, SkillsMaterialized
 
     got = SkillsMaterialized(
         listed=[skill.name],

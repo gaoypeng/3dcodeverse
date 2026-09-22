@@ -8,10 +8,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from codeverse.config import Settings, seed_recipes_enabled
-from codeverse.contracts.common import HARNESS_OWNED_SRC, Language, Track
-from codeverse.contracts.plan import GraphicsPlan
-from codeverse.languages.glsl_shader import (
+from codeverse3d.config import Settings, seed_recipes_enabled
+from codeverse3d.contracts.common import HARNESS_OWNED_SRC, Language, Track
+from codeverse3d.contracts.plan import GraphicsPlan
+from codeverse3d.languages.glsl_shader import (
     COMMON_GLSL,
     GlslShaderRuntime,
     compose,
@@ -21,11 +21,11 @@ from codeverse.languages.glsl_shader import (
     parse_glsl_log,
     write_skeleton,
 )
-from codeverse.languages.glsl_shader import HEADER as WRAP_HEADER
-from codeverse.proc import EventLog
-from codeverse.prompts import load_text, render
-from codeverse.tracks import graphics as gr
-from codeverse.tracks.graphics import (
+from codeverse3d.languages.glsl_shader import HEADER as WRAP_HEADER
+from codeverse3d.proc import EventLog
+from codeverse3d.prompts import load_text, render
+from codeverse3d.tracks import graphics as gr
+from codeverse3d.tracks.graphics import (
     HEADER,
     NOT_SEEDED,
     RECIPES_REL,
@@ -40,7 +40,7 @@ from codeverse.tracks.graphics import (
     seed_recipes,
     seeded_on_disk,
 )
-from codeverse.workspace import Workspace
+from codeverse3d.workspace import Workspace
 
 AURORA = "Aurora borealis over a mountain ridge with a frozen lake, dense stars, green and violet curtains"
 RAIN = "neon rain on glass"
@@ -85,7 +85,7 @@ def _seeded_events(ws: Workspace) -> list[dict]:
 
 @pytest.fixture(autouse=True)
 def _default_on(monkeypatch) -> None:
-    monkeypatch.delenv("CV3D_SEED_RECIPES", raising=False)
+    monkeypatch.delenv("C3D_SEED_RECIPES", raising=False)
 
 
 # ----------------------------------------------------------------------------- extraction
@@ -122,8 +122,8 @@ def test_chapter_selection_excludes_always_on_and_templates(tmp_path) -> None:
     assert recipe_chapters(_ctx(ws, UNMATCHED)) == []
 
     # a chapter arrives whole or not at all — the budget never cuts one in half
-    from codeverse.prompts.sections import split_sections
-    from codeverse.tracks.prompting import select_cookbook_chapters
+    from codeverse3d.prompts.sections import split_sections
+    from codeverse3d.tracks.prompting import select_cookbook_chapters
 
     ctx = _ctx(ws, AURORA)
     whole = {s.title: s.body.rstrip() for s in split_sections(ctx.cookbook_text)}
@@ -268,27 +268,27 @@ def test_resume_appends_only_new_names(tmp_path) -> None:
 def test_gate_and_language(tmp_path, monkeypatch) -> None:
     ws = _ws(tmp_path)
     assert Settings().limits.seed_recipes is True and seed_recipes_enabled() is True
-    monkeypatch.setenv("CV3D_SEED_RECIPES", "0")
+    monkeypatch.setenv("C3D_SEED_RECIPES", "0")
     assert seed_recipes_enabled() is False
     ctx = _ctx(ws)
     assert seed_recipes(ctx) == [] and not _recipes(ws).exists() and "seeded_recipes" not in ctx.extra
     assert (ws.src / "common.glsl").read_text() == COMMON_GLSL and not _seeded_events(ws)
-    monkeypatch.setenv("CV3D_SEED_RECIPES", "garbage")
+    monkeypatch.setenv("C3D_SEED_RECIPES", "garbage")
     assert seed_recipes_enabled() is False                               # a typo is a control run, not a crash
-    monkeypatch.setenv("CV3D_SEED_RECIPES", "on")
+    monkeypatch.setenv("C3D_SEED_RECIPES", "on")
     assert seed_recipes_enabled() is True
-    monkeypatch.delenv("CV3D_SEED_RECIPES")
+    monkeypatch.delenv("C3D_SEED_RECIPES")
     monkeypatch.setattr(gr, "seed_recipes_enabled", lambda: True)
     assert seed_recipes(_ctx(ws, language=Language.OPENGL_PYTHON)) == []  # opengl_python: nothing seeded
     assert not _recipes(ws).exists() and (ws.src / "common.glsl").read_text() == COMMON_GLSL
-    monkeypatch.setenv("CV3D_SEED_RECIPES", "off")
+    monkeypatch.setenv("C3D_SEED_RECIPES", "off")
     assert Settings().limits.seed_recipes is False                       # the flat alias reaches Settings too
 
 
 # ----------------------------------------------------------------------------- compose / lint / prompt
 def _gl_or_skip(tmp_path: Path, src: str, **kw):
     pytest.importorskip("moderngl")
-    from codeverse.spatial.gl_render import GlHost, GlHostError
+    from codeverse3d.spatial.gl_render import GlHost, GlHostError
 
     try:
         res = GlHost(timeout_s=120).render_fragment_shader(src, tmp_path / "out", **kw)

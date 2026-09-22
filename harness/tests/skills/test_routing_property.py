@@ -7,9 +7,9 @@ import random
 
 import pytest
 
-from codeverse.skills import all_skills, bundle_dirs, select, skills_dir
-from codeverse.skills.model import EVIDENCE_INHERITED
-from codeverse.skills.registry import QUIET_KINDS, ROUTED_SKILLS, ROUTES, SIGNAL_KEYS
+from codeverse3d.skills import all_skills, bundle_dirs, select, skills_dir
+from codeverse3d.skills.model import EVIDENCE_INHERITED
+from codeverse3d.skills.registry import QUIET_KINDS, ROUTED_SKILLS, ROUTES, SIGNAL_KEYS
 
 pytestmark = pytest.mark.skipif(not bundle_dirs(), reason=f"no bundles in {skills_dir()} yet")
 
@@ -142,7 +142,7 @@ def test_an_unverified_bundle_is_off_by_default_everywhere():
     for track, language, kind in BASE_INPUTS:
         got = {s.name for s in select(track, language, kind, signals={"multi_part": True},
                                       library=LIBRARY, findings=LIVE_KINDS)}
-        assert not (got & thin), f"{sorted(got & thin)} routed without CV3D_SKILLS_UNVERIFIED"
+        assert not (got & thin), f"{sorted(got & thin)} routed without C3D_SKILLS_UNVERIFIED"
 
 
 def test_a_random_walk_of_mixed_findings_never_breaks_an_invariant():

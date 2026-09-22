@@ -7,16 +7,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from codeverse.contracts.common import Language, Track
-from codeverse.contracts.plan import ArticulatedPlan, ScenePlan
-from codeverse.orchestrator import BudgetGuard, RoundPolicy, RunState
-from codeverse.proc import EventLog
-from codeverse.prompts import PROMPTS_DIR, render
-from codeverse.tracks.common import RunContext
-from codeverse.tracks.generation import SINGLE_SHOT_FORMAT
-from codeverse.tracks.planner import plan_example
-from codeverse.tracks.prompting import base_prompt_context, judged_sheet
-from codeverse.tracks.scene_assets import asset_api_summary, asset_plan, run_asset_stage
+from codeverse3d.contracts.common import Language, Track
+from codeverse3d.contracts.plan import ArticulatedPlan, ScenePlan
+from codeverse3d.orchestrator import BudgetGuard, RoundPolicy, RunState
+from codeverse3d.proc import EventLog
+from codeverse3d.prompts import PROMPTS_DIR, render
+from codeverse3d.tracks.common import RunContext
+from codeverse3d.tracks.generation import SINGLE_SHOT_FORMAT
+from codeverse3d.tracks.planner import plan_example
+from codeverse3d.tracks.prompting import base_prompt_context, judged_sheet
+from codeverse3d.tracks.scene_assets import asset_api_summary, asset_plan, run_asset_stage
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import FakeAgent, FakeJudge, FakeRuntime, FakeServices
 
@@ -114,7 +114,7 @@ def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     sub = asset_plan(plan.assets[2])
     assert sub.parts[0].name == "Crate" and sub.overall_bbox.extents == (0.6, 0.4, 0.3)  # Y-up w×h×d → Z-up (w, d, h)
     ctx.extra["asset_api"] = api
-    from codeverse.tracks.scene import SceneTrack
+    from codeverse3d.tracks.scene import SceneTrack
 
     st = SceneTrack(services=services)
     for tpl, extra in (("scene_env", {}), ("scene_compose", {}),
@@ -180,8 +180,8 @@ def test_a_replanned_asset_with_the_same_name_is_not_reused(tmp_ws, settings):
 def test_a_model_outage_is_not_an_escalation_signal() -> None:
     """A 503 reaches the asset stage only after models.retry spent its whole storm budget
     waiting; escalating to a full agent session then costs 10× and hits the same wall."""
-    from codeverse.models.base import ModelError
-    from codeverse.tracks.scene_assets import is_model_outage
+    from codeverse3d.models.base import ModelError
+    from codeverse3d.tracks.scene_assets import is_model_outage
 
     assert is_model_outage(ModelError("high demand", retryable=True, status=503))
     assert is_model_outage(ModelError("overloaded", status=529))

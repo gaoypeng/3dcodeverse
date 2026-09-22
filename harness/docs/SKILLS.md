@@ -4,7 +4,7 @@ A **skill** is a task-scoped rule sheet the harness attaches to a coding session
 automatically — from the track, the language, the round kind, the plan, and **the previous
 round's gate findings**. Nobody writes `skills: [...]`.
 
-It is not a renamed cookbook chapter. The cookbook (`codeverse/prompts/<lang>/cookbook.md`)
+It is not a renamed cookbook chapter. The cookbook (`codeverse3d/prompts/<lang>/cookbook.md`)
 stays the reference manual with the copyable code; a skill states rules and numbers and
 names the cookbook section to fetch. Two libraries of truth would be worse than one.
 
@@ -14,7 +14,7 @@ themselves** — proven live, see §7.  (The in-process `api-agent`, the one bac
 needed harness-side injection, was deleted 2026-08-28; an unclassified backend still
 gets the routed index as the safe default.)
 
-Everything is behind `CV3D_SKILLS`. **It ships OFF**, because `api-agent` read 0 of 5
+Everything is behind `C3D_SKILLS`. **It ships OFF**, because `api-agent` read 0 of 5
 routed bundles in the measured A/B while the three subscription CLIs read all five.
 §6 has the numbers.
 
@@ -22,9 +22,9 @@ routed bundles in the measured A/B while the three subscription CLIs read all fi
 
 ## 0. How the library is managed
 
-**One library, one policy, thin adapters.**  The bundles under `codeverse/skills/<name>/`
+**One library, one policy, thin adapters.**  The bundles under `codeverse3d/skills/<name>/`
 are plain [agentskills.io](https://agentskills.io/specification) `SKILL.md` directories and
-know nothing about any backend — anyone can `cp -r codeverse/skills/<name> ~/.claude/skills/`
+know nothing about any backend — anyone can `cp -r codeverse3d/skills/<name> ~/.claude/skills/`
 and use them without this harness at all.  `router.py` picks the set from typed inputs.
 
 Everything that genuinely differs between coding agents is **two bits**, and they live in
@@ -111,32 +111,32 @@ This is the difference between a metric and a number that would have read 100% f
 
 | skill | track | language | evidence | lines | tokens | routes |
 |---|---|---|---|---|---|---|
-| `cv3d-part-contact` | object tracks | any | measured | 125 | 1,707 | R1, R2 |
-| `cv3d-bbox-contract` | object + scene | any | measured | 75 | 1,081 | R3, R4 |
-| `cv3d-repeats-and-mirrors` | object tracks | any | measured | 112 | 1,527 | R6, R7 |
-| `cv3d-blender-forms` | any | blender, urdf_blender | measured | 97 | 1,811 | R8, R9 |
-| `cv3d-urdf-joints` | articulated_object | urdf_blender | measured | 139 | 1,989 | R12, R13 |
-| `cv3d-scene-composition` | scene | scene_threejs | mixed | 118 | 1,691 | R14, R15 |
-| `cv3d-scene-lighting` | scene | scene_threejs | mixed | 126 | 1,959 | R16, R17 |
-| `cv3d-scene-motion` | scene | scene_threejs | mixed | 178 | 2,223 | R18, R19 |
-| `cv3d-threejs-shader-traps` | scene + static | threejs both | mixed | 112 | 1,734 | R20, R21 |
-| `cv3d-glsl-craft` | graphics | glsl_shader | mixed | 140 | 1,958 | R22, R24-glsl |
-| `cv3d-opengl-pipeline` | graphics | opengl_python | mixed | 98 | 1,497 | R23, R24-opengl |
-| `cv3d-cadquery-forms` | any | cadquery | **inherited-unverified** | 82 | 1,482 | R10 |
-| `cv3d-threejs-forms` | static_object | threejs | **inherited-unverified** | 120 | 1,929 | R11 |
+| `c3d-part-contact` | object tracks | any | measured | 125 | 1,707 | R1, R2 |
+| `c3d-bbox-contract` | object + scene | any | measured | 75 | 1,081 | R3, R4 |
+| `c3d-repeats-and-mirrors` | object tracks | any | measured | 112 | 1,527 | R6, R7 |
+| `c3d-blender-forms` | any | blender, urdf_blender | measured | 97 | 1,811 | R8, R9 |
+| `c3d-urdf-joints` | articulated_object | urdf_blender | measured | 139 | 1,989 | R12, R13 |
+| `c3d-scene-composition` | scene | scene_threejs | mixed | 118 | 1,691 | R14, R15 |
+| `c3d-scene-lighting` | scene | scene_threejs | mixed | 126 | 1,959 | R16, R17 |
+| `c3d-scene-motion` | scene | scene_threejs | mixed | 178 | 2,223 | R18, R19 |
+| `c3d-threejs-shader-traps` | scene + static | threejs both | mixed | 112 | 1,734 | R20, R21 |
+| `c3d-glsl-craft` | graphics | glsl_shader | mixed | 140 | 1,958 | R22, R24-glsl |
+| `c3d-opengl-pipeline` | graphics | opengl_python | mixed | 98 | 1,497 | R23, R24-opengl |
+| `c3d-cadquery-forms` | any | cadquery | **inherited-unverified** | 82 | 1,482 | R10 |
+| `c3d-threejs-forms` | static_object | threejs | **inherited-unverified** | 120 | 1,929 | R11 |
 
-**All seventeen ship OFF** (`CV3D_SKILLS` unset). Zero have a measured effect; see
+**All seventeen ship OFF** (`C3D_SKILLS` unset). Zero have a measured effect; see
 `docs/SKILLS_LEDGER.md` §5 for why that is the honest default and what flips one on.
-Shipping a subset needs no new machinery — `CV3D_SKILLS_ONLY` restricts the library before
-routing, so `CV3D_SKILLS=1 CV3D_SKILLS_ONLY=<names>` is the vehicle when a bundle earns it.
+Shipping a subset needs no new machinery — `C3D_SKILLS_ONLY` restricts the library before
+routing, so `C3D_SKILLS=1 C3D_SKILLS_ONLY=<names>` is the vehicle when a bundle earns it.
 
 ### Retired
 
 | skill | cut | why |
 |---|---|---|
-| `cv3d-form-manifest` | 2026-08-25 | opened **2 of 19** times (11%, CI [3%, 31%]) — unread before *and* after its description was rewritten to lead with the trigger. The only bundle whose read-rate interval excluded every other's, and it cost ~1,917 tokens in 19 of the 27 sessions that could have read it. Text and full numbers: `docs/skills-attic/cv3d-form-manifest/` |
+| `c3d-form-manifest` | 2026-08-25 | opened **2 of 19** times (11%, CI [3%, 31%]) — unread before *and* after its description was rewritten to lead with the trigger. The only bundle whose read-rate interval excluded every other's, and it cost ~1,917 tokens in 19 of the 27 sessions that could have read it. Text and full numbers: `docs/skills-attic/c3d-form-manifest/` |
 
-An attic bundle is not loaded: `all_skills()` reads `codeverse/skills/*/SKILL.md` only, so it
+An attic bundle is not loaded: `all_skills()` reads `codeverse3d/skills/*/SKILL.md` only, so it
 costs no index line and no tokens. Its route id (**R5**) is retired and never reused — a run
 record refers to a routing decision by id, so recycling it would silently relabel history.
 `tests/skills/test_registry.py::RETIRED_RULES` pins that.
@@ -146,7 +146,7 @@ record refers to a routing decision by id, so recycling it would silently relabe
 `evidence` is about **provenance** — where the bundle's prose came from. A bundle can be
 `measured` for provenance and have **no measured effect**; five are. Every bundle also
 declares **one deterministic quantity it claims to move**, in its own frontmatter
-(`target_metric`, `target_direction`, `target_baseline`) and in `codeverse/addons/skill_targets.py`.
+(`target_metric`, `target_direction`, `target_baseline`) and in `codeverse3d/addons/skill_targets.py`.
 `python eval/bench/skill_targets.py eval/bench/out` prints them all — per battery or paired across an
 A/B's two arms — and **`docs/SKILLS_LEDGER.md` is the row-by-row maintenance surface**.
 
@@ -156,7 +156,7 @@ requires (design §5.2 law 3).
 
 ## 3. Routing
 
-`codeverse/skills/registry.py` holds the typed table (R1–R24) and `finding_kind()`, the one
+`codeverse3d/skills/registry.py` holds the typed table (R1–R24) and `finding_kind()`, the one
 place a gate message is pattern-matched; its router half (`select()`, `skills_for()`) turns
 `(track, language, kind, plan signals, findings)` into a ranked, capped, reasoned set.
 
@@ -165,7 +165,7 @@ Four laws, all tested:
 1. **Gate findings outrank everything.** A row that answers a finding sits at priority
    ≥ 90; standing rows sit at ≤ 80. A repair round spends its budget on what broke. This is
    the input no CLI's own skill loader can see, and the reason we route in code.
-2. **The cap is 5** (`CV3D_SKILLS_MAX`). It cuts the low-priority tail, never the
+2. **The cap is 5** (`C3D_SKILLS_MAX`). It cuts the low-priority tail, never the
    gate-fired head.
 3. **Quiet kinds attach nothing** on their own — `asset`, `asset_fix`, `reference` are
    short, narrow sessions with no defect class attached to them. A gate-fired row still
@@ -228,7 +228,7 @@ why every one of them would report 100% whether or not the agent chose to read a
 
 What is *not* ambiguous is the behavioural evidence underneath: codex's
 `src/parts/common.py` came back with `WELD_OVERLAP = 0.001` and the comment
-"1 mm weld overlap with the seat" — `cv3d-part-contact`'s recommendation, inside
+"1 mm weld overlap with the seat" — `c3d-part-contact`'s recommendation, inside
 `PENETRATION_WARN_M`. Left to the prompt corpus alone it would have read 2–5 mm (§9). The
 content reached the model and changed the output; the atime number is what cannot prove it.
 
@@ -264,8 +264,8 @@ the `live` cases drive a real CLI.
 Two contradiction checks are worth separating, because they answer different questions:
 
 * **value-level**, library-wide: two skills may not point one claim key at different
-  numbers. Compared on the *pre-scale value*, not the rendered text — `cv3d-bbox-contract`
-  says "1 cm" and `cv3d-repeats-and-mirrors` says "0.01" metres, and both are right.
+  numbers. Compared on the *pre-scale value*, not the rendered text — `c3d-bbox-contract`
+  says "1 cm" and `c3d-repeats-and-mirrors` says "0.01" metres, and both are right.
   Failing that pair would teach the next author to delete the claim.
 * **text-level**, co-routing only: two skills that can land in one session and chose the
   same units must read the same.
@@ -279,14 +279,14 @@ Two contradiction checks are worth separating, because they answer different que
   the check is now standing.
 * **Four bundles' `verified:` dates were YAML dates, not strings** — the spec says metadata
   is string→string. Quoted; `validate_bundle` now reports it instead of coercing.
-* **`cv3d-opengl-pipeline` claimed `measured` on n=5.** Now `mixed`.
+* **`c3d-opengl-pipeline` claimed `measured` on n=5.** Now `mixed`.
 * **The api-agent index cost 780 tokens for five skills** against a 300-token budget,
   because it quoted whole 1024-char descriptions. It quotes the first clause now (356
   tokens for the worst real session, 400 is the ceiling): our router already decided, so
   that index is a pointer, not a matcher.
 * **The live smoke had never run.** It skipped every CLI because it looked for a binary
   named after the agent kind — `gemini-cli` runs `gemini`, `claude-code` runs `claude`.
-* **A body could name one of our constants without pinning it.** `cv3d-glsl-craft` quoted
+* **A body could name one of our constants without pinning it.** `c3d-glsl-craft` quoted
   `DUPLICATE_DIFF` at `1e-4` with no claim row behind it, so moving the constant would have
   left a confident sentence with the old number and nothing to notice.
 * **The read probe was measuring git**, not the agent (§1). The most consequential finding
@@ -296,11 +296,11 @@ Two contradiction checks are worth separating, because they answer different que
 
 ## 6. Does it help? The A/B
 
-**Verdict: ship OFF behind `CV3D_SKILLS`.**
+**Verdict: ship OFF behind `C3D_SKILLS`.**
 
 ### The rig
 
-`eval/bench/ab_plan.py`, arms differing in exactly one thing — `CV3D_SKILLS=on` on the variant —
+`eval/bench/ab_plan.py`, arms differing in exactly one thing — `C3D_SKILLS=on` on the variant —
 on `static_objects_v2`, `--rounds 1`, paired, generator `gemini-cli:gemini-3.6-flash`,
 fixed judge `gemini:gemini-3.1-pro-preview` at `n_samples 2`, `--max-in-flight 8` against
 32–48 of pool headroom, `--wait-for-provider`. The eight prompt ids are **the same eight
@@ -339,16 +339,16 @@ planned 1 part and 10 parts for the same pitcher pump. The dominant variance ter
 
 Recorded here because it is the more useful half of this section. The first run of this
 A/B was **void**: `ab_plan.spawn_cell` starts each child as a file path, so `sys.path[0]`
-is `eval/bench/`, and `ab_plan` imported `codeverse._compat` *above* its own `sys.path`
-bootstrap — which let the editable install resolve `codeverse` to the **main tree**. Both
-arms ran a harness with no `codeverse/skills` package at all. No error, no warning; the
+is `eval/bench/`, and `ab_plan` imported `codeverse3d._compat` *above* its own `sys.path`
+bootstrap — which let the editable install resolve `codeverse3d` to the **main tree**. Both
+arms ran a harness with no `codeverse3d/skills` package at all. No error, no warning; the
 variant workspace simply had no `.agents/skills` directory and no `skills.attached` event,
 and the run would have reported "no effect" with a straight face.
 
 The plan-loop wave hit the same thing hours earlier
 (`eval/bench/out/plan_loop/C0/invalid_attempt1_maintree_import`) and worked around it with
 `PYTHONPATH` in a launch script. It is fixed in the code now — bootstrap first, a guard
-that refuses to start against a foreign `codeverse`, and
+that refuses to start against a foreign `codeverse3d`, and
 `tests/compare_bench/test_worktree_import.py` — because a workaround protects whoever
 remembers it, not the run.
 
@@ -401,7 +401,7 @@ line in a long markdown file plus a generic `read_file`.
 
 ### Verdict
 
-**Ship OFF behind `CV3D_SKILLS`**, and not because the number was negative:
+**Ship OFF behind `C3D_SKILLS`**, and not because the number was negative:
 
 1. On `api-agent`, the read rate is **0 %** with ground truth. Shipping a default-on feature
    that its main generator does not use would pay 356 tokens a turn for nothing.
@@ -448,7 +448,7 @@ So at n = 8 with a free plan, neither readout can separate this switch from noth
    highest-value change and nothing else is worth running before it.
 1. **Reconcile the prompt corpus on weld overlap** (§9). `contract.md` is fixed, but
    `tracks/generate_static.j2` still says "overlap neighbours by ≥ 0.002 m (push a leg
-   2-5 mm into the seat)". While that stands, `cv3d-part-contact` is arguing with the
+   2-5 mm into the seat)". While that stands, `c3d-part-contact` is arguing with the
    prompt inside the same session, and the pair-count readout is measuring the argument.
 2. Only then re-run this A/B, with the gate counts as the primary readout.
 
@@ -494,26 +494,26 @@ chose to go deeper" (§1).
 
 ## 8. How to add a skill
 
-1. `codeverse/skills/<name>/SKILL.md` — `name` equals the directory name, lowercase
+1. `codeverse3d/skills/<name>/SKILL.md` — `name` equals the directory name, lowercase
    `a-z0-9` and single hyphens; `description` (≤ 1024 chars) says WHAT and WHEN, because it
    is the only text a CLI matches on; **no `<` or `>` anywhere in the frontmatter** (the
    spec's prompt-injection rule); only spec keys at the top level, everything of ours under
    `metadata`; `metadata.evidence` and `metadata.verified` (a *quoted* ISO date) required.
-2. `codeverse/skills/<name>/references/*.md` — **required**, one level. Without it the
+2. `codeverse3d/skills/<name>/references/*.md` — **required**, one level. Without it the
    bundle can never score on the read metric.
-3. `codeverse/skills/_claims/<name>.toml` — one row per number the body quotes from live
+3. `codeverse3d/skills/_claims/<name>.toml` — one row per number the body quotes from live
    code, so moving the constant breaks the test that ships the sentence:
 
    ```toml
    [[claim]]
    key    = "penetration_error_m"
    text   = "10 mm"                                              # must appear in the body
-   python = "codeverse.spatial.connectivity:PENETRATION_ERROR_M"
+   python = "codeverse3d.spatial.connectivity:PENETRATION_ERROR_M"
    scale  = 1000
    format = "{:.0f} mm"
    ```
-4. Add its rows to `ROUTES` in `codeverse/skills/registry.py`, in the same commit.
-5. Add a `Target` row to `codeverse/addons/skill_targets.py` and the matching `target_*` keys to
+4. Add its rows to `ROUTES` in `codeverse3d/skills/registry.py`, in the same commit.
+5. Add a `Target` row to `codeverse3d/addons/skill_targets.py` and the matching `target_*` keys to
    the frontmatter — the ONE deterministic quantity the bundle claims to move, its
    direction, and its baseline from `python eval/bench/skill_targets.py eval/bench/out`. If no
    deterministic instrument can see the claim, say so with `measurable=False` and a
@@ -564,7 +564,7 @@ so; the rest are live.
   0.450 vs 0.654 on identical arms. The spread is *generation* noise at fixed plan size.
   Do not budget an A/B on the assumption that pinning buys power.
 * **`shader_preflight` is not a gate.** `check_shaders` is an agent-invocable tool, never a
-  pipeline step, so it reaches no `record.json`. `cv3d-threejs-shader-traps` is therefore
+  pipeline step, so it reaches no `record.json`. `c3d-threejs-shader-traps` is therefore
   **not instrumented**, which is a stronger statement than "always clean". Merge it into
   `rounds[].gates` before spending anything on that bundle.
 * **`eval/bench/_fixed_eval.FixedEvaluator` is blender-only.** It pins `get_runtime(BLENDER)` and
@@ -577,7 +577,7 @@ so; the rest are live.
   only where there was nothing to see. Use trajectory `read_skill` calls as ground truth.
 * **CLI backends' read rate is UNMEASURED — not 5/5.** `claude_code.py` uses
   `--output-format json`, which returns only the final result and no tool stream; the logs
-  contain zero occurrences of any `cv3d-` name. Switching to `--output-format stream-json`
+  contain zero occurrences of any `c3d-` name. Switching to `--output-format stream-json`
   would give the CLI arm the same exact ground truth api-agent has. The earlier "5 of 5"
   claim rested on the atime probe and should not be repeated.
 * **`codex` can drop a round from the denominator.** It emitted `skills.attached` with no
@@ -591,7 +591,7 @@ so; the rest are live.
   ("overlap neighbours by ≥ 0.002 m"), `tracks/assemble_static.j2`,
   `generate_static_part.j2`, `system/harness_contract.md` ("seams overlap by ≥ 2 mm") and
   three cookbooks still teach 2–5 mm, at or above `PENETRATION_WARN_M`. **This is the single
-  most likely reason `cv3d-part-contact` would fail to move the number it targets, and it is
+  most likely reason `c3d-part-contact` would fail to move the number it targets, and it is
   a prompt-corpus change with its own measurement. Do it before re-running that A/B.**
 * **`ENV_RECIPES` / `ZONE_RECIPES` inlining in `tracks/scene.py` is untouched** — up to 6,000
   unconditional tokens per env/zone session, never A/B'd against a routed skill. Now that the
@@ -606,5 +606,5 @@ so; the rest are live.
   nothing says how often a skill was read whose defect class never fired in that run. That
   number decides whether the cap of 5 is too generous.
 * **`scene_frames/content_*` has no classified kind**, so frame coverage — half of what
-  `cv3d-scene-composition` teaches — neither routes nor counts. Adding a kind widens routing,
+  `c3d-scene-composition` teaches — neither routes nor counts. Adding a kind widens routing,
   which is an effect claim and needs its own evidence.

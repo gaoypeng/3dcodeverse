@@ -92,7 +92,7 @@ def test_pin_pair_seeds_every_arm_from_one_plan(tmp_path, monkeypatch):
 
     battery = Battery.load(Path(ab_plan.__file__).resolve().parent / "prompts" / "compare_v1.yaml")
     item = battery.prompts[0]
-    opts = ab_plan.AbOptions(variant_env={"CV3D_SKILLS": "1"}, pin_plan=True)
+    opts = ab_plan.AbOptions(variant_env={"C3D_SKILLS": "1"}, pin_plan=True)
     calls: list[Path] = []
 
     def fake_plan_once(spec, ws_root):
@@ -129,7 +129,7 @@ def test_pin_pair_reuses_the_plan_when_the_pair_is_retried(tmp_path, monkeypatch
 
     battery = Battery.load(Path(ab_plan.__file__).resolve().parent / "prompts" / "compare_v1.yaml")
     item = battery.prompts[0]
-    opts = ab_plan.AbOptions(variant_env={"CV3D_SKILLS": "1"}, pin_plan=True)
+    opts = ab_plan.AbOptions(variant_env={"C3D_SKILLS": "1"}, pin_plan=True)
     n = 0
 
     def fake_plan_once(spec, ws_root):
@@ -162,7 +162,7 @@ def test_a_plan_side_variant_env_is_refused_by_the_cli():
     with pytest.raises(SystemExit):
         ab_plan.main(["--prompts", str(Path(ab_plan.__file__).resolve().parent / "prompts" / "compare_v1.yaml"),
                       "--out", "/tmp/never", "--pin-plan", "--no-preflight",
-                      "--variant-env", "CV3D_PLAN_BRIEF=1"])
+                      "--variant-env", "C3D_PLAN_BRIEF=1"])
 
 
 # --------------------------------------------------------------------------- the key
@@ -203,7 +203,7 @@ def test_the_seeded_plan_and_the_running_plan_share_one_stage_key():
 
     here = Path(__file__).resolve().parents[1]           # eval/
     seeded = _stage_call_inputs(here / "bench" / "pin_plan.py", "plan_once")
-    running = _stage_call_inputs(here.parent / "harness" / "codeverse" / "tracks" / "lifecycle.py", "run")
+    running = _stage_call_inputs(here.parent / "harness" / "codeverse3d" / "tracks" / "lifecycle.py", "run")
 
     def norm(dump: str) -> str:
         return dump.replace("Name(id='self',", "Name(id='track',")

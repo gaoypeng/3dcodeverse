@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from codeverse.contracts.artifacts import Severity
-from codeverse.languages.urdf import check_fk_consistency
-from codeverse.spatial.joints import load_urdf
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.languages.urdf import check_fk_consistency
+from codeverse3d.spatial.joints import load_urdf
 from tests.urdf_joints.conftest import write_mesh_robot
 
 CENSUS = {"body": {"bbox_min": [-0.3, -0.2, 0.0], "bbox_max": [0.3, 0.2, 0.8]},

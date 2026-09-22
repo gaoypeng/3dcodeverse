@@ -13,8 +13,8 @@ import json
 
 import pytest
 
-from codeverse.conventions import OBJECT_VIEWS
-from codeverse.spatial.node import run_node, runtime_js_dir
+from codeverse3d.conventions import OBJECT_VIEWS
+from codeverse3d.spatial.node import run_node, runtime_js_dir
 
 pytestmark = pytest.mark.node
 

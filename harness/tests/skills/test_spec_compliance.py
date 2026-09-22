@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from codeverse.skills import bundle_dirs, skills_dir
+from codeverse3d.skills import bundle_dirs, skills_dir
 
 BUNDLES = bundle_dirs()
 pytestmark = pytest.mark.skipif(not BUNDLES, reason=f"no bundles in {skills_dir()} yet")
@@ -68,7 +68,7 @@ def test_every_bundle_conforms_to_the_raw_spec():
 @pytest.mark.skipif(REF_VALIDATOR is None,
                     reason="the reference validator is not installed (pip install skills-ref)")
 def test_reference_implementation_validates_and_agrees_with_our_loader():
-    from codeverse.skills.model import parse_skill
+    from codeverse3d.skills.model import parse_skill
 
     for bundle in BUNDLES:
         result = subprocess.run(

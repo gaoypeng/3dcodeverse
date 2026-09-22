@@ -7,19 +7,19 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.conventions import CONTACT_GAP_M
-from codeverse.prompts.catalog import PROMPT_DIRS
-from codeverse.skills import bundle_dirs, iter_skills, skills_dir
-from codeverse.skills.registry import ROUTES
-from codeverse.spatial.connectivity import PENETRATION_WARN_M
+from codeverse3d.conventions import CONTACT_GAP_M
+from codeverse3d.prompts.catalog import PROMPT_DIRS
+from codeverse3d.skills import bundle_dirs, iter_skills, skills_dir
+from codeverse3d.skills.registry import ROUTES
+from codeverse3d.spatial.connectivity import PENETRATION_WARN_M
 
 HARNESS = Path(__file__).resolve().parents[2]
-PROMPTS = HARNESS / "codeverse" / "prompts"
+PROMPTS = HARNESS / "codeverse3d" / "prompts"
 CONTRACTS = sorted(PROMPTS.glob("*/contract.md"))
 BUNDLES = bundle_dirs()
 SKILLS = list(iter_skills()) if BUNDLES else []
 
-#: prompts/<dir> per language id — codeverse.prompts.catalog owns the mapping
+#: prompts/<dir> per language id — codeverse3d.prompts.catalog owns the mapping
 #: (urdf_blender's docs live under prompts/urdf)
 _DIR_FOR_LANG = {k.value: v for k, v in PROMPT_DIRS.items()}
 

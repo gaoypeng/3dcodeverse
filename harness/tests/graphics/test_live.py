@@ -4,20 +4,20 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.config import get_settings
-from codeverse.contracts.common import Backends, Budget, Language, Track
-from codeverse.contracts.plan import GraphicsPlan
-from codeverse.contracts.spec import Spec
-from codeverse.judges.base import JudgeInput
-from codeverse.judges.vlm_judge import VlmJudge
-from codeverse.languages.glsl_shader import GlslShaderRuntime
-from codeverse.tracks.generation import generate_files
-from codeverse.tracks.graphics import (
+from codeverse3d.config import get_settings
+from codeverse3d.contracts.common import Backends, Budget, Language, Track
+from codeverse3d.contracts.plan import GraphicsPlan
+from codeverse3d.contracts.spec import Spec
+from codeverse3d.judges.base import JudgeInput
+from codeverse3d.judges.vlm_judge import VlmJudge
+from codeverse3d.languages.glsl_shader import GlslShaderRuntime
+from codeverse3d.tracks.generation import generate_files
+from codeverse3d.tracks.graphics import (
     GraphicsTrack,
     frames_render_set,
     graphics_prompt_context,
 )
-from codeverse.workspace import Workspace
+from codeverse3d.workspace import Workspace
 
 pytestmark = pytest.mark.live
 MODEL = "gemini:gemini-3.7-flash"
@@ -30,17 +30,17 @@ def keys_ok():
 
 
 def test_live_plan_generate_build_judge(tmp_path, keys_ok):
-    from codeverse.models import get_chat_model
-    from codeverse.orchestrator import RunState
-    from codeverse.proc import EventLog
-    from codeverse.prompts import render
+    from codeverse3d.models import get_chat_model
+    from codeverse3d.orchestrator import RunState
+    from codeverse3d.proc import EventLog
+    from codeverse3d.prompts import render
 
     spec = Spec(id="live_gfx", track=Track.GRAPHICS, language=Language.GLSL_SHADER,
                 prompt="a calm animated aurora borealis over snowy mountains with twinkling stars",
                 budget=Budget(max_rounds=1), backends=Backends(planner=MODEL, generator=f"single-shot:{MODEL}", judge=MODEL))
     ws = Workspace(tmp_path / "live_gfx").create()
     model = get_chat_model(MODEL)
-    from codeverse.tracks.planner import plan as run_planner
+    from codeverse3d.tracks.planner import plan as run_planner
     plan = run_planner(spec, MODEL, GraphicsPlan, ws, model=model, **GraphicsTrack()._plan_kwargs(spec))
     assert isinstance(plan, GraphicsPlan) and plan.passes and plan.key_visuals and plan.motion
     rt = GlslShaderRuntime()

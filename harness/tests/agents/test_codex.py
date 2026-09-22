@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.agents.backends import CodexAgent, parse_codex_jsonl, split_model_effort
-from codeverse.agents.cli_common import begin_session
-from codeverse.contracts.agent import AgentJob
-from codeverse.workspace import Workspace
+from codeverse3d.agents.backends import CodexAgent, parse_codex_jsonl, split_model_effort
+from codeverse3d.agents.cli_common import begin_session
+from codeverse3d.contracts.agent import AgentJob
+from codeverse3d.workspace import Workspace
 
 EVENTS = [
     {"type": "thread.started", "thread_id": "th1"},
@@ -105,7 +105,7 @@ def test_fake_run(tmp_ws: Workspace, fake_bin, monkeypatch):
 
 
 def test_long_prompt_goes_via_stdin(tmp_ws: Workspace, fake_bin, monkeypatch):
-    monkeypatch.setattr("codeverse.agents.backends.STDIN_PROMPT_BYTES", 10)
+    monkeypatch.setattr("codeverse3d.agents.backends.STDIN_PROMPT_BYTES", 10)
     a = CodexAgent("gpt-5.6-sol", binary=fake_bin("codex", FAKE_CODEX))
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello world this is long", label="z", timeout_s=30))
     assert res.ok and (tmp_ws.src / "hello.txt").read_text() == "hello"
@@ -118,8 +118,8 @@ def test_live_codex_mcp_tool_call_is_not_cancelled(tmp_ws: Workspace):
         pytest.skip("codex not installed")
     import trimesh
 
-    from codeverse.agents.cli_common import default_mcp_command
-    from codeverse.agents.materialize import materialize_workspace
+    from codeverse3d.agents.cli_common import default_mcp_command
+    from codeverse3d.agents.materialize import materialize_workspace
 
     trimesh.creation.box().export(tmp_ws.artifacts / "object.glb")
     materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_rel="threejs/cookbook.md", spatial_tools=True,

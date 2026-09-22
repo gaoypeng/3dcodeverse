@@ -7,9 +7,9 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from codeverse.contracts.chat import ImagePart
-from codeverse.contracts.common import Backends, Language, Track
-from codeverse.contracts.plan import (
+from codeverse3d.contracts.chat import ImagePart
+from codeverse3d.contracts.common import Backends, Language, Track
+from codeverse3d.contracts.plan import (
     SUBPART_REL_SLACK,
     BBox,
     EngineeringBrief,
@@ -20,17 +20,17 @@ from codeverse.contracts.plan import (
     SubAssembly,
     SubPartPlan,
 )
-from codeverse.contracts.spec import Constraints, ReferenceImage, Spec
-from codeverse.tracks import planner as B
-from codeverse.tracks import planner as BR
-from codeverse.tracks.planner import (
+from codeverse3d.contracts.spec import Constraints, ReferenceImage, Spec
+from codeverse3d.tracks import planner as B
+from codeverse3d.tracks import planner as BR
+from codeverse3d.tracks.planner import (
     MAX_QUALITY_REASKS,
     build_system_prompt,
     build_user_prompt,
     plan_example,
     plan_with_usage,
 )
-from codeverse.workspace import Workspace
+from codeverse3d.workspace import Workspace
 
 from .fakes import FakeChatModel
 
@@ -122,7 +122,7 @@ def test_plan_budget_contracts():
 
 
 def test_the_scene_track_gets_no_part_budget():
-    from codeverse.contracts.plan import ScenePlan
+    from codeverse3d.contracts.plan import ScenePlan
 
     spec = _spec(must=10, track=Track.SCENE, language=Language.SCENE_THREEJS)
     assert "PLAN BUDGET" not in build_user_prompt(spec)
@@ -278,7 +278,7 @@ def test_brief_switch_and_track_scope(monkeypatch):
 def test_the_plan_keeps_subparts_typed_and_does_not_duplicate_them_into_the_description():
     """Depth is rendered from the typed fields by ``tracks/prompting.py``; enrichment must
     not copy it into ``description`` as well or the generation prompt prints it twice."""
-    from codeverse.tracks.prompting import part_details
+    from codeverse3d.tracks.prompting import part_details
 
     part = _part("GrindHead", desc="cast iron housing", children=[
         SubPartPlan(name="Burr", description="conical burr, 24 flutes", bbox=_bbox(ex=0.4, ey=0.4, ez=0.4),
@@ -305,8 +305,8 @@ def test_enrichment_adds_signature_features_as_SHOULD_items_only():
 def test_graphics_pass_elements_are_folded_into_the_one_markdown_row_that_renders_them():
     """``graphics_steps.passes_table`` prints only ``description`` — and it is a markdown
     table row, so the fold must be single-line and idempotent."""
-    from codeverse.contracts.plan import PassPlan
-    from codeverse.tracks.graphics import passes_table
+    from codeverse3d.contracts.plan import PassPlan
+    from codeverse3d.tracks.graphics import passes_table
 
     plan = GraphicsPlan(title="T", summary="s", style="st", passes=[PassPlan(
         name="Gears", kind="fullscreen", description="meshing gear train",
@@ -323,7 +323,7 @@ def test_graphics_pass_elements_are_folded_into_the_one_markdown_row_that_render
 
 # ----------------------------------------------------------------------------- output room
 def test_plan_output_room_grows_with_the_plan_and_is_capped():
-    from codeverse.tracks.planner import PLAN_TOKENS_MAX, plan_tokens
+    from codeverse3d.tracks.planner import PLAN_TOKENS_MAX, plan_tokens
 
     small, big = B.plan_budget(_spec(must=0)), B.plan_budget(_spec(must=20))
     assert 24000 < plan_tokens(small, 24000) < plan_tokens(big, 24000) <= PLAN_TOKENS_MAX
@@ -332,7 +332,7 @@ def test_plan_output_room_grows_with_the_plan_and_is_capped():
 
 def test_truncated_plans_keep_growing_output_room(tmp_path, monkeypatch):
     monkeypatch.setenv(BR.BRIEF_ENV, "off")
-    from codeverse.models.base import ModelError
+    from codeverse3d.models.base import ModelError
 
     good = json.loads(_plan([_part(f"P{i}", desc=_detailed(i), material=f"m{i}") for i in range(9)]).model_dump_json())
 
@@ -357,7 +357,7 @@ def test_truncated_plans_keep_growing_output_room(tmp_path, monkeypatch):
 
 def test_a_model_error_that_is_not_truncation_still_propagates(tmp_path, monkeypatch):
     monkeypatch.setenv(BR.BRIEF_ENV, "off")
-    from codeverse.models.base import ModelError
+    from codeverse3d.models.base import ModelError
 
     ws = Workspace(tmp_path / "run")
     ws.create()
@@ -408,7 +408,7 @@ def test_a_good_plan_costs_exactly_one_call(tmp_path, monkeypatch):
 
 def test_brief_and_plan_are_one_model_and_the_events_say_so(tmp_path, monkeypatch):
     monkeypatch.setenv(BR.BRIEF_ENV, "on")
-    monkeypatch.setenv("CV3D_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("C3D_CACHE_DIR", str(tmp_path / "cache"))
     ws = Workspace(tmp_path / "run")
     ws.create()
     good = json.loads(_plan([_part(f"P{i}", desc=_detailed(i), material=f"m{i}") for i in range(10)]).model_dump_json())
@@ -438,7 +438,7 @@ def test_brief_and_plan_are_one_model_and_the_events_say_so(tmp_path, monkeypatc
 
 
 def test_a_model_name_leak_is_rejected_not_modelled():
-    from codeverse.contracts.plan import JointPlan, PartPlan, SubPartPlan
+    from codeverse3d.contracts.plan import JointPlan, PartPlan, SubPartPlan
 
     for bad in ("Gemini25FlashThinking", "GPT4Placeholder", "placeholder_arm"):
         with pytest.raises(ValidationError, match="leaked from"):

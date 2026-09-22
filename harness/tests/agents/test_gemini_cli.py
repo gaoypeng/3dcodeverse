@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.agents.backends import GeminiCliAgent, parse_gemini_json, usage_from_stats
-from codeverse.config import get_settings
-from codeverse.contracts.agent import AgentJob
-from codeverse.workspace import Workspace
+from codeverse3d.agents.backends import GeminiCliAgent, parse_gemini_json, usage_from_stats
+from codeverse3d.config import get_settings
+from codeverse3d.contracts.agent import AgentJob
+from codeverse3d.workspace import Workspace
 
 FAKE_GEMINI = r'''
 args = sys.argv[1:]
@@ -58,7 +58,7 @@ def agent(fake_bin, monkeypatch):
     # test in this worker can leave k1 spent or cooling and the next invoke starts on
     # k2 — which broke `keys == ["k1", "k2"]` once the suite went parallel and test
     # grouping changed.  Every test here starts from a fresh pool.
-    from codeverse.models import gemini as gm
+    from codeverse3d.models import gemini as gm
     for sig in [x for x in list(gm._pools) if x and x[0] in ("k1", "only")]:  # noqa: SLF001
         gm._pools.pop(sig, None)  # noqa: SLF001
     return GeminiCliAgent("gemini-3.7-flash", binary=binary)
@@ -66,7 +66,7 @@ def agent(fake_bin, monkeypatch):
 
 def test_retry_window_never_restarts():
     """The retry rule itself: what is LEFT of the window, or None when < min(120, T/4)."""
-    from codeverse.agents.backends import retry_window_left
+    from codeverse3d.agents.backends import retry_window_left
 
     assert retry_window_left(1800, 1700) is None          # 100s left < 120 floor
     assert retry_window_left(1800, 900) == 900            # half the window remains
@@ -101,8 +101,8 @@ def test_agent_planted_mcp_server_never_reaches_the_cli(tmp_ws: Workspace, agent
     poisoned workspace tried to start it).  3dcode + ``mcp.allowed`` now live in the
     per-session system settings, which is applied LAST and whose ``mcp.allowed``
     REPLACES rather than merges (audit 2026-08-27)."""
-    from codeverse.agents.cli_common import begin_session, default_mcp_command, release_session
-    from codeverse.agents.materialize import materialize_workspace
+    from codeverse3d.agents.cli_common import begin_session, default_mcp_command, release_session
+    from codeverse3d.agents.materialize import materialize_workspace
 
     materialize_workspace(tmp_ws, agent_kind="gemini-cli", contract_md="c", cookbook_rel="",
                           spatial_tools=True, mcp_command=default_mcp_command(tmp_ws))
@@ -148,7 +148,7 @@ def test_single_key_transient_failure_retries_same_key_and_never_raises(tmp_ws: 
     """Settings with ONE key: the retry must reuse it (no KeyPoolExhausted out of run())."""
 
     monkeypatch.setattr(get_settings(), "gemini_api_keys", ["only"])
-    from codeverse.models import gemini as gm
+    from codeverse3d.models import gemini as gm
     for sig in [s for s in list(gm._pools) if s and s[0] == "only"]:
         gm._pools.pop(sig, None)
     monkeypatch.setenv("FAKE_MODE", "fail_once_503")
@@ -161,11 +161,11 @@ def test_single_key_transient_failure_retries_same_key_and_never_raises(tmp_ws: 
 
 def test_single_key_quota_failure_returns_budget_without_retry(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
     """429 puts the only key into cooldown: no alternative → return the failed outcome (ok=False), do not raise."""
-    from codeverse.agents import backends as gc
+    from codeverse3d.agents import backends as gc
 
     monkeypatch.setattr(get_settings(), "gemini_api_keys", ["solo"])
     monkeypatch.setattr(gc, "RETRY_KEY_WAIT_S", 0.2)
-    from codeverse.models import gemini as gm
+    from codeverse3d.models import gemini as gm
     for sig in [s for s in list(gm._pools) if s and s[0] == "solo"]:
         gm._pools.pop(sig, None)
     monkeypatch.setenv("FAKE_MODE", "fail_always")
@@ -177,8 +177,8 @@ def test_single_key_quota_failure_returns_budget_without_retry(tmp_ws: Workspace
 
 
 def test_pool_exhausted_before_first_attempt_is_a_budget_result(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
-    from codeverse.agents import backends as gc
-    from codeverse.models.retry import KeyPoolExhausted
+    from codeverse3d.agents import backends as gc
+    from codeverse3d.models.retry import KeyPoolExhausted
 
     class Dead:
         def acquire(self, **kw):
@@ -194,7 +194,7 @@ def test_pool_exhausted_before_first_attempt_is_a_budget_result(tmp_ws: Workspac
 
 def test_a_raising_invoke_gives_its_pool_slot_back(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
     """The pool is process-wide: a slot leaked here is gone for every later session."""
-    from codeverse.agents import backends as gc
+    from codeverse3d.agents import backends as gc
 
     def boom(*a, **k):
         raise OSError("cannot spawn")
@@ -207,7 +207,7 @@ def test_a_raising_invoke_gives_its_pool_slot_back(tmp_ws: Workspace, agent: Gem
 
 def test_timeout_is_reported(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
     monkeypatch.setenv("FAKE_MODE", "hang")
-    monkeypatch.setattr("codeverse.agents.cli_common.IDLE_GRACE_S", 1.0)
+    monkeypatch.setattr("codeverse3d.agents.cli_common.IDLE_GRACE_S", 1.0)
     res = agent.run(_job(tmp_ws, timeout_s=1))
     assert not res.ok and res.exit_reason == "timeout" and res.duration_s < 30
     assert res.transient is False        # a plain hang is not a storm
@@ -219,7 +219,7 @@ def test_a_timeout_after_a_503_streak_is_marked_transient(tmp_ws: Workspace, age
     session (the CLI never gives up first), but the result says WHY, so a track can fall back
     to the single-shot path instead of shipping the skeleton (tracks.common.generate_for)."""
     monkeypatch.setenv("FAKE_MODE", "storm")
-    monkeypatch.setattr("codeverse.agents.cli_common.IDLE_GRACE_S", 1.0)
+    monkeypatch.setattr("codeverse3d.agents.cli_common.IDLE_GRACE_S", 1.0)
     res = agent.run(_job(tmp_ws, timeout_s=1))
     assert not res.ok and res.exit_reason == "timeout" and res.transient is True
     assert any("4 x 503" in e for e in res.errors), res.errors
@@ -246,7 +246,7 @@ def test_parse_helpers():
 
 def test_usage_input_is_total_prompt_and_cost_reprices_cache():
     """gemini-cli reports tokens.input = prompt - cached; pricing wants the TOTAL prompt (regression: ~4x under-billing)."""
-    from codeverse.models.pricing import estimate_cost, lookup_price
+    from codeverse3d.models.pricing import estimate_cost, lookup_price
 
     tok = {"input": 720_753, "prompt": 14_190_170, "cached": 13_469_417, "candidates": 62_012, "thoughts": 66_809}
     u = usage_from_stats({"models": {"gemini-3.7-flash": {"tokens": tok}}}, "gemini-3.7-flash")
@@ -262,8 +262,8 @@ def test_usage_input_is_total_prompt_and_cost_reprices_cache():
 
 
 def test_usage_prices_each_served_model_at_its_own_rate():
-    from codeverse.contracts.common import Usage
-    from codeverse.models.pricing import estimate_cost
+    from codeverse3d.contracts.common import Usage
+    from codeverse3d.models.pricing import estimate_cost
 
     stats = {"models": {"gemini-3.7-flash": {"tokens": {"prompt": 1_000_000, "cached": 0, "candidates": 1000}},
                         "gemini-3-flash-preview": {"tokens": {"prompt": 1_000_000, "cached": 0, "candidates": 1000}},
@@ -299,7 +299,7 @@ def test_live_gemini_cli_creates_file(tmp_ws: Workspace):
 def test_quota_failure_gets_a_third_rotated_attempt(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
     """Two 429s in a row on two keys, the third key answers: the cell is not lost."""
     monkeypatch.setattr(get_settings(), "gemini_api_keys", ["k1", "k2", "k3"])
-    from codeverse.models import gemini as gm
+    from codeverse3d.models import gemini as gm
     for sig in [s for s in list(gm._pools) if s and s[0] in ("k1", "only")]:
         gm._pools.pop(sig, None)
     monkeypatch.setenv("FAKE_MODE", "fail_twice_429")

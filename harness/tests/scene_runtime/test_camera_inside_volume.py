@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.config import get_settings
+from codeverse3d.config import get_settings
 from tests.scene_runtime.conftest import needs_node, run_node_json
 
 pytestmark = [pytest.mark.node, needs_node]

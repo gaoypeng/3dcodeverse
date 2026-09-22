@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codeverse.contracts.artifacts import RenderSet, RenderView, Severity
-from codeverse.judges.rubrics import apply_caps, load_rubric
-from codeverse.spatial.frame_metrics import (
+from codeverse3d.contracts.artifacts import RenderSet, RenderView, Severity
+from codeverse3d.judges.rubrics import apply_caps, load_rubric
+from codeverse3d.spatial.frame_metrics import (
     FRAME_GATE,
     frame_findings,
     frame_gate_from_renders,
@@ -202,8 +202,8 @@ def test_a_loaded_glb_that_reaches_no_frame_is_flagged():
     The hull in every shipped frame is JavaScript. Nothing flagged it, and the check the
     teaser wave used to verify the multi-language claim (plan.json -> assets[].kind) still
     said blender_glb, because the plan records what was PLANNED, not what rendered."""
-    from codeverse.contracts.artifacts import Severity
-    from codeverse.spatial.frame_metrics import frame_findings
+    from codeverse3d.contracts.artifacts import Severity
+    from codeverse3d.spatial.frame_metrics import frame_findings
 
     rep = frame_findings({"camera_checks": [], "census": {"glb_assets": [
         {"url": "/assets/clinker_skiff.glb", "meshes": 7, "meshes_in_scene": 0, "in_scene": False},

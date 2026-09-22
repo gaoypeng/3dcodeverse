@@ -23,9 +23,9 @@ from collections import Counter
 from pathlib import Path
 
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
-    sys.path.insert(0, str(_p))  # this tree's codeverse (harness/) + the `bench` package (eval/)
+    sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
-from codeverse.record.record import unique_files  # noqa: E402
+from codeverse3d.record.record import unique_files  # noqa: E402
 
 #: gemini-cli names an MCP tool ``mcp_<server>_<tool>``; ours is the ``3dcode`` server
 #: (``3dcv`` in every session recorded before the 2026-09-21 rename).
@@ -79,7 +79,7 @@ def token_rates(sessions: list[Path]) -> dict[str, float]:
     and docs/COST.md §30 counts main-role requests: the model with the most requests IS
     the main role, and mixing the other in moves ``uncached per request`` by ~3 %.
     """
-    from codeverse.cost.reconstruct import _gemini_cli_usages
+    from codeverse3d.cost.reconstruct import _gemini_cli_usages
 
     prompt = cached = requests = 0
     for path in sessions:

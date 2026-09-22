@@ -12,9 +12,9 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse.skills import config as C
-from codeverse.tracks import skills_hook as H
+from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse3d.skills import config as C
+from codeverse3d.tracks import skills_hook as H
 
 
 class Events(list):
@@ -28,7 +28,7 @@ def ctx(tmp_path: Path, library_dir: Path, monkeypatch):
     root.mkdir()
     for name in ("AGENTS.md", "GEMINI.md", "CLAUDE.md"):
         (root / name).write_text("# body\n")
-    monkeypatch.setenv("CV3D_SKILLS_DIR", str(library_dir))
+    monkeypatch.setenv("C3D_SKILLS_DIR", str(library_dir))
     parts = [NS(name=f"P{i}", instances=1, symmetry="none", children=[]) for i in range(3)]
     hashes: dict[str, str] = {}
     return NS(ws=NS(root=root), spec=NS(track=NS(value="static_object")), language=NS(value="blender"),
@@ -72,8 +72,8 @@ def test_the_previous_rounds_findings_route_the_repair_sheet(ctx, monkeypatch):
 
     (rounds / "r00.json").write_text(json.dumps(rec))
     got = H.attach_for_round(ctx, index=1, kind="repair")
-    assert "cv3d-part-contact" in got.listed
-    assert "connectivity/floating_part" in got.reasons["cv3d-part-contact"]
+    assert "c3d-part-contact" in got.listed
+    assert "connectivity/floating_part" in got.reasons["c3d-part-contact"]
     assert got.selections[0].gate_fired
 
 
@@ -90,7 +90,7 @@ def test_repair_pointers_name_the_skill_that_answers_the_current_lint(ctx, monke
         gate="lint:blender", severity=Severity.WARN,
         message="src/parts/trigger.py is never imported by src/model.py → its part is not built")])
     text = H.repair_pointers(ctx, lint)
-    assert "cv3d-blender-forms" in text
+    assert "c3d-blender-forms" in text
 
 
 def test_single_shot_inlines_one_body_into_every_task(ctx, monkeypatch):
@@ -119,7 +119,7 @@ def test_an_agent_session_never_gets_an_inlined_body(ctx, monkeypatch):
 
 def test_a_broken_library_costs_the_skills_not_the_round(ctx, monkeypatch, caplog):
     monkeypatch.setenv(C.SKILLS_ENV, "on")
-    monkeypatch.setenv("CV3D_SKILLS_DIR", "/definitely/not/a/directory")
+    monkeypatch.setenv("C3D_SKILLS_DIR", "/definitely/not/a/directory")
     with caplog.at_level("WARNING"):
         got = H.attach_for_round(ctx, index=0, kind="baseline")
     assert got is not None and got.listed == []  # routed nothing, wrote nothing, raised nothing
@@ -129,7 +129,7 @@ def test_a_failed_attach_clears_the_previous_rounds_set(ctx, monkeypatch):
     """Otherwise round N+1 probes round N's bundles and reports reads it never earned."""
     monkeypatch.setenv(C.SKILLS_ENV, "on")
     assert H.attach_for_round(ctx, index=0, kind="baseline")
-    monkeypatch.setattr("codeverse.skills.attach_skills",
+    monkeypatch.setattr("codeverse3d.skills.attach_skills",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     assert H.attach_for_round(ctx, index=1, kind="refine") is None
     assert H.record_usage(ctx, index=1, kind="refine") is None
@@ -138,5 +138,5 @@ def test_a_failed_attach_clears_the_previous_rounds_set(ctx, monkeypatch):
 def test_a_probe_failure_is_logged_not_raised(ctx, monkeypatch):
     monkeypatch.setenv(C.SKILLS_ENV, "on")
     H.attach_for_round(ctx, index=0, kind="baseline")
-    monkeypatch.setattr("codeverse.skills.telemetry.probe_reads", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+    monkeypatch.setattr("codeverse3d.skills.telemetry.probe_reads", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
     assert H.record_usage(ctx, index=0, kind="baseline") is None

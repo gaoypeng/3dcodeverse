@@ -7,23 +7,23 @@ import json
 import pytest
 from PIL import Image
 
-from codeverse.contracts.common import Language, Track
-from codeverse.contracts.plan import ArticulatedPlan
-from codeverse.contracts.run import RunStatus
-from codeverse.contracts.spec import ReferenceImage
-from codeverse.orchestrator import (
+from codeverse3d.contracts.common import Language, Track
+from codeverse3d.contracts.plan import ArticulatedPlan
+from codeverse3d.contracts.run import RunStatus
+from codeverse3d.contracts.spec import ReferenceImage
+from codeverse3d.orchestrator import (
     RefineTask,
     RoundPolicy,
     build_refine_instructions,
     compact_instructions,
 )
-from codeverse.proc import EventLog
-from codeverse.tracks import get_track
-from codeverse.tracks.articulated_object import ArticulatedObjectTrack, expected_direction
-from codeverse.tracks.candidates import CandidateRecord, decide_best, rank_candidates
-from codeverse.tracks.planner import plan_example
-from codeverse.tracks.static_object import StaticObjectTrack
-from codeverse.workspace import Workspace
+from codeverse3d.proc import EventLog
+from codeverse3d.tracks import get_track
+from codeverse3d.tracks.articulated_object import ArticulatedObjectTrack, expected_direction
+from codeverse3d.tracks.candidates import CandidateRecord, decide_best, rank_candidates
+from codeverse3d.tracks.planner import plan_example
+from codeverse3d.tracks.static_object import StaticObjectTrack
+from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
@@ -52,7 +52,7 @@ def test_round_policy_candidates_and_compaction():
 
 
 def test_build_refine_instructions_extra_and_instance_targets(chair_plan):
-    from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
+    from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
 
     gate = GateReport(gate="connectivity", passed=False, findings=[
         GateFinding(gate="connectivity", severity=Severity.ERROR, target="back_leg_1", message="floats", fix_hint="lower it")])
@@ -173,7 +173,7 @@ def test_best_of_two_pairwise_tiebreak_overrides_ranking(tmp_path, chair_plan, s
 
 
 def test_candidate_count_persists_for_resume_and_settings_default(tmp_path, chair_plan, settings):
-    from codeverse.contracts.spec import RunOptions
+    from codeverse3d.contracts.spec import RunOptions
 
     # the CLI writes --candidates into spec.options (the persisted carrier — spec.json travels
     # with the run); run_state.json no longer mirrors it
@@ -187,7 +187,7 @@ def test_candidate_count_persists_for_resume_and_settings_default(tmp_path, chai
     # a resume without the flag reads the persisted width
     t2 = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5,)), agent=FakeAgent(_writer_by_candidate),
                            planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.BLENDER))
-    from codeverse.orchestrator import RunState
+    from codeverse3d.orchestrator import RunState
 
     ctx = t2.build_context(spec, ws, EventLog(ws.events_path), RunState.load(ws))
     assert ctx.policy.n_candidates == 2
@@ -252,7 +252,7 @@ def test_reference_images_wire_judge_prompts_and_silhouette(tmp_path, chair_plan
     # reference judge + rubric
     assert services.reference_judges and services.reference_judges[0][2] == "reference_v1" and rec.extra["rubric"] == "reference_v1"
     # prompts mention the references; single-shot attaches the image
-    from codeverse.contracts.chat import ImagePart
+    from codeverse3d.contracts.chat import ImagePart
 
     p0 = model.requests[0]
     imgs = [pt for pt in p0.messages[0].parts if isinstance(pt, ImagePart)]
@@ -299,9 +299,9 @@ def test_articulated_motion_direction_gate_feeds_refine_and_judge(tmp_path, sett
 
 # ----------------------------------------------------------------------------- per-part files via runtime.file_for_part
 def test_expected_files_and_targets_follow_runtime_file_for_part(tmp_path, chair_plan, settings):
-    from codeverse.conventions import to_snake
-    from codeverse.tracks.prompting import file_for_target_factory
-    from codeverse.tracks.static_object import expected_files
+    from codeverse3d.conventions import to_snake
+    from codeverse3d.tracks.prompting import file_for_target_factory
+    from codeverse3d.tracks.static_object import expected_files
 
     class PartsRuntime(FakeRuntime):
         @staticmethod
@@ -310,7 +310,7 @@ def test_expected_files_and_targets_follow_runtime_file_for_part(tmp_path, chair
 
     spec = make_spec(language=Language.BLENDER, max_rounds=0)
     track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=PartsRuntime(Language.BLENDER))
-    from codeverse.orchestrator import RunState
+    from codeverse3d.orchestrator import RunState
 
     ctx = track.build_context(spec, Workspace(tmp_path / "ws").create(), EventLog(tmp_path / "e.jsonl"), RunState())
     ctx.plan = chair_plan
@@ -344,8 +344,8 @@ def test_default_motion_checks_on_real_urdf(tmp_path):
     """Hinged door: axis -z opens to the front (ok); axis +z → WRONG with the negated-axis fix."""
     import trimesh
 
-    from codeverse.contracts.plan import BBox, JointPlan, PartPlan
-    from codeverse.tracks.articulated_object import default_motion_checks
+    from codeverse3d.contracts.plan import BBox, JointPlan, PartPlan
+    from codeverse3d.tracks.articulated_object import default_motion_checks
 
     def robot(root, axis_z):
         ws = Workspace(root).create()
@@ -411,7 +411,7 @@ def test_a_track_without_a_glb_still_gets_candidate_renders():
     from pathlib import Path
     from types import SimpleNamespace
 
-    from codeverse.tracks.candidates import quick_render
+    from codeverse3d.tracks.candidates import quick_render
 
     class _Pipeline:
         def __init__(self): self.calls = []
@@ -440,7 +440,7 @@ def test_an_object_candidate_still_uses_the_cheap_rig(tmp_path):
     the reduced-view, reduced-resolution quick rig, not pipeline.render."""
     from types import SimpleNamespace
 
-    from codeverse.tracks.candidates import OBJECT_VIEWS_QUICK, QUICK_PX, quick_render
+    from codeverse3d.tracks.candidates import OBJECT_VIEWS_QUICK, QUICK_PX, quick_render
 
     seen = {}
 

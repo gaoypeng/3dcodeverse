@@ -45,7 +45,7 @@ def test_model_failures_are_not_infra(err):
 
 
 class ModelError(Exception):
-    """Stands in for codeverse.models.base.ModelError: the .status the classifier reads."""
+    """Stands in for codeverse3d.models.base.ModelError: the .status the classifier reads."""
     def __init__(self, msg, status=None):
         super().__init__(msg)
         self.status = status
@@ -60,7 +60,7 @@ class ClassifierTrap(Exception):
 
 
 def test_structured_exceptions_beat_string_matching():
-    from codeverse.models.base import ModelError as ProviderError
+    from codeverse3d.models.base import ModelError as ProviderError
 
     # no recognisable prose at all — only the status says what happened
     assert is_infra_failure(ModelError("upstream said no", status=503)) is True
@@ -109,7 +109,7 @@ def test_both_failure_paths_classify_the_same_way(tmp_path):
     from bench._oneshot import ApiOneShot
     from bench.compare_backends import CompareDeps, CompareOptions, parse_arm, run_cell
     from bench.run_bench import Battery
-    from codeverse.models.base import ModelError
+    from codeverse3d.models.base import ModelError
     from tests.conftest import BATTERY, FakeEvaluator
 
     def verdicts(outage: Exception, out: Path) -> dict[str, tuple[str, float | None]]:
@@ -174,8 +174,8 @@ def test_budget_and_outage_are_different_buckets():
 ])
 def test_preflight_probes_only_models_the_selected_arms_need(monkeypatch, raw_arms, needs_loop):
     from bench import compare_backends as cb
-    from codeverse.config import get_settings
-    from codeverse.models.health import Health
+    from codeverse3d.config import get_settings
+    from codeverse3d.models.health import Health
 
     probed: list[str] = []
 
@@ -183,7 +183,7 @@ def test_preflight_probes_only_models_the_selected_arms_need(monkeypatch, raw_ar
         probed.append(model)
         return Health(model=model, n_ok=4, n_tried=4)
 
-    monkeypatch.setattr("codeverse.models.health.probe", fake_probe)
+    monkeypatch.setattr("codeverse3d.models.health.probe", fake_probe)
     opts = cb.CompareOptions(judge="gemini:fixed-judge")
     assert cb._preflight(opts.judge, cb.parse_arms(raw_arms), opts) is True
     expected = {opts.judge}
@@ -203,7 +203,7 @@ def test_a_repair_lost_to_an_outage_drops_the_cell_instead_of_scoring_the_pre_re
     from bench._oneshot import OneShotResult
     from bench.compare_backends import CompareDeps, CompareOptions, parse_arm, run_cell
     from bench.run_bench import Battery
-    from codeverse.contracts.common import Usage
+    from codeverse3d.contracts.common import Usage
     from tests.conftest import BATTERY, GOOD, FakeEvaluator
 
     broken = GOOD.format(score=0.5).replace("\n", "\n# BOOM\n", 1)
@@ -250,7 +250,7 @@ def test_a_harness_planning_failure_is_a_zero_not_a_dropped_cell(tmp_path):
     own doing: no_code / 0.0, exactly what a one-shot answer in the wrong format gets."""
     from bench.compare_backends import CompareDeps, CompareOptions, parse_arm, run_cell
     from bench.run_bench import Battery
-    from codeverse.tracks.planner import PlanningError
+    from codeverse3d.tracks.planner import PlanningError
     from tests.conftest import BATTERY, FakeEvaluator
 
     def no_plan(spec, ws, resume):
@@ -333,9 +333,9 @@ def test_the_ab_viewer_refuses_to_call_a_winner_it_cannot_support():
 def test_the_default_generator_and_the_cost_router_name_the_same_model():
     """`3dcode cost` prints the default=True GENERATOR route as "the default"; if it disagrees with
     Backends.generator the report is describing a model no run uses."""
-    from codeverse.contracts.common import Backends
-    from codeverse.cost.routing import ROUTES
-    from codeverse.cost.types import Role
+    from codeverse3d.contracts.common import Backends
+    from codeverse3d.cost.routing import ROUTES
+    from codeverse3d.cost.types import Role
 
     (default,) = [r for r in ROUTES if r.role is Role.GENERATOR and r.default]
     assert default.model_id == Backends().generator

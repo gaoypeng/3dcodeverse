@@ -14,10 +14,10 @@ from __future__ import annotations
 import threading
 import time
 
-from codeverse.agents.cli_common import EXCLUSIVE_KINDS, begin_session, finish_session
-from codeverse.contracts.agent import AgentJob
-from codeverse.contracts.common import Usage
-from codeverse.workspace import Workspace
+from codeverse3d.agents.cli_common import EXCLUSIVE_KINDS, begin_session, finish_session
+from codeverse3d.contracts.agent import AgentJob
+from codeverse3d.contracts.common import Usage
+from codeverse3d.workspace import Workspace
 
 
 def _job(ws: Workspace, label: str, **kw) -> AgentJob:

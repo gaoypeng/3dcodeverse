@@ -10,22 +10,22 @@ import pytest
 from google.genai import errors as genai_errors
 from google.genai import types
 
-from codeverse.contracts.chat import (
+from codeverse3d.contracts.chat import (
     ChatMessage,
     ChatRequest,
     ImagePart,
     TextPart,
 )
-from codeverse.contracts.plan import StaticPlan
-from codeverse.models.base import ModelError
-from codeverse.models.gemini import (
+from codeverse3d.contracts.plan import StaticPlan
+from codeverse3d.models.base import ModelError
+from codeverse3d.models.gemini import (
     GeminiModel,
     build_config,
     classify_exception,
     failure_outcome,
     to_contents,
 )
-from codeverse.models.retry import KeyPool
+from codeverse3d.models.retry import KeyPool
 
 PNG_1PX = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
@@ -86,14 +86,14 @@ def make_model(script: list[Any], keys=("k1", "k2", "k3"), pool: KeyPool | None 
 
 
 def test_read_timeout_comes_from_settings(monkeypatch):
-    """CV3D_MODEL_TIMEOUT_S raises the per-attempt HTTP read timeout (degraded-provider escape hatch)."""
-    from codeverse.config import Settings, get_settings
-    from codeverse.models.gemini import GeminiModel
+    """C3D_MODEL_TIMEOUT_S raises the per-attempt HTTP read timeout (degraded-provider escape hatch)."""
+    from codeverse3d.config import Settings, get_settings
+    from codeverse3d.models.gemini import GeminiModel
 
     monkeypatch.setenv("GEMINI_API_KEYS", "k1")
     get_settings.cache_clear()
     assert GeminiModel("gemini-3.7-flash").timeout_s == Settings().model_timeout_s
-    monkeypatch.setenv("CV3D_MODEL_TIMEOUT_S", "900")
+    monkeypatch.setenv("C3D_MODEL_TIMEOUT_S", "900")
     get_settings.cache_clear()
     assert GeminiModel("gemini-3.7-flash").timeout_s == 900.0
     assert GeminiModel("gemini-3.7-flash", timeout_s=42.0).timeout_s == 42.0
@@ -372,7 +372,7 @@ def test_max_output_tokens_eaten_by_thinking_carries_the_thought_tokens():
 
 # --------------------------------------------------------------------- streaming
 def test_merge_stream_chunks_empty_stream_is_retryable():
-    from codeverse.models.gemini import _merge_stream_chunks
+    from codeverse3d.models.gemini import _merge_stream_chunks
 
     with pytest.raises(ModelError) as e:
         _merge_stream_chunks([])
@@ -381,7 +381,7 @@ def test_merge_stream_chunks_empty_stream_is_retryable():
 
 def test_drain_stream_cuts_a_stream_past_its_attempt_budget():
     """The attempt deadline also bounds a healthy but endless stream."""
-    from codeverse.models.gemini import _drain_stream
+    from codeverse3d.models.gemini import _drain_stream
 
     ticks = iter([1.0, 10.0, 20.0])
     chunk = types.GenerateContentResponse(candidates=[])
@@ -391,29 +391,29 @@ def test_drain_stream_cuts_a_stream_past_its_attempt_budget():
 
 
 def test_streaming_toggle(monkeypatch):
-    from codeverse.models.gemini import _streaming_enabled
+    from codeverse3d.models.gemini import _streaming_enabled
 
-    monkeypatch.delenv("CV3D_STREAM", raising=False)
+    monkeypatch.delenv("C3D_STREAM", raising=False)
     assert _streaming_enabled()
-    monkeypatch.setenv("CV3D_STREAM", "0")
+    monkeypatch.setenv("C3D_STREAM", "0")
     assert not _streaming_enabled()
 
 
 def test_ipv4_transport_toggle(monkeypatch):
     import httpx
 
-    from codeverse.models.gemini import _ipv4_client_args
+    from codeverse3d.models.gemini import _ipv4_client_args
 
-    monkeypatch.delenv("CV3D_IPV4", raising=False)
+    monkeypatch.delenv("C3D_IPV4", raising=False)
     args = _ipv4_client_args()
     assert isinstance(args["transport"], httpx.HTTPTransport)
-    monkeypatch.setenv("CV3D_IPV4", "0")
+    monkeypatch.setenv("C3D_IPV4", "0")
     assert _ipv4_client_args() == {}
 
 
 def test_merge_stream_chunks_concatenates_text_and_keeps_final_usage():
     """Stream merging concatenates text parts in order; usage comes from the final chunk."""
-    from codeverse.models.gemini import _merge_stream_chunks, extract_candidate
+    from codeverse3d.models.gemini import _merge_stream_chunks, extract_candidate
 
     c1 = types.GenerateContentResponse(
         candidates=[

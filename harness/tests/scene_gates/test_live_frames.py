@@ -12,15 +12,15 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from codeverse.conventions import SCENE_VIEWS
-from codeverse.spatial.frame_metrics import frame_gate_from_renders
-from codeverse.spatial.render_scene import (
+from codeverse3d.conventions import SCENE_VIEWS
+from codeverse3d.spatial.frame_metrics import frame_gate_from_renders
+from codeverse3d.spatial.render_scene import (
     JUDGE_MAX_VIEWS,
     read_metrics,
     render_scene,
     select_judge_views,
 )
-from codeverse.workspace import Workspace
+from codeverse3d.workspace import Workspace
 from tests.scene_runtime.conftest import needs_browser
 
 pytestmark = [pytest.mark.node, needs_browser]
@@ -111,7 +111,7 @@ def test_dark_variant_raises_dark_frame_errors(starter_ws: Workspace):
 def test_plan_bounds_guard_orbit_framing(starter_ws: Workspace, tmp_path: Path):
     """Plan bounds guard the framing: a zone that sprawls far past the bounds is dropped in
     favour of the zones inside them; bounds that contain everything change nothing."""
-    from codeverse.contracts.plan import BBox
+    from codeverse3d.contracts.plan import BBox
 
     def _run(i: int, extents: float) -> tuple[dict, float]:
         out = starter_ws.renders_dir(i)

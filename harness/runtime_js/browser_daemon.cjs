@@ -21,7 +21,7 @@ const POLL_MS = 15 * 1000;
 // A page older than this belongs to nobody: every harness render/probe finishes or
 // times out well under it (ceilings <= 330 s), and a SIGKILLed client never closes
 // its page.  Leaked pages hold WebGL contexts that eventually wedge the browser.
-const PAGE_TTL_MS = Number(process.env.CV3D_PAGE_TTL_MS || 8 * 60 * 1000);
+const PAGE_TTL_MS = Number(process.env.C3D_PAGE_TTL_MS || 8 * 60 * 1000);
 
 function arg(name, dflt) {
   const i = process.argv.indexOf(`--${name}`);

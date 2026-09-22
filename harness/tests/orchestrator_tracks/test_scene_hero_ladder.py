@@ -12,11 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.contracts.common import Language, Track
-from codeverse.contracts.plan import ScenePlan
-from codeverse.contracts.spec import Constraints
-from codeverse.tracks import scene_assets as SA
-from codeverse.tracks.planner import plan_example
+from codeverse3d.contracts.common import Language, Track
+from codeverse3d.contracts.plan import ScenePlan
+from codeverse3d.contracts.spec import Constraints
+from codeverse3d.tracks import scene_assets as SA
+from codeverse3d.tracks.planner import plan_example
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
     FAIL_MARK,
@@ -96,7 +96,7 @@ def test_hero_prompt_carries_the_scene_and_blenders_own_tools(tmp_ws, settings):
 
 def _crate_plan(asset):
     """A two-part plan the fake runtime builds at the crate's size (one box per part)."""
-    from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
+    from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
 
     w, h, d = asset.approx_size_m
     return StaticPlan(object_name=asset.name, summary=asset.description, overall_bbox=BBox(center=(0, h / 2, 0), extents=(w, h, d)),
@@ -158,8 +158,8 @@ class _StormAgent(FakeAgent):
     answer (D68: 26 of the evening's 40 timed-out sessions)."""
 
     def run(self, job):
-        from codeverse.contracts.agent import AgentResult
-        from codeverse.workspace import Workspace
+        from codeverse3d.contracts.agent import AgentResult
+        from codeverse3d.workspace import Workspace
 
         self.jobs.append(job)
         ws = Workspace(job.workspace)

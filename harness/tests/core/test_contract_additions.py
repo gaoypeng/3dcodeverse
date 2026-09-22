@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from codeverse.contracts import (
+from codeverse3d.contracts import (
     ENTRY_FILE,
     LANGUAGE_LABEL,
     TRACK_INFO,
@@ -16,12 +16,12 @@ from codeverse.contracts import (
     Track,
     code_file,
 )
-from codeverse.contracts.artifacts import GateFinding, RenderSet, RenderView, Severity
+from codeverse3d.contracts.artifacts import GateFinding, RenderSet, RenderView, Severity
 
 
 # ------------------------------------------------------------------ registries
 def test_registries_cover_their_enums_and_are_frozen():
-    from codeverse.conventions import LANGUAGE_FRAME, Frame
+    from codeverse3d.conventions import LANGUAGE_FRAME, Frame
 
     assert set(TRACK_INFO) == set(Track)
     assert TRACK_INFO[Track.STATIC_OBJECT].rubric == "static_object_v1"
@@ -87,8 +87,8 @@ def test_spec_options_default_legacy_roundtrip_and_validation():
 
 
 def test_spec_options_do_not_change_the_plan_stage_hash():
-    from codeverse.orchestrator import hash_inputs
-    from codeverse.tracks.lifecycle import plan_stage_inputs
+    from codeverse3d.orchestrator import hash_inputs
+    from codeverse3d.tracks.lifecycle import plan_stage_inputs
 
     plain = Spec(id="x", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a chair")
     opted = plain.model_copy(update={"options": RunOptions(candidates=4, texture=True)})
@@ -100,8 +100,8 @@ def test_records_written_before_the_2026_08_30_field_retirements_still_load():
     first_seen_turn (an api-agent leftover) and AgentJob.images (dead once image staging
     moved to .3dcode/images/) were deleted.  Every model here ignores unknown keys, so the
     stored runs on disk must keep re-reading — that is the whole licence for the delete."""
-    from codeverse.contracts.agent import AgentJob
-    from codeverse.contracts.run import RoundRecord, SkillRead
+    from codeverse3d.contracts.agent import AgentJob
+    from codeverse3d.contracts.run import RoundRecord, SkillRead
 
     rs = RenderSet.model_validate({"renderer": "blender", "turntable": "renders/turntable.mp4",
                                    "contact_sheet": "renders/sheet.png"})

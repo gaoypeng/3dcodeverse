@@ -6,18 +6,18 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from codeverse.contracts.common import Language, Track, Usage
-from codeverse.contracts.plan import ScenePlan
-from codeverse.contracts.run import RunStatus
-from codeverse.orchestrator import RunState
-from codeverse.proc import EventLog
-from codeverse.tracks import get_track
-from codeverse.tracks.graphics import GraphicsTrack
-from codeverse.tracks.planner import plan_example
-from codeverse.tracks.prompting import file_for_target_factory
-from codeverse.tracks.scene import SceneTrack
-from codeverse.tracks.static_object import StaticObjectTrack, expected_files
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.common import Language, Track, Usage
+from codeverse3d.contracts.plan import ScenePlan
+from codeverse3d.contracts.run import RunStatus
+from codeverse3d.orchestrator import RunState
+from codeverse3d.proc import EventLog
+from codeverse3d.tracks import get_track
+from codeverse3d.tracks.graphics import GraphicsTrack
+from codeverse3d.tracks.planner import plan_example
+from codeverse3d.tracks.prompting import file_for_target_factory
+from codeverse3d.tracks.scene import SceneTrack
+from codeverse3d.tracks.static_object import StaticObjectTrack, expected_files
+from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
@@ -85,13 +85,13 @@ class BlenderishRuntime(FakeRuntime):
 
     @staticmethod
     def file_for_part(part_name: str) -> str:
-        from codeverse.conventions import to_snake
+        from codeverse3d.conventions import to_snake
 
         return f"src/parts/{to_snake(part_name)}.py"
 
     @staticmethod
     def file_for_target(target: str) -> list[str]:
-        from codeverse.conventions import to_snake
+        from codeverse3d.conventions import to_snake
 
         if target.strip().lower() in ("", "overall", "assembly", "object", "model"):
             return ["src/model.py"]
@@ -124,7 +124,7 @@ def test_texture_tag_runs_texture_pass_and_records_summary(tmp_path, chair_plan,
         return SimpleNamespace(usage=Usage(backend="fake", cost_usd=0.02),
                                summary=lambda: {"shipped": True, "n_textures": 3})
 
-    import codeverse.texturing.run as trun
+    import codeverse3d.texturing.run as trun
 
     monkeypatch.setattr(trun, "texture_pass", fake_texture_pass)
     rec, ws, judge, services = _static_run(tmp_path, chair_plan, settings, tags=["texture"])
@@ -135,7 +135,7 @@ def test_texture_tag_runs_texture_pass_and_records_summary(tmp_path, chair_plan,
 
 
 def test_texture_pass_failure_is_additive_not_fatal(tmp_path, chair_plan, settings, monkeypatch):
-    import codeverse.texturing.run as trun
+    import codeverse3d.texturing.run as trun
 
     def boom(*a, **kw):
         raise RuntimeError("image model down")
@@ -149,7 +149,7 @@ def test_texture_pass_failure_is_additive_not_fatal(tmp_path, chair_plan, settin
 
 
 def test_untagged_run_never_calls_texture_pass(tmp_path, chair_plan, settings, monkeypatch):
-    import codeverse.texturing.run as trun
+    import codeverse3d.texturing.run as trun
 
     def boom(*a, **kw):
         raise AssertionError("texture_pass must not run without the tag")
@@ -172,7 +172,7 @@ def test_a_tool_textured_run_is_not_double_bought_and_still_records(tmp_path, ch
     re-finalise re-bought the pack; and the mid-session ``record.json`` write the tool
     used to make is now forbidden (control files have ONE owner during a session), so
     finalise must collect the report into ``extra['texturing']`` itself."""
-    import codeverse.texturing.run as trun
+    import codeverse3d.texturing.run as trun
 
     calls = []
 

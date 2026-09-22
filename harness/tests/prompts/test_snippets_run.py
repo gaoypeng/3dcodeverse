@@ -90,9 +90,9 @@ def test_urdf_cookbook_runs(tmp_path) -> None:
 def _build_urdf_example(tmp_path, tag: str, model_py: str, urdf: str):
     """Run a doc example through the REAL urdf_blender pipeline (lint → Blender export →
     FK consistency → collision sweep) — the build the agent's own files go through."""
-    from codeverse.config import get_settings
-    from codeverse.languages.urdf import UrdfBlenderRuntime
-    from codeverse.workspace import Workspace
+    from codeverse3d.config import get_settings
+    from codeverse3d.languages.urdf import UrdfBlenderRuntime
+    from codeverse3d.workspace import Workspace
 
     if not get_settings().resolve_blender():
         pytest.skip("no Blender binary configured")
@@ -113,7 +113,7 @@ def _build_urdf_example(tmp_path, tag: str, model_py: str, urdf: str):
 def test_urdf_contract_example_builds_and_lid_opens_upward(tmp_path) -> None:
     """The contract's COMPLETE example must pass the harness build exactly as written
     (FK consistency, no lint warnings, clean sweep) and the lid must open upward."""
-    from codeverse.spatial.joints import link_world_meshes, load_urdf
+    from codeverse3d.spatial.joints import link_world_meshes, load_urdf
 
     ws, _ = _build_urdf_example(tmp_path, "pedalbin", "\n".join(blocks("urdf/contract.md", "python")),
                                 blocks("urdf/contract.md", "xml")[0])

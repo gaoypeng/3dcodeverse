@@ -4,7 +4,7 @@
 //
 //   import { viewDirection, fitCameraToBox } from '/__runtime/lib/browser/camera_fit.js';
 //
-// Convention (codeverse.conventions): azimuth 0 = front (+Z), counter-clockwise seen
+// Convention (codeverse3d.conventions): azimuth 0 = front (+Z), counter-clockwise seen
 // from above (90 = camera on +X = the object's right side); elevation above the horizon.
 
 import * as THREE from 'three';

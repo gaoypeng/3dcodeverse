@@ -26,7 +26,7 @@ import { createTimeoutMs, errorSummary, openHost } from './lib/host_page.mjs';
 const args = parseCli({
   ws: {}, out: { default: '' }, cameras: { default: 'authored' }, t: { default: '1.5' },
   width: { default: '512' }, height: { default: '288' }, 'max-materials': { default: '8' },
-  frames: { type: 'boolean', default: false }, gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' },
+  frames: { type: 'boolean', default: false }, gpu: { default: process.env.C3D_RENDER_GPU || 'auto' },
   'timeout-ms': { default: '120000' },
 });
 

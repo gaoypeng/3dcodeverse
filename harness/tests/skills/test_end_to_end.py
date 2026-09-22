@@ -13,14 +13,14 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.config import Settings
-from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse.contracts.common import Language
-from codeverse.contracts.run import RunStatus
-from codeverse.skills.materialize import MARK_BEGIN
-from codeverse.skills.registry import ROUTED_SKILLS
-from codeverse.tracks.static_object import StaticObjectTrack
-from codeverse.workspace import Workspace
+from codeverse3d.config import Settings
+from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse3d.contracts.common import Language
+from codeverse3d.contracts.run import RunStatus
+from codeverse3d.skills.materialize import MARK_BEGIN
+from codeverse3d.skills.registry import ROUTED_SKILLS
+from codeverse3d.tracks.static_object import StaticObjectTrack
+from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import chair_plan as _chair_plan
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
@@ -73,7 +73,7 @@ def _repairing_writer(job, ws):
 @pytest.fixture(autouse=True)
 def _no_brief(monkeypatch):
     """The fake planner answers one canned plan; the optional brief call would eat it."""
-    monkeypatch.setenv("CV3D_PLAN_BRIEF", "off")
+    monkeypatch.setenv("C3D_PLAN_BRIEF", "off")
 
 
 @pytest.fixture
@@ -91,8 +91,8 @@ def run(tmp_path: Path, chair_plan, settings, monkeypatch):
     lib = tmp_path / "library"
     for name in ROUTED_SKILLS:
         write_bundle(lib, name)
-    monkeypatch.setenv("CV3D_SKILLS", "on")
-    monkeypatch.setenv("CV3D_SKILLS_DIR", str(lib))
+    monkeypatch.setenv("C3D_SKILLS", "on")
+    monkeypatch.setenv("C3D_SKILLS_DIR", str(lib))
     chair_plan.summary += " with a custom shader material"
     ws = Workspace(tmp_path / "runs" / "chair")
     agent = FakeAgent(_repairing_writer)
@@ -123,11 +123,11 @@ def test_enabled_run_delivers_routes_repairs_and_records_skills(run):
     baseline = rec.rounds[0].skills.listed
     refine = rec.rounds[1].skills.listed
     # R11/R3: a threejs baseline gets the standing form + contact sheets, with no gate to react to
-    assert "cv3d-threejs-forms" in baseline
+    assert "c3d-threejs-forms" in baseline
     assert not any(x.reason.startswith("contract/") for x in rec.rounds[0].skills.reads)
-    assert "cv3d-bbox-contract" in refine            # R4: the contract gate fired in round 0
+    assert "c3d-bbox-contract" in refine            # R4: the contract gate fired in round 0
     reasons = {x.name: x.reason for x in rec.rounds[1].skills.reads}
-    assert "contract/" in reasons["cv3d-bbox-contract"]
+    assert "contract/" in reasons["c3d-bbox-contract"]
 
     keys = [k for k in rec.prompt_hashes if k.startswith("skill:")]
     assert keys and all(rec.prompt_hashes[k] for k in keys)
@@ -137,12 +137,12 @@ def test_enabled_run_delivers_routes_repairs_and_records_skills(run):
     assert len(rows) == 3 and all('"listed"' in r for r in rows)
 
     repair = next(job for job in agent.jobs if job.kind == "repair")
-    assert "cv3d-threejs-shader-traps" in repair.prompt
+    assert "c3d-threejs-shader-traps" in repair.prompt
     assert rec.rounds[0].notes.startswith("repair attempts: 1/2 (fixed)")
 
 
 def test_the_switch_off_leaves_no_trace(tmp_path, chair_plan, settings, monkeypatch):
-    monkeypatch.delenv("CV3D_SKILLS", raising=False)
+    monkeypatch.delenv("C3D_SKILLS", raising=False)
     ws = Workspace(tmp_path / "runs" / "chair_off")
     track = StaticObjectTrack(services=FakeServices(contract_errors=1), judge=FakeJudge(scores=(0.55, 0.7, 0.85)),
                               agent=FakeAgent(_agent_writer),

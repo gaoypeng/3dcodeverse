@@ -10,28 +10,28 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from codeverse.config import Settings
-from codeverse.contracts.artifacts import BuildResult, GateReport
-from codeverse.contracts.common import Backends, Budget, Language, Track
-from codeverse.contracts.plan import GraphicsPlan
-from codeverse.contracts.run import RunStatus
-from codeverse.contracts.spec import Constraints, Spec
-from codeverse.judges.rubrics import load_rubric
-from codeverse.languages._gl_common import finish_build, judge_times, preview_times
-from codeverse.languages.glsl_shader import lint_workspace, write_skeleton
-from codeverse.proc import EventLog
-from codeverse.prompts import render
-from codeverse.spatial.gl_render import GlFrame, GlResult
-from codeverse.tracks import get_track
-from codeverse.tracks.graphics import (
+from codeverse3d.config import Settings
+from codeverse3d.contracts.artifacts import BuildResult, GateReport
+from codeverse3d.contracts.common import Backends, Budget, Language, Track
+from codeverse3d.contracts.plan import GraphicsPlan
+from codeverse3d.contracts.run import RunStatus
+from codeverse3d.contracts.spec import Constraints, Spec
+from codeverse3d.judges.rubrics import load_rubric
+from codeverse3d.languages._gl_common import finish_build, judge_times, preview_times
+from codeverse3d.languages.glsl_shader import lint_workspace, write_skeleton
+from codeverse3d.proc import EventLog
+from codeverse3d.prompts import render
+from codeverse3d.spatial.gl_render import GlFrame, GlResult
+from codeverse3d.tracks import get_track
+from codeverse3d.tracks.graphics import (
     GraphicsPipeline,
     GraphicsTrack,
     ensure_graphics_acceptance,
     graphics_prompt_context,
     plan_example,
 )
-from codeverse.tracks.planner import PlanningError
-from codeverse.workspace import Workspace
+from codeverse3d.tracks.planner import PlanningError
+from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.fakes import FakeAgent, FakeChatModel, FakeJudge, FakeServices
 
 FAIL_MARK = "RAISE_BUILD_ERROR"
@@ -106,8 +106,8 @@ def _plan(spec, ws, model, budget=None):
     """What plan_graphics() used to be: run_planner with GraphicsTrack's own hooks.
     The wrapper was a second spelling of _plan_kwargs and had no production caller,
     so the tests go through the hooks the live path actually uses."""
-    from codeverse.tracks.graphics import GraphicsTrack
-    from codeverse.tracks.planner import plan as run_planner
+    from codeverse3d.tracks.graphics import GraphicsTrack
+    from codeverse3d.tracks.planner import plan as run_planner
     return run_planner(spec, "fake:planner", GraphicsPlan, ws, model=model, budget=budget,
                        **GraphicsTrack()._plan_kwargs(spec))
 
@@ -225,8 +225,8 @@ def test_planner_reask_and_acceptance(tmp_ws):
     always_bad = FakeChatModel(lambda req: {"title": "x"})
     with pytest.raises(PlanningError):
         _plan(spec, tmp_ws, always_bad)
-    from codeverse.tracks.graphics import PLAN_TEMPLATE
-    from codeverse.tracks.planner import build_system_prompt
+    from codeverse3d.tracks.graphics import PLAN_TEMPLATE
+    from codeverse3d.tracks.planner import build_system_prompt
     sys_prompt = build_system_prompt(spec, GraphicsPlan, template=PLAN_TEMPLATE, example=plan_example())
     assert "ART-DIRECTOR" in sys_prompt and "NeonRainWindow" in sys_prompt
 
@@ -238,7 +238,7 @@ def test_templates_render_and_rubric_loads(tmp_path, settings):
     spec = make_spec(language=Language.OPENGL_PYTHON, generator="single-shot:fake:fake-model")
     ws = Workspace(tmp_path / "runs" / "tpl").create()
     track = GraphicsTrack(services=_services(), settings=settings, runtime=FakeGlRuntime())
-    from codeverse.orchestrator import RunState
+    from codeverse3d.orchestrator import RunState
 
     ctx = track.build_context(spec, ws, EventLog(ws.events_path), RunState.load_or_new(ws, resume=False))
     ctx.plan = GraphicsPlan.model_validate(plan_example())

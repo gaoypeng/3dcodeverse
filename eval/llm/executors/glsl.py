@@ -92,7 +92,7 @@ window.__result = {ok:false, err:null};
 def compile_check(src: str, workdir: Path, timeout: int) -> dict:
     exe = config.find_glslang()
     if exe is None:
-        return {"status": "CRASH", "error": "glslang not found (set CV3D_GLSLANG)"}
+        return {"status": "CRASH", "error": "glslang not found (set C3D_GLSLANG)"}
     fp = workdir / "shader.frag"
     fp.write_text(PRELUDE + src + MAIN)
     try:

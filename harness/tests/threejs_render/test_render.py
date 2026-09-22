@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from codeverse.conventions import OBJECT_VIEWS_QUICK, ViewPreset
-from codeverse.spatial import render as render_mod
-from codeverse.spatial.render import RenderError, render_glb
+from codeverse3d.conventions import OBJECT_VIEWS_QUICK, ViewPreset
+from codeverse3d.spatial import render as render_mod
+from codeverse3d.spatial.render import RenderError, render_glb
 
 
 def test_render_glb_offline_validation(tmp_path: Path):

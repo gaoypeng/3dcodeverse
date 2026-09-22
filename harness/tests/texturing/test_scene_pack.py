@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
-from codeverse.texturing.plan import (
+from codeverse3d.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
+from codeverse3d.texturing.plan import (
     default_scene_pack_plan,
     load_manifest,
     scene_pack_plan,

@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 import trimesh
 
-from codeverse.spatial.registry import ToolContext
-from codeverse.workspace import Workspace
+from codeverse3d.spatial.registry import ToolContext
+from codeverse3d.workspace import Workspace
 
 LEG_XZ = [(-0.15, -0.15), (0.15, -0.15), (-0.15, 0.15), (0.15, 0.15)]
 FLOAT_GAP_M = 0.005

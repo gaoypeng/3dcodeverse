@@ -1,11 +1,11 @@
-"""codeverse/agents/transcript.py — the per-session transcript budget."""
+"""codeverse3d/agents/transcript.py — the per-session transcript budget."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from codeverse.agents import cli_common as tr
-from codeverse.agents.cli_common import Trajectory
+from codeverse3d.agents import cli_common as tr
+from codeverse3d.agents.cli_common import Trajectory
 
 
 def test_the_transcript_stops_at_its_budget_with_a_marker_row(tmp_path: Path, monkeypatch):

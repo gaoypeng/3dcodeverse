@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.skills.registry import ROUTED_SKILLS
+from codeverse3d.skills.registry import ROUTED_SKILLS
 
 FRONTMATTER = """---
 name: {name}
@@ -54,6 +54,6 @@ def library_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def library(library_dir: Path) -> dict:
-    from codeverse.skills import all_skills
+    from codeverse3d.skills import all_skills
 
     return all_skills(library_dir, strict=True)

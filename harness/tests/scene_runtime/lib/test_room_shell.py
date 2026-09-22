@@ -13,10 +13,10 @@ from __future__ import annotations
 import pytest
 from _probe import measure
 
-from codeverse.contracts.common import Track
-from codeverse.contracts.plan import ScenePlan
-from codeverse.languages.scene_threejs import _env_for_plan
-from codeverse.tracks.planner import plan_example
+from codeverse3d.contracts.common import Track
+from codeverse3d.contracts.plan import ScenePlan
+from codeverse3d.languages.scene_threejs import _env_for_plan
+from codeverse3d.tracks.planner import plan_example
 
 _SHELL = """
 import * as THREE from 'three';

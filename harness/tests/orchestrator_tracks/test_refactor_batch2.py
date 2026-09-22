@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from codeverse.contracts.artifacts import BuildResult, RenderSet, RenderView
-from codeverse.contracts.common import Language, Track
-from codeverse.contracts.plan import ScenePlan
-from codeverse.contracts.run import RunStatus
-from codeverse.contracts.spec import RunOptions
-from codeverse.orchestrator import RefineTask, RunState, plan_refine_groups
-from codeverse.proc import EventLog
-from codeverse.tracks.planner import plan_example
-from codeverse.tracks.scene import ScenePipeline
-from codeverse.tracks.static_object import StaticObjectTrack
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.artifacts import BuildResult, RenderSet, RenderView
+from codeverse3d.contracts.common import Language, Track
+from codeverse3d.contracts.plan import ScenePlan
+from codeverse3d.contracts.run import RunStatus
+from codeverse3d.contracts.spec import RunOptions
+from codeverse3d.orchestrator import RefineTask, RunState, plan_refine_groups
+from codeverse3d.proc import EventLog
+from codeverse3d.tracks.planner import plan_example
+from codeverse3d.tracks.scene import ScenePipeline
+from codeverse3d.tracks.static_object import StaticObjectTrack
+from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
@@ -66,8 +66,8 @@ def test_candidate_width_precedence(tmp_path, settings):
 def test_injected_policy_keeps_the_track_detail_round(tmp_path, settings):
     """economy/quality inject RoundPolicy(judge_samples=n) and used to lose the static
     track's detail round (a policy object stood in for 'detail_rounds was chosen')."""
-    from codeverse.orchestrator import RoundPolicy
-    from codeverse.tracks.lifecycle import DEFAULT_DETAIL_ROUNDS
+    from codeverse3d.orchestrator import RoundPolicy
+    from codeverse3d.tracks.lifecycle import DEFAULT_DETAIL_ROUNDS
 
     ws = Workspace(tmp_path / "eco").create()
     track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.THREEJS),
@@ -86,12 +86,12 @@ def test_options_texture_triggers_texture_pass(tmp_path, chair_plan, settings, m
     def fake_texture_pass(ws, spec, plan, **kw):
         from types import SimpleNamespace
 
-        from codeverse.contracts.common import Usage
+        from codeverse3d.contracts.common import Usage
 
         calls["ws"] = str(ws.root)
         return SimpleNamespace(usage=Usage(backend="fake", cost_usd=0.01), summary=lambda: {"shipped": True})
 
-    import codeverse.texturing.run as trun
+    import codeverse3d.texturing.run as trun
 
     monkeypatch.setattr(trun, "texture_pass", fake_texture_pass)
     spec = make_spec(max_rounds=0, options=RunOptions(texture=True))
@@ -114,7 +114,7 @@ def _rs(flags: list[bool | None]) -> RenderSet:
 def test_judge_view_flags_and_path_reconstruction(tmp_path):
     from types import SimpleNamespace
 
-    from codeverse.judges.base import judged_subset, resolve_paths
+    from codeverse3d.judges.base import judged_subset, resolve_paths
 
     pipe = ScenePipeline()
     ctx = SimpleNamespace(services=FakeServices())
@@ -148,12 +148,12 @@ def test_judge_context_needs_no_run_context(tmp_path):
 def test_graphics_planner_hooks_charge_budget_on_planning_error(tmp_ws):
     import pytest
 
-    from codeverse.contracts.plan import GraphicsPlan
-    from codeverse.contracts.spec import Budget
-    from codeverse.orchestrator import BudgetGuard
-    from codeverse.tracks.graphics import GraphicsTrack
-    from codeverse.tracks.planner import PlanningError
-    from codeverse.tracks.planner import plan as run_planner
+    from codeverse3d.contracts.plan import GraphicsPlan
+    from codeverse3d.contracts.spec import Budget
+    from codeverse3d.orchestrator import BudgetGuard
+    from codeverse3d.tracks.graphics import GraphicsTrack
+    from codeverse3d.tracks.planner import PlanningError
+    from codeverse3d.tracks.planner import plan as run_planner
 
     spec = make_spec(Track.GRAPHICS, Language.GLSL_SHADER)
     budget = BudgetGuard(Budget(max_minutes=10))

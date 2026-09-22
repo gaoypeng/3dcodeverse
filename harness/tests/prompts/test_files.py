@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.prompts import load_text, prompt_hash, render
+from codeverse3d.prompts import load_text, prompt_hash, render
 from tests.prompts.conftest import PROMPT_FILES, PROMPTS_DIR, read_prompt
 
 
@@ -76,9 +76,9 @@ def test_every_language_ships_a_system_prompt() -> None:
     CadQuery's B-rep workplanes and three.js BufferGeometry, told the same thing.
     A missing file here means a language silently falls back to nothing.
     """
-    from codeverse.contracts.common import Language
-    from codeverse.prompts.catalog import prompt_dir_for
-    from codeverse.tracks.prompting import language_system_prompt
+    from codeverse3d.contracts.common import Language
+    from codeverse3d.prompts.catalog import prompt_dir_for
+    from codeverse3d.tracks.prompting import language_system_prompt
 
     for lang in Language:
         text = language_system_prompt(lang)

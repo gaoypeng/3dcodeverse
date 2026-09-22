@@ -7,9 +7,9 @@ import json
 import os
 from pathlib import Path
 
-from codeverse.contracts.run import RunDeliverable, RunRecord, RunTelemetry
-from codeverse.contracts.spec import Spec
-from codeverse.workspace import EVIDENCE_DIR, LAYOUT_ALIASES, Workspace
+from codeverse3d.contracts.run import RunDeliverable, RunRecord, RunTelemetry
+from codeverse3d.contracts.spec import Spec
+from codeverse3d.workspace import EVIDENCE_DIR, LAYOUT_ALIASES, Workspace
 
 
 def test_create_makes_the_three_buckets(tmp_path: Path):
@@ -87,9 +87,9 @@ def _moved_run(tmp_path: Path):
     """Create a record whose absolute sheet path predates a workspace move."""
     import shutil
 
-    from codeverse.contracts.artifacts import RenderSet
-    from codeverse.contracts.common import Backends, Language, Track
-    from codeverse.contracts.run import RoundRecord, RunStatus
+    from codeverse3d.contracts.artifacts import RenderSet
+    from codeverse3d.contracts.common import Backends, Language, Track
+    from codeverse3d.contracts.run import RoundRecord, RunStatus
 
     a = tmp_path / "A" / "run1"
     (a / "artifacts" / "renders" / "r01").mkdir(parents=True)
@@ -109,7 +109,7 @@ def _moved_run(tmp_path: Path):
 def _captured(render) -> str:
     """rich's Console holds its own stream, so capsys never sees it; widen it too so the
     panel cannot wrap the path under assertion."""
-    from codeverse.cli._common import console
+    from codeverse3d.cli._common import console
 
     old_width, console.width = console.width, 400
     try:
@@ -122,7 +122,7 @@ def _captured(render) -> str:
 
 def test_a_relocated_run_still_resolves_its_stored_paths(tmp_path):
     """Stored absolute paths rebase after moving or archiving a run."""
-    from codeverse.workspace import Workspace
+    from codeverse3d.workspace import Workspace
 
     _a, b, sheet_a, _rec = _moved_run(tmp_path)
     stored = str(sheet_a)  # what the writer puts in record.json
@@ -148,7 +148,7 @@ def test_a_copied_run_reads_its_own_files_while_the_original_still_exists(tmp_pa
     files for as long as that directory lived (V10f).  This root's copy must win."""
     import shutil
 
-    from codeverse.workspace import Workspace
+    from codeverse3d.workspace import Workspace
 
     a = tmp_path / "A" / "run1"
     (a / "artifacts" / "renders" / "r01").mkdir(parents=True)
@@ -167,8 +167,8 @@ def test_a_copied_run_reads_its_own_files_while_the_original_still_exists(tmp_pa
 
 def test_show_prints_the_sheet_that_exists_after_a_move(tmp_path):
     """The user-visible half: `3dcode show` must not print a path that is not there."""
-    from codeverse.cli._common import print_record_summary
-    from codeverse.workspace import Workspace
+    from codeverse3d.cli._common import print_record_summary
+    from codeverse3d.workspace import Workspace
 
     _a, b, _sheet, rec = _moved_run(tmp_path)
     printed = _captured(lambda: print_record_summary(rec, Workspace(b).root))
@@ -184,7 +184,7 @@ def test_a_stale_index_lock_names_the_remedy(tmp_path):
 
     import pytest
 
-    from codeverse.workspace import Workspace, WorkspaceGitError
+    from codeverse3d.workspace import Workspace, WorkspaceGitError
 
     ws = Workspace(tmp_path / "run").create()
     ws.src.mkdir(parents=True, exist_ok=True)
@@ -235,8 +235,8 @@ def test_a_planted_git_hook_or_filter_never_runs_on_a_commit(tmp_path):
 
 def test_show_itself_prints_the_relocated_sheet_not_the_stored_one(tmp_path):
     """The actual ``show`` command also rebases its displayed contact sheet."""
-    from codeverse.cli.layout_cmd import print_evidence
-    from codeverse.workspace import Workspace
+    from codeverse3d.cli.layout_cmd import print_evidence
+    from codeverse3d.workspace import Workspace
 
     a, b, _sheet, rec = _moved_run(tmp_path)
     out = _captured(lambda: print_evidence(Workspace(b), rec))

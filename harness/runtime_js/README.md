@@ -21,10 +21,10 @@ npm dependencies themselves bottom out at node 18, and `node:util.parseArgs`
 older *async* loader hooks (`lib/resolve_three_async.mjs`, a separate loader
 thread) instead of the in-thread `module.registerHooks`; the resolutions are
 identical.  The python side refuses to spawn an older node with an actionable
-message (`codeverse.spatial.node.NODE_MIN`, mirrored by `3dcode doctor`'s `node`
+message (`codeverse3d.spatial.node.NODE_MIN`, mirrored by `3dcode doctor`'s `node`
 row), and `tests/core/test_portability.py` pins the two declarations together.
 The floor is exercised, not assumed: the 93 `node`-marked tests all pass on node
-20.19.5 (`CV3D_BINARIES__NODE=/path/to/node20 pytest tests -m "node and not live and not blender"`).
+20.19.5 (`C3D_BINARIES__NODE=/path/to/node20 pytest tests -m "node and not live and not blender"`).
 
 ```bash
 cd harness/runtime_js
@@ -45,9 +45,9 @@ render or bench is running.  Deps: `three` 0.182 (export + render + scene host),
 gpu_launch.cjs        launchBrowser({gpu:'auto'|'on'|'off'}) → {browser, gpu, renderer, shared, release()};
                       rendererInfo(browser).  Callers must release(), never browser.close(): connect-first
                       reuse shares one browser per backend via browser_daemon.cjs (endpoint file under
-                      CV3D_CACHE_DIR, connect ~5 ms vs ~0.55 s launch; CV3D_BROWSER_REUSE=off disables).
+                      C3D_CACHE_DIR, connect ~5 ms vs ~0.55 s launch; C3D_BROWSER_REUSE=off disables).
                       WSL2 hardware WebGL (ANGLE gl-egl + Mesa d3d12 env), UNMASKED_RENDERER probe,
-                      negative verdict cached 20 min in ~/.cache/codeverse/gpu_probe.json, SwiftShader fallback
+                      negative verdict cached 20 min in ~/.cache/codeverse3d/gpu_probe.json, SwiftShader fallback
 browser_daemon.cjs    detached keeper of the shared browser (one per gpu|cpu backend): advertises its
                       ws endpoint, reaps after ~90 s idle (endpoint-file mtime heartbeat + open-page count)
 serve.cjs             serveDirs({root, mounts, routes}) loopback static server (MIME table, CORS);
@@ -104,12 +104,12 @@ lib/shader_report.mjs shared shader-preflight report builder (static + compile s
 lib/glsl_audit.mjs    static GLSL audits + compiler-line → file:line mapping
 ```
 
-Conventions (from `codeverse/conventions.py`): Y up, +Z front, meters; azimuth 0 = front,
+Conventions (from `codeverse3d/conventions.py`): Y up, +Z front, meters; azimuth 0 = front,
 counter-clockwise seen from above (90 = camera on +X); elevation above the horizon.  Views are
 fitted per camera so the projected bbox fills ~85 % of the frame.
 
-Python entry points: `codeverse.spatial.node.run_node`, `codeverse.spatial.render.render_glb`,
-`codeverse.languages.threejs.ThreeJsRuntime`.
+Python entry points: `codeverse3d.spatial.node.run_node`, `codeverse3d.spatial.render.render_glb`,
+`codeverse3d.languages.threejs.ThreeJsRuntime`.
 
 Quick checks:
 ```bash

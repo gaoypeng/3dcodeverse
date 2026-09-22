@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codeverse.contracts.artifacts import RenderSet, RenderView
-from codeverse.conventions import SCENE_VIEWS
-from codeverse.spatial.render_scene import JUDGE_MAX_VIEWS, metrics_path_for, select_judge_views
+from codeverse3d.contracts.artifacts import RenderSet, RenderView
+from codeverse3d.conventions import SCENE_VIEWS
+from codeverse3d.spatial.render_scene import JUDGE_MAX_VIEWS, metrics_path_for, select_judge_views
 
 AUTHORED = ["Establishing", "BridgeAndPond", "LanternDetail"]
 
@@ -83,7 +83,7 @@ def test_metrics_path_for_prefers_stamped_out_dir(tmp_path: Path):
 def test_mark_judge_views_serialises_stamped_flags(tmp_path: Path):
     import json
 
-    from codeverse.spatial.render_scene import _mark_judge_views
+    from codeverse3d.spatial.render_scene import _mark_judge_views
 
     views_json = tmp_path / "views.json"
     views_json.write_text(json.dumps([

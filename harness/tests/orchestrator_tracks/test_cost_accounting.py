@@ -8,12 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.contracts.agent import AgentJob, AgentResult
-from codeverse.contracts.common import Budget, Usage
-from codeverse.cost.instrument import MeteredAgent, run_ledger
-from codeverse.cost.ledger import load_ledger, record_call
-from codeverse.orchestrator import BudgetExceeded, BudgetGuard, usage_delta
-from codeverse.tracks.generation import GenerationTask, _SessionAcc
+from codeverse3d.contracts.agent import AgentJob, AgentResult
+from codeverse3d.contracts.common import Budget, Usage
+from codeverse3d.cost.instrument import MeteredAgent, run_ledger
+from codeverse3d.cost.ledger import load_ledger, record_call
+from codeverse3d.orchestrator import BudgetExceeded, BudgetGuard, usage_delta
+from codeverse3d.tracks.generation import GenerationTask, _SessionAcc
 
 FIXTURES = json.loads((Path(__file__).parent / "data" / "offrecord_runs.json").read_text())["runs"]
 
@@ -141,8 +141,8 @@ def test_usage_delta_reports_what_a_round_burned():
 
 def test_the_guard_never_writes_a_ledger_row_itself(tmp_path, monkeypatch):
     """One writer: a charge outside any run ledger lands nowhere, not in a second file."""
-    monkeypatch.setenv("CV3D_COST_LEDGER", str(tmp_path / "process.jsonl"))
-    from codeverse.cost import ledger as ledger_mod
+    monkeypatch.setenv("C3D_COST_LEDGER", str(tmp_path / "process.jsonl"))
+    from codeverse3d.cost import ledger as ledger_mod
 
     monkeypatch.setattr(ledger_mod, "_fallback_read", False)
     quiet = BudgetGuard(Budget(max_minutes=60))

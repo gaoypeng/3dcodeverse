@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.languages import get_runtime
-from codeverse.languages.base import LanguageRuntime
-from codeverse.languages.cadquery import (
+from codeverse3d.languages import get_runtime
+from codeverse3d.languages.base import LanguageRuntime
+from codeverse3d.languages.cadquery import (
     WRAPPER,
     CadQueryRuntime,
     cadquery_env,
@@ -30,14 +30,14 @@ def test_protocol_and_contract() -> None:
     rt = get_runtime("cadquery")
     assert isinstance(rt, CadQueryRuntime) and isinstance(rt, LanguageRuntime)
     assert "cq.Assembly" in rt.contract_doc() and rt.entry_globs == ("src/model.py",)
-    cmd = rt.build_command(__import__("codeverse.workspace", fromlist=["Workspace"]).Workspace("/tmp/x"), seed=1)
+    cmd = rt.build_command(__import__("codeverse3d.workspace", fromlist=["Workspace"]).Workspace("/tmp/x"), seed=1)
     assert cmd[0] == sys.executable and cmd[1] == str(WRAPPER) and "--seed" in cmd
 
 
 def test_skeleton_source_parses_and_lints(table_plan) -> None:
     src = cadquery_skeleton_source(table_plan)
     ast.parse(src)
-    assert "codeverse" not in src
+    assert "codeverse3d" not in src
     assert 'name="TableTop"' in src and 'name=f"Leg_{_i}"' in src and "result = cq.Assembly(" in src
     assert lint_cadquery_source(src).passed
 

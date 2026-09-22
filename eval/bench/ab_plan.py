@@ -1,7 +1,7 @@
 """Controlled A/B of a plan / brief change: control vs variant, paired per prompt.
 
     python bench/ab_plan.py --prompts bench/prompts/static_objects_v2.yaml \\
-        --variant-env CV3D_PLAN_BRIEF=on --out bench/out/ab_brief \\
+        --variant-env C3D_PLAN_BRIEF=on --out bench/out/ab_brief \\
         [--generator <backend-id>] [--judge gemini:gemini-3.1-pro-preview] \\
         [--rounds 2] [--ids a,b] [--wait-for-provider 60] [--redo-status infra_failed]
 
@@ -11,11 +11,11 @@ planner, the in-loop judge, the rounds, and the fixed judge that produces
 the reported score (``bench/_fixed_eval.py``, ``n_samples`` 2).
 
 Why each arm is a child PROCESS rather than a thread: the switches under test are read
-from the environment (``codeverse.tracks.planner.brief_enabled`` reads ``os.environ`` at
+from the environment (``codeverse3d.tracks.planner.brief_enabled`` reads ``os.environ`` at
 call time; anything under ``Settings`` is read once through an ``lru_cache``), so two
 threads in one interpreter cannot hold different values of them.  A child gets exactly
 the env its arm needs and nothing leaks across.  Each child owns a key pool, so the
-driver caps every child at ``CV3D_MAX_IN_FLIGHT`` (default 16) — two children at
+driver caps every child at ``C3D_MAX_IN_FLIGHT`` (default 16) — two children at
 16 stay inside the 64 knee measured for one process (``docs/COST.md`` §23).
 
 Why the arms launch as simultaneous PAIRS: provider weather changes by the hour, and a
@@ -59,15 +59,15 @@ from typing import NamedTuple
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------------------
-# sys.path FIRST, and before any `codeverse` import.  `spawn_cell` starts each child as a
+# sys.path FIRST, and before any `codeverse3d` import.  `spawn_cell` starts each child as a
 # FILE path, so `sys.path[0]` is `bench/` and the cwd is NOT on the path; an editable
-# install (`__editable__.3dcodeverse-...pth`) then resolves `import codeverse` to whatever
-# tree it was installed from.  Importing `codeverse._compat` above this line made every
+# install (`__editable__.3dcodeverse-...pth`) then resolves `import codeverse3d` to whatever
+# tree it was installed from.  Importing `codeverse3d._compat` above this line made every
 # child of a worktree run the MAIN tree's harness, both arms identically, and the A/B
 # measured nothing while looking completely healthy — it happened twice on 2026-08-25
 # (`bench/out/plan_loop/C0/invalid_attempt1_maintree_import`, and again to the skills wave).
 REPO = Path(__file__).resolve().parents[2] / "harness"   # the harness tree these scripts evaluate
-for _p in (REPO, Path(__file__).resolve().parents[1]):      # its codeverse + the `bench` package (eval/)
+for _p in (REPO, Path(__file__).resolve().parents[1]):      # its codeverse3d + the `bench` package (eval/)
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
@@ -75,18 +75,18 @@ from datetime import UTC  # noqa: E402
 
 
 def _assert_local_codeverse() -> None:
-    """Refuse to run against a `codeverse` from a different tree.
+    """Refuse to run against a `codeverse3d` from a different tree.
 
     A workaround in a launch script (`export PYTHONPATH=...`) protects the person who
     remembers it.  This protects the run.
     """
-    import codeverse
+    import codeverse3d
 
-    got = Path(codeverse.__file__).resolve().parent
-    want = REPO / "codeverse"
+    got = Path(codeverse3d.__file__).resolve().parent
+    want = REPO / "codeverse3d"
     if got != want:
         raise SystemExit(
-            f"refusing to run: `import codeverse` resolved to {got}, not {want}.\n"
+            f"refusing to run: `import codeverse3d` resolved to {got}, not {want}.\n"
             f"  An editable install is shadowing this tree, so both arms would run the same\n"
             f"  code and the A/B would measure nothing.  Launch with:\n"
             f"      PYTHONPATH={REPO} python bench/ab_plan.py ..."
@@ -109,23 +109,23 @@ from bench.compare_backends import (  # noqa: E402
 )
 from bench.pin_plan import PLAN_JSON, PinError, plan_once, seed_plan  # noqa: E402
 from bench.run_bench import Battery, BenchPrompt, select_prompts  # noqa: E402
-from codeverse.contracts.common import Backends  # noqa: E402
-from codeverse.proc import exclusive  # noqa: E402
-from codeverse.tracks.plan_features import pin_plan_blockers  # noqa: E402
-from codeverse.workspace import Workspace  # noqa: E402
+from codeverse3d.contracts.common import Backends  # noqa: E402
+from codeverse3d.proc import exclusive  # noqa: E402
+from codeverse3d.tracks.plan_features import pin_plan_blockers  # noqa: E402
+from codeverse3d.workspace import Workspace  # noqa: E402
 
 log = logging.getLogger(__name__)
 
-#: derived from the canonical default (codeverse/contracts/common.py Backends.generator),
+#: derived from the canonical default (codeverse3d/contracts/common.py Backends.generator),
 #: never a literal: a frozen baseline arm must be named at its use site, not hidden here.
 DEFAULT_GENERATOR = Backends().generator
 DEFAULT_JUDGE = "gemini:gemini-3.1-pro-preview"
-#: the per-child cap.  The flat name is a first-class alias of ``CV3D_RATE__MAX_IN_FLIGHT``
+#: the per-child cap.  The flat name is a first-class alias of ``C3D_RATE__MAX_IN_FLIGHT``
 #: since 2026-08-24 (``Settings._FLAT_ALIASES``; before that it was read by nothing) and
 #: wins over the nested spelling when both are set.
-MAX_IN_FLIGHT_ENV = "CV3D_MAX_IN_FLIGHT"
+MAX_IN_FLIGHT_ENV = "C3D_MAX_IN_FLIGHT"
 #: the nested spelling: popped from every child's env so it cannot fight the flat one
-NESTED_MAX_IN_FLIGHT_ENV = "CV3D_RATE__MAX_IN_FLIGHT"
+NESTED_MAX_IN_FLIGHT_ENV = "C3D_RATE__MAX_IN_FLIGHT"
 DEFAULT_MAX_IN_FLIGHT = 16
 #: only ever 2 — one control + one variant, launched together (see module docstring)
 PARALLEL = 2
@@ -704,7 +704,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # A KEY no code path reads makes the variant arm byte-identical to the control, so
         # the battery costs a full run and yields a verdict about nothing.  One such A/B is
         # on record printing "keep, mean delta +0.344" (CQ-5).
-        from codeverse.tracks.plan_features import DEAD_SWITCHES, dead_env_keys
+        from codeverse3d.tracks.plan_features import DEAD_SWITCHES, dead_env_keys
 
         dead = dead_env_keys(opts.variant_env)
         if dead and len(dead) == len(opts.variant_env):
@@ -719,7 +719,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "thing under test and the rig would report 'no effect' with confidence — "
             + "; ".join(blockers)
         )
-    from codeverse.models.health import pool_budget
+    from codeverse3d.models.health import pool_budget
 
     # the rule is a BUDGET, not a head-count: the provider sees one machine, so the sum of
     # every process's in-flight cap must stay at the knee.  Two children run at once here.

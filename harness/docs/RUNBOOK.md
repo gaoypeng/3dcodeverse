@@ -22,20 +22,20 @@ python -m pytest tests -q -m live                      # OPT-IN: real API calls
   / `GOOGLE_API_KEY` → legacy `~/.config/astra3d/gemini_keys.env` (21 keys here).
   All `gemini:*` models share one `KeyPool` (900 rpm/key, 30 s cooldown on 429; dead
   keys benched 1 h and re-probed; 429s rotate to fresh keys for free).
-  `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CV3D_OPENAI_BASE_URL` for the other
+  `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `C3D_OPENAI_BASE_URL` for the other
   providers (not set on this box → `anthropic:*` / `openai:*` unavailable).
-* Settings: `~/.config/codeverse/config.yaml` or `./codeverse.yaml`, overridden by env
-  with prefix `CV3D_` and `__` nesting — e.g. `CV3D_RUNS_DIR=/data/runs`,
-  `CV3D_RENDER__GPU=off`, `CV3D_BINARIES__BLENDER=/opt/blender/blender`,
-  `CV3D_LIMITS__AGENT_TIMEOUT_S=900`, `CV3D_DEFAULT_CANDIDATES=2`.
-  Defaults: runs_dir `runs/`, cache_dir `~/.cache/codeverse`, build/render timeout 300 s,
+* Settings: `~/.config/3dcodeverse/config.yaml` or `./3dcodeverse.yaml`, overridden by env
+  with prefix `C3D_` and `__` nesting — e.g. `C3D_RUNS_DIR=/data/runs`,
+  `C3D_RENDER__GPU=off`, `C3D_BINARIES__BLENDER=/opt/blender/blender`,
+  `C3D_LIMITS__AGENT_TIMEOUT_S=900`, `C3D_DEFAULT_CANDIDATES=2`.
+  Defaults: runs_dir `runs/`, cache_dir `~/.cache/codeverse3d`, build/render timeout 300 s,
   agent timeout 1800 s, bpy RLIMIT 12 GB, 6 parallel agents, 3 parallel builds,
   `default_judge gemini:gemini-3.1-pro-preview`, `default_candidates 1`.
 * Blender: `settings.binaries.blender` else first `blender-5.0`/`blender`/… on PATH.
   Always `-b --factory-startup`; the child env strips `PYTHONPATH`/`PYTHONHOME`.
 * GPU rendering: `runtime_js/gpu_launch.cjs` tries Chrome with `--use-angle=gl-egl` +
   Mesa d3d12 env and falls back to SwiftShader; probe cached in
-  `~/.cache/codeverse/gpu_probe.json`.  Force with `CV3D_RENDER_GPU=on|off|auto` or
+  `~/.cache/codeverse3d/gpu_probe.json`.  Force with `C3D_RENDER_GPU=on|off|auto` or
   `settings.render.gpu`.  The graphics track uses moderngl the same way (d3d12 GPU
   context first, llvmpipe fallback; no probe needed — `GlHost` decides per process).
 
@@ -95,10 +95,10 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 * Cost accounting: `tokens.prompt` (total, incl. cached) is the input count; each
   served model priced at its own rate.
 * Cookbook copied to `ws/.3dcode/cookbook.md` (gemini-cli cannot read outside the ws).
-* MCP server argv is `[sys.executable, -m, codeverse.spatial.mcp_server, --workspace, ws]`;
+* MCP server argv is `[sys.executable, -m, codeverse3d.spatial.mcp_server, --workspace, ws]`;
   server name `3dcode` → tools appear as `mcp_3dcode_<name>` (gemini) / `mcp__3dcode__<name>`
   (claude).  `3dcode mcp --workspace runs/<slug>` execs the same server;
-  `python -m codeverse.spatial.mcp_server --workspace ws --list` prints the tools.
+  `python -m codeverse3d.spatial.mcp_server --workspace ws --list` prints the tools.
 
 ## 4. Where outputs land
 
@@ -159,12 +159,12 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 3dcode flywheel pairs runs/ pairs.jsonl [--min-delta 0.05]
 3dcode flywheel refine runs/ refine.jsonl [--with-code]
                                      # one row per round the harness asked to change; the row
-                                     # schema is codeverse/addons/dataset/refine.RefineTransition and
+                                     # schema is codeverse3d/addons/dataset/refine.RefineTransition and
                                      # INTERFACES has the call signatures.  Training formats live
                                      # in toolkits/llamafactory/, not here.
 3dcode flywheel caption <slug> [--model …] [--out caps/]      # --out = side-car mode, run untouched
 3dcode flywheel index runs/ runs_index.sqlite
-python -m codeverse.addons.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
+python -m codeverse3d.addons.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
                                         # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)
 ```
 **Do not run the offline suite while a battery is running.**  The suite is 2 300+ tests on
@@ -174,7 +174,7 @@ re-run (`tests/scene_runtime/lib/*` first, since those hold the renderer longest
 suite during a battery is **not evidence until it reproduces on a quiet machine** — re-run
 it there before pushing, and if the same tests are red again, it is real.  The mechanism is
 the one the next paragraph describes: `tests/scene_runtime/lib/*` reach the battery's
-browser daemon through a shared `CV3D_CACHE_DIR`, so giving the suite its own cache dir may
+browser daemon through a shared `C3D_CACHE_DIR`, so giving the suite its own cache dir may
 let the two coexist.
 
 The same holds for a box loaded by OTHER work.  On 2026-09-05, with 12 `proseg` processes
@@ -198,7 +198,7 @@ and measured 38 970 ms at load ~100 with `ok=True` — the build succeeded, the 
 busy.  All three are the same story, and none of them is to be "fixed" by loosening what
 it asserts.
 
-**Two arms at once still want separate `CV3D_CACHE_DIR`, though the browser no longer
+**Two arms at once still want separate `C3D_CACHE_DIR`, though the browser no longer
 depends on it.**  Until 2026-09-05 the daemon advertised its endpoint at
 `CACHE_DIR/browser_<backend>.json`, a newer daemon superseded an older one, and two
 worktrees sharing a cache ended up on ONE browser: the arm that did not launch it
@@ -232,13 +232,13 @@ statement about the generator.
 
 **A battery launched with `3dcode` from a worktree runs the MAIN checkout's code.**  `3dcode`
 is a console script, so `sys.path[0]` is the venv's `bin`, never the cwd, and `import
-codeverse` finds the editable install.  `--out eval/bench/out/<name>` IS relative to the cwd,
+codeverse3d` finds the editable install.  `--out eval/bench/out/<name>` IS relative to the cwd,
 so the OUTPUT lands in the worktree while the CODE that produced it is the main tree's —
 an arm that looks like it is testing your branch and is testing `main` (measured
 2026-09-05: the first `scenes_v1` battery, launched from `local/worktrees/integrate`, ran
 entirely on the main checkout).  `python -c` and `pytest` do not have this problem because
 they put the cwd on the path.  Export `PYTHONPATH=<worktree>/harness` before the command,
-and have the arm script REFUSE TO RUN when `codeverse.__file__` and `runtime_js_dir()` are
+and have the arm script REFUSE TO RUN when `codeverse3d.__file__` and `runtime_js_dir()` are
 not the tree you meant — `local/scripts/run_scene_fixed.sh` is the pattern, and it also
 asserts that the specific fixes the arm exists to measure are present.
 
@@ -291,7 +291,7 @@ templates; the four h2h drivers started 50 minutes earlier still ran the old pyt
 context key) but rendered the NEW template from disk → `UndefinedError: 'turn_discipline' is
 undefined`, four prompts recorded `error` at 0 min.  Rule: every new template variable is
 guarded `{% if name is defined and name %}` for at least one wave, and the "Landing source
-changes while a wave is running" rule covers `codeverse/prompts/**` as well as moved names.
+changes while a wave is running" rule covers `codeverse3d/prompts/**` as well as moved names.
 
 ### 7.u `bench run --redo-status` starts the redo fresh (since c828637)
 
@@ -325,7 +325,7 @@ the same day so the storm budget no longer needs `ab_plan`.
 call waits through the retry budget first, an agent session spends its wall clock on 15–23
 turns, and a hard prompt burns the whole hour without one judged round — measured 2026-08-26 on
 `fancy_v1`: the first six pairs ended `budget` with `judge.done = 0`.  When
-`codeverse.models.health.probe()` shows the generator below the 0.75 bar, launch (or redo) with
+`codeverse3d.models.health.probe()` shows the generator below the 0.75 bar, launch (or redo) with
 `--max-minutes 120 --wait-for-provider 60`, and redo the storm's rows rather than reading them:
 `--redo-status error,infra_failed,budget` (add `build_failed` only when a harness defect, not the
 model, produced the zero — check `cell.json`'s `error`).
@@ -365,7 +365,7 @@ model, produced the zero — check `cell.json`'s `error`).
 ## Landing source changes while a wave is running
 
 Workers (`3dcode make`, `ab_plan.py cell`) are long-lived python processes that import
-`codeverse/` **lazily**: a module already in `sys.modules` stays as it was at spawn time, a
+`codeverse3d/` **lazily**: a module already in `sys.modules` stays as it was at spawn time, a
 module first touched later comes from the tree as it is *then*.  Two measured failures on
 2026-08-26:
 
@@ -385,6 +385,6 @@ Rules:
 3. After landing anything, check every driver's `results.jsonl` for `ImportError` rows and redo
    them from a **fresh** driver with `--redo-status error` (the old driver's own modules are
    stale too).
-4. Count harness processes with `codeverse.models.health.pool_budget()`, never `pgrep | grep`
+4. Count harness processes with `codeverse3d.models.health.pool_budget()`, never `pgrep | grep`
    (it counts its own shell — measured: 3 phantoms on an idle box); kill by PID, never by
    pattern (13 unrelated runs died to one `pkill -f "3dcode make"`).

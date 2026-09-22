@@ -8,7 +8,7 @@ the plan with `MAX_ASSETS` alone, so a degraded run told the zones merged assets
 """
 from __future__ import annotations
 
-from codeverse.tracks.scene_assets import read_dedupe_note, write_dedupe_note
+from codeverse3d.tracks.scene_assets import read_dedupe_note, write_dedupe_note
 
 
 def test_the_note_round_trips_and_an_empty_map_is_still_a_note(tmp_ws):

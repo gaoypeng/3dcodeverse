@@ -14,20 +14,26 @@ from pathlib import Path
 
 import trimesh
 
-from codeverse.config import Settings, get_settings
-from codeverse.contracts.artifacts import BuildResult, GateFinding, GateReport, RenderSet, Severity
-from codeverse.contracts.chat import ImagePart, TextPart
-from codeverse.contracts.run import RoundRecord, RunRecord
-from codeverse.judges.base import JudgeInput
-from codeverse.judges.prompt_builder import (
+from codeverse3d.config import Settings, get_settings
+from codeverse3d.contracts.artifacts import (
+    BuildResult,
+    GateFinding,
+    GateReport,
+    RenderSet,
+    Severity,
+)
+from codeverse3d.contracts.chat import ImagePart, TextPart
+from codeverse3d.contracts.run import RoundRecord, RunRecord
+from codeverse3d.judges.base import JudgeInput
+from codeverse3d.judges.prompt_builder import (
     PROVENANCE_ELICITATION,
     build_judge_messages,
     connectivity_error_pairs,
     judge_prompt_hash,
 )
-from codeverse.judges.rubrics import load_rubric
-from codeverse.judges.vlm_judge import SLICE_LABELS, VlmJudge
-from codeverse.workspace import Workspace
+from codeverse3d.judges.rubrics import load_rubric
+from codeverse3d.judges.vlm_judge import SLICE_LABELS, VlmJudge
+from codeverse3d.workspace import Workspace
 from tests.judges.conftest import ACCEPTANCE, FakeChatModel, good_reply, make_renders, make_spec
 
 R = load_rubric("static_object_v1")
@@ -115,7 +121,7 @@ def test_knob_off_wrong_track_and_missing_glb_stay_baseline(tmp_path, cache_dir,
     assert "cross-section" not in text_of(req)
 
     # dirty gates + glb, but the knob is off: baseline
-    monkeypatch.setattr("codeverse.judges.vlm_judge.get_settings",
+    monkeypatch.setattr("codeverse3d.judges.vlm_judge.get_settings",
                         lambda: Settings(judge={"slices": "off"}))
     req = judge_request(make_input(renders, dirty_gates(), glb), cache_dir)
     assert PROVENANCE_ELICITATION not in req.system and "cross-section" not in text_of(req)
@@ -145,7 +151,7 @@ def test_dirty_gates_append_slices_after_crops_with_rig_text_and_one_elicitation
     assert 'do not hide one to be kind. ' + PROVENANCE_ELICITATION in req.system
 
     # the slice pngs and their manifest landed in the judge cache, hatching the gate pair
-    from codeverse.spatial.sections import SliceManifest
+    from codeverse3d.spatial.sections import SliceManifest
     manifests = list(cache_dir.glob("slices_*/manifest.json"))
     assert len(manifests) == 1
     man = SliceManifest.model_validate_json(manifests[0].read_text())
@@ -182,7 +188,7 @@ def test_a_dirty_round_with_a_floating_only_error_still_elicits(tmp_path, cache_
 
 # --------------------------------------------------------------------- (d) 3dcode judge replay
 def test_replay_reproduces_the_conditional_payload_from_stored_gates_and_glb(tmp_ws: Workspace, tmp_path, cache_dir):
-    from codeverse.cli._judge import build_judge_input
+    from codeverse3d.cli._judge import build_judge_input
 
     glb = two_box_glb(tmp_path / "object.glb")
     renders = make_renders(tmp_path / "renders")

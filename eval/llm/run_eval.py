@@ -5,7 +5,7 @@
     python -m llm.run_eval --backend reference --run reference --suites all        # executor self-test
     python -m llm.run_eval ... --samples 4 --temperature 0.7                          # pass@k
 
-Outputs land in $CV3D_EVAL_OUT/<run>/<suite>[/sN]/ and a report.md is rebuilt over the whole output root.
+Outputs land in $C3D_EVAL_OUT/<run>/<suite>[/sN]/ and a report.md is rebuilt over the whole output root.
 Stages can be skipped/resumed: --stages gen exec score (default: all); generation of an existing gens.jsonl is
 reused unless --force.
 """

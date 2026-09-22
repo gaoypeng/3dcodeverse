@@ -6,11 +6,11 @@ import json
 
 import pytest
 
-from codeverse.contracts.common import Language
-from codeverse.languages import get_runtime
-from codeverse.languages.base import LanguageRuntime
-from codeverse.languages.scene_threejs import SceneThreeJsRuntime
-from codeverse.prompts import PROMPTS_DIR
+from codeverse3d.contracts.common import Language
+from codeverse3d.languages import get_runtime
+from codeverse3d.languages.base import LanguageRuntime
+from codeverse3d.languages.scene_threejs import SceneThreeJsRuntime
+from codeverse3d.prompts import PROMPTS_DIR
 from tests.scene_runtime.conftest import needs_browser
 
 
@@ -65,8 +65,8 @@ def test_build_fails_on_import_error(starter_ws):
 
 def test_build_interprets_combined_summary_offline(ws, monkeypatch):
     """One probe boot yields both gate reports, including the no-boot shape."""
-    import codeverse.languages.scene_threejs as rt_mod
-    from codeverse.spatial.render_scene import NodeResult
+    import codeverse3d.languages.scene_threejs as rt_mod
+    from codeverse3d.spatial.render_scene import NodeResult
 
     calls: list[list[str]] = []
 
@@ -82,7 +82,7 @@ def test_build_interprets_combined_summary_offline(ws, monkeypatch):
             ], "warnings": [], "compile": {"ms": 3, "programs": 4, "custom_materials": 1}, "duration_ms": 9},
         }, 5)
 
-    import codeverse.spatial.render_scene as rs_mod
+    import codeverse3d.spatial.render_scene as rs_mod
     monkeypatch.setattr(rs_mod, "run_scene_script", fake_run)
     res = rt_mod.SceneThreeJsRuntime().build(ws)
     assert len(calls) == 1 and calls[0][0] == "probe_scene.mjs" and "--compile" in calls[0]
@@ -113,8 +113,8 @@ def test_build_interprets_combined_summary_offline(ws, monkeypatch):
 
 def test_probe_crash_leaves_no_stale_probe_outputs(ws, monkeypatch):
     """A probe crash removes prior outputs and publishes a failed build."""
-    import codeverse.spatial.render_scene as rs_mod
-    from codeverse.spatial.render_scene import SceneRenderError
+    import codeverse3d.spatial.render_scene as rs_mod
+    from codeverse3d.spatial.render_scene import SceneRenderError
 
     for name in ("census.json", "scene_probe.json", "shader_preflight.json"):
         (ws.artifacts / name).write_text('{"stale": true}')

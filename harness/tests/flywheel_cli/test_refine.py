@@ -1,4 +1,4 @@
-"""Refine transitions (codeverse/addons/dataset/refine.py)."""
+"""Refine transitions (codeverse3d/addons/dataset/refine.py)."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.addons.dataset.pairs import MIN_PREFERENCE_DELTA
-from codeverse.addons.dataset.refine import build_refine, outcome_of, transitions
-from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse.record.record import load_record
+from codeverse3d.addons.dataset.pairs import MIN_PREFERENCE_DELTA
+from codeverse3d.addons.dataset.refine import build_refine, outcome_of, transitions
+from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse3d.record.record import load_record
 from tests.flywheel_cli.conftest import make_fake_run
 
 

@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.spatial.node import NodeError, run_node, runtime_js_dir
-from codeverse.workspace import Workspace
+from codeverse3d.spatial.node import NodeError, run_node, runtime_js_dir
+from codeverse3d.workspace import Workspace
 
 pytestmark = pytest.mark.node
 
@@ -109,7 +109,7 @@ const {{ launchBrowser, rendererInfo }} = require({json.dumps(str(runtime_js_dir
   console.log(JSON.stringify({{ gpu, renderer, probe, shared: handle.shared, ms: Date.now() - t0 }}));
 }})().catch((e) => {{ console.error(e); process.exit(1); }});
 """)
-    env = {"CV3D_CACHE_DIR": str(tmp_path / "cache")}
+    env = {"C3D_CACHE_DIR": str(tmp_path / "cache")}
     auto = run_node(script, [], timeout_s=120, env_extra=env).last_json
     assert auto["renderer"] and auto["probe"]
     if auto["gpu"]:
@@ -123,7 +123,7 @@ const {{ launchBrowser, rendererInfo }} = require({json.dumps(str(runtime_js_dir
 
 def test_two_runtime_trees_never_share_one_browser_endpoint(tmp_path: Path):
     """A git worktree and the main checkout run their own runtime_js but share
-    ~/.cache/codeverse unless the operator remembers CV3D_CACHE_DIR.  Measured
+    ~/.cache/codeverse3d unless the operator remembers C3D_CACHE_DIR.  Measured
     2026-09-05: two daemons, one endpoint file, `Session closed` across the scene
     suite.  The endpoint name carries the runtime_js that spawned it, so the two
     trees keep separate browsers inside the SAME cache dir — no env var required."""
@@ -142,7 +142,7 @@ console.log(JSON.stringify({{
   failed: _internal.daemonFailPath('cpu'),
 }}));
 """)
-        paths.append(run_node(script, [], timeout_s=60, env_extra={"CV3D_CACHE_DIR": str(cache)}).last_json)
+        paths.append(run_node(script, [], timeout_s=60, env_extra={"C3D_CACHE_DIR": str(cache)}).last_json)
 
     a, b = paths
     for key in ("endpoint", "lock", "failed"):
@@ -173,7 +173,7 @@ def _reap_daemons(cache_dir: Path) -> None:
 def test_gpu_launch_browser_reuse(tmp_path: Path):
     """F21 phase 2: second launchBrowser connects to the daemon's shared browser
     (~ms, shared=true); release() disconnects and the browser survives; with
-    CV3D_BROWSER_REUSE=off every launch is owned."""
+    C3D_BROWSER_REUSE=off every launch is owned."""
     script = tmp_path / "r.cjs"
     script.write_text(f"""
 const {{ launchBrowser }} = require({json.dumps(str(runtime_js_dir() / 'gpu_launch.cjs'))});
@@ -190,7 +190,7 @@ const {{ launchBrowser }} = require({json.dumps(str(runtime_js_dir() / 'gpu_laun
   console.log(JSON.stringify({{ a_shared: a.shared, b_shared: b.shared, reconnect_ms, alive }}));
 }})().catch((e) => {{ console.error(e); process.exit(1); }});
 """)
-    env = {"CV3D_CACHE_DIR": str(tmp_path / "cache")}
+    env = {"C3D_CACHE_DIR": str(tmp_path / "cache")}
     out = run_node(script, [], timeout_s=120, env_extra=env).last_json
     assert out["a_shared"] is True and out["b_shared"] is True and out["alive"]
     assert out["reconnect_ms"] < 1000  # connect, not a fresh ~550ms+ launch
@@ -198,7 +198,7 @@ const {{ launchBrowser }} = require({json.dumps(str(runtime_js_dir() / 'gpu_laun
     # and the main checkout sharing one cache dir cannot advertise over each other
     endpoints = list((tmp_path / "cache").glob("browser_cpu_*.json"))
     assert len(endpoints) == 1 and not endpoints[0].name.endswith(".failed.json")
-    off = run_node(script, [], timeout_s=120, env_extra={**env, "CV3D_BROWSER_REUSE": "off"}).last_json
+    off = run_node(script, [], timeout_s=120, env_extra={**env, "C3D_BROWSER_REUSE": "off"}).last_json
     assert off["a_shared"] is False and off["b_shared"] is False
     _reap_daemons(tmp_path / "cache")
 

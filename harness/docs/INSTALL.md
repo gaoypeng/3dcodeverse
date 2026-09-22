@@ -62,7 +62,7 @@ workflow, so the offline suite and `ruff` are run locally before every push (see
 | component | version | how it is enforced | notes |
 |---|---|---|---|
 | **python** | **3.13** | `requires-python = ">=3.13"`; ruff `target-version = "py313"`; `PY_FLOOR` in `tests/core/test_portability.py`; `MIN_PY_MINOR` in `setup.sh` | the four places are pinned together by the portability test |
-| **node** | **20.6.0+** (developed on 24 LTS) | `runtime_js/package.json` `engines.node`; `codeverse.spatial.node.NODE_MIN` fails every node workload with an actionable message | 20.6 is the `--import` module-hook floor |
+| **node** | **20.6.0+** (developed on 24 LTS) | `runtime_js/package.json` `engines.node`; `codeverse3d.spatial.node.NODE_MIN` fails every node workload with an actionable message | 20.6 is the `--import` module-hook floor |
 | **Blender** | 4.2+ (developed on 5.0.1) | runtime probe only (`Settings.resolve_blender()`) | `blender` / `urdf_blender` are the only users |
 | **OS** | Linux x86_64 (WSL2 Ubuntu here) | — | macOS should work (nothing is Linux-specific except `resource.setrlimit` guards) but is not tested |
 
@@ -85,7 +85,7 @@ Moving to another Python later is the same four-line change (`requires-python`, 
 | C toolchain | usually no | — | only if pip has to build a wheel from source (`python-fcl`, `manifold3d` ship wheels for cp310–cp313 x86_64) |
 
 Disk: ~100 MB for `runtime_js/node_modules`, ~640 MB for puppeteer's Chrome,
-~1 GB for a Blender tarball, plus whatever `runs/` and `~/.cache/codeverse` grow
+~1 GB for a Blender tarball, plus whatever `runs/` and `~/.cache/codeverse3d` grow
 to (619 MB here after a week of benches).
 
 ---
@@ -98,7 +98,7 @@ cd 3dcodeverse
 ```
 
 Layout: the harness is the `harness/` subdirectory (python dist `3dcodeverse`,
-import package `codeverse`, CLIs `3dcodeverse` and `3dcode`).  See the repo
+import package `codeverse3d`, CLIs `3dcodeverse` and `3dcode`).  See the repo
 `README.md` for the other top-level components.
 
 Use a virtualenv (or a conda env — this box installs into a conda base env).  It is
@@ -108,7 +108,7 @@ it.  `setup.sh` checks for pip and for that marker up front and tells you which
 of the two you hit.
 
 ```bash
-python -m venv .venv && source .venv/bin/activate     # or: conda create -n cv3d python=3.13
+python -m venv .venv && source .venv/bin/activate     # or: conda create -n c3d python=3.13
 ```
 
 ---
@@ -134,7 +134,7 @@ openai.
 | `urdf` | yourdfpy, scipy | the `articulated_object` track: URDF parse/validate + joint math |
 | `graphics` | moderngl | the `graphics` track (`glsl_shader`, `opengl_python`) — headless GL rendering in `spatial/gl_render.py` |
 | `mesh` | shapely, networkx, manifold3d, matplotlib | `cross_section` filled-area/hollow ratio (shapely), mesh split / connectivity (networkx), joint-sweep boolean intersections (`trimesh.boolean(engine="manifold")`), judge cross-section slices on gate-ERROR rounds (`judge_slices`, D48; without the extra the judge logs a warning and sends the pre-D48 payload) |
-| `mcp` | mcp | `3dcode mcp` / `codeverse.spatial.mcp_server`, i.e. spatial tools for the `gemini-cli`, `claude-code` and `codex` backends |
+| `mcp` | mcp | `3dcode mcp` / `codeverse3d.spatial.mcp_server`, i.e. spatial tools for the `gemini-cli`, `claude-code` and `codex` backends |
 | `flywheel` | pyarrow | `3dcode flywheel export --pack` (parquet shards). A plain `flywheel export` needs nothing: without pyarrow it writes `metadata.jsonl` and skips `metadata.parquet` with a warning. |
 | `all` | all of the above | — |
 | `dev` | pytest, pytest-timeout, ruff | the test suite and the linter |
@@ -295,10 +295,10 @@ skip the wrapper entirely.
 
 ### How the harness finds it
 
-`Settings.resolve_blender()` (`codeverse/config.py`) returns the first hit of:
+`Settings.resolve_blender()` (`codeverse3d/config.py`) returns the first hit of:
 
 1. `settings.binaries.blender` if that path exists — set it in the settings YAML
-   or with `CV3D_BINARIES__BLENDER=/path/to/blender`;
+   or with `C3D_BINARIES__BLENDER=/path/to/blender`;
 2. `blender-5.0`, `blender`, `blender-5.1`, `blender-4.2` on `PATH`, in that order.
 
 Nothing found → `3dcodeverse doctor` reports `blender FAIL` and builds raise
@@ -316,9 +316,9 @@ harness picks the backend itself and both paths have a software fallback.
 * **Three.js / scenes** → headless Chrome via `runtime_js/gpu_launch.cjs`, which
   tries `--use-angle=gl-egl` plus the Mesa d3d12 env and probes
   `UNMASKED_RENDERER`; a negative verdict is cached 20 minutes in
-  `~/.cache/codeverse/gpu_probe.json`, and it falls back to SwiftShader.
-  Force with `CV3D_RENDER_GPU=on|off|auto` (node side) or `render.gpu` in the
-  settings YAML / `CV3D_RENDER__GPU`.
+  `~/.cache/codeverse3d/gpu_probe.json`, and it falls back to SwiftShader.
+  Force with `C3D_RENDER_GPU=on|off|auto` (node side) or `render.gpu` in the
+  settings YAML / `C3D_RENDER__GPU`.
 * **graphics track** → moderngl in a fresh subprocess per render
   (`spatial/gl_render.py`), which sets `GALLIUM_DRIVER=d3d12` +
   `MESA_LOADER_DRIVER_OVERRIDE=d3d12` first and retries with
@@ -341,9 +341,9 @@ driver installed on the Windows side for the d3d12 path — check with
 | `GEMINI_API_KEYS` | all `gemini:*` models (planner, judge, captioner, generators) | comma-separated list; the whole list becomes one `KeyPool` (per-key rate limits, 30 s cooldown on 429, dead keys benched 1 h) |
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | same | single-key fallback when `GEMINI_API_KEYS` is unset |
 | `ANTHROPIC_API_KEY` | `anthropic:*` chat models | optional; not set here → those backends are unavailable (doctor WARN) |
-| `OPENAI_API_KEY` | `openai:*` chat models | optional; `CV3D_OPENAI_BASE_URL` points at a compatible gateway |
+| `OPENAI_API_KEY` | `openai:*` chat models | optional; `C3D_OPENAI_BASE_URL` points at a compatible gateway |
 
-Resolution order for the Gemini keys (`codeverse/config.py`), first non-empty wins:
+Resolution order for the Gemini keys (`codeverse3d/config.py`), first non-empty wins:
 settings YAML `gemini_api_keys:` → `GEMINI_API_KEYS` (csv) → `GEMINI_API_KEY` /
 `GOOGLE_API_KEY` → the legacy compatibility file
 `~/.config/astra3d/gemini_keys.env`, from which a line
@@ -394,19 +394,19 @@ you; the ones worth knowing:
   `3dcode tools <name> --json … --workspace .` instead.
 
 The spatial MCP server itself is the `mcp` extra (§4); check it with
-`python -m codeverse.spatial.mcp_server --workspace <ws> --list`.
+`python -m codeverse3d.spatial.mcp_server --workspace <ws> --list`.
 
-### 8.3 Settings file and `CV3D_` overrides
+### 8.3 Settings file and `C3D_` overrides
 
 Loaded in this order, later wins: built-in defaults →
-`~/.config/codeverse/config.yaml` → `./codeverse.yaml` (current working
-directory) → `CV3D_*` environment variables.  Neither YAML file is required —
+`~/.config/3dcodeverse/config.yaml` → `./3dcodeverse.yaml` (current working
+directory) → `C3D_*` environment variables.  Neither YAML file is required —
 this box runs on defaults plus env.
 
 ```yaml
-# ~/.config/codeverse/config.yaml
+# ~/.config/3dcodeverse/config.yaml
 runs_dir: /data/runs
-cache_dir: /data/cache/codeverse
+cache_dir: /data/cache/codeverse3d
 binaries:
   blender: /home/yipeng/.local/bin/blender-5.0
 render:
@@ -419,20 +419,20 @@ default_judge: gemini:gemini-3.1-pro-preview
 default_candidates: 1
 ```
 
-Env equivalents use the `CV3D_` prefix and `__` for nesting:
+Env equivalents use the `C3D_` prefix and `__` for nesting:
 
 ```bash
-export CV3D_RUNS_DIR=/data/runs
-export CV3D_BINARIES__BLENDER=/opt/blender/blender
-export CV3D_RENDER__GPU=off
-export CV3D_LIMITS__AGENT_TIMEOUT_S=900
-export CV3D_DEFAULT_CANDIDATES=2
+export C3D_RUNS_DIR=/data/runs
+export C3D_BINARIES__BLENDER=/opt/blender/blender
+export C3D_RENDER__GPU=off
+export C3D_LIMITS__AGENT_TIMEOUT_S=900
+export C3D_DEFAULT_CANDIDATES=2
 ```
 
 Three more are read directly by the runtime (not via `Settings`):
-`CV3D_RENDER_GPU` (`auto|on|off`, seen by the node/moderngl renderers),
-`CV3D_CACHE_DIR` (where `gpu_launch.cjs` puts the shared-browser endpoint file)
-and `CV3D_BROWSER_REUSE=off` (disable the shared headless-Chrome daemon).
+`C3D_RENDER_GPU` (`auto|on|off`, seen by the node/moderngl renderers),
+`C3D_CACHE_DIR` (where `gpu_launch.cjs` puts the shared-browser endpoint file)
+and `C3D_BROWSER_REUSE=off` (disable the shared headless-Chrome daemon).
 
 ---
 
@@ -465,7 +465,7 @@ Real output on this box (exit code 0; any FAIL row makes it exit 1):
 │ codex         │ OK     │ codex-cli 0.149.0                                   │
 │ agy           │ OK     │ 1.1.19                                              │
 │ git           │ OK     │ git version 2.53.0                                  │
-│ mcp           │ OK     │ mcp + codeverse.spatial.mcp_server importable       │
+│ mcp           │ OK     │ mcp + codeverse3d.spatial.mcp_server importable       │
 └───────────────┴────────┴─────────────────────────────────────────────────────┘
 ```
 
@@ -483,14 +483,14 @@ that the keys work end to end):
 | `python` | — | interpreter running the CLI | if it is not the interpreter you installed into, your shell is picking up another `3dcodeverse` — `which -a 3dcodeverse`, reinstall with `python -m pip install -e harness` |
 | `python deps` | FAIL | a core import is missing/broken | `pip install -e 'harness[all]'`; a broken native lib (`fcl`, `manifold3d`) shows up here too — reinstall that wheel (`pip install --force-reinstall python-fcl`) |
 | `python deps` | WARN | only optional-extra modules missing (`manifold3d` / `shapely` / `yourdfpy` / `mcp` / `moderngl` / `cadquery`) | install the extra the row names, e.g. `pip install -e 'harness[mesh,urdf,mcp,graphics,cad]'` (§4) |
-| `blender` | FAIL | no binary found, or `--version` failed | §6 — install Blender, or `export CV3D_BINARIES__BLENDER=/path/to/blender`. If it is found but fails, run it by hand: a `libSM.so.6`/`libICE.so.6` error means you need the `LD_LIBRARY_PATH` wrapper |
-| `node` | FAIL | node missing or older than 20.6.0 (§2.1) | install a newer node (`nvm install --lts`) or point `binaries.node` / `CV3D_BINARIES__NODE` at one.  The same check fires from every node workload (`codeverse.spatial.node.run_node`), so a too-old node cannot fail obscurely mid-render |
-| `runtime_js` | FAIL | the node runtime directory cannot be resolved | use a full checkout, or set `CV3D_RUNTIME_JS=/path/to/harness/runtime_js`; then run `npm ci` there (§5) |
+| `blender` | FAIL | no binary found, or `--version` failed | §6 — install Blender, or `export C3D_BINARIES__BLENDER=/path/to/blender`. If it is found but fails, run it by hand: a `libSM.so.6`/`libICE.so.6` error means you need the `LD_LIBRARY_PATH` wrapper |
+| `node` | FAIL | node missing or older than 20.6.0 (§2.1) | install a newer node (`nvm install --lts`) or point `binaries.node` / `C3D_BINARIES__NODE` at one.  The same check fires from every node workload (`codeverse3d.spatial.node.run_node`), so a too-old node cannot fail obscurely mid-render |
+| `runtime_js` | FAIL | the node runtime directory cannot be resolved | use a full checkout, or set `C3D_RUNTIME_JS=/path/to/harness/runtime_js`; then run `npm ci` there (§5) |
 | `three` | FAIL | `runtime_js/node_modules/three` missing | `cd harness/runtime_js && npm ci` (§5) |
 | `puppeteer` | FAIL | not installed in `runtime_js` | `cd harness/runtime_js && npm ci` |
 | `puppeteer` | WARN | installed, but no Chrome in `~/.cache/puppeteer` | `cd harness/runtime_js && npx puppeteer browsers install chrome` (or unset `PUPPETEER_SKIP_DOWNLOAD` / fix `PUPPETEER_CACHE_DIR`) |
-| `chrome webgl` | WARN | Chrome launched but on SwiftShader | fine, just slower; on WSL2 install the vendor WSL GPU driver, on a server install Mesa EGL. `CV3D_RENDER_GPU=off` to stop probing |
-| `chrome webgl` | FAIL | the browser could not launch at all | usually missing shared libs for Chrome (`ldd ~/.cache/puppeteer/chrome/*/chrome-linux64/chrome \| grep -i "not found"`) or a stale endpoint file — `rm -f ~/.cache/codeverse/browser_*.lock` and retry; `--no-gpu` skips this probe |
+| `chrome webgl` | WARN | Chrome launched but on SwiftShader | fine, just slower; on WSL2 install the vendor WSL GPU driver, on a server install Mesa EGL. `C3D_RENDER_GPU=off` to stop probing |
+| `chrome webgl` | FAIL | the browser could not launch at all | usually missing shared libs for Chrome (`ldd ~/.cache/puppeteer/chrome/*/chrome-linux64/chrome \| grep -i "not found"`) or a stale endpoint file — `rm -f ~/.cache/codeverse3d/browser_*.lock` and retry; `--no-gpu` skips this probe |
 | `chrome webgl` | SKIP | `runtime_js/gpu_launch.cjs` not present | you are not in a full checkout |
 | `gemini keys` | FAIL | no keys resolved | `export GEMINI_API_KEYS="k1,k2"` (§8.1) — everything model-driven needs this |
 | `anthropic key` / `openai key` | WARN | not set | expected unless you use `anthropic:*` / `openai:*`; export the key to clear it |
@@ -498,12 +498,12 @@ that the keys work end to end):
 | `git` | FAIL | git missing | install git — run workspaces are git repos |
 | `mcp` | WARN | `mcp` package or the server module missing | `pip install -e 'harness[mcp]'`; only affects the agentic CLI backends |
 | `gemini live call` (`--live`) | FAIL | key rejected / no network | check the key value and outbound access; a `503 … high demand` is transient, not an install problem |
-| `gemini quota` | OK | always informational | the per-key RPM/TPM the pool schedules against x the number of keys (`Settings.rate`, docs/COST.md Part III); tune with `CV3D_RATE__TPM_PER_KEY` / `CV3D_RATE__MAX_IN_FLIGHT` |
-| `pool sharing` | WARN | this process's configured concurrency does not fit beside sibling harness processes | wait for the siblings or set `CV3D_MAX_IN_FLIGHT` to the headroom printed in the row |
+| `gemini quota` | OK | always informational | the per-key RPM/TPM the pool schedules against x the number of keys (`Settings.rate`, docs/COST.md Part III); tune with `C3D_RATE__TPM_PER_KEY` / `C3D_RATE__MAX_IN_FLIGHT` |
+| `pool sharing` | WARN | this process's configured concurrency does not fit beside sibling harness processes | wait for the siblings or set `C3D_MAX_IN_FLIGHT` to the headroom printed in the row |
 | `gemini pool` (`--live`) | WARN | a key is benched as dead | that key 401/403'd; rotate or remove it — the pool re-probes it after an hour.  The row also shows in-flight, RPM/TPM headroom used and this process's 429/5xx counts |
 | `storm gate` (`--live`) | WARN | a capacity storm is running | provider-side (`503 high demand`), not an install problem; the gate is off by default (docs/COST.md §21) and the row only appears when something enabled it |
-| `skills switch` | WARN | skills are disabled | expected by default; set `CV3D_SKILLS=on` only when you want skill routing |
-| `skills library` | WARN / FAIL | no bundles were found, or one or more bundles are invalid | use a full checkout and validate the named bundle under `codeverse/skills/library/` |
+| `skills switch` | WARN | skills are disabled | expected by default; set `C3D_SKILLS=on` only when you want skill routing |
+| `skills library` | WARN / FAIL | no bundles were found, or one or more bundles are invalid | use a full checkout and validate the named bundle under `codeverse3d/skills/library/` |
 | `skills routing` | WARN | a routed skill has no installed bundle | restore the missing bundle from the checkout or update the stale route |
 | `skills discovery` | OK | always informational | shows the agent-native directories where bundles are materialised |
 | `claude-code Skill tool` | FAIL | the Claude backend would deny native skill activation | update/reinstall the harness so `Skill` is present in Claude Code's allowed tools |
@@ -522,8 +522,8 @@ cd harness
     --track graphics --language glsl_shader \
     --generator single-shot:gemini:gemini-3.7-flash \
     --rounds 0 --max-minutes 20 \
-    --runs-dir /tmp/cv3d_smoke
-3dcode status <slug> --runs-dir /tmp/cv3d_smoke
+    --runs-dir /tmp/c3d_smoke
+3dcode status <slug> --runs-dir /tmp/c3d_smoke
 ```
 
 If node and Blender are installed, the equivalent object-track smoke is
@@ -566,11 +566,11 @@ operating guide is `docs/RUNBOOK.md`.
 pip uninstall 3dcodeverse                     # removes the editable install + 3dcodeverse/3dcode
 rm -rf harness/runtime_js/node_modules        # ~97 MB, re-creatable with `npm ci`
 rm -rf ~/.cache/puppeteer                     # ~636 MB of downloaded Chrome builds
-rm -rf ~/.cache/codeverse                     # harness cache (619 MB here) — see below
+rm -rf ~/.cache/codeverse3d                     # harness cache (619 MB here) — see below
 rm -rf harness/3dcodeverse.egg-info harness/.pytest_cache harness/.ruff_cache
 ```
 
-`~/.cache/codeverse` (or `cache_dir` / `CV3D_CACHE_DIR`) holds only regenerable
+`~/.cache/codeverse3d` (or `cache_dir` / `C3D_CACHE_DIR`) holds only regenerable
 things: `renders/` and `judge_images/` (render + montage cache), `textures/` and
 `texture_plans/` (texture-pass cache — deleting these costs real money to
 regenerate), `gpu_probe.json`, `browser_*.lock` (the shared
@@ -581,7 +581,7 @@ dataset are the flywheel output — delete them deliberately, never as part of a
 cleanup.  On this machine `harness/bench/out/` is read-only reference material
 (the early `e2e_*` reference runs were archived off-repo on 2026-08-29).
 
-Uninstalling does not touch `~/.config/codeverse/config.yaml`,
+Uninstalling does not touch `~/.config/3dcodeverse/config.yaml`,
 `~/.config/astra3d/gemini_keys.env` or the globally installed CLIs — remove
 those by hand (`npm rm -g @google/gemini-cli @anthropic-ai/claude-code @openai/codex`).
 

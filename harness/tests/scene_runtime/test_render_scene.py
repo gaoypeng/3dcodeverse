@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from codeverse.contracts.plan import CameraPlan
-from codeverse.conventions import SCENE_VIEWS
-from codeverse.spatial import render_scene as rs_mod
-from codeverse.spatial.render_scene import (
+from codeverse3d.contracts.plan import CameraPlan
+from codeverse3d.conventions import SCENE_VIEWS
+from codeverse3d.spatial import render_scene as rs_mod
+from codeverse3d.spatial.render_scene import (
     SceneRenderError,
     probe_env_args,
     read_metrics,
@@ -91,7 +91,7 @@ def test_missing_driver_raises(fake_runtime):
 def test_camera_in_geometry_is_detected(starter_ws, monkeypatch):
     # this test asserts DETECTION, so the default-on camera repair must stand down
     # (the repair itself is covered by test_camera_repair.py)
-    monkeypatch.setenv("CV3D_CAMERA_REPAIR", "0")
+    monkeypatch.setenv("C3D_CAMERA_REPAIR", "0")
     cams = [CameraPlan(name="buried", position=(12.0, 2.0, -2.0), look_at=(12.0, 2.0, -10.0), fov=50)]  # inside the windmill tower
     out = starter_ws.renders_dir(1)
     render_scene(starter_ws, out, cameras=cams, orbit=False, times=(0.0,), fps_seconds=0, sheet=False)
@@ -109,7 +109,7 @@ def test_camera_repair_is_observable_in_census_and_views(starter_ws, monkeypatch
     """Review-3 S5 (V8): with the default-ON repair, a buried camera leaves a
     census.camera_repair row and the view records where the pixels really came
     from — repair used to fire AFTER census capture and vanish."""
-    monkeypatch.delenv("CV3D_CAMERA_REPAIR", raising=False)
+    monkeypatch.delenv("C3D_CAMERA_REPAIR", raising=False)
     cams = [CameraPlan(name="buried", position=(12.0, 2.0, -2.0), look_at=(12.0, 2.0, -10.0), fov=50)]  # inside the windmill tower
     out = starter_ws.renders_dir(2)
     render_scene(starter_ws, out, cameras=cams, orbit=False, times=(0.0,), fps_seconds=0, sheet=False)
@@ -230,22 +230,22 @@ def _flags(args):
 
 @pytest.mark.parametrize(("env", "expect"), [
     ({}, ["--camera-repair"]),
-    ({"CV3D_CAMERA_REPAIR": "0"}, []),
-    ({"CV3D_CAMERA_REPAIR": "false"}, []),
-    ({"CV3D_CAMERA_REPAIR": "off"}, []),
-    ({"CV3D_CAMERA_REPAIR": "no"}, []),
-    ({"CV3D_CAMERA_REPAIR": "true"}, ["--camera-repair"]),
-    ({"CV3D_SETTLE": "0"}, ["--camera-repair", "--no-settle"]),
-    ({"CV3D_SETTLE": "false"}, ["--camera-repair", "--no-settle"]),
-    ({"CV3D_AUTO_EXPOSURE": "1"}, ["--auto-exposure", "--camera-repair"]),
-    ({"CV3D_AUTO_EXPOSURE": "true"}, ["--auto-exposure", "--camera-repair"]),
-    ({"CV3D_AUTO_EXPOSURE": "garbage"}, ["--camera-repair"]),
+    ({"C3D_CAMERA_REPAIR": "0"}, []),
+    ({"C3D_CAMERA_REPAIR": "false"}, []),
+    ({"C3D_CAMERA_REPAIR": "off"}, []),
+    ({"C3D_CAMERA_REPAIR": "no"}, []),
+    ({"C3D_CAMERA_REPAIR": "true"}, ["--camera-repair"]),
+    ({"C3D_SETTLE": "0"}, ["--camera-repair", "--no-settle"]),
+    ({"C3D_SETTLE": "false"}, ["--camera-repair", "--no-settle"]),
+    ({"C3D_AUTO_EXPOSURE": "1"}, ["--auto-exposure", "--camera-repair"]),
+    ({"C3D_AUTO_EXPOSURE": "true"}, ["--auto-exposure", "--camera-repair"]),
+    ({"C3D_AUTO_EXPOSURE": "garbage"}, ["--camera-repair"]),
 ])
 def test_probe_env_args_speaks_the_canonical_flag_words(monkeypatch, env, expect):
-    """CV3D_CAMERA_REPAIR=false must DISABLE, CV3D_SETTLE=false must disable,
-    CV3D_AUTO_EXPOSURE=true must enable — the raw '0'/'1' compares silently
+    """C3D_CAMERA_REPAIR=false must DISABLE, C3D_SETTLE=false must disable,
+    C3D_AUTO_EXPOSURE=true must enable — the raw '0'/'1' compares silently
     ignored every other word the doc'd env_flag vocabulary accepts."""
-    for k in ("CV3D_SETTLE", "CV3D_CAMERA_REPAIR", "CV3D_AUTO_EXPOSURE"):
+    for k in ("C3D_SETTLE", "C3D_CAMERA_REPAIR", "C3D_AUTO_EXPOSURE"):
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
@@ -256,8 +256,8 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, ws, tmp_path
     """Review-3 S4 (V7c): the combined single-boot build probes under the SAME
     settle / camera-repair / auto-exposure flags as the standalone probe and
     render paths — it used to pass none of them."""
-    import codeverse.languages.scene_threejs as st
-    import codeverse.spatial.probes as probes_mod
+    import codeverse3d.languages.scene_threejs as st
+    import codeverse3d.spatial.probes as probes_mod
 
     captured: dict[str, list[str]] = {}
 
@@ -267,7 +267,7 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, ws, tmp_path
 
     monkeypatch.setattr(probes_mod, "run_scene_script", fake_run)
     monkeypatch.setattr(rs_mod, "run_scene_script", fake_run)
-    for k in ("CV3D_SETTLE", "CV3D_CAMERA_REPAIR", "CV3D_AUTO_EXPOSURE"):
+    for k in ("C3D_SETTLE", "C3D_CAMERA_REPAIR", "C3D_AUTO_EXPOSURE"):
         monkeypatch.delenv(k, raising=False)
 
     # defaults: camera repair ON everywhere, settle on (no flag), exposure off
@@ -281,8 +281,8 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, ws, tmp_path
     assert _flags(captured["render_scene.mjs"]) == ["--camera-repair"]
 
     # the A/B words reach every path, including the combined build
-    monkeypatch.setenv("CV3D_SETTLE", "0")
-    monkeypatch.setenv("CV3D_CAMERA_REPAIR", "false")
+    monkeypatch.setenv("C3D_SETTLE", "0")
+    monkeypatch.setenv("C3D_CAMERA_REPAIR", "false")
     st._probe_and_preflight(ws, timeout_s=5.0)
     assert _flags(captured["probe_scene.mjs"]) == ["--no-settle"]
     probes_mod.probe_scene(ws)

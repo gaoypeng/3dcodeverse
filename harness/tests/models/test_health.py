@@ -1,8 +1,8 @@
-"""Provider health probe (codeverse/models/health.py)."""
+"""Provider health probe (codeverse3d/models/health.py)."""
 
 from __future__ import annotations
 
-from codeverse.models.health import DEFAULT_MIN_OK, Health
+from codeverse3d.models.health import DEFAULT_MIN_OK, Health
 
 
 def test_health_threshold_requires_a_real_success_rate():
@@ -22,7 +22,7 @@ def test_health_threshold_requires_a_real_success_rate():
 def test_the_probe_prompt_is_the_size_of_real_work():
     """A five-token probe answers when a 12 k-token planner call does not — that false
     green light is exactly what this gate must not give."""
-    from codeverse.models.health import PROBE_TOKENS, _probe_prompt
+    from codeverse3d.models.health import PROBE_TOKENS, _probe_prompt
 
     prompt = _probe_prompt()
     approx_tokens = len(prompt) // 4
@@ -44,7 +44,7 @@ def test_the_message_carries_the_provider_reason():
 
 
 def test_probe_never_raises_when_every_call_fails(monkeypatch):
-    import codeverse.models.health as health
+    import codeverse3d.models.health as health
 
     class Boom:
         def generate(self, _req):
@@ -58,10 +58,10 @@ def test_probe_never_raises_when_every_call_fails(monkeypatch):
 
 # --------------------------------------------------------------------------- siblings
 def test_sibling_detection_matches_arguments_not_the_repo_path():
-    from codeverse.models.health import _is_harness_argv
+    from codeverse3d.models.health import _is_harness_argv
 
     harness_commands = (
-        ["python", "-m", "codeverse.cli.main", "bench", "run"],
+        ["python", "-m", "codeverse3d.cli.main", "bench", "run"],
         ["python", "bench/compare_backends.py", "--arms", "x"],
         ["/home/u/.local/bin/3dcode", "doctor"],
         ["/usr/bin/python3", "/x/y/run_bench.py"],
@@ -73,7 +73,7 @@ def test_sibling_detection_matches_arguments_not_the_repo_path():
     )
     other_commands = (
         ["/bin/bash", "-c", "cd /home/u/3dcodeverse/harness && ls"],
-        ["vim", "/home/u/3dcodeverse/harness/codeverse/cli/main.py"],
+        ["vim", "/home/u/3dcodeverse/harness/codeverse3d/cli/main.py"],
         ["python", "-m", "pytest", "tests/"],
         [],
         ["ls", "-la", "/home/u/3dcodeverse"],
@@ -89,8 +89,8 @@ def test_probe_model_treats_a_503_as_final(monkeypatch):
     branch does NOT consume max_attempts, so max_attempts=1 alone still retried a 503
     up to 60 times (bounded only by the 900 s deadline) — a "30-second" probe that could
     take 15 minutes.  Observed 2026-08-24 in the parked compare_v2 preflight log."""
-    import codeverse.models.gemini as gm
-    from codeverse.models.health import _bare_model
+    import codeverse3d.models.gemini as gm
+    from codeverse3d.models.health import _bare_model
 
     captured: dict = {}
 
@@ -107,7 +107,7 @@ def test_probe_model_treats_a_503_as_final(monkeypatch):
     assert m.storm_attempts == 0 and m.max_attempts == 1
     import contextlib
 
-    from codeverse.contracts.chat import ChatMessage, ChatRequest
+    from codeverse3d.contracts.chat import ChatMessage, ChatRequest
 
     with contextlib.suppress(Exception):  # the fake returns a non-response; only the kwargs matter
         m.generate(ChatRequest(messages=[ChatMessage.user("pong")], max_output_tokens=8))
@@ -121,7 +121,7 @@ def _fake_proc(monkeypatch, procs):
     import os
     from pathlib import Path
 
-    import codeverse.models.health as health
+    import codeverse3d.models.health as health
 
     me = os.getpid()
 
@@ -154,12 +154,12 @@ def test_pool_budget_accounts_for_caps_defaults_and_unlimited_siblings(monkeypat
         monkeypatch,
         {
             101: (
-                ["python", "-m", "codeverse.cli.main", "bench", "run"],
-                {"CV3D_MAX_IN_FLIGHT": "16"},
+                ["python", "-m", "codeverse3d.cli.main", "bench", "run"],
+                {"C3D_MAX_IN_FLIGHT": "16"},
             ),
             102: (
                 ["python", "bench/compare_backends.py", "--arms", "x"],
-                {"CV3D_RATE__MAX_IN_FLIGHT": "16"},
+                {"C3D_RATE__MAX_IN_FLIGHT": "16"},
             ),
             103: (
                 ["/bin/bash", "-c", "cd /home/u/3dcodeverse && sleep 1"],
@@ -172,7 +172,7 @@ def test_pool_budget_accounts_for_caps_defaults_and_unlimited_siblings(monkeypat
     assert pb.fits(16) and pb.fits(32) and not pb.fits(33) and not pb.fits(64)
 
     health = _fake_proc(
-        monkeypatch, {201: (["python", "-m", "codeverse.cli.main", "make", "a chair"], {})}
+        monkeypatch, {201: (["python", "-m", "codeverse3d.cli.main", "make", "a chair"], {})}
     )
     pb = health.pool_budget()
     assert pb.used == 64 and pb.headroom == 0 and not pb.fits(1)
@@ -181,8 +181,8 @@ def test_pool_budget_accounts_for_caps_defaults_and_unlimited_siblings(monkeypat
         monkeypatch,
         {
             401: (
-                ["python", "-m", "codeverse.cli.main", "bench", "run"],
-                {"CV3D_MAX_IN_FLIGHT": "0"},
+                ["python", "-m", "codeverse3d.cli.main", "bench", "run"],
+                {"C3D_MAX_IN_FLIGHT": "0"},
             ),
         },
     )
@@ -193,10 +193,10 @@ def test_pool_budget_accounts_for_caps_defaults_and_unlimited_siblings(monkeypat
         monkeypatch,
         {
             501: (
-                ["python", "-m", "codeverse.cli.main", "bench", "run"],
-                {"CV3D_MAX_IN_FLIGHT": "16"},
+                ["python", "-m", "codeverse3d.cli.main", "bench", "run"],
+                {"C3D_MAX_IN_FLIGHT": "16"},
             ),
-            502: (["python", "-m", "bench.compare_backends"], {"CV3D_MAX_IN_FLIGHT": "-8"}),
+            502: (["python", "-m", "bench.compare_backends"], {"C3D_MAX_IN_FLIGHT": "-8"}),
         },
     )
     pb = health.pool_budget()
@@ -218,11 +218,11 @@ def test_an_ab_plan_driver_is_not_charged_for_its_children(monkeypatch):
             ),
             302: (
                 ["python", "-m", "bench.ab_plan", "cell", "--arm", "control"],
-                {"CV3D_MAX_IN_FLIGHT": "16"},
+                {"C3D_MAX_IN_FLIGHT": "16"},
             ),
             303: (
                 ["python", "-m", "bench.ab_plan", "cell", "--arm", "variant"],
-                {"CV3D_MAX_IN_FLIGHT": "16"},
+                {"C3D_MAX_IN_FLIGHT": "16"},
             ),
         },
     )
@@ -235,7 +235,7 @@ def test_an_ab_plan_driver_is_not_charged_for_its_children(monkeypatch):
             311: (["python", "bench/ab_plan.py", "--prompts", "p.yaml"], {}),
             312: (
                 ["python", "bench/ab_plan.py", "cell", "--arm", "control"],
-                {"CV3D_MAX_IN_FLIGHT": "8"},
+                {"C3D_MAX_IN_FLIGHT": "8"},
             ),
         },
     )
@@ -243,7 +243,7 @@ def test_an_ab_plan_driver_is_not_charged_for_its_children(monkeypatch):
     # a compare_backends driver runs its cells in THREADS, in itself: it is charged
     health = _fake_proc(
         monkeypatch,
-        {321: (["python", "-m", "bench.compare_backends"], {"CV3D_MAX_IN_FLIGHT": "16"})},
+        {321: (["python", "-m", "bench.compare_backends"], {"C3D_MAX_IN_FLIGHT": "16"})},
     )
     assert health.pool_budget().used == 16
 
@@ -251,7 +251,7 @@ def test_an_ab_plan_driver_is_not_charged_for_its_children(monkeypatch):
 def test_pool_budget_never_raises(monkeypatch):
     from pathlib import Path
 
-    import codeverse.models.health as health
+    import codeverse3d.models.health as health
 
     def boom(_self):
         raise OSError("no /proc")

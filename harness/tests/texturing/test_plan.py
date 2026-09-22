@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from codeverse.contracts.chat import ChatRequest, ChatResponse
-from codeverse.contracts.common import Usage
-from codeverse.texturing.plan import (
+from codeverse3d.contracts.chat import ChatRequest, ChatResponse
+from codeverse3d.contracts.common import Usage
+from codeverse3d.texturing.plan import (
     STYLE_SUFFIX,
     PlannerOutput,
     PlannerPart,

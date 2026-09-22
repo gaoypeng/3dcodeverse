@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from codeverse.cli import _common as C
-from codeverse.cli.main import app
-from codeverse.cli.main import make as make_cmd
-from codeverse.contracts.spec import Spec
+from codeverse3d.cli import _common as C
+from codeverse3d.cli.main import app
+from codeverse3d.cli.main import make as make_cmd
+from codeverse3d.contracts.spec import Spec
 
 runner = CliRunner()
 
@@ -33,7 +33,7 @@ def stub_track(monkeypatch):
     """Replace ``tracks.get_track`` with a stub whose ``run`` calls ``on_run(spec, resume,
     force)`` and then raises ``exc`` — KeyboardInterrupt by default, which the CLI turns
     into exit code 130, so the resume path is exercised without any real work."""
-    import codeverse.tracks as tracks_pkg
+    import codeverse3d.tracks as tracks_pkg
 
     def install(on_run=None, exc: BaseException | None = None):
         class _T:
@@ -107,12 +107,12 @@ def test_tools_list_handles_an_optional_spatial_install():
 
 def test_lazy_import_message():
     with pytest.raises(C.CliError):
-        C.lazy("codeverse.definitely_missing_module")
+        C.lazy("codeverse3d.definitely_missing_module")
 
 
 def test_doctor_json(monkeypatch):
     """The CLI serialises doctor rows; the checks themselves are tested by install tests."""
-    import codeverse.cli.doctor as doctor_cli
+    import codeverse3d.cli.doctor as doctor_cli
 
     seen = {}
 
@@ -148,7 +148,7 @@ class _FakeVlm:
 
 
 def _write_stool_plan(ws):
-    from codeverse.contracts.plan import AcceptanceItem, BBox, PartPlan, StaticPlan
+    from codeverse3d.contracts.plan import AcceptanceItem, BBox, PartPlan, StaticPlan
 
     plan = StaticPlan(object_name="Chair", summary="a chair", overall_bbox=BBox(center=(0, 0, 0.4), extents=(0.5, 0.5, 0.8)),
                       parts=[PartPlan(name="Seat", role="r", description="d", bbox=BBox(center=(0, 0, 0.4), extents=(0.4, 0.4, 0.04)))],
@@ -157,8 +157,8 @@ def _write_stool_plan(ws):
 
 
 def test_judge_rejudges_with_in_run_inputs(runs_dir: Path, monkeypatch):
-    import codeverse.judges.vlm_judge as vj
-    from codeverse.workspace import Workspace
+    import codeverse3d.judges.vlm_judge as vj
+    from codeverse3d.workspace import Workspace
     from tests.flywheel_cli.conftest import tiny_png
 
     ws = Workspace(runs_dir / "wooden_chair_ab12cd34")
@@ -181,7 +181,7 @@ def test_judge_rejudges_with_in_run_inputs(runs_dir: Path, monkeypatch):
 
 
 def test_judge_uses_reference_judge_for_measured_rubrics(runs_dir: Path, monkeypatch):
-    import codeverse.judges.vlm_judge as ref
+    import codeverse3d.judges.vlm_judge as ref
 
     class _FakeRef(_FakeVlm):
         pass
@@ -195,7 +195,7 @@ def test_judge_uses_reference_judge_for_measured_rubrics(runs_dir: Path, monkeyp
 
 
 def test_judge_wraps_value_error_as_cli_error(runs_dir: Path, monkeypatch):
-    import codeverse.judges.vlm_judge as vj
+    import codeverse3d.judges.vlm_judge as vj
 
     class _Boom(_FakeVlm):
         def judge(self, inp):
@@ -209,9 +209,9 @@ def test_judge_wraps_value_error_as_cli_error(runs_dir: Path, monkeypatch):
 
 
 def test_judge_rubric_map_includes_graphics():
-    from codeverse.cli._judge import rubric_for
-    from codeverse.contracts.common import TRACK_INFO, Track
-    from codeverse.contracts.run import RoundRecord
+    from codeverse3d.cli._judge import rubric_for
+    from codeverse3d.contracts.common import TRACK_INFO, Track
+    from codeverse3d.contracts.run import RoundRecord
 
     assert TRACK_INFO[Track.GRAPHICS].rubric == "shader_v2"
 
@@ -228,10 +228,10 @@ def test_calibration_rubric_map_includes_graphics(tmp_path: Path):
     """Same default as `3dcode judge`: a graphics round with no stored judgment used to be
     re-judged with static_object_v1 because calibration kept its own three-track
     TRACK_RUBRIC instead of reading TRACK_INFO."""
-    from codeverse.addons.calibration import load_run_cases
-    from codeverse.contracts.artifacts import RenderSet, RenderView
-    from codeverse.contracts.common import Language, Track
-    from codeverse.contracts.run import RoundRecord
+    from codeverse3d.addons.calibration import load_run_cases
+    from codeverse3d.contracts.artifacts import RenderSet, RenderView
+    from codeverse3d.contracts.common import Language, Track
+    from codeverse3d.contracts.run import RoundRecord
 
     run = tmp_path / "shader_run"
     (run / "rounds").mkdir(parents=True)
@@ -288,9 +288,9 @@ def test_resume_budget_flags_rewrite_spec_and_emit_event(made_run, stub_track):
 
 def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_track):
     """A finished run never re-enters the track unless forced."""
-    from codeverse.contracts.run import RunStatus
-    from codeverse.orchestrator import RunState
-    from codeverse.workspace import Workspace
+    from codeverse3d.contracts.run import RunStatus
+    from codeverse3d.orchestrator import RunState
+    from codeverse3d.workspace import Workspace
 
     runs, run_dir = made_run()
     ws = Workspace(run_dir)
@@ -329,7 +329,7 @@ def test_resume_threads_force_through_to_the_track(made_run, stub_track):
 
 def test_a_spec_change_refusal_is_a_clean_cli_error(made_run, stub_track):
     """Spec drift is a typed CLI refusal, not a traceback."""
-    from codeverse.tracks.lifecycle import SpecChanged
+    from codeverse3d.tracks.lifecycle import SpecChanged
 
     runs, ws = made_run()
     stub_track(exc=SpecChanged("spec.json changed under this run; fork a new run or resume with --force"))
@@ -342,7 +342,7 @@ def test_a_spec_change_refusal_is_a_clean_cli_error(made_run, stub_track):
 def test_status_shows_candidates_and_texturing(runs_dir: Path):
     import json as _json
 
-    from codeverse.workspace import Workspace
+    from codeverse3d.workspace import Workspace
 
     ws = Workspace(runs_dir / "wooden_chair_ab12cd34")
     (ws.root / "rounds").mkdir(exist_ok=True)
@@ -362,9 +362,9 @@ def test_status_shows_candidates_and_texturing(runs_dir: Path):
 
 
 def test_render_graphics_regenerates_frames(tmp_path: Path, monkeypatch):
-    import codeverse.languages as langs
-    from codeverse.contracts.artifacts import BuildResult
-    from codeverse.contracts.common import Language
+    import codeverse3d.languages as langs
+    from codeverse3d.contracts.artifacts import BuildResult
+    from codeverse3d.contracts.common import Language
     from tests.flywheel_cli.conftest import make_fake_run, tiny_png
 
     ws, rec = make_fake_run(tmp_path / "runs", "rain_glsl", prompt="neon rain", language=Language.GLSL_SHADER)
@@ -389,7 +389,7 @@ def test_render_graphics_regenerates_frames(tmp_path: Path, monkeypatch):
 
 def test_reference_with_no_run_says_it_is_about_to_spend_money(tmp_path: Path, monkeypatch):
     """Reference preprocessing under --no-run must disclose its paid work."""
-    import codeverse.reference as REF
+    import codeverse3d.reference as REF
 
     calls = []
 
@@ -437,7 +437,7 @@ def test_a_negative_budget_is_rejected_before_the_workspace_exists(tmp_path: Pat
     import pytest as _pytest
     from pydantic import ValidationError
 
-    from codeverse.contracts.common import Budget
+    from codeverse3d.contracts.common import Budget
 
     with _pytest.raises(ValidationError):
         Budget(max_minutes=-3.0)
@@ -446,8 +446,8 @@ def test_a_negative_budget_is_rejected_before_the_workspace_exists(tmp_path: Pat
 
 def test_texture_is_not_offered_on_tracks_that_have_no_glb(tmp_path: Path):
     """Impossible explicit texturing fails early; profiles degrade cleanly by track."""
-    from codeverse.contracts.common import Track
-    from codeverse.texturing.run import texture_requested, texture_supported
+    from codeverse3d.contracts.common import Track
+    from codeverse3d.texturing.run import texture_requested, texture_supported
 
     runs = tmp_path / "runs"
     # profile-implied: quality still works, it just has no texture pass on this track
@@ -483,7 +483,7 @@ def _round_guard_ws(tmp_path: Path, *, best: int, tree: int):
     """A workspace whose record names `best` while the render tree sits at `tree`."""
     import json as _json
 
-    from codeverse.workspace import Workspace
+    from codeverse3d.workspace import Workspace
 
     ws = Workspace(tmp_path / "wronground")
     ws.create()
@@ -495,8 +495,8 @@ def _round_guard_ws(tmp_path: Path, *, best: int, tree: int):
 
 def test_render_only_labels_the_working_tree_round(tmp_path: Path):
     """Implicit and explicit round selection must never label another tree's code."""
-    from codeverse.cli._common import CliError
-    from codeverse.cli.inspect_cmd import _render_round_or_refuse
+    from codeverse3d.cli._common import CliError
+    from codeverse3d.cli.inspect_cmd import _render_round_or_refuse
 
     ws = _round_guard_ws(tmp_path, best=3, tree=4)
     with pytest.raises(CliError) as ei:

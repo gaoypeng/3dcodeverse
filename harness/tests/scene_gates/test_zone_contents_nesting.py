@@ -20,8 +20,8 @@ planned name; that shape did not occur in this corpus.
 
 from __future__ import annotations
 
-from codeverse.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
-from codeverse.spatial.scene_placement import contract_findings
+from codeverse3d.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
+from codeverse3d.spatial.scene_placement import contract_findings
 
 
 def _plan(contents: list[str]) -> ScenePlan:
@@ -75,7 +75,7 @@ def test_a_row_with_no_inner_list_behaves_as_before():
 def test_an_unavailable_hero_is_not_missing_content():
     """A hero the asset stage could not build was withheld from the zone ("NOT AVAILABLE —
     do not reference"); the contract check must not ERROR every round on its absence."""
-    from codeverse.spatial.scene_placement import contract_findings
+    from codeverse3d.spatial.scene_placement import contract_findings
 
     plan = {"zones": [{"name": "IncenseTerrace", "contents": ["BronzeCenser", "StoneBench"]}], "assets": []}
     census = {"placement": {"assets": [{"name": "StoneBench", "zone": "IncenseTerrace", "inner": []}]}}

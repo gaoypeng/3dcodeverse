@@ -1,4 +1,4 @@
-# large / generated assets live under $CV3D_EVAL_DATA, never here
+# large / generated assets live under $C3D_EVAL_DATA, never here
 __pycache__/
 *.pyc
 out/

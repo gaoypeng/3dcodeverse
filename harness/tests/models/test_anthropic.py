@@ -9,18 +9,18 @@ from typing import Any
 import httpx
 import pytest
 
-from codeverse.contracts.chat import (
+from codeverse3d.contracts.chat import (
     ChatMessage,
     ChatRequest,
     ImagePart,
 )
-from codeverse.models.anthropic import (
+from codeverse3d.models.anthropic import (
     AnthropicModel,
     build_kwargs,
     classify_exception,
     to_messages,
 )
-from codeverse.models.base import ModelError
+from codeverse3d.models.base import ModelError
 
 PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
@@ -222,7 +222,7 @@ def test_classify_connection_errors():
 
 def test_missing_key_is_loud(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    from codeverse.config import get_settings
+    from codeverse3d.config import get_settings
 
     get_settings.cache_clear()
     m = AnthropicModel("claude-opus-5")

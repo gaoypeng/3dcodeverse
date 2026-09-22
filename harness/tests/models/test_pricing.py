@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from codeverse.contracts.common import Usage
-from codeverse.models.pricing import PRICES, cache_write_surcharge, estimate_cost, lookup_price
+from codeverse3d.contracts.common import Usage
+from codeverse3d.models.pricing import PRICES, cache_write_surcharge, estimate_cost, lookup_price
 
 
 def test_gemini_cost_math():

@@ -1,0 +1,121 @@
+"""Typed contracts shared across the harness.  Data + validators — no I/O, no model calls.
+
+Modules:
+- ``common``    enums, vectors, usage/cost.
+- ``spec``      what the user asked for (track, language, prompt, budget, backends).
+- ``plan``      what the planner decided (parts / joints / zones / acceptance).
+- ``artifacts`` what tools produced (measurements, renders, gate reports, builds) and
+                what judges said (scores, issues, improvement plan).
+- ``run``       the run record (rounds, totals, provenance) — the flywheel unit.
+- ``chat``      ChatModel request/response shapes.
+- ``agent``     CodingAgent job/result shapes.
+"""
+
+from codeverse3d.contracts.agent import AgentJob, AgentResult, FileChange
+from codeverse3d.contracts.artifacts import (
+    BuildResult,
+    GateFinding,
+    GateReport,
+    ImprovementItem,
+    JudgeIssue,
+    Judgment,
+    Measurement,
+    PartMeasure,
+    RenderSet,
+    RenderView,
+    Severity,
+)
+from codeverse3d.contracts.chat import (
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    ImagePart,
+    TextPart,
+)
+from codeverse3d.contracts.common import (
+    ENTRY_FILE,
+    LANGUAGE_LABEL,
+    TRACK_INFO,
+    TRACK_LANGUAGES,
+    Backends,
+    Budget,
+    Language,
+    Track,
+    TrackInfo,
+    Usage,
+    Vec3,
+    code_file,
+)
+from codeverse3d.contracts.plan import (
+    AcceptanceItem,
+    ArticulatedPlan,
+    AssetPlan,
+    BBox,
+    CameraPlan,
+    EffectPlan,
+    GraphicsPlan,
+    JointPlan,
+    PartPlan,
+    PassPlan,
+    Plan,
+    ScenePlan,
+    StaticPlan,
+    ZonePlan,
+)
+from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus
+from codeverse3d.contracts.spec import Constraints, ReferenceImage, RunOptions, Spec
+
+__all__ = [
+    "AcceptanceItem",
+    "AgentJob",
+    "AgentResult",
+    "ArticulatedPlan",
+    "AssetPlan",
+    "BBox",
+    "Backends",
+    "Budget",
+    "BuildResult",
+    "CameraPlan",
+    "ChatMessage",
+    "ChatRequest",
+    "ChatResponse",
+    "Constraints",
+    "ENTRY_FILE",
+    "EffectPlan",
+    "FileChange",
+    "GateFinding",
+    "GateReport",
+    "GraphicsPlan",
+    "ImagePart",
+    "ImprovementItem",
+    "JointPlan",
+    "JudgeIssue",
+    "Judgment",
+    "LANGUAGE_LABEL",
+    "Language",
+    "Measurement",
+    "PartMeasure",
+    "PartPlan",
+    "PassPlan",
+    "Plan",
+    "ReferenceImage",
+    "RenderSet",
+    "RenderView",
+    "RoundRecord",
+    "RunOptions",
+    "RunRecord",
+    "RunStatus",
+    "ScenePlan",
+    "Severity",
+    "Spec",
+    "StaticPlan",
+    "TRACK_INFO",
+    "TRACK_LANGUAGES",
+    "TextPart",
+    "Track",
+    "TrackInfo",
+    "Usage",
+    "Vec3",
+    "ZonePlan",
+    "code_file",
+]

@@ -7,11 +7,11 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from codeverse.cli.main import app
-from codeverse.contracts.common import Backends, Language, Track
-from codeverse.contracts.spec import Spec
-from codeverse.proc import EventLog
-from codeverse.workspace import Workspace
+from codeverse3d.cli.main import app
+from codeverse3d.contracts.common import Backends, Language, Track
+from codeverse3d.contracts.spec import Spec
+from codeverse3d.proc import EventLog
+from codeverse3d.workspace import Workspace
 
 runner = CliRunner()
 

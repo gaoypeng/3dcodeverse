@@ -1,6 +1,6 @@
 """A routed bundle only exists if a GENERATING session is told about it.
 
-The read loop measured cv3d-scene-composition / -lighting / -motion at 0 opens out of 3
+The read loop measured c3d-scene-composition / -lighting / -motion at 0 opens out of 3
 listings each and read it as a wording problem.  It was not: the scene track did all of
 its baseline generation in ``prepare()`` — the env, zones and compose stages called
 ``tracks.generation.generate`` directly — while ``skills_hook.attach_for_round`` was only
@@ -22,22 +22,22 @@ from collections import Counter
 
 import pytest
 
-from codeverse.contracts.common import Language, Track
-from codeverse.contracts.plan import ScenePlan
-from codeverse.proc import EventLog, read_jsonl_lenient
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.common import Language, Track
+from codeverse3d.contracts.plan import ScenePlan
+from codeverse3d.proc import EventLog, read_jsonl_lenient
+from codeverse3d.workspace import Workspace
 
 
 @pytest.fixture
 def scene_run(tmp_path, monkeypatch):
-    from codeverse.config import Settings
-    from codeverse.tracks.planner import plan_example
-    from codeverse.tracks.scene import SceneTrack
+    from codeverse3d.config import Settings
+    from codeverse3d.tracks.planner import plan_example
+    from codeverse3d.tracks.scene import SceneTrack
     from tests.orchestrator_tracks.conftest import make_spec
     from tests.orchestrator_tracks.fakes import FakeAgent, FakeJudge, FakeRuntime, FakeServices
     from tests.orchestrator_tracks.test_tracks import _planner, _scene_writer
 
-    monkeypatch.setenv("CV3D_SKILLS", "1")
+    monkeypatch.setenv("C3D_SKILLS", "1")
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     plan.assets = [a for a in plan.assets if a.kind == "threejs"]
     for z in plan.zones:
@@ -64,11 +64,11 @@ def test_every_scene_generation_stage_gets_skills_before_its_sessions(scene_run)
         {"env": 1, "zone": 1, "compose": 1}
     )
     assert all(sum(e.get("kind") == kind for e in attachments) == 1 for kind in by_kind)
-    assert {"cv3d-scene-composition", "cv3d-scene-lighting"} <= set(by_kind["env"]["skills"])
-    assert {"cv3d-scene-composition", "cv3d-scene-motion", "cv3d-bbox-contract"} <= set(
+    assert {"c3d-scene-composition", "c3d-scene-lighting"} <= set(by_kind["env"]["skills"])
+    assert {"c3d-scene-composition", "c3d-scene-motion", "c3d-bbox-contract"} <= set(
         by_kind["zone"]["skills"]
     )
-    assert {"cv3d-scene-composition", "cv3d-scene-motion"} <= set(by_kind["compose"]["skills"])
+    assert {"c3d-scene-composition", "c3d-scene-motion"} <= set(by_kind["compose"]["skills"])
 
     def belongs(kind: str, event: dict) -> bool:
         label = str(event.get("label", ""))

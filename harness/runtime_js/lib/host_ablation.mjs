@@ -273,7 +273,7 @@ export function frameSampler(canvas) {
  *   returns the RGBA readback.  `snapshot()`, when given, returns the canvas
  *   as it stands — called right after each of the two renders the report
  *   already makes, so the PNG pair the agent looks at costs no extra frames.
- * @returns {object} plain JSON (see `codeverse.spatial.ablation.AblationReport`)
+ * @returns {object} plain JSON (see `codeverse3d.spatial.ablation.AblationReport`)
  */
 export function ablationReport(scene, THREE, opts) {
   const { renderFrame, cameras: rawCameras, maxMaterials = MAX_MATERIALS, threshold = DIFF_THRESHOLD,

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.proc import (
+from codeverse3d.proc import (
     STREAM_BUDGET_BYTES,
     ManagedProcess,
     ProcResult,
@@ -63,7 +63,7 @@ def test_a_leader_that_exits_0_still_takes_its_grandchildren_down(tmp_path: Path
 
 def test_a_leader_that_exits_0_does_not_burn_the_drain_window(tmp_path: Path, monkeypatch):
     """Inherited pipes do not force a clean exit through the drain timeout."""
-    import codeverse.proc as proc_mod
+    import codeverse3d.proc as proc_mod
 
     monkeypatch.setattr(proc_mod, "DRAIN_TIMEOUT_S", 3.0)
     pid_file = tmp_path / "pid"
@@ -78,7 +78,7 @@ def test_a_leader_that_exits_0_does_not_burn_the_drain_window(tmp_path: Path, mo
 
 def test_a_detached_descendant_holding_the_pipes_cannot_extend_the_timeout(tmp_path: Path, monkeypatch):
     """A detached descendant holding stdout cannot extend the caller's timeout."""
-    import codeverse.proc as proc_mod
+    import codeverse3d.proc as proc_mod
 
     # raising=False so this test still RUNS (and fails on the hang) against the
     # pre-fix module, which has no such constant
@@ -145,7 +145,7 @@ def test_workspace_write_json_delegates(tmp_ws):
 _WRITER = """
 import json, sys
 from pathlib import Path
-from codeverse.proc import write_json_atomic
+from codeverse3d.proc import write_json_atomic
 
 path, tag, n = Path(sys.argv[1]), sys.argv[2], int(sys.argv[3])
 payload = {"writer": tag, "blob": [tag * 40] * 900}
@@ -179,7 +179,7 @@ def test_write_json_atomic_survives_concurrent_writers(tmp_path: Path):
 
 def test_unique_tmp_is_per_process_and_per_thread(tmp_path: Path):
     """Simultaneously live threads choose distinct process/thread temp names."""
-    from codeverse.proc import unique_tmp
+    from codeverse3d.proc import unique_tmp
 
     out = tmp_path / "cache" / "checker.mjs"
     seen: list[Path] = []
@@ -206,7 +206,7 @@ def test_unique_tmp_is_per_process_and_per_thread(tmp_path: Path):
 
 def test_concurrent_writers_of_one_destination_all_succeed(tmp_path: Path):
     """Barrier-synchronized writers can safely replace one destination."""
-    from codeverse.proc import write_text_atomic
+    from codeverse3d.proc import write_text_atomic
 
     out = tmp_path / "shared.txt"
     n = 8
@@ -270,7 +270,7 @@ def test_scrub_secrets_drops_credential_shaped_vars():
 def test_scrub_secrets_keeps_everything_generated_code_needs():
     env = {"PATH": "/usr/bin", "HOME": "/home/u", "DISPLAY": ":0", "NODE_PATH": "/nm",
            "MESA_LOADER_DRIVER_OVERRIDE": "d3d12", "GALLIUM_DRIVER": "llvmpipe",
-           "CV3D_RENDER_GPU": "off", "PYTHONUNBUFFERED": "1",
+           "C3D_RENDER_GPU": "off", "PYTHONUNBUFFERED": "1",
            "TOKENIZERS_PARALLELISM": "false"}  # _TOKEN is a SUFFIX match, not a substring
     assert scrub_secrets(dict(env)) == env
 

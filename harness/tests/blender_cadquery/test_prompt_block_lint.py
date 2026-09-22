@@ -5,10 +5,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from codeverse.languages.blender import lint_blender_source
-from codeverse.languages.cadquery import lint_cadquery_source
+from codeverse3d.languages.blender import lint_blender_source
+from codeverse3d.languages.cadquery import lint_cadquery_source
 
-PROMPTS = Path(__file__).resolve().parents[2] / "codeverse" / "prompts"
+PROMPTS = Path(__file__).resolve().parents[2] / "codeverse3d" / "prompts"
 FENCE = re.compile(r"^```(?:py|python)\s*$(.*?)^```\s*$", re.M | re.S)
 
 BLENDER_HEADER = (

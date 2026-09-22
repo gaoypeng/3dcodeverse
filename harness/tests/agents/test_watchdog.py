@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.agents.cli_common import run_with_watchdog
+from codeverse3d.agents.cli_common import run_with_watchdog
 from tests.conftest import assert_pid_gone
 
 PY = sys.executable

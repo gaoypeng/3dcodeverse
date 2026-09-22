@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import ast
 
-from codeverse.contracts.plan import BBox
-from codeverse.languages.blender import (
+from codeverse3d.contracts.plan import BBox
+from codeverse3d.languages.blender import (
     finish_for,
     instance_centers,
     lint_blender_source,

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # One-shot environment setup for 3dcodeverse_eval on a Linux box (no sudo needed).
 #   bash llm/setup.sh            # everything below
-#   CV3D_TOOLS=/opt/cv3d-tools bash setup.sh  # tools elsewhere
+#   C3D_TOOLS=/opt/c3d-tools bash setup.sh  # tools elsewhere
 # Installs: conda env `cv3d-eval` (vLLM, executors, metrics), Blender 5.0.1, OpenSCAD nightly AppImage
 # (+ libglvnd unpacked locally), glslang 16.5, Playwright Chromium, scipy/shapely inside Blender's python.
 # Re-runnable: every step skips what already exists.  Afterwards: `python -m llm.config`.
 set -euo pipefail
 
-TOOLS="${CV3D_TOOLS:-$HOME/3dcodeverse_data/tools}"
-ENV_NAME="${CV3D_ENV:-cv3d-eval}"
-XLIBS="${CV3D_XLIBS:-$HOME/.local/xlibs/usr/lib/x86_64-linux-gnu}"
+TOOLS="${C3D_TOOLS:-$HOME/3dcodeverse_data/tools}"
+ENV_NAME="${C3D_ENV:-cv3d-eval}"
+XLIBS="${C3D_XLIBS:-$HOME/.local/xlibs/usr/lib/x86_64-linux-gnu}"
 mkdir -p "$TOOLS" "$HOME/.local/bin"
 
 log() { printf '\n\033[1;34m[setup]\033[0m %s\n' "$*"; }

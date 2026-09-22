@@ -23,7 +23,7 @@ import { openHost } from './lib/host_page.mjs';
 import { compileIntoReport, staticShaderReport } from './lib/shader_report.mjs';
 
 const args = parseCli({
-  ws: {}, module: {}, out: {}, gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' },
+  ws: {}, module: {}, out: {}, gpu: { default: process.env.C3D_RENDER_GPU || 'auto' },
   'timeout-ms': { default: '90000' },
 });
 

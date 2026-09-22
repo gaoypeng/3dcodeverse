@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from codeverse.texturing.generate import (
+from codeverse3d.texturing.generate import (
     SEAM_MAX,
     fit_size,
     make_tileable,

@@ -2,7 +2,7 @@
 ``models/gemini.py`` (offline; fake clients + a 2-key pool).
 
 Lives with the flywheel/CLI tests because this group owns
-``codeverse/models/gemini_image.py``'s rotation behaviour.
+``codeverse3d/models/gemini_image.py``'s rotation behaviour.
 """
 
 from __future__ import annotations
@@ -15,9 +15,9 @@ import pytest
 pytest.importorskip("google.genai")
 from PIL import Image
 
-from codeverse.models.base import ModelError
-from codeverse.models.gemini import GeminiImageModel
-from codeverse.models.retry import KeyPool
+from codeverse3d.models.base import ModelError
+from codeverse3d.models.gemini import GeminiImageModel
+from codeverse3d.models.retry import KeyPool
 
 
 def _png_bytes() -> bytes:
@@ -124,7 +124,7 @@ def test_image_budget_bounds_the_per_attempt_http_timeout():
 def test_images_are_priced_by_the_generated_size():
     """A 2K request is billed at the 2K per-image price (it was billed at the 1K rate,
     0.067 instead of 0.134); a 512 request generates a 1K image and is billed as one."""
-    from codeverse.models.pricing import per_image_usd
+    from codeverse3d.models.pricing import per_image_usd
 
     def cost(size: int) -> float:
         used: list[str] = []

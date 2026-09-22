@@ -10,7 +10,7 @@ Layout of ``out_dir``::
 Every prompt becomes a ``Spec`` with the battery's track/language, a FIXED judge
 model (methodology: paired runs share the judge), and the generator under test.
 
-Each prompt runs inside its own ``codeverse.cost.run_ledger``, exactly like a
+Each prompt runs inside its own ``codeverse3d.cost.run_ledger``, exactly like a
 ``3dcode make``: the batteries are where most runs come from, so without it the
 priced per-call rows of a whole battery went to the per-process fallback log and
 ``3dcode cost --runs-dir <out>/runs`` had to reconstruct them from trajectories.
@@ -34,13 +34,13 @@ from pydantic import BaseModel, Field
 
 from bench._infra import is_infra_failure
 from bench._jsonl import read_jsonl, seal_for_append
-from codeverse.config import get_settings
-from codeverse.contracts.common import Backends, Budget, Language, Track
-from codeverse.contracts.run import RunRecord
-from codeverse.contracts.spec import Constraints, ReferenceImage, Spec
-from codeverse.cost import run_ledger
-from codeverse.proc import exclusive
-from codeverse.workspace import Workspace
+from codeverse3d.config import get_settings
+from codeverse3d.contracts.common import Backends, Budget, Language, Track
+from codeverse3d.contracts.run import RunRecord
+from codeverse3d.contracts.spec import Constraints, ReferenceImage, Spec
+from codeverse3d.cost import run_ledger
+from codeverse3d.proc import exclusive
+from codeverse3d.workspace import Workspace
 
 RESULT_FIELDS = ("id", "tier", "category", "score_baseline", "score_final", "passed", "rounds", "cost_usd",
                  "minutes", "status", "errors", "workspace", "generator", "judge")
@@ -223,7 +223,7 @@ def archive_attempt(root: Path) -> Path:
 
 def default_run_track(spec: Spec, ws: Workspace, resume: bool) -> RunRecord:
     """Run the spec's track (the real thing; tests inject a fake ``run_fn``)."""
-    from codeverse.tracks import get_track
+    from codeverse3d.tracks import get_track
 
     return get_track(spec.track).run(spec, ws, resume=resume)
 

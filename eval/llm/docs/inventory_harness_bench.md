@@ -28,22 +28,22 @@ Schema (`bench/run_bench.py:49-71`): `Battery{name, track, language, description
 
 ## 2. Judging methodology
 
-- `codeverse/judges/vlm_judge.py` `VlmJudge(rubric, model_id, n_samples, temperature=0.2, thinking="low")`; default judge `gemini:gemini-3.1-pro-preview`. Variants `ReferenceJudge` (reference images + silhouette IoU), `LikenessJudge`, `PairwiseJudge` (`judges/pairwise.py`: both orderings, winner only when they agree).
+- `codeverse3d/judges/vlm_judge.py` `VlmJudge(rubric, model_id, n_samples, temperature=0.2, thinking="low")`; default judge `gemini:gemini-3.1-pro-preview`. Variants `ReferenceJudge` (reference images + silhouette IoU), `LikenessJudge`, `PairwiseJudge` (`judges/pairwise.py`: both orderings, winner only when they agree).
 - Prompt (`judges/prompt_builder.py`): blind judge, observe-then-score, defect checklist; BRIEF + CONSTRAINTS + MEASUREMENTS + GATE FINDINGS; ≤5 labelled 2×2 montages (512 px tiles) + ≤2 detail crops; cross-section slices only on connectivity ERROR (D48).
 - Score (`judges/rubrics.py`, SCORING_VERSION=2): weighted criteria → majority-voted defects with penalties/caps → gate caps → `passed = overall ≥ threshold ∧ no floor ∧ no unverified must item`.
 - Rubrics (`judges/rubrics/*.yaml`): `static_object_v1` (threshold 0.72; intent_fidelity .22, structure .18, geometry_detail .16, proportions .12, assembly_fit .12, materials .10, craftsmanship .10; 11 defects), `articulated_v1` (0.70), `scene_v1` (0.70), `shader_v2` (0.70; shader_v1 had Spearman 0.16 vs human), `asset_v1`, `reference_v1` (measured silhouette IoU criterion, weight .25).
-- View rig (`codeverse/conventions.py:87-102`): 14 views (high ring ×4 @ +30°, eye-level ×4, low ring ×4 @ −30°, top, bottom), 768² studio background; clay montage ×4. Graphics: frames at t = 0, 1, 2.5, 4, 6 s.
+- View rig (`codeverse3d/conventions.py:87-102`): 14 views (high ring ×4 @ +30°, eye-level ×4, low ring ×4 @ −30°, top, bottom), 768² studio background; clay montage ×4. Graphics: frames at t = 0, 1, 2.5, 4, 6 s.
 - Calibration (`docs/EVAL.md` §6): pro σ(overall, n=3) **0.030**, flash σ **0.083**; fixed-order re-judge σ 0.035; paired A/A on identical arms: paired sd 0.16–0.20 → generation variance dominates; ±0.02 needs ~500 pairs. ~$0.15–0.20 per pro verdict.
 - Deterministic gates: per-language lint; build (`ok` requires non-empty GLB); `measure_glb` (bbox, tri_count, n_meshes, n_islands, per-part volume/watertight, ground_gap, materials, complexity vector); `check_connectivity` (floating part = ERROR, penetration WARN > 2 mm, ERROR > 10 mm); graphics `gl_frames` (NaN, black/blown, static, flicker, low_detail); `reference_silhouette` IoU; `must_have` → VLM acceptance items.
 - **No CLIP/DINO/Chamfer metric exists in the harness**; silhouette IoU is the only image similarity; geometry is compared to the plan's boxes only.
 
 ## 3. One-shot path (`bench/_oneshot.py`)
 - `oneshot_prompt(spec)` = `"Model this object in raw bpy: <prompt>"` + dimensions + MUST HAVE/NOT + minimal contract (Blender 5.x, emptied scene, Z-up, −Y front, metres, on z=0, PascalCase names, material per mesh, no render/export/import/network, <500k tris, <120 s, call `main()`) + "reply with the COMPLETE file as ONE ```python block".
-- Backends: `claude-code[:model]`, `codex[:model]`, `gemini:|anthropic:|openai:<model>` (ApiOneShot: temperature 0.5, thinking medium, max_output 32000). **Local open model works** via `openai:<model>` + `CV3D_OPENAI_BASE_URL=http://host:8000/v1` (vLLM OpenAI server).
-- Contracts per language to reuse verbatim: `codeverse/prompts/{blender,cadquery,threejs,glsl_shader,opengl_python,scene_threejs,urdf}/{system.md,contract.md,cookbook.md}`.
+- Backends: `claude-code[:model]`, `codex[:model]`, `gemini:|anthropic:|openai:<model>` (ApiOneShot: temperature 0.5, thinking medium, max_output 32000). **Local open model works** via `openai:<model>` + `C3D_OPENAI_BASE_URL=http://host:8000/v1` (vLLM OpenAI server).
+- Contracts per language to reuse verbatim: `codeverse3d/prompts/{blender,cadquery,threejs,glsl_shader,opengl_python,scene_threejs,urdf}/{system.md,contract.md,cookbook.md}`.
 - Evaluate a workspace: `bench/_fixed_eval.FixedEvaluator(judge_model, n_samples, track, language).evaluate(ws, spec) -> EvalOutcome` (build → gates → 14-view render → judge).
 
-## 4. Renderers / executors (`codeverse/languages/<lang>`)
+## 4. Renderers / executors (`codeverse3d/languages/<lang>`)
 | language | build | outputs |
 |---|---|---|
 | blender | `blender -b --factory-startup --python wrappers/run_bpy.py -- --script src/model.py --out artifacts --rlimit-gb 12 --tri-limit 600000 --seed 0 --stl` | `object.glb` (Y-up), `object.stl`, `build.json`, `census.json` |
@@ -53,13 +53,13 @@ Schema (`bench/run_bench.py:49-71`): `Battery{name, track, language, description
 | scene_threejs | puppeteer probe/render over http | renders, `metrics.json` |
 | glsl_shader / opengl_python | moderngl `GlHost` | `frames/*.png`, `preview.gif`, `metrics.json` |
 
-GLB rendering for judging: `codeverse.spatial.render.render_glb(glb, out_dir, views=OBJECT_VIEWS, mode=shaded|clay|…)` via `runtime_js/render_glb.mjs` in headless Chrome.
+GLB rendering for judging: `codeverse3d.spatial.render.render_glb(glb, out_dir, views=OBJECT_VIEWS, mode=shaded|clay|…)` via `runtime_js/render_glb.mjs` in headless Chrome.
 
 ## 5. Result schema
 `BenchItemResult`: `id, tier, category, score_baseline, score_final, passed, rounds, cost_usd, minutes, status, errors, workspace, generator, judge`. `compare_backends.py` → `CellResult{prompt_id, arm, status (scored|build_failed|no_code|judge_error|infra_failed|budget_exhausted), score, score_std, passed, build_ok, gate_errors[], tris, gen_cost_usd, judge_cost_usd, criteria{}, …}` + `paired.md` (paired Δ, t-CI, sign test).
 
 ## 6. Reuse recommendation for `3dcodeverse_eval/`
 1. Batteries are data: copy the YAMLs (`static_objects_v2`, `compare_v4`, `fancy_v1_*`, `graphics_v2`, `articulated_v2`) as a **rubric-judged / no-GT** prompt set.
-2. Judge stack as-is: `codeverse.judges.{rubrics, prompt_builder, vlm_judge, pairwise}` + rubric YAMLs; keep Gemini pro for comparability; n = 1 or 3.
-3. Gates/renderers: `codeverse.spatial.{measure.measure_glb, connectivity.check_connectivity, render.render_glb, complexity.complexity_of_glb, silhouette.best_view_match, frame_stats}`; `codeverse.languages.get_runtime(lang).build`.
+2. Judge stack as-is: `codeverse3d.judges.{rubrics, prompt_builder, vlm_judge, pairwise}` + rubric YAMLs; keep Gemini pro for comparability; n = 1 or 3.
+3. Gates/renderers: `codeverse3d.spatial.{measure.measure_glb, connectivity.check_connectivity, render.render_glb, complexity.complexity_of_glb, silhouette.best_view_match, frame_stats}`; `codeverse3d.languages.get_runtime(lang).build`.
 4. Gaps: one-shot contracts exist only for blender/urdf (derive others from `prompts/<lang>/contract.md`); no plan-free `dimensions_m` gate (write one over `measure_glb().extents`); scene batteries need the full harness.

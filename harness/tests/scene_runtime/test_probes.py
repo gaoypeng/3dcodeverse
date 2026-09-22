@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse.contracts.artifacts import Severity
-from codeverse.spatial.probes import check_shaders, probe_scene
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.spatial.probes import check_shaders, probe_scene
 from tests.scene_runtime.conftest import needs_browser
 
 pytestmark = [pytest.mark.node, needs_browser]
@@ -142,8 +142,8 @@ def test_probe_scene_hanging_create_scene_times_out_as_agent_finding(starter_ws)
 
 def test_probe_result_tool_semantics(starter_ws, monkeypatch):
     """Tool success is distinct from agent-fixable gate success."""
-    import codeverse.spatial.probes as probes_mod
-    from codeverse.spatial.render_scene import NodeResult, SceneRenderError
+    import codeverse3d.spatial.probes as probes_mod
+    from codeverse3d.spatial.render_scene import NodeResult, SceneRenderError
 
     def fake_run_ok(script, args, **kw):
         return NodeResult(0, "", "", {

@@ -25,12 +25,12 @@ const args = parseCli({
   'camera-repair': { type: 'boolean', default: false },
   'auto-exposure': { type: 'boolean', default: false },
   // post chain (GTAO + soft bloom + grade): ON for scene pictures, `--no-post` (python
-  // emits it for CV3D_POST=0) to render raw.  Object renders never come through here.
+  // emits it for C3D_POST=0) to render raw.  Object renders never come through here.
   'no-post': { type: 'boolean', default: false },
   'post-options': { default: '' },
   ws: {}, out: {}, cameras: { default: 'authored' }, 'orbit-views': { default: 'none' }, bounds: { default: 'none' },
   times: { default: '0,1.5' }, width: { default: '1024' }, height: { default: '576' },
-  gpu: { default: process.env.CV3D_RENDER_GPU || 'auto' }, 'fps-seconds': { default: '2' },
+  gpu: { default: process.env.C3D_RENDER_GPU || 'auto' }, 'fps-seconds': { default: '2' },
   'timeout-ms': { default: '240000' }, 'log-depth': { type: 'boolean', default: false },
 });
 

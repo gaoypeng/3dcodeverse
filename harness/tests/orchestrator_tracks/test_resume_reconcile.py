@@ -13,12 +13,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from codeverse.contracts.common import Language
-from codeverse.orchestrator import RoundPolicy, RunState
-from codeverse.proc import EventLog
-from codeverse.tracks.lifecycle import SpecChanged
-from codeverse.tracks.static_object import StaticObjectTrack
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.common import Language
+from codeverse3d.orchestrator import RoundPolicy, RunState
+from codeverse3d.proc import EventLog
+from codeverse3d.tracks.lifecycle import SpecChanged
+from codeverse3d.tracks.static_object import StaticObjectTrack
+from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
@@ -160,10 +160,10 @@ def test_a_stored_pairwise_rejection_is_final(chair_plan):
     ``choose_best_round`` and the resume ``replay_best_round`` re-ranked the WHOLE
     journal on score alone and crowned the rejected r1.  The verdict is final: live
     and replay agree, whether the later round is worse or failed to score at all."""
-    from codeverse.contracts.artifacts import BuildResult, Judgment
-    from codeverse.contracts.run import PairwiseNote, RoundRecord
-    from codeverse.orchestrator import BestSelector
-    from codeverse.tracks.candidates import choose_best_round, replay_best_round
+    from codeverse3d.contracts.artifacts import BuildResult, Judgment
+    from codeverse3d.contracts.run import PairwiseNote, RoundRecord
+    from codeverse3d.orchestrator import BestSelector
+    from codeverse3d.tracks.candidates import choose_best_round, replay_best_round
 
     def rec(i, score, pairwise=None):
         j = None if score is None else Judgment(rubric="r", scores={}, overall=score, passed=False)
@@ -291,10 +291,10 @@ def test_resume_charges_for_spend_the_snapshot_missed(tmp_path, chair_plan, sett
     """The ledger is appended per CALL, the snapshot saved at boundaries: a crash between
     a round's spend and its save handed the resumed run that money back — silently
     under-counting is how a resumed run walks past its ceiling."""
-    from codeverse.cost.ledger import open_run_ledger
-    from codeverse.cost.types import CallCost
-    from codeverse.orchestrator import BudgetGuard, BudgetSnapshot
-    from codeverse.tracks.lifecycle import _reconcile_billed_from_ledger
+    from codeverse3d.cost.ledger import open_run_ledger
+    from codeverse3d.cost.types import CallCost
+    from codeverse3d.orchestrator import BudgetGuard, BudgetSnapshot
+    from codeverse3d.tracks.lifecycle import _reconcile_billed_from_ledger
 
     ws = Workspace(tmp_path / "runs" / "r")
     ws.create()
@@ -315,10 +315,10 @@ def test_resume_reconcile_keeps_subscription_spend_notional(tmp_path, settings):
     """A codex/claude/agy ledger row is priced at list rates but bills $0 (bills_usd):
     resuming a subscription-backend run offline must not flip billed from $0 to the
     notional sum — reconcile shares the exact predicate the live spend path uses."""
-    from codeverse.cost.ledger import open_run_ledger
-    from codeverse.cost.types import CallCost
-    from codeverse.orchestrator import BudgetGuard
-    from codeverse.tracks.lifecycle import _reconcile_billed_from_ledger
+    from codeverse3d.cost.ledger import open_run_ledger
+    from codeverse3d.cost.types import CallCost
+    from codeverse3d.orchestrator import BudgetGuard
+    from codeverse3d.tracks.lifecycle import _reconcile_billed_from_ledger
 
     ws = Workspace(tmp_path / "runs" / "sub")
     ws.create()

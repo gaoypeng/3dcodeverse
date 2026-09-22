@@ -11,9 +11,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from codeverse.contracts.common import Language, Track
-from codeverse.prompts import PROMPTS_DIR, load_text
-from codeverse.prompts.sections import split_sections
+from codeverse3d.contracts.common import Language, Track
+from codeverse3d.prompts import PROMPTS_DIR, load_text
+from codeverse3d.prompts.sections import split_sections
 
 EXAMPLE = PROMPTS_DIR / "glsl_shader" / "examples" / "aurora_ridge.frag"
 
@@ -38,8 +38,8 @@ def test_every_track_sends_the_whole_cookbook(monkeypatch) -> None:
     stage knows which chapters it needs (scene's env/zone recipes, graphics' recipe
     seeding); it is not right as a way to shrink the reference itself.
     """
-    from codeverse.tracks import graphics as graphics_steps
-    from codeverse.tracks.prompting import base_prompt_context
+    from codeverse3d.tracks import graphics as graphics_steps
+    from codeverse3d.tracks.prompting import base_prompt_context
 
     big = "\n\n".join(f"## chapter {i}\n" + "x" * 4000 for i in range(20))   # ~80 000 chars
     ctx = SimpleNamespace(plan=None, spec=SimpleNamespace(prompt="an aurora", constraints=None, must=[], must_not=[],
@@ -53,15 +53,15 @@ def test_every_track_sends_the_whole_cookbook(monkeypatch) -> None:
     monkeypatch.setattr(graphics_steps, "acceptance_lines", lambda plan: "")
     assert graphics_steps.graphics_prompt_context(ctx)["cookbook_excerpt"] == big
 
-    monkeypatch.setattr("codeverse.tracks.prompting.constraints_text", lambda spec: "")
-    monkeypatch.setattr("codeverse.tracks.prompting.reference_note", lambda ctx: "")
-    monkeypatch.setattr("codeverse.tracks.prompting.acceptance_lines", lambda plan: "")
+    monkeypatch.setattr("codeverse3d.tracks.prompting.constraints_text", lambda spec: "")
+    monkeypatch.setattr("codeverse3d.tracks.prompting.reference_note", lambda ctx: "")
+    monkeypatch.setattr("codeverse3d.tracks.prompting.acceptance_lines", lambda plan: "")
     assert base_prompt_context(ctx)["cookbook_excerpt"] == big
     assert base_prompt_context(ctx)["contract"] == "CONTRACT"
 
 
 def test_aurora_example_ships_and_composes() -> None:
-    from codeverse.languages.glsl_shader import compose
+    from codeverse3d.languages.glsl_shader import compose
 
     assert EXAMPLE.is_file(), EXAMPLE
     src = EXAMPLE.read_text()

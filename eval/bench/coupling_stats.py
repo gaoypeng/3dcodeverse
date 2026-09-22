@@ -22,10 +22,10 @@ import sys
 from pathlib import Path
 
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
-    sys.path.insert(0, str(_p))  # this tree's codeverse (harness/) + the `bench` package (eval/)
+    sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
-from codeverse.record.record import unique_files  # noqa: E402
-from codeverse.spatial.joints_model import UrdfError, load_urdf  # noqa: E402
+from codeverse3d.record.record import unique_files  # noqa: E402
+from codeverse3d.spatial.joints_model import UrdfError, load_urdf  # noqa: E402
 
 
 def _urdfs(root: Path) -> list[Path]:

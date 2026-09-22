@@ -5,7 +5,7 @@ status OK   = page loaded, no uncaught JS error / failed module import / failed 
        EMPTY = no canvas or blank canvas.   FAIL = JS/import error.   TIMEOUT = page load exceeded the limit.
 
 Pages usually import three.js from a CDN via an importmap, so the browser needs network access.  Set
-``CV3D_THREE_LOCAL=/path/to/three/build`` (a directory holding ``three.module.js`` and ``jsm/``) to rewrite
+``C3D_THREE_LOCAL=/path/to/three/build`` (a directory holding ``three.module.js`` and ``jsm/``) to rewrite
 ``https://cdn.jsdelivr.net/npm/three@X/build/three.module.js`` / ``…/examples/jsm/`` (and the unpkg /
 esm.sh equivalents) to that local copy and run offline.
 """
@@ -20,7 +20,7 @@ _CDN_RE = re.compile(r"https://(?:cdn\.jsdelivr\.net/npm|unpkg\.com|esm\.sh)/thr
 
 
 def localise(html: str) -> str:
-    local = os.environ.get("CV3D_THREE_LOCAL")
+    local = os.environ.get("C3D_THREE_LOCAL")
     if not local:
         return html
     root = Path(local).resolve()

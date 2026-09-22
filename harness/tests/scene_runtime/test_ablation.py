@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.config import get_settings
-from codeverse.spatial.ablation import (
+from codeverse3d.config import get_settings
+from codeverse3d.spatial.ablation import (
     CENSUS_FIELD,
     PRESENT_FLOOR,
     AblationReport,
@@ -27,8 +27,8 @@ from codeverse.spatial.ablation import (
     ablate_scene,
     merge_into_census,
 )
-from codeverse.spatial.registry import get_tool
-from codeverse.workspace import Workspace
+from codeverse3d.spatial.registry import get_tool
+from codeverse3d.workspace import Workspace
 from tests.scene_runtime.conftest import needs_browser, needs_node, run_node_json
 
 pytestmark = pytest.mark.node
@@ -175,15 +175,15 @@ def test_the_measurement_lands_in_the_census_where_the_gates_read_it(ws) -> None
 
 @needs_browser
 def test_the_build_switch_puts_the_number_where_the_scene_gates_read_it(ws, monkeypatch) -> None:
-    """CV3D_ABLATION folds the measurement into the build census (a second browser
+    """C3D_ABLATION folds the measurement into the build census (a second browser
     boot, hence opt-in).  Off — the default — the build is untouched."""
-    from codeverse.languages.scene_threejs import SceneThreeJsRuntime
+    from codeverse3d.languages.scene_threejs import SceneThreeJsRuntime
 
     _scene_ws(ws, SCENE_ONE_SHADER)
     runtime = SceneThreeJsRuntime()
-    monkeypatch.delenv("CV3D_ABLATION", raising=False)
+    monkeypatch.delenv("C3D_ABLATION", raising=False)
     assert CENSUS_FIELD not in (runtime.build(ws).census or {})
-    monkeypatch.setenv("CV3D_ABLATION", "1")
+    monkeypatch.setenv("C3D_ABLATION", "1")
     field = (runtime.build(ws).census or {}).get(CENSUS_FIELD)
     assert field and field["present"] is True and field["custom_materials"] == 1
     assert json.loads((ws.artifacts / "census.json").read_text())[CENSUS_FIELD]["present"] is True

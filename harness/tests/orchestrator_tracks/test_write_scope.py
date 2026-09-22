@@ -10,14 +10,14 @@
 
 from __future__ import annotations
 
-from codeverse.contracts.artifacts import BuildResult, Judgment, Measurement, PartMeasure
-from codeverse.contracts.chat import ChatResponse
-from codeverse.contracts.common import Language, Track, Usage
-from codeverse.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
-from codeverse.contracts.run import RoundRecord
-from codeverse.orchestrator import RefineTask, RunState, TaskGroup
-from codeverse.proc import EventLog
-from codeverse.tracks.generation import (
+from codeverse3d.contracts.artifacts import BuildResult, Judgment, Measurement, PartMeasure
+from codeverse3d.contracts.chat import ChatResponse
+from codeverse3d.contracts.common import Language, Track, Usage
+from codeverse3d.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
+from codeverse3d.contracts.run import RoundRecord
+from codeverse3d.orchestrator import RefineTask, RunState, TaskGroup
+from codeverse3d.proc import EventLog
+from codeverse3d.tracks.generation import (
     GenerationResult,
     GenerationTask,
     _always_writable,
@@ -25,10 +25,10 @@ from codeverse.tracks.generation import (
     run_agent_task,
     write_files,
 )
-from codeverse.tracks.planner import plan_example
-from codeverse.tracks.scene import SceneTrack, zone_file
-from codeverse.tracks.static_object import StaticObjectTrack
-from codeverse.workspace import Workspace
+from codeverse3d.tracks.planner import plan_example
+from codeverse3d.tracks.scene import SceneTrack, zone_file
+from codeverse3d.tracks.static_object import StaticObjectTrack
+from codeverse3d.workspace import Workspace
 
 from .conftest import make_spec
 from .fakes import FakeAgent, FakeRuntime, FakeServices
@@ -225,8 +225,8 @@ def test_scene_constructors_enforce_their_file_sets(tmp_path, settings, monkeypa
     assert track._refine_task(ctx, group, last, 1, parallel=False).edit_only is False
 
     # threejs asset tasks share the scene workspace → scoped; blender heroes own a sub-workspace
-    import codeverse.tracks.common as common
-    import codeverse.tracks.scene_assets as scene_assets
+    import codeverse3d.tracks.common as common
+    import codeverse3d.tracks.scene_assets as scene_assets
 
     captured: dict[str, GenerationTask] = {}
 

@@ -9,20 +9,20 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from codeverse.contracts.artifacts import BuildResult, Severity
-from codeverse.contracts.common import Language
-from codeverse.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
-from codeverse.judges.rubrics import apply_caps, load_rubric
-from codeverse.orchestrator import build_refine_instructions
-from codeverse.spatial.scene_placement import (
+from codeverse3d.contracts.artifacts import BuildResult, Severity
+from codeverse3d.contracts.common import Language
+from codeverse3d.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
+from codeverse3d.judges.rubrics import apply_caps, load_rubric
+from codeverse3d.orchestrator import build_refine_instructions
+from codeverse3d.spatial.scene_placement import (
     GATE,
     infer_indoor,
     placement_findings,
     placement_gate_safe,
     placement_table_text,
 )
-from codeverse.tracks.prompting import file_for_target_factory
-from codeverse.tracks.scene import ScenePipeline
+from codeverse3d.tracks.prompting import file_for_target_factory
+from codeverse3d.tracks.scene import ScenePipeline
 
 
 def _row(name, zone="Yard", gap=0.0, support="Ground", sunk=0.0, into="", water=False, attached=(), h=1.0, exempt=""):
@@ -163,8 +163,8 @@ def test_pipeline_gates_append_placement_after_census_and_never_raise():
 
 
 def test_check_placement_reads_the_last_census_and_the_table_text(tmp_path):
-    from codeverse.spatial.registry import ToolContext, get_tool
-    from codeverse.workspace import Workspace
+    from codeverse3d.spatial.registry import ToolContext, get_tool
+    from codeverse3d.workspace import Workspace
 
     ws = Workspace(tmp_path / "run").create()
     ws.artifacts.mkdir(parents=True, exist_ok=True)
@@ -238,7 +238,7 @@ def test_a_wrapper_of_instances_is_scale_checked_as_one_instance():
 def test_the_typed_interior_flag_wins_over_the_setting_words():
     """D69's `interior` is the plan's word; the setting-text inference stays for plans
     written before it existed."""
-    from codeverse.spatial.scene_placement import is_interior
+    from codeverse3d.spatial.scene_placement import is_interior
 
     assert is_interior({"setting": "a mountain meadow at dawn", "interior": True})
     assert not is_interior({"setting": "a mountain meadow at dawn", "interior": False})

@@ -46,11 +46,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-# sys.path BEFORE any `codeverse` import: this file is also run as a script, and an
-# editable install would otherwise resolve `codeverse` to the tree it was installed from
+# sys.path BEFORE any `codeverse3d` import: this file is also run as a script, and an
+# editable install would otherwise resolve `codeverse3d` to the tree it was installed from
 # rather than this one.  See the same note in `bench/ab_plan.py`.
 REPO = Path(__file__).resolve().parents[2] / "harness"   # the harness tree these scripts evaluate
-for _p in (REPO, Path(__file__).resolve().parents[1]):      # its codeverse + the `bench` package (eval/)
+for _p in (REPO, Path(__file__).resolve().parents[1]):      # its codeverse3d + the `bench` package (eval/)
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
@@ -82,16 +82,16 @@ from bench.run_bench import (  # noqa: E402
     default_run_track,
     select_prompts,
 )
-from codeverse.config import get_settings  # noqa: E402
-from codeverse.contracts.artifacts import RenderSet  # noqa: E402
-from codeverse.contracts.common import ENTRY_FILE, Track  # noqa: E402
-from codeverse.contracts.run import RunRecord  # noqa: E402
-from codeverse.contracts.spec import Spec  # noqa: E402
-from codeverse.cost import run_ledger  # noqa: E402
-from codeverse.proc import exclusive  # noqa: E402
-from codeverse.tracks.generation import MultiFileParseError  # noqa: E402
-from codeverse.tracks.planner import PlanningError  # noqa: E402
-from codeverse.workspace import Workspace  # noqa: E402
+from codeverse3d.config import get_settings  # noqa: E402
+from codeverse3d.contracts.artifacts import RenderSet  # noqa: E402
+from codeverse3d.contracts.common import ENTRY_FILE, Track  # noqa: E402
+from codeverse3d.contracts.run import RunRecord  # noqa: E402
+from codeverse3d.contracts.spec import Spec  # noqa: E402
+from codeverse3d.cost import run_ledger  # noqa: E402
+from codeverse3d.proc import exclusive  # noqa: E402
+from codeverse3d.tracks.generation import MultiFileParseError  # noqa: E402
+from codeverse3d.tracks.planner import PlanningError  # noqa: E402
+from codeverse3d.workspace import Workspace  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -171,7 +171,7 @@ class CompareDeps:
 
 
 def _default_pairwise(model_id: str) -> Any:
-    from codeverse.judges.pairwise import PairwiseJudge
+    from codeverse3d.judges.pairwise import PairwiseJudge
 
     return PairwiseJudge(model_id)
 
@@ -490,7 +490,7 @@ def _preflight(judge: str, arms: Sequence[Arm], opts: CompareOptions, *, wait_mi
     CLI and whose judge was healthy — because the default PLANNER is flash.  A
     harness arm is only as available as the weakest model in its loop.
     """
-    from codeverse.models.health import probe
+    from codeverse3d.models.health import probe
 
     def api_model(target: str) -> str:
         """An API-billed oneshot target ('gemini:x') as-is; a subscription CLI target -> ''."""

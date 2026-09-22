@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codeverse.addons.gallery.index import build_index, default_roots, entry_for_dir
-from codeverse.addons.gallery.model import match, sort_entries, summarize
-from codeverse.record.record import battery_label
+from codeverse3d.addons.gallery.index import build_index, default_roots, entry_for_dir
+from codeverse3d.addons.gallery.model import match, sort_entries, summarize
+from codeverse3d.record.record import battery_label
 
 
 def test_build_index_sections_and_states(gallery_tree: dict[str, Path]):

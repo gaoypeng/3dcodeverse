@@ -6,15 +6,15 @@ import json
 
 import pytest
 
-from codeverse.addons.dataset.captions import (
+from codeverse3d.addons.dataset.captions import (
     CaptionError,
     Captions,
     caption_sample,
     validate_captions,
 )
-from codeverse.contracts.chat import ChatRequest, ChatResponse, ImagePart
-from codeverse.contracts.common import Usage
-from codeverse.record.record import load_record
+from codeverse3d.contracts.chat import ChatRequest, ChatResponse, ImagePart
+from codeverse3d.contracts.common import Usage
+from codeverse3d.record.record import load_record
 
 GOOD = {
     "detailed": "A four-legged wooden dining chair with a flat square seat and a tall slatted backrest.",
@@ -67,9 +67,9 @@ def test_caption_cmd_writes_the_captioner_row_into_the_run_ledger(fake_run, monk
     the captioner's priced call used to go to the per-process log instead."""
     from typer.testing import CliRunner
 
-    import codeverse.models.registry as R
-    from codeverse.cli.main import app
-    from codeverse.cost.ledger import open_run_ledger
+    import codeverse3d.models.registry as R
+    from codeverse3d.cli.main import app
+    from codeverse3d.cost.ledger import open_run_ledger
 
     ws, rec = fake_run
     ledger = open_run_ledger(ws.root)  # the run already keeps one (create=False appends)
@@ -96,7 +96,7 @@ def test_caption_retry_then_fail(fake_run):
 
 
 def test_validate_rules():
-    from codeverse.contracts.common import Language
+    from codeverse3d.contracts.common import Language
 
     c = Captions(**GOOD)
     assert validate_captions(c, Language.BLENDER) == []
@@ -106,7 +106,7 @@ def test_validate_rules():
 
 @pytest.mark.live
 def test_caption_live_gemini(fake_run):
-    from codeverse.config import get_settings
+    from codeverse3d.config import get_settings
 
     if not get_settings().gemini_api_keys:
         pytest.skip("no gemini keys")
@@ -125,8 +125,8 @@ GOOD_JS = {
 
 def test_threejs_instruction_naming_threejs_is_valid():
     """The required 'Three.js' phrase must NOT trip the forbidden-API check (both js languages)."""
-    from codeverse.addons.dataset.captions import Captions, validate_captions
-    from codeverse.contracts.common import Language
+    from codeverse3d.addons.dataset.captions import Captions, validate_captions
+    from codeverse3d.contracts.common import Language
 
     c = Captions(**GOOD_JS)
     assert validate_captions(c, Language.THREEJS) == []
@@ -142,7 +142,7 @@ def test_threejs_instruction_naming_threejs_is_valid():
 
 def test_caption_sample_threejs_run(tmp_path):
     """End to end: a threejs run captions successfully with a 'Three.js' instruction."""
-    from codeverse.contracts.common import Language
+    from codeverse3d.contracts.common import Language
     from tests.flywheel_cli.conftest import make_fake_run
 
     ws, rec = make_fake_run(tmp_path / "runs", "lamp_js", prompt="a desk lamp", language=Language.THREEJS)
@@ -153,8 +153,8 @@ def test_caption_sample_threejs_run(tmp_path):
 
 def test_caption_graphics_and_scene_phrases():
     """Graphics languages have phrases + phrase words (no KeyError, sane rules)."""
-    from codeverse.addons.dataset.captions import Captions, validate_captions
-    from codeverse.contracts.common import Language
+    from codeverse3d.addons.dataset.captions import Captions, validate_captions
+    from codeverse3d.contracts.common import Language
 
     shader = Captions(
         detailed="Neon rain streaks down a dark window while blurred city lights pulse behind the glass.",
@@ -173,7 +173,7 @@ def test_caption_graphics_and_scene_phrases():
 
 def test_caption_graphics_run_from_frames(tmp_path):
     """(f) graphics runs (no GLB) caption from the sheet/frames renders."""
-    from codeverse.contracts.common import Language
+    from codeverse3d.contracts.common import Language
     from tests.flywheel_cli.conftest import make_fake_run
 
     ws, rec = make_fake_run(tmp_path / "runs", "rain_glsl", prompt="neon rain", language=Language.GLSL_SHADER)
@@ -186,7 +186,7 @@ def test_caption_graphics_run_from_frames(tmp_path):
     caps = caption_sample(ws, rec, "fake:fake", model=m)
     assert caps.instruction.lower().count("glsl")
     req = m.requests[0]
-    from codeverse.contracts.chat import ImagePart as IP
+    from codeverse3d.contracts.chat import ImagePart as IP
 
     imgs = [p for p in req.messages[0].parts if isinstance(p, IP)]
     assert len(imgs) == 3  # sheet + 2 frame views

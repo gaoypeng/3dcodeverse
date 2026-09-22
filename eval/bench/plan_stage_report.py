@@ -16,7 +16,7 @@ from collections import Counter
 from pathlib import Path
 
 #: what a validation failure was ABOUT, read off the error text.  The mechanism under test
-#: (``CV3D_PLAN_RESTART``) only ever addresses ``dangling_link``; every other class is a
+#: (``C3D_PLAN_RESTART``) only ever addresses ``dangling_link``; every other class is a
 #: bystander, and a total that mixes them hides both the effect and its residue.
 FAILURE_CLASSES: dict[str, str] = {
     "dangling_link": "references unknown link",

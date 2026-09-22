@@ -9,10 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.contracts.artifacts import BuildResult
-from codeverse.languages import get_runtime
-from codeverse.languages.base import LanguageRuntime
-from codeverse.languages.blender import (
+from codeverse3d.contracts.artifacts import BuildResult
+from codeverse3d.languages import get_runtime
+from codeverse3d.languages.base import LanguageRuntime
+from codeverse3d.languages.blender import (
     WRAPPER,
     BlenderNotFoundError,
     BlenderRuntime,

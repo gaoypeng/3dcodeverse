@@ -1,4 +1,4 @@
-"""Download the evaluation assets from the Hub into $CV3D_EVAL_DATA/hub (needs a token with access to
+"""Download the evaluation assets from the Hub into $C3D_EVAL_DATA/hub (needs a token with access to
 `ilabai/*`; `hf auth login` or HF_TOKEN).
 
   --core       212 3DCodeBench tasks (YipengGao/3DCode/3DCodeBench), the five held-out test parquets and

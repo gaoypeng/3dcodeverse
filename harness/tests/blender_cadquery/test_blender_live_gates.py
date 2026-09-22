@@ -12,8 +12,8 @@ import subprocess
 
 import pytest
 
-from codeverse.contracts.artifacts import Severity
-from codeverse.languages.blender import REMOVED_BSDF_INPUTS, BlenderRuntime, blender_env
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.languages.blender import REMOVED_BSDF_INPUTS, BlenderRuntime, blender_env
 
 pytestmark = pytest.mark.blender
 
@@ -21,8 +21,8 @@ pytestmark = pytest.mark.blender
 @pytest.mark.blender
 def test_skeleton_with_instances_passes_contract_gate(tmp_ws, table_plan, blender_bin) -> None:
     """Finding: instances under an Empty merged into one GLB part → 'plan part missing' ERROR."""
-    from codeverse.spatial.contract import check_contract
-    from codeverse.spatial.measure import measure_glb
+    from codeverse3d.spatial.contract import check_contract
+    from codeverse3d.spatial.measure import measure_glb
 
     rt = BlenderRuntime(blender=blender_bin)
     rt.skeleton(tmp_ws, table_plan)  # multi-file: src/model.py + src/parts/*.py

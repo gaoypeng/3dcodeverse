@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 import trimesh
 
-from codeverse.contracts.artifacts import Severity
-from codeverse.spatial.connectivity import (
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.spatial.connectivity import (
     PENETRATION_ERROR_M,
     PENETRATION_MIN_FRACTION,
     THROUGH_FAR_SIDE_RATIO,
@@ -114,7 +114,7 @@ def test_missing_glb_is_error(tmp_path: Path) -> None:
 
 
 def test_pair_distance_sampled_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.spatial.joints_collide as collide
+    import codeverse3d.spatial.joints_collide as collide
 
     monkeypatch.setattr(collide, "_fcl", None)
     a = trimesh.creation.box(extents=(1, 1, 1))

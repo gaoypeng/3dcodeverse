@@ -7,7 +7,7 @@ import math
 import numpy as np
 import pytest
 
-from codeverse.spatial.joints import (
+from codeverse3d.spatial.joints import (
     UrdfError,
     fk,
     limit_poses,
@@ -16,7 +16,7 @@ from codeverse.spatial.joints import (
     pose_label,
     pose_samples,
 )
-from codeverse.spatial.joints_model import (
+from codeverse3d.spatial.joints_model import (
     invert_transform,
     make_transform,
     matrix_to_rpy,

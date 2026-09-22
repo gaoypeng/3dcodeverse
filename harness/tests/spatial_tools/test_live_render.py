@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from codeverse.spatial.registry import ToolContext, get_tool
+from codeverse3d.spatial.registry import ToolContext, get_tool
 
 pytestmark = pytest.mark.node
 
 
 def test_render_views_and_silhouette_live(stool_ctx: ToolContext) -> None:
-    pytest.importorskip("codeverse.spatial.render")
+    pytest.importorskip("codeverse3d.spatial.render")
     obs = get_tool("render_views").call(stool_ctx, {"views": ["front", "top"], "size": 256})
     assert obs.ok, obs.text
     assert Path(obs.images[0]).is_file() and obs.numbers["views"] == ["front", "top"]

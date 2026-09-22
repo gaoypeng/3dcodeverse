@@ -23,7 +23,7 @@
    "message": "GLB has no mesh parts",
    "n": 0,
    "kind": "connectivity/no_geometry",
-   "origin": "codeverse source (gate not yet represented in bench/out)"
+   "origin": "codeverse3d source (gate not yet represented in bench/out)"
   },
   {
    "gate": "connectivity",
@@ -31,7 +31,7 @@
    "message": "no part touches the ground (z=0)",
    "n": 0,
    "kind": "connectivity/no_ground_contact",
-   "origin": "codeverse source (gate not yet represented in bench/out)"
+   "origin": "codeverse3d source (gate not yet represented in bench/out)"
   },
   {
    "gate": "connectivity",
@@ -102,7 +102,7 @@
    "message": "scene geometry exceeds the planned bounds by x +2.1 m",
    "n": 0,
    "kind": "contract/scene_bounds",
-   "origin": "codeverse source (gate not yet represented in bench/out)"
+   "origin": "codeverse3d source (gate not yet represented in bench/out)"
   },
   {
    "gate": "detail_drift",
@@ -208,7 +208,7 @@
    "message": "GLSL declares/reads uTime but JS never binds it (uniforms: { uTime: { value: 0 } } and update .value in update(t))",
    "n": 0,
    "kind": "shader/compile_or_binding",
-   "origin": "codeverse source (gate not yet represented in bench/out)"
+   "origin": "codeverse3d source (gate not yet represented in bench/out)"
   },
   {
    "gate": "lint:urdf",
@@ -300,7 +300,7 @@
    "message": "ShaderMaterial 'Water' ignores scene.fog (set fog: true, merge THREE.UniformsLib.fog, include fog_pars_fragment/fog_fragment)",
    "n": 0,
    "kind": "shader/compile_or_binding",
-   "origin": "codeverse source (gate not yet represented in bench/out)"
+   "origin": "codeverse3d source (gate not yet represented in bench/out)"
   },
   {
    "gate": "shader_preflight",
@@ -308,7 +308,7 @@
    "message": "ShaderMaterial 'Water' reads uTime but uniforms.uTime is missing",
    "n": 0,
    "kind": "shader/compile_or_binding",
-   "origin": "codeverse source (gate not yet represented in bench/out)"
+   "origin": "codeverse3d source (gate not yet represented in bench/out)"
   }
  ]
 }

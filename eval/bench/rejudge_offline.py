@@ -4,7 +4,7 @@ Every static-object verdict on disk carries its raw samples (``Judgment.raw`` �
 ``samples``), and ``rounds/rNN.json`` carries the gates, renders and console errors
 that round was scored against.  So the whole scoring pipeline downstream of the model
 — majority vote, the measured-absent veto, defect penalties, the cap ladder, pass —
-can be replayed from disk through :func:`codeverse.judges.rubrics.aggregate_samples`
+can be replayed from disk through :func:`codeverse3d.judges.rubrics.aggregate_samples`
 and diffed against what the run recorded.
 
 Two uses:
@@ -43,18 +43,18 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from codeverse.addons.calibration import _run_label
-from codeverse.contracts.artifacts import GateReport, Severity
-from codeverse.contracts.plan import AcceptanceItem
-from codeverse.contracts.run import RoundRecord
-from codeverse.judges.rubrics import (
+from codeverse3d.addons.calibration import _run_label
+from codeverse3d.contracts.artifacts import GateReport, Severity
+from codeverse3d.contracts.plan import AcceptanceItem
+from codeverse3d.contracts.run import RoundRecord
+from codeverse3d.judges.rubrics import (
     SCORING_VERSION,
     JudgeOutput,
     Rubric,
     aggregate_samples,
     load_rubric,
 )
-from codeverse.proc import read_json_or_none
+from codeverse3d.proc import read_json_or_none
 
 TOL = 1e-9
 

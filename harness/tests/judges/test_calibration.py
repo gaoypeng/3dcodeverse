@@ -3,11 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.addons.calibration import calibrate, load_run_cases, pearson, spearman
-from codeverse.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse.contracts.run import RoundRecord
-from codeverse.judges.base import plan_digest
-from codeverse.judges.rubrics import load_rubric
+from codeverse3d.addons.calibration import calibrate, load_run_cases, pearson, spearman
+from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse3d.contracts.run import RoundRecord
+from codeverse3d.judges.base import plan_digest
+from codeverse3d.judges.rubrics import load_rubric
 from tests.judges.conftest import (
     ACCEPTANCE,
     FakeChatModel,
@@ -90,7 +90,7 @@ def test_run_labels_stay_distinct_across_battery_layouts():
     """Bench cells all end in .../run: compare_backends cells for DIFFERENT prompts
     (and ab_plan's control vs treatment arms) used to collapse to one label, so
     their judgment sidecars overwrote each other (V9c)."""
-    from codeverse.addons.calibration import _run_label
+    from codeverse3d.addons.calibration import _run_label
 
     # compare_backends: <battery>/cells/<prompt>/<arm>/run
     a = _run_label(Path("/bench/out/compare_v1/cells/chair/harness-gemini/run"))

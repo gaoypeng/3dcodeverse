@@ -23,8 +23,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from codeverse.spatial.render_scene import post_chain_args, read_metrics, run_scene_script
-from codeverse.workspace import Workspace
+from codeverse3d.spatial.render_scene import post_chain_args, read_metrics, run_scene_script
+from codeverse3d.workspace import Workspace
 from tests.scene_runtime.conftest import needs_browser, needs_node
 
 pytestmark = [pytest.mark.node]
@@ -78,11 +78,11 @@ def render(ws: Workspace, out: Path, *extra_args: str) -> Path:
 
 
 def test_post_chain_args_follow_the_env_switch(monkeypatch):
-    monkeypatch.delenv("CV3D_POST", raising=False)
+    monkeypatch.delenv("C3D_POST", raising=False)
     assert post_chain_args() == []          # ON by default for scene pictures
-    monkeypatch.setenv("CV3D_POST", "0")
+    monkeypatch.setenv("C3D_POST", "0")
     assert post_chain_args() == ["--no-post"]
-    monkeypatch.setenv("CV3D_POST", "on")
+    monkeypatch.setenv("C3D_POST", "on")
     assert post_chain_args() == []
 
 

@@ -6,8 +6,8 @@ import shutil
 
 import pytest
 
-from codeverse.config import get_settings
-from codeverse.contracts.plan import AcceptanceItem, BBox, PartPlan, StaticPlan
+from codeverse3d.config import get_settings
+from codeverse3d.contracts.plan import AcceptanceItem, BBox, PartPlan, StaticPlan
 
 
 @pytest.fixture

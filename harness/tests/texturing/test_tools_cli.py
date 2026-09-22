@@ -7,9 +7,9 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from codeverse.spatial.registry import ToolContext, get_tool
-from codeverse.texturing.run import TextureServices
-from codeverse.workspace import Workspace
+from codeverse3d.spatial.registry import ToolContext, get_tool
+from codeverse3d.texturing.run import TextureServices
+from codeverse3d.workspace import Workspace
 from tests.texturing.conftest import FakeImageModel, FakeJudge, FakePlanModel, fake_render
 
 
@@ -66,8 +66,8 @@ def test_texture_pass_tool_refuses_when_the_run_did_not_ask_for_texturing(
 
 
 def test_cli_texture_show_and_help(tmp_path, chair_glb, chair_spec, chair_plan):
-    from codeverse.cli.main import app
-    from codeverse.texturing.run import texture_pass
+    from codeverse3d.cli.main import app
+    from codeverse3d.texturing.run import texture_pass
 
     ws = _ws(tmp_path, chair_glb, chair_spec, chair_plan)
     texture_pass(ws, chair_spec, chair_plan, model_id="", image_model=FakeImageModel(), judge=False, render=fake_render,
@@ -85,12 +85,12 @@ def test_cli_texture_show_and_help(tmp_path, chair_glb, chair_spec, chair_plan):
 def test_cli_scene_pack_spend_joins_the_runs_ledger(tmp_path, chair_spec, monkeypatch):
     """`3dcode texture scene-pack` opened no run_ledger (`pass` did), so its plan + image
     spend went to the per-process log instead of the run's telemetry/cost.jsonl."""
-    from codeverse.cli.main import app
-    from codeverse.contracts.common import Language, Track, Usage
-    from codeverse.contracts.plan import BBox, CameraPlan, ScenePlan, ZonePlan
-    from codeverse.cost.instrument import run_ledger
-    from codeverse.cost.ledger import load_ledger, record_call
-    from codeverse.texturing.plan import ScenePack
+    from codeverse3d.cli.main import app
+    from codeverse3d.contracts.common import Language, Track, Usage
+    from codeverse3d.contracts.plan import BBox, CameraPlan, ScenePlan, ZonePlan
+    from codeverse3d.cost.instrument import run_ledger
+    from codeverse3d.cost.ledger import load_ledger, record_call
+    from codeverse3d.texturing.plan import ScenePack
 
     ws = Workspace(tmp_path / "run").create()
     ws.write_json(ws.spec_path, chair_spec.model_copy(update={"track": Track.SCENE, "language": Language.SCENE_THREEJS}))
@@ -106,8 +106,8 @@ def test_cli_scene_pack_spend_joins_the_runs_ledger(tmp_path, chair_spec, monkey
         record_call(Usage(model="gemini-3.1-flash-image", input_tokens=200, cost_usd=0.04), label="texture_pack")
         return ScenePack(out_dir=str(out_dir))
 
-    monkeypatch.setattr("codeverse.texturing.plan.scene_texture_pack", fake_pack)
-    monkeypatch.setattr("codeverse.cli.texture_cmd._image_model", lambda name: FakeImageModel())
+    monkeypatch.setattr("codeverse3d.texturing.plan.scene_texture_pack", fake_pack)
+    monkeypatch.setattr("codeverse3d.cli.texture_cmd._image_model", lambda name: FakeImageModel())
     res = CliRunner().invoke(app, ["texture", "scene-pack", str(ws.root), "--model", ""])
     assert res.exit_code == 0, res.output
     assert [r.label for r in load_ledger(ws.root)] == ["planner", "texture_pack"]

@@ -17,9 +17,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from codeverse.contracts.artifacts import BuildResult, GateReport
-from codeverse.tracks import common as C
-from codeverse.tracks import repair as R
+from codeverse3d.contracts.artifacts import BuildResult, GateReport
+from codeverse3d.tracks import common as C
+from codeverse3d.tracks import repair as R
 
 
 def _build(*, ok: bool, harness: bool = False, msg: str = "boom") -> BuildResult:
@@ -90,7 +90,7 @@ def test_a_real_build_failure_is_still_repaired(monkeypatch):
     """The control: an ordinary failure still reaches the agent, as it always did."""
     seen: list[int] = []
 
-    from codeverse.contracts.common import Usage
+    from codeverse3d.contracts.common import Usage
 
     def fake_generate(ws, **kw):
         seen.append(1)
@@ -116,7 +116,7 @@ def test_a_repair_session_that_died_in_the_storm_ends_the_loop(monkeypatch):
     and the loop stops — the next attempt would spend its whole window at the same wall."""
     seen: list[int] = []
 
-    from codeverse.contracts.common import Usage
+    from codeverse3d.contracts.common import Usage
 
     def fake_generate(ws, **kw):
         seen.append(1)

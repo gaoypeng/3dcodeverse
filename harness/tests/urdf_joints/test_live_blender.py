@@ -5,10 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from codeverse.config import get_settings
-from codeverse.languages.urdf import UrdfBlenderRuntime
-from codeverse.spatial.joints import fk, link_world_meshes, load_urdf, motion_direction_check
-from codeverse.workspace import Workspace
+from codeverse3d.config import get_settings
+from codeverse3d.languages.urdf import UrdfBlenderRuntime
+from codeverse3d.spatial.joints import fk, link_world_meshes, load_urdf, motion_direction_check
+from codeverse3d.workspace import Workspace
 
 pytestmark = pytest.mark.blender
 needs_blender = pytest.mark.skipif(not get_settings().resolve_blender(), reason="no Blender binary")
@@ -110,7 +110,7 @@ def test_wrapper_unsafe_link_name_is_a_build_error(tmp_path):
     import json as _json
     import subprocess
 
-    from codeverse.languages.urdf import WRAPPER
+    from codeverse3d.languages.urdf import WRAPPER
 
     (tmp_path / "robot.urdf").write_text('<robot name="r"><link name="../evil"/></robot>')
     (tmp_path / "model.py").write_text("import bpy\n")

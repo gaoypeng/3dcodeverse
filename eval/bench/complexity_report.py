@@ -29,13 +29,17 @@ from pathlib import Path
 from typing import Any
 
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
-    sys.path.insert(0, str(_p))  # this tree's codeverse (harness/) + the `bench` package (eval/)
+    sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
-from codeverse.addons.calibration import _ranks  # noqa: E402 — tie-averaged ranks, one copy
-from codeverse.contracts.run import RunId  # noqa: E402
-from codeverse.proc import read_json_or_none  # noqa: E402
-from codeverse.record.record import find_run_dirs  # noqa: E402
-from codeverse.spatial.complexity import COMPLEXITY_WEIGHTS, ComplexityVector, band_of  # noqa: E402
+from codeverse3d.addons.calibration import _ranks  # noqa: E402 — tie-averaged ranks, one copy
+from codeverse3d.contracts.run import RunId  # noqa: E402
+from codeverse3d.proc import read_json_or_none  # noqa: E402
+from codeverse3d.record.record import find_run_dirs  # noqa: E402
+from codeverse3d.spatial.complexity import (  # noqa: E402
+    COMPLEXITY_WEIGHTS,
+    ComplexityVector,
+    band_of,
+)
 
 CRITERIA = (
     "intent_fidelity",
@@ -80,7 +84,7 @@ def _vector_for(run: Path, best: dict[str, Any] | None) -> ComplexityVector | No
     glb = run / "artifacts" / "object.glb"
     if not glb.is_file():
         return None
-    from codeverse.spatial.complexity import complexity_of_glb
+    from codeverse3d.spatial.complexity import complexity_of_glb
 
     try:
         return complexity_of_glb(glb)

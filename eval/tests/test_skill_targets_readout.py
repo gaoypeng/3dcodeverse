@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.addons.skill_targets import TARGETS
+from codeverse3d.addons.skill_targets import TARGETS
 
 
 # --------------------------------------------------------------------------- the readout
@@ -47,10 +47,10 @@ def test_the_readout_counts_the_kinds_the_row_names(tmp_path):
                                     {"gate": "contract", "findings": []}]),
     })
     rows = {r["skill"]: r for r in battery_rows(load_runs(root), list(TARGETS), which="last", cache=None)}
-    assert rows["cv3d-part-contact"]["n"] == 2
-    assert rows["cv3d-part-contact"]["mean"] == 1.0          # 2 pairs + 0, INFO ignored
-    assert rows["cv3d-bbox-contract"]["mean"] == 0.5         # part_bbox only
-    assert rows["cv3d-repeats-and-mirrors"]["mean"] == 0.5   # instance_bbox only
+    assert rows["c3d-part-contact"]["n"] == 2
+    assert rows["c3d-part-contact"]["mean"] == 1.0          # 2 pairs + 0, INFO ignored
+    assert rows["c3d-bbox-contract"]["mean"] == 0.5         # part_bbox only
+    assert rows["c3d-repeats-and-mirrors"]["mean"] == 0.5   # instance_bbox only
 
 
 def test_a_row_only_counts_the_languages_it_is_defined_over(tmp_path):
@@ -63,9 +63,9 @@ def test_a_row_only_counts_the_languages_it_is_defined_over(tmp_path):
         "chair": _record("blender", [{"gate": "connectivity", "findings": CONNECTIVITY}]),
     })
     rows = {r["skill"]: r for r in battery_rows(load_runs(root), list(TARGETS), which="last", cache=None)}
-    assert rows["cv3d-urdf-joints"]["n"] == 1               # the blender run is not eligible
-    assert rows["cv3d-urdf-joints"]["mean"] == 1.0          # ERRORs only; the rest-pose WARN is not one
-    assert rows["cv3d-part-contact"]["n"] == 2              # both languages carry a part graph
+    assert rows["c3d-urdf-joints"]["n"] == 1               # the blender run is not eligible
+    assert rows["c3d-urdf-joints"]["mean"] == 1.0          # ERRORs only; the rest-pose WARN is not one
+    assert rows["c3d-part-contact"]["n"] == 2              # both languages carry a part graph
 
 
 def test_an_ungraded_run_is_not_in_the_population(tmp_path):
@@ -78,7 +78,7 @@ def test_an_ungraded_run_is_not_in_the_population(tmp_path):
         "probe": {"spec": {"language": "blender"}, "rounds": [{"index": 0, "gates": []}]},
     })
     rows = {r["skill"]: r for r in battery_rows(load_runs(root), list(TARGETS), which="last", cache=None)}
-    assert rows["cv3d-part-contact"]["n"] == 1
+    assert rows["c3d-part-contact"]["n"] == 1
 
 
 def test_the_ab_mode_pairs_by_prompt(tmp_path):
@@ -93,7 +93,7 @@ def test_the_ab_mode_pairs_by_prompt(tmp_path):
     arms = ab_arms(root)
     assert arms is not None
     rows = {r["skill"]: r for r in ab_rows(arms, list(TARGETS), which="last", cache=None)}
-    r = rows["cv3d-part-contact"]
+    r = rows["c3d-part-contact"]
     assert (r["n"], r["control_mean"], r["variant_mean"], r["mean_delta"]) == (1, 2.0, 1.0, -1.0)
     assert (r["better"], r["worse"], r["tied"]) == (1, 0, 0)
 
@@ -112,7 +112,7 @@ def test_the_cli_runs_over_a_synthetic_battery(tmp_path, capsys):
     assert main([str(root), "--json", "--no-cache"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["mode"] == "battery"
-    row = next(r for r in payload["rows"] if r["skill"] == "cv3d-part-contact")
+    row = next(r for r in payload["rows"] if r["skill"] == "c3d-part-contact")
     assert row["n"] == 1 and row["mean"] == 2.0
 
 
@@ -141,4 +141,4 @@ def test_a_retried_cell_pairs_on_the_attempt_that_reached_a_gate(tmp_path):
             (cell / leaf).mkdir(parents=True)
             (cell / leaf / "record.json").write_text(json.dumps(rec))
     rows = {r["skill"]: r for r in ab_rows(ab_arms(root), list(TARGETS), which="last", cache=None)}
-    assert rows["cv3d-part-contact"]["n"] == 1
+    assert rows["c3d-part-contact"]["n"] == 1

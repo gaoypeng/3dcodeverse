@@ -9,7 +9,7 @@ from typing import Any
 from PIL import Image
 
 REPO = Path(__file__).resolve().parents[1]           # eval/ — the `bench` package lives here
-HARNESS = REPO.parent / "harness"                     # the tree under evaluation: ITS codeverse, not an install
+HARNESS = REPO.parent / "harness"                     # the tree under evaluation: ITS codeverse3d, not an install
 for _p in (HARNESS, REPO):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
@@ -30,7 +30,7 @@ make_fake_run = _harness_test_module("flywheel_cli/conftest.py", "_harness_flywh
 
 from bench._fixed_eval import EvalOutcome  # noqa: E402
 from bench._oneshot import MODEL_FILE, OneShotResult  # noqa: E402
-from codeverse.contracts.artifacts import (  # noqa: E402
+from codeverse3d.contracts.artifacts import (  # noqa: E402
     BuildResult,
     GateFinding,
     GateReport,
@@ -40,10 +40,10 @@ from codeverse.contracts.artifacts import (  # noqa: E402
     RenderView,
     Severity,
 )
-from codeverse.contracts.common import Usage  # noqa: E402
-from codeverse.contracts.run import RunRecord, RunStatus  # noqa: E402
-from codeverse.contracts.spec import Spec  # noqa: E402
-from codeverse.workspace import Workspace  # noqa: E402
+from codeverse3d.contracts.common import Usage  # noqa: E402
+from codeverse3d.contracts.run import RunRecord, RunStatus  # noqa: E402
+from codeverse3d.contracts.spec import Spec  # noqa: E402
+from codeverse3d.workspace import Workspace  # noqa: E402
 
 BATTERY = REPO / "bench" / "prompts" / "compare_v1.yaml"
 GOOD = "import bpy\n# score={score}\nbpy.ops.mesh.primitive_cube_add()\nbpy.context.object.name = 'Body'\n"
@@ -146,7 +146,7 @@ class FakePairwise:
         self.calls = 0
 
     def compare(self, spec: Spec, ra: RenderSet, rb: RenderSet, *, rubric: Any = None):
-        from codeverse.judges.pairwise import PairwiseResult
+        from codeverse3d.judges.pairwise import PairwiseResult
 
         self.calls += 1
         return PairwiseResult(winner="a", confidence=0.8, reasons=["Candidate A is cleaner"], usage=Usage(cost_usd=0.03))

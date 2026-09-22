@@ -8,17 +8,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from codeverse.contracts.common import Budget, Language, Usage
-from codeverse.contracts.plan import StaticPlan
-from codeverse.contracts.run import RunStatus
-from codeverse.contracts.spec import RunOptions
-from codeverse.orchestrator import BudgetExceeded, BudgetGuard, BudgetSnapshot, RunState
-from codeverse.proc import EventLog
-from codeverse.tracks.generation import GenerationTask, generate_files
-from codeverse.tracks.planner import MAX_VALIDATION_REASKS, PlanningError
-from codeverse.tracks.planner import plan as run_planner
-from codeverse.tracks.static_object import StaticObjectTrack
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.common import Budget, Language, Usage
+from codeverse3d.contracts.plan import StaticPlan
+from codeverse3d.contracts.run import RunStatus
+from codeverse3d.contracts.spec import RunOptions
+from codeverse3d.orchestrator import BudgetExceeded, BudgetGuard, BudgetSnapshot, RunState
+from codeverse3d.proc import EventLog
+from codeverse3d.tracks.generation import GenerationTask, generate_files
+from codeverse3d.tracks.planner import MAX_VALIDATION_REASKS, PlanningError
+from codeverse3d.tracks.planner import plan as run_planner
+from codeverse3d.tracks.static_object import StaticObjectTrack
+from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
@@ -100,7 +100,7 @@ def test_the_texture_pass_spend_reaches_the_snapshot_a_resume_restores(tmp_path,
     """finalise saved the state BEFORE the texture pass charged, so the snapshot a resume
     restored was the PRE-texture one and a $0.12 pack simply vanished from the run's money
     (reproduced 2026-08-30: total_usage 0.217 with cost_by_stage[texture], 0.097 after)."""
-    import codeverse.texturing.run as texrun
+    import codeverse3d.texturing.run as texrun
 
     monkeypatch.setattr(texrun, "texture_pass",
                         lambda *a, **kw: SimpleNamespace(usage=Usage(backend="gemini", cost_usd=0.12),
@@ -176,7 +176,7 @@ def test_single_shot_obeys_the_run_clock(tmp_path):
             self.calls = 0
 
         def generate(self, req):
-            from codeverse.contracts.chat import ChatResponse
+            from codeverse3d.contracts.chat import ChatResponse
             self.calls += 1
             live2._active_s = 11 * 60.0                  # noqa: SLF001 — ceiling crossed mid-call
             return ChatResponse(text="=== FILE: src/object.js ===\nx", finish_reason="max_tokens",
@@ -254,7 +254,7 @@ def test_the_adopted_best_of_n_winner_survives_a_boundary_budget_stop(tmp_path, 
     ``budget.check()`` trips BEFORE run_round persists r00.  prepare_salvage must say
     yes (the paid, buildable candidate is sitting in src/) so the salvage round
     delivers ONE scored round instead of a 0-round record that re-pays all N on resume."""
-    import codeverse.tracks.candidates as cand
+    import codeverse3d.tracks.candidates as cand
 
     real_adopt = cand.adopt_candidate
 

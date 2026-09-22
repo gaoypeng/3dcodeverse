@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-import codeverse.languages.threejs as lint_mod
-from codeverse.contracts.artifacts import Severity
-from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
-from codeverse.languages.threejs import lint_workspace
-from codeverse.workspace import Workspace
+import codeverse3d.languages.threejs as lint_mod
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
+from codeverse3d.languages.threejs import lint_workspace
+from codeverse3d.workspace import Workspace
 
 
 @pytest.fixture

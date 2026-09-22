@@ -1,0 +1,51 @@
+# Numbers this bundle quotes, pinned to the constants that produce them.
+# Changing a constant must break the test that ships the skill quoting it.
+
+[[claim]]
+key = "contact_gap"
+text = "2 mm"
+python = "codeverse3d.conventions:CONTACT_GAP_M"
+scale = 1000
+format = "{:.0f} mm"
+
+[[claim]]
+key = "penetration_warn"
+text = "2 mm"
+python = "codeverse3d.spatial.connectivity:PENETRATION_WARN_M"
+scale = 1000
+format = "{:.0f} mm"
+
+[[claim]]
+key = "penetration_error"
+text = "10 mm"
+python = "codeverse3d.spatial.connectivity:PENETRATION_ERROR_M"
+scale = 1000
+format = "{:.0f} mm"
+
+[[claim]]
+key = "penetration_min_fraction"
+text = "2%"
+python = "codeverse3d.spatial.connectivity:PENETRATION_MIN_FRACTION"
+scale = 100
+format = "{:.0f}%"
+
+[[claim]]
+key = "n_samples"
+text = "600"
+python = "codeverse3d.spatial.connectivity:N_SAMPLES"
+scale = 1
+format = "{:.0f}"
+
+[[claim]]
+key = "tiny_island_fraction"
+text = "5%"
+python = "codeverse3d.spatial.connectivity:TINY_ISLAND_FRACTION"
+scale = 100
+format = "{:.0f}%"
+
+[[claim]]
+key = "min_part_size"
+text = "10 mm"
+python = "codeverse3d.spatial.connectivity:MIN_PART_SIZE_M"
+scale = 1000
+format = "{:.0f} mm"

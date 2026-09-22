@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from PIL import Image
 
-from codeverse.texturing.apply import (
+from codeverse3d.texturing.apply import (
     DEFAULT_VARIATION,
     VARIATION,
     is_flat,
@@ -14,7 +14,7 @@ from codeverse.texturing.apply import (
     roughness_array,
     variation_for,
 )
-from codeverse.texturing.materials import MATERIALS
+from codeverse3d.texturing.materials import MATERIALS
 
 
 def _grain(size: int = 64) -> Image.Image:

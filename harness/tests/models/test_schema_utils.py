@@ -8,8 +8,8 @@ import pytest
 from google.genai import types
 from pydantic import BaseModel, ValidationError
 
-from codeverse.contracts.plan import ArticulatedPlan, ScenePlan, StaticPlan
-from codeverse.models.schema_utils import (
+from codeverse3d.contracts.plan import ArticulatedPlan, ScenePlan, StaticPlan
+from codeverse3d.models.schema_utils import (
     JsonParseError,
     inline_refs,
     parse_json_lenient,
@@ -211,9 +211,9 @@ def test_ask_structured_returns_the_triple_for_prose_it_cannot_parse():
     """The five callers branch on the error string; none of them catches.  Every shipped
     provider raises ModelError on unparseable structured output, but this must not depend
     on all three keeping that half of the ChatModel contract."""
-    from codeverse.contracts.chat import ChatResponse
-    from codeverse.contracts.common import Usage
-    from codeverse.models.schema_utils import ask_structured
+    from codeverse3d.contracts.chat import ChatResponse
+    from codeverse3d.contracts.common import Usage
+    from codeverse3d.models.schema_utils import ask_structured
 
     class Answer(BaseModel):
         ok: bool
@@ -233,9 +233,9 @@ def test_ask_structured_returns_the_usage_a_failed_call_was_billed():
     ask_structured used to drop it (return Usage()), so every caller-side tally
     (BudgetGuard.charge, refset.usage, record.json spend) undercounted while the
     metered ledger recorded the real bill."""
-    from codeverse.contracts.common import Usage
-    from codeverse.models.base import ModelError
-    from codeverse.models.schema_utils import ask_structured
+    from codeverse3d.contracts.common import Usage
+    from codeverse3d.models.base import ModelError
+    from codeverse3d.models.schema_utils import ask_structured
 
     class Answer(BaseModel):
         ok: bool

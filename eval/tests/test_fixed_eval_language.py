@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from codeverse.contracts.common import Language
+from codeverse3d.contracts.common import Language
 
 
 def test_the_evaluator_asks_for_the_cells_own_runtime(monkeypatch):
     """Measured 2026-08-26 on fancy_v1/tj: a three.js cell judged 0.589 in its run was then
     built by the Blender runtime at eval time — `MissingEntryFile: src/model.py` — and recorded
     build_failed 0.0.  A false zero, the b4ea4cc bug class one layer down."""
-    import codeverse.languages as langs
+    import codeverse3d.languages as langs
     from bench._fixed_eval import FixedEvaluator
 
     asked: list[Language] = []
@@ -31,10 +31,10 @@ def test_graphics_cells_are_judged_on_their_frames(monkeypatch, tmp_path):
     from types import SimpleNamespace
 
     from bench._fixed_eval import FixedEvaluator
-    from codeverse.contracts.artifacts import BuildResult, GateReport, RenderSet, RenderView
-    from codeverse.contracts.common import Track
-    from codeverse.contracts.spec import ReferenceImage, Spec
-    from codeverse.workspace import Workspace
+    from codeverse3d.contracts.artifacts import BuildResult, GateReport, RenderSet, RenderView
+    from codeverse3d.contracts.common import Track
+    from codeverse3d.contracts.spec import ReferenceImage, Spec
+    from codeverse3d.workspace import Workspace
 
     ws = Workspace(tmp_path / "run").create()
     png = tmp_path / "f.png"
@@ -43,7 +43,7 @@ def test_graphics_cells_are_judged_on_their_frames(monkeypatch, tmp_path):
     ev = FixedEvaluator("fake:judge", n_samples=1)
     ev._runtimes[Language.GLSL_SHADER] = SimpleNamespace(lint=lambda ws: GateReport(gate="lint", passed=True), build=lambda ws, timeout_s: build)
     import bench._fixed_eval as fe
-    import codeverse.tracks.graphics as gs
+    import codeverse3d.tracks.graphics as gs
 
     monkeypatch.setattr(gs, "frames_render_set", lambda ws, b, i: RenderSet(views=[RenderView(name="t=0s", path=str(png))], renderer="fake"))
     monkeypatch.setattr(gs, "frame_stats_text", lambda ws: "frames=1")
@@ -65,9 +65,9 @@ def test_graphics_cells_are_judged_on_their_frames(monkeypatch, tmp_path):
 
 def test_graphics_judge_is_the_track_rubric_with_the_photos():
     from bench._fixed_eval import FixedEvaluator
-    from codeverse.contracts.common import Track
-    from codeverse.contracts.spec import ReferenceImage, Spec
-    from codeverse.judges.vlm_judge import LikenessJudge
+    from codeverse3d.contracts.common import Track
+    from codeverse3d.contracts.spec import ReferenceImage, Spec
+    from codeverse3d.judges.vlm_judge import LikenessJudge
 
     ev = FixedEvaluator("gemini:gemini-3.1-pro-preview", n_samples=2)
     with_photos = Spec(id="g", track=Track.GRAPHICS, language=Language.GLSL_SHADER, prompt="x", references=[ReferenceImage(path="/p.png")])
@@ -86,10 +86,10 @@ def test_scene_cells_are_judged_on_their_cameras_and_orbit_frames(monkeypatch, t
     from types import SimpleNamespace
 
     from bench._fixed_eval import FixedEvaluator
-    from codeverse.contracts.artifacts import BuildResult, GateReport, RenderSet, RenderView
-    from codeverse.contracts.common import Track
-    from codeverse.contracts.spec import Constraints, Spec
-    from codeverse.workspace import Workspace
+    from codeverse3d.contracts.artifacts import BuildResult, GateReport, RenderSet, RenderView
+    from codeverse3d.contracts.common import Track
+    from codeverse3d.contracts.spec import Constraints, Spec
+    from codeverse3d.workspace import Workspace
 
     ws = Workspace(tmp_path / "run").create()
     png = tmp_path / "f.png"
@@ -98,8 +98,8 @@ def test_scene_cells_are_judged_on_their_cameras_and_orbit_frames(monkeypatch, t
     ev = FixedEvaluator("fake:judge", n_samples=1)
     ev._runtimes[Language.SCENE_THREEJS] = SimpleNamespace(lint=lambda ws: GateReport(gate="lint", passed=True), build=lambda ws, timeout_s: build)
     import bench._fixed_eval as fe
-    import codeverse.spatial.frame_metrics as fm
-    import codeverse.spatial.render_scene as rs
+    import codeverse3d.spatial.frame_metrics as fm
+    import codeverse3d.spatial.render_scene as rs
     seen: dict[str, object] = {}
     monkeypatch.setattr(rs, "render_scene", lambda ws, out, **kw: (seen.__setitem__("kw", kw),
                         RenderSet(views=[RenderView(name="Establishing_t0", path=str(png))], renderer="fake"))[1])

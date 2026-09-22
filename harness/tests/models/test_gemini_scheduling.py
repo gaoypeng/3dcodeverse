@@ -10,10 +10,10 @@ import base64
 import pytest
 from google.genai import errors as genai_errors
 
-from codeverse.contracts.chat import ChatMessage, ChatRequest, ImagePart
-from codeverse.models.base import ModelError
-from codeverse.models.gemini import GeminiModel, shared_pool
-from codeverse.models.retry import KeyPool, StormGate, request_tokens
+from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
+from codeverse3d.models.base import ModelError
+from codeverse3d.models.gemini import GeminiModel, shared_pool
+from codeverse3d.models.retry import KeyPool, StormGate, request_tokens
 from tests.models.test_gemini import PNG_1PX, make_model, text_response
 
 
@@ -108,7 +108,7 @@ def test_a_503_closes_the_shared_gate_and_the_call_still_succeeds():
 
 
 def test_rate_settings_control_the_shared_gate_and_hedge(monkeypatch):
-    from codeverse.config import Rate, get_settings
+    from codeverse3d.config import Rate, get_settings
 
     s = get_settings()
     assert s.rate.storm_gate is False
@@ -131,8 +131,8 @@ def test_max_wait_s_clips_the_retry_deadline_and_never_extends_it(monkeypatch):
     """Audit 2026-08-26 §5.1: 66 give-up spans of the model's 900 s deadline (x3 outer retries)
     were 30 % of a storm day's waiting.  ``ChatRequest.max_wait_s`` is the caller's budget for
     the whole call; the model clips its deadline to it and never goes above its own ceiling."""
-    import codeverse.models.gemini as gm
-    from codeverse.models.retry import RETRY_DEADLINE_S
+    import codeverse3d.models.gemini as gm
+    from codeverse3d.models.retry import RETRY_DEADLINE_S
 
     seen: list[float] = []
     real = gm.rotate_with_retries
@@ -183,7 +183,7 @@ def test_a_clean_call_reports_one_attempt_and_a_failed_call_carries_its_count():
 
 # ------------------------------------------ per-attempt HTTP timeout (audit 2026-08-27)
 def test_retry_budget_bounds_http_timeout_without_raising_an_explicit_ceiling():
-    from codeverse.models.gemini import HTTP_TIMEOUT_FLOOR_S
+    from codeverse3d.models.gemini import HTTP_TIMEOUT_FLOOR_S
 
     m, log, _ = make_model(
         [text_response("a"), text_response("b"), text_response("c")], timeout_s=300.0

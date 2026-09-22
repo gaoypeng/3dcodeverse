@@ -10,8 +10,8 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from codeverse.skills.model import EVIDENCE_INHERITED
-from codeverse.skills.registry import QUIET_KINDS, plan_signals, select, skills_for
+from codeverse3d.skills.model import EVIDENCE_INHERITED
+from codeverse3d.skills.registry import QUIET_KINDS, plan_signals, select, skills_for
 from tests.skills.conftest import write_bundle
 
 
@@ -48,7 +48,7 @@ def test_a_repair_round_spends_its_budget_on_what_broke(library):
                  signals=plan_signals(static_plan()),
                  findings=["connectivity/interpenetration", "contract/part_bbox"],
                  library=library, max_skills=2)
-    assert [s.name for s in got] == ["cv3d-part-contact", "cv3d-bbox-contract"]
+    assert [s.name for s in got] == ["c3d-part-contact", "c3d-bbox-contract"]
     assert all(s.gate_fired for s in got)
     assert "R2" in got[0].rules and "connectivity/interpenetration" in got[0].reason
 
@@ -71,7 +71,7 @@ def test_quiet_kinds_attach_nothing_unless_a_gate_fired(library):
         assert select("scene", "scene_threejs", kind, signals=plan_signals(static_plan()), library=library) == []
         fired = select("scene", "scene_threejs", kind, signals=plan_signals(static_plan()),
                        findings=["scene_frames/dark_or_flat"], library=library)
-        assert [s.name for s in fired] == ["cv3d-scene-lighting"]
+        assert [s.name for s in fired] == ["c3d-scene-lighting"]
         # R2 is scoped to repair/refine/rebuild, so a connectivity finding does NOT
         # reopen an asset session
         assert select("static_object", "blender", kind, signals=plan_signals(static_plan()),
@@ -79,60 +79,60 @@ def test_quiet_kinds_attach_nothing_unless_a_gate_fired(library):
 
 
 def test_inherited_unverified_bundles_are_off_until_the_switch_says_otherwise(library_dir):
-    from codeverse.skills import all_skills
+    from codeverse3d.skills import all_skills
 
-    write_bundle(library_dir, "cv3d-cadquery-forms", evidence=EVIDENCE_INHERITED)
+    write_bundle(library_dir, "c3d-cadquery-forms", evidence=EVIDENCE_INHERITED)
     lib = all_skills(library_dir, strict=True)
     off = skills_for("static_object", "cadquery", "baseline", plan=static_plan(), library=lib)
     on = skills_for("static_object", "cadquery", "baseline", plan=static_plan(), library=lib, allow_unverified=True)
-    assert "cv3d-cadquery-forms" not in [s.name for s in off]
-    assert "cv3d-cadquery-forms" in [s.name for s in on]
+    assert "c3d-cadquery-forms" not in [s.name for s in off]
+    assert "c3d-cadquery-forms" in [s.name for s in on]
 
 
 def test_a_single_part_plan_does_not_get_the_contact_sheet(library):
     one = skills_for("static_object", "blender", "baseline", plan=static_plan(1), library=library)
     many = skills_for("static_object", "blender", "baseline", plan=static_plan(3), library=library)
-    assert "cv3d-part-contact" not in [s.name for s in one]
-    assert "cv3d-part-contact" in [s.name for s in many]
+    assert "c3d-part-contact" not in [s.name for s in one]
+    assert "c3d-part-contact" in [s.name for s in many]
 
 
 def test_repeats_skill_needs_instances_or_symmetry(library):
     plain = skills_for("static_object", "blender", "baseline", plan=static_plan(), library=library)
     mirrored = skills_for("static_object", "blender", "baseline", plan=static_plan(symmetry="mirror_x"), library=library)
-    assert "cv3d-repeats-and-mirrors" not in [s.name for s in plain]
-    assert "cv3d-repeats-and-mirrors" in [s.name for s in mirrored]
+    assert "c3d-repeats-and-mirrors" not in [s.name for s in plain]
+    assert "c3d-repeats-and-mirrors" in [s.name for s in mirrored]
 
 
 def test_language_rows_do_not_leak_across_languages(library):
     blender = [s.name for s in skills_for("static_object", "blender", "baseline", plan=static_plan(), library=library)]
-    assert "cv3d-blender-forms" in blender and "cv3d-cadquery-forms" not in blender
+    assert "c3d-blender-forms" in blender and "c3d-cadquery-forms" not in blender
     graphics = [s.name for s in skills_for("graphics", "glsl_shader", "baseline", library=library)]
-    assert graphics == ["cv3d-glsl-craft"]
+    assert graphics == ["c3d-glsl-craft"]
 
 
 def test_scene_gate_findings_route_the_matching_scene_skill(library):
-    for finding, want in (("scene_frames/dark_or_flat", "cv3d-scene-lighting"),
-                          ("scene_frames/camera_placement", "cv3d-scene-composition"),
-                          ("gl_frames/motion_or_detail", "cv3d-scene-motion")):
+    for finding, want in (("scene_frames/dark_or_flat", "c3d-scene-lighting"),
+                          ("scene_frames/camera_placement", "c3d-scene-composition"),
+                          ("gl_frames/motion_or_detail", "c3d-scene-motion")):
         got = select("scene", "scene_threejs", "repair", findings=[finding], library=library, max_skills=1)
         assert got and got[0].name == want, finding
 
 
 def test_a_route_row_without_a_bundle_is_skipped_not_a_crash(library_dir):
-    from codeverse.skills import all_skills
+    from codeverse3d.skills import all_skills
 
-    (library_dir / "cv3d-blender-forms" / "SKILL.md").unlink()
+    (library_dir / "c3d-blender-forms" / "SKILL.md").unlink()
     lib = all_skills(library_dir)
     got = [s.name for s in skills_for("static_object", "blender", "baseline", plan=static_plan(), library=lib)]
-    assert got and "cv3d-blender-forms" not in got
+    assert got and "c3d-blender-forms" not in got
 
 
 def test_selection_carries_the_rule_and_the_reason(library):
     got = select("static_object", "blender", "baseline", signals=plan_signals(static_plan()), library=library)
     by_name = {s.name: s for s in got}
-    assert by_name["cv3d-part-contact"].rules == ("R1",)
-    assert by_name["cv3d-part-contact"].reason.startswith("R1: ")
-    assert not by_name["cv3d-part-contact"].gate_fired
+    assert by_name["c3d-part-contact"].rules == ("R1",)
+    assert by_name["c3d-part-contact"].reason.startswith("R1: ")
+    assert not by_name["c3d-part-contact"].gate_fired
 
 
 @pytest.mark.parametrize("max_skills", [0, 1, 3])

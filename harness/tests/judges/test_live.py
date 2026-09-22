@@ -9,12 +9,12 @@ import numpy as np
 import pytest
 import trimesh
 
-from codeverse.config import get_settings
-from codeverse.contracts.artifacts import RenderSet
-from codeverse.contracts.plan import AcceptanceItem
-from codeverse.judges.base import JudgeInput
-from codeverse.judges.rubrics import is_degraded
-from codeverse.judges.vlm_judge import VlmJudge
+from codeverse3d.config import get_settings
+from codeverse3d.contracts.artifacts import RenderSet
+from codeverse3d.contracts.plan import AcceptanceItem
+from codeverse3d.judges.base import JudgeInput
+from codeverse3d.judges.rubrics import is_degraded
+from codeverse3d.judges.vlm_judge import VlmJudge
 from tests.judges.conftest import make_measurement, make_renders, make_spec
 
 pytestmark = pytest.mark.live
@@ -44,9 +44,9 @@ def _stool_glb(out: Path) -> Path:
 def _renders_for_test(tmp: Path) -> tuple[RenderSet, object, str]:
     """Real stool renders via spatial.render when possible, else PIL drawings."""
     try:
-        from codeverse.conventions import OBJECT_VIEWS_QUICK
-        from codeverse.spatial.measure import measure_glb
-        from codeverse.spatial.render import render_glb
+        from codeverse3d.conventions import OBJECT_VIEWS_QUICK
+        from codeverse3d.spatial.measure import measure_glb
+        from codeverse3d.spatial.render import render_glb
 
         glb = _stool_glb(tmp / "stool.glb")
         rs = render_glb(glb, tmp / "renders", views=OBJECT_VIEWS_QUICK, sheet=True)
@@ -98,7 +98,7 @@ def test_live_judge_separates_crafted_from_crude(tmp_path):
 
 
 def test_live_pairwise_stool_vs_chair(tmp_path):
-    from codeverse.judges.pairwise import PairwiseJudge
+    from codeverse3d.judges.pairwise import PairwiseJudge
 
     renders, _, source = _renders_for_test(tmp_path / "stool")
     if "stool" not in source:
@@ -111,8 +111,8 @@ def test_live_pairwise_stool_vs_chair(tmp_path):
 
 
 def test_live_reference_judge(tmp_path):
-    from codeverse.contracts.spec import ReferenceImage
-    from codeverse.judges.vlm_judge import ReferenceJudge
+    from codeverse3d.contracts.spec import ReferenceImage
+    from codeverse3d.judges.vlm_judge import ReferenceJudge
 
     renders, meas, source = _renders_for_test(tmp_path / "stool")
     if "stool" not in source:

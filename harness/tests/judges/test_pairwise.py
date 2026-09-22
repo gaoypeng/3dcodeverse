@@ -1,7 +1,7 @@
 import pytest
 
-from codeverse.judges.pairwise import PairwiseJudge
-from codeverse.models.base import ModelError
+from codeverse3d.judges.pairwise import PairwiseJudge
+from codeverse3d.models.base import ModelError
 from tests.judges.conftest import FakeChatModel, image_parts, make_renders, make_spec
 
 
@@ -52,7 +52,7 @@ def test_single_ordering_success_halves_confidence(tmp_path, cache_dir):
 
 
 def test_unswap_reasons():
-    from codeverse.judges.pairwise import _unswap_text
+    from codeverse3d.judges.pairwise import _unswap_text
     assert _unswap_text("Candidate A beats candidate B", True) == "Candidate B beats candidate A"
     assert _unswap_text("Candidate A beats candidate B", False) == "Candidate A beats candidate B"
 

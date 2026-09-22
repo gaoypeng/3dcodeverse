@@ -1,7 +1,7 @@
 """Per-skill deterministic readout: what each bundle claims to move, measured.
 
 ``bench/ab_gate_rates.py`` prints the gate numbers of an A/B run; it does not know which
-*skill* owns which number.  This does.  ``codeverse/addons/skill_targets.py`` holds one
+*skill* owns which number.  This does.  ``codeverse3d/addons/skill_targets.py`` holds one
 falsifiable claim per bundle; this file computes it over a recorded battery or an A/B
 directory, so the same command answers both "what is the baseline" and "did the variant
 move it".
@@ -10,7 +10,7 @@ Usage::
 
     python bench/skill_targets.py bench/out/static_v2_flash          # one battery
     python bench/skill_targets.py bench/out/ab_skills                # control vs variant
-    python bench/skill_targets.py bench/out --per-run --skill cv3d-part-contact
+    python bench/skill_targets.py bench/out --per-run --skill c3d-part-contact
     python bench/skill_targets.py bench/out --json
 
 Nothing here reads the judge.  Every number comes from a gate report, a BuildResult, the
@@ -31,9 +31,9 @@ from pathlib import Path
 from typing import Any
 
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
-    sys.path.insert(0, str(_p))  # this tree's codeverse (harness/) + the `bench` package (eval/)
+    sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
-from codeverse.addons.skill_targets import (  # noqa: E402
+from codeverse3d.addons.skill_targets import (  # noqa: E402
     SRC_ARTIFACT,
     SRC_BUILD,
     SRC_FRAMES,
@@ -42,7 +42,7 @@ from codeverse.addons.skill_targets import (  # noqa: E402
     TARGETS,
     Target,
 )
-from codeverse.skills.registry import finding_kind  # noqa: E402
+from codeverse3d.skills.registry import finding_kind  # noqa: E402
 
 CACHE_NAME = ".skill_targets_cache.json"
 _FRAME_T = re.compile(r"_t(\d+(?:\.\d+)?)\.png$")
@@ -145,7 +145,7 @@ def _frames_of(d: Path) -> list[tuple[float, Path]]:
 
 
 def _feature_density(glb: Path) -> float | None:
-    from codeverse.spatial.complexity import complexity_of_glb
+    from codeverse3d.spatial.complexity import complexity_of_glb
 
     try:
         return float(complexity_of_glb(glb).feature_density)
@@ -154,7 +154,7 @@ def _feature_density(glb: Path) -> float | None:
 
 
 def _mean_edge_density(d: Path) -> float | None:
-    from codeverse.spatial.frame_stats import sequence_stats
+    from codeverse3d.spatial.frame_stats import sequence_stats
 
     frames = _frames_of(d)
     if not frames:
@@ -166,7 +166,7 @@ def _mean_edge_density(d: Path) -> float | None:
 
 
 def _min_authored_changed_frac(d: Path) -> float | None:
-    from codeverse.spatial.frame_motion import motion_from_dir
+    from codeverse3d.spatial.frame_motion import motion_from_dir
 
     try:
         rows = [r for r in motion_from_dir(d) if r.authored]

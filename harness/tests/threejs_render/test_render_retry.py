@@ -6,15 +6,15 @@ from pathlib import Path
 
 import pytest
 
-import codeverse.spatial.render as R
-from codeverse.spatial.render import RenderError, render_glb
+import codeverse3d.spatial.render as R
+from codeverse3d.spatial.render import RenderError, render_glb
 
 
 @pytest.fixture(autouse=True)
 def _isolated_cache(tmp_path, monkeypatch):
-    from codeverse.config import get_settings
+    from codeverse3d.config import get_settings
 
-    monkeypatch.setenv("CV3D_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("C3D_CACHE_DIR", str(tmp_path / "cache"))
     get_settings.cache_clear()
     monkeypatch.setattr(R, "RETRY_PAUSE_S", 0.0)
     yield

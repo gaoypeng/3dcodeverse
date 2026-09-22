@@ -487,7 +487,7 @@ export function placementTable(scene, THREE, opts = {}) {
 // is seated.  The moves are returned and carried in the census, so nothing is silent.
 //
 // Deliberately conservative, mirroring the python gate's exemptions
-// (codeverse/spatial/scene_placement.py — keep the two in sync):
+// (codeverse3d/spatial/scene_placement.py — keep the two in sync):
 //   · exempt assets (free / backdrop / enclosure / instanced) are never touched
 //   · a foot in the water is a boat / jetty: never touched
 //   · BURIED-ok names (basin, trench, pool…) are below ground by definition

@@ -66,7 +66,7 @@ never enter the code snapshot.
 
 ## `deliverable/`
 
-Built by `codeverse.record.deliverable.build_deliverable(ws, record)` from the
+Built by `codeverse3d.record.deliverable.build_deliverable(ws, record)` from the
 **best round** (`record.best_round`, else the highest judged score):
 
 ```
@@ -106,7 +106,7 @@ the packager produces no diff.
   never guessed.  A track may publish real values as
   `record.extra["sampling"][<role>]` and they win (`source: observed`).
 * **`usage.jsonl`** — one priced row per model call, in the
-  **`codeverse.cost` ledger format** (`CallCost`: tokens, unit prices, price
+  **`codeverse3d.cost` ledger format** (`CallCost`: tokens, unit prices, price
   provenance, stage, role, outcome).  There is exactly one ledger in the
   harness: when the run wrote a live one (`<run>/telemetry/cost.jsonl`; the root
   `cost_ledger.jsonl` is a symlink alias, a real root file only in pre-2026-08-23 runs)

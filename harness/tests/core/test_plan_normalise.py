@@ -8,9 +8,9 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from codeverse.contracts.common import Track
-from codeverse.contracts.plan import ArticulatedPlan
-from codeverse.tracks.planner import plan_example
+from codeverse3d.contracts.common import Track
+from codeverse3d.contracts.plan import ArticulatedPlan
+from codeverse3d.tracks.planner import plan_example
 
 
 def _raw() -> dict:
@@ -124,7 +124,7 @@ def test_unfixable_plans_still_fail():
 
 def test_planner_text_in_normalisations_is_dropped():
     """Planner prose cannot masquerade as harness repair history."""
-    from codeverse.contracts.plan import ArticulatedPlan
+    from codeverse3d.contracts.plan import ArticulatedPlan
 
     raw = ArticulatedPlan._normalise_raw({"parts": [{"name": "A", "bbox": {"center": [0, 0, 0], "extents": [1, 1, 1]}}],
                                           "joints": [{"name": "j", "parent": "A", "child": "A", "type": "revolute", "lower": 0, "upper": 1}],

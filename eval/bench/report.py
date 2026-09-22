@@ -3,7 +3,7 @@
 ``build_report(out_dir)`` reads ``results.jsonl`` (or results.json), aggregates
 mean/median/pass-rate/cost per tier and category, writes ``report.md`` and
 ``report.html`` — the same self-contained page as ``3dcode gallery build --embed``
-(``codeverse.addons.gallery``), one section per tier, with the stats tables under the
+(``codeverse3d.addons.gallery``), one section per tier, with the stats tables under the
 summary strip.
 """
 
@@ -20,10 +20,10 @@ from bench._compare_report import _f as _fmt
 from bench._compare_report import _mean
 from bench._jsonl import read_jsonl
 from bench.run_bench import BenchItemResult
-from codeverse.addons.gallery import GalleryIndex, RootSection, RunEntry, render_static
-from codeverse.addons.gallery.index import entry_from_record
-from codeverse.record.record import RecordError, load_record
-from codeverse.workspace import Workspace
+from codeverse3d.addons.gallery import GalleryIndex, RootSection, RunEntry, render_static
+from codeverse3d.addons.gallery.index import entry_from_record
+from codeverse3d.record.record import RecordError, load_record
+from codeverse3d.workspace import Workspace
 
 TIER_ORDER = {"easy": 0, "medium": 1, "hard": 2}
 

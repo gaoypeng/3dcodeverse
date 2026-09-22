@@ -13,7 +13,7 @@ if str(REPO) not in sys.path:
 
 from bench._fixed_eval import FixedEvaluator  # noqa: E402
 from bench.compare_backends import CompareDeps, CompareOptions, parse_arms, run_matrix  # noqa: E402
-from codeverse.config import get_settings  # noqa: E402
+from codeverse3d.config import get_settings  # noqa: E402
 
 pytestmark = [pytest.mark.live, pytest.mark.blender, pytest.mark.node]
 

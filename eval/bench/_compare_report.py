@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from bench._fixed_eval import RUBRIC, rubric_for
 from bench._jsonl import read_jsonl
-from codeverse.contracts.common import Track
+from codeverse3d.contracts.common import Track
 
 T = TypeVar("T", bound=BaseModel)
 

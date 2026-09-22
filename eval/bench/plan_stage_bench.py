@@ -4,11 +4,11 @@ The judge channel cannot resolve a single-switch change on a 14-prompt battery: 
 puts the noise floor at 2 SE = 0.130 and asks for ~506 pairs to resolve ±0.02
 (``docs/EVAL.md``).  The plan stage costs ~$0.03 and ~85 s, so the same question asked as
 a LOSS RATE — how often does planning end in a ``PlanningError`` instead of a plan — is
-affordable at n in the hundreds.  That is how ``CV3D_PLAN_RESTART`` was measured
+affordable at n in the hundreds.  That is how ``C3D_PLAN_RESTART`` was measured
 (4.7 % → 0.7 %, Fisher exact p = 0.0067 over 560 calls; ``docs/DECISIONS.md`` D52).
 
     python bench/plan_stage_bench.py --tree . --label restart_on --reps 20 \
-        --out bench/data/plan_stage/restart_on.jsonl --env CV3D_PLAN_RESTART=1
+        --out bench/data/plan_stage/restart_on.jsonl --env C3D_PLAN_RESTART=1
 
 ``--tree`` is the harness tree to import from, so the two arms can differ by a switch
 (``--env``) or by a worktree.  Run both arms in the SAME window: provider weather moves
@@ -99,7 +99,7 @@ def tree_provenance(tree: Path, codeverse_file: str) -> dict[str, str]:
     they came from — ``--label`` is a name the caller chose, and ``sys.path`` order is
     not visible after the fact (a stale editable install would silently make both arms
     the same code).  ``codeverse_file`` is passed in, never imported here: this module is
-    run as a file, so every ``import codeverse`` must sit below the sys.path bootstrap
+    run as a file, so every ``import codeverse3d`` must sit below the sys.path bootstrap
     (tests/compare_bench/test_worktree_import.py)."""
     out = {"codeverse_file": codeverse_file}
     try:
@@ -191,14 +191,14 @@ def main(argv: list[str] | None = None) -> int:
         os.environ[key.strip()] = value.strip()
         print(f"env {key.strip()}={value.strip()}")
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # the `bench` package (eval/)
-    sys.path.insert(0, str(ns.tree.resolve()))   # the harness tree under test wins for `codeverse`
+    sys.path.insert(0, str(ns.tree.resolve()))   # the harness tree under test wins for `codeverse3d`
 
-    import codeverse
+    import codeverse3d
     from bench._jsonl import seal_for_append  # after the path insert: `python bench/x.py`
     from bench.run_bench import Battery
-    from codeverse.config import get_settings
-    if not Path(codeverse.__file__).resolve().is_relative_to(ns.tree.resolve()):
-        raise SystemExit(f"--tree {ns.tree} but `codeverse` imported from {codeverse.__file__}: "
+    from codeverse3d.config import get_settings
+    if not Path(codeverse3d.__file__).resolve().is_relative_to(ns.tree.resolve()):
+        raise SystemExit(f"--tree {ns.tree} but `codeverse3d` imported from {codeverse3d.__file__}: "
                          "an editable install won the path race, so both arms would run the "
                          "same code (ab_plan.py's header documents this failure)")
 
@@ -211,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
 
     ns.out.parent.mkdir(parents=True, exist_ok=True)
     seal_for_append(ns.out)  # a killed run leaves a partial last line; do not glue onto it
-    prov = tree_provenance(ns.tree, codeverse.__file__)
+    prov = tree_provenance(ns.tree, codeverse3d.__file__)
     print(f"{ns.label}: {prov}")
     with ns.out.open("a") as fh, cf.ThreadPoolExecutor(ns.workers) as pool:
         # imap-style ordering: pool.map yields in submission order, so one slow call holds

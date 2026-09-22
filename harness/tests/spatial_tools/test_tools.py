@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
-import codeverse.spatial.tools  # noqa: F401  (registers all tools)
-from codeverse.contracts.artifacts import (
+import codeverse3d.spatial.tools  # noqa: F401  (registers all tools)
+from codeverse3d.contracts.artifacts import (
     BuildResult,
     GateFinding,
     GateReport,
@@ -17,9 +17,9 @@ from codeverse.contracts.artifacts import (
     RenderView,
     Severity,
 )
-from codeverse.contracts.plan import BBox, PartPlan, StaticPlan
-from codeverse.spatial.registry import ToolContext, get_tool, list_tools
-from codeverse.workspace import Workspace
+from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
+from codeverse3d.spatial.registry import ToolContext, get_tool, list_tools
+from codeverse3d.workspace import Workspace
 
 #: tools every workspace gets (no track/language restriction)
 CORE_TOOLS = {"build", "measure", "render_views", "render_sheet", "isolate", "cross_section", "check_connectivity",
@@ -125,7 +125,7 @@ class _FakeRuntime:
 
 
 def _patch_runtime(monkeypatch: pytest.MonkeyPatch, rt: _FakeRuntime) -> None:
-    import codeverse.languages as langs
+    import codeverse3d.languages as langs
 
     monkeypatch.setattr(langs, "get_runtime", lambda language: rt)
 
@@ -166,7 +166,7 @@ def test_a_negative_verdict_is_not_a_tool_failure(stool_ctx: ToolContext, monkey
     ``is_error = not ok`` reported 63% of 1404 joint_sweep calls and 23% of 2073 builds as
     broken calls, and the model retries a broken call at ~117k prompt tokens each.  Both
     directions here, plus the rule that makes it safe: the FAIL verdict LEADS the text."""
-    import codeverse.spatial.tools as ts
+    import codeverse3d.spatial.tools as ts
 
     ws = stool_ctx.workspace
     ws.write_json(ws.plan_path, _stool_plan_with_missing_backrest())
@@ -262,7 +262,7 @@ _fake_render_glb.calls = 0
 
 @pytest.fixture
 def fake_renderer(monkeypatch: pytest.MonkeyPatch):
-    import codeverse.spatial.render as render
+    import codeverse3d.spatial.render as render
 
     _fake_render_glb.calls = 0
     monkeypatch.setattr(render, "render_glb", _fake_render_glb)
@@ -295,7 +295,7 @@ def test_render_views_cached(stool_ctx: ToolContext, fake_renderer) -> None:
 def test_render_tool_with_no_view_is_a_tool_failure(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     """A renderer that comes back with nothing left the agent no picture and no verdict:
     ``failed`` (an MCP error), not an ordinary result whose text happens to say '0 view(s)'."""
-    import codeverse.spatial.render as render
+    import codeverse3d.spatial.render as render
 
     monkeypatch.setattr(render, "render_glb", lambda *a, **k: RenderSet(views=[], renderer="fake"))
     for name, args in (("render_views", {}), ("render_sheet", {}), ("isolate", {"part": "Leg_3"})):
@@ -308,8 +308,8 @@ def test_render_modes_match_the_js_rig() -> None:
     """One mode tuple: contracts.RENDER_MODES ↔ runtime_js/render_glb.mjs MODES ↔ the arg schema."""
     import re
 
-    from codeverse.config import get_settings
-    from codeverse.contracts.artifacts import RENDER_MODES
+    from codeverse3d.config import get_settings
+    from codeverse3d.contracts.artifacts import RENDER_MODES
 
     src = (get_settings().runtime_js_dir() / "render_glb.mjs").read_text()
     m = re.search(r"const MODES = \[([^\]]*)\]", src)
@@ -345,10 +345,10 @@ def test_compare_silhouette_tool(stool_ctx: ToolContext, fake_renderer) -> None:
 
 
 def test_texture_tools_degrade_when_texturing_is_unavailable(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`lazy` guards only the optional siblings (codeverse.languages / codeverse.texturing);
+    """`lazy` guards only the optional siblings (codeverse3d.languages / codeverse3d.texturing);
     spatial-on-spatial imports are ordinary imports since 2026-08-29."""
-    import codeverse.spatial.tool_common as tc
-    import codeverse.spatial.tools as ts
+    import codeverse3d.spatial.tool_common as tc
+    import codeverse3d.spatial.tools as ts
 
     def boom(module, attr):
         raise tc.ToolUnavailable(f"{module} not importable")
@@ -360,8 +360,8 @@ def test_texture_tools_degrade_when_texturing_is_unavailable(stool_ctx: ToolCont
 
 
 def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.spatial.tools as ts
-    from codeverse.spatial.probes import SceneProbeResult
+    import codeverse3d.spatial.tools as ts
+    from codeverse3d.spatial.probes import SceneProbeResult
 
     def fake_check_shaders(ws, *, module=None, timeout_s=90.0):
         return GateReport(gate="shaders", passed=False, findings=[GateFinding(gate="shaders", severity=Severity.ERROR, target="src/shaders/water.js", message="ERROR: 0:12: 'vUv' undeclared", fix_hint="declare varying vec2 vUv")])
@@ -416,8 +416,8 @@ def test_build_tool_scene_reports_probe_census(tmp_ws: Workspace, monkeypatch: p
 
 
 def test_build_tool_graphics_reports_frames(tmp_ws: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse.languages._gl_common as gl_build  # the one metrics reader (gl_build is a shim over it)
-    from codeverse.spatial.frame_stats import FrameStat, SequenceStats
+    import codeverse3d.languages._gl_common as gl_build  # the one metrics reader (gl_build is a shim over it)
+    from codeverse3d.spatial.frame_stats import FrameStat, SequenceStats
 
     ctx = ToolContext(workspace=tmp_ws, language="glsl_shader", track="graphics")
     rt = _NoGlbRuntime("glsl_shader", {"renderer": "moderngl"},
@@ -458,8 +458,8 @@ def test_gl_tools_lead_with_the_frame_gate_verdict(tmp_ws: Workspace, monkeypatc
     workspace, ``gl_probe``, ``gl_frames``) must put the FAIL verdict ABOVE it — otherwise
     the only verdict the model reads is "PROBE OK" — and none of them is a tool failure:
     the code ran, and re-running it blind is exactly the retry this costs money."""
-    import codeverse.languages._gl_common as gl_build  # the one metrics reader
-    from codeverse.spatial.frame_stats import FrameStat, SequenceStats
+    import codeverse3d.languages._gl_common as gl_build  # the one metrics reader
+    from codeverse3d.spatial.frame_stats import FrameStat, SequenceStats
 
     ctx = ToolContext(workspace=tmp_ws, language="glsl_shader", track="graphics")
     _patch_runtime(monkeypatch, _GlRuntime("glsl_shader", {"renderer": "moderngl"}))
@@ -480,8 +480,8 @@ def test_gl_tools_lead_with_the_frame_gate_verdict(tmp_ws: Workspace, monkeypatc
 
 
 def test_load_plan_recognises_graphics_plan(tmp_ws: Workspace) -> None:
-    from codeverse.contracts.plan import GraphicsPlan, PassPlan
-    from codeverse.spatial.tool_common import load_plan
+    from codeverse3d.contracts.plan import GraphicsPlan, PassPlan
+    from codeverse3d.spatial.tool_common import load_plan
 
     plan = GraphicsPlan(title="Neon rain", summary="s", style="cyberpunk",
                         passes=[PassPlan(name="Rain", description="drops")])
@@ -519,7 +519,7 @@ def test_connectivity_tool_resolves_instance_names_like_the_track_does(stool_ctx
 def test_build_folds_connectivity_and_contract_in_when_fewer_turns(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     """docs/COST.md §29: ~25 check_connectivity + ~19 check_contract calls per run, each a 4 s
     round trip for a < 0.5 s check.  With the switch on, one build observation carries both."""
-    monkeypatch.setenv("CV3D_FEWER_TURNS", "1")
+    monkeypatch.setenv("C3D_FEWER_TURNS", "1")
     ws = stool_ctx.workspace
     ws.write_json(ws.plan_path, _stool_plan_with_missing_backrest())
     _patch_runtime(monkeypatch, _FakeRuntime(glb=ws.artifacts / "object.glb"))
@@ -540,7 +540,7 @@ def test_build_folds_connectivity_and_contract_in_when_fewer_turns(stool_ctx: To
 
 
 def test_build_folded_checks_pass_on_a_solid_stool(tmp_ws: Workspace, solid_stool_glb: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CV3D_FEWER_TURNS", "on")
+    monkeypatch.setenv("C3D_FEWER_TURNS", "on")
     (tmp_ws.artifacts / "object.glb").write_bytes(solid_stool_glb.read_bytes())
     tmp_ws.spec_path.write_text(json.dumps({"id": "t", "track": "static_object", "language": "blender", "prompt": "a stool"}))
     ctx = ToolContext(workspace=tmp_ws, language="blender", track="static_object")
@@ -553,7 +553,7 @@ def test_build_folded_checks_pass_on_a_solid_stool(tmp_ws: Workspace, solid_stoo
 
 
 def test_build_card_and_observation_are_unchanged_when_fewer_turns_is_off(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("CV3D_FEWER_TURNS", raising=False)
+    monkeypatch.delenv("C3D_FEWER_TURNS", raising=False)
     ws = stool_ctx.workspace
     ws.write_json(ws.plan_path, _stool_plan_with_missing_backrest())
     _patch_runtime(monkeypatch, _FakeRuntime(glb=ws.artifacts / "object.glb"))
@@ -563,7 +563,7 @@ def test_build_card_and_observation_are_unchanged_when_fewer_turns_is_off(stool_
     card_off = get_tool("build").card()
     description = get_tool("build").description
     assert "check_connectivity" not in card_off
-    monkeypatch.setenv("CV3D_FEWER_TURNS", "1")
+    monkeypatch.setenv("C3D_FEWER_TURNS", "1")
     card_on = get_tool("build").card()
     assert "do not call those two tools separately" in card_on and card_on.startswith(card_off.splitlines()[0][:40])
     assert get_tool("build").description == description                    # the static text never changes
@@ -573,7 +573,7 @@ def test_a_failed_build_tells_the_agent_WHY_not_to_build_again(tmp_ws):
     """After a failed build the GLB is absent (staging publishes nothing), and the
     old order reported 'does not exist yet — run `build` first' to an agent that had
     just built: art_med_tool_chest burned its remaining turns on that (2026-08-27)."""
-    from codeverse.spatial.tool_common import ToolUsageError, glb_path
+    from codeverse3d.spatial.tool_common import ToolUsageError, glb_path
 
     ctx = ToolContext(workspace=tmp_ws, language="urdf_blender", track="articulated_object")
     tmp_ws.artifacts.mkdir(parents=True, exist_ok=True)

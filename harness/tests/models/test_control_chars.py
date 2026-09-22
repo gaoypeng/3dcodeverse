@@ -1,4 +1,4 @@
-"""Control characters in model output (codeverse/models/schema_utils.strip_control_chars).
+"""Control characters in model output (codeverse3d/models/schema_utils.strip_control_chars).
 
 Regression (2026-08-24): a gemini-3.7-flash plan emitted five ``\\u0000`` escapes where the
 model meant glyphs it could not encode — "0.078 × 0.300 × 0.240 m" became
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 
-from codeverse.models.schema_utils import parse_json_lenient, strip_control_chars
+from codeverse3d.models.schema_utils import parse_json_lenient, strip_control_chars
 
 THE_REAL_PAYLOAD = (
     '{"summary": "Overall envelope is 0.078 \\u0000 0.300 \\u0000 0.240 m",'
@@ -48,7 +48,7 @@ def test_strip_control_chars_recurses_and_preserves_safe_text():
 def test_the_subprocess_backstop_names_the_offender(tmp_path):
     import pytest
 
-    from codeverse.agents.cli_common import run_with_watchdog
+    from codeverse3d.agents.cli_common import run_with_watchdog
 
     poisoned = "harness_instructions: envelope is 0.078 \x00 0.300 m"
     with pytest.raises(ValueError, match=r"argv\[2\] contains a NUL at offset \d+"):
@@ -59,8 +59,8 @@ def test_the_anthropic_submit_tool_path_is_sanitised_too():
     """Parsed Anthropic submit-tool input is sanitized before use."""
     from types import SimpleNamespace as NS
 
-    from codeverse.contracts.chat import ChatMessage, ChatRequest
-    from codeverse.models.anthropic import SUBMIT_TOOL, AnthropicModel
+    from codeverse3d.contracts.chat import ChatMessage, ChatRequest
+    from codeverse3d.models.anthropic import SUBMIT_TOOL, AnthropicModel
 
     block = NS(
         type="tool_use", id="t1", name=SUBMIT_TOOL, input={"description": "0.078 \x00 0.300 slab"}
@@ -98,11 +98,11 @@ def test_the_anthropic_submit_tool_path_is_sanitised_too():
 
 def test_the_brief_text_fallback_is_sanitised(tmp_path):
     """Plain-text brief JSON is sanitized before fallback parsing."""
-    from codeverse.contracts.chat import ChatResponse
-    from codeverse.contracts.common import Language, Track, Usage
-    from codeverse.contracts.plan import EngineeringBrief, RefDimension, SubAssembly
-    from codeverse.contracts.spec import Spec
-    from codeverse.tracks.planner import expand_brief
+    from codeverse3d.contracts.chat import ChatResponse
+    from codeverse3d.contracts.common import Language, Track, Usage
+    from codeverse3d.contracts.plan import EngineeringBrief, RefDimension, SubAssembly
+    from codeverse3d.contracts.spec import Spec
+    from codeverse3d.tracks.planner import expand_brief
 
     clean = EngineeringBrief(
         object_name="Grinder",

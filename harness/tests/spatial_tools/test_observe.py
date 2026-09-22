@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codeverse.contracts.artifacts import (
+from codeverse3d.contracts.artifacts import (
     BuildResult,
     GateFinding,
     GateReport,
@@ -10,7 +10,7 @@ from codeverse.contracts.artifacts import (
     RenderView,
     Severity,
 )
-from codeverse.spatial.observe import (
+from codeverse3d.spatial.observe import (
     build_failure_lines,
     fmt_numbers,
     gate_observation,

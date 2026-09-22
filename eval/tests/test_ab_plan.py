@@ -172,11 +172,11 @@ def test_an_aa_run_is_labelled_so_nobody_reads_it_as_a_decision():
 
 # ----------------------------------------------------------------------------- env isolation
 def test_variant_env_is_applied_to_the_variant_arm_only():
-    opts = AbOptions(variant_env={"CV3D_PLAN_BRIEF": "on"})
-    base = {"PATH": "/bin", "CV3D_PLAN_BRIEF": "on"}  # leaked from the launching shell
+    opts = AbOptions(variant_env={"C3D_PLAN_BRIEF": "on"})
+    base = {"PATH": "/bin", "C3D_PLAN_BRIEF": "on"}  # leaked from the launching shell
     c, v = child_env(CONTROL, opts, base), child_env(VARIANT, opts, base)
-    assert v["CV3D_PLAN_BRIEF"] == "on"
-    assert "CV3D_PLAN_BRIEF" not in c, "the control must never inherit the switch under test"
+    assert v["C3D_PLAN_BRIEF"] == "on"
+    assert "C3D_PLAN_BRIEF" not in c, "the control must never inherit the switch under test"
     assert c["PATH"] == v["PATH"] == "/bin"
     assert c[MAX_IN_FLIGHT_ENV] == v[MAX_IN_FLIGHT_ENV] == "16"
     assert child_env(VARIANT, opts, {})["PYTHONUNBUFFERED"] == "1"
@@ -185,7 +185,7 @@ def test_variant_env_is_applied_to_the_variant_arm_only():
 def test_children_run_at_exactly_the_cap_the_budget_reserved(monkeypatch):
     """CQ-3: main() refuses to start unless ``pool_budget().fits(2 * opts.max_in_flight)``,
     so both children must run at THAT number.  child_env used ``setdefault``, so a shell
-    exporting CV3D_MAX_IN_FLIGHT=32 under ``--max-in-flight 8`` reserved 16 of the 64-call
+    exporting C3D_MAX_IN_FLIGHT=32 under ``--max-in-flight 8`` reserved 16 of the 64-call
     knee and then consumed 64 (docs/COST.md §23) — three lines after the function
     deliberately pops every variant key so an inherited switch cannot win."""
     opts = AbOptions(variant_env={"K": "v"}, max_in_flight=8)
@@ -263,15 +263,15 @@ class FakeCells:
         env = child_env(arm, opts, {})
         s = self.scores.get((item.id, arm), 0.5)
         if isinstance(s, str):
-            return _row(item.id, arm, None, s, tier=item.tier, workspace=env.get("CV3D_PLAN_BRIEF", ""))
-        return _row(item.id, arm, s, tier=item.tier, workspace=env.get("CV3D_PLAN_BRIEF", ""))
+            return _row(item.id, arm, None, s, tier=item.tier, workspace=env.get("C3D_PLAN_BRIEF", ""))
+        return _row(item.id, arm, s, tier=item.tier, workspace=env.get("C3D_PLAN_BRIEF", ""))
 
 
 def test_driver_runs_pairs_in_prompt_order_and_writes_the_verdict(tmp_path: Path):
     b = Battery.load(BATTERY)
     ids = [p.id for p in b.prompts[:3]]
     fake = FakeCells({(ids[0], VARIANT): 0.55, (ids[1], VARIANT): 0.53, (ids[2], VARIANT): 0.52})
-    opts = AbOptions(variant_env={"CV3D_PLAN_BRIEF": "on"}, ids=ids)
+    opts = AbOptions(variant_env={"C3D_PLAN_BRIEF": "on"}, ids=ids)
     v = run_ab(BATTERY, tmp_path, opts, run_cell_fn=fake)
     # both arms of prompt N before anything of prompt N+1
     assert [c[0] for c in fake.calls] == [i for i in ids for _ in range(2)]
@@ -285,7 +285,7 @@ def test_driver_runs_pairs_in_prompt_order_and_writes_the_verdict(tmp_path: Path
     pairs = json.loads((tmp_path / "pairs.json").read_text())
     assert pairs["verdict"]["decision"] == "keep" and len(pairs["pairs"]) == 3
     assert (tmp_path / "summary.md").read_text().startswith("# A/B: compare_v1")
-    assert json.loads((tmp_path / "ab.json").read_text())["arms"] == {"control": {}, "variant": {"CV3D_PLAN_BRIEF": "on"}}
+    assert json.loads((tmp_path / "ab.json").read_text())["arms"] == {"control": {}, "variant": {"C3D_PLAN_BRIEF": "on"}}
 
 
 def test_resume_skips_done_pairs_and_redo_reruns_both_arms(tmp_path: Path):
@@ -352,7 +352,7 @@ def test_aa_run_records_two_empty_arms(tmp_path: Path):
     b = Battery.load(BATTERY)
     ids = [p.id for p in b.prompts[:2]]
     fake = FakeCells({(ids[0], VARIANT): 0.9})
-    run_ab(BATTERY, tmp_path, AbOptions(variant_env={"CV3D_PLAN_FEATURES": "all"}, aa=True, ids=ids), run_cell_fn=fake)
+    run_ab(BATTERY, tmp_path, AbOptions(variant_env={"C3D_PLAN_FEATURES": "all"}, aa=True, ids=ids), run_cell_fn=fake)
     meta = json.loads((tmp_path / "ab.json").read_text())
     assert meta["aa"] is True and meta["arms"] == {"control": {}, "variant": {}}
     assert {r.workspace for r in load_jsonl(tmp_path / "results.jsonl", CellResult)} == {""}, "no arm saw the switch"
@@ -364,13 +364,13 @@ def test_cli_report_only_rebuilds_from_results(tmp_path: Path, capsys):
                                                     [_row("cmp_easy_stool", CONTROL, 0.5),
                                                      _row("cmp_easy_stool", VARIANT, None, "infra_failed"),
                                                      _row("cmp_easy_stool", VARIANT, 0.4)]))
-    opts = AbOptions(variant_env={"CV3D_SKILLS": "on"}, rounds=1)
+    opts = AbOptions(variant_env={"C3D_SKILLS": "on"}, rounds=1)
     (tmp_path / "ab.json").write_text(json.dumps({"options": json.loads(opts.model_dump_json())}))
     assert main(["--prompts", str(BATTERY), "--out", str(tmp_path), "--report-only"]) == 0
     assert "verdict: revert" in capsys.readouterr().out
     assert (tmp_path / "pairs.json").is_file()
     summary = (tmp_path / "summary.md").read_text()
-    assert "variant env: `CV3D_SKILLS=on`" in summary and "n_infra_failed: 0" in summary
+    assert "variant env: `C3D_SKILLS=on`" in summary and "n_infra_failed: 0" in summary
 
 
 def test_report_only_survives_a_run_dir_with_no_or_broken_ab_json(tmp_path):
@@ -389,7 +389,7 @@ def test_a_pinned_plan_that_dies_in_a_storm_records_the_pair_and_continues(tmp_p
     not a score (docs/EVAL.md §7): the pair is recorded infra_failed so --redo-status
     infra_failed picks it up, and the loop goes on."""
     from bench import ab_plan as ab
-    from codeverse.models.base import ModelError
+    from codeverse3d.models.base import ModelError
 
     b = Battery.load(BATTERY)
     ids = [p.id for p in b.prompts[:2]]
@@ -402,7 +402,7 @@ def test_a_pinned_plan_that_dies_in_a_storm_records_the_pair_and_continues(tmp_p
         return "h1"
 
     monkeypatch.setattr(ab, "pin_pair", stormy_pin)
-    opts = AbOptions(variant_env={"CV3D_SKILLS": "1"}, pin_plan=True, ids=ids)
+    opts = AbOptions(variant_env={"C3D_SKILLS": "1"}, pin_plan=True, ids=ids)
     run_ab(BATTERY, tmp_path, opts, run_cell_fn=fake)
 
     rows = load_jsonl(tmp_path / "results.jsonl", CellResult)

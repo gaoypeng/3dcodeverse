@@ -8,13 +8,13 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-import codeverse.spatial.render as R
-import codeverse.spatial.render_scene as RS
-from codeverse.cli.main import app
-from codeverse.contracts.artifacts import RenderSet
-from codeverse.contracts.common import Backends, Language, Track
-from codeverse.contracts.spec import Spec
-from codeverse.workspace import Workspace
+import codeverse3d.spatial.render as R
+import codeverse3d.spatial.render_scene as RS
+from codeverse3d.cli.main import app
+from codeverse3d.contracts.artifacts import RenderSet
+from codeverse3d.contracts.common import Backends, Language, Track
+from codeverse3d.contracts.spec import Spec
+from codeverse3d.workspace import Workspace
 
 runner = CliRunner()
 
@@ -22,10 +22,10 @@ runner = CliRunner()
 @pytest.fixture(autouse=True)
 def _isolated_cache(tmp_path, monkeypatch):
     """render_glb memoizes into <cache_dir>/renders, so without this the fake renders
-    land in (and are served from) the developer's real ~/.cache/codeverse."""
-    from codeverse.config import get_settings
+    land in (and are served from) the developer's real ~/.cache/codeverse3d."""
+    from codeverse3d.config import get_settings
 
-    monkeypatch.setenv("CV3D_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("C3D_CACHE_DIR", str(tmp_path / "cache"))
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
@@ -60,9 +60,9 @@ def _run(tmp_path: Path, language: Language, track: Track) -> Path:
 
 def test_object_render_uses_configured_size_and_explicit_flags_win(tmp_path, captured, monkeypatch):
     runs = _run(tmp_path, Language.BLENDER, Track.STATIC_OBJECT)
-    monkeypatch.setenv("CV3D_RENDER__WIDTH", "1600")
-    monkeypatch.setenv("CV3D_RENDER__HEIGHT", "1200")
-    from codeverse.config import get_settings
+    monkeypatch.setenv("C3D_RENDER__WIDTH", "1600")
+    monkeypatch.setenv("C3D_RENDER__HEIGHT", "1200")
+    from codeverse3d.config import get_settings
 
     get_settings.cache_clear()
     res = runner.invoke(app, ["render", "r1", "--runs-dir", str(runs)])
@@ -76,9 +76,9 @@ def test_object_render_uses_configured_size_and_explicit_flags_win(tmp_path, cap
 
 def test_scene_render_uses_the_scene_size(tmp_path, captured, monkeypatch):
     runs = _run(tmp_path, Language.SCENE_THREEJS, Track.SCENE)
-    monkeypatch.setenv("CV3D_RENDER__SCENE_WIDTH", "1920")
-    monkeypatch.setenv("CV3D_RENDER__SCENE_HEIGHT", "1080")
-    from codeverse.config import get_settings
+    monkeypatch.setenv("C3D_RENDER__SCENE_WIDTH", "1920")
+    monkeypatch.setenv("C3D_RENDER__SCENE_HEIGHT", "1080")
+    from codeverse3d.config import get_settings
 
     get_settings.cache_clear()
     res = runner.invoke(app, ["render", "r1", "--runs-dir", str(runs)])

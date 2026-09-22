@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.config import get_settings
-from codeverse.contracts.plan import StaticPlan
-from codeverse.contracts.spec import Spec
-from codeverse.models.gemini import GeminiImageModel
-from codeverse.texturing.generate import seam_score
-from codeverse.texturing.plan import compose_image_prompt, material_plan
+from codeverse3d.config import get_settings
+from codeverse3d.contracts.plan import StaticPlan
+from codeverse3d.contracts.spec import Spec
+from codeverse3d.models.gemini import GeminiImageModel
+from codeverse3d.texturing.generate import seam_score
+from codeverse3d.texturing.plan import compose_image_prompt, material_plan
 
 pytestmark = pytest.mark.live
 RUN = Path(__file__).resolve().parents[2] / "runs" / "e2e_chair_blender"

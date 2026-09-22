@@ -26,10 +26,10 @@ from bench._oneshot import (  # noqa: E402
     oneshot_prompt,
     repair_prompt,
 )
-from codeverse.contracts.artifacts import BuildResult, GateReport  # noqa: E402
-from codeverse.contracts.common import Language, Track  # noqa: E402
-from codeverse.contracts.spec import Constraints, Spec  # noqa: E402
-from codeverse.tracks.generation import MultiFileParseError  # noqa: E402
+from codeverse3d.contracts.artifacts import BuildResult, GateReport  # noqa: E402
+from codeverse3d.contracts.common import Language, Track  # noqa: E402
+from codeverse3d.contracts.spec import Constraints, Spec  # noqa: E402
+from codeverse3d.tracks.generation import MultiFileParseError  # noqa: E402
 
 
 def _spec() -> Spec:
@@ -111,8 +111,8 @@ def test_registry():
 def test_api_oneshot_uses_injected_chat_model(tmp_path: Path):
     class M:
         def generate(self, req):
-            from codeverse.contracts.chat import ChatResponse
-            from codeverse.contracts.common import Usage
+            from codeverse3d.contracts.chat import ChatResponse
+            from codeverse3d.contracts.common import Usage
 
             assert req.max_output_tokens == 32000 and "stool" in req.messages[0].text
             return ChatResponse(text="```python\nimport bpy\n```", usage=Usage(cost_usd=0.004))

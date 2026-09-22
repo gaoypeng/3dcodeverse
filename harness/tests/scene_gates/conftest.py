@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from codeverse.languages.scene_threejs import write_example
-from codeverse.workspace import Workspace
+from codeverse3d.languages.scene_threejs import write_example
+from codeverse3d.workspace import Workspace
 
 
 @pytest.fixture

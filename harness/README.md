@@ -37,11 +37,11 @@ optional) → refine rounds → finalise → record**, with an optional post-hoc
 pass.  The tree after the 2026-08-28 consolidation (172 python files):
 
 ```
-codeverse/
+codeverse3d/
   contracts/       typed pydantic contracts: Track/Language/Usage/Budget/Backends,
                    Spec, plans, artifacts, run record, AgentJob
   conventions.py   frames, units, views, naming, tolerances (THE constants source)
-  config.py        Settings (CV3D_* env + config.yaml) · workspace.py  run-dir layout + git snapshots
+  config.py        Settings (C3D_* env + config.yaml) · workspace.py  run-dir layout + git snapshots
   proc.py          stdlib-only subprocess/JSON/JSONL primitives, run lock, fan-out (a leaf)
   orchestrator.py  stage runner: resume, run state, round loop, budget
   tracks/          the four track pipelines, the one planner loop, generation strategies

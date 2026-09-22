@@ -8,9 +8,9 @@ from collections import defaultdict
 
 import pytest
 
-from codeverse.addons.skill_targets import check_claims, claim_bases, load_claims
-from codeverse.skills import bundle_dirs, iter_skills, skills_dir, validate_bundle
-from codeverse.skills.registry import ROUTES
+from codeverse3d.addons.skill_targets import check_claims, claim_bases, load_claims
+from codeverse3d.skills import bundle_dirs, iter_skills, skills_dir, validate_bundle
+from codeverse3d.skills.registry import ROUTES
 
 BUNDLES = bundle_dirs()
 SKILLS = list(iter_skills()) if BUNDLES else []

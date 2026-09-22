@@ -6,8 +6,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from codeverse.contracts.artifacts import RenderView
-from codeverse.spatial.silhouette import CANDIDATE_VIEWS, best_view_match
+from codeverse3d.contracts.artifacts import RenderView
+from codeverse3d.spatial.silhouette import CANDIDATE_VIEWS, best_view_match
 
 
 def _shape(path: Path, box, bg=(240, 240, 240), fg=(30, 30, 30)) -> Path:

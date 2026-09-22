@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codeverse.models.base import ModelError
-from codeverse.reference import (
+from codeverse3d.models.base import ModelError
+from codeverse3d.reference import (
     STUDIO_SUFFIX,
     cache_key,
     compose_image_prompt,

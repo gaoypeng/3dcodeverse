@@ -5,16 +5,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codeverse.addons.dataset.captions import caption_sample
-from codeverse.addons.dataset.export import export_samples, load_captions
-from codeverse.addons.dataset.quality import (
+from codeverse3d.addons.dataset.captions import caption_sample
+from codeverse3d.addons.dataset.export import export_samples, load_captions
+from codeverse3d.addons.dataset.quality import (
     find_duplicates,
     mark_duplicates,
     prompt_hash,
     quality_tier,
 )
-from codeverse.contracts.common import Language
-from codeverse.record.record import load_record
+from codeverse3d.contracts.common import Language
+from codeverse3d.record.record import load_record
 from tests.flywheel_cli.conftest import make_fake_run
 from tests.flywheel_cli.test_captions import GOOD, FakeModel
 
@@ -116,7 +116,7 @@ def test_export_meta_tiers_duplicates_and_captions_sidecar(runs_dir: Path, tmp_p
 
 def test_export_scene_views_repeating_names(fake_run, tmp_path: Path):
     """Scene renders repeat a camera name per capture time; the sample must keep every file."""
-    from codeverse.contracts.artifacts import RenderView
+    from codeverse3d.contracts.artifacts import RenderView
     from tests.flywheel_cli.conftest import tiny_png
 
     ws, rec = fake_run
