@@ -10,8 +10,8 @@ Protocol
   — authored cameras (``view_cam_*``) first, then the overview rig (``view_overview_*``),
   capped at ``MAX_VIEWS``; zone/probe frames are never shown.  Their own judge score,
   wall time and cost come from ``run_report.json`` / ``trajectories/*/score.json``.
-* OURS: the best round of ``bench/out/h2h_scene_v1/runs/<id>/`` (``record.best_round`` →
-  ``rounds/rNN.json`` renders): the ``t=0`` views the scene judge saw (per-view ``judge``
+* OURS: the round ``codeverse3d.addons.select`` picks from ``bench/out/h2h_scene_v1/runs/<id>/``
+  (``rounds/rNN.json`` renders): the ``t=0`` views the scene judge saw (per-view ``judge``
   flag, authored cameras first), capped at ``MAX_VIEWS`` — stills only, so both sides are
   judged blind to animation in the same way.
 * Judge: ONE ``VlmJudge(rubric=scene_v1, gemini-3.1-pro-preview, n_samples=2)`` fed a
@@ -42,6 +42,7 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
 from bench.run_bench import Battery, BenchPrompt  # noqa: E402
+from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.contracts.artifacts import RenderSet, RenderView  # noqa: E402
 from codeverse3d.contracts.common import Language, Track  # noqa: E402
 from codeverse3d.contracts.spec import Spec  # noqa: E402
@@ -81,7 +82,7 @@ class OurSide(BaseModel):
     defect_penalty: float = 0.0
     harness_score: float | None = None
     rounds: int = 0
-    best_round: int = 0
+    picked_round: int = 0
     cost_usd: float = 0.0
     minutes: float = 0.0
     n_views: int = 0
@@ -134,8 +135,12 @@ def our_frames(run_dir: Path) -> tuple[list[RenderView], dict[str, Any]] | None:
     if not rec_path.is_file():
         return None
     rec = json.loads(rec_path.read_text())
-    best = int(rec.get("best_round") or 0)
-    rnd_path = run_dir / "rounds" / f"r{best:02d}.json"
+    try:
+        summary = select.summarise(run_dir)
+    except Exception:  # noqa: BLE001 - an unreadable record is a run we cannot compare
+        return None
+    picked = summary.picked_round if summary.picked_round is not None else 0
+    rnd_path = run_dir / "rounds" / f"r{picked:02d}.json"
     if not rnd_path.is_file():
         return None
     rnd = json.loads(rnd_path.read_text())
@@ -150,9 +155,9 @@ def our_frames(run_dir: Path) -> tuple[list[RenderView], dict[str, Any]] | None:
     if minutes is None and rec.get("started_at") and rec.get("finished_at"):
         t0, t1 = (datetime.fromisoformat(rec[k]) for k in ("started_at", "finished_at"))
         minutes = (t1 - t0).total_seconds() / 60
-    meta = {"harness_score": rec.get("final_score"), "rounds": len(rec.get("rounds") or []), "best_round": best,
+    meta = {"harness_score": summary.picked_score, "rounds": len(rec.get("rounds") or []), "picked_round": picked,
             "cost_usd": float((rec.get("total_usage") or {}).get("cost_usd") or 0.0), "minutes": round(minutes or 0.0, 2),
-            "status": str(rec.get("status") or "")}
+            "status": summary.stop_reason}
     return [RenderView(name=v.name, path=v.path, mode="shaded", width=v.width, height=v.height) for v in chosen], meta
 
 
@@ -206,7 +211,7 @@ def sheet(row_id: str, theirs: list[Path], ours: list[Path], out_png: Path, thum
             x += t.width + 4
         return canvas
 
-    a, b = strip(theirs, f"{row_id} — THEIRS (authored cams + overview)"), strip(ours, f"{row_id} — OURS (best round, t=0 judge views)")
+    a, b = strip(theirs, f"{row_id} — THEIRS (authored cams + overview)"), strip(ours, f"{row_id} — OURS (picked round, t=0 judge views)")
     out = Image.new("RGB", (max(a.width, b.width), a.height + b.height + 6), (60, 60, 60))
     out.paste(a, (0, 0))
     out.paste(b, (0, a.height + 6))

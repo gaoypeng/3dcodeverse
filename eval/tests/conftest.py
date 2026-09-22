@@ -41,7 +41,7 @@ from codeverse3d.contracts.artifacts import (  # noqa: E402
     Severity,
 )
 from codeverse3d.contracts.common import Usage  # noqa: E402
-from codeverse3d.contracts.run import RunRecord, RunStatus  # noqa: E402
+from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus  # noqa: E402
 from codeverse3d.contracts.spec import Spec  # noqa: E402
 from codeverse3d.workspace import Workspace  # noqa: E402
 
@@ -131,7 +131,10 @@ def fake_run_track(score: float = 0.8):
         (ws.root / MODEL_FILE).write_text(GOOD.format(score=score))
         (ws.src / "parts").mkdir(exist_ok=True)
         (ws.src / "parts" / "legs.py").write_text("LEGS = 3\n")
-        rec = RunRecord(spec=spec, workspace=str(ws.root), status=RunStatus.MAX_ROUNDS, final_score=score - 0.1,
+        loop_verdict = Judgment(rubric="static_object_v1", scores={}, overall=round(score - 0.1, 4), passed=False)
+        rec = RunRecord(spec=spec, workspace=str(ws.root), status=RunStatus.MAX_ROUNDS,
+                        rounds=[RoundRecord(index=0, kind="baseline", judgment=loop_verdict,
+                                            build=BuildResult(ok=True, language="blender"))],
                         total_usage=Usage(cost_usd=0.9, tool_calls=12))
         ws.write_json(ws.record_path, rec)
         return rec

@@ -133,8 +133,16 @@ def _articulation_sheet(ws: Workspace, picked: int | None) -> str:
 
 
 def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> list[RunLink]:
-    """The working links of a card: workspace, record, code, sheet, GLB, track extras."""
+    """The working links of a card: workspace, record, code, sheet, GLB, track extras — the
+    artifact files of the handed-over round (``deliverable/``), else of the picked round
+    (``artifacts/rNN/``), else whatever ``artifacts/`` holds (a run recorded before rounds
+    kept their own)."""
     run = ws.root
+    kept = [f"artifacts/r{picked:02d}"] if picked is not None else []
+
+    def artifact(name: str, *extra: str) -> str:
+        return _first_file(run, f"deliverable/{name}", *(f"{k}/{name}" for k in kept), f"artifacts/{name}", *extra)
+
     links = [RunLink(label="workspace", rel="", kind="dir"),
              RunLink(label="record.json", rel="record.json")]
     for name in ("spec.json", "plan.json"):
@@ -145,7 +153,7 @@ def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> lis
     sheet = picked_sheet(ws, rec, picked) if rec is not None else ""
     if sheet:
         links.append(RunLink(label="sheet", rel=sheet))
-    glb = _first_file(run, "deliverable/object.glb", "artifacts/object.glb")
+    glb = artifact("object.glb")
     if glb:
         links.append(RunLink(label="glb", rel=glb, kind="viewer"))
     # the textured GLB is a link only when the texture pass SHIPPED — a stray file
@@ -155,13 +163,13 @@ def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> lis
         textured = _first_file(run, "deliverable/object_textured.glb", "artifacts/object_textured.glb")
         if textured:
             links.append(RunLink(label="textured glb", rel=textured, kind="viewer"))
-    urdf = _first_file(run, "deliverable/robot.urdf", "artifacts/robot.urdf", "src/robot.urdf")
+    urdf = artifact("robot.urdf", "src/robot.urdf")
     if urdf:
         links.append(RunLink(label="robot.urdf", rel=urdf))
     art = _articulation_sheet(ws, picked)
     if art:
         links.append(RunLink(label="articulation", rel=art))
-    gif = _first_file(run, "deliverable/preview.gif", "artifacts/preview.gif")
+    gif = artifact("preview.gif")
     if gif:
         links.append(RunLink(label="preview.gif", rel=gif))
     if (run / "artifacts" / "frames").is_dir():

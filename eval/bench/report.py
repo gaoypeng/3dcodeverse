@@ -1,7 +1,8 @@
 """Aggregate a bench run: per-tier / per-category stats → markdown + HTML gallery.
 
 ``build_report(out_dir)`` reads ``results.jsonl`` (or results.json), aggregates
-mean/median/pass-rate/cost per tier and category, writes ``report.md`` and
+baseline / picked-round mean + median, the delta and cost per tier and category (no pass
+rate: a run is not passed or failed since 2026-09-22), writes ``report.md`` and
 ``report.html`` — the same self-contained page as ``3dcode gallery build --embed``
 (``codeverse3d.addons.gallery``), one section per tier, with the stats tables under the
 summary strip.
@@ -35,10 +36,9 @@ class GroupStats(BaseModel):
     n_evaluated: int = Field(default=0, description="rows that actually ran (n minus provider outages)")
     infra_failed: int = Field(default=0, description="rows dropped: the provider, not the model, failed")
     baseline_mean: float | None
-    final_mean: float | None
-    final_median: float | None
+    picked_mean: float | None
+    picked_median: float | None
     delta_mean: float | None
-    pass_rate: float | None
     cost_mean: float
     minutes_mean: float
     errors: int
@@ -73,15 +73,13 @@ def _stats(group: str, rs: list[BenchItemResult]) -> GroupStats:
     # min/run 12.8x.  It is also not an `error`: that column must keep meaning "a real
     # crash", or a storm and a bug read the same in the report.
     ev = [r for r in rs if r.status != "infra_failed"]
-    finals = [r.score_final for r in ev if r.score_final is not None]
+    picked = [r.score_picked for r in ev if r.score_picked is not None]
     bases = [r.score_baseline for r in ev if r.score_baseline is not None]
-    deltas = [r.score_final - r.score_baseline for r in ev if r.score_final is not None and r.score_baseline is not None]
-    passed = [r.passed for r in ev if r.passed is not None]
+    deltas = [r.score_picked - r.score_baseline for r in ev if r.score_picked is not None and r.score_baseline is not None]
     return GroupStats(
-        group=group, n=len(rs), n_scored=len(finals), n_evaluated=len(ev), infra_failed=len(rs) - len(ev),
-        baseline_mean=_mean(bases), final_mean=_mean(finals),
-        final_median=round(statistics.median(finals), 4) if finals else None, delta_mean=_mean(deltas),
-        pass_rate=round(sum(passed) / len(passed), 4) if passed else None,
+        group=group, n=len(rs), n_scored=len(picked), n_evaluated=len(ev), infra_failed=len(rs) - len(ev),
+        baseline_mean=_mean(bases), picked_mean=_mean(picked),
+        picked_median=round(statistics.median(picked), 4) if picked else None, delta_mean=_mean(deltas),
         cost_mean=round(statistics.fmean([r.cost_usd for r in ev]), 4) if ev else 0.0,
         minutes_mean=round(statistics.fmean([r.minutes for r in ev]), 2) if ev else 0.0,
         errors=sum(1 for r in ev if r.status in ("error", "failed") or r.errors),
@@ -98,11 +96,11 @@ def _grouped(rs: list[BenchItemResult], key: str) -> list[GroupStats]:
 
 def _md_table(title: str, stats: list[GroupStats]) -> str:
     lines = [f"### {title}", "",
-             "| group | n | scored | baseline | final | median | Δ | pass | $/run | min/run | errors | outage |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "| group | n | scored | baseline | picked | median | Δ | $/run | min/run | errors | outage |",
+             "|---|---|---|---|---|---|---|---|---|---|---|"]
     for s in stats:
-        lines.append(f"| {s.group} | {s.n} | {s.n_scored} | {_fmt(s.baseline_mean)} | {_fmt(s.final_mean)} | "
-                     f"{_fmt(s.final_median)} | {_fmt(s.delta_mean, '+.3f')} | {_fmt(s.pass_rate, '.0%')} | "
+        lines.append(f"| {s.group} | {s.n} | {s.n_scored} | {_fmt(s.baseline_mean)} | {_fmt(s.picked_mean)} | "
+                     f"{_fmt(s.picked_median)} | {_fmt(s.delta_mean, '+.3f')} | "
                      f"{s.cost_mean:.2f} | {s.minutes_mean:.1f} | {s.errors} | {s.infra_failed} |")
     return "\n".join(lines) + "\n"
 
@@ -124,8 +122,8 @@ def _entry_for(r: BenchItemResult) -> RunEntry:
             return entry
     return RunEntry(
         battery=r.tier, slug=r.id, path=r.workspace or "", state="ok", title=r.id,
-        generator=r.generator, judge=r.judge, score=r.score_final, baseline_score=r.score_baseline,
-        passed=r.passed, rounds=r.rounds, cost_usd=r.cost_usd, minutes=r.minutes, status=r.status,
+        generator=r.generator, judge=r.judge, score=r.score_picked, baseline_score=r.score_baseline,
+        picked_round=r.picked_round, rounds=r.rounds, cost_usd=r.cost_usd, minutes=r.minutes, status=r.status,
         error=r.errors,
     )
 
@@ -143,11 +141,11 @@ def build_report(out_dir: Path | str, *, title: str | None = None) -> BenchRepor
     md.append(_md_table("overall", [rep.overall] if rep.overall else []))
     md.append(_md_table("by tier", rep.by_tier))
     md.append(_md_table("by category", rep.by_category))
-    md += ["### per prompt", "", "| id | tier | category | baseline | final | passed | rounds | $ | min | status |",
+    md += ["### per prompt", "", "| id | tier | category | baseline | picked | round | rounds | $ | min | stop |",
            "|---|---|---|---|---|---|---|---|---|---|"]
     for r in results:
-        md.append(f"| {r.id} | {r.tier} | {r.category} | {_fmt(r.score_baseline)} | {_fmt(r.score_final)} | "
-                  f"{'-' if r.passed is None else ('yes' if r.passed else 'no')} | {r.rounds} | {r.cost_usd:.2f} | "
+        md.append(f"| {r.id} | {r.tier} | {r.category} | {_fmt(r.score_baseline)} | {_fmt(r.score_picked)} | "
+                  f"{'-' if r.picked_round is None else f'r{r.picked_round:02d}'} | {r.rounds} | {r.cost_usd:.2f} | "
                   f"{r.minutes:.1f} | {r.status}{' ⚠' if r.errors else ''} |")
     rep.markdown = "\n".join(md) + "\n"
     (out / "report.md").write_text(rep.markdown)
@@ -158,12 +156,12 @@ def build_report(out_dir: Path | str, *, title: str | None = None) -> BenchRepor
 
 def _html_table(stats: list[GroupStats]) -> str:
     rows = "".join(
-        f"<tr><td>{html.escape(s.group)}</td><td>{s.n}</td><td>{_fmt(s.baseline_mean)}</td><td>{_fmt(s.final_mean)}</td>"
-        f"<td>{_fmt(s.delta_mean, '+.3f')}</td><td>{_fmt(s.pass_rate, '.0%')}</td><td>{s.cost_mean:.2f}</td>"
+        f"<tr><td>{html.escape(s.group)}</td><td>{s.n}</td><td>{_fmt(s.baseline_mean)}</td><td>{_fmt(s.picked_mean)}</td>"
+        f"<td>{_fmt(s.delta_mean, '+.3f')}</td><td>{s.cost_mean:.2f}</td>"
         f"<td>{s.minutes_mean:.1f}</td><td>{s.errors}</td><td>{s.infra_failed}</td></tr>"
         for s in stats
     )
-    return ("<table><tr><th>group</th><th>n</th><th>baseline</th><th>final</th><th>Δ</th><th>pass</th><th>$/run</th>"
+    return ("<table><tr><th>group</th><th>n</th><th>baseline</th><th>picked</th><th>Δ</th><th>$/run</th>"
             f"<th>min/run</th><th>errors</th><th>outage</th></tr>{rows}</table>")
 
 

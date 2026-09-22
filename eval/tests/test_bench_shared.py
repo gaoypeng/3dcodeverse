@@ -78,27 +78,32 @@ def test_the_harness_arm_looks_for_each_languages_own_entry_file():
     assert entry_of(SimpleNamespace(language=Language.GLSL_SHADER)) == "src/shader.frag"
 
 
-def test_a_run_that_scored_nothing_says_so_in_its_row() -> None:
+def test_a_run_that_scored_nothing_says_so_in_its_row(tmp_path: Path) -> None:
     """A worktree without node_modules made render_glb die, every round skip the judge and
     ten cells come back `status=plateau, score=None` — an arm that reads as healthy and
     measures nothing (2026-09-04).  The row carries the reason now."""
     from bench.run_bench import result_from_record
+    from codeverse3d.contracts.artifacts import Judgment
+    from codeverse3d.contracts.common import Language, Track, Usage
+    from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus
+    from codeverse3d.contracts.spec import Spec
+    from codeverse3d.workspace import Workspace
 
     item = SimpleNamespace(id="cpl_umbrella", tier="hard", category="mechanism")
-    rounds = [SimpleNamespace(index=i, judgment=None) for i in range(3)]
-    rec = SimpleNamespace(
-        rounds=rounds, best_round=0, baseline_score=None, final_score=None, error="",
-        total_usage=SimpleNamespace(cost_usd=1.76), status=SimpleNamespace(value="plateau"),
-        spec=SimpleNamespace(backends=SimpleNamespace(generator="g", judge="j")))
-    ws = SimpleNamespace(root=Path("/tmp/ws"))
+    spec = Spec(id="cpl_umbrella", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="an umbrella")
+    rounds = [RoundRecord(index=i, kind="refine") for i in range(3)]
+    rec = RunRecord(spec=spec, workspace=str(tmp_path), status=RunStatus.MAX_ROUNDS, rounds=rounds,
+                    total_usage=Usage(cost_usd=1.76))
+    ws = Workspace(tmp_path)
 
     row = result_from_record(item, rec, 16.0, ws)
-    assert row.score_final is None and row.status == "plateau"
+    assert row.score_picked is None and row.picked_round is None and row.status == "max_rounds"
     assert "no verdict in any of 3 round(s)" in row.errors
 
-    judged = SimpleNamespace(index=0, judgment=SimpleNamespace(passed=True))
+    judged = RoundRecord(index=0, kind="baseline", judgment=Judgment(rubric="r", scores={}, overall=0.6, passed=False))
     rec.rounds = [judged, rounds[1]]
-    assert result_from_record(item, rec, 16.0, ws).errors == ""   # one verdict is enough
+    row = result_from_record(item, rec, 16.0, ws)
+    assert row.errors == "" and (row.score_picked, row.picked_round) == (0.6, 0)   # one verdict is enough
 
 
 def test_two_bench_run_batteries_pair_by_prompt(tmp_path: Path) -> None:

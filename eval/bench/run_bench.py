@@ -14,13 +14,16 @@ Each prompt runs inside its own ``codeverse3d.cost.run_ledger``, exactly like a
 ``3dcode make``: the batteries are where most runs come from, so without it the
 priced per-call rows of a whole battery went to the per-process fallback log and
 ``3dcode cost --runs-dir <out>/runs`` had to reconstruct them from trajectories.
-The binding is context-local, so ``--parallel N`` keeps N ledgers apart.
+The binding is context-local, so ``--parallel N`` keeps N ledgers apart.  And like
+``3dcode make``, the round ``codeverse3d.addons.select`` picks is packaged after the run
+(``deliverable/`` + ``selection.json``); a result row is baseline → picked, no pass/fail.
 """
 
 from __future__ import annotations
 
 import csv
 import json
+import logging
 import time
 import traceback
 from collections.abc import Callable, Sequence
@@ -30,10 +33,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from bench._infra import is_infra_failure
 from bench._jsonl import read_jsonl, seal_for_append
+from codeverse3d.addons import select
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.common import Backends, Budget, Language, Track
 from codeverse3d.contracts.run import RunRecord
@@ -42,7 +46,9 @@ from codeverse3d.cost import run_ledger
 from codeverse3d.proc import exclusive
 from codeverse3d.workspace import Workspace
 
-RESULT_FIELDS = ("id", "tier", "category", "score_baseline", "score_final", "passed", "rounds", "cost_usd",
+log = logging.getLogger(__name__)
+
+RESULT_FIELDS = ("id", "tier", "category", "score_baseline", "score_picked", "picked_round", "rounds", "cost_usd",
                  "minutes", "status", "errors", "workspace", "generator", "judge")
 
 
@@ -81,8 +87,9 @@ class BenchItemResult(BaseModel):
     tier: str
     category: str = ""
     score_baseline: float | None = None
-    score_final: float | None = None
-    passed: bool | None = None
+    score_picked: float | None = Field(default=None, validation_alias=AliasChoices("score_picked", "score_final"),
+                                       description="the picked round's score (rows before 2026-09-22: score_final)")
+    picked_round: int | None = None
     rounds: int = 0
     cost_usd: float = 0.0
     minutes: float = 0.0
@@ -168,8 +175,8 @@ def spec_for(battery: Battery, item: BenchPrompt, opts: BenchOptions) -> Spec:
 
 
 def result_from_record(item: BenchPrompt, rec: RunRecord, minutes: float, ws: Workspace) -> BenchItemResult:
-    best = next((r for r in rec.rounds if r.index == rec.best_round), None)
-    # A run whose rounds all lost their verdict still reports a normal status (`plateau`
+    s = select.summarise(ws.root, record=rec)
+    # A run whose rounds all lost their verdict still reports a normal status (`max_rounds`
     # after three unjudged rounds), so a whole ARM can read as healthy and score nothing —
     # what a worktree without node_modules did on 2026-09-04: render_glb died, every round
     # skipped the judge, ten cells came back with score=None and status=plateau.  Say it
@@ -179,10 +186,10 @@ def result_from_record(item: BenchPrompt, rec: RunRecord, minutes: float, ws: Wo
     if unjudged and not error:
         error = f"no verdict in any of {len(rec.rounds)} round(s) — the judge was skipped every time"
     return BenchItemResult(
-        id=item.id, tier=item.tier, category=item.category, score_baseline=rec.baseline_score,
-        score_final=rec.final_score, passed=None if best is None or best.judgment is None else best.judgment.passed,
+        id=item.id, tier=item.tier, category=item.category, score_baseline=s.baseline_score,
+        score_picked=s.picked_score, picked_round=s.picked_round,
         rounds=len(rec.rounds), cost_usd=rec.total_usage.cost_usd, minutes=round(minutes, 2),
-        status=rec.status.value, errors=error, workspace=str(ws.root),
+        status=s.stop_reason, errors=error, workspace=str(ws.root),
         generator=rec.spec.backends.generator, judge=rec.spec.backends.judge,
     )
 
@@ -228,6 +235,17 @@ def default_run_track(spec: Spec, ws: Workspace, resume: bool) -> RunRecord:
     return get_track(spec.track).run(spec, ws, resume=resume)
 
 
+def hand_over(ws: Workspace, rec: RunRecord) -> None:
+    """What ``3dcode make`` does after a run: package the round ``select`` picks (by score).
+    A packaging failure costs the hand-over, never the scored row."""
+    try:
+        idx = select.pick(ws.root, record=rec)
+        if idx is not None:
+            select.package(ws.root, idx, method="score")
+    except Exception as e:  # noqa: BLE001 - the run and its scores stand without deliverable/
+        log.warning("hand-over of %s failed: %s", ws.root, e)
+
+
 def run_battery(
     battery_path: Path | str, out_dir: Path | str, opts: BenchOptions | None = None, *,
     run_fn: RunFn | None = None, on_result: Callable[[BenchItemResult], None] | None = None,
@@ -270,6 +288,7 @@ def run_battery(
             # the run mutex is what keeps two cells off the same workspace
             with exclusive(ws.root, what=f"bench {item.id}"), run_ledger(ws.root, run=item.id):
                 rec = run_fn(spec, ws, resume)
+                hand_over(ws, rec)
         except Exception as e:  # one failing prompt must not kill the battery
             # A provider outage is not a result: an hour spent retrying a 503 is not model
             # latency and not a crash.  compare_backends has classified this since

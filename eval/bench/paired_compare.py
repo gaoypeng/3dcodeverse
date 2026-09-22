@@ -137,8 +137,10 @@ def paired(cells: dict[tuple[str, str], CellResult], harness_arm: str, oneshot_a
         hs.append(h.score)
         os_.append(o.score)
         st.deltas[p] = round(h.score - o.score, 4)
-        hp.append(bool(h.passed))
-        op.append(bool(o.passed))
+        if h.passed is not None:  # a bench-run row carries no pass/fail (2026-09-22): no rate
+            hp.append(h.passed)
+        if o.passed is not None:
+            op.append(o.passed)
         hb.append(h.build_ok)
         ob.append(o.build_ok)
     st.n = len(hs)
@@ -153,8 +155,8 @@ def paired(cells: dict[tuple[str, str], CellResult], harness_arm: str, oneshot_a
     st.losses = sum(d < 0 for d in deltas)
     st.ties = st.n - st.wins - st.losses
     st.sign_p = _sign_test(deltas)["sign_p"]  # type: ignore[assignment]
-    st.pass_rate_harness = round(sum(hp) / st.n, 4)
-    st.pass_rate_oneshot = round(sum(op) / st.n, 4)
+    st.pass_rate_harness = round(sum(hp) / len(hp), 4) if hp else None
+    st.pass_rate_oneshot = round(sum(op) / len(op), 4) if op else None
     st.build_ok_harness = round(sum(hb) / st.n, 4)
     st.build_ok_oneshot = round(sum(ob) / st.n, 4)
     if st.n >= 2:
@@ -257,7 +259,7 @@ def rows_from_bench_run(out_dir: Path, arm: str) -> list[CellResult]:
     """A ``bench run`` battery read as cells of one arm.
 
     ``compare_backends`` writes one journal with an ``arm`` column; ``bench run`` writes a
-    directory per arm with ``id`` / ``score_final``.  Two of those directories are a paired
+    directory per arm with ``id`` / ``score_picked`` (``score_final`` before 2026-09-22).  Two of those directories are a paired
     comparison — same prompts, one thing different — and this lets the statistics below
     (paired CI, exact sign test, the "unsupported when the interval crosses zero" rule) be
     the same for both shapes rather than recomputed by hand.
@@ -268,11 +270,13 @@ def rows_from_bench_run(out_dir: Path, arm: str) -> list[CellResult]:
             continue
         raw = json.loads(line)
         # a bench-run row records no build flag: a cell with a verdict was built and judged,
-        # one without (score None, passed None) was not — so `build_ok` here means "judged",
-        # and `gen_cost_usd` is the run's WHOLE cost (plan + loop judge), as the field says
+        # one without (score None) was not — so `build_ok` here means "judged", and
+        # `gen_cost_usd` is the run's WHOLE cost (plan + loop judge), as the field says.  A
+        # row written before 2026-09-22 still has its old `passed`; a new one has none.
+        score = raw.get("score_picked", raw.get("score_final"))
         rows.append(CellResult(prompt_id=raw["id"], arm=arm, tier=raw.get("tier", ""),
-                               score=raw.get("score_final"), status=raw.get("status", ""),
-                               passed=raw.get("passed"), build_ok=raw.get("passed") is not None,
+                               score=score, status=raw.get("status", ""),
+                               passed=raw.get("passed"), build_ok=score is not None,
                                gen_cost_usd=float(raw.get("cost_usd") or 0.0), kind="harness"))
     return rows
 

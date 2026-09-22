@@ -31,10 +31,10 @@ from codeverse3d.spatial.joints_model import UrdfError, load_urdf  # noqa: E402
 def _urdfs(root: Path) -> list[Path]:
     """The BUILT ``robot.urdf`` of each run under ``root``, once per run.
 
-    A run holds the same file three times — ``src/`` (what the agent wrote),
-    ``artifacts/`` (what the build produced) and ``deliverable/`` (what finalise copied) —
-    so counting files instead of runs multiplies every mechanical number by three.  The
-    artefact is the one the sweep actually posed.  The walk is
+    A run holds the same file several times — ``src/`` (what the agent wrote),
+    ``artifacts/`` (the last build), ``artifacts/rNN/`` (every round's own copy) and
+    ``deliverable/`` (the handed-over round) — so counting files instead of runs multiplies
+    every mechanical number.  The artefact is the one the last sweep actually posed.  The walk is
     ``flywheel.record.unique_files``, so a cell symlinked from another battery is one run."""
     return [p for p in unique_files(root, "robot.urdf") if p.parent.name == "artifacts"]
 

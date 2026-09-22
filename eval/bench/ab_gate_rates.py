@@ -2,7 +2,8 @@
 
 The judged score carries the planner's variance (docs/EVAL.md 8.1); these do not carry the
 judge's.  They are what c3d-part-contact and c3d-bbox-contract are FOR, so they are the
-primary readout and the score is the second.
+primary readout and the score is the second.  Both are read off the round
+``codeverse3d.addons.select`` picks (the last round when nothing was judged).
 """
 from __future__ import annotations
 
@@ -10,6 +11,11 @@ import json
 import re
 import sys
 from pathlib import Path
+
+for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
+    sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
+
+from codeverse3d.addons import select  # noqa: E402
 
 if len(sys.argv) < 2:
     raise SystemExit("usage: python bench/ab_gate_rates.py bench/out/<ab-run>")
@@ -21,10 +27,11 @@ def cell_stats(record: Path) -> dict | None:
     rounds = rec.get("rounds") or []
     if not rounds:
         return None
-    last = rounds[-1]
+    summary = select.summarise(record.parent)
+    rnd = next((r for r in rounds if r.get("index") == summary.picked_round), rounds[-1])
     pairs = floats = islands = contract_n = 0
     worst = 0.0
-    for g in last.get("gates") or []:
+    for g in rnd.get("gates") or []:
         for f in g.get("findings") or []:
             sev, msg = str(f.get("severity", "")), str(f.get("message", ""))
             if sev == "info":
@@ -42,7 +49,7 @@ def cell_stats(record: Path) -> dict | None:
                 contract_n += 1
     return {"pairs": pairs, "worst_depth_mm": worst, "floating": floats,
             "islands": islands, "contract_findings": contract_n,
-            "score": rec.get("final_score"), "status": rec.get("status")}
+            "score": summary.picked_score, "status": summary.stop_reason}
 
 rows: dict[str, dict[str, dict]] = {}
 for arm in ("control", "variant"):

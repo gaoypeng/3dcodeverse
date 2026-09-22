@@ -41,6 +41,22 @@ def test_entry_fields_and_links(gallery_tree: dict[str, Path]):
     assert entry.key == "runs/wooden_chair_ab12cd34"
 
 
+def test_a_card_links_the_picked_rounds_own_glb(tmp_path: Path):
+    """The tree ends at the LAST round (2026-09-22), so artifacts/object.glb is not the card's
+    round: until a round is handed over, the card links the picked round's artifacts/rNN/ copy."""
+    from codeverse3d.addons import select
+    from tests.flywheel_cli.conftest import make_fake_run
+
+    ws, _ = make_fake_run(tmp_path / "runs", "kept_rounds", scores=(0.9, 0.6))   # the pick is r00
+    (ws.round_artifacts(0)).mkdir(parents=True)
+    (ws.round_artifacts(0) / "object.glb").write_bytes(b"glTF r00")
+    links = {ln.label: ln.rel for ln in entry_for_dir("runs", ws.root).links}
+    assert links["glb"] == "artifacts/r00/object.glb"
+    select.package(ws.root, 0)
+    links = {ln.label: ln.rel for ln in entry_for_dir("runs", ws.root).links}
+    assert links["glb"] == "deliverable/object.glb"
+
+
 def test_corrupt_record_does_not_raise(tmp_path: Path):
     run = tmp_path / "runs" / "boom"
     run.mkdir(parents=True)

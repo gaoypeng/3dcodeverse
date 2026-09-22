@@ -11,10 +11,12 @@ or down, and what does a complexity point cost?**
     python bench/complexity_report.py bench/out/complexity_v3 --battery bench/prompts/complexity_v3.yaml
 
 A "root" is a battery directory (``<battery>/runs/<slug>``), a runs directory,
-or a single run directory — all three are detected.  The complexity vector is
-read from the run's recorded measurement when present and recomputed from
-``artifacts/object.glb`` otherwise, so the whole historic corpus is usable.
-Rows without a judgment or without geometry are skipped and counted.
+or a single run directory — all three are detected.  A run is the round
+``codeverse3d.addons.select`` picks (a record it cannot read: the last round).  The
+complexity vector is read from that round's recorded measurement when present and
+recomputed from its GLB (``artifacts/rNN/object.glb``, else ``artifacts/object.glb``)
+otherwise, so the whole historic corpus is usable.  Rows without a judgment or without
+geometry are skipped and counted.  There is no pass rate: a run is not passed or failed.
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ from typing import Any
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
+from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.addons.calibration import _ranks  # noqa: E402 — tie-averaged ranks, one copy
 from codeverse3d.contracts.run import RunId  # noqa: E402
 from codeverse3d.proc import read_json_or_none  # noqa: E402
@@ -67,21 +70,22 @@ class Row(dict):
 _read_json = read_json_or_none
 
 
-def _vector_for(run: Path, best: dict[str, Any] | None) -> ComplexityVector | None:
+def _vector_for(run: Path, rnd: dict[str, Any] | None) -> ComplexityVector | None:
     """The run's recorded complexity vector, else one recomputed from its GLB.
 
     The historic corpus predates the vector, so recomputing is the normal path
     for anything recorded before 2026-08-24 — that is what makes the whole
     corpus comparable.
     """
-    for meas in (best or {}).get("measurement"), (_read_json(run / "artifacts" / "measurement.json") or {}):
+    for meas in (rnd or {}).get("measurement"), (_read_json(run / "artifacts" / "measurement.json") or {}):
         block = ((meas or {}).get("extra") or {}).get("complexity")
         if isinstance(block, dict):
             try:
                 return ComplexityVector.model_validate(block)
             except Exception:  # noqa: BLE001 - an older/foreign block must not stop the scan
                 pass
-    glb = run / "artifacts" / "object.glb"
+    kept = run / "artifacts" / f"r{int((rnd or {}).get('index') or 0):02d}" / "object.glb"
+    glb = kept if kept.is_file() else run / "artifacts" / "object.glb"
     if not glb.is_file():
         return None
     from codeverse3d.spatial.complexity import complexity_of_glb
@@ -92,15 +96,15 @@ def _vector_for(run: Path, best: dict[str, Any] | None) -> ComplexityVector | No
         return None
 
 
-def _best_round(record: dict[str, Any]) -> dict[str, Any] | None:
+def _picked_round(run: Path, record: dict[str, Any]) -> dict[str, Any] | None:
+    """The round ``addons/select`` picks, as its raw dict; the last round when the record
+    will not load (the scan reads the historic corpus as-is)."""
     rounds = record.get("rounds") or []
-    if not rounds:
-        return None
-    idx = record.get("best_round")
-    for r in rounds:
-        if r.get("index") == idx:
-            return r
-    return rounds[-1]
+    try:
+        idx = select.summarise(run).picked_round
+    except Exception:  # noqa: BLE001 - one unreadable record must not stop the scan
+        idx = None
+    return next((r for r in rounds if r.get("index") == idx), rounds[-1] if rounds else None)
 
 
 def _minutes(record: dict[str, Any]) -> float:
@@ -114,10 +118,10 @@ def row_for(run: Path, battery: str, slug: str | None = None) -> Row | None:
     record = _read_json(run / "record.json")
     if not record:
         return None
-    best = _best_round(record)
-    judgment = (best or {}).get("judgment") or {}
+    rnd = _picked_round(run, record)
+    judgment = (rnd or {}).get("judgment") or {}
     scores = judgment.get("scores") or {}
-    vec = _vector_for(run, best)
+    vec = _vector_for(run, rnd)
     if vec is None or not scores:
         return None
     plan_parts = len((record.get("plan") or {}).get("parts") or [])
@@ -132,9 +136,8 @@ def row_for(run: Path, battery: str, slug: str | None = None) -> Row | None:
         plan_parts=plan_parts,
         parts_per_plan_part=round(vec.part_count / plan_parts, 3) if plan_parts else None,
         gate_errors=sum(len([f for f in (g.get("findings") or []) if f.get("severity") == "error"])
-                        for g in (best or {}).get("gates") or []),
+                        for g in (rnd or {}).get("gates") or []),
         overall=judgment.get("overall"),
-        passed=judgment.get("passed"),
         issues=len(judgment.get("issues") or []),
         cost_usd=round(float((record.get("total_usage") or {}).get("cost_usd") or 0.0), 4),
         minutes=_minutes(record),
@@ -238,18 +241,17 @@ def _mean(vals: Iterable[float | None]) -> float | None:
 def scatter_table(rows: Sequence[Row]) -> str:
     """Score vs complexity, bucketed by index — the scatter as a text table."""
     lines = [
-        "| complexity band | n | mean index | mean overall | pass % | detail | struct | fit | craft | $/run | min |",
-        "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|",
+        "| complexity band | n | mean index | mean overall | detail | struct | fit | craft | $/run | min |",
+        "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|",
     ]
     for lo, hi in zip(BUCKETS, BUCKETS[1:], strict=False):
         b = [r for r in rows if isinstance(r.get("index"), (int, float)) and lo <= r["index"] < hi]
         if not b:
             continue
-        npass = sum(1 for r in b if r.get("passed"))
         lines.append(
             f"| {band_of((lo + hi) / 2)} {lo:.2f}–{min(hi, 1.0):.2f} | {len(b)} |"
             f"{_fmt(_mean(r['index'] for r in b))} |{_fmt(_mean(r['overall'] for r in b))} |"
-            f" {100 * npass / len(b):5.0f} |{_fmt(_mean(r['geometry_detail'] for r in b))} |"
+            f"{_fmt(_mean(r['geometry_detail'] for r in b))} |"
             f"{_fmt(_mean(r['structure_plausibility'] for r in b))} |{_fmt(_mean(r['assembly_fit'] for r in b))} |"
             f"{_fmt(_mean(r['craftsmanship_no_artifacts'] for r in b))} |"
             f"{_fmt(_mean(r['cost_usd'] for r in b))} |{_fmt(_mean(r['minutes'] for r in b))} |"
@@ -275,9 +277,6 @@ def dollars_per_point(rows: Sequence[Row]) -> dict[str, Any]:
     cost = sum(float(r.get("cost_usd") or 0.0) for r in rows)
     mins = sum(float(r.get("minutes") or 0.0) for r in rows)
     points = sum(100.0 * float(r.get("index") or 0.0) for r in rows)
-    passed = [r for r in rows if r.get("passed")]
-    p_cost = sum(float(r.get("cost_usd") or 0.0) for r in passed)
-    p_points = sum(100.0 * float(r.get("index") or 0.0) for r in passed)
     return {
         "runs": len(rows),
         "total_usd": round(cost, 3),
@@ -285,8 +284,6 @@ def dollars_per_point(rows: Sequence[Row]) -> dict[str, Any]:
         "complexity_points": round(points, 1),
         "usd_per_point": round(cost / points, 4) if points else None,
         "minutes_per_point": round(mins / points, 3) if points else None,
-        "usd_per_point_passed_only": round(p_cost / p_points, 4) if p_points else None,
-        "passed": len(passed),
     }
 
 

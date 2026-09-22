@@ -12,7 +12,7 @@ person sees → revise) never ran for graphics.  This script is that loop's meas
 * ``eye.json``: ``{run_dir: score}`` — a person's 0–1 reading of the SAME sheets ("would a
   curator screenshot it / does it look like the thing").  The ground truth this calibrates to.
 
-For every run and every rubric it rebuilds the JudgeInput the loop used (spec, the best round's
+For every run and every rubric it rebuilds the JudgeInput the loop used (spec, the picked round's
 RenderSet and gates; no planner acceptance items, so the rubric is measured on its own) and
 judges it with a fresh ``VlmJudge`` (n samples, pro).  Output per rubric: ``<rubric>.jsonl`` (one
 row per run: overall, per-criterion, defects present, caps) and one ``summary.md`` with
@@ -29,36 +29,38 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from codeverse3d.addons import select
 from codeverse3d.addons.calibration import spearman
 from codeverse3d.contracts.artifacts import GateReport, RenderSet
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.judges.base import JudgeInput, plan_digest
 from codeverse3d.judges.vlm_judge import VlmJudge
+from codeverse3d.record.record import RecordError
 from codeverse3d.tracks.graphics import frame_stats_text
 from codeverse3d.workspace import Workspace
 
 OUT_ROOT = Path(__file__).resolve().parent / "out"
 
 
-def best_round(run: Path) -> dict[str, Any] | None:
-    best: dict[str, Any] | None = None
-    for f in sorted(run.glob("rounds/r*.json")):
-        r = json.loads(f.read_text())
-        j = r.get("judgment") or {}
-        if j.get("overall") is not None and (best is None or j["overall"] > (best.get("judgment") or {}).get("overall", -1)):
-            best = r
-    return best
+def picked_round(run: Path) -> dict[str, Any] | None:
+    """The round ``codeverse3d.addons.select`` picks, as its rounds/rNN.json (None: nothing judged)."""
+    try:
+        idx = select.pick(run)
+    except RecordError:
+        return None
+    path = run / "rounds" / f"r{idx:02d}.json" if idx is not None else None
+    return json.loads(path.read_text()) if path is not None and path.is_file() else None
 
 
 def judge_one(run: Path, rubric: str, model: str, n: int) -> dict[str, Any]:
     spec = Spec.model_validate(json.loads((run / "spec.json").read_text()))
-    rnd = best_round(run)
+    rnd = picked_round(run)
     if rnd is None:
         return {"run": str(run), "error": "no judged round"}
     renders = RenderSet.model_validate(rnd["renders"])
     gates = [GateReport.model_validate(g) for g in rnd.get("gates") or []]
     # what the in-run judge also saw: the plan digest and the measured frame metrics (the metrics
-    # file is the LAST build's; it is only quoted when the best round is the last one, else the
+    # file is the LAST build's; it is only quoted when the picked round is the last one, else the
     # judge is told so — without it, pro called four moving effects "static" in the first pass)
     ws = Workspace(run)
     plan_path = run / "plan.json"

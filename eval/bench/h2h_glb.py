@@ -6,9 +6,10 @@ Protocol (one fixed judge, one renderer, one gate set, for BOTH sides):
    verbatim with an empty ``must_have`` (their run had no checklist, so ours gets none);
    each prompt's last tag is the gallery slug.
 2. THEIR GLB is ``<gallery>/<slug>/object.glb`` (built by their harness, never
-   rebuilt here).  OUR GLB is the best round of the harness run under
-   ``<bench_out>/<lang>/runs/<id>/`` (``deliverable/object.glb``, else
-   ``artifacts/object.glb`` — ``finalise`` restores and rebuilds the best round).
+   rebuilt here).  OUR GLB is the round ``codeverse3d.addons.select`` picks from the
+   harness run under ``<bench_out>/<lang>/runs/<id>/`` (``deliverable/object.glb``, else
+   that round's own ``artifacts/rNN/object.glb``, else — a run recorded before rounds kept
+   their own — ``artifacts/object.glb``).
 3. Both GLBs go through the same pipeline as ``bench/_fixed_eval.FixedEvaluator``:
    ``measure_glb`` → ``check_connectivity`` → ``render_glb`` (OBJECT_VIEWS, settings
    size, contact sheet) → ``VlmJudge(static_object_v1, gemini-3.1-pro-preview,
@@ -47,10 +48,11 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
 from bench._fixed_eval import RUBRIC  # noqa: E402
 from bench.h2h_scene import sign_test  # noqa: E402
 from bench.run_bench import Battery, BenchPrompt  # noqa: E402
+from codeverse3d.addons import select  # noqa: E402
 
 JUDGE_MODEL = "gemini:gemini-3.1-pro-preview"
 N_SAMPLES = 2
-TERMINAL = {"passed", "plateau", "budget", "failed"}  # RunStatus values a finished run can hold
+IN_PROGRESS = {"planning", "generating", "refining"}  # RunStatus values of a run that has not stopped
 _H2H_TAGS = {"h2h", "brilliana"}
 
 
@@ -120,10 +122,19 @@ def our_side(runs_dir: Path, item_id: str) -> Side:
         side.minutes = round((t1 - t0).total_seconds() / 60, 2)
     except (KeyError, TypeError, ValueError):
         pass
-    if status not in TERMINAL or rec.get("best_round") is None:
-        side.error = f"run not finished (status={status!r}, best_round={rec.get('best_round')})"
+    if not status or status in IN_PROGRESS:
+        side.error = f"run not finished (status={status!r})"
         return side
-    for cand in (ws / "deliverable" / "object.glb", ws / "artifacts" / "object.glb"):
+    try:
+        picked = select.summarise(ws).picked_round
+    except Exception as e:  # noqa: BLE001 - one unreadable record must not kill the battery
+        side.error = f"unreadable record: {e}"
+        return side
+    if picked is None:
+        side.error = f"no judged round to hand over (status={status!r})"
+        return side
+    for cand in (ws / "deliverable" / "object.glb", ws / "artifacts" / f"r{picked:02d}" / "object.glb",
+                 ws / "artifacts" / "object.glb"):
         if cand.is_file():
             side.glb = str(cand)
             return side

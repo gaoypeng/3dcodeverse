@@ -23,8 +23,14 @@ import html
 import io
 import json
 import statistics
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
+    sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
+
+from codeverse3d.addons import select  # noqa: E402
 
 SHEET_W = 1100
 
@@ -35,7 +41,7 @@ class Run:
     arm: str
     brief: str = ""
     status: str = "?"
-    final: float | None = None
+    picked: float | None = None
     baseline: float | None = None
     rounds: int = 0
     usd: float = 0.0
@@ -73,8 +79,11 @@ def load_run(run_dir: Path, arm: str) -> Run:
         d = json.loads(rec.read_text())
         b = (d.get("extra") or {}).get("budget") or {}
         r.brief = str((d.get("spec") or {}).get("prompt") or "")
-        r.status = str(d.get("status") or "?")
-        r.final, r.baseline = d.get("final_score"), d.get("baseline_score")
+        try:  # the round addons/select picks; a record it cannot read keeps only its status
+            s = select.summarise(run_dir)
+            r.status, r.picked, r.baseline = s.stop_reason or "?", s.picked_score, s.baseline_score
+        except Exception:  # noqa: BLE001 - one unreadable record must not blank the page
+            r.status = str(d.get("status") or "?")
         r.rounds = len(d.get("rounds") or [])
         r.usd, r.minutes = round(float(b.get("spent_usd") or 0), 2), round(float(b.get("elapsed_min") or 0))
         r.error = str(d.get("error") or "")[:300]
@@ -97,8 +106,8 @@ MIN_RUNS_PER_ARM = 3
 
 def verdict(a: list[Run], b: list[Run]) -> tuple[str, str]:
     """(headline, why) — refuses to call a winner the sample cannot support."""
-    sa = [x.final for x in a if x.final is not None]
-    sb = [x.final for x in b if x.final is not None]
+    sa = [x.picked for x in a if x.picked is not None]
+    sb = [x.picked for x in b if x.picked is not None]
     if len(sa) < MIN_RUNS_PER_ARM or len(sb) < MIN_RUNS_PER_ARM:
         return ("Inconclusive — not enough scored runs",
                 f"arm A scored {len(sa)} of {len(a)} runs, arm B {len(sb)} of {len(b)}; this needs "
@@ -122,7 +131,7 @@ def _num(v: object) -> str:
 
 
 def _stats(rs: list[Run]) -> str:
-    sc = [x.final for x in rs if x.final is not None]
+    sc = [x.picked for x in rs if x.picked is not None]
     if not sc:
         return "no scored run"
     return (f"n={len(sc)}/{len(rs)} · mean {statistics.mean(sc):.3f} · "
@@ -135,7 +144,7 @@ def _panel(r: Run | None, side: str) -> str:
     page can keep them hidden until the reader has actually looked."""
     if r is None:
         return f'<div class="panel empty" data-side="{side}"><p>this arm has no run for this brief</p></div>'
-    tone = {"passed": "good", "failed": "bad", "budget": "warn"}.get(r.status, "warn")
+    tone = {"max_rounds": "good", "failed": "bad"}.get(r.status, "warn")  # why it stopped, not a verdict
     img = (f'<button class="sheet" data-full="{r.sheet}" '
            f'aria-label="enlarge {html.escape(r.slug)}"><img src="{r.sheet}" '
            f'alt="rendered frames for {html.escape(r.slug)}" loading="lazy"></button>'
@@ -147,7 +156,7 @@ def _panel(r: Run | None, side: str) -> str:
   {img}
   <div class="nums">
     <span class="pill {tone}">{html.escape(r.status)}</span>
-    <span class="n"><b>{_num(r.final)}</b> score</span>
+    <span class="n"><b>{_num(r.picked)}</b> score</span>
     <span class="n">{r.rounds} rounds</span>
     <span class="n">${r.usd:.2f}</span>
     <span class="n">{r.minutes} min</span>
@@ -158,8 +167,8 @@ def _panel(r: Run | None, side: str) -> str:
 
 def _pair(i: int, brief: str, a: Run | None, b: Run | None, flip: bool) -> str:
     left, right = (b, a) if flip else (a, b)
-    da = "" if a is None or a.final is None else f'{a.final:.3f}'
-    db = "" if b is None or b.final is None else f'{b.final:.3f}'
+    da = "" if a is None or a.picked is None else f'{a.picked:.3f}'
+    db = "" if b is None or b.picked is None else f'{b.picked:.3f}'
     return f"""<section class="pair" id="p{i}" data-i="{i}" data-flip="{'1' if flip else '0'}"
          data-a="{da}" data-b="{db}">
   <header class="pairhead">

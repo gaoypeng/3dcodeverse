@@ -59,7 +59,10 @@ def test_run_battery_resume_and_report(tmp_path: Path):
     res = run_battery(battery, out, opts, run_fn=_fake_run_fn(scores, fail_ids={"veh_easy_toy_car"}))
     assert len(res) == 4
     by_id = {r.id: r for r in res}
-    assert by_id["furn_easy_stool"].score_final == 0.85 and by_id["furn_easy_stool"].passed is True
+    assert by_id["furn_easy_stool"].score_picked == 0.85 and by_id["furn_easy_stool"].picked_round == 1
+    # like `3dcode make`, the battery hands over the picked round
+    assert (out / "runs" / "furn_easy_stool" / "deliverable" / "manifest.json").is_file()
+    assert json.loads((out / "runs" / "furn_easy_stool" / "selection.json").read_text())["round"] == 1
     assert by_id["veh_easy_toy_car"].status == "error" and "boom" in by_id["veh_easy_toy_car"].errors
     assert (out / "results.csv").is_file() and len(load_results(out)) == 4
     assert (out / "runs" / "furn_easy_stool" / "spec.json").is_file()
@@ -77,7 +80,8 @@ def test_run_battery_resume_and_report(tmp_path: Path):
     rep = build_report(out)
     assert rep.n == 5 and (out / "report.md").is_file() and (out / "report.html").is_file()
     tiers = {g.group: g for g in rep.by_tier}
-    assert tiers["easy"].n == 2 and tiers["easy"].final_mean == pytest.approx(0.85)  # toy car errored → unscored
+    assert tiers["easy"].n == 2 and tiers["easy"].picked_mean == pytest.approx(0.85)  # toy car errored → unscored
+    assert "pass" not in rep.markdown.split("### per prompt")[0], "no pass rate: a run is not passed or failed"
     assert rep.overall is not None and rep.overall.errors == 1
     assert "| furn_easy_stool | easy |" in rep.markdown
     page = (out / "report.html").read_text()
@@ -150,8 +154,8 @@ def test_a_provider_outage_is_not_model_latency_and_not_an_error():
     from bench.report import _stats
     from bench.run_bench import BenchItemResult
 
-    clear = [BenchItemResult(id=f"p{i}", tier="easy", score_baseline=0.5, score_final=0.8,
-                             passed=True, minutes=1.0, cost_usd=0.10, status="passed") for i in range(4)]
+    clear = [BenchItemResult(id=f"p{i}", tier="easy", score_baseline=0.5, score_picked=0.8,
+                             minutes=1.0, cost_usd=0.10, status="max_rounds") for i in range(4)]
     storm = BenchItemResult(
         id="p_storm", tier="easy", minutes=60.0, cost_usd=0.03, status="infra_failed",
         errors="ModelError: Gemini API error 503: The model is overloaded. Please try again later.")
@@ -164,7 +168,9 @@ def test_a_provider_outage_is_not_model_latency_and_not_an_error():
     assert with_storm.n == 5 and with_storm.n_evaluated == 4 and with_storm.infra_failed == 1
     assert with_storm.errors == 0, "a provider outage must not read as a crash"
     # the scored rates were already safe; they must stay so
-    assert with_storm.final_mean == base.final_mean and with_storm.pass_rate == base.pass_rate
+    assert with_storm.picked_mean == base.picked_mean and with_storm.delta_mean == base.delta_mean
+    # a row written before 2026-09-22 still reads: its score_final is the picked score
+    assert BenchItemResult.model_validate({"id": "old", "tier": "easy", "score_final": 0.7, "passed": True}).score_picked == 0.7
 
 
 def test_the_runner_classifies_the_outage_that_reaches_it(tmp_path: Path):

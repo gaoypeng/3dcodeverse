@@ -80,8 +80,10 @@ from bench.run_bench import (  # noqa: E402
     archive_attempt,
     build_spec,
     default_run_track,
+    hand_over,
     select_prompts,
 )
+from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.config import get_settings  # noqa: E402
 from codeverse3d.contracts.artifacts import RenderSet  # noqa: E402
 from codeverse3d.contracts.common import ENTRY_FILE, Track  # noqa: E402
@@ -265,20 +267,27 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOption
     with (exclusive(run_ws.root, what=f"compare {spec.id}:{run_ws.root.parent.name}"),
           run_ledger(run_ws.root, run=f"{spec.id}:{run_ws.root.parent.name}")):
         rec = deps.run_track(spec, run_ws, resume)
+        hand_over(run_ws, rec)  # what `3dcode make` delivers: the picked round, packaged
+    summary = select.summarise(run_ws.root, record=rec)
     res.gen_cost_usd = rec.total_usage.cost_usd
     res.tool_calls = rec.total_usage.tool_calls
-    res.harness_status, res.harness_rounds, res.harness_loop_score = rec.status.value, len(rec.rounds), rec.final_score
-    res.harness_stop_reason = str(rec.extra.get("stop_reason") or "")
+    res.harness_status, res.harness_rounds, res.harness_loop_score = rec.status.value, len(rec.rounds), summary.picked_score
+    res.harness_stop_reason = summary.stop_reason
     res.harness_aborted_rounds = len(rec.extra.get("aborted_rounds") or [])
-    if not (run_ws.root / entry_of(spec)).is_file():
-        res.error = f"harness run produced no {entry_of(spec)} (status {rec.status.value}: {rec.error})"
+    # the DELIVERED code is the picked round's deliverable/ (src/ + public/ at its commit);
+    # a run with no judged round handed nothing over, and its working tree — the last
+    # round — is what it produced
+    delivered = run_ws.deliverable if (run_ws.deliverable / entry_of(spec)).is_file() else run_ws.root
+    if not (delivered / entry_of(spec)).is_file():
+        res.error = f"harness run produced no {entry_of(spec)} (stop {summary.stop_reason}: {rec.error})"
         return
     # the whole src/ tree: agents may split helpers into src/parts/*.py (the build wrapper puts src/ on sys.path)
-    shutil.copytree(run_ws.src, eval_ws.src, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(delivered / "src", eval_ws.src, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     # a scene's Blender heroes live in public/assets/*.glb, preloaded by src/scene.js over http:
     # without them every hero clone is a 404 and the fixed evaluation judges an empty zone
-    if spec.track is Track.SCENE and (run_ws.root / "public").is_dir():
-        shutil.copytree(run_ws.root / "public", eval_ws.root / "public", dirs_exist_ok=True)
+    if spec.track is Track.SCENE and (delivered / "public").is_dir():
+        shutil.copytree(delivered / "public", eval_ws.root / "public", dirs_exist_ok=True)
 
 
 def _run_bare_agent(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOptions,

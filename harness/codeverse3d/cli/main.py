@@ -124,7 +124,7 @@ def run_cmd(
     console.print(f"battery={battery} out={out_dir} generator={generator or 'default'} judge={judge or 'default'}")
 
     def _on(res) -> None:
-        console.print(f"  [{res.status}] {res.id}: baseline={res.score_baseline} final={res.score_final} "
+        console.print(f"  [{res.status}] {res.id}: baseline={res.score_baseline} picked={res.score_picked} "
                       f"rounds={res.rounds} ${res.cost_usd:.2f} {res.minutes:.1f}min" + (f" [red]{res.errors[:80]}[/red]" if res.errors else ""))
 
     results = run_bench.run_battery(battery, out_dir, opts, on_result=_on)
