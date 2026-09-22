@@ -28,8 +28,10 @@ export function checkFiles(files) {
   for (const file of files) {
     try {
       new vm.SourceTextModule(fs.readFileSync(file, 'utf8'), { identifier: file });
-    } catch (e) {
-      const hit = e instanceof SyntaxError ? checkOne(file) : { file, line: null, message: String(e), stderr: '' };
+    } catch (_e) {
+      // node --check decides: it gives a SyntaxError its line, and if vm.SourceTextModule itself
+      // is missing (an experimental API) every file still gets a correct answer, just slower
+      const hit = checkOne(file);
       if (hit) bad.push(hit);
     }
   }
