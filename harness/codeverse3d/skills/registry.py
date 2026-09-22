@@ -43,6 +43,7 @@ CONTRACT_INSTANCE_COUNT = "contract/instance_count"
 CONTRACT_SCENE_BOUNDS = "contract/scene_bounds"
 JOINT_SWEEP_LINK_OVERLAP = "joint_sweep/link_overlap"
 JOINT_SWEEP_DISCONNECTED = "joint_sweep/disconnected"
+JOINT_SWEEP_BURIED = "joint_sweep/buried_link"
 MOTION_WRONG_AXIS = "motion_direction/wrong_axis"
 MOTION_SKIPPED = "motion_direction/skipped"
 SCENE_DARK_OR_FLAT = "scene_frames/dark_or_flat"
@@ -69,7 +70,10 @@ _RULES: tuple[tuple[str, str, str], ...] = (
     ("contract", r"missing from the GLB|not found in the exported scene", CONTRACT_MISSING_PART),
     ("contract", r"instance\(s\), plan asks for", CONTRACT_INSTANCE_COUNT),
     ("contract", r"exceeds the planned bounds", CONTRACT_SCENE_BOUNDS),
-    ("joint_sweep", r"overlap by", JOINT_SWEEP_LINK_OVERLAP),
+    # "overlap by" is one pose; the round gate aggregates a pair's poses ("overlap in N of the
+    # sampled poses") and summarises the pairs past its cap ("more overlapping pair(s)")
+    ("joint_sweep", r"overlap by|overlap in \d+ of the sampled poses|more overlapping pair", JOINT_SWEEP_LINK_OVERLAP),
+    ("joint_sweep", r"lies entirely inside", JOINT_SWEEP_BURIED),
     ("joint_sweep", r"apart at rest|nothing physically connects", JOINT_SWEEP_DISCONNECTED),
     ("motion_direction", r"check skipped|checks skipped", MOTION_SKIPPED),
     ("motion_direction", r"WRONG", MOTION_WRONG_AXIS),

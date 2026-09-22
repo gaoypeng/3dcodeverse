@@ -161,6 +161,30 @@
    "kind": "joint_sweep/link_overlap"
   },
   {
+   "gate": "joint_sweep",
+   "severity": "error",
+   "message": "links 'body|door' overlap in 2 of the sampled poses (worst 199.9 mm at hinge=0.79)",
+   "n": 0,
+   "kind": "joint_sweep/link_overlap",
+   "origin": "codeverse3d source (the round gate's aggregated form, 2026-09-22)"
+  },
+  {
+   "gate": "joint_sweep",
+   "severity": "warn",
+   "message": "3 more overlapping pair(s) not listed: base|lid, base|arm, arm|lid",
+   "n": 0,
+   "kind": "joint_sweep/link_overlap",
+   "origin": "codeverse3d source (the round gate's aggregated form, 2026-09-22)"
+  },
+  {
+   "gate": "joint_sweep",
+   "severity": "error",
+   "message": "link 'Hinge' lies entirely inside 'Body' at rest (100% of its surface): it can neither be seen nor move",
+   "n": 0,
+   "kind": "joint_sweep/buried_link",
+   "origin": "codeverse3d source (the round gate's aggregated form, 2026-09-22)"
+  },
+  {
    "gate": "lint:blender",
    "severity": "warn",
    "message": "bpy.context.selected_objects is unreliable in background mode (often empty)",
