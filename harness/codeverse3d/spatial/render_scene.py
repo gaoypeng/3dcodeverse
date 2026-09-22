@@ -164,13 +164,10 @@ def _bounds_json(bounds: BBox) -> str:
 
 def plan_bounds(ws: Workspace) -> BBox | None:
     """Scene bounds from the workspace's ``plan.json`` (None when absent/invalid)."""
-    p = ws.plan_path
-    if not p.is_file():
-        return None
+    raw = (read_json_or_none(ws.plan_path) or {}).get("bounds")
     try:
-        raw = json.loads(p.read_text()).get("bounds")
         return BBox.model_validate(raw) if raw else None
-    except (OSError, ValueError):
+    except ValueError:
         return None
 
 

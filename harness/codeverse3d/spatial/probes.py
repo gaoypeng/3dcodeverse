@@ -187,14 +187,12 @@ def _census_findings(c: dict[str, Any]) -> list[GateFinding]:
     return out
 
 
-def check_shaders(ws: Workspace, *, module: str | None = None, timeout_s: float = 90.0) -> GateReport:
+def check_shaders(ws: Workspace, *, timeout_s: float = 90.0) -> GateReport:
     """Static GLSL audits + GPU compile preflight with file:line mapped errors."""
     t0 = time.time()
     gate = SHADER_GATE
     out_json = ws.artifacts / "shader_preflight.json"
     args = ["--ws", str(ws.root), "--out", str(out_json), "--timeout-ms", str(int(timeout_s * 1000))]
-    if module:
-        args += ["--module", module]
     findings: list[GateFinding] = []
     try:
         res = run_scene_script("check_shaders.mjs", args, timeout_s=timeout_s + 20)
