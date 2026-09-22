@@ -580,9 +580,7 @@ def run_agent_task(
 
     if turn_capped(res):
         # the turns are gone, the money is not wasted: ask for a landing, not more work
-        if events is not None:
-            # NB: not ``cost_usd`` — an event carrying that key is priced as its own
-            # call by ``cost.reconstruct``, and this money is already in the session row.
+        if events is not None:  # (the money itself is the session's ledger row)
             events.emit(
                 "generate.turn_cap",
                 label=task.label,
@@ -706,7 +704,7 @@ def _is_budget_stop(e: BaseException) -> bool:
 def session_turns(res: Any) -> int:
     """``AgentResult.turns`` — the count as the BACKEND reports it (0 for gemini-cli,
     which exposes none).  Backends count turns slightly differently, so this is a
-    size signal for the ``cost.round`` event, not the number the turn cap is compared
+    size signal (the ``generate.turn_cap`` event), not the number the turn cap is compared
     against — that one is enforced inside the session by ``job.max_turns``.  (Until
     2026-08-29 this re-read result.json for a ``turns`` key only the deleted api-agent
     wrote, so ``agent_turns`` was 0 for every vendor CLI.)"""

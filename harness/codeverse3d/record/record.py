@@ -255,7 +255,7 @@ RUN_SEARCH_DEPTH = 7
 BATTERY_MARKERS = ("runs", "cells", "arms")
 #: run-layout directories that hold a SUB-workspace (a scene asset candidate, a rejected
 #: best-of-N candidate): their files belong to that sub-run, not to the run above them.
-#: ``cost.reconstruct.find_runs`` and the bench survey scripts skip them by this one name.
+#: ``addons.costreport.audit.find_runs`` and the bench survey scripts skip them by this one name.
 SUBRUN_DIRS: frozenset[str] = frozenset({"_cand", "_assets"})
 
 

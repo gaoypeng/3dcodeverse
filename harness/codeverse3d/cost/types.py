@@ -1,8 +1,8 @@
 """Typed rows and buckets for the cost ledger / audit.
 
 One :class:`CallCost` = one billable model or agent call.  Rows are written
-append-only (``ledger.py``), reconstructed from old runs (``reconstruct.py``)
-and aggregated into :class:`Summary` buckets (``ledger.summarise``).
+append-only (``ledger.py``) and aggregated into :class:`Summary` buckets
+(``ledger.summarise``).
 
 Nothing here imports the orchestrator or the tracks: the cost package is a
 leaf so any caller (track, judge, texturing, bench script) can use it.
@@ -74,8 +74,8 @@ _LABEL_STAGES: tuple[tuple[str, Stage], ...] = (
     ("baseline", Stage.BASELINE),
     ("refine", Stage.REFINE),
     # the static track's surface-detail round (labels "detail" / "detail_<scope>") was a
-    # refine pass under another name.  The round went on 2026-09-22; the row stays so the
-    # runs that recorded one still reconstruct its sessions as refine, not "other".
+    # refine pass under another name.  The round went on 2026-09-22; the row stays so a
+    # label of a run that recorded one still reads as refine, not "other".
     ("detail", Stage.REFINE),
     ("candidate", Stage.CANDIDATE),
     ("cand", Stage.CANDIDATE),

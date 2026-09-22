@@ -243,7 +243,7 @@ def record_call(
 
         from codeverse3d.cost import record_call
         record_call(res.usage, run=ws.slug, round=idx, stage="baseline",
-                    role="generator", ledger=ws.root / "cost_ledger.jsonl")
+                    role="generator", ledger=ws.root / "telemetry" / "cost.jsonl")
 
     Anything the caller leaves out (``run`` / ``round`` / ``stage`` / ``role``) is
     resolved from the ambient run context and the call label — see
@@ -301,8 +301,8 @@ def load_ledger(path: str | Path, *, include_attempts: bool = False) -> list[Cal
 
     ``source="attempt"`` rows (one per round-trip, ``instrument.MeteredChatModel``)
     are left out unless ``include_attempts=True``: their tokens are already on the
-    call's logical row, so every aggregate built on this reader (``summarise``,
-    ``reconstruct``, the CLI) keeps counting each call exactly once.  This is the ONLY
+    call's logical row, so every aggregate built on this reader (``summarise``, a run's
+    ``total_usage``, the cost audit) keeps counting each call exactly once.  This is the ONLY
     place that filter lives — ``summarise`` used to repeat it, which made
     ``include_attempts=True`` summarise to $0.  Paid-but-discarded round-trips are
     ``source="extra"`` instead and always count: nothing else records them."""
