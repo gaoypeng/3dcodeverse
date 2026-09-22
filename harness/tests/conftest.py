@@ -23,6 +23,16 @@ def _fresh_settings():
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _process_ledger(tmp_path_factory, monkeypatch):
+    """A metered call made outside any run ledger lands in the per-process log — under test, a
+    temp file, never the user's ``~/.cache/codeverse3d/cost/`` (fake judges bill a ledger row per
+    verdict, as a real judge's model does)."""
+    from codeverse3d.cost import ledger
+
+    monkeypatch.setattr(ledger, "_fallback", ledger.CostLedger(tmp_path_factory.mktemp("cost") / "process.jsonl"))
+
+
 @pytest.fixture
 def switch(monkeypatch):
     """``switch("C3D_X", "off")`` sets (``None``: unsets) one variable and drops the cached
