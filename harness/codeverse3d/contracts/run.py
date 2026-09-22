@@ -3,7 +3,7 @@
 ``RunRecord`` (rounds, totals, provenance: the flywheel unit), ``RunId`` (where a run
 sits in a runs dir or a battery), the per-round skills usage, and the packaged
 ``telemetry/`` + ``deliverable/`` blocks.  The skills shapes live here rather than in
-``codeverse3d/skills`` so ``contracts`` stays a leaf that ``flywheel``, ``gallery`` and the
+``codeverse3d/skills`` so ``contracts`` stays a leaf that ``record``, ``addons`` and the
 CLI import without the router, and a stored record re-reads on a build with no skill
 library at all.
 """
@@ -103,7 +103,7 @@ class RunId(BaseModel):
     ``battery`` labels the scan root the run was found under; ``rel`` is the run
     directory's posix path relative to that root.  Only the scanner still knows the
     root, so only the scanner can mint one of these
-    (``flywheel.record.run_id_for``)."""
+    (``record.record.run_id_for``)."""
 
     model_config = ConfigDict(frozen=True)
 

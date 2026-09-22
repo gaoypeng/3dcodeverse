@@ -153,7 +153,7 @@ class RenderSet(BaseModel):
     def software_rendered(self) -> bool:
         """True when these pixels came from a CPU rasteriser.
 
-        Measured on bench/out/scene_baseline (2026-09-05): with the box's eight GPUs at
+        Measured on eval/bench/out/scene_baseline (2026-09-05): with the box's eight GPUs at
         ~100 % from other work, the GPU probe's negative verdict is cached for 20 minutes,
         so cells fell back to SwiftShader one at a time and `fps` was measured on a
         DIFFERENT renderer per cell — 11.5 fps on an RTX 6000 Ada for one, 5.1 / 7.1 / 2.0

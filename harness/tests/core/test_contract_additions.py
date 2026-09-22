@@ -5,18 +5,17 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from codeverse3d.contracts import (
+from codeverse3d.contracts.artifacts import GateFinding, RenderSet, RenderView, Severity
+from codeverse3d.contracts.common import (
     ENTRY_FILE,
     LANGUAGE_LABEL,
     TRACK_INFO,
     TRACK_LANGUAGES,
     Language,
-    RunOptions,
-    Spec,
     Track,
     code_file,
 )
-from codeverse3d.contracts.artifacts import GateFinding, RenderSet, RenderView, Severity
+from codeverse3d.contracts.spec import RunOptions, Spec
 
 
 # ------------------------------------------------------------------ registries

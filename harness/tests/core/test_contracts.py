@@ -7,21 +7,20 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from codeverse3d.contracts import (
+from codeverse3d.contracts.chat import ChatMessage
+from codeverse3d.contracts.common import Budget, Language, Track, Usage
+from codeverse3d.contracts.plan import (
     ArticulatedPlan,
+    AssetPlan,
     BBox,
-    Budget,
-    ChatMessage,
+    CameraPlan,
     JointPlan,
-    Language,
     PartPlan,
     ScenePlan,
-    Spec,
     StaticPlan,
-    Track,
-    Usage,
+    ZonePlan,
 )
-from codeverse3d.contracts.plan import AssetPlan, CameraPlan, ZonePlan
+from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import (
     OBJECT_CLAY_VIEWS,
     OBJECT_VIEWS,

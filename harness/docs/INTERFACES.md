@@ -26,9 +26,9 @@ file was reconciled against it on 2026-08-23 (waves 2–3 + fix batch 1).
 ## core (contracts · config · proc)
 
 ```python
-from codeverse3d.contracts import TRACK_INFO, TrackInfo          # {Track: TrackInfo(rubric, label)} — THE track registry
-from codeverse3d.contracts import ENTRY_FILE, code_file, LANGUAGE_LABEL   # {Language: "src/<entry>"}; code_file(lang) -> "code.<ext>"
-from codeverse3d.contracts import RunOptions                     # Spec.options: candidates (int|None, ≥1), texture (bool)
+from codeverse3d.contracts.common import TRACK_INFO, TrackInfo   # {Track: TrackInfo(rubric, label)} — THE track registry
+from codeverse3d.contracts.common import ENTRY_FILE, code_file, LANGUAGE_LABEL   # {Language: "src/<entry>"}; code_file(lang) -> "code.<ext>"
+from codeverse3d.contracts.spec import RunOptions                # Spec.options: candidates (int|None, ≥1), texture (bool)
 GateFinding.as_line(with_gate=False, with_severity=False, with_target=False, with_hint=True) -> str
     # "GATE <gate>: [<sev>] <message> [<target>] FIX: <hint>" — flags opt in; no leading "- "
 RenderView.judge: bool | None      # stamped True/False at render time; None = legacy round (every stored view is judged)

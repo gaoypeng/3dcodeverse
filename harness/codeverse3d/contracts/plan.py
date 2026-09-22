@@ -72,7 +72,7 @@ class SubPartPlan(BaseModel):
     They exist so a part a human would call an *assembly* ("burr mechanism", "pegbox",
     "belt housing") can be planned as the 3-6 shapes it really is — which is where the
     measured judge reward lives — without adding contact surfaces the assembly gates must
-    police.  See ``docs/EVAL.md`` / the complexity baseline: built-parts ÷ planned-parts is
+    police.  See the complexity baseline: built-parts ÷ planned-parts is
     the only complexity metric with a positive partial correlation to geometry_detail."""
 
     name: str = Field(description="PascalCase, unique within the parent, e.g. Burr")
@@ -695,7 +695,7 @@ class SubAssembly(BaseModel):
 class EngineeringBrief(BaseModel):
     """The expanded engineering brief for ONE request: what a person who has actually held
     the object knows about it.  Produced by a cheap model call *before* planning
-    (``tracks/brief.py``) and folded into the plan; never a deliverable of its own.
+    and folded into the plan; never a deliverable of its own.
 
     The load-bearing fields are REQUIRED on purpose.  Measured on the first live run: with
     every field defaulted, gemini-3.7-flash answered three of four requests with
