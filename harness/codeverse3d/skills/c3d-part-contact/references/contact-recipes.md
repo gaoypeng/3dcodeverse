@@ -2,7 +2,7 @@
 
 Companion to `c3d-part-contact`. Everything here was checked against
 `codeverse3d/spatial/connectivity.py`, `codeverse3d/spatial/measure.py`, the Blender 5.0.1
-wrapper in `codeverse3d/languages/blender/wrappers/run_bpy.py`, and the recorded gate
+wrapper in `codeverse3d/languages/wrappers/run_bpy.py`, and the recorded gate
 findings under `bench/out/**/artifacts/gates/**` (mined 2026-08-25).
 
 ## 1. Finding to fix

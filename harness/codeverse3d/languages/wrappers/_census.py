@@ -1,10 +1,10 @@
-"""Scene census for the Blender build wrapper — executed BY Blender, never imported by the harness.
+"""Scene census for the Blender build wrappers — executed BY Blender, never imported by the harness.
 
-``run_bpy.py`` puts its own directory on ``sys.path`` and does ``import _census``; this
-module must therefore stay standalone (no ``codeverse3d`` imports).  It inspects the scene
-after the agent script ran: evaluated triangle counts, world bboxes, materials, parents,
-and the contract warnings the build cannot otherwise see (cameras, lights, visible
-boolean cutters, unlinked meshes, default primitive names, material slots no polygon uses).
+``run_bpy.py`` and ``run_bpy_links.py`` import it as a sibling module; it must therefore
+stay standalone (no ``codeverse3d`` imports).  It inspects the scene after the agent
+script ran: evaluated triangle counts, world bboxes, materials, parents, and the contract
+warnings the build cannot otherwise see (cameras, lights, visible boolean cutters,
+unlinked meshes, default primitive names, material slots no polygon uses).
 """
 
 from __future__ import annotations

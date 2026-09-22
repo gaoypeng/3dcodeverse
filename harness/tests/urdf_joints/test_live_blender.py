@@ -125,3 +125,36 @@ def test_wrapper_unsafe_link_name_is_a_build_error(tmp_path):
     assert not build["ok"] and build["error_type"] == "UnsafeLinkName"
     assert "../evil" in build["error_message"]
     assert not (out / "meshes").exists() and not (tmp_path / "evil.glb").exists()
+
+
+@needs_blender
+def test_links_script_that_calls_sys_exit_0_still_builds(tmp_path):
+    """``sys.exit(0)`` ends the script, not the build: the objects it made are the links
+    (the blender language's rule; this wrapper used to report it as a SystemExit error).
+    The run is seeded like the blender language's, so ``random`` draws the same numbers."""
+    import json as _json
+    import subprocess
+
+    from codeverse3d.languages.urdf import WRAPPER
+
+    (tmp_path / "robot.urdf").write_text('<robot name="r"><link name="base"/></robot>')
+    (tmp_path / "model.py").write_text(
+        "import random, sys\nimport bpy\n"
+        "bpy.ops.mesh.primitive_cube_add(size=0.2 + random.random())\n"
+        "bpy.context.active_object.name = 'base'\n"
+        "sys.exit(0)\n"
+        "raise RuntimeError('never reached')\n")
+    out = tmp_path / "art"
+    subprocess.run(
+        [get_settings().resolve_blender(), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
+         "--script", str(tmp_path / "model.py"), "--urdf", str(tmp_path / "robot.urdf"), "--out", str(out)],
+        capture_output=True, text=True, timeout=180, check=False)
+    build = _json.loads((out / "build.json").read_text())
+    assert build["ok"] and build["error_type"] == "", build
+    census = _json.loads((out / "census.json").read_text())
+    import random
+
+    random.seed(0)
+    assert census["links"]["base"]["bbox_max"][0] == pytest.approx((0.2 + random.random()) / 2, abs=1e-5)
+    assert (out / "meshes" / "base.glb").is_file()
+    assert any("has no material" in w for w in census["warnings"])  # the blender language's census

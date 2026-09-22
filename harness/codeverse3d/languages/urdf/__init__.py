@@ -1,5 +1,5 @@
 """``urdf_blender``: bpy link meshes + hand-written URDF — lint, skeleton, FK ↔ geometry
-consistency and the ``UrdfBlenderRuntime`` around ``wrappers/run_bpy_links.py``."""
+consistency and the ``UrdfBlenderRuntime`` around ``languages/wrappers/run_bpy_links.py``."""
 
 from __future__ import annotations
 
@@ -744,7 +744,7 @@ def write_skeleton(ws: Workspace, plan: ArticulatedPlan) -> list[Path]:
 
 
 # ===================================================================== runtime
-WRAPPER = Path(__file__).resolve().parent / "wrappers" / "run_bpy_links.py"
+WRAPPER = Path(__file__).resolve().parent.parent / "wrappers" / "run_bpy_links.py"
 REST_PENETRATION_MAX_M = 0.005
 FK_TOL_M = 0.001
 

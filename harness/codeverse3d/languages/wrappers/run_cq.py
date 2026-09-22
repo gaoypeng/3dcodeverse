@@ -3,30 +3,40 @@
     python run_cq.py --script /abs/src/model.py --out /abs/artifacts \
         [--rlimit-gb 8] [--tri-limit 600000] [--tolerance 0.001] [--angular-tolerance 0.15] [--seed 0]
 
-Steps: RLIMIT_AS → exec model.py (runpy) with traceback→line mapping → read the
-module-level ``result`` (cq.Assembly preferred, or Workplane / Shape) → tessellate
-each part (world location applied) → ``object.glb`` (Y-up, +Z front, named nodes,
-PBR base colour from cq.Color) + ``object.step`` + ``object.stl`` → ``census.json``
-+ ``build.json`` (atomic).  Exit 0 whenever a report was written; 2 on wrapper bugs.
-Standalone: imports cadquery / numpy / trimesh only (never ``codeverse3d``).
+Steps: RLIMIT_AS → seed → exec model.py with traceback→line mapping (``_wrapper_common``,
+shared with the Blender wrappers) → read the module-level ``result`` (cq.Assembly
+preferred, or Workplane / Shape) → tessellate each part (world location applied) →
+``object.glb`` (Y-up, +Z front, named nodes, PBR base colour from cq.Color) +
+``object.step`` + ``object.stl`` → ``census.json`` + ``build.json`` (atomic).  Exit 0
+whenever a report was written; 2 on wrapper bugs.  Standalone: imports cadquery / numpy /
+trimesh and its sibling ``_wrapper_common`` only (never ``codeverse3d``).
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import random
 import re
-import runpy
 import sys
 import time
-import traceback
 from typing import Any
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from _wrapper_common import (  # noqa: E402  (sibling module)
+    exit_after,
+    map_exception,
+    new_report,
+    run_script,
+    seed_everything,
+    src_relative,
+    wrapper_argv,
+    write_report,
+)
 
 GLB_NAME, STEP_NAME, STL_NAME = "object.glb", "object.step", "object.stl"
 PASCAL_RE = re.compile(r"^[A-Z][A-Za-z0-9]*(?:_\d+)?$")
 DEFAULT_RGBA = (0.7, 0.7, 0.7, 1.0)
+MEMORY_HINT = "reduce boolean/pattern counts or tessellation density."
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -41,94 +51,22 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def write_json_atomic(path: str, data: Any) -> None:
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, default=str)
-    os.replace(tmp, path)
-
-
-def apply_rlimit(gb: float) -> str:
-    if gb <= 0:
-        return "rlimit disabled"
-    try:
-        import resource
-
-        cap = int(gb * 1024**3)
-        _soft, hard = resource.getrlimit(resource.RLIMIT_AS)
-        lim = cap if hard == resource.RLIM_INFINITY else min(cap, hard)
-        resource.setrlimit(resource.RLIMIT_AS, (lim, hard))
-        return f"RLIMIT_AS={lim // 1024**2} MB"
-    except (ImportError, ValueError, OSError) as e:
-        return f"rlimit not applied: {e}"
-
-
-# ----------------------------------------------------------------------------- exec + errors
-def src_relative(path: str, src_dir: str) -> str | None:
-    """``/ws/src/helpers.py`` → ``src/helpers.py`` when ``path`` lives under ``src_dir``; else None.
-
-    Every runtime reports ``error_file`` workspace-relative (``src/...``) so the repair
-    loop can open the file; the bare basename would resolve to ``<ws>/model.py``.
-    """
-    real_src = os.path.realpath(src_dir)
-    real = os.path.realpath(path)
-    if real == real_src or not real.startswith(real_src + os.sep):
-        return None
-    return os.path.join(os.path.basename(real_src), os.path.relpath(real, real_src)).replace(os.sep, "/")
-
-
 def entry_relative(script_path: str) -> str:
     """``src/model.py`` for the entry script itself."""
     return src_relative(script_path, os.path.dirname(os.path.abspath(script_path))) or os.path.basename(script_path)
 
 
-def map_exception(exc: BaseException, script_path: str) -> dict[str, Any]:
-    """Traceback → {error_type, error_message, error_file, error_line, error_source, traceback}.
-
-    The innermost frame under ``src/`` wins, so an exception raised in a helper module
-    (``src/helpers.py``) is reported against that file, not the ``model.py`` call site.
-    """
-    src_dir = os.path.dirname(os.path.abspath(script_path))
-    info: dict[str, Any] = {"error_type": type(exc).__name__, "error_message": str(exc) or type(exc).__name__,
-                            "error_file": "", "error_line": None, "error_source": ""}
-    syntax_rel = src_relative(exc.filename, src_dir) if isinstance(exc, SyntaxError) and exc.filename else None
-    if syntax_rel:
-        info.update(error_file=syntax_rel, error_line=exc.lineno, error_source=(exc.text or "").strip())
-    else:
-        for fr in reversed(traceback.extract_tb(exc.__traceback__)):
-            rel = src_relative(fr.filename, src_dir)
-            if rel:
-                info.update(error_file=rel, error_line=fr.lineno, error_source=(fr.line or "").strip())
-                break
-    msg = info["error_message"]
-    if "BRep_API: command not done" in msg or "StdFail_NotDone" in info["error_type"]:
-        info["error_message"] = msg + (
-            " — OCC kernel refused the operation: fillet/chamfer radius >= adjacent wall/face size, conflicting adjacent "
-            "fillets, or degenerate geometry. Clamp radii (< 0.45 x min thickness), select fewer edges, fillet before booleans.")
-    if isinstance(exc, MemoryError):
-        info["error_message"] = "MemoryError: memory cap hit — reduce boolean/pattern counts or tessellation density."
-    info["traceback"] = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))[-6000:]
-    return info
+def occ_hint(exc: BaseException) -> str:
+    """What an OCC kernel refusal usually means, appended to its message."""
+    if "BRep_API: command not done" in str(exc) or "StdFail_NotDone" in type(exc).__name__:
+        return (" — OCC kernel refused the operation: fillet/chamfer radius >= adjacent wall/face size, conflicting "
+                "adjacent fillets, or degenerate geometry. Clamp radii (< 0.45 x min thickness), select fewer edges, "
+                "fillet before booleans.")
+    return ""
 
 
-def run_script(script_path: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    script_dir = os.path.dirname(os.path.abspath(script_path))
-    if script_dir not in sys.path:
-        sys.path.insert(0, script_dir)
-    saved = sys.argv
-    sys.argv = [script_path]
-    try:
-        ns = runpy.run_path(script_path, run_name="__main__")
-        return None, ns
-    except SystemExit as e:
-        if e.code in (None, 0):
-            return {"error_type": "SystemExit", "error_message": "script called sys.exit() before `result` could be read; remove it",
-                    "error_file": entry_relative(script_path), "error_line": None, "error_source": "", "traceback": ""}, {}
-        return map_exception(e, script_path), {}
-    except BaseException as e:  # noqa: BLE001
-        return map_exception(e, script_path), {}
-    finally:
-        sys.argv = saved
+def script_error(exc: BaseException, script: str) -> dict[str, Any]:
+    return map_exception(exc, script, hint=occ_hint(exc), memory=MEMORY_HINT)
 
 
 # ----------------------------------------------------------------------------- parts
@@ -256,33 +194,35 @@ def export_step_stl(cq: Any, result: Any, parts: list[dict[str, Any]], out_dir: 
 
 # ----------------------------------------------------------------------------- main
 def main() -> int:
-    args = parse_args(sys.argv[1:])
+    args = parse_args(wrapper_argv())
     out_dir = os.path.abspath(args.out)
     os.makedirs(out_dir, exist_ok=True)
-    build_path, census_path = os.path.join(out_dir, "build.json"), os.path.join(out_dir, "census.json")
-    for stale in (build_path, census_path, *(os.path.join(out_dir, n) for n in (GLB_NAME, STEP_NAME, STL_NAME))):
-        if os.path.exists(stale):
-            os.remove(stale)
     t0 = time.monotonic()
-    report: dict[str, Any] = {"ok": False, "language": "cadquery", "error_type": "", "error_message": "", "error_file": "",
-                              "error_line": None, "error_source": "", "traceback": "", "warnings": [], "exported": {},
-                              "rlimit": apply_rlimit(args.rlimit_gb)}
-    random.seed(args.seed)
+    report = new_report("cadquery", args.rlimit_gb)
+    seed_everything(args.seed)
     import cadquery as cq  # noqa: PLC0415 — after the rlimit, before the script
 
     report["cadquery_version"] = getattr(cq, "__version__", "?")
     script = os.path.abspath(args.script)
-    err, ns = (None, {}) if os.path.isfile(script) else ({"error_type": "FileNotFoundError", "error_message": f"script not found: {script}"}, {})
-    if err is None:
+    err: dict[str, Any] | None = None
+    ns: dict[str, Any] | None = {}
+    if not os.path.isfile(script):
+        err = {"error_type": "FileNotFoundError", "error_message": f"script not found: {script}"}
+    else:
         t_exec = time.monotonic()
-        err, ns = run_script(script)
+        exc, ns = run_script(script)
         report["exec_ms"] = int((time.monotonic() - t_exec) * 1000)
+        if exc is not None:
+            err = script_error(exc, script)
+        elif ns is None:
+            err = {"error_type": "SystemExit", "error_file": entry_relative(script),
+                   "error_message": "script called sys.exit() before `result` could be read; remove it"}
     census: dict[str, Any] = {"parts": [], "tri_count": 0, "warnings": report["warnings"], "frame": "z_up_neg_y_front"}
-    if err is None and "result" not in ns:
+    if err is None and ns is not None and "result" not in ns:
         err = {"error_type": "MissingResult", "error_file": entry_relative(script),
                "error_message": "model.py must assign a module-level `result` (cq.Assembly or cq.Workplane); "
                                 "it must exist at import time, not only under `if __name__ == '__main__':`"}
-    if err is None:
+    if err is None and ns is not None:
         try:
             parts, kind = collect_parts(cq, ns["result"], report["warnings"])
             census["result_kind"] = kind
@@ -313,25 +253,16 @@ def main() -> int:
             report["exported"]["glb"] = glb
             export_step_stl(cq, ns["result"], parts, out_dir, args.tolerance, args.angular_tolerance, report)
         except Exception as e:  # noqa: BLE001 — export-time failure in agent geometry
-            err = map_exception(e, script)
+            err = script_error(e, script)
             if not err["error_file"]:
                 err["error_type"], err["error_message"] = "ExportError", f"{type(e).__name__}: {e}"
     if err:
-        report.update({k: v for k, v in err.items() if k in report or k == "traceback"})
-        if err.get("traceback"):
-            print(err["traceback"], file=sys.stderr, end="")
+        report.update({k: v for k, v in err.items() if k in report})
     census["n_parts"] = len(census["parts"])
-    write_json_atomic(census_path, census)
     report["ok"] = not report["error_type"] and "glb" in report["exported"]
-    report["duration_ms"] = int((time.monotonic() - t0) * 1000)
-    write_json_atomic(build_path, report)
+    write_report(out_dir, report, census, t0)
     return 0
 
 
 if __name__ == "__main__":
-    try:
-        code = main()
-    except Exception:  # wrapper bug
-        traceback.print_exc()
-        code = 2
-    sys.exit(code)
+    exit_after(main)

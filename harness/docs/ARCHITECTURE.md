@@ -114,8 +114,10 @@ codeverse3d/
   languages/          LanguageRuntime (base.py); one merged module per language since 2026-08-28 —
                       blender/ cadquery/ threejs/ urdf/ scene_threejs/ glsl_shader/ opengl_python/ are each
                       a single __init__.py (lint → skeleton → runtime, in dependency order) beside their
-                      data (wrappers/, starter/ — Path(__file__) assets unchanged; the contract text
-                      is prompts/<lang>/contract.md, read through RuntimeDocs)
+                      data (starter/, opengl_python/wrappers/run_gl.py; the contract text is
+                      prompts/<lang>/contract.md, read through RuntimeDocs); wrappers/ holds the python
+                      build wrappers (run_bpy, run_bpy_links, run_cq) and what they share
+                      (_wrapper_common: script run + error mapping + report; _census: the Blender census)
   spatial/            node.py, render.py, observe.py, tool_common.py (shared tool plumbing),
                       render_scene.py (judge view subset, content-fitted orbit),
                       frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),
@@ -314,8 +316,8 @@ summary:
 * **blender** (multi-file): `src/model.py` entry + `src/parts/<snake>.py` each
   defining `def build_<snake>()` (self-contained; optional `src/parts/_x.py`
   helpers) — pure bpy, Z-up, -Y front, meters; PascalCase object names = part
-  names.  Small objects may stay single-file.  Harness wrapper (`run_bpy.py` +
-  `_census.py`) puts `src/` on sys.path, maps errors to workspace-relative
+  names.  Small objects may stay single-file.  Harness wrapper (`languages/wrappers/run_bpy.py`
+  + `_wrapper_common.py` + `_census.py`) puts `src/` on sys.path, maps errors to workspace-relative
   `src/parts/<x>.py:line`, collects census, exports GLB (Y-up) + STL.  The census
   records `n_material_slots` + `material_indices_used` (read off the EVALUATED mesh,
   so modifier-added indices count) and warns when a mesh carries slots no polygon

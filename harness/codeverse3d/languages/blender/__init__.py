@@ -675,8 +675,7 @@ def write_blender_skeleton(ws: Workspace, plan: StaticPlan, *, ground_tol_m: flo
 
 
 # ===================================================================== runtime
-_PKG_DIR = Path(__file__).resolve().parent
-WRAPPER = _PKG_DIR / "wrappers" / "run_bpy.py"
+WRAPPER = Path(__file__).resolve().parent.parent / "wrappers" / "run_bpy.py"
 
 
 class BlenderNotFoundError(RuntimeError):

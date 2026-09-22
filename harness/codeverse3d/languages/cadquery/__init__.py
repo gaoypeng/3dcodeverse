@@ -311,8 +311,7 @@ def write_cadquery_skeleton(ws: Workspace, plan: StaticPlan) -> list[Path]:
 
 
 # ===================================================================== runtime
-_PKG_DIR = Path(__file__).resolve().parent
-WRAPPER = _PKG_DIR / "wrappers" / "run_cq.py"
+WRAPPER = Path(__file__).resolve().parent.parent / "wrappers" / "run_cq.py"
 
 
 def cadquery_env() -> dict[str, str]:

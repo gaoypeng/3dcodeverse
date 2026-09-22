@@ -16,7 +16,7 @@ import pytest
 
 from codeverse3d.languages.blender import BlenderRuntime
 
-CENSUS = Path(__file__).resolve().parents[2] / "codeverse3d" / "languages" / "blender" / "wrappers" / "_census.py"
+CENSUS = Path(__file__).resolve().parents[2] / "codeverse3d" / "languages" / "wrappers" / "_census.py"
 
 
 def _census_module() -> Any:

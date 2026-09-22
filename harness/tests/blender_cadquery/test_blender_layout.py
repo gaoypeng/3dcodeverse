@@ -128,26 +128,31 @@ def test_wrapper_maps_errors_to_the_failing_src_file(tmp_path, monkeypatch) -> N
     (src / "parts").mkdir(parents=True)
     (src / "model.py").write_text("from parts.leg import build_leg\nbuild_leg()\n")
     (src / "parts" / "leg.py").write_text("def build_leg():\n    x = {}\n    return x['missing']\n")
-    err = wrapper.run_script(str(src / "model.py"))
+
+    def run(script):
+        exc, _ = wrapper.run_script(script)
+        return wrapper.script_error(exc, script)
+
+    err = run(str(src / "model.py"))
     assert err["error_type"] == "KeyError" and err["error_file"] == "src/parts/leg.py" and err["error_line"] == 3
     assert err["error_source"] == "return x['missing']"
     # syntax error inside a part file imported by model.py → reported against the part file
     (src / "parts" / "leg.py").write_text("def build_leg(:\n    pass\n")
     for name in [m for m in sys.modules if m.startswith("parts")]:
         del sys.modules[name]
-    err = wrapper.run_script(str(src / "model.py"))
+    err = run(str(src / "model.py"))
     assert err["error_type"] == "SyntaxError" and err["error_file"] == "src/parts/leg.py" and err["error_line"] == 1
     # missing builder → hint names the file and the function
     (src / "parts" / "leg.py").write_text("def build_legs():\n    pass\n")
-    err = wrapper.run_script(str(src / "model.py"))
+    err = run(str(src / "model.py"))
     assert err["error_type"] == "ImportError" and err["error_file"] == "src/model.py" and err["error_line"] == 1
     assert "def build_leg()" in err["error_message"] and "parts/leg.py" in err["error_message"]
     # missing module → hint says to create the file
     (src / "model.py").write_text("import math\nfrom parts.armrest import build_armrest\n")
-    err = wrapper.run_script(str(src / "model.py"))
+    err = run(str(src / "model.py"))
     assert err["error_type"] in ("ModuleNotFoundError", "ImportError")
     assert err["error_line"] == 2 and "src/parts/armrest.py" in err["error_message"]
-    assert wrapper.src_relative(str(src / "parts" / "x.py"), str(src)) == "src/parts/x.py"
-    assert wrapper.src_relative(str(tmp_path / "other.py"), str(src)) is None
+    (src / "model.py").write_text("import sys\nsys.exit(0)\n")  # not a failure: the scene is what was built
+    assert wrapper.run_script(str(src / "model.py")) == (None, None)
     for name in [m for m in sys.modules if m == "parts" or m.startswith("parts.")]:
         del sys.modules[name]

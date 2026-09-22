@@ -144,8 +144,10 @@ def _wrapper_module():
     return mod
 
 
-def test_wrapper_error_file_is_workspace_relative(tmp_path) -> None:
+def test_wrapper_error_file_is_workspace_relative(tmp_path, monkeypatch) -> None:
     """error_file must be ``src/<file>`` (like every other runtime) and point at the innermost src/ frame."""
+    monkeypatch.setattr(sys, "path", list(sys.path))  # run_script edits sys.path; keep the test process clean
+    monkeypatch.setattr(sys, "dont_write_bytecode", sys.dont_write_bytecode)
     mod = _wrapper_module()
     src = tmp_path / "src"
     src.mkdir()
@@ -155,20 +157,25 @@ def test_wrapper_error_file_is_workspace_relative(tmp_path) -> None:
     assert mod.src_relative(str(src / "parts" / "leg.py"), str(src)) == "src/parts/leg.py"
     assert mod.src_relative(str(tmp_path / "other.py"), str(src)) is None
     assert mod.entry_relative(str(src / "model.py")) == "src/model.py"
-    err, ns = mod.run_script(str(src / "model.py"))
-    assert err is not None and ns == {}
+
+    def run(script):
+        exc, ns = mod.run_script(script)
+        assert exc is not None and ns is None
+        return mod.script_error(exc, script)
+
+    err = run(str(src / "model.py"))
     assert err["error_type"] == "RuntimeError" and err["error_file"] == "src/helpers.py" and err["error_line"] == 2
     assert "raise RuntimeError" in err["error_source"] and "helpers.py" in err["traceback"]
     # an error raised by model.py itself still maps to src/model.py (and so does a SyntaxError)
     (src / "model.py").write_text("import math\nx = 1 / 0\n")
-    err, _ = mod.run_script(str(src / "model.py"))
+    err = run(str(src / "model.py"))
     assert err["error_file"] == "src/model.py" and err["error_line"] == 2
     (src / "model.py").write_text("result = (\n")
-    err, _ = mod.run_script(str(src / "model.py"))
+    err = run(str(src / "model.py"))
     assert err["error_type"] == "SyntaxError" and err["error_file"] == "src/model.py"
+    # sys.exit(0) leaves no globals to read `result` from (main() reports it as SystemExit)
     (src / "model.py").write_text("import sys\nsys.exit(0)\n")
-    err, _ = mod.run_script(str(src / "model.py"))
-    assert err["error_type"] == "SystemExit" and err["error_file"] == "src/model.py"
+    assert mod.run_script(str(src / "model.py")) == (None, None)
 
 
 @needs_cq

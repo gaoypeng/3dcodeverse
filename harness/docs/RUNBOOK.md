@@ -360,8 +360,10 @@ model, produced the zero — check `cell.json`'s `error`).
 
 * **New language**: enum in `contracts/common.py::Language` (+ `TRACK_LANGUAGES`,
   `ENTRY_FILE`, `LANGUAGE_LABEL`), frame in `conventions.LANGUAGE_FRAME`;
-  `languages/<lang>/{__init__.py, wrappers/}` (one merged module per language;
-  the contract text is `prompts/<lang>/contract.md`) implementing `LanguageRuntime`; branch in `languages/base.py::get_runtime`;
+  `languages/<lang>/__init__.py` (one merged module per language; the contract text is
+  `prompts/<lang>/contract.md`) implementing `LanguageRuntime`, and a python-executed build
+  wrapper beside the others in `languages/wrappers/` (import `_wrapper_common`; read its report
+  with `_common.compose_build_result`, which publishes the final `build.json`); branch in `languages/base.py::get_runtime`;
   `prompts/<lang>/contract.md` + `cookbook.md` (every snippet must run —
   `tests/prompts` executes them); part→file mapping via `runtime.file_for_part`
   (blender has it; `tracks/prompting.file_for_target_factory` picks it up and maps
