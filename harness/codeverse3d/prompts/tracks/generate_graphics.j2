@@ -17,7 +17,7 @@ Constraints:
 {{ contract }}
 
 Files you must produce: {% for f in expected_files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}.
-{% if cookbook_rel %}Copyable snippets live in `{{ cookbook_rel }}` (read it before writing if you can).{% endif %}
+{% if cookbook_rel %}Copyable snippets live in `.3dcode/cookbook.md` (read it before writing if you can).{% endif %}
 {% if cookbook_excerpt %}
 Cookbook excerpt:
 {{ cookbook_excerpt }}

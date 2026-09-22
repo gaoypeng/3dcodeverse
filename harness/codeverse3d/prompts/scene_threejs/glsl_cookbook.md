@@ -203,7 +203,7 @@ export function makeGlowMaterial(THREE, opts = {}) {
 
 Why: `additive: true` sets AdditiveBlending + `depthWrite:false` + distance fade through
 ALPHA (ordinary fog would make added light brighter with distance).  Strength ≤ 1.5
-without bloom; the harness renders without a bloom pass.
+without bloom.
 
 ## God-ray billboard (light shafts through trees / windows)
 

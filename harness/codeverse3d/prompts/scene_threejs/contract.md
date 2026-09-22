@@ -4,8 +4,8 @@
 ```
 src/scene.js        export async function createScene({ THREE, renderer, loaders })
                       → { scene, cameras, update(t, dt) }
-src/env.js          export const BOUNDS; export function heightAt(x, z); export function buildEnv(THREE, scene) → { update(t, dt) }
-src/zones/<snake>.js   export function build<Zone>(THREE, ctx) → THREE.Group   (ctx = { heightAt, loaders, ... })
+src/env.js          export const BOUNDS; export function heightAt(x, z); export function buildEnv(ctx) → { update(t, dt) }
+src/zones/<snake>.js   export function build(ctx) → THREE.Group   (ctx = { THREE, scene, heightAt, loaders, env, ... })
 src/assets/<snake>.js  export function build<Asset>(THREE, opts = {}) → THREE.Group   (procedural, Y-up, on y = 0)
 src/shaders/<snake>.js export function make<Name>Material(THREE, opts = {}) → THREE.ShaderMaterial | patched material
 src/lib/*.js        HARNESS-OWNED effect library (44 modules) — import and call, never rewrite
@@ -72,7 +72,7 @@ export const BOUNDS = { min: [-40, 0, -40], max: [40, 25, 40] };
 export function heightAt(x, z) {                 // gentle rolling ground, deterministic
   return 0.6 * Math.sin(x * 0.12) * Math.cos(z * 0.09) + 0.2 * Math.sin((x + z) * 0.31);
 }
-export function buildEnv(THREE, scene) {
+export function buildEnv({ THREE, scene }) {
   scene.background = new THREE.Color(0x9fc4e8);
   scene.fog = new THREE.Fog(0x9fc4e8, 40, 140);
   // ONE rig: key + hemisphere fill + the environment map metals read from + disc + shadows
@@ -94,7 +94,7 @@ export function buildEnv(THREE, scene) {
 ```js
 import * as THREE from 'three';
 const rand = (i) => { const s = Math.sin(i * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); };
-export function buildGrove(THREE, { heightAt }) {
+export function build({ THREE, heightAt }) {
   const zone = new THREE.Group(); zone.name = 'Grove';
   const N = 40;
   const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.18, 2.4, 8),
@@ -119,11 +119,12 @@ export function buildGrove(THREE, { heightAt }) {
 ```js
 import * as THREE from 'three';
 import { buildEnv, heightAt, BOUNDS } from './env.js';
-import { buildGrove } from './zones/grove.js';
+import { build as buildGrove } from './zones/grove.js';
 export async function createScene({ THREE, renderer, loaders }) {
   const scene = new THREE.Scene();
-  const env = buildEnv(THREE, scene);
-  const grove = buildGrove(THREE, { heightAt, loaders });
+  const ctx = { THREE, scene, renderer, loaders, heightAt, assets: {} };
+  const env = buildEnv(ctx); ctx.env = env;
+  const grove = buildGrove(ctx);
   scene.add(grove);
   const cameras = [                                   // plain objects; the harness builds the cameras
     { name: 'Establishing', position: [38, 14, 42], lookAt: [0, 2, 0], fov: 40 },

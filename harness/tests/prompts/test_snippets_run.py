@@ -256,7 +256,7 @@ def test_scene_cookbook_sky_shader_compiles(tmp_path) -> None:
         "import * as THREE from 'three';\n" + body
         + "\nexport function makeSkyMaterial(THREE_) {\n"
         "  const s = new THREE_.Scene();\n"
-        "  buildEnv(THREE_, s);\n"
+        "  buildEnv({ THREE: THREE_, scene: s });\n"
         "  return s.getObjectByName('SkyDome').material;\n"
         "}\n"
     )

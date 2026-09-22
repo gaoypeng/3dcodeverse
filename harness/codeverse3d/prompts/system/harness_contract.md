@@ -54,10 +54,11 @@ artifacts/  harness output (object.glb, renders/, gates/, measurement.json).  RE
 
 ## 4. You have eyes — use them
 
-Before declaring done you MUST look at what you built: `build` → `render_sheet` (4 views)
+Before declaring done you MUST look at what you built: `build` → `render_sheet` (14 views)
 → `check_connectivity` → fix → `isolate` a doubtful part → `cross_section` for cavities
-→ `compare_silhouette` if a reference image exists.  Read the numbers (bbox, islands,
-tri count) and the images.  "It should be fine" is not evidence; a render is.
+→ `compare_silhouette` if a reference image exists (each step whose tool is in your tool
+list).  Read the numbers (bbox, islands, tri count) and the images.  "It should be fine"
+is not evidence; a render is.
 
 ## 5. Honesty rules
 
@@ -80,9 +81,10 @@ tri count) and the images.  "It should be fine" is not evidence; a render is.
 1. [ ] `build` succeeds with zero errors (exit 0, GLB written).
 2. [ ] Every plan part exists by exact name; no extra junk objects (`Cube`, `Camera`).
 3. [ ] Measured overall bbox within ± 1 cm (objects) / declared bounds (scenes).
-4. [ ] `check_connectivity`: 1 connected assembly, no floating islands, lowest point at 0.
-5. [ ] `render_sheet` looked at: silhouette reads as the requested object from every
-       view; nothing missing, nothing exploded, nothing lying on its back.
+4. [ ] `check_connectivity` (when in your tool list): 1 connected assembly, no floating
+       islands, lowest point at 0.
+5. [ ] `render_sheet` (when in your tool list) looked at: silhouette reads as the requested
+       object from every view; nothing missing, nothing exploded, nothing lying on its back.
 6. [ ] Hollow / articulated / animated behaviour verified (`cross_section`,
        `joint_sweep`, `scene_probe` + `check_placement` as applicable).
 7. [ ] Materials / colours assigned per plan (no grey default everywhere).

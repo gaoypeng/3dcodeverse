@@ -19,7 +19,7 @@ Style: {{ style_notes }}
 {% for f in files %}- `{{ f }}`
 {% endfor %}
 The entry file and every other part file belong to other sessions. Touching them loses their work.
-{% if cookbook_rel %}Copyable snippets live in `{{ cookbook_rel }}` — read the density chapter before you write.{% endif %}
+{% if cookbook_rel %}Copyable snippets live in `.3dcode/cookbook.md` — read the density chapter before you write.{% endif %}
 
 ## YOUR parts (build every row; object names must match EXACTLY — they become GLB node names)
 {{ parts_table }}

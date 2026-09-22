@@ -124,7 +124,7 @@ function buildFan(THREE) {
     b.name = `Blade${i + 1}`; b.rotation.z = i * Math.PI * 2 / 3; hub.add(b);
   }
   g.add(hub);
-  g.userData.tick = (dt) => { hub.rotation.z += dt * 2.0; };   // rad/s; harness calls tick(dt) when animating
+  g.userData.tick = (dt) => { hub.rotation.z += dt * 2.0; };   // rad/s
   return g;
 }
 const fan = buildFan(THREE); fan.userData.tick(0.016);
@@ -423,11 +423,11 @@ primitive cannot; a wheel is 3 draw calls at any spoke count thanks to the Insta
    (`geo.deleteAttribute('uv')`) or `toNonIndexed()` all; then `computeVertexNormals()`.
 4. **Faceted / black shading after edits** → call `geometry.computeVertexNormals()`; for
    flipped faces use `geometry.scale(-1,1,1)` carefully or rebuild the profile order.
-5. **`userData.tick` never runs** → it must be a function `(dt) => void` on the ROOT
-   returned by `build`, or on a part Group (the harness traverses); don't animate scale.
+5. **`userData.tick` never runs** → nothing in the harness calls it (the GLB export drops
+   it): the judged pose is the one `build` returns; don't animate scale.
 6. **Renderer / Scene / Camera / Light / OrbitControls in object code** → forbidden; the
    module is imported in node with no WebGL.  `document`/`canvas`/`Image`/`TextureLoader`
-   crash the build (Mode 13 in the failure catalogue).
+   crash the build.
 7. **Imports that do not exist in r182**: `three/examples/js/*`, `BufferGeometryUtils.
    mergeBufferGeometries` (now `mergeGeometries`), `Geometry`/`Face3`, `THREE.sRGBEncoding`,
    `outputEncoding`.  Use `three/addons/utils/BufferGeometryUtils.js`,

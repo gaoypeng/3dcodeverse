@@ -1,8 +1,8 @@
 # Scene cookbook — multi-file three.js scenes (r182), headless-rendered by the harness
 
 Every `js` snippet runs as-is in node (the harness test suite concatenates them with
-`THREE` and the named addons in scope).  Y-up, +Z front, meters.  GLSL lives in
-`glsl_cookbook.md` — use its `makeShaderMaterial` for every custom shader.
+`THREE` and the named addons in scope).  Y-up, +Z front, meters.  GLSL goes through
+`lib/shader.js` — use its `makeShaderMaterial(opts)` for every custom shader.
 The harness inlines the relevant chapters into your prompts; the full file is at
 `.3dcode/cookbook.md` in your workspace.
 
@@ -30,7 +30,7 @@ function heightAt(x, z) {
   return 0.8 * Math.sin(x * 0.09) * Math.cos(z * 0.07) + 0.35 * Math.sin((x * 0.31 + z * 0.23));
 }
 
-function buildEnv(THREE, scene) {
+function buildEnv({ THREE, scene }) {
   // fog + matching background: the single biggest depth cue
   scene.fog = new THREE.Fog(0xa8c4dd, 45, 160);               // near ≈ bounds/2, far ≈ 1.6 × diagonal
   scene.background = new THREE.Color(0xa8c4dd);
@@ -429,7 +429,7 @@ Camera safety: the harness raycasts from every authored camera and calls anythin
 of every eye-level camera, or — since these cards are not solid surfaces — give them
 `mesh.raycast = () => {};` so the probe ignores them.  Never do that to real geometry.
 
-## Water plane (use makeWaterMaterial from the GLSL cookbook)
+## Water plane (use makeWaterMaterial from src/shaders/water.js)
 
 ```js
 function buildLake(THREE, waterMat, x, z, r, level) {
@@ -840,13 +840,12 @@ Rules: eye height 1.6 m (+ terrain!), fov 35–60, look at a focal POINT (an obj
 the horizon), never inside geometry and ≥ 0.5 m from any surface, 3–5 cameras:
 establishing → mid → detail.  Compute positions from measured bounds/heightAt, not vibes.
 
-## Post-processing (optional; the default pipeline renders WITHOUT it)
+## Post-processing (the harness's own chain, ON by default)
 
-Only if the plan asks for bloom, and the scene must still read without it
-(`emissiveIntensity` ≤ 3, no white-out).  Build an `EffectComposer` from
-`three/addons/postprocessing/*`: `RenderPass` → `UnrealBloomPass(new THREE.Vector2(w, h),
-0.35, 0.6, 0.85)` (strength ≤ 0.5, threshold ≥ 0.8 — glow, not soup) → `OutputPass` **last**
-(tone mapping + sRGB live there), and export it from `scene.js` alongside the scene.
+The harness renders scene pictures through its own post chain (GTAO + a selective emissive
+bloom + a grade that is identity unless `scene.userData.grade` is set), and the scene must
+still read without it (`emissiveIntensity` ≤ 3, no white-out).  Do not build an
+`EffectComposer`: nothing reads one exported from `scene.js`.
 
 ## Performance budget
 
@@ -880,7 +879,7 @@ Only if the plan asks for bloom, and the scene must still read without it
 10. **GLB asset invisible** → the zone never cloned `ctx.assets['<snake>']` (nothing loads a GLB
     itself), or its pivot is not at the base; re-export from Blender with the object on z = 0.
 11. **Camera inside a tree / wall** → positions are guesses; compute from `heightAt` +
-    known object positions, then check with `render_sheet` (the harness flags
+    known object positions, then check with `scene_views` (the harness flags
     camera-inside-geometry).
 12. **update() allocates** (`new Vector3` per frame, `getSize` per frame) → GC hitches;
     hoist scratch objects to module scope.
@@ -931,7 +930,7 @@ function sceneSelfcheck(THREE, scene, cameras) {
   if (!cameras || cameras.length < 2) throw new Error('need 3-5 cameras');
   console.log(`[selfcheck] draws=${draws} tris=${Math.round(tris)} lights=${lights} cameras=${cameras.length}`);
 }
-const demoScene = new THREE.Scene(); buildEnv(THREE, demoScene);
+const demoScene = new THREE.Scene(); buildEnv({ THREE, scene: demoScene });
 demoScene.add(forestDemo, coverDemo, campfireDemo, ff);
 sceneSelfcheck(THREE, demoScene, planCameras(THREE, demoScene));
 ```
