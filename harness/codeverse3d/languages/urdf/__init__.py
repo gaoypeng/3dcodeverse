@@ -30,9 +30,9 @@ from codeverse3d.languages._ast_lint import (
     dotted,
     safe_parse,
 )
-from codeverse3d.languages._common import BUILD_TIMEOUT, ProcResult, read_json_file
+from codeverse3d.languages._common import ProcResult, compose_build_result, strip_blender_noise
 from codeverse3d.languages._docs import RuntimeDocs
-from codeverse3d.proc import run_subprocess, tail
+from codeverse3d.proc import run_subprocess
 from codeverse3d.spatial.joints import (
     UrdfError,
     load_urdf,
@@ -814,27 +814,21 @@ class UrdfBlenderRuntime(RuntimeDocs):
             return fail("LintError", f"{len(errs)} lint error(s):\n{msg}", file=str(errs[0].target or "src/robot.urdf"),
                         line=errs[0].data.get("line"), census=census)
 
-        # 2. Blender wrapper (writes build.json / census.json / meshes/ into the staging dir)
+        # 2. Blender wrapper (writes build.json / census.json / meshes/ into the staging dir),
+        #    read like every other wrapper's report
         blender = settings.resolve_blender()
         if not blender:
             return fail("BlenderNotFound", "no Blender binary (set C3D_BINARIES__BLENDER)", file="", census=census)
-        build_json, census_json = stage.path("build.json"), stage.path("census.json")
         proc = _run_blender(blender, ws, stage.staging_dir, timeout_s, settings.limits.bpy_rlimit_gb)
-        if proc.timed_out:
-            return fail(BUILD_TIMEOUT, f"Blender build exceeded {timeout_s}s (killed)", file="src/model.py", census=census,
-                        stdout_tail=tail(proc.stdout), stderr_tail=tail(proc.stderr))
-        if not build_json.is_file():
-            return fail("WrapperCrash", f"wrapper produced no build.json (exit {proc.returncode})", file="src/model.py",
-                        census=census, stdout_tail=tail(proc.stdout), stderr_tail=tail(proc.stderr))
-        wb = read_json_file(build_json)
-        wcensus = read_json_file(census_json) if census_json.is_file() else {}
-        census.update({k: wcensus.get(k) for k in ("objects", "links", "unmatched_objects", "missing_links", "hints") if k in wcensus})
-        if not wb.get("ok"):
-            hints = "\n".join(f"  hint: {h}" for h in (wcensus.get("hints") or {}).values())
-            return fail(wb.get("error_type") or "ScriptError", (wb.get("error_message") or "") + ("\n" + hints if hints else ""),
-                        file=wb.get("error_file") or "src/model.py", line=wb.get("error_line"), census=census,
-                        stdout_tail=tail(wb.get("stdout_tail", "") or proc.stdout),
-                        stderr_tail=tail(wb.get("stderr_tail", "") or proc.stderr))
+        wrapped = compose_build_result(language=self.language.value, proc=proc, build_json=stage.path("build.json"),
+                                       census_json=stage.path("census.json"), glb_path=None, extra_paths={},
+                                       output_filter=strip_blender_noise)
+        census.update(wrapped.census)
+        if not wrapped.ok:
+            hints = "\n".join(f"  hint: {h}" for h in (census.get("hints") or {}).values())
+            return fail(wrapped.error_type or "ScriptError", wrapped.error_message + ("\n" + hints if hints else ""),
+                        file=wrapped.error_file or "src/model.py", line=wrapped.error_line, census=census,
+                        stdout_tail=wrapped.stdout_tail, stderr_tail=wrapped.stderr_tail)
 
         # 3. URDF copy + load (staged files; extra_paths name the canonical homes)
         urdf_staged = stage.path("robot.urdf")
@@ -868,7 +862,8 @@ class UrdfBlenderRuntime(RuntimeDocs):
         urdf_to_glb(robot, stage.path("object.glb"), None)
         extra["object_glb"] = str(art / "object.glb")
         res = BuildResult(ok=True, language=self.language.value, glb_path=str(art / "object.glb"), extra_paths=extra,
-                          stdout_tail=tail(wb.get("stdout_tail", "")), duration_ms=int((time.time() - t0) * 1000), census=census)
+                          stdout_tail=wrapped.stdout_tail, stderr_tail=wrapped.stderr_tail,
+                          duration_ms=int((time.time() - t0) * 1000), census=census)
         if report.summary.rest_max_penetration_m > REST_PENETRATION_MAX_M:
             worst = [f for f in findings if f.data.get("pose") == {} and f.severity == "error"]
             res.ok = False

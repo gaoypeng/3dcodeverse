@@ -127,8 +127,9 @@ def test_live_multifile_errors_map_to_part_file_and_line(tmp_ws, blender_bin) ->
     assert not lint.passed and any(f.target == "src/parts/leg.py" and "SyntaxError" in f.message for f in lint.errors)
     r = rt.build(tmp_ws, timeout_s=120)
     assert not r.ok and r.error_type == "SyntaxError" and r.error_file == "src/parts/leg.py" and r.error_line == 8
-    bj = json.loads((tmp_ws.artifacts / "build.json").read_text())
-    assert (bj["error_file"], bj["error_line"], bj["error_source"]) == ("src/parts/leg.py", 8, "for i in range(LEG_N)")
+    bj = json.loads((tmp_ws.artifacts / "build.json").read_text())  # the BuildResult, not the wrapper's report
+    assert (bj["error_file"], bj["error_line"]) == ("src/parts/leg.py", 8)
+    assert bj["census"]["build_report"]["error_source"] == "for i in range(LEG_N)"
 
     # (b) runtime error deep in the part file → that frame, not model.py's import/call line
     leg.write_text(LEG.replace("        obj.parent = parent", "        obj.parent = parent\n        obj.data.materials.append(None).foo"))
@@ -136,7 +137,8 @@ def test_live_multifile_errors_map_to_part_file_and_line(tmp_ws, blender_bin) ->
     assert not r.ok and r.error_type == "AttributeError" and r.error_file == "src/parts/leg.py" and r.error_line == 17
     assert r.census["build_report"]["error_source"] == "obj.data.materials.append(None).foo"
     bj = json.loads((tmp_ws.artifacts / "build.json").read_text())
-    assert bj["error_file"] == "src/parts/leg.py" and bj["error_line"] == 17 and "leg.py" in bj["traceback"]
+    assert bj["error_file"] == "src/parts/leg.py" and bj["error_line"] == 17
+    assert "leg.py" in bj["census"]["build_report"]["traceback"] and "leg.py" in bj["stderr_tail"]
 
     # (c) missing builder → lint error; build reports model.py's import line with a hint
     leg.write_text(LEG.replace("def build_leg", "def build_legs"))

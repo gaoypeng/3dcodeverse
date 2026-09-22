@@ -223,9 +223,16 @@ BuildResult.error_type spellings (languages/_common.py): MISSING_ENTRY = "Missin
 | `GlslShaderRuntime` | `src/shader.frag`, `src/common.glsl`, `src/buffer_a.frag` (+ the harness-owned `src/recipes.glsl` when seeded) | harness owns `#version`/uniforms/`out` (wrap.HEADER: u_time/u_resolution/u_mouse/u_frame/u_prev/u_noise + iTime/iChannel* aliases); `wrap.compose(shader, common, recipes_src=…)` pastes header < recipes < common < shader; build renders judge frames via GlHost; compile errors → GlslCompileError at mapped src file:line (recipes.glsl included); lint ERROR `redefines_recipe` when an agent file defines a recipes.glsl name; artifacts frames/, frames_sheet.png, preview.gif, metrics.json |
 | `OpenGLPythonRuntime` | `src/program.py`, `src/*.glsl` | `setup(ctx,w,h)->state` + `render(ctx,state,t,frame,fbo)` run in a moderngl subprocess (`wrappers/run_gl.py`); exceptions map to src/program.py:line, in-string GLSL errors carry both line numbers |
 
-Wrappers are standalone (never import codeverse3d): `blender/wrappers/run_bpy.py`
-(+ sibling `_census.py` — copy both), `cadquery/wrappers/run_cq.py`,
-`urdf/wrappers/run_bpy_links.py`, `opengl_python/wrappers/run_gl.py`; threejs/scene
+Wrappers are standalone (never import codeverse3d).  The three python build wrappers live
+together in `languages/wrappers/` — `run_bpy.py`, `run_bpy_links.py` (Blender's python 3.11),
+`run_cq.py` — beside the sibling modules they import from their own directory:
+`_wrapper_common.py` (stdlib only: rlimit, seeding, running the script with `src/` on
+`sys.path`, traceback → `src/<file>:<line>`, `sys.exit(0)` is not a failure, the atomic
+report) and `_census.py` (the Blender census, blender AND urdf_blender); copy the directory
+whole.  Each writes its report as `build.json` + `census.json`, which the runtime reads
+once through `_common.compose_build_result` and replaces with the final `BuildResult` — for
+EVERY runtime `artifacts/build.json` is the BuildResult (urdf_blender after its post-wrapper
+checks).  `opengl_python/wrappers/run_gl.py` is the moderngl runner; threejs/scene
 export+render live in `runtime_js/` (`export_glb.mjs`, `render_glb.mjs`,
 `render_scene.mjs`, `probe_scene.mjs`, `check_shaders.mjs`, `lib/instances.mjs`).
 **Placement policy (all languages)**: nothing re-centres or drops to ground at

@@ -40,8 +40,8 @@ def fake_blender(monkeypatch):
         box_glb(art / "meshes" / "door.glb", *state["door"])
         (art / "census.json").write_text(json.dumps({"objects": [], "links": {"body": _census_row(*BODY), "door": _census_row(*state["door"])},
                                                      "unmatched_objects": [], "missing_links": [], "hints": {}}))
-        (art / "build.json").write_text(json.dumps({"ok": True, "stdout_tail": "built\n"}))
-        return ProcResult(returncode=0, stdout="", stderr="", timed_out=False, duration_ms=0)
+        (art / "build.json").write_text(json.dumps({"ok": True}))
+        return ProcResult(returncode=0, stdout="built\n", stderr="", timed_out=False, duration_ms=0)
 
     monkeypatch.setattr(rt_mod, "_run_blender", run)
     monkeypatch.setattr(rt_mod, "get_settings", lambda: SimpleNamespace(
