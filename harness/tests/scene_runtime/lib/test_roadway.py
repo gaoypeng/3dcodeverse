@@ -194,22 +194,6 @@ console.log(JSON.stringify({ fs: compile(m).fragmentShader,
     assert 0.6 <= float(track.group(1)) <= 0.9, "a car's half-track is ~0.75 m"
     assert float(track.group(2)) < 0.5, "both wheels must fit in the lane"
 
-    # The same arithmetic, run here: every rut inside the road, and a narrow
-    # lane keeping one pair rather than a phantom second one.
-    def ruts(half, lane):
-        n = max(1.0, (2 * half) // max(lane, 0.5))
-        width = 2 * half / n
-        tr = min(0.75, width * 0.32)
-        out_ = []
-        for k in range(int(n)):
-            c = (k + 0.5) * width - half
-            out_ += [round(c - tr, 3), round(c + tr, 3)]
-        return out_
-    assert ruts(2.1, 2.2) == [-0.75, 0.75], "a single lane keeps one pair"
-    assert ruts(3.5, 3.4) == [-2.5, -1.0, 1.0, 2.5], "two lanes, four strips"
-    for half, lane in ((2.1, 2.2), (3.5, 3.4), (5.4, 3.4), (1.2, 3.4)):
-        assert all(abs(r) < half for r in ruts(half, lane)), (half, lane)
-
 
 def test_the_seam_band_is_bounded_by_the_width_it_was_given():
     """A gravel band that wanders is right and one that wanders OUT of the

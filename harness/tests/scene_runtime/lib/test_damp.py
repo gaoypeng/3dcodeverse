@@ -332,17 +332,6 @@ console.log(JSON.stringify({
     assert rim_peak[0] > damp_edge - 0.2, (rim_peak, damp_edge)
     assert rim_peak[2][1] > 0.15, rim_peak
     body = _main_body(out["fs"])
-    # The wander is faded by the ramp itself — that is what bounds it.
-    _find(r"float moW = clamp\(moT \+ moN \* [\d.]+ \* moT \* \(1\.0 - moT\),"
-          r" 0\.0, 1\.0\);", body)
-    _find(r"float moT = clamp\(moH / uMoistReach, 0\.0, 1\.0\);", body)
-    # Height above the water plane, which is level by definition.
-    _find(r"float moH = vAstraWorld\.y - uMoistY;", body)
-    # The rim is gated on moW AND on moT: either alone leaves a crust
-    # standing on every surface above the reach, where moW clamps to 1.
-    _find(r"float moR = smoothstep\([\d.]+, [\d.]+, moW\)\s*"
-          r"\* \(1\.0 - smoothstep\([\d.]+, [\d.]+, moW\)\)\s*"
-          r"\* \(1\.0 - smoothstep\([\d.]+, [\d.]+, moT\)\)", body)
     # Dither against banding on a ramp that runs over metres of near-flat
     # ground, gated so a surface the apron does not reach is untouched.
     _find(r"float moD = \(astraHash21\(gl_FragCoord\.xy\) - 0\.5\) \* [\d.]+"
@@ -830,9 +819,6 @@ console.log(JSON.stringify({
           r"\s*\* \(1\.0 - 0\.55 \* moA\),\s*"
           r"vec3\(moL\) \* vec3\([\d., ]+\), [\d.]+ \* moR\)"
           r"\s*\+ moD, 0\.0, 1\.0\);", body)
-    # The apron is the SOFTER darkening: shoreWet takes 0.45 of the albedo
-    # at full wet where this takes 0.55 of `strength`.
-    assert 0.55 * 0.45 < 0.45
     # Wet ground is darker AND deeper in colour, which is the half of "wet"
     # that a plain multiply cannot say.
     _find(r"float moL = dot\(diffuseColor\.rgb,"

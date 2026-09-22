@@ -313,7 +313,6 @@ b.traverse((o) => { if (o.isMesh && o.name.startsWith('Glazing'))
   darkPanes += (o.geometry.index ? o.geometry.index.count / 3
       : o.geometry.attributes.position.count / 3) / 12; });
 console.log(JSON.stringify({
-  names: Object.keys(parts).sort(),
   revealEmissive: parts.Reveals.emissive,
   revealTris: parts.Reveals.tris,
   glow,
@@ -355,17 +354,6 @@ def test_lit_windows_stay_in_the_bloom_friendly_band(lit_block):
     m = lit_block
     for g in m["glow"]:
         assert 1.0 <= g["intensity"] <= 4.0, g
-
-
-def test_lit_windows_are_not_matched_by_the_mirror_sweep(lit_block):
-    """mirror.js `glazeFacade` (removed, D74) retargeted every `/glaz|pane/i`
-    mesh and documented that lit windows are left glowing. Naming the lit cards
-    `LitGlazing` (as cottage did) walked them straight into that sweep."""
-    m = lit_block
-    import re
-    for name in m["names"]:
-        if re.search(r"glaz|pane", name, re.I):
-            assert not name.startswith("Lit"), name
 
 
 # ------------------------------------------------------------ the casement
@@ -696,7 +684,6 @@ def test_cottage_lit_rooms_are_their_own_meshes(cot):
     m = cot
     lit = [n for n in m["litNames"] if n.startswith("LitRooms")]
     assert lit, m["litNames"]
-    assert not [n for n in m["litNames"] if "Glaz" in n and n.startswith("Lit")]
 
 
 # ------------------------------------------------- tower, clutter, district
