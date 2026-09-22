@@ -65,6 +65,17 @@ PARTIAL_OK_WORDS = frozenset({
 })
 
 
+def _nums(v: object) -> list[float] | None:
+    """Three numbers, or None: a census group with no geometry measures its box as nulls
+    (sota_sydney_opera's HarbourBridgeZone), which must skip a check, not crash the gate."""
+    if not isinstance(v, list | tuple) or len(v) != 3:
+        return None
+    try:
+        return [float(x) for x in v]
+    except (TypeError, ValueError):
+        return None
+
+
 class AssetRow(BaseModel):
     """One row of the census placement table (``host_placement.mjs``)."""
 
@@ -109,7 +120,8 @@ class AssetRow(BaseModel):
 
     @property
     def height(self) -> float:
-        return float(self.bbox["size"][1]) if self.bbox and self.bbox.get("size") else 0.0
+        size = _nums((self.bbox or {}).get("size"))
+        return size[1] if size else 0.0
 
 
 class Interpenetration(BaseModel):
@@ -477,13 +489,12 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
         reach = 0.0
         for g in groups:
             b = g.get("bbox") if isinstance(g, dict) else None
-            if not (isinstance(b, dict) and b.get("min") and b.get("max")):
+            bmin, bmax = (_nums(b.get("min")), _nums(b.get("max"))) if isinstance(b, dict) else (None, None)
+            if bmin is None or bmax is None or g.get("kind") not in ("content", "ground"):
                 continue
-            if g.get("kind") not in ("content", "ground"):
+            if (bmax[1] - bmin[1]) < BACKDROP_MIN_HEIGHT_M:
                 continue
-            if (b["max"][1] - b["min"][1]) < BACKDROP_MIN_HEIGHT_M:
-                continue
-            r = max(abs(b["min"][0] - cx), abs(b["max"][0] - cx), abs(b["min"][2] - cz), abs(b["max"][2] - cz))
+            r = max(abs(bmin[0] - cx), abs(bmax[0] - cx), abs(bmin[2] - cz), abs(bmax[2] - cz))
             reach = max(reach, r)
         if 0 < reach < need:
             out.append(_f(Severity.ERROR,
@@ -525,7 +536,8 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
     # -- plausible scale vs the plan's approx_size_m
     sizes = _plan_asset_sizes(plan)
     for r in rows:
-        if r.exempt or not r.bbox or not r.bbox.get("size"):
+        size = _nums((r.bbox or {}).get("size"))
+        if r.exempt or size is None:
             continue
         rk = to_snake(r.name)
         key = next((k for k in sizes if k in rk), "")
@@ -536,7 +548,7 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
         n, measured = r.instance_size(key)
         what = f"each of the {n} {key} instances in {r.qualified}" if n else r.qualified
         if not n:
-            measured = max(float(v) for v in r.bbox["size"])
+            measured = max(size)
         f = measured / sizes[key]
         if f > SCALE_ERROR or f < 1 / SCALE_ERROR:
             sev = Severity.ERROR
@@ -553,9 +565,9 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
         lo, hi = bounds
         margin = max(BOUNDS_MARGIN_MIN_M, 0.05 * max(hi[0] - lo[0], hi[2] - lo[2]))
         for r in rows:
-            if r.exempt or not r.bbox or not r.bbox.get("min"):
+            bmin, bmax = _nums((r.bbox or {}).get("min")), _nums((r.bbox or {}).get("max"))
+            if r.exempt or bmin is None or bmax is None:
                 continue
-            bmin, bmax = r.bbox["min"], r.bbox["max"]
             fully_out = (bmin[0] > hi[0] + margin or bmax[0] < lo[0] - margin
                          or bmin[2] > hi[2] + margin or bmax[2] < lo[2] - margin)
             if fully_out:

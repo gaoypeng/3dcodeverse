@@ -351,6 +351,21 @@ def test_no_backdrop_fires_outdoors_and_stays_quiet_with_a_ring_or_indoors():
 
 
 
+def test_a_group_or_row_with_a_null_box_is_skipped_not_a_crash():
+    """sota_sydney_opera: a zone group with no geometry measures min/max/size as nulls, and
+    the backdrop reach did None - None — the whole placement gate degraded to one WARN."""
+    null_box = {"min": [None, None, None], "max": [None, None, None], "size": [None, None, None]}
+    ghost = _row("Bench")
+    ghost["bbox"] = null_box
+    census = {"fog": None, "background": "#aabbcc", "placement": _table(_row("Lantern", h=3.0), ghost),
+              "groups": [{"name": "HarbourBridgeZone", "kind": "content", "bbox": null_box},
+                         {"name": "Yard", "kind": "content", "bbox": {"min": [-10, 0, -10], "max": [10, 4, 10]}}]}
+    rep = placement_gate_safe(census, plan=_contract_plan())
+    kinds = {f.data.get("kind") for f in rep.findings}
+    assert {"no_fog", "scale", "no_backdrop"} <= kinds   # every check still ran around the null box
+    assert not [f for f in rep.findings if "failed" in f.message.lower()]
+
+
 def test_a_ring_of_identical_copies_round_the_world_is_warned_but_not_a_rotunda():
     """2026-09-09, five of six exteriors: "a ring of identical cones stamped round the perimeter"
     — the census measures the ring (host_census `stamps`); columns round a rotunda sit inside
