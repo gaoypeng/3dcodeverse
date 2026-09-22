@@ -488,7 +488,8 @@ after the run (`3dcode make`, unless --no-pick): addons/select.pick(by="score") 
 ```
 Track-specific gates: static `connectivity` + `contract` (+ `reference_silhouette`),
 articulated + `joint_sweep` + `motion_direction` (URDF axis vs plan motion text),
-scene `scene_placement` (`spatial/scene_placement.py`, `ScenePipeline.gates`' one gate: per placed asset, foot-column gap to the surface beneath, burial depth,
+scene `scene_placement` (`spatial/scene_placement.py`, the one gate `ScenePipeline.gates` adds: per placed
+asset, foot-column gap to the surface beneath, burial depth,
 water, contacts and 3-D interpenetration pairs from `runtime_js/lib/host_placement.mjs` — the
 first deterministic placement check on the track; before 2026-08-26 the scene_v1
 `floating_part` cap could never fire and floating/sunken was left to the VLM) +
