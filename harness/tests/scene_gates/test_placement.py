@@ -200,7 +200,8 @@ def test_check_placement_returns_the_round_gates_verdict(tmp_path):
     assert not obs.ok and not gate.passed and obs.numbers["errors"] == len(gate.errors)
     assert all(f.message in obs.text for f in gate.errors)
     kinds = {f.data.get("kind") for f in gate.findings}
-    assert {"floating", "no_fog", "zone_empty"} <= kinds and "missing_content" not in kinds   # Bench was never built
+    # Bench was never built: House (its only content) is neither missing it nor empty
+    assert {"floating", "no_fog"} <= kinds and not {"missing_content", "zone_empty"} & kinds
 
 
 # --------------------------------------------------------------------- plan-aware contract checks

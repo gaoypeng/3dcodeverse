@@ -82,3 +82,16 @@ def test_an_unavailable_hero_is_not_missing_content():
     missing = [f for f in contract_findings(census, plan) if f.data.get("kind") == "missing_content"]
     assert missing and "BronzeCenser" in missing[0].message
     assert not [f for f in contract_findings(census, plan, unavailable=["BronzeCenser"]) if f.data.get("kind") == "missing_content"]
+
+
+def test_a_zone_whose_only_content_was_never_built_is_not_empty():
+    """zone_empty follows the same rule as missing_content: a zone told its only planned hero
+    is NOT AVAILABLE placed nothing because it was told to."""
+    from codeverse3d.spatial.scene_placement import contract_findings
+
+    plan = {"zones": [{"name": "IncenseTerrace", "contents": ["BronzeCenser"]},
+                      {"name": "Courtyard", "contents": ["StoneBench"]}], "assets": []}
+    census = {"placement": {"assets": [{"name": "StoneBench", "zone": "Courtyard", "inner": []}]}}
+    empty = [f.target for f in contract_findings(census, plan) if f.data.get("kind") == "zone_empty"]
+    assert empty == ["IncenseTerrace"]
+    assert not [f for f in contract_findings(census, plan, unavailable=["BronzeCenser"]) if f.data.get("kind") == "zone_empty"]

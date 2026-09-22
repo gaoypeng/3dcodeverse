@@ -513,18 +513,20 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
     for r in rows:
         by_zone.setdefault(to_snake(r.zone), []).append(r)
     all_names = " ".join(_row_names(r) for r in rows)
+    gone = {to_snake(u) for u in unavailable}
     for zone_name, contents in _plan_zones(plan):
         zk = to_snake(zone_name)
         placed = by_zone.get(zk, [])
-        if not placed and contents:
-            out.append(_f(Severity.ERROR, f"zone {zone_name} placed nothing (plan lists: {', '.join(contents[:6])})",
+        # what the zone was allowed to place: an asset the asset stage never built was
+        # announced "NOT AVAILABLE" to it, for zone_empty exactly as for missing_content
+        expected = [c for c in contents if to_snake(c) not in gone]
+        if not placed and expected:
+            out.append(_f(Severity.ERROR, f"zone {zone_name} placed nothing (plan lists: {', '.join(expected[:6])})",
                           target=zone_name, kind="zone_empty",
                           hint=f"build the zone group named '{zone_name}' and place its planned contents"))
             continue
         zone_names = " ".join(_row_names(r) for r in placed)
-        gone = {to_snake(u) for u in unavailable}
-        missing = [c for c in contents if to_snake(c) not in zone_names and to_snake(c) not in all_names
-                   and to_snake(c) not in gone]
+        missing = [c for c in expected if to_snake(c) not in zone_names and to_snake(c) not in all_names]
         if missing:
             out.append(_f(Severity.ERROR,
                           f"zone {zone_name} is missing planned contents: {', '.join(missing[:5])}"
