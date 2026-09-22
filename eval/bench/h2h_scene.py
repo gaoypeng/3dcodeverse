@@ -40,13 +40,13 @@ from pydantic import BaseModel
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
+from bench._jsonl import latest, read_jsonl  # noqa: E402
 from bench.run_bench import Battery, BenchPrompt  # noqa: E402
 from bench.stats import sign_test  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.contracts.artifacts import RenderSet, RenderView  # noqa: E402
 from codeverse3d.contracts.common import Language, Track  # noqa: E402
 from codeverse3d.contracts.spec import Spec  # noqa: E402
-from codeverse3d.proc import read_jsonl_lenient  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 BATTERY = HERE / "prompts" / "h2h_scene_v1.yaml"
@@ -148,10 +148,8 @@ def our_frames(run_dir: Path) -> tuple[list[RenderView], dict[str, Any]] | None:
     stills = [v for v in views if (v.time_s or 0.0) == 0.0 and v.mode == "shaded" and Path(v.path).is_file()]
     flagged = [v for v in stills if v.judge] or stills
     chosen = flagged[:MAX_VIEWS]
-    minutes = None
-    for r in read_jsonl_lenient(run_dir.parent.parent / "results.jsonl", dicts_only=True):
-        if r.get("id") == run_dir.name:
-            minutes = float(r.get("minutes") or 0.0)
+    row = latest(read_jsonl(run_dir.parent.parent / "results.jsonl"), key=lambda r: r.get("id")).get(run_dir.name)
+    minutes = None if row is None else float(row.get("minutes") or 0.0)
     if minutes is None and rec.get("started_at") and rec.get("finished_at"):
         t0, t1 = (datetime.fromisoformat(rec[k]) for k in ("started_at", "finished_at"))
         minutes = (t1 - t0).total_seconds() / 60

@@ -38,36 +38,35 @@ from pathlib import Path
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
+from bench._jsonl import latest, read_jsonl  # noqa: E402
 from bench.stats import mean_ci  # noqa: E402
-from codeverse3d.proc import read_jsonl_lenient  # noqa: E402
 
 #: judge repeatability on the calibration set (docs/PAPER_WRITING.md §2), used only to
 #: state how much of a best-of-k maximum is selection noise
 JUDGE_SIGMA = 0.030
 
 
+def _last_rows(path: Path, arm_prefix: str = "") -> list[dict]:
+    """One row per prompt of the arms starting with ``arm_prefix`` — the LAST, as
+    ``paired_compare`` pairs; a prompt whose last row is unscored has no score."""
+    rows = (r for r in read_jsonl(path) if str(r.get("arm", "")).startswith(arm_prefix))
+    return list(latest(rows, key=lambda r: r["prompt_id"]).values())
+
+
 def one_shot_samples(root: Path) -> dict[str, list[float]]:
     """``{prompt: [score per rep]}`` — one entry per rep that scored that prompt."""
     out: dict[str, list[float]] = defaultdict(list)
     for rep in sorted(root.glob("rep*/results.jsonl")):
-        seen: dict[str, float] = {}
-        for r in read_jsonl_lenient(rep, dicts_only=True):
-            if r.get("score") is None:
-                continue
-            seen[r["prompt_id"]] = float(r["score"])   # last row wins, as paired_compare does
-        for pid, sc in seen.items():
-            out[pid].append(sc)
+        for r in _last_rows(rep):
+            if r.get("score") is not None:
+                out[r["prompt_id"]].append(float(r["score"]))
     return dict(out)
 
 
 def harness_scores(root: Path, *, arm_prefix: str = "harness:") -> dict[str, float]:
     """``{prompt: score}`` for the recorded harness arm, last row per prompt."""
-    out: dict[str, float] = {}
-    for r in read_jsonl_lenient(root / "results.jsonl", dicts_only=True):
-        if not str(r.get("arm", "")).startswith(arm_prefix) or r.get("score") is None:
-            continue
-        out[r["prompt_id"]] = float(r["score"])
-    return out
+    return {r["prompt_id"]: float(r["score"]) for r in _last_rows(root / "results.jsonl", arm_prefix)
+            if r.get("score") is not None}
 
 
 def harness_repeat_spread(root: Path, *, arm_prefix: str = "harness:") -> tuple[int, int, float]:
@@ -82,7 +81,7 @@ def harness_repeat_spread(root: Path, *, arm_prefix: str = "harness:") -> tuple[
     """
     per: dict[str, list[float]] = {}
     rows = 0
-    for r in read_jsonl_lenient(root / "results.jsonl", dicts_only=True):
+    for r in read_jsonl(root / "results.jsonl"):
         if not str(r.get("arm", "")).startswith(arm_prefix):
             continue
         rows += 1
@@ -96,11 +95,8 @@ def gen_costs(root: Path, arm_prefix: str) -> list[float]:
     """Generation cost per PROMPT for an arm — last row per prompt, the basis
     `paired_compare` pairs on.  Taken over every appended row instead, resumed and failed
     cells drag the median down and the equal-compute k comes out too small."""
-    last: dict[str, float] = {}
-    for r in read_jsonl_lenient(root / "results.jsonl", dicts_only=True):
-        if str(r.get("arm", "")).startswith(arm_prefix):
-            last[r["prompt_id"]] = float(r.get("gen_cost_usd") or 0.0)
-    return [v for v in last.values() if v > 0]
+    costs = (float(r.get("gen_cost_usd") or 0.0) for r in _last_rows(root / "results.jsonl", arm_prefix))
+    return [c for c in costs if c > 0]
 
 
 def equal_compute_k(root: Path, baseline_prefix: str) -> tuple[float, float, int] | None:

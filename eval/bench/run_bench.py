@@ -36,7 +36,7 @@ import yaml
 from pydantic import AliasChoices, BaseModel, Field
 
 from bench._infra import is_infra_failure
-from bench._jsonl import read_jsonl, seal_for_append
+from bench._jsonl import latest, read_jsonl, seal_for_append
 from codeverse3d.addons import select
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.common import Backends, Budget, Language, Track
@@ -98,6 +98,11 @@ class BenchItemResult(BaseModel):
     workspace: str = ""
     generator: str = ""
     judge: str = ""
+
+    def natural_key(self) -> str:
+        """Row identity: one row per prompt id — results.jsonl is append-only, so a resume
+        or a ``--redo-status`` re-run appends a second row for the same id."""
+        return self.id
 
 
 class BenchOptions(BaseModel):
@@ -198,7 +203,7 @@ def _load_done(results_jsonl: Path) -> dict[str, BenchItemResult]:
     """Rows already paid for, latest wins.  Tolerant by design: this file is the
     resume source and it is appended to a line at a time, so the run that a SIGKILL
     ended is precisely the one whose last line is half-written."""
-    return {r.id: r for r in read_jsonl(results_jsonl, BenchItemResult)}
+    return latest(read_jsonl(results_jsonl, BenchItemResult))
 
 
 def select_prompts(

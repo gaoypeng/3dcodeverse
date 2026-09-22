@@ -22,7 +22,8 @@ from bench._ab_report import (  # noqa: E402
     render_summary,
     verdict_of,
 )
-from bench._compare_report import CellResult, load_jsonl  # noqa: E402
+from bench._compare_report import CellResult  # noqa: E402
+from bench._jsonl import latest, read_jsonl  # noqa: E402
 from bench.ab_plan import (  # noqa: E402
     DEFAULT_MAX_IN_FLIGHT,
     MAX_IN_FLIGHT_ENV,
@@ -49,6 +50,10 @@ BATTERY = REPO / "bench" / "prompts" / "compare_v1.yaml"
 def _row(pid: str, arm: str, score: float | None, status: str = "scored", **kw) -> CellResult:
     return CellResult(prompt_id=pid, arm=arm, kind="harness", score=score, status=status,
                       gen_cost_usd=kw.pop("cost", 1.0), judge_cost_usd=0.1, wall_s=kw.pop("wall", 120.0), **kw)
+
+
+def _journal(out: Path) -> list[CellResult]:
+    return list(latest(read_jsonl(out / "results.jsonl", CellResult)).values())
 
 
 def _pairs(*deltas: float) -> list[PairOutcome]:
@@ -278,7 +283,7 @@ def test_driver_runs_pairs_in_prompt_order_and_writes_the_verdict(tmp_path: Path
     assert [c[0] for c in fake.calls] == [i for i in ids for _ in range(2)]
     assert {c[1] for c in fake.calls} == {CONTROL, VARIANT}
     assert v.decision == "keep" and v.n_pairs == 3 and v.mean_delta == pytest.approx(0.0333, abs=1e-3)
-    rows = load_jsonl(tmp_path / "results.jsonl", CellResult)
+    rows = _journal(tmp_path)
     assert len(rows) == 6
     # the env reached only the variant cells
     assert {r.workspace for r in rows if r.arm == VARIANT} == {"on"}
@@ -306,9 +311,9 @@ def test_resume_skips_done_pairs_and_redo_reruns_both_arms(tmp_path: Path):
     assert sorted(redo.calls) == [(ids[1], CONTROL), (ids[1], VARIANT)]
     assert v.n_pairs == 2
     assert len((tmp_path / "results.jsonl").read_text().strip().splitlines()) == 6, "the file is append-only"
-    rows = load_jsonl(tmp_path / "results.jsonl", CellResult)
-    latest = {(r.prompt_id, r.arm): r for r in rows}
-    assert latest[(ids[1], VARIANT)].status == "scored"
+    cells = latest(read_jsonl(tmp_path / "results.jsonl", CellResult))
+    rows = list(cells.values())
+    assert cells[(ids[1], VARIANT)].status == "scored"
     assert len(rows) == 4, "readers see one row per (prompt, arm): the redo replaces the stale attempt"
 
 
@@ -356,7 +361,7 @@ def test_aa_run_records_two_empty_arms(tmp_path: Path):
     run_ab(BATTERY, tmp_path, AbOptions(variant_env={"C3D_PLAN_FEATURES": "all"}, aa=True, ids=ids), run_cell_fn=fake)
     meta = json.loads((tmp_path / "ab.json").read_text())
     assert meta["aa"] is True and meta["arms"] == {"control": {}, "variant": {}}
-    assert {r.workspace for r in load_jsonl(tmp_path / "results.jsonl", CellResult)} == {""}, "no arm saw the switch"
+    assert {r.workspace for r in _journal(tmp_path)} == {""}, "no arm saw the switch"
     assert (tmp_path / "summary.md").read_text().startswith("# A/A: ")
 
 
@@ -406,7 +411,7 @@ def test_a_pinned_plan_that_dies_in_a_storm_records_the_pair_and_continues(tmp_p
     opts = AbOptions(variant_env={"C3D_SKILLS": "0"}, pin_plan=True, ids=ids)
     run_ab(BATTERY, tmp_path, opts, run_cell_fn=fake)
 
-    rows = load_jsonl(tmp_path / "results.jsonl", CellResult)
+    rows = _journal(tmp_path)
     first = [r for r in rows if r.prompt_id == ids[0]]
     assert {r.arm for r in first} == {CONTROL, VARIANT} and all(r.status == "infra_failed" for r in first)
     assert all("pinned plan" in r.error for r in first)

@@ -10,10 +10,15 @@ are excluded from the denominator — they say nothing about the code under test
 from __future__ import annotations
 
 import argparse
-import json
 import math
+import sys
 from collections import Counter
 from pathlib import Path
+
+for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
+    sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
+
+from bench._jsonl import read_jsonl  # noqa: E402
 
 #: what a validation failure was ABOUT, read off the error text.  The mechanism under test
 #: (``C3D_PLAN_RESTART``) only ever addresses ``dangling_link``; every other class is a
@@ -80,10 +85,6 @@ def fisher_exact(a: int, b: int, c: int, d: int) -> float:
 
     observed = prob(a)
     return min(1.0, sum(prob(x) for x in range(lo, hi + 1) if prob(x) <= observed * (1 + 1e-9)))
-
-
-def load(path: Path) -> list[dict]:
-    return [json.loads(x) for x in path.read_text().splitlines() if x.strip()] if path.is_file() else []
 
 
 def report(arms: dict[str, list[dict]]) -> str:
@@ -156,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("rows", nargs="+", type=Path, help="one JSONL per arm (the file name is the arm name)")
     ns = ap.parse_args(argv)
-    print(report({p.stem: load(p) for p in ns.rows}))
+    print(report({p.stem: read_jsonl(p) for p in ns.rows}))
     return 0
 
 

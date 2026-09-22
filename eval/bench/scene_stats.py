@@ -27,7 +27,7 @@ from pathlib import Path
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
-from codeverse3d.proc import read_jsonl_lenient  # noqa: E402
+from bench._jsonl import read_jsonl  # noqa: E402
 from codeverse3d.record.record import unique_files  # noqa: E402
 from codeverse3d.spatial.node import browser_was_lost  # noqa: E402
 
@@ -56,7 +56,7 @@ def runs(root: Path) -> list[tuple[str, dict, list[dict]]]:
     """``(prompt id, record, events)`` per scene run under ``root``, once per run."""
     out = []
     for run, data in scene_records(root):
-        events = read_jsonl_lenient(run / "events.jsonl", dicts_only=True)
+        events = read_jsonl(run / "events.jsonl")
         out.append((str((data.get("spec") or {}).get("id", run.name)).split("/")[-1], data, events))
     # by id, then by path: two runs of one prompt (a battery with reps) share the id, and a
     # bare sorted() would then compare their record dicts and raise.  unique_files yields

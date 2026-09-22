@@ -16,10 +16,10 @@ from bench._compare_report import (  # noqa: E402
     CellResult,
     PairRow,
     arm_stats,
-    load_jsonl,
     pair_stats,
 )
 from bench._fixed_eval import acceptance_from_spec  # noqa: E402
+from bench._jsonl import latest, read_jsonl  # noqa: E402
 from bench.compare_backends import (  # noqa: E402
     CompareDeps,
     CompareOptions,
@@ -120,7 +120,7 @@ def test_matrix_end_to_end_with_fakes(tmp_path: Path):
     # the fixed evaluator ran once per cell that had code (6 of 8)
     assert len(ev.evaluated) == 6
     # pairwise: 1 harness arm × 3 one-shot arms × 2 prompts = 6 rows; the no-code arm is auto-decided
-    pairs = load_jsonl(out / "pairwise.jsonl", PairRow)
+    pairs = list(latest(read_jsonl(out / "pairwise.jsonl", PairRow)).values())
     assert len(pairs) == 6
     auto = [p for p in pairs if p.arm_b == "oneshot:gemini:gemini-3.7-flash"]
     assert all(p.winner == "a" and not p.judged for p in auto)
@@ -149,7 +149,7 @@ def test_matrix_end_to_end_with_fakes(tmp_path: Path):
     # ---- adding a prompt (limit 3) only runs the new cells
     rows3 = run_matrix(BATTERY, out, parse_arms(ARMS), opts.model_copy(update={"limit": 3}), deps2)
     assert len(rows3) == 12 and run_track2.calls == ["compare_v1/cmp_med_dining_chair"]
-    assert len(load_jsonl(out / "pairwise.jsonl", PairRow)) == 9
+    assert len(latest(read_jsonl(out / "pairwise.jsonl", PairRow))) == 9
 
 
 def test_cell_errors_are_recorded_not_raised(tmp_path: Path):

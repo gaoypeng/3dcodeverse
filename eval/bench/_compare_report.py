@@ -13,15 +13,12 @@ import json
 import shutil
 import statistics
 from pathlib import Path
-from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
 from bench._fixed_eval import RUBRIC, rubric_for
-from bench._jsonl import read_jsonl
+from bench._jsonl import latest, read_jsonl
 from codeverse3d.contracts.common import Track
-
-T = TypeVar("T", bound=BaseModel)
 
 
 def battery_rubric(meta: dict) -> str:
@@ -102,27 +99,6 @@ class PairRow(BaseModel):
     def natural_key(self) -> tuple[str, ...]:
         """Row identity: one pairwise verdict is one (prompt, arm A, arm B)."""
         return (self.prompt_id, self.arm_a, self.arm_b)
-
-
-def load_jsonl[T: BaseModel](path: Path, model: type[T]) -> list[T]:
-    """Rows in first-seen order, latest row winning per ``natural_key`` (models without
-    one keep every row).  Unparseable lines are skipped, not fatal — see ``bench/_jsonl.py``.
-
-    The dedup lives HERE, once, because the files are append-only and every reader needs
-    the same rows: ``ab_plan --report-only`` used to hand the raw rows to ``render_summary``
-    while the live driver passed deduped ones, so one summary.md printed the variant's mean
-    as 0.400 in the arms table, 0.800 per prompt, and based its verdict on 0.800 — and the
-    "lost to outages" footer counted infra_failed cells that had already been re-run and
-    scored, advising ``--redo-status infra_failed`` for nothing.
-
-    Tolerance and dedup compose: a killed battery's truncated last line is dropped by
-    ``read_jsonl`` and the surviving rows are still collapsed to one per cell.
-    """
-    rows: dict[Any, T] = {}
-    for i, row in enumerate(read_jsonl(path, model)):
-        key = row.natural_key() if hasattr(row, "natural_key") else i
-        rows[key] = row  # first appearance fixes the order, the last row wins the slot
-    return list(rows.values())
 
 
 # ----------------------------------------------------------------------------- aggregates
@@ -233,7 +209,7 @@ def compare_markdown(out: Path, rows: list[CellResult], pairs: list[PairRow], me
     opts = meta.get("options", {})
     arms = _arm_order(rows, meta)
     prompts = _prompt_order(rows, meta)
-    cells = {(r.prompt_id, r.arm): r for r in rows}
+    cells = latest(rows)
     md = [f"# harness vs one-shot — {meta.get('battery', {}).get('name', out.name)}", "",
           f"fixed judge: **{opts.get('judge', '?')}** (rubric {battery_rubric(meta)}, n_samples={opts.get('n_samples', 2)}, "
           f"acceptance = must_have list) · harness loop judge: {opts.get('loop_judge') or 'settings default'} · "
@@ -297,7 +273,7 @@ def compare_html(out: Path, rows: list[CellResult], pairs: list[PairRow], meta: 
     assets.mkdir(exist_ok=True)
     arms = _arm_order(rows, meta)
     prompts = _prompt_order(rows, meta)
-    cells = {(r.prompt_id, r.arm): r for r in rows}
+    cells = latest(rows)
     head = "<tr><th>arm</th><th>n</th><th>mean</th><th>pass</th><th>build ok</th><th>$gen</th><th>min</th></tr>"
     summ = "".join(f"<tr><td>{html.escape(s.arm)}</td><td>{s.n}</td><td>{_f(s.mean_score)}</td><td>{_f(s.pass_rate, '.0%')}</td>"
                    f"<td>{s.build_ok_rate:.0%}</td><td>{s.mean_gen_usd:.2f}</td><td>{s.mean_minutes:.1f}</td></tr>" for s in arm_stats(rows))
@@ -331,8 +307,8 @@ def compare_html(out: Path, rows: list[CellResult], pairs: list[PairRow], meta: 
 
 def build_compare_report(out_dir: Path | str) -> tuple[str, str]:
     out = Path(out_dir)
-    rows = list({(r.prompt_id, r.arm): r for r in load_jsonl(out / "results.jsonl", CellResult)}.values())
-    pairs = list({(p.prompt_id, p.arm_a, p.arm_b): p for p in load_jsonl(out / "pairwise.jsonl", PairRow)}.values())
+    rows = list(latest(read_jsonl(out / "results.jsonl", CellResult)).values())
+    pairs = list(latest(read_jsonl(out / "pairwise.jsonl", PairRow)).values())
     meta = json.loads((out / "matrix.json").read_text()) if (out / "matrix.json").is_file() else {}
     md = compare_markdown(out, rows, pairs, meta)
     page = compare_html(out, rows, pairs, meta)
@@ -341,4 +317,4 @@ def build_compare_report(out_dir: Path | str) -> tuple[str, str]:
     return md, page
 
 
-__all__ = ["ArmStats", "CellResult", "PairRow", "PairStats", "arm_stats", "build_compare_report", "load_jsonl", "pair_stats"]
+__all__ = ["ArmStats", "CellResult", "PairRow", "PairStats", "arm_stats", "build_compare_report", "pair_stats"]

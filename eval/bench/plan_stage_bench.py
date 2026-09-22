@@ -38,16 +38,9 @@ DEFAULT_JUDGE = "gemini:gemini-3.1-pro-preview"
 
 def _done(out: Path) -> set[tuple[str, int]]:
     """(prompt, rep) pairs already recorded, so a killed run resumes instead of repeating."""
-    if not out.is_file():
-        return set()
-    seen: set[tuple[str, int]] = set()
-    for line in out.read_text().splitlines():
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
-        seen.add((row["prompt"], row["rep"]))
-    return seen
+    from bench._jsonl import read_jsonl  # after main's path insert, like every bench import here
+
+    return {(row["prompt"], row["rep"]) for row in read_jsonl(out)}
 
 
 def _plan_shape(ws_root: Path) -> dict:
@@ -68,15 +61,10 @@ def _plan_shape(ws_root: Path) -> dict:
 
 def _stats(ws_root: Path) -> dict:
     """What the plan stage's event log says about the call that just ran."""
+    from bench._jsonl import read_jsonl  # after main's path insert, like every bench import here
+
     out: dict = {"invalid_reasks": 0, "geometry_reasks": 0, "restarts": 0, "missing": [], "cost_usd": 0.0}
-    events = ws_root / "events.jsonl"
-    if not events.is_file():
-        return out
-    for line in events.read_text().splitlines():
-        try:
-            e = json.loads(line)
-        except ValueError:
-            continue
+    for e in read_jsonl(ws_root / "events.jsonl"):
         kind = e.get("event")
         if kind == "plan.invalid":
             out["invalid_reasks"] += 1
@@ -194,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     sys.path.insert(0, str(ns.tree.resolve()))   # the harness tree under test wins for `codeverse3d`
 
     import codeverse3d
-    from bench._jsonl import seal_for_append  # after the path insert: `python bench/x.py`
+    from bench._jsonl import read_jsonl, seal_for_append  # after the path insert (script run)
     from bench.run_bench import Battery
     from codeverse3d.config import get_settings
     if not Path(codeverse3d.__file__).resolve().is_relative_to(ns.tree.resolve()):
@@ -224,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
             fh.write(json.dumps(row) + "\n")
             fh.flush()
             print(f"  {row['prompt']:28} r{row['rep']:<3} ok={row['ok']} restart={row['restarts']} {row['error'][:60]}")
-    rows = [json.loads(x) for x in ns.out.read_text().splitlines() if x.strip()]
+    rows = read_jsonl(ns.out)
     spent = sum(float(r.get("cost_usd") or 0.0) for r in rows)
     print(f"{ns.label}: {sum(1 for r in rows if r['ok'])}/{len(rows)} plans valid, "
           f"${spent:.2f} over {len(rows)} calls (the rows are the ledger: plan_once does not "

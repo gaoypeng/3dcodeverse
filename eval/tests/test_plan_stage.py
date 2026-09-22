@@ -75,3 +75,14 @@ def test_a_harness_side_death_is_a_loss_not_provider_weather() -> None:
 
     assert outcome({"ok": False, "error": "ModelError: Gemini prompt blocked: BlockedReason.OTHER"}) == "provider"
     assert outcome({"ok": False, "error": "KeyError: 'parts'"}) == "planning_error"
+
+
+def test_a_killed_arm_file_still_reports(tmp_path: Path, capsys) -> None:
+    """The report's loader parsed every line strictly: the half-written row a killed
+    ``plan_stage_bench`` leaves made the whole arm unreadable."""
+    from bench.plan_stage_report import main
+
+    arm = tmp_path / "arm.jsonl"
+    arm.write_text(json.dumps({"prompt": "p", "rep": 0, "ok": True, "error": ""}) + '\n{"prompt": "p", "re')
+    assert main([str(arm)]) == 0
+    assert "| arm | 1 | 1 | 0 | 0 | 0.000 |" in capsys.readouterr().out

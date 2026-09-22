@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from bench._compare_report import _f as _fmt
 from bench._compare_report import _mean
-from bench._jsonl import read_jsonl
+from bench._jsonl import latest, read_jsonl
 from bench.run_bench import BenchItemResult
 from codeverse3d.addons.gallery import GalleryIndex, RootSection, RunEntry, render_static
 from codeverse3d.addons.gallery.index import entry_from_record
@@ -57,8 +57,7 @@ class BenchReport(BaseModel):
 def load_results(out_dir: Path) -> list[BenchItemResult]:
     jl = out_dir / "results.jsonl"
     if jl.is_file():
-        latest: dict[str, BenchItemResult] = {r.id: r for r in read_jsonl(jl, BenchItemResult)}
-        return list(latest.values())
+        return list(latest(read_jsonl(jl, BenchItemResult)).values())
     js = out_dir / "results.json"
     if js.is_file():
         return [BenchItemResult.model_validate(r) for r in json.loads(js.read_text())]

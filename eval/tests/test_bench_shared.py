@@ -113,7 +113,8 @@ def test_two_bench_run_batteries_pair_by_prompt(tmp_path: Path) -> None:
     interval crosses zero" — rather than being recomputed by hand."""
     import json as _json
 
-    from bench.paired_compare import latest_cells, paired, rows_from_bench_run
+    from bench._jsonl import latest
+    from bench.paired_compare import paired, rows_from_bench_run
 
     def write(d: Path, scores: dict[str, float]) -> Path:
         d.mkdir(parents=True)
@@ -126,7 +127,7 @@ def test_two_bench_run_batteries_pair_by_prompt(tmp_path: Path) -> None:
     b = write(tmp_path / "arm_b", {"p1": 0.5, "p2": 0.3, "p3": 0.5})
 
     rows = rows_from_bench_run(a, "arm_a") + rows_from_bench_run(b, "arm_b")
-    st = paired(latest_cells(rows), "arm_a", "arm_b")
+    st = paired(latest(rows), "arm_a", "arm_b")
     assert st.n == 3 and st.mean_delta == pytest.approx(0.0667, abs=1e-3)
     assert st.wins == 2 and st.losses == 0 and st.ties == 1
     assert st.verdict == "unsupported"  # CI [-0.077, +0.21] crosses zero at n = 3

@@ -30,6 +30,7 @@ from pathlib import Path
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
+from bench._jsonl import latest  # noqa: E402
 from bench.stats import mean_ci  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 
@@ -108,11 +109,7 @@ MIN_PAIRS = 3
 def paired_by_brief(a: list[Run], b: list[Run]) -> dict[str, tuple[Run | None, Run | None]]:
     """``{brief: (A run, B run)}`` — the pairing the page shows and the verdict reads.  A
     brief run twice in one arm (a redo) is its LAST run, the rule of every bench journal."""
-    ka: dict[str, Run] = {}
-    kb: dict[str, Run] = {}
-    for rs, by in ((a, ka), (b, kb)):
-        for r in rs:
-            by[r.brief or r.slug] = r
+    ka, kb = (latest(rs, key=lambda r: r.brief or r.slug) for rs in (a, b))
     return {k: (ka.get(k), kb.get(k)) for k in {**ka, **kb}}
 
 

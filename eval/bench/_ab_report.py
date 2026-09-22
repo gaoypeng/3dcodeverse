@@ -21,6 +21,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from bench._compare_report import CellResult
+from bench._jsonl import latest
 from bench.stats import mean_ci, n_to_resolve, sign_test
 
 CONTROL = "control"
@@ -109,7 +110,7 @@ def pair_up(rows: list[CellResult], prompt_order: list[tuple[str, str]] | None =
     prompts absent from the order are appended first-seen.  Latest row wins per
     (prompt, arm) — the results file is append-only and a redo re-appends.
     """
-    by: dict[tuple[str, str], CellResult] = {(r.prompt_id, r.arm): r for r in rows}
+    by = latest(rows)
     present = {r.prompt_id for r in rows}
     ids: list[tuple[str, str]] = [(i, t) for i, t in (prompt_order or []) if i in present]
     seen = {i for i, _ in ids}

@@ -35,7 +35,7 @@ for _p in (REPO, Path(__file__).resolve().parents[1]):      # its codeverse3d + 
 
 from bench._ab_report import _fmt as _f  # noqa: E402
 from bench._compare_report import CellResult  # noqa: E402
-from bench._jsonl import read_jsonl  # noqa: E402
+from bench._jsonl import latest, read_jsonl  # noqa: E402
 from bench.stats import mean_ci, sign_test  # noqa: E402
 
 
@@ -69,14 +69,6 @@ class PairedStats(BaseModel):
     deltas: dict[str, float] = Field(default_factory=dict, description="prompt id → harness − one-shot")
 
 
-def latest_cells(rows: list[CellResult]) -> dict[tuple[str, str], CellResult]:
-    """(prompt_id, arm) → last recorded row (the journal is append-only; a re-run supersedes)."""
-    out: dict[tuple[str, str], CellResult] = {}
-    for r in rows:
-        out[(r.prompt_id, r.arm)] = r
-    return out
-
-
 def _usable(r: CellResult | None) -> tuple[bool, str]:
     if r is None:
         return False, "missing"
@@ -89,6 +81,7 @@ def _usable(r: CellResult | None) -> tuple[bool, str]:
 
 def paired(cells: dict[tuple[str, str], CellResult], harness_arm: str, oneshot_arm: str, *,
            tier: str = "all", exclude_degraded: bool = False) -> PairedStats:
+    """One comparison over ``cells`` — ``bench/_jsonl.latest``: (prompt, arm) → last row."""
     prompts = sorted({p for (p, a) in cells if a in (harness_arm, oneshot_arm)})
     st = PairedStats(harness_arm=harness_arm, oneshot_arm=oneshot_arm, tier=tier, n=0)
     hs: list[float] = []
@@ -148,7 +141,7 @@ def paired(cells: dict[tuple[str, str], CellResult], harness_arm: str, oneshot_a
 
 
 def analyse(rows: list[CellResult]) -> list[PairedStats]:
-    cells = latest_cells(rows)
+    cells = latest(rows)
     arms = sorted({a for (_, a) in cells})
     harness = [a for a in arms if a.startswith("harness:")]
     oneshot = [a for a in arms if a.startswith("oneshot")]
@@ -241,10 +234,7 @@ def rows_from_bench_run(out_dir: Path, arm: str) -> list[CellResult]:
     the same for both shapes rather than recomputed by hand.
     """
     rows: list[CellResult] = []
-    for line in (out_dir / "results.jsonl").read_text().splitlines():
-        if not line.strip():
-            continue
-        raw = json.loads(line)
+    for raw in latest(read_jsonl(out_dir / "results.jsonl"), key=lambda r: r["id"]).values():
         # a bench-run row records no build flag: a cell with a verdict was built and judged,
         # one without (score None) was not — so `build_ok` here means "judged", and
         # `gen_cost_usd` is the run's WHOLE cost (plan + loop judge), as the field says.  A
@@ -282,14 +272,14 @@ def main(argv: list[str] | None = None) -> int:
     if ns.against is not None:
         name_a, name_b = arm_names(out, ns.against)
         rows = rows_from_bench_run(out, name_a) + rows_from_bench_run(ns.against, name_b)
-        stats = [paired(latest_cells(rows), name_a, name_b)]
+        stats = [paired(latest(rows), name_a, name_b)]
         md = render_markdown(stats, f"{name_a} vs {name_b}")
         (out / "paired.md").write_text(md)
         print(md)
         return 0
     rows = read_jsonl(out / "results.jsonl", CellResult)
     stats = analyse(rows)
-    gates = gate_stats(latest_cells(rows))
+    gates = gate_stats(latest(rows))
     md = render_markdown(stats, out.name, gates)
     (out / "paired.md").write_text(md)
     (out / "paired.json").write_text(json.dumps({"paired": [s.model_dump(mode="json") for s in stats],

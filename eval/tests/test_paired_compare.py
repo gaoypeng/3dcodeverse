@@ -11,7 +11,8 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from bench._compare_report import CellResult  # noqa: E402
-from bench.paired_compare import analyse, latest_cells, main, paired  # noqa: E402
+from bench._jsonl import latest  # noqa: E402
+from bench.paired_compare import analyse, main, paired, rows_from_bench_run  # noqa: E402
 from bench.stats import t975  # noqa: E402
 
 HA, OA = "harness:gemini-cli:gemini-3.6-flash", "oneshot:gemini:x"
@@ -33,7 +34,7 @@ def test_paired_stats_ci_sign_test_and_drops():
     rows += [_cell("p7", HA, None, status="budget_exhausted"), _cell("p7", OA, 0.4)]
     # the journal is append-only: a re-run of p0's harness cell supersedes the first row
     rows += [_cell("p0", HA, 0.82, passed=True)]
-    st = paired(latest_cells(rows), HA, OA)
+    st = paired(latest(rows), HA, OA)
     assert st.n == 6 and st.dropped_infra == 1 and st.dropped_unscored == 1
     assert st.deltas["p0"] == 0.22 and st.wins == 5 and st.losses == 1 and st.ties == 0
     assert st.sign_p == 0.2188
@@ -83,3 +84,14 @@ def test_degraded_harness_cells_are_reported_and_can_be_excluded():
     plain = analyse([_cell("q", HA, 0.7), _cell("q", OA, 0.5)])
     assert "all −degraded" not in {s.tier for s in plain}
 
+
+
+def test_a_killed_bench_run_journal_costs_its_last_row_not_the_comparison(tmp_path):
+    """`rows_from_bench_run` parsed every line strictly, so the half-written row a SIGKILL
+    leaves made `--against` crash on the whole battery; and a redo re-appends a row."""
+    rows = [{"id": "p1", "tier": "hard", "score_picked": 0.4}, {"id": "p2", "tier": "hard", "score_picked": 0.5},
+            {"id": "p1", "tier": "hard", "score_picked": 0.9}]
+    text = "".join(json.dumps(r) + "\n" for r in rows) + '{"id": "p3", "tier": "ha'
+    (tmp_path / "results.jsonl").write_text(text)
+    cells = rows_from_bench_run(tmp_path, "arm")
+    assert [(c.prompt_id, c.score) for c in cells] == [("p1", 0.9), ("p2", 0.5)]

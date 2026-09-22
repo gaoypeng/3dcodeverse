@@ -104,9 +104,9 @@ def _assert_local_codeverse() -> None:
 _assert_local_codeverse()
 
 from bench._ab_report import ARMS, CONTROL, VARIANT, Verdict, write_report  # noqa: E402
-from bench._compare_report import CellResult, load_jsonl  # noqa: E402
+from bench._compare_report import CellResult  # noqa: E402
 from bench._infra import is_infra_failure  # noqa: E402
-from bench._jsonl import seal_for_append  # noqa: E402
+from bench._jsonl import latest, read_jsonl, seal_for_append  # noqa: E402
 from bench.compare_backends import (  # noqa: E402
     Arm,
     CompareDeps,
@@ -475,7 +475,7 @@ def run_ab(
         )
     )
     results = out / "results.jsonl"
-    done = {(r.prompt_id, r.arm): r for r in load_jsonl(results, CellResult)} if opts.resume else {}
+    done = latest(read_jsonl(results, CellResult)) if opts.resume else {}
     todo = _plan_todo(battery, done, opts)
     seal_for_append(results)  # a kill left the last row unterminated; do not glue onto it
     with ThreadPoolExecutor(max_workers=PARALLEL) as pool, results.open("a") as fh:
@@ -516,7 +516,7 @@ def run_ab(
                             status=status,
                             error=f"pinned plan: {type(e).__name__}: {e}"[:600],
                         )
-                        done[(r.prompt_id, r.arm)] = r
+                        done[r.natural_key()] = r
                         fh.write(r.model_dump_json() + "\n")
                         fh.flush()
                         if on_result:
@@ -525,7 +525,7 @@ def run_ab(
             futs = [pool.submit(run_cell_fn, battery_path, out, item, a, opts) for a in arms]
             for fut in futs:
                 r = fut.result()
-                done[(r.prompt_id, r.arm)] = r
+                done[r.natural_key()] = r
                 fh.write(r.model_dump_json() + "\n")
                 fh.flush()
                 if on_result:
@@ -688,7 +688,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         opts = _stored_options(out) or opts
         v = write_report(
             out,
-            load_jsonl(out / "results.jsonl", CellResult),
+            list(latest(read_jsonl(out / "results.jsonl", CellResult)).values()),
             [(p.id, p.tier) for p in battery.prompts],
             title=f"{battery.name} / {out.name}",
             variant_env={} if opts.aa else opts.variant_env,
@@ -755,7 +755,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         + (f"\nCAUTION: {v.caution}" if v.caution else "")
         + f"\n{out / 'summary.md'}"
     )
-    lost = [r for r in load_jsonl(out / "results.jsonl", CellResult) if r.status == "infra_failed"]
+    lost = [r for r in latest(read_jsonl(out / "results.jsonl", CellResult)).values() if r.status == "infra_failed"]
     if lost:
         print(
             f"{len(lost)} cell(s) lost to provider outages and EXCLUDED from the pairing; re-run both arms of "

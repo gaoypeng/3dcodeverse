@@ -56,15 +56,10 @@ for _p in (REPO, Path(__file__).resolve().parents[1]):      # its codeverse3d + 
 
 from datetime import UTC  # noqa: E402
 
-from bench._compare_report import (  # noqa: E402
-    CellResult,
-    PairRow,
-    build_compare_report,
-    load_jsonl,
-)
+from bench._compare_report import CellResult, PairRow, build_compare_report  # noqa: E402
 from bench._fixed_eval import RUBRIC, EvalOutcome, FixedEvaluator  # noqa: E402
 from bench._infra import is_budget_exhaustion, is_infra_failure  # noqa: E402
-from bench._jsonl import seal_for_append  # noqa: E402
+from bench._jsonl import latest, read_jsonl, seal_for_append  # noqa: E402
 from bench._oneshot import (  # noqa: E402
     OneShotBackend,
     OneShotResult,
@@ -430,7 +425,7 @@ def _renders_of(out: Path, r: CellResult) -> RenderSet | None:
 def run_pairwise(battery: Battery, cells: dict[tuple[str, str], CellResult], arms: Sequence[Arm], out: Path,
                  opts: CompareOptions, deps: CompareDeps) -> list[PairRow]:
     path = out / "pairwise.jsonl"
-    done = {(p.prompt_id, p.arm_a, p.arm_b): p for p in load_jsonl(path, PairRow)} if opts.resume else {}
+    done = latest(read_jsonl(path, PairRow)) if opts.resume else {}
     harness = [a for a in arms if a.kind == "harness"]
     oneshot = [a for a in arms if a.kind != "harness"]
     judge = None
@@ -464,7 +459,8 @@ def run_pairwise(battery: Battery, cells: dict[tuple[str, str], CellResult], arm
 # ----------------------------------------------------------------------------- matrix
 def _drop_pairs(path: Path, key: tuple[str, str]) -> None:
     """Forget pairwise rows touching a cell that is about to be re-run."""
-    rows = [p for p in load_jsonl(path, PairRow) if not (p.prompt_id == key[0] and key[1] in (p.arm_a, p.arm_b))]
+    rows = [p for p in latest(read_jsonl(path, PairRow)).values()
+            if not (p.prompt_id == key[0] and key[1] in (p.arm_a, p.arm_b))]
     if path.is_file():
         path.write_text("".join(p.model_dump_json() + "\n" for p in rows))
 
@@ -478,7 +474,7 @@ def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm
                                                  "options": opts.model_dump(mode="json"),
                                                  "started_at": datetime.now(UTC).isoformat()}, indent=2))
     results = out / "results.jsonl"
-    done = {(r.prompt_id, r.arm): r for r in load_jsonl(results, CellResult)} if opts.resume else {}
+    done = latest(read_jsonl(results, CellResult)) if opts.resume else {}
     for key in [k for k, r in done.items() if r.status in set(opts.redo_status)]:
         _drop_pairs(out / "pairwise.jsonl", key)
         del done[key]
@@ -497,7 +493,7 @@ def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm
                 _, r = _new_cell(p, a, out, opts)
                 r.status = "error"
                 r.note(f"run_cell raised {type(e).__name__}: {e}"[:800])
-            done[(r.prompt_id, r.arm)] = r
+            done[r.natural_key()] = r
             fh.write(r.model_dump_json() + "\n")
             fh.flush()
             if on_result:
@@ -607,7 +603,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     run_matrix(ns.prompts, ns.out, arms, opts, deps, on_result=_log)
     print(f"report: {Path(ns.out) / 'report.md'}")
-    dropped = [r for r in load_jsonl(Path(ns.out) / "results.jsonl", CellResult) if r.status == "infra_failed"]
+    dropped = [r for r in latest(read_jsonl(Path(ns.out) / "results.jsonl", CellResult)).values()
+               if r.status == "infra_failed"]
     if dropped:
         # never let downtime pass as a result: say what was lost and how to get it back
         print(f"\n{len(dropped)} cell(s) lost to provider outages and EXCLUDED from every rate: "
