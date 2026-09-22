@@ -73,6 +73,8 @@ if mode == "gave_up":      # 0.53 after its own retries: an error object on STDE
     print(json.dumps({"session_id": "s9", "error": {"type": "Error", "message": "got status: UNAVAILABLE.", "code": 503}},
                      indent=2), file=sys.stderr)
     sys.exit(247)
+if mode == "ok_with_record":   # every real session writes both: the envelope must win, never add
+    chat_record()
 served = "gemini-9-pro" if mode == "substitute" else model
 os.makedirs("src", exist_ok=True)
 open("src/hello.txt", "w").write(prompt[:20])
@@ -148,6 +150,22 @@ def test_a_session_killed_in_a_storm_is_booked_from_its_chat_record(tmp_ws: Work
     assert rec["usage_from"] == ["chat record"]
 
 
+def test_the_metered_proxy_books_a_killed_sessions_record_once(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch,
+                                                                tmp_path):
+    """Filling AgentResult.usage is the whole fix: MeteredAgent writes the one session row from
+    it (it wrote NONE for a $0 session) and the round's BudgetGuard is charged the same usage."""
+    from codeverse3d.cost import load_ledger
+    from codeverse3d.cost.instrument import MeteredAgent, run_ledger
+
+    monkeypatch.setenv("FAKE_MODE", "storm")
+    monkeypatch.setattr("codeverse3d.agents.cli_common.IDLE_GRACE_S", 1.0)
+    with run_ledger(tmp_path / "run", run="r1"):
+        res = MeteredAgent(agent).run(_job(tmp_ws, timeout_s=1, kind="baseline"))
+    (row,) = load_ledger(tmp_path / "run")
+    assert row.source == "session" and row.outcome == "timeout" and row.input_tokens == res.usage.input_tokens == 4000
+    assert row.cost_usd == pytest.approx(res.usage.cost_usd, abs=1e-6) and row.cost_usd > 0
+
+
 def test_a_session_that_gave_up_is_booked_from_its_record_and_is_typed_transient(tmp_ws: Workspace,
                                                                                   agent: GeminiCliAgent, monkeypatch):
     """0.53 writes its give-up object to STDERR with no stats and exits 503 & 255 = 247: every
@@ -162,6 +180,20 @@ def test_a_session_that_gave_up_is_booked_from_its_record_and_is_typed_transient
     assert res.usage.input_tokens == 2 * 4000        # both attempts, each from its own record
     rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
     assert rec["attempts"] == 2 and rec["usage_from"] == ["chat record", "chat record"] and rec["session_id"] == "s9"
+
+
+def test_the_envelope_wins_over_the_record_and_nothing_is_booked_twice(tmp_ws: Workspace, agent: GeminiCliAgent,
+                                                                       monkeypatch):
+    """A completed session leaves an envelope AND a chat record; the record is read (it is the
+    tool trace) but its tokens are used only when the envelope has none — the metered proxy
+    books AgentResult.usage once, so adding them would double the bill."""
+    monkeypatch.setenv("FAKE_MODE", "ok_with_record")
+    res = agent.run(_job(tmp_ws))
+    assert res.ok and res.usage.input_tokens == 100 and res.usage.output_tokens == 20   # the envelope's, alone
+    rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
+    assert rec["usage_from"] == ["envelope"]
+    rows = [json.loads(ln) for ln in Path(res.transcript_path).read_text().splitlines()]
+    assert [r["tool"] for r in rows if r["kind"] == "tool_call"] == ["write_file"]      # the record still traced
 
 
 def test_success_path(tmp_ws: Workspace, agent: GeminiCliAgent):
