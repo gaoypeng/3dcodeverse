@@ -53,15 +53,10 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   artifacts match the last round's code, and every round's own build is kept in `artifacts/rNN/`.
 * **D7 Stage cache by input hash.**  `StageRunner` stores `stages/<name>.json` keyed by a
   hash of the inputs, so `3dcode resume` re-runs only what changed; the budget guard is
-  restored from `run_state.extra.budget_snapshot` (`BudgetSnapshot`: spent usage, billed
-  USD, call count, per-STAGE buckets, cumulative ACTIVE seconds — grace is
-  deliberately NOT persisted; the per-ROUND bucket went 2026-08-30, nothing read it and
-  `CallCost.round` in `telemetry/cost.jsonl` is the per-round record).  Prior spend and
-  active minutes still count after a resume, so a raised `--max-minutes` grants only the
-  difference.  The `spent_usage` mirror in `run_state.extra` went 2026-08-29 (write) and
-  2026-08-30 (read): of the 282 run dirs that have it and no snapshot, only 41 can be
-  resumed at all, and `check()` enforces on `billed_usd`, which
-  `_reconcile_billed_from_ledger` restores from the ledger regardless.
+  restored from `run_state.extra.budget_snapshot` (`BudgetSnapshot`: since D84 the clock's
+  cumulative ACTIVE seconds only — the money fields went with the guard's money; grace is
+  deliberately NOT persisted).  Active minutes still count after a resume, so a raised
+  `--max-minutes` grants only the difference.
   `run_state.extra` carries `budget_snapshot` and `spec_fingerprint` only: the
   candidate count lives in `spec.options.candidates`, the candidate table in
   `rounds/candidates.json` (which `record.extra.candidates` is read from).
@@ -94,9 +89,9 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   use_cache`; all original args/defaults unchanged; renders are cached by
   sha(glb)+params under `~/.cache/codeverse3d/renders/`.
 * **D15 `check_contract(measurement, plan, *, language, tol_m)` (Δ).**  `language` is
-  required for the Z-up → Y-up plan-box conversion.  `cross_section` adds `absolute`,
-  `size`; `compare_silhouette` returns `ref_aspect, render_aspect, reliable` (IoU on
-  bbox-normalised 256² masks).
+  required for the Z-up → Y-up plan-box conversion.  (`cross_section`'s `absolute` / `size` and
+  the `compare_silhouette` tool are gone: D88 draws sections through the judge renderer, D82
+  deleted the tool.)
 * **D16 measure: link-hierarchy rule (Δ, fixed after the cabinet run).**  Parts are
   effective top-level nodes (descending through single geometry-less wrappers) with
   subtrees merged — except when the scene carries `metadata["links"]`, in which case
@@ -274,8 +269,8 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   INTERFACES orchestrator/); (b) **one ledger writer** — `BudgetGuard` buckets and enforces only,
   `MeteredAgent` / `MeteredChatModel` write `telemetry/cost.jsonl` and `BaseTrack.run` opens the
   run ledger (`per_call_metering`, `_ledger_row`, `run_ledger_path` deleted; COST §12); (c) **a
-  garbage env flag is OFF** — `config.env_flag` warns and reads an unparseable value as OFF, so a
-  typo in a bench command is a control run, never the variant; (d) one MCP command
+  garbage env flag is OFF** — amended by D86: a typo keeps the switch's DEFAULT, which is the arm
+  that never set it (for a default-ON switch "garbage is OFF" produced the variant); (d) one MCP command
   (`default_mcp_command`, `sys.executable`), one JSON-envelope finder, one union-find, one sha256,
   one `ask_structured`, one `RENDER_MODES`.  Retired with their docs: `3dcode migrate-runs`,
   turntables + ffmpeg, the `C3D_SYSPROMPT=v0` arm, `shader_presence` / counterfactual renders, the
@@ -825,8 +820,8 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   dependency is one-way and now visible in the tree: `eval/*` imports `codeverse3d`, nothing under
   `harness/` imports `bench`, and the harness suite passes without `eval/`.  Mixed test files were
   split where they straddled the line (`test_targets`, `test_plan_features`, `test_complexity_record`).
-  `3dcode bench run|report` stays as the launcher and finds the package at `<repo>/eval`
-  (`cli/_common.EVAL_ROOT`).  The two evaluations share one set of battery files
+  The launcher is `cd eval && python -m bench.run_bench` / `python -m bench.report` since D89
+  (`3dcode bench` put eval on sys.path at runtime).  The two evaluations share one set of battery files
   (`eval/bench/prompts`; `llm` names the ten it can ask one-shot).  Run data — `eval/bench/out`,
   `eval/llm/data/prompts/*.jsonl` — is not in git.
 * **D78 One name family: `3dcodeverse` · `codeverse3d` · `C3D` (owner, 2026-09-22).**  A Python
@@ -876,6 +871,76 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   backend records its CLI's own tool calls in `transcript.jsonl` and the read probe reads those
   first (the atime probe was wrong on every session).  gemini-cli pins `skills.enabled`,
   claude-code streams JSON; `.agents/` is harness-owned and git-ignored.  SKILLS_LEDGER §0b.
+
+* **D82 One verdict per check (2026-09-22).**  A tool returns the round's own gate, computed by the
+  same function on the same inputs: `joint_sweep` → `joints_sweep.sweep_gate(ws)`, `check_placement` →
+  `scene_placement.placement_gate(ws, census, plan)` (layouts and unbuilt assets from `stages/`),
+  `shader_probe` → `scene_threejs.probe_and_preflight`, the build's one-boot probe.  Not the rejected
+  GateDef registry: nothing is registered, the tools' private checkers are deleted (on 118 recorded
+  scenes the old `check_placement` passed 20 runs the round gate failed).  `BuildResult.gates` carries a
+  build's own reports (scene_probe + shader_preflight, gl_frames) and `_run_round` appends them after
+  the track's, failed builds included, so the shader route (R21) can fire; `census_gate_report` (always
+  empty) went; the URDF build collides the rest pose only (D17) and writes no `articulation.json`;
+  `GateReport.of` builds every report whose verdict is its findings.  Deleted as unused (owner):
+  `effect_ablation`, `compare_silhouette` / `texture_pass` / `texture_preview` (0/1/0 calls in 616
+  sessions; 16 tools remain), `glsl_cookbook.md`.
+* **D83 A vendor session gets its prompt on stdin, sees only routed skills, and is read back from its
+  own record (2026-09-22).**  Every CLI reads the prompt from stdin, byte-identical (a 5-zone scene prompt
+  passed gemini's 2 000-line `read_file` cut when it went through `task_prompt.md`; argv caps an argument
+  at 128 KiB).  claude-code runs `--setting-sources project` + no bundled skills (26 extra skills
+  before), so its effort is the harness's (`agents.claude_effort`, xhigh — what it inherited until
+  then); codex `skills.bundled.enabled=false`; gemini `skills.disabled`; agy has no switch.  A session
+  with no envelope books usage from the CLI's own record (gemini chat log, claude stream): replayed
+  over the 11 gemini sessions of the 2026-09-22 live runs, $0.219 booked → $5.11.  `provider_wait_s`
+  is the time a session lost to provider errors (a lower bound for gemini, 0 for codex).  Failure
+  classes travel typed (`AgentResult.transient/quota` → `RoundFailed`); a plain timeout is no longer
+  retried as a transport death.
+* **D84 One minutes, one record of money (owner, 2026-09-22).**  Every step is a `StepTime{step,
+  round, wall_s, lost_s}`; `RunRecord.minutes` = Σ(wall − lost) over run and round steps — lost is a
+  session's `provider_wait_s` or an API call's time outside its answered round-trips; parallel work is
+  one step.  Every reader (select, gallery, `3dcode show`/`cost`, dataset, eval/bench) reads it; a record
+  without steps counts its own clock.  `max_minutes` stays a wall-clock LIMIT (it must stop a storm).
+  `telemetry/cost.jsonl` is the only money record: `total_usage` = its sum at list price (every
+  `live` / `session` / `extra` row once — `extra` is a billed hedge loser), a round's cost is what it
+  booked; `BudgetGuard` is a clock; gone: `billing.py`, `routing.py`, `cost/reconstruct.py` (the 33
+  pre-ledger runs are outside the repo), `C3D_COST_LEDGER`, `cost.round`, PROVENANCE (one price table).
+* **D85 Machine-wide in-flight slots; the schedulers that never engaged are gone (2026-09-22).**
+  `max_in_flight` is N `flock`'d slot files every process shares (`<cache>/slots/gemini/NN.lock`); a
+  slot guards one harness API call, a CLI session takes a key but no slot (a session-long slot would
+  starve judges).  The kernel frees a dead holder's lock, so §23's staleness worry is gone, and with it
+  the `/proc` sibling scan (it hard-coded eval entry points) and ab_plan's refusal.  Measured
+  (`tests/models/test_slots.py`): 8 processes / 4 slots peak exactly 4; a SIGKILLed holder's slot back
+  in 37–70 ms; deadlines kept to 1 ms.  Deleted: TokenBucket (peak 3.9 % of TPM), StormGate (shipped
+  OFF), `with_retries` (one retry loop), `fewer_turns` (OFF since COST §29).
+* **D86 One switch grammar (2026-09-22).**  Every `C3D_*` knob is a `Settings` field read through
+  `get_settings()`; an on/off switch is a `Flag` (on/off/1/0/true/false/yes/no; a typo warns and
+  keeps the default — amends D44(c)); env beats yaml; four nested knobs keep a flat spelling
+  (`C3D_MAX_IN_FLIGHT`, `C3D_RENDER_GPU`, `C3D_SEED_RECIPES`, `C3D_AGENT_MAX_TURNS`).  Fixed on the
+  way: `=off` was ignored by `C3D_STREAM`, `C3D_IPV4`, `C3D_AXIS_REPAIR`.  `env_flag`, the `*_enabled`
+  helpers, `skills/config.py` and 14 hand parsers are gone; `plan_features` derives live names from
+  `Settings.model_fields`.  Tests set a switch through the `switch` fixture (settings are cached).
+* **D87 The pipeline states each rule once (2026-09-22).**  One plan digest and one round payload
+  (`judges/base.plan_summary`, `round_input`) for the live judge, `3dcode judge`, calibration, the texture
+  gate and eval — replays of Z-up objects read W×H×D again and graphics replays keep passes and motion.
+  One per-language prompt lookup (`prompts/catalog.language_prompt`; `RuntimeDocs`, `contract_doc` gone).
+  The runtime owns the file layout (`expected_files` / `files_for`); `tracks/planner.py` owns what
+  differs per track at planning (six BaseTrack hooks gone); the GLB ↔ authoring frame mapping is
+  `conventions.to_authoring_frame` (L2).  The round history lives only in `rounds/rNN.json` + commits
+  (`RunState` caches none of it).  `3dcode show` is the one single-run view (`status` = its STATUS).
+* **D88 One build plumbing (2026-09-22).**  The python wrappers live in `languages/wrappers/` beside
+  a stdlib-only `_wrapper_common.py` (report, memory cap, seeding, script runner, traceback mapping);
+  `run_bpy_links` stopped writing its own (it failed on `sys.exit(0)`, had no seeding);
+  `compose_build_result` writes the final BuildResult as `build.json`, the one build status
+  (`build_last.json` gone).  JS syntax: one node process per lint, a content-hash cache (scene lint
+  2.4–2.7 s → 0.01–0.24 s), `node --check` confirms any rejection.  One section renderer: the
+  `cross_section` tool draws through the D48 judge path, whose slices are pinned to the pixel.
+  KNOWN, not fixed (owner's call): the front_back slice says "front left", the front is drawn right.
+* **D89 Evaluation states uncertainty one way (2026-09-22).**  `eval/bench/stats.py`: the paired 95 %
+  Student-t interval ("separated" = excludes zero; 2·SE understated it by 15–38 % at n = 4–8), the
+  exact sign test, `statistics.correlation`.  Every journal is read through `_jsonl.read_jsonl`
+  (a truncated last line is skipped) and deduplicated by `_jsonl.latest`; `ArmStats` is the one arm
+  aggregate.  Numbers quoted before 2026-09-22 are 2·SE bands.  The battery launcher left the harness
+  CLI: `cd eval && python -m bench.run_bench …` / `python -m bench.report …` (same flags).
 
 ## Rejected / deferred
 

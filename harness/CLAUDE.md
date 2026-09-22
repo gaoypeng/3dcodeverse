@@ -75,8 +75,9 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
   range).  Judge default `gemini-3.1-pro-preview` (`Settings.default_judge`; tracks use
   n_samples=1); flash + `--n 3` is the cheap fallback, pro for calibration/eval.
 - Live runs under `runs/` (`e2e_*`): read-only reference material; never modify.
-- Every model call is priced into the run's `telemetry/cost.jsonl` (`codeverse3d.cost.instrument`;
-  `C3D_COST_LEDGER=off` to disable).  `docs/COST.md` Part II has the measured cost controls.
+- Every model call and vendor session is priced into the run's `telemetry/cost.jsonl` — the ONLY record of
+  money: `record.total_usage` is its sum at list price (D84).  A run's minutes are its steps' time minus
+  the time lost to provider errors (`RunRecord.minutes`).  `docs/COST.md` Part II has the cost controls.
 
 ## Commands
 ```
@@ -92,7 +93,7 @@ cd /home/yipeng/3dcodeverse/harness
 3dcodeverse make "..." --image ref.png --candidates 3 --rounds 2 --dim height=0.45 --must "three legs" --texture --no-run
 3dcodeverse make "..." --no-pick            # a run = baseline + --rounds refine rounds (fixed); make then picks a round → deliverable/ unless --no-pick
 3dcode pick <slug> [--by score|pairwise] [--round N] [--texture] [--judge MODEL]   # hand over a round (codeverse3d/addons/select.py)
-3dcode resume <slug> · 3dcode status <slug> · 3dcode render <slug> [--mode wire] · 3dcode judge <slug> [--model ... --n 3]
+3dcode resume <slug> · 3dcode show <slug> [--section status] (`status` = its STATUS section) · 3dcode render <slug> [--mode wire] · 3dcode judge <slug> [--model ... --n 3]
 3dcode texture pass <slug> [--no-judge] · 3dcode texture scene-pack <slug> · 3dcode texture show <slug>
 3dcode tools list · 3dcode tools measure --workspace runs/<slug> · 3dcode mcp --workspace runs/<slug>
 3dcode cost <slug> · 3dcode cost --runs-dir ../eval/bench/out/<battery> · 3dcode cost cache <slug>
@@ -104,8 +105,8 @@ cd /home/yipeng/3dcodeverse/harness
 python -m codeverse3d.addons.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
 python ../eval/bench/complexity_report.py ../eval/bench/out --recursive   # score-vs-complexity + $/complexity point (eval/docs/COMPLEXITY.md)
 python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
-python -m pytest tests -q -m "not live"            # 2 717 tests, ~65 s (real Blender + headless Chrome + CadQuery)
-python -m pytest tests -q -m "not live and not blender and not node"   # pure python: 2 166 tests, ~40 s   (the 224 bench tests: `cd ../eval && python -m pytest`)
+python -m pytest tests -q -m "not live"            # 2 688 tests, ~100 s (real Blender + headless Chrome + CadQuery)
+python -m pytest tests -q -m "not live and not blender and not node"   # pure python: 2 161 tests   (the 244 bench tests: `cd ../eval && python -m pytest`)
 # (the counts drift every commit — `--collect-only` is the answer, not a number in this file)
 # both run PARALLEL by default (pytest-xdist, -n auto --dist worksteal, in pyproject addopts).
 # A nested pytest inside a test MUST pass -n0 or it forks another full set of workers.
