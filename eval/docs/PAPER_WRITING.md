@@ -164,7 +164,9 @@ Two of these carry a second, non-score reading worth keeping:
 
 * The geometry re-ask **fired in 7 of 14 cells** and retro-fires on 8 of 14 recorded
   compare_art_v3 plans (mean score 0.362 for the plans it complains about vs 0.610 for the
-  clean ones) — it identifies bad plans, it just does not fix enough of them to show.
+  clean ones) — it identifies bad plans, it just does not fix enough of them to show.  With the
+  check ON vs OFF: final gate errors 0.00 vs 0.25, round-0 distinct `joint_sweep` targets 0.54
+  vs 0.25 (D49).
 * `C3D_FEWER_TURNS` and `C3D_LEAN_PROMPT` both cut tokens without cutting dollars.  The
   reason is in §6: the token growth is quadratic in turns but lands in the cache, so the
   bill is not where the tokens are.

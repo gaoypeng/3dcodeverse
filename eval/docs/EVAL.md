@@ -227,7 +227,7 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
   5 mm let the judge's tick on the pipe tee's 5.8 mm designed branch socket stand, −0.32 on that
   side of the paired re-judge): a penetration WARN measured that deep is not "absent" — the
   WARN-blind version switched off 163 interpenetration claims.  With the graded cap below the
-  final replay moves 230 of 419 stored verdicts (none down), pass rate 15.0 % → 21.0 %,
+  final replay moves 230 of 419 stored verdicts (none down, mean +0.086), pass rate 15.0 % → 21.0 %,
   pearson(gate errors, overall) −0.219 → −0.301, vetoed: interpenetration 130, floating 72.  0b6f52b tells the judge the same thing in its prompt; this holds when the judge
   does not listen.
 * **`missing_must_acceptance` is graded (2026-08-30).**  The flat 0.6 was the decisive cap on
@@ -236,12 +236,14 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
   `0.6 + 0.4 · verified/total` over the must items (`CapRule.graded`; the ledger line says
   "k of n must items verified").  Pass/fail is unchanged — any unverified must item still
   fails — only the score keeps its gradient: the 0.600 spike drops 130 → 20 on replay, σ
-  0.206 → 0.224.  Every breakdown now carries `scoring_version` (`rubrics.SCORING_VERSION`,
+  0.206 → 0.224 (without the grading, 98 of the rounds the veto above frees are re-pinned to
+  0.600 by the flat cap).  Every breakdown now carries `scoring_version` (`rubrics.SCORING_VERSION`,
   2 for this batch); `rejudge_offline --identity` holds only same-version verdicts to 1e-9.
 * **The judge reads the contact ledger, not WARN prose (2026-08-30).**  Audited over 420
-  rounds: P(judge marks interpenetration | connectivity ERROR) = 69/69, and 110 of the 237
-  flags cited only WARNs the rubric excuses — the same images with the gate section removed
-  flipped the flag on 13/24 sides.  `gates_section` now renders the gate's contact ledger:
+  rounds: P(judge marks interpenetration | connectivity ERROR) = 69/69, a coin flip (117/97)
+  where the gate was silent, and 110 of the 237 flags cited only WARNs the rubric excuses — the
+  same images with the gate section removed flipped the flag on 13/24 sides.
+  `gates_section` now renders the gate's contact ledger:
   one measured overlap line (deepest pair, through-ratio, "these are welds, not the defect"),
   a MEASURED STRUCTURE block with the plan's joins as contact/OPEN (312 stored rounds carry
   joins; 171 have ≥ 1 OPEN one — the assembly_fit ground truth that did not exist), and the
@@ -254,7 +256,20 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
   Δ(B−A) overall +0.059 mean (corpus rounds +0.141, h2h ours −0.040, h2h theirs +0.026);
   within-arm σ unchanged (0.030 → 0.032).  Two case reads: the new gate's 12.7 mm ERROR on
   clock_q4 is a real catch (0.912 → 0.700), and the pipe tee's −0.32 exposed the 5 mm veto
-  line marking a designed 5.8 mm branch socket — which is why the line is 8 mm.
+  line marking a designed 5.8 mm branch socket — which is why the line is 8 mm.  The gate change
+  behind the ledger (the dense pass on the overlap region, DECISIONS D46 d), re-run over the
+  corpus's 217 GLBs: 441 pairs newly WARN, 0 newly ERROR, 50 WARN→ERROR (pairs the old gate
+  already reported, now measured 9.4 → 11.3 mm), 14 runs whose gate now fails; median gate time
+  344 → 378 ms, p90 1381 → 1085 ms.
+* **An OPEN planned join stays report-only (census 2026-08-30, DECISIONS D46 j).**  217
+  static_object runs, 2 106 resolved planned rows (0 unresolved names, was 965), 223 OPEN across
+  92 runs.  181/223 are a child measurably welded to OTHER parts (mean overall 0.630; the judge
+  had already priced 74 %), 41/41 genuinely detached children already carry the floating ERROR
+  (mean 0.326; their runs already fail), and the class an upgrade exists to catch — touches
+  nothing, unflagged — is empty.  An ERROR's entire marginal bite is 46 currently-passing runs
+  (mean 0.643, seven at 0.83–0.96) whose 94 open rows all read as planner noise on the sheets
+  (0/19 eyeballed rows show a defect the gate + judge miss in a passing run: aprons weld into
+  legs; a wheel rim rides its 8 spokes 419 mm from the hub the plan named).
 * **The judge's own re-judge σ is 0.035 (2026-08-30, fixed montage order).**  53 items — the
   29 corpus rounds that still carry view PNGs + the 24 h2h object-sides re-rendered from their
   GLBs — judged three times each with the identical prompt (`VlmJudge(fixed_order=True)`,
@@ -704,7 +719,8 @@ production-faithful 8 views + clay · B = 14 labelled 640 px single views · C =
 + clay through the montage machinery (5 montages + 2 crops).  C mean overall 0.6835 vs A
 0.6427 / A2 0.6558 / B 0.6308; the only multiplicity survivor is same-cap C−A +0.038
 (n=29, SE 0.013, t≈2.98) — raw C−B p=.041 / C−A p=.024 do not survive Holm because cap flips make
-the deltas heavy-tailed.  `untextured_flat` cap-rule fires: 11(A) / 6(A2) / 8(B) / 3(C).
+the deltas heavy-tailed (sd(d) ~0.10–0.14).  `untextured_flat` cap-rule fires: 11(A) / 6(A2) /
+8(B) / 3(C).
 B rejected at $0.198 & 67.5k tok/verdict: its deficit is entirely cap flips (~half
 contradicting the pixels), and a defect-provenance pass over every PRESENT vote showed its
 defect-hunter halo was text-quoting — interpenetration pure-view TP is 0/14 in EVERY arm
@@ -712,11 +728,12 @@ defect-hunter halo was text-quoting — interpenetration pure-view TP is 0/14 in
 lead reduces to one genuinely visual item.  Flash replicas: payload Δ ≈ 0 on both 3.7 and
 3.6 — the rig pays only at pro tier.  C ships as D47 ($0.155/verdict, 40.9k input tok) — with the SHIPPED
 grouping re-measured (arm Cprod, $7.2): grouping alone moves the mean −0.044 vs C's
-accidental grouping (windmill 0.51 → 0.04; clean/dirty gap 0.134 → 0.155; ≈ A2 overall at
-−0.016) — a payload experiment must measure the exact grouping it ships.  Underside
-full-res singles (arm Cplus, $6.8): recovers the espresso underside catch (0.795 +
-render_artifacts vs 0.965 blind) but posts the worst clean/dirty gap (0.112), the highest
-row-σ (0.040) and a windmill relapse to 0.62 — rejected; the replace-the-bottom-crop
+accidental grouping (the 11-error windmill 0.51 → 0.04; clean/dirty gap 0.134 → 0.155; ≈ A2 overall
+at −0.016) — a payload experiment must measure the exact grouping it ships.  Underside
+full-res singles (arm Cplus, $6.8: Cprod + `bottom` and `front_right_low` appended as 768 px
+singles): recovers the espresso underside catch (0.795 + render_artifacts vs 0.965 blind) but
+posts the worst clean/dirty gap (0.112), the highest row-σ (0.040) and a windmill relapse to 0.62
+(all three samples dropped the floating and primitive reads) — rejected; the replace-the-bottom-crop
 variant stays queued.  Temperature A2 @ t=0 ($6.0): σ 0.037 → 0.022 (8/42 rows exactly
 deterministic) but mean −0.037 and pearson(gate errors) −0.195 → −0.126 — t = 0.2 stays.
 
@@ -846,7 +863,8 @@ flight; its row decides the lever.
 
 Rebuilt corpus (the original scratchpad was destroyed by a `/tmp` cleanup — a fresh selection,
 not a replay): all 223 `static_object` runs under `bench/out` carrying a GLB + plan re-gated live
-(0 failures → 92 dirty / 131 clean); 16 dirty + 6 clean controls re-rendered on the D47 14+4 rig
+(0 failures → 92 dirty / 131 clean); 16 dirty (12 blender / 4 threejs from 12 batteries, stored
+0.052–0.980, 1–37 ERRORs, five ≥ 0.88) + 6 clean controls re-rendered on the D47 14+4 rig
 and judged through the UNPATCHED shipped code, three arms × n=3 `gemini-3.1-pro-preview`
 ($11.45, 0 errors, every row `n_used=3`).  Payload drift vs the measured shim was closed at the
 implementation review, not re-run.
@@ -868,7 +886,10 @@ and no cap brought by a new mark binds.  b36_v0_02 moves 0.579 → 0.202 (not 0.
 
 Every one of the 16 majority-marked disagreements was adjudicated against the rig renders and the
 exact slice PNGs the judge saw: **+6 true marks, −0 true marks, −6 false `off` marks, +4 false
-marks** — net true +6 / net false −2.  Two of the four false gains are D48's own drawing
+marks** — net true +6 / net false −2.  The real gains: `h2h_office_chair`'s armrests standing
+clear of the seat (`off` 0/3 → 3/3), b36_v0_02's stacked-cylinder scroll and painted-on f-holes;
+the real deletions: the `sv2_violin` volute / C-bouts / cut-out f-holes and the `machinist_vise`
+lofted casting that `off` had called primitive.  Two of the four false gains are D48's own drawing
 describing itself, and both are now fixed in slices-only text: the legend suffix
 `[outline: open section]` (read as a hole report; it alone moved `holes_or_inverted_faces` 0 → 2
 cases) is now `[outline only — not filled; NOT a hole]`, and the in-plane caveat now points at the
