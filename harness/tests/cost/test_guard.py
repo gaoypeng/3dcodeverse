@@ -1,5 +1,4 @@
-"""The three optimisation helpers: pre-send estimate, cache-friendly ordering,
-model routing."""
+"""The pre-send cost estimate."""
 
 from __future__ import annotations
 
@@ -7,7 +6,6 @@ import pytest
 
 from codeverse3d.cost import estimate_call
 from codeverse3d.cost.guard import image_tokens, text_tokens
-from codeverse3d.cost.routing import pro_break_even, samples_for_precision
 
 
 # ------------------------------------------------------------------ guard
@@ -31,11 +29,3 @@ def test_estimate_from_text_and_images():
 def test_estimate_of_an_image_model_uses_the_per_image_price():
     est = estimate_call("gemini:gemini-3.1-flash-image", input_tokens=500, n_images_out=2)
     assert est.usd == pytest.approx(500 * 0.5 / 1e6 + 2 * 0.067)
-
-
-# ------------------------------------------------------------------ caching
-def test_pro_judge_pays_for_itself_at_equal_precision():
-    assert samples_for_precision("gemini-3.7-flash", 0.030) == 8
-    assert samples_for_precision("gemini-3.1-pro-preview", 0.030) == 1
-    be = pro_break_even()
-    assert be["ratio"] > 3 and be["pro_is_cheaper_by"] > 0.1

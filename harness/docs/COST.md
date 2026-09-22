@@ -354,8 +354,8 @@ matter how many samples you buy.  Pro is the cheap option for anything that
 persists.  Concretely, the 112 verdicts in this data set cost $6.48 with the pro
 judge and would cost $24.2 as "cheap" flash at n=8.
 
-`codeverse3d/cost/routing.py` holds this table in code
-(`ROUTES`, `pro_break_even()`, `samples_for_precision()`).
+This table is its one home (the `cost/routing.py` copy of it, which only the markdown cost
+report printed, went on 2026-09-22).
 
 ## 9. Ranked optimisation opportunities
 

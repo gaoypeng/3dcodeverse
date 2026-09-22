@@ -76,7 +76,7 @@ def test_a_lower_scoring_round_is_not_waste_but_a_repair_that_never_built_is(fak
 def test_report_renders(fake_run: Path):
     audit = audit_runs([fake_run])
     md = markdown(audit)
-    for heading in ("Per stage", "Per role", "Where a dollar bought nothing", "Routing"):
+    for heading in ("Per stage", "Per role", "Where a dollar bought nothing"):
         assert f"## {heading}" in md
     assert "per passing artifact" not in md and "per run" in md
     assert "judge" in console(audit)

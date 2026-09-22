@@ -18,7 +18,6 @@ from codeverse3d.addons.costreport.audit import (
     uncached_if_no_cache,
 )
 from codeverse3d.cost.reconstruct import RunLedger
-from codeverse3d.cost.routing import pro_break_even, routing_table
 from codeverse3d.cost.types import CostBucket
 
 STAGE_ORDER = ("plan", "skeleton", "assets", "env", "zones", "assemble", "baseline", "candidate",
@@ -145,14 +144,6 @@ def markdown(audit: Audit, *, title: str = "Cost audit") -> str:
                     [[k, f"{v / 3600:.2f}", f"{share * 100:.1f}%"] for k, (v, share) in stage_latency(audit).items()])]
     parts += ["", "## Price confidence", "",
               table(("price source", "USD"), [[k, _usd(v)] for k, v in price_confidence(audit).items()])]
-    be = pro_break_even()
-    parts += ["", "## Routing", "",
-              table(("role", "model", "$/call", "measured quality", "when"), routing_table()),
-              "",
-              f"Matching the pro judge's precision (σ 0.030) with flash needs "
-              f"**{be['samples_needed']:.0f} samples** = ${be['cheap_matched_usd']:.3f} per verdict "
-              f"vs ${be['pro_usd']:.3f} for one pro verdict — pro is **{be['ratio']:.1f}x cheaper** "
-              f"at equal precision (and flash's rank is anti-correlated with the gates, which sampling cannot fix)."]
     return "\n".join(parts) + "\n"
 
 
