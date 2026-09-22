@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import re
 
-from tests.scene_runtime.lib._probe import LIB_DIR, compile_scene, measure
+from tests.scene_runtime.lib._probe import LIB_DIR, SHADER_JS, _find, compile_scene, measure
 
 _LIBS = ("shader.js", "foliage_shade.js")
 
@@ -30,22 +30,12 @@ _LIB_SRC = (LIB_DIR / "foliage_shade.js").read_text(encoding="utf-8")
 
 # The patch only exists inside onBeforeCompile, so every probe hands it the
 # two chunks patchStandard replaces and reads back what it wrote.
-_PRELUDE = """
+_PRELUDE = SHADER_JS + """
 import * as THREE from 'three';
 import { patchLeafSSS, patchWind, patchRootContact }
     from './lib/foliage_shade.js';
 
 const std = () => new THREE.MeshStandardMaterial({ color: 0x557733 });
-
-function compile(mat) {
-  const shader = {
-    vertexShader: 'void main() {\\n#include <begin_vertex>\\n}',
-    fragmentShader: 'void main() {\\n#include <color_fragment>\\n}',
-    uniforms: {},
-  };
-  mat.onBeforeCompile(shader);
-  return shader;
-}
 """
 
 # ONE leaf material on an InstancedMesh AND a plain Mesh: the instanced
@@ -123,12 +113,6 @@ export async function createScene() {
 
 def _probe(body: str) -> dict:
     return measure(_PRELUDE + body, _LIBS)
-
-
-def _find(pattern: str, src: str) -> re.Match:
-    m = re.search(pattern, src)
-    assert m, f"{pattern} not in\n{src}"
-    return m
 
 
 def test_the_leaf_glow_fires_only_with_the_sun_behind_the_leaf():
@@ -445,7 +429,6 @@ patchWind(all, { strength: 0.9 });
 const s = compile(all);
 const windOnly = std();
 patchWind(windOnly);
-const count = (src, needle) => src.split(needle).length - 1;
 console.log(JSON.stringify({
   key: all.customProgramCacheKey(),
   windKey: windOnly.customProgramCacheKey(),

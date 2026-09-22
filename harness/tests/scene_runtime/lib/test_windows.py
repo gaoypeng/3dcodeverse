@@ -57,18 +57,13 @@ fx/out/windows/, looked at, and measured:
 
 from __future__ import annotations
 
-from tests.scene_runtime.lib._probe import LIB_DIR, compile_scene, measure  # noqa: F401
+from tests.scene_runtime.lib._probe import LIB_DIR, SHADER_JS, compile_scene, measure
 
 _LIBS = ("shader.js", "windows.js")
 _LIB = LIB_DIR / "windows.js"
 
-# The two hooks patchStandard injects into, as a material three would.
-_FAKE_SHADER = """
-const fake = () => ({
-  vertexShader: 'void main() {\\n#include <begin_vertex>\\n}',
-  fragmentShader: 'void main() {\\n#include <color_fragment>\\n}',
-  uniforms: {},
-});
+# A fresh window-interior patch, run through the two hooks of SHADER_JS.
+_PATCHED = """
 const patched = (opts) => {
   const sh = fake();
   patchWindowInteriors(new THREE.MeshStandardMaterial(), opts || {})
@@ -80,7 +75,7 @@ const patched = (opts) => {
 _PRELUDE = """
 import * as THREE from 'three';
 import { patchWindowInteriors, makeNightWindows } from './lib/windows.js';
-""" + _FAKE_SHADER
+""" + SHADER_JS + _PATCHED
 
 
 def _measure(script: str, libs: tuple[str, ...] = _LIBS) -> dict:

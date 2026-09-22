@@ -6,7 +6,9 @@ frame shared by three patches, ruts along the ROAD's own axis and not a world
 one, whole lanes so the wheel strips land on the road, a seam band bounded by
 the width it was given, a track count and kind that are uniforms, nobody
 assigning over the albedo they landed on, one seed one road, and every field
-finer than its pixel faded out before it can alias.
+finer than its pixel faded out before it can alias.  No name a neighbour owns,
+and the whole road stack on a GPU, are asserted with every sibling library's
+in test_patch_union.py.
 
 THE PORT'S OWN LAW, and the regression this file exists to stop:
 
@@ -29,200 +31,37 @@ drip line all back.  Half this file's new assertions are that bound.
 
 from __future__ import annotations
 
-import json
 import re
-from collections import Counter
 
 import pytest
 
-from tests.scene_runtime.lib._probe import LIB_DIR, compile_scene, measure
+from tests.scene_runtime.lib._probe import LIB_DIR, SHADER_JS, _find, _main_body, measure
 
 pytestmark = pytest.mark.node
 
 _LIBS = ("shader.js", "noise.js", "materials.js", "terrain_shade.js",
-         "surface_wear.js", "aging.js", "accumulation.js", "strata.js",
-         "roadway.js")
+         "surface_wear.js", "aging.js", "accumulation.js", "roadway.js")
 
 _LIB_SRC = (LIB_DIR / "roadway.js").read_text(encoding="utf-8")
 
 # The patch only exists inside onBeforeCompile, so every probe hands it the
 # two chunks patchStandard replaces and reads back what it wrote.
-_PRELUDE = """
+_PRELUDE = SHADER_JS + """
 import * as THREE from 'three';
 import { patchRoadSurface, patchSeamBand, patchTracks }
     from './lib/roadway.js';
-import { patchMicroBreakup, patchEdgeWear } from './lib/surface_wear.js';
-import { patchTriplanar, patchSlopeSplat } from './lib/terrain_shade.js';
-import { patchDripStains, patchRust, patchDust } from './lib/aging.js';
-import { patchSnow, patchSand } from './lib/accumulation.js';
-import { patchRockStrata, patchErosionStreaks } from './lib/strata.js';
+import { patchMicroBreakup } from './lib/surface_wear.js';
+import { patchTriplanar } from './lib/terrain_shade.js';
+import { patchDust } from './lib/aging.js';
+import { patchSnow } from './lib/accumulation.js';
 
 const std = (o = {}) => new THREE.MeshStandardMaterial(
     Object.assign({ color: 0x8b8478, roughness: 0.7 }, o));
-
-function compile(mat) {
-  const shader = {
-    vertexShader: 'void main() {\\n#include <begin_vertex>\\n}',
-    fragmentShader: 'void main() {\\n#include <color_fragment>\\n}',
-    uniforms: {},
-  };
-  mat.onBeforeCompile(shader);
-  return shader;
-}
-
-const count = (src, needle) => src.split(needle).length - 1;
-"""
-
-# The showcase scene, as a compile fixture: a two-lane road TURNED off the
-# world axes (a rut that ran down +Z would still look right on a road laid
-# along +Z), its kerb stones INSTANCED on the road's own material — the only
-# thing that compiles the USE_INSTANCING branch of the frame — and a mud verge
-# and a footpath beside it that share one program because `kind` and `offset`
-# are uniforms.
-_SCENE = """
-import * as THREE from 'three';
-import { patchTriplanar } from './lib/terrain_shade.js';
-import { patchMicroBreakup, patchEdgeWear } from './lib/surface_wear.js';
-import { patchRoadSurface, patchSeamBand, patchTracks }
-    from './lib/roadway.js';
-
-const HALF = 3.5;
-const LEN = 110;
-
-function roadGeo() {
-  const g = new THREE.PlaneGeometry(HALF * 2, LEN, 40, 200);
-  g.rotateX(-Math.PI / 2);
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const t = p.getX(i) / HALF;
-    p.setY(i, 0.26 - 0.085 * t * t + Math.sin(p.getZ(i) * 0.13) * 0.02);
-  }
-  g.computeVertexNormals();
-  return g;
-}
-
-function slab(x0, x1, top) {
-  const g = new THREE.BoxGeometry(x1 - x0, top, LEN);
-  g.translate((x0 + x1) / 2, top / 2, 0);
-  return g;
-}
-
-function build() {
-  const root = new THREE.Group();
-  const g = new THREE.Group();
-  g.rotation.y = 38 * Math.PI / 180;
-  root.add(g);
-
-  const tar = new THREE.MeshStandardMaterial(
-      { color: 0x585856, roughness: 0.85, name: 'Tarmac' });
-  const verge = new THREE.MeshStandardMaterial(
-      { color: 0x5d6b34, roughness: 0.95, name: 'Verge' });
-  const mud = new THREE.MeshStandardMaterial(
-      { color: 0x5b4a35, roughness: 0.92, name: 'Mud' });
-  const path = new THREE.MeshStandardMaterial(
-      { color: 0x6b5a42, roughness: 0.93, name: 'Path' });
-
-  const add = (geo, mat) => { g.add(new THREE.Mesh(geo, mat)); };
-  add(roadGeo(), tar);
-  add(slab(-HALF, HALF, 0.17), tar);
-  add(slab(-15, -HALF - 0.04, 0.30), verge);
-  add(slab(HALF + 0.02, 6.4, 0.20), mud);
-  add(slab(6.4, 15, 0.28), verge);
-  add(slab(7.2, 8.6, 0.30), path);
-
-  const kerb = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.16, 0.40, 0.88), tar, 40);
-  const mx = new THREE.Matrix4();
-  for (let i = 0; i < 40; i++) {
-    mx.makeTranslation(-HALF - 0.10, 0.19, -18 + i * 0.92);
-    kerb.setMatrixAt(i, mx);
-  }
-  kerb.instanceMatrix.needsUpdate = true;
-  kerb.frustumCulled = false;
-  g.add(kerb);
-
-  patchTriplanar(tar, { scale: 1.4, colorA: 0x44443f, colorB: 0x6a6a63 });
-  patchMicroBreakup(tar, { seed: 3, strength: 0.10 });
-  patchEdgeWear(tar, { seed: 3, strength: 0.25, width: 0.30 });
-  patchRoadSurface(tar, {
-    aggregate: 0.30, wear: 0.75, patches: 0.35, gutter: 0.70,
-    color: 0x4c4c4e, halfWidth: HALF, lane: 3.4, center: [0, 0, 0], seed: 4,
-  });
-  patchSeamBand(tar, { width: 0.75, weeds: 0.5, seed: 4 });
-  patchTracks(tar, { count: 2, depth: 0.32, kind: 'tyre', seed: 4 });
-  patchSeamBand(verge, {
-    width: 1.1, weeds: 0.85, halfWidth: HALF + 0.14, center: [0, 0, 0],
-    seed: 6,
-  });
-  patchTracks(mud, {
-    count: 2, depth: 0.85, kind: 'tyre', gauge: 1.55, offset: 4.9,
-    halfWidth: HALF, center: [0, 0, 0], seed: 8,
-  });
-  patchTracks(path, {
-    count: 1, depth: 0.8, kind: 'foot', offset: 7.9,
-    halfWidth: HALF, center: [0, 0, 0], seed: 9,
-  });
-  return root;
-}
-
-export async function createScene() {
-  const scene = new THREE.Scene();
-  const sun = new THREE.DirectionalLight(0xfff0d8, 3.0);
-  sun.position.set(-6, 9, -4);
-  scene.add(sun);
-  scene.add(new THREE.HemisphereLight(0xbfd4ee, 0x6a5a44, 0.6));
-  scene.add(build());
-  const cameras = [
-    { name: 'road', position: [14, 6, 18], lookAt: [0, 2, 0], fov: 45 },
-  ];
-  return { scene, cameras, update() {} };
-}
 """
 
 
 def _probe(body: str) -> dict:
     return measure(_PRELUDE + body, _LIBS)
-
-
-def _find(pattern: str, src: str) -> re.Match:
-    m = re.search(pattern, src)
-    assert m, f"{pattern} not in\n{src}"
-    return m
-
-
-def _main_body(src: str) -> str:
-    return src[src.index("void main"):]
-
-
-def _unguarded(src: str) -> str:
-    """Drop `#ifndef X ... #endif` blocks, which may repeat verbatim.
-
-    terrain_shade ships astraFbmUnit from two patches behind one guard, so the
-    TEXT carries it twice and the preprocessor keeps one.  Only an unguarded
-    repeat is a redefinition.
-    """
-    return re.sub(r"#ifndef\b.*?#endif", "", src, flags=re.S)
-
-
-def test_the_whole_road_stack_compiles_on_our_gpu():
-    """The stack this library exists to join, on a real GPU: the road surface,
-    its seam band and its tracks on the SAME material that already carries a
-    triplanar, a micro breakup and an edge wear, in a scene that also puts
-    that material on an InstancedMesh.  Only a real instanced draw compiles
-    the USE_INSTANCING branch of the frame, and only a real compile proves
-    three libraries' varyings, helpers and main() locals survive being
-    concatenated into one program."""
-    code, out = compile_scene(_SCENE, _LIBS)
-    assert code == 0, out
-    assert "ERROR" not in out, out
-    report = json.loads(out.strip().splitlines()[-1])
-    assert report["errors"] == [], report
-    assert report["compile"]["gpu"], "this claim is only worth a real GPU"
-    # The mud and the path differ only by `kind` and `offset`, so they SHARE
-    # one cache key and one program — the whole reason those are uniforms.
-    # The extra program is the instanced kerb on the road's own material.
-    assert report["compile"]["custom_materials"] >= 4, report
-    assert report["compile"]["programs"] >= 4, report
 
 
 def test_the_three_patches_chain_without_losing_each_other():
@@ -553,81 +392,6 @@ patchRoadSurface(m); patchTracks(m);
 console.log(JSON.stringify({ fs: compile(m).vertexShader }));
 """)["fs"])
     assert "transformed +=" not in vs and "transformed *=" not in vs
-
-
-def test_no_patch_declares_a_name_its_neighbours_own():
-    """The silent failure this library is most exposed to: a road rides the
-    same materials as surface_wear, terrain_shade, aging, accumulation and
-    strata, and patchStandard DROPS a repeated uniform or varying and keeps
-    the first — so a shared name would leave one patch reading the other's
-    value with nothing reported.  A repeated main() local is a compile error
-    instead, and a repeated helper throws."""
-    out = _probe("""
-const road = std();
-patchRoadSurface(road);
-patchSeamBand(road);
-patchTracks(road);
-const nbr = std();
-patchTriplanar(nbr);
-patchSlopeSplat(nbr, { snowLine: 30 });
-patchMicroBreakup(nbr);
-patchEdgeWear(nbr);
-patchDripStains(nbr);
-patchRust(nbr);
-patchDust(nbr);
-patchSnow(nbr);
-patchSand(nbr);
-patchRockStrata(nbr);
-patchErosionStreaks(nbr);
-const all = std();
-patchTriplanar(all);
-patchSlopeSplat(all, { snowLine: 30 });
-patchMicroBreakup(all);
-patchEdgeWear(all);
-patchDripStains(all);
-patchRust(all);
-patchDust(all);
-patchSnow(all);
-patchSand(all);
-patchRockStrata(all);
-patchErosionStreaks(all);
-patchRoadSurface(all);
-patchSeamBand(all);
-patchTracks(all);
-const s = compile(all);
-console.log(JSON.stringify({
-  roadU: Object.keys(road.userData.uniforms),
-  nbrU: Object.keys(nbr.userData.uniforms),
-  vs: s.vertexShader, fs: s.fragmentShader,
-}));
-""")
-    shared = set(out["roadU"]) & set(out["nbrU"])
-    assert shared == {"uTime"}, shared
-    for stage in ("vs", "fs"):
-        src = out[stage]
-        decls = re.findall(
-            r"^\s*(?:uniform|varying)\s+(?:lowp |mediump |highp )?"
-            r"[a-z0-9]+\s+(\w+)\s*;", src, re.M)
-        dupes = [n for n, c in Counter(decls).items() if c > 1]
-        assert not dupes, f"{stage} declares {dupes} twice"
-        fns = re.findall(r"^(?:float|vec[234]|int|mat[234])\s+(\w+)\s*\(",
-                         _unguarded(src), re.M)
-        assert not [n for n, c in Counter(fns).items() if c > 1]
-        locals_ = re.findall(
-            r"^\s*(?:float|vec[234]|int|mat[234])\s+(\w+)\s*=",
-            _main_body(src), re.M)
-        clash = [n for n, c in Counter(locals_).items() if c > 1]
-        assert not clash, f"{stage} main() declares {clash} twice"
-    assert "vAstraWorld" in out["vs"] and "vAstraRoad" in out["fs"]
-    # fwidth, dFdx and astraStroke are fragment-only, and the util block ships
-    # in both stages: they may be DEFINED in the vertex shader, never called.
-    vbody = _main_body(out["vs"])
-    assert "fwidth(" not in vbody and "dFdx(" not in vbody
-    assert "astraStroke(" not in vbody
-    # Every helper this library adds is astraRoad-prefixed, so a neighbour's
-    # astraWear/astraAge/astraAcc/astraStrata body survives.
-    mine = re.findall(r"'(?:float|vec[234])\s+(astra\w+)\s*\(", _LIB_SRC)
-    assert mine and all(n.startswith("astraRoad") for n in mine), mine
 
 
 def test_an_option_is_a_uniform_and_never_baked_into_the_source():

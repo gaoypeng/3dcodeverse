@@ -24,27 +24,16 @@ argued in code:
 """
 from __future__ import annotations
 
-import json
 import re
 
-from tests.scene_runtime.lib._probe import LIB_DIR, compile_scene, measure  # noqa: F401
+from tests.scene_runtime.lib._probe import LIB_DIR, SHADER_JS, measure
 
 _LIBS = ("shader.js", "terrain_shade.js")
 _LIB = LIB_DIR / "terrain_shade.js"
 
 
-# The two hooks patchStandard injects into, as a material three would.
-_FAKE_SHADER = """
-const fake = () => ({
-  vertexShader: 'void main() {\\n#include <begin_vertex>\\n}',
-  fragmentShader: 'void main() {\\n#include <color_fragment>\\n}',
-  uniforms: {},
-});
-"""
-
-
 def _measure(script: str) -> dict:
-    return measure(_FAKE_SHADER + script, _LIBS)
+    return measure(SHADER_JS + script, _LIBS)
 
 
 def test_triplanar_projects_on_three_world_planes_and_reads_no_uv():
@@ -391,116 +380,6 @@ def test_the_shipped_module_is_deterministic():
     assert "fwidth" not in src
     assert "export function patchTriplanar" in src
     assert "export function patchSlopeSplat" in src
-
-
-_SCENE = """
-import * as THREE from 'three';
-import { ground, cliff } from './lib/terrain.js';
-import { patchTriplanar, patchSlopeSplat } from './lib/terrain_shade.js';
-
-export const BOUNDS = { min: [-100, 0, -100], max: [100, 60, 100] };
-export function heightAt() { return 0; }
-
-export async function createScene() {
-  const scene = new THREE.Scene();
-  // FOGGED and lit: the patches ride the built-in's own fog and light
-  // chunks, and asset mode never defines USE_FOG, so an unfogged probe
-  // would never compile the branch these ship into.
-  scene.fog = new THREE.FogExp2(0xcfd8e6, 0.0035);
-  scene.add(new THREE.HemisphereLight(0xbdd4ee, 0x5b4a3a, 1.1));
-  const sun = new THREE.DirectionalLight(0xffe8cc, 2.4);
-  sun.position.set(-30, 24, -20);
-  scene.add(sun);
-  const g = new THREE.Group();
-  let s = 7;
-  const rand = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-
-  const land = ground({ size: 200, segments: 48, rand, relief: 24 });
-  patchSlopeSplat(land.mesh.material, {
-    grass: new THREE.Color(0x4f6b3a), scree: 0x8d8272,
-    rock: new THREE.Color(0x6b6258), snow: 0xeef2f6,
-    snowLine: 9, snowBand: 2.5, slopeLow: 0.8, slopeHigh: 0.5, blend: 0.1,
-  });
-  g.add(land.mesh);
-
-  const wall = cliff({ length: 80, height: 30, rand });
-  patchTriplanar(wall.mesh.material, {
-    scale: 3.5, sharpness: 6, noiseOctaves: 5,
-    colorA: new THREE.Color(0x6a5f52), colorB: 0xa2977f,
-  });
-  wall.mesh.position.set(0, land.height(0, -60), -60);
-  g.add(wall.mesh);
-
-  // Instanced, and on the DEFAULT snow line: the sentinel and the
-  // USE_INSTANCING branch have to compile too.
-  const rocks = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1.6, 1),
-      new THREE.MeshStandardMaterial({ color: 0x8a7f70 }), 12);
-  const m4 = new THREE.Matrix4();
-  for (let i = 0; i < 12; i++) {
-    const x = (rand() - 0.5) * 120, z = (rand() - 0.5) * 120;
-    m4.makeTranslation(x, land.height(x, z), z);
-    rocks.setMatrixAt(i, m4);
-  }
-  patchSlopeSplat(rocks.material, { name: 'terrain:slopeSplat:rocks' });
-  g.add(rocks);
-  scene.add(g);
-  return {
-    scene,
-    cameras: [{ name: 'a', position: [40, 20, 60], lookAt: [0, 6, 0],
-                fov: 45 }],
-    update() {},
-  };
-}
-"""
-
-
-def test_both_patches_compile_on_the_real_renderer():
-    """The only witness that counts. Everything above reads a string;
-    whether the GPU accepts the GLSL — the instancing branch, the int
-    octave uniform, three planar fbm reads inside one fragment, and a
-    fourth call site for astraTerrainGrain — cannot be asserted from
-    source, and a patch that does not compile is worth nothing."""
-    code, out = compile_scene(
-        _SCENE, ("shader.js", "materials.js", "terrain.js",
-                 "terrain_shade.js"))
-    assert code == 0, out
-    # A green exit on an empty compile proves nothing: the ground, the
-    # cliff and the instanced boulders all had to reach the GPU.  A floor,
-    # because materials.js patches its own, and an exact count here went
-    # stale the moment a sibling library did.
-    report = json.loads(out[out.index("{"):out.rindex("}") + 1])
-    assert report["compile"]["custom_materials"] >= 3, out
-
-
-def test_both_patches_on_one_material_still_compile():
-    """The prompt tells authors to use both on the same ground, and both
-    shipped the same locals and the same helper body: 'astraWp'
-    redefinition, 'astraFbmUnit' already has a body, dead material.
-    Caught on the GPU by a sibling library that landed on the same bank.
-    """
-    code, out = compile_scene("""
-import * as THREE from 'three';
-import { patchTriplanar, patchSlopeSplat } from './lib/terrain_shade.js';
-export const BOUNDS = { min: [-20, 0, -20], max: [20, 4, 20] };
-export function heightAt() { return 0; }
-export async function createScene() {
-  const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0xcfd8e6, 0.004);
-  scene.add(new THREE.HemisphereLight(0xbdd4ee, 0x5b4a3a, 1.2));
-  const m = new THREE.MeshStandardMaterial({ color: 0x8a8578 });
-  patchTriplanar(m, { scale: 3 });
-  patchSlopeSplat(m, { snowLine: 12 });
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(40, 40, 8, 8), m);
-  mesh.rotation.x = -Math.PI / 2;
-  scene.add(mesh);
-  return { scene,
-           cameras: [{ name: 'a', position: [8, 5, 12], lookAt: [0, 0, 0],
-                       fov: 45 }],
-           update() {} };
-}
-""", ("shader.js", "terrain_shade.js"))
-    assert code == 0, out
-    assert "redefinition" not in out and "already has a body" not in out
 
 
 def test_the_splat_keeps_the_triplanar_it_lands_on():

@@ -13,190 +13,34 @@ and a waterline.  `patchStandard` absorbs a duplicate uniform SILENTLY (the
 second declaration is dropped and that patch then reads whatever its neighbour
 set) while a duplicate local inside main is a compile error, so the shared
 contract is asserted first: one world base, no name any neighbour owns, every
-option a uniform rather than baked GLSL.
+option a uniform rather than baked GLSL.  (The names, and the whole stack on
+a GPU, are asserted with every sibling library's in test_patch_union.py.)
 """
 from __future__ import annotations
 
-import json
-import re
-from collections import Counter
-
 import pytest
-from _probe import LIB_DIR, compile_scene, measure
+from _probe import LIB_DIR, SHADER_JS, _find, _main_body, measure
 
 pytestmark = pytest.mark.node
 
-_LIBS = ("shader.js", "terrain_shade.js", "waterside.js", "surface_wear.js",
-         "aging.js")
+_LIBS = ("shader.js", "surface_wear.js", "aging.js")
 
 _LIB_SRC = (LIB_DIR / "aging.js").read_text(encoding="utf-8")
 
 # The patch only exists inside onBeforeCompile, so every probe hands it
 # the two chunks patchStandard replaces and reads back what it wrote.
-_PRELUDE = """
+_PRELUDE = SHADER_JS + """
 import * as THREE from 'three';
 import { patchDripStains, patchRust, patchDust } from './lib/aging.js';
-import { patchMicroBreakup, patchEdgeWear } from './lib/surface_wear.js';
-import { patchTriplanar, patchSlopeSplat } from './lib/terrain_shade.js';
-import { patchShoreWet, patchShoreFoam } from './lib/waterside.js';
+import { patchMicroBreakup } from './lib/surface_wear.js';
 
 const std = (o = {}) => new THREE.MeshStandardMaterial(
     Object.assign({ color: 0x8b8478, roughness: 0.7 }, o));
-
-function compile(mat) {
-  const shader = {
-    vertexShader: 'void main() {\\n#include <begin_vertex>\\n}',
-    fragmentShader: 'void main() {\\n#include <color_fragment>\\n}',
-    uniforms: {},
-  };
-  mat.onBeforeCompile(shader);
-  return shader;
-}
-
-const count = (src, needle) => src.split(needle).length - 1;
-"""
-
-# The showcase subject, cut down, as a workspace SCENE: a wall with a
-# ledge, a pipe, a tank, a leaning panel and a slab — and the wall
-# material carries ALL FIVE patches, which is the stack this library
-# ships to land in. The pebbles are instanced because that is the only
-# way the USE_INSTANCING branch of the world base is ever compiled, and
-# the scene sets fog and a casting sun so the fog and shadow branches of
-# every patched program are real code rather than dead #ifdefs.
-_SCENE = """
-import * as THREE from 'three';
-import { patchMicroBreakup, patchEdgeWear } from './lib/surface_wear.js';
-import { patchDripStains, patchRust, patchDust } from './lib/aging.js';
-
-const SILL = 3.4;
-
-export const BOUNDS = { min: [-20, 0, -20], max: [20, 12, 20] };
-
-export function createScene() {
-  const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0xcfd8e6, 0.0035);
-  scene.add(new THREE.HemisphereLight(0xbcd6ef, 0x4a4130, 0.9));
-  const sun = new THREE.DirectionalLight(0xfff0d6, 2.5);
-  sun.position.set(5, 8, 7);
-  sun.castShadow = true;
-  scene.add(sun);
-  const g = new THREE.Group();
-  const concrete = new THREE.MeshStandardMaterial({
-    color: 0x8b8478, roughness: 0.85,
-  });
-  const slab = new THREE.MeshStandardMaterial({
-    color: 0x7c766c, roughness: 0.9, flatShading: true,
-  });
-  const steel = new THREE.MeshStandardMaterial({
-    color: 0x6a7278, roughness: 0.45, metalness: 0.25,
-  });
-
-  const put = (geo, mat, x, y, z) => {
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(x, y, z);
-    m.castShadow = true;
-    m.receiveShadow = true;
-    g.add(m);
-    return m;
-  };
-  put(new THREE.BoxGeometry(14, 0.3, 9), slab, 0, 0.15, 0);
-  put(new THREE.BoxGeometry(10, 3.4, 0.5), concrete, 0, 1.7, -2.6);
-  put(new THREE.BoxGeometry(10.6, 0.3, 1.1), concrete, 0, 3.55, -2.3);
-  // A leaning panel: the runs must come down WORLD Y on it too.
-  put(new THREE.BoxGeometry(3, 3, 0.3), concrete, 5.4, 1.8, 1.2)
-      .rotation.z = 0.5;
-  put(new THREE.CylinderGeometry(0.18, 0.18, 4.6, 24), steel, 3.8, 2.3, -1.9);
-  put(new THREE.CylinderGeometry(1.3, 1.3, 2.6, 40), steel, -3.6, 1.6, 1.2);
-  put(new THREE.TorusGeometry(1.3, 0.09, 14, 40), steel, -3.6, 2.9, 1.2)
-      .rotation.x = Math.PI / 2;
-
-  const pebble = new THREE.InstancedMesh(
-      new THREE.IcosahedronGeometry(0.2, 3), slab, 24);
-  const m = new THREE.Matrix4();
-  let s = 7;
-  const rand = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-  for (let i = 0; i < 24; i++) {
-    m.compose(
-        new THREE.Vector3((rand() * 2 - 1) * 5, 0.45, (rand() * 2 - 1) * 3.5),
-        new THREE.Quaternion().setFromEuler(
-            new THREE.Euler(rand(), rand() * 3, rand())),
-        new THREE.Vector3(1, 0.8 + rand() * 0.5, 1));
-    pebble.setMatrixAt(i, m);
-  }
-  pebble.instanceMatrix.needsUpdate = true;
-  pebble.frustumCulled = false;
-  pebble.castShadow = true;
-  g.add(pebble);
-
-  patchDripStains(concrete, { from: SILL, strength: 0.38, seed: 3 });
-  patchRust(concrete, { strength: 0.22, scale: 2.4, seed: 3 });
-  patchDust(concrete, { strength: 0.28, seed: 3 });
-  patchDripStains(slab, { strength: 0.3, seed: 5 });
-  patchDust(slab, { strength: 0.35, seed: 5 });
-  patchRust(steel, { strength: 0.55, scale: 0.9, seed: 11 });
-  patchDripStains(steel, { strength: 0.3, scale: 0.35, seed: 11 });
-  patchDust(steel, { strength: 0.25, seed: 11 });
-  for (const [mat, seed] of [[concrete, 3], [slab, 5], [steel, 11]]) {
-    patchMicroBreakup(mat, { seed });
-    patchEdgeWear(mat, { seed });
-  }
-  scene.add(g);
-  // A camera is not decoration here: the host reports `ok: false` with an
-  // EMPTY error when `cameras` is empty, so a scene with none fails the
-  // compile preflight before a program is built (reported upstream).
-  return {
-    scene,
-    cameras: [{ name: 'hero', position: [12, 5, 14], lookAt: [0, 2, 0],
-                fov: 45 }],
-    update() {},
-  };
-}
 """
 
 
 def _probe(body: str) -> dict:
     return measure(_PRELUDE + body, _LIBS)
-
-
-def _find(pattern: str, src: str) -> re.Match:
-    m = re.search(pattern, src)
-    assert m, f"{pattern} not in\n{src}"
-    return m
-
-
-def _main_body(src: str) -> str:
-    return src[src.index("void main"):]
-
-
-def _unguarded(src: str) -> str:
-    """Drop ``#ifndef X ... #endif`` blocks, which may repeat verbatim.
-
-    terrain_shade ships astraFbmUnit from two patches behind one guard, so the
-    TEXT carries it twice and the preprocessor keeps one.  Only an unguarded
-    repeat is a redefinition.
-    """
-    return re.sub(r"#ifndef\b.*?#endif", "", src, flags=re.S)
-
-
-def test_all_three_plus_both_wear_patches_compile_on_one_material():
-    """The stack this library exists to join, on our GPU: drips, rust and dust
-    on the SAME material that already carries `patchMicroBreakup` and
-    `patchEdgeWear`, in a scene that also puts an aged material on an
-    InstancedMesh and on a leaning panel.  Only a real instanced program
-    compiles the USE_INSTANCING branch of the world base, and only a real
-    compile proves two libraries' varyings, helpers and main() locals survive
-    being concatenated into one shader."""
-    code, out = compile_scene(_SCENE, _LIBS)
-    assert code == 0, out
-    assert "ERROR" not in out, out
-    report = json.loads(out.strip().splitlines()[-1])
-    assert report["ok"] and report["errors"] == [], report
-    # Three patched built-ins, and more programs than that: the slab
-    # material compiled twice (once per instancing state) and every
-    # caster compiled a depth program as well.
-    assert report["compile"]["custom_materials"] >= 3, report
-    assert report["compile"]["programs"] >= 4, report
-    assert report["compile"]["gpu"], report
 
 
 def test_the_three_patches_chain_without_losing_each_other():
@@ -243,76 +87,6 @@ console.log(JSON.stringify({
                           "+aging:dust"), out["key"]
     # A longer chain must not collide with a shorter one's program.
     assert out["dripKey"] == "astra:aging:base+aging:drip"
-
-
-def test_no_patch_declares_a_name_its_neighbours_own():
-    """The silent failure this library is most exposed to: these three ride the
-    same materials as surface_wear, terrain_shade and waterside, and
-    patchStandard DROPS a repeated uniform or varying and keeps the first — so
-    a shared name would leave one patch reading the other's value with nothing
-    reported.  A repeated local inside main is a compile error instead, and a
-    repeated helper is a redefinition.  So the uniform sets must be disjoint
-    (uTime excepted, the shared clock), and a material wearing all NINE patches
-    must declare every name exactly once."""
-    out = _probe("""
-const age = std();
-patchDripStains(age);
-patchRust(age);
-patchDust(age);
-const nbr = std();
-patchTriplanar(nbr);
-patchSlopeSplat(nbr, { snowLine: 30 });
-patchShoreWet(nbr);
-patchShoreFoam(nbr);
-patchMicroBreakup(nbr);
-patchEdgeWear(nbr);
-const all = std();
-patchTriplanar(all);
-patchSlopeSplat(all, { snowLine: 30 });
-patchShoreWet(all);
-patchShoreFoam(all);
-patchMicroBreakup(all);
-patchEdgeWear(all);
-patchDripStains(all);
-patchRust(all);
-patchDust(all);
-const s = compile(all);
-console.log(JSON.stringify({
-  ageU: Object.keys(age.userData.uniforms),
-  nbrU: Object.keys(nbr.userData.uniforms),
-  vs: s.vertexShader, fs: s.fragmentShader,
-}));
-""")
-    shared = set(out["ageU"]) & set(out["nbrU"])
-    assert shared == {"uTime"}, shared
-    for stage in ("vs", "fs"):
-        src = out[stage]
-        decls = re.findall(
-            r"^\s*(?:uniform|varying)\s+(?:lowp |mediump |highp )?"
-            r"[a-z0-9]+\s+(\w+)\s*;", src, re.M)
-        dupes = [n for n, c in Counter(decls).items() if c > 1]
-        assert not dupes, f"{stage} declares {dupes} twice"
-        fns = re.findall(r"^(?:float|vec[234]|int)\s+(\w+)\s*\(",
-                         _unguarded(src), re.M)
-        assert not [n for n, c in Counter(fns).items() if c > 1]
-        locals_ = re.findall(
-            r"^\s*(?:float|vec[234]|int|mat[234])\s+(\w+)\s*=",
-            _main_body(src), re.M)
-        clash = [n for n, c in Counter(locals_).items() if c > 1]
-        assert not clash, f"{stage} main() declares {clash} twice"
-    # Named as the neighbours name them on purpose: ONE world position is
-    # written for the whole chain, not one per library.
-    assert "vAstraWorld" in out["vs"] and "vAstraWorld" in out["fs"]
-    # ...and the base folds in the instance transform, or every copy of a
-    # scattered rock weathers from the mesh ORIGIN.
-    body = _main_body(out["vs"])
-    assert "#ifdef USE_INSTANCING" in body
-    _find(r"agP = instanceMatrix \* agP;", body)
-    _find(r"vAstraWorld = \(modelMatrix \* agP\)\.xyz;", body)
-    assert "attribute mat4 instanceMatrix" not in out["vs"]
-    # fwidth and astraStroke are fragment-only, and the util block ships in
-    # both stages: they may be DEFINED in the vertex shader, never called.
-    assert "fwidth(" not in body and "dFdx(" not in body
 
 
 def test_the_runs_come_down_world_y_whatever_the_surface_is_doing():

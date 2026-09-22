@@ -6,11 +6,17 @@ maps ``three`` / ``three/addons/*`` to the harness's own install), in a private 
 dir holding a copy of the library — never a live workspace.  ``measure`` returns the
 LAST stdout line of the probe as JSON; ``compile_scene`` compiles every program a
 fixture scene builds through ``runtime_js/check_shaders.mjs`` (headless GPU).
+
+The readers every patch test shares live here too, once: ``SHADER_JS`` (the
+two hooks patchStandard injects into, and ``compile`` / ``count`` / ``mains`` /
+``locals`` over what comes back) and, on the Python side, ``_find`` and
+``_main_body`` under the names the patch tests always called them by.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -24,6 +30,43 @@ RESOLVE_HOOK = HARNESS / "runtime_js" / "lib" / "resolve_three.mjs"
 NODE_MODULES = HARNESS / "runtime_js" / "node_modules"
 
 pytestmark = pytest.mark.node
+
+# The two hooks patchStandard injects into, as a material three would.
+# Nothing else is in the source, so what comes back is the patch itself:
+# `compile(mat)` runs a material's onBeforeCompile over it, `count` counts a
+# needle (a string or a RegExp), and `locals(mains(sh))` lists what the
+# injected bodies declare inside main() in both stages.
+SHADER_JS = """
+const fake = () => ({
+  vertexShader: 'void main() {\\n#include <begin_vertex>\\n}',
+  fragmentShader: 'void main() {\\n#include <color_fragment>\\n}',
+  uniforms: {},
+});
+function compile(mat) {
+  const shader = fake();
+  mat.onBeforeCompile(shader);
+  return shader;
+}
+const count = (src, needle) => src.split(needle).length - 1;
+const mains = (sh) => sh.fragmentShader.slice(
+    sh.fragmentShader.indexOf('void main')) + '\\n' +
+    sh.vertexShader.slice(sh.vertexShader.indexOf('void main'));
+const locals = (src) => (src.match(
+    /^\\s+(?:float|vec2|vec3|vec4|mat3|mat4)\\s+(\\w+)/gm) || [])
+    .map((h) => h.trim().split(/\\s+/)[1]);
+"""
+
+
+def _find(pattern: str, src: str) -> re.Match:
+    """``re.search`` that fails naming the pattern and the source it missed."""
+    m = re.search(pattern, src)
+    assert m, f"{pattern} not in\n{src}"
+    return m
+
+
+def _main_body(src: str) -> str:
+    """The shader from ``void main`` on: where the patch bodies land."""
+    return src[src.index("void main"):]
 
 
 def _three_ready() -> None:
@@ -60,6 +103,7 @@ def measure(script: str, libs: tuple[str, ...] = (), *, timeout_s: float = 120.0
 def compile_scene(scene_src: str, libs: tuple[str, ...] = (), *,
                   extra: dict[str, str] | None = None,
                   audit_module: str | None = None,
+                  report: Path | None = None,
                   timeout_s: float = 180.0) -> tuple[int, str]:
     """Compile every program a fixture SCENE builds, on the headless GPU.
 
@@ -78,6 +122,10 @@ def compile_scene(scene_src: str, libs: tuple[str, ...] = (), *,
     undeclared/unbound pair on GLSL that is correct.  ``src/lib/`` is already
     exempt for that reason (``shader_report.mjs``); a fixture is not.
 
+    ``report`` also writes the WHOLE JSON report to that path: the output
+    returned is cut to its last 4000 characters, and a scene with many
+    programs can overrun that before its report line even starts.
+
     This replaced a ``shader_check(fixture_src, ...)`` that staged only
     ``src/fixture.js`` and could therefore never get past
     ``compile preflight failed: missing src/scene.js`` — every one of the 32
@@ -95,7 +143,8 @@ def compile_scene(scene_src: str, libs: tuple[str, ...] = (), *,
         out = subprocess.run(
             ["node", "--import", str(RESOLVE_HOOK), str(HARNESS / "runtime_js" / "check_shaders.mjs"),
              "--ws", str(root), "--timeout-ms", str(int(timeout_s * 1000))]
-            + (["--module", audit_module] if audit_module else []),
+            + (["--module", audit_module] if audit_module else [])
+            + (["--out", str(report)] if report else []),
             capture_output=True, text=True, timeout=timeout_s + 30, cwd=str(HARNESS / "runtime_js"),
             env={**os.environ, "NODE_PATH": str(NODE_MODULES)},
         )

@@ -14,7 +14,8 @@ shared local takes the whole material down.
 Ported 2026-09-01 from the scene_multifile_graphics reference test.  The
 assertions about THEIR renderer contract are gone (their fixture-level
 ``scene_check`` too — our ``check_shaders.mjs`` boots ``src/scene.js``,
-so the GPU pass here is a scene of its own).  What is new is the colour
+so the GPU pass is a scene of its own, test_patch_union.py's, which also
+holds its names against every library it lands on).  What is new is the colour
 half this host measured and this session added: the turbidity spectrum,
 the veil's dither and its ``light``, and the FRESNEL the ice interior
 now sits behind.
@@ -25,31 +26,15 @@ from __future__ import annotations
 import math
 import re
 
-from tests.scene_runtime.lib._probe import LIB_DIR, compile_scene, measure  # noqa: F401
+from tests.scene_runtime.lib._probe import LIB_DIR, SHADER_JS, measure
 
 _LIBS = ("shader.js", "submerged.js", "caustics.js", "waterside.js",
-         "terrain_shade.js", "aging.js")
+         "terrain_shade.js")
 _LIB = LIB_DIR / "submerged.js"
-
-# The two hooks patchStandard injects into, as a material three would.
-# Nothing else is in the source, so what comes back is the patch itself.
-_FAKE_SHADER = """
-const fake = () => ({
-  vertexShader: 'void main() {\\n#include <begin_vertex>\\n}',
-  fragmentShader: 'void main() {\\n#include <color_fragment>\\n}',
-  uniforms: {},
-});
-const mains = (sh) => sh.fragmentShader.slice(
-    sh.fragmentShader.indexOf('void main')) + '\\n' +
-    sh.vertexShader.slice(sh.vertexShader.indexOf('void main'));
-const locals = (src) => (src.match(
-    /^\\s+(?:float|vec2|vec3|vec4|mat3|mat4)\\s+(\\w+)/gm) || [])
-    .map((h) => h.trim().split(/\\s+/)[1]);
-"""
 
 
 def _measure(script: str) -> dict:
-    return measure(_FAKE_SHADER + script, _LIBS)
+    return measure(SHADER_JS + script, _LIBS)
 
 
 def _approx(x):
@@ -693,69 +678,6 @@ console.log(JSON.stringify({
     assert "roughnessFactor" not in fs
 
 
-def test_its_names_collide_with_none_of_the_libraries_it_lands_on():
-    """The failure with no symptom.  dedupeUniforms drops a repeated
-    ``uniform`` declaration and keeps the FIRST, so a name this library
-    shares with caustics or the waterline would silently read the
-    other's number for the rest of the run.  A repeated local is the
-    opposite and just as fatal: every patch on a material shares ONE
-    injected main, and a redeclared local is a redefinition that takes
-    the whole material down.  A submerged, weathered, splatted bank
-    wears all of these at once, so both sets must be disjoint from all
-    of them — with uTime and the world varyings the deliberate shares.
-    """
-    out = _measure("""
-import * as THREE from 'three';
-import { patchUnderwater, patchThinIce } from './lib/submerged.js';
-import { patchCaustics } from './lib/caustics.js';
-import { patchShoreWet, patchShoreFoam, patchShallowWater }
-    from './lib/waterside.js';
-import { patchTriplanar, patchSlopeSplat } from './lib/terrain_shade.js';
-import { patchDripStains, patchRust, patchDust } from './lib/aging.js';
-import { GLSL_UTIL } from './lib/shader.js';
-const mineSh = fake(), sibSh = fake();
-const mine = new THREE.MeshStandardMaterial();
-patchUnderwater(mine); patchThinIce(mine);
-mine.onBeforeCompile(mineSh);
-const sib = new THREE.MeshStandardMaterial();
-patchCaustics(sib);
-patchShoreWet(sib); patchShoreFoam(sib); patchShallowWater(sib);
-patchTriplanar(sib); patchSlopeSplat(sib);
-patchDripStains(sib); patchRust(sib); patchDust(sib);
-sib.onBeforeCompile(sibSh);
-const fns = (src) => (src.match(/^\\s*(?:float|vec[234]|void)\\s+(\\w+)\\s*\\(/gm)
-    || []).map((h) => h.trim().split(/[\\s(]+/)[1]);
-console.log(JSON.stringify({
-  mineU: Object.keys(mine.userData.uniforms),
-  sibU: Object.keys(sib.userData.uniforms),
-  mineL: locals(mains(mineSh)),
-  sibL: locals(mains(sibSh)),
-  util: fns(GLSL_UTIL),
-  mineF: fns(mineSh.fragmentShader.slice(
-      0, mineSh.fragmentShader.indexOf('void main'))),
-  sibF: fns(sibSh.fragmentShader.slice(
-      0, sibSh.fragmentShader.indexOf('void main'))),
-}));
-""")
-    shared_uniforms = set(out["mineU"]) & set(out["sibU"])
-    assert shared_uniforms == {"uTime"}, shared_uniforms
-    assert all(u.startswith(("uSub", "uIce"))
-               for u in out["mineU"] if u != "uTime"), out["mineU"]
-    shared_locals = set(out["mineL"]) & set(out["sibL"])
-    assert shared_locals == set(), shared_locals
-    assert all(x.startswith(("sub", "ice")) for x in out["mineL"]), out["mineL"]
-    # Nothing declared twice inside this library's own bodies either.
-    assert len(out["mineL"]) == len(set(out["mineL"])), out["mineL"]
-    # And the helpers: patchStandard THROWS on a colliding function
-    # name with a different body, which would take out every scene that
-    # put a frozen pond next to a rusted rail.
-    util = set(out["util"])
-    mine_own = set(out["mineF"]) - util
-    sib_own = set(out["sibF"]) - util
-    assert mine_own == {"astraIceRay", "astraIceCracks"}, mine_own
-    assert mine_own & sib_own == set(), mine_own & sib_own
-
-
 def test_the_whole_chain_shares_one_main_without_a_redefinition():
     """The load-bearing case: a pool floor wears the rock projection,
     the waterline, this column and the caustic net at once.
@@ -782,7 +704,6 @@ patchCaustics(m, { level: 1.2, depthFade: 2.8 });
 patchUnderwater(m, { level: 1.4, seed: 4 });  // retune, not a 5th patch
 m.onBeforeCompile(sh);
 const fs = sh.fragmentShader, vs = sh.vertexShader;
-const count = (s, re) => (s.match(re) || []).length;
 const seen = {};
 for (const name of locals(mains(sh))) seen[name] = (seen[name] || 0) + 1;
 console.log(JSON.stringify({
@@ -892,128 +813,3 @@ console.log(JSON.stringify({
     for name in ("patchUnderwater", "makeRainRings", "patchThinIce"):
         assert "export function " + name in src
     assert max(len(ln) for ln in src.splitlines()) <= 80
-
-
-_SCENE = """
-import * as THREE from 'three';
-import { patchUnderwater, patchThinIce, makeRainRings }
-    from './lib/submerged.js';
-import { patchCaustics } from './lib/caustics.js';
-import { patchTriplanar } from './lib/terrain_shade.js';
-import { tickShaders } from './lib/shader.js';
-
-export const BOUNDS = { min: [-8, -1, -6], max: [8, 5, 6] };
-
-const LEVEL = 1.45;
-const SUN = new THREE.Vector3(0.45, 0.75, 0.35);
-
-export function createScene() {
-  const scene = new THREE.Scene();
-  // Without this USE_FOG is undefined and every fog branch compiles to
-  // nothing — which is how a library ships fog chunks that cannot
-  // compile at all and nobody finds out.
-  scene.fog = new THREE.FogExp2(0x9dbcd8, 0.018);
-  scene.background = new THREE.Color(0x9dbcd8);
-  scene.add(new THREE.HemisphereLight(0xbcd6ef, 0x4a4130, 0.9));
-  // And without a shadow CASTER the depth variant of every patched
-  // material is never compiled either.
-  const sun = new THREE.DirectionalLight(0xfff0d6, 2.6);
-  sun.position.set(6, 9, 5);
-  sun.castShadow = true;
-  scene.add(sun);
-
-  // ONE material wearing the rock projection, the column and the net:
-  // the chain this library exists to survive.
-  const tile = new THREE.MeshStandardMaterial(
-      { color: 0x5a6a62, roughness: 0.9 });
-  patchTriplanar(tile, { scale: 1.4 });
-  patchUnderwater(tile, { level: LEVEL, extinction: 0.34, seed: 2,
-                          light: 0.6 });
-  patchCaustics(tile, { level: LEVEL, sunDir: SUN, depthFade: 2.9 });
-
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(11, 0.3, 8), tile);
-  floor.position.set(0, 0.15, 0);
-  floor.receiveShadow = true;
-  scene.add(floor);
-
-  // Steps straddling the line: two under it, two above.
-  for (let i = 0; i < 4; i++) {
-    const h = 0.5 * (i + 1);
-    const step = new THREE.Mesh(new THREE.BoxGeometry(0.8, h, 4), tile);
-    step.position.set(4.4 - i * 0.8, 0.3 + h / 2, 1.6);
-    step.castShadow = step.receiveShadow = true;
-    scene.add(step);
-  }
-
-  // A boulder half under, and instanced cobbles so the USE_INSTANCING
-  // branch of the shared base has to compile too.
-  const rock = new THREE.MeshStandardMaterial(
-      { color: 0x6f6559, roughness: 0.95 });
-  patchTriplanar(rock, { scale: 0.9 });
-  patchUnderwater(rock, { level: LEVEL, seed: 5 });
-  patchCaustics(rock, { level: LEVEL, sunDir: SUN, seed: 3 });
-  const boulder = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(1.15, 2), rock);
-  boulder.position.set(-1.7, 1.2, -1.3);
-  boulder.castShadow = true;
-  scene.add(boulder);
-
-  const pebbles = new THREE.InstancedMesh(
-      new THREE.IcosahedronGeometry(0.32, 1), rock, 12);
-  const m4 = new THREE.Matrix4();
-  for (let i = 0; i < 12; i++) {
-    m4.makeTranslation(-4.4 + i * 0.8, 0.42, -2.7 + (i % 3) * 0.8);
-    pebbles.setMatrixAt(i, m4);
-  }
-  pebbles.castShadow = true;
-  scene.add(pebbles);
-
-  // A sheet of thin ice over a corner of the same pool.
-  const ice = new THREE.MeshStandardMaterial(
-      { color: 0x1c2a30, roughness: 0.5, metalness: 0 });
-  patchThinIce(ice, { thickness: 0.09, crackDensity: 0.8, frost: 0.85 });
-  const sheet = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 3.4), ice);
-  sheet.rotation.x = -Math.PI / 2;
-  sheet.position.set(-3.2, LEVEL, 2.0);
-  sheet.receiveShadow = true;
-  scene.add(sheet);
-
-  // The ring field assembles its OWN shader rather than inheriting
-  // three's, so its fog and depth chunks are only checked here.
-  scene.add(makeRainRings(
-      { area: { x: 2.4, z: -1.2, w: 6, d: 5 }, y: LEVEL, count: 90,
-        size: 0.5, seed: 6 }));
-
-  // A camera, because the host reports a scene with none as not booted
-  // and never reaches the compile stage at all.
-  return {
-    scene,
-    cameras: [{ name: 'a', position: [7, 3, 9], lookAt: [0, 1, 0],
-                fov: 45 }],
-    // One tick drives every patch in the chain; an un-advanced uTime is
-    // a frozen silt and a frozen ring.
-    update(t) { tickShaders(scene, t); },
-  };
-}
-"""
-
-
-def test_the_chain_compiles_on_the_real_renderer():
-    """The only witness that counts.  Everything above reads a string;
-    whether the GPU accepts four chained bodies in one main, the
-    instancing branch, a refract into a parallax and two levels of
-    branching cracks per fragment cannot be asserted from source, and a
-    patch that does not compile is worth nothing.  The scene sets its
-    own fog, because USE_FOG is a define and a define that is never set
-    compiles nothing — rain.js shipped a fog branch that could not
-    compile at all for months behind exactly that.
-    """
-    code, out = compile_scene(
-        _SCENE, ("shader.js", "submerged.js", "caustics.js",
-                 "terrain_shade.js"))
-    assert code == 0, out
-    assert "every program compiled" in out
-    # Patched built-ins keep the built-in's own depth and fog chunks,
-    # and the ring field gets them from makeShaderMaterial — so nothing
-    # here may be flagged as discardable.
-    assert "DISCARDED" not in out

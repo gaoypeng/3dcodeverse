@@ -36,28 +36,17 @@ exposure 1.0, no post chain, baked environment) in the fx showcase:
 
 from __future__ import annotations
 
-import json
-
 import pytest
-from _probe import LIB_DIR, compile_scene, measure
+from _probe import LIB_DIR, SHADER_JS, measure
 
 pytestmark = pytest.mark.node
 
 _LIBS = ("shader.js", "waterside.js")
 _LIB_SRC = (LIB_DIR / "waterside.js").read_text(encoding="utf-8")
 
-# The two hooks patchStandard injects into, as a material three would.
-_FAKE_SHADER = """
-const fake = () => ({
-  vertexShader: 'void main() {\\n#include <begin_vertex>\\n}',
-  fragmentShader: 'void main() {\\n#include <color_fragment>\\n}',
-  uniforms: {},
-});
-"""
-
 
 def _measure(script: str) -> dict:
-    return measure(_FAKE_SHADER + script, _LIBS)
+    return measure(SHADER_JS + script, _LIBS)
 
 
 def test_the_wet_band_fades_above_the_line_instead_of_cutting_it():
@@ -534,17 +523,10 @@ patchShallowWater(m, { bedLevel: -1 });
 patchShoreWet(m, { level: 0.5 });  // retune, not a fourth patch
 m.onBeforeCompile(sh);
 const fs = sh.fragmentShader, vs = sh.vertexShader;
-const count = (s, re) => (s.match(re) || []).length;
 // Only what the bodies declare INSIDE main: the util block's own helpers
 // are functions, each with its own scope.
-const locals = {};
-const mains = fs.slice(fs.indexOf('void main')) + '\\n' +
-    vs.slice(vs.indexOf('void main'));
-const decl = /^\\s+(?:float|vec2|vec3|vec4)\\s+(\\w+)/gm;
-for (const hit of mains.match(decl) || []) {
-  const name = hit.trim().split(/\\s+/)[1];
-  locals[name] = (locals[name] || 0) + 1;
-}
+const seen = {};
+for (const name of locals(mains(sh))) seen[name] = (seen[name] || 0) + 1;
 console.log(JSON.stringify({
   key: m.customProgramCacheKey(),
   wet: fs.includes('uWetDark'),
@@ -560,7 +542,7 @@ console.log(JSON.stringify({
   varyingFs: count(fs, /varying vec3 vAstraWorld;/g),
   utilOnce: count(fs, /float astraFbm2\\(/g),
   timeOnce: count(fs, /uniform float uTime;/g),
-  dupLocals: Object.keys(locals).filter((k) => locals[k] > 1),
+  dupLocals: Object.keys(seen).filter((k) => seen[k] > 1),
 }));
 """)
     assert out["wet"] and out["foam"] and out["shallow"], out
@@ -611,101 +593,3 @@ def test_the_shipped_module_is_deterministic_and_stage_safe():
     # Three exports, no more: the library is the contact transitions.
     assert src.count("\nexport ") == 3
     assert max(len(ln) for ln in src.splitlines()) <= 80
-
-
-_SCENE = """
-import * as THREE from 'three';
-import { patchShoreWet, patchShoreFoam, patchShallowWater }
-    from './lib/waterside.js';
-import { tickShaders } from './lib/shader.js';
-
-const LEVEL = 0.4;
-const bedAt = (x, z) => -0.9 + 0.03 * x - 0.02 * z;
-
-export function createScene() {
-  const scene = new THREE.Scene();
-  // FOGGED, because the wet sheen reads fogColor under #ifdef USE_FOG and
-  // an unfogged compile never touches that branch.
-  scene.fog = new THREE.FogExp2(0xcfd8e6, 0.0035);
-  scene.add(new THREE.DirectionalLight(0xffffff, 2.4));
-  scene.add(new THREE.HemisphereLight(0xbfd4ea, 0x6b5a44, 0.7));
-
-  // The bank: two patches on ONE material, the routine case.
-  const bank = new THREE.Mesh(
-      new THREE.PlaneGeometry(60, 40, 32, 24),
-      new THREE.MeshStandardMaterial({ color: 0x6f6250, roughness: 0.92 }));
-  bank.rotation.x = -Math.PI / 2.2;
-  bank.receiveShadow = true;
-  bank.name = 'Bank';
-  patchShoreWet(bank.material, { level: LEVEL, band: 0.3 });
-  patchShoreFoam(bank.material, { level: LEVEL });
-  scene.add(bank);
-
-  // Rocks: instanced, so the USE_INSTANCING branch has to compile.
-  const rocks = new THREE.InstancedMesh(
-      new THREE.IcosahedronGeometry(0.8, 1),
-      new THREE.MeshStandardMaterial({ color: 0x7d766c }), 8);
-  const m4 = new THREE.Matrix4();
-  for (let i = 0; i < 8; i++) {
-    m4.makeTranslation(-12 + i * 3, LEVEL - 0.2, 2 + (i % 3));
-    rocks.setMatrixAt(i, m4);
-  }
-  rocks.castShadow = true;
-  rocks.name = 'ShoreRocks';
-  patchShoreWet(rocks.material, { level: LEVEL, gloss: 0.5 });
-  patchShoreFoam(rocks.material, { level: LEVEL, strength: 0.7 });
-  scene.add(rocks);
-
-  // The reach: a plain standard material, never the addon Water.
-  const water = new THREE.Mesh(
-      new THREE.PlaneGeometry(60, 40),
-      new THREE.MeshStandardMaterial({
-        color: 0xffffff, roughness: 0.18, metalness: 0,
-        transparent: true, opacity: 0.9 }));
-  water.rotation.x = -Math.PI / 2;
-  water.position.y = LEVEL;
-  water.name = 'Reach';
-  patchShallowWater(water.material, { bedAt, range: 1.6 });
-  patchShoreFoam(water.material, { level: LEVEL, strength: 0.6 });
-  scene.add(water);
-
-  // A camera is not decoration: the host reports `ok: false` with an EMPTY
-  // error when `cameras` is empty, so a scene with none fails the compile
-  // preflight before a program is built.
-  return {
-    scene,
-    cameras: [{ name: 'hero', position: [9, 4, 11], lookAt: [0, 1, 0],
-                fov: 45 }],
-    update(t) { tickShaders(scene, t); },
-  };
-}
-"""
-
-
-def test_the_whole_waterline_compiles_on_the_gpu_in_a_fogged_scene():
-    """The only witness that counts.  Everything above reads a string;
-    whether the GPU accepts the GLSL — the instancing branch, the shore
-    frame's divide, the fogColor branch of the sheen, three chained bodies
-    in one main, a vec3 uniform carrying a fitted plane — cannot be
-    asserted from source, and a patch that does not compile is worth
-    nothing.  Runs the same preflight the authoring agent runs."""
-    code, out = compile_scene(_SCENE, _LIBS)
-    assert code == 0, out
-    assert "ERROR" not in out, out
-    report = json.loads(out.strip().splitlines()[-1])
-    assert report["ok"] and report["errors"] == [], report
-    # Patched built-ins carry the built-in's own depth and fog chunks, so
-    # nothing here may be flagged as discardable or unfogged.
-    assert report["warnings"] == [], report["warnings"]
-    # bank, rocks (one key, two programs with the instanced one), reach.
-    assert report["compile"]["custom_materials"] >= 3, report
-    assert report["compile"]["gpu"], report
-    # And the OTHER side of the guard: with no fog in the scene there is no
-    # `fogColor` in the program at all, and the sheen has to fall back to
-    # its constant rather than fail every material that wears it.
-    code, out = compile_scene(
-        _SCENE.replace("scene.fog = new THREE.FogExp2(0xcfd8e6, 0.0035);",
-                       "// unfogged: the sheen falls back to its constant"),
-        _LIBS)
-    assert code == 0, out
-    assert json.loads(out.strip().splitlines()[-1])["ok"], out

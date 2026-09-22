@@ -23,21 +23,21 @@ These three patches land on materials that already carry a triplanar, a micro
 breakup and a waterline, so the shared contract is asserted first: one world
 base, no name any neighbour owns, and every option a UNIFORM (`patchStandard`
 absorbs a duplicate uniform SILENTLY and the first material to compile a cache
-key fixes the GLSL for every material sharing it).
+key fixes the GLSL for every material sharing it).  The names, and the
+whole six-patch stack on a GPU, are asserted with every sibling library's in
+test_patch_union.py.
 """
 from __future__ import annotations
 
-import json
 import re
-from collections import Counter
 
 import pytest
-from _probe import LIB_DIR, compile_scene, measure
+from _probe import LIB_DIR, SHADER_JS, _find, _main_body, measure
 
 pytestmark = pytest.mark.node
 
 _LIBS = ("shader.js", "terrain_shade.js", "waterside.js", "surface_wear.js",
-         "aging.js", "accumulation.js", "strata.js", "damp.js")
+         "aging.js", "accumulation.js", "damp.js")
 
 _LIB_SRC = (LIB_DIR / "damp.js").read_text(encoding="utf-8")
 
@@ -48,31 +48,17 @@ _LIB_SRC = (LIB_DIR / "damp.js").read_text(encoding="utf-8")
 # exist, so a claim about the physics can be measured instead of
 # pattern-matched.  new Function is sloppy mode even inside a module, which is
 # what makes `with` available.
-_PRELUDE = """
+_PRELUDE = SHADER_JS + """
 import * as THREE from 'three';
 import { patchMoss, patchMoisture, patchCrackedMud } from './lib/damp.js';
-import { patchMicroBreakup, patchEdgeWear } from './lib/surface_wear.js';
-import { patchTriplanar, patchSlopeSplat } from './lib/terrain_shade.js';
-import { patchShoreWet, patchShoreFoam } from './lib/waterside.js';
-import { patchDripStains, patchRust, patchDust } from './lib/aging.js';
-import { patchSnow, patchSand } from './lib/accumulation.js';
-import { patchRockStrata, patchErosionStreaks } from './lib/strata.js';
-import { GLSL_UTIL } from './lib/shader.js';
+import { patchMicroBreakup } from './lib/surface_wear.js';
+import { patchTriplanar } from './lib/terrain_shade.js';
+import { patchShoreWet } from './lib/waterside.js';
+import { patchDust } from './lib/aging.js';
+import { patchSnow } from './lib/accumulation.js';
 
 const std = (o = {}) => new THREE.MeshStandardMaterial(
     Object.assign({ color: 0x8b8478, roughness: 0.7 }, o));
-
-function compile(mat) {
-  const shader = {
-    vertexShader: 'void main() {\\n#include <begin_vertex>\\n}',
-    fragmentShader: 'void main() {\\n#include <color_fragment>\\n}',
-    uniforms: {},
-  };
-  mat.onBeforeCompile(shader);
-  return shader;
-}
-
-const count = (src, needle) => src.split(needle).length - 1;
 
 const body = (src) => src.slice(src.indexOf('void main'));
 
@@ -110,194 +96,9 @@ function run(code, ctx) {
 }
 """
 
-# A shoreline strip as a workspace SCENE: a bank rising out of the water to a
-# terrace, a boulder standing clear on it, a wall on its footing and a dried
-# pan on the terrace.  The pan's material carries ALL SIX patches, and the
-# cobbles are instanced on that same material because a real instanced program
-# is the only thing that compiles the USE_INSTANCING branch of the world base.
-_SCENE = """
-import * as THREE from 'three';
-import { patchTriplanar } from './lib/terrain_shade.js';
-import { patchMicroBreakup } from './lib/surface_wear.js';
-import { patchShoreWet } from './lib/waterside.js';
-import { patchMoss, patchMoisture, patchCrackedMud } from './lib/damp.js';
-
-const NORTH = [0, 0, -1];
-const WATER_Y = 0.35;
-const BED = new THREE.Vector2(2.5, 2.5);
-
-export const BOUNDS = { min: [-20, 0, -20], max: [20, 12, 20] };
-
-let s = 20261;
-const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-const smooth = (t) => t * t * (3 - 2 * t);
-const clamp01 = (t) => Math.max(0, Math.min(1, t));
-
-function bankY(x, z) {
-  const t = smooth(clamp01((z + 4.5) / 6.5));
-  return 1.3 * t
-      + 0.09 * Math.sin(x * 1.13 + 1.1) * Math.sin(z * 0.91)
-      + 0.04 * Math.sin(x * 2.7 - 0.4) * Math.sin(z * 2.3 + 2.0);
-}
-
-function bank() {
-  const g = new THREE.PlaneGeometry(9, 9, 60, 60);
-  g.rotateX(-Math.PI / 2);
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) p.setY(i, bankY(p.getX(i), p.getZ(i)));
-  g.computeVertexNormals();
-  return g;
-}
-
-function pan(r) {
-  const g = new THREE.CircleGeometry(r, 64);
-  g.rotateX(-Math.PI / 2);
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const d = Math.hypot(p.getX(i), p.getZ(i)) / r;
-    p.setY(i, -0.22 * (1 - d * d) + 0.03 * Math.sin(d * 8.0));
-  }
-  g.computeVertexNormals();
-  return g;
-}
-
-function boulder(r, k) {
-  const g = new THREE.SphereGeometry(r, 24, 16);
-  const p = g.attributes.position;
-  const v = new THREE.Vector3();
-  for (let i = 0; i < p.count; i++) {
-    v.fromBufferAttribute(p, i);
-    const n = Math.sin(v.x * k + 1.3) * Math.sin(v.y * (k * 0.8))
-        * Math.sin(v.z * (k * 1.2) + 0.7);
-    v.multiplyScalar(1 + n * 0.18);
-    p.setXYZ(i, v.x, v.y * 0.80, v.z);
-  }
-  g.computeVertexNormals();
-  return g;
-}
-
-export function createScene() {
-  const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0xcfd8e6, 0.0035);
-  scene.add(new THREE.HemisphereLight(0xbcd6ef, 0x4a4130, 0.9));
-  const sun = new THREE.DirectionalLight(0xfff0d6, 2.5);
-  sun.position.set(5, 8, 7);
-  sun.castShadow = true;
-  scene.add(sun);
-
-  const g = new THREE.Group();
-  const put = (geo, mat, x, y, z) => {
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(x, y, z);
-    m.castShadow = true;
-    m.receiveShadow = true;
-    g.add(m);
-    return m;
-  };
-  const bed = new THREE.MeshStandardMaterial(
-      { color: 0x9c9280, roughness: 0.85 });
-  const stone = new THREE.MeshStandardMaterial(
-      { color: 0x8e8880, roughness: 0.80 });
-  const ground = new THREE.MeshStandardMaterial(
-      { color: 0x7d7a68, roughness: 0.88 });
-
-  put(bank(), ground, 0, 0, 0);
-  const water = new THREE.Mesh(
-      new THREE.PlaneGeometry(9, 4.4),
-      new THREE.MeshStandardMaterial({ color: 0x24444c, roughness: 0.10 }));
-  water.rotation.x = -Math.PI / 2;
-  water.position.set(0, WATER_Y, -2.6);
-  g.add(water);
-
-  put(pan(1.5), bed, BED.x, bankY(BED.x, BED.y) + 0.24, BED.y);
-  put(boulder(0.75, 5.1), stone, -2.6, bankY(-2.6, 0.8) + 0.48, 0.8);
-  put(boulder(0.34, 7.3), stone, -1.5, bankY(-1.5, 1.7) + 0.22, 1.7);
-
-  const wy = bankY(-3.0, 3.3);
-  put(new THREE.BoxGeometry(2.6, 0.25, 0.80), stone, -3.0, wy + 0.09, 3.3);
-  put(new THREE.BoxGeometry(2.3, 1.50, 0.45), stone, -3.0, wy + 0.96, 3.3);
-  put(new THREE.BoxGeometry(2.5, 0.14, 0.60), stone, -3.0, wy + 1.78, 3.3);
-
-  const cobble = new THREE.InstancedMesh(boulder(0.15, 9.1), bed, 40);
-  const mx = new THREE.Matrix4();
-  for (let i = 0; i < 40; i++) {
-    const a = rnd() * Math.PI * 2;
-    const r = 0.3 + rnd() * 1.7;
-    const x = BED.x + Math.cos(a) * r;
-    const z = BED.y + Math.sin(a) * r;
-    mx.compose(
-        new THREE.Vector3(x, bankY(x, z) + 0.12, z),
-        new THREE.Quaternion().setFromEuler(
-            new THREE.Euler(rnd(), rnd() * 3, rnd())),
-        new THREE.Vector3(1, 0.65 + rnd() * 0.7, 1));
-    cobble.setMatrixAt(i, mx);
-  }
-  cobble.instanceMatrix.needsUpdate = true;
-  cobble.frustumCulled = false;
-  g.add(cobble);
-
-  for (const [mat, seed, tri] of [[bed, 3, 0.6], [stone, 6, 0.8],
-                                  [ground, 9, 1.4]]) {
-    patchTriplanar(mat, { scale: tri });
-    patchMicroBreakup(mat, { seed, strength: 0.12 });
-    patchShoreWet(mat, { level: WATER_Y, band: 0.25, darken: 0.45 });
-    patchMoss(mat, { amount: 0.5, north: NORTH, seed });
-    patchMoisture(mat, { waterY: WATER_Y, reach: 0.9, strength: 0.5, seed });
-  }
-  patchCrackedMud(bed, { scale: 0.24, depth: 0.75, wet: 0.0, seed: 3 });
-
-  scene.add(g);
-  // A camera is not decoration: the host reports `ok: false` with an EMPTY
-  // error when `cameras` is empty, so a scene with none fails the compile
-  // preflight before a program is built.
-  return {
-    scene,
-    cameras: [{ name: 'hero', position: [9, 4, 11], lookAt: [0, 1, 0],
-                fov: 45 }],
-    update() {},
-  };
-}
-"""
-
 
 def _probe(body: str) -> dict:
     return measure(_PRELUDE + body, _LIBS)
-
-
-def _find(pattern: str, src: str) -> re.Match:
-    m = re.search(pattern, src)
-    assert m, f"{pattern} not in\n{src}"
-    return m
-
-
-def _main_body(src: str) -> str:
-    return src[src.index("void main"):]
-
-
-def _unguarded(src: str) -> str:
-    """Drop ``#ifndef X ... #endif`` blocks, which may repeat verbatim."""
-    return re.sub(r"#ifndef\b.*?#endif", "", src, flags=re.S)
-
-
-def test_the_six_patch_chain_compiles_clean_on_one_material():
-    """The stack this library exists to join, on our GPU: moss, moisture and
-    cracked mud on the SAME material that already carries a triplanar, a micro
-    breakup and a waterline, in a scene that also puts that material on an
-    InstancedMesh.  Only a real instanced draw compiles the USE_INSTANCING
-    branch of the world base, and only a real compile proves four libraries'
-    varyings, helpers and main() locals survive concatenation — including a
-    Voronoi with two nested loops, which is the one thing here a driver could
-    refuse."""
-    code, out = compile_scene(_SCENE, _LIBS)
-    assert code == 0, out
-    assert "ERROR" not in out, out
-    report = json.loads(out.strip().splitlines()[-1])
-    assert report["ok"] and report["errors"] == [], report
-    # bed (six patches), stone/ground (five, one key), water, and the
-    # instanced program for the bed material — the whole point.
-    assert report["compile"]["custom_materials"] >= 3, report
-    assert report["compile"]["programs"] >= 4, report
-    assert report["compile"]["gpu"], report
 
 
 def test_the_three_patches_chain_without_losing_each_other():
@@ -800,101 +601,6 @@ console.log(JSON.stringify({
     for name in ("msCol", "moA", "mdCol"):
         assert ch.index(name) > tri, name
     assert ch.count("diffuseColor.rgb = tpC;") == 1
-
-
-def test_no_patch_declares_a_name_its_neighbours_own():
-    """The silent failure this library is most exposed to: these three ride the
-    same materials as terrain_shade, waterside, surface_wear, aging,
-    accumulation and strata, and patchStandard DROPS a repeated uniform or
-    varying and keeps the first — so a shared name would leave one patch
-    reading the other's value with nothing reported.  A repeated main() local
-    is a compile error instead, and a repeated helper now throws.  So the
-    uniform sets must be disjoint (uTime excepted, the shared clock) and a
-    material wearing all FIFTEEN patches must declare every name once."""
-    out = _probe("""
-const damp = std();
-patchMoss(damp); patchMoisture(damp); patchCrackedMud(damp);
-const nbr = std();
-patchTriplanar(nbr);
-patchSlopeSplat(nbr, { snowLine: 30 });
-patchShoreWet(nbr);
-patchShoreFoam(nbr);
-patchMicroBreakup(nbr);
-patchEdgeWear(nbr);
-patchDripStains(nbr);
-patchRust(nbr);
-patchDust(nbr);
-patchSnow(nbr);
-patchSand(nbr);
-patchRockStrata(nbr);
-patchErosionStreaks(nbr);
-const all = std();
-for (const p of [patchTriplanar, patchShoreWet, patchShoreFoam,
-                 patchMicroBreakup, patchEdgeWear, patchDripStains,
-                 patchRust, patchDust, patchSnow, patchSand,
-                 patchRockStrata, patchErosionStreaks,
-                 patchMoss, patchMoisture, patchCrackedMud]) {
-  p(all);
-}
-patchSlopeSplat(all, { snowLine: 30 });
-const s = compile(all);
-const fns = (src) => (src.match(/^(?:float|vec[234]|int) (\\w+)\\(/gm) || [])
-    .map((m) => m.split(' ')[1].split('(')[0]);
-console.log(JSON.stringify({
-  dampU: Object.keys(damp.userData.uniforms),
-  nbrU: Object.keys(nbr.userData.uniforms),
-  patches: all.userData.astraPatches.map((p) => p.name),
-  dampFns: fns(compile(damp).fragmentShader),
-  nbrFns: fns(compile(nbr).fragmentShader),
-  utilFns: fns(GLSL_UTIL),
-  vs: s.vertexShader, fs: s.fragmentShader,
-}));
-""")
-    shared = set(out["dampU"]) & set(out["nbrU"])
-    assert shared == {"uTime"}, shared
-    # Helpers too, and this one is invisible from inside: two libraries whose
-    # helper shares a name AND a body dedupe silently today and throw the day
-    # either body is edited.
-    util = set(out["utilFns"])
-    clash = (set(out["dampFns"]) - util) & (set(out["nbrFns"]) - util)
-    assert not clash, clash
-    assert {"astraDampAxes", "astraDampCells"} <= set(out["dampFns"])
-    assert {"damp:base", "damp:moss", "damp:moisture",
-            "damp:mud"} <= set(out["patches"])
-    for stage in ("vs", "fs"):
-        src = out[stage]
-        decls = re.findall(
-            r"^\s*(?:uniform|varying)\s+(?:lowp |mediump |highp )?"
-            r"[a-z0-9]+\s+(\w+)\s*;", src, re.M)
-        dupes = [n for n, c in Counter(decls).items() if c > 1]
-        assert not dupes, f"{stage} declares {dupes} twice"
-        fns = re.findall(r"^(?:float|vec[234]|int)\s+(\w+)\s*\(",
-                         _unguarded(src), re.M)
-        assert not [n for n, c in Counter(fns).items() if c > 1]
-        locals_ = re.findall(
-            r"^\s*(?:float|vec[234]|int|mat[234])\s+(\w+)\s*=",
-            _main_body(src), re.M)
-        clash = [n for n, c in Counter(locals_).items() if c > 1]
-        assert not clash, f"{stage} main() declares {clash} twice"
-    # Named as the neighbours name them on purpose: ONE world position is
-    # written for the whole chain, not one per library.
-    assert "vAstraWorld" in out["vs"] and "vAstraWorld" in out["fs"]
-    # ...and the base folds in the instance transform, or every copy of a
-    # scattered cobble takes its weather from the mesh ORIGIN.
-    body = _main_body(out["vs"])
-    assert "#ifdef USE_INSTANCING" in body
-    _find(r"dmP = instanceMatrix \* dmP;", body)
-    _find(r"dmN = mat3\(instanceMatrix\) \* dmN;", body)
-    _find(r"vAstraWorld = \(modelMatrix \* dmP\)\.xyz;", body)
-    assert "attribute mat4 instanceMatrix" not in out["vs"]
-    # fwidth, dFdx, gl_FragCoord and astraStroke are fragment-only and the
-    # util block ships in both stages: they may be DEFINED in the vertex
-    # shader, never called from it.
-    assert "fwidth(" not in body and "dFdx(" not in body
-    assert "gl_FragCoord" not in body
-    # Nothing is displaced: the vertex stage is the world base and no more,
-    # or a hard-edged bed would tear open at its rim.
-    assert "transformed +=" not in body and "transformed *=" not in body
 
 
 def test_an_option_is_a_uniform_and_never_baked_into_the_source():
