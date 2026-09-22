@@ -2,8 +2,9 @@
 
 ``run_round`` is track-agnostic; a ``RoundPipeline`` supplies the track-specific
 gates / measurement / rendering.  Every step writes its artifact under the
-workspace (gates/rNN, renders/rNN, judge/rNN.json, rounds/rNN.json) so a run
-can be resumed and the flywheel can replay it.
+workspace (gates/rNN, renders/rNN, judge/rNN.json, rounds/rNN.json, and the build
+outputs a hand-over needs under artifacts/rNN/) so a run can be resumed, the flywheel
+can replay it, and any round can be packaged later without a rebuild.
 
 Two cost rules live here (docs/COST.md §5, §6):
 
@@ -41,6 +42,7 @@ from codeverse3d.judges.base import SLICE_TRACKS, JudgeInput
 from codeverse3d.judges.rubrics import is_degraded
 from codeverse3d.orchestrator import BudgetExceeded, usage_delta
 from codeverse3d.proc import fan_out
+from codeverse3d.record.deliverable import keep_round_artifacts
 from codeverse3d.spatial.render import RenderError
 from codeverse3d.tracks import skills_hook
 from codeverse3d.tracks.common import RunContext, generate_for
@@ -334,6 +336,9 @@ def _run_round(
     _write_gate_reports(ctx, index, gates)
 
     rec.commit = ctx.ws.commit(f"r{index:02d} {kind}")
+    if outcome.build.ok:
+        # every round keeps what a hand-over of it needs: the next build replaces artifacts/
+        keep_round_artifacts(ctx.ws, index)
     rec.usage = usage
     rec.duration_s = round(time.time() - t0, 2)
     rec.notes = "; ".join(notes)

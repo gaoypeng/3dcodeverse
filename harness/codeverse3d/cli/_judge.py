@@ -114,7 +114,8 @@ def stored_glb_path(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> str | No
     ``3dcode judge`` reproduce the D48 conditional slice payload from the stored gates."""
     if rec.spec.track.value not in SLICE_TRACKS or rnd.build is None or not rnd.build.glb_path:
         return None
-    p = ws.rebase(rnd.build.glb_path)
+    kept = ws.round_artifacts(rnd.index) / "object.glb"  # the round's own GLB; the stored path is
+    p = kept if kept.is_file() else ws.rebase(rnd.build.glb_path)  # the canonical one, rebuilt since
     return str(p) if p.is_file() else None
 
 

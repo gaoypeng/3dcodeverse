@@ -76,9 +76,9 @@ def test_record_blocks_are_additive(tmp_path: Path):
     rec = RunRecord.model_validate(old)
     assert rec.telemetry is None and rec.deliverable is None
     rec.telemetry = RunTelemetry()
-    rec.deliverable = RunDeliverable(best_round=1, commit="abc")
+    rec.deliverable = RunDeliverable.model_validate({"best_round": 1, "commit": "abc"})  # a pre-2026-09-22 manifest
     again = RunRecord.model_validate_json(rec.model_dump_json())
-    assert again.deliverable is not None and again.deliverable.best_round == 1
+    assert again.deliverable is not None and again.deliverable.round == 1
     assert again.telemetry is not None and again.telemetry.schema_version == 1
 
 

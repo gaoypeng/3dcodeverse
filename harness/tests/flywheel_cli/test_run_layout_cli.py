@@ -66,7 +66,7 @@ def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run)
     # returned object used to have one more file (and a smaller total) than the disk
     assert {"code", "model", "sheet"} <= roles and "manifest" not in roles
     assert load_deliverable(ws) == d and d.total_bytes == sum(f.bytes for f in d.files)
-    assert d.best_round == 1 and d.code_source == "commit"
+    assert d.round == 1 and d.code_source == "commit"
     assert d.entry == "deliverable/src/model.py"
     assert (ws.deliverable / "src" / "model.py").read_text().startswith("# round 1")
     assert (ws.deliverable / "object.glb").is_file() and (ws.deliverable / "sheet.png").is_file()
@@ -85,7 +85,7 @@ def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run)
     # Rebuilding unchanged content is byte-for-byte stable.
     first = rec.deliverable
     files_before = sorted(p.relative_to(ws.deliverable).as_posix() for p in ws.deliverable.rglob("*") if p.is_file())
-    second = build_deliverable(ws, rec)
+    second = build_deliverable(ws, rec, 1)
     files_after = sorted(p.relative_to(ws.deliverable).as_posix() for p in ws.deliverable.rglob("*") if p.is_file())
     assert files_before == files_after
     assert first.generated_at == second.generated_at  # unchanged content → no diff
@@ -158,13 +158,13 @@ def test_rejected_texture_pass_is_not_delivered_or_linked(fake_run):
     ws, rec = fake_run
     (ws.artifacts / "object_textured.glb").write_bytes(b"glTF\x02" + b"\0" * 16)
     rec.extra["texturing"] = {"shipped": False, "glb_textured": "artifacts/object_textured.glb"}
-    build_deliverable(ws, rec)
+    build_deliverable(ws, rec, 1)
     assert not (ws.deliverable / "object_textured.glb").exists()
     entry = entry_from_record("runs", ws, rec)
     assert "textured glb" not in {ln.label for ln in entry.links}
     # ... and a SHIPPED pass is delivered and linked
     rec.extra["texturing"] = {"shipped": True, "glb_textured": "artifacts/object_textured.glb"}
-    build_deliverable(ws, rec)
+    build_deliverable(ws, rec, 1)
     assert (ws.deliverable / "object_textured.glb").is_file()
     entry = entry_from_record("runs", ws, rec)
     assert "textured glb" in {ln.label for ln in entry.links}

@@ -265,7 +265,7 @@ def package_run(ws: Workspace, record: RunRecord) -> None:
         log.warning("run layout not created in %s: %s", ws.root, e)
         return
     try:
-        record.deliverable = build_deliverable(ws, record)
+        record.deliverable = build_deliverable(ws, record, best_round_index(record))
     except Exception as e:  # noqa: BLE001 - never fail a finished run over packaging
         log.warning("deliverable not built for %s: %s", ws.root, e)
     try:

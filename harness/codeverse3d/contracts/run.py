@@ -15,7 +15,7 @@ from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from codeverse3d.contracts.artifacts import (
     BuildResult,
@@ -339,11 +339,12 @@ class DeliverableFile(BaseModel):
 
 
 class RunDeliverable(BaseModel):
-    """``record.deliverable`` — what the run produced, as paths + hashes + sizes."""
+    """``deliverable/manifest.json`` — the round that was handed over, as paths + hashes + sizes."""
 
     schema_version: int = 1
     dir: str = "deliverable"
-    best_round: int | None = None
+    round: int | None = Field(default=None, validation_alias=AliasChoices("round", "best_round"),
+                              description="the packaged round (manifests before 2026-09-22 call it best_round)")
     commit: str = ""
     code_source: str = Field(default="", description="commit | working_tree")
     entry: str = Field(default="", description="run-relative entry file of the code snapshot")

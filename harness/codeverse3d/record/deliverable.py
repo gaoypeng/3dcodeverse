@@ -1,20 +1,24 @@
-"""``<run>/deliverable/`` — the hand-over folder: what the user actually asked for.
+"""``<run>/deliverable/`` — the hand-over folder for ONE round, and what every round keeps
+so that any of them can be handed over later without a rebuild.
 
-Everything in here is a *copy*, regenerated from the run's own evidence, so the
-folder can be zipped and sent on its own:
+Everything in the folder is a *copy*, regenerated from the run's own evidence, so it can
+be zipped and sent on its own:
 
-* ``src/**`` (+ ``public/**`` for scenes) — the raw code at the BEST round's commit;
-* the canonical artifact — ``object.glb`` (+ ``.stl`` / ``.step`` / textured GLB),
-  or ``robot.urdf`` + ``meshes/*.glb``, or ``frames/*.png`` + ``preview.gif``;
-* ``sheet.png`` — the best round's contact sheet (one picture of the result);
+* ``src/**`` (+ ``public/**`` for scenes, their GLB assets included) — the raw code at the
+  round's commit;
+* the round's artifact — ``object.glb`` (+ ``.stl`` / ``.step`` / textured GLB), or
+  ``robot.urdf`` + ``meshes/*.glb``, or ``frames/*.png`` (the judged frames) +
+  ``frames_sheet.png`` + ``preview.gif`` — from ``artifacts/rNN/`` (:func:`keep_round_artifacts`);
+* ``sheet.png`` — the round's contact sheet (one picture of the result);
 * ``captions.json`` when the run is captioned;
-* ``manifest.json`` — every OTHER file with its role, size and sha256 (mirrored
-  into ``record.deliverable``).  It does not list itself: a file cannot carry its
-  own hash, and the returned object must be exactly what is on disk.
+* ``manifest.json`` — every OTHER file with its role, size and sha256.  It does not list
+  itself: a file cannot carry its own hash, and the returned object must be exactly what
+  is on disk.
 
-Renders per round, gates, judge verdicts and measurements stay in the evidence
-bucket (``artifacts/`` = ``evidence/``); tokens, prices and settings stay in
-``telemetry/``.  Nothing else belongs here.
+WHICH round is not decided here: since 2026-09-22 the run keeps every round and ends at the
+last one, and ``codeverse3d.addons.select`` picks a round and packages it.  Renders per
+round, gates, judge verdicts and measurements stay in the evidence bucket (``artifacts/`` =
+``evidence/``); tokens, prices and settings stay in ``telemetry/``.
 """
 
 from __future__ import annotations
@@ -26,9 +30,9 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
-from codeverse3d.contracts.common import ENTRY_FILE, Language
+from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
 from codeverse3d.contracts.run import DeliverableFile, RoundRecord, RunDeliverable, RunRecord
-from codeverse3d.proc import sha256_file, write_json_atomic
+from codeverse3d.proc import read_json_or_none, sha256_file, write_json_atomic
 from codeverse3d.record import _git
 from codeverse3d.workspace import Workspace
 
@@ -37,16 +41,40 @@ log = logging.getLogger(__name__)
 MAX_FILE_BYTES = 128 * 1024 * 1024
 MAX_TOTAL_BYTES = 512 * 1024 * 1024
 
-#: artifact file → role, copied when present (object tracks / articulated / graphics)
+#: a round's build output → its role in the hand-over.  Exactly these (and ``meshes/``)
+#: are what a round keeps under ``artifacts/rNN/``: the census, build.json, the .blend and
+#: the export scratch dirs are evidence of the build, not part of what was built.
 _ARTIFACT_ROLES: tuple[tuple[str, str], ...] = (
     ("object.glb", "model"),
     ("object.stl", "model"),
     ("object.step", "model"),
-    ("object_textured.glb", "model"),
     ("robot.urdf", "urdf"),
     ("preview.gif", "preview"),
     ("frames_sheet.png", "sheet"),
 )
+#: per-link meshes of an articulated round (``robot.urdf`` references them)
+_MESH_DIR = "meshes"
+
+
+def keep_round_artifacts(ws: Workspace, round_index: int) -> list[str]:
+    """Copy the round's build outputs to ``artifacts/rNN/`` (names relative to
+    ``artifacts/``); ``[]`` when the round built nothing to keep.
+
+    Only the files a hand-over needs, and real copies: the next round's build replaces the
+    canonical ones, and a kept round must never change under a writer that happens to
+    write in place (a hard link would share that inode).  A scene keeps nothing here — its
+    hand-over (``src/`` + ``public/``, GLB assets included) is the round's git commit — and
+    a graphics round keeps its sheet and GIF; its judged frames are in ``renders/rNN/``."""
+    dest = ws.round_artifacts(round_index)
+    if dest.exists():  # the same round built again (a transport retry): its last build wins
+        shutil.rmtree(dest)
+    names = [n for n, _ in _ARTIFACT_ROLES if (ws.artifacts / n).is_file()]
+    meshes = sorted((ws.artifacts / _MESH_DIR).glob("*.glb")) if (ws.artifacts / _MESH_DIR).is_dir() else []
+    names += [p.relative_to(ws.artifacts).as_posix() for p in meshes]
+    for rel in names:
+        (dest / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ws.artifacts / rel, dest / rel)
+    return names
 
 
 class _Writer:
@@ -99,7 +127,7 @@ def _place(src: Path, dest: Path) -> None:
 
 
 def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes], str]:
-    """``src/**`` (+ ``public/**``) at the best round's commit, else the working tree."""
+    """``src/**`` (+ ``public/**``) at the round's commit, else the working tree."""
     if rnd is not None and rnd.commit:
         try:
             if _git.commit_exists(ws, rnd.commit):
@@ -113,23 +141,48 @@ def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes]
         return {}, "working_tree"
 
 
-def _copy_artifacts(ws: Workspace, record: RunRecord, w: _Writer) -> None:
-    tex = record.extra.get("texturing") or {}
+def _round_outputs(ws: Workspace, rnd: RoundRecord | None) -> Path | None:
+    """Where the round's build outputs are: ``artifacts/rNN/``, or — a run recorded before
+    rounds kept their own (2026-09-22) — ``artifacts/`` itself, but only for the round
+    that run's finalise rebuilt there (the ``best_round`` its record.json still names)."""
+    if rnd is None:
+        return None
+    kept = ws.round_artifacts(rnd.index)
+    if kept.is_dir():
+        return kept
+    legacy = (read_json_or_none(ws.record_path) or {}).get("best_round")
+    return ws.artifacts if legacy == rnd.index else None
+
+
+def _texture_is_for(ws: Workspace, glb: Path) -> bool:
+    """Did the SHIPPED texture pass start from these exact bytes?  The report names the GLB
+    it consumed; a pack made mid-round, or for another round, is not this round's."""
+    from codeverse3d.texturing.run import report_path
+
+    rep = read_json_or_none(report_path(ws)) or {}
+    src = ws.rebase(str(rep.get("glb_in") or "")) if rep.get("glb_in") else None
+    return (bool(rep.get("shipped")) and src is not None and src.is_file() and glb.is_file()
+            and sha256_file(src) == sha256_file(glb))
+
+
+def _copy_artifacts(ws: Workspace, record: RunRecord, rnd: RoundRecord | None, w: _Writer) -> None:
+    out = _round_outputs(ws, rnd)
+    if out is None:
+        return
     for name, role in _ARTIFACT_ROLES:
-        if name == "object_textured.glb" and not tex.get("shipped"):
-            # a texture pass that did not ship is not a deliverable, even if a stray
-            # canonical file exists (same gate addons/dataset/sample.copy_textured applies)
-            continue
-        w.add_file(ws.artifacts / name, name, role)
-    meshes = ws.artifacts / "meshes"
-    if record.spec.language is Language.URDF_BLENDER and meshes.is_dir():
-        for p in sorted(meshes.glob("*.glb")):
-            w.add_file(p, f"meshes/{p.name}", "mesh")
-    frames = ws.artifacts / "frames"
-    if frames.is_dir():
-        for p in sorted(frames.glob("*.png")):
-            w.add_file(p, f"frames/{p.name}", "frames")
-    if tex.get("shipped"):
+        w.add_file(out / name, name, role)
+    if record.spec.language is Language.URDF_BLENDER and (out / _MESH_DIR).is_dir():
+        for p in sorted((out / _MESH_DIR).glob("*.glb")):
+            w.add_file(p, f"{_MESH_DIR}/{p.name}", "mesh")
+    if record.spec.track is Track.GRAPHICS and rnd is not None and rnd.renders is not None:
+        for v in rnd.renders.views:  # the judged frames (renders/rNN), one per sampled time
+            src = ws.rebase(v.path)
+            w.add_file(src, f"frames/{src.name}", "frames")
+    tex = record.extra.get("texturing") or {}
+    # old layout: the one canonical pack belonged to the one round finalise rebuilt
+    shipped = tex.get("shipped") if out == ws.artifacts else _texture_is_for(ws, out / "object.glb")
+    if shipped:
+        w.add_file(ws.artifacts / "object_textured.glb", "object_textured.glb", "model")
         tex_dir = ws.root / str(tex.get("textures_dir") or "artifacts/textures")
         for p in sorted(tex_dir.glob("*.png")) if tex_dir.is_dir() else []:
             w.add_file(p, f"textures/{p.name}", "texture")
@@ -165,14 +218,12 @@ def _stable_timestamp(previous: RunDeliverable | None, current: RunDeliverable) 
     return previous.generated_at if same else (current.generated_at or datetime.now(UTC))
 
 
-def build_deliverable(ws: Workspace, record: RunRecord, *, clean: bool = True) -> RunDeliverable:
-    """(Re)build ``<run>/deliverable/`` and return the typed manifest.
+def build_deliverable(ws: Workspace, record: RunRecord, round_index: int | None, *, clean: bool = True) -> RunDeliverable:
+    """(Re)build ``<run>/deliverable/`` for round ``round_index`` and return the typed manifest.
 
     Idempotent: the folder is rebuilt from scratch every time, so a second call
     on an unchanged run produces byte-identical content."""
-    from codeverse3d.record.record import best_round_record
-
-    rnd = best_round_record(record)
+    rnd = next((r for r in record.rounds if r.index == round_index), None)
     previous = load_deliverable(ws) if ws.deliverable_manifest_path.is_file() else None
     if clean and ws.deliverable.exists():
         shutil.rmtree(ws.deliverable)
@@ -181,12 +232,12 @@ def build_deliverable(ws: Workspace, record: RunRecord, *, clean: bool = True) -
     files, code_source = _code_tree(ws, rnd)
     for rel, data in sorted(files.items()):
         w.add_bytes(rel, data, "code" if rel.startswith("src/") else "bundle")
-    _copy_artifacts(ws, record, w)
+    _copy_artifacts(ws, record, rnd, w)
     _copy_sheet(ws, rnd, w)
     _copy_captions(ws, record, w)
     entry = ENTRY_FILE.get(record.spec.language, "")
     manifest = RunDeliverable(
-        best_round=(rnd.index if rnd is not None else None), commit=(rnd.commit if rnd is not None else ""), code_source=code_source,
+        round=(rnd.index if rnd is not None else None), commit=(rnd.commit if rnd is not None else ""), code_source=code_source,
         entry=f"deliverable/{entry}" if entry in files else "",
         files=sorted(w.files, key=lambda f: f.path), total_bytes=w.total, skipped=w.skipped,
         generated_at=datetime.now(UTC),

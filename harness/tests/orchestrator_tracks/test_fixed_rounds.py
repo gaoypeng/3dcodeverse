@@ -72,3 +72,46 @@ def test_every_refine_starts_from_the_previous_rounds_commit(tmp_path, chair_pla
     assert rec.rounds[2].instructions, "the tasks come from r01's verdict and gates"
     events = [e["event"] for e in EventLog(ws.events_path).read()]
     assert "round.refine_from_best" not in events and "strategy.switch" not in events
+
+
+class _RoundStampRuntime(FakeRuntime):
+    """A build whose GLB differs per round (the box width is the round the code says it is)."""
+
+    def build(self, ws, *, timeout_s=None):
+        import re
+
+        import trimesh
+
+        res = super().build(ws, timeout_s=timeout_s)
+        if res.ok:
+            m = re.search(r"written in r(\d+)", (ws.src / "model.py").read_text())
+            box = trimesh.creation.box(extents=(0.1 * (int(m.group(1)) + 1) if m else 0.05, 0.2, 0.2))
+            glb = ws.artifacts / "object.glb"
+            glb.unlink()  # a runtime REPLACES its canonical artifact (ArtifactStage)
+            glb.write_bytes(trimesh.Scene(box).export(file_type="glb"))
+            (ws.artifacts / "object.stl").write_bytes(box.export(file_type="stl"))
+        return res
+
+
+def test_every_round_keeps_its_build_and_any_round_can_be_packaged(tmp_path, chair_plan, settings):
+    from codeverse3d.record.deliverable import build_deliverable
+
+    ws = Workspace(tmp_path / "runs" / "kept")
+    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5, 0.8, 0.6)),
+                              agent=FakeAgent(lambda job, ws: {"src/model.py": f"import bpy  # written in r{job.round}\n"}),
+                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
+                              runtime=_RoundStampRuntime(Language.BLENDER))
+    rec = track.run(make_spec(language=Language.BLENDER, max_rounds=2), ws)
+    kept = [ws.round_artifacts(i) / "object.glb" for i in range(3)]
+    assert all(p.is_file() for p in kept) and (ws.round_artifacts(1) / "object.stl").is_file()
+    assert len({p.read_bytes() for p in kept}) == 3, "each round keeps its OWN build"
+    assert not (ws.round_artifacts(1) / "census.json").exists(), "only what a hand-over needs is kept"
+    # any round packages without a rebuild: its commit's code + its own GLB
+    builds = track._runtime.builds
+    for i in (1, 0):
+        d = build_deliverable(ws, rec, i)
+        assert d.round == i and d.commit == rec.rounds[i].commit
+        assert (ws.deliverable / "object.glb").read_bytes() == kept[i].read_bytes()
+        assert (ws.deliverable / "src" / "model.py").read_text() == f"import bpy  # written in r{i}\n"
+        assert (ws.deliverable / "sheet.png").is_file()
+    assert track._runtime.builds == builds, "packaging never rebuilds"

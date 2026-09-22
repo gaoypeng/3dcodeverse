@@ -220,6 +220,11 @@ class Workspace:
     def judge_path(self, round_index: int, suffix: str = "") -> Path:
         return self.artifacts / "judge" / f"r{round_index:02d}{suffix}.json"
 
+    def round_artifacts(self, round_index: int) -> Path:
+        """``artifacts/rNN/`` — the round's own copy of the build outputs a hand-over needs
+        (``record.deliverable.keep_round_artifacts``; docs/RUN_LAYOUT.md)."""
+        return self.artifacts / f"r{round_index:02d}"
+
     def trajectory_dir(self, stage: str, round_index: int) -> Path:
         d = self.trajectories / f"{stage}_r{round_index:02d}"
         d.mkdir(parents=True, exist_ok=True)
