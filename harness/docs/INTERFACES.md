@@ -67,9 +67,11 @@ resp = m.generate(ChatRequest(messages=[...], system=..., response_schema=..., t
 #   resp.raw["key"] = "…ab12" (the key that answered), resp.raw["attempts"] = round-trips issued (hedged siblings included)
 resp.parsed / resp.text / resp.usage   # Usage always has cost_usd (models.pricing)
 from codeverse3d.models.retry import KeyPool, KeyPoolExhausted
-KeyPool(keys, *, max_in_flight=0, cooldown_s=3, dead_cooldown_s=3600)
-pool.acquire(*, exclude=None, timeout_s=120) -> key    # raises immediately when every key is dead/cooling past the deadline
+KeyPool(keys, *, max_in_flight=0, slots_dir=None, cooldown_s=3, dead_cooldown_s=3600)   # a cap needs slots_dir:
+    # the slots are flock'd files every process shares (Slots(n, root): try_take / take(timeout) / give / busy)
+pool.acquire(*, exclude=None, timeout_s=120) -> key    # a slot + a key; raises immediately when every key is dead/cooling past the deadline
 pool.try_acquire(*, exclude=None) -> key | None        # never waits (a hedged retry's extra key); holds a slot like acquire
+pool.session_key(*, exclude=None, timeout_s=120) -> key   # a vendor CLI session's key: no slot, nothing to release
 pool.report(key, "ok"|"429"|"5xx"|"error"|"dead"|"skip", *, retry_after_s=None)   # Δ "dead": health 0, benched dead_cooldown_s,
     # re-probed after; "skip" (a content failure the key did not cause) leaves health and counters untouched
 from codeverse3d.models.retry import rotate_with_retries, RETRY_DEADLINE_S

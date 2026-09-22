@@ -102,10 +102,10 @@ def retry_window_left(timeout_s: float, elapsed_s: float) -> float | None:
 
 def _key_pool(keys: list[str]) -> KeyPool:
     """THE process-wide pool for these keys — ``models.gemini.shared_pool``, i.e. the
-    same limiter the API path uses, with quotas from ``Settings.rate``.  This module
-    used to build its own ``KeyPool(keys)`` with library defaults (900 RPM, no TPM
-    bucket), so the CLI agent and the API path scheduled the same 22 keys under two
-    different quotas (found by review 2026-08-28)."""
+    same cooldowns and dead-key bench the API path uses (a session takes its key with
+    ``session_key``: no in-flight slot).  This module used to build its own
+    ``KeyPool(keys)`` with library defaults, so the CLI agent and the API path scheduled
+    the same 22 keys under two different quotas (found by review 2026-08-28)."""
     from codeverse3d.models.gemini import shared_pool
 
     return shared_pool(keys)
@@ -211,7 +211,7 @@ def _retry_key(pool: KeyPool, used: set[str]) -> str | None:
     ``None`` when every key is throttled (429 cooldown) — the caller then stops."""
     for exclude in (used, None):
         try:
-            return pool.acquire(exclude=exclude or None, timeout_s=RETRY_KEY_WAIT_S)
+            return pool.session_key(exclude=exclude or None, timeout_s=RETRY_KEY_WAIT_S)
         except KeyPoolExhausted:
             continue
     return None
@@ -287,7 +287,7 @@ class GeminiCliAgent(_CliAgent):
             prompt = deliver_prompt(s, _compose_prompt(job))
             pool = _key_pool(get_settings().gemini_api_keys)
             try:
-                key = pool.acquire()
+                key = pool.session_key()   # no in-flight slot: the CLI makes its own calls
             except KeyPoolExhausted as e:  # every key throttled for the whole wait budget
                 return failed(s, "budget", f"Gemini key pool exhausted before the first attempt: {e}")
             attempts = 0
@@ -298,21 +298,16 @@ class GeminiCliAgent(_CliAgent):
             while True:
                 attempts += 1
                 used.add(key)
-                try:
-                    started, env = time.time(), self.build_env(s, key)
-                    proc = invoke(s, self.build_argv(prompt), env, prompt=prompt, attempt=attempts,
-                                  soft_timeout_s=next_soft, model=self.model, key_tail=key[-4:])
-                    self._record_trace(s, started, env)
-                    outcome = self._interpret(s, proc)
-                    usage_total = usage_total + outcome["usage"]
-                    # the pool is shared with every API call: a hang, a substituted model or the
-                    # agent's own failure is not the key's fault ("skip" = counters untouched)
-                    pool.report(key, "429" if outcome["quota"] else "ok" if outcome["ok"]
-                                else "5xx" if outcome["transient"] else "skip")
-                finally:
-                    # one acquire per attempt: keep the pool's in-flight gauge honest — also when
-                    # invoke raises, or one slot of the PROCESS-WIDE pool is gone for good
-                    pool.release()
+                started, env = time.time(), self.build_env(s, key)
+                proc = invoke(s, self.build_argv(prompt), env, prompt=prompt, attempt=attempts,
+                              soft_timeout_s=next_soft, model=self.model, key_tail=key[-4:])
+                self._record_trace(s, started, env)
+                outcome = self._interpret(s, proc)
+                usage_total = usage_total + outcome["usage"]
+                # the pool is shared with every API call: a hang, a substituted model or the
+                # agent's own failure is not the key's fault ("skip" = counters untouched)
+                pool.report(key, "429" if outcome["quota"] else "ok" if outcome["ok"]
+                            else "5xx" if outcome["transient"] else "skip")
                 # a per-minute 429 on the single key a CLI process holds clears within the
                 # rotated retry's wait; ab_fewer_turns (2026-08-29) lost 4 of 10 cells to
                 # two 429s in a row, so a quota failure gets one more rotated attempt

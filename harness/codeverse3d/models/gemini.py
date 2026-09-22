@@ -204,14 +204,18 @@ _registry_lock = threading.Lock()
 
 
 def shared_pool(keys: list[str], *, max_in_flight: int | None = None) -> KeyPool:
-    """One ``KeyPool`` per distinct (key list, in-flight cap) so limiters are process-wide;
-    an unset cap comes from ``Settings.rate.max_in_flight``."""
+    """One ``KeyPool`` per distinct (key list, in-flight cap) per process; an unset cap comes
+    from ``Settings.rate.max_in_flight``.  Its slots are machine-wide: every process draws
+    from the same ``<cache_dir>/slots/gemini/NN.lock`` files (``retry.Slots``, COST §23)."""
+    from codeverse3d.config import get_settings
+
     cap = _rate().max_in_flight if max_in_flight is None else max_in_flight
     sig = (*keys, f"|{cap}")
     with _registry_lock:
         pool = _pools.get(sig)
         if pool is None:
-            pool = KeyPool(keys, max_in_flight=cap or 0)
+            slots = get_settings().cache_dir / "slots" / "gemini" if cap else None
+            pool = KeyPool(keys, max_in_flight=cap or 0, slots_dir=slots)
             _pools[sig] = pool
         return pool
 

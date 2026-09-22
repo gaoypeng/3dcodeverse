@@ -108,10 +108,12 @@ class Limits(BaseModel):
 class Rate(BaseModel):
     """The model-call ceiling and the 503 hedge (``docs/COST.md`` Part III).
 
-    ``max_in_flight`` is a ceiling on *concurrent model calls* and is deliberately
-    separate from ``Limits.max_parallel_agents`` / ``max_parallel_builds``: blender /
-    node / chrome are CPU-bound and sized by cores, model calls are network-bound and
-    sized by the provider.  0 = unlimited.  There is no RPM / TPM quota here any more:
+    ``max_in_flight`` is a MACHINE-WIDE ceiling on the harness's own concurrent model calls
+    (flock'd slot files under ``<cache_dir>/slots/``, shared by every process — COST §23)
+    and is deliberately separate from ``Limits.max_parallel_agents`` /
+    ``max_parallel_builds``: blender / node / chrome are CPU-bound and sized by cores, model
+    calls are network-bound and sized by the provider.  0 = unlimited.  A vendor CLI
+    session takes a key from the pool but no slot.  There is no RPM / TPM quota here any more:
     since the api-agent went the harness's own calls peaked at 2.6 % of one key's RPM
     and 3.9 % of its TPM, so the buckets they fed never engaged (COST §19).
     """
@@ -123,9 +125,10 @@ class Rate(BaseModel):
                # in-flight accounting, and finally died as a bare ValueError from
                # threading.BoundedSemaphore inside KeyPool -- at the first model call, long
                # after the workspace and spec.json were written.
-        description="process-wide cap on concurrent model calls (0 = off).  Measured knee: a "
-        "128-call burst of 12k-token prompts ran 29.6 calls/min at 16 in-flight, 43.9 at 32, "
-        "72.9 at 64 and fell back to 47.2 at 128 (docs/COST.md Part III).")
+        description="machine-wide cap on concurrent model calls (0 = off): every process draws "
+        "from the same N slot files, so the machine never exceeds the largest N any process runs "
+        "with.  Measured knee: a 128-call burst of 12k-token prompts ran 29.6 calls/min at 16 "
+        "in-flight, 43.9 at 32, 72.9 at 64 and fell back to 47.2 at 128 (docs/COST.md Part III).")
     hedge: int = Field(
         default=2, ge=1,
         description="keys a retry is raced on once a call has met its first 503 (1 = off).  Measured "

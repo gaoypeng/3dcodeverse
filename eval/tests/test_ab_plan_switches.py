@@ -20,8 +20,8 @@ def test_ab_plan_refuses_an_ab_whose_only_switch_is_dead(capsys):
 def test_ab_plan_still_accepts_a_live_switch(monkeypatch, capsys):
     """The guard must not block a real A/B: it fires only when EVERY key is dead.
 
-    Offline — --no-preflight and --allow-siblings keep the provider health check and the
-    docs/COST.md §23 admission check out of it, and run_ab itself is stubbed."""
+    Offline — --no-preflight keeps the provider health check out of it, and run_ab itself
+    is stubbed."""
     import bench.ab_plan as A
 
     seen: list[dict[str, str]] = []
@@ -31,7 +31,7 @@ def test_ab_plan_still_accepts_a_live_switch(monkeypatch, capsys):
     monkeypatch.setattr(A, "run_ab", lambda battery, out, opts, **kw: (seen.append(opts.variant_env), _V())[1])
     for argv in (["--variant-env", "C3D_PLAN_BRIEF=off"],
                  ["--variant-env", "C3D_PLAN_FEATURES=all", "--variant-env", "C3D_PLAN_BRIEF=off"]):
-        A.main(["--prompts", "p.yaml", "--out", "o", "--no-preflight", "--allow-siblings", *argv])
+        A.main(["--prompts", "p.yaml", "--out", "o", "--no-preflight", *argv])
 
     assert len(seen) == 2, capsys.readouterr()
     assert "C3D_PLAN_BRIEF" in seen[0]
@@ -50,7 +50,7 @@ def test_a_dead_switch_does_not_block_pin_plan(monkeypatch, capsys):
         decision, reason, caution = "keep", "stubbed", ""
 
     monkeypatch.setattr(A, "run_ab", lambda battery, out, opts, **kw: (seen.append(opts.variant_env), _V())[1])
-    A.main(["--prompts", "p.yaml", "--out", "o", "--no-preflight", "--allow-siblings", "--pin-plan",
+    A.main(["--prompts", "p.yaml", "--out", "o", "--no-preflight", "--pin-plan",
             "--variant-env", "C3D_PLAN_FEATURES=all", "--variant-env", "C3D_SKILLS=0"])
     assert seen == [{"C3D_PLAN_FEATURES": "all", "C3D_SKILLS": "0"}], capsys.readouterr()
 

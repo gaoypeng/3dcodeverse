@@ -974,8 +974,9 @@ renderer's own tail, not parallelism.  Renders are treated as "1.5 – 3 s typic
 minutes-long tail" and the subprocess pools are sized from the clean build number.
 
 **64 model calls vs 16 subprocesses is 4x apart, so the two are capped separately:**
-`Settings.rate.max_in_flight` is a semaphore inside `KeyPool` (network-bound, provider-
-sized), `Settings.limits.max_parallel_*` size the thread pools (CPU-bound, core-sized).
+`Settings.rate.max_in_flight` is the number of machine-wide in-flight slots `KeyPool` takes
+(network-bound, provider-sized — §23), `Settings.limits.max_parallel_*` size the thread pools
+(CPU-bound, core-sized).
 
 ### Defaults changed, each from a number above
 
@@ -1095,19 +1096,7 @@ billing points, not on a timer.**  Closing it properly means giving the runner a
 reference to the guard and checking at stage boundaries; not done here, because it is
 plumbing through several layers and deserves its own measured change.
 
-## 23. The key pool is per-PROCESS, so N batteries multiply the quota by N
-
-> **Count processes with `pool_budget()`, never with a hand-rolled `pgrep`.**  A gate like
-> `pgrep -af 'bin/3dcode make' | grep -c 'codex:'` **counts itself**: the pattern text is in
-> the checking shell's own command line, so it sees phantom runs.  Measured 2026-08-25 on an
-> idle box — zero `3dcode` processes running, the naive gate returned **3**, and even the
-> bracket trick `pgrep -f '[b]in/3dcode make'` returned **2**, because the wrapper shell's
-> argv also carries the string.  Used in `while [ $(gate) -ge 3 ]; do sleep 60; done` that
-> blocks forever on nothing.  `codeverse3d.models.health.pool_budget()` reads `/proc`,
-> excludes its own pid and does the in-flight arithmetic:
-> ```
-> python3 -c "from codeverse3d.models.health import pool_budget; print(pool_budget())"
-> ```
+## 23. The key pool was per-PROCESS, so N batteries multiplied the quota by N — the slots are machine-wide now
 
 §20 measured the concurrency knee at 64 in-flight and shipped it as the default.  That
 number was measured with **one process and nothing else running**, and the limiter it
@@ -1152,34 +1141,42 @@ Three consequences:
    latency and its siblings took the capacity it freed.  The gate was measured in a
    setting where it could not win.  Its negative result stands for the configuration
    tested and should NOT be read as "back-pressure does not help".
-3. **Operational rule until a cross-process limiter exists**: keep the SUM of
-   `max_in_flight` across every harness process on the machine at or below the measured
-   knee (64).  One battery at 64, or N batteries at `64 / N` each via
-   `C3D_MAX_IN_FLIGHT=<n>` (`C3D_RATE__MAX_IN_FLIGHT` is the same knob; the flat name was
-   read by nothing until 2026-08-24 — three launches that "set" it ran at 64).
-   `codeverse3d.models.health.pool_budget()` reads every sibling's cap from `/proc/<pid>/environ`
-   and reports used / headroom; `3dcode doctor`'s `pool sharing` row prints it, and
-   `eval/bench/ab_plan.py` refuses to start only when its own need does not FIT the headroom.
-   The first version of this rule counted *processes* and made every agent wait for an
-   empty machine — which stalled an entire A/B wave behind two batteries that were
-   themselves parked.  A budget, not a head-count.
-4. **The accounting only works if every process is visible to it.**  `pool_budget()`
-   matches on argv, and until 2026-08-24 it matched only the *script path* spelling
-   (`python eval/bench/ab_plan.py`).  A live eight-prompt A/B launched as
-   `python -m bench.ab_plan` — driver plus two 16-in-flight cell children — was therefore
-   invisible: the budget read `16/64, headroom 48` on a machine already at 48, and the
-   next agent to check it would have launched 32 more and taken the machine to 80.  Both
-   spellings of every entry point are now listed (`health._MODULES` / `_SCRIPTS`).  The
-   mirror-image error is just as bad: an `ab_plan` *driver* spends its budget only through
-   capped children, and it sets no cap on itself, so charging it too would book the 64
-   default on top of the children and stall every sibling — `_is_delegating_driver` skips
-   it.  Whenever an entry point is added or renamed, update both lists.
+3. **The operational rule until 2026-09-22** was to keep the SUM of `max_in_flight` across
+   every harness process at or below the knee (64), with `health.pool_budget()` reading each
+   sibling's cap out of `/proc/<pid>/environ`.  It was advice — `eval/bench/ab_plan.py`
+   refused to start on it, `3dcode make` and `bench run` never looked — and it guessed
+   siblings from argv against a hard-coded list of eval entry points, which missed
+   `python -m bench.ab_plan` for a day, missed every pip console script for longer, had
+   to learn not to charge an ab_plan driver for its children, and could not see a process
+   whose cap was unparsable.
 
-The real fix is a machine-wide limiter — a file-locked token bucket under
-`~/.cache/codeverse3d/` that every process shares — so the quota is enforced where it
-actually lives.  Not built here: it needs crash/staleness handling and its own A/B, and
-it should be measured against the operational rule above rather than assumed better.
+**Machine-wide slots (2026-09-22).**  `max_in_flight` is now N lock files,
+`<cache_dir>/slots/gemini/00.lock …`, and a harness API call holds one with
+`fcntl.flock(LOCK_EX | LOCK_NB)` for exactly as long as it is out (`models.retry.Slots`,
+taken inside `KeyPool.acquire` / `try_acquire`, handed back by `release`).  Every process
+draws from the same files, starting its sweep at a random slot, so the machine never has
+more calls in flight than the largest N any process runs with, and a process with a smaller
+N only ever uses its own first N.  A process that finds every slot busy waits inside the
+call's own budget; nothing refuses to start any more, and the `/proc` scan, its entry-point
+lists and ab_plan's admission check are gone.  ab_plan still pins both children to its
+`--max-in-flight` (16 by default) — the two arms now share those 16 slots.
 
+What a slot guards is one harness API call — planner, judge, caption, texture image,
+single-shot generation — the unit §20 measured.  A vendor CLI session takes its key from the
+same pool (rotation, cooldowns, the dead-key bench) but no slot: a session is minutes of
+agent time, and 64 of them holding slots would starve every judge and planner call on the
+box.  Their concurrency stays bounded per process by `Limits.max_parallel_agents`.
+
+The deferral this section used to end on was about staleness — a crashed holder stranding
+its share of a file-locked bucket.  flock has none: the kernel drops the lock when the
+holder's descriptors close, SIGKILL and the OOM killer included (`proc.exclusive` relies on
+the same property).  `tests/models/test_slots.py`, six runs on this box: 8 processes × 6 holds
+× 0.15 s on 4 slots peaked at exactly 4 in flight (mean 3.84 – 3.93, wall 1.83 – 1.87 s
+against a 1.80 s floor); caps of 2 and 4 in one directory peaked at 4 together and 2 among
+the N=2 processes; a slot held by a SIGKILLed process came back 37 – 70 ms after the kill
+(one 50 ms poll); 12 threads of one process on 3 slots peaked at exactly 3; with every slot
+held elsewhere a waiter gave up at 0.000 s and 0.300 s for deadlines of 0 and 0.3 s.
+`3dcode doctor` prints the `in-flight slots` row: how many are busy machine-wide right now.
 
 ## 24. A preflight probe must look like the work it is guarding
 

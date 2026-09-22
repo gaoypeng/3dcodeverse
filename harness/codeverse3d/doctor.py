@@ -1,5 +1,5 @@
 """Environment checks behind ``3dcode doctor`` — python deps, Blender, node/three/
-puppeteer, the GPU probe, keys, the pool admission numbers, the vendor CLIs, MCP
+puppeteer, the GPU probe, keys, the machine-wide in-flight slots, the vendor CLIs, MCP
 and the skill library wiring.  Moved out of ``cli/`` 2026-08-28: only the typer
 shim is a CLI concern (tests/install imports these checks as documentation facts).
 """
@@ -171,18 +171,15 @@ def check_keys(live: bool) -> list[Row]:
     n = len(s.gemini_api_keys)
     rows: list[Row] = [("gemini keys", "OK" if n else "FAIL", f"{n} key(s)")]
     if n:
-        from codeverse3d.models.health import pool_budget
+        from codeverse3d.models.gemini import shared_pool
 
-        pb = pool_budget()
-        cap = int(s.rate.max_in_flight or 0)
-        rows.append((
-            "pool sharing",
-            "OK" if pb.fits(cap) else "WARN",
-            (f"{pb}; this process at {cap} {'fits' if pb.fits(cap) else 'does NOT fit'} "
-             f"(docs/COST.md §23: keep the SUM at or under {pb.knee}"
-             + ("" if pb.fits(cap) else f" — set C3D_MAX_IN_FLIGHT={max(1, pb.headroom)} or wait") + ")")
-            if pb.siblings else "sole harness process: max_in_flight applies as configured",
-        ))
+        slots = shared_pool(list(s.gemini_api_keys)).slots
+        if slots is None:
+            rows.append(("in-flight slots", "WARN", "max_in_flight=0: no cap on concurrent model calls"))
+        else:
+            busy = slots.busy()
+            rows.append(("in-flight slots", "WARN" if busy >= slots.n else "OK",
+                         f"{busy}/{slots.n} busy machine-wide ({slots.root}; docs/COST.md §23)"))
     rows.append(("anthropic key", "OK" if s.anthropic_api_key else "WARN", "set" if s.anthropic_api_key else "not set (anthropic:* backends unavailable)"))
     rows.append(("openai key", "OK" if s.openai_api_key else "WARN", "set" if s.openai_api_key else "not set (openai:* backends unavailable)"))
     if live and n:

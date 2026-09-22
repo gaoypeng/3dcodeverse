@@ -189,11 +189,10 @@ def test_variant_env_is_applied_to_the_variant_arm_only():
 
 
 def test_children_run_at_exactly_the_cap_the_budget_reserved(monkeypatch):
-    """CQ-3: main() refuses to start unless ``pool_budget().fits(2 * opts.max_in_flight)``,
-    so both children must run at THAT number.  child_env used ``setdefault``, so a shell
-    exporting C3D_MAX_IN_FLIGHT=32 under ``--max-in-flight 8`` reserved 16 of the 64-call
-    knee and then consumed 64 (docs/COST.md §23) — three lines after the function
-    deliberately pops every variant key so an inherited switch cannot win."""
+    """CQ-3: both children run at the cap the driver was given.  child_env used
+    ``setdefault``, so a shell exporting C3D_MAX_IN_FLIGHT=32 under ``--max-in-flight 8``
+    ran a child at 32 (docs/COST.md §23) — three lines after the function deliberately pops
+    every variant key so an inherited switch cannot win."""
     opts = AbOptions(variant_env={"K": "v"}, max_in_flight=8)
     base = {"PATH": "/bin", MAX_IN_FLIGHT_ENV: "32", NESTED_MAX_IN_FLIGHT_ENV: "48"}
     for arm in (CONTROL, VARIANT):

@@ -102,8 +102,9 @@ codeverse3d/
                       request/response shapes, dead-key + free 429 rotation, the image model);
                       anthropic.py openai.py (each with its own request/response shapes);
                       retry.py (the scheduling machine: KeyPool with outcomes ok | 429 | 5xx |
-                      error | dead | skip and the max_in_flight cap — no RPM/TPM buckets since
-                      2026-09-22, docs/COST.md §19 — and rotate_with_retries, the one retry loop, which
+                      error | dead | skip and the max_in_flight cap as machine-wide flock'd
+                      slots (Slots, docs/COST.md §23) — no RPM/TPM buckets since 2026-09-22,
+                      docs/COST.md §19 — and rotate_with_retries, the one retry loop, which
                       the SDK adapters run over a one-key pool; bounded by max_total_s ≤
                       RETRY_DEADLINE_S with MAX_WAIT_S ≤ 3 s single waits); pricing.py
                       (version-suffix-only fallback), health.py (preflight

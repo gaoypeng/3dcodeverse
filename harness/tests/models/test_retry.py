@@ -390,9 +390,9 @@ def _wait_idle(pool, timeout: float = 5.0) -> None:
     assert pool.stats()["in_flight"] == 0
 
 
-def test_after_the_first_503_the_next_attempt_is_hedged_and_the_first_success_wins():
+def test_after_the_first_503_the_next_attempt_is_hedged_and_the_first_success_wins(tmp_path):
     """After a 503, fresh keys race and the first success wins."""
-    pool = KeyPool(["k1", "k2", "k3", "k4"], max_in_flight=8)
+    pool = KeyPool(["k1", "k2", "k3", "k4"], max_in_flight=8, slots_dir=tmp_path)
     release_k2 = threading.Event()
     lock = threading.Lock()
     calls: list[str] = []
@@ -462,7 +462,7 @@ def test_a_loser_that_succeeds_later_is_discarded_but_reported_to_its_key():
     assert pool._by_key["k2"].n_ok == 1 and pool._by_key["k3"].n_ok == 1  # noqa: SLF001
 
 
-def test_hedge_1_disables_and_a_full_pool_of_slots_degrades_to_one_key():
+def test_hedge_1_disables_and_a_full_pool_of_slots_degrades_to_one_key(tmp_path):
     lock = threading.Lock()
 
     def make_call():
@@ -490,12 +490,12 @@ def test_hedge_1_disables_and_a_full_pool_of_slots_degrades_to_one_key():
     )
     assert stats["hedged"] == 0 and stats["attempts"] == 4
     # max_in_flight=1: the primary holds the only slot, so a partner is never waited for
-    pool = _pool(3, max_in_flight=1)
+    pool = _pool(3, max_in_flight=1, slots_dir=tmp_path / "one")
     stats = {}
     _rotate(pool, make_call(), max_attempts=3, storm_attempts=10, storm_max_delay=0.0, stats=stats)
     assert stats["hedged"] == 0 and stats["attempts"] == 4 and pool.stats()["peak_in_flight"] == 1
     # max_in_flight=2: a hedged attempt holds both slots
-    pool = _pool(3, max_in_flight=2)
+    pool = _pool(3, max_in_flight=2, slots_dir=tmp_path / "two")
     stats = {}
     _rotate(pool, make_call(), max_attempts=3, storm_attempts=10, storm_max_delay=0.0, stats=stats)
     _wait_idle(pool)

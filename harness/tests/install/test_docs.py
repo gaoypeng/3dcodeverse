@@ -229,8 +229,6 @@ def test_doctor_checks_every_module_of_every_optional_extra(monkeypatch) -> None
 def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
     """Run real checks under deterministic stand-ins; require every row in the fix table."""
     from codeverse3d import doctor as doctor_mod
-    from codeverse3d.config import Settings
-    from codeverse3d.models.health import PoolBudget
     from codeverse3d.proc import ProcResult
 
     settings = SimpleNamespace(
@@ -247,7 +245,11 @@ def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
         "codeverse3d.proc.run_subprocess",
         lambda *args, **kwargs: ProcResult(0, '{"gpu": true, "renderer": "fake"}', "", False, 1),
     )
-    monkeypatch.setattr("codeverse3d.models.health.pool_budget", lambda: PoolBudget(1, 64))
+    busy = SimpleNamespace(n=1, root="/fake/slots", busy=lambda: 1)   # saturated: the WARN wording
+    monkeypatch.setattr("codeverse3d.models.gemini.shared_pool",
+                        lambda keys, **kw: SimpleNamespace(slots=busy, stats=lambda: {
+                            "n_keys": 1, "in_flight": 0, "peak_in_flight": 0, "acquired": 0, "ok": 0,
+                            "429": 0, "5xx": 0, "n_dead": 0, "n_cooling": 0}))
     monkeypatch.setattr(
         "codeverse3d.models.get_chat_model",
         lambda model: SimpleNamespace(generate=lambda request: SimpleNamespace(
@@ -265,11 +267,6 @@ def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
         lambda: SimpleNamespace(binaries=settings.binaries, runtime_js_dir=no_runtime),
     )
     rows += doctor_mod.check_node()  # the alternate row when runtime_js cannot resolve
-
-    pool_detail = next(detail for name, _, detail in rows if name == "pool sharing")
-    mentioned_settings = set(re.findall(r"\b(C3D_[A-Z0-9_]+)=", pool_detail))
-    assert mentioned_settings and mentioned_settings <= set(Settings._FLAT_ALIASES), (
-        f"doctor recommends setting unknown variables: {sorted(mentioned_settings - set(Settings._FLAT_ALIASES))}")
 
     troubleshooting = INSTALL.read_text().split("### Troubleshooting table", 1)[1].split("\n---", 1)[0]
     documented = {

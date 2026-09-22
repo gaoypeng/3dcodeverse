@@ -134,11 +134,11 @@ def test_all_keys_dead_raises_immediately_instead_of_waiting_out_the_timeout():
     assert clock.t == t0  # no pointless 120 s wait: availability only moves later
 
 
-def test_try_acquire_never_waits_for_a_key_or_a_slot():
+def test_try_acquire_never_waits_for_a_key_or_a_slot(tmp_path):
     """The extra keys of a hedged retry (``rotate_with_retries(hedge=...)``) come from
     ``try_acquire``: a key that is usable right now, else None — never a wait."""
     never = lambda s: (_ for _ in ()).throw(AssertionError(f"try_acquire slept {s}s"))  # noqa: E731
-    pool = KeyPool(["k1", "k2"], max_in_flight=2, cooldown_s=30, sleep=never)
+    pool = KeyPool(["k1", "k2"], max_in_flight=2, slots_dir=tmp_path, cooldown_s=30, sleep=never)
     a = pool.try_acquire()
     assert a == "k1" and pool.stats()["in_flight"] == 1
     assert pool.try_acquire(exclude={a}) == "k2"
@@ -152,10 +152,10 @@ def test_try_acquire_never_waits_for_a_key_or_a_slot():
     assert pool.stats()["in_flight"] == 0, "a refused try_acquire holds nothing"
 
 
-def test_the_in_flight_slot_wait_is_bounded_by_timeout():
-    """acquire()'s max_in_flight semaphore used to be an unbounded wait; the same
-    timeout budget now bounds it and raises the pool's own error shape."""
-    pool = KeyPool(["a"], max_in_flight=1)
+def test_the_in_flight_slot_wait_is_bounded_by_timeout(tmp_path):
+    """acquire()'s max_in_flight wait used to be unbounded; the same timeout budget now
+    bounds it and raises the pool's own error shape."""
+    pool = KeyPool(["a"], max_in_flight=1, slots_dir=tmp_path)
     pool.acquire()
     t0 = time.monotonic()
     with pytest.raises(KeyPoolExhausted):
@@ -191,8 +191,8 @@ def test_in_flight_gauge_tracks_acquire_and_release():
     assert pool.stats()["in_flight"] == 0
 
 
-def test_max_in_flight_blocks_the_third_caller():
-    pool = KeyPool(["a", "b", "c"], max_in_flight=2)
+def test_max_in_flight_blocks_the_third_caller(tmp_path):
+    pool = KeyPool(["a", "b", "c"], max_in_flight=2, slots_dir=tmp_path)
     pool.acquire()
     pool.acquire()
     started = threading.Event()
@@ -212,10 +212,26 @@ def test_max_in_flight_blocks_the_third_caller():
     t.join(2)
 
 
-def test_a_failed_acquire_gives_its_slot_back():
+def test_a_failed_acquire_gives_its_slot_back(tmp_path):
     """KeyPoolExhausted must not leak a concurrency slot."""
-    pool = KeyPool(["a"], max_in_flight=1)
+    pool = KeyPool(["a"], max_in_flight=1, slots_dir=tmp_path)
     for _ in range(3):
         with pytest.raises(KeyPoolExhausted):
             pool.acquire(exclude={"a"}, timeout_s=0.0)
     assert pool.acquire(timeout_s=0.0) == "a"  # the slot is still free
+
+
+def test_a_capped_pool_names_its_slot_directory_and_a_session_key_takes_no_slot(tmp_path):
+    """The slots are machine-wide lock files, so a cap without a directory is refused rather
+    than silently becoming a per-process cap; a vendor CLI session picks a key (rotation and
+    cooldowns included) but holds no slot and has nothing to release."""
+    with pytest.raises(ValueError, match="slots_dir"):
+        KeyPool(["a"], max_in_flight=1)
+    pool = KeyPool(["a", "b"], max_in_flight=1, slots_dir=tmp_path)
+    assert pool.acquire(timeout_s=0.0) == "a"
+    assert pool.session_key(timeout_s=0.0) == "b", "the only slot is held, a session still gets a key"
+    pool.report("a", "429")
+    assert pool.session_key(timeout_s=0.0) == "b", "and it skips a cooling key like acquire does"
+    assert pool.stats()["in_flight"] == 1 and pool.slots.busy() == 1
+    pool.release()
+    assert pool.stats()["in_flight"] == 0 and pool.slots.busy() == 0

@@ -417,6 +417,8 @@ Rules:
 3. After landing anything, check every driver's `results.jsonl` for `ImportError` rows and redo
    them from a **fresh** driver with `--redo-status error` (the old driver's own modules are
    stale too).
-4. Count harness processes with `codeverse3d.models.health.pool_budget()`, never `pgrep | grep`
-   (it counts its own shell — measured: 3 phantoms on an idle box); kill by PID, never by
-   pattern (13 unrelated runs died to one `pkill -f "3dcode make"`).
+4. You do not need to count harness processes to protect the provider: the in-flight slots are
+   machine-wide (`docs/COST.md` §23; `3dcode doctor` prints how many are busy).  If you list
+   processes anyway, never with `pgrep | grep` (it counts its own shell — measured: 3 phantoms
+   on an idle box); kill by PID, never by pattern (13 unrelated runs died to one
+   `pkill -f "3dcode make"`).

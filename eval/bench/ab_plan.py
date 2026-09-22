@@ -22,9 +22,10 @@ Why each arm is a child PROCESS rather than a thread: the switches under test ar
 from the environment (``codeverse3d.tracks.planner.brief_enabled`` reads ``os.environ`` at
 call time; anything under ``Settings`` is read once through an ``lru_cache``), so two
 threads in one interpreter cannot hold different values of them.  A child gets exactly
-the env its arm needs and nothing leaks across.  Each child owns a key pool, so the
-driver caps every child at ``C3D_MAX_IN_FLIGHT`` (default 16) — two children at
-16 stay inside the 64 knee measured for one process (``docs/COST.md`` §23).
+the env its arm needs and nothing leaks across.  The driver pins both children at
+``C3D_MAX_IN_FLIGHT`` (default 16); the in-flight slots are machine-wide lock files, so
+the two arms share those 16 with each other and with every other harness process
+(``docs/COST.md`` §23).
 
 Why the arms launch as simultaneous PAIRS: provider weather changes by the hour, and a
 verdict that compares an arm run in a storm against one run in the clear measures the
@@ -227,12 +228,11 @@ def child_env(arm: str, opts: AbOptions, base: dict[str, str] | None = None) -> 
     The variant gets ``variant_env`` on top of the driver's env; the control gets the
     driver's env with those same keys REMOVED, so a switch that happens to be set in
     the launching shell cannot silently turn the control into a second variant.  Both
-    are PINNED to ``opts.max_in_flight`` (both spellings), never merely defaulted to it:
-    ``main`` refuses to start unless ``pool_budget().fits(2 * opts.max_in_flight)``, so a
-    child that inherited a different cap from the launching shell would make that
-    reservation a fiction — with ``--max-in-flight 8`` under a shell exporting 32 the A/B
-    reserved 16 of the 64-call knee and consumed 64 (docs/COST.md §23).  ``opts`` already
-    carries the inherited value when no flag was passed (:func:`inherited_max_in_flight`).
+    are PINNED to ``opts.max_in_flight`` (both spellings), never merely defaulted to it: a
+    child that inherited a different cap from the launching shell would run the two arms
+    under different ceilings — with ``--max-in-flight 8`` under a shell exporting 32 one
+    child drew from 32 machine-wide slots (docs/COST.md §23).  ``opts`` already carries the
+    inherited value when no flag was passed (:func:`inherited_max_in_flight`).
 
     Under ``--aa`` the variant arm gets the CONTROL environment: the two arms then run
     byte-identical code and the measured delta is the rig's own noise floor, which is the
@@ -587,8 +587,8 @@ def _parser() -> argparse.ArgumentParser:
         "--max-in-flight",
         type=int,
         default=None,
-        help=f"per child; wins over an inherited {MAX_IN_FLIGHT_ENV} "
-        f"(default: that variable, else {DEFAULT_MAX_IN_FLIGHT}).  The preflight reserves 2x it",
+        help=f"both children's cap; wins over an inherited {MAX_IN_FLIGHT_ENV} "
+        f"(default: that variable, else {DEFAULT_MAX_IN_FLIGHT}).  The slots are machine-wide",
     )
     ap.add_argument(
         "--parallel", type=int, default=PARALLEL, help="accepted for symmetry; must be 2 (one pair)"
@@ -620,11 +620,6 @@ def _parser() -> argparse.ArgumentParser:
         "--no-preflight", action="store_true", help="skip the provider health check (do not)"
     )
     ap.add_argument("--wait-for-provider", type=float, default=0.0, metavar="MIN")
-    ap.add_argument(
-        "--allow-siblings",
-        action="store_true",
-        help="launch even when other harness processes are running (they share the quota)",
-    )
     ap.add_argument(
         "--report-only", action="store_true", help="only rebuild pairs.json / summary.md"
     )
@@ -727,18 +722,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             "thing under test and the rig would report 'no effect' with confidence — "
             + "; ".join(blockers)
         )
-    from codeverse3d.models.health import pool_budget
-
-    # the rule is a BUDGET, not a head-count: the provider sees one machine, so the sum of
-    # every process's in-flight cap must stay at the knee.  Two children run at once here.
-    need = 2 * opts.max_in_flight
-    if not (pb := pool_budget()).fits(need) and not ns.allow_siblings:
-        print(
-            f"refusing to start: {pb}; this A/B needs {need} (2 children x {opts.max_in_flight}) "
-            f"(docs/COST.md §23).  Wait, lower --max-in-flight, or pass --allow-siblings.",
-            flush=True,
-        )
-        return 3
     if not ns.no_preflight and not preflight(opts, wait_minutes=ns.wait_for_provider):
         return 2
 

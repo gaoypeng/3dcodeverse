@@ -1,8 +1,9 @@
 """The scheduling machine under every model call (merged 2026-08-28, d512ccc):
 
 1. ``KeyPool``: a multi-key pool with 429 cooldown, dead-key benching, a health score
-   and the ``max_in_flight`` ceiling — used by ``GeminiModel`` (22 keys on the owner's
-   box) but provider-neutral;
+   and the ``max_in_flight`` ceiling, which is machine-wide (``Slots``: flock'd lock
+   files every process shares) — used by ``GeminiModel`` (22 keys on the owner's box)
+   but provider-neutral;
 2. ``rotate_with_retries``, the one retry loop (the pool, hedging, the ``RETRY_DEADLINE_S``
    deadline) — the SDK adapters run it over a one-key pool (``parts.retry_one_key``).
 
@@ -13,11 +14,13 @@ The pool:
 * ``acquire()`` picks the next healthy key round-robin, honouring 429 cool-downs; it
   blocks (bounded) when every key is cooling and raises ``KeyPoolExhausted`` after
   ``timeout_s``.  ``max_in_flight`` additionally caps how many calls may be out at
-  once, and :meth:`KeyPool.release` (a ``finally`` in ``rotate_with_retries``) hands the
-  slot back.  ``try_acquire()`` is the never-waiting variant a hedged retry uses for
-  its extra keys.  There is no RPM / TPM bucket: the ledgers since the api-agent went
-  (2026-08-29 .. 09-22, 2 080 calls) peaked at 3.9 % of one key's TPM and 2.6 % of its
-  RPM, so the buckets never engaged (docs/COST.md §19).
+  once on the whole machine, and :meth:`KeyPool.release` (a ``finally`` in
+  ``rotate_with_retries``) hands the slot back.  ``try_acquire()`` is the never-waiting
+  variant a hedged retry uses for its extra keys; ``session_key()`` picks a key for a
+  vendor CLI session, which makes its own calls and holds no slot.  There is no RPM /
+  TPM bucket: the ledgers since the api-agent went (2026-08-29 .. 09-22, 2 080 calls)
+  peaked at 3.9 % of one key's TPM and 2.6 % of its RPM, so the buckets never engaged
+  (docs/COST.md §19).
 * ``report(key, outcome)`` feeds back ``ok | 429 | 5xx | error | dead | skip`` so the
   pool can cool a key down and adjust its health score.  ``skip`` is a content
   failure the key did not cause (bad JSON, empty candidates): health and counters are
@@ -32,7 +35,9 @@ Thread-safe; ``clock`` / ``sleep`` are injectable for deterministic tests.
 
 from __future__ import annotations
 
+import fcntl
 import logging
+import os
 import random
 import threading
 import time
@@ -40,6 +45,7 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 Outcome = Literal["ok", "429", "5xx", "error", "dead", "skip"]
@@ -126,6 +132,92 @@ class _KeyState:
             self.health_ts = now
 
 
+class Slots:
+    """``n`` machine-wide in-flight slots: the docs/COST.md §20 knee, enforced across processes.
+
+    One lock file per slot, ``<root>/NN.lock``, held with ``fcntl.flock`` while ONE model call
+    is out.  Every process pointed at the same ``root`` draws from ``00 .. n-1``, so the
+    machine never has more calls in flight than the largest ``n`` any of them runs with, and
+    a process with a smaller cap only ever uses its own first ``n`` files.  flock locks an
+    open file DESCRIPTION and every take opens its own, so two threads of one process
+    exclude each other exactly as two processes do.  The kernel drops the lock when its
+    holder dies — SIGKILL and the OOM killer included — so a dead process never strands a
+    slot: the staleness problem that kept a machine-wide limiter deferred in §23 does not
+    exist for flock (``proc.exclusive`` relies on the same property).
+    """
+
+    #: how long a waiter naps between two sweeps of the files while every slot is busy
+    #: (seconds, jittered x0.5..1.5).  A model call takes seconds, so this bounds the extra
+    #: latency a free slot costs a waiter, and a sweep is n non-blocking flock calls.
+    POLL_S = 0.05
+
+    def __init__(self, n: int, root: Path | str) -> None:
+        if n < 1:
+            raise ValueError(f"Slots needs n >= 1, got {n}")
+        self.n = int(n)
+        self.root = Path(root)
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def _path(self, i: int) -> Path:
+        return self.root / f"{i:02d}.lock"
+
+    def try_take(self) -> int | None:
+        """A held slot (its file descriptor), or ``None`` when all ``n`` are busy — never
+        waits.  The sweep starts at a random slot, so a process with a small cap is not
+        starved by a big one that always fills the low numbers first."""
+        start = random.randrange(self.n)
+        for step in range(self.n):
+            fd = os.open(self._path((start + step) % self.n), os.O_RDWR | os.O_CREAT, 0o666)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                os.close(fd)
+                continue
+            except BaseException:
+                os.close(fd)
+                raise
+            return fd
+        return None
+
+    def take(self, timeout_s: float | None) -> int:
+        """Wait for a slot, at most ``timeout_s`` (``None`` = forever); its descriptor.
+        Raises ``KeyPoolExhausted`` once the wait is over."""
+        deadline = None if timeout_s is None else time.monotonic() + timeout_s
+        while (fd := self.try_take()) is None:
+            left = None if deadline is None else deadline - time.monotonic()
+            if left is not None and left <= 0:
+                raise KeyPoolExhausted(f"all {self.n} in-flight slots in {self.root} busy; waited {timeout_s}s")
+            nap = random.uniform(0.5, 1.5) * self.POLL_S
+            time.sleep(nap if left is None else min(nap, left))
+        return fd
+
+    @staticmethod
+    def give(fd: int) -> None:
+        """Hand a slot back.  LOCK_UN first: a descriptor a forked child inherited must not
+        keep the slot held after this process is done with it."""
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+    def busy(self) -> int:
+        """How many slots somebody holds right now, machine-wide (``3dcode doctor``).  A
+        shared probe per file, released at once: it never takes a slot from a caller."""
+        n = 0
+        for i in range(self.n):
+            try:
+                fd = os.open(self._path(i), os.O_RDONLY)
+            except OSError:
+                continue  # never created, so never taken
+            try:
+                fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                n += 1
+            finally:
+                os.close(fd)
+        return n
+
+
 class KeyPool:
     """Round-robin key pool with cooldowns and an in-flight ceiling.  See module docstring."""
 
@@ -134,6 +226,7 @@ class KeyPool:
         keys: list[str] | tuple[str, ...],
         *,
         max_in_flight: int = 0,
+        slots_dir: Path | str | None = None,
         cooldown_s: float = MAX_WAIT_S,
         dead_cooldown_s: float = 3600.0,
         min_health: float = 0.3,
@@ -152,11 +245,15 @@ class KeyPool:
         self._rr = 0
         self._in_flight = 0
         self._peak_in_flight = 0
-        # Process-wide ceiling on concurrent model calls, independent of the caller's
+        # Machine-wide ceiling on concurrent model calls, independent of the caller's
         # thread pools: blender/node/chrome workers are CPU-bound and sized by cores,
         # while this is sized by the provider (docs/COST.md Part III).  0 = unlimited.
         self._max_in_flight = int(max_in_flight or 0)
-        self._slots = threading.BoundedSemaphore(self._max_in_flight) if self._max_in_flight else None
+        if self._max_in_flight and slots_dir is None:
+            raise ValueError("max_in_flight needs slots_dir: the slots are lock files every process shares")
+        #: the machine-wide slots (``None`` when uncapped); ``3dcode doctor`` reads it
+        self.slots = Slots(self._max_in_flight, slots_dir) if self._max_in_flight else None
+        self._held: list[int] = []  # slot descriptors of this process's in-flight calls
         now = clock()
         self._states = [_KeyState(key=k, health_ts=now) for k in uniq]
         self._by_key = {s.key: s for s in self._states}
@@ -180,25 +277,25 @@ class KeyPool:
         Raises ``KeyPoolExhausted`` at once when no key can become available before
         the deadline (e.g. every key is dead) — availability only moves later.
 
-        When ``max_in_flight`` is set the call also waits for a free concurrency slot;
+        When ``max_in_flight`` is set the call also waits for a free machine-wide slot;
         :meth:`release` hands it back.  ``timeout_s`` bounds the slot wait AND the key
         wait together (``None`` = wait forever): the slot wait used to be unbounded, so
         a caller 20 s from its deadline could sit on the semaphore for minutes."""
-        if self._slots is not None:
+        slot = None
+        if self.slots is not None:
             t0 = self._clock()
-            if not self._slots.acquire(timeout=timeout_s):
-                raise KeyPoolExhausted(
-                    f"all {self._max_in_flight} in-flight slots busy; waited {timeout_s}s"
-                )
+            slot = self.slots.take(timeout_s)
             if timeout_s is not None:
                 # the slot wait spent part of the budget; the key wait gets the rest
                 timeout_s = max(0.0, timeout_s - (self._clock() - t0))
         try:
-            return self._acquire_key(exclude, timeout_s)
+            key = self._acquire_key(exclude, timeout_s)
         except BaseException:
-            if self._slots is not None:
-                self._slots.release()
+            if slot is not None:
+                Slots.give(slot)
             raise
+        self._hold(slot)
+        return key
 
     def try_acquire(self, *, exclude: set[str] | frozenset[str] | None = None) -> str | None:
         """:meth:`acquire` that never waits: a key usable *right now* (and a free
@@ -208,18 +305,39 @@ class KeyPool:
         primary request is already in flight, so a partner that is not free at once
         is not worth waiting for.  A returned key holds a slot like any other and
         must be :meth:`release`-d."""
-        if self._slots is not None and not self._slots.acquire(blocking=False):
+        slot = None
+        if self.slots is not None and (slot := self.slots.try_take()) is None:
             return None
         try:
-            return self._acquire_key(exclude, 0.0)
-        except KeyPoolExhausted:
-            if self._slots is not None:
-                self._slots.release()
-            return None
-        except BaseException:
-            if self._slots is not None:
-                self._slots.release()
+            key = self._acquire_key(exclude, 0.0)
+        except BaseException as exc:
+            if slot is not None:
+                Slots.give(slot)
+            if isinstance(exc, KeyPoolExhausted):
+                return None
             raise
+        self._hold(slot)
+        return key
+
+    def session_key(
+        self,
+        *,
+        exclude: set[str] | frozenset[str] | None = None,
+        timeout_s: float | None = ACQUIRE_TIMEOUT_S,
+    ) -> str:
+        """A key for a session that makes its own calls — a vendor CLI: rotation, 429
+        cooldowns and dead-key benching exactly like :meth:`acquire`, but no in-flight slot
+        and nothing to release.  A session is minutes of agent time; a machine-wide slot
+        held that long would let a few dozen sessions starve every planner and judge call
+        on the box (docs/COST.md §23)."""
+        return self._acquire_key(exclude, timeout_s)
+
+    def _hold(self, slot: int | None) -> None:
+        with self._lock:
+            self._in_flight += 1
+            self._peak_in_flight = max(self._peak_in_flight, self._in_flight)
+            if slot is not None:
+                self._held.append(slot)
 
     def _acquire_key(self, exclude: set[str] | frozenset[str] | None, timeout_s: float | None) -> str:
         deadline = None if timeout_s is None else self._clock() + timeout_s
@@ -229,8 +347,6 @@ class KeyPool:
                 chosen = self._pick(now, exclude or ())
                 if chosen is not None:
                     chosen.n_acquired += 1
-                    self._in_flight += 1
-                    self._peak_in_flight = max(self._peak_in_flight, self._in_flight)
                     return chosen.key
                 soonest = min(
                     (max(now, s.cooldown_until) for s in self._states if s.key not in (exclude or ())),
@@ -251,16 +367,18 @@ class KeyPool:
     def release(self) -> None:
         """Mark one :meth:`acquire`-d call finished (call it in a ``finally``).
 
-        Frees the in-flight gauge and the ``max_in_flight`` slot; outcome
-        accounting is :meth:`report`, which may legitimately be called more than
-        once for one call (a key that looked dead is reported again once a
-        sibling proves the request fine).  A stray ``release`` is a no-op."""
+        Frees the in-flight gauge and one of this process's slots (they are
+        interchangeable: the count is what the machine sees); outcome accounting is
+        :meth:`report`, which may legitimately be called more than once for one call (a
+        key that looked dead is reported again once a sibling proves the request fine).
+        A stray ``release`` is a no-op."""
         with self._lock:
             if self._in_flight <= 0:
                 return
             self._in_flight -= 1
-        if self._slots is not None:
-            self._slots.release()
+            slot = self._held.pop() if self._held else None
+        if slot is not None:
+            Slots.give(slot)
 
     def report(self, key: str, outcome: Outcome, *, retry_after_s: float | None = None) -> None:
         """Feed back the result of a call made with ``key`` (``retry_after_s``: a 429's

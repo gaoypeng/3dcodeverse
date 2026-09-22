@@ -184,7 +184,7 @@ def test_pool_exhausted_before_first_attempt_is_a_budget_result(tmp_ws: Workspac
     from codeverse3d.models.retry import KeyPoolExhausted
 
     class Dead:
-        def acquire(self, **kw):
+        def session_key(self, **kw):
             raise KeyPoolExhausted("all 2 keys throttled; waited 120s")
 
         def report(self, *a, **k):
@@ -195,17 +195,24 @@ def test_pool_exhausted_before_first_attempt_is_a_budget_result(tmp_ws: Workspac
     assert not res.ok and res.exit_reason == "budget" and "exhausted" in res.errors[0]
 
 
-def test_a_raising_invoke_gives_its_pool_slot_back(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
-    """The pool is process-wide: a slot leaked here is gone for every later session."""
+def test_a_cli_session_holds_no_in_flight_slot(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
+    """The slots are machine-wide and a session is minutes long: one held per session would
+    let a few dozen sessions starve every planner and judge call on the box.  The session
+    takes its KEY from the shared pool (rotation, cooldowns) and nothing else — so nothing
+    can leak either, even when invoke raises."""
     from codeverse3d.agents import backends as gc
 
+    pool = gc._key_pool(get_settings().gemini_api_keys)  # noqa: SLF001
+    seen: list[int] = []
+
     def boom(*a, **k):
+        seen.append(pool.stats()["in_flight"])
         raise OSError("cannot spawn")
 
     monkeypatch.setattr(gc, "invoke", boom)
     with pytest.raises(OSError, match="cannot spawn"):
         agent.run(_job(tmp_ws))
-    assert gc._key_pool(get_settings().gemini_api_keys).stats()["in_flight"] == 0  # noqa: SLF001
+    assert seen == [0] and pool.stats()["in_flight"] == 0
 
 
 def test_timeout_is_reported(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
