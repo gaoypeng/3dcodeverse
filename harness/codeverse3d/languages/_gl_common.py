@@ -4,7 +4,8 @@
 ``artifacts/frames/*.png`` (written by the runner), ``artifacts/frames_sheet.png``,
 ``artifacts/preview.gif``, ``artifacts/metrics.json`` (frame stats + the
 ``gl_frames`` gate), ``artifacts/build.json`` — and a typed :class:`BuildResult`
-(``glb_path`` is always None: the deliverable is code + frames).
+(``glb_path`` is always None: the deliverable is code + frames; ``gates`` carries the
+``gl_frames`` report, which the round takes from there).
 ``judge_times`` derives the judged times from the plan's duration.
 ``make_host`` is the one place a runtime turns settings into a :class:`GlHost`.
 
@@ -102,6 +103,7 @@ def finish_build(ws: Workspace, res: GlResult, *, language: str, error_file: str
     art = ws.artifacts
     art.mkdir(parents=True, exist_ok=True)
     extras: dict[str, str] = {}
+    gates: list[GateReport] = []
     cen: dict = {"renderer": res.renderer, "gpu": res.gpu, "feedback": res.feedback, "n_frames": len(res.frames),
                  "gl_duration_ms": res.duration_ms, **(census or {})}
     if res.ok and res.judge_frames:
@@ -114,6 +116,7 @@ def finish_build(ws: Workspace, res: GlResult, *, language: str, error_file: str
             extras["gif"] = str(gif)
         seq = sequence_stats([(f.time, f.path) for f in frames], nan_counts=[(f.nan, f.inf) for f in frames])
         gate = frame_gate(seq, motion_expected=motion_expected)
+        gates.append(gate)
         metrics = art / METRICS_NAME
         metrics.write_text(json.dumps({"stats": seq.model_dump(mode="json"), "gate": gate.model_dump(mode="json")}, indent=1))
         extras["metrics"] = str(metrics)
@@ -125,7 +128,7 @@ def finish_build(ws: Workspace, res: GlResult, *, language: str, error_file: str
         error_type="" if res.ok else (res.error_type or "RenderError"),
         error_message="" if res.ok else (error_message if error_message is not None else res.error_message)[:4000],
         error_file=error_file if not res.ok else "", error_line=error_line if not res.ok else None,
-        duration_ms=res.duration_ms, census=cen,
+        duration_ms=res.duration_ms, census=cen, gates=gates,
     )
     if res.ok and not res.judge_frames:
         result.error_type, result.error_message = "NoFrames", "the renderer produced no frames"

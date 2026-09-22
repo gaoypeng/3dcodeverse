@@ -767,8 +767,9 @@ class SceneThreeJsRuntime:
 
     def build(self, ws: Workspace, *, timeout_s: int | None = None) -> BuildResult:
         """Probe + shader preflight (one browser boot); ok iff the module loads
-        and no shader errors.  External contract unchanged: the same two
-        GateReports land under ``artifacts/gates/``."""
+        and no shader errors.  The two GateReports are the build's own
+        (``BuildResult.gates``, which the round appends to its gates) and land
+        under ``artifacts/gates/`` as well."""
         t0 = time.time()
         tmo = min(float(timeout_s or get_settings().limits.build_timeout_s), 120.0)
         ws.artifacts.mkdir(parents=True, exist_ok=True)
@@ -801,6 +802,7 @@ class SceneThreeJsRuntime:
             error_line=_target_line(first.target) if first else None,
             duration_ms=int((time.time() - t0) * 1000),
             census=census,
+            gates=[probe, shaders],
             # a driver that could not run is not a defect in the scene; `probes.probe_report`
             # and `_probe_and_preflight` already mark it, and `build_with_repair` reads this
             # so the round does not spend its repair budget rewriting working code

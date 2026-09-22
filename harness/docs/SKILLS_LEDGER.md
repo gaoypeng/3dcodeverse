@@ -310,7 +310,9 @@ it lands these four rows stay `mixed`, not `measured`.
   `artifacts/shader_preflight.json` files, all clean. "Not instrumented" and "measured,
   always clean" must not print the same number — the readout now returns `None` when the
   artefact is absent, so the row's denominator is 8 and not 198. Rule of three puts the 95%
-  upper bound on the base rate at 0.43/run.
+  upper bound on the base rate at 0.43/run. **Since 2026-09-22** every scene round carries
+  it (`BuildResult.gates`, appended by the round built or not); runs before that date still
+  do not.
 * **A run is a sample iff it has a round carrying a gate report.** `RunRecord.status` says
   how the round loop *ended* (`passed`/`plateau`/`budget`/`failed`), not whether gates ran.
   Filtering on status dropped every `budget` run — about half the corpus — and would have

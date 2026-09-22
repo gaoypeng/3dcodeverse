@@ -148,12 +148,12 @@ def test_error_findings_become_zone_routed_refine_tasks_one_per_asset():
     assert all(t.kind == f"gate:{GATE}" and "lower " in t.instruction for t in tasks)
 
 
-def test_pipeline_gates_append_placement_after_census_and_never_raise():
+def test_pipeline_gates_are_placement_alone_and_never_raise():
     plan = _plan()
     ctx = SimpleNamespace(runtime=SimpleNamespace(), plan=plan, extra={})
     build = BuildResult(ok=True, language="scene_threejs", census={"totals": {"meshes": 3}, "placement": _table(_row("Lantern", gap=0.3))})
     gates = ScenePipeline().gates(ctx, 0, build, None)
-    assert [g.gate for g in gates] == ["scene_census", GATE] and not gates[-1].passed
+    assert [g.gate for g in gates] == [GATE] and not gates[-1].passed
     # no table (scene did not boot / old driver) → no placement gate at all
     assert [g.gate for g in ScenePipeline().gates(ctx, 0, BuildResult(ok=False, language="scene_threejs", census={}), None)] == []
     # a broken table is a WARN, not an exception

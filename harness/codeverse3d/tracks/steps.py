@@ -305,6 +305,9 @@ def _run_round(
         post = getattr(pipeline, "post_render_gates", None)
         if callable(post) and rec.renders is not None:
             gates.extend(post(ctx, index, rec.renders))
+        # the build's own reports (scene_probe + shader_preflight, gl_frames) after the
+        # track's: the judge's warning list is capped and reads them in this order
+        gates.extend(outcome.build.gates)
         n_err = sum(len(g.errors) for g in gates)
         ctx.events.emit("gates.done", round=index, n_gates=len(gates), n_errors=n_err,
                         tri_count=rec.measurement.tri_count if rec.measurement else None)
@@ -327,6 +330,8 @@ def _run_round(
                 # (the loop stops at its next budget check instead).
                 ctx.budget.add(rec.judgment.usage, stage="judge")
     else:
+        # a failed build's own reports say why (a shader error lives in shader_preflight)
+        gates.extend(outcome.build.gates)
         notes.append(f"build failed: {outcome.build.error_type}: {outcome.build.error_message[:200]}")
     rec.gates = gates
     rec.skills = skills_hook.record_usage(ctx, index=index, kind=skill_kind)

@@ -31,6 +31,9 @@ from codeverse3d.contracts.common import ENTRY_FILE, code_file, LANGUAGE_LABEL  
 from codeverse3d.contracts.spec import RunOptions                # Spec.options: candidates (int|None, ≥1), texture (bool)
 GateFinding.as_line(with_gate=False, with_severity=False, with_target=False, with_hint=True) -> str
     # "GATE <gate>: [<sev>] <message> [<target>] FIX: <hint>" — flags opt in; no leading "- "
+GateReport.of(gate, findings=(), *, duration_ms=0) -> GateReport   # passed iff no ERROR — every gate whose verdict IS its findings
+BuildResult.gates: list[GateReport]   # the build's own reports (scene_probe + shader_preflight; gl_frames);
+    # tracks/steps appends them to the round's gates, after the track's, built or not
 RenderView.judge: bool | None      # stamped True/False at render time; None = legacy round (every stored view is judged)
 RenderSet.out_dir: str             # directory the views (+ views.json/metrics.json) were written to ("" on old rounds)
 from codeverse3d.config import get_settings, env_flag       # env_flag(env, fallback) -> bool: on/off/1/0/true/false/yes/no;
@@ -231,7 +234,7 @@ BuildResult.error_type spellings (languages/_common.py): MISSING_ENTRY = "Missin
 | `CadQueryRuntime` | `src/model.py` | trailing selector on the stack → parent solid exported + warning (ExportError when no solid exists); helper-module errors map to `src/<file>.py:line`; object.glb/stl/step |
 | `ThreeJsRuntime` | `src/object.js`, `src/parts/*.js` | **Δ export as authored** (census `placement_offset`); InstancedMesh baked to `<Name>_<i>` meshes (`instanced_meshes_baked`); exported `selfcheck(THREE, root)` is called (throw → SelfCheckError); NaN geometry errors name mesh/part → routed to `src/parts/<snake>.js` |
 | `UrdfBlenderRuntime` | `src/model.py`, `src/robot.urdf` | object.glb (Y-up, node=link, joint extras), meshes/<link>.glb (raw Z-up link frames); link name `world` is reserved (lint ERROR + UrdfError); robot GLB root gets `__root` suffix on name clash |
-| `SceneThreeJsRuntime` | `src/scene.js`, `src/zones/*.js`, `src/assets/*.js`, `src/env.js`, `src/shaders/*.js` | glb_path=None; ok iff `probe_scene` + `check_shaders` pass |
+| `SceneThreeJsRuntime` | `src/scene.js`, `src/zones/*.js`, `src/assets/*.js`, `src/env.js`, `src/shaders/*.js` | glb_path=None; ok iff the probe and the shader preflight (one `probe_scene.mjs --compile` boot) both pass; both reports ride `BuildResult.gates` |
 | `GlslShaderRuntime` | `src/shader.frag`, `src/common.glsl`, `src/buffer_a.frag` (+ the harness-owned `src/recipes.glsl` when seeded) | harness owns `#version`/uniforms/`out` (wrap.HEADER: u_time/u_resolution/u_mouse/u_frame/u_prev/u_noise + iTime/iChannel* aliases); `wrap.compose(shader, common, recipes_src=…)` pastes header < recipes < common < shader; build renders judge frames via GlHost; compile errors → GlslCompileError at mapped src file:line (recipes.glsl included); lint ERROR `redefines_recipe` when an agent file defines a recipes.glsl name; artifacts frames/, frames_sheet.png, preview.gif, metrics.json |
 | `OpenGLPythonRuntime` | `src/program.py`, `src/*.glsl` | `setup(ctx,w,h)->state` + `render(ctx,state,t,frame,fbo)` run in a moderngl subprocess (`wrappers/run_gl.py`); exceptions map to src/program.py:line, in-string GLSL errors carry both line numbers |
 
@@ -523,7 +526,7 @@ plan(spec, model_id, plan_model, ws, *, model=None, events=None, budget=None) ->
     # planner hooks and plan()'s template / example / temperature / max_output_tokens / finalise / event_stats are gone
 ```
 `run_round` = generate → commit → `build_with_repair` → measure → gates → render →
-post-render gates → judge → commit.  Post-render gates: static `reference_silhouette`
+post-render gates → the build's own `BuildResult.gates` (also when the build failed) → judge → commit.  Post-render gates: static `reference_silhouette`
 (when references), articulated `joint_sweep` + `motion_direction`, scene
 `render_console` + `scene_frames` (via `ctx.services.frame_gate` ->
 `frame_gate_from_renders`; advisory, a failure is logged not raised), graphics `gl_frames`.  Reference specs get a

@@ -78,7 +78,8 @@ codeverse3d/
                       default_candidates=1)
   contracts/          pydantic: common (Track, Language, Usage, Budget, Backends, TRACK_INFO registry,
                       ENTRY_FILE/code_file/LANGUAGE_LABEL tables), spec (+ RunOptions), plan, artifacts
-                      (GateFinding.as_line, RenderView.judge, RenderSet.out_dir, + Judgment), run
+                      (GateFinding.as_line, GateReport.of, BuildResult.gates, RenderView.judge,
+                      RenderSet.out_dir, + Judgment), run
                       (+ SkillsUsage/SkillRead: what was attached, what was read), chat,
                       agent (typed AgentJob)
   workspace.py        run-dir layout + git snapshots
@@ -483,8 +484,7 @@ after the run (`3dcode make`, unless --no-pick): addons/select.pick(by="score") 
 ```
 Track-specific gates: static `connectivity` + `contract` (+ `reference_silhouette`),
 articulated + `joint_sweep` + `motion_direction` (URDF axis vs plan motion text),
-scene `scene_placement` (`spatial/scene_placement.py`, appended after the census gate in
-`ScenePipeline.gates`: per placed asset, foot-column gap to the surface beneath, burial depth,
+scene `scene_placement` (`spatial/scene_placement.py`, `ScenePipeline.gates`' one gate: per placed asset, foot-column gap to the surface beneath, burial depth,
 water, contacts and 3-D interpenetration pairs from `runtime_js/lib/host_placement.mjs` — the
 first deterministic placement check on the track; before 2026-08-26 the scene_v1
 `floating_part` cap could never fire and floating/sunken was left to the VLM) +
@@ -498,6 +498,11 @@ water was rippling, and **`unused_glb_asset`** — the scene host wraps `loaders
 records each GLB's geometry UUIDs, so the census can say whether any of it reached the
 rendered frame; `Object3D.clone()` shares geometry, so a cloned hero still counts and only
 a discarded load does not), graphics `gl_frames` (NaN/black/blown/static/flicker).
+A build's OWN gate reports ride `BuildResult.gates` — scene `scene_probe` + `shader_preflight`
+(one browser boot), graphics `gl_frames` — and `steps._run_round` appends them to the round's
+gates after the track's (a failed build's too: a shader compile error is what routes the
+shader-traps skill); before 2026-09-22 the scene's two never reached a round, and an always-empty
+`scene_census` gate parsed census keys the probe had stopped writing.
 
 ## 8. Texturing (derived asset pack)
 

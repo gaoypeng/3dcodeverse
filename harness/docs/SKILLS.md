@@ -660,10 +660,11 @@ so; the rest are live.
   `contract_findings` regressed on `n_parts` gives R² = 0.103, and a pinned A/A pair scored
   0.450 vs 0.654 on identical arms. The spread is *generation* noise at fixed plan size.
   Do not budget an A/B on the assumption that pinning buys power.
-* **`shader_preflight` is not a gate.** `check_shaders` is an agent-invocable tool, never a
-  pipeline step, so it reaches no `record.json`. `c3d-threejs-shader-traps` is therefore
-  **not instrumented**, which is a stronger statement than "always clean". Merge it into
-  `rounds[].gates` before spending anything on that bundle.
+* ~~**`shader_preflight` is not a gate.**~~ **Fixed 2026-09-22**: the scene build's
+  `scene_probe` + `shader_preflight` reports ride `BuildResult.gates`, and every round
+  (a failed build's included) appends them to `rounds[].gates`, so R21 can fire and
+  `c3d-threejs-shader-traps` is instrumented from that date on. Runs recorded before it carry
+  no `shader_preflight` gate: a readout across the date must not mix the two.
 * ~~**`eval/bench/_fixed_eval.FixedEvaluator` is blender-only.**~~ Fixed 2026-08-26; the entry
   lives in `docs/SKILLS_LEDGER.md` §4.
 * ~~**The atime probe is blind in any git workspace, and its control proves it.**~~ **Worked

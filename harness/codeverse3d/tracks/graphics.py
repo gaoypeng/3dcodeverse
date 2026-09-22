@@ -3,11 +3,11 @@
 Languages: glsl_shader (Shadertoy-style fragment shader) · opengl_python (raw
 moderngl program).  Reuses ``BaseTrack`` (lifecycle) and ``run_round`` (steps)
 unchanged; the track-specific pieces are the recipe seeding, the prompt context
-(no 3D frame), the ``gl_frames`` gate (frame statistics from the build) and the render
-step (the sampled frames + contact sheet as the RenderSet the ``shader_v2`` judge sees).
-Planning is ``tracks/planner.py``'s, like every track's (template, worked example,
-T = 0.5, acceptance: all dispatched on the track there).  Refinement is always one
-whole-program task.
+(no 3D frame) and the render step (the sampled frames + contact sheet as the RenderSet
+the ``shader_v2`` judge sees); the ``gl_frames`` gate is the build's own
+(``BuildResult.gates``).  Planning is ``tracks/planner.py``'s, like every track's
+(template, worked example, T = 0.5, acceptance: all dispatched on the track there).
+Refinement is always one whole-program task.
 """
 
 from __future__ import annotations
@@ -343,16 +343,14 @@ def frame_stats_text(ws: Workspace) -> str:
 
 
 class GraphicsPipeline:
-    """No measurement; gates = gl_frames (from artifacts/metrics.json); render = the frames."""
+    """No measurement; no gates of its own — the build's ``gl_frames`` report is the round's
+    gate (``BuildResult.gates``, appended by ``steps``); render = the frames."""
 
     def measure(self, ctx: RunContext, build: BuildResult) -> Measurement | None:
         return None
 
     def gates(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> list[GateReport]:
-        m = read_metrics(ctx.ws)
-        if m is None:
-            return []
-        return [m[1]]
+        return []
 
     def render(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> RenderSet:
         return frames_render_set(ctx.ws, build, round_index)

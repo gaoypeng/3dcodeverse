@@ -7,6 +7,7 @@ import json
 import pytest
 
 from codeverse3d.addons import select
+from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import ArticulatedPlan, ScenePlan
 from codeverse3d.contracts.run import RunRecord, RunStatus
@@ -301,6 +302,45 @@ def test_a_mood_only_replan_invalidates_the_env_stage(tmp_path, settings):
     agent.jobs.clear()
     mk().run(spec, ws, resume=True)
     assert "env" in [j.label for j in agent.jobs]  # a stale cached env must not be served
+
+
+class _ProbedSceneRuntime(FakeRuntime):
+    """The fake scene build, carrying the two reports the real one returns in ``BuildResult.gates``."""
+
+    def build(self, ws, *, timeout_s=None):
+        res = super().build(ws, timeout_s=timeout_s)
+        sev = Severity.WARN if res.ok else Severity.ERROR
+        shader = GateFinding(gate="shader_preflight", severity=sev, target="src/zones/quay.js:3",
+                             message="uniform uTime is read but never bound")
+        return res.model_copy(update={"gates": [GateReport.of("scene_probe"), GateReport.of("shader_preflight", [shader])]})
+
+
+@pytest.mark.parametrize("broken", [False, True])
+def test_the_builds_own_gate_reports_join_the_round(tmp_path, settings, broken):
+    """scene_probe + shader_preflight reach the round's gates: after the track's own on a built round
+    (the judge's warning list is capped in gate order), and on a failed build too — where the shader
+    error is what routes the shader skill (R21) into the next round."""
+    from codeverse3d.skills.registry import SHADER_COMPILE_OR_BINDING, finding_kinds
+
+    plan = _small_scene_plan()
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
+    ws = Workspace(tmp_path / "runs" / "probed")
+
+    def _writer(job, ws_):
+        files = _scene_writer(job, ws_)
+        return {k: v + f"// {FAIL_MARK}\n" for k, v in files.items()} if broken and job.label.startswith("zones_") else files
+
+    track = SceneTrack(services=FakeServices(assemble=True), judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(_writer),
+                       planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
+                       runtime=_ProbedSceneRuntime(Language.SCENE_THREEJS))
+    r0 = track.run(spec, ws).rounds[0]
+    names = [g.gate for g in r0.gates]
+    assert r0.build.ok is not broken
+    assert names[0] == "lint:scene_threejs" and names[-2:] == ["scene_probe", "shader_preflight"]
+    if broken:   # nothing but lint ran besides the build
+        assert names == ["lint:scene_threejs", "scene_probe", "shader_preflight"]
+    assert (ws.gates_dir(0) / "shader_preflight.json").is_file()
+    assert SHADER_COMPILE_OR_BINDING in finding_kinds(r0.gates)
 
 
 def test_get_track_dispatch():

@@ -83,6 +83,11 @@ class BuildResult(BaseModel):
     error_line: int | None = None
     duration_ms: int = 0
     census: dict[str, Any] = Field(default_factory=dict, description="language-native census (objects, materials ...)")
+    gates: list[GateReport] = Field(
+        default_factory=list,
+        description="the build's own gate reports (scene_threejs: scene_probe + shader_preflight; the graphics "
+                    "languages: gl_frames) — tracks/steps appends them to the round's gates, built or not",
+    )
     harness_failure: bool = Field(
         default=False,
         description="the build did not fail on the model's code — the harness could not run it "

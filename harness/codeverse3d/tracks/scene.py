@@ -1,7 +1,8 @@
 """SceneTrack: plan → skeleton → (assets ∥ env) → zones → assemble → rounds.
 
 Language: scene_threejs.  Generation is staged (each stage cached by
-``StageRunner`` for resume); the round loop then builds (probe + shaders),
+``StageRunner`` for resume); the round loop then builds (probe + shaders — the
+build's two gate reports join the round's gates),
 renders authored cameras + orbit at t=0 and t=1.5, judges with ``scene_v1``
 (console/shader errors become gate ERRORS) and dispatches refine tasks per
 zone / asset / env / camera, in parallel when file-disjoint.
@@ -93,16 +94,14 @@ REFINE_TIMEOUT_S = 900
 
 
 class ScenePipeline:
-    """No GLB measurement; gates from the build census + runtime; render_scene; console caps."""
+    """No GLB measurement; the placement gate from the build's census (the build's own probe and
+    preflight reports join the round through ``BuildResult.gates``); render_scene; console caps."""
 
     def measure(self, ctx: RunContext, build: BuildResult) -> Measurement | None:
         return None
 
     def gates(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> list[GateReport]:
         out: list[GateReport] = []
-        census_gate = census_gate_report(build)
-        if census_gate is not None:
-            out.append(census_gate)
         # scene_placement (2026-08-26): floating / sunken / unsupported / interpenetrating assets from
         # the probe census's placement table — the first deterministic placement gate on this track
         # (before it, the scene_v1 floating_part cap could never fire).  Advisory instrumentation:
@@ -441,19 +440,18 @@ class SceneTrack(BaseTrack):
                               timeout_s=ctx.budget.timeout_s(REFINE_TIMEOUT_S, floor_s=180, soft=False))
 
     def _rebuild_task(self, ctx: RunContext, last: RoundRecord, index: int) -> GenerationTask:
-        """One repair task carrying the structured error report (build + lint + census
-        errors), targeted at the failing module when the build names one."""
+        """One repair task carrying the structured error report (build + lint; the probe's
+        and the preflight's findings are the build's log tail), targeted at the failing
+        module when the build names one."""
         lint = next((g for g in last.gates if g.gate.startswith("lint")), GateReport(gate="lint", passed=True))
         report = format_error_report(last.build, lint, ctx.cookbook_text) if last.build else "build did not run"
-        census = census_gate_report(last.build) if last.build else None
-        lines = [report] + [f"- {f.as_line()}" for f in (census.errors if census else [])][:8]
         files: list[str] = []
         if last.build is not None and last.build.error_file:
             rel = last.build.error_file.removeprefix(str(ctx.ws.root)).lstrip("/")
             if (ctx.ws.root / rel).is_file():
                 files = [rel]
         files = files or ctx.runtime.expected_files(ctx.plan)
-        prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, recipes="", round_index=index, tasks=lines, targets=["build"],
+        prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, recipes="", round_index=index, tasks=[report], targets=["build"],
                                                              files=files, edit_only_these=False,
                                                              judge_summary="(no judgment: the scene did not build — fix the errors above first)",
                                                              current_files=refine_inline_files(ctx, files, scoped=False)))
@@ -495,20 +493,6 @@ def _touched(path: Any, since: float) -> bool:
         return path.is_file() and path.stat().st_mtime > since
     except OSError:
         return False
-
-
-def census_gate_report(build: BuildResult) -> GateReport | None:
-    """Turn scene census error lists (console/shader) into a gate, when present."""
-    c = build.census or {}
-    findings: list[GateFinding] = []
-    for key, gate in (("console_errors", "scene_probe"), ("shader_errors", "shader_probe"), ("errors", "scene_probe")):
-        for e in c.get(key, []) or []:
-            text = e if isinstance(e, str) else str(e)
-            findings.append(GateFinding(gate=gate, severity=Severity.ERROR, message=text[:300],
-                                        fix_hint="fix the module named in the error; rerun the build tool until the probe is clean"))
-    if not findings and not c:
-        return None
-    return GateReport(gate="scene_census", passed=not findings, findings=findings)
 
 
 def _guess_target(error: str, plan: Any) -> str:
