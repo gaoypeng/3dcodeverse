@@ -151,8 +151,9 @@ names no joint, names itself, or closes a loop is a lint ERROR.
 
 ## Finish
 
-`build` (runs the FK check and the sweep) then `joint_sweep` and look at the lower/mid/upper
-renders for every joint, then `check_connectivity`, then `check_contract`.
+`build` (runs the FK check and the rest-pose check) then `joint_sweep` (the round's own gate)
+and look at the lower/mid/upper renders for every joint, then `check_connectivity`, then
+`check_contract`.
 
 Worked repairs, the full finding catalogue with real messages, and clearance numbers per
 mechanism: `references/sweep-and-motion.md`.

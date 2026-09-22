@@ -13,6 +13,7 @@ from codeverse3d.languages import get_runtime
 from codeverse3d.languages.urdf import UrdfBlenderRuntime
 from codeverse3d.proc import ProcResult
 from codeverse3d.prompts.catalog import language_text
+from codeverse3d.spatial.joints import sweep_gate
 from codeverse3d.workspace import Workspace
 from tests.urdf_joints.conftest import box_glb
 
@@ -71,11 +72,10 @@ def test_build_ok(tmp_path, cabinet_plan, fake_blender):
     ws = _ws(tmp_path, cabinet_plan)
     res = UrdfBlenderRuntime().build(ws)
     assert res.ok, res.error_message
-    assert res.glb_path and (ws.artifacts / "object.glb").is_file()
-    assert (ws.artifacts / "robot.urdf").is_file() and (ws.artifacts / "articulation.json").is_file()
-    art = res.census["articulation"]
-    assert art["summary"]["max_penetration_m"] == 0.0 and art["movable_joints"] == ["hinge"]
-    assert res.census["links"]["door"]["islands"] == 1
+    assert res.glb_path and (ws.artifacts / "object.glb").is_file() and (ws.artifacts / "robot.urdf").is_file()
+    # the build checks the rest pose only; every pose is the round's joint_sweep gate
+    assert "articulation" not in res.census and not (ws.artifacts / "articulation.json").exists()
+    assert sweep_gate(ws)[0].passed
     assert res.stdout_tail == "built"  # proc.tail joins lines: same shape as blender/cadquery
 
 
@@ -110,10 +110,10 @@ def test_build_rest_penetration_fails_and_publishes_nothing(tmp_path, cabinet_pl
     ws = _ws(tmp_path, cabinet_plan)
     res = UrdfBlenderRuntime().build(ws)
     assert not res.ok and res.error_type == "RestPenetration"
-    assert res.census["articulation"]["summary"]["rest_max_penetration_m"] > 0.005
+    assert "at the rest pose (max 5 mm)" in res.error_message and "'body' and 'door' overlap" in res.error_message
     # a failed build publishes NOTHING but its status: the fresh GLB stays unshipped
     assert res.glb_path is None and res.extra_paths == {}
-    for name in ("object.glb", "robot.urdf", "articulation.json"):
+    for name in ("object.glb", "robot.urdf"):
         assert not (ws.artifacts / name).exists(), name
     assert not (ws.artifacts / "meshes").exists()
     assert json.loads((ws.artifacts / "build.json").read_text())["ok"] is False
@@ -125,13 +125,13 @@ def test_build_failure_invalidates_previous_success(tmp_path, cabinet_plan, fake
     ws = _ws(tmp_path, cabinet_plan)
     rt = UrdfBlenderRuntime()
     assert rt.build(ws).ok
-    for name in ("object.glb", "robot.urdf", "articulation.json", "census.json", "meshes"):
+    for name in ("object.glb", "robot.urdf", "census.json", "meshes"):
         assert (ws.artifacts / name).exists(), name
     fake_blender["error"] = {"error_type": "NameError", "error_message": "boom",
                              "error_file": "src/model.py", "error_line": 3}
     res = rt.build(ws)
     assert not res.ok and res.error_type == "NameError"
-    for name in ("object.glb", "robot.urdf", "articulation.json"):
+    for name in ("object.glb", "robot.urdf"):
         assert not (ws.artifacts / name).exists(), name
     assert not (ws.artifacts / "meshes").exists()
     disk = json.loads((ws.artifacts / "build.json").read_text())

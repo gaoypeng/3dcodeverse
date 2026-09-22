@@ -18,7 +18,7 @@ Read out of the live harness on 2026-08-25: `codeverse3d/spatial/joints_sweep.py
 | `hinge_clearance_m` | 0.010 m | `joints_sweep` | a moving child must be this close to its parent |
 | ERROR on attachment | gap over 0.030 m | `joints_sweep.sweep_findings` | `hinge_clearance_m * 3` |
 | depth rounding | 0.1 mm | `joints_sweep` | float32 mesh coordinates carry no finer meaning |
-| random poses | 8, seed 0 | `languages/urdf/__init__.py` | only when more than one joint moves |
+| random poses | 8, seed 0 | `joints_poses.pose_samples` | only when more than one joint moves |
 | motion probe | limit of larger magnitude, capped at 0.35 rad | `joints_sweep.motion_direction_check` | prismatic uses the full limit |
 | motion pass test | `cos(observed, expected) > 0.5` | same | a 60 degree cone |
 

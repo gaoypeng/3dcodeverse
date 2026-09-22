@@ -88,9 +88,11 @@ def test_urdf_cookbook_runs(tmp_path) -> None:
 
 def _build_urdf_example(tmp_path, tag: str, model_py: str, urdf: str):
     """Run a doc example through the REAL urdf_blender pipeline (lint → Blender export →
-    FK consistency → collision sweep) — the build the agent's own files go through."""
+    FK consistency → rest-pose check) and the round's joint_sweep gate — what the agent's
+    own files go through."""
     from codeverse3d.config import get_settings
     from codeverse3d.languages.urdf import UrdfBlenderRuntime
+    from codeverse3d.spatial.joints import sweep_gate
     from codeverse3d.workspace import Workspace
 
     if not get_settings().resolve_blender():
@@ -103,8 +105,8 @@ def _build_urdf_example(tmp_path, tag: str, model_py: str, urdf: str):
     assert res.ok, f"{tag}: {res.error_type}: {res.error_message}"
     warns = [f["message"] for f in res.census["lint"] if f["severity"] != "info"]
     assert warns == [], f"{tag}: lint warnings {warns}"
-    summary = res.census["articulation"]["summary"]
-    assert summary["max_penetration_m"] == 0.0 and summary["floating_links"] == [], f"{tag}: {summary}"
+    gate, _ = sweep_gate(ws)
+    assert not gate.findings, f"{tag}: {[f.message for f in gate.findings]}"
     return ws, res
 
 

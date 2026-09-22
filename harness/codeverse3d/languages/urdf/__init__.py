@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import ast
 import contextlib
-import json
 import math
 import os
 import re
@@ -36,7 +35,6 @@ from codeverse3d.proc import run_subprocess
 from codeverse3d.spatial.joints import (
     UrdfError,
     load_urdf,
-    pose_samples,
     sweep_collisions,
     sweep_findings,
     urdf_to_glb,
@@ -749,7 +747,7 @@ FK_TOL_M = 0.001
 
 #: every canonical artifact this build owns — staged together so a failed build
 #: can never leave a previous round's output looking current
-STAGED_OUTPUTS = ("build.json", "census.json", "meshes", "robot.urdf", "articulation.json", "object.glb")
+STAGED_OUTPUTS = ("build.json", "census.json", "meshes", "robot.urdf", "object.glb")
 
 
 class UrdfBlenderRuntime(RuntimeLayout):
@@ -769,7 +767,7 @@ class UrdfBlenderRuntime(RuntimeLayout):
 
     # ------------------------------------------------------------ build
     def build(self, ws: Workspace, *, timeout_s: int | None = None) -> BuildResult:
-        """All six canonical outputs go through one :class:`ArtifactStage`: entering
+        """All five canonical outputs go through one :class:`ArtifactStage`: entering
         it invalidates them BEFORE any early return can leak a previous round's
         files, everything is written to staging, and only an ``ok=True`` build
         promotes the full set.  Every exit path publishes the FINAL BuildResult as
@@ -846,17 +844,10 @@ class UrdfBlenderRuntime(RuntimeLayout):
             msg = "\n".join(f"- {f.as_line()}" for f in fk_findings)
             return fail("FkInconsistent", f"URDF frames do not reproduce the authored geometry:\n{msg}", census=census)
 
-        # 5. pose sweep
-        report = sweep_collisions(robot, pose_samples(robot, n_random=8, seed=0))
+        # 5. the rest pose — the only pose that decides the build (D17); every other pose is
+        #    the round's joint_sweep gate (spatial.joints.sweep_gate), which the tool reports too
+        report = sweep_collisions(robot, [{}], volumes=False)
         findings = sweep_findings(report, rest_max_m=REST_PENETRATION_MAX_M)
-        stage.path("articulation.json").write_text(json.dumps({"report": report.model_dump(mode="json"),
-                                                               "findings": [f.model_dump(mode="json") for f in findings]}, indent=1))
-        extra["articulation"] = str(art / "articulation.json")
-        for name, n in report.summary.link_islands.items():
-            census.setdefault("links", {}).setdefault(name, {})["islands"] = n
-        census["articulation"] = {"summary": report.summary.model_dump(mode="json"),
-                                  "findings": [f.model_dump(mode="json") for f in findings],
-                                  "n_joints": len(robot.joints), "movable_joints": [j.name for j in robot.movable_joints()]}
 
         # 6. canonical GLB at rest
         urdf_to_glb(robot, stage.path("object.glb"), None)
@@ -865,7 +856,7 @@ class UrdfBlenderRuntime(RuntimeLayout):
                           stdout_tail=wrapped.stdout_tail, stderr_tail=wrapped.stderr_tail,
                           duration_ms=int((time.time() - t0) * 1000), census=census)
         if report.summary.rest_max_penetration_m > REST_PENETRATION_MAX_M:
-            worst = [f for f in findings if f.data.get("pose") == {} and f.severity == "error"]
+            worst = [f for f in findings if f.severity == "error"]
             res.ok = False
             res.error_type = "RestPenetration"
             res.error_file = "src/model.py"

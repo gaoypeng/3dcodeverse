@@ -7,7 +7,7 @@ three separate buckets:
 | bucket | question | contents |
 |---|---|---|
 | `deliverable/` | **what did I get?** | ONE round, the one a pick chose (`3dcode pick`; `3dcode make` picks by score after the run): its code snapshot, its artifact (`object.glb` / `robot.urdf` + `meshes/` / `frames/` + `preview.gif` / the scene bundle), its contact sheet, `captions.json`, `manifest.json` |
-| `evidence/` (= `artifacts/`) | **why should I believe it?** | every round's own build (`rNN/`), `renders/rNN/`, `gates/rNN/`, `judge/rNN.json`, `measurement.json`, `articulation.json`, `census.json`, `textures/`, `tool_renders/` |
+| `evidence/` (= `artifacts/`) | **why should I believe it?** | every round's own build (`rNN/`), `renders/rNN/`, `gates/rNN/`, `judge/rNN.json`, `measurement.json`, `census.json`, `textures/`, `tool_renders/` |
 | `telemetry/` | **what did it cost and how was it configured?** | `settings.json`, `cost.json`, `usage.jsonl`, plus `events.jsonl`, `run_state.json`, `stages/`, `trajectories/` |
 
 The run's **identity** stays at the root, where every tool has always looked for it:

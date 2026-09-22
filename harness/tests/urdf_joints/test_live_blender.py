@@ -7,7 +7,13 @@ import pytest
 
 from codeverse3d.config import get_settings
 from codeverse3d.languages.urdf import UrdfBlenderRuntime
-from codeverse3d.spatial.joints import fk, link_world_meshes, load_urdf, motion_direction_check
+from codeverse3d.spatial.joints import (
+    fk,
+    link_world_meshes,
+    load_urdf,
+    motion_direction_check,
+    sweep_gate,
+)
 from codeverse3d.workspace import Workspace
 
 pytestmark = pytest.mark.blender
@@ -29,8 +35,8 @@ def test_cabinet_door_end_to_end(tmp_path, cabinet_plan):
     wm = link_world_meshes(r, {"hinge": 1.57})
     assert wm["door"].centroid[1] < -0.4 and wm["handle"].centroid[1] < -0.4
     assert motion_direction_check(r, "hinge", "front").ok
-    art = res.census["articulation"]["summary"]
-    assert art["max_penetration_m"] == 0.0 and art["floating_links"] == []
+    gate, _ = sweep_gate(ws)   # the round's joint_sweep gate on this build
+    assert gate.passed and not gate.findings, [f.message for f in gate.findings]
     # loads in yourdfpy with the same FK
     yourdfpy = pytest.importorskip("yourdfpy")
     u = yourdfpy.URDF.load(str(ws.artifacts / "robot.urdf"), load_meshes=True)
@@ -56,7 +62,7 @@ def test_rest_shifted_skeleton_builds_clean(tmp_path, drawer_plan):
     r = load_urdf(ws.artifacts / "robot.urdf", ws.artifacts / "meshes")
     closed = link_world_meshes(r, {"slide": -0.1})["drawer"].bounds
     assert np.isclose(closed[1][1], -0.20, atol=1e-6)  # back face of the panel flush with the carcass front
-    assert res.census["articulation"]["summary"]["max_penetration_m"] == 0.0
+    assert not [f for f in sweep_gate(ws)[0].findings if f.data.get("kind") == "penetration"]
 
 
 @needs_blender
@@ -70,7 +76,7 @@ def test_drawer_prismatic(tmp_path, drawer_plan):
     c0 = link_world_meshes(r)["drawer"].centroid
     c1 = link_world_meshes(r, {"slide": 0.3})["drawer"].centroid
     assert np.allclose(c1 - c0, [0, -0.3, 0], atol=1e-6)
-    assert res.census["articulation"]["summary"]["max_penetration_m"] == 0.0
+    assert not [f for f in sweep_gate(ws)[0].findings if f.data.get("kind") == "penetration"]
 
 
 @needs_blender
@@ -83,10 +89,10 @@ def test_bad_pivot_is_caught(tmp_path, cabinet_plan):
     u.write_text(u.read_text().replace('<origin xyz="-0.29 -0.2 0" rpy="0 0 0"/>  <!-- pivot', '<origin xyz="0 -0.2 0" rpy="0 0 0"/>  <!-- pivot')
                  .replace('xyz="0.29 0.2 0"', 'xyz="0 0.2 0"').replace('xyz="0.49 -0.04 0.4"', 'xyz="0.2 -0.04 0.4"'))
     res = rt.build(ws)
-    assert res.ok  # rest pose is still fine; the sweep reports the defect for the gate layer
-    art = res.census["articulation"]
-    assert art["summary"]["max_penetration_m"] > 0.05 and "hinge@upper" in art["summary"]["overlapping_poses"]
-    assert any(f["severity"] == "error" and "body|door" in f["target"] for f in art["findings"])
+    assert res.ok  # rest pose is still fine; the round's joint_sweep gate reports the defect
+    gate, _ = sweep_gate(ws)
+    pen = next(f for f in gate.errors if f.target == "body|door")
+    assert pen.data["max_depth_m"] > 0.05 and {"hinge": 1.57} in pen.data["poses"]
 
 
 @needs_blender

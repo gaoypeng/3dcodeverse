@@ -300,7 +300,7 @@ runs/<slug>/
                          alias; runs before 2026-08-23 have the root file only)
   run_state.json  status + stages; extra carries budget_snapshot and spec_fingerprint only — the round
                   history is rounds/rNN.json + each round's commit alone (no copy since 2026-09-22)
-  artifacts/      object.glb object.stl|step robot.urdf meshes/ articulation.json build.json census.json
+  artifacts/      object.glb object.stl|step robot.urdf meshes/ build.json census.json
                   measurement.json … — the LAST round's build; graphics: frames/fNN_tT.png frames_sheet.png
                   preview.gif metrics.json; texturing (a pick's --texture): object_textured.glb
                   textures/{<id>.png, texture_plan.json, texturing.json, gate/}
@@ -348,8 +348,10 @@ summary:
   `rpy="0 0 0"`, visual AND collision `<origin xyz>` = −pivot (root `0 0 0`) —
   verified by the FK-consistency check; URDF limits = plan lower−rest .. upper−rest.
   Link name `world` is reserved.  Harness exports `meshes/<link>.glb` (raw Z-up link
-  frames), sweeps poses for collisions (deterministic; python-fcl), builds
-  hierarchical `object.glb`, and gates motion direction against the plan text.
+  frames), fails the build on a rest-pose penetration > 5 mm (D17; the rest pose is the
+  only one the build collides), builds hierarchical `object.glb`; the round's
+  `joint_sweep` gate sweeps every pose (deterministic; python-fcl) and a gate checks
+  motion direction against the plan text.
 * **scene_threejs**: `src/scene.js` `createScene({THREE, renderer, loaders}) → {scene, cameras, update(t,dt)}`;
   `src/env.js`, `src/zones/*.js`, `src/assets/*.js`, `src/shaders/*.js`; GLBs at
   `public/assets/<name>.glb`.  The harness assembles `scene.js` deterministically.
