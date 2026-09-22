@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from codeverse3d.contracts.artifacts import GateFinding, RenderSet, RenderView, Severity
+from codeverse3d.contracts.artifacts import GateFinding, GateReport, RenderSet, RenderView, Severity
 from codeverse3d.contracts.common import (
     ENTRY_FILE,
     LANGUAGE_LABEL,
@@ -59,6 +59,13 @@ def test_as_line_formats_defaults_flags_and_empty_fields():
             == "GATE contract: [error] leg floats [leg_1] FIX: drop z by 0.02")
     assert not f.as_line().startswith("- ")
     assert _finding(target=None).as_line(with_target=True, with_hint=False) == "leg floats"
+
+
+def test_a_gate_report_of_its_findings_passes_iff_none_is_an_error():
+    warn, err = _finding(severity=Severity.WARN), _finding()
+    assert GateReport.of("contract").passed and GateReport.of("contract", [warn]).passed
+    rep = GateReport.of("contract", (warn, err), duration_ms=7)
+    assert not rep.passed and rep.findings == [warn, err] and rep.errors == [err] and rep.duration_ms == 7
 
 
 # ------------------------------------------------------------------ render flags

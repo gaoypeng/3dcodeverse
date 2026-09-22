@@ -145,8 +145,7 @@ def default_joint_sweep(ws: Workspace, plan: Plan | None, out_dir: Path) -> tupl
         findings += [f.model_copy(update={"gate": SWEEP_GATE}) for f in joints.buried_links(robot)]
     except Exception as e:  # noqa: BLE001 — an extra check never fails the gate
         log.warning("buried-link check failed: %s", e)
-    gate = GateReport(gate=SWEEP_GATE, passed=not any(f.severity == Severity.ERROR for f in findings), findings=findings,
-                      duration_ms=int((time.time() - t0) * 1000))
+    gate = GateReport.of(SWEEP_GATE, findings, duration_ms=int((time.time() - t0) * 1000))
     views: list[RenderView] = []
     out_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -411,5 +410,4 @@ def default_motion_checks(ws: Workspace, plan: Plan | None) -> GateReport | None
                 gate=MOTION_GATE, severity=Severity.ERROR, target=j.name,
                 message=f"{chk.message}. Plan says: \"{j.motion}\"",
                 fix_hint=hint, data=data))
-    return GateReport(gate=MOTION_GATE, passed=not any(f.severity == Severity.ERROR for f in findings),
-                      findings=findings, duration_ms=int((time.time() - t0) * 1000))
+    return GateReport.of(MOTION_GATE, findings, duration_ms=int((time.time() - t0) * 1000))

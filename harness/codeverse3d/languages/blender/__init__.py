@@ -289,8 +289,7 @@ def lint_blender_source(
     findings = _rules(c, source, target=target, expect_names=expect_names, expect_bpy=expect_bpy)
     for f in findings:
         f.target = target
-    passed = not any(f.severity == Severity.ERROR for f in findings)
-    return GateReport(gate=GATE, passed=passed, findings=findings, duration_ms=int((time.monotonic() - t0) * 1000))
+    return GateReport.of(GATE, findings, duration_ms=int((time.monotonic() - t0) * 1000))
 
 
 def lint_blender_file(path: Path, *, target: str = "src/model.py") -> GateReport:
@@ -415,8 +414,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
         findings.extend(rep.findings)
     entry_tree, _ = safe_parse(entry.read_text(), ENTRY_REL)
     findings.extend(_layout_rules(ws, parts, entry_tree))
-    passed = not any(f.severity == Severity.ERROR for f in findings)
-    return GateReport(gate=GATE, passed=passed, findings=findings, duration_ms=int((time.monotonic() - t0) * 1000))
+    return GateReport.of(GATE, findings, duration_ms=int((time.monotonic() - t0) * 1000))
 
 
 # ===================================================================== skeleton

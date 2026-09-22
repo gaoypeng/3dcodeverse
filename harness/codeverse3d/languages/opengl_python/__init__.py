@@ -176,8 +176,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
         if rel != PROGRAM:
             findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target=rel, message=f"{rel}: extra python module is ignored by the harness",
                                         fix_hint="keep all code in src/program.py (GLSL may live in src/*.glsl)", data={"kind": "stray_file", "file": rel}))
-    passed = not any(f.severity == Severity.ERROR for f in findings)
-    return GateReport(gate=GATE, passed=passed, findings=findings)
+    return GateReport.of(GATE, findings)
 
 
 # ===================================================================== skeleton

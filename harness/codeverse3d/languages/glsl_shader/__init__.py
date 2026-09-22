@@ -263,8 +263,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
     for rel in stray:
         findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target=rel, message=f"{rel} is not part of the shader contract and is ignored",
                                     fix_hint="keep code in src/shader.frag (+ src/common.glsl, src/buffer_a.frag)", data={"kind": "stray_file", "file": rel}))
-    passed = not any(f.severity == Severity.ERROR for f in findings)
-    return GateReport(gate=GATE, passed=passed, findings=findings)
+    return GateReport.of(GATE, findings)
 
 
 def lint_text(shader_src: str, common_src: str | None = None, buffer_a_src: str | None = None, *,

@@ -622,12 +622,11 @@ def check_connectivity(
         # reducing per CHILD instead hid a second, genuinely open join.
         contacts = [r for r in rows if r[3] == "contact"]
         planned.extend(contacts if contacts else rows[:1] if len(rows) <= 1 else [min(rows, key=lambda r: r[2])])
-    passed = not any(f.severity == Severity.ERROR for f in findings)
-    if passed and len(big) > 1:
+    if len(big) > 1 and not any(f.severity == Severity.ERROR for f in findings):
         findings.append(GateFinding(gate=GATE, severity=Severity.INFO,
                                     message=f"all {len(big)} parts are connected ({len(edges)} contacts, gap ≤ {gap_m * 1000:.0f} mm)"))
     findings.append(_ledger(names, parts, edges, exact, overlaps, planned, unresolved, gap_m))
-    return GateReport(gate=GATE, passed=passed, findings=findings, duration_ms=int((time.time() - t0) * 1000))
+    return GateReport.of(GATE, findings, duration_ms=int((time.time() - t0) * 1000))
 
 
 def _nearest_supported(

@@ -276,8 +276,7 @@ def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool =
                + ("; table truncated (first 400 assets / time budget)" if t.truncated else ""))
     findings.insert(0, _f(Severity.INFO, summary, target="scene", kind="summary", counts=counts, checked=t.checked, total=t.total,
                           exempt=t.exempt, truncated=t.truncated))
-    passed = not any(f.severity == Severity.ERROR for f in findings)
-    return GateReport(gate=GATE, passed=passed, findings=findings)
+    return GateReport.of(GATE, findings)
 
 
 # --------------------------------------------------------------------------- plan-aware checks
@@ -604,9 +603,7 @@ def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None,
         report = placement_findings(table, indoor=is_interior(plan))
         extra = _cap_per_kind(contract_findings(census, plan, layouts=layouts, unavailable=unavailable))
         if extra:
-            findings = report.findings + extra
-            passed = not any(f.severity == Severity.ERROR for f in findings)
-            report = GateReport(gate=GATE, passed=passed, findings=findings, duration_ms=report.duration_ms)
+            report = GateReport.of(GATE, report.findings + extra, duration_ms=report.duration_ms)
         return report
     except Exception as e:  # noqa: BLE001 — advisory instrumentation must not fail the round
         log.warning("scene placement gate failed: %s", e)

@@ -178,5 +178,4 @@ def frame_gate(seq: SequenceStats, *, motion_expected: bool = True, gate: str = 
     if seq.mean_edge_density < LOW_DETAIL_EDGE and not seq.all_black and not seq.all_blown:
         add(Severity.WARN, "low_detail", f"very low visual detail (edge density {seq.mean_edge_density:.4f}); the image is a near-flat gradient",
             "add structure: fbm layers, shapes (sdf), stars/particles, lines — the rubric rewards visual richness")
-    passed = not any(x.severity == Severity.ERROR for x in f)
-    return GateReport(gate=gate, passed=passed, findings=f)
+    return GateReport.of(gate, f)

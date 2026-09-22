@@ -508,8 +508,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
         findings.append(_f(Severity.ERROR, f"missing {MODEL_REL}", target=MODEL_REL, fix="Write src/model.py (pure bpy, one object per link)."))
     else:
         findings.extend(lint_model_text(model_p.read_text(), link_names))
-    passed = not any(f.severity == Severity.ERROR for f in findings)
-    return GateReport(gate=GATE, passed=passed, findings=findings, duration_ms=int((time.time() - t0) * 1000))
+    return GateReport.of(GATE, findings, duration_ms=int((time.time() - t0) * 1000))
 
 
 # ===================================================================== skeleton

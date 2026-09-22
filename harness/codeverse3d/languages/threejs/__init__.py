@@ -263,8 +263,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
                     message=f"planned part {part.name} is not assembled by src/object.js",
                     fix_hint=f"import {{ build{to_pascal(part.name)} }} from './parts/{to_snake(part.name)}.js' and root.add(...)"))
 
-    passed = not any(f.severity == Severity.ERROR for f in findings)
-    return GateReport(gate=GATE, passed=passed, findings=findings, duration_ms=int((time.time() - t0) * 1000))
+    return GateReport.of(GATE, findings, duration_ms=int((time.time() - t0) * 1000))
 
 
 # ===================================================================== skeleton

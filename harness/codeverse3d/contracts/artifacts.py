@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -55,6 +56,12 @@ class GateReport(BaseModel):
     passed: bool
     findings: list[GateFinding] = Field(default_factory=list)
     duration_ms: int = 0
+
+    @classmethod
+    def of(cls, gate: str, findings: Sequence[GateFinding] = (), *, duration_ms: int = 0) -> GateReport:
+        """The report whose verdict is its findings: ``passed`` iff none is an ERROR."""
+        return cls(gate=gate, passed=not any(f.severity == Severity.ERROR for f in findings),
+                   findings=list(findings), duration_ms=duration_ms)
 
     @property
     def errors(self) -> list[GateFinding]:

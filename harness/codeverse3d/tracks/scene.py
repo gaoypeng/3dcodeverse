@@ -142,7 +142,7 @@ class ScenePipeline:
                                         fix_hint="the budget is <= 200 draw calls and <= 2 M triangles: merge static geometry "
                                                  "(BufferGeometryUtils.mergeGeometries) and put anything repeated > 5x in ONE "
                                                  "InstancedMesh per material — a per-object mesh loop is what costs the frame rate"))
-        out = [GateReport(gate="render_console", passed=not errs, findings=findings)]
+        out = [GateReport.of("render_console", findings)]
         try:
             # scene_frames: exposure / camera-in-geometry / coverage checks from metrics.json
             # (missing metrics → a passing empty report); its ERROR findings carry fix hints

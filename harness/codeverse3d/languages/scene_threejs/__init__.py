@@ -161,8 +161,7 @@ def lint(ws: Workspace) -> GateReport:
     for b in big:
         findings.append(_f(Severity.WARN, f"large file {b} > {MAX_LINES} lines", target=b.split(" ")[0],
                            hint="split into zones/assets/shaders modules"))
-    passed = not any(f.severity == Severity.ERROR for f in findings)
-    return GateReport(gate=GATE, passed=passed, findings=findings, duration_ms=int((time.time() - t0) * 1000))
+    return GateReport.of(GATE, findings, duration_ms=int((time.time() - t0) * 1000))
 
 
 # ===================================================================== skeleton

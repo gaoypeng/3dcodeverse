@@ -158,8 +158,7 @@ def probe_report(summary: dict[str, Any], *, duration_ms: int = 0) -> tuple[Gate
     if cam0 and cam0.get("dark_frac", 0) > 0.85:
         findings.append(_f(gate, Severity.WARN, f"camera '{cam0.get('name')}' frame is {cam0['dark_frac']:.0%} black — no lights or nothing in view?",
                            target=str(cam0.get("name")), hint="add a DirectionalLight + HemisphereLight in env, aim the camera at the content"))
-    passed = not any(f.severity == Severity.ERROR for f in findings)
-    return GateReport(gate=gate, passed=passed, findings=findings, duration_ms=duration_ms), census
+    return GateReport.of(gate, findings, duration_ms=duration_ms), census
 
 
 def _census_findings(c: dict[str, Any]) -> list[GateFinding]:

@@ -423,8 +423,7 @@ def frame_findings(metrics: dict[str, Any]) -> GateReport:
         n = len(checks)
         findings.append(_f(Severity.INFO, "overall", f"{n} camera frame(s) checked: exposure, geometry and coverage within limits", "",
                            kind="frames_ok", n_views=n))
-    passed = not any(f.severity == Severity.ERROR for f in findings)
-    return GateReport(gate=FRAME_GATE, passed=passed, findings=findings)
+    return GateReport.of(FRAME_GATE, findings)
 
 
 def frame_gate_from_renders(source: RenderSet | Path | str) -> GateReport:

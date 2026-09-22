@@ -400,7 +400,6 @@ def check_contract(measurement: Measurement, plan: Plan, *, language: str, tol_m
         findings = _check_scene_plan(measurement, plan, language, tol_m)
     else:
         findings = _check_object_plan(measurement, plan, language, tol_m)
-    passed = not any(f.severity == Severity.ERROR for f in findings)
-    if passed and not findings:
+    if not findings:
         findings.append(GateFinding(gate=GATE, severity=Severity.INFO, message="all plan parts present and within tolerance"))
-    return GateReport(gate=GATE, passed=passed, findings=findings, duration_ms=int((time.time() - t0) * 1000))
+    return GateReport.of(GATE, findings, duration_ms=int((time.time() - t0) * 1000))

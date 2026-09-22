@@ -346,5 +346,4 @@ def budget_gate(measurement: Any, build: Any, budget: DepthBudget) -> Any:
             message=f"{tris:,} triangles ({per_unit:.0f} per built object) inside the "
                     f"{budget.min_tris:,}–{budget.max_tris:,} budget",
             data={"kind": "tri_budget_ok", "tris": tris, "target": budget.target_tris}))
-    return GateReport(gate=BUDGET_GATE, findings=findings,
-                      passed=not any(f.severity is Severity.ERROR for f in findings))
+    return GateReport.of(BUDGET_GATE, findings)

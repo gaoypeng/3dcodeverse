@@ -209,8 +209,7 @@ def lint_cadquery_source(source: str, *, target: str = "src/model.py") -> GateRe
     findings = _rules(c, tree, source)
     for f in findings:
         f.target = target
-    passed = not any(f.severity == Severity.ERROR for f in findings)
-    return GateReport(gate=GATE, passed=passed, findings=findings, duration_ms=int((time.monotonic() - t0) * 1000))
+    return GateReport.of(GATE, findings, duration_ms=int((time.monotonic() - t0) * 1000))
 
 
 def lint_cadquery_file(path: Path, *, target: str = "src/model.py") -> GateReport:
