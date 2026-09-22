@@ -537,9 +537,9 @@ CLAUDE_SKILL_TOOL = "Skill"
 #: nothing else.  claude-code 2.1.280 otherwise lists 26 more (2026-09-22 rig): the account-
 #: synced skills and plugins (``anthropic-skills:*``, ``deep-research``, …) come with the
 #: "user" setting source, so ``--setting-sources project`` drops them — and with them the
-#: owner's ~/.claude/settings.json (hooks, env, effortLevel: sessions ran at its "xhigh" and
-#: now run at the CLI's default "high"): a session no longer inherits whoever runs the
-#: harness.  The bundled skills go with ``CLAUDE_CODE_DISABLE_BUNDLED_SKILLS`` (build_env);
+#: owner's ~/.claude/settings.json (hooks, env, effortLevel): a session no longer inherits
+#: whoever runs the harness, and its effort is stated instead (``Settings.agents.claude_effort``,
+#: default "xhigh" — what sessions ran at while they inherited the owner's settings).  The bundled skills go with ``CLAUDE_CODE_DISABLE_BUNDLED_SKILLS`` (build_env);
 #: ``design`` and ``doctor`` survive that switch by design and are hidden by name through the
 #: documented ``skillOverrides`` setting.  Checked against a local fake API and in one live
 #: subscription session (2026-09-22): the init event lists exactly the routed bundles, and
@@ -702,6 +702,8 @@ class ClaudeCodeAgent(_CliAgent):
                 "--allowedTools", ",".join(ALLOWED_TOOLS)]
         if self.model:
             argv += ["--model", self.model]
+        if effort := get_settings().agents.claude_effort:
+            argv += ["--effort", effort]
         if job.spatial_tools:
             # written fresh into the harness-owned trajectory dir for THIS session, from
             # the typed job — never the workspace's .mcp.json, which the agent can rewrite

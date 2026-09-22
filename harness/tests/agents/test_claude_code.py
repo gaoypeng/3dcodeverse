@@ -128,6 +128,16 @@ def test_a_session_sees_only_the_routed_skills(tmp_ws: Workspace):
     assert "--disable-slash-commands" not in argv   # claude-code: "Disable all skills" — the routed ones too
 
 
+def test_the_effort_is_the_harness_setting_not_the_users(tmp_ws: Workspace, switch):
+    """No user setting source means no inherited effortLevel: the harness states it."""
+    s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "claude-code")
+    argv = ClaudeCodeAgent("sonnet", binary="claude").build_argv(s)
+    assert argv[argv.index("--effort") + 1] == "xhigh"
+    switch("C3D_AGENTS__CLAUDE_EFFORT", "high")
+    argv = ClaudeCodeAgent("sonnet", binary="claude").build_argv(s)
+    assert argv[argv.index("--effort") + 1] == "high"
+
+
 def test_the_usage_limit_is_quota_not_a_transient_death(tmp_ws: Workspace, fake_bin, monkeypatch):
     a = ClaudeCodeAgent("sonnet", binary=fake_bin("claude", FAKE_CLAUDE))
     monkeypatch.setenv("FAKE_MODE", "usage_limit")

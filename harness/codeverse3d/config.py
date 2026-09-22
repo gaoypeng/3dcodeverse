@@ -83,6 +83,12 @@ class Agents(BaseModel):
         description="`-c model_reasoning_effort=` passed to every `codex:` call (agent and one-shot).  "
         "One of minimal|low|medium|high|xhigh, or '' to leave the choice to ~/.codex/config.toml.  "
         "Override per id with `codex:<model>@<effort>`.")
+    claude_effort: str = Field(
+        default="xhigh",
+        description="`--effort` passed to every `claude-code:` session (low|medium|high|xhigh|max; '' in the "
+        "config file leaves it to the CLI).  A harness session reads no user settings (`--setting-sources project`), so the "
+        "effort is the harness's to state; xhigh is what sessions ran at while they still inherited the "
+        "owner's ~/.claude/settings.json (until 2026-09-22).")
 
 
 class Render(BaseModel):
