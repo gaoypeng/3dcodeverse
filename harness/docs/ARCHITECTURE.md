@@ -302,7 +302,8 @@ runs/<slug>/
   telemetry/cost.jsonl   live ledger: one row per metered call / CLI session, opened by BaseTrack.run
                          (cost_ledger.jsonl at the root is a relative symlink to it, kept for the run-layout
                          alias; runs before 2026-08-23 have the root file only)
-  run_state.json  stages + rounds done; extra carries budget_snapshot and spec_fingerprint only
+  run_state.json  status + stages; extra carries budget_snapshot and spec_fingerprint only — the round
+                  history is rounds/rNN.json + each round's commit alone (no copy since 2026-09-22)
   artifacts/      object.glb object.stl|step robot.urdf meshes/ articulation.json build.json census.json
                   measurement.json … — the LAST round's build; graphics: frames/fNN_tT.png frames_sheet.png
                   preview.gif metrics.json; texturing (a pick's --texture): object_textured.glb

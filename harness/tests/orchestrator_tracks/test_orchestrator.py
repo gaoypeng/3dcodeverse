@@ -65,24 +65,26 @@ def test_fan_out_preserves_order_and_captures_exceptions():
 
 # ----------------------------------------------------------------------------- state + runner
 def test_run_state_roundtrip(tmp_ws):
-    st = RunState()
-    st.mark_round_done(0, "abc")
+    st = RunState(status=RunStatus.REFINING, materialized_for="gemini-cli")
     st.save(tmp_ws)
     again = RunState.load(tmp_ws)
-    assert again is not None and again.current_round == 1 and again.round_commits[0] == "abc"
-    assert RunState.load_or_new(tmp_ws, resume=False).completed_rounds == []
+    assert again is not None and again.status is RunStatus.REFINING and again.materialized_for == "gemini-cli"
+    assert RunState.load_or_new(tmp_ws, resume=False).status is RunStatus.PLANNING
 
 
 def test_a_run_state_saved_before_2026_09_22_still_loads(tmp_ws):
-    """It named a best round and could end ``passed`` / ``plateau``: the keys are ignored
-    and the status reads as ``stopped`` — a resume goes on from the last round."""
+    """It named a best round, cached the round journal and could end ``passed`` / ``plateau``:
+    the keys are ignored and the status reads as ``stopped`` — a resume goes on from the
+    journal's last round."""
     tmp_ws.state_path.write_text(json.dumps({
         "status": "passed", "stop_reason": "pass", "current_round": 2, "completed_rounds": [0, 1],
         "round_commits": {"0": "a0", "1": "a1"}, "best_round": 0, "best_commit": "a0", "best_score": 0.81,
         "best_considered_through": 1}))
     st = RunState.load(tmp_ws)
-    assert st is not None and st.status is RunStatus.STOPPED and st.round_commits == {0: "a0", 1: "a1"}
-    assert "best_round" not in st.model_dump() and RunStatus("plateau") is RunStatus.STOPPED
+    assert st is not None and st.status is RunStatus.STOPPED and st.stop_reason == "pass"
+    dumped = st.model_dump()
+    assert not {"best_round", "completed_rounds", "round_commits", "current_round"} & set(dumped)
+    assert RunStatus("plateau") is RunStatus.STOPPED
 
 
 def test_stage_runner_caches_by_input_hash(tmp_ws):

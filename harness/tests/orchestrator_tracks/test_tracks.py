@@ -60,8 +60,7 @@ def test_static_track_end_to_end_agent_path(tmp_path, chair_plan, settings):
     assert [r.score for r in rec.rounds] == [0.55, 0.7, 0.85, 0.85]
     assert rec.total_usage.cost_usd > 0 and rec.extra["stop_reason"] == "max_rounds"
     assert ws.record_path.is_file() and ws.plan_path.is_file() and ws.state_path.is_file()
-    state = RunState.load(ws)
-    assert state.status is RunStatus.MAX_ROUNDS and state.completed_rounds == [0, 1, 2, 3]
+    assert RunState.load(ws).status is RunStatus.MAX_ROUNDS
     assert services.materialized == ["fake"] and (ws.root / "AGENTS.md").is_file()
     kinds = [e["event"] for e in EventLog(ws.events_path).read()]
     for k in ("run.start", "stage.done", "plan.done", "round.start", "build.done", "gates.done", "judge.done", "round.done", "stop", "run.done"):

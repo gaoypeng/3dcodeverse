@@ -634,7 +634,8 @@ Event names: `run.start`, `stage.start/done`, `plan.done`, `workspace.materializ
 `round.start`, `generate.done`, `build.done`, `gates.done`, `judge.done`,
 `round.done`, `refine.planned`, `recipes.seeded` (graphics: names written this call, present on disk, chapters), `asset.judged`, `assets.done`,
 `zones.done`, `assemble.done`, `round.no_change`, `candidates.start`,
-`candidate.start/done/failed/retry/selected`, `resume.reconciled` (…, `restored_last_round`),
+`candidate.start/done/failed/retry/selected`, `resume.reconciled` (rounds, dropped, `restored_last_round`; Δ 2026-09-22 no
+`state_was_stale`: run_state.json keeps no copy of the round journal to go stale),
 `texture.start/plan/generated/applied/gate/done`, `budget.exceeded`,
 `finalise.rebuild`, `stop` (reason, rounds), `run.done` (status, rounds, last_score) / `run.failed`;
 after the run: `pick.pairwise`, `pick.packaged`, `texture.skipped` / `texture.failed` (addons.select).

@@ -16,7 +16,7 @@ import pytest
 
 from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.run import RunStatus
-from codeverse3d.orchestrator import RoundPolicy, RunState
+from codeverse3d.orchestrator import RoundPolicy
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.lifecycle import SpecChanged
 from codeverse3d.tracks.static_object import StaticObjectTrack
@@ -69,28 +69,25 @@ def completed_run(tmp_path, chair_plan, settings):
 
 # --------------------------------------------------------------------- (a) crash window
 def test_crash_between_round_write_and_state_save_ends_at_the_newer_round(completed_run):
-    """rNN.json + its commit are durable but mark_round_done lived only in memory until
-    the state save.  A crash in that window left the state one round behind the journal
-    (and here the tree on the older round): the resume rebuilds the state from the journal
-    and the run ends on the LAST round."""
+    """rNN.json + its commit are durable; the state save after them is not.  A crash in that
+    window — here with a state written before r01 (a pre-2026-09-22 one that still caches the
+    journal one round short) and the tree on the older round — resumes from the JOURNAL: the
+    history is r00 + r01 and the run ends on the LAST round."""
     run = completed_run(max_rounds=1)
     rec1, ws = run.record, run.ws
     assert len(rec1.rounds) == 2
-    # rewind state.json to what a crash between the r01 write and the state save leaves
     state = json.loads(ws.state_path.read_text())
-    state["completed_rounds"], state["current_round"] = [0], 1
-    state["round_commits"] = {"0": rec1.rounds[0].commit}
+    state.update(completed_rounds=[0], current_round=1, round_commits={"0": rec1.rounds[0].commit})
     ws.state_path.write_text(json.dumps(state))
     ws.restore(rec1.rounds[0].commit)
     ws.commit("stale tree")
 
     rec2 = run.rerun(resume=True)
-    assert [r.index for r in rec2.rounds] == [0, 1]
+    assert [r.index for r in rec2.rounds] == [0, 1] and rec2.rounds[1].commit == rec1.rounds[1].commit
     assert "refine" in (ws.src / "model.py").read_text(), "round 1's code must be restored"
-    st = RunState.load(ws)
-    assert st.completed_rounds == [0, 1] and st.round_commits[1] == rec1.rounds[1].commit
+    assert "completed_rounds" not in json.loads(ws.state_path.read_text()), "the state keeps no copy of the journal"
     ev = [e for e in EventLog(ws.events_path).read() if e["event"] == "resume.reconciled"]
-    assert ev and ev[-1]["state_was_stale"] is True and ev[-1]["restored_last_round"] == 1
+    assert ev and ev[-1]["rounds"] == 2 and ev[-1]["restored_last_round"] == 1
 
 
 def test_an_old_run_that_restored_its_best_round_resumes_from_its_last(completed_run, settings):
@@ -150,7 +147,6 @@ def test_a_planner_outage_on_resume_keeps_the_recorded_history(completed_run):
     assert saved["status"] == "failed" and "503 storm" in saved["error"]
     assert [r["index"] for r in saved["rounds"]] == [0], "a planner outage must not wipe the history"
     assert saved["rounds"][0]["commit"] == run.record.rounds[0].commit
-    assert RunState.load(ws).completed_rounds == [0]
 
 
 # --------------------------------------------------------------------- (d) force provenance
@@ -198,8 +194,6 @@ def test_a_spec_edit_without_force_is_refused_before_anything_runs(completed_run
     assert p2.requests == [], "no model call before the refusal"
     assert not (ws.root / "rounds" / "pre_force").exists()
     assert (ws.root / "rounds" / "r00.json").is_file()
-    st = RunState.load(ws)
-    assert st.completed_rounds == [0]
     assert json.loads(ws.record_path.read_text())["status"] != "failed"
 
     # the sanctioned budget raise (outside the fingerprint) still resumes plainly

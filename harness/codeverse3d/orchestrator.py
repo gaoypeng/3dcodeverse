@@ -46,15 +46,15 @@ class StageState(BaseModel):
 
 
 class RunState(BaseModel):
-    """Everything the orchestrator needs to resume a run.  A state saved before 2026-09-22
-    also names a best round (``best_round`` / ``best_commit`` / ``best_score`` /
-    ``best_considered_through``): unknown keys, ignored — a resume goes on from the LAST round."""
+    """Everything the orchestrator needs to resume a run — except the round history, which is
+    the round journal's alone (``rounds/rNN.json`` + each round's commit; ``lifecycle.reconcile_resume``
+    reads it).  A state saved before 2026-09-22 also caches that journal (``completed_rounds`` /
+    ``round_commits`` / ``current_round``) and names a best round (``best_round`` / ``best_commit`` /
+    ``best_score`` / ``best_considered_through``): unknown keys, ignored — a resume goes on from the
+    journal's LAST round."""
 
     status: RunStatus = RunStatus.PLANNING
     stages: dict[str, StageState] = Field(default_factory=dict)
-    current_round: int = Field(default=0, description="index of the round in progress / next to run")
-    completed_rounds: list[int] = Field(default_factory=list)
-    round_commits: dict[int, str] = Field(default_factory=dict)
     materialized_for: str = Field(default="", description="agent kind the workspace was materialised for")
     stop_reason: str = ""
     error: str = ""
@@ -84,13 +84,6 @@ class RunState(BaseModel):
     def save(self, ws: Workspace) -> None:
         self.updated_at = datetime.now(UTC)
         ws.write_json(ws.state_path, self)
-
-    # ----------------------------------------------------------------- helpers
-    def mark_round_done(self, index: int, commit: str) -> None:
-        if index not in self.completed_rounds:
-            self.completed_rounds.append(index)
-        self.round_commits[index] = commit
-        self.current_round = index + 1
 
 
 class StateCorrupt(RuntimeError):

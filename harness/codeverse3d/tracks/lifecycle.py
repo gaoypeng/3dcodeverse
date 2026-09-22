@@ -292,11 +292,9 @@ class BaseTrack:
     # ------------------------------------------------------------------ resume reconciliation
     def reconcile_resume(self, spec: Spec, ws: Workspace, events: EventLog, state: RunState,
                          *, resume: bool, force: bool) -> list[RoundRecord]:
-        """Make ``run_state.json`` agree with the on-disk round journal before anything runs.
-
-        The journal (``rounds/rNN.json`` + its git commit, written at the end of every
-        round) is the durable record; the state file is a cache of it that a crash can
-        leave stale — round persisted, ``mark_round_done`` never saved.  On resume:
+        """The round history a resume goes on from: the on-disk round journal (``rounds/rNN.json``
+        + its git commit, written at the end of every round) — the one record of it; the state file
+        keeps no copy that a crash could leave behind.  On resume:
 
         1. **Spec identity.**  ``state.extra["spec_fingerprint"]`` (hash of
            :func:`plan_stage_inputs`, stamped on first run) must match the spec we are
@@ -306,9 +304,8 @@ class BaseTrack:
            to ``rounds/pre_force/`` — old rounds are never paired with a new spec/plan.
         2. **Journal integrity.**  Trailing rounds whose commit git does not have are
            dropped (half-written journal), with a ``resume.dropped_rounds`` event.
-        3. **Rebuild.**  ``completed_rounds``/``round_commits`` come from the journal, and
-           the working tree goes back on the LAST round's commit when anything left it
-           elsewhere — a crash mid-round, or the finalise of a run recorded before
+        3. **The tree.**  The working tree goes back on the LAST round's commit when anything
+           left it elsewhere — a crash mid-round, or the finalise of a run recorded before
            2026-09-22, which restored its best round.  The next round refines the round
            before it, always.
 
@@ -336,7 +333,6 @@ class BaseTrack:
             events.emit("resume.archived", dest=str(archived))
             journal = []
             state.stages.pop("plan", None)  # the plan must be rebuilt from the edited spec
-            state.completed_rounds, state.round_commits, state.current_round = [], {}, 0
         state.extra["spec_fingerprint"] = fp
         kept: list[RoundRecord] = []
         dropped: list[int] = []
@@ -349,19 +345,12 @@ class BaseTrack:
             events.emit("resume.dropped_rounds", rounds=dropped,
                         reason="round journal names commits git does not have")
         journal = kept
-        journal_commits = {r.index: r.commit for r in journal}
-        stale = (state.completed_rounds != [r.index for r in journal]
-                 or {int(k): v for k, v in state.round_commits.items()} != journal_commits)
-        if stale:
-            state.completed_rounds = [r.index for r in journal]
-            state.round_commits = dict(journal_commits)
-            state.current_round = len(journal)
         restored = bool(journal) and self._needs_restore(ws, journal[-1].commit)
         if restored:
             ws.restore(journal[-1].commit)
             ws.commit(f"resume from the last round r{journal[-1].index:02d}")
         state.save(ws)
-        events.emit("resume.reconciled", rounds=len(journal), dropped=dropped, state_was_stale=stale,
+        events.emit("resume.reconciled", rounds=len(journal), dropped=dropped,
                     restored_last_round=journal[-1].index if restored else None, spec_fingerprint=fp)
         return journal
 
@@ -465,10 +454,10 @@ class BaseTrack:
             return [str(Path(p).relative_to(ctx.ws.root)) if Path(p).is_absolute() else str(p) for p in paths]
 
         inputs = {"plan": ctx.plan, "language": ctx.language.value}
-        if ctx.state.completed_rounds and not runner.is_done("skeleton", inputs):
+        if not runner.is_done("skeleton", inputs) and (journal := load_round_journal(ctx.ws)):
             # stale skeleton hash on resume: rounds exist, so re-running the skeleton
             # writer would overwrite agent-authored src/ — never do that.
-            ctx.events.emit("skeleton.skipped", reason="rounds_exist", rounds=len(ctx.state.completed_rounds))
+            ctx.events.emit("skeleton.skipped", reason="rounds_exist", rounds=len(journal))
             return []
         return runner.stage("skeleton", _do, inputs=inputs)
 
@@ -536,7 +525,6 @@ class BaseTrack:
                     # that is only because the judge never scored the round, say so.
                     unjudged = last.judgment is None and last.build is not None and last.build.ok
                     return _stop(RunStatus.JUDGE_UNAVAILABLE if unjudged else RunStatus.NO_REFINE_TASKS)
-            ctx.state.current_round = index
             ctx.state.save(ctx.ws)
             try:
                 if index == 0 and tasks and ctx.policy.n_candidates > 1:
@@ -572,9 +560,6 @@ class BaseTrack:
                 ctx.events.emit("round.no_change", round=index, detail=str(e)[:500])
                 return _stop(RunStatus.NO_CHANGE)
             rounds.append(rec)
-            # a crash before this save leaves the state behind the journal, which
-            # reconcile_resume detects (stale) and repairs from the journal
-            ctx.state.mark_round_done(index, rec.commit)
             self._save_budget(ctx)
 
     def _salvage_baseline(self, ctx: RunContext, rounds: list[RoundRecord]) -> None:
@@ -586,7 +571,7 @@ class BaseTrack:
         fraction of a generation session, so grant an explicit one-off grace and
         deliver ONE no-generation round.  Any failure here is swallowed: the run is
         already stopping on budget."""
-        if rounds or ctx.state.completed_rounds or ctx.plan is None:
+        if rounds or ctx.plan is None:
             return  # nothing was built yet (the PLAN itself blew the budget) → nothing to salvage
         grace_min = max(5.0, ctx.spec.budget.max_minutes * 0.15)
         ctx.budget.grant_grace(minutes=grace_min)
@@ -604,7 +589,6 @@ class BaseTrack:
             ctx.events.emit("budget.salvage_failed", error=f"{type(e).__name__}: {e}")
             return
         rounds.append(rec)
-        ctx.state.mark_round_done(0, rec.commit)
         self._save_budget(ctx)
 
     def _save_budget(self, ctx: RunContext) -> None:
