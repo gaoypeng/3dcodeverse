@@ -21,6 +21,7 @@ Frames
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -51,6 +52,22 @@ LANGUAGE_FRAME: dict[str, Frame] = {
 }
 
 GLB_FRAME = Frame.Y_UP_POS_Z_FRONT
+
+
+def authoring_frame(language: str) -> Frame:
+    """``language``'s authoring frame; an unknown / empty id is the GLB frame itself."""
+    return LANGUAGE_FRAME.get(str(language), GLB_FRAME)
+
+
+def to_authoring_frame(v: Sequence[float], language: str, *, extents: bool = False) -> tuple[float, float, float]:
+    """A GLB-frame vector (Y-up, +Z front) in ``language``'s authoring frame: the inverse of the
+    glTF export mapping ``(x, y, z) → (x, z, -y)``, so a Z-up language reads ``(x, -z, y)``.
+    ``extents`` (sizes, size deltas) are permuted, never sign-flipped — and that permutation is
+    its own inverse: it also takes a Z-up plan's (W, D, H) into the GLB frame's (W, H, D)."""
+    x, y, z = (float(c) for c in v)
+    if authoring_frame(language) is Frame.Z_UP_NEG_Y_FRONT:
+        return (x, z if extents else -z, y)
+    return (x, y, z)
 
 
 def frame_doc(frame: Frame) -> str:

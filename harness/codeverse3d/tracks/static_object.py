@@ -27,6 +27,7 @@ from codeverse3d.conventions import (
     BBOX_TOLERANCE_M,
     OBJECT_CLAY_VIEWS,
     OBJECT_VIEWS,
+    to_authoring_frame,
 )
 from codeverse3d.orchestrator import RefineTask, TaskGroup, compact_instructions
 from codeverse3d.prompts import render
@@ -45,7 +46,6 @@ from codeverse3d.tracks.prompting import (
     budget_for,
     expected_files,
     file_for_target_factory,
-    glb_to_plan_frame,
     judge_digest,
     judged_sheet,
     language_system_prompt,
@@ -139,7 +139,7 @@ class ObjectPipeline:
         # reorder into the measurement table's frame (W×H×D, Y-up): the (x,|z|,y) swap is
         # self-inverse for extents, so Z-up plans (W,D,H) → (W,H,D), threejs is identity —
         # otherwise the judge compares the digest position-wise against swapped numbers.
-        e = glb_to_plan_frame(plan.overall_bbox.extents, ctx.language, extents=True)
+        e = to_authoring_frame(plan.overall_bbox.extents, ctx.language, extents=True)
         return f"{plan.object_name}: {plan.summary} Overall {e[0]:.2f}×{e[1]:.2f}×{e[2]:.2f} m (W×H×D). Parts: {parts}."
 
     def judge_context(

@@ -41,9 +41,12 @@ from codeverse3d.conventions import (
     BBOX_TOLERANCE_M,
     CONTACT_GAP_M,
     FRAME_AXES,
-    LANGUAGE_FRAME,
     Frame,
+    to_authoring_frame,
     to_snake,
+)
+from codeverse3d.conventions import (
+    authoring_frame as language_frame,  # the name connectivity.py imports from here
 )
 from codeverse3d.spatial.measure import fmt_extent_cm, fmt_vec
 
@@ -80,11 +83,6 @@ ORIENT_OVER = 1.4
 
 
 # --------------------------------------------------------------------------- frames
-def language_frame(language: str) -> Frame:
-    """Authoring frame of ``language`` (unknown / empty → the GLB frame itself)."""
-    return LANGUAGE_FRAME.get(str(language), Frame.Y_UP_POS_Z_FRONT)
-
-
 def frame_label(language: str) -> str:
     """Short frame tag for fix hints, e.g. ``"blender frame: Z-up, -Y front"``."""
     if language_frame(language) is Frame.Z_UP_NEG_Y_FRONT:
@@ -102,13 +100,9 @@ def plan_bbox_to_glb(bbox: BBox, language: str) -> BBox:
 
 
 def glb_vec_to_plan(v, language: str, *, extents: bool = False) -> np.ndarray:
-    """Inverse of the glTF mapping for a GLB-frame vector: Z-up languages get
-    ``(x, y, z) → (x, -z, y)``; ``extents`` (per-axis sizes / size deltas) are only
-    permuted, never sign-flipped.  Hints must be written in the frame the agent codes in."""
-    v = np.asarray(v, dtype=float)
-    if language_frame(language) is Frame.Y_UP_POS_Z_FRONT:
-        return v
-    return np.array([v[0], v[2] if extents else -v[2], v[1]])
+    """``conventions.to_authoring_frame`` as an array: hints must be written in the frame the
+    agent codes in."""
+    return np.asarray(to_authoring_frame(v, language, extents=extents), dtype=float)
 
 
 # --------------------------------------------------------------------------- matching

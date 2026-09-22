@@ -18,7 +18,7 @@ from codeverse3d.contracts.chat import ImagePart
 from codeverse3d.contracts.common import HARNESS_OWNED_SRC, Language, Track, is_harness_owned
 from codeverse3d.contracts.plan import Plan, StaticPlan
 from codeverse3d.contracts.run import RoundRecord
-from codeverse3d.conventions import LANGUAGE_FRAME, Frame, frame_doc, to_snake
+from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc, to_authoring_frame, to_snake
 from codeverse3d.prompts import render
 from codeverse3d.prompts.catalog import prompt_dir_for
 from codeverse3d.tracks.common import RunContext
@@ -115,17 +115,6 @@ def bbox_line(bbox: Any) -> str:
     c = ", ".join(f"{v:.3f}" for v in bbox.center)
     e = ", ".join(f"{v:.3f}" for v in bbox.extents)
     return f"centre ({c}) m, extents ({e}) m"
-
-
-def glb_to_plan_frame(
-    v: Sequence[float], language: Language, *, extents: bool = False
-) -> tuple[float, float, float]:
-    """Map a GLB-frame (Y-up, +Z front) vector into the language's authoring frame.
-    Blender/CadQuery/URDF plans are Z-up with -Y front: glb (x, y, z) → (x, -z, y)."""
-    x, y, z = float(v[0]), float(v[1]), float(v[2])
-    if LANGUAGE_FRAME[language.value] is Frame.Z_UP_NEG_Y_FRONT:
-        return (x, abs(z) if extents else -z, y)
-    return (x, y, z)
 
 
 def constraints_text(spec: Any) -> str:
@@ -574,7 +563,7 @@ def measurement_vs_plan(
     if m is None or plan is None or not hasattr(plan, "overall_bbox"):
         return ""
     pe = plan.overall_bbox.extents
-    me = glb_to_plan_frame(m.extents, language, extents=True)
+    me = to_authoring_frame(m.extents, language, extents=True)
     lines = [
         f"Measured overall extents {me[0]:.3f}×{me[1]:.3f}×{me[2]:.3f} m vs plan "
         f"{pe[0]:.3f}×{pe[1]:.3f}×{pe[2]:.3f} m; ground gap {m.ground_gap_m:+.3f} m; footprint offset {m.footprint_offset_m:.3f} m; "
@@ -585,12 +574,8 @@ def measurement_vs_plan(
         p = planned.get(to_snake(pm.name))
         if p is None:
             continue
-        ext = glb_to_plan_frame(
-            [b - a for a, b in zip(pm.bbox_min, pm.bbox_max, strict=True)], language, extents=True
-        )
-        cen = glb_to_plan_frame(
-            [(a + b) / 2 for a, b in zip(pm.bbox_min, pm.bbox_max, strict=True)], language
-        )
+        ext = to_authoring_frame([b - a for a, b in zip(pm.bbox_min, pm.bbox_max, strict=True)], language, extents=True)
+        cen = to_authoring_frame([(a + b) / 2 for a, b in zip(pm.bbox_min, pm.bbox_max, strict=True)], language)
         lines.append(
             f"- {p.name}: measured centre ({cen[0]:.3f}, {cen[1]:.3f}, {cen[2]:.3f}) extents ({ext[0]:.3f}, {ext[1]:.3f}, {ext[2]:.3f})"
             f" | plan centre ({p.bbox.center[0]:.3f}, {p.bbox.center[1]:.3f}, {p.bbox.center[2]:.3f}) extents "
