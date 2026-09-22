@@ -110,9 +110,14 @@ Rules that callers must know:
 ```python
 from codeverse3d.cost import record_call, load_ledger, summarise
 record_call(usage, *, run="", round=None, stage=None, role=None, label="", backend="", model="",
-            outcome="ok", latency_ms=None, n_calls=1, source="live", ledger=None, reprice=False) -> CallCost
+            outcome="ok", latency_ms=None, n_calls=1, source="live", ledger=None, reprice=False,
+            tallies=None) -> CallCost
     # Δ everything left out is resolved from the ambient context + the call label (cost.context);
     # unknown model -> $0 and price_source="unknown" (flagged, never silently dropped); never raises.
+    # books every non-attempt row into the open cost.tally tallies (or `tallies`, captured by a caller
+    # whose row lands later in a context-less thread).  source: live | session | extra (a round-trip the
+    # provider billed and the call discarded — counts) | attempt (forensics — load_ledger leaves it out)
+from codeverse3d.cost.ledger import ledger_usage   # (rows) -> Usage: how record.total_usage is read off the ledger
 from codeverse3d.cost.instrument import (run_ledger, metered_chat_model, metered_agent,
                                        MeteredAgent, MeteredChatModel)   # always on: no off switch
 with run_ledger(ws.root, run=slug):        # binds the run, points record_call at <run>/telemetry/cost.jsonl
