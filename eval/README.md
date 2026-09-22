@@ -26,7 +26,9 @@ ruff check .
 ```
 
 Run data is never in git: `bench/out/` (battery output) and `llm/data/prompts/*.jsonl` (built by
-`python -m llm.build_prompts` from the gated Hub assets) are ignored.  Every `bench` script bootstraps
+`python -m llm.build_prompts` from the gated Hub assets) are ignored.  Every bench report reads its
+journals through `bench/_jsonl.py` (a truncated last line costs one row; the last row per cell wins)
+and states its uncertainty through `bench/stats.py` (the 95 % t-interval, the exact sign test).  Every `bench` script bootstraps
 its own import path — `../harness` for THIS tree's `codeverse3d`, `.` for the `bench` package — so an
 editable install of a different checkout cannot silently stand in for the tree under test
 (`tests/test_worktree_import.py`).

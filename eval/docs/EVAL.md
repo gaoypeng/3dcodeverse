@@ -335,7 +335,11 @@ Rules that follow from it:
 * never compare arms measured in different weather.  If one arm ran during a storm and
   another did not, re-run the affected cells before putting the two in one table;
 * `budget_exhausted` is deliberately *not* excused on the build rate: the provider is
-  not at fault for a model that cannot finish inside the cap.
+  not at fault for a model that cannot finish inside the cap;
+* every journal (`results.jsonl`, `pairwise.jsonl`, the plan-stage rows) is append-only and
+  read ONE way: `bench/_jsonl.read_jsonl` skips a half-written line with a warning (a killed
+  driver costs that row, not the file) and `bench/_jsonl.latest` keeps the LAST row per
+  (prompt, arm) — a resumed or redone cell supersedes its earlier row in every report.
 
 ## 8. The noise floor of a paired A/B (`bench/ab_plan.py`)
 
@@ -358,8 +362,9 @@ verdict rule is blunt on purpose (`bench/_ab_report.verdict_of`, stated once):
 
 Nothing was under test either time, and the rule returned opposite decisions.  Those four
 same-code measurements of one prompt have **sd 0.160** (mean 0.706, range 0.591–0.934), so
-a paired delta has sd ≈ 0.226 and an 8-prompt mean carries a 2 SE band of **±0.16** —
-eight times the ±0.02 the decision turns on.  Resolving ±0.02 at this spread would take
+a paired delta has sd ≈ 0.226 and an 8-prompt mean carries a 2 SE band of **±0.16** (±0.19
+as the 95 % t-interval the reports print since 2026-09-22) — eight times the ±0.02 the
+decision turns on.  Resolving ±0.02 at this spread would take
 roughly **500 paired prompts**.
 
 The reason is structural, not a bug: a paired delta is the difference of two *independent
@@ -367,9 +372,10 @@ stochastic generations*, so it carries generation spread, not the fixed judge's 
 sampling noise.  The ±0.02 threshold was sized against the judge and is roughly an order
 of magnitude too tight for what it is applied to.  Consequences:
 
-* every summary now prints a **Confidence** block — paired sd, SE, the 2 SE band, and
-  `separated from noise: yes|NO` — beside the verdict, plus `n_for_power`, the number of
-  paired prompts this spread would need before ±0.02 is resolvable.  At the spread above
+* every summary now prints a **Confidence** block — paired sd, SE, the 95 % t-interval
+  (`mean ± t(0.975, n−1)·SE`; a 2 SE band until 2026-09-22) and `separated from noise:
+  yes|NO` (the interval excludes zero) — beside the verdict, plus `n_for_power`, the number
+  of paired prompts this spread would need before ±0.02 is resolvable.  At the spread above
   that is *hundreds*, not eight;
 * run `--aa` on the same battery and the same n to measure the floor before believing a
   win.  Both arms get the control environment; the report is titled `A/A` and banners
@@ -382,6 +388,15 @@ of magnitude too tight for what it is applied to.  Consequences:
 * the cheapest real power is not more prompts but **less per-cell variance**: more rounds,
   or k generations per (prompt, arm) averaged before differencing, cuts the paired sd by
   √k.  Both cost the same dollars as more prompts and buy more per dollar here.
+
+**One rule for every interval (`bench/stats.py`, 2026-09-22).**  The A/B summary, the
+paired harness-vs-one-shot table (`paired_compare`), the best-of-k curve, the per-skill
+readout (`skill_targets`) and the blind A/B page (`ab_view`) all state the same three things
+the same way: the paired **95 % Student-t interval** of the mean delta (they used 2·SE,
+1.96·SE and a within-arm σ before; at the 3–40 pairs a battery has, those understate the
+half-width by up to ~40 %), the **exact two-sided sign test**, and `statistics.correlation`
+for r / ρ.  `ab_view` pairs on the brief, as its page does, instead of comparing arm means.
+Numbers quoted below from before that date are 2 SE bands.
 
 ### 8.1 Where the variance actually is: the planner, not the judge
 
