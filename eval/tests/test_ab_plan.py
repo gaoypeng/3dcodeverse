@@ -17,12 +17,11 @@ from bench._ab_report import (  # noqa: E402
     KEEP_DELTA,
     VARIANT,
     PairOutcome,
-    arm_summary,
     pair_up,
     render_summary,
     verdict_of,
 )
-from bench._compare_report import CellResult  # noqa: E402
+from bench._compare_report import CellResult, arm_stats  # noqa: E402
 from bench._jsonl import latest, read_jsonl  # noqa: E402
 from bench.ab_plan import (  # noqa: E402
     DEFAULT_MAX_IN_FLIGHT,
@@ -110,9 +109,10 @@ def test_outage_cells_are_excluded_from_every_arm_rate():
     the loss must stay visible (docs/EVAL.md §7)."""
     clear = [_row(f"p{i}", CONTROL, 0.8) for i in range(4)]
     unlucky = [_row(f"p{i}", VARIANT, 0.8) for i in range(4)] + [_row("p9", VARIANT, None, "infra_failed", wall=3600, cost=0.0)]
-    c, v = arm_summary(clear + unlucky, CONTROL), arm_summary(clear + unlucky, VARIANT)
-    assert c.mean_score == v.mean_score and c.mean_minutes == v.mean_minutes and c.cost_usd == v.cost_usd
-    assert v.n_infra_failed == 1 and v.n == 5 and v.n_scored == 4
+    by = {s.arm: s for s in arm_stats(clear + unlucky)}
+    c, v = by[CONTROL], by[VARIANT]
+    assert c.mean_score == v.mean_score and c.mean_minutes == v.mean_minutes and c.mean_gen_usd == v.mean_gen_usd
+    assert v.infra_failed == 1 and v.n == 5 and v.n_scored == 4
     md = render_summary(pair_up(clear + unlucky), clear + unlucky, title="t", variant_env={"X": "1"},
                         generator="g", judge="j", rounds=2)
     assert "n_infra_failed: 1" in md and "--redo-status infra_failed" in md and "variant env: `X=1`" in md

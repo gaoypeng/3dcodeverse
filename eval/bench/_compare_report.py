@@ -107,6 +107,7 @@ class ArmStats(BaseModel):
     kind: str
     n: int = Field(description="cells attempted")
     n_evaluated: int = Field(default=0, description="cells that actually ran (n minus provider outages)")
+    n_scored: int = Field(default=0, description="cells that ran and carry a fixed-judge score")
     infra_failed: int = Field(default=0, description="cells dropped: the provider, not the model, failed")
     budget_exhausted: int = Field(default=0, description="cells that ran out of time/money with no artifact")
     mean_score: float | None
@@ -149,7 +150,7 @@ def arm_stats(rows: list[CellResult]) -> list[ArmStats]:
         scores = [r.score for r in ev if r.score is not None]
         passed = [r.passed for r in ev if r.passed is not None]
         out.append(ArmStats(
-            arm=arm, kind=rs[0].kind, n=len(rs), n_evaluated=len(ev),
+            arm=arm, kind=rs[0].kind, n=len(rs), n_evaluated=len(ev), n_scored=len(scores),
             infra_failed=len(rs) - len(ev),
             budget_exhausted=sum(1 for r in ev if r.status == "budget_exhausted"), mean_score=_mean(scores),
             median_score=round(statistics.median(scores), 4) if scores else None,

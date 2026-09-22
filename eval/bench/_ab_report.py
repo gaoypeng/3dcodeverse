@@ -20,7 +20,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from bench._compare_report import CellResult
+from bench._compare_report import CellResult, arm_stats
 from bench._jsonl import latest
 from bench.stats import mean_ci, n_to_resolve, sign_test
 
@@ -161,34 +161,6 @@ def verdict_of(pairs: list[PairOutcome]) -> Verdict:
     return v
 
 
-class ArmSummary(BaseModel):
-    arm: str
-    n: int
-    n_scored: int
-    n_infra_failed: int
-    n_budget_exhausted: int
-    n_other_unscored: int
-    mean_score: float | None
-    median_score: float | None
-    cost_usd: float = Field(description="generation + fixed-judge spend over every cell that ran")
-    mean_minutes: float
-
-
-def arm_summary(rows: list[CellResult], arm: str) -> ArmSummary:
-    rs = [r for r in rows if r.arm == arm]
-    ran = [r for r in rs if r.status != "infra_failed"]
-    scores = [r.score for r in ran if r.score is not None]
-    return ArmSummary(
-        arm=arm, n=len(rs), n_scored=len(scores), n_infra_failed=len(rs) - len(ran),
-        n_budget_exhausted=sum(r.status == "budget_exhausted" for r in ran),
-        n_other_unscored=sum(r.score is None and r.status != "budget_exhausted" for r in ran),
-        mean_score=round(statistics.fmean(scores), 4) if scores else None,
-        median_score=round(statistics.median(scores), 4) if scores else None,
-        cost_usd=round(sum(r.gen_cost_usd + r.judge_cost_usd for r in ran), 4),
-        mean_minutes=round(statistics.fmean(r.wall_s for r in ran) / 60, 2) if ran else 0.0,
-    )
-
-
 def _fmt(x: float | None, signed: bool = False) -> str:
     if x is None:
         return "—"
@@ -209,7 +181,8 @@ def render_summary(pairs: list[PairOutcome], rows: list[CellResult], *, title: s
     measured delta IS the noise floor, and any decision word would be a lie.
     """
     v = verdict_of(pairs)
-    arms = [arm_summary(rows, a) for a in ARMS]
+    by_arm = {s.arm: s for s in arm_stats(rows)}  # the compare report's aggregate, outages excluded
+    arms = [by_arm[a] for a in ARMS if a in by_arm]
     lines = [f"# A/{'A' if aa else 'B'}: {title}", ""]
     if aa:
         lines += ["> **A/A calibration — the arms are identical.** Every delta below is pure run-to-run",
@@ -231,17 +204,18 @@ def render_summary(pairs: list[PairOutcome], rows: list[CellResult], *, title: s
         f"{'—' if v.sign_p is None else f'{v.sign_p:.3f}'} — the signal an 8-prompt battery can actually carry",
         *([f"\n**{v.caution}**"] if v.caution else []), "",
         "## Arms", "",
-        "| arm | n | scored | infra_failed | budget_exhausted | other unscored | mean | median | cost $ | mean min |",
+        "| arm | n | scored | infra_failed | budget_exhausted | other unscored | mean | median | $/cell | mean min |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for a in arms:
-        lines.append(f"| {a.arm} | {a.n} | {a.n_scored} | {a.n_infra_failed} | {a.n_budget_exhausted} | "
-                     f"{a.n_other_unscored} | {_fmt(a.mean_score)} | {_fmt(a.median_score)} | {a.cost_usd:.2f} | {a.mean_minutes:.1f} |")
+        lines.append(f"| {a.arm} | {a.n} | {a.n_scored} | {a.infra_failed} | {a.budget_exhausted} | "
+                     f"{a.n_evaluated - a.n_scored - a.budget_exhausted} | {_fmt(a.mean_score)} | {_fmt(a.median_score)} | "
+                     f"{a.mean_gen_usd + a.mean_judge_usd:.2f} | {a.mean_minutes:.1f} |")
     lines += ["", "## Per prompt", "", "| prompt | tier | control | variant | delta | note |", "|---|---|---|---|---|---|"]
     for p in pairs:
         note = "REGRESSION" if p.regression else ("" if p.paired else f"unpaired: {p.reason}")
         lines.append(f"| {p.prompt_id} | {p.tier} | {_cell(p.control)} | {_cell(p.variant)} | {_fmt(p.delta, True)} | {note} |")
-    dropped = sum(a.n_infra_failed for a in arms)
+    dropped = sum(a.infra_failed for a in arms)
     lines += ["", f"n_infra_failed: {dropped}" + (" — re-run with `--redo-status infra_failed` before trusting the verdict"
                                                  if dropped else ""), "",
               "Rule: keep iff mean delta >= +0.02 and no regression; revert iff mean delta <= -0.02 or >= 2 regressions; "
@@ -262,5 +236,5 @@ def write_report(out: Path, rows: list[CellResult], prompt_order: list[tuple[str
 
 __all__ = ["ARMS", "CONTROL", "KEEP_DELTA", "REGRESSION_DELTA", "REVERT_DELTA",
            "REVERT_REGRESSIONS", "VARIANT",
-           "ArmSummary", "PairOutcome", "Verdict", "arm_summary", "pair_up", "render_summary", "verdict_of",
+           "PairOutcome", "Verdict", "pair_up", "render_summary", "verdict_of",
            "write_report"]
