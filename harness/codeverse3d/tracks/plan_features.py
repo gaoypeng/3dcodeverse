@@ -20,8 +20,7 @@ PLAN_FEATURES_ENV = "C3D_PLAN_FEATURES"
 #: pin costs one noisy A/B, pinning wrongly costs a confident wrong answer
 #: (eval/docs/EVAL.md §8.1 measured it — the A/A's worst pair differed 1 part vs 10).
 GENERATION_SIDE_ENV: frozenset[str] = frozenset({"C3D_SKILLS", "C3D_SKILLS_MAX", "C3D_SKILLS_UNVERIFIED",
-                                                 "C3D_SKILLS_ONLY",
-                                                 "C3D_DETAIL_ROUNDS", "C3D_REFERENCE_DIFF",
+                                                 "C3D_SKILLS_ONLY", "C3D_REFERENCE_DIFF",
                                                  "C3D_FEWER_TURNS", "C3D_SEED_RECIPES"})
 
 
@@ -43,7 +42,6 @@ LIVE_SWITCHES: dict[str, str] = {
     # re-sample a degenerate plan from the original prompt instead of editing it in context
     "C3D_PLAN_RESTART": "codeverse3d/tracks/planner.py",
     "C3D_SCOPED_PARTS": "codeverse3d/tracks/depth.py",
-    "C3D_DETAIL_ROUNDS": "codeverse3d/tracks/lifecycle.py",
     "C3D_REFERENCE_DIFF": "codeverse3d/judges/vlm_judge.py",  # reference.py merged in, 2026-08-28
     # the skill system (design: scratchpad/skills/design/DESIGN.md §6.5).  All three are
     # read at call time by one module, so an A/B arm that sets them really differs.
@@ -73,6 +71,7 @@ LIVE_SWITCHES: dict[str, str] = {
 #: about nothing.  A name leaves this dict in the same commit as the code that reads it.
 DEAD_SWITCHES: dict[str, str] = {
     PLAN_FEATURES_ENV: "none of its six features was ever implemented; nothing reads this variable",
+    "C3D_DETAIL_ROUNDS": "the surface-detail round went with the judgement stops that offered it (2026-09-22)",
 }
 
 

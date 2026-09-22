@@ -84,5 +84,5 @@ def test_every_language_ships_a_system_prompt() -> None:
         text = language_system_prompt(lang)
         assert text.strip(), f"{lang.value}: empty system prompt"
         assert (PROMPTS_DIR / prompt_dir_for(lang) / "system.md").is_file(), lang.value
-    for role in ("scope", "detail", "repair"):
+    for role in ("scope", "repair"):
         assert (PROMPTS_DIR / "system" / f"role_{role}.j2").is_file(), role

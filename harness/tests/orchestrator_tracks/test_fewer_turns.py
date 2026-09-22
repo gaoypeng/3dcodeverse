@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 from codeverse3d.config import FEWER_TURNS_ENV, Settings, fewer_turns_enabled, get_settings
+from codeverse3d.contracts.artifacts import BuildResult, Judgment
 from codeverse3d.contracts.common import Language
+from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.orchestrator import RefineTask, TaskGroup
 from codeverse3d.tracks.plan_features import LIVE_SWITCHES
 from codeverse3d.tracks.prompting import INLINE_MAX_CHARS, INLINE_MAX_FILES, TURN_DISCIPLINE
 
 from .conftest import make_spec
 from .fakes import FakeAgent, FakeRuntime, FakeServices
-from .test_generation_depth import _round
+
+
+def _round(i: int, score: float) -> RoundRecord:
+    return RoundRecord(index=i, kind="refine", build=BuildResult(ok=True, language="blender"), commit=f"c{i}",
+                       judgment=Judgment(rubric="r", scores={}, overall=score, passed=score >= 0.8))
+
 
 SEAT = "import bpy\n\n\ndef build_seat():\n    return bpy.context.object  # SEAT-BODY\n"
 LEG = "import bpy\n\n\ndef build_leg():\n    return bpy.context.object  # LEG-BODY\n"

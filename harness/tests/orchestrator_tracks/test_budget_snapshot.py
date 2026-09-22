@@ -205,7 +205,7 @@ def test_a_budget_tripped_candidate_still_lets_the_sibling_be_adopted(tmp_path, 
                               planner_model=FakeChatModel(lambda req: chair_plan.model_dump(mode="json")),
                               settings=settings, runtime=FakeRuntime(Language.THREEJS), n_candidates=2)
     rec = track.run(spec, ws)
-    assert rec.status in (RunStatus.PLATEAU, RunStatus.PASSED)
+    assert rec.status is RunStatus.MAX_ROUNDS
     assert len(rec.rounds) == 1 and "best-of-2: selected c1" in rec.rounds[0].notes
     assert "c1" in (ws.src / "object.js").read_text()  # the sibling's code was adopted
     cands = json.loads((ws.root / "rounds" / "candidates.json").read_text())

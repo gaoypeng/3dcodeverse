@@ -4,13 +4,12 @@ Concrete tracks (static / articulated / scene / graphics) override the hooks
 (``plan_model``, ``make_pipeline``, ``prepare``, ``baseline_tasks``, the planner
 knobs ``plan_template``/``plan_example``/``finalise_plan`` and the refine
 scaffold's ``_refine_task``).  All bookkeeping — workspace, events, budget, run
-state, stage cache, best tracking, stop policy, record — lives here once.
+state, stage cache, best tracking, the fixed round count, record — lives here once.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import platform
 import traceback
 from collections.abc import Sequence
@@ -28,19 +27,13 @@ from codeverse3d.contracts.spec import Spec
 from codeverse3d.cost.context import run_binding
 from codeverse3d.cost.instrument import run_ledger
 from codeverse3d.orchestrator import (
-    KIND_FOR_STRATEGY,
     BudgetExceeded,
     BudgetGuard,
     BudgetSnapshot,
-    RefineTask,
     RoundPolicy,
     RunState,
     StageRunner,
-    StopPolicy,
-    StopReason,
-    Strategy,
     TaskGroup,
-    best_score,
     build_refine_instructions,
     hash_inputs,
     plan_refine_groups,
@@ -84,27 +77,6 @@ log = logging.getLogger(__name__)
 
 REFERENCE_RUBRIC = "reference_v1"
 
-#: surface-detail rounds a track that implements one gets by default.  ``RoundPolicy.detail_rounds``
-#: is None (= this default) unless a caller chose a number; ``C3D_DETAIL_ROUNDS`` overrides both
-#: (0 = off — the A/B switch for eval/docs/EVAL.md).
-DEFAULT_DETAIL_ROUNDS = 1
-
-
-def detail_round_budget(policy: RoundPolicy, supported: bool) -> int:
-    """How many detail rounds THIS run gets: env > a chosen ``policy.detail_rounds`` > the track default.
-
-    Until 2026-08-29 the third tier was skipped whenever ANY policy object was injected, so the
-    economy/quality profiles (a policy for ``judge_samples`` alone) silently lost the static
-    track's detail round."""
-    raw = os.environ.get("C3D_DETAIL_ROUNDS", "").strip()
-    if raw.isdigit():
-        return int(raw) if supported else 0
-    if not supported:
-        return 0
-    if policy.detail_rounds is not None:
-        return policy.detail_rounds
-    return DEFAULT_DETAIL_ROUNDS
-
 
 def _reconcile_billed_from_ledger(budget: BudgetGuard, ws: Workspace, events: EventLog) -> None:
     """Adopt the run ledger's total when it exceeds the restored snapshot.
@@ -133,20 +105,6 @@ def _reconcile_billed_from_ledger(budget: BudgetGuard, ws: Workspace, events: Ev
         events.emit("resume.billed_reconciled", snapshot_usd=round(budget.billed_usd, 6),
                     ledger_usd=round(billed, 6))
         budget.billed_usd = billed
-
-
-_STATUS: dict[str, RunStatus] = {
-    "pass": RunStatus.PASSED, "plateau": RunStatus.PLATEAU, "max_rounds": RunStatus.PLATEAU,
-    "budget": RunStatus.BUDGET,
-    # the two money stops (orchestrator.StopPolicy): the code is intact and the best
-    # round is delivered — the run stopped because another round was not worth buying.
-    "regression": RunStatus.PLATEAU, "diminishing_returns": RunStatus.PLATEAU,
-    # judge outage (degraded/crashed verdicts even after a retry): the code is intact
-    # and the best built round is delivered — a stop, not a failure.
-    "judge_unavailable": RunStatus.PLATEAU,
-    # the vendor's usage limit, not ours — the best round ships, the status says a budget ended
-    "agent_quota": RunStatus.BUDGET,
-}
 
 
 def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
@@ -197,10 +155,6 @@ class BaseTrack:
     plan_max_output_tokens: int = 24000
     #: refine fan-out (graphics is always ONE whole-program task)
     allow_refine_fanout: bool = True
-    #: does this track implement ``detail_tasks``?  When False the round policy's detail
-    #: budget is zeroed for the run, so the stop policy never offers a round the track
-    #: cannot build (see ``orchestrator.detail_blocked``).
-    supports_detail_round: bool = False
     #: share of the run budget the BASELINE may use (1.0 = no soft cap).  The scene
     #: track lowers it so the refine rounds always inherit money and minutes.
     soft_budget_fraction: float = 1.0
@@ -288,50 +242,26 @@ class BaseTrack:
     def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
         raise NotImplementedError
 
-    def detail_tasks(self, ctx: RunContext, last: RoundRecord, index: int) -> tuple[list[GenerationTask], list[str]]:
-        """The SURFACE-DETAIL round (``kind='detail'``): bevels, seams, fasteners, wear —
-        no change to the silhouette, the placement or the part list.
-
-        Offered by the stop policy only once the structure gates are clean
-        (``orchestrator.detail_blocked``); tracks that do not implement it set
-        ``supports_detail_round = False`` and are never offered the round."""
-        return [], []
-
     # ------------------------------------------------------------------ refine scaffold
-    def refine_tasks(self, ctx: RunContext, last: RoundRecord, history: Sequence[RoundRecord],
-                     *, strategy: Strategy = "same") -> tuple[list[GenerationTask], list[str]]:
-        """index → rebuild guard → instructions → groups → per-track ``_refine_task``.
+    def refine_tasks(self, ctx: RunContext, last: RoundRecord) -> tuple[list[GenerationTask], list[str]]:
+        """The round after ``last``: rebuild guard → instructions → groups → per-track ``_refine_task``.
 
-        ``strategy="switch"`` is what the loop asks for after a regression: the same
-        evidence, but ONE whole-artifact task instead of the per-part set that just
-        made the score worse (docs/COST.md §5 — repeating the shape is what the 19
-        regression rounds did)."""
-        index = len(history)
+        Always built on ``last`` — the previous round, whatever it scored (2026-09-22: no
+        refine-from-best, no whole-artifact rewrite after a regression)."""
+        index = last.index + 1
         if last.build is None or not last.build.ok:
             return [self._rebuild_task(ctx, last, index)], ["rebuild: previous round did not build"]
-        if strategy == "detail":
-            gen_tasks, lines = self.detail_tasks(ctx, last, index)
-            if gen_tasks:
-                ctx.events.emit("refine.planned", round=index, n_tasks=len(lines), n_groups=len(gen_tasks),
-                                parallel=len(gen_tasks) > 1, strategy="detail",
-                                targets=[t.files_hint for t in gen_tasks])
-                return gen_tasks, lines
-            return [], []  # the track offered no detail work: let the loop stop as it meant to
         tasks = build_refine_instructions(last.judgment, last.gates, failed_acceptance(ctx, last.judgment), ctx.plan,
                                           file_for_target=self.refine_file_for_target(ctx),
                                           max_tasks=ctx.policy.max_refine_tasks,
                                           extra=self.extra_refine_tasks(ctx, last))
         if not tasks:
             return [], []
-        if strategy == "switch":
-            tasks = [rewrite_task(last, best_score(history))] + tasks
-            groups, parallel = [TaskGroup(tasks=tasks, files=[])], False
-        else:
-            groups, parallel = plan_refine_groups(tasks, allow_fanout=self.allow_refine_fanout,
-                                                  parallel_min_tasks=ctx.policy.parallel_min_tasks)
+        groups, parallel = plan_refine_groups(tasks, allow_fanout=self.allow_refine_fanout,
+                                              parallel_min_tasks=ctx.policy.parallel_min_tasks)
         gen_tasks = [self._refine_task(ctx, g, last, index, parallel=parallel) for g in groups]
         ctx.events.emit("refine.planned", round=index, n_tasks=len(tasks), n_groups=len(groups), parallel=parallel,
-                        strategy=strategy, targets=[g.targets for g in groups])
+                        targets=[g.targets for g in groups])
         return gen_tasks, [t.line() for t in tasks]
 
     def _rebuild_task(self, ctx: RunContext, last: RoundRecord, index: int) -> GenerationTask:
@@ -365,7 +295,7 @@ class BaseTrack:
             runner = StageRunner(ws, events, state)
             events.emit("run.start", track=self.track.value, language=spec.language.value, resume=resume,
                         agent=ctx.agent_id, planner=spec.backends.planner, judge=spec.backends.judge)
-            stop: StopReason | str = "failed"
+            stop = RunStatus.FAILED
             error = ""
             try:
                 ctx.plan = runner.stage("plan", lambda: self._plan_stage(ctx), inputs={"spec": plan_stage_inputs(spec), "track": self.track.value},
@@ -375,7 +305,7 @@ class BaseTrack:
                 stop = self._round_loop(ctx, rounds)
             except BudgetExceeded as e:
                 events.emit("budget.exceeded", reason=e.reason, spent_usd=round(e.spent_usd, 4))
-                stop, error = "budget", e.reason
+                stop, error = RunStatus.BUDGET, e.reason
                 self._salvage_baseline(ctx, rounds)
             except Exception as e:  # noqa: BLE001 — persist a FAILED record, then fail loud
                 error = f"{type(e).__name__}: {e}"
@@ -383,12 +313,10 @@ class BaseTrack:
                 self._save_budget(ctx)  # mid-round charges must survive for resume
                 state.status, state.error = RunStatus.FAILED, error
                 state.save(ws)
-                rec = self._record(ctx, rounds, RunStatus.FAILED, error=error, stop_reason="failed")
+                rec = self._record(ctx, rounds, RunStatus.FAILED, error=error)
                 self.services.finalize_record(ws, rec)
                 raise
-            status = _STATUS.get(stop, RunStatus.FAILED)
-            rec = self.finalise(ctx, rounds, status, stop_reason=str(stop), error=error)
-            return rec
+            return self.finalise(ctx, rounds, stop, error=error)
 
     # ------------------------------------------------------------------ resume reconciliation
     def reconcile_resume(self, spec: Spec, ws: Workspace, events: EventLog, state: RunState,
@@ -518,8 +446,7 @@ class BaseTrack:
             budget.restore(BudgetSnapshot.model_validate(snap))
         _reconcile_billed_from_ledger(budget, ws, events)
         policy = self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds)
-        policy = replace(policy, n_candidates=self._resolve_candidates(spec, settings), judge_model=spec.backends.judge,
-                         detail_rounds=detail_round_budget(policy, self.supports_detail_round))
+        policy = replace(policy, n_candidates=self._resolve_candidates(spec, settings))
         # reference images: static objects are scored with reference_v1 (adds the measured silhouette
         # criterion); other tracks keep their rubric but the judge still sees the references.
         rubric = REFERENCE_RUBRIC if spec.references and self.track is Track.STATIC_OBJECT else self.rubric
@@ -556,7 +483,7 @@ class BaseTrack:
         return self.services.judge(ctx.rubric, ctx.spec.backends.judge, n_samples=n_samples)
 
     def after_plan(self, ctx: RunContext) -> None:
-        """Bind judge / generator backends once the plan exists (rubric threshold → policy target)."""
+        """Bind judge / generator backends once the plan exists."""
         if ctx.judge is None:
             ctx.judge = self.make_judge(ctx)
         # provenance: the judge protocol (role prompt + rig rules + wire schema) is hashed
@@ -564,11 +491,6 @@ class BaseTrack:
         judge_hash = getattr(ctx.judge, "prompt_hash", "")
         if isinstance(judge_hash, str) and judge_hash:
             ctx.prompt_hashes["judge"] = judge_hash
-        # the rubric's pass threshold is the stop target whenever the rubric states one —
-        # for an injected policy too (the CLI used to re-derive it; one binding now)
-        thr = self.services.rubric_threshold(ctx.rubric)
-        if thr is not None:
-            ctx.policy = replace(ctx.policy, target=float(thr))
         if ctx.single_shot:
             if ctx.model is None:
                 ctx.model = self.services.chat_model(single_shot_model_id(ctx.agent_id))
@@ -623,22 +545,30 @@ class BaseTrack:
         return (harness + "\n\n" + ctx.contract_text).strip()
 
     # ------------------------------------------------------------------ round loop
-    def _round_loop(self, ctx: RunContext, rounds: list[RoundRecord]) -> StopReason:
+    def _round_loop(self, ctx: RunContext, rounds: list[RoundRecord]) -> RunStatus:
+        """The baseline, then ``max_rounds`` refine rounds — each built on the round before it.
+
+        FIXED rounds (owner, 2026-09-22): the judge scores every round and its verdict shapes
+        the next round's tasks, but nothing here decides that another round is not worth
+        buying.  The run stops early only on the clock (``BudgetGuard``) or a hard failure:
+        the vendor's quota, a refine round whose sessions changed nothing, or a last round
+        that leaves nothing to ask for (no gate error, no failed must-item, no judge plan) or
+        no verdict to ask from."""
         self.ensure_materialized(ctx)
         pipeline = self.make_pipeline()
-        stop_policy = StopPolicy(ctx.policy)
         rejudged: set[int] = set()
         transport_retried: set[int] = set()
+
+        def _stop(reason: RunStatus) -> RunStatus:
+            ctx.events.emit("stop", reason=reason.value, rounds=len(rounds), best=ctx.state.best_round)
+            return reason
+
         while True:
-            decision = stop_policy.evaluate(rounds, budget_ok=ctx.budget.ok())
-            if decision.stop:
-                ctx.events.emit("stop", rounds=len(rounds), best=ctx.state.best_round, **decision.event())
-                return decision.reason
-            if decision.strategy == "switch":
-                # the last round regressed by more than the judge's noise: one round of a
-                # DIFFERENT shape (whole-artifact rewrite), never another of the same.
-                ctx.events.emit("strategy.switch", round=len(rounds), reason="regression", detail=decision.detail)
             index = len(rounds)
+            if index > ctx.policy.max_rounds:  # the baseline + max_rounds refine rounds all ran
+                return _stop(RunStatus.MAX_ROUNDS)
+            if not ctx.budget.ok():
+                return _stop(RunStatus.BUDGET)
             previous = rounds[-1].judgment if rounds else None
             if index == 0:
                 ctx.state.status = RunStatus.GENERATING
@@ -653,19 +583,14 @@ class BaseTrack:
                     prev_j = rounds[-2].judgment if len(rounds) > 1 else None
                     if rejudge_round(ctx, pipeline, last, previous=prev_j):
                         self._promote_best(ctx, rounds, last.index)
-                        continue  # decide() re-runs with the recovered score
-                last = self._refine_base(ctx, rounds, decision.strategy)
-                previous = last.judgment
-                tasks, instructions = self.refine_tasks(ctx, last, rounds, strategy=decision.strategy)
-                kind = KIND_FOR_STRATEGY.get(decision.strategy, "refine")
+                        continue  # plan the next round from the recovered verdict
+                tasks, instructions = self.refine_tasks(ctx, last)
+                kind = "refine"
                 if not tasks:
-                    if last.judgment is None and last.build is not None and last.build.ok:
-                        # no tasks only because the judge never scored the round: stopping
-                        # as 'plateau' would blame the code for a judge glitch
-                        ctx.events.emit("stop", reason="judge_unavailable", rounds=len(rounds), best=ctx.state.best_round)
-                        return "judge_unavailable"
-                    ctx.events.emit("stop", reason="no_refine_tasks", rounds=len(rounds))
-                    return "plateau"
+                    # no gate error, no failed must-item, no judge plan: nothing to ask for.  When
+                    # that is only because the judge never scored the round, say so.
+                    unjudged = last.judgment is None and last.build is not None and last.build.ok
+                    return _stop(RunStatus.JUDGE_UNAVAILABLE if unjudged else RunStatus.NO_REFINE_TASKS)
             ctx.state.current_round = index
             ctx.state.save(ctx.ws)
             try:
@@ -674,36 +599,33 @@ class BaseTrack:
                 else:
                     rec = run_round(ctx, index=index, kind=kind, tasks=tasks, pipeline=pipeline, instructions=instructions,
                                     previous=previous, files_hint=self.round_files_hint(ctx),
-                                    extra_notes=self.round_extra_notes(ctx), previous_best=best_score(rounds))
+                                    extra_notes=self.round_extra_notes(ctx))
             except RoundFailed as e:
                 if looks_quota(str(e)):
                     # The vendor's own usage limit: not a transport death (a retry meets the
-                    # same wall) and not a plateau (the code did not stop improving) — the
-                    # agent is gone until the limit resets.  cmp8 (2026-09-09): three runs
-                    # filed "plateau" on "You've hit your usage limit … try again at Sep 14th".
+                    # same wall) — the agent is gone until the limit resets.  cmp8
+                    # (2026-09-09): three runs filed a plateau on "You've hit your usage
+                    # limit … try again at Sep 14th".
                     ctx.events.emit("round.agent_quota", round=index, detail=str(e)[:500])
                     if index == 0:
                         raise
-                    ctx.events.emit("stop", reason="agent_quota", rounds=len(rounds), best=ctx.state.best_round)
-                    return "agent_quota"
+                    return _stop(RunStatus.AGENT_QUOTA)
                 if index not in transport_retried and looks_transport(str(e)):
                     # A vendor-CLI crash / 503 storm / dropped socket is not an agent
                     # verdict — the session never really happened.  Re-run the SAME
                     # round once, baseline included (rc=247 alone killed three whole
                     # runs on 2026-08-29), before letting the failure mean anything.
-                    # ``continue`` re-enters through StopPolicy, so the budget and
+                    # ``continue`` re-enters through the loop head, so the budget and
                     # round ceilings still guard the retry.
                     transport_retried.add(index)
                     ctx.events.emit("round.transport_retry", round=index, detail=str(e)[:500])
                     continue
                 if index == 0:
                     raise
-                # A refine round in which no task changed any file is not a crash: the
-                # agents judged the requested edits unnecessary (or bailed).  Treat it as
-                # a plateau signal so the best round so far is delivered.
+                # every session of a refine round failed or changed nothing: the next round
+                # would be asked the same thing from the same code
                 ctx.events.emit("round.no_change", round=index, detail=str(e)[:500])
-                ctx.events.emit("stop", reason="no_change", rounds=len(rounds), best=ctx.state.best_round)
-                return "plateau"
+                return _stop(RunStatus.NO_CHANGE)
             rounds.append(rec)
             # ONE save, AFTER the best is chosen — never a durable "round done" with a
             # not-yet-updated best.  Saving the round first (an earlier attempt at
@@ -714,29 +636,6 @@ class BaseTrack:
             # reconcile detects (stale) and repairs by re-ranking; that is the safe side.
             ctx.state.mark_round_done(index, rec.commit)
             self._promote_best(ctx, rounds, index)
-
-    @staticmethod
-    def _refine_base(ctx: RunContext, rounds: list[RoundRecord], strategy: str) -> RoundRecord:
-        """The round the next refine builds on.  The last one — unless it regressed past the
-        judge's noise (StopPolicy's ``switch``) and a better round exists: then ``src/`` is
-        restored to that best round and its record is the base, so the session works from
-        the best code and the best verdict's issues rather than from a worse attempt's.
-        Measured 2026-09-09 (loop 22): 0.66 → 0.61 → 0.47 and 0.60 → 0.32, each refine
-        building on the round before it, the regressions compounding while the best sat in
-        git; the finalise restore then delivered r0 after two paid rounds of drift."""
-        last = rounds[-1]
-        best = ctx.state.best_round
-        if strategy != "switch" or best is None or best >= len(rounds) or best == last.index:
-            return last
-        commit = rounds[best].commit
-        if not commit or not ctx.ws.has_commit(commit):
-            return last
-        if ctx.ws.head() != commit or ctx.ws.changed_files():
-            ctx.ws.restore(commit)
-            ctx.ws.commit(f"restore best round r{best:02d} before refine")
-        ctx.events.emit("round.refine_from_best", round=len(rounds), best=best, regressed=last.index,
-                        best_score=rounds[best].score, last_score=last.score)
-        return rounds[best]
 
     def _promote_best(self, ctx: RunContext, rounds: list[RoundRecord], index: int) -> None:
         """Rank round ``index`` in (pairwise tie-break included), promote the best, save."""
@@ -782,7 +681,7 @@ class BaseTrack:
         ctx.state.save(ctx.ws)
 
     # ------------------------------------------------------------------ finalise
-    def finalise(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, stop_reason: str, error: str = "") -> RunRecord:
+    def finalise(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, error: str = "") -> RunRecord:
         self._save_budget(ctx)  # aborted-round / stage charges must survive for resume
         best = ctx.state.best_round
         rebuild_err = ""
@@ -811,11 +710,11 @@ class BaseTrack:
             ctx.extra["finalise_rebuild_failed"] = ""
         if rounds and not rebuild_err and self._texture_wanted(ctx):
             self._texture_pass(ctx)
-        ctx.state.status, ctx.state.stop_reason, ctx.state.error = status, stop_reason, error
+        ctx.state.status, ctx.state.stop_reason, ctx.state.error = status, status.value, error
         self._save_budget(ctx)  # saves state too — AFTER the texture pass charged
-        rec = self._record(ctx, rounds, status, error=error, stop_reason=stop_reason)
+        rec = self._record(ctx, rounds, status, error=error)
         self.services.finalize_record(ctx.ws, rec)
-        ctx.events.emit("run.done", status=status.value, stop=stop_reason, best_round=rec.best_round,
+        ctx.events.emit("run.done", status=status.value, best_round=rec.best_round,
                         final_score=rec.final_score, cost_usd=round(rec.total_usage.cost_usd, 4))
         return rec
 
@@ -915,7 +814,7 @@ class BaseTrack:
         except Exception:  # noqa: BLE001 — a malformed report must not block texturing
             return False
 
-    def _record(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, error: str, stop_reason: str) -> RunRecord:
+    def _record(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, error: str) -> RunRecord:
         best = ctx.state.best_round
         baseline = rounds[0].score if rounds else None
         final = rounds[best].score if best is not None and best < len(rounds) else None
@@ -925,7 +824,7 @@ class BaseTrack:
         if ctx.budget.spent.cost_usd > total.cost_usd:
             total = ctx.budget.spent
         cands = ctx.ws.root / "rounds" / "candidates.json"  # best-of-N summary: the file is the one copy
-        extra: dict[str, Any] = {"stop_reason": stop_reason, "rubric": ctx.rubric, "budget": ctx.budget.summary(),
+        extra: dict[str, Any] = {"stop_reason": status.value, "rubric": ctx.rubric, "budget": ctx.budget.summary(),
                                  "n_candidates": ctx.policy.n_candidates,
                                  "candidates": ctx.ws.read_json(cands) if cands.is_file() else None,
                                  "cost_by_stage": ctx.budget.stage_summary()}
@@ -977,14 +876,3 @@ class BaseTrack:
         return (dict(extra) if isinstance(extra, dict) else {},
                 {str(k): str(v) for k, v in hashes.items()} if isinstance(hashes, dict) else {})
 
-
-def rewrite_task(last: RoundRecord, best: float | None) -> RefineTask:
-    """The instruction that turns a repeat into a change of approach."""
-    was = f"{last.score:.3f}" if last.score is not None else "no score"
-    peak = f"{best:.3f}" if best is not None else "the earlier best"
-    return RefineTask(
-        target="overall", kind="rewrite", priority=0, source="judge",
-        instruction=(f"The previous round made the artifact WORSE ({was} against {peak}) — its edits are not the "
-                     "way forward. Do NOT repeat them part by part: re-read the plan and the failures below, then "
-                     "rewrite the whole artifact coherently, keeping only what the evidence shows was already right."),
-    )

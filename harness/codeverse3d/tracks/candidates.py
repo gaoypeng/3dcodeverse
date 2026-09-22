@@ -1,39 +1,34 @@
-"""Best-of-N baseline and pairwise best-round selection (track side).
+"""Best-of-N baseline (track side).
 
-* ``run_best_of_n`` — N baseline candidates are generated IN PARALLEL, each in
-  its own throw-away sub-workspace (``<ws>/_cand/c<k>``: own git repo, copy of
-  the skeleton + spec + plan, own AGENTS.md/MCP config), built (+repair),
-  gated, quick-rendered (4 views) and judged (n_samples=1) — the ordinary round
-  (``steps._run_round``, kind ``candidate``) with two knobs turned: ``quick_render``
-  in place of ``pipeline.render`` and no clay views.  Each candidate's round trace
-  goes to its own ``events.jsonl``; the run log carries ``candidate.*``.  The winner
-  (quick score → fewer gate errors; a pairwise tie-break when the top two are
-  within judge noise) is copied back into the run workspace and the ordinary
-  round-0 pipeline (build → gates → 14-view render → full judge) runs on it.
-  Every candidate is charged to the run budget and persisted in
-  ``rounds/candidates.json``.
-* ``choose_best_round`` — after each round: when the new score is within
-  ``policy.pairwise_margin`` of the current best, a position-swapped pairwise
-  comparison decides (confidence ≥ ``policy.pairwise_min_confidence`` to replace).
+``run_best_of_n`` — N baseline candidates are generated IN PARALLEL, each in its own
+throw-away sub-workspace (``<ws>/_cand/c<k>``: own git repo, copy of the skeleton + spec +
+plan, own AGENTS.md/MCP config), built (+repair), gated, quick-rendered (4 views) and
+judged (n_samples=1) — the ordinary round (``steps._run_round``, kind ``candidate``) with
+two knobs turned: ``quick_render`` in place of ``pipeline.render`` and no clay views.  Each
+candidate's round trace goes to its own ``events.jsonl``; the run log carries
+``candidate.*``.  The winner — built, then the highest quick score, then fewer gate errors,
+then the earlier candidate — is copied back into the run workspace and the ordinary
+round-0 pipeline (build → gates → 14-view render → full judge) runs on it.  That is the
+ONE choice the loop still makes (2026-09-22: no pairwise tie-break, no best round).
+Every candidate is charged to the run budget and persisted in ``rounds/candidates.json``.
 """
 
 from __future__ import annotations
 
 import logging
 import shutil
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.artifacts import BuildResult, Measurement, RenderSet
 from codeverse3d.contracts.common import Usage
-from codeverse3d.contracts.run import PairwiseNote, RoundRecord
+from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK
-from codeverse3d.cost.types import Stage
 from codeverse3d.orchestrator import BudgetExceeded, gate_error_count, pick_best_round
 from codeverse3d.proc import EventLog, fan_out
 from codeverse3d.tracks.common import RunContext
@@ -42,7 +37,6 @@ from codeverse3d.tracks.steps import (
     RoundFailed,
     RoundPipeline,
     _run_round,
-    round_record_path,
     run_round,
 )
 from codeverse3d.workspace import Workspace
@@ -62,7 +56,7 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
     ctx.ws.ensure_gitignore()   # legacy run dirs may predate _cand/ in the standard lines
     subs = [make_candidate_context(track, ctx, k) for k in range(n)]
 
-    def _one(k: int) -> tuple[CandidateRecord, RenderSet | None]:
+    def _one(k: int) -> CandidateRecord:
         sub, label = subs[k], f"c{k}"
         ctx.events.emit("candidate.start", candidate=k, workspace=str(sub.ws.root))
         # kind="candidate" is what the cost ledger files the sessions under (Stage.CANDIDATE)
@@ -76,7 +70,7 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
                                notes=rec.notes)
         ctx.events.emit("candidate.done", candidate=k, score=cand.score, build_ok=build_ok, gate_errors=cand.gate_errors,
                         duration_s=cand.duration_s, cost_usd=round(rec.usage.cost_usd, 4), commit=rec.commit[:10])
-        return cand, rec.renders
+        return cand
 
     results = fan_out(list(range(n)), _one, max_workers=ctx.settings.limits.max_parallel_agents, label="candidates",
                       item_name=lambda k: f"c{k}")
@@ -91,7 +85,6 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
         for k, r in zip(retry, again, strict=True):
             results[k] = r
     records: list[CandidateRecord] = []
-    renders: dict[int, RenderSet] = {}
     budget_stop: BudgetExceeded | None = None
     for k, r in enumerate(results):
         if isinstance(r, Exception):
@@ -104,22 +97,16 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
                                            notes=f"{type(r).__name__}: {r}"[:300]))
             ctx.events.emit("candidate.failed", candidate=k, error=f"{type(r).__name__}: {r}"[:300])
             continue
-        rec, rs = r
-        records.append(rec)
-        if rs is not None:
-            renders[k] = rs
+        records.append(r)
     if not any(r.commit for r in records):
         if budget_stop is not None:
             raise budget_stop  # nothing usable survived: the budget stop stands
         raise RoundFailed("; ".join(f"{r.label}: {r.notes}" for r in records) or "every candidate failed")
-    best, note = select_candidate(ctx, records, renders)
+    best = rank_candidates(records)[0]
     records[best].selected = True
     usage = sum((r.usage for r in records), Usage())
-    if note is not None:
-        usage = usage + note.usage
     ctx.ws.write_json(ctx.ws.root / "rounds" / "candidates.json",
-                      {"n": n, "selected": best, "candidates": [r.model_dump(mode="json") for r in records],
-                       "pairwise": note.model_dump(mode="json") if note else None})
+                      {"n": n, "selected": best, "candidates": [r.model_dump(mode="json") for r in records]})
     ctx.events.emit("candidate.selected", round=0, candidate=best, label=records[best].label, score=records[best].score,
                     build_ok=records[best].build_ok, scores={r.label: r.score for r in records},
                     cost_usd=round(usage.cost_usd, 4))
@@ -129,8 +116,6 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
                        for r in records if r.index != best)
     notes = [f"best-of-{n}: selected {records[best].label} "
              f"(quick score {records[best].score if records[best].score is None else round(records[best].score, 3)}; others: {others or '-'})"]
-    if note is not None:
-        notes.append(note.line())
     ctx.budget.check()  # boundary: the winner is adopted + persisted; a real ceiling stop lands here
     return run_round(ctx, index=0, kind="baseline", tasks=[], pipeline=pipeline, files_hint=list(files_hint),
                      extra_usage=usage, extra_notes=notes)
@@ -196,27 +181,6 @@ def quick_render(ctx: RunContext, round_index: int, build: BuildResult, measurem
         return None
 
 
-def select_candidate(ctx: RunContext, records: Sequence[CandidateRecord], renders: dict[int, RenderSet]) -> tuple[int, PairwiseNote | None]:
-    """Best candidate index (+ pairwise note when the top two were within judge noise)."""
-    order = rank_candidates(records)
-    best = order[0]
-    if len(order) < 2:
-        return best, None
-    a, b = records[order[0]], records[order[1]]
-    if not (a.build_ok and b.build_ok and a.index in renders and b.index in renders):
-        return best, None
-    compare = _pairwise_fn(ctx, renders[a.index], renders[b.index])
-    decision, note = decide_best(a.score, b.score, margin=ctx.policy.pairwise_margin,
-                                 min_confidence=ctx.policy.pairwise_min_confidence, compare=compare, labels=(a.label, b.label))
-    if note is not None:
-        ctx.budget.add(note.usage, stage=Stage.PAIRWISE)  # post-hoc: a finished comparison
-        ctx.events.emit("pairwise.done", stage="candidates", a=note.a, b=note.b, winner=note.winner, confidence=note.confidence,
-                        accepted=note.accepted, error=note.error, cost_usd=round(note.usage.cost_usd, 4))
-    if decision == "pairwise":
-        best = b.index
-    return best, note
-
-
 def adopt_candidate(ctx: RunContext, sub_ws: Workspace) -> None:
     """Copy the winner's src/ + public/ into the run workspace and keep its trajectories."""
     for rel in ("src", "public"):
@@ -232,33 +196,10 @@ def adopt_candidate(ctx: RunContext, sub_ws: Workspace) -> None:
         shutil.copytree(sub_ws.trajectories, ctx.ws.trajectories, dirs_exist_ok=True)
 
 
-# ----------------------------------------------------------------------------- best round (pairwise tie-break)
+# ----------------------------------------------------------------------------- best round
 def choose_best_round(ctx: RunContext, rounds: list[RoundRecord], new_index: int) -> int | None:
-    """Index of the best round after ``rounds[new_index]`` finished.
-
-    Ordinary ranking (score → fewer gate errors) unless the new round's score is
-    within ``policy.pairwise_margin`` of the current best: then a pairwise
-    comparison of the two render sets decides, and the new round replaces the
-    best only when it wins with ``confidence ≥ policy.pairwise_min_confidence``.
-    The verdict is stored on the round (``RoundRecord.pairwise``, plus a notes line)
-    and re-persisted; the decision itself is :func:`replay_best_round` over the journal,
-    so the live pick and any later resume replay the SAME sequential rule."""
-    incumbent = ctx.state.best_round
-    if incumbent is not None and incumbent < len(rounds) and incumbent != new_index:
-        inc, new = rounds[incumbent], rounds[new_index]
-        if new.score is not None and inc.score is not None:
-            compare = _pairwise_fn(ctx, inc.renders, new.renders) if (inc.renders and new.renders) else None
-            _, note = decide_best(inc.score, new.score, margin=ctx.policy.pairwise_margin,
-                                  min_confidence=ctx.policy.pairwise_min_confidence, compare=compare,
-                                  labels=(f"r{incumbent:02d}", f"r{new_index:02d}"))
-            if note is not None:
-                ctx.budget.add(note.usage, stage=Stage.PAIRWISE)  # post-hoc
-                new.usage = new.usage + note.usage
-                new.pairwise = note
-                new.notes = (new.notes + "; " if new.notes else "") + note.line()
-                ctx.ws.write_json(round_record_path(ctx, new_index), new)
-                ctx.events.emit("pairwise.done", stage="rounds", a=note.a, b=note.b, winner=note.winner, confidence=note.confidence,
-                                accepted=note.accepted, error=note.error, cost_usd=round(note.usage.cost_usd, 4))
+    """Index of the best round after ``rounds[new_index]`` finished (no pairwise tie-break is
+    bought any more; verdicts stored by earlier runs are still honoured by the replay)."""
     return replay_best_round(rounds)
 
 
@@ -282,17 +223,6 @@ def replay_best_round(journal: Sequence[RoundRecord]) -> int | None:
         elif pick_best_round([journal[best], rec]) == 1:
             best = i
     return best
-
-
-def _pairwise_fn(ctx: RunContext, renders_a: RenderSet | None, renders_b: RenderSet | None):
-    if renders_a is None or renders_b is None:
-        return None
-
-    def _compare() -> Any:
-        judge = ctx.services.pairwise(ctx.spec.backends.judge)
-        return judge.compare(ctx.spec, renders_a, renders_b, rubric=ctx.rubric)
-
-    return _compare
 
 
 # ===================================================================== decision logic
@@ -321,56 +251,5 @@ def rank_candidates(records: Sequence[CandidateRecord]) -> list[int]:
     return [r.index for r in sorted(records, key=lambda r: r.sort_key(), reverse=True)]
 
 
-Decision = Literal["score", "pairwise", "keep"]
-
-#: ``compare()`` → any object with ``winner`` ('a'|'b'|'tie'), ``confidence``, ``reasons``, ``usage``.
-CompareFn = Callable[[], Any]
-
-
-def within_margin(a: float | None, b: float | None, margin: float) -> bool:
-    return a is not None and b is not None and abs(a - b) <= margin
-
-
-def decide_best(
-    incumbent_score: float | None,
-    challenger_score: float | None,
-    *,
-    margin: float,
-    min_confidence: float,
-    compare: CompareFn | None,
-    labels: tuple[str, str] = ("best", "new"),
-) -> tuple[Decision, PairwiseNote | None]:
-    """Should the challenger replace the incumbent?
-
-    * scores differ by more than ``margin`` → ``"score"`` (caller uses the
-      ordinary ranking rule);
-    * within the margin and ``compare`` given → run it; ``"pairwise"`` when the
-      challenger wins with ``confidence ≥ min_confidence``, else ``"keep"``;
-    * within the margin without a comparator → ``"keep"`` (ties go to the
-      incumbent: fewer regenerations, stable best commit).
-    """
-    if incumbent_score is None or challenger_score is None:
-        return "score", None
-    if not within_margin(incumbent_score, challenger_score, margin):
-        return "score", None
-    note = PairwiseNote(a=labels[0], b=labels[1])
-    if compare is None:
-        return "keep", note
-    try:
-        res = compare()
-    except Exception as e:  # noqa: BLE001 — a judge outage must not pick a worse round
-        log.warning("pairwise tie-break failed: %s", e)
-        note.error = f"{type(e).__name__}: {e}"
-        return "keep", note
-    note.winner = getattr(res, "winner", "tie")
-    note.confidence = float(getattr(res, "confidence", 0.0) or 0.0)
-    note.reasons = list(getattr(res, "reasons", []) or [])[:6]
-    note.usage = getattr(res, "usage", None) or Usage()
-    note.error = getattr(res, "error", "") or ""
-    note.accepted = note.winner == "b" and note.confidence >= min_confidence
-    return ("pairwise" if note.accepted else "keep"), note
-
-
-__all__ = ["CAND_DIR", "CandidateRecord", "adopt_candidate", "choose_best_round", "decide_best",
-           "make_candidate_context", "quick_render", "rank_candidates", "replay_best_round", "run_best_of_n",
-           "select_candidate"]
+__all__ = ["CAND_DIR", "CandidateRecord", "adopt_candidate", "choose_best_round", "make_candidate_context",
+           "quick_render", "rank_candidates", "replay_best_round", "run_best_of_n"]

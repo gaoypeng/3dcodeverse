@@ -21,7 +21,7 @@ from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import FakeAgent, FakeJudge, FakeRuntime, FakeServices
 
 TEMPLATES = {"plan_static", "plan_articulated", "plan_scene", "generate_static", "generate_articulated", "refine_object", "repair",
-             "generate_static_part", "assemble_static", "detail_object",
+             "generate_static_part", "assemble_static",
              "scene_asset", "scene_env", "scene_zone", "scene_refine"}
 
 

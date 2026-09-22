@@ -108,7 +108,7 @@ def make_fake_run(
             build=BuildResult(ok=True, language=language.value),
         ))
     (ws.artifacts / "object.glb").write_bytes(b"glTF\x02\x00\x00\x00" + b"\0" * 16)
-    rec = RunRecord(spec=spec, workspace=str(ws.root), status=RunStatus.PASSED if scores[-1] >= 0.75 else RunStatus.PLATEAU,
+    rec = RunRecord(spec=spec, workspace=str(ws.root), status=RunStatus.MAX_ROUNDS,
                     rounds=rounds, best_round=1, baseline_score=scores[0], final_score=scores[1],
                     total_usage=Usage(cost_usd=0.06, input_tokens=2000, output_tokens=1000),
                     finished_at=datetime.now(UTC),

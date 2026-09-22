@@ -136,14 +136,14 @@ def test_a_failed_finalise_rebuild_cannot_finalize_silently(tmp_path, chair_plan
                               agent=FakeAgent(_writer), planner_model=_planner(chair_plan.model_dump(mode="json")),
                               settings=settings, runtime=RebuildFailsRuntime(Language.THREEJS))
     rec = track.run(spec, ws)
-    assert rec.status is RunStatus.PLATEAU and rec.best_round == 0            # the earned status stays
+    assert rec.status is RunStatus.MAX_ROUNDS and rec.best_round == 0         # the earned status stays
     assert rec.final_score == pytest.approx(0.7)                              # ...and so do the paid scores
     assert rec.error.startswith("finalise rebuild failed: Timeout")
     assert "runtime crashed on rebuild" in rec.extra["finalise_rebuild_failed"]
     assert not (ws.artifacts / "object.glb").is_file()
     assert textured == [], "the texture pass must not run against a missing GLB"
     on_disk = json.loads(ws.record_path.read_text())
-    assert on_disk["error"].startswith("finalise rebuild failed") and on_disk["status"] == "plateau"
+    assert on_disk["error"].startswith("finalise rebuild failed") and on_disk["status"] == "max_rounds"
     ev = [e for e in EventLog(ws.events_path).read() if e["event"] == "finalise.rebuild"]
     assert ev and ev[-1]["ok"] is False
 
@@ -186,7 +186,7 @@ def test_degraded_verdict_never_scores_and_run_stops_as_judge_unavailable(tmp_pa
     rec = track.run(spec, ws)
     assert rec.rounds[1].judgment is None and rec.rounds[1].score is None  # never 0.0
     assert rec.best_round == 0 and rec.final_score == pytest.approx(0.65)
-    assert rec.extra["stop_reason"] == "judge_unavailable" and rec.status is RunStatus.PLATEAU
+    assert rec.extra["stop_reason"] == "judge_unavailable" and rec.status is RunStatus.JUDGE_UNAVAILABLE
     kinds = [e["event"] for e in EventLog(ws.events_path).read()]
     assert "judge.degraded" in kinds and "judge.retry" in kinds
     # the degraded summary never reaches a refine prompt
@@ -213,10 +213,10 @@ def test_degraded_verdict_recovers_via_rejudge_of_same_commit(tmp_path, chair_pl
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
                               runtime=FakeRuntime(Language.THREEJS))
     rec = track.run(spec, ws)
-    assert rec.status is RunStatus.PASSED and rec.best_round == 1
-    assert rec.rounds[1].score == pytest.approx(0.85)
-    # the recovery re-judged the SAME commit: exactly 2 generation rounds ran
-    assert [j.round for j in agent.jobs] == [0, 1]
+    assert rec.status is RunStatus.MAX_ROUNDS
+    assert [r.score for r in rec.rounds] == pytest.approx([0.55, 0.85, 0.85, 0.85])
+    # the recovery re-judged the SAME commit: every round was generated exactly once
+    assert [j.round for j in agent.jobs] == [0, 1, 2, 3]
     saved = RoundRecord.model_validate(json.loads((ws.root / "rounds" / "r01.json").read_text()))
     assert saved.judgment is not None and saved.judgment.overall == pytest.approx(0.85)
     # audit f2: the recovery re-emits a CORRECTED cost.round so the audit stream stops
@@ -240,7 +240,7 @@ def test_resume_with_raised_budget_does_not_replan_or_reskeleton(tmp_path, chair
     services = FakeServices()
     mk = lambda: StaticObjectTrack(services=services, judge=FakeJudge(scores=(0.5, 0.6, 0.9)), agent=FakeAgent(_writer),  # noqa: E731
                                    planner_model=planner, settings=settings, runtime=FakeRuntime(Language.THREEJS),
-                                   policy=RoundPolicy(max_rounds=1, target=0.8))
+                                   policy=RoundPolicy(max_rounds=1))
     mk().run(spec, ws)
     n_plan_calls = len(planner.requests)
     src_before = (ws.src / "object.js").read_text()
@@ -300,7 +300,7 @@ def test_scene_refine_emits_rebuild_task_when_build_failed(tmp_path, settings):
                                          error_message="Cannot read properties of undefined (reading 'update')",
                                          error_file="src/zones/quay.js"),
                        gates=[GateReport(gate="lint:scene_threejs", passed=True)])
-    tasks, instructions = track.refine_tasks(ctx, last, [last])
+    tasks, instructions = track.refine_tasks(ctx, last)
     assert len(tasks) == 1 and tasks[0].kind == "rebuild"
     assert tasks[0].files_hint == ["src/zones/quay.js"]
     assert "ProbeError" in tasks[0].prompt and "Cannot read properties" in tasks[0].prompt
@@ -343,7 +343,7 @@ def test_scene_frames_gate_errors_flow_into_refine_instructions(tmp_path, settin
                     data={"kind": "dark_frame"})])
     last = RoundRecord(index=0, kind="baseline", build=BuildResult(ok=True, language="scene_threejs"),
                        gates=[GateReport(gate="lint:scene_threejs", passed=True), frames])
-    tasks, instructions = track.refine_tasks(ctx, last, [last])
+    tasks, instructions = track.refine_tasks(ctx, last)
     assert tasks, "a scene_frames ERROR must produce a refine task"
     joined = "\n".join(instructions)
     assert "dark" in joined and "FIX: raise ambient" in joined

@@ -22,10 +22,8 @@ from codeverse3d.orchestrator import (
     BudgetExceeded,
     BudgetGuard,
     RefineTask,
-    RoundPolicy,
     RunState,
     StageRunner,
-    StopPolicy,
     build_refine_instructions,
     hash_inputs,
     pick_best_round,
@@ -147,28 +145,11 @@ def test_stage_runner_raises_and_records_nothing(tmp_ws):
     assert hash_inputs({"a": [1, 2]}) == hash_inputs({"a": (1, 2)})
 
 
-# ----------------------------------------------------------------------------- stop policy
+# ----------------------------------------------------------------------------- best round
 def _round(i: int, score: float | None, errors: int = 0, build_ok: bool = True) -> RoundRecord:
     j = Judgment(rubric="r", scores={"a": score}, overall=score, passed=score >= 0.8) if score is not None else None
     gates = [GateReport(gate="g", passed=errors == 0, findings=[GateFinding(gate="g", severity=Severity.ERROR, message="e")] * errors)]
     return RoundRecord(index=i, kind="x", judgment=j, gates=gates, build=BuildResult(ok=build_ok, language="l"), commit=f"c{i}")
-
-
-def test_stop_policy_decisions():
-    sp = StopPolicy(RoundPolicy(max_rounds=3, plateau_window=2, min_delta=0.02, target=0.8))
-    assert sp.evaluate([]).reason == "continue"
-    assert sp.evaluate([_round(0, 0.5)]).reason == "continue"
-    assert sp.evaluate([_round(0, 0.5)], budget_ok=False).reason == "budget"
-    assert sp.evaluate([_round(0, 0.5), _round(1, 0.85)]).reason == "pass"
-    # three flat rounds: from r03 on the marginal-value stop answers first (both stop;
-    # "diminishing_returns" is the more precise reason — see test_round_economics.py)
-    assert sp.evaluate([_round(0, 0.5), _round(1, 0.51), _round(2, 0.515)]).reason == "diminishing_returns"
-    flat = StopPolicy(RoundPolicy(max_rounds=3, plateau_window=2, min_delta=0.02, target=0.8, marginal_from_round=99))
-    assert flat.evaluate([_round(0, 0.5), _round(1, 0.51), _round(2, 0.515)]).reason == "plateau"
-    assert sp.evaluate([_round(0, 0.5), _round(1, 0.6), _round(2, 0.7)]).reason == "continue"
-    assert sp.evaluate([_round(0, 0.5), _round(1, 0.6), _round(2, 0.7), _round(3, 0.75)]).reason == "max_rounds"
-    # unscored rounds (build failed) do not count as plateau evidence
-    assert sp.evaluate([_round(0, 0.5), _round(1, None, build_ok=False), _round(2, None, build_ok=False)]).reason == "continue"
 
 
 def test_pick_best_round_prefers_score_then_fewer_errors_then_recency():

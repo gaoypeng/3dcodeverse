@@ -45,7 +45,7 @@ def _fake_run_fn(scores_by_id: dict[str, tuple[float, float]], fail_ids: set[str
                                  scores=scores_by_id.get(pid, (0.5, 0.7)))
         rec.spec = spec
         ws.write_json(ws.spec_path, spec)
-        rec.status = RunStatus.PASSED if rec.final_score and rec.final_score >= 0.75 else RunStatus.PLATEAU
+        rec.status = RunStatus.MAX_ROUNDS
         ws.write_json(ws.record_path, rec)
         return rec
     return run

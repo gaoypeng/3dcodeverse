@@ -48,7 +48,7 @@ def _track(status: RunStatus, stop_reason: str, rounds: int, cost: float, aborte
     (RunStatus.BUDGET, "budget", 0, 0.9, 1, True),    # never completed a round
     (RunStatus.BUDGET, "budget", 2, 1.5, 1, False),   # iterated twice: cut, but not degraded
 
-    (RunStatus.PASSED, "pass", 1, 0.8, 0, False),     # passed after one round: fine
+    (RunStatus.MAX_ROUNDS, "max_rounds", 1, 0.8, 0, False),  # ran every round it was given: fine
 ])
 def test_flag_degraded_rule(tmp_path, status, stop, rounds, cost, aborted, expect):
     battery = Battery.load(BATTERY)

@@ -66,15 +66,8 @@ class Services:
         """Reference photos beside the frames, no silhouette (graphics / scene with images)."""
         return _import("codeverse3d.judges.vlm_judge", "LikenessJudge")(model_id=model_id, n_samples=n_samples, rubric=rubric)
 
-    def pairwise(self, model_id: str) -> Any:
-        """Position-swapped A/B judge: ``.compare(spec, renders_a, renders_b, rubric=...)``."""
-        return _import("codeverse3d.judges.pairwise", "PairwiseJudge")(model_id)
-
     def runtime(self, language: Language) -> Any:
         return _import("codeverse3d.languages", "get_runtime")(language)
-
-    def rubric_threshold(self, rubric: str) -> float | None:
-        return getattr(_import("codeverse3d.judges.rubrics", "load_rubric")(rubric), "pass_threshold", None)
 
     # ---- spatial
     def measure(self, glb: Path) -> Measurement:

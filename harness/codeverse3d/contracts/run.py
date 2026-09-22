@@ -174,13 +174,27 @@ class RunId(BaseModel):
 
 
 class RunStatus(StrEnum):
+    """Where a run is — and once it has stopped, only WHY it stopped.  Never a verdict:
+    since 2026-09-22 a run is the baseline plus ``max_rounds`` refine rounds, cut short
+    only by the clock or a hard failure, and which round to hand over is a reader's
+    question (``codeverse3d.addons.select``)."""
+
     PLANNING = "planning"
     GENERATING = "generating"
     REFINING = "refining"
-    PASSED = "passed"
-    PLATEAU = "plateau"
-    BUDGET = "budget"
+    MAX_ROUNDS = "max_rounds"                # every round the budget asked for ran
+    BUDGET = "budget"                        # the wall clock (``max_minutes``) ran out
+    AGENT_QUOTA = "agent_quota"              # the vendor's usage limit, not ours
+    NO_CHANGE = "no_change"                  # a refine round's sessions all failed / changed nothing
+    NO_REFINE_TASKS = "no_refine_tasks"      # the last round left nothing to ask for
+    JUDGE_UNAVAILABLE = "judge_unavailable"  # the last round has no verdict, even after a re-judge
     FAILED = "failed"
+    #: a run recorded before 2026-09-22 that ended on a judgement stop (``passed`` / ``plateau``)
+    STOPPED = "stopped"
+
+    @classmethod
+    def _missing_(cls, value: object) -> RunStatus | None:
+        return cls.STOPPED if value in ("passed", "plateau") else None
 
 
 class PairwiseNote(BaseModel):

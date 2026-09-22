@@ -74,9 +74,9 @@ _LABEL_STAGES: tuple[tuple[str, Stage], ...] = (
     ("env", Stage.ENV),
     ("baseline", Stage.BASELINE),
     ("refine", Stage.REFINE),
-    # the static track's surface-detail round (labels "detail" / "detail_<scope>",
-    # lifecycle.DEFAULT_DETAIL_ROUNDS=1 so it runs by default) is a refine pass under
-    # another name; without this its ledger row AND generation.task_stage said "other"
+    # the static track's surface-detail round (labels "detail" / "detail_<scope>") was a
+    # refine pass under another name.  The round went on 2026-09-22; the row stays so the
+    # runs that recorded one still reconstruct its sessions as refine, not "other".
     ("detail", Stage.REFINE),
     ("candidate", Stage.CANDIDATE),
     ("cand", Stage.CANDIDATE),

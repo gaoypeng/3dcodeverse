@@ -551,11 +551,11 @@ def _finished_reason(ws, raised: dict) -> str:
     """Why this run must not be re-entered, or "" when resuming it is meaningful.
 
     A run that reached a terminal state has nothing to resume, and re-entering it is
-    destructive, not idempotent: `3dcode resume` on a run that ended stop_reason='pass'
-    re-ran the plan stage as a real billed model call and rewrote run_state.status from
-    'passed' back to 'planning', leaving a finished run stuck mid-pipeline while still
-    holding its best_score.  A BUDGET stop is the documented exception — raising a cap is
-    how you continue one — so it only blocks when no cap was raised.
+    destructive, not idempotent: `3dcode resume` on a finished run re-ran the plan stage
+    as a real billed model call and rewrote run_state.status back to 'planning', leaving
+    a finished run stuck mid-pipeline.  Two stops are the documented exceptions — raising
+    the cap a run stopped on is how you continue it: BUDGET (any raised cap) and
+    MAX_ROUNDS (a raised ``--rounds``; the run goes on from its last round).
     """
     from codeverse3d.contracts.run import RunStatus
     from codeverse3d.orchestrator import RunState, StateCorrupt
@@ -566,16 +566,16 @@ def _finished_reason(ws, raised: dict) -> str:
         return ""  # let the track report it the way it always has
     if state is None:
         return ""
-    if state.status in (RunStatus.PASSED, RunStatus.PLATEAU) or (
-        state.status is RunStatus.BUDGET and not raised
-    ):
-        detail = f"status={state.status.value}" + (
-            f" stop_reason={state.stop_reason!r}" if state.stop_reason else ""
-        )
-        if state.status is RunStatus.BUDGET:
-            return f"{detail}: raise a cap to continue it (--max-minutes / --rounds)"
-        return f"{detail} best_score={state.best_score}"
-    return ""
+    status = state.status
+    detail = f"status={status.value}" + (
+        f" stop_reason={state.stop_reason!r}" if state.stop_reason not in ("", status.value) else ""
+    )
+    if status is RunStatus.BUDGET:
+        return "" if raised else f"{detail}: raise a cap to continue it (--max-minutes / --rounds)"
+    if status is RunStatus.MAX_ROUNDS:
+        return "" if "max_rounds" in raised else f"{detail}: raise --rounds to continue it"
+    finished = (RunStatus.STOPPED, RunStatus.NO_CHANGE, RunStatus.NO_REFINE_TASKS, RunStatus.JUDGE_UNAVAILABLE)
+    return detail if status in finished else ""
 
 
 @app.command()

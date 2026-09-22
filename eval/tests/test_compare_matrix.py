@@ -103,7 +103,7 @@ def test_matrix_end_to_end_with_fakes(tmp_path: Path):
     by = {(r.prompt_id, r.arm): r for r in rows}
     h = by[("cmp_easy_stool", "harness:gemini-cli:gemini-3.6-flash")]
     assert h.status == "scored" and h.score == pytest.approx(0.9) and h.passed and h.build_ok
-    assert h.gen_cost_usd == pytest.approx(0.9) and h.harness_status == "passed" and h.harness_loop_score == pytest.approx(0.8)
+    assert h.gen_cost_usd == pytest.approx(0.9) and h.harness_status == "max_rounds" and h.harness_loop_score == pytest.approx(0.8)
     assert h.judge_cost_usd == pytest.approx(0.01) and h.tris == 900 and Path(h.sheet).is_file()
     assert (Path(h.workspace) / "run" / "src" / "model.py").is_file() and (Path(h.workspace) / "eval" / "eval.json").is_file()
     assert (Path(h.workspace) / "eval" / "src" / "parts" / "legs.py").is_file()  # whole src/ tree is evaluated

@@ -100,7 +100,7 @@ def run(tmp_path: Path, chair_plan, settings, monkeypatch):
                               agent=agent, planner_model=FakeChatModel(lambda req: chair_plan.model_dump(mode="json")),
                               settings=settings, runtime=RepairOnceRuntime(Language.THREEJS))
     rec = track.run(make_spec(max_rounds=3), ws)
-    assert rec.status is RunStatus.PASSED
+    assert rec.status is RunStatus.MAX_ROUNDS
     return rec, ws, agent
 
 
@@ -134,7 +134,7 @@ def test_enabled_run_delivers_routes_repairs_and_records_skills(run):
     assert {k.split(":", 1)[1] for k in keys} >= set(rec.rounds[0].skills.listed)
 
     rows = (ws.root / "telemetry" / "skills.jsonl").read_text().splitlines()
-    assert len(rows) == 3 and all('"listed"' in r for r in rows)
+    assert len(rows) == len(rec.rounds) == 4 and all('"listed"' in r for r in rows)
 
     repair = next(job for job in agent.jobs if job.kind == "repair")
     assert "c3d-threejs-shader-traps" in repair.prompt

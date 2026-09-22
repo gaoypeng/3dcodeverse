@@ -1,5 +1,5 @@
-"""Orchestration: the stage runner with resume, run state, the round loop
-(RoundPolicy / StopPolicy / pick_best_round), refine-task compilation and the budget.
+"""Orchestration: the stage runner with resume, run state, the round policy
+(RoundPolicy / pick_best_round), refine-task compilation and the budget.
 
 One module since 2026-08-28: the seven-file package predates the 1,500-line cap,
 nobody ever imported the package itself, and refine_tasks existed only to be
@@ -28,7 +28,6 @@ from codeverse3d.contracts.plan import AcceptanceItem, Plan
 from codeverse3d.contracts.run import RoundRecord, RunStatus
 from codeverse3d.conventions import to_snake
 from codeverse3d.cost.billing import bills_usd
-from codeverse3d.cost.routing import JUDGE_NOISE
 from codeverse3d.proc import EventLog
 from codeverse3d.workspace import Workspace
 
@@ -439,280 +438,19 @@ def _acceptance_target(item: AcceptanceItem, known: dict[str, str]) -> str:
 
 
 # ===================================================================== rounds
-StopReason = Literal["pass", "plateau", "budget", "continue", "max_rounds", "judge_unavailable",
-                     "regression", "diminishing_returns", "agent_quota"]
-
-#: what the next round should look like when the loop continues
-Strategy = Literal["same", "switch", "detail"]
-
-#: ``RoundRecord.kind`` of a round that already changed strategy after a regression
-REWRITE_KIND = "rewrite"
-#: ``RoundRecord.kind`` of the surface-detail round (see :func:`detail_round_due`)
-DETAIL_KIND = "detail"
-
-#: ``Strategy`` → the ``RoundRecord.kind`` the loop stamps on the round it starts (unknown → refine)
-KIND_FOR_STRATEGY: dict[str, str] = {"same": "refine", "switch": REWRITE_KIND, "detail": DETAIL_KIND}
-
-#: σ for a judge that is not in the measured table: the default judge's
-#: (``gemini-3.1-pro-preview``, ``Settings.default_judge``), because that is what
-#: an unnamed judge almost always is.  Calibrate a new judge
-#: (``python -m codeverse3d.addons.calibration``) and add it to JUDGE_NOISE rather
-#: than tuning the multipliers around it.
-DEFAULT_JUDGE_SIGMA = 0.030
-
-
-def judge_sigma(judge_model: str = "", *, default: float = DEFAULT_JUDGE_SIGMA) -> float:
-    """Measured score noise (std) of one judge model.
-
-    The numbers come from ``judges/calibration.py`` (n=3 on the e2e rounds) and
-    are tabulated ONCE in :data:`codeverse3d.cost.routing.JUDGE_NOISE`; this is
-    the only reader in the orchestrator.  Accepts a bare model name or a full
-    backend id (``gemini:gemini-3.1-pro-preview``)."""
-    name = (judge_model or "").strip().split(":")[-1]
-    if not name:
-        return default
-    hit = JUDGE_NOISE.get(name)
-    if hit is None:  # version suffixes: gemini-3.7-flash-002 → gemini-3.7-flash
-        hit = next((v for k, v in JUDGE_NOISE.items() if name.startswith(k)), None)
-    return float(hit[0]) if hit else default
-
-
 @dataclass(frozen=True)
 class RoundPolicy:
-    """Calibrated knobs for the refine loop."""
+    """The refine loop's knobs.  There is no stop knob besides ``max_rounds``: a run is the
+    baseline plus ``max_rounds`` refine rounds, cut short only by the clock or a hard
+    failure (owner, 2026-09-22 — the pass / plateau / regression / diminishing-returns
+    stops, the rewrite and the surface-detail rounds they drove are gone)."""
 
     max_rounds: int = 4  # refine rounds AFTER the baseline
-    plateau_window: int = 2  # consecutive scored rounds without min_delta gain
-    min_delta: float = 0.02
-    target: float = 0.8  # rubric pass threshold (overridden from the rubric when known)
     max_refine_tasks: int = 6
     max_instructions_per_task: int = 6  # lines handed to ONE generation task (grouped by target)
     parallel_min_tasks: int = 2  # fan out only when >= this many file-disjoint groups
     n_candidates: int = 1  # best-of-N baseline (candidates generated in parallel, best kept)
-    pairwise_margin: float = 0.03  # |Δscore| below this = judge noise → pairwise tie-break
-    pairwise_min_confidence: float = 0.6  # new round replaces best only when pairwise is this sure
     judge_samples: int = 1  # VLM judge samples per round (flash: std ≈ 0.001 between samples → 1 is enough)
-    # ---- money stops (docs/COST.md §5); thresholds are multiples of the judge's measured σ
-    judge_model: str = ""  # judge backend id → σ via judge_sigma(); "" = the default judge's σ
-    regression_sigma: float = 1.0  # a round below (best − this × σ) regressed: change shape or stop
-    marginal_sigma: float = 1.5  # from marginal_from_round on, the last gain must beat this × σ
-    marginal_from_round: int = 3  # first refine round index the marginal-value test applies to
-    # ---- depth.  Measured (wave "generation-depth"): across 88 consecutive refine-round pairs the
-    # built part count changed ZERO times and mean Δgeometry_detail was +0.003 — the refine loop is
-    # a repair loop and never adds anything.  The rounds that DID add geometry did it while assembly
-    # was still broken and lost 0.075 of assembly_fit / 0.025 of overall for it.  So detail gets its
-    # own round, and it only runs once the structure gates are clean.
-    detail_rounds: int | None = None  # surface-detail rounds a run may spend: 0 = off, None = the track's own
-    #                                   default (lifecycle.detail_round_budget; only tracks with the round get one)
-    detail_min_score: float = 0.45  # below this the object is still wrong; detail would be polish on a mistake
-    detail_bbox_tol_m: float = 0.005  # a detail round that moves a part box by more than this failed its brief
-
-    @property
-    def sigma(self) -> float:
-        """Measured judge noise for this run's judge (see :func:`judge_sigma`)."""
-        return judge_sigma(self.judge_model)
-
-    @property
-    def regression_delta(self) -> float:
-        """How far below the best a round must score to count as a regression."""
-        return self.regression_sigma * self.sigma
-
-    @property
-    def marginal_delta(self) -> float:
-        """Gain the previous round must have produced for r03+ to be worth starting."""
-        return self.marginal_sigma * self.sigma
-
-
-def meaningful_regression(score: float | None, before: float | None, policy: RoundPolicy) -> bool:
-    """Did ``score`` fall below ``before`` by MORE than this judge's own noise?
-
-    THE regression predicate: ``StopPolicy._regression`` (the stop gate) and
-    ``StopPolicy._regressions`` (the counter behind "a second regression stops
-    the run") both call it, so they cannot drift apart.  The scale is the
-    measured per-judge sigma table via ``policy.regression_delta`` — deliberately
-    NOT the 0.202 A/A replay floor, which measures cross-run planner variance,
-    not judge noise."""
-    if score is None or before is None:
-        return False
-    return (before - score) > policy.regression_delta
-
-
-@dataclass(frozen=True)
-class StopDecision:
-    """``StopPolicy``'s answer: stop (and why), or continue (and in what shape)."""
-
-    reason: StopReason
-    strategy: Strategy = "same"
-    detail: str = ""
-
-    @property
-    def stop(self) -> bool:
-        return self.reason != "continue"
-
-    def event(self) -> dict[str, object]:
-        return {"reason": self.reason, "strategy": self.strategy, "detail": self.detail}
-
-
-class StopPolicy:
-    """Decide whether the loop goes on.  ``history`` = rounds so far (baseline first)."""
-
-    def __init__(self, policy: RoundPolicy):
-        self.policy = policy
-
-    def evaluate(self, history: Sequence[RoundRecord], *, budget_ok: bool = True) -> StopDecision:
-        if not budget_ok:
-            return StopDecision("budget")
-        if not history:
-            return StopDecision("continue")
-        last = history[-1]
-        if last.judgment is not None and last.judgment.passed and last.judgment.overall >= self.policy.target:
-            return StopDecision("pass")
-        refine_rounds = len(history) - 1
-        if refine_rounds >= self.policy.max_rounds:
-            return StopDecision("max_rounds")
-        # Order is the economics.  A regression whose strategy switch is already spent
-        # is the most specific answer there is, so it comes first.  Otherwise the
-        # marginal-value test decides late rounds (at r03 no *shape* is worth $0.5),
-        # and only before that does a first regression buy one change of shape.
-        # Plateau is the fallback: the same money statement, less precisely.
-        exhausted = self._regression(history, switch=False)
-        if exhausted is not None:
-            return self._maybe_detail(history, exhausted)
-        marginal = self._diminishing(history)
-        if marginal is not None:
-            return self._maybe_detail(history, marginal)
-        regressed = self._regression(history)
-        if regressed is not None:
-            return regressed
-        if self._plateaued(history):
-            return self._maybe_detail(history, StopDecision("plateau"))
-        return StopDecision("continue")
-
-    def _maybe_detail(self, history: Sequence[RoundRecord], stop: StopDecision) -> StopDecision:
-        """Convert a "we are done repairing" stop into ONE surface-detail round.
-
-        Only from a stop the loop was going to take anyway, so the detail round is
-        never bought instead of a repair round — and only on a clean, best-scoring
-        artifact, because the rounds that added geometry while assembly was still
-        broken measurably lost score (module docstring / ``detail_rounds``)."""
-        if stop.reason not in ("plateau", "diminishing_returns"):
-            return stop
-        why = detail_blocked(history, self.policy)
-        if why:
-            return stop
-        return StopDecision("continue", strategy="detail",
-                            detail=f"structure clean at r{history[-1].index:02d} → one surface-detail round "
-                                   f"({stop.reason} otherwise)")
-
-    # ---------------------------------------------------------------- money stops
-    def _regression(self, history: Sequence[RoundRecord], *, switch: bool = True) -> StopDecision | None:
-        """The last round scored below the best by more than the judge's own noise.
-
-        Another round of the SAME shape is not justified by that evidence: the
-        first regression buys one change of strategy (a whole-artifact rewrite),
-        a second one — or one after a rewrite already failed to recover — stops
-        the run.  ``switch=False`` asks only "is the switch already spent?", which
-        is the question that outranks every other stop."""
-        last = history[-1]
-        score, best_before = last.score, best_score(history[:-1])
-        if not meaningful_regression(score, best_before, self.policy):
-            return None
-        drop = best_before - score
-        detail = (f"r{last.index:02d} scored {score:.3f} vs best {best_before:.3f} "
-                  f"({-drop:+.3f}, judge σ {self.policy.sigma:.3f})")
-        if last.kind == REWRITE_KIND or self._regressions(history) > 1:
-            return StopDecision("regression", detail=detail + " — a changed strategy did not recover it")
-        return StopDecision("continue", strategy="switch", detail=detail) if switch else None
-
-    def _diminishing(self, history: Sequence[RoundRecord]) -> StopDecision | None:
-        """From ``marginal_from_round`` on, only run when the last round actually
-        bought something (> ``marginal_sigma`` × σ) and the target is still open."""
-        nxt = len(history)
-        if nxt < self.policy.marginal_from_round:
-            return None
-        gain = last_gain(history)
-        best = best_score(history)
-        need = self.policy.marginal_delta
-        if gain is None:
-            return None
-        if gain <= need:
-            return StopDecision("diminishing_returns",
-                                detail=f"r{nxt:02d} not started: last gain {gain:+.3f} ≤ {need:.3f} "
-                                       f"({self.policy.marginal_sigma:g} × judge σ {self.policy.sigma:.3f})")
-        if best is not None and best >= self.policy.target:
-            return StopDecision("diminishing_returns",
-                                detail=f"r{nxt:02d} not started: best {best:.3f} already at target "
-                                       f"{self.policy.target:.2f}")
-        return None
-
-    def _regressions(self, history: Sequence[RoundRecord]) -> int:
-        """How many scored rounds ended MEANINGFULLY below the best of everything
-        before them.  Same predicate as the gate (:func:`meaningful_regression`),
-        so a sub-noise dip can never help burn the run's single strategy switch
-        (a -0.005 blip + one real regression used to count 2 = "regression" stop
-        with the switch never offered)."""
-        return sum(1 for i in range(1, len(history))
-                   if meaningful_regression(history[i].score, best_score(history[:i]), self.policy))
-
-    def _plateaued(self, history: Sequence[RoundRecord]) -> bool:
-        """True when the last ``plateau_window`` scored rounds did not raise the best
-        score by ``min_delta``.  Rounds without a judgment (build failures) do not
-        count as evidence of a plateau: a pending repair explains a flat score."""
-        scored = [r for r in history if r.score is not None]
-        w = self.policy.plateau_window
-        if len(scored) < w + 1:
-            return False
-        before = max(r.score for r in scored[:-w])  # type: ignore[type-var]
-        after = max(r.score for r in scored[-w:])  # type: ignore[type-var]
-        return (after - before) < self.policy.min_delta
-
-
-def detail_blocked(history: Sequence[RoundRecord], policy: RoundPolicy) -> str:
-    """"" when a surface-detail round is due; otherwise the reason it is not.
-
-    A detail round is worth money only on an artifact whose STRUCTURE is finished:
-    the last round built, has no gate ERROR, scored at least ``detail_min_score``
-    and is within one judge σ of the best round in the run.  Anything else and the
-    money belongs to repair (measured: refine rounds that added > 2000 triangles
-    while assembly was still broken lost 0.075 of assembly_fit)."""
-    if (policy.detail_rounds or 0) <= 0:
-        return "detail rounds disabled"
-    spent = sum(1 for r in history if r.kind == DETAIL_KIND)
-    if spent >= (policy.detail_rounds or 0):
-        return f"{spent} detail round(s) already spent"
-    if not history:
-        return "no rounds yet"
-    last = history[-1]
-    if last.build is None or not last.build.ok:
-        return "last round did not build"
-    if gate_error_count(last) > 0:
-        return f"{gate_error_count(last)} gate error(s) still open"
-    if last.score is None:
-        return "last round was not judged"
-    if last.score < policy.detail_min_score:
-        return f"score {last.score:.3f} < detail floor {policy.detail_min_score:.2f}"
-    best = best_score(history)
-    if best is not None and last.score < best - policy.sigma:
-        return f"last round {last.score:.3f} is below best {best:.3f} by more than σ"
-    return ""
-
-
-def best_score(history: Sequence[RoundRecord]) -> float | None:
-    """Best judged score in ``history`` (``None`` when nothing was scored)."""
-    scores = [r.score for r in history if r.score is not None]
-    return max(scores) if scores else None
-
-
-def last_gain(history: Sequence[RoundRecord]) -> float | None:
-    """How much the LAST round moved the best score (``None`` when unscored).
-
-    Negative when it regressed; 0.0 when it changed nothing measurable."""
-    if len(history) < 2 or history[-1].score is None:
-        return None
-    before = best_score(history[:-1])
-    if before is None:
-        return None
-    return float(history[-1].score) - before
 
 
 def pick_best_round(rounds: Sequence[RoundRecord]) -> int | None:

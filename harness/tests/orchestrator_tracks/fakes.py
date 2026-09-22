@@ -261,14 +261,13 @@ def _png(path: Path, size: int = 32) -> None:
 
 class FakeServices(Services):
     def __init__(self, *, runtime_factory: Callable[[Language], Any] | None = None, judge: Any | None = None,
-                 contract_errors: int = 0, assemble: bool = True, sweep_errors: int = 0, pairwise: Any | None = None,
+                 contract_errors: int = 0, assemble: bool = True, sweep_errors: int = 0,
                  silhouette_iou: float | None = None, motion_errors: int = 0):
         self.runtime_factory = runtime_factory or (lambda lang: FakeRuntime(lang))
         self._judge = judge
         self.contract_errors = contract_errors
         self.assemble = assemble
         self.sweep_errors = sweep_errors
-        self._pairwise = pairwise
         self.silhouette_iou = silhouette_iou
         self.motion_errors = motion_errors
         self.materialized: list[str] = []
@@ -292,11 +291,6 @@ class FakeServices(Services):
         self.reference_judges.append((model_id, n_samples, rubric))
         return self._judge if self._judge is not None else FakeJudge()
 
-    def pairwise(self, model_id: str) -> Any:
-        if self._pairwise is None:
-            raise ServiceUnavailable("no pairwise judge in tests")
-        return self._pairwise
-
     def silhouette(self, render_png, reference_png) -> dict[str, Any]:
         self.silhouette_calls.append((str(render_png), str(reference_png)))
         if self.silhouette_iou is None:
@@ -315,9 +309,6 @@ class FakeServices(Services):
 
     def runtime(self, language: Language) -> Any:
         return self.runtime_factory(language)
-
-    def rubric_threshold(self, rubric: str) -> float | None:
-        return 0.8
 
     def measure(self, glb: Path) -> Measurement:
         scene = trimesh.load(str(glb), force="scene")

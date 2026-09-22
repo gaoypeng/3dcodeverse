@@ -50,7 +50,7 @@ def _record(rounds: list[RoundRecord], best: int | None = None) -> RunRecord:
     return RunRecord(
         spec=Spec(id="t", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a thing",
                   backends=Backends()),
-        plan=plan, workspace="/tmp/x", status=RunStatus.PASSED, rounds=rounds, best_round=best,
+        plan=plan, workspace="/tmp/x", status=RunStatus.MAX_ROUNDS, rounds=rounds, best_round=best,
         started_at=datetime.now(UTC),
     )
 

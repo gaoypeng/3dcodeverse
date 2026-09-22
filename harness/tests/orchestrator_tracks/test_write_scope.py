@@ -4,13 +4,13 @@
   task does not own — new files stay allowed, the entry only when owned;
 * ``GenerationTask.owns_entry`` → ``AgentJob.always_writable`` wiring;
 * the constructors whose plans are file-disjoint by construction (scoped baseline,
-  zones, scoped detail, threejs assets, parallel refine groups) now set
+  zones, threejs assets, parallel refine groups) now set
   ``edit_only=True`` so the split they promise is enforced, not just prompted.
 """
 
 from __future__ import annotations
 
-from codeverse3d.contracts.artifacts import BuildResult, Judgment, Measurement, PartMeasure
+from codeverse3d.contracts.artifacts import BuildResult, Judgment
 from codeverse3d.contracts.chat import ChatResponse
 from codeverse3d.contracts.common import Language, Track, Usage
 from codeverse3d.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
@@ -187,15 +187,7 @@ def test_scoped_static_constructors_enforce_their_file_sets(tmp_path, settings):
     assert len(parts) >= 2
     assert all(t.edit_only and not t.owns_entry for t in parts), "part sessions are scoped"
     assert assemble.owns_entry and not assemble.edit_only, "assemble owns the entry"
-    # scoped detail: file-disjoint and enforced
     last = _round(2, 0.62)
-    last.measurement = Measurement(bbox_min=(0, 0, 0), bbox_max=(1, 1, 1), extents=(1, 1, 1),
-                                   center=(0, 0, 0), tri_count=900, n_meshes=1, n_islands=1,
-                                   parts=[PartMeasure(name="Body", bbox_min=(0, 0, 0),
-                                                      bbox_max=(0.6, 1.0, 0.4), tri_count=10, islands=1)])
-    detail, lines = track.detail_tasks(ctx, last, 3)
-    assert detail and lines
-    assert all(t.edit_only and not t.owns_entry for t in detail), "detail never touches the entry"
     # refine keeps entry access: the prompt promises it ("edit the entry file to import a new part")
     group = TaskGroup(tasks=[RefineTask(target="Body", kind="geometry", instruction="thicken",
                                         priority=2, files=["src/parts/body.js"])],

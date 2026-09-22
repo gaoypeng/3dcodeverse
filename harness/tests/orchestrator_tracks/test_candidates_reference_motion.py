@@ -1,4 +1,4 @@
-"""Best-of-N candidates, pairwise tie-breaks, reference images, motion checks, instruction compaction."""
+"""Best-of-N candidates, reference images, motion checks, instruction compaction."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from codeverse3d.orchestrator import (
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks import get_track
 from codeverse3d.tracks.articulated_object import ArticulatedObjectTrack, expected_direction
-from codeverse3d.tracks.candidates import CandidateRecord, decide_best, rank_candidates
+from codeverse3d.tracks.candidates import CandidateRecord, rank_candidates
 from codeverse3d.tracks.planner import plan_example
 from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
@@ -29,7 +29,6 @@ from tests.orchestrator_tracks.fakes import (
     FakeAgent,
     FakeChatModel,
     FakeJudge,
-    FakePairwise,
     FakeRuntime,
     FakeServices,
     _planner,
@@ -61,35 +60,16 @@ def test_build_refine_instructions_extra_and_instance_targets(chair_plan):
     assert [t.target for t in tasks] == ["BackLeg_1", "overall"] and tasks[1].kind == "reference"
 
 
-def test_rank_candidates_and_decide_best():
+def test_rank_candidates():
+    """Built > higher quick score > fewer gate errors > earlier — the one in-loop choice left."""
     recs = [CandidateRecord(index=0, label="c0", build_ok=True, score=0.62, gate_errors=2),
             CandidateRecord(index=1, label="c1", build_ok=True, score=0.62, gate_errors=0),
             CandidateRecord(index=2, label="c2", build_ok=False),
             CandidateRecord(index=3, label="c3", build_ok=True, score=0.70, gate_errors=5)]
     assert rank_candidates(recs) == [3, 1, 0, 2]
-    # clear delta → ordinary ranking
-    assert decide_best(0.60, 0.70, margin=0.03, min_confidence=0.6, compare=None) == ("score", None)
-    # within noise, no comparator → keep
-    d, note = decide_best(0.60, 0.61, margin=0.03, min_confidence=0.6, compare=None, labels=("r00", "r01"))
-    assert d == "keep" and note is not None and not note.accepted and "keep" in note.line()
-
-    class R:
-        def __init__(self, w, c):
-            self.winner, self.confidence, self.reasons, self.usage, self.error = w, c, ["x"], None, ""
-
-    d, note = decide_best(0.60, 0.61, margin=0.03, min_confidence=0.6, compare=lambda: R("b", 0.8))
-    assert d == "pairwise" and note.accepted and note.winner == "b"
-    d, note = decide_best(0.60, 0.61, margin=0.03, min_confidence=0.6, compare=lambda: R("b", 0.5))
-    assert d == "keep" and not note.accepted
-    d, note = decide_best(0.60, 0.61, margin=0.03, min_confidence=0.6, compare=lambda: R("a", 0.9))
-    assert d == "keep"
-
-    def boom():
-        raise RuntimeError("judge down")
-
-    d, note = decide_best(0.60, 0.61, margin=0.03, min_confidence=0.6, compare=boom)
-    assert d == "keep" and "judge down" in note.error
-    assert decide_best(None, 0.5, margin=0.03, min_confidence=0.6, compare=None) == ("score", None)
+    tie = [CandidateRecord(index=0, label="c0", build_ok=True, score=0.6),
+           CandidateRecord(index=1, label="c1", build_ok=True, score=0.6)]
+    assert rank_candidates(tie) == [0, 1]
 
 
 def test_expected_direction():
@@ -131,11 +111,11 @@ def test_best_of_two_baseline_selects_highest_quick_score(tmp_path, chair_plan, 
     ws = Workspace(tmp_path / "runs" / "stool")
     agent = FakeAgent(_writer_by_candidate)
     judge = _CandidateJudge({"c0": 0.55, "c1": 0.72})
-    services = FakeServices(pairwise=FakePairwise())
+    services = FakeServices()
     track = StaticObjectTrack(services=services, judge=judge, agent=agent, planner_model=_planner(chair_plan.model_dump(mode="json")),
                               settings=settings, runtime=FakeRuntime(Language.BLENDER), n_candidates=2)
     rec = track.run(spec, ws)
-    assert rec.status is RunStatus.PLATEAU and len(rec.rounds) == 1
+    assert rec.status is RunStatus.MAX_ROUNDS and len(rec.rounds) == 1
     r0 = rec.rounds[0]
     assert "best-of-2: selected c1" in r0.notes and r0.score == pytest.approx(0.6)
     assert "_cand/c1" in (ws.src / "model.py").read_text()
@@ -153,23 +133,21 @@ def test_best_of_two_baseline_selects_highest_quick_score(tmp_path, chair_plan, 
     assert (ws.root / "_cand" / "c1" / "AGENTS.md").is_file()
     # the winner's trajectory was kept under the run workspace
     assert any(p.name.startswith("baseline_c1") for p in ws.trajectories.iterdir())
-    # pairwise not consulted: scores differ by more than the margin
-    assert services._pairwise.calls == []
 
 
-def test_best_of_two_pairwise_tiebreak_overrides_ranking(tmp_path, chair_plan, settings):
+def test_best_of_two_within_judge_noise_still_takes_the_higher_quick_score(tmp_path, chair_plan, settings):
+    """No pairwise tie-break any more (2026-09-22): 0.61 vs 0.60 is decided by the score."""
     spec = make_spec(language=Language.BLENDER, max_rounds=0)
     ws = Workspace(tmp_path / "runs" / "stool2")
     judge = _CandidateJudge({"c0": 0.61, "c1": 0.60})
-    pw = FakePairwise(verdicts=[("b", 0.9)])
-    track = StaticObjectTrack(services=FakeServices(pairwise=pw), judge=judge, agent=FakeAgent(_writer_by_candidate),
+    track = StaticObjectTrack(services=FakeServices(), judge=judge, agent=FakeAgent(_writer_by_candidate),
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
                               runtime=FakeRuntime(Language.BLENDER), n_candidates=2)
     rec = track.run(spec, ws)
-    assert len(pw.calls) == 1 and "pairwise c0 vs c1: c1 wins" in rec.rounds[0].notes
-    assert "_cand/c1" in (ws.src / "model.py").read_text()
-    ev = [e for e in EventLog(ws.events_path).read() if e["event"] == "pairwise.done"]
-    assert ev and ev[0]["stage"] == "candidates" and ev[0]["accepted"] is True
+    assert "best-of-2: selected c0" in rec.rounds[0].notes and "pairwise" not in rec.rounds[0].notes
+    assert "_cand/c0" in (ws.src / "model.py").read_text()
+    assert not [e for e in EventLog(ws.events_path).read() if e["event"] == "pairwise.done"]
+    assert "pairwise" not in json.loads((ws.root / "rounds" / "candidates.json").read_text())
 
 
 def test_candidate_count_persists_for_resume_and_settings_default(tmp_path, chair_plan, settings):
@@ -199,42 +177,6 @@ def test_candidate_count_persists_for_resume_and_settings_default(tmp_path, chai
                             EventLog(tmp_path / "e.jsonl"), RunState())
     assert ctx3.policy.n_candidates == 3
     assert get_track("static_object", n_candidates=4)._n_candidates == 4
-
-
-# ----------------------------------------------------------------------------- refine pairwise tie-break
-def test_refine_round_within_margin_needs_pairwise_win(tmp_path, chair_plan, settings):
-    spec = make_spec(language=Language.BLENDER, max_rounds=2)
-    ws = Workspace(tmp_path / "runs" / "tie")
-    agent = FakeAgent(lambda job, ws: {"src/model.py": f"import bpy  # {job.label} {job.round}\n"})
-    pw = FakePairwise(verdicts=[("a", 0.8), ("b", 0.9)])
-    # r01 scores +0.01 (noise) → pairwise says incumbent wins → best stays r00; r02 +0.02 → pairwise b wins → best r02
-    judge = FakeJudge(scores=(0.60, 0.61, 0.62))
-    track = StaticObjectTrack(services=FakeServices(pairwise=pw), judge=judge, agent=agent,
-                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.BLENDER),
-                              policy=RoundPolicy(max_rounds=2, target=0.9, plateau_window=5))
-    rec = track.run(spec, ws)
-    assert [r.score for r in rec.rounds] == pytest.approx([0.60, 0.61, 0.62])
-    assert len(pw.calls) == 2 and rec.best_round == 2
-    assert "pairwise r00 vs r01: r00 wins" in rec.rounds[1].notes and "→ keep" in rec.rounds[1].notes
-    assert "pairwise r00 vs r02: r02 wins" in rec.rounds[2].notes and "→ replace" in rec.rounds[2].notes
-    events = EventLog(ws.events_path).read()
-    best_updates = [e["round"] for e in events if e["event"] == "best.updated"]
-    assert best_updates == [0, 2]
-    assert sum(1 for e in events if e["event"] == "pairwise.done") == 2
-    # persisted round record carries the note + pairwise cost
-    saved = json.loads((ws.root / "rounds" / "r01.json").read_text())
-    assert "pairwise" in saved["notes"] and saved["usage"]["cost_usd"] > 0
-
-
-def test_refine_round_clear_delta_skips_pairwise(tmp_path, chair_plan, settings):
-    spec = make_spec(language=Language.BLENDER, max_rounds=1)
-    ws = Workspace(tmp_path / "runs" / "clear")
-    pw = FakePairwise()
-    track = StaticObjectTrack(services=FakeServices(pairwise=pw), judge=FakeJudge(scores=(0.50, 0.70)),
-                              agent=FakeAgent(lambda job, ws: {"src/model.py": f"import bpy  # {job.label}\n"}),
-                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.BLENDER))
-    rec = track.run(spec, ws)
-    assert rec.best_round == 1 and pw.calls == []
 
 
 # ----------------------------------------------------------------------------- reference images

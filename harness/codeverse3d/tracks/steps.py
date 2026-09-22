@@ -208,15 +208,13 @@ def run_round(
     files_hint: Sequence[str] = (),
     extra_usage: Usage | None = None,
     extra_notes: Sequence[str] = (),
-    previous_best: float | None = None,
 ) -> RoundRecord:
     """Execute one round and persist its record.  Budget is charged as it goes.
 
     ``tasks`` may be empty when the code is already in place (scene stages,
     best-of-N winner copied in): the round is then build → gates → render →
     judge only.  ``extra_usage`` / ``extra_notes`` fold pre-round work
-    (candidate generation) into the record; ``previous_best`` is the best score
-    before this round, used only to flag the round as wasted in ``cost.round``.
+    (candidate generation) into the record.
     ``_run_round`` (the same round without the aborted-round record) also takes
     ``render`` (replaces ``pipeline.render``) and ``geometry_views=False`` (skips the
     clay views): the two knobs a best-of-N candidate turns (``candidates.run_best_of_n``
@@ -225,7 +223,7 @@ def run_round(
     try:
         return _run_round(ctx, index=index, kind=kind, tasks=tasks, pipeline=pipeline, instructions=instructions,
                           previous=previous, files_hint=files_hint, extra_usage=extra_usage,
-                          extra_notes=extra_notes, previous_best=previous_best)
+                          extra_notes=extra_notes)
     except BaseException as e:
         # the round died half-way (budget stop, 503 storm, RoundFailed).  Whatever it
         # burned is already in the guard: report it so the round is not invisible.
@@ -246,7 +244,6 @@ def _run_round(
     files_hint: Sequence[str] = (),
     extra_usage: Usage | None = None,
     extra_notes: Sequence[str] = (),
-    previous_best: float | None = None,
     render: RenderFn | None = None,
     geometry_views: bool = True,
 ) -> RoundRecord:
@@ -344,7 +341,7 @@ def _run_round(
     ctx.events.emit("round.done", round=index, kind=kind, commit=rec.commit[:10], score=rec.score,
                     build_ok=outcome.build.ok, duration_s=rec.duration_s, cost_usd=round(usage.cost_usd, 4))
     emit_round_cost(ctx, index=index, kind=kind, cost=cost, usage=usage, turns=turns, score=rec.score,
-                    previous_best=previous_best, build_ok=outcome.build.ok, judged=rec.judgment is not None)
+                    build_ok=outcome.build.ok, judged=rec.judgment is not None)
     return rec
 
 
@@ -384,19 +381,17 @@ def emit_round_cost(
     usage: Usage,
     turns: int,
     score: float | None,
-    previous_best: float | None,
     build_ok: bool,
     judged: bool,
     aborted: str = "",
     corrected: bool = False,
 ) -> None:
     """One ``cost.round`` event per round: ``{stage → $}``, judge $, agent turns and
-    whether the money bought anything.  The ledger/audit reads this instead of
+    whether the money bought a usable round.  The ledger/audit reads this instead of
     reconstructing the round from trajectories and events.  ``corrected=True``
     marks a re-emission after ``rejudge_round`` recovered a verdict — the LAST
     event per round is the truth."""
-    wasted, why = _waste_flag(score=score, previous_best=previous_best, build_ok=build_ok,
-                              judged=judged, aborted=aborted)
+    wasted, why = _waste_flag(build_ok=build_ok, judged=judged and score is not None, aborted=aborted)
     ctx.events.emit(
         "cost.round", round=index, kind=kind,
         stages={k: round(v, 6) for k, v in cost.items()},
@@ -404,28 +399,22 @@ def emit_round_cost(
         total_usd=round(usage.cost_usd, 6),
         agent_turns=turns,
         input_tokens=usage.input_tokens, output_tokens=usage.output_tokens, cached_tokens=usage.cached_tokens,
-        score=score, previous_best=previous_best, wasted=wasted, waste_reason=why, aborted=aborted,
+        score=score, wasted=wasted, waste_reason=why, aborted=aborted,
         corrected=corrected,
         run_usd=round(ctx.budget.spent.cost_usd, 6),
     )
 
 
-def _waste_flag(*, score: float | None, previous_best: float | None, build_ok: bool,
-                judged: bool, aborted: str) -> tuple[bool, str]:
-    """Did this round buy anything?  (docs/COST.md §5 vocabulary)"""
+def _waste_flag(*, build_ok: bool, judged: bool, aborted: str) -> tuple[bool, str]:
+    """Did this round buy a usable, judged round?  (docs/COST.md §5 vocabulary.)  A round that
+    scored below an earlier one is NOT waste any more (2026-09-22): every round is kept, and
+    any of them can be the one handed over (``codeverse3d.addons.select``)."""
     if aborted:
         return True, "aborted"
     if not build_ok:
         return True, "build_failed"
-    if not judged or score is None:
+    if not judged:
         return True, "unjudged"
-    if previous_best is None:
-        return False, ""
-    delta = score - previous_best
-    if delta < -0.005:
-        return True, "regression"
-    if abs(delta) < 0.005:
-        return True, "zero_delta"
     return False, ""
 
 
@@ -446,7 +435,7 @@ def record_aborted_round(ctx: RunContext, *, index: int, kind: str, usage: Usage
         aborted = ctx.extra.setdefault("aborted_rounds", [])
         aborted.append({"index": index, "kind": kind, "cost_usd": round(usage.cost_usd, 6), "error": error[:300]})
         emit_round_cost(ctx, index=index, kind=kind, cost={"aborted": round(usage.cost_usd, 6)}, usage=usage,
-                        turns=0, score=None, previous_best=None, build_ok=False, judged=False, aborted=error[:300])
+                        turns=0, score=None, build_ok=False, judged=False, aborted=error[:300])
     except Exception as e:  # noqa: BLE001 — never mask the exception that stopped the round
         log.warning("could not record aborted round r%02d: %s", index, e)
 
@@ -541,8 +530,7 @@ def rejudge_round(ctx: RunContext, pipeline: RoundPipeline, rec: RoundRecord, pr
     # the round's original cost.round went out as wasted=unjudged; emit the corrected
     # one so the audit stream stops counting a now-scored round as wasted.
     emit_round_cost(ctx, index=rec.index, kind=rec.kind, cost={"judge": round(judgment.usage.cost_usd, 6)},
-                    usage=rec.usage, turns=0, score=rec.score, previous_best=None,
-                    build_ok=True, judged=True, corrected=True)
+                    usage=rec.usage, turns=0, score=rec.score, build_ok=True, judged=True, corrected=True)
     return True
 
 

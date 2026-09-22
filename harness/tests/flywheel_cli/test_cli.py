@@ -294,17 +294,27 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_tra
 
     runs, run_dir = made_run()
     ws = Workspace(run_dir)
-    RunState(status=RunStatus.PASSED, stop_reason="pass", best_score=0.7436).save(ws)
+    # a run recorded before 2026-09-22 that stopped on a pass (its state names the best it kept)
+    ws.state_path.write_text(json.dumps({"status": "passed", "stop_reason": "pass", "best_round": 1,
+                                         "best_commit": "abc", "best_score": 0.7436}))
+    assert RunState.load(ws).status is RunStatus.STOPPED
 
     entered = []
     stub_track(lambda spec, resume, force: entered.append(resume))
     r = runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)])
-    assert r.exit_code == 1 and "already finished" in r.output
+    assert r.exit_code == 1 and "already finished" in r.output and "stop_reason='pass'" in r.output
     assert entered == [], "the pipeline must not be re-entered"
-    assert RunState.load(ws).status is RunStatus.PASSED, "the terminal state must survive"
+    assert RunState.load(ws).status is RunStatus.STOPPED, "the terminal state must survive"
     # ... and the escape hatch still works, loudly
     assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs), "--force"]).exit_code == 130
     assert entered == [True]
+
+    # every round ran: raising --rounds is how a max_rounds stop goes on (from its last round)
+    RunState(status=RunStatus.MAX_ROUNDS, stop_reason="max_rounds").save(ws)
+    r = runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)])
+    assert r.exit_code == 1 and "status=max_rounds" in r.output
+    assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs), "--max-minutes", "90"]).exit_code == 1
+    assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs), "--rounds", "5"]).exit_code == 130
 
     # a budget stop is the documented exception: it resumes when a cap is raised
     RunState(status=RunStatus.BUDGET, stop_reason="budget").save(ws)

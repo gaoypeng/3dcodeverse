@@ -53,13 +53,14 @@ def test_static_track_end_to_end_agent_path(tmp_path, chair_plan, settings):
     track = StaticObjectTrack(services=services, judge=judge, agent=agent, planner_model=_planner(chair_plan.model_dump(mode="json")),
                               settings=settings, runtime=FakeRuntime(Language.THREEJS))
     rec = track.run(spec, ws)
-    assert isinstance(rec, RunRecord) and rec.status is RunStatus.PASSED
-    assert [r.kind for r in rec.rounds] == ["baseline", "refine", "refine"]
-    assert rec.baseline_score == pytest.approx(0.55) and rec.final_score == pytest.approx(0.85) and rec.best_round == 2
-    assert rec.total_usage.cost_usd > 0 and rec.extra["stop_reason"] == "pass"
+    # FIXED rounds: 0.85 would once have stopped the run as a pass; the baseline + 3 refine rounds run
+    assert isinstance(rec, RunRecord) and rec.status is RunStatus.MAX_ROUNDS
+    assert [r.kind for r in rec.rounds] == ["baseline", "refine", "refine", "refine"]
+    assert rec.baseline_score == pytest.approx(0.55) and rec.final_score == pytest.approx(0.85) and rec.best_round == 3
+    assert rec.total_usage.cost_usd > 0 and rec.extra["stop_reason"] == "max_rounds"
     assert ws.record_path.is_file() and ws.plan_path.is_file() and ws.state_path.is_file()
     state = RunState.load(ws)
-    assert state.status is RunStatus.PASSED and state.best_round == 2 and state.completed_rounds == [0, 1, 2]
+    assert state.status is RunStatus.MAX_ROUNDS and state.completed_rounds == [0, 1, 2, 3]
     assert services.materialized == ["fake"] and (ws.root / "AGENTS.md").is_file()
     kinds = [e["event"] for e in EventLog(ws.events_path).read()]
     for k in ("run.start", "stage.done", "plan.done", "round.start", "build.done", "gates.done", "judge.done", "round.done", "best.updated", "stop", "run.done"):
@@ -76,8 +77,8 @@ def test_static_track_end_to_end_agent_path(tmp_path, chair_plan, settings):
     labels = [j.label for j in agent.jobs]
     assert sum(1 for lb in labels if lb.startswith("refine_")) >= 3
     assert all("EDIT ONLY THESE FILES" in j.prompt for j in agent.jobs if j.label.startswith("refine_"))
-    # git history: one commit per round
-    assert len({r.commit for r in rec.rounds}) == 3 and ws.head() == rec.rounds[2].commit
+    # git history: one commit per round, and the workspace ends at the last one
+    assert len({r.commit for r in rec.rounds}) == 4 and ws.head() == rec.rounds[3].commit
     # provenance (D37): the judge protocol hash sits next to the generator prompt hashes
     assert rec.prompt_hashes["judge"] == FakeJudge.prompt_hash and "generate" in rec.prompt_hashes
 
@@ -113,16 +114,16 @@ def test_static_track_resume_continues_from_saved_rounds(tmp_path, chair_plan, s
     rt = FakeRuntime(Language.THREEJS)
     # first run: policy with max_rounds=0 → stops after the baseline (max_rounds)
     t1 = StaticObjectTrack(services=services, judge=judge, agent=FakeAgent(_agent_writer), planner_model=planner, settings=settings,
-                           runtime=rt, policy=RoundPolicy(max_rounds=0, target=0.8))
+                           runtime=rt, policy=RoundPolicy(max_rounds=0))
     rec1 = t1.run(spec, ws)
-    assert len(rec1.rounds) == 1 and rec1.status is RunStatus.PLATEAU and rec1.extra["stop_reason"] == "max_rounds"
+    assert len(rec1.rounds) == 1 and rec1.status is RunStatus.MAX_ROUNDS and rec1.extra["stop_reason"] == "max_rounds"
     # resume with the full policy: planner must NOT be called again, baseline not re-run
     planner.requests.clear()
     t2 = StaticObjectTrack(services=services, judge=judge, agent=FakeAgent(_agent_writer), planner_model=planner, settings=settings,
-                           runtime=rt, policy=RoundPolicy(max_rounds=2, target=0.8))
+                           runtime=rt, policy=RoundPolicy(max_rounds=2))
     rec2 = t2.run(spec, ws, resume=True)
     assert planner.requests == [] and [r.kind for r in rec2.rounds] == ["baseline", "refine", "refine"]
-    assert rec2.rounds[0].commit == rec1.rounds[0].commit and rec2.status is RunStatus.PASSED
+    assert rec2.rounds[0].commit == rec1.rounds[0].commit and rec2.status is RunStatus.MAX_ROUNDS
     kinds = [e["event"] for e in EventLog(ws.events_path).read()]
     assert kinds.count("stage.cached") >= 2  # plan + skeleton cached on resume
 
@@ -155,7 +156,7 @@ def test_static_track_blender_whole_object_refine(tmp_path, chair_plan, settings
     assert [j.label for j in agent.jobs] == ["baseline", "refine"]
     p = agent.jobs[1].prompt
     assert "Measured overall extents" in p and "EDIT ONLY" not in p and "Files in scope: `src/model.py`" in p
-    assert rec.status is RunStatus.PLATEAU
+    assert rec.status is RunStatus.MAX_ROUNDS
 
 
 # ----------------------------------------------------------------------------- articulated
@@ -168,7 +169,7 @@ def test_articulated_track_adds_pose_views_and_sweep_gate(tmp_path, settings):
     track = ArticulatedObjectTrack(services=services, judge=FakeJudge(scores=(0.6, 0.9), targets=("Drawer",)), agent=agent,
                                    planner_model=_planner(plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.URDF_BLENDER))
     rec = track.run(spec, ws)
-    assert rec.status is RunStatus.PASSED
+    assert rec.status is RunStatus.MAX_ROUNDS
     r0 = rec.rounds[0]
     assert any(v.name.startswith("pose_") for v in r0.renders.views)
     sweep = next(g for g in r0.gates if g.gate == "joint_sweep")
@@ -214,7 +215,7 @@ def test_scene_track_stages_and_rounds(tmp_path, settings):
     assert "buildFishingBoat" in zone_prompt and "8.00×3.50×3.00" in zone_prompt and "Neighbouring zones" in zone_prompt
     assert "2 zone modules in ONE session" in zone_prompt and zone_prompt.count("## This zone") == 2
     assert [r.kind for r in rec.rounds] == ["baseline", "refine"] and rec.rounds[0].renders is not None
-    assert rec.rounds[0].renders.views and rec.status in (RunStatus.PLATEAU, RunStatus.PASSED)
+    assert rec.rounds[0].renders.views and rec.status is RunStatus.MAX_ROUNDS
     st = RunState.load(ws)
     assert {"plan", "skeleton", "assets", "env", "layouts", "zones", "assemble"} <= set(st.stages)
     # scene refine tasks route by file ownership: zone → src/zones/<zone>.js

@@ -12,7 +12,6 @@ from codeverse3d.cli._common import resolve_dial
 from codeverse3d.cli.main import app
 from codeverse3d.config import Settings, get_settings
 from codeverse3d.cost.profiles import PROFILE_NAMES, PROFILES, get_profile, profile_table
-from codeverse3d.orchestrator import RoundPolicy
 
 runner = CliRunner()
 
@@ -159,8 +158,6 @@ def test_judge_samples_reach_the_round_policy_only_when_a_profile_asks(tmp_path:
     s.apply_profile("quality", force=True)
     opts = C.round_policy_options(spec, s)
     assert opts["policy"].judge_samples == 3 and opts["policy"].max_rounds == 3
-    # the rubric threshold is NOT bound here: BaseTrack.after_plan binds it for an injected policy too
-    assert opts["policy"].target == RoundPolicy().target
 
 
 # --------------------------------------------------------------- flag == env var

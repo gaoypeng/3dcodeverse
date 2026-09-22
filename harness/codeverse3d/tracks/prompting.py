@@ -280,8 +280,8 @@ def language_system_prompt(language: Language, *, role: str = "", tools: bool = 
         return base
     # roles COMPOSE with the language base rather than replacing it.  Replacing was the
     # shape inherited from the f-strings, and it left every fatal language-specific fact —
-    # the self-check loop, the sampled-time contract — absent from exactly the stages that
-    # violate it: the repair pass and the detail pass.
+    # the self-check loop, the sampled-time contract — absent from exactly the stage that
+    # violates it: the repair pass.
     return base + "\n\n" + render(f"system/role_{role}.j2", language=language.value, **vars).strip()
 
 
@@ -363,7 +363,7 @@ def budget_for(ctx: RunContext) -> DepthBudget:
 
 
 def detail_budget_text(ctx: RunContext) -> str:
-    """The limits block every generate/refine/detail prompt shows, sized from the plan."""
+    """The limits block every generate/refine prompt shows, sized from the plan."""
     if ctx.plan is None or not (getattr(ctx.plan, "parts", None) or ()):
         return ""
     return budget_for(ctx).as_prompt()

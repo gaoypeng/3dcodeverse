@@ -1,4 +1,4 @@
-"""Round stop economics, session limits, judge skipping, and cost attribution."""
+"""Session limits, judge skipping, and cost attribution of a round."""
 
 from __future__ import annotations
 
@@ -7,18 +7,10 @@ import json
 import pytest
 
 from codeverse3d.contracts.agent import AgentJob, AgentResult
-from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Judgment, Severity
+from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import Language, Usage
 from codeverse3d.contracts.run import RoundRecord, RunStatus
-from codeverse3d.orchestrator import (
-    DEFAULT_JUDGE_SIGMA,
-    REWRITE_KIND,
-    RoundPolicy,
-    StopPolicy,
-    best_score,
-    judge_sigma,
-    last_gain,
-)
+from codeverse3d.orchestrator import RoundPolicy
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.generation import (
     DEFAULT_AGENT_MAX_TURNS,
@@ -28,7 +20,6 @@ from codeverse3d.tracks.generation import (
     run_agent_task,
     turn_capped,
 )
-from codeverse3d.tracks.lifecycle import BaseTrack
 from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import fake_clock, make_spec
@@ -39,119 +30,6 @@ from tests.orchestrator_tracks.fakes import (
     FakeServices,
     _planner,
 )
-
-
-def _round(i: int, score: float | None, kind: str = "refine") -> RoundRecord:
-    j = Judgment(rubric="r", scores={}, overall=score, passed=bool(score and score >= 0.8)) if score is not None else None
-    return RoundRecord(index=i, kind="baseline" if i == 0 else kind, judgment=j,
-                       build=BuildResult(ok=True, language="l"), commit=f"c{i}")
-
-
-# ----------------------------------------------------------------------------- judge noise table
-def test_judge_sigma_comes_from_the_one_measured_table():
-    from codeverse3d.cost.routing import JUDGE_NOISE
-
-    assert judge_sigma("gemini:gemini-3.1-pro-preview") == pytest.approx(JUDGE_NOISE["gemini-3.1-pro-preview"][0])
-    assert judge_sigma("gemini:gemini-3.7-flash") == pytest.approx(0.083)
-    assert judge_sigma("gemini:gemini-3.7-flash-002") == pytest.approx(0.083)  # version suffix
-    assert judge_sigma("") == DEFAULT_JUDGE_SIGMA and judge_sigma("who:knows") == DEFAULT_JUDGE_SIGMA
-    pol = RoundPolicy(judge_model="gemini:gemini-3.7-flash")
-    assert pol.sigma == pytest.approx(0.083)
-    assert pol.regression_delta == pytest.approx(0.083) and pol.marginal_delta == pytest.approx(0.1245)
-
-
-def test_best_score_and_last_gain():
-    h = [_round(0, 0.5), _round(1, 0.62), _round(2, 0.55)]
-    assert best_score(h) == pytest.approx(0.62) and last_gain(h) == pytest.approx(-0.07)
-    assert best_score([]) is None and last_gain([_round(0, 0.5)]) is None
-    assert last_gain([_round(0, 0.5), _round(1, None)]) is None
-
-
-# ----------------------------------------------------------------------------- regression
-def test_a_regression_buys_a_change_of_shape_then_stops():
-    sp = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, judge_model="gemini:gemini-3.1-pro-preview",
-                                marginal_from_round=99))
-    inside = sp.evaluate([_round(0, 0.60), _round(1, 0.58)])          # −0.02 < σ 0.030 → judge noise
-    assert inside.reason == "continue" and inside.strategy == "same"
-    first = sp.evaluate([_round(0, 0.60), _round(1, 0.52)])           # −0.08: a real regression
-    assert first.reason == "continue" and first.strategy == "switch" and "0.520" in first.detail
-    again = sp.evaluate([_round(0, 0.60), _round(1, 0.52), _round(2, 0.50, kind=REWRITE_KIND)])
-    assert again.reason == "regression" and "changed strategy" in again.detail
-    twice = sp.evaluate([_round(0, 0.60), _round(1, 0.52), _round(2, 0.55)])  # two regressions vs best
-    assert twice.reason == "regression"
-
-
-def test_a_sub_noise_dip_never_burns_the_strategy_switch():
-    from codeverse3d.orchestrator import meaningful_regression
-
-    sp = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, judge_model="gemini:gemini-3.1-pro-preview",
-                                marginal_from_round=99))
-    d = sp.evaluate([_round(0, 0.60), _round(1, 0.58), _round(2, 0.50)])
-    assert (d.reason, d.strategy) == ("continue", "switch"), "the single switch must still be offered"
-    pol = RoundPolicy(judge_model="gemini:gemini-3.1-pro-preview")
-    assert not meaningful_regression(0.58, 0.60, pol)  # sub-noise dip: not a regression
-    assert meaningful_regression(0.50, 0.60, pol)      # a real one
-    assert not meaningful_regression(None, 0.60, pol) and not meaningful_regression(0.5, None, pol)
-
-
-def test_a_noisy_judge_widens_the_regression_band():
-    flash = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, marginal_from_round=99,
-                                   judge_model="gemini:gemini-3.7-flash"))
-    # −0.06 is a regression for pro (σ 0.030) but inside flash's own noise (σ 0.083)
-    assert flash.evaluate([_round(0, 0.60), _round(1, 0.54)]).strategy == "same"
-    pro = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, marginal_from_round=99,
-                                 judge_model="gemini:gemini-3.1-pro-preview"))
-    assert pro.evaluate([_round(0, 0.60), _round(1, 0.54)]).strategy == "switch"
-
-
-# ----------------------------------------------------------------------------- diminishing returns
-def test_r03_only_runs_when_the_last_round_paid_for_itself():
-    sp = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, judge_model="gemini:gemini-3.1-pro-preview"))
-    # r02 gained +0.10 ≫ 1.5σ = 0.045 → r03 is worth starting
-    assert sp.evaluate([_round(0, 0.4), _round(1, 0.5), _round(2, 0.6)]).reason == "continue"
-    # r02 gained +0.03 < 0.045 → not worth another round
-    d = sp.evaluate([_round(0, 0.40), _round(1, 0.55), _round(2, 0.58)])
-    assert d.reason == "diminishing_returns" and "1.5 × judge σ" in d.detail
-    # ... and the rule does not apply to r01/r02, which the audit shows are the good buys
-    assert sp.evaluate([_round(0, 0.40), _round(1, 0.42)]).reason == "continue"
-    # scoring at/above target without passing (a failed must-item) is not worth
-    # another refine round either — the score is not what is missing
-    above = RoundRecord(index=2, kind="refine", build=BuildResult(ok=True, language="l"),
-                        judgment=Judgment(rubric="r", scores={}, overall=0.95, passed=False))
-    at_target = sp.evaluate([_round(0, 0.4), _round(1, 0.6), above])
-    assert at_target.reason == "diminishing_returns" and "target" in at_target.detail
-
-
-def test_the_marginal_round_is_configurable():
-    sp = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, marginal_from_round=2,
-                                judge_model="gemini:gemini-3.1-pro-preview"))
-    assert sp.evaluate([_round(0, 0.40), _round(1, 0.42)]).reason == "diminishing_returns"
-    # the detail states the multiple that was APPLIED, not the default one
-    wide = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, marginal_sigma=3.0,
-                                  judge_model="gemini:gemini-3.1-pro-preview"))
-    d = wide.evaluate([_round(0, 0.40), _round(1, 0.50), _round(2, 0.57)])
-    assert d.reason == "diminishing_returns" and "3 × judge σ" in d.detail and "1.5 ×" not in d.detail
-
-
-def test_the_stop_order_is_exhausted_regression_then_marginal_then_switch_then_plateau():
-    pro = dict(max_rounds=4, target=0.9, judge_model="gemini:gemini-3.1-pro-preview")
-    sp = StopPolicy(RoundPolicy(**pro))
-    # 1. the switch is already spent (a rewrite regressed again) — outranks everything,
-    #    even though the marginal test would also stop here (last gain −0.10)
-    spent = [_round(0, 0.60), _round(1, 0.52), _round(2, 0.50, kind=REWRITE_KIND)]
-    assert sp.evaluate(spent).reason == "regression" and "changed strategy" in sp.evaluate(spent).detail
-    # 2. at r03 the marginal test beats a FIRST regression: no shape is worth $0.5 there
-    marginal = [_round(0, 0.60), _round(1, 0.65), _round(2, 0.55)]
-    assert sp.evaluate(marginal).reason == "diminishing_returns"
-    # 3. before r03 the same first regression buys exactly one change of shape
-    switch = sp.evaluate([_round(0, 0.60), _round(1, 0.52)])
-    assert (switch.reason, switch.strategy, switch.stop) == ("continue", "switch", False)
-    # 4. plateau is the fallback: no regression, marginal test not in force, no gain
-    flat = StopPolicy(RoundPolicy(max_rounds=4, target=0.9, marginal_from_round=99, plateau_window=2,
-                                  min_delta=0.02, judge_model="gemini:gemini-3.1-pro-preview"))
-    assert flat.evaluate([_round(0, 0.50), _round(1, 0.505), _round(2, 0.51)]).reason == "plateau"
-    # ... and a run that is still climbing is never stopped by any of the four
-    assert flat.evaluate([_round(0, 0.50), _round(1, 0.60), _round(2, 0.70)]).reason == "continue"
 
 
 # ----------------------------------------------------------------------------- turn budget
@@ -267,8 +145,8 @@ def test_task_stage_names_the_cost_bucket_a_task_spends_in():
     assert t("rebuild") == "repair"           # regenerating after a failed build IS repair money
     assert t("zone") == "zones" and t("asset") == "assets" and t("asset_fix") == "assets"
     assert t("env") == "env"
-    # the static track's surface-detail round is refine money, not "other" — it filed as
-    # Stage.OTHER until 2026-08-30 because _LABEL_STAGES had no "detail" prefix
+    # the static track's surface-detail round (gone 2026-09-22) was refine money, not "other":
+    # the recorded runs that have one still file it there
     assert t("detail") == "refine" and t("detail", "detail_seat") == "refine"
     # an unknown kind falls back to the label, which record_call maps by prefix
     assert t("something_new", "asset_koi") == "asset_koi"
@@ -299,7 +177,6 @@ def test_skip_judge_reasons_are_only_states_where_the_verdict_is_never_bought(tm
     ctx.budget.add(Usage(cost_usd=99.0), stage="refine")
     ctx.budget._active_s = (ctx.budget.budget.max_minutes + 1) * 60   # noqa: SLF001
     assert skip_judge_reason(ctx, renders=_renders()) == "budget already exceeded"
-    assert StopPolicy(ctx.policy).evaluate([_round(0, 0.5)], budget_ok=ctx.budget.ok()).reason == "budget"
     ctx.judge = None
     assert skip_judge_reason(ctx, renders=_renders()) == "no judge configured"
 
@@ -373,30 +250,27 @@ def _writer(job, ws):
     return {"src/object.js": f"// {job.label} r{job.round}\nexport function build(THREE) {{}}\n"}
 
 
-def test_the_loop_switches_shape_after_a_regression_and_emits_cost_rounds(tmp_path, chair_plan, settings):
-    """r01 regresses hard → r02 is ONE whole-object rewrite, not another per-part fan-out."""
+def test_a_regression_changes_nothing_about_the_loop_and_every_round_reports_its_cost(tmp_path, chair_plan, settings):
+    """r01 regresses hard: no strategy switch, no rewrite, no stop — the loop runs its
+    rounds, each an ordinary refine, and a lower score is not waste (every round is kept)."""
     spec = make_spec(max_rounds=3)
     ws = Workspace(tmp_path / "runs" / "regress")
     agent = FakeAgent(_writer, cost=0.02)
-    judge = FakeJudge(scores=(0.60, 0.30, 0.35))
+    judge = FakeJudge(scores=(0.60, 0.30, 0.35, 0.40))
     track = StaticObjectTrack(services=FakeServices(contract_errors=2), judge=judge, agent=agent,
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
-                              runtime=FakeRuntime(Language.THREEJS),
-                              policy=RoundPolicy(max_rounds=3, target=0.8, judge_model="gemini:gemini-3.1-pro-preview"))
+                              runtime=FakeRuntime(Language.THREEJS), policy=RoundPolicy(max_rounds=3))
     rec = track.run(spec, ws)
-    assert [r.kind for r in rec.rounds] == ["baseline", "refine", REWRITE_KIND]
-    assert rec.extra["stop_reason"] == "regression" and rec.status is RunStatus.PLATEAU
+    assert [r.kind for r in rec.rounds] == ["baseline", "refine", "refine", "refine"]
+    assert rec.extra["stop_reason"] == "max_rounds" and rec.status is RunStatus.MAX_ROUNDS
     events = EventLog(ws.events_path).read()
-    switch = next(e for e in events if e["event"] == "strategy.switch")
-    assert switch["reason"] == "regression"
-    rewrite = [j for j in agent.jobs if "rewrite" in j.prompt.lower() or "made the artifact WORSE" in j.prompt]
-    assert rewrite, "the rewrite round must tell the agent the last round made it worse"
-    assert len([j for j in agent.jobs if j.round == 2]) == 1  # ONE task, not a per-part fan-out
+    assert not [e for e in events if e["event"] in ("strategy.switch", "round.refine_from_best")]
+    assert not [j for j in agent.jobs if "made the artifact WORSE" in j.prompt]
     # every round reports what it burned
     costs = [e for e in events if e["event"] == "cost.round"]
-    assert len(costs) == 3 and all("generate" in c["stages"] for c in costs)
+    assert len(costs) == 4 and all("generate" in c["stages"] for c in costs)
     assert costs[0]["agent_turns"] == 0  # the fake agent keeps no transcript
-    assert costs[1]["wasted"] is True and costs[1]["waste_reason"] == "regression"
+    assert [c["wasted"] for c in costs] == [False] * 4 and "previous_best" not in costs[1]
     assert costs[2]["judge_usd"] > 0 and costs[2]["run_usd"] >= costs[1]["run_usd"]
     assert rec.extra["cost_by_stage"]["judge"] > 0 and rec.extra["cost_by_stage"]["refine"] > 0
     # ... and the run opens its own priced ledger (telemetry/cost.jsonl + the root alias) even
@@ -419,7 +293,7 @@ def test_a_lint_stuck_run_keeps_every_score_instead_of_deferring_the_verdict(tmp
     track = StaticObjectTrack(services=FakeServices(), judge=judge, agent=FakeAgent(_writer_lint),
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
                               runtime=FakeRuntime(Language.THREEJS),
-                              policy=RoundPolicy(max_rounds=2, target=0.9))
+                              policy=RoundPolicy(max_rounds=2))
     rec = track.run(spec, ws)
     events = EventLog(ws.events_path).read()
     assert [e for e in events if e["event"] == "judge.skipped"] == []
@@ -441,7 +315,7 @@ def test_a_round_that_raises_still_reports_what_it_burned(tmp_path, chair_plan, 
 
     track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5, 0.6)), agent=_Expensive(_writer, minutes=8.0),
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
-                              runtime=FakeRuntime(Language.THREEJS), policy=RoundPolicy(max_rounds=2, target=0.9))
+                              runtime=FakeRuntime(Language.THREEJS), policy=RoundPolicy(max_rounds=2))
     with fake_clock():
         rec = track.run(spec, ws)
     assert rec.status is RunStatus.BUDGET
@@ -480,31 +354,3 @@ def test_a_run_past_its_hard_ceiling_cannot_start_another_session(tmp_ws):
                        task=GenerationTask(label="baseline", prompt="p", round=0, kind="baseline"),
                        budget=g)
     assert agent.jobs == []  # the treadmill ends BEFORE the agent is invoked
-
-
-# ----------------------------------------------------------------------------- refine from the best round
-def test_a_refine_after_a_regression_restores_the_best_round_and_plans_from_its_verdict(tmp_path):
-    """Loop 22 (2026-09-09): 0.66 → 0.61 → 0.47, each refine building on the round before it while
-    the best sat in git.  After StopPolicy's ``switch`` the working tree is the BEST round again
-    and the tasks come from its verdict; a same-shape refine keeps building on the last round."""
-    from types import SimpleNamespace
-
-    from codeverse3d.workspace import Workspace
-
-    ws = Workspace(tmp_path / "run").create()
-    (ws.src / "scene.js").write_text("// r0: the good one\n")
-    c0 = ws.commit("r00")
-    (ws.src / "scene.js").write_text("// r1: the regression\n")
-    c1 = ws.commit("r01")
-    rounds = [_round(0, 0.66), _round(1, 0.47)]
-    rounds[0].commit, rounds[1].commit = c0, c1
-    events: list[dict] = []
-    ctx = SimpleNamespace(ws=ws, state=SimpleNamespace(best_round=0), events=SimpleNamespace(emit=lambda name, **kw: events.append({"event": name, **kw})))
-    same = BaseTrack._refine_base(ctx, rounds, "same")
-    assert same is rounds[1] and ws.head() == c1 and not events                      # no regression: the last round
-    base = BaseTrack._refine_base(ctx, rounds, "switch")
-    assert base is rounds[0] and (ws.src / "scene.js").read_text() == "// r0: the good one\n"
-    assert ws.head() != c1 and events[0]["event"] == "round.refine_from_best" and events[0]["best"] == 0 and events[0]["regressed"] == 1
-    # the best IS the last round (nothing regressed past it): nothing to restore
-    ctx.state.best_round = 1
-    assert BaseTrack._refine_base(ctx, rounds, "switch") is rounds[1]

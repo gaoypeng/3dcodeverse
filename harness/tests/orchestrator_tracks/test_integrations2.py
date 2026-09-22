@@ -142,7 +142,7 @@ def test_texture_pass_failure_is_additive_not_fatal(tmp_path, chair_plan, settin
 
     monkeypatch.setattr(trun, "texture_pass", boom)
     rec, ws, judge, services = _static_run(tmp_path, chair_plan, settings, tags=["texture"])
-    assert rec.status in (RunStatus.PLATEAU, RunStatus.PASSED, RunStatus.BUDGET)
+    assert rec.status in (RunStatus.MAX_ROUNDS, RunStatus.BUDGET)
     assert "texturing" not in rec.extra
     kinds = [e["event"] for e in EventLog(ws.events_path).read()]
     assert "texture.failed" in kinds

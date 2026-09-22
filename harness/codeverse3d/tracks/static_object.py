@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 from codeverse3d.contracts.artifacts import (
     BuildResult,
@@ -26,14 +25,10 @@ from codeverse3d.contracts.plan import Plan, StaticPlan
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import (
     BBOX_TOLERANCE_M,
-    LANGUAGE_FRAME,
     OBJECT_CLAY_VIEWS,
     OBJECT_VIEWS,
-    Frame,
-    to_pascal,
-    to_snake,
 )
-from codeverse3d.orchestrator import DETAIL_KIND, RefineTask, TaskGroup, compact_instructions
+from codeverse3d.orchestrator import RefineTask, TaskGroup, compact_instructions
 from codeverse3d.prompts import render
 from codeverse3d.spatial.contract import planned_joins
 from codeverse3d.tracks.common import RunContext
@@ -94,16 +89,6 @@ class ObjectPipeline:
             # is the object as dense as its own plan says?  Deterministic, so the judge is
             # never asked "does it look detailed enough" (tracks/depth.py).
             out.append(budget_gate(measurement, build, budget_for(ctx)))
-        # a DETAIL round promised not to move anything: prove it in code, not with the judge
-        if measurement is not None and ctx.extra.get("detail_round") == round_index:
-            out.append(
-                drift_gate(
-                    ctx.extra.get("detail_baseline"),
-                    measurement,
-                    tol_m=ctx.policy.detail_bbox_tol_m,
-                    language=ctx.language.value,
-                )
-            )
         return out
 
     def render(
@@ -182,8 +167,6 @@ class StaticObjectTrack(BaseTrack):
     refine_template = "tracks/refine_object.j2"
     part_template = "tracks/generate_static_part.j2"
     assemble_template = "tracks/assemble_static.j2"
-    detail_template = "tracks/detail_object.j2"
-    supports_detail_round = True
 
     def make_pipeline(self) -> ObjectPipeline:
         return ObjectPipeline()
@@ -321,8 +304,7 @@ class StaticObjectTrack(BaseTrack):
     def extra_refine_tasks(self, ctx: RunContext, last: RoundRecord) -> Sequence[RefineTask]:
         # NB: the `detail_budget` WARN is deliberately NOT turned into a refine task.  Measured:
         # refine rounds that added > 2000 triangles while assembly was still open lost 0.075 of
-        # assembly_fit and 0.025 of overall.  Density is the DETAIL round's job (detail_tasks),
-        # which runs only once the structure gates are clean.
+        # assembly_fit and 0.025 of overall.
         return reference_refine_tasks(ctx, last)
 
     def _refine_task(
@@ -363,206 +345,6 @@ class StaticObjectTrack(BaseTrack):
             edit_only=scoped,
             owns_entry=True,  # refine_object.j2 promises entry-file access even when scoped
         )
-
-    # ------------------------------------------------------------------ detail round
-    def detail_tasks(
-        self, ctx: RunContext, last: RoundRecord, index: int
-    ) -> tuple[list[GenerationTask], list[str]]:
-        """One surface-detail round: bevels, seams, fasteners, wear, material variation —
-        with the silhouette, the placement and the part list frozen.
-
-        Fanned out over the same per-part scopes as the baseline when the language owns
-        one file per part, because detail is embarrassingly parallel and file-disjoint.
-        ``ctx.extra`` records the round index and the measurement to diff against, which
-        is what ``ObjectPipeline.gates`` turns into the ``detail_drift`` gate.
-        """
-        lines = detail_instructions(last, max_lines=ctx.policy.max_instructions_per_task + 2)
-        if not lines:
-            return [], []
-        ctx.extra["detail_round"] = index
-        ctx.extra["detail_baseline"] = last.measurement
-        scopes = self.scopes(ctx)
-        tasks: list[GenerationTask] = []
-        # one scoped task per scope, or one whole-object task.  The two arms differed in
-        # four values — the context builder, the label, the file list, and which of
-        # edit_only / owns_entry is set (detail is file-disjoint per scope, so a scoped
-        # pass never touches the entry; the whole-object pass owns the full tree).
-        for scope in scopes or [None]:
-            files = list(scope.files) if scope is not None else expected_files(ctx)
-            context = (scope_context(ctx, scope, round_index=index, tasks=lines, files=files,
-                                     judge_summary=judge_digest(last),
-                                     current_files=refine_inline_files(ctx, files, scoped=False))
-                       if scope is not None else
-                       base_prompt_context(ctx, round_index=index, tasks=lines, files=files,
-                                           judge_summary=judge_digest(last),
-                                           current_files=refine_inline_files(ctx, files, scoped=False)))
-            tasks.append(
-                GenerationTask(
-                    label=f"detail_{scope.label}" if scope is not None else "detail",
-                    prompt=render(self.detail_template, **context),
-                    system=self.detail_system_prompt(ctx),
-                    files_hint=files,
-                    round=index,
-                    kind=DETAIL_KIND,
-                    temperature=0.6,
-                    thinking="high",
-                    edit_only=scope is not None,
-                    owns_entry=scope is None,
-                )
-            )
-        ctx.record_prompt("detail", tasks[0].prompt)
-        ctx.events.emit(
-            "detail.planned",
-            round=index,
-            n_tasks=len(tasks),
-            n_lines=len(lines),
-            tol_mm=round(ctx.policy.detail_bbox_tol_m * 1000, 1),
-        )
-        return tasks, lines
-
-    def detail_system_prompt(self, ctx: RunContext) -> str:
-        return language_system_prompt(ctx.language, role="detail")
-
-
-# ===================================================================== the DETAIL round
-# --------------------------------------------------------------------------- detail-round drift gate
-DRIFT_GATE = "detail_drift"
-
-
-def drift_findings(before: Measurement | None, after: Measurement | None, *, tol_m: float,
-                   language: str = "") -> list[GateFinding]:
-    """Did a detail round move anything?  Findings for the ``detail_drift`` gate.
-
-    The detail round's whole contract is "surface only": the silhouette, the part
-    list and every part box stay put.  This is the deterministic check of that
-    promise — the judge is never asked whether the shape moved, code answers it.
-    """
-    out: list[GateFinding] = []
-    if before is None or after is None:
-        return out
-    for axis, a, b in zip(_axes(language), before.extents, after.extents, strict=True):
-        d = float(b) - float(a)
-        if abs(d) > tol_m:
-            out.append(GateFinding(
-                gate=DRIFT_GATE, severity=Severity.ERROR, target="overall",
-                message=f"the detail round changed the overall {axis} extent by {d * 1000:+.1f} mm "
-                        f"({a:.3f} → {b:.3f} m); a detail round may not change the silhouette",
-                fix_hint="revert whatever grew the object (a bevel that widened a part, a fastener sticking out) "
-                         "and keep the added geometry inside the existing surfaces",
-                data={"kind": "detail_drift", "axis": axis, "delta_m": round(d, 5)}))
-    was = {to_snake(str(p.name)): p for p in (before.parts or ())}
-    now = {to_snake(str(p.name)): p for p in (after.parts or ())}
-    for key in sorted(set(was) - set(now)):
-        out.append(GateFinding(
-            gate=DRIFT_GATE, severity=Severity.ERROR, target=to_pascal(key),
-            message=f"part '{to_pascal(key)}' disappeared during the detail round",
-            fix_hint=f"restore '{to_pascal(key)}' exactly as it was before this round",
-            data={"kind": "detail_drift", "removed": key}))
-    for key in sorted(set(now) - set(was)):
-        out.append(GateFinding(
-            gate=DRIFT_GATE, severity=Severity.WARN, target=to_pascal(key),
-            message=f"the detail round introduced a new top-level part '{to_pascal(key)}'",
-            fix_hint="detail belongs inside an existing part; merge it into the part it decorates "
-                     "(or accept it only if the plan names it)",
-            data={"kind": "detail_drift", "added": key}))
-    moved = 0
-    for key in sorted(set(was) & set(now)):
-        a, b = was[key], now[key]
-        dc = max(abs((bl + bh) / 2 - (al + ah) / 2)
-                 for al, ah, bl, bh in zip(a.bbox_min, a.bbox_max, b.bbox_min, b.bbox_max, strict=True))
-        de = max(abs((bh - bl) - (ah - al))
-                 for al, ah, bl, bh in zip(a.bbox_min, a.bbox_max, b.bbox_min, b.bbox_max, strict=True))
-        if max(dc, de) <= tol_m:
-            continue
-        moved += 1
-        if moved > 8:
-            continue
-        out.append(GateFinding(
-            gate=DRIFT_GATE, severity=Severity.ERROR, target=to_pascal(key),
-            message=f"part '{to_pascal(key)}' moved {dc * 1000:.1f} mm / resized {de * 1000:.1f} mm during the "
-                    f"detail round (tolerance {tol_m * 1000:.0f} mm)",
-            fix_hint="put the part back on its previous centre and extents; add the detail inside that box",
-            data={"kind": "detail_drift", "part": key, "centre_mm": round(dc * 1000, 2),
-                  "extent_mm": round(de * 1000, 2)}))
-    if moved > 8:
-        out.append(GateFinding(gate=DRIFT_GATE, severity=Severity.ERROR, target="overall",
-                               message=f"{moved} parts moved during the detail round ({moved - 8} more not listed)",
-                               fix_hint="revert the placement changes; this round may only add surface geometry",
-                               data={"kind": "detail_drift", "moved": moved}))
-    if not out:
-        d_tri = int(getattr(after, "tri_count", 0) or 0) - int(getattr(before, "tri_count", 0) or 0)
-        out.append(GateFinding(gate=DRIFT_GATE, severity=Severity.INFO, target="overall",
-                               message=f"detail round held the contract: no part moved more than "
-                                       f"{tol_m * 1000:.0f} mm; {d_tri:+,} triangles added",
-                               data={"kind": "detail_drift", "delta_tris": d_tri}))
-    return out
-
-
-def _axes(language: str) -> tuple[str, str, str]:
-    """Axis letters as the AUTHOR sees them.  ``Measurement.extents`` is in the GLB frame
-    (Y-up); a blender/cadquery/urdf author thinks Z-up, where glb (x, y, z) reads (x, z, y)
-    — so naming the GLB axis in a fix hint would send them to the wrong dimension."""
-    if LANGUAGE_FRAME.get(language) is Frame.Z_UP_NEG_Y_FRONT:
-        return ("x", "z", "y")
-    return ("x", "y", "z")
-
-
-def drift_gate(before: Measurement | None, after: Measurement | None, *, tol_m: float, language: str = "") -> GateReport:
-    """``detail_drift`` GateReport (passing when nothing moved)."""
-    findings = drift_findings(before, after, tol_m=tol_m, language=language)
-    return GateReport(gate=DRIFT_GATE, findings=findings,
-                      passed=not any(f.severity is Severity.ERROR for f in findings))
-
-
-# --------------------------------------------------------------------------- detail-round tasks
-#: judge improvement-plan kinds a DETAIL round is allowed to act on.  Assembly/placement
-#: work is the repair loop's job and would break the no-drift contract.
-DETAIL_KINDS = frozenset({"geometry", "detail", "material", "materials", "craftsmanship", "texture", "finish"})
-
-#: what a detail round always does, whatever the judge said.  Ordered by measured value per
-#: triangle: edge treatment first (it changes how every surface reads under light), then the
-#: features a viewer counts, then wear.
-DEFAULT_DETAIL_LINES: tuple[str, ...] = (
-    "Bevel or chamfer every hard edge that a real version of this object would have "
-    "(2-6 mm on furniture and cast parts, 0.5-2 mm on sheet metal and small mechanisms).",
-    "Add the panel lines, seams and shut-lines where the real object's shells meet "
-    "(lids, drawers, housings, trays): 1-2 mm wide, ~1 mm deep insets.",
-    "Add the fasteners the real object is held together with — bolt heads, rivets, screws, "
-    "hinges — arrayed in a loop at the joints, sized 3-10 mm.",
-    "Give each material family a distinct roughness/metalness and a slightly different value; "
-    "no two different materials may share the same flat grey.",
-)
-
-
-def detail_instructions(last: Any, *, max_lines: int = 8) -> list[str]:
-    """Instruction lines for a detail round: the measured density gap first, then the
-    judge's detail-shaped asks, then the standing detail vocabulary; deduped and capped."""
-    lines: list[str] = []
-    seen: set[str] = set()
-
-    def _add(text: str) -> None:
-        key = text.strip().lower()[:80]
-        if key and key not in seen:
-            seen.add(key)
-            lines.append(text.strip())
-
-    for g in getattr(last, "gates", None) or ():
-        for f in getattr(g, "findings", None) or ():
-            if (f.data or {}).get("kind") == "under_tri_budget":
-                _add(f"{f.message}. {f.fix_hint}")
-    j = getattr(last, "judgment", None)
-    for item in sorted(getattr(j, "improvement_plan", None) or (),
-                       key=lambda i: (i.priority, -getattr(i, "expected_gain", 0.0))):
-        if str(getattr(item, "kind", "")).lower() not in DETAIL_KINDS:
-            continue
-        target = getattr(item, "target", "") or "overall"
-        _add(f"{target}: {item.instruction}")
-    for issue in getattr(j, "issues", None) or ():
-        if str(getattr(issue, "kind", "")).lower() in ("material", "materials", "detail"):
-            _add(f"{issue.target or 'overall'}: {issue.detail}")
-    for text in DEFAULT_DETAIL_LINES:
-        _add(text)
-    return lines[:max_lines]
 
 
 # ===================================================================== reference images

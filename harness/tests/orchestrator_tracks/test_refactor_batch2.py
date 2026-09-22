@@ -62,24 +62,6 @@ def test_candidate_width_precedence(tmp_path, settings):
     assert ctx.policy.n_candidates == 3
 
 
-
-def test_injected_policy_keeps_the_track_detail_round(tmp_path, settings):
-    """economy/quality inject RoundPolicy(judge_samples=n) and used to lose the static
-    track's detail round (a policy object stood in for 'detail_rounds was chosen')."""
-    from codeverse3d.orchestrator import RoundPolicy
-    from codeverse3d.tracks.lifecycle import DEFAULT_DETAIL_ROUNDS
-
-    ws = Workspace(tmp_path / "eco").create()
-    track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.THREEJS),
-                              policy=RoundPolicy(judge_samples=2))
-    ctx = track.build_context(make_spec(), ws, EventLog(ws.events_path), RunState())
-    assert ctx.policy.judge_samples == 2 and ctx.policy.detail_rounds == DEFAULT_DETAIL_ROUNDS == 1
-    # a chosen 0 still means off
-    track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.THREEJS),
-                              policy=RoundPolicy(judge_samples=2, detail_rounds=0))
-    assert track.build_context(make_spec(), ws, EventLog(ws.events_path), RunState()).policy.detail_rounds == 0
-
-
 def test_options_texture_triggers_texture_pass(tmp_path, chair_plan, settings, monkeypatch):
     calls = {}
 
@@ -100,7 +82,7 @@ def test_options_texture_triggers_texture_pass(tmp_path, chair_plan, settings, m
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
                               runtime=FakeRuntime(Language.THREEJS))
     rec = track.run(spec, ws)
-    assert rec.status in (RunStatus.PASSED, RunStatus.PLATEAU)
+    assert rec.status is RunStatus.MAX_ROUNDS
     assert calls, "options.texture must run the texture pass without the legacy tag"
     assert rec.extra.get("texturing") == {"shipped": True}
 

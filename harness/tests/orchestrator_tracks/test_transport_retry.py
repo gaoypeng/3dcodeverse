@@ -156,18 +156,18 @@ def test_baseline_transport_crash_is_retried_and_the_run_recovers(tmp_path, chai
     agent = CrashUntilRetried(crash_round=0)
     ws = Workspace(tmp_path / "runs" / "recover")
     rec = _track(agent, (0.55, 0.7, 0.85), chair_plan, settings).run(make_spec(max_rounds=3), ws)
-    assert rec.status is RunStatus.PASSED and rec.final_score == pytest.approx(0.85)
+    assert rec.status is RunStatus.MAX_ROUNDS and [r.score for r in rec.rounds] == pytest.approx([0.55, 0.7, 0.85, 0.85])
     evs = _events(ws)
     assert evs.count("round.transport_retry") == 1 and "run.failed" not in evs
-    assert [r.kind for r in rec.rounds] == ["baseline", "refine", "refine"]
+    assert [r.kind for r in rec.rounds] == ["baseline", "refine", "refine", "refine"]
 
 
-def test_refine_transport_crash_retries_only_once_then_plateaus(tmp_path, chair_plan, settings):
+def test_refine_transport_crash_retries_only_once_then_stops_as_no_change(tmp_path, chair_plan, settings):
     agent = CrashingAgent(crash_round=1, crashes=-1)
     ws = Workspace(tmp_path / "runs" / "plateau")
     rec = _track(agent, (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
-    assert rec.status is RunStatus.PLATEAU and rec.extra["stop_reason"] == "plateau"
-    assert rec.final_score == pytest.approx(0.55)  # the baseline best is still delivered
+    assert rec.status is RunStatus.NO_CHANGE and rec.extra["stop_reason"] == "no_change"
+    assert [r.score for r in rec.rounds] == pytest.approx([0.55])  # the baseline is still recorded
     evs = _events(ws)
     assert evs.count("round.transport_retry") == 1  # exactly once, never a loop
     assert "round.no_change" in evs
@@ -182,21 +182,21 @@ def test_baseline_transport_crash_is_retried_once_then_fails(tmp_path, chair_pla
     assert evs.count("round.transport_retry") == 1 and "run.failed" in evs
 
 
-def test_an_idle_agent_is_a_plateau_not_a_retry(tmp_path, chair_plan, settings):
+def test_an_idle_agent_is_a_no_change_stop_not_a_retry(tmp_path, chair_plan, settings):
     agent = IdleAfterBaseline()
     ws = Workspace(tmp_path / "runs" / "idle")
     rec = _track(agent, (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
-    assert rec.status is RunStatus.PLATEAU
+    assert rec.status is RunStatus.NO_CHANGE
     evs = _events(ws)
     assert "round.transport_retry" not in evs and "round.no_change" in evs
 
 
-def test_a_vendor_usage_limit_stops_the_run_as_agent_quota_not_plateau(tmp_path, chair_plan, settings):
+def test_a_vendor_usage_limit_stops_the_run_as_agent_quota_not_no_change(tmp_path, chair_plan, settings):
     agent = QuotaAfterBaseline()
     ws = Workspace(tmp_path / "runs" / "quota")
     rec = _track(agent, (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
-    assert rec.status is RunStatus.BUDGET and rec.extra["stop_reason"] == "agent_quota"
-    assert rec.final_score == pytest.approx(0.55)          # the baseline best is still delivered
+    assert rec.status is RunStatus.AGENT_QUOTA and rec.extra["stop_reason"] == "agent_quota"
+    assert [r.score for r in rec.rounds] == pytest.approx([0.55])  # the baseline is still recorded
     evs = _events(ws)
     assert "round.agent_quota" in evs and "round.transport_retry" not in evs and "round.no_change" not in evs
     assert max(j.round for j in agent.jobs) == 1             # the refine round's sessions met the wall; no retry round

@@ -311,9 +311,7 @@ def round_policy_options(spec: Spec, settings: Any | None = None) -> dict[str, A
 
     Only the judge sample count needs a ``RoundPolicy`` (rounds travel on
     ``spec.budget``, best-of-N on ``spec.options``), so a run at the default
-    ``n=1`` gets **no** policy and keeps the track's own.  The rubric stop target
-    and the detail-round budget are bound by ``BaseTrack`` for an injected policy
-    too, so nothing else is set here."""
+    ``n=1`` gets **no** policy and keeps the track's own."""
     settings = settings or get_settings()
     samples = int(getattr(settings.judge, "samples", 1) or 1)
     if samples <= 1:

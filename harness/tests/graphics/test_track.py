@@ -122,8 +122,8 @@ def test_graphics_track_end_to_end(tmp_path, settings):
                           settings=settings, runtime=runtime)
     assert isinstance(get_track(Track.GRAPHICS), GraphicsTrack)
     rec = track.run(spec, ws)
-    assert rec.status is RunStatus.PASSED and [r.kind for r in rec.rounds] == ["baseline", "refine", "refine"]
-    assert rec.baseline_score == pytest.approx(0.55) and rec.final_score == pytest.approx(0.9) and rec.best_round == 2
+    assert rec.status is RunStatus.MAX_ROUNDS and [r.kind for r in rec.rounds] == ["baseline", "refine", "refine", "refine"]
+    assert [r.score for r in rec.rounds] == pytest.approx([0.55, 0.72, 0.9, 0.9])
     assert rec.extra["rubric"] == "shader_v2"
     plan = GraphicsPlan.model_validate(json.loads(ws.plan_path.read_text()))
     assert any(a.text.startswith("Includes: bokeh") for a in plan.acceptance)

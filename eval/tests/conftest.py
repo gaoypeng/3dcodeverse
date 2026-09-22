@@ -131,7 +131,7 @@ def fake_run_track(score: float = 0.8):
         (ws.root / MODEL_FILE).write_text(GOOD.format(score=score))
         (ws.src / "parts").mkdir(exist_ok=True)
         (ws.src / "parts" / "legs.py").write_text("LEGS = 3\n")
-        rec = RunRecord(spec=spec, workspace=str(ws.root), status=RunStatus.PASSED, final_score=score - 0.1,
+        rec = RunRecord(spec=spec, workspace=str(ws.root), status=RunStatus.MAX_ROUNDS, final_score=score - 0.1,
                         total_usage=Usage(cost_usd=0.9, tool_calls=12))
         ws.write_json(ws.record_path, rec)
         return rec
