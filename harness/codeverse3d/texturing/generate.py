@@ -166,7 +166,7 @@ def _cache_dir(cache_dir: Path | None) -> Path:
 
 def generate_one(
     texture_id: str, prompt: str, out_dir: Path, image_model: Any, *, size: int = 1024, cache_dir: Path | None = None,
-    tileable: bool = True, border_frac: float = 0.12, use_cache: bool = True, seed: int | None = 0,
+    use_cache: bool = True, seed: int | None = 0,
 ) -> TextureAsset:
     """Generate (or fetch from cache) one texture and deliver ``out_dir/<texture_id>.png``."""
     model_id = getattr(image_model, "id", getattr(image_model, "model", "image"))
@@ -195,9 +195,7 @@ def generate_one(
             finally:
                 tmp.unlink(missing_ok=True)
     asset.seam_score_raw = seam_score(raw)
-    img = fit_size(raw, size)
-    if tileable:
-        img = make_tileable(img, border_frac)
+    img = make_tileable(fit_size(raw, size))
     asset.seam_score = seam_score(img)
     save_texture(img, Path(asset.path))
     asset.usage.latency_ms = asset.usage.latency_ms or int((time.time() - t0) * 1000)
@@ -212,8 +210,6 @@ def generate_textures(
     size: int = 1024,
     cache_dir: Path | None = None,
     max_workers: int = 6,
-    tileable: bool = True,
-    border_frac: float = 0.12,
     use_cache: bool = True,
     seed: int = 0,
 ) -> TextureSet:
@@ -242,7 +238,7 @@ def generate_textures(
     def _job(tid: str) -> TextureAsset:
         try:
             return generate_one(tid, prompts[tid], out_dir, image_model, size=size, cache_dir=cache_dir,
-                                tileable=tileable, border_frac=border_frac, use_cache=use_cache, seed=seed)
+                                use_cache=use_cache, seed=seed)
         except Exception as e:  # noqa: BLE001 — per-texture failure is data, not a crash
             log.warning("texture %s failed: %s: %s", tid, type(e).__name__, e)
             return TextureAsset(texture_id=tid, path=str(out_dir / f"{tid}.png"), prompt=prompts[tid],

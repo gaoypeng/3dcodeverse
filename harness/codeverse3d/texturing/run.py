@@ -16,7 +16,6 @@ rejected pass leaves no canonical file for the deliverable/gallery to pick up.
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from collections.abc import Sequence
@@ -31,7 +30,7 @@ from codeverse3d.contracts.common import TRACK_INFO, Track, Usage
 from codeverse3d.contracts.plan import StaticPlan
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK, ViewPreset
-from codeverse3d.proc import EventLog
+from codeverse3d.proc import EventLog, read_json_or_none
 from codeverse3d.texturing.apply import (
     ApplyReport,
     NormaliseReport,
@@ -316,11 +315,8 @@ def report_path(ws: Workspace) -> Path:
 
 def record_texturing(ws: Workspace, report: TextureReport) -> bool:
     """``record.json`` extra["texturing"] = summary (+ asset paths) when a record exists."""
-    if not ws.record_path.is_file():
-        return False
-    try:
-        data = json.loads(ws.record_path.read_text())
-    except json.JSONDecodeError:
+    data = read_json_or_none(ws.record_path)
+    if data is None:
         return False
     extra = data.setdefault("extra", {})
     extra["texturing"] = texturing_extra(ws, report)

@@ -349,22 +349,19 @@ def node_part_lookup(node_names: list[str], plan_parts: dict[str, TexturePart]) 
     return out
 
 
-def _material(
-    part: TexturePart, image: Image.Image, *, derived_maps: bool = True
-) -> trimesh.visual.material.PBRMaterial:
+def _material(part: TexturePart, image: Image.Image) -> trimesh.visual.material.PBRMaterial:
     """PBR material for one texture id.
 
-    Beyond the albedo the material carries two maps DERIVED from that albedo
-    (``derived_maps`` below): a metallic/roughness texture so the grain also modulates
-    the specular lobe, and a normal map so it catches light in relief.  They cost
-    no extra image call and cannot disagree with the colour.  ``derived_maps=False``
-    reproduces the albedo-only material the pass shipped before.
+    Beyond the albedo the material carries two maps DERIVED from that albedo (a flat
+    image gets none): a metallic/roughness texture so the grain also modulates the
+    specular lobe, and a normal map so it catches light in relief.  They cost no extra
+    image call and cannot disagree with the colour.
     """
     tint = part.tint_rgb or (1.0, 1.0, 1.0)
     factor = [int(round(255 * float(c))) for c in tint] + [255]
     fine = COARSE_TO_FINE.get(part.material_family, part.material_family)
     extra: dict[str, Any] = {}
-    if derived_maps and not is_flat(image):
+    if not is_flat(image):
         extra["metallicRoughnessTexture"] = metallic_roughness_image(
             image, float(part.roughness), float(part.metallic), fine)
         extra["normalTexture"] = normal_image(image, fine)
@@ -389,9 +386,6 @@ def apply_textures(
     texture_plan: TexturePlan,
     textures: dict[str, Path | str],
     glb_out: Path | str,
-    *,
-    verify: bool = True,
-    derived_maps: bool = True,
 ) -> ApplyReport:
     """Write ``glb_out`` = ``glb_in`` with textured PBR materials on the planned parts.
     ``textures`` maps texture_id → PNG path (missing ids leave those parts untextured)."""
@@ -445,7 +439,7 @@ def apply_textures(
         mkey = (part.texture_id, float(part.roughness), float(part.metallic), part.tint_rgb)
         mat = materials.get(mkey)
         if mat is None:
-            mat = materials[mkey] = _material(part, img, derived_maps=derived_maps)
+            mat = materials[mkey] = _material(part, img)
         mesh = trimesh.Trimesh(vertices=uw.vertices, faces=uw.faces, vertex_normals=uw.normals, process=False)
         mesh.visual = trimesh.visual.TextureVisuals(uv=uw.uv, material=mat)
         mesh.metadata = dict(geom.metadata or {})
@@ -458,8 +452,7 @@ def apply_textures(
     rep.n_derived_maps = sum(1 for m in materials.values() if getattr(m, "normalTexture", None) is not None)
     glb_out.parent.mkdir(parents=True, exist_ok=True)
     scene.export(glb_out)
-    if verify:
-        rep.warnings.extend(verify_textured_glb(glb_in, glb_out, expected_textured=len(rep.parts_textured)))
+    rep.warnings.extend(verify_textured_glb(glb_in, glb_out, expected_textured=len(rep.parts_textured)))
     rep.duration_ms = int((time.time() - t0) * 1000)
     return rep
 
@@ -612,7 +605,7 @@ def classify(
 
 
 def normalise_materials(
-    glb_in: Path | str, glb_out: Path | str, *, plan: StaticPlan | None = None, write: bool = True
+    glb_in: Path | str, glb_out: Path | str, *, plan: StaticPlan | None = None
 ) -> NormaliseReport:
     """Rewrite the flat-default / impossible materials of ``glb_in`` into ``glb_out``.
 
@@ -658,7 +651,7 @@ def normalise_materials(
             keyword=verdict.keyword, reason=verdict.reason,
             metallic=(round(before[0], 3), verdict.metallic), roughness=(round(before[1], 3), verdict.roughness),
         ))
-    if rep.changes and write:
+    if rep.changes:
         glb_out.parent.mkdir(parents=True, exist_ok=True)
         scene.export(glb_out)
         rep.glb_out = str(glb_out)
