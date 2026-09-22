@@ -22,7 +22,7 @@ def test_graphics_note_asks_for_the_physics_not_a_silhouette(tmp_path):
     png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
     note = reference_note(_ctx(Track.GRAPHICS, [str(png)]))
     assert "REFERENCE PHOTOS (1)" in note and "evenly spaced bars is not a curtain" in note
-    assert "IoU" not in note and "compare_silhouette" not in note
+    assert "IoU" not in note and "compare_reference" not in note
     obj = reference_note(_ctx(Track.STATIC_OBJECT, [str(png)]))
     assert "IoU" in obj, "object tracks keep the silhouette contract"
     assert reference_note(_ctx(Track.GRAPHICS, [str(tmp_path / "gone.png")])) == ""

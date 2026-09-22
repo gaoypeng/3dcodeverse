@@ -132,9 +132,9 @@ codeverse3d/
                       D48 judge slices: one matplotlib section renderer), silhouette.py, probes.py,
                       complexity.py (objective complexity vector -> Measurement.extra, eval/docs/COMPLEXITY.md),
                       joints*.py + joints_collide.py (deterministic penetration), registry.py,
-                      tools.py (every @tool registration since 2026-08-28, the joint_sweep body included;
-                      every import is a plain one — codeverse3d.languages / codeverse3d.texturing
-                      are imported inside the tool bodies), mcp_server.py (MCP name: 3dcode).
+                      tools.py (every @tool registration since 2026-08-28; every import is a plain
+                      one — codeverse3d.languages is imported inside the tool bodies),
+                      mcp_server.py (MCP name: 3dcode).
                       Render modes are contracts.artifacts.RENDER_MODES (shaded wire normals silhouette
                       clay — no 'depth'); build error_type spellings are languages/_common.MISSING_ENTRY
                       ("MissingEntryFile") and BUILD_TIMEOUT ("BuildTimeout") for every runtime
@@ -372,11 +372,12 @@ summary:
 `@tool(name, ArgsModel, description, *, tracks=(), languages=(), cost_hint)` registers
 `fn(ctx, args) -> Observation` → (a) direct call from tracks, (b) the stdio MCP
 server (name `3dcode`) for the vendor CLIs, (c) a native tool schema for any embedder
-(`ToolDef.schema()`), (d) a prompt card.  The 19 tools: `build`, `measure`,
+(`ToolDef.schema()`), (d) a prompt card.  The 16 tools: `build` (every track), `measure`,
 `render_views`, `render_sheet`, `isolate`, `cross_section`, `check_connectivity`,
-`check_contract`, `check_placement`, `compare_silhouette`, `compare_reference`,
-`joint_sweep` (articulated), `shader_probe`, `scene_probe`, `scene_views` (scene),
-`gl_probe`, `gl_frames` (graphics), `texture_pass`, `texture_preview` (object tracks).
+`check_contract`, `compare_reference` (object tracks), `joint_sweep` (articulated),
+`shader_probe`, `scene_probe`, `scene_views`, `check_placement` (scene), `gl_probe`,
+`gl_frames` (graphics).  Texturing is not a tool: `3dcode pick --texture` or
+`3dcode texture pass` after the run (2026-09-22: 1 call in 616 recorded sessions).
 
 An `Observation` carries two different answers: `ok` is the **verdict** and `failed`
 says the tool **could not run** (exception, missing artefact, unusable arguments).

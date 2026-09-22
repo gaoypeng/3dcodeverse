@@ -192,7 +192,7 @@ def test_a_scene_or_graphics_round_packages_from_its_own_commit_and_renders(tmp_
 def _fake_texture_pass(calls: list, *, shipped: bool = True, fail: bool = False):
     import codeverse3d.texturing.run as trun
 
-    def run(ws, spec, plan, *, glb_in, sheet, update_record, **kw):
+    def run(ws, spec, plan, *, glb_in, sheet, **kw):
         calls.append((Path(glb_in), Path(sheet)))
         if fail:
             raise RuntimeError("image model down")
@@ -200,8 +200,7 @@ def _fake_texture_pass(calls: list, *, shipped: bool = True, fail: bool = False)
                                     glb_in=str(glb_in), shipped=shipped)
         (ws.artifacts / trun.TEXTURED_GLB).write_bytes(b"glTF textured")
         ws.write_json(trun.report_path(ws), report)
-        if update_record:
-            trun.record_texturing(ws, report)
+        trun.record_texturing(ws, report)
         return report
 
     return run

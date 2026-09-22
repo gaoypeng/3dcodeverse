@@ -9,7 +9,6 @@ from pathlib import Path
 from codeverse3d.contracts.run import RunRecord
 from codeverse3d.texturing.run import (
     TextureReport,
-    TextureServices,
     latest_sheet,
     load_report,
     texture_pass,
@@ -32,9 +31,8 @@ def test_texture_pass_ships_and_records(tmp_path, chair_glb, chair_spec, chair_p
     ws = _ws(tmp_path, chair_glb, chair_spec, chair_plan)
     judge = FakeJudge([(0.70, {"materials": 0.6, "intent_fidelity": 0.8}), (0.73, {"materials": 0.75, "intent_fidelity": 0.8})])
     img = FakeImageModel(usd_per_image=0.05)
-    services = TextureServices(image_model=img, judge_obj=judge, render=fake_render,
-                               cache_dir=tmp_path / "cache")
-    rep = texture_pass(ws, chair_spec, chair_plan, model_id="", services=services)
+    rep = texture_pass(ws, chair_spec, chair_plan, model_id="", image_model=img, judge_obj=judge, render=fake_render,
+                       cache_dir=tmp_path / "cache")
     assert isinstance(rep, TextureReport) and rep.shipped and rep.delta == 0.03
     assert rep.plan.source == "default" and len(rep.textures.paths()) == 2
     assert (ws.artifacts / "object_textured.glb").is_file() and (ws.artifacts / "object.glb").read_bytes() == chair_glb.read_bytes()

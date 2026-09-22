@@ -23,13 +23,12 @@ from codeverse3d.workspace import Workspace
 
 #: tools every workspace gets (no track/language restriction)
 CORE_TOOLS = {"build", "measure", "render_views", "render_sheet", "isolate", "cross_section", "check_connectivity",
-              "check_contract", "compare_silhouette", "compare_reference"}
+              "check_contract", "compare_reference"}
 #: track- / language-scoped tools (documented; keep in sync when registering a new one)
 SCOPED_TOOLS = {
     "joint_sweep",  # articulated_object
     "shader_probe", "scene_probe", "scene_views", "check_placement",  # scene_threejs
     "gl_probe", "gl_frames",  # graphics (glsl_shader / opengl_python)
-    "texture_pass", "texture_preview",  # object tracks (texturing)
 }
 EXPECTED_TOOLS = CORE_TOOLS | SCOPED_TOOLS
 
@@ -41,22 +40,18 @@ def test_registry_has_every_tool() -> None:
         f"missing {sorted(EXPECTED_TOOLS - registered)} — update CORE_TOOLS/SCOPED_TOOLS above")
     static_blender = {t.name for t in list_tools(track="static_object", language="blender")}
     assert "joint_sweep" not in static_blender and "gl_probe" not in static_blender
-    assert {"texture_pass", "texture_preview"} <= static_blender
     scene = {t.name for t in list_tools(track="scene", language="scene_threejs")}
     assert "shader_probe" in scene
-    assert not {"texture_pass", "texture_preview"} & {t.name for t in list_tools(track="scene")}
     graphics = {t.name for t in list_tools(track="graphics", language="glsl_shader")}
-    assert {"gl_probe", "gl_frames"} <= graphics and "texture_pass" not in graphics and "scene_probe" not in graphics
+    assert {"gl_probe", "gl_frames"} <= graphics and "scene_probe" not in graphics
     # V11a: the object-GLB toolset never reaches scene/graphics agents — their builds
     # never write artifacts/object.glb, so every one of these was a dead-end refusal
     object_glb_tools = {"measure", "check_connectivity", "check_contract", "cross_section", "isolate",
-                        "render_views", "render_sheet", "compare_silhouette", "compare_reference"}
+                        "render_views", "render_sheet", "compare_reference"}
     assert not object_glb_tools & scene and not object_glb_tools & graphics
     assert "build" in scene and "build" in graphics  # build itself stays universal
     articulated = {t.name for t in list_tools(track="articulated_object", language="urdf_blender")}
     assert object_glb_tools | {"joint_sweep"} <= articulated  # articulated keeps the object toolset
-    texture_card = get_tool("texture_pass").card()
-    assert "judge" in texture_card and "texture_pass" in texture_card
     for t in list_tools():
         assert t.schema()["type"] == "object" and t.description
 
@@ -326,22 +321,6 @@ def test_render_sheet_and_isolate(stool_ctx: ToolContext, fake_renderer) -> None
     assert obs.ok and obs.numbers["part"] == "Leg_3" and "| Leg_3 |" in obs.text
     obs = get_tool("isolate").call(stool_ctx, {"part": "Nope"})
     assert not obs.ok and "Leg_3" in obs.text
-
-
-def test_compare_silhouette_tool(stool_ctx: ToolContext, fake_renderer) -> None:
-    obs = get_tool("compare_silhouette").call(stool_ctx, {})
-    assert not obs.ok and "no reference images" in obs.text
-    ref = stool_ctx.workspace.root / "ref.png"
-    im = Image.new("RGB", (300, 300), (250, 250, 250))
-    ImageDraw.Draw(im).rectangle([60, 60, 240, 240], fill=(20, 20, 20))
-    im.save(ref)
-    spec = json.loads(stool_ctx.workspace.spec_path.read_text())
-    spec["references"] = [{"path": "ref.png"}]
-    stool_ctx.workspace.spec_path.write_text(json.dumps(spec))
-    obs = get_tool("compare_silhouette").call(stool_ctx, {"view": "front"})
-    assert obs.ok and obs.numbers["iou"] > 0.95 and len(obs.images) == 2 and Path(obs.images[0]).is_file()
-    obs = get_tool("compare_silhouette").call(stool_ctx, {"reference_index": 3})
-    assert not obs.ok and "out of range" in obs.text
 
 
 def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:

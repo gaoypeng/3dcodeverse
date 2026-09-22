@@ -205,7 +205,7 @@ def test_reference_images_wire_judge_prompts_and_silhouette(tmp_path, chair_plan
     assert any("silhouette IoU vs the reference image is 0.42" in i for i in rec.rounds[1].instructions)
     assert any("wider relative to its height" in i for i in rec.rounds[1].instructions)
     refine_prompt = model.requests[-1].messages[0].text
-    assert "## Reference images" in refine_prompt and "compare_silhouette" not in refine_prompt  # single-shot: no tools
+    assert "## Reference images" in refine_prompt and "compare_reference" not in refine_prompt  # single-shot: no tools
 
 
 def test_reference_note_mentions_silhouette_tool_for_agents(tmp_path, chair_plan, settings):
@@ -217,7 +217,7 @@ def test_reference_note_mentions_silhouette_tool_for_agents(tmp_path, chair_plan
     track = StaticObjectTrack(services=FakeServices(silhouette_iou=0.8), agent=agent, planner_model=_planner(chair_plan.model_dump(mode="json")),
                               settings=settings, runtime=FakeRuntime(Language.BLENDER))
     rec = track.run(spec, ws)
-    assert "compare_silhouette" in agent.jobs[0].prompt and str(ref) in agent.jobs[0].prompt
+    assert "compare_reference" in agent.jobs[0].prompt and str(ref) in agent.jobs[0].prompt
     gate = next(g for g in rec.rounds[0].gates if g.gate == "reference_silhouette")
     assert gate.findings[0].severity.value == "info"  # IoU 0.8 is fine → no refine task
 

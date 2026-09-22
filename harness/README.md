@@ -12,8 +12,8 @@ renders, judges, refines, textures and records every run as data-flywheel materi
   `single-shot` generation on any chat model.
 * **Spatial tools** (direct, or over the MCP server `3dcode` for the agentic CLIs):
   build, measure, render_views/sheet, isolate, cross_section,
-  check_connectivity, check_contract, compare_silhouette, joint_sweep, shader_probe,
-  scene_probe, scene_views, gl_probe, gl_frames, texture_pass, texture_preview.
+  check_connectivity, check_contract, compare_reference, joint_sweep, shader_probe,
+  scene_probe, scene_views, check_placement, gl_probe, gl_frames.
 * **Judging:** rubric VLM judge (default `gemini-3.1-pro-preview`) on labelled 2×2
   montages with binary defect checklists; code-computed scores, floors and caps from
   deterministic gates; pairwise, ranking and reference judges; best-of-N candidates;

@@ -56,7 +56,7 @@ artifacts/  harness output (object.glb, renders/, gates/, measurement.json).  RE
 
 Before declaring done you MUST look at what you built: `build` → `render_sheet` (14 views)
 → `check_connectivity` → fix → `isolate` a doubtful part → `cross_section` for cavities
-→ `compare_silhouette` if a reference image exists (each step whose tool is in your tool
+→ `compare_reference` if a reference image exists (each step whose tool is in your tool
 list).  Read the numbers (bbox, islands, tri count) and the images.  "It should be fine"
 is not evidence; a render is.
 

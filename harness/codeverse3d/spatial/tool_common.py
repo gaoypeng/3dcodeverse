@@ -46,18 +46,14 @@ def language_of(ctx: ToolContext) -> str:
 
 
 
-def reference_path(ctx: ToolContext, index: int, *, tool: str) -> tuple[Path, dict]:
-    """``spec.references[index]`` as ``(absolute path, reference dict)``.
-
-    Usage errors name ``tool`` in their example call (``compare_silhouette`` /
-    ``compare_reference`` share this lookup).
-    """
+def reference_path(ctx: ToolContext, index: int) -> tuple[Path, dict]:
+    """``spec.references[index]`` as ``(absolute path, reference dict)`` (``compare_reference``)."""
     refs = spec_dict(ctx).get("references") or []
     if not refs:
         raise ToolUsageError("the spec has no reference images — nothing to compare against")
     if index >= len(refs):
         raise ToolUsageError(f"reference_index {index} out of range (have {len(refs)})",
-                             f"{tool}(reference_index=0)")
+                             "compare_reference(reference_index=0)")
     ref = refs[index]
     ref = ref if isinstance(ref, dict) else {"path": ref.path, "role": ref.role, "note": ref.note}
     p = Path(ref["path"])

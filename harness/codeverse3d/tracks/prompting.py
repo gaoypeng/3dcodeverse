@@ -428,10 +428,11 @@ def reference_note(ctx: RunContext) -> str:
     if ctx.single_shot:
         lines.append("The images are attached to this message.")
     else:
-        tgt = next((r.path for r in refs if r.role == "target"), refs[0].path)
+        tgt = next((r for r in refs if r.role == "target"), refs[0])
         lines.append(
-            f"Use the `compare_silhouette` tool (render_png=<your front render>, reference_png=`{tgt}`) "
-            "after building to check the outline, and `render_views` to look at your model."
+            f"Use the `compare_reference` tool (reference_index={ctx.spec.references.index(tgt)}) after building "
+            f"to put `{tgt.path}` beside your model (outline IoU + a side-by-side sheet), and `render_views` to "
+            "look at your model."
         )
     return "\n".join(lines)
 

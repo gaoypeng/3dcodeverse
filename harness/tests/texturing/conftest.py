@@ -116,9 +116,9 @@ class FakeJudge:
 class FakePlanModel:
     """A ChatModel that answers the material-plan call — no credentials, no network.
 
-    ``TextureServices.plan_model`` is one of the five injectable dependencies, and a
-    test that leaves it None makes ``material_plan`` build a REAL model from the spec's
-    planner id: the test then only passes on a box that happens to have keys (PORT-2).
+    ``texture_pass(plan_model=)`` is one of its five injection points, and a test that
+    leaves it None makes ``material_plan`` build a REAL model from the spec's planner id:
+    the test then only passes on a box that happens to have keys (PORT-2).
     """
 
     id = "fake:plan"

@@ -19,7 +19,6 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -53,19 +52,6 @@ log = logging.getLogger(__name__)
 TEXTURED_GLB = "object_textured.glb"
 TEXTURES_DIR = "textures"
 REPORT_NAME = "texturing.json"
-
-
-@dataclass
-class TextureServices:
-    """The injectable dependencies of :func:`texture_pass` in one bundle (tests and
-    the spatial tool pass fakes through a single ``ctx.extra['texture_services']``
-    key).  Every field defaults to None = "build/use the real thing"."""
-
-    image_model: Any | None = None
-    plan_model: Any | None = None
-    render: Any | None = None
-    cache_dir: Path | None = None
-    judge_obj: Any | None = None
 
 
 class TextureReport(BaseModel):
@@ -148,9 +134,8 @@ def texture_requested(spec: Spec) -> bool:
 
     ``Spec.options.texture`` is the switch; the legacy ``texture`` tag is still
     honoured because recorded specs carry it.  Nothing else may turn texturing
-    on — an agent calling the ``texture_pass`` tool in a run that did not ask for
-    it is refused, and ``3dcode texture pass <slug>`` is an explicit user
-    instruction that does not go through here at all.
+    on; ``3dcode texture pass <slug>`` is an explicit user instruction that does
+    not go through here at all.
 
     The track scope belongs here too, for the same "one owner" reason: without it
     ``--profile quality`` (which forces texture=True) made every scene and graphics run
@@ -179,18 +164,15 @@ def texture_pass(
     plan_model: Any | None = None,
     render: Any | None = None,
     cache_dir: Path | None = None,
-    services: TextureServices | None = None,
     events: EventLog | None = None,
-    update_record: bool = True,
     normalise: bool = True,
 ) -> TextureReport:
     """Run the whole pass on ``ws``.
 
     ``judge=False`` skips the before/after VLM gate (ship iff something was
     textured and no seam failed); ``judge_obj`` replaces the constructed
-    ``VlmJudge`` (tests).  ``services`` bundles the five injectable dependencies
-    (image_model / plan_model / render / cache_dir / judge_obj); explicit
-    keyword arguments win over the bundle.  ``sheet`` is the contact sheet the material
+    ``VlmJudge`` (tests; ``image_model`` / ``plan_model`` / ``render`` / ``cache_dir`` are
+    the other injection points).  ``sheet`` is the contact sheet the material
     planner looks at — the round being textured; the latest round's otherwise.
 
     ``normalise=True`` first runs the deterministic material normaliser
@@ -199,12 +181,6 @@ def texture_pass(
     plausible metallic/roughness numbers.  It costs no model call, and the same
     before/after judge gate (BEFORE is always the untouched ``glb_in``) decides
     whether the combined result ships."""
-    if services is not None:
-        image_model = image_model if image_model is not None else services.image_model
-        plan_model = plan_model if plan_model is not None else services.plan_model
-        render = render if render is not None else services.render
-        cache_dir = cache_dir if cache_dir is not None else services.cache_dir
-        judge_obj = judge_obj if judge_obj is not None else services.judge_obj
     t0 = time.time()
     events = events or EventLog(ws.events_path)
     glb_in = Path(glb_in) if glb_in else ws.artifacts / "object.glb"
@@ -256,7 +232,7 @@ def texture_pass(
     notes = report.notes  # pydantic copied the list; keep appending to the report's own
     if not keep:
         notes.append("no usable textures (all failed or seams too strong) — nothing applied")
-        return _finish(ws, report, t0, events, update_record)
+        return _finish(ws, report, t0, events)
 
     # 4. apply — into staging: the canonical object_textured.glb exists on disk ONLY
     # when the pass ships (entering the stage also removes any earlier pass's file)
@@ -269,14 +245,14 @@ def texture_pass(
                     materials=report.apply.n_materials, warnings=len(report.apply.warnings))
         if not report.apply.parts_textured:
             notes.append("no part was textured")
-            return _finish(ws, report, t0, events, update_record)
+            return _finish(ws, report, t0, events)
 
         # 5. gate
         if not judge:
             report.shipped = True
             notes.append("judge gate skipped (--no-judge): shipped on seam gate only")
             stage.promote()
-            return _finish(ws, report, t0, events, update_record)
+            return _finish(ws, report, t0, events)
         gate_judge = judge_obj if judge_obj is not None else _make_judge(spec, rubric, judge_model_id)
         gate = judge_gate(spec, plan, glb_in, staged_glb, tex_dir / "gate", judge=gate_judge, measurement=_measure(glb_in),
                           views=views, render=render)
@@ -287,7 +263,7 @@ def texture_pass(
                     cost_usd=round(gate.usage.cost_usd, 4))
         if report.shipped:
             stage.promote()
-        return _finish(ws, report, t0, events, update_record)
+        return _finish(ws, report, t0, events)
 
 
 def _make_judge(spec: Spec, rubric: str | None, judge_model_id: str | None) -> Any:
@@ -297,15 +273,14 @@ def _make_judge(spec: Spec, rubric: str | None, judge_model_id: str | None) -> A
                     n_samples=1, label="texture_gate")
 
 
-def _finish(ws: Workspace, report: TextureReport, t0: float, events: EventLog, update_record: bool) -> TextureReport:
+def _finish(ws: Workspace, report: TextureReport, t0: float, events: EventLog) -> TextureReport:
     report.duration_s = round(time.time() - t0, 2)
     if not report.shipped:
         # a pass that did not ship leaves NO canonical textured GLB — including one
         # left behind by an earlier shipped pass (the report keeps all its fields)
         ws.stage_artifacts(TEXTURED_GLB).invalidate()
     ws.write_json(ws.artifacts / TEXTURES_DIR / REPORT_NAME, report)
-    if update_record:
-        record_texturing(ws, report)
+    record_texturing(ws, report)
     events.emit("texture.done", **report.summary())
     return report
 

@@ -30,6 +30,6 @@ def test_render_views_and_silhouette_live(stool_ctx: ToolContext) -> None:
     spec = json.loads(stool_ctx.workspace.spec_path.read_text())
     spec["references"] = [{"path": "ref.png"}]
     stool_ctx.workspace.spec_path.write_text(json.dumps(spec))
-    cmp_ = get_tool("compare_silhouette").call(stool_ctx, {"view": "front"})
+    cmp_ = get_tool("compare_reference").call(stool_ctx, {"view": "front"})
     assert cmp_.ok, cmp_.text
     assert cmp_.numbers["iou"] > 0.97 and cmp_.numbers["reliable"]

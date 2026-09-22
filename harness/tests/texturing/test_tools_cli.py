@@ -1,4 +1,4 @@
-"""texture tools (registry) + `3dcode texture` CLI, offline."""
+"""The texture pass with every dependency injected, and the `3dcode texture` CLI, offline."""
 
 from __future__ import annotations
 
@@ -7,67 +7,32 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from codeverse3d.spatial.registry import ToolContext, get_tool
-from codeverse3d.texturing.run import TextureServices
+from codeverse3d.texturing.run import texture_pass
 from codeverse3d.workspace import Workspace
 from tests.texturing.conftest import FakeImageModel, FakeJudge, FakePlanModel, fake_render
 
 
-def _ws(tmp_path: Path, chair_glb, chair_spec, chair_plan, *, texture: bool = True) -> Workspace:
+def _ws(tmp_path: Path, chair_glb, chair_spec, chair_plan) -> Workspace:
     ws = Workspace(tmp_path / "run").create()
-    # texturing.run.texture_requested is the ONE owner of "does this run texture?" —
-    # the tool refuses in a run whose spec says no, so the spec has to say yes here
-    spec = chair_spec.model_copy(update={"options": chair_spec.options.model_copy(update={"texture": texture})})
-    ws.write_json(ws.spec_path, spec)
+    ws.write_json(ws.spec_path, chair_spec)
     ws.write_json(ws.plan_path, chair_plan)
     shutil.copy(chair_glb, ws.artifacts / "object.glb")
     return ws
 
 
-def test_texture_pass_tool_runs_with_injected_fakes(tmp_path, chair_glb, chair_spec, chair_plan):
+def test_texture_pass_runs_with_injected_fakes(tmp_path, chair_glb, chair_spec, chair_plan):
+    """Every dependency injected, the spec's REAL planner id passed as ``model_id``: the pass must
+    not build a model from it (tests/install/test_hermetic.py runs this with no keys at all)."""
     ws = _ws(tmp_path, chair_glb, chair_spec, chair_plan)
     judge = FakeJudge([(0.7, {"materials": 0.5}), (0.72, {"materials": 0.7})])
-    # plan_model too: without it material_plan builds a REAL model from the spec's
-    # planner id, so this "injected fakes" test only passed on a box that has keys.
-    services = TextureServices(image_model=FakeImageModel(), judge_obj=judge, render=fake_render,
-                               plan_model=FakePlanModel(), cache_dir=tmp_path / "c")
-    ctx = ToolContext(workspace=ws, track="static_object", language="blender",
-                      extra={"texture_services": services})
-    obs = get_tool("texture_pass").call(ctx, {"model": ""})
-    assert obs.ok, obs.text
-    assert "SHIPPED" in obs.text and obs.numbers["shipped"] is True and obs.images
+    rep = texture_pass(ws, chair_spec, chair_plan, model_id=chair_spec.backends.planner, image_model=FakeImageModel(),
+                       plan_model=FakePlanModel(), judge_obj=judge, render=fake_render, cache_dir=tmp_path / "c")
+    assert rep.shipped and rep.plan.source != "default"
     assert (ws.artifacts / "object_textured.glb").is_file()
-    # preview tool: cached_render_glb needs the real renderer; with a fake we only check the usage error path
-    obs2 = get_tool("texture_preview").call(ToolContext(workspace=Workspace(tmp_path / "empty").create()), {})
-    assert not obs2.ok and "texture_pass" in obs2.text
-
-
-def test_texture_pass_tool_without_glb_is_usage_error(tmp_path, chair_spec, chair_plan):
-    ws = Workspace(tmp_path / "run").create()
-    ws.write_json(ws.spec_path, chair_spec)
-    ws.write_json(ws.plan_path, chair_plan)
-    obs = get_tool("texture_pass").call(ToolContext(workspace=ws), {})
-    assert not obs.ok and "build" in obs.text
-
-
-def test_texture_pass_tool_refuses_when_the_run_did_not_ask_for_texturing(
-        tmp_path, chair_glb, chair_spec, chair_plan):
-    """`texture: false` must actually prevent the pass.  The tool is registered for every
-    object track, so an agent used to be able to buy a texture pass inside any run
-    (docs/COST.md §15: the quality run paid for two)."""
-    ws = _ws(tmp_path, chair_glb, chair_spec, chair_plan, texture=False)
-    services = TextureServices(image_model=FakeImageModel(), judge_obj=FakeJudge([(0.7, {})]),
-                               render=fake_render, cache_dir=tmp_path / "c")
-    obs = get_tool("texture_pass").call(
-        ToolContext(workspace=ws, track="static_object", language="blender",
-                    extra={"texture_services": services}), {})
-    assert not obs.ok and "did not ask for texturing" in obs.text
-    assert not (ws.artifacts / "object_textured.glb").exists()
 
 
 def test_cli_texture_show_and_help(tmp_path, chair_glb, chair_spec, chair_plan):
     from codeverse3d.cli.main import app
-    from codeverse3d.texturing.run import texture_pass
 
     ws = _ws(tmp_path, chair_glb, chair_spec, chair_plan)
     texture_pass(ws, chair_spec, chair_plan, model_id="", image_model=FakeImageModel(), judge=False, render=fake_render,

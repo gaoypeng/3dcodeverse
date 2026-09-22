@@ -18,7 +18,7 @@ KEY_ENVS = ("GEMINI_API_KEYS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI
 #: the two that PORT-2 caught; both are inside the offline (pure python) subset
 CREDENTIAL_FREE = (
     "tests/models/test_health.py::test_probe_model_treats_a_503_as_final",
-    "tests/texturing/test_tools_cli.py::test_texture_pass_tool_runs_with_injected_fakes",
+    "tests/texturing/test_tools_cli.py::test_texture_pass_runs_with_injected_fakes",
 )
 
 

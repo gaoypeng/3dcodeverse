@@ -253,7 +253,7 @@ def _texture(ws: Workspace, rec: RunRecord, index: int, *, image_model: Any | No
     events = EventLog(ws.events_path)
     try:
         texture_pass(ws, rec.spec, rec.plan, model_id=rec.spec.backends.planner, image_model=image_model, judge=True,
-                     judge_model_id=rec.spec.backends.judge, glb_in=glb, sheet=sheet, events=events, update_record=True)
+                     judge_model_id=rec.spec.backends.judge, glb_in=glb, sheet=sheet, events=events)
     except Exception as e:  # noqa: BLE001 — a derived asset pack: the hand-over goes out without it
         log.warning("texture pass failed on round %d: %s", index, e)
         events.emit("texture.failed", round=index, error=f"{type(e).__name__}: {e}")

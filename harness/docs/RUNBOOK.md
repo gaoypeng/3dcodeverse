@@ -285,8 +285,9 @@ world-metre UVs → `artifacts/object_textured.glb` → seam gate + before/after
 gate (ships only when the score does not drop and the materials criterion improves).
 `record.extra["texturing"]` holds shipped/delta/cost; `3dcode texture show <slug>`
 prints it.  Scenes: `3dcode texture scene-pack <slug>` writes 6–12 named tiles +
-manifest under `public/textures/` for zone prompts.  Object tracks' agents can also
-call the `texture_pass` / `texture_preview` tools mid-session.
+manifest under `public/textures/` for zone prompts.  There is no texture tool in an
+agent session (the `texture_pass` / `texture_preview` tools were deleted 2026-09-22:
+one call in 616 recorded sessions).
 
 ## 7. Benchmarks
 

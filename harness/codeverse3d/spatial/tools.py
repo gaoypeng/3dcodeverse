@@ -1,5 +1,5 @@
 """Every spatial tool registered with ``@tool``, in sections: build / measure / gates /
-sections · rendering · articulation · scenes · graphics · texturing · reference.
+sections · rendering · articulation · scenes · graphics · reference.
 ``import codeverse3d.spatial.tools`` registers all of them.
 
 House rules: observations are compact (errors first, fix hints attached), text
@@ -18,8 +18,6 @@ from pydantic import BaseModel, Field
 from codeverse3d.config import fewer_turns_enabled, get_settings
 from codeverse3d.contracts.artifacts import RENDER_MODES, BuildResult, GateReport, Measurement
 from codeverse3d.contracts.common import Language, Track
-from codeverse3d.contracts.plan import StaticPlan
-from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import OBJECT_VIEWS, OBJECT_VIEWS_QUICK
 from codeverse3d.spatial.connectivity import check_connectivity as _check_connectivity
 from codeverse3d.spatial.contract import check_contract as _check_contract
@@ -71,7 +69,6 @@ from codeverse3d.spatial.tool_common import (
     reference_path,
     render_cache_dir,
     resolve_views,
-    spec_dict,
     tool_out_dir,
 )
 
@@ -421,39 +418,11 @@ def isolate(ctx: ToolContext, args: IsolateArgs) -> Observation:
 
 
 def _iou_verdict(res: dict[str, Any]) -> str:
-    """Silhouette IoU → words, for compare_silhouette and compare_reference alike."""
+    """Silhouette IoU → words (compare_reference)."""
     verdict = "good match" if res["iou"] >= 0.8 else "rough match" if res["iou"] >= 0.6 else "POOR match"
     if not res["reliable"]:
         verdict += " (IoU UNRELIABLE: background mask failed on one image — trust the pictures, not the number)"
     return verdict
-
-
-class CompareSilhouetteArgs(BaseModel):
-    view: str = Field(default="front", description="view to render in silhouette mode")
-    reference_index: int = Field(default=0, ge=0, description="index into spec.references")
-
-
-@tool("compare_silhouette", CompareSilhouetteArgs, "Silhouette IoU / aspect-ratio error between a rendered view and a reference image (+ diff image).",
-      tracks=_OBJECT_TRACKS, cost_hint="slow")
-def compare_silhouette(ctx: ToolContext, args: CompareSilhouetteArgs) -> Observation:
-    glb = glb_path(ctx)
-    ref_path, _ref = reference_path(ctx, args.reference_index, tool="compare_silhouette")
-    if not ref_path.is_file():
-        return Observation.error(f"reference image {ref_path.name} not found")
-    if args.view not in VIEW_BY_NAME:
-        raise ToolUsageError(f"unknown view {args.view!r}; choose from {list(VIEW_BY_NAME)}", "compare_silhouette(view='front')")
-    preset = VIEW_BY_NAME[args.view]
-    rs = cached_render_glb(ctx, glb, views=[preset], mode="silhouette", size=512, sheet=False)
-    if not rs.views:
-        return Observation.error("compare_silhouette: renderer produced no view")
-    out_dir = render_cache_dir(ctx, glb, silhouette=args.view, ref=args.reference_index)
-    diff = out_dir / f"silhouette_diff_{args.view}_ref{args.reference_index}.png"
-    res = _compare_silhouette(rs.views[0].path, ref_path, diff_png=diff)
-    text = (f"silhouette '{args.view}' vs reference #{args.reference_index} ({ref_path.name}): IoU {res['iou']:.2f} → {_iou_verdict(res)}; "
-            f"aspect w/h render {res['render_aspect']:.2f} vs ref {res['ref_aspect']:.2f} (err {res['aspect_ratio_err']:.0%}). "
-            f"Diff image: red = reference only, blue = render only. " + fmt_numbers({k: v for k, v in res.items() if k != "diff_png_path"}))
-    images = image_budget([str(diff), rs.views[0].path])
-    return Observation(ok=True, text=text, numbers={"view": args.view, **res}, images=images)
 
 
 # ===================================================================== articulation
@@ -693,88 +662,6 @@ def gl_frames(ctx: ToolContext, args: GlFramesArgs) -> Observation:
     return text_observation(lines, ok=numbers.get("gate_errors", 0) == 0, numbers=numbers, images=images, limit=3000)
 
 
-# ===================================================================== texturing
-class TexturePassArgs(BaseModel):
-    judge: bool = Field(default=True, description="run the before/after VLM ship gate (False = ship on seam gate only)")
-    model: str = Field(default="", description="planner chat model id for the material plan (default: spec planner)")
-    size: int = Field(default=1024, ge=256, le=2048, description="texture size in px")
-
-
-def _spec_plan(ctx: ToolContext) -> tuple[Spec, StaticPlan]:
-    try:
-        spec = Spec.model_validate(spec_dict(ctx))
-    except Exception as e:  # pydantic ValidationError
-        raise ToolUsageError(f"spec.json missing or invalid: {e}") from e
-    plan = load_plan(ctx.workspace.plan_path)
-    if not isinstance(plan, StaticPlan):
-        raise ToolUsageError("texture_pass needs an object plan (StaticPlan / ArticulatedPlan)")
-    return spec, plan
-
-
-@tool("texture_pass", TexturePassArgs,
-      "Text-to-image texturing of the built GLB: material plan (VLM) → tileable textures (image model) → "
-      "analytic UVs + PBR materials → artifacts/object_textured.glb, shipped only if the judge score does not drop.",
-      tracks=_OBJECT_TRACKS, cost_hint="slow")
-def texture_pass_tool(ctx: ToolContext, args: TexturePassArgs) -> Observation:
-    from codeverse3d.texturing.run import texture_pass, texture_requested
-
-    glb = glb_path(ctx)
-    spec, plan = _spec_plan(ctx)
-    if not texture_requested(spec):
-        # ONE owner for "does this run texture?" (codeverse3d.texturing.run.texture_requested).
-        # The tool is registered for every object track, so without this an agent could —
-        # and did — buy a texture pass in a run whose spec says texture: false.
-        raise ToolUsageError(
-            "this run did not ask for texturing (spec.options.texture is false), so the "
-            "texture pass is off; finish the geometry instead",
-            "3dcode make ... --texture   # or `3dcode texture pass <slug>` after the run")
-    services = ctx.extra.get("texture_services")  # the ONE injection point (TextureServices)
-    # update_record=False: during an agent session the control files have ONE owner
-    # (finalise); a mid-session record.json write is reverted by the tamper enforcement
-    # and fails the paid session — finalise collects the report into the record instead
-    rep = texture_pass(ctx.workspace, spec, plan, model_id=args.model or spec.backends.planner,
-                       judge=args.judge, glb_in=glb, size=args.size, services=services,
-                       update_record=False)
-    s = rep.summary()
-    root = ctx.workspace.root
-    lines = [
-        f"texture pass: {'SHIPPED' if rep.shipped else 'not shipped'} — {s['reason'] or 'ok'}",
-        f"textures: {s['n_textures']} generated ({', '.join(rep.plan.texture_ids()) or '-'}); seam failed: {s['seam_failed'] or 'none'}",
-        f"parts textured: {s['parts_textured']} / skipped: {len(rep.apply.parts_skipped) if rep.apply else 0}",
-    ]
-    if rep.gate is not None and rep.gate.overall_before is not None:
-        lines.append(f"judge before {rep.gate.overall_before:.3f} → after {rep.gate.overall_after:.3f} "
-                     f"(Δ {rep.gate.delta:+.3f}; {rep.gate.materials_criterion} Δ {rep.gate.materials_delta:+.3f})")
-    if rep.glb_out:
-        lines.append(f"textured GLB: {rel_path(rep.glb_out, root)}")
-    lines.append(f"cost ${rep.usage.cost_usd:.4f}, {rep.duration_s:.0f}s")
-    images = []
-    if rep.gate is not None and rep.gate.renders_after and rep.gate.renders_after.contact_sheet:
-        images.append(rep.gate.renders_after.contact_sheet)
-    return text_observation(lines, numbers=s, images=images)
-
-
-class TexturePreviewArgs(BaseModel):
-    views: list[str] = Field(default=list(_DEFAULT_VIEWS), description="view names")
-
-
-@tool("texture_preview", TexturePreviewArgs,
-      "Render artifacts/object_textured.glb (after texture_pass) as a labelled contact sheet + list the generated textures.",
-      tracks=_OBJECT_TRACKS, cost_hint="slow")
-def texture_preview(ctx: ToolContext, args: TexturePreviewArgs) -> Observation:
-    ws = ctx.workspace
-    glb = ws.artifacts / "object_textured.glb"
-    if not glb.is_file():
-        raise ToolUsageError("artifacts/object_textured.glb does not exist — run texture_pass first", "texture_pass()")
-    presets = resolve_views(args.views)
-    rs = cached_render_glb(ctx, glb, views=presets, mode="shaded", size=512, sheet=True)
-    tex_dir = ws.artifacts / "textures"
-    pngs = sorted(p.name for p in tex_dir.glob("*.png")) if tex_dir.is_dir() else []
-    text = f"textured GLB rendered ({len(rs.views)} views). textures: {', '.join(pngs) or 'none'}"
-    images = [rs.contact_sheet] if rs.contact_sheet else [v.path for v in rs.views]
-    return text_observation(text, numbers={"n_textures": len(pngs)}, images=images)
-
-
 # ===================================================================== reference
 #: what the agent should compare, in the order that decides whether the object
 #: reads as the real thing (identity before polish)
@@ -802,7 +689,7 @@ class CompareReferenceArgs(BaseModel):
       "you built the right thing: part inventory, counts, proportions, profiles.", tracks=_OBJECT_TRACKS, cost_hint="slow")
 def compare_reference(ctx: ToolContext, args: CompareReferenceArgs) -> Observation:
     glb = glb_path(ctx)
-    ref_path, ref = reference_path(ctx, args.reference_index, tool="compare_reference")
+    ref_path, ref = reference_path(ctx, args.reference_index)
     if not ref_path.is_file():
         return Observation.error(f"reference image {ref_path.name} not found")
     if args.view not in VIEW_BY_NAME:

@@ -324,7 +324,7 @@ placement_findings(table, *, indoor=False) -> GateReport   # gate "scene_placeme
     # messages carry the scene_v1 floating_part cap words; reads artifacts/census.json["placement"] (host_placement.mjs)
 placement_gate_safe(census, *, plan=None, layouts=None, unavailable=()) -> GateReport | None   # round gate: None without a table, WARN on failure, never raises; `unavailable` = assets the stage could not build (not "missing planned contents")
 from codeverse3d.spatial.scene_placement import setting_text          # (plan: dict | model) -> the indoor/outdoor setting line
-from codeverse3d.spatial.silhouette import compare_silhouette
+from codeverse3d.spatial.silhouette import compare_silhouette    # the reference gate + compare_reference's IoU (no tool of its own)
 from codeverse3d.spatial.sections import judge_slices, SliceManifest, JUDGE_SLICE_PLANES   # (D48)
 judge_slices(glb, error_pairs, out_dir, planes=("front_back","left_right")) -> SliceManifest   # two vertical centre slices,
     # red hatch ONLY on error_pairs (the connectivity gate's ERROR penetration pairs), plain darkened blend otherwise,
@@ -352,8 +352,8 @@ Observation{ok: VERDICT, failed: the tool could not run, text, numbers, images, 
 from codeverse3d.spatial.mcp_server import observation_content, max_images_for, MAX_TEXT_CHARS
     # payload bound at the MCP boundary: text truncated; images 4 (ok) | 1 (FAIL verdict) | 0 (failed)
 import codeverse3d.spatial.tools   # registers: build, measure, render_views, render_sheet, isolate, cross_section,
-    # check_connectivity, check_contract, compare_silhouette, joint_sweep [articulated], shader_probe, scene_probe,
-    # scene_views + check_placement [scene], gl_probe + gl_frames [graphics], texture_pass + texture_preview [object tracks]
+    # check_connectivity, check_contract, compare_reference [object tracks], joint_sweep [articulated], shader_probe,
+    # scene_probe, scene_views + check_placement [scene], gl_probe + gl_frames [graphics] — 16
 python -m codeverse3d.spatial.mcp_server --workspace <ws> [--track X] [--language Y] [--round N] [--list]   # MCP name: 3dcode
 ```
 
@@ -535,11 +535,11 @@ generation prompts.
 from codeverse3d.texturing.run import texture_pass, texture_requested, load_report
 texture_requested(spec) -> bool   # THE owner of "does this run texture?" (Spec.options.texture, or
     # the legacy "texture" tag).  Asked by the CLI hand-over after the run (make/resume → addons.select.package(
-    # texture=…), which textures the PICKED round — Δ 2026-09-22, finalise no longer does) AND by the texture_pass spatial
-    # tool, which refuses in a run that did not ask — the tool is registered for every object track,
-    # so `texture: false` used to be bypassable from inside an agent session.
-texture_pass(ws, spec, plan, *, model_id, image_model=None, judge=True, judge_model_id=None, rubric=None,
-             glb_in=None, views=OBJECT_VIEWS_QUICK, size=1024, ..., events=None, update_record=True) -> TextureReport
+    # texture=…), which textures the PICKED round — Δ 2026-09-22, finalise no longer does).  No agent session can
+    # buy a pass: the texture_pass / texture_preview tools were deleted 2026-09-22.
+texture_pass(ws, spec, plan, *, model_id, image_model=None, judge=True, judge_obj=None, judge_model_id=None, rubric=None,
+             glb_in=None, sheet=None, views=OBJECT_VIEWS_QUICK, size=1024, plan_model=None, render=None, cache_dir=None,
+             events=None, normalise=True) -> TextureReport   # always writes record.json extra["texturing"] when a record exists
 # 1 vision call material plan (cacheable) → tileable textures (mirror cross-fade, seam_score ≤ 0.08) → world-metre UV
 # unwrap (planar/box/cylinder per part, tile_size_m) → artifacts/object_textured.glb → seam gate + before/after judge
 # gate (ship iff Δoverall ≥ −0.01 AND materials criterion improved); record.extra["texturing"], events texture.*
