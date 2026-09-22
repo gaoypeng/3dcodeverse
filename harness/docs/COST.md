@@ -280,9 +280,10 @@ recorded before it.
 
 ## 7. Price hygiene (checked 2026-08-23)
 
-`models/pricing.py` now carries a `PROVENANCE` row per price — source URL,
-`checked` date and a status of `verified` / `inferred` / `unverified` — exposed
-as `price_provenance(provider, model)` and printed by `3dcode cost prices`.  Every
+Every row of `models/pricing.PRICES` carries its provenance — source, `checked` date and a
+status of `verified` / `inferred` / `unverified` (one table since 2026-09-22; the parallel
+`PROVENANCE` dict is gone) — exposed as `price_provenance(provider, model)` and printed by
+`3dcode cost prices`.  Every
 row was reconciled against the providers' live pricing pages.  **Corrections
 made:**
 

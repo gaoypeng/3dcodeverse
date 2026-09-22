@@ -8,7 +8,7 @@ from codeverse3d.contracts.common import Usage
 from codeverse3d.models.pricing import (
     IMAGE_USD_BY_SIZE,
     PRICES,
-    PROVENANCE,
+    SOURCES,
     estimate_cost,
     per_image_usd,
     price_provenance,
@@ -38,13 +38,10 @@ SUPPORTED_MODEL_IDS = (
 
 
 def test_every_price_row_has_provenance():
-    assert set(PRICES) == set(PROVENANCE), (
-        f"missing provenance: {sorted(set(PRICES) - set(PROVENANCE))}; "
-        f"stale provenance: {sorted(set(PROVENANCE) - set(PRICES))}")
-    for key, prov in PROVENANCE.items():
-        assert prov.checked and prov.checked[:2] == "20", key
-        assert prov.status in ("verified", "inferred", "unverified"), key
-        assert prov.url, key
+    for (provider, model), price in PRICES.items():
+        assert price.checked and price.checked[:2] == "20", model
+        assert price.status in ("verified", "inferred", "unverified"), model
+        assert (price.source or provider) in SOURCES, model
 
 
 def test_provenance_flags_the_rows_we_cannot_stand_behind():
@@ -90,7 +87,7 @@ def test_the_bracketed_context_variant_prices_on_its_own_row():
     """A bracketed context variant requires its own exact price row."""
     row = price_provenance("anthropic", "claude-opus-5[1m]")
     assert row.match == "exact" and row.price is not None
-    assert row.provenance.status == "inferred" and row.provenance.checked >= "2026-08-24"
+    assert row.status == "inferred" and row.checked >= "2026-08-24"
     u = Usage(input_tokens=2, output_tokens=46_921)
     assert estimate_cost("anthropic", "claude-opus-5[1m]", u) == pytest.approx(
         estimate_cost("anthropic", "claude-opus-5", u)), "same rates as the standard-context row"
@@ -101,7 +98,7 @@ def test_the_bracketed_context_variant_prices_on_its_own_row():
 # --------------------------------------------------------------- staleness maintenance
 def test_every_price_row_was_checked_within_the_maintenance_window():
     """A price nobody re-checked for 90 days is not evidence.  When this fails,
-    re-read the providers' pricing pages, update PRICES/PROVENANCE and bump
+    re-read the providers' pricing pages, update PRICES and bump
     ``CHECKED`` — do not raise the threshold."""
     from datetime import date, datetime
 

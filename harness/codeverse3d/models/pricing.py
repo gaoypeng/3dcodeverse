@@ -1,9 +1,9 @@
 """USD price table (per 1M tokens) + ``estimate_cost`` + price provenance.
 
-Every ``Usage`` is priced here (providers never return USD).  Each row carries a
-:class:`Provenance` entry — where the number came from and when it was last
-checked — so a cost report can say *which* price row produced a dollar and
-whether it was verified or merely inferred (``3dcode cost prices``).
+Every ``Usage`` is priced here (providers never return USD).  Each row carries its
+provenance — where the number came from and when it was last checked — so a cost
+report can say *which* price row produced a dollar and whether it was verified or
+merely inferred (``3dcode cost prices``).
 
 Only the standard (short-context) tier is modelled, **except** the documented
 >200k-prompt tiers of the Gemini pro models, which ``estimate_cost`` applies
@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 #: date the tables below were last reconciled against the providers' pricing pages
 CHECKED = "2026-08-23"
 
-#: source ids used by :data:`PROVENANCE`
+#: ``Price.source`` ids; a row with no source was read off its provider's own page
 SOURCES: dict[str, str] = {
     "gemini": "https://ai.google.dev/gemini-api/docs/pricing",
     "anthropic": "https://platform.claude.com/docs/en/about-claude/pricing",
@@ -49,10 +49,17 @@ class LongContext:
 
 @dataclass(frozen=True)
 class Price:
-    """USD per 1M tokens.  ``cached`` = cache-read input; ``cache_write`` = cache
-    creation (Anthropic explicit caching, 5-minute TTL); ``thoughts`` are billed
-    at the output rate.  ``image_usd`` = per generated 1024² image for
-    image-output models (their image tokens are billed per image, not per token).
+    """USD per 1M tokens, and where the number came from.  ``cached`` = cache-read input;
+    ``cache_write`` = cache creation (Anthropic explicit caching, 5-minute TTL);
+    ``thoughts`` are billed at the output rate.  ``image_usd`` = per generated 1024² image
+    for image-output models (their image tokens are billed per image, not per token).
+
+    Provenance: ``source`` is a :data:`SOURCES` key ("" = the provider's own pricing page),
+    ``checked`` the day it was last read there, and ``status``:
+
+    * ``verified``   — read off the provider's public pricing page on ``checked``
+    * ``inferred``   — no published row; copied from the nearest sibling
+    * ``unverified`` — the model is not listed on the page (retired / alias / CLI-only)
     """
 
     input: float
@@ -62,28 +69,10 @@ class Price:
     approximate: bool = False
     image_usd: float = 0.0
     long_context: LongContext | None = None
-
-
-@dataclass(frozen=True)
-class Provenance:
-    """Where one price row came from.  ``status``:
-
-    * ``verified``   — read off the provider's public pricing page on ``checked``
-    * ``inferred``   — no published row; copied from the nearest sibling
-    * ``unverified`` — the model is not listed on the page (retired / alias / CLI-only)
-    """
-
-    source: str
+    source: str = ""
     checked: str = CHECKED
     status: str = "verified"
     note: str = ""
-
-    @property
-    def url(self) -> str:
-        return SOURCES.get(self.source, self.source)
-
-
-_V = Provenance  # verified rows read straight off a pricing page
 
 
 # fmt: off
@@ -91,62 +80,90 @@ PRICES: dict[tuple[str, str], Price] = {
     # ---------------------------------------------------------------- gemini
     # 3.6 / 3.7 / 3.8 flash: introductory rates valid through 2026-12-31; they double
     # on 2027-01-01 ($1.50 / $7.50 / $0.15).  Update then.  No >200k surcharge.
-    ("gemini", "gemini-3.8-flash"):           Price(0.75, 3.75, 0.075),
-    ("gemini", "gemini-3.7-flash"):           Price(0.75, 3.75, 0.075),
-    ("gemini", "gemini-3.6-flash"):           Price(0.75, 3.75, 0.075),
+    ("gemini", "gemini-3.8-flash"):           Price(0.75, 3.75, 0.075, checked="2026-09-21",
+                                                    note="intro rate through 2026-12-31, then 1.50/7.50/0.15"),
+    ("gemini", "gemini-3.7-flash"):           Price(0.75, 3.75, 0.075,
+                                                    note="intro rate through 2026-12-31, then 1.50/7.50/0.15"),
+    ("gemini", "gemini-3.6-flash"):           Price(0.75, 3.75, 0.075, note="intro rate through 2026-12-31"),
     ("gemini", "gemini-3.5-flash"):           Price(1.50, 9.00, 0.15),
     ("gemini", "gemini-3.1-pro-preview"):     Price(2.00, 12.00, 0.20,
-                                                    long_context=LongContext(200_000, 4.00, 18.00, 0.40)),
-    ("gemini", "gemini-3.1-flash-lite"):      Price(0.25, 1.50, 0.025),
+                                                    long_context=LongContext(200_000, 4.00, 18.00, 0.40),
+                                                    note=">200k prompts: 4.00/18.00/0.40 (modelled)"),
+    ("gemini", "gemini-3.1-flash-lite"):      Price(0.25, 1.50, 0.025, note="audio input is 2x; text/image/video modelled"),
     # image-output model: text/thinking output $3/M, IMAGE output $60/M ≈ $0.067
     # per 1K image (1290 tokens); 0.5K $0.045, 2K $0.134, 4K $0.151.  No cache row.
-    ("gemini", "gemini-3.1-flash-image"):     Price(0.50, 3.00, 0.05, image_usd=0.067),
+    ("gemini", "gemini-3.1-flash-image"):     Price(0.50, 3.00, 0.05, image_usd=0.067,
+                                                    note="image output $60/M ≈ $0.067 per 1K image; 0.5K $0.045, 4K $0.151"),
     ("gemini", "gemini-3-pro-preview"):       Price(2.00, 12.00, 0.20,
-                                                    long_context=LongContext(200_000, 4.00, 18.00, 0.40)),
+                                                    long_context=LongContext(200_000, 4.00, 18.00, 0.40),
+                                                    note=">200k prompts: 4.00/18.00 (modelled)"),
     ("gemini", "gemini-3-flash-preview"):     Price(0.50, 3.00, 0.05),
     ("gemini", "gemini-2.5-pro"):             Price(1.25, 10.00, 0.125,
-                                                    long_context=LongContext(200_000, 2.50, 15.00, 0.25)),
-    ("gemini", "gemini-2.5-flash"):           Price(0.30, 2.50, 0.03),
-    ("gemini", "gemini-2.5-flash-lite"):      Price(0.10, 0.40, 0.01),
+                                                    long_context=LongContext(200_000, 2.50, 15.00, 0.25),
+                                                    note=">200k prompts: 2.50/15.00/0.25 (modelled)"),
+    ("gemini", "gemini-2.5-flash"):           Price(0.30, 2.50, 0.03, note="cached was 0.075 here until 2026-08-23; published 0.03"),
+    ("gemini", "gemini-2.5-flash-lite"):      Price(0.10, 0.40, 0.01, note="cached was 0.025 here until 2026-08-23; published 0.01"),
     # image tokens are billed per image: 1024² = 1290 tokens = $0.039 ⇒ $30.23/M
-    ("gemini", "gemini-2.5-flash-image"):     Price(0.30, 30.00, 0.03, image_usd=0.039),
+    ("gemini", "gemini-2.5-flash-image"):     Price(0.30, 30.00, 0.03, image_usd=0.039, status="inferred",
+                                                    note="output/M derived from $0.039 per 1290-token 1024² image"),
     # ------------------------------------------------------------- anthropic
-    ("anthropic", "claude-fable-5"):          Price(10.00, 50.00, 1.00, cache_write=12.50),
-    ("anthropic", "claude-mythos-5"):         Price(10.00, 50.00, 1.00, cache_write=12.50),
-    ("anthropic", "claude-opus-5"):           Price(5.00, 25.00, 0.50, cache_write=6.25),
+    ("anthropic", "claude-fable-5"):          Price(10.00, 50.00, 1.00, cache_write=12.50,
+                                                    note="1h cache write 20.00 (not modelled)"),
+    ("anthropic", "claude-mythos-5"):         Price(10.00, 50.00, 1.00, cache_write=12.50, note="limited availability"),
+    ("anthropic", "claude-opus-5"):           Price(5.00, 25.00, 0.50, cache_write=6.25,
+                                                    note="fast mode is 10.00/50.00 (not modelled)"),
     # the 1M-context variant of opus-5, and the id the DEFAULT claude-code arm serves.
     # "[1m]" is not a version suffix, so it cannot prefix-match claude-opus-5 and priced
     # at $0.00 until 2026-08-24 (a recorded run billed $1.218 under this exact key).
-    ("anthropic", "claude-opus-5[1m]"):       Price(5.00, 25.00, 0.50, cache_write=6.25),
-    ("anthropic", "claude-opus-4-8"):         Price(5.00, 25.00, 0.50, cache_write=6.25),
+    ("anthropic", "claude-opus-5[1m]"):       Price(5.00, 25.00, 0.50, cache_write=6.25, source="provider-cost",
+                                                    checked="2026-08-24", status="inferred",
+                                                    note="1M-context opus-5, served by the default claude-code arm.  A probe "
+                                                         "billed costUSD 0.034620 for in=2, out=4, 1h-cache-write=3451 — "
+                                                         "exactly 2x5.00 + 4x25.00 + 3451x10.00 per 1M, i.e. the standard "
+                                                         "opus-5 rates with the 1h cache write at 2x input (not modelled here, "
+                                                         "as for every other Anthropic row)"),
+    ("anthropic", "claude-opus-4-8"):         Price(5.00, 25.00, 0.50, cache_write=6.25,
+                                                    note="fast mode is 10.00/50.00 (not modelled)"),
     ("anthropic", "claude-opus-4-7"):         Price(5.00, 25.00, 0.50, cache_write=6.25),
     ("anthropic", "claude-opus-4-6"):         Price(5.00, 25.00, 0.50, cache_write=6.25),
     ("anthropic", "claude-opus-4-5"):         Price(5.00, 25.00, 0.50, cache_write=6.25),
-    ("anthropic", "claude-opus-4-1"):         Price(15.00, 75.00, 1.50, cache_write=18.75),
-    ("anthropic", "claude-opus-4"):           Price(15.00, 75.00, 1.50, cache_write=18.75),
+    ("anthropic", "claude-opus-4-1"):         Price(15.00, 75.00, 1.50, cache_write=18.75,
+                                                    note="retired except on Bedrock / Google Cloud"),
+    ("anthropic", "claude-opus-4"):           Price(15.00, 75.00, 1.50, cache_write=18.75, note="retired except on Google Cloud"),
     # sonnet-5: the $2/$10 launch rate became the standard rate (the 2026-09-01
     # increase to $3/$15 was cancelled) — was priced 50% too high here until 2026-08-23.
-    ("anthropic", "claude-sonnet-5"):         Price(2.00, 10.00, 0.20, cache_write=2.50),
+    ("anthropic", "claude-sonnet-5"):         Price(2.00, 10.00, 0.20, cache_write=2.50,
+                                                    note="launch rate 2.00/10.00 is now standard; was 3.00/15.00 here"),
     ("anthropic", "claude-sonnet-4-6"):       Price(3.00, 15.00, 0.30, cache_write=3.75),
     ("anthropic", "claude-sonnet-4-5"):       Price(3.00, 15.00, 0.30, cache_write=3.75),
-    ("anthropic", "claude-sonnet-4"):         Price(3.00, 15.00, 0.30, cache_write=3.75),
+    ("anthropic", "claude-sonnet-4"):         Price(3.00, 15.00, 0.30, cache_write=3.75,
+                                                    note="retired except on Bedrock / Google Cloud"),
     ("anthropic", "claude-haiku-4-5"):        Price(1.00, 5.00, 0.10, cache_write=1.25),
-    ("anthropic", "claude-haiku-4"):          Price(1.00, 5.00, 0.10, cache_write=1.25, approximate=True),
-    ("anthropic", "claude-haiku-3-5"):        Price(0.80, 4.00, 0.08, cache_write=1.00),
+    ("anthropic", "claude-haiku-4"):          Price(1.00, 5.00, 0.10, cache_write=1.25, approximate=True, source="inferred",
+                                                    status="unverified",
+                                                    note="not listed on the pricing page; assumed = haiku-4.5"),
+    ("anthropic", "claude-haiku-3-5"):        Price(0.80, 4.00, 0.08, cache_write=1.00,
+                                                    note="retired except on Bedrock / Google Cloud"),
     # ---------------------------------------------------------------- openai
     # gpt-5.6-sol is CHEAPER than gpt-5.6 (was priced as its equal until 2026-08-23).
-    ("openai", "gpt-5.6-sol"):                Price(4.00, 20.00, 0.40),
-    ("openai", "gpt-5.6-terra"):              Price(2.00, 12.00, 0.20),
-    ("openai", "gpt-5.6-luna"):               Price(0.20, 1.20, 0.02),
+    ("openai", "gpt-5.6-sol"):                Price(4.00, 20.00, 0.40,
+                                                    note="4.00/20.00/0.40; was 5.00/30.00/0.50 here until 2026-08-23"),
+    ("openai", "gpt-5.6-terra"):              Price(2.00, 12.00, 0.20, checked="2026-08-24",
+                                                    note="mid tier; fast mode is 4.00/24.00 (not modelled)"),
+    ("openai", "gpt-5.6-luna"):               Price(0.20, 1.20, 0.02, checked="2026-08-24",
+                                                    note="small tier, cut 80% on 2026-07-30; fast mode is 0.40/2.40 (not modelled)"),
     ("openai", "gpt-5.6"):                    Price(5.00, 30.00, 0.50),
     ("openai", "gpt-5.5"):                    Price(5.00, 30.00, 0.50),
     ("openai", "gpt-5.4"):                    Price(2.50, 15.00, 0.25),
     ("openai", "gpt-5.3-codex"):              Price(1.75, 14.00, 0.175),
-    ("openai", "gpt-5.2-codex"):              Price(1.75, 14.00, 0.175, approximate=True),
+    ("openai", "gpt-5.2-codex"):              Price(1.75, 14.00, 0.175, approximate=True, source="inferred",
+                                                    status="inferred", note="not listed; assumed = gpt-5.2"),
     ("openai", "gpt-5.2"):                    Price(1.75, 14.00, 0.175),
-    ("openai", "gpt-5.1-codex"):              Price(1.25, 10.00, 0.125, approximate=True),
+    ("openai", "gpt-5.1-codex"):              Price(1.25, 10.00, 0.125, approximate=True, source="inferred",
+                                                    status="inferred", note="not listed; assumed = gpt-5.1"),
     ("openai", "gpt-5.1"):                    Price(1.25, 10.00, 0.125),
-    ("openai", "gpt-5-codex"):                Price(1.25, 10.00, 0.125, approximate=True),
+    ("openai", "gpt-5-codex"):                Price(1.25, 10.00, 0.125, approximate=True, source="inferred",
+                                                    status="inferred", note="not listed; assumed = gpt-5"),
     ("openai", "gpt-5-mini"):                 Price(0.25, 2.00, 0.025),
     ("openai", "gpt-5-nano"):                 Price(0.05, 0.40, 0.005),
     ("openai", "gpt-5"):                      Price(1.25, 10.00, 0.125),
@@ -157,81 +174,11 @@ PRICES: dict[tuple[str, str], Price] = {
     ("openai", "gpt-4o-mini"):                Price(0.15, 0.60, 0.075),
     ("openai", "o3"):                         Price(2.00, 8.00, 0.50),
     ("openai", "o3-mini"):                    Price(1.10, 4.40, 0.55),
-    ("openai", "o3-pro"):                     Price(20.00, 80.00),
+    ("openai", "o3-pro"):                     Price(20.00, 80.00, note="no cached-input rate published"),
     ("openai", "o4-mini"):                    Price(1.10, 4.40, 0.275),
     ("openai", "o1"):                         Price(15.00, 60.00, 7.50),
-    ("openai", "o1-mini"):                    Price(1.10, 4.40, 0.55, approximate=True),
-}
-
-#: per price row: where the number came from and when it was last checked.
-#: Every key of :data:`PRICES` must appear here (``tests/cost/test_price_hygiene.py``).
-PROVENANCE: dict[tuple[str, str], Provenance] = {
-    ("gemini", "gemini-3.8-flash"):       _V("gemini", checked="2026-09-21",
-                                              note="intro rate through 2026-12-31, then 1.50/7.50/0.15"),
-    ("gemini", "gemini-3.7-flash"):       _V("gemini", note="intro rate through 2026-12-31, then 1.50/7.50/0.15"),
-    ("gemini", "gemini-3.6-flash"):       _V("gemini", note="intro rate through 2026-12-31"),
-    ("gemini", "gemini-3.5-flash"):       _V("gemini"),
-    ("gemini", "gemini-3.1-pro-preview"): _V("gemini", note=">200k prompts: 4.00/18.00/0.40 (modelled)"),
-    ("gemini", "gemini-3.1-flash-lite"):  _V("gemini", note="audio input is 2x; text/image/video modelled"),
-    ("gemini", "gemini-3.1-flash-image"): _V("gemini", note="image output $60/M ≈ $0.067 per 1K image; 0.5K $0.045, 4K $0.151"),
-    ("gemini", "gemini-3-pro-preview"):   _V("gemini", note=">200k prompts: 4.00/18.00 (modelled)"),
-    ("gemini", "gemini-3-flash-preview"): _V("gemini"),
-    ("gemini", "gemini-2.5-pro"):         _V("gemini", note=">200k prompts: 2.50/15.00/0.25 (modelled)"),
-    ("gemini", "gemini-2.5-flash"):       _V("gemini", note="cached was 0.075 here until 2026-08-23; published 0.03"),
-    ("gemini", "gemini-2.5-flash-lite"):  _V("gemini", note="cached was 0.025 here until 2026-08-23; published 0.01"),
-    ("gemini", "gemini-2.5-flash-image"): _V("gemini", status="inferred",
-                                             note="output/M derived from $0.039 per 1290-token 1024² image"),
-    ("anthropic", "claude-fable-5"):      _V("anthropic", note="1h cache write 20.00 (not modelled)"),
-    ("anthropic", "claude-mythos-5"):     _V("anthropic", note="limited availability"),
-    ("anthropic", "claude-opus-5"):       _V("anthropic", note="fast mode is 10.00/50.00 (not modelled)"),
-    ("anthropic", "claude-opus-5[1m]"):   _V("provider-cost", checked="2026-08-24", status="inferred",
-                                             note="1M-context opus-5, served by the default claude-code arm.  A probe "
-                                                  "billed costUSD 0.034620 for in=2, out=4, 1h-cache-write=3451 — "
-                                                  "exactly 2x5.00 + 4x25.00 + 3451x10.00 per 1M, i.e. the standard "
-                                                  "opus-5 rates with the 1h cache write at 2x input (not modelled here, "
-                                                  "as for every other Anthropic row)"),
-    ("anthropic", "claude-opus-4-8"):     _V("anthropic", note="fast mode is 10.00/50.00 (not modelled)"),
-    ("anthropic", "claude-opus-4-7"):     _V("anthropic"),
-    ("anthropic", "claude-opus-4-6"):     _V("anthropic"),
-    ("anthropic", "claude-opus-4-5"):     _V("anthropic"),
-    ("anthropic", "claude-opus-4-1"):     _V("anthropic", note="retired except on Bedrock / Google Cloud"),
-    ("anthropic", "claude-opus-4"):       _V("anthropic", note="retired except on Google Cloud"),
-    ("anthropic", "claude-sonnet-5"):     _V("anthropic", note="launch rate 2.00/10.00 is now standard; was 3.00/15.00 here"),
-    ("anthropic", "claude-sonnet-4-6"):   _V("anthropic"),
-    ("anthropic", "claude-sonnet-4-5"):   _V("anthropic"),
-    ("anthropic", "claude-sonnet-4"):     _V("anthropic", note="retired except on Bedrock / Google Cloud"),
-    ("anthropic", "claude-haiku-4-5"):    _V("anthropic"),
-    ("anthropic", "claude-haiku-4"):      _V("inferred", status="unverified",
-                                             note="not listed on the pricing page; assumed = haiku-4.5"),
-    ("anthropic", "claude-haiku-3-5"):    _V("anthropic", note="retired except on Bedrock / Google Cloud"),
-    ("openai", "gpt-5.6-sol"):            _V("openai", note="4.00/20.00/0.40; was 5.00/30.00/0.50 here until 2026-08-23"),
-    ("openai", "gpt-5.6-terra"):          _V("openai", checked="2026-08-24",
-                                             note="mid tier; fast mode is 4.00/24.00 (not modelled)"),
-    ("openai", "gpt-5.6-luna"):           _V("openai", checked="2026-08-24",
-                                             note="small tier, cut 80% on 2026-07-30; fast mode is 0.40/2.40 (not modelled)"),
-    ("openai", "gpt-5.6"):                _V("openai"),
-    ("openai", "gpt-5.5"):                _V("openai"),
-    ("openai", "gpt-5.4"):                _V("openai"),
-    ("openai", "gpt-5.3-codex"):          _V("openai"),
-    ("openai", "gpt-5.2-codex"):          _V("inferred", status="inferred", note="not listed; assumed = gpt-5.2"),
-    ("openai", "gpt-5.2"):                _V("openai"),
-    ("openai", "gpt-5.1-codex"):          _V("inferred", status="inferred", note="not listed; assumed = gpt-5.1"),
-    ("openai", "gpt-5.1"):                _V("openai"),
-    ("openai", "gpt-5-codex"):            _V("inferred", status="inferred", note="not listed; assumed = gpt-5"),
-    ("openai", "gpt-5-mini"):             _V("openai"),
-    ("openai", "gpt-5-nano"):             _V("openai"),
-    ("openai", "gpt-5"):                  _V("openai"),
-    ("openai", "gpt-4.1"):                _V("openai"),
-    ("openai", "gpt-4.1-mini"):           _V("openai"),
-    ("openai", "gpt-4.1-nano"):           _V("openai"),
-    ("openai", "gpt-4o"):                 _V("openai"),
-    ("openai", "gpt-4o-mini"):            _V("openai"),
-    ("openai", "o3"):                     _V("openai"),
-    ("openai", "o3-mini"):                _V("openai"),
-    ("openai", "o3-pro"):                 _V("openai", note="no cached-input rate published"),
-    ("openai", "o4-mini"):                _V("openai"),
-    ("openai", "o1"):                     _V("openai"),
-    ("openai", "o1-mini"):                _V("inferred", status="unverified", note="not listed; kept at the o3-mini rate"),
+    ("openai", "o1-mini"):                    Price(1.10, 4.40, 0.55, approximate=True, source="inferred",
+                                                    status="unverified", note="not listed; kept at the o3-mini rate"),
 }
 # fmt: on
 
@@ -297,29 +244,20 @@ class PriceRow:
     key: str  # the PRICES key that matched ("" when unknown)
     match: str  # exact | prefix | unknown
     price: Price | None
-    provenance: Provenance | None
 
     @property
     def approximate(self) -> bool:
         """True when the dollar cannot be trusted to the cent: no row, an
         inferred/unverified row, or a row flagged ``approximate``."""
-        if self.price is None or self.provenance is None:
-            return True
-        return self.price.approximate or self.provenance.status != "verified"
-
-    @property
-    def source(self) -> str:
-        return self.provenance.url if self.provenance else "unknown"
+        return self.price is None or self.price.approximate or self.price.status != "verified"
 
     @property
     def checked(self) -> str:
-        return self.provenance.checked if self.provenance else ""
+        return self.price.checked if self.price else ""
 
     @property
     def status(self) -> str:
-        if self.price is None:
-            return "unknown"
-        return self.provenance.status if self.provenance else "unverified"
+        return self.price.status if self.price else "unknown"
 
 
 def price_provenance(provider: str, model: str) -> PriceRow:
@@ -328,10 +266,10 @@ def price_provenance(provider: str, model: str) -> PriceRow:
     prov = (provider or "").strip().lower()
     found = _match(prov, model)
     if not found:
-        return PriceRow(prov, _normalise(model), "", "unknown", None, None)
+        return PriceRow(prov, _normalise(model), "", "unknown", None)
     key, price = found
     match = "exact" if key[1] == _normalise(model) else "prefix"
-    return PriceRow(prov, _normalise(model), key[1], match, price, PROVENANCE.get(key))
+    return PriceRow(prov, _normalise(model), key[1], match, price)
 
 
 def unit_prices(provider: str, model: str, *, prompt_tokens: int = 0) -> tuple[float, float, float]:

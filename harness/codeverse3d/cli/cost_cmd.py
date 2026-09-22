@@ -168,7 +168,7 @@ def prices(
         rows.append((f"{prov}:{model}", f"{p.input:g}", f"{p.cached:g}", f"{p.output:g}",
                      f"{p.image_usd:g}" if p.image_usd else "-", row.status, row.checked,
                      "-" if age is None else str(age), ",".join(problems) or "-",
-                     (row.provenance.note if row.provenance else "")[:52]))
+                     p.note[:52]))
     header = ("model", "in/M", "cached/M", "out/M", "$/img", "status", "checked", "age_d", "flags", "note")
     widths = [max(len(str(r[i])) for r in [header, *rows]) for i in range(len(header))] if rows else \
         [len(h) for h in header]
