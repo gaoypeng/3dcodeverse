@@ -131,7 +131,8 @@ codeverse3d/
                       a second browser boot, so opt-in; the tool always writes it to census.json),
                       gl_render.py (GlHost), frame_stats.py (gl_frames),
                       sheet.py (montage_2x2, crop_region), measure.py, connectivity.py,
-                      contract.py (authoring-frame hints), sections.py, silhouette.py, probes.py,
+                      contract.py (authoring-frame hints), sections.py (the cross_section tool and the
+                      D48 judge slices: one matplotlib section renderer), silhouette.py, probes.py,
                       complexity.py (objective complexity vector -> Measurement.extra, eval/docs/COMPLEXITY.md),
                       joints*.py + joints_collide.py (deterministic penetration), registry.py,
                       tools.py (every @tool registration since 2026-08-28, the joint_sweep body included;

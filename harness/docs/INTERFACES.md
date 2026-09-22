@@ -310,6 +310,9 @@ judge_slices(glb, error_pairs, out_dir, planes=("front_back","left_right")) -> S
     # red hatch ONLY on error_pairs (the connectivity gate's ERROR penetration pairs), plain darkened blend otherwise,
     # degenerate slices dropped (F4) → 0–2 PNGs (slice_<name>.png, manifest.json beside them; JudgeSlice.png is a bare
     # file name); needs the mesh extra (shapely + matplotlib), ImportError propagates; a bad GLB → manifest.errors, no raise
+cross_section(glb, axis, at, out_png, *, parts=None) -> Observation   # the tool's body: any axis, `at` a fraction of
+    # the SELECTED parts' bbox; loops / filled area / hollow ratio + the same renderer's image (overlaps plain, never
+    # hatched); a plane that cuts nothing answers in text with no image
 from codeverse3d.spatial.joints import load_urdf, fk, sweep_collisions, urdf_to_glb, render_poses   # RESERVED_LINK_NAMES={'world'}
 from codeverse3d.spatial.joints_collide import components   # (names, edges) -> list[set[str]]: THE union-find (connectivity + sweep)
 # the joint_sweep TOOL body lives in spatial/tools.py (no joint_sweep_observation helper; render_poses takes no renderer=)

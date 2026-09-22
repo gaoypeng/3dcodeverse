@@ -6,8 +6,7 @@ under its tile, fixed tile size so the VLM sees consistent scale.
 This module is also the one home for shared PIL drawing bits: ``load_font``,
 :func:`write_gif` and the sheet geometry/palette constants (``LABEL_H``,
 ``PAD``, ``BG``, ``LABEL_BG``, ``LABEL_FG``) are public and reused by
-``spatial.gl_render``, ``spatial.sections`` and
-``judges.images``.
+``spatial.gl_render`` and ``judges.images``.
 """
 
 from __future__ import annotations

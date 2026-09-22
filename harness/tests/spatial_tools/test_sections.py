@@ -18,13 +18,20 @@ def test_cross_section_stool(stool_glb: Path, tmp_path: Path) -> None:
     assert o.numbers["n_loops"] == 4
     assert o.numbers["total_area_m2"] == pytest.approx(4 * 3.14159 * 0.02**2, rel=0.05)
     assert set(o.numbers["parts_cut"]) == {"Leg_0", "Leg_1", "Leg_2", "Leg_3"}
-    assert Image.open(out).size == (512, 512)
+    assert "Plane axes: x horizontal, z vertical" in o.text
 
 
-def test_cross_section_parts_and_absolute(stool_glb: Path, tmp_path: Path) -> None:
-    o = cross_section(stool_glb, "y", 0.43, tmp_path / "s.png", parts=["Seat"], absolute=True)
-    assert o.ok and o.numbers["parts_cut"] == {"Seat": 1}
+def test_cross_section_position_is_a_fraction_of_the_selected_parts(stool_glb: Path, tmp_path: Path) -> None:
+    o = cross_section(stool_glb, "y", 0.5, tmp_path / "s.png", parts=["Seat"])  # the seat's own mid-plane
+    assert o.ok and o.numbers["parts_cut"] == {"Seat": 1} and o.numbers["at_m"] == pytest.approx(0.43)
     assert o.numbers["total_area_m2"] == pytest.approx(0.16, rel=1e-3)
+
+
+def test_cross_section_that_cuts_nothing_answers_without_an_image(tmp_path: Path) -> None:
+    glb = _two_boxes(tmp_path / "apart.glb", overlap_x=-0.1)  # a 10 cm gap at the bbox middle
+    o = cross_section(glb, "x", 0.5, tmp_path / "gap.png")
+    assert o.ok and o.numbers["n_loops"] == 0 and o.images == [] and "nothing" in o.text
+    assert not (tmp_path / "gap.png").exists()
 
 
 def test_hollow_ratio(tmp_path: Path) -> None:
