@@ -169,13 +169,14 @@ def test_all_three_compile_on_the_real_renderer():
     # materials: the three custom depth materials are the shadow half of
     # this library and compile separately.
     #
-    # `custom_materials` counts EVERY material with captured sources, and a
-    # `shadowLike` depth material is one of them — so the three cloths bring
-    # six, not three.  Asserted as a floor: the exact number also moves when a
-    # sibling library staged into this scene patches one more material, which
-    # is how this line went stale in the first place.
+    # `custom_materials` counts every material with captured sources: the three
+    # cloths.  (It read six until 2026-09-22 because shader_probe compiled with the
+    # harness's post chain ON and every patched material compiled twice; the probe
+    # now runs raw, like the build's own compile.)  Asserted as a floor: the exact
+    # number also moves when a sibling library staged into this scene patches one
+    # more material.
     comp = report["compile"]
-    assert comp and comp["custom_materials"] >= 6, out
+    assert comp and comp["custom_materials"] >= 3, out
     assert comp["programs"] >= 7, out
 
 
