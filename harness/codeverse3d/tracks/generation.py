@@ -21,8 +21,8 @@ A session cut off mid-task leaves work the next round pays for again.
 So there is **no default cap** (``DEFAULT_AGENT_MAX_TURNS`` and
 ``RoundPolicy.agent_max_turns`` are 0 → the backend's own ``AgentJob.max_turns``).
 A caller may still set one (``GenerationTask.max_turns`` > ``generate(max_turns=…)``
-> ``C3D_AGENT_MAX_TURNS`` > ``Settings.limits.agent_max_turns``, which a cost
-profile sets), and a cap that IS set stays **graceful**: the session is not killed
+> ``C3D_AGENT_MAX_TURNS`` > ``Settings.limits.agent_max_turns``; no cost profile
+sets one), and a cap that IS set stays **graceful**: the session is not killed
 but asked, in a short wrap-up (``agent_wrapup_turns``), for one last build + summary.
 
 **Every dollar is charged.**  Both strategies spend through ``BudgetGuard.charge`` in
@@ -249,8 +249,8 @@ WRAPUP_PROMPT = (
 
 
 def agent_max_turns(default: int = DEFAULT_AGENT_MAX_TURNS) -> int:
-    """The turn cap a machine/profile asks for: ``C3D_AGENT_MAX_TURNS`` >
-    ``Settings.limits.agent_max_turns`` (what a cost profile sets) > ``default``.
+    """The turn cap a machine asks for: ``C3D_AGENT_MAX_TURNS`` >
+    ``Settings.limits.agent_max_turns`` > ``default``.
 
     ``0`` means *no cap*: the caller leaves ``AgentJob.max_turns`` at the backend's
     own default.  That is the measured default (docs/COST.md §17)."""

@@ -35,6 +35,8 @@ def test_cost_prices_and_estimate():
     assert r.exit_code == 0 and "gemini:gemini-3.7-flash" in r.stdout and "verified" in r.stdout
     r = runner.invoke(app, ["cost", "estimate", "gemini:gemini-3.7-flash", "--in", "100000", "--out", "1000"])
     assert r.exit_code == 0 and "$0.0788" in r.stdout
+    r = runner.invoke(app, ["cost", "estimate", "gemini:gemini-3.7-flash", "--in", "12000", "--images", "8"])
+    assert r.exit_code == 0 and "~22,320 in" in r.stdout, r.stdout  # 12 000 + 8 x 1 290
 
 
 # --------------------------------------------------------------------- the live ledger

@@ -596,7 +596,7 @@ payload C (14 views + clay, 5 montages + 2 crops) bills **$0.155/verdict at pro 
 (40.9k input tokens)** against the old 8-view payload's $0.146–0.150/30.0–34.0k — a
 +3–6 % price for the only payload change that has survived multiplicity (+0.038
 same-cap).  The rejected 14-singles arm B cost $0.198 & 67.5k tok/verdict for a
-*negative* delta.  Every profile's `judge_montages` is 5 (economy included: the
+*negative* delta.  `Settings.judge.montages` is 5 under every profile (economy included: the
 flash replica prices a C verdict at ~$0.032, and 3 montages would silently drop the
 low ring + poles).
 
@@ -627,7 +627,7 @@ arm **0.048 lower** — **1.6× the pro judge's measured σ of 0.030** §8, and 
 than the effect being claimed.  Two draws that disagree by more than the
 instrument's noise measure nothing.
 
-**Not adopted.**  `judge_detail_crops = 2` in **every** profile, and
+**Not adopted.**  No profile carries a crop count, and
 `Settings.judge.detail_crops` keeps its default of 2 — the previous image budget,
 restored.  Buying a fifth of a cent per verdict is not worth a payload change we
 cannot show is harmless, and at n=1 per arm the experiment cannot show it: it
@@ -682,8 +682,8 @@ levers measured to raise a score, so they belong to quality.
   opens no agent session — the cap could never fire, and no recorded economy run
   shows it firing.  The cap it was modelled on also lost its own A/B in this wave
   (§17: a 28-turn cap cost $0.02 more and 0.205 of a score point over 3 runs per
-  arm), so there is no default cap anywhere now: `Profile.max_turns` is 0 in all
-  three profiles and `tracks.generation.DEFAULT_AGENT_MAX_TURNS` is 0.
+  arm), so there is no default cap anywhere now: no profile carries a turn cap
+  and `tracks.generation.DEFAULT_AGENT_MAX_TURNS` is 0.
   `Settings.limits.agent_max_turns` / `C3D_AGENT_MAX_TURNS` remain the knob for a
   run or a machine that wants one by name.
 * **economy's 1 detail crop.**  §14: two independent draws of the crop experiment
@@ -791,7 +791,7 @@ backend's own default.  The plumbing stays for callers who choose one —
 `Settings.limits.agent_max_turns` — and a cap that IS set still lands gracefully
 (wrap-up session, `generate.turn_cap` event).  **Nothing sets one by default any
 more**: the profiles independently dropped their own caps in the same wave
-(`cost/profiles.py`, all three at `max_turns=0`), so a cap now only exists when a
+(`cost/profiles.py` carries none), so a cap now only exists when a
 run, a bench arm or `$C3D_AGENT_MAX_TURNS` asks for it by name.
 
 ### `skip_judge_reason` — two of four branches removed

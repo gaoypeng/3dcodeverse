@@ -136,8 +136,8 @@ from codeverse3d.addons.costreport.caching import session_cache, session_key
 session_cache(rows) -> [SessionCache]      # per session: cold first call, cached share, saved_usd, cold_usd
 from codeverse3d.cost.profiles import get_profile, PROFILES   # economy | balanced | quality
 get_settings().apply_profile(name, *, force=False) -> Profile
-    # sets default_{generator,planner,judge,captioner}, default_candidates, Settings.judge
-    # (max_px/montages/detail_crops/samples) and limits.agent_max_turns; a value the user stated in
+    # sets default_{generator,planner,judge,captioner}, default_candidates and Settings.judge.samples
+    # (never the judge payload or the turn cap); a value the user stated in
     # config.yaml / C3D_* survives unless force (3dcode make --profile forces).
 from codeverse3d.cli._common import resolve_dial, ResolvedDial   # THE resolver, one per `3dcode make`
 resolve_dial(settings, profile_flag=None, *, rounds=None, candidates=None,

@@ -501,7 +501,7 @@ class RoundPolicy:
     # A/B on one prompt (n=3 per arm, same generator/judge/budget) cost $1.381 mean at
     # 0.479 mean score capped, against $1.360 at 0.684 uncapped — no saving and −0.205
     # score (docs/COST.md §17).  0 = no policy cap: the session runs under the backend's
-    # own AgentJob.max_turns.  Callers who want one set it explicitly (cost profiles do).
+    # own AgentJob.max_turns.  Callers who want one set it explicitly (no cost profile does).
     agent_max_turns: int = 0  # 0 = the backend's own AgentJob.max_turns (claude-code 60; the other vendors have no turn cap)
     agent_wrapup_turns: int = 6  # turns granted to land a final build + summary when a cap IS set
     # ---- depth.  Measured (wave "generation-depth"): across 88 consecutive refine-round pairs the

@@ -51,7 +51,7 @@ TELEMETRY_DIR = "telemetry"
 TELEMETRY_LEDGER = f"{TELEMETRY_DIR}/cost.jsonl"
 
 #: alias name at the run root: a relative symlink :func:`open_run_ledger` leaves
-#: pointing at the telemetry copy, so ``flywheel.telemetry.live_ledger_path`` and
+#: pointing at the telemetry copy, so ``record.telemetry.live_ledger_path`` and
 #: anything that learned this path before the telemetry bucket existed still reads
 #: the one physical file.
 LEDGER_NAME = "cost_ledger.jsonl"

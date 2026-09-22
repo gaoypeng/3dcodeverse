@@ -247,11 +247,11 @@ def profiles() -> None:
     from codeverse3d.config import get_settings
     from codeverse3d.cost.profiles import profile_table
 
-    header = ("profile", "generator", "judge", "shape", "payload", "$/run", "measured quality")
+    header = ("profile", "generator", "judge", "shape", "$/run", "measured quality")
     rows = [tuple(str(c) for c in r) for r in profile_table()]
-    widths = [max(len(r[i]) for r in [header, *rows]) for i in range(6)]
+    widths = [max(len(r[i]) for r in [header, *rows]) for i in range(5)]
     for r in [header, *rows]:
-        console.print("  ".join(c.ljust(w) for c, w in zip(r[:6], widths, strict=True)) + "  " + r[6],
+        console.print("  ".join(c.ljust(w) for c, w in zip(r[:5], widths, strict=True)) + "  " + r[5],
                       soft_wrap=True)
     console.print(f"\n[dim]active profile: {get_settings().profile}  ·  "
                   f"`3dcode make ... --profile quality` to switch one run[/dim]")

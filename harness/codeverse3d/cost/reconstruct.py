@@ -390,7 +390,7 @@ def reconstruct_run(run_dir: str | Path, *, recheck: bool = False) -> RunLedger:
 
 # --------------------------------------------------------------------------- compare cells
 def reconstruct_cell(cell_dir: str | Path, *, recheck: bool = False) -> RunLedger:
-    """A ``bench/compare_backends.py`` one-shot cell (``gen/attempt*`` + ``eval/eval.json``)."""
+    """A ``eval/bench/compare_backends.py`` one-shot cell (``gen/attempt*`` + ``eval/eval.json``)."""
     root = Path(cell_dir)
     cell = _read_json(root / "cell.json")
     run = RunId(battery="", rel=f"{root.parent.name}/{root.name}").slug  # <prompt>__<arm>

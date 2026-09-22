@@ -30,11 +30,6 @@ def test_the_three_profiles_are_a_monotone_dial():
     assert usd == sorted(usd) and usd[0] < usd[-1]
     rounds = [PROFILES[n].rounds for n in PROFILE_NAMES]
     assert rounds == sorted(rounds)
-    # the judge payload is NOT part of the dial: two independent draws of the
-    # 2-crop vs 1-crop experiment disagreed by 0.048 = 1.6x the pro judge's σ,
-    # so no profile trades a fifth of a cent for that (docs/COST.md §14)
-    assert {PROFILES[n].judge_detail_crops for n in PROFILE_NAMES} == {2}
-    assert {PROFILES[n].judge_max_px for n in PROFILE_NAMES} == {1024}
     assert PROFILES["quality"].candidates == 2 and PROFILES["quality"].texture is True
     assert PROFILES["economy"].texture is False and PROFILES["economy"].candidates == 1
     # every profile explains itself and cites what it was measured at
@@ -47,7 +42,7 @@ def test_balanced_is_todays_defaults():
     s = Settings()
     assert (p.generator, p.planner, p.judge) == (s.default_generator, s.default_planner, s.default_judge)
     assert p.rounds == 4 and p.candidates == s.default_candidates and p.judge_samples == 1
-    assert p.max_minutes == 60.0 and p.judge_max_px == 1024
+    assert p.max_minutes == 60.0
 
 
 def test_a_value_the_user_configured_survives_the_profile_unless_forced():
@@ -75,6 +70,16 @@ def test_one_stated_judge_field_does_not_disable_the_whole_judge_block(monkeypat
         assert resolve_dial(settings, None).judge_samples == resolve_dial(settings, "quality").judge_samples == 3
     finally:
         get_settings.cache_clear()
+
+
+def test_no_profile_touches_the_judge_payload_or_the_turn_cap(monkeypatch):
+    """Neither cut paid when measured (docs/COST.md §14, §17), so they are not dials: even
+    `--profile X`, which forces the dial, leaves a stated payload and turn cap alone."""
+    monkeypatch.setenv("C3D_JUDGE__MAX_PX", "800")
+    monkeypatch.setenv("C3D_LIMITS__AGENT_MAX_TURNS", "12")
+    for name in PROFILE_NAMES:
+        d = resolve_dial(Settings(), name)
+        assert (d.judge_max_px, d.judge_montages, d.judge_detail_crops, d.agent_max_turns) == (800, 5, 2, 12)
 
 
 def test_applying_a_profile_twice_is_idempotent():

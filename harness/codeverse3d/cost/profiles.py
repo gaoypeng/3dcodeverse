@@ -2,8 +2,8 @@
 
 ``3dcode make --profile economy|balanced|quality`` picks a :class:`Profile`; it
 resolves the model per role, the judge sample count, the number of refine
-rounds, the best-of-N width, the judge payload, the texture pass and the budget
-ceilings in one consistent move.  Mixing knobs by hand is how a run ends up
+rounds, the best-of-N width, the texture pass and the budget ceilings in one
+consistent move.  Mixing knobs by hand is how a run ends up
 paying for a pro judge on a single-shot artifact, or running four refine rounds
 on a graphics shader that passed at round 0.
 
@@ -22,7 +22,7 @@ Every number is taken from the measurements in ``docs/COST.md``:
   pass/fail that persists) and **2 refine rounds** (r01 buys a score point for
   $4.93, r02 for $6.80, r03 for $33.49).  It does **not** shrink the judge
   payload and does **not** carry its own turn cap — both were measured and
-  neither paid (see the field comments below).
+  neither paid (see the note on :class:`Profile`).
 * **balanced** — exactly today's defaults (gemini-cli generator, pro judge at
   n=1, 4 rounds, no best-of-N, no texture): the arm every number in the audit
   was measured on.
@@ -45,7 +45,17 @@ DEFAULT_PROFILE = "balanced"
 
 @dataclass(frozen=True)
 class Profile:
-    """One coherent setting of the cost/quality dial."""
+    """One coherent setting of the cost/quality dial.
+
+    NOT dials: the judge payload (``Settings.judge`` max_px / montages / detail_crops) and
+    the agent turn cap (``Settings.limits.agent_max_turns``) are the same under every
+    profile, because each cut was measured and none paid.  768 px bills a montage the same
+    as 1024 (156,834 vs 156,874 input tokens over 16 verdicts) and raised the judge's σ
+    0.033 → 0.042; one detail crop instead of two saves 1,198 tokens ($0.0024/verdict on
+    pro) but two draws of it disagreed by 0.048 = 1.6x the pro judge's σ (INCONCLUSIVE,
+    docs/COST.md §14); 3 montages drop the 14-view rig's low ring + poles (D47); a 28-turn
+    cap cost $0.02 MORE and 0.205 of a score point (§17).
+    """
 
     name: str
     #: model per role ("" = leave the settings default alone)
@@ -57,14 +67,7 @@ class Profile:
     rounds: int = 4                  # refine rounds after the baseline
     candidates: int = 1              # best-of-N baselines
     judge_samples: int = 1           # VLM judge samples per verdict
-    max_turns: int = 0               # agent turn cap (0 = the backend's own default)
     texture: bool = False            # run the derived texture pass
-    #: judge payload
-    judge_max_px: int = 1024         # measured: 768 bills the same and is noisier — see PROFILES
-    judge_montages: int = 5  # 14-view rig needs 5 (D47); 3 silently drops the low ring + poles
-    judge_detail_crops: int = 2      # one crop ≈ 1,198 input tokens ($0.0024 on the pro judge);
-                                     # NOT reduced by any profile — the score effect is inside the
-                                     # judge's own noise in both directions (docs/COST.md §14)
     #: budget ceilings a run of this shape should not need to exceed
     max_minutes: float = 60.0
     #: measured expectation (docs/COST.md) — reported by ``3dcode cost profiles``
@@ -86,23 +89,6 @@ PROFILES: dict[str, Profile] = {
         judge="gemini:gemini-3.7-flash",
         captioner="gemini:gemini-3.7-flash",
         rounds=2, candidates=1, judge_samples=2, texture=False,
-        # max_turns=0 (2026-08-23): economy's generator is ``single-shot:``, which opens no
-        # agent session, so the 20-turn cap this profile used to carry could never fire.  And
-        # the cap it was modelled on did not survive its own A/B — 3 runs per arm, a 28-turn
-        # cap cost $0.02 MORE and 0.205 of a score point (docs/COST.md §17) — so there is no
-        # default cap anywhere now.  A caller who wants one still has
-        # ``Settings.limits.agent_max_turns`` / ``$C3D_AGENT_MAX_TURNS``.
-        max_turns=0,
-        # 1024 px, not 768: measured on 8 recorded rounds, Gemini bills a montage the same at
-        # both sizes (156,834 vs 156,874 input tokens over 16 verdicts) while 768 raised the
-        # sampling σ 0.033 → 0.042.
-        # detail_crops=2, i.e. the same payload as every other profile.  Dropping to 1 crop saves
-        # 1,198 input tokens ($0.0024/verdict on pro) and was adopted on a single draw that read
-        # 0.595 → 0.600; an independent re-draw of the same round read 0.600 → 0.552, a 0.048
-        # swing = 1.6x the pro judge's measured σ (0.030).  Two draws that disagree by more than
-        # the instrument's noise do not license a payload cut worth a fifth of a cent, so the
-        # experiment is recorded as INCONCLUSIVE in docs/COST.md §14 and the budget is unchanged.
-        judge_max_px=1024, judge_montages=5, judge_detail_crops=2,
         max_minutes=30.0,
         expected_usd=0.30,
         expected_score="graphics 0.81 median (5/6 passed); objects clear the gates less often "
@@ -116,8 +102,7 @@ PROFILES: dict[str, Profile] = {
         planner="gemini:gemini-3.7-flash",
         judge="gemini:gemini-3.1-pro-preview",
         captioner="gemini:gemini-3.7-flash",
-        rounds=4, candidates=1, judge_samples=1, max_turns=0, texture=False,
-        judge_max_px=1024, judge_montages=5, judge_detail_crops=2,
+        rounds=4, candidates=1, judge_samples=1, texture=False,
         max_minutes=60.0,
         expected_usd=1.47,
         expected_score="0.835 mean on compare_v1, 36/61 runs passed ($2.50 per passing artifact) "
@@ -133,8 +118,7 @@ PROFILES: dict[str, Profile] = {
         planner="gemini:gemini-3.7-flash",
         judge="gemini:gemini-3.1-pro-preview",
         captioner="gemini:gemini-3.7-flash",
-        rounds=4, candidates=2, judge_samples=3, max_turns=0, texture=True,
-        judge_max_px=1024, judge_montages=5, judge_detail_crops=2,
+        rounds=4, candidates=2, judge_samples=3, texture=True,
         max_minutes=90.0,
         expected_usd=3.20,
         expected_score="best-of-2 lifted the stool baseline 0.563 → 0.612 and the texture pass "
@@ -157,16 +141,13 @@ def get_profile(name: str | None) -> Profile:
     return PROFILES[key]
 
 
-def profile_table() -> list[tuple[str, str, str, str, str, str, str]]:
-    """Rows for ``3dcode cost profiles``: name, generator, judge, shape, montage, $, note."""
+def profile_table() -> list[tuple[str, str, str, str, str, str]]:
+    """Rows for ``3dcode cost profiles``: name, generator, judge, shape (+texture), $, note."""
     rows = []
     for name in PROFILE_NAMES:
         p = PROFILES[name]
-        shape = f"{p.rounds}r × {p.candidates}cand, judge n={p.judge_samples}" + (
-            f", ≤{p.max_turns} turns" if p.max_turns else "")
-        rows.append((p.name, p.generator, p.judge, shape,
-                     f"{p.judge_max_px}px/{p.judge_detail_crops}crop" + (" +texture" if p.texture else ""),
-                     f"${p.expected_usd:.2f}", p.expected_score))
+        shape = f"{p.rounds}r × {p.candidates}cand, judge n={p.judge_samples}" + (" +texture" if p.texture else "")
+        rows.append((p.name, p.generator, p.judge, shape, f"${p.expected_usd:.2f}", p.expected_score))
     return rows
 
 

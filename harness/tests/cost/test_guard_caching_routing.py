@@ -23,6 +23,9 @@ def test_estimate_from_text_and_images():
     assert est.input_tokens == 1000 + image_tokens(4)
     assert est.usd == pytest.approx((est.input_tokens * 2.0 + 2000 * 12.0) / 1e6)
     assert text_tokens(["ab" * 2, "cd" * 2]) == 2
+    # a token count and images add up: `cost estimate --in 12000 --images 8` dropped the images
+    est = estimate_call("gemini:gemini-3.1-pro-preview", input_tokens=12_000, n_images=8)
+    assert est.input_tokens == 12_000 + image_tokens(8)
 
 
 def test_estimate_of_an_image_model_uses_the_per_image_price():

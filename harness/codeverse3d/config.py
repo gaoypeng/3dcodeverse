@@ -304,8 +304,8 @@ class Settings(BaseSettings):
     default_captioner: str = Field(default_factory=lambda: Backends().captioner)
     default_candidates: int = Field(default=1, description="best-of-N baseline candidates (tracks read it)")
 
-    # Cost dial: one name that sets model-per-role, judge samples, rounds, candidates,
-    # turn cap, montage size and the texture pass together (codeverse3d/cost/profiles.py).
+    # Cost dial: one name that sets model-per-role, judge samples, rounds, candidates
+    # and the texture pass together (codeverse3d/cost/profiles.py).
     model_timeout_s: float = Field(
         default=1200.0,
         description="HTTP read timeout for ONE API model call (per attempt).  It is a CEILING: the "
@@ -381,9 +381,7 @@ class Settings(BaseSettings):
         put("default_judge", p.judge)
         put("default_captioner", p.captioner)
         put("default_candidates", p.candidates)
-        put_section("judge", {"max_px": p.judge_max_px, "montages": p.judge_montages,
-                              "detail_crops": p.judge_detail_crops, "samples": p.judge_samples})
-        put_section("limits", {"agent_max_turns": p.max_turns})
+        put_section("judge", {"samples": p.judge_samples})
         return p
 
     def resolve_blender(self) -> str:

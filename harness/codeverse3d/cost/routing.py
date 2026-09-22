@@ -3,7 +3,7 @@
 Every number in :data:`ROUTES` was measured on this box (see ``docs/COST.md``):
 prices from ``models/pricing.py`` (checked 2026-08-23), $/call from the 61
 recorded runs, judge noise from ``judges/calibration.py`` (n=3 on the e2e
-rounds), generator quality from ``bench/out/compare_v1_live2``.
+rounds), generator quality from ``eval/bench/out/compare_v1_live2``.
 
 The one non-obvious result: **a noisy cheap judge is not cheap.**  Averaging
 flash to pro's precision needs ``(σ_flash/σ_pro)²`` samples — and even then it

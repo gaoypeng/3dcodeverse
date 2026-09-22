@@ -68,24 +68,22 @@ def estimate_call(
     cached_tokens: int = 0,
     prompt: str | Sequence[str] = "",
     n_images: int = 0,
-    image_px: int = 1024,
     n_images_out: int = 0,
-    image_out_px: int = 1024,
 ) -> CostEstimate:
     """Price a call that has not happened yet.
 
     ``model_id`` is any harness id (``gemini:gemini-3.7-flash``,
     ``api-agent:gemini:gemini-3.7-flash``).  Give either token counts or the
-    ``prompt`` text (plus ``n_images`` vision parts)."""
+    ``prompt`` text, plus ``n_images`` vision parts (1024 px) either way."""
     kind, provider, model = normalise_ids("", model_id)
     if not provider:
         kind, provider, model = normalise_ids(model_id, model_id)
-    tokens_in = input_tokens or (text_tokens(prompt) + image_tokens(n_images, px=image_px) if prompt or n_images else 0)
+    tokens_in = (input_tokens or text_tokens(prompt)) + image_tokens(n_images)
     cached = max(0, min(cached_tokens, tokens_in))
     p_in, p_cached, p_out = unit_prices(provider, model, prompt_tokens=tokens_in)
     usd = ((tokens_in - cached) * p_in + cached * p_cached + output_tokens * p_out) / 1e6
     if n_images_out:
-        usd += n_images_out * per_image_usd(provider, model, size=image_out_px)
+        usd += n_images_out * per_image_usd(provider, model)
     row = price_provenance(provider, model)
     return CostEstimate(model_id=model_id, provider=provider, model=model, input_tokens=tokens_in,
                         cached_tokens=cached, output_tokens=output_tokens, n_images_out=n_images_out,
