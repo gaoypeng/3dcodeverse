@@ -4,7 +4,9 @@
 # session and calls-per-run baseline exists for the paired read-out.  static_v2_flash minutes /
 # final score: dining_chair 15.3 / 0.60 · hand_drill 15.4 / 0.92 · coffee_grinder 11.8 / 0.60 ·
 # machinist_vise 11.4 / 0.60 · spiral_stair 20.6 / 0.60 · drafting_table 30.2 / 0.60.
-# Run with:
+# The switch was deleted 2026-09-22 (D85; OFF since COST §29): this file stays as the recorded
+# A/B's prompt list, and the command below — kept as it was run — no longer works as written.
+# Was run with:
 #   python bench/ab_plan.py --prompts bench/prompts/turns_v1.yaml --out bench/out/turns_v1 \
 #     --pin-plan --variant-env C3D_FEWER_TURNS=1 \
 #     --generator gemini-cli:gemini-3.6-flash --judge gemini:gemini-3.1-pro-preview \
@@ -14,7 +16,7 @@ track: static_object
 language: blender
 description: >
   fewer-turns A/B slice: 6 static_objects_v2 blender prompts (2 medium controls, 4 hard) with
-  static_v2_flash baselines, run paired with --pin-plan and --variant-env C3D_FEWER_TURNS=1.
+  static_v2_flash baselines, run paired with --pin-plan and --variant-env C3D_FEWER_TURNS=1 (a switch since deleted).
 prompts:
   - id: ctrl_med_dining_chair
     tier: medium
