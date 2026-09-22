@@ -10,9 +10,15 @@ import pytest
 import trimesh
 
 from codeverse3d.languages.threejs import ThreeJsRuntime
+from codeverse3d.spatial.measure import measure_glb
 from codeverse3d.workspace import Workspace
 
 pytestmark = pytest.mark.node
+
+
+def _glb_json(glb: str) -> dict:
+    raw = Path(glb).read_bytes()
+    return json.loads(raw[20:20 + int.from_bytes(raw[12:16], "little")])
 
 
 def test_build_stool_glb_and_census(stool_ws: Workspace):
@@ -21,20 +27,19 @@ def test_build_stool_glb_and_census(stool_ws: Workspace):
     assert res.ok, (res.error_type, res.error_message, res.stderr_tail)
     assert Path(res.glb_path).is_file() and Path(res.glb_path).stat().st_size > 1000
     assert (stool_ws.artifacts / "build.json").is_file()
-    c = res.census
-    assert c["object_name"] == "Stool"
-    assert [p["name"] for p in c["parts"]] == ["Seat", "Legs", "Stretchers"]
-    assert c["tri_count"] > 500 and c["n_meshes"] == 9
+    c = res.census  # what only the export knows; the object itself is measured off the GLB
     assert c["tick_present"] is True
     assert c["placement_offset"] is None
     assert c["instanced_meshes_baked"] == 0 and c["selfcheck_ran"] is False
     assert c["unnamed_meshes"] == 0
-    assert "Leg_LB" in c["parts"][1]["children"]
-    assert len(c["materials"]) == 3  # seat + legs + stretchers (distinct objects)
+    m = measure_glb(res.glb_path)
+    assert sorted(p.name for p in m.parts) == ["Legs", "Seat", "Stretchers"] and m.tri_count > 500
+    assert len(_glb_json(res.glb_path)["materials"]) == 3  # seat + legs + stretchers (distinct objects)
     # the GLB carries named nodes per part and the bbox matches the authored sizes
     scene = trimesh.load(res.glb_path, force="scene")
     names = set(scene.graph.nodes)
     assert {"Stool", "Seat", "Legs", "Stretchers", "Leg_LB", "Leg_RF"} <= names
+    assert len(scene.graph.nodes_geometry) == 9
     lo, hi = scene.bounds
     assert np.allclose(lo, [-0.17, 0.0, -0.17], atol=2e-3)
     assert np.allclose(hi, [0.17, 0.45, 0.17], atol=2e-3)
@@ -114,9 +119,8 @@ def test_build_per_plan_placement_passes_contract_even_when_union_is_off_centre(
 
 def test_build_bakes_instanced_meshes_for_trimesh(stool_ws: Workspace):
     """InstancedMesh must not export as EXT_mesh_gpu_instancing (trimesh ignores it):
-    measure/connectivity must see every instance exactly like the census does."""
+    measure/connectivity must see every instance as its own named mesh."""
     from codeverse3d.spatial.connectivity import check_connectivity
-    from codeverse3d.spatial.measure import measure_glb
 
     (stool_ws.src / "object.js").write_text(
         "import * as THREE from 'three';\nexport function build(T) { const g = new THREE.Group(); g.name = 'Fence';\n"
@@ -129,20 +133,19 @@ def test_build_bakes_instanced_meshes_for_trimesh(stool_ws: Workspace):
         "  return g; }\n")
     res = ThreeJsRuntime().build(stool_ws)
     assert res.ok, res.error_message
-    census = res.census
-    assert census["instanced_meshes_baked"] == 1 and census["tri_count"] == 132 and census["n_meshes"] == 11
-    assert [p["name"] for p in census["parts"]] == ["Posts", "Rail"]
-    assert "Posts_0" in census["parts"][0]["children"] and "Posts_9" in census["parts"][0]["children"]
-    raw = Path(res.glb_path).read_bytes()
-    header = json.loads(raw[20:20 + int.from_bytes(raw[12:16], "little")])
+    assert res.census["instanced_meshes_baked"] == 1
+    header = _glb_json(res.glb_path)
     assert "EXT_mesh_gpu_instancing" not in (header.get("extensionsUsed") or [])
+    assert len(header["materials"]) == 3  # base + two instance colours
+    scene = trimesh.load(res.glb_path, force="scene")
+    assert {"Posts_0", "Posts_9", "Rail"} <= set(scene.graph.nodes) and len(scene.graph.nodes_geometry) == 11
     m = measure_glb(res.glb_path)
-    assert m.tri_count == census["tri_count"] and abs(m.ground_gap_m) < 1e-3
+    assert sorted(p.name for p in m.parts) == ["Posts", "Rail"]
+    assert m.tri_count == 132 and abs(m.ground_gap_m) < 1e-3
     posts = next(p for p in m.parts if p.name == "Posts")
-    assert np.allclose(posts.bbox_min, census["parts"][0]["bbox_min"], atol=1e-3)
-    assert np.allclose(posts.bbox_max, census["parts"][0]["bbox_max"], atol=1e-3)
+    assert np.allclose(posts.bbox_min, [-2.275, 0.0, -0.025], atol=1e-3)
+    assert np.allclose(posts.bbox_max, [2.275, 1.0, 0.025], atol=1e-3)
     assert posts.tri_count == 120
-    assert len(census["materials"]) == 3  # base + two instance colours
     assert check_connectivity(res.glb_path).passed
 
 
@@ -185,4 +188,4 @@ def test_build_async_build_and_texture_strip(stool_ws: Workspace):
     res = ThreeJsRuntime().build(stool_ws)
     assert res.ok, res.error_message
     assert any("texture" in w for w in res.census["warnings"])
-    assert res.census["object_name"] == "Async"
+    assert "Async" in trimesh.load(res.glb_path, force="scene").graph.nodes  # the awaited group was exported

@@ -60,7 +60,9 @@ export_glb.mjs        node --import lib/resolve_three.mjs export_glb.mjs --ws <w
                       if any (throw → SelfCheckError), bakes InstancedMesh copies into named meshes
                       (lib/instances.mjs — trimesh ignores EXT_mesh_gpu_instancing), keeps the source
                       placement (off-ground/off-centre → warning + census.placement_offset), strips textures (warning),
-                      writes GLB + census.json; on failure export_error.json +
+                      writes GLB + census.json (only what the export knows: placement offset, baked
+                      instances, selfcheck, tick, unnamed meshes, warnings — spatial/measure.py measures
+                      the GLB); on failure export_error.json +
                       {ok:false,error:{type,message,file,line,frames,part?}}
 render_glb.mjs        --glb --out --views '[{name,azimuth,elevation}]' [--mode shaded|wire|normals|silhouette|clay]
                       [--width --height] [--isolate A,B] [--explode 0.3] [--background studio|white|transparent]
@@ -73,7 +75,7 @@ lib/resolve_three.mjs node --import hook: bare 'three' / 'three/addons/*' resolv
                       module.registerHooks on node >= 22.15, module.register + lib/resolve_three_async.mjs
                       on the 20.6 floor.  Redirect rule stated once in lib/three_redirect.mjs
 lib/node_polyfills.mjs FileReader/self shims so GLTFExporter writes binary GLB without a DOM
-lib/census.mjs        per-part tri counts, world bboxes, materials, NaN check naming mesh + part (node + browser)
+lib/census.mjs        NaN/Infinity check naming mesh + part, world boxes, geometry triangles (node + browser)
 lib/instances.mjs     bakeInstancedMeshes(THREE, root): InstancedMesh → Group of named plain meshes
 lib/stack.mjs         Error → {type,message,file,line,frames} with workspace-relative src/ paths
 lib/syntax_check.mjs  THE JS syntax check: every file parsed as an ES module in ONE node

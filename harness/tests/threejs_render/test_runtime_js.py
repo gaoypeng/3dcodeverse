@@ -18,9 +18,10 @@ def test_export_cli_writes_census_and_error_json(stool_ws: Workspace, tmp_path: 
     rt = runtime_js_dir()
     res = run_node(rt / "export_glb.mjs", ["--ws", str(stool_ws.root), "--out", "artifacts/o.glb", "--census", "artifacts/c.json"], three_hook=True, timeout_s=60)
     rec = res.last_json
-    assert rec["ok"] and rec["parts"] == 3 and (stool_ws.root / "artifacts/o.glb").is_file()
+    assert rec["ok"] and (stool_ws.root / "artifacts/o.glb").is_file()
     census = json.loads((stool_ws.root / "artifacts/c.json").read_text())
-    assert set(census) >= {"object_name", "parts", "tri_count", "bbox", "materials", "placement_offset", "warnings", "tick_present"}
+    assert set(census) == {"placement_offset", "instanced_meshes_baked", "selfcheck_ran", "tick_present",
+                           "unnamed_meshes", "warnings", "glb_bytes", "three_revision"}
     assert census["three_revision"] == "182"
     # error path: unknown entry
     with pytest.raises(NodeError) as ei:

@@ -23,7 +23,7 @@ import { pathToFileURL } from 'node:url';
 
 import { finish, parseCli } from './lib/cli.mjs';
 import { installExporterPolyfills } from './lib/node_polyfills.mjs';
-import { objectCensus, findNonFinitePositions, worldBox } from './lib/census.mjs';
+import { findNonFinitePositions, worldBox } from './lib/census.mjs';
 import { bakeInstancedMeshes, expandInstancedMesh } from './lib/instances.mjs';
 import { errorRecord } from './lib/stack.mjs';
 import { findSyntaxError } from './lib/syntax_check.mjs';
@@ -194,11 +194,9 @@ async function main() {
   if (offset) warnings.push(`object is off ground/centre: it needs a translation of ${JSON.stringify(offset)} m to stand on y=0 centred on the Y axis; exported as authored — fix the source (the contract gate reports this too)`);
   stripTextures(group, warnings);
 
-  const census = objectCensus(THREE, group);
-  census.placement_offset = offset;
-  census.instanced_meshes_baked = bakedInstances;
-  census.selfcheck_ran = selfchecked;
-  census.tick_present = tickPresent;
+  // what only the export knows; the object's measurements are read off the GLB (spatial/measure.py)
+  const census = { placement_offset: offset, instanced_meshes_baked: bakedInstances,
+    selfcheck_ran: selfchecked, tick_present: tickPresent };
   let unnamed = 0;
   group.traverse((o) => {
     if ((o.isMesh || o.isInstancedMesh) && !o.name) unnamed += 1;
@@ -222,8 +220,7 @@ async function main() {
   fs.mkdirSync(path.dirname(args.census), { recursive: true });
   fs.writeFileSync(args.census, JSON.stringify(census, null, 2));
 
-  finish({ ok: true, glb: args.out, census: args.census, duration_ms: Date.now() - t0,
-    tri_count: census.tri_count, parts: census.parts.length, warnings });
+  finish({ ok: true, glb: args.out, census: args.census, duration_ms: Date.now() - t0, warnings });
 }
 
 main().catch((err) => {
