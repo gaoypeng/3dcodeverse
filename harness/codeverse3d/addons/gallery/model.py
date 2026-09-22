@@ -117,7 +117,7 @@ class RoundRow(BaseModel):
     gate_errors: int = 0
     gates: dict[str, int] = Field(default_factory=dict, description="gate name → error count")
     cost_usd: float = 0.0
-    duration_s: float = 0.0
+    minutes: float = Field(default=0.0, description="RoundRecord.minutes")
     sheet: str = Field(default="", description="run-relative contact sheet of this round")
 
 

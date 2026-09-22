@@ -240,7 +240,8 @@ def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
         budget_line = fmt_usd(cost.total_usd)
         console.print(kv_table("cost", {
             "spent / budget": budget_line,
-            "wall clock": f"{cost.wall_clock_s / 60:.1f} min of {cost.max_minutes:.0f} min",
+            "minutes": ("-" if record.minutes is None else f"{record.minutes:.1f}")
+                       + f" (the clock's ceiling: {cost.max_minutes:.0f} min)",
             "tokens": f"in {u.input_tokens:,} (cached {u.cached_tokens:,}) · out {u.output_tokens:,} · "
                       f"thoughts {u.thoughts_tokens:,} · {u.tool_calls} tool calls",
             "model calls": cost.n_calls,

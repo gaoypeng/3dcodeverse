@@ -23,7 +23,7 @@ from codeverse3d.contracts.artifacts import (
     Severity,
 )
 from codeverse3d.contracts.common import Backends, Language, Track, Usage
-from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus
+from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus, StepTime
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.workspace import Workspace
 
@@ -114,7 +114,7 @@ def make_fake_run(
     (ws.artifacts / "object.glb").write_bytes(b"glTF\x02\x00\x00\x00" + bytes([len(scores) - 1]) * 16)  # the last round
     rec = RunRecord(spec=spec, workspace=str(ws.root), status=RunStatus.MAX_ROUNDS, rounds=rounds,
                     total_usage=Usage(cost_usd=0.06, input_tokens=2000, output_tokens=1000),
-                    finished_at=datetime.now(UTC),
+                    steps=[StepTime(step="plan", wall_s=30.0, lost_s=6.0)], finished_at=datetime.now(UTC),
                     environment={"blender": "Blender 5.0.1"})
     ws.write_json(ws.record_path, rec)
     return ws, rec

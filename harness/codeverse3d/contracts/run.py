@@ -307,7 +307,7 @@ class CostSummary(BaseModel):
 
     schema_version: int = 1
     total_usd: float = 0.0
-    wall_clock_s: float = 0.0
+    minutes: float | None = Field(default=None, description="RunRecord.minutes when the record was written")
     max_minutes: float = 0.0
     n_calls: int = 0
     tokens: Usage = Field(default_factory=Usage, description="run totals (record.total_usage)")

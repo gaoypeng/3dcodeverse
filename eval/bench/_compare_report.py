@@ -49,7 +49,10 @@ class CellResult(BaseModel):
     gen_cost_usd: float = Field(default=0.0, description="generation cost (harness: whole run incl. its loop judge)")
     judge_cost_usd: float = Field(default=0.0, description="fixed-judge cost for this cell")
     gen_seconds: float = 0.0
-    wall_s: float = 0.0
+    wall_s: float = Field(default=0.0, description="the cell's clock, provider waits included: what flag_degraded reads")
+    minutes: float | None = Field(default=None, description=(
+        "the cell's minutes (docs/COST.md §31): a harness arm's RunRecord.minutes, a one-shot or bare-agent "
+        "arm's generation time net of provider errors; None on a row written before 2026-09-22"))
     attempts: int = 0
     tool_calls: int = 0
     criteria: dict[str, float] = Field(default_factory=dict)
@@ -82,6 +85,11 @@ class CellResult(BaseModel):
         classifying it and writing cell.json can each go wrong in one cell, and every one
         of them has to survive into results.jsonl."""
         self.error = f"{self.error}; {msg}" if self.error else msg
+
+
+def cell_minutes(r: CellResult) -> float:
+    """A cell's minutes; a row written before step timing counts its own clock, as a record does."""
+    return r.wall_s / 60 if r.minutes is None else r.minutes
 
 
 class PairRow(BaseModel):
@@ -158,7 +166,7 @@ def arm_stats(rows: list[CellResult]) -> list[ArmStats]:
             build_ok_rate=round(sum(r.build_ok for r in ev) / len(ev), 4) if ev else 0.0,
             mean_gen_usd=round(statistics.fmean(r.gen_cost_usd for r in ev), 4) if ev else 0.0,
             mean_judge_usd=round(statistics.fmean(r.judge_cost_usd for r in ev), 4) if ev else 0.0,
-            mean_minutes=round(statistics.fmean(r.wall_s for r in ev) / 60, 2) if ev else 0.0,
+            mean_minutes=round(statistics.fmean(cell_minutes(r) for r in ev), 2) if ev else 0.0,
             tool_calls=sum(r.tool_calls for r in ev), errors=sum(1 for r in rs if r.status in ("error", "judge_error")),
             degraded=sum(1 for r in ev if r.degraded), ceiling_cut=sum(1 for r in ev if r.harness_aborted_rounds > 0),
         ))
@@ -250,7 +258,7 @@ def compare_markdown(out: Path, rows: list[CellResult], pairs: list[PairRow], me
         md += ["", "## harness runs (loop judge score vs fixed judge score)", "",
                "| prompt | arm | run status | stop | rounds | cut | loop score | fixed score | $run | min | degraded |", "|---|---|---|---|---|---|---|---|---|---|---|"]
         md += [f"| {r.prompt_id} | {r.arm} | {r.harness_status} | {r.harness_stop_reason} | {r.harness_rounds} | {r.harness_aborted_rounds or ''} | "
-               f"{_f(r.harness_loop_score)} | {_f(r.score)} | {r.gen_cost_usd:.2f} | {r.wall_s / 60:.1f} | {'† ' + r.degraded_reason if r.degraded else ''} |"
+               f"{_f(r.harness_loop_score)} | {_f(r.score)} | {r.gen_cost_usd:.2f} | {cell_minutes(r):.1f} | {'† ' + r.degraded_reason if r.degraded else ''} |"
                for r in sorted(hr, key=lambda r: (r.prompt_id, r.arm))]
     total_gen, total_judge, total_pw = sum(r.gen_cost_usd for r in rows), sum(r.judge_cost_usd for r in rows), sum(p.cost_usd for p in pairs)
     md += ["", f"**Total cost**: generation ${total_gen:.2f} · fixed judge ${total_judge:.2f} · pairwise ${total_pw:.2f} "
@@ -295,7 +303,7 @@ def compare_html(out: Path, rows: list[CellResult], pairs: list[PairRow], meta: 
                 img = f"<img src='report_assets/{dst.name}' loading='lazy'>"
             cls = "ok" if r.passed else "bad"
             tds.append(f"<td>{img}<b class='{cls}'>{_f(r.score, '.2f')}</b> {'pass' if r.passed else r.status} · "
-                       f"tris {r.tris or '-'} · ${r.gen_cost_usd:.2f} · {r.wall_s / 60:.1f} min"
+                       f"tris {r.tris or '-'} · ${r.gen_cost_usd:.2f} · {cell_minutes(r):.1f} min"
                        f"{'<pre>' + html.escape(r.error[:300]) + '</pre>' if r.error else ''}</td>")
         grid.append(f"<tr><td><b>{html.escape(pid)}</b></td>{''.join(tds)}</tr>")
     grid.append("</table>")

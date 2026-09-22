@@ -253,13 +253,11 @@ def cost_summary(record: RunRecord, rows: list[dict[str, Any]]) -> CostSummary:
     ordered += [sc for s, sc in sorted(by_stage.items()) if s not in order]
     total = float(record.total_usage.cost_usd)
     ledger = round(sum(_num(r, "cost_usd") for r in rows), 6)
-    wall = 0.0
-    if record.finished_at is not None:
-        wall = max(0.0, (record.finished_at - record.started_at).total_seconds())
+    minutes = record.minutes
     budget = record.spec.budget
     return CostSummary(
         total_usd=round(total, 6),
-        wall_clock_s=round(wall, 1),
+        minutes=None if minutes is None else round(minutes, 2),
         max_minutes=budget.max_minutes,
         n_calls=sum(int(r.get("n_calls") or 1) for r in rows),
         tokens=record.total_usage,

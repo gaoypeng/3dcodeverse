@@ -373,7 +373,7 @@ def telemetry_digest(ws: Workspace, record: RunRecord) -> dict[str, Any]:
     if tele.cost is not None:
         out.update({
             "total_usd": tele.cost.total_usd,
-            "wall_clock_s": tele.cost.wall_clock_s,
+            "minutes": record.minutes,
             "n_calls": tele.cost.n_calls,
             "by_stage": {s.stage: s.cost_usd for s in tele.cost.by_stage},
             "by_model": dict(tele.cost.by_model),

@@ -124,7 +124,7 @@ def render_compare(entries: list[RunEntry], urls: UrlMaker, *, note: str = "") -
             + "</span>" if e.gate_summary else "")),
         _row("rounds", entries, lambda e: f"{e.rounds} · picked r{e.picked_round if e.picked_round is not None else '–'}"),
         _row("cost", entries, lambda e: f"${e.cost_usd:.3f}"),
-        _row("wall clock", entries, lambda e: "—" if e.minutes is None else f"{e.minutes:.1f} min"),
+        _row("minutes", entries, lambda e: "—" if e.minutes is None else f"{e.minutes:.1f}"),
         _row("track", entries, lambda e: esc(e.track)),
         _row("language", entries, lambda e: esc(e.language)),
         _row("generator", entries, lambda e: esc(e.generator)),

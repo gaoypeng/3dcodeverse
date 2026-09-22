@@ -115,7 +115,7 @@ def _hero(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
 
 def _rounds_table(entry: RunEntry, urls: UrlMaker) -> str:
     head = ("<tr><th>r</th><th>kind</th><th class='n'>score</th><th>verdict</th><th class='n'>gates</th>"
-            "<th>build</th><th class='n'>$</th><th class='n'>sec</th><th>commit</th><th>views</th></tr>")
+            "<th>build</th><th class='n'>$</th><th class='n'>min</th><th>commit</th><th>views</th></tr>")
     rows = []
     for r in entry.round_rows:
         verdict = "—" if r.passed is None else ("pass" if r.passed else "fail")
@@ -125,7 +125,7 @@ def _rounds_table(entry: RunEntry, urls: UrlMaker) -> str:
         picked = " class='picked'" if r.index == entry.picked_round else ""
         rows.append(f"<tr{picked}><td class='n'>{r.index}</td><td>{esc(r.kind)}</td>"
                     f"<td class='n'>{fmt(r.score)}</td><td>{verdict}</td><td class='n'>{esc(gates)}</td>"
-                    f"<td>{build}</td><td class='n'>{r.cost_usd:.3f}</td><td class='n'>{r.duration_s:.0f}</td>"
+                    f"<td>{build}</td><td class='n'>{r.cost_usd:.3f}</td><td class='n'>{r.minutes:.1f}</td>"
                     f"<td><code class='xs'>{esc(r.commit)}</code></td><td>{sheet}</td></tr>")
     body = "".join(rows) or "<tr><td colspan='10' class='faint'>no rounds recorded</td></tr>"
     return _panel(f"rounds ({len(entry.round_rows)})",
@@ -267,7 +267,7 @@ def _cost_panel(entry: RunEntry, ws: Workspace, rec: RunRecord) -> str:
         u = rec.total_usage
         rows += "".join([_kv("total", f"${u.cost_usd:.4f}"),
                          _kv("input tokens", f"{u.input_tokens:,}"), _kv("output tokens", f"{u.output_tokens:,}")])
-        per_round = "".join(_kv(f"r{r.index} {r.kind}", f"${r.usage.cost_usd:.4f} · {r.duration_s:.0f}s")
+        per_round = "".join(_kv(f"r{r.index} {r.kind}", f"${r.usage.cost_usd:.4f} · {r.minutes:.1f} min")
                             for r in rec.rounds)
         return _panel("cost", f"<div class='kvs'>{rows}</div>"
                               f"<h3 style='margin-top:var(--s-4)'>per round</h3><div class='kvs'>{per_round}</div>",
@@ -283,7 +283,7 @@ def _cost_panel(entry: RunEntry, ws: Workspace, rec: RunRecord) -> str:
         _kv("total", f"${cost.total_usd:.4f}"),
 
         _kv("calls", str(cost.n_calls)),
-        _kv("wall clock", f"{cost.wall_clock_s / 60:.1f} min"),
+        _kv("minutes", "—" if rec.minutes is None else f"{rec.minutes:.1f}"),
         _kv("unattributed", f"${cost.unattributed_usd:.4f}"),
         _kv("post-run", f"${cost.post_run_usd:.4f}"),
     ])

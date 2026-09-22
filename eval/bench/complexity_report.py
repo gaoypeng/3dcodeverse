@@ -34,7 +34,7 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
 
 from bench.stats import correlation  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
-from codeverse3d.contracts.run import RunId  # noqa: E402
+from codeverse3d.contracts.run import RunId, RunRecord  # noqa: E402
 from codeverse3d.proc import read_json_or_none  # noqa: E402
 from codeverse3d.record.record import find_run_dirs  # noqa: E402
 from codeverse3d.spatial.complexity import (  # noqa: E402
@@ -106,11 +106,13 @@ def _picked_round(run: Path, record: dict[str, Any]) -> dict[str, Any] | None:
     return next((r for r in rounds if r.get("index") == idx), rounds[-1] if rounds else None)
 
 
-def _minutes(record: dict[str, Any]) -> float:
-    tel = (record.get("telemetry") or {}).get("cost") or {}
-    if tel.get("wall_clock_s"):
-        return round(float(tel["wall_clock_s"]) / 60.0, 2)
-    return round(sum(float(r.get("duration_s") or 0.0) for r in record.get("rounds") or []) / 60.0, 2)
+def _minutes(record: dict[str, Any]) -> float | None:
+    """``RunRecord.minutes`` (docs/COST.md §31); None for a record that will not load."""
+    try:
+        minutes = RunRecord.model_validate(record).minutes
+    except Exception:  # noqa: BLE001 - the historic corpus is read as-is
+        return None
+    return None if minutes is None else round(minutes, 2)
 
 
 def row_for(run: Path, battery: str, slug: str | None = None) -> Row | None:
@@ -277,7 +279,7 @@ def per_run_table(rows: Sequence[Row], limit: int = 60) -> str:
             f"| {r['battery']}/{r['slug']} | {r['part_count']} | {r['tri_count']} |"
             f" {r['silhouette']:.1f} | {r['feature_density']:.0f} | {r['hollowness']:.2f} |"
             f" {r['index']:.3f} | {r['band']} |{_fmt(r.get('overall'))} |{_fmt(r.get('geometry_detail'))} |"
-            f" {r.get('cost_usd', 0):.2f} | {r.get('minutes', 0):.0f} |"
+            f" {r.get('cost_usd', 0):.2f} | {r.get('minutes') or 0:.0f} |"
         )
     return "\n".join(lines)
 

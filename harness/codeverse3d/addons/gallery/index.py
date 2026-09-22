@@ -195,7 +195,7 @@ def round_rows(ws: Workspace, rec: RunRecord) -> list[RoundRow]:
             build_ok=None if r.build is None else r.build.ok,
             score=j.overall if j else None, passed=j.passed if j else None,
             gate_errors=sum(gates.values()), gates={k: v for k, v in gates.items() if v},
-            cost_usd=round(r.usage.cost_usd, 6), duration_s=round(r.duration_s, 1),
+            cost_usd=round(r.usage.cost_usd, 6), minutes=round(r.minutes, 2),
             sheet=_round_sheet(ws, rec, r.index),
         ))
     return rows
@@ -245,7 +245,7 @@ def entry_from_record(battery: str, ws: Workspace, rec: RunRecord, *, slug: str 
     j = effective_judgment(rnd) if rnd is not None else None
     gates = gate_error_summary(rnd)
     n_err = sum(gates.values())
-    minutes = ((rec.finished_at - rec.started_at).total_seconds() / 60.0) if rec.finished_at else None
+    minutes = rec.minutes
     digest = telemetry_digest(ws, rec)
     caps = rec.extra.get("captions") or {}
     hero, hero_label, n_views = hero_view(ws, rec, picked)

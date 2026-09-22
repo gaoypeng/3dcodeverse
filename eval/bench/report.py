@@ -130,7 +130,6 @@ def _entry_for(r: BenchItemResult) -> RunEntry:
             entry = None
         if entry is not None:
             entry.slug = r.id
-            entry.minutes = r.minutes or entry.minutes
             entry.error = entry.error or r.errors
             return entry
     return RunEntry(

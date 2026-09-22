@@ -36,7 +36,6 @@ import argparse
 import json
 import statistics
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -46,7 +45,7 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
 from bench._fixed_eval import RUBRIC  # noqa: E402
-from bench.run_bench import Battery, BenchPrompt  # noqa: E402
+from bench.run_bench import Battery, BenchPrompt, record_minutes  # noqa: E402
 from bench.stats import sign_test  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 
@@ -116,12 +115,7 @@ def our_side(runs_dir: Path, item_id: str) -> Side:
     status = str(rec.get("status", ""))
     side = Side(source="3dcodeverse", status=status, rounds=len(rec.get("rounds", [])),
                 cost_usd=float((rec.get("total_usage") or {}).get("cost_usd", 0.0)))
-    try:
-        t0 = datetime.fromisoformat(rec["started_at"])
-        t1 = datetime.fromisoformat(rec["finished_at"])
-        side.minutes = round((t1 - t0).total_seconds() / 60, 2)
-    except (KeyError, TypeError, ValueError):
-        pass
+    side.minutes = record_minutes(ws)
     if not status or status in IN_PROGRESS:
         side.error = f"run not finished (status={status!r})"
         return side

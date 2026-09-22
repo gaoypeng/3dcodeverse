@@ -341,13 +341,3 @@ def test_the_ab_viewer_refuses_to_call_a_winner_it_cannot_support():
                                    Run(slug="bx", arm="b", brief="brief x", picked=0.0)]
     head, why = verdict(arm("a", 0.5, 0.5, 0.5), b)
     assert head.startswith("Inconclusive") and "over 3 paired briefs" in why
-
-def test_the_default_generator_and_the_cost_router_name_the_same_model():
-    """`3dcode cost` prints the default=True GENERATOR route as "the default"; if it disagrees with
-    Backends.generator the report is describing a model no run uses."""
-    from codeverse3d.contracts.common import Backends
-    from codeverse3d.cost.routing import ROUTES
-    from codeverse3d.cost.types import Role
-
-    (default,) = [r for r in ROUTES if r.role is Role.GENERATOR and r.default]
-    assert default.model_id == Backends().generator

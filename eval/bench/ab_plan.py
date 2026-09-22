@@ -116,7 +116,7 @@ from bench.compare_backends import (  # noqa: E402
     spec_for,  # noqa: E402
 )
 from bench.pin_plan import PLAN_JSON, PinError, plan_once, seed_plan  # noqa: E402
-from bench.run_bench import Battery, BenchPrompt, select_prompts  # noqa: E402
+from bench.run_bench import Battery, BenchPrompt, record_minutes, select_prompts  # noqa: E402
 from codeverse3d.contracts.common import Backends  # noqa: E402
 from codeverse3d.proc import exclusive  # noqa: E402
 from codeverse3d.tracks.plan_features import pin_plan_blockers  # noqa: E402
@@ -327,6 +327,7 @@ def spawn_cell(
         judge=opts.judge,
         workspace=str(cell),
         wall_s=round(time.time() - t0, 1),
+        minutes=record_minutes(cell / "run"),  # a run that raised left a FAILED record
         status="infra_failed" if is_infra_failure(tail) else "error",
         error=f"worker exited {rc} without a cell.json; log tail: {tail[-400:]!r}",
     )
@@ -727,7 +728,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     def _log(r: CellResult) -> None:
         print(
             f"[{datetime.now().strftime('%H:%M:%S')}] {r.prompt_id:28s} {r.arm:8s} score={r.score} "
-            f"${r.gen_cost_usd + r.judge_cost_usd:.2f} {r.wall_s / 60:.1f}min {r.status} {r.error[:80]!r}",
+            f"${r.gen_cost_usd + r.judge_cost_usd:.2f} {r.minutes or 0.0:.1f}min {r.status} {r.error[:80]!r}",
             flush=True,
         )
 

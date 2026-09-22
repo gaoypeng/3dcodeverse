@@ -96,13 +96,13 @@ def test_a_run_that_scored_nothing_says_so_in_its_row(tmp_path: Path) -> None:
                     total_usage=Usage(cost_usd=1.76))
     ws = Workspace(tmp_path)
 
-    row = result_from_record(item, rec, 16.0, ws)
+    row = result_from_record(item, rec, ws)
     assert row.score_picked is None and row.picked_round is None and row.status == "max_rounds"
     assert "no verdict in any of 3 round(s)" in row.errors
 
     judged = RoundRecord(index=0, kind="baseline", judgment=Judgment(rubric="r", scores={}, overall=0.6, passed=False))
     rec.rounds = [judged, rounds[1]]
-    row = result_from_record(item, rec, 16.0, ws)
+    row = result_from_record(item, rec, ws)
     assert row.errors == "" and (row.score_picked, row.picked_round) == (0.6, 0)   # one verdict is enough
 
 

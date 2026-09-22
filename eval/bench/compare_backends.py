@@ -85,6 +85,7 @@ from codeverse3d.contracts.common import ENTRY_FILE, Track  # noqa: E402
 from codeverse3d.contracts.run import RunRecord  # noqa: E402
 from codeverse3d.contracts.spec import Spec  # noqa: E402
 from codeverse3d.cost import run_ledger  # noqa: E402
+from codeverse3d.cost.tally import tally  # noqa: E402
 from codeverse3d.proc import exclusive  # noqa: E402
 from codeverse3d.tracks.generation import MultiFileParseError  # noqa: E402
 from codeverse3d.tracks.planner import PlanningError  # noqa: E402
@@ -197,10 +198,12 @@ def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts
     for attempt in range(max_attempts):
         gen_dir = cell / "gen" / f"attempt{attempt}"
         cached = gen_dir / "result.json"
-        if opts.resume and cached.is_file():  # a redo re-uses the recorded answer: no second subscription call
-            gen = OneShotResult.model_validate_json(cached.read_text())
-        else:
-            gen = backend.generate(prompt, out_dir=gen_dir, timeout_s=opts.gen_timeout_s, label=f"oneshot_{spec.id.split('/')[-1]}")
+        with tally() as lost:  # what the call lost to provider errors (a CLI one-shot books none)
+            if opts.resume and cached.is_file():  # a redo re-uses the recorded answer: no second subscription call
+                gen = OneShotResult.model_validate_json(cached.read_text())
+            else:
+                gen = backend.generate(prompt, out_dir=gen_dir, timeout_s=opts.gen_timeout_s,
+                                       label=f"oneshot_{spec.id.split('/')[-1]}")
             if gen.ok:  # failures (timeouts, 5xx) are not cached so a redo regenerates
                 gen_dir.mkdir(parents=True, exist_ok=True)
                 cached.write_text(gen.model_dump_json(indent=1))
@@ -208,6 +211,7 @@ def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts
         res.gen_cost_usd += gen.usage.cost_usd
         res.tool_calls += gen.tool_calls
         res.gen_seconds += gen.duration_s
+        res.minutes = round((res.minutes or 0.0) + max(0.0, gen.duration_s - lost.lost_s()) / 60, 2)
         if not gen.ok:
             res.error = gen.notes or "empty answer"
             res.error_is_infra = gen.infra_failed
@@ -266,6 +270,7 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOption
     summary = select.summarise(run_ws.root, record=rec)
     res.gen_cost_usd = rec.total_usage.cost_usd
     res.tool_calls = rec.total_usage.tool_calls
+    res.minutes = round(rec.minutes or 0.0, 2)
     res.harness_status, res.harness_rounds, res.harness_loop_score = rec.status.value, len(rec.rounds), summary.picked_score
     res.harness_stop_reason = summary.stop_reason
     res.harness_aborted_rounds = len(rec.extra.get("aborted_rounds") or [])
@@ -297,6 +302,7 @@ def _run_bare_agent(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts: 
     res.gen_cost_usd = result.usage.cost_usd
     res.tool_calls = result.tool_calls
     res.gen_seconds = result.duration_s
+    res.minutes = round(max(0.0, result.duration_s - result.provider_wait_s) / 60, 2)
     res.harness_status = result.exit_reason
     if not (eval_ws.root / entry_of(spec)).is_file():
         res.error = f"bare agent delivered no {entry_of(spec)} ({result.exit_reason}: {'; '.join(result.errors)[:300]})"
@@ -599,7 +605,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     def _log(r: CellResult) -> None:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {r.prompt_id:28s} {r.arm:44s} score={r.score} build_ok={r.build_ok} "
-              f"${r.gen_cost_usd:.2f} {r.wall_s / 60:.1f}min {r.status} {r.error[:80]!r}", flush=True)
+              f"${r.gen_cost_usd:.2f} {r.minutes or 0.0:.1f}min {r.status} {r.error[:80]!r}", flush=True)
 
     run_matrix(ns.prompts, ns.out, arms, opts, deps, on_result=_log)
     print(f"report: {Path(ns.out) / 'report.md'}")

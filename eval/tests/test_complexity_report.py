@@ -11,6 +11,7 @@ import pytest
 from bench import complexity_report as CR
 from bench.stats import correlation
 from codeverse3d.contracts.artifacts import Measurement
+from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -32,16 +33,20 @@ def _write_run(root: Path, slug: str, *, index: float, overall: float, detail: f
                cost: float = 1.0, minutes: float = 10.0) -> Path:
     run = root / "runs" / slug
     (run / "artifacts").mkdir(parents=True)
+    box = BBox(center=(0, 0.5, 0), extents=(1, 1, 1))
     rec = {
-        "spec": {"track": "static_object", "language": "blender", "tags": ["bench", "hard"]},
-        "plan": {"parts": [{"name": "a"}, {"name": "b"}]},
+        "spec": {"id": slug, "prompt": "a chair", "track": "static_object", "language": "blender",
+                 "tags": ["bench", "hard"]},
+        "workspace": str(run),
+        "plan": StaticPlan(object_name="Chair", summary="s", overall_bbox=box, parts=[
+            PartPlan(name=n, role="r", description="d", bbox=box) for n in ("a", "b")]).model_dump(mode="json"),
         "status": "passed", "best_round": 0,
         "total_usage": {"cost_usd": cost},
-        "telemetry": {"cost": {"wall_clock_s": minutes * 60}},
+        "extra": {"budget": {"elapsed_min": minutes}},  # a record before step timing counts its clock
         "rounds": [{
-            "index": 0, "gates": [],
+            "index": 0, "kind": "baseline", "gates": [],
             "measurement": _measurement(index).model_dump(mode="json"),
-            "judgment": {"overall": overall, "passed": overall >= 0.72,
+            "judgment": {"rubric": "static_object_v1", "overall": overall, "passed": overall >= 0.72,
                          "scores": {c: detail for c in CR.CRITERIA}, "issues": []},
         }],
     }
@@ -56,6 +61,7 @@ def test_collect_and_report_over_a_battery(tmp_path: Path) -> None:
     _write_run(battery, "high", index=0.75, overall=0.55, detail=0.55, cost=3.0, minutes=40)
     rows, skipped = CR.collect([battery])
     assert skipped == 0 and len(rows) == 3
+    assert {r["slug"]: r["minutes"] for r in rows} == {"low": 5, "mid": 20, "high": 40}
     assert {r["slug"] for r in rows} == {"low", "mid", "high"}
     assert rows[0]["plan_parts"] == 2 and rows[0]["n_materials"] == 3
     # the whole point of the study: a monotone fall shows up as a strong negative r

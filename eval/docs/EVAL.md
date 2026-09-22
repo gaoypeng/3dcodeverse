@@ -71,7 +71,12 @@ Each item = one full `3dcode make` run (its own workspace under `--out`) followe
 hand-over `make` does — `addons/select.pick` by score, then `package` (deliverable/ +
 selection.json); `results.jsonl` rows carry `score_baseline`, `score_picked` (rows written
 before 2026-09-22 say `score_final`), `picked_round`, `rounds`, `cost_usd`, `minutes`,
-`status` (the stop reason), `generator`, `judge`.  No `passed` column: since 2026-09-22 a run
+`status` (the stop reason), `generator`, `judge`.  `minutes` is the run's `RunRecord.minutes` — its
+steps' clocks minus the time 503 / 429 / token-limit errors cost them (harness `docs/COST.md` §31);
+rows before 2026-09-22 carry the bench process's wall clock.  A compare / A-B cell's `minutes` is the
+same number for a harness arm and the generation time net of provider errors for a one-shot or
+bare-agent arm; its `wall_s` stays the cell's clock, which `flag_degraded` reads to spot a cell that
+waited out a storm.  No `passed` column: since 2026-09-22 a run
 is not passed or failed.  `report.md/html` tabulates per tier and category: mean baseline →
 picked (the harness delta), cost, time.  Keep `--judge` fixed across arms; vary only
 `--generator` (and `--planner` if that is the variable).  Resumable: re-running the same
@@ -312,7 +317,7 @@ A cell can end without a score for reasons that say nothing about the model, and
 counting those as zeros silently rigs a comparison.  `bench/_infra.py` classifies
 them, and `compare_backends` applies the SAME rule to every arm:
 
-| status | what happened | score | build rate | wall clock |
+| status | what happened | score | build rate | minutes |
 |---|---|---|---|---|
 | `infra_failed` | provider outage — 503/529 storm, read timeout, exhausted key pool | excluded | excluded | excluded |
 | `budget_exhausted` | ran out of minutes/dollars with zero rounds and no artifact | excluded | **counts as a miss** | excluded |

@@ -33,6 +33,7 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
 from bench._jsonl import latest  # noqa: E402
 from bench.stats import mean_ci  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
+from codeverse3d.record.record import load_record  # noqa: E402
 
 SHEET_W = 1100
 
@@ -47,7 +48,7 @@ class Run:
     baseline: float | None = None
     rounds: int = 0
     usd: float = 0.0
-    minutes: int = 0
+    minutes: int = 0             # RunRecord.minutes (docs/COST.md §31), rounded
     error: str = ""
     sheet: str = ""              # data URI
     notes: list[str] = field(default_factory=list)
@@ -79,7 +80,6 @@ def load_run(run_dir: Path, arm: str) -> Run:
     rec = run_dir / "record.json"
     if rec.is_file():
         d = json.loads(rec.read_text())
-        b = (d.get("extra") or {}).get("budget") or {}
         r.brief = str((d.get("spec") or {}).get("prompt") or "")
         try:  # the round addons/select picks; a record it cannot read keeps only its status
             s = select.summarise(run_dir)
@@ -87,7 +87,11 @@ def load_run(run_dir: Path, arm: str) -> Run:
         except Exception:  # noqa: BLE001 - one unreadable record must not blank the page
             r.status = str(d.get("status") or "?")
         r.rounds = len(d.get("rounds") or [])
-        r.usd, r.minutes = round(float(b.get("spent_usd") or 0), 2), round(float(b.get("elapsed_min") or 0))
+        try:  # the ledger's total and the steps' minutes, as every reader reports them
+            run = load_record(run_dir)
+            r.usd, r.minutes = round(run.total_usage.cost_usd, 2), round(run.minutes or 0)
+        except Exception:  # noqa: BLE001 - an unreadable record keeps $0 / 0 min
+            pass
         r.error = str(d.get("error") or "")[:300]
         for rd in d.get("rounds") or []:
             failed = [g.get("gate") for g in (rd.get("gates") or []) if not g.get("passed")]

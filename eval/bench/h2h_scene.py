@@ -30,7 +30,6 @@ import argparse
 import json
 import statistics
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -40,8 +39,7 @@ from pydantic import BaseModel
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
-from bench._jsonl import latest, read_jsonl  # noqa: E402
-from bench.run_bench import Battery, BenchPrompt  # noqa: E402
+from bench.run_bench import Battery, BenchPrompt, record_minutes  # noqa: E402
 from bench.stats import sign_test  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.contracts.artifacts import RenderSet, RenderView  # noqa: E402
@@ -148,13 +146,8 @@ def our_frames(run_dir: Path) -> tuple[list[RenderView], dict[str, Any]] | None:
     stills = [v for v in views if (v.time_s or 0.0) == 0.0 and v.mode == "shaded" and Path(v.path).is_file()]
     flagged = [v for v in stills if v.judge] or stills
     chosen = flagged[:MAX_VIEWS]
-    row = latest(read_jsonl(run_dir.parent.parent / "results.jsonl"), key=lambda r: r.get("id")).get(run_dir.name)
-    minutes = None if row is None else float(row.get("minutes") or 0.0)
-    if minutes is None and rec.get("started_at") and rec.get("finished_at"):
-        t0, t1 = (datetime.fromisoformat(rec[k]) for k in ("started_at", "finished_at"))
-        minutes = (t1 - t0).total_seconds() / 60
     meta = {"harness_score": summary.picked_score, "rounds": len(rec.get("rounds") or []), "picked_round": picked,
-            "cost_usd": float((rec.get("total_usage") or {}).get("cost_usd") or 0.0), "minutes": round(minutes or 0.0, 2),
+            "cost_usd": float((rec.get("total_usage") or {}).get("cost_usd") or 0.0), "minutes": record_minutes(run_dir),
             "status": summary.stop_reason}
     return [RenderView(name=v.name, path=v.path, mode="shaded", width=v.width, height=v.height) for v in chosen], meta
 

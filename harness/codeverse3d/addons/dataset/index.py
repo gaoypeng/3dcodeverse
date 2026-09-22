@@ -25,14 +25,14 @@ CREATE TABLE runs (
   generator TEXT, planner TEXT, judge TEXT, status TEXT,  -- status: why the run stopped
   baseline_score REAL, picked_score REAL, picked_round INTEGER, n_rounds INTEGER,
   cost_usd REAL, input_tokens INTEGER, output_tokens INTEGER,
-  started_at TEXT, finished_at TEXT, duration_s REAL, error TEXT, has_captions INTEGER,
+  started_at TEXT, finished_at TEXT, minutes REAL, error TEXT, has_captions INTEGER,
   gate_errors INTEGER, quality_tier TEXT, picked_commit TEXT,
   rel TEXT, arm TEXT, cell TEXT  -- run dir relative to the scan root + battery layout segments
 );
 CREATE TABLE rounds (
   slug TEXT, round_index INTEGER, kind TEXT, commit_sha TEXT, agent_backend TEXT,
   build_ok INTEGER, gate_errors INTEGER, score REAL, passed INTEGER, n_issues INTEGER,
-  cost_usd REAL, duration_s REAL, started_at TEXT,
+  cost_usd REAL, minutes REAL, started_at TEXT,
   PRIMARY KEY (slug, round_index)
 );
 CREATE TABLE usage (
@@ -50,7 +50,6 @@ def _run_row(ws: Workspace, rec: RunRecord, rid: RunId) -> tuple:
     s = select.summarise(ws.root, record=rec)
     picked = next((r for r in rec.rounds if r.index == s.picked_round), None)
     j = effective_judgment(picked) if picked is not None else None  # degraded → unjudged
-    dur = (rec.finished_at - rec.started_at).total_seconds() if rec.finished_at else None
     n_err = sum(gate_error_summary(picked).values())
     tier = quality_tier(passed=j.passed if j else None, gate_errors=n_err, score=j.overall if j else None)
     return (
@@ -59,7 +58,7 @@ def _run_row(ws: Workspace, rec: RunRecord, rid: RunId) -> tuple:
         rec.spec.backends.judge, s.stop_reason, s.baseline_score, s.picked_score, s.picked_round,
         len(rec.rounds), rec.total_usage.cost_usd, rec.total_usage.input_tokens,
         rec.total_usage.output_tokens, rec.started_at.isoformat(),
-        rec.finished_at.isoformat() if rec.finished_at else None, dur, rec.error,
+        rec.finished_at.isoformat() if rec.finished_at else None, rec.minutes, rec.error,
         int(bool((rec.extra.get("captions") or {}).get("detailed"))),
         n_err, tier, picked.commit if picked is not None else "",
         rid.rel, rid.arm, rid.cell,
@@ -73,7 +72,7 @@ def _round_row(slug: str, r: RoundRecord) -> tuple:
         None if r.build is None else int(r.build.ok), sum(len(g.errors) for g in r.gates),
         j.overall if j is not None else None,
         None if j is None else int(j.passed), 0 if j is None else len(j.issues),
-        r.usage.cost_usd, r.duration_s, r.started_at.isoformat(),
+        r.usage.cost_usd, r.minutes, r.started_at.isoformat(),
     )
 
 

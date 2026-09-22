@@ -31,7 +31,6 @@ import csv
 import json
 import logging
 import sys
-import time
 import traceback
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -55,6 +54,7 @@ from codeverse3d.contracts.run import RunRecord  # noqa: E402
 from codeverse3d.contracts.spec import Constraints, ReferenceImage, Spec  # noqa: E402
 from codeverse3d.cost import run_ledger  # noqa: E402
 from codeverse3d.proc import exclusive  # noqa: E402
+from codeverse3d.record.record import load_record  # noqa: E402
 from codeverse3d.workspace import Workspace  # noqa: E402
 
 log = logging.getLogger(__name__)
@@ -103,7 +103,8 @@ class BenchItemResult(BaseModel):
     picked_round: int | None = None
     rounds: int = 0
     cost_usd: float = 0.0
-    minutes: float = 0.0
+    minutes: float = Field(default=0.0, description="RunRecord.minutes (docs/COST.md §31); 0 when the run left no "
+                                                    "record — rows before 2026-09-22 carry the process's wall clock")
     status: str = ""
     errors: str = ""
     workspace: str = ""
@@ -190,7 +191,16 @@ def spec_for(battery: Battery, item: BenchPrompt, opts: BenchOptions) -> Spec:
                       max_minutes=opts.max_minutes, tag0="bench")
 
 
-def result_from_record(item: BenchPrompt, rec: RunRecord, minutes: float, ws: Workspace) -> BenchItemResult:
+def record_minutes(run_dir: Path) -> float:
+    """The run's minutes (``RunRecord.minutes``) from the record it left — a run that raised writes
+    a FAILED record first — else 0.0: a run that never recorded a step timed none."""
+    try:
+        return round(load_record(run_dir).minutes or 0.0, 2)
+    except Exception:  # noqa: BLE001 - no record / an unreadable one
+        return 0.0
+
+
+def result_from_record(item: BenchPrompt, rec: RunRecord, ws: Workspace) -> BenchItemResult:
     s = select.summarise(ws.root, record=rec)
     # A run whose rounds all lost their verdict still reports a normal status (`max_rounds`
     # after three unjudged rounds), so a whole ARM can read as healthy and score nothing —
@@ -204,7 +214,7 @@ def result_from_record(item: BenchPrompt, rec: RunRecord, minutes: float, ws: Wo
     return BenchItemResult(
         id=item.id, tier=item.tier, category=item.category, score_baseline=s.baseline_score,
         score_picked=s.picked_score, picked_round=s.picked_round,
-        rounds=len(rec.rounds), cost_usd=rec.total_usage.cost_usd, minutes=round(minutes, 2),
+        rounds=len(rec.rounds), cost_usd=rec.total_usage.cost_usd, minutes=round(rec.minutes or 0.0, 2),
         status=s.stop_reason, errors=error, workspace=str(ws.root),
         generator=rec.spec.backends.generator, judge=rec.spec.backends.judge,
     )
@@ -298,7 +308,6 @@ def run_battery(
         spec = spec_for(battery, item, opts)
         if not resume:
             ws.write_json(ws.spec_path, spec)
-        t0 = time.time()
         try:
             # one writer per run dir: --parallel runs these in threads of ONE process, so
             # the run mutex is what keeps two cells off the same workspace
@@ -314,9 +323,9 @@ def run_battery(
             status = "infra_failed" if is_infra_failure(e) else "error"
             return BenchItemResult(id=item.id, tier=item.tier, category=item.category, status=status,
                                    errors=f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1500:]}",
-                                   minutes=round((time.time() - t0) / 60, 2), workspace=str(ws.root),
+                                   minutes=record_minutes(ws.root), workspace=str(ws.root),
                                    generator=spec.backends.generator, judge=spec.backends.judge)
-        return result_from_record(item, rec, (time.time() - t0) / 60, ws)
+        return result_from_record(item, rec, ws)
 
     seal_for_append(results_jsonl)  # a kill left the last row unterminated; do not glue onto it
     with ThreadPoolExecutor(max_workers=max(1, opts.parallel)) as pool, results_jsonl.open("a") as fh:
