@@ -10,8 +10,7 @@
  * stock look is a 30%-reflective milk with a flat +0.1 veil, which on
  * our pipeline (ACES, exposure 1.0, no post chain) renders a pool as
  * pale plastic — measured 2026-09-01, a still pool read mean_lum 0.73
- * at BOTH a steep and a grazing view, i.e. no Fresnel at all. Pass
- * `legacyShader: true` to get the addon's own tail back.
+ * at BOTH a steep and a grazing view, i.e. no Fresnel at all.
  */
 
 import * as THREE from 'three';
@@ -301,9 +300,7 @@ function _readScene(scene, uniforms, pinned) {
  *   `rf0` Fresnel reflectance head-on (default 0.02, real water);
  *   `glitter` sun-track strength, 0 kills it (default 1);
  *   `ambient` hex sky ambient for the water BODY (default: read off the
- *   scene's hemisphere/ambient light, else its fog);
- *   `hdrReflection` half-float mirror target (default true);
- *   `legacyShader` ship the addon's own tail instead (default false).
+ *   scene's hemisphere/ambient light, else its fog).
  * @returns {THREE.Mesh} The Water mesh, rotated flat, named 'Ocean',
  *   with `userData.update(t)` driving the wave phase for `tick`.
  */
@@ -367,7 +364,7 @@ export function makeOcean(width, depth, opts = {}) {
   };
 
   // ---- the regrade: our pipeline, and the scene's own light ---------
-  if (opts.legacyShader !== true && _regrade(water.material)) {
+  if (_regrade(water.material)) {
     uniforms.rf0 = { value: opts.rf0 === undefined ? 0.02 : opts.rf0 };
     uniforms.glitterScale =
         { value: opts.glitter === undefined ? 1 : opts.glitter };
@@ -402,9 +399,8 @@ export function makeOcean(width, depth, opts = {}) {
         // sky at ~0.002 linear reflects as two flat bands. Half-float
         // costs 2 bytes a texel on ONE 512px target and removes it.
         const mirror = uniforms.mirrorSampler.value;
-        if (opts.hdrReflection !== false
-            && (renderer.extensions.has('EXT_color_buffer_float')
-                || renderer.extensions.has('EXT_color_buffer_half_float'))) {
+        if (renderer.extensions.has('EXT_color_buffer_float')
+            || renderer.extensions.has('EXT_color_buffer_half_float')) {
           mirror.type = THREE.HalfFloatType;
         }
       }

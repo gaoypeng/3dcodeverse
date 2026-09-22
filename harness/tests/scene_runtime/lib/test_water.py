@@ -104,9 +104,8 @@ for (let i = 0; i < nPond.image.data.length; i++) {
 const oHarbor = makeOcean(2800, 2800, { rttSize: 64 });
 const oForced = makeOcean(2800, 2800, { rttSize: 64, size: 5 });
 
-// The regrade, and the addon tail it replaced.
+// The regrade.
 const fs = o.material.fragmentShader;
-const oLegacy = makeOcean(20, 20, { rttSize: 64, legacyShader: true });
 
 console.log(JSON.stringify({
   identical,
@@ -144,9 +143,6 @@ console.log(JSON.stringify({
   keepsToneMap: fs.indexOf('tonemapping_fragment') >= 0
       && fs.indexOf('colorspace_fragment') >= 0,
   gatedGlitter: fs.indexOf('reflectionSample * specularLight') >= 0,
-  legacyVeil: oLegacy.material.fragmentShader.indexOf(
-      'vec3( 0.1 ) + reflectionSample') >= 0,
-  legacyExtras: oLegacy.material.uniforms.rf0 !== undefined,
 }));
 """
 
@@ -388,15 +384,6 @@ def test_the_regrade_keeps_our_pipelines_fragment_tail(probe) -> None:
     fragment tail, so a splice that dropped three's two closing chunks
     would render the water dark next to every built-in material."""
     assert probe["keepsToneMap"], "tonemapping/colorspace chunks lost"
-
-
-def test_legacy_shader_opts_all_the_way_out(probe) -> None:
-    """An escape hatch has to be a real one: `legacyShader` must ship the
-    addon's own tail, uniforms and all, for a scene graded against it."""
-    m = probe
-    assert m["legacyVeil"], "legacyShader did not restore the addon tail"
-    assert not m["legacyExtras"], (
-        "legacyShader still declared the regrade's uniforms")
 
 
 def test_first_render_points_the_water_at_the_scenes_own_key(sniff) -> None:
