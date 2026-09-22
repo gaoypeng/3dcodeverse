@@ -1,0 +1,70 @@
+{
+ "slices": [
+  {
+   "name": "front_back",
+   "rendered": true,
+   "png": "slice_front_back.png",
+   "reason": "",
+   "parts_filled": 4,
+   "parts_outline_only": 1,
+   "effective_frac": 0.9008,
+   "hatched_pairs": [
+    {
+     "a": "Handle",
+     "b": "Body",
+     "area_m2": 0.0048
+    }
+   ],
+   "plain_pairs": []
+  },
+  {
+   "name": "left_right",
+   "rendered": true,
+   "png": "slice_left_right.png",
+   "reason": "",
+   "parts_filled": 19,
+   "parts_outline_only": 0,
+   "effective_frac": 0.8946,
+   "hatched_pairs": [],
+   "plain_pairs": [
+    {
+     "a": "RivetJ",
+     "b": "Tube",
+     "area_m2": 0.00016387
+    },
+    {
+     "a": "RivetI",
+     "b": "Tube",
+     "area_m2": 0.00040999
+    },
+    {
+     "a": "RivetG",
+     "b": "Tube",
+     "area_m2": 0.00040999
+    },
+    {
+     "a": "RivetF",
+     "b": "Tube",
+     "area_m2": 0.00016387
+    },
+    {
+     "a": "Leg_1",
+     "b": "Body",
+     "area_m2": 0.00781448
+    },
+    {
+     "a": "Leg_0",
+     "b": "Body",
+     "area_m2": 0.00781448
+    }
+   ]
+  }
+ ],
+ "errors": [],
+ "error_pairs": [
+  [
+   "Body",
+   "Handle"
+  ]
+ ]
+}

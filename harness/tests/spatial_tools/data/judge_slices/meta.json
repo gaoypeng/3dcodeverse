@@ -1,0 +1,7 @@
+{
+ "libs": {
+  "matplotlib": "3.11.0",
+  "shapely": "2.1.2",
+  "trimesh": "4.12.2"
+ }
+}
