@@ -3,8 +3,8 @@
 * conversion — ``ChatRequest`` ⇄ google-genai types (``to_contents``, ``build_config``,
   ``extract_candidate``, ``parse_usage``); pure, unit-testable offline;
 * ``GeminiModel`` — the ``ChatModel``: a shared ``KeyPool`` over the configured keys,
-  ``rotate_with_retries`` with the storm gate / hedge, streaming with stall detection,
-  per-attempt ledger rows;
+  ``rotate_with_retries`` with the hedge, streaming with stall detection, per-attempt
+  ledger rows;
 * ``GeminiImageModel`` — text(+reference images) → PIL images on the same pool and
   retry machine, priced per generated image (``pricing.per_image_usd``), with a
   fallback model when the primary is missing.
@@ -45,10 +45,8 @@ from codeverse3d.models.retry import (
     OnAttempt,
     Outcome,
     _Try,
-    request_tokens,
     rotate_with_retries,
 )
-from codeverse3d.models.retry import storm_gate as storm_gate_for
 from codeverse3d.models.schema_utils import JsonParseError, parse_json_lenient, to_gemini_schema
 
 #: INTERFACES.md mapping; ``off`` → 0 where the model allows it
@@ -212,27 +210,15 @@ _clients: dict[tuple[str, int], genai.Client] = {}
 _registry_lock = threading.Lock()
 
 
-def shared_pool(
-    keys: list[str],
-    *,
-    rpm_per_key: int | None = None,
-    tpm_per_key: int | None = None,
-    max_in_flight: int | None = None,
-) -> KeyPool:
-    """One ``KeyPool`` per distinct (key list, quota) so limiters are process-wide.
-
-    Unset arguments come from ``Settings.rate`` — the owner's real per-key quota
-    (``docs/COST.md`` Part III), which is what makes the pool TPM-aware: a
-    200 k-token judge verdict reserves 100x what a caption does."""
-    rate = _rate()
-    rpm = rate.rpm_per_key if rpm_per_key is None else rpm_per_key
-    tpm = rate.tpm_per_key if tpm_per_key is None else tpm_per_key
-    cap = rate.max_in_flight if max_in_flight is None else max_in_flight
-    sig = (*keys, f"|{rpm}|{tpm}|{cap}")
+def shared_pool(keys: list[str], *, max_in_flight: int | None = None) -> KeyPool:
+    """One ``KeyPool`` per distinct (key list, in-flight cap) so limiters are process-wide;
+    an unset cap comes from ``Settings.rate.max_in_flight``."""
+    cap = _rate().max_in_flight if max_in_flight is None else max_in_flight
+    sig = (*keys, f"|{cap}")
     with _registry_lock:
         pool = _pools.get(sig)
         if pool is None:
-            pool = KeyPool(keys, rpm_per_key=rpm, tpm_per_key=tpm or None, max_in_flight=cap or 0)
+            pool = KeyPool(keys, max_in_flight=cap or 0)
             _pools[sig] = pool
         return pool
 
@@ -418,8 +404,8 @@ def _merge_stream_chunks(
 
 class GeminiModel:
     """ChatModel for ``gemini:<model>``: a shared ``KeyPool``, ``rotate_with_retries``
-    (storm gate, hedge, ``ChatRequest.max_wait_s`` deadline), streaming with stall
-    detection and per-attempt ledger rows."""
+    (hedge, ``ChatRequest.max_wait_s`` deadline), streaming with stall detection and
+    per-attempt ledger rows."""
 
     provider = "gemini"
 
@@ -446,7 +432,6 @@ class GeminiModel:
         self.hedge = max(1, int(_rate().hedge if hedge is None else hedge))
         keys = _keys_or_raise(keys, pool)
         self.pool = pool or shared_pool(keys)
-        self.storm_gate = storm_gate_for(f"gemini:{model}") if _rate().storm_gate else None
         self.timeout_s = _default_timeout_s() if timeout_s is None else timeout_s
         self.max_attempts = max(1, max_attempts)
         self._sleep = sleep
@@ -494,9 +479,6 @@ class GeminiModel:
                 sleep=self._sleep,
                 on_free_retry=downgrade_thinking,
                 retry_after=_retry_after_s,
-                tokens_of=lambda r: r.usage.input_tokens,
-                tokens_hint=request_tokens(request, model_id=self.id),
-                storm_gate=self.storm_gate,
                 label=f"gemini {self.model}",
                 stats=stats,
                 on_attempt=self._attempt_hook(wasted),
@@ -692,7 +674,6 @@ class GeminiImageModel:
         self.hedge = max(1, int(hedge))
         keys = _keys_or_raise(keys, pool)
         self.pool = pool or shared_pool(keys)
-        self.storm_gate = storm_gate_for(f"gemini:{model}") if _rate().storm_gate else None
         self.timeout_s = timeout_s
         self.max_attempts = max(1, max_attempts)
         self._sleep = sleep
@@ -800,8 +781,6 @@ class GeminiImageModel:
             hedge=self.hedge,
             sleep=self._sleep,
             retry_after=_retry_after_s,
-            tokens_of=lambda r: r[1].input_tokens,
-            storm_gate=self.storm_gate,
             label=f"image {model}",
         )
 

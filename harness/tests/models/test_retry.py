@@ -8,7 +8,6 @@ import time
 
 import pytest
 
-from codeverse3d.contracts.common import Usage
 from codeverse3d.models.base import ModelError
 from codeverse3d.models.parts import SDK_TIMEOUT_FLOOR_S
 from codeverse3d.models.retry import (
@@ -18,7 +17,6 @@ from codeverse3d.models.retry import (
     KeyPool,
     KeyPoolExhausted,
     Outcome,
-    StormGate,
     backoff_delay,
     rotate_with_retries,
     with_retries,
@@ -129,8 +127,7 @@ def _503(e: BaseException) -> ModelError:
 
 
 def _pool(n: int = 3, **kw) -> KeyPool:
-    """A pool of ``n`` keys with the per-key RPM limiter effectively off."""
-    kw.setdefault("rpm_per_key", 10_000)
+    """A pool of ``n`` keys."""
     return KeyPool([f"k{i}" for i in range(1, n + 1)], **kw)
 
 
@@ -171,9 +168,9 @@ def _boom(msg: str = "503 high demand"):
     return call
 
 
-def test_rotate_success_reports_ok_with_tokens():
+def test_rotate_success_reports_ok():
     pool = KeyPool(["k1", "k2"])
-    out = _rotate(pool, lambda key: f"ok:{key}", tokens_of=lambda r: 42)
+    out = _rotate(pool, lambda key: f"ok:{key}")
     assert out == "ok:k1"
     st = pool.stats()
     assert st["ok"] == 1 and st["429"] == 0 and st["dead"] == 0
@@ -394,7 +391,6 @@ def test_the_deadline_does_not_cut_a_call_that_is_making_progress():
 def test_503_rotates_through_every_untried_key_before_it_is_a_storm():
     """A 503 rotates freely while the pool still has an untried key."""
     keys = [f"k{i}" for i in range(1, 11)]
-    gate = StormGate()
     lock = threading.Lock()
     calls: list[str] = []
     naps: list[float] = []
@@ -407,6 +403,7 @@ def test_503_rotates_through_every_untried_key_before_it_is_a_storm():
             raise RuntimeError("503 high demand")
         return "ok"
 
+    stats: dict = {}
     out = _rotate503(
         _pool(10),
         call,
@@ -414,24 +411,23 @@ def test_503_rotates_through_every_untried_key_before_it_is_a_storm():
         storm_attempts=10,
         storm_max_delay=0.05,
         sleep=naps.append,
-        storm_gate=gate,
+        stats=stats,
     )
     # one key per round-trip, never twice: 9 free rotations, then the 10th key lands
     assert out == "ok" and len(calls) == len(keys) and set(calls) == set(keys)
     assert naps == [], "rotation to a fresh key costs no sleep"
-    assert gate.n_storms == 0 and not gate.snapshot()["storming"], "an untried key remains: not a storm"
+    assert stats["storm"] == 0, "an untried key remains: not a storm"
 
 
 @pytest.mark.parametrize(
-    ("hedge", "want_calls", "want_hits", "want_stats"),
+    ("hedge", "want_calls", "want_stats"),
     [
-        (1, {6}, 3, {"attempts": 6, "hedged": 0, "storm": 3}),
-        (2, {6, 7}, 2, {"attempts": 7, "hedged": 3, "storm": 2}),
+        (1, {6}, {"attempts": 6, "hedged": 0, "storm": 3}),
+        (2, {6, 7}, {"attempts": 7, "hedged": 3, "storm": 2}),
     ],
 )
-def test_503_on_every_key_is_still_a_storm(hedge, want_calls, want_hits, want_stats):
+def test_503_on_every_key_is_still_a_storm(hedge, want_calls, want_stats):
     """Exhausting every key engages one bounded wait per hedged attempt."""
-    gate = StormGate("t", base_delay=0.0, max_wait_s=0.0, probe_lease_s=0.0)  # no real waits
     lock = threading.Lock()
     n = {"c": 0}
     stats: dict = {}
@@ -449,16 +445,12 @@ def test_503_on_every_key_is_still_a_storm(hedge, want_calls, want_hits, want_st
         call,
         max_attempts=3,
         storm_attempts=10,
-        storm_max_delay=0.05,
-        storm_gate=gate,
+        storm_max_delay=0.0,
         hedge=hedge,
         stats=stats,
     )
     assert out == "ok" and n["c"] in want_calls
-    assert gate.n_storms == 1 and gate.n_hits == want_hits, (
-        "declared only after all three keys failed, then waited out"
-    )
-    assert stats == want_stats
+    assert stats == want_stats, "declared only after all three keys failed, then waited out"
 
 
 # --------------------------------------------------------------------------- hedging (audit 2026-08-26 §5.2)
@@ -472,7 +464,7 @@ def _wait_idle(pool, timeout: float = 5.0) -> None:
 
 def test_after_the_first_503_the_next_attempt_is_hedged_and_the_first_success_wins():
     """After a 503, fresh keys race and the first success wins."""
-    pool = KeyPool(["k1", "k2", "k3", "k4"], rpm_per_key=10_000, max_in_flight=8)
+    pool = KeyPool(["k1", "k2", "k3", "k4"], max_in_flight=8)
     release_k2 = threading.Event()
     lock = threading.Lock()
     calls: list[str] = []
@@ -497,7 +489,6 @@ def test_after_the_first_503_the_next_attempt_is_hedged_and_the_first_success_wi
         max_attempts=3,
         storm_attempts=10,
         sleep=naps.append,
-        tokens_of=lambda r: 7,
         stats=stats,
     )
     assert out == "ok:k3"
@@ -517,9 +508,9 @@ def test_after_the_first_503_the_next_attempt_is_hedged_and_the_first_success_wi
     assert st["5xx"] == 2 and st["in_flight"] == 0, "the loser's 503 is reported when it lands"
 
 
-def test_a_loser_that_succeeds_later_is_discarded_but_its_tokens_are_reported():
-    """A late successful loser is discarded but still charged to its key."""
-    pool = KeyPool(["k1", "k2", "k3"], rpm_per_key=10_000, tpm_per_key=1_000_000)
+def test_a_loser_that_succeeds_later_is_discarded_but_reported_to_its_key():
+    """A late successful loser is discarded, and its key still hears the success."""
+    pool = KeyPool(["k1", "k2", "k3"])
     release_k2 = threading.Event()
 
     def call(key):
@@ -535,13 +526,12 @@ def test_a_loser_that_succeeds_later_is_discarded_but_its_tokens_are_reported():
         call,
         max_attempts=3,
         storm_attempts=10,
-        tokens_of=lambda r: 900 if r.endswith("k2") else 100,
     )
     assert out == "ok:k3"
     release_k2.set()
     _wait_idle(pool)
     assert pool.stats()["ok"] == 2
-    assert pool._by_key["k2"].tokens_used == 900 and pool._by_key["k3"].tokens_used == 100  # noqa: SLF001
+    assert pool._by_key["k2"].n_ok == 1 and pool._by_key["k3"].n_ok == 1  # noqa: SLF001
 
 
 def test_hedge_1_disables_and_a_full_pool_of_slots_degrades_to_one_key():
@@ -622,11 +612,11 @@ def test_the_key_wait_is_clipped_to_the_remaining_budget():
     seen: list[float | None] = []
 
     class SpyPool(KeyPool):
-        def acquire(self, *, tokens_hint=0, exclude=None, timeout_s=None):
+        def acquire(self, *, exclude=None, timeout_s=None):
             seen.append(timeout_s)
-            return super().acquire(tokens_hint=tokens_hint, exclude=exclude, timeout_s=timeout_s)
+            return super().acquire(exclude=exclude, timeout_s=timeout_s)
 
-    pool = SpyPool(["k1"], rpm_per_key=10_000)
+    pool = SpyPool(["k1"])
     assert _rotate(pool, lambda key: "ok", max_total_s=50.0) == "ok"
     assert _rotate(pool, lambda key: "ok") == "ok"  # the default budget: the pool default caps
     assert seen[0] == pytest.approx(50.0, abs=1.0)
@@ -668,28 +658,6 @@ def test_free_429_rotation_cannot_outlive_the_deadline():
     assert ei.value.status == 429
     assert clock.t <= 2.5, f"free rotation outlived the deadline: {clock.t}"
     assert len(calls) <= 5, "ten keys would all have been tried before"
-
-
-def test_the_pool_is_not_refunded_for_a_charged_but_invalid_reply():
-    """A billed invalid response must consume its actual TPM usage."""
-    clock = Clock(1000.0)
-    pool = _pool(1, tpm_per_key=100_000, clock=clock, sleep=clock.sleep)
-    calls = {"n": 0}
-
-    def call(key):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise ModelError(
-                "structured output is not valid JSON",
-                retryable=True,
-                usage=Usage(input_tokens=42_000),
-            )
-        return "ok"
-
-    out = _rotate(pool, call, max_attempts=3, tokens_hint=1_000, tokens_of=lambda r: 100)
-    assert out == "ok" and calls["n"] == 2
-    left = pool._by_key["k1"].tpm.tokens  # noqa: SLF001 - white-box on purpose
-    assert left == pytest.approx(100_000 - 42_000 - 100)
 
 
 # --------------------------------------------------------------------------- on_attempt hook (2026-08-27)
@@ -767,32 +735,3 @@ def test_error_causes_avoid_cycles_and_preserve_real_wrapped_errors():
     with pytest.raises(ModelError) as ei:
         _rotate(_pool(), timeout, max_attempts=1)
     assert isinstance(ei.value.__cause__, TimeoutError)
-
-
-def test_a_budget_spent_at_the_storm_gate_issues_no_round_trip():
-    """A worker waking past its gate deadline issues no request."""
-    clock = Clock(1000.0)
-    calls: list[str] = []
-
-    class Gate:  # parks the caller for longer than the whole budget
-        def enter(self, deadline=None):
-            clock.t += 30.0
-            return 30.0
-
-        def hit(self, retry_after=None):
-            return 0.0
-
-        def ok(self):
-            pass
-
-    with pytest.raises(ModelError) as e:
-        _rotate(
-            _pool(1),
-            lambda key: calls.append(key),
-            max_total_s=5.0,
-            monotonic=clock,
-            storm_gate=Gate(),
-            label="t",
-        )
-    assert calls == [], "a round-trip was issued after the budget was already spent"
-    assert "capacity" in str(e.value)

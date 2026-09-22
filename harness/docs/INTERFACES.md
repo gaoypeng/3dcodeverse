@@ -62,16 +62,16 @@ means the last OK build.  `Workspace.restore_paths(commit, paths)` = per-path
 ```python
 from codeverse3d.models import get_chat_model            # (model_id) -> ChatModel, lru-cached, thread-safe
 resp = m.generate(ChatRequest(messages=[...], system=..., response_schema=..., temperature=..., thinking=..., label=..., max_wait_s=None))
-#   max_wait_s: the longest this ONE call may spend, retries included (None = models.retry.RETRY_DEADLINE_S = 900 s);
+#   max_wait_s: the longest this ONE call may spend, retries included (None = models.retry.RETRY_DEADLINE_S = 1800 s);
 #   GeminiModel clips its retry deadline to it; VlmJudge 240 s per sample, planner 300 s
 #   resp.raw["key"] = "…ab12" (the key that answered), resp.raw["attempts"] = round-trips issued (hedged siblings included)
 resp.parsed / resp.text / resp.usage   # Usage always has cost_usd (models.pricing)
 from codeverse3d.models.retry import KeyPool, KeyPoolExhausted
-KeyPool(keys, *, rpm_per_key=900, tpm_per_key=None, cooldown_s=30, dead_cooldown_s=3600)
-pool.acquire(*, tokens_hint=0, exclude=None, timeout_s=120) -> key    # raises immediately when every key is dead/cooling past the deadline
-pool.try_acquire(*, tokens_hint=0, exclude=None) -> key | None        # never waits (a hedged retry's extra key); holds a slot like acquire
-pool.report(key, "ok"|"429"|"5xx"|"error"|"dead"|"skip", *, tokens=0, retry_after_s=None)   # Δ "dead": health 0, benched dead_cooldown_s,
-    # re-probed after; "skip" (a content failure the key did not cause) reconciles tokens only — health and counters untouched
+KeyPool(keys, *, max_in_flight=0, cooldown_s=3, dead_cooldown_s=3600)
+pool.acquire(*, exclude=None, timeout_s=120) -> key    # raises immediately when every key is dead/cooling past the deadline
+pool.try_acquire(*, exclude=None) -> key | None        # never waits (a hedged retry's extra key); holds a slot like acquire
+pool.report(key, "ok"|"429"|"5xx"|"error"|"dead"|"skip", *, retry_after_s=None)   # Δ "dead": health 0, benched dead_cooldown_s,
+    # re-probed after; "skip" (a content failure the key did not cause) leaves health and counters untouched
 from codeverse3d.models.retry import with_retries, rotate_with_retries, RETRY_DEADLINE_S
 with_retries(fn, *, is_retryable, attempts=6, base_delay=1.0, max_delay=3.0, max_total_s=None, ...)   # max_total_s =
     # ChatRequest.max_wait_s clipped to RETRY_DEADLINE_S on every provider; stops before a backoff would cross it, stamps ModelError.attempts

@@ -102,10 +102,10 @@ codeverse3d/
                       request/response shapes, dead-key + free 429 rotation, the image model);
                       anthropic.py openai.py (each with its own request/response shapes);
                       retry.py (the scheduling machine: KeyPool with outcomes ok | 429 | 5xx |
-                      error | dead | skip + TPM reservation/reconcile, StormGate — ships OFF,
-                      docs/COST.md §21 — with_retries / rotate_with_retries, both bounded by
-                      max_total_s ≤ RETRY_DEADLINE_S with MAX_WAIT_S ≤ 3 s single waits, and the
-                      prompt-token estimate); pricing.py (version-suffix-only fallback), health.py (preflight
+                      error | dead | skip and the max_in_flight cap — no RPM/TPM buckets since
+                      2026-09-22, docs/COST.md §19 — with_retries / rotate_with_retries, both bounded by
+                      max_total_s ≤ RETRY_DEADLINE_S with MAX_WAIT_S ≤ 3 s single waits); pricing.py
+                      (version-suffix-only fallback), health.py (preflight
                       probe: no retries, no backoff), schema_utils.py (strict schema), registry.py
   agents/             registry.py (the CodingAgent protocol + dispatch — every backend is a
                       vendor CLI; the in-process api-agent died 2026-08-28), backends.py

@@ -28,7 +28,7 @@ from codeverse3d.config import get_settings
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest
 from codeverse3d.cost.guard import CHARS_PER_TOKEN
 from codeverse3d.models.gemini import GeminiModel
-from codeverse3d.models.retry import KeyPool, StormGate
+from codeverse3d.models.retry import KeyPool
 from codeverse3d.proc import fan_out
 
 #: filler that is cheap to build, incompressible enough not to be cached away, and
@@ -71,9 +71,6 @@ class LevelResult:
     input_tokens: int
     output_tokens: int
     usd: float
-    storm_hits: int = 0
-    storm_probes: int = 0
-    storm_parked_s: float = 0.0
     errors: list[str] = field(default_factory=list)
 
 
@@ -111,14 +108,9 @@ class _Gauge:
 
 def run_level(
     level: int, *, model: str, keys: list[str], calls: int, in_tokens: int, out_tokens: int,
-    rpm_per_key: int, tpm_per_key: int | None, storm_gate: bool = True,
 ) -> LevelResult:
-    pool = KeyPool(keys, rpm_per_key=rpm_per_key, tpm_per_key=tpm_per_key)
-    gate = StormGate(f"probe:{model}:c{level}") if storm_gate else None
+    pool = KeyPool(keys)
     m = GeminiModel(model, pool=pool)
-    # assign directly: the constructor takes the process-wide gate (Settings.rate.storm_gate)
-    # and has no parameter for it, and this probe has to be able to switch it off entirely
-    m.storm_gate = gate
     body = filler(in_tokens)
     gauge = _Gauge()
     lat: list[float] = []
@@ -166,8 +158,6 @@ def run_level(
         attempts_ok=st["ok"], attempts_429=st["429"], attempts_5xx=st["5xx"],
         attempts_error=st["error"], input_tokens=usage["in"], output_tokens=usage["out"],
         usd=round(usage["usd"], 4),
-        storm_hits=gate.n_hits if gate else 0, storm_probes=gate.n_probes if gate else 0,
-        storm_parked_s=round(gate.parked_s, 1) if gate else 0.0,
         errors=[f"{type(e).__name__}: {e}"[:200] for e in bad[:5]],
     )
 
@@ -179,10 +169,6 @@ def main() -> None:
     ap.add_argument("--calls", type=int, default=48, help="calls per level (the fixed workload)")
     ap.add_argument("--in-tokens", type=int, default=12000, help="prompt size (a generator call)")
     ap.add_argument("--out-tokens", type=int, default=512)
-    ap.add_argument("--rpm-per-key", type=int, default=1000)
-    ap.add_argument("--tpm-per-key", type=int, default=0, help="0 = no TPM bucket")
-    ap.add_argument("--storm-gate", dest="storm_gate", action="store_true", default=True)
-    ap.add_argument("--no-storm-gate", dest="storm_gate", action="store_false")
     ap.add_argument("--out", default="")
     a = ap.parse_args()
 
@@ -194,18 +180,17 @@ def main() -> None:
     print(f"{len(keys)} keys · model {a.model} · {a.calls} calls/level · ~{a.in_tokens} in-tokens")
     hdr = (f"{'lvl':>4s} {'wall_s':>7s} {'ok':>4s} {'fail':>5s} {'calls/min':>10s} "
            f"{'ktok/min':>9s} {'mean_if':>8s} {'p50':>6s} {'p90':>7s} {'max':>7s} "
-           f"{'429':>5s} {'5xx':>5s} {'err':>5s} {'park_s':>7s} {'$':>7s}")
+           f"{'429':>5s} {'5xx':>5s} {'err':>5s} {'$':>7s}")
     print(hdr)
     print("-" * len(hdr))
     for lv in levels:
         r = run_level(lv, model=a.model, keys=keys, calls=a.calls, in_tokens=a.in_tokens,
-                      out_tokens=a.out_tokens, rpm_per_key=a.rpm_per_key,
-                      tpm_per_key=a.tpm_per_key or None, storm_gate=a.storm_gate)
+                      out_tokens=a.out_tokens)
         rows.append(r)
         print(f"{r.level:4d} {r.wall_s:7.1f} {r.n_ok:4d} {r.n_failed:5d} {r.calls_per_min:10.1f} "
               f"{r.tokens_per_min / 1000:9.0f} {r.mean_inflight:8.2f} {r.p50_s:6.1f} {r.p90_s:7.1f} "
               f"{r.max_s:7.1f} {r.attempts_429:5d} {r.attempts_5xx:5d} {r.attempts_error:5d} "
-              f"{r.storm_parked_s:7.0f} {r.usd:7.3f}",
+              f"{r.usd:7.3f}",
               flush=True)
         if r.errors:
             print(f"     errors: {r.errors[0]}", flush=True)
@@ -214,7 +199,6 @@ def main() -> None:
         out.mkdir(parents=True, exist_ok=True)
         (out / "levels.json").write_text(json.dumps(
             {"model": a.model, "n_keys": len(keys), "calls": a.calls, "in_tokens": a.in_tokens,
-             "storm_gate": a.storm_gate,
              "rows": [asdict(r) for r in rows]}, indent=2))
         print(f"wrote {out / 'levels.json'}")
     best = max(rows, key=lambda r: r.calls_per_min)

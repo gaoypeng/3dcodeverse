@@ -381,7 +381,7 @@ def test_a_hedge_losers_tokens_reach_the_ledger_when_it_lands(tmp_path: Path):
                 return text_response("late loser")
             return text_response("winner")
 
-    pool = KeyPool(["k1", "k2", "k3"], rpm_per_key=10_000)
+    pool = KeyPool(["k1", "k2", "k3"])
     m = GeminiModel("gemini-3.7-flash", pool=pool, sleep=lambda s: None, client_factory=Client)
     with run_ledger(tmp_path, run="r1"):
         resp = MeteredChatModel(m).generate(

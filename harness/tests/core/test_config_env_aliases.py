@@ -60,7 +60,7 @@ def test_the_rate_and_limits_dials_carry_their_bounds(monkeypatch):
     """Reject rate/worker values that cannot make progress."""
     from codeverse3d.config import Limits, Rate
 
-    for kwargs in ({"max_in_flight": -1}, {"rpm_per_key": 0}, {"tpm_per_key": -1}):
+    for kwargs in ({"max_in_flight": -1}, {"hedge": 0}):
         with pytest.raises(ValueError):
             Rate(**kwargs)
     for kwargs in ({"max_parallel_agents": 0}, {"max_parallel_builds": -2}, {"agent_max_turns": -1}):
@@ -79,24 +79,24 @@ def test_a_project_file_overrides_only_the_keys_it_names(tmp_path, monkeypatch):
     home = tmp_path / "fakehome"
     (home / ".config" / "3dcodeverse").mkdir(parents=True)
     (home / ".config" / "3dcodeverse" / "config.yaml").write_text(
-        "rate:\n  tpm_per_key: 250000\n  rpm_per_key: 300\njudge:\n  samples: 4\n")
+        "limits:\n  agent_timeout_s: 900\n  max_parallel_builds: 3\njudge:\n  samples: 4\n")
     proj = tmp_path / "proj"
     proj.mkdir()
-    (proj / "3dcodeverse.yaml").write_text("rate:\n  max_in_flight: 8\n")
+    (proj / "3dcodeverse.yaml").write_text("limits:\n  max_parallel_agents: 4\n")
 
     monkeypatch.setattr(C, "_USER_CONFIG", home / ".config" / "3dcodeverse" / "config.yaml")
     monkeypatch.setattr(C, "_LEGACY_USER_CONFIG", home / ".config" / "codeverse" / "config.yaml")
     monkeypatch.chdir(proj)
-    for var in ("C3D_MAX_IN_FLIGHT", "C3D_RATE__MAX_IN_FLIGHT", "C3D_RATE__TPM_PER_KEY"):
+    for var in ("C3D_LIMITS__MAX_PARALLEL_AGENTS", "C3D_LIMITS__AGENT_TIMEOUT_S", "C3D_LIMITS__MAX_PARALLEL_BUILDS"):
         monkeypatch.delenv(var, raising=False)
     C.get_settings.cache_clear()
     try:
         s = C.get_settings()
         # the project file's own key applies ...
-        assert s.rate.max_in_flight == 8
+        assert s.limits.max_parallel_agents == 4
         # ... and the user's siblings in the SAME section survive it
-        assert s.rate.tpm_per_key == 250000, "the binding TPM limit must not silently reset"
-        assert s.rate.rpm_per_key == 300
+        assert s.limits.agent_timeout_s == 900, "a sibling the project file never named must not reset"
+        assert s.limits.max_parallel_builds == 3
         # a section the project file does not name is untouched (this always worked)
         assert s.judge.samples == 4
     finally:
@@ -137,21 +137,21 @@ def test_the_config_names_before_d78_are_still_read_under_the_new_ones(tmp_path,
 
     home = tmp_path / "fakehome"
     (home / ".config" / "codeverse").mkdir(parents=True)
-    (home / ".config" / "codeverse" / "config.yaml").write_text("rate:\n  tpm_per_key: 250000\n  rpm_per_key: 300\n")
+    (home / ".config" / "codeverse" / "config.yaml").write_text("limits:\n  agent_timeout_s: 900\n  max_parallel_builds: 3\n")
     (home / ".config" / "3dcodeverse").mkdir(parents=True)
-    (home / ".config" / "3dcodeverse" / "config.yaml").write_text("rate:\n  rpm_per_key: 400\n")
+    (home / ".config" / "3dcodeverse" / "config.yaml").write_text("limits:\n  max_parallel_builds: 5\n")
     proj = tmp_path / "proj"
     proj.mkdir()
     (proj / "codeverse.yaml").write_text("rate:\n  max_in_flight: 8\n")
     monkeypatch.setattr(C, "_USER_CONFIG", home / ".config" / "3dcodeverse" / "config.yaml")
     monkeypatch.setattr(C, "_LEGACY_USER_CONFIG", home / ".config" / "codeverse" / "config.yaml")
     monkeypatch.chdir(proj)
-    for var in ("C3D_MAX_IN_FLIGHT", "C3D_RATE__MAX_IN_FLIGHT", "C3D_RATE__TPM_PER_KEY", "C3D_RATE__RPM_PER_KEY"):
+    for var in ("C3D_MAX_IN_FLIGHT", "C3D_RATE__MAX_IN_FLIGHT", "C3D_LIMITS__AGENT_TIMEOUT_S", "C3D_LIMITS__MAX_PARALLEL_BUILDS"):
         monkeypatch.delenv(var, raising=False)
     C.get_settings.cache_clear()
     try:
         s = C.get_settings()
-        assert (s.rate.tpm_per_key, s.rate.rpm_per_key, s.rate.max_in_flight) == (250000, 400, 8)
+        assert (s.limits.agent_timeout_s, s.limits.max_parallel_builds, s.rate.max_in_flight) == (900, 5, 8)
     finally:
         C.get_settings.cache_clear()
 

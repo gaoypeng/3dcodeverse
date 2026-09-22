@@ -235,7 +235,7 @@ def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
 
     settings = SimpleNamespace(
         gemini_api_keys=("fake",), anthropic_api_key="", openai_api_key="",
-        rate=SimpleNamespace(rpm_per_key=1, tpm_per_key=1_000, max_in_flight=1),
+        rate=SimpleNamespace(max_in_flight=1),
         binaries=SimpleNamespace(node="node", gemini_cli="gemini", claude_cli="claude",
                                  codex_cli="codex", agy_cli="agy"),
         resolve_blender=lambda: "blender",
@@ -253,11 +253,6 @@ def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
         lambda model: SimpleNamespace(generate=lambda request: SimpleNamespace(
             text="pong", usage=SimpleNamespace(cost_usd=0.0))),
     )
-    gate = SimpleNamespace(snapshot=lambda: {
-        "name": "gemini:test", "storming": False, "storms": 0, "hits": 0,
-        "probes": 0, "parked_s": 0, "closed_for_s": 0,
-    })
-    monkeypatch.setattr("codeverse3d.models.retry.all_gates", lambda: [gate])
     monkeypatch.setattr("codeverse3d.skills.registry.ROUTED_SKILLS", ("missing",))
 
     rows = doctor_mod.run_doctor(live=True, gpu=True, skills=True)
@@ -283,7 +278,7 @@ def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
         for name in re.findall(r"`([^`]+)`", line.split("|", 2)[1])
         if not name.startswith("--")
     }
-    names = {"storm gate" if name.startswith("storm gate ") else name for name, _, _ in rows}
+    names = {name for name, _, _ in rows}
     missing = sorted(names - documented)
     assert not missing, f"doctor rows undocumented in docs/INSTALL.md: {missing}"
 

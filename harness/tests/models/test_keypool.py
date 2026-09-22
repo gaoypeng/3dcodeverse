@@ -1,4 +1,4 @@
-"""KeyPool: rotation, 429 cooldown, buckets, health, exhaustion, stats."""
+"""KeyPool: rotation, 429 cooldown, health, exhaustion, the in-flight cap, stats."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from codeverse3d.models.retry import MAX_WAIT_S, KeyPool, KeyPoolExhausted, TokenBucket
+from codeverse3d.models.retry import MAX_WAIT_S, KeyPool, KeyPoolExhausted
 
 
 class Clock:
@@ -58,18 +58,6 @@ def test_exclude_skips_failed_keys():
         pool.acquire(exclude={"k1", "k2", "k3"})
 
 
-def test_rpm_bucket_blocks_then_refills():
-    pool, clock = make(keys=("solo",), rpm_per_key=60)  # 1 token / s, capacity 60
-    for _ in range(60):
-        pool.acquire(timeout_s=0.0)
-    with pytest.raises(KeyPoolExhausted):
-        pool.acquire(timeout_s=0.0)
-    # blocking acquire advances the fake clock until a token refills
-    t0 = clock.t
-    assert pool.acquire(timeout_s=10.0) == "solo"
-    assert clock.t > t0
-
-
 def test_all_cooling_blocks_until_cooldown_ends():
     # a cooldown longer than the house cap is clipped to it: no single wait may
     # exceed MAX_WAIT_S, patience comes from the number of attempts
@@ -101,16 +89,8 @@ def test_health_score_prefers_healthy_keys():
     assert s["…bad"]["health"] > 0.9
 
 
-def test_tpm_bucket_honours_hint():
-    pool, _ = make(keys=("a", "b"), tpm_per_key=1000)
-    assert pool.acquire(tokens_hint=800) == "a"
-    assert pool.acquire(tokens_hint=800) == "b"  # a has only 200 left
-    with pytest.raises(KeyPoolExhausted):
-        pool.acquire(tokens_hint=800, timeout_s=0.0)
-
-
 def test_thread_safety_smoke():
-    pool = KeyPool([f"k{i}" for i in range(5)], rpm_per_key=100000)
+    pool = KeyPool([f"k{i}" for i in range(5)])
     counts: dict[str, int] = {}
     lock = threading.Lock()
 
@@ -127,13 +107,6 @@ def test_thread_safety_smoke():
     for t in ts:
         t.join()
     assert sum(counts.values()) == 1600 and len(counts) == 5
-
-
-def test_token_bucket_math():
-    b = TokenBucket(capacity=10, rate=1.0, updated=0.0)
-    assert b.try_take(10, 0.0) and not b.try_take(1, 0.0)
-    assert b.wait_for(5, 0.0) == 5.0
-    assert b.try_take(5, 5.0)
 
 
 def test_dead_key_is_benched_for_a_long_time_then_reprobed():
@@ -177,10 +150,12 @@ def test_try_acquire_never_waits_for_a_key_or_a_slot():
     pool.report("k2", "429")
     assert pool.try_acquire() is None, "every key is cooling down: no wait, no key"
     assert pool.stats()["in_flight"] == 0, "a refused try_acquire holds nothing"
+
+
 def test_the_in_flight_slot_wait_is_bounded_by_timeout():
     """acquire()'s max_in_flight semaphore used to be an unbounded wait; the same
     timeout budget now bounds it and raises the pool's own error shape."""
-    pool = KeyPool(["a"], max_in_flight=1, rpm_per_key=10_000)
+    pool = KeyPool(["a"], max_in_flight=1)
     pool.acquire()
     t0 = time.monotonic()
     with pytest.raises(KeyPoolExhausted):
@@ -190,13 +165,57 @@ def test_the_in_flight_slot_wait_is_bounded_by_timeout():
     assert pool.acquire(timeout_s=0.5) == "a", "the slot came back; nothing leaked"
 
 
-def test_skip_reconciles_tokens_but_leaves_health_and_counters_alone():
+def test_skip_leaves_health_and_counters_alone():
     """A charged-but-invalid reply (bad JSON) is not the key's fault: it used to be
     reported "ok", boosting health and counting as a success in doctor --live."""
-    pool, _ = make(keys=("a",), tpm_per_key=100_000)
+    pool, _ = make(keys=("a",))
     pool.report("a", "429")
     before = {k["key"]: k for k in pool.stats()["keys"]}["…a"]
-    pool.report("a", "skip", tokens=7_500, reserved=2_000)
+    pool.report("a", "skip")
     after = {k["key"]: k for k in pool.stats()["keys"]}["…a"]
     assert after["health"] == before["health"] and after["ok"] == before["ok"] and after["error"] == before["error"]
-    assert pool.stats()["tokens_used"] == 7_500
+
+
+# ------------------------------------------------------------- in-flight cap
+def test_in_flight_gauge_tracks_acquire_and_release():
+    pool, _ = make(keys=("a", "b"))
+    pool.acquire()
+    pool.acquire()
+    assert pool.stats()["in_flight"] == 2
+    assert pool.stats()["peak_in_flight"] == 2
+    pool.release()
+    assert pool.stats()["in_flight"] == 1
+    assert pool.stats()["peak_in_flight"] == 2  # peak is a high-water mark
+    pool.release()
+    pool.release()  # a stray release is a no-op, not a crash
+    assert pool.stats()["in_flight"] == 0
+
+
+def test_max_in_flight_blocks_the_third_caller():
+    pool = KeyPool(["a", "b", "c"], max_in_flight=2)
+    pool.acquire()
+    pool.acquire()
+    started = threading.Event()
+    got = threading.Event()
+
+    def third() -> None:
+        started.set()
+        pool.acquire()
+        got.set()
+
+    t = threading.Thread(target=third, daemon=True)
+    t.start()
+    started.wait(2)
+    assert not got.wait(0.2), "the 3rd call should be held by the in-flight cap"
+    pool.release()
+    assert got.wait(2), "releasing a slot must let the queued call through"
+    t.join(2)
+
+
+def test_a_failed_acquire_gives_its_slot_back():
+    """KeyPoolExhausted must not leak a concurrency slot."""
+    pool = KeyPool(["a"], max_in_flight=1)
+    for _ in range(3):
+        with pytest.raises(KeyPoolExhausted):
+            pool.acquire(exclude={"a"}, timeout_s=0.0)
+    assert pool.acquire(timeout_s=0.0) == "a"  # the slot is still free

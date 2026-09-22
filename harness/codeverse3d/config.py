@@ -106,21 +106,16 @@ class Limits(BaseModel):
 
 
 class Rate(BaseModel):
-    """Provider quota the key pool schedules against, and the model-call ceiling.
+    """The model-call ceiling and the 503 hedge (``docs/COST.md`` Part III).
 
-    Measured, not guessed — ``docs/COST.md`` Part III.  On this box (22 keys,
-    ``gemini-3.7-flash``) ``tpm_per_key`` is the binding limit, not ``rpm_per_key``:
-    a generator call averages ~42 k prompt tokens, so 1 M TPM is ~24 calls/min per
-    key (528 pool-wide) while the RPM quota would allow 1 000.
-
-    ``max_in_flight`` is a process-wide ceiling on *concurrent model calls* and is
-    deliberately separate from ``Limits.max_parallel_agents`` /
-    ``max_parallel_builds``: blender / node / chrome are CPU-bound and sized by
-    cores, model calls are network-bound and sized by the provider.  0 = unlimited.
+    ``max_in_flight`` is a ceiling on *concurrent model calls* and is deliberately
+    separate from ``Limits.max_parallel_agents`` / ``max_parallel_builds``: blender /
+    node / chrome are CPU-bound and sized by cores, model calls are network-bound and
+    sized by the provider.  0 = unlimited.  There is no RPM / TPM quota here any more:
+    since the api-agent went the harness's own calls peaked at 2.6 % of one key's RPM
+    and 3.9 % of its TPM, so the buckets they fed never engaged (COST §19).
     """
 
-    rpm_per_key: int = Field(default=1000, ge=1, description="requests/minute allowed per API key")
-    tpm_per_key: int = Field(default=1_000_000, ge=0, description="prompt tokens/minute allowed per API key (0 = no TPM bucket)")
     max_in_flight: int = Field(
         default=64,
         ge=0,  # NEGATIVE is not "unlimited" here: 0 is.  Without this bound -5 survived config,
@@ -131,13 +126,6 @@ class Rate(BaseModel):
         description="process-wide cap on concurrent model calls (0 = off).  Measured knee: a "
         "128-call burst of 12k-token prompts ran 29.6 calls/min at 16 in-flight, 43.9 at 32, "
         "72.9 at 64 and fell back to 47.2 at 128 (docs/COST.md Part III).")
-    storm_gate: bool = Field(
-        default=False,
-        description="share 503 capacity-storm back-pressure across workers.  OFF: measured and it "
-        "LOST — 30.0/45.4 calls/min without it vs 18.2/20.0 with it, because Gemini's 503s are "
-        "intermittent rather than a clean outage, so parking every worker starves the unlucky call "
-        "(docs/COST.md §21).  The mechanism and its counters are kept so the experiment is "
-        "reproducible: C3D_RATE__STORM_GATE=1, or eval/bench/concurrency_probe.py --storm-gate.")
     hedge: int = Field(
         default=2, ge=1,
         description="keys a retry is raced on once a call has met its first 503 (1 = off).  Measured "
@@ -424,12 +412,10 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
     ``dict.update`` replaced a whole sub-dict, so a project ``./3dcodeverse.yaml`` that
     merely NAMED a section silently dropped every sibling key the user had set in
     ``~/.config/3dcodeverse/config.yaml`` — those keys fell back to the built-in Field
-    defaults, not to the user's values.  Concretely: a user config with
-    ``rate.tpm_per_key: 250000`` plus a project file with only ``rate.max_in_flight: 8``
-    scheduled the key pool against the built-in 1,000,000 TPM, 4x the operator's real
-    quota, even though Rate's own docstring calls tpm_per_key the binding limit on this
-    box.  docs/INSTALL.md §8.3 documents the order as "built-in defaults < user config <
-    project config < env", which every reader takes as per-setting.
+    defaults, not to the user's values (2026-08-24: a user's per-key TPM quota was lost to
+    a project file that set only the in-flight cap).  docs/INSTALL.md §8.3 documents the
+    order as "built-in defaults < user config < project config < env", which every reader
+    takes as per-setting.
     """
     out = dict(base)
     for k, v in overlay.items():

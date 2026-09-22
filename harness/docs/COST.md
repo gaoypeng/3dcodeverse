@@ -915,6 +915,19 @@ quota would allow 1 000 per key.  So the meaningful limiter is a *token* rate:
 That is what makes a 200 k judge verdict and a 2 k caption schedule differently, and §20
 shows it is not theoretical.
 
+**Deleted 2026-09-22: the buckets never engaged.**  Every number above was measured while
+the in-process api-agent sent the generator's 42 k-token turns through this pool.  Since it
+went (2026-08-28) the generator is a vendor CLI that makes its own calls and reserves
+nothing here, and the harness's own traffic is the planner, the judge, captions and
+texture images: over the cost ledgers 2026-08-29 .. 09-22 (2 080 Gemini calls, 11 084
+round-trips) the busiest key peaked at **39 k prompt tokens/min — 3.9 % of its 1 M TPM** —
+and **26 calls/min, 2.6 % of its 1 000 RPM** (re-counted on the ledgers on this box:
+2.7 % and 0.7 %).  So the per-key RPM/TPM buckets, the reservation (`tokens_hint`,
+`request_tokens`) and its reconciliation, and `Rate.rpm_per_key` / `tpm_per_key` are
+gone; the pool rotates, cools a 429'd key down, benches a dead one and caps what is in
+flight (§20, §23).  If a workload ever comes back that fills a key's quota, the 429 it
+earns is rotated away for free (§27) — that is the signal to measure again.
+
 ## 20. The measured knee — and why one number is not enough
 
 `eval/bench/concurrency_probe.py` runs a fixed workload at several in-flight levels with a
@@ -1024,10 +1037,11 @@ failure really is all-or-nothing.
 The A/B was run during *intermittent* 503s, which is what the logs show most of the
 time.  A single sustained outage is the case the gate was designed for and is not
 covered by this measurement — that is why the mechanism is kept rather than deleted.
-So `Settings.rate.storm_gate` defaults to **False**.  The mechanism, its counters and
-the probe flag are kept so the experiment is reproducible
-(`C3D_RATE__STORM_GATE=1`, or `eval/bench/concurrency_probe.py --storm-gate`) — the same
-treatment §13 gave cache-friendly prompt ordering.
+So `Settings.rate.storm_gate` defaulted to **False**, and the mechanism was kept so the
+experiment stayed reproducible — until 2026-09-22, when it was **deleted**: §27 made a
+storm mean "every key in the pool 503'd inside this one call", so the gate could close
+only after a whole pool's worth of failed round-trips, and in four weeks shipped OFF
+nobody switched it on.
 
 **Caveat on the knee under a storm.**  §20's knee optimises *throughput* — total calls
 per minute.  A bench cell is judged on *latency* instead: it has a `--max-minutes`
@@ -1046,8 +1060,7 @@ whole 128-call level costs 6 – 35 storm attempts and **zero failures**, which 
 justify a scheduler rewrite in `fan_out`.
 
 `3dcode doctor --live` prints the pool's live picture — keys, in-flight and peak in-flight,
-RPM/TPM headroom used, 429/5xx/dead counts this process — plus one row per storm gate
-with its storm count, 503 count, probe count and parked seconds.
+429/5xx/dead counts this process.
 
 ## 22. The retry budget was counted in attempts, so a "90-minute" run took 200
 

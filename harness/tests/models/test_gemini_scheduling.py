@@ -1,70 +1,25 @@
-"""GeminiModel's side of TPM-aware scheduling and the shared storm gate.
+"""GeminiModel's side of the key pool: slots, the shared pool, the retry budget, the hedge.
 
 Offline: the provider is a fake client, the pool is real, and nothing sleeps.
 """
 
 from __future__ import annotations
 
-import base64
-
 import pytest
 from google.genai import errors as genai_errors
 
-from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
+from codeverse3d.contracts.chat import ChatMessage, ChatRequest
 from codeverse3d.models.base import ModelError
-from codeverse3d.models.gemini import GeminiModel, shared_pool
-from codeverse3d.models.retry import KeyPool, StormGate, request_tokens
-from tests.models.test_gemini import PNG_1PX, make_model, text_response
+from codeverse3d.models.gemini import shared_pool
+from codeverse3d.models.retry import KeyPool
+from tests.models.test_gemini import make_model, text_response
 
 
 def api_error(code: int, msg: str = "boom") -> genai_errors.APIError:
     return genai_errors.APIError(code, {"error": {"message": msg, "code": code}})
 
 
-# ------------------------------------------------------------------ estimates
-def test_request_token_estimates_scale_and_treat_images_as_fixed_cost():
-    small = ChatRequest(messages=[ChatMessage.user("caption this")])
-    big = ChatRequest(messages=[ChatMessage.user("x" * 800_000)])
-    rich = ChatRequest(
-        messages=[ChatMessage.user("hi", images=[ImagePart(data_b64="x", label="a")])],
-        system="a system prompt that is quite long " * 20,
-        response_schema={"type": "object", "properties": {"score": {"type": "number"}}},
-    )
-    path_only = ChatRequest(messages=[ChatMessage.user("hi", images=[ImagePart(path="/nope.png")])])
-    large_image = ChatRequest(
-        messages=[
-            ChatMessage.user(
-                "hi", images=[ImagePart(data_b64=base64.b64encode(PNG_1PX * 500).decode())]
-            )
-        ]
-    )
-    assert request_tokens(small) < 100
-    assert 150_000 < request_tokens(big) < 250_000
-    assert request_tokens(rich) > request_tokens(small) + 1000
-    assert request_tokens(path_only) > 1000
-    assert request_tokens(large_image) < 2000
-
-
-# --------------------------------------------------------------- reservations
-def test_generate_reserves_and_reconciles_tpm():
-    pool = KeyPool(["k1"], tpm_per_key=1_000_000)
-    m, _log, _ = make_model([text_response("hi")], pool=pool)
-    before = pool._by_key["k1"].tpm.tokens  # noqa: SLF001
-    m.generate(ChatRequest(messages=[ChatMessage.user("y" * 40_000)]))
-    after = pool._by_key["k1"].tpm.tokens  # noqa: SLF001
-    # the fake provider reports prompt_token_count=100, so the ~10k estimate is
-    # refunded down to the real 100 (allow a little refill on the wall clock)
-    assert before - after < 500, f"reservation was not reconciled: {before - after}"
-
-
-def test_a_failed_call_gives_its_reservation_back():
-    pool = KeyPool(["k1", "k2"], tpm_per_key=1_000_000, cooldown_s=0.0)
-    m, _log, _ = make_model([api_error(500), text_response("ok")], pool=pool, max_attempts=3)
-    m.generate(ChatRequest(messages=[ChatMessage.user("z" * 40_000)]))
-    total = sum(s.tpm.tokens for s in pool._states)  # noqa: SLF001
-    assert total > 2_000_000 - 5_000  # only the one real 100-token call was charged
-
-
+# ------------------------------------------------------------------ slots
 def test_in_flight_returns_to_zero_after_success_and_after_failure():
     pool = KeyPool(["k1", "k2"], cooldown_s=0.0)
     m, _log, _ = make_model([text_response("hi")], pool=pool)
@@ -77,52 +32,20 @@ def test_in_flight_returns_to_zero_after_success_and_after_failure():
 
 
 # ---------------------------------------------------------------- shared pool
-def test_shared_pool_is_keyed_by_quota_not_only_by_keys():
-    a = shared_pool(["x1", "x2"], rpm_per_key=100, tpm_per_key=1000)
-    b = shared_pool(["x1", "x2"], rpm_per_key=100, tpm_per_key=1000)
-    c = shared_pool(["x1", "x2"], rpm_per_key=100, tpm_per_key=2000)
+def test_shared_pool_is_keyed_by_the_cap_not_only_by_keys():
+    a = shared_pool(["x1", "x2"], max_in_flight=4)
+    b = shared_pool(["x1", "x2"], max_in_flight=4)
+    c = shared_pool(["x1", "x2"], max_in_flight=8)
     assert a is b
-    assert a is not c, "a different quota must not silently reuse another pool's buckets"
+    assert a is not c, "a different cap must not silently reuse another pool's slots"
 
 
-# ----------------------------------------------------------------- storm gate
-def test_a_503_closes_the_shared_gate_and_the_call_still_succeeds():
-    # probe_lease_s=0: the free rotation re-enters the gate, so this thread takes the
-    # probe slot and would then park on its OWN 30 s lease until the retry deadline —
-    # 30 s of wall clock for a test about whether the call survives the storm.
-    gate = StormGate("test", base_delay=0.0, max_wait_s=0.0, probe_lease_s=0.0)
-    pool = KeyPool(["k1", "k2"], cooldown_s=0.0)
-    # a 503 is per key at any instant (retry.py docstring, measured 2026-08-26): the first
-    # one rotates to k2 for free; only k2's 503 — no untried key left in this 2-key pool —
-    # makes it a storm and closes the gate
-    m, _log, _ = make_model(
-        [api_error(503, "high demand"), api_error(503, "high demand"), text_response("ok")],
-        pool=pool,
-        max_attempts=3,
-    )
-    m.storm_gate = gate
-    r = m.generate(ChatRequest(messages=[ChatMessage.user("hi")]))
-    assert r.text == "ok"
-    assert gate.n_hits == 1 and gate.n_storms == 1
-    assert not gate.snapshot()["storming"], "the success must reopen the gate"
-
-
-def test_rate_settings_control_the_shared_gate_and_hedge(monkeypatch):
+def test_the_hedge_comes_from_settings(monkeypatch):
     from codeverse3d.config import Rate, get_settings
 
-    s = get_settings()
-    assert s.rate.storm_gate is False
-    assert GeminiModel("gemini-3.7-flash", keys=["z1"]).storm_gate is None
     assert make_model([])[0].hedge == 2
     assert make_model([], hedge=1)[0].hedge == 1
-
-    monkeypatch.setattr(s, "rate", Rate(storm_gate=True, hedge=1))
-    a = GeminiModel("gemini-3.7-flash", keys=["z1"])
-    b = GeminiModel("gemini-3.7-flash", keys=["z1"])
-    c = GeminiModel("gemini-3.1-pro-preview", keys=["z1"])
-    assert a.storm_gate is not None
-    assert a.storm_gate is b.storm_gate
-    assert a.storm_gate is not c.storm_gate
+    monkeypatch.setattr(get_settings(), "rate", Rate(hedge=1))
     assert make_model([])[0].hedge == 1
 
 
