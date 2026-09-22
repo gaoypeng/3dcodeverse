@@ -13,6 +13,7 @@ import pytest
 
 HARNESS = Path(__file__).resolve().parents[2]
 REPO = HARNESS.parent
+EVAL = REPO / "eval"
 INSTALL = HARNESS / "docs" / "INSTALL.md"
 SETUP = HARNESS / "setup.sh"
 
@@ -93,6 +94,11 @@ def existing_docs() -> list[Path]:
     return [p for p in OWNED_DOCS if p.is_file()]
 
 
+def into_absent_eval(path: Path) -> bool:
+    """A path into eval/ on a checkout without it: the harness suite passes without eval/ (D77)."""
+    return not EVAL.is_dir() and path.resolve().is_relative_to(EVAL)
+
+
 # --------------------------------------------------------------------------- tests
 def test_install_guide_exists() -> None:
     assert INSTALL.is_file(), f"{INSTALL} is missing"
@@ -117,6 +123,7 @@ def test_owned_docs_have_valid_commands_links_and_paths(doc: Path) -> None:
 
     headings = {slugify(ln) for ln in text.splitlines() if ln.startswith("#")}
     missing: list[str] = []
+    into_eval: list[str] = []
     for target in _MD_LINK.findall(text):
         if target.startswith(("http://", "https://", "mailto:", "<")):
             continue
@@ -126,16 +133,19 @@ def test_owned_docs_have_valid_commands_links_and_paths(doc: Path) -> None:
             continue
         path, _, anchor = target.partition("#")
         if path and not (doc.parent / path).exists():
-            missing.append(f"link {target}")
+            (into_eval if into_absent_eval(doc.parent / path) else missing).append(f"link {target}")
     assert not missing, f"{doc}: unresolved links: {missing}"
 
     missing_paths = []
     for ref in sorted(set(_BACKTICK_MD.findall(text))):
         if ref.startswith("~"):
             continue
-        if not any((base / ref).exists() for base in (doc.parent, HARNESS, REPO)):
-            missing_paths.append(ref)
+        bases = (doc.parent, HARNESS, REPO)
+        if not any((base / ref).exists() for base in bases):
+            (into_eval if any(into_absent_eval(base / ref) for base in bases) else missing_paths).append(ref)
     assert not missing_paths, f"{doc}: unresolved backticked paths: {missing_paths}"
+    if into_eval:
+        pytest.skip(f"no eval/ beside the harness: cannot resolve {into_eval}")
 
 
 def test_setup_script_is_executable_parses_and_has_help() -> None:

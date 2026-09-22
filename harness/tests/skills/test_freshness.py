@@ -20,6 +20,7 @@ SKILLS = list(iter_skills()) if BUNDLES else []
 pytestmark = pytest.mark.skipif(not BUNDLES, reason=f"no bundles in {skills_dir()} yet")
 
 HARNESS = Path(__file__).resolve().parents[2]
+EVAL_BENCH = HARNESS.parent / "eval" / "bench"   # absent on a harness-only checkout (D77)
 
 #: every markdown file a bundle ships — SKILL.md and its references are equally quotable
 DOCS: list[Path] = sorted(p for d in BUNDLES for p in d.rglob("*.md"))
@@ -87,7 +88,7 @@ def _live_vocabulary() -> set[str]:
     """
     words: set[str] = set()
     for root, exts in ((HARNESS / "codeverse3d", {".py", ".md", ".j2", ".yaml", ".yml", ".toml"}),
-                       (HARNESS.parent / "eval" / "bench", {".py", ".yaml", ".yml"}),   # battery + prompt ids a bundle cites
+                       (EVAL_BENCH, {".py", ".yaml", ".yml"}),   # battery + prompt ids a bundle cites
                        (HARNESS / "runtime_js", {".js", ".mjs", ".glsl", ".json"})):
         if not root.is_dir():
             continue
@@ -98,7 +99,7 @@ def _live_vocabulary() -> set[str]:
                     or p.parent.parent.name.startswith("c3d-")):
                 continue
             words |= set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", p.read_text(errors="ignore")))
-    out = HARNESS.parent / "eval" / "bench" / "out"
+    out = EVAL_BENCH / "out"
     if out.is_dir():
         words |= {d.name for d in out.iterdir() if d.is_dir()}
     return words
@@ -155,6 +156,7 @@ def test_every_bundle_document_only_cites_live_vocabulary():
         d: "\n".join(_FENCE.findall("\n".join(p.read_text() for p in d.rglob("*.md"))))
         for d in BUNDLES
     }
+    unverifiable: dict[str, list[str]] = {}   # without eval/bench a battery id reads as stale
     for doc in DOCS:
         label = doc.relative_to(skills_dir())
         raw = doc.read_text()
@@ -163,7 +165,10 @@ def test_every_bundle_document_only_cites_live_vocabulary():
         unknown = sorted(
             {t for t in named if _HARNESS_SHAPED.match(t)} - LIVE_VOCABULARY - FOREIGN_CALLS
         )
-        assert not unknown, f"{label} quotes names absent from the harness: {unknown}"
+        if unknown and not EVAL_BENCH.is_dir():
+            unverifiable[str(label)] = unknown
+        else:
+            assert not unknown, f"{label} quotes names absent from the harness: {unknown}"
 
         called = {
             match.group(1)
@@ -189,6 +194,8 @@ def test_every_bundle_document_only_cites_live_vocabulary():
 
         siblings = set(re.findall(r"\bc3d-[a-z0-9-]+\b", raw))
         assert siblings <= have, f"{label} points at missing skills: {sorted(siblings - have)}"
+    if unverifiable:
+        pytest.skip(f"no eval/bench beside the harness to tell battery ids from stale names: {unverifiable}")
 
 
 def _languages_of(skill_name: str) -> set[str]:
