@@ -30,7 +30,7 @@ def _fit_report(tmp_path) -> list[dict]:
     script = tmp_path / "fit.mjs"
     script.write_text(f"""
 import * as THREE from 'three';
-import {{ fitCameraToBox, boxCorners, viewDirection }} from {json.dumps(str(runtime_js_dir() / 'lib/browser/camera_fit.js'))};
+import {{ fitCameraToBox, viewDirection }} from {json.dumps(str(runtime_js_dir() / 'lib/browser/camera_fit.js'))};
 const views = {json.dumps(VIEWS)}, boxes = {json.dumps(BOXES)};
 const rows = [];
 for (const [bi, [mn, mx]] of boxes.entries()) {{
@@ -40,8 +40,8 @@ for (const [bi, [mn, mx]] of boxes.entries()) {{
       const cam = new THREE.PerspectiveCamera(35, aspect, 0.01, 100);
       const fit = fitCameraToBox(cam, box, v.azimuth, v.elevation, {{ fill: 0.85 }});
       let maxExt = 0;
-      for (const c of boxCorners(box)) {{
-        const n = c.clone().project(cam);
+      for (const x of [mn[0], mx[0]]) for (const y of [mn[1], mx[1]]) for (const z of [mn[2], mx[2]]) {{
+        const n = new THREE.Vector3(x, y, z).project(cam);
         maxExt = Math.max(maxExt, Math.abs(n.x), Math.abs(n.y));
       }}
       const centre = box.getCenter(new THREE.Vector3());

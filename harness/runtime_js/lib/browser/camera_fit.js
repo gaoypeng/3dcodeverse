@@ -17,15 +17,6 @@ export function viewDirection(azimuthDeg, elevationDeg) {
   return new THREE.Vector3(...orbitDirection(azimuthDeg, elevationDeg));
 }
 
-/** The 8 corners of a Box3. */
-export function boxCorners(box) {
-  const out = [];
-  for (const x of [box.min.x, box.max.x])
-    for (const y of [box.min.y, box.max.y])
-      for (const z of [box.min.z, box.max.z]) out.push(new THREE.Vector3(x, y, z));
-  return out;
-}
-
 /**
  * Screen-up for a view: near-vertical views make (0,1,0) ~collinear with the
  * view direction, which makes lookAt's roll unstable — pin up to -Z (front at

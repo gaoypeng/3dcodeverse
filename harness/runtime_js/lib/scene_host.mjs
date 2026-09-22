@@ -21,7 +21,7 @@ import { sceneCensus } from './host_census.mjs';
 import { placementTable, settleScene } from './host_placement.mjs';
 import { frameStats, nearGeometry, repairCameraSpec } from './host_metrics.mjs';
 import { frameCoverage, glbCoverage } from './host_coverage.mjs';
-import { classifyBackdrop, nonSolid } from './backdrop.mjs';
+import { classifyBackdrop, nonSolid, worldBox } from './backdrop.mjs';
 import { installShaderErrorHook } from './host_shader_errors.mjs';
 import { attributeErrors, captured, captureMaterialSources, materialAudit } from './host_compile.mjs';
 import { makeRenderer, rendererString } from './browser/renderer.js';
@@ -148,15 +148,11 @@ function makeLoaders(manager) {
 /** geometry uuid -> world box of every mesh drawing it (the GLB bookkeeping's one traversal). */
 function geometryBoxes(scene) {
   const used = new Map();
-  const box = new THREE.Box3();
   scene.traverse((o) => {
     if (!o.geometry || !o.geometry.uuid || !(o.isMesh || o.isInstancedMesh)) return;
-    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
     if (!used.has(o.geometry.uuid)) used.set(o.geometry.uuid, new THREE.Box3());
-    if (o.geometry.boundingBox && !o.geometry.boundingBox.isEmpty()) {
-      box.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
-      used.get(o.geometry.uuid).union(box);
-    }
+    const box = worldBox(o, THREE);
+    if (box) used.get(o.geometry.uuid).union(box);
   });
   return used;
 }
@@ -513,19 +509,16 @@ function renderOnce(cam) {
  */
 function skyLayersBelow(eye) {
   const out = [];
-  const box = new THREE.Box3();
   state.scene.traverse((o) => {
     if (!(o.isMesh || o.isInstancedMesh) || !o.visible || !o.geometry) return;
     if (o.parent && o.parent.name === 'RoomShell' && /^Ceiling/.test(o.name || '')) {
-      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-      box.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
-      if (!box.isEmpty() && box.max.y < eye.y) out.push(o);
+      const box = worldBox(o, THREE);
+      if (box && box.max.y < eye.y) out.push(o);
       return;
     }
     if (!nonSolid(o)) return;
-    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-    if (o.geometry.boundingBox.isEmpty()) return;
-    box.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+    const box = worldBox(o, THREE);
+    if (!box) return;
     if (o.frustumCulled === false && o.geometry.isInstancedBufferGeometry) {
       // an instanced billboard deck keeps its quad at the origin and offsets it in the shader:
       // its instance offsets are the only honest extent
@@ -666,12 +659,10 @@ function ablation(opts = {}) {
   const sample = frameSampler(state.canvas);
   const renderFrame = (spec) => { renderOnce(buildCamera(spec)); return sample(); };
   const snapshot = opts.frames ? () => state.canvas.toDataURL('image/png') : null;
-  const report = ablationReport(state.scene, THREE, {
-    renderFrame, snapshot, cameras, grid: sample.grid,
+  return ablationReport(state.scene, THREE, {
+    renderFrame, snapshot, cameras,
     maxMaterials: opts.maxMaterials, threshold: opts.threshold, maxRenders: opts.maxRenders,
   });
-  report.sim_time = state.simTime;
-  return report;
 }
 
 /** Per-asset placement table (host_placement.mjs) — never throws: a failure is `{error}`. */

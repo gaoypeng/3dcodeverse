@@ -10,8 +10,7 @@
 // throws.  InstancedMesh objects are baked into named plain meshes (lib/instances.mjs)
 // so trimesh-based gates see every copy.  The object is exported exactly where the
 // source put it: an off-ground / off-centre build only WARNS (census.placement_offset),
-// like the Blender/CadQuery wrappers, so plan-frame gates stay valid; `--normalise 1`
-// (dataset canonicalisation only — never passed by ThreeJsRuntime) translates instead.
+// like the Blender/CadQuery wrappers, so plan-frame gates stay valid.
 // Last stdout line is a JSON record:
 //   ok:true  -> {ok, glb, census, duration_ms}
 //   ok:false -> {ok:false, error:{type,message,file,line,frames,stack,part?}, warnings}
@@ -38,7 +37,7 @@ const PLACEMENT_THRESHOLD_M = 0.01;
 function cli() {
   const values = parseCli({
     ws: {}, entry: { default: 'src/object.js' }, out: { default: 'artifacts/object.glb' },
-    census: { default: 'artifacts/census.json' }, normalise: { default: '0' },
+    census: { default: 'artifacts/census.json' },
   });
   if (!values.ws) throw new Error('--ws <workspace dir> is required');
   const ws = path.resolve(values.ws);
@@ -48,7 +47,6 @@ function cli() {
     entry: abs(values.entry),
     out: abs(values.out),
     census: abs(values.census),
-    normalise: values.normalise === '1',
   };
 }
 
@@ -138,19 +136,14 @@ async function runSelfcheck(mod, THREE, group) {
 
 /**
  * Offset that WOULD stand the object on y=0 centred on the Y axis (null when within
- * PLACEMENT_THRESHOLD_M).  Only applied when `--normalise 1` was given: by default the
- * GLB keeps the source placement so check_contract compares in the plan's frame.
+ * PLACEMENT_THRESHOLD_M).  Never applied: the GLB keeps the source placement so
+ * check_contract compares in the plan's frame (law 7).
  */
-function placement(THREE, group, apply) {
+function placement(THREE, group) {
   const box = new THREE.Box3().setFromObject(group, true);
   const c = box.getCenter(new THREE.Vector3());
   const offset = new THREE.Vector3(-c.x, -box.min.y, -c.z);
-  if (offset.length() <= PLACEMENT_THRESHOLD_M) return { offset: null, applied: null };
-  const rounded = offset.toArray().map((v) => +v.toFixed(5));
-  if (!apply) return { offset: rounded, applied: null };
-  group.position.add(offset);
-  group.updateWorldMatrix(true, true);
-  return { offset: rounded, applied: rounded };
+  return offset.length() <= PLACEMENT_THRESHOLD_M ? null : offset.toArray().map((v) => +v.toFixed(5));
 }
 
 function stripTextures(group, warnings) {
@@ -197,14 +190,12 @@ async function main() {
   const tickPresent = typeof (group.userData && group.userData.tick) === 'function';
   if (tickPresent) delete group.userData.tick; // functions cannot be serialised into glTF extras
 
-  const place = placement(THREE, group, args.normalise);
-  if (place.applied) warnings.push(`object was off ground/centre by ${JSON.stringify(place.applied)} m; translated so min.y=0 and xz-centre=0 (--normalise 1)`);
-  else if (place.offset) warnings.push(`object is off ground/centre: it needs a translation of ${JSON.stringify(place.offset)} m to stand on y=0 centred on the Y axis; exported as authored — fix the source (the contract gate reports this too)`);
+  const offset = placement(THREE, group);
+  if (offset) warnings.push(`object is off ground/centre: it needs a translation of ${JSON.stringify(offset)} m to stand on y=0 centred on the Y axis; exported as authored — fix the source (the contract gate reports this too)`);
   stripTextures(group, warnings);
 
   const census = objectCensus(THREE, group);
-  census.placement_offset = place.offset;
-  census.normalised_offset = place.applied;
+  census.placement_offset = offset;
   census.instanced_meshes_baked = bakedInstances;
   census.selfcheck_ran = selfchecked;
   census.tick_present = tickPresent;

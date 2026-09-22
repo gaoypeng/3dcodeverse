@@ -81,7 +81,7 @@ async function main() {
         return;
       }
     } catch (_e) { /* browser gone or wedged: fall through and exit */ }
-    const cur = (() => { try { return JSON.parse(fs.readFileSync(epPath, 'utf8')); } catch (_e) { return null; } })();
+    const cur = _internal.readJson(epPath);
     if (cur && cur.ws === record.ws) fs.rmSync(epPath, { force: true });
     try { await Promise.race([browser.close(), new Promise((res) => setTimeout(res, 5000))]); } catch (_e) { /* already dead */ }
     process.exit(code);
@@ -89,7 +89,7 @@ async function main() {
 
   browser.on('disconnected', () => {
     // our own connection died with the browser process
-    try { const cur = JSON.parse(fs.readFileSync(epPath, 'utf8')); if (cur.ws === record.ws) fs.rmSync(epPath, { force: true }); } catch (_e) { /* ignore */ }
+    try { const cur = _internal.readJson(epPath); if (cur && cur.ws === record.ws) fs.rmSync(epPath, { force: true }); } catch (_e) { /* ignore */ }
     process.exit(0);
   });
 
@@ -101,7 +101,7 @@ async function main() {
     } catch (_e) {
       return bail(0);   // endpoint deleted (poisoned verdict or manual cleanup)
     }
-    const cur = (() => { try { return JSON.parse(fs.readFileSync(epPath, 'utf8')); } catch (_e) { return null; } })();
+    const cur = _internal.readJson(epPath);
     if (!cur || cur.ws !== record.ws) return bail(0, { advertise: false });   // superseded: never clobber the newer daemon
     const idle = Date.now() - st.mtimeMs;
     // Reap leaked pages only when NOBODY is working: clients tick the heartbeat every

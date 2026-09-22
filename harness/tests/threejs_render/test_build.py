@@ -26,7 +26,7 @@ def test_build_stool_glb_and_census(stool_ws: Workspace):
     assert [p["name"] for p in c["parts"]] == ["Seat", "Legs", "Stretchers"]
     assert c["tri_count"] > 500 and c["n_meshes"] == 9
     assert c["tick_present"] is True
-    assert c["normalised_offset"] is None and c["placement_offset"] is None
+    assert c["placement_offset"] is None
     assert c["instanced_meshes_baked"] == 0 and c["selfcheck_ran"] is False
     assert c["unnamed_meshes"] == 0
     assert "Leg_LB" in c["parts"][1]["children"]
@@ -79,8 +79,7 @@ def test_build_keeps_source_placement_and_warns(stool_ws: Workspace):
     p = stool_ws.src / "object.js"
     p.write_text(p.read_text().replace("return root;", "root.position.set(0.5, 0.2, 0); return root;"))
     res = ThreeJsRuntime().build(stool_ws)
-    assert res.ok
-    assert res.census["normalised_offset"] is None
+    assert res.ok and "normalised_offset" not in res.census
     off = res.census["placement_offset"]
     assert off is not None and abs(off[0] + 0.5) < 1e-4 and abs(off[1] + 0.2) < 1e-4
     assert any("off ground/centre" in w and "exported as authored" in w for w in res.census["warnings"])

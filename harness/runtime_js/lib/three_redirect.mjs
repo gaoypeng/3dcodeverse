@@ -11,7 +11,7 @@ const RUNTIME_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 /** Parent URL to resolve from; must end with '/' so it acts as a directory. */
 export const RUNTIME_PARENT = pathToFileURL(RUNTIME_DIR + path.sep).href;
 
-const REDIRECTED = ['three', 'three-mesh-bvh'];
+const REDIRECTED = ['three'];
 
 export function isRedirected(spec) {
   return REDIRECTED.some((p) => spec === p || spec.startsWith(p + '/'));

@@ -20,14 +20,8 @@ def test_export_cli_writes_census_and_error_json(stool_ws: Workspace, tmp_path: 
     rec = res.last_json
     assert rec["ok"] and rec["parts"] == 3 and (stool_ws.root / "artifacts/o.glb").is_file()
     census = json.loads((stool_ws.root / "artifacts/c.json").read_text())
-    assert set(census) >= {"object_name", "parts", "tri_count", "bbox", "materials", "normalised_offset", "warnings", "tick_present"}
+    assert set(census) >= {"object_name", "parts", "tri_count", "bbox", "materials", "placement_offset", "warnings", "tick_present"}
     assert census["three_revision"] == "182"
-    # --normalise 1 (dataset canonicalisation only; never passed by ThreeJsRuntime) translates the group
-    (stool_ws.src / "object.js").write_text((stool_ws.src / "object.js").read_text().replace("return root;", "root.position.set(0.5, 0.2, 0); return root;"))
-    res = run_node(rt / "export_glb.mjs", ["--ws", str(stool_ws.root), "--out", "artifacts/n.glb", "--census", "artifacts/n.json", "--normalise", "1"], three_hook=True, timeout_s=60)
-    census = json.loads((stool_ws.root / "artifacts/n.json").read_text())
-    assert census["normalised_offset"] == census["placement_offset"] and abs(census["placement_offset"][0] + 0.5) < 1e-4
-    assert abs(census["bbox"]["min"][1]) < 1e-3 and any("--normalise 1" in w for w in census["warnings"])
     # error path: unknown entry
     with pytest.raises(NodeError) as ei:
         run_node(rt / "export_glb.mjs", ["--ws", str(stool_ws.root), "--entry", "src/nope.js"], three_hook=True, timeout_s=60)

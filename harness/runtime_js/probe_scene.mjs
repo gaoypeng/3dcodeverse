@@ -86,16 +86,14 @@ async function main() {
       // exercise update() for a few fixed steps and one tiny render (lazy programs compile)
       const upd = await page.evaluate((n) => {
         try {
-          const cam = window.__c3v.cameras()[0];
-          const r = window.__c3v.renderAt(cam, n / 30);
-          return { ok: true, sim_time: r.sim_time, ms: r.ms };
+          window.__c3v.renderAt(window.__c3v.cameras()[0], n / 30);
+          return { ok: true };
         } catch (e) {
           return { ok: false, error: String((e && e.stack) || e).slice(0, 800) };
         }
       }, 10);
       result.update_ok = upd.ok;
       result.update_error = upd.error || '';
-      result.first_render_ms = upd.ms;
       // update() exceptions are caught page-side (rendering continues); still a probe failure
       const updateErrors = await page.evaluate(() => window.__c3v.updateErrors());
       if (upd.ok && updateErrors.length) {

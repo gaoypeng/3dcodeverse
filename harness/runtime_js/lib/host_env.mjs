@@ -16,40 +16,18 @@ export const RUNTIME_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.
 const gpuLaunch = require_(path.join(RUNTIME_ROOT, 'gpu_launch.cjs'));
 const serve = require_(path.join(RUNTIME_ROOT, 'serve.cjs'));
 
-/**
- * Launch (or connect to) a headless browser; see gpu_launch.cjs.
- * @param {{gpu?: 'auto'|'on'|'off'}} opts
- * @returns {Promise<{browser: object, gpu: boolean, renderer: string, release: () => Promise<void>}>}
- */
-export async function launchBrowser(opts = {}) {
-  return gpuLaunch.launchBrowser(opts);
-}
-
-/**
- * Serve arbitrary directories / in-memory routes (see serve.cjs); runtime_js is
- * always mounted at `runtimeMount()`.  The object renderer serves the GLB's
- * directory this way; scenes go through `serveWorkspace` below.
- * @returns {Promise<{server, base: string, url: (p: string) => string, close: () => Promise<void>}>}
- */
-export async function serveDirs(opts = {}) {
-  return serve.serveDirs(opts);
-}
-
-/** URL prefix under which runtime_js is served ('/__runtime/'). */
-export function runtimeMount() {
-  return serve.RUNTIME_MOUNT;
-}
-
-/** Import map that resolves 'three' and 'three/addons/*' to the local runtime copy. */
-export function importMapHtml() {
-  return serve.importMapHtml();
-}
+// launchBrowser({gpu}) — see gpu_launch.cjs.  serveDirs({root, mounts, routes}) — the object
+// renderer serves the GLB's directory this way; scenes go through `serveWorkspace` below.
+// importMapHtml() resolves 'three' and 'three/addons/*' to the local runtime copy, which is
+// served under RUNTIME_MOUNT ('/__runtime/').
+export const { launchBrowser } = gpuLaunch;
+export const { serveDirs, importMapHtml, RUNTIME_MOUNT } = serve;
 
 /**
  * Serve a workspace on 127.0.0.1:0 with these mounts:
  *   /src/** /public/**      → <ws>/src, <ws>/public
  *   /assets/**              → <ws>/public/assets  (contract: '/assets/x.glb')
- *   <runtimeMount()>/**     → runtime_js (node_modules/three, lib/*.mjs)
+ *   <RUNTIME_MOUNT>/**      → runtime_js (node_modules/three, lib/*.mjs)
  *   /__host.html            → generated host page (import map + scene_host.mjs)
  * @returns {Promise<{server, base: string, close: () => Promise<void>}>}
  */

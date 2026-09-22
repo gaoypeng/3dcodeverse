@@ -6,7 +6,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { importMapHtml, launchBrowser, runtimeMount, serveWorkspace } from './host_env.mjs';
+import { importMapHtml, launchBrowser, RUNTIME_MOUNT, serveWorkspace } from './host_env.mjs';
 
 const SHADER_NOISE_RE = /shader|program not valid|glsl|WebGL|compile|THREE\.WebGLProgram/i;
 const MAX_CONSOLE = 60;
@@ -17,7 +17,7 @@ function hostHtml() {
     '<!doctype html><html><head><meta charset="utf-8"><title>3dcode scene host</title>',
     importMapHtml(),
     '<style>html,body{margin:0;background:#000;overflow:hidden}</style></head><body>',
-    `<script type="module" src="${runtimeMount()}lib/scene_host.mjs"></script></body></html>`,
+    `<script type="module" src="${RUNTIME_MOUNT}lib/scene_host.mjs"></script></body></html>`,
   ].join('\n');
 }
 

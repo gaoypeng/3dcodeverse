@@ -11,7 +11,7 @@ never imports from this directory**; it only imports `three` (and
 
 This directory is an ordinary npm package owned by the harness: `package.json`
 and `package-lock.json` are committed, `node_modules/` is **not** (gitignored,
-~97 MB, 100 packages).  Node itself is a system prerequisite — installing it is
+~97 MB, 99 packages).  Node itself is a system prerequisite — installing it is
 separate from what `npm ci` does here.
 
 **Node floor: 20.6.0** (`package.json` `engines.node`; developed on v24.14.0).
@@ -38,8 +38,8 @@ npx puppeteer browsers install chrome   # only if ~/.cache/puppeteer is empty
 Re-run `npm ci` after a fresh clone or after pulling a `package.json` /
 `package-lock.json` change — it deletes `node_modules/` first, so never while a
 render or bench is running.  Deps: `three` 0.182 (export + render + scene host),
-`puppeteer` 24 (headless Chrome, downloads its own build into `~/.cache/puppeteer`),
-`three-mesh-bvh` 0.9.14 (accelerated raycasts).  Full guide: `../docs/INSTALL.md`.
+`puppeteer` 24 (headless Chrome, downloads its own build into `~/.cache/puppeteer`).
+Full guide: `../docs/INSTALL.md`.
 
 ```
 gpu_launch.cjs        launchBrowser({gpu:'auto'|'on'|'off'}) → {browser, gpu, renderer, shared, release()};
@@ -55,12 +55,11 @@ serve.cjs             serveDirs({root, mounts, routes}) loopback static server (
                       'three/addons/' onto it — nothing is ever fetched from the internet
 export_glb.mjs        node --import lib/resolve_three.mjs export_glb.mjs --ws <ws> [--entry src/object.js]
                       [--out artifacts/object.glb] [--census artifacts/census.json]
-                      [--normalise 0|1] imports the agent module, build(THREE) (awaits promises), validates
+                      imports the agent module, build(THREE) (awaits promises), validates
                       (NaN/empty-bbox errors name the mesh + part), runs an exported selfcheck(THREE, root)
                       if any (throw → SelfCheckError), bakes InstancedMesh copies into named meshes
                       (lib/instances.mjs — trimesh ignores EXT_mesh_gpu_instancing), keeps the source
-                      placement (off-ground/off-centre → warning + census.placement_offset; --normalise 1
-                      translates instead, for dataset canonicalisation only), strips textures (warning),
+                      placement (off-ground/off-centre → warning + census.placement_offset), strips textures (warning),
                       writes GLB + census.json; on failure export_error.json +
                       {ok:false,error:{type,message,file,line,frames,part?}}
 render_glb.mjs        --glb --out --views '[{name,azimuth,elevation}]' [--mode shaded|wire|normals|silhouette|clay]
@@ -69,11 +68,11 @@ render_glb.mjs        --glb --out --views '[{name,azimuth,elevation}]' [--mode s
                       writes view_<name>.png + views.json; last stdout line = JSON record.  Thin entry:
                       args/JSON protocol from lib/cli.mjs, browser + server from lib/host_env.mjs,
                       browser release from lib/host_page.mjs, everything visual from lib/browser/
-lib/resolve_three.mjs node --import hook: bare 'three' / 'three/addons/*' (and three-mesh-bvh) resolve
+lib/resolve_three.mjs node --import hook: bare 'three' / 'three/addons/*' resolve
                       from runtime_js/node_modules for modules anywhere on disk (NODE_PATH is CJS-only);
                       module.registerHooks on node >= 22.15, module.register + lib/resolve_three_async.mjs
                       on the 20.6 floor.  Redirect rule stated once in lib/three_redirect.mjs
-lib/node_polyfills.mjs FileReader/Blob/self shims so GLTFExporter writes binary GLB without a DOM
+lib/node_polyfills.mjs FileReader/self shims so GLTFExporter writes binary GLB without a DOM
 lib/census.mjs        per-part tri counts, world bboxes, materials, NaN check naming mesh + part (node + browser)
 lib/instances.mjs     bakeInstancedMeshes(THREE, root): InstancedMesh → Group of named plain meshes
 lib/stack.mjs         Error → {type,message,file,line,frames} with workspace-relative src/ paths

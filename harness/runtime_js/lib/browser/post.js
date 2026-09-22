@@ -420,25 +420,6 @@ function makeGlowLayer(renderer, scene, { width, height, levels, threshold }) {
       renderer.setRenderTarget(savedTarget);
       return true;
     },
-
-    setSize(width2, height2) {
-      let w2 = Math.max(2, width2 >> 1), h2 = Math.max(2, height2 >> 1);
-      for (const t of targets) {
-        t.setSize(w2, h2);
-        w2 = Math.max(2, w2 >> 1);
-        h2 = Math.max(2, h2 >> 1);
-      }
-    },
-
-    dispose() {
-      for (const t of targets) t.dispose();
-      for (const p of proxies.values()) if (p) p.dispose();
-      proxies.clear();
-      black.dispose();
-      down.dispose();
-      up.dispose();
-      quad.dispose();
-    },
   };
 }
 
@@ -495,8 +476,7 @@ export function isNeutralGrade(applied) {
  * @param {THREE.WebGLRenderer} renderer
  * @param {THREE.Scene} scene
  * @param {{width:number, height:number, options?:object}} spec
- * @returns {{render(camera):void, setSize(w,h):void, dispose():void, info:object,
- *            refreshGrade():void, composer:EffectComposer}}
+ * @returns {{render(camera):void, info:object, refreshGrade():void}}
  */
 export function makePostChain(renderer, scene, { width, height, options = {} } = {}) {
   const opt = { ...POST_DEFAULTS, ...(options || {}) };
@@ -566,7 +546,6 @@ export function makePostChain(renderer, scene, { width, height, options = {} } =
   };
 
   return {
-    composer,
     info,
     /** Re-read scene.userData.grade (a scene may set it during createScene or update). */
     refreshGrade() {
@@ -589,17 +568,6 @@ export function makePostChain(renderer, scene, { width, height, options = {} } =
       renderPass.camera = camera;
       if (gtao) gtao.camera = camera;
       composer.render();
-    },
-    setSize(w, h) {
-      composer.setSize(w, h);
-      if (gtao) gtao.setSize(w, h);
-      if (glow) glow.setSize(w, h);
-    },
-    dispose() {
-      for (const p of composer.passes) { if (typeof p.dispose === 'function') p.dispose(); }
-      if (glow) glow.dispose();
-      composer.renderTarget1.dispose();
-      composer.renderTarget2.dispose();
     },
   };
 }

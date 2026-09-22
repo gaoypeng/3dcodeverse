@@ -39,6 +39,16 @@ export function nonSolid(mesh) {
   return real.length > 0 && real.every((m) => m.depthWrite === false);
 }
 
+/** World-space AABB of a drawable (a fresh THREE.Box3), or null when it has none. */
+export function worldBox(o, THREE) {
+  if (!o.geometry) return null;
+  if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+  const gb = o.geometry.boundingBox;
+  if (!gb || gb.isEmpty()) return null;
+  const box = new THREE.Box3().copy(gb).applyMatrix4(o.matrixWorld);
+  return box.isEmpty() ? null : box;
+}
+
 export const SKY_NAME_RE = /\b(sky|skydome|skybox|stars|clouds?|sun|moon|atmosphere)\b/i;
 export const GROUND_NAME_RE = /\b(ground|terrain|floor|water|ocean|sea|lake|river|plane|sand|grass|land)\b/i;
 

@@ -94,7 +94,7 @@ function resolveInside(rootAbs, relUrlPath) {
 
 /**
  * Serve one or more directories on 127.0.0.1:<random port>.
- * @param {{root?: string, mounts?: Record<string,string>, routes?: Record<string,{body:string|Buffer,type?:string}>, log?: boolean}} opts
+ * @param {{root?: string, mounts?: Record<string,string>, routes?: Record<string,{body:string|Buffer,type?:string}>}} opts
  *   root   - directory served at '/'
  *   mounts - url prefix ('/name/') -> directory; checked before root.  runtime_js is always mounted at RUNTIME_MOUNT.
  *   routes - exact url path -> in-memory response (e.g. a generated HTML page).
@@ -107,11 +107,9 @@ async function serveDirs(opts = {}) {
     mounts[prefix] = path.resolve(dir);
   }
   const routes = opts.routes || {};
-  const requests = [];
 
   const server = http.createServer((req, res) => {
     const urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
-    if (opts.log) requests.push(urlPath);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 'no-store');
 
@@ -150,7 +148,6 @@ async function serveDirs(opts = {}) {
   return {
     server,
     base,
-    requests,
     url: (p) => base + (p.startsWith('/') ? p : '/' + p),
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
@@ -158,15 +155,13 @@ async function serveDirs(opts = {}) {
 
 /**
  * `<script type="importmap">` that maps 'three' and 'three/addons/' onto the
- * locally served runtime (no CDN).  `extra` adds more bare specifiers.
+ * locally served runtime (no CDN).
  */
-function importMapHtml(extra = {}) {
+function importMapHtml() {
   const imports = {
     three: `${RUNTIME_MOUNT}node_modules/three/build/three.module.js`,
     'three/addons/': `${RUNTIME_MOUNT}node_modules/three/examples/jsm/`,
     'three/examples/jsm/': `${RUNTIME_MOUNT}node_modules/three/examples/jsm/`,
-    'three-mesh-bvh': `${RUNTIME_MOUNT}node_modules/three-mesh-bvh/build/index.module.js`,
-    ...extra,
   };
   return `<script type="importmap">${JSON.stringify({ imports })}</script>`;
 }

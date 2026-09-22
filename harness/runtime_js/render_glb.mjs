@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { ensureDir, finish, parseCli, writeJson } from './lib/cli.mjs';
-import { launchBrowser, importMapHtml, runtimeMount, serveDirs } from './lib/host_env.mjs';
+import { launchBrowser, importMapHtml, RUNTIME_MOUNT, serveDirs } from './lib/host_env.mjs';
 import { bounded, releaseBrowser } from './lib/host_page.mjs';
 
 const MODES = ['shaded', 'wire', 'normals', 'silhouette', 'clay'];
@@ -64,7 +64,7 @@ function pageHtml(cfg) {
 <style>html,body{margin:0;background:#000}canvas{display:block}</style></head>
 <body><canvas id="c" width="${cfg.width}" height="${cfg.height}"></canvas>
 <script type="module">
-import { renderGlbViews } from '${runtimeMount()}lib/browser/render_rig.js';
+import { renderGlbViews } from '${RUNTIME_MOUNT}lib/browser/render_rig.js';
 window.__c3v_result = null;
 renderGlbViews(${JSON.stringify(config_)}).then(
   (r) => { window.__c3v_result = r; },

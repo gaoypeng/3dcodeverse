@@ -102,7 +102,6 @@ function addContactShadow(scene, center, box, radius) {
   blob.position.set(center.x, box.min.y + radius * 2e-3, center.z);
   blob.renderOrder = -1;
   scene.add(blob);
-  return blob;
 }
 
 const DEG = Math.PI / 180;
@@ -140,8 +139,7 @@ export function aimStudio(rig, azimuthDeg, elevationDeg = 0) {
 
 /**
  * Add environment + backdrop + lights (+ shadow catcher) to `scene`, scaled to `box`.
- * Returns the rig handle `{catcher, key, fill, rim, blob, center, radius, scene}` — `catcher`
- * is the shadow plane callers exclude from framing, the rest is what `aimStudio` moves.
+ * Returns the rig handle `{key, fill, rim, center, radius, scene}` that `aimStudio` moves.
  */
 export function buildStudio(renderer, scene, box, { background = 'studio', shadow = true, lights = true } = {}) {
   const bg = BACKGROUNDS[background];
@@ -158,7 +156,7 @@ export function buildStudio(renderer, scene, box, { background = 'studio', shado
 
   const center = box.getCenter(new THREE.Vector3());
   const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 1e-3);
-  const rig = { catcher: null, key: null, fill: null, rim: null, blob: null, center, radius, scene };
+  const rig = { key: null, fill: null, rim: null, center, radius, scene };
 
   if (lights) {
     scene.environment = environmentTexture(renderer);
@@ -205,8 +203,7 @@ export function buildStudio(renderer, scene, box, { background = 'studio', shado
     catcher.position.set(center.x, box.min.y - radius * 1e-3, center.z);
     catcher.receiveShadow = true;
     scene.add(catcher);
-    rig.catcher = catcher;
-    rig.blob = addContactShadow(scene, center, box, radius);
+    addContactShadow(scene, center, box, radius);
   }
   return rig;
 }

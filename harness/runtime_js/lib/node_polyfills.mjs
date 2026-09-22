@@ -6,8 +6,6 @@
 //
 //   import { installExporterPolyfills } from './node_polyfills.mjs';
 
-import { Blob as NodeBlob } from 'node:buffer';
-
 class FileReaderShim {
   constructor() {
     this.result = null;
@@ -43,20 +41,8 @@ class FileReaderShim {
   }
 }
 
-/** Install the shims once (idempotent); returns the list of names installed. */
+/** Install the shims once (idempotent). */
 export function installExporterPolyfills() {
-  const installed = [];
-  if (typeof globalThis.self === 'undefined') {
-    globalThis.self = globalThis;
-    installed.push('self');
-  }
-  if (typeof globalThis.Blob === 'undefined') {
-    globalThis.Blob = NodeBlob;
-    installed.push('Blob');
-  }
-  if (typeof globalThis.FileReader === 'undefined') {
-    globalThis.FileReader = FileReaderShim;
-    installed.push('FileReader');
-  }
-  return installed;
+  if (typeof globalThis.self === 'undefined') globalThis.self = globalThis;
+  if (typeof globalThis.FileReader === 'undefined') globalThis.FileReader = FileReaderShim;
 }

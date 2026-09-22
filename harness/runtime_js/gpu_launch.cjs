@@ -48,14 +48,6 @@ const GPU_ENV = {
 };
 const SOFTWARE_RE = /swiftshader|llvmpipe|softpipe|software|basic render/i;
 
-function readCache() {
-  try {
-    return JSON.parse(fs.readFileSync(CACHE_PATH, 'utf8'));
-  } catch (_e) {
-    return null;
-  }
-}
-
 function writeCache(decision) {
   try {
     fs.mkdirSync(CACHE_DIR, { recursive: true });
@@ -328,7 +320,7 @@ async function launchBrowser(opts = {}) {
   // auto: a fresh negative verdict skips the slow GPU attempt; a positive one is
   // re-verified by the GPU attempt itself (shared endpoint or launch), since the
   // GPU can go away.
-  const cached = readCache();
+  const cached = readJson(CACHE_PATH);
   const fresh = cached && typeof cached.at === 'number' && Date.now() - cached.at < NEGATIVE_TTL_MS;
   if (cached && cached.use_gpu === false && fresh) return cpuBrowser(puppeteer);
 
@@ -345,7 +337,7 @@ module.exports = {
   launchBrowser, rendererInfo, GPU_ARGS, CPU_ARGS, GPU_ENV, CACHE_PATH,
   // internals shared with browser_daemon.cjs (not a public surface)
   _internal: {
-    launchCpu, tryGpu, loadPuppeteer, endpointPath, daemonFailPath, spawnLockPath,
+    launchCpu, tryGpu, loadPuppeteer, readJson, endpointPath, daemonFailPath, spawnLockPath,
     CACHE_DIR, RUNTIME_KEY, SOFTWARE_RE,
   },
 };

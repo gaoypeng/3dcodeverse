@@ -3,12 +3,11 @@
  * Ablation probe for a scene_threejs workspace: does the scene's custom GLSL
  * actually reach the frame?
  *
- *   node ablate_scene.mjs --ws <ws> [--out <dir>] [--cameras authored|<json>]
- *        [--t 1.5] [--width 512] [--height 288] [--frames] [--max-materials 8]
+ *   node ablate_scene.mjs --ws <ws> [--out <dir>] [--t 1.5] [--frames] [--max-materials 8]
  *        [--gpu auto] [--timeout-ms 120000]
  *
- * Boots the host once and calls `window.__c3v.ablation()` (lib/host_ablation.mjs):
- * every camera is rendered as authored and again with every ShaderMaterial /
+ * Boots the host once (512x288) and calls `window.__c3v.ablation()` (lib/host_ablation.mjs):
+ * every authored camera is rendered as authored and again with every ShaderMaterial /
  * onBeforeCompile patch replaced by a neutral material of the same base colour,
  * and the changed-pixel fraction is reported per camera, plus per material
  * (leave-one-out) on the camera where the shaders show most.
@@ -20,19 +19,17 @@
  */
 
 import path from 'node:path';
-import { armWatchdog, dataUrlToPng, ensureDir, fail, finish, parseCli, readJsonArg, safeName, writeJson } from './lib/cli.mjs';
+import { armWatchdog, dataUrlToPng, ensureDir, fail, finish, parseCli, safeName, writeJson } from './lib/cli.mjs';
 import { createTimeoutMs, errorSummary, openHost } from './lib/host_page.mjs';
 
 const args = parseCli({
-  ws: {}, out: { default: '' }, cameras: { default: 'authored' }, t: { default: '1.5' },
-  width: { default: '512' }, height: { default: '288' }, 'max-materials': { default: '8' },
+  ws: {}, out: { default: '' }, t: { default: '1.5' }, 'max-materials': { default: '8' },
   frames: { type: 'boolean', default: false }, gpu: { default: process.env.C3D_RENDER_GPU || 'auto' },
   'timeout-ms': { default: '120000' },
 });
 
 async function main() {
   if (!args.ws) throw new Error('--ws is required');
-  const width = parseInt(args.width, 10), height = parseInt(args.height, 10);
   const t = parseFloat(args.t);
   if (!Number.isFinite(t) || t < 0) throw new Error('--t must be a non-negative number');
   const timeoutMs = parseInt(args['timeout-ms'], 10);
@@ -43,7 +40,7 @@ async function main() {
   let host;
   try {
     host = await openHost(args.ws, {
-      width, height, gpu: args.gpu,
+      width: 512, height: 288, gpu: args.gpu,
       createSceneTimeoutMs: createTimeoutMs(timeoutMs),
     });
   } catch (e) {
@@ -58,13 +55,9 @@ async function main() {
       if (outDir) writeJson(path.join(outDir, 'ablation.json'), summary);
       return finish(summary, 1);
     }
-    let cams = null;
-    if (args.cameras !== 'authored' && args.cameras !== 'none') {
-      cams = (readJsonArg(args.cameras, 'cameras') || []).map((c) => ({ ...c, name: safeName(c.name, 'camera name') }));
-    }
     const report = await page.evaluate(
       (o) => window.__c3v.ablation(o),
-      { t, cameras: cams, maxMaterials: parseInt(args['max-materials'], 10), frames: !!(args.frames && outDir) },
+      { t, maxMaterials: parseInt(args['max-materials'], 10), frames: !!(args.frames && outDir) },
     );
     // PNG pairs live on disk, never in the summary (a data URL per camera is megabytes)
     const frames = report.frames || [];

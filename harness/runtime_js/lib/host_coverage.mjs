@@ -11,22 +11,17 @@
  * the content bbox (scatter across the whole ground) as backdrop.
  */
 
-import { classifyBackdrop, nonSolid } from './backdrop.mjs';
+import { classifyBackdrop, nonSolid, worldBox } from './backdrop.mjs';
 import { sampleFrame } from './host_metrics.mjs';
 
 
 function collectDrawables(scene, THREE, contentSpan) {
   const out = [];
-  const box = new THREE.Box3();
   scene.traverse((o) => {
     if (!o.visible) return;
     if (!(o.isMesh || o.isPoints || o.isLine || o.isSprite)) return;
-    if (!o.geometry) return;
-    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-    const gb = o.geometry.boundingBox;
-    if (!gb || gb.isEmpty()) return;
-    box.copy(gb).applyMatrix4(o.matrixWorld);
-    out.push({ obj: o, kind: classifyBackdrop(o, box, contentSpan) });
+    const box = worldBox(o, THREE);
+    if (box) out.push({ obj: o, kind: classifyBackdrop(o, box, contentSpan) });
   });
   return out;
 }

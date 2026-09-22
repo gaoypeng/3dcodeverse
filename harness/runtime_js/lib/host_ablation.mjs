@@ -32,7 +32,7 @@
  * stated once, there (law 2 in spirit: import, never restate).
  */
 
-import { classifyBackdrop } from './backdrop.mjs';
+import { classifyBackdrop, worldBox } from './backdrop.mjs';
 import { isCustomShader } from './host_census.mjs';
 
 /** Per-channel difference (0..255) that counts a pixel as changed. */
@@ -123,16 +123,6 @@ export function unpatchedClone(mat, THREE) {
   return c;
 }
 
-/** World-space AABB of a drawable, or null when it has none. */
-function worldBox(o, THREE) {
-  if (!o.geometry) return null;
-  if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-  const gb = o.geometry.boundingBox;
-  if (!gb || gb.isEmpty()) return null;
-  const box = new THREE.Box3().copy(gb).applyMatrix4(o.matrixWorld);
-  return box.isEmpty() ? null : box;
-}
-
 /**
  * Every custom-shader material in the scene, once each, in traversal order.
  * @returns {Array<{uuid, name, type, kind, on, meshes, backdrop, visible}>}
@@ -203,26 +193,18 @@ export function ablate(scene, THREE, { only = null } = {}) {
 
 /**
  * Pixel difference between two RGBA readbacks of the same size.
- * `changed_frac` — pixels whose largest channel difference exceeds `threshold`;
- * `mean_abs` — mean of that per-pixel maximum, 0..1 (a whole-frame tint that
- * moves every pixel by 3/255 shows up here and not in `changed_frac`).
+ * `changed_frac` — pixels whose largest channel difference exceeds `threshold`.
  */
 export function frameDiff(a, b, threshold = DIFF_THRESHOLD) {
   if (!a || !b || a.length !== b.length) throw new Error('frameDiff: frames differ in size');
   const n = a.length / 4;
   let changed = 0;
-  let sum = 0;
   for (let i = 0; i < n; i++) {
     const j = i * 4;
     const d = Math.max(Math.abs(a[j] - b[j]), Math.abs(a[j + 1] - b[j + 1]), Math.abs(a[j + 2] - b[j + 2]));
     if (d > threshold) changed += 1;
-    sum += d;
   }
-  return {
-    changed_frac: +(changed / Math.max(n, 1)).toFixed(4),
-    mean_abs: +(sum / Math.max(n, 1) / 255).toFixed(4),
-    pixels: n,
-  };
+  return { changed_frac: +(changed / Math.max(n, 1)).toFixed(4) };
 }
 
 /**
@@ -245,7 +227,6 @@ export function frameSampler(canvas) {
     ctx.drawImage(canvas, 0, 0, w, h);
     return ctx.getImageData(0, 0, w, h).data;
   };
-  sample.grid = [w, h];
   return sample;
 }
 
@@ -268,7 +249,7 @@ export function frameSampler(canvas) {
  * @param {object} THREE
  * @param {{renderFrame: (spec:object)=>Uint8ClampedArray, cameras: object[],
  *          maxMaterials?: number, threshold?: number, maxRenders?: number,
- *          grid?: number[], snapshot?: ()=>string}} opts
+ *          snapshot?: ()=>string}} opts
  *   `renderFrame(spec)` renders that camera at the already-fixed sim time and
  *   returns the RGBA readback.  `snapshot()`, when given, returns the canvas
  *   as it stands — called right after each of the two renders the report
@@ -277,7 +258,7 @@ export function frameSampler(canvas) {
  */
 export function ablationReport(scene, THREE, opts) {
   const { renderFrame, cameras: rawCameras, maxMaterials = MAX_MATERIALS, threshold = DIFF_THRESHOLD,
-    maxRenders = MAX_LOO_RENDERS, grid = null, snapshot = null } = opts;
+    maxRenders = MAX_LOO_RENDERS, snapshot = null } = opts;
   // camera names key every row and every PNG filename: a duplicate would pair one
   // camera's authored frame with another's ablated one
   const seen = new Set();
@@ -285,8 +266,6 @@ export function ablationReport(scene, THREE, opts) {
   const targets = ablationTargets(scene, THREE);
   const out = {
     custom_materials: targets.length,
-    threshold,
-    grid: grid || [0, 0],
     cameras: [],
     materials: targets.map((t) => ({
       material: t.name, type: t.type, kind: t.kind, on: t.on, meshes: t.meshes,
@@ -313,7 +292,7 @@ export function ablationReport(scene, THREE, opts) {
       // Nothing to ablate: the counterfactual IS the authored frame.  Report the
       // exact zero rather than rendering it again — "no custom shader at all" is
       // the retreat this instrument exists to name, not a measurement failure.
-      row = { camera: spec.name, changed_frac: 0, mean_abs: 0, pixels: a.length / 4 };
+      row = { camera: spec.name, changed_frac: 0 };
     } else {
       const undo = ablate(scene, THREE, {});
       let b;

@@ -6,7 +6,7 @@
  * overlap statistics.  Returns plain JSON.
  */
 
-import { classifyBackdrop } from './backdrop.mjs';
+import { classifyBackdrop, worldBox } from './backdrop.mjs';
 import { geometryTriangles as triCount } from './census.mjs';
 import { placementTable } from './host_placement.mjs';
 
@@ -79,12 +79,11 @@ function walkGroup(root, THREE) {
     tris += triCount(o.geometry) * count;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     if (mats.some((m) => isCustomShader(m, THREE))) custom += 1;
-    if (!o.geometry) return;
-    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-    const gb = o.geometry.boundingBox;
-    if (!gb || gb.isEmpty()) return;
-    const mb = new THREE.Box3();
+    let mb = worldBox(o, THREE);
+    if (!mb) return;
     if (o.isInstancedMesh) {
+      const gb = o.geometry.boundingBox;
+      mb = new THREE.Box3();
       const m = new THREE.Matrix4();
       const n = Math.min(o.count, 4096);
       for (let i = 0; i < n; i++) {
@@ -94,7 +93,6 @@ function walkGroup(root, THREE) {
         copy(o.name || 'instances', tmp);
       }
     } else {
-      mb.copy(gb).applyMatrix4(o.matrixWorld);
       copy((o.name || '').replace(/[_.]\d+$/, '') || 'meshes', mb);
     }
     if (mb.isEmpty()) return;

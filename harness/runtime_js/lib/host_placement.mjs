@@ -413,6 +413,38 @@ function pairs(checked) {
   return out.sort((x, y) => y.aabb_overlap - x.aabb_overlap).slice(0, 40);
 }
 
+/** Index `scene` once and collect its assets; `owner(mesh)` names the asset a mesh belongs to. */
+function survey(scene, opts) {
+  const notes = [];
+  scene.updateMatrixWorld(true);
+  const { map: indices, volumetric } = indexMeshes(scene, notes);
+  const { assets, total } = collectAssets(scene, indices, volumetric, opts.contentBox || null);
+  const meshOwner = new Map();
+  for (const a of assets) { a.meshSet = new Set(a.meshes); for (const ci of a.meshes) meshOwner.set(ci.mesh, a.name); }
+  const groundY = Number.isFinite(opts.groundY) ? opts.groundY : null;
+  return { groundY, notes, indices, assets, total, owner: (mesh) => meshOwner.get(mesh) || nearestName(mesh) };
+}
+
+/** Probe every foot column of `a`: smallest gap (`best`), deepest and shallowest burial (`sunk`,
+ *  `minSunk` — 0 once a column is not sunk), whether an unsunk column rests, any foot in water. */
+function probeFeet(a, indices, owner, groundY) {
+  const cols = footColumns(a);
+  const f = { columns: cols.length, best: null, sunk: null, water: false, minSunk: Infinity, anyRest: false };
+  for (const col of cols) {
+    const r = probeColumn(a, col, indices, owner, groundY);
+    if (r.gap !== null && (!f.best || r.gap < f.best.gap)) f.best = r;
+    if (r.sunk > 0) {
+      if (!f.sunk || r.sunk > f.sunk.sunk) f.sunk = r;
+      f.minSunk = Math.min(f.minSunk, r.sunk);
+    } else {
+      f.minSunk = 0;
+      if (r.gap !== null && r.gap <= CONTACT_TOL_M) f.anyRest = true;
+    }
+    if (r.water) f.water = true;   // one foot in the water is enough: a jetty is half on the shore
+  }
+  return f;
+}
+
 /**
  * The placement table for `scene`.
  * @param {THREE.Scene} scene
@@ -421,14 +453,7 @@ function pairs(checked) {
  */
 export function placementTable(scene, THREE, opts = {}) {
   const t0 = Date.now();
-  const groundY = Number.isFinite(opts.groundY) ? opts.groundY : null;
-  const notes = [];
-  scene.updateMatrixWorld(true);
-  const { map: indices, volumetric } = indexMeshes(scene, notes);
-  const { assets, total } = collectAssets(scene, indices, volumetric, opts.contentBox || null);
-  const meshOwner = new Map();
-  for (const a of assets) { a.meshSet = new Set(a.meshes); for (const ci of a.meshes) meshOwner.set(ci.mesh, a.name); }
-  const owner = (mesh) => meshOwner.get(mesh) || nearestName(mesh);
+  const { groundY, notes, indices, assets, total, owner } = survey(scene, opts);
   const checked = [];
   let timeCut = false;
   const rows = [];
@@ -437,18 +462,11 @@ export function placementTable(scene, THREE, opts = {}) {
       exempt: a.exempt, bbox: a.min ? boxJson(a.min, a.max) : null };
     if (a.exempt) { rows.push(row); continue; }
     if (Date.now() - t0 > TIME_BUDGET_MS) { row.exempt = 'time_budget'; timeCut = true; rows.push(row); continue; }
-    const cols = footColumns(a);
-    let best = null, sunk = null, water = false;
-    for (const col of cols) {
-      const r = probeColumn(a, col, indices, owner, groundY);
-      if (r.gap !== null && (!best || r.gap < best.gap)) best = r;
-      if (r.sunk > 0 && (!sunk || r.sunk > sunk.sunk)) sunk = r;
-      if (r.water) water = true;   // one foot in the water is enough: a jetty is half on the shore
-    }
+    const { columns, best, sunk, water } = probeFeet(a, indices, owner, groundY);
     a.attached = [];
     a.row = row;
     Object.assign(row, {
-      columns: cols.length,
+      columns,
       ground_gap_m: best ? r3(best.gap) : null,
       support: best ? best.support : '',
       sunk_m: sunk ? r3(sunk.sunk) : 0,
@@ -508,36 +526,14 @@ const PARTIAL_OK_RE = /\b(boulders?|bridges?|bush(es)?|cliffs?|docks?|dunes?|fen
  * their support.  Returns `{count, moves}`; mutates object positions (world-space dy
  * applied through each parent's frame) and leaves matrices updated. */
 export function settleScene(scene, THREE, opts = {}) {
-  const groundY = Number.isFinite(opts.groundY) ? opts.groundY : null;
-  const notes = [];
-  scene.updateMatrixWorld(true);
-  const { map: indices, volumetric } = indexMeshes(scene, notes);
-  const { assets } = collectAssets(scene, indices, volumetric, opts.contentBox || null);
+  const { groundY, indices, assets, owner } = survey(scene, opts);
   const checked = assets.filter((a) => !a.exempt);
-  for (const a of checked) { a.meshSet = new Set(a.meshes); }
-  const meshOwner = new Map();
-  for (const a of assets) for (const ci of a.meshes) meshOwner.set(ci.mesh, a.name);
-  const owner = (mesh) => meshOwner.get(mesh) || nearestName(mesh);
   const moves = [];
   const t0 = Date.now();
   for (const a of checked) {
     if (Date.now() - t0 > TIME_BUDGET_MS) break;
-    const cols = footColumns(a);
-    if (!cols.length) continue;
-    let best = null, sunk = null, water = false, minSunk = Infinity, anyRest = false;
-    for (const col of cols) {
-      const r = probeColumn(a, col, indices, owner, groundY);
-      if (r.gap !== null && (!best || r.gap < best.gap)) best = r;
-      if (r.sunk > 0) {
-        if (!sunk || r.sunk > sunk.sunk) sunk = r;
-        minSunk = Math.min(minSunk, r.sunk);
-      } else {
-        minSunk = 0;
-        if (r.gap !== null && r.gap <= CONTACT_TOL_M) anyRest = true;
-      }
-      if (r.water) water = true;
-    }
-    if (water) continue;
+    const { columns, best, sunk, water, minSunk, anyRest } = probeFeet(a, indices, owner, groundY);
+    if (!columns || water) continue;
     const name = spaced(a.name);
     const height = Math.max(a.max[1] - a.min[1], 1e-6);
     let dy = 0, why = '';

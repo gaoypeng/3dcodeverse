@@ -175,8 +175,8 @@ three.js in headless Chrome), whichever language produced the GLB.
 
 ```
 harness/runtime_js/
-  package.json        committed  — 3 direct deps
-  package-lock.json   committed  — exact tree (100 packages), the reproducibility unit
+  package.json        committed  — 2 direct deps
+  package-lock.json   committed  — exact tree (99 packages), the reproducibility unit
   node_modules/       NOT committed — .gitignore'd, ~97 MB, created by `npm ci`
   *.mjs *.cjs lib/    the harness's own node code (see runtime_js/README.md)
 ```
@@ -187,13 +187,12 @@ Direct dependencies and what they are for:
 |---|---|---|
 | `three` | 0.182.0 | GLB export (`export_glb.mjs`), the render rig, the scene host, GLSL preflight |
 | `puppeteer` | 24.43.1 | headless Chrome for WebGL rendering (`gpu_launch.cjs`, `browser_daemon.cjs`) |
-| `three-mesh-bvh` | 0.9.14 | accelerated raycasts in scene probes |
 
 ### Install / refresh
 
 ```bash
 cd harness/runtime_js
-npm ci                                   # exact lockfile install; ~2 s, 100 packages, 95–97 MB
+npm ci                                   # exact lockfile install; ~2 s, 99 packages, 95–97 MB
 npx puppeteer browsers install chrome    # only if the Chrome cache is missing (see below)
 ```
 
@@ -237,8 +236,8 @@ and nothing else; it never imports a harness module and never gets a
 bare specifier for it in two places:
 
 * **node**: `node --import runtime_js/lib/resolve_three.mjs …` installs a
-  `registerHooks` resolver that redirects `three`, `three/addons/*` and
-  `three-mesh-bvh` into `runtime_js/node_modules`, for a module living anywhere
+  `registerHooks` resolver that redirects `three` and `three/addons/*` into
+  `runtime_js/node_modules`, for a module living anywhere
   on disk (`NODE_PATH` cannot do this — it is CommonJS-only).  Python side:
   `spatial.node.run_node(..., three_hook=True)`.
 * **browser**: `serve.cjs` mounts `runtime_js/` at `/__runtime/` on the loopback
@@ -594,7 +593,7 @@ those by hand (`npm rm -g @google/gemini-cli @anthropic-ai/claude-code @openai/c
 | python | 3.13.9 (the one supported version — §2.1) | `/home/yipeng/miniconda3/bin/python` |
 | pip packages | pydantic 2.13.2 · trimesh 4.12.2 · python-fcl 0.7.0.11 · moderngl 5.12.0 · shapely 2.1.2 · networkx 3.6.1 · manifold3d 3.5.2 · pyarrow 24.0.0 · mcp 2.0.0 · scipy 1.18.0 · yourdfpy 0.0.60 · cadquery 2.8.0 · google-genai 2.10.0 · pytest 9.1.1 · ruff 0.15.20 | editable install of `harness/` |
 | node / npm | v24.14.0 / 11.9.0 (floor 20.6.0 — §2.1, verified against node 20.19.5) | `/home/yipeng/miniconda3/bin/node` |
-| runtime_js deps | three 0.182.0 · puppeteer 24.43.1 · three-mesh-bvh 0.9.14 (100 packages, 97 MB) | `harness/runtime_js/node_modules` |
+| runtime_js deps | three 0.182.0 · puppeteer 24.43.1 (99 packages, 97 MB) | `harness/runtime_js/node_modules` |
 | Chrome (puppeteer) | 148.0.7778.97 (+ headless-shell) | `~/.cache/puppeteer` |
 | Blender | 5.0.1 (2025-12-16) | `~/.local/bin/blender-5.0` → `~/3dcodeverse_data/tools/blender-5.0.1-linux-x64` |
 | git | 2.53.0 | `/usr/bin/git` |

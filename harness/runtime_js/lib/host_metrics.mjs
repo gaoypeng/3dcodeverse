@@ -3,7 +3,7 @@
  * readback of the render canvas and near-geometry tests for a camera.
  */
 
-import { GROUND_NAME_RE, classifyBackdrop, nonSolid } from './backdrop.mjs';
+import { GROUND_NAME_RE, classifyBackdrop, nonSolid, worldBox } from './backdrop.mjs';
 
 export const SAMPLE_W = 96;
 export const SAMPLE_H = 54;
@@ -28,7 +28,6 @@ export function sampleFrame(canvas) {
 export function frameStats(canvas) {
   const { data, n } = sampleFrame(canvas);
   let sum = 0, sumSq = 0, dark = 0, blown = 0;
-  let top = 0, bottom = 0;
   const hist = new Uint32Array(8);
   for (let i = 0; i < n; i++) {
     const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
@@ -37,7 +36,6 @@ export function frameStats(canvas) {
     if (lum < 10) dark += 1;
     if (r > 250 && g > 250 && b > 250) blown += 1;
     hist[Math.min(7, Math.floor(lum / 32))] += 1;
-    if (i < n / 2) top += lum; else bottom += lum;
   }
   const mean = sum / n;
   const std = Math.sqrt(Math.max(0, sumSq / n - mean * mean));
@@ -50,7 +48,6 @@ export function frameStats(canvas) {
     dark_frac: +(dark / n).toFixed(4),
     blown_frac: +(blown / n).toFixed(4),
     modal_frac: +(modal / n).toFixed(4),
-    top_bottom_ratio: +((top + 1) / (bottom + 1)).toFixed(3),
   };
 }
 
@@ -131,27 +128,23 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3, lookAt = null) 
   scene.traverse((o) => { if ((o.isMesh || o.isInstancedMesh) && o.visible && !nonSolid(o)) targets.push(o); });
   const pts = [];
   for (let gy = -1; gy <= 1; gy++) for (let gx = -1; gx <= 1; gx++) pts.push([gx * 0.6, gy * 0.6]);
-  let hits = 0;
   let nearRays = 0;
   for (const [x, y] of pts) {
     rc.setFromCamera(new THREE.Vector2(x, y), camera);
     let hit = null;
     try { hit = rc.intersectObjects(targets, false)[0]; } catch (e) { hit = null; }
     if (hit) {
-      hits += 1;
       if (hit.distance < BLOCKED_M) nearRays += 1;
       if (hit.distance < nearest) { nearest = hit.distance; nearestName = hit.object.name || hit.object.parent?.name || hit.object.type; }
     }
   }
   const inside = [];
   const eye = camera.position;
-  const box = new THREE.Box3();
   const groundMeshes = [];
   for (const o of targets) {
     if (o.isInstancedMesh) continue;
-    if (!o.geometry) continue;
-    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-    box.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+    const box = worldBox(o, THREE);
+    if (!box) continue;
     const s = box.getSize(new THREE.Vector3());
     // terrain overhead must also be NAMED as ground: a 40 m 'Ceiling' is ground-shaped to the
     // classifier, and loop 25's cathedral read "camera 17.8 m under Ceiling" on every interior
@@ -199,12 +192,9 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3, lookAt = null) 
       } catch (e) { targetHit = null; }
     }
   }
-  const center = new THREE.Vector3();
-  camera.getWorldDirection(center);
   return {
     nearest_hit_m: Number.isFinite(nearest) ? +nearest.toFixed(3) : null,
     nearest_hit_name: nearestName,
-    rays_hit: hits,
     rays_total: pts.length,
     inside_mesh_bbox: inside.slice(0, 5),
     camera_in_geometry: (Number.isFinite(nearest) && nearest < limitM) || inside.length > 0,
@@ -218,7 +208,6 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3, lookAt = null) 
     target_distance_m: targetDist,
     target_hit_m: targetHit,
     target_hit_name: targetHitName,
-    look_dir: [center.x, center.y, center.z].map((v) => +v.toFixed(3)),
   };
 }
 
