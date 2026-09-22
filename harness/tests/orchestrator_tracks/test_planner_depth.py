@@ -209,6 +209,19 @@ def test_brief_is_cached_by_prompt_hash_and_the_second_call_is_free(tmp_path):
     assert calls["n"] == 2
 
 
+def test_the_brief_cache_follows_the_config_files_cache_dir(tmp_path, monkeypatch):
+    """``brief_cache_dir()`` read only $C3D_CACHE_DIR, so a ``cache_dir:`` set in
+    3dcodeverse.yaml moved every cache but this one — the briefs stayed in ~/.cache."""
+    from codeverse3d.config import get_settings
+
+    for env in ("C3D_CACHE_DIR", "CV3D_CACHE_DIR"):
+        monkeypatch.delenv(env, raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "3dcodeverse.yaml").write_text(f"cache_dir: {tmp_path / 'cfg-cache'}\n")
+    get_settings.cache_clear()
+    assert BR.brief_cache_dir() == tmp_path / "cfg-cache" / "briefs"
+
+
 def test_reference_images_are_part_of_the_brief_cache_key(tmp_path):
     """RS-4: expand_brief attaches spec.references and tells the model to read the
     dimensions off them, so a key that omits them let an --image run silently

@@ -99,7 +99,7 @@ the packager produces no diff.
   hashes; tool versions (python, blender, node, three, chrome, puppeteer);
   harness version + git sha; key-pool size; **price-table hash**; resolved
   render and limit settings.  Sampling values are read from the call sites'
-  typed defaults (`VlmJudge.__init__`, `planner.plan`, and
+  typed defaults (`VlmJudge.__init__`, the track's `plan_temperature`, and
   `record/telemetry.py::_generator_defaults` — a historical shim that
   configures nothing, kept so old records still read back); a
   value a call site hard-codes per task is left empty with `source` saying so,

@@ -339,3 +339,25 @@ def test_a_thin_hero_plan_is_asked_again_with_the_sheets_features_as_the_checkli
     assert thin[0]["n_parts"] == 1 and "a hinged lid" in thin[0]["features"]
     plan = json.loads((tmp_ws.root / "_assets" / SA.to_snake(hero.name) / "plan.json").read_text())
     assert len(plan["parts"]) > 1
+
+
+def test_a_threejs_fix_with_only_soft_findings_is_kept_and_judged_again(tmp_ws, settings, monkeypatch):
+    """The three.js ``_after_fix`` returned ``check.ok``, which is False on a SOFT finding
+    too (size off, too many triangles), so ``_judge_and_fix`` reverted a fix that imports
+    fine and never judged it.  A fix is undone only when the module no longer imports —
+    the rule the hero's ``_after_fix`` (a successful build) already applied."""
+    from codeverse3d.contracts.artifacts import RenderSet
+
+    boat = "src/assets/fishing_boat.js"
+    ctx, _hero = _scene(tmp_ws, settings, services=CardedServices(judge=FakeJudge(scores=(0.5, 0.7))),
+                        agent=FakeAgent(lambda job, ws: {boat: f"// {job.label}\n"}))
+    asset = next(a for a in ctx.plan.assets if a.name == "FishingBoat")
+    ctx.runtime.render_asset = lambda ws, name, out_dir: RenderSet(views=[])  # a verdict is possible
+    checks = iter([SA.AssetCheck(ok=True, ran=True, tris=900, meshes=3, materials=2),      # the generated module
+                   SA.AssetCheck(ok=False, ran=True, fatal=False,                          # the fix: soft finding only
+                                 errors=["measured w=20.00 m but the plan says 8.00 m — rescale"])])
+    monkeypatch.setattr(SA, "check_threejs_asset", lambda *a, **k: next(checks))
+    monkeypatch.setattr(SA, "_judge_wanted", lambda *a, **k: True)
+    res = SA.build_threejs_asset(ctx, asset, judge=True)
+    assert res.ok and res.fixed and (res.score_before, res.score) == (0.5, 0.7)
+    assert (tmp_ws.root / boat).read_text() == "// asset_fishing_boat_fix\n", "the fix that imports is kept"

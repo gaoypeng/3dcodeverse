@@ -85,12 +85,16 @@ def _judge_defaults() -> dict[str, Any]:
             "n_samples": _sig_default(init, "n_samples")}
 
 
-def _planner_defaults() -> dict[str, Any]:
+def _planner_defaults(record: RunRecord) -> dict[str, Any]:
+    """The temperature THIS track plans at (``BaseTrack.plan_temperature``: graphics 0.5, the
+    rest 0.4).  ``planner.plan()``'s own default is never the one used — every track passes
+    its own — so reading it reported 0.4 for every graphics run."""
     try:
-        from codeverse3d.tracks.planner import plan
+        from codeverse3d.tracks import get_track
+
+        return {"temperature": get_track(record.spec.track).plan_temperature}
     except Exception:  # pragma: no cover
         return {}
-    return {"temperature": _sig_default(plan, "temperature")}
 
 
 def _generator_defaults(model_id: str) -> dict[str, Any]:
@@ -128,7 +132,7 @@ def rubric_hash(name: str) -> str:
 
 def _role_settings(record: RunRecord) -> list[RoleSettings]:
     b = record.spec.backends
-    plan_d, judge_d = _planner_defaults(), _judge_defaults()
+    plan_d, judge_d = _planner_defaults(record), _judge_defaults()
     spec: list[tuple[str, str, dict[str, Any]]] = [
         ("planner", b.planner, plan_d),
         ("generator", b.generator, _generator_defaults(b.generator)),

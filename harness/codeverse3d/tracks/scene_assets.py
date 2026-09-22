@@ -248,11 +248,12 @@ def build_threejs_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     render_asset = getattr(ctx.runtime, "render_asset", None)
     if ok and callable(render_asset) and _judge_wanted(ctx, asset, chk, judge=judge):
         def _after_fix(gen: RunContext) -> bool:
-            # a fix that breaks the module makes it NOT AVAILABLE — the zones must not import it
+            # a fix that breaks the module makes it NOT AVAILABLE — the zones must not import it;
+            # a SOFT finding (size, tris) is no reason to revert a fix that imports (the hero's rule)
             c = check(ctx)
             if c.ran and c.fatal:
                 result.ok, result.path = False, ""
-            return c.ok
+            return not (c.ran and c.fatal)
 
         def _snapshot() -> Callable[[], None]:
             before = (ctx.ws.root / rel).read_text()

@@ -19,7 +19,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -61,8 +60,10 @@ def brief_enabled(spec: Spec, *, default: bool = True) -> bool:
 
 
 def brief_cache_dir() -> Path:
-    root = os.environ.get("C3D_CACHE_DIR") or (Path.home() / ".cache" / "codeverse3d")
-    return Path(root) / "briefs"
+    """``Settings.cache_dir``/briefs: ``C3D_CACHE_DIR`` AND the config file's ``cache_dir:``."""
+    from codeverse3d.config import get_settings
+
+    return get_settings().cache_dir / "briefs"
 
 
 def _reference_digest(spec: Spec) -> list[dict[str, str]]:

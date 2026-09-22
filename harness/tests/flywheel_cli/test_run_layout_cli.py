@@ -140,6 +140,18 @@ def test_telemetry_handles_reconstructed_live_and_unavailable_ledgers(fake_run, 
     assert tele.cost.n_calls == 0 and tele.settings is not None  # settings never depend on the ledger
 
 
+def test_the_settings_snapshot_records_the_temperature_the_track_planned_at(tmp_path):
+    """The planner row reported ``planner.plan()``'s default 0.4 for every run — a default
+    no track uses: each passes its own ``plan_temperature``, and graphics plans at 0.5."""
+    from codeverse3d.contracts.common import Language
+    from codeverse3d.record.telemetry import settings_snapshot
+
+    for language, want in ((Language.GLSL_SHADER, 0.5), (Language.BLENDER, 0.4)):
+        _ws, rec = make_fake_run(tmp_path / language.value, language=language)
+        planner = next(r for r in settings_snapshot(rec).roles if r.role == "planner")
+        assert (planner.temperature, planner.source) == (want, "default"), language
+
+
 def test_rejected_texture_pass_is_not_delivered_or_linked(fake_run):
     """Belt and braces: a stray canonical object_textured.glb from a rejected pass
     is skipped by the deliverable AND by the gallery links (both gate on shipped)."""

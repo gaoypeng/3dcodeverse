@@ -658,8 +658,11 @@ def file_for_target_factory(ctx: RunContext):
         return _per_part
 
     if lang is Language.SCENE_THREEJS:
-        zones = {to_snake(z.name) for z in (getattr(plan, "zones", None) or [])}
-        assets = {to_snake(a.name) for a in (getattr(plan, "assets", None) or [])}
+        zone_plans = list(getattr(plan, "zones", None) or [])
+        zones = {to_snake(z.name) for z in zone_plans}
+        assets = {to_snake(a.name): a.kind for a in (getattr(plan, "assets", None) or [])}
+        # a merged asset's own file is only the variant shim: the geometry is its survivor's
+        alias = {to_snake(k): to_snake(v) for k, v in (ctx.extra.get("asset_alias") or {}).items()}
         cameras = {to_snake(c.name) for c in (getattr(plan, "cameras", None) or [])}
 
         def _scene(target: str) -> list[str]:
@@ -667,7 +670,11 @@ def file_for_target_factory(ctx: RunContext):
             if key in zones:
                 return [f"src/zones/{key}.js"]
             if key in assets:
-                return [f"src/assets/{key}.js"]
+                if assets[key] == "threejs":
+                    return [f"src/assets/{alias.get(key, key)}.js"]
+                # a hero is public/assets/<snake>.glb, built in its own sub-workspace: the scene
+                # fixes it where it is placed — the zones that list it — else as a whole
+                return [f"src/zones/{to_snake(z.name)}.js" for z in zone_plans if key in {to_snake(c) for c in z.contents}]
             if key in cameras or key in ("camera", "cameras", "composition"):
                 return ["src/scene.js"]
             if key in ("env", "environment", "lighting", "sky", "fog", "ground", "water", "light"):
