@@ -1,18 +1,10 @@
-"""The statistics the bench reports state — one rule each, so two reports never disagree
-about the same numbers.
+"""The statistics every bench report states, one rule each (docs/EVAL.md §8).
 
-* **The interval** is the Student-t one: ``mean ± t(0.975, n−1) · sd/√n``.  A battery is
-  3–40 pairs, and there the normal ``1.96`` or a round ``2`` is too narrow: at n = 8
-  (t = 2.365) they understate the 95 % half-width by 17 % / 15 %, at n = 4 (t = 3.182) by
-  38 % / 37 %.  t tends to 1.96 as n grows, so it is the one rule that is right at both
-  ends.  A change is *separated* from noise when its interval excludes zero.
-* **The sign test** is exact and two-sided over the non-zero deltas: how CONSISTENT a
-  change is, which an 8-prompt battery can show when its mean cannot.
-* **Correlation** is ``statistics.correlation`` (Pearson; Spearman with ``ranked``), and
-  ``None`` below three points or on a constant input, where an r means nothing.
-
-The binomial rate interval (Wilson) and Fisher's exact test stay in
-``plan_stage_report.py``, the one report that states a rate.
+The interval is Student-t, ``mean ± t(0.975, n−1)·sd/√n``: a battery is 3–40 pairs, where
+1.96 or 2 understate the 95 % half-width by 15–17 % at n = 8 and 37–38 % at n = 4, and t
+tends to 1.96 as n grows.  *Separated* means the interval excludes zero.  The sign test is
+exact and two-sided; correlation is ``statistics.correlation``.  (Wilson and Fisher stay in
+``plan_stage_report.py``, the one report that states a rate.)
 """
 
 from __future__ import annotations
@@ -96,6 +88,3 @@ def correlation(xs: Sequence[float], ys: Sequence[float], *, ranked: bool = Fals
     if len(xs) < 3 or len(set(xs)) < 2 or len(set(ys)) < 2:
         return None
     return statistics.correlation(xs, ys, method="ranked" if ranked else "linear")
-
-
-__all__ = ["MeanCI", "correlation", "mean_ci", "n_to_resolve", "sign_test", "t975"]

@@ -1,13 +1,9 @@
 """Run a prompt battery through a track with N parallel workers; resumable.
 
-    cd eval && python -m bench.run_bench bench/prompts/static_objects_v1.yaml \
-        --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview [--rounds 2] \
-        [--parallel 4] [--tier easy] [--id furn_easy_stool] [--limit 6] [--out bench/out/x] \
-        [--redo-status infra_failed] [--no-report]
+    cd eval && python -m bench.run_bench bench/prompts/<battery>.yaml --generator ... --judge ...
 
-(``3dcode bench run`` until 2026-09-22: the launcher lives with the evaluation now, and like
-every bench script it imports THIS tree's ``codeverse3d`` — a console script resolved the
-editable install's, so a battery launched from a worktree ran the main checkout's code.)
+(``3dcode bench run`` until 2026-09-22.  Like every bench script it imports THIS tree's
+``codeverse3d``; the console script resolved the editable install's, main's from a worktree.)
 
 Layout of ``out_dir``::
 

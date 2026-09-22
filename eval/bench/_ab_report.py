@@ -37,19 +37,10 @@ KEEP_DELTA = 0.02
 REVERT_DELTA = -0.02
 #: this many regressing prompts is a revert even when the mean looks fine
 REVERT_REGRESSIONS = 2
-# The keep/revert rule above is the protocol (docs/EVAL.md §8) and a report must not be
-# able to argue itself out of it — but the rule alone is dangerously confident.  Measured
-# 2026-08-24 with two A/A runs — arms identical by construction — on the SAME prompt
-# (`ctrl_med_dining_chair`, rounds 1):
-#
-#     0.591 vs 0.934  ->  delta +0.344  ->  verdict **keep**
-#     0.700 vs 0.600  ->  delta -0.100  ->  verdict **revert**
-#
-# Nothing was under test either time, and the rule returned opposite decisions.  The
-# generator is stochastic; a paired delta carries the spread of two independent
-# generations, not the judge's ±0.02 sampling noise.  So every summary states the paired
-# 95 % t-interval beside the verdict (``bench/stats.py``), reported, never enforced, and
-# says plainly when the threshold is inside it.
+# The rule above is the protocol and no report can argue itself out of it, but alone it is
+# dangerously confident: two A/A runs of one prompt printed "keep" (+0.344) and "revert"
+# (-0.100) from identical code (docs/EVAL.md §8).  So every summary states the paired 95 %
+# t-interval and the sign test beside it (bench/stats.py) — reported, never enforced.
 
 
 class PairOutcome(BaseModel):
@@ -140,9 +131,8 @@ def verdict_of(pairs: list[PairOutcome]) -> Verdict:
         return Verdict(decision="inconclusive", n_pairs=0, mean_delta=None, median_delta=None,
                        reason="no prompt has both arms scored")
     mean, median = round(statistics.fmean(deltas), 4), round(statistics.median(deltas), 4)
-    # the noise block: reported, never enforced.  The SIGN of each delta is far cheaper to
-    # move than the mean — 7 of 8 in one direction is p = 0.07, a bar an eight-prompt
-    # battery can clear where a ±0.02 mean at a paired sd near 0.23 never will.
+    # the SIGN is far cheaper to move than the mean: 7 of 8 one way is p = 0.07, a bar an
+    # eight-prompt battery clears where a ±0.02 mean at a paired sd near 0.23 never will
     ci = mean_ci(deltas)
     up, down, sign_p = sign_test(deltas)
     v = Verdict(decision="inconclusive", n_pairs=len(deltas), mean_delta=mean, median_delta=median,
