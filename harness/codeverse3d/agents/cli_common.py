@@ -301,7 +301,7 @@ def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
 # --------------------------------------------------------------------------- session
 #: paths the harness owns; never attributed to an agent session even when git sees them change
 #: (`.3dcv` = `.3dcode` in a workspace made before the 2026-09-21 rename, still resumable)
-HARNESS_OWNED_DIRS = ("artifacts", "trajectories", "stages", "rounds", "_cand", "_assets", ".3dcode", ".3dcv", ".gemini", ".claude", ".git")
+HARNESS_OWNED_DIRS = ("artifacts", "trajectories", "stages", "rounds", "_cand", "_assets", ".3dcode", ".3dcv", ".gemini", ".claude", ".agents", ".git")
 HARNESS_OWNED_FILES = frozenset({"events.jsonl", "run_state.json", "record.json", "AGENTS.md", "GEMINI.md", "CLAUDE.md",
                                  ".mcp.json", ".geminiignore", ".aiexclude", ".gitignore"})
 #: gitignored control files git cannot revert (downstream trusts both blindly):
