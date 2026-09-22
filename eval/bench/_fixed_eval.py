@@ -198,14 +198,11 @@ class FixedEvaluator:
     def _evaluate_frames(self, ws: Workspace, spec: Spec, out: EvalOutcome) -> EvalOutcome:
         """Graphics: the judged frames + the gl_frames gate + the frame metrics, as the loop does."""
         from codeverse3d.judges.base import JudgeInput
-        from codeverse3d.languages._gl_common import read_metrics
         from codeverse3d.tracks.graphics import frame_stats_text, frames_render_set
 
         try:
             out.renders = frames_render_set(ws, out.build, 0)
-            m = read_metrics(ws)
-            if m is not None:
-                out.gates.append(m[1])
+            out.gates.extend(out.build.gates)   # the build's own gl_frames gate (BuildResult.gates, D82)
             inp = JudgeInput(spec=spec, renders=out.renders, gates=out.gates, acceptance=acceptance_from_spec(spec),
                              round_index=0, extra_context="FRAME METRICS (harness-measured):\n" + frame_stats_text(ws))
             out.judgment = self.judge_for(spec).judge(inp)
