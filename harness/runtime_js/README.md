@@ -76,7 +76,9 @@ lib/node_polyfills.mjs FileReader/self shims so GLTFExporter writes binary GLB w
 lib/census.mjs        per-part tri counts, world bboxes, materials, NaN check naming mesh + part (node + browser)
 lib/instances.mjs     bakeInstancedMeshes(THREE, root): InstancedMesh → Group of named plain meshes
 lib/stack.mjs         Error → {type,message,file,line,frames} with workspace-relative src/ paths
-lib/syntax_check.mjs  `node --input-type=module --check` per file to locate ESM SyntaxErrors
+lib/syntax_check.mjs  THE JS syntax check: every file parsed as an ES module in ONE node
+                      (vm.SourceTextModule, never linked or run; `node --check` only for a failing
+                      file's line).  CLI for the python lints, findSyntaxError() for export_glb
 lib/browser/*.js      page-side ESM (served through /__runtime/): renderer.js (THE WebGLRenderer factory —
                       sRGB + ACES + PCF shadows + pixel ratio 1, used by the object rig AND the scene host),
                       camera_fit.js (azimuth/elevation → tight bbox fit; the distance math itself is

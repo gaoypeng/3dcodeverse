@@ -2,28 +2,31 @@
 
 Replaces two copies of the same algorithm: ``threejs/lint.py:check_syntax`` +
 ``_lint_imports`` and ``scene_threejs/lint.py:_node_check`` + ``_check_imports``.
-Both ran ``node --input-type=module --check`` over stdin and scraped the same
-``[stdin]:N`` / ``SyntaxError:`` lines; both matched static, re-export and dynamic
-import specifiers with near-identical regexes and applied the same allowlist
-(``three``, ``three/addons/*``, ``three/examples/jsm/*``, relative files under
-``src/``).  They differed only in message text (owned by the caller via
-``make_finding``, as in :mod:`_ast_lint`) and in two defects this module fixes:
-threejs's fallback message was a ``list`` (``splitlines()[-1:]``), and scene's
-escape check was a ``str.startswith`` prefix test that let ``src2/`` pass.
-Escape is decided before existence so a symlink/``..`` hop out of ``src/`` is
-reported as an escape, never as "missing".
+Both matched static, re-export and dynamic import specifiers with near-identical
+regexes and applied the same allowlist (``three``, ``three/addons/*``,
+``three/examples/jsm/*``, relative files under ``src/``).  They differed only in
+message text (owned by the caller via ``make_finding``, as in :mod:`_ast_lint`) and
+in two defects this module fixes: threejs's fallback message was a ``list``
+(``splitlines()[-1:]``), and scene's escape check was a ``str.startswith`` prefix
+test that let ``src2/`` pass.  Escape is decided before existence so a
+symlink/``..`` hop out of ``src/`` is reported as an escape, never as "missing".
+
+Syntax is ``runtime_js/lib/syntax_check.mjs`` (export_glb's checker too) in ONE node
+process per lint, skipping files whose bytes already parsed — it was one ``node --check``
+per file: 51 on a scene, 44 of them unchanged ``src/lib`` modules, ≈ 2.5 s a build call.
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
-import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
 from codeverse3d.contracts.artifacts import GateFinding
+from codeverse3d.spatial.node import NodeError, run_node, runtime_js_dir
 
 # threejs's regexes (the superset: side-effect ``import './x.js'``, ``export * from``,
 # ``export * as ns from`` and multi-line ``import {\n a,\n b\n} from`` all match)
@@ -31,7 +34,6 @@ _IMPORT_RE = re.compile(
     r"""(?:^|\n)\s*(?:import\s+(?:[^'";]*?\s+from\s+)?|export\s+(?:\*(?:\s+as\s+\w+)?|\{[^}]*\})\s+from\s+)['"]([^'"]+)['"]"""
 )
 _DYN_IMPORT_RE = re.compile(r"""\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)""")
-_STDIN_LINE_RE = re.compile(r"\[stdin\]:(\d+)|:(\d+)\n")
 _URL_RE = re.compile(r"https?://")
 
 
@@ -45,27 +47,37 @@ class SyntaxProblem:
     stderr_tail: str
 
 
-def node_check_syntax(path: Path, node_bin: str) -> SyntaxProblem | None:
-    """``None`` when ``path`` parses as ESM under ``node --input-type=module --check``.
+#: sha256 of file contents that parsed — library modules are byte-identical build after build
+_PARSED: set[str] = set()
 
-    Stdin is used because ``node --check file.js`` treats a bare ``.js`` as
-    CommonJS-or-detect.
-    """
+
+def node_check_syntax(paths: Sequence[Path]) -> dict[Path, SyntaxProblem]:
+    """``{path: problem}`` for every file of ``paths`` that does not parse as an ES
+    module; one ``node`` for the lot, and none at all when every file's content
+    already parsed in this process."""
+    digests: dict[Path, str] = {}
+    out: dict[Path, SyntaxProblem] = {}
+    for p in paths:
+        try:
+            digests[p] = hashlib.sha256(p.read_bytes()).hexdigest()
+        except OSError as e:
+            out[p] = SyntaxProblem(None, f"cannot read the file: {e}", "")
+    todo = [p for p, d in digests.items() if d not in _PARSED]
+    if not todo:
+        return out
     try:
-        proc = subprocess.run(
-            [node_bin, "--input-type=module", "--check"],
-            input=path.read_bytes(), capture_output=True, timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return SyntaxProblem(None, f"node --check could not run: {e}", "")
-    if proc.returncode == 0:
-        return None
-    err = proc.stderr.decode(errors="replace").strip()
-    m = _STDIN_LINE_RE.search(err)
-    line = int(m.group(1) or m.group(2)) if m else None
-    lines = err.splitlines()
-    msg = next((ln for ln in lines if "Error" in ln), lines[0] if lines else "syntax error")
-    return SyntaxProblem(line, msg, err[-600:])
+        res = run_node(runtime_js_dir() / "lib" / "syntax_check.mjs", [str(p) for p in todo],
+                       node_args=["--experimental-vm-modules"], timeout_s=60, check=False)
+        bad = {row["file"]: row for row in (res.last_json or {})["bad"]}
+    except (NodeError, KeyError, TypeError) as e:
+        return out | {p: SyntaxProblem(None, f"the node syntax check could not run: {e}", "") for p in todo}
+    for p in todo:
+        row = bad.get(str(p))
+        if row is None:
+            _PARSED.add(digests[p])
+        else:
+            out[p] = SyntaxProblem(row.get("line"), str(row.get("message") or "syntax error"), str(row.get("stderr", "")))
+    return out
 
 
 def import_specs(src: str) -> list[tuple[str, int]]:

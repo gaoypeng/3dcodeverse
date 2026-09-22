@@ -25,6 +25,7 @@ from codeverse3d.languages._docs import RuntimeDocs
 from codeverse3d.languages._js_lint import (
     ImportKind,
     ImportVerdict,
+    SyntaxProblem,
     check_imports,
     node_check_syntax,
 )
@@ -80,10 +81,7 @@ def _is_lib(path: Path, ws: Workspace) -> bool:
     return path.parent == ws.src / "lib"
 
 
-def _node_check(path: Path, rel: str) -> GateFinding | None:
-    p = node_check_syntax(path, get_settings().binaries.node or "node")
-    if p is None:
-        return None
+def _syntax_finding(p: SyntaxProblem, rel: str) -> GateFinding:
     return _f(Severity.ERROR, f"syntax: {p.message}", target=f"{rel}:{p.line}" if p.line else rel,
               hint="fix the syntax error at the quoted line (node --check)", line=p.line, detail=p.stderr_tail)
 
@@ -124,12 +122,12 @@ def lint(ws: Workspace) -> GateReport:
         findings.append(_f(Severity.ERROR, "src/scene.js is missing", target="src/scene.js",
                            hint="create src/scene.js exporting createScene({THREE, renderer, loaders})"))
     big: list[str] = []
+    syntax = node_check_syntax(files)
     for path in files:
         rel = path.relative_to(ws.root).as_posix()
         text = path.read_text(errors="replace")
-        syntax = _node_check(path, rel)
-        if syntax:
-            findings.append(syntax)
+        if path in syntax:
+            findings.append(_syntax_finding(syntax[path], rel))
             continue
         if _is_lib(path, ws):
             continue
@@ -723,8 +721,6 @@ class SceneThreeJsRuntime(RuntimeDocs):
         """Probe + shader preflight (one browser boot); ok iff the module loads
         and no shader errors.  External contract unchanged: the same two
         GateReports land under ``artifacts/gates/``."""
-        from codeverse3d.config import get_settings
-
         t0 = time.time()
         tmo = min(float(timeout_s or get_settings().limits.build_timeout_s), 120.0)
         ws.artifacts.mkdir(parents=True, exist_ok=True)

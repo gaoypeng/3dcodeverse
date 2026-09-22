@@ -16,7 +16,7 @@ from codeverse3d.workspace import Workspace
 @pytest.fixture
 def no_node_syntax(monkeypatch):
     """Run lint offline: pretend every file parses."""
-    monkeypatch.setattr(lint_mod, "check_syntax", lambda path, node_bin: None)
+    monkeypatch.setattr(lint_mod, "check_syntax", lambda paths: {})
 
 
 def _msgs(rep, sev=None):
@@ -98,3 +98,22 @@ def test_syntax_error_reported_with_line(stool_ws: Workspace):
 @pytest.mark.node
 def test_real_syntax_check_on_clean_stool(stool_ws: Workspace):
     assert lint_workspace(stool_ws).passed
+
+
+@pytest.mark.node
+def test_one_node_checks_every_file_and_a_parsed_file_is_not_sent_again(tmp_path: Path, monkeypatch):
+    import codeverse3d.languages._js_lint as js_lint
+
+    good = [tmp_path / f"ok_{i}.js" for i in range(3)]
+    for i, p in enumerate(good):
+        p.write_text(f"import * as THREE from 'three';\nexport const n{i} = await Promise.resolve({i});\n")
+    bad = tmp_path / "bad.js"
+    bad.write_text("export function f() {\n  return 1;\n}\nconst = 2;\n")
+    calls = []
+    real = js_lint.run_node
+    monkeypatch.setattr(js_lint, "run_node", lambda *a, **k: calls.append(a) or real(*a, **k))
+    problems = js_lint.node_check_syntax([*good, bad])
+    assert list(problems) == [bad] and problems[bad].line == 4 and "SyntaxError" in problems[bad].message
+    assert len(calls) == 1  # one process for four files
+    assert js_lint.node_check_syntax(good) == {} and len(calls) == 1  # all three parsed already: no node at all
+    assert list(js_lint.node_check_syntax([bad])) == [bad] and len(calls) == 2  # a failure is never cached

@@ -1,25 +1,42 @@
-// Locate ESM syntax errors file-by-file.  V8 SyntaxErrors thrown by a dynamic
-// import() carry no file/line, so we re-check each candidate source file with
-// `node --input-type=module --check` (stdin) and parse "[stdin]:LINE".
-//
-//   import { checkSyntax, findSyntaxError } from './syntax_check.mjs';
+// THE JS syntax check: every file parsed as an ES module in ONE node process
+// (vm.SourceTextModule: compiled, never linked or run).  That parse error has no line, so
+// only a file that fails pays a second process, `node --input-type=module --check`.
+//   node --experimental-vm-modules lib/syntax_check.mjs FILE...  → {"bad": [{file, line, message, stderr}]}
+//   import { findSyntaxError, listJsFiles } from './syntax_check.mjs';
 
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-/** Check one file; returns null when it parses, else {file, line, message}. */
-export function checkSyntax(file) {
-  const src = fs.readFileSync(file);
-  const r = spawnSync(process.execPath, ['--input-type=module', '--check'], { input: src, encoding: 'utf8', timeout: 20000 });
+const SELF = fileURLToPath(import.meta.url);
+
+/** `node --check`'s report on one file: null when it parses, else {file, line, message, stderr}. */
+function checkOne(file) {
+  const r = spawnSync(process.execPath, ['--input-type=module', '--check'], { input: fs.readFileSync(file), encoding: 'utf8', timeout: 20000 });
   if (r.status === 0) return null;
-  const err = r.stderr || '';
+  const err = (r.stderr || '').trim();
   const m = /\[stdin\]:(\d+)/.exec(err);
-  const msg = (/^(SyntaxError:.*)$/m.exec(err) || [])[1] || err.trim().split('\n').pop() || 'syntax error';
-  return { file, line: m ? Number(m[1]) : null, message: msg };
+  const msg = (/^(SyntaxError:.*)$/m.exec(err) || [])[1] || err.split('\n').pop() || 'syntax error';
+  return { file, line: m ? Number(m[1]) : null, message: msg, stderr: err.slice(-600) };
 }
 
-/** Recursively list *.js / *.mjs under dir (skipping node_modules). */
+/** The files of `files` that do not parse as ES modules, in order. */
+export function checkFiles(files) {
+  const bad = [];
+  for (const file of files) {
+    try {
+      new vm.SourceTextModule(fs.readFileSync(file, 'utf8'), { identifier: file });
+    } catch (e) {
+      const hit = e instanceof SyntaxError ? checkOne(file) : { file, line: null, message: String(e), stderr: '' };
+      if (hit) bad.push(hit);
+    }
+  }
+  return bad;
+}
+
+/** Recursively list *.js / *.mjs under dir (skipping node_modules and dot entries). */
 export function listJsFiles(dir) {
   const out = [];
   if (!fs.existsSync(dir)) return out;
@@ -35,11 +52,17 @@ export function listJsFiles(dir) {
   return out.sort();
 }
 
-/** First file under srcDir that fails to parse, or null. */
+/** First file under srcDir that fails to parse, or null (one child process for all of them:
+ *  vm modules need the flag this process was not started with). */
 export function findSyntaxError(srcDir) {
-  for (const f of listJsFiles(srcDir)) {
-    const r = checkSyntax(f);
-    if (r) return r;
+  const r = spawnSync(process.execPath, ['--experimental-vm-modules', SELF, ...listJsFiles(srcDir)], { encoding: 'utf8', timeout: 60000 });
+  try {
+    return JSON.parse((r.stdout || '').trim().split('\n').pop()).bad[0] || null;
+  } catch (_e) {
+    return null;
   }
-  return null;
+}
+
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === SELF) {
+  process.stdout.write(JSON.stringify({ bad: checkFiles(process.argv.slice(2)) }) + '\n');
 }

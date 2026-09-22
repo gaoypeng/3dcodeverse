@@ -211,9 +211,9 @@ def lint_workspace(ws: Workspace) -> GateReport:
     """Run every static check and return the ``lint:threejs`` GateReport."""
     t0 = time.time()
     findings: list[GateFinding] = []
-    node_bin = get_settings().binaries.node
     entry = ws.src / "object.js"
     sources = list_sources(ws)
+    syntax = check_syntax(sources)
 
     if not entry.is_file():
         findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, target="src/object.js",
@@ -223,7 +223,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
     for path in sources:
         src = path.read_text(errors="replace")
         rel = _rel(ws, path)
-        syn = check_syntax(path, node_bin)
+        syn = syntax.get(path)
         if syn is not None:
             findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
                 message=f"{rel}:{syn.line or '?'}: {syn.message}", fix_hint="fix the syntax error at that line"))
