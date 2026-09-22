@@ -21,6 +21,7 @@ from codeverse3d.models.anthropic import (
     to_messages,
 )
 from codeverse3d.models.base import ModelError
+from codeverse3d.models.retry import MAX_WAIT_S
 
 PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
@@ -182,11 +183,20 @@ def test_images_base64_and_message_merging():
 
 
 def test_retry_on_429_529_5xx_and_not_on_400():
-    m, fc = make([api_error(429), api_error(529), api_error(500), msg([text("ok")])])
+    naps: list[float] = []
+    fc = FakeClient([api_error(429), api_error(529), api_error(500), msg([text("ok")])])
+    m = AnthropicModel("claude-opus-5", client=fc, sleep=naps.append)
     assert (
         m.generate(ChatRequest(messages=[ChatMessage.user("x")])).text == "ok"
         and len(fc.calls) == 4
     )
+    # one backoff per failure, each <= MAX_WAIT_S: a 529 is not a storm on a one-key
+    # pool and a 429 waits for no cooldown (the loop the SDK adapters always had)
+    assert len(naps) == 3 and all(0 < d <= MAX_WAIT_S for d in naps), naps
+    m, fc = make([api_error(529)] * 3, max_attempts=3)
+    with pytest.raises(ModelError) as ei:
+        m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
+    assert ei.value.status == 529 and len(fc.calls) == 3 and ei.value.attempts == 3
     m, fc = make([api_error(400, "bad"), msg([text("never")])])
     with pytest.raises(ModelError) as ei:
         m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
@@ -246,7 +256,7 @@ def test_a_failed_reply_carries_what_it_was_billed():
 
 
 def test_each_attempt_gets_what_is_left_of_the_call_budget():
-    """``max_wait_s`` is the whole call's deadline, and ``with_retries`` only checks it
+    """``max_wait_s`` is the whole call's deadline, and the retry loop only checks it
     BETWEEN attempts — so the attempt itself must carry it.  The client is built once with
     a fixed 600 s timeout, so a judge with 20 s of budget left used to hold a socket for
     600 s.  Floor: a long completion (the 930 s plan) keeps the full client timeout."""

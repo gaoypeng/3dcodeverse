@@ -22,10 +22,9 @@ from codeverse3d.models.gemini import (
     GeminiModel,
     build_config,
     classify_exception,
-    failure_outcome,
     to_contents,
 )
-from codeverse3d.models.retry import KeyPool
+from codeverse3d.models.retry import KeyPool, failure_outcome
 
 PNG_1PX = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="

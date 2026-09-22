@@ -1299,9 +1299,11 @@ sessions overshot their timeout by 182 s median / 1 154 s p90); a judge sample g
 `SAMPLE_BUDGET_S = 240` for all its attempts (the verdict is 42 s p50 / 73 s p90, 50 / 103 s under
 the storm; two rounds lost 1 162 s and 927 s to 3 × 300 s timeouts before a second sample answered
 in 128 s); the planner 300 s (13.7 s p50 / 32 s p90, max 76 s; the storm-day plan stage waited
-492 s median for 39 s of model time).  Anthropic / OpenAI go through `with_retries`, which
-since 2026-08-29 takes the same `max_total_s = ChatRequest.max_wait_s` (clipped to
-`RETRY_DEADLINE_S`) and stamps `ModelError.attempts` — the field is honoured on every provider.
+492 s median for 39 s of model time).  Anthropic / OpenAI honour the same `max_total_s =
+ChatRequest.max_wait_s` (clipped to `RETRY_DEADLINE_S`) and a raised `ModelError` carries
+`attempts` on every provider: since 2026-09-22 they run `rotate_with_retries` itself over a
+fresh one-key pool (`parts.retry_one_key`: no cooldown, no storm patience, no hedge — the
+same `max_attempts` × ≤ 3 s backoff their own `with_retries` loop gave them, now deleted).
 
 
 *The retry of a 503 is hedged across keys* (`rotate_with_retries(hedge=2)`; `Settings.rate.hedge`,

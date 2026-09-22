@@ -12,7 +12,6 @@ Model-family rules (Anthropic API, 2026-08):
 from __future__ import annotations
 
 import json
-import logging
 import threading
 import time
 from collections.abc import Callable
@@ -33,10 +32,9 @@ from codeverse3d.models.parts import (
     classify_sdk_exception,
     image_b64,
     retry_budget_s,
-    with_logged_retries,
+    retry_one_key,
 )
 from codeverse3d.models.pricing import cache_write_surcharge, estimate_cost
-from codeverse3d.models.retry import cause_for
 from codeverse3d.models.schema_utils import (
     JsonParseError,
     parse_json_lenient,
@@ -180,9 +178,6 @@ def parse_content(content: list[Any]) -> tuple[str, Any]:
 
 
 # ===================================================================== anthropic
-log = logging.getLogger(__name__)
-
-
 def classify_exception(exc: BaseException) -> ModelError:
     """Map anthropic SDK exceptions onto ``ModelError`` (the shared ladder in parts.py)."""
     import anthropic
@@ -235,16 +230,9 @@ class AnthropicModel:
     def generate(self, request: ChatRequest) -> ChatResponse:
         kwargs = build_kwargs(request, self.model)
         deadline = time.monotonic() + retry_budget_s(request.max_wait_s)
-
-        def attempt() -> ChatResponse:
-            try:
-                return self._once(kwargs, request, deadline)
-            except Exception as exc:  # noqa: BLE001 - classified
-                err = classify_exception(exc)
-                raise err from cause_for(err, exc)
-
-        return with_logged_retries(attempt, label="anthropic", model=self.model, attempts=self.max_attempts,
-                                   sleep=self._sleep, log=log, max_wait_s=request.max_wait_s)
+        return retry_one_key(lambda: self._once(kwargs, request, deadline), label=f"anthropic {self.model}",
+                             classify=classify_exception, attempts=self.max_attempts, sleep=self._sleep,
+                             max_wait_s=request.max_wait_s)
 
     def _once(self, kwargs: dict[str, Any], request: ChatRequest, deadline: float) -> ChatResponse:
         client = self.client()

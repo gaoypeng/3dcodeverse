@@ -1,4 +1,4 @@
-"""with_retries / backoff_delay / rotate_with_retries."""
+"""backoff_delay / rotate_with_retries."""
 
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ from codeverse3d.models.retry import (
     Outcome,
     backoff_delay,
     rotate_with_retries,
-    with_retries,
 )
 
 
@@ -28,78 +27,6 @@ def test_backoff_grows_and_caps():
     assert d == [1.0, 2.0, 4.0, 8.0, 8.0, 8.0]
     j = backoff_delay(3, base_delay=1.0, max_delay=8.0)
     assert 2.0 <= j <= 4.0
-
-
-def test_retries_until_success_and_reports():
-    calls: list[int] = []
-    slept: list[float] = []
-    seen: list[tuple[int, float]] = []
-
-    def fn():
-        calls.append(1)
-        if len(calls) < 3:
-            raise TimeoutError("flaky")
-        return "ok"
-
-    out = with_retries(
-        fn,
-        is_retryable=lambda e: isinstance(e, TimeoutError),
-        attempts=5,
-        base_delay=0.5,
-        max_delay=2.0,
-        on_retry=lambda n, e, d: seen.append((n, d)),
-        sleep=slept.append,
-        jitter=False,
-    )
-    assert out == "ok" and len(calls) == 3
-    assert slept == [0.5, 1.0]
-    assert [n for n, _ in seen] == [1, 2]
-
-
-def test_with_retries_stops_on_non_retryable_and_exhaustion():
-    calls = 0
-
-    def non_retryable():
-        nonlocal calls
-        calls += 1
-        raise ValueError("bad")
-
-    with pytest.raises(ValueError):
-        with_retries(
-            non_retryable, is_retryable=lambda error: False, attempts=5, sleep=lambda _: None
-        )
-    assert calls == 1
-
-    def exhausted():
-        nonlocal calls
-        calls += 1
-        raise TimeoutError("always")
-
-    with pytest.raises(TimeoutError):
-        with_retries(exhausted, is_retryable=lambda error: True, attempts=3, sleep=lambda _: None)
-    assert calls == 4
-
-
-def test_with_retries_honours_a_deadline_and_stamps_attempts():
-    """The SDK adapters' loop: ``ChatRequest.max_wait_s`` bounds the whole call and the
-    raised ModelError says how many round-trips were issued (the ledger's error row)."""
-    from codeverse3d.models.base import ModelError
-
-    calls = 0
-
-    def flaky():
-        nonlocal calls
-        calls += 1
-        raise ModelError("busy", retryable=True, status=503)
-
-    with pytest.raises(ModelError) as ei:
-        with_retries(flaky, is_retryable=lambda e: True, attempts=6, base_delay=1.0, max_delay=1.0,
-                     max_total_s=0.0, sleep=lambda _: None, jitter=False)
-    assert calls == 1 and ei.value.attempts == 1  # the first backoff would already cross the deadline
-    calls = 0
-    with pytest.raises(ModelError) as ei:
-        with_retries(flaky, is_retryable=lambda e: True, attempts=3, sleep=lambda _: None)
-    assert calls == 3 and ei.value.attempts == 3
 
 
 # --------------------------------------------------------------------------- rotate_with_retries
@@ -270,6 +197,7 @@ def test_rotate_retryable_backoff_and_nonretryable_failure_modes():
             sleep=slept.append,
         )
     assert ei.value.status == 500 and len(slept) == 2  # backoff between the 3 attempts
+    assert ei.value.attempts == 3, "the raised error says how many round-trips it took (the ledger's error row)"
 
     calls: list[str] = []
 

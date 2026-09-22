@@ -3,8 +3,8 @@
 1. ``KeyPool``: a multi-key pool with 429 cooldown, dead-key benching, a health score
    and the ``max_in_flight`` ceiling — used by ``GeminiModel`` (22 keys on the owner's
    box) but provider-neutral;
-2. the two retry loops — ``with_retries`` (single key, SDK adapters) and
-   ``rotate_with_retries`` (the pool, hedging, the ``RETRY_DEADLINE_S`` deadline).
+2. ``rotate_with_retries``, the one retry loop (the pool, hedging, the ``RETRY_DEADLINE_S``
+   deadline) — the SDK adapters run it over a one-key pool (``parts.retry_one_key``).
 
 Every wait anywhere in here clips to ``MAX_WAIT_S``.
 
@@ -47,6 +47,43 @@ Outcome = Literal["ok", "429", "5xx", "error", "dead", "skip"]
 
 class KeyPoolExhausted(RuntimeError):
     """Every key is cooling down (or every slot is busy) and the wait budget ran out."""
+
+
+# message fragments of key-scoped failures (revoked / suspended / expired / disabled
+# project); HTTP 401 / 403 are key-scoped regardless of wording
+_DEAD_KEY_MARKERS = (
+    "api_key_invalid",
+    "api key not valid",
+    "api key expired",
+    "permission_denied",
+    "unauthenticated",
+    "suspended",
+    "leaked",
+    "service_disabled",
+    "has not been used in project",
+)
+
+
+def is_dead_key_error(err: ModelError) -> bool:
+    """True when ``err`` indicts the API key rather than the request, so the call
+    should move to another key instead of failing."""
+    if err.status in (401, 403):
+        return True
+    text = str(err).lower()
+    return err.status == 400 and any(m in text for m in _DEAD_KEY_MARKERS)
+
+
+def failure_outcome(err: ModelError) -> Outcome:
+    """``KeyPool.report`` outcome for a failed call (``rotate_with_retries``' default
+    ``outcome_of``).  Content-level failures (bad JSON, empty candidates) carry no status
+    and are not the key's fault: ``skip`` leaves health / counters alone."""
+    if err.status == 429:
+        return "429"
+    if (err.status or 0) >= 500:
+        return "5xx"
+    if is_dead_key_error(err):
+        return "dead"
+    return "error" if err.status else "skip"
 
 
 MAX_WAIT_S = 3.0
@@ -341,9 +378,6 @@ if TYPE_CHECKING:  # pragma: no cover
 log = logging.getLogger(__name__)
 
 
-OnRetry = Callable[[int, BaseException, float], None]
-
-
 def cause_for(err: BaseException, exc: BaseException | None) -> BaseException | None:
     """The cause to raise ``err`` from — ``None`` when it would be ``err`` itself.
 
@@ -377,59 +411,12 @@ def backoff_delay(
     return random.uniform(raw / 2.0, raw)
 
 
-def with_retries[T](
-    fn: Callable[[], T],
-    *,
-    is_retryable: Callable[[BaseException], bool],
-    attempts: int = 6,
-    base_delay: float = 1.0,
-    max_delay: float = MAX_WAIT_S,
-    max_total_s: float | None = None,
-    on_retry: OnRetry | None = None,
-    sleep: Callable[[float], None] = time.sleep,
-    jitter: bool = True,
-) -> T:
-    """Call ``fn`` up to ``attempts`` times, within ``max_total_s`` when given.
-
-    Re-raises the last exception when it is not retryable (per ``is_retryable``),
-    when attempts are exhausted, or when the next backoff would cross the deadline
-    (``ChatRequest.max_wait_s`` on the SDK adapters).  ``on_retry(attempt, exc, delay)``
-    is called before each sleep (attempt is the 1-based index of the attempt that
-    failed).  A raised exception carrying an ``attempts`` attribute (``ModelError``)
-    is stamped with the number of round-trips issued.
-    """
-    if attempts < 1:
-        raise ValueError("attempts must be >= 1")
-    deadline = None if max_total_s is None else time.monotonic() + max_total_s
-    last: BaseException | None = None
-    for attempt in range(1, attempts + 1):
-        try:
-            return fn()
-        except BaseException as exc:  # noqa: BLE001 - classification is delegated
-            last = exc
-            if hasattr(exc, "attempts"):
-                exc.attempts = attempt
-            if attempt >= attempts or not is_retryable(exc):
-                raise
-            delay = backoff_delay(
-                attempt, base_delay=base_delay, max_delay=max_delay, jitter=jitter
-            )
-            if deadline is not None and time.monotonic() + delay >= deadline:
-                raise
-            if on_retry is not None:
-                on_retry(attempt, exc, delay)
-            sleep(delay)
-    # unreachable, but keeps type-checkers happy
-    assert last is not None
-    raise last
-
-
 def rotate_with_retries[T](
     pool: KeyPool,
     call: Callable[[str], T],
     *,
     classify: Callable[[BaseException], ModelError],
-    outcome_of: Callable[[ModelError], Outcome],
+    outcome_of: Callable[[ModelError], Outcome] = failure_outcome,
     max_attempts: int = 6,
     base_delay: float = 1.0,
     max_delay: float = MAX_WAIT_S,
@@ -496,16 +483,16 @@ def rotate_with_retries[T](
     never waits for a partner and every hedged request holds its own slot.  The calls
     run in a per-attempt ``ThreadPoolExecutor`` that is shut down without waiting: a
     loser keeps running until its own round-trip ends, then reports its outcome to
-    the pool and releases its slot; the winner is returned the moment it lands.  When every hedged key fails, the attempt
-    is ONE attempt for the storm / backoff accounting and the worst error decides the
-    branch (a non-retryable error first, then a plain retryable one, a 429, a dead
-    key, and a 503 last).
+    the pool and releases its slot; the winner is returned the moment it lands.  When
+    every hedged key fails, the attempt is ONE attempt for the storm / backoff
+    accounting and the worst error decides the branch (a non-retryable error first,
+    then a plain retryable one, a 429, a dead key, and a 503 last).
 
     ``stats`` (optional, caller-owned dict) receives the call's telemetry on the way
     out — success or failure: ``attempts`` = round-trips issued (hedged siblings
-    included; 1 = clean), ``hedged`` = hedged attempts, ``storm`` = storm waits.
-    ``GeminiModel`` copies ``attempts`` into ``ChatResponse.raw`` and onto the raised
-    ``ModelError`` so the cost ledger can say how hard each call was.
+    included; 1 = clean), ``hedged`` = hedged attempts, ``storm`` = storm waits.  A
+    raised ``ModelError`` carries ``attempts`` itself (the cost ledger's error row);
+    ``GeminiModel`` copies it into ``ChatResponse.raw`` on success.
 
     ``on_attempt`` (optional) hears every round-trip exactly once — see
     :data:`OnAttempt`; the cost layer uses it to write per-attempt ledger rows so a
@@ -719,6 +706,10 @@ def rotate_with_retries[T](
         assert last_err is not None
         bench()
         raise last_err
+    except BaseException as exc:
+        if hasattr(exc, "attempts"):  # a ModelError: how hard the call tried
+            exc.attempts = counts["attempts"]
+        raise
     finally:
         if stats is not None:
             stats.update(counts)

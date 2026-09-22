@@ -39,14 +39,7 @@ from codeverse3d.contracts.common import Usage
 from codeverse3d.models.base import ModelError
 from codeverse3d.models.parts import Stopwatch, attempt_timeout_s, image_bytes, retry_budget_s
 from codeverse3d.models.pricing import estimate_cost, per_image_usd
-from codeverse3d.models.retry import (
-    KeyPool,
-    KeyPoolExhausted,
-    OnAttempt,
-    Outcome,
-    _Try,
-    rotate_with_retries,
-)
+from codeverse3d.models.retry import KeyPool, KeyPoolExhausted, OnAttempt, _Try, rotate_with_retries
 from codeverse3d.models.schema_utils import JsonParseError, parse_json_lenient, to_gemini_schema
 
 #: INTERFACES.md mapping; ``off`` → 0 where the model allows it
@@ -287,43 +280,6 @@ def classify_exception(exc: BaseException) -> ModelError:
     return ModelError(f"Gemini unexpected error: {type(exc).__name__}: {exc}", retryable=False)
 
 
-# message fragments of key-scoped failures (revoked / suspended / expired / disabled
-# project); HTTP 401 / 403 are key-scoped regardless of wording
-_DEAD_KEY_MARKERS = (
-    "api_key_invalid",
-    "api key not valid",
-    "api key expired",
-    "permission_denied",
-    "unauthenticated",
-    "suspended",
-    "leaked",
-    "service_disabled",
-    "has not been used in project",
-)
-
-
-def is_dead_key_error(err: ModelError) -> bool:
-    """True when ``err`` indicts the API key rather than the request, so the call
-    should move to another key instead of failing."""
-    if err.status in (401, 403):
-        return True
-    text = str(err).lower()
-    return err.status == 400 and any(m in text for m in _DEAD_KEY_MARKERS)
-
-
-def failure_outcome(err: ModelError) -> Outcome:
-    """``KeyPool.report`` outcome for a failed call.  Content-level failures (bad JSON,
-    empty candidates) carry no status and are not the key's fault: ``skip`` reconciles
-    the tokens they were billed and leaves health / counters alone."""
-    if err.status == 429:
-        return "429"
-    if (err.status or 0) >= 500:
-        return "5xx"
-    if is_dead_key_error(err):
-        return "dead"
-    return "error" if err.status else "skip"
-
-
 def _retry_after_s(exc: BaseException) -> float | None:
     """Gemini 429 bodies carry ``details[].retryDelay: "7s"``; honour it (capped)."""
     m = _RETRY_DELAY_RE.search(str(exc))
@@ -464,29 +420,24 @@ class GeminiModel:
         deadline = time.monotonic() + budget  # mirrors rotate_with_retries' own deadline
         stats: dict[str, Any] = {}
         wasted: list[Usage] = []  # discarded round-trips the provider still billed
-        try:
-            resp = rotate_with_retries(
-                self.pool,
-                lambda key: self._once(
-                    key, contents, self._attempt_config(state["config"], deadline),
-                    request, warnings,
-                ),
-                classify=classify_exception,
-                outcome_of=failure_outcome,
-                max_attempts=self.max_attempts,
-                max_total_s=budget,
-                hedge=self.hedge,
-                sleep=self._sleep,
-                on_free_retry=downgrade_thinking,
-                retry_after=_retry_after_s,
-                label=f"gemini {self.model}",
-                stats=stats,
-                on_attempt=self._attempt_hook(wasted),
-                **({} if self.storm_attempts is None else {"storm_attempts": self.storm_attempts}),
-            )
-        except ModelError as err:
-            err.attempts = int(stats.get("attempts", 0))  # the ledger's error row wants it too
-            raise
+        resp = rotate_with_retries(
+            self.pool,
+            lambda key: self._once(
+                key, contents, self._attempt_config(state["config"], deadline),
+                request, warnings,
+            ),
+            classify=classify_exception,
+            max_attempts=self.max_attempts,
+            max_total_s=budget,
+            hedge=self.hedge,
+            sleep=self._sleep,
+            on_free_retry=downgrade_thinking,
+            retry_after=_retry_after_s,
+            label=f"gemini {self.model}",
+            stats=stats,
+            on_attempt=self._attempt_hook(wasted),
+            **({} if self.storm_attempts is None else {"storm_attempts": self.storm_attempts}),
+        )
         # how hard the call was, next to which key served it (``_once``): ledger fields
         resp.raw["attempts"] = int(stats.get("attempts", 0))
         resp.raw["hedged"] = int(stats.get("hedged", 0))
@@ -775,7 +726,6 @@ class GeminiImageModel:
             self.pool,
             lambda key: self._call(key, model, contents, _attempt_config(), size, _GENERATED_PX[token]),
             classify=classify_exception,
-            outcome_of=failure_outcome,
             max_attempts=self.max_attempts,
             max_total_s=budget,
             hedge=self.hedge,

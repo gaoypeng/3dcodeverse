@@ -108,7 +108,7 @@ def attempt_timeout_s(deadline: float, ceiling: float) -> float:
     """The SDK timeout for ONE attempt: what is left of ``deadline``, capped at the
     client's ``timeout_s`` and floored at :data:`SDK_TIMEOUT_FLOOR_S`.
 
-    ``with_retries`` checks the deadline only BETWEEN attempts and both SDK clients are
+    The retry loop checks the deadline only BETWEEN attempts and both SDK clients are
     built once with a fixed ``timeout`` (600 s), so a judge told it had 20 s of budget
     left held a socket for 600 s (audit 2026-08-29).  The floor is what keeps a legitimate
     long completion (the 930 s plan budget) on its full ``timeout_s`` — this shortens an
@@ -117,20 +117,15 @@ def attempt_timeout_s(deadline: float, ceiling: float) -> float:
     return min(ceiling, max(SDK_TIMEOUT_FLOOR_S, deadline - time.monotonic()))
 
 
-def with_logged_retries(attempt: Any, *, label: str, model: str, attempts: int,
-                        sleep: Any, log: Any, max_wait_s: float | None = None) -> Any:
-    """``with_retries`` plus the one log line both SDK adapters write.
+def retry_one_key(attempt: Any, *, label: str, classify: Any, attempts: int, sleep: Any,
+                  max_wait_s: float | None = None) -> Any:
+    """The SDK adapters' retry loop: ``rotate_with_retries`` over a fresh one-key pool with no
+    cooldown, no storm patience and no hedge — so a 429 / 5xx / 529 / timeout is retried
+    ``attempts`` times with the ≤ ``MAX_WAIT_S`` backoff, inside the request's ``max_wait_s``
+    deadline (``None`` = ``RETRY_DEADLINE_S``), and a raised ``ModelError`` says how many
+    round-trips it took.  ``label`` names the call in the log ("anthropic <model>")."""
+    from codeverse3d.models.retry import KeyPool, rotate_with_retries
 
-    ``max_wait_s`` is the request's ``ChatRequest.max_wait_s`` deadline (retries and
-    their waits included; ``None`` = ``RETRY_DEADLINE_S``); the backoff itself is
-    ``attempts`` x <= ``MAX_WAIT_S`` (3 s), the round-trips are the real cost.
-    """
-    from codeverse3d.models.retry import with_retries
-
-    def on_retry(n: int, exc: BaseException, delay: float) -> None:
-        log.warning("%s %s attempt %d/%d failed (%s); retrying in %.1fs",
-                    label, model, n, attempts, exc, delay)
-
-    budget = retry_budget_s(max_wait_s)
-    return with_retries(attempt, is_retryable=lambda e: isinstance(e, ModelError) and e.retryable,
-                        attempts=attempts, max_total_s=budget, on_retry=on_retry, sleep=sleep)
+    return rotate_with_retries(KeyPool([label], cooldown_s=0.0), lambda _key: attempt(), classify=classify,
+                               max_attempts=attempts, max_total_s=retry_budget_s(max_wait_s),
+                               storm_attempts=0, hedge=1, sleep=sleep, label=label)

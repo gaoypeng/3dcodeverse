@@ -72,9 +72,10 @@ pool.acquire(*, exclude=None, timeout_s=120) -> key    # raises immediately when
 pool.try_acquire(*, exclude=None) -> key | None        # never waits (a hedged retry's extra key); holds a slot like acquire
 pool.report(key, "ok"|"429"|"5xx"|"error"|"dead"|"skip", *, retry_after_s=None)   # Δ "dead": health 0, benched dead_cooldown_s,
     # re-probed after; "skip" (a content failure the key did not cause) leaves health and counters untouched
-from codeverse3d.models.retry import with_retries, rotate_with_retries, RETRY_DEADLINE_S
-with_retries(fn, *, is_retryable, attempts=6, base_delay=1.0, max_delay=3.0, max_total_s=None, ...)   # max_total_s =
-    # ChatRequest.max_wait_s clipped to RETRY_DEADLINE_S on every provider; stops before a backoff would cross it, stamps ModelError.attempts
+from codeverse3d.models.retry import rotate_with_retries, RETRY_DEADLINE_S
+rotate_with_retries(pool, call, *, classify, outcome_of=failure_outcome, max_attempts=6, max_total_s=RETRY_DEADLINE_S, hedge=2, ...)
+    # the ONE retry loop; the SDK adapters run it over a one-key pool (parts.retry_one_key: no cooldown, no storm
+    # patience, no hedge).  max_total_s = ChatRequest.max_wait_s clipped to RETRY_DEADLINE_S; a raised ModelError carries .attempts
 from codeverse3d.models.pricing import estimate_cost       # (provider, model, usage) -> usd (unknown model -> 0.0 + one warning)
 from codeverse3d.models.schema_utils import to_gemini_schema, to_openai_strict_schema, to_anthropic_schema, parse_json_lenient
 from codeverse3d.models.schema_utils import ask_structured   # (model, Schema, *, system, text, images=(), temperature, label)
