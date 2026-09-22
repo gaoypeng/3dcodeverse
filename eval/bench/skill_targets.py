@@ -176,16 +176,21 @@ def _min_authored_changed_frac(d: Path) -> float | None:
     return min((float(r.changed_frac) for r in rows), default=None)
 
 
-def _shader_preflight_findings(run: Run) -> float | None:
-    """``artifacts/shader_preflight.json`` — written beside the run, not into the record."""
-    p = run.dir / "artifacts" / "shader_preflight.json"
-    if not p.is_file():
+def _shader_preflight_findings(run: Run, rd: dict) -> float | None:
+    """WARN + ERROR findings of the build's shader_preflight gate: the round's own copy since
+    2026-09-22 (``BuildResult.gates``), else the last build's ``artifacts/gates/shader_preflight.json``.
+    The raw driver report beside it has ``errors`` / ``warnings`` and no ``findings``: reading
+    that counted 0 on every run before 2026-09-22."""
+    gates = [g for g in rd.get("gates") or [] if isinstance(g, dict) and g.get("gate") == "shader_preflight"]
+    if not gates:
+        p = run.dir / "artifacts" / "gates" / "shader_preflight.json"
+        try:
+            gates = [json.loads(p.read_text())] if p.is_file() else []
+        except (OSError, json.JSONDecodeError):
+            return None
+    if not gates:
         return None
-    try:
-        rep = json.loads(p.read_text())
-    except (OSError, json.JSONDecodeError):
-        return None
-    return float(sum(1 for f in rep.get("findings") or []
+    return float(sum(1 for g in gates for f in g.get("findings") or []
                      if str(f.get("severity", "")).lower() in ("warn", "error")))
 
 
@@ -203,7 +208,8 @@ def measure(target: Target, run: Run, *, which: str = "last",
             return None
         return sum(0.0 if b.get("ok") else 1.0 for b in builds) / len(builds)
     if target.source == SRC_ARTIFACT:
-        return None if run.gated_round(which) is None else _shader_preflight_findings(run)
+        rd = run.gated_round(which)
+        return None if rd is None else _shader_preflight_findings(run, rd)
 
     key = f"{target.metric}:{run.path}:{which}"
     if cache is not None and key in cache:

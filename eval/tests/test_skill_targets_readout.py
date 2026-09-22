@@ -143,3 +143,23 @@ def test_a_retried_cell_pairs_on_the_attempt_that_reached_a_gate(tmp_path):
             (cell / leaf / "record.json").write_text(json.dumps(rec))
     rows = {r["skill"]: r for r in ab_rows(ab_arms(root), list(TARGETS), which="last", cache=None)}
     assert rows["c3d-part-contact"]["n"] == 1
+
+
+def test_the_shader_preflight_row_reads_the_gate_not_the_raw_driver_json(tmp_path):
+    """The raw driver report has errors / warnings and no findings; the row read it and
+    counted 0 on every run.  It reads the round's shader_preflight gate, else the last
+    build's gate file."""
+    from bench.skill_targets import battery_rows, load_runs
+
+    warn = _finding("shader_preflight", "ShaderMaterial 'Neon' ignores scene.fog")
+    root = _battery(tmp_path, {
+        "in_round": _record("scene_threejs", [{"gate": "shader_preflight", "findings": [warn, warn]}]),
+        "on_disk": _record("scene_threejs", [{"gate": "scene_placement", "findings": []}]),
+    })
+    gate_dir = root / "runs" / "on_disk" / "artifacts" / "gates"
+    gate_dir.mkdir(parents=True)
+    (gate_dir / "shader_preflight.json").write_text(json.dumps({"gate": "shader_preflight", "findings": [warn]}))
+    (gate_dir.parent / "shader_preflight.json").write_text(json.dumps({"errors": [], "warnings": ["x"]}))
+    rows = {r["skill"]: r for r in battery_rows(load_runs(root), list(TARGETS), which="last", cache=None)}
+    assert rows["c3d-threejs-shader-traps"]["n"] == 2
+    assert rows["c3d-threejs-shader-traps"]["mean"] == 1.5   # 2 in the round, 1 in the gate file
