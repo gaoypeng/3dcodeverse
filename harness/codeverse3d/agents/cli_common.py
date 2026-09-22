@@ -409,7 +409,7 @@ def begin_session(job: AgentJob, kind: str) -> Session:
     label, attempt = _session_label(ws, job.label or kind, round_index)
     traj = Trajectory(ws.trajectory_dir(label, round_index))
     traj.write_prompt(job.prompt, job.system_append)
-    hints = frozenset(h for h in (str(x).strip() for x in job.files_hint) if h)
+    hints = _clean(job.files_hint)
     lock = _session_lock(ws) if kind in EXCLUSIVE_KINDS else None
     if lock is not None:
         lock.acquire()
@@ -572,7 +572,6 @@ def invoke(
     on_stdout: Callable[[str], None] | None = None,
     stdin: str | None = None,
     attempt: int = 1,
-    idle_grace_s: float | None = None,
     soft_timeout_s: float | None = None,
     **invoke_extra: Any,
 ) -> CompletedProc:
@@ -607,7 +606,7 @@ def invoke(
     soft = float(s.job.timeout_s if soft_timeout_s is None else soft_timeout_s)
     proc = run_with_watchdog(
         argv, cwd=s.ws.root, env=env, soft_timeout_s=soft, hard_timeout_s=soft + 300.0,
-        idle_grace_s=IDLE_GRACE_S if idle_grace_s is None else idle_grace_s, poll_s=POLL_S,
+        idle_grace_s=IDLE_GRACE_S, poll_s=POLL_S,
         on_line=on_line, stdin=stdin, activity_dirs=[s.ws.src, s.ws.public],
     )
     suffix = "" if attempt == 1 else f".{attempt}"

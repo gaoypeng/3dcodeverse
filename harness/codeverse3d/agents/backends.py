@@ -239,7 +239,10 @@ class GeminiCliAgent(_CliAgent):
                                   soft_timeout_s=next_soft, model=self.model, key_tail=key[-4:])
                     outcome = self._interpret(s, proc)
                     usage_total = usage_total + outcome["usage"]
-                    pool.report(key, "429" if outcome["quota"] else ("ok" if outcome["ok"] else "5xx"))
+                    # the pool is shared with every API call: a hang, a substituted model or the
+                    # agent's own failure is not the key's fault ("skip" = counters untouched)
+                    pool.report(key, "429" if outcome["quota"] else "ok" if outcome["ok"]
+                                else "5xx" if outcome["transient"] else "skip")
                 finally:
                     # one acquire per attempt: keep the pool's in-flight gauge honest — also when
                     # invoke raises, or one slot of the PROCESS-WIDE pool is gone for good
@@ -336,12 +339,17 @@ def parse_claude_json(stdout: str) -> dict[str, Any] | None:
 
 
 def usage_from_envelope(env: dict[str, Any], model: str) -> Usage:
+    """``input_tokens`` is the TOTAL prompt (uncached + cache reads + cache writes), the
+    convention pricing.py and anthropic.py share.  The envelope's own ``input_tokens`` is the
+    uncached part only, and CostBucket clamps ``cached`` to ``input``: every cache-read token
+    past it and every cache-write token used to vanish from the ledger."""
     u = env.get("usage") or {}
+    cache_read = int(u.get("cache_read_input_tokens") or 0)
     usage = Usage(
         backend="claude-code", model=model,
-        input_tokens=int(u.get("input_tokens") or 0),
+        input_tokens=int(u.get("input_tokens") or 0) + cache_read + int(u.get("cache_creation_input_tokens") or 0),
         output_tokens=int(u.get("output_tokens") or 0),
-        cached_tokens=int(u.get("cache_read_input_tokens") or 0),
+        cached_tokens=cache_read,
         thoughts_tokens=int(((u.get("output_tokens_details") or {}).get("thinking_tokens")) or 0),
         tool_calls=max(int(env.get("num_turns") or 0) - 1, 0),
         cost_usd=float(env.get("total_cost_usd") or 0.0),
@@ -434,8 +442,10 @@ class ClaudeCodeAgent(_CliAgent):
             elif env is None or proc.rc != 0:
                 reason, ok = "error", False
                 errors.append(f"rc={proc.rc}; no result envelope; stderr tail: {tail(proc.stderr, 1500)}")
-                if is_transient_failure(proc.stderr, proc.stdout):
-                    reason = "budget" if is_quota_failure(proc.stderr) else "error"
+                # a 529 / overloaded exit is the provider's, not the task's (AgentResult.transient)
+                transient = is_transient_failure(proc.stderr, proc.stdout)
+                if transient and is_quota_failure(proc.stderr):
+                    reason = "budget"
             elif env.get("is_error") or str(env.get("subtype", "")).startswith("error"):
                 ok = False
                 sub = str(env.get("subtype", ""))
@@ -745,11 +755,7 @@ class AntigravityAgent(_CliAgent):
 
 def _compose_prompt_agy(s: Session) -> str:
     """agy has no system-prompt flag; prepend harness instructions + the absolute workspace path."""
-    job = s.job
     head = f"Workspace root: {s.ws.root}\nWork ONLY inside it, using your file tools."
     if (s.ws.root / "AGENTS.md").is_file():
         head += " Read AGENTS.md there first and follow it."
-    head += "\n"
-    if job.system_append:
-        head += f"\n<harness_instructions>\n{job.system_append}\n</harness_instructions>\n"
-    return f"{head}\n{job.prompt}"
+    return f"{head}\n\n{_compose_prompt(s.job)}"

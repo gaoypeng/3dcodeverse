@@ -47,6 +47,12 @@ assert "--dangerously-skip-permissions" in args and "--output-format" in args
 assert "--strict-mcp-config" in args
 assert "FAKE_SERVICE_API_KEY" not in os.environ
 mode = os.environ.get("FAKE_MODE", "ok")
+if mode == "overloaded":   # what `claude -p` exits with when the API is out of capacity
+    print('API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}', file=sys.stderr)
+    sys.exit(1)
+if mode == "rate_limited":
+    print("API Error: 429 rate_limit_error: This request would exceed your rate limit", file=sys.stderr)
+    sys.exit(1)
 os.makedirs("src", exist_ok=True)
 open("src/hello.txt", "w").write("hi")
 env = json.loads(''' + repr(json.dumps(ENVELOPE)) + r''')
@@ -65,7 +71,10 @@ def test_parse_envelope_variants():
     assert parse_claude_json(json.dumps([{"type": "assistant"}, ENVELOPE]))["type"] == "result"
     assert parse_claude_json("") is None
     u = usage_from_envelope(ENVELOPE, "sonnet")
-    assert u.input_tokens == 10 and u.cached_tokens == 5000 and u.cost_usd == 0.0123 and u.model == "claude-sonnet-4-6"
+    assert u.cached_tokens == 5000 and u.cost_usd == 0.0123 and u.model == "claude-sonnet-4-6"
+    # input_tokens is the TOTAL prompt (10 uncached + 5 000 read + 200 written), as for every
+    # other backend: the uncached 10 alone let CostBucket clamp 4 990 cached + the 200 away
+    assert u.input_tokens == 5210
 
 
 def test_argv_includes_mcp_when_materialized(tmp_ws: Workspace):
@@ -107,6 +116,19 @@ def test_fake_run_success_and_error(tmp_ws: Workspace, fake_bin, monkeypatch):
     monkeypatch.setenv("FAKE_MODE", "error")
     res2 = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="c2", timeout_s=30))
     assert not res2.ok and res2.exit_reason == "budget" and "error_max_turns" in res2.errors[0]
+    assert res2.transient is False   # the task's own failure
+
+
+def test_an_overloaded_exit_is_transient(tmp_ws: Workspace, fake_bin, monkeypatch):
+    """A 529 exit is the provider's, not the task's: it must say so (AgentResult.transient) —
+    the storm fallback and the repair loop's stop both key on it, and it was always False."""
+    a = ClaudeCodeAgent("sonnet", binary=fake_bin("claude", FAKE_CLAUDE))
+    monkeypatch.setenv("FAKE_MODE", "overloaded")
+    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="o", timeout_s=30))
+    assert not res.ok and res.exit_reason == "error" and res.transient is True
+    monkeypatch.setenv("FAKE_MODE", "rate_limited")
+    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="q", timeout_s=30))
+    assert not res.ok and res.exit_reason == "budget" and res.transient is True
 
 
 @pytest.mark.live

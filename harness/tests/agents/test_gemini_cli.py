@@ -33,6 +33,9 @@ if mode in ("fail_once", "fail_once_503", "fail_always", "fail_twice_429"):
         sys.exit(1)
 if mode == "hang":
     time.sleep(60)
+if mode == "crash":        # the agent's own failure: nothing transient about it
+    print("TypeError: Cannot read properties of undefined (reading 'parts')", file=sys.stderr)
+    sys.exit(2)
 if mode == "storm":        # what gemini-cli 0.53 prints, 8-17 times per session, in a 503 storm
     for i in range(4):
         print(f"Attempt {i + 1} failed with status 503. Retrying with backoff... _ApiError: UNAVAILABLE", file=sys.stderr)
@@ -223,6 +226,25 @@ def test_a_timeout_after_a_503_streak_is_marked_transient(tmp_ws: Workspace, age
     res = agent.run(_job(tmp_ws, timeout_s=1))
     assert not res.ok and res.exit_reason == "timeout" and res.transient is True
     assert any("4 x 503" in e for e in res.errors), res.errors
+
+
+def test_the_key_pool_hears_a_5xx_only_when_the_failure_was_transient(tmp_ws: Workspace, agent: GeminiCliAgent,
+                                                                     monkeypatch):
+    """The pool is shared with every API call and a "5xx" costs the key 20 % of its health: a
+    hang, a substituted model or the agent's own crash is not the KEY's fault."""
+    from codeverse3d.agents import backends as gc
+
+    monkeypatch.setattr("codeverse3d.agents.cli_common.IDLE_GRACE_S", 1.0)
+    pool = gc._key_pool(get_settings().gemini_api_keys)  # noqa: SLF001
+    for mode, timeout_s in (("substitute", 20), ("crash", 20), ("hang", 1)):
+        monkeypatch.setenv("FAKE_MODE", mode)
+        assert not agent.run(_job(tmp_ws, timeout_s=timeout_s, label=mode)).ok
+    st = pool.stats()
+    assert (st["5xx"], st["ok"], st["error"]) == (0, 0, 0), st
+    monkeypatch.setenv("FAKE_MODE", "fail_once_503")   # a real 503, then a rotated success
+    assert agent.run(_job(tmp_ws, label="storm")).ok
+    st = pool.stats()
+    assert (st["5xx"], st["ok"]) == (1, 1), st
 
 
 def test_unavailable_when_no_keys(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):

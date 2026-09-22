@@ -63,21 +63,8 @@ def get_coding_agent(agent_id: str) -> CodingAgent:
 
 @lru_cache(maxsize=32)
 def _build_agent(agent_id: str) -> CodingAgent:
-    kind, model = parse_agent_id(agent_id)
-    if kind == "gemini-cli":
-        from codeverse3d.agents.backends import GeminiCliAgent
+    kind, model = parse_agent_id(agent_id)  # an unknown kind has raised already
+    from codeverse3d.agents import backends
 
-        return GeminiCliAgent(model)
-    if kind == "claude-code":
-        from codeverse3d.agents.backends import ClaudeCodeAgent
-
-        return ClaudeCodeAgent(model)
-    if kind == "codex":
-        from codeverse3d.agents.backends import CodexAgent
-
-        return CodexAgent(model)
-    if kind == "agy":
-        from codeverse3d.agents.backends import AntigravityAgent
-
-        return AntigravityAgent(model)
-    raise ValueError(f"unknown agent kind {kind!r}; known: {KINDS}")
+    return {"gemini-cli": backends.GeminiCliAgent, "claude-code": backends.ClaudeCodeAgent,
+            "codex": backends.CodexAgent, "agy": backends.AntigravityAgent}[kind](model)
