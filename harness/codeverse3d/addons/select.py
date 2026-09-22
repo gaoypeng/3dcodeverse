@@ -219,9 +219,10 @@ def package(run_dir: Path | str, round_index: int, *, texture: bool = False, met
 
     ``texture=True`` runs the texture pass on that round's own GLB first, unless a pass
     already started from those exact bytes (a paid pass is never bought twice); a pack
-    ships into the deliverable only when its judge gate shipped it.  The record is then
-    re-packaged, so its total takes in what the pick paid for (a texture pass, a pairwise
-    verdict): the run's money is its ledger's (``record.package_run``)."""
+    ships into the deliverable only when its judge gate shipped it, and the record is
+    re-packaged so its total takes the pass in (the run's money is its ledger's,
+    ``record.package_run``).  Otherwise the record is not rewritten: a record from before
+    2026-09-22 keeps the ``best_round`` its canonical build is found by."""
     ws = Workspace(run_dir)
     rec = load_record(ws)
     rnd = next((r for r in rec.rounds if r.index == round_index), None)
@@ -230,8 +231,8 @@ def package(run_dir: Path | str, round_index: int, *, texture: bool = False, met
     if texture:
         _texture(ws, rec, round_index, image_model=image_model)
         rec = load_record(ws)  # the pass wrote extra["texturing"]
-    package_run(ws, rec)
-    ws.write_json(ws.record_path, rec)
+        package_run(ws, rec)
+        ws.write_json(ws.record_path, rec)
     manifest = build_deliverable(ws, rec, round_index)
     sel = Selection(round=round_index, method=method, scores={r.index: r.score for r in round_rows(ws.root, record=rec)},
                     textured=any(f.path == "deliverable/object_textured.glb" for f in manifest.files))

@@ -7,7 +7,6 @@ import json
 import shutil
 from pathlib import Path
 
-import pytest
 from typer.testing import CliRunner
 
 from codeverse3d.addons import select
@@ -97,9 +96,9 @@ def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run)
     assert first.generated_at == second.generated_at  # unchanged content → no diff
     assert [(f.path, f.sha256) for f in first.files] == [(f.path, f.sha256) for f in second.files]
 
-    # A pick re-packages the record: its telemetry and its total (the ledger's) are on disk.
+    # Package metadata can be recovered from files even before the caller saves rec.
     bare = load_record(ws)
-    assert bare.telemetry is not None and bare.total_usage.cost_usd == pytest.approx(0.06)
+    assert bare.telemetry is None
     assert load_telemetry(ws, bare) is not None and load_deliverable(ws) is not None
 
     # Delivered assets are copies: editing a hand-over cannot mutate evidence.
