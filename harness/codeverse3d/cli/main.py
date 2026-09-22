@@ -5,9 +5,9 @@ packages through function-local imports, so ``3dcode --help`` loads none of them
 
 Owns the typer app and every registration, the run-starting commands ``make`` /
 ``resume`` (spec building, reference grounding, track dispatch, budget raising, and the
-hand-over after the run), ``pick`` and ``mcp``.  The run-inspecting commands ``status`` / ``render`` / ``judge`` live in the
-sibling ``cli/inspect_cmd.py`` and are registered here, the way ``layout_cmd.py``'s
-``show`` is.
+hand-over after the run), ``pick`` and ``mcp``.  ``render`` / ``judge`` live in the sibling
+``cli/inspect_cmd.py``, the single-run view ``show`` (and its ``status`` alias) in
+``cli/layout_cmd.py``; all are registered here.
 """
 
 from __future__ import annotations
@@ -660,11 +660,9 @@ def pick(
         f"gate errors {r.gate_errors}  {C.fmt_usd(r.cost_usd)}" for r in rows}))
 
 
-# --------------------------------------------------------------------------- status / render / judge
-# moved to codeverse3d/cli/inspect_cmd.py; imported here so existing importers keep working
-from codeverse3d.cli.inspect_cmd import judge, render, status  # noqa: E402
+# --------------------------------------------------------------------------- render / judge
+from codeverse3d.cli.inspect_cmd import judge, render  # noqa: E402
 
-app.command()(status)
 app.command()(render)
 app.command()(judge)
 
@@ -681,13 +679,11 @@ def mcp(workspace: Annotated[Path, typer.Option("--workspace")]) -> None:
     )
 
 
-# --------------------------------------------------------------------------- run layout (show)
-# appended registration — see codeverse3d/cli/layout_cmd.py
-from codeverse3d.cli.layout_cmd import show as _show  # noqa: E402
+# --------------------------------------------------------------------------- the single-run view (show, status)
+from codeverse3d.cli.layout_cmd import show, status  # noqa: E402
 
-app.command(
-    "show", help="One run in three sections: DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS."
-)(_show)
+app.command()(show)
+app.command()(status)
 
 
 if __name__ == "__main__":  # pragma: no cover

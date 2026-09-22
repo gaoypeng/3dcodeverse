@@ -168,14 +168,15 @@ carries no `deliverable` block.  A `record.json` written before that still valid
 ## Reading a run
 
 ```
-3dcode show <slug>                 # DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS
+3dcode show <slug>                 # STATUS / DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS
 3dcode show <slug> --section cost  # just the token price + key step settings
-3dcode status <slug>               # unchanged (+ a pointer to `3dcode show`)
+3dcode status <slug>               # = show --section status: the rounds, run_state, the lock holder, events
 ```
 
 `3dcode show` works on both layouts: when a run has no `telemetry/` yet the cost
 and settings block is computed on the fly (read-only) from the trajectories,
-judge verdicts and events already on disk.
+judge verdicts and events already on disk.  Its STATUS section needs no `record.json`, so it
+also reads a run in flight (the other three sections wait for the record).
 
 For the money itself across many runs — waste, $ per run, price provenance — use the cost
 package's own command, `3dcode cost show <runs-dir>`.

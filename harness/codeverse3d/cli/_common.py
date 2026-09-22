@@ -75,7 +75,8 @@ def print_record_summary(record: RunRecord, ws_root: Path | None = None) -> None
     status_col = {"failed": "red", "budget": "yellow", "agent_quota": "yellow"}.get(record.status.value, "cyan")
     lines = [
         f"[bold]{spec.prompt}[/bold]",
-        f"track={spec.track.value}  language={spec.language.value}  generator={spec.backends.generator}",
+        f"track={spec.track.value}  language={spec.language.value}  generator={spec.backends.generator}  "
+        f"judge={spec.backends.judge}",
         f"stop=[{status_col}]{s.stop_reason}[/{status_col}]  baseline={fmt_score(s.baseline_score)}  "
         f"picked={fmt_score(s.picked_score)} (round {s.picked_round}, by {s.method})  rounds={s.rounds}  "
         f"cost={fmt_usd(record.total_usage.cost_usd)}",

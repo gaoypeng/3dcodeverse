@@ -210,12 +210,31 @@ def test_show_sections_and_status_share_the_packaged_run(fake_run):
     assert r.exit_code == 0 and "COST & SETTINGS" in r.output and "DELIVERABLE" not in r.output
     assert _show(ws.root.name, ws.root.parent, "--section", "bogus").exit_code == 1
 
-    # The legacy status view stays available and points to the richer view.
+    # `status` is `show --section status`: the run and its rounds, nothing from the other sections;
+    # `show` opens with that same section.
     ws.write_json(ws.record_path, rec)
     r = runner.invoke(app, ["status", ws.root.name, "--runs-dir", str(ws.root.parent)])
     assert r.exit_code == 0, r.output
-    assert "rounds" in r.output and "passed" in r.output
-    assert f"3dcode show {ws.root.name}" in r.output
+    assert "STATUS" in r.output and "rounds" in r.output and "passed" in r.output and "DELIVERABLE" not in r.output
+    assert out.index("STATUS") < out.index("DELIVERABLE")
+
+
+def test_show_on_a_run_without_a_record_is_its_status(tmp_path: Path):
+    """Mid-run there is no record.json: `show` prints where the run stands and says what the other
+    sections wait for (it used to exit 1 and point at `3dcode status`); a named section still fails."""
+    from codeverse3d.contracts.common import Backends, Language, Track
+    from codeverse3d.contracts.spec import Spec
+    from codeverse3d.proc import EventLog
+    from codeverse3d.workspace import Workspace
+
+    ws = Workspace(tmp_path / "runs" / "stool").create()
+    ws.write_json(ws.spec_path, Spec(id="stool", track=Track.STATIC_OBJECT, language=Language.BLENDER,
+                                     prompt="a small wooden stool", backends=Backends(generator="gemini-cli:x")))
+    EventLog(ws.events_path).emit("run.start")
+    r = _show("stool", ws.root.parent)
+    assert r.exit_code == 0, r.output
+    assert "a small wooden stool" in r.output and "run.start" in r.output and "need the record" in r.output
+    assert _show("stool", ws.root.parent, "--section", "cost").exit_code == 1
 
 
 def test_show_works_on_an_old_layout_run(tmp_path: Path):

@@ -1,124 +1,25 @@
-"""``3dcode status`` / ``3dcode render`` / ``3dcode judge`` — inspect one existing run.
+"""``3dcode render`` / ``3dcode judge`` — act on one existing run.
 
-Owns the three read-mostly commands on a finished (or in-flight) workspace: the
-``status`` summary (spec / run_state / record / candidates / recent events), the
-``render`` command (the working tree, which ends at the run's last round) with its
-round-label refusal and the graphics-track frame copy, and the ``judge`` re-judge that
-writes ``artifacts/judge/rNN_cli.json`` (default: the round ``addons/select`` picks).  Its sibling ``cli/main.py`` owns the typer app,
-``make`` / ``resume`` (spec building + track dispatch), ``mcp`` and the registration
-of every command — including these three, which it registers with ``app.command``
-like ``layout_cmd.py``'s ``show``.
+Owns the ``render`` command (the working tree, which ends at the run's last round) with
+its round-label refusal and the graphics-track frame copy, and the ``judge`` re-judge that
+writes ``artifacts/judge/rNN_cli.json`` (default: the round ``addons/select`` picks).  The
+single-run VIEW (``show``, and ``status`` = ``show --section status``) is ``layout_cmd.py``'s.
+Its sibling ``cli/main.py`` owns the typer app, ``make`` / ``resume`` (spec building + track
+dispatch), ``mcp`` and the registration of every command.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from codeverse3d.cli import _common as C
-from codeverse3d.cli._common import RunsDirOpt, console, kv_table, print_record_summary, warn
+from codeverse3d.cli._common import RunsDirOpt, console, kv_table
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.common import Track
 from codeverse3d.contracts.spec import Spec
-from codeverse3d.proc import read_json_or_none
-
-
-# --------------------------------------------------------------------------- status
-def status(
-    slug: str,
-    runs_dir: RunsDirOpt = None,
-    events: Annotated[int, typer.Option("--events", help="tail N events")] = 8,
-) -> None:
-    """Show spec / run_state / record / recent events of a run."""
-    from codeverse3d.proc import EventLog, holder_of
-    from codeverse3d.record.record import RecordError, load_record
-
-    ws = C.open_workspace(slug, runs_dir)
-    spec = C.load_spec(ws)
-    rows = {
-        "workspace": ws.root,
-        "track": spec.track.value,
-        "language": spec.language.value,
-        "generator": spec.backends.generator,
-        "judge": spec.backends.judge,
-        "prompt": spec.prompt,
-    }
-    if (held := holder_of(ws.root)) is not None:  # kill THAT pid, never `pkill -f 3dcode`
-        rows["RUNNING NOW"] = f"pid {held.get('pid', '?')} ({held.get('what') or '3dcode'})"
-    if ws.state_path.is_file():
-        try:
-            state = json.loads(ws.state_path.read_text())
-            rows["run_state"] = ", ".join(
-                f"{k}={v}" for k, v in state.items() if not isinstance(v, (dict, list))
-            )[:300]
-        except ValueError:
-            rows["run_state"] = "(unreadable)"
-    console.print(kv_table("status", rows))
-    record = None
-    try:
-        record = load_record(ws)
-        print_record_summary(record, ws.root)
-    except RecordError as e:
-        warn(f"no record yet ({e})")
-    _print_candidates(ws)
-    if record is not None and record.extra.get("texturing"):
-        t = record.extra["texturing"]
-        console.print(
-            kv_table(
-                "texturing",
-                {
-                    "shipped": t.get("shipped"),
-                    "delta": t.get("delta"),
-                    "reason": t.get("reason", ""),
-                    "textures": t.get("n_textures", len(t.get("textures", {}) or {})),
-                    "glb": t.get("glb_textured", "") or "-",
-                },
-            )
-        )
-    console.print(
-        f"[dim]`3dcode show {ws.root.name}` for the DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS view[/dim]"
-    )
-    evs = EventLog(ws.events_path).read()
-    if evs:
-        console.print(f"[dim]last {min(events, len(evs))} of {len(evs)} events:[/dim]")
-        for ev in evs[-events:]:
-            extra = {k: v for k, v in ev.items() if k not in ("t", "event")}
-            console.print(
-                f"  {_event_time(ev)}  {ev.get('event', '?'):<14} {json.dumps(extra, default=str)[:160]}"
-            )
-
-
-def _print_candidates(ws) -> None:
-    """Best-of-N candidate table + pairwise verdict (rounds/candidates.json), when present."""
-    data = read_json_or_none(ws.root / "rounds" / "candidates.json")
-    if data is None:
-        return
-    cands = data.get("candidates") or []
-    rows: dict[str, str] = {"n": str(data.get("n", len(cands)))}
-    for c in cands:
-        mark = " *" if c.get("index") == data.get("selected") else ""
-        score = c.get("score")
-        rows[f"{c.get('label', c.get('index'))}{mark}"] = (
-            f"score {score if score is None else round(score, 3)}  build_ok={c.get('build_ok')}"
-        )
-    pw = data.get("pairwise")
-    if pw:
-        rows["pairwise"] = (
-            f"{pw.get('a')} vs {pw.get('b')} → {pw.get('winner')} (confidence {pw.get('confidence')})"
-        )
-    console.print(kv_table("candidates (best-of-N, * = selected)", rows))
-
-
-def _event_time(ev: dict) -> str:
-    from datetime import UTC, datetime
-
-    try:
-        return datetime.fromtimestamp(float(ev["t"]), UTC).strftime("%H:%M:%S")
-    except (KeyError, TypeError, ValueError, OSError):
-        return "--:--:--"
 
 
 # --------------------------------------------------------------------------- render / judge

@@ -1,7 +1,8 @@
-"""``3dcode show`` — one run directory, read in three sections.
+"""``3dcode show`` — THE single-run view, in four sections (docs/RUN_LAYOUT.md):
 
-``show`` prints one run as three clearly separated sections (docs/RUN_LAYOUT.md):
-
+* **STATUS** — where the run stands: the run, the rounds, the process holding the run
+  lock, run_state, best-of-N candidates, a texture pass, the latest events.  It needs no
+  record.json, so it works mid-run; ``3dcode status`` is ``show --section status``;
 * **DELIVERABLE** — what the run produced and where to find it;
 * **QUALITY EVIDENCE** — why we believe it is good (score, rubric, gates, acceptance);
 * **COST & SETTINGS** — tokens and dollars per stage, model ids, thinking levels,
@@ -13,13 +14,22 @@ is computed on the fly when ``telemetry/`` is not there yet.
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any
 
 import typer
 from rich.table import Table
 
 from codeverse3d.cli import _common as C
-from codeverse3d.cli._common import RunsDirOpt, console, fmt_score, fmt_usd, kv_table, warn
+from codeverse3d.cli._common import (
+    RunsDirOpt,
+    console,
+    fmt_score,
+    fmt_usd,
+    kv_table,
+    print_record_summary,
+    warn,
+)
 from codeverse3d.contracts.run import (
     CostSummary,
     DeliverableFile,
@@ -41,6 +51,60 @@ def _human_bytes(n: int) -> str:
 
 def _section(title: str) -> None:
     console.rule(f"[bold]{title}[/bold]", align="left")
+
+
+# --------------------------------------------------------------------------- status
+def print_status(ws: Workspace, record: RunRecord | None, n_events: int) -> None:
+    """Where the run stands.  Needs no record.json: a run in flight shows its spec, its lock
+    holder, run_state and the latest events."""
+    from codeverse3d.proc import EventLog, holder_of, read_json_or_none
+
+    _section("STATUS — where the run stands")
+    if record is not None:
+        print_record_summary(record, ws.root)
+    else:
+        spec = C.load_spec(ws)
+        console.print(kv_table("run (no record.json yet)", {
+            "prompt": spec.prompt, "track": spec.track.value, "language": spec.language.value,
+            "generator": spec.backends.generator, "judge": spec.backends.judge, "workspace": ws.root}))
+    state: dict[str, Any] = {}
+    if (held := holder_of(ws.root)) is not None:  # kill THAT pid, never `pkill -f 3dcode`
+        state["RUNNING NOW"] = f"pid {held.get('pid', '?')} ({held.get('what') or '3dcode'})"
+    if ws.state_path.is_file():
+        raw = read_json_or_none(ws.state_path)
+        state["run_state"] = "(unreadable)" if raw is None else ", ".join(
+            f"{k}={v}" for k, v in raw.items() if not isinstance(v, (dict, list)))[:300]
+    if state:
+        console.print(kv_table("state", state))
+    cands = read_json_or_none(ws.root / "rounds" / "candidates.json")
+    if cands is not None:
+        rows: dict[str, str] = {"n": str(cands.get("n", len(cands.get("candidates") or [])))}
+        for c in cands.get("candidates") or []:
+            score = c.get("score")
+            rows[f"{c.get('label', c.get('index'))}{' *' if c.get('index') == cands.get('selected') else ''}"] = (
+                f"score {score if score is None else round(score, 3)}  build_ok={c.get('build_ok')}")
+        if pw := cands.get("pairwise"):  # a record from before 2026-09-22 (in-loop pairwise)
+            rows["pairwise"] = f"{pw.get('a')} vs {pw.get('b')} → {pw.get('winner')} (confidence {pw.get('confidence')})"
+        console.print(kv_table("candidates (best-of-N, * = selected)", rows))
+    if record is not None and (t := record.extra.get("texturing")):
+        console.print(kv_table("texturing", {
+            "shipped": t.get("shipped"), "delta": t.get("delta"), "reason": t.get("reason", ""),
+            "textures": t.get("n_textures", len(t.get("textures", {}) or {})), "glb": t.get("glb_textured", "") or "-"}))
+    evs = EventLog(ws.events_path).read()
+    if evs:
+        console.print(f"[dim]last {min(n_events, len(evs))} of {len(evs)} events:[/dim]")
+        for ev in evs[-n_events:]:
+            extra = {k: v for k, v in ev.items() if k not in ("t", "event")}
+            console.print(f"  {_event_time(ev)}  {ev.get('event', '?'):<14} {json.dumps(extra, default=str)[:160]}")
+
+
+def _event_time(ev: dict) -> str:
+    from datetime import UTC, datetime
+
+    try:
+        return datetime.fromtimestamp(float(ev["t"]), UTC).strftime("%H:%M:%S")
+    except (KeyError, TypeError, ValueError, OSError):
+        return "--:--:--"
 
 
 # --------------------------------------------------------------------------- (a) deliverable
@@ -84,11 +148,8 @@ def print_deliverable(ws: Workspace, record: RunRecord) -> None:
     from codeverse3d.record.deliverable import load_deliverable
 
     _section("DELIVERABLE — what the run produced")
-    spec = record.spec
     s = select.summarise(ws.root, record=record)
-    head = {"prompt": spec.prompt, "track": spec.track.value, "language": spec.language.value,
-            "stop": s.stop_reason, "picked round": f"{s.picked_round} (by {s.method})",
-            "score": fmt_score(s.picked_score), "workspace": ws.root}
+    head: dict[str, Any] = {"picked round": f"{s.picked_round} (by {s.method})", "score": fmt_score(s.picked_score)}
     d = load_deliverable(ws)
     if d is not None:
         head["code"] = f"{d.entry or 'deliverable/src/'} @ {d.commit[:12] or '-'} ({d.code_source})"
@@ -119,7 +180,6 @@ def print_evidence(ws: Workspace, record: RunRecord) -> None:
         "rubric": (j.rubric if j else "") or str(record.extra.get("rubric") or "-"),
         "judge on that round": "-" if j is None else ("pass" if j.passed else "fail"),
         "gate errors": f"{sum(gates.values())} ({', '.join(f'{g}:{n}' for g, n in gates.items() if n) or 'none'})",
-        "stop reason": s.stop_reason or "-",
     }
     if j is not None:
         acc = j.acceptance_results or {}
@@ -215,21 +275,34 @@ def print_cost_and_settings(ws: Workspace, record: RunRecord) -> None:
 
 
 # --------------------------------------------------------------------------- command
+SECTIONS = ("status", "deliverable", "evidence", "cost")
+EventsOpt = Annotated[int, typer.Option("--events", help="tail N events (the status section)")]
+
+
 def show(
     slug: str,
     runs_dir: RunsDirOpt = None,
-    section: Annotated[str, typer.Option("--section", help="all | deliverable | evidence | cost")] = "all",
+    section: Annotated[str, typer.Option("--section", help="all | status | deliverable | evidence | cost")] = "all",
+    events: EventsOpt = 8,
 ) -> None:
-    """Show one run in three separated sections: DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS."""
+    """One run in four sections: STATUS / DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS."""
     from codeverse3d.record.record import RecordError, load_record
 
     ws = C.open_workspace(slug, runs_dir)
+    if section not in ("all", *SECTIONS):
+        raise C.CliError(f"unknown --section {section!r} (all | {' | '.join(SECTIONS)})")
     try:
-        record = load_record(ws)
+        record: RunRecord | None = load_record(ws)
     except RecordError as e:
-        raise C.CliError(f"{e} (run `3dcode status {slug}` for a partial view)") from e
-    if section not in ("all", "deliverable", "evidence", "cost"):
-        raise C.CliError(f"unknown --section {section!r} (all | deliverable | evidence | cost)")
+        if section not in ("all", "status"):
+            raise C.CliError(f"{e} (`3dcode status {slug}` shows where the run stands)") from e
+        record, missing = None, str(e)
+    if section in ("all", "status"):
+        print_status(ws, record, events)
+    if record is None:
+        if section == "all":
+            warn(f"{missing}: DELIVERABLE / QUALITY EVIDENCE / COST & SETTINGS need the record")
+        return
     if section in ("all", "deliverable"):
         print_deliverable(ws, record)
     if section in ("all", "evidence"):
@@ -237,3 +310,7 @@ def show(
     if section in ("all", "cost"):
         print_cost_and_settings(ws, record)
 
+
+def status(slug: str, runs_dir: RunsDirOpt = None, events: EventsOpt = 8) -> None:
+    """Where a run stands, mid-run too: `3dcode show <slug> --section status`."""
+    show(slug, runs_dir, section="status", events=events)

@@ -242,8 +242,10 @@ codeverse3d/
                       to read (SKILL.md + references/ + a _claims file pinning its numbers to
                       live constants).  A file that tries to be both is the bug this prevents.
   cli/                main.py (app wiring, make/resume/mcp + the tools/gallery
-                      commands), inspect_cmd.py (status/render/judge on one existing run),
-                      flywheel_cmd.py, texture_cmd.py, cost_cmd.py (`3dcode cost`), layout_cmd.py, doctor.py
+                      commands), inspect_cmd.py (render/judge on one existing run), layout_cmd.py
+                      (THE single-run view: `show` = STATUS / DELIVERABLE / QUALITY EVIDENCE / COST &
+                      SETTINGS; `status` = `show --section status`, which also reads a run in flight),
+                      flywheel_cmd.py, texture_cmd.py, cost_cmd.py (`3dcode cost`), doctor.py
                       (`--skills` checks the library + its discovery wiring),
                       skills_cmd.py (`3dcode skills list|show|validate|report` — the read-rate report)
 eval/bench/                run_bench.py + report.py (the battery launcher, `python -m bench.run_bench` / `bench.report`;
