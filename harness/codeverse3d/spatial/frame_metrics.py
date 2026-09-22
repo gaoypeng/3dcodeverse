@@ -18,11 +18,11 @@ place them) except for the content-sparse overview, which is informational.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 from codeverse3d.contracts.artifacts import GateFinding, GateReport, RenderSet, Severity
+from codeverse3d.proc import read_json_or_none
 from codeverse3d.spatial.frame_motion import MotionRow, motion_summary_text, scene_moves
 
 FRAME_GATE = "scene_frames"
@@ -437,11 +437,8 @@ def frame_gate_from_renders(source: RenderSet | Path | str) -> GateReport:
     else:
         p = Path(source)
         path = p if p.is_file() else (p / "metrics.json" if (p / "metrics.json").is_file() else None)
-    if path is None:
-        return GateReport(gate=FRAME_GATE, passed=True, findings=[])
-    try:
-        metrics = json.loads(path.read_text())
-    except (OSError, ValueError):
+    metrics = read_json_or_none(path) if path is not None else None
+    if metrics is None:
         return GateReport(gate=FRAME_GATE, passed=True, findings=[])
     return frame_findings(metrics)
 

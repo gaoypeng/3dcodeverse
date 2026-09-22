@@ -1444,7 +1444,7 @@ the 19 without (confounded — those are also the articulated runs — but it po
 
 A second flag, not a threshold.  `Observation.failed` is what the MCP server reports as
 `is_error`; `ok` stays the verdict.  `Observation.error` builds every failure caught at the
-`ToolDef.call` boundary (exception, `ToolUnavailable`, `ToolUsageError`, missing or
+`ToolDef.call` boundary (exception, `ToolUsageError`, missing or
 unreadable artefact), and three tools set `failed` on a result they compose themselves,
 where the failure is a fact about the result rather than an exception.  Which places those
 are is a property of the code, so the list lives there (`spatial/registry.Observation.error`)

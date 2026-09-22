@@ -68,7 +68,7 @@ _AXES = ("x", "y", "z")
 # axis's own extent must not have moved by more than ORIENT_THIRD (sysprompt_ab
 # b36_v0_01r: a table 1.38 m wide for a 0.48 m chair — wrong object, not rotated), and
 # near-cubes say nothing (ORIENT_ANISO).  Over every measured static_object round under
-# bench/out (629 measurements: 435 rounds + 194 final measurement.json, 217 runs) these
+# eval/bench/out (629 measurements: 435 rounds + 194 final measurement.json, 217 runs) these
 # fire 0 times; on the brilliana c_clamp and gate_valve GLBs (both lying, by eye) they
 # fire with the right axis.
 ORIENT_FIT = float(np.log(1.25))
@@ -174,7 +174,8 @@ def planned_joins(plan: Plan | None, measurement: Measurement | None) -> list[tu
             continue
         parents = matched.get(pp.attach_to) or []
         for child in matched.get(pp.name) or []:
-            gaps = {p.name: _aabb_gap(child, p) for p in parents if p.name != child.name}
+            gaps = {p.name: _aabb_gap((child.bbox_min, child.bbox_max), (p.bbox_min, p.bbox_max))
+                    for p in parents if p.name != child.name}
             if not gaps:
                 continue
             touching = [n for n, g in gaps.items() if g <= CONTACT_GAP_M]
@@ -182,10 +183,10 @@ def planned_joins(plan: Plan | None, measurement: Measurement | None) -> list[tu
     return edges
 
 
-def _aabb_gap(a: PartMeasure, b: PartMeasure) -> float:
-    """Euclidean distance between two axis-aligned boxes (0 when they overlap)."""
-    lo_a, hi_a = np.asarray(a.bbox_min, dtype=float), np.asarray(a.bbox_max, dtype=float)
-    lo_b, hi_b = np.asarray(b.bbox_min, dtype=float), np.asarray(b.bbox_max, dtype=float)
+def _aabb_gap(a: np.ndarray | tuple, b: np.ndarray | tuple) -> float:
+    """Euclidean distance between two boxes given as ``(min, max)`` corners, 0 when they
+    overlap (``connectivity`` feeds it ``trimesh.bounds``: a mesh pair's lower bound)."""
+    (lo_a, hi_a), (lo_b, hi_b) = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
     return float(np.linalg.norm(np.maximum(np.maximum(lo_a - hi_b, lo_b - hi_a), 0.0)))
 
 

@@ -373,7 +373,7 @@ def _row_names(row: AssetRow) -> str:
     """The row's own name plus its named descendants, snake-cased for loose matching.
 
     A zone that wraps its content in one group ("IslandAssembly") used to hide every
-    planned asset from this check: `bench/out/scene_fixed` (2026-09-05) reported three
+    planned asset from this check: `eval/bench/out/scene_fixed` (2026-09-05) reported three
     floating_islands zones as "missing planned contents: FloatingRock, Windmill, SkyPine"
     while the zone module built each one and named it exactly that, one level down.
     """

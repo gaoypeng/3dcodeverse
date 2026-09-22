@@ -17,7 +17,6 @@ context and into the ``scene_frames`` gate.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -26,6 +25,8 @@ from typing import Any
 
 import numpy as np
 from PIL import Image
+
+from codeverse3d.proc import read_json_or_none
 
 #: per-channel 0..255 difference above which a pixel counts as changed
 PIXEL_DELTA = 8
@@ -154,11 +155,8 @@ def motion_summary_text(rows: Sequence[MotionRow], *, max_rows: int = 10) -> str
 def motion_from_dir(out_dir: Path | str) -> list[MotionRow]:
     """Convenience: read ``<out_dir>/metrics.json`` and measure it."""
     d = Path(out_dir)
-    try:
-        metrics = json.loads((d / "metrics.json").read_text())
-    except (OSError, ValueError):
-        return []
-    return motion_rows(metrics, d)
+    metrics = read_json_or_none(d / "metrics.json")
+    return [] if metrics is None else motion_rows(metrics, d)
 
 
 def motion_text_for(out_dir: Path | str) -> str:

@@ -1,6 +1,6 @@
 """The shared render/tool core: `spatial._render_common`, the sheet + gif writers,
-`measure.solid_parts`, `tool_common` helpers and the central ToolUnavailable
-boundary.  Each test pins one merge that removed a duplicate implementation.
+`measure.solid_parts` and the `tool_common` helpers.  Each test pins one merge that
+removed a duplicate implementation.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from PIL import Image
 
 from codeverse3d.conventions import OBJECT_VIEWS, SCENE_VIEWS
 from codeverse3d.spatial import _render_common as rc
-from codeverse3d.spatial.registry import ToolContext, ToolUnavailable, get_tool
+from codeverse3d.spatial.registry import ToolContext
 from codeverse3d.workspace import Workspace
 
 
@@ -136,7 +136,7 @@ def test_cached_render_glb_leaves_the_cache_to_render_glb(stool_ctx: ToolContext
         png.write_bytes(b"png")
         return RenderSet(views=[RenderView(name=views[0].name, path=str(png))], contact_sheet=None)
 
-    monkeypatch.setattr(tc, "lazy", lambda module, attr: fake_render_glb)
+    monkeypatch.setattr("codeverse3d.spatial.render.render_glb", fake_render_glb)
     glb = stool_ctx.workspace.artifacts / "object.glb"
     preset = OBJECT_VIEWS[0]
     first = tc.cached_render_glb(stool_ctx, glb, views=[preset])
@@ -220,27 +220,6 @@ def test_object_render_cache_is_keyed_by_gpu_mode(stool_glb: Path, tmp_path: Pat
     assert a.renderer == "webgl-on" and b.renderer == "webgl-off"
     c = R.render_glb(stool_glb, tmp_path / "c", views=[OBJECT_VIEWS[0]], sheet=False, gpu="on")
     assert len(runs) == 2 and c.renderer == "webgl-on", "same mode still hits the cache"
-
-
-def test_tool_unavailable_is_reported_by_the_registry(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    """No tool catches ToolUnavailable itself any more — ToolDef.call does it for
-    all of them, with the tool's own registered name."""
-    import codeverse3d.spatial.tool_common as tc
-
-    def boom(module, attr):
-        raise ToolUnavailable(f"{module} not importable")
-
-    monkeypatch.setattr(tc, "lazy", boom)
-    monkeypatch.setattr("codeverse3d.spatial.tools.lazy", boom)
-    ws = stool_ctx.workspace
-    (ws.artifacts / "object_textured.glb").write_bytes((ws.artifacts / "object.glb").read_bytes())
-    for name in ("build", "render_views", "texture_preview"):
-        obs = get_tool(name).call(stool_ctx, {})
-        assert not obs.ok and obs.text.startswith(f"tool {name} unavailable:"), (name, obs.text)
-    # a graphics workspace: the gl tools degrade the same way
-    gl_ctx = ToolContext(workspace=stool_ctx.workspace, language="glsl_shader", track="graphics")
-    obs = get_tool("gl_probe").call(gl_ctx, {})
-    assert not obs.ok and obs.text.startswith("tool gl_probe unavailable:"), obs.text
 
 
 def test_gl_metrics_summary_is_the_one_frame_stats_formatter(tmp_ws: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:

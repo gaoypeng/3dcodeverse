@@ -69,7 +69,6 @@ from codeverse3d.spatial.tool_common import (
     gl_metrics_summary,
     glb_path,
     language_of,
-    lazy,
     load_plan,
     reference_path,
     render_cache_dir,
@@ -213,9 +212,11 @@ def _build_failed(ctx: ToolContext, br: BuildResult, warns: list[str]) -> Observ
       describe_extra=lambda: _BUILD_INCLUDES_CHECKS if fewer_turns_enabled() else "")
 def build(ctx: ToolContext, args: NoArgs) -> Observation:
     # ToolDef.call stamps Observation.duration_ms for every tool — no timing here
+    from codeverse3d.languages import get_runtime
+
     ws = ctx.workspace
     language = language_of(ctx)
-    rt = lazy("codeverse3d.languages", "get_runtime")(language)
+    rt = get_runtime(language)
     refused, lint_warns = _lint_gate(ctx, rt, verb="building")
     if refused is not None:
         return refused
@@ -366,8 +367,6 @@ class RenderViewsArgs(BaseModel):
 
 
 def _render(ctx: ToolContext, *, views: list[str], mode: str, isolate: list[str], explode: float, size: int, note: str = "") -> Observation:
-    # a missing renderer raises ToolUnavailable → ToolDef.call turns it into the
-    # "tool <name> unavailable" Observation (one error boundary for every tool)
     glb = glb_path(ctx)
     presets = resolve_views(views)
     check_mode(mode)
@@ -653,18 +652,16 @@ class GlFramesArgs(BaseModel):
 
 
 def _runtime(ctx: ToolContext):
+    from codeverse3d.languages import get_runtime
+
     lang = language_of(ctx)
     if lang not in GRAPHICS_LANGS:
         raise ToolUsageError(f"gl tools only apply to {GRAPHICS_LANGS}; workspace language is {lang!r}")
-    get_runtime = lazy("codeverse3d.languages", "get_runtime")
     return get_runtime(lang)
 
 
 def _run_build(ctx: ToolContext, *, times: list[float], width: int = 0, height: int = 0) -> tuple[Observation | None, BuildResult | None, list[str]]:
-    """Lint → build; returns (error observation | None, build, lint warnings).
-
-    A missing runtime raises ToolUnavailable — ``ToolDef.call`` reports it.
-    """
+    """Lint → build; returns (error observation | None, build, lint warnings)."""
     ws = ctx.workspace
     rt = _runtime(ctx)
     refused, warns = _lint_gate(ctx, rt, verb="rendering")
@@ -748,9 +745,10 @@ def _spec_plan(ctx: ToolContext) -> tuple[Spec, StaticPlan]:
       "analytic UVs + PBR materials → artifacts/object_textured.glb, shipped only if the judge score does not drop.",
       tracks=_OBJECT_TRACKS, cost_hint="slow")
 def texture_pass_tool(ctx: ToolContext, args: TexturePassArgs) -> Observation:
+    from codeverse3d.texturing.run import texture_pass, texture_requested
+
     glb = glb_path(ctx)
     spec, plan = _spec_plan(ctx)
-    texture_requested = lazy("codeverse3d.texturing.run", "texture_requested")
     if not texture_requested(spec):
         # ONE owner for "does this run texture?" (codeverse3d.texturing.run.texture_requested).
         # The tool is registered for every object track, so without this an agent could —
@@ -759,7 +757,6 @@ def texture_pass_tool(ctx: ToolContext, args: TexturePassArgs) -> Observation:
             "this run did not ask for texturing (spec.options.texture is false), so the "
             "texture pass is off; finish the geometry instead",
             "3dcode make ... --texture   # or `3dcode texture pass <slug>` after the run")
-    texture_pass = lazy("codeverse3d.texturing.run", "texture_pass")
     services = ctx.extra.get("texture_services")  # the ONE injection point (TextureServices)
     # update_record=False: during an agent session the control files have ONE owner
     # (finalise); a mid-session record.json write is reverted by the tamper enforcement

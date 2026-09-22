@@ -4,7 +4,7 @@
 into a :class:`ComplexityVector`: eight measured axes plus one 0–1 ``index``
 computed from documented weights.  It answers "how much *thing* is actually
 here?" so that a judge score can be read against the difficulty of what was
-built (docs/COMPLEXITY.md), and so a battery can state an expected complexity
+built (eval/docs/COMPLEXITY.md), and so a battery can state an expected complexity
 band instead of a vibe.
 
 The eight axes
@@ -34,7 +34,7 @@ The eight axes
 
 ``index`` is ``Σ wᵢ · normᵢ(axisᵢ)`` with the weights in
 ``COMPLEXITY_WEIGHTS`` and the saturating normalisers in ``_NORMALISERS`` (both
-public data; docs/COMPLEXITY.md records why each number is what it is).  It is
+public data; eval/docs/COMPLEXITY.md records why each number is what it is).  It is
 a *difficulty* measure, never a *quality* measure: a rich broken model and a
 rich good model score the same index.
 """

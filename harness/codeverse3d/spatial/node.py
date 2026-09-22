@@ -15,14 +15,13 @@ import json
 import os
 import re
 import resource
-import subprocess
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from codeverse3d.config import get_settings
-from codeverse3d.proc import run_subprocess, scrub_secrets
+from codeverse3d.proc import run_subprocess, scrub_secrets, version_line
 
 TAIL_CHARS = 4000
 
@@ -167,12 +166,8 @@ def node_version(node_bin: str) -> tuple[int, int, int] | None:
 
     Cached per binary: this runs at most once per interpreter per node path.
     """
-    try:
-        proc = subprocess.run([node_bin, "--version"], capture_output=True, text=True,
-                              timeout=20, check=False)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return parse_node_version(proc.stdout or proc.stderr) if proc.returncode == 0 else None
+    rc, line = version_line([node_bin, "--version"], timeout=20)
+    return parse_node_version(line) if rc == 0 else None
 
 
 def node_version_error(version: tuple[int, int, int] | None) -> str:

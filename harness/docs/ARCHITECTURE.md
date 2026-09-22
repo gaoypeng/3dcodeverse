@@ -132,8 +132,8 @@ codeverse3d/
                       complexity.py (objective complexity vector -> Measurement.extra, eval/docs/COMPLEXITY.md),
                       joints*.py + joints_collide.py (deterministic penetration), registry.py,
                       tools.py (every @tool registration since 2026-08-28, the joint_sweep body included;
-                      spatial siblings are plain imports — lazy() guards only codeverse3d.languages /
-                      codeverse3d.texturing and tool_common's node renderer), mcp_server.py (MCP name: 3dcode).
+                      every import is a plain one — codeverse3d.languages / codeverse3d.texturing
+                      are imported inside the tool bodies), mcp_server.py (MCP name: 3dcode).
                       Render modes are contracts.artifacts.RENDER_MODES (shaded wire normals silhouette
                       clay — no 'depth'); build error_type spellings are languages/_common.MISSING_ENTRY
                       ("MissingEntryFile") and BUILD_TIMEOUT ("BuildTimeout") for every runtime

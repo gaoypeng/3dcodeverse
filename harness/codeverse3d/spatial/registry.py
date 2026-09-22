@@ -10,8 +10,7 @@ Usage::
 
 ``ToolContext`` carries the workspace and settings; tools never touch globals.
 ``ToolDef.call`` is the one error boundary: ``ToolUsageError`` becomes a usage
-Observation, ``ToolUnavailable`` (a missing sibling package) an "unavailable"
-one, anything else a failed Observation — a tool body never needs try/except.
+Observation, anything else a failed Observation — a tool body never needs try/except.
 Observations: ``text`` (what the agent reads), ``numbers`` (machine-readable),
 ``images`` (paths, small PNGs the agent may view), ``ok`` (the VERDICT) and
 ``failed`` (the tool could not run).  The two are different answers and only
@@ -75,18 +74,6 @@ class Observation(BaseModel):
         ``failed``.
         """
         return cls(ok=False, failed=True, text=text, numbers=numbers)
-
-
-class ToolUnavailable(RuntimeError):
-    """A sibling package a tool depends on is not importable / not built yet.
-
-    Raised by ``tool_common.lazy`` (and anything built on it) and turned into a
-    ``tool <name> unavailable: ...`` Observation by :meth:`ToolDef.call` — tools
-    never have to catch it themselves.  The boundary is real only for
-    ``codeverse3d.languages`` (the runtimes) and ``codeverse3d.texturing``; everything
-    under ``codeverse3d.spatial`` is imported eagerly (2026-08-29: string paths for
-    intra-package imports hid ordinary imports from go-to-definition).
-    """
 
 
 class ToolUsageError(ValueError):
@@ -155,8 +142,6 @@ class ToolDef:
             obs = self.fn(ctx, args)
         except ToolUsageError as e:
             obs = Observation.error(f"{self.name}: {e}" + (f"\nExample: {e.fix_example}" if e.fix_example else ""))
-        except ToolUnavailable as e:  # a sibling package is missing → degrade, never crash
-            obs = Observation.error(f"tool {self.name} unavailable: {type(e).__name__}: {e}")
         except Exception as e:  # never crash the agent loop
             obs = Observation.error(f"{self.name} failed: {type(e).__name__}: {e}")
         obs.duration_ms = int((time.time() - t0) * 1000)
@@ -216,16 +201,9 @@ _LOADED = False
 
 
 def _ensure_loaded() -> None:
-    """Import the modules that register tools (idempotent)."""
+    """Import the module that registers every tool (idempotent)."""
     global _LOADED
     if _LOADED:
         return
     _LOADED = True
-    import importlib
-
-    for mod in ("codeverse3d.spatial.tools",):
-        try:
-            importlib.import_module(mod)
-        except ModuleNotFoundError as e:  # during bootstrap only
-            if mod not in str(e):
-                raise
+    import codeverse3d.spatial.tools  # noqa: F401 — its @tool decorators fill _REGISTRY

@@ -344,21 +344,6 @@ def test_compare_silhouette_tool(stool_ctx: ToolContext, fake_renderer) -> None:
     assert not obs.ok and "out of range" in obs.text
 
 
-def test_texture_tools_degrade_when_texturing_is_unavailable(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`lazy` guards only the optional siblings (codeverse3d.languages / codeverse3d.texturing);
-    spatial-on-spatial imports are ordinary imports since 2026-08-29."""
-    import codeverse3d.spatial.tool_common as tc
-    import codeverse3d.spatial.tools as ts
-
-    def boom(module, attr):
-        raise tc.ToolUnavailable(f"{module} not importable")
-
-    monkeypatch.setattr(ts, "lazy", boom)
-    stool_ctx.workspace.write_json(stool_ctx.workspace.plan_path, _stool_plan_with_missing_backrest())
-    obs = get_tool("texture_pass").call(stool_ctx, {})
-    assert not obs.ok and obs.text.startswith("tool texture_pass unavailable:"), obs.text
-
-
 def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     import codeverse3d.spatial.tools as ts
     from codeverse3d.spatial.probes import SceneProbeResult

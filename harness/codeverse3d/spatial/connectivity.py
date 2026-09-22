@@ -53,7 +53,7 @@ import trimesh
 from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse3d.conventions import CONTACT_GAP_M, Frame
 from codeverse3d.spatial import joints_collide as collide
-from codeverse3d.spatial.contract import frame_label, glb_vec_to_plan, language_frame
+from codeverse3d.spatial.contract import _aabb_gap, frame_label, glb_vec_to_plan, language_frame
 from codeverse3d.spatial.joints_collide import fcl_collision_object, inside_island, oriented_islands
 from codeverse3d.spatial.measure import GlbLoadError, fmt_vec, solid_parts
 
@@ -67,7 +67,7 @@ MIN_PART_SIZE_M = 0.01
 #: inside each other as built".  ``joint_sweep`` asks a different question on posed meshes
 #: — "does moving a joint drive one link through another" — at its own thresholds.  They
 #: are not one check with two dials: do not align the numbers (DECISIONS.md D53, with the
-#: corpus measurement behind it in bench/penetration_thresholds.py).
+#: corpus measurement behind it in eval/bench/penetration_thresholds.py).
 PENETRATION_WARN_M = 0.002
 PENETRATION_ERROR_M = 0.010
 #: fraction of one part's samples inside the other before we call it penetration ...
@@ -189,12 +189,6 @@ class _PartCache:
         if name not in self._thickness:
             self._thickness[name] = part_thickness(self._parts[name])
         return self._thickness[name]
-
-
-def _aabb_gap(a: trimesh.Trimesh, b: trimesh.Trimesh) -> float:
-    """Axis-aligned lower bound of the distance between two meshes."""
-    lo = np.maximum(a.bounds[0] - b.bounds[1], b.bounds[0] - a.bounds[1])
-    return float(np.linalg.norm(np.maximum(lo, 0.0)))
 
 
 def pair_distance(
@@ -520,7 +514,7 @@ def check_connectivity(
     overlaps: list[tuple[str, str, Penetration]] = []
     cache = _PartCache(parts)  # one BVH / island split / thickness per part, shared across pairs
     for a, b in itertools.combinations(big, 2):
-        lower = _aabb_gap(parts[a], parts[b])
+        lower = _aabb_gap(parts[a].bounds, parts[b].bounds)
         if lower > gap_m:
             continue
         pd = pair_distance(a, parts[a], b, parts[b], obj_a=cache.fcl(a), obj_b=cache.fcl(b))
@@ -651,7 +645,7 @@ def _nearest_supported(
     """
     if not support:
         return None
-    ranked = sorted(support, key=lambda o: _aabb_gap(parts[n], parts[o]))[:n_candidates]
+    ranked = sorted(support, key=lambda o: _aabb_gap(parts[n].bounds, parts[o].bounds))[:n_candidates]
     best: PairDistance | None = None
     for o in ranked:
         pd = exact.get((n, o)) or exact.get((o, n))

@@ -1,7 +1,5 @@
-"""Shared plumbing for the spatial tools: context lookups, lazy imports of the
-optional siblings (``codeverse3d.languages`` runtimes, ``codeverse3d.texturing``, the
-node renderer) with a typed ``ToolUnavailable`` failure, render-output caching
-and plan/spec loading.
+"""Shared plumbing for the spatial tools: context lookups, render-output caching and
+plan/spec loading.
 
 Tools never touch globals: everything flows through :class:`ToolContext`.
 """
@@ -9,9 +7,8 @@ Tools never touch globals: everything flows through :class:`ToolContext`.
 from __future__ import annotations
 
 import hashlib
-import importlib
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -21,11 +18,11 @@ from codeverse3d.contracts.artifacts import RENDER_MODES, RenderSet, Severity
 from codeverse3d.contracts.plan import ArticulatedPlan, GraphicsPlan, Plan, ScenePlan, StaticPlan
 from codeverse3d.conventions import OBJECT_VIEWS, ViewPreset
 from codeverse3d.proc import read_json_or_none
-from codeverse3d.spatial.registry import ToolContext, ToolUnavailable, ToolUsageError
+from codeverse3d.spatial.registry import ToolContext, ToolUsageError
 from codeverse3d.workspace import Workspace
 
 __all__ = [
-    "ToolUnavailable", "lazy", "spec_dict", "language_of",
+    "spec_dict", "language_of",
     "glb_path", "reference_path", "load_plan", "resolve_views", "check_mode", "tool_out_dir", "render_cache_dir",
     "cached_render_glb", "gl_metrics_summary", "VIEW_BY_NAME", "RENDER_MODES",
 ]
@@ -33,34 +30,12 @@ __all__ = [
 VIEW_BY_NAME: dict[str, ViewPreset] = {v.name: v for v in OBJECT_VIEWS}
 
 
-#: ``ToolUnavailable`` now lives in ``registry`` (``ToolDef.call`` catches it for
-#: every tool); re-exported here because that is where tools import it from.
-
-
-def lazy(module: str, attr: str) -> Callable[..., Any]:
-    """Import ``module.attr`` now; raise :class:`ToolUnavailable` with a clear reason."""
-    try:
-        mod = importlib.import_module(module)
-    except Exception as e:  # ModuleNotFoundError, SyntaxError in a sibling, ...
-        raise ToolUnavailable(f"{module} not importable ({type(e).__name__}: {e})") from e
-    fn = getattr(mod, attr, None)
-    if fn is None:
-        raise ToolUnavailable(f"{module} has no '{attr}'")
-    return fn
-
-
 # --------------------------------------------------------------------------- context
 def spec_dict(ctx: ToolContext) -> dict[str, Any]:
     spec = ctx.extra.get("spec")
     if spec is not None:
         return spec.model_dump(mode="json") if hasattr(spec, "model_dump") else dict(spec)
-    p = ctx.workspace.spec_path
-    if p.is_file():
-        try:
-            return json.loads(p.read_text())
-        except json.JSONDecodeError:
-            return {}
-    return {}
+    return read_json_or_none(ctx.workspace.spec_path) or {}
 
 
 def language_of(ctx: ToolContext) -> str:
@@ -217,14 +192,13 @@ def cached_render_glb(
     one.  ``render_glb``'s key (sha256 of the GLB + CACHE_VERSION + the rig signature)
     has none of those holes, so one authority is both cheaper and correct.
     """
+    # resolved at call time: tests patch the module attribute
+    from codeverse3d.spatial.render import render_glb
+
     out_dir = render_cache_dir(ctx, glb, views=[v.name for v in views], mode=mode, size=size,
                                isolate=list(isolate or []), explode=explode, sheet=sheet)
-    render_glb = lazy("codeverse3d.spatial.render", "render_glb")
-    rs = render_glb(glb, out_dir, views=list(views), mode=mode, width=size, height=size,
-                    isolate=list(isolate) if isolate else None, explode=explode, sheet=sheet)
-    if not isinstance(rs, RenderSet):
-        raise ToolUnavailable(f"render_glb returned {type(rs).__name__}, expected RenderSet")
-    return rs
+    return render_glb(glb, out_dir, views=list(views), mode=mode, width=size, height=size,
+                      isolate=list(isolate) if isolate else None, explode=explode, sheet=sheet)
 
 
 # --------------------------------------------------------------------------- graphics metrics
@@ -237,13 +211,10 @@ def gl_metrics_summary(ws: Workspace, *, hints: bool = True, root: Path | None =
     hint; ``root`` sanitises workspace paths out of the messages.  Returns
     ``(["(no frame metrics)"], {}, True)`` when the build wrote none.
     """
+    from codeverse3d.languages._gl_common import read_metrics
     from codeverse3d.spatial.observe import sanitize_text
 
-    try:
-        read_metrics = lazy("codeverse3d.languages._gl_common", "read_metrics")
-        m = read_metrics(ws)
-    except ToolUnavailable:
-        m = None
+    m = read_metrics(ws)
     if m is None:
         return ["(no frame metrics)"], {}, True
     stats, gate = m
