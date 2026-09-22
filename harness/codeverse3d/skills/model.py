@@ -19,7 +19,8 @@ from codeverse3d.cost.guard import text_tokens
 
 #: `metadata.evidence` values.  A bundle whose claims are carried over from a reference
 #: library but which our own corpus cannot back yet is `inherited-unverified`, and the
-#: router refuses it unless C3D_SKILLS_UNVERIFIED is on (design §5.2 law 3).
+#: router refuses it when C3D_SKILLS_UNVERIFIED is off (design §5.2 law 3; the switch defaults
+#: ON since 2026-09-22, so the whole library routes unless it is set to 0).
 EVIDENCE_MEASURED = "measured"
 EVIDENCE_INHERITED = "inherited-unverified"
 EVIDENCE_MIXED = "mixed"
@@ -109,6 +110,8 @@ class SkillsMaterialized(BaseModel):
     reasons: dict[str, str] = Field(default_factory=dict, description="name → why it was attached")
     index_tokens: int = Field(default=0, description="estimated tokens the index/mandate adds to message 0")
     inlined: str = Field(default="", description="single-shot: the one body inlined, '' otherwise")
+    attached_at: float = Field(default=0.0, description="epoch seconds of the attach: the read probe credits "
+                               "only tool calls a CLI session logged after it (telemetry.probe_reads)")
     warnings: list[str] = Field(default_factory=list)
 
 

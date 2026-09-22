@@ -38,7 +38,7 @@ def ctx(tmp_path: Path, library_dir: Path, monkeypatch):
 
 
 def test_the_switch_off_means_no_files_no_events_no_record(ctx, monkeypatch):
-    monkeypatch.delenv(C.SKILLS_ENV, raising=False)
+    monkeypatch.setenv(C.SKILLS_ENV, "0")   # ON is the default since 2026-09-22; off must be said
     assert H.attach_for_round(ctx, index=0, kind="baseline") is None
     assert not (ctx.ws.root / ".agents").exists()
     assert ctx.events == [] and ctx.extra == {}

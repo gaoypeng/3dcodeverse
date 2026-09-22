@@ -364,13 +364,13 @@ def test_cli_report_only_rebuilds_from_results(tmp_path: Path, capsys):
                                                     [_row("cmp_easy_stool", CONTROL, 0.5),
                                                      _row("cmp_easy_stool", VARIANT, None, "infra_failed"),
                                                      _row("cmp_easy_stool", VARIANT, 0.4)]))
-    opts = AbOptions(variant_env={"C3D_SKILLS": "on"}, rounds=1)
+    opts = AbOptions(variant_env={"C3D_SKILLS": "0"}, rounds=1)   # skills are on by default: the variant turns them off
     (tmp_path / "ab.json").write_text(json.dumps({"options": json.loads(opts.model_dump_json())}))
     assert main(["--prompts", str(BATTERY), "--out", str(tmp_path), "--report-only"]) == 0
     assert "verdict: revert" in capsys.readouterr().out
     assert (tmp_path / "pairs.json").is_file()
     summary = (tmp_path / "summary.md").read_text()
-    assert "variant env: `C3D_SKILLS=on`" in summary and "n_infra_failed: 0" in summary
+    assert "variant env: `C3D_SKILLS=0`" in summary and "n_infra_failed: 0" in summary
 
 
 def test_report_only_survives_a_run_dir_with_no_or_broken_ab_json(tmp_path):
@@ -402,7 +402,7 @@ def test_a_pinned_plan_that_dies_in_a_storm_records_the_pair_and_continues(tmp_p
         return "h1"
 
     monkeypatch.setattr(ab, "pin_pair", stormy_pin)
-    opts = AbOptions(variant_env={"C3D_SKILLS": "1"}, pin_plan=True, ids=ids)
+    opts = AbOptions(variant_env={"C3D_SKILLS": "0"}, pin_plan=True, ids=ids)
     run_ab(BATTERY, tmp_path, opts, run_cell_fn=fake)
 
     rows = load_jsonl(tmp_path / "results.jsonl", CellResult)

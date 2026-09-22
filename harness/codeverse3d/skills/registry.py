@@ -194,9 +194,11 @@ ROUTES: tuple[Route, ...] = (
           findings=(LINT_PART_NOT_IMPORTED,),
           why="a part file was written but never imported, so its geometry does not exist"),
     Route("R10", "c3d-cadquery-forms", 75, languages=("cadquery",), kinds=BUILD_KINDS,
-          why="cadquery authoring (evidence: inherited-unverified — 0 graded runs, routed off by default)"),
+          why="cadquery authoring (evidence: inherited-unverified — unranked by our corpus; routed by default "
+              "since 2026-09-22, C3D_SKILLS_UNVERIFIED=0 drops it)"),
     Route("R11", "c3d-threejs-forms", 75, tracks=("static_object",), languages=("threejs",), kinds=BUILD_KINDS,
-          why="three.js object authoring (evidence: inherited-unverified — 0 graded runs, routed off by default)"),
+          why="three.js object authoring (evidence: inherited-unverified — unranked by our corpus; routed by "
+              "default since 2026-09-22, C3D_SKILLS_UNVERIFIED=0 drops it)"),
     Route("R12", "c3d-urdf-joints", 80, tracks=("articulated_object",), languages=("urdf_blender",),
           kinds=("baseline", "refine", "rebuild", "repair"),
           why="joints, limits and axes: joint_sweep fires on 38% and motion_direction on 35% of urdf runs"),

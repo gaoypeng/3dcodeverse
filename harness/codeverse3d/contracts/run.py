@@ -33,8 +33,10 @@ class SkillRead(BaseModel):
     """The read probe's verdict for one materialised bundle (design §6.4)."""
 
     name: str
-    surfaced: bool = Field(default=False, description="SKILL.md atime > mtime: opened by someone (a discovery scan counts)")
-    deep: bool = Field(default=False, description="a references/*.md atime > mtime: the body was read and followed")
+    surfaced: bool = Field(default=False, description="transcript: the agent activated the skill or opened its "
+                           "SKILL.md; atime fallback: SKILL.md atime > mtime (a discovery scan counts)")
+    deep: bool = Field(default=False, description="transcript: the agent opened a file under its references/; "
+                       "atime fallback: a references/*.md atime > mtime")
     deep_measurable: bool = Field(default=True, description="False when the bundle ships no references/ file to probe")
     body_tokens: int = 0
     reason: str = Field(default="", description="which route attached it, and which finding")
@@ -53,19 +55,29 @@ class SkillsUsage(BaseModel):
     inlined: str = Field(default="", description="single-shot: the body inlined into the prompt, '' otherwise")
     control_read: bool = Field(
         default=False,
-        description="the never-routed control bundle was 'read' too, so this session's atime "
-                    "evidence proves nothing and every rate below is an upper bound")
+        description="the never-routed control bundle was 'read' too.  Under atime evidence that "
+                    "means the probe was blind (every rate below is an upper bound); under "
+                    "transcript evidence it means the AGENT itself opened a bundle that matches "
+                    "nothing — a real read, and a sign it reads skills indiscriminately")
     control_present: bool = Field(default=False, description="a control bundle was materialised at all")
+    evidence: Literal["atime", "transcript"] = Field(
+        default="atime",
+        description="where the reads came from: 'transcript' = the CLI's own tool calls, recorded by "
+                    "its backend in trajectories/*/transcript.jsonl (exact); 'atime' = the file-access "
+                    "probe, the fallback when a session left no tool trace")
 
     @property
     def probe_trustworthy(self) -> bool:
-        """False when the control fired — the only honest reading of the numbers below.
+        """False when the atime probe's control fired — the only honest reading of the numbers below.
 
         A run computes ``files_changed`` through ``git add -A -N`` + ``git diff``, and git
         reads every untracked file to do it, which bumps atime on the whole bundle tree.
         CLI activation opens ``references/`` too.  Either way the probe says "read" when
         nobody chose to read, and only the control can tell you which session you are in.
+        Transcript evidence is the CLI's own record of what it called, so it is trusted as is.
         """
+        if self.evidence == "transcript":
+            return True
         return self.control_present and not self.control_read
 
     @property
@@ -78,8 +90,8 @@ class SkillsUsage(BaseModel):
 
     @property
     def deep_read_rate(self) -> float | None:
-        """None when there is nothing listed, or when the control says the probe is blind."""
-        if not self.listed or (self.control_present and self.control_read):
+        """None when there is nothing listed, or when the atime control says the probe is blind."""
+        if not self.listed or (self.evidence == "atime" and self.control_present and self.control_read):
             return None
         return len(self.deep) / len(self.listed)
 

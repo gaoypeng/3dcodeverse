@@ -122,9 +122,12 @@ def report(
     Target from the design: >= 60% deep-read rate for a CLI backend.  A skill
     under 20% over 20 sessions is merged or deleted.
 
-    Sessions whose CONTROL bundle was also "read" are counted separately and excluded from
-    the rate: git's own diff and every CLI's skill activation both bump atime, so in those
-    sessions the probe saw nothing it can attribute to the agent (docs/SKILLS.md section 4).
+    Sessions measured by atime whose CONTROL bundle was also "read" are counted separately
+    and excluded from the rate: git's own diff and every CLI's skill activation both bump
+    atime, so in those sessions the probe saw nothing it can attribute to the agent
+    (docs/SKILLS.md section 4).  Sessions measured from the CLI's own tool calls
+    (``evidence: transcript``, 2026-09-22) are exact and always counted; one whose agent
+    opened the control is reported, not dropped.
     """
     from rich.table import Table
 
@@ -132,14 +135,20 @@ def report(
     for p in sorted(Path(runs_dir).rglob("telemetry/skills.jsonl")):
         rows.extend(read_jsonl_lenient(p))
     if not rows:
-        err_console.print(f"[yellow]no telemetry/skills.jsonl under {runs_dir}[/] (was C3D_SKILLS on?)")
+        err_console.print(f"[yellow]no telemetry/skills.jsonl under {runs_dir}[/] (was C3D_SKILLS=0?)")
         raise typer.Exit(code=1)
 
     per: dict[tuple[str, str], list[int]] = {}
-    blind = sum(1 for r in rows if r.get("control_read"))
+
+    def _blind(r: dict) -> bool:          # an atime row whose control fired saw nothing
+        return bool(r.get("control_read")) and r.get("evidence", "atime") != "transcript"
+
+    blind = sum(1 for r in rows if _blind(r))
+    exact = sum(1 for r in rows if r.get("evidence") == "transcript")
+    indiscriminate = sum(1 for r in rows if r.get("evidence") == "transcript" and r.get("control_read"))
     no_control = sum(1 for r in rows if not r.get("control_present"))
     for r in rows:
-        if r.get("control_read"):
+        if _blind(r):
             continue                      # the probe was blind here; counting it would lie
         backend = str(r.get("agent", "?")).split(":", 1)[0]
         reads = {x["name"]: x for x in r.get("reads", [])}
@@ -152,14 +161,15 @@ def report(
     if as_json:
         console.print_json(json.dumps({
             "sessions": len(rows), "control_read_sessions": blind, "no_control_sessions": no_control,
+            "transcript_sessions": exact, "control_opened_by_agent_sessions": indiscriminate,
             "skills": [
                 {"skill": k[0], "backend": k[1], "listed": v[0], "surfaced": v[1], "deep": v[2],
                  "deep_read_rate": round(v[2] / v[0], 3) if v[0] else None}
                 for k, v in sorted(per.items())]}))
         return
     scored = len(rows) - blind
-    t = Table(title=f"skill read rate ({scored} of {len(rows)} sessions; "
-                    f"{blind} blind — the control was read too)")
+    t = Table(title=f"skill read rate ({scored} of {len(rows)} sessions, {exact} from the CLI's own "
+                    f"tool calls; {blind} blind — the atime control was read too)")
     for col in ("skill", "backend", "listed", "surfaced", "deep", "deep rate", "verdict"):
         t.add_column(col)
     for (name, backend), (listed, surfaced, deep) in sorted(per.items()):
@@ -172,6 +182,10 @@ def report(
         err_console.print(
             f"[yellow]{blind} of {len(rows)} sessions excluded[/]: the never-routed control bundle "
             f"was opened too, so nothing in them can be attributed to the agent.")
+    if indiscriminate:
+        err_console.print(
+            f"[yellow]{indiscriminate} session(s) opened the control bundle themselves[/] (tool trace): "
+            f"their agent reads skills whether or not the description matches.")
     if no_control:
         err_console.print(
             f"[yellow]{no_control} session(s) predate the control bundle[/]: their rates are an upper bound.")

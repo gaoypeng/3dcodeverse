@@ -10,6 +10,14 @@ the VARIANT arm alone.  Everything else is held fixed on both sides: the generat
 planner, the in-loop judge, the rounds, and the fixed judge that produces
 the reported score (``bench/_fixed_eval.py``, ``n_samples`` 2).
 
+An A/B of SKILLS (harness docs/SKILLS.md §6): since 2026-09-22 skills are ON by default,
+so the no-skills arm has to say ``C3D_SKILLS=0`` explicitly.  The control is the driver's
+env with every variant key REMOVED (:func:`child_env`), which means ``--variant-env
+C3D_SKILLS=1`` now runs two identical arms, and a ``C3D_SKILLS=0`` exported in the launching
+shell never reaches the control either.  With these mechanics the OFF arm is the variant:
+``--variant-env C3D_SKILLS=0`` (control = the shipped default, skills on; a positive delta
+means turning skills OFF helped).
+
 Why each arm is a child PROCESS rather than a thread: the switches under test are read
 from the environment (``codeverse3d.tracks.planner.brief_enabled`` reads ``os.environ`` at
 call time; anything under ``Settings`` is read once through an ``lru_cache``), so two

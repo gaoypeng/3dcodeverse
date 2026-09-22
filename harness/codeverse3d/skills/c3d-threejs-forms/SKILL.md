@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: "static_object track, language threejs. three r182 ESM in node, exported to GLB by the harness. Imports that resolve: three, three/addons/*, relative files under src/."
 metadata:
   evidence: inherited-unverified
-  evidence_note: "Zero graded threejs bench runs exist (bench/out/*/runs/*, checked 2026-08-25); the only recorded threejs run is runs/e2e_bench_threejs. Every API claim here is verified against codeverse3d/prompts/threejs/contract.md, codeverse3d/prompts/threejs/cookbook.md, codeverse3d/languages/threejs/__init__.py and runtime_js/package.json, but the ADVICE has not been A/B'd on our corpus. Routed off unless C3D_SKILLS_UNVERIFIED=on; upgrade to measured when threejs reaches 20 graded runs."
+  evidence_note: "Zero graded threejs bench runs exist (bench/out/*/runs/*, checked 2026-08-25); the only recorded threejs run is runs/e2e_bench_threejs. Every API claim here is verified against codeverse3d/prompts/threejs/contract.md, codeverse3d/prompts/threejs/cookbook.md, codeverse3d/languages/threejs/__init__.py and runtime_js/package.json, but the ADVICE has not been A/B'd on our corpus. Routed by default since 2026-09-22 (C3D_SKILLS_UNVERIFIED=0 drops it); upgrade to measured when threejs reaches 20 graded runs."
   verified: "2026-08-25"
   pairs_with: "c3d-part-contact, c3d-bbox-contract"
   target_metric: "missing_parts"

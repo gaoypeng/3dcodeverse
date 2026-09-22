@@ -207,7 +207,7 @@ def attach_skills(
         allow_unverified=skills_unverified() if allow_unverified is None else allow_unverified,
     )
     out = SkillsMaterialized(listed=[s.name for s in sel], selections=list(sel),
-                             reasons={s.name: s.reason for s in sel})
+                             reasons={s.name: s.reason for s in sel}, attached_at=time.time())
     if not sel or single_shot:
         # an empty selection is a legal desired set: the sweep must still run, or last
         # round's bundles stay live where the native CLIs discover skills by directory

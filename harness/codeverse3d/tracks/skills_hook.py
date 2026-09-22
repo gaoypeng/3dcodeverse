@@ -4,9 +4,11 @@ Kept out of ``codeverse3d/skills`` so that package stays pure (no ``RunContext``
 workspace conventions, no environment) and testable without a run.  Kept out of
 ``steps.py`` so a round's control flow does not grow a second subject.
 
-Everything here is a no-op unless ``C3D_SKILLS`` is on, and every function swallows its
-own failures: a skill that cannot be routed, written or probed must cost that skill, not
-the round.  The switch is read at CALL time (see ``skills/config.py`` for why).
+Everything here is a no-op when ``C3D_SKILLS=0`` (the system is ON by default since
+2026-09-22), and every function swallows its own failures: a skill that cannot be routed,
+written or probed must cost that skill, not the round.  The switch is read at CALL time
+(see ``skills/config.py`` for why).  ``record_usage`` reads what the round's sessions did
+from their CLIs' own tool calls (``skills/telemetry.probe_reads``), atime only as fallback.
 """
 
 from __future__ import annotations

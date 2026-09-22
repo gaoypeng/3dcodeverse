@@ -142,7 +142,7 @@ def test_enabled_run_delivers_routes_repairs_and_records_skills(run):
 
 
 def test_the_switch_off_leaves_no_trace(tmp_path, chair_plan, settings, monkeypatch):
-    monkeypatch.delenv("C3D_SKILLS", raising=False)
+    monkeypatch.setenv("C3D_SKILLS", "0")   # ON is the default since 2026-09-22; off must be said
     ws = Workspace(tmp_path / "runs" / "chair_off")
     track = StaticObjectTrack(services=FakeServices(contract_errors=1), judge=FakeJudge(scores=(0.55, 0.7, 0.85)),
                               agent=FakeAgent(_agent_writer),

@@ -92,7 +92,7 @@ def test_pin_pair_seeds_every_arm_from_one_plan(tmp_path, monkeypatch):
 
     battery = Battery.load(Path(ab_plan.__file__).resolve().parent / "prompts" / "compare_v1.yaml")
     item = battery.prompts[0]
-    opts = ab_plan.AbOptions(variant_env={"C3D_SKILLS": "1"}, pin_plan=True)
+    opts = ab_plan.AbOptions(variant_env={"C3D_SKILLS": "0"}, pin_plan=True)  # the skills-OFF arm
     calls: list[Path] = []
 
     def fake_plan_once(spec, ws_root):
@@ -129,7 +129,7 @@ def test_pin_pair_reuses_the_plan_when_the_pair_is_retried(tmp_path, monkeypatch
 
     battery = Battery.load(Path(ab_plan.__file__).resolve().parent / "prompts" / "compare_v1.yaml")
     item = battery.prompts[0]
-    opts = ab_plan.AbOptions(variant_env={"C3D_SKILLS": "1"}, pin_plan=True)
+    opts = ab_plan.AbOptions(variant_env={"C3D_SKILLS": "0"}, pin_plan=True)  # the skills-OFF arm
     n = 0
 
     def fake_plan_once(spec, ws_root):

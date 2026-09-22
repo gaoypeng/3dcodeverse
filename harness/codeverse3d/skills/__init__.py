@@ -21,7 +21,8 @@ Public surface for the rest of the harness::
 
 ``skills_for`` is pure and testable; ``attach_skills`` writes the routed bundles into a
 workspace and returns what it wrote; ``probe_reads`` says afterwards which of them were
-actually opened.  Everything is behind ``C3D_SKILLS`` (default off).
+actually opened — from the CLI's own tool calls where its backend recorded them.  Everything
+is behind ``C3D_SKILLS``: ON by default since 2026-09-22, ``C3D_SKILLS=0`` turns it off.
 """
 
 from __future__ import annotations

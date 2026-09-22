@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: CadQuery 2.8 on OCP; one module src/model.py exporting a module-level `result`.
 metadata:
   evidence: inherited-unverified
-  evidence_note: 'Every kernel rule below was probed against the CadQuery 2.8.0 installed in this repo on 2026-08-25 and cross-checked with the cadquery lint, the run_cq wrapper and the language contract. What is NOT available is score evidence. This harness has ZERO graded cadquery bench runs, so nothing here is ranked by measured defect frequency the way the blender and urdf bundles are. Routed off by default until cadquery has 20 graded runs.'
+  evidence_note: 'Every kernel rule below was probed against the CadQuery 2.8.0 installed in this repo on 2026-08-25 and cross-checked with the cadquery lint, the run_cq wrapper and the language contract. What is NOT available is score evidence. This harness has ZERO graded cadquery bench runs, so nothing here is ranked by measured defect frequency the way the blender and urdf bundles are. Routed by default since 2026-09-22 (C3D_SKILLS_UNVERIFIED defaults on); still unranked until cadquery has 20 graded runs.'
   verified: "2026-08-25"
   target_metric: "build_failure_rate"
   target_direction: "down"

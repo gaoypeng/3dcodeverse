@@ -257,14 +257,15 @@ def check_skills() -> list[Row]:
     A CLI upgrade that moves its skills root ships an empty index and the run still
     passes — the failure is invisible except as a read rate of zero a battery later.  So
     the wiring gets a check you can run before spending money."""
-    from codeverse3d.agents.backends import ALLOWED_TOOLS
+    from codeverse3d.agents.backends import ALLOWED_TOOLS, SYSTEM_SETTINGS
     from codeverse3d.skills import bundle_dirs, skills_dir, validate_bundle
     from codeverse3d.skills.config import skills_enabled
     from codeverse3d.skills.materialize import SKILL_ROOTS
     from codeverse3d.skills.registry import ROUTED_SKILLS
 
     rows: list[Row] = [("skills switch", "OK" if skills_enabled() else "WARN",
-                        "C3D_SKILLS=on" if skills_enabled() else "C3D_SKILLS is off (default): no skill is attached")]
+                        "C3D_SKILLS on (the default since 2026-09-22)" if skills_enabled()
+                        else "C3D_SKILLS=0: no skill is attached to any session")]
     dirs = bundle_dirs()
     if not dirs:
         rows.append(("skills library", "WARN", f"no bundles under {skills_dir()}"))
@@ -279,6 +280,10 @@ def check_skills() -> list[Row]:
     rows.append(("skills discovery", "OK", "materialised into " + " + ".join(SKILL_ROOTS)))
     rows.append(("claude-code Skill tool", "OK" if "Skill" in ALLOWED_TOOLS else "FAIL",
                  "in --allowedTools" if "Skill" in ALLOWED_TOOLS else "missing: claude-code would deny skill activation"))
+    pinned = (SYSTEM_SETTINGS.get("skills") or {}).get("enabled") is True
+    rows.append(("gemini-cli skills setting", "OK" if pinned else "FAIL",
+                 "skills.enabled pinned in the per-session system settings" if pinned
+                 else "not pinned: a user's skills.enabled=false would hide every bundle from gemini-cli"))
     return rows
 
 

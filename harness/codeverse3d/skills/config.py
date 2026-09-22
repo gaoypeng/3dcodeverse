@@ -8,11 +8,23 @@ arms because the switch it flipped was read by nothing at all
 (``codeverse3d/tracks/plan_features.py``).  So: one module, read at call time, registered
 in ``plan_features.LIVE_SWITCHES``, and a test that greps the tree to prove it is read.
 
-* ``C3D_SKILLS``            — off by default.  On = route, materialise, measure.
+* ``C3D_SKILLS``            — ON by default (2026-09-22).  On = route, materialise, measure;
+  ``C3D_SKILLS=0`` turns the whole system off (an A/B's no-skills arm must say so explicitly:
+  ``ab_plan.py --variant-env C3D_SKILLS=0``).
 * ``C3D_SKILLS_MAX``        — attached bundles per session (default 5, design §5.2 law 1).
-* ``C3D_SKILLS_UNVERIFIED`` — also route bundles labelled ``inherited-unverified``
-  (cadquery / threejs today: zero graded runs, so their claims are carried, not measured).
+* ``C3D_SKILLS_UNVERIFIED`` — also route bundles labelled ``inherited-unverified`` (the
+  cadquery / threejs forms and the four scene-graphics ports).  ON by default with the
+  switch above, so all 17 bundles route; ``C3D_SKILLS_UNVERIFIED=0`` drops those six.
 * ``C3D_SKILLS_ONLY``       — comma list; the router may consider ONLY these bundles.
+
+WHY both defaults flipped ON (owner, 2026-09-22).  They shipped OFF on 2026-08-25/26
+because the in-process ``api-agent`` read 0 of 5 routed bundles and the A/B could not
+resolve an effect (docs/SKILLS.md §6).  That backend was deleted 2026-08-28; every
+backend left is a vendor CLI with its own native skill loader, and the 2026-09-22 live
+probes (docs/SKILLS_LEDGER.md §0b) watched gemini-cli, claude-code, codex and agy each
+activate all four routed bundles of a chair baseline unprompted and leave the control
+alone — read from the CLI's own tool calls, not from atime.  Skills are part of the
+product now; measuring an effect is the A/B's job.
 
 WHY ``C3D_SKILLS_ONLY`` exists.  An effect A/B has to attribute its delta to ONE bundle,
 and ``C3D_SKILLS=1`` routes up to five.  Restricting the LIBRARY (rather than filtering
@@ -39,13 +51,16 @@ SKILLS_ONLY_ENV = "C3D_SKILLS_ONLY"
 
 DEFAULT_SKILLS_MAX = 5
 def skills_enabled() -> bool:
-    """Is the skill system on for this process?  Default OFF until the A/B says otherwise."""
-    return env_flag(SKILLS_ENV, False)
+    """Is the skill system on for this process?  Default ON since 2026-09-22; ``C3D_SKILLS=0``
+    (or ``off``) is the one way to turn it off — and a garbage value reads as off, never as
+    the variant (``config.env_flag``)."""
+    return env_flag(SKILLS_ENV, True)
 
 
 def skills_unverified() -> bool:
-    """Route bundles whose evidence label is ``inherited-unverified``?  Default no."""
-    return env_flag(SKILLS_UNVERIFIED_ENV, False)
+    """Route bundles whose evidence label is ``inherited-unverified``?  Default yes since
+    2026-09-22, so the whole library routes; the per-session cap (5) still holds."""
+    return env_flag(SKILLS_UNVERIFIED_ENV, True)
 
 
 def skills_only() -> frozenset[str]:

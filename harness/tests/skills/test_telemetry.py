@@ -174,3 +174,130 @@ def _touch(path):
     st = os.stat(path)
     os.utime(path, (st.st_mtime + 60, st.st_mtime))
     time.sleep(0)
+
+
+# ===================================================================== transcript evidence
+# Since 2026-09-22 every CLI backend folds its session's tool calls into
+# trajectories/<label>/transcript.jsonl (agents/cli_common.record_tool_calls), and the probe
+# reads THOSE first.  The rows below are shaped like the four live 2026-09-22 sessions
+# (tests/agents/test_tool_trace.py holds the vendor-side excerpts).
+
+def _session(ws: Path, label: str, calls: list[dict], *, t: float, traced: bool = True) -> None:
+    d = ws / "trajectories" / f"{label}_r00"
+    d.mkdir(parents=True, exist_ok=True)
+    rows = [{"t": t, "kind": "invoke", "argv": ["cli"], "attempt": 1},
+            *({"t": t + 1, "kind": "tool_call", **c} for c in calls)]
+    if traced:
+        rows.append({"t": t + 2, "kind": "tool_trace", "calls": len(calls), "source": "test"})
+    with (d / "transcript.jsonl").open("a") as fh:
+        fh.writelines(json.dumps(r) + "\n" for r in rows)
+
+
+def _git_read_everything(ws: Path) -> None:
+    """What `git add -A -N` + `git diff` does to the atime of every bundle file."""
+    for f in ws.rglob("*.md"):
+        if "/skills/" in str(f):
+            _touch_read(f)
+
+
+def test_the_cli_transcript_is_the_evidence_when_every_session_left_one(ws, library):
+    import time
+
+    got = _attach(ws, library)
+    a, b = got.listed[:2]
+    _session(ws, "baseline", [
+        {"tool": "Skill", "args": {"skill": a}, "skill": a},                                   # claude / gemini
+        {"tool": "command_execution", "args": {"command": f"sed -n '1,280p' .agents/skills/{b}/SKILL.md"}},
+        {"tool": "view_file", "args": {"AbsolutePath": f"{ws}/.agents/skills/{b}/references/worked_example.md"}},
+    ], t=time.time() + 1)
+    _git_read_everything(ws)          # the atime probe would now call every bundle, and the control, read
+    usage = probe_reads(ws, got)
+    assert usage.evidence == "transcript"
+    assert usage.surfaced == [a, b] and usage.deep == [b]
+    assert not usage.control_read and usage.probe_trustworthy
+    assert usage.deep_read_rate == 1 / len(got.listed)
+
+
+def test_a_session_without_a_trace_sends_the_probe_back_to_atime(ws, library):
+    """A partial trace would under-count exactly as a blind probe over-counts."""
+    import time
+
+    got = _attach(ws, library)
+    _session(ws, "baseline", [{"tool": "Skill", "args": {}, "skill": got.listed[0]}], t=time.time() + 1)
+    _session(ws, "repair", [], t=time.time() + 2, traced=False)   # e.g. a CLI killed before its record
+    usage = probe_reads(ws, got)
+    assert usage.evidence == "atime" and usage.surfaced == []
+
+
+def test_only_sessions_after_the_attach_are_credited(ws, library):
+    import time
+
+    got = _attach(ws, library)
+    name = got.listed[0]
+    _session(ws, "old", [{"tool": "Skill", "args": {}, "skill": name}], t=got.attached_at - 100)
+    _session(ws, "baseline", [{"tool": "Read", "args": {"file_path": "src/model.py"}}], t=time.time() + 1)
+    usage = probe_reads(ws, got)
+    assert usage.evidence == "transcript" and usage.surfaced == []   # last round's activation is last round's
+
+
+def test_a_call_the_cli_marked_failed_read_nothing(ws, library):
+    """codex 0.155.1, 2026-09-22: its first `sed` expanded the skill-root alias wrongly and exited 2."""
+    import time
+
+    got = _attach(ws, library)
+    name = got.listed[0]
+    _session(ws, "baseline", [{"tool": "command_execution", "failed": True,
+                               "args": {"command": f"sed -n 1,240p /home/u/.codex/skills/.system/{name}/SKILL.md"}}],
+             t=time.time() + 1)
+    assert probe_reads(ws, got).surfaced == []
+
+
+def test_an_agent_that_opens_the_control_is_reported_not_called_blind(ws, library):
+    import time
+
+    from codeverse3d.skills.materialize import CONTROL_NAME
+
+    got = _attach(ws, library)
+    _session(ws, "baseline", [{"tool": "read_file", "args": {"file_path": f".agents/skills/{CONTROL_NAME}/SKILL.md"}}],
+             t=time.time() + 1)
+    usage = probe_reads(ws, got)
+    assert usage.evidence == "transcript" and usage.control_read
+    assert usage.probe_trustworthy and usage.deep_read_rate == 0.0   # exact: it read the control, and nothing else
+
+
+def test_the_path_match_is_exact_about_names_and_about_reading():
+    from codeverse3d.skills.telemetry import _called
+
+    def called(*args: dict) -> tuple[bool, bool]:
+        return _called("c3d-scene", [{"args": a} for a in args])
+
+    assert called({"file_path": "/ws/.claude/skills/c3d-scene/SKILL.md"}) == (True, False)
+    assert called({"command": "cat r1/c3d-scene/SKILL.md"}) == (True, False)            # codex's root alias
+    assert called({"AbsolutePath": "/ws/.agents/skills/c3d-scene/references/a.md"}) == (True, True)
+    assert called({"DirectoryPath": "/ws/.agents/skills/c3d-scene/references"}) == (False, False)  # a listing
+    assert called({"file_path": ".agents/skills/c3d-scene-water/SKILL.md"}) == (False, False)      # a longer name
+    assert called({"file_path": ".agents/skills/xc3d-scene/SKILL.md"}) == (False, False)
+    assert called({"pattern": "src/**"}) == (False, False)
+
+
+def test_the_report_counts_exact_sessions_and_drops_only_blind_ones(tmp_path):
+    from typer.testing import CliRunner
+
+    from codeverse3d.cli.main import app
+
+    tele = tmp_path / "run" / TELEMETRY_DIR
+    tele.mkdir(parents=True)
+    rows = [  # exact, the agent opened the control too: counted, and said so
+        {"agent": "gemini-cli:gemini-3.7-flash", "listed": ["c3d-a"], "evidence": "transcript",
+         "control_present": True, "control_read": True, "reads": [{"name": "c3d-a", "surfaced": True, "deep": True}]},
+        # atime, control fired: blind, dropped
+        {"agent": "codex:gpt-5.6-luna", "listed": ["c3d-a"], "control_present": True, "control_read": True,
+         "reads": [{"name": "c3d-a", "surfaced": True, "deep": True}]},
+    ]
+    (tele / SKILLS_FILE).write_text("".join(json.dumps(r) + "\n" for r in rows))
+    r = CliRunner().invoke(app, ["skills", "report", str(tmp_path), "--json"])
+    assert r.exit_code == 0, r.output
+    out = json.loads(r.output)
+    assert out["transcript_sessions"] == 1 and out["control_opened_by_agent_sessions"] == 1
+    assert out["control_read_sessions"] == 1
+    assert [(s["backend"], s["deep"]) for s in out["skills"]] == [("gemini-cli", 1)]
