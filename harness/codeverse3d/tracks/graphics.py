@@ -413,15 +413,6 @@ class GraphicsPipeline:
     def render(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> RenderSet:
         return frames_render_set(ctx.ws, build, round_index)
 
-    def plan_summary(self, ctx: RunContext) -> str:
-        plan = ctx.plan
-        if not isinstance(plan, GraphicsPlan):
-            return ""
-        passes = ", ".join(f"{p.name} ({p.kind})" for p in plan.passes)
-        visuals = "; ".join(plan.key_visuals)
-        return (f"{plan.title}: {plan.summary} Style: {plan.style}. Passes: {passes}. Key visuals: {visuals}. "
-                f"Motion: {plan.motion or '(none planned)'}. {plan.resolution[0]}x{plan.resolution[1]}, loop {plan.duration_s:g}s.")
-
     def judge_context(self, ws: Workspace, plan: Plan | None, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
         renderer = build.census.get("renderer", "") if isinstance(build.census, dict) else ""
         return f"FRAME METRICS (harness-measured, renderer {renderer or 'moderngl'}):\n{frame_stats_text(ws)}"

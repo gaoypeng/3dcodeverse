@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 
 import pytest
 
@@ -16,7 +15,7 @@ from codeverse3d.proc import EventLog
 from codeverse3d.prompts import load_text
 from codeverse3d.tracks.planner import plan_example
 from codeverse3d.tracks.scene import SceneTrack
-from codeverse3d.tracks.static_object import ObjectPipeline, StaticObjectTrack
+from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import fake_clock, make_spec
 from tests.orchestrator_tracks.fakes import (
@@ -305,13 +304,15 @@ def test_scene_refine_emits_rebuild_task_when_build_failed(tmp_path, settings):
 
 # --------------------------------------------------------------------- finding: plan digest frame order
 def test_plan_digest_is_labelled_w_h_d_in_the_measurement_frame():
+    from codeverse3d.judges.base import plan_summary
+
     plan = StaticPlan(object_name="Cabinet", summary="A cabinet.",
                       overall_bbox=BBox(center=(0, 0, 0.4), extents=(0.48, 0.52, 0.80)),  # Z-up plan: W×D×H
                       parts=[PartPlan(name="Body", role="body", description="box",
                                       bbox=BBox(center=(0, 0, 0.4), extents=(0.48, 0.52, 0.80)))])
-    zup = ObjectPipeline().plan_summary(SimpleNamespace(plan=plan, language=Language.BLENDER))
+    zup = plan_summary(plan, Language.BLENDER)
     assert "Overall 0.48×0.80×0.52 m (W×H×D)" in zup  # H and D swapped into the GLB/measurement order
-    yup = ObjectPipeline().plan_summary(SimpleNamespace(plan=plan, language=Language.THREEJS))
+    yup = plan_summary(plan, Language.THREEJS)
     assert "Overall 0.48×0.52×0.80 m (W×H×D)" in yup  # identity for Y-up plans
 
 

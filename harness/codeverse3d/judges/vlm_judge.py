@@ -549,7 +549,7 @@ class ReferenceJudge(VlmJudge):
 def _plan_part_names(inp: JudgeInput) -> list[str]:
     """Part names from the plan digest the judge already receives (best effort).
 
-    ``judges.base.plan_digest`` writes them as one ``Parts: A, B×2, C`` segment;
+    ``judges.base.plan_summary`` writes them as one ``Parts: A, B×2, C`` segment;
     a multi-line digest lists one ``- Name · role · …`` per line.  Both are handled, and
     an unrecognised digest simply yields no names (the diff prompt then says so).
     """

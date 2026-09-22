@@ -6,7 +6,6 @@ import pytest
 from codeverse3d.addons.calibration import calibrate, load_run_cases, pearson, spearman
 from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse3d.contracts.run import RoundRecord
-from codeverse3d.judges.base import plan_digest
 from codeverse3d.judges.rubrics import load_rubric
 from tests.judges.conftest import (
     ACCEPTANCE,
@@ -24,8 +23,10 @@ def _fake_run(root: Path, name: str) -> Path:
     run = root / name
     (run / "rounds").mkdir(parents=True)
     (run / "spec.json").write_text(make_spec(id=name).model_dump_json())
-    plan = {"object_name": "Chair", "summary": "a chair.", "overall_bbox": {"center": [0, 0, 0.4], "extents": [0.5, 0.5, 0.9]},
-            "parts": [{"name": "Seat", "instances": 1}, {"name": "Leg", "instances": 4}],
+    box = {"center": [0, 0, 0.4], "extents": [0.5, 0.5, 0.9]}
+    plan = {"object_name": "Chair", "summary": "a chair.", "overall_bbox": box,
+            "parts": [{"name": "Seat", "role": "seat", "description": "board", "bbox": box},
+                      {"name": "Leg", "role": "leg", "description": "turned", "bbox": box, "instances": 4}],
             "acceptance": [a.model_dump() for a in ACCEPTANCE]}
     (run / "plan.json").write_text(json.dumps(plan))
     (run / "record.json").write_text(json.dumps({"best_round": 1}))
@@ -39,15 +40,15 @@ def _fake_run(root: Path, name: str) -> Path:
     return run
 
 
-def test_plan_digest_and_load_cases(tmp_path):
+def test_load_cases_reads_the_plan_the_in_run_judge_read(tmp_path):
+    """No usable record.json: the plan comes from plan.json, typed, and its digest is the
+    in-run one — a Z-up object's size in the measurement frame (W×H×D)."""
     run = _fake_run(tmp_path, "runA")
     cases = load_run_cases(run)
     assert [c.round_index for c in cases] == [0, 1] and cases[0].gate_errors == 1 and cases[1].gate_errors == 0
     assert cases[0].rubric == "static_object_v1" and len(cases[0].inp.acceptance) == 2
     assert cases[1].is_picked and not cases[0].is_picked and cases[0].glb is None  # no usable record: the last round
-    assert cases[0].inp.plan_summary == "Chair: a chair. Overall 0.50×0.50×0.90 m. Parts: Seat, Leg×4."
-    assert plan_digest({"title": "Harbour", "summary": "s", "zones": [{"name": "quay"}], "cameras": [{"name": "cam_hero"}], "setting": "dusk"}) \
-        == "Harbour: s Zones: quay. Cameras: cam_hero. Setting: dusk."
+    assert cases[0].inp.plan_summary == "Chair: a chair. Overall 0.50×0.90×0.50 m (W×H×D). Parts: Seat, Leg×4."
     assert load_run_cases(run, rounds=[1])[0].round_index == 1
 
 

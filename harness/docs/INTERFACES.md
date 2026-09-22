@@ -361,6 +361,14 @@ VlmJudge.slice_payload(inp) -> (list[(label, png_path)], provenance_elicitation:
 from codeverse3d.judges.base import JudgeInput   # (spec, renders, measurement=None, gates=[], acceptance=[], plan_summary="",
                                                #  round_index=0, previous=None, extra_context="", geometry_views=None,
                                                #  glb_path=None (D48: the round's canonical GLB; object tracks + 3dcode judge fill it))
+from codeverse3d.judges.base import round_input, plan_summary
+round_input(spec, plan, rnd, *, renders, gates, previous, extra_context, geometry_views, glb_path) -> JudgeInput
+    # THE payload of one round: tracks/steps._judge builds it from the round in hand, cli/_judge.build_judge_input
+    # (`3dcode judge`, addons/calibration) from the stored one — acceptance + digest from the plan, glb_path only on
+    # SLICE_TRACKS.  Δ 2026-09-22: replays used a dict digest of plan.json (a Z-up object read W×D×H, a shader lost
+    # style / passes / key visuals / motion); cli/_judge.stored_plan types plan.json when record.json has no plan
+plan_summary(plan, language) -> str   # the digest for every track (object: "Overall W×H×D m" in the GLB frame);
+    # also the texture gate's (texturing/generate.judge_gate) and eval/bench/judge_calib_graphics.py's
 from codeverse3d.judges.prompt_builder import plan_montages, render_montage, Montage    # ≤5 2×2 montages (shaded/geometry/poses) + ≤2 detail
     # crops @≤1024px replace the sheet + the 14-view rig (D47); clay/normals views (RenderView.mode) auto-route to the GEOMETRY montage
 from codeverse3d.judges.prompt_builder import build_judge_messages, connectivity_error_pairs, PROVENANCE_ELICITATION

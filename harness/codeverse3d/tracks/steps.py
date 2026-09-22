@@ -38,7 +38,7 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.plan import AcceptanceItem, Plan
 from codeverse3d.contracts.run import RoundRecord
-from codeverse3d.judges.base import SLICE_TRACKS, JudgeInput
+from codeverse3d.judges.base import round_input
 from codeverse3d.judges.rubrics import is_degraded
 from codeverse3d.orchestrator import BudgetExceeded, usage_delta
 from codeverse3d.proc import fan_out
@@ -59,7 +59,6 @@ class RoundPipeline(Protocol):
     def measure(self, ctx: RunContext, build: BuildResult) -> Measurement | None: ...
     def gates(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> list[GateReport]: ...
     def render(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> RenderSet: ...
-    def plan_summary(self, ctx: RunContext) -> str: ...
     def judge_context(self, ws: Workspace, plan: Plan | None, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
         """Track-specific judge context.  Deliberately ``RunContext``-free so
         ``3dcode judge`` can rebuild the in-run context from stored artifacts."""
@@ -465,14 +464,9 @@ def _judge(ctx: RunContext, pipeline: RoundPipeline, index: int, build: BuildRes
         except Exception as e:  # noqa: BLE001 — clay views are optional judge context
             log.warning("geometry views failed in round %d: %s", index, e)
             ctx.events.emit("judge.geometry_views_failed", round=index, error=f"{type(e).__name__}: {e}")
-    inp = JudgeInput(
-        spec=ctx.spec, renders=renders, measurement=rec.measurement, gates=gates,
-        acceptance=list(getattr(ctx.plan, "acceptance", []) or []), plan_summary=pipeline.plan_summary(ctx),
-        round_index=index, previous=previous, extra_context=pipeline.judge_context(ctx.ws, ctx.plan, index, build, gates),
-        geometry_views=geometry,
-        # D48: the round's canonical GLB feeds the conditional slice channel (object tracks only)
-        glb_path=build.glb_path if ctx.spec.track.value in SLICE_TRACKS else None,
-    )
+    inp = round_input(ctx.spec, ctx.plan, rec, renders=renders, gates=gates, previous=previous,
+                      extra_context=pipeline.judge_context(ctx.ws, ctx.plan, index, build, gates),
+                      geometry_views=geometry, glb_path=build.glb_path)
     t0 = time.time()
     try:
         judgment: Judgment = ctx.judge.judge(inp)

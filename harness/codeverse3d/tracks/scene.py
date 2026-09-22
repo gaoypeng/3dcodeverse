@@ -158,12 +158,6 @@ class ScenePipeline:
         the per-view ``judge`` flags ``render_scene`` stamps on every set it returns."""
         return judged_subset(renders)  # type: ignore[return-value]
 
-    def plan_summary(self, ctx: RunContext) -> str:
-        plan: ScenePlan = ctx.plan  # type: ignore[assignment]
-        zones = ", ".join(z.name for z in plan.zones)
-        assets = ", ".join(a.name for a in plan.assets)
-        return f"{plan.title}: {plan.summary} Setting: {plan.setting}. Zones: {zones}. Assets: {assets}. Cameras: {', '.join(c.name for c in plan.cameras)}."
-
     def judge_context(self, ws: Workspace, plan: Plan | None, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
         if not isinstance(plan, ScenePlan):
             return ""

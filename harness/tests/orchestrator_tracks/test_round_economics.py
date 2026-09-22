@@ -209,7 +209,6 @@ class _Pipeline:
     def measure(self, ctx, build): return None
     def gates(self, ctx, i, build, m): return []
     def render(self, ctx, i, build, m): return _renders()
-    def plan_summary(self, ctx): return "plan"
     def judge_context(self, ws, plan, i, build, gates): return ""
 
 

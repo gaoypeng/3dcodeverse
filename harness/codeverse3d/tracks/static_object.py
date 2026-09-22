@@ -27,7 +27,6 @@ from codeverse3d.conventions import (
     BBOX_TOLERANCE_M,
     OBJECT_CLAY_VIEWS,
     OBJECT_VIEWS,
-    to_authoring_frame,
 )
 from codeverse3d.orchestrator import RefineTask, TaskGroup, compact_instructions
 from codeverse3d.prompts import render
@@ -128,19 +127,6 @@ class ObjectPipeline:
                 "render.geometry_failed", round=round_index, error=f"{type(e).__name__}: {e}"
             )
             return None
-
-    def plan_summary(self, ctx: RunContext) -> str:
-        plan = ctx.plan
-        if plan is None:
-            return ""
-        parts = ", ".join(
-            f"{p.name}×{p.instances}" if p.instances > 1 else p.name for p in plan.parts
-        )
-        # reorder into the measurement table's frame (W×H×D, Y-up): the (x,|z|,y) swap is
-        # self-inverse for extents, so Z-up plans (W,D,H) → (W,H,D), threejs is identity —
-        # otherwise the judge compares the digest position-wise against swapped numbers.
-        e = to_authoring_frame(plan.overall_bbox.extents, ctx.language, extents=True)
-        return f"{plan.object_name}: {plan.summary} Overall {e[0]:.2f}×{e[1]:.2f}×{e[2]:.2f} m (W×H×D). Parts: {parts}."
 
     def judge_context(
         self,

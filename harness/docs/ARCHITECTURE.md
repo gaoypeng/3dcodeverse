@@ -157,8 +157,9 @@ codeverse3d/
                       billing.py (SUBSCRIPTION_BACKENDS/bills_usd — which backends take real dollars,
                       so the ledger bills real money and not list price; docs/COST.md §25)
                       guard.py routing.py reconstruct.py (old runs)
-  judges/             base.py (JudgeInput/Judgment helpers + the pure round-replay pieces `3dcode judge` and
-                      calibration share), rubrics.py + rubrics/*.yaml (defect checklists, the wire
+  judges/             base.py (JudgeInput; `round_input` + `plan_summary(plan, language)`, the ONE payload
+                      builder and plan digest the in-run judge, `3dcode judge`, calibration, the texture
+                      gate and eval all use; the pure replay helpers), rubrics.py + rubrics/*.yaml (defect checklists, the wire
                       schema, caps and scoring), prompt_builder.py (image prep, montages, the
                       judge messages), vlm_judge.py (+ the reference/likeness judges),
                       pairwise.py.  No Judge Protocol: a judge is

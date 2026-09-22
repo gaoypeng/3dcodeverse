@@ -90,14 +90,6 @@ class ArticulatedPipeline(ObjectPipeline):
             rs.views = list(rs.views) + pose_views
         return rs
 
-    def plan_summary(self, ctx: RunContext) -> str:
-        base = super().plan_summary(ctx)
-        plan = ctx.plan
-        if not isinstance(plan, ArticulatedPlan):
-            return base
-        joints = "; ".join(f"{j.name} ({j.type} {j.parent}→{j.child}, [{j.lower:.2f},{j.upper:.2f}])" for j in plan.joints)
-        return f"{base} Root link {plan.root_link}. Joints: {joints}."
-
     def judge_context(self, ws: Workspace, plan: Plan | None, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
         report = next((g for g in gates if g.gate == SWEEP_GATE), None)
         motion = next((g for g in gates if g.gate == MOTION_GATE), None)

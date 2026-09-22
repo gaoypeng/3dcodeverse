@@ -32,8 +32,9 @@ from typing import Any
 from codeverse3d.addons import select
 from codeverse3d.addons.calibration import spearman
 from codeverse3d.contracts.artifacts import GateReport, RenderSet
+from codeverse3d.contracts.plan import GraphicsPlan
 from codeverse3d.contracts.spec import Spec
-from codeverse3d.judges.base import JudgeInput, plan_digest
+from codeverse3d.judges.base import JudgeInput, plan_summary
 from codeverse3d.judges.vlm_judge import VlmJudge
 from codeverse3d.record.record import RecordError
 from codeverse3d.tracks.graphics import frame_stats_text
@@ -64,14 +65,14 @@ def judge_one(run: Path, rubric: str, model: str, n: int) -> dict[str, Any]:
     # judge is told so — without it, pro called four moving effects "static" in the first pass)
     ws = Workspace(run)
     plan_path = run / "plan.json"
-    plan_summary = plan_digest(json.loads(plan_path.read_text())) if plan_path.is_file() else ""
+    digest = plan_summary(GraphicsPlan.model_validate_json(plan_path.read_text()), spec.language) if plan_path.is_file() else ""
     last_index = max((int(f.stem[1:]) for f in run.glob("rounds/r*.json")), default=0)
     if int(rnd.get("index", 0)) == last_index:
         extra = "FRAME METRICS (harness-measured):\n" + frame_stats_text(ws)
     else:
         extra = "FRAME METRICS: not available for this round (an earlier round than the last build); judge motion from the frames."
     inp = JudgeInput(spec=spec, renders=renders, gates=gates, round_index=int(rnd.get("index", 0)),
-                     plan_summary=plan_summary, extra_context=extra)
+                     plan_summary=digest, extra_context=extra)
     judge = VlmJudge(rubric=rubric, model_id=model, n_samples=n)
     v = judge.judge(inp)
     raw = v.raw if isinstance(v.raw, dict) else json.loads(v.raw or "{}")

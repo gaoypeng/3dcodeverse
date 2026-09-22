@@ -24,7 +24,6 @@ from codeverse3d.prompts import render
 from codeverse3d.spatial.gl_render import GlFrame, GlResult, gif_times
 from codeverse3d.tracks import get_track
 from codeverse3d.tracks.graphics import (
-    GraphicsPipeline,
     GraphicsTrack,
     ensure_graphics_acceptance,
     graphics_prompt_context,
@@ -163,6 +162,24 @@ def test_graphics_track_end_to_end(tmp_path, settings):
     assert {"dropsLayer", "bokehSoft"} <= set(seeded["names"]) and seeded["present"] == seeded["names"]   # + the night-sky chapter
 
 
+def test_a_replayed_round_reads_the_payload_the_in_run_judge_read(tmp_path, settings):
+    """``3dcode judge`` / calibration (``cli/_judge.build_judge_input``) replayed a graphics round with
+    a digest of the plan's title and summary alone — no style, passes, key visuals or motion — while
+    the in-run judge read all of them.  Both build the payload with ``judges.base.round_input`` now."""
+    from codeverse3d.cli._judge import build_judge_input
+    from codeverse3d.record.record import load_record
+
+    ws = Workspace(tmp_path / "runs" / "replay")
+    judge = FakeJudge(scores=(0.55, 0.72), targets=("RainDrops",))
+    track = GraphicsTrack(services=_services(), judge=judge, agent=FakeAgent(_writer),
+                          planner_model=FakeChatModel(lambda req: plan_example()), settings=settings, runtime=FakeGlRuntime())
+    rec = track.run(make_spec(max_rounds=1), ws)
+    replay = build_judge_input(ws, load_record(ws), rec.rounds[-1])
+    for field in ("plan_summary", "extra_context", "acceptance", "round_index"):
+        assert getattr(replay, field) == getattr(judge.calls[-1], field), field
+    assert "Passes: CityBokeh (fullscreen)" in replay.plan_summary and "Motion: drops slide down" in replay.plan_summary
+
+
 def test_static_frames_become_a_gate_warning_and_refine_task(tmp_path, settings):
     spec = make_spec(max_rounds=1)
     ws = Workspace(tmp_path / "runs" / "static")
@@ -250,5 +267,6 @@ def test_templates_render_and_rubric_loads(tmp_path, settings):
         ctx, round_index=1, tasks=["[judge/effect] overall: more bokeh"], targets=["overall"], files=["src/program.py"],
         judge_summary="Previous score 0.5", frame_notes="(no frame metrics)", current_files={"src/program.py": "# y"}))
     assert "more bokeh" in ref and "--- src/program.py ---" in ref
-    pipe = GraphicsPipeline()
-    assert "CityBokeh" in pipe.plan_summary(ctx)
+    from codeverse3d.judges.base import plan_summary
+
+    assert "CityBokeh" in plan_summary(ctx.plan, ctx.language)

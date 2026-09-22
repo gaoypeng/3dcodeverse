@@ -29,7 +29,7 @@ from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.plan import AcceptanceItem, StaticPlan
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK, ViewPreset
-from codeverse3d.judges.base import JudgeInput, plan_digest
+from codeverse3d.judges.base import JudgeInput, plan_summary
 from codeverse3d.judges.rubrics import is_degraded
 from codeverse3d.proc import fan_out, unique_tmp
 
@@ -342,7 +342,7 @@ def judge_gate(
     rs_before = render(glb_before, out_dir / "before", views=list(views), width=size, height=size)
     rs_after = render(glb_after, out_dir / "after", views=list(views), width=size, height=size)
     acceptance: list[AcceptanceItem] = list(getattr(plan, "acceptance", []) or [])
-    summary = plan_digest(plan.model_dump()) if plan is not None else ""
+    summary = plan_summary(plan, spec.language)
     res = GateResult(shipped=False, renders_before=rs_before, renders_after=rs_after)
     jb = judge.judge(JudgeInput(spec=spec, renders=rs_before, measurement=measurement, acceptance=acceptance,
                                 plan_summary=summary, round_index=0,

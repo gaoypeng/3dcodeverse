@@ -1,28 +1,29 @@
 """``3dcode judge`` implementation: re-judge a round with the SAME inputs the
 in-run judge saw.
 
-The round's renders / measurement / gates come from ``rounds/rNN.json``
-(fallback: the round inside record.json), the acceptance checklist and plan
-digest from ``plan.json``, ``previous`` is the preceding round's (non-degraded)
-verdict, the track-specific ``extra_context`` is rebuilt from the stored gates
-/ frame metrics, and the clay geometry views rendered for the in-run judge
-(``renders/rNN/clay/``) are reattached when present.  The judge class matches
-the in-run choice: ``ReferenceJudge`` when the rubric has measured criteria or
-the spec carries reference images, ``VlmJudge`` otherwise.
+The payload is ``judges.base.round_input`` — the builder the in-run judge uses — fed from
+disk: the round's renders / measurement / gates from ``rounds/rNN.json`` (fallback: the
+round inside record.json), the typed plan from record.json (else ``plan.json``), ``previous``
+the preceding round's (non-degraded) verdict, the track's ``extra_context`` rebuilt from the
+stored gates / frame metrics, and the clay geometry views rendered for the in-run judge
+(``renders/rNN/clay/``) reattached when present.  The judge class matches the in-run choice:
+``ReferenceJudge`` when the rubric has measured criteria or the spec carries reference
+images, ``VlmJudge`` otherwise.
 """
 
 from __future__ import annotations
 
-import json
 from typing import Any
+
+from pydantic import ValidationError
 
 from codeverse3d.cli import _common as C
 from codeverse3d.contracts.artifacts import BuildResult, RenderSet, RenderView
 from codeverse3d.contracts.common import TRACK_INFO
-from codeverse3d.contracts.plan import AcceptanceItem
+from codeverse3d.contracts.plan import Plan
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.contracts.spec import Spec
-from codeverse3d.judges.base import SLICE_TRACKS, judged_subset, plan_digest, resolve_paths
+from codeverse3d.judges.base import judged_subset, resolve_paths, round_input
 from codeverse3d.proc import read_json_or_none
 from codeverse3d.workspace import Workspace
 
@@ -47,10 +48,18 @@ def rubric_for(rec: RunRecord, rnd: RoundRecord, override: str | None) -> str:
     return TRACK_INFO[rec.spec.track].rubric
 
 
-def plan_summary_for(ws: Workspace) -> str:
-    """Track-agnostic plan digest from plan.json (same fields the tracks summarise)."""
+def stored_plan(ws: Workspace, rec: RunRecord) -> Plan | None:
+    """The run's typed plan: record.json's, else ``plan.json`` read as the track's plan model
+    (a run that stopped before its record was written)."""
+    if rec.plan is not None:
+        return rec.plan
+    from codeverse3d.tracks import get_track
+
     data = read_json_or_none(ws.plan_path)
-    return plan_digest(data) if data else ""
+    try:
+        return get_track(rec.spec.track).plan_model.model_validate(data) if data else None
+    except ValidationError:
+        return None
 
 
 def previous_judgment(ws: Workspace, rec: RunRecord, index: int) -> Any:
@@ -67,7 +76,7 @@ def previous_judgment(ws: Workspace, rec: RunRecord, index: int) -> Any:
     return None
 
 
-def extra_context_for(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> str:
+def extra_context_for(ws: Workspace, rec: RunRecord, plan: Plan | None, rnd: RoundRecord) -> str:
     """The track pipeline's OWN ``judge_context`` over the stored artifacts —
     ``judge_context(ws, plan, round_index, build, gates)`` needs no run context,
     so the CLI never restates the per-track formatting."""
@@ -75,7 +84,7 @@ def extra_context_for(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> str:
 
     build = rnd.build if rnd.build is not None else BuildResult(ok=False, language=rec.spec.language.value)
     try:
-        return get_track(rec.spec.track).make_pipeline().judge_context(ws, rec.plan, rnd.index, build, list(rnd.gates))
+        return get_track(rec.spec.track).make_pipeline().judge_context(ws, plan, rnd.index, build, list(rnd.gates))
     except Exception as e:  # noqa: BLE001 — extra context is optional judge input
         return f"(judge context unavailable: {type(e).__name__}: {e})"
 
@@ -91,28 +100,17 @@ def clay_geometry_views(ws: Workspace, index: int) -> RenderSet | None:
 
 
 def build_judge_input(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> Any:
-    from codeverse3d.judges.base import JudgeInput
-
-    acceptance: list[AcceptanceItem] = list(getattr(rec.plan, "acceptance", []) or [])
-    if not acceptance and ws.plan_path.is_file():
-        try:
-            raw = json.loads(ws.plan_path.read_text()).get("acceptance") or []
-            acceptance = [AcceptanceItem.model_validate(a) for a in raw]
-        except (ValueError, TypeError):
-            acceptance = []
-    return JudgeInput(
-        spec=rec.spec, renders=judged_subset(resolve_paths(ws, rnd.renders)), measurement=rnd.measurement, gates=rnd.gates,
-        acceptance=acceptance, plan_summary=plan_summary_for(ws), round_index=rnd.index,
-        previous=previous_judgment(ws, rec, rnd.index), extra_context=extra_context_for(ws, rec, rnd),
-        geometry_views=clay_geometry_views(ws, rnd.index),
-        glb_path=stored_glb_path(ws, rec, rnd),
-    )
+    """``round_input`` for a stored round (``3dcode judge``, calibration)."""
+    plan = stored_plan(ws, rec)
+    return round_input(rec.spec, plan, rnd, renders=judged_subset(resolve_paths(ws, rnd.renders)), gates=rnd.gates,
+                       previous=previous_judgment(ws, rec, rnd.index), extra_context=extra_context_for(ws, rec, plan, rnd),
+                       geometry_views=clay_geometry_views(ws, rnd.index), glb_path=stored_glb_path(ws, rnd))
 
 
-def stored_glb_path(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> str | None:
-    """The round's canonical GLB (object tracks), rebased to THIS workspace — what lets
-    ``3dcode judge`` reproduce the D48 conditional slice payload from the stored gates."""
-    if rec.spec.track.value not in SLICE_TRACKS or rnd.build is None or not rnd.build.glb_path:
+def stored_glb_path(ws: Workspace, rnd: RoundRecord) -> str | None:
+    """The round's canonical GLB, rebased to THIS workspace — what lets ``3dcode judge``
+    reproduce the D48 conditional slice payload from the stored gates."""
+    if rnd.build is None or not rnd.build.glb_path:
         return None
     kept = ws.round_artifacts(rnd.index) / "object.glb"  # the round's own GLB; the stored path is
     p = kept if kept.is_file() else ws.rebase(rnd.build.glb_path)  # the canonical one, rebuilt since
