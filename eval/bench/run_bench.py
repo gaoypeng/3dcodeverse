@@ -1,5 +1,14 @@
 """Run a prompt battery through a track with N parallel workers; resumable.
 
+    cd eval && python -m bench.run_bench bench/prompts/static_objects_v1.yaml \
+        --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview [--rounds 2] \
+        [--parallel 4] [--tier easy] [--id furn_easy_stool] [--limit 6] [--out bench/out/x] \
+        [--redo-status infra_failed] [--no-report]
+
+(``3dcode bench run`` until 2026-09-22: the launcher lives with the evaluation now, and like
+every bench script it imports THIS tree's ``codeverse3d`` — a console script resolved the
+editable install's, so a battery launched from a worktree ran the main checkout's code.)
+
 Layout of ``out_dir``::
 
     battery.json        the battery as loaded (+ overrides used)
@@ -21,9 +30,11 @@ The binding is context-local, so ``--parallel N`` keeps N ledgers apart.  And li
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import logging
+import sys
 import time
 import traceback
 from collections.abc import Callable, Sequence
@@ -35,16 +46,20 @@ from typing import Any
 import yaml
 from pydantic import AliasChoices, BaseModel, Field
 
-from bench._infra import is_infra_failure
-from bench._jsonl import latest, read_jsonl, seal_for_append
-from codeverse3d.addons import select
-from codeverse3d.config import get_settings
-from codeverse3d.contracts.common import Backends, Budget, Language, Track
-from codeverse3d.contracts.run import RunRecord
-from codeverse3d.contracts.spec import Constraints, ReferenceImage, Spec
-from codeverse3d.cost import run_ledger
-from codeverse3d.proc import exclusive
-from codeverse3d.workspace import Workspace
+for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
+    if str(_p) not in sys.path:  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
+        sys.path.insert(0, str(_p))
+
+from bench._infra import is_infra_failure  # noqa: E402
+from bench._jsonl import latest, read_jsonl, seal_for_append  # noqa: E402
+from codeverse3d.addons import select  # noqa: E402
+from codeverse3d.config import get_settings  # noqa: E402
+from codeverse3d.contracts.common import Backends, Budget, Language, Track  # noqa: E402
+from codeverse3d.contracts.run import RunRecord  # noqa: E402
+from codeverse3d.contracts.spec import Constraints, ReferenceImage, Spec  # noqa: E402
+from codeverse3d.cost import run_ledger  # noqa: E402
+from codeverse3d.proc import exclusive  # noqa: E402
+from codeverse3d.workspace import Workspace  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -330,3 +345,56 @@ def write_results(out_dir: Path, results: list[BenchItemResult]) -> None:
         w.writeheader()
         for r in rows:
             w.writerow({k: r.get(k) for k in RESULT_FIELDS})
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("battery", type=Path, help="bench/prompts/<name>.yaml")
+    ap.add_argument("--out", type=Path, default=None, help="default bench/out/<battery name>")
+    ap.add_argument("--generator")
+    ap.add_argument("--planner")
+    ap.add_argument("--judge", help="fixed judge model for the whole battery")
+    ap.add_argument("--parallel", type=int, default=None,
+                    help="workers (default: BenchOptions.parallel — the measured knee)")
+    ap.add_argument("--rounds", type=int, default=4)
+    ap.add_argument("--max-minutes", type=float, default=60.0,
+                    help="wall-clock budget per run; size it to the weather (RUNBOOK 7.x: 120 in a 503 storm, "
+                         "else runs burn the hour with no judged round)")
+    ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--id", dest="ids", action="append", default=[], help="only this prompt id (repeatable)")
+    ap.add_argument("--tier", dest="tiers", action="append", default=[], help="only this tier (repeatable)")
+    ap.add_argument("--redo-status", default="",
+                    help="comma list of recorded statuses to re-run, e.g. infra_failed once the provider recovers")
+    ap.add_argument("--report", action=argparse.BooleanOptionalAction, default=True,
+                    help="write report.md + report.html when the battery ends")
+    ns = ap.parse_args(argv)
+    if not ns.battery.is_file():
+        ap.error(f"battery not found: {ns.battery}")
+    if ns.rounds < 0 or (ns.parallel is not None and ns.parallel < 1):
+        ap.error("--rounds must be >= 0 and --parallel >= 1")
+    # one source of truth for the worker count: BenchOptions.parallel (the measured knee)
+    opts = BenchOptions(generator=ns.generator, planner=ns.planner, judge=ns.judge, rounds=ns.rounds,
+                        max_minutes=ns.max_minutes, limit=ns.limit, ids=ns.ids, tiers=ns.tiers,
+                        redo_status=[x for x in ns.redo_status.split(",") if x],
+                        **({} if ns.parallel is None else {"parallel": ns.parallel}))
+    out = ns.out or Path(__file__).resolve().parent / "out" / ns.battery.stem
+    print(f"battery={ns.battery} out={out} generator={ns.generator or 'default'} judge={ns.judge or 'default'}",
+          flush=True)
+
+    def _on(res: BenchItemResult) -> None:
+        print(f"  [{res.status}] {res.id}: baseline={res.score_baseline} picked={res.score_picked} "
+              f"rounds={res.rounds} ${res.cost_usd:.2f} {res.minutes:.1f}min"
+              + (f" {res.errors[:80]}" if res.errors else ""), flush=True)
+
+    results = run_battery(ns.battery, out, opts, on_result=_on)
+    print(f"{len(results)} results → {out / 'results.csv'}")
+    if ns.report:
+        from bench.report import build_report
+
+        print(build_report(out).markdown)
+        print(f"report → {out / 'report.md'} / report.html")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

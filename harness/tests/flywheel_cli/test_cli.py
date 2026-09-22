@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from codeverse3d.cli import _common as C
 from codeverse3d.cli.main import app
 from codeverse3d.cli.main import make as make_cmd
 from codeverse3d.contracts.spec import Spec
@@ -103,11 +102,6 @@ def test_tools_list_handles_an_optional_spatial_install():
     # spatial tools may or may not be installed yet; either a table or a clear message, never a traceback
     assert r.exit_code in (0, 2), r.output
     assert "Traceback" not in r.output
-
-
-def test_a_missing_bench_module_is_a_clear_exit():
-    with pytest.raises(C.CliError):
-        C.import_bench("definitely_missing_module")
 
 
 def test_doctor_json(monkeypatch):

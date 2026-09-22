@@ -300,7 +300,7 @@ in a documented order.  Every prompt declares the band its **built** artifact is
 expected to reach:
 
 ```
-3dcode bench run bench/prompts/complexity_v3.yaml --out bench/out/complexity_v3 \
+python -m bench.run_bench bench/prompts/complexity_v3.yaml --out bench/out/complexity_v3 \
      --generator gemini-cli:gemini-3.6-flash --judge gemini:gemini-3.1-pro-preview
 python bench/complexity_report.py bench/out/complexity_v3 --battery bench/prompts/complexity_v3.yaml
 ```

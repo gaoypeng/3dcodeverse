@@ -231,3 +231,42 @@ def test_a_redo_starts_from_a_fresh_workspace(tmp_path):
     assert seen == [False], "the redo ran fresh, not resumed"
     assert (out / "runs" / f"{pid}.attempt1" / "src" / "old.py").exists(), "the old tree is archived beside the new one"
     assert archive_attempt(out / "runs" / pid).name == f"{pid}.attempt2"
+
+
+def test_the_launcher_hands_its_flags_to_run_battery(tmp_path: Path, monkeypatch, capsys):
+    """``python -m bench.run_bench`` replaced ``3dcode bench run`` (2026-09-22) with the same flags."""
+    import bench.run_bench as rb
+
+    seen: dict = {}
+
+    def fake(battery, out, opts, *, on_result=None):
+        seen.update(battery=battery, out=out, opts=opts)
+        return []
+
+    monkeypatch.setattr(rb, "run_battery", fake)
+    battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"
+    assert rb.main([str(battery), "--out", str(tmp_path), "--generator", "g", "--judge", "j", "--rounds", "2",
+                    "--max-minutes", "120", "--parallel", "3", "--id", "a", "--id", "b", "--tier", "easy",
+                    "--limit", "5", "--redo-status", "infra_failed,error", "--no-report"]) == 0
+    o = seen["opts"]
+    assert (o.generator, o.judge, o.rounds, o.max_minutes, o.parallel, o.limit) == ("g", "j", 2, 120.0, 3, 5)
+    assert o.ids == ["a", "b"] and o.tiers == ["easy"] and o.redo_status == ["infra_failed", "error"]
+    assert seen["out"] == tmp_path and "0 results" in capsys.readouterr().out
+    # no --parallel / --out: BenchOptions' measured knee, and bench/out/<battery name>
+    assert rb.main([str(battery), "--no-report"]) == 0
+    assert seen["opts"].parallel == BenchOptions().parallel
+    assert seen["out"] == REPO / "bench" / "out" / "static_objects_v1"
+    with pytest.raises(SystemExit):
+        rb.main([str(battery), "--rounds", "-1"])
+
+
+def test_the_report_command_rebuilds_the_report(tmp_path: Path, capsys):
+    """``python -m bench.report <out>`` replaced ``3dcode bench report``."""
+    from bench.report import main
+
+    battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"
+    run_battery(battery, tmp_path, BenchOptions(parallel=1, limit=1), run_fn=_fake_run_fn({}))
+    assert main([str(tmp_path)]) == 0
+    assert "# bench report" in capsys.readouterr().out and (tmp_path / "report.html").is_file()
+    with pytest.raises(SystemExit):
+        main([str(tmp_path / "missing")])

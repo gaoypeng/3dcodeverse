@@ -6,7 +6,7 @@
 
 How we decide whether the harness (plan → generate → gate → render → judge →
 refine) beats raw generation, and whether one backend beats another, without
-fooling ourselves.  Tools: `3dcode bench`, `bench/compare_backends.py`,
+fooling ourselves.  Tools: `bench/run_bench.py`, `bench/compare_backends.py`,
 `codeverse3d.judges.{vlm_judge, pairwise, calibration, metrics}`.
 
 ## 1. Principles
@@ -54,15 +54,19 @@ becomes acceptance items (planner-appended in the loop, fixed-judge checklist in
 comparisons); `dimensions_m` becomes `Spec.constraints.dimensions_m` and a
 deterministic contract check.
 
-## 3. Harness battery runs (`3dcode bench run`)
+## 3. Harness battery runs (`python -m bench.run_bench`)
 
 ```bash
-3dcode bench run bench/prompts/static_objects_v1.yaml \
+cd eval   # was `3dcode bench run|report` until 2026-09-22: the launcher lives with the evaluation now
+python -m bench.run_bench bench/prompts/static_objects_v1.yaml \
     --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview \
     --rounds 2 --parallel 4 --out bench/out/static_v1_apiagent
-3dcode bench run bench/prompts/static_objects_v1.yaml --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --out bench/out/static_v1_gemcli
-3dcode bench report bench/out/static_v1_apiagent
+python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --out bench/out/static_v1_gemcli
+python -m bench.report bench/out/static_v1_apiagent
 ```
+Like every bench script it imports THIS tree's `codeverse3d` (`../harness`), so a battery
+launched from a worktree measures the worktree — the `3dcode` console script resolved the
+editable install instead.
 Each item = one full `3dcode make` run (its own workspace under `--out`) followed by the
 hand-over `make` does — `addons/select.pick` by score, then `package` (deliverable/ +
 selection.json); `results.jsonl` rows carry `score_baseline`, `score_picked` (rows written

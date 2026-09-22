@@ -1105,7 +1105,7 @@ _pools: dict[tuple[str, ...], KeyPool] = {}      # codeverse3d/models/gemini.py 
 def shared_pool(...):  """One KeyPool per distinct (key list, quota) so limiters are process-wide."""
 ```
 
-Process-wide is not machine-wide.  Every `3dcode bench run`, every `compare_backends.py`
+Process-wide is not machine-wide.  Every `bench/run_bench.py`, every `compare_backends.py`
 and every `3dcode make` is its own OS process with its own pool, each believing it owns the
 whole 22-key quota and each allowing its own 64 in-flight.  On 2026-08-24 six batteries
 from different waves ran at once: **~384 concurrent calls against a quota sized for 64**.

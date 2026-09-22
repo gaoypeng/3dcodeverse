@@ -229,9 +229,9 @@ render cache separates with it, which an A/B wants.
 
 Also halve each arm's `--parallel`: two arms at 3 workers is six concurrent renders, and a
 round with no renders skips the judge, so the loop stops at `judge_unavailable` and the
-cell is finished with no score (`bench run` will not re-run it: the row exists).  Redo the
+cell is finished with no score (`run_bench` will not re-run it: the row exists).  Redo the
 scoreless cells afterwards — delete the row from `results.jsonl` and the run directory,
-then `bench run --id <prompt>`.
+then `python -m bench.run_bench <battery> --id <prompt>`.
 
 A refine session that dies on the VENDOR's usage limit ("You've hit your usage limit … try again at
 Sep 14th", `RESOURCE_EXHAUSTED`, `insufficient_quota`) stops the run at `agent_quota`: every round
@@ -249,17 +249,19 @@ in a `lost to the box` column instead of counting them as gate failures.  A batt
 report shows that column non-zero has to be re-run for those cells before it is read as a
 statement about the generator.
 
-**A battery launched with `3dcode` from a worktree runs the MAIN checkout's code.**  `3dcode`
+**Anything launched with `3dcode` from a worktree runs the MAIN checkout's code.**  `3dcode`
 is a console script, so `sys.path[0]` is the venv's `bin`, never the cwd, and `import
-codeverse3d` finds the editable install.  `--out eval/bench/out/<name>` IS relative to the cwd,
-so the OUTPUT lands in the worktree while the CODE that produced it is the main tree's —
-an arm that looks like it is testing your branch and is testing `main` (measured
-2026-09-05: the first `scenes_v1` battery, launched from `local/worktrees/integrate`, ran
-entirely on the main checkout).  `python -c` and `pytest` do not have this problem because
-they put the cwd on the path.  Export `PYTHONPATH=<worktree>/harness` before the command,
-and have the arm script REFUSE TO RUN when `codeverse3d.__file__` and `runtime_js_dir()` are
-not the tree you meant — `local/scripts/run_scene_fixed.sh` is the pattern, and it also
-asserts that the specific fixes the arm exists to measure are present.
+codeverse3d` finds the editable install.  `--out` IS relative to the cwd, so the OUTPUT lands
+in the worktree while the CODE that produced it is the main tree's — an arm that looks like it
+is testing your branch and is testing `main` (measured 2026-09-05: the first `scenes_v1`
+battery, launched with `3dcode bench run` from `local/worktrees/integrate`, ran entirely on the
+main checkout).  Batteries no longer have this problem: `python -m bench.run_bench` (the
+launcher since 2026-09-22) bootstraps `sys.path` to its own tree's `harness/` like every bench
+script (`eval/tests/test_worktree_import.py`).  For `3dcode make` from a worktree, export
+`PYTHONPATH=<worktree>/harness` before the command, and have an arm script REFUSE TO RUN when
+`codeverse3d.__file__` and `runtime_js_dir()` are not the tree you meant —
+`local/scripts/run_scene_fixed.sh` is the pattern, and it also asserts that the specific fixes
+the arm exists to measure are present.
 
 **A new worktree needs `runtime_js/node_modules` before it can run a battery.**  Without it
 `render_glb` dies on every round, the judge is skipped for want of renders, and the cells
@@ -289,9 +291,11 @@ call the `texture_pass` / `texture_preview` tools mid-session.
 ## 7. Benchmarks
 
 ```bash
-3dcode bench run ../eval/bench/prompts/static_objects_v1.yaml --generator single-shot:gemini:gemini-3.7-flash \
-    --judge gemini:gemini-3.1-pro-preview --rounds 2 --parallel 4 [--tier easy] [--id furn_easy_stool] [--limit 6] [--out ../eval/bench/out/x]
-3dcode bench report ../eval/bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
+cd ../eval   # the battery launcher is the evaluation's (`3dcode bench` until 2026-09-22)
+python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator single-shot:gemini:gemini-3.7-flash \
+    --judge gemini:gemini-3.1-pro-preview --rounds 2 --parallel 4 [--tier easy] [--id furn_easy_stool] [--limit 6] [--out bench/out/x]
+python -m bench.report bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
+cd ../harness
 python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml \
     --arms harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
 ```
@@ -315,7 +319,7 @@ undefined`, four prompts recorded `error` at 0 min.  Rule: every new template va
 guarded `{% if name is defined and name %}` for at least one wave, and the "Landing source
 changes while a wave is running" rule covers `codeverse3d/prompts/**` as well as moved names.
 
-### 7.u `bench run --redo-status` starts the redo fresh (since c828637)
+### 7.u `run_bench --redo-status` starts the redo fresh (since c828637)
 
 Before it, a redo resumed the old workspace — old `spec.json` (the old `max_minutes`) and the
 old clock — so a `budget` row redone with `--max-minutes 120` was over budget before its first
@@ -323,22 +327,22 @@ round (clock_q4, lighthouse_1: `budget`, 0 rounds, "60.3 / 76.7 min elapsed").  
 tree is archived as `runs/<id>.attempt<N>` and the prompt runs from scratch with the new
 options, the way `ab_plan` has done since the skills wave.
 
-It is also the ONLY way: `bench run --no-resume` was deleted 2026-08-30.  It dropped the
+It is also the ONLY way: `run_bench --no-resume` was deleted 2026-08-30.  It dropped the
 recorded rows and then resumed the workspace anyway — `resume = ws.exists()` never read the
 flag — so a "fresh" rerun carried the old spec, rounds, spend and clock and appended a second
 results row for the same tree.  `compare_backends --no-resume` kept its flag (it is documented
 and has three readers) and now archives the harness cell's `run/` before re-running it.
 
-### 7.w One driver per out dir — a second `bench run` re-runs what the first is still running
+### 7.w One driver per out dir — a second `run_bench` re-runs what the first is still running
 
 Measured 2026-08-26 (refs_v1_graphics): a redo driver (`--redo-status budget`) started while the
 original driver was still working the same battery resumed a prompt the first driver had in
 flight, re-ran its last round in the same workspace and rewrote `rounds/r02.json` (0.600 →
 0.944 for the same sheet: judge/acceptance variance, not a new picture) and appended a second
 `results.jsonl` row.  `run_battery` decides what to run from `results.jsonl`, and a prompt with no
-row yet is fair game to both.  Rule: never start a second `3dcode bench run` on an out dir with a
-live driver; wait for the driver to exit (exact pid, `kill -0`), then redo once with
-`--redo-status infra_failed,error,budget --max-minutes 120`.  `bench run` grew `--max-minutes`
+row yet is fair game to both.  Rule: never start a second `python -m bench.run_bench` on an out dir
+with a live driver; wait for the driver to exit (exact pid, `kill -0`), then redo once with
+`--redo-status infra_failed,error,budget --max-minutes 120`.  `run_bench` grew `--max-minutes`
 the same day so the storm budget no longer needs `ab_plan`.
 
 ### 7.x Size `--max-minutes` to the weather

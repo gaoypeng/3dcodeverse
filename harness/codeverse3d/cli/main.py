@@ -88,61 +88,6 @@ def tools(
         raise typer.Exit(code=1)
 
 
-# ===================================================================== bench_cmd
-bench_app = typer.Typer(no_args_is_help=True)
-
-
-@bench_app.command("run")
-def run_cmd(
-    battery: Annotated[Path, typer.Argument(help="eval/bench/prompts/<name>.yaml")],
-    out: Annotated[Path | None, typer.Option("--out", help="default eval/bench/out/<battery name>")] = None,
-    generator: Annotated[str | None, typer.Option("--generator")] = None,
-    planner: Annotated[str | None, typer.Option("--planner")] = None,
-    judge: Annotated[str | None, typer.Option("--judge", help="fixed judge model for the whole battery")] = None,
-    parallel: Annotated[int | None, typer.Option(
-        "--parallel", min=1, help="workers (default: BenchOptions.parallel — the measured knee)")] = None,
-    rounds: Annotated[int, typer.Option("--rounds", min=0)] = 4,
-    max_minutes: Annotated[float, typer.Option("--max-minutes", help="wall-clock budget per run; size it to the weather "
-                                                                   "(RUNBOOK 7.x: 120 in a 503 storm, else runs burn the hour with no judged round)")] = 60.0,
-    limit: Annotated[int | None, typer.Option("--limit")] = None,
-    ids: Annotated[list[str] | None, typer.Option("--id", help="only these prompt ids")] = None,
-    tiers: Annotated[list[str] | None, typer.Option("--tier")] = None,
-    redo_status: Annotated[str, typer.Option("--redo-status", help="comma list of recorded statuses to re-run, "
-                                                                   "e.g. infra_failed once the provider recovers")] = "",
-    report: Annotated[bool, typer.Option("--report/--no-report")] = True,
-) -> None:
-    """Run every prompt of a battery through its track (N parallel workers); resumable."""
-    if not battery.is_file():
-        raise C.CliError(f"battery not found: {battery}")
-    run_bench = C.import_bench("run_bench")
-    # one source of truth for the worker count: BenchOptions.parallel (the measured knee)
-    par = {"parallel": parallel} if parallel is not None else {}
-    opts = run_bench.BenchOptions(generator=generator, planner=planner, judge=judge, rounds=rounds, max_minutes=max_minutes,
-                                 limit=limit, ids=ids or [], tiers=tiers or [],
-                                 redo_status=[x for x in redo_status.split(",") if x], **par)
-    out_dir = out or (C.EVAL_ROOT / "bench" / "out" / battery.stem)
-    console.print(f"battery={battery} out={out_dir} generator={generator or 'default'} judge={judge or 'default'}")
-
-    def _on(res) -> None:
-        console.print(f"  [{res.status}] {res.id}: baseline={res.score_baseline} picked={res.score_picked} "
-                      f"rounds={res.rounds} ${res.cost_usd:.2f} {res.minutes:.1f}min" + (f" [red]{res.errors[:80]}[/red]" if res.errors else ""))
-
-    results = run_bench.run_battery(battery, out_dir, opts, on_result=_on)
-    ok(f"{len(results)} results → {out_dir / 'results.csv'}")
-    if report:
-        rep = C.import_bench("report").build_report(out_dir)
-        console.print(rep.markdown)
-        ok(f"report → {out_dir / 'report.md'} / report.html")
-
-
-@bench_app.command("report")
-def report_cmd(out_dir: Annotated[Path, typer.Argument()]) -> None:
-    """Aggregate results.jsonl → report.md + report.html (gallery of contact sheets)."""
-    rep = C.import_bench("report").build_report(out_dir)
-    console.print(rep.markdown)
-    ok(f"report → {out_dir / 'report.md'} / report.html")
-
-
 # ===================================================================== gallery_cmd
 gallery_app = typer.Typer(no_args_is_help=True)
 
@@ -238,7 +183,6 @@ app.add_typer(
     name="gallery",
     help="Look at runs locally: `serve` on localhost, `build` one shareable HTML file.",
 )
-app.add_typer(bench_app, name="bench", help="Prompt batteries: run + report.")
 app.add_typer(
     cost_app, name="cost", help="Cost audit: per stage/role/model, waste, $ per run."
 )

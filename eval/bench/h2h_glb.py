@@ -296,7 +296,7 @@ def main() -> None:
     ap.add_argument("batteries", nargs="+", type=Path)
     ap.add_argument("--gallery", type=Path, default=Path("/home/yipeng/projects/astra3d-brilliana/gallery"))
     ap.add_argument("--bench-out", type=Path, default=here / "out" / "h2h_brilliana_v1",
-                    help="root holding <lang>/runs/<id>/ (one `3dcode bench run --out <root>/<lang>` per battery)")
+                    help="root holding <lang>/runs/<id>/ (one `python -m bench.run_bench --out <root>/<lang>` per battery)")
     ap.add_argument("--out", type=Path, default=None, help="where h2h.jsonl / pairs/ / h2h_summary.md go (default: --bench-out)")
     ap.add_argument("--id", action="append", default=[], help="only these prompt ids")
     ap.add_argument("--theirs-only", action="store_true", help="judge only the gallery GLBs (proof of the judge path)")

@@ -1,13 +1,11 @@
 """Shared CLI plumbing: Rich formatting (run summaries, tables, observations, doctor
-rows), the run-mutation mutex, workspace opening / creation, the ``bench`` import and
-the cost-quality dial resolution every command goes through."""
+rows), the run-mutation mutex, workspace opening / creation and the cost-quality dial
+resolution every command goes through."""
 
 from __future__ import annotations
 
 import hashlib
-import importlib
 import shutil
-import sys
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
@@ -147,24 +145,9 @@ class CliError(typer.Exit):
         super().__init__(code=code)
 
 
-#: the evaluation code lives NEXT TO the harness (``<repo>/eval``), not inside it
+#: the evaluation lives NEXT TO the harness (``<repo>/eval``) and is never imported by it;
+#: the gallery only looks for the batteries' run directories under ``eval/bench/out``
 EVAL_ROOT = REPO_ROOT.parent / "eval"
-
-
-def import_bench(module: str) -> Any:
-    """``bench.<module>``: ``bench`` is ``<repo>/eval/bench`` (not part of the package), so it
-    is made importable here, and a checkout without it is a clear exit, not a traceback."""
-    name = f"bench.{module}"
-    try:
-        return importlib.import_module(name)
-    except ImportError:
-        if str(EVAL_ROOT) not in sys.path:
-            sys.path.insert(0, str(EVAL_ROOT))
-    try:
-        return importlib.import_module(name)
-    except ImportError as e:
-        raise CliError(f"{name} is not available ({e}). This command needs the evaluation code "
-                       f"next to the harness ({EVAL_ROOT}).", code=2) from e
 
 
 def runs_root(runs_dir: Path | None) -> Path:

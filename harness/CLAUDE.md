@@ -99,7 +99,7 @@ cd /home/yipeng/3dcodeverse/harness
 3dcode flywheel export runs/ dataset/ [--pack --drop-duplicates --captions-dir d/] · 3dcode flywheel pairs runs/ pairs.jsonl
 3dcode flywheel caption <slug> [--out dir]   # the gallery is `3dcode gallery build --embed`
 3dcode gallery serve [ROOTS...] [--port 8765] [--reload] · 3dcode gallery build --out gallery.html [--embed]
-3dcode bench run ../eval/bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview
+(cd ../eval && python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview)   # report: python -m bench.report bench/out/<battery>
 python -m codeverse3d.addons.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
 python ../eval/bench/complexity_report.py ../eval/bench/out --recursive   # score-vs-complexity + $/complexity point (eval/docs/COMPLEXITY.md)
 python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1

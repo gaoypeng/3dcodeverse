@@ -230,20 +230,23 @@ codeverse3d/
                       The other half of the split: codeverse3d/skills/ is what an AGENT chooses
                       to read (SKILL.md + references/ + a _claims file pinning its numbers to
                       live constants).  A file that tries to be both is the bug this prevents.
-  cli/                main.py (app wiring, make/resume/mcp + the tools/bench/gallery
+  cli/                main.py (app wiring, make/resume/mcp + the tools/gallery
                       commands), inspect_cmd.py (status/render/judge on one existing run),
                       flywheel_cmd.py, texture_cmd.py, cost_cmd.py (`3dcode cost`), layout_cmd.py, doctor.py
                       (`--skills` checks the library + its discovery wiring),
                       skills_cmd.py (`3dcode skills list|show|validate|report` — the read-rate report)
-eval/bench/                run_bench.py, report.py (renders through codeverse3d/addons/gallery), compare_backends.py
+eval/bench/                run_bench.py + report.py (the battery launcher, `python -m bench.run_bench` / `bench.report`;
+                      the report renders through codeverse3d/addons/gallery), compare_backends.py
                       (preflights every model it needs; --wait-for-provider / --no-preflight),
                       _infra.py (outage vs model failure: infra_failed / budget_exhausted, eval/docs/EVAL.md §7),
                       pin_plan.py (seed one plan into both arms so the paired delta stops carrying
                       the planner's spread — permitted only by plan_features.pin_plan_blockers),
                       _compare_report.py (arm table incl. the `dropped` / `over budget` loss columns;
-                      dedups the append-only rows per (prompt, arm) so every reader agrees),
-                      _jsonl.py (the ONE tolerant reader/append-sealer for the resumable
-                      *.jsonl journals — a truncated last line never costs the paid rows),
+                      ArmStats, the one arm aggregate — the A/B summary reads it too),
+                      _jsonl.py (the ONE tolerant reader, dedup rule — `latest`, the last row per
+                      key — and append-sealer for the resumable *.jsonl journals: a truncated last
+                      line never costs the paid rows), stats.py (the one t-interval, exact sign
+                      test and correlation every report states),
                       ab_plan.py (paired control/variant A/B for plan + brief switches, --aa
                       calibration mode; pins both children to the cap the §23 admission check
                       reserved), _ab_report.py,

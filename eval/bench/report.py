@@ -1,5 +1,7 @@
 """Aggregate a bench run: per-tier / per-category stats → markdown + HTML gallery.
 
+    cd eval && python -m bench.report bench/out/static_objects_v1     (was ``3dcode bench report``)
+
 ``build_report(out_dir)`` reads ``results.jsonl`` (or results.json), aggregates
 baseline / picked-round mean + median, the delta and cost per tier and category (no pass
 rate: a run is not passed or failed since 2026-09-22), writes ``report.md`` and
@@ -10,21 +12,33 @@ summary strip.
 
 from __future__ import annotations
 
+import argparse
 import html
 import json
 import statistics
+import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from bench._compare_report import _f as _fmt
-from bench._compare_report import _mean
-from bench._jsonl import latest, read_jsonl
-from bench.run_bench import BenchItemResult
-from codeverse3d.addons.gallery import GalleryIndex, RootSection, RunEntry, render_static
-from codeverse3d.addons.gallery.index import entry_from_record
-from codeverse3d.record.record import RecordError, load_record
-from codeverse3d.workspace import Workspace
+for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
+    if str(_p) not in sys.path:  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
+        sys.path.insert(0, str(_p))
+
+from bench._compare_report import _f as _fmt  # noqa: E402
+from bench._compare_report import _mean  # noqa: E402
+from bench._jsonl import latest, read_jsonl  # noqa: E402
+from bench.run_bench import BenchItemResult  # noqa: E402
+from codeverse3d.addons.gallery import (  # noqa: E402
+    GalleryIndex,
+    RootSection,
+    RunEntry,
+    render_static,
+)
+from codeverse3d.addons.gallery.index import entry_from_record  # noqa: E402
+from codeverse3d.record.record import RecordError, load_record  # noqa: E402
+from codeverse3d.workspace import Workspace  # noqa: E402
 
 TIER_ORDER = {"easy": 0, "medium": 1, "hard": 2}
 
@@ -173,3 +187,21 @@ def _html_gallery(out: Path, name: str, results: list[BenchItemResult], rep: Ben
         sections.setdefault(r.tier, RootSection(label=r.tier, path=str(out / "runs"))).entries.append(_entry_for(r))
     index = GalleryIndex(sections=list(sections.values()), roots=[str(out)])
     return render_static(index, title=f"bench — {name}", embed=True, extra_html=tables)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description="Aggregate results.jsonl → report.md + report.html "
+                                             "(gallery of contact sheets).")
+    ap.add_argument("out_dir", type=Path, help="a battery's output directory (holds results.jsonl)")
+    ns = ap.parse_args(argv)
+    try:
+        rep = build_report(ns.out_dir)
+    except FileNotFoundError as e:
+        ap.error(str(e))
+    print(rep.markdown)
+    print(f"report → {ns.out_dir / 'report.md'} / report.html")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
