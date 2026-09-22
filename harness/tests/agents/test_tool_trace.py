@@ -22,8 +22,8 @@ from codeverse3d.agents.backends import (
     CodexEvents,
     agy_tool_calls,
     gemini_chat_records,
-    gemini_tool_calls,
     parse_claude_json,
+    read_gemini_chats,
     write_system_settings,
 )
 from codeverse3d.agents.cli_common import (
@@ -95,7 +95,7 @@ def test_the_stream_json_envelope_is_the_result_line_and_an_unfinished_stream_ha
 
 def test_claude_is_launched_streaming(tmp_ws: Workspace):
     s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "claude-code")
-    argv = ClaudeCodeAgent("sonnet", binary="claude").build_argv(s, "p")
+    argv = ClaudeCodeAgent("sonnet", binary="claude").build_argv(s)
     assert argv[argv.index("--output-format") + 1] == "stream-json" and "--verbose" in argv
     assert "Skill" in argv[argv.index("--allowedTools") + 1].split(",")
     assert "--disable-slash-commands" not in argv   # claude-code: "Disable all skills"
@@ -170,7 +170,7 @@ def test_gemini_chat_record_is_found_by_workspace_and_time_and_folded_by_call_id
     home = _gemini_home(tmp_path, ws)
     recs = gemini_chat_records(ws, time.time() - 60, {"GEMINI_CLI_HOME": str(home)})
     assert [p.name for p in recs] == ["session-2026-09-22T19-31-da5c91db.jsonl"]
-    calls = gemini_tool_calls(recs)
+    calls = read_gemini_chats(recs).calls
     assert [(c.tool, c.skill, c.failed) for c in calls] == [
         ("activate_skill", "c3d-blender-forms", False), ("activate_skill", "c3d-part-contact", False),
         ("read_file", "", False), ("read_file", "", True)]
@@ -184,8 +184,29 @@ def test_gemini_system_settings_pin_skills_on_and_keep_the_workspace_trusted(tmp
     ``skills.enabled: false`` cannot hide the bundles; ``folderTrust`` off is what makes
     ``isTrustedFolder()`` true, without which ``discoverSkills`` skips both workspace roots."""
     data = json.loads(write_system_settings(tmp_path / "s.json").read_text())
-    assert data["skills"] == {"enabled": True} == SYSTEM_SETTINGS["skills"]
+    assert data["skills"]["enabled"] is True and data["skills"] == SYSTEM_SETTINGS["skills"]
     assert data["security"]["folderTrust"] == {"enabled": False}
+
+
+def test_the_chat_record_is_the_usage_of_a_session_that_printed_no_envelope(tmp_path):
+    """Every reply once (the record re-writes a message as it progresses), its tokens in the
+    envelope's ``stats.models`` shape — the sum reproduced two live envelopes to the token."""
+    ws = tmp_path / "gemini1"
+    ws.mkdir()
+    home = _gemini_home(tmp_path, ws)
+    rec = next((home / ".gemini" / "tmp" / ws.name / "chats").glob("session-*"))
+    tok = {"input": 5000, "output": 40, "cached": 3000, "thoughts": 9, "tool": 0, "total": 5049}
+    with rec.open("a") as f:
+        for row in ({"id": "fb86", "type": "gemini", "model": "gemini-3.7-flash", "timestamp": "2026-09-22T19:31:40.000Z",
+                     "content": "", "tokens": tok},
+                    {"id": "fb86", "type": "gemini", "model": "gemini-3.7-flash", "timestamp": "2026-09-22T19:31:41.000Z",
+                     "content": "", "tokens": tok},                  # the same reply, re-written
+                    {"id": "fb99", "type": "gemini", "model": "gemini-3.7-flash", "content": ""}):   # died mid-reply
+            f.write(json.dumps(row) + "\n")
+    chat = read_gemini_chats(gemini_chat_records(ws, time.time() - 60, {"GEMINI_CLI_HOME": str(home)}))
+    assert chat.stats() == {"models": {"gemini-3.7-flash": {"tokens": {"prompt": 5000, "cached": 3000,
+                                                                      "candidates": 40, "thoughts": 9}}}}
+    assert len(chat.times) == 2 and chat.times[1] - chat.times[0] == 1.0
 
 
 # --------------------------------------------------------------------------- codex

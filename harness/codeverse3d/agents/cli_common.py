@@ -178,8 +178,8 @@ def run_with_watchdog(
     Fixed by that move: a KeyboardInterrupt anywhere in the poll loop kills the
     group before propagating (it used to orphan the whole node → chrome tree —
     SIGINT never reaches a ``start_new_session`` child); stdin is written from a
-    helper thread, so a child that never reads a >64 KiB prompt (codex pipes
-    prompts >100 kB via stdin) can no longer wedge the main thread before the
+    helper thread, so a child that never reads a >64 KiB prompt (every agent
+    CLI gets its prompt on stdin) can no longer wedge the main thread before the
     clocks start; captured output is bounded per stream (head+tail + marker).
     """
     if hard_timeout_s is None:
@@ -247,8 +247,6 @@ def _reject_control_chars(cmd: Sequence[str], cwd: object) -> None:
 # ===================================================================== cli_common
 log = logging.getLogger(__name__)
 
-#: argv prompts above this many bytes are written to a file instead.
-MAX_ARGV_PROMPT_BYTES = 100_000
 
 def is_secret_env(name: str) -> bool:
     """True for env vars that look like credentials (stripped from agent children).
@@ -494,11 +492,15 @@ def finish_session(
     turns: int = 0,
     errors: list[str] | None = None,
     transient: bool = False,
+    quota: bool = False,
+    provider_wait_s: float = 0.0,
     **extra: Any,
 ) -> AgentResult:
     """Commit the agent's work, compute ``files_changed`` via git (attributed to this
     session — see :func:`attribute_changes`), write result.json.  ``turns`` is the
-    backend's own count (``AgentResult.turns``); ``extra`` lands in result.json only.
+    backend's own count (``AgentResult.turns``); ``transient`` / ``quota`` its typed
+    failure class and ``provider_wait_s`` the time its CLI lost to provider errors
+    (:func:`provider_wait`); ``extra`` lands in result.json only.
 
     Write scope is enforced here for the CLI backends (they have no write-time gate):
     writes outside ``write_roots`` (and, for ``edit_only``, outside ``files_hint``) are
@@ -517,11 +519,12 @@ def finish_session(
             s.notes.append(msg)
         s.ws.commit(f"agent:{s.label}")
         files = attribute_changes(s.ws.changed_files(s.head_before), write_roots=s.job.write_roots)
+        duration = round(time.monotonic() - s.t0, 3)
         res = AgentResult(
             ok=ok, exit_reason=exit_reason, text=text, files_changed=files,
             transcript_path=str(s.traj.transcript_path if s.traj.transcript_path.exists() else s.traj.dir),
-            usage=usage, duration_s=round(time.monotonic() - s.t0, 3), tool_calls=tool_calls,
-            turns=turns, errors=errors, transient=transient,
+            usage=usage, duration_s=duration, provider_wait_s=round(min(max(provider_wait_s, 0.0), duration), 3),
+            tool_calls=tool_calls, turns=turns, errors=errors, transient=transient and not quota, quota=quota,
         )
         s.traj.write_result(res, kind=s.kind, label=s.label, round=s.round_index, attempt=s.attempt, job_label=s.job.label,
                             head_before=s.head_before, head_after=s.ws.head(), notes=s.notes, **extra)
@@ -533,21 +536,6 @@ def finish_session(
 def failed(s: Session, reason: str, message: str, usage: Usage | None = None) -> AgentResult:
     """Shortcut for an ``ok=False`` result with one error line."""
     return finish_session(s, ok=False, exit_reason=reason, text="", usage=usage or Usage(), errors=[message])
-
-
-# --------------------------------------------------------------------------- prompts
-def deliver_prompt(s: Session, prompt: str, *, max_bytes: int = MAX_ARGV_PROMPT_BYTES) -> str:
-    """Return the text to pass on argv: the prompt itself, or a stub pointing at a file."""
-    if len(prompt.encode("utf-8")) <= max_bytes:
-        return prompt
-    p = s.traj.write_text("task_prompt.md", prompt)
-    s.notes.append(f"prompt ({len(prompt)} chars) delivered via file {p}")
-    rel = os.path.relpath(p, s.ws.root)
-    return (
-        f"Your full task is in the file `{rel}` (relative to the current working directory). "
-        "Read that file completely with your file-reading tool FIRST, then carry out every "
-        "instruction in it. Do not ask for confirmation."
-    )
 
 
 # --------------------------------------------------------------------------- invoke
@@ -570,34 +558,40 @@ def invoke(
     prompt: str,
     stdout_name: str = "stdout.json",
     on_stdout: Callable[[str], None] | None = None,
-    stdin: str | None = None,
+    on_stderr: Callable[[str], None] | None = None,
     attempt: int = 1,
     soft_timeout_s: float | None = None,
     **invoke_extra: Any,
 ) -> CompletedProc:
     """Run one CLI agent process under the watchdog and record it in the trajectory.
 
-    Replaces the block ``claude_code.ClaudeCodeAgent.run``, ``codex.CodexAgent.run``,
-    ``antigravity.AntigravityAgent.run`` and ``gemini_cli.GeminiCliAgent._invoke`` each
-    carried verbatim: the ``invoke`` transcript line with the prompt masked out of argv,
-    ``run_with_watchdog`` with identical kwargs (workspace cwd, the job's soft timeout,
-    ``IDLE_GRACE_S``, every output line into the transcript, ``src/`` + ``public/`` as
-    activity dirs) and the stdout/stderr captures next to the transcript.
+    The prompt goes to the CLI on STDIN, always, for every backend — never on argv and never
+    through a file the agent must read.  argv caps one argument at 128 KiB (``MAX_ARG_STRLEN``),
+    and the file stub this replaced (``task_prompt.md`` above 100 kB) handed the prompt to the
+    agent's own file tool: gemini-cli's ``read_file`` stops at 2 000 lines, so the last zones of a
+    5-zone scene prompt were silently dropped.  Each CLI reads its whole stdin as the prompt,
+    byte for byte (checked 2026-09-22 against gemini-cli 0.53, claude-code 2.1.280, codex
+    0.155.1 and agy 1.2.8 with a 185 000-character, 2 502-line prompt; agy alone truncates a
+    request past ~175 kB, whatever carries it).
 
-    ``stdout_name`` sets the capture's name (codex streams JSONL → ``stdout.jsonl``);
-    ``on_stdout`` also receives each stdout line (codex folds events live); ``stdin``
-    feeds the prompt through stdin instead of argv; ``attempt`` > 1 writes
-    ``stdout.<n>.json`` / ``stderr.<n>.log`` so a retry keeps attempt 1's captures.
-    The ``invoke`` line records ``attempt`` and whether stdin was used, plus
-    ``invoke_extra`` (gemini-cli adds ``model`` and ``key_tail``).
+    One block every backend shares: the ``invoke`` transcript line, ``run_with_watchdog``
+    (workspace cwd, the job's soft timeout, ``IDLE_GRACE_S``, every output line into the
+    transcript, ``src/`` + ``public/`` as activity dirs) and the stdout/stderr captures next to
+    the transcript.  ``stdout_name`` sets the capture's name (codex streams JSONL →
+    ``stdout.jsonl``); ``on_stdout`` / ``on_stderr`` also receive each line as it arrives (the
+    backends fold their event streams and retry reports live); ``attempt`` > 1 writes
+    ``stdout.<n>.json`` / ``stderr.<n>.log`` so a retry keeps attempt 1's captures.  The
+    ``invoke`` line records ``attempt`` and the prompt's size, plus ``invoke_extra`` (gemini-cli
+    adds ``model`` and ``key_tail``).
     """
-    masked = [a if a != prompt else f"<prompt {len(prompt)} chars>" for a in argv]
-    s.traj.append("invoke", argv=masked, attempt=attempt, stdin=stdin is not None, **invoke_extra)
+    s.traj.append("invoke", argv=list(argv), attempt=attempt, stdin_bytes=len(prompt.encode("utf-8")),
+                  **invoke_extra)
 
     def on_line(stream: str, line: str) -> None:
         s.traj.append("line", stream=stream, text=line[:4000])
-        if on_stdout is not None and stream == "stdout":
-            on_stdout(line)
+        observer = on_stdout if stream == "stdout" else on_stderr
+        if observer is not None:
+            observer(line)
 
     # A streaming session must not outlive its window by half of it again: the watchdog's
     # default hard kill is max(1.5x soft, soft+600), and chair_bl (loop_w1, 2026-08-28)
@@ -607,7 +601,7 @@ def invoke(
     proc = run_with_watchdog(
         argv, cwd=s.ws.root, env=env, soft_timeout_s=soft, hard_timeout_s=soft + 300.0,
         idle_grace_s=IDLE_GRACE_S, poll_s=POLL_S,
-        on_line=on_line, stdin=stdin, activity_dirs=[s.ws.src, s.ws.public],
+        on_line=on_line, stdin=prompt, activity_dirs=[s.ws.src, s.ws.public],
     )
     suffix = "" if attempt == 1 else f".{attempt}"
     out = Path(stdout_name)
@@ -679,21 +673,79 @@ def record_tool_calls(s: Session, calls: Iterable[ToolCall], *, source: str,
 
 
 # --------------------------------------------------------------------------- failures
+#: THE vocabulary for what a CLI says about the call that ended its session — one place for
+#: every backend.  The backends turn it into typed flags (``AgentResult.transient`` / ``.quota``)
+#: that ride ``GenerationResult`` into ``RoundFailed``; the round loop never reads a message.
+#: Transient: a provider failure a retry may get through — capacity (5xx, UNAVAILABLE,
+#: overloaded), rate limits (429, RESOURCE_EXHAUSTED) and the transport (a dropped, refused or
+#: reset connection, an empty or broken stream).  The gRPC status names match case-sensitively:
+#: lower-case "internal" is in every node stack trace (``node:internal/process/...``), which made
+#: any crashed CLI look transient.  A plain "timed out" is NOT here: the watchdog's own kill, a
+#: slow MCP tool and a provider timeout all say it, and a retry of the first two buys another
+#: full window for the same outcome (provider timeouts arrive typed: gemini-cli's retry lines,
+#: ``ModelError(status=408, retryable=True)``).
 _TRANSIENT_RE = re.compile(
-    r"(\b429\b|RESOURCE_EXHAUSTED|rate.?limit|quota|\b503\b|UNAVAILABLE|overloaded|"
-    r"\b502\b|\b500\b|INTERNAL|empty response|Invalid stream|ECONNRESET|ETIMEDOUT|socket hang up)",
+    r"(?-i:\b(?:UNAVAILABLE|INTERNAL|RESOURCE_EXHAUSTED|DEADLINE_EXCEEDED)\b)|\b(?:429|50[0234]|529)\b|overloaded"
+    r"|rate.?limit|empty response|Invalid stream|fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN"
+    r"|socket hang up|connection reset|stream disconnected",
     re.IGNORECASE,
 )
-_QUOTA_RE = re.compile(r"(\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit)", re.IGNORECASE)
-
-
-def is_transient_failure(*texts: str) -> bool:
-    """Heuristic: did the CLI die of a rate-limit / 5xx / empty-stream glitch?"""
-    return any(_TRANSIENT_RE.search(t or "") for t in texts)
+#: Quota: the vendor's usage limit or credits are spent and nothing gets through until they reset
+#: (codex "You've hit your usage limit", claude "usage limit reached" / "You've hit your limit" /
+#: "out of usage credits", OpenAI ``insufficient_quota``).  Not a rate limit: gemini says "Quota
+#: exceeded ... per minute" and "You exceeded your current quota" of a per-key 429 the key pool
+#: rotates past, so neither phrase is here.
+_QUOTA_RE = re.compile(
+    r"usage limit|hit your limit|out of (?:extra )?usage|usage credits|credit balance (?:is )?too low"
+    r"|purchase more credits|insufficient[_ ]quota|insufficient credits|billing hard limit",
+    re.IGNORECASE,
+)
+_RATE_LIMIT_RE = re.compile(r"\b429\b|(?-i:\bRESOURCE_EXHAUSTED\b)|rate.?limit", re.IGNORECASE)
 
 
 def is_quota_failure(*texts: str) -> bool:
+    """The vendor's usage limit is spent (``AgentResult.quota``): stop, do not retry."""
     return any(_QUOTA_RE.search(t or "") for t in texts)
+
+
+def is_transient_failure(*texts: str) -> bool:
+    """The provider, not the task, ended the session and a retry may get through
+    (``AgentResult.transient``); a spent usage limit never is."""
+    return any(_TRANSIENT_RE.search(t or "") for t in texts) and not is_quota_failure(*texts)
+
+
+def is_rate_limited(*texts: str) -> bool:
+    """A 429: transient, and the key that got it should cool down (``exit_reason="budget"``)."""
+    return any(_RATE_LIMIT_RE.search(t or "") for t in texts)
+
+
+# --------------------------------------------------------------------------- provider wait
+def provider_wait(failures: Iterable[tuple[float, float]], end: float,
+                  progress: Iterable[float] | None = None) -> float:
+    """Seconds a session lost to provider errors, from the CLI's own record of them.
+
+    ``failures`` are ``(t, backoff_s)``: when the CLI reported a failed API attempt, and the
+    back-off it announced before the next one (0 when it does not say — gemini-cli's 5xx
+    lines).  ``progress`` are the times the session demonstrably moved on (a model message, a
+    tool result); ``None`` when the CLI records none (agy's log).  Failures with no progress
+    between them form one burst, which costs from the last progress before it — when the
+    request that failed went out; its first failure when nothing precedes it — until the
+    CLI tried again after the burst's last failure (``t + backoff``).  A burst no progress
+    ever followed costs until ``end``: the CLI gave up, or the watchdog killed it mid-storm.
+    A lower bound wherever the back-off is unannounced (≤ 30 s per burst for gemini-cli)."""
+    fails = sorted(failures)
+    prog = sorted(progress) if progress is not None else []
+    total, i = 0.0, 0
+    while i < len(fails):
+        j = i
+        while j + 1 < len(fails) and not any(fails[j][0] < p < fails[j + 1][0] for p in prog):
+            j += 1
+        first, (last, backoff) = fails[i][0], fails[j]
+        start = max((p for p in prog if p <= first), default=first)
+        resumed = progress is None or any(p > last for p in prog)
+        total += max(0.0, (min(last + backoff, end) if resumed else end) - start)
+        i = j + 1
+    return round(total, 3)
 
 
 def tail(text: str, n: int = 2000) -> str:

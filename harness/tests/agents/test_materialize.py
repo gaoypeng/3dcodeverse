@@ -66,8 +66,9 @@ def test_no_mcp_server_is_written_into_the_workspace(tmp_ws: Workspace):
 
 
 def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
-    """gemini-cli refuses read_file on ignored paths: the build census, tool renders and the
-    long-prompt file (trajectories/<label>_rNN/task_prompt.md) must NOT be ignored."""
+    """gemini-cli refuses read_file on ignored paths: the build census and tool renders must NOT
+    be ignored.  trajectories/ is, whole: the prompt reaches every CLI on stdin since 2026-09-22,
+    so nothing there is the agent's to read."""
     import fnmatch
 
     from codeverse3d.agents.materialize import IGNORE_LINES
@@ -86,12 +87,13 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
     for f in (".geminiignore", ".aiexclude"):
         lines = tuple(ln for ln in (tmp_ws.root / f).read_text().splitlines() if ln.strip())
         assert lines == IGNORE_LINES
-        assert "artifacts/" not in lines and "trajectories/" not in lines
+        assert "artifacts/" not in lines and "trajectories/" in lines
         for readable in ("artifacts/census.json", "artifacts/build.json", "artifacts/measurement.json",
                          "artifacts/gates/r00/contract_tool.json", "artifacts/tool_renders/r00_ab/sheet.png",
-                         "trajectories/baseline_r00/task_prompt.md", "src/model.py", ".3dcode/cookbook.md"):
+                         "src/model.py", ".3dcode/cookbook.md"):
             assert not ignored(readable, lines), readable
         for hidden in ("artifacts/renders/r00/sheet.png", "trajectories/baseline_r00/stdout.json",
+                       "trajectories/baseline_r00/prompt.md", "trajectories/baseline_r00/gemini_settings.json",
                        "trajectories/baseline_r00/stderr.log", "node_modules/three/x.js", ".git/HEAD"):
             assert ignored(hidden, lines), hidden
 

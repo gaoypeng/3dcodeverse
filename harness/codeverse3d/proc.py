@@ -177,8 +177,8 @@ class ManagedProcess:
       its trailing newline stripped; a line longer than :data:`_LINE_CAP_BYTES`
       arrives as several chunk-sized calls; observer exceptions are suppressed);
     * a stdin WRITER THREAD — a child that never reads a >64 KiB pipe-buffer of
-      stdin can no longer wedge the caller's main thread in ``stdin.write`` (codex
-      really does deliver prompts via stdin once they exceed 100 kB);
+      stdin can no longer wedge the caller's main thread in ``stdin.write`` (every
+      agent CLI gets its prompt on stdin, up to hundreds of kB);
     * ``__exit__``: on ANY exception — KeyboardInterrupt above all, because
       ``start_new_session`` children never receive the terminal's Ctrl-C SIGINT —
       or with the child still running at scope exit, the whole group gets

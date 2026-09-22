@@ -13,10 +13,33 @@ from codeverse3d.contracts.agent import AgentJob
 from codeverse3d.workspace import Workspace
 
 FAKE_GEMINI = r'''
+from datetime import datetime, timezone
 args = sys.argv[1:]
 model = args[args.index("-m") + 1]
-prompt = args[args.index("-p") + 1]
+assert "-p" not in args and "--prompt" not in args, "the prompt goes on stdin"
+prompt = sys.stdin.read()
+open("artifacts/stdin.txt", "w").write(prompt)
 mode = os.environ.get("FAKE_MODE", "ok")
+
+def chat_record():
+    """What gemini-cli 0.53 appends to ~/.gemini/tmp/<project>/chats/ as the session runs."""
+    proj = os.path.join(os.environ["GEMINI_CLI_HOME"], ".gemini", "tmp", "fake-project")
+    os.makedirs(os.path.join(proj, "chats"), exist_ok=True)
+    open(os.path.join(proj, ".project_root"), "w").write(os.getcwd())
+    now = lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    rows = [{"sessionId": "fake", "kind": "main"},
+            {"id": "u1", "type": "user", "timestamp": now(), "content": [{"text": prompt[:20]}]},
+            {"id": "g1", "type": "gemini", "timestamp": now(), "model": model, "content": "",
+             "toolCalls": [{"id": "write_file__1", "name": "write_file", "args": {"file_path": "src/a.js"}, "status": "success"}],
+             "tokens": {"input": 1000, "output": 20, "cached": 400, "thoughts": 7, "tool": 0, "total": 1027}},
+            {"id": "g1", "type": "gemini", "timestamp": now(), "model": model, "content": "",     # re-written: once
+             "toolCalls": [{"id": "write_file__1", "name": "write_file", "args": {"file_path": "src/a.js"}, "status": "success"}],
+             "tokens": {"input": 1000, "output": 20, "cached": 400, "thoughts": 7, "tool": 0, "total": 1027}},
+            {"id": "u2", "type": "user", "timestamp": now(), "content": [{"functionResponse": {"id": "write_file__1"}}]},
+            {"id": "g2", "type": "gemini", "timestamp": now(), "model": model, "content": "",
+             "tokens": {"input": 3000, "output": 50, "cached": 2000, "thoughts": 13, "tool": 0, "total": 3063}}]
+    with open(os.path.join(proj, "chats", "session-2026-09-22T21-00-fake0001.jsonl"), "a") as f:
+        f.write("".join(json.dumps(r) + "\n" for r in rows))
 assert os.environ.get("GEMINI_API_KEY"), "no key in env"
 assert "GEMINI_API_KEYS" not in os.environ
 assert "FAKE_SERVICE_API_KEY" not in os.environ, "secret leaked"
@@ -37,9 +60,19 @@ if mode == "crash":        # the agent's own failure: nothing transient about it
     print("TypeError: Cannot read properties of undefined (reading 'parts')", file=sys.stderr)
     sys.exit(2)
 if mode == "storm":        # what gemini-cli 0.53 prints, 8-17 times per session, in a 503 storm
+    chat_record()
     for i in range(4):
         print(f"Attempt {i + 1} failed with status 503. Retrying with backoff... _ApiError: UNAVAILABLE", file=sys.stderr)
+        sys.stderr.flush()
+        time.sleep(0.05)
     time.sleep(60)
+if mode == "gave_up":      # 0.53 after its own retries: an error object on STDERR, no stats, exit(503) = 247
+    chat_record()
+    print("Attempt 1 failed with status 503. Retrying with backoff... _ApiError: UNAVAILABLE", file=sys.stderr)
+    print("Error when talking to Gemini API Full report available at: /tmp/x.json", file=sys.stderr)
+    print(json.dumps({"session_id": "s9", "error": {"type": "Error", "message": "got status: UNAVAILABLE.", "code": 503}},
+                     indent=2), file=sys.stderr)
+    sys.exit(247)
 served = "gemini-9-pro" if mode == "substitute" else model
 os.makedirs("src", exist_ok=True)
 open("src/hello.txt", "w").write(prompt[:20])
@@ -51,8 +84,9 @@ print(json.dumps(out, indent=2))
 
 
 @pytest.fixture
-def agent(fake_bin, monkeypatch):
+def agent(fake_bin, monkeypatch, tmp_path):
     binary = fake_bin("gemini", FAKE_GEMINI)
+    monkeypatch.setenv("GEMINI_CLI_HOME", str(tmp_path / "gemini_home"))   # the fake writes its chat record here
     s = get_settings()
     monkeypatch.setattr(s, "gemini_api_keys", ["k1", "k2"])
     monkeypatch.setattr(s, "cache_dir", Path(binary).parent / "cache")
@@ -83,6 +117,53 @@ def _job(ws: Workspace, **kw) -> AgentJob:
     return AgentJob(**base)
 
 
+def test_the_prompt_arrives_on_stdin_whole(tmp_ws: Workspace, agent: GeminiCliAgent):
+    """No -p: a piped stdin makes gemini-cli 0.53 headless and IS the input.  A 5-zone scene
+    prompt runs past 2 000 lines — the window of the read_file tool the old >100 kB file stub
+    relied on — and its last zone must still arrive (checked live 2026-09-22, docs/SKILLS.md)."""
+    prompt = "\n".join(f"zone {i % 5} requirement line {i}" for i in range(2600)) + "\nLAST-ZONE-SENTINEL"
+    res = agent.run(_job(tmp_ws, prompt=prompt))
+    assert res.ok, res.errors
+    assert (tmp_ws.artifacts / "stdin.txt").read_text() == prompt
+
+
+def test_a_session_killed_in_a_storm_is_booked_from_its_chat_record(tmp_ws: Workspace, agent: GeminiCliAgent,
+                                                                     monkeypatch):
+    """The watchdog killed it, so the CLI printed no envelope — and until 2026-09-22 the session
+    was booked at $0 while its chat record held every reply's tokens (live: 6.47 M prompt tokens,
+    ≈ $1.2, in one baseline).  The record is the usage now, and its tool calls the tool count."""
+    from codeverse3d.models.pricing import estimate_cost
+
+    monkeypatch.setenv("FAKE_MODE", "storm")
+    monkeypatch.setattr("codeverse3d.agents.cli_common.IDLE_GRACE_S", 1.0)
+    res = agent.run(_job(tmp_ws, timeout_s=1))
+    assert not res.ok and res.exit_reason == "timeout" and res.transient
+    u = res.usage
+    assert (u.input_tokens, u.cached_tokens, u.output_tokens, u.thoughts_tokens) == (4000, 2400, 70, 20)  # g1 once
+    assert u.cost_usd == pytest.approx(estimate_cost("gemini", "gemini-3.7-flash", u), abs=1e-6) and u.cost_usd > 0
+    assert res.tool_calls == u.tool_calls == 1
+    # the storm ran from the last reply until the kill: all of it lost to the provider
+    assert 0.0 < res.provider_wait_s <= res.duration_s
+    rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
+    assert rec["usage_from"] == ["chat record"]
+
+
+def test_a_session_that_gave_up_is_booked_from_its_record_and_is_typed_transient(tmp_ws: Workspace,
+                                                                                  agent: GeminiCliAgent, monkeypatch):
+    """0.53 writes its give-up object to STDERR with no stats and exits 503 & 255 = 247: every
+    gemini-cli session of the 2026-09-22 live runs that "completed a round" ended this way."""
+    monkeypatch.setattr(get_settings(), "gemini_api_keys", ["only"])
+    from codeverse3d.models import gemini as gm
+    for sig in [x for x in list(gm._pools) if x and x[0] == "only"]:  # noqa: SLF001
+        gm._pools.pop(sig, None)  # noqa: SLF001
+    monkeypatch.setenv("FAKE_MODE", "gave_up")
+    res = agent.run(_job(tmp_ws))
+    assert not res.ok and res.exit_reason == "error" and res.transient and not res.quota
+    assert res.usage.input_tokens == 2 * 4000        # both attempts, each from its own record
+    rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
+    assert rec["attempts"] == 2 and rec["usage_from"] == ["chat record", "chat record"] and rec["session_id"] == "s9"
+
+
 def test_success_path(tmp_ws: Workspace, agent: GeminiCliAgent):
     res = agent.run(_job(tmp_ws))
     assert res.ok and res.exit_reason == "completed", res.errors
@@ -93,7 +174,8 @@ def test_success_path(tmp_ws: Workspace, agent: GeminiCliAgent):
     traj = Path(res.transcript_path).parent
     assert (traj / "stdout.json").exists() and (traj / "prompt.md").exists() and (traj / "result.json").exists()
     rec = json.loads((traj / "result.json").read_text())
-    assert rec["attempts"] == 1 and rec["session_id"] == "s1"
+    assert rec["attempts"] == 1 and rec["session_id"] == "s1" and rec["usage_from"] == ["envelope"]
+    assert res.provider_wait_s == 0.0
     # commits: pre + agent
     assert "agent:t" in tmp_ws._git("log", "--oneline").stdout
 
@@ -233,6 +315,7 @@ def test_a_timeout_after_a_503_streak_is_marked_transient(tmp_ws: Workspace, age
     res = agent.run(_job(tmp_ws, timeout_s=1))
     assert not res.ok and res.exit_reason == "timeout" and res.transient is True
     assert any("4 x 503" in e for e in res.errors), res.errors
+    assert res.provider_wait_s > 0.0
 
 
 def test_the_key_pool_hears_a_5xx_only_when_the_failure_was_transient(tmp_ws: Workspace, agent: GeminiCliAgent,

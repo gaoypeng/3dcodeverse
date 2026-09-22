@@ -27,8 +27,8 @@ roots in an untrusted folder), and each backend records what its CLI activated
 
 Ignore files: ``.geminiignore`` / ``.aiexclude`` hide only noise (:data:`IGNORE_LINES`);
 ``.gemini/settings.json`` gets ``context.fileFiltering.respectGitIgnore=false`` because the
-workspace ``.gitignore`` hides ``artifacts/`` + ``trajectories/`` from git and gemini-cli
-would otherwise refuse to read the build census / the long-prompt file there.
+workspace ``.gitignore`` hides ``artifacts/`` from git and gemini-cli would otherwise refuse
+to read the build census there.
 """
 
 from __future__ import annotations
@@ -49,11 +49,11 @@ MCP_SERVER_NAME = "3dcode"
 MCP_TOOL_TIMEOUT_MS = 600_000
 #: ``.geminiignore`` / ``.aiexclude`` — gemini-cli's read_file/glob REFUSE ignored paths, so the
 #: agent-facing artefacts must stay readable: ``artifacts/*.json`` (the build tool advertises
-#: ``census.json`` etc.), ``artifacts/tool_renders/`` and ``trajectories/<label>_rNN/task_prompt.md``
-#: (the long-prompt fallback).  Only noise / harness-private output is hidden.
+#: ``census.json`` etc.) and ``artifacts/tool_renders/``.  Only noise / harness-private output is
+#: hidden — ``trajectories/`` whole since the prompt reaches every CLI on stdin (it was the
+#: long-prompt file's home until 2026-09-22).
 IGNORE_LINES = (
-    "artifacts/renders/", "artifacts/judge/",
-    "trajectories/*/stdout*", "trajectories/*/stderr*", "trajectories/*/transcript.jsonl",
+    "artifacts/renders/", "artifacts/judge/", "trajectories/",
     "stages/", "rounds/", "_cand/", "_assets/",
     ".git/", "node_modules/", "__pycache__/", ".gemini/tmp/",
 )

@@ -42,11 +42,16 @@ TWO_MODEL_ENVELOPE = {
 
 FAKE_CLAUDE = r'''
 args = sys.argv[1:]
-prompt = args[args.index("-p") + 1]
+assert args[args.index("-p") + 1].startswith("--"), "-p takes no prompt argument: the prompt comes on stdin"
+prompt = sys.stdin.read()
 assert "--dangerously-skip-permissions" in args and "--output-format" in args
 assert "--strict-mcp-config" in args
 assert "FAKE_SERVICE_API_KEY" not in os.environ
 mode = os.environ.get("FAKE_MODE", "ok")
+if mode == "usage_limit":  # the subscription is spent: a result event, is_error, and claude's own words
+    print(json.dumps({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
+                      "result": "Claude AI usage limit reached|1790000000", "session_id": "q"}))
+    sys.exit(1)
 if mode == "overloaded":   # what `claude -p` exits with when the API is out of capacity
     print('API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}', file=sys.stderr)
     sys.exit(1)
@@ -55,6 +60,7 @@ if mode == "rate_limited":
     sys.exit(1)
 os.makedirs("src", exist_ok=True)
 open("src/hello.txt", "w").write("hi")
+open("src/prompt.txt", "w").write(prompt)
 env = json.loads(''' + repr(json.dumps(ENVELOPE)) + r''')
 if mode == "error":
     env["is_error"] = True; env["subtype"] = "error_max_turns"
@@ -84,8 +90,8 @@ def test_argv_includes_mcp_when_materialized(tmp_ws: Workspace):
     s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", system_append="S", max_turns=7,
                            mcp_command=["python", "-m", "codeverse3d.spatial.mcp_server", "--workspace", str(tmp_ws.root)]),
                       "claude-code")
-    argv = a.build_argv(s, "p")
-    assert argv[:3] == ["claude", "-p", "p"]
+    argv = a.build_argv(s)
+    assert argv[:3] == ["claude", "-p", "--output-format"] and "p" not in argv   # the prompt goes on stdin
     # the config is written fresh into THIS session's trajectory dir from the typed job,
     # never the workspace .mcp.json the agent can rewrite between rounds
     cfg = Path(argv[argv.index("--mcp-config") + 1])
@@ -94,14 +100,21 @@ def test_argv_includes_mcp_when_materialized(tmp_ws: Workspace):
     assert server["command"] == "python" and "--workspace" in server["args"]  # the TYPED job command, verbatim
     (tmp_ws.root / ".mcp.json").write_text(json.dumps(
         {"mcpServers": {"3dcode": {"command": "/tmp/evil", "args": []}}}))
-    argv2 = a.build_argv(s, "p")   # a tampered workspace file changes nothing
+    argv2 = a.build_argv(s)   # a tampered workspace file changes nothing
     assert json.loads(Path(argv2[argv2.index("--mcp-config") + 1]).read_text(
     ))["mcpServers"]["3dcode"]["command"].endswith("python")
     assert "--strict-mcp-config" in argv and argv[argv.index("--max-turns") + 1] == "7"
     assert argv[argv.index("--append-system-prompt") + 1] == "S" and argv[argv.index("--model") + 1] == "sonnet"
     assert "mcp__3dcode__*" in argv[argv.index("--allowedTools") + 1]
     s2 = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "claude-code")
-    assert "--mcp-config" not in a.build_argv(s2, "p")
+    assert "--mcp-config" not in a.build_argv(s2)
+
+
+def test_the_usage_limit_is_quota_not_a_transient_death(tmp_ws: Workspace, fake_bin, monkeypatch):
+    a = ClaudeCodeAgent("sonnet", binary=fake_bin("claude", FAKE_CLAUDE))
+    monkeypatch.setenv("FAKE_MODE", "usage_limit")
+    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="u", timeout_s=30))
+    assert not res.ok and res.quota and not res.transient and res.exit_reason == "budget"
 
 
 def test_fake_run_success_and_error(tmp_ws: Workspace, fake_bin, monkeypatch):
@@ -110,7 +123,8 @@ def test_fake_run_success_and_error(tmp_ws: Workspace, fake_bin, monkeypatch):
     assert res.ok and res.exit_reason == "completed", res.errors
     assert res.text.endswith("sys=SYS") and res.usage.cost_usd == 0.0123 and res.tool_calls == 2
     assert res.turns == 3  # the envelope's num_turns, in the typed result
-    assert [f.path for f in res.files_changed] == ["src/hello.txt"]
+    assert [f.path for f in res.files_changed] == ["src/hello.txt", "src/prompt.txt"]
+    assert (tmp_ws.src / "prompt.txt").read_text() == "hello"   # on stdin, byte for byte
     rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
     assert rec["num_turns"] == 3 and rec["session_id"] == "abc"
     monkeypatch.setenv("FAKE_MODE", "error")
@@ -125,10 +139,10 @@ def test_an_overloaded_exit_is_transient(tmp_ws: Workspace, fake_bin, monkeypatc
     a = ClaudeCodeAgent("sonnet", binary=fake_bin("claude", FAKE_CLAUDE))
     monkeypatch.setenv("FAKE_MODE", "overloaded")
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="o", timeout_s=30))
-    assert not res.ok and res.exit_reason == "error" and res.transient is True
+    assert not res.ok and res.exit_reason == "error" and res.transient is True and not res.quota
     monkeypatch.setenv("FAKE_MODE", "rate_limited")
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="q", timeout_s=30))
-    assert not res.ok and res.exit_reason == "budget" and res.transient is True
+    assert not res.ok and res.exit_reason == "budget" and res.transient is True and not res.quota
 
 
 @pytest.mark.live
@@ -172,3 +186,47 @@ def test_the_dearest_entry_wins_when_the_token_counts_do_not_match():
 def test_no_model_usage_block_keeps_what_we_asked_for():
     assert primary_served_model({"usage": {"input_tokens": 1}}, "sonnet") == "sonnet"
     assert usage_from_envelope({"usage": {"input_tokens": 1}}, "sonnet").model == "sonnet"
+
+
+# --------------------------------------------------------------------------- killed sessions
+FAKE_KILLED_CLAUDE = r'''
+for ev in json.loads(os.environ["FAKE_EVENTS"]):
+    print(json.dumps(ev), flush=True)
+    time.sleep(0.05)
+time.sleep(60)   # an overloaded provider: claude keeps retrying until the watchdog kills it
+'''
+_MSG_USAGE = {"input_tokens": 2, "cache_creation_input_tokens": 19190, "cache_read_input_tokens": 20354, "output_tokens": 5}
+KILLED_STREAM = [
+    {"type": "system", "subtype": "init", "session_id": "k", "model": "claude-sonnet-5", "skills": []},
+    {"type": "assistant", "message": {"id": "msg_1", "model": "claude-sonnet-5", "usage": _MSG_USAGE,
+                                      "content": [{"type": "text", "text": "Reading the plan"}]}},
+    {"type": "assistant", "message": {"id": "msg_1", "model": "claude-sonnet-5", "usage": _MSG_USAGE,   # same message
+                                      "content": [{"type": "tool_use", "id": "t1", "name": "Read", "input": {}}]}},
+    {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1"}]}},
+    {"type": "system", "subtype": "api_retry", "attempt": 1, "max_retries": 10, "retry_delay_ms": 500,
+     "error_status": 529, "error": "overloaded"},
+    {"type": "system", "subtype": "api_retry", "attempt": 2, "max_retries": 10, "retry_delay_ms": 1000,
+     "error_status": 529, "error": "overloaded"},
+]
+
+
+def test_a_killed_session_is_booked_from_its_messages_and_its_retries_are_provider_wait(tmp_ws: Workspace,
+                                                                                        fake_bin, monkeypatch):
+    """claude prints no result event when it is killed (checked 2026-09-22: SIGTERM mid-request →
+    nothing), so the envelope's usage never comes.  Each message's own usage block does: the input
+    side exact, the output a floor.  Its api_retry events (claude's own, with the announced
+    back-off) are the time the provider cost — here until the kill, since nothing followed."""
+    from codeverse3d.models.pricing import cache_write_surcharge, estimate_cost
+
+    monkeypatch.setenv("FAKE_EVENTS", json.dumps(KILLED_STREAM))
+    monkeypatch.setattr("codeverse3d.agents.cli_common.IDLE_GRACE_S", 1.0)
+    a = ClaudeCodeAgent("sonnet", binary=fake_bin("claude", FAKE_KILLED_CLAUDE))
+    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="k", timeout_s=1, spatial_tools=False))
+    assert not res.ok and res.exit_reason == "timeout" and res.transient and not res.quota
+    u = res.usage
+    assert (u.input_tokens, u.cached_tokens, u.output_tokens, u.model) == (2 + 19190 + 20354, 20354, 5, "claude-sonnet-5")
+    assert u.cost_usd == pytest.approx(estimate_cost("anthropic", "claude-sonnet-5", u)
+                                       + cache_write_surcharge("anthropic", "claude-sonnet-5", 19190)) and u.cost_usd > 0
+    assert 0.0 < res.provider_wait_s <= res.duration_s
+    rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
+    assert rec["usage_from"] == "stream messages"
