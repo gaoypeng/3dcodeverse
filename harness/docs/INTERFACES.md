@@ -515,7 +515,7 @@ run_round(ctx, *, index, kind, tasks, pipeline, ..., previous_best=None) -> Roun
     # emits cost.round {stages{}, judge_usd, total_usd, agent_turns, wasted, waste_reason}; on ANY exception it
     # records what the round burned (rounds/aborted_rNN.json, ctx.extra["aborted_rounds"]) and re-raises
 from codeverse3d.tracks.planner import plan, ensure_acceptance, plan_example, plan_temperature
-plan(spec, model_id, plan_model, ws, *, model=None, events=None, budget=None, runtime=None) -> Plan
+plan(spec, model_id, plan_model, ws, *, model=None, events=None, budget=None) -> Plan   # no runtime= (the contract is the catalog's)
     # Δ 2026-09-22: every track, graphics included, through ONE loop that dispatches on spec.track — PLAN_TEMPLATES,
     # plan_example(track), plan_temperature(track) (graphics 0.5, else 0.4; record/telemetry reports it), the output
     # floor (graphics PLAN_TOKENS_MAX, else PLAN_OUTPUT_FLOOR), plan_budget's unit (passes) and ensure_acceptance
