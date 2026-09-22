@@ -171,8 +171,10 @@ ROUTES: tuple[Route, ...] = (
     Route("R2", "c3d-part-contact", 95, kinds=("repair", "refine", "rebuild"),
           findings=("connectivity/*", "joint_sweep/*"),
           why="the previous round's connectivity/joint gate fired"),
-    Route("R3", "c3d-bbox-contract", 65, tracks=(*OBJECT_TRACKS, "scene"),
-          kinds=("baseline", "part", "detail", "refine", "rebuild", "zone"),
+    # object tracks only: the sheet's proof loop is measure / check_contract / isolate, and a
+    # scene session has none of those tools (it was attached to scene zone sessions until 2026-09-22)
+    Route("R3", "c3d-bbox-contract", 65, tracks=OBJECT_TRACKS,
+          kinds=("baseline", "part", "detail", "refine", "rebuild"),
           why="this session owns dimensions, and the plan's numbers are the contract"),
     Route("R4", "c3d-bbox-contract", 95, kinds=("repair", "refine", "rebuild"), findings=("contract/*",),
           why="the previous round's contract gate fired"),
@@ -236,7 +238,7 @@ ROUTES: tuple[Route, ...] = (
     Route("R24-opengl", "c3d-opengl-pipeline", 90, tracks=("graphics",), languages=("opengl_python",),
           findings=(GL_MOTION_OR_DETAIL,), why="the frame gate saw no motion or no detail"),
     # R25-R28 (2026-09-01): the graphics-recipe port from the scene_multifile_graphics
-    # reference (docs/EVAL.md sceneloop entry).  Atmosphere and materials ride every
+    # reference (eval/docs/EVAL.md sceneloop entry).  Atmosphere and materials ride every
     # env/baseline build; water and night only when the plan's own words ask for them.
     Route("R25", "c3d-scene-atmosphere", 70, tracks=("scene",), languages=("scene_threejs",),
           kinds=("baseline", "env", "refine"),
@@ -262,7 +264,7 @@ log = logging.getLogger(__name__)
 #: plan-derived booleans/ints the table may test.  Kept here (not on the Plan contracts)
 #: because they are a routing concern: adding one must not migrate every stored plan.
 SIGNAL_KEYS = ("n_parts", "multi_part", "has_instances", "has_symmetry", "has_assemblies",
-               "has_joints", "joint_types", "has_custom_shader")
+               "has_joints", "joint_types", "has_custom_shader", "wants_water", "wants_night")
 
 _SHADER_WORDS = ("shader", "glsl", "onbeforecompile", "shadermaterial", "custom material",
                  "raymarch", "postprocess", "post-process")

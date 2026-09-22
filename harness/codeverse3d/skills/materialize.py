@@ -172,7 +172,6 @@ def attach_skills(
     track: str,
     language: str,
     kind: str,
-    agent_kind: str,
     plan: Any | None = None,
     findings: Any = (),
     single_shot: bool = False,
@@ -235,8 +234,8 @@ def attach_skills(
         log.warning("skills not materialised into %s: %s", ws_root, e)
         return out
     out.paths = [str(p) for p in paths]
-    out.index_tokens = index_tokens(sel, agent_kind)
-    write_index(ws_root, index_block(sel, agent_kind))
+    out.index_tokens = index_tokens(sel)
+    write_index(ws_root, index_block(sel))
     return out
 
 

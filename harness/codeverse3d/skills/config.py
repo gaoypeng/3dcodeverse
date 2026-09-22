@@ -2,7 +2,7 @@
 
 WHY not ``Settings``: ``codeverse3d.config.get_settings`` is ``lru_cache``d, so a value
 read through it is frozen at first touch and an A/B arm that sets the variable after
-import gets the control's behaviour.  ``bench/ab_plan.py`` differs its arms only by
+import gets the control's behaviour.  ``eval/bench/ab_plan.py`` differs its arms only by
 environment, and a wave once printed "keep, mean delta +0.344" for two byte-identical
 arms because the switch it flipped was read by nothing at all
 (``codeverse3d/tracks/plan_features.py``).  So: one module, read at call time, registered

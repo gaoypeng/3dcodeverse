@@ -44,13 +44,23 @@ def _signal_sets():
 BASE_INPUTS = [(t, lang, kind) for t in TRACKS for lang in LANGUAGES for kind in KINDS]
 
 
+def test_every_signal_a_route_requires_is_in_the_input_space():
+    """R26/R27 test wants_water / wants_night, which SIGNAL_KEYS (and so FLAGS) once lacked:
+    the property tests below never exercised them."""
+    for row in ROUTES:
+        assert set(row.requires_all) | set(row.requires_any) <= set(SIGNAL_KEYS), row.rule
+
+
 def test_the_cap_and_the_ordering_hold_over_the_whole_input_space():
-    expected = len(LANGUAGES) * len(KINDS) * 2 ** len(FLAGS)
+    """Both settings of allow_unverified: R25–R28 (and the cadquery / threejs forms) name
+    inherited-unverified bundles, which route only with it on."""
+    expected = 2 * len(LANGUAGES) * len(KINDS) * 2 ** len(FLAGS)
     for track in TRACKS:
         seen = 0
-        for language, kind in itertools.product(LANGUAGES, KINDS):
+        for unverified, language, kind in itertools.product((False, True), LANGUAGES, KINDS):
             for signals in _signal_sets():
-                got = select(track, language, kind, signals=signals, library=LIBRARY, max_skills=5)
+                got = select(track, language, kind, signals=signals, library=LIBRARY, max_skills=5,
+                             allow_unverified=unverified)
                 seen += 1
                 assert len(got) <= 5, f"{track}/{language}/{kind} routed {len(got)}"
                 assert len({skill.name for skill in got}) == len(got), "duplicate skill"

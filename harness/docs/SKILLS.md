@@ -11,8 +11,8 @@ names the cookbook section to fetch. Two libraries of truth would be worse than 
 `SKILL.md` is an open standard (agentskills.io, Dec 2025), which is why the format below is
 not ours to bend: **claude-code, codex, gemini-cli and agy discover these bundles
 themselves** — proven live, see §7.  (The in-process `api-agent`, the one backend that
-needed harness-side injection, was deleted 2026-08-28; an unclassified backend still
-gets the routed index as the safe default.)
+needed harness-side injection, was deleted 2026-08-28, and its routed index and
+`read_skill` tool with it.)
 
 Everything is behind `C3D_SKILLS`. **It ships OFF**, because `api-agent` read 0 of 5
 routed bundles in the measured A/B while the three subscription CLIs read all five.
@@ -27,36 +27,21 @@ are plain [agentskills.io](https://agentskills.io/specification) `SKILL.md` dire
 know nothing about any backend — anyone can `cp -r codeverse3d/skills/<name> ~/.claude/skills/`
 and use them without this harness at all.  `router.py` picks the set from typed inputs.
 
-Everything that genuinely differs between coding agents is **two bits**, and they live in
-one file, `skills/delivery.py`:
+Everything that genuinely differs between coding agents is **one bit**, and it lives in
+one file, `skills/prompting.py`:
 
-| backend | native loader? | discovery root |
-|---|---|---|
-| `claude-code` | yes | `.claude/skills` |
-| `codex`, `gemini-cli`, `agy` | yes | `.agents/skills` |
-| *anything unclassified* | **no** (safe default) | `.agents/skills` |
+| backend | discovery root |
+|---|---|
+| `claude-code` | `.claude/skills` |
+| `codex`, `gemini-cli`, `agy` | `.agents/skills` |
 
-Both bits were read out of the shipped binaries, not assumed.  Everything else is derived:
-a backend with its own loader must **not** be handed a second index (it would list the same
-skills twice) and needs no tool; a backend without one gets the explicit index **and** the
-`read_skill` tool.  Over-delivering costs tokens; under-delivering costs the skill, so an
-unknown backend gets the loaderless treatment.
+It was read out of the shipped binaries, not assumed.  All four have a native loader, so
+none is handed a second index (it would list the same skills twice): the body file gets one
+MANDATORY sentence.
 
 **Adding a backend is one row in that table.**  A test (`tests/skills/test_delivery.py`)
 fails if per-backend knowledge leaks back out into the other modules, and another checks
 that `prompting.py` agrees with the policy rather than re-deriving it.
-
-### Why loaderless backends get a tool
-
-Measured 2026-08-25, same library, same workspace, same task: `codex`, `claude-code` and
-`agy` each read **5 of 5** routed bundles unprompted through their own loaders.
-`api-agent` read **0 of 5** — not from unwillingness (it made **52 `read_file` calls** that
-session, and called `read_cookbook` twice), but because the bundles sit in hidden
-directories its `list_files` deliberately skips, and the index was prose in a 2.3 kB system
-prompt competing with the contract and the rules.  Prose is not an affordance.  So the
-routed set became a tool, `read_skill`, whose spec carries the names and one-line summaries
-where a model actually reads its options — and which records what was opened, giving the
-read rate ground truth instead of a probe.
 
 
 ## 1. The model: progressive disclosure, and why it is also the measurement
@@ -65,7 +50,7 @@ The spec's three tiers, and what each costs us per turn:
 
 | tier | what the agent sees | when | our cost |
 |---|---|---|---|
-| 1 · index | `name` + one clause of `description` | every turn | 41 tokens (native CLIs) / 356 worst case (api-agent) |
+| 1 · index | `name` + `description`, listed by the CLI's own loader | every turn | 41 tokens (our one mandate sentence) |
 | 2 · body | the whole `SKILL.md` | on activation | 1,081–2,223 tokens, once |
 | 3 · depth | `references/*.md` | when the agent chooses to go deeper | as read |
 
@@ -175,9 +160,9 @@ Four laws, all tested:
    take out the round's skills.
 
 `test_routing_property.py` runs all of that over the real library and the whole input
-space: every track × language × round kind × 64 plan-signal combinations (5,376 sessions
-per track), every gate finding kind the corpus produces, and 2,000 seeded random walks
-including junk tracks and languages.
+space: every track × language × round kind × 256 plan-signal combinations × both
+`allow_unverified` settings (43,008 sessions per track), every gate finding kind the
+corpus produces, and 2,000 seeded random walks including junk tracks and languages.
 
 `finding_kind()` classifies **wider** than it routes — 113 distinct WARN/ERROR message
 shapes mined from `eval/bench/out`, with a 43-row golden fixture
@@ -256,7 +241,6 @@ the `live` cases drive a real CLI.
 | `test_library.py` | body budget, no 20-line code fences, no restating `conventions.py`, every `_claims` number still matches its live constant, **no two skills point one claim key at different numbers** |
 | `test_freshness.py` | every tool, gate kind, rubric criterion, constant, switch, sibling skill and cookbook section a bundle names still exists |
 | `test_router.py` / `test_routing_property.py` | the four routing laws, by row and over the whole input space |
-| `test_budget.py` | the index cost, re-measured against the shipped descriptions |
 | `test_telemetry.py` | the read probe, **including the control that catches git reading the tree** |
 | `test_packaging.py` | **a built wheel contains all 13 `SKILL.md`, all 13 `references/`, all 9 `_claims`** |
 | `test_live_discovery.py` | §7 — a real CLI actually finds and opens a bundle |

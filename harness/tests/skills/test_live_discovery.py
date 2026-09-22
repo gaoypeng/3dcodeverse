@@ -60,7 +60,7 @@ def test_the_cli_discovers_and_opens_a_materialised_skill(tmp_path: Path, kind: 
 
     skill = load_skill("c3d-live-probe", lib)
     materialize_skills(ws, [skill])
-    write_index(ws, index_block([skill], kind))
+    write_index(ws, index_block([skill]))
 
     res = agent.run(AgentJob(workspace=str(ws), prompt=PROMPT, spatial_tools=False,
                              max_turns=8, timeout_s=300, label="skills_live"))

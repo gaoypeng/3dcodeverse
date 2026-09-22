@@ -24,7 +24,6 @@ from codeverse3d.skills.materialize import (
 )
 from codeverse3d.skills.prompting import (
     MANDATE,
-    NATIVE_LOADERS,
     index_block,
     index_tokens,
     inline_body,
@@ -75,7 +74,7 @@ def test_a_never_routed_control_bundle_goes_in_beside_the_real_ones(ws, library)
     for root in SKILL_ROOTS:
         d = ws / root / CONTROL_NAME
         assert (d / "SKILL.md").is_file() and (d / "references" / "control.md").is_file()
-        assert CONTROL_NAME not in index_block([library["c3d-part-contact"]], "api-agent")
+        assert CONTROL_NAME not in index_block([library["c3d-part-contact"]])
     from codeverse3d.skills.registry import ROUTED_SKILLS
 
     assert CONTROL_NAME not in ROUTED_SKILLS
@@ -116,8 +115,7 @@ def test_an_empty_selection_still_sweeps_last_rounds_bundles(ws, library):
     last round's bundles stayed live in both discovery roots, where the native CLIs
     discover skills by directory (V4b).  An empty route is a legal desired set."""
     materialize_skills(ws, [library["c3d-part-contact"]])
-    out = attach_skills(ws, track="static_object", language="threejs", kind="generation",
-                        agent_kind="claude-code", library={})
+    out = attach_skills(ws, track="static_object", language="threejs", kind="generation", library={})
     assert out.listed == []
     for root in SKILL_ROOTS:
         assert not (ws / root / "c3d-part-contact").exists(), f"stale bundle survived in {root}"
@@ -126,35 +124,14 @@ def test_an_empty_selection_still_sweeps_last_rounds_bundles(ws, library):
 # --------------------------------------------------------------------------- prompt text
 def test_native_loader_backends_get_one_sentence_and_no_second_index(library):
     skills = [library["c3d-part-contact"], library["c3d-bbox-contract"]]
-    for kind in NATIVE_LOADERS:
-        text = index_block(skills, kind)
-        assert MANDATE in text
-        assert "c3d-part-contact" not in text, f"{kind} would be double-indexed"
-        assert index_tokens(skills, kind) < 60
-
-
-def test_api_agent_gets_the_index_it_cannot_discover(library):
-    """And it is told the set was ROUTED, not offered: our router already filtered it on
-    inputs the agent cannot see, so "the ones that match your task" would only lose reads."""
-    from codeverse3d.skills.prompting import MANDATE_ROUTED
-
-    skills = [library["c3d-part-contact"], library["c3d-bbox-contract"]]
-    text = index_block(skills, "api-agent")
-    assert MANDATE_ROUTED in text and MANDATE not in text
-    for s in skills:
-        assert f"**{s.name}**" in text and f".agents/skills/{s.name}/SKILL.md" in text
+    text = index_block(skills)
+    assert MANDATE in text
+    assert "c3d-part-contact" not in text, "the native loaders would double-index it"
+    assert index_tokens(skills) < 60
 
 
 def test_an_empty_route_adds_no_text_at_all(library):
-    assert index_block([], "api-agent") == "" and index_block([], "codex") == ""
-
-
-def test_claude_code_is_pointed_at_its_own_root(library):
-    text = index_block([library["c3d-part-contact"]], "unknown-backend")
-    assert ".agents/skills/" in text
-    from codeverse3d.skills.prompting import skill_path
-
-    assert skill_path("c3d-x", agent_kind="claude-code") == ".claude/skills/c3d-x/SKILL.md"
+    assert index_block([]) == ""
 
 
 def test_repair_pointers_name_only_the_gate_fired_skills(library):
@@ -176,12 +153,12 @@ def test_inline_body_picks_the_highest_priority_body_and_respects_the_cap(librar
 
 # --------------------------------------------------------------------------- the section
 def test_the_index_is_written_into_every_body_file_and_is_replaceable(ws, library):
-    write_index(ws, index_block([library["c3d-part-contact"]], "api-agent"))
+    write_index(ws, "## Skills\n\nc3d-part-contact")
     for name in BODY_FILES:
         body = (ws / name).read_text()
         assert MARK_BEGIN in body and MARK_END in body and "c3d-part-contact" in body
         assert body.startswith("# 3dcode workspace")
-    write_index(ws, index_block([library["c3d-bbox-contract"]], "api-agent"))
+    write_index(ws, "## Skills\n\nc3d-bbox-contract")
     body = (ws / "AGENTS.md").read_text()
     assert body.count(MARK_BEGIN) == 1 and "c3d-part-contact" not in body and "c3d-bbox-contract" in body
     write_index(ws, "")
@@ -195,18 +172,17 @@ def test_write_index_ignores_body_files_a_workspace_does_not_have(tmp_path: Path
 # --------------------------------------------------------------------------- attach
 def test_attach_routes_writes_and_reports(ws, library):
     got = attach_skills(ws, track="static_object", language="blender", kind="baseline",
-                        agent_kind="api-agent", plan=_plan(), library=library, max_skills=5,
-                        allow_unverified=False)
+                        plan=_plan(), library=library, max_skills=5, allow_unverified=False)
     assert got.listed and got.paths and got.index_tokens > 0
     assert set(got.reasons) == set(got.listed)
     assert all("c3d-" in p for p in got.paths)
-    assert "c3d-part-contact" in (ws / "AGENTS.md").read_text()
+    assert MANDATE in (ws / "AGENTS.md").read_text()
     assert got.inlined == ""
 
 
 def test_attach_for_a_single_shot_session_inlines_instead_of_writing_files(ws, library):
     got = attach_skills(ws, track="static_object", language="blender", kind="baseline",
-                        agent_kind="single-shot", plan=_plan(), library=library, single_shot=True,
+                        plan=_plan(), library=library, single_shot=True,
                         max_skills=5, allow_unverified=False)
     assert got.inlined and got.paths == [] and got.index_tokens == 0
     assert MARK_BEGIN not in (ws / "AGENTS.md").read_text()
@@ -215,6 +191,6 @@ def test_attach_for_a_single_shot_session_inlines_instead_of_writing_files(ws, l
 def test_attach_with_nothing_routed_clears_the_section(ws, library):
     write_index(ws, "stale")
     got = attach_skills(ws, track="graphics", language="glsl_shader", kind="asset",
-                        agent_kind="codex", library=library, max_skills=5, allow_unverified=False)
+                        library=library, max_skills=5, allow_unverified=False)
     assert got.listed == []
     assert MARK_BEGIN not in (ws / "AGENTS.md").read_text()

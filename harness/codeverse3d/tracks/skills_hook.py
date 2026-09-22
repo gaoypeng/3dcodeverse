@@ -68,7 +68,6 @@ def attach_for_round(ctx: RunContext, *, index: int, kind: str) -> Any | None:
             track=ctx.spec.track.value if hasattr(ctx.spec.track, "value") else str(ctx.spec.track),
             language=ctx.language.value,
             kind=kind,
-            agent_kind=ctx.agent_kind,
             plan=ctx.plan,
             findings=_previous_findings(ctx, index),
             single_shot=ctx.single_shot,

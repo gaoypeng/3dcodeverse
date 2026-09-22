@@ -63,9 +63,9 @@ def test_every_scene_generation_stage_gets_skills_before_its_sessions(scene_run)
     assert Counter(e.get("kind") for e in attachments) >= Counter({"env": 1, "zone": 1})
     assert all(sum(e.get("kind") == kind for e in attachments) == 1 for kind in by_kind)
     assert {"c3d-scene-composition", "c3d-scene-lighting"} <= set(by_kind["env"]["skills"])
-    assert {"c3d-scene-composition", "c3d-scene-motion", "c3d-bbox-contract"} <= set(
-        by_kind["zone"]["skills"]
-    )
+    assert {"c3d-scene-composition", "c3d-scene-motion"} <= set(by_kind["zone"]["skills"])
+    # R3 is object-only: the bbox sheet's measure / check_contract / isolate loop has no scene tools
+    assert "c3d-bbox-contract" not in by_kind["zone"]["skills"]
 
     def belongs(kind: str, event: dict) -> bool:
         label = str(event.get("label", ""))
