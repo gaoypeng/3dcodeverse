@@ -206,9 +206,9 @@ TARGETS: tuple[Target, ...] = (
         why="metadata.owns names shader/compile_or_binding; every trap the bundle teaches lands "
             "in the one shader_preflight report",
         caveat="zero headroom in today's corpus: all 4 recorded scene runs are clean, so this can "
-               "only detect a regression until a battery makes it fire. shader_preflight is written "
-               "beside the run (artifacts/shader_preflight.json) and is NOT merged per-round into "
-               "the record, so only the run's final state is readable.",
+               "only detect a regression until a battery makes it fire. Runs recorded before "
+               "2026-09-22 have shader_preflight only beside the run (artifacts/), their final state; "
+               "since then every round's gates carry it (BuildResult.gates).",
     ),
     Target(
         skill="c3d-glsl-craft",
