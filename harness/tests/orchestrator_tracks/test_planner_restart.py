@@ -11,12 +11,12 @@ import json
 
 import pytest
 
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import ArticulatedPlan
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.planner import (
     MAX_PLAN_RESTARTS,
-    PLAN_RESTART_ENV,
     PlanningError,
     missing_link_names,
     plan,
@@ -84,7 +84,7 @@ def test_an_ordinary_validation_error_still_edits_in_context(tmp_ws):
 
 
 def test_the_kill_switch_restores_the_in_context_reask(tmp_ws, monkeypatch):
-    monkeypatch.setenv(PLAN_RESTART_ENV, "0")
+    monkeypatch.setattr(get_settings(), "plan_restart", False)   # C3D_PLAN_RESTART=off
     p, model = _run(tmp_ws, [_degenerate(), _good()])
     assert isinstance(p, ArticulatedPlan) and len(model.requests[1].messages) == 3
 

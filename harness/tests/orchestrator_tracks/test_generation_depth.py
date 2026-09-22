@@ -72,12 +72,12 @@ def test_interfaces_text_names_only_the_neighbours_outside_the_scope(chair_plan)
     assert "no parts outside this scope" in empty
 
 
-def test_scoped_generation_can_be_switched_off(monkeypatch):
-    monkeypatch.setenv("C3D_SCOPED_PARTS", "off")
+def test_scoped_generation_can_be_switched_off(switch):
+    switch("C3D_SCOPED_PARTS", "off")
     assert scoped_generation_enabled() is False
-    monkeypatch.setenv("C3D_SCOPED_PARTS", "on")
+    switch("C3D_SCOPED_PARTS", "on")
     assert scoped_generation_enabled() is True
-    monkeypatch.delenv("C3D_SCOPED_PARTS")
+    switch("C3D_SCOPED_PARTS", None)
     assert scoped_generation_enabled() is True
 
 

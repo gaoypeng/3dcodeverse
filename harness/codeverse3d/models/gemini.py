@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import io
 import logging
-import os
 import re
 import threading
 import time
@@ -195,7 +194,7 @@ _RETRY_DELAY_RE = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
 #: rest of the retry budget intact, while a legitimate 930 s plan streams tokens
 #: continuously (145 tok/s p50, audit 2026-08-27) and is bounded only by its
 #: attempt budget.  Generous vs the longest silent prefix we allow for thinking
-#: before the first chunk.  ``C3D_STREAM=0`` restores the buffered call.
+#: before the first chunk.  ``C3D_STREAM=off`` restores the buffered call.
 STREAM_STALL_S = 300.0
 
 _pools: dict[tuple[str, ...], KeyPool] = {}
@@ -294,15 +293,11 @@ def _ipv4_client_args() -> dict[str, Any]:
     """Bind the sync transport to IPv4.  Every one of tonight's five hung reads sat
     on an IPv6 destination (2001:4860::/32) with the response headers never arriving
     — the WSL2 IPv6 path drops these silently and a buffered read then holds the
-    socket for the whole attempt budget.  ``C3D_IPV4=0`` restores the default
+    socket for the whole attempt budget.  ``C3D_IPV4=off`` restores the default
     (dual-stack) resolution."""
-    if os.environ.get("C3D_IPV4", "1") == "0":
-        return {}
-    return {"transport": httpx.HTTPTransport(local_address="0.0.0.0")}
+    from codeverse3d.config import get_settings
 
-
-def _streaming_enabled() -> bool:
-    return os.environ.get("C3D_STREAM", "1") != "0"
+    return {"transport": httpx.HTTPTransport(local_address="0.0.0.0")} if get_settings().ipv4 else {}
 
 
 def _drain_stream(
@@ -506,7 +501,9 @@ class GeminiModel:
         warnings: list[str],
     ) -> ChatResponse:
         client = _client_for(key, self.timeout_s, self._client_factory)
-        if not _streaming_enabled():
+        from codeverse3d.config import get_settings
+
+        if not get_settings().stream:   # C3D_STREAM=off: the buffered call
             with Stopwatch() as sw:
                 resp = client.models.generate_content(
                     model=self.model, contents=contents, config=config

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from codeverse3d.config import Settings, seed_recipes_enabled
+from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.common import HARNESS_OWNED_SRC, Language, Track
 from codeverse3d.contracts.plan import GraphicsPlan
 from codeverse3d.languages import get_runtime
@@ -25,7 +25,6 @@ from codeverse3d.languages.glsl_shader import (
 from codeverse3d.languages.glsl_shader import HEADER as WRAP_HEADER
 from codeverse3d.proc import EventLog
 from codeverse3d.prompts import load_text, render
-from codeverse3d.tracks import graphics as gr
 from codeverse3d.tracks.graphics import (
     HEADER,
     NOT_SEEDED,
@@ -267,23 +266,27 @@ def test_resume_appends_only_new_names(tmp_path) -> None:
 
 
 def test_gate_and_language(tmp_path, monkeypatch) -> None:
+    def seeding(raw: str | None) -> bool:
+        if raw is None:
+            monkeypatch.delenv("C3D_SEED_RECIPES", raising=False)
+        else:
+            monkeypatch.setenv("C3D_SEED_RECIPES", raw)
+        get_settings.cache_clear()
+        return get_settings().limits.seed_recipes
+
     ws = _ws(tmp_path)
-    assert Settings().limits.seed_recipes is True and seed_recipes_enabled() is True
-    monkeypatch.setenv("C3D_SEED_RECIPES", "0")
-    assert seed_recipes_enabled() is False
+    assert seeding(None) is True
+    assert seeding("0") is False
     ctx = _ctx(ws)
     assert seed_recipes(ctx) == [] and not _recipes(ws).exists() and "seeded_recipes" not in ctx.extra
     assert (ws.src / "common.glsl").read_text() == COMMON_GLSL and not _seeded_events(ws)
-    monkeypatch.setenv("C3D_SEED_RECIPES", "garbage")
-    assert seed_recipes_enabled() is False                               # a typo is a control run, not a crash
-    monkeypatch.setenv("C3D_SEED_RECIPES", "on")
-    assert seed_recipes_enabled() is True
-    monkeypatch.delenv("C3D_SEED_RECIPES")
-    monkeypatch.setattr(gr, "seed_recipes_enabled", lambda: True)
+    assert seeding("garbage") is True                  # a typo keeps the default: never a crash, never the arm
+    assert seeding("on") is True and seeding("off") is False
+    assert seeding(None) is True
     assert seed_recipes(_ctx(ws, language=Language.OPENGL_PYTHON)) == []  # opengl_python: nothing seeded
     assert not _recipes(ws).exists() and (ws.src / "common.glsl").read_text() == COMMON_GLSL
-    monkeypatch.setenv("C3D_SEED_RECIPES", "off")
-    assert Settings().limits.seed_recipes is False                       # the flat alias reaches Settings too
+    monkeypatch.setenv("C3D_LIMITS__SEED_RECIPES", "off")
+    assert Settings().limits.seed_recipes is False     # the nested spelling reads the same field
 
 
 # ----------------------------------------------------------------------------- compose / lint / prompt

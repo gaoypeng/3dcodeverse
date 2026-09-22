@@ -115,11 +115,11 @@ MIN_PARTS_FOR_SCOPED = 8
 DEFAULT_PARTS_PER_SCOPE = 3
 
 
-def scoped_generation_enabled(default: bool = True) -> bool:
-    """``C3D_SCOPED_PARTS=off|0|false`` turns per-part scoped baselines off (A/B, debugging)."""
-    from codeverse3d.config import env_flag
+def scoped_generation_enabled() -> bool:
+    """``C3D_SCOPED_PARTS=off`` turns per-part scoped baselines off (A/B, debugging)."""
+    from codeverse3d.config import get_settings
 
-    return env_flag("C3D_SCOPED_PARTS", default)
+    return get_settings().scoped_parts
 
 
 @dataclass(frozen=True)

@@ -58,8 +58,8 @@ class _TurnAgent:
                            usage=Usage(backend="api-agent", cost_usd=self.cost, input_tokens=1000))
 
 
-def test_agent_sessions_are_uncapped_by_default(tmp_ws, monkeypatch):
-    monkeypatch.delenv("C3D_AGENT_MAX_TURNS", raising=False)
+def test_agent_sessions_are_uncapped_by_default(tmp_ws, switch):
+    switch("C3D_AGENT_MAX_TURNS", None)
     assert DEFAULT_AGENT_MAX_TURNS == 0
     agent = _TurnAgent(writes_on=1)
     task = GenerationTask(label="baseline", prompt="p", round=0, kind="baseline")
@@ -67,11 +67,11 @@ def test_agent_sessions_are_uncapped_by_default(tmp_ws, monkeypatch):
     assert agent.jobs[0].max_turns == AgentJob(workspace="w", prompt="p").max_turns  # the backend's own default
     assert agent_max_turns() == 0  # "no cap asked for"
     # ... and the machine's way of asking for one still works
-    monkeypatch.setenv("C3D_AGENT_MAX_TURNS", "9")
+    switch("C3D_AGENT_MAX_TURNS", "9")
     assert agent_max_turns() == 9
     run_agent_task(tmp_ws, agent=agent, task=task)
     assert agent.jobs[-1].max_turns == 9
-    monkeypatch.setenv("C3D_AGENT_MAX_TURNS", "nonsense")
+    switch("C3D_AGENT_MAX_TURNS", "nonsense")   # warns, keeps the default: never a crash
     assert agent_max_turns() == DEFAULT_AGENT_MAX_TURNS == 0
 
 

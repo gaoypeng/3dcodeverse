@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse3d.skills.config import SKILLS_ONLY_ENV, skills_only
+from codeverse3d.config import get_settings
 from codeverse3d.skills.materialize import attach_skills
 
 
@@ -66,20 +66,12 @@ def test_an_unknown_name_attaches_nothing_rather_than_everything(ws, caplog):
     """A typo must make the variant visibly identical to its control, not silently
     measure the full five-bundle set."""
     assert _listed(ws, only=frozenset({"c3d-typo"})) == []
-    assert SKILLS_ONLY_ENV in caplog.text
+    assert "C3D_SKILLS_ONLY" in caplog.text
 
 
-def test_the_switch_is_read_at_call_time(ws, monkeypatch):
-    """Frozen at import (the get_settings/lru_cache trap) the variant child would run the
-    control's library — the failure mode that printed 'keep, +0.344' for identical arms."""
-    monkeypatch.delenv(SKILLS_ONLY_ENV, raising=False)
-    assert skills_only() == frozenset()
-    monkeypatch.setenv(SKILLS_ONLY_ENV, " c3d-bbox-contract , ")
-    assert skills_only() == frozenset({"c3d-bbox-contract"})
-    assert _listed(ws) == ["c3d-bbox-contract"], "attach_skills must consult the env when only= is omitted"
-
-
-def test_the_switch_is_registered_live():
-    from codeverse3d.tracks.plan_features import LIVE_SWITCHES
-
-    assert SKILLS_ONLY_ENV in LIVE_SWITCHES, "an unregistered switch is one ab_plan calls dead"
+def test_the_switch_reaches_the_router(ws, monkeypatch):
+    """``only=`` omitted, attach_skills reads ``C3D_SKILLS_ONLY`` (a comma list, blanks
+    ignored) — the variant child of an effect A/B sets nothing else."""
+    monkeypatch.setenv("C3D_SKILLS_ONLY", " c3d-bbox-contract , ")
+    get_settings.cache_clear()
+    assert _listed(ws) == ["c3d-bbox-contract"], "attach_skills must consult the switch when only= is omitted"

@@ -428,10 +428,14 @@ export C3D_LIMITS__AGENT_TIMEOUT_S=900
 export C3D_DEFAULT_CANDIDATES=2
 ```
 
-Three more are read directly by the runtime (not via `Settings`):
-`C3D_RENDER_GPU` (`auto|on|off`, seen by the node/moderngl renderers),
-`C3D_CACHE_DIR` (where `gpu_launch.cjs` puts the shared-browser endpoint file)
-and `C3D_BROWSER_REUSE=off` (disable the shared headless-Chrome daemon).
+Every knob the harness reads is a `Settings` field (`codeverse3d/config.py`, one
+description each): `C3D_<FIELD>` at the top level, `C3D_<SECTION>__<FIELD>` nested, plus
+four flat spellings of nested knobs — `C3D_MAX_IN_FLIGHT`, `C3D_RENDER_GPU`,
+`C3D_SEED_RECIPES`, `C3D_AGENT_MAX_TURNS`.  An on/off switch (`C3D_SKILLS`, `C3D_STREAM`,
+`C3D_PLAN_BRIEF`, … — every `Flag` field) takes on/off, 1/0, true/false or yes/no in any
+case; a typo warns and keeps the default, and an empty value is unset.  The node side also
+reads `C3D_RENDER_GPU` and `C3D_CACHE_DIR` itself, and one variable only it reads:
+`C3D_BROWSER_REUSE=off` disables the shared headless-Chrome daemon.
 
 ---
 

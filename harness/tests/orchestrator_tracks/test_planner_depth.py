@@ -274,13 +274,13 @@ def test_brief_failure_is_never_fatal(tmp_path):
     assert brief is None and usage.cost_usd == 0.0
 
 
-def test_brief_switch_and_track_scope(monkeypatch):
-    monkeypatch.delenv(BR.BRIEF_ENV, raising=False)
+def test_brief_switch_and_track_scope(monkeypatch, switch):
+    switch("C3D_PLAN_BRIEF", None)
     assert BR.brief_enabled(_spec())
     assert not BR.brief_enabled(_spec(track=Track.GRAPHICS, language=Language.GLSL_SHADER))
-    monkeypatch.setenv(BR.BRIEF_ENV, "off")
+    switch("C3D_PLAN_BRIEF", "off")
     assert not BR.brief_enabled(_spec())
-    monkeypatch.setenv(BR.BRIEF_ENV, "on")
+    switch("C3D_PLAN_BRIEF", "on")
     assert BR.brief_enabled(_spec())
 
 
@@ -340,8 +340,8 @@ def test_plan_output_room_grows_with_the_plan_and_is_capped():
     assert plan_tokens(small, 24000) >= 24000  # never below the caller's floor
 
 
-def test_truncated_plans_keep_growing_output_room(tmp_path, monkeypatch):
-    monkeypatch.setenv(BR.BRIEF_ENV, "off")
+def test_truncated_plans_keep_growing_output_room(tmp_path, switch):
+    switch("C3D_PLAN_BRIEF", "off")
     from codeverse3d.models.base import ModelError
 
     good = json.loads(_plan([_part(f"P{i}", desc=_detailed(i), material=f"m{i}") for i in range(9)]).model_dump_json())
@@ -364,8 +364,8 @@ def test_truncated_plans_keep_growing_output_room(tmp_path, monkeypatch):
         assert len(got.parts) == 9
 
 
-def test_a_model_error_that_is_not_truncation_still_propagates(tmp_path, monkeypatch):
-    monkeypatch.setenv(BR.BRIEF_ENV, "off")
+def test_a_model_error_that_is_not_truncation_still_propagates(tmp_path, switch):
+    switch("C3D_PLAN_BRIEF", "off")
     from codeverse3d.models.base import ModelError
 
     ws = Workspace(tmp_path / "run")
@@ -379,9 +379,9 @@ def test_a_model_error_that_is_not_truncation_still_propagates(tmp_path, monkeyp
 
 
 # ----------------------------------------------------------------------------- the loop
-def test_planner_spends_one_quality_reask_then_ships_the_plan(tmp_path, monkeypatch):
+def test_planner_spends_one_quality_reask_then_ships_the_plan(tmp_path, switch):
     """A plan that never satisfies the gate is still USED — a mediocre plan beats no plan."""
-    monkeypatch.setenv(BR.BRIEF_ENV, "off")
+    switch("C3D_PLAN_BRIEF", "off")
     ws = Workspace(tmp_path / "run")
     ws.create()
     thin = json.loads(_plan([_part(f"P{i}") for i in range(3)]).model_dump_json())
@@ -400,8 +400,8 @@ def test_planner_spends_one_quality_reask_then_ships_the_plan(tmp_path, monkeypa
     assert len(got.parts) == 3 and ws.plan_path.is_file()
 
 
-def test_a_good_plan_costs_exactly_one_call(tmp_path, monkeypatch):
-    monkeypatch.setenv(BR.BRIEF_ENV, "off")
+def test_a_good_plan_costs_exactly_one_call(tmp_path, switch):
+    switch("C3D_PLAN_BRIEF", "off")
     ws = Workspace(tmp_path / "run")
     ws.create()
     good = json.loads(_plan([_part(f"P{i}", desc=_detailed(i), material=f"m{i}") for i in range(9)]).model_dump_json())
@@ -415,9 +415,9 @@ def test_a_good_plan_costs_exactly_one_call(tmp_path, monkeypatch):
     assert calls["n"] == 1 and len(got.parts) == 9
 
 
-def test_brief_and_plan_are_one_model_and_the_events_say_so(tmp_path, monkeypatch):
-    monkeypatch.setenv(BR.BRIEF_ENV, "on")
-    monkeypatch.setenv("C3D_CACHE_DIR", str(tmp_path / "cache"))
+def test_brief_and_plan_are_one_model_and_the_events_say_so(tmp_path, switch):
+    switch("C3D_PLAN_BRIEF", "on")
+    switch("C3D_CACHE_DIR", str(tmp_path / "cache"))
     ws = Workspace(tmp_path / "run")
     ws.create()
     good = json.loads(_plan([_part(f"P{i}", desc=_detailed(i), material=f"m{i}") for i in range(10)]).model_dump_json())

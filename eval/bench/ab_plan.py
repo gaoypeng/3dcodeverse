@@ -19,9 +19,8 @@ shell never reaches the control either.  With these mechanics the OFF arm is the
 means turning skills OFF helped).
 
 Why each arm is a child PROCESS rather than a thread: the switches under test are read
-from the environment (``codeverse3d.tracks.planner.brief_enabled`` reads ``os.environ`` at
-call time; anything under ``Settings`` is read once through an ``lru_cache``), so two
-threads in one interpreter cannot hold different values of them.  A child gets exactly
+from the environment (each is a ``Settings`` field, read once per process through an
+``lru_cache``), so two threads in one interpreter cannot hold different values of them.  A child gets exactly
 the env its arm needs and nothing leaks across.  The driver pins both children at
 ``C3D_MAX_IN_FLIGHT`` (default 16); the in-flight slots are machine-wide lock files, so
 the two arms share those 16 with each other and with every other harness process
@@ -130,7 +129,7 @@ log = logging.getLogger(__name__)
 DEFAULT_GENERATOR = Backends().generator
 DEFAULT_JUDGE = "gemini:gemini-3.1-pro-preview"
 #: the per-child cap.  The flat name is a first-class alias of ``C3D_RATE__MAX_IN_FLIGHT``
-#: since 2026-08-24 (``Settings._FLAT_ALIASES``; before that it was read by nothing) and
+#: since 2026-08-24 (``Settings.FLAT``; before that it was read by nothing) and
 #: wins over the nested spelling when both are set.
 MAX_IN_FLIGHT_ENV = "C3D_MAX_IN_FLIGHT"
 #: the nested spelling: popped from every child's env so it cannot fight the flat one
@@ -707,13 +706,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         # A KEY no code path reads makes the variant arm byte-identical to the control, so
         # the battery costs a full run and yields a verdict about nothing.  One such A/B is
         # on record printing "keep, mean delta +0.344" (CQ-5).
-        from codeverse3d.tracks.plan_features import DEAD_SWITCHES, dead_env_keys
+        from codeverse3d.tracks.plan_features import dead_env_keys
 
         dead = dead_env_keys(opts.variant_env)
         if dead and len(dead) == len(opts.variant_env):
             _parser().error(
                 "--variant-env only sets switches nothing reads, so both arms would be identical: "
-                + "; ".join(f"{k} ({DEAD_SWITCHES[k]})" for k in dead)
+                + ", ".join(dead) + " (no Settings field reads them)"
                 + " (pass --aa if an identical-arms calibration run is the point)"
             )
     if opts.pin_plan and (blockers := pin_plan_blockers(opts.variant_env)):

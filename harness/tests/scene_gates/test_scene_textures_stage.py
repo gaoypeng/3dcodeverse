@@ -19,30 +19,19 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse3d.config import SCENE_TEXTURES_ENV, get_settings, scene_textures_enabled
-from codeverse3d.tracks.plan_features import LIVE_SWITCHES
+from codeverse3d.config import get_settings
 
 
 @pytest.fixture(autouse=True)
 def _clean_settings(monkeypatch):
-    monkeypatch.delenv(SCENE_TEXTURES_ENV, raising=False)
+    monkeypatch.delenv("C3D_SCENE_TEXTURES", raising=False)
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
 
 
-def test_the_switch_is_off_by_default_and_readable_at_call_time(monkeypatch):
-    assert scene_textures_enabled() is False
-    monkeypatch.setenv(SCENE_TEXTURES_ENV, "1")
-    assert scene_textures_enabled() is True
-    monkeypatch.setenv(SCENE_TEXTURES_ENV, "false")
-    assert scene_textures_enabled() is False
-
-
-def test_the_switch_is_registered_as_live():
-    """An A/B arm that differs only by a switch no code reads is byte-identical to its
-    control; `plan_features` refuses such an arm, and only if the name is declared."""
-    assert LIVE_SWITCHES[SCENE_TEXTURES_ENV] == "codeverse3d/config.py"
+def test_the_switch_is_off_by_default():
+    assert get_settings().scene_textures is False
 
 
 def _render(name: str, **extra):

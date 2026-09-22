@@ -76,13 +76,14 @@ def test_diff_can_be_switched_off(ref_input, cache_dir):
     assert all(not r.label.startswith("reference_diff") for r in model.requests)
 
 
-@pytest.mark.parametrize("value", ["off", "of"])
-def test_diff_off_via_env(ref_input, cache_dir, monkeypatch, value):
-    """A typo is a control run, not the variant (config.env_flag): "of" used to read as ON."""
-    monkeypatch.setenv("C3D_REFERENCE_DIFF", value)
-    model = FakeChatModel(by_label={"judge": [good_reply(REF, ["A1", "A2"], 0.8)]})
+@pytest.mark.parametrize(("value", "diffed"), [("off", False), ("OFF", False), ("of", True)])
+def test_diff_off_via_env(ref_input, cache_dir, switch, value, diffed):
+    """``C3D_REFERENCE_DIFF=off`` switches the pass off; a typo warns and keeps the default
+    (ON) — the arm that never set the switch, which is what D44 (c) asks of a typo."""
+    switch("C3D_REFERENCE_DIFF", value)
+    model = FakeChatModel(by_label={"reference_diff": [DIFF], "judge": [good_reply(REF, ["A1", "A2"], 0.8)]})
     _judge(model, cache_dir=cache_dir).judge(ref_input)
-    assert all(not r.label.startswith("reference_diff") for r in model.requests)
+    assert any(r.label.startswith("reference_diff") for r in model.requests) is diffed
 
 
 def test_best_view_iou_beats_a_fixed_front_view(ref_input, cache_dir, tmp_path):

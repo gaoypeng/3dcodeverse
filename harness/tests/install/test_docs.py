@@ -232,7 +232,7 @@ def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
     from codeverse3d.proc import ProcResult
 
     settings = SimpleNamespace(
-        gemini_api_keys=("fake",), anthropic_api_key="", openai_api_key="",
+        gemini_api_keys=("fake",), anthropic_api_key="", openai_api_key="", skills=False,
         rate=SimpleNamespace(max_in_flight=1),
         binaries=SimpleNamespace(node="node", gemini_cli="gemini", claude_cli="claude",
                                  codex_cli="codex", agy_cli="agy"),

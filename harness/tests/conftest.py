@@ -24,6 +24,22 @@ def _fresh_settings():
 
 
 @pytest.fixture
+def switch(monkeypatch):
+    """``switch("C3D_X", "off")`` sets (``None``: unsets) one variable and drops the cached
+    Settings, so the next ``get_settings()`` reads it the way a fresh A/B child would."""
+    from codeverse3d.config import get_settings
+
+    def set_(name: str, raw: str | None) -> None:
+        if raw is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, raw)
+        get_settings.cache_clear()
+
+    return set_
+
+
+@pytest.fixture
 def tmp_ws(tmp_path: Path) -> Workspace:
     """A fresh, git-initialised workspace under a temp dir."""
     return Workspace(tmp_path / "run").create()

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from codeverse3d.config import seed_recipes_enabled
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import (
     BuildResult,
     GateReport,
@@ -250,7 +250,7 @@ def seed_recipes(ctx: RunContext) -> list[str]:
     (a resume appends only names the file does not define yet); return the names written THIS call.
     ``ctx.extra["seeded_recipes"]`` lists every seeded recipe on disk (for the prompt block);
     ``recipes.seeded`` is emitted with both.  No-op unless glsl_shader and enabled."""
-    if ctx.language is not Language.GLSL_SHADER or not seed_recipes_enabled():
+    if ctx.language is not Language.GLSL_SHADER or not get_settings().limits.seed_recipes:
         return []
     known = cookbook_functions(ctx.cookbook_text or "")
     chapters = recipe_chapters(ctx)

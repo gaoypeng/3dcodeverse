@@ -21,7 +21,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from codeverse3d.config import env_flag, get_settings
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import RenderSet, RenderView
 from codeverse3d.contracts.plan import BBox, CameraPlan
 from codeverse3d.conventions import SCENE_VIEWS, ViewPreset
@@ -120,21 +120,21 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
 
 
 def probe_env_args() -> list[str]:
-    """Scene-driver flags from the ``C3D_*`` switches — the ONE parser (review-3 S4),
-    on the canonical ``env_flag`` words, so ``C3D_CAMERA_REPAIR=false`` really
-    disables and ``C3D_AUTO_EXPOSURE=true`` really enables.  Every driver
-    invocation — standalone probe, render, and the combined single-boot build —
-    appends these, so a census is always measured under the same settle /
-    camera-repair / auto-exposure policy the renders use."""
+    """Scene-driver flags from the ``C3D_SETTLE`` / ``C3D_CAMERA_REPAIR`` /
+    ``C3D_AUTO_EXPOSURE`` switches (``Settings``).  Every driver invocation — standalone
+    probe, render, and the combined single-boot build — appends these, so a census is
+    always measured under the same settle / camera-repair / auto-exposure policy the
+    renders use."""
+    s = get_settings()
     args: list[str] = []
-    if not env_flag("C3D_SETTLE", True):   # A/B switch for the boot-time auto-seat
+    if not s.settle:   # A/B switch for the boot-time auto-seat
         args.append("--no-settle")
-    if env_flag("C3D_CAMERA_REPAIR", True):   # default ON since 2026-08-30: pure insurance —
+    if s.camera_repair:   # default ON since 2026-08-30: pure insurance —
         # zero triggers across a whole healthy battery (scene_px_v1: layout camera-clearance
         # already keeps lenses out of furniture), and the one class it exists for
         # (fv_izakaya: three rounds of camera_in_geometry nobody could fix) is fatal.
         args.append("--camera-repair")
-    if env_flag("C3D_AUTO_EXPOSURE", False):   # opt-in: bounded scene-wide exposure into the healthy band
+    if s.auto_exposure:   # opt-in: bounded scene-wide exposure into the healthy band
         args.append("--auto-exposure")
     return args
 
@@ -145,7 +145,7 @@ def post_chain_args() -> list[str]:
     PICTURES only: object renders never touch this driver, and the scene probe runs
     raw because it is a 320x180 geometry instrument, not a judged frame.  Kept out
     of :func:`probe_env_args` for exactly that reason."""
-    return [] if env_flag("C3D_POST", True) else ["--no-post"]
+    return [] if get_settings().post else ["--no-post"]
 
 
 def _camera_json(cams: Sequence[CameraPlan]) -> str:

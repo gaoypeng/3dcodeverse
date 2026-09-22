@@ -28,7 +28,6 @@ is behind ``C3D_SKILLS``: ON by default since 2026-09-22, ``C3D_SKILLS=0`` turns
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -43,15 +42,14 @@ from codeverse3d.skills.model import (
 
 log = logging.getLogger(__name__)
 
-#: point the library somewhere else (tests, the live CLI smoke, a private overlay)
-SKILLS_DIR_ENV = "C3D_SKILLS_DIR"
-
-
 def skills_dir() -> Path:
-    """The bundle root, resolved at call time so an installed wheel works too."""
-    override = os.environ.get(SKILLS_DIR_ENV, "").strip()
+    """The bundle root (``C3D_SKILLS_DIR`` points it elsewhere), resolved at call time so an
+    installed wheel works too."""
+    from codeverse3d.config import get_settings
+
+    override = get_settings().skills_dir
     if override:
-        return Path(override).expanduser()
+        return override.expanduser()
     try:
         from importlib.resources import files
 
@@ -105,12 +103,10 @@ def load_skill(name: str, root: Path | None = None) -> Skill:
     return parse_skill(d)
 
 
-from codeverse3d.skills.config import skills_enabled, skills_max, skills_unverified  # noqa: E402
 from codeverse3d.skills.materialize import attach_skills, materialize_skills  # noqa: E402
 from codeverse3d.skills.registry import plan_signals, select, skills_for  # noqa: E402
 from codeverse3d.skills.telemetry import probe_reads  # noqa: E402
 
-__all__ = ["SKILLS_DIR_ENV", "Skill", "SkillError", "SkillRef", "all_skills", "attach_skills", "bundle_dirs",
+__all__ = ["Skill", "SkillError", "SkillRef", "all_skills", "attach_skills", "bundle_dirs",
            "iter_skills", "load_skill", "materialize_skills", "plan_signals", "probe_reads", "select",
-           "skills_dir", "skills_enabled", "skills_for", "skills_max", "skills_unverified",
-           "validate_bundle"]
+           "skills_dir", "skills_for", "validate_bundle"]

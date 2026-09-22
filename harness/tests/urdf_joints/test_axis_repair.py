@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
+import pytest
+
 from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse3d.tracks.articulated_object import MOTION_GATE, repair_motion_axes
 from codeverse3d.workspace import Workspace
@@ -81,8 +83,10 @@ def test_warn_and_unknown_joints_are_skipped(tmp_path):
     assert _axis_of(ws, "Hinge") == (0.0, 0.0, -1.0)
 
 
-def test_kill_switch_disables(tmp_path, monkeypatch):
-    monkeypatch.setenv("C3D_AXIS_REPAIR", "0")
+@pytest.mark.parametrize("raw", ["0", "off", "false"])
+def test_kill_switch_disables(tmp_path, switch, raw):
+    """``C3D_AXIS_REPAIR=off`` was silently ignored until 2026-09-22: only "0" was read."""
+    switch("C3D_AXIS_REPAIR", raw)
     ws = _ws(tmp_path)
     assert repair_motion_axes(ws, _report(_finding("Hinge", cos=-1.0))) == []
     assert _axis_of(ws, "Hinge") == (0.0, 0.0, -1.0)

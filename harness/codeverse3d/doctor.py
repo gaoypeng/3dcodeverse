@@ -231,12 +231,12 @@ def check_skills() -> list[Row]:
     the wiring gets a check you can run before spending money."""
     from codeverse3d.agents.backends import ALLOWED_TOOLS, SYSTEM_SETTINGS
     from codeverse3d.skills import bundle_dirs, skills_dir, validate_bundle
-    from codeverse3d.skills.config import skills_enabled
     from codeverse3d.skills.materialize import SKILL_ROOTS
     from codeverse3d.skills.registry import ROUTED_SKILLS
 
-    rows: list[Row] = [("skills switch", "OK" if skills_enabled() else "WARN",
-                        "C3D_SKILLS on (the default since 2026-09-22)" if skills_enabled()
+    on = get_settings().skills
+    rows: list[Row] = [("skills switch", "OK" if on else "WARN",
+                        "C3D_SKILLS on (the default since 2026-09-22)" if on
                         else "C3D_SKILLS=0: no skill is attached to any session")]
     dirs = bundle_dirs()
     if not dirs:

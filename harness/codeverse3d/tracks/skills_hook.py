@@ -6,8 +6,8 @@ workspace conventions, no environment) and testable without a run.  Kept out of
 
 Everything here is a no-op when ``C3D_SKILLS=0`` (the system is ON by default since
 2026-09-22), and every function swallows its own failures: a skill that cannot be routed,
-written or probed must cost that skill, not the round.  The switch is read at CALL time
-(see ``skills/config.py`` for why).  ``record_usage`` reads what the round's sessions did
+written or probed must cost that skill, not the round.  The switch is ``Settings.skills``,
+read at the call.  ``record_usage`` reads what the round's sessions did
 from their CLIs' own tool calls (``skills/telemetry.probe_reads``), atime only as fallback.
 """
 
@@ -57,12 +57,13 @@ def _previous_findings(ctx: RunContext, index: int) -> list[GateReport]:
 
 def attach_for_round(ctx: RunContext, *, index: int, kind: str) -> Any | None:
     """Route + materialise this round's skills.  Returns the ``SkillsMaterialized``."""
-    from codeverse3d.skills import attach_skills, skills_enabled
+    from codeverse3d.config import get_settings
+    from codeverse3d.skills import attach_skills
 
     # drop the previous round's set first: a failure below must not leave this round
     # probing — and crediting — bundles it never attached
     ctx.extra.pop(CTX_KEY, None)
-    if not skills_enabled():
+    if not get_settings().skills:
         return None
     try:
         got = attach_skills(

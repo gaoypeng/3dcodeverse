@@ -282,7 +282,7 @@ def _flags(args):
 def test_probe_env_args_speaks_the_canonical_flag_words(monkeypatch, env, expect):
     """C3D_CAMERA_REPAIR=false must DISABLE, C3D_SETTLE=false must disable,
     C3D_AUTO_EXPOSURE=true must enable — the raw '0'/'1' compares silently
-    ignored every other word the doc'd env_flag vocabulary accepts."""
+    ignored every other word of the documented on/off vocabulary (config.Flag)."""
     for k in ("C3D_SETTLE", "C3D_CAMERA_REPAIR", "C3D_AUTO_EXPOSURE"):
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
@@ -290,7 +290,7 @@ def test_probe_env_args_speaks_the_canonical_flag_words(monkeypatch, env, expect
     assert _flags(probe_env_args()) == expect
 
 
-def test_every_driver_invocation_carries_the_env_flags(monkeypatch, ws, tmp_path):
+def test_every_driver_invocation_carries_the_env_flags(monkeypatch, switch, ws, tmp_path):
     """Review-3 S4 (V7c): the combined single-boot build probes under the SAME
     settle / camera-repair / auto-exposure flags as the standalone probe and
     render paths — it used to pass none of them."""
@@ -319,8 +319,8 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, ws, tmp_path
     assert _flags(captured["render_scene.mjs"]) == ["--camera-repair"]
 
     # the A/B words reach every path, including the combined build
-    monkeypatch.setenv("C3D_SETTLE", "0")
-    monkeypatch.setenv("C3D_CAMERA_REPAIR", "false")
+    switch("C3D_SETTLE", "0")
+    switch("C3D_CAMERA_REPAIR", "false")
     st.probe_and_preflight(ws, timeout_s=5.0)
     assert _flags(captured["probe_scene.mjs"]) == ["--no-settle"]
     probes_mod.probe_scene(ws)

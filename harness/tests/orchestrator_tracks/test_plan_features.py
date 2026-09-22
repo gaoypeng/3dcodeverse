@@ -1,59 +1,34 @@
-"""``tracks/plan_features.py``: the switch registry that keeps A/B rigs honest about
-which env switches any code actually reads (CQ-5)."""
+"""``tracks/plan_features.py``: what an A/B rig may assume about a ``C3D_*`` switch (CQ-5).
+
+Which names are live is derived from ``Settings`` — every switch the harness reads is a
+field there — so no list can drift from the code and no test has to grep the tree.
+"""
 
 from __future__ import annotations
 
-from functools import cache
-from pathlib import Path
-
-import pytest
-
-from codeverse3d.tracks import plan_features as F
-
-# --------------------------------------------------------------------------- CQ-5
-HARNESS = Path(__file__).resolve().parents[2]
+from codeverse3d.config import Settings
+from codeverse3d.tracks.plan_features import (
+    GENERATION_SIDE_ENV,
+    NODE_SIDE_ENV,
+    dead_env_keys,
+    pin_plan_blockers,
+)
 
 
-@cache
-def _sources() -> tuple[tuple[str, str], ...]:
-    """(relpath, text) for every harness source, read ONCE per session.
-
-    Only ``codeverse3d`` counts: a switch is live when the HARNESS reads it.  The evaluation
-    scripts (``eval/bench``) set switches for an A/B; they are not what makes one live.
-    """
-    out = []
-    for p in (HARNESS / "codeverse3d").rglob("*.py"):
-        if p.name != "plan_features.py":
-            out.append((str(p.relative_to(HARNESS)), p.read_text(errors="replace")))
-    return tuple(out)
-
-
-def _readers(name: str) -> list[str]:
-    return [rel for rel, text in _sources() if name in text]
-
-
-@pytest.mark.parametrize("name", sorted(F.LIVE_SWITCHES))
-def test_every_live_switch_is_really_read(name: str):
-    """A name in LIVE_SWITCHES that nothing reads is the CQ-5 bug all over again."""
-    readers = _readers(name)
-    assert readers, f"{name} is listed as live but no module reads it"
-    assert F.LIVE_SWITCHES[name] in readers, f"{name} is read by {readers}, not {F.LIVE_SWITCHES[name]}"
-
-
-@pytest.mark.parametrize("name", sorted(F.DEAD_SWITCHES))
-def test_every_dead_switch_is_really_dead(name: str):
-    """The mirror guard: once something reads the variable, it must leave DEAD_SWITCHES —
-    otherwise ab_plan would refuse a legitimate A/B."""
-    assert not _readers(name), f"{name} is now read by {_readers(name)}; move it to LIVE_SWITCHES"
-
-
-def test_the_plan_features_switch_is_declared_dead():
-    """It is: none of its six features was ever implemented, so an arm that differs
-    only by C3D_PLAN_FEATURES is byte-identical to its control."""
-    assert F.PLAN_FEATURES_ENV in F.DEAD_SWITCHES
-    assert F.dead_env_keys({F.PLAN_FEATURES_ENV: "all"}) == [F.PLAN_FEATURES_ENV]
-    assert F.dead_env_keys({"C3D_PLAN_BRIEF": "off"}) == []
-    assert F.dead_env_keys({F.PLAN_FEATURES_ENV: "all", "C3D_PLAN_BRIEF": "off"}) == [F.PLAN_FEATURES_ENV]
+def test_every_settings_field_is_a_live_switch_and_anything_else_is_dead():
+    """An arm that differs only by a name nothing reads is byte-identical to its control
+    (one A/B printed "keep, mean delta +0.344" for two such arms), so ab_plan refuses it.
+    Every field, nested field, flat spelling and node-side name is live; the retired ones
+    are dead the moment their field goes."""
+    live = [f"C3D_{name.upper()}" for name in Settings.model_fields]
+    live += [f"C3D_{section.upper()}__{name.upper()}" for section in ("rate", "render", "limits", "judge")
+             for name in Settings.model_fields[section].annotation.model_fields]
+    live += [*Settings.FLAT, *NODE_SIDE_ENV, *GENERATION_SIDE_ENV]
+    assert dead_env_keys(dict.fromkeys(live, "1")) == []
+    retired = ["C3D_PLAN_FEATURES", "C3D_FEWER_TURNS", "C3D_DETAIL_ROUNDS", "C3D_RATE__STORM_GATE",
+               "C3D_RATE__TPM_PER_KEY", "C3D_MYSTERY_KNOB"]
+    assert dead_env_keys({**dict.fromkeys(retired, "1"), "C3D_PLAN_BRIEF": "off"}) == sorted(retired)
+    assert dead_env_keys({"GEMINI_CLI_HOME": "/x"}) == [], "outside the C3D_ family nothing is judged dead"
 
 
 # --------------------------------------------------------------------- pin-plan safety
@@ -61,9 +36,7 @@ def test_a_generation_side_switch_may_share_one_plan():
     """A switch that acts after planning cannot change the plan, so both arms can be
     seeded with the same plan.json and the paired delta stops carrying the planner's
     spread — the dominant variance term (eval/docs/EVAL.md §8.1)."""
-    from codeverse3d.tracks.plan_features import pin_plan_blockers
-
-    for name in sorted(F.GENERATION_SIDE_ENV):
+    for name in sorted(GENERATION_SIDE_ENV):
         assert pin_plan_blockers({name: "1"}) == [], name
     assert pin_plan_blockers({}) == []
 
@@ -71,8 +44,6 @@ def test_a_generation_side_switch_may_share_one_plan():
 def test_a_dead_switch_blocks_nothing_but_a_live_neighbour_still_does():
     """No code reads C3D_PLAN_FEATURES, so it cannot change a plan: it never blocks
     --pin-plan (until 2026-09-22 its six never-implemented feature names did)."""
-    from codeverse3d.tracks.plan_features import pin_plan_blockers
-
     assert pin_plan_blockers({"C3D_PLAN_FEATURES": "fit"}) == []
     assert pin_plan_blockers({"C3D_PLAN_FEATURES": "all", "C3D_PLAN_BRIEF": "off"}) == [
         "C3D_PLAN_BRIEF is not known to act after planning"]
@@ -80,11 +51,9 @@ def test_a_dead_switch_blocks_nothing_but_a_live_neighbour_still_does():
 
 def test_an_unclassified_switch_defaults_to_refusing():
     """Refusing to pin costs one noisy A/B; pinning wrongly costs a confident wrong
-    answer.  So the default for anything unknown is: do not pin."""
-    from codeverse3d.tracks.plan_features import pin_plan_blockers
-
-    assert pin_plan_blockers({"C3D_MYSTERY_KNOB": "1"}) == [
-        "C3D_MYSTERY_KNOB is not known to act after planning"]
+    answer.  So anything live that is not known to act after planning refuses — a
+    plan-side field, or a variable some CLI may read."""
     assert pin_plan_blockers({"C3D_PLAN_BRIEF": "off"}) == [
         "C3D_PLAN_BRIEF is not known to act after planning"]
-
+    assert pin_plan_blockers({"GEMINI_CLI_HOME": "/x"}) == [
+        "GEMINI_CLI_HOME is not known to act after planning"]

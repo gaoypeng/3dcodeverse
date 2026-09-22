@@ -26,7 +26,7 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from codeverse3d.config import scene_textures_enabled
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import (
     BuildResult,
     GateFinding,
@@ -186,9 +186,7 @@ class SceneTrack(BaseTrack):
         # so the two stages' commits cannot race.
         def _layouts() -> dict[str, Any]:
             """L2 zone layouts (optional accelerator): planner-model calls, never fatal."""
-            from codeverse3d.config import env_flag
-
-            if not env_flag("C3D_ZONE_LAYOUTS", True):   # A/B switch, default on; canonical words
+            if not get_settings().zone_layouts:   # C3D_ZONE_LAYOUTS: an A/B switch, default on
                 return {}
             try:
                 model = self._planner_model
@@ -209,9 +207,9 @@ class SceneTrack(BaseTrack):
         # hit a stale cached stage.  Old "assets+env" composite entries are ignored.
         key = {"plan": plan, "agent": ctx.agent_id}
         # textures first and alone: env and zones can only name the files if they exist by
-        # the time those prompts are built (config.scene_textures_enabled explains why this
+        # the time those prompts are built (Settings.scene_textures says why this
         # is off by default and what it costs)
-        if scene_textures_enabled():
+        if get_settings().scene_textures:
             ctx.extra["textures"] = runner.stage("textures", lambda: self._textures_stage(ctx), inputs={"plan": plan}) or {}
         stage_fns: dict[str, Any] = {"assets": lambda: run_asset_stage(ctx),
                                      "env": lambda: self._env_stage(ctx), "layouts": _layouts}

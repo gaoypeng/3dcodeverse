@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from codeverse3d.config import env_flag, get_settings
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import Judgment, RenderView
 from codeverse3d.contracts.chat import ChatRequest, ChatResponse
 from codeverse3d.contracts.common import Usage
@@ -347,7 +347,6 @@ NEUTRAL_SCORE = 0.5
 #: ``*_34`` names are the pre-D47 rig, kept for re-judging stored runs.
 DIFF_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_high", "front_left_high", "right", "left",
                                     "front_right_34", "front_left_34")
-_ENV_DIFF = "C3D_REFERENCE_DIFF"
 
 
 def iou_to_score(iou: float) -> float:
@@ -355,8 +354,8 @@ def iou_to_score(iou: float) -> float:
 
 
 def _diff_enabled(flag: bool) -> bool:
-    """``$C3D_REFERENCE_DIFF`` at call time; a typo reads as OFF (``config.env_flag``)."""
-    return flag and env_flag(_ENV_DIFF, True)
+    """``flag`` unless ``C3D_REFERENCE_DIFF`` switched the pass off (``Settings.reference_diff``)."""
+    return flag and get_settings().reference_diff
 
 
 def _is_synth(note: str) -> bool:

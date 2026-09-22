@@ -36,8 +36,9 @@ BuildResult.gates: list[GateReport]   # the build's own reports (scene_probe + s
     # tracks/steps appends them to the round's gates, after the track's, built or not
 RenderView.judge: bool | None      # stamped True/False at render time; None = legacy round (every stored view is judged)
 RenderSet.out_dir: str             # directory the views (+ views.json/metrics.json) were written to ("" on old rounds)
-from codeverse3d.config import get_settings, env_flag       # env_flag(env, fallback) -> bool: on/off/1/0/true/false/yes/no;
-    # unset/empty -> fallback; garbage -> warning + False (off, NOT the fallback), never a crash
+from codeverse3d.config import get_settings, Flag           # every C3D_* switch is a Settings field (C3D_X -> .x,
+    # C3D_S__X -> .s.x, Settings.FLAT for four flat spellings); Flag: on/off/1/0/true/false/yes/no, any case;
+    # unset/empty -> the default; garbage -> warning + the DEFAULT, never a crash
 get_settings().backends(planner=..., generator=..., judge=..., captioner=...) -> Backends
     # settings defaults (default_planner/... mirror contracts Backends literals; + default_captioner);
     # truthy keyword overrides win, None/"" falls through, unknown role -> TypeError
@@ -476,7 +477,7 @@ from codeverse3d.tracks.prompting import select_cookbook_chapters, is_always_cha
     # select_cookbook_chapters(ctx, brief, *, budget=9000, always=COOKBOOK_ALWAYS) -> list[Section]: the header +
     # always-on chapters + the brief's chapters (whole, cookbook order, inside budget)
 from codeverse3d.tracks.graphics import seed_recipes, graphics_brief, cookbook_functions, EXTRA_KEY, RECIPES_REL
-    # seed_recipes(ctx) -> list[str]: glsl_shader + seed_recipes_enabled() only.  Writes the selected chapters'
+    # seed_recipes(ctx) -> list[str]: glsl_shader + Settings.limits.seed_recipes only.  Writes the selected chapters'
     # function definitions (minus always-on chapters and the raymarching template) + the helpers they call to
     # the HARNESS-OWNED src/recipes.glsl (RECIPES_REL; header "// harness-owned: … READ-ONLY …"; a resume appends
     # only names the file lacks); returns the names written THIS call; ctx.extra["seeded_recipes"] =

@@ -75,7 +75,11 @@ codeverse3d/
                       to_snake/to_pascal/slugify, MAX_TRIS_*, BBOX_TOLERANCE_M, CONTACT_GAP_M  (THE source)
   config.py           Settings (C3D_* env, ~/.config/3dcodeverse/config.yaml; role defaults come from
                       contracts Backends; Settings.backends(**overrides) builds a Spec's Backends;
-                      default_candidates=1)
+                      default_candidates=1).  ONE switch grammar: every C3D_* knob is a field, read
+                      through get_settings() where it is used — no module reads the environment by
+                      hand; an on/off switch is a Flag (on/off/1/0/true/false/yes/no; a typo warns
+                      and keeps the default), Settings.FLAT holds the four flat spellings of nested
+                      knobs (C3D_MAX_IN_FLIGHT, C3D_RENDER_GPU, C3D_SEED_RECIPES, C3D_AGENT_MAX_TURNS)
   contracts/          pydantic: common (Track, Language, Usage, Budget, Backends, TRACK_INFO registry,
                       ENTRY_FILE/code_file/LANGUAGE_LABEL tables), spec (+ RunOptions), plan, artifacts
                       (GateFinding.as_line, GateReport.of, BuildResult.gates, RenderView.judge,
@@ -148,7 +152,8 @@ codeverse3d/
                       (per-backend delivery policy + the index/mandate text),
                       materialize.py,
                       telemetry.py (the read probe: the CLIs' own tool calls first, atime as
-                      fallback), config.py (call-time switches; skills ON by default since 2026-09-22)
+                      fallback); its switches are Settings fields (C3D_SKILLS*, ON by default since
+                      2026-09-22)
   cost/               types.py (CallCost/Stage/Role) ledger.py (append-only telemetry/cost.jsonl + price provenance)
                       context.py (per-call > ambient attribution) instrument.py (MeteredChatModel /
                       MeteredAgent — one row per ChatModel.generate; one session row only for a backend
@@ -197,9 +202,9 @@ codeverse3d/
                       (C3D_PLAN_BRIEF), plan budgets and the worked examples — and the ONE owner of
                       what differs per track when planning: template, example, temperature, output
                       floor, acceptance, all dispatched on spec.track),
-                      plan_features.py (the A/B switch registry: LIVE_SWITCHES / DEAD_SWITCHES,
-                      + pin_plan_blockers() deciding when two arms may share one plan —
-                      eval/docs/EVAL.md §8.1),
+                      plan_features.py (eval-only: which C3D_* names are live, derived from
+                      Settings, and pin_plan_blockers() deciding when two arms may share one
+                      plan — eval/docs/EVAL.md §8.1),
                       depth.py,
                       skills_hook.py (the round's view of codeverse3d/skills: attach before generating,
                       probe reads after — a no-op under C3D_SKILLS=0; on by default since 2026-09-22)

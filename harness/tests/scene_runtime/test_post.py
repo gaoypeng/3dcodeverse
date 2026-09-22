@@ -77,12 +77,12 @@ def render(ws: Workspace, out: Path, *extra_args: str) -> Path:
     return out / "cam_t0.png"
 
 
-def test_post_chain_args_follow_the_env_switch(monkeypatch):
-    monkeypatch.delenv("C3D_POST", raising=False)
+def test_post_chain_args_follow_the_env_switch(switch):
+    switch("C3D_POST", None)
     assert post_chain_args() == []          # ON by default for scene pictures
-    monkeypatch.setenv("C3D_POST", "0")
+    switch("C3D_POST", "0")
     assert post_chain_args() == ["--no-post"]
-    monkeypatch.setenv("C3D_POST", "on")
+    switch("C3D_POST", "on")
     assert post_chain_args() == []
 
 

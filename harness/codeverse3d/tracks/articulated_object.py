@@ -9,12 +9,12 @@ renders a pose sheet which is appended to the judge's views.
 from __future__ import annotations
 
 import logging
-import os
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from pathlib import Path
 
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import (
     BuildResult,
     GateFinding,
@@ -59,7 +59,7 @@ class ArticulatedPipeline(ObjectPipeline):
     def _axis_repair(ctx: RunContext) -> list[str]:
         """Measure → deterministically fix wrong joint axes BEFORE the sweep renders,
         so this round's poses, renders and judge all see the corrected motion."""
-        if os.environ.get(AXIS_REPAIR_ENV) == "0":
+        if not get_settings().axis_repair:
             return []
         try:
             pre = ctx.services.motion_checks(ctx.ws, ctx.plan)
@@ -226,10 +226,6 @@ def axis_fix_hint(joint_name: str, axis: Sequence[float] | None, expected: str) 
     return f"negate the <axis> of joint '{joint_name}' in src/robot.urdf (or swap lower/upper) so motion goes {expected}"
 
 
-#: kill-switch for the deterministic axis repair (default ON, mirrors C3D_CAMERA_REPAIR)
-AXIS_REPAIR_ENV = "C3D_AXIS_REPAIR"
-
-
 def _set_axis_in_urdf_text(text: str, urdf_joint: str, axis: tuple[float, float, float]) -> str | None:
     """``text`` with joint ``urdf_joint``'s ``<axis xyz>`` replaced (inserted when
     missing).  String surgery instead of an XML round-trip so authored comments and
@@ -285,7 +281,7 @@ def repair_motion_axes(ws: Workspace, report: GateReport | None) -> list[str]:
     authored file and the built ``artifacts/robot.urdf`` copy are updated so the
     re-run gate and the pose sweep see the repair.  Returns repaired plan-joint
     names; a finding without measured data (``cos``) is never touched."""
-    if report is None or os.environ.get(AXIS_REPAIR_ENV) == "0":
+    if report is None or not get_settings().axis_repair:
         return []
     src = ws.src / "robot.urdf"
     if not src.is_file():

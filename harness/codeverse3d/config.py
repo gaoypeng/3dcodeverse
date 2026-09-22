@@ -7,6 +7,11 @@ written to run records.  The names before D78 (``~/.config/codeverse/config.yaml
 
 Gemini keys: ``GEMINI_API_KEYS`` (csv) or ``GEMINI_API_KEY`` or the owner's
 ``~/.config/astra3d/gemini_keys.env`` file (read-only compatibility).
+
+One switch grammar: every ``C3D_*`` knob the harness reads is a field here, read through
+``get_settings()`` at the call that uses it — no module reads the environment by hand.  A
+field ``x`` is ``C3D_X`` (a nested ``section.x`` is ``C3D_SECTION__X``, plus the flat
+spellings in :data:`Settings.FLAT`); an on/off switch is a :data:`Flag`.
 """
 
 from __future__ import annotations
@@ -17,10 +22,20 @@ import re
 import shutil
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar, Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    Field,
+    ValidationError,
+    ValidationInfo,
+    ValidatorFunctionWrapHandler,
+    WrapValidator,
+    model_validator,
+)
+from pydantic_core import PydanticUseDefault
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from codeverse3d.contracts.common import Backends
@@ -31,14 +46,24 @@ _USER_CONFIG = Path.home() / ".config" / "3dcodeverse" / "config.yaml"
 _LEGACY_USER_CONFIG = Path.home() / ".config" / "codeverse" / "config.yaml"
 
 
-def _lower_bound(model: type[BaseModel], field: str) -> int | None:
-    """The ``ge=`` declared on ``model.field`` (None when unbounded).  Lets a flat env
-    alias enforce exactly the bound its target field declares, in one place."""
-    for meta in model.model_fields[field].metadata:
-        lo = getattr(meta, "ge", None)
-        if lo is not None:
-            return int(lo)
-    return None
+log = logging.getLogger(__name__)
+
+
+def _or_default(value: Any, handler: ValidatorFunctionWrapHandler, info: ValidationInfo) -> Any:
+    """A switch that does not parse warns and keeps its DEFAULT (D44 c): a typo in a bench
+    command runs the arm that never set it — not a crash mid-battery, and not the variant."""
+    try:
+        return handler(value.strip() if isinstance(value, str) else value)
+    except ValidationError:
+        log.warning("C3D_%s=%r does not parse; using the default", (info.field_name or "?").upper(), value)
+        raise PydanticUseDefault() from None
+
+
+#: an on/off switch: on/off, 1/0, true/false, yes/no (any case, t/f and y/n too); anything
+#: else warns and keeps the field's default
+Flag = Annotated[bool, WrapValidator(_or_default)]
+#: a switch that is a count (>= 0); anything else warns and keeps the field's default
+Count = Annotated[int, Field(ge=0), WrapValidator(_or_default)]
 
 
 class Binaries(BaseModel):
@@ -65,7 +90,9 @@ class Render(BaseModel):
     height: int = 768
     scene_width: int = 1024
     scene_height: int = 576
-    gpu: str = Field(default="auto", description="auto | on | off (headless Chrome WebGL backend)")
+    gpu: Annotated[Literal["auto", "on", "off"], BeforeValidator(lambda v: str(v).strip().lower())] = Field(
+        default="auto", description="headless Chrome WebGL backend (C3D_RENDER__GPU, or the flat C3D_RENDER_GPU "
+        "the node side reads too)")
     sheet_cols: int = 4
     sheet_tile: int = 384
 
@@ -84,14 +111,14 @@ class Limits(BaseModel):
     # render pass, whose tail is minutes long.
     max_parallel_agents: int = Field(default=12, ge=1, description="thread fan-out for agent tasks (>= 1)")
     max_parallel_builds: int = Field(default=8, ge=1, description="concurrent build subprocesses (>= 1)")
-    agent_max_turns: int = Field(
+    agent_max_turns: Count = Field(
         default=0,
-        ge=0,
         description="hard cap on model turns per agent session (0 = the backend's own default, "
         "which is what ships: a 28-turn cap cost $0.02 more and 0.205 of a score point in its "
-        "own A/B — docs/COST.md §17 — so no profile sets one; name it here if you want one).",
+        "own A/B — docs/COST.md §17 — so no profile sets one; name it here or as "
+        "C3D_AGENT_MAX_TURNS if you want one).",
     )
-    seed_recipes: bool = Field(
+    seed_recipes: Flag = Field(
         default=True,
         description="graphics / glsl_shader: paste the cookbook recipes the brief calls for "
         "(curtain / aurora / stars / bokehSoft / dropsLayer + the hash / noise / fbm helpers "
@@ -101,7 +128,7 @@ class Limits(BaseModel):
         "the prompt carried the verified curtain() recipe five times and the agent used it zero "
         "times — round 0 was again a comb of bars (comb_artefact, 0.33); and (eval/bench/out/seed_v1) "
         "recipes seeded into the agent's own common.glsl were overwritten before the end of the run.  "
-        "`C3D_SEED_RECIPES=0` (read at call time by `seed_recipes_enabled`) is the control arm.",
+        "`C3D_SEED_RECIPES=0` is the control arm.",
     )
 
 
@@ -153,108 +180,39 @@ class Judge(BaseModel):
         "Slice render is local CPU; no profile touches this dial (the channel measured ≤ $0).")
 
 
-#: The recipe-seeding switch (Limits.seed_recipes).  Read at CALL time by
-#: :func:`seed_recipes_enabled`, never only through the cached Settings: ``eval/bench/ab_plan.py``
-#: differs its arms by environment alone, and a value frozen at first ``get_settings()``
-#: would hand the variant the control's behaviour (the CQ-5 lesson, tracks/plan_features.py).
-SEED_RECIPES_ENV = "C3D_SEED_RECIPES"
-#: wire the scene texture pack into the scene loop (a stage before env/zones, and the
-#: pack description in both prompts).  OFF by default: it adds an image-model call per
-#: run, and whether it earns that is a measurement nobody has made yet.
-SCENE_TEXTURES_ENV = "C3D_SCENE_TEXTURES"
-_TRUE_WORDS = frozenset({"1", "on", "true", "yes", "y"})
-_FALSE_WORDS = frozenset({"0", "off", "false", "no", "n"})
-
-
-def _env_flag(raw: str, env: str) -> bool:
-    word = raw.strip().lower()
-    if word in _TRUE_WORDS:
-        return True
-    if word in _FALSE_WORDS:
-        return False
-    raise ValueError(f"{env}={raw!r}: expected on/off (1/0, true/false, yes/no)")
-
-
-def env_flag(env: str, fallback: bool) -> bool:
-    """``$env`` read NOW (never through the cached Settings — an A/B arm sets it after
-    first touch): unset or empty → ``fallback``; garbage → OFF with a warning, because a
-    typo in a bench command must produce a control run, not a crash mid-battery (and
-    not the variant: ``fallback`` may be on).  ``skills/config.py`` reads its switches
-    through this too."""
-    raw = os.environ.get(env)
-    if raw is not None and raw.strip():
-        try:
-            return _env_flag(raw, env)
-        except ValueError as e:
-            logging.getLogger(__name__).warning("%s; treating it as off", e)
-            return False
-    return fallback
-
-
-def scene_textures_enabled() -> bool:
-    """Is the scene texture stage on for THIS call?  ``$C3D_SCENE_TEXTURES``, else off.
-
-    The pack generator (``texturing.plan.scene_texture_pack``) and the prompt snippet that
-    describes it (``texture_pack_prompt`` — whose docstring already says "for zone/env
-    generation") have existed since the texturing work, but nothing in ``tracks/scene.py``
-    called either: the switch `Spec.options.texture` does nothing on this track and the
-    generator was never told a pack could exist.  Measured on eval/bench/out/scene_baseline
-    (2026-09-05): four of the five scored cells' judge complaints are the GROUND being a
-    flat untextured colour, in near-identical words, and that is the most consistent
-    defect in the battery.
-    """
-    return env_flag(SCENE_TEXTURES_ENV, False)
-
-
-def seed_recipes_enabled() -> bool:
-    """Is recipe seeding (``tracks/graphics.py:seed_recipes``) on for THIS call?  ``$C3D_SEED_RECIPES``
-    when it is set, else ``Settings.limits.seed_recipes`` (default ON)."""
-    return env_flag(SEED_RECIPES_ENV, get_settings().limits.seed_recipes)
-
-
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="C3D_", env_nested_delimiter="__", extra="ignore")
+    # env_ignore_empty: ``C3D_X=`` is unset, never "" (an empty C3D_CACHE_DIR was the cwd)
+    model_config = SettingsConfigDict(env_prefix="C3D_", env_nested_delimiter="__", extra="ignore",
+                                      env_ignore_empty=True)
 
-    #: Flat aliases for nested knobs people actually type.  ``C3D_MAX_IN_FLIGHT=16`` was
-    #: written into three launch commands and two workflow briefs on 2026-08-24 before anyone
-    #: noticed pydantic-settings only reads ``C3D_RATE__MAX_IN_FLIGHT`` — every one of them
-    #: silently ran at the default 64.  An env knob that is read by nothing is worse than no
-    #: knob; both spellings now work and the doctor prints the short one.
-    _FLAT_ALIASES: ClassVar[dict[str, tuple[str, str]]] = {
+    #: Nested knobs that also have a flat spelling — the name the docs, the node side and the
+    #: A/B commands type.  ``C3D_MAX_IN_FLIGHT=16`` went into three launch commands on
+    #: 2026-08-24 before anyone noticed only ``C3D_RATE__MAX_IN_FLIGHT`` was read.  The flat
+    #: one wins when both are set; the nested field validates it.
+    FLAT: ClassVar[dict[str, tuple[str, str]]] = {
         "C3D_MAX_IN_FLIGHT": ("rate", "max_in_flight"),
-        # the spelling every doc and gpu_launch.cjs use; only C3D_RENDER__GPU was read
         "C3D_RENDER_GPU": ("render", "gpu"),
-        SEED_RECIPES_ENV: ("limits", "seed_recipes"),
+        "C3D_SEED_RECIPES": ("limits", "seed_recipes"),
+        "C3D_AGENT_MAX_TURNS": ("limits", "agent_max_turns"),
     }
 
-    @model_validator(mode="after")
-    def _apply_flat_aliases(self) -> Settings:
-        for env, (section, field) in self._FLAT_ALIASES.items():
-            raw = os.environ.get(env)
-            if raw is None or raw.strip() == "":
-                continue
-            sub = getattr(self, section)
-            value: int | bool | str
-            ann = type(sub).model_fields[field].annotation
-            if ann is bool:
-                value = _env_flag(raw, env)
-            elif ann is str:  # render.gpu is the only str alias: validate its enum here
-                value = raw.strip().lower()
-                if value not in ("auto", "on", "off"):
-                    raise ValueError(f"{env}={raw!r}: expected auto|on|off")
-            else:
-                try:
-                    value = int(raw)
-                except ValueError as e:
-                    raise ValueError(f"{env}={raw!r}: expected an integer") from e
-                # plain assignment does NOT re-validate (no validate_assignment), so the target
-                # field's own bound is enforced here — and the message names the variable the
-                # operator actually typed, not the nested field they never heard of.
-                lo = _lower_bound(type(sub), field)
-                if lo is not None and value < lo:
-                    raise ValueError(f"{env}={raw!r}: must be >= {lo}")
-            setattr(sub, field, value)
-        return self
+    @classmethod
+    def settings_customise_sources(cls, settings_cls: Any, init_settings: Any, env_settings: Any,
+                                   dotenv_settings: Any, file_secret_settings: Any) -> tuple[Any, ...]:
+        """``C3D_*`` beats the yaml files (``get_settings`` passes those as init kwargs, which
+        pydantic-settings ranks FIRST): a switch in a config file must never override the
+        environment an A/B arm runs under."""
+        return env_settings, init_settings, dotenv_settings, file_secret_settings
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flat_spellings(cls, data: Any) -> Any:
+        for env, (section, name) in cls.FLAT.items():
+            raw = os.environ.get(env, "").strip()
+            if raw and isinstance(data, dict):
+                sub = data.get(section) or {}
+                data[section] = {**(sub.model_dump() if isinstance(sub, BaseModel) else sub), name: raw}
+        return data
 
     runs_dir: Path = Field(default=Path("runs"))
     cache_dir: Path = Field(default=Path.home() / ".cache" / "codeverse3d")
@@ -291,6 +249,48 @@ class Settings(BaseSettings):
     profile: str = Field(default="balanced", description="economy | balanced | quality")
     cost_ledger: bool = Field(default=True, description="append one priced row per model call "
                               "to the run's telemetry/cost.jsonl (or a per-process log)")
+
+    # ------------------------------------------------------------------ switches
+    # The A/B switches and runtime overrides, each read as C3D_<NAME> at the call that uses
+    # it.  An A/B arm is a child process with its own environment (eval/bench/ab_plan.py), and
+    # tracks/plan_features.py derives which C3D_* names are live from these fields.
+    skills: Flag = Field(default=True, description="route, materialise and measure skill bundles "
+                         "(D81, on since 2026-09-22); C3D_SKILLS=0 is an A/B's no-skills arm")
+    skills_max: Count = Field(
+        default=5, description="bundles attached to one session (skills design §5.2 law 1)")
+    skills_unverified: Flag = Field(default=True, description="also route the bundles labelled "
+                                    "inherited-unverified (with it all 17 route; the cap still holds)")
+    skills_only: str = Field(default="", description="comma list: the router considers ONLY these "
+                             "bundles, so an effect A/B can attribute its delta to one; an unknown name "
+                             "routes nothing, which shows up at once as a variant equal to its control")
+    skills_dir: Path | None = Field(default=None, description="another skill library (tests, the live "
+                                    "CLI smoke, a private overlay)")
+    plan_brief: Flag = Field(default=True, description="expand the engineering brief before planning "
+                             "(object tracks)")
+    plan_restart: Flag = Field(default=True, description="re-sample a degenerate plan from the original "
+                               "prompt instead of editing it in context (docs/COST.md §30)")
+    scoped_parts: Flag = Field(default=True, description="per-part scoped baseline sessions for an object "
+                               "of 8+ parts")
+    reference_diff: Flag = Field(default=True, description="the judge's reference-image mismatch pass")
+    zone_layouts: Flag = Field(default=True, description="scene track: the L2 zone-layout planner calls")
+    scene_textures: Flag = Field(default=False, description="scene track: generate a texture pack before "
+                                 "env/zones and describe it in both prompts.  OFF: an image-model call per "
+                                 "run, unmeasured — though 4 of 5 scored cells of scene_baseline "
+                                 "(2026-09-05) complained about a flat, untextured ground")
+    axis_repair: Flag = Field(default=True, description="articulated track: rewrite a joint axis the "
+                              "measured motion proves wrong, before the sweep renders")
+    settle: Flag = Field(default=True, description="scene driver: the boot-time auto-seat")
+    camera_repair: Flag = Field(default=True, description="scene driver: move a camera out of geometry "
+                                "(zero triggers on a healthy battery; the case it exists for is fatal)")
+    auto_exposure: Flag = Field(default=False, description="scene driver: bounded scene-wide exposure "
+                                "into the healthy band")
+    post: Flag = Field(default=True, description="scene pictures: the GTAO + bloom + grade post chain")
+    stream: Flag = Field(default=True, description="Gemini: stream replies with inter-chunk stall "
+                         "detection (a hung buffered read held the socket for the whole attempt)")
+    ipv4: Flag = Field(default=True, description="Gemini: bind the transport to IPv4 (the WSL2 IPv6 "
+                       "path dropped responses silently)")
+    runtime_js: Path | None = Field(default=None, description="the node runtime directory; a "
+                                    "non-editable install must point this at a checkout")
 
     # ------------------------------------------------------------------ helpers
     def backends(self, **overrides: str | None) -> Backends:
@@ -373,8 +373,7 @@ class Settings(BaseSettings):
         ``C3D_RUNTIME_JS`` overrides the location (the wheel does not package
         runtime_js, so a non-editable install MUST point this at a checkout).
         Missing dir → a loud error at first use instead of a cryptic node crash."""
-        override = os.environ.get("C3D_RUNTIME_JS", "").strip()
-        d = Path(override).expanduser() if override else Path(__file__).resolve().parent.parent / "runtime_js"
+        d = self.runtime_js.expanduser() if self.runtime_js else Path(__file__).resolve().parent.parent / "runtime_js"
         if not d.is_dir():
             raise RuntimeError(
                 f"runtime_js not found at {d} — install the harness editable (pip install -e harness) "

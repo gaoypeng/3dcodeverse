@@ -132,8 +132,10 @@ def test_load_skill_by_name(tmp_path: Path):
 
 
 def test_the_library_dir_is_overridable_for_tests_and_the_live_smoke(tmp_path: Path, monkeypatch):
-    from codeverse3d.skills import SKILLS_DIR_ENV, skills_dir
+    from codeverse3d.config import get_settings
+    from codeverse3d.skills import skills_dir
 
     write_bundle(tmp_path, "c3d-demo")
-    monkeypatch.setenv(SKILLS_DIR_ENV, str(tmp_path))
+    monkeypatch.setenv("C3D_SKILLS_DIR", str(tmp_path))
+    get_settings.cache_clear()
     assert skills_dir() == tmp_path

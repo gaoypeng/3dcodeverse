@@ -1,26 +1,42 @@
-"""The A/B switch registry: which env switches any code path ACTUALLY reads.
+"""What an A/B rig may assume about a ``C3D_*`` switch — ``eval/bench/ab_plan.py`` asks.
 
-Born as the switchboard for the plan-loop-engineering wave (CQ-5): six features were
-declared under ``C3D_PLAN_FEATURES``, none was ever implemented, and one A/B run is on
-record printing "keep, mean delta +0.344" for two byte-identical arms.  The feature
-runtime (``parse_features`` / ``plan_feature_on``) was deleted 2026-08-28 per its own
-instruction, and the six names with it (2026-09-22); what remains is the guard rail —
-:data:`LIVE_SWITCHES` / :data:`DEAD_SWITCHES` (kept honest by
-``tests/orchestrator_tracks/test_plan_features.py``, which greps the tree) and the
-``--pin-plan`` blocker rule ``eval/bench/ab_plan.py`` consults so a paired A/B cannot
-silently pin away the very thing it is testing.
+Eval-only: no runtime module imports this.  Every switch the harness reads is a ``Settings``
+field (``config.py``), so which names are live is derived from ``Settings.model_fields``
+instead of a hand-kept list: an arm that differs only by a name no field reads is
+byte-identical to its control (one A/B printed "keep, mean delta +0.344" for two such arms,
+CQ-5), and ``ab_plan`` refuses it.  ``pin_plan_blockers`` keeps ``--pin-plan`` from sharing
+one plan across arms whose switch acts at or before planning.
 """
 
 from __future__ import annotations
 
-PLAN_FEATURES_ENV = "C3D_PLAN_FEATURES"
+from codeverse3d.config import Settings
 
-#: env switches that act AFTER planning — ``--pin-plan`` may share one plan across arms
-#: that differ only by these.  Anything not listed is treated as plan-side: refusing to
-#: pin costs one noisy A/B, pinning wrongly costs a confident wrong answer
-#: (eval/docs/EVAL.md §8.1 measured it — the A/A's worst pair differed 1 part vs 10).
+#: switches that act AFTER planning — ``--pin-plan`` may share one plan across arms that
+#: differ only by these.  Anything else is treated as plan-side: refusing to pin costs one
+#: noisy A/B, pinning wrongly costs a confident wrong answer (eval/docs/EVAL.md §8.1
+#: measured it — the A/A's worst pair differed 1 part vs 10).
 GENERATION_SIDE_ENV: frozenset[str] = frozenset({"C3D_SKILLS", "C3D_SKILLS_MAX", "C3D_SKILLS_UNVERIFIED",
                                                  "C3D_SKILLS_ONLY", "C3D_REFERENCE_DIFF", "C3D_SEED_RECIPES"})
+#: the two the node side reads itself (runtime_js: gpu_launch.cjs, browser_daemon.cjs)
+NODE_SIDE_ENV: frozenset[str] = frozenset({"C3D_BROWSER_REUSE", "C3D_PAGE_TTL_MS"})
+
+
+def _read(key: str) -> bool:
+    """Does any ``Settings`` field — or the node side — read the environment variable ``key``?"""
+    if key in Settings.FLAT or key in NODE_SIDE_ENV:
+        return True
+    section, _, name = key.removeprefix("C3D_").lower().partition("__")
+    field = Settings.model_fields.get(section)
+    if not name:
+        return field is not None
+    return field is not None and name in getattr(field.annotation, "model_fields", {})
+
+
+def dead_env_keys(env: dict[str, str]) -> list[str]:
+    """The ``C3D_*`` keys of ``env`` that no Settings field reads — empty when the arm really
+    differs.  A key outside the ``C3D_`` family is not judged (it may matter to a CLI)."""
+    return sorted(k for k in env if k.startswith("C3D_") and not _read(k))
 
 
 def pin_plan_blockers(variant_env: dict[str, str]) -> list[str]:
@@ -28,53 +44,12 @@ def pin_plan_blockers(variant_env: dict[str, str]) -> list[str]:
 
     Empty list = every switch this A/B changes acts after planning, so both arms can be
     seeded with the same ``plan.json`` and the paired difference stops carrying the
-    planner's spread (the dominant variance term, eval/docs/EVAL.md §8.1).  A
-    :data:`DEAD_SWITCHES` key blocks nothing: no code reads it, so it cannot change a plan.
+    planner's spread (the dominant variance term, eval/docs/EVAL.md §8.1).  A dead key
+    blocks nothing: no code reads it, so it cannot change a plan.
     """
+    dead = set(dead_env_keys(variant_env))
     return [f"{key} is not known to act after planning" for key in sorted(variant_env)
-            if key not in GENERATION_SIDE_ENV and key not in DEAD_SWITCHES]
-
-#: Plan-loop switches the tree ACTUALLY reads, name → the module that reads it.  Kept
-#: honest by tests/orchestrator_tracks/test_plan_features.py, which greps the tree.
-LIVE_SWITCHES: dict[str, str] = {
-    "C3D_PLAN_BRIEF": "codeverse3d/tracks/planner.py",  # brief.py merged in, 2026-08-28
-    # re-sample a degenerate plan from the original prompt instead of editing it in context
-    "C3D_PLAN_RESTART": "codeverse3d/tracks/planner.py",
-    "C3D_SCOPED_PARTS": "codeverse3d/tracks/depth.py",
-    "C3D_REFERENCE_DIFF": "codeverse3d/judges/vlm_judge.py",  # reference.py merged in, 2026-08-28
-    # the skill system (design: scratchpad/skills/design/DESIGN.md §6.5).  All three are
-    # read at call time by one module, so an A/B arm that sets them really differs.
-    "C3D_SKILLS": "codeverse3d/skills/config.py",
-    "C3D_SKILLS_MAX": "codeverse3d/skills/config.py",
-    "C3D_SKILLS_UNVERIFIED": "codeverse3d/skills/config.py",
-    "C3D_SKILLS_ONLY": "codeverse3d/skills/config.py",
-    "C3D_SEED_RECIPES": "codeverse3d/config.py",
-    # wire the scene texture pack into the scene loop: a stage before env/zones, and the
-    # pack description (texturing.plan.texture_pack_prompt) in both prompts.  OFF by
-    # default — it costs an image-model call per run and nobody has measured what it buys.
-    "C3D_SCENE_TEXTURES": "codeverse3d/config.py",
-    # model-transport switches (2026-08-28, the hung-read waves): streaming with
-    # inter-chunk stall detection, and the IPv4-only transport.  Read at call time
-    # by every gemini request, so a control arm can set either to 0.
-    "C3D_STREAM": "codeverse3d/models/gemini.py",
-    "C3D_IPV4": "codeverse3d/models/gemini.py",
-}
-
-#: Switches that are DECLARED but read by no code path, with the reason.  An A/B arm that
-#: differs only by one of these is byte-identical to its control, so ``ab_plan`` refuses
-#: it: a rig that cannot tell a live switch from a dead one produces confident verdicts
-#: about nothing.  A name leaves this dict in the same commit as the code that reads it.
-DEAD_SWITCHES: dict[str, str] = {
-    PLAN_FEATURES_ENV: "none of its six features was ever implemented; nothing reads this variable",
-    "C3D_DETAIL_ROUNDS": "the surface-detail round went with the judgement stops that offered it (2026-09-22)",
-    "C3D_FEWER_TURNS": "the fewer-turns bundle was deleted after its A/B read out flat (2026-09-22, COST §29)",
-}
+            if key not in GENERATION_SIDE_ENV and key not in dead]
 
 
-def dead_env_keys(env: dict[str, str]) -> list[str]:
-    """The keys of ``env`` that no code path reads — empty when the arm really differs."""
-    return sorted(k for k in env if k in DEAD_SWITCHES)
-
-
-__all__ = ["DEAD_SWITCHES", "GENERATION_SIDE_ENV", "LIVE_SWITCHES", "PLAN_FEATURES_ENV", "dead_env_keys",
-           "pin_plan_blockers"]
+__all__ = ["GENERATION_SIDE_ENV", "NODE_SIDE_ENV", "dead_env_keys", "pin_plan_blockers"]

@@ -389,25 +389,28 @@ def test_drain_stream_cuts_a_stream_past_its_attempt_budget():
     assert e.value.retryable and "attempt budget" in str(e.value)
 
 
-def test_streaming_toggle(monkeypatch):
-    from codeverse3d.models.gemini import _streaming_enabled
+@pytest.mark.parametrize(("raw", "streamed"), [(None, True), ("0", False), ("off", False), ("OFF", False),
+                                               ("on", True), ("garbage", True)])
+def test_streaming_toggle(monkeypatch, switch, raw, streamed):
+    """``C3D_STREAM=off`` was silently ignored until 2026-09-22: only "0" was read."""
+    switch("C3D_STREAM", raw)
+    calls: list[int] = []
+    real = FakeModels.generate_content_stream
+    monkeypatch.setattr(FakeModels, "generate_content_stream", lambda self, **kw: (calls.append(1), real(self, **kw))[1])
+    m, _log, _ = make_model([text_response("hi")])
+    assert m.generate(ChatRequest(messages=[ChatMessage.user("x")])).text == "hi"
+    assert bool(calls) is streamed
 
-    monkeypatch.delenv("C3D_STREAM", raising=False)
-    assert _streaming_enabled()
-    monkeypatch.setenv("C3D_STREAM", "0")
-    assert not _streaming_enabled()
 
-
-def test_ipv4_transport_toggle(monkeypatch):
+@pytest.mark.parametrize(("raw", "bound"), [(None, True), ("0", False), ("off", False), ("no", False), ("1", True)])
+def test_ipv4_transport_toggle(switch, raw, bound):
+    """``C3D_IPV4=off`` was silently ignored until 2026-09-22: only "0" restored dual-stack."""
     import httpx
 
     from codeverse3d.models.gemini import _ipv4_client_args
 
-    monkeypatch.delenv("C3D_IPV4", raising=False)
-    args = _ipv4_client_args()
-    assert isinstance(args["transport"], httpx.HTTPTransport)
-    monkeypatch.setenv("C3D_IPV4", "0")
-    assert _ipv4_client_args() == {}
+    switch("C3D_IPV4", raw)
+    assert isinstance(_ipv4_client_args().get("transport"), httpx.HTTPTransport) is bound
 
 
 def test_merge_stream_chunks_concatenates_text_and_keeps_final_usage():

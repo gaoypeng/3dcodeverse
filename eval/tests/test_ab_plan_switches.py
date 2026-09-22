@@ -62,17 +62,19 @@ def test_a_skills_ab_spells_its_off_arm_explicitly(monkeypatch):
     identical arms, the byte-identical-arms trap tracks/plan_features.py exists for."""
     from bench._ab_report import CONTROL, VARIANT
     from bench.ab_plan import AbOptions, child_env
-    from codeverse3d.skills.config import SKILLS_ENV, skills_enabled
+    from codeverse3d.config import Settings
+
+    skills = "C3D_SKILLS"
 
     def enabled(env: dict[str, str]) -> bool:
-        monkeypatch.delenv(SKILLS_ENV, raising=False)
-        if SKILLS_ENV in env:
-            monkeypatch.setenv(SKILLS_ENV, env[SKILLS_ENV])
-        return skills_enabled()
+        monkeypatch.delenv(skills, raising=False)
+        if skills in env:
+            monkeypatch.setenv(skills, env[skills])
+        return Settings().skills
 
-    shell = {"PATH": "/usr/bin", SKILLS_ENV: "0"}   # exported in the launching shell: never reaches the control
-    off = AbOptions(variant_env={SKILLS_ENV: "0"})
+    shell = {"PATH": "/usr/bin", skills: "0"}   # exported in the launching shell: never reaches the control
+    off = AbOptions(variant_env={skills: "0"})
     assert enabled(child_env(CONTROL, off, shell)) is True
     assert enabled(child_env(VARIANT, off, shell)) is False
-    on = AbOptions(variant_env={SKILLS_ENV: "1"})
+    on = AbOptions(variant_env={skills: "1"})
     assert enabled(child_env(CONTROL, on, shell)) is enabled(child_env(VARIANT, on, shell)) is True

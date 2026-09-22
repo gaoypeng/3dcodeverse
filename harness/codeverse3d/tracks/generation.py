@@ -34,7 +34,6 @@ attempt then raises.  The label, round and outcome of each call are on the ledge
 from __future__ import annotations
 
 import logging
-import os
 import re
 import shutil
 from collections.abc import Callable, Collection
@@ -249,22 +248,14 @@ WRAPUP_PROMPT = (
 
 
 def agent_max_turns(default: int = DEFAULT_AGENT_MAX_TURNS) -> int:
-    """The turn cap a machine asks for: ``C3D_AGENT_MAX_TURNS`` >
-    ``Settings.limits.agent_max_turns`` > ``default``.
+    """The turn cap a machine asks for: ``Settings.limits.agent_max_turns`` (also spelled
+    ``C3D_AGENT_MAX_TURNS``) > ``default``.
 
     ``0`` means *no cap*: the caller leaves ``AgentJob.max_turns`` at the backend's
     own default.  That is the measured default (docs/COST.md §17)."""
-    raw = os.environ.get("C3D_AGENT_MAX_TURNS", "").strip()
-    if raw.isdigit() and int(raw) > 0:
-        return int(raw)
-    try:
-        from codeverse3d.config import get_settings
+    from codeverse3d.config import get_settings
 
-        configured = int(getattr(get_settings().limits, "agent_max_turns", 0) or 0)
-    except Exception as e:  # noqa: BLE001 — settings must never break a generation
-        log.debug("agent turn cap fell back to the default: %s", e)
-        configured = 0
-    return max(0, configured or int(default))
+    return get_settings().limits.agent_max_turns or max(0, int(default))
 
 
 def turn_capped(res: Any) -> bool:

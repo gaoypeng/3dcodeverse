@@ -40,7 +40,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-from codeverse3d.skills.config import SKILLS_ONLY_ENV, skills_max, skills_only, skills_unverified
+from codeverse3d.config import get_settings
 from codeverse3d.skills.model import Selection, Skill, SkillsMaterialized
 from codeverse3d.skills.prompting import (
     AGENTS_SKILL_ROOT,
@@ -182,8 +182,8 @@ def attach_skills(
 ) -> SkillsMaterialized:
     """Route → write → return what a session will see.  The one entry point tracks call.
 
-    The caller decides whether the feature is on (``config.skills_enabled``); this
-    function assumes it is, so a test can attach without setting the environment.
+    The caller decides whether the feature is on (``Settings.skills``); this function
+    assumes it is, so a test can attach without setting the environment.
 
     ``only`` (env ``C3D_SKILLS_ONLY``) restricts the LIBRARY before routing, which is
     what an effect A/B needs: the delta then belongs to one bundle instead of to whatever
@@ -191,20 +191,21 @@ def attach_skills(
     filtering ``sel`` afterwards — also stops the cap from spending a slot on a bundle
     that is not under test and then dropping the one that is.
     """
-    picked = skills_only() if only is None else only
+    cfg = get_settings()
+    picked = frozenset(n.strip() for n in cfg.skills_only.split(",") if n.strip()) if only is None else only
     if picked:
         from codeverse3d.skills import all_skills
 
         lib = dict(all_skills() if library is None else library)
         library = {n: s for n, s in lib.items() if n in picked}
         if not library:
-            log.warning("%s=%s matches no bundle in the library; this session attaches nothing",
-                        SKILLS_ONLY_ENV, ",".join(sorted(picked)))
+            log.warning("C3D_SKILLS_ONLY=%s matches no bundle in the library; this session attaches nothing",
+                        ",".join(sorted(picked)))
     sel: list[Selection] = select(
         track, language, kind,
         signals=plan_signals(plan), findings=findings, library=library,
-        max_skills=skills_max() if max_skills is None else max_skills,
-        allow_unverified=skills_unverified() if allow_unverified is None else allow_unverified,
+        max_skills=cfg.skills_max if max_skills is None else max_skills,
+        allow_unverified=cfg.skills_unverified if allow_unverified is None else allow_unverified,
     )
     out = SkillsMaterialized(listed=[s.name for s in sel], selections=list(sel),
                              reasons={s.name: s.reason for s in sel}, attached_at=time.time())

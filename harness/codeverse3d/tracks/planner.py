@@ -48,8 +48,6 @@ log = logging.getLogger(__name__)
 
 
 # ===================================================================== the brief
-#: env switch: ``off``/``0``/``false`` disables brief expansion for the run
-BRIEF_ENV = "C3D_PLAN_BRIEF"
 #: tracks the object-shaped brief applies to (graphics/scene get budgets only)
 BRIEF_TRACKS = (Track.STATIC_OBJECT, Track.ARTICULATED_OBJECT)
 BRIEF_TEMPLATE = "tracks/brief_object.j2"
@@ -57,11 +55,11 @@ BRIEF_MAX_TOKENS = 65_536
 
 
 # ----------------------------------------------------------------------------- brief
-def brief_enabled(spec: Spec, *, default: bool = True) -> bool:
-    """Whether to expand the brief for this spec (env switch wins; object tracks only)."""
-    from codeverse3d.config import env_flag  # ONE flag vocabulary (review-3 S4)
+def brief_enabled(spec: Spec) -> bool:
+    """Whether to expand the brief for this spec (``C3D_PLAN_BRIEF``; object tracks only)."""
+    from codeverse3d.config import get_settings
 
-    return env_flag(BRIEF_ENV, default) and spec.track in BRIEF_TRACKS
+    return get_settings().plan_brief and spec.track in BRIEF_TRACKS
 
 
 def brief_cache_dir() -> Path:
@@ -594,8 +592,6 @@ MAX_QUALITY_REASKS = 1
 #: in context; at most this many times per plan.  Measured 2026-09-02: 3-4 % of plan calls
 #: end this way, and both in-context re-asks reproduce the same broken plan verbatim.
 MAX_PLAN_RESTARTS = 1
-#: kill-switch for that restart (default ON, mirrors C3D_AXIS_REPAIR)
-PLAN_RESTART_ENV = "C3D_PLAN_RESTART"
 #: Output room for the plan call, sized from the plan budget.  A deep plan is much longer
 #: JSON than a flat one AND Gemini 3.x bills its thinking against the same ceiling, so the
 #: flat 24 000 that served 8 box-parts truncates a 12-part plan with sub-parts —
@@ -714,10 +710,10 @@ def restart_note(raw: Any, missing: list[str], budget: PlanBudget) -> str:
 
 
 def restart_enabled() -> bool:
-    """Kill switch for the degenerate-plan restart, ON by default (docs/COST.md §30)."""
-    from codeverse3d.config import env_flag  # ONE flag vocabulary (review-3 S4)
+    """Kill switch for the degenerate-plan restart (``C3D_PLAN_RESTART``, ON; docs/COST.md §30)."""
+    from codeverse3d.config import get_settings
 
-    return env_flag(PLAN_RESTART_ENV, True)
+    return get_settings().plan_restart
 
 
 #: an invalid plan attempt is written here, so a run that DIES at the plan stage still says
@@ -1096,7 +1092,7 @@ def normalise_names[P: BaseModel](plan_obj: P) -> P:
 
 
 __all__ = ["MAX_PLAN_RESTARTS", "MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS",
-           "PLAN_RESTART_ENV", "PLAN_TOKENS_MAX", "PlanningError", "add_acceptance_item",
+           "PLAN_TOKENS_MAX", "PlanningError", "add_acceptance_item",
            "articulation_acceptance", "build_system_prompt", "build_user_prompt", "plan_event_stats",
            "ensure_acceptance", "missing_link_names", "normalise_names", "plan",
            "degenerate_plan", "plan_example", "plan_temperature", "plan_tokens", "restart_enabled",

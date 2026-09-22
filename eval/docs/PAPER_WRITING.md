@@ -562,9 +562,10 @@ data the repo does not carry; they are marked in the caveat column.
 
 ## 9.3 The switches this work added, and their state
 
-Every one is read at call time and registered in `tracks/plan_features.LIVE_SWITCHES`, which
-a test enforces by grepping the tree; a switch nothing reads once produced "keep, mean delta
-+0.344" on two byte-identical arms, which is why the registry exists.
+Every one is a `Settings` field, and `tracks/plan_features` derives from those fields which
+names are live (since 2026-09-22; before, a hand-kept registry and a test grepping the tree); a
+switch nothing reads once produced "keep, mean delta +0.344" on two byte-identical arms, which
+is why ab_plan refuses one.
 
 | switch | what it does | default | why |
 |---|---|---|---|
