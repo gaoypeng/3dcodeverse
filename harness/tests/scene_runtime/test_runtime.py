@@ -43,7 +43,7 @@ def test_build_ok_on_example(starter_ws):
 @needs_browser
 def test_build_fails_with_file_line_on_shader_error(starter_ws):
     # the pond's water shader: a file the example scene compiles (the starter's sky comes
-    # from lib/environment.js worldShell since D71, so shaders/sky.js is no longer loaded)
+    # from lib/environment.js worldShell since D71)
     p = starter_ws.src / "shaders" / "water.js"
     text = p.read_text().replace("float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);", "float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0) + nope;")
     assert "nope" in text

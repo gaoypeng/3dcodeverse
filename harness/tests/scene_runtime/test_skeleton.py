@@ -27,7 +27,7 @@ def make_plan() -> ScenePlan:
 
 def test_example_files_exist_and_are_complete():
     names = {p.relative_to(STARTER_DIR).as_posix() for p in STARTER_DIR.rglob("*.js")}
-    assert {"scene.js", "env.js", "zones/meadow.js", "zones/pondside.js", "assets/pine_tree.js", "assets/windmill.js", "shaders/water.js", "shaders/sky.js"} <= names
+    assert {"scene.js", "env.js", "zones/meadow.js", "zones/pondside.js", "assets/pine_tree.js", "assets/windmill.js", "shaders/water.js"} <= names
     scene = (STARTER_DIR / "scene.js").read_text()
     assert "export function createScene" in scene and "cameras" in scene and "update(t, dt)" in scene
     assert "ShaderMaterial" in (STARTER_DIR / "shaders" / "water.js").read_text()
@@ -165,7 +165,7 @@ def test_every_call_the_catalog_advertises_is_a_real_export():
     catalog = (PROMPTS_DIR / "scene_threejs" / "effects_catalog.md").read_text()
     # option names and prose words that appear in backticks but name no export
     prose = {"js", "true", "false", "material", "scene", "g", "t", "dt", "update", "tick",
-             "logarithmicDepthBuffer", "sunDir", "ambient", "elevation", "keyElevation", "color"}
+             "logarithmicDepthBuffer", "sunDir", "ambient", "elevation", "color"}
     unknown, named = [], set()
     for row in catalog.splitlines():
         if not row.startswith("|") or row.startswith(("| ---", "| Want")):

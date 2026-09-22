@@ -40,9 +40,6 @@ def _darken(ws: Workspace) -> None:
     text = text.replace("scene.background = new THREE.Color(shell.fog.color)", "scene.background = new THREE.Color(0x000000)")
     assert "0.05" in text and text.count("0x000000") >= 4
     env.write_text(text)
-    sky = ws.src / "shaders" / "sky.js"
-    if sky.is_file():
-        sky.write_text(sky.read_text().replace("export function", "export function /*dark*/"))
 
 
 def test_example_scene_passes_frame_gate_and_judge_subset(starter_ws: Workspace):

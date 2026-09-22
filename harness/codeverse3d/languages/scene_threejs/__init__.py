@@ -171,7 +171,7 @@ def lint(ws: Workspace) -> GateReport:
 # ===================================================================== skeleton
 STARTER_DIR = Path(__file__).resolve().parent / "starter" / "src"
 #: pattern files copied verbatim in plan mode (shown as reusable examples)
-PATTERN_FILES = ("shaders/sky.js", "shaders/water.js", "assets/pine_tree.js", "assets/windmill.js")
+PATTERN_FILES = ("shaders/water.js", "assets/pine_tree.js", "assets/windmill.js")
 #: the harness-owned effect library (``src/lib/*.js``), shipped into EVERY workspace.
 #: Plan mode copied only PATTERN_FILES, so a planned run got the effects catalog in its
 #: prompt and no ``src/lib/`` to import from — every ``from './lib/grass.js'`` a 2026-09-01
