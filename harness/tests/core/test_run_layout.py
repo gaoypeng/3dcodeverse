@@ -70,16 +70,17 @@ def test_gitignore_covers_the_derived_buckets(tmp_path: Path):
 
 
 def test_record_blocks_are_additive(tmp_path: Path):
-    """An old record.json (no telemetry / deliverable) must still validate."""
+    """An old record.json (no telemetry; or a deliverable block, which records stopped
+    carrying on 2026-09-22) must still validate, and an old manifest still loads."""
     spec = Spec(id="x", track="static_object", language="blender", prompt="a chair")
-    old = {"spec": spec.model_dump(mode="json"), "workspace": str(tmp_path), "status": "passed"}
+    old = {"spec": spec.model_dump(mode="json"), "workspace": str(tmp_path), "status": "passed",
+           "deliverable": {"best_round": 1, "commit": "abc"}}
     rec = RunRecord.model_validate(old)
-    assert rec.telemetry is None and rec.deliverable is None
+    assert rec.telemetry is None and rec.status.value == "stopped"
     rec.telemetry = RunTelemetry()
-    rec.deliverable = RunDeliverable.model_validate({"best_round": 1, "commit": "abc"})  # a pre-2026-09-22 manifest
     again = RunRecord.model_validate_json(rec.model_dump_json())
-    assert again.deliverable is not None and again.deliverable.round == 1
     assert again.telemetry is not None and again.telemetry.schema_version == 1
+    assert RunDeliverable.model_validate({"best_round": 1, "commit": "abc"}).round == 1  # a pre-2026-09-22 manifest
 
 
 # --------------------------------------------------------------------------- relocation

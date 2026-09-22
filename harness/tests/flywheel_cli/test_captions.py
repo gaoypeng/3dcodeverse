@@ -41,7 +41,11 @@ class FakeModel:
 
 
 def test_caption_sample_stores_and_writes(fake_run):
+    from codeverse3d.addons import select
+    from codeverse3d.record.deliverable import load_deliverable
+
     ws, rec = fake_run
+    select.package(ws.root, 1)  # a round was handed over: its deliverable/ must follow the caption
     m = FakeModel([GOOD])
     caps = caption_sample(ws, rec, "fake:fake", model=m)
     assert caps.detailed.startswith("A four-legged")
@@ -56,10 +60,11 @@ def test_caption_sample_stores_and_writes(fake_run):
     assert again.extra["captions"]["provenance"]["captioner"] == "fake:fake"
     assert again.extra["captions"]["provenance"]["cost_usd"] == pytest.approx(0.001)
     # a caption changes the hand-over folder too — it used to leave deliverable/,
-    # the manifest, record.deliverable and telemetry/ describing an uncaptioned run
+    # the manifest and telemetry/ describing an uncaptioned run
     assert json.loads((ws.deliverable / "captions.json").read_text())["factory"] == GOOD["factory"]
-    assert again.deliverable is not None and again.telemetry is not None
-    assert "deliverable/captions.json" in {f.path for f in again.deliverable.files}
+    handed = load_deliverable(ws)
+    assert handed is not None and handed.round == 1 and again.telemetry is not None
+    assert "deliverable/captions.json" in {f.path for f in handed.files}
 
 
 def test_caption_cmd_writes_the_captioner_row_into_the_run_ledger(fake_run, monkeypatch):
@@ -68,10 +73,12 @@ def test_caption_cmd_writes_the_captioner_row_into_the_run_ledger(fake_run, monk
     from typer.testing import CliRunner
 
     import codeverse3d.models.registry as R
+    from codeverse3d.addons import select
     from codeverse3d.cli.main import app
     from codeverse3d.cost.ledger import open_run_ledger
 
     ws, rec = fake_run
+    select.package(ws.root, 1)
     ledger = open_run_ledger(ws.root)  # the run already keeps one (create=False appends)
     ledger.path.touch()
     monkeypatch.setattr(R, "_build_chat_model", lambda _mid: FakeModel([GOOD]))

@@ -202,7 +202,10 @@ codeverse3d/
                       duplicate groups) — `3dcode flywheel …`; costreport/ = audit.py, report.py,
                       caching.py (session_cache/session_key — measurement only, docs/COST.md §13) —
                       `3dcode cost`; calibration.py (judge repeatability over recorded runs);
-                      skill_targets.py (measured targets + claims per skill bundle); gallery/ = below
+                      skill_targets.py (measured targets + claims per skill bundle);
+                      select.py (round_rows / pick / summarise / package: which round of a
+                      finished run to hand over, deliverable/ + selection.json for it —
+                      `3dcode pick`, and `3dcode make` after the run); gallery/ = below
   addons/gallery/     THE local run gallery (`3dcode gallery serve|build`): cards.py,
                       compare.py (side-by-side arms), index.py (run roots →
                       typed RunEntry, tolerant of half-written records), model.py, page.py (cards +

@@ -38,7 +38,7 @@ from codeverse3d.orchestrator import (
     hash_inputs,
     plan_refine_groups,
 )
-from codeverse3d.proc import EventLog, read_json_or_none
+from codeverse3d.proc import EventLog
 from codeverse3d.prompts import render
 from codeverse3d.tracks.candidates import choose_best_round, replay_best_round, run_best_of_n
 from codeverse3d.tracks.common import (
@@ -708,10 +708,8 @@ class BaseTrack:
             # left (the prior-record merge would otherwise carry it forward); no-rebuild
             # resumes keep the prior flag — the artifact may still be the missing one
             ctx.extra["finalise_rebuild_failed"] = ""
-        if rounds and not rebuild_err and self._texture_wanted(ctx):
-            self._texture_pass(ctx)
         ctx.state.status, ctx.state.stop_reason, ctx.state.error = status, status.value, error
-        self._save_budget(ctx)  # saves state too — AFTER the texture pass charged
+        self._save_budget(ctx)  # saves state too
         rec = self._record(ctx, rounds, status, error=error)
         self.services.finalize_record(ctx.ws, rec)
         ctx.events.emit("run.done", status=status.value, best_round=rec.best_round,
@@ -730,90 +728,6 @@ class BaseTrack:
             log.warning("changed_files failed in finalise: %s", e)
             return False
 
-    @staticmethod
-    def _texture_wanted(ctx: RunContext) -> bool:
-        """``codeverse3d.texturing.run.texture_requested`` is the single owner of this
-        decision (spec.options.texture / the legacy tag) — the same predicate the
-        ``texture_pass`` spatial tool asks, so a ``texture: false`` run cannot be
-        textured from inside an agent session either."""
-        try:
-            from codeverse3d.texturing.run import texture_requested
-
-            return texture_requested(ctx.spec)
-        except Exception as e:  # noqa: BLE001 — texturing is optional; never block finalise
-            log.debug("texture_requested unavailable: %s", e)
-            return bool(ctx.spec.options.texture)
-
-    def _texture_pass(self, ctx: RunContext) -> None:
-        """Optional post-hoc texture pass (``Spec.options.texture``).  Additive: any
-        failure is logged + emitted, never fatal.
-
-        Its usage goes through the SAME guard as everything else (stage ``texture``,
-        role ``image``) so it lands in ``record.total_usage`` and in the ledger — four
-        post-hoc passes on ``furn_hard_rolltop_desk`` ($0.656) were invisible to both
-        (docs/COST.md §6).  It is charged without enforcement: the run is finalising,
-        the tiles are already paid for, and raising here would throw away the pack."""
-        if self._already_textured(ctx):
-            # An agent can call the `texture_pass` spatial tool during a round; the
-            # finalise hook must not buy the same pack a second time (a texture pass
-            # is $0.10-0.30 and the input GLB is unchanged).  The tool no longer writes
-            # record.json mid-session (control files have one owner), so the report is
-            # collected into the record here.
-            ctx.events.emit("texture.skipped", reason="already_textured_this_artifact")
-            try:  # a malformed report must not block finalise
-                from codeverse3d.texturing.run import load_report, texturing_extra
-
-                ctx.extra["texturing"] = texturing_extra(ctx.ws, load_report(ctx.ws))
-            except Exception:  # noqa: BLE001
-                log.warning("tool-textured report could not be collected into the record")
-            return
-        try:
-            from codeverse3d.texturing.run import texture_pass
-
-            trep = texture_pass(ctx.ws, ctx.spec, ctx.plan, model_id=ctx.spec.backends.planner, judge=True,
-                                judge_model_id=ctx.spec.backends.judge, rubric=self.rubric, events=ctx.events,
-                                update_record=False)
-        except Exception as e:  # noqa: BLE001 — texturing is a derived asset pack, never run-fatal
-            log.warning("texture pass failed: %s", e)
-            ctx.events.emit("texture.failed", error=f"{type(e).__name__}: {e}")
-            return
-        ctx.budget.add(trep.usage, stage="texture")
-        ctx.extra["texturing"] = trep.summary()
-        if not ctx.budget.ok():
-            # visible, but NOT `budget.exceeded`: that event means "the loop stopped",
-            # and a texture pass runs after the loop has already finished.
-            ctx.events.emit("budget.overrun", stage="texture",
-                            reason=f"the texture pass took the run past its wall-clock ceiling "
-                                   f"(spent ${ctx.budget.spent.cost_usd:.3f})",
-                            spent_usd=round(ctx.budget.spent.cost_usd, 4))
-
-    @staticmethod
-    def _already_textured(ctx: RunContext) -> bool:
-        """True when a texture pass already ran against the current ``object.glb``.
-
-        The report (``artifacts/textures/texturing.json``) records the GLB it consumed
-        — reading it at ``artifacts/texturing.json`` made this guard dead code and the
-        finalise pass double-bought every tool-textured pack (review of PR #3); the
-        hook compares content hashes so a texture pass from an EARLIER round (whose
-        GLB has since been rebuilt) does not suppress the final one."""
-        import hashlib
-
-        from codeverse3d.texturing.run import report_path
-
-        report = report_path(ctx.ws)
-        glb = ctx.ws.artifacts / "object.glb"
-        if not report.is_file() or not glb.is_file():
-            return False
-        try:
-            data = read_json_or_none(report) or {}
-            prev = Path(str(data.get("glb_in") or ""))
-            if not prev.is_file():
-                return False
-            digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()  # noqa: E731
-            return digest(prev) == digest(glb)
-        except Exception:  # noqa: BLE001 — a malformed report must not block texturing
-            return False
-
     def _record(self, ctx: RunContext, rounds: list[RoundRecord], status: RunStatus, *, error: str) -> RunRecord:
         best = ctx.state.best_round
         baseline = rounds[0].score if rounds else None
@@ -828,8 +742,6 @@ class BaseTrack:
                                  "n_candidates": ctx.policy.n_candidates,
                                  "candidates": ctx.ws.read_json(cands) if cands.is_file() else None,
                                  "cost_by_stage": ctx.budget.stage_summary()}
-        if ctx.extra.get("texturing"):
-            extra["texturing"] = ctx.extra["texturing"]
         if ctx.extra.get("finalise_rebuild_failed"):
             extra["finalise_rebuild_failed"] = ctx.extra["finalise_rebuild_failed"]
         if ctx.extra.get("aborted_rounds"):

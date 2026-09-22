@@ -374,6 +374,4 @@ class RunRecord(BaseModel):
     error: str = ""
     telemetry: RunTelemetry | None = Field(
         default=None, description="settings snapshot + cost ledger + environment (written by finalize_record)")
-    deliverable: RunDeliverable | None = Field(
-        default=None, description="what to hand over: paths + hashes + sizes under deliverable/")
     extra: dict[str, Any] = Field(default_factory=dict)

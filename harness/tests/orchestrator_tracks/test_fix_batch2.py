@@ -111,8 +111,7 @@ def test_a_failed_finalise_rebuild_cannot_finalize_silently(tmp_path, chair_plan
     failed rebuild of the restored best round leaves object.glb MISSING — yet the run
     used to finalize with final_score set, ``record.error == ""`` and a deliverable
     with no model file.  The earned status + judge scores are kept; the error and the
-    ``finalise_rebuild_failed`` flag must say what happened, and the texture pass
-    (whose input GLB is gone) must not charge image calls first."""
+    ``finalise_rebuild_failed`` flag must say what happened."""
     import subprocess
 
     class RebuildFailsRuntime(FakeRuntime):
@@ -125,11 +124,6 @@ def test_a_failed_finalise_rebuild_cannot_finalize_silently(tmp_path, chair_plan
                                    error_message="runtime crashed on rebuild", error_file="src/object.js")
             return super().build(ws, timeout_s=timeout_s)
 
-    textured = []
-    from codeverse3d.tracks.lifecycle import BaseTrack
-    monkeypatch.setattr(BaseTrack, "_texture_wanted", staticmethod(lambda ctx: True))
-    monkeypatch.setattr(BaseTrack, "_texture_pass", lambda self, ctx: textured.append(True))
-
     spec = make_spec(max_rounds=2)
     ws = Workspace(tmp_path / "runs" / "r")
     track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.7, 0.5), targets=("Seat",)),
@@ -141,7 +135,6 @@ def test_a_failed_finalise_rebuild_cannot_finalize_silently(tmp_path, chair_plan
     assert rec.error.startswith("finalise rebuild failed: Timeout")
     assert "runtime crashed on rebuild" in rec.extra["finalise_rebuild_failed"]
     assert not (ws.artifacts / "object.glb").is_file()
-    assert textured == [], "the texture pass must not run against a missing GLB"
     on_disk = json.loads(ws.record_path.read_text())
     assert on_disk["error"].startswith("finalise rebuild failed") and on_disk["status"] == "max_rounds"
     ev = [e for e in EventLog(ws.events_path).read() if e["event"] == "finalise.rebuild"]

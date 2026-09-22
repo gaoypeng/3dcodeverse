@@ -87,7 +87,7 @@ def print_deliverable(ws: Workspace, record: RunRecord) -> None:
     head = {"prompt": spec.prompt, "track": spec.track.value, "language": spec.language.value,
             "status": record.status.value, "best round": record.best_round,
             "score": fmt_score(record.final_score), "workspace": ws.root}
-    d = load_deliverable(ws, record)
+    d = load_deliverable(ws)
     if d is not None:
         head["code"] = f"{d.entry or 'deliverable/src/'} @ {d.commit[:12] or '-'} ({d.code_source})"
         head["total"] = f"{len(d.files)} files, {_human_bytes(d.total_bytes)}"

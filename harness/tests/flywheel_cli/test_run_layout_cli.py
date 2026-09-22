@@ -1,5 +1,5 @@
-"""deliverable/ + telemetry/ packaging, `3dcode show`, and export / gallery on BOTH
-layouts (old runs must keep working)."""
+"""deliverable/ (addons/select.package) + telemetry/ (record.package_run), `3dcode show`, and
+export / gallery on BOTH layouts (old runs must keep working)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from codeverse3d.addons import select
 from codeverse3d.addons.dataset.export import export_samples
 from codeverse3d.addons.gallery import build_static
 from codeverse3d.addons.gallery.index import entry_from_record
@@ -54,13 +55,15 @@ def old_layout_run(tmp_path: Path, slug: str = "wooden_chair_ab12cd34") -> tuple
 # --------------------------------------------------------------------------- packaging
 def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run):
     ws, rec = fake_run
-    assert load_telemetry(ws, rec) is None and load_deliverable(ws, rec) is None
+    assert load_telemetry(ws, rec) is None and load_deliverable(ws) is None
     assert deliverable_path(ws, "object.glb") == ws.artifacts / "object.glb"
     # Cross the old hard-link fast-path threshold before packaging.
     (ws.artifacts / "object.glb").write_bytes(b"glTF" + b"\0" * (300 * 1024))
     package_run(ws, rec)
-    assert rec.deliverable is not None and rec.telemetry is not None
-    d = rec.deliverable
+    assert rec.telemetry is not None and load_deliverable(ws) is None  # the run packages no round
+    select.package(ws.root, 1)
+    d = load_deliverable(ws)
+    assert d is not None
     roles = {f.role for f in d.files}
     # the manifest does NOT list itself: no file can carry its own hash, and the
     # returned object used to have one more file (and a smaller total) than the disk
@@ -83,7 +86,7 @@ def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run)
     assert deliverable_path(ws, "nope.glb") is None
 
     # Rebuilding unchanged content is byte-for-byte stable.
-    first = rec.deliverable
+    first = d
     files_before = sorted(p.relative_to(ws.deliverable).as_posix() for p in ws.deliverable.rglob("*") if p.is_file())
     second = build_deliverable(ws, rec, 1)
     files_after = sorted(p.relative_to(ws.deliverable).as_posix() for p in ws.deliverable.rglob("*") if p.is_file())
@@ -93,8 +96,8 @@ def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run)
 
     # Package metadata can be recovered from files even before the caller saves rec.
     bare = load_record(ws)
-    assert bare.telemetry is None and bare.deliverable is None
-    assert load_telemetry(ws, bare) is not None and load_deliverable(ws, bare) is not None
+    assert bare.telemetry is None
+    assert load_telemetry(ws, bare) is not None and load_deliverable(ws) is not None
 
     # Delivered assets are copies: editing a hand-over cannot mutate evidence.
     delivered = ws.deliverable / "object.glb"
@@ -178,6 +181,7 @@ def _show(slug: str, runs_dir: Path, *args: str):
 def test_show_sections_and_status_share_the_packaged_run(fake_run):
     ws, rec = fake_run
     package_run(ws, rec)
+    select.package(ws.root, 1)
     r = _show(ws.root.name, ws.root.parent)
     assert r.exit_code == 0, r.output
     out = r.output
@@ -216,6 +220,7 @@ def test_export_and_gallery_on_both_layouts(tmp_path: Path):
     ws_new, rec_new = make_fake_run(runs, "run_new")
     package_run(ws_new, rec_new)
     ws_new.write_json(ws_new.record_path, rec_new)
+    select.package(ws_new.root, 1)
     ws_old, _ = make_fake_run(runs, "run_old")
     strip_layout(ws_old)
 
@@ -245,6 +250,7 @@ def test_export_falls_back_to_the_packaged_snapshot_without_git(tmp_path: Path):
     ws, rec = make_fake_run(runs, "run_new")
     package_run(ws, rec)
     ws.write_json(ws.record_path, rec)
+    select.package(ws.root, 1)
     shutil.rmtree(ws.root / ".git")  # a run copied without its history
     rep = export_samples(runs, tmp_path / "ds")
     assert rep.n_exported == 1, rep.skipped

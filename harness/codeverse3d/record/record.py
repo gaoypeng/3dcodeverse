@@ -3,10 +3,10 @@
 ``finalize_record`` is the last step of every track run: it fills the
 environment (tool versions + harness git sha), derives best/baseline/final
 scores and totals when the track left them empty, adds a compact per-round
-summary under ``record.extra["rounds_summary"]``, packages the run
-(``deliverable/`` + ``telemetry/``, see docs/RUN_LAYOUT.md) and writes
-``record.json`` atomically.  Packaging is best-effort: a run is never failed
-by it.
+summary under ``record.extra["rounds_summary"]``, writes ``telemetry/`` (see
+docs/RUN_LAYOUT.md) and writes ``record.json`` atomically.  ``deliverable/`` is not
+the run's: which round to hand over is ``codeverse3d.addons.select``'s question
+(2026-09-22).  Telemetry is best-effort: a run is never failed by it.
 """
 
 from __future__ import annotations
@@ -252,11 +252,10 @@ def complexity_block(record: RunRecord) -> dict[str, Any] | None:
 
 # --------------------------------------------------------------------------- io
 def package_run(ws: Workspace, record: RunRecord) -> None:
-    """Materialise ``deliverable/`` + ``telemetry/`` and mirror them onto the record.
+    """Materialise ``telemetry/`` and mirror it onto the record.
 
-    Best-effort by contract: a packaging failure is logged and the run still
-    gets its ``record.json`` (the old layout is always enough to read a run)."""
-    from codeverse3d.record.deliverable import build_deliverable
+    Best-effort by contract: a failure is logged and the run still gets its
+    ``record.json`` (the old layout is always enough to read a run)."""
     from codeverse3d.record.telemetry import build_telemetry
 
     try:
@@ -265,17 +264,13 @@ def package_run(ws: Workspace, record: RunRecord) -> None:
         log.warning("run layout not created in %s: %s", ws.root, e)
         return
     try:
-        record.deliverable = build_deliverable(ws, record, best_round_index(record))
-    except Exception as e:  # noqa: BLE001 - never fail a finished run over packaging
-        log.warning("deliverable not built for %s: %s", ws.root, e)
-    try:
         record.telemetry = build_telemetry(ws, record)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 - never fail a finished run over accounting
         log.warning("telemetry not written for %s: %s", ws.root, e)
 
 
 def finalize_record(ws: Workspace, record: RunRecord) -> Path:
-    """Fill derived fields + environment, package the run and write ``record.json``."""
+    """Fill derived fields + environment, write ``telemetry/`` and ``record.json``."""
     record.workspace = record.workspace or str(ws.root)
     fill_derived(record)
     package_run(ws, record)

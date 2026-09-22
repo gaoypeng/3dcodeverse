@@ -141,7 +141,7 @@ def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes]
         return {}, "working_tree"
 
 
-def _round_outputs(ws: Workspace, rnd: RoundRecord | None) -> Path | None:
+def round_outputs(ws: Workspace, rnd: RoundRecord | None) -> Path | None:
     """Where the round's build outputs are: ``artifacts/rNN/``, or — a run recorded before
     rounds kept their own (2026-09-22) — ``artifacts/`` itself, but only for the round
     that run's finalise rebuilt there (the ``best_round`` its record.json still names)."""
@@ -154,19 +154,21 @@ def _round_outputs(ws: Workspace, rnd: RoundRecord | None) -> Path | None:
     return ws.artifacts if legacy == rnd.index else None
 
 
-def _texture_is_for(ws: Workspace, glb: Path) -> bool:
-    """Did the SHIPPED texture pass start from these exact bytes?  The report names the GLB
-    it consumed; a pack made mid-round, or for another round, is not this round's."""
+def texture_report_for(ws: Workspace, glb: Path) -> dict | None:
+    """The texture report (raw ``artifacts/textures/texturing.json``) of a pass that started
+    from these exact GLB bytes, else None.  The report names the GLB it consumed; a pack made
+    mid-round, or for another round, is not this round's."""
     from codeverse3d.texturing.run import report_path
 
     rep = read_json_or_none(report_path(ws)) or {}
-    src = ws.rebase(str(rep.get("glb_in") or "")) if rep.get("glb_in") else None
-    return (bool(rep.get("shipped")) and src is not None and src.is_file() and glb.is_file()
-            and sha256_file(src) == sha256_file(glb))
+    src = ws.rebase(str(rep["glb_in"])) if rep.get("glb_in") else None
+    if src is None or not src.is_file() or not glb.is_file() or sha256_file(src) != sha256_file(glb):
+        return None
+    return rep
 
 
 def _copy_artifacts(ws: Workspace, record: RunRecord, rnd: RoundRecord | None, w: _Writer) -> None:
-    out = _round_outputs(ws, rnd)
+    out = round_outputs(ws, rnd)
     if out is None:
         return
     for name, role in _ARTIFACT_ROLES:
@@ -180,7 +182,7 @@ def _copy_artifacts(ws: Workspace, record: RunRecord, rnd: RoundRecord | None, w
             w.add_file(src, f"frames/{src.name}", "frames")
     tex = record.extra.get("texturing") or {}
     # old layout: the one canonical pack belonged to the one round finalise rebuilt
-    shipped = tex.get("shipped") if out == ws.artifacts else _texture_is_for(ws, out / "object.glb")
+    shipped = tex.get("shipped") if out == ws.artifacts else (texture_report_for(ws, out / "object.glb") or {}).get("shipped")
     if shipped:
         w.add_file(ws.artifacts / "object_textured.glb", "object_textured.glb", "model")
         tex_dir = ws.root / str(tex.get("textures_dir") or "artifacts/textures")
@@ -247,10 +249,8 @@ def build_deliverable(ws: Workspace, record: RunRecord, round_index: int | None,
     return manifest  # exactly what is on disk: len(files) and total_bytes == sum(f.bytes)
 
 
-def load_deliverable(ws: Workspace, record: RunRecord | None = None) -> RunDeliverable | None:
-    """``record.deliverable`` when present, else ``deliverable/manifest.json``, else None."""
-    if record is not None and record.deliverable is not None:
-        return record.deliverable
+def load_deliverable(ws: Workspace) -> RunDeliverable | None:
+    """``deliverable/manifest.json`` (the round ``codeverse3d.addons.select`` packaged), else None."""
     path = ws.deliverable_manifest_path
     if not path.is_file():
         return None

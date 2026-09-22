@@ -4,8 +4,8 @@ Thin by design: every command builds typed inputs and calls into the harness
 packages through function-local imports, so ``3dcode --help`` loads none of them.
 
 Owns the typer app and every registration, the run-starting commands ``make`` /
-``resume`` (spec building, reference grounding, track dispatch, budget raising) and
-``mcp``.  The run-inspecting commands ``status`` / ``render`` / ``judge`` live in the
+``resume`` (spec building, reference grounding, track dispatch, budget raising, and the
+hand-over after the run), ``pick`` and ``mcp``.  The run-inspecting commands ``status`` / ``render`` / ``judge`` live in the
 sibling ``cli/inspect_cmd.py`` and are registered here, the way ``layout_cmd.py``'s
 ``show`` is.
 """
@@ -364,7 +364,15 @@ def make(
         bool,
         typer.Option(
             "--texture",
-            help="run the text-to-image texture pass after the rounds (frozen on spec.options)",
+            help="texture the picked round after the run (frozen on spec.options)",
+        ),
+    ] = False,
+    no_pick: Annotated[
+        bool,
+        typer.Option(
+            "--no-pick",
+            help="stop after the rounds: no round is picked, no deliverable/ is written "
+            "(`3dcode pick <slug>` does it later)",
         ),
     ] = False,
     seed: Annotated[int, typer.Option("--seed")] = 0,
@@ -481,7 +489,7 @@ def make(
         if no_run:
             ok(f"spec written: {ws.spec_path} (not run; `3dcode resume {run_slug}` to start)")
             return
-        _run_track(spec, ws, resume=False, candidates=candidates)
+        _run_track(spec, ws, resume=False, candidates=candidates, pick=not no_pick)
 
 
 def _ground_in_reference(spec: Spec, ws, *, n_views: int) -> Spec:
@@ -516,7 +524,8 @@ def _ground_in_reference(spec: Spec, ws, *, n_views: int) -> Spec:
     return grounded
 
 
-def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, force: bool = False) -> None:
+def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, force: bool = False,
+               pick: bool = True) -> None:
     from codeverse3d.cost.instrument import run_ledger
     from codeverse3d.tracks import get_track
 
@@ -542,9 +551,38 @@ def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, f
         raise C.CliError(
             f"run failed: {type(e).__name__}: {e} (workspace {ws.root}; see events.jsonl)"
         ) from e
+    if pick:  # the hand-over: the best-scored round → deliverable/ (+ its texture pass)
+        with run_ledger(ws.root, run=ws.root.name):
+            _pick_and_package(ws, by="score", texture=_texture_requested(spec))
     print_record_summary(record, ws.root)
     if record.status.value == "failed":
         raise typer.Exit(code=1)
+
+
+def _texture_requested(spec: Spec) -> bool:
+    from codeverse3d.texturing.run import texture_requested
+
+    return texture_requested(spec)
+
+
+def _pick_and_package(ws, *, by: str, texture: bool, round_index: int | None = None,
+                      judge_model: str | None = None) -> int | None:
+    """``codeverse3d.addons.select``: choose the round (or take ``round_index``) and package it."""
+    from codeverse3d.addons import select
+
+    idx = round_index if round_index is not None else select.pick(ws.root, by=by, pairwise_model=judge_model)
+    if idx is None:
+        warn("no round was judged, so none was picked: name one with `3dcode pick <slug> --round N`")
+        return None
+    try:
+        select.package(ws.root, idx, texture=texture, method="round" if round_index is not None else by)
+    except ValueError as e:
+        raise C.CliError(str(e), code=2) from e
+    ok(f"picked round {idx} ({'named' if round_index is not None else f'by {by}'}) → {ws.deliverable}")
+    sel = select.load_selection(ws)
+    if texture and sel is not None and not sel.textured:
+        warn("the texture pass did not ship a pack for this round (see `3dcode texture show` / events.jsonl)")
+    return idx
 
 
 def _finished_reason(ws, raised: dict) -> str:
@@ -605,6 +643,7 @@ def resume(
             "under rounds/pre_force/ and the run re-plans from the edited spec",
         ),
     ] = False,
+    no_pick: Annotated[bool, typer.Option("--no-pick", help="do not pick + package a round afterwards")] = False,
 ) -> None:
     """Resume an interrupted / partial run (or start a `--no-run` one).
 
@@ -640,7 +679,41 @@ def resume(
             spec = spec.model_copy(update={"budget": spec.budget.model_copy(update=raised)})
             ws.write_json(ws.spec_path, spec)
             EventLog(ws.events_path).emit("budget.raised", **raised)
-        _run_track(spec, ws, resume=True, candidates=candidates, force=force)
+        _run_track(spec, ws, resume=True, candidates=candidates, force=force, pick=not no_pick)
+
+
+@app.command()
+def pick(
+    slug: str,
+    by: Annotated[str, typer.Option("--by", help="score | pairwise (the pairwise judge decides "
+                                                 "between the top two when they are within judge noise)")] = "score",
+    round_index: Annotated[int | None, typer.Option("--round", min=0, help="hand over this round instead")] = None,
+    texture: Annotated[bool, typer.Option("--texture", help="texture the picked round first (object tracks)")] = False,
+    judge: Annotated[str | None, typer.Option("--judge", help="pairwise judge model (default: the run's judge)")] = None,
+    runs_dir: RunsDirOpt = None,
+) -> None:
+    """Choose the round of a finished run to hand over and package it: deliverable/ + selection.json."""
+    from codeverse3d.addons import select
+    from codeverse3d.cost.instrument import run_ledger
+    from codeverse3d.record.record import RecordError
+
+    if by not in ("score", "pairwise"):
+        raise C.CliError(f"--by must be score or pairwise, not {by!r}", code=2)
+    ws = C.open_workspace(slug, runs_dir)
+    # writes deliverable/ + selection.json (a texture pass or a pairwise verdict is paid):
+    # one writer per run dir, and the money joins the run's ledger
+    with (C.mutating(ws, what=f"3dcode pick {ws.root.name}", action="pick"),
+          run_ledger(ws.root, run=ws.root.name, create=False)):
+        try:
+            idx = _pick_and_package(ws, by=by, texture=texture, round_index=round_index, judge_model=judge)
+            rows = select.round_rows(ws.root)
+        except RecordError as e:
+            raise C.CliError(str(e), code=2) from e
+    if idx is None:
+        raise typer.Exit(code=1)
+    console.print(kv_table("rounds (* = picked)", {
+        f"r{r.index:02d}{' *' if r.index == idx else ''}": f"{r.kind:<9} score {C.fmt_score(r.score)}  "
+        f"gate errors {r.gate_errors}  {C.fmt_usd(r.cost_usd)}" for r in rows}))
 
 
 # --------------------------------------------------------------------------- status / render / judge

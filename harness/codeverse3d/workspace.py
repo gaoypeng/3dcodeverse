@@ -222,7 +222,7 @@ class Workspace:
 
     def round_artifacts(self, round_index: int) -> Path:
         """``artifacts/rNN/`` — the round's own copy of the build outputs a hand-over needs
-        (``record.deliverable.keep_round_artifacts``; docs/RUN_LAYOUT.md)."""
+        (``codeverse3d.record.deliverable.keep_round_artifacts``; docs/RUN_LAYOUT.md)."""
         return self.artifacts / f"r{round_index:02d}"
 
     def trajectory_dir(self, stage: str, round_index: int) -> Path:

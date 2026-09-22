@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from codeverse3d.contracts.common import Budget, Language, Usage
 from codeverse3d.contracts.plan import StaticPlan
 from codeverse3d.contracts.run import RunStatus
-from codeverse3d.contracts.spec import RunOptions
 from codeverse3d.orchestrator import BudgetExceeded, BudgetGuard, BudgetSnapshot, RunState
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.generation import GenerationTask, generate_files
@@ -94,33 +92,6 @@ def test_build_context_restores_the_budget_snapshot(tmp_path, settings):
     state2.extra["budget_snapshot"] = legacy
     ctx2 = track.build_context(spec, ws, EventLog(ws.events_path), state2)
     assert ctx2.budget.billed_usd == pytest.approx(0.4)
-
-
-def test_the_texture_pass_spend_reaches_the_snapshot_a_resume_restores(tmp_path, chair_plan, settings, monkeypatch):
-    """finalise saved the state BEFORE the texture pass charged, so the snapshot a resume
-    restored was the PRE-texture one and a $0.12 pack simply vanished from the run's money
-    (reproduced 2026-08-30: total_usage 0.217 with cost_by_stage[texture], 0.097 after)."""
-    import codeverse3d.texturing.run as texrun
-
-    monkeypatch.setattr(texrun, "texture_pass",
-                        lambda *a, **kw: SimpleNamespace(usage=Usage(backend="gemini", cost_usd=0.12),
-                                                         summary=lambda: {"shipped": True}))
-    spec = make_spec(max_rounds=0, options=RunOptions(texture=True))
-    ws = Workspace(tmp_path / "runs" / "tex")
-    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)),
-                              agent=FakeAgent(lambda job, ws_: {"src/object.js": "export function build(THREE) "
-                                                                                 "{ return new THREE.Group(); }\n"}),
-                              planner_model=FakeChatModel(lambda req: chair_plan.model_dump(mode="json")),
-                              settings=settings, runtime=FakeRuntime(Language.THREEJS))
-    rec = track.run(spec, ws)
-    assert rec.extra["texturing"] == {"shipped": True}, "the pass must have run at all"
-
-    snap = RunState.load(ws).extra["budget_snapshot"]
-    assert snap["by_stage"]["texture"] == pytest.approx(0.12)
-    assert snap["spent"]["cost_usd"] == pytest.approx(rec.total_usage.cost_usd, abs=1e-6)
-    # and the guard a resume rebuilds starts from that number, not from the pre-texture one
-    ctx = track.build_context(spec, ws, EventLog(ws.events_path), RunState.load(ws))
-    assert ctx.budget.by_stage["texture"] == pytest.approx(0.12)
 
 
 # --------------------------------------------------------------- ordering: single-shot

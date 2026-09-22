@@ -173,6 +173,7 @@ def texture_pass(
     judge_model_id: str | None = None,
     rubric: str | None = None,
     glb_in: Path | None = None,
+    sheet: Path | None = None,
     views: Sequence[ViewPreset] = OBJECT_VIEWS_QUICK,
     size: int = 1024,
     plan_model: Any | None = None,
@@ -189,7 +190,8 @@ def texture_pass(
     textured and no seam failed); ``judge_obj`` replaces the constructed
     ``VlmJudge`` (tests).  ``services`` bundles the five injectable dependencies
     (image_model / plan_model / render / cache_dir / judge_obj); explicit
-    keyword arguments win over the bundle.
+    keyword arguments win over the bundle.  ``sheet`` is the contact sheet the material
+    planner looks at — the round being textured; the latest round's otherwise.
 
     ``normalise=True`` first runs the deterministic material normaliser
     (:func:`codeverse3d.texturing.apply.normalise_materials`) over the input GLB,
@@ -213,8 +215,8 @@ def texture_pass(
     notes: list[str] = []
     events.emit("texture.start", model=model_id, glb=glb_in.name)
 
-    # 1. renders for the planner (reuse the latest sheet; else a quick render)
-    sheet = latest_sheet(ws)
+    # 1. renders for the planner (the round's own sheet, else the latest; else a quick render)
+    sheet = sheet if sheet is not None and Path(sheet).is_file() else latest_sheet(ws)
     if sheet is None:
         rs = _render_quick(glb_in, tex_dir / "planner_views", views, render)
         sheet = Path(rs.contact_sheet) if rs.contact_sheet else (Path(rs.views[0].path) if rs.views else None)

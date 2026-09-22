@@ -5,7 +5,6 @@ from __future__ import annotations
 from codeverse3d.contracts.artifacts import BuildResult, RenderSet, RenderView
 from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import ScenePlan
-from codeverse3d.contracts.run import RunStatus
 from codeverse3d.contracts.spec import RunOptions
 from codeverse3d.orchestrator import RefineTask, RunState, plan_refine_groups
 from codeverse3d.proc import EventLog
@@ -15,12 +14,9 @@ from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
-    FakeAgent,
     FakeChatModel,
-    FakeJudge,
     FakeRuntime,
     FakeServices,
-    _planner,
 )
 
 
@@ -60,31 +56,6 @@ def test_candidate_width_precedence(tmp_path, settings):
                               runtime=FakeRuntime(Language.THREEJS), n_candidates=3)
     ctx = track.build_context(spec, ws, EventLog(ws.events_path), RunState())
     assert ctx.policy.n_candidates == 3
-
-
-def test_options_texture_triggers_texture_pass(tmp_path, chair_plan, settings, monkeypatch):
-    calls = {}
-
-    def fake_texture_pass(ws, spec, plan, **kw):
-        from types import SimpleNamespace
-
-        from codeverse3d.contracts.common import Usage
-
-        calls["ws"] = str(ws.root)
-        return SimpleNamespace(usage=Usage(backend="fake", cost_usd=0.01), summary=lambda: {"shipped": True})
-
-    import codeverse3d.texturing.run as trun
-
-    monkeypatch.setattr(trun, "texture_pass", fake_texture_pass)
-    spec = make_spec(max_rounds=0, options=RunOptions(texture=True))
-    ws = Workspace(tmp_path / "runs" / "r")
-    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.9,)), agent=FakeAgent(_writer),
-                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
-                              runtime=FakeRuntime(Language.THREEJS))
-    rec = track.run(spec, ws)
-    assert rec.status is RunStatus.MAX_ROUNDS
-    assert calls, "options.texture must run the texture pass without the legacy tag"
-    assert rec.extra.get("texturing") == {"shipped": True}
 
 
 # --------------------------------------------------------------------- judge-view flags (F30 consumption)

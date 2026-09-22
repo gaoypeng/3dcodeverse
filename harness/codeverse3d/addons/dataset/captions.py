@@ -161,8 +161,8 @@ def caption_sample(
     """Caption the best round of ``record``.
 
     Default: store into ``record.extra["captions"]`` + ``<ws>/captions.json`` and
-    re-package the run (``package_run``: deliverable/, telemetry/, ``record.json``) —
-    a caption changes all three.  With ``out_dir`` the workspace is left untouched and
+    refresh what a caption changes: telemetry/ (``package_run``), ``record.json``, and
+    ``deliverable/`` when a round has been packaged (it carries captions.json).  With ``out_dir`` the workspace is left untouched and
     ``<out_dir>/<slug>.json`` (captions + provenance) is written instead — ``slug``
     should be the run's :class:`~codeverse3d.contracts.run.RunId` slug; without one the
     side-car falls back to the directory basename (flat layouts only: every nested
@@ -210,11 +210,15 @@ def caption_sample(
         out.mkdir(parents=True, exist_ok=True)
         (out / f"{slug or ws.root.name}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False))
         return caps
+    from codeverse3d.record.deliverable import build_deliverable, load_deliverable
     from codeverse3d.record.record import package_run
 
     ws.write_json(ws.root / "captions.json", payload)
-    package_run(ws, record)  # captions.json + cost.json + the manifest all go stale otherwise
+    package_run(ws, record)  # cost.json goes stale otherwise
     ws.write_json(ws.record_path, record)
+    handed = load_deliverable(ws)
+    if handed is not None and handed.round is not None:  # ... and the hand-over's captions.json + manifest
+        build_deliverable(ws, record, handed.round)
     return caps
 
 
