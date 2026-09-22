@@ -50,7 +50,8 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
 - Gemini keys: `~/.config/astra3d/gemini_keys.env` (21 keys) → `get_settings().gemini_api_keys`
   (or `GEMINI_API_KEYS` / `GEMINI_API_KEY` env).  Settings: `~/.config/3dcodeverse/config.yaml`
   or `./3dcodeverse.yaml`, env prefix `C3D_` (the pre-D78 `CV3D_*` names are still read) (`C3D_RENDER__GPU=off`, `C3D_RUNS_DIR=…`,
-  `C3D_DEFAULT_CANDIDATES=2`).
+  `C3D_DEFAULT_CANDIDATES=2`).  Every `C3D_*` switch is a `Settings` field read through `get_settings()`
+  where it is used — never read the environment by hand (one grammar: docs/INSTALL.md §8.3).
 - Blender 5.0.1 headless: `~/.local/bin/blender-5.0` (always `--factory-startup`; clear scene).
 - Node 24 (floor 20.6) + `runtime_js/node_modules` (three@0.182, puppeteer; chrome cached).  Headless
   Chrome WebGL uses the GPU on WSL2 with `--use-angle=gl-egl` + Mesa d3d12 env (see
