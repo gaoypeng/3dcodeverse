@@ -141,7 +141,7 @@ def test_planner_validates_retries_and_writes(tmp_ws):
     model = FakeChatModel(lambda req: answers.pop(0))
     events = EventLog(tmp_ws.events_path)
     budget = BudgetGuard(spec.budget)
-    p = plan(spec, "fake:planner", StaticPlan, tmp_ws, model=model, events=events, budget=budget, runtime=FakeRuntime(Language.THREEJS))
+    p = plan(spec, "fake:planner", StaticPlan, tmp_ws, model=model, events=events, budget=budget)
     assert isinstance(p, StaticPlan) and p.object_name == "DiningChair" and tmp_ws.plan_path.is_file()
     assert len(model.requests) == 2 and "failed validation" in model.requests[1].messages[-1].text
     assert model.requests[0].response_schema is not None and "PascalCase" in model.requests[0].system
@@ -166,7 +166,7 @@ def test_planner_validation_reasks_and_ceiling(tmp_ws):
 
     answers = [{"object_name": "X"}, {"object_name": "Y"}, _valid_plan_dict()]
     model = FakeChatModel(lambda req: answers.pop(0))
-    p = plan(make_spec(), "fake:planner", StaticPlan, tmp_ws, model=model, runtime=FakeRuntime(Language.THREEJS))
+    p = plan(make_spec(), "fake:planner", StaticPlan, tmp_ws, model=model)
     assert p.object_name == "DiningChair" and len(model.requests) == 3
     assert all("failed validation" in r.messages[-1].text for r in model.requests[1:])
 

@@ -21,7 +21,6 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, ZonePlan
 from codeverse3d.conventions import to_pascal, to_snake
-from codeverse3d.languages._docs import RuntimeDocs
 from codeverse3d.languages._js_lint import (
     ImportKind,
     ImportVerdict,
@@ -678,7 +677,7 @@ def assemble(ws: Workspace, plan: ScenePlan | None = None, *, cameras: str = "de
 # ===================================================================== runtime
 
 
-class SceneThreeJsRuntime(RuntimeDocs):
+class SceneThreeJsRuntime:
     language = Language.SCENE_THREEJS
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.SCENE_THREEJS], "src/zones/*.js", "src/assets/*.js", "src/env.js", "src/shaders/*.js")
 

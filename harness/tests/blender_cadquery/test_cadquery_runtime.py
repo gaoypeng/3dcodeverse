@@ -21,6 +21,7 @@ from codeverse3d.languages.cadquery import (
     cadquery_skeleton_source,
     lint_cadquery_source,
 )
+from codeverse3d.prompts.catalog import language_text
 from tests.blender_cadquery.conftest import has_cadquery
 
 needs_cq = pytest.mark.skipif(not has_cadquery(), reason="cadquery not importable")
@@ -29,7 +30,7 @@ needs_cq = pytest.mark.skipif(not has_cadquery(), reason="cadquery not importabl
 def test_protocol_and_contract() -> None:
     rt = get_runtime("cadquery")
     assert isinstance(rt, CadQueryRuntime) and isinstance(rt, LanguageRuntime)
-    assert "cq.Assembly" in rt.contract_doc() and rt.entry_globs == ("src/model.py",)
+    assert "cq.Assembly" in language_text(rt.language, "contract.md") and rt.entry_globs == ("src/model.py",)
     cmd = rt.build_command(__import__("codeverse3d.workspace", fromlist=["Workspace"]).Workspace("/tmp/x"), seed=1)
     assert cmd[0] == sys.executable and cmd[1] == str(WRAPPER) and "--seed" in cmd
 

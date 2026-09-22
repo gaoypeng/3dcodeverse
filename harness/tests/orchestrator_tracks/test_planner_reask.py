@@ -9,7 +9,7 @@ from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import ArticulatedPlan
 from codeverse3d.tracks.planner import plan, plan_example
 from tests.orchestrator_tracks.conftest import make_spec
-from tests.orchestrator_tracks.fakes import FakeChatModel, FakeRuntime
+from tests.orchestrator_tracks.fakes import FakeChatModel
 
 
 def _good() -> dict:
@@ -42,7 +42,7 @@ def test_every_moving_joint_gets_an_articulation_acceptance_item(tmp_ws):
     assert [a.id for a in articulation_acceptance(plan_obj, plan_obj.acceptance)] == ["art_lid"]
     # and the full planner path appends them exactly once
     model = FakeChatModel(lambda req: good)
-    p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model, runtime=FakeRuntime(Language.URDF_BLENDER))
+    p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model)
     ids = [a.id for a in p.acceptance]
     assert ids.count("art_drawer") == 1 and ids.count("art_lid") == 1
 
@@ -57,7 +57,7 @@ def test_validation_reask_names_the_missing_parts_when_the_plan_is_thin(tmp_ws):
     thin["root_link"] = "NoSuchLink"         # a plain validation failure to trigger the re-ask
     answers = [thin, _good()]
     model = FakeChatModel(lambda req: answers.pop(0))
-    p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model, runtime=FakeRuntime(Language.URDF_BLENDER))
+    p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model)
     assert isinstance(p, ArticulatedPlan) and len(model.requests) == 2
     reask = model.requests[1].messages[-1].text
     assert "failed validation" in reask and "lists only 1 part(s)" in reask and "needs about" in reask
@@ -69,7 +69,7 @@ def test_schema_echo_is_named_in_the_reask(tmp_ws):
     echo["joints"][0]["axis"] = [0, 0, 0]
     answers = [echo, _good()]
     model = FakeChatModel(lambda req: answers.pop(0))
-    p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model, runtime=FakeRuntime(Language.URDF_BLENDER))
+    p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model)
     assert isinstance(p, ArticulatedPlan) and len(model.requests) == 2
     reask = model.requests[1].messages[-1].text
     assert "echoes the schema" in reask and "joints[0].name" in reask and "zero axis" not in reask

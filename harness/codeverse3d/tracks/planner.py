@@ -40,7 +40,7 @@ from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc, to_pascal, to_sna
 from codeverse3d.models.schema_utils import parse_json_lenient
 from codeverse3d.proc import sha256_file
 from codeverse3d.prompts import load_text, prompt_hash, render
-from codeverse3d.tracks.common import language_contract
+from codeverse3d.prompts.catalog import language_text
 from codeverse3d.tracks.prompting import constraints_text
 from codeverse3d.workspace import Workspace
 
@@ -812,7 +812,7 @@ def plan_event_stats(plan_obj: Any) -> dict[str, Any]:
 
 
 def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Workspace, *, model: Any | None = None,
-         events: Any | None = None, budget: Any | None = None, runtime: Any | None = None) -> P:
+         events: Any | None = None, budget: Any | None = None) -> P:
     """Plan and write ``ws.plan_path``: optional brief expansion → one structured planner
     call → re-asks (schema, quality, a degenerate-plan restart).  ``model`` may be injected (tests).
     Everything that differs per track is looked up from ``spec.track`` (module docstring);
@@ -849,7 +849,7 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
             guard.add(usage, stage="plan")
     budget = plan_budget(spec, brief)
     unit = "passes" if spec.track is Track.GRAPHICS else "parts"
-    system = build_system_prompt(spec, plan_model, runtime=runtime, budget=budget)
+    system = build_system_prompt(spec, plan_model, budget=budget)
     user = build_user_prompt(spec, brief=brief, budget=budget, unit=unit)
     images = [ImagePart(path=r.path, label=f"{r.role}: {r.note}".strip(": ")) for r in spec.references]
     messages = [ChatMessage.user(user, images=images or None)]
@@ -967,8 +967,7 @@ def _echo(raw: Any, text: str) -> ChatMessage:
 
 
 # ----------------------------------------------------------------------------- prompts
-def build_system_prompt(spec: Spec, plan_model: type[BaseModel], *, runtime: Any | None = None,
-                        budget: PlanBudget | None = None) -> str:
+def build_system_prompt(spec: Spec, plan_model: type[BaseModel], *, budget: PlanBudget | None = None) -> str:
     lang: Language = spec.language
     budget = budget or plan_budget(spec)
     return render(
@@ -976,7 +975,7 @@ def build_system_prompt(spec: Spec, plan_model: type[BaseModel], *, runtime: Any
         track=spec.track.value,
         language=lang.value,
         frame_doc=frame_doc(LANGUAGE_FRAME[lang.value]),
-        contract=language_contract(lang, runtime),
+        contract=language_text(lang, "contract.md"),
         example_json=json.dumps(plan_example(spec.track), indent=1),
         schema_fields=", ".join(plan_model.model_json_schema().get("properties", {}).keys()),
         target_parts=budget.target_parts,

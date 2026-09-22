@@ -2,8 +2,9 @@
 
 A runtime knows how to (1) lay down starter files for a plan, (2) statically
 lint agent code for known pitfalls, (3) execute it in a sandboxed subprocess
-and export the canonical artifact(s), (4) describe its authoring contract to
-prompts.  Runtimes never import agent code into the harness process.
+and export the canonical artifact(s).  Its authoring contract is prompt material
+(``prompts/<lang>/contract.md``, found by ``prompts.catalog.language_prompt``).
+Runtimes never import agent code into the harness process.
 """
 
 from __future__ import annotations
@@ -34,10 +35,6 @@ class LanguageRuntime(Protocol):
 
     def build(self, ws: Workspace, *, timeout_s: int | None = None) -> BuildResult:
         """Execute the code in a subprocess; export ``artifacts/object.glb`` (+extras)."""
-        ...
-
-    def contract_doc(self) -> str:
-        """Prompt text: the authoring contract for this language (from prompts/<lang>/)."""
         ...
 
 

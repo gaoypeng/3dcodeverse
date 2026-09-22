@@ -209,7 +209,11 @@ rt.language; rt.entry_globs
 rt.lint(ws) -> GateReport                              # gate = "lint:<language>"
 rt.build(ws, *, timeout_s=None, **per_runtime) -> BuildResult   # Δ BuildResult.error_file is WORKSPACE-relative for
 rt.skeleton(ws, plan) -> list[Path]                    #   every runtime ("src/model.py", "src/parts/leg.py", "src/helpers.py")
-rt.contract_doc() -> str                               # cookbook path: tracks/common.cookbook_rel_for (no runtime hook)
+from codeverse3d.prompts.catalog import language_prompt, language_text
+language_prompt(language, name) -> str   # "<dir>/<name>" under prompts/ (urdf_blender → urdf/): THE per-language prompt
+language_text(language, name) -> str     # its text, "" for a file the language does not ship (Δ 2026-09-22: replaces
+    # LanguageRuntime.contract_doc / RuntimeDocs, tracks/common.language_contract / cookbook_rel_for / load_prompt_or,
+    # tracks/prompting.effects_catalog_text; planner.plan / build_system_prompt take no runtime=)
 BuildResult.error_type spellings (languages/_common.py): MISSING_ENTRY = "MissingEntryFile" (every runtime, threejs'
     export_glb.mjs included) · BUILD_TIMEOUT = "BuildTimeout" (compose_build_result, threejs, urdf)
 ```

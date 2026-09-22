@@ -77,9 +77,6 @@ class FakeGlRuntime:
         res = GlResult(ok=True, mode="shader", stage="render", renderer="fake-gl", frames=frames)
         return finish_build(ws, res, language="glsl_shader", census={"convention": "mainImage"})
 
-    def contract_doc(self) -> str:
-        return "FAKE glsl_shader authoring contract"  # the runtime's contract_doc is what the prompt sees
-
 
 def _writer(job, ws):
     body = "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n  vec2 uv = fragCoord / u_resolution.xy;\n"

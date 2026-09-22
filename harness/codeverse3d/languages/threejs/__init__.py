@@ -15,7 +15,6 @@ from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import Plan, StaticPlan
 from codeverse3d.conventions import to_pascal, to_snake
 from codeverse3d.languages._common import BUILD_TIMEOUT
-from codeverse3d.languages._docs import RuntimeDocs
 from codeverse3d.languages._js_lint import (
     ImportKind,
     ImportVerdict,
@@ -338,7 +337,7 @@ BUILD_JSON = "build.json"
 NODE_MEM_LIMIT_GB = 8.0  # RLIMIT_AS for the export process (geometry-bomb protection)
 
 
-class ThreeJsRuntime(RuntimeDocs):
+class ThreeJsRuntime:
     """LanguageRuntime for ``Language.THREEJS`` (raw ESM three.js, exported via node)."""
 
     language = Language.THREEJS

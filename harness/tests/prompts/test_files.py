@@ -68,21 +68,25 @@ def test_system_prompts_cover_the_laws() -> None:
     # is true by construction and this assertion was checking a file nobody read.
 
 
-def test_every_language_ships_a_system_prompt() -> None:
-    """The generator's system prompt is per LANGUAGE and lives in the prompt corpus.
+def test_every_language_ships_a_system_prompt_a_contract_and_a_cookbook() -> None:
+    """The generator's system prompt, the authoring contract and the cookbook are per
+    LANGUAGE and live in the prompt corpus, found by ``prompts.catalog.language_prompt``.
 
-    It used to be an f-string in each track class, and the three static-object
+    The system prompt used to be an f-string in each track class, and the three static-object
     languages shared one sentence with the name swapped in — bpy mesh modelling,
     CadQuery's B-rep workplanes and three.js BufferGeometry, told the same thing.
-    A missing file here means a language silently falls back to nothing.
+    A missing file here means a language silently falls back to nothing (``language_text``
+    reads a file a language does not ship as "").
     """
     from codeverse3d.contracts.common import Language
-    from codeverse3d.prompts.catalog import prompt_dir_for
+    from codeverse3d.prompts.catalog import language_prompt
     from codeverse3d.tracks.prompting import language_system_prompt
 
     for lang in Language:
         text = language_system_prompt(lang)
         assert text.strip(), f"{lang.value}: empty system prompt"
-        assert (PROMPTS_DIR / prompt_dir_for(lang) / "system.md").is_file(), lang.value
+        for name in ("system.md", "contract.md", "cookbook.md"):
+            assert (PROMPTS_DIR / language_prompt(lang, name)).is_file(), (lang.value, name)
+    assert language_prompt(Language.URDF_BLENDER, "cookbook.md") == "urdf/cookbook.md"
     for role in ("scope", "repair"):
         assert (PROMPTS_DIR / "system" / f"role_{role}.j2").is_file(), role

@@ -129,9 +129,6 @@ class FakeRuntime:
         return BuildResult(ok=True, language=self.language.value, glb_path=str(glb), extra_paths=extras,
                            census={"objects": [p["name"] for p in parts]})
 
-    def contract_doc(self) -> str:
-        return f"FAKE CONTRACT for {self.language.value}"
-
 
 # ----------------------------------------------------------------------------- agent / model
 class FakeAgent:

@@ -31,7 +31,6 @@ from codeverse3d.languages._ast_lint import (
     safe_parse,
 )
 from codeverse3d.languages._common import ProcResult, compose_build_result, strip_blender_noise
-from codeverse3d.languages._docs import RuntimeDocs
 from codeverse3d.proc import run_subprocess
 from codeverse3d.spatial.joints import (
     UrdfError,
@@ -753,7 +752,7 @@ FK_TOL_M = 0.001
 STAGED_OUTPUTS = ("build.json", "census.json", "meshes", "robot.urdf", "articulation.json", "object.glb")
 
 
-class UrdfBlenderRuntime(RuntimeDocs):
+class UrdfBlenderRuntime:
     language = Language.URDF_BLENDER
     entry_globs = (ENTRY_FILE[Language.URDF_BLENDER], "src/robot.urdf")
 

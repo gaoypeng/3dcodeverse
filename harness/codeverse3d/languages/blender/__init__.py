@@ -21,7 +21,6 @@ from codeverse3d.languages._ast_lint import (
     safe_parse,
 )
 from codeverse3d.languages._common import MISSING_ENTRY, compose_build_result, strip_blender_noise
-from codeverse3d.languages._docs import RuntimeDocs
 from codeverse3d.proc import run_subprocess, scrub_secrets
 from codeverse3d.workspace import Workspace
 
@@ -694,7 +693,7 @@ def blender_env() -> dict[str, str]:
     return env
 
 
-class BlenderRuntime(RuntimeDocs):
+class BlenderRuntime:
     """LanguageRuntime for ``Language.BLENDER``."""
 
     language = Language.BLENDER

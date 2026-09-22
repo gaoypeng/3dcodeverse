@@ -124,9 +124,6 @@ class _FakeRuntime:
         ws.write_json(ws.artifacts / "build.json", res)
         return res
 
-    def contract_doc(self):
-        return "# Fake contract\n\n## Export\nthe harness exports.\n"
-
 
 def _patch_runtime(monkeypatch: pytest.MonkeyPatch, rt: _FakeRuntime) -> None:
     import codeverse3d.languages as langs

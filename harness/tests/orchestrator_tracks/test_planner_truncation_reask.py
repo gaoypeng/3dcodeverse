@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.plan import StaticPlan
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.planner import TRUNCATION_NOTE, plan
 from tests.orchestrator_tracks.conftest import make_spec
-from tests.orchestrator_tracks.fakes import FakeChatModel, FakeRuntime
+from tests.orchestrator_tracks.fakes import FakeChatModel
 from tests.orchestrator_tracks.test_generation_planner_repair import _valid_plan_dict
 
 
@@ -22,8 +21,7 @@ def test_truncation_retries_compact_with_low_thinking(tmp_ws):
 
     model = FakeChatModel(respond)
     events = EventLog(tmp_ws.events_path)
-    p = plan(make_spec(), "fake:planner", StaticPlan, tmp_ws, model=model, events=events,
-             runtime=FakeRuntime(Language.THREEJS))
+    p = plan(make_spec(), "fake:planner", StaticPlan, tmp_ws, model=model, events=events)
     assert p.object_name == "DiningChair" and len(model.requests) == 2
     first, second = model.requests
     assert first.thinking == "medium" and second.thinking == "off"

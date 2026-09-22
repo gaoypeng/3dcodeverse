@@ -16,7 +16,6 @@ from codeverse3d.languages._ast_lint import (
     safe_parse,
 )
 from codeverse3d.languages._common import MISSING_ENTRY
-from codeverse3d.languages._docs import RuntimeDocs
 from codeverse3d.languages._gl_common import (
     finish_build,
     invalidate_stale_outputs,
@@ -336,7 +335,7 @@ def write_skeleton(ws: Workspace, plan: Plan | None) -> list[Path]:
 
 
 # ===================================================================== runtime
-class OpenGLPythonRuntime(RuntimeDocs):
+class OpenGLPythonRuntime:
     language = Language.OPENGL_PYTHON
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.OPENGL_PYTHON], "src/*.glsl")
 

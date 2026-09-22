@@ -12,6 +12,7 @@ from codeverse3d.contracts.common import Language
 from codeverse3d.languages import get_runtime
 from codeverse3d.languages.urdf import UrdfBlenderRuntime
 from codeverse3d.proc import ProcResult
+from codeverse3d.prompts.catalog import language_text
 from codeverse3d.workspace import Workspace
 from tests.urdf_joints.conftest import box_glb
 
@@ -62,7 +63,7 @@ def _two_link(plan):
 def test_registry_and_contract():
     rt = get_runtime(Language.URDF_BLENDER)
     assert isinstance(rt, UrdfBlenderRuntime) and rt.entry_globs == ("src/model.py", "src/robot.urdf")
-    doc = rt.contract_doc()
+    doc = language_text(rt.language, "contract.md")  # prompts/urdf/contract.md
     assert "meshes/<link>.glb" in doc and "pivot" in doc
 
 

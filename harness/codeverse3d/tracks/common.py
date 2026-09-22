@@ -24,11 +24,9 @@ from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import CameraPlan, Plan
 from codeverse3d.contracts.run import RunRecord
 from codeverse3d.conventions import ViewPreset
-from codeverse3d.languages import get_runtime
 from codeverse3d.orchestrator import BudgetGuard, RoundPolicy, RunState
 from codeverse3d.proc import EventLog
-from codeverse3d.prompts import load_text, prompt_hash
-from codeverse3d.prompts.catalog import prompt_dir_for
+from codeverse3d.prompts import prompt_hash
 from codeverse3d.tracks.generation import (
     SINGLE_SHOT_PREFIX,
     GenerationResult,
@@ -242,29 +240,3 @@ def generate_for(ctx: RunContext, task: GenerationTask) -> GenerationResult:
     again.usage = res.usage + again.usage
     again.notes = f"agent session died in a 503 storm ({res.notes[:120]}) → single-shot: {again.notes}"
     return again
-
-
-# ----------------------------------------------------------------------------- prompt helpers
-def load_prompt_or(rel: str, fallback: str) -> str:
-    """``prompts/<rel>`` if it exists, else ``fallback``."""
-    try:
-        return load_text(rel)
-    except FileNotFoundError:
-        return fallback
-
-
-def language_contract(ctx_language: Language, runtime: Any) -> str:
-    """The language authoring contract, as the runtime states it (``LanguageRuntime.contract_doc``
-    reads prompts/<dir>/contract.md).  ONE lookup: a per-language prose fallback here restated
-    frames/units — conventions.py's job (law 2) — and was unreachable anyway."""
-    return (runtime or get_runtime(ctx_language)).contract_doc()
-
-
-def cookbook_rel_for(language: Language) -> str:
-    """prompts/<dir>/cookbook.md.  ``language.value`` is NOT always the directory:
-    urdf_blender's prompts live in prompts/urdf/, so this returned a path that does not
-    exist and the articulated agent was told "No cookbook is available in this session"
-    while its 24 063-character cookbook sat on disk.  Unconditional since 2026-08-29
-    (the C3D_URDF_COOKBOOK A/B switch is gone): every run gets the real cookbook."""
-    return f"{prompt_dir_for(language)}/cookbook.md"
-

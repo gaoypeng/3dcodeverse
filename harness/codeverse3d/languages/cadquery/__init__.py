@@ -22,7 +22,6 @@ from codeverse3d.languages._ast_lint import (
     safe_parse,
 )
 from codeverse3d.languages._common import MISSING_ENTRY, compose_build_result
-from codeverse3d.languages._docs import RuntimeDocs
 from codeverse3d.languages.blender import _fmt, finish_for, instance_centers
 from codeverse3d.proc import run_subprocess, scrub_secrets
 from codeverse3d.workspace import Workspace
@@ -325,7 +324,7 @@ def cadquery_env() -> dict[str, str]:
     return env
 
 
-class CadQueryRuntime(RuntimeDocs):
+class CadQueryRuntime:
     """LanguageRuntime for ``Language.CADQUERY``."""
 
     language = Language.CADQUERY

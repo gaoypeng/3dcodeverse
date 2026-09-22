@@ -10,7 +10,7 @@ from codeverse3d.contracts.common import Language
 from codeverse3d.languages import get_runtime
 from codeverse3d.languages.base import LanguageRuntime
 from codeverse3d.languages.scene_threejs import SceneThreeJsRuntime
-from codeverse3d.prompts import PROMPTS_DIR
+from codeverse3d.prompts.catalog import language_text
 from tests.scene_runtime.conftest import needs_browser
 
 
@@ -20,9 +20,9 @@ def test_runtime_registered_conforms_and_writes_skeleton(ws):
     assert isinstance(rt, LanguageRuntime)
     assert rt.language == Language.SCENE_THREEJS
     assert "src/scene.js" in rt.entry_globs and "src/zones/*.js" in rt.entry_globs
-    doc = rt.contract_doc()
+    doc = language_text(rt.language, "contract.md")
     assert "createScene" in doc and "update(t, dt)" in doc
-    assert "`#include <...>` alone on its line" in (PROMPTS_DIR / rt.prompt_dir / "glsl_cookbook.md").read_text()
+    assert "`#include <...>` alone on its line" in language_text(rt.language, "glsl_cookbook.md")
     paths = rt.skeleton(ws, None)
     assert (ws.src / "scene.js") in paths
 

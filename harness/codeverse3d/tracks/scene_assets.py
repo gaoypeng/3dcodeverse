@@ -39,11 +39,10 @@ from codeverse3d.judges.rubrics import is_degraded
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import fan_out, read_json_or_none, write_json_atomic, write_text_atomic
 from codeverse3d.prompts import render
+from codeverse3d.prompts.catalog import language_prompt, language_text
 from codeverse3d.tracks.common import (
     RunContext,
     generate_for,
-    language_contract,
-    load_prompt_or,
     single_shot_ctx,
 )
 from codeverse3d.tracks.generation import GenerationTask, is_single_shot
@@ -412,8 +411,9 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
                     budget=ctx.spec.budget, backends=ctx.spec.backends)
     sub_ws.write_json(sub_ws.spec_path, sub_spec)
     sub = replace(ctx, spec=sub_spec, ws=sub_ws, runtime=runtime, plan=None, track=Track.STATIC_OBJECT,
-                  contract_text=language_contract(Language.BLENDER, runtime), cookbook_rel="blender/cookbook.md",
-                  cookbook_text=load_prompt_or("blender/cookbook.md", ""),
+                  contract_text=language_text(Language.BLENDER, "contract.md"),
+                  cookbook_rel=language_prompt(Language.BLENDER, "cookbook.md"),
+                  cookbook_text=language_text(Language.BLENDER, "cookbook.md"),
                   tool_cards=ctx.services.tool_cards(Track.STATIC_OBJECT.value, Language.BLENDER.value),
                   extra={"scene_brief": ctx.spec.prompt, "scene_style": constraints_text(ctx.spec)})
     sub.plan = hero_plan(sub, asset)
@@ -495,7 +495,7 @@ def hero_plan(sub: RunContext, asset: AssetPlan) -> StaticPlan:
     try:
         model = sub.services.chat_model(sub.spec.backends.planner)
         plan = run_planner(sub.spec, sub.spec.backends.planner, StaticPlan, sub.ws, model=model, events=sub.events,
-                           budget=sub.budget, runtime=sub.runtime)
+                           budget=sub.budget)
         features = hero_features(asset.description)
         if len(plan.parts) <= HERO_THIN_PLAN_PARTS and len(features) > HERO_THIN_PLAN_PARTS:
             # a one-part answer for a prop whose sheet names several features (the windmill got
@@ -505,7 +505,7 @@ def hero_plan(sub: RunContext, asset: AssetPlan) -> StaticPlan:
             sub.events.emit("asset.plan_thin", asset=asset.name, n_parts=len(plan.parts), features=features)
             spec2 = sub.spec.model_copy(update={"constraints": sub.spec.constraints.model_copy(update={"must_have": features})})
             plan = run_planner(spec2, spec2.backends.planner, StaticPlan, sub.ws, model=model, events=sub.events,
-                               budget=sub.budget, runtime=sub.runtime)
+                               budget=sub.budget)
     except Exception as e:  # noqa: BLE001 — PlanningError / outage: the sheet still says what the prop is
         if isinstance(e, BudgetExceeded):
             raise
@@ -711,10 +711,7 @@ def _asset_system(ctx: RunContext, language: Language) -> str:
     asset-module prompt instead of that base.
     """
     if language is Language.SCENE_THREEJS:
-        return load_prompt_or(
-            "scene_threejs/asset.md",
-            "You write ONE self-contained three.js ESM asset module. Raw three.js only; no DOM; no texture loading.",
-        ).strip()
+        return language_text(Language.SCENE_THREEJS, "asset.md").strip()
     return language_system_prompt(Language.BLENDER, role="asset", tools=not is_single_shot(ctx.agent_id))
 
 

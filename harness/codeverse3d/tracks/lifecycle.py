@@ -40,15 +40,10 @@ from codeverse3d.orchestrator import (
     plan_refine_groups,
 )
 from codeverse3d.proc import EventLog
-from codeverse3d.prompts import render
+from codeverse3d.prompts import load_text, render
+from codeverse3d.prompts.catalog import language_prompt, language_text
 from codeverse3d.tracks.candidates import run_best_of_n
-from codeverse3d.tracks.common import (
-    RunContext,
-    Services,
-    cookbook_rel_for,
-    language_contract,
-    load_prompt_or,
-)
+from codeverse3d.tracks.common import RunContext, Services
 from codeverse3d.tracks.generation import GenerationTask, single_shot_model_id
 from codeverse3d.tracks.planner import plan as run_planner
 from codeverse3d.tracks.prompting import (
@@ -413,9 +408,9 @@ class BaseTrack:
         ctx = RunContext(spec=spec, ws=ws, events=events, settings=settings, budget=budget, runtime=runtime,
                          services=self.services, state=state, policy=policy, track=self.track, rubric=rubric,
                          agent_id=spec.backends.generator, agent=self._agent, model=self._model)
-        ctx.contract_text = language_contract(spec.language, runtime)
-        ctx.cookbook_rel = cookbook_rel_for(spec.language)
-        ctx.cookbook_text = load_prompt_or(ctx.cookbook_rel, "")
+        ctx.contract_text = language_text(spec.language, "contract.md")
+        ctx.cookbook_rel = language_prompt(spec.language, "cookbook.md")
+        ctx.cookbook_text = language_text(spec.language, "cookbook.md")
         ctx.tool_cards = self.services.tool_cards(self.track.value, spec.language.value)
         for name, text in (("contract", ctx.contract_text), ("cookbook", ctx.cookbook_text)):
             ctx.record_prompt(name, text)
@@ -462,7 +457,7 @@ class BaseTrack:
         ctx.state.save(ctx.ws)
         try:
             plan = run_planner(ctx.spec, ctx.spec.backends.planner, self.plan_model, ctx.ws, model=self._planner_model,
-                               events=ctx.events, budget=ctx.budget, runtime=ctx.runtime)
+                               events=ctx.events, budget=ctx.budget)
         finally:
             self._save_budget(ctx)  # charged on success AND PlanningError
         return plan
@@ -496,7 +491,7 @@ class BaseTrack:
         ctx.events.emit("workspace.materialized", agent_kind=kind)
 
     def agent_contract_md(self, ctx: RunContext) -> str:
-        harness = load_prompt_or("system/harness_contract.md", "")
+        harness = load_text("system/harness_contract.md")
         return (harness + "\n\n" + ctx.contract_text).strip()
 
     # ------------------------------------------------------------------ round loop

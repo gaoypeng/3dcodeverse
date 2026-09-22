@@ -23,7 +23,7 @@ from codeverse3d.tracks.planner import (
     plan_example,
 )
 from tests.orchestrator_tracks.conftest import make_spec
-from tests.orchestrator_tracks.fakes import FakeChatModel, FakeRuntime
+from tests.orchestrator_tracks.fakes import FakeChatModel
 
 
 def _good() -> dict:
@@ -43,8 +43,7 @@ def _spec():
 
 def _run(tmp_ws, answers, events=None):
     model = FakeChatModel(lambda req: answers.pop(0))
-    p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model, events=events,
-             runtime=FakeRuntime(Language.URDF_BLENDER))
+    p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model, events=events)
     return p, model
 
 
@@ -98,8 +97,7 @@ def test_a_restart_costs_an_attempt_not_one_of_the_two_reask_slots(tmp_ws):
     ``restarts=1`` at the validation cap (bench/data/plan_stage/restart_on.jsonl)."""
     model = FakeChatModel(lambda req: _degenerate())
     with pytest.raises(PlanningError):
-        plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model,
-             runtime=FakeRuntime(Language.URDF_BLENDER))
+        plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model)
     assert MAX_PLAN_RESTARTS == 1
     assert len(model.requests) == 4  # first + restart + two re-asks
     # 1 = the request alone (a restart replaces the conversation), then one echo+complaint pair each
@@ -130,8 +128,7 @@ def test_a_rejected_plan_is_written_where_a_dead_run_can_be_read(tmp_ws):
 
     model = FakeChatModel(lambda req: _degenerate())
     with pytest.raises(PlanningError):
-        plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model,
-             runtime=FakeRuntime(Language.URDF_BLENDER))
+        plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model)
 
     written = sorted((tmp_ws.root / INVALID_PLAN_DIR).glob("attempt*.json"))
     assert len(written) == 4, [p.name for p in written]      # one per rejected answer

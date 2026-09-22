@@ -19,6 +19,7 @@ from codeverse3d.languages.blender import (
     blender_env,
     lint_blender_file,
 )
+from codeverse3d.prompts.catalog import language_text
 
 FAKE_BLENDER = """#!/usr/bin/env python3
 import json, os, sys
@@ -44,7 +45,8 @@ def test_protocol_and_registry() -> None:
     assert isinstance(rt, BlenderRuntime) and isinstance(rt, LanguageRuntime)
     assert rt.entry_globs == ("src/model.py", "src/parts/*.py") and rt.language.value == "blender"
     assert rt.file_for_part("Seat Cushion") == "src/parts/seat_cushion.py"  # tracks call this via getattr
-    assert "bpy" in rt.contract_doc() and "Z is up" in rt.contract_doc()
+    contract = language_text(rt.language, "contract.md")
+    assert "bpy" in contract and "Z is up" in contract
 
 
 def test_missing_binary_raises(tmp_ws) -> None:

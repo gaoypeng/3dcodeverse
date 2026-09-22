@@ -11,7 +11,6 @@ from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import GraphicsPlan, Plan
 from codeverse3d.languages._common import MISSING_ENTRY
-from codeverse3d.languages._docs import RuntimeDocs
 from codeverse3d.languages._gl_common import (  # noqa: F401 — re-exported
     GlslMessage,
     LineMap,
@@ -379,7 +378,7 @@ def write_skeleton(ws: Workspace, plan: Plan | None) -> list[Path]:
 
 
 # ===================================================================== runtime
-class GlslShaderRuntime(RuntimeDocs):
+class GlslShaderRuntime:
     language = Language.GLSL_SHADER
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.GLSL_SHADER], COMMON, BUFFER_A)
 

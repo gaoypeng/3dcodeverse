@@ -8,6 +8,7 @@ import pytest
 
 from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse3d.languages.threejs import ThreeJsRuntime, write_skeleton
+from codeverse3d.prompts.catalog import language_text
 from codeverse3d.workspace import Workspace
 
 
@@ -51,7 +52,7 @@ def test_runtime_protocol_surface():
     rt = ThreeJsRuntime()
     assert rt.language.value == "threejs"
     assert rt.entry_globs == ("src/object.js", "src/parts/*.js")
-    doc = rt.contract_doc()
+    doc = language_text(rt.language, "contract.md")  # the contract is prompt material (prompts/catalog)
     assert "build" in doc and "three" in doc.lower()
 
 

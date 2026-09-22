@@ -115,9 +115,10 @@ codeverse3d/
                       blender/ cadquery/ threejs/ urdf/ scene_threejs/ glsl_shader/ opengl_python/ are each
                       a single __init__.py (lint → skeleton → runtime, in dependency order) beside their
                       data (starter/, opengl_python/wrappers/run_gl.py; the contract text is
-                      prompts/<lang>/contract.md, read through RuntimeDocs); wrappers/ holds the python
-                      build wrappers (run_bpy, run_bpy_links, run_cq) and what they share
-                      (_wrapper_common: script run + error mapping + report; _census: the Blender census)
+                      prompts/<lang>/contract.md, found like every per-language prompt file by
+                      prompts/catalog.language_prompt — a runtime holds no prompt text); wrappers/
+                      holds the python build wrappers (run_bpy, run_bpy_links, run_cq) and what they
+                      share (_wrapper_common: script run + error mapping + report; _census: the Blender census)
   spatial/            node.py, render.py, observe.py, tool_common.py (shared tool plumbing),
                       render_scene.py (judge view subset, content-fitted orbit),
                       frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),
@@ -230,8 +231,11 @@ codeverse3d/
                       opengl_python/), system/* (harness contract, single-shot envelope,
                       role_{scope,asset,repair}.j2), texturing/*.md, tracks/*.j2.
                       catalog.py answers "what exists and how does each piece reach the model"
-                      — including the ONE language-id → prompts/<dir> mapping, which used to be
-                      copied four times and missing in a fifth.  sections.py splits that
+                      — including the ONE per-language lookup, language_prompt(language, name) /
+                      language_text: contract.md, cookbook.md, system.md, effects_catalog.md, asset.md
+                      (the prompts/<dir> mapping used to be copied four times and missing in a fifth;
+                      until 2026-09-22 the contract came through the runtime, the cookbook through
+                      tracks/common, the system prompt and the catalog through tracks/prompting).  sections.py splits that
                       markdown into chapters so a STAGE can name the recipes it needs.
                       The other half of the split: codeverse3d/skills/ is what an AGENT chooses
                       to read (SKILL.md + references/ + a _claims file pinning its numbers to

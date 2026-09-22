@@ -20,7 +20,7 @@ from codeverse3d.contracts.plan import Plan, StaticPlan
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc, to_authoring_frame, to_snake
 from codeverse3d.prompts import render
-from codeverse3d.prompts.catalog import prompt_dir_for
+from codeverse3d.prompts.catalog import language_prompt, language_text
 from codeverse3d.tracks.common import RunContext
 from codeverse3d.tracks.depth import DepthBudget, PartScope, depth_budget, interfaces_text
 from codeverse3d.tracks.generation import SINGLE_SHOT_FORMAT
@@ -258,13 +258,12 @@ def language_system_prompt(language: Language, *, role: str = "", tools: bool = 
     and three.js BufferGeometry share almost nothing but the word "3D".  Per language, in
     the prompt corpus, so the seven can diverge and be edited without touching code.
     """
-    d = prompt_dir_for(language)
     # rendered, not read raw: a system prompt that tells a SINGLE-SHOT session to call
     # gl_probe is instructing something it has no tools to do, and the self-check loop is
     # the whole point of the graphics prompt.  `tools` lets the file say so itself.
     # (The v0 two-sentence arm of the system-prompt A/B was retired 2026-08-29: a
     # three-way null, eval/docs/EVAL.md.)
-    base = render(f"{d}/system.md", tools=tools).strip()
+    base = render(language_prompt(language, "system.md"), tools=tools).strip()
     if not role:
         return base
     # roles COMPOSE with the language base rather than replacing it.  Replacing was the
@@ -272,25 +271,6 @@ def language_system_prompt(language: Language, *, role: str = "", tools: bool = 
     # the self-check loop, the sampled-time contract — absent from exactly the stage that
     # violates it: the repair pass.
     return base + "\n\n" + render(f"system/role_{role}.j2", language=language.value, **vars).strip()
-
-
-#: the want -> call table for the shipped effect library, per language.  Only
-#: scene_threejs ships one (D51); everything else gets "" and its templates render
-#: byte-identically to before.
-EFFECTS_CATALOG_REL: dict[Language, str] = {
-    Language.SCENE_THREEJS: "scene_threejs/effects_catalog.md",
-}
-
-
-def effects_catalog_text(language: Language) -> str:
-    """``prompts/<lang>/effects_catalog.md`` — the library table, or "" for a
-    language that ships no library."""
-    rel = EFFECTS_CATALOG_REL.get(language)
-    if not rel:
-        return ""
-    from codeverse3d.tracks.common import load_prompt_or
-
-    return load_prompt_or(rel, "")
 
 
 def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
@@ -331,9 +311,9 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         # for the control arm
         "turn_discipline": TURN_DISCIPLINE if (fewer_turns_enabled() and not ctx.single_shot) else "",
         # The want -> call table for the effect library that ships in every
-        # scene_threejs workspace (D51).  "" for every other language, so the
-        # templates that carry it stay byte-identical elsewhere.
-        "effects_catalog": effects_catalog_text(ctx.language),
+        # scene_threejs workspace (D51).  "" for every other language (no such file), so
+        # the templates that carry it stay byte-identical elsewhere.
+        "effects_catalog": language_text(ctx.language, "effects_catalog.md"),
     }
     d.update(extra)
     return d

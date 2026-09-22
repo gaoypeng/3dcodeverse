@@ -131,12 +131,12 @@ def test_the_effects_catalog_reaches_the_scene_prompts_and_only_those():
     asset session inside a scene run must not be told to import three.js modules."""
     from codeverse3d.contracts.common import Language
     from codeverse3d.prompts import PROMPTS_DIR
-    from codeverse3d.tracks.prompting import effects_catalog_text
+    from codeverse3d.prompts.catalog import language_text
 
-    text = effects_catalog_text(Language.SCENE_THREEJS)
+    text = language_text(Language.SCENE_THREEJS, "effects_catalog.md")
     assert "makeGrass" in text and "makeCanopy" in text and "lib/shader.js" in text
-    assert effects_catalog_text(Language.BLENDER) == ""
-    assert effects_catalog_text(Language.GLSL_SHADER) == ""
+    assert language_text(Language.BLENDER, "effects_catalog.md") == ""
+    assert language_text(Language.GLSL_SHADER, "effects_catalog.md") == ""
 
     tpl = PROMPTS_DIR / "tracks"
     for name in ("scene_env.j2", "scene_zone.j2", "scene_refine.j2"):
