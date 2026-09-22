@@ -777,8 +777,6 @@ class SceneThreeJsRuntime:
         # census.json is only rewritten `if census:` below, so it MUST be wiped here
         ws.stage_artifacts("census.json", "scene_probe.json", "shader_preflight.json", "build.json").invalidate()
         probe, shaders, census = _probe_and_preflight(ws, timeout_s=tmo)
-        if census and probe.passed:
-            _ablation_into(ws, census)
         if census:
             (ws.artifacts / "census.json").write_text(json.dumps(census, indent=1))
         gates_dir = ws.artifacts / "gates"
@@ -810,27 +808,6 @@ class SceneThreeJsRuntime:
         )
         ws.write_json(ws.artifacts / "build.json", res)
         return res
-
-
-def _ablation_into(ws: Workspace, census: dict[str, Any]) -> None:
-    """Opt-in (``C3D_ABLATION``): measure how much of the frame the scene's custom
-    shaders actually paint and put it in the census, so the scene gates and the
-    judge context read "the effect contributes N%" instead of "N custom materials
-    compiled".  A second browser boot with its own renders, hence a switch and not
-    a default; instrumentation never breaks a build, so every failure is swallowed
-    into a census note.  Details: ``spatial/ablation.py``."""
-    from codeverse3d.config import env_flag
-
-    if not env_flag("C3D_ABLATION", False):
-        return
-    from codeverse3d.spatial.ablation import CENSUS_FIELD, ablate_scene
-
-    try:
-        report = ablate_scene(ws, frames=False)
-    except Exception as e:  # noqa: BLE001 — an instrument must never fail a build
-        census[CENSUS_FIELD] = {"error": f"{type(e).__name__}: {e}"[:300]}
-        return
-    census[CENSUS_FIELD] = report.census_field()
 
 
 def _probe_and_preflight(ws: Workspace, *, timeout_s: float) -> tuple[GateReport, GateReport, dict]:

@@ -295,7 +295,6 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, ws, tmp_path
     settle / camera-repair / auto-exposure flags as the standalone probe and
     render paths — it used to pass none of them."""
     import codeverse3d.languages.scene_threejs as st
-    import codeverse3d.spatial.ablation as ablation_mod
     import codeverse3d.spatial.probes as probes_mod
 
     captured: dict[str, list[str]] = {}
@@ -306,7 +305,6 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, ws, tmp_path
 
     monkeypatch.setattr(probes_mod, "run_scene_script", fake_run)
     monkeypatch.setattr(rs_mod, "run_scene_script", fake_run)
-    monkeypatch.setattr(ablation_mod, "run_scene_script", fake_run)
     for k in ("C3D_SETTLE", "C3D_CAMERA_REPAIR", "C3D_AUTO_EXPOSURE", "C3D_POST"):
         monkeypatch.delenv(k, raising=False)
 
@@ -319,20 +317,11 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, ws, tmp_path
         render_scene(ws, tmp_path / "out_flags", cameras=[CameraPlan(name="c", position=(1, 2, 3), look_at=(0, 0, 0), fov=45)],
                      orbit=False, times=(0.0,), sheet=False)
     assert _flags(captured["render_scene.mjs"]) == ["--camera-repair"]
-    # effect_ablation measures the frames the judge sees: it used to run with repair OFF
-    # and the post chain ON whatever C3D_POST said
-    with pytest.raises(SceneRenderError):
-        ablation_mod.ablate_scene(ws)
-    assert _flags(captured["ablate_scene.mjs"]) == ["--camera-repair"] and "--no-post" not in captured["ablate_scene.mjs"]
 
     # the A/B words reach every path, including the combined build
     monkeypatch.setenv("C3D_SETTLE", "0")
     monkeypatch.setenv("C3D_CAMERA_REPAIR", "false")
-    monkeypatch.setenv("C3D_POST", "0")
     st._probe_and_preflight(ws, timeout_s=5.0)
     assert _flags(captured["probe_scene.mjs"]) == ["--no-settle"]
     probes_mod.probe_scene(ws)
     assert _flags(captured["probe_scene.mjs"]) == ["--no-settle"]
-    with pytest.raises(SceneRenderError):
-        ablation_mod.ablate_scene(ws)
-    assert _flags(captured["ablate_scene.mjs"]) == ["--no-settle"] and "--no-post" in captured["ablate_scene.mjs"]

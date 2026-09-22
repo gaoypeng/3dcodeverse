@@ -9,14 +9,13 @@
  * grade, `post: false` to disable); the coverage mask passes stay raw.
  *   boot(opts) · renderAt(cameraSpec, t) · census() · fps(seconds)
  *   cameraChecks(cameraSpec) (near geometry + luminance + content coverage)
- *   compileAll(cameraSpec) · shaderErrors() · ablation(opts) (shader presence)
+ *   compileAll(cameraSpec) · shaderErrors()
  * Node drivers (render_scene / probe_scene / check_shaders) call these via
  * page.evaluate.  Agent code never imports this file.
  */
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { ablationReport, frameSampler } from './host_ablation.mjs';
 import { sceneCensus } from './host_census.mjs';
 import { placementTable, settleScene } from './host_placement.mjs';
 import { frameStats, nearGeometry, repairCameraSpec } from './host_metrics.mjs';
@@ -636,35 +635,6 @@ function fps(seconds, spec) {
   return { fps: frames / Math.max(elapsed, 1e-3), frames, seconds: elapsed, draw_calls: r.calls, triangles: r.triangles };
 }
 
-/**
- * Ablation instrument (host_ablation.mjs): render each camera as authored and
- * again with every custom shader replaced by a neutral material, and report the
- * fraction of the frame the shaders actually paint.
- *
- * Time is advanced ONCE, before any render, and never again: every frame in the
- * report — authored, fully ablated, leave-one-out — is the same instant of the
- * same scene, so the only thing that differs between two frames is the shader
- * under test.  Frames go through `renderOnce`, so the post chain (when armed)
- * is included: the measurement is of the DELIVERED picture, not of a raw pass
- * nobody sees.
- *
- * @param {{t?:number, cameras?:object[], maxMaterials?:number, threshold?:number, frames?:boolean}} opts
- */
-function ablation(opts = {}) {
-  if (!state.booted) throw new Error('host not booted');
-  const t = Number.isFinite(opts.t) ? opts.t : 1.5;
-  advanceTo(t);
-  state.scene.updateMatrixWorld(true);
-  const cameras = (Array.isArray(opts.cameras) && opts.cameras.length) ? opts.cameras : state.cameras;
-  const sample = frameSampler(state.canvas);
-  const renderFrame = (spec) => { renderOnce(buildCamera(spec)); return sample(); };
-  const snapshot = opts.frames ? () => state.canvas.toDataURL('image/png') : null;
-  return ablationReport(state.scene, THREE, {
-    renderFrame, snapshot, cameras,
-    maxMaterials: opts.maxMaterials, threshold: opts.threshold, maxRenders: opts.maxRenders,
-  });
-}
-
 /** Per-asset placement table (host_placement.mjs) — never throws: a failure is `{error}`. */
 function placement() {
   try {
@@ -697,7 +667,6 @@ window.__c3v = {
   compileAll,
   census,
   placement,
-  ablation,
   fps,
   post: () => (state.postInfo ? { ...state.postInfo } : null),
   hostWarnings: () => state.hostWarnings.slice(),

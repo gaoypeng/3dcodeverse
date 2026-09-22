@@ -126,13 +126,6 @@ codeverse3d/
                       scene_placement.py (scene_placement gate + check_placement tool: floating / sunken /
                       unsupported / interpenetration per placed asset from the probe census's placement
                       table, runtime_js/lib/host_placement.mjs; added 2026-08-26),
-                      ablation.py (effect_ablation tool + census.effect_ablation: the scene rendered as
-                      authored vs with every custom shader replaced by a neutral material of the same
-                      base colour — changed-pixel fraction per camera and per material,
-                      runtime_js/lib/host_ablation.mjs + ablate_scene.mjs; rebuilt 2026-09-01 as an
-                      instrument after the 08-28 cleanup deleted the unused counterfactual path.
-                      The scene build folds the field into its census only under C3D_ABLATION=1 —
-                      a second browser boot, so opt-in; the tool always writes it to census.json),
                       gl_render.py (GlHost), frame_stats.py (gl_frames),
                       sheet.py (montage_2x2, crop_region), measure.py, connectivity.py,
                       contract.py (authoring-frame hints), sections.py (the cross_section tool and the
@@ -379,10 +372,10 @@ summary:
 `@tool(name, ArgsModel, description, *, tracks=(), languages=(), cost_hint)` registers
 `fn(ctx, args) -> Observation` → (a) direct call from tracks, (b) the stdio MCP
 server (name `3dcode`) for the vendor CLIs, (c) a native tool schema for any embedder
-(`ToolDef.schema()`), (d) a prompt card.  The 20 tools: `build`, `measure`,
+(`ToolDef.schema()`), (d) a prompt card.  The 19 tools: `build`, `measure`,
 `render_views`, `render_sheet`, `isolate`, `cross_section`, `check_connectivity`,
 `check_contract`, `check_placement`, `compare_silhouette`, `compare_reference`,
-`joint_sweep` (articulated), `shader_probe`, `scene_probe`, `scene_views`, `effect_ablation` (scene),
+`joint_sweep` (articulated), `shader_probe`, `scene_probe`, `scene_views` (scene),
 `gl_probe`, `gl_frames` (graphics), `texture_pass`, `texture_preview` (object tracks).
 
 An `Observation` carries two different answers: `ok` is the **verdict** and `failed`

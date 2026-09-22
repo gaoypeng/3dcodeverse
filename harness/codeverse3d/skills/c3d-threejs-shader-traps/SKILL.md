@@ -121,10 +121,9 @@ Verified against this runtime on 2026-08-25 — believing them costs a repair ro
 The gate proves your shader **compiles and is bound**. It says nothing about whether it is
 *visible* or *right*: colours crushed by the ACES plus sRGB output chain, transparent water
 z-fighting the shore, a patched material whose clone lost its `onBeforeCompile`, a shared
-program cache key, an effect placed outside every camera's frustum. Only `effect_ablation`
-(scenes) renders the scene without your shader to compare against; otherwise look at the
-frames yourself: `scene_views` (or `render_views`) at two different times, and check that the
-thing you wrote changed something.
+program cache key, an effect placed outside every camera's frustum. Look at the frames
+yourself: `scene_views` (or `render_views`) at two different times, and check that the thing
+you wrote changed something.
 
 Full audit source lines, the fix-hint texts, and a minimal citizen shader:
 `references/shader-gate.md`.

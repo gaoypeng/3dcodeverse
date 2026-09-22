@@ -6,7 +6,7 @@ Blender bpy · CadQuery · Three.js · URDF · GLSL / OpenGL, across four tracks
 (`static_object`, `articulated_object`, `scene`, `graphics`), with pluggable
 backends.  **The coding agent is always a VENDOR's** — gemini-cli / claude-code /
 codex / antigravity — and the harness supplies the workspace, the prompt and the
-3D tools its track can use (over MCP; 20 in the registry, filtered per track — D48
+3D tools its track can use (over MCP; 19 in the registry, filtered per track — D48
 review), then reads the result.  The harness's OWN api use is planning,
 judging, single-shot file generation and the texture pass (Gemini/Anthropic/OpenAI).
 It does not implement an agent loop: the in-process `api-agent` was deleted
