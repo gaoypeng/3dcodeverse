@@ -31,7 +31,7 @@ def test_a_hit_closes_the_gate_and_the_next_worker_parks():
     gate, clock = make(base_delay=4.0)
     closed = gate.hit()
     assert closed == min(4.0, MAX_WAIT_S)  # the house cap clips the gate's own delay
-    assert gate.storming
+    assert gate.snapshot()["storming"]
     waited = gate.enter()
     assert waited >= closed
     assert gate.parked_s >= closed
@@ -75,7 +75,7 @@ def test_a_success_reopens_the_gate_for_everybody():
     gate, clock = make(base_delay=4.0)
     gate.hit()
     gate.ok()
-    assert not gate.storming
+    assert not gate.snapshot()["storming"]
     assert gate.enter() == 0.0
     assert clock.t == 100.0
 
@@ -142,4 +142,4 @@ def test_enter_returns_at_the_deadline_even_mid_storm():
     gate.hit()
     waited = gate.enter(deadline=clock.t + 1.5)
     assert waited == pytest.approx(1.5)
-    assert gate.storming, "the storm is still on; only this caller's budget ended"
+    assert gate.snapshot()["storming"], "the storm is still on; only this caller's budget ended"

@@ -70,7 +70,7 @@ def classify_sdk_exception(exc: BaseException, sdk: Any, label: str,
     ``.message`` are the same names on both — this ladder was written out twice,
     differing only in the module, the label and anthropic's extra 529.
 
-    The MESSAGE WORDING IS LOAD-BEARING: bench/_infra.py string-matches "request timed
+    The MESSAGE WORDING IS LOAD-BEARING: eval/bench/_infra.py string-matches "request timed
     out" and "connection error" to tell a provider outage from a model failure, so the
     f"{label} …" forms below must stay byte-identical to what each adapter emitted.
     """
@@ -89,11 +89,11 @@ def classify_sdk_exception(exc: BaseException, sdk: Any, label: str,
     return ModelError(f"{label} unexpected error: {type(exc).__name__}: {exc}", retryable=False)
 
 
-#: floor of the per-attempt SDK timeout derived from what is left of the call's
-#: ``max_wait_s`` budget: a call that starts near its deadline still gets ONE real
-#: attempt instead of an instant timeout.  Same 20 s as gemini's ``HTTP_TIMEOUT_FLOOR_S``
-#: and the judge's own ``SAMPLE_MIN_WAIT_S``, so an attempt in flight overshoots the
-#: deadline by at most this floor.
+#: floor of the per-attempt SDK / HTTP read timeout (gemini's too) derived from what is
+#: left of the call's ``max_wait_s`` budget: a call that starts near its deadline still gets
+#: ONE real attempt instead of an instant timeout.  Same 20 s as the judge's own
+#: ``SAMPLE_MIN_WAIT_S``, so an attempt in flight overshoots the deadline by at most this
+#: floor — never by the full read timeout (audit 2026-08-27, when that ceiling was 300 s).
 SDK_TIMEOUT_FLOOR_S = 20.0
 
 
@@ -112,14 +112,13 @@ def attempt_timeout_s(deadline: float, ceiling: float) -> float:
     built once with a fixed ``timeout`` (600 s), so a judge told it had 20 s of budget
     left held a socket for 600 s (audit 2026-08-29).  The floor is what keeps a legitimate
     long completion (the 930 s plan budget) on its full ``timeout_s`` — this shortens an
-    attempt, it never lengthens one.  Gemini clips the same way (``_attempt_config``).
+    attempt, it never lengthens one.  Gemini's ``_attempt_config`` clips through it too.
     """
     return min(ceiling, max(SDK_TIMEOUT_FLOOR_S, deadline - time.monotonic()))
 
 
 def with_logged_retries(attempt: Any, *, label: str, model: str, attempts: int,
-                        base_delay: float, max_delay: float, sleep: Any, log: Any,
-                        max_wait_s: float | None = None) -> Any:
+                        sleep: Any, log: Any, max_wait_s: float | None = None) -> Any:
     """``with_retries`` plus the one log line both SDK adapters write.
 
     ``max_wait_s`` is the request's ``ChatRequest.max_wait_s`` deadline (retries and
@@ -134,5 +133,4 @@ def with_logged_retries(attempt: Any, *, label: str, model: str, attempts: int,
 
     budget = retry_budget_s(max_wait_s)
     return with_retries(attempt, is_retryable=lambda e: isinstance(e, ModelError) and e.retryable,
-                        attempts=attempts, base_delay=base_delay, max_delay=max_delay, max_total_s=budget,
-                        on_retry=on_retry, sleep=sleep)
+                        attempts=attempts, max_total_s=budget, on_retry=on_retry, sleep=sleep)

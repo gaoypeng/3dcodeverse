@@ -78,8 +78,8 @@ from codeverse3d.models.schema_utils import ask_structured   # (model, Schema, *
     # -> (obj | None, Usage, err): one schema-bound call; call failure and parse failure are the same `err` family
 ```
 Backends: `GeminiModel(model, *, keys=None, pool=None, ...)` (one shared KeyPool per
-key list), `AnthropicModel(model, *, json_mode="tool"|"output_config")`,
-`OpenAIModel(model, *, base_url=None)` (Chat Completions; `C3D_OPENAI_BASE_URL`).
+key list), `AnthropicModel(model)` (a response schema is a forced `submit` tool),
+`OpenAIModel(model)` (Chat Completions; key and `C3D_OPENAI_BASE_URL` from Settings).
 Rules that callers must know:
 * **Δ** Gemini key handling: auth/permission errors (401/403, or 400 with
   API_KEY_INVALID / expired / PERMISSION_DENIED / suspended markers) classify as

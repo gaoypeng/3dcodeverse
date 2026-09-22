@@ -163,15 +163,6 @@ def test_structured_output_with_thinking_uses_auto_and_text_fallback():
     assert "tool_choice" not in kw and "submit" in kw["system"]
 
 
-def test_output_config_json_mode():
-    m, fc = make([msg([text('{"c": 3}')])], json_mode="output_config")
-    r = m.generate(
-        ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"})
-    )
-    assert r.parsed == {"c": 3}
-    assert fc.calls[0]["output_config"]["format"]["type"] == "json_schema"
-
-
 def test_images_base64_and_message_merging():
     msgs = to_messages(
         [

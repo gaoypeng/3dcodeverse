@@ -476,10 +476,6 @@ class StormGate:
         self.parked_s = 0.0
 
     # ------------------------------------------------------------------ public
-    @property
-    def storming(self) -> bool:
-        return self._storm
-
     def enter(self, deadline: float | None = None) -> float:
         """Block until this thread may issue a call; returns the seconds waited.
 
@@ -500,7 +496,7 @@ class StormGate:
                 elif now >= self._probe_until:
                     # the window elapsed and no probe is in flight: this thread is it
                     self._probe_until = now + self._probe_lease
-                    self._n_probe_hit()
+                    self.n_probes += 1
                     return now - t0
                 else:
                     wait = min(self._max_wait, self._probe_until - now)
@@ -549,10 +545,6 @@ class StormGate:
                 "probes": self.n_probes,
                 "parked_s": round(self.parked_s, 1),
             }
-
-    # ----------------------------------------------------------------- private
-    def _n_probe_hit(self) -> None:
-        self.n_probes += 1
 
 
 _gates: dict[str, StormGate] = {}
@@ -610,7 +602,7 @@ def cause_for(err: BaseException, exc: BaseException | None) -> BaseException | 
     unchanged (gemini.py, openai.py, anthropic.py), so ``raise err from exc`` below is
     often ``raise e from e``, and CPython's ``raise ... from ...`` does NOT check for a
     cycle the way it does for ``__context__``.  The result — ``e.__cause__ is e`` — is a
-    chain no naive walker survives: on 2026-08-27 it took ``bench/_infra.py`` to a
+    chain no naive walker survives: on 2026-08-27 it took ``eval/bench/_infra.py`` to a
     RecursionError inside ``run_cell``'s except handler and a compare matrix lost 11
     finished cells.  Dropping the self-cause is invisible otherwise: none of these
     raises sits inside an ``except`` block, and ``__suppress_context__`` is already set.
@@ -1080,11 +1072,6 @@ def _discard_loser(
 
 
 # ===================================================================== tokens
-#: longest edge we assume for an image part whose size we do not measure; the
-#: harness caps judge payloads at ``Settings.judge.max_px`` = 1024 (docs/COST.md §3)
-DEFAULT_IMAGE_PX = 1024
-
-
 def request_parts(request: ChatRequest) -> tuple[list[str], int]:
     """``(text blocks, number of image parts)`` of a request, system prompt and
     response schema included — everything the provider will count as prompt."""
@@ -1103,10 +1090,11 @@ def request_parts(request: ChatRequest) -> tuple[list[str], int]:
     return blocks, images
 
 
-def request_tokens(request: ChatRequest, *, model_id: str = "", image_px: int = DEFAULT_IMAGE_PX) -> int:
-    """Estimated **input** tokens of ``request`` (never negative)."""
+def request_tokens(request: ChatRequest, *, model_id: str = "") -> int:
+    """Estimated **input** tokens of ``request`` (never negative).  An image part is
+    counted at 1024 px, the judge payload cap ``Settings.judge.max_px`` (docs/COST.md §3)."""
     from codeverse3d.cost.guard import estimate_call
 
     blocks, images = request_parts(request)
-    est = estimate_call(model_id or "gemini:unknown", prompt=blocks, n_images=images, image_px=image_px)
+    est = estimate_call(model_id or "gemini:unknown", prompt=blocks, n_images=images)
     return max(0, est.input_tokens)

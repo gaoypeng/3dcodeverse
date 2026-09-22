@@ -10,7 +10,7 @@ import pytest
 
 from codeverse3d.contracts.common import Usage
 from codeverse3d.models.base import ModelError
-from codeverse3d.models.gemini import HTTP_TIMEOUT_FLOOR_S
+from codeverse3d.models.parts import SDK_TIMEOUT_FLOOR_S
 from codeverse3d.models.retry import (
     ACQUIRE_TIMEOUT_S,
     MAX_WAIT_S,
@@ -343,8 +343,8 @@ def test_one_call_cannot_retry_for_hours():
     clock = Clock()
 
     def call(_key):
-        # gemini.py _attempt_config: min(300 s, remaining), floored at HTTP_TIMEOUT_FLOOR_S
-        clock.t += min(300.0, max(HTTP_TIMEOUT_FLOOR_S, RETRY_DEADLINE_S - clock.t))
+        # gemini.py _attempt_config: min(300 s, remaining), floored at SDK_TIMEOUT_FLOOR_S
+        clock.t += min(300.0, max(SDK_TIMEOUT_FLOOR_S, RETRY_DEADLINE_S - clock.t))
         raise RuntimeError("503 high demand")
 
     with pytest.raises(ModelError):
@@ -360,7 +360,7 @@ def test_one_call_cannot_retry_for_hours():
         )
     # bounded by the clock: the ONLY legal overshoot is the one floored attempt that was
     # already in flight when the deadline passed
-    assert clock.t <= RETRY_DEADLINE_S + HTTP_TIMEOUT_FLOOR_S, (
+    assert clock.t <= RETRY_DEADLINE_S + SDK_TIMEOUT_FLOOR_S, (
         f"one call burned {clock.t / 3600:.2f} h; the deadline is {RETRY_DEADLINE_S / 60:.0f} min"
     )
     assert clock.t < 5 * 3600, "this is the 5.1-hour regression"
@@ -419,7 +419,7 @@ def test_503_rotates_through_every_untried_key_before_it_is_a_storm():
     # one key per round-trip, never twice: 9 free rotations, then the 10th key lands
     assert out == "ok" and len(calls) == len(keys) and set(calls) == set(keys)
     assert naps == [], "rotation to a fresh key costs no sleep"
-    assert gate.n_storms == 0 and not gate.storming, "an untried key remains: not a storm"
+    assert gate.n_storms == 0 and not gate.snapshot()["storming"], "an untried key remains: not a storm"
 
 
 @pytest.mark.parametrize(

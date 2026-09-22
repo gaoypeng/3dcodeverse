@@ -37,16 +37,13 @@ from codeverse3d.contracts.chat import (
 )
 from codeverse3d.contracts.common import Usage
 from codeverse3d.models.base import ModelError
-from codeverse3d.models.parts import Stopwatch, image_bytes
+from codeverse3d.models.parts import Stopwatch, attempt_timeout_s, image_bytes, retry_budget_s
 from codeverse3d.models.pricing import estimate_cost, per_image_usd
 from codeverse3d.models.retry import (
-    MAX_WAIT_S,
-    RETRY_DEADLINE_S,
     KeyPool,
     KeyPoolExhausted,
     OnAttempt,
     Outcome,
-    StormGate,
     _Try,
     request_tokens,
     rotate_with_retries,
@@ -198,15 +195,6 @@ def extract_candidate(
 log = logging.getLogger(__name__)
 
 _RETRY_DELAY_RE = re.compile(r"retryDelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
-
-#: floor of the per-attempt HTTP read timeout derived from the remaining retry
-#: budget (``ChatRequest.max_wait_s``): a call that starts near its deadline still
-#: gets ONE real attempt instead of an instant socket timeout.  20 s matches the
-#: judge's own floor (``judges.vlm_judge.SAMPLE_MIN_WAIT_S`` = 20 s), so an in-flight
-#: attempt may overshoot the deadline by at most this floor — never by the full
-#: ``timeout_s`` read timeout, which was the dominant overshoot (audit 2026-08-27,
-#: when that ceiling was 300 s).
-HTTP_TIMEOUT_FLOOR_S = 20.0
 
 #: ceiling of the per-READ (inter-chunk) HTTP timeout under streaming.  Five runs
 #: died tonight (drill/vise/clamp x2, one plan hang) because a hung NON-streaming
@@ -443,11 +431,6 @@ class GeminiModel:
         pool: KeyPool | None = None,
         timeout_s: float | None = None,
         max_attempts: int = 6,
-        base_delay: float = 1.0,
-        max_delay: float = MAX_WAIT_S,
-        rpm_per_key: int | None = None,
-        tpm_per_key: int | None = None,
-        storm_gate: StormGate | None = None,
         storm_attempts: int | None = None,
         hedge: int | None = None,
         sleep: Callable[[float], None] = time.sleep,
@@ -462,14 +445,10 @@ class GeminiModel:
         #: 2; 1 = off) — see ``rotate_with_retries`` and docs/COST.md §27
         self.hedge = max(1, int(_rate().hedge if hedge is None else hedge))
         keys = _keys_or_raise(keys, pool)
-        self.pool = pool or shared_pool(keys, rpm_per_key=rpm_per_key, tpm_per_key=tpm_per_key)
-        self.storm_gate = storm_gate if storm_gate is not None else (
-            storm_gate_for(f"gemini:{model}") if _rate().storm_gate else None
-        )
+        self.pool = pool or shared_pool(keys)
+        self.storm_gate = storm_gate_for(f"gemini:{model}") if _rate().storm_gate else None
         self.timeout_s = _default_timeout_s() if timeout_s is None else timeout_s
         self.max_attempts = max(1, max_attempts)
-        self.base_delay = base_delay
-        self.max_delay = max_delay
         self._sleep = sleep
         self._client_factory = client_factory
         self._thinking_ok = True  # flipped when the model rejects ThinkingConfig
@@ -496,8 +475,7 @@ class GeminiModel:
             state["config"] = self._config(request)
             return True
 
-        # the caller's budget clips the retry deadline, never extends it
-        budget = RETRY_DEADLINE_S if request.max_wait_s is None else min(RETRY_DEADLINE_S, float(request.max_wait_s))
+        budget = retry_budget_s(request.max_wait_s)
         deadline = time.monotonic() + budget  # mirrors rotate_with_retries' own deadline
         stats: dict[str, Any] = {}
         wasted: list[Usage] = []  # discarded round-trips the provider still billed
@@ -511,8 +489,6 @@ class GeminiModel:
                 classify=classify_exception,
                 outcome_of=failure_outcome,
                 max_attempts=self.max_attempts,
-                base_delay=self.base_delay,
-                max_delay=self.max_delay,
                 max_total_s=budget,
                 hedge=self.hedge,
                 sleep=self._sleep,
@@ -550,11 +526,9 @@ class GeminiModel:
     ) -> types.GenerateContentConfig:
         """The config for ONE attempt: its HTTP read timeout is the remaining retry
         budget, capped at ``self.timeout_s`` and floored at
-        :data:`HTTP_TIMEOUT_FLOOR_S`.  A 20 s-budget turn used to hand the provider
+        :data:`parts.SDK_TIMEOUT_FLOOR_S`.  A 20 s-budget turn used to hand the provider
         a 300 s socket — the dominant deadline overshoot (audit 2026-08-27)."""
-        remaining = deadline - time.monotonic()
-        want_s = min(self.timeout_s, max(HTTP_TIMEOUT_FLOOR_S, remaining))
-        return clip_timeout(config, int(want_s * 1000))
+        return clip_timeout(config, int(attempt_timeout_s(deadline, self.timeout_s) * 1000))
 
     def _attempt_hook(self, wasted: list[Usage]) -> OnAttempt:
         """Per-round-trip observer.  It collects every DISCARDED round-trip that still
@@ -707,8 +681,6 @@ class GeminiImageModel:
         pool: KeyPool | None = None,
         timeout_s: float = 180.0,
         max_attempts: int = 4,
-        base_delay: float = 1.0,
-        max_delay: float = MAX_WAIT_S,
         hedge: int = 1,
         sleep: Callable[[float], None] = time.sleep,
         client_factory: Callable[[str], Any] | None = None,
@@ -723,8 +695,6 @@ class GeminiImageModel:
         self.storm_gate = storm_gate_for(f"gemini:{model}") if _rate().storm_gate else None
         self.timeout_s = timeout_s
         self.max_attempts = max(1, max_attempts)
-        self.base_delay = base_delay
-        self.max_delay = max_delay
         self._sleep = sleep
         self._client_factory = client_factory
         self._lock = threading.Lock()
@@ -772,8 +742,6 @@ class GeminiImageModel:
         order = [self.model] if not dead else []
         if self.fallback:
             order.append(self.fallback)
-        if not order:
-            order = [self.model]
         return order
 
     def _one(
@@ -816,12 +784,11 @@ class GeminiImageModel:
         # attempt's HTTP read timeout is the REMAINING budget, floored like
         # GeminiModel._attempt_config — a 60 s image budget no longer holds a
         # 180 s socket past its deadline.
-        budget = RETRY_DEADLINE_S if max_wait_s is None else min(RETRY_DEADLINE_S, float(max_wait_s))
+        budget = retry_budget_s(max_wait_s)
         deadline = time.monotonic() + budget
 
         def _attempt_config() -> types.GenerateContentConfig:
-            remaining = max(HTTP_TIMEOUT_FLOOR_S, deadline - time.monotonic())
-            return clip_timeout(config, int(min(self.timeout_s, remaining) * 1000))
+            return clip_timeout(config, int(attempt_timeout_s(deadline, self.timeout_s) * 1000))
 
         return rotate_with_retries(
             self.pool,
@@ -829,8 +796,6 @@ class GeminiImageModel:
             classify=classify_exception,
             outcome_of=failure_outcome,
             max_attempts=self.max_attempts,
-            base_delay=self.base_delay,
-            max_delay=self.max_delay,
             max_total_s=budget,
             hedge=self.hedge,
             sleep=self._sleep,

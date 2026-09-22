@@ -36,7 +36,7 @@ from codeverse3d.models.parts import (
     with_logged_retries,
 )
 from codeverse3d.models.pricing import cache_write_surcharge, estimate_cost
-from codeverse3d.models.retry import MAX_WAIT_S, cause_for
+from codeverse3d.models.retry import cause_for
 from codeverse3d.models.schema_utils import (
     JsonParseError,
     parse_json_lenient,
@@ -120,10 +120,9 @@ def submit_tool(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------- request
-def build_kwargs(request: ChatRequest, model: str, *, json_mode: str = "tool") -> dict[str, Any]:
-    """Build ``client.messages.create(**kwargs)`` (without ``model``/``timeout``).
-    ``json_mode``: ``"tool"`` forces a ``submit`` tool; ``"output_config"`` uses
-    ``output_config.format`` json_schema."""
+def build_kwargs(request: ChatRequest, model: str) -> dict[str, Any]:
+    """Build ``client.messages.create(**kwargs)`` (without ``model``/``timeout``); a
+    response schema becomes a forced ``submit`` tool."""
     kw: dict[str, Any] = {
         "messages": to_messages(request.messages),
         "max_tokens": request.max_output_tokens,
@@ -148,21 +147,15 @@ def build_kwargs(request: ChatRequest, model: str, *, json_mode: str = "tool") -
         kw["temperature"] = request.temperature
 
     if request.response_schema is not None:
-        if json_mode == "output_config":
-            kw.setdefault("output_config", {})["format"] = {
-                "type": "json_schema",
-                "schema": to_anthropic_schema(request.response_schema),
-            }
+        kw["tools"] = [submit_tool(request.response_schema)]
+        if not thinking_on:
+            kw["tool_choice"] = {"type": "tool", "name": SUBMIT_TOOL}
         else:
-            kw["tools"] = [submit_tool(request.response_schema)]
-            if not thinking_on:
-                kw["tool_choice"] = {"type": "tool", "name": SUBMIT_TOOL}
-            else:
-                # forced tool_choice is incompatible with thinking; nudge instead
-                system = (
-                    (system + "\n\n" if system else "")
-                    + f"When you have the final answer, call the `{SUBMIT_TOOL}` tool exactly once with the complete JSON object."
-                )
+            # forced tool_choice is incompatible with thinking; nudge instead
+            system = (
+                (system + "\n\n" if system else "")
+                + f"When you have the final answer, call the `{SUBMIT_TOOL}` tool exactly once with the complete JSON object."
+            )
     if system:
         kw["system"] = system
     return kw
@@ -206,24 +199,16 @@ class AnthropicModel:
         self,
         model: str,
         *,
-        api_key: str | None = None,
         timeout_s: float = 600.0,
         max_attempts: int = 6,
-        base_delay: float = 1.0,
-        max_delay: float = MAX_WAIT_S,
-        json_mode: str = "tool",
         sleep: Callable[[float], None] = time.sleep,
         client: Any | None = None,
     ) -> None:
         self.model = model
         self.timeout_s = timeout_s
         self.max_attempts = max(1, max_attempts)
-        self.base_delay = base_delay
-        self.max_delay = max_delay
-        self.json_mode = json_mode
         self._sleep = sleep
         self._client = client
-        self._api_key = api_key
         self._lock = threading.Lock()
 
     @property
@@ -238,7 +223,7 @@ class AnthropicModel:
 
                 from codeverse3d.config import get_settings
 
-                key = self._api_key or get_settings().anthropic_api_key
+                key = get_settings().anthropic_api_key
                 if not key:
                     raise ModelError("ANTHROPIC_API_KEY is not configured")
                 self._client = anthropic.Anthropic(
@@ -248,7 +233,7 @@ class AnthropicModel:
 
     # -------------------------------------------------------------- generate
     def generate(self, request: ChatRequest) -> ChatResponse:
-        kwargs = build_kwargs(request, self.model, json_mode=self.json_mode)
+        kwargs = build_kwargs(request, self.model)
         deadline = time.monotonic() + retry_budget_s(request.max_wait_s)
 
         def attempt() -> ChatResponse:
@@ -258,10 +243,8 @@ class AnthropicModel:
                 err = classify_exception(exc)
                 raise err from cause_for(err, exc)
 
-        return with_logged_retries(attempt, label="anthropic", model=self.model,
-                                   attempts=self.max_attempts, base_delay=self.base_delay,
-                                   max_delay=self.max_delay, sleep=self._sleep, log=log,
-                                   max_wait_s=request.max_wait_s)
+        return with_logged_retries(attempt, label="anthropic", model=self.model, attempts=self.max_attempts,
+                                   sleep=self._sleep, log=log, max_wait_s=request.max_wait_s)
 
     def _once(self, kwargs: dict[str, Any], request: ChatRequest, deadline: float) -> ChatResponse:
         client = self.client()

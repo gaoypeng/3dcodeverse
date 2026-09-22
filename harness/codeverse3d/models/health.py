@@ -212,7 +212,7 @@ _AB_PLAN = ("ab_plan.py", "bench.ab_plan")
 def _is_delegating_driver(args: list[str]) -> bool:
     """Does this process spend its in-flight budget only through capped CHILDREN?
 
-    ``bench/ab_plan.py`` in driver mode spawns one ``… cell`` child per arm and makes no
+    ``eval/bench/ab_plan.py`` in driver mode spawns one ``… cell`` child per arm and makes no
     model calls of its own past a 6-key preflight probe; the children carry the caps and
     are counted in their own right.  Charging the driver as well would double-count the
     same traffic — and since ``--max-in-flight`` is the cap it hands its children, not one

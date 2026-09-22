@@ -31,7 +31,7 @@ from codeverse3d.models.parts import (
     with_logged_retries,
 )
 from codeverse3d.models.pricing import estimate_cost
-from codeverse3d.models.retry import MAX_WAIT_S, cause_for
+from codeverse3d.models.retry import cause_for
 from codeverse3d.models.schema_utils import (
     JsonParseError,
     inline_refs,
@@ -161,24 +161,16 @@ class OpenAIModel:
         self,
         model: str,
         *,
-        api_key: str | None = None,
-        base_url: str | None = None,
         timeout_s: float = 600.0,
         max_attempts: int = 6,
-        base_delay: float = 1.0,
-        max_delay: float = MAX_WAIT_S,
         sleep: Callable[[float], None] = time.sleep,
         client: Any | None = None,
     ) -> None:
         self.model = model
         self.timeout_s = timeout_s
         self.max_attempts = max(1, max_attempts)
-        self.base_delay = base_delay
-        self.max_delay = max_delay
         self._sleep = sleep
         self._client = client
-        self._api_key = api_key
-        self._base_url = base_url
         self._strict_ok = True  # flipped when the endpoint rejects strict schemas
         self._lock = threading.Lock()
 
@@ -195,8 +187,8 @@ class OpenAIModel:
                 from codeverse3d.config import get_settings
 
                 s = get_settings()
-                key = self._api_key or s.openai_api_key
-                base_url = self._base_url or s.openai_base_url or None
+                key = s.openai_api_key
+                base_url = s.openai_base_url or None
                 if not key and not base_url:
                     raise ModelError("OPENAI_API_KEY is not configured")
                 self._client = openai.OpenAI(
@@ -234,10 +226,8 @@ class OpenAIModel:
                         raise err2 from cause_for(err2, exc2)
                 raise err from cause_for(err, exc)
 
-        return with_logged_retries(attempt, label="openai", model=self.model,
-                                   attempts=self.max_attempts, base_delay=self.base_delay,
-                                   max_delay=self.max_delay, sleep=self._sleep, log=log,
-                                   max_wait_s=request.max_wait_s)
+        return with_logged_retries(attempt, label="openai", model=self.model, attempts=self.max_attempts,
+                                   sleep=self._sleep, log=log, max_wait_s=request.max_wait_s)
 
     def _once(self, kwargs: dict[str, Any], request: ChatRequest, deadline: float) -> ChatResponse:
         client = self.client()

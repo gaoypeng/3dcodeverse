@@ -104,7 +104,7 @@ def test_a_503_closes_the_shared_gate_and_the_call_still_succeeds():
     r = m.generate(ChatRequest(messages=[ChatMessage.user("hi")]))
     assert r.text == "ok"
     assert gate.n_hits == 1 and gate.n_storms == 1
-    assert not gate.storming, "the success must reopen the gate"
+    assert not gate.snapshot()["storming"], "the success must reopen the gate"
 
 
 def test_rate_settings_control_the_shared_gate_and_hedge(monkeypatch):
@@ -183,7 +183,7 @@ def test_a_clean_call_reports_one_attempt_and_a_failed_call_carries_its_count():
 
 # ------------------------------------------ per-attempt HTTP timeout (audit 2026-08-27)
 def test_retry_budget_bounds_http_timeout_without_raising_an_explicit_ceiling():
-    from codeverse3d.models.gemini import HTTP_TIMEOUT_FLOOR_S
+    from codeverse3d.models.parts import SDK_TIMEOUT_FLOOR_S
 
     m, log, _ = make_model(
         [text_response("a"), text_response("b"), text_response("c")], timeout_s=300.0
@@ -195,7 +195,7 @@ def test_retry_budget_bounds_http_timeout_without_raising_an_explicit_ceiling():
     m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=60))
     assert 55_000 <= log[1]["config"].http_options.timeout <= 60_000
     m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=5))
-    assert log[2]["config"].http_options.timeout == int(HTTP_TIMEOUT_FLOOR_S * 1000)
+    assert log[2]["config"].http_options.timeout == int(SDK_TIMEOUT_FLOOR_S * 1000)
     small, small_log, _ = make_model([text_response("d")], timeout_s=8.0)
     small.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=5))
     assert small_log[0]["config"].http_options.timeout == 8_000
