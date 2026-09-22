@@ -102,3 +102,43 @@ def test_run_labels_stay_distinct_across_battery_layouts():
     assert len({a, b, c, d, e}) == 5, (a, b, c, d, e)
     # a plain harness run keeps its slug as the whole label
     assert _run_label(Path("/home/u/proj/runs/chair_bl")) == "chair_bl"
+
+
+def test_calibration_judges_what_the_in_run_judge_saw(tmp_path, monkeypatch):
+    """It rebuilt a thinner JudgeInput than `3dcode judge` (no previous verdict, track
+    context, stored clay views or GLB for the D48 slices), re-rendered clay views a round
+    had stored, and always used VlmJudge where `3dcode judge` picks ReferenceJudge."""
+    import codeverse3d.addons.calibration as cal
+    import codeverse3d.judges.vlm_judge as vj
+    from codeverse3d.contracts.spec import ReferenceImage
+    from tests.flywheel_cli.conftest import _judgment, make_fake_run, tiny_png
+
+    ws, rec = make_fake_run(tmp_path / "runs")
+    rec.spec = rec.spec.model_copy(update={"references": [ReferenceImage(path=str(tiny_png(ws.root / "ref.png")))]})
+    ws.write_json(ws.record_path, rec)
+    for r in rec.rounds:
+        ws.write_json(ws.root / "rounds" / f"r{r.index:02d}.json", r)
+    tiny_png(ws.renders_dir(1) / "clay" / "view_front.png")
+    made, seen = [], []
+
+    class _Vlm:
+        def __init__(self, *a, **kw):
+            made.append(type(self).__name__)
+            self.model_id = kw["model_id"]
+
+        def judge(self, inp):
+            seen.append(inp)
+            return _judgment(0.6, False, [])
+
+    class _Ref(_Vlm):
+        pass
+
+    monkeypatch.setattr(vj, "VlmJudge", _Vlm)
+    monkeypatch.setattr(vj, "ReferenceJudge", _Ref)
+    monkeypatch.setattr(cal, "render_geometry_views", lambda *a, **k: pytest.fail("stored clay views re-rendered"))
+    table = calibrate([ws.root], model_id="fake:fake-1", n_samples=1, out_dir=tmp_path / "out", max_workers=1)
+    assert set(made) == {"_Ref"}
+    r1 = next(inp for inp in seen if inp.round_index == 1)
+    assert r1.previous is not None and r1.previous.overall == 0.55
+    assert r1.geometry_views is not None and r1.glb_path == str(ws.artifacts / "object.glb")
+    assert next(row for row in table.rows if row.round == 1).geometry_views

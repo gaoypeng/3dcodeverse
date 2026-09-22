@@ -21,7 +21,14 @@ from codeverse3d.contracts.artifacts import BuildResult, RenderSet, RenderView
 from codeverse3d.contracts.common import TRACK_INFO
 from codeverse3d.contracts.plan import AcceptanceItem
 from codeverse3d.contracts.run import RoundRecord, RunRecord
-from codeverse3d.judges.base import SLICE_TRACKS, judged_subset, plan_digest, resolve_paths
+from codeverse3d.contracts.spec import Spec
+from codeverse3d.judges.base import (
+    SLICE_TRACKS,
+    JudgeInput,
+    judged_subset,
+    plan_digest,
+    resolve_paths,
+)
 from codeverse3d.proc import read_json_or_none
 from codeverse3d.workspace import Workspace
 
@@ -70,7 +77,8 @@ def extra_context_for(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> str:
     """The track pipeline's OWN ``judge_context`` over the stored artifacts —
     ``judge_context(ws, plan, round_index, build, gates)`` needs no run context,
     so the CLI never restates the per-track formatting."""
-    get_track = C.lazy("codeverse3d.tracks", "get_track")
+    from codeverse3d.tracks import get_track
+
     build = rnd.build if rnd.build is not None else BuildResult(ok=False, language=rec.spec.language.value)
     try:
         return get_track(rec.spec.track).make_pipeline().judge_context(ws, rec.plan, rnd.index, build, list(rnd.gates))
@@ -88,8 +96,7 @@ def clay_geometry_views(ws: Workspace, index: int) -> RenderSet | None:
     return RenderSet(views=views, renderer="stored") if views else None
 
 
-def build_judge_input(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> Any:
-    JudgeInput = C.lazy("codeverse3d.judges.base", "JudgeInput")
+def build_judge_input(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> JudgeInput:
     acceptance: list[AcceptanceItem] = list(getattr(rec.plan, "acceptance", []) or [])
     if not acceptance and ws.plan_path.is_file():
         try:
@@ -115,19 +122,19 @@ def stored_glb_path(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> str | No
     return str(p) if p.is_file() else None
 
 
-def make_judge(rec: RunRecord, rubric_name: str, model_id: str, n: int) -> Any:
-    """ReferenceJudge for measured rubrics / reference specs, VlmJudge otherwise."""
-    load_rubric = C.lazy("codeverse3d.judges.rubrics", "load_rubric")
+def make_judge(spec: Spec, rubric_name: str, model_id: str, n: int, **options: Any) -> Any:
+    """ReferenceJudge for measured rubrics / reference specs, VlmJudge otherwise; ``options``
+    go to the judge (calibration's cache dir, thinking level, fixed order)."""
+    from codeverse3d.judges import vlm_judge
+    from codeverse3d.judges.rubrics import load_rubric
+
     try:
         rubric = load_rubric(rubric_name)
     except Exception as e:  # unknown rubric name / bad yaml
         raise C.CliError(f"cannot load rubric {rubric_name!r}: {e}") from e
-    measured = bool(rubric.measured_criteria())
-    if measured or rec.spec.references:
-        ReferenceJudge = C.lazy("codeverse3d.judges.vlm_judge", "ReferenceJudge")
-        return ReferenceJudge(model_id=model_id, n_samples=n, rubric=rubric_name)
-    VlmJudge = C.lazy("codeverse3d.judges.vlm_judge", "VlmJudge")
-    return VlmJudge(rubric=rubric_name, model_id=model_id, n_samples=n)
+    if rubric.measured_criteria() or spec.references:
+        return vlm_judge.ReferenceJudge(model_id=model_id, n_samples=n, rubric=rubric_name, **options)
+    return vlm_judge.VlmJudge(rubric=rubric_name, model_id=model_id, n_samples=n, **options)
 
 
 def count_prompt_images(inp: Any, rubric_name: str, judge: Any = None) -> int | None:
@@ -136,9 +143,9 @@ def count_prompt_images(inp: Any, rubric_name: str, judge: Any = None) -> int | 
     With ``judge`` given, its D48 slice payload is counted too, so a dirty round's
     printed count matches what the verdict call actually sends."""
     try:
-        load_rubric = C.lazy("codeverse3d.judges.rubrics", "load_rubric")
-        build_judge_messages = C.lazy("codeverse3d.judges.prompt_builder", "build_judge_messages")
         from codeverse3d.contracts.chat import ImagePart
+        from codeverse3d.judges.prompt_builder import build_judge_messages
+        from codeverse3d.judges.rubrics import load_rubric
 
         slices, elicit = judge.slice_payload(inp) if judge is not None else ([], False)
         _, messages = build_judge_messages(inp, load_rubric(rubric_name),

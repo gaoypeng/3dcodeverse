@@ -93,12 +93,8 @@ def status(
 
 def _print_candidates(ws) -> None:
     """Best-of-N candidate table + pairwise verdict (rounds/candidates.json), when present."""
-    p = ws.root / "rounds" / "candidates.json"
-    if not p.is_file():
-        return
-    try:
-        data = json.loads(p.read_text())
-    except ValueError:
+    data = read_json_or_none(ws.root / "rounds" / "candidates.json")
+    if data is None:
         return
     cands = data.get("candidates") or []
     rows: dict[str, str] = {"n": str(data.get("n", len(cands)))}
@@ -158,14 +154,16 @@ def render(
         # rendering, so a CLI render did not match the one the judge saw
         r = get_settings().render
         if spec.track is Track.SCENE:
-            render_scene = C.lazy("codeverse3d.spatial.render_scene", "render_scene")
+            from codeverse3d.spatial.render_scene import render_scene
+
             rs = render_scene(ws, out_dir, cameras=None, width=width or r.scene_width,
                               height=height or r.scene_height)
         else:
             glb = ws.artifacts / "object.glb"
             if not glb.is_file():
                 raise C.CliError(f"no artifact to render: {glb} (run a build first)")
-            render_glb = C.lazy("codeverse3d.spatial.render", "render_glb")
+            from codeverse3d.spatial.render import render_glb
+
             rs = render_glb(glb, out_dir, mode=mode, width=width or r.width, height=height or r.height)
     console.print(
         kv_table(
@@ -209,7 +207,7 @@ def judge(
         raise C.CliError(f"round {idx} has no renders (rounds/r{idx:02d}.json / record.json)")
     rubric_name = J.rubric_for(rec, rnd, rubric)
     inp = J.build_judge_input(ws, rec, rnd)
-    judge_obj = J.make_judge(rec, rubric_name, model or rec.spec.backends.judge, n)
+    judge_obj = J.make_judge(rec.spec, rubric_name, model or rec.spec.backends.judge, n)
     n_images = J.count_prompt_images(inp, rubric_name, judge_obj)
     from codeverse3d.cost.instrument import run_ledger
 
@@ -223,7 +221,8 @@ def judge(
         except ValueError as e:  # e.g. a measured rubric fed to a judge that computes nothing
             raise C.CliError(f"judge failed: {e}") from e
         except Exception as e:
-            ReferenceJudgeError = C.lazy("codeverse3d.judges.vlm_judge", "ReferenceJudgeError")
+            from codeverse3d.judges.vlm_judge import ReferenceJudgeError
+
             if isinstance(e, ReferenceJudgeError):
                 raise C.CliError(f"judge failed: {e}") from e
             raise
@@ -252,7 +251,8 @@ def _render_graphics(ws, spec: Spec, out_dir: Path) -> None:
     """Graphics runs have no GLB: regenerate the judged frames + sheet via the runtime."""
     import shutil
 
-    get_runtime = C.lazy("codeverse3d.languages", "get_runtime")
+    from codeverse3d.languages import get_runtime
+
     br = get_runtime(spec.language).build(ws)
     if not br.ok:
         raise C.CliError(f"graphics build failed: {br.error_type}: {br.error_message}")

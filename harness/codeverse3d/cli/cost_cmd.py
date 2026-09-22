@@ -1,8 +1,8 @@
 """``3dcode cost`` — what the runs cost and where the money went.
 
     3dcode cost <slug>                      # one run, from its own ledger
-    3dcode cost --runs-dir bench/out/x      # a whole battery, aggregated
-    3dcode cost runs/ bench/out/*           # any mix of run dirs / trees
+    3dcode cost --runs-dir eval/bench/out/x # a whole battery, aggregated
+    3dcode cost runs/ eval/bench/out/*      # any mix of run dirs / trees
     3dcode cost show runs/ --md report.md   # the same, explicit + full markdown
     3dcode cost runs/ --recheck             # re-price with today's table (drift vs what was billed)
     3dcode cost prices [--stale] [--unverified]
@@ -66,7 +66,7 @@ def cost(
 
 @cost_app.command("show")
 def show(
-    paths: Annotated[list[Path], typer.Argument(help="run dirs / trees of runs (runs/, bench/out/<battery>)")],
+    paths: Annotated[list[Path], typer.Argument(help="run dirs / trees of runs (runs/, eval/bench/out/<battery>)")],
     md: Annotated[Path | None, typer.Option("--md", help="also write the full markdown report here")] = None,
     recheck: Annotated[bool, typer.Option("--recheck", help="re-price every call with today's table")] = False,
     limit: Annotated[int, typer.Option("--limit", help="rows in the per-run table")] = 20,

@@ -1,14 +1,16 @@
 """Judge calibration smoke: re-judge finished runs and ask "does the judge separate good from bad?"
 
 ``calibrate(run_dirs)`` reads each run's ``rounds/rNN.json`` (read-only), rebuilds
-the ``JudgeInput`` (spec, renders, measurement, gates, plan digest, acceptance),
+the ``JudgeInput`` the way ``3dcode judge`` does (``cli/_judge.build_judge_input``: spec,
+renders, measurement, gates, plan digest, acceptance, previous verdict, track context,
+stored clay views, GLB) and picks the judge class it would (``make_judge``),
 re-judges every round with ``n_samples`` (montage order shuffled per sample) and
 tabulates, per round: gate error count, the stored overall, the new mean/std,
 per-criterion std, defects and caps.  Across rounds it reports the Pearson and
 Spearman correlation between gate error counts and the new scores (expected
 negative), and between stored and new overalls.  Optionally renders a clay /
-normals geometry set for the run's best round (``artifacts/object.glb``) so the
-geometry montage is exercised.  Output goes to ``out_dir`` (never into the run).
+normals geometry set for a best round that stored none (``artifacts/object.glb``) so
+the geometry montage is exercised.  Output goes to ``out_dir`` (never into the run).
 
 CLI: ``python -m codeverse3d.addons.calibration runs/a runs/b --model gemini:gemini-3.7-flash --n 3 --out scratch/``
 """
@@ -26,15 +28,15 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from codeverse3d.cli._judge import build_judge_input, make_judge, rubric_for
 from codeverse3d.contracts.artifacts import Judgment, RenderSet
-from codeverse3d.contracts.common import TRACK_INFO
-from codeverse3d.contracts.plan import AcceptanceItem
-from codeverse3d.contracts.run import RoundRecord
+from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.contracts.spec import Spec
-from codeverse3d.judges.base import JudgeInput, judged_subset, plan_digest, resolve_paths
+from codeverse3d.judges.base import JudgeInput
 from codeverse3d.judges.rubrics import is_degraded
 from codeverse3d.judges.vlm_judge import VlmJudge
 from codeverse3d.proc import read_json_or_none
+from codeverse3d.record.record import RecordError, load_record
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -157,13 +159,13 @@ class CalibrationTable(BaseModel):
 def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[RoundCase]:
     """Rebuild judge inputs for every judgeable round of a run (rounds with renders)."""
     run_dir = Path(run_dir)
-    spec = Spec.model_validate_json((run_dir / "spec.json").read_text())
-    plan = read_json_or_none(run_dir / "plan.json") or {}
-    record = read_json_or_none(run_dir / "record.json") or {}
-    best = record.get("best_round")
-    acceptance = plan.get("acceptance") or []
-    digest = plan_digest(plan)
     ws = Workspace(run_dir)
+    try:
+        run = load_record(ws)
+    except RecordError:  # an interrupted run: rounds/ + spec.json (+ whatever best_round it left)
+        run = RunRecord(spec=Spec.model_validate_json(ws.spec_path.read_text()), workspace=str(run_dir),
+                        best_round=(read_json_or_none(ws.record_path) or {}).get("best_round"))
+    best = run.best_round
     glb = run_dir / "artifacts" / "object.glb"
     cases: list[RoundCase] = []
     for path in sorted((run_dir / "rounds").glob("r*.json")):
@@ -172,15 +174,10 @@ def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[Ro
             continue
         if rec.renders is None or not rec.renders.views:
             continue
-        rubric = rec.judgment.rubric if rec.judgment else TRACK_INFO[spec.track].rubric
-        # the same views, at the same paths, that the in-run judge and `3dcode judge` see
-        inp = JudgeInput(
-            spec=spec, renders=judged_subset(resolve_paths(ws, rec.renders)), measurement=rec.measurement, gates=rec.gates,
-            acceptance=[AcceptanceItem.model_validate(a) for a in acceptance], plan_summary=digest,
-            round_index=rec.index,
-        )
+        # the same input, views and paths the in-run judge and `3dcode judge` see
         cases.append(RoundCase(
-            run=_run_label(run_dir), round_index=rec.index, kind=rec.kind, rubric=rubric, inp=inp,
+            run=_run_label(run_dir), round_index=rec.index, kind=rec.kind, rubric=rubric_for(run, rec, None),
+            inp=build_judge_input(ws, run, rec),
             gate_errors=sum(len(g.errors) for g in rec.gates),
             gate_warnings=sum(1 for g in rec.gates for f in g.findings if f.severity.value == "warn"),
             stored=rec.judgment, is_best=(best == rec.index) if best is not None else False,
@@ -237,7 +234,8 @@ def spearman(xs: list[float], ys: list[float]) -> float | None:
 # --------------------------------------------------------------------------- main entry
 def _judge_case(case: RoundCase, judge: VlmJudge, geometry: RenderSet | None, out: Path) -> CalibrationRow:
     t0 = time.time()
-    j = judge.judge(case.inp.model_copy(update={"geometry_views": geometry}) if geometry is not None else case.inp)
+    inp = case.inp.model_copy(update={"geometry_views": geometry}) if geometry is not None else case.inp
+    j = judge.judge(inp)
     raw = json.loads(j.raw) if j.raw else {}
     jdir = out / "judgments"
     jdir.mkdir(parents=True, exist_ok=True)
@@ -252,7 +250,7 @@ def _judge_case(case: RoundCase, judge: VlmJudge, geometry: RenderSet | None, ou
         per_criterion_mean=dict(j.scores), per_criterion_std=dict(raw.get("per_criterion_std", {})),
         defects_present=[d for d, on in raw.get("defects", {}).items() if on],
         caps=[c["rule"] for c in raw.get("caps", {}).get("caps_applied", [])],
-        passed=j.passed, n_used=j.n_samples, geometry_views=geometry is not None,
+        passed=j.passed, n_used=j.n_samples, geometry_views=inp.geometry_views is not None,
         cost_usd=j.usage.cost_usd, duration_s=round(time.time() - t0, 1), summary=j.summary,
         error=j.summary if is_degraded(j) else "",
     )
@@ -289,13 +287,18 @@ def calibrate(
     if not cases:
         raise ValueError(f"no judgeable rounds found under {list(map(str, run_dirs))}")
     geometry: dict[int, RenderSet | None] = {}
-    for i, c in enumerate(cases):
-        geometry[i] = render_geometry_views(c, out, geometry_mode) if (geometry_mode and c.is_best) else None
-    judges = {c.rubric: VlmJudge(c.rubric, model_id=model_id, n_samples=n_samples, thinking=thinking,  # type: ignore[arg-type]
-                                 cache_dir=out / "cache", label="calibrate", chat_model=chat_model,
-                                 fixed_order=fixed_order) for c in cases}
+    for i, c in enumerate(cases):  # a round's stored clay views win; render only where there are none
+        want = geometry_mode and c.is_best and c.inp.geometry_views is None
+        geometry[i] = render_geometry_views(c, out, geometry_mode) if want else None
+
+    def kind(c: RoundCase) -> tuple[str, bool]:  # what make_judge's choice of class depends on
+        return c.rubric, bool(c.inp.spec.references)
+
+    judges = {kind(c): make_judge(c.inp.spec, c.rubric, model_id, n_samples, thinking=thinking,
+                                  cache_dir=out / "cache", label="calibrate", chat_model=chat_model,
+                                  fixed_order=fixed_order) for c in cases}
     with ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
-        rows = list(pool.map(lambda ic: _judge_case(ic[1], judges[ic[1].rubric], geometry[ic[0]], out), enumerate(cases)))
+        rows = list(pool.map(lambda ic: _judge_case(ic[1], judges[kind(ic[1])], geometry[ic[0]], out), enumerate(cases)))
     ok = [r for r in rows if not r.error]
     table = CalibrationTable(
         model_id=model_id, n_samples=n_samples, fixed_order=fixed_order, rows=rows,

@@ -1,6 +1,6 @@
 """Shared CLI plumbing: Rich formatting (run summaries, tables, observations, doctor
-rows), the run-mutation mutex, workspace opening / creation, lazy imports and the
-cost-quality dial resolution every command goes through."""
+rows), the run-mutation mutex, workspace opening / creation, the ``bench`` import and
+the cost-quality dial resolution every command goes through."""
 
 from __future__ import annotations
 
@@ -142,36 +142,24 @@ class CliError(typer.Exit):
         super().__init__(code=code)
 
 
-def lazy(module: str, attr: str | None = None) -> Any:
-    """Import ``module`` (and ``attr``) at call time; a clear message when the
-    sub-package is not implemented yet (packages are developed in parallel)."""
-    try:
-        mod = importlib.import_module(module)
-    except ImportError as e:
-        raise CliError(
-            f"{module} is not available ({e}). This command needs that sub-package; "
-            f"run `3dcode doctor` to see what is installed.", code=2
-        ) from e
-    if attr is None:
-        return mod
-    try:
-        return getattr(mod, attr)
-    except AttributeError as e:
-        raise CliError(f"{module}.{attr} is missing ({e}); the sub-package may be incomplete.", code=2) from e
-
-
 #: the evaluation code lives NEXT TO the harness (``<repo>/eval``), not inside it
 EVAL_ROOT = REPO_ROOT.parent / "eval"
 
 
-def import_bench() -> Any:
-    """``bench`` is ``<repo>/eval/bench`` (not part of the package); make it importable."""
+def import_bench(module: str) -> Any:
+    """``bench.<module>``: ``bench`` is ``<repo>/eval/bench`` (not part of the package), so it
+    is made importable here, and a checkout without it is a clear exit, not a traceback."""
+    name = f"bench.{module}"
     try:
-        return importlib.import_module("bench")
+        return importlib.import_module(name)
     except ImportError:
         if str(EVAL_ROOT) not in sys.path:
             sys.path.insert(0, str(EVAL_ROOT))
-        return lazy("bench")
+    try:
+        return importlib.import_module(name)
+    except ImportError as e:
+        raise CliError(f"{name} is not available ({e}). This command needs the evaluation code "
+                       f"next to the harness ({EVAL_ROOT}).", code=2) from e
 
 
 def runs_root(runs_dir: Path | None) -> Path:

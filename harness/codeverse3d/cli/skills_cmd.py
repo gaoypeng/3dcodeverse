@@ -36,7 +36,7 @@ def list_skills(
     ``target`` is the deterministic quantity the bundle says it moves (docs/SKILLS_LEDGER.md);
     ``dir`` is the direction that counts as an improvement, and a ``?`` marks a bundle whose
     claim no deterministic instrument can see.  Read them out with
-    ``python bench/skill_targets.py bench/out``.
+    ``python eval/bench/skill_targets.py eval/bench/out``.
     """
     from rich.table import Table
 

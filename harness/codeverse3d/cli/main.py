@@ -1,8 +1,7 @@
 """``3dcode`` — the 3dcodeverse command line.
 
 Thin by design: every command builds typed inputs and calls into the harness
-packages lazily (``cli/_common.lazy``), so the CLI imports and prints help
-even while some sub-packages are incomplete.
+packages through function-local imports, so ``3dcode --help`` loads none of them.
 
 Owns the typer app and every registration, the run-starting commands ``make`` /
 ``resume`` (spec building, reference grounding, track dispatch, budget raising) and
@@ -55,7 +54,8 @@ def tools(
     as_json: Annotated[bool, typer.Option("--json-out", help="print the Observation as JSON")] = False,
     cards: Annotated[bool, typer.Option("--cards", help="(list) print prompt cards instead of a table")] = False,
 ) -> None:
-    registry = C.lazy("codeverse3d.spatial.registry")
+    from codeverse3d.spatial import registry
+
     if name == "list":
         defs = registry.list_tools()
         if cards:
@@ -114,8 +114,7 @@ def run_cmd(
     """Run every prompt of a battery through its track (N parallel workers); resumable."""
     if not battery.is_file():
         raise C.CliError(f"battery not found: {battery}")
-    b = C.import_bench()
-    run_bench = C.lazy("bench.run_bench")
+    run_bench = C.import_bench("run_bench")
     # one source of truth for the worker count: BenchOptions.parallel (the measured knee)
     par = {"parallel": parallel} if parallel is not None else {}
     opts = run_bench.BenchOptions(generator=generator, planner=planner, judge=judge, rounds=rounds, max_minutes=max_minutes,
@@ -131,17 +130,15 @@ def run_cmd(
     results = run_bench.run_battery(battery, out_dir, opts, on_result=_on)
     ok(f"{len(results)} results → {out_dir / 'results.csv'}")
     if report:
-        rep = C.lazy("bench.report").build_report(out_dir)
+        rep = C.import_bench("report").build_report(out_dir)
         console.print(rep.markdown)
         ok(f"report → {out_dir / 'report.md'} / report.html")
-    del b
 
 
 @bench_app.command("report")
 def report_cmd(out_dir: Annotated[Path, typer.Argument()]) -> None:
     """Aggregate results.jsonl → report.md + report.html (gallery of contact sheets)."""
-    C.import_bench()
-    rep = C.lazy("bench.report").build_report(out_dir)
+    rep = C.import_bench("report").build_report(out_dir)
     console.print(rep.markdown)
     ok(f"report → {out_dir / 'report.md'} / report.html")
 
@@ -150,7 +147,7 @@ def report_cmd(out_dir: Annotated[Path, typer.Argument()]) -> None:
 gallery_app = typer.Typer(no_args_is_help=True)
 
 RootsArg = Annotated[list[Path] | None, typer.Argument(
-    help="run roots (default: ./runs plus every ./bench/out/*/runs that exists)")]
+    help="run roots (default: ./runs, every ./bench/out/*/runs and every <repo>/eval/bench/out/*/runs that exists)")]
 
 
 def resolve_roots(roots: list[Path] | None) -> list[Path]:
@@ -163,13 +160,16 @@ def resolve_roots(roots: list[Path] | None) -> list[Path]:
             raise C.CliError("not a directory: " + ", ".join(str(m) for m in missing))
         return [Path(r) for r in roots]
     found = default_roots(Path.cwd())
+    seen = {p.resolve() for p in found}  # D77: the batteries live in <repo>/eval/bench/out/<b>/runs
+    found += [p for p in sorted((C.EVAL_ROOT / "bench" / "out").glob("*/runs")) if p.is_dir() and p.resolve() not in seen]
     if not found:
         from codeverse3d.config import get_settings
 
         fallback = Path(get_settings().runs_dir)
         if fallback.is_dir():
             return [fallback]
-        raise C.CliError(f"no run roots found under {Path.cwd()} (looked for runs/ and bench/out/*/runs); "
+        raise C.CliError(f"no run roots found (looked for runs/ and bench/out/*/runs under {Path.cwd()}, "
+                         f"and {C.EVAL_ROOT / 'bench' / 'out'}/*/runs); "
                          f"pass one explicitly: `3dcode gallery serve path/to/runs`")
     return found
 
@@ -518,8 +518,8 @@ def _ground_in_reference(spec: Spec, ws, *, n_views: int) -> Spec:
 
 def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, force: bool = False) -> None:
     from codeverse3d.cost.instrument import run_ledger
+    from codeverse3d.tracks import get_track
 
-    get_track = C.lazy("codeverse3d.tracks", "get_track")
     options: dict = {"n_candidates": candidates} if candidates else {}
     options.update(C.round_policy_options(spec))
     try:

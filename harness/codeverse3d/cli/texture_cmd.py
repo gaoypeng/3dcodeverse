@@ -15,6 +15,7 @@ import typer
 from codeverse3d.cli import _common as C
 from codeverse3d.cli._common import console, kv_table, warn
 from codeverse3d.contracts.common import Track
+from codeverse3d.contracts.plan import ScenePlan
 
 texture_app = typer.Typer(name="texture", help="Text-to-image texturing: object pass + scene texture pack.",
                           no_args_is_help=True)
@@ -23,7 +24,9 @@ RunsDirOpt = C.RunsDirOpt
 
 
 def _image_model(name: str | None):
-    return C.lazy("codeverse3d.reference", "_image_model")(name or "")
+    from codeverse3d import reference
+
+    return reference._image_model(name or "")
 
 
 @texture_app.command("pass")
@@ -41,10 +44,11 @@ def pass_(
     spec = C.load_spec(ws)
     if spec.track not in (Track.STATIC_OBJECT, Track.ARTICULATED_OBJECT):
         raise C.CliError(f"texture pass is for object tracks; {spec.track.value} runs use `3dcode texture scene-pack`")
-    load_plan = C.lazy("codeverse3d.spatial.tool_common", "load_plan")
-    plan = load_plan(ws.plan_path)
-    texture_pass = C.lazy("codeverse3d.texturing.run", "texture_pass")
     from codeverse3d.cost.instrument import run_ledger
+    from codeverse3d.spatial.tool_common import load_plan
+    from codeverse3d.texturing.run import texture_pass
+
+    plan = load_plan(ws.plan_path)
 
     # a post-hoc pass joins the run's ledger when it has one, else the per-process log;
     # it rewrites the run's artifacts, so it holds the run mutex (one writer per run dir)
@@ -59,8 +63,9 @@ def pass_(
 @texture_app.command("show")
 def show(slug: str, runs_dir: RunsDirOpt = None) -> None:
     """Print the last texturing report of a run."""
+    from codeverse3d.texturing.run import load_report
+
     ws = C.open_workspace(slug, runs_dir)
-    load_report = C.lazy("codeverse3d.texturing.run", "load_report")
     try:
         rep = load_report(ws)
     except FileNotFoundError as e:
@@ -69,7 +74,8 @@ def show(slug: str, runs_dir: RunsDirOpt = None) -> None:
 
 
 def _print_report(rep, ws) -> None:
-    plan_table = C.lazy("codeverse3d.texturing.plan", "plan_table")
+    from codeverse3d.texturing.plan import plan_table
+
     console.print(plan_table(rep.plan))
     rows = {tid: f"{Path(a.path).name}  seam={a.seam_score:.3f} (raw {a.seam_score_raw:.3f}) cached={a.cached}"
             + (f"  ERROR {a.error}" if a.error else "") for tid, a in rep.textures.textures.items()}
@@ -98,17 +104,16 @@ def scene_pack(
     runs_dir: RunsDirOpt = None,
 ) -> None:
     """Generate the scene's tileable texture pack into public/textures/ (+ manifest.json)."""
+    from codeverse3d.cost.instrument import run_ledger
+    from codeverse3d.spatial.tool_common import load_plan
+    from codeverse3d.texturing.plan import scene_texture_pack, texture_pack_prompt
+
     ws = C.open_workspace(slug, runs_dir)
     spec = C.load_spec(ws)
-    load_plan = C.lazy("codeverse3d.spatial.tool_common", "load_plan")
     plan = load_plan(ws.plan_path)
-    ScenePlan = C.lazy("codeverse3d.contracts.plan", "ScenePlan")
     if not isinstance(plan, ScenePlan):
         raise C.CliError("scene-pack needs a scene run (plan.json with zones)")
-    scene_texture_pack = C.lazy("codeverse3d.texturing.plan", "scene_texture_pack")
-    texture_pack_prompt = C.lazy("codeverse3d.texturing.plan", "texture_pack_prompt")
     model_id = spec.backends.planner if model is None else model
-    from codeverse3d.cost.instrument import run_ledger
 
     # like `pass`: the pack's plan + image spend joins the run's ledger when it has one
     with (C.mutating(ws, what=f"3dcode texture scene-pack {ws.root.name}", action="texture"),

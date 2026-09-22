@@ -48,14 +48,29 @@ def test_build_rejects_a_missing_root(tmp_path: Path):
 
 
 def test_default_roots_from_cwd(gallery_tree: dict[str, Path], monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("codeverse3d.cli._common.EVAL_ROOT", gallery_tree["root"] / "no_eval")
     monkeypatch.chdir(gallery_tree["root"])
     roots = resolve_roots(None)
     assert [r.name for r in roots] == ["runs", "runs"]
     assert str(roots[1]).endswith(os.path.join("bench", "out", "static_v9", "runs"))
 
 
+def test_default_roots_find_the_eval_batteries_from_any_cwd(gallery_tree: dict[str, Path], tmp_path: Path,
+                                                            monkeypatch: pytest.MonkeyPatch):
+    """D77 moved the batteries to <repo>/eval/bench/out/<b>/runs; the defaults only looked
+    under the cwd, so `3dcode gallery serve` from harness/ listed none of them."""
+    battery = tmp_path / "eval" / "bench" / "out" / "b1" / "runs"
+    battery.mkdir(parents=True)
+    monkeypatch.setattr("codeverse3d.cli._common.EVAL_ROOT", tmp_path / "eval")
+    monkeypatch.chdir(gallery_tree["root"])
+    assert resolve_roots(None)[-1] == battery and len(resolve_roots(None)) == 3
+    monkeypatch.chdir(tmp_path / "eval")  # cwd IS the eval root: each battery listed once
+    assert resolve_roots(None) == [Path.cwd() / "bench" / "out" / "b1" / "runs"]
+
+
 def test_no_roots_anywhere_is_a_clear_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("codeverse3d.cli._common.EVAL_ROOT", tmp_path / "no_eval")
     monkeypatch.setenv("C3D_RUNS_DIR", str(tmp_path / "absent"))
     from codeverse3d.config import get_settings
 

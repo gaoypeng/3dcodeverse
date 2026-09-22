@@ -105,9 +105,9 @@ def test_tools_list_handles_an_optional_spatial_install():
     assert "Traceback" not in r.output
 
 
-def test_lazy_import_message():
+def test_a_missing_bench_module_is_a_clear_exit():
     with pytest.raises(C.CliError):
-        C.lazy("codeverse3d.definitely_missing_module")
+        C.import_bench("definitely_missing_module")
 
 
 def test_doctor_json(monkeypatch):
