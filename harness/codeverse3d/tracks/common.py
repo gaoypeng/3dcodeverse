@@ -1,4 +1,4 @@
-"""Shared track machinery: the run context, the services seam, prompt context.
+"""Shared track machinery: the run context, the services seam, the single-shot path.
 
 ``Services`` is the tracks' injection seam: every call into a sibling package
 (models, agents, runtimes, spatial tools, judges, record) goes through one

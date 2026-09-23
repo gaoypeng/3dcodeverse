@@ -1,9 +1,11 @@
-"""Subprocess + atomic-JSON primitives shared across the harness.
+"""Process-level primitives shared across the harness.
 
 One home for the run-a-child-process pattern (own process group, wall-clock
 timeout, group kill, bounded captured output — :class:`ManagedProcess` and its
-thin wrapper :func:`run_subprocess`), the tmp+rename JSON write, and the
-tolerant JSON / JSONL readers every "best effort" side-car consumer needs.  Peer
+thin wrapper :func:`run_subprocess`), the tmp+rename JSON write, the tolerant
+JSON / JSONL readers every "best effort" side-car consumer needs, the run's event
+stream (:class:`EventLog`, :data:`NULL_EVENTS`), the per-run mutex
+(:func:`exclusive`) and the context-carrying thread fan-out (:func:`fan_out`).  Peer
 of ``workspace.py``; stdlib-only — imports nothing from ``codeverse3d`` so wrappers,
 spatial helpers and agents can all use it without layering back-edges.
 

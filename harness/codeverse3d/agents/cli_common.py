@@ -1,8 +1,8 @@
-"""Trajectory folder helper: prompt.md, transcript.jsonl, stdout/stderr, result.json.
-
-Every CodingAgent backend writes its session here
-(``ws.trajectory_dir(label, round)``) so the flywheel and ``3dcode status`` can
-read one uniform layout regardless of backend.
+"""What every vendor-CLI backend (``agents/backends.py``) shares: the trajectory folder
+(prompt.md, transcript.jsonl, stdout/stderr, result.json under
+``ws.trajectory_dir(label, round)``, one layout whatever the backend), the watchdog'd
+session process, the hardened environment, the session's write scope and locks, failure
+classification, and the tool-call trace.  (``cli/`` is the harness's own ``3dcode`` CLI.)
 """
 
 from __future__ import annotations

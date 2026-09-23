@@ -1,6 +1,7 @@
-"""Shared helpers for python-language runtimes (blender, cadquery, urdf).
+"""Shared helpers for the language runtimes — the wrapper build of the python ones
+(blender, cadquery, urdf), and the finding locations and typed failure names every lint uses.
 
-Runtimes execute a *wrapper script* in a subprocess (Blender's python or the
+The python runtimes execute a *wrapper script* in a subprocess (Blender's python or the
 harness python).  The wrapper writes ``artifacts/build.json`` (+ ``census.json``)
 and the runtime turns those into a :class:`BuildResult`.  This module owns:
 
