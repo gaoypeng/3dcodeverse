@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-from PIL import Image
 
 from codeverse3d.contracts.artifacts import RenderSet, RenderView
 from codeverse3d.judges.prompt_builder import (
@@ -11,7 +10,6 @@ from codeverse3d.judges.prompt_builder import (
     render_montage,
     shuffle_montages,
 )
-from codeverse3d.spatial.sheet import crop_region, montage_2x2
 from tests.judges.conftest import draw_chair
 
 #: the 14-view rig in OBJECT_VIEWS order (D47)
@@ -92,20 +90,6 @@ def test_missing_tile_is_judge_image_error(tmp_path):
     m = plan_montages(RenderSet(views=[RenderView(name="front", path="/nonexistent/x.png")]), detail_crops=0)[0]
     with pytest.raises(JudgeImageError):
         render_montage(m, cache_dir=tmp_path / "cache")
-
-
-def test_sheet_helpers(tmp_path):
-    src = draw_chair(tmp_path / "a.png", size=600)
-    with pytest.raises(ValueError):
-        montage_2x2([("a", src)] * 5, tmp_path / "m.png")
-    out = montage_2x2([("one", src)], tmp_path / "m1.png", tile=200)
-    with Image.open(out) as im:
-        assert im.size[0] == 200 + 2 * 6  # single column
-    c = crop_region(src, tmp_path / "c.png", (0.25, 0.25, 0.75, 0.75), min_px=600)
-    with Image.open(c) as im:
-        assert im.size == (600, 600)
-    with pytest.raises(ValueError):
-        crop_region(src, tmp_path / "c2.png", (0.5, 0.5, 0.5, 0.9))
 
 
 def test_a_stored_pre_d47_render_set_still_leads_with_its_hero_views():

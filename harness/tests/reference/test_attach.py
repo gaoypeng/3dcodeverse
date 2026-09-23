@@ -41,8 +41,7 @@ def test_user_images_always_win(tmp_path: Path):
 def test_attach_marks_synthesized_everywhere_and_keeps_constraints(tmp_path: Path):
     spec = make_spec()
     out, why = attach(spec, _set(tmp_path))
-    assert out is not spec and "SYNTHESIZED" in why.upper() or "synthesized" in why
-    assert len(out.references) == 2
+    assert out is not spec and "synthesized" in why.lower() and len(out.references) == 2
     assert all(r.note.startswith("SYNTHESIZED") and is_synthetic(r) for r in out.references)
     assert all(SYNTH_NOTE in r.note for r in out.references)
     assert SYNTH_TAG in out.tags

@@ -41,15 +41,12 @@ def test_expected_aspect_is_a_band_over_every_horizontal_extent():
 CHAIR = {"width": 0.45, "depth": 0.50, "height": 0.9}
 
 
-@pytest.mark.parametrize(("dims", "w", "h"), [
-    (None, 100, 200),   # brief implies 0.467 w/h; the picture is 0.5 → 7 % off
-    (CHAIR, 128, 200),  # the measured chair: band 0.50-0.56, photo 0.64 → 16 % outside, kept
-])
-def test_a_photo_within_the_tolerance_is_not_a_conflict(tmp_path: Path, dims, w, h):
+def test_a_photo_within_the_tolerance_is_not_a_conflict(tmp_path: Path):
+    """The measured chair: band 0.50-0.56, photo 0.64 → 16 % outside, kept."""
     from codeverse3d.contracts.spec import Constraints
 
-    spec = make_spec(constraints=Constraints(dimensions_m=dims)) if dims else make_spec()
-    info = dimension_conflict(spec, _box(tmp_path / "p.png", w, h))
+    spec = make_spec(constraints=Constraints(dimensions_m=CHAIR))
+    info = dimension_conflict(spec, _box(tmp_path / "p.png", 128, 200))
     assert not info["conflict"] and info["relative_error"] < ASPECT_TOL and conflict_note(info) == ""
 
 

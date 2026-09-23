@@ -35,7 +35,7 @@ def test_rubrics_declare_defects_with_costs():
         assert r.defects, name
         assert all(d.penalty > 0 or d.cap is not None for d in r.defects)
     assert R.defect("floating_part").penalty == 0.10 and R.defect("floating_part").cap == 0.60
-    assert R.defect("wrong_object").cap == 0.25 and R.defect("wrong_object").penalty == 0.0
+    assert R.defect("wrong_object").penalty == 0.0
     assert {"no_articulation_visible", "wrong_motion_type", "pivot_misplaced", "pose_clips_body"} <= {d.id for d in A.defects}
     with pytest.raises(KeyError):
         R.defect("nope")

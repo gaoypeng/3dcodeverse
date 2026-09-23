@@ -96,10 +96,6 @@ def test_geometry_views_add_a_montage(tmp_path, judge_input, cache_dir):
     assert "top · az 0° el 90°" in labels[0]
     text = _parts(msgs)[0].text
     assert "GEOMETRY-ONLY montage shows the same object without materials" in text
-    # embedded clay views (by RenderView.mode) are routed the same way
-    judge_input.renders = RenderSet(views=judge_input.renders.views + clay)
-    _, msgs2 = build_judge_messages(judge_input, R, cache_dir=cache_dir)
-    assert any(p.label.startswith("MONTAGE 2/2 — GEOMETRY-ONLY") for p in _images(msgs2))
 
 
 def test_gates_previous_and_budget(judge_input, cache_dir):

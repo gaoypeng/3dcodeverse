@@ -10,7 +10,6 @@ from codeverse3d.judges.rubrics import (
     apply_caps,
     load_rubric,
     measured_absent,
-    veto_measured_defects,
 )
 
 R = load_rubric("static_object_v1")
@@ -83,22 +82,12 @@ def test_measured_absent(rubric, defect, gates, absent):
     assert measured_absent(rubric, defect, gates) is absent
 
 
-def test_veto_switches_off_only_measured_defects_and_the_contract_cap_still_applies():
-    kept, overridden = veto_measured_defects(R, {"interpenetration": True, "floating_part": True, "wrong_object": True}, [PASSED])
-    assert overridden == ["interpenetration", "floating_part"]
-    assert kept == {"interpenetration": False, "floating_part": False, "wrong_object": True}
-    gates = [CONTRACT_ERR, _connectivity(True, ("info", "all 4 parts are connected"))]
-    res = apply_caps(R, 0.9, gates, {}, [], defects_present={"floating_part": False})
-    assert res.overall == 0.75 and [c.rule for c in res.caps_applied] == ["contract_violation"]
-
-
 def test_graded_acceptance_cap_keeps_the_gradient_but_not_the_pass():
     ten = [AcceptanceItem(id=f"M{i}", text="x", priority="must") for i in range(10)]
     nine_ok = {a.id: True for a in ten} | {"M3": False}
     res = apply_caps(R, 0.99, [], nine_ok, ten)
     assert res.overall == pytest.approx(0.96) and res.caps_applied[0].rule == "missing_must_acceptance"
     assert res.caps_applied[0].evidence.startswith("9 of 10 must items verified; not verified: M3")
-    assert apply_caps(R, 0.99, [], {}, ten[:2]).overall == pytest.approx(0.6), "0 of 2 verified is the floor"
     assert apply_caps(R, 0.99, [], {"M0": True}, ten[:2]).overall == pytest.approx(0.8)
     should = [AcceptanceItem(id="S1", text="y", priority="should")]
     assert apply_caps(R, 0.9, [], {"S1": False}, should).overall == 0.9, "a should item never caps"

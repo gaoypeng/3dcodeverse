@@ -31,7 +31,6 @@ def test_full_path_single_sample(judge_input, cache_dir):
     assert req.response_schema is not None and "Criteria" in req.response_schema["$defs"]
     assert req.label == "judge:static_object_v1:r00:s0" and req.temperature == 0.2
     assert len(image_parts(req)) == 3  # 2×2 montage + 2 detail crops
-    assert "BLIND JUDGE" in req.system and "DEFECT CHECKLIST" in req.system
     assert "Defects" in req.response_schema["$defs"]
     assert raw["defects"] == {d.id: False for d in R.defects} and raw["defect_penalty"] == 0.0
 

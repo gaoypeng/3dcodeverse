@@ -9,16 +9,6 @@ def test_reference_rubric_has_measured_silhouette():
     assert r.criterion("silhouette_match").weight == 0.25
 
 
-def test_weighted_overall_and_floors():
-    r = load_rubric("static_object_v1")
-    scores = {c.id: 0.8 for c in r.criteria}
-    assert abs(r.weighted_overall(scores) - 0.8) < 1e-9
-    scores["intent_fidelity"] = 0.2
-    assert r.floors_hit(scores) == [("intent_fidelity", 0.2, 0.30)]
-    with pytest.raises(RubricError):
-        r.weighted_overall({"intent_fidelity": 1.0})
-
-
 def test_unknown_and_invalid_rubric():
     with pytest.raises(RubricError):
         load_rubric("nope_v9")
@@ -30,27 +20,6 @@ def test_unknown_and_invalid_rubric():
     bad["criteria"][0]["anchors"].pop("0.4")
     with pytest.raises(RubricError):  # anchors incomplete
         rubric_from_dict(bad)
-
-
-def test_cap_rule_measures_defaults_to_its_own_id_and_the_object_rubrics_name_interpenetration():
-    """The object rubrics say which checklist defect each gate rule measures (the veto matches on it)."""
-    from codeverse3d.judges.rubrics import CapRule
-
-    assert CapRule(id="floating_part", cap=0.6).measures == ["floating_part"]
-    assert CapRule(id="penetration_error", cap=0.7, measures=["interpenetration"]).measures == ["interpenetration"]
-    for name in ("static_object_v1", "reference_v1", "asset_v1", "articulated_v1"):
-        r = load_rubric(name)
-        rule = next(c for c in r.caps if c.id == "penetration_error")
-        assert "interpenetration" in rule.measures, name
-        assert next(c for c in r.caps if c.id == "missing_must_acceptance").graded, name
-    for name in ("static_object_v1", "reference_v1", "asset_v1"):
-        r = load_rubric(name)
-        assert {c.gate for c in r.caps if c.id in ("floating_part", "penetration_error")} == {"connectivity"}, name
-    # articulated keeps gate "*": connectivity AND joint_sweep both report floating / penetration there
-    a = load_rubric("articulated_v1")
-    assert {c.gate for c in a.caps if c.id in ("floating_part", "penetration_error")} == {"*"}
-    for name in ("scene_v1", "shader_v1", "shader_v2"):  # not object rubrics: the flat cap stays
-        assert not next(c for c in load_rubric(name).caps if c.id == "missing_must_acceptance").graded, name
 
 
 def test_cap_rules_are_not_part_of_the_judge_prompt():

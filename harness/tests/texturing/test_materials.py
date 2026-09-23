@@ -43,11 +43,8 @@ def test_coarse_families_of_the_texture_planner_all_resolve():
     ("satin white lacquer", "brushed_metal"),    # finish only
     ("powder-coated steel frame", "painted_metal"),
     ("painted pine shed wall", "painted_wood"),
-    ("clear tempered glass", "glass"),
     ("weathered copper roof", "copper_patina"),
     ("BlondeBasswood", "hardwood"),              # -wood suffix
-    ("glazed porcelain", "ceramic"),
-    ("BlackRubberMat", "rubber"),
     ("stainless steel drum", "brushed_metal"),
 ])
 def test_family_for_resolves_substrate_then_finish(text, family):

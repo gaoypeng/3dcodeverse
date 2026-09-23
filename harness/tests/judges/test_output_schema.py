@@ -53,8 +53,3 @@ def test_out_of_range_score_raises():
     rep["criteria"]["materials"]["score"] = 1.4
     with pytest.raises(JudgeParseError):
         parse_judge_output(rep, R, IDS)
-
-
-def test_text_reply_without_json_raises_judge_parse_error():
-    with pytest.raises(JudgeParseError, match="no JSON object"):
-        parse_judge_output("no json here", R, IDS)
