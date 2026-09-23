@@ -37,7 +37,7 @@ from codeverse3d.contracts.spec import Constraints, Spec
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
 from codeverse3d.languages.scene_threejs import asset_file
 from codeverse3d.orchestrator import BudgetExceeded
-from codeverse3d.proc import fan_out, read_json_or_none, write_json_atomic, write_text_atomic
+from codeverse3d.proc import fan_out, read_json_or_none, write_json_atomic
 from codeverse3d.prompts import render
 from codeverse3d.prompts.catalog import language_prompt, language_text
 from codeverse3d.tracks.common import (
@@ -781,67 +781,6 @@ class AssetCheck(BaseModel):
         return "\n".join(f"- {e}" for e in (self.errors + self.warnings)[:limit])
 
 
-_CHECK_JS = r"""
-import * as THREE from 'three';
-const [, , fileUrl, exportName] = process.argv;
-const out = { ok: false, errors: [], warnings: [], size_m: null, tris: 0, meshes: 0, materials: 0 };
-try {
-  const mod = await import(fileUrl);
-  const fn = mod[exportName] ?? mod.default;
-  if (typeof fn !== 'function') {
-    out.errors.push(`missing export: this file must \`export function ${exportName}(THREE, opts = {})\` (found: ${Object.keys(mod).join(', ') || 'nothing'})`);
-  } else {
-    const g = fn(THREE, {});
-    if (!g || !g.isObject3D) {
-      out.errors.push(`${exportName}(THREE) must return a THREE.Group / Object3D (got ${Object.prototype.toString.call(g)})`);
-    } else {
-      const box = new THREE.Box3().setFromObject(g);
-      const mats = new Set();
-      let bad = 0;
-      g.traverse((o) => {
-        if (!o.isMesh) return;
-        out.meshes += 1;
-        mats.add(o.material?.uuid ?? o.material);
-        const pos = o.geometry?.attributes?.position;
-        if (!pos) return;
-        const arr = pos.array;
-        for (let i = 0; i < arr.length; i++) if (!Number.isFinite(arr[i])) { bad += 1; break; }
-        const idx = o.geometry.index;
-        out.tris += ((idx ? idx.count : pos.count) / 3) * (o.isInstancedMesh ? o.count : 1);
-      });
-      out.materials = mats.size;
-      if (bad) out.errors.push(`${bad} mesh(es) have NaN/Infinity vertex positions`);
-      if (out.meshes === 0) out.errors.push('the returned group contains no meshes');
-      if (box.isEmpty()) out.errors.push('the returned group has an empty bounding box');
-      else {
-        const s = new THREE.Vector3(); box.getSize(s);
-        if (!Number.isFinite(s.x + s.y + s.z)) out.errors.push('the bounding box is not finite');
-        else { out.size_m = [+s.x.toFixed(3), +s.y.toFixed(3), +s.z.toFixed(3)]; out.min_y = +box.min.y.toFixed(3); }
-      }
-      out.tris = Math.round(out.tris);
-    }
-  }
-} catch (e) {
-  out.errors.push(`${e?.name || 'Error'}: ${e?.message || String(e)}`);
-  const stack = String(e?.stack || '').split('\n').slice(1, 4).filter((l) => l.includes(fileUrl.replace('file://', '')));
-  if (stack.length) out.errors.push('at ' + stack.map((l) => l.trim()).join(' / '));
-}
-out.ok = out.errors.length === 0;
-console.log(JSON.stringify(out));
-"""
-
-
-def _checker_path(ctx: RunContext) -> Path:
-    """The checker script lives in the harness cache, never in the workspace."""
-    p = Path(ctx.settings.cache_dir) / "scene_asset_check.mjs"
-    if not p.is_file() or p.read_text() != _CHECK_JS:
-        # run_asset_stage fans the assets out over a thread pool, so every thread
-        # used to write the SAME '<cache>/scene_asset_check.mjs.tmp' and the loser's
-        # replace() raised FileNotFoundError -- swallowed below into ok=True, ran=False.
-        write_text_atomic(p, _CHECK_JS)
-    return p
-
-
 def check_threejs_asset(ctx: RunContext, rel: str, pascal: str, *, timeout_s: float = 60.0,
                         expected_size_m: tuple[float, float, float] | None = None) -> AssetCheck:
     """Import ``rel`` in node, call ``build<Pascal>(THREE, {})`` and inspect the group.
@@ -852,9 +791,9 @@ def check_threejs_asset(ctx: RunContext, rel: str, pascal: str, *, timeout_s: fl
     if not path.is_file():
         return AssetCheck(ok=False, ran=True, fatal=True, errors=[f"{rel} was not written"])
     try:
-        from codeverse3d.spatial.node import run_node
+        from codeverse3d.spatial.node import run_node, runtime_js_dir
 
-        res = run_node(_checker_path(ctx), [path.resolve().as_uri(), f"build{pascal}"], cwd=ctx.ws.root,
+        res = run_node(runtime_js_dir() / "lib" / "asset_check.mjs", [path.resolve().as_uri(), f"build{pascal}"], cwd=ctx.ws.root,
                        three_hook=True, timeout_s=timeout_s, check=False)
         data = res.last_json
         if data is None:

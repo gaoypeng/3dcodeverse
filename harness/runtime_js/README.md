@@ -81,6 +81,9 @@ lib/stack.mjs         Error → {type,message,file,line,frames} with workspace-r
 lib/syntax_check.mjs  THE JS syntax check: every file parsed as an ES module in ONE node
                       (vm.SourceTextModule, never linked or run; `node --check` only for a failing
                       file's line).  CLI for the python lints, findSyntaxError() for export_glb
+lib/asset_check.mjs   the scene-asset checker: import one asset module, call build<Pascal>(THREE, {}),
+                      measure the group (size, tris, meshes, materials, NaN positions); one JSON line
+                      for tracks/scene_assets.check_threejs_asset
 lib/browser/*.js      page-side ESM (served through /__runtime/): renderer.js (THE WebGLRenderer factory —
                       sRGB + ACES + PCF shadows + pixel ratio 1, used by the object rig AND the scene host),
                       camera_fit.js (azimuth/elevation → tight bbox fit; the distance math itself is
