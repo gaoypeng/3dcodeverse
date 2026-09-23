@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from . import config
+from ._jsonl import read_rows
 
 VIEWS = ["Image_005.png", "Image_015.png", "Image_025.png", "Image_035.png"]
 
@@ -138,7 +139,7 @@ def render_glb_views(glb: str | Path, out_dir: str | Path, samples: int = 64, re
 def render_dir(gen_dir: Path, workers: int = 2, samples: int = 64, resolution: int = 512, engine: str = "CYCLES") -> dict[str, dict]:
     """Render every task whose exec_results status is OK; returns {id: render_log}."""
     gen_dir = Path(gen_dir)
-    ex = {json.loads(l)["id"]: json.loads(l) for l in (gen_dir / "exec_results.jsonl").open() if l.strip()}
+    ex = {r["id"]: r for r in read_rows(gen_dir / "exec_results.jsonl")}
     jobs = [(tid, e["mesh"]) for tid, e in ex.items() if e.get("status") == "OK" and e.get("mesh") and str(e["mesh"]).endswith(".glb")]
     print(f"[render] {gen_dir.name}: {len(jobs)} GLBs, {workers} workers, {engine} {samples}spp {resolution}px", flush=True)
     out: dict[str, dict] = {}

@@ -93,3 +93,11 @@ def test_a_torn_results_line_does_not_crash_a_resume():
         res = execute.execute_dir(Path(d), "blender")
         assert [r["id"] for r in res] == ["a"]
         assert out.read_text() == '{"id": "a", "status": "OK"}\n'
+
+
+def test_a_torn_results_line_does_not_crash_the_render_stage():
+    """render_views / score read exec_results.jsonl strictly: one torn line crashed the stage."""
+    render_views = importlib.import_module(f"{PKG}.render_views")
+    with tempfile.TemporaryDirectory() as d:
+        (Path(d) / "exec_results.jsonl").write_text('{"id": "a", "status": "FAIL"}\n{"id": "b", "sta')
+        assert render_views.render_dir(Path(d)) == {}

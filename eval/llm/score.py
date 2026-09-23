@@ -19,6 +19,7 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from . import metrics
+from ._jsonl import read_rows
 from .suites import get_suite, load_prompts, resolve
 
 
@@ -74,10 +75,10 @@ def score_dir(gen_dir: Path, suite: str, ref: str = "executed", workers: int = 4
     rows = {r["id"]: r for r in load_prompts(suite)}
     ex = {}
     if (gen_dir / "exec_results.jsonl").exists():
-        ex = {json.loads(l)["id"]: json.loads(l) for l in (gen_dir / "exec_results.jsonl").open() if l.strip()}
+        ex = {r["id"]: r for r in read_rows(gen_dir / "exec_results.jsonl")}
     gens = {}
     if (gen_dir / "gens.jsonl").exists():
-        gens = {json.loads(l)["id"]: json.loads(l) for l in (gen_dir / "gens.jsonl").open() if l.strip()}
+        gens = {r["id"]: r for r in read_rows(gen_dir / "gens.jsonl")}
     gen_stats = json.loads((gen_dir / "gen_stats.json").read_text()) if (gen_dir / "gen_stats.json").exists() else {}
     n_prompts_total = len(rows)
     if gens:   # a --limit run: score only what was generated, but say so in the summary
@@ -126,7 +127,7 @@ def score_dir(gen_dir: Path, suite: str, ref: str = "executed", workers: int = 4
             for enc in image_encoders:
                 try:
                     image_summ[enc] = image_sim.score_gen_dir(gen_dir, rows, resolve, enc, device, text_sim=(enc.startswith("siglip") and not any(r.get("images") for r in rows.values())))
-                    per = {json.loads(l)["id"]: json.loads(l) for l in (gen_dir / f"image_sim_{enc}.jsonl").open()}
+                    per = {r["id"]: r for r in read_rows(gen_dir / f"image_sim_{enc}.jsonl")}
                     for r in out_rows:
                         p = per.get(r["id"], {})
                         r[f"{enc}_paired"], r[f"{enc}_assigned"] = p.get("view_paired"), p.get("best_assignment")
