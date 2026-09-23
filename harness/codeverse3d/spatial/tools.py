@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import RENDER_MODES, BuildResult, GateReport, Measurement
-from codeverse3d.contracts.common import Language, Track
+from codeverse3d.contracts.common import TRACK_LANGUAGES, Language, Track
 from codeverse3d.conventions import OBJECT_VIEWS, OBJECT_VIEWS_QUICK
 from codeverse3d.proc import read_json_or_none
 from codeverse3d.spatial.connectivity import check_connectivity as _check_connectivity
@@ -78,15 +78,15 @@ def _measure_after_build(ctx: ToolContext, br: BuildResult) -> tuple[Measurement
 
 #: languages whose build has no GLB deliverable — build ok is reported through
 #: the language's own artifacts instead of 'no GLB path'
-_SCENE_LANGS = ("scene_threejs",)
-_GL_LANGS = ("glsl_shader", "opengl_python")
+_SCENE_LANGS = tuple(lang.value for lang in TRACK_LANGUAGES[Track.SCENE])
+GRAPHICS_LANGS = tuple(lang.value for lang in TRACK_LANGUAGES[Track.GRAPHICS])
 
 
 def _no_glb_summary(ctx: ToolContext, br: BuildResult, language: str) -> tuple[bool, list[str], dict[str, Any]]:
     """(ok, lines, numbers) for a successful build without a GLB (scene / graphics)."""
     ws = ctx.workspace
     census = dict(br.census) if isinstance(br.census, dict) else {}
-    if language in _GL_LANGS:
+    if language in GRAPHICS_LANGS:
         # same frame-stats formatter the gl_probe / gl_frames tools use
         lines, numbers, ok = gl_metrics_summary(ws, hints=False, root=ws.root)
         for key in ("frames", "sheet", "gif"):
@@ -167,7 +167,7 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
         return _build_failed(ctx, br, lint_warns)
     numbers: dict[str, Any] = {"stage": "build", "ok": br.ok, "duration_ms": br.duration_ms}
     broken = False
-    if not br.glb_path and language in _SCENE_LANGS + _GL_LANGS:
+    if not br.glb_path and language in _SCENE_LANGS + GRAPHICS_LANGS:
         # languages without a GLB deliverable: report the language's own artifacts
         ok, extra_lines, extra_numbers = _no_glb_summary(ctx, br, language)
         lines = _gl_gate_verdict(extra_numbers) + [f"BUILD OK ({br.duration_ms} ms)"] + extra_lines
@@ -509,7 +509,6 @@ def check_placement(ctx: ToolContext, args: CheckPlacementArgs) -> Observation:
 
 
 # ===================================================================== graphics
-GRAPHICS_LANGS = (Language.GLSL_SHADER.value, Language.OPENGL_PYTHON.value)
 MAX_FRAMES = 8
 
 
