@@ -386,7 +386,8 @@ the model, is what makes the artifact), and cheaper judges (§8).
 ## 10. The cost ledger (`codeverse3d/cost/`)
 
 ```python
-from codeverse3d.cost import record_call, load_ledger, summarise
+from codeverse3d.cost import record_call, load_ledger
+from codeverse3d.cost.ledger import summarise
 
 with run_ledger(ws.root):                       # <run>/telemetry/cost.jsonl
     record_call(res.usage, run=ws.slug, round=idx, stage="refine", role="generator",

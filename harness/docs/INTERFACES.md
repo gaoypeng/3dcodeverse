@@ -112,7 +112,8 @@ Rules that callers must know:
 
 ## cost/  (ledger · profiles · price provenance)
 ```python
-from codeverse3d.cost import record_call, load_ledger, summarise
+from codeverse3d.cost import record_call, load_ledger
+from codeverse3d.cost.ledger import summarise
 record_call(usage, *, run="", round=None, stage=None, role=None, label="", backend="", model="",
             outcome="ok", latency_ms=None, n_calls=1, source="live", ledger=None, reprice=False,
             tallies=None) -> CallCost
@@ -670,7 +671,7 @@ from codeverse3d.workspace import GIT_SAFE_FLAGS, GIT_SAFE_DIFF_FLAGS, git_safe_
     # inherited environment (HOME, PATH, GIT_TERMINAL_PROMPT)
 from codeverse3d.addons.dataset.captions import caption_sample # Δ (ws, record, model_id, *, model=None, out_dir=None) -> Captions;
                                                        # out_dir → side-car <out_dir>/<slug>.json, run untouched
-from codeverse3d.addons.gallery import build_index, default_roots, build_static, serve, GalleryApp   # THE local gallery
+from codeverse3d.addons.gallery.index import build_index, default_roots   # THE local gallery (page: build_static, server: serve, GalleryApp)
                                                        # build_index(roots) -> GalleryIndex (sections of RunEntry; never raises per run)
                                                        # build_static(roots, out_html, *, embed=False) -> (path, n, index)
                                                        # render_static(index, *, embed=…, extra_html="") — eval/bench/report.py's page
