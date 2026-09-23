@@ -11,7 +11,7 @@
  * the content bbox (scatter across the whole ground) as backdrop.
  */
 
-import { classifyBackdrop, nonSolid, worldBox } from './backdrop.mjs';
+import { classifyBackdrop, nonSolid, drawableBox } from './backdrop.mjs';
 import { sampleFrame } from './host_metrics.mjs';
 
 
@@ -20,7 +20,7 @@ function collectDrawables(scene, THREE, contentSpan) {
   scene.traverse((o) => {
     if (!o.visible) return;
     if (!(o.isMesh || o.isPoints || o.isLine || o.isSprite)) return;
-    const box = worldBox(o, THREE);
+    const box = drawableBox(o, THREE);
     if (box) out.push({ obj: o, kind: classifyBackdrop(o, box, contentSpan) });
   });
   return out;

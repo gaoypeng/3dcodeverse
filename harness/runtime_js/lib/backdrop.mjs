@@ -40,7 +40,7 @@ export function nonSolid(mesh) {
 }
 
 /** World-space AABB of a drawable (a fresh THREE.Box3), or null when it has none. */
-export function worldBox(o, THREE) {
+export function drawableBox(o, THREE) {
   if (!o.geometry) return null;
   if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
   const gb = o.geometry.boundingBox;

@@ -20,7 +20,7 @@ import { sceneCensus } from './host_census.mjs';
 import { settleScene } from './host_placement.mjs';
 import { frameStats, nearGeometry, repairCameraSpec } from './host_metrics.mjs';
 import { frameCoverage, glbCoverage } from './host_coverage.mjs';
-import { classifyBackdrop, nonSolid, worldBox } from './backdrop.mjs';
+import { classifyBackdrop, nonSolid, drawableBox } from './backdrop.mjs';
 import { installShaderErrorHook } from './host_shader_errors.mjs';
 import { attributeErrors, captured, captureMaterialSources, materialAudit } from './host_compile.mjs';
 import { makeRenderer, rendererString } from './browser/renderer.js';
@@ -150,7 +150,7 @@ function geometryBoxes(scene) {
   scene.traverse((o) => {
     if (!o.geometry || !o.geometry.uuid || !(o.isMesh || o.isInstancedMesh)) return;
     if (!used.has(o.geometry.uuid)) used.set(o.geometry.uuid, new THREE.Box3());
-    const box = worldBox(o, THREE);
+    const box = drawableBox(o, THREE);
     if (box) used.get(o.geometry.uuid).union(box);
   });
   return used;
@@ -511,12 +511,12 @@ function skyLayersBelow(eye) {
   state.scene.traverse((o) => {
     if (!(o.isMesh || o.isInstancedMesh) || !o.visible || !o.geometry) return;
     if (o.parent && o.parent.name === 'RoomShell' && /^Ceiling/.test(o.name || '')) {
-      const box = worldBox(o, THREE);
+      const box = drawableBox(o, THREE);
       if (box && box.max.y < eye.y) out.push(o);
       return;
     }
     if (!nonSolid(o)) return;
-    const box = worldBox(o, THREE);
+    const box = drawableBox(o, THREE);
     if (!box) return;
     if (o.frustumCulled === false && o.geometry.isInstancedBufferGeometry) {
       // an instanced billboard deck keeps its quad at the origin and offsets it in the shader:

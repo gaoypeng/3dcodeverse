@@ -3,7 +3,7 @@
  * readback of the render canvas and near-geometry tests for a camera.
  */
 
-import { GROUND_NAME_RE, classifyBackdrop, nonSolid, worldBox } from './backdrop.mjs';
+import { GROUND_NAME_RE, classifyBackdrop, nonSolid, drawableBox } from './backdrop.mjs';
 
 export const SAMPLE_W = 96;
 export const SAMPLE_H = 54;
@@ -143,7 +143,7 @@ export function nearGeometry(scene, camera, THREE, limitM = 0.3, lookAt = null) 
   const groundMeshes = [];
   for (const o of targets) {
     if (o.isInstancedMesh) continue;
-    const box = worldBox(o, THREE);
+    const box = drawableBox(o, THREE);
     if (!box) continue;
     const s = box.getSize(new THREE.Vector3());
     // terrain overhead must also be NAMED as ground: a 40 m 'Ceiling' is ground-shaped to the
