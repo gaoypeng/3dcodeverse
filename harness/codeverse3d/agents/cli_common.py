@@ -739,10 +739,6 @@ def provider_wait(failures: Iterable[tuple[float, float]], end: float,
     return round(total, 3)
 
 
-def tail(text: str, n: int = 2000) -> str:
-    return text if len(text) <= n else text[-n:]
-
-
 def find_json_object(stdout: str, accept: Callable[[dict[str, Any]], bool]) -> dict[str, Any] | None:
     """The one JSON envelope a CLI printed, possibly around log noise.
 

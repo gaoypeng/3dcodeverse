@@ -43,7 +43,7 @@ from codeverse3d.agents.backends import (
     split_model_effort,
     usage_from_envelope,
 )
-from codeverse3d.agents.cli_common import clean_env, run_with_watchdog, tail
+from codeverse3d.agents.cli_common import clean_env, run_with_watchdog
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import BuildResult, GateReport
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest
@@ -373,10 +373,10 @@ class ClaudeOneShot:
         if proc.timed_out:
             notes = f"timeout after {proc.duration_s:.0f}s ({proc.killed_reason})"
         elif env is None or proc.rc != 0:
-            notes = f"rc={proc.rc}; no result envelope; stderr: {tail(proc.stderr, 800)}"
+            notes = f"rc={proc.rc}; no result envelope; stderr: {proc.stderr[-800:]}"
             ok = False
         elif env.get("is_error"):
-            notes = f"claude is_error subtype={env.get('subtype', '')}: {tail(text, 400)}"
+            notes = f"claude is_error subtype={env.get('subtype', '')}: {text[-400:]}"
             ok = False
         (out_dir / "response.md").write_text(text)
         return OneShotResult(ok=ok, text=text, usage=usage, tool_calls=usage.tool_calls, notes=notes,
@@ -431,7 +431,7 @@ class CodexOneShot:
         if proc.timed_out:
             notes = f"timeout after {proc.duration_s:.0f}s ({proc.killed_reason})"
         elif proc.rc != 0 or events.n_events == 0:
-            notes = f"rc={proc.rc}; events={events.n_events}; stderr: {tail(proc.stderr, 800)}"
+            notes = f"rc={proc.rc}; events={events.n_events}; stderr: {proc.stderr[-800:]}"
             ok = ok and events.n_events > 0
         (out_dir / "response.md").write_text(text)
         return OneShotResult(ok=ok, text=text, usage=usage, tool_calls=events.tool_calls, notes=notes,

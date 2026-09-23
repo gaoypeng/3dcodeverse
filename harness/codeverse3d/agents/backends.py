@@ -64,7 +64,6 @@ from codeverse3d.agents.cli_common import (
     provider_wait,
     record_tool_calls,
     release_session,
-    tail,
     watchdog_error,
 )
 from codeverse3d.agents.materialize import MCP_SERVER_NAME, MCP_TOOL_TIMEOUT_MS, codex_mcp_overrides
@@ -493,7 +492,7 @@ class GeminiCliAgent(_CliAgent):
             out.quota = is_quota_failure(said)
             out.transient = is_transient_failure(said) or (parsed is not None and not text)
             out.rate_limited = err.get("code") == 429 or (not err and is_rate_limited(said))
-            out.errors.append(f"rc={proc.rc}; response={'<empty>' if not text else 'ok'}; stderr tail: {tail(proc.stderr, 1500)}")
+            out.errors.append(f"rc={proc.rc}; response={'<empty>' if not text else 'ok'}; stderr tail: {proc.stderr[-1500:]}")
             out.exit_reason = "budget" if out.rate_limited or out.quota else "error"
             return out
         out.ok, out.exit_reason = True, "completed"
@@ -749,7 +748,7 @@ class ClaudeCodeAgent(_CliAgent):
                 transient = not text.strip() and (bool(stream.retries) or is_transient_failure(proc.stderr))
             elif env is None or proc.rc != 0:
                 reason, ok = "error", False
-                errors.append(f"rc={proc.rc}; no result envelope; stderr tail: {tail(proc.stderr, 1500)}")
+                errors.append(f"rc={proc.rc}; no result envelope; stderr tail: {proc.stderr[-1500:]}")
                 # a 529 / overloaded exit is the provider's, not the task's (AgentResult.transient)
                 quota = is_quota_failure(proc.stderr, proc.stdout)
                 transient = is_transient_failure(proc.stderr, proc.stdout)
@@ -761,7 +760,7 @@ class ClaudeCodeAgent(_CliAgent):
                 quota = is_quota_failure(text)
                 transient = "max_turns" not in sub and is_transient_failure(text)
                 reason = "budget" if "max_turns" in sub or quota else "error"
-                errors.append(f"claude reported {sub or 'is_error'}: {tail(text, 800)}")
+                errors.append(f"claude reported {sub or 'is_error'}: {text[-800:]}")
             else:
                 reason, ok = "completed", True
             return finish_session(
@@ -922,7 +921,7 @@ class CodexAgent(_CliAgent):
                 errors.append(watchdog_error(proc))
             elif proc.rc != 0 or events.n_events == 0:
                 ok, reason = False, "error"
-                errors.append(f"rc={proc.rc}; events={events.n_events}; stderr tail: {tail(proc.stderr, 1500)}")
+                errors.append(f"rc={proc.rc}; events={events.n_events}; stderr tail: {proc.stderr[-1500:]}")
             elif events.errors and events.turns_completed == 0:
                 ok, reason = False, "error"
             else:
@@ -1203,7 +1202,7 @@ class AntigravityAgent(_CliAgent):
             elif proc.rc != 0 or (env is not None and str(env.get("status", "SUCCESS")).upper() not in ("SUCCESS", "OK")):
                 ok, reason = False, "error"
                 errors.append(f"rc={proc.rc}; status={(env or {}).get('status')}; error={(env or {}).get('error', '')}; "
-                              f"stderr tail: {tail(proc.stderr, 1500)}")
+                              f"stderr tail: {proc.stderr[-1500:]}")
             elif not text.strip():
                 ok, reason = False, "error"
                 errors.append("empty response")
