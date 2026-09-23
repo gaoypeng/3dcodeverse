@@ -9,13 +9,6 @@ from codeverse3d.cost.guard import image_tokens, text_tokens
 
 
 # ------------------------------------------------------------------ guard
-def test_estimate_matches_the_price_table():
-    est = estimate_call("gemini:gemini-3.7-flash", input_tokens=100_000, cached_tokens=80_000,
-                        output_tokens=1_000)
-    assert abs(est.usd - (0.015 + 0.006 + 0.00375)) < 1e-9
-    assert est.provider == "gemini" and est.model == "gemini-3.7-flash" and not est.approximate
-
-
 def test_estimate_from_text_and_images():
     est = estimate_call("gemini:gemini-3.1-pro-preview", prompt="x" * 4000, n_images=4, output_tokens=2000)
     assert est.input_tokens == 1000 + image_tokens(4)

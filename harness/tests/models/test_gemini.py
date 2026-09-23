@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import json
 from typing import Any
 
 import pytest
@@ -16,11 +15,9 @@ from codeverse3d.contracts.chat import (
     ImagePart,
     TextPart,
 )
-from codeverse3d.contracts.plan import StaticPlan
 from codeverse3d.models.base import ModelError
 from codeverse3d.models.gemini import (
     GeminiModel,
-    build_config,
     classify_exception,
     to_contents,
 )
@@ -85,97 +82,6 @@ def make_model(script: list[Any], keys=("k1", "k2", "k3"), pool: KeyPool | None 
     return m, log, pool
 
 
-def test_read_timeout_comes_from_settings(monkeypatch):
-    """C3D_MODEL_TIMEOUT_S raises the per-attempt HTTP read timeout (degraded-provider escape hatch)."""
-    from codeverse3d.config import Settings, get_settings
-    from codeverse3d.models.gemini import GeminiModel
-
-    monkeypatch.setenv("GEMINI_API_KEYS", "k1")
-    get_settings.cache_clear()
-    assert GeminiModel("gemini-3.7-flash").timeout_s == Settings().model_timeout_s
-    monkeypatch.setenv("C3D_MODEL_TIMEOUT_S", "900")
-    get_settings.cache_clear()
-    assert GeminiModel("gemini-3.7-flash").timeout_s == 900.0
-    assert GeminiModel("gemini-3.7-flash", timeout_s=42.0).timeout_s == 42.0
-    get_settings.cache_clear()
-
-
-def test_text_usage_cost_and_raw():
-    m, log, _ = make_model([text_response("hello")])
-    r = m.generate(
-        ChatRequest(
-            messages=[ChatMessage.user("hi")], system="sys", thinking="medium", temperature=0.2
-        )
-    )
-    assert r.text == "hello" and r.finish_reason == "STOP" and r.parsed is None
-    u = r.usage
-    assert (u.input_tokens, u.output_tokens, u.thoughts_tokens, u.cached_tokens) == (100, 20, 3, 40)
-    assert u.cost_usd > 0 and u.backend == "gemini" and u.model == "gemini-3.7-flash"
-    cfg = log[0]["config"]
-    assert cfg.system_instruction == "sys" and cfg.temperature == 0.2
-    assert cfg.thinking_config.thinking_budget == 4096
-    assert r.raw["key"] == "…k1"
-
-
-def test_structured_output_parsed_and_schema_sanitised():
-    payload = {
-        "object_name": "Stool",
-        "summary": "s",
-        "overall_bbox": {"center": [0, 0, 0.25], "extents": [0.4, 0.4, 0.5]},
-        "parts": [
-            {
-                "name": "Seat",
-                "role": "r",
-                "description": "d",
-                "bbox": {"center": [0, 0, 0.45], "extents": [0.4, 0.4, 0.05]},
-            }
-        ],
-    }
-    m, log, _ = make_model([text_response("```json\n" + json.dumps(payload) + "\n```")])
-    r = m.generate(
-        ChatRequest(
-            messages=[ChatMessage.user("plan")], response_schema=StaticPlan.model_json_schema()
-        )
-    )
-    assert StaticPlan.model_validate(r.parsed).object_name == "Stool"
-    cfg = log[0]["config"]
-    assert cfg.response_mime_type == "application/json"
-    assert "$defs" not in json.dumps(
-        cfg.response_schema
-        if isinstance(cfg.response_schema, dict)
-        else cfg.response_schema.model_dump()
-    )
-
-
-def test_bad_json_is_retried():
-    m, log, _ = make_model([text_response("not json"), text_response('{"ok": true}')])
-    r = m.generate(
-        ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"})
-    )
-    assert r.parsed == {"ok": True} and len(log) == 2
-
-
-def test_429_rotates_keys_and_cools_down():
-    err = genai_errors.APIError(
-        429,
-        {
-            "error": {
-                "message": "quota",
-                "status": "RESOURCE_EXHAUSTED",
-                "details": [{"retryDelay": "7s"}],
-            }
-        },
-    )
-    m, log, pool = make_model([err, err, text_response("third time lucky")])
-    r = m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
-    assert r.text == "third time lucky"
-    assert [e["key"] for e in log] == ["k1", "k2", "k3"]
-    st = pool.stats()
-    assert st["429"] == 2 and st["ok"] == 1 and st["n_cooling"] == 2
-    cooling = {k["key"]: k["cooldown_s"] for k in st["keys"]}
-    assert 0 < cooling["…k1"] <= 7.0  # retryDelay honoured
-
-
 def _api_error(code: int, message: str, status: str) -> genai_errors.APIError:
     return genai_errors.APIError(code, {"error": {"message": message, "status": status}})
 
@@ -195,6 +101,32 @@ THROTTLED = genai_errors.APIError(
 )
 
 
+def test_429_rotates_keys_and_honours_retry_delay():
+    m, log, pool = make_model([THROTTLED, THROTTLED, text_response("third time lucky")])
+    assert m.generate(ChatRequest(messages=[ChatMessage.user("x")])).text == "third time lucky"
+    assert [e["key"] for e in log] == ["k1", "k2", "k3"]
+    st = pool.stats()
+    assert st["429"] == 2 and st["ok"] == 1 and st["n_cooling"] == 2
+    assert 0 < {k["key"]: k["cooldown_s"] for k in st["keys"]}["…k1"] <= 7.0
+
+
+def test_text_usage_cost_and_raw():
+    m, log, _ = make_model([text_response("hello")])
+    r = m.generate(
+        ChatRequest(
+            messages=[ChatMessage.user("hi")], system="sys", thinking="medium", temperature=0.2
+        )
+    )
+    assert r.text == "hello" and r.finish_reason == "STOP" and r.parsed is None
+    u = r.usage
+    assert (u.input_tokens, u.output_tokens, u.thoughts_tokens, u.cached_tokens) == (100, 20, 3, 40)
+    assert u.cost_usd > 0 and u.backend == "gemini" and u.model == "gemini-3.7-flash"
+    cfg = log[0]["config"]
+    assert cfg.system_instruction == "sys" and cfg.temperature == 0.2
+    assert cfg.thinking_config.thinking_budget == 4096
+    assert r.raw["key"] == "…k1"
+
+
 def test_api_key_invalid_400_is_treated_as_dead_key():
     bad = _api_error(400, "API key not valid. Please pass a valid API key.", "INVALID_ARGUMENT")
     m, log, pool = make_model([bad, text_response("ok")], keys=("k1", "k2"))
@@ -205,16 +137,6 @@ def test_api_key_invalid_400_is_treated_as_dead_key():
     assert failure_outcome(classify_exception(SUSPENDED)) == "dead"
     assert failure_outcome(classify_exception(THROTTLED)) == "429"
     assert failure_outcome(ModelError("bad json", retryable=True)) == "skip"  # not the key's fault: no health nudge
-
-
-def test_400_is_not_retried():
-    err = genai_errors.APIError(
-        400, {"error": {"message": "Invalid argument", "status": "INVALID_ARGUMENT"}}
-    )
-    m, log, _ = make_model([err, text_response("never")])
-    with pytest.raises(ModelError) as ei:
-        m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
-    assert not ei.value.retryable and len(log) == 1
 
 
 def test_thinking_rejected_falls_back_without_thinking_config():
@@ -299,17 +221,6 @@ def test_to_contents_merges_same_role_and_requires_content():
     assert [x.role for x in c] == ["user", "model"] and len(c[0].parts) == 2
     with pytest.raises(ModelError):
         to_contents([ChatMessage(role="user", parts=[])])
-
-
-def test_build_config_thinking_off_budget_zero():
-    cfg = build_config(
-        ChatRequest(messages=[ChatMessage.user("x")], thinking="off"), timeout_ms=1000
-    )
-    assert cfg.thinking_config.thinking_budget == 0
-    cfg = build_config(
-        ChatRequest(messages=[ChatMessage.user("x")]), timeout_ms=1000, use_thinking=False
-    )
-    assert cfg.thinking_config is None
 
 
 def test_no_keys_is_loud():

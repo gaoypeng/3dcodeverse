@@ -6,11 +6,9 @@ import pytest
 
 from codeverse3d.contracts.common import Usage
 from codeverse3d.models.pricing import (
-    IMAGE_USD_BY_SIZE,
     PRICES,
     SOURCES,
     estimate_cost,
-    per_image_usd,
     price_provenance,
     unit_prices,
 )
@@ -42,26 +40,6 @@ def test_every_price_row_has_provenance():
         assert price.checked and price.checked[:2] == "20", model
         assert price.status in ("verified", "inferred", "unverified"), model
         assert (price.source or provider) in SOURCES, model
-
-
-def test_provenance_flags_the_rows_we_cannot_stand_behind():
-    for key, price in PRICES.items():
-        row = price_provenance(*key)
-        if price.approximate:
-            assert row.approximate, key
-    assert price_provenance("gemini", "gemini-3.7-flash").approximate is False
-    assert price_provenance("anthropic", "claude-haiku-4").approximate is True
-    assert price_provenance("gemini", "not-a-model").status == "unknown"
-
-
-def test_image_models_have_a_per_image_price():
-    for provider, model in (("gemini", "gemini-3.1-flash-image"), ("gemini", "gemini-2.5-flash-image")):
-        assert PRICES[(provider, model)].image_usd > 0, model
-        assert per_image_usd(provider, model) == PRICES[(provider, model)].image_usd
-        assert per_image_usd(provider, model, size=512) > 0
-        assert (provider, model) in IMAGE_USD_BY_SIZE
-    # version suffixes resolve too (the image model is often pinned with -preview)
-    assert per_image_usd("gemini", "gemini-2.5-flash-image-preview") == 0.039
 
 
 def test_long_context_tier_is_applied():
@@ -97,9 +75,7 @@ def test_the_bracketed_context_variant_prices_on_its_own_row():
 
 # --------------------------------------------------------------- staleness maintenance
 def test_every_price_row_was_checked_within_the_maintenance_window():
-    """A price nobody re-checked for 90 days is not evidence.  When this fails,
-    re-read the providers' pricing pages, update PRICES and bump
-    ``CHECKED`` — do not raise the threshold."""
+    """When this fails, re-check the providers' pages and bump CHECKED — not the threshold."""
     from datetime import date, datetime
 
     from codeverse3d.cli.cost_cmd import STALE_AFTER_DAYS

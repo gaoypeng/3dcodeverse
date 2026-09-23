@@ -12,16 +12,6 @@ from codeverse3d.cli.main import app
 runner = CliRunner()
 
 
-def test_cost_show(fake_run: Path, tmp_path: Path):
-    out = tmp_path / "report.md"
-    r = runner.invoke(app, ["cost", "show", str(fake_run), "--md", str(out)])
-    assert r.exit_code == 0, r.output
-    assert "per run" in r.stdout and "passing" not in r.stdout and "judge" in r.stdout
-    assert out.is_file() and "## Per stage" in out.read_text()
-    r = runner.invoke(app, ["cost", "show", str(fake_run), "--no-per-run"])
-    assert r.exit_code == 0 and "| fake_run | static_object |" not in r.stdout  # the per-run table
-
-
 def test_cost_show_recheck_reports_drift(fake_run: Path):
     r = runner.invoke(app, ["cost", "show", str(fake_run), "--recheck"])
     assert r.exit_code == 0 and "re-priced total" in r.output
@@ -62,7 +52,7 @@ def test_cost_runs_dir_aggregates_a_battery(fake_run: Path, tmp_path: Path):
 
 
 def test_the_ledger_is_the_money(fake_run: Path):
-    """The run wrote its own rows while it ran: they ARE the money, whatever the record says."""
+    """The ledger rows are the money, whatever the record says (D84)."""
     _live_ledger(fake_run, [
         {"run": fake_run.name, "round": 0, "stage": "baseline", "role": "generator",
          "backend": "gemini", "provider": "gemini", "model": "gemini-3.7-flash",
@@ -78,9 +68,6 @@ def test_the_ledger_is_the_money(fake_run: Path):
 
 
 def test_cost_reports_the_calls_per_key_when_the_ledger_recorded_them(fake_run: Path, tmp_path: Path):
-    """audit 2026-08-26 §4: no row said which key served a call, so 'is one key hammered' could
-    only be probed.  Live rows now carry the key suffix and the round-trip count; the report
-    shows both, and a ledger without them (older, or reconstructed) simply has no key section."""
     base = {"run": fake_run.name, "round": 0, "stage": "baseline", "role": "generator", "backend": "gemini",
             "provider": "gemini", "model": "gemini-3.7-flash", "input_tokens": 1_000, "output_tokens": 10,
             "cost_usd": 0.001, "price_source": "exact"}

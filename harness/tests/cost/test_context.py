@@ -24,10 +24,10 @@ def test_label_tells_stage_role_and_round():
     assert context_from_label("texture_plan").stage is Stage.TEXTURE
     assert context_from_label("captioner").role is Role.CAPTIONER
     assert context_from_label("").stage is None
-
-
-def test_repair_label_wins_over_the_label_it_repairs():
-    assert context_from_label("baseline_repair1").stage is Stage.REPAIR
+    assert context_from_label("baseline_repair1").stage is Stage.REPAIR  # repair wins
+    assert attribute(label="detail_seat_edge").stage is Stage.REFINE  # the static detail round
+    zl = attribute(label="zone-layout")  # the ledger agrees with the guard's stage='plan'
+    assert zl.stage is Stage.PLAN and zl.role is Role.PLANNER
 
 
 def test_a_generation_label_yields_to_the_session_and_explicit_beats_both():
@@ -41,8 +41,7 @@ def test_a_generation_label_yields_to_the_session_and_explicit_beats_both():
 
 
 def test_a_call_that_names_its_own_job_beats_the_session_it_runs_inside():
-    """The verifier's finding: a spatial tool that bills a model inside a refine
-    session was recorded as stage=refine / role=generator."""
+    """A spatial tool that bills a model inside a refine session is not a refine call."""
     with call_context(round=2, stage=Stage.REFINE, role=Role.GENERATOR, label="refine_seat"):
         tex = attribute(label="texture_plan")
         assert tex.stage is Stage.TEXTURE and tex.role is Role.OTHER and tex.round == 2
@@ -57,21 +56,8 @@ def test_a_call_that_names_its_own_job_beats_the_session_it_runs_inside():
         assert anon.stage is Stage.REFINE and anon.role is Role.GENERATOR
 
 
-def test_nested_contexts_merge_and_unwind():
-    with bound_run("run-a"):
-        assert current().run == "run-a"
-        with call_context(stage=Stage.BASELINE, round=0):
-            with call_context(label="inner"):
-                inner = current()
-                assert inner.stage is Stage.BASELINE and inner.round == 0 and inner.label == "inner"
-            assert current().label == ""
-        assert current().stage is None and current().run == "run-a"
-    assert current().run == ""
-
-
 def test_a_run_bound_in_a_thread_is_never_published_to_the_others():
-    """The 2026-08-30 leak: the binding also lived in a process global, so once the
-    first parallel run exited it republished ITS name for every later caller."""
+    """The 2026-08-30 leak: a process-global binding republished one parallel run's name."""
     import threading
 
     ready, seen = threading.Barrier(3), {}
@@ -91,16 +77,3 @@ def test_a_run_bound_in_a_thread_is_never_published_to_the_others():
     assert current().run == ""  # ...and the main thread never inherited either of them
 
 
-def test_role_is_derived_from_stage_when_unstated():
-    assert attribute(CallContext(stage=Stage.ZONES)).role is Role.GENERATOR
-    assert attribute(CallContext(stage=Stage.PAIRWISE)).role is Role.JUDGE
-    # the scene track's compose task is an agent session, not deterministic assembly
-    assert attribute(CallContext(stage=Stage.ASSEMBLE)).role is Role.GENERATOR
-
-
-def test_the_static_track_detail_round_is_a_refine_pass():
-    """``DEFAULT_DETAIL_ROUNDS=1``, so every static run bills one of these; until
-    2026-08-30 no prefix matched and the whole round landed under ``other``."""
-    for label in ("detail", "detail_seat_edge"):
-        got = attribute(label=label)
-        assert got.stage is Stage.REFINE and got.role is Role.GENERATOR, label

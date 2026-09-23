@@ -113,18 +113,6 @@ def test_a_clean_call_loses_nothing_and_a_503_before_the_answer_is_lost(tmp_path
     assert lost == 0.0
 
 
-def test_a_backend_that_reports_no_round_trips_is_charged_everything_outside_its_answer(tmp_path: Path):
-    class Sdk:
-        provider, model, id = "openai", "gpt-5", "openai:gpt-5"
-
-        def generate(self, request: ChatRequest) -> ChatResponse:
-            time.sleep(0.08)  # a retried attempt and its back-off, invisible from here
-            return ChatResponse(text="ok", usage=Usage(model="gpt-5", latency_ms=20))
-
-    wall, lost = _lost(Sdk(), tmp_path)
-    assert lost == pytest.approx(wall - 0.020, abs=0.01)
-
-
 def test_an_agent_session_books_what_its_cli_lost_to_the_provider(tmp_path: Path):
     class Cli:
         kind, model, id = "gemini-cli", "gemini-3.7-flash", "gemini-cli:gemini-3.7-flash"

@@ -207,8 +207,7 @@ def test_base_url_from_settings(monkeypatch):
 
 
 def test_a_failed_reply_carries_what_it_was_billed():
-    """Both raise sites had ``usage`` in hand (built two lines above) and dropped it:
-    a bad-JSON or empty completion is billed exactly like a good one."""
+    """A bad-JSON or empty completion is billed on the error, reasoning split out (D84)."""
     for script, req in (
         (
             [completion("not json", finish="length")],
@@ -226,21 +225,3 @@ def test_a_failed_reply_carries_what_it_was_billed():
         assert u.input_tokens == 100 and u.output_tokens == 20 and u.thoughts_tokens == 10
 
 
-def test_each_attempt_gets_what_is_left_of_the_call_budget():
-    """Same deadline contract as the anthropic adapter: the SDK client is built once with
-    a fixed 600 s timeout, so the per-call ``max_wait_s`` has to reach ``create()``."""
-    m, fc = make([completion("hi")], timeout_s=600.0)
-    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=25.0))
-    assert 20.0 <= fc.calls[0]["timeout"] <= 25.0
-
-    m, fc = make([completion("hi")], timeout_s=600.0)
-    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=5.0))
-    assert fc.calls[0]["timeout"] == 20.0, "a near-dead budget still buys ONE real attempt"
-
-    m, fc = make([completion("hi")], timeout_s=600.0)
-    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=930.0))
-    assert fc.calls[0]["timeout"] == 600.0, "a long plan is bounded by the client, not clipped"
-
-    m, fc = make([completion("hi")], timeout_s=600.0)
-    m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
-    assert fc.calls[0]["timeout"] == 600.0

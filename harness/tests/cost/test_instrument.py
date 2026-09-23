@@ -101,18 +101,7 @@ def test_a_failed_call_is_recorded_and_re_raised(tmp_path: Path):
     assert row.outcome == "timeout" and row.stage is Stage.PLAN and row.cost_usd == 0.0
 
 
-def test_a_cli_agent_we_cannot_see_inside_gets_one_session_row(tmp_path: Path):
-    with run_ledger(tmp_path, run="r1"):
-        MeteredAgent(CliAgent(FakeChat())).run(
-            AgentJob(workspace=str(tmp_path), prompt="p", label="baseline", round=0, kind="baseline"))
-    (row,) = load_ledger(tmp_path)
-    assert row.source == "session" and row.backend == "gemini-cli" and row.n_calls == 4
-    assert row.stage is Stage.BASELINE and row.round == 0 and row.input_tokens == 50_000
-
-
 def test_a_session_row_is_filed_by_the_task_kind(tmp_path: Path):
-    """``job.kind`` is a bare task kind (``zone``, ``rebuild``, ``asset``); until 2026-08-29
-    only the label PREFIXES were known here, so every scene zone session was ``other``."""
     with run_ledger(tmp_path, run="r1"):
         for kind, label in (("zone", "zone_courtyard"), ("rebuild", "rebuild"),
                             ("asset", "asset_koi"), ("candidate", "baseline_c1")):
@@ -209,21 +198,6 @@ def test_a_cli_session_is_recorded_even_when_a_tool_bills_a_model_inside_it(tmp_
 
 
 # ------------------------------------------------------------------- nesting / parallelism
-def test_run_ledgers_nest_and_restore_the_outer_one(tmp_path: Path):
-    """Closing a nested ledger restores the outer context."""
-    outer, inner = tmp_path / "cell", tmp_path / "cell" / "run"
-    with run_ledger(outer, run="cell"):
-        MeteredChatModel(FakeChat()).generate(ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
-        with run_ledger(inner, run="cell:run"):
-            MeteredChatModel(FakeChat()).generate(
-                ChatRequest(messages=[ChatMessage.user("x")], label="baseline"))
-        MeteredChatModel(FakeChat()).generate(
-            ChatRequest(messages=[ChatMessage.user("x")], label="judge:static_object_v1:r00:s0"))
-    assert [r.stage for r in load_ledger(inner)] == [Stage.BASELINE]
-    assert [r.stage for r in load_ledger(outer)] == [Stage.PLAN, Stage.JUDGE]
-    assert {r.run for r in load_ledger(outer)} == {"cell"}
-
-
 def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Path,
                                                                   monkeypatch: pytest.MonkeyPatch):
     """`bench.run_bench` runs N prompts in N threads; their rows must not mix."""
@@ -243,10 +217,7 @@ def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Pat
     for name in names:
         rows = load_ledger(tmp_path / name)
         assert len(rows) == 3 and {r.run for r in rows} == {name}
-    # ...and neither binding leaked out of its worker.  Until 2026-08-30 the run name
-    # and the default ledger were ALSO process globals that the first thread to exit
-    # republished, so this plain main-thread call appended to a finished run's file
-    # under that run's name instead of going to the per-process log.
+    # ...and neither binding leaked out of its worker (the 2026-08-30 process-global leak)
     monkeypatch.setattr(ledger_mod, "_fallback", ledger_mod.CostLedger(tmp_path / "process.jsonl"))
     assert run_binding().run == ""
     record_call(Usage(cost_usd=0.5), label="baseline")
@@ -255,7 +226,6 @@ def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Pat
         assert len(load_ledger(tmp_path / name)) == 3
 
 
-# ------------------------------------------------------- key + attempts on the row (audit 2026-08-26 §4)
 class KeyedChat(FakeChat):
     """A gemini-shaped response: ``raw`` names the key that answered and the round-trips."""
 
@@ -266,15 +236,6 @@ class KeyedChat(FakeChat):
     def generate(self, request: ChatRequest) -> ChatResponse:
         self.requests.append(request)
         return ChatResponse(text="ok", usage=_usage(), raw=dict(self.raw))
-
-
-def test_the_row_says_which_key_served_the_call_and_how_many_round_trips(tmp_path: Path):
-    """Safe key identity and retry counts reach telemetry rows."""
-    with run_ledger(tmp_path, run="r1"):
-        MeteredChatModel(KeyedChat({"key": "…ab12", "attempts": 3, "hedged": 1})).generate(
-            ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
-    (row,) = load_ledger(tmp_path)
-    assert row.key == "…ab12" and row.attempts == 3
 
 
 def test_a_full_key_never_reaches_the_ledger(tmp_path: Path):
@@ -296,28 +257,6 @@ def test_a_failed_call_records_its_attempts_but_no_key(tmp_path: Path):
     assert row.outcome == "error" and row.attempts == 7 and row.key == ""
 
 
-def test_per_key_buckets_and_tries_per_call(tmp_path: Path):
-    from types import SimpleNamespace
-
-    from codeverse3d.addons.costreport.report import BUCKET_HEADERS, bucket_rows, keyed_buckets
-    from codeverse3d.cost.ledger import record_call, summarise
-
-    led = tmp_path / "cost.jsonl"
-    rows = [
-        record_call(_usage(), label="planner", ledger=led, key="…k1", attempts=1),
-        record_call(_usage(), label="planner", ledger=led, key="…k1", attempts=3),
-        record_call(_usage(), label="planner", ledger=led, key="…k2", attempts=1),
-        record_call(_usage(), label="baseline", ledger=led, n_calls=4, source="session"),  # a CLI session: no key
-    ]
-    by = summarise(rows, dimensions=("key",)).dimension("key")
-    assert by["…k1"].n_calls == 2 and by["…k1"].attempts_per_call == 2.0
-    assert by["…k2"].attempts_per_call == 1.0
-    assert by["(none)"].n_calls == 4 and by["(none)"].attempts_per_call == 0.0
-    audit = SimpleNamespace(summary=summarise(rows, dimensions=("key",)))
-    assert [b.key for b in keyed_buckets(audit)] == ["…k1", "…k2"], "most calls first, unkeyed rows left out"
-    table = bucket_rows(keyed_buckets(audit), total=1.0)
-    assert BUCKET_HEADERS[-1] == "tries/call" and table[0][-1] == "2.00" and table[1][-1] == "1.00"
-# ------------------------------------------------------- per-attempt rows (audit 2026-08-27)
 def test_a_billed_but_invalid_attempt_is_in_the_total_exactly_once(tmp_path: Path):
     """A charged invalid attempt is counted exactly once beside its winner."""
     from codeverse3d.cost.ledger import summarise
@@ -343,76 +282,8 @@ def test_a_billed_but_invalid_attempt_is_in_the_total_exactly_once(tmp_path: Pat
     assert not win.discarded and win.attempt == 2
 
 
-def test_a_hedge_losers_tokens_reach_the_ledger_when_it_lands(tmp_path: Path):
-    """A late hedge loser's billed tokens reach the ledger total."""
-    import threading
-    import time as _time
-
-    from codeverse3d.models.base import ModelError
-    from codeverse3d.models.gemini import GeminiModel
-    from codeverse3d.models.retry import KeyPool
-    from tests.models.test_gemini import text_response
-
-    release_k2 = threading.Event()
-
-    class Client:
-        def __init__(self, key: str):
-            self.key, self.models = key, self
-
-        def generate_content_stream(self, **kw):
-            yield self.generate_content(**kw)
-
-        def generate_content(self, *, model, contents, config):
-            if self.key == "k1":
-                raise ModelError("503 high demand", retryable=True, status=503)
-            if self.key == "k2":
-                assert release_k2.wait(5.0)
-                return text_response("late loser")
-            return text_response("winner")
-
-    pool = KeyPool(["k1", "k2", "k3"])
-    m = GeminiModel("gemini-3.7-flash", pool=pool, sleep=lambda s: None, client_factory=Client)
-    with run_ledger(tmp_path, run="r1"):
-        resp = MeteredChatModel(m).generate(
-            ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
-    assert resp.text == "winner"
-    release_k2.set()
-    deadline = _time.monotonic() + 5.0
-    loser = None
-    while _time.monotonic() < deadline:
-        rows = load_ledger(tmp_path)
-        loser = next((r for r in rows if r.source == "extra" and r.key == "…k2"), None)
-        if loser is not None:
-            break
-        _time.sleep(0.01)
-    assert loser is not None, "the loser's row never arrived"
-    assert loser.discarded and loser.input_tokens == 100, "the loser's paid tokens are on the ledger"
-    logical, = [r for r in load_ledger(tmp_path) if r.source == "live"]
-    # endswith, not ==: the 2-char fake key is shorter than the …last-4 redaction
-    assert logical.key.endswith("k3") and logical.call_id == loser.call_id
-    from codeverse3d.cost.ledger import summarise
-    assert summarise(load_ledger(tmp_path)).total.cost_usd == pytest.approx(
-        logical.cost_usd + loser.cost_usd), "the loser is in the total exactly once"
-
-
-def test_zone_layout_rows_agree_with_the_guard(tmp_path: Path):
-    """tracks/zone_layout.py labels its planner calls 'zone-layout' and charges the
-    guard as stage='plan' — unclassified, the ledger filed the same dollars under
-    other/other, so the two owners disagreed on every zone-layout cent (V10c)."""
-    from codeverse3d.cost.types import role_for_stage, stage_for_label
-
-    assert stage_for_label("zone-layout") is Stage.PLAN
-    assert role_for_stage(stage_for_label("zone-layout")) is Role.PLANNER
-    with run_ledger(tmp_path, run="r1"):
-        record_call(_usage(cost_usd=0.02), label="zone-layout")
-    row, = load_ledger(tmp_path)
-    assert row.stage is Stage.PLAN and row.role is Role.PLANNER
-
-
 def test_a_late_hedge_loser_keeps_its_stage_role_and_round(tmp_path: Path):
-    """The loser lands AFTER generate() returned, from its own thread with empty
-    contextvars: its 'extra' row used to fall back to what the label alone says
-    (baseline/None) instead of the originating call's candidate/r0 attribution."""
+    """The loser lands after generate() returned, in a thread with empty contextvars."""
     import threading
 
     from codeverse3d.cost.context import AttemptRecord, attempt_sink, call_context

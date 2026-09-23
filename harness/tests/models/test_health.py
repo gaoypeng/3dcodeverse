@@ -20,8 +20,7 @@ def test_health_threshold_requires_a_real_success_rate():
 
 
 def test_the_probe_prompt_is_the_size_of_real_work():
-    """A five-token probe answers when a 12 k-token planner call does not — that false
-    green light is exactly what this gate must not give."""
+    """A five-token probe answers when a 12 k-token planner call does not."""
     from codeverse3d.models.health import PROBE_TOKENS, _probe_prompt
 
     prompt = _probe_prompt()
@@ -57,10 +56,7 @@ def test_probe_never_raises_when_every_call_fails(monkeypatch):
 
 
 def test_probe_model_treats_a_503_as_final(monkeypatch):
-    """ "No retries" must include the storm branch.  rotate_with_retries' capacity-storm
-    branch does NOT consume max_attempts, so max_attempts=1 alone still retried a 503
-    up to 60 times (bounded only by the 900 s deadline) — a "30-second" probe that could
-    take 15 minutes.  Observed 2026-08-24 in the parked compare_v2 preflight log."""
+    """"No retries" includes the storm branch, which max_attempts alone does not bound."""
     import codeverse3d.models.gemini as gm
     from codeverse3d.models.health import _bare_model
 
@@ -71,9 +67,7 @@ def test_probe_model_treats_a_503_as_final(monkeypatch):
         return "unused"
 
     monkeypatch.setattr(gm, "rotate_with_retries", fake_rotate)
-    # a non-live test must pass with NO credentials in the environment (a fresh clone,
-    # the CI runner): _bare_model builds a real GeminiModel, which refuses to construct
-    # without keys, so hand it a fake one instead of borrowing this box's (PORT-2).
+    # a non-live test must pass with no credentials (PORT-2)
     monkeypatch.setattr(gm, "_default_keys", lambda: ["fake-key-for-tests"])
     m = _bare_model("gemini:gemini-3.7-flash", 30.0)
     assert m.storm_attempts == 0 and m.max_attempts == 1

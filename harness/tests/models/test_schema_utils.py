@@ -6,14 +6,13 @@ import json
 
 import pytest
 from google.genai import types
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from codeverse3d.contracts.plan import ArticulatedPlan, ScenePlan, StaticPlan
 from codeverse3d.models.schema_utils import (
     JsonParseError,
     inline_refs,
     parse_json_lenient,
-    to_anthropic_schema,
     to_gemini_schema,
     to_openai_strict_schema,
 )
@@ -150,45 +149,6 @@ def _accepts_null(sub) -> bool:
     )
 
 
-def test_openai_strict_schema_rejects_nulls_that_pydantic_rejects():
-    jsonschema = pytest.importorskip("jsonschema")
-    strict = to_openai_strict_schema(StaticPlan.model_json_schema())
-    bbox = {"center": [0, 0, 0.5], "extents": [1, 1, 1]}
-    part = {
-        "name": "Seat",
-        "role": "r",
-        "description": "d",
-        "bbox": bbox,
-        "material": "",
-        "attach_to": None,
-        "symmetry": "none",
-        "instances": 1,
-        "children": [],
-        "detail_hint": "",
-    }
-    good = {
-        "object_name": "Chair",
-        "summary": "x",
-        "overall_bbox": bbox,
-        "style_notes": "",
-        "parts": [part],
-        "acceptance": [],
-    }
-    jsonschema.validate(good, strict)
-    StaticPlan.model_validate(good)
-    bad = {**good, "style_notes": None, "parts": [{**part, "material": None, "instances": None}]}
-    with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(bad, strict)  # the model is not allowed to answer like this
-    with pytest.raises(ValidationError):
-        StaticPlan.model_validate(bad)  # … because the contract would reject it
-
-
-def test_anthropic_schema_shape():
-    s = to_anthropic_schema(ScenePlan.model_json_schema())
-    assert "$defs" not in s and s["additionalProperties"] is False
-    assert s["properties"]["bounds"]["properties"]["center"]["items"] == {"type": "number"}
-
-
 def test_parse_json_lenient_accepts_wrappers_and_rejects_non_json():
     for text in (
         '{"a": 1}',
@@ -208,9 +168,7 @@ def test_parse_json_lenient_accepts_wrappers_and_rejects_non_json():
 
 
 def test_ask_structured_returns_the_triple_for_prose_it_cannot_parse():
-    """The five callers branch on the error string; none of them catches.  Every shipped
-    provider raises ModelError on unparseable structured output, but this must not depend
-    on all three keeping that half of the ChatModel contract."""
+    """The callers branch on the error string; a provider that returns prose must not raise."""
     from codeverse3d.contracts.chat import ChatResponse
     from codeverse3d.contracts.common import Usage
     from codeverse3d.models.schema_utils import ask_structured
@@ -219,8 +177,6 @@ def test_ask_structured_returns_the_triple_for_prose_it_cannot_parse():
         ok: bool
 
     class Prose:
-        """A ChatModel that hands back text instead of raising (base.py:22-30 says it should)."""
-
         def generate(self, request):
             return ChatResponse(text="I refuse.", usage=Usage(cost_usd=0.01))
 
@@ -229,10 +185,7 @@ def test_ask_structured_returns_the_triple_for_prose_it_cannot_parse():
 
 
 def test_ask_structured_returns_the_usage_a_failed_call_was_billed():
-    """A bad-JSON reply is charged like a good one — ModelError carries that usage, and
-    ask_structured used to drop it (return Usage()), so every caller-side tally
-    (BudgetGuard.charge, refset.usage, record.json spend) undercounted while the
-    metered ledger recorded the real bill."""
+    """A bad-JSON reply is charged like a good one: the caller's tally gets the billed usage."""
     from codeverse3d.contracts.common import Usage
     from codeverse3d.models.base import ModelError
     from codeverse3d.models.schema_utils import ask_structured

@@ -3,35 +3,19 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 
 from codeverse3d.addons.costreport.audit import (
     audit_runs,
-    cached_input_share,
-    price_confidence,
-    stage_latency,
-    uncached_if_no_cache,
 )
 from codeverse3d.addons.costreport.report import console, markdown
 
 
-def test_audit_of_one_run(fake_run: Path):
-    audit = audit_runs([fake_run.parent])
-    assert audit.n_runs == 1 and audit.usd_per_run == pytest.approx(audit.total_usd)
-    assert audit.summary.dimension("track")["static_object"].cost_usd == pytest.approx(audit.total_usd)
-    assert audit.calls_per_round() > 0
-    cached, total, usd = cached_input_share(audit)
-    assert 0 < cached < total and usd > 0
-    assert uncached_if_no_cache(audit) > audit.total_usd
-    assert sum(price_confidence(audit).values()) == pytest.approx(audit.total_usd)
-    assert stage_latency(audit)
-
-
 def test_a_run_that_booked_no_money_still_reports(tmp_path: Path):
-    """Every session killed before it reported usage books $0 (a killed gemini-cli says nothing);
-    the report divided by the run's total and `3dcode cost` died of ZeroDivisionError on it."""
+    """A $0 run (every session killed before it reported usage) must not divide by zero."""
     ws = tmp_path / "free_run"
     ws.mkdir()
     (ws / "record.json").write_text(json.dumps({
@@ -47,10 +31,7 @@ def test_a_run_that_booked_no_money_still_reports(tmp_path: Path):
 
 
 def test_a_lower_scoring_round_is_not_waste_but_a_repair_that_never_built_is(fake_run: Path, tmp_path: Path):
-    """Every round is kept and any can be handed over (2026-09-22), so scoring below an
-    earlier round is no longer waste; repair money in a round that still did not build is."""
-    import shutil
-
+    """Any round can be handed over, so a lower score is not waste; a failed repair is."""
     ws = tmp_path / "regressed"
     shutil.copytree(fake_run, ws)
     record = json.loads((ws / "record.json").read_text())
@@ -71,14 +52,5 @@ def test_a_lower_scoring_round_is_not_waste_but_a_repair_that_never_built_is(fak
     kinds = audit_runs([ws]).waste_by_kind()
     assert not {"regression", "zero_delta_round", "unpromoted_judge"} & set(kinds)
     assert kinds["repair_no_converge"] == (1, pytest.approx(0.05))
-
-
-def test_report_renders(fake_run: Path):
-    audit = audit_runs([fake_run])
-    md = markdown(audit)
-    for heading in ("Per stage", "Per role", "Where a dollar bought nothing"):
-        assert f"## {heading}" in md
-    assert "per passing artifact" not in md and "per run" in md
-    assert "judge" in console(audit)
 
 

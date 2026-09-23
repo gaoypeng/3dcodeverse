@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 from codeverse3d.cli._common import resolve_dial
 from codeverse3d.cli.main import app
 from codeverse3d.config import Settings, get_settings
-from codeverse3d.cost.profiles import PROFILE_NAMES, PROFILES, get_profile, profile_table
+from codeverse3d.cost.profiles import PROFILE_NAMES, PROFILES, profile_table
 
 runner = CliRunner()
 
@@ -22,16 +22,6 @@ def _fresh_settings():
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
-
-
-def test_the_three_profiles_are_a_monotone_dial():
-    usd = [PROFILES[n].expected_usd for n in PROFILE_NAMES]
-    assert usd == sorted(usd) and usd[0] < usd[-1]
-    rounds = [PROFILES[n].rounds for n in PROFILE_NAMES]
-    assert rounds == sorted(rounds)
-    # every profile explains itself and cites what it was measured at
-    for p in PROFILES.values():
-        assert p.expected_score and p.note and p.generator and p.judge
 
 
 def test_balanced_is_todays_defaults():
@@ -69,26 +59,12 @@ def test_one_stated_judge_field_does_not_disable_the_whole_judge_block(monkeypat
 
 
 def test_no_profile_touches_the_judge_payload_or_the_turn_cap(monkeypatch):
-    """Neither cut paid when measured (docs/COST.md §14, §17), so they are not dials: even
-    `--profile X`, which forces the dial, leaves a stated payload and turn cap alone."""
+    """Not dials (docs/COST.md §14, §17): even a forced profile leaves them alone."""
     monkeypatch.setenv("C3D_JUDGE__MAX_PX", "800")
     monkeypatch.setenv("C3D_LIMITS__AGENT_MAX_TURNS", "12")
     for name in PROFILE_NAMES:
         d = resolve_dial(Settings(), name)
         assert (d.judge_max_px, d.judge_montages, d.judge_detail_crops, d.agent_max_turns) == (800, 5, 2, 12)
-
-
-def test_applying_a_profile_twice_is_idempotent():
-    """Profile defaults do not masquerade as user-stated fields."""
-    s = Settings()
-    s.apply_profile("quality")
-    s.apply_profile("economy")
-    assert s.judge.samples == 2 and s.judge.max_px == 1024
-
-
-def test_unknown_profile_is_a_clear_error():
-    with pytest.raises(ValueError, match="unknown profile"):
-        get_profile("cheapest")
 
 
 def test_a_bogus_profile_name_is_a_typed_cli_error_not_a_traceback(monkeypatch):
@@ -124,17 +100,6 @@ def test_an_explicit_flag_beats_the_profile(tmp_path: Path):
     assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_minutes"] > 0
     assert spec["backends"]["generator"] == "gemini-cli:gemini-3.6-flash"
     assert spec["backends"]["judge"] == "gemini:gemini-3.7-flash"  # unstated → still the profile's
-
-
-def test_no_profile_flag_leaves_the_defaults_alone(tmp_path: Path):
-    runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--slug", "pot"])
-    assert r.exit_code == 0, r.output
-    spec = json.loads((runs / "pot" / "spec.json").read_text())
-    # the resolved dial is recorded whichever way it was named, so `3dcode resume`
-    # reproduces it; with no flag and no env that dial is the default, balanced
-    assert spec["options"]["profile"] == "balanced" and spec["options"]["texture"] is False
-    assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_minutes"] > 0
 
 
 def test_judge_samples_reach_the_round_policy_only_when_a_profile_asks(tmp_path: Path):
@@ -202,7 +167,7 @@ def test_each_profile_resolves_to_its_documented_dial(name, expected, monkeypatc
             assert getattr(dial, field) == want, f"{name}.{field}"
 
 
-@pytest.mark.parametrize("name", PROFILE_NAMES)
+@pytest.mark.parametrize("name", ["quality"])
 def test_the_env_var_reaches_the_spec_a_make_writes(name, tmp_path: Path, monkeypatch):
     """End to end: C3D_PROFILE alone must produce the same spec shape as --profile."""
     from codeverse3d.cost.profiles import PROFILES

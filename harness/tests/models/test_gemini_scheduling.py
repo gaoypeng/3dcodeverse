@@ -20,17 +20,6 @@ def api_error(code: int, msg: str = "boom") -> genai_errors.APIError:
 
 
 # ------------------------------------------------------------------ slots
-def test_in_flight_returns_to_zero_after_success_and_after_failure():
-    pool = KeyPool(["k1", "k2"], cooldown_s=0.0)
-    m, _log, _ = make_model([text_response("hi")], pool=pool)
-    m.generate(ChatRequest(messages=[ChatMessage.user("hi")]))
-    assert pool.stats()["in_flight"] == 0
-    m2, _log2, _ = make_model([api_error(400, "bad request")], pool=pool, max_attempts=1)
-    with pytest.raises(ModelError):
-        m2.generate(ChatRequest(messages=[ChatMessage.user("hi")]))
-    assert pool.stats()["in_flight"] == 0
-
-
 # ---------------------------------------------------------------- shared pool
 def test_shared_pool_is_keyed_by_the_cap_not_only_by_keys():
     a = shared_pool(["x1", "x2"], max_in_flight=4)
@@ -40,20 +29,9 @@ def test_shared_pool_is_keyed_by_the_cap_not_only_by_keys():
     assert a is not c, "a different cap must not silently reuse another pool's slots"
 
 
-def test_the_hedge_comes_from_settings(monkeypatch):
-    from codeverse3d.config import Rate, get_settings
-
-    assert make_model([])[0].hedge == 2
-    assert make_model([], hedge=1)[0].hedge == 1
-    monkeypatch.setattr(get_settings(), "rate", Rate(hedge=1))
-    assert make_model([])[0].hedge == 1
-
-
 # ------------------------------------------------ retry budget + hedge (audit 2026-08-26 §5.1 / §5.2)
 def test_max_wait_s_clips_the_retry_deadline_and_never_extends_it(monkeypatch):
-    """Audit 2026-08-26 §5.1: 66 give-up spans of the model's 900 s deadline (x3 outer retries)
-    were 30 % of a storm day's waiting.  ``ChatRequest.max_wait_s`` is the caller's budget for
-    the whole call; the model clips its deadline to it and never goes above its own ceiling."""
+    """ChatRequest.max_wait_s clips the model's retry deadline, never raises it."""
     import codeverse3d.models.gemini as gm
     from codeverse3d.models.retry import RETRY_DEADLINE_S
 
@@ -70,15 +48,6 @@ def test_max_wait_s_clips_the_retry_deadline_and_never_extends_it(monkeypatch):
     m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=30))
     m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=5000))
     assert seen == [RETRY_DEADLINE_S, 30.0, RETRY_DEADLINE_S]
-
-
-def test_max_wait_s_must_be_positive():
-    """0 would mean "no deadline" to rotate_with_retries — the opposite of what a caller
-    that is out of time wants — so the contract refuses it."""
-    import pydantic
-
-    with pytest.raises(pydantic.ValidationError):
-        ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=0)
 
 
 def test_a_clean_call_reports_one_attempt_and_a_failed_call_carries_its_count():

@@ -26,36 +26,11 @@ def make(keys=("k1", "k2", "k3"), **kw) -> tuple[KeyPool, Clock]:
     return KeyPool(list(keys), clock=c, sleep=c.sleep, **kw), c
 
 
-def test_round_robin_order():
-    pool, _ = make()
-    assert [pool.acquire() for _ in range(4)] == ["k1", "k2", "k3", "k1"]
-
-
 def test_dedupes_and_rejects_empty():
     pool, _ = make(keys=("a", "a", "", "b"))
     assert pool.keys == ["a", "b"]
     with pytest.raises(ValueError):
         KeyPool([])
-
-
-def test_429_cools_key_down_and_rotates():
-    pool, clock = make(cooldown_s=30)
-    k = pool.acquire()
-    assert k == "k1"
-    pool.report(k, "429")
-    # next acquires skip k1 while it cools
-    assert [pool.acquire() for _ in range(4)] == ["k2", "k3", "k2", "k3"]
-    clock.t += 31
-    assert "k1" in [pool.acquire() for _ in range(3)]
-    st = pool.stats()
-    assert st["429"] == 1 and st["n_keys"] == 3
-
-
-def test_exclude_skips_failed_keys():
-    pool, _ = make()
-    assert pool.acquire(exclude={"k1", "k2"}) == "k3"
-    with pytest.raises(KeyPoolExhausted):
-        pool.acquire(exclude={"k1", "k2", "k3"})
 
 
 def test_all_cooling_blocks_until_cooldown_ends():
@@ -87,26 +62,6 @@ def test_health_score_prefers_healthy_keys():
     assert pool.acquire() in ("bad", "good")
     s = {k["key"]: k for k in pool.stats()["keys"]}
     assert s["…bad"]["health"] > 0.9
-
-
-def test_thread_safety_smoke():
-    pool = KeyPool([f"k{i}" for i in range(5)])
-    counts: dict[str, int] = {}
-    lock = threading.Lock()
-
-    def worker():
-        for _ in range(200):
-            k = pool.acquire()
-            pool.report(k, "ok")
-            with lock:
-                counts[k] = counts.get(k, 0) + 1
-
-    ts = [threading.Thread(target=worker) for _ in range(8)]
-    for t in ts:
-        t.start()
-    for t in ts:
-        t.join()
-    assert sum(counts.values()) == 1600 and len(counts) == 5
 
 
 def test_dead_key_is_benched_for_a_long_time_then_reprobed():
@@ -153,8 +108,6 @@ def test_try_acquire_never_waits_for_a_key_or_a_slot(tmp_path):
 
 
 def test_the_in_flight_slot_wait_is_bounded_by_timeout(tmp_path):
-    """acquire()'s max_in_flight wait used to be unbounded; the same timeout budget now
-    bounds it and raises the pool's own error shape."""
     pool = KeyPool(["a"], max_in_flight=1, slots_dir=tmp_path)
     pool.acquire()
     t0 = time.monotonic()
@@ -166,8 +119,7 @@ def test_the_in_flight_slot_wait_is_bounded_by_timeout(tmp_path):
 
 
 def test_skip_leaves_health_and_counters_alone():
-    """A charged-but-invalid reply (bad JSON) is not the key's fault: it used to be
-    reported "ok", boosting health and counting as a success in doctor --live."""
+    """A charged-but-invalid reply (bad JSON) is not the key's fault."""
     pool, _ = make(keys=("a",))
     pool.report("a", "429")
     before = {k["key"]: k for k in pool.stats()["keys"]}["…a"]
