@@ -289,43 +289,12 @@ tests/                agents blender_cadquery core cost flywheel_cli gallery gra
                       (22 dirs; 2 077 offline, 1 950 of them pure python; the bench tests are ../eval/tests)
 ```
 
-## 3. Workspace layout (one run, as observed)
+## 3. Workspace layout
 
-```
-runs/<slug>/
-  spec.json  plan.json  run_state.json  record.json  events.jsonl
-  selection.json  (after a pick) the round deliverable/ holds, how it was chosen, every round's score
-  deliverable/    (after a pick) that round's code + artifacts + sheet + manifest.json (RUN_LAYOUT.md)
-  src/            agent-authored RAW code (git repo; commits: spec, skeleton, pre:/agent:<label>, rNN <kind>)
-  public/         (scene) compiled assets public/assets/<snake>.glb; (textured scenes) public/textures/*.png + manifest.json
-  _assets/<snake>/  (scene) sub-workspaces for blender_glb assets (gitignored)
-  _cand/c<k>/     (--candidates N) throw-away best-of-N sub-workspaces (gitignored, kept for the flywheel):
-                  each is a round of kind "candidate" — its own events.jsonl, rounds/r00.json, gates/,
-                  judge/r00.json (one-sample judge on quick_render views)
-  stages/<name>.json   rounds/rNN.json   rounds/candidates.json   rounds/aborted_rNN.json (a round the
-                       budget/a crash cut: what it burned, never resumed from)
-  telemetry/cost.jsonl   THE ledger: one row per metered call / CLI session, opened by BaseTrack.run — the
-                         only record of money (runs before 2026-09-22 also carry a root cost_ledger.jsonl
-                         and a telemetry/usage.jsonl symlink to it; nothing reads them)
-  run_state.json  status + stages + the run-level step log (steps); extra carries budget_snapshot (the clock's
-                  active seconds) and spec_fingerprint only — the round history is rounds/rNN.json + each
-                  round's commit alone (no copy since 2026-09-22)
-  artifacts/      object.glb object.stl|step robot.urdf meshes/ build.json census.json
-                  measurement.json … — the LAST round's build; graphics: frames/fNN_tT.png frames_sheet.png
-                  preview.gif metrics.json; texturing (a pick's --texture): object_textured.glb
-                  textures/{<id>.png, texture_plan.json, texturing.json, gate/}
-    rNN/          the round's own build, copied when it built: object.glb object.stl|step robot.urdf
-                  meshes/*.glb preview.gif frames_sheet.png (only what a hand-over needs)
-    renders/rNN/  view_<name>.png sheet.png views.json (judge flags) (+ poses/ articulated; <cam>_t<t>.png metrics.json scenes;
-                  frame_t<t>.png metrics.json graphics — the round's own frame metrics, what a replay quotes)
-    gates/rNN/    lint_<lang>.json connectivity.json contract.json joint_sweep.json motion_direction.json … (+ *_tool.json)
-    judge/rNN.json (+ rNN_cli.json from `3dcode judge`; rAA_vs_rBB_pairwise.json from `3dcode pick --by pairwise`)
-    tool_renders/rNN_<hash>/
-  trajectories/<label>_rNN/  prompt.md transcript.jsonl stdout.json stderr.log result.json
-                             (+ gemini_settings.json · mcp.json (claude) · agy.log (agy's own CLI log));
-                             a retried label lands in <label>.a2_rNN — first attempt preserved
-  AGENTS.md GEMINI.md CLAUDE.md .gemini/settings.json .3dcode/cookbook.md .geminiignore .aiexclude
-```
+One run is one directory, `runs/<slug>/`: `src/` is the code (git, one commit per round),
+`artifacts/` the last round's build plus every round's own `artifacts/rNN/`, and a pick
+writes `deliverable/` + `selection.json`.  The full tree, the three buckets and the
+back-compatibility rules are in `docs/RUN_LAYOUT.md`, its one home.
 
 ## 4. Per-language authoring contracts (raw code; the harness owns export)
 

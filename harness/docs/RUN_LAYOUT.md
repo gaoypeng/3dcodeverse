@@ -10,26 +10,48 @@ three separate buckets:
 | `evidence/` (= `artifacts/`) | **why should I believe it?** | every round's own build (`rNN/`), `renders/rNN/`, `gates/rNN/`, `judge/rNN.json`, `measurement.json`, `census.json`, `textures/`, `tool_renders/` |
 | `telemetry/` | **what did it cost and how was it configured?** | `cost.jsonl` (the ledger), `settings.json`, `cost.json`, plus `events.jsonl`, `run_state.json`, `stages/`, `trajectories/` |
 
-The run's **identity** stays at the root, where every tool has always looked for it:
+The run's **identity** stays at the root, where every tool has always looked for it.
+This is the one full tree; every other doc points here:
 
 ```
 runs/<slug>/
   spec.json  plan.json  record.json          identity: what was asked, planned, produced
   selection.json                             which round deliverable/ holds and how it was chosen (after a pick)
-  run_state.json  events.jsonl               (physical home; also linked from telemetry/)
-  src/            live working tree (git; every round is a commit; ends at the LAST round)
-  public/         (scene) compiled assets
+  run_state.json  events.jsonl               status + stages + the run-level step log (extra: budget_snapshot, the
+                                             clock's active seconds, and spec_fingerprint only — the round history is
+                                             rounds/rNN.json + each round's commit); the JSONL event log
+  src/            agent-authored RAW code, the live working tree (git; commits: spec, skeleton, pre:/agent:<label>
+                  around every session, rNN <kind>; ends at the LAST round)
+  public/         (scene) compiled assets public/assets/<snake>.glb; (textured scenes) public/textures/*.png + manifest.json
   deliverable/    (a) the hand-over — one round, written by a pick
   evidence/  ->  artifacts/                  (b) the proof
-  artifacts/      the last round's build, rNN/ (each round's own), renders/ gates/ judge/ measurement.json …
+  artifacts/      the LAST round's build: object.glb object.stl|step robot.urdf meshes/ build.json census.json
+                  measurement.json …; graphics: frames/fNN_tT.png frames_sheet.png preview.gif metrics.json;
+                  texturing (a pick's --texture): object_textured.glb textures/{<id>.png, texture_plan.json,
+                  texturing.json, gate/}
+    rNN/          each round's own build, copied when it built (below)
+    renders/rNN/  view_<name>.png sheet.png views.json (judge flags) (+ poses/ articulated; <cam>_t<t>.png
+                  metrics.json scenes; frame_t<t>.png metrics.json graphics — the round's own frame metrics)
+    gates/rNN/    lint_<lang>.json connectivity.json contract.json joint_sweep.json motion_direction.json … (+ *_tool.json)
+    judge/rNN.json  (+ rNN_cli.json from `3dcode judge`; rAA_vs_rBB_pairwise.json from `3dcode pick --by pairwise`)
+    tool_renders/rNN_<name>/
   telemetry/      (c) the accounting
     cost.jsonl  settings.json cost.json
     events.jsonl -> ../events.jsonl
     run_state.json -> ../run_state.json
     stages -> ../stages
     trajectories -> ../trajectories
-  stages/  rounds/  trajectories/            physical homes (unchanged)
-  _assets/ _cand/ AGENTS.md GEMINI.md CLAUDE.md .gemini/settings.json …
+  stages/<name>.json                         each cached pre-round stage's result (keyed, ARCHITECTURE §7.1)
+  rounds/rNN.json  rounds/candidates.json    the round journal; best-of-N's summary (= record.extra["candidates"])
+  rounds/aborted_rNN.json                    a round the budget or a crash cut: what it burned, never resumed from
+  rounds/pre_force/                          the journal + record.json `resume --force` archived (then pre_force_2/ …)
+  trajectories/<label>_rNN/                  prompt.md transcript.jsonl stdout.json stderr.log result.json (+ gemini_settings.json
+                                             · mcp.json (claude) · agy.log); a retried label lands in <label>.a2_rNN
+  _assets/<snake>/                           (scene) sub-workspaces for blender_glb assets (gitignored)
+  _cand/c<k>/                                (--candidates N) best-of-N sub-workspaces (gitignored, kept for the flywheel):
+                                             each is a round of kind "candidate" — its own events.jsonl, rounds/r00.json,
+                                             gates/, judge/r00.json (one-sample judge on quick_render views)
+  AGENTS.md GEMINI.md CLAUDE.md .gemini/settings.json .3dcode/cookbook.md .geminiignore .aiexclude
 ```
 
 ## Why the aliases point that way

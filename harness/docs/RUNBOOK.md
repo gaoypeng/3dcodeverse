@@ -112,16 +112,9 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 
 ## 4. Where outputs land
 
-`runs/<slug>/` (ARCHITECTURE §3).  Code in `src/` (git; one commit per round), built
-artifacts in `artifacts/` (`object.glb`, `robot.urdf` + `meshes/`, scene
-`public/assets/*.glb`, graphics `frames/` + `frames_sheet.png` + `preview.gif` +
-`metrics.json`, texturing `object_textured.glb` + `textures/`), per-round renders in
-`artifacts/renders/rNN/`, gate JSON in `artifacts/gates/rNN/`, verdicts in
-`artifacts/judge/rNN.json`, transcripts in `trajectories/<label>_rNN/` (retries in
-`<label>.a2_rNN`), events in `events.jsonl`, the flywheel record in `record.json`.  The tree
-and `artifacts/` end at the LAST round; every round's own built files stay in
-`artifacts/rNN/`, and after the run `deliverable/` + `selection.json` hold the round a pick
-handed over (RUN_LAYOUT.md).  `3dcode status <slug>` prints the stop reason, baseline → picked
+Everything lands in `runs/<slug>/` — code in `src/` (git, one commit per round), each round's
+build in `artifacts/rNN/`, and after a pick `deliverable/` + `selection.json`; the full tree is
+`docs/RUN_LAYOUT.md`.  `3dcode status <slug>` prints the stop reason, baseline → picked
 score, the rounds table (the picked round starred, each round's own judge verdict), cost and
 the last events.
 
