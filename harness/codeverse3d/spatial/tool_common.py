@@ -109,6 +109,15 @@ def load_plan(path: Path) -> Plan:
         raise ToolUsageError(f"plan.json is not a valid {model.__name__}: {e}") from e
 
 
+def plan_or_none(path: Path) -> Plan | None:
+    """:func:`load_plan` for a caller with defaults: ``None`` when plan.json is absent,
+    unreadable or not a valid plan (the runtimes: resolution, skeleton hints)."""
+    try:
+        return load_plan(path)
+    except (ToolUsageError, OSError, ValueError, TypeError):
+        return None
+
+
 # --------------------------------------------------------------------------- views
 def resolve_views(names: Sequence[str]) -> list[ViewPreset]:
     """Map view names → presets; unknown names are a usage error listing the options."""

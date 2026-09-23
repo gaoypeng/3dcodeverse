@@ -33,6 +33,7 @@ from codeverse3d.spatial.gl_render import (
     write_contact_sheet,
     write_gif,
 )
+from codeverse3d.spatial.tool_common import plan_or_none
 from codeverse3d.workspace import Workspace
 
 JUDGE_TIMES: tuple[float, ...] = (0.0, 1.0, 2.5, 4.0, 6.0)
@@ -70,13 +71,9 @@ def make_host(override: GlHost | None = None, timeout_s: float | None = None) ->
 
 
 def load_plan(ws: Workspace) -> GraphicsPlan | None:
-    p = ws.plan_path
-    if not p.is_file():
-        return None
-    try:
-        return GraphicsPlan.model_validate(json.loads(p.read_text()))
-    except Exception:  # noqa: BLE001 — not a graphics plan (or invalid) → defaults
-        return None
+    """The run's GraphicsPlan; ``None`` (→ defaults) without one."""
+    plan = plan_or_none(ws.plan_path)
+    return plan if isinstance(plan, GraphicsPlan) else None
 
 
 def resolution_for(plan: GraphicsPlan | None, *, fallback: tuple[int, int] = DEFAULT_RESOLUTION) -> tuple[int, int]:

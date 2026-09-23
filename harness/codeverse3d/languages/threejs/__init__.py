@@ -24,8 +24,8 @@ from codeverse3d.languages._js_lint import (
     node_check_syntax as check_syntax,  # module-level name: tests monkeypatch it
 )
 from codeverse3d.languages.base import RuntimeLayout
-from codeverse3d.proc import read_json_or_none
 from codeverse3d.spatial.node import NodeError, NodeResult, run_node, runtime_js_dir
+from codeverse3d.spatial.tool_common import plan_or_none
 from codeverse3d.workspace import Workspace
 
 # ===================================================================== templates
@@ -197,16 +197,6 @@ def _exports(src: str) -> set[str]:
     return names
 
 
-def _load_plan(ws: Workspace) -> StaticPlan | None:
-    data = read_json_or_none(ws.plan_path)
-    if data is None or "parts" not in data or "joints" in data:
-        return None
-    try:
-        return StaticPlan.model_validate(data)
-    except ValueError:
-        return None
-
-
 def lint_workspace(ws: Workspace) -> GateReport:
     """Run every static check and return the ``lint:threejs`` GateReport."""
     t0 = time.time()
@@ -250,8 +240,8 @@ def lint_workspace(ws: Workspace) -> GateReport:
             findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target=_rel(ws, p),
                 message=f"{_rel(ws, p)} is not imported by any module (dead part file?)", fix_hint="import and add it in src/object.js or delete it"))
 
-    plan = _load_plan(ws)
-    if plan is not None:
+    plan = plan_or_none(ws.plan_path)
+    if type(plan) is StaticPlan:  # an articulated plan's parts are not threejs part files
         for part in plan.parts:
             pf = ws.src / "parts" / f"{to_snake(part.name)}.js"
             if not pf.is_file():
