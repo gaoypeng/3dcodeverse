@@ -26,8 +26,6 @@ STARTER_LIB = Path(__file__).resolve().parents[2] / "codeverse3d" / "languages" 
 #: test_files.test_every_prompt_file_is_reached says how the package loads each one
 PROMPT_FILES = sorted(p.relative_to(PROMPTS_DIR).as_posix() for p in PROMPTS_DIR.rglob("*")
                       if p.is_file() and p.suffix != ".py" and "__pycache__" not in p.parts)
-#: the documents whose fenced snippets the cookbook header promises RUN: each language's contract + cookbook
-DOC_FILES = [f for f in PROMPT_FILES if f.rsplit("/", 1)[-1] in ("contract.md", "cookbook.md")]
 
 
 def is_template(rel: str) -> bool:
