@@ -1,0 +1,45 @@
+{
+  "date": "2026-09-22",
+  "protocol": "Full scene pipeline, one baseline plus one requested refinement, 30 minute run budget. Repeated provider 503s occurred; refinement was not completed within budget. These are unsuccessful trials, not passing examples. Scores are recorded judge outputs, not an independent quality comparison. All predate the final planner guidance separating library effects from standalone assets.",
+  "trials": [
+    {
+      "case": "candle_alcove",
+      "generator": "gemini-cli:gemini-3.7-flash",
+      "planner": "gemini:gemini-3.7-flash",
+      "judge": "gemini:gemini-3.1-pro-preview",
+      "status": "budget",
+      "completed_rounds": 1,
+      "baseline_score": 0.405,
+      "baseline_passed": false,
+      "baseline_gate_errors": 4,
+      "cost_usd": 1.8948,
+      "record": "output/agent_runs/candle_alcove/record.json"
+    },
+    {
+      "case": "coastal_cove",
+      "generator": "gemini-cli:gemini-3.7-flash",
+      "planner": "gemini:gemini-3.7-flash",
+      "judge": "gemini:gemini-3.1-pro-preview",
+      "status": "budget",
+      "completed_rounds": 1,
+      "baseline_score": 0.12,
+      "baseline_passed": false,
+      "baseline_gate_errors": 4,
+      "cost_usd": 1.6889,
+      "record": "output/agent_runs/coastal_cove/record.json"
+    },
+    {
+      "case": "spring_stream",
+      "generator": "gemini-cli:gemini-3.7-flash",
+      "planner": "gemini:gemini-3.7-flash",
+      "judge": "gemini:gemini-3.1-pro-preview",
+      "status": "budget",
+      "completed_rounds": 1,
+      "baseline_score": 0.278,
+      "baseline_passed": false,
+      "baseline_gate_errors": 8,
+      "cost_usd": 1.8372,
+      "record": "output/agent_runs/spring_stream/record.json"
+    }
+  ]
+}

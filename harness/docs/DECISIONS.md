@@ -996,6 +996,22 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   `tests/scene_runtime` 25.6k → 6.0k lines — the effect library is one shared import/catalog check and
   one grouped GPU compile plus its named-bug regressions (17 of 17 mutations still caught).
 
+* **D97 Natural-element effects, one ownership rule, and the graphics lab (2026-09-23).**  Fourteen
+  modules join `starter/src/lib/` as source (D51): fire / firefield / smoke / cloudvolume (bounded ray
+  marches over baked 3D noise — prescribed transport, not simulation), ocean / stream / waterfall / ice,
+  meadow / tree / rock / sand / paving, and `lifecycle.js`: `snapshotResources` + `attachDisposal` are the
+  one rule every factory disposes by (construction-owned geometry, materials, instance buffers released
+  once; textures and caller additions borrowed).  `shader.js` gained `clonePatchedMaterial`,
+  `withRendererState`, alpha/normal/transmission hooks and inverse-transpose normals; finish patches now
+  change roughness per pixel under their own mask, not the material's.  Scenes may load
+  `src/shaders/*.{vert,frag,glsl}` as text (audited by `shader_report`).  Named bugs: three r182 compiles
+  `PCFSoftShadowMap` as BASIC (the renderer uses `PCFShadowMap`); the census missed shader-instanced
+  geometry; GlHost doubled a relative out dir.  Tests follow D96 (a BUILD row + a GPU group each).  The
+  catalog and planner say the effects are zone code, never assets, with no limits stated (D93).
+  `judges/cinematic.review_frames` + `cinematic_v1` review offline stills and are wired into NO run path
+  (no track, CLI, select or eval calls them).  `examples/graphics_lab/` is a dev lab (one scene per
+  module, captures tied to source hashes); its `output/` is ignored and none of its media is committed.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Graphics Lab · Material & Motion</title><link rel="stylesheet" href="./viewer.css">
+<script type="importmap">{"imports":{"three":"/__runtime/node_modules/three/build/three.module.js","three/addons/":"/__runtime/node_modules/three/examples/jsm/"}}</script>
+</head><body>
+<header><a class="brand" href="./">3D CODEVERSE <span>/ GRAPHICS LAB</span></a><span class="edition">MATERIAL & MOTION</span></header>
+<main><section class="intro"><p class="eyebrow">NATURE, MATERIALS & ATMOSPHERE</p><h1>Light. Form. Motion.</h1>
+<p>Fire, water, stone, living vegetation and changing weather. Explore library studies and independently authored agent scenes, from cloud banks and waterfalls to intimate material details. Watch the films or step inside each scene.</p><!--COMPARISON_LINK--></section>
+<section id="gallery" aria-label="Scene gallery"></section>
+<section id="stage" hidden><div class="stage-heading"><div><p class="eyebrow" id="category"></p><h2 id="title"></h2><p id="subtitle"></p></div>
+<button id="close" class="quiet">Back to gallery ↗</button></div>
+<div id="screen"><video id="video" controls loop playsinline></video><div id="live" hidden><canvas id="canvas"></canvas></div><p id="status" role="status"></p></div>
+<div class="toolbar"><div class="tabs"><button id="watch" class="active">Watch film</button><button id="explore">Explore live</button></div>
+<div class="live-controls" hidden><button id="pause">Pause</button><label>Camera <select id="camera"></select></label>
+<label>Time <input id="time" type="range" min="0" max="20" step=".02" value="0"></label><output id="seconds">0.00 s</output></div>
+<a id="still" href="#" target="_blank">Open still ↗</a></div>
+<p id="hint">Films are rendered frame by frame from scene code. In live mode, drag to orbit and scroll to zoom.</p></section>
+</main><footer><span>THREE.JS · LOCAL RENDERING</span><span>Procedural scenes. Every frame comes from code.</span></footer>
+<script type="module" src="./viewer.js"></script></body></html>

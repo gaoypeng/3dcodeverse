@@ -167,7 +167,8 @@ codeverse3d/
                       gate and eval all use; the pure replay helpers), rubrics.py + rubrics/*.yaml (defect checklists, the wire
                       schema, caps and scoring), prompt_builder.py (image prep, montages, the
                       judge messages), vlm_judge.py (+ the reference/likeness judges),
-                      pairwise.py.  No Judge Protocol: a judge is
+                      pairwise.py, cinematic.py (optional review of authored offline frames).
+                      No Judge Protocol: a judge is
                       duck-typed `.judge(JudgeInput) -> Judgment`
   reference.py        reference GROUNDING — give the pipeline a picture of what it is building:
                       synthesis, THE plausibility gate that makes a synthesized
@@ -334,10 +335,10 @@ summary:
 * **scene_threejs**: `src/scene.js` `createScene({THREE, renderer, loaders}) → {scene, cameras, update(t,dt)}`;
   `src/env.js`, `src/zones/*.js`, `src/assets/*.js`, `src/shaders/*.js`; GLBs at
   `public/assets/<name>.glb`.  The harness assembles `scene.js` deterministically.
-  Plus the harness-owned, read-only **effect library** `src/lib/*.js` — 44 modules
-  (~24k lines; the starter's other `.js` files are the example scene), shipped into every
-  workspace by BOTH skeleton paths and listed in `HARNESS_OWNED_SRC` so agent writes to it
-  are reverted (D51).  The want → call table the prompts carry is `prompts/scene_threejs/effects_catalog.md`.
+  Plus the harness-owned, read-only **effect library** `src/lib/*.js` (the starter's other
+  `.js` files are the example scene), shipped into every workspace by BOTH skeleton paths and
+  listed in `HARNESS_OWNED_SRC` so agent writes to it are reverted (D51, D97).  The want → call
+  table the prompts carry is `prompts/scene_threejs/effects_catalog.md`.
 * **glsl_shader**: `src/shader.frag` (+ optional `src/common.glsl`,
   `src/buffer_a.frag` for feedback; the harness-owned, read-only `src/recipes.glsl`
   is pasted above them when the track seeded recipes) — the agent never writes

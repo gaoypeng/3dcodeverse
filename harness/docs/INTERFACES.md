@@ -259,9 +259,29 @@ BuildResult.error_type spellings (languages/_common.py): MISSING_ENTRY = "Missin
 | `CadQueryRuntime` | `src/model.py` | trailing selector on the stack → parent solid exported + warning (ExportError when no solid exists); helper-module errors map to `src/<file>.py:line`; object.glb/stl/step |
 | `ThreeJsRuntime` | `src/object.js`, `src/parts/*.js` | **Δ export as authored** (census `placement_offset`); InstancedMesh baked to `<Name>_<i>` meshes (`instanced_meshes_baked`); exported `selfcheck(THREE, root)` is called (throw → SelfCheckError); NaN geometry errors name mesh/part → routed to `src/parts/<snake>.js` |
 | `UrdfBlenderRuntime` | `src/model.py`, `src/robot.urdf` | object.glb (Y-up, node=link, joint extras), meshes/<link>.glb (raw Z-up link frames); link name `world` is reserved (lint ERROR + UrdfError); robot GLB root gets `__root` suffix on name clash; the build collides the REST pose only (RestPenetration > 5 mm, D17) — every pose is the round's `joint_sweep` gate — and writes no articulation.json / census.articulation (Δ 2026-09-22) |
-| `SceneThreeJsRuntime` | `src/scene.js`, `src/zones/*.js`, `src/assets/*.js`, `src/env.js`, `src/shaders/*.js` | glb_path=None; ok iff `spatial.probes.run_probe(ws, *, compile=True, timeout_s=None) -> (scene_probe, shader_preflight, census)` (one `probe_scene.mjs --compile` boot; `probe_scene` is the same call without `compile`) passes both; both reports ride `BuildResult.gates`, and the `shader_probe` tool reports the same call |
+| `SceneThreeJsRuntime` | `src/scene.js`, `src/zones/*.js`, `src/assets/*.js`, `src/env.js`, `src/shaders/*.{js,vert,frag,glsl}` | glb_path=None; local shader text loads inside async createScene; ok iff `spatial.probes.run_probe(ws, *, compile=True, timeout_s=None) -> (scene_probe, shader_preflight, census)` (one `probe_scene.mjs --compile` boot; `probe_scene` is the same call without `compile`) passes both; both reports ride `BuildResult.gates`, and the `shader_probe` tool reports the same call |
 | `GlslShaderRuntime` | `src/shader.frag`, `src/common.glsl`, `src/buffer_a.frag` (+ the harness-owned `src/recipes.glsl` when seeded) | harness owns `#version`/uniforms/`out` (wrap.HEADER: u_time/u_resolution/u_mouse/u_frame/u_prev/u_noise + iTime/iChannel* aliases); `wrap.compose(shader, common, recipes_src=…)` pastes header < recipes < common < shader; build renders judge frames via GlHost; compile errors → GlslCompileError at mapped src file:line (recipes.glsl included); lint ERROR `redefines_recipe` when an agent file defines a recipes.glsl name; artifacts frames/, frames_sheet.png, preview.gif, metrics.json |
 | `OpenGLPythonRuntime` | `src/program.py`, `src/*.glsl` | `setup(ctx,w,h)->state` + `render(ctx,state,t,frame,fbo)` run in a moderngl subprocess (`wrappers/run_gl.py`); exceptions map to src/program.py:line, in-string GLSL errors carry both line numbers |
+
+**Scene effect ownership and shader composition.** The agent imports the frozen
+`src/lib/` modules from zone/environment code. Object effects expose
+`userData.update(t, dt)` with absolute seconds; older `tick(t)` aliases remain
+compatible. Call one update path once per frame. Factories with
+`userData.dispose()` capture construction-owned resources, including instance
+buffers and custom shadow materials; later caller additions and borrowed
+materials/textures retain their owner's lifetime. `lifecycle.snapshotResources`
+excludes textures by default, and `attachDisposal(root, resources)` releases an
+explicit set once, attempting all cleanup before reporting aggregate errors.
+
+`shader.patchStandard(material, opts)` composes registered patches, including
+`alphaBody` before alpha testing, `normalBody` after normal maps and
+`transmissionBody` after Physical-material optical maps but before refraction.
+`clonePatchedMaterial(material, {shareUniforms:false})` reconstructs registered
+patches and independently copies typed uniforms while borrowing textures;
+ShaderMaterial/RawShaderMaterial uniforms follow the same rule.
+`shareUniforms:true` retains the source map for externally controlled static
+batches. `shadowLike` supplies both displaced depth and point-distance materials.
+External unregistered shader wrappers must be reapplied by their owner.
 
 Wrappers are standalone (never import codeverse3d).  The three python build wrappers live
 together in `languages/wrappers/` — `run_bpy.py`, `run_bpy_links.py` (Blender's python 3.11),
