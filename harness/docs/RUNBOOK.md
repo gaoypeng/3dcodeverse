@@ -18,26 +18,10 @@ python -m pytest tests -q -m live                      # OPT-IN: real API calls
 ```
 
 ### Keys and settings
-* Gemini keys, in precedence order: `GEMINI_API_KEYS` (comma-separated) → `GEMINI_API_KEY`
-  / `GOOGLE_API_KEY` → legacy `~/.config/astra3d/gemini_keys.env` (21 keys here).
-  All `gemini:*` models share one `KeyPool` (900 rpm/key, 30 s cooldown on 429; dead
-  keys benched 1 h and re-probed; 429s rotate to fresh keys for free).
-  `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `C3D_OPENAI_BASE_URL` for the other
-  providers (not set on this box → `anthropic:*` / `openai:*` unavailable).
-* Settings: `~/.config/3dcodeverse/config.yaml` or `./3dcodeverse.yaml`, overridden by env
-  with prefix `C3D_` and `__` nesting — e.g. `C3D_RUNS_DIR=/data/runs`,
-  `C3D_RENDER__GPU=off`, `C3D_BINARIES__BLENDER=/opt/blender/blender`,
-  `C3D_LIMITS__AGENT_TIMEOUT_S=900`, `C3D_DEFAULT_CANDIDATES=2`.
-  Defaults: runs_dir `runs/`, cache_dir `~/.cache/codeverse3d`, build/render timeout 300 s,
-  agent timeout 1800 s, bpy RLIMIT 12 GB, 6 parallel agents, 3 parallel builds,
-  `default_judge gemini:gemini-3.1-pro-preview`, `default_candidates 1`.
-* Blender: `settings.binaries.blender` else first `blender-5.0`/`blender`/… on PATH.
-  Always `-b --factory-startup`; the child env strips `PYTHONPATH`/`PYTHONHOME`.
-* GPU rendering: `runtime_js/gpu_launch.cjs` tries Chrome with `--use-angle=gl-egl` +
-  Mesa d3d12 env and falls back to SwiftShader; probe cached in
-  `~/.cache/codeverse3d/gpu_probe.json`.  Force with `C3D_RENDER_GPU=on|off|auto` or
-  `settings.render.gpu`.  The graphics track uses moderngl the same way (d3d12 GPU
-  context first, llvmpipe fallback; no probe needed — `GlHost` decides per process).
+Gemini keys, the other providers' keys, the settings files, every `C3D_*` override, how
+Blender is found and how the GPU path is chosen are `docs/INSTALL.md` §8, §6 and §7 (their
+one home); each setting's default and description is its `Settings` field in
+`codeverse3d/config.py`.
 
 ## 2. Running each track
 
@@ -191,8 +175,8 @@ unless you type `--host` yourself; it never serves a path outside the declared r
 python -m codeverse3d.addons.calibration runs/<slug> [runs/<slug2> …] --model gemini:gemini-3.1-pro-preview --n 3 --out out/
                                         # re-judges recorded rounds; writes calibration_<model>.md/.json (never touches runs/)
 ```
-**Do not run the offline suite while a battery is running.**  The suite is 2 300+ tests on
-24 cores under xdist; a battery holds Blender, a browser pool and several agent sessions.
+**Do not run the offline suite while a battery is running.**  The suite runs thousands of tests
+on 24 cores under xdist; a battery holds Blender, a browser pool and several agent sessions.
 Twice on 2026-09-04/05 that produced 11 and 21 spurious failures that vanished on a clean
 re-run (`tests/scene_runtime/lib/*` first, since those hold the renderer longest).  A red
 suite during a battery is **not evidence until it reproduces on a quiet machine** — re-run
@@ -284,8 +268,8 @@ stages are reused — this also recovers from Gemini 503 storms).  Ctrl-C is saf
 
 `3dcode pick <slug> --texture` (or `--texture` on `make`, which picks after the run) textures the
 PICKED round's own `artifacts/rNN/object.glb` — once per round: a pass that already started from
-those bytes is re-used, never re-bought; `3dcode texture pass <slug>` textures the canonical
-`artifacts/object.glb`, i.e. the LAST round.  Either way: one VLM material plan →
+those bytes is re-used, never re-bought; `3dcode texture pass <slug>` textures the same picked
+round's GLB.  Either way: one VLM material plan →
 tileable texture images (gemini-3.1-flash-image, ~$0.07/tile, cached by prompt) →
 world-metre UVs → `artifacts/object_textured.glb` → seam gate + before/after judge
 gate (ships only when the score does not drop and the materials criterion improves).

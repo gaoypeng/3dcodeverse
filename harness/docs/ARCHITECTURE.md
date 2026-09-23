@@ -529,8 +529,8 @@ shader-traps skill); before 2026-09-22 the scene's two never reached a round, an
 
 `texturing.run.texture_pass(ws, spec, plan, model_id=…)` — never inside a run: `3dcode pick
 --texture` (and `make --texture`, which picks after the run) texture the PICKED round's kept
-`artifacts/rNN/object.glb`; a standalone `3dcode texture pass` textures the canonical one, i.e.
-the last round:
+`artifacts/rNN/object.glb`, and so does a standalone `3dcode texture pass` (the round
+`addons.select` reports as picked):
 one VLM **material plan** (parts → shared texture ids, family, projection,
 `tile_size_m`; cached) → text-to-image tiles (`GeminiImageModel`,
 gemini-3.1-flash-image; mirror cross-fade makes them tileable, `seam_score ≤ 0.08`

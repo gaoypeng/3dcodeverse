@@ -49,9 +49,9 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
 ## Environment (this machine)
 - Gemini keys: `~/.config/astra3d/gemini_keys.env` (15 keys, the owner's list of 2026-09-22) → `get_settings().gemini_api_keys`
   (or `GEMINI_API_KEYS` / `GEMINI_API_KEY` env).  Settings: `~/.config/3dcodeverse/config.yaml`
-  or `./3dcodeverse.yaml`, env prefix `C3D_` (the pre-D78 `CV3D_*` names are still read) (`C3D_RENDER__GPU=off`, `C3D_RUNS_DIR=…`,
-  `C3D_DEFAULT_CANDIDATES=2`).  Every `C3D_*` switch is a `Settings` field read through `get_settings()`
-  where it is used — never read the environment by hand (one grammar: docs/INSTALL.md §8.3).
+  or `./3dcodeverse.yaml`, env prefix `C3D_` (the pre-D78 `CV3D_*` names are still read; the
+  grammar and examples: docs/INSTALL.md §8.3).  Every `C3D_*` switch is a `Settings` field read through `get_settings()`
+  where it is used — never read the environment by hand.
 - Blender 5.0.1 headless: `~/.local/bin/blender-5.0` (always `--factory-startup`; clear scene).
 - Node 24 (floor 20.6) + `runtime_js/node_modules` (three@0.182, puppeteer; chrome cached).  Headless
   Chrome WebGL uses the GPU on WSL2 with `--use-angle=gl-egl` + Mesa d3d12 env (see
@@ -106,9 +106,9 @@ python -m codeverse3d.addons.calibration runs/<slug>... --model gemini:gemini-3.
 python ../eval/bench/complexity_report.py ../eval/bench/out --recursive   # score-vs-complexity + $/complexity point (eval/docs/COMPLEXITY.md)
 python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
 python -m tests.prompts.manifest [--bless | --dump DIR]   # what every model is shown, pinned (RUNBOOK §8): bless only a change a model is MEANT to see
-python -m pytest tests -q -m "not live"            # 2 688 tests, ~100 s (real Blender + headless Chrome + CadQuery)
-python -m pytest tests -q -m "not live and not blender and not node"   # pure python: 2 161 tests   (the 244 bench tests: `cd ../eval && python -m pytest`)
-# (the counts drift every commit — `--collect-only` is the answer, not a number in this file)
+python -m pytest tests -q -m "not live"            # the offline suite (real Blender + headless Chrome + CadQuery)
+python -m pytest tests -q -m "not live and not blender and not node"   # pure python   (the bench tests: `cd ../eval && python -m pytest`)
+# (how many: `--collect-only`; a count written here drifts every commit)
 # both run PARALLEL by default (pytest-xdist, -n auto --dist worksteal, in pyproject addopts).
 # A nested pytest inside a test MUST pass -n0 or it forks another full set of workers.
 ```

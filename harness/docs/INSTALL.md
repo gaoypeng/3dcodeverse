@@ -150,8 +150,8 @@ Run the offline test suite to confirm the install:
 
 ```bash
 cd harness
-python -m pytest tests -q                                               # needs node + Blender for the full set (~32 s)
-python -m pytest tests -q -m "not live and not blender and not node"    # pure-python subset (~27 s)
+python -m pytest tests -q                                               # needs node + Blender for the full set
+python -m pytest tests -q -m "not live and not blender and not node"    # pure-python subset
 # Parallel by default (pytest-xdist, -n auto --dist worksteal).  Serial: add -n0.
 python -m pytest tests -q -m live                                       # OPT-IN: real API calls, needs keys
 ```
@@ -337,7 +337,7 @@ driver installed on the Windows side for the d3d12 path — check with
 
 | variable | needed for | notes |
 |---|---|---|
-| `GEMINI_API_KEYS` | all `gemini:*` models (planner, judge, captioner, generators) | comma-separated list; the whole list becomes one `KeyPool` (per-key rate limits, 30 s cooldown on 429, dead keys benched 1 h) |
+| `GEMINI_API_KEYS` | all `gemini:*` models (planner, judge, captioner, generators) | comma-separated list; the whole list becomes one `KeyPool` (a 429 rotates to another key and cools the key ≤ 3 s, dead keys benched 1 h; no per-key RPM buckets since 2026-09-22) |
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | same | single-key fallback when `GEMINI_API_KEYS` is unset |
 | `ANTHROPIC_API_KEY` | `anthropic:*` chat models | optional; not set here → those backends are unavailable (doctor WARN) |
 | `OPENAI_API_KEY` | `openai:*` chat models | optional; `C3D_OPENAI_BASE_URL` points at a compatible gateway |
@@ -346,7 +346,7 @@ Resolution order for the Gemini keys (`codeverse3d/config.py`), first non-empty 
 settings YAML `gemini_api_keys:` → `GEMINI_API_KEYS` (csv) → `GEMINI_API_KEY` /
 `GOOGLE_API_KEY` → the legacy compatibility file
 `~/.config/astra3d/gemini_keys.env`, from which a line
-`GEMINI_API_KEYS="key1,key2,…"` is read (this is where the 21 keys on this box
+`GEMINI_API_KEYS="key1,key2,…"` is read (this is where this box's keys
 come from).  Duplicates are removed, order preserved.  Keys are never written
 into run records.
 
