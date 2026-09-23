@@ -36,7 +36,7 @@ import logging
 import re
 import shutil
 from collections.abc import Callable, Collection
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -135,10 +135,13 @@ def _strip_envelope_header(body: str) -> str:
 
 
 def _clean_path(p: str) -> str:
-    p = p.strip().strip("`'\"").replace("\\", "/")
-    while p.startswith("./"):
-        p = p[2:]
-    return p.lstrip("/")
+    """Normalised (``//`` and ``./`` collapsed — ``src//lib/x.js`` IS ``src/lib/x.js``, so it must
+    meet the harness-owned / scope checks as that), relative; a trailing ``/`` is kept."""
+    p = p.strip().strip("`'\"").replace("\\", "/").lstrip("/")
+    if not p:
+        return p
+    norm = PurePosixPath(p).as_posix().lstrip("/")
+    return f"{norm}/" if p.endswith("/") and norm != "." else norm
 
 
 def _strip_fence(body: str) -> str:
