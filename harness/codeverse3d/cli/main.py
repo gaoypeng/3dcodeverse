@@ -335,6 +335,7 @@ def make(
     image, dim, must, must_not, tag = image or [], dim or [], must or [], must_not or [], tag or []
     if not prompt.strip():  # a blank prompt was planned, generated and judged as is
         raise C.CliError("the prompt is empty: say what to build", code=2)
+    C.check_minutes(max_minutes)
     for p in image:
         if not p.is_file():
             raise C.CliError(f"reference image not found: {p}")
@@ -614,6 +615,7 @@ def resume(
     first — the only way to continue a BUDGET-stopped run.  A run that already
     reached a terminal state is refused unless ``--force``, which archives its rounds
     (``rounds/pre_force/``) and starts it again at round 0 — paid, and a new final state."""
+    C.check_minutes(max_minutes)
     ws = C.open_workspace(slug, runs_dir)
     # the run mutex, before the spec is rewritten (a budget raise is a mutation)
     with C.mutating(ws, what=f"3dcode resume {ws.root.name}"):

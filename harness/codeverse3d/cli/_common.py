@@ -231,6 +231,13 @@ def parse_kv_floats(items: list[str], flag: str) -> dict[str, float]:
     return out
 
 
+def check_minutes(max_minutes: float | None) -> None:
+    """``--max-minutes`` must leave the run some time: 0 planned (paid), then stopped at the
+    first clock check with no round — a ``budget`` run with nothing in it."""
+    if max_minutes is not None and max_minutes <= 0:
+        raise CliError(f"--max-minutes must be above 0 (got {max_minutes:g}): a run with no time builds nothing", code=2)
+
+
 def check_backends(backends: Any) -> None:
     """Refuse a backend id this build cannot construct, before a run directory exists.
 

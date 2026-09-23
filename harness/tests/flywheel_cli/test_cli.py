@@ -560,3 +560,12 @@ def test_a_judge_unavailable_run_resumes_as_it_is(made_run, stub_track):
     stub_track(lambda spec, resume, force: entered.append((resume, force)))
     assert runner.invoke(app, ["resume", run_dir.name, "--runs-dir", str(runs)]).exit_code == 130
     assert entered == [(True, False)]
+
+
+def test_a_zero_minute_budget_is_refused(made_run, tmp_path: Path):
+    """--max-minutes 0 planned (paid) and stopped at the first clock check with no round."""
+    r = runner.invoke(app, ["make", "a cup", "--max-minutes", "0", "--no-run", "--runs-dir", str(tmp_path / "z"), "--slug", "z"])
+    assert r.exit_code == 2 and "--max-minutes" in r.output and not (tmp_path / "z" / "z").exists()
+    runs, run_dir = made_run()
+    r = runner.invoke(app, ["resume", run_dir.name, "--runs-dir", str(runs), "--max-minutes", "0"])
+    assert r.exit_code == 2 and "--max-minutes" in r.output
