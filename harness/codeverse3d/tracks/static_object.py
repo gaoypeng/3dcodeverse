@@ -317,7 +317,7 @@ def silhouette_gate(ctx: RunContext, renders: RenderSet) -> GateReport | None:
         res = ctx.services.silhouette(view.path, ref)
     except Exception as e:  # noqa: BLE001 — advisory measurement; never fails a round
         log.warning("compare_silhouette failed: %s", e)
-        return GateReport(gate=SILHOUETTE_GATE, passed=True, findings=[GateFinding(
+        return GateReport.of(SILHOUETTE_GATE, [GateFinding(
             gate=SILHOUETTE_GATE, severity=Severity.INFO, target="overall", message=f"silhouette comparison unavailable: {e}")])
     iou = float(res.get("iou", 0.0)) if isinstance(res, dict) else 0.0
     reliable = bool(res.get("reliable", True)) if isinstance(res, dict) else False
@@ -331,7 +331,7 @@ def silhouette_gate(ctx: RunContext, renders: RenderSet) -> GateReport | None:
                           message=msg, data=data,
                           fix_hint=("match the reference outline: compare proportions (aspect ratio), overall extents and the "
                                     "silhouette of each major part against the reference image" if low else ""))
-    return GateReport(gate=SILHOUETTE_GATE, passed=True, findings=[finding])
+    return GateReport.of(SILHOUETTE_GATE, [finding])
 
 
 def silhouette_iou(rec: RoundRecord) -> tuple[float, dict] | None:

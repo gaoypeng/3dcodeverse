@@ -283,7 +283,7 @@ def lint_blender_source(
     if tree is None:
         msg, hint, line = describe_parse_failure(exc)  # type: ignore[arg-type]
         findings.append(_f(Severity.ERROR, msg, line, hint, target))
-        return GateReport(gate=GATE, passed=False, findings=findings, duration_ms=int((time.monotonic() - t0) * 1000))
+        return GateReport.of(GATE, findings, duration_ms=int((time.monotonic() - t0) * 1000))
     c = _Collector()
     c.visit(tree)
     findings = _rules(c, source, target=target, expect_names=expect_names, expect_bpy=expect_bpy)
@@ -382,9 +382,9 @@ def _layout_rules(ws: Workspace, parts: list[Path], entry_tree: ast.Module | Non
 def lint_workspace(ws: Workspace) -> GateReport:
     """Lint every python file under ``src/`` + the multi-file layout rules (one merged report)."""
     t0 = time.monotonic()
-    entry = ws.src / "model.py"
+    entry = ws.root / ENTRY_REL
     if not entry.is_file():
-        return GateReport(gate=GATE, passed=False, duration_ms=0, findings=[_f(
+        return GateReport.of(GATE, [_f(
             Severity.ERROR, f"{ENTRY_REL} is missing", target=ENTRY_REL,
             hint="create src/model.py (entry: imports src/parts/<snake>.py builders and calls them; see the skeleton)")])
     parts = part_files(ws)

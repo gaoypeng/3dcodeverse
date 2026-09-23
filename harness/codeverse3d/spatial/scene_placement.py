@@ -273,7 +273,7 @@ def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool =
     """The ``scene_placement`` GateReport for one census placement table (pure)."""
     t = table if isinstance(table, PlacementTable) else PlacementTable.model_validate(table or {})
     if t.error:
-        return GateReport(gate=GATE, passed=True, findings=[
+        return GateReport.of(GATE, [
             _f(Severity.WARN, f"placement probe failed: {t.error[:300]}", target="scene", kind="probe_failed",
                hint="harness instrumentation, not your code; the placement check was skipped this round")])
     floating_m = FLOATING_INDOOR_M if indoor else FLOATING_OUTDOOR_M
@@ -639,7 +639,7 @@ def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None,
         return report
     except Exception as e:  # noqa: BLE001 — advisory instrumentation must not fail the round
         log.warning("scene placement gate failed: %s", e)
-        return GateReport(gate=GATE, passed=True, findings=[
+        return GateReport.of(GATE, [
             _f(Severity.WARN, f"placement probe failed: {type(e).__name__}: {e}"[:400], target="scene", kind="probe_failed")])
 
 

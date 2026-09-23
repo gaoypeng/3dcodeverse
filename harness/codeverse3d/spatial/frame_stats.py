@@ -152,7 +152,7 @@ def frame_gate(seq: SequenceStats, *, motion_expected: bool = True, gate: str = 
 
     if not seq.frames:
         add(Severity.ERROR, "no_frames", "no frames were rendered", "the program must produce at least one frame")
-        return GateReport(gate=gate, passed=False, findings=f)
+        return GateReport.of(gate, f)
     if seq.any_nan:
         bad = [fr for fr in seq.frames if fr.nan or fr.inf]
         add(Severity.ERROR, "nan", f"NaN/Inf pixels in {len(bad)} frame(s) (first at t={bad[0].time:g}s: nan={bad[0].nan} inf={bad[0].inf})",

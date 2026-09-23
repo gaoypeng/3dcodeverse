@@ -438,7 +438,7 @@ def frame_gate_from_renders(source: RenderSet | Path | str) -> GateReport:
         path = p if p.is_file() else (p / "metrics.json" if (p / "metrics.json").is_file() else None)
     metrics = read_json_or_none(path) if path is not None else None
     if metrics is None:
-        return GateReport(gate=FRAME_GATE, passed=True, findings=[])
+        return GateReport.of(FRAME_GATE)
     return frame_findings(metrics)
 
 

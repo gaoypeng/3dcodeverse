@@ -92,7 +92,7 @@ def run_probe(ws: Workspace, *, compile: bool = False, timeout_s: float | None =
     except SceneRenderError as e:
         finding = _f(PROBE_GATE, Severity.ERROR, f"scene probe could not run: {e}"[:1500], target="src/scene.js",
                      hint="this is a harness/driver failure, not your code; retry or report", harness_failure=True)
-        return GateReport(gate=PROBE_GATE, passed=False, findings=[finding], duration_ms=int((time.time() - t0) * 1000)), no_preflight, {}
+        return GateReport.of(PROBE_GATE, [finding], duration_ms=int((time.time() - t0) * 1000)), no_preflight, {}
     probe, census = probe_report(res.summary, duration_ms=int((time.time() - t0) * 1000))
     rep = res.summary.get("shader_report") or {}
     if not compile or not rep or rep.get("skipped"):
@@ -130,7 +130,7 @@ def probe_report(summary: dict[str, Any], *, duration_ms: int = 0) -> tuple[Gate
                            target="src/scene.js",
                            hint="this is a harness/driver failure, not your code; retry or report",
                            harness_failure=True))
-        return GateReport(gate=gate, passed=False, findings=findings, duration_ms=duration_ms), {}
+        return GateReport.of(gate, findings, duration_ms=duration_ms), {}
     if not boot.get("ok"):
         stage = boot.get("stage", "?")
         msg = boot.get("error") or "scene did not boot"

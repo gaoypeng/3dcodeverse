@@ -196,7 +196,7 @@ def lint_cadquery_source(source: str, *, target: str = "src/model.py") -> GateRe
     if tree is None:
         msg, hint, line = describe_parse_failure(exc)  # type: ignore[arg-type]
         f = _f(Severity.ERROR, msg, line, hint, target)
-        return GateReport(gate=GATE, passed=False, findings=[f], duration_ms=int((time.monotonic() - t0) * 1000))
+        return GateReport.of(GATE, [f], duration_ms=int((time.monotonic() - t0) * 1000))
     c = _Collector()
     c.visit(tree)
     findings = _rules(c, tree, source)
@@ -207,7 +207,7 @@ def lint_cadquery_source(source: str, *, target: str = "src/model.py") -> GateRe
 
 def lint_cadquery_file(path: Path, *, target: str = "src/model.py") -> GateReport:
     if not path.is_file():
-        return GateReport(gate=GATE, passed=False, findings=[_f(Severity.ERROR, f"{target} is missing", None, "create src/model.py (see the skeleton)", target)])
+        return GateReport.of(GATE, [_f(Severity.ERROR, f"{target} is missing", None, "create src/model.py (see the skeleton)", target)])
     return lint_cadquery_source(path.read_text(), target=target)
 
 

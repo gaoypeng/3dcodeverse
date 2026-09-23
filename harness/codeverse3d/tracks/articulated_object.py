@@ -355,7 +355,7 @@ def default_motion_checks(ws: Workspace, plan: Plan | None) -> GateReport | None
     try:
         robot = load_urdf(urdf, ws.artifacts / "meshes")
     except UrdfError as e:
-        return GateReport(gate=MOTION_GATE, passed=True, findings=[GateFinding(
+        return GateReport.of(MOTION_GATE, [GateFinding(
             gate=MOTION_GATE, severity=Severity.WARN, target="robot.urdf", message=f"motion checks skipped: {e}")])
     urdf_names = {to_snake(n): n for n in getattr(robot, "joints", {})}
     for j, expected in wanted:

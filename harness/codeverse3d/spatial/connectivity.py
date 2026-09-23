@@ -490,11 +490,11 @@ def check_connectivity(
         parts = solid_parts(glb)
     except GlbLoadError as e:
         findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, message=str(e), fix_hint="run `build` first"))
-        return GateReport(gate=GATE, passed=False, findings=findings, duration_ms=int((time.time() - t0) * 1000))
+        return GateReport.of(GATE, findings, duration_ms=int((time.time() - t0) * 1000))
     if not parts:
         findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, message="GLB has no mesh parts",
                                     fix_hint="the build exported nothing — check the code creates geometry"))
-        return GateReport(gate=GATE, passed=False, findings=findings, duration_ms=int((time.time() - t0) * 1000))
+        return GateReport.of(GATE, findings, duration_ms=int((time.time() - t0) * 1000))
 
     names = list(parts)
     sizes = {n: float(np.max(parts[n].extents)) for n in names}

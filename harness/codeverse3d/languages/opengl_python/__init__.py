@@ -169,7 +169,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
     if not p.is_file():
         f = [_finding(Severity.ERROR, "missing_entry", f"{PROGRAM} is missing",
                       "create src/program.py with setup(ctx, width, height) and render(ctx, state, t, frame, fbo)")]
-        return GateReport(gate=GATE, passed=False, findings=f)
+        return GateReport.of(GATE, f)
     findings = lint_source(p.read_text(errors="replace"))
     for extra in sorted(ws.src.rglob("*.py")):
         rel = ws_rel(ws, extra)
