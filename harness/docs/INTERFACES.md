@@ -672,7 +672,8 @@ from codeverse3d.addons.dataset.index import build_index, query, summary   # sql
 ```
 
 ## Events and records
-`EventLog.emit(event, **data)` writes `{"t", "event", ...}` (**Δ** key is `event`).
+`EventLog.emit(event, **data)` writes `{"t", "event", ...}` (**Δ** key is `event`).  A function whose `events=` is
+optional normalises it once with `events = proc.NULL_EVENTS if events is None else events` (never `events or …`).
 Event names: `run.start`, `stage.start/done`, `plan.done`, `workspace.materialized`,
 `round.start`, `generate.done`, `build.done`, `gates.done`, `judge.done`,
 `round.done`, `refine.planned`, `recipes.seeded` (graphics: names written this call, present on disk, chapters), `asset.judged`, `assets.done`,
