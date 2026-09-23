@@ -18,10 +18,7 @@ from codeverse3d.addons.costreport.audit import (
     stage_latency,
     uncached_if_no_cache,
 )
-from codeverse3d.cost.types import CostBucket
-
-STAGE_ORDER = ("plan", "skeleton", "assets", "env", "zones", "assemble", "baseline", "candidate",
-               "repair", "refine", "gates", "render", "judge", "pairwise", "texture", "caption", "other")
+from codeverse3d.cost.types import STAGE_ORDER, CostBucket
 
 
 def _usd(x: float) -> str:

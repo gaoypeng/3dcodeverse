@@ -22,7 +22,7 @@ class Stage(StrEnum):
     PLAN = "plan"
     #: SKELETON / GATES / RENDER are *deterministic harness work* (no model call at
     #: all); kept in the enum so latency can be attributed to them from events
-    #: (``report.STAGE_ORDER``, ``audit.stage_latency``).  ASSEMBLE is deterministic too
+    #: (:data:`STAGE_ORDER`, ``audit.stage_latency``).  ASSEMBLE is deterministic too
     #: since the scene track's ``compose`` agent session was removed (2026-09-22); older
     #: ledgers still carry it.
     SKELETON = "skeleton"
@@ -41,6 +41,10 @@ class Stage(StrEnum):
     TEXTURE = "texture"
     CAPTION = "caption"
     OTHER = "other"
+
+
+#: the order stages are shown in (the cost report, the telemetry summary): the enum's own
+STAGE_ORDER: tuple[str, ...] = tuple(s.value for s in Stage)
 
 
 class Role(StrEnum):

@@ -15,13 +15,13 @@ from codeverse3d.addons.gallery import build_static
 from codeverse3d.addons.gallery.index import entry_from_record
 from codeverse3d.cli.main import app
 from codeverse3d.contracts.run import RunRecord
+from codeverse3d.cost.types import STAGE_ORDER
 from codeverse3d.record.deliverable import build_deliverable, deliverable_path, load_deliverable
 from codeverse3d.record.record import load_record, package_run
 from codeverse3d.record.telemetry import (
     build_telemetry,
     ledger_rows,
     load_telemetry,
-    stage_order,
 )
 from codeverse3d.workspace import LAYOUT_ALIASES, Workspace
 
@@ -119,7 +119,7 @@ def test_telemetry_summarises_the_runs_own_ledger(fake_run):
                                   "model": "gemini-3.7-flash", "n_calls": 1}) + "\n")
     tele = build_telemetry(ws, rec)
     assert tele.cost is not None and tele.cost.by_stage[0].stage == "plan"
-    assert {s.stage for s in tele.cost.by_stage} <= set(stage_order())
+    assert {s.stage for s in tele.cost.by_stage} <= set(STAGE_ORDER)
     assert not (ws.telemetry / "usage.jsonl").exists(), "one ledger, one name"
 
 

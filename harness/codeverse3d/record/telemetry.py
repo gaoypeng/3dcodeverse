@@ -33,7 +33,7 @@ from codeverse3d.contracts.run import (
     StageCost,
 )
 from codeverse3d.cost.ledger import load_ledger, summarise
-from codeverse3d.cost.types import CallCost, Stage
+from codeverse3d.cost.types import STAGE_ORDER, CallCost
 from codeverse3d.proc import read_json_or_none, write_json_atomic
 from codeverse3d.workspace import Workspace
 
@@ -145,10 +145,6 @@ _TOOL_KEYS = frozenset({"python", "platform", "host", "blender", "blender_path",
 
 
 # --------------------------------------------------------------------------- the ledger (codeverse3d.cost)
-def stage_order() -> tuple[str, ...]:
-    return tuple(s.value for s in Stage)
-
-
 def ledger_rows(ws: Workspace) -> list[CallCost]:
     """The run's priced per-call rows, ``telemetry/cost.jsonl`` (none when it has no ledger)."""
     try:
@@ -163,7 +159,7 @@ def cost_summary(record: RunRecord, rows: list[CallCost]) -> CostSummary:
     ledger's own ``summarise`` — money by stage is computed there and nowhere else), per round,
     and the run's minutes against ``max_minutes``."""
     summ = summarise(rows, dimensions=("stage", "role", "model"))
-    rank = {s: i for i, s in enumerate(stage_order())}
+    rank = {s: i for i, s in enumerate(STAGE_ORDER)}
     by_stage = [StageCost(stage=b.key, calls=b.n_calls, input_tokens=b.input_tokens, output_tokens=b.output_tokens,
                           cached_tokens=b.cached_tokens, thoughts_tokens=b.thoughts_tokens,
                           cost_usd=round(b.cost_usd, 6), seconds=round(b.latency_ms / 1000.0, 1))
