@@ -387,10 +387,19 @@ class Settings(BaseSettings):
 
 
 def _load_yaml(path: Path) -> dict:
+    """A config file's mapping; a file that is not one is a ``ValueError`` naming it (the CLI
+    reports that as a bad configuration — a YAML syntax error or a top-level list used to
+    escape every command as a raw traceback)."""
     if not path.is_file():
         return {}
-    with path.open() as fh:
-        return yaml.safe_load(fh) or {}
+    try:
+        with path.open() as fh:
+            data = yaml.safe_load(fh) or {}
+    except yaml.YAMLError as e:
+        raise ValueError(f"{path}: not valid YAML: {e}") from e
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: expected a mapping of settings, got a {type(data).__name__}")
+    return data
 
 
 def _legacy_gemini_keys() -> list[str]:

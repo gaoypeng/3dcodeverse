@@ -493,3 +493,17 @@ def test_make_refuses_a_blank_prompt(tmp_path: Path):
     assert not (tmp_path / "runs").exists() or not any((tmp_path / "runs").iterdir())
 
 
+@pytest.mark.parametrize("text", ["judge: [unclosed\n", "- a\n- list\n"], ids=["syntax", "list"])
+def test_a_config_file_that_is_not_a_mapping_is_a_bad_configuration(tmp_path: Path, monkeypatch, text: str):
+    from codeverse3d import config
+
+    (tmp_path / "3dcodeverse.yaml").write_text(text)
+    monkeypatch.chdir(tmp_path)
+    config.get_settings.cache_clear()
+    try:
+        r = runner.invoke(app, ["cost", "profiles"])
+    finally:
+        config.get_settings.cache_clear()
+    assert r.exit_code == 2 and "bad configuration" in r.output and "3dcodeverse.yaml" in r.output
+
+
