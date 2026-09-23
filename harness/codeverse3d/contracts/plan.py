@@ -12,9 +12,9 @@ from __future__ import annotations
 import contextlib
 import math
 import re
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, Field, field_validator, model_validator
 
 from codeverse3d.contracts.common import (
     MimicSpec,
@@ -22,6 +22,26 @@ from codeverse3d.contracts.common import (
     mimic_issues,
 )
 from codeverse3d.conventions import to_snake
+
+#: a thinking model's self-reference leaked into structured output: measured 2026-08-28
+#: (gear_cq_ss), the PLANNER emitted a part literally named "Gemini25FlashThinking" and
+#: the generator faithfully modelled a placeholder pillar for it — judged 0.0.  High-
+#: precision patterns only: "CameraFlash" or "ModelStand" must stay legal.
+_MODEL_NAME_LEAK = re.compile(r"(?i)(gemini|gpt[-_ ]?\d|claude|llama|qwen|deepseek|placeholder)")
+
+
+def reject_model_leak(v: str) -> str:
+    """Reject (never mangle) part names that are model ids / placeholders — the planner
+    is re-asked with this error, exactly like an unsafe camera name."""
+    m = _MODEL_NAME_LEAK.search(v)
+    if m:
+        raise ValueError(
+            f"part name {v!r} contains {m.group(1)!r} — a model id or placeholder leaked from "
+            "thinking, not a component of the object.  Name the real part (e.g. GrinderWheel).")
+    return v
+
+
+LeakFreeName = Annotated[str, AfterValidator(reject_model_leak)]
 
 
 class BBox(BaseModel):
@@ -75,12 +95,7 @@ class SubPartPlan(BaseModel):
     police.  See the complexity baseline: built-parts ÷ planned-parts is
     the only complexity metric with a positive partial correlation to geometry_detail."""
 
-    name: str = Field(description="PascalCase, unique within the parent, e.g. Burr")
-
-    @field_validator("name")
-    @classmethod
-    def _no_model_leak(cls, v: str) -> str:
-        return reject_model_leak(v)
+    name: LeakFreeName = Field(description="PascalCase, unique within the parent, e.g. Burr")
     role: str = Field(default="", description="what this sub-part is, a few words")
     description: str = Field(description="shape and construction in numbers")
     bbox: BBox = Field(description="inside the parent's bbox, same frame")
@@ -89,12 +104,7 @@ class SubPartPlan(BaseModel):
 
 
 class PartPlan(BaseModel):
-    name: str = Field(description="PascalCase unique part name, e.g. SeatCushion")
-
-    @field_validator("name")
-    @classmethod
-    def _no_model_leak(cls, v: str) -> str:
-        return reject_model_leak(v)
+    name: LeakFreeName = Field(description="PascalCase unique part name, e.g. SeatCushion")
     role: str = Field(description="what this part is / does, one line")
     description: str = Field(description="shape, construction and visible detail the builder must realise")
     bbox: BBox
@@ -191,12 +201,7 @@ class MimicPlan(BaseModel):
     offset: float = Field(default=0.0)
 
 class JointPlan(BaseModel):
-    name: str
-
-    @field_validator("name")
-    @classmethod
-    def _no_model_leak(cls, v: str) -> str:
-        return reject_model_leak(v)
+    name: LeakFreeName
     type: Literal["revolute", "prismatic", "continuous", "fixed"]
     parent: str = Field(description="parent link (part) name")
     child: str = Field(description="child link (part) name")
@@ -241,6 +246,26 @@ def _looks_like_degrees(lower: float, upper: float) -> bool:
     """Revolute limits the planner wrote in degrees: inside ±360 with a span of at least 30 (see the constants)."""
     return abs(lower) <= DEGREES_MAX_ABS and abs(upper) <= DEGREES_MAX_ABS and upper - lower >= DEGREES_MIN_SPAN
 
+
+
+def _promoted(child: dict, owner: dict) -> dict:
+    """A sub-part a joint moves, as the top-level link it becomes (repairs 1 and 1c)."""
+    return {"name": child.get("name"), "role": child.get("role") or f"moving part of {owner.get('name')}",
+            "description": child.get("description", ""), "bbox": child.get("bbox"),
+            "material": child.get("material") or owner.get("material", ""),
+            "attach_to": owner.get("name"), "instances": child.get("instances", 1)}
+
+
+def _raw_bounds(bbox: object) -> tuple[list[float], list[float]] | None:
+    """``(lo, hi)`` of a raw ``{center, extents}`` bbox dict, or None when it is not one (repair 3)."""
+    if not (isinstance(bbox, dict) and isinstance(bbox.get("center"), (list, tuple))
+            and isinstance(bbox.get("extents"), (list, tuple))):
+        return None
+    try:
+        pairs = [(float(c), float(e) / 2) for c, e in zip(bbox["center"], bbox["extents"], strict=True)]
+    except (TypeError, ValueError):
+        return None
+    return [c - h for c, h in pairs], [c + h for c, h in pairs]
 
 class ArticulatedPlan(StaticPlan):
     root_link: str
@@ -305,12 +330,7 @@ class ArticulatedPlan(StaticPlan):
                     continue
                 key = to_snake(str(child.get("name", "")))
                 if key in referenced and key not in by_name:
-                    promoted = {
-                        "name": child.get("name"), "role": child.get("role") or f"moving part of {part.get('name')}",
-                        "description": child.get("description", ""), "bbox": child.get("bbox"),
-                        "material": child.get("material") or part.get("material", ""),
-                        "attach_to": part.get("name"), "instances": child.get("instances", 1),
-                    }
+                    promoted = _promoted(child, part)
                     parts.append(promoted)
                     by_name[key] = promoted
                     notes.append(f"promoted sub-part {part.get('name')}.{child.get('name')} to a link: a joint moves it")
@@ -360,12 +380,7 @@ class ArticulatedPlan(StaticPlan):
                 owner, child = sub_index[hits[0]]
                 ckey = to_snake(str(child["name"]))
                 if ckey not in by_name:
-                    promoted = {
-                        "name": child.get("name"), "role": child.get("role") or f"moving part of {owner.get('name')}",
-                        "description": child.get("description", ""), "bbox": child.get("bbox"),
-                        "material": child.get("material") or owner.get("material", ""),
-                        "attach_to": owner.get("name"), "instances": child.get("instances", 1),
-                    }
+                    promoted = _promoted(child, owner)
                     parts.append(promoted)
                     by_name[ckey] = promoted
                     with contextlib.suppress(ValueError, KeyError):
@@ -423,26 +438,16 @@ class ArticulatedPlan(StaticPlan):
 
         # 3. sub-parts outside the parent bbox → grow the parent
         for part in parts:
-            bbox = part.get("bbox")
-            if not (isinstance(bbox, dict) and isinstance(bbox.get("center"), (list, tuple))
-                    and isinstance(bbox.get("extents"), (list, tuple))):
+            bounds = _raw_bounds(part.get("bbox"))
+            if bounds is None:
                 continue
-            try:
-                lo = [float(c) - float(e) / 2 for c, e in zip(bbox["center"], bbox["extents"], strict=True)]
-                hi = [float(c) + float(e) / 2 for c, e in zip(bbox["center"], bbox["extents"], strict=True)]
-            except (TypeError, ValueError):
-                continue
+            lo, hi = bounds
             grown = False
             for child in part.get("children") or []:
-                cb = child.get("bbox") if isinstance(child, dict) else None
-                if not (isinstance(cb, dict) and isinstance(cb.get("center"), (list, tuple))
-                        and isinstance(cb.get("extents"), (list, tuple))):
+                cbounds = _raw_bounds(child.get("bbox") if isinstance(child, dict) else None)
+                if cbounds is None:
                     continue
-                try:
-                    clo = [float(c) - float(e) / 2 for c, e in zip(cb["center"], cb["extents"], strict=True)]
-                    chi = [float(c) + float(e) / 2 for c, e in zip(cb["center"], cb["extents"], strict=True)]
-                except (TypeError, ValueError):
-                    continue
+                clo, chi = cbounds
                 for a in range(3):
                     slack = max(SUBPART_SLACK_M, SUBPART_REL_SLACK * abs(hi[a] - lo[a]))
                     if lo[a] - clo[a] > slack or chi[a] - hi[a] > slack:
@@ -567,24 +572,6 @@ class EffectPlan(BaseModel):
 #: a camera name becomes a render FILENAME (``render_scene.mjs`` writes ``<name>_<t>.png``);
 #: the charset ``render_glb.mjs`` already enforces for view names, plus a length bound.
 CAMERA_NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
-
-#: a thinking model's self-reference leaked into structured output: measured 2026-08-28
-#: (gear_cq_ss), the PLANNER emitted a part literally named "Gemini25FlashThinking" and
-#: the generator faithfully modelled a placeholder pillar for it — judged 0.0.  High-
-#: precision patterns only: "CameraFlash" or "ModelStand" must stay legal.
-_MODEL_NAME_LEAK = re.compile(r"(?i)(gemini|gpt[-_ ]?\d|claude|llama|qwen|deepseek|placeholder)")
-
-
-def reject_model_leak(v: str) -> str:
-    """Reject (never mangle) part names that are model ids / placeholders — the planner
-    is re-asked with this error, exactly like an unsafe camera name."""
-    m = _MODEL_NAME_LEAK.search(v)
-    if m:
-        raise ValueError(
-            f"part name {v!r} contains {m.group(1)!r} — a model id or placeholder leaked from "
-            "thinking, not a component of the object.  Name the real part (e.g. GrinderWheel).")
-    return v
-
 
 
 class CameraPlan(BaseModel):
