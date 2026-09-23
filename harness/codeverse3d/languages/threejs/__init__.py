@@ -209,8 +209,10 @@ def lint_workspace(ws: Workspace) -> GateReport:
                 findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
                     message="src/object.js must `export function build(THREE)`", fix_hint="add `export function build(THREE) { const root = new THREE.Group(); ...; return root; }`"))
         elif path.parent == ws.src / "parts":
+            # matched by snake: the plan's `TVStand` lives in tv_stand.js and exports buildTVStand
             expected = "build" + to_pascal(path.stem)
-            if expected not in exports:
+            if expected not in exports and not any(
+                    e.startswith("build") and len(e) > 5 and to_snake(e[5:]) == path.stem for e in exports):
                 named = sorted(e for e in exports if e != "build")
                 sev = Severity.WARN if any(e != "build" for e in exports) else Severity.ERROR
                 findings.append(GateFinding(gate=GATE, severity=sev, target=rel,

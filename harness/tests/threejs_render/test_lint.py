@@ -117,3 +117,11 @@ def test_one_node_checks_every_file_and_a_parsed_file_is_not_sent_again(tmp_path
     assert len(calls) == 1  # one process for four files
     assert js_lint.node_check_syntax(good) == {} and len(calls) == 1  # all three parsed already: no node at all
     assert list(js_lint.node_check_syntax([bad])) == [bad] and len(calls) == 2  # a failure is never cached
+
+
+def test_an_acronym_part_export_is_matched_by_snake(stool_ws: Workspace, no_node_syntax):
+    """The plan's ``TVStand`` lives in tv_stand.js and exports buildTVStand (to_pascal keeps
+    it); the lint must not ask for the snake-rebuilt ``buildTvStand`` instead."""
+    (stool_ws.src / "parts" / "tv_stand.js").write_text(
+        "import * as THREE from 'three';\nexport function buildTVStand(THREE_) { return new THREE.Group(); }\n")
+    assert not any("tv_stand.js: expected" in m for m in _msgs(lint_workspace(stool_ws)))

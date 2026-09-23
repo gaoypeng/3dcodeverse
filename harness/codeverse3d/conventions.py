@@ -177,13 +177,27 @@ def to_snake(name: str) -> str:
     return s or "part"
 
 
+#: a part / assembly name as the contracts require it: ``SeatCushion``, instances ``SeatCushion_3``.
+#: All-caps acronyms are valid PascalCase (owner, 2026-09-22): ``LED``, ``TV``, ``A``,
+#: ``TVStand``, ``LEDStrip``, ``HDMIPort1``, ``CPU_2``.  The stdlib-only wrapper
+#: ``languages/wrappers/run_cq.py`` keeps a copy (it cannot import this package);
+#: ``tests/core/test_names.py`` pins the two together.
+PASCAL_RE = re.compile(r"^[A-Z][A-Za-z0-9]*(?:_\d+)?$")
+
+
 def to_pascal(name: str) -> str:
-    """``seat_cushion`` / ``seat cushion`` → ``SeatCushion``."""
+    """``seat_cushion`` / ``seat cushion`` → ``SeatCushion``; a name that is already
+    PascalCase (no underscore) comes back unchanged, so ``TVStand`` stays ``TVStand``.
+
+    For a name without an instance suffix ``to_snake(to_pascal(n)) == to_snake(n)`` — the
+    snake name is the key every gate matches parts by (``CPU_2`` / ``Leg_0`` fold to
+    ``Cpu2`` / ``Leg0``: an instance name is not a plan name).  The reverse loses acronyms: ``to_pascal("tv_stand")``
+    is ``TvStand``, so a name rebuilt from a snake key (a file stem, a GLB key, a zone
+    module) is ``TvStand`` — code that compares such a name must compare ``to_snake``.
+    """
+    if "_" not in name and PASCAL_RE.match(name):
+        return name
     return "".join(w[:1].upper() + w[1:] for w in to_snake(name).split("_") if w) or "Part"
-
-
-#: a part / assembly name as the contracts require it: ``SeatCushion``, instances ``SeatCushion_3``
-PASCAL_RE = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)*(?:_\d+)?$")
 
 
 def slugify(text: str, max_len: int = 48) -> str:
