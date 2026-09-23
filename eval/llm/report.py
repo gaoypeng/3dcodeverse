@@ -10,6 +10,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from . import metrics
+from ._jsonl import read_rows
 
 COLS = ["run", "suite", "n", "exec", "exec_rate", "f05_all", "f10_ok", "cd_ok", "iou_ok", "siglip2", "dinov3", "floating", "watertight", "judge",
         "render_rate", "trunc", "tok", "no_fence", "multi_blk", "T"]
@@ -50,8 +51,7 @@ def pass_at_k(rows: list[dict]) -> list[dict]:
             continue
         per_task: dict[str, list[dict]] = defaultdict(list)
         for r in rs:
-            for l in (Path(r["_dir"]) / "metrics.jsonl").open():
-                m = json.loads(l)
+            for m in read_rows(Path(r["_dir"]) / "metrics.jsonl"):
                 per_task[m["id"]].append(m)
         n = len(rs)
         ks = [k for k in (1, 2, 4, 8, n) if k <= n]
