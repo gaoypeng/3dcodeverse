@@ -148,7 +148,8 @@ def test_the_coupling_survey_counts_runs_not_copies_of_the_same_urdf(tmp_path: P
     deliverable/ (finalised) — and `bench run` lays cells out as runs/<id>/, not
     cells/<id>/.  Counting files tripled every mechanical number and named every prompt
     "artifacts"."""
-    from bench.coupling_stats import _prompt_of, _urdfs
+    from bench._records import prompt_of
+    from bench.coupling_stats import _urdfs
 
     urdf = """<?xml version="1.0"?>
 <robot name="rig"><link name="base"/><link name="a"/>
@@ -163,7 +164,7 @@ def test_the_coupling_survey_counts_runs_not_copies_of_the_same_urdf(tmp_path: P
 
     found = _urdfs(tmp_path)
     assert [p.parent.name for p in found] == ["artifacts"], "one URDF per run, the built one"
-    assert _prompt_of(found[0]) == "cpl_umbrella"
+    assert prompt_of(found[0]) == "cpl_umbrella"
 
 
 def _sweep(pair: str, depth_m: float, *, poses: list[dict], worst_pose: dict) -> dict:

@@ -25,6 +25,7 @@ from pathlib import Path
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
+from bench._records import records  # noqa: E402
 from codeverse3d.record.record import unique_files  # noqa: E402
 
 #: gemini-cli names an MCP tool ``mcp_<server>_<tool>``; ours is the ``3dcode`` server
@@ -103,12 +104,8 @@ def token_rates(sessions: list[Path]) -> dict[str, float]:
 def round_costs(root: Path) -> list[float]:
     """Generator dollars per round, from the run records (judging is billed elsewhere)."""
     out: list[float] = []
-    for rec in unique_files(root, "record.json"):
-        try:
-            rounds = (json.loads(rec.read_text()) or {}).get("rounds") or []
-        except (OSError, ValueError):
-            continue
-        out += [float((r.get("usage") or {}).get("cost_usd") or 0.0) for r in rounds
+    for _, data in records(root):
+        out += [float((r.get("usage") or {}).get("cost_usd") or 0.0) for r in data.get("rounds") or []
                 if (r.get("usage") or {}).get("cost_usd")]
     return out
 

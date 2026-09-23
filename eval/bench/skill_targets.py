@@ -33,6 +33,7 @@ from typing import Any
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
+from bench._records import prompt_of, records  # noqa: E402
 from bench.stats import mean_ci, n_to_resolve  # noqa: E402
 from codeverse3d.addons.skill_targets import (  # noqa: E402
     SRC_ARTIFACT,
@@ -95,24 +96,8 @@ class Run:
 
 
 def load_runs(root: Path) -> list[Run]:
-    out: list[Run] = []
-    for rec in sorted(root.rglob("record.json")):
-        try:
-            data = json.loads(rec.read_text())
-        except (OSError, json.JSONDecodeError):
-            continue
-        out.append(Run(key=_key_of(rec, root), label=str(rec.parent.relative_to(root)),
-                       path=rec, record=data))
-    return out
-
-
-def _key_of(rec: Path, root: Path) -> str:
-    """A stable prompt id: the cell/run directory name, not the whole path."""
-    parts = rec.relative_to(root).parts
-    for anchor in ("cells", "runs"):
-        if anchor in parts:
-            return parts[parts.index(anchor) + 1]
-    return parts[0] if parts else rec.parent.name
+    return [Run(key=prompt_of(rec, root), label=str(rec.parent.relative_to(root)), path=rec, record=data)
+            for rec, data in records(root)]
 
 
 def ab_arms(root: Path) -> dict[str, Path] | None:

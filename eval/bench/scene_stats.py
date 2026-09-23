@@ -18,7 +18,6 @@ a defect in the plan or in the assets follows any change to the assembly languag
 from __future__ import annotations
 
 import argparse
-import json
 import statistics
 import sys
 from collections import Counter
@@ -28,34 +27,15 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
 from bench._jsonl import read_jsonl  # noqa: E402
-from codeverse3d.record.record import unique_files  # noqa: E402
+from bench._records import records  # noqa: E402
 from codeverse3d.spatial.node import browser_was_lost  # noqa: E402
-
-#: pipeline stages in the order the scene track runs them
-STAGES = ("plan", "skeleton", "assets", "env", "layouts", "assemble", "generate", "build")
-
-
-def scene_records(root: Path) -> list[tuple[Path, dict]]:
-    """``(run dir, record)`` for every scene run under ``root``, once per run on disk.
-
-    The walk is ``flywheel.record.unique_files`` (symlinked cells collapsed, the
-    ``_assets`` / ``_cand`` sub-workspaces skipped) — the one walker every scene survey
-    shares (``scene_regate`` re-gates exactly the runs this counts)."""
-    out = []
-    for rec in unique_files(root, "record.json"):
-        try:
-            data = json.loads(rec.read_text())
-        except (OSError, ValueError):
-            continue
-        if (data.get("spec") or {}).get("track") == "scene":
-            out.append((rec.parent, data))
-    return out
 
 
 def runs(root: Path) -> list[tuple[str, dict, list[dict]]]:
     """``(prompt id, record, events)`` per scene run under ``root``, once per run."""
     out = []
-    for run, data in scene_records(root):
+    for rec, data in records(root, track="scene"):
+        run = rec.parent
         events = read_jsonl(run / "events.jsonl")
         out.append((str((data.get("spec") or {}).get("id", run.name)).split("/")[-1], data, events))
     # by id, then by path: two runs of one prompt (a battery with reps) share the id, and a

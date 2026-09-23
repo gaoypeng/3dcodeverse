@@ -32,7 +32,7 @@ from pathlib import Path
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
-from bench.scene_stats import scene_records  # noqa: E402
+from bench._records import records  # noqa: E402
 from codeverse3d.config import get_settings  # noqa: E402
 from codeverse3d.contracts.artifacts import Severity  # noqa: E402
 from codeverse3d.spatial.scene_placement import placement_gate  # noqa: E402
@@ -43,7 +43,7 @@ GATE = "scene_placement"
 
 def scene_runs(root: Path) -> list[Path]:
     """Every recorded scene run under ``root`` that still has a workspace to probe."""
-    return [run for run, _ in scene_records(root) if (run / "src" / "scene.js").is_file()]
+    return [rec.parent for rec, _ in records(root, track="scene") if (rec.parent / "src" / "scene.js").is_file()]
 
 
 def recorded_errors(record: dict) -> list[str]:

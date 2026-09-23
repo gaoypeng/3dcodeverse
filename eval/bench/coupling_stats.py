@@ -16,7 +16,6 @@ a coupling at all — the mechanism claim in docs/PAPER_WRITING.md §5.3.
 from __future__ import annotations
 
 import argparse
-import json
 import statistics
 import sys
 from pathlib import Path
@@ -24,6 +23,7 @@ from pathlib import Path
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
+from bench._records import prompt_of, records  # noqa: E402
 from codeverse3d.record.record import unique_files  # noqa: E402
 from codeverse3d.spatial.joints_model import UrdfError, load_urdf  # noqa: E402
 
@@ -39,19 +39,6 @@ def _urdfs(root: Path) -> list[Path]:
     return [p for p in unique_files(root, "robot.urdf") if p.parent.name == "artifacts"]
 
 
-def _prompt_of(path: Path) -> str:
-    """The battery cell a URDF belongs to.
-
-    Two layouts: ``ab_plan``/``compare_backends`` write ``cells/<prompt>/<arm>/run/...``
-    and ``bench run`` writes ``runs/<prompt>/...``.  Falling back to the parent directory
-    named every URDF "artifacts"."""
-    parts = path.parts
-    for marker in ("cells", "runs"):
-        if marker in parts:
-            return parts[parts.index(marker) + 1]
-    return path.parent.name
-
-
 def per_prompt(root: Path) -> str:
     """One row per prompt that declared a coupling: what it moves, what drives it."""
     rows: dict[str, list[tuple[int, int]]] = {}
@@ -62,7 +49,7 @@ def per_prompt(root: Path) -> str:
             continue
         moves, free = len(robot.movable_joints()), len(robot.independent_joints())
         if moves != free:
-            rows.setdefault(_prompt_of(path), []).append((moves, free))
+            rows.setdefault(prompt_of(path), []).append((moves, free))
     out = [f"{root.name}, per prompt (coupled URDFs only):",
            "| prompt | URDFs | movable joints (median) | driven per pose (median) | fewest driven |",
            "|---|--:|--:|--:|--:|"]
@@ -87,11 +74,11 @@ def survey(root: Path) -> dict:
             continue
         moves = [j for j in robot.joints.values() if j.movable]
         free = robot.independent_joints()
-        prompts.add(_prompt_of(path))
+        prompts.add(prompt_of(path))
         movable.append(len(moves))
         independent.append(len(free))
         if len(free) != len(moves):
-            coupled_prompts.add(_prompt_of(path))
+            coupled_prompts.add(prompt_of(path))
     coupled = [(m, i) for m, i in zip(movable, independent, strict=True) if m != i]
     return {"urdfs": len(movable), "unreadable": unreadable, "prompts": len(prompts),
             "coupled_prompts": len(coupled_prompts), "movable": movable, "independent": independent,
@@ -104,11 +91,7 @@ def gate_stats(root: Path) -> dict:
     The mechanical counts below say which poses were SAMPLED; this says what the gate that
     judges those poses reported, which is the loss event a coupled battery is run for."""
     rounds = ran = failed = errors = 0
-    for rec in unique_files(root, "record.json"):  # the same cells _urdfs saw, symlinks included
-        try:
-            data = json.loads(rec.read_text())
-        except (OSError, ValueError):
-            continue
+    for _, data in records(root):  # the same cells _urdfs saw, symlinks included
         for rnd in data.get("rounds") or []:
             rounds += 1
             for g in rnd.get("gates") or []:

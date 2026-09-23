@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import inspect
-import json
 import statistics
 import sys
 from collections import Counter
@@ -27,8 +26,8 @@ from pathlib import Path
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
+from bench._records import records  # noqa: E402
 from codeverse3d.languages.urdf import REST_PENETRATION_MAX_M  # noqa: E402
-from codeverse3d.record.record import unique_files  # noqa: E402
 from codeverse3d.spatial.connectivity import (  # noqa: E402
     PENETRATION_ERROR_M,
     PENETRATION_WARN_M,
@@ -45,26 +44,6 @@ CANDIDATES = (0.001, 0.002, 0.005, PENETRATION_ERROR_M)
 SWEEP_TOLERANCE_M = float(inspect.signature(sweep_collisions).parameters["tol_m"].default)
 SWEEP_REST_ERROR_M = float(inspect.signature(sweep_findings).parameters["rest_max_m"].default)
 assert SWEEP_REST_ERROR_M == REST_PENETRATION_MAX_M, "the urdf runtime disagrees with the sweep default"
-
-
-
-
-def records(root: Path) -> list[dict]:
-    """Every articulated run record under ``root``, once per run.
-
-    The walk is ``flywheel.record.unique_files``: it follows symlinked cells and the
-    ``run/telemetry/trajectories`` link and counts each file once, and skips the
-    sub-workspaces a run owns — the trap that inflated COST §30, handled in one place.
-    """
-    out = []
-    for rec in unique_files(root, "record.json"):
-        try:
-            data = json.loads(rec.read_text())
-        except (OSError, ValueError):
-            continue
-        if (data.get("spec") or {}).get("track") == "articulated_object":
-            out.append(data)
-    return out
 
 
 def sweep_pairs(sweep: dict | None, *, rest_only: bool) -> dict[tuple[str, ...], float]:
@@ -166,7 +145,7 @@ def corroborate(recs: list[dict], threshold_m: float) -> dict:
 
 
 def report(root: Path) -> str:
-    recs = records(root)          # read once: this used to walk every record.json twice
+    recs = [data for _, data in records(root, track="articulated_object")]  # read once: this used to walk every record.json twice
     s = survey(recs)
     rounds, worst = s["rounds"], s["worst"]
     nonzero = [w for w in worst if w > 0]
