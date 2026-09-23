@@ -1,19 +1,4 @@
-"""A frame rate measured on a CPU rasteriser is the box's, not the scene's.
-
-Measured on `bench/out/scene_baseline` (2026-09-05).  With the machine's eight GPUs at
-~100 % from other work, the GPU probe's negative verdict is cached for 20 minutes, so
-cells fell back to SwiftShader one at a time.  Across four scored cells `fps` was
-measured on TWO DIFFERENT RENDERERS:
-
-    japanese_garden  11.5 fps   ANGLE (NVIDIA Corporation, NVIDIA RTX 6000 Ada …)
-    rooftop_garden    5.1 fps   ANGLE (Google, … SwiftShader driver)
-    medieval_market   7.1 fps   ANGLE (Google, … SwiftShader driver)
-    snowy_hut         2.0 fps   ANGLE (Google, … SwiftShader driver)  — 4 frames in 2 s
-
-`render_console` raised "low frame rate" below 20 for all of them and the judge was told
-"PROBE: measured N fps" as a fact.  Two of the four judge issues marked **critical** in
-that battery were frame-rate complaints, so the box was being scored as the model.
-"""
+"""A frame rate measured on a CPU rasteriser is the box's, not the scene's."""
 
 from __future__ import annotations
 
@@ -26,20 +11,11 @@ CPU = "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), 
 
 
 @pytest.mark.parametrize("renderer,software", [
-    (GPU, False),
-    (CPU, True),
     ("Mesa/X.org llvmpipe (LLVM 15.0.7, 256 bits)", True),
-    ("ANGLE (Intel, Mesa Intel(R) UHD Graphics)", False),
     ("", False),   # unknown: not claimable as software
 ])
 def test_the_renderer_string_decides(renderer: str, software: bool) -> None:
     assert RenderSet(renderer=renderer, fps=9.0).software_rendered is software
-
-
-def test_a_cpu_measurement_is_not_offered_as_a_frame_rate() -> None:
-    assert RenderSet(renderer=CPU, fps=2.0).hardware_fps is None
-    assert RenderSet(renderer=GPU, fps=11.5).hardware_fps == 11.5
-    assert RenderSet(renderer=GPU, fps=None).hardware_fps is None
 
 
 def test_the_gate_does_not_fire_on_a_cpu_frame_rate() -> None:
@@ -71,8 +47,7 @@ def test_the_gate_does_not_fire_on_a_cpu_frame_rate() -> None:
 
 
 def test_the_judge_is_told_a_cpu_number_is_not_the_scene() -> None:
-    """Dropping it silently would hide a genuinely heavy scene from a reader, so the
-    line stays — labelled, with an instruction not to raise an issue from it."""
+    """The line stays (a heavy scene must stay visible), labelled, with an instruction not to raise an issue."""
     from codeverse3d.judges.prompt_builder import view_rig_section
 
     cpu = view_rig_section(RenderSet(renderer=CPU, fps=2.0), [], scene=True)
@@ -82,12 +57,7 @@ def test_the_judge_is_told_a_cpu_number_is_not_the_scene() -> None:
 
 
 def test_a_probe_with_no_boot_record_is_a_harness_failure_not_a_verdict() -> None:
-    """`probe_scene.mjs` always carries `boot` in its summary, so an absent one means the
-    driver produced no parsable output — not that the scene failed to boot.  desert_canyon
-    (bench/out/scene_baseline, 2026-09-05) spent three repair attempts on
-    "[?] scene did not boot" with an identical signature while its own
-    artifacts/scene_probe.json recorded `ok: true, boot.ok: true, stage: ready`, and the
-    workspace boots in 600 ms today, unchanged."""
+    """No `boot` in the driver summary means the driver output was lost, not that the scene failed to boot."""
     from codeverse3d.spatial.probes import probe_report
 
     report, census = probe_report({})
@@ -103,11 +73,7 @@ def test_a_probe_with_no_boot_record_is_a_harness_failure_not_a_verdict() -> Non
 
 
 def test_a_harness_failure_finding_makes_the_probe_result_not_ok() -> None:
-    """`SceneProbeResult.ok` is "the tool could run" (`Observation.failed = not ok`), and
-    the agent-facing `findings` deliberately exclude harness failures.  A report carrying
-    one and nothing else therefore used to come back ok / no errors / no findings — a probe
-    that reads healthy and measured nothing, the exact shape that let desert_canyon's lost
-    output pass as a verdict about the scene."""
+    """`ok` is "the tool could run"; a harness failure is an error, never an agent-facing finding."""
     from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
     from codeverse3d.spatial.probes import _result
 

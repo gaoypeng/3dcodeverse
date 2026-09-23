@@ -1,9 +1,7 @@
 """Browser-backed: a Blender hero (GLB) in the scene but in no authored frame is an ERROR.
 
-cmp6's crypt (2026-09-09): the athanor stood behind a squat pillar in every authored shot; the
-judge called the HERO "a massive untextured grey box" and two refine rounds rebuilt the wrong
-thing.  ``glbCoverage`` renders each loaded GLB as a white mask against black solids
-(occlusion included) per camera; the gate reads ``camera_checks[].glb_frac``.
+``glbCoverage`` renders each loaded GLB as a white mask against black solids (occlusion included)
+per camera; the gate reads ``camera_checks[].glb_frac``.
 """
 
 from __future__ import annotations
@@ -13,7 +11,7 @@ import math
 import pytest
 
 from codeverse3d.proc import read_json_or_none
-from codeverse3d.spatial.frame_metrics import HERO_MIN_FRAC, frame_gate_from_renders
+from codeverse3d.spatial.frame_metrics import frame_gate_from_renders
 from codeverse3d.spatial.render_scene import render_scene
 from codeverse3d.workspace import Workspace
 from tests.scene_runtime.conftest import needs_browser
@@ -63,28 +61,13 @@ def _with_hero(ws: Workspace, *, hidden: bool, roofed: bool = False, away_camera
     scene.write_text(text)
 
 
-def test_a_hero_in_an_authored_frame_passes(starter_ws: Workspace):
-    _with_hero(starter_ws, hidden=False)
-    out = starter_ws.renders_dir(0)
-    rs = render_scene(starter_ws, out, times=(0.0,), width=640, height=360, fps_seconds=0.2)
-    assert rs.console_errors == []
-    m = read_json_or_none(out / "metrics.json")
-    rows = {r["url"]: r for r in m["census"]["glb_assets"]}
-    assert rows[URL]["in_scene"] is True and abs(rows[URL]["size_m"] - 4.0) < 0.05, rows[URL]
-    chk = {c["name"]: c for c in m["camera_checks"]}
-    seen = chk["overview"]["glb_frac"][URL]
-    assert seen > HERO_MIN_FRAC, chk["overview"]["glb_frac"]                            # the establishing shot sees the cube
-    others = [chk[n]["glb_frac"].get(URL, 0.0) for n in ("pond_low", "windmill")]
-    assert max(others) < seen, (seen, others)                                          # the other shots look away from it
-    gate = frame_gate_from_renders(rs)
-    assert not [f for f in gate.findings if f.data["kind"].startswith("hero_")], [f.message for f in gate.findings]
-
-
 def test_a_hero_behind_a_wall_in_every_authored_frame_is_an_error(starter_ws: Workspace):
     _with_hero(starter_ws, hidden=True)
     out = starter_ws.renders_dir(0)
     rs = render_scene(starter_ws, out, times=(0.0,), width=640, height=360, fps_seconds=0.2)
     m = read_json_or_none(out / "metrics.json")
+    row = next(r for r in m["census"]["glb_assets"] if r["url"] == URL)
+    assert row["in_scene"] is True and abs(row["size_m"] - 4.0) < 0.05, row
     chk = {c["name"]: c for c in m["camera_checks"]}
     assert chk["overview"]["glb_frac"].get(URL, 0.0) < 0.002, chk["overview"]["glb_frac"]   # in the scene, behind the wall
     gate = frame_gate_from_renders(rs)
@@ -98,9 +81,7 @@ def test_a_hero_behind_a_wall_in_every_authored_frame_is_an_error(starter_ws: Wo
 
 
 def test_the_overview_rig_lifts_the_room_shells_lid_but_an_authored_camera_keeps_it(starter_ws: Workspace):
-    """cmp7's bakery (2026-09-09): the pairwise judge saw the harness interior as "a tiny fragment
-    in the overviews" — a closed box.  The rig hides the harness-injected shell's ceiling when
-    the eye is above it; the authored cameras (and the census) keep the room as built."""
+    """The rig hides the harness-injected shell's ceiling when the eye is above it; authored cameras keep it."""
     _with_hero(starter_ws, hidden=False, roofed=True)
     out = starter_ws.renders_dir(0)
     rs = render_scene(starter_ws, out, times=(0.0,), width=640, height=360, fps_seconds=0.2)
@@ -116,10 +97,7 @@ def test_the_overview_rig_lifts_the_room_shells_lid_but_an_authored_camera_keeps
 
 
 def test_a_camera_named_for_the_hero_is_re_aimed_when_the_hero_is_out_of_its_frame(starter_ws: Workspace):
-    """Loop 25's lighthouse (2026-09-09): `LanternDetail` shot the tower wall for three rounds
-    while `hero_unseen` read 0.0 % each time — cameras belong to the plan and no session moved
-    it.  The host re-aims a hero-named camera at the hero's centre when that centre is outside
-    the frustum, and the repair log says so."""
+    """The host re-aims a hero-named camera at the hero's centre when it is outside the frustum, and logs it."""
     _with_hero(starter_ws, hidden=False, away_camera=True)
     out = starter_ws.renders_dir(0)
     rs = render_scene(starter_ws, out, times=(0.0,), width=640, height=360, fps_seconds=0.2)

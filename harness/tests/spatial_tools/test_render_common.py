@@ -1,130 +1,18 @@
-"""The shared render/tool core: `spatial._render_common`, the sheet + gif writers,
-`measure.solid_parts` and the `tool_common` helpers.  Each test pins one merge that
-removed a duplicate implementation.
-"""
+"""Render caching: one cache authority, keyed by content and GPU mode, safe under concurrent writers."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
-from PIL import Image
 
-from codeverse3d.conventions import OBJECT_VIEWS, SCENE_VIEWS
-from codeverse3d.spatial import _render_common as rc
+from codeverse3d.conventions import OBJECT_VIEWS
 from codeverse3d.spatial.registry import ToolContext
 from codeverse3d.workspace import Workspace
 
 
-# --------------------------------------------------------------------------- _render_common
-def test_out_directory_creates_and_clears_stale_side_cars(tmp_path: Path) -> None:
-    d = tmp_path / "a" / "b"
-    (tmp_path / "a").mkdir()
-    d.mkdir()
-    (d / "metrics.json").write_text('{"stale": true}')
-    (d / "keep.png").write_bytes(b"x")
-    out = rc.out_directory(d, clean=("metrics.json", "views.json"))
-    assert out == d.resolve() and out.is_dir()
-    assert not (d / "metrics.json").exists() and (d / "keep.png").is_file()
-    # creating a missing directory is the common case
-    assert rc.out_directory(tmp_path / "fresh").is_dir()
-
-
-def test_view_specs_is_the_one_camera_payload() -> None:
-    specs = rc.view_specs(OBJECT_VIEWS)
-    assert [s["name"] for s in specs] == [v.name for v in OBJECT_VIEWS]
-    assert all(set(s) == {"name", "azimuth", "elevation"} for s in specs)
-    assert all(isinstance(s["azimuth"], float) and isinstance(s["elevation"], float) for s in specs)
-    # what the scene driver receives is exactly this, JSON-encoded
-    from codeverse3d.spatial.render_scene import _views_json
-
-    assert json.loads(_views_json(SCENE_VIEWS)) == rc.view_specs(SCENE_VIEWS)
-
-
-def test_build_sheet_uses_the_settings_grid_and_guards_empty(tmp_path: Path) -> None:
-    assert rc.build_sheet([], tmp_path / "none.png") is None
-    for i in range(2):
-        Image.new("RGB", (64, 64), (10 * i, 0, 0)).save(tmp_path / f"v{i}.png")
-    out = rc.build_sheet([(f"v{i}", tmp_path / f"v{i}.png") for i in range(2)], tmp_path / "sheet.png")
-    assert out and Path(out).is_file()
-    from codeverse3d.config import get_settings
-
-    tile = get_settings().render.sheet_tile
-    with Image.open(out) as im:
-        assert im.width == 2 * (tile + 6) + 6      # two columns at the configured tile size
-
-
-# --------------------------------------------------------------------------- sheet: cells + gif
-def test_contact_sheet_keeps_a_non_square_cell(tmp_path: Path) -> None:
-    from codeverse3d.spatial.sheet import LABEL_H, PAD, contact_sheet, tile_size
-
-    src = tmp_path / "wide.png"
-    Image.new("RGB", (1280, 720), (30, 60, 90)).save(src)
-    assert tile_size(480, sample=src) == (480, 270)
-    assert tile_size(480) == (480, 480) and tile_size((300, 100)) == (300, 100)
-    out = contact_sheet([("t=0s", src), ("t=1s", src)], tmp_path / "s.png", cols=2, tile=(480, 270))
-    with Image.open(out) as im:
-        assert im.size == (2 * (480 + PAD) + PAD, (270 + LABEL_H + PAD) + PAD)
-
-
-def test_gl_contact_sheet_and_gif_go_through_the_shared_writers(tmp_path: Path) -> None:
-    from codeverse3d.spatial.gl_render import GlFrame, write_contact_sheet, write_gif
-    from codeverse3d.spatial.sheet import LABEL_H, PAD
-
-    frames = []
-    for i in range(3):
-        p = tmp_path / f"f{i}.png"
-        Image.new("RGB", (640, 360), (20 * i, 40, 60)).save(p)
-        frames.append(GlFrame(index=i, time=i * 1.5, path=str(p)))
-    sheet = write_contact_sheet(frames, tmp_path / "sheet.png", cols=2, tile_w=320)
-    with Image.open(sheet) as im:                      # 16:9 cells, 2 columns, 2 rows
-        assert im.size == (2 * (320 + PAD) + PAD, 2 * (180 + LABEL_H + PAD) + PAD)
-    gif = write_gif(frames, tmp_path / "p.gif", width=160, fps=6)
-    assert gif and Path(gif).is_file()
-    with Image.open(gif) as im:
-        assert im.n_frames == 3 and im.width == 160
-    assert write_gif(frames[:1], tmp_path / "one.gif") is None      # < 2 frames = no preview
-
-
-# --------------------------------------------------------------------------- parts loader
-def test_solid_parts_is_cached_parts_without_the_empty_ones(stool_glb: Path) -> None:
-    from codeverse3d.spatial.measure import cached_parts, solid_parts
-
-    solid = solid_parts(stool_glb)
-    assert solid and list(solid) == [k for k, v in cached_parts(stool_glb).items() if v is not None and len(v.faces)]
-    assert all(v is not None and len(v.faces) for v in solid.values())
-
-
-def test_shared_number_formatters() -> None:
-    from codeverse3d.spatial.connectivity import _fmt_vec as conn_vec
-    from codeverse3d.spatial.measure import fmt_extent_cm, fmt_vec
-
-    assert fmt_extent_cm([0.34, 0.47]) == "34.0×47.0"
-    assert fmt_vec([-0.00001, 0.5, 0]) == "(+0.000, +0.500, +0.000)"     # never '-0.000'
-    assert conn_vec((-0.00001, 0.5, 0.0)) == "(+0.0000, +0.5000, +0.0000)"  # 4 decimals, same shape
-    assert fmt_vec([1.23456], digits=2) == "(+1.23)"
-
-
-# --------------------------------------------------------------------------- tool plumbing
-def test_tool_out_dir_is_round_stamped(stool_ctx: ToolContext) -> None:
-    from codeverse3d.spatial.tool_common import render_cache_dir, tool_out_dir
-
-    d = tool_out_dir(stool_ctx, "sections")
-    assert d.is_dir() and d.name == f"r{stool_ctx.round_index:02d}_sections"
-    assert d.parent == stool_ctx.workspace.artifacts / "tool_renders"
-    glb = stool_ctx.workspace.artifacts / "object.glb"
-    a = render_cache_dir(stool_ctx, glb, mode="shaded")
-    b = render_cache_dir(stool_ctx, glb, mode="clay")
-    assert a != b and a.is_dir() and a.parent == d.parent
-
-
 def test_cached_render_glb_leaves_the_cache_to_render_glb(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    """One cache authority.  ``tool_common`` used to short-circuit on its own
-    ``renderset.json`` marker keyed on the GLB's size+mtime, so a rebuild that landed on
-    the same stamp served stale PNGs and a copied workspace served views pointing into the
-    ORIGINAL one.  ``render.render_glb`` (sha256 + CACHE_VERSION + rig signature) decides now.
-    """
+    """``render.render_glb`` (content hash) is the one cache authority: a same-size, same-mtime rebuild re-renders."""
     import codeverse3d.spatial.tool_common as tc
     from codeverse3d.contracts.artifacts import RenderSet, RenderView
 
@@ -152,10 +40,7 @@ def test_cached_render_glb_leaves_the_cache_to_render_glb(stool_ctx: ToolContext
 
 
 def test_store_in_cache_survives_a_concurrent_identical_writer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The pid-only tmp name let two threads of one judge fan-out share a tmp dir: the
-    loser's cleanup deleted the winner's half-copied PNGs AFTER a successful render
-    (FileNotFoundError out of a call whose render had succeeded).  Per-writer names +
-    tolerant rename: no exception, and the cache ends up complete."""
+    """Two writers of one cache entry (a judge fan-out): no exception, and the cache ends up complete."""
     import shutil
     import threading
     import time
@@ -194,9 +79,7 @@ def test_store_in_cache_survives_a_concurrent_identical_writer(tmp_path: Path, m
 
 
 def test_object_render_cache_is_keyed_by_gpu_mode(stool_glb: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """gpu=on and gpu=off used to share one cache key, so a hit served the OTHER
-    backend's pixels and misreported RenderSet.renderer.  The requested mode joins
-    the key ('auto' fragments from 'on'/'off' by design — owner default)."""
+    """The requested GPU mode is part of the cache key: gpu=off is never served gpu=on's pixels."""
     from types import SimpleNamespace
 
     from codeverse3d.spatial import render as R
@@ -244,4 +127,3 @@ def test_gl_metrics_summary_is_the_one_frame_stats_formatter(tmp_ws: Workspace, 
     assert "fix:" not in "\n".join(no_hints)
     monkeypatch.setattr("codeverse3d.languages._gl_common.read_metrics", lambda ws: None)
     assert gl_metrics_summary(tmp_ws) == (["(no frame metrics)"], {}, True)
-

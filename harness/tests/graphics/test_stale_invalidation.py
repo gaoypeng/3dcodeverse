@@ -1,10 +1,4 @@
-"""GL builds must not leave the previous build's artifacts looking current (offline).
-
-frames_sheet.png / preview.gif / metrics.json are written only on ok and were never
-cleared; the MissingEntryFile early returns never reached GlHost._run's frames wipe.
-Both wipes now happen at the top of build() (``_gl_common.invalidate_stale_outputs``)
-plus a failure-path invalidation in ``finish_build``.
-"""
+"""A failed GL build must not leave the previous build's outputs looking current (offline)."""
 
 from __future__ import annotations
 

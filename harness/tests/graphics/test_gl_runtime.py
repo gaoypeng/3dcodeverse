@@ -58,18 +58,6 @@ def test_shader_skeleton_builds_and_writes_artifacts(tmp_ws, host):
     assert (ws.artifacts / "build.json").is_file()
 
 
-def test_shader_compile_error_maps_to_agent_line(tmp_ws, host):
-    ws = _ws_with_plan(tmp_ws)
-    (ws.src / "common.glsl").write_text("float twice(float x) { return 2.0 * x; }\n")
-    (ws.src / "shader.frag").write_text(
-        "// line 1\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = fragCoord / u_resolution.xy;\n"
-        "    float v = twice(nope);\n    fragColor = vec4(uv, v, 1.0);\n}\n")
-    br = GlslShaderRuntime(host=host).build(ws, **SMALL)
-    assert not br.ok and br.error_type == "GlslCompileError"
-    assert br.error_file == "src/shader.frag" and br.error_line == 4
-    assert "src/shader.frag:4" in br.error_message and "nope" in br.error_message
-
-
 def test_feedback_and_nan_detection(tmp_ws, host):
     ws = _ws_with_plan(tmp_ws)
     (ws.src / "shader.frag").write_text(

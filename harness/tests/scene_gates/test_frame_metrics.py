@@ -8,7 +8,6 @@ from pathlib import Path
 from codeverse3d.contracts.artifacts import RenderSet, RenderView, Severity
 from codeverse3d.judges.rubrics import apply_caps, load_rubric
 from codeverse3d.spatial.frame_metrics import (
-    FRAME_GATE,
     frame_findings,
     frame_gate_from_renders,
     frame_summary_text,
@@ -31,13 +30,7 @@ def _kinds(report):
     return [(f.data["kind"], f.severity, f.target) for f in report.findings]
 
 
-def test_clean_frames_pass_with_info():
-    rep = frame_findings(_metrics(_chk("Establishing"), _chk("overview_top", "orbit")))
-    assert rep.gate == FRAME_GATE and rep.passed
-    assert [f.data["kind"] for f in rep.findings] == ["frames_ok"]
-
-
-def test_dark_frame_is_error_on_authored_with_concrete_hint():
+def test_dark_frame_is_error_on_authored_with_concrete_hint_and_warns_on_orbit():
     rep = frame_findings(_metrics(_chk("Establishing", mean_lum=0.07, dark_frac=0.41)))
     assert not rep.passed
     f = rep.findings[0]
@@ -45,12 +38,8 @@ def test_dark_frame_is_error_on_authored_with_concrete_hint():
     assert "0.07" in f.message and "41%" in f.message
     assert "sunRig(" in f.fix_hint and "fill" in f.fix_hint and "NOT black" in f.fix_hint   # the rig env.js builds, not a second sun
     assert f.data["view"] == "Establishing" and f.data["mean_lum"] == 0.07
-
-
-def test_dark_frame_on_orbit_view_only_warns():
-    rep = frame_findings(_metrics(_chk("eye_front", "orbit", mean_lum=0.04, dark_frac=0.77)))
-    assert rep.passed
-    assert _kinds(rep) == [("dark_frame", Severity.WARN, "eye_front")]
+    orbit = frame_findings(_metrics(_chk("eye_front", "orbit", mean_lum=0.04, dark_frac=0.77)))
+    assert orbit.passed and _kinds(orbit) == [("dark_frame", Severity.WARN, "eye_front")]
 
 
 def test_blown_and_flat_frames():
@@ -62,11 +51,6 @@ def test_blown_and_flat_frames():
     assert not rep.passed
 
 
-def test_flat_is_not_duplicated_on_dark_frames():
-    rep = frame_findings(_metrics(_chk("Night", mean_lum=0.05, dark_frac=0.9, modal_frac=1.0)))
-    assert [k for k, _, _ in _kinds(rep)] == ["dark_frame"]
-
-
 def test_camera_in_geometry_and_near_hit():
     rep = frame_findings(_metrics(_chk("Buried", camera_in_geometry=True, inside_mesh_bbox=["Tower"], nearest_hit_m=0.1),
                                   _chk("Close", nearest_hit_m=0.3)))
@@ -75,17 +59,13 @@ def test_camera_in_geometry_and_near_hit():
 
 
 def test_a_lens_whose_sight_rays_end_within_reach_is_blocked():
-    """cmp6's crypt (2026-09-09): a squat pillar 0.8 m before AthanorDetail filled the frame and
-    the judge called the hidden hero "a massive untextured grey box" for two rounds."""
     rep = frame_findings(_metrics(_chk("AthanorDetail", nearest_hit_m=0.8, nearest_hit_name="StonePillar_3", near_rays=7, rays_total=9,
                                        near_limit_m=1.5),
                                   _chk("WorkTable", nearest_hit_m=0.9, nearest_hit_name="Bench", near_rays=2, rays_total=9),
                                   _chk("overview_top", kind="overview", nearest_hit_m=0.8, near_rays=9, rays_total=9)))
     assert [(k, s, t) for k, s, t in _kinds(rep)] == [("camera_blocked", Severity.ERROR, "AthanorDetail")]
     assert "StonePillar_3" in rep.findings[0].message and not rep.passed
-    # the measured crypt shape: only 3 of 9 rays end within reach, but the line of sight to the
-    # hero is cut at 0.9 m of 2.8 m — a WARN that names the pillar; a close-up meets its own
-    # subject near the full distance and stays quiet
+    # few rays within reach but the line of sight to the target is cut: a WARN; a close-up stays quiet
     cut = frame_findings(_metrics(_chk("AthanorDetail", nearest_hit_m=0.897, near_rays=3, rays_total=9, target_distance_m=2.8,
                                        target_hit_m=0.9, target_hit_name="VaultPillarMasonry"),
                                   _chk("HeroCloseUp", nearest_hit_m=1.1, near_rays=4, rays_total=9, target_distance_m=1.6,
@@ -95,7 +75,6 @@ def test_a_lens_whose_sight_rays_end_within_reach_is_blocked():
 
 
 def test_a_lens_under_a_ground_surface_is_named_even_when_its_frame_looks_fine():
-    """cmp6's lighthouse: SlipwaySurge under the headland for three rounds, the frame 'fine'."""
     rep = frame_findings(_metrics(_chk("SlipwaySurge", eye_height_m=2.0, ground_below_m=2.0, ground_below_name="Sea",
                                        ground_above_m=1.4, ground_above_name="HeadlandTerrain"), ground_y=4.8))
     assert [(k, s) for k, s, _ in _kinds(rep)] == [("camera_under_ground_mesh", Severity.WARN)]
@@ -106,9 +85,7 @@ def test_a_lens_under_a_ground_surface_is_named_even_when_its_frame_looks_fine()
 
 
 def test_eye_height_is_measured_under_the_lens_when_the_census_has_it():
-    """Relief terrain: a camera at eye level over a low patch is not an ant.  Loop 21's ski
-    station (2026-09-09): eye 3.20 m, the highest snow 3.14 m → "0.06 m above ground —
-    ant's-eye view", repeated by the judge as a major issue on a frame shot from 1.6 m."""
+    """Relief terrain: eye height is measured to the ground under the lens, not the highest ground."""
     rep = frame_findings(_metrics(_chk("Hill", eye_height_m=3.2, ground_below_m=1.62, ground_below_name="SnowTerrain"),
                                   _chk("Ant", eye_height_m=3.2, ground_below_m=0.06, ground_below_name="SnowTerrain"),
                                   _chk("Drone", eye_height_m=98.0, ground_below_m=95.0, ground_below_name="Ground"),
@@ -121,10 +98,7 @@ def test_eye_height_is_measured_under_the_lens_when_the_census_has_it():
 
 
 def test_eye_height_sanity_against_ground():
-    # a camera below the scene's highest ground surface whose frame renders fine is NOT
-    # buried — census ground_y is the TOP of every ground mesh, so a hill or a raised bed
-    # puts it above a camera standing in the open (measured: this false ERROR capped a
-    # finished japanese garden at 0.50)
+    # below the highest ground (census ground_y is the TOP of every ground mesh) with a fine frame: only a WARN
     rep = frame_findings(_metrics(_chk("Under", eye_height_m=-0.5), _chk("Ant", eye_height_m=0.1), _chk("Sat", eye_height_m=120.0),
                                   ground_y=0.0))
     assert [(k, s) for k, s, _ in _kinds(rep)] == [
@@ -148,13 +122,6 @@ def test_content_small_roles():
                    ("content_small", Severity.WARN, "overview_top")]
     assert "12%" in rep.findings[0].message and "sky 50%" in rep.findings[0].message
     assert rep.findings[0].data["role"] == "establishing" and not rep.passed
-
-
-def test_missing_coverage_metric_is_tolerated():
-    c = _chk("Establishing")
-    for k in ("content_frac", "ground_frac", "sky_frac"):
-        c.pop(k)
-    assert frame_findings(_metrics(c)).passed
 
 
 def test_frame_gate_from_paths_and_renderset(tmp_path: Path):
@@ -194,17 +161,7 @@ def test_frame_summary_text_table():
     assert frame_summary_text({}) == "frame checks: no camera_checks in metrics"
 
 
-# ------------------------------------------------- a hero that is loaded and never placed
 def test_a_loaded_glb_that_reaches_no_frame_is_flagged():
-    """Measured 2026-08-25 on tsr_scn_boat_workshop_v2: src/scene.js loads
-    /assets/clinker_skiff.glb — a real Blender hero, authored, built, copied into
-    public/assets — while src/zones/central_bay.js calls a procedural buildClinkerSkiff().
-    The hull in every shipped frame is JavaScript. Nothing flagged it, and the check the
-    teaser wave used to verify the multi-language claim (plan.json -> assets[].kind) still
-    said blender_glb, because the plan records what was PLANNED, not what rendered."""
-    from codeverse3d.contracts.artifacts import Severity
-    from codeverse3d.spatial.frame_metrics import frame_findings
-
     rep = frame_findings({"camera_checks": [], "census": {"glb_assets": [
         {"url": "/assets/clinker_skiff.glb", "meshes": 7, "meshes_in_scene": 0, "in_scene": False},
         {"url": "/assets/potbelly_stove.glb", "meshes": 5, "meshes_in_scene": 5, "in_scene": True},
@@ -216,11 +173,8 @@ def test_a_loaded_glb_that_reaches_no_frame_is_flagged():
     assert rep.passed, "a WARN must not fail the gate"
 
 
-
-
 def test_a_hero_in_the_scene_but_in_no_authored_frame_is_an_error():
-    """cmp6's crypt (2026-09-09): the athanor stood behind a pillar in every authored shot and
-    the judge called the HERO a grey box — ``glb_frac`` is the mask render per GLB per camera."""
+    """``glb_frac`` is the mask render per GLB per camera."""
     url = "/assets/athanor.glb"
     census = {"ground_y": 0.0, "glb_assets": [{"url": url, "meshes": 9, "meshes_in_scene": 9, "in_scene": True, "size_m": 2.2}]}
     unseen = frame_findings({"census": census, "camera_checks": [

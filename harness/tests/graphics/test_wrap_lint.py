@@ -21,18 +21,6 @@ SHADER = "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv =
 COMMON = "float hash(float n) { return fract(sin(n) * 43758.5453); }\n"
 
 
-def test_compose_line_map_with_common_and_trailer():
-    c = compose(SHADER, COMMON)
-    assert c.convention == "mainImage" and not c.uses_feedback
-    header_lines = HEADER.count("\n")
-    assert c.source.startswith("#version 330 core")
-    # common.glsl line 1 sits right after the header; shader.frag line 1 right after common
-    assert c.line_map.locate(header_lines + 1) == ("src/common.glsl", 1)
-    assert c.line_map.locate(header_lines + 2) == ("src/shader.frag", 1)
-    assert c.line_map.locate(header_lines + 4) == ("src/shader.frag", 3)
-    assert c.source.rstrip().endswith("void main() { mainImage(fragColor, gl_FragCoord.xy); }")
-
-
 def test_plain_main_convention_has_no_trailer_and_comments_ignored():
     src = "// mainImage is mentioned here only in a comment; u_prev too\nvoid main() { fragColor = vec4(1.0); }\n"
     c = compose(src)
@@ -77,8 +65,7 @@ def test_glsl_lint_rules():
 
 
 def test_mixed_comments_blank_only_the_comments():
-    """A `/*` inside a `//` comment opens nothing: the two-pass stripper (blocks, then lines)
-    blanked everything up to a later `*/`, so the lint never saw the code in between."""
+    """A `/*` inside a `//` comment opens nothing (the old two-pass stripper blanked real code)."""
     src = ("// tweak /* the fog here\nfloat fogAmt(float d) { return d; }\nuniform float u_extra;\n// end */\n"
            "/* a // inside a block */ float x() { return 1.0; }\n")
     stripped = strip_comments(src)

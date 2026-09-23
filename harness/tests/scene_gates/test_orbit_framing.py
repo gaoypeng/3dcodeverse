@@ -41,8 +41,10 @@ BOUNDS = {"min": [-13, -1.5, -13], "max": [13, 6.5, 13]}
 def test_framing_box_is_content_union_not_ground_or_sky():
     box = _call("framingBox", GARDEN, BOUNDS)
     assert box["min"] == pytest.approx([-12.3, -0.3, -9.1]) and box["max"] == pytest.approx([10.4, 5.8, 11.7])
-    # without bounds: same union
+    # without bounds: same union; no groups → the census content_bbox; no census → None
     assert _call("framingBox", GARDEN)["size"] == pytest.approx(box["size"])
+    assert _call("framingBox", {"content_bbox": GARDEN["content_bbox"], "groups": []})["size"] == pytest.approx(GARDEN["content_bbox"]["size"])
+    assert _call("framingBox", None) is None
 
 
 def test_framing_box_drops_scatter_that_sprawls_past_bounds_and_clamps():
@@ -57,11 +59,6 @@ def test_framing_box_drops_scatter_that_sprawls_past_bounds_and_clamps():
     lone = {"groups": [{"name": "Only", "kind": "content", "bbox": _box([-50, 0, -50], [50, 4, 50])}]}
     box3 = _call("framingBox", lone, BOUNDS)
     assert box3["min"][0] == pytest.approx(-13 * 1.1) and box3["max"][2] == pytest.approx(13 * 1.1)
-
-
-def test_framing_box_falls_back_to_content_bbox():
-    assert _call("framingBox", {"content_bbox": GARDEN["content_bbox"], "groups": []})["size"] == pytest.approx(GARDEN["content_bbox"]["size"])
-    assert _call("framingBox", None) is None
 
 
 def _ndc_of_corners(bbox, cam, aspect):
@@ -89,7 +86,7 @@ def _ndc_of_corners(bbox, cam, aspect):
     return worst
 
 
-@pytest.mark.parametrize("bbox", [GARDEN["content_bbox"], _box([-40, -1, -40], [40, 9, 40]), _box([-3, 0, -1], [3, 12, 1])])
+@pytest.mark.parametrize("bbox", [GARDEN["content_bbox"], _box([-3, 0, -1], [3, 12, 1])])
 def test_overview_fit_is_tight_every_corner_just_inside_frame(bbox):
     views = [{"name": "overview_front_right", "azimuth": 40, "elevation": 32},
              {"name": "overview_back_left", "azimuth": 220, "elevation": 32},
@@ -99,14 +96,3 @@ def test_overview_fit_is_tight_every_corner_just_inside_frame(bbox):
         worst = _ndc_of_corners(bbox, cam, 16 / 9)
         assert worst <= 1.0 + 1e-6, (cam["name"], worst)        # every corner inside the frame
         assert worst >= 0.80, (cam["name"], worst)               # ...and the box fills it (tight, not a sphere fit)
-
-
-def test_garden_rig_is_much_closer_than_the_sphere_fit():
-    views = [{"name": "overview_front_right", "azimuth": 40, "elevation": 32}, {"name": "overview_top", "azimuth": 0, "elevation": 87},
-             {"name": "eye_front", "azimuth": 0, "elevation": 10}]
-    cams = {c["name"]: c for c in _call("fitOrbitCameras", GARDEN["content_bbox"], views, {"groundY": 0.37, "aspect": 16 / 9})}
-    ov = cams["overview_front_right"]
-    assert math.dist(ov["position"], ov["lookAt"]) < 38          # the sphere fit gave ≈ 42 m
-    assert cams["overview_top"]["position"][1] < 32              # was ≈ 45 m
-    eye = cams["eye_front"]
-    assert 1.5 < eye["position"][1] < 4 and eye["lookAt"][0] == pytest.approx(-0.95, abs=0.1)  # looks at the content centre

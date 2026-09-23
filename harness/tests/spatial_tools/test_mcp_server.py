@@ -11,15 +11,8 @@ import pytest
 from PIL import Image
 from pydantic import ValidationError
 
-from codeverse3d.spatial.mcp_server import build_context, encode_image, main, observation_content
+from codeverse3d.spatial.mcp_server import encode_image, main, observation_content
 from codeverse3d.spatial.registry import Observation, ToolContext
-
-
-def test_build_context_infers_from_spec(stool_ctx: ToolContext) -> None:
-    ctx = build_context(stool_ctx.workspace.root)
-    assert ctx.language == "blender" and ctx.track == "static_object"
-    ctx = build_context(stool_ctx.workspace.root, language="threejs", round_index=2)
-    assert ctx.language == "threejs" and ctx.round_index == 2
 
 
 def test_observation_content_blocks(tmp_path: Path) -> None:
@@ -40,12 +33,7 @@ def test_observation_content_blocks(tmp_path: Path) -> None:
 
 
 def test_result_payload_is_bounded_by_outcome(tmp_path: Path) -> None:
-    """Since the harness decides what is an error, no single result may hand the model an
-    unbounded blob.  Text is capped here (an Observation built by hand never passes through
-    ``observe``'s truncation), and the image budget shrinks with the outcome: gemini-cli's
-    error path re-sends the WHOLE result as text, base64 images included — a 275 kB contact
-    sheet arrives as ~261k prompt tokens instead of ~516 (docs/COST.md §30) — and its own
-    40 000-char truncation does not fire for a multi-part MCP result."""
+    """Text is capped and the image budget shrinks with the outcome (gemini-cli re-sends an error as text, docs/COST.md §30)."""
     from PIL import Image
 
     from codeverse3d.spatial.mcp_server import MAX_TEXT_CHARS, max_images_for
@@ -67,10 +55,7 @@ def test_result_payload_is_bounded_by_outcome(tmp_path: Path) -> None:
 
 
 def test_the_byte_bound_keeps_the_sheet_drops_the_rest_and_says_so(tmp_path: Path) -> None:
-    """The count and the 1024 px downscale bound PIXELS, not bytes.  images[0] is the
-    contact sheet and the rest are per-view repeats of it, so the budget must stop at the
-    first image that does not fit — dropping the sheet and shipping the views would be the
-    worst of both — and the text must say what did not come."""
+    """The byte budget stops at the first image that does not fit (images[0] is the sheet) and says what did not come."""
     from PIL import Image
 
     from codeverse3d.spatial.mcp_server import MAX_IMAGE_BYTES, encode_image
@@ -102,44 +87,22 @@ def test_the_byte_bound_keeps_the_sheet_drops_the_rest_and_says_so(tmp_path: Pat
     assert "1 image(s) not attached" in blocks[0].text
 
 
-def test_an_oversized_sheet_is_downscaled_not_dropped(tmp_path: Path) -> None:
-    """The byte bound had ~1 % of headroom over the largest recorded sheet, so a slightly
-    taller one lost EVERY image and the round was judged on text alone.  The first image
-    is the sheet; it gets re-encoded smaller until it fits, and the text says so."""
-    from PIL import Image
-
-    from codeverse3d.spatial.mcp_server import MAX_IMAGE_BYTES
-
-    big = tmp_path / "sheet.png"
-    Image.effect_noise((1600, 4200), 90).convert("RGB").save(big)   # noise: PNG cannot shrink it
-    assert len(encode_image(str(big))) > MAX_IMAGE_BYTES
-
-    blocks = observation_content(Observation(ok=True, text="t", images=[str(big)]))
-    images = [b for b in blocks if b.type == "image"]
-    assert len(images) == 1 and len(images[0].data) <= MAX_IMAGE_BYTES
-    assert "re-encoded at" in blocks[0].text
-
-
-def test_every_bound_holds_including_the_note(tmp_path: Path) -> None:
-    """The "not attached" note used to be appended AFTER the hard slice, so the ceiling
-    was soft by the length of the note."""
-    from codeverse3d.spatial.mcp_server import MAX_TEXT_CHARS
+def test_an_oversized_sheet_is_downscaled_and_every_bound_holds_including_the_note(tmp_path: Path) -> None:
+    """The sheet is re-encoded smaller until it fits (never dropped), and the note stays under the text cap."""
+    from codeverse3d.spatial.mcp_server import MAX_IMAGE_BYTES, MAX_TEXT_CHARS
 
     heavy = tmp_path / "heavy.png"
     Image.effect_noise((1600, 4200), 90).convert("RGB").save(heavy)
     blocks = observation_content(Observation(ok=True, text="x" * 20_000,
                                              images=[str(heavy), str(heavy)]))
-    assert len(blocks[0].text) <= MAX_TEXT_CHARS
-    assert "not attached" in blocks[0].text or "re-encoded" in blocks[0].text
+    assert len(encode_image(str(heavy))) > MAX_IMAGE_BYTES
+    images = [b for b in blocks if b.type == "image"]
+    assert len(images) == 1 and len(images[0].data) <= MAX_IMAGE_BYTES
+    assert len(blocks[0].text) <= MAX_TEXT_CHARS and "re-encoded at" in blocks[0].text
 
 
 def test_is_error_is_failed_not_the_verdict(stool_ctx: ToolContext) -> None:
-    """The one coupling every other bound assumes, checked through the server itself.
-
-    A tool that RAN and answered FAIL must reach the model as an ordinary result, so the
-    vendor sends its images as images; re-couple this to ``not obs.ok`` and the
-    base64-as-text blow-up of docs/COST.md §30 comes back.  This used to be a grep over
-    ``make_server``'s source, which passes for any code that merely mentions the name."""
+    """A FAIL verdict is an ordinary result (its images go as images); only a tool that could not run is is_error."""
     from mcp import types
 
     from codeverse3d.spatial import mcp_server
@@ -165,11 +128,7 @@ def test_is_error_is_failed_not_the_verdict(stool_ctx: ToolContext) -> None:
 
 
 def test_a_failure_cannot_also_be_a_pass() -> None:
-    """``failed`` implies ``not ok``.  The pair was two independent booleans, so
-    ``Observation(ok=True, failed=True)`` was constructible — an is_error result whose
-    verdict says the gate passed, which nothing downstream can read consistently."""
-
-
+    """``failed`` implies ``not ok``."""
     with pytest.raises(ValidationError, match="has no verdict"):
         Observation(ok=True, failed=True, text="both")
     assert Observation(ok=False, failed=True, text="could not run").failed

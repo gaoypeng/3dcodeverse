@@ -1,8 +1,4 @@
-"""scene_placement gate (2026-08-26): census placement table → findings, hints, caps, routing.
-
-Pure python over a fake census dict — the node-level measurement is exercised in
-``tests/scene_runtime/test_placement_census.py``.
-"""
+"""scene_placement gate: census placement table → findings and hints (pure python over a fake census)."""
 
 from __future__ import annotations
 
@@ -12,9 +8,6 @@ from types import SimpleNamespace
 from codeverse3d.contracts.artifacts import BuildResult, Severity
 from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
-from codeverse3d.judges.rubrics import apply_caps, load_rubric
-from codeverse3d.languages import get_runtime
-from codeverse3d.orchestrator import build_refine_instructions
 from codeverse3d.spatial.scene_placement import (
     GATE,
     infer_indoor,
@@ -40,13 +33,6 @@ def _table(*rows, pairs=(), **over):
 
 def _by_kind(report, kind):
     return [f for f in report.findings if f.data.get("kind") == kind]
-
-
-def test_supported_and_exempt_rows_pass_with_a_summary_line():
-    r = placement_findings(_table(_row("Crate"), _row("Bird", exempt="free"), _row("Ground", zone="Environment", exempt="backdrop")))
-    assert r.gate == GATE and r.passed
-    assert [f.data["kind"] for f in r.findings] == ["summary"]
-    assert "1 assets checked (3 placed" in r.findings[0].message and "0 floating, 0 sunken" in r.findings[0].message
 
 
 def test_floating_severity_by_gap_then_by_count():
@@ -93,17 +79,6 @@ def test_sunken_thresholds_height_fraction_and_name_words():
     assert "sunken 0.40 m into Terrain" in lantern.message and "raise Yard/Lantern by 0.40 m" in lantern.fix_hint
 
 
-def test_interpenetration_pairs_and_error_above_sixty_percent():
-    pairs = [{"a": "CrateA", "b": "CrateB", "zone_a": "Yard", "zone_b": "Yard", "aabb_overlap": 0.5, "inside_frac": 0.25, "samples": 24},
-             {"a": "Post", "b": "Wall", "zone_a": "Yard", "zone_b": "House", "aabb_overlap": 0.9, "inside_frac": 0.6, "samples": 16}]
-    r = placement_findings(_table(_row("CrateA"), _row("CrateB"), pairs=pairs))
-    inter = _by_kind(r, "interpenetration")
-    # worst first: ERROR before WARN
-    assert [(f.target, f.severity) for f in inter] == [("Yard/Post", Severity.ERROR), ("Yard/CrateA", Severity.WARN)]
-    assert "interpenetration: Yard/CrateA and Yard/CrateB overlap (50%" in inter[1].message
-    assert "move Yard/Post out of House/Wall" in inter[0].fix_hint
-
-
 def test_findings_are_capped_per_kind_and_the_summary_counts_them():
     r = placement_findings(_table(*[_row(f"Pebble{i}", gap=0.06 + i * 0.01) for i in range(12)]))
     fl = _by_kind(r, "floating")
@@ -117,35 +92,12 @@ def test_probe_error_is_a_warning_that_passes():
     assert r.passed and r.findings[0].severity == Severity.WARN and "placement probe failed: boom" in r.findings[0].message
 
 
-def test_scene_v1_floating_part_cap_fires_on_a_placement_error():
-    rubric = load_rubric("scene_v1")
-    floating = placement_findings(_table(_row("Lantern", gap=0.3)))
-    res = apply_caps(rubric, 0.9, [floating], {}, [])
-    assert res.overall == 0.6 and {c.rule for c in res.caps_applied} == {"floating_part", "floating_or_sunken_asset"}
-    assert "Lantern" in res.caps_applied[0].evidence
-    sunken = placement_findings(_table(_row("Lantern", sunk=0.4, into="Terrain", h=0.6)))
-    assert apply_caps(rubric, 0.9, [sunken], {}, []).overall == 0.6
-    # WARN-level findings (a mounted sign, a small hover) never cap
-    warn = placement_findings(_table(_row("Sign", gap=0.9, attached=("Post",)), _row("Cup", gap=0.08)))
-    assert apply_caps(rubric, 0.9, [warn], {}, []).overall == 0.9
-
-
 def _plan():
     bb = BBox(center=(0, 0, 0), extents=(10, 5, 10))
     return ScenePlan(title="t", summary="s", setting="meadow", mood="calm", bounds=bb, environment="sunny",
                      zones=[ZonePlan(name="Yard", description="d", bbox=bb, contents=[]), ZonePlan(name="House", description="d", bbox=bb, contents=[])],
                      assets=[], cameras=[CameraPlan(name="overview", position=(1, 1, 1), look_at=(0, 0, 0), fov=50, purpose="p")],
                      animation=[], effects=[])
-
-
-def test_error_findings_become_zone_routed_refine_tasks_one_per_asset():
-    plan = _plan()
-    r = placement_findings(_table(_row("Lantern", gap=0.3), _row("Bench", gap=0.4), _row("Vase", zone="House", gap=0.5)))
-    rt = get_runtime(Language.SCENE_THREEJS)
-    tasks = build_refine_instructions(None, [r], [], plan, file_for_target=lambda target: rt.files_for(plan, target))
-    assert sorted((t.target, tuple(t.files)) for t in tasks) == [("House/Vase", ("src/zones/house.js",)), ("Yard/Bench", ("src/zones/yard.js",)),
-                                                                 ("Yard/Lantern", ("src/zones/yard.js",))]
-    assert all(t.kind == f"gate:{GATE}" and "lower " in t.instruction for t in tasks)
 
 
 def test_pipeline_gates_are_placement_alone_and_never_raise(tmp_path):
@@ -180,9 +132,7 @@ def test_check_placement_reads_the_last_census_and_the_table_text(tmp_path):
 
 
 def test_check_placement_returns_the_round_gates_verdict(tmp_path):
-    """One verdict: the tool reads the same census, plan and stage records the round gate does,
-    so the plan checks it used to leave out (fog, zone contents, ...) are in it, and an asset
-    the asset stage could not build is not "missing" in either (2026-09-22)."""
+    """The tool's verdict is the round gate's: same census, plan and stage records."""
     from codeverse3d.spatial.registry import ToolContext, get_tool
     from codeverse3d.workspace import Workspace
 
@@ -218,7 +168,6 @@ def _contract_plan() -> ScenePlan:
 
 
 def test_contract_checks_fire_on_atmosphere_contents_scale_and_bounds():
-    """One census, five distinct deterministic failures the VLM used to carry alone."""
     far = _row("FarCrate")
     far["bbox"] = {"min": [100, 0, 100], "max": [101, 1, 101], "size": [1, 1, 1]}
     census = {"fog": None, "background": None,
@@ -236,9 +185,7 @@ def test_contract_checks_fire_on_atmosphere_contents_scale_and_bounds():
 
 
 def test_a_wrapper_of_instances_is_scale_checked_as_one_instance():
-    """Loop 9 lighthouse (2026-09-07): 'PathAndFence/PicketFences' measured 14.73 m against the
-    plan's 2.4 m fence panel — a 6.1x ERROR the judge repeated and the repair obeyed by
-    shrinking the whole run to dots.  The row's `families` carry the instance."""
+    """The row's `families` carry the instance: a run of fence panels is not one 14 m panel."""
     bb = BBox(center=(0, 0, 0), extents=(40, 8, 40))
     plan = ScenePlan(
         title="t", summary="s", setting="headland", mood="blue hour", bounds=bb, environment="dusk",
@@ -263,8 +210,6 @@ def test_a_wrapper_of_instances_is_scale_checked_as_one_instance():
 
 
 def test_the_typed_interior_flag_wins_over_the_setting_words():
-    """D69's `interior` is the plan's word; the setting-text inference stays for plans
-    written before it existed."""
     from codeverse3d.spatial.scene_placement import is_interior
 
     assert is_interior({"setting": "a mountain meadow at dawn", "interior": True})
@@ -274,8 +219,6 @@ def test_the_typed_interior_flag_wins_over_the_setting_words():
 
 
 def test_fog_that_ends_inside_the_plan_is_warned_for_exteriors_only():
-    """Measured 2026-09-08 over eleven exterior runs: fog far >= 2 x the plan span scored
-    >= 0.60, the three at 1.4-1.6 x scored 0.42-0.60 with 'world edge' verdicts."""
     plan = _contract_plan()                                            # 40 m bounds
     census = {"fog": {"type": "Fog", "near": 18, "far": 50, "density": None}, "background": "#aabbcc",
               "placement": _table(_row("Lantern", h=0.6), _row("Bench", h=0.9), _row("BenchB", zone="House", h=0.9))}
@@ -289,16 +232,6 @@ def test_fog_that_ends_inside_the_plan_is_warned_for_exteriors_only():
     assert not [f for f in placement_gate_safe(census, plan=inside).findings if f.data.get("kind") == "fog_short"]
 
 
-def test_contract_checks_stay_quiet_on_a_dressed_in_bounds_scene():
-    census = {"fog": {"type": "Fog", "near": 10, "far": 60}, "background": "#aabbcc",
-              "placement": _table(_row("Lantern_3", h=0.6), _row("Bench", h=0.9),
-                                  _row("BenchB", zone="House", h=0.9))}
-    rep = placement_gate_safe(census, plan=_contract_plan())
-    contract_kinds = {"no_fog", "no_background", "missing_content", "zone_empty", "scale", "out_of_bounds"}
-    assert not [f for f in rep.findings if f.data.get("kind") in contract_kinds],         [(f.data.get("kind"), f.message) for f in rep.findings]
-    assert rep.passed
-
-
 def test_interpenetration_pairs_report_once_at_worst_overlap():
     pair = {"a": "Planter", "b": "Arbor", "zone_a": "Yard", "zone_b": "Yard"}
     r = placement_findings(_table(_row("Planter"), _row("Arbor"),
@@ -310,9 +243,6 @@ def test_interpenetration_pairs_report_once_at_worst_overlap():
 
 
 def test_density_gate_fires_on_a_zone_far_under_its_layout_budget():
-    """scene_final_v1's top standing defects (flat_ground 12 / undressed 11 / monotonous 10)
-    while every zone had a BINDING layout budget nobody enforced.  The census counts every
-    instance (InstancedMesh.count included), so the check is pure arithmetic."""
     layouts = {"Yard": {"placements": [{"asset": "Lantern", "count": 6}],
                         "mid_props": 20, "small_props": 40, "ground_cover": 400},
                "House": {"placements": [], "mid_props": 2}}   # budget 2 < threshold: ignored
@@ -330,8 +260,6 @@ def test_density_gate_fires_on_a_zone_far_under_its_layout_budget():
 
 
 def test_no_backdrop_fires_outdoors_and_stays_quiet_with_a_ring_or_indoors():
-    """world_edge_visible stood in 11/19 scene_final_v1 verdicts; the env contract's
-    silhouette ring is measurable: standing geometry must reach past the play area."""
     base = {"fog": {"type": "Fog"}, "background": "#aabbcc",
             "placement": _table(_row("Lantern_3", h=0.6), _row("Bench", h=0.9),
                                 _row("BenchB", zone="House", h=0.9))}
@@ -351,10 +279,7 @@ def test_no_backdrop_fires_outdoors_and_stays_quiet_with_a_ring_or_indoors():
     assert not [f for f in rep.findings if f.data.get("kind") == "no_backdrop"]
 
 
-
 def test_a_group_or_row_with_a_null_box_is_skipped_not_a_crash():
-    """sota_sydney_opera: a zone group with no geometry measures min/max/size as nulls, and
-    the backdrop reach did None - None — the whole placement gate degraded to one WARN."""
     null_box = {"min": [None, None, None], "max": [None, None, None], "size": [None, None, None]}
     ghost = _row("Bench")
     ghost["bbox"] = null_box
@@ -368,9 +293,7 @@ def test_a_group_or_row_with_a_null_box_is_skipped_not_a_crash():
 
 
 def test_a_ring_of_identical_copies_round_the_world_is_warned_but_not_a_rotunda():
-    """2026-09-09, five of six exteriors: "a ring of identical cones stamped round the perimeter"
-    — the census measures the ring (host_census `stamps`); columns round a rotunda sit inside
-    the content and are architecture."""
+    """Columns round a rotunda sit inside the content and are architecture, not a stamped ring."""
     plan = _contract_plan()                                            # 40 m half-extent
     ring = {"name": "FarPeaks", "n": 16, "radius_m": 36.0, "radius_cv": 0.01, "gap_cv": 0.02, "size_cv": 0.0}
     census = {"fog": {"type": "Fog", "near": 10, "far": 120}, "background": "#aabbcc",

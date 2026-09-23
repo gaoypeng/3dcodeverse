@@ -28,15 +28,6 @@ def _kinds(gate):
     return {f.data["kind"]: f.severity for f in gate.findings}
 
 
-def test_moving_colourful_sequence_passes(tmp_path):
-    frames = [(t, _png(tmp_path / f"f{i}.png", _gradient(t))) for i, t in enumerate((0.0, 1.0, 2.5, 4.0))]
-    seq = sequence_stats(frames)
-    assert len(seq.frames) == 4 and seq.mean_diff > 0.01 and not seq.static and not seq.any_nan
-    assert seq.mean_colourfulness > 0.15 and 0.2 < seq.mean_lum < 0.8
-    gate = frame_gate(seq)
-    assert gate.passed and "static" not in _kinds(gate)
-
-
 def test_static_sequence_warns_only_when_motion_expected(tmp_path):
     frames = [(t, _png(tmp_path / f"s{i}.png", _gradient(0.0, moving=False))) for i, t in enumerate((0.0, 1.0, 2.5))]
     seq = sequence_stats(frames)

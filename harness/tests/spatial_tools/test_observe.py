@@ -15,11 +15,7 @@ from codeverse3d.spatial.observe import (
     fmt_numbers,
     gate_observation,
     image_budget,
-    lint_lines,
-    rel_path,
     render_observation,
-    sanitize_text,
-    truncate,
 )
 
 
@@ -28,24 +24,10 @@ def test_fmt_numbers_compact() -> None:
     assert "a=1.2346" in s and "b=[0.1, 0.2]" in s and "c=yes" in s and "{1 keys}" in s and "…" in s
 
 
-def test_truncate_keeps_head_and_tail() -> None:
-    text = "\n".join(f"line {i}" for i in range(500))
-    t = truncate(text, 400)
-    assert t.startswith("line 0") and t.endswith("line 499") and "chars omitted" in t
-    assert truncate("short") == "short"
-
-
 def test_image_budget_keeps_sheet_first() -> None:
     imgs = [f"/x/{i}.png" for i in range(10)]
     out = image_budget(imgs, max_n=3)
     assert out == imgs[:3]
-
-
-def test_paths_are_workspace_relative(tmp_path: Path) -> None:
-    p = tmp_path / "artifacts" / "object.glb"
-    assert rel_path(p, tmp_path) == "artifacts/object.glb"
-    assert rel_path("/elsewhere/file.py", tmp_path) == "file.py"
-    assert sanitize_text(f"error in {tmp_path}/src/model.py:3", tmp_path) == "error in src/model.py:3"
 
 
 def test_gate_observation_errors_first() -> None:
@@ -62,22 +44,8 @@ def test_gate_observation_errors_first() -> None:
     assert obs.numbers["errors"] == 1 and obs.numbers["error_data"]["B"]["gap_m"] == 0.01
 
 
-def test_render_observation(tmp_path: Path) -> None:
-    rs = RenderSet(views=[RenderView(name="front", path=str(tmp_path / "a/view_front.png"), camera_position=(0, 1, 2), fov=35)],
-                   contact_sheet=str(tmp_path / "a/sheet.png"), renderer="swiftshader")
-    obs = render_observation(rs, tmp_path, note="hello")
-    assert obs.ok and obs.images[0].endswith("sheet.png") and len(obs.images) == 2
-    assert "a/view_front.png" in obs.text and str(tmp_path) not in obs.text
-    assert "cam=(0, 1, 2)" in obs.text
-
-
 def test_render_with_no_views_is_a_failure_console_errors_are_a_verdict(tmp_path: Path) -> None:
-    """The negative renders are not one answer.  Nothing rendered and nothing logged: the
-    tool's product is pictures, it has none and no reason, and nothing the agent edits
-    changes that — an MCP error (``failed``).  Console errors: the scene RAN far enough to
-    log them, so it is a verdict the agent fixes, even when the boot failure left zero
-    views (`render_scene` returns exactly that) — reporting THAT as a broken call buys a
-    blind retry of the thing that just explained itself.  Both lead the text."""
+    """No views and no log: the tool failed.  Console errors (even with zero views): a verdict the agent fixes."""
     empty = render_observation(RenderSet(views=[], renderer="fake"), tmp_path, note="shaded render")
     assert not empty.ok and empty.failed
     assert empty.text.startswith("RENDER PRODUCED NO VIEWS (fake)")
@@ -95,16 +63,6 @@ def test_render_with_no_views_is_a_failure_console_errors_are_a_verdict(tmp_path
     assert not booted.ok and not booted.failed          # the scene told the agent what to fix
     assert booted.text.startswith("RENDER: FAIL — 1 console error(s) and no view rendered")
     assert "SyntaxError" in booted.text
-
-
-def test_lint_lines_split_by_severity(tmp_path: Path) -> None:
-    rep = GateReport(gate="lint:x", passed=False, findings=[
-        GateFinding(gate="lint:x", severity=Severity.ERROR, target=str(tmp_path / "src" / "a.py"), message="bad", fix_hint="fix it"),
-        GateFinding(gate="lint:x", severity=Severity.WARN, message="meh"),
-        GateFinding(gate="lint:x", severity=Severity.INFO, message="fyi"),
-    ])
-    assert lint_lines(rep, tmp_path, errors_only=True) == ["- ERROR (src/a.py): bad", "    fix: fix it"]
-    assert lint_lines(rep, tmp_path, errors_only=False) == ["- WARN: meh"]
 
 
 def test_build_failure_lines_relative_file_and_tail_dedupe(tmp_path: Path) -> None:

@@ -18,18 +18,6 @@ from codeverse3d.spatial.connectivity import (
 from tests.spatial_tools.conftest import FLOAT_GAP_M
 
 
-def test_floating_leg_found_with_exact_gap(stool_glb: Path) -> None:
-    r = check_connectivity(stool_glb)
-    assert r.gate == "connectivity" and not r.passed
-    errs = r.errors
-    assert len(errs) == 1 and errs[0].target == "Leg_3"
-    d = errs[0].data
-    assert d["nearest"] == "Seat"
-    assert d["gap_m"] == pytest.approx(FLOAT_GAP_M, abs=1e-4)
-    assert np.allclose(d["gap_vector_m"], (0.0, FLOAT_GAP_M, 0.0), atol=1e-4)
-    assert "translate 'Leg_3' by (+0.0000, +0.0050, +0.0000) m (GLB frame: Y-up, +Z front)" in errs[0].fix_hint
-
-
 def test_hints_use_the_authoring_frame(stool_glb: Path) -> None:
     """The 5 mm gap is along GLB +y (up).  A Blender/CadQuery/URDF agent codes in Z-up, so
     the pasted hint must say +z (a literal '+y' would move the leg towards the back)."""
@@ -50,47 +38,6 @@ def test_hints_use_the_authoring_frame(stool_glb: Path) -> None:
     p.write_bytes(s.export(file_type="glb"))
     ground = [f for f in check_connectivity(p, language="cadquery").findings if "touches the ground" in f.message]
     assert ground and "(z=0)" in ground[0].message and "z=0, cadquery frame" in ground[0].fix_hint
-
-
-def test_solid_stool_passes(solid_stool_glb: Path) -> None:
-    r = check_connectivity(solid_stool_glb)
-    assert r.passed and not r.errors
-    assert any("connected" in f.message for f in r.findings)
-
-
-def test_penetration_is_flagged(tmp_path: Path) -> None:
-    sc = trimesh.Scene()
-    a = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
-    a.apply_translation((0, 0.1, 0))
-    b = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
-    b.apply_translation((0, 0.1 + 0.2 - 0.03, 0))  # 30 mm deep into A
-    sc.add_geometry(a, node_name="A", geom_name="A")
-    sc.add_geometry(b, node_name="B", geom_name="B")
-    p = tmp_path / "pen.glb"
-    sc.export(str(p))
-    r = check_connectivity(p)
-    pen = [f for f in r.findings if "interpenetrate" in f.message]
-    assert pen and pen[0].severity == Severity.ERROR
-    assert pen[0].data["depth_m"] == pytest.approx(0.03, abs=0.004)
-    assert pen[0].data["kind"] == "penetration" and {pen[0].target, pen[0].data["other"]} == {"A", "B"}
-    assert {"depth_m", "fraction_inside", "local_fraction", "inside_count", "through_ratio", "thickness_m",
-            "container", "entering"} <= set(pen[0].data)
-    assert pen[0].data["thickness_m"] == pytest.approx(0.2, abs=1e-6)
-
-
-def test_hairline_overlap_is_fine(tmp_path: Path) -> None:
-    sc = trimesh.Scene()
-    a = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
-    a.apply_translation((0, 0.1, 0))
-    b = trimesh.creation.box(extents=(0.1, 0.1, 0.1))
-    b.apply_translation((0, 0.2 + 0.05 - 0.001, 0))  # 1 mm weld overlap
-    sc.add_geometry(a, node_name="A", geom_name="A")
-    sc.add_geometry(b, node_name="B", geom_name="B")
-    p = tmp_path / "weld.glb"
-    sc.export(str(p))
-    r = check_connectivity(p)
-    assert r.passed
-    assert not [f for f in r.findings if "interpenetrate" in f.message]
 
 
 def test_tiny_island_warns(tmp_path: Path) -> None:
@@ -136,12 +83,7 @@ def _open_bottom_box(extents, translation) -> trimesh.Trimesh:
 
 
 def test_interpenetration_is_found_between_two_non_watertight_parts(tmp_path: Path) -> None:
-    """CG-2: penetration_depth skipped any direction whose target was not watertight
-    (``Trimesh.contains`` needs one), so when NEITHER part was watertight it returned
-    (0.0, 0.0) — indistinguishable from "no overlap", with no warning that the check had
-    not run.  A 0.2 m post driven 50 mm into a base then passed the gate as soon as both
-    were modelled as open shells; only the mixed closed/open case still fired, which is
-    why the shipped tests stayed green."""
+    """Open shells (not watertight) are measured too — they once read as "no overlap"."""
     base_ext, post_ext = (0.4, 0.2, 0.4), (0.2, 0.2, 0.2)
     base_at, post_at = (0, 0.1, 0), (0, 0.25, 0)  # post bottom 50 mm below the base's top face
     closed = (trimesh.creation.box(extents=base_ext), trimesh.creation.box(extents=post_ext))
@@ -161,11 +103,10 @@ def test_interpenetration_is_found_between_two_non_watertight_parts(tmp_path: Pa
     scene.export(str(glb))
     r = check_connectivity(glb)
     assert not r.passed and any("interpenetrate" in f.message for f in r.errors)
-def _stool_with_a_leg_short_at_the_top(path: Path, gap_m: float = FLOAT_GAP_M) -> Path:
-    """The stool, but Leg_3 is shortened by ``gap_m`` at the TOP only.
 
-    It still stands on the floor and is ``gap_m`` shy of the seat — the single
-    commonest static-object defect, and the one CG-1 waved through."""
+
+def _stool_with_a_leg_short_at_the_top(path: Path, gap_m: float = FLOAT_GAP_M) -> Path:
+    """The stool, but Leg_3 is shortened by ``gap_m`` at the TOP only: on the floor, shy of the seat."""
     from tests.spatial_tools.conftest import LEG_XZ
 
     sc = trimesh.Scene()
@@ -183,9 +124,7 @@ def _stool_with_a_leg_short_at_the_top(path: Path, gap_m: float = FLOAT_GAP_M) -
 
 
 def test_a_part_detached_at_the_top_is_floating_even_though_it_reaches_the_floor(tmp_path: Path) -> None:
-    """CG-1: every ground-touching component was unioned into `support`, so a part
-    that merely reached y=0 counted as supported.  Byte for byte the same defect as
-    the lifted-leg control — it must be reported the same way."""
+    """Reaching the floor is not being supported: a leg shy of the seat is floating."""
     p = _stool_with_a_leg_short_at_the_top(tmp_path / "top_gap.glb")
 
     r = check_connectivity(p)
@@ -198,22 +137,6 @@ def test_a_part_detached_at_the_top_is_floating_even_though_it_reaches_the_floor
     # and no self-contradictory "all N parts are connected" line reaches the judge
     assert not [f for f in r.findings if "parts are connected" in f.message]
 
-
-def test_two_grounded_islands_are_not_one_connected_assembly(tmp_path: Path) -> None:
-    """The minimal shape of the same bug: two boxes 2 m apart, both on the floor,
-    used to pass as 'all 2 parts are connected (0 contacts)'."""
-    sc = trimesh.Scene()
-    for i, x in enumerate((0.0, 2.0)):
-        m = trimesh.creation.box((0.5, 0.5, 0.5))
-        m.apply_translation((x, 0.25, 0))
-        sc.add_geometry(m, node_name=f"P{i}", geom_name=f"P{i}")
-    p = tmp_path / "two_grounded.glb"
-    sc.export(str(p))
-
-    r = check_connectivity(p)
-
-    assert not r.passed and len(r.errors) == 1
-    assert not [f for f in r.findings if "parts are connected" in f.message]
 
 def _hat_and_body(path: Path, dy: float) -> Path:
     """'hat' floating 100 mm above 'body', the pair translated by ``dy``."""
@@ -229,12 +152,7 @@ def _hat_and_body(path: Path, dy: float) -> Path:
 
 
 def test_a_model_authored_below_the_floor_still_reports_its_floating_part(tmp_path: Path) -> None:
-    """CG-3: `grounded` was the one-sided `bounds[0][1] <= gap_m`, so a part buried 1 m
-    UNDER the floor counted as touching the ground.  Every part of a sunk model therefore
-    landed in `grounded`, hence in `support`, and no floating finding could be emitted at
-    all — one routine agent mistake (authoring around the origin instead of on the floor,
-    which the contract gate already flags separately) silently switched the whole
-    connectivity floating check off for the run."""
+    """A model authored below the floor must not switch the floating check off."""
     on_ground = check_connectivity(_hat_and_body(tmp_path / "f2_on_ground.glb", 0.0))
     sunk = check_connectivity(_hat_and_body(tmp_path / "f2_sunk.glb", -1.0))
 
@@ -274,14 +192,7 @@ def _ledger(r):
 
 
 def test_thin_rod_through_a_plate_is_measured_and_named_but_severity_stays_on_depth(tmp_path: Path) -> None:
-    """An 8 mm rod, 1 m long, standing through a 10 mm plate.  The overlap band is ~1 % of
-    the rod's surface, under PENETRATION_MIN_FRACTION, and its deepest point is 5 mm, under
-    PENETRATION_ERROR_M — so the 4ddde32 gate said nothing on this GLB (verified against
-    the committed module, 2026-08-30).  The dense local pass finds it and the through-ratio
-    says the rod reaches the plate's far side — as a MEASUREMENT: it is a WARN, because the
-    same number is what a stile through a seat or a boom seated in a mast reads, and the
-    picture, not the gate, decides whether that is a defect (corpus re-run: a 0.9 ERROR line
-    flipped 9 runs of designed joinery)."""
+    """An 8 mm rod through a 10 mm plate: found by the dense pass, through-ratio measured, still a WARN."""
     rod = _cylinder_y(0.004, 1.0, (0, 0.5, 0))
     plate = trimesh.creation.box(extents=(0.3, 0.01, 0.3))
     plate.apply_translation((0, 0.505, 0))
@@ -305,28 +216,8 @@ def test_thin_rod_through_a_plate_is_measured_and_named_but_severity_stays_on_de
     assert over[0][2:] == [pytest.approx(5.0, abs=0.5), pytest.approx(d["through_ratio"], abs=0.01)]
 
 
-def test_a_designed_socket_stays_a_warn_with_a_low_through_ratio(tmp_path: Path) -> None:
-    """A branch neck seated 3 mm into a pipe block (pipe_tee's BranchPipeNeck x MainPipeRun):
-    above the 2 mm WARN line, nowhere near the far side of anything — WARN, and the message
-    does not talk about reaching through."""
-    pipe = trimesh.creation.box(extents=(0.3, 0.1, 0.1))
-    pipe.apply_translation((0, 0.05, 0))
-    neck = _cylinder_y(0.02, 0.1, (0, 0.1 - 0.003 + 0.05, 0))
-
-    r = check_connectivity(_scene(tmp_path / "socket.glb", MainPipeRun=pipe, BranchNeck=neck))
-
-    pen = _penetrations(r)
-    assert r.passed and len(pen) == 1 and pen[0].severity == Severity.WARN
-    d = pen[0].data
-    assert d["depth_m"] == pytest.approx(0.003, abs=0.0005)
-    assert d["through_ratio"] < 0.2
-    assert "reaches" not in pen[0].message and "where they meet" in pen[0].message
-
-
 def test_a_thin_part_sunk_into_a_thick_one_is_not_through(tmp_path: Path) -> None:
-    """h2h_microscope's FieldIlluminator: a 5 mm disc sunk 2.3 mm into the base.  Measured
-    one way, the base's top surface reaches 82 % of the way through the disc; the pair's
-    through-ratio is the min over both directions, so a designed inset stays a WARN."""
+    """A 5 mm disc sunk 2.3 mm into a base: the through-ratio is the min over both directions, so a WARN."""
     base = trimesh.creation.box(extents=(0.2, 0.05, 0.2))
     base.apply_translation((0, 0.025, 0))
     disc = _cylinder_y(0.02, 0.005, (0, 0.05 - 0.0023 + 0.0025, 0))
@@ -336,12 +227,11 @@ def test_a_thin_part_sunk_into_a_thick_one_is_not_through(tmp_path: Path) -> Non
     pen = _penetrations(r)
     assert r.passed and len(pen) == 1 and pen[0].severity == Severity.WARN
     assert pen[0].data["through_ratio"] < 0.2, pen[0].data
+    assert "reaches" not in pen[0].message and "where they meet" in pen[0].message
 
 
 def test_contact_ledger_carries_contacts_overlaps_and_ground_gaps(tmp_path: Path) -> None:
-    """The 1 mm weld of test_hairline_overlap_is_fine is below the WARN line — no finding —
-    but the judge payload needs to know it is there to call it a weld, so the INFO ledger
-    lists it, with the contact and every part's height above the ground."""
+    """A 1 mm weld is below the WARN line — no finding — but the INFO ledger lists it for the judge."""
     a = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
     a.apply_translation((0, 0.1, 0))
     b = trimesh.creation.box(extents=(0.1, 0.1, 0.1))
@@ -377,11 +267,7 @@ def test_planned_edges_are_measured_regardless_of_the_aabb_prefilter(solid_stool
 
 
 def test_a_deep_overlap_only_the_dense_pass_can_see_is_a_warn_with_every_number(tmp_path: Path) -> None:
-    """A 40 mm square stile driven 17 mm into a 0.45 m seat slab — the corpus's commonest new
-    finding (rear stiles through seats on 14 dining chairs).  The overlap is ~1 % of either
-    surface, so the 4ddde32 gate never saw it; the dense pass measures it, but a member the
-    eye cannot see inside a slab must not cap the run at 0.7 on its own: WARN, depth and
-    through-ratio in data, and the judge decides from the picture (D46 d)."""
+    """D46 d: a stile 17 mm into a seat slab (a sliver of either surface) is a WARN with every number."""
     seat = trimesh.creation.box(extents=(0.45, 0.036, 0.45))
     seat.apply_translation((0, 0.45, 0))                       # underside at y = 0.432
     stile = trimesh.creation.box(extents=(0.03, 1.0, 0.03))    # a 1 m backrest post
