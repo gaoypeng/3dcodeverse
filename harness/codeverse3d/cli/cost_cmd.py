@@ -23,7 +23,7 @@ import click
 import typer
 from typer.core import TyperGroup
 
-from codeverse3d.cli._common import console, ok, warn
+from codeverse3d.cli._common import console, ok, runs_root, warn
 
 #: a price row older than this needs re-checking against the provider's page
 STALE_AFTER_DAYS = 90
@@ -78,12 +78,10 @@ def show(
 
 def _resolve(arg: str, runs_dir: Path | None) -> Path:
     """A bare argument is a path when it exists, else a slug under the runs root."""
-    from codeverse3d.cli import _common as C
-
     p = Path(arg)
     if p.exists():
         return p
-    return C.runs_root(runs_dir) / arg
+    return runs_root(runs_dir) / arg
 
 
 def _report(paths: list[Path], *, md: Path | None, recheck: bool, limit: int, per_run: bool) -> None:

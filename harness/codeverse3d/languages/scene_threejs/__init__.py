@@ -18,7 +18,7 @@ from codeverse3d.contracts.artifacts import (
 )
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, ZonePlan
-from codeverse3d.conventions import to_pascal, to_snake
+from codeverse3d.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
 from codeverse3d.languages._common import line_of, ws_rel
 from codeverse3d.languages._js_lint import (
     ImportKind,
@@ -713,7 +713,6 @@ class SceneThreeJsRuntime:
         for before judging a threejs asset; nothing defined it until 2026-09-07, so no
         procedural asset was ever judged (0 of 860 recorded) while every hero was.
         """
-        from codeverse3d.conventions import OBJECT_VIEWS_QUICK
         from codeverse3d.languages.threejs import ThreeJsRuntime
         from codeverse3d.spatial.render import RenderError, render_glb
 

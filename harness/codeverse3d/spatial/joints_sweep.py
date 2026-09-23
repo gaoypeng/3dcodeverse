@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse3d.conventions import CONTACT_GAP_M
 from codeverse3d.spatial import joints_collide as collide
-from codeverse3d.spatial.joints_model import Robot, UrdfError, fk, load_urdf
+from codeverse3d.spatial.joints_model import Robot, UrdfError, fk, link_world_meshes, load_urdf
 from codeverse3d.spatial.joints_poses import pose_label, pose_samples
 from codeverse3d.workspace import Workspace
 
@@ -306,8 +306,6 @@ def buried_links(robot: Robot, *, samples: int = BURIED_SAMPLES, fraction: float
     inside the jaw and the judge reported it missing).  Uses the sweep's own
     :class:`LinkBody` island containment, so this check and the collision sweep agree
     about what "inside" means; works on the open meshes agents actually export."""
-    from codeverse3d.spatial.joints_model import link_world_meshes
-
     meshes = link_world_meshes(robot, {})
     bodies = {n: collide.LinkBody(n, m) for n, m in meshes.items() if not m.is_empty and m.area > 0}
     out: list[GateFinding] = []

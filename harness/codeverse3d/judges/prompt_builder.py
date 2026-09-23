@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import random
 from dataclasses import dataclass, replace
@@ -37,8 +38,9 @@ from codeverse3d.contracts.chat import ChatMessage, ImagePart, TextPart
 from codeverse3d.contracts.plan import AcceptanceItem
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import OBJECT_CLAY_VIEWS, OBJECT_VIEWS, SCENE_VIEWS, ViewPreset
-from codeverse3d.judges.rubrics import VETO_PENETRATION_DEPTH_M, Rubric
+from codeverse3d.judges.rubrics import VETO_PENETRATION_DEPTH_M, Rubric, wire_schema
 from codeverse3d.proc import unique_tmp
+from codeverse3d.prompts import prompt_hash
 from codeverse3d.spatial.connectivity import PENETRATION_ERROR_M, PENETRATION_WARN_M
 from codeverse3d.spatial.measure import measure_summary_table
 from codeverse3d.spatial.sheet import crop_region, load_font, montage_2x2
@@ -879,11 +881,6 @@ def judge_prompt_hash(rubric: Rubric) -> str:
     ``ScoreBreakdown.judge_prompt_hash`` / ``record.prompt_hashes["judge"]`` it touched.
     ``rubric_hash`` (the YAML alone) stays alongside for the narrower question.
     """
-    import json
-
-    from codeverse3d.judges.rubrics import wire_schema
-    from codeverse3d.prompts import prompt_hash
-
     payload = "\n".join([
         build_system_prompt(rubric),
         *(RIG_RULES[k] for k in sorted(RIG_RULES)),

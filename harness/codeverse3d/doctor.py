@@ -11,7 +11,7 @@ import shutil
 from pathlib import Path
 
 from codeverse3d.config import get_settings
-from codeverse3d.proc import read_json_or_none, version_line
+from codeverse3d.proc import read_json_or_none, run_subprocess, version_line
 
 Row = tuple[str, str, str]
 _PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", "numpy", "trimesh", "fcl", "PIL", "pyarrow",
@@ -117,7 +117,6 @@ _PROBE_JS = (
 
 def check_gpu_probe(timeout_s: int = 120) -> list[Row]:
     """Launch headless Chrome through runtime_js/gpu_launch.cjs and report the WebGL renderer."""
-    from codeverse3d.proc import run_subprocess
     from codeverse3d.spatial.node import parse_last_json
 
     s = get_settings()

@@ -43,7 +43,13 @@ from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
-from codeverse3d.contracts.common import Usage, is_harness_owned
+from codeverse3d.contracts.common import (
+    ENTRY_FILE,
+    HARNESS_OWNED_SRC,
+    Language,
+    Usage,
+    is_harness_owned,
+)
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import NULL_EVENTS, read_json_or_none
 from codeverse3d.workspace import Workspace
@@ -706,8 +712,6 @@ def _always_writable(language: str, task: GenerationTask) -> list[str]:
     scoped refines whose prompt promises entry access) or a ``files_hint`` naming the
     entry.  Part / zone / detail / asset tasks own nothing here — under the old
     unconditional exemption, parallel scoped sessions raced on the entry file unopposed."""
-    from codeverse3d.contracts.common import ENTRY_FILE, Language
-
     try:
         entry = ENTRY_FILE[Language(language)]
     except (ValueError, KeyError):
@@ -728,8 +732,6 @@ def _envelope_scope(ws: Workspace, task: GenerationTask) -> tuple[set[str] | Non
 def _read_only(language: str) -> list[str]:
     """The harness-owned files of the language (``src/recipes.glsl`` for glsl_shader): every session
     of the run — baseline, refine, repair — may read them, none may write them."""
-    from codeverse3d.contracts.common import HARNESS_OWNED_SRC, Language
-
     try:
         return list(HARNESS_OWNED_SRC.get(Language(language), ()))
     except ValueError:

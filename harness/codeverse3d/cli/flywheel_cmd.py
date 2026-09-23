@@ -9,7 +9,7 @@ from typing import Annotated
 import typer
 from rich.markup import escape
 
-from codeverse3d.addons.dataset.pairs import MIN_PREFERENCE_DELTA
+from codeverse3d.addons.dataset.pairs import MIN_PREFERENCE_DELTA, build_pairs
 from codeverse3d.cli import _common as C
 from codeverse3d.cli._common import console, kv_table, ok, warn
 
@@ -72,8 +72,6 @@ def pairs_cmd(
     min_delta: Annotated[float, typer.Option("--min-delta")] = MIN_PREFERENCE_DELTA,
 ) -> None:
     """Preference / repair (round-to-round) / cross-backend pairs → JSONL."""
-    from codeverse3d.addons.dataset.pairs import build_pairs
-
     n = build_pairs(runs_dir, out_jsonl, min_delta=min_delta)
     ok(f"{n} pairs → {out_jsonl}")
 

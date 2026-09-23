@@ -108,8 +108,6 @@ def resolve_roots(roots: list[Path] | None) -> list[Path]:
     seen = {p.resolve() for p in found}  # D77: the batteries live in <repo>/eval/bench/out/<b>/runs
     found += [p for p in sorted((C.EVAL_ROOT / "bench" / "out").glob("*/runs")) if p.is_dir() and p.resolve() not in seen]
     if not found:
-        from codeverse3d.config import get_settings
-
         fallback = Path(get_settings().runs_dir)
         if fallback.is_dir():
             return [fallback]

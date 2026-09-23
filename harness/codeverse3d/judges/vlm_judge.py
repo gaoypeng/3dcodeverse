@@ -52,7 +52,7 @@ from codeverse3d.judges.rubrics import (
 )
 from codeverse3d.models.base import ChatModel, ModelError
 from codeverse3d.proc import fan_out, unique_tmp
-from codeverse3d.reference import compare, conflict_note
+from codeverse3d.reference import compare, conflict_note, dimension_conflict
 from codeverse3d.spatial.silhouette import best_view_match, compare_silhouette
 
 log = logging.getLogger(__name__)
@@ -439,8 +439,6 @@ class ReferenceJudge(VlmJudge):
         if not targets:
             return {"conflict": False}
         try:
-            from codeverse3d.reference import dimension_conflict
-
             return dimension_conflict(inp.spec, targets[0].path)
         except Exception as e:  # noqa: BLE001 — advisory
             log.warning("dimension-conflict check failed: %s", e)
