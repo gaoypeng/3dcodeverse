@@ -15,8 +15,8 @@
  * `makeRainRings` is the open-water half of `rain.js`, whose splashes
  * are for hard ground.
  *
- * NOT a second reflective surface: `water.js` owns the scene's one RTT
- * plane. Everything here shades what is under that plane or lies on it.
+ * NOT a reflective surface: the reflection is `water.js`'s RTT plane.
+ * Everything here shades what is under that plane or lies on it.
  */
 
 import * as THREE from 'three';

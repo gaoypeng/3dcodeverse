@@ -8,8 +8,7 @@
  * silhouette and no shape — it is the image behind it, moved. So this
  * one never emits a pixel of its own: it grabs the frame drawn so far
  * into a texture and resamples it at displaced coordinates. That grab
- * is a framebuffer COPY, not a second scene render, so it does not
- * touch the scene's one RTT budget (a `Reflector`
+ * is a framebuffer COPY, not a second scene render (a `Reflector`
  * re-renders the WHOLE scene at +48 ms/frame on SwiftShader; a copy of
  * a frame already drawn is a blit). What it costs and what it cannot
  * do is written out on `makeHeatShimmer`.
@@ -67,7 +66,7 @@ const _SIZE = new THREE.Vector2();
  * three allocates SRGB8_ALPHA8 and the copy is refused again.
  *
  * This is a resolve of a frame already drawn, not a second pass over
- * the scene: it does not spend the scene's one RTT budget.
+ * the scene: it does not render the scene again.
  */
 function frameGrabber(mat) {
     let tex = null;

@@ -1,9 +1,9 @@
 /**
  * Mirror and rain-wet floors: a real planar reflection under a rough
  * overlay. A bare Reflector is SHARP (reads as marble, never damp
- * asphalt), so the overlay sets the finish. COST CONTRACT: the
- * Reflector re-renders the WHOLE scene per frame — AT MOST ONE RTT
- * surface per scene (mirror floor OR water plane, never both).
+ * asphalt), so the overlay sets the finish. COST: the Reflector
+ * re-renders the WHOLE scene per frame — use a mirror floor OR a water
+ * plane, never both.
  *
  * PORT NOTE (2026-09-01, our renderer: ACES, exposure 1.0, no post
  * chain). The shipped pair blends the two layers by a CONSTANT, and

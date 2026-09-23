@@ -1,7 +1,7 @@
 /**
  * Draw-call collapse for static props: many positioned meshes in, ONE
  * mesh out. Software GL is DRAW-CALL-bound, making this the biggest
- * SwiftShader perf lever (scene contract: <150 draw calls). Never
+ * SwiftShader perf lever. Never
  * merge anything tick() animates or a fix round must retarget alone.
  *
  * The merge is also where a batch stops looking like a batch: 40 stones

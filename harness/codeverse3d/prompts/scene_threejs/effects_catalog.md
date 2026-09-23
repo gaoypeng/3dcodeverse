@@ -30,7 +30,7 @@ says `import { makeGrass } from '../lib/grass.js';`, `src/scene.js` says
 | anything BELOW the water, rain rings, thin ice | `patchUnderwater` · `makeRainRings` · `patchThinIce` — `lib/submerged.js` |
 | the moving net of light under water | `patchCaustics(material, { level, sunDir })` — `lib/caustics.js`; goes on the surface being LIT, not on the water |
 | moss, damp near water, dried mud | `patchMoss` · `patchMoisture` · `patchCrackedMud` — `lib/damp.js` |
-| a polished or wet floor | `makeMirrorFloor(w, d)` — `lib/wetground.js`; spends the same one-RTT budget as `makeOcean` |
+| a polished or wet floor | `makeMirrorFloor(w, d)` — `lib/wetground.js`; re-renders the scene like `makeOcean` — use one or the other |
 | rock, cliff, ground | `patchTriplanar` · `patchSlopeSplat` — `lib/terrain_shade.js` |
 | ground and cliff geometry | `ground({ size, rand: mulberry32(seed), relief, flat })` returns `{ mesh, height }` — seat every asset at height(x, z); with no seeded rand the ground is flat · `cliff({ length, height, rand })` — `lib/terrain.js` |
 | placing a camera or a prop by intent | `seat` · `establishingShot` · `faceToward` · `alongPath` · `crowdOn` — `lib/place.js` |

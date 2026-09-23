@@ -10,7 +10,7 @@
  * compiled program while keeping their own values.
  *
  * They complement `water.js` instead of fighting it: the addon Water is
- * the scene's ONE RTT surface and its raw ShaderMaterial has no
+ * a reflective (RTT) surface and its raw ShaderMaterial has no
  * `<color_fragment>` hook, so `patchShallowWater` belongs on a plain
  * standard-material reach (a shallow bay, a river) beside it.
  */
@@ -286,8 +286,8 @@ function fitBedPlane(bedAt, bounds, level) {
  * bank is; with no `bedAt` it degenerates to the constant `bedLevel`.
  *
  * Not for the addon Water from `water.js` — that is a raw
- * ShaderMaterial with no `<color_fragment>` hook (and the scene's one
- * RTT surface). Use this on a plain standard-material reach beside it.
+ * ShaderMaterial with no `<color_fragment>` hook (and a reflective RTT
+ * surface). Use this on a plain standard-material reach beside it.
  *
  * @param {THREE.Material} material The water surface's built-in
  *   material, patched in place.
