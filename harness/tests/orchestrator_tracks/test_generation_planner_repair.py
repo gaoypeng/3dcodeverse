@@ -259,6 +259,16 @@ def test_build_with_repair_single_shot_sends_file_contents_and_stops_at_max(tmp_
 
 
 
+
+def test_repair_cookbook_sections_are_the_prompt_sections():
+    """Repair splits the cookbook with ``prompts.sections`` (its own ``^##+`` regex went,
+    identical on all 7 shipped cookbooks): a ``## `` comment inside a fence is code, not
+    a heading that cuts the recipe in half."""
+    cb = ("## Hinges\nhinge pivot axis revolute\n```python\n## pivot axis note\nhinge = 1\n```\n"
+          "## Materials\nroughness metalness\n")
+    got = relevant_cookbook_section(cb, "hinge pivot axis wrong")
+    assert got.startswith("## Hinges") and "hinge = 1" in got and "Materials" not in got
+
 def test_repair_rel_strips_a_prefix_not_a_character_set(tmp_ws):
     """B14: ``lstrip("./")`` turned ``../x`` into ``x`` and ``.env.js`` into ``env.js``."""
     from types import SimpleNamespace

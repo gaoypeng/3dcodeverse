@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from codeverse3d.contracts.artifacts import BuildResult, GateReport
 from codeverse3d.contracts.common import Usage
 from codeverse3d.prompts import render
+from codeverse3d.prompts.sections import split_sections
 from codeverse3d.tracks import skills_hook
 from codeverse3d.tracks.common import RunContext, generate_for
 from codeverse3d.tracks.generation import GenerationResult, GenerationTask
@@ -85,7 +86,6 @@ def format_error_report(build: BuildResult, lint: GateReport, cookbook: str = ""
     return "\n".join(lines)
 
 
-_HEADING = re.compile(r"^##+ .+$", re.M)
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
 
 
@@ -93,15 +93,10 @@ def relevant_cookbook_section(cookbook: str, error_text: str, *, max_chars: int 
     """Pick the cookbook ``##`` section sharing the most identifiers with the error."""
     if not cookbook or not error_text:
         return ""
-    heads = list(_HEADING.finditer(cookbook))
-    if not heads:
-        return ""
     err_words = {w.lower() for w in _WORD.findall(error_text)}
     err_words -= {"error", "line", "file", "traceback", "most", "recent", "call", "last", "module"}
     best, best_score = "", 0
-    for i, h in enumerate(heads):
-        end = heads[i + 1].start() if i + 1 < len(heads) else len(cookbook)
-        body = cookbook[h.start():end]
+    for body in (s.body for s in split_sections(cookbook) if s.level >= 2):
         words = {w.lower() for w in _WORD.findall(body)}
         score = len(words & err_words)
         if score > best_score:
