@@ -24,6 +24,7 @@ import { classifyBackdrop, nonSolid, drawableBox } from './backdrop.mjs';
 import { installShaderErrorHook } from './host_shader_errors.mjs';
 import { attributeErrors, captured, captureMaterialSources, materialAudit } from './host_compile.mjs';
 import { makeRenderer, rendererString } from './browser/renderer.js';
+import { observeUpdateHooks } from './update_hooks.mjs';
 
 const FIXED_DT = 1 / 30;
 const LOAD_IDLE_TIMEOUT_MS = 30000;
@@ -658,6 +659,20 @@ function census() {
   return c;
 }
 
+/** Probe-only observation around the normal deterministic update steps. */
+function probeUpdateHooks(t) {
+  const start = state.simTime;
+  try {
+    const report = observeUpdateHooks(state.scene, () => advanceTo(t));
+    return { ...report, from_time: start, to_time: state.simTime };
+  } catch (error) {
+    // Optional instrumentation must not turn an unusual userData descriptor
+    // into an agent build failure; the ordinary update error checks still run.
+    advanceTo(t);
+    return { error: String(error?.message || error).slice(0, 400), from_time: start, to_time: state.simTime };
+  }
+}
+
 window.__c3v = {
   boot,
   renderAt,
@@ -666,6 +681,7 @@ window.__c3v = {
   compileAll,
   census,
   placement,
+  probeUpdateHooks,
   fps,
   post: () => (state.postInfo ? { ...state.postInfo } : null),
   hostWarnings: () => state.hostWarnings.slice(),

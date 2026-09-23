@@ -182,6 +182,17 @@ def _census_findings(c: dict[str, Any]) -> list[GateFinding]:
     out: list[GateFinding] = []
     if not c:
         return out
+    hook_audit = c.get("animation_hooks") or {}
+    for hook in hook_audit.get("unobserved", [])[:12]:
+        out.append(_f(
+            gate, Severity.WARN,
+            f"animation hook {hook.get('path', '?')} was not observed during "
+            f"update sampling ({hook_audit.get('from_time', 0):g}–{hook_audit.get('to_time', 0):g} s)",
+            target=hook.get("zone") or "src/scene.js",
+            hint="verify the parent zone forwards update(t, dt) to this asset; captured callback references "
+                 "or delayed animation can evade this observation, so inspect before changing code",
+            kind="unobserved_animation_hook", hook_path=hook.get("path"),
+        ))
     tot = c.get("totals", {})
     if tot.get("lights", 0) == 0:
         out.append(_f(gate, Severity.WARN, "scene has no lights (MeshStandardMaterial renders black)", target="src/env.js",

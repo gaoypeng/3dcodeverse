@@ -86,14 +86,16 @@ async function main() {
       // exercise update() for a few fixed steps and one tiny render (lazy programs compile)
       const upd = await page.evaluate((n) => {
         try {
+          const animation_hooks = window.__c3v.probeUpdateHooks(n / 30);
           window.__c3v.renderAt(window.__c3v.cameras()[0], n / 30);
-          return { ok: true };
+          return { ok: true, animation_hooks };
         } catch (e) {
           return { ok: false, error: String((e && e.stack) || e).slice(0, 800) };
         }
       }, 10);
       result.update_ok = upd.ok;
       result.update_error = upd.error || '';
+      if (upd.animation_hooks) result.census.animation_hooks = upd.animation_hooks;
       // update() exceptions are caught page-side (rendering continues); still a probe failure
       const updateErrors = await page.evaluate(() => window.__c3v.updateErrors());
       if (upd.ok && updateErrors.length) {
