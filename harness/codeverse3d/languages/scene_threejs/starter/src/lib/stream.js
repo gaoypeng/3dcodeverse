@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { mulberry32 } from './noise.js';
-import { GLSL_UTIL, withRendererState } from './shader.js';
+import { GLSL_UTIL, planarCapture } from './shader.js';
 
 // IcosahedronGeometry duplicates triangle vertices. Preserve rounded cobble
 // shading after deformation by averaging normals at coincident positions.
@@ -503,44 +503,13 @@ export function makeStream(opts = {}) {
     target.texture.minFilter = THREE.LinearMipmapLinearFilter;
     uniforms.streamReflection = { value: target.texture };
     uniforms.streamReflectionMatrix = { value: new THREE.Matrix4() };
-    const inverseMirror = new THREE.Matrix4();
-    const mirrorNormalMatrix = new THREE.Matrix3();
-    const worldMirrorNormal = new THREE.Vector3();
-    const worldMirrorPoint = new THREE.Vector3();
-    const mirrorRotation = new THREE.Quaternion();
-    const mirrorAxis = new THREE.Vector3(0, 0, 1);
-    let capturing = false;
-    surface.onBeforeRender = (renderer, scene, camera, geometry, drawMaterial) => {
-      // GTAO/depth override passes need no colour reflection capture.
-      if (scene.overrideMaterial || capturing || surface.material !== material
-          || (drawMaterial && drawMaterial !== material)) return;
-      // Reflector extracts a rotation from matrixWorld. Passing a scaled or
-      // sheared plane matrix gives it the wrong normal. Transform the plane
-      // by the inverse transpose, then supply an equivalent rigid world frame.
-      mirrorNormalMatrix.getNormalMatrix(group.matrixWorld);
-      worldMirrorNormal.copy(gradeNormal).applyMatrix3(mirrorNormalMatrix).normalize();
-      if (worldMirrorNormal.lengthSq() < .5) return;
-      worldMirrorPoint.copy(reflection.position).applyMatrix4(group.matrixWorld);
-      mirrorRotation.setFromUnitVectors(mirrorAxis, worldMirrorNormal);
-      reflection.matrixWorld.makeRotationFromQuaternion(mirrorRotation).setPosition(worldMirrorPoint);
-      const oldVisible = surface.visible;
-      const oldMirrorVisible = reflection.visible;
-      capturing = true;
-      surface.visible = false;
-      try {
-        withRendererState(renderer, () => {
-          reflection.onBeforeRender(renderer, scene, camera);
-          inverseMirror.copy(reflection.matrixWorld).invert();
-          uniforms.streamReflectionMatrix.value
-            .copy(reflection.material.uniforms.textureMatrix.value)
-            .multiply(inverseMirror).multiply(surface.matrixWorld);
-        });
-      } finally {
-        surface.visible = oldVisible;
-        reflection.visible = oldMirrorVisible;
-        capturing = false;
-      }
-    };
+    // The helper Reflector is placed on the group's (possibly affine) mean
+    // grade; its texture matrix is mapped back onto the surface's positions.
+    planarCapture(surface, (renderer, scene, camera, toRigid) => {
+      reflection.onBeforeRender(renderer, scene, camera);
+      uniforms.streamReflectionMatrix.value
+        .copy(reflection.material.uniforms.textureMatrix.value).multiply(toRigid);
+    }, { mirror: reflection, frame: group, normal: gradeNormal, point: reflection.position });
   }
   if (opts.bed !== false) {
     const bedMaterial = new THREE.MeshStandardMaterial({

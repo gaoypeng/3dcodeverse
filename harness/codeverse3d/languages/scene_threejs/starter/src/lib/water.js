@@ -16,7 +16,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { Water } from 'three/addons/objects/Water.js';
-import { withRendererState } from './shader.js';
+import { planarCapture } from './shader.js';
 
 // Battery-graded freeze point: mid-phase, waves clearly formed.
 const FROZEN_TIME = 7.3;
@@ -386,18 +386,11 @@ export function makeOcean(width, depth, opts = {}) {
       ambient: opts.ambient !== undefined,
     };
     const base = water.onBeforeRender;
-    const captureMaterial = water.material;
-    const actualWorld = new THREE.Matrix4();
-    const normalMatrix = new THREE.Matrix3();
-    const worldNormal = new THREE.Vector3();
-    const worldPoint = new THREE.Vector3();
-    const rotation = new THREE.Quaternion();
-    const axis = new THREE.Vector3(0, 0, 1);
     let first = true;
-    let capturing = false;
-    water.onBeforeRender = function (renderer, scene, camera, geometry, material) {
-      if (disposed || scene.overrideMaterial || capturing || this.material !== captureMaterial
-          || (material && material !== captureMaterial)) return;
+    // Water's plane calculation assumes a rigid matrix; planarCapture
+    // supplies one while keeping Water's world-space textureMatrix (unlike
+    // Reflector, Water does not project mesh-local positions).
+    planarCapture(water, (renderer, scene, camera) => {
       _readScene(scene, uniforms, pinned);
       if (first) {
         first = false;
@@ -412,61 +405,20 @@ export function makeOcean(width, depth, opts = {}) {
           mirror.type = THREE.HalfFloatType;
         }
       }
-      // Water's plane calculation assumes a rigid matrix. Supply the true
-      // inverse-transpose normal while keeping its world-space textureMatrix:
-      // unlike Reflector, Water does not project mesh-local positions.
-      actualWorld.copy(this.matrixWorld);
-      normalMatrix.getNormalMatrix(actualWorld);
-      worldNormal.copy(axis).applyMatrix3(normalMatrix).normalize();
-      if (worldNormal.lengthSq() < 0.5) return;
-      worldPoint.setFromMatrixPosition(actualWorld);
-      rotation.setFromUnitVectors(axis, worldNormal);
-      const autoUpdate = this.matrixWorldAutoUpdate;
-      const needsUpdate = this.matrixWorldNeedsUpdate;
-      const visible = this.visible;
-      // Nested scene updates must not propagate the temporary rigid frame
-      // into caller-owned descendants (including cameras and bones).
-      const descendants = [];
-      for (const child of this.children) child.traverse((node) => {
-        descendants.push([node, node.matrixWorldAutoUpdate, node.matrixWorldNeedsUpdate]);
-        node.matrixWorldAutoUpdate = false;
-      });
-      capturing = true;
-      this.matrixWorldAutoUpdate = false;
-      this.matrixWorld.makeRotationFromQuaternion(rotation).setPosition(worldPoint);
+      if (ownedTarget) return base.call(water, renderer, scene, camera);
+      // Three keeps this target private. Capture only its own target
+      // on the first mirror draw, restoring the method even on error.
+      const setTarget = renderer.setRenderTarget;
+      renderer.setRenderTarget = function (target, ...args) {
+        if (target && target.texture === uniforms.mirrorSampler.value) ownedTarget = target;
+        return setTarget.call(this, target, ...args);
+      };
       try {
-        withRendererState(renderer, () => {
-          if (ownedTarget) {
-            base.call(this, renderer, scene, camera);
-          } else {
-            // Three keeps this target private. Capture only its own target
-            // on the first mirror draw, restoring the method even on error.
-            const setTarget = renderer.setRenderTarget;
-            renderer.setRenderTarget = function (target, ...args) {
-              if (target && target.texture === uniforms.mirrorSampler.value) {
-                ownedTarget = target;
-              }
-              return setTarget.call(this, target, ...args);
-            };
-            try {
-              base.call(this, renderer, scene, camera);
-            } finally {
-              renderer.setRenderTarget = setTarget;
-            }
-          }
-        });
+        return base.call(water, renderer, scene, camera);
       } finally {
-        this.matrixWorld.copy(actualWorld);
-        this.matrixWorldAutoUpdate = autoUpdate;
-        this.matrixWorldNeedsUpdate = needsUpdate;
-        for (const [node, childAutoUpdate, childNeedsUpdate] of descendants) {
-          node.matrixWorldAutoUpdate = childAutoUpdate;
-          node.matrixWorldNeedsUpdate = childNeedsUpdate;
-        }
-        this.visible = visible;
-        capturing = false;
+        renderer.setRenderTarget = setTarget;
       }
-    };
+    }, { skip: () => disposed });
   }
   const owned = snapshotResources(water);
   if (!opts.waterNormals) owned.add(uniforms.normalSampler.value);

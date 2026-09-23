@@ -169,7 +169,7 @@ BUILD: dict[str, str] = {
     "sand.js": "[L.sand.makeSandTerrain({ size: [20, 20], seed: 3 })]",
     "smoke.js": "[L.smoke.makeSmoke({ quality: 'low', seed: 2 }), L.smoke.makeSteam({ quality: 'low' })]",
     "stream.js": "[L.stream.makeStream({ points: [[0, 0.6, -8], [2, 0.3, 0], [0, 0, 8]], width: 2, depth: 0.3,"
-                 " seed: 4, obstacles: [{ u: 0.5, lateral: 0.2, radius: 0.3 }] })]",
+                 " seed: 4, reflectionSize: 256, obstacles: [{ u: 0.5, lateral: 0.2, radius: 0.3 }] })]",
     "tree.js": "[L.tree.makeTree({ species: 'birch', height: 4, maxLeaves: 600, seed: 3 }),"
                " L.tree.makeShrub({ maxLeaves: 300, seed: 2 })]",
     "waterfall.js": "[L.waterfall.makeWaterfall({ width: 2, height: 3, seed: 4 })]",

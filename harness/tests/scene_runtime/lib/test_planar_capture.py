@@ -5,21 +5,24 @@ import pytest
 
 from tests.scene_runtime.lib._probe import compile_scene
 
-_LIBS = ("water.js", "wetground.js")
+_LIBS = ("water.js", "wetground.js", "ocean.js")
 
 
-@pytest.mark.parametrize("factory", ["wetground", "water"])
+# ocean: its reflection once ran in override passes and clobbered the viewport.
+@pytest.mark.parametrize("factory", ["wetground", "water", "ocean"])
 def test_addon_capture_preserves_affine_projection_and_renderer_state(factory: str) -> None:
     script = r"""
 import * as THREE from 'three';
 import { makeMirrorFloor } from './lib/wetground.js';
 import { makeOcean } from './lib/water.js';
+import { makeOceanSurface } from './lib/ocean.js';
 import { withRendererState } from './lib/shader.js';
 export function createScene({renderer}) {
  const kind='FACTORY';
  const scene=new THREE.Scene();scene.background=new THREE.Color(0x667788);
- const object=kind==='wetground'?makeMirrorFloor(8,8,{rttSize:64,detail:0,ripple:0}):makeOcean(8,8,{rttSize:64,distortionScale:0});
- const surface=kind==='wetground'?object.getObjectByName('MirrorSurface'):object;
+ const object=kind==='wetground'?makeMirrorFloor(8,8,{rttSize:64,detail:0,ripple:0})
+  :kind==='ocean'?makeOceanSurface({width:8,depth:8,segments:16,reflectionSize:64}):makeOcean(8,8,{rttSize:64,distortionScale:0});
+ const surface=kind==='wetground'?object.getObjectByName('MirrorSurface'):kind==='ocean'?object.userData.surface:object;
  // Caller attachments include a mesh, a camera, a bone hierarchy, and a
  // manually managed world transform; no capture may take ownership of them.
  const attached=new THREE.Mesh(new THREE.BoxGeometry(.2,.3,.4),new THREE.MeshBasicMaterial());

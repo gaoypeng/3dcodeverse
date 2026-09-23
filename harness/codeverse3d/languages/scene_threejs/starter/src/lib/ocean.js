@@ -15,7 +15,7 @@
  */
 import * as THREE from 'three';
 import { mulberry32 } from './noise.js';
-import { GLSL_UTIL } from './shader.js';
+import { GLSL_UTIL, planarCapture } from './shader.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 
 const TAU = Math.PI * 2;
@@ -275,6 +275,7 @@ void main() {
  * be translated/rotated/scaled. Local heights are not world-space raycasts.
  */
 export function makeOceanSurface(opts = {}) {
+  let disposed = false;
   const width = finite(opts.width, 160, 'width', 1, 10000),
     depth = finite(opts.depth, 160, 'depth', 1, 10000);
   const height = finite(opts.waveHeight, 1.2, 'waveHeight', 0, 20);
@@ -460,7 +461,9 @@ export function makeOceanSurface(opts = {}) {
     tp = new THREE.Vector3(),
     ambientContribution = new THREE.Color(),
     environmentRotation = new THREE.Matrix4();
-  sea.onBeforeRender = function (renderer, scene, camera) {
+  // One guarded colour-pass capture: never in override (GTAO/depth) passes or
+  // nested captures, renderer state restored, rigid mirror frame under scale.
+  planarCapture(sea, (renderer, scene, camera, toRigid) => {
     const environment = scene.environment;
     const equirect =
       environment &&
@@ -496,10 +499,10 @@ export function makeOceanSurface(opts = {}) {
     }
     group.updateWorldMatrix(true, false);
     u.seaRotation.value.getNormalMatrix(group.matrixWorld);
-    base.call(this, renderer, scene, camera);
-  };
-  let time = 0,
-    disposed = false;
+    base.call(sea, renderer, scene, camera);
+    u.textureMatrix.value.multiply(toRigid);
+  }, { skip: () => disposed });
+  let time = 0;
   const smooth = (x) => {
     x = Math.max(0, Math.min(1, x));
     return x * x * (3 - 2 * x);

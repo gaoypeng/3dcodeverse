@@ -1346,3 +1346,76 @@ export function withRendererState(renderer, callback) {
         }
     }
 }
+
+const PLANE_AXIS = new THREE.Vector3(0, 0, 1);
+const PLANE_ORIGIN = new THREE.Vector3();
+
+/**
+ * Install `mesh.onBeforeRender` for a three.js planar reflection addon
+ * (Reflector / Water). The capture runs once per COLOUR draw of `material`:
+ * never in an override pass (GTAO, depth), a nested capture or a draw of a
+ * replaced material, and never when the camera is behind the plane (unless
+ * `mirror.forceUpdate`). The addon reads its plane from a rotation of
+ * `mirror.matrixWorld`, which is wrong under nonuniform scale or shear, so
+ * during `capture` that matrix is a RIGID frame on the true (inverse-transpose)
+ * plane, then restored with the caller's descendants untouched. Renderer
+ * state is scoped by withRendererState.
+ *
+ * capture(renderer, scene, camera, toRigid): toRigid = rigid⁻¹ · mesh.matrixWorld,
+ * the factor that maps the addon's rigid-frame texture matrix back onto the
+ * mesh's actual local positions. `frame`, `normal` and `point` place the
+ * plane (frame-local); both default to the mesh itself and its local +Z.
+ */
+export function planarCapture(mesh, capture, {
+    material = mesh.material, mirror = mesh, frame = mesh,
+    normal = PLANE_AXIS, point = PLANE_ORIGIN, skip = null,
+} = {}) {
+    const actual = new THREE.Matrix4(), rigid = new THREE.Matrix4(), toRigid = new THREE.Matrix4();
+    const saved = new THREE.Matrix4(), normalMatrix = new THREE.Matrix3();
+    const worldNormal = new THREE.Vector3(), worldPoint = new THREE.Vector3(), eye = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+    let capturing = false;
+    mesh.onBeforeRender = function (renderer, scene, camera, geometry, drawMaterial) {
+        if (capturing || scene.overrideMaterial || mesh.material !== material
+            || (drawMaterial && drawMaterial !== material) || skip?.()) return;
+        actual.copy(frame.matrixWorld);
+        normalMatrix.getNormalMatrix(actual);
+        worldNormal.copy(normal).applyMatrix3(normalMatrix).normalize();
+        if (worldNormal.lengthSq() < 0.5) return;
+        worldPoint.copy(point).applyMatrix4(actual);
+        eye.setFromMatrixPosition(camera.matrixWorld);
+        if (eye.sub(worldPoint).dot(worldNormal) < 0 && !mirror.forceUpdate) return;
+        rotation.setFromUnitVectors(PLANE_AXIS, worldNormal);
+        rigid.makeRotationFromQuaternion(rotation).setPosition(worldPoint);
+        toRigid.copy(rigid).invert().multiply(mesh.matrixWorld);
+        saved.copy(mirror.matrixWorld);
+        const autoUpdate = mirror.matrixWorldAutoUpdate, needsUpdate = mirror.matrixWorldNeedsUpdate;
+        const visible = mesh.visible, mirrorVisible = mirror.visible;
+        // Nested scene updates must not propagate the temporary rigid frame
+        // into caller-owned descendants (including cameras and bones).
+        const descendants = [];
+        for (const child of mirror.children) child.traverse((node) => {
+            descendants.push([node, node.matrixWorldAutoUpdate, node.matrixWorldNeedsUpdate]);
+            node.matrixWorldAutoUpdate = false;
+        });
+        capturing = true;
+        mirror.matrixWorldAutoUpdate = false;
+        mirror.matrixWorld.copy(rigid);
+        mesh.visible = false;
+        try {
+            return withRendererState(renderer, () => capture(renderer, scene, camera, toRigid));
+        } finally {
+            mirror.matrixWorld.copy(saved);
+            mirror.matrixWorldAutoUpdate = autoUpdate;
+            mirror.matrixWorldNeedsUpdate = needsUpdate;
+            for (const [node, childAutoUpdate, childNeedsUpdate] of descendants) {
+                node.matrixWorldAutoUpdate = childAutoUpdate;
+                node.matrixWorldNeedsUpdate = childNeedsUpdate;
+            }
+            mesh.visible = visible;
+            mirror.visible = mirrorVisible;
+            capturing = false;
+        }
+    };
+    return mesh;
+}
