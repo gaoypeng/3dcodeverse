@@ -77,9 +77,8 @@ codeverse3d/
                       contracts Backends; Settings.backends(**overrides) builds a Spec's Backends;
                       default_candidates=1).  ONE switch grammar: every C3D_* knob is a field, read
                       through get_settings() where it is used — no module reads the environment by
-                      hand; an on/off switch is a Flag (on/off/1/0/true/false/yes/no; a typo warns
-                      and keeps the default), Settings.FLAT holds the four flat spellings of nested
-                      knobs (C3D_MAX_IN_FLIGHT, C3D_RENDER_GPU, C3D_SEED_RECIPES, C3D_AGENT_MAX_TURNS)
+                      hand; an on/off switch is a Flag, Settings.FLAT holds the flat spellings of
+                      nested knobs (the grammar and the names: docs/INSTALL.md §8.3)
   contracts/          pydantic: common (Track, Language, Usage, Budget, Backends, TRACK_INFO registry,
                       ENTRY_FILE/code_file/LANGUAGE_LABEL tables), spec (+ RunOptions), plan, artifacts
                       (GateFinding.as_line, GateReport.of, BuildResult.gates, RenderView.judge,
@@ -335,11 +334,10 @@ summary:
 * **scene_threejs**: `src/scene.js` `createScene({THREE, renderer, loaders}) → {scene, cameras, update(t,dt)}`;
   `src/env.js`, `src/zones/*.js`, `src/assets/*.js`, `src/shaders/*.js`; GLBs at
   `public/assets/<name>.glb`.  The harness assembles `scene.js` deterministically.
-  Plus the harness-owned, read-only **effect library** `src/lib/*.js` — 44 modules,
-  24.8k lines, shipped into every workspace by BOTH skeleton paths and listed in
-  `HARNESS_OWNED_SRC` so agent writes to it are reverted (D51).  The starter tree is
-  therefore 52 `.js` files / 25.2k lines, of which 8 are the example scene.  The
-  want → call table the prompts carry is `prompts/scene_threejs/effects_catalog.md`.
+  Plus the harness-owned, read-only **effect library** `src/lib/*.js` — 44 modules
+  (~24k lines; the starter's other `.js` files are the example scene), shipped into every
+  workspace by BOTH skeleton paths and listed in `HARNESS_OWNED_SRC` so agent writes to it
+  are reverted (D51).  The want → call table the prompts carry is `prompts/scene_threejs/effects_catalog.md`.
 * **glsl_shader**: `src/shader.frag` (+ optional `src/common.glsl`,
   `src/buffer_a.frag` for feedback; the harness-owned, read-only `src/recipes.glsl`
   is pasted above them when the track seeded recipes) — the agent never writes

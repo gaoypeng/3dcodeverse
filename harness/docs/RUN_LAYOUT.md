@@ -195,7 +195,7 @@ judge verdicts and events already on disk.  Its STATUS section needs no `record.
 also reads a run in flight (the other three sections wait for the record).
 
 For the money itself across many runs — waste, $ per run, price provenance — use the cost
-package's own command, `3dcode cost show <runs-dir>`.
+package's own command, `3dcode cost --runs-dir <root>`.
 `3dcode show` is the single-run view; both read the same ledger rows.
 
 ## Back-compatibility contract

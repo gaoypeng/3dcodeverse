@@ -217,7 +217,7 @@ session may read but never write — `contracts.common.HARNESS_OWNED_SRC[languag
 sets it on every job of the run and `agents/cli_common._enforce_scope` reverts a
 post-session write to one and fails that session.  **Δ** an entry ending in `/` is a
 DIRECTORY prefix — `contracts.common.is_harness_owned(rel, owned)` is the predicate, and
-it is what names the 44-module effect library without listing 44 paths).
+it is what names the effect library without listing every module).
 Each session writes `trajectories/<label>_rNN/` (files: docs/RUN_LAYOUT.md); **Δ** a re-run of the
 same label+round lands in `<label>.a2_rNN` (then `.a3` …) — the first attempt is never overwritten;
 `result.json` records `attempt` + `job_label`.  Each session makes two git commits (`pre:`/`agent:<label>`).
@@ -387,7 +387,7 @@ Observation{ok: VERDICT, failed: the tool could not run, text, numbers, images, 
     # and no console error — with one it is a verdict)
 from codeverse3d.spatial.mcp_server import observation_content, max_images_for, MAX_TEXT_CHARS
     # payload bound at the MCP boundary: text truncated; images 4 (ok) | 1 (FAIL verdict) | 0 (failed)
-import codeverse3d.spatial.tools   # registers the 16 tools (the list and their tracks: docs/ARCHITECTURE.md §5)
+import codeverse3d.spatial.tools   # registers every tool (the list and their tracks: docs/ARCHITECTURE.md §5)
 python -m codeverse3d.spatial.mcp_server --workspace <ws> [--track X] [--language Y] [--round N] [--list]   # MCP name: 3dcode
 ```
 
