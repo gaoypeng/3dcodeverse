@@ -273,8 +273,9 @@ two effect owners independently found the right one in the code:
 `_deliver_skills` (attach + inline) and `_record_skills` (telemetry), attaching with their
 own kind so the router's rows fire as written. The zone fan-out attaches **once**, outside
 the worker, because three parallel sessions share one workspace and would race the same
-`AGENTS.md`. `tests/skills/test_delivery_reaches_the_session.py` now holds every
-agent-driving module to the hook, pins the per-stage kinds, and pins the fan-out placement.
+`AGENTS.md`. The prompt manifest's scene scenarios (`tests/prompts/manifest.py`) now pin
+each stage's `skills.attached` event and the bundles it routed (the dedicated
+`test_delivery_reaches_the_session.py` went in the 2026-09-23 test cut).
 (Since D70 the zones stage is ONE session; the fan-out arm was removed 2026-09-21 and the
 test now pins one attach before that one session.  Since 2026-09-22 env and zones share one
 wrapper, `SceneTrack._stage_session`, in place of `_deliver_skills` / `_record_skills`.)
