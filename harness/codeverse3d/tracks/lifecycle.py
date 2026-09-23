@@ -51,7 +51,9 @@ from codeverse3d.tracks.planner import plan_temperature
 from codeverse3d.tracks.prompting import (
     base_prompt_context,
     language_system_prompt,
+    reference_images,
     refine_inline_files,
+    skeleton_files,
 )
 from codeverse3d.tracks.repair import format_error_report
 from codeverse3d.tracks.steps import (
@@ -115,6 +117,8 @@ class BaseTrack:
     #: share of the run budget the BASELINE may use (1.0 = no soft cap).  The scene
     #: track lowers it so the refine rounds always inherit money and minutes.
     soft_budget_fraction: float = 1.0
+    #: the whole-program baseline session's sampling temperature
+    baseline_temperature: float = 0.5
 
     def __init__(
         self,
@@ -148,7 +152,14 @@ class BaseTrack:
         self.stage_skeleton(ctx, runner)
 
     def baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
-        raise NotImplementedError
+        """Round 0: one whole-program session — ``generate_template`` over :meth:`generate_context`."""
+        files = ctx.runtime.expected_files(ctx.plan)
+        prompt = render(self.generate_template, **self.generate_context(
+            ctx, skeleton_files=skeleton_files(ctx) if ctx.single_shot else {}, previous_error=""))
+        ctx.record_prompt("generate", prompt)
+        return [GenerationTask(label="baseline", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=0,
+                               kind="baseline", temperature=self.baseline_temperature, thinking="medium", owns_entry=True,
+                               images=reference_images(ctx))]
 
     def system_prompt(self, ctx: RunContext) -> str:
         return language_system_prompt(ctx.language, tools=not ctx.single_shot)

@@ -52,7 +52,6 @@ from codeverse3d.tracks.prompting import (
     reference_images,
     refine_inline_files,
     select_cookbook_chapters,
-    skeleton_files,
 )
 from codeverse3d.workspace import Workspace
 
@@ -383,6 +382,7 @@ class GraphicsTrack(BaseTrack):
     refine_template = "tracks/refine_graphics.j2"
     # refinement is always ONE whole-program task
     allow_refine_fanout = False
+    baseline_temperature = 0.6
 
     def make_pipeline(self) -> GraphicsPipeline:
         return GraphicsPipeline()
@@ -396,16 +396,6 @@ class GraphicsTrack(BaseTrack):
         super().prepare(ctx, runner)
         if seed_recipes(ctx):
             ctx.ws.commit("recipes")
-
-    # ------------------------------------------------------------------ baseline
-    def baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
-        files = ctx.runtime.expected_files(ctx.plan)
-        prompt = render(self.generate_template, **graphics_prompt_context(
-            ctx, skeleton_files=skeleton_files(ctx) if ctx.single_shot else {}, previous_error=""))
-        ctx.record_prompt("generate", prompt)
-        return [GenerationTask(label="baseline", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=0,
-                               kind="baseline", temperature=0.6, thinking="medium", owns_entry=True,
-                               images=reference_images(ctx))]
 
     def generate_context(self, ctx: RunContext, **extra: Any) -> dict[str, Any]:
         return graphics_prompt_context(ctx, **extra)

@@ -50,7 +50,6 @@ from codeverse3d.tracks.prompting import (
     reference_images,
     refine_inline_files,
     scope_context,
-    skeleton_files,
 )
 from codeverse3d.workspace import Workspace
 
@@ -157,33 +156,7 @@ class StaticObjectTrack(BaseTrack):
 
     # ------------------------------------------------------------------ baseline
     def baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
-        scoped = self.scoped_baseline_tasks(ctx)
-        if scoped:
-            return scoped
-        files = ctx.runtime.expected_files(ctx.plan)
-        prompt = render(
-            self.generate_template,
-            **base_prompt_context(
-                ctx,
-                expected_files=files,
-                skeleton_files=skeleton_files(ctx) if ctx.single_shot else {},
-                previous_error="",
-            ),
-        )
-        ctx.record_prompt("generate", prompt)
-        return [
-            GenerationTask(
-                label="baseline",
-                prompt=prompt,
-                system=self.system_prompt(ctx),
-                files_hint=files,
-                round=0,
-                kind="baseline",
-                temperature=0.5,
-                thinking="medium",
-                images=reference_images(ctx),
-            )
-        ]
+        return self.scoped_baseline_tasks(ctx) or super().baseline_tasks(ctx)
 
     # ------------------------------------------------------------------ scoped baseline
     def scopes(self, ctx: RunContext) -> list[PartScope]:
