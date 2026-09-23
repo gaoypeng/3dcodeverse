@@ -445,6 +445,20 @@ def test_battery_layouts_are_discovered_by_flywheel_and_gallery(tmp_path):
     assert [e.slug for e in section.entries] == ["control__ctrl_med_chair__harness_api-agent"]
 
 
+def test_a_run_reached_twice_is_found_once_at_its_physical_path(tmp_path):
+    """Batteries symlink each other's cells: export, index, pairs and the gallery counted them twice."""
+    from codeverse3d.record.record import find_run_dirs
+
+    real = tmp_path / "zz_home" / "runs" / "chair"
+    real.mkdir(parents=True)
+    (real / "record.json").write_text("{}")
+    (tmp_path / "aa_borrower" / "runs").mkdir(parents=True)
+    (tmp_path / "aa_borrower" / "runs" / "chair").symlink_to(real)   # sorts first
+    assert find_run_dirs(tmp_path) == [real], "descending: one hit, the physical one"
+    (real.parent / "alias").symlink_to(real)
+    assert find_run_dirs(real.parent) == [real], "direct children: the alias collapses too"
+
+
 def test_empty_run_roots_distinguish_a_failed_battery_from_legitimate_empty_input(tmp_path):
     from codeverse3d.record.record import iter_runs
 

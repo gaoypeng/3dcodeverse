@@ -71,7 +71,7 @@ def test_a_run_reached_through_a_symlink_is_exported_once_under_its_physical_bat
     alias.mkdir(parents=True)
     (alias / "chair").symlink_to(tmp_path / "zz_physical" / "runs" / "chair")
     rows, drops = _rows(tmp_path)
-    assert len(rows) == 1 and drops == {"duplicate_run": 1}
+    assert len(rows) == 1 and not drops, "a run on disk is found once"
     assert rows[0].battery == "zz_physical", "labelled by the battery it was reached through first"
 
 

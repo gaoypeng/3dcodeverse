@@ -158,17 +158,11 @@ def transitions(runs_dir: Path | str, *, threshold: float = MIN_PREFERENCE_DELTA
     """Every exportable refine transition under ``runs_dir``; every one that is not is counted.
 
     A run reachable through more than one path (54 of 239 under ``eval/bench/out``, where the
-    batteries symlink each other's cells) is exported once, under the battery it physically
-    lives in."""
+    batteries symlink each other's cells) is found once (``find_run_dirs``) and exported under
+    the battery it physically lives in."""
     drops = drops if drops is not None else Counter()
     root = Path(runs_dir)
-    seen: set[Path] = set()
     for found in iter_runs(root, on_error=lambda p, e: drops.update([f"unreadable_record: {type(e).__name__}"])):
-        physical = found.ws.root.resolve()
-        if physical in seen:
-            drops["duplicate_run"] += 1
-            continue
-        seen.add(physical)
         rounds = {r.index: r for r in found.record.rounds}
         for cur in found.record.rounds:
             if cur.kind not in REFINE_KINDS:

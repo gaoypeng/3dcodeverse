@@ -315,14 +315,15 @@ def find_run_dirs(root: Path | str, *, predicate: Callable[[Path], bool] = is_ru
     ab_plan BATTERY directory work: those hold their runs four and five levels down, so
     every exporter used to scan one level, find nothing and report "0 runs" as a success.
     A directory that IS a run is never descended into (a run holds candidate workspaces
-    of its own).
+    of its own).  A run reached through more than one path (``eval/bench/out``'s batteries
+    symlink each other's cells) is listed once, at the path it physically lives at.
     """
     root = Path(root)
     if not root.is_dir():
         return []
-    direct = sorted(d for d in root.iterdir() if predicate(d))
+    direct = [d for d in root.iterdir() if predicate(d)]
     if direct:
-        return direct
+        return _once(root, direct)
     found: list[Path] = []
     frontier = [d for d in sorted(root.iterdir()) if d.is_dir()]  # depth 1
     for _ in range(max_depth):
@@ -335,7 +336,18 @@ def find_run_dirs(root: Path | str, *, predicate: Callable[[Path], bool] = is_ru
                 continue  # a run's own subdirectories are not runs
             nxt.extend(c for c in sorted(d.iterdir()) if c.is_dir())
         frontier = nxt
-    return sorted(found)
+    return _once(root, found)
+
+
+def _once(root: Path, dirs: list[Path]) -> list[Path]:
+    """``dirs`` sorted, one path per directory on disk: the physical path beats an alias."""
+    real = root.resolve()
+    best: dict[Path, Path] = {}
+    for d in sorted(dirs):
+        physical = d.resolve()
+        if physical not in best or physical == real / d.relative_to(root):
+            best[physical] = d
+    return sorted(best.values())
 
 
 def iter_runs(
