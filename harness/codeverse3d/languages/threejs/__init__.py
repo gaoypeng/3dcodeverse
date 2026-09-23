@@ -3,11 +3,9 @@ GLB export + census by ``runtime_js/export_glb.mjs``."""
 
 from __future__ import annotations
 
-import json
 import re
 import time
 from pathlib import Path
-from typing import Any
 
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
@@ -25,6 +23,7 @@ from codeverse3d.languages._js_lint import (
     node_check_syntax as check_syntax,  # module-level name: tests monkeypatch it
 )
 from codeverse3d.languages.base import RuntimeLayout
+from codeverse3d.proc import read_json_or_none
 from codeverse3d.spatial.node import NodeError, NodeResult, run_node, runtime_js_dir
 from codeverse3d.spatial.tool_common import plan_or_none
 from codeverse3d.workspace import Workspace
@@ -365,9 +364,7 @@ class ThreeJsRuntime(RuntimeLayout):
         if res.rc != 0 or not (res.last_json or {}).get("ok") or not glb.is_file():
             result = self._from_error_record(res, ws)
         else:
-            census_data: dict[str, Any] = {}
-            if census.is_file():
-                census_data = json.loads(census.read_text())
+            census_data = read_json_or_none(census) or {}
             result = BuildResult(
                 ok=True, language=self.language.value, glb_path=str(glb),
                 stdout_tail=res.stdout_tail, stderr_tail=res.stderr_tail,

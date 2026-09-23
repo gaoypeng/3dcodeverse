@@ -9,7 +9,6 @@ skip) validated in code with deterministic defaults, cached by content hash.
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from collections.abc import Sequence
 from pathlib import Path
@@ -25,7 +24,7 @@ from codeverse3d.contracts.plan import PartPlan, ScenePlan, StaticPlan
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import to_snake
 from codeverse3d.models.schema_utils import ask_structured
-from codeverse3d.proc import write_text_atomic
+from codeverse3d.proc import write_json_atomic, write_text_atomic
 from codeverse3d.prompts import load_text, prompt_hash, render
 from codeverse3d.texturing.generate import TextureSet, generate_textures
 
@@ -506,8 +505,7 @@ def scene_texture_pack(
 
 def write_manifest(pack: ScenePack, out_dir: Path) -> Path:
     p = Path(out_dir) / MANIFEST_NAME
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(pack.manifest(), indent=2))
+    write_json_atomic(p, pack.manifest())
     return p
 
 

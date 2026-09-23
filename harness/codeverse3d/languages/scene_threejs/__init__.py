@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import time
 from pathlib import Path
@@ -679,10 +678,9 @@ def assemble(ws: Workspace, plan: ScenePlan | None = None, *, cameras: str = "de
     out = ws.src / "scene.js"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text)
-    (ws.artifacts).mkdir(parents=True, exist_ok=True)
     result = AssembleResult(scene_path=str(out), zones_included=healthy, zones_failed=failed, env_ok=env_ok,
                             cameras=cams, warnings=warnings, census=census)
-    (ws.artifacts / "assemble.json").write_text(json.dumps(result.model_dump(mode="json"), indent=1))
+    ws.write_json(ws.artifacts / "assemble.json", result)
     return result
 
 
@@ -751,9 +749,8 @@ class SceneThreeJsRuntime:
         if census:
             ws.write_json(ws.artifacts / "census.json", census)
         gates_dir = ws.artifacts / "gates"
-        gates_dir.mkdir(exist_ok=True)
-        (gates_dir / "scene_probe.json").write_text(probe.model_dump_json(indent=1))
-        (gates_dir / "shader_preflight.json").write_text(shaders.model_dump_json(indent=1))
+        ws.write_json(gates_dir / "scene_probe.json", probe)
+        ws.write_json(gates_dir / "shader_preflight.json", shaders)
         errors = sorted(probe.errors + shaders.errors, key=lambda f: 0 if _target_line(f.target) else 1)
         first = errors[0] if errors else None
         res = BuildResult(

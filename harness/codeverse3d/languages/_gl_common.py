@@ -115,7 +115,7 @@ def finish_build(ws: Workspace, res: GlResult, *, language: str, error_file: str
         gate = frame_gate(seq, motion_expected=motion_expected)
         gates.append(gate)
         metrics = art / METRICS_NAME
-        metrics.write_text(json.dumps({"stats": seq.model_dump(mode="json"), "gate": gate.model_dump(mode="json")}, indent=1))
+        ws.write_json(metrics, {"stats": seq.model_dump(mode="json"), "gate": gate.model_dump(mode="json")})
         extras["metrics"] = str(metrics)
         cen["frame_stats"] = {"mean_lum": seq.mean_lum, "mean_diff": seq.mean_diff, "static": seq.static, "any_nan": seq.any_nan,
                               "colourfulness": seq.mean_colourfulness, "edge_density": seq.mean_edge_density}

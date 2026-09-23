@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from codeverse3d.contracts.artifacts import BuildResult
-from codeverse3d.proc import ProcResult, run_subprocess, tail, write_json_atomic
+from codeverse3d.proc import ProcResult, read_json_or_none, run_subprocess, tail, write_json_atomic
 from codeverse3d.workspace import Workspace
 
 #: The one spelling of every runtime's typed build failures — recorded in build.json /
@@ -163,12 +163,7 @@ def compose_build_result(
 
 def _merge_report(data: dict[str, Any], census_json: Path, glb_path: Path | None,
                   extra_paths: Mapping[str, Path], base: dict[str, Any]) -> BuildResult:
-    census: dict[str, Any] = {}
-    if census_json.is_file():
-        try:
-            census = read_json_file(census_json)
-        except WrapperError:
-            census = {}
+    census = read_json_or_none(census_json) or {}
     # keep the wrapper's extra diagnostics (traceback, warnings …) next to the census
     census["build_report"] = {k: data[k] for k in ("traceback", "error_source", "warnings", "exported", "exec_ms") if k in data}
     glb_ok = glb_path is None or (glb_path.is_file() and glb_path.stat().st_size > 0)
