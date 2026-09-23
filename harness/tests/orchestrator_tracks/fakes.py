@@ -221,13 +221,16 @@ class FakeJudge:
         self.minutes = minutes
         self.calls: list[Any] = []
 
+    def score_for(self, inp: Any) -> float:
+        """The verdict's score: the next of ``scores`` in call order (the last one repeats)."""
+        return self.scores[min(len(self.calls), len(self.scores) - 1)]
+
     def judge(self, inp: Any) -> Judgment:
         from tests.orchestrator_tracks.conftest import FAKE_CLOCK
 
         FAKE_CLOCK["minutes"] += self.minutes
-        i = min(len(self.calls), len(self.scores) - 1)
+        s = self.score_for(inp)
         self.calls.append(inp)
-        s = self.scores[i]
         plan = [ImprovementItem(target=t, kind="geometry", instruction=f"make {t} match plan bbox", priority=k + 1, expected_gain=0.05)
                 for k, t in enumerate(self.targets)]
         acc = {a.id: (a.id not in self.acceptance_fail) for a in inp.acceptance}

@@ -105,6 +105,7 @@ cd /home/yipeng/3dcodeverse/harness
 python -m codeverse3d.addons.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
 python ../eval/bench/complexity_report.py ../eval/bench/out --recursive   # score-vs-complexity + $/complexity point (eval/docs/COMPLEXITY.md)
 python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
+python -m tests.prompts.manifest [--bless | --dump DIR]   # what every model is shown, pinned (RUNBOOK §8): bless only a change a model is MEANT to see
 python -m pytest tests -q -m "not live"            # 2 688 tests, ~100 s (real Blender + headless Chrome + CadQuery)
 python -m pytest tests -q -m "not live and not blender and not node"   # pure python: 2 161 tests   (the 244 bench tests: `cd ../eval && python -m pytest`)
 # (the counts drift every commit — `--collect-only` is the answer, not a number in this file)

@@ -378,6 +378,17 @@ weather: they leave the provider's errors out (docs/COST.md §31); the ceiling d
   `languages/base.py::get_runtime`; `prompts/<lang>/{system,contract,cookbook}.md` (found by
   `prompts/catalog.language_prompt`; every cookbook snippet must run — `tests/prompts`
   executes them).
+* **Changing what a model is shown** (a prompt file or template variable, a cookbook, a skill,
+  a rubric's text, a tool description, anything a session or a judge reads):
+  `tests/prompts/test_manifest.py` pins every payload of offline scenarios across the four tracks
+  and seven languages — agent sessions, chat calls (planner, single-shot), each judge's input and
+  the request the real `VlmJudge` builds from it, the materialised workspace files, the routed
+  skills, the MCP tool lists — and every stage's cache key.  A refactor leaves it byte-identical;
+  a change a model is meant to see re-blesses it in the same commit, saying why:
+  `python -m tests.prompts.manifest --bless` (`--dump DIR` writes every payload, to `diff -r` two
+  trees).  What it cannot drive is listed in `tests/prompts/manifest.py`.  A new prompt file must be
+  loaded by the package (`tests/prompts/test_files.py`) or sit in its `UNREACHED` with the reason; a
+  new language or track adds its scenario to `SCENARIOS`.
 * **New spatial tool**: pydantic args + `@tool("name", Args, "…", tracks=(…),
   languages=(…), cost_hint=…)` in `spatial/tools.py`; available to tracks, MCP and prompt cards at once.
   Update `tests/spatial_tools` EXPECTED_TOOLS.
