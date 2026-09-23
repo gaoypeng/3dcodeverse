@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -74,7 +73,7 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
         raise SceneRenderError(f"missing node driver {path}")
     env_extra: dict[str, str] = {}
     gpu = get_settings().render.gpu
-    if gpu and "C3D_RENDER_GPU" not in os.environ:
+    if gpu:  # Settings already folds the flat C3D_RENDER_GPU in; the driver reads only that spelling
         env_extra["C3D_RENDER_GPU"] = gpu
     argv = [str(a) for a in args]
 
