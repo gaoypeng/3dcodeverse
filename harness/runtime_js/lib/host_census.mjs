@@ -132,7 +132,7 @@ function overlapStats(groups) {
 
 /** Walk `scene` and return the census JSON.  `opts.placement` (default off — the
  * render driver calls this per frame set) adds the per-asset placement table of
- * `host_placement.mjs` under `placement`; the probe driver asks for it separately. */
+ * `host_placement.mjs` under `placement`: the probe's `placement()` asks for it. */
 export function sceneCensus(scene, THREE, opts = {}) {
   scene.updateMatrixWorld(true);
   const groups = [];

@@ -17,7 +17,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { sceneCensus } from './host_census.mjs';
-import { placementTable, settleScene } from './host_placement.mjs';
+import { settleScene } from './host_placement.mjs';
 import { frameStats, nearGeometry, repairCameraSpec } from './host_metrics.mjs';
 import { frameCoverage, glbCoverage } from './host_coverage.mjs';
 import { classifyBackdrop, nonSolid, worldBox } from './backdrop.mjs';
@@ -638,8 +638,7 @@ function fps(seconds, spec) {
 /** Per-asset placement table (host_placement.mjs) — never throws: a failure is `{error}`. */
 function placement() {
   try {
-    const c = sceneCensus(state.scene, THREE);
-    return placementTable(state.scene, THREE, { groundY: c.ground_y, contentBox: c.content_bbox });
+    return sceneCensus(state.scene, THREE, { placement: true }).placement;
   } catch (e) {
     return { error: String((e && e.message) || e).slice(0, 400) };
   }
