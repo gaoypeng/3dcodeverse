@@ -1,0 +1,87 @@
+name: cinematic_v1
+version: 1
+track_hint: scene
+pass_threshold: 0.82
+description: >
+  A demanding review of authored cinematic stills from any renderer. This is an
+  art-direction rubric, not a benchmark of model capability or a motion verdict.
+criteria:
+  - id: composition
+    title: Composition and visual hierarchy
+    weight: 0.22
+    floor: 0.55
+    description: Hero readability, deliberate framing, scale, depth and visual rhythm.
+    anchors:
+      '1.0': Professional shot with an immediate focal point, purposeful foreground, rich middle distance and atmospheric background.
+      '0.7': Readable hero, but a weak layer, awkward tangent, excessive empty space or competing background.
+      '0.4': Generic object presentation, clipped hero or monotonous repeated shapes.
+      '0.1': Unreadable image or camera inside geometry.
+  - id: lighting
+    title: Lighting, color and atmosphere
+    weight: 0.20
+    floor: 0.50
+    description: Motivated illumination, controlled contrast, material highlights, depth and a coherent palette.
+    anchors:
+      '1.0': Nuanced film lighting with selective emphasis, luminous atmosphere, readable shadows and controlled highlights.
+      '0.7': Attractive color and light, with mildly flat fill or limited atmospheric separation.
+      '0.4': Uniform illumination, muddy colors, blown highlights, flat gray haze or black unfilled shadows.
+      '0.1': Severely overexposed or underexposed.
+  - id: geometry_craft
+    title: Geometry and silhouette craft
+    weight: 0.20
+    description: Refinement beyond primitive assembly, credible structural thickness, joints and silhouette detail at the presented scale.
+    anchors:
+      '1.0': Complex, intentional shapes with convincing construction and no conspicuously unfinished assets.
+      '0.7': Refined hero and plausible construction, with a few simple secondary assets.
+      '0.4': Mostly boxes, cylinders, cones or inflated blobs with decoration applied to them.
+      '0.1': Severe geometric defects or unrecognizable assets.
+  - id: surface_craft
+    title: Surface and material craft
+    weight: 0.16
+    description: Distinct material response, believable scale of wear, rich ground treatment and detailed transitions.
+    anchors:
+      '1.0': Convincing material separation, context-specific wear, subtle roughness and contact detail.
+      '0.7': Good materials with a few generic noise patterns or under-dressed ground patches.
+      '0.4': Flat colors, indiscriminate noise, plastic stone, textureless ground or obvious tiling.
+      '0.1': Mostly default materials or broken shading.
+  - id: place_and_story
+    title: Place, story and distinctiveness
+    weight: 0.12
+    description: A coherent world, specific storytelling details and memorable identity matching the brief.
+    anchors:
+      '1.0': A memorable world with coherent architecture, ecology or technology and subtle evidence of life or use.
+      '0.7': Clear identity and some environmental storytelling, but secondary areas feel generic.
+      '0.4': Requested nouns arranged together without a convincing place or meaningful dressing.
+      '0.1': Contradicts the brief or lacks a coherent subject.
+  - id: spatial_coherence
+    title: Spatial coherence
+    weight: 0.10
+    floor: 0.55
+    description: Grounding, relative scale, plausible connections and absence of visible floating or interpenetration.
+    anchors:
+      '1.0': Every visible asset is convincingly placed, supported and proportioned.
+      '0.7': Mostly coherent with a minor ambiguous contact or scale transition.
+      '0.4': A major hero component floats, visible support is implausible or scales conflict.
+      '0.1': Numerous major placement failures.
+defects:
+  - id: hero_clipped
+    text: An essential part of the intended hero is accidentally cut off by the frame.
+    penalty: 0.05
+    cap: 0.72
+  - id: primitive_assembly
+    text: Large visible assets remain an obvious assembly of generic primitives with insufficient silhouette refinement.
+    penalty: 0.07
+    cap: 0.68
+  - id: repeated_nature
+    text: Natural elements show conspicuous identical silhouettes, unnatural regular spacing or inflated blob foliage.
+    penalty: 0.04
+  - id: undressed_ground
+    text: A large visible ground area lacks context-specific material variation, transitions and small-scale dressing.
+    penalty: 0.04
+  - id: floating_geometry
+    text: A visible structural component is separated from its intended support or surface without a plausible reason.
+    penalty: 0.07
+    cap: 0.65
+  - id: incoherent_lighting
+    text: Lighting or atmosphere visibly obscures material identity and spatial hierarchy, or produces distracting unexplained artifacts.
+    penalty: 0.04
