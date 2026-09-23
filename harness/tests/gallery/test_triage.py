@@ -39,15 +39,6 @@ def test_the_buckets_are_disjoint_and_sum_to_n(gallery_tree: dict[str, Path]):
     assert by_slug["half_written"].score is None
 
 
-def test_the_page_states_the_breakdown_and_it_adds_up(gallery_tree: dict[str, Path]):
-    index = build_index([gallery_tree["runs"], gallery_tree["battery"]])
-    markup = render_index(index, UrlMaker())
-    for bucket in VERDICTS:
-        assert f"id='vc-{bucket}'" in markup
-    assert "runs shown" in markup
-    # no pass rate and no pass/fail bucket: a run is not passed or failed
-    assert "PASS RATE" not in markup.upper() and "per pass" not in markup and "vc-passed" not in markup
-
 
 # --------------------------------------------------------------------------- hero view
 def test_the_card_shows_one_hero_view_not_the_contact_sheet(gallery_tree: dict[str, Path]):

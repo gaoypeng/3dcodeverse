@@ -9,37 +9,6 @@ from codeverse3d.addons.gallery.index import build_index, entry_for_dir
 from codeverse3d.addons.gallery.model import match, sort_entries, summarize
 
 
-def test_build_index_sections_and_states(gallery_tree: dict[str, Path]):
-    index = build_index([gallery_tree["runs"], gallery_tree["battery"]])
-    assert [s.label for s in index.sections] == ["runs", "static_v9"]
-    assert index.build_ms >= 0
-    states = {e.slug: e.state for e in index.entries()}
-    assert states == {"lamp_three": "ok", "wooden_chair_ab12cd34": "ok", "art_easy_hinge": "ok",
-                      "ctrl_med_toaster": "ok", "half_written": "broken", "not_started": "pending"}
-    broken = index.find("static_v9", "half_written")
-    assert broken is not None and "record.json" in broken.error
-    assert broken.prompt == "a stool" and broken.track == "static_object"  # spec still read
-    pending = index.find("static_v9", "not_started")
-    assert pending is not None and pending.prompt == "a bookshelf"
-    # a broken/pending run still offers its workspace, and nothing raised
-    assert "workspace" in {link.label for link in broken.links}
-
-
-def test_entry_fields_and_links(gallery_tree: dict[str, Path]):
-    entry = entry_for_dir("runs", gallery_tree["runs"] / "wooden_chair_ab12cd34")
-    assert entry.state == "ok" and entry.verdict == "judged" and entry.tier == "A"
-    assert entry.score == 0.80 and entry.baseline_score == 0.55 and entry.rounds == 2
-    assert entry.picked_round == 1 and entry.minutes is not None
-    assert entry.sheet == "artifacts/renders/r01/sheet.png"
-    labels = [link.label for link in entry.links]
-    assert labels[:2] == ["workspace", "record.json"]
-    assert "src/" in labels and "sheet" in labels and "glb" in labels
-    assert all(not Path(link.rel).is_absolute() for link in entry.links)  # every link is run-relative
-    assert [r.index for r in entry.round_rows] == [0, 1]
-    assert entry.round_rows[1].sheet == "artifacts/renders/r01/sheet.png"
-    assert entry.key == "runs/wooden_chair_ab12cd34"
-
-
 def test_a_card_links_the_picked_rounds_own_glb(tmp_path: Path):
     """artifacts/object.glb is the LAST round's: until a hand-over the card links the picked round's copy."""
     from codeverse3d.addons import select

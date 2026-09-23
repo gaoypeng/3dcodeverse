@@ -92,6 +92,7 @@ def test_server_page_applies_the_filter_server_side(gallery_tree: dict[str, Path
     assert len(re.findall(r"<article class='card [^']*is-hidden' data-run=", markup)) == 5
     assert ">1 <span class='faint'>of 6</span><" in markup
     assert "<option value='threejs' selected>" in markup
+    assert "vc-passed" not in markup and "PASS RATE" not in markup.upper()   # no pass/fail since 2026-09-22
 
 
 def test_detail_links_are_offered_only_when_the_target_has_them(gallery_tree: dict[str, Path]):

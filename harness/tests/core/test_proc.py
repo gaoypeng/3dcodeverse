@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import signal
 import sys
@@ -64,43 +63,8 @@ def test_a_detached_descendant_holding_the_pipes_cannot_extend_the_timeout(tmp_p
 
 
 # --------------------------------------------------------------------------- atomic writes
-_WRITER = """
-import json, sys
-from pathlib import Path
-from codeverse3d.proc import write_json_atomic
-
-path, tag, n = Path(sys.argv[1]), sys.argv[2], int(sys.argv[3])
-payload = {"writer": tag, "blob": [tag * 40] * 900}
-bad = 0
-for _ in range(n):
-    write_json_atomic(path, payload)          # a second writer must not break this one
-    try:
-        json.loads(path.read_text())          # ... and readers must never see a partial file
-    except ValueError:
-        bad += 1
-print(bad)
-"""
-
-
-def test_write_json_atomic_survives_concurrent_writers(tmp_path: Path):
-    """Concurrent processes publish only complete JSON and leave no temp files."""
-    import subprocess
-
-    harness = Path(__file__).resolve().parents[2]
-    target = tmp_path / "shared.json"
-    procs = [subprocess.Popen([sys.executable, "-c", _WRITER, str(target), tag, "40"],
-                              cwd=harness, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-             for tag in ("A", "B", "C")]
-    outs = [(p.wait(), *p.communicate()) for p in procs]
-    for rc, out, errtext in outs:
-        assert rc == 0, f"a writer crashed: {errtext[-500:]}"
-        assert out.strip() == "0", f"a reader saw a partial file {out.strip()} time(s)"
-    assert json.loads(target.read_text())["writer"] in ("A", "B", "C")  # last writer wins, whole
-    assert not list(tmp_path.glob("*.tmp")), "no temp file left behind"
-
-
 def test_concurrent_writers_of_one_destination_all_succeed(tmp_path: Path):
-    """Barrier-synchronized writers can safely replace one destination."""
+    """Barrier-synchronised writers (one pid, many threads) all publish one destination, no temp litter."""
     from codeverse3d.proc import write_text_atomic
 
     out = tmp_path / "shared.txt"

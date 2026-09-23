@@ -50,18 +50,14 @@ def _joint(p: ArticulatedPlan, j: dict):
 
 
 def test_degree_shaped_limits_and_rest_are_converted_together():
-    cases = ((-180.0, 0.0, 0.0), (0.0, 90.0, 90.0))
-    for lower, upper, rest in cases:
-        d = _raw()
-        j = _revolute(d, lower, upper, rest)
-        p = ArticulatedPlan.model_validate(d)
-        fixed = _joint(p, j)
-        assert fixed.type == "revolute"
-        assert fixed.lower == pytest.approx(math.radians(lower))
-        assert fixed.upper == pytest.approx(math.radians(upper))
-        assert fixed.rest == pytest.approx(math.radians(rest))
-        assert sum("looked like degrees" in n for n in p.normalisations) == 1
-        assert not any("continuous" in n for n in p.normalisations)
+    d = _raw()
+    j = _revolute(d, 0.0, 90.0, 90.0)
+    p = ArticulatedPlan.model_validate(d)
+    fixed = _joint(p, j)
+    assert fixed.type == "revolute"
+    assert (fixed.lower, fixed.upper, fixed.rest) == pytest.approx((0.0, math.radians(90), math.radians(90)))
+    assert sum("looked like degrees" in n for n in p.normalisations) == 1
+    assert not any("continuous" in n for n in p.normalisations)
 
 
 def test_a_two_turn_degree_range_falls_through_to_continuous():

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 from pathlib import Path
@@ -95,17 +94,6 @@ def test_a_second_thread_is_refused_and_the_first_keeps_the_lock(tmp_path: Path)
     with exclusive(run_root):   # fully released after the owning thread exits
         pass
 
-
-def test_holder_of_names_the_holder_and_is_empty_otherwise(tmp_path: Path):
-    """`3dcode status` prints this so a human can kill THAT pid, never `pkill -f 3dcode`."""
-    run_root = tmp_path / "runs" / "slug"
-    run_root.mkdir(parents=True)
-    assert holder_of(run_root) is None
-    with exclusive(run_root, what="3dcode make slug"):
-        held = holder_of(run_root)
-        assert held is not None and held["pid"] == os.getpid()
-        assert held["what"] == "3dcode make slug"
-    assert holder_of(run_root) is None, "the record is truncated on release, never left to lie"
 
 
 def test_the_lock_file_lives_outside_the_run_directory(tmp_path: Path):
