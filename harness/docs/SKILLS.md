@@ -126,7 +126,7 @@ not mean that.** Two independent causes, both reproduced:
 
 So a fourth signal was added: `materialize.write_control` puts one **never-routed,
 never-indexed** bundle beside the real ones. Nothing should ever open it. When it comes
-back opened, `SkillsUsage.control_read` is set, `probe_trustworthy` is false and
+back opened, `SkillsUsage.control_read` is set and
 the session's deep-read rate is **`None`** — not 100%, not 0. `3dcode skills report` excludes those
 sessions from the rate and prints how many it dropped.
 

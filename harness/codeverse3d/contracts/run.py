@@ -67,20 +67,6 @@ class SkillsUsage(BaseModel):
                     "probe, the fallback when a session left no tool trace")
 
     @property
-    def probe_trustworthy(self) -> bool:
-        """False when the atime probe's control fired — the only honest reading of the numbers below.
-
-        A run computes ``files_changed`` through ``git add -A -N`` + ``git diff``, and git
-        reads every untracked file to do it, which bumps atime on the whole bundle tree.
-        CLI activation opens ``references/`` too.  Either way the probe says "read" when
-        nobody chose to read, and only the control can tell you which session you are in.
-        Transcript evidence is the CLI's own record of what it called, so it is trusted as is.
-        """
-        if self.evidence == "transcript":
-            return True
-        return self.control_present and not self.control_read
-
-    @property
     def surfaced(self) -> list[str]:
         return [r.name for r in self.reads if r.surfaced]
 
@@ -90,7 +76,9 @@ class SkillsUsage(BaseModel):
 
     @property
     def deep_read_rate(self) -> float | None:
-        """None when there is nothing listed, or when the atime control says the probe is blind."""
+        """None when there is nothing listed, or when the atime control says the probe is blind: git reads
+        every untracked file for ``files_changed`` and CLI activation opens ``references/``, so atime says
+        "read" when nobody chose to — only the control tells.  Transcript evidence is trusted as is."""
         if not self.listed or (self.evidence == "atime" and self.control_present and self.control_read):
             return None
         return len(self.deep) / len(self.listed)

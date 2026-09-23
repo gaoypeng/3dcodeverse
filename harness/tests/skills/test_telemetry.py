@@ -108,7 +108,6 @@ def test_the_control_bundle_is_materialised_and_starts_unread(ws, library):
     materialize_skills(ws, [library["c3d-part-contact"]])
     usage = probe_reads(ws, _materialized(library, "c3d-part-contact"))
     assert usage.control_present and not usage.control_read
-    assert usage.probe_trustworthy
     assert CONTROL_NAME not in usage.listed
 
 
@@ -123,7 +122,7 @@ def test_a_control_that_was_opened_makes_the_rate_unmeasurable(ws, library):
     _touch(ws / AGENTS_SKILL_ROOT / CONTROL_NAME / "references" / "control.md")
     usage = probe_reads(ws, _materialized(library, "c3d-part-contact"))
     assert usage.deep == ["c3d-part-contact"]        # the raw signal is still reported
-    assert usage.control_read and not usage.probe_trustworthy
+    assert usage.control_read and usage.deep_read_rate is None
     assert usage.deep_read_rate is None                # but the RATE refuses to lie
 
 
@@ -150,7 +149,7 @@ def test_git_diff_alone_trips_the_control(tmp_path, library):  # noqa: PLR0915
         os.utime(f, (st.st_mtime - 10, st.st_mtime - 10))
 
     before = probe_reads(ws, _materialized(library, "c3d-part-contact"))
-    assert before.probe_trustworthy, "materialisation alone must leave the control unread"
+    assert not before.control_read, "materialisation alone must leave the control unread"
 
     subprocess.run(["git", "add", "-A", "-N"], cwd=ws, check=True)
     subprocess.run(["git", "diff", "--numstat", "HEAD"], cwd=ws, check=True, capture_output=True)
@@ -214,7 +213,7 @@ def test_the_cli_transcript_is_the_evidence_when_every_session_left_one(ws, libr
     usage = probe_reads(ws, got)
     assert usage.evidence == "transcript"
     assert usage.surfaced == [a, b] and usage.deep == [b]
-    assert not usage.control_read and usage.probe_trustworthy
+    assert not usage.control_read
     assert usage.deep_read_rate == 1 / len(got.listed)
 
 
@@ -262,7 +261,7 @@ def test_an_agent_that_opens_the_control_is_reported_not_called_blind(ws, librar
              t=time.time() + 1)
     usage = probe_reads(ws, got)
     assert usage.evidence == "transcript" and usage.control_read
-    assert usage.probe_trustworthy and usage.deep_read_rate == 0.0   # exact: it read the control, and nothing else
+    assert usage.deep_read_rate == 0.0   # exact: it read the control, and nothing else
 
 
 def test_the_path_match_is_exact_about_names_and_about_reading():
