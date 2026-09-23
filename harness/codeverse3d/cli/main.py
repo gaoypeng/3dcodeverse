@@ -339,6 +339,13 @@ def make(
     for p in image:
         if not p.is_file():
             raise C.CliError(f"reference image not found: {p}")
+        from PIL import Image, UnidentifiedImageError
+
+        try:  # a file that is no image reached the planner and the provider, and failed there
+            with Image.open(p) as im:
+                im.verify()
+        except (UnidentifiedImageError, OSError, SyntaxError) as e:
+            raise C.CliError(f"reference image is not a readable image: {p} ({e})") from None
     if language is None:
         language = TRACK_LANGUAGES[track][0]
     run_slug = C.make_slug(prompt, track.value, language.value, slug)
