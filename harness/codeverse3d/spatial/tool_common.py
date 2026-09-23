@@ -24,7 +24,7 @@ from codeverse3d.workspace import Workspace
 __all__ = [
     "spec_dict", "language_of",
     "glb_path", "reference_path", "load_plan", "resolve_views", "check_mode", "tool_out_dir", "render_cache_dir",
-    "cached_render_glb", "gl_metrics_summary", "VIEW_BY_NAME", "RENDER_MODES",
+    "cached_render_glb", "gl_metrics_summary", "VIEW_BY_NAME",
 ]
 
 VIEW_BY_NAME: dict[str, ViewPreset] = {v.name: v for v in OBJECT_VIEWS}

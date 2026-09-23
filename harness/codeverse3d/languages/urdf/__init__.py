@@ -30,9 +30,9 @@ from codeverse3d.languages._ast_lint import (
     dotted,
     safe_parse,
 )
-from codeverse3d.languages._common import ProcResult, compose_build_result, strip_blender_noise
+from codeverse3d.languages._common import compose_build_result, strip_blender_noise
 from codeverse3d.languages.base import RuntimeLayout
-from codeverse3d.proc import run_subprocess
+from codeverse3d.proc import ProcResult, run_subprocess
 from codeverse3d.spatial.joints_export import urdf_to_glb
 from codeverse3d.spatial.joints_model import (
     JOINT_TYPES,

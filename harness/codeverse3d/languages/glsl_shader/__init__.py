@@ -11,7 +11,7 @@ from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import GraphicsPlan, Plan
 from codeverse3d.languages._common import MISSING_ENTRY, line_of, ws_rel
-from codeverse3d.languages._gl_common import (  # noqa: F401 — re-exported
+from codeverse3d.languages._gl_common import (
     GlslMessage,
     LineMap,
     Segment,
