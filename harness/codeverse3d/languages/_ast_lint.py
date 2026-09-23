@@ -1,7 +1,8 @@
 """Shared AST-lint primitives for the python authoring languages (blender, cadquery, opengl_python).
 
 Each language keeps its own collector and rules — only the language-neutral
-pieces live here: :func:`dotted` (dotted-name of an Attribute/Name chain), the
+pieces live here: :func:`dotted` (dotted-name of an Attribute/Name chain),
+:class:`ImportCollector` (the ``{top-level module: first line}`` visitor), the
 :data:`BASE_FORBIDDEN_IMPORTS` floor every language's forbidden set must
 include (a drift test pins the superset), and :func:`check_imports` (the
 forbidden → ERROR / not-allowed → WARN routing, with the finding text owned by
@@ -25,6 +26,21 @@ BASE_FORBIDDEN_IMPORTS: frozenset[str] = frozenset({
     "subprocess", "urllib", "requests", "socket", "http", "shutil", "ctypes", "pickle",
     "multiprocessing", "threading", "webbrowser", "ftplib", "smtplib", "importlib",
 })
+
+
+class ImportCollector(ast.NodeVisitor):
+    """``imports``: ``{top-level module: first line}`` of every import, in document order
+    (a subclass visits the rest of the tree for its own rules)."""
+
+    def __init__(self) -> None:
+        self.imports: dict[str, int] = {}
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for a in node.names:
+            self.imports.setdefault(a.name.split(".")[0], node.lineno)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        self.imports.setdefault((node.module or "").split(".")[0], node.lineno)
 
 
 def safe_parse(source: str, filename: str = "<src>") -> tuple[ast.AST | None, BaseException | None]:

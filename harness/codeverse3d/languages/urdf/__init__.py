@@ -24,6 +24,7 @@ from codeverse3d.contracts.plan import ArticulatedPlan, JointPlan, PartPlan, Pla
 from codeverse3d.conventions import to_snake
 from codeverse3d.languages._ast_lint import (
     BASE_FORBIDDEN_IMPORTS,
+    ImportCollector,
     check_imports,
     describe_parse_failure,
     dotted,
@@ -417,20 +418,11 @@ def _lint_joint(el: ET.Element, jname: str, link_names: list[str], parent_of: di
 
 
 # ------------------------------------------------------------------ model.py
-class _Visitor(ast.NodeVisitor):
+class _Visitor(ImportCollector):
     def __init__(self) -> None:
+        super().__init__()
         self.findings: list[GateFinding] = []
-        self.imports: dict[str, int] = {}  # top-level module → first line
         self.strings: set[str] = set()
-
-    def visit_Import(self, node: ast.Import) -> None:
-        for a in node.names:
-            self.imports.setdefault(a.name.split(".")[0], node.lineno)
-        self.generic_visit(node)
-
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        self.imports.setdefault((node.module or "").split(".")[0], node.lineno)
-        self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
         chain = dotted(node.func)

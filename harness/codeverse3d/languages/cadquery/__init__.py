@@ -16,6 +16,7 @@ from codeverse3d.contracts.plan import PartPlan, Plan, StaticPlan
 from codeverse3d.conventions import MAX_TRIS_OBJECT, PASCAL_RE, to_pascal, to_snake
 from codeverse3d.languages._ast_lint import (
     BASE_FORBIDDEN_IMPORTS,
+    ImportCollector,
     check_imports,
     describe_parse_failure,
     dotted,
@@ -92,20 +93,12 @@ def _f(sev: Severity, msg: str, line: int | None = None, hint: str = "", target:
     return GateFinding(gate=GATE, severity=sev, target=target, message=msg, fix_hint=hint, data={"line": line} if line else {})
 
 
-class _Collector(ast.NodeVisitor):
+class _Collector(ImportCollector):
     def __init__(self) -> None:
-        self.imports: dict[str, int] = {}
+        super().__init__()
         self.calls: list[tuple[str, ast.Call]] = []
         self.add_calls: list[ast.Call] = []
         self.name_kw: list[str] = []
-
-    def visit_Import(self, node: ast.Import) -> None:
-        for a in node.names:
-            top = a.name.split(".")[0]
-            self.imports.setdefault(top, node.lineno)
-
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        self.imports.setdefault((node.module or "").split(".")[0], node.lineno)
 
     def visit_Call(self, node: ast.Call) -> None:
         name = dotted(node.func)

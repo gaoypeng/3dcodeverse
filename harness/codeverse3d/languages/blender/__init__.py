@@ -326,11 +326,6 @@ def _rel(ws: Workspace, p: Path) -> str:
     return p.relative_to(ws.root).as_posix()
 
 
-def _finding(sev: Severity, target: str, msg: str, hint: str, line: int | None = None) -> GateFinding:
-    return GateFinding(gate=GATE, severity=sev, target=target, message=msg, fix_hint=hint,
-                       data={"line": line} if line else {})
-
-
 def _exported_functions(tree: ast.Module) -> set[str]:
     return {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
@@ -363,28 +358,28 @@ def _layout_rules(ws: Workspace, parts: list[Path], entry_tree: ast.Module | Non
         target = _rel(ws, p)
         stem = p.stem
         if stem != to_snake(stem):
-            out.append(_finding(E, target, f"part file name '{p.name}' is not snake_case",
-                                f"rename to src/{PARTS_DIR}/{to_snake(stem)}.py (the harness maps plan part "
-                                f"'{stem}' → that file) and fix the import in model.py"))
+            out.append(_f(E, f"part file name '{p.name}' is not snake_case", target=target,
+                          hint=f"rename to src/{PARTS_DIR}/{to_snake(stem)}.py (the harness maps plan part "
+                               f"'{stem}' → that file) and fix the import in model.py"))
             continue
         tree, _ = safe_parse(p.read_text(), target)
         if tree is None:
             continue  # reported by the per-file lint
         fn = f"build_{stem}"
         if fn not in _exported_functions(tree):
-            out.append(_finding(E, target, f"{target} does not define `def {fn}()`",
-                                f"every part file exports `def {fn}() -> bpy.types.Object` returning the named object "
-                                f"at its world pose; model.py calls it (`from {PARTS_DIR}.{stem} import {fn}`)"))
+            out.append(_f(E, f"{target} does not define `def {fn}()`", target=target,
+                          hint=f"every part file exports `def {fn}() -> bpy.types.Object` returning the named object "
+                               f"at its world pose; model.py calls it (`from {PARTS_DIR}.{stem} import {fn}`)"))
         for node in tree.body:
             if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
                 name = getattr(node.value.func, "id", "")
                 if name.startswith("build_") or name == "main":
-                    out.append(_finding(W, target, f"{target} calls `{name}()` at import time",
-                                        "part files only DEFINE builders; model.py calls them once (a module-level "
-                                        "call here builds the part twice → auto-suffixed 'Name.001')", node.lineno))
+                    out.append(_f(W, f"{target} calls `{name}()` at import time", node.lineno, target=target,
+                                  hint="part files only DEFINE builders; model.py calls them once (a module-level "
+                                       "call here builds the part twice → auto-suffixed 'Name.001')"))
         if entry_tree is not None and stem not in imported:
-            out.append(_finding(W, target, f"{target} is never imported by src/model.py → its part is not built",
-                                f"add `from {PARTS_DIR}.{stem} import {fn}` to model.py and call `{fn}()` in main()"))
+            out.append(_f(W, f"{target} is never imported by src/model.py → its part is not built", target=target,
+                          hint=f"add `from {PARTS_DIR}.{stem} import {fn}` to model.py and call `{fn}()` in main()"))
     return out
 
 
@@ -393,9 +388,9 @@ def lint_workspace(ws: Workspace) -> GateReport:
     t0 = time.monotonic()
     entry = ws.src / "model.py"
     if not entry.is_file():
-        return GateReport(gate=GATE, passed=False, duration_ms=0, findings=[_finding(
-            Severity.ERROR, ENTRY_REL, f"{ENTRY_REL} is missing",
-            "create src/model.py (entry: imports src/parts/<snake>.py builders and calls them; see the skeleton)")])
+        return GateReport(gate=GATE, passed=False, duration_ms=0, findings=[_f(
+            Severity.ERROR, f"{ENTRY_REL} is missing", target=ENTRY_REL,
+            hint="create src/model.py (entry: imports src/parts/<snake>.py builders and calls them; see the skeleton)")])
     parts = part_files(ws)
     findings: list[GateFinding] = []
     for p in source_files(ws):
