@@ -7,7 +7,6 @@ primary readout and the score is the second.  Both are read off the round
 """
 from __future__ import annotations
 
-import json
 import re
 import sys
 from pathlib import Path
@@ -15,6 +14,7 @@ from pathlib import Path
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
+from bench._records import prompt_of, records  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 
 if len(sys.argv) < 2:
@@ -22,8 +22,7 @@ if len(sys.argv) < 2:
 OUT = Path(sys.argv[1])
 DEPTH = re.compile(r"interpenetrate by ≈([\d.]+) mm")
 
-def cell_stats(record: Path) -> dict | None:
-    rec = json.loads(record.read_text())
+def cell_stats(record: Path, rec: dict) -> dict | None:
     rounds = rec.get("rounds") or []
     if not rounds:
         return None
@@ -53,11 +52,11 @@ def cell_stats(record: Path) -> dict | None:
 
 rows: dict[str, dict[str, dict]] = {}
 for arm in ("control", "variant"):
-    for rec in sorted((OUT / "arms" / arm / "cells").rglob("record.json")):
-        prompt = rec.relative_to(OUT / "arms" / arm / "cells").parts[0]
-        s = cell_stats(rec)
+    cells = OUT / "arms" / arm / "cells"
+    for rec, data in records(cells):  # symlinked cells once, _cand/_assets sub-runs never
+        s = cell_stats(rec, data)
         if s:
-            rows.setdefault(prompt, {})[arm] = s
+            rows.setdefault(prompt_of(rec, cells), {})[arm] = s
 
 keys = ("pairs", "worst_depth_mm", "floating", "islands", "contract_findings")
 paired = {k: [] for k in keys}
