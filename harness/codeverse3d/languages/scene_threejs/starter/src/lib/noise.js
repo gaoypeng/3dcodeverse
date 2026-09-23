@@ -189,6 +189,33 @@ export function sampleGrid3(data, n, x, y, z, stride = 1, channel = 0, periodic 
 }
 
 /**
+ * Periodic 3D value-noise fBm baked at the voxel centres of a size³ grid.
+ * One random lattice per entry of `lattices` (its cells per side), drawn from
+ * `random` in order with `channels` independent values per point; octaves
+ * are Hermite-eased and their amplitudes halve and sum to 1, so values stay
+ * in 0..1. Returns { values: size³·channels floats, x fastest, lattices }.
+ */
+export function bakeFbm3(random, size, lattices, channels = 1) {
+  const grids = lattices.map((n) => ({ n, data: Float32Array.from({ length: n ** 3 * channels }, () => random()) }));
+  const values = new Float64Array(size ** 3 * channels);
+  const first = 2 ** (grids.length - 1) / (2 ** grids.length - 1);
+  const ease = (q) => { const i = Math.floor(q), f = q - i; return i + f * f * (3 - 2 * f); };
+  let at = 0;
+  for (let z = 0; z < size; z++) for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    for (let c = 0; c < channels; c++) {
+      let sum = 0, amplitude = first;
+      for (const { n, data } of grids) {
+        const q = (v) => ease((v + .5) / size * n);
+        sum += amplitude * sampleGrid3(data, n, q(x), q(y), q(z), channels, c);
+        amplitude *= .5;
+      }
+      values[at++] = sum;
+    }
+  }
+  return { values, lattices: grids };
+}
+
+/**
  * An RGBA8 cubic Data3DTexture, linearly filtered, repeating unless
  * `repeat` is false (then clamped to the edge).  needsUpdate is set.
  */

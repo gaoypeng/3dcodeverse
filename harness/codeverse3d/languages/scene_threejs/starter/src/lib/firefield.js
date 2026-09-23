@@ -28,7 +28,7 @@
  * No global renderer hooks or recursively captured reflective materials.
  */
 import * as THREE from 'three';
-import { dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
+import { bakeFbm3, dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
 import { makeShaderMaterial, keepOutOfDepthPasses, withRendererState } from './shader.js';
 import { snapshotResources, attachDisposal } from './lifecycle.js';
 
@@ -54,21 +54,8 @@ function vector(value, fallback, length, label) {
   return v.slice();
 }
 function noiseTexture(seed) {
-  const random = mulberry32(seed), grids = [4, 8, 16].map(n => ({n,
-    data: Float32Array.from({length: n ** 3 * 4}, () => random())}));
-  const n = NOISE_RESOLUTION, data = new Uint8Array(n ** 3 * 4); let at = 0;
-  for (let z = 0; z < n; z++) for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-    for (let c = 0; c < 4; c++) {
-      let sum = 0, amplitude = 4 / 7;
-      for (const grid of grids) {
-        const q = [x, y, z].map(v => { const p = (v + .5) / n * grid.n;
-          return Math.floor(p) + smooth(0, 1, fract(p)); });
-        sum += sampleGrid3(grid.data, grid.n, ...q, 4, c) * amplitude; amplitude *= .5;
-      }
-      data[at++] = Math.round(clamp(sum) * 255);
-    }
-  }
-  return dataTexture3D(data, n, true);
+  const { values } = bakeFbm3(mulberry32(seed), NOISE_RESOLUTION, [4, 8, 16], 4);
+  return dataTexture3D(Uint8Array.from(values, v => Math.round(clamp(v) * 255)), NOISE_RESOLUTION, true);
 }
 function sourceAtlas(emitters, box, resolution, smokeHeight, wind, rise, seed) {
   const extent = box.getSize(new THREE.Vector3()), data = new Uint8Array(resolution ** 3 * 4);

@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import { makeShaderMaterial, keepOutOfDepthPasses } from './shader.js';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
-import { dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
+import { bakeFbm3, dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
 
 const RESOLUTION = 48;
 const TIERS = { low: [36, 4], balanced: [64, 6], high: [100, 10] };
@@ -23,24 +23,9 @@ const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 
 function noiseTexture(seed) {
-  const random = mulberry32(seed);
-  const grids = [4, 8, 16, 32].map(n => ({ n, data: Float32Array.from({ length: n ** 3 * 3 }, () => random()) }));
-  const data = new Uint8Array(RESOLUTION ** 3 * 4);
-  let index = 0;
-  for (let z = 0; z < RESOLUTION; z++) for (let y = 0; y < RESOLUTION; y++) for (let x = 0; x < RESOLUTION; x++) {
-    const values = [0, 0, 0];
-    let amplitude = 8 / 15;
-    for (const grid of grids) {
-      const coords = [x, y, z].map(v => {
-        const q = (v + .5) / RESOLUTION * grid.n;
-        return Math.floor(q) + smooth(0, 1, q - Math.floor(q));
-      });
-      for (let channel = 0; channel < 3; channel++) values[channel] += amplitude * sampleGrid3(grid.data, grid.n, ...coords, 3, channel);
-      amplitude *= .5;
-    }
-    for (const v of values) data[index++] = Math.round(v * 255);
-    data[index++] = 255;
-  }
+  const { values } = bakeFbm3(mulberry32(seed), RESOLUTION, [4, 8, 16, 32], 3);
+  const data = new Uint8Array(RESOLUTION ** 3 * 4).fill(255);
+  for (let i = 0; i < values.length; i++) data[i + Math.floor(i / 3)] = Math.round(values[i] * 255);
   return dataTexture3D(data, RESOLUTION);
 }
 

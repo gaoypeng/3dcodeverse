@@ -17,7 +17,7 @@
 import * as THREE from 'three';
 import { makeShaderMaterial, keepOutOfDepthPasses } from './shader.js';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
-import { dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
+import { bakeFbm3, dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
 
 const TIERS = {
   low: { steps: 40, lightSteps: 6 },
@@ -41,9 +41,7 @@ function vector(value, fallback, length, label) {
 
 function densityTexture(seed) {
   const random = mulberry32(seed);
-  const grids = [4, 8, 16, 32].map((n) => ({
-    n, data: Float32Array.from({ length: n ** 3 }, () => random()),
-  }));
+  const { values: noiseField, lattices } = bakeFbm3(random, RESOLUTION, [4, 8, 16, 32]);
   // Unequal convection towers grow from a connected low bank. Small
   // satellite billows belong to each tower instead of a regular 3-by-2 grid.
   const lobes = [{ x: 0, y: -.15, z: 0, rx: .31, ry: .16, rz: .25 }];
@@ -71,21 +69,14 @@ function densityTexture(seed) {
   let i = 0;
   for (let z = 0; z < RESOLUTION; z++) for (let y = 0; y < RESOLUTION; y++) for (let x = 0; x < RESOLUTION; x++) {
     const u = (x + .5) / RESOLUTION, v = (y + .5) / RESOLUTION, w = (z + .5) / RESOLUTION;
-    let noise = 0, amplitude = .5333333;
-    for (const grid of grids) {
-      const gx = u * grid.n, gy = v * grid.n, gz = w * grid.n;
-      // Hermite interpolation before each lattice lookup reduces grid creases.
-      const ease = (q) => Math.floor(q) + smooth(0, 1, q - Math.floor(q));
-      noise += amplitude * sampleGrid3(grid.data, grid.n, ease(gx), ease(gy), ease(gz));
-      amplitude *= .5;
-    }
+    const noise = noiseField[i / 4];
     let shape = -4;
     for (const lobe of lobes) {
       const distance = Math.hypot((u - .5 - lobe.x) / lobe.rx,
         (v - .5 - lobe.y) / lobe.ry, (w - .5 - lobe.z) / lobe.rz);
       shape = Math.max(shape, 1 - distance);
     }
-    const detail = sampleGrid3(grids[2].data, 16, u * 16, v * 16, w * 16);
+    const detail = sampleGrid3(lattices[2].data, 16, u * 16, v * 16, w * 16);
     // Stationary nested breakup leaves a scalloped boundary. The ellipsoid
     // only limits the outer support; its zero band stays inside the proxy.
     shape += (detail - .5) * .70;
