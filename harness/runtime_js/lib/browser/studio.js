@@ -14,6 +14,7 @@
 // (it is large; scores across the rig change are not comparable).
 
 import * as THREE from 'three';
+import { viewDirection } from './camera_fit.js';
 import { makeRenderer, rendererString } from './renderer.js';
 import { backdropTexture, contactShadowTexture, softboxEnvironment } from './studio_env.js';
 
@@ -106,13 +107,6 @@ function addContactShadow(scene, center, box, radius) {
 
 const DEG = Math.PI / 180;
 
-/** Unit vector towards a light placed at (yaw from +Z, elevation), both degrees. */
-function lightDirection(yawDeg, elevationDeg) {
-  const a = yawDeg * DEG;
-  const e = elevationDeg * DEG;
-  return new THREE.Vector3(Math.sin(a) * Math.cos(e), Math.sin(e), Math.cos(a) * Math.cos(e));
-}
-
 /**
  * Point the rig at a view: key/rim yaw with the camera azimuth and the environment
  * spins with them, so every frame is the same product shot from a different side.
@@ -125,12 +119,12 @@ export function aimStudio(rig, azimuthDeg, elevationDeg = 0) {
   const d = radius * 4;
   // a plan view needs the key nearly overhead, or the shadow sprawls across the frame
   const keyEl = Math.min(80, Math.max(KEY_ELEVATION_DEG, Math.abs(elevationDeg) * 0.85));
-  key.position.copy(center).addScaledVector(lightDirection(azimuthDeg + KEY_YAW_DEG, keyEl), d);
+  key.position.copy(center).addScaledVector(viewDirection(azimuthDeg + KEY_YAW_DEG, keyEl), d);
   key.target.position.copy(center);
   key.target.updateMatrixWorld();
   for (const [light, yaw, el] of [[fill, FILL_YAW_DEG, FILL_ELEVATION_DEG], [rim, RIM_YAW_DEG, RIM_ELEVATION_DEG]]) {
     if (!light) continue;
-    light.position.copy(center).addScaledVector(lightDirection(azimuthDeg + yaw, el), d);
+    light.position.copy(center).addScaledVector(viewDirection(azimuthDeg + yaw, el), d);
     light.target.position.copy(center);
     light.target.updateMatrixWorld();
   }
