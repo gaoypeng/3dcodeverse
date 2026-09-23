@@ -88,7 +88,7 @@ def _build_urdf_example(tmp_path, tag: str, model_py: str, urdf: str):
     own files go through."""
     from codeverse3d.config import get_settings
     from codeverse3d.languages.urdf import UrdfBlenderRuntime
-    from codeverse3d.spatial.joints import sweep_gate
+    from codeverse3d.spatial.joints_sweep import sweep_gate
     from codeverse3d.workspace import Workspace
 
     if not get_settings().resolve_blender():
@@ -110,7 +110,7 @@ def _build_urdf_example(tmp_path, tag: str, model_py: str, urdf: str):
 def test_urdf_contract_example_builds_and_lid_opens_upward(tmp_path) -> None:
     """The contract's COMPLETE example must pass the harness build exactly as written
     (FK consistency, no lint warnings, clean sweep) and the lid must open upward."""
-    from codeverse3d.spatial.joints import link_world_meshes, load_urdf
+    from codeverse3d.spatial.joints_model import link_world_meshes, load_urdf
 
     ws, _ = _build_urdf_example(tmp_path, "pedalbin", "\n".join(blocks("urdf/contract.md", "python")),
                                 blocks("urdf/contract.md", "xml")[0])

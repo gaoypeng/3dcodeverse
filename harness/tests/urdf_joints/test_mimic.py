@@ -13,14 +13,9 @@ import pytest
 
 from codeverse3d.contracts.plan import ArticulatedPlan
 from codeverse3d.languages.urdf import lint_workspace, render_urdf
-from codeverse3d.spatial.joints import (
-    UrdfError,
-    load_urdf,
-    motion_direction_check,
-    pose_samples,
-    sweep_collisions,
-)
-from codeverse3d.spatial.joints_model import fk, resolve_q
+from codeverse3d.spatial.joints_model import UrdfError, fk, load_urdf, resolve_q
+from codeverse3d.spatial.joints_poses import pose_samples
+from codeverse3d.spatial.joints_sweep import motion_direction_check, sweep_collisions
 from tests.urdf_joints.conftest import box_glb
 
 RIB = """<?xml version="1.0"?>

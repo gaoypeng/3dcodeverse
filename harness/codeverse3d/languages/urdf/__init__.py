@@ -32,22 +32,19 @@ from codeverse3d.languages._ast_lint import (
 from codeverse3d.languages._common import ProcResult, compose_build_result, strip_blender_noise
 from codeverse3d.languages.base import RuntimeLayout
 from codeverse3d.proc import run_subprocess
-from codeverse3d.spatial.joints import (
-    UrdfError,
-    load_urdf,
-    sweep_collisions,
-    sweep_findings,
-    urdf_to_glb,
-)
+from codeverse3d.spatial.joints_export import urdf_to_glb
 from codeverse3d.spatial.joints_model import (
     JOINT_TYPES,
     MOVABLE_TYPES,
     RESERVED_LINK_NAMES,
     Robot,
+    UrdfError,
     fk,
     invert_transform,
+    load_urdf,
     matrix_to_rpy,
 )
+from codeverse3d.spatial.joints_sweep import sweep_collisions, sweep_findings
 from codeverse3d.workspace import ArtifactStage, Workspace
 
 # ===================================================================== consistency
@@ -845,7 +842,7 @@ class UrdfBlenderRuntime(RuntimeLayout):
             return fail("FkInconsistent", f"URDF frames do not reproduce the authored geometry:\n{msg}", census=census)
 
         # 5. the rest pose — the only pose that decides the build (D17); every other pose is
-        #    the round's joint_sweep gate (spatial.joints.sweep_gate), which the tool reports too
+        #    the round's joint_sweep gate (spatial.joints_sweep.sweep_gate), which the tool reports too
         report = sweep_collisions(robot, [{}], volumes=False)
         findings = sweep_findings(report, rest_max_m=REST_PENETRATION_MAX_M)
 

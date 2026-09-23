@@ -16,7 +16,7 @@ from codeverse3d.languages.urdf import (
     render_urdf,
     write_skeleton,
 )
-from codeverse3d.spatial.joints import fk, load_urdf
+from codeverse3d.spatial.joints_model import fk, load_urdf
 from codeverse3d.workspace import Workspace
 
 

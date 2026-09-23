@@ -13,7 +13,7 @@ from codeverse3d.languages import get_runtime
 from codeverse3d.languages.urdf import UrdfBlenderRuntime
 from codeverse3d.proc import ProcResult
 from codeverse3d.prompts.catalog import language_text
-from codeverse3d.spatial.joints import sweep_gate
+from codeverse3d.spatial.joints_sweep import sweep_gate
 from codeverse3d.workspace import Workspace
 from tests.urdf_joints.conftest import box_glb
 

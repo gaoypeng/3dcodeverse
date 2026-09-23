@@ -1,11 +1,12 @@
-"""A link generated fully inside another is a gate ERROR (spatial.joints.buried_links)."""
+"""A link generated fully inside another is a gate ERROR (spatial.joints_sweep.buried_links)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from codeverse3d.contracts.artifacts import Severity
-from codeverse3d.spatial.joints import buried_links, load_urdf
+from codeverse3d.spatial.joints_model import load_urdf
+from codeverse3d.spatial.joints_sweep import buried_links
 from tests.urdf_joints.conftest import box_glb
 
 URDF = """<?xml version="1.0"?>

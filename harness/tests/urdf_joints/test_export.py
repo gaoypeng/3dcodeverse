@@ -10,13 +10,8 @@ import trimesh
 from PIL import Image
 
 from codeverse3d.contracts.artifacts import RenderSet, RenderView
-from codeverse3d.spatial.joints import (
-    ARTICULATION_SHEET_NAME,
-    UrdfError,
-    load_urdf,
-    render_poses,
-    urdf_to_glb,
-)
+from codeverse3d.spatial.joints_export import ARTICULATION_SHEET_NAME, render_poses, urdf_to_glb
+from codeverse3d.spatial.joints_model import UrdfError, load_urdf
 from tests.urdf_joints.conftest import write_mesh_robot
 
 
@@ -87,7 +82,7 @@ def test_multi_material_link_keeps_materials(tmp_path):
     b.apply_translation((0, 0, 0.3))
     b.visual = trimesh.visual.TextureVisuals(material=trimesh.visual.material.PBRMaterial(name="metal", baseColorFactor=[200, 200, 210, 255]))
     (meshes / "body.glb").write_bytes(trimesh.Scene([a, b]).export(file_type="glb"))
-    from codeverse3d.spatial.joints import load_urdf as _load
+    from codeverse3d.spatial.joints_model import load_urdf as _load
 
     r = _load(urdf, meshes)
     assert len(r.links["body"].submeshes) == 2 and len(r.links["body"].mesh.split(only_watertight=False)) == 2
@@ -132,7 +127,7 @@ def test_joint_sweep_penetration_is_a_verdict_not_an_mcp_error(tmp_path, monkeyp
     at ~117k prompt tokens), and the FAIL verdict leads the text.  The verdict is the
     round's: the tool and ``sweep_gate`` say the same thing about the same robot."""
     import codeverse3d.spatial.tools as ts
-    from codeverse3d.spatial.joints import sweep_gate
+    from codeverse3d.spatial.joints_sweep import sweep_gate
     from codeverse3d.spatial.registry import ToolContext, get_tool
     from codeverse3d.workspace import Workspace
     from tests.urdf_joints.conftest import write_prims_robot

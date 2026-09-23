@@ -5,15 +5,15 @@ from __future__ import annotations
 import pytest
 
 from codeverse3d.contracts.artifacts import GateFinding, Severity
-from codeverse3d.spatial.joints import (
-    UrdfError,
-    load_urdf,
+from codeverse3d.spatial.joints_model import UrdfError, load_urdf
+from codeverse3d.spatial.joints_poses import pose_samples
+from codeverse3d.spatial.joints_sweep import (
+    MAX_PAIR_FINDINGS,
+    aggregate_findings,
     motion_direction_check,
-    pose_samples,
     sweep_collisions,
     sweep_findings,
 )
-from codeverse3d.spatial.joints_sweep import MAX_PAIR_FINDINGS, aggregate_findings
 from tests.urdf_joints.conftest import (
     write_carcass_drawer_robot,
     write_mesh_robot,

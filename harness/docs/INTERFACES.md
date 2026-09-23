@@ -365,8 +365,10 @@ judge_slices(glb, error_pairs, out_dir, planes=("front_back","left_right")) -> S
 cross_section(glb, axis, at, out_png, *, parts=None) -> Observation   # the tool's body: any axis, `at` a fraction of
     # the SELECTED parts' bbox; loops / filled area / hollow ratio + the same renderer's image (overlaps plain, never
     # hatched); a plane that cuts nothing answers in text with no image
-from codeverse3d.spatial.joints import load_urdf, fk, sweep_collisions, urdf_to_glb, render_poses   # RESERVED_LINK_NAMES={'world'}
-from codeverse3d.spatial.joints import sweep_gate, find_urdf, SWEEP_GATE
+from codeverse3d.spatial.joints_model import load_urdf, fk, UrdfError   # RESERVED_LINK_NAMES={'world'}; Robot/Link/Joint
+from codeverse3d.spatial.joints_poses import pose_samples, limit_poses
+from codeverse3d.spatial.joints_export import urdf_to_glb, render_poses, ARTICULATION_SHEET_NAME
+from codeverse3d.spatial.joints_sweep import sweep_gate, sweep_collisions, find_urdf, motion_direction_check, SWEEP_GATE
 sweep_gate(ws) -> (GateReport "joint_sweep", Robot | None)   # THE verdict (Δ 2026-09-22): pose_samples → sweep_collisions →
     # aggregate_findings(sweep_findings) + buried_links.  tracks/articulated_object.default_joint_sweep (the round's gate,
     # + pose renders) and the joint_sweep TOOL (spatial/tools.py: gate_observation of it + a narrowed pose sheet) both

@@ -92,7 +92,7 @@ def test_xml_examples_follow_the_enforced_frame_recipe(rel: str, tmp_path) -> No
     link composed with its visual origin is the identity (visual origin = −link frame).
     This is the recipe the reviewer found the docs contradicting (visual origin 0 0 0)."""
     from codeverse3d.languages.urdf import lint_urdf_text
-    from codeverse3d.spatial.joints import fk, load_urdf
+    from codeverse3d.spatial.joints_model import fk, load_urdf
 
     checked = 0
     for i, body in enumerate(blocks(rel, "xml")):

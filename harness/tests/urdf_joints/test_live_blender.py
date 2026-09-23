@@ -7,13 +7,8 @@ import pytest
 
 from codeverse3d.config import get_settings
 from codeverse3d.languages.urdf import UrdfBlenderRuntime
-from codeverse3d.spatial.joints import (
-    fk,
-    link_world_meshes,
-    load_urdf,
-    motion_direction_check,
-    sweep_gate,
-)
+from codeverse3d.spatial.joints_model import fk, link_world_meshes, load_urdf
+from codeverse3d.spatial.joints_sweep import motion_direction_check, sweep_gate
 from codeverse3d.workspace import Workspace
 
 pytestmark = pytest.mark.blender

@@ -7,21 +7,17 @@ import math
 import numpy as np
 import pytest
 
-from codeverse3d.spatial.joints import (
+from codeverse3d.spatial.joints_model import (
     UrdfError,
     fk,
-    limit_poses,
+    invert_transform,
     link_world_meshes,
     load_urdf,
-    pose_label,
-    pose_samples,
-)
-from codeverse3d.spatial.joints_model import (
-    invert_transform,
     make_transform,
     matrix_to_rpy,
     rpy_to_matrix,
 )
+from codeverse3d.spatial.joints_poses import limit_poses, pose_label, pose_samples
 from tests.urdf_joints.conftest import write_mesh_robot, write_prims_robot
 
 
