@@ -15,17 +15,14 @@ def _settings(monkeypatch, **env: str) -> Settings:
     return Settings()
 
 
-@pytest.mark.parametrize("raw, want", [("off", False), ("", True), ("maybe", True)])
-def test_on_by_default_and_garbage_keeps_the_default(monkeypatch, raw, want):
-    """Default ON (D-rule, owner 2026-09-22); garbage warns and keeps it, never a crash (D44 c)."""
-    s = _settings(monkeypatch, C3D_SKILLS=raw)
-    assert (s.skills, s.skills_unverified, s.skills_max) == (want, True, 5)
-
-
-@pytest.mark.parametrize("raw, want", [("3", 3), ("-1", 5), ("nope", 5)])
-def test_max_is_never_a_crash(monkeypatch, raw, want):
-    assert _settings(monkeypatch, C3D_SKILLS_MAX=raw).skills_max == want
-
+@pytest.mark.parametrize("name, raw, want", [
+    ("C3D_SKILLS", "off", (False, True, 5)), ("C3D_SKILLS", "", (True, True, 5)), ("C3D_SKILLS", "maybe", (True, True, 5)),
+    ("C3D_SKILLS_MAX", "3", (True, True, 3)), ("C3D_SKILLS_MAX", "-1", (True, True, 5)), ("C3D_SKILLS_MAX", "nope", (True, True, 5)),
+])
+def test_on_by_default_and_garbage_keeps_the_default(monkeypatch, name, raw, want):
+    """Default ON (owner 2026-09-22); garbage warns and keeps the default, never a crash (D44 c)."""
+    s = _settings(monkeypatch, **{name: raw})
+    assert (s.skills, s.skills_unverified, s.skills_max) == want
 
 
 def test_doctor_reports_the_default_and_the_gemini_pin(monkeypatch):

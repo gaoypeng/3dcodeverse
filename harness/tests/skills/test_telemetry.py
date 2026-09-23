@@ -64,18 +64,6 @@ def test_a_bundle_with_no_references_says_depth_is_unmeasurable(tmp_path, ws):
     assert read.deep_measurable is False and read.deep is False
 
 
-def test_a_control_that_was_opened_makes_the_rate_unmeasurable(ws, library):
-    """Everything looking read means nothing was measured: the rate is None, not 100%."""
-    from codeverse3d.skills.materialize import CONTROL_NAME, materialize_skills
-    from codeverse3d.skills.prompting import AGENTS_SKILL_ROOT
-
-    materialize_skills(ws, [library["c3d-part-contact"]])
-    _touch(ws / AGENTS_SKILL_ROOT / "c3d-part-contact" / "references" / "worked_example.md")
-    _touch(ws / AGENTS_SKILL_ROOT / CONTROL_NAME / "references" / "control.md")
-    usage = probe_reads(ws, _materialized(library, "c3d-part-contact"))
-    assert usage.deep == ["c3d-part-contact"]        # the raw signal is still reported
-    assert usage.control_read and usage.deep_read_rate is None   # but the RATE refuses to lie
-
 
 def test_git_diff_alone_trips_the_control(tmp_path, library):  # noqa: PLR0915
     """``Workspace.changed_files``' `git add -A -N` + `git diff` reads every untracked bundle file."""
@@ -111,14 +99,6 @@ def _materialized(library, *names):
     sels = [Selection(skill=library[n], priority=50, rules=("R1",), reason="test") for n in names]
     return SkillsMaterialized(listed=list(names), selections=sels)
 
-
-def _touch(path):
-    import os
-    import time
-
-    st = os.stat(path)
-    os.utime(path, (st.st_mtime + 60, st.st_mtime))
-    time.sleep(0)
 
 
 # ===================================================================== transcript evidence

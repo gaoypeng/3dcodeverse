@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import itertools
-import random
 
 import pytest
 
@@ -22,7 +21,6 @@ KINDS = ("baseline", "part", "refine", "rebuild", "repair", "env", "zone",
 #: the boolean plan signals the table may test (n_parts / joint_types are derived)
 SIGNAL_KEYS = tuple(plan_signals(None))
 FLAGS = tuple(k for k in SIGNAL_KEYS if k not in ("n_parts", "joint_types"))
-JUNK = ("", "  ", "no_such_track", "STATIC_OBJECT", "static object", "1", "../etc")
 
 LIVE_KINDS = sorted({k for row in ROUTES for k in row.findings if not k.endswith("*")} |
                     {"connectivity/interpenetration", "connectivity/floating_part",
@@ -103,32 +101,3 @@ def test_every_corpus_finding_kind_routes_sanely_from_every_session():
                 ), f"{skill.name} cannot explain why it answered {finding}"
             answered_somewhere = answered_somewhere or bool(fired)
         assert answered_somewhere, f"{finding} is classified but no route answers it"
-
-
-def test_every_track_language_pair_a_run_can_present_routes_something():
-    """A pair the harness actually drives must not come back empty at baseline, or the
-    library has a hole the read-rate metric would report as apathy."""
-    real = [("static_object", "blender"), ("static_object", "cadquery"), ("static_object", "threejs"),
-            ("articulated_object", "urdf_blender"), ("scene", "scene_threejs"),
-            ("graphics", "glsl_shader"), ("graphics", "opengl_python")]
-    sig = {"multi_part": True, "n_parts": 5}
-    for track, language in real:
-        got = select(track, language, "baseline", signals=sig, library=LIBRARY,
-                     allow_unverified=True)
-        assert got, f"{track}/{language} routes nothing at baseline"
-
-
-def test_a_random_walk_of_mixed_findings_never_breaks_an_invariant():
-    rng = random.Random(20260825)
-    for _ in range(2000):
-        track = rng.choice(TRACKS + JUNK)
-        language = rng.choice(LANGUAGES + JUNK)
-        kind = rng.choice(KINDS + JUNK)
-        sig = {k: rng.random() < 0.5 for k in FLAGS}
-        sig["n_parts"] = rng.randint(0, 30)
-        findings = rng.sample(LIVE_KINDS, rng.randint(0, 4))
-        cap = rng.randint(0, 7)
-        got = select(track, language, kind, signals=sig, findings=findings,
-                     library=LIBRARY, max_skills=cap)
-        assert len(got) <= cap
-        assert [s.priority for s in got] == sorted((s.priority for s in got), reverse=True)

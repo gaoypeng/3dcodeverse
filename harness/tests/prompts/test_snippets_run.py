@@ -83,9 +83,7 @@ def test_urdf_cookbook_runs(tmp_path) -> None:
 
 
 def _build_urdf_example(tmp_path, tag: str, model_py: str, urdf: str):
-    """Run a doc example through the REAL urdf_blender pipeline (lint → Blender export →
-    FK consistency → rest-pose check) and the round's joint_sweep gate — what the agent's
-    own files go through."""
+    """Run a doc example through the real urdf_blender build and the round's joint_sweep gate."""
     from codeverse3d.config import get_settings
     from codeverse3d.languages.urdf import UrdfBlenderRuntime
     from codeverse3d.spatial.joints_sweep import sweep_gate

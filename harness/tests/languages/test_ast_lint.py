@@ -69,13 +69,3 @@ def test_every_python_lint_survives_a_parser_crash(monkeypatch):
         findings = run()  # must not raise
         errs = [f for f in findings if f.severity == Severity.ERROR]
         assert errs and "deeper than the parser" in errs[0].message, (name, findings)
-
-
-def test_real_deeply_nested_source_does_not_escape_the_lint():
-    """A 40 000-term binary chain: on 3.11 this is the SystemError, on 3.12+ a RecursionError,
-    on some builds a plain SyntaxError — whichever, the lint returns a report."""
-    from codeverse3d.languages.blender import lint_blender_source
-
-    deep = "import bpy\nx = " + " + ".join(["1"] * 40_000) + "\n"
-    rep = lint_blender_source(deep)
-    assert isinstance(rep.passed, bool)

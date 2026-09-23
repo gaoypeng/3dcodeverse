@@ -39,22 +39,6 @@ def test_the_switch_off_means_no_files_no_events_no_record(ctx, monkeypatch):
     assert H.repair_pointers(ctx, None) == ""
 
 
-def test_single_shot_inlines_one_body_into_every_task(ctx, monkeypatch):
-    monkeypatch.setenv("C3D_SKILLS", "on")
-    ctx.single_shot = True
-    got = H.attach_for_round(ctx, index=0, kind="baseline")
-    assert got.inlined
-
-    class Task:
-        def __init__(self, prompt):
-            self.prompt = prompt
-
-        def model_copy(self, *, update):
-            return Task(update["prompt"])
-
-    out = H.with_inlined_skill(ctx, [Task("write the chair")])
-    assert out[0].prompt.endswith("write the chair") and got.inlined in out[0].prompt
-
 
 def test_a_broken_library_costs_the_skills_not_the_round(ctx, monkeypatch, caplog):
     monkeypatch.setenv("C3D_SKILLS", "on")

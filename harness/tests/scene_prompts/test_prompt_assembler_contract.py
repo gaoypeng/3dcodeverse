@@ -1,11 +1,4 @@
-"""The scene track's prompts must describe the interface the harness ACTUALLY calls.
-
-The scene track never lets the model write `src/scene.js`: `languages.scene_threejs.assemble`
-generates it and is the only caller of `src/env.js` and `src/zones/*.js`.  When a prompt
-teaches a different signature the model either wastes tokens on defensive shims or —
-worse — writes an animation hook nothing calls (the `nothing_moves` defect that cost three
-of the four v1 bench scenes a grade).  These tests pin the prompts to the generated file.
-"""
+"""The scene prompts teach the hooks the generated src/scene.js actually calls (the `nothing_moves` defect)."""
 
 from __future__ import annotations
 

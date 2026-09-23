@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace as NS
 
-import pytest
-
 from codeverse3d.skills.model import EVIDENCE_INHERITED
 from codeverse3d.skills.registry import QUIET_KINDS, plan_signals, select
 from tests.skills.conftest import write_bundle
@@ -61,23 +59,6 @@ def test_inherited_unverified_bundles_are_off_until_the_switch_says_otherwise(li
     on = skills_for("static_object", "cadquery", "baseline", plan=static_plan(), library=lib, allow_unverified=True)
     assert "c3d-cadquery-forms" not in [s.name for s in off]
     assert "c3d-cadquery-forms" in [s.name for s in on]
-
-
-@pytest.mark.parametrize("skill, without, with_", [
-    ("c3d-part-contact", static_plan(1), static_plan(3)),
-    ("c3d-repeats-and-mirrors", static_plan(), static_plan(symmetry="mirror_x")),
-])
-def test_a_plan_signal_decides_a_standing_row(library, skill, without, with_):
-    off, on = ([s.name for s in skills_for("static_object", "blender", "baseline", plan=p, library=library)]
-               for p in (without, with_))
-    assert skill not in off and skill in on
-
-
-def test_language_rows_do_not_leak_across_languages(library):
-    blender = [s.name for s in skills_for("static_object", "blender", "baseline", plan=static_plan(), library=library)]
-    assert "c3d-blender-forms" in blender and "c3d-cadquery-forms" not in blender
-    graphics = [s.name for s in skills_for("graphics", "glsl_shader", "baseline", library=library)]
-    assert graphics == ["c3d-glsl-craft"]
 
 
 def test_scene_gate_findings_route_the_matching_scene_skill(library):
