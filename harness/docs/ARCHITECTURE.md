@@ -607,8 +607,7 @@ side-car mode); the gallery is `3dcode gallery build --embed`
 serve` indexes `runs/` + every `eval/bench/out/*/runs`, serves the page **and the run
 directories** on 127.0.0.1 (so every link opens: sheet, renders, `src/`, `object.glb`
 in an orbit viewer built on the vendored three.js, `record.json`), and re-reads a
-run's record per request so a battery that is still writing shows up live.  A run
-with no record yet is a *pending* card, a half-written one a *broken* card.  Two
-gates keep it safe: a URL can only name a `(battery, slug)` the scanner found under
+run's record per request so a battery that is still writing shows up live (how to use it:
+RUNBOOK §4).  Two gates keep it safe: a URL can only name a `(battery, slug)` the scanner found under
 a declared root, and `urls.safe_join` refuses anything that escapes that run
 directory.  `3dcode gallery build [--embed]` writes the same page as one file.

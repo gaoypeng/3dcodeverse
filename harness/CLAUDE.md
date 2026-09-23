@@ -23,7 +23,8 @@ score-vs-complexity corpus study) before changing anything.
 
 ## Laws (do not break)
 1. Generated code is raw language — never an SDK/helper import; the harness owns
-   wrappers/exporters (`codeverse3d/languages/*/wrappers`, `runtime_js/`).
+   wrappers/exporters (`codeverse3d/languages/wrappers/`, `languages/opengl_python/wrappers/`,
+   `runtime_js/`).
 2. `codeverse3d/contracts/` is data-only and shared; `conventions.py` is the only
    place that states frames/units/naming.  Import, never restate.
 3. Deterministic gates/measurements run by the harness; VLM only for perception.
