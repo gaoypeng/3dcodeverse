@@ -2,7 +2,6 @@
 
 * ``fmt_numbers``   – one-line ``k=v`` rendering with sane float precision.
 * ``truncate``      – head/tail truncation with a marker (never mid-line when possible).
-* ``tail_lines``    – last ``n`` lines of a log.
 * ``image_budget``  – cap image lists (contact sheet kept first).
 * ``rel_path``      – workspace-relative display path (never leak host paths in text).
 * ``lint_lines`` / ``build_failure_lines`` – the one lint / BUILD FAILED report
@@ -17,6 +16,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
+from codeverse3d import proc
 from codeverse3d.contracts.artifacts import BuildResult, GateReport, RenderSet, Severity
 from codeverse3d.spatial.registry import Observation
 
@@ -68,11 +68,6 @@ def truncate(text: str, n: int = MAX_TEXT, tail_ratio: float = 0.3) -> str:
     head_n = n - tail_n - 24
     head, tail = text[:head_n], text[-tail_n:] if tail_n else ""
     return f"{head}\n… [{len(text) - head_n - tail_n} chars omitted] …\n{tail}"
-
-
-def tail_lines(text: str, n: int = 30) -> str:
-    lines = text.rstrip("\n").splitlines()
-    return "\n".join(lines[-n:])
 
 
 def image_budget(images: Sequence[str], max_n: int = MAX_IMAGES) -> list[str]:
@@ -162,7 +157,7 @@ def build_failure_lines(br: BuildResult, root: Path, lint_warns: Sequence[str], 
     # the location stays on the headline even when the message is multi-line (GLSL)
     head, _, rest = sanitize_text(br.error_message, root).partition("\n")
     lines = [f"BUILD FAILED: {br.error_type or 'Error'}: {head}{where}"] + ([rest] if rest else [])
-    tail = tail_lines(sanitize_text(br.stderr_tail, root), tail_n)
+    tail = proc.tail(sanitize_text(br.stderr_tail, root).rstrip("\n"), max_lines=tail_n)
     if tail and tail not in br.error_message:
         lines.append("stderr (tail):\n" + tail)
     if lint_warns:

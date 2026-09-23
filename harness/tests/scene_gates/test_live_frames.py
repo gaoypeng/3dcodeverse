@@ -13,10 +13,10 @@ import pytest
 from PIL import Image
 
 from codeverse3d.conventions import SCENE_VIEWS
+from codeverse3d.proc import read_json_or_none
 from codeverse3d.spatial.frame_metrics import frame_gate_from_renders
 from codeverse3d.spatial.render_scene import (
     JUDGE_MAX_VIEWS,
-    read_metrics,
     render_scene,
     select_judge_views,
 )
@@ -55,7 +55,7 @@ def test_example_scene_passes_frame_gate_and_judge_subset(starter_ws: Workspace)
     assert im.size == (640, 360)
     px = im.convert("L").resize((32, 18)).tobytes()
     assert 20 < sum(px) / len(px) < 235                          # lit, neither black nor blown
-    m = read_metrics(out)
+    m = read_json_or_none(out / "metrics.json")
     assert m["census"]["totals"]["triangles"] > 1000
     chk = {c["name"]: c for c in m["camera_checks"]}
     for c in chk.values():
@@ -115,7 +115,7 @@ def test_plan_bounds_guard_orbit_framing(starter_ws: Workspace, tmp_path: Path):
         rs = render_scene(starter_ws, out, times=(0.0,), orbit_views=SCENE_VIEWS[:1], width=320, height=180, fps_seconds=0,
                           bounds=BBox(center=(0, 3, 0), extents=(extents, 10, extents)), sheet=False)
         ov = next(v for v in rs.views if v.name == SCENE_VIEWS[0].name)
-        return read_metrics(out)["framing_bbox"], ov.camera_position[1]
+        return read_json_or_none(out / "metrics.json")["framing_bbox"], ov.camera_position[1]
 
     wide, y_wide = _run(2, 90.0)         # meadow (≈ 84 m) fits → framed as a whole
     assert wide["size"][0] == pytest.approx(84.4, abs=0.5)

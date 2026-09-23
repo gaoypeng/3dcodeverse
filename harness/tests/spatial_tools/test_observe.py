@@ -19,7 +19,6 @@ from codeverse3d.spatial.observe import (
     rel_path,
     render_observation,
     sanitize_text,
-    tail_lines,
     truncate,
 )
 
@@ -34,7 +33,6 @@ def test_truncate_keeps_head_and_tail() -> None:
     t = truncate(text, 400)
     assert t.startswith("line 0") and t.endswith("line 499") and "chars omitted" in t
     assert truncate("short") == "short"
-    assert tail_lines("a\nb\nc\nd", 2) == "c\nd"
 
 
 def test_image_budget_keeps_sheet_first() -> None:

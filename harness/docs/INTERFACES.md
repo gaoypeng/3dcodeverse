@@ -307,7 +307,7 @@ render_scene(ws, out_dir, *, cameras=None, orbit=True, times=(0.0, 1.5), width=1
              bounds=None) -> RenderSet
     # Δ bounds default from ws plan.json → orbit rig frustum-fits the CONTENT box (not ground/sky);
     # contact sheet = judge subset only; views.json entries get judge: true|false
-from codeverse3d.spatial.render_scene import select_judge_views, JUDGE_MAX_VIEWS, read_metrics, plan_bounds
+from codeverse3d.spatial.render_scene import select_judge_views, JUDGE_MAX_VIEWS, plan_bounds
 select_judge_views(rs, max_n=10) -> RenderSet          # priority: authored@t0, 2 overview@t0, 2 authored@t_last, rest
 from codeverse3d.spatial.frame_metrics import frame_gate_from_renders, frame_findings, frame_summary_text, FRAME_GATE
 frame_gate_from_renders(renders) -> GateReport         # gate "scene_frames"; data.kind ∈ dark_frame | blown_frame | flat_frame |

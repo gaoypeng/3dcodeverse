@@ -23,7 +23,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from codeverse3d.spatial.render_scene import post_chain_args, read_metrics, run_scene_script
+from codeverse3d.proc import read_json_or_none
+from codeverse3d.spatial.render_scene import post_chain_args, run_scene_script
 from codeverse3d.workspace import Workspace
 from tests.scene_runtime.conftest import needs_browser, needs_node
 
@@ -115,8 +116,8 @@ def test_bloom_is_selective_not_a_brightness_threshold(tmp_path):
     e_raw, e_post = render(emissive, tmp_path / "e_raw", "--no-post"), render(emissive, tmp_path / "e_post")
     p_raw, p_post = render(plain, tmp_path / "p_raw", "--no-post"), render(plain, tmp_path / "p_post")
 
-    assert read_metrics(tmp_path / "e_post")["census"]["post"]["bloom_sources"] >= 1
-    assert read_metrics(tmp_path / "p_post")["census"]["post"]["bloom_sources"] == 0
+    assert read_json_or_none(tmp_path / "e_post" / "metrics.json")["census"]["post"]["bloom_sources"] >= 1
+    assert read_json_or_none(tmp_path / "p_post" / "metrics.json")["census"]["post"]["bloom_sources"] == 0
 
     assert mean_lum(e_post) - mean_lum(e_raw) > 0.004, "emissive box did not bloom"
     assert abs(mean_lum(p_post) - mean_lum(p_raw)) < 0.005, "a merely bright box must not bloom"
@@ -130,10 +131,10 @@ def test_scene_grade_hint_reaches_the_shader_and_is_clamped(tmp_path):
     ws = make_ws(tmp_path, "graded", BRIGHT, extra="scene.userData.grade = { exposure: 99, warmth: 0.4 };")
     out = tmp_path / "graded_out"
     render(ws, out, "--post-options", '{"ao":0,"bloom":0}')
-    grade = read_metrics(out)["census"]["post"]["grade"]
+    grade = read_json_or_none(out / "metrics.json")["census"]["post"]["grade"]
     assert grade["exposure"] == 8.0        # clamped from 99
     assert grade["warmth"] == pytest.approx(0.4)
-    assert read_metrics(out)["census"]["post"]["grade_neutral"] is False
+    assert read_json_or_none(out / "metrics.json")["census"]["post"]["grade_neutral"] is False
 
 
 @needs_node
@@ -142,7 +143,7 @@ def test_no_post_leaves_the_chain_off(tmp_path):
     ws = make_ws(tmp_path, "off", BRIGHT)
     out = tmp_path / "off_out"
     render(ws, out, "--no-post")
-    assert read_metrics(out)["census"]["post"] == {"enabled": False}
+    assert read_json_or_none(out / "metrics.json")["census"]["post"] == {"enabled": False}
 
 
 @needs_node
@@ -151,6 +152,6 @@ def test_ungraded_scene_reports_a_neutral_grade(tmp_path):
     ws = make_ws(tmp_path, "ungraded", BRIGHT)
     out = tmp_path / "ungraded_out"
     render(ws, out)
-    post = read_metrics(out)["census"]["post"]
+    post = read_json_or_none(out / "metrics.json")["census"]["post"]
     assert post["enabled"] is True and post["grade_neutral"] is True
     assert post["warnings"] == [] and json.dumps(post)   # serialisable into metrics.json

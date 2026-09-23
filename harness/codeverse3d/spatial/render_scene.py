@@ -351,11 +351,6 @@ def _mark_judge_views(views_json: Path, views: Sequence[RenderView]) -> None:
     views_json.write_text(json.dumps(entries, indent=1))
 
 
-def read_metrics(out_dir: Path) -> dict[str, Any]:
-    """Full instrument payload written by the driver (census, camera_checks, ...)."""
-    return read_json_or_none(Path(out_dir) / "metrics.json") or {}
-
-
 def metrics_path_for(rs: RenderSet) -> Path | None:
     """``metrics.json`` of a RenderSet: the stamped ``out_dir`` when present, else
     guessed as a sibling of the sheet / views (rounds recorded before stamping)."""

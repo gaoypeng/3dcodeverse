@@ -11,11 +11,11 @@ from PIL import Image
 
 from codeverse3d.contracts.plan import CameraPlan
 from codeverse3d.conventions import SCENE_VIEWS
+from codeverse3d.proc import read_json_or_none
 from codeverse3d.spatial import render_scene as rs_mod
 from codeverse3d.spatial.render_scene import (
     SceneRenderError,
     probe_env_args,
-    read_metrics,
     render_scene,
     run_scene_script,
 )
@@ -71,7 +71,7 @@ def test_render_scene_parses_driver_output(fake_runtime, ws, tmp_path):
     assert rs.console_errors[0] == "oops" and rs.console_errors[1].startswith("shader[fragment]")
     assert rs.contact_sheet and Path(rs.contact_sheet).is_file()
     assert Image.open(rs.contact_sheet).size[0] > 100
-    assert read_metrics(out)["census"]["totals"]["meshes"] == 1
+    assert read_json_or_none(out / "metrics.json")["census"]["totals"]["meshes"] == 1
 
 
 @needs_node
@@ -96,7 +96,7 @@ def test_camera_in_geometry_is_detected(starter_ws, monkeypatch):
     cams = [CameraPlan(name="buried", position=(12.0, 2.0, -2.0), look_at=(12.0, 2.0, -10.0), fov=50)]  # inside the windmill tower
     out = starter_ws.renders_dir(1)
     render_scene(starter_ws, out, cameras=cams, orbit=False, times=(0.0,), fps_seconds=0, sheet=False)
-    m = read_metrics(out)
+    m = read_json_or_none(out / "metrics.json")
     chk = m["camera_checks"][0]
     assert chk["camera_in_geometry"] is True
     # repair off → everything renders from the AUTHORED camera and no repair is recorded
@@ -114,7 +114,7 @@ def test_camera_repair_is_observable_in_census_and_views(starter_ws, monkeypatch
     cams = [CameraPlan(name="buried", position=(12.0, 2.0, -2.0), look_at=(12.0, 2.0, -10.0), fov=50)]  # inside the windmill tower
     out = starter_ws.renders_dir(2)
     render_scene(starter_ws, out, cameras=cams, orbit=False, times=(0.0,), fps_seconds=0, sheet=False)
-    m = read_metrics(out)
+    m = read_json_or_none(out / "metrics.json")
     reps = (m.get("census") or {}).get("camera_repair")
     assert reps and reps[0]["name"] == "buried" and reps[0]["moved_back_m"] + reps[0]["moved_up_m"] > 0
     view = next(v for v in m["views"] if v["name"] == "buried")
@@ -141,7 +141,7 @@ def test_camera_repair_telemetry_survives_the_python_reader(fake_runtime, ws, tm
     rs = render_scene(ws, out, cameras=[CameraPlan(name="cam_a", position=(1, 2, 3), look_at=(0, 0, 0), fov=45)],
                       orbit=False, times=(0.0,), sheet=False)
     assert rs.views[0].camera_position == (1.0, 2.0, 3.0)
-    m = read_metrics(out)
+    m = read_json_or_none(out / "metrics.json")
     assert m["census"]["camera_repair"][0]["name"] == "authored_a"
     assert m["views"][0]["repaired_position"] == [1, 2.6, 4.1]
     # the judge-flag rewrite of views.json must not strip the telemetry rider
@@ -204,7 +204,7 @@ def test_host_warnings_reach_metrics_and_the_log(ws, caplog):
     out = ws.renders_dir(0)
     with caplog.at_level(logging.WARNING, logger=rs_mod.__name__):
         rs = render_scene(ws, out, orbit=False, times=(0.0,), width=320, height=180, fps_seconds=0, sheet=False)
-    warnings = read_metrics(out)["host_warnings"]
+    warnings = read_json_or_none(out / "metrics.json")["host_warnings"]
     assert any(w.startswith("post chain unavailable") and "grade unreadable" in w for w in warnings), warnings
     assert any(w.startswith("coverage failed for cam") and "no masks" in w for w in warnings), warnings
     logged = [r.getMessage() for r in caplog.records]
@@ -231,7 +231,7 @@ def test_update_throw_mid_render_yields_frames_and_console_error(starter_ws):
     assert len(rs.views) == 2 * 4, [v.name for v in rs.views]
     assert all(Path(v.path).is_file() for v in rs.views)
     assert any(e.startswith("update(t=") and "intensity" in e for e in rs.console_errors), rs.console_errors
-    m = read_metrics(out)
+    m = read_json_or_none(out / "metrics.json")
     assert m["update_errors"] and "update() disabled" in m["update_errors"][0]
 
 

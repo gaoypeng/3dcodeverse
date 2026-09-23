@@ -12,8 +12,9 @@ import math
 
 import pytest
 
+from codeverse3d.proc import read_json_or_none
 from codeverse3d.spatial.frame_metrics import HERO_MIN_FRAC, frame_gate_from_renders
-from codeverse3d.spatial.render_scene import read_metrics, render_scene
+from codeverse3d.spatial.render_scene import render_scene
 from codeverse3d.workspace import Workspace
 from tests.scene_runtime.conftest import needs_browser
 from tests.scene_runtime.glb_fixture import write_box_glb
@@ -67,7 +68,7 @@ def test_a_hero_in_an_authored_frame_passes(starter_ws: Workspace):
     out = starter_ws.renders_dir(0)
     rs = render_scene(starter_ws, out, times=(0.0,), width=640, height=360, fps_seconds=0.2)
     assert rs.console_errors == []
-    m = read_metrics(out)
+    m = read_json_or_none(out / "metrics.json")
     rows = {r["url"]: r for r in m["census"]["glb_assets"]}
     assert rows[URL]["in_scene"] is True and abs(rows[URL]["size_m"] - 4.0) < 0.05, rows[URL]
     chk = {c["name"]: c for c in m["camera_checks"]}
@@ -83,7 +84,7 @@ def test_a_hero_behind_a_wall_in_every_authored_frame_is_an_error(starter_ws: Wo
     _with_hero(starter_ws, hidden=True)
     out = starter_ws.renders_dir(0)
     rs = render_scene(starter_ws, out, times=(0.0,), width=640, height=360, fps_seconds=0.2)
-    m = read_metrics(out)
+    m = read_json_or_none(out / "metrics.json")
     chk = {c["name"]: c for c in m["camera_checks"]}
     assert chk["overview"]["glb_frac"].get(URL, 0.0) < 0.002, chk["overview"]["glb_frac"]   # in the scene, behind the wall
     gate = frame_gate_from_renders(rs)
@@ -104,7 +105,7 @@ def test_the_overview_rig_lifts_the_room_shells_lid_but_an_authored_camera_keeps
     out = starter_ws.renders_dir(0)
     rs = render_scene(starter_ws, out, times=(0.0,), width=640, height=360, fps_seconds=0.2)
     assert rs.console_errors == []
-    m = read_metrics(out)
+    m = read_json_or_none(out / "metrics.json")
     chk = {c["name"]: c for c in m["camera_checks"]}
     # the lid is lifted for the rig: a 4 m cube from 100 m up is a few pixels, but it is there
     assert chk["overview_top"]["glb_frac"].get(URL, 0.0) > 0.0005, chk["overview_top"]["glb_frac"]
@@ -123,7 +124,7 @@ def test_a_camera_named_for_the_hero_is_re_aimed_when_the_hero_is_out_of_its_fra
     out = starter_ws.renders_dir(0)
     rs = render_scene(starter_ws, out, times=(0.0,), width=640, height=360, fps_seconds=0.2)
     assert rs.console_errors == []
-    m = read_metrics(out)
+    m = read_json_or_none(out / "metrics.json")
     chk = {c["name"]: c for c in m["camera_checks"]}
     assert chk["HeroCubeDetail"]["glb_frac"].get(URL, 0.0) > 0.01, chk["HeroCubeDetail"]["glb_frac"]
     aimed = [r for r in m["census"]["camera_repair"] if r.get("aimed_at")]

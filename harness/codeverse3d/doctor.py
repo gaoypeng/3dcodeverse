@@ -118,6 +118,7 @@ _PROBE_JS = (
 def check_gpu_probe(timeout_s: int = 120) -> list[Row]:
     """Launch headless Chrome through runtime_js/gpu_launch.cjs and report the WebGL renderer."""
     from codeverse3d.proc import run_subprocess
+    from codeverse3d.spatial.node import parse_last_json
 
     s = get_settings()
     try:
@@ -134,11 +135,7 @@ def check_gpu_probe(timeout_s: int = 120) -> list[Row]:
         return [("chrome webgl", "FAIL", str(e))]
     if proc.timed_out:
         return [("chrome webgl", "FAIL", f"probe timed out after {timeout_s}s")]
-    line = next((ln for ln in reversed(proc.stdout.strip().splitlines()) if ln.startswith("{")), "")
-    try:
-        res = json.loads(line) if line else {}
-    except ValueError:
-        res = {}
+    res = parse_last_json(proc.stdout) or {}
     if "error" in res or proc.returncode != 0:
         detail = str(res.get("error") or (proc.stderr.strip().splitlines() or ["unknown error"])[-1])
         return [("chrome webgl", "FAIL", detail[:160])]

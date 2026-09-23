@@ -19,6 +19,7 @@ from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import RENDER_MODES, BuildResult, GateReport, Measurement
 from codeverse3d.contracts.common import Language, Track
 from codeverse3d.conventions import OBJECT_VIEWS, OBJECT_VIEWS_QUICK
+from codeverse3d.proc import read_json_or_none
 from codeverse3d.spatial.connectivity import check_connectivity as _check_connectivity
 from codeverse3d.spatial.contract import check_contract as _check_contract
 from codeverse3d.spatial.contract import planned_joins
@@ -42,7 +43,7 @@ from codeverse3d.spatial.observe import (
 )
 from codeverse3d.spatial.probes import probe_scene, run_probe
 from codeverse3d.spatial.registry import NoArgs, Observation, ToolContext, ToolUsageError, tool
-from codeverse3d.spatial.render_scene import read_metrics, render_scene
+from codeverse3d.spatial.render_scene import render_scene
 from codeverse3d.spatial.scene_placement import placement_census as _placement_census
 from codeverse3d.spatial.scene_placement import placement_gate, placement_table_text
 from codeverse3d.spatial.sections import cross_section as _cross_section
@@ -474,7 +475,7 @@ def _frame_table(out_dir: Path) -> str:
     measured motion between the times.  Without them the agent is asked to LOOK at a sheet and
     guess whether its sway is visible or its dusk is too dark; with them it can read the answer."""
     try:
-        metrics = read_metrics(out_dir)
+        metrics = read_json_or_none(out_dir / "metrics.json")
         return frame_summary_text(metrics) if metrics else ""
     except Exception:  # noqa: BLE001 — a tool observation must never fail on instrumentation
         return ""
