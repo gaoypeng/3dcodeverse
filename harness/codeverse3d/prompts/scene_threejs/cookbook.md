@@ -329,9 +329,10 @@ black `scene.background` (the sky gradient's horizon band is the brightest thing
 
 **Exposure self-check (after each build):** `scene_views` → the frame table
 (`camera_checks` in metrics.json) for every authored camera: read `mean_lum` / `dark_frac` /
-`blown_frac` / `content_frac` and any finding it names.  If a frame is dark, raise `fill` by +0.3 and `intensity` by +0.8 in the `sunRig({...})` call and re-render —
-never a second DirectionalLight beside the rig (measured 2026-09-07: a blue-hour lighthouse
-stacked a "TwilightKey" on the night rig and still read 0.13).  Black shade is the most
+`blown_frac` / `content_frac` and any finding it names.  If a frame is dark, raise `fill` by
++0.3 and `intensity` by +0.8 in the `sunRig({...})` call and re-render — never a second
+DirectionalLight beside the rig (measured 2026-09-07: a blue-hour lighthouse stacked a
+"TwilightKey" on the night rig and still read 0.13).  Black shade is the most
 common cause: at sun elevation < 25° keep `fill` ≥ 1.0.
 
 ## Atmosphere: time-of-day triads with numbers
