@@ -25,7 +25,7 @@ from __future__ import annotations
 import copy
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -194,15 +194,11 @@ def _json_type(value: Any) -> str:
     return "object"
 
 
-# --------------------------------------------------------------------- openai
-def to_openai_strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """OpenAI *strict* structured outputs: every object gets
-    ``additionalProperties: false`` and ``required`` = all properties.  Optional
-    fields keep their type: null is accepted only where the source already says
-    so (``x: T | None``), never added — the consumer validates with the original
-    pydantic model, which rejects ``null`` for ``x: str = ""`` / ``list = []``.
-    A non-null ``default`` becomes a ``[default: …]`` hint.  ``$defs`` are inlined."""
-    root = inline_refs(schema)
+# ------------------------------------------------------------ openai / anthropic
+def _walk_schema(root: Any, on_object: Callable[[dict[str, Any], Callable[[Any], Any]], None]) -> Any:
+    """The walk the strict (openai) and the anthropic schema share: drop metadata, flatten
+    tuples, recurse into combinators and items.  ``on_object(node, walk)`` rewrites a node's
+    ``properties`` — the one place the two differ."""
 
     def walk(node: Any) -> Any:
         if isinstance(node, list):
@@ -215,18 +211,7 @@ def to_openai_strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
         if "prefixItems" in node:
             node = _merge_prefix_items(node)
         if "properties" in node:
-            props = {k: walk(v) for k, v in node["properties"].items()}
-            required = set(node.get("required", []))
-            for name, sub in props.items():
-                original = node["properties"][name]
-                if name in required or not isinstance(original, dict):
-                    continue
-                if original.get("default") is not None:
-                    props[name] = _with_default_hint(sub, original["default"])
-            node["properties"] = props
-            node["required"] = list(props.keys())
-            node["additionalProperties"] = False
-            node.setdefault("type", "object")
+            on_object(node, walk)
         for key in ("anyOf", "oneOf", "allOf"):
             if key in node:
                 node[key] = [walk(v) for v in node[key]]
@@ -235,6 +220,31 @@ def to_openai_strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
         return node
 
     return walk(root)
+
+
+def to_openai_strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """OpenAI *strict* structured outputs: every object gets
+    ``additionalProperties: false`` and ``required`` = all properties.  Optional
+    fields keep their type: null is accepted only where the source already says
+    so (``x: T | None``), never added — the consumer validates with the original
+    pydantic model, which rejects ``null`` for ``x: str = ""`` / ``list = []``.
+    A non-null ``default`` becomes a ``[default: …]`` hint.  ``$defs`` are inlined."""
+
+    def strict_object(node: dict[str, Any], walk: Callable[[Any], Any]) -> None:
+        props = {k: walk(v) for k, v in node["properties"].items()}
+        required = set(node.get("required", []))
+        for name, sub in props.items():
+            original = node["properties"][name]
+            if name in required or not isinstance(original, dict):
+                continue
+            if original.get("default") is not None:
+                props[name] = _with_default_hint(sub, original["default"])
+        node["properties"] = props
+        node["required"] = list(props.keys())
+        node["additionalProperties"] = False
+        node.setdefault("type", "object")
+
+    return _walk_schema(inline_refs(schema), strict_object)
 
 
 def _with_default_hint(sub: dict[str, Any], default: Any) -> dict[str, Any]:
@@ -244,34 +254,16 @@ def _with_default_hint(sub: dict[str, Any], default: Any) -> dict[str, Any]:
     return {**sub, "description": f"{desc} {hint}".strip()}
 
 
-# ------------------------------------------------------------------ anthropic
 def to_anthropic_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Standard JSON schema with refs inlined, tuples flattened and
     ``additionalProperties: false`` on objects (tool ``input_schema`` / format)."""
-    root = inline_refs(schema)
 
-    def walk(node: Any) -> Any:
-        if isinstance(node, list):
-            return [walk(n) for n in node]
-        if not isinstance(node, dict):
-            return node
-        node = {
-            k: v for k, v in node.items() if k not in ("title", "default", "examples", "example")
-        }
-        if "prefixItems" in node:
-            node = _merge_prefix_items(node)
-        if "properties" in node:
-            node["properties"] = {k: walk(v) for k, v in node["properties"].items()}
-            node.setdefault("type", "object")
-            node.setdefault("additionalProperties", False)
-        for key in ("anyOf", "oneOf", "allOf"):
-            if key in node:
-                node[key] = [walk(v) for v in node[key]]
-        if "items" in node:
-            node["items"] = walk(node["items"])
-        return node
+    def closed_object(node: dict[str, Any], walk: Callable[[Any], Any]) -> None:
+        node["properties"] = {k: walk(v) for k, v in node["properties"].items()}
+        node.setdefault("type", "object")
+        node.setdefault("additionalProperties", False)
 
-    return walk(root)
+    return _walk_schema(inline_refs(schema), closed_object)
 
 
 # ------------------------------------------------------------------ JSON parse
