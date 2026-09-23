@@ -95,7 +95,7 @@ def refine_cmd(
 @flywheel_app.command("caption")
 def caption_cmd(
     target: Annotated[str, typer.Argument(help="run slug/dir, or a runs root with --all")],
-    model: Annotated[str, typer.Option("--model")] = "gemini:gemini-3.7-flash",
+    model: Annotated[str | None, typer.Option("--model", help="default: Settings.default_captioner")] = None,
     all_runs: Annotated[bool, typer.Option("--all", help="caption every un-captioned run under target")] = False,
     force: Annotated[bool, typer.Option("--force", help="re-caption even if captions exist")] = False,
     runs_dir: Annotated[Path | None, typer.Option("--runs-dir")] = None,
@@ -104,10 +104,12 @@ def caption_cmd(
     """Caption run(s): {detailed, instruction, factory} via a chat model."""
     from codeverse3d.addons.dataset.captions import CaptionError, caption_sample
     from codeverse3d.addons.dataset.export import load_captions
+    from codeverse3d.config import get_settings
     from codeverse3d.cost.instrument import run_ledger
     from codeverse3d.proc import RunLocked, exclusive
     from codeverse3d.record.record import iter_runs, load_record
 
+    model = model or get_settings().default_captioner
     if all_runs:
         targets = [(fr.ws, fr.record, fr.run_id.slug)
                    for fr in iter_runs(target, on_error=lambda d, e: warn(f"skip {d.name}: {e}"))]

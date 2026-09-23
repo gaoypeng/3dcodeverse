@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -512,3 +513,17 @@ def test_render_only_labels_the_working_tree_round(tmp_path: Path):
     assert "working tree, which is at round 4" in msg and "3dcode pick" in msg and ei.value.exit_code == 2
     assert _render_round_or_refuse(ws, 4) == 4, "rendering the tree's own round is fine"
     assert _render_round_or_refuse(_round_guard_ws(tmp_path / "b", tree=1), None) == 1
+
+
+def test_flywheel_caption_defaults_to_the_configured_captioner(runs_dir: Path, monkeypatch):
+    """No --model: Settings.default_captioner, not a literal the CLI kept (a configured one was ignored)."""
+    import codeverse3d.addons.dataset.captions as cap
+    from codeverse3d.config import get_settings
+
+    seen: list[str] = []
+    monkeypatch.setattr(get_settings(), "default_captioner", "fake:configured")
+    monkeypatch.setattr(cap, "caption_sample", lambda ws, rec, model, **kw: seen.append(model) or SimpleNamespace(instruction="x"))
+    r = runner.invoke(app, ["flywheel", "caption", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir), "--out",
+                            str(runs_dir.parent / "side")])
+    assert r.exit_code == 0, r.output
+    assert seen == ["fake:configured"]
