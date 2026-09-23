@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse3d.config import get_settings
 from tests.scene_runtime.conftest import needs_node, run_node_json
 
 pytestmark = [pytest.mark.node, needs_node]
 
-RUNTIME_JS = get_settings().runtime_js_dir()
 
 SCENE_JS = """
 import * as THREE from 'three';
@@ -49,7 +47,7 @@ console.log(JSON.stringify({ ground_y: c.ground_y, placement: c.placement, plain
 
 @pytest.fixture(scope="module")
 def table() -> dict:
-    out = run_node_json(SCENE_JS.replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    out = run_node_json(SCENE_JS)
     assert out["ground_y"] == 0 and out["plain_has_placement"] is False   # the render-time census stays cheap
     return out["placement"]
 
@@ -134,7 +132,7 @@ console.log(JSON.stringify({ settle, after: { assets: after.assets.map((a) => ({
 
 @pytest.fixture(scope="module")
 def settled() -> dict:
-    return run_node_json(SETTLE_JS.replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    return run_node_json(SETTLE_JS)
 
 
 def test_settle_seats_floating_and_sunken_and_reports_the_moves(settled):

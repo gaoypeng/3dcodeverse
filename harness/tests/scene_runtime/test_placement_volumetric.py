@@ -19,12 +19,10 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse3d.config import get_settings
 from tests.scene_runtime.conftest import needs_node, run_node_json
 
 pytestmark = [pytest.mark.node, needs_node]
 
-RUNTIME_JS = get_settings().runtime_js_dir()
 
 #: `HAZE_DEPTH_WRITE` is the one thing that changes between the two arms below.
 SCENE_JS = """
@@ -70,7 +68,7 @@ console.log(JSON.stringify({
 
 
 def _run(depth_write: str) -> dict:
-    body = SCENE_JS.replace("HAZE_DEPTH_WRITE", depth_write).replace("'./lib/", f"'{RUNTIME_JS}/lib/")
+    body = SCENE_JS.replace("HAZE_DEPTH_WRITE", depth_write)
     return run_node_json(body)
 
 
@@ -147,6 +145,6 @@ console.log(JSON.stringify({ exempt: t.exempt,
 def test_scatter_that_also_carries_fog_is_exempt_as_instanced():
     """Both reasons are true; `instanced` says the useful thing (its instances cannot be
     sampled at this budget), so it wins."""
-    out = run_node_json(SCATTER_JS.replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    out = run_node_json(SCATTER_JS)
     row = [a for a in out["rows"] if a["name"] == "TuftsAndHaze"]
     assert row and row[0]["exempt"] == "instanced"

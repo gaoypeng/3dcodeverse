@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse3d.config import get_settings
 from tests.scene_runtime.conftest import needs_node, run_node_json
 
 pytestmark = [pytest.mark.node, needs_node]
 
-RUNTIME_JS = get_settings().runtime_js_dir()
 
 JS = """
 import * as THREE from 'three';
@@ -56,7 +54,7 @@ console.log(JSON.stringify({ fix, after, noFix, lifted, liftedAfter, stepped, st
 
 @pytest.fixture(scope="module")
 def result() -> dict:
-    return run_node_json(JS.replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    return run_node_json(JS)
 
 
 def test_a_lens_inside_geometry_retreats_until_clear(result):

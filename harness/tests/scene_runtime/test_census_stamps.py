@@ -5,12 +5,10 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse3d.config import get_settings
 from tests.scene_runtime.conftest import needs_node, run_node_json
 
 pytestmark = [pytest.mark.node, needs_node]
 
-RUNTIME_JS = get_settings().runtime_js_dir()
 
 JS = """
 import * as THREE from 'three';
@@ -40,7 +38,7 @@ console.log(JSON.stringify(g.stamps));
 
 
 def _stamps(jitter: float) -> dict[str, dict]:
-    rows = run_node_json(JS.replace("JITTER", repr(jitter)).replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    rows = run_node_json(JS.replace("JITTER", repr(jitter)))
     return {r["name"]: r for r in rows}
 
 

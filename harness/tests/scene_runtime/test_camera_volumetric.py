@@ -18,12 +18,10 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse3d.config import get_settings
 from tests.scene_runtime.conftest import needs_node, run_node_json
 
 pytestmark = [pytest.mark.node, needs_node]
 
-RUNTIME_JS = get_settings().runtime_js_dir()
 
 JS = """
 import * as THREE from 'three';
@@ -51,7 +49,7 @@ console.log(JSON.stringify(nearGeometry(scene, cam, THREE)));
 
 
 def _run(depth_write: str) -> dict:
-    return run_node_json(JS.replace("DEPTH_WRITE", depth_write).replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    return run_node_json(JS.replace("DEPTH_WRITE", depth_write))
 
 
 @pytest.fixture(scope="module")
@@ -113,12 +111,12 @@ def test_a_camera_standing_in_a_moonbeam_is_not_retreated():
     ArmchairHearthEye and WindowFrostSnow were each moved back 4 m and up 2 m because
     they stood in a `MoonlightShaft`, and the first of those ended NEARER geometry than
     it started (2.358 m -> 0.916 m).  The judge then scored a shot nobody asked for."""
-    out = run_node_json(REPAIR_JS.replace("DEPTH_WRITE", "false").replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    out = run_node_json(REPAIR_JS.replace("DEPTH_WRITE", "false"))
     assert out["fix"] in (None, False), "standing in a light shaft is the shot, not a defect"
 
 
 def test_a_camera_buried_in_a_solid_slab_is_still_retreated():
     """The control: the same geometry that writes depth is matter, and the lens moves."""
-    out = run_node_json(REPAIR_JS.replace("DEPTH_WRITE", "true").replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    out = run_node_json(REPAIR_JS.replace("DEPTH_WRITE", "true"))
     assert out["fix"], "a lens inside a solid slab must still be repaired"
 

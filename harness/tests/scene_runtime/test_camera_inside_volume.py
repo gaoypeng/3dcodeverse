@@ -11,12 +11,10 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse3d.config import get_settings
 from tests.scene_runtime.conftest import needs_node, run_node_json
 
 pytestmark = [pytest.mark.node, needs_node]
 
-RUNTIME_JS = get_settings().runtime_js_dir()
 
 JS = """
 import * as THREE from 'three';
@@ -71,7 +69,7 @@ head.name = 'HeadlandTerrain'; head.rotation.x = -Math.PI / 2; head.position.y =
 
 
 def _run(body: str, eye: str, look_at: str = "null") -> dict:
-    return run_node_json(JS.replace("BODY", body).replace("EYE", eye).replace("LOOKAT", look_at).replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    return run_node_json(JS.replace("BODY", body).replace("EYE", eye).replace("LOOKAT", look_at))
 
 
 def test_a_lens_near_lattice_sails_is_not_inside_them():
@@ -105,15 +103,13 @@ def test_the_ground_under_the_lens_is_the_ray_straight_down_not_the_highest_grou
 
 def test_a_surface_filling_the_lens_counts_its_near_sight_rays():
     JS_PILLAR = JS.replace("cam.lookAt(0, 8, 0);", "cam.lookAt(0, 1.6, -10);")
-    got = run_node_json(JS_PILLAR.replace("BODY", PILLAR).replace("EYE", "0, 1.6, 0").replace("LOOKAT", "[0, 1.6, -4]")
-                        .replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    got = run_node_json(JS_PILLAR.replace("BODY", PILLAR).replace("EYE", "0, 1.6, 0").replace("LOOKAT", "[0, 1.6, -4]"))
     assert got["near_rays"] >= 6 and got["near_limit_m"] == 1.5 and got["nearest_hit_name"] == "StonePillar_3", got
     assert got["camera_in_geometry"] is False, got     # 0.8 m away is not "inside": a different verdict
     # the line of sight to a subject 4 m away is cut by the pillar at 0.8 m
     assert abs(got["target_distance_m"] - 4.0) < 1e-3 and abs(got["target_hit_m"] - 0.8) < 1e-3, got
     assert got["target_hit_name"] == "StonePillar_3", got
-    clear = run_node_json(JS_PILLAR.replace("BODY", "").replace("EYE", "0, 1.6, 0").replace("LOOKAT", "[0, 1.6, -4]")
-                          .replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
+    clear = run_node_json(JS_PILLAR.replace("BODY", "").replace("EYE", "0, 1.6, 0").replace("LOOKAT", "[0, 1.6, -4]"))
     assert clear["near_rays"] == 0 and clear["target_hit_m"] is None, clear
 
 
