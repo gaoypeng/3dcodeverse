@@ -92,8 +92,10 @@ BUILD: dict[str, str] = {
                 "new THREE.BoxGeometry(1, 1, 1), std({ color: 0x806040 + i })); k.position.x = i * 2;"
                 " return k; }))]",
     "neon.js": "(() => { const tube = L.neon.makeNeonTube({ radius: 0.05, seed: 5 });"
-               " const wall = on((m) => L.neon.patchNeonSpill(m, { sources: [{ position: [0, 1, 1],"
-               " color: 0xff2e6a }] }));"
+               # the spill chained under two other libraries' patches (D74 keeps windows.js for it)
+               " const wall = on((m) => L.surface_wear.patchMicroBreakup(m),"
+               " (m) => L.windows.patchWindowInteriors(m, { seed: 4 }),"
+               " (m) => L.neon.patchNeonSpill(m, { sources: [{ position: [0, 1, 1], color: 0xff2e6a }] }));"
                " return [tube, L.neon.makeNeonTube({ ambient: 0.8, seed: 6 }), wall,"
                " L.neon.makeLightTrails({ path: [[-10, 0, 0], [10, 0, 0]], seed: 2 })]; })()",
     "noise.js": "(() => { const g = new THREE.PlaneGeometry(10, 10, 16, 16); g.rotateX(-Math.PI / 2);"
