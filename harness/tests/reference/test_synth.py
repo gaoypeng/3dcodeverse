@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from codeverse3d.models.base import ModelError
@@ -95,10 +94,11 @@ def test_prompt_writer_failure_falls_back_to_the_brief(cache_dir: Path):
     assert rs.ok and "coffee grinder" in rs.subject
 
 
-def test_out_dir_copies_accepted_images_and_writes_the_set(cache_dir: Path, tmp_path: Path):
+def test_out_dir_copies_accepted_images(cache_dir: Path, tmp_path: Path):
+    """The copies only: ``ground_spec`` writes reference_set.json (test_run_and_cli), once,
+    including the all-rejected set ``_publish`` never saw."""
     out = tmp_path / "run" / "artifacts" / "reference"
     rs = synth_reference(make_spec(), model=_chat(), image_model=FakeImageModel(), n_views=2,
                          cache_dir=cache_dir, out_dir=out)
-    assert all(Path(v.path).parent == out for v in rs.accepted)
-    saved = json.loads((out / "reference_set.json").read_text())
-    assert saved["synthesized"] is True and len(saved["views"]) == 2
+    assert len(rs.accepted) == 2 and all(Path(v.path).parent == out for v in rs.accepted)
+    assert rs.synthesized and not (out / "reference_set.json").exists()

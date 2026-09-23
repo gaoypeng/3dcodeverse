@@ -66,23 +66,29 @@ MismatchKind = Literal[
 ]
 
 
-class PlausibilityVerdict(BaseModel):
-    """One vision call's answer about ONE candidate reference image.
+class GateAnswer(BaseModel):
+    """What the vision model reports (observations only — no verdict)."""
+
+    depicted_object: str = ""
+    shows_requested_object: bool = False
+    single_object: bool = False
+    plain_background: bool = False
+    no_text_or_watermark: bool = False
+    is_photo_collage: bool = False
+    contradictions: list[str] = Field(default_factory=list)
+    reason: str = ""
+
+
+class PlausibilityVerdict(GateAnswer):
+    """One vision call's answer about ONE candidate reference image: the model's
+    observations (``depicted_object`` — what it says the image shows; ``contradictions`` —
+    the explicit spec constraints the image contradicts) plus the verdict.
 
     ``ok`` is computed in code from the booleans + ``contradictions`` (see
     :func:`decide`), never taken from the model.
     """
 
     ok: bool = False
-    shows_requested_object: bool = False
-    single_object: bool = False
-    plain_background: bool = False
-    no_text_or_watermark: bool = False
-    is_photo_collage: bool = False
-    depicted_object: str = Field(default="", description="what the vision model says the image shows")
-    contradictions: list[str] = Field(default_factory=list,
-                                      description="explicit spec constraints the image contradicts")
-    reason: str = ""
     model_id: str = ""
 
     def failure(self) -> str:
@@ -518,19 +524,6 @@ def conflict_note(info: dict[str, Any]) -> str:
 # ===================================================================== gate
 
 
-class GateAnswer(BaseModel):
-    """What the vision model reports (observations only — no verdict)."""
-
-    depicted_object: str = ""
-    shows_requested_object: bool = False
-    single_object: bool = False
-    plain_background: bool = False
-    no_text_or_watermark: bool = False
-    is_photo_collage: bool = False
-    contradictions: list[str] = Field(default_factory=list)
-    reason: str = ""
-
-
 def decide(ans: GateAnswer, *, model_id: str = "") -> PlausibilityVerdict:
     """Observations → verdict, in code.  ALL of the checks must hold."""
     ok = (
@@ -541,18 +534,12 @@ def decide(ans: GateAnswer, *, model_id: str = "") -> PlausibilityVerdict:
         and not ans.is_photo_collage
         and not ans.contradictions
     )
-    return PlausibilityVerdict(
-        ok=ok,
-        shows_requested_object=ans.shows_requested_object,
-        single_object=ans.single_object,
-        plain_background=ans.plain_background,
-        no_text_or_watermark=ans.no_text_or_watermark,
-        is_photo_collage=ans.is_photo_collage,
-        depicted_object=ans.depicted_object.strip()[:80],
-        contradictions=[c.strip()[:200] for c in ans.contradictions if c.strip()][:6],
-        reason=ans.reason.strip()[:300],
-        model_id=model_id,
-    )
+    return PlausibilityVerdict(**{
+        **ans.model_dump(),
+        "depicted_object": ans.depicted_object.strip()[:80],
+        "contradictions": [c.strip()[:200] for c in ans.contradictions if c.strip()][:6],
+        "reason": ans.reason.strip()[:300],
+    }, ok=ok, model_id=model_id)
 
 
 def check_plausible(
@@ -759,7 +746,8 @@ def _refresh_conflicts(spec: Spec, rs: ReferenceSet) -> None:
 
 
 def _publish(rs: ReferenceSet, out_dir: Path | None) -> ReferenceSet:
-    """Copy accepted images into the run and repoint their paths (idempotent)."""
+    """Copy accepted images into the run and repoint their paths (idempotent).  The set
+    itself is written by ``ground_spec``, which records the all-rejected case too."""
     if out_dir is None or not rs.accepted:
         return rs
     out_dir = Path(out_dir)
@@ -777,7 +765,6 @@ def _publish(rs: ReferenceSet, out_dir: Path | None) -> ReferenceSet:
             log.warning("could not copy reference into the run (%s); using the cache path", e)
             continue
         v.path = str(dst)
-    (out_dir / "reference_set.json").write_text(rs.model_dump_json(indent=2))
     return rs
 
 
