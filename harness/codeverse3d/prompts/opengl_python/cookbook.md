@@ -58,6 +58,9 @@ def look_at(eye, target, up=(0, 1, 0)):
     return m
 def rot_y(a): c, s = math.cos(a), math.sin(a); return np.array([[c, 0, s, 0], [0, 1, 0, 0], [-s, 0, c, 0], [0, 0, 0, 1]], dtype="f4")
 mvp = proj @ view @ model          # then prog["u_mvp"].write(mvp.T.astype("f4").tobytes())
+# With nonuniform scale, normals use inverse transpose, never mat3(model).
+normal_matrix = np.linalg.inv(model[:3, :3]).T
+prog["u_normal_matrix"].write(normal_matrix.T.astype("f4").tobytes())
 ```
 
 ## Textures (procedural data, noise, LUTs)
@@ -99,6 +102,10 @@ void main() {
 Run horizontally (`u_dir = (1/w, 0)`) into FBO A, vertically (`(0, 1/h)`) into FBO B, at half resolution; composite `scene + k * blur`, tonemap `c/(1+c)`, gamma `pow(c, 1/2.2)`.
 
 ## Lighting in GLSL (Blinn-Phong + rim + fog)
+This short stylized lighting model is for sketches. For a realistic material, use the GGX
+`pbrDirect` / `fresnelSchlick` functions in the GLSL cookbook's Physical surface lighting section;
+keep all light and albedo inputs linear and tonemap once at the final output. Use the Volume
+lighting helpers there for extinction and normalized phase functions in smoke/cloud raymarches.
 ```glsl
 vec3 n = normalize(v_normal); vec3 l = normalize(vec3(0.5, 0.9, 0.4)); vec3 v = normalize(u_cam - v_world);
 float diff = max(dot(n, l), 0.0); float spec = pow(max(dot(n, normalize(l + v)), 0.0), 48.0);
@@ -127,7 +134,7 @@ def sphere_mesh(rings, sectors, r):     # pos3 + normal3 interleaved
             data += [r * n[0], r * n[1], r * n[2], *n]
     for j in range(rings):
         for i in range(sectors):
-            a = j * (sectors + 1) + i; idx += [a, a + sectors + 1, a + 1, a + 1, a + sectors + 1, a + sectors + 2]
+            a = j * (sectors + 1) + i; idx += [a, a + 1, a + sectors + 1, a + 1, a + sectors + 2, a + sectors + 1]
     return np.array(data, dtype="f4"), np.array(idx, dtype="i4")
 ```
 
@@ -154,3 +161,6 @@ ctx.line_width = 1.0   # > 1 is unsupported on core profiles: draw quads for thi
 * Textures sampled with `texture()` need `.use(location=k)` every frame *and* `prog["u_tex"].value = k`.
 * Lines wider than 1 px and GL_QUADS do not exist in core profile; `ctx.wireframe = True` works for debugging only.
 * Half-float (`f2`) colour targets clip at ~65504 — tonemap before writing bright accumulations.
+* When replacing resources, release each owned VAO, buffer, texture, framebuffer and program;
+  a framebuffer does not own its attachments. The harness tears down the context at job end
+  and has no `cleanup()` callback. Do not release its supplied context or final framebuffer.

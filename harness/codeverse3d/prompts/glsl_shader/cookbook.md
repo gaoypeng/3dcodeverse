@@ -37,6 +37,62 @@ float warped(vec2 p, float t) {
 }
 ```
 
+## Volume lighting (smoke, clouds, fog)
+These are transport helpers for a bounded raymarch, not a fluid simulation. Use world metres for
+distance and inverse metres for extinction; density is a nonnegative multiplier. Accumulate front
+to back as `colour += transmittance * (1.0-stepT) * litColour; transmittance *= stepT`, then composite
+`colour + transmittance * background`. A light-direction density march supplies self-shadowing.
+For `phaseHG`, cosTheta is the dot of the incoming and outgoing LIGHT TRAVEL directions; +1 is forward
+scattering. If `rd` points from camera into the scene and `toSun` points toward the sun, use `dot(rd,toSun)`.
+```glsl
+float fbmVolume(vec3 p) {
+    float value = 0.0, amplitude = 0.5;
+    for (int i = 0; i < 5; i++) {
+        value += amplitude * noise3(p);
+        p = p.yzx * 2.03 + vec3(13.1, 7.7, 19.3); amplitude *= 0.5;
+    }
+    return value / 0.96875;
+}
+float beerTransmittance(float extinction, float distance) {
+    return exp(-max(extinction, 0.0) * max(distance, 0.0));
+}
+float phaseHG(float cosTheta, float g) {
+    g = clamp(g, -0.95, 0.95);
+    float d = max(1.0 + g*g - 2.0*g*clamp(cosTheta, -1.0, 1.0), 1e-5);
+    return (1.0-g*g) / (12.56637061 * d * sqrt(d));
+}
+```
+The phase function integrates to one over the sphere. Do not silently omit its `1/(4*pi)` and then
+compensate with exposure. See [PBRT's phase-function discussion](https://pbr-book.org/4ed/Volume_Scattering/Phase_Functions)
+for direction conventions; this recipe uses travel directions, whereas PBRT's API uses two outward directions.
+
+## Physical surface lighting (metal, dielectric, roughness)
+Direct single-scattering GGX with correlated Smith visibility and Schlick Fresnel. Inputs are LINEAR;
+`n`, `v` (toward camera) and `l` (toward light) are unit vectors in the same coordinate space. The
+result includes the incident cosine. Supply actual light radiance; use an environment reflection for
+indirect specular. This is a surface BRDF, without transmission, multiple scattering or area-light integration.
+```glsl
+vec3 fresnelSchlick(float cosine, vec3 f0) {
+    return f0 + (vec3(1.0)-f0) * pow(1.0-clamp(cosine,0.0,1.0),5.0);
+}
+vec3 pbrDirect(vec3 albedo, float metallic, float roughness, vec3 n, vec3 v, vec3 l, vec3 radiance) {
+    float nv = max(dot(n,v),0.0), nl = max(dot(n,l),0.0);
+    if (nv <= 0.0 || nl <= 0.0) return vec3(0.0);
+    vec3 h = normalize(v+l);
+    float nh = max(dot(n,h),0.0), vh = max(dot(v,h),0.0);
+    float a = pow(clamp(roughness,0.045,1.0),2.0), a2 = a*a;
+    float d = nh*nh*(a2-1.0)+1.0;
+    float distribution = a2 / max(3.14159265*d*d,1e-12);
+    float visibility = 0.5 / max(nl*sqrt(nv*nv*(1.0-a2)+a2) + nv*sqrt(nl*nl*(1.0-a2)+a2),1e-7);
+    metallic = clamp(metallic,0.0,1.0); albedo = clamp(albedo,0.0,1.0);
+    vec3 f = fresnelSchlick(vh,mix(vec3(0.04),albedo,metallic));
+    vec3 diffuse = (1.0-metallic)*(vec3(1.0)-f)*albedo/3.14159265;
+    return (diffuse + f*distribution*visibility) * max(radiance,0.0) * nl;
+}
+```
+Roughness changes the distribution and masking of microfacet reflections; a shiny colour alone cannot
+replace it. See [PBRT's microfacet model](https://pbr-book.org/4ed/Reflection_Models/Roughness_Using_Microfacet_Theory).
+
 ## Palettes, tonemapping, grading
 ```glsl
 vec3 palette(float t, vec3 a, vec3 b, vec3 c, vec3 d) { return a + b * cos(6.28318 * (c * t + d)); }
@@ -52,10 +108,21 @@ vec3 gamma(vec3 c) { return pow(max(c, 0.0), vec3(1.0 / 2.2)); }
 ```glsl
 float sdCircle(vec2 p, float r) { return length(p) - r; }
 float sdBox(vec2 p, vec2 b) { vec2 d = abs(p) - b; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0); }
-float sdSegment(vec2 p, vec2 a, vec2 b) { vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); return length(pa - ba * h); }
-float sdStar(vec2 p, float r, float n) { float a = atan(p.y, p.x), s = 6.28318 / n; a = mod(a + s * 0.5, s) - s * 0.5; return length(p) * cos(a) - r; }
-float fill(float d) { return 1.0 - smoothstep(0.0, 1.5 / u_resolution.y, d); }      // 1 px AA edge
-float stroke(float d, float w) { return 1.0 - smoothstep(w, w + 1.5 / u_resolution.y, abs(d)); }
+float sdSegment(vec2 p, vec2 a, vec2 b) { vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-12), 0.0, 1.0); return length(pa - ba * h); }
+// A concave n-point star, outer radius r, inner radius 0.45*r; first tip points +x.
+// Fold into one half-sector, then measure the actual outer-to-inner edge.
+float sdStar(vec2 p, float r, float n) {
+    if (r <= 0.0) return length(p);
+    float halfSector = 3.14159265 / clamp(floor(n + 0.5), 2.0, 64.0);
+    float angle = abs(mod(atan(p.y, p.x) + halfSector, 2.0 * halfSector) - halfSector);
+    vec2 q = length(p) * vec2(cos(angle), sin(angle));
+    vec2 a = vec2(r, 0.0), b = 0.45 * r * vec2(cos(halfSector), sin(halfSector));
+    vec2 edge = b - a, fromTip = q - a;
+    float side = edge.x * fromTip.y - edge.y * fromTip.x;
+    return sdSegment(q, a, b) * (side >= 0.0 ? -1.0 : 1.0);
+}
+float fill(float d) { float aa = max(fwidth(d), 1e-6); return 1.0 - smoothstep(-0.5 * aa, 0.5 * aa, d); }
+float stroke(float d, float w) { float aa = max(fwidth(d), 1e-6); return w <= 0.0 ? 0.0 : 1.0 - smoothstep(w - 0.5 * aa, w + 0.5 * aa, abs(d)); }
 float glow(float d, float k) { return exp(-k * max(d, 0.0)); }
 mat2 rot2(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
 ```
@@ -65,7 +132,7 @@ mat2 rot2(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
 float sdSphere(vec3 p, float r) { return length(p) - r; }
 float sdBox3(vec3 p, vec3 b) { vec3 q = abs(p) - b; return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0); }
 float sdTorus(vec3 p, vec2 t) { vec2 q = vec2(length(p.xz) - t.x, p.y); return length(q) - t.y; }
-float smin(float a, float b, float k) { float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0); return mix(b, a, h) - k * h * (1.0 - h); }
+float smin(float a, float b, float k) { if (k <= 0.0) return min(a, b); float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0); return mix(b, a, h) - k * h * (1.0 - h); }
 float map(vec3 p) {                                   // the scene: ground + bobbing blobs
     float ground = p.y + 1.0;
     vec3 q = p; q.xz = mod(q.xz + 2.0, 4.0) - 2.0;     // repetition
@@ -98,7 +165,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 ## Gradient sky, sun, stars, water
 ```glsl
 vec3 skyGrad(vec2 p) { return mix(vec3(0.95, 0.6, 0.35), vec3(0.1, 0.25, 0.6), smoothstep(-0.3, 0.6, p.y)); }
-float sun(vec2 p, vec2 c, float r) { float d = length(p - c); return smoothstep(r, r * 0.8, d) + 0.3 * exp(-8.0 * d); }
+float sun(vec2 p, vec2 c, float r) { float d = length(p - c); r = max(r, 1e-6); return 1.0 - smoothstep(r * 0.8, r, d) + 0.3 * exp(-8.0 * d); }
 // DENSE STARS: thousands of sub-pixel points, a few brighter; keep = fraction of cells that hold a star (0.2-0.3).
 // Two layers (density 160 and 70) read as a real sky; twenty twinkling sparkles do not (that version cost a run).
 float stars(vec2 p, float density, float keep) {
@@ -109,21 +176,22 @@ float stars(vec2 p, float density, float keep) {
     return step(1.0 - keep, h) * exp(-d * d / (size * size)) * (0.35 + 0.65 * hash12(g + 9.0));
 }
 // usage: col += vec3(0.9, 0.95, 1.0) * (stars(p, 160.0, 0.22) * 0.55 + stars(p + 3.7, 70.0, 0.25) * 0.9);
-float waterHeight(vec2 xz, float t) { return 0.05 * sin(xz.x * 4.0 + t * 1.5) + 0.03 * sin(xz.y * 6.0 - t * 1.1) + 0.04 * noise(xz * 3.0 + t * 0.4); }
+float waterHeight(vec2 xz, float t) { return 0.05 * sin(xz.x * 4.0 + t * 1.5) + 0.03 * sin(xz.y * 6.0 - t * 1.1) + 0.04 * (noise(xz * 3.0 + t * 0.4) - 0.5); }
 // water colour: mix(deep, shallow, fresnel) + specular: pow(max(dot(reflect(-lig, n), -rd), 0.0), 64.0)
 ```
 
 ## Rain / drops on glass (grid cells + trails, refracted background)
 ```glsl
 vec2 dropsLayer(vec2 uv, float t, float scale) {          // returns (mask, trail)
-    vec2 asp = vec2(2.0, 1.0); vec2 st = uv * scale * asp; vec2 id = floor(st);
-    float n = hash12(id); t += n * 6.28;
-    st.y += t * 0.25;  id = floor(st);  n = hash12(id);       // scroll cells downward
+    vec2 asp = vec2(2.0, 1.0); vec2 st = uv * scale * asp + vec2(0.0, t * 0.25);
+    vec2 id = floor(st); float n = hash12(id);               // identities move WITH the falling cells
     vec2 f = fract(st) - 0.5;
+    f.x += (hash12(id + 17.0) - 0.5) * 0.35;
     float w = sin(t + n * 6.28) * (0.5 - abs(f.y)) ; f.x += w * 0.3;   // wobble
     vec2 d = f * vec2(1.0, 2.0);
-    float drop = smoothstep(0.1, 0.05, length(d));
-    float trail = smoothstep(0.1, 0.0, abs(f.x)) * smoothstep(0.5, -0.1, f.y) * step(0.0, f.y) * 0.5;
+    float drop = 1.0 - smoothstep(0.05, 0.1, length(d));
+    float trail = (1.0 - smoothstep(0.0, 0.1, abs(f.x))) *
+                  (1.0 - smoothstep(0.1, 0.5, f.y)) * smoothstep(0.02, 0.1, f.y) * 0.5;
     return vec2(drop, trail) * step(0.3, n);
 }
 // usage: vec2 dr = dropsLayer(uv, u_time, 8.0); vec2 off = dr.x * 0.03 * normalize(p + 1e-3); col = background(uv + off);
@@ -144,7 +212,7 @@ vec3 bokehSoft(vec2 p, float t) {
             vec2 o = vec2(i, j); vec2 h = hash22(id + o); vec2 c = o + h - 0.5;
             float r = 0.12 + 0.12 * hash12(id + o + 7.0);
             float d = length(f - c);
-            float disc = exp(-d * d / (r * r)) * smoothstep(r * 1.6, r * 0.6, d);   // soft core, soft rim
+            float disc = exp(-d * d / (r * r)) * (1.0 - smoothstep(r * 0.6, r * 1.6, d)); // soft core, soft rim
             disc *= 0.7 + 0.3 * sin(t * (0.5 + h.x) + h.y * 6.28);                     // gentle pulsing
             vec3 tint = mix(vec3(0.9, 0.6, 0.3), vec3(0.3, 0.6, 0.9), h.x) * (0.5 + 0.5 * h.y);   // warm/cool, muted
             acc += disc * tint * (0.28 + 0.18 * fl);                                    // many small adds on a dark ground, never a flat fill
