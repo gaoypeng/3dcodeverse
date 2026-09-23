@@ -306,9 +306,8 @@ cd ../harness
 python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml \
     --arms harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
 ```
-Results stream to `results.jsonl` (resumable).  Batteries: `static_objects_v1` (24),
-`articulated_v1` (12), `scenes_v1` (12), `compare_v1` (8, harness-vs-one-shot).
-Protocol and judge calibration: `eval/docs/EVAL.md`.
+Results stream to `results.jsonl` (resumable).  The batteries, the protocol and judge
+calibration: `eval/docs/EVAL.md` (§2 lists the batteries).
 
 `compare_backends` **preflights every model it needs** (one ~20 s probe each) and
 refuses to start when one is not serving — a dead provider does not fail fast on its

@@ -3,8 +3,7 @@
 Package `codeverse3d`, CLI `3dcodeverse` (short alias `3dcode`), repo location
 `/home/yipeng/3dcodeverse/harness`.  Backend only.  Python 3.13 (one fixed version), a small Node
 runtime (`runtime_js/`) for everything Three.js / headless Chrome, and moderngl
-for the graphics track.  Reconciled against the code and the live runs on
-2026-08-23 (waves 2–3 + fix batch 1); design history and deviations are in
+for the graphics track.  Checked against the code on 2026-09-22; design history and deviations are in
 `docs/DECISIONS.md`, how-to in `docs/RUNBOOK.md`, evaluation protocol in
 `eval/docs/EVAL.md`, complexity measurement + the score-vs-complexity study in
 `eval/docs/COMPLEXITY.md`, binding signatures in `docs/INTERFACES.md`.
@@ -272,7 +271,7 @@ eval/bench/                run_bench.py + report.py (the battery launcher, `pyth
                       prompt: penetrating pairs, worst depth, floating parts, contract findings),
                       _oneshot.py, _fixed_eval.py,
                       concurrency_probe.py (in-flight knee sweep), complexity_report.py,
-                      prompts/{static_objects_v1 (24), articulated_v1 (12), scenes_v1 (12), compare_v1 (8)}.yaml
+                      prompts/*.yaml (the batteries: eval/docs/EVAL.md §2)
 runtime_js/           export_glb.mjs (placement policy, instance baking, selfcheck) render_glb.mjs
                       render_scene.mjs probe_scene.mjs check_shaders.mjs (the lib tests' compile driver) gpu_launch.cjs serve.cjs
                       lib/{resolve_three, scene_host, host_coverage, host_census, host_placement, orbit, instances,
@@ -286,7 +285,7 @@ runtime_js/           export_glb.mjs (placement policy, instance baking, selfche
 tests/                agents blender_cadquery core cost flywheel_cli gallery graphics
                       install judges languages models orchestrator_tracks prompts reference scene_gates
                       scene_prompts scene_runtime skills spatial_tools texturing threejs_render urdf_joints
-                      (22 dirs; 2 077 offline, 1 950 of them pure python; the bench tests are ../eval/tests)
+                      (22 dirs; the count is `pytest --collect-only`'s; the bench tests are ../eval/tests)
 ```
 
 ## 3. Workspace layout
@@ -417,16 +416,14 @@ must-acceptance and
 `missing_views` rules apply on top; degraded verdicts are glitches, not scores.
 `PairwiseJudge` (position-swapped, tie on disagreement; only `3dcode pick --by pairwise` asks it); `ReferenceJudge` for
 image-conditioned specs.
-Rubrics: `static_object_v1` (0.72), `articulated_v1` (requires pose sheet),
-`scene_v1` (frame-gate caps), `asset_v1`, `reference_v1`, `shader_v1` (0.70).
+Rubrics (pass threshold 0.70 unless named): `static_object_v1` (0.72), `articulated_v1`
+(requires pose views: the `missing_pose_sheet` cap), `scene_v1` (frame-gate caps
+dark/blown/flat/content_small), `asset_v1`, `reference_v1`, `shader_v2` (graphics, `gl_frames`
+caps; also the `LikenessJudge` default); `shader_v1` stays for calibration replays only.
 
-**Calibration (2026-08-23, `addons/calibration.py`, n=3 on the e2e rounds):**
-flash `gemini-3.7-flash` mean overall std 0.083, pearson(gate errors, score) −0.33;
-pro `gemini-3.1-pro-preview` std 0.030, pearson +0.63, and separation on a
-crafted-vs-crude-vs-wrong triplet 0.60 / 0.00 / 0.25 (flash 0.91 / 0.00 / 0.20 —
-its range is carried by the defect checklist).  Hence **default judge =
-`gemini-3.1-pro-preview`** (`Settings.default_judge`); flash stays the cheap
-in-loop option with `n_samples ≥ 2` for decisions.
+**Calibration** (`addons/calibration.py`: re-judges recorded rounds, n samples each) is why the
+default judge is `gemini-3.1-pro-preview` (`Settings.default_judge`) and flash is the cheap
+option that needs `n_samples ≥ 2` for decisions; the numbers are in `eval/docs/EVAL.md` §6.
 
 ## 7. Run pipeline (all tracks)
 
@@ -546,27 +543,14 @@ untouched.  Scenes get `scene_texture_pack` instead: 6–12 named tiles +
 textures" block.  Chair live check: plan $0.005 + 1 image $0.067 + gate $0.017,
 judge 0.686 → 0.701, materials 0.60 → 0.69, shipped.
 
-## 9. What actually happens in a run (live runs, 2026-08-23)
+## 9. What a run costs and how long it takes
 
-Wave-1 e2e runs (planner/judge `gemini-3.7-flash`, n=1, budget $2.5–3 / 45–60 min):
+Measured, not restated here: `docs/COST.md` is the home of every money figure (§15: one live
+run per profile; §28: where the time goes), and RUNBOOK §2 gives the operator's expected cost
+and time per track.  (This section used to hold a 2026-08-23 table of wave-1 runs, made with
+the since-deleted in-process `api-agent` and the since-removed pass / plateau stops.)
 
-| run | track / language / generator | scores | wall | cost |
-|---|---|---|---|---|
-| `e2e_chair_blender` | static / blender / api-agent | 0.674 → 0.744 (pass) | 11.8 min | $0.84 |
-| `e2e_cabinet_urdf` | articulated / urdf_blender / api-agent | 0.677 → 0.930 (pass) | 12.5 min | $0.84 |
-| `e2e_bench_threejs` | static / threejs / gemini-cli | 0.642 → 0.885 (pass) | 35.7 min | $0.68 |
-| `e2e_garden_scene` | scene / scene_threejs / api-agent | 0.556 → 0.578 (budget) | 45.3 min | $2.90 |
-
-Wave-2/3 live checks: best-of-2 blender stool (single-shot flash) — candidates ran
-in parallel, one crashed on a 503 storm and was retried, scores within the 0.03
-margin so pairwise picked the winner at 0.915 confidence; r00 0.563 → r01 0.612,
-total $0.24 / 7.6 min.  Graphics `neon_rain` (single-shot flash, glsl_shader):
-plan → 328-line shader compiled first try, `gl_frames` clean, judged 0.786 →
-stop=pass after round 0, $0.045.  Per-stage timings: plan 7–60 s; Blender build
-0.1–0.6 s; GL build + 12 frames ~2–5 s; GPU view-rig render ~1.5 s at 8 views (D47's 14-view rig scales with view count, not re-timed); judge verdict
-$0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object round.
-
-## 10. Known limits (as of 2026-08-23)
+## 10. Known limits
 
 * Judge: flash is lenient/noisy on fine distinctions (overall std ≈ 0.08–0.12 at
   n=3); its dynamic range comes from the defect checklist.  Use pro (default) or
@@ -577,7 +561,7 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
   the harness's eye-level rig is a diagnostic only.  A `must` acceptance item the harness
   cannot verify caps a round at 0.60 AND fails its verdict, so on the scene track only the spec's
   `must_have` list keeps that priority (the plan's own checklist is `should`).
-* Articulated: candidate selection uses the quick 4-view sheet (not pose views);
+* Articulated: candidate selection uses the quick 4-view rig plus the sweep's pose views;
   mimic joints are honoured (the sweep drives independent joints only and resolves
   followers through the chain); sweep is O(links² × poses).
 * Scenes: fps is a relative cost; camera-in-geometry can miss open-back enclosures.
@@ -595,8 +579,6 @@ $0.02–0.03 (flash) / ~$0.2 (pro); api-agent generation 3–6 min per object ro
   spend stays in `aborted_rounds`) — give scenes `--max-minutes 60`.
 * Gemini flash 503 storms happen; dead keys and 429s rotate freely now, but a
   sustained outage can still fail a round (`3dcode resume` re-uses cached stages).
-* A few single-file wrappers were once over the old ~400-line guideline; the rule
-  is now a 2 000-line cap (3 000 absolute).
 
 ## 11. Flywheel
 

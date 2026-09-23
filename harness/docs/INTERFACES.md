@@ -6,7 +6,8 @@ This file lists the signatures other packages may rely on.  Types live in
 duck-typed `.judge(JudgeInput) -> Judgment`; `judges/base.py` defines no protocol).
 Where the build deviated from the original plan the deviation is called out as
 **Δ** — see `docs/DECISIONS.md` for the why.  When in doubt the code wins; this
-file was reconciled against it on 2026-08-23 (waves 2–3 + fix batch 1).
+file was last checked against it on 2026-09-22, and every `codeverse3d` name it cites is
+test-pinned (`tests/core/test_interfaces_names.py`).
 
 ## Ids
 
@@ -386,9 +387,7 @@ Observation{ok: VERDICT, failed: the tool could not run, text, numbers, images, 
     # and no console error — with one it is a verdict)
 from codeverse3d.spatial.mcp_server import observation_content, max_images_for, MAX_TEXT_CHARS
     # payload bound at the MCP boundary: text truncated; images 4 (ok) | 1 (FAIL verdict) | 0 (failed)
-import codeverse3d.spatial.tools   # registers: build, measure, render_views, render_sheet, isolate, cross_section,
-    # check_connectivity, check_contract, compare_reference [object tracks], joint_sweep [articulated], shader_probe,
-    # scene_probe, scene_views + check_placement [scene], gl_probe + gl_frames [graphics] — 16
+import codeverse3d.spatial.tools   # registers the 16 tools (the list and their tracks: docs/ARCHITECTURE.md §5)
 python -m codeverse3d.spatial.mcp_server --workspace <ws> [--track X] [--language Y] [--round N] [--list]   # MCP name: 3dcode
 ```
 
@@ -445,9 +444,7 @@ from codeverse3d.judges.vlm_judge import judge_for  # (track, rubric, *, referen
     # for the live run (BaseTrack.make_judge) and every replay (3dcode judge, calibration): measured rubric or photos on an
     # object track -> ReferenceJudge, photos on graphics/scene -> LikenessJudge, else VlmJudge
 ```
-Rubrics: `static_object_v1` (0.72), `articulated_v1` (requires pose views via
-`missing_pose_sheet` cap), `scene_v1` (frame-gate caps dark/blown/flat/content_small),
-`asset_v1`, `reference_v1`, `shader_v1` (0.70; gl_frames caps).  Wire schema order is
+The rubric list is ARCHITECTURE §6's.  Wire schema order is
 observe-then-score (summary/issues/defects/acceptance before criteria) — measured to
 restore flash's dynamic range.  `passed = overall ≥ threshold ∧ no floor ∧ all
 must-acceptance`; gate authors set `GateFinding.data["kind"]` so caps match precisely.
