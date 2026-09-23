@@ -118,4 +118,4 @@ def test_a_procedural_asset_is_rendered_on_the_hero_rig(tmp_ws):
     out = tmp_ws.artifacts / "renders" / "assets" / "crate"
     rs = SceneThreeJsRuntime().render_asset(tmp_ws, "Crate", out)
     assert rs.contact_sheet and (out / "sheet.png").is_file() and len(rs.views) >= 4
-    assert (tmp_ws.artifacts / "asset_export" / "crate" / "object.glb").is_file()
+    assert (tmp_ws.artifacts / "asset_export" / "crate" / "artifacts" / "object.glb").is_file()
