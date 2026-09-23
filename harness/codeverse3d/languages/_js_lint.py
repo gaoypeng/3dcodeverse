@@ -18,7 +18,6 @@ per file: 51 on a scene, 44 of them unchanged ``src/lib`` modules, ≈ 2.5 s a b
 
 from __future__ import annotations
 
-import hashlib
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -27,6 +26,7 @@ from pathlib import Path
 
 from codeverse3d.contracts.artifacts import GateFinding
 from codeverse3d.languages._common import line_of
+from codeverse3d.proc import sha256_file
 from codeverse3d.spatial.node import NodeError, run_node, runtime_js_dir
 
 # threejs's regexes (the superset: side-effect ``import './x.js'``, ``export * from``,
@@ -60,7 +60,7 @@ def node_check_syntax(paths: Sequence[Path]) -> dict[Path, SyntaxProblem]:
     out: dict[Path, SyntaxProblem] = {}
     for p in paths:
         try:
-            digests[p] = hashlib.sha256(p.read_bytes()).hexdigest()
+            digests[p] = sha256_file(p)
         except OSError as e:
             out[p] = SyntaxProblem(None, f"cannot read the file: {e}", "")
     todo = [p for p, d in digests.items() if d not in _PARSED]
