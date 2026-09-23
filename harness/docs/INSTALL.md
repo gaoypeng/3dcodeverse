@@ -370,27 +370,9 @@ npm i -g @openai/codex             # codex    (0.149.0 here)
 ```
 
 `claude`, `codex` and `agy` authenticate against your local subscription (their
-own `login` flows) — test lightly.  The harness handles the per-CLI quirks for
-you; the ones worth knowing:
-
-* **gemini-cli** — the harness writes a *system settings* file per session into that
-  session's `trajectories/<label>_rNN/` dir and passes it via
-  `GEMINI_CLI_SYSTEM_SETTINGS_PATH`, forcing four things (do not undo them):
-  `security.auth.selectedType = "gemini-api-key"` (a pool key is injected as
-  `GEMINI_API_KEY`, other credential env is stripped),
-  `experimental.dynamicModelConfiguration = true` — without it an unknown model
-  id is *silently substituted* and the run is flagged
-  `exit_reason=model_substituted` — and `security.folderTrust.enabled = false`,
-  without which the workspace MCP servers are silently ignored even with
-  `--skip-trust`, so the agent loses every spatial tool.  It also carries the `3dcode`
-  MCP server itself plus `mcp.allowed = ["3dcode"]`: this file is merged LAST and
-  `mcp.allowed` replaces, so a server the agent plants in the workspace's own
-  `.gemini/settings.json` is Blocked.  A pre-existing OAuth
-  login of your own is overridden, not consumed.
-* **codex** — MCP tools need `default_tools_approval_mode="approve"`, which the
-  harness passes on the command line.
-* **agy** — no per-workspace MCP; spatial tools are reached through
-  `3dcode tools <name> --json … --workspace .` instead.
+own `login` flows) — test lightly.  The harness handles the per-CLI quirks for you (the
+gemini-cli system settings file, codex's MCP approval mode, agy's missing per-workspace
+MCP); what each one is and why it must not be undone: `docs/RUNBOOK.md` §3.
 
 The spatial MCP server itself is the `mcp` extra (§4); check it with
 `python -m codeverse3d.spatial.mcp_server --workspace <ws> --list`.

@@ -71,10 +71,14 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 | `gemini:* / anthropic:* / openai:*` | ChatModel for planner / judge / captioner / single-shot | Anthropic/OpenAI untested live here |
 
 ### gemini-cli gotchas (handled by `agents/backends.py`; do not undo)
-* System settings file via `GEMINI_CLI_SYSTEM_SETTINGS_PATH`: api-key auth,
+* A system settings file, written per session into `trajectories/<label>_rNN/` and passed via
+  `GEMINI_CLI_SYSTEM_SETTINGS_PATH`: api-key auth (`security.auth.selectedType="gemini-api-key"`;
+  a pre-existing OAuth login of your own is overridden, not consumed),
   `experimental.dynamicModelConfiguration=true` (else unknown models are silently
   substituted → checked, `exit_reason=model_substituted`), `security.folderTrust.enabled=false`
-  (else workspace MCP servers are silently ignored even with `--skip-trust`).
+  (else workspace MCP servers are silently ignored even with `--skip-trust`), and the `3dcode`
+  MCP server itself with `mcp.allowed=["3dcode"]` — the file is merged LAST and `mcp.allowed`
+  replaces, so a server the agent plants in the workspace's `.gemini/settings.json` is Blocked.
 * Workspace `.gemini/settings.json` sets `context.fileFiltering.respectGitIgnore=false`
   so the fine-grained `.geminiignore` (not the git ignore) decides what the agent can
   read: build/census/measurement JSON stay readable, renders/judge output and the whole
