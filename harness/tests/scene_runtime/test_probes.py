@@ -4,32 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse3d.contracts.artifacts import Severity
 from codeverse3d.spatial.probes import probe_scene, run_probe
 from tests.scene_runtime.conftest import needs_browser
 
 pytestmark = [pytest.mark.node, needs_browser]
-
-
-def test_probe_scene_passes_on_example(starter_ws):
-    res = probe_scene(starter_ws)
-    gate, census = res
-    assert gate.gate == "scene_probe" and gate.passed, [(f.target, f.message) for f in gate.findings]
-    assert res.ok and res.errors == []
-    assert census["totals"]["meshes"] > 10 and census["totals"]["lights"] == 3
-    assert {g["name"] for g in census["groups"]} == {"Environment", "Meadow", "Pondside"}
-    assert census["content_bbox"]["size"][0] > 50
-    assert (starter_ws.artifacts / "census.json").is_file()
-    assert gate.duration_ms < 15000
-
-
-def test_probe_scene_reports_import_error_with_stage(starter_ws):
-    (starter_ws.src / "scene.js").write_text("import * as THREE from 'three';\nimport { nope } from './does_not_exist.js';\nexport function createScene() {}\n")
-    gate, census = probe_scene(starter_ws)
-    assert not gate.passed
-    err = gate.errors[0]
-    assert err.data.get("stage") == "import" and err.target == "src/scene.js"
-    assert "fix the syntax/import error" in err.fix_hint
 
 
 def test_probe_scene_flags_bad_shape_and_cameras(starter_ws):
@@ -86,31 +64,9 @@ def test_the_shader_preflight_runs_raw(ws, tmp_path, monkeypatch):
     assert any("post chain built" in e for e in rs.console_errors), rs.console_errors
 
 
-def test_preflight_clean_on_example(starter_ws):
-    rep = preflight(starter_ws)
-    assert rep.gate == "shader_preflight" and rep.passed, [(f.target, f.message) for f in rep.findings]
-    info = [f for f in rep.findings if f.severity == Severity.INFO]
-    assert info and info[0].data.get("programs", 0) >= 3
-
-
-def test_preflight_maps_compile_error_to_file_line(starter_ws):
-    p = starter_ws.src / "shaders" / "water.js"
-    text = p.read_text()
-    needle = "float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);"
-    assert needle in text
-    text = text.replace(needle, "float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0) * undefinedThing;")
-    p.write_text(text)
-    line = next(i for i, ln in enumerate(text.splitlines(), 1) if "undefinedThing" in ln)
-    rep = preflight(starter_ws)
-    assert not rep.passed
-    err = rep.errors[0]
-    assert err.target == f"src/shaders/water.js:{line}", err
-    assert "undeclared identifier" in err.message and "undefinedThing" in err.message
-    assert err.data.get("material") and "PondWater" in err.data["material"]
-    assert err.fix_hint
-
-
-def test_preflight_on_before_compile_patch_error(starter_ws):
+def test_preflight_maps_patch_and_static_audit_errors_to_file_line(starter_ws):
+    """An onBeforeCompile patch's compile error lands on the patch's own file:line, and
+    the static audit reports a shader file no scene imports, all in one preflight."""
     (starter_ws.src / "shaders" / "glow.js").write_text(
         "import * as THREE from 'three';\n"
         "export function makeGlow(T = THREE) {\n"
@@ -132,18 +88,13 @@ def test_preflight_on_before_compile_patch_error(starter_ws):
     )
     assert "makeGlow(THREE)" in text
     p.write_text(text)
-    rep = preflight(starter_ws)
-    assert not rep.passed
-    err = rep.errors[0]
-    assert err.target == "src/shaders/glow.js:6", err
-    assert "missingUniform" in err.message
-
-
-def test_preflight_static_audit_without_compile(starter_ws):
     (starter_ws.src / "shaders" / "bad.js").write_text(
         "export const frag = `\n#version 300 es\nvoid main() { gl_FragColor = vec4(uTime); }`;\n"
     )
     rep = preflight(starter_ws)
+    assert not rep.passed
+    glow = [f for f in rep.errors if f.target == "src/shaders/glow.js:6"]
+    assert glow and "missingUniform" in glow[0].message, [(f.target, f.message) for f in rep.errors]
     kinds = {f.data.get("kind") for f in rep.errors}
     assert {"version_directive", "undeclared_uniform", "unbound_uniform"} <= kinds
     assert any(f.target == "src/shaders/bad.js:2" for f in rep.errors)

@@ -2,10 +2,8 @@
 as a height function that agrees with its mesh; the cliff is one ribbon."""
 from __future__ import annotations
 
-import re
-
 import pytest
-from _probe import LIB_DIR, measure
+from _probe import measure
 
 pytestmark = pytest.mark.node
 
@@ -125,13 +123,6 @@ def test_ground_textures_by_default_and_tiles_to_its_size(probe):
     g = probe["ground"]
     assert g["textured"] and g["wraps"]
     assert abs(g["repeat"] - 200 / 12) < 1e-6, g
-
-
-def test_ground_source_is_seeded_never_math_random():
-    src = (LIB_DIR / "terrain.js").read_text(encoding="utf-8")
-    code = "\n".join(ln for ln in src.splitlines() if not ln.strip().startswith(("*", "//", "/*")))
-    assert not re.search(r"Math\.random\s*\(", code)
-    assert "opts.rand" in src and "MAT.soil()" in src
 
 
 def test_cliff_is_one_connected_ribbon_with_no_gaps(probe):

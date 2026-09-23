@@ -12,7 +12,6 @@ from codeverse3d.languages.scene_threejs import (
     assemble,
     cameras_from_specs,
     lint,
-    probe_zone_modules,
     render_scene_js,
     sun_azimuth,
 )
@@ -74,14 +73,12 @@ def test_render_scene_js_contents():
     assert "const env = (await buildEnv(ctx)) || {};" in src
     src2 = render_scene_js([], cams, [], env_ok=False)
     assert "env.js" not in src2 and "heightAt: () => 0" in src2
-
-
-def test_sun_azimuth_reads_env(starter_ws):
-    assert sun_azimuth(starter_ws) == 60.0
+    assert "assetFiles" not in src2 and "loadAsync" not in src2   # no GLB asset, no loader
 
 
 @needs_node
 def test_assemble_without_probe_writes_all_zones(starter_ws):
+    assert sun_azimuth(starter_ws) == 60.0   # the starter env's sun: the side every derived camera stands on
     res = assemble(starter_ws, probe=False)
     assert set(res.zones_included) == {"meadow", "pondside"}
     assert (starter_ws.src / "scene.js").read_text().startswith("// src/scene.js — ASSEMBLED")
@@ -91,41 +88,14 @@ def test_assemble_without_probe_writes_all_zones(starter_ws):
 
 @pytest.mark.node
 @needs_browser
-def test_probe_zone_modules_reports_failures_and_bboxes(starter_ws):
-    (starter_ws.src / "zones" / "broken.js").write_text("export function build(ctx) { throw new Error('kaboom'); }\n")
-    (starter_ws.src / "zones" / "nobuild.js").write_text("export const x = 1;\n")
-    report = probe_zone_modules(starter_ws, sun_azimuth_deg=60.0)
-    probes = report.probes
-    assert probes["meadow"].ok and probes["meadow"].bbox and probes["meadow"].meshes > 5
-    assert probes["pondside"].ok
-    assert not probes["broken"].ok and "kaboom" in probes["broken"].error
-    assert not probes["nobuild"].ok and "no export build" in probes["nobuild"].error
-    assert report.census.get("ground_y") is not None
-    assert not (starter_ws.root / "src" / "_c3v_assemble_probe.js").exists()
-    # driver-fitted cameras: an overview plus one eye-level spec per measured zone group
-    specs = report.camera_specs
-    assert specs["azimuth"] == 60.0 and specs["overview"]["position"][1] > 0.5
-    zone_groups = {z["group"] for z in specs["zones"]}
-    assert {"__zone__meadow", "__zone__pondside"} <= zone_groups
-
-
-@pytest.mark.node
-@needs_browser
-def test_assemble_end_to_end_excludes_broken_zone(starter_ws):
-    (starter_ws.src / "zones" / "broken.js").write_text("export function build(ctx) { throw new Error('kaboom'); }\n")
-    res = assemble(starter_ws)
-    assert set(res.zones_included) == {"meadow", "pondside"}
-    assert "broken" in res.zones_failed
-    assert res.cameras[0].name == "overview" and len(res.cameras) == 3
-    src = (starter_ws.src / "scene.js").read_text()
-    assert "broken" not in src
-    assert lint(starter_ws).passed
-
-
-@pytest.mark.node
-@needs_browser
-def test_assemble_with_async_zone_boots(starter_ws):
-    (starter_ws.src / "zones" / "orchard.js").write_text(
+def test_assemble_probes_each_zone_excludes_the_broken_and_boots(starter_ws):
+    """One probed assembly: a throwing zone and a zone with no build are excluded with
+    their reasons, an async build() is awaited, the driver fits an overview plus one
+    camera per measured zone, and the assembled scene then boots through the probe."""
+    zones = starter_ws.src / "zones"
+    (zones / "broken.js").write_text("export function build(ctx) { throw new Error('kaboom'); }\n")
+    (zones / "nobuild.js").write_text("export const x = 1;\n")
+    (zones / "orchard.js").write_text(
         "import * as THREE from 'three';\n"
         "export async function build(ctx) {\n"
         "  await new Promise((r) => setTimeout(r, 10));\n"
@@ -136,7 +106,19 @@ def test_assemble_with_async_zone_boots(starter_ws):
         "}\n"
     )
     res = assemble(starter_ws)
-    assert "orchard" in res.zones_included and res.zones_failed == {}
+    assert set(res.zones_included) == {"meadow", "pondside", "orchard"}
+    assert "kaboom" in res.zones_failed["broken"]
+    assert "no export build" in res.zones_failed["nobuild"]
+    assert res.census.get("ground_y") is not None
+    assert not (starter_ws.root / "src" / "_c3v_assemble_probe.js").exists()
+    # driver-fitted cameras: an overview plus one eye-level camera per measured zone
+    assert res.cameras[0].name == "overview" and res.cameras[0].position[1] > 0.5
+    assert {"meadow_view", "pondside_view", "orchard_view"} <= {c.name for c in res.cameras}
+    src = (starter_ws.src / "scene.js").read_text()
+    assert "broken" not in src and "nobuild" not in src
+    (zones / "broken.js").unlink()
+    (zones / "nobuild.js").unlink()
+    assert lint(starter_ws).passed
     from codeverse3d.spatial.probes import probe_scene
 
     probe = probe_scene(starter_ws)

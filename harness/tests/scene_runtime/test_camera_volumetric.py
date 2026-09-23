@@ -14,9 +14,13 @@ from tests.scene_runtime.conftest import needs_node, run_node_json
 pytestmark = [pytest.mark.node, needs_node]
 
 
-JS = """
+HEAD = """
 import * as THREE from 'three';
-import { nearGeometry } from './lib/host_metrics.mjs';
+import { nearGeometry, repairCameraSpec } from './lib/host_metrics.mjs';
+const out = {};
+"""
+
+JS = """{
 const solid = new THREE.MeshStandardMaterial();
 const shaftMat = new THREE.MeshBasicMaterial({
   color: 0xfff0c0, transparent: true, opacity: 0.075,
@@ -35,17 +39,24 @@ const cam = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 500);
 cam.position.set(0, 1.6, 0);
 cam.lookAt(0, 1.2, -3);
 cam.updateMatrixWorld(true);
-console.log(JSON.stringify(nearGeometry(scene, cam, THREE)));
+out[KEY] = nearGeometry(scene, cam, THREE);
+}
 """
 
 
-def _run(depth_write: str) -> dict:
-    return run_node_json(JS.replace("DEPTH_WRITE", depth_write))
+@pytest.fixture(scope="module")
+def got() -> dict:
+    """Both arms of both probes (depthWrite off / on), in one node process."""
+    blocks = [JS.replace("KEY", "'shaft'").replace("DEPTH_WRITE", "false"),
+              JS.replace("KEY", "'solid_shaft'").replace("DEPTH_WRITE", "true"),
+              REPAIR_JS.replace("KEY", "'moonbeam'").replace("DEPTH_WRITE", "false"),
+              REPAIR_JS.replace("KEY", "'slab'").replace("DEPTH_WRITE", "true")]
+    return run_node_json(HEAD + "".join(blocks) + "console.log(JSON.stringify(out));\n")
 
 
 @pytest.fixture(scope="module")
-def shaft() -> dict:
-    return _run("false")
+def shaft(got) -> dict:
+    return got["shaft"]
 
 
 def test_a_lens_standing_in_a_god_ray_is_not_in_geometry(shaft):
@@ -60,16 +71,14 @@ def test_the_bench_behind_it_is_still_seen(shaft):
     assert 2.0 < shaft["nearest_hit_m"] < 3.5
 
 
-def test_the_same_slab_WITH_depth_write_is_still_counted():
+def test_the_same_slab_WITH_depth_write_is_still_counted(got):
     """The control: the rule is `depthWrite`, not the name or the opacity."""
-    solid_shaft = _run("true")
+    solid_shaft = got["solid_shaft"]
     assert solid_shaft["inside_mesh_bbox"] == ["SunShaft_0"]
     assert solid_shaft["camera_in_geometry"] is True
 
 
-REPAIR_JS = """
-import * as THREE from 'three';
-import { repairCameraSpec } from './lib/host_metrics.mjs';
+REPAIR_JS = """{
 const solid = new THREE.MeshStandardMaterial();
 const fog = new THREE.MeshBasicMaterial({
   transparent: true, opacity: 0.04, depthWrite: DEPTH_WRITE, side: THREE.DoubleSide,
@@ -91,23 +100,22 @@ const makeCam = (spec) => {
 };
 // the cozy_cabin shape: an eye standing IN the moonbeam, 2.4 m from the nearest thing
 const spec = { name: 'ArmchairHearthEye', position: [0, 1.6, 0], lookAt: [0, 1.2, -2.4], fov: 50 };
-console.log(JSON.stringify({ fix: repairCameraSpec(scene, spec, THREE, makeCam) }));
+out[KEY] = { fix: repairCameraSpec(scene, spec, THREE, makeCam) };
+}
 """
 
 
-def test_a_camera_standing_in_a_moonbeam_is_not_retreated():
+def test_a_camera_standing_in_a_moonbeam_is_not_retreated(got):
     """`repairCameraSpec` is driven by `camera_in_geometry`, so a false "inside" does not
     only print a finding — it RETREATS the authored lens.  bench/out/scene_baseline
     (2026-09-05) recorded seven repairs, three of them triggered by fog: cozy_cabin's
     ArmchairHearthEye and WindowFrostSnow were each moved back 4 m and up 2 m because
     they stood in a `MoonlightShaft`, and the first of those ended NEARER geometry than
     it started (2.358 m -> 0.916 m).  The judge then scored a shot nobody asked for."""
-    out = run_node_json(REPAIR_JS.replace("DEPTH_WRITE", "false"))
-    assert out["fix"] in (None, False), "standing in a light shaft is the shot, not a defect"
+    assert got["moonbeam"]["fix"] in (None, False), "standing in a light shaft is the shot, not a defect"
 
 
-def test_a_camera_buried_in_a_solid_slab_is_still_retreated():
+def test_a_camera_buried_in_a_solid_slab_is_still_retreated(got):
     """The control: the same geometry that writes depth is matter, and the lens moves."""
-    out = run_node_json(REPAIR_JS.replace("DEPTH_WRITE", "true"))
-    assert out["fix"], "a lens inside a solid slab must still be repaired"
+    assert got["slab"]["fix"], "a lens inside a solid slab must still be repaired"
 

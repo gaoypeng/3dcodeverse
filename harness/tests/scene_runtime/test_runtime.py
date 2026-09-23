@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from codeverse3d.contracts.artifacts import Severity
 from codeverse3d.contracts.common import Language
 from codeverse3d.languages import get_runtime
 from codeverse3d.languages.base import LanguageRuntime
@@ -29,13 +30,22 @@ def test_runtime_registered_conforms_and_writes_skeleton(ws):
 @pytest.mark.node
 @needs_browser
 def test_build_ok_on_example(starter_ws):
+    """The example scene: one probe boot passes both gates and records its census."""
     rt = SceneThreeJsRuntime()
     res = rt.build(starter_ws)
     assert res.ok, res.stdout_tail
     assert res.language == "scene_threejs" and res.glb_path is None
-    assert res.census["totals"]["meshes"] > 10
+    census = res.census
+    assert census["totals"]["meshes"] > 10 and census["totals"]["lights"] == 3
+    assert {g["name"] for g in census["groups"]} == {"Environment", "Meadow", "Pondside"}
+    assert census["content_bbox"]["size"][0] > 50
     assert (starter_ws.artifacts / "build.json").is_file() and (starter_ws.artifacts / "census.json").is_file()
+    probe, shaders = res.gates
+    assert probe.gate == "scene_probe" and probe.passed and probe.duration_ms < 15000
     assert json.loads((starter_ws.artifacts / "gates" / "shader_preflight.json").read_text())["passed"]
+    assert shaders.gate == "shader_preflight"
+    info = [f for f in shaders.findings if f.severity == Severity.INFO]
+    assert info and info[0].data.get("programs", 0) >= 3
 
 
 @pytest.mark.node
@@ -44,14 +54,22 @@ def test_build_fails_with_file_line_on_shader_error(starter_ws):
     # the pond's water shader: a file the example scene compiles (the starter's sky comes
     # from lib/environment.js worldShell since D71)
     p = starter_ws.src / "shaders" / "water.js"
-    text = p.read_text().replace("float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);", "float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0) + nope;")
-    assert "nope" in text
+    text = p.read_text()
+    needle = "float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);"
+    assert needle in text
+    text = text.replace(needle, "float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0) * undefinedThing;")
     p.write_text(text)
+    line = next(i for i, ln in enumerate(text.splitlines(), 1) if "undefinedThing" in ln)
     res = SceneThreeJsRuntime().build(starter_ws)
     assert not res.ok
-    assert res.error_file == "src/shaders/water.js" and res.error_line
-    assert "nope" in res.error_message
+    assert res.error_file == "src/shaders/water.js" and res.error_line == line
+    assert "undefinedThing" in res.error_message
     assert "shader_preflight: FAILED" in res.stdout_tail
+    err = res.gates[1].errors[0]
+    assert err.target == f"src/shaders/water.js:{line}", err
+    assert "undeclared identifier" in err.message and "undefinedThing" in err.message
+    assert err.data.get("material") and "PondWater" in err.data["material"]
+    assert err.fix_hint
 
 
 @pytest.mark.node
@@ -60,6 +78,9 @@ def test_build_fails_on_import_error(starter_ws):
     (starter_ws.src / "scene.js").write_text("import { x } from './nope.js';\nexport function createScene() {}\n")
     res = SceneThreeJsRuntime().build(starter_ws)
     assert not res.ok and res.error_file == "src/scene.js" and "nope.js" in res.error_message
+    err = res.gates[0].errors[0]
+    assert err.data.get("stage") == "import" and err.target == "src/scene.js"
+    assert "fix the syntax/import error" in err.fix_hint
 
 
 def test_build_interprets_combined_summary_offline(ws, monkeypatch):

@@ -88,26 +88,16 @@ def test_post_chain_args_follow_the_env_switch(switch):
 
 @needs_node
 @needs_browser
-def test_chain_alone_is_colour_neutral(tmp_path):
-    """AO off, bloom off, grade at its defaults → the same picture as no chain.
-
-    Without this the grade could drift and nobody would notice: every later
-    measurement of AO or bloom is a delta against a raw render.
-    """
-    ws = make_ws(tmp_path, "neutral", BRIGHT)
-    raw = render(ws, tmp_path / "raw", "--no-post")
-    chain = render(ws, tmp_path / "chain", "--post-options", '{"ao":0,"bloom":0}')
-    assert abs(mean_lum(chain) - mean_lum(raw)) < 0.005, (mean_lum(raw), mean_lum(chain))
-
-
-@needs_node
-@needs_browser
-def test_bloom_is_selective_not_a_brightness_threshold(tmp_path):
+def test_bloom_is_selective_and_the_chain_alone_is_colour_neutral(tmp_path):
     """An EMISSIVE box blooms; an equally bright NON-emissive box does not.
 
     Both scenes are lit the same and the plain box is the brighter of the two in
     the raw render — so anything that keys off frame luminance fails this test,
     which is exactly the reference chain's failure mode.
+
+    And AO off, bloom off, grade at its defaults → the same picture as no chain.
+    Without that the grade could drift and nobody would notice: every later
+    measurement of AO or bloom is a delta against a raw render.
     """
     emissive = make_ws(tmp_path, "emissive", EMISSIVE)
     plain = make_ws(tmp_path, "plain", BRIGHT)
@@ -124,6 +114,8 @@ def test_bloom_is_selective_not_a_brightness_threshold(tmp_path):
 
     assert mean_lum(e_post) - mean_lum(e_raw) > 0.004, "emissive box did not bloom"
     assert abs(mean_lum(p_post) - mean_lum(p_raw)) < 0.005, "a merely bright box must not bloom"
+    chain = render(plain, tmp_path / "p_chain", "--post-options", '{"ao":0,"bloom":0}')
+    assert abs(mean_lum(chain) - mean_lum(p_raw)) < 0.005, (mean_lum(p_raw), mean_lum(chain))
 
 
 @needs_node

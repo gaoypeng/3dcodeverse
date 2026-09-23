@@ -55,8 +55,7 @@ console.log(JSON.stringify({
 """
 
 
-@pytest.fixture
-def loaded(tmp_path) -> dict:
+def test_a_loaded_glb_carries_its_planned_name_and_plays_its_clip(tmp_path):
     (tmp_path / "src" / "zones").mkdir(parents=True)
     (tmp_path / "src" / "zones" / "pergola_lounge.js").write_text(ZONE_JS)
     cam = CameraPlan(name="establishing", position=[5, 2, 5], look_at=[0, 1, 0], fov=45)
@@ -66,30 +65,16 @@ def loaded(tmp_path) -> dict:
     driver = tmp_path / "driver.mjs"
     driver.write_text(DRIVER_JS)
     res = run_node(driver, [], cwd=tmp_path, three_hook=True, timeout_s=60)
-    return json.loads(res.stdout.strip().splitlines()[-1])
-
-
-def test_the_zone_sees_the_asset_under_its_planned_name(loaded):
+    loaded = json.loads(res.stdout.strip().splitlines()[-1])
     assert loaded["zoneSees"] == ["LoungeSofa"], "a glTF root is called 'Scene' until someone names it"
-
-
-def test_the_clone_plays_its_blender_clip_by_absolute_time(loaded):
-    """A keyframed Blender part arrives as a clip on the preloaded root, `.clone()` keeps it,
-    and the assembled scene plays it from `update(t)` with no zone code — the same t gives
-    the same pose (the harness samples t = 0 and 1.5 s)."""
+    # `.clone()` copies the name, so the object actually standing in the zone — the one
+    # `scene_placement` matches against the plan — carries it as well
+    assert loaded["cloneNames"] == ["LoungeSofa"]
+    # a keyframed Blender part arrives as a clip on the preloaded root, `.clone()` keeps it,
+    # and the assembled scene plays it from `update(t)` with no zone code — the same t gives
+    # the same pose (the harness samples t = 0 and 1.5 s)
     assert loaded["clipsOnClone"] == [1]
     assert loaded["at0"] == [-0.35] and loaded["at1"] == [0.35] and loaded["again0"] == loaded["at0"]
-
-
-def test_the_clone_the_zone_places_carries_the_name_too(loaded):
-    """`.clone()` copies the name, so the object actually standing in the zone — the
-    one `scene_placement` matches against the plan — carries it as well."""
-    assert loaded["cloneNames"] == ["LoungeSofa"]
-
-
-def test_a_plan_without_glb_assets_emits_no_loader():
-    src = render_scene_js(["z"], [], [], env_ok=False)
-    assert "assetFiles" not in src and "loadAsync" not in src
 
 
 def test_a_procedural_asset_is_rendered_on_the_hero_rig(tmp_ws):

@@ -15,13 +15,6 @@ def _msgs(report, sev=None):
     return [(f.target, f.message) for f in report.findings if sev is None or f.severity == sev]
 
 
-def test_example_scene_lints_clean(starter_ws):
-    rep = lint(starter_ws)
-    assert rep.gate == "lint:scene_threejs"
-    assert rep.passed, _msgs(rep)
-    assert not [f for f in rep.findings if f.severity == Severity.ERROR]
-
-
 def test_required_scene_entry_and_export(ws):
     rep = lint(ws)
     assert not rep.passed

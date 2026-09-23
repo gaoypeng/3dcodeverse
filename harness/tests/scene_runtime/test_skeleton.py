@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from codeverse3d.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
-from codeverse3d.languages.scene_threejs import STARTER_DIR, lint, write_example, write_skeleton
+from codeverse3d.languages.scene_threejs import lint, write_example, write_skeleton
 from codeverse3d.workspace import Workspace
 from tests.scene_runtime.conftest import needs_node
 
@@ -23,23 +23,6 @@ def make_plan() -> ScenePlan:
         ],
         cameras=[CameraPlan(name="pier_low", position=(8, 2, 22), look_at=(0, 1, 10), fov=45, purpose="pier")],
     )
-
-
-def test_example_files_exist_and_are_complete():
-    names = {p.relative_to(STARTER_DIR).as_posix() for p in STARTER_DIR.rglob("*.js")}
-    assert {"scene.js", "env.js", "zones/meadow.js", "zones/pondside.js", "assets/pine_tree.js", "assets/windmill.js", "shaders/water.js"} <= names
-    scene = (STARTER_DIR / "scene.js").read_text()
-    assert "export function createScene" in scene and "cameras" in scene and "update(t, dt)" in scene
-    assert "ShaderMaterial" in (STARTER_DIR / "shaders" / "water.js").read_text()
-    assert "InstancedMesh" in (STARTER_DIR / "zones" / "meadow.js").read_text()
-
-
-def test_example_writers_copy_all(ws):
-    paths = write_example(ws)
-    assert len(paths) >= 8
-    assert (ws.src / "scene.js").is_file()
-    fallback = write_skeleton(ws, None)
-    assert (ws.src / "zones" / "meadow.js") in fallback
 
 
 @needs_node
@@ -84,6 +67,8 @@ def test_both_skeleton_paths_ship_the_effect_library(tmp_path):
         got = {p.name for p in written if p.parent == ws.src / "lib"}
         assert got == names, (label, sorted(names - got))
         assert (ws.src / "lib" / "grass.js").is_file(), label
+        if plan is None:   # no plan: the complete example scene is the skeleton
+            assert ws.src / "zones" / "meadow.js" in written and (ws.src / "scene.js").is_file()
 
 
 def test_the_library_is_harness_owned_so_an_agent_cannot_rewrite_it():
@@ -117,6 +102,7 @@ def test_the_lint_does_not_judge_the_library_as_agent_code(tmp_path):
     ws = Workspace(tmp_path / "ws")
     write_example(ws)
     report = lint(ws)
+    assert report.gate == "lint:scene_threejs"
     assert report.passed, [f.message for f in report.findings if f.severity == Severity.ERROR]
     assert not [f for f in report.findings if f.target.startswith("src/lib/")], \
         [f.target for f in report.findings if f.target.startswith("src/lib/")]
