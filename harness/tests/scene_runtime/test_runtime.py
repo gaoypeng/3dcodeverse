@@ -81,8 +81,8 @@ def test_build_interprets_combined_summary_offline(ws, monkeypatch):
             ], "warnings": [], "compile": {"ms": 3, "programs": 4, "custom_materials": 1}, "duration_ms": 9},
         }, 5)
 
-    import codeverse3d.spatial.render_scene as rs_mod
-    monkeypatch.setattr(rs_mod, "run_scene_script", fake_run)
+    import codeverse3d.spatial.probes as probes_mod
+    monkeypatch.setattr(probes_mod, "run_scene_script", fake_run)
     res = rt_mod.SceneThreeJsRuntime().build(ws)
     assert len(calls) == 1 and calls[0][0] == "probe_scene.mjs" and "--compile" in calls[0]
     assert not res.ok  # shader gate failed
@@ -103,7 +103,7 @@ def test_build_interprets_combined_summary_offline(ws, monkeypatch):
             "shader_report": {"ok": False, "skipped": "scene did not boot", "errors": [], "warnings": []},
         }, 5)
 
-    monkeypatch.setattr(rs_mod, "run_scene_script", fake_run_noboot)
+    monkeypatch.setattr(probes_mod, "run_scene_script", fake_run_noboot)
     res2 = rt_mod.SceneThreeJsRuntime().build(ws)
     assert not res2.ok
     shaders2 = _json.loads((ws.artifacts / "gates" / "shader_preflight.json").read_text())
@@ -112,7 +112,7 @@ def test_build_interprets_combined_summary_offline(ws, monkeypatch):
 
 def test_probe_crash_leaves_no_stale_probe_outputs(ws, monkeypatch):
     """A probe crash removes prior outputs and publishes a failed build."""
-    import codeverse3d.spatial.render_scene as rs_mod
+    import codeverse3d.spatial.probes as probes_mod
     from codeverse3d.spatial.render_scene import SceneRenderError
 
     for name in ("census.json", "scene_probe.json", "shader_preflight.json"):
@@ -122,7 +122,7 @@ def test_probe_crash_leaves_no_stale_probe_outputs(ws, monkeypatch):
     def crash(script, args, **kw):
         raise SceneRenderError("chrome went away")
 
-    monkeypatch.setattr(rs_mod, "run_scene_script", crash)
+    monkeypatch.setattr(probes_mod, "run_scene_script", crash)
     res = SceneThreeJsRuntime().build(ws)
     assert not res.ok
     for name in ("census.json", "scene_probe.json", "shader_preflight.json"):

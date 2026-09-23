@@ -324,7 +324,6 @@ def test_render_sheet_and_isolate(stool_ctx: ToolContext, fake_renderer) -> None
 
 
 def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse3d.languages.scene_threejs as st
     import codeverse3d.spatial.tools as ts
     from codeverse3d.spatial.probes import SceneProbeResult
 
@@ -338,7 +337,7 @@ def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pyt
         return SceneProbeResult(gate=failed, census={"meshes": 12, "lights": 2}, ok=True, findings=["[error] src/scene.js: console: boom"])
 
     # shader_probe reports the BUILD's probe + preflight (one boot), never a driver of its own
-    monkeypatch.setattr(st, "probe_and_preflight", lambda ws, **kw: (GateReport.of("scene_probe"), shaders, {}))
+    monkeypatch.setattr(ts, "run_probe", lambda ws, **kw: (GateReport.of("scene_probe"), shaders, {}))
     monkeypatch.setattr(ts, "probe_scene", fake_probe_scene)
     obs = get_tool("shader_probe").call(stool_ctx, {})
     assert not obs.ok and not obs.failed and "vUv" in obs.text and "declare varying" in obs.text
@@ -347,13 +346,13 @@ def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pyt
     skipped = GateReport(gate="shader_preflight", passed=False)
     boot = GateReport.of("scene_probe", [GateFinding(gate="scene_probe", severity=Severity.ERROR, target="src/scene.js",
                                                      message="[import] SyntaxError: Unexpected token")])
-    monkeypatch.setattr(st, "probe_and_preflight", lambda ws, **kw: (boot, skipped, {}))
+    monkeypatch.setattr(ts, "run_probe", lambda ws, **kw: (boot, skipped, {}))
     obs = get_tool("shader_probe").call(stool_ctx, {})
     assert not obs.ok and not obs.failed and "SyntaxError" in obs.text
     # the driver died: the tool could not run
     died = GateReport.of("scene_probe", [GateFinding(gate="scene_probe", severity=Severity.ERROR, target="src/scene.js",
                                                      message="scene probe could not run: timeout", data={"harness_failure": True})])
-    monkeypatch.setattr(st, "probe_and_preflight", lambda ws, **kw: (died, skipped, {}))
+    monkeypatch.setattr(ts, "run_probe", lambda ws, **kw: (died, skipped, {}))
     obs = get_tool("shader_probe").call(stool_ctx, {})
     assert obs.failed and "could not run" in obs.text
     obs = get_tool("scene_probe").call(stool_ctx, {})

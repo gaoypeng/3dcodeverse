@@ -5,8 +5,7 @@ from __future__ import annotations
 import pytest
 
 from codeverse3d.contracts.artifacts import Severity
-from codeverse3d.languages.scene_threejs import probe_and_preflight
-from codeverse3d.spatial.probes import probe_scene
+from codeverse3d.spatial.probes import probe_scene, run_probe
 from tests.scene_runtime.conftest import needs_browser
 
 pytestmark = [pytest.mark.node, needs_browser]
@@ -60,7 +59,7 @@ def test_probe_scene_catches_update_throw_and_console_errors(starter_ws):
 
 def preflight(ws):
     """The shader_preflight report the build and the ``shader_probe`` tool both read."""
-    return probe_and_preflight(ws)[1]
+    return run_probe(ws, compile=True)[1]
 
 
 def test_the_shader_preflight_runs_raw(ws, tmp_path, monkeypatch):
@@ -197,8 +196,5 @@ def test_probe_result_tool_semantics(starter_ws, monkeypatch):
     assert not res2.gate.passed and not res2.ok
     assert res2.errors and "could not run" in res2.errors[0]
     assert res2.gate.errors[0].data.get("harness_failure") is True
-    import codeverse3d.spatial.render_scene as rs_mod
-
-    monkeypatch.setattr(rs_mod, "run_scene_script", fake_run_crash)   # the build's probe + preflight
-    probe, shaders, _ = probe_and_preflight(starter_ws)
+    probe, shaders, _ = probes_mod.run_probe(starter_ws, compile=True)   # the build's probe + preflight
     assert probe.errors[0].data.get("harness_failure") is True and not shaders.passed and not shaders.findings

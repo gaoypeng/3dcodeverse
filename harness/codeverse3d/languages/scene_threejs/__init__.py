@@ -10,7 +10,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import (
     BuildResult,
     GateFinding,
@@ -770,7 +769,9 @@ class SceneThreeJsRuntime:
         # driver outputs (scene_probe.json / shader_preflight.json) looking current;
         # census.json is only rewritten `if census:` below, so it MUST be wiped here
         ws.stage_artifacts("census.json", "scene_probe.json", "shader_preflight.json", "build.json").invalidate()
-        probe, shaders, census = probe_and_preflight(ws, timeout_s=timeout_s)
+        from codeverse3d.spatial.probes import run_probe
+
+        probe, shaders, census = run_probe(ws, compile=True, timeout_s=timeout_s)
         if census:
             (ws.artifacts / "census.json").write_text(json.dumps(census, indent=1))
         gates_dir = ws.artifacts / "gates"
@@ -797,56 +798,12 @@ class SceneThreeJsRuntime:
             census=census,
             gates=[probe, shaders],
             # a driver that could not run is not a defect in the scene; `probes.probe_report`
-            # and `probe_and_preflight` already mark it, and `build_with_repair` reads this
+            # and `run_probe` already mark it, and `build_with_repair` reads this
             # so the round does not spend its repair budget rewriting working code
             harness_failure=bool(first is not None and first.data.get("harness_failure")),
         )
         ws.write_json(ws.artifacts / "build.json", res)
         return res
-
-
-def probe_and_preflight(ws: Workspace, *, timeout_s: float | None = None) -> tuple[GateReport, GateReport, dict]:
-    """One ``probe_scene.mjs --compile`` run → (scene_probe, shader_preflight, census): the
-    build's two gates, and the ``shader_probe`` tool's verdict.
-
-    The driver boots the scene once and runs both stages on the same page;
-    when the scene never boots the preflight is skipped, matching the old
-    two-call behaviour (a failed-empty shader gate).  ``timeout_s`` defaults to
-    the build timeout, capped at 120 s.
-    """
-    from codeverse3d.spatial.probes import PROBE_GATE, SHADER_GATE, probe_report, shader_report
-    from codeverse3d.spatial.render_scene import SceneRenderError, probe_env_args, run_scene_script
-
-    t0 = time.time()
-    timeout_s = min(float(timeout_s or get_settings().limits.build_timeout_s), 120.0)
-    args = [
-        "--ws", str(ws.root), "--compile",
-        "--out", str(ws.artifacts / "scene_probe.json"),
-        "--shaders-out", str(ws.artifacts / "shader_preflight.json"),
-        "--timeout-ms", str(int(timeout_s * 1000)),
-    ]
-    # the production build probes under the SAME settle / camera-repair / auto-exposure
-    # policy every render uses (review-3 S4: it used to carry none of the flags, so the
-    # build gate measured a census the renders then contradicted)
-    args += probe_env_args()
-    try:
-        res = run_scene_script("probe_scene.mjs", args, timeout_s=timeout_s + 20)
-    except SceneRenderError as e:
-        dur = int((time.time() - t0) * 1000)
-        finding = GateFinding(gate=PROBE_GATE, severity=Severity.ERROR, target="src/scene.js",
-                              message=f"scene probe could not run: {e}"[:1500],
-                              fix_hint="this is a harness/driver failure, not your code; retry or report",
-                              data={"harness_failure": True})
-        return (GateReport(gate=PROBE_GATE, passed=False, findings=[finding], duration_ms=dur),
-                GateReport(gate=SHADER_GATE, passed=False, findings=[]), {})
-    dur = int((time.time() - t0) * 1000)
-    probe, census = probe_report(res.summary, duration_ms=dur)
-    rep = res.summary.get("shader_report") or {}
-    if not rep or rep.get("skipped"):
-        shaders = GateReport(gate=SHADER_GATE, passed=False, findings=[])
-    else:
-        shaders = shader_report(rep, duration_ms=int(rep.get("duration_ms") or 0))
-    return probe, shaders, census
 
 
 def _summary_text(probe: GateReport, shaders: GateReport) -> str:

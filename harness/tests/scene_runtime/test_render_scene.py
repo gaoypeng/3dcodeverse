@@ -294,7 +294,6 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, switch, ws, 
     """Review-3 S4 (V7c): the combined single-boot build probes under the SAME
     settle / camera-repair / auto-exposure flags as the standalone probe and
     render paths — it used to pass none of them."""
-    import codeverse3d.languages.scene_threejs as st
     import codeverse3d.spatial.probes as probes_mod
 
     captured: dict[str, list[str]] = {}
@@ -311,7 +310,7 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, switch, ws, 
     # defaults: camera repair ON everywhere, settle on (no flag), exposure off
     probes_mod.probe_scene(ws)
     assert _flags(captured["probe_scene.mjs"]) == ["--camera-repair"]
-    st.probe_and_preflight(ws, timeout_s=5.0)
+    probes_mod.run_probe(ws, compile=True, timeout_s=5.0)
     assert _flags(captured["probe_scene.mjs"]) == ["--camera-repair"], "combined build lost the default-ON policy"
     with pytest.raises(SceneRenderError):
         render_scene(ws, tmp_path / "out_flags", cameras=[CameraPlan(name="c", position=(1, 2, 3), look_at=(0, 0, 0), fov=45)],
@@ -321,7 +320,7 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, switch, ws, 
     # the A/B words reach every path, including the combined build
     switch("C3D_SETTLE", "0")
     switch("C3D_CAMERA_REPAIR", "false")
-    st.probe_and_preflight(ws, timeout_s=5.0)
+    probes_mod.run_probe(ws, compile=True, timeout_s=5.0)
     assert _flags(captured["probe_scene.mjs"]) == ["--no-settle"]
     probes_mod.probe_scene(ws)
     assert _flags(captured["probe_scene.mjs"]) == ["--no-settle"]

@@ -40,7 +40,7 @@ from codeverse3d.spatial.observe import (
     text_observation,
     truncate,
 )
-from codeverse3d.spatial.probes import probe_scene
+from codeverse3d.spatial.probes import probe_scene, run_probe
 from codeverse3d.spatial.registry import NoArgs, Observation, ToolContext, ToolUsageError, tool
 from codeverse3d.spatial.render_scene import read_metrics, render_scene
 from codeverse3d.spatial.scene_placement import placement_census as _placement_census
@@ -412,14 +412,12 @@ def joint_sweep(ctx: ToolContext, args: JointSweepArgs) -> Observation:
       "line numbers — the build's own probe + preflight, so the verdict is the build's.",
       languages=(Language.SCENE_THREEJS.value,), cost_hint="slow")
 def shader_probe(ctx: ToolContext, args: NoArgs) -> Observation:
-    """The build's own probe + shader preflight (``probe_and_preflight``: one ``probe_scene.mjs
+    """The build's own probe + shader preflight (``run_probe(compile=True)``: one ``probe_scene.mjs
     --compile`` boot under the render policy).  Until 2026-09-22 this ran a second driver,
     check_shaders.mjs at 256x144 without the settle / camera-repair / exposure flags, whose
     verdict could differ from the build's.  A scene that never boots gets no preflight:
     the probe's report says why."""
-    from codeverse3d.languages.scene_threejs import probe_and_preflight
-
-    probe, shaders, _census = probe_and_preflight(ctx.workspace)
+    probe, shaders, _census = run_probe(ctx.workspace, compile=True)
     died = [f.message for f in probe.findings if f.data.get("harness_failure")]
     if died:
         return Observation.error(f"shader_probe: {died[0]}")

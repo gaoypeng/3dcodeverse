@@ -1,10 +1,11 @@
 """Scene probes: the import/census gate and the shader-preflight report reader.
 
+* ``run_probe(ws, compile=)`` → (scene_probe, shader_preflight, census) — THE
+  ``probe_scene.mjs`` driver call; ``compile=True`` (the scene build and the
+  ``shader_probe`` tool) adds the shader preflight to the same boot
 * ``probe_scene(ws)``  → (GateReport 'scene_probe', census) — the standalone probe
   (the ``scene_probe`` tool, ``check_placement(rebuild=true)``)
-* ``probe_report`` / ``shader_report`` — the two gates, pure over the driver JSON; the
-  scene build (``languages.scene_threejs.probe_and_preflight``: one
-  ``probe_scene.mjs --compile`` boot) and the ``shader_probe`` tool read both through them.
+* ``probe_report`` / ``shader_report`` — the two gates, pure over the driver JSON.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse3d.conventions import MAX_TRIS_SCENE
 from codeverse3d.spatial.render_scene import SceneRenderError, probe_env_args, run_scene_script
@@ -51,18 +53,16 @@ class SceneProbeResult(BaseModel):
         yield self.census
 
 
-def _result(gate: GateReport, census: dict[str, Any], *, driver_failure: str = "") -> SceneProbeResult:
+def _result(gate: GateReport, census: dict[str, Any]) -> SceneProbeResult:
     """A ``harness_failure`` finding IS a driver failure, wherever it was raised.
 
     ``ok`` is "the tool could run" (``registry.Observation.failed = not ok``) and the
     agent-facing ``findings`` deliberately exclude harness failures — so a report that
     carries one and nothing else used to come back ok, with no errors and no findings: a
-    probe that reads healthy and measured nothing.  Deriving it here means every caller
-    gets the rule, not only the one that remembers to pass ``driver_failure``."""
-    harness = [f.message for f in gate.findings if f.data.get("harness_failure")]
+    probe that reads healthy and measured nothing."""
+    errors = [f.message[:800] for f in gate.findings if f.data.get("harness_failure")]
     lines = [f"[{f.severity.value}] {f.target or ''}: {f.message}" for f in gate.findings
              if f.severity != Severity.INFO and not f.data.get("harness_failure")]
-    errors = [driver_failure] if driver_failure else harness
     return SceneProbeResult(gate=gate, census=census, ok=not errors, errors=errors, findings=lines)
 
 
@@ -70,23 +70,40 @@ def _f(gate: str, sev: Severity, msg: str, *, target: str | None = None, hint: s
     return GateFinding(gate=gate, severity=sev, target=target, message=msg, fix_hint=hint, data=data)
 
 
-def probe_scene(ws: Workspace, *, timeout_s: float = 60.0) -> SceneProbeResult:
-    """Import-only probe: module loads, shape valid, cameras valid, update runs, census."""
+def run_probe(ws: Workspace, *, compile: bool = False, timeout_s: float | None = None,
+              ) -> tuple[GateReport, GateReport, dict[str, Any]]:
+    """One ``probe_scene.mjs`` boot → (scene_probe, shader_preflight, census).
+
+    ``compile`` also runs the shader preflight on the same page; without it — or when the
+    scene never boots — the preflight is a failed-empty gate.  ``timeout_s`` defaults to
+    the build timeout, capped at 120 s.  A driver that cannot run is a ``harness_failure``
+    finding, never a raise."""
     t0 = time.time()
-    gate = PROBE_GATE
-    findings: list[GateFinding] = []
-    census: dict[str, Any] = {}
-    out_json = ws.artifacts / "scene_probe.json"
+    timeout_s = min(float(timeout_s or get_settings().limits.build_timeout_s), 120.0)
+    args = ["--ws", str(ws.root), "--out", str(ws.artifacts / "scene_probe.json"), "--timeout-ms", str(int(timeout_s * 1000))]
+    if compile:
+        args += ["--compile", "--shaders-out", str(ws.artifacts / "shader_preflight.json")]
+    # every probe runs under the SAME settle / camera-repair / auto-exposure policy every
+    # render uses — ONE parser, render_scene (review-3 S4: the build used to carry none of
+    # the flags, so its gate measured a census the renders then contradicted)
+    args += probe_env_args()
+    no_preflight = GateReport(gate=SHADER_GATE, passed=False, findings=[])
     try:
-        args = ["--ws", str(ws.root), "--out", str(out_json), "--timeout-ms", str(int(timeout_s * 1000))]
-        args += probe_env_args()   # settle / camera-repair / auto-exposure: ONE parser (render_scene)
         res = run_scene_script("probe_scene.mjs", args, timeout_s=timeout_s + 20)
     except SceneRenderError as e:
-        findings.append(_f(gate, Severity.ERROR, f"scene probe could not run: {e}", target="src/scene.js",
-                           hint="this is a harness/driver failure, not your code; retry or report", harness_failure=True))
-        return _result(GateReport(gate=gate, passed=False, findings=findings, duration_ms=int((time.time() - t0) * 1000)), census,
-                       driver_failure=f"scene probe could not run: {e}"[:800])
-    report, census = probe_report(res.summary, duration_ms=int((time.time() - t0) * 1000))
+        finding = _f(PROBE_GATE, Severity.ERROR, f"scene probe could not run: {e}"[:1500], target="src/scene.js",
+                     hint="this is a harness/driver failure, not your code; retry or report", harness_failure=True)
+        return GateReport(gate=PROBE_GATE, passed=False, findings=[finding], duration_ms=int((time.time() - t0) * 1000)), no_preflight, {}
+    probe, census = probe_report(res.summary, duration_ms=int((time.time() - t0) * 1000))
+    rep = res.summary.get("shader_report") or {}
+    if not compile or not rep or rep.get("skipped"):
+        return probe, no_preflight, census
+    return probe, shader_report(rep, duration_ms=int(rep.get("duration_ms") or 0)), census
+
+
+def probe_scene(ws: Workspace, *, timeout_s: float = 60.0) -> SceneProbeResult:
+    """Import-only probe: module loads, shape valid, cameras valid, update runs, census."""
+    report, _, census = run_probe(ws, timeout_s=timeout_s)
     if census:
         ws.artifacts.mkdir(parents=True, exist_ok=True)
         (ws.artifacts / "census.json").write_text(json.dumps(census, indent=1))
