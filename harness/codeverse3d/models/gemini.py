@@ -172,10 +172,11 @@ def extract_candidate(
         if finish == "MAX_TOKENS":
             # Gemini 3 models always think (budget 0 is accepted but ignored); a tiny
             # max_output_tokens is eaten by thoughts.  Retrying cannot help — and this is
-            # the most expensive failure on Gemini 3: every thought token was billed.
+            # the most expensive failure on Gemini 3: every thought token was billed.  The
+            # finish reason stays in the text: the planner's grow-the-budget retry keys on it.
             thoughts = resp.usage_metadata.thoughts_token_count if resp.usage_metadata else None
             raise ModelError(
-                f"Gemini produced no content: max_output_tokens exhausted by thinking "
+                f"Gemini produced no content (finish_reason=MAX_TOKENS): max_output_tokens exhausted by thinking "
                 f"(thoughts_tokens={thoughts}); raise max_output_tokens",
                 retryable=False, usage=usage,
             )

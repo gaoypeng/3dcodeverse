@@ -25,6 +25,7 @@ from codeverse3d.models.gemini import (
     to_contents,
 )
 from codeverse3d.models.retry import KeyPool, failure_outcome
+from codeverse3d.tracks.planner import _truncated
 
 PNG_1PX = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
@@ -366,6 +367,7 @@ def test_max_output_tokens_eaten_by_thinking_carries_the_thought_tokens():
     with pytest.raises(ModelError) as e:
         m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
     assert "exhausted by thinking" in str(e.value)
+    assert _truncated(e.value), "the planner's grow-the-budget retry must fire on exactly this case"
     assert e.value.usage.thoughts_tokens == 8000 and e.value.usage.cost_usd > 0
 
 
