@@ -10,7 +10,7 @@ from pathlib import Path
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import GraphicsPlan, Plan
-from codeverse3d.languages._common import MISSING_ENTRY
+from codeverse3d.languages._common import MISSING_ENTRY, line_of, ws_rel
 from codeverse3d.languages._gl_common import (  # noqa: F401 — re-exported
     GlslMessage,
     LineMap,
@@ -157,10 +157,6 @@ _LEGACY = {
 }
 _FLOAT_LITERAL_MOD = re.compile(r"(\d\.\d*|\.\d+)\s*%|%\s*(\d\.\d*|\.\d+)")
 _PRECISION = re.compile(r"^[ \t]*precision\s+(lowp|mediump|highp)\s+\w+\s*;", re.M)
-def _line_of(text: str, pos: int) -> int:
-    return text.count("\n", 0, pos) + 1
-
-
 def defined_functions(text: str) -> dict[str, int]:
     """``{name: line}`` of every top-level function definition in a GLSL text (comments blanked)."""
     out: dict[str, int] = {}
@@ -183,38 +179,38 @@ def _check_file(rel: str, text: str, *, role: str, recipe_names: Collection[str]
         add(Severity.WARN, "too_long", f"file is {raw_len} chars; keep shaders compact", "remove dead code; move helpers to src/common.glsl")
     for m in _VERSION.finditer(text):
         add(Severity.ERROR, "version_line", "contains a #version line; the harness prepends `#version 330 core`",
-            "delete the #version line", _line_of(text, m.start()))
+            "delete the #version line", line_of(text, m.start()))
     for m in _INCLUDE.finditer(text):
         add(Severity.ERROR, "include", "#include is not GLSL; src/common.glsl is pasted in automatically",
-            "delete the #include line; functions in src/common.glsl are already visible", _line_of(text, m.start()))
+            "delete the #include line; functions in src/common.glsl are already visible", line_of(text, m.start()))
     for m in _UNIFORM_DECL.finditer(text):
         name = m.group(1)
         if name in UNIFORM_NAMES:
             add(Severity.ERROR, "redeclared_uniform", f"redeclares harness uniform `{name}`",
-                f"delete the declaration; `{name}` is provided by the harness header", _line_of(text, m.start()))
+                f"delete the declaration; `{name}` is provided by the harness header", line_of(text, m.start()))
         else:
             add(Severity.ERROR, "custom_uniform", f"declares uniform `{name}` which nothing will set",
                 "only u_time / u_resolution / u_mouse / u_frame / u_prev / u_noise / u_buffer_a exist; turn it into a `const`",
-                _line_of(text, m.start()))
+                line_of(text, m.start()))
     for m in _OUT_DECL.finditer(text):
         add(Severity.ERROR, "redeclared_output", f"declares output `{m.group(1)}`; the harness already declares `out vec4 fragColor`",
-            "delete the `out vec4 ...;` line and write to fragColor", _line_of(text, m.start()))
+            "delete the `out vec4 ...;` line and write to fragColor", line_of(text, m.start()))
     for m in _TEXTURE.finditer(text):
         name = m.group(1)
         if name not in SAMPLERS:
             add(Severity.ERROR, "undeclared_sampler", f"texture() reads sampler `{name}` which does not exist",
                 "only u_prev (previous frame), u_noise (256² RGBA noise) and u_buffer_a (buffer pass) can be sampled; "
-                "generate patterns procedurally (hash/noise/fbm from the cookbook)", _line_of(text, m.start()))
+                "generate patterns procedurally (hash/noise/fbm from the cookbook)", line_of(text, m.start()))
     for m in _MISSING_INPUTS.finditer(text):
         add(Severity.ERROR, "missing_input", f"`{m.group(1)}` is not available in this harness",
             "available: u_time/iTime, u_resolution/iResolution, u_frame/iFrame, u_mouse (always 0), u_prev/iChannel0, u_noise/iChannel1",
-            _line_of(text, m.start()))
+            line_of(text, m.start()))
     for needle, hint in _LEGACY.items():
         pos = text.find(needle)
         if pos >= 0:
-            add(Severity.ERROR, "legacy_glsl", f"uses `{needle.strip()}` (GLSL 1.x)", hint, _line_of(text, pos))
+            add(Severity.ERROR, "legacy_glsl", f"uses `{needle.strip()}` (GLSL 1.x)", hint, line_of(text, pos))
     for m in _FLOAT_LITERAL_MOD.finditer(text):
-        add(Severity.ERROR, "float_modulo", "`%` on a float literal — GLSL `%` is integer-only", "use mod(x, y)", _line_of(text, m.start()))
+        add(Severity.ERROR, "float_modulo", "`%` on a float literal — GLSL `%` is integer-only", "use mod(x, y)", line_of(text, m.start()))
     for name, line in defined_functions(text).items():
         if name in recipe_names:
             add(Severity.ERROR, "redefines_recipe", f"`{name}` is already provided by {RECIPES} — call it instead of redefining it",
@@ -232,7 +228,7 @@ def _check_file(rel: str, text: str, *, role: str, recipe_names: Collection[str]
         add(Severity.WARN, "buffer_self_ref", "buffer_a.frag samples u_buffer_a; inside the buffer pass the previous buffer is `u_prev`",
             "use texture(u_prev, uv) for feedback inside buffer_a.frag")
     for m in _PRECISION.finditer(text):
-        add(Severity.INFO, "precision", "precision qualifier is ignored on desktop GLSL 330", "safe to delete", _line_of(text, m.start()))
+        add(Severity.INFO, "precision", "precision qualifier is ignored on desktop GLSL 330", "safe to delete", line_of(text, m.start()))
     if "u_mouse" in text or "iMouse" in text:
         add(Severity.INFO, "mouse", "u_mouse is always (0,0) when rendered headless", "do not depend on the mouse for the look")
     return out
@@ -258,8 +254,8 @@ def lint_workspace(ws: Workspace) -> GateReport:
         p = ws.root / rel
         if p.is_file():
             findings.extend(_check_file(rel, p.read_text(errors="replace"), role=role, recipe_names=reserved))
-    stray = [str(p.relative_to(ws.root)) for p in ws.src.rglob("*") if p.is_file()
-             and str(p.relative_to(ws.root)) not in (SHADER, COMMON, BUFFER_A, RECIPES) and p.suffix in (".frag", ".glsl", ".vert", ".py", ".js")]
+    stray = [ws_rel(ws, p) for p in ws.src.rglob("*") if p.is_file()
+             and ws_rel(ws, p) not in (SHADER, COMMON, BUFFER_A, RECIPES) and p.suffix in (".frag", ".glsl", ".vert", ".py", ".js")]
     for rel in stray:
         findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target=rel, message=f"{rel} is not part of the shader contract and is ignored",
                                     fix_hint="keep code in src/shader.frag (+ src/common.glsl, src/buffer_a.frag)", data={"kind": "stray_file", "file": rel}))

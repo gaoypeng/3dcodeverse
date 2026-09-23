@@ -8,7 +8,8 @@ and the runtime turns those into a :class:`BuildResult`.  This module owns:
   wrapper subprocess, then :func:`compose_build_result`;
 * :func:`compose_build_result` — wrapper json + process outcome → BuildResult,
   failing loud when the wrapper did not report, published as ``build.json``;
-* :func:`read_json_file` / :func:`strip_blender_noise`.
+* :func:`read_json_file` / :func:`strip_blender_noise`;
+* :func:`line_of` / :func:`ws_rel` — the lints' finding locations.
 
 Wrappers themselves are standalone scripts in ``languages/wrappers/`` (they never
 import ``codeverse3d``; Blender's bundled python cannot see this package).
@@ -54,6 +55,19 @@ _BLENDER_NOISE_SUBSTR = ("| INFO: ", "| WARNING: Draco")
 
 class WrapperError(RuntimeError):
     """The wrapper process did not produce a readable ``build.json`` (harness bug or crash)."""
+
+
+def line_of(text: str, pos: int) -> int:
+    """1-based line of character offset ``pos``."""
+    return text.count("\n", 0, pos) + 1
+
+
+def ws_rel(ws: Workspace, p: Path) -> str:
+    """``p`` workspace-relative (posix), or as given when it lies outside the workspace."""
+    try:
+        return p.relative_to(ws.root).as_posix()
+    except ValueError:
+        return str(p)
 
 
 def strip_blender_noise(text: str) -> str:

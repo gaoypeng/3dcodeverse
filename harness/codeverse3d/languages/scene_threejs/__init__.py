@@ -20,11 +20,13 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, ZonePlan
 from codeverse3d.conventions import to_pascal, to_snake
+from codeverse3d.languages._common import line_of, ws_rel
 from codeverse3d.languages._js_lint import (
     ImportKind,
     ImportVerdict,
     SyntaxProblem,
     check_imports,
+    js_sources,
     node_check_syntax,
 )
 from codeverse3d.workspace import Workspace
@@ -56,12 +58,6 @@ _PATTERNS: list[tuple[re.Pattern[str], Severity, str, str]] = [
 
 def _f(sev: Severity, msg: str, *, target: str, hint: str = "", **data: object) -> GateFinding:
     return GateFinding(gate=GATE, severity=sev, target=target, message=msg, fix_hint=hint, data=dict(data))
-
-
-def _js_files(ws: Workspace) -> list[Path]:
-    if not ws.src.is_dir():
-        return []
-    return sorted(p for p in ws.src.rglob("*.js") if "node_modules" not in p.parts) + sorted(ws.src.rglob("*.mjs"))
 
 
 def _is_lib(path: Path, ws: Workspace) -> bool:
@@ -104,7 +100,7 @@ def lint(ws: Workspace) -> GateReport:
     """Run all static checks; passed iff no ERROR findings."""
     t0 = time.time()
     findings: list[GateFinding] = []
-    files = _js_files(ws)
+    files = js_sources(ws.src, dotfiles=True, mjs=True)
     scene = ws.src / "scene.js"
     if not scene.is_file():
         findings.append(_f(Severity.ERROR, "src/scene.js is missing", target="src/scene.js",
@@ -112,7 +108,7 @@ def lint(ws: Workspace) -> GateReport:
     big: list[str] = []
     syntax = node_check_syntax(files)
     for path in files:
-        rel = path.relative_to(ws.root).as_posix()
+        rel = ws_rel(ws, path)
         text = path.read_text(errors="replace")
         if path in syntax:
             findings.append(_syntax_finding(syntax[path], rel))
@@ -123,7 +119,7 @@ def lint(ws: Workspace) -> GateReport:
         for pat, sev, msg, hint in _PATTERNS:
             m = pat.search(text)
             if m:
-                line = text.count("\n", 0, m.start()) + 1
+                line = line_of(text, m.start())
                 findings.append(_f(sev, msg, target=f"{rel}:{line}", hint=hint))
         n_lines = text.count("\n") + 1
         if n_lines > MAX_LINES:

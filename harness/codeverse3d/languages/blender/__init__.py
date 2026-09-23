@@ -20,7 +20,7 @@ from codeverse3d.languages._ast_lint import (
     dotted,
     safe_parse,
 )
-from codeverse3d.languages._common import run_wrapper_build, strip_blender_noise
+from codeverse3d.languages._common import run_wrapper_build, strip_blender_noise, ws_rel
 from codeverse3d.languages.base import RuntimeLayout
 from codeverse3d.proc import scrub_secrets
 from codeverse3d.workspace import Workspace
@@ -322,10 +322,6 @@ def source_files(ws: Workspace) -> list[Path]:
     return ([entry] if entry.is_file() else []) + rest
 
 
-def _rel(ws: Workspace, p: Path) -> str:
-    return p.relative_to(ws.root).as_posix()
-
-
 def _exported_functions(tree: ast.Module) -> set[str]:
     return {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
@@ -355,7 +351,7 @@ def _layout_rules(ws: Workspace, parts: list[Path], entry_tree: ast.Module | Non
     E, W = Severity.ERROR, Severity.WARN
     imported = _imported_part_modules(entry_tree) if entry_tree is not None else set()
     for p in parts:
-        target = _rel(ws, p)
+        target = ws_rel(ws, p)
         stem = p.stem
         if stem != to_snake(stem):
             out.append(_f(E, f"part file name '{p.name}' is not snake_case", target=target,
@@ -394,7 +390,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
     parts = part_files(ws)
     findings: list[GateFinding] = []
     for p in source_files(ws):
-        target = _rel(ws, p)
+        target = ws_rel(ws, p)
         is_entry = p == entry
         is_helper = p.name.startswith("_")
         rep = lint_blender_source(p.read_text(), target=target,

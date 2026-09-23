@@ -26,6 +26,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from codeverse3d.contracts.artifacts import GateFinding
+from codeverse3d.languages._common import line_of
 from codeverse3d.spatial.node import NodeError, run_node, runtime_js_dir
 
 # threejs's regexes (the superset: side-effect ``import './x.js'``, ``export * from``,
@@ -80,11 +81,19 @@ def node_check_syntax(paths: Sequence[Path]) -> dict[Path, SyntaxProblem]:
     return out
 
 
+def js_sources(src: Path, *, dotfiles: bool = False, mjs: bool = False) -> list[Path]:
+    """The ``*.js`` under ``src`` (never ``node_modules``); scene also lints dot-files and ``*.mjs``."""
+    if not src.is_dir():
+        return []
+    js = sorted(p for p in src.rglob("*.js") if "node_modules" not in p.parts and (dotfiles or not p.name.startswith(".")))
+    return js + (sorted(src.rglob("*.mjs")) if mjs else [])
+
+
 def import_specs(src: str) -> list[tuple[str, int]]:
     """``(specifier, 1-based line)`` for every static, re-export and dynamic import in ``src``."""
     out = [(m.group(1), m.start(1)) for m in _IMPORT_RE.finditer(src)]
     out += [(m.group(1), m.start(1)) for m in _DYN_IMPORT_RE.finditer(src)]
-    return [(spec, src.count("\n", 0, pos) + 1) for spec, pos in out]
+    return [(spec, line_of(src, pos)) for spec, pos in out]
 
 
 class ImportKind(StrEnum):

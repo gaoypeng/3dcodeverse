@@ -14,11 +14,12 @@ from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import Plan, StaticPlan
 from codeverse3d.conventions import to_pascal, to_snake
-from codeverse3d.languages._common import BUILD_TIMEOUT
+from codeverse3d.languages._common import BUILD_TIMEOUT, line_of, ws_rel
 from codeverse3d.languages._js_lint import (
     ImportKind,
     ImportVerdict,
     check_imports,
+    js_sources,
 )
 from codeverse3d.languages._js_lint import (
     node_check_syntax as check_syntax,  # module-level name: tests monkeypatch it
@@ -133,26 +134,9 @@ def _strip(src: str) -> str:
     return _TOKEN_RE.sub(repl, src)
 
 
-def _line_of(text: str, pos: int) -> int:
-    return text.count("\n", 0, pos) + 1
-
-
-def _rel(ws: Workspace, p: Path) -> str:
-    try:
-        return str(p.relative_to(ws.root))
-    except ValueError:
-        return str(p)
-
-
-def list_sources(ws: Workspace) -> list[Path]:
-    if not ws.src.is_dir():
-        return []
-    return sorted(p for p in ws.src.rglob("*.js") if "node_modules" not in p.parts and not p.name.startswith("."))
-
-
 def _lint_imports(ws: Workspace, path: Path, src: str, findings: list[GateFinding]) -> set[Path]:
     """Validate import specifiers; return the set of resolved relative targets."""
-    rel = _rel(ws, path)
+    rel = ws_rel(ws, path)
 
     def make_finding(v: ImportVerdict, spec: str, line: int) -> GateFinding:
         if v.kind is ImportKind.ESCAPES:
@@ -162,7 +146,7 @@ def _lint_imports(ws: Workspace, path: Path, src: str, findings: list[GateFindin
             assert v.target is not None
             return GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
                 message=f"{rel}:{line}: imported file does not exist: '{spec}'",
-                fix_hint=f"create {_rel(ws, v.target)} or fix the path (extension '.js' is required)")
+                fix_hint=f"create {ws_rel(ws, v.target)} or fix the path (extension '.js' is required)")
         kind = "URL" if v.kind is ImportKind.URL else "package"
         return GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
             message=f"{rel}:{line}: import of {kind} '{spec}' is not allowed",
@@ -175,12 +159,12 @@ def _lint_imports(ws: Workspace, path: Path, src: str, findings: list[GateFindin
 
 def _lint_forbidden(ws: Workspace, path: Path, src: str, findings: list[GateFinding]) -> None:
     stripped = _strip(src)
-    rel = _rel(ws, path)
+    rel = ws_rel(ws, path)
     for pattern, (sev, msg, hint) in _FORBIDDEN.items():
         m = re.search(pattern, stripped)
         if m:
             findings.append(GateFinding(gate=GATE, severity=sev, target=rel,
-                message=f"{rel}:{_line_of(stripped, m.start())}: {msg}", fix_hint=hint))
+                message=f"{rel}:{line_of(stripped, m.start())}: {msg}", fix_hint=hint))
 
 
 def _exports(src: str) -> set[str]:
@@ -202,7 +186,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
     t0 = time.time()
     findings: list[GateFinding] = []
     entry = ws.src / "object.js"
-    sources = list_sources(ws)
+    sources = js_sources(ws.src)
     syntax = check_syntax(sources)
 
     if not entry.is_file():
@@ -212,7 +196,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
     imported: set[Path] = set()
     for path in sources:
         src = path.read_text(errors="replace")
-        rel = _rel(ws, path)
+        rel = ws_rel(ws, path)
         syn = syntax.get(path)
         if syn is not None:
             findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
@@ -237,8 +221,8 @@ def lint_workspace(ws: Workspace) -> GateReport:
     part_files = [p for p in sources if p.parent == ws.src / "parts"]
     for p in part_files:
         if p not in imported:
-            findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target=_rel(ws, p),
-                message=f"{_rel(ws, p)} is not imported by any module (dead part file?)", fix_hint="import and add it in src/object.js or delete it"))
+            findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target=ws_rel(ws, p),
+                message=f"{ws_rel(ws, p)} is not imported by any module (dead part file?)", fix_hint="import and add it in src/object.js or delete it"))
 
     plan = plan_or_none(ws.plan_path)
     if type(plan) is StaticPlan:  # an articulated plan's parts are not threejs part files
