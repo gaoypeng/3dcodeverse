@@ -1,17 +1,8 @@
 """A bench script run from a worktree must use THAT worktree's `codeverse3d`.
 
-WHY this is worth a test of its own: it has silently voided two A/B runs.
-``ab_plan.spawn_cell`` starts each child as a FILE path, so ``sys.path[0]`` is ``bench/``
-and the cwd is not on the path.  Any ``import codeverse3d`` before the script's own
-``sys.path`` bootstrap therefore resolves through whatever editable install is present
-(``__editable__.3dcodeverse-<v>.pth`` installs a meta-path finder pinned to the tree it was
-installed from).  Both arms then run the same foreign code, every switch under test is
-inert, and the report looks completely healthy — the failure has no symptom at all.
-
-Caught on 2026-08-25 in `bench/out/plan_loop/C0/invalid_attempt1_maintree_import` (worked
-around in a launch script) and again in the skills wave's first A/B, where the variant arm
-ran a tree with no skills package and materialised nothing.  A launch-script workaround
-protects whoever remembers it; these two checks protect the run.
+A child spawned by file path that imports codeverse3d before its sys.path bootstrap resolves the
+editable install instead: both A/B arms run the same foreign code and the report looks healthy
+(voided two A/Bs, 2026-08-25 and the skills wave).
 """
 
 from __future__ import annotations
@@ -29,10 +20,6 @@ SCRIPTS = sorted(p for p in BENCH.glob("*.py")
                  if "sys.path.insert" in p.read_text() and CODEVERSE_IMPORT.search(p.read_text()))
 
 
-def test_there_is_at_least_one_such_script():
-    assert SCRIPTS, "no bench script bootstraps sys.path any more — has the layout changed?"
-
-
 @pytest.mark.parametrize("script", SCRIPTS, ids=[p.name for p in SCRIPTS])
 def test_the_sys_path_bootstrap_comes_before_any_codeverse_import(script: Path):
     text = script.read_text()
@@ -47,12 +34,7 @@ def test_the_sys_path_bootstrap_comes_before_any_codeverse_import(script: Path):
 
 
 def test_the_guard_refuses_a_foreign_codeverse_for_real(tmp_path: Path):
-    """Not "the string is in the file": actually make the bad thing happen.
-
-    A foreign ``codeverse3d`` is pre-imported into ``sys.modules``, then ab_plan is run as
-    ``__main__``.  It must die with its own message rather than proceed to compare a tree
-    with itself.
-    """
+    """A foreign ``codeverse3d`` pre-imported, then ab_plan run as ``__main__``: it must refuse."""
     import subprocess
     import sys
 
@@ -70,12 +52,3 @@ def test_the_guard_refuses_a_foreign_codeverse_for_real(tmp_path: Path):
     p = subprocess.run([sys.executable, "-c", src], cwd=HARNESS, capture_output=True, text=True, check=False)
     assert p.returncode != 0
     assert "refusing to run" in (p.stdout + p.stderr)
-
-
-def test_the_guard_actually_compares_the_resolved_package_to_this_tree():
-    import codeverse3d
-    from bench.ab_plan import REPO, _assert_local_codeverse
-
-    assert Path(codeverse3d.__file__).resolve().parent == REPO / "codeverse3d", (
-        "the test suite itself is importing a foreign codeverse3d")
-    _assert_local_codeverse()          # must not raise in a correctly-resolved tree

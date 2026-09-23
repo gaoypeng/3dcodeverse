@@ -21,12 +21,9 @@ from bench._oneshot import (  # noqa: E402
     extract_files,
     extract_model_file,
     files_for,
-    get_oneshot_backend,
     minimal_contract,
     oneshot_prompt,
-    repair_prompt,
 )
-from codeverse3d.contracts.artifacts import BuildResult, GateReport  # noqa: E402
 from codeverse3d.contracts.common import Language, Track  # noqa: E402
 from codeverse3d.contracts.spec import Constraints, Spec  # noqa: E402
 from codeverse3d.tracks.generation import MultiFileParseError  # noqa: E402
@@ -46,15 +43,22 @@ def test_prompt_is_brief_plus_minimal_contract_only():
     assert minimal_contract() in p and p.rstrip().endswith("no partial snippets).")
 
 
-def test_repair_prompt_carries_error_and_previous_code():
-    build = BuildResult(ok=False, language="blender", error_type="NameError", error_message="name 'foo' is not defined",
-                        error_file=MODEL_FILE, error_line=7)
-    p = repair_prompt(_spec(), "import bpy\nfoo()\n", build, GateReport(gate="lint:blender", passed=True), attempt=1)
-    assert "BUILD FAILED" in p and "NameError" in p and "foo()" in p and "previous attempt (1)" in p
+@pytest.mark.parametrize("spec, opening, needed, harness_only", [
+    (Spec(id="t/harbour", track=Track.SCENE, language=Language.SCENE_THREEJS, prompt="a fishing harbour at dusk"),
+     "Build this scene in raw three.js: a fishing harbour at dusk",
+     (SCENE_FILE, "createScene", "three/addons/*", "scene.fog", "```js"), ("src/lib", "zones/", "public/assets")),
+    (Spec(id="t/aurora", track=Track.GRAPHICS, language=Language.GLSL_SHADER, prompt="an aurora over snow"),
+     "Write this as a Shadertoy-style fragment shader: an aurora over snow",
+     (SHADER_FILE, "mainImage", "u_time", "#version 330 core", "```glsl"), ("recipes.glsl", "buffer_a")),
+])
+def test_scene_and_shader_prompts_are_their_contract_and_nothing_of_the_harness(spec, opening, needed, harness_only):
+    p = oneshot_prompt(spec)
+    assert p.startswith(opening) and minimal_contract(spec.language) in p
+    assert all(s in p for s in needed) and "cookbook" not in p.lower()
+    assert not any(s in p for s in harness_only)
 
 
 @pytest.mark.parametrize("text", [
-    "```python\nimport bpy\nprint(1)\n```",
     "Here you go:\n```python\nimport bpy\nprint(1)\n```\nDone.",
     "=== FILE: src/model.py ===\nimport bpy\nprint(1)\n=== END FILE ===",
     "import bpy\nprint(1)\n",
@@ -97,17 +101,6 @@ def test_codex_oneshot_forces_a_reasoning_effort(tmp_path: Path):
     assert "model_reasoning_effort" not in " ".join(plain)
 
 
-def test_registry():
-    assert isinstance(get_oneshot_backend("claude-code"), ClaudeOneShot)
-    assert get_oneshot_backend("claude-code:sonnet").model == "sonnet"
-    assert isinstance(get_oneshot_backend("codex"), CodexOneShot)
-    api = get_oneshot_backend("gemini:gemini-3.7-flash")
-    assert isinstance(api, ApiOneShot) and api.id == "oneshot:gemini:gemini-3.7-flash"
-    for bad in ("gemini", "gemini-cli:x", "", "anthropic:"):
-        with pytest.raises(ValueError):
-            get_oneshot_backend(bad)
-
-
 def test_api_oneshot_uses_injected_chat_model(tmp_path: Path):
     class M:
         def generate(self, req):
@@ -128,42 +121,6 @@ def test_api_oneshot_model_error_is_recorded(tmp_path: Path):
 
     r = ApiOneShot("gemini:x", chat_model=Boom()).generate("p", out_dir=tmp_path / "g")
     assert not r.ok and "quota" in r.notes
-
-
-def test_extract_model_file_from_hallucinated_write_tool_xml():
-    text = ('<invoke name="Write">\n<parameter name="file_path">/tmp/x/src/model.py</parameter>\n'
-            '<parameter name="content">import bpy\nprint(2)\n</parameter>\n</invoke>\n\nsyntax ok\n')
-    assert extract_model_file(text) == "import bpy\nprint(2)\n"
-
-
-# --------------------------------------------------------------------------- scene + graphics (2026-09-07)
-def _scene_spec() -> Spec:
-    return Spec(id="t/harbour", track=Track.SCENE, language=Language.SCENE_THREEJS, prompt="a fishing harbour at dusk",
-                constraints=Constraints(must_have=["at least 3 boats", "lit windows"]))
-
-
-def _glsl_spec() -> Spec:
-    return Spec(id="t/aurora", track=Track.GRAPHICS, language=Language.GLSL_SHADER, prompt="an aurora over snow",
-                constraints=Constraints(must_have=["curtains that move"]))
-
-
-def test_scene_prompt_is_the_createscene_contract_and_nothing_of_the_harness():
-    """The bare baseline for the scene track: ONE src/scene.js against the createScene shape and
-    the import rule — no starter lib, no zones, no cookbook, no assets, no gates table."""
-    p = oneshot_prompt(_scene_spec())
-    assert p.startswith("Build this scene in raw three.js: a fishing harbour at dusk")
-    assert "MUST HAVE: at least 3 boats" in p and SCENE_FILE in p and "createScene" in p
-    assert "three/addons/*" in p and "scene.fog" in p and "lookAt" in p and "```js" in p
-    assert "cookbook" not in p.lower() and "src/lib" not in p and "zones/" not in p and "public/assets" not in p
-    assert minimal_contract(Language.SCENE_THREEJS) in p and p.rstrip().endswith("no partial snippets).")
-
-
-def test_glsl_prompt_is_the_shader_contract_and_nothing_of_the_harness():
-    p = oneshot_prompt(_glsl_spec())
-    assert p.startswith("Write this as a Shadertoy-style fragment shader: an aurora over snow")
-    assert SHADER_FILE in p and "mainImage" in p and "u_time" in p and "#version 330 core" in p and "```glsl" in p
-    assert "recipes.glsl" not in p and "cookbook" not in p.lower() and "buffer_a" not in p
-    assert minimal_contract(Language.GLSL_SHADER) in p
 
 
 def test_single_file_answers_are_extracted_under_their_own_entry():

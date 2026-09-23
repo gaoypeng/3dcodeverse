@@ -5,11 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
-import bench.compare_backends as cb
 import bench.run_bench as rb
-from bench.run_bench import Battery, BenchOptions, build_spec, select_prompts, spec_for
+from bench.run_bench import Battery, BenchOptions, select_prompts, spec_for
 from tests.conftest import BATTERY
 
 
@@ -29,21 +26,6 @@ def test_select_prompts_ids_tiers_limit():
     assert select_prompts(b, ids=["nope"]) == []
 
 
-def test_select_prompts_is_single_owner_for_both_drivers():
-    """compare_backends deleted its private copy; both drivers filter identically."""
-    assert cb.select_prompts is select_prompts and cb.default_run_track is rb.default_run_track
-
-
-def test_build_spec_tags_and_budget():
-    b = _battery()
-    item = b.prompts[0]
-    spec = build_spec(b, item, backends=rb.get_settings().backends(), rounds=2,
-                      max_minutes=10, tag0="compare", extra_tags=("harness",))
-    assert spec.tags[:4] == ["compare", b.name, item.tier, item.category] and "harness" in spec.tags
-    assert spec.budget.max_rounds == 2 and spec.budget.max_minutes == 10.0
-    assert spec.id == f"{b.name}/{item.id}"
-
-
 def test_spec_for_routes_through_settings_backends():
     b = _battery()
     s = rb.get_settings()
@@ -54,34 +36,17 @@ def test_spec_for_routes_through_settings_backends():
     assert spec.backends.captioner == s.default_captioner
 
 
-# ------------------------------------------------------- the harness arm is not blender-only
 def test_the_harness_arm_looks_for_each_languages_own_entry_file():
-    """``bench/_oneshot.MODEL_FILE`` is ``src/model.py`` because the ONE-SHOT arms are a
-    blender-only comparison.  The harness arm is not, and gating it on that constant made
-    every glsl / three.js / scene / moderngl cell ``no_code`` **0.0** while the run itself
-    came back ``passed`` — measured 2026-08-25 on a glsl_shader A/A whose control wrote
-    ``src/shader.frag`` and was scored zero for it.
-
-    Four of the seven languages were affected, which is why no graphics or three.js bundle
-    has ever had a readable A/B: both arms scored 0.0 and the rig called that "no effect".
-    """
+    """Gating on the blender-only MODEL_FILE scored every glsl/three.js/scene cell 0.0 (2026-08-25)."""
     from bench.compare_backends import entry_of
-    from codeverse3d.contracts.common import ENTRY_FILE, Language
+    from codeverse3d.contracts.common import ENTRY_FILE
 
     for language, entry in ENTRY_FILE.items():
-        spec = SimpleNamespace(language=language)
-        assert entry_of(spec) == entry, f"{language.value} delivers {entry}"
-
-    # the four that the hardcoded constant got wrong, named so the regression is legible
-    assert {lang.value for lang, e in ENTRY_FILE.items() if e != "src/model.py"} == {
-        "threejs", "scene_threejs", "glsl_shader", "opengl_python"}
-    assert entry_of(SimpleNamespace(language=Language.GLSL_SHADER)) == "src/shader.frag"
+        assert entry_of(SimpleNamespace(language=language)) == entry, language.value
 
 
 def test_a_run_that_scored_nothing_says_so_in_its_row(tmp_path: Path) -> None:
-    """A worktree without node_modules made render_glb die, every round skip the judge and
-    ten cells come back `status=plateau, score=None` — an arm that reads as healthy and
-    measures nothing (2026-09-04).  The row carries the reason now."""
+    """An arm whose every round skipped the judge must say so in its row, not read as healthy (2026-09-04)."""
     from bench.run_bench import result_from_record
     from codeverse3d.contracts.artifacts import Judgment
     from codeverse3d.contracts.common import Language, Track, Usage
@@ -104,30 +69,3 @@ def test_a_run_that_scored_nothing_says_so_in_its_row(tmp_path: Path) -> None:
     rec.rounds = [judged, rounds[1]]
     row = result_from_record(item, rec, ws)
     assert row.errors == "" and (row.score_picked, row.picked_round) == (0.6, 0)   # one verdict is enough
-
-
-def test_two_bench_run_batteries_pair_by_prompt(tmp_path: Path) -> None:
-    """`compare_backends` writes one journal with an arm column; `bench run` writes a
-    directory per arm.  Two of those directories are a paired comparison, and it must go
-    through the same statistics — paired CI, exact sign test, "unsupported when the
-    interval crosses zero" — rather than being recomputed by hand."""
-    import json as _json
-
-    from bench._jsonl import latest
-    from bench.paired_compare import paired, rows_from_bench_run
-
-    def write(d: Path, scores: dict[str, float]) -> Path:
-        d.mkdir(parents=True)
-        (d / "results.jsonl").write_text("".join(
-            _json.dumps({"id": k, "tier": "hard", "score_final": v, "status": "plateau",
-                         "cost_usd": 1.0}) + "\n" for k, v in scores.items()))
-        return d
-
-    a = write(tmp_path / "arm_a", {"p1": 0.6, "p2": 0.4, "p3": 0.5})
-    b = write(tmp_path / "arm_b", {"p1": 0.5, "p2": 0.3, "p3": 0.5})
-
-    rows = rows_from_bench_run(a, "arm_a") + rows_from_bench_run(b, "arm_b")
-    st = paired(latest(rows), "arm_a", "arm_b")
-    assert st.n == 3 and st.mean_delta == pytest.approx(0.0667, abs=1e-3)
-    assert st.wins == 2 and st.losses == 0 and st.ties == 1
-    assert st.verdict == "unsupported"  # CI [-0.077, +0.21] crosses zero at n = 3

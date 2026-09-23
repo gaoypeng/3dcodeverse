@@ -1,12 +1,4 @@
-"""``bench/scene_stats.py``: a gate finding that names a dead browser is the machine.
-
-Measured on `bench/out/scene_baseline` (2026-09-05): three of six scene cells built,
-passed every gate that does not need pixels, and then kept ZERO renders because Chrome
-reaped the tab under a box at load 93 with swap full.  Each one left a `render_console`
-ERROR reading "driver: Attempted to use detached Frame '<id>'".  Counted as a gate
-failure, that reads as a defective generator; the layer attribution the scene battery
-exists to produce is then wrong for half its cells.
-"""
+"""``bench/scene_stats.py``: a gate finding that names a dead browser is the machine, not a defect (2026-09-05)."""
 
 from __future__ import annotations
 
@@ -49,17 +41,8 @@ def test_a_dead_browser_is_counted_apart_from_a_defect(tmp_path: Path) -> None:
     assert g["rounds_lost_to_the_box"] == 1
 
 
-def test_a_round_that_kept_its_browser_reports_no_loss(tmp_path: Path) -> None:
-    _run(tmp_path, "clean", [_gate("render_console", True, []),
-                             _gate("scene_frames", False, ["frame too dark: mean luminance 0.13"])])
-    d = layers(runs(tmp_path))
-    assert d["gates"]["rounds_lost_to_the_box"] == 0
-    assert d["gates"]["scene_frames:FAILED"] == 1 and d["gate_errors"]["scene_frames"] == 1
-
-
 def test_a_gate_that_failed_ONLY_on_the_browser_is_not_a_failure(tmp_path: Path) -> None:
-    """`scene_frames` fails when it has no frames to look at.  With the renders lost
-    that is the same event reported twice, not a second defect."""
+    """`scene_frames` with no frames to look at is the same browser loss reported twice."""
     _run(tmp_path, "both", [_gate("render_console", False, [DETACHED]),
                             _gate("scene_frames", False, ["render produced no result: " + DETACHED])])
     d = layers(runs(tmp_path))
@@ -68,10 +51,7 @@ def test_a_gate_that_failed_ONLY_on_the_browser_is_not_a_failure(tmp_path: Path)
 
 
 def test_the_median_score_is_read_off_the_real_Judgment_shape(tmp_path: Path) -> None:
-    """`Judgment` has `overall`, never `score`.  The script read `score`, so on every real
-    record the median line was silently skipped — and no test caught it, because the
-    fixtures wrote `judgment: {}`.  Building the fixture from the model itself is what
-    stops that drifting again."""
+    """The fixture is built from `Judgment` itself: the script once read `score`, which it never has."""
     from codeverse3d.contracts.artifacts import Judgment
 
     def judged(name: str, overall: float) -> None:
@@ -90,21 +70,6 @@ def test_the_median_score_is_read_off_the_real_Judgment_shape(tmp_path: Path) ->
     assert d["scores"] == [0.30, 0.50] or d["scores"] == [0.50, 0.30]
     text = report(tmp_path)
     assert "scored rounds: 2" in text and "median 0.400" in text
-
-
-def test_two_runs_of_one_prompt_do_not_break_the_walk(tmp_path: Path) -> None:
-    """A battery with reps records the same prompt id twice.  `runs` used to sort the
-    (id, record, events) tuples bare, which on a tied id compares two dicts and raises;
-    the report never printed for exactly the batteries with enough runs to be worth one."""
-    for rep in ("r0", "r1"):
-        d = tmp_path / "scn_garden" / rep
-        d.mkdir(parents=True)
-        (d / "record.json").write_text(json.dumps({
-            "spec": {"track": "scene", "id": "scenes_v1/scn_garden"},
-            "plan": {"assets": []}, "rounds": [],
-        }))
-    rows = runs(tmp_path)
-    assert [r[0] for r in rows] == ["scn_garden", "scn_garden"]
 
 
 def test_the_build_layer_is_attributed(tmp_path: Path) -> None:

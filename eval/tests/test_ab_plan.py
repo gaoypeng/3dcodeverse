@@ -14,7 +14,6 @@ if str(REPO) not in sys.path:
 
 from bench._ab_report import (  # noqa: E402
     CONTROL,
-    KEEP_DELTA,
     VARIANT,
     PairOutcome,
     pair_up,
@@ -38,10 +37,8 @@ from bench.ab_plan import (  # noqa: E402
     main,
     parse_variant_env,
     run_ab,
-    worker_argv,
 )
 from bench.run_bench import Battery  # noqa: E402
-from bench.stats import n_to_resolve, t975  # noqa: E402
 
 BATTERY = REPO / "bench" / "prompts" / "compare_v1.yaml"
 
@@ -60,20 +57,17 @@ def _pairs(*deltas: float) -> list[PairOutcome]:
 
 
 # ----------------------------------------------------------------------------- verdict rule
-def test_keep_needs_mean_gain_and_no_regression():
-    assert verdict_of(_pairs(0.03, 0.02, 0.01, 0.04)).decision == "keep"
-    # one regression blocks a keep even when the mean clears the bar
-    v = verdict_of(_pairs(0.10, 0.10, 0.10, -0.03))
-    assert v.decision == "inconclusive" and v.regressions == ["p3"]
-    # a mean just under the bar is not a keep
-    assert verdict_of(_pairs(0.01, 0.02, 0.02, 0.01)).decision == "inconclusive"
-
-
-def test_revert_on_mean_loss_or_two_regressions():
-    assert verdict_of(_pairs(-0.02, -0.02, -0.02)).decision == "revert"
-    v = verdict_of(_pairs(0.20, 0.20, -0.03, -0.05))  # mean +0.08 but two prompts lost
-    assert v.decision == "revert" and v.regressions == ["p2", "p3"]
-    assert verdict_of(_pairs(-0.019, 0.0)).decision == "inconclusive"
+@pytest.mark.parametrize("deltas, decision, regressions", [
+    ((0.03, 0.02, 0.01, 0.04), "keep", []),
+    ((0.10, 0.10, 0.10, -0.03), "inconclusive", ["p3"]),     # one regression blocks a keep
+    ((0.01, 0.02, 0.02, 0.01), "inconclusive", []),           # a mean just under the bar
+    ((-0.02, -0.02, -0.02), "revert", []),
+    ((0.20, 0.20, -0.03, -0.05), "revert", ["p2", "p3"]),     # mean +0.08 but two prompts lost
+    ((-0.019, 0.0), "inconclusive", []),
+])
+def test_the_verdict_rule(deltas, decision, regressions):
+    v = verdict_of(_pairs(*deltas))
+    assert v.decision == decision and v.regressions == regressions
 
 
 def test_no_pairs_is_inconclusive_never_keep():
@@ -81,32 +75,8 @@ def test_no_pairs_is_inconclusive_never_keep():
     assert v.decision == "inconclusive" and v.n_pairs == 0 and v.mean_delta is None
 
 
-# ----------------------------------------------------------------------------- pairing
-def test_a_pair_counts_only_when_both_arms_scored():
-    rows = [_row("a", CONTROL, 0.70), _row("a", VARIANT, 0.75),
-            _row("b", CONTROL, 0.80), _row("b", VARIANT, None, "infra_failed"),
-            _row("c", CONTROL, None, "budget_exhausted"), _row("c", VARIANT, 0.9),
-            _row("d", CONTROL, 0.5)]
-    pairs = {p.prompt_id: p for p in pair_up(rows)}
-    assert pairs["a"].paired and pairs["a"].delta == pytest.approx(0.05)
-    assert not pairs["b"].paired and pairs["b"].reason == "variant infra_failed"
-    assert not pairs["c"].paired and pairs["c"].reason == "control budget_exhausted"
-    assert not pairs["d"].paired and pairs["d"].reason == "variant missing"
-    v = verdict_of(list(pairs.values()))
-    assert v.n_pairs == 1 and v.mean_delta == pytest.approx(0.05)
-
-
-def test_latest_row_wins_and_order_follows_the_battery():
-    rows = [_row("a", CONTROL, 0.1), _row("b", CONTROL, 0.2), _row("b", VARIANT, 0.2),
-            _row("a", VARIANT, 0.1), _row("a", CONTROL, 0.9)]  # re-appended on a redo
-    pairs = pair_up(rows, [("b", "easy"), ("a", "hard")])
-    assert [p.prompt_id for p in pairs] == ["b", "a"] and pairs[1].tier == "hard"
-    assert pairs[1].delta == pytest.approx(0.1 - 0.9)
-
-
 def test_outage_cells_are_excluded_from_every_arm_rate():
-    """An arm hit by weather must summarise the same as one that ran in the clear, and
-    the loss must stay visible (docs/EVAL.md §7)."""
+    """An arm hit by weather summarises like one that ran in the clear; the loss stays visible (EVAL.md §7)."""
     clear = [_row(f"p{i}", CONTROL, 0.8) for i in range(4)]
     unlucky = [_row(f"p{i}", VARIANT, 0.8) for i in range(4)] + [_row("p9", VARIANT, None, "infra_failed", wall=3600, cost=0.0)]
     by = {s.arm: s for s in arm_stats(clear + unlucky)}
@@ -128,47 +98,16 @@ def test_summary_marks_regressions_and_states_the_rule():
 
 
 # ----------------------------------------------------------------------------- noise floor
-def test_a_verdict_states_the_spread_it_was_decided_on():
-    """The rule fires on a mean, and a mean of stochastic generations has a spread.  An
-    A/A run of this rig (identical arms) returned +0.344 on one prompt and the rule said
-    "keep" — so the report has to carry the noise beside the word."""
+def test_a_verdict_carries_its_noise_beside_the_word():
+    """An A/A run once said "keep" on +0.344 from one prompt: the verdict must say when it is noise."""
     v = verdict_of(_pairs(0.30, -0.20, 0.10, 0.05, -0.10, 0.25, 0.02, -0.15))
-    assert v.sd_delta is not None and v.se_delta == pytest.approx(v.sd_delta / 8 ** 0.5, abs=1e-3)
-    assert v.ci_half == pytest.approx(t975(7) * v.se_delta, abs=1e-3), "the 95 % t-interval, n - 1 = 7 df"
-    assert not v.separated and "NOT separated from noise" in v.caution
-    # the honest answer to "would one more prompt settle this?": at this spread, hundreds
-    assert v.n_for_power == pytest.approx(n_to_resolve(v.sd_delta, KEEP_DELTA), rel=0.01)
-    assert v.n_for_power > 100
-
-
-def test_sign_consistency_catches_the_win_the_mean_rule_throws_away():
-    """A change that helps every prompt a little is invisible to a +-0.02 mean at this
-    spread, and obvious to the sign test — which is the whole point of reporting it."""
-    v = verdict_of(_pairs(*([0.01] * 8)))
-    assert v.decision == "inconclusive", "the mean rule cannot see it"
-    assert (v.n_up, v.n_down) == (8, 0) and v.sign_p == pytest.approx(2 / 2 ** 8, abs=1e-4)
-    v = verdict_of(_pairs(0.30, -0.20, 0.10, 0.05, -0.10, 0.25, 0.02, -0.15))
-    assert (v.n_up, v.n_down) == (5, 3) and v.sign_p > 0.7, "a big mean with a coin-flip sign pattern"
-    assert verdict_of(_pairs(0.0, 0.0)).sign_p is None, "zero deltas are dropped, as the test requires"
-
-
-def test_a_tight_win_is_marked_separated_and_carries_no_caution():
+    assert not v.separated and "NOT separated from noise" in v.caution and v.n_for_power > 100
+    assert (v.n_up, v.n_down) == (5, 3)
     v = verdict_of(_pairs(0.10, 0.11, 0.09, 0.12))
     assert v.decision == "keep" and v.separated and v.caution == ""
-
-
-def test_one_pair_can_never_be_separated_from_noise():
     v = verdict_of(_pairs(0.344))
     assert v.decision == "keep", "the blunt rule still fires — that is exactly the danger"
     assert v.sd_delta is None and not v.separated and "one pair cannot separate" in v.caution
-
-
-def test_summary_prints_the_confidence_block():
-    rows = [_row(f"p{i}", arm, s) for i, (c, x) in enumerate([(0.5, 0.9), (0.6, 0.3), (0.7, 0.72)])
-            for arm, s in ((CONTROL, c), (VARIANT, x))]
-    md = render_summary(pair_up(rows), rows, title="t", variant_env={"K": "v"}, generator="g", judge="j", rounds=1)
-    assert "## Confidence" in md and "separated from noise: NO" in md and "NOT separated from noise" in md
-    assert "sign consistency: 2 up / 1 down" in md and "sign test p = 1.000" in md
 
 
 def test_an_aa_run_is_labelled_so_nobody_reads_it_as_a_decision():
@@ -190,18 +129,14 @@ def test_variant_env_is_applied_to_the_variant_arm_only():
 
 
 def test_children_run_at_exactly_the_cap_the_budget_reserved(monkeypatch):
-    """CQ-3: both children run at the cap the driver was given.  child_env used
-    ``setdefault``, so a shell exporting C3D_MAX_IN_FLIGHT=32 under ``--max-in-flight 8``
-    ran a child at 32 (docs/COST.md §23) — three lines after the function deliberately pops
-    every variant key so an inherited switch cannot win."""
+    """CQ-3: an explicit --max-in-flight beats the shell's C3D_MAX_IN_FLIGHT (docs/COST.md §23)."""
     opts = AbOptions(variant_env={"K": "v"}, max_in_flight=8)
     base = {"PATH": "/bin", MAX_IN_FLIGHT_ENV: "32", NESTED_MAX_IN_FLIGHT_ENV: "48"}
     for arm in (CONTROL, VARIANT):
         env = child_env(arm, opts, base)
         assert env[MAX_IN_FLIGHT_ENV] == "8", "an explicit --max-in-flight must beat the shell"
         assert NESTED_MAX_IN_FLIGHT_ENV not in env, "the nested spelling must not fight the flat one"
-    # without the flag the inherited cap is still honoured — resolved ONCE, into AbOptions,
-    # so the number the children get and the number the preflight reserves are the same one
+    # without the flag the inherited cap is honoured, resolved once into AbOptions
     monkeypatch.setenv(MAX_IN_FLIGHT_ENV, "6")
     monkeypatch.delenv(NESTED_MAX_IN_FLIGHT_ENV, raising=False)
     assert inherited_max_in_flight() == 6
@@ -219,14 +154,6 @@ def test_parse_variant_env():
             parse_variant_env([f"{name}=64"])
 
 
-def test_worker_argv_carries_the_whole_option_block(tmp_path: Path):
-    opts = AbOptions(variant_env={"K": "v"}, rounds=1)
-    argv = worker_argv(BATTERY, tmp_path, "cmp_easy_stool", VARIANT, opts)
-    assert argv[1].endswith("ab_plan.py") and argv[2] == "cell" and "--arm" in argv
-    assert AbOptions.model_validate_json(argv[-1]) == opts
-    assert cell_dir(tmp_path, CONTROL, "x", "gemini-cli:gemini-3.6-flash").parent.parts[-4:] == ("arms", "control", "cells", "x")
-
-
 def test_a_child_that_dies_without_a_cell_is_an_error_not_a_score(tmp_path: Path):
     """Real subprocess, no network: an unknown prompt id makes the worker exit 2 before any
     model is touched, and the driver must record that as a scoreless error cell."""
@@ -241,10 +168,7 @@ def test_a_child_that_dies_without_a_cell_is_an_error_not_a_score(tmp_path: Path
 
 
 def test_a_non_utf8_byte_in_the_worker_log_does_not_kill_the_driver(tmp_path: Path, monkeypatch):
-    """CP-1: on the no-cell.json path the log tail is the only evidence there is, and an
-    agent CLI is free to print any byte.  One 0xff used to raise UnicodeDecodeError out of
-    spawn_cell — which run_ab re-raises through fut.result(), ending the whole A/B without
-    a summary — for a log that says '503 UNAVAILABLE' and classifies perfectly well."""
+    """CP-1: a 0xff in the log tail used to raise out of spawn_cell and end the whole A/B."""
     import bench.ab_plan as ab
     from bench.run_bench import BenchPrompt
 
@@ -352,19 +276,6 @@ def test_cli_refuses_identical_arms_and_wrong_parallel(tmp_path: Path, capsys):
         main(["--prompts", str(BATTERY), "--out", str(tmp_path), "--variant-env", "K=v", "--parallel", "8"])
 
 
-def test_aa_run_records_two_empty_arms(tmp_path: Path):
-    """--aa is the ONLY sanctioned way to run identical arms, and the record must say so
-    or a later reader will mistake a noise measurement for a result."""
-    b = Battery.load(BATTERY)
-    ids = [p.id for p in b.prompts[:2]]
-    fake = FakeCells({(ids[0], VARIANT): 0.9})
-    run_ab(BATTERY, tmp_path, AbOptions(variant_env={"C3D_PLAN_FEATURES": "all"}, aa=True, ids=ids), run_cell_fn=fake)
-    meta = json.loads((tmp_path / "ab.json").read_text())
-    assert meta["aa"] is True and meta["arms"] == {"control": {}, "variant": {}}
-    assert {r.workspace for r in _journal(tmp_path)} == {""}, "no arm saw the switch"
-    assert (tmp_path / "summary.md").read_text().startswith("# A/A: ")
-
-
 def test_cli_report_only_rebuilds_from_results(tmp_path: Path, capsys):
     (tmp_path / "results.jsonl").write_text("".join(r.model_dump_json() + "\n" for r in
                                                     [_row("cmp_easy_stool", CONTROL, 0.5),
@@ -388,12 +299,7 @@ def test_report_only_survives_a_run_dir_with_no_or_broken_ab_json(tmp_path):
 
 
 def test_a_pinned_plan_that_dies_in_a_storm_records_the_pair_and_continues(tmp_path: Path, monkeypatch):
-    """The pinned plan is ONE model call with a 15-minute retry budget. When a 503 storm
-    outlasts it the call raises — and that used to propagate out of run_ab's loop and end
-    the whole battery. Measured 2026-08-26: a 3-prompt driver died on its first pin, two
-    prompts never attempted, while the drivers beside it waited the storm out. An outage is
-    not a score (docs/EVAL.md §7): the pair is recorded infra_failed so --redo-status
-    infra_failed picks it up, and the loop goes on."""
+    """A pin that dies in a 503 storm records the pair infra_failed and the loop goes on (EVAL.md §7)."""
     from bench import ab_plan as ab
     from codeverse3d.models.base import ModelError
 

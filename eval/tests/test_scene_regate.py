@@ -1,12 +1,4 @@
-"""``bench/scene_regate.py``: re-running a gate over recorded workspaces.
-
-The parts that decide whether the diff means anything, pinned without a browser.
-Both were wrong on the first run of this script over `bench/out/scene_baseline`:
-the layouts envelope was passed through unopened, so `contract_findings` lost its
-basis and coastal_village's REAL "zone VillageQuay holds ~179 instances but its
-layout budgeted 443" appeared in the GONE column as though the gate change had
-removed it.
-"""
+"""``bench/scene_regate.py``: re-running a gate over recorded workspaces, pinned without a browser."""
 
 from __future__ import annotations
 

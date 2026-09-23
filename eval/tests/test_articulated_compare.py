@@ -5,8 +5,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
@@ -15,8 +13,6 @@ from bench._fixed_eval import FixedEvaluator, rubric_for  # noqa: E402
 from bench._oneshot import (  # noqa: E402
     MODEL_FILE,
     URDF_FILE,
-    extract_files,
-    files_for,
     minimal_contract,
     oneshot_prompt,
     repair_prompt,
@@ -26,7 +22,6 @@ from bench.run_bench import Battery  # noqa: E402
 from codeverse3d.contracts.artifacts import BuildResult, GateReport  # noqa: E402
 from codeverse3d.contracts.common import Language, Track  # noqa: E402
 from codeverse3d.contracts.spec import Constraints, Spec  # noqa: E402
-from codeverse3d.tracks.generation import MultiFileParseError  # noqa: E402
 from codeverse3d.workspace import Workspace  # noqa: E402
 
 PROMPTS = REPO / "bench" / "prompts"
@@ -69,23 +64,6 @@ def test_urdf_oneshot_prompt_carries_the_frame_recipe_and_the_two_file_envelope(
     assert minimal_contract(Language.URDF_BLENDER) in p
     # the static contract is untouched by the language switch
     assert minimal_contract() == minimal_contract(Language.BLENDER) and URDF_FILE not in minimal_contract()
-
-
-def test_files_for_and_extract_files_two_file_answer():
-    assert files_for(Language.BLENDER) == [MODEL_FILE] and files_for(Language.URDF_BLENDER) == [MODEL_FILE, URDF_FILE]
-    got = extract_files(ENVELOPE, Language.URDF_BLENDER)
-    assert got == {MODEL_FILE: PY, URDF_FILE: XML}
-    # fenced blocks each preceded by their path also parse
-    fenced = f"{MODEL_FILE}\n```python\n{PY}```\n{URDF_FILE}\n```xml\n{XML}```\n"
-    assert extract_files(fenced, Language.URDF_BLENDER) == {MODEL_FILE: PY, URDF_FILE: XML}
-@pytest.mark.parametrize("text", [
-    f"```python\n{PY}```",                                        # one block, two expected
-    f"=== FILE: {MODEL_FILE} ===\n{PY}=== END FILE ===\n",        # envelope with the URDF missing
-    f"=== FILE: {MODEL_FILE} ===\n{PY}=== END FILE ===\n=== FILE: {URDF_FILE} ===\n\n=== END FILE ===\n",  # empty urdf
-])
-def test_a_urdf_answer_without_both_files_is_a_format_failure(text: str):
-    with pytest.raises(MultiFileParseError):
-        extract_files(text, Language.URDF_BLENDER)
 
 
 def test_write_answer_files_writes_both(tmp_path):

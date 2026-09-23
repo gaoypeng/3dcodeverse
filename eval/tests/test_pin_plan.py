@@ -1,9 +1,4 @@
-"""Sharing one plan between A/B arms (bench/pin_plan.py + the rule that permits it).
-
-docs/EVAL.md §8.1: the A/A's worst pair planned 1 part in one arm and 10 in the other on
-IDENTICAL settings.  Pinning removes that term; pinning the wrong switch deletes the
-experiment.  Both halves are tested here.
-"""
+"""Sharing one plan between A/B arms (bench/pin_plan.py), and the rule that permits it (EVAL.md §8.1)."""
 
 from __future__ import annotations
 
@@ -12,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from bench.pin_plan import PinError, plan_artifacts, seed_plan
+from bench.pin_plan import PinError, seed_plan
 
 
 def _planned_run(root, *, parts, inputs_hash="abc123"):
@@ -30,26 +25,8 @@ def _planned_run(root, *, parts, inputs_hash="abc123"):
     return run
 
 
-def test_the_target_resumes_from_the_source_plan(tmp_path):
-    src = _planned_run(tmp_path, parts=10)
-    dst = tmp_path / "dst_run"
-    (dst / "stages").mkdir(parents=True)
-    (dst / "run_state.json").write_text(json.dumps({"status": "created", "stages": {}}))
-
-    got = seed_plan(src, dst)
-    assert got == "abc123"
-
-    dst_plan, dst_stage, dst_state = plan_artifacts(dst)
-    assert json.loads(dst_plan.read_text())["parts"] == json.loads((src / "plan.json").read_text())["parts"]
-    assert dst_stage.is_file(), "the stage cache result must exist or the stage is a MISS"
-    entry = json.loads(dst_state.read_text())["stages"]["plan"]
-    assert entry["inputs_hash"] == "abc123", "the hash is what makes it a cache hit"
-    assert entry["result_path"] == str(dst_stage.resolve()), "must point at the TARGET's file"
-
-
 def test_the_targets_own_state_survives(tmp_path):
-    """Only the plan stage crosses over — status, rounds and other stages are the
-    target's own, or seeding would import the source run's history."""
+    """Only the plan stage crosses over, pointing at the TARGET's file; the rest of the state is the target's."""
     src = _planned_run(tmp_path, parts=3)
     dst = tmp_path / "dst_run"
     (dst / "stages").mkdir(parents=True)
@@ -60,7 +37,8 @@ def test_the_targets_own_state_survives(tmp_path):
     state = json.loads((dst / "run_state.json").read_text())
     assert state["status"] == "created" and state["current_round"] == 0
     assert state["stages"]["skeleton"]["inputs_hash"] == "zzz", "the target's other stages were dropped"
-    assert "plan" in state["stages"]
+    assert state["stages"]["plan"]["inputs_hash"] == "abc123"
+    assert state["stages"]["plan"]["result_path"] == str((dst / "stages" / "plan.json").resolve())
 
 
 def test_an_unplanned_source_is_refused_by_name(tmp_path):
@@ -70,8 +48,7 @@ def test_an_unplanned_source_is_refused_by_name(tmp_path):
 
 
 def test_a_source_without_a_cached_stage_is_refused(tmp_path):
-    """plan.json on disk but no stage entry: the target would re-plan and the pair would
-    silently stop being pinned — worse than not pinning, because the report would claim it."""
+    """plan.json but no stage entry: the target would silently re-plan while the report claims a pin."""
     src = _planned_run(tmp_path, parts=4)
     (src / "run_state.json").write_text(json.dumps({"status": "generating", "stages": {}}))
     dst = tmp_path / "dst_run"
@@ -81,49 +58,10 @@ def test_a_source_without_a_cached_stage_is_refused(tmp_path):
 
 
 # --------------------------------------------------------------- the driver's use of it
-def test_pin_pair_seeds_every_arm_from_one_plan(tmp_path, monkeypatch):
-    """``--pin-plan`` must plan ONCE and hand the same plan to both arms.
-
-    Planning per-arm is what the pinning exists to remove; planning per-arm *while
-    reporting itself pinned* is worse than not pinning at all, so the count is asserted.
-    """
-    from bench import ab_plan
-    from bench.run_bench import Battery
-
-    battery = Battery.load(Path(ab_plan.__file__).resolve().parent / "prompts" / "compare_v1.yaml")
-    item = battery.prompts[0]
-    opts = ab_plan.AbOptions(variant_env={"C3D_SKILLS": "0"}, pin_plan=True)  # the skills-OFF arm
-    calls: list[Path] = []
-
-    def fake_plan_once(spec, ws_root):
-        calls.append(Path(ws_root))
-        run = Path(ws_root)
-        (run / "stages").mkdir(parents=True, exist_ok=True)
-        body = json.dumps({"object_name": "Chair", "parts": [{"name": "Seat"}]})
-        (run / "plan.json").write_text(body)
-        (run / "stages" / "plan.json").write_text(body)
-        (run / "run_state.json").write_text(json.dumps(
-            {"stages": {"plan": {"name": "plan", "inputs_hash": "h1",
-                                 "result_path": str(run / "stages" / "plan.json")}}}))
-        return "h1"
-
-    monkeypatch.setattr(ab_plan, "plan_once", fake_plan_once)
-    got = ab_plan.pin_pair(battery, item, tmp_path, list(ab_plan.ARMS), opts)
-
-    assert got == "h1"
-    assert len(calls) == 1, f"planned {len(calls)} times, not once: {calls}"
-    for arm in ab_plan.ARMS:
-        run = Path(ab_plan.cell_dir(tmp_path, arm, item.id, opts.generator)) / "run"
-        assert json.loads((run / "plan.json").read_text())["parts"] == [{"name": "Seat"}]
-        entry = json.loads((run / "run_state.json").read_text())["stages"]["plan"]
-        assert entry["inputs_hash"] == "h1"
-        assert entry["result_path"] == str((run / "stages" / "plan.json").resolve())
-        assert (run / "spec.json").is_file(), "_run_harness skips writing it once the ws exists"
 
 
 def test_pin_pair_reuses_the_plan_when_the_pair_is_retried(tmp_path, monkeypatch):
-    """A resumed / redone pair must not buy a second plan — and must not get a DIFFERENT
-    one, which would make the two attempts incomparable."""
+    """--pin-plan plans ONCE, seeds every arm, and a retried pair neither re-plans nor gets another plan."""
     from bench import ab_plan
     from bench.run_bench import Battery
 
@@ -146,17 +84,20 @@ def test_pin_pair_reuses_the_plan_when_the_pair_is_retried(tmp_path, monkeypatch
         return "h1"
 
     monkeypatch.setattr(ab_plan, "plan_once", fake_plan_once)
-    ab_plan.pin_pair(battery, item, tmp_path, list(ab_plan.ARMS), opts)
+    assert ab_plan.pin_pair(battery, item, tmp_path, list(ab_plan.ARMS), opts) == "h1"
     ab_plan.pin_pair(battery, item, tmp_path, list(ab_plan.ARMS), opts)
 
     assert n == 1, "the second pass re-planned; the retry would not be comparable"
-    run = Path(ab_plan.cell_dir(tmp_path, "variant", item.id, opts.generator)) / "run"
-    assert json.loads((run / "plan.json").read_text())["parts"] == [{"name": "call1"}]
+    for arm in ab_plan.ARMS:
+        run = Path(ab_plan.cell_dir(tmp_path, arm, item.id, opts.generator)) / "run"
+        assert json.loads((run / "plan.json").read_text())["parts"] == [{"name": "call1"}]
+        entry = json.loads((run / "run_state.json").read_text())["stages"]["plan"]
+        assert entry["inputs_hash"] == "h1" and entry["result_path"] == str((run / "stages" / "plan.json").resolve())
+        assert (run / "spec.json").is_file(), "_run_harness skips writing it once the ws exists"
 
 
 def test_a_plan_side_variant_env_is_refused_by_the_cli():
-    """Pinning a plan-side switch deletes the thing under test, and the rig would then
-    report 'no effect' with confidence.  The refusal is the whole safety property."""
+    """Pinning a plan-side switch deletes the thing under test: the CLI refuses."""
     from bench import ab_plan
 
     with pytest.raises(SystemExit):

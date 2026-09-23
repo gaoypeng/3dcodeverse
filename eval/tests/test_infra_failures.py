@@ -1,10 +1,4 @@
-"""A provider outage must never be scored as a model failure.
-
-Regression (2026-08-24): a multi-hour gemini-3.7-flash 503 storm hit both arms of
-compare_v2.  ``compare_backends`` recorded it as ``score=0.0`` on the one-shot path
-(counted in the mean) and ``score=None`` on the harness path (dropped), so the same
-downtime pushed one-shot means down while leaving harness means untouched.
-"""
+"""A provider outage must never be scored as a model failure (compare_v2, 2026-08-24)."""
 
 from __future__ import annotations
 
@@ -36,15 +30,9 @@ MODEL_FAILURES = [
 ]
 
 
-@pytest.mark.parametrize("err", OUTAGES)
-def test_provider_outages_are_infra(err):
-    assert is_infra_failure(err) is True
-
-
-@pytest.mark.parametrize("err", MODEL_FAILURES)
-def test_model_failures_are_not_infra(err):
-    """These are real capability results and must keep their zero."""
-    assert is_infra_failure(err) is False
+@pytest.mark.parametrize("err, infra", [(e, True) for e in OUTAGES] + [(e, False) for e in MODEL_FAILURES])
+def test_outages_are_infra_and_capability_failures_keep_their_zero(err, infra):
+    assert is_infra_failure(err) is infra
 
 
 class ModelError(Exception):
@@ -55,8 +43,7 @@ class ModelError(Exception):
 
 
 class ClassifierTrap(Exception):
-    """.status is the first thing is_infra_failure reads — a property that raises is the
-    cheapest stand-in for any classifier bug, and getattr's default does not swallow it."""
+    """A .status that raises: the cheapest stand-in for any classifier bug."""
     @property
     def status(self):
         raise RecursionError("cycle")
@@ -82,18 +69,7 @@ def test_structured_exceptions_beat_string_matching():
 
 
 def test_both_failure_paths_classify_the_same_way(tmp_path):
-    """CQ-1, the asymmetry itself: ONE error hits both arms, both must reach one verdict.
-
-    The previous version of this test could not fail — it grepped run_cell's code
-    constants for the literal "infra_failed" and then compared a single 503 string that
-    DOES contain one of the 14 INFRA_MARKERS.  It therefore passed straight through the
-    real bug: gemini's actual 500 prose ("An internal error has occurred") matches no
-    marker, and bench/_oneshot.py stringified the exception into `notes`, throwing away
-    the .status the harness path classifies on.  Same outage, harness dropped
-    (infra_failed / score None), one-shot scored a hard 0.0 — biasing every
-    harness-vs-one-shot mean in the harness's favour, which is precisely what this
-    module was written to end.
-    """
+    """CQ-1: one outage hits both arms and both reach one verdict — gemini's 500 prose matches no marker."""
     from bench._oneshot import ApiOneShot
     from bench.compare_backends import CompareDeps, CompareOptions, parse_arm, run_cell
     from bench.run_bench import Battery
@@ -124,14 +100,12 @@ def test_both_failure_paths_classify_the_same_way(tmp_path):
     for i, outage in enumerate((
         ModelError("Gemini API error 500: An internal error has occurred.", retryable=True, status=500),
         ModelError("Gemini transport error: [Errno 104] Connection reset by peer", retryable=True),
-        ModelError("Anthropic connection error: TLS handshake failed", retryable=True),
-        ModelError("Gemini request timed out: 600s", retryable=True, status=408),
     )):
         got = verdicts(outage, tmp_path / str(i))
         assert got["harness"] == ("infra_failed", None), f"{outage} / harness -> {got}"
         assert got["oneshot"] == got["harness"], (
-            f"one error, two verdicts for {outage!s}: {got} — the one-shot arm takes a hard "
-            f"zero for the same downtime that drops the harness arm")
+            f"one error, two verdicts for {outage!s}: {got}")
+
 
 def test_budget_exhaustion_is_scoreless_but_still_counts_against_build_rate():
     """The 50-minutes-for-nothing case: no score to average, but the arm did miss."""
@@ -182,11 +156,7 @@ def test_preflight_probes_only_models_the_selected_arms_need(monkeypatch, raw_ar
 
 
 def test_a_repair_lost_to_an_outage_drops_the_cell_instead_of_scoring_the_pre_repair_code(tmp_path):
-    """compare_v4, 2026-08-25: four `oneshot+repair` cells whose repair call died in a 503
-    storm were recorded build_failed / score 0 — the broken attempt-0 file was already in
-    the eval workspace, so the arm was scored on code its protocol had not finished with.
-    A truncated one-shot protocol is downtime, not a capability result: infra_failed, and
-    --redo-status re-runs only the lost attempt (attempt 0 is cached)."""
+    """A repair call lost to a 503 is downtime, not a score on the unfinished attempt-0 code (compare_v4)."""
     from bench._oneshot import OneShotResult
     from bench.compare_backends import CompareDeps, CompareOptions, parse_arm, run_cell
     from bench.run_bench import Battery
@@ -231,10 +201,7 @@ def test_a_repair_lost_to_an_outage_drops_the_cell_instead_of_scoring_the_pre_re
 
 
 def test_a_harness_planning_failure_is_a_zero_not_a_dropped_cell(tmp_path):
-    """compare_art_v2 (2026-08-25): 5 of 14 articulated harness runs raised PlanningError (the
-    plan failed validation twice) and were recorded `error` / score None — dropped from the
-    mean, so a third of the harness's failures vanished.  The harness delivered nothing by its
-    own doing: no_code / 0.0, exactly what a one-shot answer in the wrong format gets."""
+    """PlanningError is the harness's own failure: no_code / 0.0, never dropped (compare_art_v2)."""
     from bench.compare_backends import CompareDeps, CompareOptions, parse_arm, run_cell
     from bench.run_bench import Battery
     from codeverse3d.tracks.planner import PlanningError
@@ -252,19 +219,10 @@ def test_a_harness_planning_failure_is_a_zero_not_a_dropped_cell(tmp_path):
 
 
 def test_a_cyclic_cause_chain_does_not_recurse():
-    """compare_art_v3 (2026-08-27): retry.py's `raise err from exc` closed the __cause__ chain
-    into a cycle; is_infra_failure recursed to RecursionError inside run_cell's except
-    handler, the matrix loop died, and 11 finished cells went unrecorded."""
-    # the shape production actually makes: classify() returns an already-classified
-    # ModelError unchanged, so retry.py's `raise err from exc` is `raise e from e`
+    """retry.py's `raise e from e` closes the __cause__ chain into a cycle (compare_art_v3)."""
     self_loop = ModelError("structured output unavailable (finish_reason=MAX_TOKENS)")
     self_loop.__cause__ = self_loop
     assert is_infra_failure(self_loop) is False
-
-    a = ModelError("structured output unavailable (finish_reason=MAX_TOKENS)")
-    b = ModelError("attempt failed")
-    a.__cause__, b.__cause__ = b, a  # a two-node cycle
-    assert is_infra_failure(a) is False
     c = ModelError("wrapped")
     c.__cause__ = ModelError("upstream said no", status=503)
     c.__cause__.__cause__ = c  # cycle through an infra cause

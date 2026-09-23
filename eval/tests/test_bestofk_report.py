@@ -1,11 +1,4 @@
-"""``bench/bestofk_report.py``: the compute-matched baseline a harness paper has to answer.
-
-A loop that plans, builds, gates and refines costs ~28x one raw generation on `compare_v4`
-($0.9221 against $0.0327 median generation cost).  Spend that on 28 one-shot samples and
-keep the best — does the harness still win?  These pin the three things the answer depends
-on: which sample the curve takes, how a maximum over noisy scores is reported, and which
-direction the difference is measured in.
-"""
+"""``bench/bestofk_report.py``: the compute-matched best-of-k baseline — which sample, which k, which sign."""
 
 from __future__ import annotations
 
@@ -36,8 +29,7 @@ def _rep(root: Path, name: str, scores: dict[str, float | None], *, extra: list[
 
 
 def test_best_of_takes_the_first_k_and_refuses_to_pad():
-    """The reps are independent and unordered, so best-of-k is the best of the FIRST k —
-    taking the best of everything available would report best-of-28 as best-of-4."""
+    """Best-of-k is the best of the FIRST k — never of everything available."""
     assert best_of([0.1, 0.9, 0.5], 2) == 0.9
     assert best_of([0.1, 0.9, 0.5], 3) == 0.9
     assert best_of([0.1, 0.9], 3) is None, "fewer samples than k is not a best-of-k"
@@ -45,27 +37,10 @@ def test_best_of_takes_the_first_k_and_refuses_to_pad():
     assert best_of([0.1, 0.5, 0.9], 2) == 0.5
 
 
-def test_a_rep_that_scored_a_prompt_twice_counts_once(tmp_path: Path):
-    """`results.jsonl` is append-only and a resumed cell writes a second row; the last one
-    wins, exactly as `paired_compare` dedupes."""
-    _rep(tmp_path, "rep01", {"a": 0.2}, extra=[{"prompt_id": "a", "arm": "oneshot:x", "score": 0.7}])
-    assert one_shot_samples(tmp_path) == {"a": [0.7]}
-
-
 def test_an_unscored_cell_is_dropped_not_zeroed(tmp_path: Path):
-    """A cell with no score tests nothing about the model; scoring it 0 would make
-    best-of-k look worse for free."""
+    """A cell with no score tests nothing: scoring it 0 would handicap best-of-k."""
     _rep(tmp_path, "rep01", {"a": None, "b": 0.4})
     assert one_shot_samples(tmp_path) == {"b": [0.4]}
-
-
-def test_only_the_harness_arm_is_read_from_the_recorded_battery(tmp_path: Path):
-    (tmp_path / "results.jsonl").write_text("\n".join(json.dumps(r) for r in [
-        {"prompt_id": "a", "arm": "oneshot:gemini:x", "score": 0.1},
-        {"prompt_id": "a", "arm": "harness:api-agent:gemini:x", "score": 0.6},
-        {"prompt_id": "b", "arm": "oneshot+repair:gemini:x", "score": 0.3},
-    ]))
-    assert harness_scores(tmp_path) == {"a": 0.6}
 
 
 def test_the_difference_is_harness_minus_baseline_and_the_curse_is_reported():
@@ -95,13 +70,9 @@ def test_a_prompt_the_harness_never_ran_is_not_paired(tmp_path: Path):
 
 
 def test_equal_compute_k_is_taken_per_prompt_not_per_row(tmp_path: Path):
-    """k is the whole experiment's parameter, and the first pass got it wrong: taking the
-    median over every appended row (resumed cells, failed cells) gave 28 where the per-prompt
-    basis — the one `paired_compare` pairs on — gives 40.  Understating k gives the baseline
-    less money than the harness, an error in the harness's favour."""
+    """The median over every appended row gave k=28 where the per-prompt basis gives 40."""
     rows = [
-        # prompt a: a cheap failed first attempt, then the real one.  Per row the median
-        # would be dragged down; per prompt only the last row counts.
+        # prompt a: a cheap failed first attempt, then the real one; only the last row counts
         {"prompt_id": "a", "arm": "harness:x", "gen_cost_usd": 0.10},
         {"prompt_id": "a", "arm": "harness:x", "gen_cost_usd": 2.00},
         {"prompt_id": "b", "arm": "harness:x", "gen_cost_usd": 2.00},
@@ -116,8 +87,7 @@ def test_equal_compute_k_is_taken_per_prompt_not_per_row(tmp_path: Path):
 
 
 def test_a_zero_cost_row_is_not_counted_as_free(tmp_path: Path):
-    """A row with no recorded generation cost is missing data, not a free sample; averaging
-    it in would inflate k without bound."""
+    """A row with no recorded generation cost is missing data; counting it would inflate k."""
     rows = [
         {"prompt_id": "a", "arm": "oneshot:x", "gen_cost_usd": 0.05},
         {"prompt_id": "b", "arm": "oneshot:x", "gen_cost_usd": 0},
@@ -128,8 +98,7 @@ def test_a_zero_cost_row_is_not_counted_as_free(tmp_path: Path):
 
 
 def test_the_report_says_when_k_has_not_been_reached(tmp_path: Path):
-    """A curve that stops short of equal compute answers a different question, so the table
-    says so instead of letting the last row read as the verdict."""
+    """A curve short of equal compute says so, so the last row does not read as the verdict."""
     _rep(tmp_path / "reps", "rep01", {"a": 0.2})
     (tmp_path / "results.jsonl").write_text("\n".join(json.dumps(r) for r in [
         {"prompt_id": "a", "arm": "harness:x", "score": 0.6, "gen_cost_usd": 2.00},
@@ -140,10 +109,7 @@ def test_the_report_says_when_k_has_not_been_reached(tmp_path: Path):
 
 
 def test_repeated_harness_rows_are_reported_as_duplicates_or_reruns(tmp_path: Path):
-    """Whether the aggregation choice can move the comparison is a fact about the data, so
-    the report states it.  On `compare_v4` the 117 harness rows over 40 prompts have a
-    within-prompt spread of exactly 0.000 — they are the same cell written by successive
-    report passes, not re-runs — so last-row-wins is safe there."""
+    """The report states whether repeated harness rows are duplicates (spread 0) or real re-runs."""
     from bench.bestofk_report import harness_repeat_spread
 
     (tmp_path / "results.jsonl").write_text("\n".join(json.dumps(r) for r in [

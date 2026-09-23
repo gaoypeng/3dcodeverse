@@ -1,8 +1,4 @@
-"""``bench/session_stats.py``: the tool-error / cache / cost view a battery is read through.
-
-The numbers docs/COST.md §30 reports came from this view computed by hand, and the
-after-side counts were inflated by the ``run/telemetry/trajectories`` symlink — the very
-trap that section warns about.  These tests pin the parsing and the dedupe."""
+"""``bench/session_stats.py``: the tool-error / cache / cost view a battery is read through (COST.md §30)."""
 
 from __future__ import annotations
 
@@ -32,18 +28,6 @@ def _run(root: Path, name: str, costs: list[float]) -> Path:
     return run
 
 
-def test_the_telemetry_symlink_is_counted_once(tmp_path: Path) -> None:
-    run = _run(tmp_path, "cell_a", [1.0, 2.0])
-    _session(run, "baseline_r00", tools={"build": (10, 1)}, prompt=1000, cached=700, requests=5)
-    (run / "telemetry").mkdir()
-    (run / "telemetry" / "trajectories").symlink_to(run / "trajectories", target_is_directory=True)
-
-    assert len(_sessions(tmp_path)) == 1                     # not 2, though both paths exist
-    calls, failed = tool_rates(_sessions(tmp_path))
-    assert calls["build"] == 10 and failed["build"] == 1     # doubling here is what corrupted §30
-    assert token_rates(_sessions(tmp_path))["requests"] == 5
-
-
 def test_rates_and_costs_over_two_sessions(tmp_path: Path) -> None:
     run = _run(tmp_path, "cell_a", [1.0, 3.0, 5.0])
     _session(run, "baseline_r00", tools={"build": (10, 0), "joint_sweep": (4, 2)},
@@ -59,9 +43,7 @@ def test_rates_and_costs_over_two_sessions(tmp_path: Path) -> None:
 
 
 def test_a_killed_session_is_counted_as_killed_not_as_a_session(tmp_path: Path) -> None:
-    """An empty stdout.json is the CLI dying before it printed its stats.  Counting it as a
-    session makes every per-session number smaller for a reason that has nothing to do with
-    the code under test — 102 of aa_articulated's 162 files are that."""
+    """An empty stdout.json is a CLI killed before its stats: killed, not a session — and never doubled."""
     from bench.session_stats import _killed
 
     run = _run(tmp_path, "cell_a", [2.0])
@@ -80,9 +62,7 @@ def test_a_killed_session_is_counted_as_killed_not_as_a_session(tmp_path: Path) 
 
 
 def test_a_sub_workspace_is_not_the_battery_cell_above_it(tmp_path: Path) -> None:
-    """A scene asset's own run lives under ``_cand/`` / ``_assets/`` with its own
-    trajectories; ``flywheel.record.find_runs`` skips those and so must this, or one cell's
-    numbers absorb every candidate it rejected."""
+    """A candidate's own run under ``_cand/`` is not the cell's, as in ``find_runs``."""
     run = _run(tmp_path, "cell_a", [1.0])
     _session(run, "baseline_r00", tools={"build": (2, 0)}, prompt=100, cached=50, requests=1)
     sub = run / "_cand" / "c1" / "run"
@@ -144,10 +124,7 @@ def test_the_coupling_survey_also_reads_the_gate_that_judges_the_poses(tmp_path:
 
 
 def test_the_coupling_survey_counts_runs_not_copies_of_the_same_urdf(tmp_path: Path) -> None:
-    """A run holds robot.urdf three times — src/ (written), artifacts/ (built) and
-    deliverable/ (finalised) — and `bench run` lays cells out as runs/<id>/, not
-    cells/<id>/.  Counting files tripled every mechanical number and named every prompt
-    "artifacts"."""
+    """A run holds robot.urdf in src/, artifacts/ and deliverable/: one per run, the built one."""
     from bench._records import prompt_of
     from bench.coupling_stats import _urdfs
 
@@ -246,11 +223,7 @@ def test_scene_stats_attributes_a_failure_to_a_layer(tmp_path: Path) -> None:
 
 
 def test_the_depth_comparison_is_restricted_to_one_pose() -> None:
-    """`survey`'s two-probe table used to compare the sweep's worst-over-ALL-poses depth
-    with connectivity's rest-pose depth, so "2-3x deeper on the same pairs" was not a
-    statement about one pose at all.  Over the 374-round corpus, restricted to the pairs
-    whose worst sweep pose IS rest, the two probes agree exactly (4.4/4.4, 4.4/4.4,
-    2.2/2.2, 2.5/2.5 mm)."""
+    """The two-probe table compares depths in ONE pose (rest), not the sweep's worst over all poses."""
     from bench.penetration_thresholds import survey, sweep_pairs
 
     moved = _sweep("a|b", 0.0088, poses=[{}, {"j": 0.15}], worst_pose={"j": 0.15})

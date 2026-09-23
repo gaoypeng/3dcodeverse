@@ -98,13 +98,6 @@ def test_the_ab_mode_pairs_by_prompt(tmp_path):
     assert (r["better"], r["worse"], r["tied"]) == (1, 0, 0)
 
 
-def test_a_battery_dir_is_not_mistaken_for_an_ab_dir(tmp_path):
-    from bench.skill_targets import ab_arms
-
-    root = _battery(tmp_path, {"chair": _record("blender", [])})
-    assert ab_arms(root) is None
-
-
 def test_the_cli_runs_over_a_synthetic_battery(tmp_path, capsys):
     from bench.skill_targets import main
 

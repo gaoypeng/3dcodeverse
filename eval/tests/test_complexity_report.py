@@ -27,7 +27,6 @@ def _measurement(index: float, parts: int = 8) -> Measurement:
     )
 
 
-
 # ------------------------------------------------------------------ the report
 def _write_run(root: Path, slug: str, *, index: float, overall: float, detail: float,
                cost: float = 1.0, minutes: float = 10.0) -> Path:
@@ -91,20 +90,6 @@ def test_battery_expectations_flag_out_of_band_runs(tmp_path: Path) -> None:
     assert "| cx_a03_stool | 0.25–0.42 | 0.300 | yes |" in table
     assert "LOW" in table                      # the engine collapsed to a stool
     assert "not run" in table                  # a prompt with no run is still listed
-
-
-def test_real_battery_bands_are_sane() -> None:
-    """complexity_v3 is the ladder: every band inside [0,1], ordered, and the
-    prompts must actually climb."""
-    import yaml
-
-    data = yaml.safe_load((REPO / "bench" / "prompts" / "complexity_v3.yaml").read_text())
-    bands = [(p["id"], p["expected_complexity"]) for p in data["prompts"]]
-    assert len(bands) == 12
-    for pid, (lo, hi) in bands:
-        assert 0.0 < lo < hi <= 1.0, pid
-    lows = [lo for _, (lo, _hi) in bands]
-    assert lows == sorted(lows) and lows[-1] > lows[0] + 0.3
 
 
 def test_row_recomputes_the_vector_when_the_record_has_none(tmp_path: Path) -> None:

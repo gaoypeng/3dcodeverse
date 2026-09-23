@@ -18,7 +18,6 @@ from bench._compare_report import (  # noqa: E402
     arm_stats,
     pair_stats,
 )
-from bench._fixed_eval import acceptance_from_spec  # noqa: E402
 from bench._jsonl import latest, read_jsonl  # noqa: E402
 from bench.compare_backends import (  # noqa: E402
     CompareDeps,
@@ -44,12 +43,6 @@ from tests.conftest import (  # noqa: E402
 ARMS = "harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code,oneshot+repair:codex,oneshot:gemini:gemini-3.7-flash"
 
 
-def test_battery_compare_v1_is_valid():
-    b = Battery.load(BATTERY)
-    assert b.name == "compare_v1" and b.track.value == "static_object" and b.language.value == "blender"
-    assert all(len(p.must_have) >= 3 for p in b.prompts)   # ids, tiers, count: test_bench's corpus contract
-
-
 def test_parse_arms():
     arms = parse_arms(ARMS)
     assert [a.kind for a in arms] == ["harness", "oneshot", "oneshot+repair", "oneshot"]
@@ -70,8 +63,6 @@ def test_spec_for_and_acceptance():
     assert harness.backends.generator == "gemini-cli:gemini-3.7-flash" and harness.backends.judge == "gemini:gemini-3.7-flash"
     assert harness.budget.max_rounds == 3
     assert one.backends.generator == "single-shot:codex" and one.constraints.must_have == b.prompts[0].must_have
-    acc = acceptance_from_spec(one)
-    assert [a.id for a in acc] == ["must_1", "must_2", "must_3"] and all(a.priority == "must" for a in acc)
 
 
 def _deps(ev: FakeEvaluator, backends: dict[str, FakeBackend], run_track) -> CompareDeps:
@@ -217,10 +208,7 @@ def test_redo_status_reuses_recorded_answers(tmp_path: Path):
 
 
 def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
-    """compare_backends is a run-producing path: its cells must be priced into the
-    tree, not into the per-process fallback log (docs/COST.md §12).  The harness arm
-    gets a nested ledger for its own run; the cell's own ledger holds the spend that
-    sits OUTSIDE that run (the fixed evaluator's judge) — the §6 gap."""
+    """Cells are priced into the tree (COST.md §12): the run's own ledger, and the cell's for the fixed judge."""
     from codeverse3d.contracts.chat import ChatMessage, ChatRequest
     from codeverse3d.cost.instrument import MeteredChatModel
     from codeverse3d.cost.ledger import load_ledger
@@ -258,12 +246,7 @@ def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
 
 
 def test_no_resume_starts_the_harness_arm_fresh(tmp_path: Path):
-    """`--no-resume` regenerates every other arm, so the harness arm must not resume.
-
-    It used to: `_run_harness` only ever asked whether `<cell>/run` existed, so the arm
-    that had SUCCEEDED handed back its old score, generated in the old weather, against a
-    partner regenerated in today's.
-    """
+    """`--no-resume` regenerates every other arm, so the harness arm must not resume either."""
     ev = FakeEvaluator()
     inner = fake_run_track(0.9)
     seen: list[bool] = []
