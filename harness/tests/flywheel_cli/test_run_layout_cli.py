@@ -11,8 +11,8 @@ from typer.testing import CliRunner
 
 from codeverse3d.addons import select
 from codeverse3d.addons.dataset.export import export_samples
-from codeverse3d.addons.gallery import build_static
 from codeverse3d.addons.gallery.index import entry_from_record
+from codeverse3d.addons.gallery.page import build_static
 from codeverse3d.cli.main import app
 from codeverse3d.contracts.run import RunRecord
 from codeverse3d.cost.types import STAGE_ORDER

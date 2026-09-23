@@ -12,32 +12,3 @@
 * ``viewer``      optional GLB viewer on the vendored three.js (no CDN)
 * ``server``      ``GalleryApp.route`` + ``serve(...)`` — loopback-only unless --host is typed
 """
-
-from codeverse3d.addons.gallery.compare import export_csv, render_compare
-from codeverse3d.addons.gallery.index import build_index, default_roots
-from codeverse3d.addons.gallery.model import (
-    VERDICTS,
-    GalleryIndex,
-    RootSection,
-    RunEntry,
-    Summary,
-    humanize_view,
-    summarize,
-    verdict_breakdown,
-)
-from codeverse3d.addons.gallery.page import build_static, render_static
-from codeverse3d.addons.gallery.server import (
-    DEFAULT_HOST,
-    DEFAULT_PORT,
-    GalleryApp,
-    GalleryError,
-    resolve_host,
-    serve,
-)
-
-__all__ = [
-    "DEFAULT_HOST", "DEFAULT_PORT", "VERDICTS", "GalleryApp", "GalleryError", "GalleryIndex",
-    "RootSection", "RunEntry", "Summary", "build_index", "build_static", "default_roots",
-    "export_csv", "humanize_view", "render_compare", "render_static", "resolve_host", "serve",
-    "summarize", "verdict_breakdown",
-]

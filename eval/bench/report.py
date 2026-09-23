@@ -30,13 +30,9 @@ from bench._compare_report import _f as _fmt  # noqa: E402
 from bench._compare_report import _mean  # noqa: E402
 from bench._jsonl import latest, read_jsonl  # noqa: E402
 from bench.run_bench import BenchItemResult  # noqa: E402
-from codeverse3d.addons.gallery import (  # noqa: E402
-    GalleryIndex,
-    RootSection,
-    RunEntry,
-    render_static,
-)
 from codeverse3d.addons.gallery.index import entry_from_record  # noqa: E402
+from codeverse3d.addons.gallery.model import GalleryIndex, RootSection, RunEntry  # noqa: E402
+from codeverse3d.addons.gallery.page import render_static  # noqa: E402
 from codeverse3d.record.record import RecordError, load_record  # noqa: E402
 from codeverse3d.workspace import Workspace  # noqa: E402
 
