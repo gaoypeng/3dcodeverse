@@ -35,6 +35,7 @@ from codeverse3d.contracts.run import (
 from codeverse3d.cost.ledger import load_ledger, summarise
 from codeverse3d.cost.types import STAGE_ORDER, CallCost
 from codeverse3d.proc import read_json_or_none, write_json_atomic
+from codeverse3d.record.record import effective_score
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -175,7 +176,7 @@ def cost_summary(record: RunRecord, rows: list[CallCost]) -> CostSummary:
         by_role={k: round(b.cost_usd, 6) for k, b in summ.dimension("role").items()},
         by_model={k: round(b.cost_usd, 6) for k, b in summ.dimension("model").items()},
         by_round=[{"index": r.index, "kind": r.kind, "cost_usd": round(r.usage.cost_usd, 6),
-                   "minutes": round(r.minutes, 2), "score": r.score} for r in record.rounds],
+                   "minutes": round(r.minutes, 2), "score": effective_score(r)} for r in record.rounds],
     )
 
 

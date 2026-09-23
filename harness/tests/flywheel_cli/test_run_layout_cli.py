@@ -123,6 +123,13 @@ def test_telemetry_summarises_the_runs_own_ledger(fake_run):
     assert not (ws.telemetry / "usage.jsonl").exists(), "one ledger, one name"
 
 
+def test_telemetry_by_round_scores_a_degraded_verdict_as_unscored(fake_run):
+    ws, rec = fake_run
+    rec.rounds[1].judgment = rec.rounds[1].judgment.model_copy(update={"summary": "judge_error: outage"})
+    by_round = build_telemetry(ws, rec, write=False).cost.by_round
+    assert [r["score"] for r in by_round] == [rec.rounds[0].judgment.overall, None]
+
+
 def test_the_settings_snapshot_records_the_temperature_the_track_planned_at(tmp_path):
     """The planner row reported ``planner.plan()``'s default 0.4 for every run — a default
     no track uses: each passes its own ``plan_temperature``, and graphics plans at 0.5.  The
