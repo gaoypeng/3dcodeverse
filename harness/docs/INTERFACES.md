@@ -80,6 +80,9 @@ rotate_with_retries(pool, call, *, classify, outcome_of=failure_outcome, max_att
     # the ONE retry loop; the SDK adapters run it over a one-key pool (parts.retry_one_key: no cooldown, no storm
     # patience, no hedge).  max_total_s = ChatRequest.max_wait_s clipped to RETRY_DEADLINE_S; a raised ModelError carries .attempts
 from codeverse3d.models.pricing import estimate_cost       # (provider, model, usage) -> usd (unknown model -> 0.0 + one warning)
+from codeverse3d.models.pricing import openai_usage       # (backend, model, *, prompt, cached, completion, reasoning, **extra)
+    # -> a priced Usage: the OpenAI SDK adapter and codex both; reasoning moves out of completion into thoughts
+from codeverse3d.models.registry import build_chat_model   # (model_id, **constructor kw) -> the bare, UNMETERED model
 from codeverse3d.models.schema_utils import to_gemini_schema, to_openai_strict_schema, to_anthropic_schema, parse_json_lenient
 from codeverse3d.models.schema_utils import ask_structured   # (model, Schema, *, system, text, images=(), temperature, label)
     # -> (obj | None, Usage, err): one schema-bound call; call failure and parse failure are the same `err` family
