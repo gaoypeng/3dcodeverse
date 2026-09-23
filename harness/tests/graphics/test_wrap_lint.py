@@ -30,6 +30,22 @@ def test_plain_main_convention_has_no_trailer_and_comments_ignored():
     assert compose("void mainImage(out vec4 c, in vec2 f) { c = texture(u_prev, f); }").uses_feedback
 
 
+def test_an_authored_main_that_calls_main_image_gets_no_second_main():
+    """A Shadertoy port often keeps its own main() calling mainImage(); appending the trailer redefined
+    main (4/4 gpt-6-luna one-shot shaders, 2026-09-23).  The author's main() wins, and it compiles."""
+    src = SHADER + "void main() {\n    mainImage(fragColor, gl_FragCoord.xy);\n}\n"
+    c = compose(src)
+    assert c.convention == "main" and c.source.count("void main(") == 1
+    import moderngl
+
+    ctx = moderngl.create_standalone_context()
+    try:
+        ctx.program(vertex_shader="#version 330 core\nin vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }",
+                    fragment_shader=c.source)
+    finally:
+        ctx.release()
+
+
 def test_parse_glsl_log_dialects_map_to_files():
     c = compose(SHADER, COMMON)
     off = HEADER.count("\n") + 1  # common.glsl starts here (1 line) → shader.frag starts at off+1
