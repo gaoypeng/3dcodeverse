@@ -141,8 +141,9 @@ unless you type `--host` yourself; it never serves a path outside the declared r
                                         # continues from run_state + stages/*.json (input-hash cached) and from the
                                         # LAST round (a run recorded before 2026-09-22 that restored its best round
                                         # is put back on its last).  A max_rounds run resumes only with a raised
-                                        # --rounds, a budget run with any raised cap; an agent_quota or failed run
-                                        # resumes as is; the other stops are finished.  The budget
+                                        # --rounds, a budget run with any raised cap; an agent_quota, judge_unavailable
+                                        # (its last round is re-judged) or failed run resumes as is; the other stops
+                                        # are finished.  The budget
                                         # SNAPSHOT is restored: the active minutes already spent still count, so a
                                         # raised --max-minutes grants only the difference (downtime never counts);
                                         # the money is the ledger's, and the step log (the run's minutes) carries on.

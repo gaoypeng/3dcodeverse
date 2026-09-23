@@ -547,3 +547,16 @@ def test_resume_reports_a_corrupt_run_state_cleanly(made_run):
     assert r.exit_code == 2 and "run_state.json" in r.output and "Traceback" not in r.output
 
 
+def test_a_judge_unavailable_run_resumes_as_it_is(made_run, stub_track):
+    """The judge's provider being down is not the run's end: resume re-judges and goes on
+    (it was refused as finished, and --force re-bought every round)."""
+    from codeverse3d.contracts.run import RunStatus
+    from codeverse3d.orchestrator import RunState
+    from codeverse3d.workspace import Workspace
+
+    runs, run_dir = made_run()
+    RunState(status=RunStatus.JUDGE_UNAVAILABLE, stop_reason="judge_unavailable").save(Workspace(run_dir))
+    entered = []
+    stub_track(lambda spec, resume, force: entered.append((resume, force)))
+    assert runner.invoke(app, ["resume", run_dir.name, "--runs-dir", str(runs)]).exit_code == 130
+    assert entered == [(True, False)]

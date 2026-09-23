@@ -553,7 +553,10 @@ def _finished_reason(ws, raised: dict) -> str:
     as a real billed model call and rewrote run_state.status back to 'planning', leaving
     a finished run stuck mid-pipeline.  Two stops are the documented exceptions — raising
     the cap a run stopped on is how you continue it: BUDGET (any raised cap) and
-    MAX_ROUNDS (a raised ``--rounds``; the run goes on from its last round).
+    MAX_ROUNDS (a raised ``--rounds``; the run goes on from its last round).  The stops
+    that name something outside the run — AGENT_QUOTA (the vendor's limit) and
+    JUDGE_UNAVAILABLE (the judge's provider) — resume as they are: the loop re-judges the
+    unjudged last round and goes on, where ``--force`` would have thrown every paid round away.
     """
     from codeverse3d.contracts.run import RunStatus
     from codeverse3d.orchestrator import RunState, StateCorrupt
@@ -572,7 +575,7 @@ def _finished_reason(ws, raised: dict) -> str:
         return "" if raised else f"{detail}: raise a cap to continue it (--max-minutes / --rounds)"
     if status is RunStatus.MAX_ROUNDS:
         return "" if "max_rounds" in raised else f"{detail}: raise --rounds to continue it"
-    finished = (RunStatus.STOPPED, RunStatus.NO_CHANGE, RunStatus.NO_REFINE_TASKS, RunStatus.JUDGE_UNAVAILABLE)
+    finished = (RunStatus.STOPPED, RunStatus.NO_CHANGE, RunStatus.NO_REFINE_TASKS)
     return detail if status in finished else ""
 
 
