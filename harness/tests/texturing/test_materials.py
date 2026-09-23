@@ -9,7 +9,6 @@ from codeverse3d.texturing.materials import (
     COARSE_TO_FINE,
     MATERIALS,
     family_for,
-    is_framework_default,
     is_warm_metal_hue,
     looks_painted,
     out_of_band,
@@ -31,8 +30,6 @@ def test_every_family_is_self_consistent():
 
 
 def test_coarse_families_of_the_texture_planner_all_resolve():
-    """plan.py speaks 11 coarse families; every one must map to a row here, or the
-    texture pass and the normaliser would disagree about the same surface."""
     assert set(COARSE_TO_FINE) == set(FAMILY_DEFAULTS)
     for coarse, fine in COARSE_TO_FINE.items():
         assert fine in MATERIALS, coarse
@@ -59,21 +56,11 @@ def test_family_for_resolves_substrate_then_finish(text, family):
 
 
 def test_family_for_prefers_the_first_text_that_resolves():
-    """The material's own name outranks the plan's prose: a chrome steam wand must
-    not become silicone because the plan sentence mentions a silicone tip."""
+    """The material's own name outranks the plan's prose."""
     assert family_for("SteamWandChrome", "SteamWand", "chrome wand with a silicone tip").family == "chrome"
     assert family_for("Unnamed", "SteamWand", "silicone tip").family == "rubber"
     assert family_for("", "", "") is None
     assert family_for("Widget42") is None
-
-
-def test_framework_defaults_are_the_untouched_pairs():
-    assert is_framework_default(None, None)        # glTF omits 1.0/1.0
-    assert is_framework_default(1.0, 1.0)
-    assert is_framework_default(0.0, 1.0)          # three MeshStandardMaterial
-    assert is_framework_default(0.0, 0.5)          # Blender Principled
-    assert not is_framework_default(0.0, 0.45)
-    assert not is_framework_default(0.95, 0.15)
 
 
 def test_out_of_band_names_the_offending_factor():

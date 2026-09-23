@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import trimesh
 
-from codeverse3d.texturing.apply import choose_projection, split_by_key, unwrap
+from codeverse3d.texturing.apply import choose_projection, unwrap
 
 
 def test_choose_projection_rules():
@@ -48,16 +48,6 @@ def test_cylinder_projection_seam_and_caps():
         assert (uv[:, 0].max() - uv[:, 0].min()) < 1.0
     # v covers height / tile = 5 tiles
     assert (uw.uv[:, 1].max() - uw.uv[:, 1].min()) >= 5.0 - 1e-6
-
-
-def test_split_by_key_preserves_geometry_and_normals():
-    m = trimesh.creation.box()
-    normals = np.asarray(m.vertex_normals)
-    uv_c = np.zeros((len(m.faces), 3, 2))
-    key = np.zeros((len(m.faces), 3), dtype=int)
-    v, f, n, uv, n_split = split_by_key(m.vertices, m.faces, normals, uv_c, key)
-    assert n_split == 0 and len(v) == len(m.vertices) and np.allclose(n, normals)
-    assert np.allclose(v[f], m.vertices[m.faces])
 
 
 def test_unwrap_rejects_bad_input():

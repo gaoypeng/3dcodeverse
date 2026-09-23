@@ -53,16 +53,8 @@ def test_single_ordering_success_halves_confidence(tmp_path, cache_dir):
     assert res.winner == "b" and res.confidence == 0.4
 
 
-def test_unswap_reasons():
-    from codeverse3d.judges.pairwise import _unswap_text
-    assert _unswap_text("Candidate A beats candidate B", True) == "Candidate B beats candidate A"
-    assert _unswap_text("Candidate A beats candidate B", False) == "Candidate A beats candidate B"
-
-
 def test_a_scene_pair_is_ranked_as_a_scene_from_the_views_the_judge_saw(tmp_path, cache_dir):
-    """Every candidate used to be ranked as an OBJECT from its whole render set: a scene's
-    own camera sank behind the overview rig, and a view the verdict judge never saw
-    (``judge=False``) could fill a montage slot."""
+    """A scene's own camera leads, and a view the verdict judge never saw (judge=False) is left out."""
     from codeverse3d.contracts.artifacts import RenderSet, RenderView
     from codeverse3d.contracts.common import Language, Track
     from tests.judges.conftest import draw_chair

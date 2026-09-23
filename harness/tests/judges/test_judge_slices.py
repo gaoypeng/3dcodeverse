@@ -1,12 +1,4 @@
-"""D48: conditional cross-section slices in the judge payload.
-
-The load-bearing invariant is byte-identity: a round WITHOUT a connectivity
-gate ERROR must build exactly the pre-D48 messages (same system prompt, same
-parts, same ``judge_prompt_hash``) whatever the knob or ``glb_path`` say.  A
-gate-ERROR round on an object track appends the slice images AFTER the
-montages and detail crops, describes them in the view-rig text, and adds the
-provenance-elicitation sentence to the defect-checklist bullet exactly once.
-"""
+"""D48: conditional cross-section slices — a round without a connectivity ERROR builds the exact pre-D48 payload."""
 
 from __future__ import annotations
 
@@ -141,10 +133,6 @@ def test_dirty_gates_append_slices_after_crops_with_rig_text_and_one_elicitation
     text = text_of(req)
     assert "After the crops, 2 cross-section slice(s) show the interior" in text
     assert "A gap between parts IN THE CUT PLANE is not evidence of disconnection" in text
-    # the 2026-08-31 watch-item battery: the generic caveat did not stop a 2.4 mm open join
-    # and section-cut islands being marked floating_part, so the text names the views that
-    # CAN decide instead of merely denying the slice (a bare prohibition would suppress the
-    # true marks the channel is there to win)
     assert "Judge floating_part and holes_or_inverted_faces from the shaded" in text
     assert f"- slice 1: {SLICE_LABELS['front_back']}" in text
     assert req.system.count(PROVENANCE_ELICITATION) == 1
@@ -175,8 +163,7 @@ def test_error_pair_extraction_reads_target_and_other(tmp_path):
 
 
 def test_a_dirty_round_with_a_floating_only_error_still_elicits(tmp_path, cache_dir):
-    """The trigger is ANY connectivity ERROR; with no penetration pair the slices carry
-    no hatch but the elicitation sentence still applies (the tested v3 semantics)."""
+    """The trigger is ANY connectivity ERROR, not only a penetration pair."""
     gates = [GateReport(gate="connectivity", passed=False, findings=[
         GateFinding(gate="connectivity", severity=Severity.ERROR, target="B",
                     message="part 'B' is floating", data={"kind": "floating"})])]

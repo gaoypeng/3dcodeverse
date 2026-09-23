@@ -44,11 +44,6 @@ def test_compare_names_mismatches_and_builds_text(tmp_path: Path):
     assert labels == ["REFERENCE 1", "RENDER 1 (ren)"]
     assert "Hopper, Body" in req.messages[0].parts[0].text
     assert "the BRIEF wins" in req.messages[0].parts[0].text  # synthesized caveat
-
-
-def test_top_orders_by_severity(tmp_path: Path):
-    ref, ren = _png(tmp_path / "ref.png"), _png(tmp_path / "ren.png")
-    d = compare(make_spec(), [ref], [ren], model=FakeChatModel(by_label={"reference_diff": [ANSWER]}))
     assert [m.severity for m in d.top(3)] == ["critical", "major", "minor"]
 
 

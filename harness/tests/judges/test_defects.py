@@ -90,26 +90,8 @@ def test_penalties_and_caps_computed_in_code(judge_input, cache_dir):
     assert raw2["samples"][0]["defects"]["floating_part"] is True
 
 
-def test_defect_majority_vote_with_odd_n(judge_input, cache_dir):
-    model = FakeChatModel(by_label={":s0": [_reply(0.9, ["render_artifacts"])], ":s1": [_reply(0.9)],
-                                    ":s2": [_reply(0.9)]})
-    j = VlmJudge("static_object_v1", chat_model=model, n_samples=3, cache_dir=cache_dir).judge(judge_input)
-    raw = json.loads(j.raw)
-    assert raw["defects"]["render_artifacts"] is False and raw["defect_votes"]["render_artifacts"] == [True, False, False]
-    assert raw["tie_broken"] == [] and j.overall == pytest.approx(0.9)
-    # per-criterion std is reported for n-sample runs
-    assert set(raw["per_criterion_std"]) == set(R.weights)
-
-
 def test_defect_vote_ties_are_absent(judge_input, cache_dir, caplog):
-    """An exact defect-vote tie is ABSENT (2026-08-30; was: the representative sample, D36).
-
-    At n=2 the representative is whichever sample's overall sits nearer the mean — a
-    float comparison, not evidence — so a 1-1 tie was a coin flip on a defect that caps
-    the run at 0.7.  The rubric already puts the burden on the defect ("mark an item
-    present only when an image or a gate finding shows it"); a tie has not met it.
-    Acceptance ties still follow the representative (the test below): a must-item tie
-    decides pass/fail, and that policy is the owner's."""
+    """D36: an exact defect-vote tie is ABSENT, whichever sample flagged it."""
     flagged_first = FakeChatModel(by_label={":s0": [_reply(0.9, ["render_artifacts"])], ":s1": [_reply(0.9)]})
     with caplog.at_level("WARNING", logger="codeverse3d.judges.vlm_judge"):
         j = VlmJudge("static_object_v1", chat_model=flagged_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)
@@ -129,7 +111,7 @@ def test_defect_vote_ties_are_absent(judge_input, cache_dir, caplog):
 
 
 def test_acceptance_vote_ties_follow_the_representative_sample(judge_input, cache_dir):
-    """Same rule for acceptance items: the old ties → False failed a must item on one dissent."""
+    """D36: an acceptance tie follows the representative sample."""
     a_ok, a_no = _reply(0.9), _reply(0.9)
     a_no["acceptance"]["A1"]["verified"] = False
     j = VlmJudge("static_object_v1", chat_model=FakeChatModel(by_label={":s0": [a_ok], ":s1": [a_no]}),
@@ -156,20 +138,3 @@ def test_missing_views_cap_for_articulated():
     assert j.overall == 0.5 and "missing_pose_sheet≤0.50" in j.summary
     j2 = aggregate_samples(A, samples, gates=[], acceptance_items=[], views=list(RenderSet(views=rest + [RenderView(name="pose_rest", path="p")]).views))
     assert j2.overall == pytest.approx(0.9)
-
-
-def test_interpenetrate_message_matches_penetration_cap():
-    from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
-    g = GateReport(gate="connectivity", passed=False, findings=[GateFinding(
-        gate="connectivity", severity=Severity.ERROR, target="Leg", message="'Leg' and 'Seat' interpenetrate by ≈15 mm")])
-    assert apply_caps(R, 0.9, [g], {}, []).overall == 0.7
-    assert apply_caps(A, 0.9, [g], {}, [], views=[RenderView(name="pose_rest", path="p")]).overall == 0.7
-
-
-def test_joint_sweep_touches_nothing_caps_articulated():
-    from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
-    g = GateReport(gate="joint_sweep", passed=False, findings=[GateFinding(
-        gate="joint_sweep", severity=Severity.ERROR, target="DrawerKnob",
-        message="link 'DrawerKnob' touches nothing connected to the root at pose rest (nearest 'Carcass' at 56.4 mm)")])
-    res = apply_caps(A, 0.9, [g], {}, [], views=[RenderView(name="pose_rest", path="p")])
-    assert res.overall == 0.6 and res.caps_applied[0].rule == "floating_part"

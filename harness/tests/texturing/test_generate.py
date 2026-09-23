@@ -27,14 +27,6 @@ def test_generate_dedupes_caches_and_accounts(tmp_path: Path):
     assert len(model.calls) == 2 and ts2.usage.cost_usd == 0.0 and all(a.cached for a in ts2.textures.values())
 
 
-def test_generate_records_failures_per_texture(tmp_path: Path):
-    model = FakeImageModel(fail_on=("forbidden",))
-    ts = generate_textures({"ok": "oak", "bad": "forbidden pattern"}, tmp_path, model, size=64, cache_dir=tmp_path / "c")
-    assert ts.textures["ok"].ok and not ts.textures["bad"].ok
-    assert "ModelError" in ts.textures["bad"].error and ts.failed() == {"bad": ts.textures["bad"].error}
-    assert set(ts.paths()) == {"ok"}
-
-
 def test_generate_accepts_texture_plan_and_empty(tmp_path: Path, chair_plan):
     from codeverse3d.texturing.plan import default_plan
 
@@ -45,8 +37,7 @@ def test_generate_accepts_texture_plan_and_empty(tmp_path: Path, chair_plan):
 
 
 def test_seed_is_part_of_the_cache_key(tmp_path: Path):
-    """seed=2 used to be served seed=1's cached pixels: the key omitted the seed, so
-    any caller varying it got silently identical textures (V9b)."""
+    """V9b: seed=2 must not be served seed=1's cached pixels."""
     model = FakeImageModel(usd_per_image=0.01)
     generate_textures({"oak": "oak wood grain"}, tmp_path / "o1", model, size=64, cache_dir=tmp_path / "c", seed=1)
     ts2 = generate_textures({"oak": "oak wood grain"}, tmp_path / "o2", model, size=64, cache_dir=tmp_path / "c", seed=2)

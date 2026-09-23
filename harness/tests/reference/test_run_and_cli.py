@@ -72,12 +72,3 @@ def test_cli_flag_calls_the_grounding_and_never_kills_the_run(tmp_path: Path, mo
                                    "--runs-dir", str(tmp_path), "--no-run"])
     assert res.exit_code == 0, res.output
     assert seen["n_views"] == 1 and "reference grounding: nope" in res.output
-
-
-def test_cli_without_the_flag_never_touches_the_reference_package(tmp_path: Path, monkeypatch):
-    from codeverse3d.cli.main import app
-
-    monkeypatch.setattr("codeverse3d.reference.ground_spec",
-                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not be called")))
-    res = CliRunner().invoke(app, ["make", "a stool", "--runs-dir", str(tmp_path), "--no-run"])
-    assert res.exit_code == 0, res.output

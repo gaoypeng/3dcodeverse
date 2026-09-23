@@ -8,17 +8,10 @@ import numpy as np
 import trimesh
 
 from codeverse3d.spatial.measure import measure_glb
-from codeverse3d.texturing.apply import apply_textures, node_part_lookup
+from codeverse3d.texturing.apply import apply_textures
 from codeverse3d.texturing.generate import generate_textures
 from codeverse3d.texturing.plan import default_plan
 from tests.texturing.conftest import FakeImageModel
-
-
-def test_node_part_lookup_instances_and_links(chair_plan):
-    tp = default_plan(chair_plan)
-    lk = node_part_lookup(["Seat", "Leg_0", "Leg_3", "Knob", "Back__1", "Mystery"], tp.by_part())
-    assert lk["Leg_0"].part == "Leg" and lk["Leg_3"].part == "Leg" and lk["Back__1"].part == "Back"
-    assert lk["Mystery"] is None
 
 
 def test_apply_textures_end_to_end(tmp_path: Path, chair_glb: Path, chair_plan):

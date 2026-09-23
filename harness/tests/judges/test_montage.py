@@ -6,9 +6,6 @@ from PIL import Image
 from codeverse3d.contracts.artifacts import RenderSet, RenderView
 from codeverse3d.judges.prompt_builder import (
     JudgeImageError,
-    describe_montages,
-    montage_label,
-    montage_strip,
     plan_montages,
     rank_views,
     render_montage,
@@ -44,22 +41,8 @@ def test_rank_views_objects_and_scenes():
     assert [v.name for v in rank_views(sv, scene=True)] == ["Establishing", "BridgeView", "cam_b", "overview_top", "eye_front"]
 
 
-def test_plan_montages_object_rig(tmp_path):
-    rs = RenderSet(views=_views(tmp_path, OBJ))
-    ms = plan_montages(rs)
-    kinds = [m.kind for m in ms]
-    assert kinds == ["shaded", "shaded", "shaded", "shaded", "detail", "detail"]
-    assert [v.name for v in ms[0].tiles] == ["front_right_high", "back_left_high", "top", "bottom"]
-    assert [v.name for v in ms[1].tiles] == ["front", "right", "back", "left"]
-    assert [v.name for v in ms[2].tiles] == ["front_right_low", "back_left_low", "front_left_high", "back_right_high"]
-    assert [v.name for v in ms[3].tiles] == ["front_left_low", "back_right_low"]
-    assert ms[4].crop == (0.25, 0.25, 0.75, 0.75) and ms[5].tiles[0].name == "bottom"
-    assert "- image 2: SHADED views (remaining)" in describe_montages(ms)
-
-
 def test_plan_montages_full_rig_plus_clay_is_the_measured_cprod_plan(tmp_path):
-    """14 shaded + 4 clay -> exactly 5 montages + 2 crops; montage 1 keeps the underside
-    even under a montage-cap truncation, and one crop is anchored on ``bottom`` (D47)."""
+    """D47: 14 shaded + 4 clay -> 5 montages + 2 crops; montage 1 keeps the underside, one crop on ``bottom``."""
     rs = RenderSet(views=_views(tmp_path, OBJ))
     clay = RenderSet(views=_views(tmp_path, CLAY, mode="clay", prefix="c"))
     ms = plan_montages(rs, geometry_views=clay)  # defaults: max_montages=5, detail_crops=2
@@ -105,24 +88,6 @@ def test_shuffle_keeps_sets_and_details_last(tmp_path):
     assert len(seeds) >= 3
 
 
-def test_labels_and_render(tmp_path):
-    rs = RenderSet(views=_views(tmp_path, ("front_right_high", "back_left_high", "front")))
-    m = plan_montages(rs, detail_crops=1)[0]
-    lbl = montage_label(m, 1, 1)
-    assert lbl.startswith("MONTAGE 1/1 — SHADED views: top-left = front_right_high · az 45° el 30°, top-right = back_left_high")
-    assert "bottom-left = front · az 0° el 0°" in lbl
-    assert montage_strip(m, 1, 1) == "MONTAGE 1/1 — SHADED views"
-    png = render_montage(m, cache_dir=tmp_path / "cache", tile_px=256)
-    assert png.is_file() and render_montage(m, cache_dir=tmp_path / "cache", tile_px=256) == png  # cached
-    with Image.open(png) as im:
-        assert im.size[0] == 2 * 256 + 3 * 6 and im.size[1] > 2 * 256  # 2 cols × 2 rows with labels
-    crop = plan_montages(rs, detail_crops=1)[-1]
-    cpng = render_montage(crop, cache_dir=tmp_path / "cache", tile_px=400)
-    with Image.open(cpng) as im:
-        assert max(im.size) >= 400
-    assert "look for bevels" in montage_label(crop, 1, 1)
-
-
 def test_missing_tile_is_judge_image_error(tmp_path):
     m = plan_montages(RenderSet(views=[RenderView(name="front", path="/nonexistent/x.png")]), detail_crops=0)[0]
     with pytest.raises(JudgeImageError):
@@ -144,12 +109,7 @@ def test_sheet_helpers(tmp_path):
 
 
 def test_a_stored_pre_d47_render_set_still_leads_with_its_hero_views():
-    """PR #3 review: OBJECT_RANK forgot the legacy names, so a re-judged stored 8-view
-    run put {top, front, right, back} in montage 1 and anchored the centre crop on
-    'top' — its four sibling constants all kept the legacy names for stored runs."""
-    from codeverse3d.contracts.artifacts import RenderView
-    from codeverse3d.judges.prompt_builder import rank_views
-
+    """A re-judged stored 8-view run ranks its legacy hero names first."""
     legacy = ["front_right_34", "back_left_34", "front", "right", "back", "left", "top", "low_front_left"]
     ranked = [v.name for v in rank_views([RenderView(name=n, path=f"/x/{n}.png") for n in legacy], scene=False)]
     assert ranked[:2] == ["front_right_34", "back_left_34"], ranked

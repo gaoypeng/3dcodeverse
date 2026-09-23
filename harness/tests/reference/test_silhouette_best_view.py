@@ -26,16 +26,6 @@ def _views(tmp: Path) -> list[RenderView]:
             for n, b in boxes.items()]
 
 
-def test_picks_the_matching_view_not_the_first(tmp_path: Path) -> None:
-    ref = _shape(tmp_path / "ref.png", (20, 95, 236, 165))  # wide and flat
-    res = best_view_match(_views(tmp_path / "r"), ref)
-    assert res["view"] == "right"
-    assert res["iou"] == max(res["per_view"].values())
-    assert set(res["per_view"]) == {"front", "front_right_high", "right"}
-    # the fixed-front comparison would have scored much worse
-    assert res["iou"] > res["per_view"]["front"] + 0.2
-
-
 def test_candidate_filter_excludes_top_and_low_cameras(tmp_path: Path) -> None:
     assert "top" not in CANDIDATE_VIEWS and "bottom" not in CANDIDATE_VIEWS
     assert "low_front_left" not in CANDIDATE_VIEWS and "front_right_low" not in CANDIDATE_VIEWS

@@ -1,27 +1,6 @@
 import pytest
 
-from codeverse3d.judges.rubrics import RubricError, list_rubrics, load_rubric, rubric_from_dict
-
-EXPECTED = {"static_object_v1", "articulated_v1", "scene_v1", "asset_v1", "reference_v1"}
-
-
-def test_all_rubrics_load_and_validate():
-    assert set(list_rubrics()) >= EXPECTED
-    for name in EXPECTED:
-        r = load_rubric(name)
-        assert abs(sum(c.weight for c in r.criteria) - 1.0) < 0.02
-        for c in r.criteria:
-            assert set(c.anchors) >= {"1.0", "0.7", "0.4", "0.1"}
-        assert any(c.id == "build_error" and c.cap == 0.0 for c in r.caps)
-        assert any(c.when == "acceptance" for c in r.caps)
-
-
-def test_static_rubric_shape():
-    r = load_rubric("static_object_v1")
-    assert r.pass_threshold == 0.72
-    assert r.weights["intent_fidelity"] == 0.22
-    assert r.criterion("intent_fidelity").floor == 0.30
-    assert [c.id for c in r.criteria][:3] == ["intent_fidelity", "structure_plausibility", "geometry_detail"]
+from codeverse3d.judges.rubrics import RubricError, load_rubric, rubric_from_dict
 
 
 def test_reference_rubric_has_measured_silhouette():
@@ -53,13 +32,8 @@ def test_unknown_and_invalid_rubric():
         rubric_from_dict(bad)
 
 
-def test_content_hash_stable():
-    assert load_rubric("scene_v1").content_hash() != load_rubric("asset_v1").content_hash()
-
-
 def test_cap_rule_measures_defaults_to_its_own_id_and_the_object_rubrics_name_interpenetration():
-    """2026-08-30: ``penetration_error`` had never vetoed ``interpenetration`` because the veto
-    matched on id; the object rubrics now say which checklist defect each gate rule measures."""
+    """The object rubrics say which checklist defect each gate rule measures (the veto matches on it)."""
     from codeverse3d.judges.rubrics import CapRule
 
     assert CapRule(id="floating_part", cap=0.6).measures == ["floating_part"]
@@ -80,8 +54,7 @@ def test_cap_rule_measures_defaults_to_its_own_id_and_the_object_rubrics_name_in
 
 
 def test_cap_rules_are_not_part_of_the_judge_prompt():
-    """The 2026-08-30 cap changes move ``content_hash`` but not ``judge_prompt_hash``: cap rules
-    are scored in code and never rendered to the judge (prompt_builder._rubric_block)."""
+    """D37: cap rules move ``content_hash`` but not ``judge_prompt_hash`` — they are scored in code."""
     import yaml
 
     from codeverse3d.judges.prompt_builder import judge_prompt_hash

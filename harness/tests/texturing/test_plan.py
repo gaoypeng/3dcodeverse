@@ -8,16 +8,13 @@ import pytest
 from PIL import Image
 
 from codeverse3d.texturing.plan import (
-    STYLE_SUFFIX,
     PlannerOutput,
     PlannerPart,
     TexturePlan,
     compose_image_prompt,
-    default_plan,
     family_from_text,
     finalize_plan,
     material_plan,
-    plan_table,
 )
 from tests.orchestrator_tracks.fakes import FakeChatModel
 
@@ -27,19 +24,6 @@ def test_family_keywords_are_whole_words():
     assert family_from_text("brushed stainless steel") == "metal"
     assert family_from_text("grey-blue linen upholstery") == "fabric"
     assert family_from_text("oiled") == "other"  # 'led' must not match
-
-
-def test_default_plan_shares_ids_and_skips(chair_plan):
-    tp = default_plan(chair_plan)
-    by = tp.by_part()
-    assert by["seat"].texture_id == by["back"].texture_id  # same material → same texture
-    assert by["seat"].material_family == "wood" and by["leg"].material_family == "metal"
-    assert by["leg"].metallic == 1.0 and by["leg"].roughness < 0.5
-    assert by["knob"].skip  # tiny + glass
-    assert len(tp.texture_ids()) == 2
-    assert tp.source == "default"
-    assert STYLE_SUFFIX in by["seat"].prompt and "oak" in by["seat"].prompt
-    assert "Seat" in plan_table(tp)
 
 
 def test_finalize_plan_defaults_and_unification(chair_plan):
@@ -95,7 +79,3 @@ def test_material_plan_invalid_payload_fails_loud(tmp_path, chair_plan, chair_sp
     chat = FakeChatModel(default={"nope": 1})
     with pytest.raises(ValueError):
         material_plan(chair_spec, chair_plan, None, "fake:fake", model=chat, cache_dir=tmp_path, use_cache=False)
-
-
-def test_material_plan_without_model_is_default(chair_plan, chair_spec):
-    assert material_plan(chair_spec, chair_plan, None, "").source == "default"

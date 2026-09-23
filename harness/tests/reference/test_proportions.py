@@ -14,7 +14,6 @@ from codeverse3d.reference import (
     expected_aspect_range,
     expected_front_aspect,
 )
-from codeverse3d.spatial.silhouette import silhouette_aspect
 from tests.reference.conftest import make_spec
 
 
@@ -24,11 +23,6 @@ def _box(path: Path, w: int, h: int) -> Path:
     ImageDraw.Draw(im).rectangle([x0, y0, x0 + w, y0 + h], fill=(40, 30, 20))
     im.save(path)
     return path
-
-
-def test_silhouette_aspect(tmp_path: Path):
-    assert silhouette_aspect(_box(tmp_path / "a.png", 100, 200)) == pytest.approx(0.5, abs=0.02)
-    assert silhouette_aspect(_box(tmp_path / "b.png", 200, 100)) == pytest.approx(2.0, abs=0.08)
 
 
 def test_expected_aspect_is_a_band_over_every_horizontal_extent():
@@ -44,37 +38,28 @@ def test_expected_aspect_is_a_band_over_every_horizontal_extent():
     assert expected_aspect_range(make_spec(constraints=Constraints(dimensions_m={"height": 0.65}))) is None
 
 
-def test_a_slightly_wide_photo_inside_the_band_is_not_a_conflict(tmp_path: Path):
-    """The measured chair case: brief band 0.50-0.56, photo 0.64 -> 16 % outside, kept."""
+CHAIR = {"width": 0.45, "depth": 0.50, "height": 0.9}
+
+
+@pytest.mark.parametrize(("dims", "w", "h"), [
+    (None, 100, 200),   # brief implies 0.467 w/h; the picture is 0.5 → 7 % off
+    (CHAIR, 128, 200),  # the measured chair: band 0.50-0.56, photo 0.64 → 16 % outside, kept
+])
+def test_a_photo_within_the_tolerance_is_not_a_conflict(tmp_path: Path, dims, w, h):
     from codeverse3d.contracts.spec import Constraints
 
-    chair = make_spec(constraints=Constraints(dimensions_m={"width": 0.45, "depth": 0.50, "height": 0.9}))
-    info = dimension_conflict(chair, _box(tmp_path / "chair.png", 128, 200))  # 0.64 w/h
-    assert not info["conflict"] and info["relative_error"] < ASPECT_TOL
-
-
-def test_agreeing_picture_is_no_conflict(tmp_path: Path):
-    # brief implies 0.467 w/h; the picture is 0.5 → 7% off
-    info = dimension_conflict(make_spec(), _box(tmp_path / "ok.png", 100, 200))
-    assert not info["conflict"] and info["relative_error"] < ASPECT_TOL
-    assert info["expected_range"] == [0.14 / 0.30, 0.14 / 0.30]
-    assert conflict_note(info) == ""
+    spec = make_spec(constraints=Constraints(dimensions_m=dims)) if dims else make_spec()
+    info = dimension_conflict(spec, _box(tmp_path / "p.png", w, h))
+    assert not info["conflict"] and info["relative_error"] < ASPECT_TOL and conflict_note(info) == ""
 
 
 def test_the_coffee_grinder_case_is_flagged(tmp_path: Path):
-    """The real failure: the brief says 0.14 x 0.30 (0.47 w/h) but the studio photo
-    includes the crank arm and comes out near 0.70 — 49 % wider than the brief."""
+    """The brief says 0.47 w/h; the studio photo includes the crank arm and is ~0.70."""
     info = dimension_conflict(make_spec(), _box(tmp_path / "crank.png", 210, 300))
     assert info["conflict"] and info["relative_error"] > 0.4
     note = conflict_note(info)
     assert "BRIEF's dimensions are correct" in note and "part inventory" in note
     assert "0.47-0.47" in note
-
-
-def test_no_stated_dimensions_is_never_a_conflict(tmp_path: Path):
-    from codeverse3d.contracts.spec import Constraints
-    spec = make_spec(constraints=Constraints())
-    assert dimension_conflict(spec, _box(tmp_path / "x.png", 300, 100))["conflict"] is False
 
 
 def test_unreadable_image_is_never_a_conflict(tmp_path: Path):

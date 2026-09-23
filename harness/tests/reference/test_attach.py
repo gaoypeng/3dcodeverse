@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from codeverse3d.contracts.spec import ReferenceImage
 from codeverse3d.reference import (
     SYNTH_NOTE,
@@ -49,14 +51,9 @@ def test_attach_marks_synthesized_everywhere_and_keeps_constraints(tmp_path: Pat
     assert spec.references == []  # the input spec is not mutated
 
 
-def test_front_elevation_is_the_silhouette_target(tmp_path: Path):
-    """The gate measures IoU against a straight-on render, so the straight-on photo
-    must be the ``target`` and the 3/4 shot only a ``detail`` image."""
-    refs = reference_images(_set(tmp_path, ("three_quarter", "front")))
-    assert [r.role for r in refs] == ["target", "detail"]
-    assert Path(refs[0].path).name == "front.png"
-
-
-def test_three_quarter_is_the_target_when_it_is_the_only_survivor(tmp_path: Path):
-    refs = reference_images(_set(tmp_path, ("three_quarter", "front"), accepted=(True, False)))
-    assert len(refs) == 1 and refs[0].role == "target" and Path(refs[0].path).name == "three_quarter.png"
+@pytest.mark.parametrize(("accepted", "target"), [((True, True), "front.png"), ((True, False), "three_quarter.png")])
+def test_the_straight_on_photo_is_the_silhouette_target(tmp_path: Path, accepted, target):
+    """The gate measures IoU against a straight-on render; the 3/4 shot is the target only when alone."""
+    refs = reference_images(_set(tmp_path, ("three_quarter", "front"), accepted=accepted))
+    assert refs[0].role == "target" and Path(refs[0].path).name == target
+    assert [r.role for r in refs[1:]] == ["detail"] * (len(refs) - 1) and len(refs) == sum(accepted)

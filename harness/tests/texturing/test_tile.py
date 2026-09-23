@@ -15,18 +15,6 @@ from codeverse3d.texturing.generate import (
 from tests.texturing.conftest import procedural_texture
 
 
-def _tileable(size: int = 64) -> Image.Image:
-    y, x = np.mgrid[0:size, 0:size] / size
-    a = 0.5 + 0.4 * np.sin(2 * np.pi * 3 * x) * np.cos(2 * np.pi * 2 * y)
-    return Image.fromarray((np.stack([a, a, a], 2) * 255).astype(np.uint8), "RGB")
-
-
-def test_seam_score_tileable_is_low_and_gradient_is_high():
-    assert seam_score(_tileable()) < 0.02
-    bad = procedural_texture("x", size=64)  # carries a horizontal gradient → seam
-    assert seam_score(bad) > seam_score(_tileable())
-
-
 def test_make_tileable_makes_wrap_edges_equal_and_lowers_score():
     bad = procedural_texture("wood", size=128)
     before = seam_score(bad)

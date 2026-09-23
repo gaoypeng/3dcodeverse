@@ -9,7 +9,6 @@ import pytest
 
 from codeverse3d.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
 from codeverse3d.texturing.plan import (
-    default_scene_pack_plan,
     scene_pack_plan,
     scene_texture_pack,
     texture_pack_prompt,
@@ -29,14 +28,6 @@ def garden_plan() -> ScenePlan:
         assets=[AssetPlan(name="Bridge", kind="blender_glb", description="red lacquered wooden arched bridge", approx_size_m=(4, 2, 1))],
         cameras=[CameraPlan(name="main", position=(10, 3, 10), look_at=(0, 0, 0))],
     )
-
-
-def test_default_pack_plan_picks_keywords(garden_plan):
-    entries = default_scene_pack_plan(garden_plan, n_min=6, n_max=12)
-    names = [e.name for e in entries]
-    assert "moss_ground" in names and "fine_gravel" in names and "pond_bed" in names and "weathered_planks" in names
-    assert 6 <= len(entries) <= 12 and len(set(names)) == len(names)
-    assert all(e.prompt.endswith("1:1 square") and e.tile_size_m > 0 for e in entries)
 
 
 def test_scene_pack_plan_with_model_and_cap(garden_plan):

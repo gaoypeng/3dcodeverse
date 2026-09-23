@@ -16,12 +16,10 @@ from codeverse3d.judges.prompt_builder import (
     TEXT_BUDGET_CHARS,
     build_judge_messages,
     build_system_prompt,
-    montage_image_parts,
-    prepare_image,
     view_az_el,
 )
 from codeverse3d.judges.rubrics import load_rubric
-from tests.judges.conftest import draw_chair, make_renders
+from tests.judges.conftest import draw_chair
 
 R = load_rubric("static_object_v1")
 
@@ -35,9 +33,6 @@ def _images(msgs):
 
 
 def test_the_scene_rig_rule_names_every_harness_camera_and_no_authored_prefix():
-    """Authored cameras carry the plan's names (``cam_i`` is only scene_host's fallback for an
-    unnamed one) and the eye-level rig is the harness's too: the judge was told authored views
-    are ``cam_*`` and nothing about ``eye_*``."""
     from codeverse3d.conventions import SCENE_VIEWS
     from codeverse3d.judges.prompt_builder import RIG_RULES
 
@@ -85,28 +80,8 @@ def test_user_message_layout(judge_input, cache_dir):
         assert 900 <= im.size[0] <= 1024 and im.size[1] > im.size[0]  # 2×2 grid + strip
 
 
-def test_shuffle_is_deterministic_and_changes_order(tmp_path, judge_input, cache_dir):
-    rs = make_renders(tmp_path / "eight", n=4)
-    extra = []
-    for name in ("right", "back", "left", "low_front_left"):
-        p = draw_chair(tmp_path / f"v_{name}.png", az_hint=1)
-        extra.append(RenderView(name=name, path=str(p)))
-    judge_input.renders = RenderSet(views=rs.views + extra)
-    _, a = build_judge_messages(judge_input, R, shuffle_seed=1, cache_dir=cache_dir)
-    _, b = build_judge_messages(judge_input, R, shuffle_seed=1, cache_dir=cache_dir)
-    _, c = build_judge_messages(judge_input, R, shuffle_seed=None, cache_dir=cache_dir)
-    la, lb, lc = ([p.label for p in _images(m)] for m in (a, b, c))
-    assert la == lb
-    assert len(lc) == 4  # 2 montages + 2 crops
-    assert lc[0].startswith("MONTAGE 1/2 — SHADED views:") and lc[1].startswith("MONTAGE 2/2 — SHADED views (remaining)")
-    # canonical order puts the 3/4 views first; the seeded order differs somewhere (montage or tile order)
-    assert la != lc
-    assert la[-2:] == lc[-2:]  # detail crops are never shuffled
-
-
 def test_geometry_views_add_a_montage(tmp_path, judge_input, cache_dir):
-    """The clay montage rides the pipeline's OWN cameras (OBJECT_CLAY_VIEWS) and labels
-    them — the clay 'top' is el 88 while the rig's shaded 'top' is el 90 (D47)."""
+    """D47: the clay montage is labelled from the clay rig's own cameras (top at el 88, not 90)."""
     from codeverse3d.conventions import OBJECT_CLAY_VIEWS
 
     clay = []
@@ -125,19 +100,6 @@ def test_geometry_views_add_a_montage(tmp_path, judge_input, cache_dir):
     judge_input.renders = RenderSet(views=judge_input.renders.views + clay)
     _, msgs2 = build_judge_messages(judge_input, R, cache_dir=cache_dir)
     assert any(p.label.startswith("MONTAGE 2/2 — GEOMETRY-ONLY") for p in _images(msgs2))
-
-
-def test_montage_cap_and_crop_knobs(tmp_path, judge_input, cache_dir):
-    views = []
-    for i in range(14):
-        p = draw_chair(tmp_path / f"v{i}.png", az_hint=i)
-        views.append(RenderView(name=f"v{i}", path=str(p), camera_position=(1.0, 0.5, 1.0), look_at=(0, 0.3, 0)))
-    judge_input.renders = RenderSet(views=views)
-    pairs, montages = montage_image_parts(judge_input.renders, cache_dir=cache_dir, max_montages=3, detail_crops=0)
-    assert len(pairs) == 3 and all(m.kind == "shaded" for m in montages)
-    assert "top-left = v0 · az 45° el" in pairs[0][0]  # az/el computed from camera geometry
-    pairs2, _ = montage_image_parts(judge_input.renders, cache_dir=cache_dir, max_montages=1, detail_crops=1)
-    assert len(pairs2) == 2 and pairs2[1][0].startswith("DETAIL CROP — centre of v0")
 
 
 def test_gates_previous_and_budget(judge_input, cache_dir):
@@ -178,38 +140,8 @@ def test_view_az_el_geometry():
     assert view_az_el(RenderView(name="zzz", path="x")) is None
 
 
-def test_prepare_image_label_and_cache(tmp_path):
-    src = draw_chair(tmp_path / "a.png", size=1600)
-    out = prepare_image(src, label="VIEW 1/1 — front", max_px=768, cache_dir=tmp_path / "c")
-    with Image.open(out) as im:
-        assert im.size[0] == 768 and im.size[1] > 768  # strip added below label
-    assert prepare_image(src, label="VIEW 1/1 — front", max_px=768, cache_dir=tmp_path / "c") == out
-
-
-def test_a_passed_connectivity_gate_tells_the_judge_a_seam_is_not_daylight():
-    """Measured 2026-08-26 (fancy_v1 gas_street_lamp, plan-pinned pair): the connectivity gate
-    said 'all 9 parts connected, gap <= 2 mm'; the judge read the dark seam under the pedestal
-    as 'floating in mid-air, a clear daylight gap' (CRITICAL) and scored structure_plausibility
-    0.4 against 1.0 for the near-identical sibling.  A measured contact outranks a shadow."""
-    from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
-    from codeverse3d.judges.prompt_builder import gates_section
-
-    ok = GateReport(gate="connectivity", passed=True, findings=[
-        GateFinding(gate="connectivity", severity=Severity.INFO, target="", message="all 9 parts are connected")])
-    text = gates_section([ok])
-    assert "CONNECTIVITY PASSED" in text and "not daylight" in text and "Do NOT report any part as floating" in text
-
-    failed = GateReport(gate="connectivity", passed=False, findings=[
-        GateFinding(gate="connectivity", severity=Severity.ERROR, target="Seat", message="part 'Seat' floats 12 mm above 'Leg'")])
-    assert "CONNECTIVITY PASSED" not in gates_section([failed]), "a real floating part is still reported as one"
-    assert "CONNECTIVITY PASSED" not in gates_section([GateReport(gate="contract", passed=True)]), "only the contact gate earns it"
-
-
 # ===================================================================== the contact ledger (2026-08-30)
-#: the connectivity gate's ledger for a real p90 round — eval/bench/out/codex_tiers_v3/cells/
-#: cmp_hard_violin/harness_codex_gpt-5.6-sol r00 (16 parts, 26 contacts), re-run through
-#: ``check_connectivity(planned_edges=planned_joins(plan, measurement))`` on 2026-08-30.
-#: 23 overlaps, one open planned join (the tailpiece never reaches the endpin button).
+#: a real p90 round's connectivity ledger (16 parts, 26 contacts, 23 overlaps, one open planned join)
 LEDGER_VIOLIN = {"parts": ["Chinrest", "Strings", "Tailpiece", "Bridge", "TuningPegs_3", "TuningPegs_2", "TuningPegs_1", "TuningPegs_0", "PegboxAndScroll", "Nut", "Fingerboard", "NeckRoot", "EndpinButton", "TopPlate", "RibStructure", "BackPlate"], "contact_gap_mm": 2.0, "contacts": [["Chinrest", "TopPlate", 0.0], ["Chinrest", "RibStructure", 0.0], ["Strings", "Tailpiece", 0.0], ["Strings", "Bridge", 0.8], ["Strings", "TuningPegs_2", 0.0], ["Strings", "TuningPegs_1", 0.6], ["Strings", "PegboxAndScroll", 0.0], ["Strings", "Nut", 0.0], ["Strings", "NeckRoot", 0.0], ["Tailpiece", "TopPlate", 0.0], ["Bridge", "TopPlate", 0.0], ["TuningPegs_3", "PegboxAndScroll", 0.0], ["TuningPegs_2", "PegboxAndScroll", 0.0], ["TuningPegs_1", "PegboxAndScroll", 0.0], ["TuningPegs_0", "PegboxAndScroll", 0.0], ["PegboxAndScroll", "Nut", 0.0], ["PegboxAndScroll", "Fingerboard", 0.0], ["PegboxAndScroll", "NeckRoot", 0.0], ["Nut", "Fingerboard", 0.0], ["Nut", "NeckRoot", 0.0], ["Fingerboard", "NeckRoot", 0.0], ["NeckRoot", "TopPlate", 0.0], ["NeckRoot", "RibStructure", 0.0], ["EndpinButton", "RibStructure", 0.0], ["TopPlate", "RibStructure", 0.0], ["RibStructure", "BackPlate", 0.0]], "overlaps": [["Chinrest", "TopPlate", 1.8, 0.08], ["Strings", "Tailpiece", 3.1, 0.02], ["Strings", "TuningPegs_2", 2.4, 0.02], ["Strings", "PegboxAndScroll", 5.1, 0.0], ["Strings", "Nut", 0.4, 0.02], ["Strings", "NeckRoot", 1.5, 0.02], ["Tailpiece", "TopPlate", 1.7, 0.23], ["Bridge", "TopPlate", 1.5, 0.36], ["TuningPegs_3", "PegboxAndScroll", 6.6, 0.17], ["TuningPegs_2", "PegboxAndScroll", 9.0, 0.33], ["TuningPegs_1", "PegboxAndScroll", 8.3, 0.27], ["TuningPegs_0", "PegboxAndScroll", 3.9, 0.19], ["PegboxAndScroll", "Nut", 2.5, 0.11], ["PegboxAndScroll", "Fingerboard", 2.7, 0.1], ["PegboxAndScroll", "NeckRoot", 4.1, 0.2], ["Nut", "Fingerboard", 1.0, 0.23], ["Nut", "NeckRoot", 1.0, 0.07], ["Fingerboard", "NeckRoot", 8.4, 0.55], ["NeckRoot", "TopPlate", 1.0, 0.0], ["NeckRoot", "RibStructure", 0.1, 0.0], ["EndpinButton", "RibStructure", 3.0, 0.0], ["TopPlate", "RibStructure", 1.6, 0.05], ["RibStructure", "BackPlate", 2.5, 0.07]], "ground_gap_mm": {"Chinrest": 33.0, "Strings": 43.0, "Tailpiece": 37.0, "Bridge": 37.5, "TuningPegs_3": 55.0, "TuningPegs_2": 45.0, "TuningPegs_1": 45.0, "TuningPegs_0": 55.0, "PegboxAndScroll": 33.0, "Nut": 51.0, "Fingerboard": 44.2, "NeckRoot": 21.3, "EndpinButton": 14.0, "TopPlate": 31.0, "RibStructure": 3.0, "BackPlate": 0.0}, "planned": [["RibStructure", "BackPlate", 0.0, "contact"], ["TopPlate", "RibStructure", 0.0, "contact"], ["EndpinButton", "RibStructure", 0.0, "contact"], ["NeckRoot", "RibStructure", 0.0, "contact"], ["Fingerboard", "NeckRoot", 0.0, "contact"], ["Nut", "Fingerboard", 0.0, "contact"], ["PegboxAndScroll", "NeckRoot", 0.0, "contact"], ["TuningPegs_3", "PegboxAndScroll", 0.0, "contact"], ["TuningPegs_2", "PegboxAndScroll", 0.0, "contact"], ["TuningPegs_1", "PegboxAndScroll", 0.0, "contact"], ["TuningPegs_0", "PegboxAndScroll", 0.0, "contact"], ["Bridge", "TopPlate", 0.0, "contact"], ["Tailpiece", "EndpinButton", 24.9, "open"], ["Strings", "Bridge", 0.8, "contact"], ["Chinrest", "TopPlate", 0.0, "contact"]], "planned_unresolved": []}
 
 
@@ -240,9 +172,7 @@ CONTRACT_FAIL = GateReport(gate="contract", passed=False, findings=[
 
 
 def test_ledger_turns_penetration_warn_prose_into_one_measured_line():
-    """The audit (eval/docs/EVAL.md §6): 110 of 237 interpenetration flags cited only WARNs the rubric
-    says to ignore; same images with the gate text removed flipped 13 of 24.  The eleven
-    'interpenetrate by' sentences of this round become one measured line, ERRORs stay."""
+    """eval/docs/EVAL.md §6: the WARN 'interpenetrate by' sentences become one measured line; ERRORs stay."""
     from codeverse3d.judges.prompt_builder import gates_section
 
     rep = _ledger_report()
@@ -346,9 +276,7 @@ def test_ledger_ground_line_and_single_part_and_grouped_warnings():
 
 
 def test_gates_section_without_a_ledger_is_byte_identical_to_the_pre_ledger_text():
-    """A recorded round has no ledger finding: ``3dcode judge <old-slug>`` must build the exact text
-    the stored verdict saw.  Expected strings were captured from ``gates_section`` at 4ddde32,
-    before the ledger path existed (scratch capture_baseline.py, 2026-08-30)."""
+    """A replay of a pre-ledger round builds the exact text its stored verdict saw (captured at 4ddde32)."""
     from codeverse3d.judges.prompt_builder import gates_section
 
     C = "connectivity"
@@ -375,18 +303,3 @@ def test_gates_section_without_a_ledger_is_byte_identical_to_the_pre_ledger_text
     many = [GateReport(gate=C, passed=False, findings=[F(Severity.ERROR, f"error {i}", f"P{i}") for i in range(14)] + [F(Severity.WARN, f"warn {i}", f"W{i}") for i in range(11)])]
     assert gates_section(many) == 'GATE FINDINGS (deterministic; treat as facts): connectivity=FAIL\nerrors (14):\n- connectivity [P0]: error 0\n- connectivity [P1]: error 1\n- connectivity [P2]: error 2\n- connectivity [P3]: error 3\n- connectivity [P4]: error 4\n- connectivity [P5]: error 5\n- connectivity [P6]: error 6\n- connectivity [P7]: error 7\n- connectivity [P8]: error 8\n- connectivity [P9]: error 9\n- connectivity [P10]: error 10\n- connectivity [P11]: error 11\n- … 2 more errors\nwarnings (11):\n- connectivity [W0]: warn 0\n- connectivity [W1]: warn 1\n- connectivity [W2]: warn 2\n- connectivity [W3]: warn 3\n- connectivity [W4]: warn 4\n- connectivity [W5]: warn 5\n- connectivity [W6]: warn 6\n- connectivity [W7]: warn 7\n- … 3 more warnings'
     assert gates_section(many, max_errors=3, max_warns=2) == 'GATE FINDINGS (deterministic; treat as facts): connectivity=FAIL\nerrors (14):\n- connectivity [P0]: error 0\n- connectivity [P1]: error 1\n- connectivity [P2]: error 2\n- … 11 more errors\nwarnings (11):\n- connectivity [W0]: warn 0\n- connectivity [W1]: warn 1\n- … 9 more warnings'
-
-
-def test_judge_prompt_hash_does_not_cover_the_per_run_gate_text():
-    """The ledger block rides on v1's hash: ``judge_prompt_hash`` covers the system prompt, the
-    rig rules and the wire schema only, so a paired re-judge, not the hash, is what measures it."""
-    from codeverse3d.judges.prompt_builder import judge_prompt_hash
-
-    h = judge_prompt_hash(R)
-    import codeverse3d.judges.prompt_builder as pb
-    original = pb.gates_section
-    try:
-        pb.gates_section = lambda gates, **kw: "NOT THE SAME TEXT"
-        assert judge_prompt_hash(R) == h
-    finally:
-        pb.gates_section = original

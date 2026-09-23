@@ -102,9 +102,7 @@ def test_calibrate_offline(tmp_path):
 
 
 def test_run_labels_stay_distinct_across_battery_layouts():
-    """Bench cells all end in .../run: compare_backends cells for DIFFERENT prompts
-    (and ab_plan's control vs treatment arms) used to collapse to one label, so
-    their judgment sidecars overwrote each other (V9c)."""
+    """V9c: bench cells all end in .../run; their labels (and judgment sidecars) must not collide."""
     from codeverse3d.addons.calibration import _run_label
 
     # compare_backends: <battery>/cells/<prompt>/<arm>/run

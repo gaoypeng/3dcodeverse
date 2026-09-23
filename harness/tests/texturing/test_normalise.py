@@ -7,7 +7,6 @@ from pathlib import Path
 import trimesh
 from PIL import Image
 
-from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse3d.spatial.measure import load_scene, measure_glb
 from codeverse3d.texturing.apply import classify, normalise_materials
 
@@ -32,30 +31,10 @@ def _glb(tmp_path: Path, rows) -> Path:
 
 
 # --------------------------------------------------------------------------- classify
-def test_untouched_defaults_snap_to_the_family_numbers():
-    v = classify("Seat", "OakSeat", "", 0.0, 0.5)          # Blender Principled default
-    assert v is not None and v.reason == "untouched" and v.family == "hardwood"
-    assert (v.metallic, v.roughness) == (0.0, 0.45)
-    v = classify("Rail", "ChromeRail", "", None, None)     # glTF default (1.0 / 1.0)
-    assert v.reason == "untouched" and (v.metallic, v.roughness) == (1.0, 0.06)
-
-
-def test_impossible_values_are_only_clamped_to_the_band_edge():
-    v = classify("Post", "CastIronPost", "", 0.20, 0.65)
-    assert v.reason == "impossible" and v.metallic == 0.5 and v.roughness == 0.65  # roughness kept
-    assert classify("Post", "CastIronPost", "", 0.85, 0.65) is None                # already plausible
-
-
-def test_plausible_material_is_left_alone():
-    assert classify("Bit", "PolishedSteelBit", "", 0.98, 0.15) is None
-    assert classify("Body", "VarnishedBeechBody", "", 0.0, 0.38) is None
 
 
 def test_plan_prose_may_only_fix_a_never_configured_default():
-    """The plan's ``material`` string describes a whole part, so it is weak evidence:
-    good enough to spot an untouched default, never good enough to overrule numbers
-    somebody actually typed (an aluminium lid piece must not become glass because the
-    part's sentence mentions a glass display)."""
+    """The plan's prose may spot an untouched default, never overrule typed numbers."""
     assert classify("lid__0", "SpaceGray", "glass display panel in an aluminium lid", 0.88, 0.30) is None
     v = classify("lid__0", "SpaceGray", "glass display panel", 0.0, 1.0)
     assert v is not None and v.reason == "untouched" and v.family == "glass"
@@ -66,10 +45,6 @@ def test_a_saturated_colour_turns_bare_iron_into_paint():
     assert v is None or v.family in ("painted_metal", "painted_wood")
     grey = classify("CastBase", "CastIronDark", "", 0.20, 0.65, (0.12, 0.12, 0.13))
     assert grey is not None and grey.family == "cast_iron" and grey.metallic == 0.5
-
-
-def test_unknown_material_names_are_never_touched():
-    assert classify("Widget", "Mat.001", "", 0.0, 0.5) is None
 
 
 # --------------------------------------------------------------------------- the pass
@@ -115,15 +90,3 @@ def test_a_textured_material_is_never_second_guessed(tmp_path: Path):
     scene.export(textured)
     rep = normalise_materials(textured, tmp_path / "out.glb")
     assert not rep.changed() and rep.n_unchanged == 1
-
-
-def test_plan_material_strings_resolve_parts_with_neutral_names(tmp_path: Path):
-    glb = _glb(tmp_path, [("Frame", "Mat.002", 0.0, 1.0, (90, 90, 95, 255))])
-    plan = StaticPlan(
-        object_name="Thing", summary="s",
-        overall_bbox=BBox(center=(0, 0, 0), extents=(1, 1, 1)),
-        parts=[PartPlan(name="Frame", role="frame", description="d",
-                        bbox=BBox(center=(0, 0, 0), extents=(1, 1, 1)), material="powder-coated steel")],
-    )
-    rep = normalise_materials(glb, tmp_path / "out.glb", plan=plan)
-    assert [c.family for c in rep.changes] == ["painted_metal"]

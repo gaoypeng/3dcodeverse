@@ -10,8 +10,6 @@ from tests.judges.conftest import FakeChatModel, draw_chair, good_reply, image_p
 
 
 def test_likeness_context_attaches_the_photos_and_the_note(judge_input, tmp_path, cache_dir):
-    """Measured 2026-08-26 (teaser aurora ×3, flash + codex): 0.78–0.94 with empty issues while
-    nothing looked like an aurora — the rubric had no photo to hold the frames against."""
     ref = tmp_path / "aurora_green_spiral_sea.png"
     draw_chair(ref)
     judge_input.spec = make_spec(track=Track.GRAPHICS, language=Language.GLSL_SHADER,
@@ -28,10 +26,6 @@ def test_likeness_context_attaches_the_photos_and_the_note(judge_input, tmp_path
     labels = [p.label for p in image_parts(req)]
     assert labels[0].startswith("REAL-WORLD REFERENCE 1/1"), labels
     assert "REAL-WORLD REFERENCE PHOTOS are attached" in req.messages[0].parts[0].text
-
-
-def test_no_photos_means_a_plain_judge(judge_input, cache_dir):
-    judge_input.spec = make_spec(track=Track.GRAPHICS, language=Language.GLSL_SHADER)
-    j = LikenessJudge("fake:fake-1", rubric="shader_v1", chat_model=FakeChatModel([good_reply(load_rubric("shader_v1"), ["A1", "A2"], 0.8)]), cache_dir=cache_dir)
+    judge_input.spec = make_spec(track=Track.GRAPHICS, language=Language.GLSL_SHADER)  # no photos: a plain judge
     ctx = j.context(judge_input)
     assert ctx.extra_images == [] and ctx.extra_text == ""

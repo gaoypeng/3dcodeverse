@@ -8,11 +8,6 @@ from tests.judges.conftest import FakeChatModel, draw_chair, good_reply, image_p
 REF = load_rubric("reference_v1")
 
 
-def test_iou_mapping():
-    assert iou_to_score(0.9) == 1.0 and iou_to_score(0.1) == 0.0
-    assert iou_to_score(0.55) == pytest.approx(0.5)
-
-
 def test_reference_judge_measures_silhouette_and_adds_reference_images(judge_input, tmp_path, cache_dir):
     ref_png = draw_chair(tmp_path / "ref.png", legs=4, color=(30, 30, 30))
     judge_input.spec = judge_input.spec.model_copy(update={"references": [ReferenceImage(path=str(ref_png), note="target chair")]})
@@ -27,6 +22,7 @@ def test_reference_judge_measures_silhouette_and_adds_reference_images(judge_inp
     j = ReferenceJudge("fake:fake-1", chat_model=model, silhouette_fn=fake_sil, cache_dir=cache_dir, diff=False).judge(judge_input)
     assert calls and calls[0][0].endswith("view_front.png") and calls[0][1] == str(ref_png)
     assert j.scores["silhouette_match"] == pytest.approx(0.75)
+    assert iou_to_score(0.9) == 1.0 and iou_to_score(0.1) == 0.0
     expected = sum(REF.weights[c] * (0.75 if c == "silhouette_match" else 0.8) for c in REF.weights)
     assert j.overall == pytest.approx(round(expected, 4))
     req = model.requests[0]
