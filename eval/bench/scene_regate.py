@@ -24,17 +24,19 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
 from bench._records import records  # noqa: E402
-from codeverse3d.config import get_settings  # noqa: E402
 from codeverse3d.contracts.artifacts import Severity  # noqa: E402
+from codeverse3d.spatial.render_scene import (  # noqa: E402
+    SceneRenderError,
+    probe_env_args,
+    run_scene_script,
+)
 from codeverse3d.spatial.scene_placement import placement_gate  # noqa: E402
 from codeverse3d.workspace import Workspace  # noqa: E402
 
@@ -57,19 +59,16 @@ def recorded_errors(record: dict) -> list[str]:
 
 
 def probe(ws: Path, *, timeout_s: float) -> dict | None:
-    """Boot the workspace and return its census, or None when it will not boot."""
-    driver = get_settings().runtime_js_dir() / "probe_scene.mjs"
-    with tempfile.TemporaryDirectory() as tmp:
-        out = Path(tmp) / "probe.json"
-        subprocess.run(
-            ["node", str(driver), "--ws", str(ws), "--gpu", "off",
-             "--timeout-ms", str(int(timeout_s * 1000)), "--out", str(out)],
-            capture_output=True, text=True, timeout=timeout_s + 60, check=False,
-        )
-        if not out.is_file():
-            return None
-        payload = json.loads(out.read_text())
-    return payload.get("census") if (payload.get("boot") or {}).get("ok") else None
+    """Boot the workspace and return its census, or None when it will not boot.  The driver
+    runs as the round's probe does (``run_scene_script`` + ``probe_env_args``: the same node,
+    settle / camera-repair / exposure policy) but writes nothing into the recorded run."""
+    try:
+        res = run_scene_script("probe_scene.mjs", ["--ws", str(ws), "--gpu", "off", "--timeout-ms",
+                                                   str(int(timeout_s * 1000)), *probe_env_args()],
+                               timeout_s=timeout_s + 60)
+    except SceneRenderError:
+        return None
+    return res.summary.get("census") if (res.summary.get("boot") or {}).get("ok") else None
 
 
 def regate(run: Path, *, timeout_s: float) -> dict:
