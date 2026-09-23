@@ -329,7 +329,7 @@ const {{ {call.split('(')[0]} }} = M;
 let error = null;
 try {{ {call}; }} catch (e) {{ error = e instanceof RangeError ? e.message : 'not a RangeError: ' + e; }}
 console.log(JSON.stringify({{ error }}));
-""", (module,))
+""", tuple(MODULES))
     assert out["error"] and phrase in out["error"], out
 
 

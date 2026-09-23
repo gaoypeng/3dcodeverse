@@ -137,6 +137,21 @@ export const GLSL_UTIL = [
     '  float m = 1.0 - smoothstep(max(w - aa, 0.0), w + aa, g);',
     '  return m * (1.0 - smoothstep(w * 1.5, w * 5.0, aa));',
     '}',
+    // Surface-gradient bump (Mikkelsen) in view space: perturb the lit
+    // normal n by a height h (astraBump), or by h's screen derivatives dh
+    // (astraBumpSlope, for an analytic gradient). Existing
+    // normal/bump maps have already run, so their detail is kept. A
+    // degenerate pixel footprint (det 0) returns n, never NaN.
+    'vec3 astraBumpSlope(vec3 eye, vec3 n, vec2 dh) {',
+    '  vec3 dx = dFdx(eye), dy = dFdy(eye);',
+    '  vec3 r1 = cross(dy, n), r2 = cross(n, dx);',
+    '  float det = dot(dx, r1);',
+    '  if (abs(det) < 1e-12) return n;',
+    '  return normalize(abs(det) * n - sign(det) * (dh.x * r1 + dh.y * r2));',
+    '}',
+    'vec3 astraBump(vec3 eye, vec3 n, float h) {',
+    '  return astraBumpSlope(eye, n, vec2(dFdx(h), dFdy(h)));',
+    '}',
     '#endif',
     // 0 edge-on, 1 facing. A double-sided shell piles its front and back
     // into the same pixels at the silhouette and stacks into a bright

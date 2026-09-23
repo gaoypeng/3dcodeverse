@@ -54,17 +54,6 @@ const AGE_HEAD = [
   // Positive curvature is convex (swept clean), negative the concave
   // lee that holds.
   glslCurv('astraAgeCurv'),
-  // Surface-gradient bump in view space. Existing normal/bump maps have
-  // already run when normalBody calls this, so their detail is retained.
-  'vec3 astraAgeBump(vec3 eye, vec3 n, float height) {',
-  '  vec3 dx = dFdx(eye), dy = dFdy(eye);',
-  '  vec3 r1 = cross(dy, n), r2 = cross(n, dx);',
-  '  float determinant = dot(dx, r1);',
-  '  if (abs(determinant) < 1e-12) return n;',
-  '  vec3 gradient = sign(determinant)',
-  '    * (dFdx(height) * r1 + dFdy(height) * r2);',
-  '  return normalize(abs(determinant) * n - gradient);',
-  '}',
 ].join('\n');
 
 // One base for all three, on the world varyings every library shares;
@@ -352,7 +341,7 @@ export function patchRust(material, opts = {}) {
     ].join('\n'),
     roughnessBody: 'roughnessFactor = mix(roughnessFactor, max(roughnessFactor, mix(0.82, 0.97, rsB)), rsAmt);',
     metalnessBody: 'metalnessFactor *= 1.0 - rsAmt;',
-    normalBody: 'normal = astraAgeBump(-vViewPosition, normal, rsAmt * (0.00035 + rsFlake * 0.0004 * rsFlakeFade + rsGrain * 0.00015 * rsGrainFade));',
+    normalBody: 'normal = astraBump(-vViewPosition, normal, rsAmt * (0.00035 + rsFlake * 0.0004 * rsFlakeFade + rsGrain * 0.00015 * rsGrainFade));',
   });
 }
 

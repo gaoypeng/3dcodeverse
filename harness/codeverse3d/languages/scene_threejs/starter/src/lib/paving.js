@@ -95,12 +95,6 @@ function surfaceMaterial(opts,bedHeight) {
     fragmentHead:`
       varying vec3 vPaveLocal;
       uniform float uPaveMoisture, uPaveBed;
-      vec3 paveBump(vec3 eye,vec3 n,float h) {
-        vec3 dx=dFdx(eye),dy=dFdy(eye),a=cross(dy,n),b=cross(n,dx);
-        float determinant=dot(dx,a);
-        if(abs(determinant)<1e-12)return n;
-        return normalize(abs(determinant)*n-sign(determinant)*(dFdx(h)*a+dFdy(h)*b));
-      }
     `,
     fragmentBody:`
       vec2 paveP=vPaveLocal.xz+vPaveLocal.y*vec2(.47,.81);
@@ -118,7 +112,7 @@ function surfaceMaterial(opts,bedHeight) {
       roughnessFactor=clamp(mix(roughnessFactor+paveGrain*.10,.30,uPaveMoisture)
         +paveContact*.09,.08,1.0);
     `,
-    normalBody:'normal=paveBump(-vViewPosition,normal,paveGrain*.0009+paveFine*.00025);',
+    normalBody:'normal=astraBump(-vViewPosition,normal,paveGrain*.0009+paveFine*.00025);',
   });
   return material;
 }

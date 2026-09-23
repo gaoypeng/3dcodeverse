@@ -279,13 +279,8 @@ function rockMaterial(opts, type, height) {
       diffuseColor.rgb *= 1.0 - rockWet * 0.36;
     `,
     roughnessBody: 'roughnessFactor = clamp(roughnessFactor + (rockMedium - 0.5) * 0.16 - rockWet * 0.48, 0.24, 0.98);',
-    normalBody: `
-      vec3 rockDx = dFdx(-vViewPosition), rockDy = dFdy(-vViewPosition);
-      vec3 rockR1 = cross(rockDy, normal), rockR2 = cross(normal, rockDx);
-      float rockDet = dot(rockDx, rockR1);
-      normal = normalize(abs(rockDet) * normal - sign(rockDet) *
-        (dot(rockGradient, dFdx(vRockLocal)) * rockR1 + dot(rockGradient, dFdy(vRockLocal)) * rockR2));
-    `,
+    normalBody: `normal = astraBumpSlope(-vViewPosition, normal,
+      vec2(dot(rockGradient, dFdx(vRockLocal)), dot(rockGradient, dFdy(vRockLocal))));`,
   });
   return mat;
 }

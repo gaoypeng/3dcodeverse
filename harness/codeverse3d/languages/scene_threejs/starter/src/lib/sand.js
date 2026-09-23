@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { fbm2, mulberry32 } from './noise.js';
 import { patchStandard } from './shader.js';
+import { triangleValue } from './terrain.js';
 
 const TAU = Math.PI * 2;
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
@@ -53,13 +54,7 @@ function sandMaterial(opts, wind, seed) {
     roughnessBody: `
       roughnessFactor = clamp(roughnessFactor - sandGrainFade * smoothstep(0.93, 1.0, sandGrain) * 0.32, 0.48, 0.98);
     `,
-    normalBody: `
-      vec3 sandDx = dFdx(-vViewPosition), sandDy = dFdy(-vViewPosition);
-      vec3 sandR1 = cross(sandDy, normal), sandR2 = cross(normal, sandDx);
-      float sandDet = dot(sandDx, sandR1);
-      normal = normalize(abs(sandDet) * normal - sign(sandDet) *
-        (sandRippleDH.x * sandR1 + sandRippleDH.y * sandR2) * uSandDetail);
-    `,
+    normalBody: 'normal = astraBumpSlope(-vViewPosition, normal, sandRippleDH * uSandDetail);',
   });
   return mat;
 }
@@ -117,15 +112,7 @@ export function makeSandTerrain(opts = {}) {
   group.userData.placement = 'free';
   group.add(surface);
 
-  const sampleHeight = (x, z) => {
-    const gx = clamp((x / width + 0.5) * nx, 0, nx);
-    const gz = clamp((z / depth + 0.5) * nz, 0, nz);
-    const ix = Math.min(nx - 1, Math.floor(gx)), iz = Math.min(nz - 1, Math.floor(gz));
-    const fx = gx - ix, fz = gz - iz, a = iz * (nx + 1) + ix;
-    const h00 = p.getY(a), h10 = p.getY(a + 1), h01 = p.getY(a + nx + 1), h11 = p.getY(a + nx + 2);
-    return fx + fz <= 1 ? h00 + fx * (h10 - h00) + fz * (h01 - h00)
-      : h11 + (1 - fx) * (h01 - h11) + (1 - fz) * (h10 - h11);
-  };
+  const sampleHeight = (x, z) => triangleValue(p, nx, nz, (x / width + 0.5) * nx, (z / depth + 0.5) * nz, 1);
 
   // Sparse saltating grains: CPU updates cost a few hundred points, not a
   // second terrain shader. Their vertical trajectory follows the same mesh.

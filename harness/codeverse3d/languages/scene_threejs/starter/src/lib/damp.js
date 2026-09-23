@@ -34,23 +34,6 @@ import {
   worldBase,
 } from './shader.js';
 
-/** Perturb the lit view normal from a local coating height in world metres. */
-function coatingNormal(prefix, height) {
-  return [
-    `vec3 ${prefix}Dx = dFdx(-vViewPosition);`,
-    `vec3 ${prefix}Dy = dFdy(-vViewPosition);`,
-    `vec3 ${prefix}R1 = cross(${prefix}Dy, normal);`,
-    `vec3 ${prefix}R2 = cross(normal, ${prefix}Dx);`,
-    `float ${prefix}Det = dot(${prefix}Dx, ${prefix}R1);`,
-    `float ${prefix}Height = ${height};`,
-    `vec3 ${prefix}Gradient = sign(${prefix}Det) *`,
-    `    (dFdx(${prefix}Height) * ${prefix}R1`,
-    `    + dFdy(${prefix}Height) * ${prefix}R2);`,
-    `if (abs(${prefix}Det) > 1e-12)`,
-    `  normal = normalize(abs(${prefix}Det) * normal - ${prefix}Gradient);`,
-  ].join('\n');
-}
-
 // All three patches read these, so they are declared once, in the base.
 // astraDamp*, not a neighbour's spelling: patchStandard THROWS when two
 // chained patches give one function name two different bodies.
@@ -271,9 +254,9 @@ export function patchMoss(material, opts = {}) {
     ].join('\n'),
     roughnessBody: 'roughnessFactor = mix(roughnessFactor, 0.97, clamp((msK + msLiK) * msOn, 0.0, 1.0));',
     metalnessBody: 'metalnessFactor *= 1.0 - clamp((msK + msLiK) * msOn, 0.0, 1.0);',
-    normalBody: coatingNormal('msBump',
-      'msOn * (msK * (0.001 + 0.003 * msG) + msLiK * 0.0008)'
-      + ' * (1.0 - smoothstep(0.03, 0.10, length(fwidth(vAstraWorld))))'),
+    normalBody: 'normal = astraBump(-vViewPosition, normal, '
+      + 'msOn * (msK * (0.001 + 0.003 * msG) + msLiK * 0.0008)'
+      + ' * (1.0 - smoothstep(0.03, 0.10, length(fwidth(vAstraWorld)))));',
     fragmentBody: [
       '  vec3 msN = normalize(vAstraWorldN);',
       '  vec3 msUp = normalize(uMossUp);',
@@ -559,9 +542,9 @@ export function patchCrackedMud(material, opts = {}) {
     ].join('\n'),
     roughnessBody: 'roughnessFactor = mix(roughnessFactor, mix(0.95, 0.28, uMudWet * (0.32 + 0.68 * mdCrk)), mdAmt);',
     metalnessBody: 'metalnessFactor *= 1.0 - mdAmt;',
-    normalBody: coatingNormal('mdBump',
-      'mdAmt * uMudDepth * uMudScale * (mdLip * 0.025 - mdCrk * 0.010)'
-      + ' * (1.0 - smoothstep(0.025, 0.12, length(fwidth(vAstraWorld))))'),
+    normalBody: 'normal = astraBump(-vViewPosition, normal, '
+      + 'mdAmt * uMudDepth * uMudScale * (mdLip * 0.025 - mdCrk * 0.010)'
+      + ' * (1.0 - smoothstep(0.025, 0.12, length(fwidth(vAstraWorld)))));',
     fragmentBody: [
       '  vec3 mdN = normalize(vAstraWorldN);',
       // A bed is level: the cells are read from world XZ, and a face

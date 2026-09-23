@@ -13,7 +13,7 @@ import { clonePatchedMaterial } from './shader.js';
 // PlaneGeometry splits each cell from its lower-left to upper-right vertex.
 // Interpolating the original noise field (or bilinearly interpolating four
 // corners) differs from that triangle surface between vertices.
-function triangleValue(position, nx, ny, gx, gy, component) {
+export function triangleValue(position, nx, ny, gx, gy, component) {
   gx = Math.max(0, Math.min(nx, gx));
   gy = Math.max(0, Math.min(ny, gy));
   const ix = Math.min(nx - 1, Math.floor(gx));
