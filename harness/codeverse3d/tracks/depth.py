@@ -14,18 +14,18 @@ Measured on the recorded corpus (183 judged rounds / 81 runs, see the wave's
    *inside* a part cost nothing.  Within one difficulty tier (static_v2 r00) the
    sign flips: ``n_built`` vs ``geometry_detail`` = +0.34 — more parts DO buy
    detail once difficulty is held constant, they just also buy gate errors.
-3. **The limits handed to the builder are flat and irrelevant.**  ``MAX_TRIS_OBJECT``
-   is 600 000 against a corpus p50 of ~6 000 and an all-time max of 54 210; build
-   timeout 300 s against p50 0.25 s / p99 8.3 s.  A 4-part stool and a 25-part
-   machine were given the same numbers, so the number said nothing.
+3. **A flat limit says nothing.**  ``MAX_TRIS_OBJECT`` is 600 000 against a corpus p50
+   of ~6 000 and an all-time max of 54 210; build timeout 300 s against p50 0.25 s /
+   p99 8.3 s.  A 4-part stool and a 25-part machine hit the same numbers.
 
 The *measurement* side of the same question — how much artifact actually got built,
 on eight objective axes — is ``codeverse3d/spatial/complexity.py`` + ``eval/docs/COMPLEXITY.md``.
 This module is the *target* side: what THIS plan should be allowed and asked to spend.
 
 Hence: :func:`depth_budget` (how many triangles / how much build time this *plan*
-deserves — how many PARTS a prompt deserves is ``tracks.planner.plan_budget``,
-which also owns the thin-plan re-ask), and :func:`scope_groups` (how to split one plan into sessions small
+deserves, checked by :func:`budget_gate` and never printed into a prompt — the prompt
+gets the numberless :data:`DETAIL_ADVICE`; how many PARTS a prompt deserves is
+``tracks.planner.plan_budget``, which also owns the thin-plan re-ask), and :func:`scope_groups` (how to split one plan into sessions small
 enough that each part gets real attention) with :func:`interfaces_text` handing
 each session the exact numbers of the parts it must touch but may not edit.
 """
@@ -60,43 +60,33 @@ MIN_BUILD_S = 20
 class DepthBudget:
     """What THIS object is allowed to spend, sized from its own plan."""
 
-    n_parts: int
     n_units: int  # parts × instances — the things that actually get built
     min_tris: int
     target_tris: int
     max_tris: int
     max_build_s: int
 
-    def as_prompt(self) -> str:
-        """The complexity-aware limits block that replaces the contract's flat numbers."""
-        return (
-            f"DETAIL BUDGET for this object ({self.n_parts} plan parts / {self.n_units} built objects — "
-            f"these numbers are sized for THIS plan, not a global cap):\n"
-            f"- Triangles: aim for **{self.target_tris:,}** in total ({self.target_tris // max(1, self.n_units):,} "
-            f"per built object).  Below {self.min_tris:,} the object reads as primitive boxes and the judge scores "
-            f"geometry_detail down; above {self.max_tris:,} the build is rejected.\n"
-            f"- Spend those triangles INSIDE the parts the plan already names — bevels, chamfers, profile sweeps, "
-            f"fasteners, panel seams, arrays — not on new parts the plan does not list.  Measured on this harness: "
-            f"triangles per part are neutral-to-positive for the score, extra un-planned parts are strongly negative.\n"
-            f"- Build time: your code must finish in **under {self.max_build_s} s** headless.  Typical objects here "
-            f"build in well under a second, so this is generous; if you are near it, lower segment counts before "
-            f"you drop detail."
-        )
+
+#: What the generate / refine prompts say about detail.  No numbers: the triangle and build-time
+#: budget below is enforced by :func:`budget_gate`, never stated to the builder (owner, 2026-09-22).
+DETAIL_ADVICE = (
+    "- Spend detail INSIDE the parts the plan already names — bevels, chamfers, profile sweeps, "
+    "fasteners, panel seams, arrays — not on new parts the plan does not list.  Measured on this harness: "
+    "detail inside a part is neutral-to-positive for the score, extra un-planned parts are strongly negative."
+)
 
 
 def depth_budget(plan: Any, *, build_timeout_s: int = 300) -> DepthBudget:
     """Triangle + build-time budget sized from the plan's part/instance count."""
     parts = list(getattr(plan, "parts", None) or [])
-    n_parts = len(parts)
     n_units = sum(max(1, int(getattr(p, "leaf_count", None) or getattr(p, "instances", 1) or 1)) for p in parts) or 1
     target = _clamp(TRIS_PER_UNIT_TARGET * n_units, 6_000, 200_000)
     return DepthBudget(
-        n_parts=n_parts,
         n_units=n_units,
         min_tris=_clamp(TRIS_PER_UNIT_FLOOR * n_units, 1_500, 40_000),
         target_tris=target,
         max_tris=_clamp(TRIS_PER_UNIT_MAX * n_units, 60_000, MAX_TRIS_OBJECT),
-        # honest: the subprocess is killed at build_timeout_s, so never promise more than
+        # the subprocess is killed at build_timeout_s, so never allow more than
         # that minus the exporter's share, and never less than MIN_BUILD_S
         max_build_s=int(_clamp(int(BUILD_S_PER_UNIT * n_units), MIN_BUILD_S, max(MIN_BUILD_S, build_timeout_s - 30))),
     )

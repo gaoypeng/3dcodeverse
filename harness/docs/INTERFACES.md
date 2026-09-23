@@ -500,17 +500,17 @@ from codeverse3d.tracks.candidates import run_best_of_n, quick_render   # N para
 # candidates[])
 from codeverse3d.tracks.articulated_object import default_motion_checks, expected_direction   # gate "motion_direction"
 from codeverse3d.tracks.static_object import silhouette_gate, reference_refine_tasks  # gate "reference_silhouette" (IoU<0.6 → WARN + refine task)
-from codeverse3d.tracks.depth import depth_budget, DepthBudget, scope_groups, PartScope, interfaces_text, \
-    scoped_generation_enabled                          # complexity-aware budgets + per-part scoped generation
+from codeverse3d.tracks.depth import depth_budget, DepthBudget, DETAIL_ADVICE, scope_groups, PartScope, \
+    interfaces_text, scoped_generation_enabled         # complexity-aware budgets + per-part scoped generation
 depth_budget(plan, *, build_timeout_s=300) -> DepthBudget   # min/target/max triangles + max_build_s sized from
-    # the plan's LEAF count (parts × instances × children); .as_prompt() is the DETAIL BUDGET block every
-    # generate/refine template shows in place of a flat "≤ 300k tris"
+    # the plan's LEAF count (parts × instances × children); only budget_gate reads it — no prompt states it.
+    # DETAIL_ADVICE: the numberless "spend detail inside the planned parts" bullet the generate/refine
+    # templates show as {{ detail_advice }}
 scope_groups(plan, *, files_for, max_groups=6, parts_per_scope=3, min_parts=8) -> [PartScope]
     # [] = one session owns the object (small plan, no per-part file ownership, or $C3D_SCOPED_PARTS=off);
     # otherwise attachment-subtree groups whose files are disjoint, so the sessions run in parallel
 interfaces_text(plan, scope) -> str    # the planned boxes of the neighbours this scope must weld to
-from codeverse3d.tracks.prompting import base_prompt_context, reference_images, scope_context, budget_for, \
-    detail_budget_text      # Δ split out of
+from codeverse3d.tracks.prompting import base_prompt_context, reference_images, scope_context, budget_for  # Δ split out of
 from codeverse3d.tracks.prompting import select_cookbook_chapters, is_always_chapter
     # select_cookbook_chapters(ctx, brief, *, budget=9000, always=COOKBOOK_ALWAYS) -> list[Section]: the header +
     # always-on chapters + the brief's chapters (whole, cookbook order, inside budget)

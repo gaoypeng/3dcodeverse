@@ -73,8 +73,8 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
      brief is about) and its centre point S.  Put the camera at distance
      D = 1.5 x (subject radius) / tan(fov/2) from S, at height
      y = (tallest thing between camera and subject) + 0.30 x D, looking AT S (not at the bounds
-     centre, not at the horizon).  It must see 2+ zones and >= 20 % of the frame must be content
-     rather than empty sky/ground.
+     centre, not at the horizon).  It must see 2+ zones and be mostly content rather than empty
+     sky/ground.
    - one eye-level camera INSIDE the scene at y = ground + 1.6-1.8 m, aimed along a path or
      across the subject so that something within 5 m frames one edge of the shot;
    - one detail camera 2-4 m from the hero asset, slightly above its mid height.
@@ -85,7 +85,7 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
 9. `acceptance` — 6 to 12 items covering: each must-have from the brief, the hero assets visible
    from the establishing camera, time-of-day lighting reads correctly, the hero motion is visible
    between t=0 and t=1.5 s, no floating or sunken assets (`how: probe`), no hard world edge from
-   any authored camera, fps >= 30 at 1024x576.
+   any authored camera.
    **`priority` matters more than anything else in this list.**  ANY unmet `must` item caps the
    whole run's score at 0.60, however good the pictures are — one over-specified detail throws
    away a passing scene.  So:
@@ -106,7 +106,7 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
      six interior runs: with no owner for walls and roof, every one was judged "not
      enclosed, a diorama on a flat plane" (0.0–0.3) until a refine round built them;
    - mark everything else `priority: should` — craft goals, counts, specific patterns, exact
-     heights, fps and anything needing evidence the judge may not have;
+     heights and anything needing evidence the judge may not have;
    - never write a `must` whose wording contains a number, a named style, or the word "and"
      joining two independent claims — split it or demote it.
 

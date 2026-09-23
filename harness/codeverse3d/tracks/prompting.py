@@ -21,7 +21,14 @@ from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc, to_authoring_fram
 from codeverse3d.prompts import render
 from codeverse3d.prompts.catalog import language_prompt, language_text
 from codeverse3d.tracks.common import RunContext
-from codeverse3d.tracks.depth import DepthBudget, PartScope, depth_budget, fmt3, interfaces_text
+from codeverse3d.tracks.depth import (
+    DETAIL_ADVICE,
+    DepthBudget,
+    PartScope,
+    depth_budget,
+    fmt3,
+    interfaces_text,
+)
 from codeverse3d.tracks.generation import SINGLE_SHOT_FORMAT
 
 if TYPE_CHECKING:
@@ -291,7 +298,7 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "acceptance": acceptance_lines(plan),
         "entry_files": ", ".join(ctx.runtime.entry_globs),
         "n_parts": len(getattr(plan, "parts", []) or []) if plan else 0,
-        "detail_budget": detail_budget_text(ctx),
+        "detail_advice": DETAIL_ADVICE if plan and getattr(plan, "parts", None) else "",
         "root_link": getattr(plan, "root_link", "") if plan else "",
         "reference_note": reference_note(ctx),
         # The want -> call table for the effect library that ships in every
@@ -313,13 +320,6 @@ def budget_for(ctx: RunContext) -> DepthBudget:
     b = depth_budget(ctx.plan, build_timeout_s=timeout)
     ctx.extra["depth_budget"] = b
     return b
-
-
-def detail_budget_text(ctx: RunContext) -> str:
-    """The limits block every generate/refine prompt shows, sized from the plan."""
-    if ctx.plan is None or not (getattr(ctx.plan, "parts", None) or ()):
-        return ""
-    return budget_for(ctx).as_prompt()
 
 
 def scope_context(ctx: RunContext, scope: PartScope, **extra: Any) -> dict[str, Any]:

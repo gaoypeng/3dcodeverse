@@ -16,6 +16,7 @@ from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import ScenePlan
 from codeverse3d.contracts.spec import Constraints
 from codeverse3d.tracks import scene_assets as SA
+from codeverse3d.tracks.depth import DETAIL_ADVICE
 from codeverse3d.tracks.planner import plan_example
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
@@ -83,8 +84,8 @@ def test_hero_prompt_carries_the_scene_and_blenders_own_tools(tmp_ws, settings):
     assert f"Scene: {hero.description}" not in job.prompt and "(none)" not in job.prompt.split("## The asset")[0]
     # the hero's tools are Blender's (check_contract, cross_section …), not the scene's
     assert "CARDS(static_object/blender)" in job.prompt and "CARDS(scene/" not in job.prompt
-    # the plan's detail budget, not a flat number; the layout it must fill
-    assert "40k" not in job.prompt and "DETAIL BUDGET" in job.prompt
+    # the plan's detail advice and no triangle number; the layout it must fill
+    assert "40k" not in job.prompt and DETAIL_ADVICE in job.prompt and "DETAIL BUDGET" not in job.prompt
     # the blender layout: the entry + one file per planned part (the one-part sheet here)
     assert job.files_hint == ["src/model.py", f"src/parts/{SA.to_snake(hero.name)}.py"]
     assert job.timeout_s <= SA.asset_timeout_s(ctx, 180)

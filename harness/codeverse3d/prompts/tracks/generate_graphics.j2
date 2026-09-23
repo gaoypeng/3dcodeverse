@@ -60,7 +60,7 @@ Motion: {{ motion }}
 - Detail at several scales (fbm octaves, hash-placed elements, highlights) — the judge scores richness.
 - Guard the maths: `x / max(d, 1e-4)`, `sqrt(max(x, 0.0))`, `normalize` only non-zero vectors,
   `clamp` acos/asin inputs — one NaN pixel caps the score at 0.
-- Constant loop bounds; keep per-pixel cost sane (≤ ~100 raymarch steps, ≤ 8 fbm octaves).
+- Constant loop bounds; keep per-pixel cost sane.
 
 ## DON'T
 - No `#version` line, no `uniform`/`out` declarations of the harness names (shader); no window,

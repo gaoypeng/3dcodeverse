@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
+
 from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse3d.conventions import MAX_TRIS_OBJECT, to_snake
 from codeverse3d.tracks.depth import (
+    DETAIL_ADVICE,
     PartScope,
     depth_budget,
     interfaces_text,
@@ -37,10 +40,8 @@ def test_depth_budget_scales_with_the_plan_and_is_bounded(chair_plan):
                       parts=[one], acceptance=[])
     assert depth_budget(plan).n_units == 4
 
-    text = depth_budget(chair_plan).as_prompt()
-    assert "DETAIL BUDGET" in text and "plan parts" in text
-    assert f"{depth_budget(chair_plan).target_tris:,}" in text
-    assert "not on new parts" in text
+    # the budget is enforced by budget_gate; the prompt's detail advice states no number
+    assert "not on new parts" in DETAIL_ADVICE and not re.search(r"\d", DETAIL_ADVICE)
 
 
 # ----------------------------------------------------------------------------- scoping
@@ -120,9 +121,9 @@ def test_scoped_baseline_fans_out_and_the_assembly_session_owns_the_entry(tmp_pa
     owned = [f for t in parts for f in t.files_hint]
     assert len(owned) == len(set(owned)) and "src/object.js" not in owned   # file-disjoint, no entry
     assert all(t.kind == "baseline" and t.round == 0 for t in tasks)
-    # every scoped prompt carries ITS parts, the interface table and the detail budget — not the plan
+    # every scoped prompt carries ITS parts, the interface table and the detail advice — not the plan
     one = parts[0]
-    assert "Interfaces" in one.prompt and "DETAIL BUDGET" in one.prompt
+    assert "Interfaces" in one.prompt and DETAIL_ADVICE in one.prompt
     assert "FILES YOU MAY WRITE" in one.prompt
 
 

@@ -503,7 +503,7 @@ Best-of-N, refine planning and the asset ladder are sized at run time; they stay
 round 0 "baseline": generate → build_with_repair → measure → gates → render → post-render gates → judge
    (object tracks, ≥ 8 plan parts, a language with one file per part, an agent backend: the baseline FANS OUT
     per part — phase 0 = one scoped session per attachment subtree (its parts + the planned boxes of the
-    neighbours it must weld to + the shared detail budget, its own files only), phase 1 = ONE "assemble"
+    neighbours it must weld to + the shared detail advice, its own files only), phase 1 = ONE "assemble"
     session that owns the entry file, placement and the connectivity/contract gates.  $C3D_SCOPED_PARTS=off
     restores the single whole-object session; single-shot always uses it.)
    (--candidates N: N parallel baselines in <ws>/_cand/c<k>, quick 4-view judge, crashed candidate retried once,

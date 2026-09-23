@@ -37,7 +37,7 @@ Key visuals:
   context or clock in a program.
 - Motion is judged by comparing frames at t = {{ judge_times }}: a "static" gate warning caps the score at 0.5.
 - NaN/Inf pixels cap the score at 0: guard divisions, sqrt/pow/log, normalize, acos/asin.
-- Keep brightness readable (mean luminance ~0.2-0.6), aspect-correct coordinates, tonemap + gamma last.
+- Keep brightness readable (neither near-black nor blown out), aspect-correct coordinates, tonemap + gamma last.
 - A "colour/light" change = palette constants / exposure / grade only; a "motion" change = the time terms only;
   do not rewrite unrelated layers.
 {% if seeded_recipes %}- The harness-owned, read-only `src/recipes.glsl` (pasted above your code at build time) carries VERIFIED

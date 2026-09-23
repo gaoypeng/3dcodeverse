@@ -20,7 +20,7 @@ cookbook's copyable snippet instead of patching arguments).
 - Lint error (forbidden API, missing entry point, wrong frame/units): replace the construct with the
   one the fix hint names; do not argue with the linter.
 - Syntax error: fix the syntax at the line; check brackets/indentation in that function only.
-- Geometry bombs (out of memory / timeout): reduce segment counts or loop counts; never exceed 300k tris.
+- Geometry bombs (out of memory / timeout): reduce segment counts or loop counts.
 - Keep one code path: no environment sniffing (`typeof window`, `isHeadless`, user agent checks).
 
 Failing file(s): {% for f in failing_files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}

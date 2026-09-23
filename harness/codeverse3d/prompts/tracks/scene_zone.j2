@@ -80,14 +80,13 @@ The recipes for all five points below are printed in full at the end of this bri
    side, as its foreground frame.
 5. **Motion that shows.**  Amplitudes from the Recipes table (foliage +/-0.10-0.20 rad, particles
    >= 0.6 m per 1.5 s).  The harness DIFFERENCES the t=0 and t=1.5 frames pixel by pixel and
-   reports the number: anything under **0.4 % of the frame changed** counts as `nothing_moves`
-   (-0.05 and the animation criterion).  Sub-centimetre sway is invisible at 1024x576.  Give this
+   reports the number: too small a change counts as `nothing_moves` (-0.05 and the animation
+   criterion).  Sub-centimetre sway is invisible at 1024x576.  Give this
    zone at least one motion big enough to see across the frame, and everything a pure function of `t`.
-6. Use `InstancedMesh` for anything repeated > 5x; <= 400k triangles and <= 40 draw calls per zone;
-   the file stays <= 320 lines.
+6. Use `InstancedMesh` for anything repeated > 5x.
 
 ## DON'T
-- No lights except small point lights for lanterns (≤ 4 per zone); no cameras; no sky/ground here.
+- No lights except small point lights for lanterns; no cameras; no sky/ground here.
 - No DOM, no textures, no fetch, no Math.random (hash `rand(i)` with an explicit seed).
 - Do not import assets marked NOT AVAILABLE; do not edit other files.
 {% if tool_cards and not single_shot %}
@@ -98,8 +97,8 @@ After editing run `build` → `check_placement` (it names every asset that float
 touches nothing or interpenetrates another, with the exact "lower X by 0.23 m onto Terrain"
 fix; a deliberately airborne thing gets `obj.userData.placement = 'free'`) → fix → `build`
 again, then `scene_views` and LOOK at the frames: count the silhouettes, look
-for a flat colour under your props, and read the MEASURED MOTION line it prints — if your zone's
-motion is under 0.4 % of the frame, double the amplitude and render again.
+for a flat colour under your props, and read the MEASURED MOTION line it prints — if it reports your
+zone's cameras as STATIC, double the amplitude and render again.
 {% endif %}
 {% if effects_catalog is defined and effects_catalog %}
 
