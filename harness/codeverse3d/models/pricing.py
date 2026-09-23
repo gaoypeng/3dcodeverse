@@ -6,7 +6,7 @@ report can say *which* price row produced a dollar and whether it was verified o
 merely inferred (``3dcode cost prices``).
 
 Only the standard (short-context) tier is modelled, **except** the documented
->200k-prompt tiers of the Gemini pro models, which ``estimate_cost`` applies
+long-prompt tiers of Gemini pro and GPT-6 Astra, which ``estimate_cost`` applies
 automatically (``Price.long_context``).  Cache *storage* fees (Gemini explicit
 caching, $/1M-tokens/hour), Anthropic 1h-cache writes, batch/flex discounts,
 data-residency and fast-mode multipliers are **not** modelled — see
@@ -146,6 +146,12 @@ PRICES: dict[tuple[str, str], Price] = {
     ("anthropic", "claude-haiku-3-5"):        Price(0.80, 4.00, 0.08, cache_write=1.00,
                                                     note="retired except on Bedrock / Google Cloud"),
     # ---------------------------------------------------------------- openai
+    ("openai", "gpt-6-astra"):               Price(10.00, 50.00, 1.00, cache_write=12.50,
+                                                    long_context=LongContext(272_000, 20.00, 75.00, 2.00),
+                                                    checked="2026-09-23",
+                                                    note="Standard rates: developers.openai.com/api/docs/models/gpt-6-astra; "
+                                                         ">272k input uses 2x input/cache and 1.5x output. "
+                                                         "CLI aggregate usage is a notional estimate, not per-request billing."),
     # gpt-5.6-sol is CHEAPER than gpt-5.6 (was priced as its equal until 2026-08-23).
     ("openai", "gpt-5.6-sol"):                Price(4.00, 20.00, 0.40,
                                                     note="4.00/20.00/0.40; was 5.00/30.00/0.50 here until 2026-08-23"),
