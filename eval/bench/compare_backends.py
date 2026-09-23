@@ -285,11 +285,13 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOption
     res.harness_status, res.harness_rounds, res.harness_loop_score = rec.status.value, len(rec.rounds), summary.picked_score
     res.harness_stop_reason = summary.stop_reason
     res.harness_aborted_rounds = len(rec.extra.get("aborted_rounds") or [])
-    if rec.status is RunStatus.JUDGE_UNAVAILABLE:
+    if rec.status is RunStatus.JUDGE_UNAVAILABLE and summary.picked_score is None:
         # The run stopped because its judge never answered (p3_graphics_v2 mushroom_forest, 2026-09-23:
         # two 900 s pro read timeouts after round 0).  Scoring what it had then would grade a one-round
         # run for someone else's outage — the asymmetry §7 ends for the one-shot arms — so the cell is
-        # dropped as infra_failed and --redo-status re-runs it.
+        # dropped as infra_failed and --redo-status re-runs it.  A run that had judged and picked a round
+        # before the outage is scored on that pick, exactly as the same outage on its last round is
+        # (owner, 2026-09-23).
         res.error = f"harness run stopped at {summary.stop_reason or 'judge_unavailable'}: the in-loop judge never answered"
         res.error_is_infra = True
         return

@@ -350,6 +350,7 @@ def test_a_harness_run_whose_judge_never_answered_is_dropped_and_redone_fresh(tm
     def judge_down(spec, ws, resume):
         rec = storm(spec, ws, resume)
         rec.status = RunStatus.JUDGE_UNAVAILABLE
+        rec.rounds[0].judgment = None  # no round was ever judged: nothing to pick
         ws.write_json(ws.record_path, rec)
         return rec
 
@@ -370,6 +371,29 @@ def test_a_harness_run_whose_judge_never_answered_is_dropped_and_redone_fresh(tm
     r2 = run_cell(battery, battery.prompts[0], arm, tmp_path, opts, CompareDeps(FakeEvaluator(), run_track=redo))
     assert seen == [False] and r2.status == "scored", (seen, r2)
     assert any(p.name.startswith("run.attempt") for p in (tmp_path / "cells" / battery.prompts[0].id / arm.slug).iterdir())
+
+
+def test_a_harness_run_that_picked_a_round_before_its_judge_went_down_is_scored(tmp_path):
+    """The same outage after a judged round is not the harness's failure either way: the run delivered
+    its pick, as a last-round outage (max_rounds) does — so it is scored, not re-rolled (owner, 2026-09-23)."""
+    from bench.compare_backends import CompareDeps, CompareOptions, parse_arm, run_cell
+    from bench.run_bench import Battery
+    from codeverse3d.contracts.run import RunStatus
+    from tests.conftest import BATTERY, FakeEvaluator, fake_run_track
+
+    run = fake_run_track()
+
+    def judged_then_down(spec, ws, resume):
+        rec = run(spec, ws, resume)
+        rec.status = RunStatus.JUDGE_UNAVAILABLE
+        ws.write_json(ws.record_path, rec)
+        return rec
+
+    battery = Battery.load(BATTERY)
+    ev = FakeEvaluator()
+    r = run_cell(battery, battery.prompts[0], parse_arm("harness:gemini-cli:gemini-3.8-flash"), tmp_path,
+                 CompareOptions(judge="gemini:x", loop_judge="gemini:x"), CompareDeps(ev, run_track=judged_then_down))
+    assert r.status == "scored" and ev.evaluated, r
 
 
 @pytest.mark.parametrize(('outage', 'reason'), [(True, 'error'), (False, 'error'), (True, 'timeout')])
