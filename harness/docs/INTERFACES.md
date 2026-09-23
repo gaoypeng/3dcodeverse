@@ -402,12 +402,13 @@ VlmJudge.slice_payload(inp) -> (list[(label, png_path)], provenance_elicitation:
     # Settings.judge.slices=="on-error" AND spec.track in judges.base.SLICE_TRACKS AND inp.glb_path exists AND the
     # connectivity gate has ≥1 ERROR; renders judge_slices into the judge cache (keyed by glb identity + error pairs)
 from codeverse3d.judges.base import JudgeInput   # (spec, renders, measurement=None, gates=[], acceptance=[], plan_summary="",
+                                               #  part_names=[] (an object plan's parts: ReferenceJudge's mismatch diff),
                                                #  round_index=0, previous=None, extra_context="", geometry_views=None,
                                                #  glb_path=None (D48: the round's canonical GLB; object tracks + 3dcode judge fill it))
 from codeverse3d.judges.base import round_input, plan_summary
 round_input(spec, plan, rnd, *, renders, gates, previous, extra_context, geometry_views, glb_path) -> JudgeInput
     # THE payload of one round: tracks/steps._judge builds it from the round in hand, cli/_judge.build_judge_input
-    # (`3dcode judge`, addons/calibration) from the stored one — acceptance + digest from the plan, glb_path only on
+    # (`3dcode judge`, addons/calibration) from the stored one — acceptance + digest + part_names from the plan, glb_path only on
     # SLICE_TRACKS.  Δ 2026-09-22: replays used a dict digest of plan.json (a Z-up object read W×D×H, a shader lost
     # style / passes / key visuals / motion); cli/_judge.stored_plan types plan.json when record.json has no plan
 plan_summary(plan, language) -> str   # the digest for every track (object: "Overall W×H×D m" in the GLB frame);

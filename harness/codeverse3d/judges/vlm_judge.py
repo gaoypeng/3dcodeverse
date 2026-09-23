@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import re
 import shutil
 import time
 from collections.abc import Callable
@@ -471,7 +470,7 @@ class ReferenceJudge(VlmJudge):
             measured.setdefault("view", info.get("render", ""))
         try:
             return compare(inp.spec, targets, renders, model=self._pick_diff_model(),
-                           part_names=_plan_part_names(inp), measured=measured, synthesized=synthesized)
+                           part_names=inp.part_names, measured=measured, synthesized=synthesized)
         except Exception as e:  # noqa: BLE001 — an advisory pass must never fail a verdict
             log.warning("reference diff pass failed: %s", e)
             return None
@@ -543,31 +542,6 @@ class ReferenceJudge(VlmJudge):
         if view is None:  # pragma: no cover - guarded by the caller
             return {}, ""
         return self.silhouette_fn(view.path, reference), view.name
-
-
-def _plan_part_names(inp: JudgeInput) -> list[str]:
-    """Part names from the plan digest the judge already receives (best effort).
-
-    ``judges.base.plan_summary`` writes them as one ``Parts: A, B×2, C`` segment;
-    a multi-line digest lists one ``- Name · role · …`` per line.  Both are handled, and
-    an unrecognised digest simply yields no names (the diff prompt then says so).
-    """
-    text = getattr(inp, "plan_summary", "") or ""
-    names: list[str] = []
-    for chunk in re.split(r"(?i)\bparts\s*:", text)[1:]:
-        for raw in chunk.split("\n")[0].split(","):
-            names.append(raw.split("\u00d7")[0].split("(")[0].strip().rstrip("."))
-    for line in text.splitlines():
-        line = line.strip()
-        if not line.startswith(("-", "*", "\u00b7")):
-            continue
-        head = line.lstrip("-*\u00b7 ").split("\u00b7")[0].split("(")[0].split(":")[0].strip()
-        names.append(head)
-    seen: list[str] = []
-    for n in names:
-        if n and " " not in n and 2 < len(n) <= 40 and n[:1].isupper() and n not in seen:
-            seen.append(n)
-    return seen[:40]
 
 
 LIKENESS_NOTE = (

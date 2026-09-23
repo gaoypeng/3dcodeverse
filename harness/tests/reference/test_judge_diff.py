@@ -36,7 +36,8 @@ def ref_input(tmp_path):
         spec=spec, renders=make_renders(tmp_path / "renders"), measurement=make_measurement(),
         acceptance=[AcceptanceItem(id="A1", text="four legs", how="measure", priority="must"),
                     AcceptanceItem(id="A2", text="slatted back", how="visual", priority="should")],
-        plan_summary="parts: Seat, Backrest, LegFrontLeft, LegFrontRight")
+        plan_summary="parts: Seat, Backrest, LegFrontLeft, LegFrontRight",
+        part_names=["Seat", "Backrest", "LegFrontLeft", "LegFrontRight"])
 
 
 def _judge(model, **kw):
@@ -120,18 +121,24 @@ def test_reference_that_contradicts_the_brief_scores_neutral(tmp_path, cache_dir
     assert "NEUTRAL" in text
 
 
-def test_part_names_are_read_from_both_plan_digest_shapes():
-    from codeverse3d.judges.vlm_judge import _plan_part_names
+def test_the_diff_call_names_every_part_of_an_articulated_plan(ref_input, cache_dir):
+    """The part list came from a regex over plan_summary, whose articulated digest runs on
+    'Parts: Base, Lid. Root link Base. Joints: …' — so the last part was always dropped."""
+    from codeverse3d.contracts.plan import ArticulatedPlan
+    from codeverse3d.contracts.run import RoundRecord
+    from codeverse3d.contracts.spec import Track
+    from codeverse3d.judges.base import round_input
+    from codeverse3d.tracks.planner import plan_example
 
-    class One:
-        plan_summary = ("Chair: a chair. Overall 0.5x0.5x0.9 m. "
-                        "Parts: Seat, SeatFrameApron, FrontLeg×2, CurvedBackrest.")
-
-    class Many:
-        plan_summary = "- Seat · surface · walnut\n- BackRail · frame · walnut\n- (no parts)"
-
-    assert _plan_part_names(One()) == ["Seat", "SeatFrameApron", "FrontLeg", "CurvedBackrest"]
-    assert _plan_part_names(Many()) == ["Seat", "BackRail"]
+    plan = ArticulatedPlan.model_validate(plan_example(Track.ARTICULATED_OBJECT))
+    names = [p.name for p in plan.parts]
+    inp = round_input(ref_input.spec, plan, RoundRecord(index=0, kind="baseline"), renders=ref_input.renders,
+                      gates=[], previous=None, extra_context="", geometry_views=None, glb_path=None)
+    assert len(names) >= 2 and inp.part_names == names
+    model = FakeChatModel(by_label={"reference_diff": [DIFF], "judge": [good_reply(REF, [], 0.8)]})
+    _judge(model, cache_dir=cache_dir).judge(inp)
+    diff = [r for r in model.requests if r.label == "reference_diff"][0]
+    assert ", ".join(names) in "".join(getattr(pt, "text", "") for m in diff.messages for pt in m.parts)
 
 
 def test_the_diff_call_is_charged_to_the_verdict(ref_input, cache_dir):
