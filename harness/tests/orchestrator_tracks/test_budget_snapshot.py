@@ -244,6 +244,23 @@ def test_the_adopted_best_of_n_winner_survives_a_boundary_budget_stop(tmp_path, 
     assert "budget.salvage" in ev and "budget.salvage_skipped" not in ev
 
 
+def test_a_baseline_session_the_clock_stopped_after_it_wrote_code_is_salvaged(tmp_path, chair_plan, settings):
+    """E6 (neon_glsl c007b166: a committed baseline, then the budget stop, then 0 rounds): code the
+    baseline session left behind is built, rendered and judged as one salvaged round."""
+
+    def writer(job, ws_):
+        (ws_.src / "object.js").write_text("// paid for\nexport function build(THREE) { return new THREE.Group(); }\n")
+        raise BudgetExceeded("elapsed 11.0 min exceeds max_minutes 10.0")
+
+    ws = Workspace(tmp_path / "runs" / "neon")
+    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(writer),
+                              planner_model=FakeChatModel(lambda req: chair_plan.model_dump(mode="json")),
+                              settings=settings, runtime=FakeRuntime(Language.THREEJS), n_candidates=1)
+    rec = track.run(make_spec(max_rounds=0), ws)
+    assert rec.status is RunStatus.BUDGET
+    assert len(rec.rounds) == 1 and rec.rounds[0].score == pytest.approx(0.6) and "salvaged" in rec.rounds[0].notes
+
+
 def test_a_skeleton_only_budget_trip_still_salvages_nothing(tmp_path, chair_plan, settings):
     """No candidate ever finished (the ceiling tripped mid-generation): there is no
     adopted winner, so the salvage hook must keep saying no off-scene."""

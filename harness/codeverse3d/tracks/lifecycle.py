@@ -45,7 +45,7 @@ from codeverse3d.prompts import load_text, render
 from codeverse3d.prompts.catalog import language_prompt, language_text
 from codeverse3d.tracks.candidates import run_best_of_n
 from codeverse3d.tracks.common import RunContext, Services
-from codeverse3d.tracks.generation import GenerationTask, single_shot_model_id
+from codeverse3d.tracks.generation import ALLOWED_ROOTS, GenerationTask, single_shot_model_id
 from codeverse3d.tracks.planner import plan as run_planner
 from codeverse3d.tracks.planner import plan_temperature
 from codeverse3d.tracks.prompting import (
@@ -177,11 +177,13 @@ class BaseTrack:
     def prepare_salvage(self, ctx: RunContext) -> bool:
         """Make the workspace buildable after a stage tripped the budget before
         round 0.  Return False when the track has nothing to salvage.  The default
-        says yes exactly when best-of-N adopted a winner (``rounds/candidates.json``
-        is written immediately before adoption): the paid, buildable candidate must
-        not be thrown away by a ceiling trip at the r00 boundary.  A bare skeleton
-        still returns False."""
-        return (ctx.ws.root / "rounds" / "candidates.json").is_file()
+        says yes exactly when the baseline left code past the pre-round stages — a
+        session that committed (or wrote) before the clock stopped it, or the adopted
+        best-of-N winner: paid code must not be thrown away by a ceiling trip before
+        r00 (neon_glsl c007b166 spent $0.254 on a committed baseline and got 0 rounds).
+        A bare skeleton still returns False."""
+        prepared = ctx.extra.get("prepared_commit")
+        return bool(prepared) and any(c.path.startswith(ALLOWED_ROOTS) for c in ctx.ws.changed_files(since=prepared))
 
     # ---- refine hooks (the scaffold below is shared; tracks fill in the task)
     def refine_file_for_target(self, ctx: RunContext) -> Callable[[str], list[str]]:
@@ -260,6 +262,7 @@ class BaseTrack:
                                         model=self.plan_model)
                 self.after_plan(ctx)
                 self.prepare(ctx, runner)
+                ctx.extra["prepared_commit"] = ws.head()   # what a salvage compares the baseline's work with
                 stop = self._round_loop(ctx, rounds)
             except BudgetExceeded as e:
                 events.emit("budget.exceeded", reason=e.reason)
