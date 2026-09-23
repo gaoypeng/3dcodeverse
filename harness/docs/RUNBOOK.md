@@ -63,7 +63,7 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 
 | id | what runs | notes |
 |---|---|---|
-| `gemini-cli:gemini-3.7-flash` (default) | `gemini -m … --approval-mode yolo --skip-trust --output-format json`, prompt on stdin; every spatial tool over MCP | cheapest agentic path; transcripts feed repair-pair mining; see gotchas below |
+| `gemini-cli:gemini-3.7-flash` (default) | `gemini -m … --approval-mode yolo --skip-trust --output-format json`, prompt on stdin; every spatial tool over MCP | cheapest agentic path; see gotchas below |
 | `single-shot:gemini:gemini-3.7-flash` | one structured-output call → multi-file envelope, no tools | fastest/cheapest; baseline for "raw model" deltas |
 | `claude-code:<model>` | `claude -p --dangerously-skip-permissions --setting-sources project --settings '{"skillOverrides":…}' --mcp-config trajectories/<label>_rNN/mcp.json --strict-mcp-config …`, prompt on stdin, `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1` | local subscription — test lightly; no user setting source, so `~/.claude/settings.json` (effortLevel, hooks, env) does not reach a session |
 | `codex:<model>[@<effort>]` | `codex exec --json -C ws --sandbox workspace-write -c model_reasoning_effort=high -c skills.bundled.enabled=false -c mcp_servers.3dcode.… -`, prompt on stdin | subscription; MCP tools need `default_tools_approval_mode="approve"` (harness passes it); reasoning effort is always stated (`Settings.agents.codex_reasoning_effort`, default `high`; `codex:gpt-5.6-sol@medium` per id, `""` to defer to `~/.codex/config.toml`) |

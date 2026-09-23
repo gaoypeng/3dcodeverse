@@ -316,7 +316,8 @@ it lands these four rows stay `mixed`, not `measured`.
   it (`BuildResult.gates`, appended by the round built or not); runs before that date still
   do not.
 * **A run is a sample iff it has a round carrying a gate report.** `RunRecord.status` says
-  how the round loop *ended* (`passed`/`plateau`/`budget`/`failed`), not whether gates ran.
+  how the round loop *ended* (then `passed`/`plateau`/`budget`/`failed`; since 2026-09-22
+  only the stop reason, `max_rounds`/`budget`/…), not whether gates ran.
   Filtering on status dropped every `budget` run — about half the corpus — and would have
   admitted a `passed` run with no gated round as a clean 0.
 * **A budget cap tuned for the judged score starves the gate readout.** The `bbox-contract`
