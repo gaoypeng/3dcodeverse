@@ -1,13 +1,5 @@
-"""An interior plan gets its enclosure from the skeleton (2026-09-07).
-
-Measured over six interior runs of the day (boat workshop x4, clockmaker x2): the plan
-described the premise ("inside an enclosed workshop"), the zones dressed their boxes, the
-env built ground, sky and sun — and nobody built walls or a roof.  Every one was judged
-"not enclosed, a diorama on a flat plane, tool racks floating at a missing wall" (0.0-0.3)
-until a refine round built them; a bare one-file scene of the same brief built the room
-first and scored 0.82.  `ScenePlan.interior` names the case, `roomShell` builds it on the
-bounds' faces, the skeleton's env.js carries it before any session starts.
-"""
+"""An interior plan gets its enclosure from the skeleton: `ScenePlan.interior` names the case,
+`roomShell` builds walls and ceiling on the bounds' faces, env.js carries it."""
 from __future__ import annotations
 
 import pytest

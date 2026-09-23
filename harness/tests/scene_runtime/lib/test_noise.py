@@ -1,7 +1,4 @@
-"""noise.js — seeded, non-flat, tiling; measured under node.
-
-Ported 2026-09-01 from the scene_multifile_graphics reference (tests/test_noise_lib.py).
-"""
+"""noise.js (82 recorded scenes import it): seeded, non-flat, tiling."""
 from __future__ import annotations
 
 import pytest

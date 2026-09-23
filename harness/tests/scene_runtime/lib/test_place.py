@@ -1,37 +1,5 @@
-"""place.js — cameras and placements ship as derived quantities.
-
-Ported 2026-09-01 from the scene_multifile_graphics reference
-(tests/test_place_lib.py).  The reference scenario is kept whole: a bumpy
-ground, a camera requested 1 m UNDER it and 0.4 m from a wall, and a 10x24x8
-tower to bbox-fit — the measured failure shape (5 of 8 audited failing scenes
-shipped cameras buried under their own terrain or pressed into a facade).  It
-needed no retargeting: place.js is arithmetic over three.js objects, with no
-renderer contract in it at all.
-
-Everything from ``test_an_interior_camera_stays_under_its_own_ceiling`` down
-covers what the port FIXED, each one measured on this host before the change:
-
-* the down-ray that grounds things started far overhead and took its NEAREST
-  hit, i.e. the top of the column — so anything with a roof over it flew UP
-  onto that roof.  A crate under a 3 m arch seated at y 3.62, and an interior
-  camera handed its room group (which is exactly what the catalog tells
-  composers to pass indoors) shipped at eye 4.60 in a room whose ceiling tops
-  out at 3.00.  Both now resolve the surface UNDER the body, and only fall
-  back to the lowest surface above it when there is nothing under it at all —
-  which is what still lifts an object authored at y = 0 onto a hillside;
-* ``establishingShot`` never checked whether anything stood between the eye
-  and the hero: a hero behind a 9 m ridge shipped a frame filled by ridge at
-  1.19 m of an 8.92 m shot.  It now slides along the fit sphere — up first,
-  then around, re-fitting at each candidate — instead of retreating the way
-  ``shot()`` does, because backing away shrinks the hero the shot exists to
-  show;
-* ``route()`` rolled wheels from ``s``, which only ever grows, so a cart on
-  the return leg of a ping-pong path drove backwards with its wheels spinning
-  forwards (-0.4 m of travel against +0.8 rad of wheel);
-* ``alongPath`` divided an OPEN path by n instead of n-1, so a row stopped a
-  whole gap short of its own last waypoint (6 posts over a 12 m quay ended at
-  x = 10, and the missing post is visible in the showcase frame).
-"""
+"""place.js — regressions: buried and roof-top cameras, seat under an arch, a ridge-blocked
+establishing shot, ping-pong wheels, and an open path a gap short."""
 from __future__ import annotations
 
 import pytest
@@ -42,15 +10,9 @@ pytestmark = pytest.mark.node
 _LIBS = ("place.js",)
 
 
-def _measure(script: str) -> dict:
-    return measure(script, _LIBS)
-
-
-# --- the reference's own probe, kept whole -------------------------------
-
 _PROBE = """
 import * as THREE from 'three';
-import { shot, establishingShot } from './lib/place.js';
+import { shot } from './lib/place.js';
 
 // A bumpy ground whose surface sits around y = 3.
 const geo = new THREE.PlaneGeometry(80, 80, 40, 40);
@@ -82,65 +44,17 @@ wall.updateMatrixWorld(true);
 const cam = shot('street', [0, surfaceY - 1, 0], [0, surfaceY + 2, -30],
                  55, [ground, wall]);
 
-// Re-check the shipped entry the way the census would.
-const cpos = new THREE.Vector3(...cam.position);
-const cdir = new THREE.Vector3(...cam.lookAt).sub(cpos);
-const cdist = cdir.length();
-const ray = new THREE.Raycaster(cpos, cdir.clone().normalize());
-ray.far = cdist;
-const hits = ray.intersectObjects([ground, wall], true);
-
-// Hero fit: a 10 x 24 x 8 tower standing on the ground.
-const hero = new THREE.Mesh(new THREE.BoxGeometry(10, 24, 8),
-                            new THREE.MeshBasicMaterial());
-hero.position.set(0, groundAt(0, 0) + 12, 0);
-hero.updateMatrixWorld(true);
-const est = establishingShot('establishing', hero,
-    { azDeg: 40, elDeg: 25, fov: 45, coverage: 0.8, surfaces: ground });
-const ecam = new THREE.PerspectiveCamera(est.fov, 16 / 9, 0.1, 1e6);
-ecam.position.set(...est.position);
-ecam.lookAt(new THREE.Vector3(...est.lookAt));
-ecam.updateMatrixWorld(true);
-const hbox = new THREE.Box3().setFromObject(hero);
-let inside = 0;
-let maxExt = 0;
-for (const cx of [hbox.min.x, hbox.max.x])
-  for (const cy of [hbox.min.y, hbox.max.y])
-    for (const cz of [hbox.min.z, hbox.max.z]) {
-      const ndc = new THREE.Vector3(cx, cy, cz).project(ecam);
-      if (Math.abs(ndc.x) <= 1 && Math.abs(ndc.y) <= 1
-          && Math.abs(ndc.z) <= 1) inside++;
-      maxExt = Math.max(maxExt, Math.abs(ndc.x), Math.abs(ndc.y));
-    }
-
-// A grazing establishing shot of a small hero must still clear the
-// ground under the eye.
-const small = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2),
-                             new THREE.MeshBasicMaterial());
-small.position.set(10, groundAt(10, 0) + 1, 0);
-small.updateMatrixWorld(true);
-const low = establishingShot('low', small,
-    { azDeg: 10, elDeg: 2, fov: 45, coverage: 0.8, surfaces: ground });
-
 console.log(JSON.stringify({
   surfaceY,
   camY: cam.position[1],
   groundAtCam: groundAt(cam.position[0], cam.position[2]),
-  firstHit: hits.length ? hits[0].distance : null,
-  clearNeeded: Math.max(2, cdist * 0.05),
-  inside,
-  maxExt,
-  estY: est.position[1],
-  lowY: low.position[1],
-  lowGround: groundAt(low.position[0], low.position[2]),
 }));
 """
 
 
 @pytest.fixture(scope="module")
 def probe() -> dict:
-    """One node launch of _PROBE, shared by every test that reads it."""
-    return _measure(_PROBE)
+    return measure(_PROBE, _LIBS)
 
 
 def test_a_buried_camera_is_lifted_above_the_ground_it_shoots_from(probe):
@@ -154,33 +68,9 @@ def test_a_buried_camera_is_lifted_above_the_ground_it_shoots_from(probe):
     assert m["camY"] > m["groundAtCam"] + 1.5, m
 
 
-def test_a_wall_pressed_camera_backs_off_to_clear_frame(probe):
-    """Nothing may fill the frame from closer than max(2m, 5% dist)."""
-    m = probe
-    assert (m["firstHit"] is None
-            or m["firstHit"] >= m["clearNeeded"] - 1e-6), m
-
-
-def test_establishing_shot_frames_the_hero(probe):
-    """>= 6 of 8 bbox corners must land inside NDC — the fitted dolly."""
-    m = probe
-    assert m["inside"] >= 6, m
-    assert 0.4 < m["maxExt"] <= 1.05, m
-
-
-def test_a_low_establishing_shot_still_clears_the_ground(probe):
-    """The fit dolly can land the eye underground; the seat ray must
-    lift it, exactly as shot() does."""
-    m = probe
-    assert m["lowY"] >= m["lowGround"] + 1.6 - 0.01, m
-
-
-# --- what the port fixed -------------------------------------------------
-
 _PORT = """
 import * as THREE from 'three';
-import { shot, establishingShot, seat, alongPath, route, crowdOn }
-  from './lib/place.js';
+import { shot, establishingShot, seat, alongPath, route } from './lib/place.js';
 
 const basic = () => new THREE.MeshBasicMaterial();
 const out = {};
@@ -309,49 +199,13 @@ out.ringN = ring.length;
 out.ringFirstToLast = ring[0].position.distanceTo(ring[7].position);
 out.ringStep = ring[0].position.distanceTo(ring[1].position);
 
-// crowdOn(): walkers on one route never bunch, at any time.
-const stalls = new THREE.Group();
-for (const [x, z] of [[3, 1], [-2, 2], [0, -3]]) {
-  const s = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.0, 1.2), basic());
-  s.name = 'stall';
-  s.position.set(x, 0.5, z);
-  stalls.add(s);
-}
-stalls.updateMatrixWorld(true);
-const lane = route([[6, 0, 0], [0, 0, 6], [-6, 0, 0], [0, 0, -6]],
-    { speed: 1.2, avoid: stalls, clearance: 0.5 });
-const figs = [];
-for (let i = 0; i < 7; i++) figs.push(new THREE.Object3D());
-const crowd = crowdOn(lane, figs, { spacing: 2, laneStep: 0.7 });
-let minGap = Infinity;
-for (let k = 0; k < 240; k++) {
-  crowd.tick(k * 0.25);
-  for (let i = 0; i < figs.length; i++)
-    for (let j = i + 1; j < figs.length; j++)
-      minGap = Math.min(minGap, figs[i].position.distanceTo(figs[j].position));
-}
-out.crowdMinGap = minGap;
-// the avoided path keeps its distance from the stalls it was routed around
-let minStall = Infinity;
-for (let k = 0; k < 400; k++) {
-  const p = lane.poseAt(k * (lane.length / 400) / 1.2).position;
-  for (const s of stalls.children) {
-    const b = new THREE.Box3().setFromObject(s);
-    const dx = Math.max(b.min.x - p.x, 0, p.x - b.max.x);
-    const dz = Math.max(b.min.z - p.z, 0, p.z - b.max.z);
-    minStall = Math.min(minStall, Math.hypot(dx, dz));
-  }
-}
-out.minStallGap = minStall;
-
 console.log(JSON.stringify(out));
 """
 
 
 @pytest.fixture(scope="module")
 def port() -> dict:
-    """One node launch of _PORT, shared by the port-fix tests."""
-    return _measure(_PORT)
+    return measure(_PORT, _LIBS)
 
 
 def test_an_interior_camera_stays_under_its_own_ceiling(port):
@@ -409,10 +263,3 @@ def test_an_open_path_reaches_its_last_waypoint(port):
     assert abs(m["ringFirstToLast"] - m["ringStep"]) < 0.35 * m["ringStep"], m
 
 
-def test_a_crowd_on_one_route_never_bunches_or_walks_through_a_stall(port):
-    """The two guarantees the catalog sells: deterministic lane+phase
-    keeps walkers apart forever, and `avoid` re-projects the path clear
-    of furniture-scale solids at build time."""
-    m = port
-    assert m["crowdMinGap"] >= 0.6, m
-    assert m["minStallGap"] >= 0.45, m

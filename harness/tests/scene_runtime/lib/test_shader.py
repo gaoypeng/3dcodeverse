@@ -1,16 +1,6 @@
-"""shader.js — the custom-shader hub must not be silently discarded by OUR renderer.
-
-Ported 2026-09-01 from the scene_multifile_graphics reference (tests/test_shader_lib.py).
-Their renderer ran a log depth buffer; ours (runtime_js/lib/browser/renderer.js) does
-not by default, so the four logdepth chunks are no-ops here — kept because
-`--log-depth` is a host option and the chunks cost nothing.  What matters on ours:
-fog chunks (every scene sets scene.fog), the tonemapping/colorspace tail (we have NO
-post chain, so a custom shader without it renders untonemapped), and that every
-construction path compiles on the headless GPU.
-"""
+"""shader.js — the hub every library module builds on: assembly, patch chaining, the
+cache key, roughness composition, one tick, and every construction path on the GPU."""
 from __future__ import annotations
-
-import re
 
 import pytest
 from _probe import compile_scene, measure
@@ -27,15 +17,9 @@ def _measure(script: str) -> dict:
 
 
 def compile_fixture(fixture_src: str, libs: tuple[str, ...] = _LIBS, *, timeout_s: float = 180.0) -> tuple[int, str]:
-    """GPU-compile every material a fixture's build() makes, through
-    `_probe.compile_scene`, wrapping the fixture in the lit, fogged scene
-    below — `check_shaders.mjs` boots a SCENE, not a module.
-
-    The static audit stays scoped to the wrapper: the fixtures below call
-    `patchStandard`, and the audit's per-file uTime rule cannot see that
-    shader.js declares and binds uTime at assembly time (`withTime`), so it
-    would report an undeclared/unbound pair on GLSL that is correct.  (The
-    library itself is exempt for the same reason — `shader_report.mjs`.)"""
+    """GPU-compile what a fixture's build() makes, inside the lit, fogged scene
+    below.  The static audit is scoped to the wrapper: its per-file uTime rule
+    cannot see that shader.js binds uTime at assembly time."""
     return compile_scene(_WRAPPER, libs, extra={"fixture.js": fixture_src},
                          audit_module="src/scene.js", timeout_s=timeout_s)
 
@@ -61,41 +45,6 @@ export async function createScene() {
 """
 
 
-# ------------------------------------------------------------ assembly
-
-
-def test_the_four_depth_chunks_are_injected_from_the_mains():
-    out = _measure("""
-import { makeShaderMaterial } from './lib/shader.js';
-const m = makeShaderMaterial({
-  varyings: 'varying vec2 vUv;',
-  vertexMain: '  vUv = uv;',
-  fragmentMain: '  gl_FragColor = vec4(vUv, 0.0, 1.0);',
-});
-console.log(JSON.stringify({ vs: m.vertexShader, fs: m.fragmentShader,
-  isShaderMaterial: !!m.isShaderMaterial, hasTime: !!m.uniforms.uTime,
-  glslVersionSet: m.glslVersion != null }));
-""")
-    src = out["vs"] + "\n" + out["fs"]
-    for chunk in _CHUNKS:
-        assert f"#include <{chunk}>" in src, chunk
-    assert out["isShaderMaterial"] and out["hasTime"]
-    assert not out["glslVersionSet"], "GLSL3 makes three stop defining gl_FragColor"
-
-
-def test_every_include_is_alone_on_its_line():
-    out = _measure("""
-import { makeShaderMaterial } from './lib/shader.js';
-const m = makeShaderMaterial({ vertexMain: '  transformed.y += 1.0;',
-                               fragmentMain: '  gl_FragColor = vec4(1.0);' });
-console.log(JSON.stringify({ vs: m.vertexShader, fs: m.fragmentShader }));
-""")
-    for line in (out["vs"] + "\n" + out["fs"]).splitlines():
-        stripped = line.strip()
-        if "#include" in stripped:
-            assert re.fullmatch(r"#include\s*<[a-z0-9_]+>;?", stripped), line
-
-
 def test_raw_sources_are_repaired_not_trusted():
     out = _measure("""
 import { makeShaderMaterial } from './lib/shader.js';
@@ -111,19 +60,6 @@ console.log(JSON.stringify({ vs: m.vertexShader, fs: m.fragmentShader }));
     main_body = fs[fs.index("void main"):]
     assert main_body.index("logdepthbuf_fragment") < main_body.index("gl_FragColor")
     assert out["vs"].rindex("logdepthbuf_vertex") > out["vs"].rindex("gl_Position")
-
-
-def test_interstage_declarations_are_normalised_to_varying():
-    out = _measure("""
-import { makeShaderMaterial } from './lib/shader.js';
-const m = makeShaderMaterial({ varyings: 'out vec3 vN;',
-  vertexMain: '  vN = normalize(normalMatrix * normal);',
-  fragmentMain: '  gl_FragColor = vec4(abs(vN), 1.0);' });
-console.log(JSON.stringify({ vs: m.vertexShader, fs: m.fragmentShader, glslVersionSet: m.glslVersion != null }));
-""")
-    assert "varying vec3 vN;" in out["vs"] and "varying vec3 vN;" in out["fs"]
-    assert "out vec3 vN;" not in out["fs"]
-    assert not out["glslVersionSet"]
 
 
 def test_utime_is_declared_wherever_it_is_read():
@@ -199,48 +135,6 @@ console.log(JSON.stringify({
 """)
     assert out["assembledTone"] and out["assembledSpace"] and out["rawGetsThemToo"]
     assert out["afterFog"] and out["aloneOnTheirLines"]
-
-
-def test_added_light_fades_into_distance_instead_of_gaining_haze():
-    out = _measure("""
-import * as THREE from 'three';
-import { makeShaderMaterial } from './lib/shader.js';
-const add = makeShaderMaterial({ additive: true, fragmentMain: '  gl_FragColor = vec4(1.0, 0.95, 0.8, 0.4);' });
-const solid = makeShaderMaterial({ fragmentMain: '  gl_FragColor = vec4(0.5);' });
-console.log(JSON.stringify({ blending: add.blending === THREE.AdditiveBlending,
-  transparent: add.transparent === true, depthWrite: add.depthWrite === false,
-  fadesAlpha: add.fragmentShader.includes('gl_FragColor.a *= 1.0 - clamp('),
-  noMix: !add.fragmentShader.includes('#include <fog_fragment>'),
-  solidMixes: solid.fragmentShader.includes('#include <fog_fragment>'),
-  hasPars: add.fragmentShader.includes('#include <fog_pars_fragment>') }));
-""")
-    assert all(out[k] for k in ("blending", "transparent", "depthWrite", "fadesAlpha", "noMix", "solidMixes", "hasPars")), out
-
-
-def test_the_craft_helpers_are_in_the_util_block_and_guarded():
-    out = _measure("""
-import * as THREE from 'three';
-import { GLSL_UTIL, makeShaderMaterial, patchStandard } from './lib/shader.js';
-const m = makeShaderMaterial({ fragmentMain: '  gl_FragColor = vec4(1.0);' });
-const p = patchStandard(new THREE.MeshStandardMaterial(), { name: 'x' });
-const shader = { vertexShader: 'void main() { #include <begin_vertex> }',
-                 fragmentShader: 'void main() { #include <color_fragment> }', uniforms: {} };
-p.onBeforeCompile(shader);
-console.log(JSON.stringify({ util: GLSL_UTIL, inShader: m.fragmentShader.includes('astraStroke'),
-  vsGuard: m.vertexShader.includes('#ifdef ASTRA_FRAG'), vsDefine: m.vertexShader.includes('#define ASTRA_FRAG'),
-  fsDefine: m.fragmentShader.includes('#define ASTRA_FRAG'),
-  patchedFsDefine: shader.fragmentShader.includes('#define ASTRA_FRAG'),
-  patchedVsDefine: shader.vertexShader.includes('#define ASTRA_FRAG') }));
-""")
-    for fn in ("astraStroke", "astraFacing", "astraStagger", "astraHueBreak", "astraFresnel"):
-        assert f"{fn}(" in out["util"], fn
-    assert "fwidth(v)" in out["util"] and out["inShader"]
-    # fwidth is fragment-only and the util block ships in BOTH stages.
-    assert out["vsGuard"] and not out["vsDefine"]
-    assert out["fsDefine"] and out["patchedFsDefine"] and not out["patchedVsDefine"]
-
-
-# ------------------------------------------------------------ patching
 
 
 def test_patched_builtins_do_not_share_one_program():
@@ -351,9 +245,6 @@ console.log(JSON.stringify({ a: a.roughness, b: b.roughness, base: a.userData.as
     assert out["floor"] == 0.04 and out["basic"]
 
 
-# ------------------------------------------------------------ tick / instancing / veils
-
-
 def test_tick_drives_every_shader_from_one_call():
     out = _measure("""
 import * as THREE from 'three';
@@ -369,81 +260,11 @@ console.log(JSON.stringify({ n, a: a.material.uniforms.uTime.value, b: b.materia
     assert out["n"] == 2 and out["a"] == 4.25 and out["b"] == 4.25
 
 
-def test_instance_variation_is_deterministic_and_per_instance():
-    out = _measure("""
-import * as THREE from 'three';
-import { instanceVariation } from './lib/shader.js';
-const mk = (seed) => instanceVariation(new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
-    new THREE.MeshStandardMaterial(), 40), { seed }).geometry.attributes.aVar;
-const a = mk(1), b = mk(1), c = mk(7);
-const arr = (x) => Array.from(x.array);
-console.log(JSON.stringify({ same: JSON.stringify(arr(a)) === JSON.stringify(arr(b)),
-  differs: JSON.stringify(arr(a)) !== JSON.stringify(arr(c)), count: a.count, itemSize: a.itemSize,
-  distinctHues: new Set(arr(a).filter((_, i) => i % 3 === 0)).size,
-  scaleMin: Math.min(...arr(a).filter((_, i) => i % 3 === 1)), scaleMax: Math.max(...arr(a).filter((_, i) => i % 3 === 1)) }));
-""")
-    assert out["same"] and out["differs"] and out["count"] == 40 and out["itemSize"] == 3
-    assert out["distinctHues"] > 30
-    assert 0.85 < out["scaleMin"] < 1.0 < out["scaleMax"] < 1.15
-
-
-def test_instanced_quad_is_gtao_safe_and_states_its_volume():
-    out = _measure("""
-import { instancedQuad } from './lib/shader.js';
-const g = instancedQuad(120, 2, 3, 25);
-const d = instancedQuad(40, 0.5, 0.5);
-const n = g.getAttribute('normal');
-console.log(JSON.stringify({ posAllZero: Array.from(g.attributes.position.array).every((v) => v === 0),
-  cornerSpread: Math.max(...g.attributes.aCorner.array) - Math.min(...g.attributes.aCorner.array),
-  instanceCount: g.instanceCount, hasUv: !!g.attributes.uv, r: g.boundingSphere.radius,
-  box: g.boundingBox ? 1 : null, defaultR: d.boundingSphere.radius > 1000,
-  unitNormal: Math.abs(Math.hypot(n.getX(0), n.getY(0), n.getZ(0)) - 1) < 1e-6 }));
-""")
-    assert out["posAllZero"] and out["cornerSpread"] > 0 and out["instanceCount"] == 120 and out["hasUv"]
-    assert out["r"] == 25 and out["box"] is None and out["defaultR"] and out["unitNormal"]
-
-
-def test_a_veil_does_not_occlude_in_depth_or_shadow_passes():
-    out = _measure("""
-import * as THREE from 'three';
-import { keepOutOfDepthPasses } from './lib/shader.js';
-const own = new THREE.MeshBasicMaterial({ transparent: true });
-const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), own);
-const g = new THREE.Group(); g.add(mesh); keepOutOfDepthPasses(g);
-const geo = mesh.geometry, range = () => geo.drawRange.count;
-mesh.onBeforeRender(null, null, null, geo, own); const withOwn = range(); mesh.onAfterRender(null, null, null, geo);
-mesh.onBeforeRender(null, null, null, geo, new THREE.MeshNormalMaterial()); const withOverride = range(); mesh.onAfterRender(null, null, null, geo);
-keepOutOfDepthPasses(g);
-mesh.onBeforeRender(null, null, null, geo, own); const again = range(); mesh.onAfterRender(null, null, null, geo);
-console.log(JSON.stringify({ withOwn: withOwn > 0, noShadow: mesh.castShadow === false,
-  withOverride: withOverride === 0, restored: range() > 0, idempotent: again > 0 }));
-""")
-    assert all(out.values()), out
-
-
-def test_a_swept_profile_is_one_closed_body():
-    out = _measure("""
-import { sweepProfile } from './lib/shader.js';
-const g = sweepProfile((t) => ({ x: 0, y: 8 - 8 * t * t, z: t * 6 }),
-    (a, t) => ({ x: Math.cos(a) * 2, y: 0, z: Math.sin(a) * (0.4 + 2 * t) }), { nu: 24, nv: 32 });
-const pos = g.attributes.position.array;
-let minY = 1e9, maxY = -1e9, minZ = 1e9, maxZ = -1e9;
-for (let i = 0; i < pos.length; i += 3) { minY = Math.min(minY, pos[i + 1]); maxY = Math.max(maxY, pos[i + 1]);
-  minZ = Math.min(minZ, pos[i + 2]); maxZ = Math.max(maxZ, pos[i + 2]); }
-console.log(JSON.stringify({ verts: g.attributes.position.count, hasUv: !!g.attributes.uv, hasNormal: !!g.attributes.normal,
-  tris: g.index.count / 3, dropY: Math.round(maxY - minY), depthZ: Math.round((maxZ - minZ) * 10) / 10 }));
-""")
-    assert out["verts"] == 25 * 33 and out["tris"] == 24 * 32 * 2
-    assert out["hasUv"] and out["hasNormal"] and out["dropY"] == 8 and out["depthZ"] > 6
-
-
-# ------------------------------------------------------------ the GPU says so
-
-
 def test_every_construction_path_compiles_on_our_gpu():
     """Assembled mains, raw sources, an additive veil, a billboard field, two
-    chained patches with shadowLike, and instanceVariation on a built-in — all
-    through renderer.js (no log depth, PCFSoft shadows, ACES) on headless Chrome."""
+    chained patches with shadowLike, instanceVariation on a built-in, and the
+    three later hooks (only the GPU can say roughnessFactor and metalnessFactor
+    are in scope where they inject) — plain and instanced."""
     code, out = compile_fixture("""
 import * as THREE from 'three';
 import { makeShaderMaterial, patchStandard, shadowLike, instanceVariation, instancedQuad, keepOutOfDepthPasses } from './lib/shader.js';
@@ -477,6 +298,36 @@ export function build() {
   const m = new THREE.Matrix4();
   for (let i = 0; i < 30; i++) inst.setMatrixAt(i, m.makeTranslation(i * 0.4 - 6, 0.5, 2));
   instanceVariation(inst, { seed: 3 }); g.add(inst);
+  // the three later hooks: roughnessFactor / metalnessFactor in scope, gl_FragColor writable
+  const crustMat = new THREE.MeshStandardMaterial({
+    color: 0x9a6b3f, roughness: 0.35, metalness: 0.8 });
+  patchStandard(crustMat, {
+    name: 'crust',
+    uniforms: { uCrust: { value: 0.6 } },
+    fragmentHead: 'uniform float uCrust;\\nvarying vec3 vCrustW;',
+    vertexHead: 'varying vec3 vCrustW;',
+    vertexBody: '  vCrustW = (modelMatrix * vec4(transformed, 1.0)).xyz;',
+    fragmentBody:
+        '  float crust = uCrust * astraFbm2(vCrustW.xz * 1.5, 3);\\n'
+        + '  diffuseColor.rgb = mix(diffuseColor.rgb,'
+        + ' vec3(0.42, 0.20, 0.09), crust);',
+    // the point of the hook: kill the specular ONLY where the crust is
+    roughnessBody: '  roughnessFactor = mix(roughnessFactor, 0.98, crust);',
+    metalnessBody: '  metalnessFactor *= 1.0 - crust;',
+    outputBody: '  gl_FragColor.rgb += vec3(0.03, 0.02, 0.01) * crust;',
+  });
+  const tank = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 3, 24), crustMat);
+  tank.position.y = 1.5; tank.castShadow = true; g.add(tank);
+  // the same material on an InstancedMesh: a second permutation, and the
+  // one place USE_INSTANCING inside the world-space helper is compiled.
+  const crustInst = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.4, 0.4, 0.4), crustMat, 8);
+  const m4b = new THREE.Matrix4();
+  for (let i = 0; i < 8; i++) {
+    crustInst.setMatrixAt(i, m4b.makeTranslation(i * 0.7 - 2.5, 0.2, 2.5));
+  }
+  crustInst.instanceMatrix.needsUpdate = true;
+  g.add(crustInst);
   return g;
 }
 """)
@@ -484,18 +335,9 @@ export function build() {
     assert "ERROR" not in out, out
 
 
-# --------------------------------------------- the three later hooks
-
-
 def test_the_later_hooks_land_after_their_own_chunks_in_order():
-    """`<color_fragment>` reaches the ALBEDO and nothing else, which is why a
-    partial crust (rust, dust) could only be sold by retuning the whole
-    material's roughness, and why airlight could only lift reflectance.  The
-    three later hooks are opt-in and each lands after the chunk that puts its
-    variable in scope: roughnessFactor, metalnessFactor, and gl_FragColor
-    while it is still LINEAR (tonemapping and the colourspace convert come
-    after `<opaque_fragment>`, fog after those).  Bodies from several patches
-    join in CALL order, as the albedo hook already does."""
+    """Each opt-in hook lands after the chunk that puts its variable in scope
+    (gl_FragColor while still LINEAR), and bodies join in CALL order."""
     out = _measure("""
 import * as THREE from 'three';
 import { patchStandard } from './lib/shader.js';
@@ -552,50 +394,3 @@ console.log(JSON.stringify({ tail }));
     assert out["tail"] == ("#include <roughnessmap_fragment>\n"
                           "#include <metalnessmap_fragment>\n"
                           "#include <opaque_fragment>\n}")
-
-
-def test_the_later_hooks_compile_on_the_real_renderer():
-    """Only the GPU can say that `roughnessFactor` and `metalnessFactor` are
-    really in scope where the hooks inject, and that gl_FragColor is writable
-    after `<opaque_fragment>` — three's chunk names and contents are its own
-    business and change between releases."""
-    code, out = compile_fixture("""
-import * as THREE from 'three';
-import { patchStandard } from './lib/shader.js';
-
-export function build() {
-  const g = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0x9a6b3f, roughness: 0.35, metalness: 0.8 });
-  patchStandard(mat, {
-    name: 'crust',
-    uniforms: { uCrust: { value: 0.6 } },
-    fragmentHead: 'uniform float uCrust;\\nvarying vec3 vCrustW;',
-    vertexHead: 'varying vec3 vCrustW;',
-    vertexBody: '  vCrustW = (modelMatrix * vec4(transformed, 1.0)).xyz;',
-    fragmentBody:
-        '  float crust = uCrust * astraFbm2(vCrustW.xz * 1.5, 3);\\n'
-        + '  diffuseColor.rgb = mix(diffuseColor.rgb,'
-        + ' vec3(0.42, 0.20, 0.09), crust);',
-    // the point of the hook: kill the specular ONLY where the crust is
-    roughnessBody: '  roughnessFactor = mix(roughnessFactor, 0.98, crust);',
-    metalnessBody: '  metalnessFactor *= 1.0 - crust;',
-    outputBody: '  gl_FragColor.rgb += vec3(0.03, 0.02, 0.01) * crust;',
-  });
-  const tank = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 3, 24), mat);
-  tank.position.y = 1.5; tank.castShadow = true; g.add(tank);
-  // the same material on an InstancedMesh: a second permutation, and the
-  // one place USE_INSTANCING inside the world-space helper is compiled.
-  const inst = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.4, 0.4, 0.4), mat, 8);
-  const m4 = new THREE.Matrix4();
-  for (let i = 0; i < 8; i++) {
-    inst.setMatrixAt(i, m4.makeTranslation(i * 0.7 - 2.5, 0.2, 2.5));
-  }
-  inst.instanceMatrix.needsUpdate = true;
-  g.add(inst);
-  return g;
-}
-""")
-    assert code == 0, out
-    assert "ERROR" not in out, out

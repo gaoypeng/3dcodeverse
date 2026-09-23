@@ -1,16 +1,13 @@
 """Node probes for the shipped effect library (``starter/src/lib``).
 
-Ported 2026-09-01 from the scene_multifile_graphics reference's tests/node_probe.py.
 A probe is an ES module run under OUR resolve hook (``runtime_js/lib/resolve_three.mjs``
 maps ``three`` / ``three/addons/*`` to the harness's own install), in a private temp
 dir holding a copy of the library — never a live workspace.  ``measure`` returns the
 LAST stdout line of the probe as JSON; ``compile_scene`` compiles every program a
 fixture scene builds through ``runtime_js/check_shaders.mjs`` (headless GPU).
 
-The readers every patch test shares live here too, once: ``SHADER_JS`` (the
-two hooks patchStandard injects into, and ``compile`` / ``count`` / ``mains`` /
-``locals`` over what comes back) and, on the Python side, ``_find`` and
-``_main_body`` under the names the patch tests always called them by.
+The readers the patch tests share live here too: ``SHADER_JS`` (the two hooks
+patchStandard injects into, and ``compile``), ``_find`` and ``_main_body``.
 """
 from __future__ import annotations
 
@@ -31,9 +28,7 @@ pytestmark = pytest.mark.node
 
 # The two hooks patchStandard injects into, as a material three would.
 # Nothing else is in the source, so what comes back is the patch itself:
-# `compile(mat)` runs a material's onBeforeCompile over it, `count` counts a
-# needle (a string or a RegExp), and `locals(mains(sh))` lists what the
-# injected bodies declare inside main() in both stages.
+# `compile(mat)` runs a material's onBeforeCompile over it.
 SHADER_JS = """
 const fake = () => ({
   vertexShader: 'void main() {\\n#include <begin_vertex>\\n}',
@@ -45,13 +40,6 @@ function compile(mat) {
   mat.onBeforeCompile(shader);
   return shader;
 }
-const count = (src, needle) => src.split(needle).length - 1;
-const mains = (sh) => sh.fragmentShader.slice(
-    sh.fragmentShader.indexOf('void main')) + '\\n' +
-    sh.vertexShader.slice(sh.vertexShader.indexOf('void main'));
-const locals = (src) => (src.match(
-    /^\\s+(?:float|vec2|vec3|vec4|mat3|mat4)\\s+(\\w+)/gm) || [])
-    .map((h) => h.trim().split(/\\s+/)[1]);
 """
 
 
@@ -119,12 +107,6 @@ def compile_scene(scene_src: str, libs: tuple[str, ...] = (), *,
     ``report`` also writes the WHOLE JSON report to that path: the output
     returned is cut to its last 4000 characters, and a scene with many
     programs can overrun that before its report line even starts.
-
-    This replaced a ``shader_check(fixture_src, ...)`` that staged only
-    ``src/fixture.js`` and could therefore never get past
-    ``compile preflight failed: missing src/scene.js`` — every one of the 32
-    module tests that wanted a GPU compile had hand-rolled the same 17-line
-    workaround around it (consolidation, 2026-09-01).
     """
     _three_ready()
     with tempfile.TemporaryDirectory(prefix="c3d-compile-scene-") as tmp:

@@ -1,12 +1,5 @@
-"""The starter's outdoor world ships from the library (D71, 2026-09-08).
-
-Measured over the day's exterior runs: with a flat one-colour plane and a bare dome as the
-default, every env session that under-delivered (or died in the 503 storm) shipped "flat
-untextured ground", "no aerial perspective", "hard world edge" — the three most frequent
-defects of the tally over 43 judged rounds.  The starter now builds its ground from
-`terrain.ground()` (level inside CONTENT_RADIUS, rolling beyond), its sky / ridge / fog
-from `worldShell()` and the middle distance from `makeOutskirts()`.
-"""
+"""The starter's outdoor world ships from the library (D71): terrain.ground(), worldShell()
+and makeOutskirts()."""
 from __future__ import annotations
 
 from pathlib import Path

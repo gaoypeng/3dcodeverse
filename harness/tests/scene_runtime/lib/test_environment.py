@@ -1,12 +1,6 @@
-"""environment.js — worldShell, makeOutskirts and the sunRig package, measured under node.
-
-Ported 2026-09-01 from the scene_multifile_graphics reference (tests/test_environment_lib.py).
-Changed for OUR renderer: the environment is a linear HALF-FLOAT bake from the graded sky
-model (sampled here through DataUtils.fromHalfFloat), the day horizon is 0xdbe3ea, night is
-a brighter moon rig (2.2 / fill 1.0 — the reference's 0.8 / 0.6 measured 30-40 % of the
-frame under the dark threshold on ACES exposure 1.0), and a SET SUN (elevation < 0) is
-night with a moon opposite the sun.
-"""
+"""environment.js (91 recorded scenes import it through the starter's env.js): worldShell,
+makeOutskirts and the sunRig package, measured under node.  A set sun (elevation < 0) is
+night with a moon opposite the sun."""
 from __future__ import annotations
 
 import math

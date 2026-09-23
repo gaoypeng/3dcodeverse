@@ -1,8 +1,5 @@
-"""terrain.js — the ground ships as a function; the cliff is one ribbon.
-
-Ported 2026-09-01 from the scene_multifile_graphics reference (tests/test_terrain_lib.py);
-the composer-prompt assertions are dropped (ours is a different prompt set).
-"""
+"""terrain.js (72 recorded scenes import it through the starter's env.js): the ground ships
+as a height function that agrees with its mesh; the cliff is one ribbon."""
 from __future__ import annotations
 
 import re

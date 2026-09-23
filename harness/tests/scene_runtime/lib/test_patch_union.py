@@ -14,11 +14,7 @@ material down; and a chain that compiles in one order, one variant or next
 to one neighbour only is a scene that renders black the day an author picks
 another.
 
-Each library's own suite pins its physics.  This file holds the two claims
-about all ten at once.  Consolidated 2026-09-22 from eight per-file
-"no patch declares a name its neighbours own" tests, which between them
-checked the uniforms of 31 of the 45 library pairs, and from eleven per-file
-GPU scenes that each compiled one library's own chain.
+This file is the GPU compile of these ten for test_library.py.
 """
 from __future__ import annotations
 
@@ -60,8 +56,8 @@ ALL = [p for patches in LIBRARIES.values() for p in patches]
 # WORLD_VARYINGS), so a material wearing several declares ONE.
 SHARED = {"uniform": {"uTime"}, "varying": {"vAstraWorld", "vAstraWorldN"}}
 
-# The spelling each library's own suite pinned, so a name added later stays
-# inside its library rather than merely missing today's neighbours.
+# Each library's name prefix, so a name added later stays inside its library
+# rather than merely missing today's neighbours.
 SPELLING = {
     "caustics.js": {"uniform": ("uCau",), "local": ("cau",)},
     "submerged.js": {"uniform": ("uSub", "uIce"), "local": ("sub", "ice"),
