@@ -26,6 +26,7 @@ from codeverse3d.models.parts import (
     attempt_timeout_s,
     classify_sdk_exception,
     image_b64,
+    message_blocks,
     retry_budget_s,
     retry_one_key,
 )
@@ -79,15 +80,7 @@ def to_messages(messages: list[ChatMessage], system: str) -> list[dict[str, Any]
         if msg.role == "assistant":
             out.append(_assistant_message(msg))
             continue
-        content: list[dict[str, Any]] = []
-        for p in msg.parts:
-            if isinstance(p, TextPart):
-                if p.text:
-                    content.append({"type": "text", "text": p.text})
-            elif isinstance(p, ImagePart):
-                if p.label:
-                    content.append({"type": "text", "text": f"[image: {p.label}]"})
-                content.append(_image_block(p))
+        content = message_blocks(msg, text=lambda t: {"type": "text", "text": t}, image=_image_block)
         if content:
             out.append({"role": "user", "content": content})
     if not out or all(m["role"] == "system" for m in out):

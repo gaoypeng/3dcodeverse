@@ -20,7 +20,6 @@ from codeverse3d.contracts.chat import (
     ChatRequest,
     ChatResponse,
     ImagePart,
-    TextPart,
 )
 from codeverse3d.contracts.common import Usage
 from codeverse3d.models.base import ModelError
@@ -30,6 +29,7 @@ from codeverse3d.models.parts import (
     attempt_timeout_s,
     classify_sdk_exception,
     image_b64,
+    message_blocks,
     retry_budget_s,
     retry_one_key,
 )
@@ -85,15 +85,7 @@ def to_messages(messages: list[ChatMessage]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for msg in messages:
         role = "assistant" if msg.role == "assistant" else "user"
-        blocks: list[dict[str, Any]] = []
-        for p in msg.parts:
-            if isinstance(p, TextPart):
-                if p.text:
-                    blocks.append({"type": "text", "text": p.text})
-            elif isinstance(p, ImagePart):
-                if p.label:
-                    blocks.append({"type": "text", "text": f"[image: {p.label}]"})
-                blocks.append(_image_block(p))
+        blocks = message_blocks(msg, text=lambda t: {"type": "text", "text": t}, image=_image_block)
         if not blocks:
             continue
         if out and out[-1]["role"] == role:

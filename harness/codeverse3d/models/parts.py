@@ -10,7 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from codeverse3d.contracts.chat import ImagePart
+from codeverse3d.contracts.chat import ChatMessage, ImagePart, TextPart
 from codeverse3d.models.base import ModelError
 
 
@@ -37,6 +37,21 @@ def image_b64(part: ImagePart) -> tuple[str, str]:
     """``(base64_string, mime)`` for providers that want base64 (Anthropic, OpenAI data URLs)."""
     raw, mime = image_bytes(part)
     return base64.b64encode(raw).decode("ascii"), mime
+
+
+def message_blocks(msg: ChatMessage, *, text: Callable[[str], Any], image: Callable[[ImagePart], Any]) -> list[Any]:
+    """One message's parts as a provider's blocks: empty text is dropped, and a labelled image
+    is preceded by an ``[image: <label>]`` text block (the one place that text is written)."""
+    out: list[Any] = []
+    for p in msg.parts:
+        if isinstance(p, TextPart):
+            if p.text:
+                out.append(text(p.text))
+        elif isinstance(p, ImagePart):
+            if p.label:
+                out.append(text(f"[image: {p.label}]"))
+            out.append(image(p))
+    return out
 
 
 class SdkModel:

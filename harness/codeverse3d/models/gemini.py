@@ -32,14 +32,19 @@ from codeverse3d.contracts.chat import (
     ChatRequest,
     ChatResponse,
     ImagePart,
-    TextPart,
 )
 from codeverse3d.contracts.common import Usage
 from codeverse3d.cost.context import AttemptRecord, attempt_sink
 from codeverse3d.cost.ledger import record_call
 from codeverse3d.cost.types import Role, Stage
 from codeverse3d.models.base import ModelError
-from codeverse3d.models.parts import Stopwatch, attempt_timeout_s, image_bytes, retry_budget_s
+from codeverse3d.models.parts import (
+    Stopwatch,
+    attempt_timeout_s,
+    image_bytes,
+    message_blocks,
+    retry_budget_s,
+)
 from codeverse3d.models.pricing import estimate_cost, per_image_usd
 from codeverse3d.models.retry import KeyPool, KeyPoolExhausted, OnAttempt, _Try, rotate_with_retries
 from codeverse3d.models.schema_utils import JsonParseError, parse_json_lenient, to_gemini_schema
@@ -54,21 +59,17 @@ FATAL_FINISH = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFE
 
 
 # ------------------------------------------------------------------ contents
+def _image_part(p: ImagePart) -> types.Part:
+    raw, mime = image_bytes(p)
+    return types.Part.from_bytes(data=raw, mime_type=mime)
+
+
 def to_contents(messages: list[ChatMessage]) -> list[types.Content]:
     """ChatMessages → Gemini ``Content`` list."""
     out: list[types.Content] = []
     for msg in messages:
         role = "model" if msg.role == "assistant" else "user"
-        parts: list[types.Part] = []
-        for p in msg.parts:
-            if isinstance(p, TextPart):
-                if p.text:
-                    parts.append(types.Part.from_text(text=p.text))
-            elif isinstance(p, ImagePart):
-                raw, mime = image_bytes(p)
-                if p.label:
-                    parts.append(types.Part.from_text(text=f"[image: {p.label}]"))
-                parts.append(types.Part.from_bytes(data=raw, mime_type=mime))
+        parts: list[types.Part] = message_blocks(msg, text=lambda t: types.Part.from_text(text=t), image=_image_part)
         if not parts:
             continue
         # merge consecutive same-role turns (Gemini wants strict alternation)
