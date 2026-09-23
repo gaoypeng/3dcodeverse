@@ -69,8 +69,9 @@ def test_a_built_wheel_actually_contains_the_bundles(tmp_path: Path):
 
 
 @pytest.mark.slow
-def test_the_library_resolves_through_importlib_resources_not_just___file__():
-    """An installed wheel has no source tree; ``skills_dir`` must still find the bundles."""
+def test_skills_dir_is_the_package_directory_importlib_resources_names():
+    """``skills_dir`` uses ``__file__``, as prompts and rubrics do: pin that it is the same
+    directory the import system resolves, so an installed wheel still finds the bundles."""
     from importlib.resources import files
 
     from codeverse3d.skills import skills_dir
