@@ -7,10 +7,12 @@ from codeverse3d.languages.glsl_shader import (
     HEADER,
     _check_file,
     compose,
+    defined_functions,
     detect_convention,
     first_error,
     lint_workspace,
     parse_glsl_log,
+    strip_comments,
 )
 from codeverse3d.languages.opengl_python import lint_source
 from codeverse3d.languages.opengl_python import lint_workspace as lint_program_ws
@@ -73,6 +75,19 @@ def test_glsl_lint_rules():
     assert any(f.data["kind"] == "entry_in_common" for f in _check_file("src/common.glsl", "void main(){}", role="common"))
     assert any(f.data["kind"] == "no_entry" for f in _check_file("src/shader.frag", "vec3 f() { return vec3(0); }", role="shader"))
     assert any(f.data["kind"] == "buffer_self_ref" for f in _check_file("src/buffer_a.frag", SHADER.replace("u_resolution", "u_buffer_a") + "\n", role="buffer_a"))
+
+
+def test_mixed_comments_blank_only_the_comments():
+    """A `/*` inside a `//` comment opens nothing: the two-pass stripper (blocks, then lines)
+    blanked everything up to a later `*/`, so the lint never saw the code in between."""
+    src = ("// tweak /* the fog here\nfloat fogAmt(float d) { return d; }\nuniform float u_extra;\n// end */\n"
+           "/* a // inside a block */ float x() { return 1.0; }\n")
+    stripped = strip_comments(src)
+    assert stripped.count("\n") == src.count("\n") and "uniform float u_extra;" in stripped
+    assert "tweak" not in stripped and "inside" not in stripped
+    assert defined_functions(src) == {"fogAmt": 2, "x": 5}
+    shader = src + SHADER
+    assert any(f.data["kind"] == "custom_uniform" for f in _check_file("src/shader.frag", shader, role="shader"))
 
 
 def test_glsl_lint_workspace_missing_and_stray(tmp_ws):

@@ -54,8 +54,9 @@ MAIN_IMAGE_TRAILER = """
 void main() { mainImage(fragColor, gl_FragCoord.xy); }
 """
 
-_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
-_LINE_COMMENT = re.compile(r"//[^\n]*")
+#: ONE left-to-right scan: a `//` inside a block comment and a `/*` inside a line comment
+#: are comment text.  Two passes (blocks, then lines) blanked real code after `// … /*`.
+_COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
 _MAIN_IMAGE = re.compile(r"\bvoid\s+mainImage\s*\(")
 _PLAIN_MAIN = re.compile(r"\bvoid\s+main\s*\(\s*(void)?\s*\)")
 
@@ -73,7 +74,7 @@ def strip_comments(text: str) -> str:
     def _blank(m: re.Match[str]) -> str:
         return re.sub(r"[^\n]", " ", m.group(0))
 
-    return _LINE_COMMENT.sub(_blank, _BLOCK_COMMENT.sub(_blank, text))
+    return _COMMENT.sub(_blank, text)
 
 
 def detect_convention(shader_src: str) -> str:

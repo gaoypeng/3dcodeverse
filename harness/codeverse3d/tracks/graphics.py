@@ -32,7 +32,12 @@ from codeverse3d.contracts.common import HARNESS_OWNED_SRC, TRACK_INFO, Language
 from codeverse3d.contracts.plan import GraphicsPlan, Plan
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.languages._gl_common import METRICS_NAME, SHEET_NAME, read_metrics
-from codeverse3d.languages.glsl_shader import COMMON_GLSL, FUNC_DEF, strip_comments
+from codeverse3d.languages.glsl_shader import (
+    COMMON_GLSL,
+    FUNC_DEF,
+    defined_functions,
+    strip_comments,
+)
 from codeverse3d.orchestrator import TaskGroup
 from codeverse3d.prompts import render
 from codeverse3d.prompts.sections import Section, split_sections
@@ -169,7 +174,7 @@ def cookbook_functions(md: str) -> dict[str, Recipe]:
 def defined_names(glsl: str) -> set[str]:
     """Function and ``#define`` names a GLSL file already defines (what a seed must not repeat)."""
     names = set(_DEFINE.findall(glsl))
-    names.update(m.group(1) for line in strip_comments(glsl).splitlines() if (m := FUNC_DEF.match(line)))
+    names.update(defined_functions(glsl))
     return names
 
 
