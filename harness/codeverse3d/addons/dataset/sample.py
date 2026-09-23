@@ -38,7 +38,7 @@ from codeverse3d.contracts.common import (
 )
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.record import _git
-from codeverse3d.record.deliverable import deliverable_path, round_outputs
+from codeverse3d.record.deliverable import deliverable_path, round_outputs, texture_shipped_for
 from codeverse3d.record.record import (
     effective_judgment,
     round_summary,
@@ -231,11 +231,12 @@ def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str
     return out
 
 
-def copy_textured(ws: Workspace, record: RunRecord, dest: Path) -> list[str]:
-    """When the texture pass shipped (``record.extra['texturing'].shipped``):
-    copy the generated ``textures/*.png`` and ``object_textured.glb`` into the sample."""
+def copy_textured(ws: Workspace, record: RunRecord, rnd: RoundRecord | None, dest: Path) -> list[str]:
+    """When a texture pass shipped from round ``rnd``'s own GLB (``texture_shipped_for``; a pack
+    made for another round is not this sample's): copy the generated ``textures/*.png`` and
+    ``object_textured.glb`` into the sample."""
     tex = record.extra.get("texturing") or {}
-    if not tex.get("shipped"):
+    if not texture_shipped_for(ws, record, round_outputs(ws, rnd)):
         return []
     out: list[str] = []
     tex_dir = ws.root / str(tex.get("textures_dir") or "artifacts/textures")

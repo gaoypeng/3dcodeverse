@@ -391,6 +391,7 @@ def test_export_graphics_sample(tmp_path: Path):
 
 
 def test_export_includes_textured_assets_when_shipped(fake_run, tmp_path: Path):
+    from codeverse3d.texturing.run import report_path
     from tests.flywheel_cli.conftest import tiny_png
 
     ws, rec = fake_run
@@ -400,6 +401,8 @@ def test_export_includes_textured_assets_when_shipped(fake_run, tmp_path: Path):
     rec.extra["texturing"] = {"shipped": True, "glb_textured": "artifacts/object_textured.glb",
                               "textures_dir": "artifacts/textures"}
     ws.write_json(ws.record_path, rec)
+    # the pass's report names the GLB it started from: the exported round's (r01, the pick)
+    ws.write_json(report_path(ws), {**rec.extra["texturing"], "glb_in": "artifacts/r01/object.glb"})
     out = tmp_path / "ds"
     export_samples(ws.root.parent, out)
     sdir = next(out.rglob("meta.json")).parent
@@ -410,6 +413,7 @@ def test_export_includes_textured_assets_when_shipped(fake_run, tmp_path: Path):
     # not shipped → nothing copied
     rec.extra["texturing"]["shipped"] = False
     ws.write_json(ws.record_path, rec)
+    ws.write_json(report_path(ws), {**rec.extra["texturing"], "glb_in": "artifacts/r01/object.glb"})
     export_samples(ws.root.parent, tmp_path / "ds2")
     sdir2 = next((tmp_path / "ds2").rglob("meta.json")).parent
     assert not (sdir2 / "textures").exists()

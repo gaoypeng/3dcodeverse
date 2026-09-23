@@ -180,6 +180,17 @@ def texture_report_for(ws: Workspace, glb: Path) -> dict | None:
     return rep
 
 
+def texture_shipped_for(ws: Workspace, record: RunRecord, out: Path | None) -> bool:
+    """Did a SHIPPED texture pass start from the round whose build outputs are ``out``
+    (``round_outputs``)?  Old layout (``out`` is ``artifacts/``): the one canonical pack
+    belonged to the one round finalise rebuilt, so the record's flag answers."""
+    if out is None:
+        return False
+    if out == ws.artifacts:
+        return bool((record.extra.get("texturing") or {}).get("shipped"))
+    return bool((texture_report_for(ws, out / "object.glb") or {}).get("shipped"))
+
+
 def _copy_artifacts(ws: Workspace, record: RunRecord, rnd: RoundRecord | None, out: Path | None, w: _Writer) -> None:
     if out is None:
         return
@@ -193,9 +204,7 @@ def _copy_artifacts(ws: Workspace, record: RunRecord, rnd: RoundRecord | None, o
             src = ws.rebase(v.path)
             w.add_file(src, f"frames/{src.name}", "frames")
     tex = record.extra.get("texturing") or {}
-    # old layout: the one canonical pack belonged to the one round finalise rebuilt
-    shipped = tex.get("shipped") if out == ws.artifacts else (texture_report_for(ws, out / "object.glb") or {}).get("shipped")
-    if shipped:
+    if texture_shipped_for(ws, record, out):
         w.add_file(ws.artifacts / "object_textured.glb", "object_textured.glb", "model")
         tex_dir = ws.root / str(tex.get("textures_dir") or "artifacts/textures")
         for p in sorted(tex_dir.glob("*.png")) if tex_dir.is_dir() else []:

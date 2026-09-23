@@ -224,6 +224,25 @@ def test_package_textures_the_rounds_own_glb_once(tmp_path, monkeypatch):
     assert not (ws.deliverable / "object_textured.glb").exists()
 
 
+def test_an_export_of_another_round_never_ships_the_pack_a_texture_pass_made_for_r02(tmp_path, monkeypatch):
+    """copy_textured shipped whatever pack the record called shipped: texture r02, hand over r00
+    (`pick --round 0`), export — and the r00 sample carried r02's textured GLB."""
+    import codeverse3d.texturing.run as trun
+    from codeverse3d.addons.dataset.export import export_one
+    from codeverse3d.record.record import load_record
+
+    ws = _run(tmp_path / "r", [(0.5, 0), (0.6, 0), (0.8, 0)])
+    monkeypatch.setattr(trun, "texture_pass", _fake_texture_pass([]))
+    select.package(ws.root, 2, texture=True)
+    assert (ws.deliverable / "object_textured.glb").is_file()
+    select.package(ws.root, 0)
+    sample = export_one(ws, load_record(ws), tmp_path / "ds")
+    assert "renders/object.glb" in sample.file_hashes and sample.meta.round == 0
+    assert not any("textured" in f or f.startswith("textures/") for f in sample.file_hashes)
+    select.package(ws.root, 2)   # ... and the round it textured still ships it
+    assert "renders/object_textured.glb" in export_one(ws, load_record(ws), tmp_path / "ds2").file_hashes
+
+
 def test_a_failed_texture_pass_does_not_stop_the_hand_over(tmp_path, monkeypatch):
     import codeverse3d.texturing.run as trun
 
