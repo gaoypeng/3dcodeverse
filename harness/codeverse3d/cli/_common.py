@@ -5,6 +5,7 @@ resolution every command goes through."""
 from __future__ import annotations
 
 import hashlib
+import math
 import shutil
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
@@ -211,16 +212,46 @@ def create_workspace(root: Path, *, force: bool) -> Workspace:
 
 
 def parse_kv_floats(items: list[str], flag: str) -> dict[str, float]:
+    """``key=value`` pairs of positive, finite floats (``--dim``: metres).  ``height=0``,
+    ``-1``, ``nan``, ``inf`` and a nameless ``=1`` used to be accepted, frozen on the spec and
+    handed to the planner, the contract gate and the judge as a stated dimension."""
     out: dict[str, float] = {}
     for it in items:
         if "=" not in it:
             raise CliError(f"{flag} expects key=value, got {it!r}")
-        k, v = it.split("=", 1)
+        k, v = (s.strip() for s in it.split("=", 1))
+        if not k:
+            raise CliError(f"{flag} expects key=value, got {it!r} (no key)")
         try:
-            out[k.strip()] = float(v)
+            out[k] = float(v)
         except ValueError as e:
             raise CliError(f"{flag} {k}: not a number: {v!r}") from e
+        if not math.isfinite(out[k]) or out[k] <= 0:
+            raise CliError(f"{flag} {k}: must be a positive number, got {v!r}")
     return out
+
+
+def check_backends(backends: Any) -> None:
+    """Refuse a backend id this build cannot construct, before a run directory exists.
+
+    The ids were only resolved when a stage first asked for the model or agent, so an
+    unknown ``--generator`` (``antigravity:...``, a typo) surfaced AFTER the paid plan
+    stage, as a traceback and an orphan run.  The parsers are the constructors' own."""
+    from codeverse3d.agents.registry import parse_agent_id
+    from codeverse3d.models.registry import parse_model_id
+    from codeverse3d.tracks.generation import is_single_shot, single_shot_model_id
+
+    for role in ("generator", "planner", "judge", "captioner"):
+        value = getattr(backends, role)
+        try:
+            if role != "generator":
+                parse_model_id(value)
+            elif is_single_shot(value):
+                parse_model_id(single_shot_model_id(value))
+            else:
+                parse_agent_id(value)
+        except ValueError as e:
+            raise CliError(f"--{role} {value!r}: {e}", code=2) from None
 
 
 # --------------------------------------------------------------------------- cost profile

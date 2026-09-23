@@ -465,3 +465,31 @@ def test_flywheel_caption_defaults_to_the_configured_captioner(runs_dir: Path, m
                             str(runs_dir.parent / "side")])
     assert r.exit_code == 0, r.output
     assert seen == ["fake:configured"]
+
+
+# --------------------------------------------------- the configuration sweep (2026-09-23): refused up front, cleanly
+@pytest.mark.parametrize("flag,value", [
+    ("--generator", "antigravity:gemini-3.7-flash"), ("--generator", "nocolon"), ("--generator", "single-shot:nope"),
+    ("--generator", "single-shot:gemini:"), ("--planner", "gemini"), ("--judge", "bogus:model"),
+    ("--captioner", "gemini:"),
+], ids=lambda v: v.strip("-"))
+def test_make_refuses_a_backend_id_it_cannot_build_before_the_run_exists(tmp_path: Path, flag: str, value: str):
+    """An unknown id used to surface after the PAID plan stage, as a traceback and an orphan run."""
+    r = runner.invoke(app, ["make", "a cup", flag, value, "--no-run", "--runs-dir", str(tmp_path / "runs"), "--slug", "b"])
+    assert r.exit_code == 2 and flag in r.output and "Traceback" not in r.output
+    assert not (tmp_path / "runs" / "b").exists()
+
+
+@pytest.mark.parametrize("args", [["--dim", "height=0"], ["--dim", "height=-1"], ["--dim", "height=nan"],
+                                  ["--dim", "height=inf"], ["--dim", "=1"]], ids=lambda a: a[-1])
+def test_make_refuses_a_dimension_that_is_not_a_positive_length(tmp_path: Path, args: list[str]):
+    r = runner.invoke(app, ["make", "a cup", *args, "--no-run", "--runs-dir", str(tmp_path / "runs"), "--slug", "d"])
+    assert r.exit_code == 1 and "--dim" in r.output and not (tmp_path / "runs" / "d").exists()
+
+
+def test_make_refuses_a_blank_prompt(tmp_path: Path):
+    r = runner.invoke(app, ["make", "  ", "--no-run", "--runs-dir", str(tmp_path / "runs")])
+    assert r.exit_code == 2 and "prompt is empty" in r.output
+    assert not (tmp_path / "runs").exists() or not any((tmp_path / "runs").iterdir())
+
+

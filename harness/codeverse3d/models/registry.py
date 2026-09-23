@@ -20,6 +20,8 @@ def parse_model_id(model_id: str) -> tuple[str, str]:
     provider, model = model_id.split(":", 1)
     if provider not in PROVIDERS:
         raise ValueError(f"unknown provider {provider!r}; known: {PROVIDERS}")
+    if not model.strip():
+        raise ValueError(f"model id {model_id!r} names no model")
     return provider, model
 
 

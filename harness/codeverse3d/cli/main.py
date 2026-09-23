@@ -333,6 +333,8 @@ def make(
 ) -> None:
     """Create a run (workspace + spec.json) and execute the track pipeline."""
     image, dim, must, must_not, tag = image or [], dim or [], must or [], must_not or [], tag or []
+    if not prompt.strip():  # a blank prompt was planned, generated and judged as is
+        raise C.CliError("the prompt is empty: say what to build", code=2)
     for p in image:
         if not p.is_file():
             raise C.CliError(f"reference image not found: {p}")
@@ -373,6 +375,7 @@ def make(
     backends = settings.backends(
         generator=generator, planner=planner, judge=judge, captioner=captioner
     )
+    C.check_backends(backends)
     # validate the whole Spec BEFORE touching the filesystem: an invalid
     # track/language combination must not leave an orphan run directory behind.
     try:
