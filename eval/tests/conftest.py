@@ -40,6 +40,7 @@ from codeverse3d.contracts.artifacts import (  # noqa: E402
     RenderView,
     Severity,
 )
+from codeverse3d.contracts.chat import ChatRequest, ChatResponse  # noqa: E402
 from codeverse3d.contracts.common import Usage  # noqa: E402
 from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus  # noqa: E402
 from codeverse3d.contracts.spec import Spec  # noqa: E402
@@ -61,6 +62,15 @@ def _score_of(code: str) -> float:
         if line.startswith("# score="):
             return float(line.split("=", 1)[1])
     return 0.5
+
+
+class GeminiChat:
+    """A chat model that bills like gemini-3.7-flash (1 000 tokens in, 10 out): a priced ledger row."""
+
+    provider, model, id = "gemini", "gemini-3.7-flash", "gemini:gemini-3.7-flash"
+
+    def generate(self, request: ChatRequest) -> ChatResponse:
+        return ChatResponse(text="ok", usage=Usage(backend="gemini", model="gemini-3.7-flash", input_tokens=1000, output_tokens=10))
 
 
 class FakeEvaluator:

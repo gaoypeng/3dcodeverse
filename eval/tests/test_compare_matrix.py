@@ -37,6 +37,7 @@ from tests.conftest import (  # noqa: E402
     FakeBackend,
     FakeEvaluator,
     FakePairwise,
+    GeminiChat,
     fake_run_track,
 )
 
@@ -222,20 +223,12 @@ def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
     tree, not into the per-process fallback log (docs/COST.md §12).  The harness arm
     gets a nested ledger for its own run; the cell's own ledger holds the spend that
     sits OUTSIDE that run (the fixed evaluator's judge) — the §6 gap."""
-    from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ChatResponse
-    from codeverse3d.contracts.common import Usage
+    from codeverse3d.contracts.chat import ChatMessage, ChatRequest
     from codeverse3d.cost.instrument import MeteredChatModel
     from codeverse3d.cost.ledger import load_ledger
 
-    class FakeChat:
-        provider, model, id = "gemini", "gemini-3.7-flash", "gemini:gemini-3.7-flash"
-
-        def generate(self, request: ChatRequest) -> ChatResponse:
-            return ChatResponse(text="ok", usage=Usage(backend="gemini", model="gemini-3.7-flash",
-                                                       input_tokens=1000, output_tokens=10))
-
     def bill(label: str) -> None:
-        MeteredChatModel(FakeChat()).generate(ChatRequest(messages=[ChatMessage.user("x")], label=label))
+        MeteredChatModel(GeminiChat()).generate(ChatRequest(messages=[ChatMessage.user("x")], label=label))
 
     ev = FakeEvaluator()
     inner_eval = ev.evaluate

@@ -11,7 +11,7 @@ from bench.report import build_report, load_results
 from bench.run_bench import Battery, BenchOptions, run_battery
 from codeverse3d.contracts.run import RunRecord, RunStatus
 from codeverse3d.workspace import Workspace
-from tests.conftest import make_fake_run
+from tests.conftest import GeminiChat, make_fake_run
 
 REPO = Path(__file__).resolve().parents[1]
 BATTERIES = sorted((REPO / "bench" / "prompts").glob("*.yaml"))
@@ -95,22 +95,14 @@ def test_run_battery_resume_and_report(tmp_path: Path):
 def test_every_bench_prompt_opens_its_own_run_ledger(tmp_path: Path):
     """The batteries produce most of the runs; without a ledger their per-call rows
     went to the per-process fallback log instead of the run (docs/COST.md §12)."""
-    from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ChatResponse
-    from codeverse3d.contracts.common import Usage
+    from codeverse3d.contracts.chat import ChatMessage, ChatRequest
     from codeverse3d.cost.instrument import MeteredChatModel
     from codeverse3d.cost.ledger import load_ledger
-
-    class FakeChat:
-        provider, model, id = "gemini", "gemini-3.7-flash", "gemini:gemini-3.7-flash"
-
-        def generate(self, request: ChatRequest) -> ChatResponse:
-            return ChatResponse(text="ok", usage=Usage(backend="gemini", model="gemini-3.7-flash",
-                                                       input_tokens=1000, output_tokens=10))
 
     inner = _fake_run_fn({})
 
     def run(spec, ws: Workspace, resume: bool) -> RunRecord:
-        MeteredChatModel(FakeChat()).generate(
+        MeteredChatModel(GeminiChat()).generate(
             ChatRequest(messages=[ChatMessage.user("x")], label="api-agent:baseline:t0"))
         return inner(spec, ws, resume)
 
