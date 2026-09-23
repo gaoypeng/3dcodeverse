@@ -16,7 +16,6 @@ directory (a glob that follows it doubles every number).
 from __future__ import annotations
 
 import argparse
-import json
 import statistics
 import sys
 from collections import Counter
@@ -26,6 +25,7 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
 from bench._records import records  # noqa: E402
+from codeverse3d.proc import read_json_or_none  # noqa: E402
 from codeverse3d.record.record import unique_files  # noqa: E402
 
 #: gemini-cli names an MCP tool ``mcp_<server>_<tool>``; ours is the ``3dcode`` server
@@ -57,10 +57,7 @@ def tool_rates(sessions: list[Path]) -> tuple[Counter, Counter]:
     calls: Counter = Counter()
     failed: Counter = Counter()
     for path in sessions:
-        try:
-            stats = (json.loads(path.read_text()) or {}).get("stats") or {}
-        except (OSError, ValueError):
-            continue
+        stats = (read_json_or_none(path) or {}).get("stats") or {}
         for name, row in ((stats.get("tools") or {}).get("byName") or {}).items():
             prefix = next((p for p in MCP_PREFIXES if name.startswith(p)), None)
             if prefix is None:
@@ -84,11 +81,7 @@ def token_rates(sessions: list[Path]) -> dict[str, float]:
 
     prompt = cached = requests = 0
     for path in sessions:
-        try:
-            stdout = json.loads(path.read_text()) or {}
-        except (OSError, ValueError):
-            continue
-        models = ((stdout.get("stats") or {}).get("models")) or {}
+        models = (((read_json_or_none(path) or {}).get("stats") or {}).get("models")) or {}
         if not models:
             continue
         main = max(models, key=lambda n: int(((models[n] or {}).get("api") or {}).get("totalRequests") or 0))
