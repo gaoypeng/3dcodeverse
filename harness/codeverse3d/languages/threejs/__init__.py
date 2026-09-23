@@ -309,7 +309,7 @@ def write_skeleton(ws: Workspace, plan: Plan, *, overwrite: bool = False) -> lis
 
 
 # ===================================================================== runtime
-ENTRY = "src/object.js"
+ENTRY = ENTRY_FILE[Language.THREEJS]
 GLB_NAME = "object.glb"
 CENSUS_NAME = "census.json"
 BUILD_JSON = "build.json"

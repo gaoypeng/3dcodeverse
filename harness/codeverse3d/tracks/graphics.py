@@ -33,6 +33,7 @@ from codeverse3d.contracts.plan import GraphicsPlan, Plan
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.languages._gl_common import METRICS_NAME, SHEET_NAME, read_metrics
 from codeverse3d.languages.glsl_shader import (
+    COMMON,
     COMMON_GLSL,
     FUNC_DEF,
     defined_functions,
@@ -62,8 +63,6 @@ log = logging.getLogger(__name__)
 # ===================================================================== recipe seeding
 #: the harness-owned recipe file (``contracts.common.HARNESS_OWNED_SRC``; ``AgentJob.read_only``)
 RECIPES_REL = HARNESS_OWNED_SRC[Language.GLSL_SHADER][0]
-#: the agent's helper file — never written by this module, except :func:`trim_skeleton_common`
-COMMON_REL = "src/common.glsl"
 HEADER = ("// harness-owned: verified cookbook recipes matched to this brief — READ-ONLY (the harness pastes this "
           "above src/common.glsl); call these functions from shader.frag")
 RESUME_HEADER = "// ---- appended on resume (recipes this file did not define yet) ----"
@@ -272,7 +271,7 @@ def seed_recipes(ctx: RunContext) -> list[str]:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(existing + lead + "\n".join(block) + "\n")
         existing = path.read_text(errors="replace")
-        trimmed = trim_skeleton_common(ctx.ws.root / COMMON_REL, defined_names(existing))
+        trimmed = trim_skeleton_common(ctx.ws.root / COMMON, defined_names(existing))
     present = seeded_on_disk(existing, known)
     ctx.extra[EXTRA_KEY] = [r.entry() for r in present]
     ctx.events.emit("recipes.seeded", file=RECIPES_REL, names=[r.name for r in new], present=[r.name for r in present],

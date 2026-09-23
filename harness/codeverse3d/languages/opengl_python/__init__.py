@@ -32,7 +32,7 @@ from codeverse3d.workspace import Workspace
 
 # ===================================================================== lint
 GATE = "lint:opengl_python"
-PROGRAM = "src/program.py"
+PROGRAM = ENTRY_FILE[Language.OPENGL_PYTHON]
 ALLOWED_MODULES: frozenset[str] = frozenset({
     "moderngl", "numpy", "math", "random", "struct", "array", "pathlib", "typing", "dataclasses", "itertools",
     "functools", "collections", "colorsys", "__future__", "enum",

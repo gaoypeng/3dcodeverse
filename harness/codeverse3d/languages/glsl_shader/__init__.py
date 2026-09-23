@@ -134,7 +134,7 @@ def first_error(messages: list[GlslMessage]) -> GlslMessage | None:
 
 # ===================================================================== lint
 GATE = "lint:glsl_shader"
-SHADER = "src/shader.frag"
+SHADER = ENTRY_FILE[Language.GLSL_SHADER]
 COMMON = "src/common.glsl"
 BUFFER_A = "src/buffer_a.frag"
 #: harness-owned (``contracts.common.HARNESS_OWNED_SRC``): seeded cookbook recipes, pasted above common.glsl

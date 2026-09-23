@@ -103,7 +103,7 @@ def check_fk_consistency(robot: Robot, census_links: dict[str, dict[str, Any]], 
 # ===================================================================== lint
 GATE = "lint:urdf"
 URDF_REL = "src/robot.urdf"
-MODEL_REL = "src/model.py"
+MODEL_REL = ENTRY_FILE[Language.URDF_BLENDER]
 _STATE_WORDS = ("open", "closed", "opened", "extended", "retracted", "raised", "lowered", "folded", "unfolded")
 #: link names double as Blender object names and ``meshes/<link>.glb`` stems: plain
 #: identifiers only (``door``, ``handle_left``, ``DoorHandle``) — never ``Door.001`` / spaces.

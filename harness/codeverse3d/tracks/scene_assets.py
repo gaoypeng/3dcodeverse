@@ -31,7 +31,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.artifacts import Judgment
-from codeverse3d.contracts.common import Language, Track
+from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
 from codeverse3d.contracts.plan import AssetPlan, BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse3d.contracts.spec import Constraints, Spec
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
@@ -353,7 +353,7 @@ def _inline(ctx: RunContext, files: list[str]) -> str:
 # ----------------------------------------------------------------------------- blender asset (hero)
 #: a hero may spend more triangles than an instanced prop (the number the prompt states)
 HERO_MAX_TRIS = 40_000
-HERO_ENTRY = "src/model.py"
+HERO_ENTRY = ENTRY_FILE[Language.BLENDER]
 HERO_GROUND_TOL_M = 0.02
 #: a hero plan with this many parts or fewer, for a sheet naming more features, is asked again once
 HERO_THIN_PLAN_PARTS = 2
