@@ -76,8 +76,8 @@ function fallingField(THREE, n, area, { fall = 0.9, cycle = 8, seed = 0 } = {}) 
 
 The modulo is what makes recycling stateless: no counter to drift, no reset to
 miss, and `update(1.5)` gives the same frame however many times it is called.
-Allocate `pos`, `base` and `ph` once at build time — the contract budgets
-`update` at under 4 ms and forbids per-frame allocation and `traverse`.
+Allocate `pos`, `base` and `ph` once at build time — the contract forbids
+per-frame allocation and `traverse` in `update`.
 
 ## Registering movers
 

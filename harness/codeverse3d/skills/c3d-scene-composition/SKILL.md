@@ -1,11 +1,11 @@
 ---
 name: c3d-scene-composition
-description: "Use when a scene_threejs session owns the environment, a zone's placement or the camera list, or when scene_frames reported a camera problem. Lay out the scene so the harness's deterministic instruments agree with the picture - one height function everything samples, a world that does not end in shot, and cameras computed from measured bounds instead of guessed. Includes the sky/ground/content classifier that silently decides two gate findings, and the exact scene_frames thresholds and score caps for camera placement and frame coverage."
+description: "Use when a scene_threejs session owns the environment, a zone's placement or the camera list, or when scene_frames reported a camera problem. Lay out the scene so the harness's deterministic instruments agree with the picture - one height function everything samples, a world that does not end in shot, and cameras computed from measured bounds instead of guessed. Includes the sky/ground/content classifier that silently decides two gate findings, and the camera-placement rules and score caps scene_frames checks."
 license: Apache-2.0
 compatibility: track scene, language scene_threejs (three r182, headless Chrome, the harness builds the cameras from your plain camera objects).
 metadata:
   evidence: mixed
-  evidence_note: "Gate thresholds, score caps and the backdrop classifier are read from live code (spatial/frame_metrics.py, judges/rubrics/scene_v1.yaml, runtime_js/lib/backdrop.mjs, runtime_js/lib/scene_host.mjs). The corpus behind them is thin: only 3 graded scene runs exist, so every count below names its n."
+  evidence_note: "Camera checks, score caps and the backdrop classifier are read from live code (spatial/frame_metrics.py, judges/rubrics/scene_v1.yaml, runtime_js/lib/backdrop.mjs, runtime_js/lib/scene_host.mjs). The corpus behind them is thin: only 3 graded scene runs exist, so every count below names its n."
   verified: "2026-08-25"
   corpus: "3 graded scene_threejs runs with gate artefacts, mined 2026-08-25"
   target_metric: "camera_placement_findings"
@@ -56,7 +56,7 @@ Three consequences you must design around:
   `ground_y = 6.21 m` and three authored cameras placed at absolute eye height came back as
   `camera is 1.0 / 4.6 / 4.8 m below the ground level` — three ERRORs in one run.
 * **Instanced scatter always counts as content.** The cheapest way to lift a thin
-  establishing shot over the 20% content floor is more instanced planting and props, not a
+  establishing shot is more instanced planting and props, not a
   bigger ground plane (which counts against you).
 
 ## Cameras are measured, and the numbers are hard
@@ -69,11 +69,11 @@ turns those ERRORs into score ceilings:
 |---|---|---|---|
 | nearest surface < 0.5 m, or the camera is inside a mesh box | `NEAR_HIT_M` | `camera inside / touching geometry` | **0.50** |
 | eye below ground and the frame corroborates it (dark, empty or one-colour) | — | `camera_underground` | **0.50** |
-| establishing shot with content < 20% of the pixels | `CONTENT_MIN_ESTABLISHING` | `establishing shot shows too little content` | **0.60** |
-| any authored shot with content < 10% | `CONTENT_MIN_AUTHORED` | `shot shows little content` | WARN |
+| establishing shot that is mostly sky/ground | — | `establishing shot shows too little content` | **0.60** |
+| any authored shot that is almost all sky/ground | — | `shot shows little content` | WARN |
 | eye less than 0.3 m above ground | `EYE_MIN_ABOVE_GROUND_M` | `ant's-eye view` | WARN |
 | eye more than 80 m above ground | `EYE_MAX_ABOVE_GROUND_M` | `satellite view, not a shot` | WARN |
-| one luminance band holds > 85% of the frame | `FLAT_MODAL_FRAC` | `flat frame` | WARN, ERROR and **0.65** past 92% |
+| one luminance band dominates the frame | — | `flat frame` | WARN; ERROR and **0.65** when it holds nearly all of it |
 
 So compute, never guess:
 

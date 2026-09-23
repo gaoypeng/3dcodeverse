@@ -36,12 +36,12 @@ halo at ~0.15 opacity, both `depthWrite: false`; the bulb mesh itself is
 `MeshBasicMaterial` (a lit bulb does not shade). One sprite reads as a sticker;
 the two-layer stack is what reads as bloom.
 
-## Street lamps — fake the pool, budget the real lights
+## Street lamps — fake the pool, few real lights
 
 The pool of light on the ground is an additive radial-gradient disc ON the
-ground plus a faint gradient cone for the shaft. Real `PointLight`s (decay 2)
-are a budget: 4-8 for foreground lamps, no more — WebGL forward lighting costs
-per-fragment per-light, and thirty real lights is both slow and flat.
+ground plus a faint gradient cone for the shaft. Keep real `PointLight`s (decay 2)
+to the foreground lamps — WebGL forward lighting costs per-fragment per-light, and
+thirty real lights is both slow and flat.
 
 ## Light shafts are barely there
 

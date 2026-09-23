@@ -45,7 +45,7 @@ The fix is to make the frame a pure function of `t`, and get the iterations insi
 * keep the state and the time it represents in `state`; each call advances from
   `state["t_sim"]` to `t`, and **resets to the seed whenever `t < state["t_sim"]`** so an
   out-of-order or repeated sample still gives the same image;
-* cap the work per call (a few thousand steps) so the build does not time out;
+* bound the work per call (a fixed maximum number of steps);
 * inject sources as a function of `t`, not once at `frame == 0`.
 
 ## Trap 2: motion has to be continuous *and* visible

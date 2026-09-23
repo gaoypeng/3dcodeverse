@@ -27,9 +27,8 @@ averages into `mean_lum`.
 | `0xf0f4f8 plaster` | 0.900 | 0.75 | 0.87 | 0.94 |
 
 
-The gate's dark threshold is 0.12. Dark foliage lands at 0.15 fully lit and 0.07 at half
-key — which is why a night woodland scene fails the gate no matter how the lights are
-tuned, and the only real fix is a lighter albedo (or emissive practicals that put bright
+Dark foliage lands at 0.15 fully lit and 0.07 at half key — which is why a night
+woodland scene reads black no matter how the lights are tuned, and the only real fix is a lighter albedo (or emissive practicals that put bright
 pixels in the frame).
 
 ## Step 3 — where the headroom is
@@ -43,7 +42,7 @@ pixels in the frame).
 
 The curve is steep at the bottom: getting from a frame value of 0.12 to 0.20 needs the
 linear scene luminance to go from 0.029 to 0.051, i.e. roughly +75 % of light — but getting
-from 0.30 to 0.50 needs it to more than double. Near the gate line, modest increases move
+from 0.30 to 0.50 needs it to more than double. At the dark end, modest increases move
 the number a lot; that is the cheapest place to fix a dark scene.
 
 ## Step 4 — sanity numbers for the coloured-darkness rows
@@ -67,6 +66,5 @@ region carrying the frame's mean.
 ## Step 5 — the check
 
 `scene_views` writes `camera_checks` into `metrics.json` with `mean_lum`, `dark_frac`,
-`blown_frac` and `modal_frac` per camera — the same four numbers the gate thresholds. Aim
-for `mean_lum >= 0.15`, `dark_frac <= 0.25`, `blown_frac <= 0.10`. Anything on the
-threshold will flip between rounds.
+`blown_frac` and `modal_frac` per camera — the same four numbers the gate reads. Read them,
+and fix whatever finding the gate names.

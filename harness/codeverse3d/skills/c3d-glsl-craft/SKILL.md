@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: GLSL 330 core via moderngl, headless. One image pass (src/shader.frag), an optional src/common.glsl and one feedback pass (src/buffer_a.frag). The harness declares the uniforms; the contract lists them.
 metadata:
   evidence: mixed
-  evidence_note: "Gate thresholds and rubric weights are read from live code (spatial/frame_stats.py, judges/rubrics/shader_v1.yaml). The corpus is thin: 9 graded glsl_shader runs, so every count below names its n and no rate is generalised."
+  evidence_note: "Gate checks and rubric weights are read from live code (spatial/frame_stats.py, judges/rubrics/shader_v1.yaml). The corpus is thin: 9 graded glsl_shader runs, so every count below names its n and no rate is generalised."
   verified: "2026-08-25"
   corpus: "9 graded glsl_shader runs (18 judged rounds) + 5 opengl_python runs, mined 2026-08-25"
   target_metric: "mean_edge_density"
@@ -26,13 +26,13 @@ corpus actually name.
 
 `spatial/frame_stats.py` renders five frames — t = 0, 1, 2.5, 4, 6 s — and measures them:
 
-| what | constant | fires at |
-|---|---|---|
-| static | `STATIC_DIFF` | mean absolute pixel difference between consecutive frames **< 0.002** |
-| flicker | `FLICKER_DIFF` | any consecutive pair **> 0.35** |
-| duplicate frames | `DUPLICATE_DIFF` | a pair under 0.0001 (INFO) |
-| near-flat image | `LOW_DETAIL_EDGE` | mean edge density **< 0.002** (fraction of pixels whose luminance gradient exceeds 0.02) |
-| black / blown | `BLACK_LUM` 0.03, `BLOWN_LUM` 0.98 | > 97% of pixels in every frame; ERROR, and the gate hint asks for mean luminance 0.2-0.6 |
+| what | fires when |
+|---|---|
+| static | consecutive frames barely differ |
+| flicker | a consecutive pair jumps by a large share of the image |
+| duplicate frames | two frames are identical (INFO) |
+| near-flat image | almost no pixel sits on a visible luminance edge |
+| black / blown | nearly every pixel is black (or white) in every frame; ERROR |
 
 Measured over the 9 graded glsl runs (mined 2026-08-25), **the gate fired zero findings**:
 mean frame-to-frame difference ranged 0.013 to 0.182 (median 0.082) and edge density 0.031

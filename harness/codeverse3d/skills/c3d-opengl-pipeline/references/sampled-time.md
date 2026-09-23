@@ -21,7 +21,7 @@ produce the same image.**
 
 ```python
 DT = 1.0 / 120.0          # simulation step
-MAX_STEPS = 4000          # keep the build inside its timeout
+MAX_STEPS = 4000          # bounded work per call
 
 def _reset(state):
     state["read"].write(state["seed_bytes"])
@@ -61,24 +61,22 @@ our runs down for *"ink is only injected at t=0s"*.
 
 `codeverse3d/spatial/frame_stats.py`:
 
-| metric | threshold | finding |
+| metric | fires when | finding |
 |---|---|---|
-| mean abs frame-to-frame delta | < 0.002 | static (WARN) |
-| mean abs frame-to-frame delta | > 0.35 | flicker (WARN) |
-| consecutive frames identical | delta < 1e-4 | duplicate (INFO) |
-| mean edge density | < 0.002 | near-flat gradient (WARN) |
-| mean luminance | < 0.03 all frames | black (ERROR) |
-| mean luminance | > 0.98 all frames | blown (ERROR) |
+| mean abs frame-to-frame delta | frames barely differ | static (WARN) |
+| mean abs frame-to-frame delta | a pair jumps by a large share of the image | flicker (WARN) |
+| consecutive frames identical | two frames are the same | duplicate (INFO) |
+| mean edge density | almost no visible edges | near-flat gradient (WARN) |
+| mean luminance | near-black in all frames | black (ERROR) |
+| mean luminance | near-white in all frames | blown (ERROR) |
 | any NaN / Inf pixel | any | ERROR |
-
-The gate's own advice for luminance is to aim for a mean between 0.2 and 0.6.
 
 ## Measured deltas from our own runs
 
 `graphics_v1_flash` + `graphics_v2_flash`, 5 graded opengl_python runs, mined 2026-08-25.
 The gate fired on exactly one of them - `ogl_hard_voxel_city`, final score 0.342 - but it
 fired repeatedly: flicker in three separate rounds, with max frame-to-frame deltas of
-0.373, 0.392 and 0.416, each barely over the 0.35 line, and each caused by a
+0.373, 0.392 and 0.416, each a flicker finding, and each caused by a
 discontinuity between two samples 1.5 to 2 seconds apart rather than by per-frame noise.
 The same run also produced `edge density 0.0000`, an entirely smooth image. So the gate is
 a weak signal at n=5; the judged criteria below are the stronger one.

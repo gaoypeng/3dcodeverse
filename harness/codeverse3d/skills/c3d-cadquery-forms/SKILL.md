@@ -69,7 +69,7 @@ solid — a revolved profile faked from stacked boxes reads as a blocky toy.
    penetration thresholds are stated once, in `c3d-part-contact`, and not repeated here.
 6. **Keep solids closed.** Export runs through STL as well as GLB; `.shell()` keeps a solid
    watertight, hand-assembled faces do not.
-7. Feature sizes >= 0.5 mm (OCC's tolerance eats smaller), <= 40 parts, build under 120 s.
+7. Feature sizes >= 0.5 mm (OCC's tolerance eats smaller).
 
 ## The four traps our own tooling is written to catch
 

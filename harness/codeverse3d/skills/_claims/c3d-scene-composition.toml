@@ -1,4 +1,4 @@
-# scene_frames thresholds quoted in the body, pinned to spatial/frame_metrics.py.
+# The camera-placement numbers quoted in the body, pinned to spatial/frame_metrics.py.
 
 [[claim]]
 key = "near_hit"
@@ -6,20 +6,6 @@ text = "0.5 m"
 python = "codeverse3d.spatial.frame_metrics:NEAR_HIT_M"
 scale = 1
 format = "{:.1f} m"
-
-[[claim]]
-key = "content_min_establishing"
-text = "20%"
-python = "codeverse3d.spatial.frame_metrics:CONTENT_MIN_ESTABLISHING"
-scale = 100
-format = "{:.0f}%"
-
-[[claim]]
-key = "content_min_authored"
-text = "10%"
-python = "codeverse3d.spatial.frame_metrics:CONTENT_MIN_AUTHORED"
-scale = 100
-format = "{:.0f}%"
 
 [[claim]]
 key = "eye_min_above_ground"
@@ -34,17 +20,3 @@ text = "80 m"
 python = "codeverse3d.spatial.frame_metrics:EYE_MAX_ABOVE_GROUND_M"
 scale = 1
 format = "{:.0f} m"
-
-[[claim]]
-key = "flat_modal_warn"
-text = "85%"
-python = "codeverse3d.spatial.frame_metrics:FLAT_MODAL_FRAC"
-scale = 100
-format = "{:.0f}%"
-
-[[claim]]
-key = "flat_modal_error"
-text = "92%"
-python = "codeverse3d.spatial.frame_metrics:FLAT_MODAL_ERROR"
-scale = 100
-format = "{:.0f}%"

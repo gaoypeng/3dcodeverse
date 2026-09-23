@@ -79,5 +79,4 @@ scene_views    -> camera_checks per camera: mean_lum, modal_frac, content_frac,
                   nearest_hit_m, eye_height_m, ground_y
 ```
 
-Six numbers per camera. Read them against the thresholds; the gate that scores you reads
-exactly the same six.
+Six numbers per camera. Read them; the gate that scores you reads exactly the same six.

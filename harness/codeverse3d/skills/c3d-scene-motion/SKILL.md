@@ -1,18 +1,18 @@
 ---
 name: c3d-scene-motion
-description: "Use when a scene_threejs session authors or refines animation, or when scene_frames reported no motion or the judge said nothing_moves. Make the scene visibly move between the two frames the harness photographs, and survive the four mechanisms that silently freeze it. Applies to baseline, zone, refine and compose sessions. Covers the measured motion threshold, the single update hook the harness actually calls, the amplitudes that read at 1024 x 576, and why clearing the motion gate is not the same as scoring animation_life - that is judged per item against the plan animation list."
+description: "Use when a scene_threejs session authors or refines animation, or when scene_frames reported no motion or the judge said nothing_moves. Make the scene visibly move between the two frames the harness photographs, and survive the four mechanisms that silently freeze it. Applies to baseline, zone, refine and compose sessions. Covers how motion is measured, the single update hook the harness actually calls, the amplitudes that read at 1024 x 576, and why clearing the motion gate is not the same as scoring animation_life - that is judged per item against the plan animation list."
 license: Apache-2.0
 compatibility: "scene track, language scene_threejs. three r182 in headless Chrome; the harness photographs each camera at t = 0 s and t = 1.5 s and diffs the pair."
 metadata:
   evidence: mixed
-  evidence_note: "The mechanism, thresholds and hook are read from live code (spatial/frame_motion.py, spatial/frame_metrics.py, runtime_js/lib/scene_host.mjs) and are exact. The corpus behind them is thin: 3 graded scene runs / 8 judged rounds on scenes_v1_flash, 2026-08-23. Where a number is from that battery it says so."
+  evidence_note: "The mechanism and hook are read from live code (spatial/frame_motion.py, spatial/frame_metrics.py, runtime_js/lib/scene_host.mjs) and are exact. The corpus behind them is thin: 3 graded scene runs / 8 judged rounds on scenes_v1_flash, 2026-08-23. Where a number is from that battery it says so."
   verified: "2026-08-25"
   pairs_with: "c3d-scene-composition, c3d-scene-lighting, c3d-threejs-shader-traps"
   target_metric: "min_authored_changed_frac"
   target_direction: "up"
   target_unit: "fraction of pixels changed on the WEAKEST authored camera, t=0 → t=1.5 s"
   target_measurable: "false"
-  target_baseline: "0.006 median / 0.017 mean on the weakest authored camera; n=3 (bench/out, 2026-08-25). The gate needs only ONE authored camera over the 0.4 pct bar, so a run whose establishing shot is frozen at 0.13 pct still passes - which is why this is a guard, not a target"
+  target_baseline: "0.006 median / 0.017 mean on the weakest authored camera; n=3 (bench/out, 2026-08-25). The gate needs only ONE authored camera to move, so a run whose establishing shot is frozen still passes - which is why this is a guard, not a target"
 ---
 
 # Motion the harness can measure
@@ -30,9 +30,8 @@ in the corpus (8 judged rounds over 3 graded scene runs, `scenes_v1_flash`,
 `codeverse3d/spatial/frame_motion.py` diffs the first and last frame of every
 camera and hands the judge the number:
 
-* a **pixel** counts as changed when any channel differs by more than 8 of 255
-* a camera counts as **MOVING** when at least **0.4 %** of its pixels changed, or
-  when 0.08 % of them changed by more than 60 of 255 (a lit window, a spark)
+* the harness counts changed pixels per camera; a camera counts as **MOVING** when
+  enough of its frame changes (a lit window or a spark counts)
 * only **authored** cameras — the ones you returned from `createScene` — count.
   The harness's own orbit and eye views are measured and shown but never decide
   the verdict
@@ -40,17 +39,16 @@ camera and hands the judge the number:
   "nothing moves: the largest change on an authored camera is N% of pixels …
   (measured, not perceived)", and the judge is told to treat it as fact
 
-So the target is concrete: **one authored camera over 0.4 % of changed pixels
-between t = 0 and t = 1.5 s.** On a 1024 x 576 frame that is about 2,360 pixels —
-roughly a 50 x 50 patch. A few centimetres of sway on a scene tens of metres wide
-does not reach it.
+So the target is concrete: **at least one authored camera visibly changes between
+t = 0 and t = 1.5 s.** A few centimetres of sway on a scene tens of metres wide
+does not do it.
 
 ## Clearing the bar is necessary, and it is not sufficient
 
 Re-measuring the stored frames of all 8 recorded rounds with today's code
 (2026-08-25) gives an uncomfortable result: **every one of them cleared the bar.**
-The best authored camera changed 2.1 %–4.7 % of its pixels in every round — five
-to twelve times the threshold — and `animation_life` still came out between 0.1
+The best authored camera changed 2.1 %–4.7 % of its pixels in every round, and
+`animation_life` still came out between 0.1
 and 0.8, averaging 0.431.
 
 The reason is in the judge's own words on three of those rounds: "the planned
@@ -154,7 +152,7 @@ Never use `Math.random()`, `Date.now()` or `performance.now()` — the contract
 forbids all three, and a non-deterministic scene makes the two frames
 incomparable.
 
-## Amplitudes that clear 0.4 %
+## Amplitudes that read
 
 Give the scene **one unmistakable hero motion** — a turning wheel, a drifting
 boat, falling leaves, a rotating beam, a flock — and then give every remaining
@@ -181,8 +179,8 @@ Call `scene_views` (its default is `times=[0, 1.5]`) and read the measured
 motion table it prints — it names each authored camera and its changed fraction.
 Then do the harder check the table cannot do for you: put the two sheets side by
 side and walk the plan's animation list item by item, pointing at each one in the
-picture. An item you cannot point at is the one the judge will name. If your best
-authored camera is under 0.4 %, or an item is invisible, double the amplitude or
+picture. An item you cannot point at is the one the judge will name. If every
+authored camera reads STATIC, or an item is invisible, double the amplitude or
 move the mover into frame. Do not ship on the strength of having written the
 code — and if nothing at all moved, run `scene_probe` first: a frozen scene is
 more often a thrown `update` than a small amplitude.

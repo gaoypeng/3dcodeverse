@@ -62,8 +62,8 @@ prism in the render sheet.
 | small sphere | 16 x 12 |
 | extrude `curveSegments` on a curved outline | 16 |
 
-A `SphereGeometry(r, 64, 64)` repeated a hundred times is 800 k triangles and
-blows the ceiling; the budget belongs on the shapes that fill the silhouette.
+A `SphereGeometry(r, 64, 64)` repeated a hundred times is 800 k triangles for
+nothing; the detail belongs on the shapes that fill the silhouette.
 
 ## There is no CSG
 

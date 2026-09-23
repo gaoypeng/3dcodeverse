@@ -98,8 +98,8 @@ Two more from the same lint that cost a whole run when they fire: indexing
   your own references to everything you create. (1 run lost time to this.)
 * **The exporter takes every *visible* mesh.** A leftover cutter, a construction guide or a
   duplicate ships as a part. Delete it or set `hide_render`/`hide_viewport`.
-* **Detail budget over triangle count.** The prompt gives a target/floor/ceiling; a bevel
-  and a chamfer on the right edges read as more refinement than 200k triangles of subsurf.
+* **Detail over triangle count.** A bevel and a chamfer on the right edges read as more
+  refinement than a dense subsurf.
 
 ## Before you finish
 

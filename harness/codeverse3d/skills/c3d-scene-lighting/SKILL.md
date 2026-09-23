@@ -1,11 +1,11 @@
 ---
 name: c3d-scene-lighting
-description: "Use when lighting a scene_threejs baseline, env or refine session, or when scene_frames called a frame too dark, blown out or flat. Light the scene so the frame gate passes and the mood still reads. Gives the exact thresholds the gate measures, the key / fill / practical recipe with numbers, and the one thing hex colours hide - how dark an albedo really is once the renderer works in linear light."
+description: "Use when lighting a scene_threejs baseline, env or refine session, or when scene_frames called a frame too dark, blown out or flat. Light the scene so the frame gate passes and the mood still reads. Gives what the frame gate measures, the key / fill / practical recipe with numbers, and the one thing hex colours hide - how dark an albedo really is once the renderer works in linear light."
 license: Apache-2.0
 compatibility: three r0.182, headless WebGL; renderer fixed at ACES Filmic tone mapping, exposure 1.0, sRGB output.
 metadata:
   evidence: mixed
-  evidence_note: 'Thresholds and renderer settings are read from live code, namely spatial/frame_metrics.py and runtime_js/lib/browser/renderer.js, and the luminance figures are computed from those settings. The corpus half is thin and labelled as such, being 4 scene_threejs runs in scenes_v1_flash mined 2026-08-25, so it is quoted as examples and never as a rate.'
+  evidence_note: 'The checks and renderer settings are read from live code, namely spatial/frame_metrics.py and runtime_js/lib/browser/renderer.js, and the luminance figures are computed from those settings. The corpus half is thin and labelled as such, being 4 scene_threejs runs in scenes_v1_flash mined 2026-08-25, so it is quoted as examples and never as a rate.'
   verified: "2026-08-25"
   target_metric: "dark_or_flat_frames"
   target_direction: "down"
@@ -22,9 +22,9 @@ The harness renders every camera and scores the pixels (`spatial/frame_metrics.p
 
 | finding | fires when | severity |
 |---|---|---|
-| too dark | mean luminance < **0.12** *or* > **35 %** of pixels near black | ERROR on an authored camera, WARN on a harness rig view |
-| blown out | > **20 %** of pixels pure white | same |
-| flat frame | one luminance band holds > **85 %** of pixels (> **92 %** makes it an ERROR on an authored camera) | WARN / ERROR |
+| too dark | dim on average *or* mostly near-black pixels | ERROR on an authored camera, WARN on a harness rig view |
+| blown out | a large share of pixels pure white | same |
+| flat frame | one luminance band dominates the frame (an ERROR on an authored camera when it holds nearly all of it) | WARN / ERROR |
 
 Two consequences people get wrong:
 
@@ -52,14 +52,14 @@ everything else equal:
 | foliage `0x1d3d22` (albedo 0.037) | frame 0.07 | frame **0.15** | frame 0.27 |
 | plaster `0xf0f4f8` (albedo 0.900) | frame 0.75 | frame 0.87 | frame 0.94 |
 
-A scene made of dark foliage sits on the gate line **when it is fully lit**, and doubling
+A scene made of dark foliage stays dim **even when it is fully lit**, and doubling
 the key only moves it to 0.27. Neither more light nor more exposure changes the ratio — only
 a lighter albedo does. So: lift the albedos of the large surfaces first, then light. Ground
 albedo below about 0.25 is a scene that cannot pass without heroic lighting.
 
-The same arithmetic says where the headroom is: mean frame luminance 0.12 corresponds to a
-linear scene luminance of only ~0.03, and the tone curve is steep down there — going from
-linear 0.02 to 0.05 moves the frame from 0.08 to 0.20. Small increases pay near the floor.
+The same arithmetic says where the headroom is: the tone curve is steep at the dark end —
+going from linear 0.02 to 0.05 moves the frame from 0.08 to 0.20. Small increases pay near
+the floor.
 
 ## The recipe
 
@@ -76,7 +76,7 @@ linear 0.02 to 0.05 moves the frame from 0.08 to 0.20. Small increases pay near 
   it from its own practicals instead: emissive on the lamp, a PointLight at each one, a
   low but non-zero base colour on dark materials so they read as material and not as void,
   and shadows left dark. The gate now tells these two cases apart — a dim frame WITH
-  contrast (`lum_std` >= 0.12) is reported as "dim but lit" and is only a WARN.
+  real contrast is reported as "dim but lit" and is only a WARN.
 * **The sun is white at noon and warm only near the horizon.** A warm sun at high elevation
   reads as an error, not as mood.
 * **The fill is the opposite hue from the key.** Hemisphere light is sky colour above,
@@ -93,18 +93,17 @@ gate's fix hint: the starter's `sunRig({ mood, intensity, fill, sunColor, fillSk
 — pick the mood (`day | golden | night | overcast`; a set sun is the night rig), raise
 `intensity` / `fill` (the rig clamps requests below its floors UP, so under-lighting is not
 reachable through it), never a second DirectionalLight on top — plus `emissiveIntensity`
-**2-6** with a PointLight **0.5-2** per practical, and keep mean luminance **>= 0.15** so
-you are not sitting on the threshold. If the frame is blown instead: `intensity` at the
+**2-6** with a PointLight **0.5-2** per practical. If the frame is blown instead: `intensity` at the
 floor, `fill` <= 1.2, sky below 0.9 white, `emissiveIntensity` <= 4 on large surfaces.
 
 For a scene lit from its PRACTICALS the target is contrast, not average — but it is a
-BAND, not a floor you can fall through. Aim at `lum_std` **>= 0.12** with mean luminance
-**0.15-0.28** and under 10 % pure black on every authored camera. One dim moon/sky key at
+BAND, not a floor you can fall through. Aim at real contrast with a dim-but-lit mean and
+little pure black on every authored camera. One dim moon/sky key at
 **<= 0.2** for shape in the shadows, at most one low ambient **0.06-0.12**, and no
 HemisphereLight and no second DirectionalLight.
 
 Both ends of that band are measured failures, one week apart in the same wave:
-* Over the top: chasing the sky-lit ">= 0.15 mean" in a lantern-lit courtyard produced a
+* Over the top: chasing a sky-lit average in a lantern-lit courtyard produced a
   flat grey wash whose granite paving read as snow and whose working water shader was
   invisible.
 * Through the floor: "remove the AmbientLight and the HemisphereLight" applied on its own
