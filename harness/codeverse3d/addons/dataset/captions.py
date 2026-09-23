@@ -37,15 +37,16 @@ N_VIEWS = 2
 #: view-name fragments that show motion (articulated track) — shown to the captioner first
 MOTION_VIEW_HINTS = ("articulation", "pose_")
 
-#: how the instruction must name the target (generic, no API names)
-LANGUAGE_PHRASE: dict[Language, str] = {
-    Language.BLENDER: "a Blender Python script",
-    Language.CADQUERY: "a CadQuery script",
-    Language.THREEJS: "a Three.js module",
-    Language.URDF_BLENDER: "a URDF model with Blender-Python-built link meshes",
-    Language.SCENE_THREEJS: "a Three.js scene",
-    Language.GLSL_SHADER: "a GLSL fragment shader",
-    Language.OPENGL_PYTHON: "an OpenGL Python program",
+#: how the instruction must name the target (generic, no API names), and the word that must
+#: appear in it (lower case)
+LANGUAGE_PHRASE: dict[Language, tuple[str, str]] = {
+    Language.BLENDER: ("a Blender Python script", "blender"),
+    Language.CADQUERY: ("a CadQuery script", "cadquery"),
+    Language.THREEJS: ("a Three.js module", "three.js"),
+    Language.URDF_BLENDER: ("a URDF model with Blender-Python-built link meshes", "urdf"),
+    Language.SCENE_THREEJS: ("a Three.js scene", "three.js"),
+    Language.GLSL_SHADER: ("a GLSL fragment shader", "glsl"),
+    Language.OPENGL_PYTHON: ("an OpenGL Python program", "opengl"),
 }
 #: leaked API / platform tokens that must not appear in any caption.  NOTE:
 #: ``THREE.`` (the API namespace) is checked case-sensitively below — the
@@ -145,11 +146,9 @@ def validate_captions(caps: Captions, language: Language) -> list[str]:
         m = _FORBIDDEN.search(getattr(caps, field)) or _FORBIDDEN_THREE_NS.search(getattr(caps, field))
         if m:
             problems.append(f"{field}: must not mention '{m.group(0)}' (API/platform name)")
-    phrase_words = {Language.BLENDER: "blender", Language.CADQUERY: "cadquery", Language.THREEJS: "three.js",
-                    Language.URDF_BLENDER: "urdf", Language.SCENE_THREEJS: "three.js",
-                    Language.GLSL_SHADER: "glsl", Language.OPENGL_PYTHON: "opengl"}[language]
-    if phrase_words not in caps.instruction.lower():
-        problems.append(f"instruction: must name the target language ({LANGUAGE_PHRASE[language]})")
+    phrase, word = LANGUAGE_PHRASE[language]
+    if word not in caps.instruction.lower():
+        problems.append(f"instruction: must name the target language ({phrase})")
     return problems
 
 
@@ -174,7 +173,7 @@ def caption_sample(
     code = _code_excerpt(ws, record)
     if not code and not images:
         raise CaptionError(f"{ws.root}: no code and no renders to caption")
-    system = _system_prompt().replace("{language_phrase}", LANGUAGE_PHRASE[record.spec.language])
+    system = _system_prompt().replace("{language_phrase}", LANGUAGE_PHRASE[record.spec.language][0])
     user = _user_prompt(record, code)
     messages = [ChatMessage.user(user, images=images)]
     schema = Captions.model_json_schema()
@@ -185,7 +184,7 @@ def caption_sample(
         resp = model.generate(ChatRequest(messages=messages, system=system, response_schema=schema,
                                           temperature=0.3, thinking="low", max_wait_s=900.0, label="captioner"))  # type: ignore[attr-defined]
         cost += resp.usage.cost_usd
-        data = resp.parsed if isinstance(resp.parsed, dict) else _parse_json(resp.text)
+        data = resp.parsed  # the adapters parse against response_schema (leniently) or raise
         try:
             caps = Captions.model_validate(data)
         except Exception as e:
@@ -220,13 +219,3 @@ def caption_sample(
         build_deliverable(ws, record, handed.round)
     return caps
 
-
-def _parse_json(text: str) -> dict:
-    s = text.strip()
-    if s.startswith("```"):
-        s = s.strip("`")
-        s = s[s.find("{"):]
-    try:
-        return json.loads(s[s.find("{"): s.rfind("}") + 1])
-    except ValueError as e:
-        raise CaptionError(f"captioner returned non-JSON: {text[:200]!r}") from e
