@@ -134,7 +134,10 @@ class GlHost:
 
     # ------------------------------------------------------------------ internals
     def _run(self, job: dict[str, Any], out_dir: Path) -> GlResult:
-        out_dir = Path(out_dir)
+        # The subprocess starts inside out_dir. A relative job path would be
+        # resolved against that directory a second time and appear to crash
+        # before it could write any result (observed with --out examples/...).
+        out_dir = Path(out_dir).resolve()
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / RESULT_NAME).unlink(missing_ok=True)
         for p in (out_dir / "frames").glob("*.png"):

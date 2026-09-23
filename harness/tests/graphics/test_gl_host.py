@@ -66,6 +66,16 @@ def test_gpu_then_cpu_fallback_is_cached(tmp_path, fake_runner, monkeypatch):
     assert (tmp_path / "o2" / gl_render.JOB_NAME).is_file() and json.loads((tmp_path / "o2" / gl_render.JOB_NAME).read_text())["mode"] == "program"
 
 
+def test_relative_output_path_survives_runner_working_directory(tmp_path, fake_runner, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = GlHost(gpu="off").render_fragment_shader("src", Path("relative/render"),
+                                                    width=32, height=18, times=(0.0,))
+    assert result.ok, result.stderr_tail
+    frame = Path(result.frames[0].path)
+    assert frame.is_file() and frame.is_relative_to(tmp_path / "relative/render")
+    assert not (tmp_path / "relative/render/relative").exists()
+
+
 def test_gpu_on_failure_raises_and_crash_timeout_are_typed(tmp_path, fake_runner, monkeypatch):
     monkeypatch.setenv("FAKE_MODE", "gpu_fail")
     with pytest.raises(GlHostError):

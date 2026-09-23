@@ -9,8 +9,36 @@
 export function geometryTriangles(geometry) {
   if (!geometry || !geometry.attributes || !geometry.attributes.position) return 0;
   const count = geometry.index ? geometry.index.count : geometry.attributes.position.count;
-  const range = geometry.drawRange ? Math.min(geometry.drawRange.count, count) : count;
+  const start = Math.max(0, geometry.drawRange?.start || 0);
+  const range = Math.max(0, Math.min(geometry.drawRange?.count ?? count, count - start));
   return Math.floor(range / 3);
+}
+
+/** Draw multiplicity, including shader-driven InstancedBufferGeometry cards.
+ * Three derives an implicit capacity from instanced attributes on first bind;
+ * before that bind we can infer a conservative finite capacity from the same
+ * buffers. Matrix instances use object.count, not geometry.instanceCount.
+ */
+export function geometryInstances(object) {
+  if (object.isInstancedMesh) return Math.max(0, Math.floor(object.count));
+  const geometry = object.geometry;
+  if (!geometry?.isInstancedBufferGeometry) return 1;
+  let capacity = geometry._maxInstanceCount;
+  if (capacity === undefined) {
+    capacity = Infinity;
+    // Before binding there is no compiled attribute-usage information. Once
+    // Three has bound a program, its capacity is authoritative: unused shorter
+    // attributes must not reduce the actual number of submitted instances.
+    for (const attribute of Object.values(geometry.attributes)) {
+      const buffer = attribute.isInterleavedBufferAttribute ? attribute.data : attribute;
+      if (buffer.isInstancedBufferAttribute || buffer.isInstancedInterleavedBuffer) {
+        capacity = Math.min(capacity, buffer.count * buffer.meshPerAttribute);
+      }
+    }
+  }
+  const count = Math.min(geometry.instanceCount, capacity);
+  // An unbounded geometry with no instance attribute has no finite draw budget.
+  return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
 }
 
 function isMeshLike(obj) {

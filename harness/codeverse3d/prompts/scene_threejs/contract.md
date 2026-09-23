@@ -8,7 +8,7 @@ src/env.js          export const BOUNDS; export function heightAt(x, z); export 
 src/zones/<snake>.js   export function build(ctx) → THREE.Group   (ctx = { THREE, scene, heightAt, loaders, env, ... })
 src/assets/<snake>.js  export function build<Asset>(THREE, opts = {}) → THREE.Group   (procedural, Y-up, on y = 0)
 src/shaders/<snake>.js export function make<Name>Material(THREE, opts = {}) → THREE.ShaderMaterial | patched material
-src/lib/*.js        HARNESS-OWNED effect library (44 modules) — import and call, never rewrite
+src/lib/*.js        HARNESS-OWNED effect library — import and call, never rewrite
 public/assets/<snake>.glb   (optional) Blender-built assets — the assembled scene.js preloads each into ctx.assets['<snake>']; zones clone it (its clips play by themselves)
 ```
 The harness serves the workspace root over http (`public/assets/` is mounted at
@@ -38,6 +38,35 @@ establishing shot that is mostly sky/ground.  Dusk/night = coloured, never black
 Relative imports between your own files, and `src/lib/*.js`.  No CDN, no other packages,
 no `three/webgpu`, no `three/tsl`.
 
+### Separate shader source files
+
+Write `.vert`, `.frag` and `.glsl` files under `src/shaders/`. The local server serves
+them as text. In async `createScene`, use the supplied loading manager and resolve
+paths relative to the JavaScript module, so the scene also works when packaged:
+
+```js
+const text = new THREE.FileLoader(loaders.manager); // Default response is text.
+const [vertexShader, fragmentShader] = await Promise.all([
+  text.loadAsync(new URL('./shaders/object.vert', import.meta.url).href),
+  text.loadAsync(new URL('./shaders/object.frag', import.meta.url).href),
+]);
+const material = new THREE.ShaderMaterial({ vertexShader, fragmentShader });
+```
+
+This example path is for `src/scene.js`; from a module in `src/scenes/`, use
+`../shaders/`. An optional `.glsl` helper file may be loaded and explicitly joined
+to the shader text. There is no general file `#include` resolver: Three's
+`#include <chunk>` references only its built-in shader chunks. There is no bundler,
+so `import shader from './file.frag'` and `?raw` do not load shader text.
+
+Await loading before returning the scene; missing files must reject normally rather
+than produce an empty shader. Loading is local to the workspace, never a CDN or
+external URL. Reusable asset builders remain synchronous and Node-compatible;
+perform browser loading in `createScene`, and pass already loaded text where needed.
+`update(t, dt)` changes uniforms or transforms, without loading or shader compilation.
+For GLSL 3 use `glslVersion: THREE.GLSL3`, explicit `in`/`out` varyings and a fragment
+output; let Three add the version line instead of adding a second `#version`.
+
 `src/lib/` is NOT a helper SDK and the "raw language only" law does not exclude it: it is
 harness-owned source shipped into this workspace, every module compiled and rendered on
 this renderer, and writes to it are reverted.  Reach for it before writing your own
@@ -49,13 +78,15 @@ bloom: author them at peak 1.5–4, not 20.  `--no-post` / `C3D_POST=0` turns it
 
 ## Forbidden
 `document.*` / `window.*` except `window.innerWidth` — never create canvases or DOM;
-`fetch`/XHR (use `loaders.gltf`); `Math.random()` (use a seeded hash `rand(i)`);
+external network requests or arbitrary `fetch`/XHR (use `loaders.gltf` for assets
+and the local FileLoader pattern above for shader text); `Math.random()` (use a seeded hash `rand(i)`);
 `Date.now()`/`performance.now()` (use `t`); `requestAnimationFrame`; creating a renderer;
 changing renderer settings; environment sniffing (`navigator.userAgent`, headless checks).
 
 ## Efficiency
-InstancedMesh for anything repeated > 5×; textures only procedural (DataTexture /
-CanvasTexture is NOT available); `update` allocates nothing and traverses nothing.
+InstancedMesh for anything repeated > 5×; textures: the shipped procedural materials
+(including their DataTextures) or the provided `loaders.texture` for textures actually
+present in the workspace; `update` allocates nothing and traverses nothing.
 
 ## Naming
 Zones are Groups named PascalCase (plan zone names); assets Groups PascalCase; every

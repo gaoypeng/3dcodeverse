@@ -7,7 +7,7 @@
  */
 
 import { classifyBackdrop, drawableBox } from './backdrop.mjs';
-import { geometryTriangles as triCount } from './census.mjs';
+import { geometryTriangles as triCount, geometryInstances } from './census.mjs';
 import { placementTable } from './host_placement.mjs';
 
 export function isCustomShader(mat, THREE) {
@@ -70,13 +70,12 @@ function walkGroup(root, THREE) {
     f.sizes.push(Math.max(size.x, size.y, size.z));
   };
   root.updateMatrixWorld(true);
-  root.traverse((o) => {
-    if (!o.visible) return;
+  root.traverseVisible((o) => {
     if (o.isLight) lights += 1;
     if (!(o.isMesh || o.isPoints || o.isLine || o.isSprite)) return;
-    const count = o.isInstancedMesh ? o.count : 1;
+    const count = geometryInstances(o);
     if (o.isMesh) { meshes += 1; instances += count; }
-    tris += triCount(o.geometry) * count;
+    if (o.isMesh) tris += triCount(o.geometry) * count;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     if (mats.some((m) => isCustomShader(m, THREE))) custom += 1;
     let mb = drawableBox(o, THREE);

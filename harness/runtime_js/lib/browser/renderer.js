@@ -1,7 +1,7 @@
 // THE WebGLRenderer factory for every page-side rig (object renders through
 // studio.js/render_rig.js, scenes through scene_host.mjs): one set of fixed
 // harness settings — antialias, pixel ratio 1, sRGB output, ACES tone mapping,
-// PCF soft shadows, preserveDrawingBuffer (canvas readback) — so an object
+// filtered PCF shadows, preserveDrawingBuffer (canvas readback) — so an object
 // render and a scene render expose the same colour pipeline.
 //
 //   import { makeRenderer, rendererString } from '/__runtime/lib/browser/renderer.js';
@@ -29,7 +29,11 @@ export function makeRenderer(canvas, width, height, { transparent = false, logDe
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // r182 removed PCFSoftShadowMap from WebGLProgram's type mapping. Keeping
+  // that deprecated value silently compiles SHADOWMAP_TYPE_BASIC: hard texel
+  // blocks on thin grass, candles and sand, even with a 4096 map. PCFShadowMap
+  // selects the supported filtered shadow shader on the installed runtime.
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   return renderer;
 }
 

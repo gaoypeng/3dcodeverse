@@ -15,17 +15,17 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { auditFile, fixHintFor, hasGlsl, locateSourceLine } from './glsl_audit.mjs';
+import { auditFile, fixHintFor, hasGlsl, isShaderSource, locateSourceLine } from './glsl_audit.mjs';
 import { errorSummary } from './host_page.mjs';
-import { listJsFiles } from './syntax_check.mjs';
+import { listSourceFiles } from './syntax_check.mjs';
 
 /**
- * All .js/.mjs sources under <root>/<sub> as [{file, text}] (posix rel paths,
- * sorted).  The directory walk itself is `syntax_check.listJsFiles` — the one
- * source-file walker in runtime_js.
+ * JavaScript and standalone GLSL under <root>/<sub>, with sorted relative paths.
+ * The shared walker keeps raw shader files out of the JavaScript syntax parser.
  */
 export function listSources(root, sub = 'src') {
-  return listJsFiles(path.join(root, sub)).map((p) => ({
+  return listSourceFiles(path.join(root, sub),
+    new Set(['.js', '.mjs', '.glsl', '.vert', '.frag'])).map((p) => ({
     file: path.relative(root, p).split(path.sep).join('/'),
     text: fs.readFileSync(p, 'utf8'),
   }));
@@ -62,7 +62,8 @@ export function staticShaderReport(ws, module = null) {
   }
   const report = {
     ok: false, ws, module: module || null,
-    static: { files: auditTargets.length, glsl_files: auditTargets.filter((f) => hasGlsl(f.text)).length },
+    static: { files: auditTargets.length,
+      glsl_files: auditTargets.filter((f) => isShaderSource(f.file) || hasGlsl(f.text)).length },
     compile: null, errors, warnings,
   };
   return { report, files };
@@ -79,6 +80,12 @@ export function staticShaderReport(ws, module = null) {
 export async function compileIntoReport(report, files, host) {
   const { page, boot } = host;
   const { errors, warnings } = report;
+  // Literals precede JS joins/replacements and externally loaded declarations.
+  // A successful forced compile checks includes and uniform declarations in
+  // the assembled program. It cannot prove JS uniform bindings: an unbound
+  // uniform still compiles and stays 0, so those errors remain authoritative.
+  const staticLanguageErrors = new Set(errors.filter((e) =>
+    e.kind === 'include_not_alone' || e.kind === 'undeclared_uniform'));
   if (!boot.ok) {
     errors.push({ file: 'src/scene.js', line: null, kind: 'boot', message: `scene did not boot at stage '${boot.stage}': ${boot.error}`.slice(0, 1200), fix_hint: 'fix the import/runtime error first; then compile again' });
   } else {
@@ -97,6 +104,15 @@ export async function compileIntoReport(report, files, host) {
       (a.severity === 'error' ? errors : warnings).push({ file: '(runtime material)', line: null, kind: a.kind, material: a.material, message: a.message, fix_hint: a.severity === 'error' ? a.message : '' });
     }
     report.compile = { ms: comp.compile_ms, programs: comp.programs, custom_materials: comp.custom_materials, renderer: boot.renderer, gpu: host.gpu };
+    if (comp.programs > 0 && shaderErrors.length === 0) {
+      for (let i = errors.length - 1; i >= 0; i--) {
+        const e = errors[i];
+        if (!staticLanguageErrors.has(e)) continue;
+        errors.splice(i, 1);
+        warnings.push({ ...e, fix_hint: '', validation: 'runtime_compile_passed',
+          message: `${e.message} — source-only warning: all evaluated shader programs compiled successfully; JavaScript may transform this literal or join external source before use.` });
+      }
+    }
   }
   const es = errorSummary(host.errors, boot);
   for (const c of es.shader_console) {

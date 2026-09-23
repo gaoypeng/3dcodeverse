@@ -40,9 +40,25 @@ function finding(file, line, kind, message, severity = 'error') {
   return { file, line, kind, message, severity };
 }
 
+export function isShaderSource(file) {
+  return /\.(glsl|vert|frag)$/.test(file);
+}
+
 /** Audit one file; returns findings. */
 export function auditFile(file, source, { sceneUsesFog = false } = {}) {
   const findings = [];
+  if (isShaderSource(file)) {
+    // Raw files may be joined into another shader or used by RawShaderMaterial.
+    // Their JS uniform bindings, material type and assembled declarations are
+    // unknown here; compile/runtime audits own those cross-file questions.
+    source.split('\n').forEach((line, i) => {
+      if (/^\s*#include\b/.test(line) && !INCLUDE_OK_RE.test(line)) {
+        findings.push(finding(file, i + 1, 'include_not_alone',
+          `'#include <chunk>' must be ALONE on its line (found: ${line.trim().slice(0, 80)})`));
+      }
+    });
+    return findings;
+  }
   const strings = extractGlslStrings(source);
   if (!strings.length) return findings;
   const isRaw = /RawShaderMaterial/.test(source);
@@ -111,13 +127,14 @@ export function hasGlsl(source) {
   return extractGlslStrings(source).length > 0;
 }
 
-/** Locate `sourceLine` (trimmed text) in GLSL strings of files: unique → {file, line}. */
+/** Locate compiler text in raw shader files or GLSL strings inside JS modules. */
 export function locateSourceLine(files, sourceLine) {
   const needle = String(sourceLine || '').trim();
   if (needle.length < 3) return { file: '', line: null, candidates: 0 };
   const hits = [];
   for (const { file, text } of files) {
-    for (const s of extractGlslStrings(text)) {
+    const blocks = isShaderSource(file) ? [{ text, line: 1 }] : extractGlslStrings(text);
+    for (const s of blocks) {
       s.text.split('\n').forEach((ln, i) => { if (ln.trim() === needle) hits.push({ file, line: s.line + i }); });
     }
   }

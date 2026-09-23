@@ -38,8 +38,8 @@ export function checkFiles(files) {
   return bad;
 }
 
-/** Recursively list *.js / *.mjs under dir (skipping node_modules and dot entries). */
-export function listJsFiles(dir) {
+/** Recursively list source suffixes, skipping node_modules and dot entries. */
+export function listSourceFiles(dir, suffixes = new Set(['.js', '.mjs'])) {
   const out = [];
   if (!fs.existsSync(dir)) return out;
   const walk = (d) => {
@@ -47,11 +47,16 @@ export function listJsFiles(dir) {
       if (ent.name === 'node_modules' || ent.name.startsWith('.')) continue;
       const p = path.join(d, ent.name);
       if (ent.isDirectory()) walk(p);
-      else if (/\.(m?js)$/.test(ent.name)) out.push(p);
+      else if (suffixes.has(path.extname(ent.name))) out.push(p);
     }
   };
   walk(dir);
   return out.sort();
+}
+
+/** Only JavaScript is passed to the ES module syntax parser. */
+export function listJsFiles(dir) {
+  return listSourceFiles(dir);
 }
 
 /** First file under srcDir that fails to parse, or null (one child process for all of them:
