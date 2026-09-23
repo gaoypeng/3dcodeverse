@@ -146,7 +146,8 @@ produces no diff.
 
 One additive block, `None` on older records:
 
-* `record.telemetry` — `RunTelemetry(settings, cost, environment, files)`.
+* `record.telemetry` — `RunTelemetry(settings, cost)` (a record written before 2026-09-22 also carries
+  `environment` and `files`, which nothing read; they are ignored on load).
 
 The hand-over is described by `deliverable/manifest.json` (`RunDeliverable(round, commit,
 code_source, entry, files[path, role, bytes, sha256], total_bytes, skipped, generated_at)`) and

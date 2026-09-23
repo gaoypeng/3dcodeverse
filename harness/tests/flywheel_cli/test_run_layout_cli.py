@@ -118,7 +118,6 @@ def test_telemetry_summarises_the_runs_own_ledger(fake_run):
     ledger.write_text(json.dumps({"stage": "plan", "role": "planner", "label": "plan", "cost_usd": 0.5,
                                   "model": "gemini-3.7-flash", "n_calls": 1}) + "\n")
     tele = build_telemetry(ws, rec)
-    assert tele.files["ledger"] == "telemetry/cost.jsonl"
     assert tele.cost is not None and tele.cost.by_stage[0].stage == "plan"
     assert {s.stage for s in tele.cost.by_stage} <= set(stage_order())
     assert not (ws.telemetry / "usage.jsonl").exists(), "one ledger, one name"

@@ -314,8 +314,6 @@ class RunTelemetry(BaseModel):
     schema_version: int = 1
     settings: SettingsSnapshot | None = None
     cost: CostSummary | None = None
-    environment: dict[str, str] = Field(default_factory=dict)
-    files: dict[str, str] = Field(default_factory=dict, description="label → run-relative path under telemetry/")
 
 
 # --------------------------------------------------------------------------- deliverable

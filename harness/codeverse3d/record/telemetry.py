@@ -32,7 +32,7 @@ from codeverse3d.contracts.run import (
     SettingsSnapshot,
     StageCost,
 )
-from codeverse3d.cost.ledger import TELEMETRY_LEDGER, load_ledger, summarise
+from codeverse3d.cost.ledger import load_ledger, summarise
 from codeverse3d.cost.types import CallCost, Stage
 from codeverse3d.proc import read_json_or_none, write_json_atomic
 from codeverse3d.workspace import Workspace
@@ -190,14 +190,6 @@ def build_telemetry(ws: Workspace, record: RunRecord, *, write: bool = True) -> 
     tele = RunTelemetry(
         settings=settings_snapshot(record),
         cost=cost_summary(record, rows),
-        environment=dict(record.environment),
-        files={"settings": "telemetry/settings.json",
-               "cost": "telemetry/cost.json",
-               "ledger": TELEMETRY_LEDGER,
-               "events": "telemetry/events.jsonl",
-               "run_state": "telemetry/run_state.json",
-               "stages": "telemetry/stages",
-               "trajectories": "telemetry/trajectories"},
     )
     if write:
         ws.ensure_layout()
@@ -218,7 +210,6 @@ def load_telemetry(ws: Workspace, record: RunRecord | None = None) -> RunTelemet
         return RunTelemetry(
             settings=SettingsSnapshot.model_validate(settings) if settings else None,
             cost=CostSummary.model_validate(cost) if cost else None,
-            environment=dict(record.environment) if record is not None else {},
         )
     except Exception as e:  # a hand-edited file must not break status/export
         log.warning("unreadable telemetry in %s: %s", ws.root, e)
