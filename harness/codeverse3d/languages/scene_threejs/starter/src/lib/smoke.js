@@ -13,7 +13,7 @@
  * Overlapping transparent objects use ordinary Three.js object sorting.
  */
 import * as THREE from 'three';
-import { makeShaderMaterial, keepOutOfDepthPasses } from './shader.js';
+import { makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe } from './shader.js';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { bakeFbm3, dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
 
@@ -220,7 +220,7 @@ function makePlume(opts, steam) {
   mesh.name = opts.name ?? (steam ? 'Steam' : 'Smoke');
   keepOutOfDepthPasses(mesh);
   const before = mesh.onBeforeRender, inverse = new THREE.Matrix4();
-  const position = new THREE.Vector3(), target = new THREE.Vector3(), lightPosition = new THREE.Vector3();
+  const position = new THREE.Vector3(), readLights = makeLightProbe();
   const u = material.uniforms;
   mesh.onBeforeRender = (...args) => {
     before.apply(mesh,args);
@@ -229,30 +229,13 @@ function makePlume(opts, steam) {
     camera.getWorldPosition(u.uCameraLocal.value).applyMatrix4(inverse);
     u.uLocalToWorld.value.setFromMatrix4(mesh.matrixWorld);
     u.uLocalToClip.value.copy(camera.projectionMatrix).multiply(camera.matrixWorldInverse).multiply(mesh.matrixWorld);
-    mesh.getWorldPosition(position);
-    let sun = null, point = null, best = -1;
-    u.uAmbient.value.setRGB(0,0,0);u.uSunColor.value.setRGB(0,0,0);u.uPointColor.value.setRGB(0,0,0);
-    scene.traverseVisible(light => {
-      if (!light.isLight || !(light.intensity > 0)) return;
-      if (light.isDirectionalLight && (!sun || light.intensity > sun.intensity)) sun = light;
-      if (light.isPointLight) {
-        light.getWorldPosition(lightPosition);
-        const score = light.intensity / Math.max(.01,lightPosition.distanceToSquared(position));
-        if (score > best) { point = light;best = score; }
-      }
-      const amount = light.isAmbientLight ? light.intensity * .28 : light.isHemisphereLight ? light.intensity * .22 : 0;
-      u.uAmbient.value.r += light.color.r * amount;
-      u.uAmbient.value.g += light.color.g * amount;
-      u.uAmbient.value.b += light.color.b * amount;
-    });
-    if (scene.environment) {
-      const level = .12 * (scene.environmentIntensity ?? 1);
-      u.uAmbient.value.r += level;u.uAmbient.value.g += level;u.uAmbient.value.b += level;
-    }
+    const { sun, point, ambient, sky, environment, sunDirection } = readLights(scene, mesh.getWorldPosition(position));
+    u.uSunColor.value.setRGB(0,0,0);u.uPointColor.value.setRGB(0,0,0);
+    const fill = (c) => ambient[c] * .28 + sky[c] * .22 + environment * .12;
+    u.uAmbient.value.setRGB(fill('r'), fill('g'), fill('b'));
     if (sun) {
-      sun.getWorldPosition(lightPosition);sun.target.getWorldPosition(target);
-      u.uSunWorld.value.copy(lightPosition).sub(target).normalize();
-      u.uSunLocal.value.copy(u.uSunWorld.value).transformDirection(inverse);
+      u.uSunWorld.value.copy(sunDirection);
+      u.uSunLocal.value.copy(sunDirection).transformDirection(inverse);
       u.uSunColor.value.copy(sun.color).multiplyScalar(sun.intensity);
     }
     if (point) {

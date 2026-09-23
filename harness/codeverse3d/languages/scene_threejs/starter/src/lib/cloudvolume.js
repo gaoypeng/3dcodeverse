@@ -15,7 +15,7 @@
  * reconstruction or external textures are required.
  */
 import * as THREE from 'three';
-import { makeShaderMaterial, keepOutOfDepthPasses } from './shader.js';
+import { makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe } from './shader.js';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { bakeFbm3, dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
 
@@ -203,9 +203,7 @@ export function makeCloudVolume(opts = {}) {
   const sun = new THREE.Vector3(...direction).normalize();
   const sunTint = new THREE.Color(opts.sunColor ?? 0xfff3dc);
   const skyTint = new THREE.Color(opts.skyColor ?? 0x9eb9da);
-  const lightPosition = new THREE.Vector3(), lightTarget = new THREE.Vector3();
-  const skyLight = new THREE.Color(0, 0, 0);
-  const keyColor = new THREE.Color(0, 0, 0), scratch = new THREE.Color();
+  const readLights = makeLightProbe();
   const material = makeShaderMaterial({
     name: 'CloudVolumeMaterial', transparent: true, depthWrite: false,
     side: THREE.BackSide, fog: false,
@@ -279,33 +277,17 @@ export function makeCloudVolume(opts = {}) {
   mesh.onBeforeRender = (...args) => {
     beforeRender.apply(mesh, args);
     const camera = args[2], scene = args[1];
-    let key = null;
-    skyLight.setRGB(0, 0, 0);
-    scene.traverseVisible((light) => {
-      if (!light.isLight || !(light.intensity > 0)) return;
-      if (light.isDirectionalLight && (!key || light.intensity > key.intensity)) key = light;
-      if (light.isAmbientLight) skyLight.add(scratch.copy(light.color).multiplyScalar(light.intensity));
-      if (light.isHemisphereLight) {
-        skyLight.add(scratch.copy(light.color).multiplyScalar(light.intensity * .75));
-        skyLight.add(scratch.copy(light.groundColor).multiplyScalar(light.intensity * .25));
-      }
-    });
-    keyColor.setRGB(0, 0, 0);
+    const { sun: key, sunDirection, ambient, sky, ground, environment } = readLights(scene);
+    const uniforms = material.uniforms;
+    uniforms.uSunColor.value.setRGB(0, 0, 0);
     if (key) {
-      keyColor.copy(key.color).multiply(sunTint).multiplyScalar(key.intensity / 5.4 * intensity);
-      if (!sunPinned) {
-        key.getWorldPosition(lightPosition);key.target.getWorldPosition(lightTarget);
-        sun.copy(lightPosition).sub(lightTarget).normalize();
-      }
+      uniforms.uSunColor.value.copy(key.color).multiply(sunTint).multiplyScalar(key.intensity / 5.4 * intensity);
+      if (!sunPinned) sun.copy(sunDirection);
     }
     // The scene environment is an independent source of diffuse sky light;
     // removing a directional light does not remove that authored environment.
-    if (scene.environment) {
-      const environmentLight = .35 * (scene.environmentIntensity ?? 1);
-      skyLight.r += environmentLight;skyLight.g += environmentLight;skyLight.b += environmentLight;
-    }
-    material.uniforms.uSunColor.value.copy(keyColor);
-    material.uniforms.uSkyColor.value.copy(skyTint).multiply(skyLight);
+    const fill = (c) => ambient[c] + sky[c] * .75 + ground[c] * .25 + environment * .35;
+    uniforms.uSkyColor.value.setRGB(fill('r'), fill('g'), fill('b')).multiply(skyTint);
     inverse.copy(mesh.matrixWorld).invert();
     camera.getWorldPosition(material.uniforms.uCameraLocal.value).applyMatrix4(inverse);
     material.uniforms.uSunLocal.value.copy(sun).transformDirection(inverse);

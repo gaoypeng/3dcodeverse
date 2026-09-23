@@ -1434,3 +1434,48 @@ export function planarCapture(mesh, capture, {
     };
     return mesh;
 }
+
+/**
+ * A reader for the lights an effect shades itself with, reused per draw:
+ * `const readLights = makeLightProbe(); const l = readLights(scene, near);`
+ * Over the VISIBLE lights with intensity > 0 it returns (one reused object):
+ * `sun` the strongest directional light and `sunDirection` the world unit
+ * vector toward it (position minus target; +Y without a sun); `ambient`,
+ * `sky` and `ground` the summed ambient colour and hemisphere sky/ground
+ * colours, each times intensity (linear); `environment` the scene
+ * environment's intensity (0 without one); and, when `near` (a world
+ * Vector3) is given, `point` the point light with the most
+ * intensity / distance² there. Each effect applies its own calibration.
+ */
+export function makeLightProbe() {
+    const probe = {
+        sun: null, sunDirection: new THREE.Vector3(0, 1, 0), point: null, environment: 0,
+        ambient: new THREE.Color(), sky: new THREE.Color(), ground: new THREE.Color(),
+    };
+    const at = new THREE.Vector3(), target = new THREE.Vector3(), scratch = new THREE.Color();
+    return (scene, near = null) => {
+        let score = -1;
+        probe.sun = probe.point = null;
+        probe.ambient.setRGB(0, 0, 0); probe.sky.setRGB(0, 0, 0); probe.ground.setRGB(0, 0, 0);
+        scene.traverseVisible((light) => {
+            if (!light.isLight || !(light.intensity > 0)) return;
+            const i = light.intensity;
+            if (light.isDirectionalLight && (!probe.sun || i > probe.sun.intensity)) probe.sun = light;
+            else if (light.isAmbientLight) probe.ambient.add(scratch.copy(light.color).multiplyScalar(i));
+            else if (light.isHemisphereLight) {
+                probe.sky.add(scratch.copy(light.color).multiplyScalar(i));
+                probe.ground.add(scratch.copy(light.groundColor).multiplyScalar(i));
+            } else if (near && light.isPointLight) {
+                const s = i / Math.max(.01, light.getWorldPosition(at).distanceToSquared(near));
+                if (s > score) { score = s; probe.point = light; }
+            }
+        });
+        probe.sunDirection.set(0, 1, 0);
+        if (probe.sun) {
+            probe.sun.getWorldPosition(at); probe.sun.target.getWorldPosition(target);
+            if (at.sub(target).lengthSq() > 1e-12) probe.sunDirection.copy(at).normalize();
+        }
+        probe.environment = scene.environment ? (scene.environmentIntensity ?? 1) : 0;
+        return probe;
+    };
+}

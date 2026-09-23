@@ -16,7 +16,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32 } from './noise.js';
-import { GLSL_UTIL, planarCapture } from './shader.js';
+import { GLSL_UTIL, makeLightProbe, planarCapture } from './shader.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 
 const TAU = Math.PI * 2;
@@ -459,10 +459,7 @@ export function makeOceanSurface(opts = {}) {
   geometry.boundingSphere = geometry.boundingBox.getBoundingSphere(new THREE.Sphere());
   const u = sea.material.uniforms,
     base = sea.onBeforeRender;
-  const lp = new THREE.Vector3(),
-    tp = new THREE.Vector3(),
-    ambientContribution = new THREE.Color(),
-    environmentRotation = new THREE.Matrix4();
+  const readLights = makeLightProbe(), environmentRotation = new THREE.Matrix4();
   // One guarded colour-pass capture: never in override (GTAO/depth) passes or
   // nested captures, renderer state restored, rigid mirror frame under scale.
   planarCapture(sea, (renderer, scene, camera, toRigid) => {
@@ -479,23 +476,12 @@ export function makeOceanSurface(opts = {}) {
         environmentRotation.makeRotationFromEuler(scene.environmentRotation).invert()
       );
     }
-    let key = null;
+    const { sun: key, sunDirection, ambient, sky } = readLights(scene);
     u.seaKey.value.setRGB(0, 0, 0);
     u.seaSunColor.value.setRGB(0, 0, 0);
-    u.seaAmbient.value.setRGB(0, 0, 0);
-    scene.traverseVisible((o) => {
-      if (o.isDirectionalLight && (!key || o.intensity > key.intensity)) key = o;
-      if (o.isHemisphereLight || o.isAmbientLight) {
-        ambientContribution.copy(o.color).multiplyScalar(o.intensity / Math.PI);
-        u.seaAmbient.value.add(ambientContribution);
-      }
-    });
+    u.seaAmbient.value.copy(ambient).add(sky).multiplyScalar(1 / Math.PI);
     if (key) {
-      if (opts.sunDirection === undefined) {
-        key.getWorldPosition(lp);
-        key.target.getWorldPosition(tp);
-        u.seaSun.value.copy(lp.sub(tp).normalize());
-      }
+      if (opts.sunDirection === undefined) u.seaSun.value.copy(sunDirection);
       u.seaSunColor.value.copy(key.color);
       u.seaKey.value.copy(key.color).multiplyScalar(key.intensity / Math.PI);
     }

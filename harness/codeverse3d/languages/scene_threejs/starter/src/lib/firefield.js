@@ -29,7 +29,7 @@
  */
 import * as THREE from 'three';
 import { bakeFbm3, dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
-import { makeShaderMaterial, keepOutOfDepthPasses, withRendererState } from './shader.js';
+import { makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe, withRendererState } from './shader.js';
 import { snapshotResources, attachDisposal } from './lifecycle.js';
 
 const TIERS = {
@@ -374,7 +374,7 @@ export function makeFireField(opts = {}) {
   const material=fieldMaterial(uniforms,tier);material.userData.bloom=true;
   const volume=new THREE.Mesh(geometry,material);volume.name='SharedFlameSootVolume';volume.renderOrder=2;volume.visible=activeEmitters.length>0;
   keepOutOfDepthPasses(volume);group.add(volume);
-  const inverse=new THREE.Matrix4(),sunPosition=new THREE.Vector3(),sunTarget=new THREE.Vector3(),sunDirection=new THREE.Vector3(),ambientColor=new THREE.Color();
+  const inverse=new THREE.Matrix4(),readLights=makeLightProbe();
   const guard=volume.onBeforeRender;
   volume.onBeforeRender=function(renderer,scene,camera,geo,mat,...rest){
     guard.call(this,renderer,scene,camera,geo,mat,...rest);
@@ -385,14 +385,10 @@ export function makeFireField(opts = {}) {
     uniforms.uLocalToClip.value.copy(camera.projectionMatrix).multiply(camera.matrixWorldInverse).multiply(volume.matrixWorld);
     uniforms.uLocalToWorld.value.setFromMatrix4(volume.matrixWorld);
     renderer.getCurrentViewport(uniforms.uViewport.value);
-    uniforms.uSunColor.value.setRGB(0,0,0);uniforms.uAmbient.value.setRGB(0,0,0);let strongest=0;
-    scene.traverseVisible(o=>{
-      if(o.isDirectionalLight&&o.intensity>strongest){strongest=o.intensity;
-        o.getWorldPosition(sunPosition);o.target.getWorldPosition(sunTarget);sunDirection.copy(sunPosition).sub(sunTarget).normalize();
-        uniforms.uSunLocal.value.copy(sunDirection).transformDirection(inverse);
-        uniforms.uSunColor.value.copy(o.color).multiplyScalar(o.intensity*.20);
-      }else if(o.isAmbientLight||o.isHemisphereLight)uniforms.uAmbient.value.add(ambientColor.copy(o.color).multiplyScalar(o.intensity*.15));
-    });
+    const lights=readLights(scene);uniforms.uSunColor.value.setRGB(0,0,0);
+    if(lights.sun){uniforms.uSunLocal.value.copy(lights.sunDirection).transformDirection(inverse);
+      uniforms.uSunColor.value.copy(lights.sun.color).multiplyScalar(lights.sun.intensity*.20);}
+    uniforms.uAmbient.value.copy(lights.ambient).add(lights.sky).multiplyScalar(.15);
     if(scene.environment)uniforms.uAmbient.value.addScalar(.035);
     if(depth){
       if(renderer.capabilities.logarithmicDepthBuffer)throw new Error('makeFireField: occluder depth requires non-logarithmic depth');
