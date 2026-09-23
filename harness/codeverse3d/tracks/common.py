@@ -105,15 +105,11 @@ class Services:
 
     def motion_checks(self, ws: Workspace, plan: Plan) -> GateReport | None:
         """Planned joint motion text vs the built URDF's actual motion direction."""
-        from codeverse3d.tracks.articulated_object import default_motion_checks
-
-        return default_motion_checks(ws, plan)
+        return _import("codeverse3d.tracks.articulated_object", "default_motion_checks")(ws, plan)
 
     def joint_sweep(self, ws: Workspace, plan: Plan, out_dir: Path) -> tuple[GateReport, list[RenderView]]:
         """Pose sweep on the built URDF → (gate report, pose views).  See articulated_object."""
-        from codeverse3d.tracks.articulated_object import default_joint_sweep
-
-        return default_joint_sweep(ws, plan, out_dir)
+        return _import("codeverse3d.tracks.articulated_object", "default_joint_sweep")(ws, plan, out_dir)
 
     # ---- agents' workspace materialisation + tool cards
     def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_text: str, spatial_tools: bool) -> None:
