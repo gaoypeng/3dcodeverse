@@ -210,10 +210,11 @@ Four laws, all tested:
 4. **Unknown input degrades to `[]`, never an exception.** A planner failure must not also
    take out the round's skills.
 
-`test_routing_property.py` runs all of that over the real library and the whole input
-space: every track × language × round kind × 256 plan-signal combinations × both
-`allow_unverified` settings (43,008 sessions per track), every gate finding kind the
-corpus produces, and 2,000 seeded random walks including junk tracks and languages.
+`test_routing_property.py` runs every gate finding kind the corpus produces from every
+track × language × round kind over the real library (cap, priority ≥ 90, a reason that names
+the finding), and checks that every signal a route requires is one `plan_signals()` sets.  The
+cap and the order themselves come from `select`'s final sort and slice, pinned by row in
+`test_router` (the exhaustive plan-signal sweep went in the D96 second pass, 2026-09-23).
 
 `finding_kind()` classifies **wider** than it routes — 113 distinct WARN/ERROR message
 shapes mined from `eval/bench/out`, with a 43-row golden fixture
@@ -328,7 +329,7 @@ the `live` cases drive a real CLI.
 | `test_spec_compliance.py` | the same rules re-derived from the raw bytes, **plus the reference validator** (`pip install skills-ref` → the `agentskills` CLI) and a field-by-field agreement check between its `read-properties` and our loader |
 | `test_library.py` | body budget, no 20-line code fences, no restating `conventions.py`, every `_claims` number still matches its live constant, **no two skills point one claim key at different numbers** |
 | `test_freshness.py` | every tool, gate kind, rubric criterion, constant, switch, sibling skill and cookbook section a bundle names still exists |
-| `test_router.py` / `test_routing_property.py` | the four routing laws, by row and over the whole input space |
+| `test_router.py` / `test_routing_property.py` | the four routing laws by row; every corpus finding kind from every session |
 | `test_telemetry.py` | the read probe, **including the control that catches git reading the tree** |
 | `test_packaging.py` | **a built wheel contains all 17 `SKILL.md`, all 17 `references/`, all 9 `_claims`** |
 | `test_live_discovery.py` | §7 — a real CLI actually finds and opens a bundle |

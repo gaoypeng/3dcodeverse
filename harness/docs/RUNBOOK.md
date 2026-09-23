@@ -208,7 +208,7 @@ A/B — six runs each, alternating so both arms see the same load — gave **5/6
 the unmodified tree and 4/6 with the branch's changes**, i.e. the box, not the code.  What
 produces a ground fraction of exactly zero on a scene that has a ground is an open
 question; it needs an idle machine to look at, not a guess.  A third is a plain wall-clock
-assertion: `test_cabinet_door_end_to_end` requires the URDF build to finish in under 30 s
+assertion: `test_cabinet_door_end_to_end_then_broken` requires the URDF build to finish in under 30 s
 and measured 38 970 ms at load ~100 with `ok=True` — the build succeeded, the box was
 busy.  All three are the same story, and none of them is to be "fixed" by loosening what
 it asserts.
@@ -376,9 +376,9 @@ weather: they leave the provider's errors out (docs/COST.md §31); the ceiling d
   skills, the MCP tool lists — and every stage's cache key.  A refactor leaves it byte-identical;
   a change a model is meant to see re-blesses it in the same commit, saying why:
   `python -m tests.prompts.manifest --bless` (`--dump DIR` writes every payload, to `diff -r` two
-  trees).  What it cannot drive is listed in `tests/prompts/manifest.py`.  A new prompt file must be
-  loaded by the package (`tests/prompts/test_files.py`) or sit in its `UNREACHED` with the reason; a
-  new language or track adds its scenario to `SCENARIOS`.
+  trees).  What it cannot drive is listed in `tests/prompts/manifest.py`.  A new prompt file must
+  render through the loader (`tests/prompts/test_files.py`); a new language or track adds its
+  scenario to `SCENARIOS`.
 * **New spatial tool**: pydantic args + `@tool("name", Args, "…", tracks=(…),
   languages=(…), cost_hint=…)` in `spatial/tools.py`; available to tracks, MCP and prompt cards at once.
   Update `tests/spatial_tools` EXPECTED_TOOLS.
