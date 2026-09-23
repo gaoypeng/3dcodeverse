@@ -37,7 +37,7 @@ from codeverse3d.contracts.common import Language, Track, Usage
 from codeverse3d.contracts.plan import AcceptanceItem, EngineeringBrief
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc, to_pascal, to_snake
-from codeverse3d.models.schema_utils import parse_json_lenient
+from codeverse3d.models.schema_utils import ask_structured, parse_json_lenient
 from codeverse3d.proc import NULL_EVENTS, sha256_file
 from codeverse3d.prompts import load_text, prompt_hash, render
 from codeverse3d.prompts.catalog import language_text
@@ -51,7 +51,6 @@ log = logging.getLogger(__name__)
 #: tracks the object-shaped brief applies to (graphics/scene get budgets only)
 BRIEF_TRACKS = (Track.STATIC_OBJECT, Track.ARTICULATED_OBJECT)
 BRIEF_TEMPLATE = "tracks/brief_object.j2"
-BRIEF_MAX_TOKENS = 65_536
 
 
 # ----------------------------------------------------------------------------- brief
@@ -139,15 +138,10 @@ def expand_brief(spec: Spec, model_id: str, *, model: Any | None = None, events:
     if images:
         user += f"\n\n{len(images)} reference image(s) are attached — read the dimensions and features off them."
     try:
-        resp = model.generate(ChatRequest(
-            messages=[ChatMessage.user(user, images=images or None)], system=system,
-            response_schema=EngineeringBrief.model_json_schema(), temperature=0.3, thinking="low",
-            max_output_tokens=BRIEF_MAX_TOKENS, max_wait_s=900.0, label="planner-brief"))
-        usage = usage + resp.usage
-        # parse_json_lenient, not json.loads: it tolerates fences/prose AND strips the
-        # C0 controls a model can emit, which json.loads would carry into the brief.
-        raw = resp.parsed if resp.parsed is not None else parse_json_lenient(resp.text or "{}")
-        brief = EngineeringBrief.model_validate(raw)
+        brief, usage, error = ask_structured(model, EngineeringBrief, system=system, text=user, images=images,
+                                             temperature=0.3, label="planner-brief")
+        if brief is None:
+            raise ValueError(error)
         if not brief.is_useful:
             raise ValueError(f"brief has {len(brief.sub_assemblies)} sub-assemblies and "
                              f"{len(brief.signature_features)} signature features — nothing to plan from")

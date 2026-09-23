@@ -370,13 +370,13 @@ def ask_structured(model: Any, schema: type[BaseModel], *, system: str, text: st
                    label: str) -> tuple[Any, Usage, str]:
     """One structured call → ``(validated object | None, usage, error)``.
 
-    Five callers (reference gate / image-prompt plan / mismatch diff, the texture
-    material plan and the scene texture pack) built the same ChatRequest
+    Six callers (reference gate / image-prompt plan / mismatch diff, the texture
+    material plan, the scene texture pack and the planner's brief) built the same ChatRequest
     (thinking="low", the 65 536 ceiling, the 900 s wait), caught the same two failure
     families and parsed the same two ways.  They differ only in what they RETURN on
     failure, which is why this hands the error back rather than raising or deciding.
     Not for callers that need to separate parse errors from call errors
-    (``judges.pairwise``, ``tracks.planner``).
+    (``judges.pairwise``, ``tracks.planner.plan``).
     """
     req = ChatRequest(messages=[ChatMessage.user(text, images=list(images) or None)], system=system,
                       response_schema=schema.model_json_schema(), temperature=temperature,

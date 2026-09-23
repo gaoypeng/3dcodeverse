@@ -274,6 +274,19 @@ def test_brief_failure_is_never_fatal(tmp_path):
     assert brief is None and usage.cost_usd == 0.0
 
 
+
+def test_a_failed_brief_call_keeps_what_the_provider_billed(tmp_path):
+    """expand_brief goes through ``ask_structured``: a ModelError's ``usage`` (a billed
+    bad reply) is returned, where the hand-built call reported the failure as free."""
+    from codeverse3d.contracts.common import Usage
+    from codeverse3d.models.base import ModelError
+
+    def billed(req):
+        raise ModelError("bad json", usage=Usage(backend="fake", cost_usd=0.002))
+
+    brief, usage = BR.expand_brief(_spec(), "fake:planner", model=FakeChatModel(billed), cache_dir=tmp_path)
+    assert brief is None and usage.cost_usd == pytest.approx(0.002)
+
 def test_brief_switch_and_track_scope(monkeypatch, switch):
     switch("C3D_PLAN_BRIEF", None)
     assert BR.brief_enabled(_spec())
