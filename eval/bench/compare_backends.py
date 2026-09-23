@@ -57,7 +57,7 @@ for _p in (REPO, Path(__file__).resolve().parents[1]):      # its codeverse3d + 
 from datetime import UTC  # noqa: E402
 
 from bench._compare_report import CellResult, PairRow, build_compare_report  # noqa: E402
-from bench._fixed_eval import RUBRIC, EvalOutcome, FixedEvaluator  # noqa: E402
+from bench._fixed_eval import EvalOutcome, FixedEvaluator, rubric_for  # noqa: E402
 from bench._infra import is_budget_exhaustion, is_infra_failure  # noqa: E402
 from bench._jsonl import latest, read_jsonl, seal_for_append  # noqa: E402
 from bench._oneshot import (  # noqa: E402
@@ -323,6 +323,11 @@ def _run_bare_agent(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts: 
     res.gen_seconds = result.duration_s
     res.minutes = round(max(0.0, result.duration_s - result.provider_wait_s) / 60, 2)
     res.harness_status = result.exit_reason
+    if not result.ok and result.transient:
+        # A provider can fail after the CLI has written a placeholder or an
+        # unfinished revision. File existence is not a completed agent session.
+        res.error = f"bare agent interrupted by provider ({result.exit_reason}: {'; '.join(result.errors)[:600]})"
+        res.error_is_infra = True
     if not (eval_ws.root / entry_of(spec)).is_file():
         res.error = f"bare agent delivered no {entry_of(spec)} ({result.exit_reason}: {'; '.join(result.errors)[:300]})"
         res.error_is_infra = bool(result.transient)
@@ -461,20 +466,33 @@ def run_pairwise(battery: Battery, cells: dict[tuple[str, str], CellResult], arm
                 for oa in oneshot:
                     key = (item.id, ha.raw, oa.raw)
                     ca, cb = cells.get((item.id, ha.raw)), cells.get((item.id, oa.raw))
-                    if key in done or ca is None or cb is None:
+                    if ca is None or cb is None:
                         continue
-                    spec = spec_for(battery, item, ha, opts)
-                    ra, rb = _renders_of(out, ca), _renders_of(out, cb)
-                    if ra is None or rb is None:
-                        winner = "tie" if ra is None and rb is None else ("a" if rb is None else "b")
-                        row = PairRow(prompt_id=item.id, arm_a=ha.raw, arm_b=oa.raw, winner=winner, confidence=1.0,
-                                      reasons=["decided without the judge: a side has no renders (build failed)"], judged=False)
+                    infra = any(c.status == "infra_failed" or c.error_is_infra for c in (ca, cb))
+                    if infra:
+                        if key in done and not done[key].eligible:
+                            continue
+                        # A provider outage is unavailable evidence, even if it left
+                        # a partial render. Supersede cached automatic wins as well.
+                        row = PairRow(prompt_id=item.id, arm_a=ha.raw, arm_b=oa.raw,
+                                      winner="unavailable", judged=False, eligible=False,
+                                      exclusion_reason="A cell failed because of infrastructure; no quality comparison.",
+                                      reasons=["excluded: infrastructure failure"])
                     else:
-                        judge = judge or deps.pairwise_judge(opts.judge)
-                        pr = judge.compare(spec, ra, rb, rubric=RUBRIC)
-                        row = PairRow(prompt_id=item.id, arm_a=ha.raw, arm_b=oa.raw, winner=pr.winner, confidence=pr.confidence,
-                                      reasons=list(pr.reasons), orderings=list(pr.orderings), cost_usd=pr.usage.cost_usd,
-                                      error=pr.error, judged=True)
+                        if key in done and done[key].eligible:
+                            continue
+                        spec = spec_for(battery, item, ha, opts)
+                        ra, rb = _renders_of(out, ca), _renders_of(out, cb)
+                        if ra is None or rb is None:
+                            winner = "tie" if ra is None and rb is None else ("a" if rb is None else "b")
+                            row = PairRow(prompt_id=item.id, arm_a=ha.raw, arm_b=oa.raw, winner=winner, confidence=1.0,
+                                          reasons=["decided without the judge: a side has no renders (build failed)"], judged=False)
+                        else:
+                            judge = judge or deps.pairwise_judge(opts.judge)
+                            pr = judge.compare(spec, ra, rb, rubric=rubric_for(spec))
+                            row = PairRow(prompt_id=item.id, arm_a=ha.raw, arm_b=oa.raw, winner=pr.winner, confidence=pr.confidence,
+                                          reasons=list(pr.reasons), orderings=list(pr.orderings), cost_usd=pr.usage.cost_usd,
+                                          error=pr.error, judged=True, rubric=rubric_for(spec))
                     done[key] = row
                     fh.write(row.model_dump_json() + "\n")
                     fh.flush()

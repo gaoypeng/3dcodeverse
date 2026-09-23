@@ -96,13 +96,16 @@ class PairRow(BaseModel):
     prompt_id: str
     arm_a: str
     arm_b: str
-    winner: str = Field(description="a | b | tie")
+    winner: str = Field(description="a | b | tie | unavailable")
     confidence: float = 0.0
     reasons: list[str] = Field(default_factory=list)
     orderings: list[dict] = Field(default_factory=list)
     cost_usd: float = 0.0
     judged: bool = Field(default=True, description="False when decided by a missing build (no judge call)")
     error: str = ""
+    eligible: bool = Field(default=True, description="False when an infrastructure-failed cell makes this pair unavailable")
+    exclusion_reason: str = ""
+    rubric: str = Field(default="", description="Track rubric used by the pairwise judge; empty on historical rows")
 
     def natural_key(self) -> tuple[str, ...]:
         """Row identity: one pairwise verdict is one (prompt, arm A, arm B)."""
@@ -176,6 +179,8 @@ def arm_stats(rows: list[CellResult]) -> list[ArmStats]:
 def pair_stats(pairs: list[PairRow]) -> list[PairStats]:
     groups: dict[tuple[str, str], list[PairRow]] = {}
     for p in pairs:
+        if not p.eligible:
+            continue
         groups.setdefault((p.arm_a, p.arm_b), []).append(p)
     out = []
     for (a, b), ps in groups.items():
