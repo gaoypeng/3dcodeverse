@@ -107,3 +107,36 @@ def test_external_uniform_header_can_be_joined_with_inline_glsl(tmp_path, declar
     else:
         assert any(item["kind"] == "compile" for item in report["errors"])
         assert any(item["kind"] == "undeclared_uniform" for item in report["errors"])
+
+
+@pytest.mark.node
+@needs_browser
+@pytest.mark.parametrize("unused", ["other_file", "same_file", "duplicate_file"])
+def test_valid_external_header_does_not_clear_unused_declaration_errors(tmp_path, unused):
+    """GPU success proves the evaluated body, not every literal in the workspace."""
+    root = stage(tmp_path)
+    (root / "src/shaders/panel.frag").write_text("uniform float uTime;\n")
+    body = "void main(){gl_FragColor=vec4(vec3(uTime),1.0);}"
+    scene = SCENE.replace("fragmentShader:common + '\\n' + fragment,",
+                          f"fragmentShader:common + '\\n' + fragment + `\\n{body}`, ")
+    inactive = body if unused == "duplicate_file" else body.replace("vec3(uTime)", "vec3(uTime*.37)")
+    unused_source = f"export const unusedFragment = `{inactive}`;\n"
+    if unused == "same_file":
+        scene += unused_source
+        expected_file = "src/scene.js"
+    else:
+        expected_file = "src/shaders/unused.js"
+        (root / expected_file).write_text(unused_source)
+    (root / "src/scene.js").write_text(scene)
+    proc = subprocess.run(["node", str(RUNTIME_JS / "check_shaders.mjs"), "--ws", str(root)],
+                          capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    report = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert report["compile"]["programs"] > 0
+    assert not any(item["kind"] == "compile" for item in report["errors"])
+    assert any(item["kind"] == "undeclared_uniform" and item["file"] == expected_file
+               for item in report["errors"]), report
+    if unused == "other_file":
+        assert any(item["kind"] == "undeclared_uniform" and item["file"] == "src/scene.js"
+                   and item.get("validation") == "runtime_compile_passed"
+                   for item in report["warnings"]), report

@@ -26,6 +26,11 @@ CASES = [
     ("Path", [30, 0.1, 30], False, 5, "ground"),             # far larger than the content bbox
     ("Path", [30, 0.1, 30], False, 0, "content"),            # same box, no content bbox known
     ("Rug", [3, 0.05, 3], False, 40, "content"),             # small relative to content: not backdrop
+    ("PlanetSkyBackdrop", [205, 205, 205], False, 0, "sky"),
+    ("planet_sky_backdrop", [205, 205, 205], False, 0, "sky"),
+    ("SkyAtmosphereBand0", [90, 4, 90], False, 0, "sky"),
+    ("MoonLamp", [1, 1, 1], False, 0, "content"),            # a solid prop remains content
+    ("SkyScraper", [25, 200, 25], False, 0, "content"),       # the size guard still matters
 ]
 
 
@@ -55,3 +60,26 @@ def test_classifier_rule_table():
         ["SunDisc", [48, 48, 48], False, 40, [10, 20, 10]],
     ])
     assert got == [c[4] for c in CASES] + ["sky", "content"], list(zip([c[0] for c in CASES], got, strict=False))
+
+
+def test_background_planet_and_small_moon_do_not_move_content_framing():
+    body = f"""
+import * as THREE from 'three';
+import {{ sceneCensus }} from '{RUNTIME_JS}/lib/host_census.mjs';
+import {{ framingBox }} from '{RUNTIME_JS}/lib/orbit.mjs';
+const scene = new THREE.Scene(), environment = new THREE.Group();
+environment.name = 'Environment'; scene.add(environment);
+const subject = new THREE.Mesh(new THREE.BoxGeometry(30, 20, 40), new THREE.MeshStandardMaterial());
+subject.name = 'Hangar'; subject.position.y = 10; environment.add(subject);
+const planet = new THREE.Mesh(new THREE.SphereGeometry(100), new THREE.MeshBasicMaterial());
+planet.name = 'PlanetSkyBackdrop'; planet.position.set(25, -55, -200); environment.add(planet);
+const moon = new THREE.Mesh(new THREE.CircleGeometry(2.5), new THREE.MeshBasicMaterial({{ depthWrite: false }}));
+moon.name = 'MoonDisc'; moon.position.set(-277, 137, -103); environment.add(moon);
+const census = sceneCensus(scene, THREE);
+console.log(JSON.stringify({{ content: census.content_bbox, all: census.bbox, framed: framingBox(census) }}));
+"""
+    got = run_node_json(body)
+    assert got["content"]["min"] == [-15, 0, -20]
+    assert got["content"]["max"] == [15, 20, 20]
+    assert got["framed"] == got["content"]
+    assert got["all"]["min"][0] < -270  # background geometry is retained and still counted

@@ -15,7 +15,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { auditFile, fixHintFor, hasGlsl, isShaderSource, locateSourceLine } from './glsl_audit.mjs';
+import { auditFile, extractGlslStrings, fixHintFor, hasGlsl, isShaderSource, locateSourceLine } from './glsl_audit.mjs';
 import { errorSummary } from './host_page.mjs';
 import { listSourceFiles } from './syntax_check.mjs';
 
@@ -41,6 +41,27 @@ export function listSources(root, sub = 'src') {
  * `tests/scene_runtime/lib/`, not by the workspace gate.  They stay in
  * `files`, so a COMPILE error inside one still maps back to its file:line. */
 const LIB_RE = /^src\/lib\//;
+
+/** Match source literals to the evaluated shader, conservatively. A successful
+ * unrelated program says nothing about a declaration in an unused file (or an
+ * unused literal beside a live shader). Duplicate text cannot prove its origin.
+ */
+function verifiedDeclarations(files, evaluatedSources) {
+  const normalize = (text) => text.replace(/\\[nrt]/g, (escape) =>
+    ({ '\\n': '\n', '\\r': '\r', '\\t': '\t' })[escape]).trim();
+  const blocks = files.flatMap(({ file, text }) =>
+    (isShaderSource(file) ? [{ text }] : extractGlslStrings(text))
+      .map((block) => ({ file, text: normalize(block.text) })));
+  const evaluated = evaluatedSources.map(normalize);
+  const verified = new Set();
+  for (const file of new Set(blocks.map((block) => block.file))) {
+    const reads = blocks.filter((block) => block.file === file && /\buTime\b/.test(block.text));
+    if (reads.length && reads.every((block) => !block.text.includes('${')
+        && blocks.filter((other) => other.text.includes(block.text)).length === 1
+        && evaluated.some((source) => source.includes(block.text)))) verified.add(file);
+  }
+  return verified;
+}
 
 /**
  * Static-audit stage: build the report skeleton with the node-side GLSL
@@ -89,7 +110,16 @@ export async function compileIntoReport(report, files, host) {
   if (!boot.ok) {
     errors.push({ file: 'src/scene.js', line: null, kind: 'boot', message: `scene did not boot at stage '${boot.stage}': ${boot.error}`.slice(0, 1200), fix_hint: 'fix the import/runtime error first; then compile again' });
   } else {
-    const comp = await page.evaluate((spec) => window.__c3v.compileAll(spec || undefined), null);
+    const comp = await page.evaluate(async (needDeclarationProof) => {
+      const result = window.__c3v.compileAll();
+      if (needDeclarationProof && result.programs > 0 && result.shader_errors.length === 0) {
+        // Reuse the host's captured material sources; do not infer participation
+        // from a program count or from the mere presence of an external header.
+        const { captured } = await import('/__runtime/lib/host_compile.mjs');
+        result.evaluated_sources = captured.flatMap(({ vs, fs }) => [vs, fs]);
+      }
+      return result;
+    }, errors.some((e) => e.kind === 'undeclared_uniform'));
     const shaderErrors = comp.shader_errors.map(({ _key, ...e }) => e);
     for (const e of shaderErrors) {
       const loc = locateSourceLine(files, e.source_line);
@@ -105,9 +135,11 @@ export async function compileIntoReport(report, files, host) {
     }
     report.compile = { ms: comp.compile_ms, programs: comp.programs, custom_materials: comp.custom_materials, renderer: boot.renderer, gpu: host.gpu };
     if (comp.programs > 0 && shaderErrors.length === 0) {
+      const declarationFiles = verifiedDeclarations(files, comp.evaluated_sources || []);
       for (let i = errors.length - 1; i >= 0; i--) {
         const e = errors[i];
         if (!staticLanguageErrors.has(e)) continue;
+        if (e.kind === 'undeclared_uniform' && !declarationFiles.has(e.file)) continue;
         errors.splice(i, 1);
         warnings.push({ ...e, fix_hint: '', validation: 'runtime_compile_passed',
           message: `${e.message} — source-only warning: all evaluated shader programs compiled successfully; JavaScript may transform this literal or join external source before use.` });

@@ -96,25 +96,47 @@ The subsequent request specifically adds campfire, large open fire and burning-h
 visual cases, and asks whether Three.js can consume independent GLSL files. A real
 GPU audit found that scaling the original fire by ten preserves almost the same
 image structure and motion; it also integrates density behind embedded opaque
-walls. A bounded shared multi-emitter field with optional explicit opaque-depth
-termination is in development. Existing candle and small-fire behavior is retained.
+walls. The new bounded shared multi-emitter field now provides optional explicit
+opaque-depth termination. Ten focused tests and an independent depth/layer/opacity/
+displacement review pass. Campfire, open-bonfire and structural-fire compositions
+have inspected GPU frames. Existing candle and small-fire behavior is retained.
 
 Independent `.vert`, `.frag` and `.glsl` loading already works in the scene runtime,
 writer, snapshots and candidate promotion. Guidance now documents asynchronous
 local FileLoader loading; standalone asset builders remain synchronous. Shader
 preflight now maps external compile errors to their original file and line.
-Thirteen existing/new shader diagnostics tests pass, including real GPU valid and
-broken external shaders. Gallery staging, capture, verification and transfer
-packaging now preserve those shader files and retained input frames; twenty
-build/media/package regressions pass. An actual external-shader material study is
-being authored alongside the two fire compositions.
+Real GPU valid and broken external shaders have source-line tests. Gallery
+staging, capture, verification and transfer packaging preserve those shader files
+and retained input frames; 22 build/media/package regressions pass. The completed
+external-shader material study has nine inspected stills, finite HDR/replay/disposal
+checks, a source-bound six-second film and a passing browser-control check.
 
-## Final integration still pending
+## Final integration
 
-Freeze the final library and complete gallery registry, render the authored cameras
-and films into a new output directory, inspect them, run the full browser control
-and strict decoded-media checks, then repeat the complete offline regression.
-Refresh the inventory and final evidence record from that exact source snapshot.
-Prior packages, comparison baselines and published media stay immutable. Passing
-checks does not imply fluid/combustion simulation, recursive transparent transport
-or photorealism; remaining effect-specific limitations stay documented.
+The first combined attempt recorded 2,917 passes and two failures: Chrome closed
+during a cloud probe, and the mixed external/inline GLSL support downgraded a static
+diagnostic from an unused shader. The isolated cloud module passes all seven tests;
+the diagnostic was repaired using unambiguous evaluated-source participation.
+Twenty-nine focused diagnostic tests pass. The interrupted `gallery-v1` capture
+remains a failed attempt, separate from the final gallery.
+
+The complete final offline suite passed **2,922 tests in 225.65 seconds**, with one
+existing Pillow deprecation warning. Ruff passed. Logs are
+`/tmp/graphics-seven-hour/offline-final-clean.log` and `final-ruff-clean.log`.
+Regression and final video capture use separate task-specific browser caches and
+run sequentially. The frozen `gallery-v2` registry contains 19 cases, 58 library
+modules and three independent shader files. All 159 stills across 53 cameras
+rendered cleanly. The complete 30-film / 4,320-frame plan passed strict decode,
+source ownership, encoded digest and retained input-frame checks. Browser checks
+passed all 19 cases and 53 cameras with playback, pause/scrub/reopen/cancellation
+and zero errors. Twenty-seven films demonstrated anchor motion; static or very
+subtle rock/sand/workshop views are not reported as motion evidence.
+
+The new first-six transfer package contains 113 files and 74,973,979 bytes, with
+source/capture checks, ZIP CRC and extracted-file hashes verified. Original ZIPs,
+comparison baselines and published historical media remain byte-identical.
+The [final gallery record](../examples/graphics_lab/REVIEW_2026-09-23.md) links the
+actual output, package, verification reports, costs and remaining visual limits.
+Passing checks does not imply fluid/combustion simulation, recursive transparent
+transport or photorealism. Far terrain, some geology/cloud shapes, fire highlights
+and the authored architecture retain visible procedural limits.

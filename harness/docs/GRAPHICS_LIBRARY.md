@@ -111,6 +111,26 @@ objects; logarithmic depth retains the proxy-box fallback. No collision solver,
 scene-shadow reception or shadow casting is implied. The smoke study includes
 tea and charcoal examples with captured source hashes and six-second films.
 
+`firefield.js` adds `makeFireField` for campfires, larger fuel beds and authored
+window/roof flames. Up to 16 emitters share one integrated flame/soot field, with
+metre-sized embers and at most four practical lights. A baked source atlas keeps
+the per-sample density cost independent of emitter count; source layout and wind
+are construction-time settings. The balanced tier uses 80 view samples, five
+soot-light samples and about 1.49 MB of 3D texture storage, before optional depth
+targets. Screen coverage and quality still determine render cost.
+
+An explicit `occluders` list enables a separate borrowed-geometry depth pass and
+truncates volume rays at those opaque surfaces. Perspective/orthographic cameras,
+offset viewports, transformed fields, camera layers, alpha cuts, instances and
+supported depth-material deformation have actual GPU regressions. This resolves
+embedded-wall intersections that the older first-density test cannot handle.
+Glass and overlapping transparent volumes remain unsupported; skinned occluders,
+morphed InstancedMesh occluders and logarithmic-depth capture are excluded.
+Unmatched custom vertex deformation needs a corresponding `customDepthMaterial`.
+The implementation does not simulate combustion, fluid flow, fire spread or
+structural collapse. Legacy `makeFire` and `makeCandle` remain available unchanged
+by this addition. See the campfire/bonfire and structural-fire gallery studies.
+
 The GLSL authoring surface also has executable SDF, volume-transport and direct
 GGX regressions. Three composed recipe studies and their ordered 144-frame
 films are built with `examples/graphics_lab/build_recipes.py --video`. These
@@ -136,8 +156,9 @@ alongside scenes and library modules, including capture and transfer packages.
 Desktop OpenGL host code requires a browser/WebGL adaptation; shader-text support
 does not make native OpenGL programs directly executable in Three.js.
 
-The maintenance checkpoint on September 23 passed **2,890 offline tests** and
-Ruff, before the subsequent large-fire and external-shader additions. This is
-behavioral/runtime evidence, not a claim that every procedural effect is
-photorealistic. Final integration results are recorded separately in the
-[development record](GRAPHICS_ROADMAP.md).
+The final September 23 integration passed **2,922 offline tests** and Ruff,
+including the large-fire and external-shader additions. One existing Pillow
+deprecation warning remains. This is behavioral/runtime evidence, not a claim
+that every procedural effect is photorealistic. Gallery and media results are
+recorded separately in the [development record](GRAPHICS_ROADMAP.md) and
+[gallery review](../examples/graphics_lab/REVIEW_2026-09-23.md).

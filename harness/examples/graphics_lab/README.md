@@ -1,7 +1,8 @@
 # Graphics Lab
 
-See [validation results and actual model trials](VALIDATION.md) for measured
-checks, rendered artifacts and remaining limitations.
+See the [current maintenance and expansion record](REVIEW_2026-09-23.md),
+[earlier refinement](REFINEMENT.md), and
+[initial validation and actual model trials](VALIDATION.md) for evidence and limits.
 
 Sixteen executable studies of fire, water, terrain, vegetation,
 atmosphere, worked materials and independent shader files, plus three GPT-6 Luna cases.
@@ -125,6 +126,21 @@ absorption colour over `attenuationDistance` metres (default 3). Optional
 map only. Use at most one planar reflector in a scene. The brook study enables
 1024-pixel bank reflections. Bed caustics are a bounded ripple-curvature
 approximation applied to direct lighting, not a fluid or photon simulation.
+
+## Independent shader files
+
+The external shader study loads [a vertex shader](shaders/external_shader.vert),
+[a fragment shader](shaders/external_shader.frag) and
+[shared GLSL helpers](shaders/external_shader_common.glsl) from async
+[scene creation](scenes/external_shader.js). It uses `THREE.FileLoader`,
+module-relative URLs and `ShaderMaterial` with `THREE.GLSL3`; no bundler or raw
+shader import extension is required. JavaScript owns the geometry, uniforms and
+absolute-time update. This is an artistic alloy response with analytic studio
+reflections, not measured anodization or scene-wide ray tracing.
+
+For complete API conventions see Three's [ShaderMaterial documentation](https://threejs.org/docs/pages/ShaderMaterial.html)
+and [FileLoader documentation](https://threejs.org/docs/pages/FileLoader.html).
+Native OpenGL host programs require adaptation to WebGL and GLSL ES.
 
 ## Controlled refinement comparison
 

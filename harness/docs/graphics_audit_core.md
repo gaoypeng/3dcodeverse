@@ -12,18 +12,19 @@ Its 50 historical source hashes all match the untouched
 [`baseline/src/lib`](../examples/graphics_lab/output/seven-hour/baseline/src/lib/).
 At this checkpoint, 47 original modules changed; `caustics.js`, `finish.js` and
 `ocean.js` were retained unchanged. Retention is an explicit disposition, not an
-omission. There are seven additional modules: six visual capabilities and one
-ownership helper. They are not counted among the original 50. The subsequently
-requested `firefield.js` extension is still under development at this ledger
-checkpoint and is excluded from the seven accepted additions below.
+omission. There are eight additional modules: seven visual capabilities and one
+ownership helper. They are not counted among the original 50. The accepted frozen
+source contains **58 modules and 190 actual named exports**. The gallery registry
+contains 19 scenes (16 library studies and three independent agent cases), plus
+three external shader files.
 
 The [weather](graphics_audit_weather.md), [life](graphics_audit_life.md) and
 [surface](graphics_audit_surfaces.md) ledgers explain the other 42 original
 modules. The inventory gives each module's actual named exports, baseline and
 current SHA-256, disposition, tests, concrete evidence and remaining limits.
-Current hashes describe the recorded checkpoint, not a promise that concurrent
-integration has stopped. The bounded cloud refinement has been accepted; final
-combined gallery capture and the later fire extension remain separate work.
+The inventory binds the accepted frozen sources and completed integration evidence.
+The final offline suite, gallery captures, strict media checks, browser controls and
+maintained first-six transfer package pass, with the limits recorded below.
 
 ## Original core modules
 
@@ -51,7 +52,7 @@ integration status are distinguished below.
 | `tests/scene_runtime/lib/test_meadow.py` | 6 | Fractional blade-height powers use a finite domain. A 3,000-blade, four-sample, half-float target with NoToneMapping is read back at two times; the failing fixture had 699 nonfinite HDR channels and the corrected fixture has zero. Other cases retain seeded geometry, motion, validation and ownership coverage. |
 | `tests/scene_runtime/lib/test_stream.py` | 15 | Actual checkerboard refraction and border-radiance tests accompany CPU/GPU flow and sampling checks. Independent ray/plane calculations cover transformed optics. Reflection camera geometry covers scale/shear. Eight renderer-state configurations cover pixel ratios 1/2, default versus post-binding target rectangles, and successful versus injected-failure capture. |
 | `tests/scene_runtime/lib/test_planar_capture.py` | 3 | Water and wet-ground addon capture cameras and projected coordinates agree with independent plane math under uniform, nonuniform, mirrored and composed transforms. Sixteen success/failure target configurations preserve renderer state. Caller-attached Mesh, Camera/inverse, Bone hierarchy and manually managed world matrices survive nested capture and return with their authored update flags; disposal preserves caller resources. The third test checks nested shared-state scopes and callback results/exceptions. |
-| `tests/scene_runtime/test_external_shaders.py` | 3 | Actual GPU loading of separate `.vert`, `.frag` and `.glsl` files succeeds; a broken raw fragment maps to its actual source line. Raw shader static auditing does not reinterpret helper text as an independent JavaScript material. |
+| `tests/scene_runtime/test_external_shaders.py` | 8 | Actual GPU loading of separate `.vert`, `.frag` and `.glsl` files succeeds; a broken raw fragment maps to its actual source line. Raw shader static auditing does not reinterpret helper text as an independent JavaScript material. A successful GPU compile resolves uncertain declarations only when the audited literal participates in the evaluated shader and its source origin is unambiguous. Three additional regressions preserve errors in unused/ambiguous bodies; missing runtime bindings remain errors. |
 | `tests/scene_runtime/test_census_instances.py` | 3 | The bound `geometry._maxInstanceCount` is authoritative. An unused short instance attribute cannot reduce the actual draw count. GPU submissions with requested instance counts 8, 3 and Infinity agree with renderer statistics; pre-binding inference remains conservative. Hidden ancestors, draw-range starts and primitive type are covered. |
 | `tests/graphics/test_graphics_lab_lifecycle.py` | 1 browser test, six scenarios | Authoritative disposal, fallback ownership boundaries, fallback cleanup failure, throwing scene/renderer cleanup, invalid scene contracts and cancelled asynchronous creation all release renderer/context/canvas exactly once. Borrowed textures, cached materials and caller attachments survive. Cleanup failure cannot prevent later cleanup steps. |
 
@@ -131,10 +132,11 @@ reproduced the fix on the GPU. Ordinary horizontal calm-water normal fields rema
 an approximation: correct reflection geometry does not imply arbitrary-orientation
 physical water shading, a multiple-reflector coordinator or recursive transport.
 
-## Seven accepted additions, kept separate from the original fifty
+## Eight accepted additions, kept separate from the original fifty
 
 | New module | Capability, evidence and explicit limits |
 | --- | --- |
+| `firefield.js` | `makeFireField` combines 1–16 authored sources into a bounded flame/soot field with a baked source atlas, rising reaction sheets, world-distance optical extinction, sized embers and practical lights. **Ten tests pass.** `/tmp/graphics-seven-hour/firefield-final/` freezes the accepted SHA `bbb4c77b1e4b88f23f9cdc34d88d3b2f428b510ea2c48422546328ff789c1fff`, nine structural-fire GPU views, and exact sources. Optional isolated borrowed-geometry depth proxies terminate rays at opaque geometry; perspective/orthographic, transformed cameras, hidden parents/layers, opacity/alpha cuts and dynamic displacement are checked. Camera-layer, inactive-emission, displacement-refresh and opacity defects were independently reproduced, repaired and rechecked. This is prescribed fire/soot transport, not combustion, fuel consumption, ventilation, fluid dynamics or structural failure. Skinned/morphed-instanced occluders and optional log-depth capture are unsupported; transparent intersections remain limited. |
 | `cloudvolume.js` | Bounded ray-marched clouds, self-shadowing, Beer extinction, quality tiers and a CPU density query. **Seven tests pass.** `/tmp/graphics-seven-hour/cloud-final-refinement/` is the accepted latest source and 48 matched composed/independent-seed GPU images. Stationary unequal convection towers and support prevent advected noise regrowing against proxy faces; G/B erosion noise still moves. CPU/GPU inset-boundary density falls from about 0.028 to zero for the regression. Earlier first-density depth and rounded base-fade repairs remain. This does not simulate evolving convection, truncate rays at intersecting opaque geometry, or cast terrain cloud shadows; log-depth retains the proxy fallback. |
 | `ice.js` | Closed bevelled fracture floes, fitted gaps, absorption/frost, internal air lenses and an exact top-triangle height query. Nine tests and `/tmp/graphics-seven-hour/ice-final/` provide source and three-view evidence. Optical exit distance is approximate; Three transmission does not recursively trace water or other floes. Fractures are authored, not a mechanics simulation. |
 | `paving.js` | Closed crowned/bevelled cobbles or setts, recessed joints, moisture response and triangle-based height sampling in two merged meshes. Eight tests and `/tmp/graphics-seven-hour/paving-final/` plus `paving-variants/` cover geometry and dry/wet appearance. Patches are rectangular, without arbitrary-route conformity or standing-water optics. |
@@ -144,9 +146,23 @@ physical water shading, a multiple-reflector coordinator or recursive transport.
 | `lifecycle.js` | **Support module, not a visual effect.** Construction-time resource snapshots and idempotent, failure-tolerant cleanup. Two direct tests and family ownership regressions verify the contract. Textures are not implicitly owned; factories must add allocated textures and other private resources explicitly. |
 
 The accepted cloud support refinement retains the final-b depth/base repairs and
-supersedes the earlier five/six-test cloud checkpoints. The later meadow HDR repair and tree bark refinement
-likewise supersede those specific life-family snapshots. Earlier immutable evidence
+supersedes the earlier five/six-test cloud checkpoints. The later meadow HDR repair
+and tree bark refinement likewise supersede those specific life-family snapshots. Earlier immutable evidence
 remains useful but is not silently relabelled as the latest source.
+
+The separately composed campfire/open-bonfire V4 study retains nine accepted GPU
+frames under `/tmp/graphics-seven-hour/campfire-root-v4/`. The shared field's bounded
+local emitters, smoke, embers and practical lights scale independently; legacy
+`fire.js` remains unchanged by this extension. The structural scene is visibly
+procedural, and fine upper-wisp ray-march grain and saturated bright windows remain
+honest visual limits. Whole-image motion includes other animated scene content;
+the dedicated regression isolates field motion and exact absolute-time replay.
+
+The independent integration review is retained at
+`/tmp/graphics-seven-hour/final-integration-review/README.md`. In addition to the
+four firefield issues above, it records repaired external-GLSL declaration handling,
+a package verification-to-copy race, and planar descendant transforms. Corrections
+have independent rechecks; this does not replace the final combined suite/gallery.
 
 ## Separate graphics authoring surface
 
@@ -178,36 +194,76 @@ alloy finish uses an analytic studio reflection field; it does not receive scene
 shadows/interreflection and is not a multilayer optical solver. Gallery source
 staging, hashes and portable packaging are separate integration checks.
 
-## Verification checkpoint and remaining integration
+## Final verification and retained history
 
-The clean retained maintenance log is
-`/tmp/graphics-seven-hour/offline-maintenance-checkpoint.log`: **2,890 passed,
-one Pillow deprecation warning**, in 196.94 seconds. This is a historical clean
-maintenance checkpoint, preceding the descendant follow-up and external-shader/fire
-extensions. The earlier `/tmp/graphics-seven-hour/offline-integration-1.log`
-(2,872 passed and one documentation-map failure) remains historical evidence;
-the map defect was corrected. Neither log is relabelled as a final combined run.
-The descendant follow-up has its own retained **48 passing** relevant checks,
-cloud refinement **7**, tree detail **16**, and shader prompt coverage **53**.
-Counts overlap and must not be summed into an aggregate final-source pass claim.
+The final whole offline suite is **clean: 2,922 passed, one existing Pillow
+deprecation warning**, in 225.65 seconds. The retained dedicated-cache log is
+`/tmp/graphics-seven-hour/offline-final-clean.log`. Ruff also passes, retained in
+`/tmp/graphics-seven-hour/final-ruff-clean.log`.
 
-The prior test collection `/tmp/graphics-seven-hour/historical-final-inventory-test-collection.txt`
-recorded 742 cases across 67 files. The inventory generator is prepared to recollect
-current parameterized tests and actual exports at final source freeze. Collection
-is distinct from execution; final counts and hashes await the root integration
-checkpoint, including the in-progress `firefield.js` extension. Family snapshots
-prove their exact captured module versions, not current identity of all shared
-shader and lifecycle dependencies.
+The completed [gallery V2](../examples/graphics_lab/output/seven-hour/gallery-v2/index.html)
+contains **19 cases, 53 cameras and 159 stills**, with no shader, console or update
+errors in the retained render metrics. Its 19 primary films and 11 extra views
+produce **30 verified films and 4,320 decoded frames**. The
+[strict media report](../examples/graphics_lab/output/seven-hour/gallery-v2/media-verification/report.json)
+checks every encoded digest, three retained encoding-input PNGs per film and all
+63 source files per staged scene. Twenty-seven films have measurable anchor-motion
+masks; rocks, sand and workshop remain below that threshold without failing.
+Maximum first-frame RGB error is 4.688922882/255; maximum 160×90 input-anchor error
+is 1.316990733/255. Motion/error metrics verify media correspondence, not realism.
 
-Rain's accepted V5 scene is a composition change, not an isolated library comparison.
+The [browser report](../examples/graphics_lab/output/seven-hour/gallery-v2/browser-check.json)
+passes all 19 cases and 53 cameras, playback/pause/scrub/reopen/cancellation controls,
+with zero errors. Its English scan covered 4,407 files before the final transfer
+package was added; this statement does not substitute for a later expanded scan.
+The local gallery is served at [http://127.0.0.1:45649/](http://127.0.0.1:45649/).
+The water/atmosphere still review is retained in
+`/tmp/graphics-seven-hour/final-water-gallery-review.md`: 15 selected final views
+match accepted work without a material capture regression. Rounded cloud billows,
+faceted terrain, the interior terrain edge, prescribed water motion and other
+explicit procedural limits remain visible.
+
+The maintained first-six transfer is available as a
+[folder](../examples/graphics_lab/output/seven-hour/gallery-v2/packages/graphics_lab_first_six_maintained_2026-09-23/)
+and [ZIP](../examples/graphics_lab/output/seven-hour/gallery-v2/packages/graphics_lab_first_six_maintained_2026-09-23.zip).
+It contains 113 files; the ZIP is 74,973,979 bytes with SHA-256
+`26efcebd51c76ba7b1a27eb8fdeea5cab0851ec0b9ef628bfaf556f3ae501098`.
+The source manifest, ZIP CRC and extracted hashes pass, recorded in
+`/tmp/graphics-seven-hour/final-transfer-package.json`. This package covers fire,
+ocean, stream, sand, rocks and meadow; the full 19-case gallery is a separate
+local output. Earlier delivered packages remain immutable.
+
+Historical attempts remain explicit. Gallery V1 is **failed and retained**, and
+is not a completed deliverable. `/tmp/graphics-seven-hour/offline-integration-1.log`
+records 2,872 passes and the subsequently repaired documentation-map failure.
+`offline-maintenance-checkpoint.log` records the clean but earlier 2,890-pass
+maintenance checkpoint. `offline-final-integration.log` records 2,917 passes and
+two failures: the cloud boundary fixture's browser closed with `Target closed`,
+and an unused `bad.js` declaration error was wrongly cleared after an unrelated
+starter shader compiled. Despite that test's historical `without_compile` name,
+preflight compiled the starter. The final correction requires literal participation
+in the evaluated shader and unambiguous source origin. The retained diagnostic
+checkpoint (`shader-report-focused.log`) has 29 passes; the isolated cloud recheck
+(`cloud-recheck-isolated.log`) has seven passes in 18.97 seconds with no source
+relaxation. The clean 2,922-pass final run supersedes the failed attempt. All these
+log names resolve under `/tmp/graphics-seven-hour/`; none is relabelled as another run.
+
+The previous collection preserves 742 cases across 67 files in
+`/tmp/graphics-seven-hour/historical-final-inventory-test-collection.txt`.
+The final collection contains **768 cases across 70 files** in
+`/tmp/graphics-seven-hour/final-inventory-test-collection.txt`, including library,
+census, viewer lifecycle and external-source tests. Actual module imports verify
+190 named exports, and all 58 library hashes match the frozen canonical files.
+Collection remains distinct from execution. Family checkpoint counts overlap and
+must not be summed into the final pass count; their snapshots prove the exact
+captured module versions, not the latest identity of all shared dependencies.
+
+Rain V5 is a composition change, not an isolated library comparison.
 `/tmp/graphics-seven-hour/rain-composition/REVIEW.md` and `leaf-detail-comparison.json`
-record fixed-camera appearance, six GPU frames and reduced background leaf geometry.
-The read-only V2 shelter checks remain applicable because later planting revisions
-leave roof/deck/rain/splash construction unchanged: 4,092 deck probes per camera have
-zero roof misses and all 720 splash positions avoid sheltered ground-level impacts.
-Waterfall's final reflective composition, accepted cloud support refinement and
-external shader study await combined final-gallery capture/verification with the
-remaining additions. Existing delivered packages remain immutable. Repository
-source/tests are durable references; `/tmp` evidence is local until explicitly
-included in a portable artifact. This ledger does not claim that every temporary
-capture is already packaged.
+record its fixed-camera appearance and background leaf reduction. The earlier
+shelter probe remains applicable because later planting revisions leave roof,
+deck, rain and splash construction unchanged: 4,092 deck probes per camera have
+zero roof misses, and all 720 splash positions avoid sheltered ground impacts.
+Repository source/tests and the final gallery reports are durable references;
+`/tmp` studies are local unless explicitly packaged. This ledger does not claim
+that every historical temporary capture is included in the maintained six-case ZIP.

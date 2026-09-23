@@ -6,7 +6,7 @@
  * word "content" means exactly one thing everywhere.
  *
  * Rules (name + world-box shape, in order):
- *   sky      a sky-ish name spanning > 50 m, or anything enormous (span > 2 km,
+ *   sky      a sky-ish name spanning > 50 m or not writing depth, or anything enormous (span > 2 km,
  *            or tall AND wide: sy > 300 with span > 300)
  *   content  an InstancedMesh (scatter spans the map but is not ground)
  *   ground   a ground-ish name on a wide, flat box (span > 20, sy < 6 % of span)
@@ -59,10 +59,16 @@ export const GROUND_NAME_RE = /\b(ground|terrain|floor|water|ocean|sea|lake|rive
  * @param {number} contentSpan   horizontal span of the known content bbox (0 = unknown)
  */
 export function classifyBackdrop(obj, box, contentSpan = 0) {
-  const name = obj.name || (obj.parent && obj.parent.name) || '';
+  // Generated scene names normally use PascalCase / snake_case. Word boundaries
+  // alone missed PlanetSkyBackdrop and SkyAtmosphereBand0, framing the sky as a
+  // building. Keep the same vocabulary and shape rules for every naming style.
+  const name = (obj.name || (obj.parent && obj.parent.name) || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ');
   const sx = box.max.x - box.min.x, sy = box.max.y - box.min.y, sz = box.max.z - box.min.z;
   const span = Math.max(sx, sz);
-  if (SKY_NAME_RE.test(name) && span > 50) return 'sky';
+  // sunRig's MoonDisc can be only five metres wide in a compact worldShell, but
+  // its non-depth-writing light image still must not move the scene's centre.
+  if (SKY_NAME_RE.test(name) && (span > 50 || nonSolid(obj))) return 'sky';
   if (span > 2000 || (sy > 300 && span > 300)) return 'sky';
   // a small thing kilometres from the origin is a backdrop whatever it is called: the sun/moon
   // disc `sunRig` parks at 0.9 × the sky radius ('SunDisc' — no word boundary for the regex)
