@@ -66,10 +66,15 @@ def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     assert crate_jobs == ["asset_crate", "asset_crate_fix"] and crate.fixed
     assert (tmp_ws.root / "_assets" / "crate" / "src" / "model.py").is_file() and "_assets/" in (tmp_ws.root / ".gitignore").read_text()
     assert results["FishingBoat"].ok and results["FishingBoat"].path == "src/assets/fishing_boat.js"
-    # blender twin of the S2 reuse: the committed GLB short-circuits the second stage run
+    # S2 reuse: a committed GLB and a committed, import-clean module short-circuit the second
+    # stage run without a model call ...
     n_jobs = len(agent.jobs)
     again = run_asset_stage(ctx)
-    assert len(agent.jobs) == n_jobs and again["Crate"].strategy == "reused" and again["Crate"].ok
+    assert len(agent.jobs) == n_jobs, "a committed passing asset must not be re-paid"
+    assert again["Crate"].strategy == "reused" and again["Crate"].ok
+    boat = results["FishingBoat"]
+    assert again["FishingBoat"].strategy == "reused" and again["FishingBoat"].ok
+    assert again["FishingBoat"].path == boat.path and again["FishingBoat"].size_m is not None
     api = asset_api_summary(plan, results)
     assert "buildFishingBoat" in api and "public/assets/crate.glb" in api
     sub = asset_plan(plan.assets[2])
@@ -86,26 +91,8 @@ def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     sa = render("tracks/scene_asset.j2", **base_prompt_context(ctx, asset_name="Bollard", asset_kind="threejs", asset_description="d", asset_size=(0.3, 0.5, 0.3),
                                                               asset_file="src/assets/bollard.js", asset_language="scene_threejs", fix_instructions=["- x"], current_code=""))
     assert "buildBollard" in sa and "FIX PASS" in sa
+    # ... but a committed, import-broken module is NOT reused: it goes back through generation
+    (tmp_ws.root / boat.path).write_text("export function nope() {}\n")
+    third = run_asset_stage(ctx)
+    assert len(agent.jobs) > n_jobs and third["FishingBoat"].strategy != "reused"
 
-
-@pytest.mark.node   # the threejs asset check imports three under node
-def test_a_committed_asset_is_reused_on_a_second_stage_run(tmp_ws, settings):
-    """A committed, import-clean module is reused without a model call; a broken one is regenerated."""
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    plan.assets = [a for a in plan.assets if a.kind == "threejs"]
-    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS)
-    agent = FakeAgent(lambda job, ws: {job.prompt.split("write `")[1].split("`")[0] if "write `" in job.prompt else "src/x.js": _asset_module(job)})
-    ctx = _ctx(tmp_ws, settings, spec, plan, agent_id="fake:x", services=FakeServices(judge=FakeJudge(scores=(0.9, 0.9))), agent=agent)
-    ctx.runtime.skeleton(tmp_ws, plan)
-    tmp_ws.commit("skeleton")
-    results = run_asset_stage(ctx)
-    assert results["FishingBoat"].ok and results["FishingBoat"].strategy != "reused"
-    n_jobs = len(agent.jobs)
-    results2 = run_asset_stage(ctx)
-    assert len(agent.jobs) == n_jobs, "a committed passing asset must not be re-paid"
-    assert results2["FishingBoat"].strategy == "reused" and results2["FishingBoat"].ok
-    assert results2["FishingBoat"].path == results["FishingBoat"].path and results2["FishingBoat"].size_m is not None
-    # a committed but import-broken module is NOT reused: it goes back through generation
-    (tmp_ws.root / results["FishingBoat"].path).write_text("export function nope() {}\n")
-    results3 = run_asset_stage(ctx)
-    assert len(agent.jobs) > n_jobs and results3["FishingBoat"].strategy != "reused"

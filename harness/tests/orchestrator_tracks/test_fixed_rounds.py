@@ -3,8 +3,6 @@ each built on the round before it, and only the clock or a hard failure ends it 
 
 from __future__ import annotations
 
-import pytest
-
 from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.run import RunStatus
 from codeverse3d.proc import EventLog
@@ -27,12 +25,10 @@ def _track(chair_plan, settings, scores, *, agent=None) -> StaticObjectTrack:
                              runtime=FakeRuntime(Language.CADQUERY))
 
 
-@pytest.mark.parametrize(("scores", "max_rounds"), [
-    ((0.55, 0.85, 0.95), 3),   # passes at r01 — once a "pass" stop
-    ((0.70, 0.40, 0.30), 3),   # regresses twice — once a "regression" stop
-], ids=["passing", "regressing"])
-def test_a_run_is_the_baseline_plus_max_rounds_whatever_the_judge_says(tmp_path, chair_plan, settings, scores,
-                                                                       max_rounds):
+def test_a_run_is_the_baseline_plus_max_rounds_whatever_the_judge_says(tmp_path, chair_plan, settings):
+    """A run that passes at r01 (once a "pass" stop) still runs every round; the regressing twin
+    is ``test_every_refine_starts_from_the_previous_rounds_commit`` and the D84 loop test."""
+    scores, max_rounds = (0.55, 0.85, 0.95), 3
     ws = Workspace(tmp_path / "runs" / "fixed")
     rec = _track(chair_plan, settings, scores).run(make_spec(language=Language.CADQUERY, max_rounds=max_rounds), ws)
     assert len(rec.rounds) == max_rounds + 1

@@ -58,13 +58,16 @@ def test_each_runtime_states_which_file_owns_what(chair_plan):
 
 # --------------------------------------------------------------------- (f) no texture pass in the run
 def test_the_run_itself_never_textures_even_when_asked(tmp_path, chair_plan, settings, monkeypatch):
-    """The texture pass belongs to the hand-over of the PICKED round, not to finalise."""
+    """D31: the texture pass belongs to the hand-over of the PICKED round, not to finalise.  The same
+    run shows the track handing the plan's attach_to pairs to the connectivity gate, spelled in the
+    GLB's part names (the gate's contact ledger is the judge's assembly_fit ground truth)."""
     import codeverse3d.texturing.run as trun
 
     def boom(*a, **kw):
         raise AssertionError("texture_pass must not run inside a run")
 
     monkeypatch.setattr(trun, "texture_pass", boom)
-    for tags in ([], ["texture"]):
-        rec, ws, judge, services = _static_run(tmp_path / (tags[0] if tags else "plain"), chair_plan, settings, tags=tags)
-        assert "texturing" not in rec.extra
+    rec, _ws, _judge, services = _static_run(tmp_path, chair_plan, settings, tags=["texture"])
+    assert "texturing" not in rec.extra
+    # the fake build exports one node per plan part under the plan's own name (no instance copies)
+    assert services.planned_edges == [[("FrontLeg", ("Seat",)), ("BackLeg", ("Seat",)), ("Backrest", ("BackLeg",)), ("Armrest", ("BackLeg",))]]

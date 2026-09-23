@@ -23,7 +23,6 @@ from codeverse3d.contracts.plan import (
 from codeverse3d.contracts.spec import Constraints, ReferenceImage, Spec
 from codeverse3d.models.base import ModelError
 from codeverse3d.tracks import planner as B
-from codeverse3d.tracks import planner as BR
 from codeverse3d.tracks.planner import (
     MAX_QUALITY_REASKS,
     build_user_prompt,
@@ -158,12 +157,18 @@ def _brief() -> EngineeringBrief:
         materials=["body: beech, warm brown"])
 
 
-def test_brief_block_carries_every_lever_into_the_prompt():
-    text = BR.brief_block(_brief())
+def test_brief_block_and_enrichment_carry_every_lever_into_the_plan():
+    text = B.brief_block(_brief())
     for needle in ("Peugeot", "burr mechanism", "does NOT have", "electric motor", "SIGNATURE FEATURES",
                    "open hopper", "NOT visible", "0.140"):
         assert needle in text
-    assert BR.brief_block(None) == ""
+    assert B.brief_block(None) == ""
+    # enrichment adds the signature features as SHOULD items only
+    plan = _plan([_part("P0")])
+    B.enrich_plan(plan, _brief())
+    sig = [a for a in plan.acceptance if a.id.startswith("sig")]
+    assert len(sig) == 3 and all(a.priority == "should" for a in sig)
+    assert "Peugeot" in plan.style_notes and "electric motor" in plan.style_notes
 
 
 def test_brief_is_cached_by_prompt_hash_and_the_second_call_is_free(tmp_path):
@@ -175,11 +180,11 @@ def test_brief_is_cached_by_prompt_hash_and_the_second_call_is_free(tmp_path):
 
     model = FakeChatModel(responder)
     spec = _spec()
-    first, u1 = BR.expand_brief(spec, "fake:planner", model=model, cache_dir=tmp_path)
-    second, u2 = BR.expand_brief(spec, "fake:planner", model=model, cache_dir=tmp_path)
+    first, u1 = B.expand_brief(spec, "fake:planner", model=model, cache_dir=tmp_path)
+    second, u2 = B.expand_brief(spec, "fake:planner", model=model, cache_dir=tmp_path)
     assert calls["n"] == 1 and first == second and u2.cost_usd == 0.0
     # a different request is a different key
-    BR.expand_brief(_spec("a violin"), "fake:planner", model=model, cache_dir=tmp_path)
+    B.expand_brief(_spec("a violin"), "fake:planner", model=model, cache_dir=tmp_path)
     assert calls["n"] == 2
 
 
@@ -197,15 +202,13 @@ def test_an_image_run_does_not_drink_the_no_image_brief(tmp_path):
     model = FakeChatModel(responder)
     plain = _spec()
     withref = plain.model_copy(update={"references": [ReferenceImage(path=str(img))]})
-    BR.expand_brief(plain, "fake:planner", model=model, cache_dir=cache)
-    BR.expand_brief(withref, "fake:planner", model=model, cache_dir=cache)
+    B.expand_brief(plain, "fake:planner", model=model, cache_dir=cache)
+    B.expand_brief(withref, "fake:planner", model=model, cache_dir=cache)
 
     assert calls == [0, 1]  # the reference run made its own, grounded call
-
-
-def test_an_unreadable_reference_never_collapses_onto_no_references(tmp_path):
+    # an unreadable reference never collapses onto no references
     missing = _spec().model_copy(update={"references": [ReferenceImage(path=str(tmp_path / "gone.png"))]})
-    assert BR.brief_cache_key(missing, "m") != BR.brief_cache_key(_spec(), "m")
+    assert B.brief_cache_key(missing, "m") != B.brief_cache_key(_spec(), "m")
 
 
 @pytest.mark.parametrize("error, billed", [
@@ -213,16 +216,8 @@ def test_an_unreadable_reference_never_collapses_onto_no_references(tmp_path):
     (ModelError("bad json", usage=Usage(backend="fake", cost_usd=0.002)), 0.002),
 ])
 def test_a_failed_brief_is_never_fatal_and_keeps_what_the_provider_billed(tmp_path, error, billed):
-    brief, usage = BR.expand_brief(_spec(), "fake:planner", model=FakeChatModel([error]), cache_dir=tmp_path)
+    brief, usage = B.expand_brief(_spec(), "fake:planner", model=FakeChatModel([error]), cache_dir=tmp_path)
     assert brief is None and usage.cost_usd == pytest.approx(billed)
-
-
-def test_enrichment_adds_signature_features_as_SHOULD_items_only():
-    plan = _plan([_part("P0")])
-    B.enrich_plan(plan, _brief())
-    sig = [a for a in plan.acceptance if a.id.startswith("sig")]
-    assert len(sig) == 3 and all(a.priority == "should" for a in sig)
-    assert "Peugeot" in plan.style_notes and "electric motor" in plan.style_notes
 
 
 def test_graphics_pass_elements_are_folded_into_the_one_markdown_row_that_renders_them():

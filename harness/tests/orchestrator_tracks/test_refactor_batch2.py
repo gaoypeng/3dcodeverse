@@ -11,10 +11,6 @@ from tests.orchestrator_tracks.fakes import (
 )
 
 
-def _writer(job, ws):
-    return {"src/object.js": f"// {job.label} r{job.round}\nexport function build(THREE) {{ return new THREE.Group(); }}\n"}
-
-
 # --------------------------------------------------------------------- plan_refine_groups
 def _task(target: str, files: list[str] | None = None, priority: int = 2) -> RefineTask:
     return RefineTask(target=target, kind="geometry", instruction=f"fix {target}", priority=priority, files=files or [])

@@ -25,7 +25,7 @@ from tests.orchestrator_tracks.test_tracks import _agent_writer as _writer
 
 # --------------------------------------------------------------- the typed failure
 
-def test_round_failed_carries_the_flags_of_its_tasks_never_their_words():
+def test_round_failed_carries_the_typed_flags_of_its_tasks_never_their_words():
     ok = GenerationResult(ok=False, notes="exit=completed; errors=['503 in a code comment']", label="a")
     storm = GenerationResult(ok=False, notes="exit=error", label="b", transient=True)
     spent = GenerationResult(ok=False, notes="exit=error", label="c", quota=True)
@@ -34,9 +34,7 @@ def test_round_failed_carries_the_flags_of_its_tasks_never_their_words():
     assert e.transient and not e.quota and str(e) == "a: exit=completed; errors=['503 in a code comment']; b: exit=error"
     assert RoundFailed.of([ok, spent], "x").quota
     assert str(RoundFailed.of([], "no generation task succeeded")) == "no generation task succeeded"
-
-
-def test_a_raised_error_is_classified_by_its_type():
+    # a raised error is classified by its type
     assert GenerationResult.from_error("g", ModelError("Gemini request timed out", retryable=True, status=408)).transient
     assert GenerationResult.from_error("g", ModelError("Gemini API error 503", status=503)).transient
     assert GenerationResult.from_error("g", ModelError("overloaded", status=529)).transient

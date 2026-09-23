@@ -96,7 +96,6 @@ class _RebuildFails(FakeRuntime):
         return super().build(ws, timeout_s=timeout_s)
 
 
-# --------------------------------------------------------------------- finding: spent usage persisted on crash paths
 # --------------------------------------------------------------------- finding: degraded judge verdicts are glitches, not scores
 def test_degraded_verdict_never_scores_and_run_stops_as_judge_unavailable(tmp_path, chair_plan, settings):
     spec = make_spec(max_rounds=3)

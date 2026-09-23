@@ -122,12 +122,13 @@ def test_scene_children_are_stages_and_a_failed_env_never_repays_assets(tmp_path
     assert len(rec.rounds) == 1
 
 
-def _mood_replanned(tmp_path, settings, name, *, force):
-    """A scene run with r00, whose plan then changes ONLY in `mood` (the spec does not change); resumed,
-    with ``--force`` when ``force``.  Returns (resumed job labels, event names)."""
+def test_a_mood_only_replan_is_served_from_the_stages_until_a_forced_resume(tmp_path, settings):
+    """A scene run with r00 whose plan then changes ONLY in `mood` (the spec does not change).
+    F5: with r00 on disk, the drifted key serves the recorded stages instead of re-paying them.
+    Q2: the stage key is the whole plan; `resume --force` archives the rounds, so it re-runs env."""
     plan = small_scene()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
-    ws = Workspace(tmp_path / "runs" / name)
+    ws = Workspace(tmp_path / "runs" / "harbour4")
     agent = FakeAgent(_scene_writer)
     mk = lambda: SceneTrack(services=FakeServices(assemble=True), judge=FakeJudge(scores=(0.6, 0.6)), agent=agent,  # noqa: E731
                             planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
@@ -139,26 +140,21 @@ def _mood_replanned(tmp_path, settings, name, *, force):
     assert data["result"]["mood"] != "desolate, horror"
     data["result"]["mood"] = "desolate, horror"
     stage_file.write_text(json.dumps(data))
-    agent.jobs.clear()
-    n_events = len(EventLog(ws.events_path).read())
-    mk().run(spec, ws, resume=True, force=force)
-    return [j.label for j in agent.jobs], [e["event"] for e in EventLog(ws.events_path).read()[n_events:]]
 
+    def resume(force: bool) -> tuple[list[str], list[str]]:
+        agent.jobs.clear()
+        n_events = len(EventLog(ws.events_path).read())
+        mk().run(spec, ws, resume=True, force=force)
+        return [j.label for j in agent.jobs], [e["event"] for e in EventLog(ws.events_path).read()[n_events:]]
 
-def test_a_mood_only_replan_invalidates_the_env_stage(tmp_path, settings):
-    """Q2: the stage key is the whole plan; `resume --force` archives the rounds, so a mood-only re-plan re-runs env."""
-    labels, events = _mood_replanned(tmp_path, settings, "harbour4", force=True)
-    assert "env" in labels  # a stale cached env must not be served
-    assert "resume.archived" in events and "resume.spec_changed" not in events and "stage.frozen" not in events
-    assert (tmp_path / "runs" / "harbour4" / "rounds" / "pre_force" / "r00.json").is_file()
-
-
-def test_a_drifted_stage_key_never_reruns_a_stage_under_existing_rounds(tmp_path, settings):
-    """F5: with r00 on disk, a drifted key serves the recorded stages instead of re-paying them."""
-    labels, events = _mood_replanned(tmp_path, settings, "harbour5", force=False)
+    labels, events = resume(force=False)
     assert labels == []
     assert events.count("stage.frozen") >= 3  # env, zones, assets (at least)
     assert "stage.start" not in events
+    labels, events = resume(force=True)
+    assert "env" in labels  # a stale cached env must not be served
+    assert "resume.archived" in events and "resume.spec_changed" not in events and "stage.frozen" not in events
+    assert (ws.root / "rounds" / "pre_force" / "r00.json").is_file()
 
 
 def test_a_render_timeout_degrades_the_round_instead_of_failing_the_run(tmp_path, chair_plan, settings):

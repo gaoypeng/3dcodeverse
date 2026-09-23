@@ -80,13 +80,3 @@ def test_every_recorded_dollar_reaches_the_ledger_once(name, tmp_path):
     retried = [s for s in fx["sessions"] if s["attempt"] > 1]
     assert sum(1 for r in rows if r.label.endswith(".a2")) == len(retried)
 
-
-def test_the_round_the_budget_cut_is_still_in_the_total(tmp_path):
-    fx = FIXTURES["tool_med_hand_drill"]
-    assert fx["rounds_in_record"] == [0, 1]
-    cut = [s for s in fx["sessions"] if s["round"] == 2]
-    assert cut, "fixture must contain the round the budget cut"
-    total = replay("tool_med_hand_drill", tmp_path)
-    burned = sum(s["cost_usd"] for s in cut)
-    assert sum(r.cost_usd for r in load_ledger(tmp_path) if r.round == 2) == pytest.approx(burned, abs=1e-6)
-    assert burned > 0.8 and total > burned  # $0.86 that record.rounds never mentioned, inside the total

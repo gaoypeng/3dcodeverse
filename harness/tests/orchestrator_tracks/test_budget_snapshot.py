@@ -68,7 +68,7 @@ def test_build_context_restores_the_budget_snapshot(tmp_path, settings):
 
 
 # --------------------------------------------------------------- ordering: single-shot
-def test_a_paid_single_shot_response_is_persisted_when_the_budget_trips(tmp_path):
+def test_a_paid_single_shot_response_is_persisted_when_the_budget_trips_and_the_next_is_not_bought(tmp_path):
     ws = Workspace(tmp_path / "ws").create()
     guard = BudgetGuard(Budget(max_minutes=1.0))
     answer = ("=== FILE: src/object.js ===\n"
@@ -87,17 +87,11 @@ def test_a_paid_single_shot_response_is_persisted_when_the_budget_trips(tmp_path
     assert res.transcript_path and Path(res.transcript_path).is_file()
     assert sum(r.cost_usd for r in load_ledger(ws.root)) == pytest.approx(0.05)  # booked, dollar for dollar
     assert not guard.ok()  # the phase boundary (steps._run_phase) turns this into the stop
-
-
-def test_single_shot_past_the_ceiling_buys_no_call(tmp_path):
-    ws = Workspace(tmp_path / "ws").create()
-    task = GenerationTask(label="baseline", prompt="p", files_hint=["src/object.js"], max_output_tokens=1000)
+    # and once past the ceiling a single-shot buys no call at all
     calls: list = []
     model = FakeChatModel(lambda req: calls.append(req) or "", cost=0.01)
-    past = BudgetGuard(Budget(max_minutes=1.0))
-    past._active_s = 120.0                               # noqa: SLF001 — already past 1 min
     with pytest.raises(BudgetExceeded):
-        generate_files(ws, model=model, task=task, budget=past)
+        generate_files(ws, model=model, task=task.model_copy(update={"max_output_tokens": 1000}), budget=guard)
     assert calls == []                                   # refused BEFORE any model call
 
 
@@ -124,7 +118,7 @@ def test_a_budget_tripped_candidate_still_lets_the_sibling_be_adopted(tmp_path, 
 
 
 # --------------------------------------------------------------- ordering: planner attempts
-def test_planner_attempt_zero_usage_reaches_the_ledger_when_attempt_one_raises(tmp_path):
+def test_every_paid_planner_attempt_is_booked_once_whether_the_next_raises_or_never_validates(tmp_path):
     guard = BudgetGuard(Budget(max_minutes=10.0))
     ws = Workspace(tmp_path / "run").create()
     calls = {"n": 0}
@@ -141,18 +135,11 @@ def test_planner_attempt_zero_usage_reaches_the_ledger_when_attempt_one_raises(t
     assert calls["n"] == 2
     paid, failed = load_ledger(ws.root)  # attempt 0's dollars are booked; the crash is a $0 error row
     assert (paid.stage, paid.cost_usd, failed.outcome, failed.cost_usd) == ("plan", pytest.approx(0.01), "error", 0.0)
-
-
-def test_planning_error_dollars_are_booked_exactly_once(tmp_path):
-    guard = BudgetGuard(Budget(max_minutes=10.0))
-    ws = Workspace(tmp_path / "run").create()
-
-    def responder(req):
-        return {"object_name": "Chair"}  # never validates
-
+    # a plan that never validates: every paid attempt is booked exactly once
+    ws = Workspace(tmp_path / "run2").create()
     with run_ledger(ws.root), pytest.raises(PlanningError) as ei:
         run_planner(make_spec(), "fake:planner", StaticPlan, ws,
-                    model=metered_chat_model(FakeChatModel(responder, cost=0.01)), budget=guard)
+                    model=metered_chat_model(FakeChatModel(lambda req: {"object_name": "Chair"}, cost=0.01)), budget=guard)
     n = 1 + MAX_VALIDATION_REASKS  # every paid attempt, each booked once
     assert sum(r.cost_usd for r in load_ledger(ws.root)) == pytest.approx(0.01 * n)
     assert ei.value.usage.cost_usd == pytest.approx(0.01 * n)  # the error still reports the total

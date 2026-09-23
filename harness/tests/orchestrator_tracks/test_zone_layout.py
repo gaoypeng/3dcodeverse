@@ -83,15 +83,13 @@ def test_layout_block_renders_numbers_the_builder_can_follow():
     assert layout_block(None) == ""
 
 
-def test_layout_zones_drops_a_twice_rejected_zone_instead_of_dying():
+def test_layout_zones_drops_a_twice_rejected_zone_and_buys_nothing_past_the_ceiling():
     plan = _plan()
     bad = {"zone": "Quay", "placements": [{"asset": "Kraken", "count": 1, "cluster": (0.0, 0.0), "spread_m": 1.0}]}
     good_market = {"zone": "Market", "placements": [{"asset": "Stall", "count": 4, "cluster": (10.0, 0.0), "spread_m": 5.0}]}
     out = layout_zones(plan, FakeChatModel([bad, bad, good_market]), max_workers=1)
     assert set(out) == {"Market"}
-
-
-def test_a_run_past_its_ceiling_buys_no_layout_calls():
+    # a run past its ceiling buys no layout calls
     import time
 
     from codeverse3d.contracts.common import Budget
@@ -99,5 +97,5 @@ def test_a_run_past_its_ceiling_buys_no_layout_calls():
 
     model = FakeChatModel()   # any call finds no reply and raises
     guard = BudgetGuard(Budget(max_minutes=30), start_time=time.time() - 45 * 60)
-    out = layout_zones(_plan(), model, budget=guard, max_workers=1)
+    out = layout_zones(plan, model, budget=guard, max_workers=1)
     assert out == {} and len(model.requests) == 0

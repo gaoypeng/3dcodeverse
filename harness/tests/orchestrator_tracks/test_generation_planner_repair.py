@@ -28,7 +28,6 @@ from codeverse3d.tracks.planner import (
 )
 from codeverse3d.tracks.repair import (
     build_with_repair,
-    relevant_cookbook_section,
 )
 from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
@@ -140,7 +139,7 @@ def test_planner_validates_retries_and_writes(tmp_ws):
     assert "plan.invalid" in kinds and "plan.done" in kinds
 
 
-def test_ensure_acceptance_is_idempotent():
+def test_ensure_acceptance_is_idempotent_and_only_the_scene_spec_must_haves_gate():
     p = StaticPlan.model_validate(_valid_plan_dict())
     spec = make_spec()
     n1 = len(ensure_acceptance(p, spec).acceptance)
@@ -148,9 +147,7 @@ def test_ensure_acceptance_is_idempotent():
     assert n1 == n2 and any(a.how == "measure" for a in p.acceptance)
     # an object plan's own items keep their priority: there IS a measurement pass to settle them
     assert all(a.priority == "must" for a in p.acceptance)
-
-
-def test_scene_plan_items_are_advisory_and_only_the_spec_must_haves_gate():
+    # a scene plan's own items are advisory: only the spec's must-haves gate
     from codeverse3d.contracts.plan import AcceptanceItem
 
     p = ScenePlan.model_validate(plan_example(Track.SCENE))
@@ -192,15 +189,6 @@ def test_build_with_repair_single_shot_sends_file_contents_and_stops_at_max(tmp_
     assert seen[1].temperature > seen[0].temperature  # escalation on identical signature
     assert out.usage.cost_usd == pytest.approx(0.004)
 
-
-def test_repair_cookbook_sections_are_the_prompt_sections():
-    """Repair splits the cookbook with ``prompts.sections`` (its own ``^##+`` regex went,
-    identical on all 7 shipped cookbooks): a ``## `` comment inside a fence is code, not
-    a heading that cuts the recipe in half."""
-    cb = ("## Hinges\nhinge pivot axis revolute\n```python\n## pivot axis note\nhinge = 1\n```\n"
-          "## Materials\nroughness metalness\n")
-    got = relevant_cookbook_section(cb, "hinge pivot axis wrong")
-    assert got.startswith("## Hinges") and "hinge = 1" in got and "Materials" not in got
 
 def test_repair_rel_strips_a_prefix_not_a_character_set(tmp_ws):
     """B14: ``lstrip("./")`` turned ``../x`` into ``x`` and ``.env.js`` into ``env.js``."""

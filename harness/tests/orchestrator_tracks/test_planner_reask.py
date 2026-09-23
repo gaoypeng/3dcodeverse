@@ -46,26 +46,20 @@ def test_every_moving_joint_gets_an_articulation_acceptance_item(tmp_ws):
     assert ids.count("art_drawer") == 1 and ids.count("art_lid") == 1
 
 
-def test_validation_reask_names_the_missing_parts_when_the_plan_is_thin(tmp_ws):
+def test_the_validation_reask_names_a_thin_plans_missing_parts_and_a_schema_echo(tmp_ws):
     thin = _good()
     thin["parts"] = thin["parts"][:1]        # only the cabinet ...
     thin["joints"] = []                      # ... and no joint references the dropped link
     thin["root_link"] = "NoSuchLink"         # a plain validation failure to trigger the re-ask
-    answers = [thin, _good()]
-    model = FakeChatModel(lambda req: answers.pop(0))
-    p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model)
-    assert isinstance(p, ArticulatedPlan) and len(model.requests) == 2
-    reask = model.requests[1].messages[-1].text
-    assert "failed validation" in reask and "lists only 1 part(s)" in reask and "needs about" in reask
-
-
-def test_schema_echo_is_named_in_the_reask(tmp_ws):
     echo = _good()
     echo["joints"][0]["name"] = "string"
     echo["joints"][0]["axis"] = [0, 0, 0]
-    answers = [echo, _good()]
+    answers = [thin, _good(), echo, _good()]
     model = FakeChatModel(lambda req: answers.pop(0))
-    p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model)
-    assert isinstance(p, ArticulatedPlan) and len(model.requests) == 2
-    reask = model.requests[1].messages[-1].text
-    assert "echoes the schema" in reask and "joints[0].name" in reask and "zero axis" not in reask
+    for n, needles, absent in ((2, ("failed validation", "lists only 1 part(s)", "needs about"), None),
+                               (4, ("echoes the schema", "joints[0].name"), "zero axis")):
+        p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model)
+        assert isinstance(p, ArticulatedPlan) and len(model.requests) == n
+        reask = model.requests[n - 1].messages[-1].text
+        assert all(x in reask for x in needles), reask
+        assert absent is None or absent not in reask

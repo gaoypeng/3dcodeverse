@@ -131,8 +131,9 @@ def test_a_planner_outage_on_resume_keeps_the_recorded_history(completed_run):
 
 
 # --------------------------------------------------------------------- (d) force provenance
-def test_force_resume_with_an_edited_prompt_archives_the_old_rounds(completed_run):
-    """`resume --force` after a prompt edit archives the old journal and record under rounds/pre_force/."""
+def test_a_spec_edit_is_refused_without_force_and_archives_the_old_rounds_with_it(completed_run):
+    """A resume after a prompt edit is refused before anything runs; `resume --force` then archives
+    the old journal and record under rounds/pre_force/."""
     run = completed_run(max_rounds=0)
     ws = run.ws
     old_commit = run.record.rounds[0].commit
@@ -141,8 +142,15 @@ def test_force_resume_with_an_edited_prompt_archives_the_old_rounds(completed_ru
                       prompt="a completely different bar stool")
     ws.write_json(ws.spec_path, spec2)  # the user edited the prompt
     p2 = _planner(run.plan)
-    rec2 = run.rerun(planner=p2, spec=spec2, resume=True, force=True)
+    with pytest.raises(SpecChanged, match="--force"):
+        run.rerun(planner=p2, spec=spec2, resume=True)
+    # refused cleanly: nothing archived, nothing spent, nothing overwritten
+    assert p2.requests == [], "no model call before the refusal"
+    assert not (ws.root / "rounds" / "pre_force").exists()
+    assert (ws.root / "rounds" / "r00.json").is_file()
+    assert json.loads(ws.record_path.read_text())["status"] != "failed"
 
+    rec2 = run.rerun(planner=p2, spec=spec2, resume=True, force=True)
     # the old journal + record are ARCHIVED, never paired with the new spec
     assert (ws.root / "rounds" / "pre_force" / "r00.json").is_file()
     assert (ws.root / "rounds" / "pre_force" / "record.json").is_file()
@@ -157,23 +165,6 @@ def test_force_resume_with_an_edited_prompt_archives_the_old_rounds(completed_ru
     assert [r["commit"] for r in on_disk["rounds"]] == [rec2.rounds[0].commit]
     kinds = [e["event"] for e in EventLog(ws.events_path).read()]
     assert "resume.spec_changed" in kinds and "resume.reconciled" in kinds
-
-
-def test_a_spec_edit_without_force_is_refused_before_anything_runs(completed_run):
-    run = completed_run(max_rounds=0)
-    ws = run.ws
-
-    spec2 = make_spec(language=Language.BLENDER, max_rounds=0,
-                      prompt="a completely different bar stool")
-    ws.write_json(ws.spec_path, spec2)
-    p2 = _planner(run.plan)
-    with pytest.raises(SpecChanged, match="--force"):
-        run.rerun(planner=p2, spec=spec2, resume=True)
-    # refused cleanly: nothing archived, nothing spent, nothing overwritten
-    assert p2.requests == [], "no model call before the refusal"
-    assert not (ws.root / "rounds" / "pre_force").exists()
-    assert (ws.root / "rounds" / "r00.json").is_file()
-    assert json.loads(ws.record_path.read_text())["status"] != "failed"
 
 
 # --------------------------------------------------------------------- (f3) notes survive

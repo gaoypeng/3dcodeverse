@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import re
-
 from codeverse3d.contracts.common import Language
-from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse3d.conventions import to_snake
 from codeverse3d.tracks.depth import (
-    DETAIL_ADVICE,
     PartScope,
     interfaces_text,
     scope_groups,
@@ -23,7 +19,7 @@ def _files_for(name):
 
 
 # ----------------------------------------------------------------------------- scoping
-def test_scope_groups_partitions_along_the_attachment_tree(chair_plan):
+def test_scope_groups_partition_the_attachment_tree_and_name_the_outside_neighbours(chair_plan):
     scopes = scope_groups(chair_plan, files_for=_files_for, max_groups=6, min_parts=3)
     assert len(scopes) >= 2
     names = [n for s in scopes for n in s.names]
@@ -36,10 +32,7 @@ def test_scope_groups_partitions_along_the_attachment_tree(chair_plan):
     assert scope_groups(chair_plan, files_for=_files_for, min_parts=99) == []       # small plan
     assert scope_groups(chair_plan, files_for=None, min_parts=3) == []              # no per-part files
     assert scope_groups(chair_plan, files_for=_files_for, max_groups=1, min_parts=3) == []
-
-
-def test_interfaces_text_names_only_the_neighbours_outside_the_scope(chair_plan):
-    scopes = scope_groups(chair_plan, files_for=_files_for, max_groups=6, min_parts=3)
+    # the interface table names only the neighbours outside the scope
     backleg = next(s for s in scopes if "BackLeg" in s.names)
     text = interfaces_text(chair_plan, backleg)
     rows = [ln for ln in text.splitlines() if ln.startswith("| ") and "---" not in ln][1:]
@@ -52,19 +45,6 @@ def test_interfaces_text_names_only_the_neighbours_outside_the_scope(chair_plan)
 
 
 # ----------------------------------------------------------------------------- the track wiring
-def big_plan(n: int = 11) -> StaticPlan:
-    """A plan past the scoping threshold, with a real attachment tree (Body → N children)."""
-    parts = [PartPlan(name="Body", role="main mass", description="the shell",
-                      bbox=BBox(center=(0, 0.5, 0), extents=(0.6, 1.0, 0.4)))]
-    for i in range(n - 1):
-        parts.append(PartPlan(name=f"Fitting{i}", role=f"fitting {i}", description="a fitting with a bevel",
-                              bbox=BBox(center=(0.05 * i, 0.2 + 0.05 * i, 0.1), extents=(0.05, 0.05, 0.05)),
-                              attach_to="Body"))
-    return StaticPlan(object_name="Machine", summary="A machine, 0.6 x 0.4 x 1.0 m.",
-                      overall_bbox=BBox(center=(0, 0.5, 0), extents=(0.6, 1.0, 0.4)), parts=parts,
-                      acceptance=[])
-
-
 def _ctx(tmp_path, plan, settings, *, language=Language.THREEJS, agent_id="fake-agent:m"):
     from codeverse3d.orchestrator import RunState
     from codeverse3d.proc import EventLog
@@ -78,23 +58,6 @@ def _ctx(tmp_path, plan, settings, *, language=Language.THREEJS, agent_id="fake-
     ctx = track.build_context(spec, ws, EventLog(ws.events_path), RunState(slug="d"))
     ctx.plan = plan
     return track, ctx
-
-
-def test_scoped_baseline_fans_out_and_the_assembly_session_owns_the_entry(tmp_path, settings):
-    track, ctx = _ctx(tmp_path, big_plan(), settings)
-    tasks = track.baseline_tasks(ctx)
-    assert len(tasks) >= 3
-    parts, assemble = tasks[:-1], tasks[-1]
-    assert {t.phase for t in parts} == {0} and assemble.phase == 1     # assembly sees the part files
-    assert assemble.label == "assemble" and assemble.files_hint == ["src/object.js"]
-    owned = [f for t in parts for f in t.files_hint]
-    assert len(owned) == len(set(owned)) and "src/object.js" not in owned   # file-disjoint, no entry
-    assert all(t.kind == "baseline" and t.round == 0 for t in tasks)
-    # every scoped prompt carries ITS parts, the interface table and the detail advice — not the plan
-    one = parts[0]
-    assert "Interfaces" in one.prompt and DETAIL_ADVICE in one.prompt
-    assert not re.search(r"\d", DETAIL_ADVICE), "the budget is enforced by budget_gate; the advice states no number"
-    assert "FILES YOU MAY WRITE" in one.prompt
 
 
 def test_phases_run_in_order_and_a_failed_phase_does_not_kill_the_round(tmp_path, chair_plan, settings):

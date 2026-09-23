@@ -26,7 +26,6 @@ from codeverse3d.tracks.scene_assets import (
     check_threejs_asset,
     dedupe_assets,
     run_asset_stage,
-    select_assets,
     variant_index,
 )
 from codeverse3d.workspace import Workspace
@@ -48,7 +47,7 @@ needs_node = pytest.mark.skipif(
 
 
 # ----------------------------------------------------------------------------- soft budget
-def test_soft_budget_degrades_before_the_hard_cap_and_grace_reopens_it():
+def test_soft_budget_degrades_before_the_hard_cap_and_the_timeout_is_clipped():
     clock = {"t": 0.0}
     g = BudgetGuard(Budget(max_minutes=10.0), soft_fraction=0.55)
     g.start_time = 0.0
@@ -67,9 +66,7 @@ def test_soft_budget_degrades_before_the_hard_cap_and_grace_reopens_it():
     assert g.ok() and g.hard_minutes == pytest.approx(15.0)
     g.grant_grace(minutes=1.0)  # never shrinks
     assert g.hard_minutes == pytest.approx(15.0)
-
-
-def test_timeout_is_clipped_to_the_wall_clock_left():
+    # a session timeout is clipped to the wall clock left
     g = BudgetGuard(Budget(max_minutes=10.0), soft_fraction=0.5)
     assert g.timeout_s(1800, floor_s=60) == pytest.approx(300, abs=2)  # 50 % of 10 min
     assert g.timeout_s(120, floor_s=60) == pytest.approx(120, abs=2)   # never inflates
@@ -93,9 +90,7 @@ def test_dedupe_folds_near_identical_props_into_one_variant_factory():
     assert "opts.variant" in kept[0].description and "variant 1 = PondRock" in kept[0].description
     # HeroBoulder is 6× the stepping stone → a different prop, not a variant
     assert "HeroBoulder" not in alias
-
-
-def test_dedupe_is_a_no_op_for_unrelated_assets_and_reaches_the_zone_prompt():
+    # a no-op for unrelated assets, and the merge reaches the zone prompt
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     kept, alias = dedupe_assets(list(plan.assets))
     assert not alias and len(kept) == len(plan.assets)
@@ -156,13 +151,6 @@ def _scene_ctx(tmp_path, settings, *, services, agent=None, plan=None, agent_id=
 
 def _events(ctx) -> list[dict]:
     return [json.loads(line) for line in ctx.ws.events_path.read_text().splitlines() if line.strip()]
-
-
-def test_asset_check_names_the_file_that_was_never_written(tmp_path, settings):
-    services = FakeServices()
-    ctx = _scene_ctx(tmp_path, settings, services=services)
-    chk = check_threejs_asset(ctx, "src/assets/missing.js", "Missing")
-    assert not chk.ok and chk.ran and chk.fatal and "was not written" in chk.errors[0]
 
 
 # a CLI session that died at the wall after a 503 streak: nothing written, transient
@@ -237,15 +225,6 @@ def test_a_merged_asset_leaves_a_working_shim_not_the_placeholder_box(tmp_path, 
     assert chk.ok and chk.meshes == 2, "the shim resolves to the real factory, not the blockout stub"
 
 
-def test_asset_selection_folds_only_over_the_cap():
-    twins = [_asset("PondRock", (1.1, 0.75, 0.9)), _asset("SteppingStone", (0.65, 0.12, 0.55))]
-    kept, alias = select_assets(twins, cap=8)
-    assert [k.name for k in kept] == ["PondRock", "SteppingStone"] and not alias
-    kept, alias = select_assets(twins, cap=1)
-    assert [k.name for k in kept] == ["PondRock"] and alias == {"SteppingStone": "PondRock"}
-
-
-
 def test_a_clock_that_trips_after_a_finished_zones_session_records_what_it_wrote(tmp_path, settings):
     """Q1: the cached zones result records the zones the session wrote before its charge crossed the ceiling."""
     from tests.orchestrator_tracks.conftest import FAKE_CLOCK
@@ -303,6 +282,8 @@ def test_stages_that_spend_the_clock_without_raising_still_get_a_salvaged_round(
 def test_an_imperfect_asset_stays_available_but_a_broken_one_does_not(tmp_path, settings):
     services = FakeServices()
     ctx = _scene_ctx(tmp_path, settings, services=services)
+    chk = check_threejs_asset(ctx, "src/assets/missing.js", "Missing")
+    assert not chk.ok and chk.ran and chk.fatal and "was not written" in chk.errors[0]
     (ctx.ws.src / "assets").mkdir(parents=True, exist_ok=True)
     (ctx.ws.src / "assets" / "small.js").write_text(_module("Small", 0.5, 0.5, 0.5))
     off = check_threejs_asset(ctx, "src/assets/small.js", "Small", expected_size_m=(4.0, 4.0, 4.0))

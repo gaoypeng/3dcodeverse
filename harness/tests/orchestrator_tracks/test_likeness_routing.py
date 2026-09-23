@@ -28,7 +28,7 @@ def test_graphics_note_asks_for_the_physics_not_a_silhouette(tmp_path):
     assert reference_note(_ctx(Track.GRAPHICS, [str(tmp_path / "gone.png")])) == ""
 
 
-def test_make_judge_routes_photos_to_the_likeness_judge():
+def test_make_judge_routes_photos_to_the_likeness_judge_and_a_replay_picks_the_same():
     calls: list[tuple[str, str]] = []
     services = SimpleNamespace(
         likeness_judge=lambda model, n_samples, rubric: calls.append(("likeness", rubric)) or "L",
@@ -41,11 +41,9 @@ def test_make_judge_routes_photos_to_the_likeness_judge():
     assert BaseTrack.make_judge(me, _ctx(Track.STATIC_OBJECT, ["/x.png"])) == "R"
     assert BaseTrack.make_judge(me, _ctx(Track.GRAPHICS, [])) == "P"
     assert calls[0] == ("likeness", "shader_v1")
-
-
-def test_a_replay_picks_the_judge_the_live_run_did():
-    """`3dcode judge` / calibration and the live run share `judge_for`: a graphics or scene run
-    with photos was re-judged by ReferenceJudge (silhouette + diff pass) where the run used likeness."""
+    # a replay picks the judge the live run did: `3dcode judge` / calibration and the live run share
+    # `judge_for` — a graphics or scene run with photos was re-judged by ReferenceJudge (silhouette +
+    # diff pass) where the run used likeness
     from codeverse3d.cli._judge import make_judge
     from codeverse3d.judges.vlm_judge import LikenessJudge, ReferenceJudge, VlmJudge, judge_for
 

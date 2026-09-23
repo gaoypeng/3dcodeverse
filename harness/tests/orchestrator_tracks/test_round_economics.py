@@ -140,26 +140,17 @@ def test_skip_judge_reasons_are_only_states_where_the_verdict_is_never_bought(tm
     assert skip_judge_reason(ctx, renders=_renders()) == "no judge configured"
 
 
-def test_a_round_that_changed_no_file_never_reaches_the_judge_question(tmp_path, spec, settings):
-    from codeverse3d.tracks.steps import RoundFailed, run_generation_tasks
-
-    idle = FakeAgent(lambda job, ws: AgentResult(ok=True, exit_reason="completed", files_changed=[], usage=Usage(cost_usd=0.01)))
-    ctx = _ctx(tmp_path, spec, settings, agent=idle, name="nochange")
-    with pytest.raises(RoundFailed):
-        run_generation_tasks(ctx, [GenerationTask(label="refine", prompt="p", round=1, kind="refine")])
-
-
-def _ctx(tmp_path, spec, settings, *, policy: RoundPolicy | None = None, agent=None, name: str = "skip"):
+def _ctx(tmp_path, spec, settings):
     from codeverse3d.contracts.common import Budget
     from codeverse3d.orchestrator import BudgetGuard, RunState
     from codeverse3d.tracks.common import RunContext
 
-    ws = Workspace(tmp_path / "runs" / name)
+    ws = Workspace(tmp_path / "runs" / "skip")
     ws.create()
     return RunContext(spec=spec, ws=ws, events=EventLog(ws.events_path), settings=settings,
                       budget=BudgetGuard(Budget(max_minutes=60)), runtime=FakeRuntime(Language.THREEJS),
-                      services=FakeServices(), state=RunState(), policy=policy or RoundPolicy(), track=spec.track,
-                      rubric="static_object_v1", agent_id="fake:fake-model", judge=FakeJudge(), agent=agent)
+                      services=FakeServices(), state=RunState(), policy=RoundPolicy(), track=spec.track,
+                      rubric="static_object_v1", agent_id="fake:fake-model", judge=FakeJudge())
 
 
 # ----------------------------------------------------------------------------- end to end

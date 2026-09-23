@@ -90,7 +90,7 @@ def test_an_unreadable_cached_stage_is_a_miss_not_a_dead_run(tmp_ws):
 
 
 # ----------------------------------------------------------------------------- refine instructions
-def test_build_refine_instructions_merges_and_groups(chair_plan):
+def test_build_refine_instructions_merges_groups_and_the_cap_protects_gate_tasks(chair_plan):
     judgment = Judgment(rubric="r", scores={}, overall=0.6, passed=False, improvement_plan=[
         ImprovementItem(target="seat", kind="geometry", instruction="thicker seat", priority=2),
         ImprovementItem(target="Backrest", kind="material", instruction="warmer oak", priority=1),
@@ -119,9 +119,7 @@ def test_build_refine_instructions_merges_and_groups(chair_plan):
     one = plan_parallel_groups(tasks + [RefineTask(target="x", kind="geometry", instruction="i", priority=3)])
     assert len(one) == 1
     assert build_refine_instructions(None, [], [], chair_plan) == []
-
-
-def test_refine_cap_protects_gate_tasks(chair_plan):
+    # the task cap never drops a gate task
     gates = [GateReport(gate="g", passed=False, findings=[GateFinding(gate="g", severity=Severity.ERROR, target=f"P{i}", message=f"e{i}") for i in range(8)])]
     judgment = Judgment(rubric="r", scores={}, overall=0.5, passed=False, improvement_plan=[
         ImprovementItem(target=f"J{i}", kind="geometry", instruction="x", priority=1) for i in range(5)])

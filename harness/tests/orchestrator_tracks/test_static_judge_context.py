@@ -1,25 +1,18 @@
-"""The static track hands the plan's attach_to pairs to the connectivity gate, spelled in the
-GLB's part names, so the gate's contact ledger can list each planned join as contact/open
-(the judge's assembly_fit ground truth, ``prompt_builder.gates_section``)."""
+"""``planned_joins``: the plan's attach_to pairs spelled in the GLB's part names, so the connectivity
+gate's contact ledger can list each planned join as contact/open (the judge's assembly_fit ground
+truth, ``prompt_builder.gates_section``).  The track wiring is in ``test_integrations2``."""
 
 from __future__ import annotations
 
 from codeverse3d.contracts.artifacts import Measurement, PartMeasure
 from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse3d.spatial.contract import planned_joins
-from tests.orchestrator_tracks.test_integrations2 import _static_run
 
 
 def _measurement(parts: dict[str, tuple[tuple[float, float, float], tuple[float, float, float]]]) -> Measurement:
     rows = [PartMeasure(name=n, bbox_min=lo, bbox_max=hi) for n, (lo, hi) in parts.items()]
     return Measurement(bbox_min=(0, 0, 0), bbox_max=(1, 1, 1), extents=(1, 1, 1), center=(0.5, 0.5, 0.5),
                        tri_count=12 * len(rows), n_meshes=len(rows), n_islands=len(rows), parts=rows)
-
-
-def test_track_passes_attach_to_pairs_to_the_connectivity_gate(tmp_path, chair_plan, settings):
-    _rec, _ws, _judge, services = _static_run(tmp_path, chair_plan, settings)
-    # the fake build exports one node per plan part under the plan's own name (no instance copies)
-    assert services.planned_edges == [[("FrontLeg", ("Seat",)), ("BackLeg", ("Seat",)), ("Backrest", ("BackLeg",)), ("Armrest", ("BackLeg",))]]
 
 
 def test_planned_joins_spell_instances_as_the_glb_does_and_pair_every_touching_parent_copy(chair_plan):
@@ -35,9 +28,7 @@ def test_planned_joins_spell_instances_as_the_glb_does_and_pair_every_touching_p
     edges = planned_joins(chair_plan, m)
     assert edges == [('FrontLeg_0', ('Seat',)), ('FrontLeg_1', ('Seat',)), ('BackLeg_0', ('Seat',)), ('BackLeg_1', ('Seat',)), ('Backrest', ('BackLeg_0', 'BackLeg_1')), ('Armrest_0', ('BackLeg_0',)), ('Armrest_1', ('BackLeg_1',))]
     assert "BackLeg_1" not in dict(edges)["Armrest_0"]
-
-
-def test_planned_joins_drop_what_the_mesh_does_not_have():
+    # and a join drops what the mesh does not have
     plan = StaticPlan(
         object_name="Stool", summary="a stool", overall_bbox=BBox(center=(0, 0.2, 0), extents=(0.3, 0.4, 0.3)),
         parts=[PartPlan(name="Top", role="top", description="disc", bbox=BBox(center=(0, 0.39, 0), extents=(0.3, 0.02, 0.3))),
