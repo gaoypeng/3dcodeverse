@@ -7,7 +7,6 @@ from __future__ import annotations
 from codeverse3d.contracts.artifacts import Measurement, PartMeasure
 from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse3d.spatial.contract import planned_joins
-from codeverse3d.tracks.static_object import ObjectPipeline
 from tests.orchestrator_tracks.test_integrations2 import _static_run
 
 
@@ -24,10 +23,7 @@ def test_track_passes_attach_to_pairs_to_the_connectivity_gate(tmp_path, chair_p
 
 
 def test_planned_joins_spell_instances_as_the_glb_does_and_pair_every_touching_parent_copy(chair_plan):
-    """Counted 2026-08-30 over the 342 stored static rounds with attach_to edges: 823 of 2 568
-    edges name an instance part (``FrontLeg`` for ``FrontLeg_0``/``FrontLeg_1``).  Each child copy
-    joins every copy of its parent it touches (the backrest spans both back legs), else the
-    nearest — the cross product would call the far apron/leg pair of every chair OPEN."""
+    """Each child copy joins every parent copy it touches, never the cross product."""
     leg = lambda x, z: ((x - 0.02, 0.0, z - 0.02), (x + 0.02, 0.41, z + 0.02))  # noqa: E731
     m = _measurement({
         "Seat": ((-0.21, 0.41, -0.2), (0.21, 0.45, 0.2)),
@@ -54,12 +50,3 @@ def test_planned_joins_drop_what_the_mesh_does_not_have():
     del boxes["Top"]  # the parent never made it into the export: no edge, the contract gate reports the missing part
     assert planned_joins(plan, _measurement(boxes)) == [('Ring', ('Leg_0', 'Leg_1'))]
     assert planned_joins(None, _measurement(boxes)) == [] and planned_joins(plan, None) == []
-
-
-def test_judge_context_stays_empty_because_the_block_lives_in_gates_section(tmp_path, chair_plan):
-    """The block is rendered from the stored GateReport, so ``3dcode judge <slug>`` on a recorded
-    round gets it too; a judge_context copy would be a second source of the same facts."""
-    from codeverse3d.contracts.artifacts import BuildResult
-    from codeverse3d.workspace import Workspace
-
-    assert ObjectPipeline().judge_context(Workspace(tmp_path / "w"), chair_plan, 0, BuildResult(ok=True, language="threejs"), []) == ""

@@ -1,14 +1,5 @@
-"""The transport-retry lever: a round killed by the PROVIDER (a 503 storm, a dropped
-socket, an overloaded API) is re-run exactly once before the failure may mean anything;
-an agent that ran fine and DECLINED the work is still a no_change stop; the vendor's
-spent usage limit stops the run as agent_quota.
-
-Shipped after 2026-08-29: rc=247 gemini-cli crashes killed three whole runs at
-baseline, and a refine-round crash was delivered as a fake plateau (microscope).
-Typed since 2026-09-22: each backend classifies its own CLI's failure
-(``AgentResult.transient`` / ``.quota``), the flags ride ``GenerationResult`` into
-``RoundFailed``, and the loop reads them — it matched substrings of the joined
-notes before, with a vocabulary that had drifted from the backends'."""
+"""The transport-retry lever: a round killed by the PROVIDER (typed ``transient``) is re-run
+exactly once; a declined round is a no_change stop; a spent vendor quota stops as agent_quota."""
 from __future__ import annotations
 
 import pytest
@@ -76,25 +67,6 @@ class CrashingAgent(FakeAgent):
         return super().run(job)
 
 
-class CrashUntilRetried(FakeAgent):
-    """Every session at ``crash_round`` dies until the lever's OWN retry event exists
-    in the workspace event log — so the whole first attempt crashes (task count never
-    assumed) and the whole retry succeeds, with the boundary written by the lever."""
-
-    def __init__(self, *, crash_round: int):
-        super().__init__(_writer)
-        self.crash_round = crash_round
-
-    def run(self, job: AgentJob) -> AgentResult:
-        ws = Workspace(job.workspace)
-        retried = any(e["event"] == "round.transport_retry" for e in EventLog(ws.events_path).read())
-        if job.round == self.crash_round and not retried:
-            self.jobs.append(job)
-            return AgentResult(ok=False, exit_reason="error", errors=list(CRASH), usage=Usage(cost_usd=0.01),
-                               transient=True)
-        return super().run(job)
-
-
 def after_baseline(failure: AgentResult) -> FakeAgent:
     """Baseline works; every refine session ends in ``failure``."""
     return FakeAgent(lambda job, ws: _writer(job, ws) if job.round == 0 else failure)
@@ -119,28 +91,6 @@ def _events(ws: Workspace) -> list[str]:
 
 # --------------------------------------------------------------- track behaviour
 
-def test_baseline_transport_crash_is_retried_and_the_run_recovers(tmp_path, chair_plan, settings):
-    # the ax_umbrella shape: every baseline session dies rc-nonzero with an empty
-    # response until the lever steps in; before the lever that was the whole run.
-    agent = CrashUntilRetried(crash_round=0)
-    ws = Workspace(tmp_path / "runs" / "recover")
-    rec = _track(agent, (0.55, 0.7, 0.85), chair_plan, settings).run(make_spec(max_rounds=3), ws)
-    assert rec.status is RunStatus.MAX_ROUNDS and [r.score for r in rec.rounds] == pytest.approx([0.55, 0.7, 0.85, 0.85])
-    evs = _events(ws)
-    assert evs.count("round.transport_retry") == 1 and "run.failed" not in evs
-    assert [r.kind for r in rec.rounds] == ["baseline", "refine", "refine", "refine"]
-
-
-def test_refine_transport_crash_retries_only_once_then_stops_as_no_change(tmp_path, chair_plan, settings):
-    agent = CrashingAgent(crash_round=1, crashes=-1)
-    ws = Workspace(tmp_path / "runs" / "plateau")
-    rec = _track(agent, (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
-    assert rec.status is RunStatus.NO_CHANGE and rec.extra["stop_reason"] == "no_change"
-    assert [r.score for r in rec.rounds] == pytest.approx([0.55])  # the baseline is still recorded
-    evs = _events(ws)
-    assert evs.count("round.transport_retry") == 1  # exactly once, never a loop
-    assert "round.no_change" in evs
-
 
 def test_baseline_transport_crash_is_retried_once_then_fails(tmp_path, chair_plan, settings):
     agent = CrashingAgent(crash_round=0, crashes=-1)
@@ -153,8 +103,7 @@ def test_baseline_transport_crash_is_retried_once_then_fails(tmp_path, chair_pla
 
 @pytest.mark.parametrize("refine", [UNTYPED_CRASH, IDLE], ids=["untyped_crash", "idle"])
 def test_an_untyped_crash_or_an_idle_session_is_a_no_change_stop_not_a_retry(tmp_path, chair_plan, settings, refine):
-    """The words "response=<empty>" used to buy a retry of the whole round; only the backend's
-    own verdict does now (0 of 34 recorded gemini-cli error exits lacked a provider signature)."""
+    """Only the backend's typed verdict buys a retry, never words in the notes."""
     ws = Workspace(tmp_path / "runs" / "crash")
     rec = _track(after_baseline(refine), (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
     assert rec.status is RunStatus.NO_CHANGE

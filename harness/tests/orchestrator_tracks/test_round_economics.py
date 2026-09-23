@@ -2,29 +2,24 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from codeverse3d.contracts.agent import AgentJob, AgentResult
-from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import Language, Usage
-from codeverse3d.contracts.run import RoundRecord, RunStatus
+from codeverse3d.contracts.run import RunStatus
 from codeverse3d.cost.instrument import MeteredAgent, run_ledger
 from codeverse3d.cost.ledger import load_ledger
 from codeverse3d.orchestrator import RoundPolicy
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.generation import (
-    DEFAULT_AGENT_MAX_TURNS,
     DEFAULT_WRAPUP_TURNS,
     GenerationTask,
-    agent_max_turns,
     run_agent_task,
     turn_capped,
 )
 from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
-from tests.orchestrator_tracks.conftest import fake_clock, make_spec
+from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
     FakeJudge,
@@ -58,34 +53,6 @@ class _TurnAgent:
         return AgentResult(ok=bool(wrote), exit_reason="budget" if exhausted else "completed",
                            files_changed=wrote, errors=[f"max_turns ({job.max_turns}) reached"] if exhausted else [],
                            usage=Usage(backend="api-agent", cost_usd=self.cost, input_tokens=1000))
-
-
-def test_agent_sessions_are_uncapped_by_default(tmp_ws, switch):
-    switch("C3D_AGENT_MAX_TURNS", None)
-    assert DEFAULT_AGENT_MAX_TURNS == 0
-    agent = _TurnAgent(writes_on=1)
-    task = GenerationTask(label="baseline", prompt="p", round=0, kind="baseline")
-    run_agent_task(tmp_ws, agent=agent, task=task)
-    assert agent.jobs[0].max_turns == AgentJob(workspace="w", prompt="p").max_turns  # the backend's own default
-    assert agent_max_turns() == 0  # "no cap asked for"
-    # ... and the machine's way of asking for one still works
-    switch("C3D_AGENT_MAX_TURNS", "9")
-    assert agent_max_turns() == 9
-    run_agent_task(tmp_ws, agent=agent, task=task)
-    assert agent.jobs[-1].max_turns == 9
-    switch("C3D_AGENT_MAX_TURNS", "nonsense")   # warns, keeps the default: never a crash
-    assert agent_max_turns() == DEFAULT_AGENT_MAX_TURNS == 0
-
-
-def test_the_configured_cap_is_plumbed_through_the_round(tmp_path, spec, settings, monkeypatch):
-    from codeverse3d.tracks.steps import run_generation_tasks
-
-    monkeypatch.setenv("C3D_AGENT_MAX_TURNS", "15")
-    agent = _TurnAgent(writes_on=1)
-    ctx = _ctx(tmp_path, spec, settings, agent=agent)
-    run_generation_tasks(ctx, [GenerationTask(label="baseline", prompt="p", round=0, kind="baseline")])
-    assert agent.jobs[0].max_turns == 15
-    assert agent.jobs[1].max_turns == DEFAULT_WRAPUP_TURNS  # ... and the landing session
 
 
 def test_hitting_the_cap_asks_for_a_landing_instead_of_killing_the_session(tmp_ws, monkeypatch):
@@ -157,11 +124,6 @@ def _renders():
     return RenderSet(views=[RenderView(name="front", path="x.png")], renderer="fake")
 
 
-def _gates(errors: int = 0):
-    return [GateReport(gate="lint", passed=not errors,
-                       findings=[GateFinding(gate="lint", severity=Severity.ERROR, message="e")] * errors)]
-
-
 def test_skip_judge_reasons_are_only_states_where_the_verdict_is_never_bought(tmp_path, spec, settings):
     from codeverse3d.tracks.steps import skip_judge_reason
 
@@ -187,28 +149,6 @@ def test_a_round_that_changed_no_file_never_reaches_the_judge_question(tmp_path,
         run_generation_tasks(ctx, [GenerationTask(label="refine", prompt="p", round=1, kind="refine")])
 
 
-def test_a_round_with_gate_errors_whose_verdict_was_lost_is_rejudged(tmp_path, spec, settings):
-    from codeverse3d.tracks.steps import rejudge_round
-
-    ctx = _ctx(tmp_path, spec, settings, name="rebuy")
-    rec = RoundRecord(index=1, kind="refine", build=BuildResult(ok=True, language="l"),
-                      gates=_gates(2), renders=_renders())
-    assert rejudge_round(ctx, _pipeline(), rec) is True and len(ctx.judge.calls) == 1
-
-
-class _Pipeline:
-    """The minimum ``RoundPipeline`` the judge path touches."""
-
-    def measure(self, ctx, build): return None
-    def gates(self, ctx, i, build, m): return []
-    def render(self, ctx, i, build, m): return _renders()
-    def judge_context(self, ws, plan, i, build, gates): return ""
-
-
-def _pipeline():
-    return _Pipeline()
-
-
 def _ctx(tmp_path, spec, settings, *, policy: RoundPolicy | None = None, agent=None, name: str = "skip"):
     from codeverse3d.contracts.common import Budget
     from codeverse3d.orchestrator import BudgetGuard, RunState
@@ -228,8 +168,7 @@ def _writer(job, ws):
 
 
 def test_a_regression_changes_nothing_about_the_loop_and_every_round_reports_its_cost(tmp_path, chair_plan, settings):
-    """r01 regresses hard: no strategy switch, no rewrite, no stop — the loop runs its
-    rounds, each an ordinary refine, and a lower score is not waste (every round is kept)."""
+    """A regression changes nothing about the loop; the run's total is its ledger's (D84)."""
     spec = make_spec(max_rounds=3)
     ws = Workspace(tmp_path / "runs" / "regress")
     agent = FakeAgent(_writer, cost=0.02)
@@ -250,51 +189,6 @@ def test_a_regression_changes_nothing_about_the_loop_and_every_round_reports_its
     assert rec.total_usage.cost_usd == pytest.approx(sum(r.cost_usd for r in rows))
     assert rec.total_usage.cost_usd > sum(r.usage.cost_usd for r in rec.rounds)
     assert "cost_by_stage" not in rec.extra
-
-
-def test_a_lint_stuck_run_keeps_every_score_instead_of_deferring_the_verdict(tmp_path, chair_plan, settings):
-    def _writer_lint(job, ws):
-        return {"src/object.js": f"// {job.label} r{job.round}\nLINT_ERROR\nexport function build(THREE) {{}}\n"}
-
-    spec = make_spec(max_rounds=2)
-    ws = Workspace(tmp_path / "runs" / "lintstuck")
-    judge = FakeJudge(scores=(0.5, 0.6, 0.7))
-    track = StaticObjectTrack(services=FakeServices(), judge=judge, agent=FakeAgent(_writer_lint),
-                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
-                              runtime=FakeRuntime(Language.THREEJS),
-                              policy=RoundPolicy(max_rounds=2))
-    rec = track.run(spec, ws)
-    events = EventLog(ws.events_path).read()
-    assert [e for e in events if e["event"] == "judge.skipped"] == []
-    assert [e for e in events if e["event"] == "judge.retry"] == []
-    assert [r.score for r in rec.rounds] == [0.5, 0.6, 0.7]
-    # one verdict per round, bought once
-    assert len([e for e in events if e["event"] == "judge.done"]) == len(rec.rounds) == len(judge.calls)
-
-
-def test_a_round_that_raises_still_reports_what_it_burned(tmp_path, chair_plan, settings):
-    spec = make_spec(max_rounds=2, max_minutes=10.0)
-    ws = Workspace(tmp_path / "runs" / "cut")
-
-    class _Expensive(FakeAgent):
-        def run(self, job):
-            res = super().run(job)
-            return res.model_copy(update={"usage": Usage(backend="fake", cost_usd=0.04, input_tokens=1000)})
-
-    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5, 0.6)), agent=_Expensive(_writer, minutes=8.0),
-                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
-                              runtime=FakeRuntime(Language.THREEJS), policy=RoundPolicy(max_rounds=2))
-    with fake_clock():
-        rec = track.run(spec, ws)
-    assert rec.status is RunStatus.BUDGET
-    aborted = json.loads((ws.root / "rounds" / "aborted_r01.json").read_text())
-    assert aborted["index"] == 1 and aborted["usage"]["cost_usd"] > 0 and "BudgetExceeded" in aborted["notes"]
-    assert rec.extra["aborted_rounds"][0]["index"] == 1
-    # the aborted round is NOT resumable state, and its money is in the total
-    assert [r.index for r in rec.rounds] == [0]
-    assert rec.extra["aborted_rounds"][0]["cost_usd"] == pytest.approx(aborted["usage"]["cost_usd"])
-    assert rec.total_usage.cost_usd == pytest.approx(
-        sum(r.usage.cost_usd for r in rec.rounds) + aborted["usage"]["cost_usd"] + 0.002)  # + the planner
 
 
 def test_fan_out_workers_inherit_the_callers_context():

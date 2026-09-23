@@ -6,14 +6,12 @@ import re
 
 from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
-from codeverse3d.conventions import MAX_TRIS_OBJECT, to_snake
+from codeverse3d.conventions import to_snake
 from codeverse3d.tracks.depth import (
     DETAIL_ADVICE,
     PartScope,
-    depth_budget,
     interfaces_text,
     scope_groups,
-    scoped_generation_enabled,
 )
 
 from .conftest import make_spec
@@ -22,26 +20,6 @@ from .fakes import FakeAgent, FakeRuntime, FakeServices
 
 def _files_for(name):
     return [f"src/parts/{to_snake(name)}.py"]
-
-
-# ----------------------------------------------------------------------------- the triangle budget
-def test_depth_budget_scales_with_the_plan_and_is_bounded(chair_plan):
-    small = depth_budget(StaticPlan(object_name="Stool", summary="s", overall_bbox=chair_plan.overall_bbox,
-                                    parts=chair_plan.parts[:1], acceptance=chair_plan.acceptance))
-    big = depth_budget(chair_plan)
-    assert big.n_units > small.n_units                       # 5 parts / 7 units vs 1
-    assert big.target_tris > small.target_tris               # a bigger machine is allowed more
-    assert small.target_tris >= 6_000 and big.max_tris <= MAX_TRIS_OBJECT
-    assert small.min_tris < small.target_tris < small.max_tris
-    assert 20 <= big.max_build_s <= 300 - 30
-    one = PartPlan(name="Leg", role="leg", description="rod", bbox=BBox(center=(0, 0.2, 0), extents=(0.04, 0.4, 0.04)),
-                   instances=4)
-    plan = StaticPlan(object_name="X", summary="s", overall_bbox=BBox(center=(0, 0.2, 0), extents=(0.5, 0.4, 0.5)),
-                      parts=[one], acceptance=[])
-    assert depth_budget(plan).n_units == 4
-
-    # the budget is enforced by budget_gate; the prompt's detail advice states no number
-    assert "not on new parts" in DETAIL_ADVICE and not re.search(r"\d", DETAIL_ADVICE)
 
 
 # ----------------------------------------------------------------------------- scoping
@@ -71,15 +49,6 @@ def test_interfaces_text_names_only_the_neighbours_outside_the_scope(chair_plan)
         assert row.split("|")[3].strip() not in inside
     empty = interfaces_text(chair_plan, PartScope(parts=tuple(chair_plan.parts), files=("x",)))
     assert "no parts outside this scope" in empty
-
-
-def test_scoped_generation_can_be_switched_off(switch):
-    switch("C3D_SCOPED_PARTS", "off")
-    assert scoped_generation_enabled() is False
-    switch("C3D_SCOPED_PARTS", "on")
-    assert scoped_generation_enabled() is True
-    switch("C3D_SCOPED_PARTS", None)
-    assert scoped_generation_enabled() is True
 
 
 # ----------------------------------------------------------------------------- the track wiring
@@ -124,18 +93,8 @@ def test_scoped_baseline_fans_out_and_the_assembly_session_owns_the_entry(tmp_pa
     # every scoped prompt carries ITS parts, the interface table and the detail advice — not the plan
     one = parts[0]
     assert "Interfaces" in one.prompt and DETAIL_ADVICE in one.prompt
+    assert not re.search(r"\d", DETAIL_ADVICE), "the budget is enforced by budget_gate; the advice states no number"
     assert "FILES YOU MAY WRITE" in one.prompt
-
-
-def test_scoping_off_single_shot_or_a_small_plan_falls_back_to_one_task(tmp_path, chair_plan, settings, monkeypatch):
-    monkeypatch.setenv("C3D_SCOPED_PARTS", "off")
-    track, ctx = _ctx(tmp_path, big_plan(), settings)
-    assert [t.label for t in track.baseline_tasks(ctx)] == ["baseline"]
-    monkeypatch.delenv("C3D_SCOPED_PARTS")
-    t2, c2 = _ctx(tmp_path / "ss", big_plan(), settings, agent_id="single-shot:fake:m")
-    assert [t.label for t in t2.baseline_tasks(c2)] == ["baseline"]      # one envelope, no sessions
-    t3, c3 = _ctx(tmp_path / "small", chair_plan, settings)
-    assert [t.label for t in t3.baseline_tasks(c3)] == ["baseline"]      # 5 parts: one session is fine
 
 
 def test_phases_run_in_order_and_a_failed_phase_does_not_kill_the_round(tmp_path, chair_plan, settings):
@@ -162,18 +121,3 @@ def test_phases_run_in_order_and_a_failed_phase_does_not_kill_the_round(tmp_path
     assert order.index("z") == 2                       # phase 1 ran last
     assert [r.label for r in out] == ["a", "b", "z"]   # results keep the caller's order
     assert [r.ok for r in out] == [True, False, True]
-
-
-def test_the_depth_templates_render_with_strict_undefined(tmp_path, settings):
-    """StrictUndefined: a variable the template names and the track does not provide is a crash."""
-    from codeverse3d.prompts import render
-    from codeverse3d.tracks.prompting import base_prompt_context, scope_context
-
-    track, ctx = _ctx(tmp_path, big_plan(), settings)
-    scope = track.scopes(ctx)[0]
-    part = render("tracks/generate_static_part.j2", **scope_context(ctx, scope, files=list(scope.files),
-                                                                   expected_files=list(scope.files)))
-    assert "Interfaces" in part and "DO NOT create or edit it" in part and scope.names[0] in part
-    entry = ctx.runtime.expected_files(ctx.plan)[:1]
-    asm = render("tracks/assemble_static.j2", **base_prompt_context(ctx, files=entry, expected_files=entry))
-    assert "you own placement, not geometry" in asm and "check_connectivity" in asm

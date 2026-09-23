@@ -49,10 +49,9 @@ class FakeRuntime:
     """Writes a tiny GLB (one box per part) on build; fails when a src file contains FAIL_MARK.
     Its file layout (``expected_files`` / ``files_for``) is the real runtime's for the language."""
 
-    def __init__(self, language: Language = Language.THREEJS, *, lint_error_mark: str = "LINT_ERROR"):
+    def __init__(self, language: Language = Language.THREEJS):
         self.language = language
         self.entry_globs = ("src/**/*.js",) if language in (Language.THREEJS, Language.SCENE_THREEJS) else ("src/model.py",)
-        self.lint_error_mark = lint_error_mark
         self.builds = 0
         self.lock = threading.Lock()
         layout = get_runtime(language)
@@ -104,7 +103,7 @@ class FakeRuntime:
     def lint(self, ws: Workspace) -> GateReport:
         text = self._src_text(ws)
         findings = []
-        if self.lint_error_mark in text:
+        if "LINT_ERROR" in text:
             findings.append(GateFinding(gate=f"lint:{self.language.value}", severity=Severity.ERROR, target="src/model.py",
                                         message="forbidden construct", fix_hint="remove LINT_ERROR"))
         return GateReport(gate=f"lint:{self.language.value}", passed=not findings, findings=findings)
@@ -242,11 +241,10 @@ class FakeJudge:
     name = "fake"
     prompt_hash = "fakejudge001"  # D37: BaseTrack.after_plan records it as prompt_hashes["judge"]
 
-    def __init__(self, scores: Sequence[float] = (0.55, 0.7, 0.85), *, targets: Sequence[str] = ("Seat", "FrontLeg", "Backrest", "Armrest"),
-                 acceptance_fail: Sequence[str] = (), cost: float = 0.003, minutes: float = 0.0):
+    def __init__(self, scores: Sequence[float] = (0.55, 0.7, 0.85), *, targets: Sequence[str] = ("Seat", "FrontLeg", "Backrest", "Armrest"), cost: float = 0.003,
+                 minutes: float = 0.0):
         self.scores = list(scores)
         self.targets = list(targets)
-        self.acceptance_fail = list(acceptance_fail)
         self.cost = cost
         self.minutes = minutes
         self.calls: list[Any] = []
@@ -263,7 +261,7 @@ class FakeJudge:
         self.calls.append(inp)
         plan = [ImprovementItem(target=t, kind="geometry", instruction=f"make {t} match plan bbox", priority=k + 1, expected_gain=0.05)
                 for k, t in enumerate(self.targets)]
-        acc = {a.id: (a.id not in self.acceptance_fail) for a in inp.acceptance}
+        acc = {a.id: True for a in inp.acceptance}
         return Judgment(rubric="fake_v1", judge_backend="fake", scores={"geometry": s, "material": s}, overall=s, passed=s >= 0.8,
                         summary=f"round {inp.round_index} score {s}", issues=[JudgeIssue(target=self.targets[0], kind="geometry", severity="major",
                                                                                           detail="too thin", evidence="front")],
@@ -311,9 +309,7 @@ class FakeServices(Services):
         self.records: list[RunRecord] = []
         self.reference_judges: list[tuple[str, int, str]] = []
         self.silhouette_calls: list[tuple[str, str]] = []
-        self.connectivity_languages: list[str] = []
         self.planned_edges: list[list[tuple[str, str]]] = []
-        self.geometry_renders: list[str] = []
 
     def chat_model(self, model_id: str) -> Any:
         raise ServiceUnavailable("no chat model in tests")
@@ -362,7 +358,6 @@ class FakeServices(Services):
                            parts=parts, ground_gap_m=float(bounds[0][1]), footprint_offset_m=float(np.hypot(cen[0], cen[2])))
 
     def connectivity(self, glb: Path, language: str = "", planned_edges: Sequence[tuple[str, str]] = ()) -> GateReport:
-        self.connectivity_languages.append(language)
         self.planned_edges.append(list(planned_edges))
         return GateReport(gate="connectivity", passed=True)
 
@@ -382,7 +377,6 @@ class FakeServices(Services):
         return RenderSet(views=vs, contact_sheet=str(sheet), renderer="fake")
 
     def render_geometry(self, glb: Path, out_dir: Path, *, views) -> RenderSet:
-        self.geometry_renders.append(str(glb))
         vs = []
         for v in views:
             p = out_dir / f"clay_{v.name}.png"

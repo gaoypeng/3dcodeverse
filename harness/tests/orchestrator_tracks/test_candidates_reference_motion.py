@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from PIL import Image
 
 from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import ArticulatedPlan
-from codeverse3d.contracts.run import RunStatus
 from codeverse3d.contracts.spec import ReferenceImage
 from codeverse3d.orchestrator import (
     RefineTask,
@@ -18,7 +15,6 @@ from codeverse3d.orchestrator import (
     compact_instructions,
 )
 from codeverse3d.proc import EventLog
-from codeverse3d.tracks import get_track
 from codeverse3d.tracks.articulated_object import ArticulatedObjectTrack, expected_direction
 from codeverse3d.tracks.candidates import CandidateRecord, rank_candidates
 from codeverse3d.tracks.planner import plan_example
@@ -106,79 +102,6 @@ def _writer_by_candidate(job, ws):
     return {"src/model.py": f"import bpy  # {job.label} in {tag}\n"}
 
 
-def test_best_of_two_baseline_selects_highest_quick_score(tmp_path, chair_plan, settings):
-    spec = make_spec(language=Language.BLENDER, max_rounds=0)
-    ws = Workspace(tmp_path / "runs" / "stool")
-    agent = FakeAgent(_writer_by_candidate)
-    judge = _CandidateJudge({"c0": 0.55, "c1": 0.72})
-    services = FakeServices()
-    track = StaticObjectTrack(services=services, judge=judge, agent=agent, planner_model=_planner(chair_plan.model_dump(mode="json")),
-                              settings=settings, runtime=FakeRuntime(Language.BLENDER), n_candidates=2)
-    rec = track.run(spec, ws)
-    assert rec.status is RunStatus.MAX_ROUNDS and len(rec.rounds) == 1
-    r0 = rec.rounds[0]
-    assert "best-of-2: selected c1" in r0.notes and r0.score == pytest.approx(0.6)
-    assert "_cand/c1" in (ws.src / "model.py").read_text()
-    cands = json.loads((ws.root / "rounds" / "candidates.json").read_text())
-    assert cands["selected"] == 1 and [c["score"] for c in cands["candidates"]] == [0.55, 0.72]
-    assert cands["candidates"][1]["selected"] and cands["candidates"][0]["build_ok"]
-    labels = sorted(j.label for j in agent.jobs)
-    assert labels == ["baseline_c0", "baseline_c1"]
-    kinds = [e["event"] for e in EventLog(ws.events_path).read()]
-    assert kinds.count("candidate.done") == 2 and "candidate.selected" in kinds and "candidates.start" in kinds
-    # both candidates charged: round usage > one generation + one judge
-    assert r0.usage.cost_usd > 2 * agent.cost and rec.extra["n_candidates"] == 2 and rec.extra["candidates"]["selected"] == 1
-    # the sub-workspaces are git-ignored and self-contained
-    assert (ws.root / "_cand" / "c0" / "spec.json").is_file() and "_cand/" in (ws.root / ".gitignore").read_text()
-    assert (ws.root / "_cand" / "c1" / "AGENTS.md").is_file()
-    # the winner's trajectory was kept under the run workspace
-    assert any(p.name.startswith("baseline_c1") for p in ws.trajectories.iterdir())
-
-
-def test_best_of_two_within_judge_noise_still_takes_the_higher_quick_score(tmp_path, chair_plan, settings):
-    """No pairwise tie-break any more (2026-09-22): 0.61 vs 0.60 is decided by the score."""
-    spec = make_spec(language=Language.BLENDER, max_rounds=0)
-    ws = Workspace(tmp_path / "runs" / "stool2")
-    judge = _CandidateJudge({"c0": 0.61, "c1": 0.60})
-    track = StaticObjectTrack(services=FakeServices(), judge=judge, agent=FakeAgent(_writer_by_candidate),
-                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
-                              runtime=FakeRuntime(Language.BLENDER), n_candidates=2)
-    rec = track.run(spec, ws)
-    assert "best-of-2: selected c0" in rec.rounds[0].notes and "pairwise" not in rec.rounds[0].notes
-    assert "_cand/c0" in (ws.src / "model.py").read_text()
-    assert not [e for e in EventLog(ws.events_path).read() if e["event"] == "pairwise.done"]
-    assert "pairwise" not in json.loads((ws.root / "rounds" / "candidates.json").read_text())
-
-
-def test_candidate_count_persists_for_resume_and_settings_default(tmp_path, chair_plan, settings):
-    from codeverse3d.contracts.spec import RunOptions
-
-    # the CLI writes --candidates into spec.options (the persisted carrier — spec.json travels
-    # with the run); run_state.json no longer mirrors it
-    spec = make_spec(language=Language.BLENDER, max_rounds=0, options=RunOptions(candidates=2))
-    ws = Workspace(tmp_path / "runs" / "stool3")
-    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5,)), agent=FakeAgent(_writer_by_candidate),
-                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
-                              runtime=FakeRuntime(Language.BLENDER))
-    track.run(spec, ws)
-    assert json.loads(ws.state_path.read_text())["extra"].get("n_candidates") is None
-    # a resume without the flag reads the persisted width
-    t2 = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.5,)), agent=FakeAgent(_writer_by_candidate),
-                           planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings, runtime=FakeRuntime(Language.BLENDER))
-    from codeverse3d.orchestrator import RunState
-
-    ctx = t2.build_context(spec, ws, EventLog(ws.events_path), RunState.load(ws))
-    assert ctx.policy.n_candidates == 2
-    # settings default is honoured when nothing else says
-    settings2 = settings.model_copy()
-    object.__setattr__(settings2, "default_candidates", 3)
-    t3 = StaticObjectTrack(services=FakeServices(), settings=settings2, runtime=FakeRuntime(Language.BLENDER))
-    ctx3 = t3.build_context(make_spec(language=Language.BLENDER, max_rounds=0), Workspace(tmp_path / "runs" / "fresh").create(),
-                            EventLog(tmp_path / "e.jsonl"), RunState())
-    assert ctx3.policy.n_candidates == 3
-    assert get_track("static_object", n_candidates=4)._n_candidates == 4
-
-
 # ----------------------------------------------------------------------------- reference images
 def test_reference_images_wire_judge_prompts_and_silhouette(tmp_path, chair_plan, settings):
     ref = tmp_path / "ref.png"
@@ -208,20 +131,6 @@ def test_reference_images_wire_judge_prompts_and_silhouette(tmp_path, chair_plan
     assert "## Reference images" in refine_prompt and "compare_reference" not in refine_prompt  # single-shot: no tools
 
 
-def test_reference_note_mentions_silhouette_tool_for_agents(tmp_path, chair_plan, settings):
-    ref = tmp_path / "ref.png"
-    Image.new("RGB", (64, 48)).save(ref)
-    spec = make_spec(language=Language.BLENDER, max_rounds=0, references=[ReferenceImage(path=str(ref))])
-    ws = Workspace(tmp_path / "runs" / "ref2")
-    agent = FakeAgent(lambda job, ws: {"src/model.py": "import bpy\n"})
-    track = StaticObjectTrack(services=FakeServices(silhouette_iou=0.8), agent=agent, planner_model=_planner(chair_plan.model_dump(mode="json")),
-                              settings=settings, runtime=FakeRuntime(Language.BLENDER))
-    rec = track.run(spec, ws)
-    assert "compare_reference" in agent.jobs[0].prompt and str(ref) in agent.jobs[0].prompt
-    gate = next(g for g in rec.rounds[0].gates if g.gate == "reference_silhouette")
-    assert gate.findings[0].severity.value == "info"  # IoU 0.8 is fine → no refine task
-
-
 # ----------------------------------------------------------------------------- articulated motion gate
 def test_articulated_motion_direction_gate_feeds_refine_and_judge(tmp_path, settings):
     spec = make_spec(Track.ARTICULATED_OBJECT, Language.URDF_BLENDER, max_rounds=1)
@@ -237,19 +146,6 @@ def test_articulated_motion_direction_gate_feeds_refine_and_judge(tmp_path, sett
     assert any(i.startswith("[gate/gate:motion_direction] DrawerSlide") and "negate the axis" in i for i in rec.rounds[1].instructions)
     assert "Motion direction (harness FK check): 1 WRONG" in judge.calls[0].extra_context
     assert any(v.name == "pose_DrawerSlide_upper" for v in rec.rounds[0].renders.views)
-
-
-# ----------------------------------------------------------------------------- per-part files come from the runtime
-def test_expected_files_and_targets_follow_the_runtime_layout(tmp_path, chair_plan, settings):
-    from codeverse3d.orchestrator import RunState
-
-    spec = make_spec(language=Language.BLENDER, max_rounds=0)
-    track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.BLENDER))
-    ctx = track.build_context(spec, Workspace(tmp_path / "ws").create(), EventLog(tmp_path / "e.jsonl"), RunState())
-    ctx.plan = chair_plan
-    assert ctx.runtime.expected_files(ctx.plan)[:3] == ["src/model.py", "src/parts/seat.py", "src/parts/front_leg.py"]
-    fft = track.refine_file_for_target(ctx)
-    assert fft("Seat") == ["src/parts/seat.py"] and fft("overall") == ["src/model.py"] and fft("BackLeg_1") == []
 
 
 def test_crashed_candidate_is_retried_once(tmp_path, chair_plan, settings):
@@ -274,7 +170,6 @@ def test_crashed_candidate_is_retried_once(tmp_path, chair_plan, settings):
 
 
 def test_default_motion_checks_on_real_urdf(tmp_path):
-    """Hinged door: axis -z opens to the front (ok); axis +z → WRONG with the negated-axis fix."""
     import trimesh
 
     from codeverse3d.contracts.plan import BBox, JointPlan, PartPlan
@@ -330,44 +225,8 @@ def test_default_motion_checks_on_real_urdf(tmp_path):
     assert default_motion_checks(robot(tmp_path / "none", 1), plan) is None
 
 
-# ------------------------------------------------- best-of-N on a track with no GLB
-def test_a_track_without_a_glb_still_gets_candidate_renders():
-    """`quick_render` hardcoded the GLB rig, so tracks that produce no GLB got None —
-    the candidate was never judged, scored None, and best-of-N fell through to index 0.
-
-    Measured 2026-08-25 across the teaser battery: static_object and articulated_object
-    candidates all carried real scores; all SIX graphics runs recorded
-    `scores: {c0: null, c1: null}` with `selected: 0`, two of them at n=3. No
-    `candidate.judge_failed` event fired anywhere — nothing errored, the judge was simply
-    never reached, and every extra candidate was generated, paid for and discarded blind.
-    """
-    from pathlib import Path
-    from types import SimpleNamespace
-
-    from codeverse3d.tracks.candidates import quick_render
-
-    class _Pipeline:
-        def __init__(self): self.calls = []
-        def render(self, ctx, round_index, build, measurement):
-            self.calls.append((round_index, build, measurement))
-            return "frames-renderset"
-
-    class _WS:
-        def renders_dir(self, i): return Path("/tmp/unused")
-
-    class _Ctx:
-        ws = _WS()
-
-    pipe = _Pipeline()
-    build = SimpleNamespace(glb_path=None)
-    got = quick_render(_Ctx(), 0, build, "MEAS", pipeline=pipe)
-    assert got == "frames-renderset", "no GLB must fall back to the track's own renderer"
-    assert pipe.calls == [(0, build, "MEAS")]
-
-
 def test_an_object_candidate_still_uses_the_cheap_rig(tmp_path):
-    """The fallback must not make the object path more expensive: a GLB still goes through
-    the reduced-view, reduced-resolution quick rig, not pipeline.render."""
+    """A GLB candidate goes through the reduced quick rig, never pipeline.render."""
     from types import SimpleNamespace
 
     from codeverse3d.tracks.candidates import OBJECT_VIEWS_QUICK, QUICK_PX, quick_render

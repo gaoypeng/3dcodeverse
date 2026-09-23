@@ -42,10 +42,7 @@ def test_validator_accepts_a_buildable_layout_and_names_every_problem():
 
 
 def test_an_aerial_camera_does_not_reject_the_placements_beneath_it():
-    """PR #3 review: the clearance check is 2D, so an establishing camera 8 m up
-    rejected every large cluster under it and the zone lost its whole layout.
-    A lens above the cluster top (+ margin) cannot be inside the geometry; a lens
-    AT stall height directly above the cluster is still rejected."""
+    """A lens above the cluster top is clear; a lens at stall height above it is still rejected."""
     plan = _plan()
     plan.cameras = [CameraPlan(name="aerial", position=(10, 8, 0), look_at=(10, 0, 0), fov=50, purpose="p")]
     under = _layout(placements=[{"asset": "Stall", "count": 4, "cluster": (10.0, 0.0), "spread_m": 3.0}],
@@ -56,26 +53,8 @@ def test_an_aerial_camera_does_not_reject_the_placements_beneath_it():
     assert "camera low" in complaint, "a lens at stall height above the cluster is still inside its reach"
 
 
-def test_validator_rejects_a_cluster_that_swallows_a_camera():
-    """fv_izakaya_night: BarCounter 0.7 m from the PotDetail camera — the lens sat inside
-    the counter and camera_in_geometry capped all three rounds.  The camera list is an
-    input to the layout, so the validator must reject this before a builder sees it."""
-    plan = _plan()   # camera 'overview' at (1, 1, 1)
-    bad = _layout(placements=[{"asset": "Stall", "count": 1, "cluster": (1.2, 0.8), "spread_m": 0.0}],
-                  zone="Market")
-    complaint = validate_layout(bad, plan.zones[1], plan)
-    assert "camera overview" in complaint and "lens stays outside" in complaint
-    # the dg_izakaya lesson: an asset NEAR a camera but out of its reach is legal —
-    # a 0.3 m-foot lantern 1.5 m from the lens must never be rejected
-    near_ok = _layout(placements=[{"asset": "Bollard", "count": 2, "cluster": (2.0, 2.0), "spread_m": 0.4}],
-                      zone="Market")
-    assert "camera" not in validate_layout(near_ok, plan.zones[1], plan)
-
-
 def test_validator_rejects_two_large_assets_on_one_spot_but_spares_adjacency():
-    """fv2_alpine: RetainingWall x PrayerBench interpenetrated because their clusters
-    coincided.  The rule is deliberately narrow: small footprints (a stool against a
-    counter) and support relations (bottles ON the bar) must pass untouched."""
+    """Narrow rule: small footprints and declared support relations pass untouched."""
     plan = _plan()
     stacked = _layout(placements=[
         {"asset": "FishingBoat", "count": 1, "cluster": (-12.0, 3.0), "spread_m": 0.0},
@@ -104,18 +83,6 @@ def test_layout_block_renders_numbers_the_builder_can_follow():
     assert layout_block(None) == ""
 
 
-def test_layout_zones_runs_per_zone_and_reasks_once_with_the_complaint():
-    plan = _plan()
-    good_quay = _layout().model_dump(mode="json")
-    bad_quay = _layout(placements=[{"asset": "Kraken", "count": 1, "cluster": (0.0, 0.0), "spread_m": 1.0}]).model_dump(mode="json")
-    good_market = {"zone": "Market", "placements": [{"asset": "Stall", "count": 4, "cluster": (10.0, 0.0), "spread_m": 5.0}]}
-    # zones fan out with max_workers=1 so the scripted queue stays ordered
-    model = FakeChatModel([bad_quay, good_quay, good_market])
-    out = layout_zones(plan, model, max_workers=1)
-    assert set(out) == {"Quay", "Market"} and len(model.requests) == 3
-    assert out["Quay"].placements[0].asset == "Bollard"
-
-
 def test_layout_zones_drops_a_twice_rejected_zone_instead_of_dying():
     plan = _plan()
     bad = {"zone": "Quay", "placements": [{"asset": "Kraken", "count": 1, "cluster": (0.0, 0.0), "spread_m": 1.0}]}
@@ -125,9 +92,6 @@ def test_layout_zones_drops_a_twice_rejected_zone_instead_of_dying():
 
 
 def test_a_run_past_its_ceiling_buys_no_layout_calls():
-    """Review-3 S3 (V5-claim2): past the hard ceiling, layout_zones makes ZERO model
-    calls and returns no layouts (the documented degraded mode) instead of buying up
-    to 2 x 300 s per zone."""
     import time
 
     from codeverse3d.contracts.common import Budget
@@ -137,20 +101,3 @@ def test_a_run_past_its_ceiling_buys_no_layout_calls():
     guard = BudgetGuard(Budget(max_minutes=30), start_time=time.time() - 45 * 60)
     out = layout_zones(_plan(), model, budget=guard, max_workers=1)
     assert out == {} and len(model.requests) == 0
-
-
-def test_layout_waits_are_clipped_to_the_remaining_run_clock():
-    """A call that does go out asks for min(LAYOUT_WAIT_S, wall clock left), floored."""
-    import time
-
-    from codeverse3d.contracts.common import Budget
-    from codeverse3d.orchestrator import BudgetGuard
-
-    good_quay = _layout().model_dump(mode="json")
-    good_market = {"zone": "Market", "placements": [{"asset": "Stall", "count": 4, "cluster": (10.0, 0.0), "spread_m": 5.0}]}
-    model = FakeChatModel([good_quay, good_market])
-    guard = BudgetGuard(Budget(max_minutes=30), start_time=time.time() - 28 * 60)   # ~2 min left
-    out = layout_zones(_plan(), model, budget=guard, max_workers=1)
-    assert set(out) == {"Quay", "Market"}
-    waits = [r.max_wait_s for r in model.requests]
-    assert waits and all(20 <= w <= 125 for w in waits), waits

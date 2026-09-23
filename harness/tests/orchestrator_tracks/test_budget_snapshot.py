@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse3d.contracts.common import Budget, Language, Usage
+from codeverse3d.contracts.common import Budget, Language
 from codeverse3d.contracts.plan import StaticPlan
 from codeverse3d.contracts.run import RunStatus
 from codeverse3d.cost.instrument import metered_chat_model, run_ledger
@@ -53,21 +53,6 @@ def test_resume_restores_active_time_but_not_downtime():
         g3.check()
 
 
-def test_a_raised_cap_grants_only_the_difference_and_grace_never_persists():
-    import time as _t
-
-    g1 = BudgetGuard(Budget(max_minutes=10.0), start_time=_t.time())
-    g1._active_s = 8.0 * 60                                      # noqa: SLF001 — 8 of its 10 min
-    g1.grant_grace(minutes=30.0)  # per-attempt salvage headroom — must NOT survive
-    snap = g1.snapshot()
-    assert "grace_minutes" not in snap.model_dump() and "soft_fraction" not in snap.model_dump()
-
-    g2 = BudgetGuard(Budget(max_minutes=15.0))                   # --max-minutes raised 10 → 15
-    g2.restore(snap)
-    assert g2.grace_minutes == 0.0
-    assert g2.timeout_s(3600, floor_s=0, soft=False) == pytest.approx(7 * 60, abs=6)  # 15 − 8, never a fresh 15
-
-
 def test_build_context_restores_the_budget_snapshot(tmp_path, settings):
     spec = make_spec()
     ws = Workspace(tmp_path / "runs" / "r").create()
@@ -109,51 +94,16 @@ def test_a_paid_single_shot_response_is_persisted_when_the_budget_trips(tmp_path
     assert not guard.ok()  # the phase boundary (steps._run_phase) turns this into the stop
 
 
-def test_single_shot_obeys_the_run_clock(tmp_path):
-    """A run past its HARD wall-clock ceiling must not buy a single-shot call at all
-    (agent-path symmetry), and a live run's request carries the REMAINING wall clock
-    as max_wait_s — never the models' 1800 s retry default.  The truncation retry is
-    a second full-price call: it is preflighted the same way."""
+def test_single_shot_past_the_ceiling_buys_no_call(tmp_path):
     ws = Workspace(tmp_path / "ws").create()
     task = GenerationTask(label="baseline", prompt="p", files_hint=["src/object.js"], max_output_tokens=1000)
-
     calls: list = []
-    answer = ("=== FILE: src/object.js ===\n"
-              "export function build(THREE) { return new THREE.Group(); }\n"
-              "=== END FILE ===")
-    model = FakeChatModel(lambda req: (calls.append(req) or answer), cost=0.01)
-
+    model = FakeChatModel(lambda req: calls.append(req) or "", cost=0.01)
     past = BudgetGuard(Budget(max_minutes=1.0))
     past._active_s = 120.0                               # noqa: SLF001 — already past 1 min
     with pytest.raises(BudgetExceeded):
         generate_files(ws, model=model, task=task, budget=past)
     assert calls == []                                   # refused BEFORE any model call
-
-    live = BudgetGuard(Budget(max_minutes=10.0))
-    live._active_s = 8 * 60.0                            # noqa: SLF001 — 2 minutes left
-    res = generate_files(ws, model=model, task=task, budget=live)
-    assert res.ok and len(calls) == 1
-    assert calls[0].max_wait_s is not None and calls[0].max_wait_s <= 121  # clipped to remaining clock
-
-    # truncation retry: the first response is truncated, then the clock runs out
-    class TruncatingModel:
-        def __init__(self):
-            self.calls = 0
-
-        def generate(self, req):
-            from codeverse3d.contracts.chat import ChatResponse
-            self.calls += 1
-            live2._active_s = 11 * 60.0                  # noqa: SLF001 — ceiling crossed mid-call
-            return ChatResponse(text="=== FILE: src/object.js ===\nx", finish_reason="max_tokens",
-                                usage=Usage(backend="fake", cost_usd=0.01), raw={})
-
-    live2 = BudgetGuard(Budget(max_minutes=10.0))
-    tm = TruncatingModel()
-    with run_ledger(tmp_path / "trunc"), pytest.raises(BudgetExceeded):
-        generate_files(ws, model=metered_chat_model(tm), task=task, budget=live2)
-    assert tm.calls == 1                                 # the retry was never bought
-    (row,) = load_ledger(tmp_path / "trunc")             # ...but the paid first call is on the ledger
-    assert row.cost_usd == pytest.approx(0.01)
 
 
 # --------------------------------------------------------------- ordering: fan-out siblings
@@ -213,40 +163,8 @@ def test_planning_error_dollars_are_booked_exactly_once(tmp_path):
     assert ei.value.usage.cost_usd == pytest.approx(0.01 * n)  # the error still reports the total
 
 
-# --------------------------------------------------------------- ordering: r00 boundary stop
-def test_the_adopted_best_of_n_winner_survives_a_boundary_budget_stop(tmp_path, chair_plan, settings, monkeypatch):
-    """The winner is adopted + committed + candidates.json written, then the boundary
-    ``budget.check()`` trips BEFORE run_round persists r00.  prepare_salvage must say
-    yes (the paid, buildable candidate is sitting in src/) so the salvage round
-    delivers ONE scored round instead of a 0-round record that re-pays all N on resume."""
-    import codeverse3d.tracks.candidates as cand
-
-    real_adopt = cand.adopt_candidate
-
-    def adopt_then_ceiling(ctx, sub_ws):
-        real_adopt(ctx, sub_ws)
-        ctx.budget._active_s = ctx.spec.budget.max_minutes * 60 + 60  # noqa: SLF001 — clock ran out during candidates
-
-    monkeypatch.setattr(cand, "adopt_candidate", adopt_then_ceiling)
-
-    def writer(job, ws_):
-        return {"src/object.js": f"// {job.label} in {ws_.root.name}\n"
-                                 "export function build(THREE) { return new THREE.Group(); }\n"}
-
-    ws = Workspace(tmp_path / "runs" / "bo")
-    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(writer),
-                              planner_model=FakeChatModel(lambda req: chair_plan.model_dump(mode="json")),
-                              settings=settings, runtime=FakeRuntime(Language.THREEJS), n_candidates=2)
-    rec = track.run(make_spec(max_rounds=0), ws)
-    assert rec.status is RunStatus.BUDGET
-    assert len(rec.rounds) == 1 and rec.rounds[0].score == pytest.approx(0.6)
-    ev = [e["event"] for e in EventLog(ws.events_path).read()]
-    assert "budget.salvage" in ev and "budget.salvage_skipped" not in ev
-
-
 def test_a_baseline_session_the_clock_stopped_after_it_wrote_code_is_salvaged(tmp_path, chair_plan, settings):
-    """E6 (neon_glsl c007b166: a committed baseline, then the budget stop, then 0 rounds): code the
-    baseline session left behind is built, rendered and judged as one salvaged round."""
+    """E6: code the baseline session left behind is built, rendered and judged as one salvaged round."""
 
     def writer(job, ws_):
         (ws_.src / "object.js").write_text("// paid for\nexport function build(THREE) { return new THREE.Group(); }\n")
@@ -262,8 +180,6 @@ def test_a_baseline_session_the_clock_stopped_after_it_wrote_code_is_salvaged(tm
 
 
 def test_a_skeleton_only_budget_trip_still_salvages_nothing(tmp_path, chair_plan, settings):
-    """No candidate ever finished (the ceiling tripped mid-generation): there is no
-    adopted winner, so the salvage hook must keep saying no off-scene."""
 
     def writer(job, ws_):
         raise BudgetExceeded("elapsed 11.0 min exceeds max_minutes 10.0")

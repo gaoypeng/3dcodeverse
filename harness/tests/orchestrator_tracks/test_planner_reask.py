@@ -1,5 +1,4 @@
-"""Articulated planner paths that outlived the plan-time geometry re-ask (D49, code removed
-2026-09-21): the articulation acceptance items and the validation re-ask's wording."""
+"""Articulated planner: the articulation acceptance items and the validation re-ask's wording."""
 
 from __future__ import annotations
 
@@ -48,9 +47,6 @@ def test_every_moving_joint_gets_an_articulation_acceptance_item(tmp_ws):
 
 
 def test_validation_reask_names_the_missing_parts_when_the_plan_is_thin(tmp_ws):
-    """A thin plan whose joints stay INSIDE the part list: the in-context re-ask still owns
-    it (a plan that also references links it never lists is a restart — see
-    test_planner_restart.py, which measured that editing that one in context reproduces it)."""
     thin = _good()
     thin["parts"] = thin["parts"][:1]        # only the cabinet ...
     thin["joints"] = []                      # ... and no joint references the dropped link

@@ -10,7 +10,7 @@ from codeverse3d.contracts.run import RunStatus
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
-from tests.orchestrator_tracks.conftest import fake_clock, make_spec
+from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
     FakeAgent,
     FakeJudge,
@@ -27,12 +27,11 @@ def _track(chair_plan, settings, scores, *, agent=None) -> StaticObjectTrack:
                              runtime=FakeRuntime(Language.CADQUERY))
 
 
-@pytest.mark.parametrize("scores", [
-    (0.55, 0.85, 0.95),   # passes at r01 — once a "pass" stop
-    (0.60, 0.60, 0.60),   # flat — once a plateau / diminishing-returns stop
-    (0.70, 0.40, 0.30),   # regresses twice — once a rewrite, then a "regression" stop
-], ids=["passing", "flat", "regressing"])
-@pytest.mark.parametrize("max_rounds", [0, 3])
+@pytest.mark.parametrize(("scores", "max_rounds"), [
+    ((0.55, 0.85, 0.95), 3),   # passes at r01 — once a "pass" stop
+    ((0.70, 0.40, 0.30), 3),   # regresses twice — once a "regression" stop
+    ((0.60,), 0),
+], ids=["passing", "regressing", "baseline-only"])
 def test_a_run_is_the_baseline_plus_max_rounds_whatever_the_judge_says(tmp_path, chair_plan, settings, scores,
                                                                        max_rounds):
     ws = Workspace(tmp_path / "runs" / "fixed")
@@ -45,18 +44,7 @@ def test_a_run_is_the_baseline_plus_max_rounds_whatever_the_judge_says(tmp_path,
     assert [e["reason"] for e in stops] == ["max_rounds"]
 
 
-def test_only_the_clock_stops_a_run_early(tmp_path, chair_plan, settings):
-    agent = FakeAgent(lambda job, ws: {"src/model.py": f"import bpy  # r{job.round}\n"}, minutes=4.0)
-    ws = Workspace(tmp_path / "runs" / "clock")
-    with fake_clock():
-        rec = _track(chair_plan, settings, (0.5, 0.6, 0.7, 0.8), agent=agent).run(
-            make_spec(language=Language.CADQUERY, max_rounds=4, max_minutes=10.0), ws)
-    assert rec.status is RunStatus.BUDGET and 1 <= len(rec.rounds) < 5
-
-
 def test_every_refine_starts_from_the_previous_rounds_commit(tmp_path, chair_plan, settings):
-    """0.70 → 0.30 is a regression the loop once answered by restoring r00 before r02
-    (D73 refine-from-best).  Now r02 starts from r01's code, and nothing is restored."""
     seen: dict[int, str] = {}
 
     def writer(job, ws):

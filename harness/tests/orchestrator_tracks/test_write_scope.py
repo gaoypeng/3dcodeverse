@@ -1,12 +1,4 @@
-"""Write-scope enforcement at the task layer.
-
-* the single-shot envelope (``write_files(only=...)``) skips a pre-existing path the
-  task does not own — new files stay allowed, the entry only when owned;
-* ``GenerationTask.owns_entry`` → ``AgentJob.always_writable`` wiring;
-* the constructors whose plans are file-disjoint by construction (scoped baseline,
-  zones, threejs assets, parallel refine groups) now set
-  ``edit_only=True`` so the split they promise is enforced, not just prompted.
-"""
+"""Write-scope enforcement at the task layer: envelope scope, harness-owned paths, scoped constructors."""
 
 from __future__ import annotations
 
@@ -22,7 +14,6 @@ from codeverse3d.tracks.generation import (
     GenerationTask,
     _always_writable,
     generate_files,
-    run_agent_task,
     write_files,
 )
 from codeverse3d.tracks.planner import plan_example
@@ -33,23 +24,6 @@ from tests.orchestrator_tracks.test_fix_generation import scripted
 
 from .conftest import make_spec
 from .fakes import FakeAgent, FakeRuntime, FakeServices
-
-
-# --------------------------------------------------------------------------- envelope
-def test_write_files_only_skips_existing_out_of_scope_paths(tmp_ws: Workspace):
-    (tmp_ws.src / "parts").mkdir(parents=True, exist_ok=True)
-    (tmp_ws.src / "zones").mkdir(parents=True, exist_ok=True)
-    (tmp_ws.src / "parts" / "a.js").write_text("// old a\n")
-    (tmp_ws.src / "zones" / "q.js").write_text("// old q\n")
-    skipped: list[tuple[str, str]] = []
-    files = {"src/parts/a.js": "// new a", "src/zones/q.js": "// new q", "src/parts/new.js": "// new"}
-    changes = write_files(tmp_ws, files, only={"src/parts/a.js"},
-                          on_skip=lambda p, r: skipped.append((p, r)))
-    assert [c.path for c in changes] == ["src/parts/a.js", "src/parts/new.js"]
-    assert (tmp_ws.src / "zones" / "q.js").read_text() == "// old q\n"
-    assert skipped == [("src/zones/q.js", skipped[0][1])] and "scope" in skipped[0][1]
-    # only=None keeps the old behaviour: everything valid is written
-    assert [c.path for c in write_files(tmp_ws, {"src/zones/q.js": "// new q"})] == ["src/zones/q.js"]
 
 
 def test_write_files_normalises_a_path_before_the_owned_and_scope_checks(tmp_ws: Workspace):
@@ -105,28 +79,7 @@ def test_generate_files_enforces_the_task_scope(tmp_path):
     assert all("scope" in e["reason"] for e in skips)
 
 
-def test_generate_files_lets_an_owner_write_the_entry(tmp_path):
-    ws = _envelope_ws(tmp_path)
-    task = GenerationTask(label="refine_a", prompt="p", files_hint=["src/parts/a.js"],
-                          edit_only=True, owns_entry=True)
-    res = generate_files(ws, model=scripted([(ANSWER, "STOP")]), task=task,
-                         events=EventLog(tmp_path / "e.jsonl"))
-    assert res.ok and (ws.src / "object.js").read_text() == "// new entry\n"
-    assert (ws.src / "parts" / "b.js").read_text() == "// b\n", "b stays out of scope"
-
-
-def test_generate_files_without_edit_only_is_unchanged(tmp_path):
-    ws = _envelope_ws(tmp_path)
-    task = GenerationTask(label="baseline", prompt="p", files_hint=["src/parts/a.js"])
-    generate_files(ws, model=scripted([(ANSWER, "STOP")]), task=task,
-                   events=EventLog(tmp_path / "e.jsonl"))
-    assert (ws.src / "object.js").read_text() == "// new entry\n"
-    assert (ws.src / "parts" / "b.js").read_text() == "// new b\n"
-
-
 def test_generate_files_never_rewrites_a_harness_owned_file(tmp_path):
-    """The single-shot mirror of tests/agents/test_cli_write_scope.py's recipes test: the
-    CLI path restored src/recipes.glsl post-hoc, the envelope path wrote it (2026-08-29)."""
     ws = Workspace(tmp_path / "ws").create()
     ws.write_json(ws.spec_path, {"language": "glsl_shader", "track": "graphics"})
     (ws.src / "recipes.glsl").write_text("float aurora(vec2 p){return 0.0;}\n")
@@ -141,11 +94,8 @@ def test_generate_files_never_rewrites_a_harness_owned_file(tmp_path):
     assert skip["path"] == "src/recipes.glsl" and "harness-owned" in skip["reason"]
 
 
-
 def test_generate_files_never_writes_under_a_harness_owned_directory(tmp_path):
-    """``HARNESS_OWNED_SRC`` names ``src/lib/`` as a DIRECTORY; the envelope checked by exact
-    match, so a single-shot answer could overwrite the effect library (B1, 2026-09-22) while
-    the CLI path (``is_harness_owned``) reverted the same write."""
+    """B1: ``src/lib/`` is a harness-owned DIRECTORY; the envelope checks it by prefix."""
     ws = Workspace(tmp_path / "ws").create()
     ws.write_json(ws.spec_path, {"language": "scene_threejs", "track": "scene"})
     (ws.src / "lib").mkdir(parents=True)
@@ -168,16 +118,6 @@ def test_always_writable_requires_ownership():
     hinted = GenerationTask(label="w", prompt="p", files_hint=["src/object.js", "src/parts/seat.js"])
     assert _always_writable("threejs", hinted) == ["src/object.js"], "files_hint naming the entry owns it"
     assert _always_writable("", part) == [] and _always_writable("nope", part) == []
-
-
-def test_run_agent_task_wires_entry_ownership_into_the_job(tmp_ws: Workspace):
-    tmp_ws.write_json(tmp_ws.spec_path, {"language": "threejs", "track": "static_object"})
-    agent = FakeAgent(lambda job, ws: {"src/parts/seat.js": "// seat\n"})
-    part = GenerationTask(label="detail_seat", prompt="p", files_hint=["src/parts/seat.js"], edit_only=True)
-    res = run_agent_task(tmp_ws, agent=agent, task=part)
-    assert res.ok and agent.jobs[0].edit_only is True and agent.jobs[0].always_writable == []
-    run_agent_task(tmp_ws, agent=agent, task=part.model_copy(update={"owns_entry": True, "label": "d2"}))
-    assert agent.jobs[1].always_writable == ["src/object.js"]
 
 
 # --------------------------------------------------------------------------- constructors

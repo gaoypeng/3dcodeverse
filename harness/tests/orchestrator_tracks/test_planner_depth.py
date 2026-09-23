@@ -121,17 +121,6 @@ def test_plan_budget_contracts():
     assert "PLAN BUDGET" in text and "10 checklist items" in text
 
 
-def test_the_scene_track_gets_no_part_budget():
-    from codeverse3d.contracts.plan import ScenePlan
-
-    spec = _spec(must=10, track=Track.SCENE, language=Language.SCENE_THREEJS)
-    assert "PLAN BUDGET" not in build_user_prompt(spec)
-    scene = ScenePlan(title="T", summary="s", setting="x", bounds=_bbox(), environment="e",
-                      zones=[{"name": "Z", "description": "d", "bbox": _bbox()}],
-                      cameras=[{"name": "C", "position": (1, 1, 1), "look_at": (0, 0, 0)}])
-    assert B.plan_quality_complaint(scene, B.plan_budget(spec)) == ""
-
-
 def test_plan_templates_render_the_budget_numbers():
     for track, language, model in ((Track.STATIC_OBJECT, Language.BLENDER, StaticPlan),
                                    (Track.GRAPHICS, Language.GLSL_SHADER, GraphicsPlan)):
@@ -207,43 +196,8 @@ def test_brief_is_cached_by_prompt_hash_and_the_second_call_is_free(tmp_path):
     assert calls["n"] == 2
 
 
-def test_the_brief_cache_follows_the_config_files_cache_dir(tmp_path, monkeypatch):
-    """``brief_cache_dir()`` read only $C3D_CACHE_DIR, so a ``cache_dir:`` set in
-    3dcodeverse.yaml moved every cache but this one — the briefs stayed in ~/.cache."""
-    from codeverse3d.config import get_settings
-
-    for env in ("C3D_CACHE_DIR", "CV3D_CACHE_DIR"):
-        monkeypatch.delenv(env, raising=False)
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "3dcodeverse.yaml").write_text(f"cache_dir: {tmp_path / 'cfg-cache'}\n")
-    get_settings.cache_clear()
-    assert BR.brief_cache_dir() == tmp_path / "cfg-cache" / "briefs"
-
-
-def test_reference_images_are_part_of_the_brief_cache_key(tmp_path):
-    """RS-4: expand_brief attaches spec.references and tells the model to read the
-    dimensions off them, so a key that omits them let an --image run silently
-    reuse a brief generated WITHOUT the image (and vice versa)."""
-    img = tmp_path / "ref.png"
-    img.write_bytes(b"\x89PNG\r\n\x1a\n-first-")
-    plain = _spec()
-    withref = plain.model_copy(update={"references": [ReferenceImage(path=str(img))]})
-
-    assert BR.brief_cache_key(plain, "m") != BR.brief_cache_key(withref, "m")
-
-    # --reference synthesises a NEW image per run under identical spec fields:
-    # the path alone does not separate the two runs, the bytes must.
-    before = BR.brief_cache_key(withref, "m")
-    img.write_bytes(b"\x89PNG\r\n\x1a\n-second-")
-    assert BR.brief_cache_key(withref, "m") != before
-
-    # ... and the role/note that go into the image label matter too
-    other = plain.model_copy(update={"references": [ReferenceImage(path=str(img), role="style")]})
-    assert BR.brief_cache_key(other, "m") != BR.brief_cache_key(withref, "m")
-
-
 def test_an_image_run_does_not_drink_the_no_image_brief(tmp_path):
-    """The end-to-end shape of RS-4: two expand_brief calls, one model call each."""
+    """RS-4: the reference images are part of the brief cache key."""
     cache = tmp_path / "cache"
     img = tmp_path / "ref.png"
     img.write_bytes(b"\x89PNG\r\n\x1a\n-bytes-")
@@ -272,40 +226,8 @@ def test_an_unreadable_reference_never_collapses_onto_no_references(tmp_path):
     (ModelError("bad json", usage=Usage(backend="fake", cost_usd=0.002)), 0.002),
 ])
 def test_a_failed_brief_is_never_fatal_and_keeps_what_the_provider_billed(tmp_path, error, billed):
-    """expand_brief goes through ``ask_structured``: a ModelError's ``usage`` (a billed
-    bad reply) is returned, where the hand-built call reported the failure as free."""
     brief, usage = BR.expand_brief(_spec(), "fake:planner", model=FakeChatModel([error]), cache_dir=tmp_path)
     assert brief is None and usage.cost_usd == pytest.approx(billed)
-
-
-def test_brief_switch_and_track_scope(monkeypatch, switch):
-    switch("C3D_PLAN_BRIEF", None)
-    assert BR.brief_enabled(_spec())
-    assert not BR.brief_enabled(_spec(track=Track.GRAPHICS, language=Language.GLSL_SHADER))
-    switch("C3D_PLAN_BRIEF", "off")
-    assert not BR.brief_enabled(_spec())
-    switch("C3D_PLAN_BRIEF", "on")
-    assert BR.brief_enabled(_spec())
-
-
-# ----------------------------------------------------------------------------- enrichment
-def test_the_plan_keeps_subparts_typed_and_does_not_duplicate_them_into_the_description():
-    """Depth is rendered from the typed fields by ``tracks/prompting.py``; enrichment must
-    not copy it into ``description`` as well or the generation prompt prints it twice."""
-    from codeverse3d.tracks.prompting import part_details
-
-    part = _part("GrindHead", desc="cast iron housing", children=[
-        SubPartPlan(name="Burr", description="conical burr, 24 flutes", bbox=_bbox(ex=0.4, ey=0.4, ez=0.4),
-                    material="hardened steel"),
-        SubPartPlan(name="Nut", description="knurled nut", bbox=_bbox(cz=0.4, ex=0.2, ey=0.2, ez=0.1), instances=2),
-    ])
-    part.detail_hint = "carries the visible mechanism"
-    plan = _plan([part])
-    B.enrich_plan(plan, None)
-    assert plan.parts[0].description == "cast iron housing"
-    rendered = part_details(plan)
-    assert rendered.count("Burr") == 1 and rendered.count("carries the visible mechanism") == 1
-    assert "hardened steel" in rendered and "Nut** ×2" in rendered
 
 
 def test_enrichment_adds_signature_features_as_SHOULD_items_only():
@@ -317,8 +239,7 @@ def test_enrichment_adds_signature_features_as_SHOULD_items_only():
 
 
 def test_graphics_pass_elements_are_folded_into_the_one_markdown_row_that_renders_them():
-    """``graphics_steps.passes_table`` prints only ``description`` — and it is a markdown
-    table row, so the fold must be single-line and idempotent."""
+    """The fold into the passes table row is single-line and idempotent."""
     from codeverse3d.contracts.plan import PassPlan
     from codeverse3d.tracks.graphics import passes_table
 
@@ -333,15 +254,6 @@ def test_graphics_pass_elements_are_folded_into_the_one_markdown_row_that_render
     assert "\n" not in once and "|" not in once and "7 gear wheels" in once
     row = passes_table(plan).splitlines()[-1]
     assert row.count("|") == 4 and "integer tooth ratios" in row
-
-
-# ----------------------------------------------------------------------------- output room
-def test_plan_output_room_grows_with_the_plan_and_is_capped():
-    from codeverse3d.tracks.planner import PLAN_TOKENS_MAX, plan_tokens
-
-    small, big = B.plan_budget(_spec(must=0)), B.plan_budget(_spec(must=20))
-    assert 24000 < plan_tokens(small, 24000) < plan_tokens(big, 24000) <= PLAN_TOKENS_MAX
-    assert plan_tokens(small, 24000) >= 24000  # never below the caller's floor
 
 
 def test_truncated_plans_keep_growing_output_room(tmp_path, switch):

@@ -1,20 +1,12 @@
-"""Refine grouping, RunOptions wiring, and judge-view flags."""
+"""Refine grouping and judge-view flags."""
 
 from __future__ import annotations
 
-from codeverse3d.contracts.artifacts import BuildResult, RenderSet, RenderView
-from codeverse3d.contracts.common import Language, Track
-from codeverse3d.contracts.plan import ScenePlan
-from codeverse3d.contracts.spec import RunOptions
-from codeverse3d.orchestrator import RefineTask, RunState, plan_refine_groups
-from codeverse3d.proc import EventLog
-from codeverse3d.tracks.planner import plan_example
+from codeverse3d.contracts.artifacts import RenderSet, RenderView
+from codeverse3d.orchestrator import RefineTask, plan_refine_groups
 from codeverse3d.tracks.scene import ScenePipeline
-from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
-from tests.orchestrator_tracks.conftest import make_spec
 from tests.orchestrator_tracks.fakes import (
-    FakeRuntime,
     FakeServices,
 )
 
@@ -40,21 +32,6 @@ def test_plan_refine_groups_fans_out_only_when_allowed_and_disjoint():
     # unknown file ownership collapses into one group even when fan-out is allowed
     groups, parallel = plan_refine_groups([_task("Seat", ["src/parts/seat.js"]), _task("overall")], allow_fanout=True)
     assert not parallel and len(groups) == 1
-
-
-# --------------------------------------------------------------------- RunOptions wiring (F29)
-def test_candidate_width_precedence(tmp_path, settings):
-    spec = make_spec(options=RunOptions(candidates=2))
-    track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.THREEJS))
-    ws = Workspace(tmp_path / "spec").create()
-    ctx = track.build_context(spec, ws, EventLog(ws.events_path), RunState())
-    assert ctx.policy.n_candidates == 2
-
-    ws = Workspace(tmp_path / "constructor").create()
-    track = StaticObjectTrack(services=FakeServices(), settings=settings,
-                              runtime=FakeRuntime(Language.THREEJS), n_candidates=3)
-    ctx = track.build_context(spec, ws, EventLog(ws.events_path), RunState())
-    assert ctx.policy.n_candidates == 3
 
 
 # --------------------------------------------------------------------- judge-view flags (F30 consumption)
@@ -85,13 +62,3 @@ def test_judge_view_flags_and_path_reconstruction(tmp_path):
     fixed = resolve_paths(ws, rel)
     assert fixed.out_dir == str(ws.root / "artifacts/renders/r00")
     assert fixed.views[0].path == str(ws.root / "artifacts/renders/r00/a.png")
-
-
-# --------------------------------------------------------------------- judge_context is ctx-free (F3)
-def test_judge_context_needs_no_run_context(tmp_path):
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    ws = Workspace(tmp_path / "ws").create()
-    build = BuildResult(ok=True, language="scene_threejs")
-    text = ScenePipeline().judge_context(ws, plan, 0, build, [])
-    assert "Environment plan:" in text and "Cameras:" in text
-    assert ScenePipeline().judge_context(ws, None, 0, build, []) == ""

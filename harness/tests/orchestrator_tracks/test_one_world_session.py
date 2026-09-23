@@ -1,10 +1,4 @@
-"""D70: one author for the whole world — every zone goes to ONE session whose window
-scales with the zone count (2026-09-08; the fan-out control arm was removed 2026-09-21).
-
-Measured under one fixed judge with codex:gpt-6-astra@low on both sides: a bare one-file
-scene scored 0.894 (clockmaker) and 0.82 (boat) while the harness's round 0, its zones
-written by separate sessions of at most two small zones, sat at 0.17 and 0.30-0.57.
-"""
+"""D70: every zone goes to ONE session whose window scales with the zone count."""
 from __future__ import annotations
 
 from codeverse3d.contracts.common import Language, Track

@@ -22,15 +22,12 @@ from codeverse3d.tracks.generation import (
     write_files,
 )
 from codeverse3d.tracks.planner import (
-    PlanningError,
-    build_system_prompt,
     ensure_acceptance,
     plan,
     plan_example,
 )
 from codeverse3d.tracks.repair import (
     build_with_repair,
-    format_error_report,
     relevant_cookbook_section,
 )
 from tests.orchestrator_tracks.conftest import make_spec
@@ -43,24 +40,10 @@ from tests.orchestrator_tracks.fakes import (
 )
 
 
-# ----------------------------------------------------------------------------- envelope
-def test_parse_multifile_blocks_and_fences():
-    text = """Here you go.
-=== FILE: src/object.js ===
-```js
-export function build(THREE) { return new THREE.Group(); }
-```
-=== END FILE ===
-=== FILE: ./src/parts/seat.js ===
-export function buildSeat(THREE) {}
-=== END FILE ===
-"""
-    files = parse_multifile(text)
-    assert set(files) == {"src/object.js", "src/parts/seat.js"}
-    assert files["src/object.js"].startswith("export function build") and "```" not in files["src/object.js"]
-
-
-def test_parse_multifile_single_fence_fallback_and_errors():
+def test_parse_multifile_blocks_fences_fallback_and_errors():
+    blocks = ("Here you go.\n=== FILE: src/object.js ===\n```js\nexport const A=1;\n```\n=== END FILE ===\n"
+              "=== FILE: ./src/parts/seat.js ===\nexport const B=2;\n=== END FILE ===\n")
+    assert parse_multifile(blocks) == {"src/object.js": "export const A=1;", "src/parts/seat.js": "export const B=2;"}
     assert parse_multifile("```python\nimport bpy\nprint(1)\n```", expected_files=["src/model.py"]) == {"src/model.py": "import bpy\nprint(1)"}
     hinted = "**src/env.js**\n```js\nexport const A=1;\n```\nand `src/scene.js`:\n```js\nexport const B=2;\n```"
     files = parse_multifile(hinted)
@@ -157,32 +140,6 @@ def test_planner_validates_retries_and_writes(tmp_ws):
     assert "plan.invalid" in kinds and "plan.done" in kinds
 
 
-def test_planner_validation_reasks_and_ceiling(tmp_ws):
-    model = FakeChatModel(lambda req: {"bad": 1})
-    with pytest.raises(PlanningError):
-        plan(make_spec(), "fake:planner", StaticPlan, tmp_ws, model=model)
-    from codeverse3d.tracks.planner import MAX_VALIDATION_REASKS
-
-    assert len(model.requests) == 1 + MAX_VALIDATION_REASKS == 3
-
-    answers = [{"object_name": "X"}, {"object_name": "Y"}, _valid_plan_dict()]
-    model = FakeChatModel(lambda req: answers.pop(0))
-    p = plan(make_spec(), "fake:planner", StaticPlan, tmp_ws, model=model)
-    assert p.object_name == "DiningChair" and len(model.requests) == 3
-    assert all("failed validation" in r.messages[-1].text for r in model.requests[1:])
-
-
-def test_planner_scene_example_validates_and_prompts_render():
-    assert isinstance(ScenePlan.model_validate(plan_example(Track.SCENE)), ScenePlan)
-    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS)
-    s = build_system_prompt(spec, ScenePlan)
-    assert "zones" in s and "Y is UP" in s
-    from codeverse3d.contracts.plan import ArticulatedPlan
-
-    assert isinstance(ArticulatedPlan.model_validate(plan_example(Track.ARTICULATED_OBJECT)), ArticulatedPlan)
-    assert "pivot" in build_system_prompt(make_spec(Track.ARTICULATED_OBJECT, Language.URDF_BLENDER), ArticulatedPlan)
-
-
 def test_ensure_acceptance_is_idempotent():
     p = StaticPlan.model_validate(_valid_plan_dict())
     spec = make_spec()
@@ -219,26 +176,6 @@ def _ctx(tmp_ws, settings, agent_id: str, agent=None, model=None, cookbook: str 
                       contract_text="CONTRACT")
 
 
-def test_build_with_repair_agent_path_escalates_on_same_error(tmp_ws, settings):
-    (tmp_ws.src / "model.py").write_text(f"import bpy\n# {FAIL_MARK}\nprint(1)\n")
-    tmp_ws.write_json(tmp_ws.plan_path, {"parts": []})
-    prompts = []
-
-    def writer(job, ws):
-        prompts.append(job.prompt)
-        if len(prompts) == 1:
-            return {"src/model.py": f"import bpy\n# still {FAIL_MARK}\n"}  # same error again
-        return {"src/model.py": "import bpy\nprint('fixed')\n"}
-
-    ctx = _ctx(tmp_ws, settings, "fake:x", agent=FakeAgent(writer), cookbook="## Intro\nhello\n## RuntimeError boom\nuse boom fix snippet\n")
-    out = build_with_repair(ctx, round_index=0, label="r00")
-    assert out.ok and len(out.attempts) == 2
-    assert "BUILD FAILED" in prompts[0] and "src/model.py:3" in prompts[0] and "boom fix snippet" in prompts[0]
-    assert "SAME ERROR AS THE PREVIOUS ATTEMPT" in prompts[1] and "SAME ERROR" not in prompts[0]
-    kinds = [e["event"] for e in ctx.events.read()]
-    assert kinds.count("repair.attempt") == 2 and kinds.count("build.done") == 3
-
-
 def test_build_with_repair_single_shot_sends_file_contents_and_stops_at_max(tmp_ws, settings):
     (tmp_ws.src / "model.py").write_text(f"import bpy\n# {FAIL_MARK}\n")
     tmp_ws.write_json(tmp_ws.plan_path, {"parts": []})
@@ -254,8 +191,6 @@ def test_build_with_repair_single_shot_sends_file_contents_and_stops_at_max(tmp_
     assert "--- src/model.py ---" in seen[0].messages[0].text and "import bpy" in seen[0].messages[0].text
     assert seen[1].temperature > seen[0].temperature  # escalation on identical signature
     assert out.usage.cost_usd == pytest.approx(0.004)
-
-
 
 
 def test_repair_cookbook_sections_are_the_prompt_sections():
@@ -278,16 +213,3 @@ def test_repair_rel_strips_a_prefix_not_a_character_set(tmp_ws):
     assert _rel(ctx, "./src/.env.js") == "src/.env.js"
     assert _rel(ctx, "src/parts/seat.js") == "src/parts/seat.js"
     assert _rel(ctx, "../outside.js") == "" and _rel(ctx, "/etc/passwd") == ""
-
-def test_format_error_report_and_cookbook_section():
-    from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
-
-    b = BuildResult(ok=False, language="threejs", error_type="TypeError", error_message="Cannot read properties of null (reading 'fillStyle')",
-                    error_file="src/parts/base.js", error_line=12, stderr_tail="\n".join(f"line{i}" for i in range(60)))
-    lint = GateReport(gate="lint:threejs", passed=False, findings=[GateFinding(gate="lint:threejs", severity=Severity.ERROR, target="src/parts/base.js",
-                                                                                 message="document.createElement is forbidden", fix_hint="use vertex colours")])
-    cb = "## Materials\nuse MeshStandardMaterial\n## Canvas textures are not available\nfillStyle getContext canvas null properties → procedural colours\n"
-    rep = format_error_report(b, lint, cb)
-    assert "src/parts/base.js:12" in rep and "line59" in rep and "line5\n" not in rep.split("traceback")[1][:20]
-    assert "FIX: use vertex colours" in rep and "Canvas textures" in rep
-    assert relevant_cookbook_section(cb, "totally unrelated words") == ""

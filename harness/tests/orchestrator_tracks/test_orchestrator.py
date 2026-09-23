@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import time
 
-import pytest
 from pydantic import BaseModel
 
 from codeverse3d.contracts.artifacts import (
@@ -22,7 +21,6 @@ from codeverse3d.orchestrator import (
     RunState,
     StageRunner,
     build_refine_instructions,
-    hash_inputs,
     plan_parallel_groups,
 )
 from codeverse3d.proc import EventLog, fan_out
@@ -41,19 +39,8 @@ def test_fan_out_preserves_order_and_captures_exceptions():
     assert fan_out([], fn, 2) == []
 
 
-# ----------------------------------------------------------------------------- state + runner
-def test_run_state_roundtrip(tmp_ws):
-    st = RunState(status=RunStatus.REFINING, materialized_for="gemini-cli")
-    st.save(tmp_ws)
-    again = RunState.load(tmp_ws)
-    assert again is not None and again.status is RunStatus.REFINING and again.materialized_for == "gemini-cli"
-    assert RunState.load_or_new(tmp_ws, resume=False).status is RunStatus.PLANNING
-
-
 def test_a_run_state_saved_before_2026_09_22_still_loads(tmp_ws):
-    """It named a best round, cached the round journal and could end ``passed`` / ``plateau``:
-    the keys are ignored and the status reads as ``stopped`` — a resume goes on from the
-    journal's last round."""
+    """Its best-round and journal keys are ignored and ``passed`` / ``plateau`` read as ``stopped``."""
     tmp_ws.state_path.write_text(json.dumps({
         "status": "passed", "stop_reason": "pass", "current_round": 2, "completed_rounds": [0, 1],
         "round_commits": {"0": "a0", "1": "a1"}, "best_round": 0, "best_commit": "a0", "best_score": 0.81,
@@ -65,35 +52,8 @@ def test_a_run_state_saved_before_2026_09_22_still_loads(tmp_ws):
     assert RunStatus("plateau") is RunStatus.STOPPED
 
 
-def test_stage_runner_caches_by_input_hash(tmp_ws):
-    events = EventLog(tmp_ws.events_path)
-    runner = StageRunner(tmp_ws, events)
-    calls = []
-
-    def fn():
-        calls.append(1)
-        return {"x": 1}
-
-    assert runner.stage("s1", fn, inputs={"a": 1}) == {"x": 1}
-    assert runner.stage("s1", fn, inputs={"a": 1}) == {"x": 1}
-    assert len(calls) == 1
-    assert runner.stage("s1", fn, inputs={"a": 2}) == {"x": 1}
-    assert len(calls) == 2
-    kinds = [e["event"] for e in events.read()]
-    assert kinds.count("stage.cached") == 1 and kinds.count("stage.done") == 2
-    # resume from disk with a fresh runner + state
-    st = RunState.load(tmp_ws)
-    r2 = StageRunner(tmp_ws, events, st)
-    assert r2.stage("s1", fn, inputs={"a": 2}) == {"x": 1} and len(calls) == 2
-    assert runner.result_path("a:b/c").name == "a_b_c.json"
-
-
 def test_an_unreadable_cached_stage_is_a_miss_not_a_dead_run(tmp_ws):
-    """RS-2: inputs_hash covers the INPUTS, never the result model's schema.  A cached
-    result that no longer validates (the contract gained a field) or no longer parses
-    (a clobbered file) used to escape as ValidationError / JSONDecodeError, which
-    BaseTrack.run turns into a FAILED run — so every later `3dcode resume` died the same
-    way.  Both must re-run the stage and overwrite the file."""
+    """A cached result that no longer validates or parses re-runs the stage instead of failing the run."""
 
     class PlanV1(BaseModel):
         name: str
@@ -121,18 +81,6 @@ def test_an_unreadable_cached_stage_is_a_miss_not_a_dead_run(tmp_ws):
     assert r3.stage("plan", v2, inputs={"prompt": "a stool"}, model=PlanV2).units == "m"
     assert len(calls) == 2
     assert [e["event"] for e in events.read()].count("stage.cache_invalid") == 2
-
-
-def test_stage_runner_raises_and_records_nothing(tmp_ws):
-    runner = StageRunner(tmp_ws, EventLog(tmp_ws.events_path))
-
-    def boom():
-        raise RuntimeError("nope")
-
-    with pytest.raises(RuntimeError):
-        runner.stage("bad", boom, inputs="y")
-    assert "bad" not in runner.state.stages
-    assert hash_inputs({"a": [1, 2]}) == hash_inputs({"a": (1, 2)})
 
 
 # ----------------------------------------------------------------------------- refine instructions

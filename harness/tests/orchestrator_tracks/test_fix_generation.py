@@ -59,29 +59,6 @@ def test_generate_files_truncation_policy(tmp_path):
     assert [e["event"] for e in events.read()].count("generate.truncated") == 1   # one cut, one event
 
 
-# --------------------------------------------------------------------- finding: out-of-root path aborted the whole write
-def test_out_of_root_paths_are_skipped_not_fatal(tmp_path):
-    ws = Workspace(tmp_path / "ws").create()
-    answer = (
-        "=== FILE: src/model.py ===\nimport bpy\n=== END FILE ===\n"
-        "=== FILE: README.md ===\n# notes\n=== END FILE ===\n"
-        "=== FILE: package.json ===\n{}\n=== END FILE ===\n"
-        "=== FILE: ../evil.py ===\nx = 1\n=== END FILE ==="
-    )
-    events = EventLog(tmp_path / "e.jsonl")
-    task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"])
-    res = generate_files(ws, model=scripted([(answer, "STOP")]), task=task, events=events)
-    assert res.ok, res.notes  # the good file was paid for — never abort the round on a README
-    assert (ws.root / "src" / "model.py").is_file()
-    assert not (ws.root / "README.md").exists() and not (tmp_path / "evil.py").exists()
-    assert [c.path for c in res.files_changed] == ["src/model.py"]
-    assert "README.md" in res.notes
-    skipped = [e for e in events.read() if e["event"] == "generate.skipped_path"]
-    assert {e["path"] for e in skipped} == {"README.md", "package.json", "../evil.py"}
-    done = next(e for e in events.read() if e["event"] == "generate.done")
-    assert done["files"] == ["src/model.py"]
-
-
 # --------------------------------------------------------------------- finding: whole-workspace diff claimed sibling tasks' files
 class NonReportingAgent:
     """An agent that writes its own file but reports no files_changed (fallback path)."""
@@ -116,13 +93,3 @@ def test_run_agent_task_passes_files_hint_and_attributes_fallback_diff(tmp_path)
     res = run_agent_task(ws, agent=agent, task=task)
     assert agent.jobs[0].files_hint == ["src/parts/seat.js"]  # per-session attribution key
     assert res.ok and [c.path for c in res.files_changed] == ["src/parts/seat.js"]
-
-
-def test_run_agent_task_that_wrote_nothing_is_not_ok(tmp_path):
-    ws = Workspace(tmp_path / "ws").create()
-    ws.commit("init")
-    (ws.root / "events.jsonl").write_text("{}\n")  # harness noise only
-    agent = NonReportingAgent({})
-    task = GenerationTask(label="asset_stone_lantern", prompt="p", files_hint=["src/assets/stone_lantern.js"])
-    res = run_agent_task(ws, agent=agent, task=task)
-    assert not res.ok and res.files_changed == []

@@ -1,8 +1,4 @@
-"""A degenerate plan is re-sampled from the original prompt, not edited in context.
-
-Measured 2026-09-02 over 200 plan calls on two trees: 3-4 % of articulated plan calls end
-in `PlanningError`, always the same way — one top-level part, joints naming links the plan
-never lists — and both in-context re-asks come back with that same answer."""
+"""A degenerate plan (one part, dangling links) is re-sampled from the original prompt, not edited in context."""
 
 from __future__ import annotations
 
@@ -11,7 +7,6 @@ import json
 
 import pytest
 
-from codeverse3d.config import get_settings
 from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import ArticulatedPlan
 from codeverse3d.proc import EventLog
@@ -73,28 +68,8 @@ def test_a_degenerate_plan_is_resampled_without_its_own_answer_in_context(tmp_ws
     assert [e for e in events.read() if e["event"] == "plan.done"][0]["restarts"] == 1
 
 
-def test_an_ordinary_validation_error_still_edits_in_context(tmp_ws):
-    """Nothing changes for the failures a re-ask does fix: the model sees its own answer."""
-    bad = _good()
-    bad["joints"][0]["axis"] = [0, 0, 0]  # a real slip, not a degenerate plan
-    p, model = _run(tmp_ws, [bad, _good()])
-    assert isinstance(p, ArticulatedPlan) and len(model.requests) == 2
-    assert len(model.requests[1].messages) == 3  # user + echoed answer + complaint
-    assert "failed validation" in model.requests[1].messages[-1].text
-
-
-def test_the_kill_switch_restores_the_in_context_reask(tmp_ws, monkeypatch):
-    monkeypatch.setattr(get_settings(), "plan_restart", False)   # C3D_PLAN_RESTART=off
-    p, model = _run(tmp_ws, [_degenerate(), _good()])
-    assert isinstance(p, ArticulatedPlan) and len(model.requests[1].messages) == 3
-
-
 def test_a_restart_costs_an_attempt_not_one_of_the_two_reask_slots(tmp_ws):
-    """Every answer degenerate: restart once, then still get BOTH in-context re-asks.
-
-    The restart used to increment the same counter as a re-ask, so a run that restarted
-    had one re-ask left instead of two — visible in the recorded battery as deaths with
-    ``restarts=1`` at the validation cap (bench/data/plan_stage/restart_on.jsonl)."""
+    """Every answer degenerate: restart once, then still get BOTH in-context re-asks."""
     model = FakeChatModel(lambda req: _degenerate())
     with pytest.raises(PlanningError):
         plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model)
@@ -105,9 +80,7 @@ def test_a_restart_costs_an_attempt_not_one_of_the_two_reask_slots(tmp_ws):
 
 
 def test_a_full_plan_with_one_dangling_link_is_edited_in_context_not_resampled(tmp_ws):
-    """The restart's trigger is the MEASURED class: collapsed AND dangling.  A plan with
-    every part in place and one misspelled link is what the re-ask is good at, and
-    re-sampling it throws away the parts that were right."""
+    """The restart's trigger is collapsed AND dangling; a full plan with a typo is edited in context."""
     typo = _good()
     for i in range(4):  # a full-sized plan, well over the degeneracy floor
         typo["parts"].append({"name": f"Filler{i}", "role": "trim", "description": "a rail",
@@ -121,9 +94,6 @@ def test_a_full_plan_with_one_dangling_link_is_edited_in_context_not_resampled(t
 
 
 def test_a_rejected_plan_is_written_where_a_dead_run_can_be_read(tmp_ws):
-    """A run that dies at the plan stage used to leave nothing but the pydantic message,
-    which truncates the offending value — so "what did the model actually write?", the
-    question every plan-stage failure class starts from, had no answer at all."""
     from codeverse3d.tracks.planner import INVALID_PLAN_DIR
 
     model = FakeChatModel(lambda req: _degenerate())

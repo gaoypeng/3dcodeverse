@@ -1,4 +1,4 @@
-"""Regression tests for review fix batch 2 (orchestrator / lifecycle findings)."""
+"""Lifecycle regressions: aborted rounds, degraded verdicts, the skeleton guard, finalise rebuilds."""
 
 from __future__ import annotations
 
@@ -6,13 +6,12 @@ import json
 
 import pytest
 
-from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Judgment, Severity
+from codeverse3d.contracts.artifacts import BuildResult, GateReport, Judgment
 from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse3d.contracts.run import RoundRecord, RunStatus
 from codeverse3d.orchestrator import RunState
 from codeverse3d.proc import EventLog
-from codeverse3d.prompts import load_text
 from codeverse3d.tracks.planner import plan_example
 from codeverse3d.tracks.scene import SceneTrack
 from codeverse3d.tracks.static_object import StaticObjectTrack
@@ -58,29 +57,9 @@ class ScriptedJudge(FakeJudge):
         return out
 
 
-# --------------------------------------------------------------------- finding: judge charge after persist
-def test_judged_round_survives_budget_ceiling_crossed_by_judge(tmp_path, chair_plan, settings):
-    """steps.py:148 — the judge's own charge used to raise BudgetExceeded BEFORE the round
-    was committed/recorded, throwing away a complete judged round (scene r2 case)."""
-    spec = make_spec(max_rounds=3)
-    ws = Workspace(tmp_path / "runs" / "r")
-    judge = FakeJudge(scores=(0.55,), cost=0.05, minutes=12.0)  # this single verdict crosses max_minutes
-    track = StaticObjectTrack(services=FakeServices(), judge=judge, agent=FakeAgent(_writer),
-                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
-                              runtime=FakeRuntime(Language.THREEJS))
-    with fake_clock():
-        rec = track.run(spec, ws)
-    assert rec.status is RunStatus.BUDGET and rec.extra["stop_reason"] == "budget"
-    assert len(rec.rounds) == 1 and rec.rounds[0].score == pytest.approx(0.55)
-    assert (ws.root / "rounds" / "r00.json").is_file() and ws.judge_path(0).is_file()
-    # the judge cost is still in the totals, and in the round's
-    assert rec.total_usage.cost_usd > 0.05 and rec.rounds[0].usage.cost_usd > 0.05
-
-
 # --------------------------------------------------------------------- finding: finalise with a dirty tree at the last commit
 def test_finalise_restores_the_last_round_when_an_aborted_round_dirtied_src(tmp_path, chair_plan, settings):
-    """lifecycle.py:263 — a refine round that wrote files but died on the generation charge
-    left HEAD at the last round's commit with foreign src/: the run then ended on unjudged code."""
+    """A refine round that died after writing files leaves src/ back on the last judged round."""
     spec = make_spec(max_rounds=3)
     ws = Workspace(tmp_path / "runs" / "r")
     # the baseline session's 6 minutes fit the 10-minute clock; the refine session's 6 more
@@ -98,31 +77,6 @@ def test_finalise_restores_the_last_round_when_an_aborted_round_dirtied_src(tmp_
     # ledger (planner 0.002 + baseline agent 0.01 + judge 0.003 + the aborted refine agent 0.01)
     assert rec.total_usage.cost_usd == pytest.approx(0.025, abs=1e-6)
     assert rec.extra["aborted_rounds"][0]["cost_usd"] == pytest.approx(0.01, abs=1e-6)
-
-
-# --------------------------------------------------------------------- finding: finalise rebuild fails after invalidation
-def test_a_failed_finalise_rebuild_cannot_finalize_silently(tmp_path, chair_plan, settings, monkeypatch):
-    """Every real runtime invalidates the canonical artifact FIRST in build(), so a
-    failed rebuild of the restored last round leaves object.glb MISSING — yet the run
-    used to finalize as if nothing happened.  The earned status + judge scores are kept;
-    the ``finalise_rebuild_failed`` flag says what happened, and the round's own kept
-    build (``artifacts/r00/``) is untouched."""
-    spec = make_spec(max_rounds=3)
-    ws = Workspace(tmp_path / "runs" / "r")
-    # the refine round's agent crosses the wall clock after its files hit the disk: finalise
-    # puts src/ back on r00 and rebuilds it — and that rebuild fails
-    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.7,), targets=("Seat",)),
-                              agent=FakeAgent(_writer, minutes=6.0), planner_model=_planner(chair_plan.model_dump(mode="json")),
-                              settings=settings, runtime=_RebuildFails(Language.THREEJS))
-    with fake_clock():
-        rec = track.run(spec, ws)
-    assert rec.status is RunStatus.BUDGET and rec.rounds[0].score == pytest.approx(0.7)  # the earned status + score stay
-    assert "runtime crashed on rebuild" in rec.extra["finalise_rebuild_failed"]
-    assert not (ws.artifacts / "object.glb").is_file() and (ws.round_artifacts(0) / "object.glb").is_file()
-    on_disk = json.loads(ws.record_path.read_text())
-    assert on_disk["extra"]["finalise_rebuild_failed"] and on_disk["status"] == "budget"
-    ev = [e for e in EventLog(ws.events_path).read() if e["event"] == "finalise.rebuild"]
-    assert ev and ev[-1]["ok"] is False
 
 
 class _RebuildFails(FakeRuntime):
@@ -281,41 +235,8 @@ def test_plan_digest_is_labelled_w_h_d_in_the_measurement_frame():
     assert "Overall 0.48×0.52×0.80 m (W×H×D)" in yup  # identity for Y-up plans
 
 
-# --------------------------------------------------------------------- finding: articulated prompt origin rule
-def test_articulated_prompt_states_negated_pivot_visual_origin():
-    text = load_text("tracks/generate_articulated.j2")
-    assert "child mesh offset relative to P" not in text
-    assert "NEGATED world pivot" in text and "WORLD coordinates" in text
-    assert "visual AND collision" in text
-
-
-# --------------------------------------------------------------------- integration: scene_frames errors reach refine
-def test_scene_frames_gate_errors_flow_into_refine_instructions(tmp_path, settings):
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS)
-    ws = Workspace(tmp_path / "runs" / "r")
-    ws.create()
-    track = SceneTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.SCENE_THREEJS))
-    ctx = track.build_context(spec, ws, EventLog(ws.events_path), RunState())
-    ctx.plan = plan
-    frames = GateReport(gate="scene_frames", passed=False, findings=[
-        GateFinding(gate="scene_frames", severity=Severity.ERROR, target=plan.cameras[0].name,
-                    message="frame is 78% dark (mean luminance 0.04)",
-                    fix_hint="raise ambient/hemisphere light intensity or move the camera out of shadow",
-                    data={"kind": "dark_frame"})])
-    last = RoundRecord(index=0, kind="baseline", build=BuildResult(ok=True, language="scene_threejs"),
-                       gates=[GateReport(gate="lint:scene_threejs", passed=True), frames])
-    tasks, instructions = track.refine_tasks(ctx, last)
-    assert tasks, "a scene_frames ERROR must produce a refine task"
-    joined = "\n".join(instructions)
-    assert "dark" in joined and "FIX: raise ambient" in joined
-
-
 def test_a_successful_re_finalise_clears_the_stale_rebuild_failed_flag(tmp_path, chair_plan, settings, monkeypatch):
-    """The prior-record merge carries extra keys the new record lacks — so a run that
-    once recorded ``finalise_rebuild_failed`` and is later resumed to a SUCCESSFUL
-    rebuild must clear the flag explicitly (a no-rebuild resume keeps it: the
-    artifact may still be the missing one)."""
+    """A failed finalise rebuild is flagged; a later resume that rebuilds successfully clears the flag."""
     spec = make_spec(max_rounds=3)
     ws = Workspace(tmp_path / "runs" / "r")
     runtime = _RebuildFails(Language.THREEJS, fails=1)

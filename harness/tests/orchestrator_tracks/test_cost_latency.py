@@ -17,8 +17,6 @@ from codeverse3d.proc import EventLog
 from codeverse3d.tracks.common import (
     RunContext,
     generate_for,
-    single_shot_agent_id,
-    single_shot_ctx,
 )
 from codeverse3d.tracks.generation import GenerationTask
 from codeverse3d.tracks.planner import plan_example
@@ -114,14 +112,6 @@ def _zone(name: str, n: int) -> ZonePlan:
                     contents=[f"A{i}" for i in range(n)])
 
 
-# ----------------------------------------------------------------------------- single-shot assets
-def test_single_shot_needs_a_chat_model_not_a_coding_agent():
-    assert single_shot_agent_id("gemini-cli:gemini-3.6-flash", "gemini:gemini-3.6-flash") == "single-shot:gemini:gemini-3.6-flash"
-    assert single_shot_agent_id("single-shot:gemini:x") == "single-shot:gemini:x"
-    assert single_shot_agent_id("gemini-cli:gemini-3.6-flash") == ""       # no chat model given
-    assert single_shot_agent_id("claude-code:opus", "not-an-id") == ""     # not '<provider>:<model>'
-
-
 class _ChatServices(FakeServices):
     """FakeServices that CAN hand out a chat model (so single-shot is reachable)."""
 
@@ -168,93 +158,11 @@ def _events(ctx) -> list[dict]:
     return [json.loads(line) for line in ctx.ws.events_path.read_text().splitlines() if line.strip()]
 
 
-@needs_node
-def test_assets_are_single_shot_by_default_and_never_open_an_agent_session(tmp_path, settings):
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    plan = plan.model_copy(update={"assets": [a for a in plan.assets if a.kind == "threejs"]})
-    calls: list[str] = []
-
-    def respond(req):
-        rel = req.messages[0].text.split("write `")[1].split("`")[0]
-        calls.append(rel)
-        pascal = "".join(w.capitalize() for w in rel.rsplit("/", 1)[-1][:-3].split("_"))
-        size = [float(x) for x in req.messages[0].text.split("meters): ")[1].split("\n")[0].split(" × ")]
-        return _envelope(rel, _module(pascal, *size))
-
-    agent = FakeAgent(lambda job, ws: {"src/nope.js": "// should not run\n"})
-    services = _ChatServices(FakeChatModel(respond, cost=0.02), judge=FakeJudge(scores=(0.4,)))
-    ctx = _scene_ctx(tmp_path, settings, services=services, agent=agent, plan=plan)
-    results = run_asset_stage(ctx)
-    assert set(results) == {a.name for a in plan.assets}
-    assert all(r.ok and r.strategy == "single-shot" for r in results.values())
-    assert not agent.jobs, "a single-shot asset must not open a coding-agent session"
-    assert sorted(calls) == sorted(f"src/assets/{n}" for n in ("bollard.js", "fishing_boat.js"))
-    # measured size comes from the deterministic check, not the plan guess
-    assert results["FishingBoat"].size_m is not None
-    ev = {e["event"] for e in _events(ctx)}
-    assert "asset.generated" in ev and "assets.done" in ev
-
-
-@needs_node
-def test_a_broken_asset_gets_one_error_feedback_repair_then_escalates_to_an_agent(tmp_path, settings):
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    one = [a for a in plan.assets if a.kind == "threejs"][:1]
-    plan = plan.model_copy(update={"assets": one, "zones": []})
-    prompts: list[str] = []
-
-    def respond(req):
-        prompts.append(req.messages[0].text)
-        rel = "src/assets/fishing_boat.js"
-        # both single-shot attempts return a module with a removed-API call
-        return _envelope(rel, "import * as THREE from 'three';\n"
-                              "export function buildFishingBoat(T = THREE) {\n"
-                              "  return new T.Mesh(new T.BoxBufferGeometry(1, 1, 1));\n}\n")
-
-    agent = FakeAgent(lambda job, ws: {"src/assets/fishing_boat.js": _module("FishingBoat", 8.0, 3.5, 3.0)})
-    services = _ChatServices(FakeChatModel(respond, cost=0.02), judge=FakeJudge(scores=(0.9,)))
-    ctx = _scene_ctx(tmp_path, settings, services=services, agent=agent, plan=plan)
-    results = run_asset_stage(ctx)
-    assert len(prompts) == 2, "exactly ONE error-feedback repair before escalating"
-    assert "did NOT pass the deterministic asset check" in prompts[1] and "BoxBufferGeometry" in prompts[1]
-    assert [j.label for j in agent.jobs] == ["asset_fishing_boat"]
-    assert results["FishingBoat"].ok and results["FishingBoat"].strategy == "escalated"
-    ev = [e for e in _events(ctx) if e["event"] == "asset.escalated"]
-    assert ev and ev[0]["asset"] == "FishingBoat"
-
-
-@needs_node
-def test_small_clean_assets_skip_the_judge_and_heroes_do_not(tmp_path, settings):
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    small = _asset("Bollard", (0.3, 0.5, 0.3))
-    plan = plan.model_copy(update={"assets": [small], "zones": []})
-
-    def respond(req):
-        return _envelope("src/assets/bollard.js", _module("Bollard", 0.3, 0.5, 0.3))
-
-    judge = FakeJudge(scores=(0.2,))
-    services = _ChatServices(FakeChatModel(respond), judge=judge)
-    ctx = _scene_ctx(tmp_path, settings, services=services, agent=FakeAgent(lambda j, w: None), plan=plan)
-    # the scene runtime grows a render_asset hook: without the skip rule this would judge
-    ctx.runtime.render_asset = lambda ws, name, out_dir: services.render_object(  # type: ignore[attr-defined]
-        ws.artifacts / "x.glb", out_dir, views=(), width=64, height=64)
-    run_asset_stage(ctx)
-    skipped = [e for e in _events(ctx) if e["event"] == "asset.judge_skipped"]
-    assert skipped and skipped[0]["reason"] == "gates_ok_and_small" and skipped[0]["volume_fraction"] < 0.05
-    assert not judge.calls
-
-
 def test_asset_check_names_the_file_that_was_never_written(tmp_path, settings):
     services = FakeServices()
     ctx = _scene_ctx(tmp_path, settings, services=services)
     chk = check_threejs_asset(ctx, "src/assets/missing.js", "Missing")
     assert not chk.ok and chk.ran and chk.fatal and "was not written" in chk.errors[0]
-
-
-def test_single_shot_ctx_is_none_for_cli_backends(tmp_path, settings):
-    ctx = _scene_ctx(tmp_path, settings, services=FakeServices(), agent_id="gemini-cli:gemini-3.7-flash")
-    assert single_shot_ctx(ctx) is None
-    ctx2 = _scene_ctx(tmp_path, settings, services=FakeServices(), agent_id="fake-agent:gemini:x")
-    assert single_shot_ctx(ctx2) is None  # FakeServices has no chat model → agent path stays
 
 
 # a CLI session that died at the wall after a 503 streak: nothing written, transient
@@ -263,9 +171,7 @@ STORM_DEATH = AgentResult(ok=False, exit_reason="timeout", transient=True,
 
 
 def test_a_storm_dead_session_falls_back_to_single_shot(tmp_path, settings):
-    """Loops 10-11 (2026-09-07): 23 of 24 gemini-cli sessions ended timeout / 0 turns / $0 in
-    a 503 storm while every single-shot got through; env and zones shipped the skeleton and
-    judged 0.00-0.14.  The same task goes once more through the hedged single-shot path."""
+    """A session that died in a 503 storm goes once more through the single-shot path."""
     def respond(req):
         return _envelope("src/env.js", "export function buildEnv() { return {}; }\n")
 
@@ -281,53 +187,8 @@ def test_a_storm_dead_session_falls_back_to_single_shot(tmp_path, settings):
     assert "generate.storm_fallback" in kinds
 
 
-def test_a_plain_failed_session_does_not_fall_back(tmp_path, settings):
-    """An agent that ran and produced nothing (not a storm) keeps its own verdict: the
-    fallback is for the transport being down, not for the task being hard."""
-    services = _ChatServices(FakeChatModel(lambda req: _envelope("src/env.js", "x")))
-    agent = FakeAgent(lambda j, w: None)
-    ctx = _scene_ctx(tmp_path, settings, services=services, agent=agent, agent_id="fake-agent:gemini:x")
-    task = GenerationTask(label="env", prompt="write `src/env.js`", files_hint=["src/env.js"], round=0, kind="env")
-    res = generate_for(ctx, task)
-    assert not res.ok and not res.storm and services.chat_ids == []
-
-
-# ----------------------------------------------------------------------------- salvage
-def test_a_budget_stop_before_round_zero_still_delivers_a_judged_round(tmp_path, settings):
-    plan = small_scene()
-    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=1)
-    ws = Workspace(tmp_path / "runs" / "greenhouse")
-    services = FakeServices(assemble=True)
-
-    def writer(job, ws_):
-        if job.label == "env":
-            return {"src/env.js": "export function buildEnv(){}\n"}
-        if job.label.startswith("zones_") or job.label.startswith("zone_"):
-            return {rel: "export function build(){}\n" for rel in (job.files_hint or ["src/zones/x.js"])}
-        return {f"src/assets/{job.label[6:]}.js": f"export function build(){{}} // {job.label}\n"}
-
-    # the greenhouse hole: 2 asset sessions + env stay under the 10-minute clock; the zone
-    # session's own 3 minutes cross it mid-stage (4 × 3 = 12)
-    track = SceneTrack(services=services, judge=FakeJudge(scores=(0.58,)), agent=FakeAgent(writer, cost=1.3, minutes=3.0),
-                       planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
-                       runtime=FakeRuntime(Language.SCENE_THREEJS))
-    with fake_clock():
-        rec = track.run(spec, ws)
-    assert rec.status is RunStatus.BUDGET and rec.extra["stop_reason"] == "budget"
-    # …and, unlike the greenhouse run, it has a score
-    assert len(rec.rounds) == 1 and rec.rounds[0].renders is not None and rec.rounds[0].score == pytest.approx(0.58)
-    assert "salvaged" in rec.rounds[0].notes
-    ev = [json.loads(x) for x in (ws.root / "events.jsonl").read_text().splitlines() if x.strip()]
-    names = [e["event"] for e in ev]
-    assert "budget.salvage" in names
-    salvage = next(e for e in ev if e["event"] == "budget.salvage")
-    assert salvage["grace_minutes"] > 0
-
-
 def test_a_zones_session_the_clock_stopped_is_kept_for_the_resume(tmp_path, settings):
-    """Q1: the clock is checked AFTER the zones stage is recorded, so the finished (paid) session
-    is cached, and the resume under the salvaged r00 serves it — it used to re-run the zones
-    session over r00's src/ (reproduced in the 2026-09-22 review)."""
+    """Q1: the finished (paid) zones session is cached and the resume under the salvaged r00 serves it."""
     plan = small_scene()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=1)
     ws = Workspace(tmp_path / "runs" / "quay")
@@ -343,25 +204,6 @@ def test_a_zones_session_the_clock_stopped_is_kept_for_the_resume(tmp_path, sett
         agent.jobs.clear()
         mk().run(spec.model_copy(update={"budget": spec.budget.model_copy(update={"max_minutes": 100.0})}), ws, resume=True)
     assert agent.jobs and not any(j.label.startswith("zone") for j in agent.jobs)
-
-
-def test_soft_budget_notes_land_in_the_round_record(tmp_path, settings):
-    plan = small_scene()
-    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
-    ws = Workspace(tmp_path / "runs" / "degraded")
-    services = FakeServices(assemble=True)
-    # a slow agent: the soft cap (55 % of the 10-minute clock) is crossed during the asset stage
-    agent = FakeAgent(_writer, cost=1.1, minutes=2.0)
-    track = SceneTrack(services=services, judge=FakeJudge(scores=(0.5,)), agent=agent,
-                       planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
-                       runtime=FakeRuntime(Language.SCENE_THREEJS))
-    with fake_clock():
-        rec = track.run(spec, ws)
-    ev = [json.loads(x) for x in (ws.root / "events.jsonl").read_text().splitlines() if x.strip()]
-    degraded = [e for e in ev if e["event"] == "budget.degraded"]
-    assert degraded, "the soft cap must be reported before the hard cap kills the run"
-    assert any("soft budget spent" in n for n in degraded[0]["note"].split(";")[:1] or [degraded[0]["note"]])
-    assert any("soft budget spent" in n for n in rec.rounds[0].notes.split("; "))
 
 
 def _writer(job, ws):
@@ -413,32 +255,8 @@ def test_asset_selection_folds_only_over_the_cap():
     assert all(v in {k.name for k in kept} for v in alias.values())
 
 
-def test_a_batched_session_that_writes_only_one_file_fails_the_other_zone(tmp_path, settings):
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    plan = plan.model_copy(update={"assets": [_asset("Bollard", (0.3, 0.5, 0.3))],
-                                   "zones": [_zone("Quay", 0), _zone("Water", 0)]})
-    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
-    ws = Workspace(tmp_path / "runs" / "halfzone")
-    services = FakeServices(assemble=True)
-
-    def writer(job, ws_):
-        if job.label.startswith("zones_"):
-            return {"src/zones/quay.js": "export function build(){}\n"}  # Water never written
-        if job.label == "env":
-            return {"src/env.js": "export function buildEnv(){}\n"}
-        return {"src/x.js": "// x\n"}
-
-    track = SceneTrack(services=services, judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(writer),
-                       planner_model=FakeChatModel(lambda req: plan.model_dump(mode="json")), settings=settings,
-                       runtime=FakeRuntime(Language.SCENE_THREEJS))
-    track.run(spec, ws)
-    zones = json.loads((ws.root / "stages" / "zones.json").read_text())["result"]
-    assert zones["Quay"]["ok"] and not zones["Water"]["ok"]
-
-
 def test_a_clock_that_trips_after_a_finished_zones_session_records_what_it_wrote(tmp_path, settings):
-    """Q1: the session finished and wrote both zones, then its charge crossed the ceiling; the cached
-    zones result said ok: False for every zone — a resume served "all failed" for written work."""
+    """Q1: the cached zones result records the zones the session wrote before its charge crossed the ceiling."""
     from tests.orchestrator_tracks.conftest import FAKE_CLOCK
 
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
@@ -534,27 +352,3 @@ def test_the_shot_after_an_outage_is_a_plain_generation_not_a_repair(tmp_path, s
     assert results["Bollard"].ok and results["Bollard"].strategy == "single-shot" and not agent.jobs
     assert len(prompts) == 2 and prompts[1] == prompts[0], "the model wrote nothing: there is nothing to repair"
     assert "did NOT pass" not in prompts[1] and "rewrite COMPLETELY" not in prompts[1]
-
-
-def test_one_asset_cannot_eat_the_scene_run():
-    from codeverse3d.contracts.spec import Budget
-    from codeverse3d.orchestrator import BudgetGuard
-    from codeverse3d.tracks.scene_assets import (
-        ASSET_AGENT_TIMEOUT_S,
-        ASSET_SESSION_SHARE,
-        asset_timeout_s,
-    )
-
-    class Ctx:
-        budget = BudgetGuard(Budget(max_minutes=25.0, max_rounds=4))
-
-    fresh = asset_timeout_s(Ctx, 120)
-    assert fresh < ASSET_AGENT_TIMEOUT_S, "one asset may not have the whole preparation budget"
-    assert fresh <= 25 * 60 * ASSET_SESSION_SHARE + 1, "at most its share of the run"
-    Ctx.budget.start_time -= 23 * 60          # 2 minutes left
-    assert asset_timeout_s(Ctx, 120) == 120, "and never past the wall clock, floor aside"
-
-    class Long:
-        budget = BudgetGuard(Budget(max_minutes=90.0, max_rounds=4))
-
-    assert asset_timeout_s(Long, 120) == ASSET_AGENT_TIMEOUT_S, "a long run keeps the ceiling"

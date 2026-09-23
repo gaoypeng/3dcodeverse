@@ -1,10 +1,4 @@
-"""``select_cookbook_excerpt``: the graphics prompt carries the cookbook chapters its brief calls for.
-
-Measured 2026-08-26: ``cookbook_text[:7000]`` of an 11,298-char cookbook cut everything after
-the raymarching template (sky / stars, rain, bokeh, feedback, PITFALLS) out of every graphics
-prompt, and flash drew what it was handed — an aurora as a comb of bars, a star field of twenty
-sparkles.  The selector hands over whole chapters, ranked by the brief, inside a budget.
-"""
+"""Every track sends the whole cookbook; the GLSL cookbook's aurora example ships (Q9)."""
 
 from __future__ import annotations
 
@@ -12,31 +6,11 @@ from types import SimpleNamespace
 
 from codeverse3d.contracts.common import Language, Track
 from codeverse3d.prompts import PROMPTS_DIR, load_text
-from codeverse3d.prompts.sections import split_sections
 
 EXAMPLE = PROMPTS_DIR / "glsl_shader" / "examples" / "aurora_ridge.frag"
 
 
-def test_real_cookbook_parses_into_chapters() -> None:
-    secs = [s for s in split_sections(load_text("glsl_shader/cookbook.md")) if s.level == 2]
-    assert len(secs) >= 10
-    titles = [s.title for s in secs]
-    assert any(t.startswith("Light phenomena") for t in titles)
-    assert any(t.startswith("Gradient sky") for t in titles)
-    assert any(t.startswith("PITFALLS") for t in titles)
-
-
 def test_every_track_sends_the_whole_cookbook(monkeypatch) -> None:
-    """No track delivers the cookbook by byte offset any more.
-
-    It used to be ``ctx.cookbook_text[:6000]`` in base_prompt_context and a 9 000-char
-    chapter selection in graphics — 13 % of blender's 46 623 chars, 10 % of
-    scene_threejs's 57 631, cut mid-snippet.  On-demand cookbook lookup was the stated
-    escape hatch and went unused in all 20 measured sessions, so what the prefix left
-    out simply never reached the model.  Chapter SELECTION is still right where the
-    stage knows which chapters it needs (scene's env/zone recipes, graphics' recipe
-    seeding); it is not right as a way to shrink the reference itself.
-    """
     from codeverse3d.languages import get_runtime
     from codeverse3d.tracks import graphics as graphics_steps
     from codeverse3d.tracks.prompting import base_prompt_context

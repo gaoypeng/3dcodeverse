@@ -1,10 +1,4 @@
-"""reconcile_resume: on resume, the durable round journal is the truth.
-
-One test per audited failure mode — the crash window between a round write and the state
-save, a run recorded before 2026-09-22 (it restored its best round), a planner outage wiping
-``record.rounds``, ``--force``/no-``--force`` after a spec edit, judge notes lost to a local
-list, and spend the budget snapshot missed.
-"""
+"""reconcile_resume: on resume, the durable round journal is the truth."""
 
 from __future__ import annotations
 
@@ -44,12 +38,7 @@ def _track(planner, settings, *, judge=None, policy=None):
 
 @pytest.fixture
 def completed_run(tmp_path, chair_plan, settings):
-    """A finished StaticObjectTrack run — the starting point of every resume test below.
-
-    ``.rerun(...)`` replays the same track over the same workspace (``resume=``/``force=``)
-    with a FRESH planner, so a test that passes its own ``planner=`` sees in ``.requests``
-    only what the resume asked for; ``policy=`` / ``spec=`` override the rest.
-    """
+    """A finished run; ``.rerun(...)`` replays the track over the same workspace with a fresh planner."""
     plan = chair_plan.model_dump(mode="json")
 
     def rerun(r, *, planner=None, policy=None, spec=None, **kw):
@@ -69,10 +58,7 @@ def completed_run(tmp_path, chair_plan, settings):
 
 # --------------------------------------------------------------------- (a) crash window
 def test_crash_between_round_write_and_state_save_ends_at_the_newer_round(completed_run):
-    """rNN.json + its commit are durable; the state save after them is not.  A crash in that
-    window — here with a state written before r01 (a pre-2026-09-22 one that still caches the
-    journal one round short) and the tree on the older round — resumes from the JOURNAL: the
-    history is r00 + r01 and the run ends on the LAST round."""
+    """A crash after rNN.json but before the state save resumes from the journal, on the last round."""
     run = completed_run(max_rounds=1)
     rec1, ws = run.record, run.ws
     assert len(rec1.rounds) == 2
@@ -91,9 +77,7 @@ def test_crash_between_round_write_and_state_save_ends_at_the_newer_round(comple
 
 
 def test_an_old_run_that_restored_its_best_round_resumes_from_its_last(completed_run, settings):
-    """A run recorded before 2026-09-22 ended on a "restore best round rNN" commit, with its
-    run_state.json and record.json naming that best round and status ``passed``.  Both still
-    load; the resume puts src/ back on the LAST round and the next round refines THAT one."""
+    """A pre-2026-09-22 run that ended on "restore best round" resumes from, and refines, its LAST round."""
     run = completed_run(max_rounds=1)
     rec1, ws = run.record, run.ws
     state = json.loads(ws.state_path.read_text())
@@ -130,9 +114,6 @@ def _code_at(ws: Workspace, commit: str) -> str:
 
 # --------------------------------------------------------------------- (b) history wipe
 def test_a_planner_outage_on_resume_keeps_the_recorded_history(completed_run):
-    """The FAILED handler serialized record.json with rounds=[] because the journal was
-    loaded only AFTER the plan and the pre-round stages — one planner outage on resume wiped record.rounds
-    (and with it the flywheel's rounds_summary)."""
     run = completed_run(max_rounds=0)
     ws = run.ws
     assert len(run.record.rounds) == 1
@@ -151,9 +132,7 @@ def test_a_planner_outage_on_resume_keeps_the_recorded_history(completed_run):
 
 # --------------------------------------------------------------------- (d) force provenance
 def test_force_resume_with_an_edited_prompt_archives_the_old_rounds(completed_run):
-    """`resume --force` after a prompt edit re-planned and then paired the OLD rounds with
-    the NEW spec/plan in record.json — fake prompt→code provenance.  The old journal +
-    record are archived under rounds/pre_force/ instead."""
+    """`resume --force` after a prompt edit archives the old journal and record under rounds/pre_force/."""
     run = completed_run(max_rounds=0)
     ws = run.ws
     old_commit = run.record.rounds[0].commit
@@ -199,8 +178,6 @@ def test_a_spec_edit_without_force_is_refused_before_anything_runs(completed_run
 
 # --------------------------------------------------------------------- (f3) notes survive
 def test_notes_survive_a_judge_crash(tmp_path, chair_plan, settings):
-    """_judge appended 'judge failed: ...' to rec.notes, which _run_round then overwrote
-    with its own local notes list — the note never reached rNN.json."""
     class BoomJudge(FakeJudge):
         def judge(self, inp):
             if inp.round_index >= 1:
@@ -220,8 +197,7 @@ def test_notes_survive_a_judge_crash(tmp_path, chair_plan, settings):
 
 
 def test_has_commit_answers_no_when_git_cannot_answer(tmp_path, monkeypatch):
-    """has_commit raised on a missing run dir (the OSError of a cwd that is gone) and had no
-    timeout, unlike every other git read — a hung git hung the resume / the export."""
+    """has_commit answers False on a missing dir or a hung git (with the shared timeout)."""
     import subprocess
 
     from codeverse3d.workspace import HAS_COMMIT_TIMEOUT_S, Workspace
