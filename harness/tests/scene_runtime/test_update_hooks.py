@@ -57,3 +57,26 @@ export function createScene() {
     if not forward:
         assert findings[0].severity == Severity.WARN and findings[0].target == "CentralPad"
         assert "parent zone" in findings[0].fix_hint
+
+
+@pytest.mark.node
+@needs_node
+def test_cached_hooks_shader_ticks_and_empty_stubs_are_not_reported():
+    """The zone that places an asset may cache its hook (prompts/tracks/scene_asset.j2), one tickShaders()
+    may drive every uTime, and a library stub `() => {}` has nothing to forward: none is 'unobserved'."""
+    result = run_node_json("""
+import * as T from 'three';
+import { observeUpdateHooks } from './lib/update_hooks.mjs';
+const scene=new T.Scene(), zone=new T.Group(); zone.name='Farm'; scene.add(zone);
+const mill=new T.Group(); mill.name='Windmill'; zone.add(mill);
+mill.userData.update=t=>{mill.rotation.z=t;}; const hook=mill.userData.update;
+const mat=new T.ShaderMaterial({uniforms:{uTime:{value:0}}});
+const rain=new T.Mesh(new T.BoxGeometry(),mat); rain.name='Rain'; zone.add(rain);
+rain.userData.update=t=>{mat.uniforms.uTime.value=t;};
+const ice=new T.Group(); ice.name='Ice'; zone.add(ice); ice.userData.update=()=>{};
+const still=new T.Group(); still.name='Still'; zone.add(still); still.userData.update=t=>{still.position.x=t;};
+const report=observeUpdateHooks(scene,()=>{for(let i=1;i<=3;i++){hook(i/30);
+  scene.traverse(o=>{if(o.material?.uniforms?.uTime)o.material.uniforms.uTime.value=i/30;});}});
+console.log(JSON.stringify(report.unobserved.map(r=>r.path)));
+""")
+    assert result == ["Farm/Still"]
