@@ -14,6 +14,7 @@ The delivered file(s) are then scored by the SAME fixed evaluator as every other
 from __future__ import annotations
 
 import shutil
+import time
 from pathlib import Path
 
 from bench._oneshot import files_for
@@ -79,6 +80,7 @@ def run_bare_agent(spec: Spec, target: str, cell: Path, eval_ws: Workspace, *, m
         (ws.root / "tmp").mkdir(exist_ok=True)
         job = AgentJob(workspace=str(ws.root), prompt=bare_agent_prompt(spec, minutes), label="bare",
                        timeout_s=int(minutes * 60), spatial_tools=False, write_roots=["src", "tmp"],
+                       hard_deadline_s=time.monotonic() + minutes * 60,
                        kind="baseline", language=spec.language.value, track=spec.track.value,
                        env={"NODE_PATH": str(node_modules_dir())})
         result = get_coding_agent(target).run(job)

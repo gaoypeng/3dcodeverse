@@ -3,10 +3,14 @@ prompt section, a hard-clock session window, the backend's turn count."""
 
 from __future__ import annotations
 
+import time
+
+import pytest
+
 from codeverse3d.contracts.agent import AgentJob, AgentResult
 from codeverse3d.contracts.chat import ImagePart
 from codeverse3d.contracts.common import Budget, Usage
-from codeverse3d.orchestrator import BudgetGuard
+from codeverse3d.orchestrator import BudgetExceeded, BudgetGuard
 from codeverse3d.tracks.generation import GenerationTask, run_agent_task
 from codeverse3d.workspace import Workspace
 
@@ -55,3 +59,44 @@ def test_session_window_is_clipped_to_the_hard_clock_not_the_soft_share(tmp_ws: 
     run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="refine", prompt="p", timeout_s=900), budget=guard)
     assert agent.jobs[0].timeout_s == 900
 
+
+def test_run_deadline_overrides_the_session_timeout_floor(tmp_ws: Workspace):
+    guard = BudgetGuard(Budget(max_minutes=1))
+    guard.start_time -= 50
+    agent = StubAgent()
+    start = time.monotonic()
+    run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="refine", prompt="p"), budget=guard)
+    job = agent.jobs[0]
+    assert job.timeout_s == 120  # the existing soft session floor
+    assert start < job.hard_deadline_s <= start + 10
+
+
+def test_silent_retry_keeps_the_original_absolute_deadline(tmp_ws: Workspace):
+    class BailOnce(StubAgent):
+        def run(self, job):
+            if not self.jobs:
+                self.jobs.append(job)
+                return AgentResult(ok=False, exit_reason="completed")
+            return super().run(job)
+
+    agent = BailOnce()
+    run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="baseline", prompt="p"),
+                   budget=BudgetGuard(Budget(max_minutes=1)))
+    assert len(agent.jobs) == 2
+    assert agent.jobs[0].hard_deadline_s is not None
+    assert agent.jobs[0].hard_deadline_s == agent.jobs[1].hard_deadline_s
+
+
+def test_empty_usage_cannot_bypass_the_clock_and_start_a_retry(tmp_ws: Workspace):
+    guard = BudgetGuard(Budget(max_minutes=1))
+
+    class EmptyOverrun(StubAgent):
+        def run(self, job):
+            self.jobs.append(job)
+            guard.start_time -= 61
+            return AgentResult(ok=False, exit_reason="completed")
+
+    agent = EmptyOverrun()
+    with pytest.raises(BudgetExceeded):
+        run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="baseline", prompt="p"), budget=guard)
+    assert len(agent.jobs) == 1

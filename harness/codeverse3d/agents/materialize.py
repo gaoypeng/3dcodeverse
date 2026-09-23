@@ -179,6 +179,10 @@ def codex_mcp_overrides(mcp_command: list[str]) -> list[str]:
     return [
         "-c", f"mcp_servers.{MCP_SERVER_NAME}.command={json.dumps(mcp_command[0])}",
         "-c", f"mcp_servers.{MCP_SERVER_NAME}.args={_toml_str_list(mcp_command[1:])}",
+        # Codex filters the environment of stdio MCP subprocesses. Preserve the
+        # caller's explicit engine/runtime selection (e.g. a frozen benchmark
+        # checkout) instead of silently importing an unrelated editable install.
+        "-c", f"mcp_servers.{MCP_SERVER_NAME}.env_vars={_toml_str_list(['PYTHONPATH', 'C3D_RUNTIME_JS'])}",
         "-c", f"mcp_servers.{MCP_SERVER_NAME}.tool_timeout_sec={MCP_TOOL_TIMEOUT_MS // 1000}",
         "-c", f"mcp_servers.{MCP_SERVER_NAME}.startup_timeout_sec=60",
         "-c", f"mcp_servers.{MCP_SERVER_NAME}.default_tools_approval_mode={json.dumps(CODEX_MCP_APPROVAL_MODE)}",

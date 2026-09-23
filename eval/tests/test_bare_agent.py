@@ -59,12 +59,16 @@ class _FakeAgent:
 
 
 def test_run_copies_the_deliverable_and_resumes(tmp_path, monkeypatch):
+    import time
+
     agent = _FakeAgent()
     monkeypatch.setattr("bench._bare_agent.get_coding_agent", lambda target: agent)
     eval_ws = Workspace(tmp_path / "eval").create()
+    started = time.monotonic()
     r = run_bare_agent(_spec(), "gemini-cli:gemini-3.7-flash", tmp_path, eval_ws, minutes=10)
     assert r.ok and (eval_ws.root / "src" / "model.py").read_text() == "import bpy\n"
     job = agent.jobs[0]
     assert job.spatial_tools is False and job.timeout_s == 600 and job.write_roots == ["src", "tmp"]
+    assert started + 600 <= job.hard_deadline_s <= time.monotonic() + 600
     run_bare_agent(_spec(), "gemini-cli:gemini-3.7-flash", tmp_path, eval_ws, minutes=10)
     assert len(agent.jobs) == 1   # a finished session is not re-run

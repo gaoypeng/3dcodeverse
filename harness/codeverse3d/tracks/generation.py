@@ -35,6 +35,7 @@ from __future__ import annotations
 import logging
 import re
 import shutil
+import time
 from collections.abc import Callable, Collection
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -522,6 +523,11 @@ def run_agent_task(
     # window of its own (repair) is still bounded by the soft share, so a failing
     # baseline cannot eat the refine rounds' half.  (Both found by review 2026-08-29.)
     timeout = _deadline_preflight(budget, timeout, soft=task.timeout_s is None)
+    # Sessions sharing a workspace wait for a lock. An absolute deadline keeps that
+    # wait, retry attempts and the CLI's activity grace inside the run's hard clock.
+    hard_deadline = None
+    if budget is not None and hasattr(budget, "timeout_s"):
+        hard_deadline = time.monotonic() + budget.timeout_s(float("inf"), floor_s=0, soft=False)
     turns_cap = agent_max_turns()  # 0 = leave AgentJob's own default
     # typed job context honoured by every CodingAgent: round → trajectory dir + ToolContext,
     # language/track → spatial tool filtering, files_hint → the edit_only scope.
@@ -533,6 +539,7 @@ def run_agent_task(
         system_append=task.system,
         label=task.label,
         timeout_s=timeout,
+        hard_deadline_s=hard_deadline,
         spatial_tools=True,
         write_roots=task.write_roots,
         round=task.round,
@@ -624,8 +631,8 @@ class _SessionAcc:
     Each session is a ledger row the moment it returns (label ``<task>``/``<task>.a2`` for
     the retry, ``<task>.wrapup`` for the landing session — ``cost.instrument.MeteredAgent``),
     so a crash in a later session can never erase what an earlier one already spent — the
-    ``.a2`` hole of docs/COST.md §6.  The run's clock is checked after each session that
-    did any work, as the guard's charge did before money left it."""
+    ``.a2`` hole of docs/COST.md §6. The run's clock is checked before and after
+    every session, including sessions whose vendor returned no usage."""
 
     def __init__(self, *, task: GenerationTask, budget: Any | None):
         self.task = task
@@ -648,6 +655,8 @@ class _SessionAcc:
             ".wrapup" if wrapup else (f".a{self.sessions}" if self.sessions > 1 else "")
         )
         try:
+            if self.budget is not None:
+                self.budget.check()
             res: AgentResult = agent.run(job)
         except Exception as e:  # noqa: BLE001 — a budget stop still propagates (see below)
             self.sessions -= 1
@@ -660,7 +669,7 @@ class _SessionAcc:
         # the count as the BACKEND reports it (0 for gemini-cli, which exposes none): a size
         # signal for the generate.turn_cap event, not what the cap is enforced against
         self.turns += res.turns
-        if self.budget is not None and (res.usage.cost_usd or res.usage.input_tokens or res.usage.output_tokens):
+        if self.budget is not None:
             self.budget.check()
         return res
 

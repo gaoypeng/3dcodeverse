@@ -575,8 +575,15 @@ def invoke(
     ``invoke`` line records ``attempt`` and the prompt's size, plus ``invoke_extra`` (gemini-cli
     adds ``model`` and ``key_tail``).
     """
+    soft = float(s.job.timeout_s if soft_timeout_s is None else soft_timeout_s)
+    hard = soft + 300.0
+    if s.job.hard_deadline_s is not None:
+        # This runs AFTER begin_session's workspace lock and on every vendor retry.
+        # A queued job must not regain the window it had before waiting for a peer.
+        hard = min(hard, max(0.0, s.job.hard_deadline_s - time.monotonic()))
+        soft = min(soft, hard)
     s.traj.append("invoke", argv=list(argv), attempt=attempt, stdin_bytes=len(prompt.encode("utf-8")),
-                  **invoke_extra)
+                  soft_timeout_s=soft, hard_timeout_s=hard, started=hard > 0, **invoke_extra)
 
     def on_line(stream: str, line: str) -> None:
         s.traj.append("line", stream=stream, text=line[:4000])
@@ -584,16 +591,15 @@ def invoke(
         if observer is not None:
             observer(line)
 
-    # A streaming session must not outlive its window by half of it again: the watchdog's
-    # default hard kill is max(1.5x soft, soft+600), and chair_bl (loop_w1, 2026-08-28)
-    # streamed straight past a 16-minute window for 37 minutes.  Five minutes of grace is
-    # what the budget salvage gets; the session gets the same.
-    soft = float(s.job.timeout_s if soft_timeout_s is None else soft_timeout_s)
-    proc = run_with_watchdog(
-        argv, cwd=s.ws.root, env=env, soft_timeout_s=soft, hard_timeout_s=soft + 300.0,
-        idle_grace_s=IDLE_GRACE_S, poll_s=POLL_S,
-        on_line=on_line, stdin=prompt, activity_dirs=[s.ws.src, s.ws.public],
-    )
+    if hard <= 0:
+        proc = CompletedProc(rc=-9, stdout="", stderr="Run deadline expired before CLI launch.\n",
+                             duration_s=0.0, timed_out=True, killed_reason="hard_timeout")
+    else:
+        proc = run_with_watchdog(
+            argv, cwd=s.ws.root, env=env, soft_timeout_s=soft, hard_timeout_s=hard,
+            idle_grace_s=IDLE_GRACE_S, poll_s=POLL_S,
+            on_line=on_line, stdin=prompt, activity_dirs=[s.ws.src, s.ws.public],
+        )
     suffix = "" if attempt == 1 else f".{attempt}"
     out = Path(stdout_name)
     s.traj.write_text(f"{out.stem}{suffix}{out.suffix}", proc.stdout)

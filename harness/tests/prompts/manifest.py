@@ -104,7 +104,7 @@ BRIEF = {"object_name": "DiningChair", "reference": "a Danish oak dining chair",
          "mechanism": "the legs carry the seat", "visible_from_outside": ["seat", "legs", "backrest"],
          "signature_features": ["tapered legs", "curved backrest"], "materials": ["seat: oiled oak"]}
 CONTEXT_FILES = ("AGENTS.md", "GEMINI.md", "CLAUDE.md", ".3dcode/cookbook.md", ".gemini/settings.json", ".geminiignore", ".aiexclude")
-VOLATILE = frozenset({"duration_ms", "duration_s", "latency_ms", "max_wait_s", "timeout_s", "workspace", "data_b64"})
+VOLATILE = frozenset({"duration_ms", "duration_s", "latency_ms", "max_wait_s", "timeout_s", "hard_deadline_s", "workspace", "data_b64"})
 SHADER = ("void mainImage(out vec4 fragColor, in vec2 fragCoord) {{\n  vec2 uv = fragCoord / u_resolution.xy;\n"
           "  // {tag}\n  fragColor = vec4(uv, 0.5 + 0.5 * sin(u_time), 1.0);\n}}\n")
 PROGRAM = ("import moderngl  # {tag}\n\n\ndef setup(ctx, width, height):\n    return {{}}\n\n\n"

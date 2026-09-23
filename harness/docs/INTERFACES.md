@@ -208,6 +208,11 @@ from codeverse3d.agents.cli_common import is_transient_failure, is_quota_failure
 # its session) and provider_wait(failures=[(t, backoff_s)], end, progress=[t] | None) -> seconds
 ```
 `AgentJob` carries typed job context: `round`, `kind`, `language`, `track`,
+`hard_deadline_s` (optional absolute `time.monotonic()` deadline on this host:
+generation derives it from the remaining hard run clock before queueing; every CLI
+attempt clips its watchdog after acquiring the workspace lock, including retries.
+An expired job never launches a CLI. Recomputed on resume; `None` keeps standalone
+session grace. Process termination and final packaging can finish after the deadline),
 `mcp_command` (override), `files_hint` (workspace-relative files/dirs the task is
 expected to touch — used to attribute `files_changed`; harness-owned paths are dropped;
 sessions on one workspace are serialised, so there is no sibling filter),

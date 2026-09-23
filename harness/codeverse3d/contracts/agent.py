@@ -26,6 +26,12 @@ class AgentJob(BaseModel):
     system_append: str = ""
     label: str = ""
     timeout_s: int = 1800
+    hard_deadline_s: float | None = Field(
+        default=None, ge=0, allow_inf_nan=False,
+        description="absolute time.monotonic() deadline on this host, derived from the run's "
+        "remaining hard clock before queuing. Shared by retries; recomputed on resume. "
+        "None preserves the standalone CLI's session grace",
+    )
     #: consumed only by claude-code (``--max-turns``); gemini-cli / codex / agy have no
     #: turn flag and run unbounded except by ``timeout_s`` and the run's wall clock
     max_turns: int = 60

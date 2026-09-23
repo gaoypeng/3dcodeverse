@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import time
 
+import pytest
+
+from codeverse3d.agents import cli_common
 from codeverse3d.agents.cli_common import (
     begin_session,
     clean_env,
@@ -87,6 +92,56 @@ def test_one_failure_vocabulary():
     gemini_429 = "Quota exceeded for quota metric 'Generate Content API requests per minute'"
     assert not is_quota_failure(gemini_429) and not is_quota_failure("You exceeded your current quota")
     assert is_rate_limited("status 429") and is_rate_limited("RESOURCE_EXHAUSTED") and not is_rate_limited("503")
+
+
+def test_queued_invocation_and_retry_share_the_run_deadline(tmp_ws: Workspace, monkeypatch):
+    clock = [100.0]
+    windows = []
+
+    def watchdog(argv, **kwargs):
+        windows.append((kwargs["soft_timeout_s"], kwargs["hard_timeout_s"]))
+        return cli_common.CompletedProc(rc=0, stdout="", stderr="", duration_s=0)
+
+    s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", timeout_s=120,
+                               hard_deadline_s=110.0), "fake")
+    monkeypatch.setattr(cli_common.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(cli_common, "run_with_watchdog", watchdog)
+    clock[0] = 104.0  # waiting for a workspace lock consumed four seconds
+    invoke(s, ["unused"], {}, prompt="p")
+    clock[0] = 109.0
+    invoke(s, ["unused"], {}, prompt="p", attempt=2, soft_timeout_s=90)
+    assert windows == [(6.0, 6.0), (1.0, 1.0)]
+    clock[0] = 111.0
+    expired = invoke(s, ["unused"], {}, prompt="p", attempt=3)
+    assert len(windows) == 2 and expired.timed_out and expired.duration_s == 0
+    assert "before CLI launch" in (s.traj.dir / "stderr.3.log").read_text()
+    assert [r["started"] for r in s.traj.read_transcript() if r["kind"] == "invoke"] == [True, True, False]
+
+
+def test_standalone_invocation_keeps_its_activity_grace(tmp_ws: Workspace, monkeypatch):
+    windows = []
+
+    def watchdog(argv, **kwargs):
+        windows.append((kwargs["soft_timeout_s"], kwargs["hard_timeout_s"]))
+        return cli_common.CompletedProc(rc=0, stdout="", stderr="", duration_s=0)
+
+    monkeypatch.setattr(cli_common, "run_with_watchdog", watchdog)
+    s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", timeout_s=120), "fake")
+    invoke(s, ["unused"], {}, prompt="p")
+    assert windows == [(120.0, 420.0)]
+
+
+@pytest.mark.timeout(20, method="thread")
+def test_invoke_stops_an_active_cli_at_the_run_deadline(tmp_ws: Workspace, monkeypatch):
+    s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", timeout_s=120,
+                               hard_deadline_s=time.monotonic() + 1), "fake")
+    monkeypatch.setattr(cli_common, "POLL_S", 0.05)
+    code = "import time\nwhile True:\n print('still active', flush=True); time.sleep(0.05)"
+    started = time.monotonic()
+    proc = invoke(s, [sys.executable, "-c", code], dict(os.environ), prompt="p")
+    assert proc.timed_out and proc.killed_reason == "hard_timeout"
+    assert "still active" in proc.stdout
+    assert time.monotonic() - started < 10
 
 
 def test_provider_wait_counts_each_burst_from_the_request_that_failed():
