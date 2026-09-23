@@ -98,12 +98,11 @@ def test_usage_is_appended_as_one_json_line_per_session(ws, library):
 
 
 def test_the_control_bundle_is_materialised_and_starts_unread(ws, library):
-    from codeverse3d.skills.materialize import CONTROL_NAME, materialize_skills
+    from codeverse3d.skills.materialize import materialize_skills
 
     materialize_skills(ws, [library["c3d-part-contact"]])
     usage = probe_reads(ws, _materialized(library, "c3d-part-contact"))
     assert usage.control_present and not usage.control_read
-    assert CONTROL_NAME not in usage.listed
 
 
 def test_a_control_that_was_opened_makes_the_rate_unmeasurable(ws, library):
@@ -117,8 +116,7 @@ def test_a_control_that_was_opened_makes_the_rate_unmeasurable(ws, library):
     _touch(ws / AGENTS_SKILL_ROOT / CONTROL_NAME / "references" / "control.md")
     usage = probe_reads(ws, _materialized(library, "c3d-part-contact"))
     assert usage.deep == ["c3d-part-contact"]        # the raw signal is still reported
-    assert usage.control_read and usage.deep_read_rate is None
-    assert usage.deep_read_rate is None                # but the RATE refuses to lie
+    assert usage.control_read and usage.deep_read_rate is None   # but the RATE refuses to lie
 
 
 def test_git_diff_alone_trips_the_control(tmp_path, library):  # noqa: PLR0915

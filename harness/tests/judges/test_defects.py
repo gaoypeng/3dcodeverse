@@ -36,6 +36,7 @@ def test_rubrics_declare_defects_with_costs():
         assert all(d.penalty > 0 or d.cap is not None for d in r.defects)
     assert R.defect("floating_part").penalty == 0.10 and R.defect("floating_part").cap == 0.60
     assert R.defect("wrong_object").cap == 0.25 and R.defect("wrong_object").penalty == 0.0
+    assert R.defect("interpenetration").cap == 0.7
     assert {"no_articulation_visible", "wrong_motion_type", "pivot_misplaced", "pose_clips_body"} <= {d.id for d in A.defects}
     with pytest.raises(KeyError):
         R.defect("nope")
@@ -118,6 +119,7 @@ def test_defect_vote_ties_are_absent(judge_input, cache_dir, caplog):
     assert raw["defect_votes"]["render_artifacts"] == [True, False]
     assert raw["defects"]["render_artifacts"] is False and j.overall == pytest.approx(0.9)
     assert raw["tie_broken"] == ["render_artifacts"]
+    assert raw["scoring_version"] == 2 and raw["overridden"] == []
 
     clean_first = FakeChatModel(by_label={":s0": [_reply(0.9)], ":s1": [_reply(0.9, ["render_artifacts"])]})
     j2 = VlmJudge("static_object_v1", chat_model=clean_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)

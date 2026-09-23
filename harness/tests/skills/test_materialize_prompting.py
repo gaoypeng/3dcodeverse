@@ -87,7 +87,8 @@ def test_the_control_survives_a_reroute_and_never_counts_as_a_stale_bundle(ws, l
     materialize_skills(ws, [library["c3d-bbox-contract"]])
     for root in SKILL_ROOTS:
         assert (ws / root / CONTROL_NAME / "SKILL.md").is_file()
-        assert not (ws / root / "c3d-part-contact").exists()
+        assert (ws / root / "c3d-bbox-contract").is_dir()          # still routed: kept
+        assert not (ws / root / "c3d-part-contact").exists()       # no longer routed: removed
 
 
 def test_nothing_in_a_materialised_tree_is_a_symlink_because_codex_refuses_them(ws, library):
@@ -100,14 +101,6 @@ def test_atime_equals_mtime_after_writing_so_the_read_probe_has_a_zero_point(ws,
     for p in materialize_skills(ws, [library["c3d-part-contact"]]):
         st = os.stat(p)
         assert abs(st.st_atime - st.st_mtime) < 0.001
-
-
-def test_a_skill_that_is_no_longer_routed_is_removed_from_the_workspace(ws, library):
-    materialize_skills(ws, [library["c3d-part-contact"], library["c3d-blender-forms"]])
-    materialize_skills(ws, [library["c3d-part-contact"]])
-    for root in SKILL_ROOTS:
-        assert (ws / root / "c3d-part-contact").is_dir()
-        assert not (ws / root / "c3d-blender-forms").exists()
 
 
 def test_an_empty_selection_still_sweeps_last_rounds_bundles(ws, library):

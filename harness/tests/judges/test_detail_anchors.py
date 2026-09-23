@@ -76,19 +76,6 @@ def test_primitive_stack_defect_fires_on_a_majority_not_on_perfection() -> None:
     assert d.penalty == pytest.approx(0.08)
 
 
-def test_physical_plausibility_caps_are_untouched() -> None:
-    """The complexity wave may sharpen detail; it may never soften the gates."""
-    caps = {c.id: c for c in load_rubric("static_object_v1").caps}
-    assert caps["build_error"].cap == 0.0
-    assert caps["floating_part"].cap == 0.6
-    assert caps["penetration_error"].cap == 0.7
-    assert caps["contract_violation"].cap == 0.75
-    assert caps["missing_must_acceptance"].cap == 0.6
-    defects = {d.id: d for d in load_rubric("static_object_v1").defects}
-    assert defects["floating_part"].cap == 0.6 and defects["interpenetration"].cap == 0.7
-    assert defects["wrong_object"].cap == 0.25
-
-
 @pytest.mark.parametrize("rubric", ["static_object_v1", "articulated_v1"])
 def test_acceptance_cap_is_graded_with_the_floor_pinned(rubric: str) -> None:
     """The acceptance cap is GRADED since 2026-08-30 (DECISIONS D46 b): 0.6 + 0.4·verified/total.

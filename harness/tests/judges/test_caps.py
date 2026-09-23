@@ -170,33 +170,3 @@ def test_graded_acceptance_cap_keeps_the_gradient_but_not_the_pass():
                          defects={d.id: False for d in R.defects})
     j = aggregate_samples(R, [sample], gates=[], acceptance_items=ten)
     assert j.overall == pytest.approx(0.96) and not j.passed and "must items unverified: M3" in j.summary
-
-
-def test_a_defect_vote_tie_is_absent_and_an_acceptance_tie_still_follows_the_representative():
-    """Burden of proof on the defect (2026-08-30): the rubric marks an item present only when an
-    image or a gate finding shows it, so a split vote has not shown it.  Acceptance ties keep the
-    owner's policy (representative sample).  419/420 corpus verdicts are n=1: nothing moved."""
-    import json
-
-    import pytest
-
-    from codeverse3d.judges.rubrics import (
-        AcceptanceVerdict,
-        CriterionScore,
-        JudgeOutput,
-        aggregate_samples,
-    )
-
-    def sample(defect_on: bool, acc_ok: bool) -> JudgeOutput:
-        return JudgeOutput(criteria={c.id: CriterionScore(score=0.9, evidence="") for c in R.criteria},
-                           acceptance={"M1": AcceptanceVerdict(verified=acc_ok)},
-                           defects={d.id: (d.id == "render_artifacts" and defect_on) for d in R.defects})
-
-    item = [AcceptanceItem(id="M1", text="x", priority="must")]
-    j = aggregate_samples(R, [sample(True, True), sample(False, True)], gates=[], acceptance_items=item)
-    raw = json.loads(j.raw)
-    assert raw["defect_votes"]["render_artifacts"] == [True, False] and raw["defects"]["render_artifacts"] is False
-    assert raw["tie_broken"] == ["render_artifacts"] and j.overall == pytest.approx(0.9)
-    j2 = aggregate_samples(R, [sample(False, True), sample(False, False)], gates=[], acceptance_items=item)
-    assert j2.acceptance_results["M1"] is True and json.loads(j2.raw)["tie_broken"] == ["M1"]
-    assert raw["scoring_version"] == 2 and raw["overridden"] == []

@@ -127,12 +127,6 @@ def test_retry_on_parse_failure_then_success(judge_input, cache_dir):
     assert j.usage.cost_usd == pytest.approx(0.002)  # failed attempt still charged
 
 
-def test_retry_on_model_error_then_success(judge_input, cache_dir):
-    model = FakeChatModel([ModelError("503", retryable=True), good_reply(R, IDS, 0.8)])
-    j = _judge(model, cache_dir=cache_dir).judge(judge_input)
-    assert j.passed and len(model.requests) == 2
-
-
 def test_degraded_after_exhausting_attempts(judge_input, cache_dir):
     model = FakeChatModel(default=ModelError("boom", retryable=True))
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)

@@ -14,8 +14,10 @@ def test_agreement_across_swap(tmp_path, cache_dir):
     # ordering 1: A=ra,B=rb → "A" wins; ordering 2 (swapped): A=rb,B=ra → "B" wins → both say ra
     model = FakeChatModel(by_label={":fwd": [_reply("A", 0.9)], ":swap": [_reply("B", 0.7)]})
     res = PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare(make_spec(), ra, rb)
-    assert res.winner == "a" and res.confidence == 0.8 and len(res.orderings) == 2
-    assert res.usage.cost_usd > 0
+    assert res.winner == "a" and res.confidence == 0.8
+    # the two orderings run concurrently but land in (fwd, swap) order; usage sums across both
+    assert [(o["swapped"], o["confidence"]) for o in res.orderings] == [(False, 0.9), (True, 0.7)]
+    assert res.usage.cost_usd == pytest.approx(0.002) and res.usage.input_tokens == 2000
     reqs = {r.label: r for r in model.requests}  # orderings run in parallel: look up by label
     labels = [p.label for p in image_parts(reqs["pairwise:fwd"])]
     assert len(labels) == 2  # one 2×2 montage per side
@@ -55,19 +57,6 @@ def test_unswap_reasons():
     from codeverse3d.judges.pairwise import _unswap_text
     assert _unswap_text("Candidate A beats candidate B", True) == "Candidate B beats candidate A"
     assert _unswap_text("Candidate A beats candidate B", False) == "Candidate A beats candidate B"
-
-
-def test_parallel_orderings_accumulate_in_order(tmp_path, cache_dir):
-    """The two orderings run concurrently but land in (fwd, swap) order."""
-    ra, rb = make_renders(tmp_path / "a"), make_renders(tmp_path / "b")
-    model = FakeChatModel(by_label={":fwd": [_reply("A", 0.9)], ":swap": [_reply("B", 0.7)]})
-    res = PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare(make_spec(), ra, rb)
-    assert [o["swapped"] for o in res.orderings] == [False, True]
-    assert [o["confidence"] for o in res.orderings] == [0.9, 0.7]
-    # usage sums across both parallel orderings
-    assert res.usage.cost_usd == pytest.approx(0.002) and res.usage.input_tokens == 2000
-
-
 
 
 def test_a_scene_pair_is_ranked_as_a_scene_from_the_views_the_judge_saw(tmp_path, cache_dir):

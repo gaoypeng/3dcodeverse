@@ -79,14 +79,6 @@ def test_build_ok(tmp_path, cabinet_plan, fake_blender):
     assert res.stdout_tail == "built"  # proc.tail joins lines: same shape as blender/cadquery
 
 
-def test_build_lint_error_short_circuits(tmp_path, cabinet_plan, fake_blender):
-    ws = _ws(tmp_path, cabinet_plan)
-    (ws.src / "robot.urdf").write_text("<robot name='x'><link name='a'>")
-    res = UrdfBlenderRuntime().build(ws)
-    assert not res.ok and res.error_type == "LintError" and "well-formed" in res.error_message
-    assert not (ws.artifacts / "meshes").exists()
-
-
 def test_build_script_error_maps_line(tmp_path, cabinet_plan, fake_blender):
     fake_blender["error"] = {"error_type": "NameError", "error_message": "name 'bpyy' is not defined", "error_file": "src/model.py",
                             "error_line": 7, "stderr_tail": "Traceback..."}
@@ -94,15 +86,6 @@ def test_build_script_error_maps_line(tmp_path, cabinet_plan, fake_blender):
     res = UrdfBlenderRuntime().build(ws)
     assert not res.ok and res.error_type == "NameError" and res.error_line == 7 and res.error_file == "src/model.py"
     assert "hint: did you mean" in res.error_message
-
-
-def test_build_fk_inconsistent(tmp_path, cabinet_plan, fake_blender):
-    ws = _ws(tmp_path, cabinet_plan)
-    u = ws.src / "robot.urdf"
-    u.write_text(u.read_text().replace('xyz="0.29 0.2 0"', 'xyz="-0.29 -0.2 0"'))
-    res = UrdfBlenderRuntime().build(ws)
-    assert not res.ok and res.error_type == "FkInconsistent"
-    assert 'xyz="0.29 0.2 0"' in res.error_message and res.census["fk_check"][0]["target"] == "door"
 
 
 def test_build_rest_penetration_fails_and_publishes_nothing(tmp_path, cabinet_plan, fake_blender):
@@ -147,6 +130,7 @@ def test_post_wrapper_failure_never_leaves_ok_true_build_json(tmp_path, cabinet_
     u.write_text(u.read_text().replace('xyz="0.29 0.2 0"', 'xyz="-0.29 -0.2 0"'))
     res = UrdfBlenderRuntime().build(ws)
     assert not res.ok and res.error_type == "FkInconsistent"
+    assert 'xyz="0.29 0.2 0"' in res.error_message and res.census["fk_check"][0]["target"] == "door"
     disk = json.loads((ws.artifacts / "build.json").read_text())
     assert disk["ok"] is False and disk["error_type"] == "FkInconsistent"
     assert not (ws.artifacts / "object.glb").exists() and not (ws.artifacts / "meshes").exists()
@@ -158,7 +142,7 @@ def test_lint_fail_invalidates_stale_artifacts(tmp_path, cabinet_plan, fake_blen
     assert rt.build(ws).ok
     (ws.src / "robot.urdf").write_text("<robot name='x'><link name='a'>")
     res = rt.build(ws)
-    assert not res.ok and res.error_type == "LintError"
+    assert not res.ok and res.error_type == "LintError" and "well-formed" in res.error_message
     assert not (ws.artifacts / "object.glb").exists() and not (ws.artifacts / "meshes").exists()
     assert json.loads((ws.artifacts / "build.json").read_text())["error_type"] == "LintError"
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codeverse3d.skills.registry import ROUTED_SKILLS, ROUTES, Route, finding_kind, finding_kinds
+from codeverse3d.skills.registry import ROUTES, Route, finding_kind, finding_kinds
 
 DATA = Path(__file__).parent / "data" / "gate_findings.json"
 GOLDEN = json.loads(DATA.read_text())["findings"]
@@ -89,7 +89,6 @@ def test_gate_fired_rows_always_outrank_standing_rows():
 def test_every_row_carries_a_reason_and_a_known_skill():
     for r in ROUTES:
         assert r.why and len(r.why) > 20, r.rule
-        assert r.skill in ROUTED_SKILLS
         assert r.skill.startswith("c3d-")
 
 

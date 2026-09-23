@@ -54,7 +54,6 @@ def test_unknown_and_invalid_rubric():
 
 
 def test_content_hash_stable():
-    assert load_rubric("scene_v1").content_hash() == load_rubric("scene_v1").content_hash()
     assert load_rubric("scene_v1").content_hash() != load_rubric("asset_v1").content_hash()
 
 

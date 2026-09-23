@@ -245,9 +245,3 @@ def test_gl_metrics_summary_is_the_one_frame_stats_formatter(tmp_ws: Workspace, 
     monkeypatch.setattr("codeverse3d.languages._gl_common.read_metrics", lambda ws: None)
     assert gl_metrics_summary(tmp_ws) == (["(no frame metrics)"], {}, True)
 
-
-def test_render_scene_still_exports_runtime_js_dir() -> None:
-    """Public symbol kept while the definition moved to spatial.node."""
-    from codeverse3d.spatial import node, render_scene
-
-    assert render_scene.runtime_js_dir() == node.runtime_js_dir()

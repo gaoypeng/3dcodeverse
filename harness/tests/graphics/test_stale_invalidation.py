@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 import codeverse3d.spatial.tools  # noqa: F401 — registers the gl_* tools
 from codeverse3d.languages.glsl_shader import GlslShaderRuntime
 from codeverse3d.spatial.gl_render import GlResult
@@ -36,27 +38,20 @@ def _seed_stale(ws: Workspace) -> None:
     (ws.artifacts / "gl_result.json").write_text("{}")
 
 
-def test_failed_build_invalidates_sheet_gif_metrics(tmp_ws: Workspace) -> None:
-    (tmp_ws.src / "shader.frag").write_text(
-        "void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(nope); }\n")
+@pytest.mark.parametrize("frag, error_type", [
+    ("void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(nope); }\n", "GlslCompileError"),
+    # the MissingEntryFile early return never reaches the host: the hoisted wipe must still clear
+    (None, "MissingEntryFile"),
+])
+def test_a_failed_build_invalidates_every_output_of_the_last_one(tmp_ws: Workspace, frag: str | None, error_type: str) -> None:
+    if frag is not None:
+        (tmp_ws.src / "shader.frag").write_text(frag)
     _seed_stale(tmp_ws)
     br = GlslShaderRuntime(host=_FailingHost()).build(tmp_ws, preview=False)
-    assert not br.ok and br.error_type == "GlslCompileError"
+    assert not br.ok and br.error_type == error_type
     for name in ("frames_sheet.png", "preview.gif", "metrics.json", "gl_result.json"):
         assert not (tmp_ws.artifacts / name).exists(), name
     assert not list((tmp_ws.artifacts / "frames").glob("*.png"))
-    assert json.loads((tmp_ws.artifacts / "build.json").read_text())["ok"] is False
-
-
-def test_missing_entry_clears_frames_and_result(tmp_ws: Workspace) -> None:
-    """The MissingEntryFile early return never reaches the host — the hoisted wipe must
-    still clear frames/ + gl_result.json (and the sheet/gif/metrics trio)."""
-    _seed_stale(tmp_ws)
-    br = GlslShaderRuntime(host=_FailingHost()).build(tmp_ws, preview=False)
-    assert not br.ok and br.error_type == "MissingEntryFile"
-    assert not list((tmp_ws.artifacts / "frames").glob("*.png"))
-    for name in ("gl_result.json", "frames_sheet.png", "preview.gif", "metrics.json"):
-        assert not (tmp_ws.artifacts / name).exists(), name
     assert json.loads((tmp_ws.artifacts / "build.json").read_text())["ok"] is False
 
 
