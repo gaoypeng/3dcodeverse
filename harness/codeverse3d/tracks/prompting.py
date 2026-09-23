@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from codeverse3d.contracts.chat import ImagePart
-from codeverse3d.contracts.common import HARNESS_OWNED_SRC, Language, Track, is_harness_owned
+from codeverse3d.contracts.common import (
+    HARNESS_OWNED_SRC,
+    TRACK_INFO,
+    Language,
+    is_harness_owned,
+)
 from codeverse3d.contracts.plan import Plan, StaticPlan
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import LANGUAGE_FRAME, fmt3, frame_doc, to_authoring_frame, to_snake
@@ -402,7 +407,7 @@ def reference_note(ctx: RunContext) -> str:
     refs = [r for r in ctx.spec.references if Path(r.path).is_file()]
     if not refs:
         return ""
-    if ctx.track in (Track.GRAPHICS, Track.SCENE):
+    if TRACK_INFO[ctx.track].likeness_refs:
         return _likeness_note(ctx, refs)
     lines = [
         f"REFERENCE IMAGES ({len(refs)}): match their silhouette, proportions and visible details — they "

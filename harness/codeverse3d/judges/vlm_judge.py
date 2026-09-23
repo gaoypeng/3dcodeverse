@@ -29,7 +29,7 @@ from typing import Any, Literal
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import Judgment, RenderView
 from codeverse3d.contracts.chat import ChatRequest, ChatResponse
-from codeverse3d.contracts.common import Track, Usage
+from codeverse3d.contracts.common import TRACK_INFO, Track, Usage
 from codeverse3d.conventions import front_view
 from codeverse3d.judges.base import SLICE_TRACKS, JudgeInput
 from codeverse3d.judges.prompt_builder import (
@@ -585,6 +585,6 @@ def judge_for(track: Track, rubric: str | Rubric, *, references: bool) -> type[V
     them; reference photos get :class:`LikenessJudge` on graphics and scene (nothing there to
     silhouette-match) and :class:`ReferenceJudge` on the object tracks; else :class:`VlmJudge`."""
     rub = rubric if isinstance(rubric, Rubric) else load_rubric(rubric)
-    if rub.measured_criteria() or (references and track not in (Track.GRAPHICS, Track.SCENE)):
+    if rub.measured_criteria() or (references and not TRACK_INFO[track].likeness_refs):
         return ReferenceJudge
     return LikenessJudge if references else VlmJudge

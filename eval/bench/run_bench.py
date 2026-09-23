@@ -49,7 +49,7 @@ from bench._infra import is_infra_failure  # noqa: E402
 from bench._jsonl import latest, read_jsonl, seal_for_append  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.config import get_settings  # noqa: E402
-from codeverse3d.contracts.common import Backends, Budget, Language, Track  # noqa: E402
+from codeverse3d.contracts.common import TRACK_INFO, Backends, Budget, Language, Track  # noqa: E402
 from codeverse3d.contracts.run import RunRecord  # noqa: E402
 from codeverse3d.contracts.spec import Constraints, ReferenceImage, Spec  # noqa: E402
 from codeverse3d.cost import run_ledger  # noqa: E402
@@ -162,7 +162,7 @@ def discover_references(item: BenchPrompt, track: Track, *, battery_dir: Path | 
     folder = refs_dir / item.id
     if folder.is_dir():
         paths.extend(sorted(p.resolve() for p in folder.iterdir() if p.suffix.lower() in REF_SUFFIXES and p.is_file()))
-    likeness = track in (Track.GRAPHICS, Track.SCENE)
+    likeness = TRACK_INFO[track].likeness_refs
     out: list[ReferenceImage] = []
     for i, p in enumerate(paths):
         role = "likeness" if likeness else ("target" if i == 0 else "detail")

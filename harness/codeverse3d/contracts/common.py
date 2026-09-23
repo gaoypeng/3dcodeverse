@@ -54,14 +54,16 @@ class TrackInfo(BaseModel):
     label: str = Field(description="human label for galleries / captions / reports")
     best_of_n: bool = Field(default=True, description="the baseline is one session that --candidates N can run N "
                             "times side by side (a scene writes its baseline in the pre-round stages: no)")
+    likeness_refs: bool = Field(default=False, description="reference images are a look to match (LikenessJudge, "
+                                "the likeness prompt note), not a silhouette to measure")
 
 
 #: one registry row per track
 TRACK_INFO: dict[Track, TrackInfo] = {
     Track.STATIC_OBJECT: TrackInfo(rubric="static_object_v1", label="3D Objects"),
     Track.ARTICULATED_OBJECT: TrackInfo(rubric="articulated_v1", label="Articulated Objects"),
-    Track.SCENE: TrackInfo(rubric="scene_v1", label="3D Scenes", best_of_n=False),
-    Track.GRAPHICS: TrackInfo(rubric="shader_v2", label="Procedural Graphics"),
+    Track.SCENE: TrackInfo(rubric="scene_v1", label="3D Scenes", best_of_n=False, likeness_refs=True),
+    Track.GRAPHICS: TrackInfo(rubric="shader_v2", label="Procedural Graphics", likeness_refs=True),
 }
 
 #: entry file inside the workspace per language — the file a build starts from.

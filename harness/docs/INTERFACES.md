@@ -27,7 +27,7 @@ test-pinned (`tests/core/test_interfaces_names.py`).
 ## core (contracts · config · proc)
 
 ```python
-from codeverse3d.contracts.common import TRACK_INFO, TrackInfo   # {Track: TrackInfo(rubric, label, best_of_n)} — THE track registry
+from codeverse3d.contracts.common import TRACK_INFO, TrackInfo   # {Track: TrackInfo(rubric, label, best_of_n, likeness_refs)} — THE track registry
 from codeverse3d.contracts.common import ENTRY_FILE, code_file, LANGUAGE_LABEL   # {Language: "src/<entry>"}; code_file(lang) -> "code.<ext>"
 from codeverse3d.contracts.spec import RunOptions                # Spec.options: candidates (int|None, ≥1), texture (bool)
 GateFinding.as_line(with_gate=False, with_severity=False, with_target=False, with_hint=True) -> str
