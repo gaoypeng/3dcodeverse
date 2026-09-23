@@ -37,6 +37,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from codeverse3d.contracts.common import Backends
+
 #: profile names in increasing order of spend
 PROFILE_NAMES = ("economy", "balanced", "quality")
 
@@ -79,15 +81,19 @@ class Profile:
         return f"~${self.expected_usd:.2f}/run, {self.expected_score}"
 
 
+#: the backend defaults (``contracts.common.Backends``, the one place they are written): a
+#: row names a model literally only where it departs from them.
+_D = Backends()
+
 #: the three dials.  Generator ids are harness backend ids; judge/planner ids are
 #: ``<provider>:<model>``.
 PROFILES: dict[str, Profile] = {
     "economy": Profile(
         name="economy",
         generator="single-shot:gemini:gemini-3.7-flash",
-        planner="gemini:gemini-3.7-flash",
+        planner=_D.planner,
         judge="gemini:gemini-3.7-flash",
-        captioner="gemini:gemini-3.7-flash",
+        captioner=_D.captioner,
         rounds=2, candidates=1, judge_samples=2, texture=False,
         max_minutes=30.0,
         expected_usd=0.30,
@@ -98,10 +104,10 @@ PROFILES: dict[str, Profile] = {
     ),
     "balanced": Profile(
         name="balanced",
-        generator="gemini-cli:gemini-3.7-flash",
-        planner="gemini:gemini-3.7-flash",
-        judge="gemini:gemini-3.1-pro-preview",
-        captioner="gemini:gemini-3.7-flash",
+        generator=_D.generator,
+        planner=_D.planner,
+        judge=_D.judge,
+        captioner=_D.captioner,
         rounds=4, candidates=1, judge_samples=1, texture=False,
         max_minutes=60.0,
         expected_usd=1.47,
@@ -114,10 +120,10 @@ PROFILES: dict[str, Profile] = {
     ),
     "quality": Profile(
         name="quality",
-        generator="gemini-cli:gemini-3.7-flash",
-        planner="gemini:gemini-3.7-flash",
-        judge="gemini:gemini-3.1-pro-preview",
-        captioner="gemini:gemini-3.7-flash",
+        generator=_D.generator,
+        planner=_D.planner,
+        judge=_D.judge,
+        captioner=_D.captioner,
         rounds=4, candidates=2, judge_samples=3, texture=True,
         max_minutes=90.0,
         expected_usd=3.20,
