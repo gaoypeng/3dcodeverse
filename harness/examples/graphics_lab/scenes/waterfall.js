@@ -166,13 +166,13 @@ export function createScene() {
       if(Math.abs(Math.abs(x)-1.52)<.42&&z<-1&&z>-3.1)return 0;
       for(const rock of stones)mask*=smooth(rock.r*.45,rock.r,Math.hypot(x-rock.x,z-rock.z));
       return mask;
-    },wind:{direction:[1,.4],strength:.28,speed:.7}});
+    },wind:{dir:[1,.4],strength:.56,speed:.7/1.2}});
   scene.add(meadow);
   const distantGrass=makeMeadow({size:[42,47],height:.22,density:100,maxBlades:50000,segments:3,seed:21,
     color:0x526332,bladeWidth:.018,dry:.16,ground:false,seedHeads:0,heightAt,
     mask:(x,z)=>smooth(.83,1,Math.max(Math.abs(x)/8.5,Math.abs(z)/11.5))*smooth(.10,.9,
       closest(x,z,z<-.3?upperSamples:lowerSamples).offset),
-    wind:{direction:[1,.4],strength:.24,speed:.7}});
+    wind:{dir:[1,.4],strength:.48,speed:.7/1.2}});
   scene.add(distantGrass);
   const plants=[];
   for(const [species,x,z,h,r,seed] of [

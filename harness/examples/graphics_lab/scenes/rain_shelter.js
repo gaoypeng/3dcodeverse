@@ -118,7 +118,7 @@ export function createScene() {
     bladeWidth:.012,segments:5,seed:83,color:0x486032,dry:.14,ground:false,seedHeads:.001,
     heightAt,mask:(x,z)=>smooth(.78,1.18,Math.hypot(x/10,(z+1)/11.8))
       *(.40+.6*smooth(-.15,.16,fbm2(x*.32,z*.32,{seed:85}))),
-    wind:{direction:[.65,.3],strength:.18,speed:.7}}));
+    wind:{dir:[.65,.3],strength:.36,speed:.7/1.2}}));
   // A close strip has enough short blades to read as turf at eye level.
   // Sampling converts its local patch coordinates back to the terrain frame.
   const turf=makeMeadow({size:[16,16],height:.13,density:3000,maxBlades:300000,
@@ -126,7 +126,7 @@ export function createScene() {
     heightAt:(x,z)=>heightAt(x+5,z+8),
     mask:(x,z)=>smooth(.83,1.08,Math.hypot((x+5)/10,(z+9)/11.8))
       *(.5+.5*smooth(-.16,.2,fbm2((x+5)*.32,(z+8)*.32,{seed:85}))),
-    wind:{direction:[.65,.3],strength:.10,speed:.7}});
+    wind:{dir:[.65,.3],strength:.20,speed:.7/1.2}});
   turf.position.set(5,0,8);effect(turf);
   for(let i=0;i<18;i++){
     const angle=2.2+i*2.39996,r=14+rand()*16,x=Math.cos(angle)*r,z=Math.sin(angle)*r-4;

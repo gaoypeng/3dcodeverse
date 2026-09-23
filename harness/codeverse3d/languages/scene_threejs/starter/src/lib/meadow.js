@@ -7,8 +7,10 @@
  * Moving directional, spot and point-light shadows share that deformation.
  *
  * makeMeadow({size:[10,10], density:700, height:.38, seed:12, heightAt,
- *   mask, wind:{direction:[1,.3],strength:.35,speed:1.2}, dry:.12,
+ *   mask, wind:{dir:[1,.3],strength:1,speed:1}, dry:.12,
  *   shadows:true, ground:true, diversity:.85, seedHeads:.003}) -> Group; userData.update(t), dispose().
+ * wind is grass.js's `windOf`: a number (strength) or {dir|direction, strength, speed},
+ * so one wind moves the meadow, grass and trees alike (strength 1 = breeze).
  * density = blades/m² before the mask; maxBlades bounds memory and triangles.
  * mask(x,z) -> 0..1 and heightAt(x,z) are LOCAL coordinates. A mask of 0
  * leaves soil, a mask of 1 grows all blades. diversity (0..1) blends between
@@ -17,6 +19,7 @@
  */
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
+import { windOf } from './grass.js';
 import { fbm2, mulberry32 } from './noise.js';
 import { patchStandard, shadowLike, tickShaders } from './shader.js';
 
@@ -237,16 +240,14 @@ export function makeMeadow(opts = {}) {
   const seedHeads = finite(opts.seedHeads, .003, 0, .05, 'seedHeads');
   const maxBlades = Math.floor(finite(opts.maxBlades, 100000, 1, 300000, 'maxBlades'));
   const rows = Math.floor(finite(opts.segments, 5, 3, 12, 'segments'));
-  const wind = opts.wind ?? {};
-  const strength = finite(wind.strength, .5, 0, 3, 'wind.strength');
-  const speed = finite(wind.speed, 1.2, 0, 10, 'wind.speed');
-  const direction = wind.direction ?? [1, .3];
-  if (!Array.isArray(direction) || direction.length !== 2 || !direction.every(Number.isFinite)) {
-    throw new TypeError('makeMeadow: wind.direction must be [x,z] finite numbers');
+  const wind = windOf(opts.wind);
+  const strength = finite(wind.amp, .5, 0, 3, 'wind.strength');
+  // The meadow's own gust clock runs 1.2x the shared wind's.
+  const speed = finite(wind.speed * 1.2, 1.2, 0, 10, 'wind.speed');
+  const dir = wind.dir;
+  if (!Number.isFinite(dir.x) || !Number.isFinite(dir.y)) {
+    throw new TypeError('makeMeadow: wind direction must be [x,z] finite numbers');
   }
-  const dir = new THREE.Vector2(...direction);
-  if (dir.lengthSq() < 1e-12) dir.set(1, 0);
-  dir.normalize();
   const heightAt = opts.heightAt ?? (() => 0), mask = opts.mask ?? (() => 1);
   if (typeof heightAt !== 'function' || typeof mask !== 'function') {
     throw new TypeError('makeMeadow: heightAt and mask must be functions');

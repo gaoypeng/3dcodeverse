@@ -103,7 +103,8 @@ export function makeGrass(opts = {}) {
 }
 
 /**
- * Read the `wind` option in either of its two spellings.
+ * Read the `wind` option in either of its two spellings: a number
+ * (strength) or {dir (alias `direction`): [x,z] or {x,y}, strength, speed}.
  *
  * Exported because one scene's wind has to move its meadow,
  * its reeds and its trees as ONE wind: a library that
@@ -112,7 +113,7 @@ export function makeGrass(opts = {}) {
  */
 export function windOf(w) {
   const o = (w && typeof w === 'object') ? w : { strength: w };
-  const d = o.dir;
+  const d = o.dir ?? o.direction;
   const dir = new THREE.Vector2(
       d ? (d.x === undefined ? d[0] : d.x) : 1,
       d ? (d.y === undefined ? d[1] : d.y) : 0.45);

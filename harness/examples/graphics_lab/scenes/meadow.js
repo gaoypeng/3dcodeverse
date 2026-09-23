@@ -20,7 +20,7 @@ export function createScene() {
   scene.userData.grade={contrast:1.03,saturation:.93,warmth:.01};
   const heightAt=(x,z)=>.12*Math.sin(x*.45)+.09*Math.cos(z*.48)
     +.16*Math.sin(z*.19+x*.17) + 2.2*Math.exp(-Math.pow((z+14)/8,2));
-  const wind={direction:[1,.4],strength:.46,speed:1.15};
+  const wind={dir:[1,.4],strength:.92,speed:1.15/1.2};
   const field=makeMeadow({size:[14,14],density:1650,maxBlades:145000,segments:4,
     height:.32,bladeWidth:.012,seed:41,dry:.065,heightAt,
     color:0x537e2c,wind});

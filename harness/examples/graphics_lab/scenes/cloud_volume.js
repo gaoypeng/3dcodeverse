@@ -80,7 +80,7 @@ export function createScene() {
     size: [160, 130], density: 8, maxBlades: 70000, height: .34,
     seed: 63, color: 0x596b35, dry: .15, ground: false,
     heightAt, mask: (x, z) => THREE.MathUtils.smoothstep(heightAt(x, z), .4, 2),
-    wind: { direction: [1, .2], strength: .45, speed: 1.0 },
+    wind: { dir: [1, .2], strength: .9, speed: 1 / 1.2 },
   });
   scene.add(grass);
   for (let i = 0; i < 17; i++) {
