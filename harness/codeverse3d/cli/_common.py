@@ -87,16 +87,16 @@ def print_record_summary(record: RunRecord, ws_root: Path | None = None) -> None
     if record.error:
         lines.append(f"[red]error: {record.error}[/red]")
     if ws_root is not None:
+        ws = Workspace(ws_root)
         lines.append(f"workspace: {ws_root}")
         picked = next((r for r in record.rounds if r.index == s.picked_round), None)
         if picked is not None and picked.renders is not None and picked.renders.contact_sheet:
             # rebase, never print the stored string: record.json holds the ABSOLUTE path
             # of the host that produced the run, so a moved/archived run printed a sheet
             # that does not exist while the real one sat under this root.
-            lines.append(f"sheet: {Workspace(ws_root).rebase(picked.renders.contact_sheet)}")
-        handed = ws_root / "deliverable"
-        if (handed / "manifest.json").is_file():
-            lines.append(f"deliverable: {handed}")
+            lines.append(f"sheet: {ws.rebase(picked.renders.contact_sheet)}")
+        if ws.deliverable_manifest_path.is_file():
+            lines.append(f"deliverable: {ws.deliverable}")
     console.print(Panel("\n".join(lines), title="run", expand=False))
     if record.rounds:
         console.print(rounds_table(select.round_rows(root, record=record), s.picked_round))
