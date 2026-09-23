@@ -40,7 +40,7 @@ from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import to_snake
 from codeverse3d.judges.base import judged_subset
 from codeverse3d.languages.scene_threejs import zone_file
-from codeverse3d.orchestrator import TaskGroup, compact_instructions
+from codeverse3d.orchestrator import BudgetExceeded, TaskGroup, compact_instructions
 from codeverse3d.prompts import render
 from codeverse3d.spatial.frame_motion import motion_text_for
 from codeverse3d.spatial.render_scene import perf_detail
@@ -320,7 +320,14 @@ class SceneTrack(BaseTrack):
         except Exception as e:  # noqa: BLE001 — BudgetExceeded included: the stage is still
             # recorded + committed; the boundary check after the stage stops the run
             log.warning("zones session failed: %s: %s", type(e).__name__, e)
-            out = {zone.name: {"ok": False, "notes": f"{type(e).__name__}: {e}"} for zone in zones}
+            # a clock that tripped as a FINISHED session was charged: what it wrote is recorded as
+            # written (salvage assembles it, a resume serves it), the stop as a note beside it
+            stopped = isinstance(e, BudgetExceeded)
+            out = {}
+            for zone in zones:
+                done = stopped and _touched(ctx.ws.root / zone_file(zone.name), t0)
+                out[zone.name] = {"ok": done, "files": [zone_file(zone.name)] if done else [],
+                                  "notes": f"{type(e).__name__}: {e}"}
         else:
             written = {c.path for c in r.files_changed}
             out = {}

@@ -489,8 +489,9 @@ blender_glb heroes get a sub-workspace with the static planner's parts + asset_v
 re-judged fix pass, undone when worse; a degraded asset verdict leaves score None / judged False,
 emits asset.judge_degraded and skips the fix pass); `env` — `src/env.js`; `layouts` — L2 zone
 layouts (planner calls, never fatal); `asset_api` — what the zones are told about the assets;
-`zones` — ONE session owns every zone file (D70); `clock` — the run stops here when the hard budget
-is spent, after the zones are recorded; `assemble` — `scene.js`, deterministic.
+`zones` — ONE session owns every zone file (D70; a session whose charge crossed the ceiling after
+it finished records the zones it wrote as written, the `BudgetExceeded` as their note); `clock` — the
+run stops here when the hard budget is spent, after the zones are recorded; `assemble` — `scene.js`, deterministic.
 
 **7.2 The round — `steps._run_round`, a fixed chain in code.**  Not nodes: nothing in a round can
 be cached (every step reads the git tree the step before it wrote), and articulated's axis repair

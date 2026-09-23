@@ -445,6 +445,35 @@ def test_a_batched_session_that_writes_only_one_file_fails_the_other_zone(tmp_pa
     assert zones["Quay"]["ok"] and not zones["Water"]["ok"]
 
 
+def test_a_clock_that_trips_after_a_finished_zones_session_records_what_it_wrote(tmp_path, settings):
+    """Q1: the session finished and wrote both zones, then its charge crossed the ceiling; the cached
+    zones result said ok: False for every zone — a resume served "all failed" for written work."""
+    from tests.orchestrator_tracks.conftest import FAKE_CLOCK
+
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
+    plan = plan.model_copy(update={"assets": [_asset("Bollard", (0.3, 0.5, 0.3))],
+                                   "zones": [_zone("Quay", 0), _zone("Water", 0)]})
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0, max_minutes=10.0)
+    ws = Workspace(tmp_path / "runs" / "latezone")
+
+    def writer(job, ws_):
+        if job.label.startswith("zones_"):
+            FAKE_CLOCK["minutes"] += 30.0   # the session ends past the ceiling
+            return {"src/zones/quay.js": "export function build(){}\n", "src/zones/water.js": "export function build(){}\n"}
+        if job.label == "env":
+            return {"src/env.js": "export function buildEnv(){}\n"}
+        return {"src/x.js": "// x\n"}
+
+    track = SceneTrack(services=FakeServices(assemble=True), judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(writer),
+                       planner_model=FakeChatModel(lambda req: plan.model_dump(mode="json")), settings=settings,
+                       runtime=FakeRuntime(Language.SCENE_THREEJS))
+    with fake_clock():
+        track.run(spec, ws)
+    zones = json.loads((ws.root / "stages" / "zones.json").read_text())["result"]
+    assert zones["Quay"]["ok"] and zones["Water"]["ok"] and zones["Water"]["files"] == ["src/zones/water.js"]
+    assert "BudgetExceeded" in zones["Quay"]["notes"]
+
+
 @needs_node
 def test_an_imperfect_asset_stays_available_but_a_broken_one_does_not(tmp_path, settings):
     services = FakeServices()
