@@ -17,7 +17,7 @@ from codeverse3d.contracts.chat import ImagePart
 from codeverse3d.contracts.common import HARNESS_OWNED_SRC, Language, Track, is_harness_owned
 from codeverse3d.contracts.plan import Plan, StaticPlan
 from codeverse3d.contracts.run import RoundRecord
-from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc, to_authoring_frame, to_snake
+from codeverse3d.conventions import LANGUAGE_FRAME, fmt3, frame_doc, to_authoring_frame, to_snake
 from codeverse3d.prompts import render
 from codeverse3d.prompts.catalog import language_prompt, language_text
 from codeverse3d.tracks.common import RunContext
@@ -26,7 +26,6 @@ from codeverse3d.tracks.depth import (
     DepthBudget,
     PartScope,
     depth_budget,
-    fmt3,
     interfaces_text,
 )
 from codeverse3d.tracks.generation import SINGLE_SHOT_FORMAT

@@ -13,7 +13,7 @@ from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import PartPlan, Plan, StaticPlan
-from codeverse3d.conventions import MAX_TRIS_OBJECT, PASCAL_RE, to_pascal, to_snake
+from codeverse3d.conventions import MAX_TRIS_OBJECT, PASCAL_RE, fmt3, to_pascal, to_snake
 from codeverse3d.languages._ast_lint import (
     BASE_FORBIDDEN_IMPORTS,
     ImportCollector,
@@ -24,7 +24,7 @@ from codeverse3d.languages._ast_lint import (
 )
 from codeverse3d.languages._common import run_wrapper_build
 from codeverse3d.languages.base import RuntimeLayout
-from codeverse3d.languages.blender import _fmt, finish_for, instance_centers
+from codeverse3d.languages.blender import finish_for, instance_centers
 from codeverse3d.proc import scrub_secrets
 from codeverse3d.workspace import Workspace
 
@@ -221,7 +221,7 @@ def _part_function(p: PartPlan) -> str:
         f'    """{pascal} — {p.role}',
         f"    {p.description}",
         f"    Material: {p.material or 'n/a'}",
-        f"    Plan bbox (world, Z-up): center {_fmt(p.bbox.center)} extents {_fmt(p.bbox.extents)}",
+        f"    Plan bbox (world, Z-up): center ({fmt3(p.bbox.center)}) extents ({fmt3(p.bbox.extents)})",
         f"      x in [{mn[0]:.3f}, {mx[0]:.3f}]  y in [{mn[1]:.3f}, {mx[1]:.3f}]  z in [{mn[2]:.3f}, {mx[2]:.3f}]",
     ]
     if p.attach_to:
@@ -234,7 +234,7 @@ def _part_function(p: PartPlan) -> str:
     else:
         lines.append('    """')
         lines.append("    # TODO: replace the placeholder box with the real geometry (keep the name + bbox)")
-        lines.append(f"    return cq.Workplane(\"XY\").box({ex:.3f}, {ey:.3f}, {ez:.3f}).translate({_fmt(p.bbox.center)})")
+        lines.append(f"    return cq.Workplane(\"XY\").box({ex:.3f}, {ey:.3f}, {ez:.3f}).translate(({fmt3(p.bbox.center)}))")
     lines += ["", ""]
     return "\n".join(lines)
 
@@ -260,7 +260,7 @@ def cadquery_skeleton_source(plan: StaticPlan) -> str:
     """Return the complete starter ``model.py`` text for ``plan``."""
     ob = plan.overall_bbox
     parts_doc = "\n".join(
-        f"  - {to_pascal(p.name)}{'' if p.instances == 1 else f' x{p.instances}'}: {p.role}; bbox center {_fmt(p.bbox.center)} extents {_fmt(p.bbox.extents)}"
+        f"  - {to_pascal(p.name)}{'' if p.instances == 1 else f' x{p.instances}'}: {p.role}; bbox center ({fmt3(p.bbox.center)}) extents ({fmt3(p.bbox.extents)})"
         for p in plan.parts
     )
     accept = "\n".join(f"  - [{a.id}] {a.text}" for a in plan.acceptance) or "  (none listed)"
@@ -271,7 +271,7 @@ Style: {plan.style_notes or "n/a"}
 
 CONTRACT (the harness imports this file and exports `result` to GLB/STEP/STL itself):
   * Z is up, -Y is the FRONT, units are METERS. Object stands on z=0, footprint centred on Z.
-  * Overall bbox: center {_fmt(ob.center)} extents {_fmt(ob.extents)}
+  * Overall bbox: center ({fmt3(ob.center)}) extents ({fmt3(ob.extents)})
     -> x in [{ob.min[0]:.3f}, {ob.max[0]:.3f}]  y in [{ob.min[1]:.3f}, {ob.max[1]:.3f}]  z in [{ob.min[2]:.3f}, {ob.max[2]:.3f}]
   * `result` = cq.Assembly; one `.add(shape, name="PascalName", color=cq.Color(r, g, b))` per part,
     instances Name_0..Name_N-1 (a shape built at the origin + `loc=cq.Location(cq.Vector(x, y, z))`).

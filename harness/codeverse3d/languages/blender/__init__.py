@@ -12,7 +12,7 @@ from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import BBox, PartPlan, Plan, StaticPlan
-from codeverse3d.conventions import MAX_TRIS_OBJECT, PASCAL_RE, to_pascal, to_snake
+from codeverse3d.conventions import MAX_TRIS_OBJECT, PASCAL_RE, fmt3, to_pascal, to_snake
 from codeverse3d.languages._ast_lint import (
     BASE_FORBIDDEN_IMPORTS,
     check_imports,
@@ -448,10 +448,6 @@ def instance_centers(bbox: BBox, n: int, symmetry: str) -> list[tuple[float, flo
     return [(cx, cy, cz) for _ in range(n)]
 
 
-def _fmt(v: tuple[float, float, float]) -> str:
-    return "(" + ", ".join(f"{x:.3f}" for x in v) + ")"
-
-
 def _bevel(bbox: BBox) -> float:
     return max(0.0, min(0.01, 0.08 * min(bbox.extents)))
 
@@ -516,10 +512,10 @@ def _constants(p: PartPlan) -> str:
     pre = to_snake(p.name).upper()
     return (
         f"# ---- plan numbers (metres) for {to_pascal(p.name)} — keep the finished part inside this bbox\n"
-        f"{pre}_CENTER = {_fmt(p.bbox.center)}\n"
-        f"{pre}_EXTENTS = {_fmt(p.bbox.extents)}\n"
-        f"{pre}_MIN = {_fmt(mn)}\n"
-        f"{pre}_MAX = {_fmt(mx)}\n"
+        f"{pre}_CENTER = ({fmt3(p.bbox.center)})\n"
+        f"{pre}_EXTENTS = ({fmt3(p.bbox.extents)})\n"
+        f"{pre}_MIN = ({fmt3(mn)})\n"
+        f"{pre}_MAX = ({fmt3(mx)})\n"
         f"{pre}_INSTANCES = {p.instances}\n"
     )
 
@@ -535,7 +531,7 @@ def _part_function(p: PartPlan) -> str:
         f'    """{pascal} — {p.role}',
         f"    {p.description}",
         f"    Material: {p.material or 'n/a'}",
-        f"    Plan bbox: center {_fmt(p.bbox.center)} extents {_fmt(p.bbox.extents)}",
+        f"    Plan bbox: center ({fmt3(p.bbox.center)}) extents ({fmt3(p.bbox.extents)})",
         f"      x in [{mn[0]:.3f}, {mx[0]:.3f}]  y in [{mn[1]:.3f}, {mx[1]:.3f}]  z in [{mn[2]:.3f}, {mx[2]:.3f}]",
     ]
     if p.attach_to:
@@ -544,7 +540,7 @@ def _part_function(p: PartPlan) -> str:
         lines.append(f"    Instances: {p.instances} ({p.symmetry}) -> named {pascal}_0..{pascal}_{p.instances - 1}, "
                      f"each TOP-LEVEL (no parent Empty — it would merge them into one measured part); returns the list")
     lines += ['    Returns the object(s) at WORLD pose (Z up, -Y front, metres).', '    """']
-    lines.append(f"    mat = make_material(\"{pascal}Mat\", {_fmt(rgb)}, roughness={rough}, metallic={metal})")
+    lines.append(f"    mat = make_material(\"{pascal}Mat\", ({fmt3(rgb)}), roughness={rough}, metallic={metal})")
     if p.instances == 1:
         lines += [
             "    # TODO: replace this placeholder box with the real geometry (keep the name + bbox)",
@@ -565,8 +561,8 @@ def _part_function(p: PartPlan) -> str:
 def _plan_header(plan: StaticPlan) -> str:
     ob = plan.overall_bbox
     parts_doc = "\n".join(
-        f"  - {to_pascal(p.name)}{'' if p.instances == 1 else f' x{p.instances}'}: {p.role}; bbox center {_fmt(p.bbox.center)} "
-        f"extents {_fmt(p.bbox.extents)}  [{part_file_rel(p.name)}]"
+        f"  - {to_pascal(p.name)}{'' if p.instances == 1 else f' x{p.instances}'}: {p.role}; bbox center ({fmt3(p.bbox.center)}) "
+        f"extents ({fmt3(p.bbox.extents)})  [{part_file_rel(p.name)}]"
         for p in plan.parts
     )
     accept = "\n".join(f"  - [{a.id}] {a.text}" for a in plan.acceptance) or "  (none listed)"
@@ -582,7 +578,7 @@ Style: {plan.style_notes or "n/a"}
 
 CONTRACT (the harness runs this file in an EMPTY scene with `blender -b --factory-startup`):
   * Z is up, -Y is the FRONT, units are METERS. Object stands on z=0, footprint centred on Z.
-  * Overall bbox: center {_fmt(ob.center)} extents {_fmt(ob.extents)}
+  * Overall bbox: center ({fmt3(ob.center)}) extents ({fmt3(ob.extents)})
     -> x in [{ob.min[0]:.3f}, {ob.max[0]:.3f}]  y in [{ob.min[1]:.3f}, {ob.max[1]:.3f}]  z in [{ob.min[2]:.3f}, {ob.max[2]:.3f}]
   * One mesh object per part, named EXACTLY as below (PascalCase); instances Name_0..Name_N-1,
     each TOP-LEVEL (never parented under an Empty — that merges them into ONE measured part).

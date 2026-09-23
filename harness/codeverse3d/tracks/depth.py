@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from codeverse3d.config import get_settings
-from codeverse3d.conventions import MAX_TRIS_OBJECT, to_pascal, to_snake
+from codeverse3d.conventions import MAX_TRIS_OBJECT, fmt3, to_pascal, to_snake
 
 log = logging.getLogger(__name__)
 
@@ -280,11 +280,6 @@ def interfaces_text(plan: Any, scope: PartScope) -> str:
     head = ("| your part | relation | neighbour (owned by another session — DO NOT create or edit it) | "
             "neighbour centre (m) | neighbour extents (m) | neighbour box |\n|---|---|---|---|---|---|")
     return head + "\n" + "\n".join(rows)
-
-
-def fmt3(vec: Sequence[float]) -> str:
-    """A vector as the prompts print it: ``0.100, 0.250, -0.030`` (metres, 3 decimals)."""
-    return ", ".join(f"{float(x):.3f}" for x in vec)
 
 
 

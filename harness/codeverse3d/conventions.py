@@ -206,6 +206,11 @@ def slugify(text: str, max_len: int = 48) -> str:
     return s or "run"
 
 
+def fmt3(vec: Sequence[float]) -> str:
+    """A vector as the prompts print it: ``0.100, 0.250, -0.030`` (metres, 3 decimals)."""
+    return ", ".join(f"{float(x):.3f}" for x in vec)
+
+
 # --------------------------------------------------------------------------- limits
 #: Triangle budgets used by gates/prompts (soft caps; judge sees the count).
 MAX_TRIS_OBJECT = 600_000
