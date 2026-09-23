@@ -203,31 +203,15 @@ def render_geometry_views(case: RoundCase, out_dir: Path, mode: str) -> RenderSe
 
 
 # --------------------------------------------------------------------------- statistics
-def pearson(xs: list[float], ys: list[float]) -> float | None:
+def pearson(xs: list[float], ys: list[float], method: str = "linear") -> float | None:
+    """``statistics.correlation`` at 4 decimals; None when either side is constant or n < 2."""
     if len(xs) < 2 or len(set(xs)) < 2 or len(set(ys)) < 2:
         return None
-    mx, my = statistics.fmean(xs), statistics.fmean(ys)
-    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=True))
-    den = (sum((x - mx) ** 2 for x in xs) * sum((y - my) ** 2 for y in ys)) ** 0.5
-    return round(num / den, 4) if den else None
-
-
-def _ranks(vals: list[float]) -> list[float]:
-    order = sorted(range(len(vals)), key=lambda i: vals[i])
-    ranks = [0.0] * len(vals)
-    i = 0
-    while i < len(order):
-        j = i
-        while j + 1 < len(order) and vals[order[j + 1]] == vals[order[i]]:
-            j += 1
-        for k in range(i, j + 1):
-            ranks[order[k]] = (i + j) / 2 + 1
-        i = j + 1
-    return ranks
+    return round(statistics.correlation(xs, ys, method=method), 4)
 
 
 def spearman(xs: list[float], ys: list[float]) -> float | None:
-    return pearson(_ranks(xs), _ranks(ys))
+    return pearson(xs, ys, method="ranked")
 
 
 # --------------------------------------------------------------------------- main entry
