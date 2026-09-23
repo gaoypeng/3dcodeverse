@@ -43,6 +43,9 @@ def test_bundles_and_the_read_control_land_in_both_roots_and_an_empty_route_swee
 
     skills = [library["c3d-part-contact"], library["c3d-blender-forms"]]
     written = materialize_skills(ws, skills)
+    for p in written:   # atime == mtime after writing, so the read probe has a zero point
+        st = os.stat(p)  # (checked before anything below reads a bundle and moves its atime)
+        assert abs(st.st_atime - st.st_mtime) < 0.001
     for root in SKILL_ROOTS:
         for s in skills:
             assert (ws / root / s.name / "SKILL.md").read_text() == s.path.read_text()
@@ -50,9 +53,6 @@ def test_bundles_and_the_read_control_land_in_both_roots_and_an_empty_route_swee
         assert not any(p.is_symlink() for p in (ws / root).rglob("*"))
     assert len(written) == 2 * 3 * 2   # 2 roots x (2 skills + control) x (SKILL.md + one reference)
     assert CONTROL_NAME not in index_block(skills) and CONTROL_NAME not in ROUTED_SKILLS
-    for p in written:   # atime == mtime after writing, so the read probe has a zero point
-        st = os.stat(p)
-        assert abs(st.st_atime - st.st_mtime) < 0.001
 
     # V4b: an empty route still removes last round's bundles — native CLIs discover by directory
     out = attach_skills(ws, track="static_object", language="threejs", kind="generation", library={})
