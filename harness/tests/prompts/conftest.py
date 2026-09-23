@@ -23,21 +23,19 @@ STARTER_LIB = Path(__file__).resolve().parents[2] / "codeverse3d" / "languages" 
 RUNTIME_JS = Path(__file__).resolve().parents[2] / "runtime_js"
 HELPERS = Path(__file__).resolve().parent / "helpers"
 
-#: every file this package owns (relative to codeverse3d/prompts/)
-PROMPT_FILES = [
-    "system/harness_contract.md",
-    "system/singleshot_format.md",
-    "blender/contract.md",
-    "blender/cookbook.md",
-    "cadquery/contract.md",
-    "cadquery/cookbook.md",
-    "threejs/contract.md",
-    "threejs/cookbook.md",
-    "urdf/contract.md",
-    "urdf/cookbook.md",
-    "scene_threejs/contract.md",
-    "scene_threejs/cookbook.md",
-]
+#: every file of the prompt corpus (relative to codeverse3d/prompts/), read off the tree —
+#: test_files.test_every_prompt_file_is_reached says how the package loads each one
+PROMPT_FILES = sorted(p.relative_to(PROMPTS_DIR).as_posix() for p in PROMPTS_DIR.rglob("*")
+                      if p.is_file() and p.suffix != ".py" and "__pycache__" not in p.parts)
+#: the documents whose fenced snippets the cookbook header promises RUN: each language's contract + cookbook
+DOC_FILES = [f for f in PROMPT_FILES if f.rsplit("/", 1)[-1] in ("contract.md", "cookbook.md")]
+
+
+def is_template(rel: str) -> bool:
+    """Rendered with a context (jinja): the ``.j2`` files, each language's ``system.md`` and the
+    texturing prompts.  Every other file is quoted verbatim and must stay jinja-inert."""
+    return rel.endswith(".j2") or rel.startswith("texturing/") or (rel.endswith("/system.md") and not rel.startswith("system/"))
+
 
 _FENCE = re.compile(r"```(\w[\w-]*)\n(.*?)```", re.DOTALL)
 

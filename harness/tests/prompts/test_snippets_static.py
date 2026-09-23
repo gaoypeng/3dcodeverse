@@ -11,10 +11,10 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pytest
 
-from tests.prompts.conftest import PROMPT_FILES, blocks, read_prompt
+from tests.prompts.conftest import DOC_FILES, blocks, read_prompt
 
-PY_FILES = [f for f in PROMPT_FILES if f.split("/")[0] in ("blender", "cadquery", "urdf")]
-JS_FILES = [f for f in PROMPT_FILES if f.split("/")[0] in ("threejs", "scene_threejs")]
+PY_FILES = [f for f in DOC_FILES if f.split("/")[0] in ("blender", "cadquery", "urdf")]
+JS_FILES = [f for f in DOC_FILES if f.split("/")[0] in ("threejs", "scene_threejs")]
 JS_FILES.append("system/singleshot_format.md")
 XML_FILES = ["urdf/contract.md", "urdf/cookbook.md"]
 
