@@ -282,8 +282,8 @@ def test_scene_children_are_stages_and_a_failed_env_never_repays_assets(tmp_path
 
 
 def _mood_replanned(tmp_path, settings, name, *, force):
-    """A scene run with r00, whose plan then changes ONLY in `mood`; resumed, after archiving the
-    rounds the way `resume --force` does when ``force``.  Returns (resumed job labels, event names)."""
+    """A scene run with r00, whose plan then changes ONLY in `mood` (the spec does not change); resumed,
+    with ``--force`` when ``force``.  Returns (resumed job labels, event names)."""
     plan = _small_scene_plan()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
     ws = Workspace(tmp_path / "runs" / name)
@@ -298,20 +298,20 @@ def _mood_replanned(tmp_path, settings, name, *, force):
     assert data["result"]["mood"] != "desolate, horror"
     data["result"]["mood"] = "desolate, horror"
     stage_file.write_text(json.dumps(data))
-    if force:
-        SceneTrack._archive_pre_force(ws)
     agent.jobs.clear()
     n_events = len(EventLog(ws.events_path).read())
-    mk().run(spec, ws, resume=True)
+    mk().run(spec, ws, resume=True, force=force)
     return [j.label for j in agent.jobs], [e["event"] for e in EventLog(ws.events_path).read()[n_events:]]
 
 
 def test_a_mood_only_replan_invalidates_the_env_stage(tmp_path, settings):
     """Review-3 V4a: the stage key is the whole plan, so a re-plan differing only in
     `mood` misses the cache (it used to serve an env generated under the old mood) — once the
-    rounds are archived, as `resume --force` does."""
-    labels, _ = _mood_replanned(tmp_path, settings, "harbour4", force=True)
+    rounds are archived — which `resume --force` does even when the spec is unchanged (Q2)."""
+    labels, events = _mood_replanned(tmp_path, settings, "harbour4", force=True)
     assert "env" in labels  # a stale cached env must not be served
+    assert "resume.archived" in events and "resume.spec_changed" not in events and "stage.frozen" not in events
+    assert (tmp_path / "runs" / "harbour4" / "rounds" / "pre_force" / "r00.json").is_file()
 
 
 def test_a_drifted_stage_key_never_reruns_a_stage_under_existing_rounds(tmp_path, settings):

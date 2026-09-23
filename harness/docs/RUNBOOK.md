@@ -167,7 +167,9 @@ unless you type `--host` yourself; it never serves a path outside the declared r
                                         # the money is the ledger's, and the step log (the run's minutes) carries on.
                                         # Once rounds exist a recorded stage never runs again: one whose key drifted (a
                                         # code change to what it hashes) serves its recorded result (`stage.frozen`); only
-                                        # `resume --force` — which archives the rounds — regenerates a stage under them
+                                        # `resume --force` regenerates a stage under them: it ALWAYS archives the round
+                                        # journal + record.json to rounds/pre_force/ (spec changed or not) and the run
+                                        # starts again at round 0, no stage frozen
 3dcode pick <slug> [--by score|pairwise] [--round N] [--texture] [--judge MODEL]
                                         # hand over a round: deliverable/ + selection.json (addons/select).  score =
                                         # highest effective score, ties → fewer gate errors → the earlier round;

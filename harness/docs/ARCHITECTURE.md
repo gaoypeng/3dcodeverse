@@ -481,8 +481,9 @@ run's minutes, a failing sibling raised after every sibling has finished and cac
 is not cached — it runs every session.  Every other stage is cached under its key
 (`stages/<name>.json`): what its result depends on, named in the declaration.  **Once rounds exist**
 a recorded stage is served whatever its key (`stage.frozen`), and the skeleton (`seeds_src`) never
-runs at all; `3dcode resume --force` (which archives the rounds) is the one way to regenerate a
-stage under them.  The plan itself is `run()`'s, before the graph (`plan_stage_key`).  What the
+runs at all; `3dcode resume --force` is the one way to regenerate a stage under them: it archives
+the round journal + `record.json` to `rounds/pre_force/` whether or not the spec changed, and the run
+starts again at round 0 with no stage frozen.  The plan itself is `run()`'s, before the graph (`plan_stage_key`).  What the
 scene stages do: `assets` — both kinds climb one ladder (single-shot → check → one repair → agent;
 blender_glb heroes get a sub-workspace with the static planner's parts + asset_v1 judge + one
 re-judged fix pass, undone when worse; a degraded asset verdict leaves score None / judged False,

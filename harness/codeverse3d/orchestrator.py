@@ -123,8 +123,9 @@ class StageRunner:
 
     ``frozen`` (the run already has rounds): a stage with a recorded result serves it even when
     its key drifted (``stage.frozen``) — the rounds refined what it wrote, and re-running it would
-    re-pay its session and overwrite that work.  ``resume --force`` archives the rounds, and is
-    the one way to regenerate a stage under them."""
+    re-pay its session and overwrite that work.  ``resume --force`` archives the rounds to
+    ``rounds/pre_force/`` whether or not the spec changed (``reconcile_resume``), so the run starts
+    again at round 0 unfrozen — the one way to regenerate a stage under existing rounds."""
 
     def __init__(self, ws: Workspace, events: EventLog, state: RunState | None = None, *, frozen: bool = False):
         self.ws = ws

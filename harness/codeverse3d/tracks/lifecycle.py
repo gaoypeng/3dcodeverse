@@ -356,8 +356,11 @@ class BaseTrack:
            :func:`plan_stage_inputs`, stamped on first run) must match the spec we are
            resuming with; budget raises are outside the fingerprint by construction.
            On a mismatch a plain resume raises :class:`SpecChanged`; ``--force``
-           emits ``resume.spec_changed`` and archives the old journal + ``record.json``
-           to ``rounds/pre_force/`` — old rounds are never paired with a new spec/plan.
+           emits ``resume.spec_changed`` and re-plans — old rounds are never paired with a
+           new spec/plan.  ``--force`` archives the old journal + ``record.json`` to
+           ``rounds/pre_force/`` whether the spec changed or not: with no rounds left the
+           pre-round stages are no longer frozen (``StageRunner.frozen``), so this is the
+           one way to regenerate a stage whose key drifted under existing rounds.
         2. **Journal integrity.**  Trailing rounds whose commit git does not have are
            dropped (half-written journal), with a ``resume.dropped_rounds`` event.
         3. **The tree.**  The working tree goes back on the LAST round's commit when anything
@@ -385,10 +388,11 @@ class BaseTrack:
                 )
             events.emit("resume.spec_changed", old_fingerprint=stored, new_fingerprint=fp,
                         archived_rounds=len(journal))
-            archived = self._archive_pre_force(ws)
-            events.emit("resume.archived", dest=str(archived))
-            journal = []
             state.stages.pop("plan", None)  # the plan must be rebuilt from the edited spec
+        if force and (journal or ws.record_path.is_file()):
+            archived = self._archive_pre_force(ws)
+            events.emit("resume.archived", dest=str(archived), rounds=len(journal))
+            journal = []
         state.extra["spec_fingerprint"] = fp
         kept: list[RoundRecord] = []
         dropped: list[int] = []

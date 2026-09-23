@@ -591,9 +591,9 @@ def resume(
         bool,
         typer.Option(
             "--force",
-            help="re-enter a run that already finished (it will be re-planned and re-scored), "
-            "and allow resuming after a spec edit — the old rounds and record are archived "
-            "under rounds/pre_force/ and the run re-plans from the edited spec",
+            help="start the run again from round 0: the old rounds and record are ALWAYS archived "
+            "under rounds/pre_force/ (so drifted pre-round stages regenerate); also re-enters a "
+            "finished run and allows resuming after a spec edit (the run then re-plans)",
         ),
     ] = False,
     no_pick: Annotated[bool, typer.Option("--no-pick", help="do not pick + package a round afterwards")] = False,
@@ -602,8 +602,8 @@ def resume(
 
     ``--max-minutes`` / ``--rounds`` rewrite the spec's budget
     first — the only way to continue a BUDGET-stopped run.  A run that already
-    reached a terminal state is refused unless ``--force``: re-entering it spends
-    money and overwrites its final state."""
+    reached a terminal state is refused unless ``--force``, which archives its rounds
+    (``rounds/pre_force/``) and starts it again at round 0 — paid, and a new final state."""
     ws = C.open_workspace(slug, runs_dir)
     # the run mutex, before the spec is rewritten (a budget raise is a mutation)
     with C.mutating(ws, what=f"3dcode resume {ws.root.name}"):
