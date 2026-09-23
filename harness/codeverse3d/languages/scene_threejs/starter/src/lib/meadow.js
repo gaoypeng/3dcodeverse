@@ -15,7 +15,7 @@
  * mask(x,z) -> 0..1 and heightAt(x,z) are LOCAL coordinates. A mask of 0
  * leaves soil, a mask of 1 grows all blades. diversity (0..1) blends between
  * one simple growth habit and mixed fine/arched/basal/senescent foliage.
- * seedHeads is culms per blade (default .003, 0 disables, capped at 2,000). No textures or network needed.
+ * seedHeads is culms per blade (default .003, 0 disables; a large field thins them). No textures or network needed.
  */
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';

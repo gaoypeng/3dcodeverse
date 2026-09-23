@@ -34,7 +34,7 @@ export function triangleValue(position, nx, ny, gx, gy, component) {
  *
  * @param {object} opts
  *   `size` metres across (default 400), `segments` grid resolution
- *   (default 128, the performance ceiling), `rand` a seeded PRNG
+ *   (default 128), `rand` a seeded PRNG
  *   (REQUIRED — no Math.random), `material` a THREE material (defaults
  *   to `MAT.soil()`), `relief` peak-to-trough metres (default 6),
  *   `scale` feature size in metres (default 90), `flat` a function

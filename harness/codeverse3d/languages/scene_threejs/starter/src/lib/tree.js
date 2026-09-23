@@ -12,7 +12,7 @@
  * Colour, directional/spot depth and point-distance shadows share deformation.
  * height and crownRadius are nominal architecture dimensions; bounds is the
  * actual local envelope including leaves and maximum wind displacement.
- * leafDensity (0..4) changes leaves per shoot; maxLeaves (default 24000) thins
+ * leafDensity (0..4) changes leaves per shoot; maxLeaves bounds the count and thins
  * the entire crown without bias toward early branches. Wood remains connected.
  * Each factory merges its wood and its leaves into one geometry each.
  * Default species are heavy geometry. leafSegments (integer

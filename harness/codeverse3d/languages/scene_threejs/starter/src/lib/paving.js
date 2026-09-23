@@ -118,8 +118,8 @@ function surfaceMaterial(opts,bedHeight) {
 }
 
 /** Build cobbles or staggered rectangular setts. No external assets needed.
- * stoneSize is the approximate cell width; at most 4096 stones are generated,
- * so exceptionally large patches automatically use coarser stones.
+ * stoneSize is the approximate cell width; exceptionally large patches
+ * automatically use coarser stones.
  * joint, thickness and relief are metres. Zero relief removes height/tilt
  * variation but keeps the rounded cut edges and small intrinsic crown.
  * Materials remain ordinary physical dielectric surfaces with real shadows.

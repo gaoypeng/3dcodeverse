@@ -179,7 +179,7 @@ function iceMaterial(opts, optical, maximumThickness) {
  * A Group with a closed volume mesh and optional instanced trapped air.
  * size number/[width,depth] (default [8,6]), thickness metres (.28),
  * outline optional convex [[x,z],...] polygon inside size, crackDensity
- * sites per square metre (.65, capped 180 sites), gap metres
+ * sites per square metre (.65; a very large sheet gets coarser floes), gap metres
  * (.018), frost/bubbles/chipping 0..1 (.35/.45/.4), heave metres (0), seed (47),
  * color/attenuationColor, attenuationDistance metres (1.8), roughness (.075).
  *

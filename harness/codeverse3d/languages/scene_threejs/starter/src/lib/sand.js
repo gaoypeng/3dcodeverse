@@ -61,8 +61,8 @@ function sandMaterial(opts, wind, seed) {
 
 /**
  * @param {object} opts seed; size number or [width,depth]; segments (default
- * 256, max512); duneHeight metres; duneSpacing metres; windDirection [x,z];
- * rippleSpacing metres; color; detailStrength; grains (0 by default, max1200);
+ * 256); duneHeight metres; duneSpacing metres; windDirection [x,z];
+ * rippleSpacing metres; color; detailStrength; grains (0 by default);
  * windSpeed metres/sec. A group, with userData.sampleHeight/update/dispose.
  * sampleHeight takes LOCAL x,z; parent assets to this group after seating them.
  */
