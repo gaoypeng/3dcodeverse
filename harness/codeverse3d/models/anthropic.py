@@ -12,9 +12,7 @@ Model-family rules (Anthropic API, 2026-08):
 from __future__ import annotations
 
 import json
-import threading
 import time
-from collections.abc import Callable
 from typing import Any
 
 from codeverse3d.contracts.chat import (
@@ -27,6 +25,7 @@ from codeverse3d.contracts.chat import (
 from codeverse3d.contracts.common import Usage
 from codeverse3d.models.base import ModelError
 from codeverse3d.models.parts import (
+    SdkModel,
     Stopwatch,
     attempt_timeout_s,
     classify_sdk_exception,
@@ -185,46 +184,20 @@ def classify_exception(exc: BaseException) -> ModelError:
     return classify_sdk_exception(exc, anthropic, "Anthropic", extra_retry=frozenset({529}))
 
 
-class AnthropicModel:
+class AnthropicModel(SdkModel):
     """ChatModel for ``anthropic:<model>``."""
 
     provider = "anthropic"
 
-    def __init__(
-        self,
-        model: str,
-        *,
-        timeout_s: float = 600.0,
-        max_attempts: int = 6,
-        sleep: Callable[[float], None] = time.sleep,
-        client: Any | None = None,
-    ) -> None:
-        self.model = model
-        self.timeout_s = timeout_s
-        self.max_attempts = max(1, max_attempts)
-        self._sleep = sleep
-        self._client = client
-        self._lock = threading.Lock()
+    def _make_client(self) -> Any:
+        import anthropic
 
-    @property
-    def id(self) -> str:
-        return f"anthropic:{self.model}"
+        from codeverse3d.config import get_settings
 
-    # ---------------------------------------------------------------- client
-    def client(self) -> Any:
-        with self._lock:
-            if self._client is None:
-                import anthropic
-
-                from codeverse3d.config import get_settings
-
-                key = get_settings().anthropic_api_key
-                if not key:
-                    raise ModelError("ANTHROPIC_API_KEY is not configured")
-                self._client = anthropic.Anthropic(
-                    api_key=key, max_retries=0, timeout=self.timeout_s
-                )
-            return self._client
+        key = get_settings().anthropic_api_key
+        if not key:
+            raise ModelError("ANTHROPIC_API_KEY is not configured")
+        return anthropic.Anthropic(api_key=key, max_retries=0, timeout=self.timeout_s)
 
     # -------------------------------------------------------------- generate
     def generate(self, request: ChatRequest) -> ChatResponse:

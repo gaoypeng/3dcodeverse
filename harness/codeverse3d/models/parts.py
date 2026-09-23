@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import base64
 import mimetypes
+import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +49,42 @@ def image_b64(part: ImagePart) -> tuple[str, str]:
     """``(base64_string, mime)`` for providers that want base64 (Anthropic, OpenAI data URLs)."""
     raw, mime = image_bytes(part)
     return base64.b64encode(raw).decode("ascii"), mime
+
+
+class SdkModel:
+    """The shell the SDK adapters (anthropic, openai) share: the constructor, ``id`` and the
+    lazily built client.  Each adapter owns ``_make_client`` and its own ``generate``."""
+
+    provider = ""
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        timeout_s: float = 600.0,
+        max_attempts: int = 6,
+        sleep: Callable[[float], None] = time.sleep,
+        client: Any | None = None,
+    ) -> None:
+        self.model = model
+        self.timeout_s = timeout_s
+        self.max_attempts = max(1, max_attempts)
+        self._sleep = sleep
+        self._client = client
+        self._lock = threading.Lock()
+
+    @property
+    def id(self) -> str:
+        return f"{self.provider}:{self.model}"
+
+    def client(self) -> Any:
+        with self._lock:
+            if self._client is None:
+                self._client = self._make_client()
+            return self._client
+
+    def _make_client(self) -> Any:
+        raise NotImplementedError
 
 
 class Stopwatch:

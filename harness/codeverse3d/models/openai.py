@@ -8,9 +8,7 @@ the Responses API is OpenAI-only.
 from __future__ import annotations
 
 import logging
-import threading
 import time
-from collections.abc import Callable
 from typing import Any
 
 from codeverse3d.contracts.chat import (
@@ -23,6 +21,7 @@ from codeverse3d.contracts.chat import (
 from codeverse3d.contracts.common import Usage
 from codeverse3d.models.base import ModelError
 from codeverse3d.models.parts import (
+    SdkModel,
     Stopwatch,
     attempt_timeout_s,
     classify_sdk_exception,
@@ -152,52 +151,28 @@ def _is_schema_rejection(err: ModelError) -> bool:
     return err.status == 400 and ("schema" in s or "response_format" in s or "strict" in s)
 
 
-class OpenAIModel:
+class OpenAIModel(SdkModel):
     """ChatModel for ``openai:<model>`` (and OpenAI-compatible endpoints)."""
 
     provider = "openai"
+    _strict_ok = True  # flipped (per instance) when the endpoint rejects strict schemas
 
-    def __init__(
-        self,
-        model: str,
-        *,
-        timeout_s: float = 600.0,
-        max_attempts: int = 6,
-        sleep: Callable[[float], None] = time.sleep,
-        client: Any | None = None,
-    ) -> None:
-        self.model = model
-        self.timeout_s = timeout_s
-        self.max_attempts = max(1, max_attempts)
-        self._sleep = sleep
-        self._client = client
-        self._strict_ok = True  # flipped when the endpoint rejects strict schemas
-        self._lock = threading.Lock()
+    def _make_client(self) -> Any:
+        import openai
 
-    @property
-    def id(self) -> str:
-        return f"openai:{self.model}"
+        from codeverse3d.config import get_settings
 
-    # ---------------------------------------------------------------- client
-    def client(self) -> Any:
-        with self._lock:
-            if self._client is None:
-                import openai
-
-                from codeverse3d.config import get_settings
-
-                s = get_settings()
-                key = s.openai_api_key
-                base_url = s.openai_base_url or None
-                if not key and not base_url:
-                    raise ModelError("OPENAI_API_KEY is not configured")
-                self._client = openai.OpenAI(
-                    api_key=key or "sk-local",
-                    base_url=base_url,
-                    max_retries=0,
-                    timeout=self.timeout_s,
-                )
-            return self._client
+        s = get_settings()
+        key = s.openai_api_key
+        base_url = s.openai_base_url or None
+        if not key and not base_url:
+            raise ModelError("OPENAI_API_KEY is not configured")
+        return openai.OpenAI(
+            api_key=key or "sk-local",
+            base_url=base_url,
+            max_retries=0,
+            timeout=self.timeout_s,
+        )
 
     # -------------------------------------------------------------- generate
     def generate(self, request: ChatRequest) -> ChatResponse:
