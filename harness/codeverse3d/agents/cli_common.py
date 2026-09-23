@@ -23,7 +23,13 @@ from pydantic import BaseModel
 
 from codeverse3d.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse3d.contracts.common import Usage, is_harness_owned
-from codeverse3d.proc import ManagedProcess, append_jsonl_line, read_jsonl_lenient, scrub_secrets
+from codeverse3d.proc import (
+    ManagedProcess,
+    append_jsonl_line,
+    read_jsonl_lenient,
+    scrub_secrets,
+    write_json_atomic,
+)
 from codeverse3d.workspace import Workspace
 
 #: per-session transcript caps.  Rows are byte-capped individually but nothing capped
@@ -68,14 +74,6 @@ class Trajectory:
         p.write_text(text)
         return p
 
-    def write_json(self, name: str, data: BaseModel | dict[str, Any] | list[Any]) -> Path:
-        p = self.dir / name
-        payload = data.model_dump(mode="json") if isinstance(data, BaseModel) else data
-        tmp = p.with_suffix(p.suffix + ".tmp")
-        tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
-        tmp.replace(p)
-        return p
-
     def append(self, kind: str, **data: Any) -> None:
         """Append one JSONL turn: ``{"t": epoch, "kind": kind, **data}``, until the
         session's byte/row budget trips — then one marker row and nothing more."""
@@ -91,11 +89,9 @@ class Trajectory:
                        "rows": self._rows - 1, "bytes": self._bytes}
         append_jsonl_line(self.transcript_path, rec, self._lock)
 
-    def write_result(self, result: BaseModel, **extra: Any) -> Path:
+    def write_result(self, result: BaseModel, **extra: Any) -> None:
         """Write ``result.json`` = AgentResult fields + any extra diagnostics."""
-        data = result.model_dump(mode="json")
-        data.update(extra)
-        return self.write_json("result.json", data)
+        write_json_atomic(self.result_path, result.model_dump(mode="json") | extra)
 
     def read_transcript(self) -> list[dict[str, Any]]:
         return read_jsonl_lenient(self.transcript_path)
