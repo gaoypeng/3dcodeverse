@@ -82,3 +82,14 @@ def test_glsl_executor_compile_only():
         assert rep["status"] == "OK"
         rep = executors.glsl.run("void mainImage(out vec4 c, in vec2 f){ c = vec4(1.0) }", d + "/bad", render=False)
         assert rep["status"] == "FAIL"
+
+
+def test_a_torn_results_line_does_not_crash_a_resume():
+    """A stage killed while rewriting its jsonl leaves a torn last line; resume re-runs that row."""
+    execute = importlib.import_module(f"{PKG}.execute")
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "exec_results.jsonl"
+        out.write_text('{"id": "a", "status": "OK"}\n\n{"id": "b", "sta')
+        res = execute.execute_dir(Path(d), "blender")
+        assert [r["id"] for r in res] == ["a"]
+        assert out.read_text() == '{"id": "a", "status": "OK"}\n'

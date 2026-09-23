@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from . import config
+from ._jsonl import read_rows
 from .executors import CODE_EXT
 from .extract import extract, summarize
 from .suites import resolve
@@ -161,8 +162,7 @@ def api_generate(backend: str, model: str, rows: list[dict], gen_dir: Path, temp
     gen_dir.mkdir(parents=True, exist_ok=True)
     done: dict[str, dict] = {}
     if resume and (gen_dir / "gens.jsonl").exists():
-        for l in (gen_dir / "gens.jsonl").open():
-            r = json.loads(l)
+        for r in read_rows(gen_dir / "gens.jsonl"):
             if not r.get("error"):
                 done[r["id"]] = r
     todo = [r for r in rows if r["id"] not in done]

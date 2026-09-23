@@ -31,6 +31,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from . import config
+from ._jsonl import read_rows
 from .render_views import VIEWS
 from .suites import load_prompts, resolve
 
@@ -148,7 +149,7 @@ def judge_absolute(run: str, suite: str, jc: JudgeClient, tag: str, workers: int
     out_path = gen_dir / f"judge_{tag}.jsonl"
     done = {}
     if resume and out_path.exists():
-        done = {json.loads(l)["id"]: json.loads(l) for l in out_path.open() if l.strip()}
+        done = {r["id"]: r for r in read_rows(out_path)}
         done = {k: v for k, v in done.items() if v.get("status") == "OK"}
     todo = [r for r in rows if r["id"] not in done]
     recs = list(done.values())

@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from . import executors
+from ._jsonl import read_rows
 from .executors import CODE_EXT
 
 # Blender and Chromium are heavy; CadQuery/OpenSCAD/glslang are light.
@@ -30,9 +31,7 @@ def execute_dir(gen_dir: Path, dialect: str, workers: int | None = None, timeout
     out_path = gen_dir / "exec_results.jsonl"
     prev: dict[str, dict] = {}
     if resume and out_path.exists():
-        for l in out_path.open():
-            r = json.loads(l)
-            prev[r["id"]] = r
+        prev = {r["id"]: r for r in read_rows(out_path)}
     task_dirs = sorted(p for p in gen_dir.iterdir() if p.is_dir() and (ids is None or p.name in ids))
     todo = [p for p in task_dirs if p.name not in prev]
     workers = workers or DEFAULT_WORKERS[dialect]
