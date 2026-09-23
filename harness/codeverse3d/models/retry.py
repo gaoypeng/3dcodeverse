@@ -699,6 +699,10 @@ def rotate_with_retries[T](
         """A sleep never outlives the budget: waking only to give up helps nobody."""
         return delay if deadline == float("inf") else min(delay, max(0.0, deadline - monotonic()))
 
+    def gave_up(err: ModelError) -> ModelError:
+        log.warning("%s giving up after %.0f s of retrying (%s)", label, max_total_s, err)
+        return err
+
     def is_storm(err: ModelError) -> bool:
         return bool(err.retryable and err.status in (503, 529))
 
@@ -707,9 +711,7 @@ def rotate_with_retries[T](
             if out_of_time() and last_err is not None:
                 # checked wherever the loop can spend time, not only around the
                 # sleeps: a free rotation must not out-live the caller's budget
-                log.warning("%s giving up after %.0f s of retrying (%s)",
-                            label, max_total_s, last_err)
-                raise last_err from cause_for(last_err, last_exc)
+                raise gave_up(last_err) from cause_for(last_err, last_exc)
             attempt += 1
             # never go back to a key that looked dead this call; throttled keys are
             # excluded while an untried one remains, else acquire() waits for a cooldown
@@ -762,9 +764,7 @@ def rotate_with_retries[T](
                 # benched once another key proves the request itself is fine
                 if len(dead_keys) < len(pool):
                     if out_of_time():
-                        log.warning("%s giving up after %.0f s of retrying (%s)",
-                                    label, max_total_s, err)
-                        raise err from cause_for(err, exc)
+                        raise gave_up(err) from cause_for(err, exc)
                     log.warning("%s key …%s looks dead (%s); rotating", label, key[-4:], err)
                     attempt -= 1
                     continue
@@ -799,9 +799,7 @@ def rotate_with_retries[T](
                 failed_keys.update(t.key for t in tries if t.outcome == "429")
                 if len(failed_keys) < len(pool):
                     if out_of_time():
-                        log.warning("%s giving up after %.0f s of retrying (%s)",
-                                    label, max_total_s, err)
-                        raise err from cause_for(err, exc)
+                        raise gave_up(err) from cause_for(err, exc)
                     # an untried key remains: rotation is free, only a courtesy pause
                     attempt -= 1
                     log.warning(
@@ -813,8 +811,7 @@ def rotate_with_retries[T](
                 bench()
                 raise err from cause_for(err, exc)
             if out_of_time():
-                log.warning("%s giving up after %.0f s of retrying (%s)", label, max_total_s, err)
-                raise err from cause_for(err, exc)
+                raise gave_up(err) from cause_for(err, exc)
             delay = backoff_delay(attempt, base_delay=base_delay, max_delay=max_delay)
             log.warning(
                 "%s attempt %d/%d failed (%s); retrying in %.1fs",
