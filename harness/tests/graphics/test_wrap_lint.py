@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from codeverse3d.contracts.artifacts import Severity
 from codeverse3d.languages.glsl_shader import (
     HEADER,
@@ -30,12 +32,16 @@ def test_plain_main_convention_has_no_trailer_and_comments_ignored():
     assert compose("void mainImage(out vec4 c, in vec2 f) { c = texture(u_prev, f); }").uses_feedback
 
 
-def test_an_authored_main_that_calls_main_image_gets_no_second_main():
+@pytest.mark.parametrize(("tail", "convention"), [
+    ("void main() {\n    mainImage(fragColor, gl_FragCoord.xy);\n}\n", "main"),
+    ("#ifdef STANDALONE\nvoid main() {\n    mainImage(fragColor, gl_FragCoord.xy);\n}\n#endif\n", "mainImage"),
+])
+def test_an_authored_main_that_calls_main_image_gets_no_second_main(tail, convention):
     """A Shadertoy port often keeps its own main() calling mainImage(); appending the trailer redefined
-    main (4/4 gpt-6-luna one-shot shaders, 2026-09-23).  The author's main() wins, and it compiles."""
-    src = SHADER + "void main() {\n    mainImage(fragColor, gl_FragCoord.xy);\n}\n"
-    c = compose(src)
-    assert c.convention == "main" and c.source.count("void main(") == 1
+    main (4/4 gpt-6-luna one-shot shaders, 2026-09-23).  The author's main() wins, and it compiles —
+    unless it hides behind an #ifdef the harness never defines: then the trailer is the entry point."""
+    c = compose(SHADER + tail)
+    assert c.convention == convention  # and it links: exactly one main() survives the preprocessor
     import moderngl
 
     ctx = moderngl.create_standalone_context()

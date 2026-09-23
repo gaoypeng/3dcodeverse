@@ -77,13 +77,28 @@ def strip_comments(text: str) -> str:
     return _COMMENT.sub(_blank, text)
 
 
+def _unconditional(src: str) -> str:
+    """The lines outside every ``#if``/``#ifdef``/``#ifndef`` … ``#endif`` block."""
+    depth, keep = 0, []
+    for line in src.splitlines():
+        head = line.lstrip()
+        if head.startswith(("#if", "# if")):
+            depth += 1
+        elif head.startswith(("#endif", "# endif")):
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            keep.append(line)
+    return "\n".join(keep)
+
+
 def detect_convention(shader_src: str) -> str:
     """``main`` when the author wrote a ``main()`` (with or without a ``mainImage`` it calls — the usual
     Shadertoy-port pattern), else ``mainImage`` (the harness appends the ``main()`` trailer).  Appending
     the trailer to a file that already has ``main()`` redefined it: codex gpt-6-luna wrote both on 4 of
     4 one-shot shaders (p3x_graphics_v2, 2026-09-23) and every one failed to compile at ``harness:3``."""
     shader_src = strip_comments(shader_src)
-    if _PLAIN_MAIN.search(shader_src):
+    # a main() only inside #if/#ifdef (a STANDALONE guard) is not the entry point the harness compiles
+    if _PLAIN_MAIN.search(_unconditional(shader_src)):
         return "main"
     if _MAIN_IMAGE.search(shader_src):
         return "mainImage"
