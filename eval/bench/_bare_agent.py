@@ -22,10 +22,9 @@ from codeverse3d.config import get_settings
 from codeverse3d.contracts.agent import AgentJob, AgentResult
 from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.spec import Spec
+from codeverse3d.spatial.node import node_modules_dir
 from codeverse3d.workspace import Workspace
 
-HARNESS = Path(__file__).resolve().parents[2] / "harness"
-NODE_MODULES = HARNESS / "runtime_js" / "node_modules"
 GLSLANG = Path.home() / "3dcodeverse_data" / "tools" / "glslang" / "bin" / "glslangValidator"
 
 
@@ -40,7 +39,7 @@ def _tools_note(language: Language) -> str:
                 "offscreen renderer under tmp/ (prepend the uniforms above, draw a fullscreen quad, save PNGs at a "
                 "few times) and open the PNGs to look at them.")
     if language is Language.SCENE_THREEJS:
-        return (f"node is installed; `{NODE_MODULES}` contains three (r182) and puppeteer with a cached headless "
+        return (f"node is installed; `{node_modules_dir()}` contains three (r182) and puppeteer with a cached headless "
                 "Chrome (set NODE_PATH to it, or import by absolute path).  You may write your own throwaway "
                 "harness under tmp/ that loads src/scene.js in headless Chrome, renders the cameras to PNGs, and "
                 "open the PNGs to look at them.")
@@ -81,7 +80,7 @@ def run_bare_agent(spec: Spec, target: str, cell: Path, eval_ws: Workspace, *, m
         job = AgentJob(workspace=str(ws.root), prompt=bare_agent_prompt(spec, minutes), label="bare",
                        timeout_s=int(minutes * 60), spatial_tools=False, write_roots=["src", "tmp"],
                        kind="baseline", language=spec.language.value, track=spec.track.value,
-                       env={"NODE_PATH": str(NODE_MODULES)})
+                       env={"NODE_PATH": str(node_modules_dir())})
         result = get_coding_agent(target).run(job)
         done.write_text(result.model_dump_json(indent=1))
     for rel in files_for(spec.language):
