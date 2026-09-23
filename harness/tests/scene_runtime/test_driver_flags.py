@@ -1,11 +1,9 @@
 """Every documented driver flag must PARSE.
 
-Postmortem 2026-08-30: --no-settle / --camera-repair / --auto-exposure were read
-via args[...] but never declared in the parseArgs whitelist, so the first battery
-to enable them (scene_px_v1) crashed every render with ERR_PARSE_ARGS_UNKNOWN_OPTION
-and four runs' generation cost was lost.  This guard invokes each driver with all
-optional flags and no workspace: it must die on OUR '--ws is required' error,
-never in the argument parser.
+Regression: --no-settle / --camera-repair / --auto-exposure were read but never declared
+in the parseArgs whitelist, so the first battery to enable them crashed every render.
+Each driver runs with all optional flags and no workspace: it must die on OUR
+'--ws is required', never in the argument parser.
 """
 
 from __future__ import annotations

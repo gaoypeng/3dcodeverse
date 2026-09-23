@@ -1,18 +1,8 @@
 """A loaded GLB root is named after its asset, or nothing can find it.
 
-Measured on `bench/out/scene_baseline` (2026-09-05).  rooftop_garden's plan asked for
-one `blender_glb` asset, `LoungeSofa`; the Blender sub-run built it (asset judge
-0.618), the assembler wrote the loader, the browser loaded it and put it in the scene
--- `glb_assets: {meshes_in_scene: 1, in_scene: true}` -- and `scene_placement` still
-raised two ERRORs:
-
-    zone PergolaLounge is missing planned contents: LoungeSofa
-    zone BotanicalAlley is missing planned contents: LoungeSofa
-
-because the object standing in both zones was called **`Scene`**.  A glTF root carries
-whatever the exporter wrote, and Blender writes "Scene"; the assembler handed that
-straight to the zones.  Re-probing the recorded workspace with the naming in place
-takes those two ERRORs to zero.
+Regression: a glTF root carries whatever the exporter wrote ("Scene" from Blender),
+and the assembler handed that to the zones, so `scene_placement` reported a loaded
+`LoungeSofa` as missing from both zones that held it.
 """
 
 from __future__ import annotations

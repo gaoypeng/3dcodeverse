@@ -1,18 +1,9 @@
 """A mesh that writes no depth is fog, not matter: it supports nothing, swallows
 nothing and overlaps nothing.
 
-Measured on `bench/out/scene_baseline` (2026-09-05).  Two of six scene cells failed
-`scene_placement` on nothing but their own atmosphere:
-
-    japanese_garden  BambooGroveBorder/BlackPine_5 is sunken 3.46 m into AtmosphereHaze
-    cozy_cabin       WindowSnowView/Mesh_49 and Environment/MoonlightShaft overlap
-                     (100% of the smaller box)
-
-Both scenes were correct.  `AtmosphereHaze` is four DoubleSide shells of
-MeshBasicMaterial at opacity 0.035 with `depthWrite: false`; `MoonlightShaft` is the
-same idiom at 0.04 with AdditiveBlending.  Every one of the nine recorded scenes uses
-`depthWrite: false` 34-42 times, so this is the generator's standard way to write a
-volumetric — not an outlier worth a special case.
+Regression: two correct scenes failed `scene_placement` on their own atmosphere — a
+pine "sunken 3.46 m into AtmosphereHaze", a window overlapping a MoonlightShaft.
+DepthWrite:false shells are the generator's standard way to write a volumetric.
 """
 
 from __future__ import annotations

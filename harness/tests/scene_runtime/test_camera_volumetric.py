@@ -1,17 +1,8 @@
 """A lens is never "inside" a god ray.
 
-Measured on `bench/out/scene_baseline` (2026-09-05).  greenhouse's `scene_frames`
-raised, on authored cameras:
-
-    camera inside / touching geometry: inside ['SunShaft_0', 'SunShaft_3']
-    camera inside / touching geometry: inside ['SunShaft_2']
-
-`SunShaft` is three slabs of MeshBasicMaterial at opacity 0.075 with
-`depthWrite: false` and AdditiveBlending — a shaft of light through a greenhouse roof.
-Standing in one is what the shot is; you see straight through it.  The near-geometry
-probe counted them because it raycast and bbox-tested every visible mesh.
-
-Same rule as the placement gate (`backdrop.nonSolid`, D55), one spelling for both.
+Regression: the near-geometry probe raycast and bbox-tested every visible mesh, so a
+camera standing in an additive, depthWrite:false light shaft was "inside" it and the
+repair moved it.  Same rule as the placement gate (`backdrop.nonSolid`, D55).
 """
 
 from __future__ import annotations

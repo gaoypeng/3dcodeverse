@@ -1,11 +1,8 @@
-"""A lens is "inside" a mesh's VOLUME, not its bounding box (2026-09-07).
+"""A lens is "inside" a mesh's VOLUME, not its bounding box.
 
-Measured on loop 9's windmill (`l9_windmill_hero`, three rounds): the `MillDetail` camera
-stood 4.9 m from the nearest surface (`nearest_hit_m` 4.941, `BrickBase_7`) and was still
-`camera_in_geometry` because the 22 m lattice sails' world bbox contained the eye — a 22 x
-22 m box that is nearly all air.  The repair moved the camera twice for nothing and the judge
-marked "camera inside Sails_1" critical both rounds.  `eyeInsideMesh` decides by ray parity
-over the mesh's own triangles; the bbox is only the pre-filter.
+Regression: a camera 4.9 m from the nearest surface was `camera_in_geometry` because a
+windmill's 22 m lattice sails' bbox contained the eye; the repair moved it for nothing.
+`eyeInsideMesh` decides by ray parity over the mesh's triangles; the bbox is a pre-filter.
 """
 from __future__ import annotations
 

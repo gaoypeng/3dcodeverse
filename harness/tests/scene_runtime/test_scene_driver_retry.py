@@ -1,11 +1,7 @@
 """A scene driver that LOST ITS BROWSER is retried once on a browser of its own.
 
-Measured 2026-09-05 on `bench/out/scene_baseline`: with the box at load 93 and swap
-full, Chrome reaped the render tab of four cells.  Each driver exited 2 with
-"Attempted to use detached Frame …", `run_scene_script` raised, the round kept zero
-renders and the judge was skipped — after the generator had already been paid for.
-The object path had retried a transient render since 2026-08-28; the scene path,
-which is the only one whose renders the scene judge reads, had no retry at all.
+Regression: under load Chrome reaped render tabs ("Attempted to use detached Frame"),
+the round kept zero renders and the judge was skipped after the generator was paid.
 """
 
 from __future__ import annotations

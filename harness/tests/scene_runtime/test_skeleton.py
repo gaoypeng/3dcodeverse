@@ -142,34 +142,15 @@ def test_the_effects_catalog_reaches_the_scene_prompts_and_only_those():
     assert "effects_catalog" not in (tpl / "scene_asset.j2").read_text()
 
 
-def test_every_call_the_catalog_advertises_is_a_real_export():
-    """The catalog is the agent's only index of 44 modules.  One stale name and a
-    session writes an import that cannot resolve — and the reference catalog this
-    was ported from already carried five (`makeFigure`, `makeCreature`, `place`,
-    `instanceAll`, `hash` are none of them exports here)."""
+def test_the_catalog_names_every_library_module_and_no_other():
+    """The catalog is the agent's only index of the library.  That every call
+    it names is a real export is checked at runtime in lib/test_library.py."""
     import re
 
     from codeverse3d.languages.scene_threejs import lib_files
     from codeverse3d.prompts import PROMPTS_DIR
 
-    exports: set[str] = set()
-    modules = {p.name for p in lib_files()}
-    for p in lib_files():
-        src = p.read_text()
-        exports |= set(re.findall(r"^export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)", src, re.M))
-        exports |= set(re.findall(r"^export\s+const\s+([A-Za-z0-9_]+)", src, re.M))
-
     catalog = (PROMPTS_DIR / "scene_threejs" / "effects_catalog.md").read_text()
-    # option names and prose words that appear in backticks but name no export
-    prose = {"js", "true", "false", "material", "scene", "g", "t", "dt", "update", "tick",
-             "logarithmicDepthBuffer", "sunDir", "ambient", "elevation", "color"}
-    unknown, named = [], set()
-    for row in catalog.splitlines():
-        if not row.startswith("|") or row.startswith(("| ---", "| Want")):
-            continue
-        named |= set(re.findall(r"`lib/([a-z_]+\.js)`", row))
-        for fn in re.findall(r"`([a-zA-Z][A-Za-z0-9_]*)(?:\(|`| )", row):
-            if fn not in prose and fn not in exports:
-                unknown.append(fn)
-    assert not unknown, sorted(set(unknown))
-    assert named == modules, sorted(modules - named)
+    named = set(re.findall(r"`lib/([a-z_]+\.js)`", catalog))
+    modules = {p.name for p in lib_files()}
+    assert named == modules, (sorted(modules - named), sorted(named - modules))
