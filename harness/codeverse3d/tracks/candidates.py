@@ -137,11 +137,7 @@ def make_candidate_context(track: Any, ctx: RunContext, k: int) -> RunContext:
     if sub_ws.root.exists():
         shutil.rmtree(sub_ws.root)
     sub_ws.create()
-    for rel in ("src", "public"):
-        src = ctx.ws.root / rel
-        if src.is_dir():
-            shutil.rmtree(sub_ws.root / rel, ignore_errors=True)
-            shutil.copytree(src, sub_ws.root / rel, ignore=shutil.ignore_patterns("node_modules", "__pycache__"))
+    _copy_code(ctx.ws, sub_ws)
     for path in (ctx.ws.spec_path, ctx.ws.plan_path):
         if path.is_file():
             shutil.copyfile(path, sub_ws.root / path.name)
@@ -193,17 +189,20 @@ def quick_render(ctx: RunContext, round_index: int, build: BuildResult, measurem
 
 def adopt_candidate(ctx: RunContext, sub_ws: Workspace) -> None:
     """Copy the winner's src/ + public/ into the run workspace and keep its trajectories."""
-    for rel in ("src", "public"):
-        src = sub_ws.root / rel
-        dest = ctx.ws.root / rel
-        if dest.exists():
-            shutil.rmtree(dest)
-        if src.is_dir():
-            shutil.copytree(src, dest, ignore=shutil.ignore_patterns("node_modules", "__pycache__"))
-        else:
-            dest.mkdir(parents=True, exist_ok=True)
+    _copy_code(sub_ws, ctx.ws)
     if sub_ws.trajectories.is_dir():
         shutil.copytree(sub_ws.trajectories, ctx.ws.trajectories, dirs_exist_ok=True)
+
+
+def _copy_code(src_ws: Workspace, dest_ws: Workspace) -> None:
+    """``src/`` + ``public/`` of one workspace replace the other's (an absent one leaves it empty)."""
+    for rel in ("src", "public"):
+        dest = dest_ws.root / rel
+        shutil.rmtree(dest, ignore_errors=True)
+        if (src_ws.root / rel).is_dir():
+            shutil.copytree(src_ws.root / rel, dest, ignore=shutil.ignore_patterns("node_modules", "__pycache__"))
+        else:
+            dest.mkdir(parents=True, exist_ok=True)
 
 
 # ===================================================================== decision logic
