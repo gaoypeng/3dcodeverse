@@ -60,7 +60,7 @@ export function createScene(){
  // A few fallen beams and fragments connect the damaged roof to the yard.
  for(let i=0;i<18;i++){const debris=box('FallenTimber',[.10+random()*.05,.08,.35+random()*.7],[(random()-.5)*5.7,.08,2.4+random()*1.7],char);debris.rotation.y=random()*Math.PI;debris.rotation.z=(random()-.5)*.15;}
  const grass=makeMeadow({size:[30,26],density:170,height:.22,dry:.24,maxBlades:90000,seed:32,
-  mask:(x,z)=>Math.min(1,Math.max(0,(Math.max(Math.abs(x)-3.8,Math.abs(z)-3.5))*.9)),wind:{strength:.34,speed:1.1}});scene.add(grass);actors.push(grass);
+  mask:(x,z)=>Math.min(1,Math.max(0,(Math.max(Math.abs(x)-3.8,Math.abs(z)-3.5))*.9)),wind:{dir:[1,.3],strength:.68,speed:1.1/1.2}});scene.add(grass);actors.push(grass);
  for(let i=0;i<5;i++){const tree=makeTree({height:8+i*.5,crownRadius:2.5,leafDensity:.40,maxLeaves:5500,leafSegments:4,seed:100+i,shadows:false});tree.position.set((i-2)*5.5,0,-9-random()*3);scene.add(tree);actors.push(tree);}
  const fire=makeFireField({name:'CottageSharedFire',seed:107,quality:'high',wind:[.32,.10],intensity:.88,
   emitters:[

@@ -204,7 +204,7 @@ export async function createScene() {
         const thin = .7+.3*Math.sin(x*1.9+z*.7)*Math.sin(z*1.2-x*.4);
         return edge * thin;
       },
-      wind: { direction: [0.8, 0.3], strength: 0.5, speed: 0.8 },
+      wind: { dir: [0.8, 0.3], strength: 1.0, speed: 0.8 / 1.2 },
     });
     grass.position.x = xOffset;
     scene.add(grass);

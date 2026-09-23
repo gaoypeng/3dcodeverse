@@ -51,7 +51,7 @@ export function createScene() {
     height:.12, bladeWidth:.006, maxBlades:135000, dry:.43, seed:31,
     heightAt:groundHeight, shadows:false,
     mask:(x,z)=>smooth(Math.hypot(x,z),1.04,2.0)*smooth(Math.hypot(x-8,z+1),2.65,3.7),
-    wind:{strength:.12,speed:.8}}));scene.add(grass);
+    wind:{dir:[1,.3],strength:.24,speed:.8/1.2}}));scene.add(grass);
   const grove=[[-9,-6],[-9.6,-10],[-.7,-10],[3.7,-11],[9.4,-10],
     [13,-6],[-8.5,.5],[15,1.5],[-2.8,-17],[6.8,-19]];
   for(let i=0;i<grove.length;i++) {
