@@ -45,6 +45,19 @@ def test_urdf_to_glb_hierarchy_and_extras(tmp_path):
     s2 = trimesh.load(glb2)
     assert s2.bounds[1][2] > 0.7  # door swung out to +z (front)
     assert _gltf_json(glb2)["scenes"][0]["extras"]["pose"] == {"hinge": 1.57}
+    # a multi-material link keeps its materials: one node per submesh under the link
+    a = trimesh.creation.box((0.1, 0.1, 0.1))
+    a.visual = trimesh.visual.TextureVisuals(material=trimesh.visual.material.PBRMaterial(name="wood", baseColorFactor=[200, 150, 100, 255]))
+    b = trimesh.creation.box((0.05, 0.05, 0.3))
+    b.apply_translation((0, 0, 0.3))
+    b.visual = trimesh.visual.TextureVisuals(material=trimesh.visual.material.PBRMaterial(name="metal", baseColorFactor=[200, 200, 210, 255]))
+    (meshes / "body.glb").write_bytes(trimesh.Scene([a, b]).export(file_type="glb"))
+    r = load_urdf(urdf, meshes)
+    assert len(r.links["body"].submeshes) == 2 and len(r.links["body"].mesh.split(only_watertight=False)) == 2
+    s = trimesh.load(urdf_to_glb(r, tmp_path / "mm.glb"))
+    names = {k: getattr(getattr(g.visual, "material", None), "name", None) for k, g in s.geometry.items()}
+    assert {names["body__0"], names["body__1"]} == {"wood", "metal"}
+    assert sorted(n for n in [e[1] for e in s.graph.to_edgelist()] if n.startswith("body")) == ["body", "body__0", "body__1"]
 
 
 def test_render_poses_with_fake_renderer_builds_sheet(tmp_path, monkeypatch):
@@ -70,27 +83,6 @@ def test_render_poses_with_fake_renderer_builds_sheet(tmp_path, monkeypatch):
     assert len(calls) == 2 and all(c.exists() for c in calls)
     sheet = tmp_path / "ren" / ARTICULATION_SHEET_NAME
     assert sheet.is_file() and Image.open(sheet).size[0] > 32
-
-
-def test_multi_material_link_keeps_materials(tmp_path):
-    from tests.urdf_joints.conftest import write_mesh_robot
-
-    urdf, meshes = write_mesh_robot(tmp_path)
-    a = trimesh.creation.box((0.1, 0.1, 0.1))
-    a.visual = trimesh.visual.TextureVisuals(material=trimesh.visual.material.PBRMaterial(name="wood", baseColorFactor=[200, 150, 100, 255]))
-    b = trimesh.creation.box((0.05, 0.05, 0.3))
-    b.apply_translation((0, 0, 0.3))
-    b.visual = trimesh.visual.TextureVisuals(material=trimesh.visual.material.PBRMaterial(name="metal", baseColorFactor=[200, 200, 210, 255]))
-    (meshes / "body.glb").write_bytes(trimesh.Scene([a, b]).export(file_type="glb"))
-    from codeverse3d.spatial.joints_model import load_urdf as _load
-
-    r = _load(urdf, meshes)
-    assert len(r.links["body"].submeshes) == 2 and len(r.links["body"].mesh.split(only_watertight=False)) == 2
-    glb = urdf_to_glb(r, tmp_path / "mm.glb")
-    s = trimesh.load(glb)
-    names = {k: getattr(getattr(g.visual, "material", None), "name", None) for k, g in s.geometry.items()}
-    assert {names["body__0"], names["body__1"]} == {"wood", "metal"}
-    assert sorted(n for n in [e[1] for e in s.graph.to_edgelist()] if n.startswith("body")) == ["body", "body__0", "body__1"]
 
 
 def test_joint_sweep_penetration_is_a_verdict_not_an_mcp_error(tmp_path, monkeypatch):
@@ -136,11 +128,8 @@ def test_robot_named_like_a_link_keeps_frame_and_placement(tmp_path):
     assert rows["body"].bbox_max[1] == pytest.approx(0.8, abs=1e-6)  # Y-up: height along y
     assert rows["door"].bbox_min[0] == pytest.approx(-0.29, abs=1e-6) and rows["door"].bbox_max[0] == pytest.approx(0.29, abs=1e-6)
     assert rows["door"].bbox_min[2] > 0.19  # door in front (+z) of the body, hinge placement applied
-
-
-def test_link_named_world_is_rejected(tmp_path):
-    urdf, meshes = write_mesh_robot(tmp_path)
+    # a link named 'world' cannot become a GLB node at all: refused at load
     (meshes / "world.glb").write_bytes((meshes / "body.glb").read_bytes())
-    urdf.write_text(urdf.read_text().replace('name="body"', 'name="world"').replace('link="body"', 'link="world"').replace("meshes/body.glb", "meshes/world.glb"))
+    urdf.write_text(urdf.read_text().replace('<robot name="body">', '<robot name="cab">').replace('name="body"', 'name="world"').replace('link="body"', 'link="world"').replace("meshes/body.glb", "meshes/world.glb"))
     with pytest.raises(UrdfError, match="reserved"):
         load_urdf(urdf, meshes)

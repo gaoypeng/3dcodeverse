@@ -57,13 +57,17 @@ def _two_link(plan):
     return plan.model_copy(update={"parts": plan.parts[:2], "joints": plan.joints[:1]})
 
 
-def test_build_script_error_maps_line(tmp_path, cabinet_plan, fake_blender):
+def test_build_script_error_maps_line_and_a_timeout_is_typed(tmp_path, cabinet_plan, fake_blender, monkeypatch):
     fake_blender["error"] = {"error_type": "NameError", "error_message": "name 'bpyy' is not defined", "error_file": "src/model.py",
                             "error_line": 7, "stderr_tail": "Traceback..."}
     ws = _ws(tmp_path, cabinet_plan)
     res = UrdfBlenderRuntime().build(ws)
     assert not res.ok and res.error_type == "NameError" and res.error_line == 7 and res.error_file == "src/model.py"
     assert "hint: did you mean" in res.error_message
+    monkeypatch.setattr(rt_mod, "_run_blender",
+                        lambda *a, **k: ProcResult(returncode=-9, stdout="", stderr="", timed_out=True, duration_ms=0))
+    res = UrdfBlenderRuntime().build(ws, timeout_s=1)
+    assert not res.ok and res.error_type == "BuildTimeout"
 
 
 def test_build_rest_penetration_fails_and_publishes_nothing(tmp_path, cabinet_plan, fake_blender):
@@ -104,14 +108,6 @@ def test_lint_fail_invalidates_stale_artifacts(tmp_path, cabinet_plan, fake_blen
     assert not res.ok and res.error_type == "LintError" and "well-formed" in res.error_message
     assert not (ws.artifacts / "object.glb").exists() and not (ws.artifacts / "meshes").exists()
     assert json.loads((ws.artifacts / "build.json").read_text())["error_type"] == "LintError"
-
-
-def test_build_timeout(tmp_path, cabinet_plan, fake_blender, monkeypatch):
-    monkeypatch.setattr(rt_mod, "_run_blender",
-                        lambda *a, **k: ProcResult(returncode=-9, stdout="", stderr="", timed_out=True, duration_ms=0))
-    ws = _ws(tmp_path, cabinet_plan)
-    res = UrdfBlenderRuntime().build(ws, timeout_s=1)
-    assert not res.ok and res.error_type == "BuildTimeout"
 
 
 def test_wrapper_rejects_unsafe_link_names_offline():

@@ -22,6 +22,8 @@ bm.from_mesh(obj.data)
 bm.verts.ensure_lookup_table()
 v = bm.verts[0]
 bm.free()
+with bpy.context.temp_override(object=obj):
+    bpy.ops.object.modifier_apply(modifier='Bevel')
 '''
 
 
@@ -34,6 +36,7 @@ def test_good_script_passes() -> None:
     assert r.gate == "lint:blender" and r.passed, _msgs(r)
     assert not _msgs(r, Severity.ERROR)
     assert any("Body" in m for m in _msgs(r, Severity.INFO))
+    assert not any("modifier_apply" in m for m in _msgs(r, Severity.WARN))  # temp_override is the fix, not a pitfall
 
 
 def test_missing_bpy_import_and_forbidden_calls() -> None:
@@ -110,9 +113,3 @@ def test_headless_pitfalls() -> None:
     assert any("selected_objects" in m for m in w)
     assert any("context-dict" in m for m in e)
     assert any("use_auto_smooth" in m for m in e)
-
-
-def test_modifier_apply_with_temp_override_is_fine() -> None:
-    src = "import bpy\nobj = bpy.context.object\nwith bpy.context.temp_override(object=obj):\n    bpy.ops.object.modifier_apply(modifier='Bevel')\nobj.name = 'Body'\n"
-    r = lint_blender_source(src)
-    assert not any("modifier_apply" in m for m in _msgs(r, Severity.WARN))

@@ -19,20 +19,15 @@ def _proc(**kw) -> ProcResult:
     return ProcResult(**base)
 
 
-def test_compose_timeout(tmp_path: Path) -> None:
-    r = compose_build_result(language="blender", proc=_proc(timed_out=True, returncode=-9), build_json=tmp_path / "b.json",
+def test_compose_build_result(tmp_path: Path) -> None:
+    r = compose_build_result(language="blender", proc=_proc(timed_out=True, returncode=-9), build_json=tmp_path / "t.json",
                              census_json=tmp_path / "c.json", glb_path=tmp_path / "o.glb", extra_paths={})
     assert not r.ok and r.error_type == "BuildTimeout"
-    assert json.loads((tmp_path / "b.json").read_text())["error_type"] == "BuildTimeout"  # a timeout is published too
-
-
-def test_compose_wrapper_crash(tmp_path: Path) -> None:
-    r = compose_build_result(language="blender", proc=_proc(returncode=2, stderr="Traceback: bad"), build_json=tmp_path / "b.json",
+    assert json.loads((tmp_path / "t.json").read_text())["error_type"] == "BuildTimeout"  # a timeout is published too
+    r = compose_build_result(language="blender", proc=_proc(returncode=2, stderr="Traceback: bad"), build_json=tmp_path / "w.json",
                              census_json=tmp_path / "c.json", glb_path=tmp_path / "o.glb", extra_paths={})
     assert not r.ok and r.error_type == "WrapperCrash" and "bad" in r.stderr_tail
-
-
-def test_compose_ok_requires_glb(tmp_path: Path) -> None:
+    # ok requires the GLB
     b = tmp_path / "build.json"
     report = {"ok": True, "error_type": "", "error_message": "", "duration_ms": 42, "warnings": ["w"]}
     write_json_atomic(b, report)

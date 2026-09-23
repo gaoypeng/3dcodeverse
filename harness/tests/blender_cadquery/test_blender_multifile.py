@@ -1,6 +1,6 @@
-"""Multi-file blender models on the real binary: the 4-part skeleton builds; a hand-written
-2-part model builds and its errors map to the failing PART file + line; the prompt
-examples (contract.md example A, cookbook "File layout") build and export."""
+"""Multi-file blender models on the real binary: a hand-written 2-part model's errors map to
+the failing PART file + line; the prompt examples (contract.md example A, cookbook "File
+layout") build and export.  (The multi-file skeleton build is test_blender_runtime's.)"""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse3d.languages.blender import BlenderRuntime
 from codeverse3d.prompts import PROMPTS_DIR
 from codeverse3d.workspace import Workspace
@@ -73,53 +72,11 @@ main()
 '''
 
 
-@pytest.fixture
-def four_part_plan() -> StaticPlan:
-    return StaticPlan(
-        object_name="Stool", summary="A bar stool with a round seat, a ring footrest and four legs.",
-        overall_bbox=BBox(center=(0, 0, 0.375), extents=(0.4, 0.4, 0.75)),
-        parts=[
-            PartPlan(name="Seat", role="seat", description="round padded seat", material="brown leather",
-                     bbox=BBox(center=(0, 0, 0.73), extents=(0.36, 0.36, 0.04))),
-            PartPlan(name="Leg", role="support", description="steel tube leg", material="chrome steel",
-                     bbox=BBox(center=(0.15, 0.15, 0.355), extents=(0.025, 0.025, 0.71)), attach_to="Seat",
-                     instances=4, symmetry="mirror_x"),
-            PartPlan(name="FootRing", role="footrest", description="ring connecting the legs", material="chrome steel",
-                     bbox=BBox(center=(0, 0, 0.25), extents=(0.33, 0.33, 0.02)), attach_to="Leg"),
-            PartPlan(name="SeatPlate", role="mount", description="plate under the seat", material="black steel",
-                     bbox=BBox(center=(0, 0, 0.705), extents=(0.3, 0.3, 0.01)), attach_to="Seat"),
-        ],
-    )
-
-
-@pytest.mark.blender
-def test_live_four_part_multifile_skeleton_builds(tmp_ws, four_part_plan, blender_bin) -> None:
-    trimesh = pytest.importorskip("trimesh")
-    rt = BlenderRuntime(blender=blender_bin)
-    paths = rt.skeleton(tmp_ws, four_part_plan)
-    assert [p.relative_to(tmp_ws.root).as_posix() for p in paths] == [
-        "src/model.py", "src/parts/seat.py", "src/parts/leg.py", "src/parts/foot_ring.py", "src/parts/seat_plate.py"]
-    assert rt.expected_files(four_part_plan) == [p.relative_to(tmp_ws.root).as_posix() for p in paths]  # the layout IS the skeleton
-    lint = rt.lint(tmp_ws)
-    assert lint.passed, [(f.target, f.message) for f in lint.errors]
-    r = rt.build(tmp_ws, timeout_s=120)
-    assert r.ok, (r.error_type, r.error_message, r.error_file, r.error_line, r.stderr_tail)
-    scene = trimesh.load(r.glb_path)
-    assert set(scene.graph.nodes_geometry) == {"Seat", "Leg_0", "Leg_1", "Leg_2", "Leg_3", "FootRing", "SeatPlate"}
-    lo, hi = scene.bounds
-    assert abs(lo[1]) < 1e-4 and abs(hi[1] - 0.75) < 1e-3
-    assert "[selfcheck]" in r.stdout_tail
-
-
 @pytest.mark.blender
 def test_live_multifile_errors_map_to_part_file_and_line(tmp_ws, blender_bin) -> None:
     rt = BlenderRuntime(blender=blender_bin)
     _write_files(tmp_ws, {"src/model.py": MODEL, "src/parts/seat.py": SEAT, "src/parts/leg.py": LEG})
     assert rt.lint(tmp_ws).passed
-    r = rt.build(tmp_ws, timeout_s=120)
-    assert r.ok, (r.error_type, r.error_message)
-    assert {o["name"] for o in r.census["objects"]} == {"Seat", "Legs", "Leg_0", "Leg_1", "Leg_2"}
-
     leg = tmp_ws.src / "parts" / "leg.py"
     # (a) syntax error in the part file → src/parts/leg.py:8
     leg.write_text(LEG.replace("    for i in range(LEG_N):", "    for i in range(LEG_N)"))

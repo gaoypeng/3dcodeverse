@@ -21,13 +21,14 @@ def _glb_json(glb: str) -> dict:
     return json.loads(raw[20:20 + int.from_bytes(raw[12:16], "little")])
 
 
-def test_build_stool_glb_and_census(stool_ws: Workspace):
-    rt = ThreeJsRuntime()
-    res = rt.build(stool_ws)
-    assert res.ok, (res.error_type, res.error_message, res.stderr_tail)
+def test_build_stool_glb_and_census(stool_build, stool_ws: Workspace):
+    res = stool_build  # the session's one stool build
     assert Path(res.glb_path).is_file() and Path(res.glb_path).stat().st_size > 1000
-    assert (stool_ws.artifacts / "build.json").is_file()
+    assert (Path(res.glb_path).parent / "build.json").is_file()
     c = res.census  # what only the export knows; the object itself is measured off the GLB
+    assert set(c) == {"placement_offset", "instanced_meshes_baked", "selfcheck_ran", "tick_present",
+                      "unnamed_meshes", "warnings", "glb_bytes", "three_revision"}
+    assert c["three_revision"] == "182"
     assert c["tick_present"] is True
     assert c["placement_offset"] is None
     assert c["instanced_meshes_baked"] == 0 and c["selfcheck_ran"] is False
@@ -43,6 +44,11 @@ def test_build_stool_glb_and_census(stool_ws: Workspace):
     lo, hi = scene.bounds
     assert np.allclose(lo, [-0.17, 0.0, -0.17], atol=2e-3)
     assert np.allclose(hi, [0.17, 0.45, 0.17], atol=2e-3)
+    # no entry module: the exporter's typed error, with its record on disk
+    (stool_ws.src / "object.js").unlink()
+    res = ThreeJsRuntime().build(stool_ws)
+    assert not res.ok and res.error_type == "MissingEntryFile"
+    assert (stool_ws.artifacts / "export_error.json").is_file()
 
 
 @pytest.mark.parametrize("path, find, repl, etype, line", [
@@ -72,11 +78,13 @@ def test_build_contract_errors(stool_ws: Workspace, source, message):
 
 
 def test_build_keeps_source_placement_and_warns(stool_ws: Workspace):
-    """Law 7: an off-ground / off-centre object is exported as authored, with a warning."""
+    """Law 7: an off-ground / off-centre object is exported as authored, with a warning.
+    (Same build: an exported selfcheck that passes is run and recorded.)"""
     p = stool_ws.src / "object.js"
-    p.write_text(p.read_text().replace("return root;", "root.position.set(0.5, 0.2, 0); return root;"))
+    p.write_text(p.read_text().replace("return root;", "root.position.set(0.5, 0.2, 0); return root;")
+                 + "export function selfcheck(THREE_, root) { return true; }\n")
     res = ThreeJsRuntime().build(stool_ws)
-    assert res.ok
+    assert res.ok and res.census["selfcheck_ran"] is True
     off = res.census["placement_offset"]
     assert off is not None and abs(off[0] + 0.5) < 1e-4 and abs(off[1] + 0.2) < 1e-4
     assert any("off ground/centre" in w and "exported as authored" in w for w in res.census["warnings"])
@@ -129,7 +137,7 @@ def test_build_nan_geometry_names_mesh_part_and_file(stool_ws: Workspace):
     assert rec["error"]["part"] == "Legs"
 
 
-def test_build_runs_exported_selfcheck(stool_ws: Workspace):
+def test_build_failing_selfcheck_is_a_typed_error(stool_ws: Workspace):
     p = stool_ws.src / "object.js"
     src = p.read_text()
     p.write_text(src + "export function selfcheck(THREE_, root) {\n  const box = new THREE.Box3().setFromObject(root);\n"
@@ -138,6 +146,3 @@ def test_build_runs_exported_selfcheck(stool_ws: Workspace):
     assert not res.ok and res.error_type == "SelfCheckError"
     assert res.error_message.startswith("selfcheck(THREE, root) threw: too short: 0.45")
     assert res.error_file == "src/object.js" and res.error_line == 13
-    p.write_text(src + "export function selfcheck(THREE_, root) { return true; }\n")
-    res = ThreeJsRuntime().build(stool_ws)
-    assert res.ok and res.census["selfcheck_ran"] is True

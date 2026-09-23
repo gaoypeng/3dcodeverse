@@ -94,7 +94,7 @@ def stool_ws(tmp_path: Path) -> Workspace:
 
 
 @pytest.fixture(scope="session")
-def stool_glb(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def stool_build(tmp_path_factory: pytest.TempPathFactory):
     """Build the stool once per session (needs node); skipped when node is missing."""
     if shutil.which("node") is None:
         pytest.skip("node not available")
@@ -102,5 +102,10 @@ def stool_glb(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     ws = write_stool(tmp_path_factory.mktemp("stool_session"))
     res = ThreeJsRuntime().build(ws)
-    assert res.ok, res.error_message
-    return Path(res.glb_path)
+    assert res.ok, (res.error_type, res.error_message, res.stderr_tail)
+    return res
+
+
+@pytest.fixture(scope="session")
+def stool_glb(stool_build) -> Path:
+    return Path(stool_build.glb_path)

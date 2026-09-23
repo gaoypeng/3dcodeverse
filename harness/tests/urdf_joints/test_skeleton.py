@@ -19,7 +19,7 @@ from codeverse3d.spatial.joints_model import fk, load_urdf
 from codeverse3d.workspace import Workspace
 
 
-def test_frames_chain(cabinet_plan):
+def test_frames_chain_and_rendered_files_lint_clean_and_load(tmp_path, cabinet_plan):
     fr = compute_urdf_frames(cabinet_plan)
     assert fr.root == "body" and list(fr.links) == ["body", "door", "handle"]
     assert fr.links["door"].frame_xyz == (-0.29, -0.2, 0.0)
@@ -29,6 +29,20 @@ def test_frames_chain(cabinet_plan):
     # handle joint origin is relative to the DOOR frame (accumulated)
     assert np.allclose(by["handle_mount"].origin_xyz, (0.49, -0.04, 0.4))
     assert by["handle_mount"].type == "fixed" and by["handle_mount"].lower is None
+    # the rendered files lint clean and load
+    urdf_text = render_urdf(fr)
+    findings, links = lint_urdf_text(urdf_text)
+    assert findings == [] and links == ["body", "door", "handle"]
+    model_text = render_model_py(cabinet_plan, fr)
+    ast.parse(model_text)
+    assert lint_model_text(model_text, links) == []
+    p = tmp_path / "robot.urdf"
+    p.write_text(urdf_text)
+    r = load_urdf(p, load_meshes=False)
+    T = fk(r, {})
+    # visual origin is the inverse of the link frame → meshes land where authored
+    for name in fr.links:
+        assert np.allclose(T[name] @ r.links[name].visual_origin, np.eye(4), atol=1e-9), name
 
 
 def test_rest_shift():
@@ -49,23 +63,6 @@ def test_rest_shift():
     assert "shifted by -rest" in urdf_text and "q=0 is the authored pose" in urdf_text
     assert "(plan rest=0.5 → this pose is URDF q=0)" in render_model_py(plan, fr)
     assert lint_urdf_text(urdf_text)[0] == []
-
-
-def test_rendered_files_lint_clean_and_load(tmp_path, cabinet_plan):
-    fr = compute_urdf_frames(cabinet_plan)
-    urdf_text = render_urdf(fr)
-    findings, links = lint_urdf_text(urdf_text)
-    assert findings == [] and links == ["body", "door", "handle"]
-    model_text = render_model_py(cabinet_plan, fr)
-    ast.parse(model_text)
-    assert lint_model_text(model_text, links) == []
-    p = tmp_path / "robot.urdf"
-    p.write_text(urdf_text)
-    r = load_urdf(p, load_meshes=False)
-    T = fk(r, {})
-    # visual origin is the inverse of the link frame → meshes land where authored
-    for name in fr.links:
-        assert np.allclose(T[name] @ r.links[name].visual_origin, np.eye(4), atol=1e-9), name
 
 
 def test_skeleton_rejects_static_plan(tmp_path):

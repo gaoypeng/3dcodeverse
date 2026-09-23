@@ -22,8 +22,8 @@ def _ws_with_stale(tmp_path) -> Workspace:
     return ws
 
 
-def test_node_missing_raise_leaves_no_stale_outputs(tmp_path, monkeypatch):
-    ws = _ws_with_stale(tmp_path)
+def test_no_stale_outputs_survive_a_node_failure(tmp_path, monkeypatch):
+    ws = _ws_with_stale(tmp_path / "missing")
 
     def no_node(*a, **k):
         raise NodeError("node binary not found", None)  # harness problem → re-raised
@@ -34,9 +34,8 @@ def test_node_missing_raise_leaves_no_stale_outputs(tmp_path, monkeypatch):
     for name in ("build.json", "object.glb", "census.json", "export_error.json"):
         assert not (ws.artifacts / name).exists(), name
 
-
-def test_node_failure_with_result_writes_failed_build_json(tmp_path, monkeypatch):
-    ws = _ws_with_stale(tmp_path)
+    # a node failure WITH a result writes a failed build.json
+    ws = _ws_with_stale(tmp_path / "timeout")
 
     def timeout(*a, **k):
         raise NodeError("timed out", NodeResult(rc=-9, stdout="", stderr="killed",

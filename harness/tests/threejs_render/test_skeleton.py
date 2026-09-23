@@ -41,8 +41,5 @@ def test_skeleton_files_and_contents(tmp_path: Path):
     again = write_skeleton(ws, _plan())
     assert again == []
     assert (ws.src / "parts" / "seat_cushion.js").read_text() == "// mine\n"
-
-
-def test_skeleton_rejects_non_static_plan(tmp_path: Path):
     with pytest.raises(TypeError):
         write_skeleton(Workspace(tmp_path), object())  # type: ignore[arg-type]

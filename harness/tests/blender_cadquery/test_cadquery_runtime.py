@@ -59,7 +59,10 @@ def test_skeleton_builds_named_coloured_glb(tmp_ws, table_plan) -> None:
 
 
 @needs_cq
-def test_assembly_with_subassembly_locations_and_bare_workplane(tmp_ws) -> None:
+def test_assembly_selectors_and_bare_workplane(tmp_ws) -> None:
+    """Sub-assembly locations/colours and trailing selectors in ONE assembly build; then the
+    bare-Workplane and no-solid fallbacks.  ``body.faces('>Z')`` / ``.edges('|Z')`` on the stack
+    must not become a 2-triangle sheet / nothing."""
     trimesh = pytest.importorskip("trimesh")
     src = '''import cadquery as cq
 base = cq.Workplane("XY").box(0.4, 0.4, 0.02).translate((0, 0, 0.01))
@@ -70,13 +73,18 @@ pegs = cq.Assembly(name="Pegs", loc=cq.Location(cq.Vector(0, 0, 0.02)))
 pegs.add(peg, name="Peg_0", loc=cq.Location(cq.Vector(0.1, -0.1, 0)), color=cq.Color(1, 0, 0))
 pegs.add(peg, name="Peg_1", loc=cq.Location(cq.Vector(-0.1, 0.1, 0)))
 result.add(pegs, name="Pegs", color=cq.Color(0, 1, 0))
+body = cq.Workplane("XY").box(0.1, 0.1, 0.01).edges("|Z").fillet(0.002)
+result.add(body.faces(">Z"), name="Plate", color=cq.Color("gray"))
+result.add(cq.Workplane("XY").box(0.02, 0.02, 0.02).edges("|Z"), name="Leg")
+f = cq.Workplane('XY').box(0.1, 0.1, 0.01).faces('>Z').val()
+result.add(f, name='Sheet')
 '''
     (tmp_ws.src / "model.py").write_text(src)
     rt = CadQueryRuntime()
     r = rt.build(tmp_ws, timeout_s=120)
     assert r.ok, (r.error_type, r.error_message)
     scene = trimesh.load(r.glb_path)
-    assert set(scene.graph.nodes_geometry) == {"Base", "Peg_0", "Peg_1"}
+    assert {"Base", "Peg_0", "Peg_1", "Plate", "Leg"} <= set(scene.graph.nodes_geometry)
     p0 = scene.geometry[scene.graph["Peg_0"][1]]
     lo, hi = p0.bounds
     # world: x=0.1, y=-0.1 → glb z=+0.1; z from 0.02 (sub-assembly loc) to 0.12
@@ -85,15 +93,29 @@ result.add(pegs, name="Pegs", color=cq.Color(0, 1, 0))
     assert list(p0.visual.material.baseColorFactor[:3]) == [255, 0, 0]
     p1 = scene.geometry[scene.graph["Peg_1"][1]]
     assert list(p1.visual.material.baseColorFactor[:3]) == [0, 255, 0]  # inherited from parent assembly
+    parts = {p["name"]: p for p in r.census["parts"]}
+    assert parts["Plate"]["n_solids"] == 1 and abs(parts["Plate"]["volume_m3"] - 0.1 * 0.1 * 0.01) < 2e-6
+    assert parts["Leg"]["n_solids"] == 1 and parts["Leg"]["tri_count"] == 12
+    warns = r.census["build_report"]["warnings"]
+    assert any("'Plate'" in w and "Face" in w and "trailing selector" in w for w in warns), warns
+    assert any("'Leg'" in w and "Edge" in w for w in warns), warns
+    # a bare cq.Face added to an assembly stays a face but is flagged (n_solids == 0 surfaced)
+    assert parts["Sheet"]["n_solids"] == 0
+    assert any("'Sheet'" in w and "contains no solid" in w for w in warns), warns
 
-    # bare workplane → single node 'Object' + warning
-    (tmp_ws.src / "model.py").write_text("import cadquery as cq\nresult = cq.Workplane('XY').box(1, 1, 1)\n")
+    # bare-Workplane result with a trailing selector → single node 'Object' + warning, parent solid exported
+    (tmp_ws.src / "model.py").write_text("import cadquery as cq\nresult = cq.Workplane('XY').box(0.1, 0.1, 0.01).faces('>Z')\n")
     r = rt.build(tmp_ws, timeout_s=120)
     assert r.ok and r.census["result_kind"] == "single"
+    assert r.census["parts"][0]["n_solids"] == 1 and r.census["parts"][0]["tri_count"] == 12
     assert trimesh.load(r.glb_path).graph.nodes_geometry == ["Object"]
     assert any("bare Workplane" in w for w in r.census["build_report"]["warnings"])
     build_json = json.loads((tmp_ws.artifacts / "build.json").read_text())
     assert build_json["ok"] is True
+    # no solid anywhere in the chain (2D wires only) → a typed error naming the stack, not a silent sheet
+    (tmp_ws.src / "model.py").write_text("import cadquery as cq\nresult = cq.Workplane('XY').rect(0.1, 0.1)\n")
+    r = rt.build(tmp_ws, timeout_s=120)
+    assert not r.ok and r.error_type == "ExportError" and "Wire" in r.error_message and "not a Solid" in r.error_message
 
 
 def _wrapper_module():
@@ -152,43 +174,6 @@ def test_helper_module_error_and_missing_result_report_src_paths(tmp_ws) -> None
     (tmp_ws.src / "model.py").write_text("import cadquery as cq\nx = cq.Workplane('XY').box(1, 1, 1)\n")
     r = rt.build(tmp_ws, timeout_s=120)
     assert not r.ok and r.error_type == "MissingResult" and r.error_file == "src/model.py"
-
-
-@needs_cq
-def test_trailing_selector_exports_parent_solid_with_warning(tmp_ws) -> None:
-    """``body.faces('>Z')`` / ``.edges('|Z')`` on the stack must not become a 2-triangle sheet / nothing."""
-    trimesh = pytest.importorskip("trimesh")
-    rt = CadQueryRuntime()
-    src = '''import cadquery as cq
-body = cq.Workplane("XY").box(0.1, 0.1, 0.01).edges("|Z").fillet(0.002)
-result = cq.Assembly()
-result.add(body.faces(">Z"), name="Plate", color=cq.Color("gray"))
-result.add(cq.Workplane("XY").box(0.02, 0.02, 0.02).edges("|Z"), name="Leg")
-'''
-    (tmp_ws.src / "model.py").write_text(src)
-    r = rt.build(tmp_ws, timeout_s=120)
-    assert r.ok, (r.error_type, r.error_message)
-    parts = {p["name"]: p for p in r.census["parts"]}
-    assert parts["Plate"]["n_solids"] == 1 and abs(parts["Plate"]["volume_m3"] - 0.1 * 0.1 * 0.01) < 2e-6
-    assert parts["Leg"]["n_solids"] == 1 and parts["Leg"]["tri_count"] == 12
-    assert set(trimesh.load(r.glb_path).graph.nodes_geometry) == {"Plate", "Leg"}
-    warns = r.census["build_report"]["warnings"]
-    assert any("'Plate'" in w and "Face" in w and "trailing selector" in w for w in warns), warns
-    assert any("'Leg'" in w and "Edge" in w for w in warns), warns
-    # bare-Workplane result with a trailing selector: same fallback
-    (tmp_ws.src / "model.py").write_text("import cadquery as cq\nresult = cq.Workplane('XY').box(0.1, 0.1, 0.01).faces('>Z')\n")
-    r = rt.build(tmp_ws, timeout_s=120)
-    assert r.ok and r.census["parts"][0]["n_solids"] == 1 and r.census["parts"][0]["tri_count"] == 12
-    # no solid anywhere in the chain (2D wires only) → a typed error naming the stack, not a silent sheet
-    (tmp_ws.src / "model.py").write_text("import cadquery as cq\nresult = cq.Workplane('XY').rect(0.1, 0.1)\n")
-    r = rt.build(tmp_ws, timeout_s=120)
-    assert not r.ok and r.error_type == "ExportError" and "Wire" in r.error_message and "not a Solid" in r.error_message
-    # a bare cq.Face added to an assembly stays a face but is flagged (n_solids == 0 surfaced)
-    (tmp_ws.src / "model.py").write_text("import cadquery as cq\nf = cq.Workplane('XY').box(0.1, 0.1, 0.01).faces('>Z').val()\n"
-                                         "result = cq.Assembly()\nresult.add(f, name='Sheet')\n")
-    r = rt.build(tmp_ws, timeout_s=120)
-    assert r.ok and r.census["parts"][0]["n_solids"] == 0
-    assert any("'Sheet'" in w and "contains no solid" in w for w in r.census["build_report"]["warnings"])
 
 
 def test_cadquery_env_scrubs_secrets(monkeypatch) -> None:

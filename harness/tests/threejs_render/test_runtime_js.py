@@ -14,30 +14,20 @@ from codeverse3d.workspace import Workspace
 pytestmark = pytest.mark.node
 
 
-def test_export_cli_writes_census_and_error_json(stool_ws: Workspace, tmp_path: Path):
-    rt = runtime_js_dir()
-    res = run_node(rt / "export_glb.mjs", ["--ws", str(stool_ws.root), "--out", "artifacts/o.glb", "--census", "artifacts/c.json"], three_hook=True, timeout_s=60)
-    rec = res.last_json
-    assert rec["ok"] and (stool_ws.root / "artifacts/o.glb").is_file()
-    census = json.loads((stool_ws.root / "artifacts/c.json").read_text())
-    assert set(census) == {"placement_offset", "instanced_meshes_baked", "selfcheck_ran", "tick_present",
-                           "unnamed_meshes", "warnings", "glb_bytes", "three_revision"}
-    assert census["three_revision"] == "182"
-    # error path: unknown entry
-    with pytest.raises(NodeError) as ei:
-        run_node(rt / "export_glb.mjs", ["--ws", str(stool_ws.root), "--entry", "src/nope.js"], three_hook=True, timeout_s=60)
-    err = ei.value.result.last_json["error"]
-    assert err["type"] == "MissingEntryFile"
-    assert (stool_ws.artifacts / "export_error.json").is_file()
-
-
 def test_serve_and_importmap(tmp_path: Path):
+    """serve.cjs types, routes and escapes; workspace content is model-authored, so a
+    symlink out of the root 404s."""
     script = tmp_path / "s.cjs"
     root = tmp_path / "root"
     root.mkdir()
     (root / "a.glb").write_bytes(b"glTF1234")
     (root / "sub").mkdir()
     (root / "sub" / "b.json").write_text("{}")
+    (root / "ok.txt").write_text("fine")
+    (tmp_path / "secret.txt").write_text("s3cr3t")
+    (root / "inside.txt").symlink_to(root / "ok.txt")
+    (root / "leak.txt").symlink_to(tmp_path / "secret.txt")
+    (root / "dirlink").symlink_to(tmp_path)
     script.write_text(f"""
 const {{ serveDirs, importMapHtml }} = require({json.dumps(str(runtime_js_dir() / 'serve.cjs'))});
 (async () => {{
@@ -49,6 +39,8 @@ const {{ serveDirs, importMapHtml }} = require({json.dumps(str(runtime_js_dir() 
     escape: await get('/../s.cjs'), missing: await get('/nope.png'), fav: await get('/favicon.ico'),
     malformed: await get('/100%.png'), after: await get('/a.glb'),   // decodeURIComponent throws on '%.p'
     importmap: importMapHtml(),
+    links: {{ ok: (await get('/ok.txt')).status, inside: (await get('/inside.txt')).status,
+             leak: (await get('/leak.txt')).status, dirleak: (await get('/dirlink/secret.txt')).status }},
   }};
   await srv.close();
   console.log(JSON.stringify(out));
@@ -64,31 +56,7 @@ const {{ serveDirs, importMapHtml }} = require({json.dumps(str(runtime_js_dir() 
     im = json.loads(out["importmap"].split(">", 1)[1].rsplit("<", 1)[0])["imports"]
     assert im["three"].startswith("/__runtime/") and im["three/addons/"].endswith("/examples/jsm/")
     assert "http" not in json.dumps(im)
-
-
-def test_gpu_launch_probe(tmp_path: Path):
-    script = tmp_path / "g.cjs"
-    script.write_text(f"""
-const {{ launchBrowser, rendererInfo }} = require({json.dumps(str(runtime_js_dir() / 'gpu_launch.cjs'))});
-(async () => {{
-  const t0 = Date.now();
-  const handle = await launchBrowser({{ gpu: process.env.T_GPU || 'auto' }});
-  const {{ browser, gpu, renderer }} = handle;
-  const probe = await rendererInfo(browser);
-  await handle.release();   // never browser.close(): the browser may be shared
-  console.log(JSON.stringify({{ gpu, renderer, probe, shared: handle.shared, ms: Date.now() - t0 }}));
-}})().catch((e) => {{ console.error(e); process.exit(1); }});
-""")
-    env = {"C3D_CACHE_DIR": str(tmp_path / "cache")}
-    auto = run_node(script, [], timeout_s=120, env_extra=env).last_json
-    assert auto["renderer"] and auto["probe"]
-    if auto["gpu"]:
-        assert "swiftshader" not in auto["renderer"].lower()
-    off = run_node(script, [], timeout_s=120, env_extra={**env, "T_GPU": "off"}).last_json
-    assert off["gpu"] is False and "swiftshader" in off["probe"].lower()
-    with pytest.raises(NodeError):
-        run_node(script, [], timeout_s=60, env_extra={**env, "T_GPU": "bogus"})
-    _reap_daemons(tmp_path / "cache")
+    assert out["links"] == {"ok": 200, "inside": 200, "leak": 404, "dirleak": 404}
 
 
 def test_two_runtime_trees_never_share_one_browser_endpoint(tmp_path: Path):
@@ -136,60 +104,46 @@ def _reap_daemons(cache_dir: Path) -> None:
                     os.kill(int(info[key]), signal.SIGTERM)
 
 
-def test_gpu_launch_browser_reuse(tmp_path: Path):
-    """A second launch reconnects to the shared browser; C3D_BROWSER_REUSE=off owns every launch."""
-    script = tmp_path / "r.cjs"
+def test_gpu_launch_probe_and_browser_reuse(tmp_path: Path):
+    """The GPU/SwiftShader probe; a second launch reconnects to the shared browser;
+    C3D_BROWSER_REUSE=off owns every launch."""
+    script = tmp_path / "g.cjs"
     script.write_text(f"""
-const {{ launchBrowser }} = require({json.dumps(str(runtime_js_dir() / 'gpu_launch.cjs'))});
+const {{ launchBrowser, rendererInfo }} = require({json.dumps(str(runtime_js_dir() / 'gpu_launch.cjs'))});
 (async () => {{
-  const a = await launchBrowser({{ gpu: 'off' }});
+  const gpu = process.env.T_GPU || 'auto';
+  const a = await launchBrowser({{ gpu }});
+  const probe = await rendererInfo(a.browser);
   const p = await a.browser.newPage();
   await p.close();
-  await a.release();
+  await a.release();   // never browser.close(): the browser may be shared
   const t0 = Date.now();
-  const b = await launchBrowser({{ gpu: 'off' }});
+  const b = await launchBrowser({{ gpu }});
   const reconnect_ms = Date.now() - t0;
   const alive = b.browser.connected !== false;
   await b.release();
-  console.log(JSON.stringify({{ a_shared: a.shared, b_shared: b.shared, reconnect_ms, alive }}));
+  console.log(JSON.stringify({{ gpu: a.gpu, renderer: a.renderer, probe, a_shared: a.shared, b_shared: b.shared,
+                                reconnect_ms, alive }}));
 }})().catch((e) => {{ console.error(e); process.exit(1); }});
 """)
     env = {"C3D_CACHE_DIR": str(tmp_path / "cache")}
-    out = run_node(script, [], timeout_s=120, env_extra=env).last_json
-    assert out["a_shared"] is True and out["b_shared"] is True and out["alive"]
-    assert out["reconnect_ms"] < 1000  # connect, not a fresh ~550ms+ launch
+    auto = run_node(script, [], timeout_s=120, env_extra=env).last_json
+    assert auto["renderer"] and auto["probe"]
+    if auto["gpu"]:
+        assert "swiftshader" not in auto["renderer"].lower()
+    off = run_node(script, [], timeout_s=120, env_extra={**env, "T_GPU": "off"}).last_json
+    assert off["gpu"] is False and "swiftshader" in off["probe"].lower()
+    assert off["a_shared"] is True and off["b_shared"] is True and off["alive"]
+    assert off["reconnect_ms"] < 1000  # connect, not a fresh ~550ms+ launch
     # the endpoint is keyed by the runtime_js that spawned the daemon, so a worktree
     # and the main checkout sharing one cache dir cannot advertise over each other
     endpoints = list((tmp_path / "cache").glob("browser_cpu_*.json"))
     assert len(endpoints) == 1 and not endpoints[0].name.endswith(".failed.json")
-    off = run_node(script, [], timeout_s=120, env_extra={**env, "C3D_BROWSER_REUSE": "off"}).last_json
-    assert off["a_shared"] is False and off["b_shared"] is False
+    own = run_node(script, [], timeout_s=120, env_extra={**env, "T_GPU": "off", "C3D_BROWSER_REUSE": "off"}).last_json
+    assert own["a_shared"] is False and own["b_shared"] is False
+    with pytest.raises(NodeError):
+        run_node(script, [], timeout_s=60, env_extra={**env, "T_GPU": "bogus"})
     _reap_daemons(tmp_path / "cache")
-
-
-def test_serve_refuses_symlinks_that_escape_the_root(tmp_path: Path):
-    """Workspace content is model-authored: a symlink out of the root 404s."""
-    root = tmp_path / "root"
-    root.mkdir()
-    (root / "ok.txt").write_text("fine")
-    (tmp_path / "secret.txt").write_text("s3cr3t")
-    (root / "inside.txt").symlink_to(root / "ok.txt")
-    (root / "leak.txt").symlink_to(tmp_path / "secret.txt")
-    (root / "dirlink").symlink_to(tmp_path)
-    script = tmp_path / "s.cjs"
-    script.write_text(f"""
-const {{ serveDirs }} = require({json.dumps(str(runtime_js_dir() / 'serve.cjs'))});
-(async () => {{
-  const srv = await serveDirs({{ root: {json.dumps(str(root))} }});
-  const get = async (p) => (await fetch(srv.url(p))).status;
-  const out = {{ ok: await get('/ok.txt'), inside: await get('/inside.txt'),
-    leak: await get('/leak.txt'), dirleak: await get('/dirlink/secret.txt') }};
-  await srv.close();
-  console.log(JSON.stringify(out));
-}})().catch((e) => {{ console.error(e); process.exit(1); }});
-""")
-    out = run_node(script, [], timeout_s=60).last_json
-    assert out == {"ok": 200, "inside": 200, "leak": 404, "dirleak": 404}
 
 
 def test_scene_server_only_mounts_src_public_assets(tmp_path: Path):

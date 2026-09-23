@@ -123,7 +123,7 @@ def _pen(a, b, depth, pose, sev=Severity.ERROR):
                        fix_hint="shrink", data={"kind": "penetration", "pose": pose, "depth_m": depth})
 
 
-def test_aggregate_merges_poses_per_pair_and_ranks_by_depth():
+def test_aggregate_merges_ranks_caps_and_summarises():
     fs = [_pen("door", "wall", 0.004, {"hinge": 0.5}), _pen("door", "wall", 0.031, {"hinge": 1.5}),
           _pen("door", "wall", 0.002, {}), _pen("lid", "box", 0.010, {"lid_j": 1.0}),
           GateFinding(gate="articulation", severity=Severity.ERROR, target="leg", message="floating",
@@ -135,9 +135,7 @@ def test_aggregate_merges_poses_per_pair_and_ranks_by_depth():
     assert "3 of the sampled poses" in dw.message and "31.0 mm" in dw.message and "hinge=1.50" in dw.message
     assert "1 at rest" in dw.message
     assert all(f.severity == Severity.ERROR for f in out)
-
-
-def test_aggregate_caps_errors_and_summarises_the_rest():
+    # errors are capped; the rest is one summary WARN
     fs = [_pen(f"p{i}", "base", 0.001 * (i + 1), {"j": 1.0}) for i in range(MAX_PAIR_FINDINGS + 3)]
     out = aggregate_findings(fs)
     errors = [f for f in out if f.severity == Severity.ERROR]

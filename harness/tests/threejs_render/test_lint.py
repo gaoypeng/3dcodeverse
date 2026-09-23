@@ -52,18 +52,20 @@ def test_forbidden_apis_and_imports(stool_ws: Workspace, no_node_syntax):
     assert not any("legs.js:5" in m or "legs.js:6" in m for m in errs)
 
 
-def test_part_export_name_and_dead_file(stool_ws: Workspace, no_node_syntax):
+def test_part_export_name_dead_file_and_build_export(stool_ws: Workspace, no_node_syntax):
     (stool_ws.src / "parts" / "extra.js").write_text("import * as THREE from 'three';\nexport function buildWrong(THREE_) { return new THREE.Group(); }\n")
+    # the plan's ``TVStand`` lives in tv_stand.js and exports buildTVStand (to_pascal keeps
+    # it); the lint must not ask for the snake-rebuilt ``buildTvStand`` instead
+    (stool_ws.src / "parts" / "tv_stand.js").write_text(
+        "import * as THREE from 'three';\nexport function buildTVStand(THREE_) { return new THREE.Group(); }\n")
     rep = lint_workspace(stool_ws)
     warns = _msgs(rep, Severity.WARN)
     assert any("expected `export function buildExtra(THREE)`" in m for m in warns)
     assert any("not imported by any module" in m for m in warns)
+    assert not any("tv_stand.js: expected" in m for m in _msgs(rep))
     (stool_ws.src / "parts" / "extra.js").write_text("export const nothing = 1;\n")
     rep = lint_workspace(stool_ws)
     assert any("buildExtra" in m for m in _msgs(rep, Severity.ERROR))
-
-
-def test_object_without_build_export(stool_ws: Workspace, no_node_syntax):
     (stool_ws.src / "object.js").write_text("import * as THREE from 'three';\nexport function make() {}\n")
     rep = lint_workspace(stool_ws)
     assert any("must `export function build(THREE)`" in m for m in _msgs(rep, Severity.ERROR))
@@ -86,30 +88,3 @@ def test_syntax_error_reported_with_line(stool_ws: Workspace):
     rep = lint_workspace(stool_ws)
     assert not rep.passed
     assert any("seat.js:13" in m and "SyntaxError" in m for m in _msgs(rep, Severity.ERROR))
-
-
-@pytest.mark.node
-def test_one_node_checks_every_file_and_a_parsed_file_is_not_sent_again(tmp_path: Path, monkeypatch):
-    import codeverse3d.languages._js_lint as js_lint
-
-    good = [tmp_path / f"ok_{i}.js" for i in range(3)]
-    for i, p in enumerate(good):
-        p.write_text(f"import * as THREE from 'three';\nexport const n{i} = await Promise.resolve({i});\n")
-    bad = tmp_path / "bad.js"
-    bad.write_text("export function f() {\n  return 1;\n}\nconst = 2;\n")
-    calls = []
-    real = js_lint.run_node
-    monkeypatch.setattr(js_lint, "run_node", lambda *a, **k: calls.append(a) or real(*a, **k))
-    problems = js_lint.node_check_syntax([*good, bad])
-    assert list(problems) == [bad] and problems[bad].line == 4 and "SyntaxError" in problems[bad].message
-    assert len(calls) == 1  # one process for four files
-    assert js_lint.node_check_syntax(good) == {} and len(calls) == 1  # all three parsed already: no node at all
-    assert list(js_lint.node_check_syntax([bad])) == [bad] and len(calls) == 2  # a failure is never cached
-
-
-def test_an_acronym_part_export_is_matched_by_snake(stool_ws: Workspace, no_node_syntax):
-    """The plan's ``TVStand`` lives in tv_stand.js and exports buildTVStand (to_pascal keeps
-    it); the lint must not ask for the snake-rebuilt ``buildTvStand`` instead."""
-    (stool_ws.src / "parts" / "tv_stand.js").write_text(
-        "import * as THREE from 'three';\nexport function buildTVStand(THREE_) { return new THREE.Group(); }\n")
-    assert not any("tv_stand.js: expected" in m for m in _msgs(lint_workspace(stool_ws)))

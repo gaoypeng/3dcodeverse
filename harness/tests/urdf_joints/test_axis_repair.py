@@ -51,24 +51,22 @@ def _axis_of(ws: Workspace, joint: str):
     return None if el is None else tuple(float(v) for v in el.get("xyz").split())
 
 
-def test_anti_parallel_negates_the_authored_axis(tmp_path):
-    ws = _ws(tmp_path)  # the plan's casing maps to the URDF joint
-    assert repair_motion_axes(ws, _report(_finding("hinge", cos=-0.98))) == ["hinge"]
-    assert _axis_of(ws, "Hinge") == (0.0, 0.0, 1.0)
-    assert "authored comment must survive" in (ws.src / "robot.urdf").read_text()
-
-
-def test_orthogonal_writes_suggested_axis_and_inserts_missing_element(tmp_path):
+def test_repair_skips_what_it_cannot_trust_then_fixes_both_kinds(tmp_path):
     ws = _ws(tmp_path)
-    assert repair_motion_axes(ws, _report(_finding("Slide", cos=0.0, suggested=(0, 0, 1)))) == ["Slide"]
-    assert _axis_of(ws, "Slide") == (0.0, 0.0, 1.0)
-
-
-def test_warn_unknown_and_unmeasured_findings_are_skipped(tmp_path):
-    ws = _ws(tmp_path)
+    (ws.artifacts / "robot.urdf").write_text(URDF)
+    # WARN, an unknown joint and an unmeasured finding are all skipped
     rep = _report(_finding("Hinge", cos=-1.0, sev=Severity.WARN), _finding("Ghost", cos=-1.0), _finding("Hinge"))
     assert repair_motion_axes(ws, rep) == []
     assert _axis_of(ws, "Hinge") == (0.0, 0.0, -1.0)
+    # anti-parallel negates the authored axis (the plan's casing maps to the URDF joint);
+    # orthogonal writes the suggested axis, inserting the missing <axis> element
+    rep = _report(_finding("hinge", cos=-0.98), _finding("Slide", cos=0.0, suggested=(0, 0, 1)))
+    assert repair_motion_axes(ws, rep) == ["hinge", "Slide"]
+    assert _axis_of(ws, "Hinge") == (0.0, 0.0, 1.0)
+    assert _axis_of(ws, "Slide") == (0.0, 0.0, 1.0)
+    assert "authored comment must survive" in (ws.src / "robot.urdf").read_text()
+    # the artifacts copy is kept in step
+    assert (ws.artifacts / "robot.urdf").read_text() == (ws.src / "robot.urdf").read_text()
 
 
 @pytest.mark.parametrize("raw", ["0", "off", "false"])
@@ -78,13 +76,6 @@ def test_kill_switch_disables(tmp_path, switch, raw):
     ws = _ws(tmp_path)
     assert repair_motion_axes(ws, _report(_finding("Hinge", cos=-1.0))) == []
     assert _axis_of(ws, "Hinge") == (0.0, 0.0, -1.0)
-
-
-def test_artifacts_copy_is_kept_in_step(tmp_path):
-    ws = _ws(tmp_path)
-    (ws.artifacts / "robot.urdf").write_text(URDF)
-    assert repair_motion_axes(ws, _report(_finding("Hinge", cos=-1.0))) == ["Hinge"]
-    assert (ws.artifacts / "robot.urdf").read_text() == (ws.src / "robot.urdf").read_text()
 
 
 def test_a_paired_axis_tag_keeps_the_joints_limit():

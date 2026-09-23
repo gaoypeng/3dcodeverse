@@ -10,12 +10,14 @@ def _msgs(r, sev=None):
     return [f.message for f in r.findings if sev is None or f.severity == sev]
 
 
-def test_missing_result_and_guarded_result() -> None:
+def test_missing_result_guarded_result_and_syntax_error() -> None:
     r = lint_cadquery_source("import cadquery as cq\nx = cq.Workplane().box(1, 1, 1)\n")
     assert not r.passed and any("module-level `result`" in m for m in _msgs(r, Severity.ERROR))
     r = lint_cadquery_source("import cadquery as cq\nif __name__ == '__main__':\n    result = cq.Workplane().box(1, 1, 1)\n")
     f = [x for x in r.findings if "result" in x.message][0]
     assert f.severity == Severity.ERROR and "NOT under" in f.fix_hint
+    r = lint_cadquery_source("import cadquery as cq\nresult = (\n")
+    assert not r.passed and "SyntaxError" in r.findings[0].message
 
 
 def test_forbidden_imports_and_calls() -> None:
@@ -56,8 +58,3 @@ def test_rotate_angle_expression_table() -> None:
     for expr in radians:
         r = lint_cadquery_source(_rotate_src(expr))
         assert not r.passed and any("DEGREES" in m for m in _msgs(r, Severity.ERROR)), (expr, _msgs(r))
-
-
-def test_syntax_error() -> None:
-    r = lint_cadquery_source("import cadquery as cq\nresult = (\n")
-    assert not r.passed and "SyntaxError" in r.findings[0].message

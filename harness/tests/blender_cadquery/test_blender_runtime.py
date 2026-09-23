@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
 
@@ -12,7 +11,6 @@ from codeverse3d.languages.blender import (
     BlenderNotFoundError,
     BlenderRuntime,
     blender_env,
-    lint_blender_source,
 )
 
 
@@ -38,13 +36,18 @@ def test_blender_env_scrubs_secrets_and_host_python(monkeypatch) -> None:
 def test_live_skeleton_builds_and_exports_canonical_glb(tmp_ws, table_plan, blender_bin) -> None:
     trimesh = pytest.importorskip("trimesh")
     rt = BlenderRuntime(blender=blender_bin)
-    rt.skeleton(tmp_ws, table_plan)
-    assert rt.lint(tmp_ws).passed
+    paths = rt.skeleton(tmp_ws, table_plan)
+    rels = [p.relative_to(tmp_ws.root).as_posix() for p in paths]
+    assert rels == ["src/model.py", "src/parts/table_top.py", "src/parts/leg.py", "src/parts/shelf.py"]
+    assert rt.expected_files(table_plan) == rels  # the layout IS the skeleton
+    lint = rt.lint(tmp_ws)
+    assert lint.passed, [(f.target, f.message) for f in lint.errors]
     t0 = time.monotonic()
     r = rt.build(tmp_ws, timeout_s=120)
     dt = time.monotonic() - t0
     assert r.ok, (r.error_type, r.error_message, r.stderr_tail)
     assert dt < 60
+    assert "[selfcheck]" in r.stdout_tail
     assert Path(r.extra_paths["stl"]).stat().st_size > 0
     scene = trimesh.load(r.glb_path)
     names = set(scene.graph.nodes_geometry)
@@ -63,42 +66,12 @@ def test_live_skeleton_builds_and_exports_canonical_glb(tmp_ws, table_plan, blen
     assert abs(c["scene_bbox_min"][2]) < 1e-4 and abs(c["scene_bbox_max"][2] - 0.6) < 1e-3
 
 
-BROKEN = '''import bpy
-import bmesh
-
-bpy.ops.mesh.primitive_cube_add(size=1)
-body = bpy.context.object
-body.name = "Body"
-bpy.ops.object.light_add(type="SUN")
-bm = bmesh.new()
-bm.from_mesh(body.data)
-v = bm.verts[0]
-bm.free()
-'''
-
-
-@pytest.mark.blender
-def test_live_error_maps_to_line_and_lint_catches_it(tmp_ws, blender_bin) -> None:
-    rt = BlenderRuntime(blender=blender_bin)
-    (tmp_ws.src / "model.py").write_text(BROKEN)
-    lint = lint_blender_source(BROKEN)
-    assert not lint.passed and any("ensure_lookup_table" in f.message and f.data.get("line") == 10 for f in lint.errors)
-    r = rt.build(tmp_ws, timeout_s=120)
-    assert not r.ok and r.error_type == "IndexError" and r.error_file == "src/model.py" and r.error_line == 10
-    assert "ensure_lookup_table" in r.error_message
-    assert r.census["build_report"]["error_source"] == "v = bm.verts[0]"
-    assert any("light" in w for w in r.census["warnings"])
-    assert r.glb_path is None or Path(r.glb_path).stat().st_size > 0  # partial export may still exist
-    build_json = json.loads((tmp_ws.artifacts / "build.json").read_text())
-    assert build_json["error_line"] == 10
-
-
 @pytest.mark.blender
 def test_live_timeout_and_memory_cap(tmp_ws, blender_bin) -> None:
     rt = BlenderRuntime(blender=blender_bin)
     (tmp_ws.src / "model.py").write_text("import bpy, time\nbpy.ops.mesh.primitive_cube_add(size=1)\nwhile True:\n    time.sleep(0.1)\n")
     t0 = time.monotonic()
-    r = rt.build(tmp_ws, timeout_s=4)
+    r = rt.build(tmp_ws, timeout_s=2)
     assert not r.ok and r.error_type == "BuildTimeout" and time.monotonic() - t0 < 20
     (tmp_ws.src / "model.py").write_text("import bpy\nimport numpy as np\nbpy.ops.mesh.primitive_cube_add(size=1)\nbig = np.ones((3_000_000_000,))\n")
     r = rt.build(tmp_ws, timeout_s=60)

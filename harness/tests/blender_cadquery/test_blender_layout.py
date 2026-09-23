@@ -42,15 +42,6 @@ def _write(ws, rel: str, text: str) -> Path:
     return p
 
 
-def test_lint_workspace_reports_a_source_too_deep_to_parse_instead_of_crashing(tmp_ws) -> None:
-    """A literal nested past the parser's stack is a finding, not a MemoryError that kills the round."""
-    deep = "x = " + "-" * 20_000 + "1\n"
-    _write(tmp_ws, "src/model.py", deep)
-    _write(tmp_ws, "src/parts/seat.py", deep)
-    rep = lint_workspace(tmp_ws)
-    assert not rep.passed and {f.target for f in rep.errors} >= {"src/model.py", "src/parts/seat.py"}
-
-
 def test_lint_workspace_layout_rules(tmp_ws) -> None:
     _write(tmp_ws, "src/model.py", MODEL)
     _write(tmp_ws, "src/parts/seat.py", SEAT.replace("def build_seat", "def build_seat_cushion"))  # wrong export
@@ -70,8 +61,14 @@ def test_lint_workspace_layout_rules(tmp_ws) -> None:
     assert all(f.fix_hint for f in rep.errors)
 
 
-def test_lint_workspace_forbidden_calls_in_part_files_and_missing_entry(tmp_ws) -> None:
+def test_lint_workspace_missing_entry_too_deep_source_and_forbidden_calls(tmp_ws) -> None:
     assert not lint_workspace(tmp_ws).passed  # no model.py at all
+    # a literal nested past the parser's stack is a finding, not a MemoryError that kills the round
+    deep = "x = " + "-" * 20_000 + "1\n"
+    _write(tmp_ws, "src/model.py", deep)
+    _write(tmp_ws, "src/parts/seat.py", deep)
+    rep = lint_workspace(tmp_ws)
+    assert not rep.passed and {f.target for f in rep.errors} >= {"src/model.py", "src/parts/seat.py"}
     _write(tmp_ws, "src/model.py", MODEL)
     _write(tmp_ws, "src/parts/seat.py", SEAT + "\nbpy.ops.render.render()\n")
     _write(tmp_ws, "src/parts/leg.py", LEG)

@@ -12,11 +12,15 @@ from codeverse3d.spatial.joints_sweep import motion_direction_check, sweep_gate
 from codeverse3d.workspace import Workspace
 
 pytestmark = pytest.mark.blender
+try:
+    import yourdfpy
+except ImportError:  # the [urdf] extra; the rest of the end-to-end test still runs
+    yourdfpy = None
 needs_blender = pytest.mark.skipif(not get_settings().resolve_blender(), reason="no Blender binary")
 
 
 @needs_blender
-def test_cabinet_door_end_to_end(tmp_path, cabinet_plan):
+def test_cabinet_door_end_to_end_then_broken(tmp_path, cabinet_plan):
     ws = Workspace(tmp_path / "cab").create()
     rt = UrdfBlenderRuntime()
     rt.skeleton(ws, cabinet_plan)
@@ -33,10 +37,19 @@ def test_cabinet_door_end_to_end(tmp_path, cabinet_plan):
     gate, _ = sweep_gate(ws)   # the round's joint_sweep gate on this build
     assert gate.passed and not gate.findings, [f.message for f in gate.findings]
     # loads in yourdfpy with the same FK
-    yourdfpy = pytest.importorskip("yourdfpy")
-    u = yourdfpy.URDF.load(str(ws.artifacts / "robot.urdf"), load_meshes=True)
-    u.update_cfg({"hinge": 1.0})
-    assert np.allclose(u.get_transform("door", "body"), fk(r, {"hinge": 1.0})["door"], atol=1e-6)
+    if yourdfpy is not None:
+        u = yourdfpy.URDF.load(str(ws.artifacts / "robot.urdf"), load_meshes=True)
+        u.update_cfg({"hinge": 1.0})
+        assert np.allclose(u.get_transform("door", "body"), fk(r, {"hinge": 1.0})["door"], atol=1e-6)
+
+    # the same workspace, broken: typed wrapper failures
+    m = ws.src / "model.py"
+    m.write_text(m.read_text() + "\nraise RuntimeError('boom')\n")
+    res = rt.build(ws)
+    assert not res.ok and res.error_type == "RuntimeError" and res.error_line == len(m.read_text().splitlines())
+    m.write_text(m.read_text().replace("raise RuntimeError('boom')\n", "").replace("'handle'", "'Handle'"))
+    res = rt.build(ws)
+    assert not res.ok and res.error_type == "MissingLinkObjects" and "Handle" in res.error_message
 
 
 @needs_blender
@@ -58,20 +71,6 @@ def test_rest_shifted_skeleton_builds_clean(tmp_path, drawer_plan):
     closed = link_world_meshes(r, {"slide": -0.1})["drawer"].bounds
     assert np.isclose(closed[1][1], -0.20, atol=1e-6)  # back face of the panel flush with the carcass front
     assert not [f for f in sweep_gate(ws)[0].findings if f.data.get("kind") == "penetration"]
-
-
-@needs_blender
-def test_script_error_and_missing_object(tmp_path, cabinet_plan):
-    ws = Workspace(tmp_path / "err").create()
-    rt = UrdfBlenderRuntime()
-    rt.skeleton(ws, cabinet_plan)
-    m = ws.src / "model.py"
-    m.write_text(m.read_text() + "\nraise RuntimeError('boom')\n")
-    res = rt.build(ws)
-    assert not res.ok and res.error_type == "RuntimeError" and res.error_line == len(m.read_text().splitlines())
-    m.write_text(m.read_text().replace("raise RuntimeError('boom')\n", "").replace("'handle'", "'Handle'"))
-    res = rt.build(ws)
-    assert not res.ok and res.error_type == "MissingLinkObjects" and "Handle" in res.error_message
 
 
 @needs_blender
