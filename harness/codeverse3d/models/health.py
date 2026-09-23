@@ -23,6 +23,8 @@ import concurrent.futures as cf
 import logging
 from dataclasses import dataclass
 
+from codeverse3d.models.registry import build_chat_model
+
 log = logging.getLogger(__name__)
 
 #: enough of the pool to tell an outage from one unlucky key, without a long probe
@@ -112,18 +114,9 @@ def _probe_prompt(tokens: int = PROBE_TOKENS) -> str:
 
 
 def _bare_model(model_id: str, timeout_s: float):
-    """The model with retries switched off — a probe that retries measures nothing."""
-    provider, _, name = model_id.partition(":")
-    if not name:
-        provider, name = "gemini", provider
-    if provider == "gemini":
-        from codeverse3d.models.gemini import GeminiModel
-
-        return GeminiModel(name, timeout_s=timeout_s, max_attempts=1, storm_attempts=0)
-    if provider == "anthropic":
-        from codeverse3d.models.anthropic import AnthropicModel
-
-        return AnthropicModel(name, timeout_s=timeout_s, max_attempts=1)
-    from codeverse3d.models.openai import OpenAIModel  # everything else, as models.registry does
-
-    return OpenAIModel(name, timeout_s=timeout_s, max_attempts=1)
+    """The model with retries switched off — a probe that retries measures nothing.  A bare
+    name is a gemini model."""
+    if ":" not in model_id:
+        model_id = f"gemini:{model_id}"
+    extra = {"storm_attempts": 0} if model_id.startswith("gemini:") else {}
+    return build_chat_model(model_id, timeout_s=timeout_s, max_attempts=1, **extra)

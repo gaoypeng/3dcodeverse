@@ -7,6 +7,7 @@ active, otherwise a per-process log) — always: the ledger is the only record o
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any
 
 from codeverse3d.models.base import ChatModel
 
@@ -27,19 +28,20 @@ def get_chat_model(model_id: str) -> ChatModel:
     """The (metered) ChatModel for ``<provider>:<model>``."""
     from codeverse3d.cost.instrument import metered_chat_model
 
-    return metered_chat_model(_build_chat_model(model_id))
+    return metered_chat_model(build_chat_model(model_id))
 
 
-def _build_chat_model(model_id: str) -> ChatModel:
+def build_chat_model(model_id: str, **kw: Any) -> ChatModel:
+    """The bare (unmetered) model for ``<provider>:<model>``; ``kw`` goes to its constructor."""
     provider, model = parse_model_id(model_id)
     if provider == "gemini":
         from codeverse3d.models.gemini import GeminiModel
 
-        return GeminiModel(model)
+        return GeminiModel(model, **kw)
     if provider == "anthropic":
         from codeverse3d.models.anthropic import AnthropicModel
 
-        return AnthropicModel(model)
+        return AnthropicModel(model, **kw)
     from codeverse3d.models.openai import OpenAIModel
 
-    return OpenAIModel(model)
+    return OpenAIModel(model, **kw)

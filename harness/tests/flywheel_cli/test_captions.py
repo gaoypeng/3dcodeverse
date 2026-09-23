@@ -81,7 +81,7 @@ def test_caption_cmd_writes_the_captioner_row_into_the_run_ledger(fake_run, monk
     select.package(ws.root, 1)
     ledger = open_run_ledger(ws.root)  # the run already keeps one (create=False appends)
     ledger.path.touch()
-    monkeypatch.setattr(R, "_build_chat_model", lambda _mid: FakeModel([GOOD]))
+    monkeypatch.setattr(R, "build_chat_model", lambda _mid: FakeModel([GOOD]))
     r = CliRunner().invoke(app, ["flywheel", "caption", ws.root.name, "--runs-dir", str(ws.root.parent),
                                  "--model", "fake:fake"])
     assert r.exit_code == 0, r.output

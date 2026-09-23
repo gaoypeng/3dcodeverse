@@ -159,7 +159,7 @@ def test_the_proxy_forwards_everything_else():
 def test_get_chat_model_hands_out_a_metered_model(monkeypatch: pytest.MonkeyPatch):
     from codeverse3d.models import registry
 
-    monkeypatch.setattr(registry, "_build_chat_model", lambda mid: FakeChat())
+    monkeypatch.setattr(registry, "build_chat_model", lambda mid: FakeChat())
     registry.get_chat_model.cache_clear()
     try:
         assert isinstance(registry.get_chat_model("gemini:gemini-3.7-flash"), MeteredChatModel)
