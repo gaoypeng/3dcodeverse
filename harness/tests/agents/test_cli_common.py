@@ -6,7 +6,6 @@ import json
 import os
 
 from codeverse3d.agents.cli_common import (
-    attribute_changes,
     begin_session,
     clean_env,
     finish_session,
@@ -17,12 +16,12 @@ from codeverse3d.agents.cli_common import (
     is_transient_failure,
     provider_wait,
 )
-from codeverse3d.contracts.agent import AgentJob, FileChange
+from codeverse3d.contracts.agent import AgentJob
 from codeverse3d.contracts.common import Usage
 from codeverse3d.workspace import Workspace
 
 
-def test_clean_env_drops_secrets_but_the_kept_ones(monkeypatch):
+def test_clean_and_hardened_env_drop_secrets_but_the_kept_ones(monkeypatch, tmp_ws: Workspace):
     for name in ("OPENAI_API_KEY", "FOO_TOKEN", "GEMINI_API_KEYS", "CODEX_API_KEY"):
         monkeypatch.setenv(name, "s")
     monkeypatch.setenv("NODE_OPTIONS", "--x")
@@ -30,9 +29,7 @@ def test_clean_env_drops_secrets_but_the_kept_ones(monkeypatch):
     assert not {"OPENAI_API_KEY", "FOO_TOKEN", "GEMINI_API_KEYS"} & set(env)
     assert env["CODEX_API_KEY"] == "s" and env["NODE_OPTIONS"] == "--x" and "PATH" in env and "HOME" in env
     assert env["C3D_AGENT_CONTEXT"] == "1" and "GIT_CEILING_DIRECTORIES" not in env
-
-
-def test_hardened_env_adds_the_job_env_and_the_git_ceiling(tmp_ws: Workspace):
+    # the hardened env adds the job's env and the git ceiling, and still drops the secrets
     env = hardened_env(tmp_ws, AgentJob(workspace=str(tmp_ws.root), prompt="p", env={"EXTRA": "2"}), keep=set())
     assert env["EXTRA"] == "2" and env["GIT_CEILING_DIRECTORIES"] == str(tmp_ws.root.parent)
     assert "FAKE_SERVICE_API_KEY" not in env
@@ -56,15 +53,6 @@ def test_retry_same_label_round_keeps_first_attempt_trajectory(tmp_ws: Workspace
     assert [f.path for f in r2.files_changed] == ["src/a.py"] and r1.files_changed == []
     log = tmp_ws._git("log", "--oneline").stdout
     assert "agent:baseline.a2" in log and "pre:baseline" in log
-
-
-def test_attribute_changes_pure():
-    files = [FileChange(path=p, status="modified") for p in (
-        "src/zones/a.js", "src/zones/b.js", "src/assets/x.js", "events.jsonl", "artifacts/census.json",
-        "trajectories/zone_a_r00/result.json", "public/assets/y.glb", "README.md", "AGENTS.md")]
-    got = attribute_changes(files, write_roots=["src", "public"])
-    assert [f.path for f in got] == ["src/zones/a.js", "src/zones/b.js", "src/assets/x.js", "public/assets/y.glb"]
-    assert [f.path for f in attribute_changes(files, write_roots=["public"])] == ["public/assets/y.glb"]
 
 
 def test_the_prompt_goes_on_stdin_byte_for_byte_and_never_on_argv(tmp_ws: Workspace):

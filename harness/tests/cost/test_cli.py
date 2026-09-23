@@ -38,15 +38,12 @@ def _live_ledger(run: Path, rows: list[dict]) -> None:
     p.write_text("".join(json.dumps(r) + "\n" for r in rows))
 
 
-def test_cost_takes_a_bare_run_path_or_slug(fake_run: Path):
+def test_cost_takes_a_bare_run_path_a_slug_or_a_battery(fake_run: Path):
     r = runner.invoke(app, ["cost", str(fake_run)])
     assert r.exit_code == 0, r.output
     assert "| fake_run | static_object |" in r.output
     r = runner.invoke(app, ["cost", fake_run.name, "--runs-dir", str(fake_run.parent)])
     assert r.exit_code == 0 and "| fake_run | static_object |" in r.output
-
-
-def test_cost_runs_dir_aggregates_a_battery(fake_run: Path, tmp_path: Path):
     r = runner.invoke(app, ["cost", "--runs-dir", str(fake_run.parent)])
     assert r.exit_code == 0 and "runs: 1" in r.output
 
@@ -101,4 +98,3 @@ def test_cost_prices_flags_stale_and_approximate_rows():
     assert "flags" in r.stdout and ("approximate" in r.stdout or "none older than" in r.stdout)
     r = runner.invoke(app, ["cost", "prices", "--days", "-1"])
     assert r.exit_code == 0 and "stale>-1d" in r.stdout  # nothing is younger than -1 days
-

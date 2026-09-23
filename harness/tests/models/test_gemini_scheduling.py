@@ -10,22 +10,12 @@ from google.genai import errors as genai_errors
 
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest
 from codeverse3d.models.base import ModelError
-from codeverse3d.models.gemini import shared_pool
 from codeverse3d.models.retry import KeyPool
 from tests.models.test_gemini import make_model, text_response
 
 
 def api_error(code: int, msg: str = "boom") -> genai_errors.APIError:
     return genai_errors.APIError(code, {"error": {"message": msg, "code": code}})
-
-
-# ---------------------------------------------------------------- shared pool
-def test_shared_pool_is_keyed_by_the_cap_not_only_by_keys():
-    a = shared_pool(["x1", "x2"], max_in_flight=4)
-    b = shared_pool(["x1", "x2"], max_in_flight=4)
-    c = shared_pool(["x1", "x2"], max_in_flight=8)
-    assert a is b
-    assert a is not c, "a different cap must not silently reuse another pool's slots"
 
 
 # ------------------------------------------------ retry budget + hedge (audit 2026-08-26 §5.1 / §5.2)

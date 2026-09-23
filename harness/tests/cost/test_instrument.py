@@ -92,22 +92,18 @@ def test_a_metered_call_becomes_one_priced_row(tmp_path: Path):
     assert row.latency_ms == 1234 and row.cost_usd > 0
 
 
-def test_a_failed_call_is_recorded_and_re_raised(tmp_path: Path):
-    with run_ledger(tmp_path, run="r1"), pytest.raises(TimeoutError):
-        MeteredChatModel(FakeChat(TimeoutError("boom"))).generate(
-            ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
-    (row,) = load_ledger(tmp_path)
-    assert row.outcome == "timeout" and row.stage is Stage.PLAN and row.cost_usd == 0.0
-
-
-
-
-def test_get_coding_agent_hands_out_a_metered_agent(monkeypatch: pytest.MonkeyPatch):
+def test_both_registries_hand_out_metered_backends(monkeypatch: pytest.MonkeyPatch):
     from codeverse3d.agents import registry
+    from codeverse3d.models import registry as model_registry
 
     monkeypatch.setattr(registry, "_build_agent", lambda aid: CliAgent(FakeChat()))
     assert isinstance(registry.get_coding_agent("gemini-cli:m"), MeteredAgent)
-
+    monkeypatch.setattr(model_registry, "build_chat_model", lambda mid: FakeChat())
+    model_registry.get_chat_model.cache_clear()
+    try:
+        assert isinstance(model_registry.get_chat_model("gemini:gemini-3.7-flash"), MeteredChatModel)
+    finally:
+        model_registry.get_chat_model.cache_clear()
 
 
 def test_accounting_never_breaks_a_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -128,17 +124,6 @@ def test_the_proxy_forwards_everything_else():
     assert m.pool == "the-key-pool"
     agent = MeteredAgent(FakeAgent(chat))
     assert agent.kind == "self-metering" and agent.available() == (True, "ok")
-
-
-def test_get_chat_model_hands_out_a_metered_model(monkeypatch: pytest.MonkeyPatch):
-    from codeverse3d.models import registry
-
-    monkeypatch.setattr(registry, "build_chat_model", lambda mid: FakeChat())
-    registry.get_chat_model.cache_clear()
-    try:
-        assert isinstance(registry.get_chat_model("gemini:gemini-3.7-flash"), MeteredChatModel)
-    finally:
-        registry.get_chat_model.cache_clear()
 
 
 def test_post_hoc_work_never_creates_a_partial_ledger(tmp_path: Path):
@@ -228,16 +213,6 @@ def test_a_full_key_never_reaches_the_ledger(tmp_path: Path):
     assert "secret" not in (tmp_path / "telemetry" / "cost.jsonl").read_text()
 
 
-def test_a_failed_call_records_its_attempts_but_no_key(tmp_path: Path):
-    from codeverse3d.models.base import ModelError
-
-    err = ModelError("503 high demand", retryable=True, status=503, attempts=7)
-    with run_ledger(tmp_path, run="r1"), pytest.raises(ModelError):
-        MeteredChatModel(FakeChat(err)).generate(ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
-    (row,) = load_ledger(tmp_path)
-    assert row.outcome == "error" and row.attempts == 7 and row.key == ""
-
-
 def test_a_billed_but_invalid_attempt_is_in_the_total_exactly_once(tmp_path: Path):
     """A charged invalid attempt is counted exactly once beside its winner."""
     from codeverse3d.cost.ledger import summarise
@@ -298,14 +273,23 @@ def test_a_late_hedge_loser_keeps_its_stage_role_and_round(tmp_path: Path):
     assert loser.role is Role.GENERATOR and loser.round == 0
 
 
-def test_a_failed_calls_error_row_carries_what_was_billed(tmp_path: Path):
-    """A final ModelError carries its billed usage into the error row."""
+def test_a_failed_call_is_recorded_re_raised_and_carries_what_was_billed(tmp_path: Path):
+    """A failure is one error row: its outcome, its attempts, no key, and the usage it was billed."""
     from codeverse3d.models.base import ModelError
 
-    err = ModelError("bad json after retries", retryable=True, attempts=6, usage=_usage())
-    with run_ledger(tmp_path, run="r1"), pytest.raises(ModelError):
-        MeteredChatModel(FakeChat(err)).generate(
-            ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
-    (row,) = load_ledger(tmp_path)
-    assert row.outcome == "error" and row.attempts == 6
-    assert row.input_tokens == 12_000 and row.cost_usd > 0, "a billed failure is no longer a $0 row"
+    cases = (
+        (TimeoutError("boom"), dict(outcome="timeout", attempts=0, input_tokens=0)),
+        (ModelError("503 high demand", retryable=True, status=503, attempts=7),
+         dict(outcome="error", attempts=7, input_tokens=0)),
+        (ModelError("bad json after retries", retryable=True, attempts=6, usage=_usage()),
+         dict(outcome="error", attempts=6, input_tokens=12_000)),
+    )
+    for i, (err, want) in enumerate(cases):
+        ws = tmp_path / str(i)
+        with run_ledger(ws, run="r1"), pytest.raises(type(err)):
+            MeteredChatModel(FakeChat(err)).generate(
+                ChatRequest(messages=[ChatMessage.user("x")], label="planner"))
+        (row,) = load_ledger(ws)
+        assert row.stage is Stage.PLAN and row.key == ""
+        assert (row.outcome, row.attempts, row.input_tokens) == tuple(want.values()), err
+        assert (row.cost_usd > 0) is (want["input_tokens"] > 0), "a billed failure is no longer a $0 row"

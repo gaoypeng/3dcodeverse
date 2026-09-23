@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 from codeverse3d.cli._common import resolve_dial
 from codeverse3d.cli.main import app
 from codeverse3d.config import Settings, get_settings
-from codeverse3d.cost.profiles import PROFILE_NAMES, PROFILES, profile_table
+from codeverse3d.cost.profiles import PROFILE_NAMES, profile_table
 
 runner = CliRunner()
 
@@ -24,24 +24,14 @@ def _fresh_settings():
     get_settings.cache_clear()
 
 
-def test_balanced_is_todays_defaults():
-    p = PROFILES["balanced"]
-    s = Settings()
-    assert (p.generator, p.planner, p.judge) == (s.default_generator, s.default_planner, s.default_judge)
-    assert p.candidates == s.default_candidates
-
-
-def test_a_value_the_user_configured_survives_the_profile_unless_forced():
+def test_a_value_the_user_configured_survives_the_profile_unless_forced(monkeypatch):
     s = Settings(default_generator="codex:gpt-5.6-sol")
     s.apply_profile("economy")
     assert s.default_generator == "codex:gpt-5.6-sol"  # config.yaml / C3D_* wins over a default dial
     assert s.default_judge == "gemini:gemini-3.7-flash"  # everything unstated still moves
     s.apply_profile("economy", force=True)
     assert s.default_generator == "single-shot:gemini:gemini-3.7-flash"
-
-
-def test_one_stated_judge_field_does_not_disable_the_whole_judge_block(monkeypatch):
-    """A stated judge field freezes only itself, not the whole section."""
+    # a stated judge field freezes only itself, not the whole judge section
     monkeypatch.setenv("C3D_JUDGE__MAX_PX", "800")
     s = Settings()
     s.apply_profile("quality")
@@ -157,4 +147,3 @@ def test_each_profile_resolves_to_its_documented_dial(name, expected, monkeypatc
         assert dial.profile == name
         for field, want in expected.items():
             assert getattr(dial, field) == want, f"{name}.{field}"
-

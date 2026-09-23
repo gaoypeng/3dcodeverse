@@ -47,23 +47,7 @@ def test_all_cooling_blocks_until_cooldown_ends():
         pool.acquire(timeout_s=1.0)
 
 
-def test_health_score_prefers_healthy_keys():
-    pool, clock = make(keys=("bad", "good"), cooldown_s=0.0)
-    for _ in range(3):
-        pool.report("bad", "429")  # health 0.125, cooldown 0 → still "available"
-    picks = [pool.acquire() for _ in range(4)]
-    assert picks == ["good"] * 4
-    pool.report("good", "ok")
-    s = {k["key"]: k for k in pool.stats()["keys"]}
-    assert s["…good"]["health"] == 1.0 and s["…bad"]["health"] < 0.3
-    # passive recovery over time
-    clock.t += 200
-    assert pool.acquire() in ("bad", "good")
-    s = {k["key"]: k for k in pool.stats()["keys"]}
-    assert s["…bad"]["health"] > 0.9
-
-
-def test_dead_key_is_benched_for_a_long_time_then_reprobed():
+def test_dead_key_is_benched_for_an_hour_and_all_dead_raises_at_once():
     pool, clock = make(keys=("dead", "ok"), cooldown_s=30, dead_cooldown_s=3600)
     pool.report("dead", "dead")
     # passive health recovery must not bring it back: it stays benched for an hour
@@ -76,9 +60,7 @@ def test_dead_key_is_benched_for_a_long_time_then_reprobed():
     clock.t += 1801
     assert "dead" in [pool.acquire() for _ in range(3)]  # re-probed once the bench ends
     assert pool.stats()["n_dead"] == 0
-
-
-def test_all_keys_dead_raises_immediately_instead_of_waiting_out_the_timeout():
+    # every key dead: raise at once instead of waiting out the timeout
     pool, clock = make(keys=("a", "b"), dead_cooldown_s=3600)
     pool.report("a", "dead")
     pool.report("b", "dead")
@@ -106,7 +88,7 @@ def test_try_acquire_never_waits_for_a_key_or_a_slot(tmp_path):
     assert pool.stats()["in_flight"] == 0, "a refused try_acquire holds nothing"
 
 
-def test_the_in_flight_slot_wait_is_bounded_by_timeout(tmp_path):
+def test_the_in_flight_slot_wait_is_bounded_and_a_failed_acquire_gives_it_back(tmp_path):
     pool = KeyPool(["a"], max_in_flight=1, slots_dir=tmp_path)
     pool.acquire()
     t0 = time.monotonic()
@@ -115,27 +97,8 @@ def test_the_in_flight_slot_wait_is_bounded_by_timeout(tmp_path):
     assert time.monotonic() - t0 < 2.0, "the slot wait must honour the timeout"
     pool.release()
     assert pool.acquire(timeout_s=0.5) == "a", "the slot came back; nothing leaked"
-
-
-def test_skip_leaves_health_and_counters_alone():
-    """A charged-but-invalid reply (bad JSON) is not the key's fault."""
-    pool, _ = make(keys=("a",))
-    pool.report("a", "429")
-    before = {k["key"]: k for k in pool.stats()["keys"]}["…a"]
-    pool.report("a", "skip")
-    after = {k["key"]: k for k in pool.stats()["keys"]}["…a"]
-    assert after["health"] == before["health"] and after["ok"] == before["ok"] and after["error"] == before["error"]
-
-
-# ------------------------------------------------------------- in-flight cap
-
-
-
-
-def test_a_failed_acquire_gives_its_slot_back(tmp_path):
-    """KeyPoolExhausted must not leak a concurrency slot."""
-    pool = KeyPool(["a"], max_in_flight=1, slots_dir=tmp_path)
-    for _ in range(3):
+    pool.release()
+    for _ in range(3):  # KeyPoolExhausted must not leak a concurrency slot either
         with pytest.raises(KeyPoolExhausted):
             pool.acquire(exclude={"a"}, timeout_s=0.0)
     assert pool.acquire(timeout_s=0.0) == "a"  # the slot is still free

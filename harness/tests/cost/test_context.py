@@ -30,7 +30,7 @@ def test_label_tells_stage_role_and_round():
     assert zl.stage is Stage.PLAN and zl.role is Role.PLANNER
 
 
-def test_a_generation_label_yields_to_the_session_and_explicit_beats_both():
+def test_session_beats_a_generation_label_a_named_job_beats_the_session_explicit_beats_all():
     # best-of-N: the session knows it is a candidate, a call inside it only says "baseline"
     with call_context(round=3, stage=Stage.CANDIDATE, label="cand_c1"):
         got = attribute(label="baseline")
@@ -38,10 +38,7 @@ def test_a_generation_label_yields_to_the_session_and_explicit_beats_both():
         assert got.label == "baseline"  # the most specific label is kept
         forced = attribute(CallContext(stage=Stage.REPAIR, round=9), label="baseline")
         assert forced.stage is Stage.REPAIR and forced.round == 9
-
-
-def test_a_call_that_names_its_own_job_beats_the_session_it_runs_inside():
-    """A spatial tool that bills a model inside a refine session is not a refine call."""
+    # a spatial tool that bills a model inside a refine session is not a refine call
     with call_context(round=2, stage=Stage.REFINE, role=Role.GENERATOR, label="refine_seat"):
         tex = attribute(label="texture_plan")
         assert tex.stage is Stage.TEXTURE and tex.role is Role.OTHER and tex.round == 2
@@ -75,5 +72,3 @@ def test_a_run_bound_in_a_thread_is_never_published_to_the_others():
         t.join(timeout=5)
     assert seen == {"a": "a", "b": "b"}
     assert current().run == ""  # ...and the main thread never inherited either of them
-
-

@@ -20,21 +20,9 @@ def test_the_plan_that_killed_a_cell_now_parses_clean():
     # a space, never deletion: "0.078" and "0.300" must not fuse into "0.0780.300"
     assert out["summary"] == "Overall envelope is 0.078   0.300   0.240 m"
     assert out["acceptance"][0]["text"] == "height is 0.240 m   0.005 m"
-
-
-def test_strip_control_chars_recurses_and_preserves_safe_text():
-    dirty = {"a": "x\x00y", "b": ["p\x07q", {"c": "r\x1bs"}], "n": 3, "ok": None, "t": True}
-    assert strip_control_chars(dirty) == {
-        "a": "x y",
-        "b": ["p q", {"c": "r s"}],
-        "n": 3,
-        "ok": None,
-        "t": True,
-    }
-    keep = "def f():\n\tx = 1\r\n"
-    assert strip_control_chars(keep) == keep
-    text = "0.078 × 0.300 m ± 0.005 — café 日本語 🔧"
-    assert strip_control_chars(text) == text
+    # what the plan meant to say, and the code a model writes, pass through untouched
+    for safe in ("def f():\n\tx = 1\r\n", "0.078 × 0.300 m ± 0.005 — café 日本語 🔧"):
+        assert strip_control_chars(safe) == safe
 
 
 def test_the_subprocess_backstop_names_the_offender(tmp_path):

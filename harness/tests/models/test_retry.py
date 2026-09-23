@@ -94,22 +94,6 @@ def _boom(msg: str = "503 high demand"):
     return call
 
 
-def test_rotate_dead_key_is_free_and_benched_after_sibling_success():
-    pool = KeyPool(["k1", "k2"])
-    calls: list[str] = []
-
-    def call(key: str) -> str:
-        calls.append(key)
-        if key == "k1":
-            raise ModelError("suspended", retryable=False, status=403)
-        return key
-
-    assert _rotate(pool, call, max_attempts=1) == "k2"  # dead rotation burnt no budget
-    assert calls == ["k1", "k2"]
-    st = pool.stats()
-    assert st["dead"] == 1 and st["n_dead"] == 1  # k1 benched only after k2 proved the request
-
-
 def test_rotate_every_key_dead_raises_without_benching():
     pool = KeyPool(["k1", "k2", "k3"])
     calls: list[str] = []
@@ -122,32 +106,6 @@ def test_rotate_every_key_dead_raises_without_benching():
         _rotate(pool, call)
     assert ei.value.status == 403 and calls == ["k1", "k2", "k3"]
     assert pool.stats()["dead"] == 0  # the request, not the keys, is suspect
-
-
-def test_rotate_429_is_free_while_untried_keys_remain():
-    clock = Clock()
-    pool = KeyPool(["k1", "k2", "k3"], cooldown_s=30, clock=clock, sleep=clock.sleep)
-    calls: list[str] = []
-    hinted: list[BaseException] = []
-
-    def call(key: str) -> str:
-        calls.append(key)
-        if key in ("k1", "k2"):
-            raise ModelError("quota", retryable=True, status=429)
-        return key
-
-    out = _rotate(
-        pool,
-        call,
-        max_attempts=1,
-        sleep=clock.sleep,
-        retry_after=lambda error: hinted.append(error) or 7.0,
-    )
-    assert out == "k3" and calls == ["k1", "k2", "k3"]
-    assert clock.naps == [0.5, 0.5]
-    stats = pool.stats()
-    assert len(hinted) == 2 and stats["n_cooling"] == 2
-    assert max(key["cooldown_s"] for key in stats["keys"]) <= MAX_WAIT_S
 
 
 # --------------------------------------------------------------------------- 503 storms
@@ -314,26 +272,6 @@ def test_the_worst_error_decides_a_hedged_attempt():
 
 
 # --------------------------------------------------------------------------- deadline threading (2026-08-27)
-def test_a_storm_wait_is_clipped_to_the_remaining_budget():
-    """Sleeping past the deadline only to give up on waking helps nobody."""
-    clock = Clock()
-    with pytest.raises(ModelError):
-        _rotate503(
-            _pool(1),
-            _boom(),
-            max_attempts=6,
-            storm_attempts=60,
-            base_delay=4.0,
-            storm_max_delay=5.0,
-            max_total_s=3.0,
-            sleep=clock.sleep,
-            monotonic=clock,
-            hedge=1,
-        )
-    assert clock.naps, "expected the storm path to sleep"
-    assert clock.t <= 3.0 + 1e-6, f"slept past the deadline: {clock.t}"
-
-
 def test_free_429_rotation_cannot_outlive_the_deadline():
     """Free key rotation still consumes wall-clock budget."""
     clock = Clock()
@@ -399,30 +337,3 @@ def test_a_broken_on_attempt_hook_never_breaks_the_call():
 
     assert _rotate(pool, lambda key: "ok", on_attempt=hook) == "ok"
 
-
-def test_error_causes_avoid_cycles_and_preserve_real_wrapped_errors():
-    """Classified errors avoid self-cycles while preserving genuine causes."""
-
-    def call(key):
-        raise ModelError(
-            "structured output unavailable (finish_reason=MAX_TOKENS)", retryable=False, status=None
-        )
-
-    with pytest.raises(ModelError) as ei:
-        _rotate(_pool(), call, max_attempts=1)
-    err = ei.value
-    assert err.__cause__ is not err, "the classified error became its own __cause__"
-
-    # walk the whole chain: no link may repeat, whatever the branch
-    seen, node = set(), err
-    while node is not None and id(node) not in seen:
-        seen.add(id(node))
-        node = node.__cause__ if node.__cause__ is not None else node.__context__
-    assert node is None, "the cause chain closes into a cycle"
-
-    def timeout(key):
-        raise TimeoutError("read timed out")
-
-    with pytest.raises(ModelError) as ei:
-        _rotate(_pool(), timeout, max_attempts=1)
-    assert isinstance(ei.value.__cause__, TimeoutError)

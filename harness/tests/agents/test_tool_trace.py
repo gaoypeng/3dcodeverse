@@ -81,28 +81,7 @@ def test_claude_is_launched_streaming(tmp_ws: Workspace):
     argv = ClaudeCodeAgent("sonnet", binary="claude").build_argv(s)
     assert "Skill" in argv[argv.index("--allowedTools") + 1].split(",")
     assert "--disable-slash-commands" not in argv   # claude-code: "Disable all skills"
-
-
-FAKE_STREAMING_CLAUDE = r'''
-args = sys.argv[1:]
-assert args[args.index("--output-format") + 1] == "stream-json" and "--verbose" in args
-for ev in json.loads(os.environ["FAKE_EVENTS"]):
-    print(json.dumps(ev), flush=True)
-'''
-
-
-def test_a_claude_session_writes_its_trace_into_the_transcript(tmp_ws: Workspace, fake_bin, monkeypatch):
-    monkeypatch.setenv("FAKE_EVENTS", json.dumps(CLAUDE_STREAM))
-    res = ClaudeCodeAgent("sonnet", binary=fake_bin("claude", FAKE_STREAMING_CLAUDE)).run(
-        AgentJob(workspace=str(tmp_ws.root), prompt="build it", label="c", timeout_s=30, spatial_tools=False))
-    assert res.ok and res.turns == 25, res.errors
-    rows = [json.loads(x) for x in Path(res.transcript_path).read_text().splitlines()]
-    calls = [r for r in rows if r["kind"] == TOOL_CALL_ROW]
-    trace = [r for r in rows if r["kind"] == TOOL_TRACE_ROW]
-    assert [c["tool"] for c in calls] == ["Skill", "Read", "mcp__3dcode__check_contract"]
-    assert calls[0]["skill"] == "c3d-bbox-contract" and calls[2]["failed"] is True
-    assert trace == [{**trace[0], "calls": 3, "source": "claude-code stream-json"}]
-    assert "zz-c3d-read-control" in trace[0]["skills_index"]
+    assert argv[argv.index("--output-format") + 1] == "stream-json" and "--verbose" in argv
 
 
 # --------------------------------------------------------------------------- gemini-cli

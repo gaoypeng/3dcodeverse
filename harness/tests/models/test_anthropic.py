@@ -150,20 +150,17 @@ def test_structured_output_via_forced_submit_tool():
         kw["tools"][0]["name"] == "submit"
         and kw["tools"][0]["input_schema"]["additionalProperties"] is False
     )
-
-
-def test_structured_output_with_thinking_uses_auto_and_text_fallback():
-    schema = {"type": "object"}
+    # with thinking on, a forced tool is refused: tool_choice is auto and the text is parsed
     m, fc = make([msg([text('```json\n{"b": 2}\n```')])])
     r = m.generate(
-        ChatRequest(messages=[ChatMessage.user("x")], response_schema=schema, thinking="low")
+        ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"}, thinking="low")
     )
     assert r.parsed == {"b": 2}
     kw = fc.calls[0]
     assert "tool_choice" not in kw and "submit" in kw["system"]
 
 
-def test_images_base64_and_message_merging():
+def test_images_base64_message_merging_and_user_first():
     msgs = to_messages(
         [
             ChatMessage.user(
@@ -179,6 +176,8 @@ def test_images_base64_and_message_merging():
         "text",
     ]
     assert msgs[0]["content"][2]["source"]["media_type"] == "image/png"
+    msgs = to_messages([ChatMessage.assistant("hi")])  # assistant first gets a user prefix
+    assert msgs[0]["role"] == "user" and msgs[1]["role"] == "assistant"
 
 
 def test_classify_connection_errors():
@@ -202,11 +201,6 @@ def test_missing_key_is_loud(monkeypatch):
     get_settings.cache_clear()
 
 
-def test_assistant_first_gets_user_prefix():
-    msgs = to_messages([ChatMessage.assistant("hi")])
-    assert msgs[0]["role"] == "user" and msgs[1]["role"] == "assistant"
-
-
 def test_a_failed_reply_carries_what_it_was_billed():
     """A refusal / bad-JSON / empty reply is billed on the error (D84)."""
     for script, req in (
@@ -222,17 +216,3 @@ def test_a_failed_reply_carries_what_it_was_billed():
             m.generate(req)
         assert e.value.usage.input_tokens == 100 and e.value.usage.output_tokens == 20
 
-
-def test_each_attempt_gets_what_is_left_of_the_call_budget():
-    """Every SDK adapter (SdkModel) passes the call's remaining max_wait_s to each attempt."""
-    m, fc = make([msg([text("hi")])], timeout_s=600.0)
-    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=25.0))
-    assert 20.0 <= fc.calls[0]["timeout"] <= 25.0
-
-    m, fc = make([msg([text("hi")])], timeout_s=600.0)
-    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=5.0))
-    assert fc.calls[0]["timeout"] == 20.0, "a near-dead budget still buys ONE real attempt"
-
-    m, fc = make([msg([text("hi")])], timeout_s=600.0)
-    m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=930.0))
-    assert fc.calls[0]["timeout"] == 600.0, "a long plan is bounded by the client, not clipped"

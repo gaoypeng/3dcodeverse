@@ -149,14 +149,6 @@ def test_json_schema_strict_then_fallback_to_non_strict():
     assert fc.calls[2]["response_format"]["json_schema"]["strict"] is False
 
 
-def test_bad_json_retried():
-    m, fc = make([completion("garbage"), completion('{"ok": 1}')])
-    r = m.generate(
-        ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"})
-    )
-    assert r.parsed == {"ok": 1} and len(fc.calls) == 2
-
-
 def test_images_data_urls():
     msgs = to_messages(
         [
@@ -170,11 +162,14 @@ def test_images_data_urls():
     assert [b["type"] for b in c] == ["text", "text", "image_url"]
 
 
-
-
-def test_empty_and_classify():
+def test_bad_json_and_empty_replies_are_retried_and_classify():
     import openai
 
+    m, fc = make([completion("garbage"), completion('{"ok": 1}')])
+    r = m.generate(
+        ChatRequest(messages=[ChatMessage.user("x")], response_schema={"type": "object"})
+    )
+    assert r.parsed == {"ok": 1} and len(fc.calls) == 2
     m, fc = make([completion(None), completion("ok")])
     assert m.generate(ChatRequest(messages=[ChatMessage.user("x")])).text == "ok"
     req = httpx.Request("POST", "https://api.openai.com")
@@ -213,5 +208,3 @@ def test_a_failed_reply_carries_what_it_was_billed():
             m.generate(req)
         u = e.value.usage
         assert u.input_tokens == 100 and u.output_tokens == 20 and u.thoughts_tokens == 10
-
-

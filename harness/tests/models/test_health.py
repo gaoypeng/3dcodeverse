@@ -5,7 +5,7 @@ from __future__ import annotations
 from codeverse3d.models.health import DEFAULT_MIN_OK, Health
 
 
-def test_health_threshold_requires_a_real_success_rate():
+def test_health_threshold_requires_a_real_success_rate_and_names_the_reason():
     for n_ok, n_tried, expected in (
         (6, 6, True),
         (3, 4, True),
@@ -17,6 +17,15 @@ def test_health_threshold_requires_a_real_success_rate():
         assert Health("m", n_ok=n_ok, n_tried=n_tried).ok is expected, (
             f"{n_ok}/{n_tried}; threshold={DEFAULT_MIN_OK:.0%}"
         )
+    # the doctor line carries the provider's reason
+    h = Health(
+        "gemini:gemini-3.7-flash",
+        n_ok=0,
+        n_tried=4,
+        reasons=("ModelError: Gemini API error 504: Deadline expired",),
+    )
+    text = str(h)
+    assert "0/4" in text and "504" in text, text
 
 
 def test_the_probe_prompt_is_the_size_of_real_work():
@@ -29,17 +38,6 @@ def test_the_probe_prompt_is_the_size_of_real_work():
     assert "pong" in prompt, (
         "the answer must still be one word, so the probe costs input not output"
     )
-
-
-def test_the_message_carries_the_provider_reason():
-    h = Health(
-        "gemini:gemini-3.7-flash",
-        n_ok=0,
-        n_tried=4,
-        reasons=("ModelError: Gemini API error 504: Deadline expired",),
-    )
-    text = str(h)
-    assert "0/4" in text and "504" in text, text
 
 
 def test_probe_never_raises_when_every_call_fails(monkeypatch):

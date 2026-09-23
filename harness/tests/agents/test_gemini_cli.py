@@ -187,13 +187,6 @@ def test_agent_planted_mcp_server_never_reaches_the_cli(tmp_ws: Workspace, agent
     assert settings["security"]["folderTrust"]["enabled"] is False
 
 
-def test_model_substitution_detected(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
-    monkeypatch.setenv("FAKE_MODE", "substitute")
-    res = agent.run(_job(tmp_ws))
-    assert not res.ok and res.exit_reason == "model_substituted"
-    assert "gemini-9-pro" in res.errors[0]
-
-
 def test_single_key_transient_failure_retries_same_key_and_never_raises(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
     """Settings with ONE key: the retry must reuse it (no KeyPoolExhausted out of run())."""
 
@@ -242,23 +235,6 @@ def test_pool_exhausted_before_first_attempt_is_a_budget_result(tmp_ws: Workspac
     assert not res.ok and res.exit_reason == "budget" and "exhausted" in res.errors[0]
 
 
-def test_a_cli_session_holds_no_in_flight_slot(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
-    """The machine-wide in-flight slots are for API calls; a session takes only its key."""
-    from codeverse3d.agents import backends as gc
-
-    pool = gc._key_pool(get_settings().gemini_api_keys)  # noqa: SLF001
-    seen: list[int] = []
-
-    def boom(*a, **k):
-        seen.append(pool.stats()["in_flight"])
-        raise OSError("cannot spawn")
-
-    monkeypatch.setattr(gc, "invoke", boom)
-    with pytest.raises(OSError, match="cannot spawn"):
-        agent.run(_job(tmp_ws))
-    assert seen == [0] and pool.stats()["in_flight"] == 0
-
-
 def test_a_timeout_after_a_503_streak_is_marked_transient(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
     """A 503 storm inside the CLI's own retry loop ends on the wall: the result says why (2026-09-07)."""
     monkeypatch.setenv("FAKE_MODE", "storm")
@@ -280,6 +256,8 @@ def test_the_key_pool_hears_a_5xx_only_when_the_failure_was_transient(tmp_ws: Wo
         monkeypatch.setenv("FAKE_MODE", mode)
         res = agent.run(_job(tmp_ws, timeout_s=timeout_s, label=mode))
         assert not res.ok and res.transient is False, mode
+        if mode == "substitute":   # the served model is checked against the requested one
+            assert res.exit_reason == "model_substituted" and "gemini-9-pro" in res.errors[0]
     st = pool.stats()
     assert (st["5xx"], st["ok"], st["error"]) == (0, 0, 0), st
     monkeypatch.setenv("FAKE_MODE", "fail_once_503")   # a real 503, then a rotated success

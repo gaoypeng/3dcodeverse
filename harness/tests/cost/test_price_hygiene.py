@@ -35,8 +35,6 @@ SUPPORTED_MODEL_IDS = (
 )
 
 
-
-
 def test_long_context_tier_is_applied():
     small = Usage(input_tokens=100_000, output_tokens=1_000)
     big = Usage(input_tokens=300_000, output_tokens=1_000)
@@ -89,4 +87,3 @@ def test_every_price_row_was_checked_within_the_maintenance_window():
         if age > STALE_AFTER_DAYS:
             stale.append(f"{prov}:{model} ({age} days)")
     assert not stale, f"price rows older than {STALE_AFTER_DAYS} days: {stale}"
-

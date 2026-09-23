@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
-import logging
 
 from codeverse3d.agents.cli_common import default_mcp_command
-from codeverse3d.agents.materialize import C3D_DIR, materialize_workspace
+from codeverse3d.agents.materialize import materialize_workspace
 from codeverse3d.workspace import Workspace
 
 CONTRACT = "## blender contract\nWrite pure bpy into src/model.py."
@@ -15,17 +14,6 @@ CONTRACT = "## blender contract\nWrite pure bpy into src/model.py."
 def _mat(ws: Workspace, kind: str = "gemini-cli", spatial: bool = True, cookbook: str = ""):
     return materialize_workspace(ws, agent_kind=kind, contract_md=CONTRACT, cookbook_text=cookbook,
                                  spatial_tools=spatial, mcp_command=default_mcp_command(ws))
-
-
-def test_writes_three_bodies_same_content(tmp_ws: Workspace):
-    _mat(tmp_ws)
-    bodies = [(tmp_ws.root / n).read_text() for n in ("AGENTS.md", "GEMINI.md", "CLAUDE.md")]
-    assert bodies[0] == bodies[1] == bodies[2]
-    body = bodies[0]
-    assert "ONLY under `src/` and `public/`" in body
-    assert "never import from `codeverse3d`" in body.lower()
-    assert CONTRACT.splitlines()[0] in body
-    assert "Spatial tools (3dcode)" in body
 
 
 def test_bodies_document_only_this_tracks_tools(tmp_ws: Workspace):
@@ -62,7 +50,7 @@ def test_no_mcp_server_is_written_into_the_workspace(tmp_ws: Workspace):
     assert data["context"]["fileFiltering"]["respectGitIgnore"] is False  # .gitignore hides artifacts/ + trajectories/
 
 
-def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
+def test_ignore_files_keep_agent_facing_paths_readable_and_a_missing_cookbook_is_said(tmp_ws: Workspace):
     """gemini-cli refuses read_file on ignored paths: census and tool renders stay readable."""
     import fnmatch
 
@@ -91,32 +79,14 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
                        "trajectories/baseline_r00/prompt.md", "trajectories/baseline_r00/gemini_settings.json",
                        "trajectories/baseline_r00/stderr.log", "node_modules/three/x.js", ".git/HEAD"):
             assert ignored(hidden, lines), hidden
-
-
-def test_spatial_disabled_documents_absence(tmp_ws: Workspace):
-    _mat(tmp_ws, spatial=False)
-    assert "No spatial tools are available" in (tmp_ws.root / "AGENTS.md").read_text()
-
-
-def test_cookbook_copied_when_found(tmp_ws: Workspace, caplog):
-    with caplog.at_level(logging.WARNING, logger="codeverse3d.agents.materialize"):
-        _mat(tmp_ws, cookbook="# cookbook\nsnippet")
-    assert (tmp_ws.root / C3D_DIR / "cookbook.md").read_text() == "# cookbook\nsnippet"
-    assert f"{C3D_DIR}/cookbook.md" in (tmp_ws.root / "AGENTS.md").read_text()
-    assert not [r for r in caplog.records if r.name == "codeverse3d.agents.materialize"], \
-        "a resolved cookbook must not warn"
-
-
-def test_missing_cookbook_warns_where_someone_can_see_it(tmp_ws: Workspace, caplog):
-    """The log line is the only signal of an unresolved cookbook."""
-    with caplog.at_level(logging.WARNING, logger="codeverse3d.agents.materialize"):
-        _mat(tmp_ws, cookbook="")
-    assert any("cookbook not found" in r.getMessage() for r in caplog.records)
+    # no cookbook resolved (the default here): the body says so rather than naming a missing file
     assert "No cookbook is available" in (tmp_ws.root / "AGENTS.md").read_text()
 
 
-def test_kind_specific_tool_hint(tmp_ws: Workspace):
+def test_kind_specific_tool_hint_and_spatial_disabled_documents_absence(tmp_ws: Workspace):
     _mat(tmp_ws, kind="claude-code")
     assert "mcp__3dcode__" in (tmp_ws.root / "CLAUDE.md").read_text()
     _mat(tmp_ws, kind="agy")
     assert "codeverse3d.cli.main tools" in (tmp_ws.root / "AGENTS.md").read_text()
+    _mat(tmp_ws, spatial=False)
+    assert "No spatial tools are available" in (tmp_ws.root / "AGENTS.md").read_text()

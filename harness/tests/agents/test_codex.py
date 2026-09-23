@@ -67,20 +67,16 @@ def test_reasoning_tokens_are_not_billed_twice():
     assert u.cost_usd == pytest.approx(1000 * 4.0 / 1e6 + 9000 * 20.0 / 1e6)
 
 
-def test_argv_sandboxes_the_workspace_and_approves_mcp_calls(tmp_ws: Workspace):
+def test_argv_sandboxes_the_workspace_approves_mcp_calls_and_states_the_effort(tmp_ws: Workspace):
     a = CodexAgent("gpt-5.6-sol", binary="codex")
     argv = a.build_argv(begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p"), "codex"))
     assert argv[argv.index("--sandbox") + 1] == "workspace-write"
     # codex exec has nobody to answer the per-tool approval elicitation → every MCP call would be cancelled
     assert 'mcp_servers.3dcode.default_tools_approval_mode="approve"' in argv
-    s2 = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "codex")
-    assert "mcp_servers" not in " ".join(a.build_argv(s2))
-
-
-def test_reasoning_effort_is_explicit(tmp_ws: Workspace, monkeypatch):
-    """`codex exec` defaults to medium; every harness call states the effort instead."""
     s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "codex")
-    argv = CodexAgent("gpt-5.6-sol", binary="codex").build_argv(s)
+    argv = a.build_argv(s)
+    assert "mcp_servers" not in " ".join(argv)
+    # `codex exec` defaults to medium; every harness call states the effort instead
     assert argv[argv.index("-c") + 1] == "model_reasoning_effort=high"
     a = CodexAgent("gpt-5.6-terra@medium", binary="codex")
     assert (a.model, a.reasoning_effort, a.id) == ("gpt-5.6-terra", "medium", "codex:gpt-5.6-terra")
@@ -92,7 +88,7 @@ def test_reasoning_effort_is_explicit(tmp_ws: Workspace, monkeypatch):
         CodexAgent("gpt-5.6-sol", binary="codex", reasoning_effort="ludicrous")
 
 
-def test_fake_run(tmp_ws: Workspace, fake_bin, monkeypatch):
+def test_fake_run_and_every_failure_is_typed(tmp_ws: Workspace, fake_bin, monkeypatch):
     a = CodexAgent("gpt-5.6-sol", binary=fake_bin("codex", FAKE_CODEX))
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="x", timeout_s=30))
     assert res.ok and res.exit_reason == "completed" and res.text == "Done." and res.tool_calls == 2, res.errors
@@ -105,10 +101,7 @@ def test_fake_run(tmp_ws: Workspace, fake_bin, monkeypatch):
     res2 = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="y", timeout_s=30))
     assert not res2.ok and res2.exit_reason == "error" and "boom" in res2.errors[0]
     assert not res2.transient and not res2.quota            # the task's own failure
-
-
-def test_a_codex_failure_is_typed_quota_or_transient(tmp_ws: Workspace, fake_bin, monkeypatch):
-    a = CodexAgent("gpt-5.6-sol", binary=fake_bin("codex", FAKE_CODEX))
+    # a provider failure is typed quota or transient
     monkeypatch.setenv("FAKE_MODE", "usage_limit")
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="q", timeout_s=30))
     assert not res.ok and res.quota and not res.transient

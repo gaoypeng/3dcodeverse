@@ -92,8 +92,6 @@ def test_inline_refs_and_recursion_guard():
         inline_refs(rec)
 
 
-
-
 def test_openai_strict_schemas_never_add_null():
     """Wire contract == pydantic contract: a field accepts null on the wire iff the
     source schema does (``x: T | None``) — never because it merely has a default /
@@ -145,10 +143,12 @@ def test_parse_json_lenient_accepts_wrappers_and_rejects_non_json():
     assert json.dumps(parse_json_lenient('{"n": {"x": [1]}}')) == '{"n": {"x": [1]}}'
 
 
-def test_ask_structured_returns_the_triple_for_prose_it_cannot_parse():
-    """The callers branch on the error string; a provider that returns prose must not raise."""
+def test_ask_structured_returns_the_triple_and_the_billed_usage_on_failure():
+    """The callers branch on the error string, so a provider that returns prose must not
+    raise; a bad-JSON reply is charged like a good one: the caller's tally gets the usage."""
     from codeverse3d.contracts.chat import ChatResponse
     from codeverse3d.contracts.common import Usage
+    from codeverse3d.models.base import ModelError
     from codeverse3d.models.schema_utils import ask_structured
 
     class Answer(BaseModel):
@@ -160,16 +160,6 @@ def test_ask_structured_returns_the_triple_for_prose_it_cannot_parse():
 
     out, usage, err = ask_structured(Prose(), Answer, system="s", text="t", temperature=0.2, label="l")
     assert out is None and usage.cost_usd == 0.01 and err.startswith("answer unparsable:")
-
-
-def test_ask_structured_returns_the_usage_a_failed_call_was_billed():
-    """A bad-JSON reply is charged like a good one: the caller's tally gets the billed usage."""
-    from codeverse3d.contracts.common import Usage
-    from codeverse3d.models.base import ModelError
-    from codeverse3d.models.schema_utils import ask_structured
-
-    class Answer(BaseModel):
-        ok: bool
 
     billed = Usage(input_tokens=42_000, output_tokens=100, cost_usd=0.123, backend="gemini")
 
