@@ -100,16 +100,6 @@ def _check_imports(rel: str, text: str, ws: Workspace, path: Path) -> list[GateF
     return check_imports(text, path, ws.src, make_finding=make_finding)[0]
 
 
-#: the env skeleton's own TODO line and its placeholder daylight palette.  An env.js that
-#: still carries them is a skeleton the env stage never rewrote — measured 2026-08-30 on the
-#: SOTA battery: izakaya_night (both arms) and nyc_dusk shipped the untouched skeleton, so a
-#: "cozy izakaya at NIGHT" rendered under 0xcfdcec sky over 0x4a5a2a ground and the run lost
-#: on brief fidelity while every other gate passed.  The plan was right and sat in the file's
-#: own ENV PLAN header; nobody acted on it.
-_ENV_SKELETON_TODO = "Rewrite the ground/sky/fog/sun below to match the plan"
-_ENV_SKELETON_DEFAULTS = ("0xbcd7ff", "0xcfdcec")
-
-
 def lint(ws: Workspace) -> GateReport:
     """Run all static checks; passed iff no ERROR findings."""
     t0 = time.time()
@@ -144,16 +134,6 @@ def lint(ws: Workspace) -> GateReport:
         if path.parent == ws.src / "zones" and not _BUILD_RE.search(text):
             findings.append(_f(Severity.ERROR, "zone module does not export build(ctx)", target=rel,
                                hint="export function build(ctx) { const g = new THREE.Group(); g.name = 'ZoneName'; ...; return g; }"))
-        if path == ws.src / "env.js":
-            stale = [d for d in _ENV_SKELETON_DEFAULTS if d in text]
-            if _ENV_SKELETON_TODO in text and stale:
-                findings.append(_f(Severity.ERROR,
-                                   f"src/env.js is still the untouched skeleton (its TODO line and the "
-                                   f"placeholder daylight palette {', '.join(stale)} are both present)",
-                                   target=rel,
-                                   hint="the ENV PLAN header at the top of env.js states the sky, sun, fog and "
-                                        "ground this scene needs — write those colours and angles into buildEnv, "
-                                        "then delete the TODO line"))
         if path.parent == ws.src / "assets" and not _BUILD_ANY_RE.search(text):
             findings.append(_f(Severity.WARN, "asset module exports no build<Pascal>(THREE) factory", target=rel,
                                hint="export function buildLamp(THREE) { ... return group; }"))

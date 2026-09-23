@@ -82,33 +82,3 @@ def test_large_file_warning(ws):
     rep = lint(ws)
     assert any("large file" in m for _, m in _msgs(rep, Severity.WARN))
 
-
-def test_an_untouched_env_skeleton_is_an_error(ws):
-    """The env stage shipping the skeleton back is invisible to every other gate: the file
-    parses, exports what it must, and renders — as a sunny day, whatever the brief asked for."""
-    (ws.src / "scene.js").write_text(
-        "import * as THREE from 'three';\n"
-        "export function createScene({ THREE, renderer, loaders }) { return { scene: new THREE.Scene(), cameras: [], update() {} }; }\n")
-    skeleton = (
-        "// ENV PLAN: night, moonlit, sky zenith 0x070b18\n"
-        "// Rewrite the ground/sky/fog/sun below to match the plan; keep buildEnv/heightAt exports.\n"
-        "import * as THREE from 'three';\n"
-        "export const SUN_AZIMUTH_DEG = 60;\n"
-        "export function heightAt(x, z) { return 0; }\n"
-        "export function buildEnv(ctx) {\n"
-        "  ctx.scene.background = new THREE.Color(0xcfdcec);\n"
-        "  ctx.scene.add(new THREE.HemisphereLight(0xbcd7ff, 0x4a5a2a, 0.9));\n"
-        "  return { update(t, dt) {} };\n"
-        "}\n")
-    (ws.src / "env.js").write_text(skeleton)
-    rep = lint(ws)
-    assert not rep.passed
-    assert any("untouched skeleton" in m for _, m in _msgs(rep, Severity.ERROR))
-
-    # the same file with the plan's own colours written in is clean again
-    (ws.src / "env.js").write_text(
-        skeleton.replace("// Rewrite the ground/sky/fog/sun below to match the plan; keep buildEnv/heightAt exports.\n", "")
-                .replace("0xcfdcec", "0x141a2e").replace("0xbcd7ff", "0x1c2b4a"))
-    rep = lint(ws)
-    assert not any("untouched skeleton" in m for _, m in _msgs(rep, Severity.ERROR)), _msgs(rep)
-

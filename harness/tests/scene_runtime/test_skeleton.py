@@ -62,10 +62,7 @@ def test_plan_skeleton_writes_zone_and_asset_stubs_and_lints(ws):
     assert "GROUND_SIZE = 200" in env  # 80 m span * 2.5
     assert (ws.public / "assets").is_dir()
     rep = lint(ws)
-    # a fresh skeleton IS an unwritten env.js, and lint says so on purpose (that check is
-    # what catches an env stage that never ran); everything else must already be legal.
-    other = [(f.target, f.message) for f in rep.errors if "untouched skeleton" not in f.message]
-    assert not other, other
+    assert not rep.errors, [(f.target, f.message) for f in rep.errors]
 
 
 # ------------------------------------------------------- the effect library (D51)
