@@ -111,7 +111,7 @@ def judge(
     except RecordError as e:
         raise C.CliError(str(e), code=2) from e
     picked = select.pick(ws.root, record=rec) if round_index is None else None
-    idx = round_index if round_index is not None else (picked if picked is not None else _latest_round(ws))
+    idx = round_index if round_index is not None else (picked if picked is not None else max(ws.rendered_rounds(), default=0))
     rnd = J.load_round(ws, rec, idx)
     if rnd is None or rnd.renders is None or not rnd.renders.views:
         raise C.CliError(f"round {idx} has no renders (rounds/r{idx:02d}.json / record.json)")
@@ -207,7 +207,7 @@ def _render_round_or_refuse(ws, round_index: int | None) -> int:
     every round's own renders are already in ``artifacts/renders/rNN/``, and
     ``3dcode pick <slug> --round N`` packages any round with its GLB.
     """
-    tree = _latest_round(ws)
+    tree = max(ws.rendered_rounds(), default=0)
     if round_index is not None and round_index != tree:
         raise C.CliError(
             f"cannot render round {round_index}: `render` renders the working tree, which is at "
@@ -216,15 +216,5 @@ def _render_round_or_refuse(ws, round_index: int | None) -> int:
             f"packages it.",
             code=2)
     return tree
-
-
-def _latest_round(ws) -> int:
-    rdir = ws.artifacts / "renders"
-    idxs = (
-        sorted(int(p.name[1:]) for p in rdir.glob("r[0-9][0-9]") if p.is_dir())
-        if rdir.is_dir()
-        else []
-    )
-    return idxs[-1] if idxs else 0
 
 

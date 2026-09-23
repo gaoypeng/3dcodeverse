@@ -124,8 +124,7 @@ def hero_view(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[str, s
 
 def _articulation_sheet(ws: Workspace, picked: int | None) -> str:
     order = [picked] if picked is not None else []
-    order += [int(p.name[1:]) for p in sorted((ws.artifacts / "renders").glob("r[0-9][0-9]"), reverse=True)
-              if p.is_dir()]
+    order += ws.rendered_rounds()[::-1]
     for idx in order:
         rel = f"artifacts/renders/r{idx:02d}/poses/articulation_sheet.png"
         if (ws.root / rel).is_file():

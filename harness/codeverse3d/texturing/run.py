@@ -84,11 +84,8 @@ class TextureReport(BaseModel):
 
 def latest_sheet(ws: Workspace) -> Path | None:
     """The most recent round's contact sheet (``artifacts/renders/rNN/sheet.png``)."""
-    rdir = ws.artifacts / "renders"
-    if not rdir.is_dir():
-        return None
-    rounds = sorted((p for p in rdir.glob("r[0-9][0-9]") if (p / "sheet.png").is_file()), key=lambda p: p.name)
-    return rounds[-1] / "sheet.png" if rounds else None
+    sheets = (ws.renders_dir(i) / "sheet.png" for i in reversed(ws.rendered_rounds()))
+    return next((p for p in sheets if p.is_file()), None)
 
 
 def _render_quick(glb: Path, out_dir: Path, views: Sequence[ViewPreset], render: Any | None) -> RenderSet:

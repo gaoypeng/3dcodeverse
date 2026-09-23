@@ -212,6 +212,10 @@ class Workspace:
     def renders_dir(self, round_index: int) -> Path:
         return self.artifacts / "renders" / f"r{round_index:02d}"
 
+    def rendered_rounds(self) -> list[int]:
+        """The rounds that have a :meth:`renders_dir`, ascending."""
+        return sorted(int(p.name[1:]) for p in (self.artifacts / "renders").glob("r[0-9][0-9]") if p.is_dir())
+
     def gates_dir(self, round_index: int) -> Path:
         return self.artifacts / "gates" / f"r{round_index:02d}"
 
