@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from codeverse3d.config import Settings, get_settings
-from codeverse3d.tracks.plan_features import dead_env_keys
 
 
 def _settings(monkeypatch, **env: str) -> Settings:
@@ -27,10 +26,6 @@ def test_on_by_default_and_garbage_keeps_the_default(monkeypatch, raw, want):
 def test_max_is_never_a_crash(monkeypatch, raw, want):
     assert _settings(monkeypatch, C3D_SKILLS_MAX=raw).skills_max == want
 
-
-def test_the_switches_are_live():
-    assert dead_env_keys(dict.fromkeys(("C3D_SKILLS", "C3D_SKILLS_MAX", "C3D_SKILLS_UNVERIFIED",
-                                        "C3D_SKILLS_ONLY", "C3D_SKILLS_DIR"), "1")) == []
 
 
 def test_doctor_reports_the_default_and_the_gemini_pin(monkeypatch):

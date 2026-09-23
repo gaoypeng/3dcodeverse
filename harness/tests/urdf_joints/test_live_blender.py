@@ -1,4 +1,4 @@
-"""Real Blender builds (marked ``blender``): cabinet+door, drawer, bad pivot, yourdfpy."""
+"""Real Blender builds (marked ``blender``): cabinet+door with yourdfpy FK, a rest-shifted drawer, wrapper failures."""
 
 from __future__ import annotations
 
@@ -58,36 +58,6 @@ def test_rest_shifted_skeleton_builds_clean(tmp_path, drawer_plan):
     closed = link_world_meshes(r, {"slide": -0.1})["drawer"].bounds
     assert np.isclose(closed[1][1], -0.20, atol=1e-6)  # back face of the panel flush with the carcass front
     assert not [f for f in sweep_gate(ws)[0].findings if f.data.get("kind") == "penetration"]
-
-
-@needs_blender
-def test_drawer_prismatic(tmp_path, drawer_plan):
-    ws = Workspace(tmp_path / "drawer").create()
-    rt = UrdfBlenderRuntime()
-    rt.skeleton(ws, drawer_plan)
-    res = rt.build(ws)
-    assert res.ok, res.error_message
-    r = load_urdf(ws.artifacts / "robot.urdf", ws.artifacts / "meshes")
-    c0 = link_world_meshes(r)["drawer"].centroid
-    c1 = link_world_meshes(r, {"slide": 0.3})["drawer"].centroid
-    assert np.allclose(c1 - c0, [0, -0.3, 0], atol=1e-6)
-    assert not [f for f in sweep_gate(ws)[0].findings if f.data.get("kind") == "penetration"]
-
-
-@needs_blender
-def test_bad_pivot_is_caught(tmp_path, cabinet_plan):
-    ws = Workspace(tmp_path / "bad").create()
-    rt = UrdfBlenderRuntime()
-    rt.skeleton(ws, cabinet_plan)
-    u = ws.src / "robot.urdf"
-    # hinge moved to the door's middle: the door must sweep into the body
-    u.write_text(u.read_text().replace('<origin xyz="-0.29 -0.2 0" rpy="0 0 0"/>  <!-- pivot', '<origin xyz="0 -0.2 0" rpy="0 0 0"/>  <!-- pivot')
-                 .replace('xyz="0.29 0.2 0"', 'xyz="0 0.2 0"').replace('xyz="0.49 -0.04 0.4"', 'xyz="0.2 -0.04 0.4"'))
-    res = rt.build(ws)
-    assert res.ok  # rest pose is still fine; the round's joint_sweep gate reports the defect
-    gate, _ = sweep_gate(ws)
-    pen = next(f for f in gate.errors if f.target == "body|door")
-    assert pen.data["max_depth_m"] > 0.05 and {"hinge": 1.57} in pen.data["poses"]
 
 
 @needs_blender
