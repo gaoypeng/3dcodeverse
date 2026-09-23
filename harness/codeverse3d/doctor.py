@@ -7,12 +7,11 @@ shim is a CLI concern (tests/install imports these checks as documentation facts
 from __future__ import annotations
 
 import importlib
-import json
 import shutil
 from pathlib import Path
 
 from codeverse3d.config import get_settings
-from codeverse3d.proc import version_line
+from codeverse3d.proc import read_json_or_none, version_line
 
 Row = tuple[str, str, str]
 _PY_DEPS = ("pydantic", "pydantic_settings", "typer", "rich", "jinja2", "yaml", "numpy", "trimesh", "fcl", "PIL", "pyarrow",
@@ -89,19 +88,20 @@ def check_node() -> list[Row]:
     except RuntimeError as e:   # non-editable install without C3D_RUNTIME_JS
         rows.append(("runtime_js", "FAIL", str(e)))
         return rows
-    three = rj / "node_modules" / "three" / "package.json"
-    pup = rj / "node_modules" / "puppeteer" / "package.json"
-    if three.is_file():
-        rows.append(("three", "OK", json.loads(three.read_text()).get("version", "?") + f" ({rj / 'node_modules'})"))
+    # a missing, torn or non-object package.json is the same broken install: never a crash
+    three = read_json_or_none(rj / "node_modules" / "three" / "package.json")
+    pup = read_json_or_none(rj / "node_modules" / "puppeteer" / "package.json")
+    if three is not None:
+        rows.append(("three", "OK", f"{three.get('version', '?')} ({rj / 'node_modules'})"))
     else:
-        rows.append(("three", "FAIL", f"runtime_js/node_modules/three missing — run `npm install` in {rj}"))
-    if pup.is_file():
+        rows.append(("three", "FAIL", f"runtime_js/node_modules/three missing or unreadable — run `npm install` in {rj}"))
+    if pup is not None:
         cache = Path.home() / ".cache" / "puppeteer"
         chrome = any(cache.rglob("chrome")) if cache.is_dir() else False
         rows.append(("puppeteer", "OK" if chrome else "WARN",
-                     f"v{json.loads(pup.read_text()).get('version', '?')}; chrome cache {'found' if chrome else 'missing'} ({cache})"))
+                     f"v{pup.get('version', '?')}; chrome cache {'found' if chrome else 'missing'} ({cache})"))
     else:
-        rows.append(("puppeteer", "FAIL", "not installed in runtime_js"))
+        rows.append(("puppeteer", "FAIL", "not installed in runtime_js (or its package.json is unreadable)"))
     return rows
 
 
