@@ -35,3 +35,18 @@ def test_a_round_recorded_before_the_copy_is_not_quoted_a_later_builds_metrics(t
         (ws.root / "rounds" / f"r{i:02d}.json").write_text("{}")
     assert "later build" in frame_stats_text(ws, 0) and "mean_lum" not in frame_stats_text(ws, 0)
     assert "mean_lum=0.750" in frame_stats_text(ws, 1)
+
+
+def test_an_old_graphics_run_quotes_the_canonical_metrics_for_the_round_its_finalise_rebuilt(tmp_path):
+    """smoke_glsl-like: three rounds recorded before rounds kept a copy; the old finalise rebuilt
+    the best (``best_round`` 1), so artifacts/metrics.json is round 1's — not round 2's (the
+    highest), and not "a later build's" for round 1."""
+    ws = Workspace(tmp_path / "run").create()
+    _metrics(ws, 0.5)  # round 1's, rebuilt by the old finalise
+    (ws.root / "rounds").mkdir()
+    for i in (0, 1, 2):
+        (ws.root / "rounds" / f"r{i:02d}.json").write_text("{}")
+    ws.write_json(ws.record_path, {"best_round": 1})
+    assert "mean_lum=0.500" in frame_stats_text(ws, 1)
+    for i in (0, 2):
+        assert "mean_lum" not in frame_stats_text(ws, i)
