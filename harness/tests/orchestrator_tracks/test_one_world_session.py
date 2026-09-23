@@ -30,4 +30,4 @@ def test_a_whole_world_batch_owns_every_zone_file_and_gets_a_window_per_zone(tmp
     assert whole.files_hint == [zone_file(z.name) for z in plan.zones] and whole.edit_only
     assert whole.timeout_s == ZONE_TIMEOUT_S * len(plan.zones)
     assert "you are its one author" in whole.prompt and "nothing floats" in whole.prompt
-    assert f"window is {len(plan.zones)} zones' worth ({ZONE_TIMEOUT_S * len(plan.zones) // 60} min)" in whole.prompt
+    assert f"This session covers {len(plan.zones)} zones:" in whole.prompt and " min)" not in whole.prompt   # no time window

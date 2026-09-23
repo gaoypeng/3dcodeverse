@@ -408,7 +408,7 @@ def reference_note(ctx: RunContext) -> str:
     lines = [
         f"REFERENCE IMAGES ({len(refs)}): match their silhouette, proportions and visible details — they "
         "outrank the text when the two disagree.  A harness measures the front-view outline IoU against the "
-        "target reference; aim for IoU ≥ 0.6."
+        "target reference."
     ]
     for i, r in enumerate(refs, 1):
         lines.append(f"- reference {i} ({r.role}): `{r.path}`" + (f" — {r.note}" if r.note else ""))

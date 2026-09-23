@@ -286,17 +286,17 @@ def _store_motion(out_dir: Path, metrics: dict[str, Any]) -> None:
 
 
 def perf_detail(rs: RenderSet) -> str:
-    """`` — 5028 draw calls (budget 200), 191k triangles`` from a render's own instruments.
+    """`` — 5028 draw calls, 191k triangles`` from a render's own instruments.
 
     The number is what makes a low-fps finding actionable: "low fps" is a mood, "5028 draw
-    calls against a budget of 200" names the fix.  ``""`` when the instruments are missing."""
+    calls" names the fix.  ``""`` when the instruments are missing."""
     try:
         path = metrics_path_for(rs)
         if path is None:
             return ""
         fps = (json.loads(path.read_text()).get("fps") or {})
         calls, tris = fps.get("draw_calls"), fps.get("triangles")
-        bits = [f"{int(calls)} draw calls (budget 200)" if isinstance(calls, (int, float)) else "",
+        bits = [f"{int(calls)} draw calls" if isinstance(calls, (int, float)) else "",
                 f"{int(tris) / 1000:.0f}k triangles" if isinstance(tris, (int, float)) else ""]
         inner = ", ".join(b for b in bits if b)
         return f" — {inner}" if inner else ""

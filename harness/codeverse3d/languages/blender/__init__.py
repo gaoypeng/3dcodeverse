@@ -588,7 +588,7 @@ CONTRACT (the harness runs this file in an EMPTY scene with `blender -b --factor
     each TOP-LEVEL (never parented under an Empty — that merges them into ONE measured part).
 {layout}  * Materials: Principled BSDF (Base Color / Roughness / Metallic). GLB keeps flat PBR + image
     textures only (procedural node textures are NOT exported) — rely on geometry + flat PBR.
-  * Modifiers may stay unapplied (the exporter applies them). Keep < {MAX_TRIS_OBJECT // 1000}k triangles.
+  * Modifiers may stay unapplied (the exporter applies them).
   * NEVER: cameras, lights, world, render settings, export/import, file IO, bpy.ops.wm.*.
   * Only bpy / bmesh / mathutils / math / random (seeded). No other imports.
 

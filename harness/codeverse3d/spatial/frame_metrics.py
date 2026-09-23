@@ -469,7 +469,7 @@ def frame_summary_text(metrics: dict[str, Any], *, max_rows: int = 12) -> str:
         if name in flagged:
             bits.append("— " + ", ".join(flagged[name]))
         rows.append(" ".join(bits))
-    head = f"frame checks ({'ok' if report.passed else 'FAILED'}; mean_lum ≥ 0.15, dark ≤ 35 %, blown ≤ 20 %, establishing content ≥ 20 %):"
+    head = f"frame checks ({'ok' if report.passed else 'FAILED'}):"
     motion = motion_summary_text(stored_motion(metrics))
     body = "\n".join([head, *rows]) if rows else "frame checks: no camera_checks in metrics"
     return body + ("\n\n" + motion if motion else "")
