@@ -60,7 +60,6 @@ import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from itertools import count
 from pathlib import Path
 from typing import NamedTuple
 
@@ -116,7 +115,13 @@ from bench.compare_backends import (  # noqa: E402
     spec_for,  # noqa: E402
 )
 from bench.pin_plan import PLAN_JSON, PinError, plan_once, seed_plan  # noqa: E402
-from bench.run_bench import Battery, BenchPrompt, record_minutes, select_prompts  # noqa: E402
+from bench.run_bench import (  # noqa: E402
+    Battery,
+    BenchPrompt,
+    archive_attempt,
+    record_minutes,
+    select_prompts,
+)
 from codeverse3d.contracts.common import Backends  # noqa: E402
 from codeverse3d.proc import exclusive  # noqa: E402
 from codeverse3d.tracks.plan_features import pin_plan_blockers  # noqa: E402
@@ -404,14 +409,7 @@ def archive_cell(out: Path, arm: str, item_id: str, opts: AbOptions) -> Path | N
     caused the redo, and it holds that attempt's cost ledger.
     """
     cell = cell_dir(out, arm, item_id, opts.generator)
-    if not cell.exists():
-        return None
-    for n in count(1):
-        dest = cell.with_name(f"{cell.name}.attempt{n}")
-        if not dest.exists():
-            cell.rename(dest)
-            return dest
-    raise AssertionError("unreachable")  # pragma: no cover — count() is infinite
+    return archive_attempt(cell) if cell.exists() else None
 
 
 def pin_pair(
