@@ -48,6 +48,7 @@ def test_round_failed_carries_the_flags_of_its_tasks_never_their_words():
 def test_a_raised_error_is_classified_by_its_type():
     assert GenerationResult.from_error("g", ModelError("Gemini request timed out", retryable=True, status=408)).transient
     assert GenerationResult.from_error("g", ModelError("Gemini API error 503", status=503)).transient
+    assert GenerationResult.from_error("g", ModelError("overloaded", status=529)).transient
     assert not GenerationResult.from_error("g", ModelError("bad request", status=400)).transient
     assert not GenerationResult.from_error("g", ValueError("503 in the message")).transient
 
@@ -150,20 +151,12 @@ def test_baseline_transport_crash_is_retried_once_then_fails(tmp_path, chair_pla
     assert evs.count("round.transport_retry") == 1 and "run.failed" in evs
 
 
-def test_an_untyped_crash_is_no_longer_a_transport_retry(tmp_path, chair_plan, settings):
+@pytest.mark.parametrize("refine", [UNTYPED_CRASH, IDLE], ids=["untyped_crash", "idle"])
+def test_an_untyped_crash_or_an_idle_session_is_a_no_change_stop_not_a_retry(tmp_path, chair_plan, settings, refine):
     """The words "response=<empty>" used to buy a retry of the whole round; only the backend's
     own verdict does now (0 of 34 recorded gemini-cli error exits lacked a provider signature)."""
     ws = Workspace(tmp_path / "runs" / "crash")
-    rec = _track(after_baseline(UNTYPED_CRASH), (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
-    assert rec.status is RunStatus.NO_CHANGE
-    evs = _events(ws)
-    assert "round.transport_retry" not in evs and "round.no_change" in evs
-
-
-def test_an_idle_agent_is_a_no_change_stop_not_a_retry(tmp_path, chair_plan, settings):
-    agent = after_baseline(IDLE)
-    ws = Workspace(tmp_path / "runs" / "idle")
-    rec = _track(agent, (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
+    rec = _track(after_baseline(refine), (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
     assert rec.status is RunStatus.NO_CHANGE
     evs = _events(ws)
     assert "round.transport_retry" not in evs and "round.no_change" in evs

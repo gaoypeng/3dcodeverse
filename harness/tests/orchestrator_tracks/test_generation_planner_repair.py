@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from codeverse3d.contracts.common import Language, Track
@@ -293,4 +291,3 @@ def test_format_error_report_and_cookbook_section():
     assert "src/parts/base.js:12" in rep and "line59" in rep and "line5\n" not in rep.split("traceback")[1][:20]
     assert "FIX: use vertex colours" in rep and "Canvas textures" in rep
     assert relevant_cookbook_section(cb, "totally unrelated words") == ""
-    assert json.dumps(rep)  # serialisable

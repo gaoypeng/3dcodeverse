@@ -15,12 +15,9 @@ from codeverse3d.contracts.artifacts import (
     Judgment,
     Severity,
 )
-from codeverse3d.contracts.common import Budget
 from codeverse3d.contracts.plan import AcceptanceItem
 from codeverse3d.contracts.run import RunStatus
 from codeverse3d.orchestrator import (
-    BudgetExceeded,
-    BudgetGuard,
     RefineTask,
     RunState,
     StageRunner,
@@ -29,23 +26,6 @@ from codeverse3d.orchestrator import (
     plan_parallel_groups,
 )
 from codeverse3d.proc import EventLog, fan_out
-
-
-# ----------------------------------------------------------------------------- budget
-def test_budget_guard_raises_past_its_ceiling():
-    g = BudgetGuard(Budget(max_minutes=10.0))
-    assert g.ok()
-    g._active_s = 11 * 60                                        # noqa: SLF001 — past the ceiling
-    with pytest.raises(BudgetExceeded) as ei:
-        g.check()
-    assert "max_minutes" in ei.value.reason and not g.ok()
-
-
-def test_budget_guard_time_ceiling():
-    g = BudgetGuard(Budget(max_minutes=0.0001), start_time=time.time() - 10)
-    with pytest.raises(BudgetExceeded):
-        g.check()
-    assert g.timeout_s(600, floor_s=0, soft=False) == 0  # no wall clock left
 
 
 # ----------------------------------------------------------------------------- fanout

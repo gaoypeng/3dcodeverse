@@ -10,7 +10,7 @@ from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport
 from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse3d.contracts.run import RoundRecord, RunStatus
-from codeverse3d.orchestrator import RoundPolicy, RunState
+from codeverse3d.orchestrator import RunState
 from codeverse3d.proc import EventLog
 from codeverse3d.prompts import load_text
 from codeverse3d.tracks.planner import plan_example
@@ -83,8 +83,8 @@ def test_finalise_restores_the_last_round_when_an_aborted_round_dirtied_src(tmp_
     left HEAD at the last round's commit with foreign src/: the run then ended on unjudged code."""
     spec = make_spec(max_rounds=3)
     ws = Workspace(tmp_path / "runs" / "r")
-    # planner 0.002 + baseline agent 0.01 + judge 0.003 = 0.015 < 0.02; the refine agent's
-    # 0.01 charge crosses the ceiling AFTER its files hit the disk.
+    # the baseline session's 6 minutes fit the 10-minute clock; the refine session's 6 more
+    # cross it AFTER its files hit the disk.
     track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.55, 0.7), targets=("Seat",)), agent=FakeAgent(_writer, minutes=6.0),
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
                               runtime=FakeRuntime(Language.THREEJS))
@@ -214,27 +214,6 @@ def test_degraded_verdict_recovers_via_rejudge_of_same_commit(tmp_path, chair_pl
 
 
 # --------------------------------------------------------------------- finding: plan stage hash covers the whole Spec
-def test_resume_with_raised_budget_does_not_replan_or_reskeleton(tmp_path, chair_plan, settings):
-    spec = make_spec(max_rounds=1)
-    ws = Workspace(tmp_path / "runs" / "r")
-    planner = _planner(chair_plan.model_dump(mode="json"))
-    services = FakeServices()
-    mk = lambda: StaticObjectTrack(services=services, judge=FakeJudge(scores=(0.5, 0.6, 0.9)), agent=FakeAgent(_writer),  # noqa: E731
-                                   planner_model=planner, settings=settings, runtime=FakeRuntime(Language.THREEJS),
-                                   policy=RoundPolicy(max_rounds=1))
-    mk().run(spec, ws)
-    n_plan_calls = len(planner.requests)
-    src_before = (ws.src / "object.js").read_text()
-    # the only way to continue a BUDGET-stopped run: raise the budget in the spec
-    spec2 = make_spec(max_rounds=1)
-    rec2 = mk().run(spec2, ws, resume=True)
-    assert len(planner.requests) == n_plan_calls  # plan stage still cached
-    assert (ws.src / "object.js").read_text() == src_before or "r0" in (ws.src / "object.js").read_text()
-    assert rec2.rounds[0].commit  # prior rounds still loaded
-    kinds = [e["event"] for e in EventLog(ws.events_path).read()]
-    assert kinds.count("stage.cached") >= 2
-
-
 def test_skeleton_never_reruns_over_existing_rounds(tmp_path, chair_plan, settings):
     class CountingRuntime(FakeRuntime):
         def __init__(self, language):

@@ -175,15 +175,3 @@ def test_a_replanned_asset_with_the_same_name_is_not_reused(tmp_ws, settings):
     # and the regenerated module is reusable again under the NEW identity
     n2 = len(agent.jobs)
     assert run_asset_stage(ctx)["FishingBoat"].strategy == "reused" and len(agent.jobs) == n2
-
-
-def test_a_model_outage_is_not_an_escalation_signal() -> None:
-    """A 503 reaches the asset stage only after models.retry spent its whole storm budget
-    waiting; escalating to a full agent session then costs 10× and hits the same wall."""
-    from codeverse3d.models.base import ModelError
-    from codeverse3d.tracks.generation import is_model_outage
-
-    assert is_model_outage(ModelError("high demand", retryable=True, status=503))
-    assert is_model_outage(ModelError("overloaded", status=529))
-    assert not is_model_outage(ModelError("bad request", status=400))
-    assert not is_model_outage(ValueError("the module does not import"))

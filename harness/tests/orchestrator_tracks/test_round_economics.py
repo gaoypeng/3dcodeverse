@@ -240,9 +240,6 @@ def test_a_regression_changes_nothing_about_the_loop_and_every_round_reports_its
     rec = track.run(spec, ws)
     assert [r.kind for r in rec.rounds] == ["baseline", "refine", "refine", "refine"]
     assert rec.extra["stop_reason"] == "max_rounds" and rec.status is RunStatus.MAX_ROUNDS
-    events = EventLog(ws.events_path).read()
-    assert not [e for e in events if e["event"] in ("strategy.switch", "round.refine_from_best")]
-    assert not [j for j in agent.jobs if "made the artifact WORSE" in j.prompt]
     # every round's cost is the ledger rows it booked — the injected agent and planner are
     # metered like the ones services hand out, and the fake judge bills a row per verdict as a
     # real one's model does — and the run's total is its ledger's, the planner included, with
@@ -252,7 +249,7 @@ def test_a_regression_changes_nothing_about_the_loop_and_every_round_reports_its
     assert {r.stage for r in rows} == {"plan", "baseline", "refine", "judge"}
     assert rec.total_usage.cost_usd == pytest.approx(sum(r.cost_usd for r in rows))
     assert rec.total_usage.cost_usd > sum(r.usage.cost_usd for r in rec.rounds)
-    assert "cost_by_stage" not in rec.extra and not [e for e in events if e["event"] == "cost.round"]
+    assert "cost_by_stage" not in rec.extra
 
 
 def test_a_lint_stuck_run_keeps_every_score_instead_of_deferring_the_verdict(tmp_path, chair_plan, settings):

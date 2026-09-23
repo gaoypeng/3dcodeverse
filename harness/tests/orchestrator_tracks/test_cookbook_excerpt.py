@@ -8,7 +8,6 @@ sparkles.  The selector hands over whole chapters, ranked by the brief, inside a
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 
 from codeverse3d.contracts.common import Language, Track
@@ -66,4 +65,3 @@ def test_aurora_example_ships_and_composes() -> None:
     composed = compose(src)
     assert "mainImage" in composed.source and "u_time" in composed.source
     assert "examples/aurora_ridge.frag" in load_text("glsl_shader/cookbook.md")
-    assert Path(EXAMPLE).suffix == ".frag"

@@ -50,8 +50,12 @@ def no_generate(monkeypatch):
     return calls
 
 
-def test_a_harness_failure_is_rebuilt_not_repaired(monkeypatch, no_generate):
-    """The build is simply re-run — no model call — and a rebuild that succeeds ends it."""
+@pytest.mark.parametrize("repair_budget", [3, 0])
+def test_a_harness_failure_is_rebuilt_not_repaired(monkeypatch, no_generate, repair_budget):
+    """The build is simply re-run — no model call — and a rebuild that succeeds ends it.
+    The rebuilds are bounded by MAX_HARNESS_REBUILDS, not by the repair budget: a baseline
+    arm that runs with max_repair_attempts=0 must still get its retries, or a dropped stdout
+    tail costs it the whole round."""
     seq = [(_build(ok=False, harness=True, msg="scene probe produced no result (driver output lost)"),
             GateReport(gate="lint", passed=True, findings=[])),
            (_build(ok=True), GateReport(gate="lint", passed=True, findings=[]))]
@@ -62,7 +66,8 @@ def test_a_harness_failure_is_rebuilt_not_repaired(monkeypatch, no_generate):
         return seq[min(calls["n"] - 1, len(seq) - 1)]
 
     monkeypatch.setattr(R, "build_once", fake_build_once)
-    out = R.build_with_repair(_ctx(), round_index=0, label="r00")
+    ctx = _ctx(spec=SimpleNamespace(budget=SimpleNamespace(max_repair_attempts=repair_budget)))
+    out = R.build_with_repair(ctx, round_index=0, label="r00")
     assert out.ok is True
     assert calls["n"] == 2, "one rebuild, no repair"
     assert out.attempts == [], "no agent attempt was spent"
@@ -132,22 +137,3 @@ def test_a_repair_session_that_died_in_the_storm_ends_the_loop(monkeypatch):
     monkeypatch.setattr(R, "build_once", fake_build_once)
     out = R.build_with_repair(_ctx(), round_index=0, label="r00", max_attempts=3)
     assert out.ok is False and len(seen) == 1 and calls["n"] == 2, "one storm-dead repair, one rebuild, then stop"
-
-
-def test_a_harness_failure_is_rebuilt_even_with_no_repair_budget(monkeypatch, no_generate):
-    """The rebuilds are bounded by MAX_HARNESS_REBUILDS, not by the repair budget: a
-    baseline arm that runs with max_repair_attempts=0 must still get its retries, or a
-    dropped stdout tail costs it the whole round."""
-    seq = [(_build(ok=False, harness=True, msg="scene probe produced no result (driver output lost)"),
-            GateReport(gate="lint", passed=True, findings=[])),
-           (_build(ok=True), GateReport(gate="lint", passed=True, findings=[]))]
-    calls = {"n": 0}
-
-    def fake_build_once(ctx):
-        calls["n"] += 1
-        return seq[min(calls["n"] - 1, len(seq) - 1)]
-
-    monkeypatch.setattr(R, "build_once", fake_build_once)
-    ctx = _ctx(spec=SimpleNamespace(budget=SimpleNamespace(max_repair_attempts=0)))
-    out = R.build_with_repair(ctx, round_index=0, label="r00")
-    assert out.ok is True and calls["n"] == 2 and out.attempts == []

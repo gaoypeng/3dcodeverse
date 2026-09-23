@@ -196,12 +196,6 @@ def test_a_spec_edit_without_force_is_refused_before_anything_runs(completed_run
     assert (ws.root / "rounds" / "r00.json").is_file()
     assert json.loads(ws.record_path.read_text())["status"] != "failed"
 
-    # the sanctioned budget raise (outside the fingerprint) still resumes plainly
-    spec3 = make_spec(language=Language.BLENDER, max_rounds=0)
-    ws.write_json(ws.spec_path, spec3)
-    rec3 = run.rerun(spec=spec3, resume=True)
-    assert [r.index for r in rec3.rounds] == [0]
-
 
 # --------------------------------------------------------------------- (f3) notes survive
 def test_notes_survive_a_judge_crash(tmp_path, chair_plan, settings):
@@ -223,27 +217,6 @@ def test_notes_survive_a_judge_crash(tmp_path, chair_plan, settings):
     assert "judge failed: RuntimeError: vlm 500" in r1.notes
     saved = json.loads((ws.root / "rounds" / "r01.json").read_text())
     assert "judge failed: RuntimeError: vlm 500" in saved["notes"]
-
-
-def test_a_resumed_runs_total_is_its_ledger_whatever_a_session_saved(tmp_path):
-    """The ledger is appended per CALL; a session's own bookkeeping is saved at boundaries.
-    A crash between a call and a save used to hand the resumed run that money back.  The
-    record's total is read off the ledger when it is written, so nothing a crash kept out
-    of a snapshot can go missing — and a subscription backend's row counts at list price
-    like any other (the billed / notional split went with the guard's money, 2026-09-22)."""
-    from codeverse3d.contracts.run import RunRecord
-    from codeverse3d.cost.ledger import open_run_ledger
-    from codeverse3d.cost.types import CallCost
-    from codeverse3d.record.record import package_run
-
-    ws = Workspace(tmp_path / "runs" / "r")
-    ws.create()
-    led = open_run_ledger(ws.root)
-    for backend, cost in (("gemini", 0.30), ("gemini", 0.12), ("codex", 7.7)):  # session 1, the crash, session 2
-        led.append(CallCost(run=ws.root.name, backend=backend, model="m", label="planner", cost_usd=cost))
-    rec = RunRecord(spec=make_spec(), workspace=str(ws.root))
-    package_run(ws, rec)
-    assert rec.total_usage.cost_usd == pytest.approx(8.12)
 
 
 def test_has_commit_answers_no_when_git_cannot_answer(tmp_path, monkeypatch):

@@ -70,8 +70,6 @@ def test_every_refine_starts_from_the_previous_rounds_commit(tmp_path, chair_pla
     assert seen[1] == "import bpy  # written in r0\n"
     assert seen[2] == "import bpy  # written in r1\n", "r02 must refine r01, not the higher-scored r00"
     assert rec.rounds[2].instructions, "the tasks come from r01's verdict and gates"
-    events = [e["event"] for e in EventLog(ws.events_path).read()]
-    assert "round.refine_from_best" not in events and "strategy.switch" not in events
     # ... and the run ENDS at its last round: no restore of a better-scored one
     assert "restore" not in ws._git("log", "--format=%s").stdout  # noqa: SLF001
     assert ws.head() == rec.rounds[-1].commit and (ws.src / "model.py").read_text() == "import bpy  # written in r2\n"

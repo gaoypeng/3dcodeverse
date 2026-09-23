@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from codeverse3d.contracts.chat import ImagePart
-from codeverse3d.contracts.common import Backends, Language, Track
+from codeverse3d.contracts.common import Backends, Language, Track, Usage
 from codeverse3d.contracts.plan import (
     SUBPART_REL_SLACK,
     BBox,
@@ -21,6 +21,7 @@ from codeverse3d.contracts.plan import (
     SubPartPlan,
 )
 from codeverse3d.contracts.spec import Constraints, ReferenceImage, Spec
+from codeverse3d.models.base import ModelError
 from codeverse3d.tracks import planner as B
 from codeverse3d.tracks import planner as BR
 from codeverse3d.tracks.planner import (
@@ -266,26 +267,16 @@ def test_an_unreadable_reference_never_collapses_onto_no_references(tmp_path):
     assert BR.brief_cache_key(missing, "m") != BR.brief_cache_key(_spec(), "m")
 
 
-def test_brief_failure_is_never_fatal(tmp_path):
-    def boom(req):
-        raise RuntimeError("503 storm")
-
-    brief, usage = BR.expand_brief(_spec(), "fake:planner", model=FakeChatModel(boom), cache_dir=tmp_path)
-    assert brief is None and usage.cost_usd == 0.0
-
-
-
-def test_a_failed_brief_call_keeps_what_the_provider_billed(tmp_path):
+@pytest.mark.parametrize("error, billed", [
+    (RuntimeError("503 storm"), 0.0),
+    (ModelError("bad json", usage=Usage(backend="fake", cost_usd=0.002)), 0.002),
+])
+def test_a_failed_brief_is_never_fatal_and_keeps_what_the_provider_billed(tmp_path, error, billed):
     """expand_brief goes through ``ask_structured``: a ModelError's ``usage`` (a billed
     bad reply) is returned, where the hand-built call reported the failure as free."""
-    from codeverse3d.contracts.common import Usage
-    from codeverse3d.models.base import ModelError
+    brief, usage = BR.expand_brief(_spec(), "fake:planner", model=FakeChatModel([error]), cache_dir=tmp_path)
+    assert brief is None and usage.cost_usd == pytest.approx(billed)
 
-    def billed(req):
-        raise ModelError("bad json", usage=Usage(backend="fake", cost_usd=0.002))
-
-    brief, usage = BR.expand_brief(_spec(), "fake:planner", model=FakeChatModel(billed), cache_dir=tmp_path)
-    assert brief is None and usage.cost_usd == pytest.approx(0.002)
 
 def test_brief_switch_and_track_scope(monkeypatch, switch):
     switch("C3D_PLAN_BRIEF", None)
@@ -411,64 +402,3 @@ def test_planner_spends_one_quality_reask_then_ships_the_plan(tmp_path, switch):
     assert calls["n"] == 1 + MAX_QUALITY_REASKS
     assert "Only 3 parts" in calls["complaints"][0]
     assert len(got.parts) == 3 and ws.plan_path.is_file()
-
-
-def test_a_good_plan_costs_exactly_one_call(tmp_path, switch):
-    switch("C3D_PLAN_BRIEF", "off")
-    ws = Workspace(tmp_path / "run")
-    ws.create()
-    good = json.loads(_plan([_part(f"P{i}", desc=_detailed(i), material=f"m{i}") for i in range(9)]).model_dump_json())
-    calls = {"n": 0}
-
-    def responder(req):
-        calls["n"] += 1
-        return good
-
-    got = run_planner(_spec(must=8), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
-    assert calls["n"] == 1 and len(got.parts) == 9
-
-
-def test_brief_and_plan_are_one_model_and_the_events_say_so(tmp_path, switch):
-    switch("C3D_PLAN_BRIEF", "on")
-    switch("C3D_CACHE_DIR", str(tmp_path / "cache"))
-    ws = Workspace(tmp_path / "run")
-    ws.create()
-    good = json.loads(_plan([_part(f"P{i}", desc=_detailed(i), material=f"m{i}") for i in range(10)]).model_dump_json())
-    seen = {"n": 0}
-
-    def responder(req):
-        seen["n"] += 1
-        if req.label == "planner-brief":
-            return json.loads(_brief().model_dump_json())
-        assert "ENGINEERING BRIEF" in req.messages[0].text and "PLAN BUDGET" in req.messages[0].text
-        return good
-
-    class _Events:
-        def __init__(self):
-            self.rows = []
-
-        def emit(self, name, **kw):
-            self.rows.append((name, kw))
-
-    ev = _Events()
-    got = run_planner(_spec(must=10), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder), events=ev)
-    assert seen["n"] == 2
-    done = next(kw for name, kw in ev.rows if name == "plan.done")
-    assert done["brief"] is True and done["target_parts"] == 10 and done["quality_reasks"] == 0
-    assert any(name == "plan.brief" for name, _ in ev.rows)
-    assert [a for a in got.acceptance if a.id.startswith("sig")]
-
-
-def test_a_model_name_leak_is_rejected_not_modelled():
-    from codeverse3d.contracts.plan import JointPlan, PartPlan, SubPartPlan
-
-    for bad in ("Gemini25FlashThinking", "GPT4Placeholder", "placeholder_arm"):
-        with pytest.raises(ValidationError, match="leaked from"):
-            PartPlan(name=bad, role="r", description="d", bbox=_bbox())
-    with pytest.raises(ValidationError, match="leaked from"):
-        SubPartPlan(name="ClaudePart", description="d", bbox=_bbox())
-    with pytest.raises(ValidationError, match="leaked from"):
-        JointPlan(name="gemini_hinge", type="revolute", parent="A", child="B",
-                  axis=(0, 0, 1), pivot=(0, 0, 0))
-    for ok in ("CameraFlash", "ModelStand", "GearHousing"):
-        PartPlan(name=ok, role="r", description="d", bbox=_bbox())

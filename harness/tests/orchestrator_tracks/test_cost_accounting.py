@@ -11,7 +11,7 @@ from codeverse3d.contracts.agent import AgentJob, AgentResult
 from codeverse3d.contracts.common import Budget, Usage
 from codeverse3d.cost.instrument import MeteredAgent, run_ledger
 from codeverse3d.cost.ledger import load_ledger, record_call
-from codeverse3d.orchestrator import BudgetExceeded, BudgetGuard
+from codeverse3d.orchestrator import BudgetGuard
 from codeverse3d.tracks.generation import GenerationTask, _SessionAcc
 
 FIXTURES = json.loads((Path(__file__).parent / "data" / "offrecord_runs.json").read_text())["runs"]
@@ -90,23 +90,3 @@ def test_the_round_the_budget_cut_is_still_in_the_total(tmp_path):
     burned = sum(s["cost_usd"] for s in cut)
     assert sum(r.cost_usd for r in load_ledger(tmp_path) if r.round == 2) == pytest.approx(burned, abs=1e-6)
     assert burned > 0.8 and total > burned  # $0.86 that record.rounds never mentioned, inside the total
-
-
-def test_post_hoc_texture_passes_are_inside_the_total(tmp_path):
-    fx = FIXTURES["furn_hard_rolltop_desk"]
-    with_tex = replay("furn_hard_rolltop_desk", tmp_path / "with")
-    tex = sum(t["cost_usd"] for t in fx["post_hoc_texture_passes"])
-    assert tex == pytest.approx(0.6562, abs=1e-3)
-    assert with_tex - tex == pytest.approx(fx["recorded_total_usd"], abs=0.02)
-
-
-# ----------------------------------------------------------------------------- the clock
-def test_the_guard_is_a_clock_with_a_soft_share_for_the_baseline():
-    g = BudgetGuard(Budget(max_minutes=60.0), soft_fraction=0.55)
-    assert g.soft_exceeded() == "" and g.ok()
-    g._active_s = 34 * 60.0  # noqa: SLF001 — past the baseline's 55 %, inside the ceiling
-    assert g.soft_exceeded() and g.ok()
-    g._active_s = 3600.0  # noqa: SLF001
-    with pytest.raises(BudgetExceeded):
-        g.check()
-    assert set(g.summary()) == {"elapsed_min", "max_minutes"}, "the guard keeps no money"

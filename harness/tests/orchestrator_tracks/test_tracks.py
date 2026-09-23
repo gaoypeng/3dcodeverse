@@ -192,7 +192,7 @@ def _scene_writer(job, ws):
     if label.startswith("zone_"):
         return {f"src/zones/{label[5:]}.js": f"export function build(){{}} // {label}\n"}
     if label.startswith("refine"):
-        return {f: f"// refined by {label}\n" for f in job.prompt.split("EDIT ONLY THESE FILES")[-1].splitlines() if False} or {"src/scene.js": f"// {label}\n"}
+        return {"src/scene.js": f"// {label}\n"}
     return {"src/scene.js": "// x\n"}
 
 

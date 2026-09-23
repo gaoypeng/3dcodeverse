@@ -61,8 +61,10 @@ def test_soft_budget_degrades_before_the_hard_cap_and_grace_reopens_it():
     assert g.ok()  # the HARD ceiling is untouched: degrade, do not die
     clock["t"] = 11.0
     assert not g.ok()
-    with pytest.raises(BudgetExceeded):
+    with pytest.raises(BudgetExceeded) as ei:
         g.check()
+    assert "max_minutes" in ei.value.reason
+    assert set(g.summary()) == {"elapsed_min", "max_minutes"}, "the guard keeps no money"
     g.grant_grace(minutes=5.0)
     assert g.ok() and g.hard_minutes == pytest.approx(15.0)
     g.grant_grace(minutes=1.0)  # never shrinks
@@ -75,6 +77,7 @@ def test_timeout_is_clipped_to_the_wall_clock_left():
     assert g.timeout_s(120, floor_s=60) == pytest.approx(120, abs=2)   # never inflates
     g.start_time -= 600  # the run is already over its wall clock
     assert g.timeout_s(1800, floor_s=90) == 90                          # floor, never 0
+    assert g.timeout_s(600, floor_s=0, soft=False) == 0                 # ...unless the floor is 0
 
 
 # ----------------------------------------------------------------------------- dedupe
@@ -303,8 +306,8 @@ def test_a_budget_stop_before_round_zero_still_delivers_a_judged_round(tmp_path,
             return {rel: "export function build(){}\n" for rel in (job.files_hint or ["src/zones/x.js"])}
         return {f"src/assets/{job.label[6:]}.js": f"export function build(){{}} // {job.label}\n"}
 
-    # the greenhouse hole: 2 asset sessions + env stay under $5; the zone session's own
-    # (real, guard-enforced) charge crosses the ceiling mid-stage: $1.30 × 4 = $5.20
+    # the greenhouse hole: 2 asset sessions + env stay under the 10-minute clock; the zone
+    # session's own 3 minutes cross it mid-stage (4 × 3 = 12)
     track = SceneTrack(services=services, judge=FakeJudge(scores=(0.58,)), agent=FakeAgent(writer, cost=1.3, minutes=3.0),
                        planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
                        runtime=FakeRuntime(Language.SCENE_THREEJS))
@@ -347,7 +350,7 @@ def test_soft_budget_notes_land_in_the_round_record(tmp_path, settings):
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
     ws = Workspace(tmp_path / "runs" / "degraded")
     services = FakeServices(assemble=True)
-    # an expensive agent: the soft cap (55 % of $5) is crossed during the asset stage
+    # a slow agent: the soft cap (55 % of the 10-minute clock) is crossed during the asset stage
     agent = FakeAgent(_writer, cost=1.1, minutes=2.0)
     track = SceneTrack(services=services, judge=FakeJudge(scores=(0.5,)), agent=agent,
                        planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
@@ -531,19 +534,6 @@ def test_the_shot_after_an_outage_is_a_plain_generation_not_a_repair(tmp_path, s
     assert results["Bollard"].ok and results["Bollard"].strategy == "single-shot" and not agent.jobs
     assert len(prompts) == 2 and prompts[1] == prompts[0], "the model wrote nothing: there is nothing to repair"
     assert "did NOT pass" not in prompts[1] and "rewrite COMPLETELY" not in prompts[1]
-
-
-def test_a_generation_session_never_outlives_the_wall_budget():
-    from codeverse3d.contracts.spec import Budget
-    from codeverse3d.orchestrator import BudgetGuard
-
-    g = BudgetGuard(Budget(max_minutes=30.0, max_rounds=4))
-    assert g.timeout_s(1800, floor_s=120.0) == pytest.approx(1800, abs=60)   # fresh run: full session
-    g.start_time -= 27 * 60                                                   # 3 minutes left
-    clipped = g.timeout_s(1800, floor_s=120.0)
-    assert 120 <= clipped <= 3 * 60, clipped
-    g.start_time -= 10 * 60                                                   # ceiling already crossed
-    assert g.timeout_s(1800, floor_s=120.0) == 120                            # the floor, never 1800
 
 
 def test_one_asset_cannot_eat_the_scene_run():

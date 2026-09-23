@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -250,11 +249,10 @@ def test_hero_reentry_keeps_the_previous_sessions_src(tmp_ws, settings):
 @pytest.mark.parametrize("kind", ["threejs", "blender_glb"])
 def test_asset_check_soft_findings_share_one_rule_set(kind):
     chk = SA.AssetCheck(ok=True, ran=True, size_m=(0.6, 0.4, 0.3), min_y=-0.1, tris=50_000, meshes=1, materials=1)
-    SA._soft_findings(chk, (0.6, 0.4, 0.3), max_tris=SA.HERO_MAX_TRIS if kind == "blender_glb" else SA.ASSET_MAX_TRIS)
-    assert not chk.ok and any("sinks" in e for e in chk.errors)
     limit = SA.HERO_MAX_TRIS if kind == "blender_glb" else SA.ASSET_MAX_TRIS
+    SA._soft_findings(chk, (0.6, 0.4, 0.3), max_tris=limit)
+    assert not chk.ok and any("sinks" in e for e in chk.errors)
     assert any(f"{limit} budget" in e for e in chk.errors)
-    assert not Path("nonexistent").exists()
 
 
 def test_a_fix_that_judges_worse_is_undone(tmp_ws, settings):
