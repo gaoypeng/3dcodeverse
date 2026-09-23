@@ -49,7 +49,7 @@ def test_forbidden_imports_and_globals(ws):
     errs = _msgs(rep, Severity.ERROR)
     text = " | ".join(m for _, m in errs)
     assert "import 'gsap' is not allowed" in text
-    assert "https://unpkg.com" in text or "not allowed" in text
+    assert "https://unpkg.com" in text
     assert "missing file './missing.js'" in text
     assert "requestAnimationFrame" in text
     assert "creating a renderer" in text

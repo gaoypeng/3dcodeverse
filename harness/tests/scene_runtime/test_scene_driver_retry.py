@@ -47,14 +47,6 @@ def test_a_lost_browser_is_retried_on_an_owned_browser(monkeypatch):
     assert envs[1]["C3D_BROWSER_REUSE"] == "off", "the retry must not reuse the browser that died"
 
 
-def test_a_scene_that_failed_is_not_retried(monkeypatch):
-    """Exit 1 is a verdict about the scene — console errors, a scene that did not
-    boot — not a driver failure.  Re-rendering it would only spend the time again."""
-    envs = _record(monkeypatch, [_result(1, {"ok": False, "error": "scene did not boot"})])
-    r = run_scene_script("render_scene.mjs", ["--ws", "x"], timeout_s=10)
-    assert r.rc == 1 and len(envs) == 1
-
-
 def test_a_driver_error_that_is_not_a_browser_loss_is_not_retried(monkeypatch):
     envs = _record(monkeypatch, [_result(2, {"ok": False, "error": "--ws and --out are required"})])
     with pytest.raises(SceneRenderError, match="--ws and --out are required"):
@@ -88,11 +80,13 @@ def test_a_driver_that_exits_0_with_no_summary_is_retried(monkeypatch):
 
 
 def test_a_driver_that_answered_is_not_retried_for_a_failing_verdict(monkeypatch):
-    """Exit 1 WITH a summary is a scene that failed — a verdict, and complete."""
+    """Exit 1 WITH a summary is a scene that failed — console errors, a scene that did not
+    boot — a verdict, and complete, not a driver failure.  Re-rendering it would only
+    spend the time again."""
     envs = _record(monkeypatch, [_result(1, {"ok": False, "boot": {"ok": False, "stage": "createScene",
                                                                   "error": "TypeError: x is not a function"}})])
     r = run_scene_script("probe_scene.mjs", ["--ws", "x"], timeout_s=10)
-    assert r.summary["boot"]["stage"] == "createScene" and len(envs) == 1
+    assert r.rc == 1 and r.summary["boot"]["stage"] == "createScene" and len(envs) == 1
 
 
 def test_a_transient_host_failure_is_retried_on_the_same_browser(monkeypatch):

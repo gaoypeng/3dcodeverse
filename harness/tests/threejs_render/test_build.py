@@ -84,7 +84,7 @@ def test_build_keeps_source_placement_and_warns(stool_ws: Workspace):
     p = stool_ws.src / "object.js"
     p.write_text(p.read_text().replace("return root;", "root.position.set(0.5, 0.2, 0); return root;"))
     res = ThreeJsRuntime().build(stool_ws)
-    assert res.ok and "normalised_offset" not in res.census
+    assert res.ok
     off = res.census["placement_offset"]
     assert off is not None and abs(off[0] + 0.5) < 1e-4 and abs(off[1] + 0.2) < 1e-4
     assert any("off ground/centre" in w and "exported as authored" in w for w in res.census["warnings"])

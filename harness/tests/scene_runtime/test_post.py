@@ -16,7 +16,6 @@ the SAME scene:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import numpy as np
@@ -117,7 +116,11 @@ def test_bloom_is_selective_not_a_brightness_threshold(tmp_path):
     p_raw, p_post = render(plain, tmp_path / "p_raw", "--no-post"), render(plain, tmp_path / "p_post")
 
     assert read_json_or_none(tmp_path / "e_post" / "metrics.json")["census"]["post"]["bloom_sources"] >= 1
-    assert read_json_or_none(tmp_path / "p_post" / "metrics.json")["census"]["post"]["bloom_sources"] == 0
+    post = read_json_or_none(tmp_path / "p_post" / "metrics.json")["census"]["post"]
+    assert post["bloom_sources"] == 0
+    # an ungraded scene reports a neutral grade; --no-post leaves the chain off
+    assert post["enabled"] is True and post["grade_neutral"] is True and post["warnings"] == []
+    assert read_json_or_none(tmp_path / "p_raw" / "metrics.json")["census"]["post"] == {"enabled": False}
 
     assert mean_lum(e_post) - mean_lum(e_raw) > 0.004, "emissive box did not bloom"
     assert abs(mean_lum(p_post) - mean_lum(p_raw)) < 0.005, "a merely bright box must not bloom"
@@ -135,23 +138,3 @@ def test_scene_grade_hint_reaches_the_shader_and_is_clamped(tmp_path):
     assert grade["exposure"] == 8.0        # clamped from 99
     assert grade["warmth"] == pytest.approx(0.4)
     assert read_json_or_none(out / "metrics.json")["census"]["post"]["grade_neutral"] is False
-
-
-@needs_node
-@needs_browser
-def test_no_post_leaves_the_chain_off(tmp_path):
-    ws = make_ws(tmp_path, "off", BRIGHT)
-    out = tmp_path / "off_out"
-    render(ws, out, "--no-post")
-    assert read_json_or_none(out / "metrics.json")["census"]["post"] == {"enabled": False}
-
-
-@needs_node
-@needs_browser
-def test_ungraded_scene_reports_a_neutral_grade(tmp_path):
-    ws = make_ws(tmp_path, "ungraded", BRIGHT)
-    out = tmp_path / "ungraded_out"
-    render(ws, out)
-    post = read_json_or_none(out / "metrics.json")["census"]["post"]
-    assert post["enabled"] is True and post["grade_neutral"] is True
-    assert post["warnings"] == [] and json.dumps(post)   # serialisable into metrics.json

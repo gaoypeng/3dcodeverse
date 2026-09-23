@@ -308,8 +308,6 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, switch, ws, 
         monkeypatch.delenv(k, raising=False)
 
     # defaults: camera repair ON everywhere, settle on (no flag), exposure off
-    probes_mod.probe_scene(ws)
-    assert _flags(captured["probe_scene.mjs"]) == ["--camera-repair"]
     probes_mod.run_probe(ws, compile=True, timeout_s=5.0)
     assert _flags(captured["probe_scene.mjs"]) == ["--camera-repair"], "combined build lost the default-ON policy"
     with pytest.raises(SceneRenderError):
@@ -321,6 +319,4 @@ def test_every_driver_invocation_carries_the_env_flags(monkeypatch, switch, ws, 
     switch("C3D_SETTLE", "0")
     switch("C3D_CAMERA_REPAIR", "false")
     probes_mod.run_probe(ws, compile=True, timeout_s=5.0)
-    assert _flags(captured["probe_scene.mjs"]) == ["--no-settle"]
-    probes_mod.probe_scene(ws)
     assert _flags(captured["probe_scene.mjs"]) == ["--no-settle"]

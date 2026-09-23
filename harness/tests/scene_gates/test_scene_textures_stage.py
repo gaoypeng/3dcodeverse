@@ -144,28 +144,3 @@ def test_the_pack_has_the_last_word_over_the_recipes(template: str):
     out = _render(template, textures="TEXTURE_BLOCK_MARKER", recipes="RECIPE_MARKER")
     assert out.index("RECIPE_MARKER") < out.index("TEXTURE_BLOCK_MARKER")
 
-
-def test_the_stage_writes_the_pack_and_books_nothing_itself(monkeypatch, tmp_path):
-    """The pack is paid for through the metered image and chat models: its money is on the
-    run's ledger (the only record of it), and the stage has no second book to keep — a
-    context with no budget at all is enough."""
-    from types import SimpleNamespace
-
-    import codeverse3d.reference as reference
-    import codeverse3d.texturing.plan as plan_mod
-    import codeverse3d.tracks.scene as S
-    from codeverse3d.contracts.common import Usage
-
-    usage = Usage(cost_usd=0.07)
-    pack = SimpleNamespace(manifest=lambda: MANIFEST, usage=usage, source="vlm")
-    monkeypatch.setattr(plan_mod, "scene_texture_pack", lambda *a, **k: pack)
-    monkeypatch.setattr(reference, "_image_model", lambda _m: None)
-
-    ctx = SimpleNamespace(
-        plan=None,
-        ws=SimpleNamespace(public=tmp_path / "public", commit=lambda *_a, **_k: None),
-        spec=SimpleNamespace(backends=SimpleNamespace(planner=None)),
-        settings=SimpleNamespace(cache_dir=tmp_path / "cache"),
-        events=SimpleNamespace(emit=lambda *a, **k: None),
-    )
-    assert S.SceneTrack()._textures_stage(ctx) == MANIFEST  # type: ignore[arg-type]

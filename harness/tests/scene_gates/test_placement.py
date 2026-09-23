@@ -259,7 +259,7 @@ def test_a_wrapper_of_instances_is_scale_checked_as_one_instance():
     scale = [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "scale"]
     assert len(scale) == 1 and scale[0].data["instances"] == 12
     assert scale[0].message.startswith("each of the 12 picket_fence instances in Yard/PicketFences measures 9.60 m")
-    assert scale[0].data["fix_hint"].startswith("scale each picket_fence") if "fix_hint" in scale[0].data else True
+    assert scale[0].fix_hint.startswith("scale each picket_fence")
 
 
 def test_the_typed_interior_flag_wins_over_the_setting_words():

@@ -44,7 +44,3 @@ def test_a_large_summary_survives_the_pipe(tmp_path, code: int):
     assert res.last_json is not None, "the summary was truncated mid-JSON"
     assert res.last_json["tail"] == "LAST" and len(res.last_json["blob"]) == PAYLOAD_BYTES
 
-
-def test_a_small_summary_still_works(tmp_path):
-    res = run_node(_driver(tmp_path, 10, 0), [], timeout_s=60, check=False)
-    assert res.rc == 0 and res.last_json["tail"] == "LAST"

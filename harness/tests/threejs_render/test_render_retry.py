@@ -27,18 +27,19 @@ def _glb(tmp_path: Path) -> Path:
     return p
 
 
-def test_transient_failure_is_retried_with_double_timeout(tmp_path, monkeypatch):
-    calls: list[float] = []
+def test_transient_failure_is_retried_with_double_timeout_on_the_shared_browser(tmp_path, monkeypatch):
+    calls: list[tuple[float, bool]] = []
 
     def fake(glb, out_dir, params, *, gpu, timeout_s, own_browser=False):
-        calls.append(timeout_s)
+        calls.append((timeout_s, own_browser))
         if len(calls) == 1:
-            raise RenderError("render_glb failed: node script render_glb.mjs exited 1: Waiting failed")
+            raise RenderError("render_glb failed: node script render_glb.mjs exited 1: Waiting failed: 30000 ms exceeded")
         return {"views": [], "renderer": "fake", "duration_ms": 1}
 
     monkeypatch.setattr(R, "_run_render", fake)
     rs = render_glb(_glb(tmp_path), tmp_path / "out", use_cache=False, timeout_s=100)
-    assert rs.renderer == "fake" and calls == [100, 200]
+    # a slow box is not a reason to give up browser reuse
+    assert rs.renderer == "fake" and calls == [(100, False), (200, False)]
 
 
 def test_real_failure_is_not_retried(tmp_path, monkeypatch):
@@ -75,16 +76,3 @@ def test_a_lost_browser_is_retried_on_a_browser_of_our_own(tmp_path, monkeypatch
     assert rs.renderer == "fake"
     assert seen == [False, True], "the retry must not go back to the browser that just died"
 
-
-def test_a_transient_that_is_not_a_browser_loss_keeps_the_shared_browser(tmp_path, monkeypatch):
-    seen: list[bool] = []
-
-    def fake(glb, out_dir, params, *, gpu, timeout_s, own_browser=False):
-        seen.append(own_browser)
-        if len(seen) == 1:
-            raise RenderError("render_glb failed: Waiting failed: 30000 ms exceeded")
-        return {"views": [], "renderer": "fake", "duration_ms": 1}
-
-    monkeypatch.setattr(R, "_run_render", fake)
-    render_glb(_glb(tmp_path), tmp_path / "out", use_cache=False, timeout_s=100)
-    assert seen == [False, False], "a slow box is not a reason to give up browser reuse"
