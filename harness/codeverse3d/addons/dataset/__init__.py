@@ -7,5 +7,5 @@
 * ``captions``  ``caption_sample(ws, record, model_id)`` → ``Captions``
 * ``index``     ``build_index(runs_dir, out_sqlite)`` + query helpers
 * ``sample``    one run → one dataset sample (the code files of its picked round)
-* ``quality``   ``quality_tier`` (A/B/C/D) · ``prompt_hash`` · code fingerprints, duplicate groups
+* ``quality``   ``quality_tier`` (A/B/C/D) · ``prompt_id`` · code fingerprints, duplicate groups
 """

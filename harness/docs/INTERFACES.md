@@ -640,7 +640,7 @@ from codeverse3d.record.record import complexity_block, round_complexity   # obj
     # round_complexity (a dataset sample's rounds_summary rows carry it)
 from codeverse3d.addons.dataset.export import export_samples   # (runs_dir, out_dir, *, min_score=None, only_passed=False,
     # include_unbuilt=False, captions_dir=None, drop_duplicates=False) -> ExportReport{…, n_duplicates, duplicates, tiers}
-from codeverse3d.addons.dataset.quality import quality_tier, prompt_hash, find_duplicates   # tiers (of the exported round's verdict):
+from codeverse3d.addons.dataset.quality import quality_tier, prompt_id, find_duplicates   # tiers (of the exported round's verdict):
                                                           # A passed & 0 gate errors, B passed, C score ≥ 0.6, D else; dedupe = (code fingerprint, prompt)
 from codeverse3d.addons.dataset.pairs import build_pairs       # (runs_dir, out_jsonl, *, min_delta=0.05) -> n
 from codeverse3d.addons.dataset.refine import build_refine, transitions, RefineTransition, REFINE_KINDS, outcome_of

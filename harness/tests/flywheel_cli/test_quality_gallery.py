@@ -10,7 +10,7 @@ from codeverse3d.addons.dataset.export import export_samples, load_captions
 from codeverse3d.addons.dataset.quality import (
     find_duplicates,
     mark_duplicates,
-    prompt_hash,
+    prompt_id,
     quality_tier,
 )
 from codeverse3d.record.record import load_record
@@ -46,7 +46,7 @@ def test_only_raw_hash_duplicates_are_dropped_normalised_ones_are_only_marked():
     mark_duplicates(rows)
     assert {r["id"]: r["duplicate_of"] for r in rows} == {"a": "e", "b": "e", "c": "", "d": "", "e": "", "f": ""}
     assert {r["id"]: r["near_duplicate_of"] for r in rows} == {"a": "e", "b": "e", "c": "e", "d": "", "e": "", "f": ""}
-    assert prompt_hash("  a chair ") == prompt_hash("a chair") and len(prompt_hash("x")) == 16
+    assert prompt_id("  a chair ") == prompt_id("a chair") and len(prompt_id("x")) == 16
 
 
 def test_whitespace_inside_a_string_is_a_near_duplicate_not_a_duplicate(runs_dir: Path, tmp_path: Path):

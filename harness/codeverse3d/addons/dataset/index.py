@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from codeverse3d.addons import select
-from codeverse3d.addons.dataset.quality import prompt_hash, quality_tier
+from codeverse3d.addons.dataset.quality import prompt_id, quality_tier
 from codeverse3d.addons.dataset.sample import gate_error_summary
 from codeverse3d.contracts.run import RoundRecord, RunId, RunRecord
 from codeverse3d.record.record import effective_judgment, iter_runs, skip_unreadable
@@ -54,7 +54,7 @@ def _run_row(ws: Workspace, rec: RunRecord, rid: RunId) -> tuple:
     tier = quality_tier(passed=j.passed if j else None, gate_errors=n_err, score=j.overall if j else None)
     return (
         rid.slug, str(ws.root), rec.spec.track.value, rec.spec.language.value, rec.spec.prompt,
-        prompt_hash(rec.spec.prompt), rec.spec.backends.generator, rec.spec.backends.planner,
+        prompt_id(rec.spec.prompt), rec.spec.backends.generator, rec.spec.backends.planner,
         rec.spec.backends.judge, s.stop_reason, s.baseline_score, s.picked_score, s.picked_round,
         len(rec.rounds), rec.total_usage.cost_usd, rec.total_usage.input_tokens,
         rec.total_usage.output_tokens, rec.started_at.isoformat(),

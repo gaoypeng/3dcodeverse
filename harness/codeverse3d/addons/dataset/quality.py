@@ -60,7 +60,7 @@ TIER_ORDER: dict[str, int] = {"A": 0, "B": 1, "C": 2, "D": 3}
 TIER_C_MIN_SCORE = 0.6
 
 
-def prompt_hash(prompt: str) -> str:
+def prompt_id(prompt: str) -> str:
     """Stable 16-hex id of a (stripped) user prompt — shared by samples, pairs and the index."""
     return hashlib.sha256(prompt.strip().encode()).hexdigest()[:16]
 

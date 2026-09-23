@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from codeverse3d.addons import select
-from codeverse3d.addons.dataset.quality import prompt_hash
+from codeverse3d.addons.dataset.quality import prompt_id
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.proc import read_jsonl_lenient
 from codeverse3d.record import _git
@@ -39,7 +39,7 @@ from codeverse3d.record.record import effective_judgment, iter_runs, skip_unread
 from codeverse3d.workspace import Workspace
 
 __all__ = ["build_pairs", "preference_pairs", "repair_pairs", "in_round_repair_pairs",
-           "cross_backend_pairs", "prompt_hash"]
+           "cross_backend_pairs"]
 
 MAX_INLINE_CODE = 200_000
 
@@ -74,7 +74,7 @@ def _base(ws: Workspace, rec: RunRecord, kind: str, *, slug: str | None = None) 
         "run": slug or ws.root.name,
         "workspace": str(ws.root),
         "prompt": rec.spec.prompt,
-        "prompt_hash": prompt_hash(rec.spec.prompt),
+        "prompt_hash": prompt_id(rec.spec.prompt),
         "track": rec.spec.track.value,
         "language": rec.spec.language.value,
         "generator": rec.spec.backends.generator,
@@ -255,7 +255,7 @@ def build_pairs(runs_dir: Path | str, out_jsonl: Path | str, *, min_delta: float
     with tmp.open("w") as fh:
         for ws, rec, rid in iter_runs(runs_dir, on_error=skip_unreadable):
             slug = rid.slug
-            groups[(prompt_hash(rec.spec.prompt), rec.spec.track.value, rec.spec.language.value)].append((ws, rec, slug))
+            groups[(prompt_id(rec.spec.prompt), rec.spec.track.value, rec.spec.language.value)].append((ws, rec, slug))
             pairs = (preference_pairs(ws, rec, min_delta=min_delta, slug=slug)
                      + repair_pairs(ws, rec, slug=slug) + in_round_repair_pairs(ws, rec, slug=slug))
             for pair in pairs:

@@ -26,7 +26,7 @@ from codeverse3d.addons import select
 from codeverse3d.addons.dataset.quality import (
     QualityTier,
     code_fingerprint,
-    prompt_hash,
+    prompt_id,
     quality_tier,
 )
 from codeverse3d.contracts.common import (
@@ -345,7 +345,7 @@ def build_meta(
         code_commit=rnd.commit if rnd is not None else "",
         code_source=code_source,
         code_fingerprint=code_fingerprint(code) if code else "",
-        prompt_hash=prompt_hash(spec.prompt),
+        prompt_hash=prompt_id(spec.prompt),
         status=record.status.value,
         cost_usd=round(record.total_usage.cost_usd, 6),
         usage=record.total_usage.model_dump(mode="json"),
