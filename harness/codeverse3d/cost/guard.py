@@ -15,8 +15,9 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
+from codeverse3d.contracts.common import Usage
 from codeverse3d.cost.types import normalise_ids
-from codeverse3d.models.pricing import per_image_usd, price_provenance, unit_prices
+from codeverse3d.models.pricing import estimate_cost, per_image_usd, price_provenance
 
 #: characters per token — Gemini/OpenAI English prose and code both sit near 4
 CHARS_PER_TOKEN = 4.0
@@ -80,8 +81,7 @@ def estimate_call(
         kind, provider, model = normalise_ids(model_id, model_id)
     tokens_in = (input_tokens or text_tokens(prompt)) + image_tokens(n_images)
     cached = max(0, min(cached_tokens, tokens_in))
-    p_in, p_cached, p_out = unit_prices(provider, model, prompt_tokens=tokens_in)
-    usd = ((tokens_in - cached) * p_in + cached * p_cached + output_tokens * p_out) / 1e6
+    usd = estimate_cost(provider, model, Usage(input_tokens=tokens_in, cached_tokens=cached, output_tokens=output_tokens))
     if n_images_out:
         usd += n_images_out * per_image_usd(provider, model)
     row = price_provenance(provider, model)
