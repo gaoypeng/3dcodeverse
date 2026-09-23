@@ -44,6 +44,7 @@ from pydantic import BaseModel, Field
 from codeverse3d.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse3d.contracts.common import Usage, is_harness_owned
+from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import read_json_or_none
 from codeverse3d.workspace import Workspace
 
@@ -376,16 +377,6 @@ def single_shot_model_id(agent_id: str) -> str:
     return agent_id[len(SINGLE_SHOT_PREFIX) :]
 
 
-def single_shot_format_text() -> str:
-    """The canonical format doc (``prompts/system/singleshot_format.md`` when present)."""
-    try:
-        from codeverse3d.prompts import load_text
-
-        return load_text("system/singleshot_format.md")
-    except FileNotFoundError:
-        return SINGLE_SHOT_FORMAT
-
-
 def generate_files(
     ws: Workspace,
     *,
@@ -397,8 +388,9 @@ def generate_files(
 ) -> GenerationResult:
     """Single-shot API codegen: ChatRequest → envelope → files on disk (no commit)."""
     from codeverse3d.models.retry import RETRY_DEADLINE_S
+    from codeverse3d.prompts import load_text
 
-    system = task.system + ("\n\n" if task.system else "") + single_shot_format_text()
+    system = task.system + ("\n\n" if task.system else "") + load_text("system/singleshot_format.md")
     req = ChatRequest(
         messages=[ChatMessage.user(task.prompt, images=task.images or None)],
         system=system,
@@ -420,6 +412,11 @@ def generate_files(
     # discard it before transcript/parse/write_files — the round's phase boundary does
     # (steps._run_phase)
     retry = False
+
+    def _truncated(retry: bool) -> None:
+        if events is not None:
+            events.emit("generate.truncated", label=task.label, finish_reason=str(resp.finish_reason), retry=retry)
+
     if _is_truncated(resp):
         # cut off by max_output_tokens: the envelope is unterminated — one retry with a
         # DOUBLED budget beats writing a half-file.  Already at the 65,536 model ceiling
@@ -427,13 +424,7 @@ def generate_files(
         # it is not bought (the default task budget IS the ceiling since 2026-08-27).
         grown = min(task.max_output_tokens * 2, 65_536)
         retry = grown > int(req.max_output_tokens or 0)
-        if events is not None:
-            events.emit(
-                "generate.truncated",
-                label=task.label,
-                finish_reason=str(resp.finish_reason),
-                retry=retry,
-            )
+        _truncated(retry)
         if retry:
             # the retry is a second full-price call: preflight the clock again and
             # hand it only what is left of the run (BudgetExceeded past the ceiling)
@@ -444,35 +435,22 @@ def generate_files(
     traj = ws.trajectory_dir(task.label.replace("/", "_"), task.round)
     (traj / "prompt.md").write_text(f"# system\n{system}\n\n# user\n{task.prompt}\n")
     (traj / "response.md").write_text(resp.text or "")
+
+    def _result(notes: str, changes: list[FileChange] | None = None) -> GenerationResult:
+        return GenerationResult(ok=bool(changes), usage=usage, files_changed=changes or [], notes=notes,
+                                text=(resp.text or "")[:2000], transcript_path=str(traj / "response.md"),
+                                label=task.label)
+
     if _is_truncated(resp):
-        if events is not None and retry:   # the RETRY was cut off too; the first cut is already in the log
-            events.emit(
-                "generate.truncated",
-                label=task.label,
-                finish_reason=str(resp.finish_reason),
-                retry=False,
-            )
-        return GenerationResult(
-            ok=False,
-            usage=usage,
-            notes=f"truncated: finish_reason={resp.finish_reason}",
-            text=(resp.text or "")[:2000],
-            transcript_path=str(traj / "response.md"),
-            label=task.label,
-        )
+        if retry:   # the RETRY was cut off too; the first cut is already in the log
+            _truncated(False)
+        return _result(f"truncated: finish_reason={resp.finish_reason}")
     try:
         files = parse_multifile(resp.text or "", expected_files=task.files_hint or None)
     except MultiFileParseError as e:
         if events is not None:
             events.emit("generate.parse_failed", label=task.label, error=str(e))
-        return GenerationResult(
-            ok=False,
-            usage=usage,
-            notes=f"parse failed: {e}",
-            text=(resp.text or "")[:2000],
-            transcript_path=str(traj / "response.md"),
-            label=task.label,
-        )
+        return _result(f"parse failed: {e}")
     skipped: list[str] = []
 
     def _skip(path: str, reason: str) -> None:
@@ -490,16 +468,7 @@ def generate_files(
             files=[c.path for c in changes],
             cost_usd=round(usage.cost_usd, 4),
         )
-    notes = f"skipped out-of-root paths: {', '.join(skipped)}" if skipped else ""
-    return GenerationResult(
-        ok=bool(changes),
-        usage=usage,
-        files_changed=changes,
-        notes=notes,
-        text=(resp.text or "")[:2000],
-        transcript_path=str(traj / "response.md"),
-        label=task.label,
-    )
+    return _result(f"skipped out-of-root paths: {', '.join(skipped)}" if skipped else "", changes)
 
 
 def _deadline_preflight(budget: Any | None, wait_s: float, *, soft: bool = False,
@@ -684,32 +653,18 @@ class _SessionAcc:
             res: AgentResult = agent.run(job)
         except Exception as e:  # noqa: BLE001 — a budget stop still propagates (see below)
             self.sessions -= 1
-            if not optional or _is_budget_stop(e):
+            if not optional or isinstance(e, BudgetExceeded):
                 raise
             log.warning("optional agent session %s failed: %s: %s", label, type(e).__name__, e)
             self.errors.append(f"{label}: {type(e).__name__}: {e}")
             return None
         self.usage = self.usage + res.usage
-        self.turns += session_turns(res)
+        # the count as the BACKEND reports it (0 for gemini-cli, which exposes none): a size
+        # signal for the generate.turn_cap event, not what the cap is enforced against
+        self.turns += res.turns
         if self.budget is not None and (res.usage.cost_usd or res.usage.input_tokens or res.usage.output_tokens):
             self.budget.check()
         return res
-
-
-def _is_budget_stop(e: BaseException) -> bool:
-    from codeverse3d.orchestrator import BudgetExceeded
-
-    return isinstance(e, BudgetExceeded)
-
-
-def session_turns(res: Any) -> int:
-    """``AgentResult.turns`` — the count as the BACKEND reports it (0 for gemini-cli,
-    which exposes none).  Backends count turns slightly differently, so this is a
-    size signal (the ``generate.turn_cap`` event), not the number the turn cap is compared
-    against — that one is enforced inside the session by ``job.max_turns``.  (Until
-    2026-08-29 this re-read result.json for a ``turns`` key only the deleted api-agent
-    wrote, so ``agent_turns`` was 0 for every vendor CLI.)"""
-    return int(getattr(res, "turns", 0) or 0)
 
 
 def _images_block(images: list[ImagePart], ws: Workspace) -> str:
