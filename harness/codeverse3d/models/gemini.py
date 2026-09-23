@@ -421,7 +421,6 @@ class GeminiModel:
         budget = retry_budget_s(request.max_wait_s)
         deadline = time.monotonic() + budget  # mirrors rotate_with_retries' own deadline
         stats: dict[str, Any] = {}
-        wasted: list[Usage] = []  # discarded round-trips the provider still billed
         resp = rotate_with_retries(
             self.pool,
             lambda key: self._once(
@@ -437,16 +436,11 @@ class GeminiModel:
             retry_after=_retry_after_s,
             label=f"gemini {self.model}",
             stats=stats,
-            on_attempt=self._attempt_hook(wasted),
+            on_attempt=self._attempt_hook(),
             **({} if self.storm_attempts is None else {"storm_attempts": self.storm_attempts}),
         )
         # how hard the call was, next to which key served it (``_once``): ledger fields
         resp.raw["attempts"] = int(stats.get("attempts", 0))
-        resp.raw["hedged"] = int(stats.get("hedged", 0))
-        if wasted:
-            # money the winner's usage does not include; a hedge loser that lands AFTER
-            # this returns reaches the ledger through the sink, never this field
-            resp.raw["wasted_usage"] = sum(wasted[1:], wasted[0])
         return resp
 
     def _config(self, request: ChatRequest) -> types.GenerateContentConfig:
@@ -465,11 +459,10 @@ class GeminiModel:
         a 300 s socket — the dominant deadline overshoot (audit 2026-08-27)."""
         return clip_timeout(config, int(attempt_timeout_s(deadline, self.timeout_s) * 1000))
 
-    def _attempt_hook(self, wasted: list[Usage]) -> OnAttempt:
-        """Per-round-trip observer.  It collects every DISCARDED round-trip that still
-        cost money into ``wasted`` (published on ``resp.raw["wasted_usage"]`` — the only
-        place a budget guard can see that money) and feeds the ledger's per-attempt sink
-        when the metering layer installed one (``cost.instrument.MeteredChatModel``).
+    def _attempt_hook(self) -> OnAttempt:
+        """Per-round-trip observer: feeds the ledger's per-attempt sink when the metering
+        layer installed one (``cost.instrument.MeteredChatModel``) — a DISCARDED round-trip
+        that still cost money is booked there as an ``extra`` row, the only record of it (D84).
         Captured once per logical call so a hedge loser landing later, in its own thread,
         still reports through it."""
         sink = attempt_sink()
@@ -481,8 +474,6 @@ class GeminiModel:
             else:
                 usage = getattr(t.err, "usage", None) or Usage()
                 outcome, error = t.outcome, str(t.err)
-            if discarded and usage.cost_usd:
-                wasted.append(usage)
             if sink is not None:
                 sink(AttemptRecord(attempt=no, key=t.key, outcome=outcome,
                                    discarded=discarded, usage=usage, error=error))

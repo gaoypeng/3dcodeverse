@@ -406,9 +406,7 @@ def generate_files(
         label=f"{task.label}:r{task.round:02d}",
     )
     resp = model.generate(req)
-    # + every paid round-trip the winner does not represent (a billed-but-invalid
-    # response, a late hedge loser): the ledger records those as source="extra"
-    usage = resp.usage + (resp.raw.get("wasted_usage") or Usage())
+    usage = resp.usage
     # the clock is not enforced here: the response is already paid for, and raising would
     # discard it before transcript/parse/write_files — the round's phase boundary does
     # (steps._run_phase)

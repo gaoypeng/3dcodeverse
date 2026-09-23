@@ -84,7 +84,7 @@ def test_max_wait_s_must_be_positive():
 def test_a_clean_call_reports_one_attempt_and_a_failed_call_carries_its_count():
     m, _log, _ = make_model([text_response("hi")])
     r = m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
-    assert r.raw["attempts"] == 1 and r.raw["hedged"] == 0 and r.raw["key"] == "…k1"
+    assert r.raw["attempts"] == 1 and r.raw["key"] == "…k1"
 
     hedged, log, _ = make_model(
         [api_error(503), api_error(503), text_response("recovered")],
@@ -93,7 +93,7 @@ def test_a_clean_call_reports_one_attempt_and_a_failed_call_carries_its_count():
     )
     recovered = hedged.generate(ChatRequest(messages=[ChatMessage.user("x")]))
     assert recovered.text == "recovered" and len(log) == 3
-    assert recovered.raw["attempts"] == 3 and recovered.raw["hedged"] == 1
+    assert recovered.raw["attempts"] == 3
     assert recovered.raw["key"] in ("…k2", "…k3")
 
     m2, _log2, _ = make_model(
