@@ -372,9 +372,10 @@ def test_a_harness_run_whose_judge_never_answered_is_dropped_and_redone_fresh(tm
     assert any(p.name.startswith("run.attempt") for p in (tmp_path / "cells" / battery.prompts[0].id / arm.slug).iterdir())
 
 
-@pytest.mark.parametrize('outage', [True, False])
-def test_bare_agent_provider_failure_with_a_partial_file_is_not_a_quality_zero(tmp_path, monkeypatch, outage):
-    """A CLI can leave a placeholder before its API fails; preserve but don't grade it."""
+@pytest.mark.parametrize(('outage', 'reason'), [(True, 'error'), (False, 'error'), (True, 'timeout')])
+def test_bare_agent_provider_failure_with_a_partial_file_is_not_a_quality_zero(tmp_path, monkeypatch, outage, reason):
+    """A CLI can leave a placeholder before its API fails; preserve but don't grade it.  A session that
+    ran out of its window is graded even when a recovered 503 made it transient — else timeouts re-roll."""
     from bench.compare_backends import CompareDeps, CompareOptions, parse_arm, run_cell
     from bench.run_bench import Battery
     from codeverse3d.contracts.agent import AgentResult
@@ -385,7 +386,7 @@ def test_bare_agent_provider_failure_with_a_partial_file_is_not_a_quality_zero(t
         # code so the calm control demonstrates that capability errors keep 0.
         eval_ws.src.mkdir(parents=True, exist_ok=True)
         (eval_ws.src / 'model.py').write_text(GOOD.format(score=0.5).replace('\n', '\n# BOOM\n', 1))
-        return AgentResult(ok=False, exit_reason='error', transient=outage,
+        return AgentResult(ok=False, exit_reason=reason, transient=outage,
                            errors=['Gemini API error 503' if outage else 'model produced invalid code'])
 
     monkeypatch.setattr('bench._bare_agent.run_bare_agent', interrupted)
@@ -393,7 +394,7 @@ def test_bare_agent_provider_failure_with_a_partial_file_is_not_a_quality_zero(t
     evaluator=FakeEvaluator()
     result=run_cell(battery,battery.prompts[0],parse_arm('agent:gemini-cli:gemini-3.8-flash'),
                     tmp_path,CompareOptions(judge='gemini:x',loop_judge='gemini:x'),CompareDeps(evaluator))
-    if outage:
+    if outage and reason == 'error':
         assert (result.status,result.score,result.error_is_infra)==('infra_failed',None,True)
         assert evaluator.evaluated==[]
         assert '503' in result.error

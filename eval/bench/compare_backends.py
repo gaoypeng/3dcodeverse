@@ -323,9 +323,12 @@ def _run_bare_agent(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts: 
     res.gen_seconds = result.duration_s
     res.minutes = round(max(0.0, result.duration_s - result.provider_wait_s) / 60, 2)
     res.harness_status = result.exit_reason
-    if not result.ok and result.transient:
+    if not result.ok and result.transient and result.exit_reason != "timeout":
         # A provider can fail after the CLI has written a placeholder or an
         # unfinished revision. File existence is not a completed agent session.
+        # A session that ran out of its window is the arm's own result, even when a
+        # recovered 503 made the backend call it transient: re-rolling timeouts until
+        # one gets lucky would bias the bare arm (review 2026-09-23).
         res.error = f"bare agent interrupted by provider ({result.exit_reason}: {'; '.join(result.errors)[:600]})"
         res.error_is_infra = True
     if not (eval_ws.root / entry_of(spec)).is_file():
