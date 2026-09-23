@@ -11,8 +11,7 @@
 from __future__ import annotations
 
 from codeverse3d.contracts.artifacts import BuildResult, Judgment
-from codeverse3d.contracts.chat import ChatResponse
-from codeverse3d.contracts.common import Language, Track, Usage
+from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.languages.scene_threejs import zone_file
@@ -30,6 +29,7 @@ from codeverse3d.tracks.planner import plan_example
 from codeverse3d.tracks.scene import SceneTrack
 from codeverse3d.tracks.static_object import StaticObjectTrack
 from codeverse3d.workspace import Workspace
+from tests.orchestrator_tracks.test_fix_generation import scripted
 
 from .conftest import make_spec
 from .fakes import FakeAgent, FakeRuntime, FakeServices
@@ -72,17 +72,6 @@ def test_write_files_normalises_a_path_before_the_owned_and_scope_checks(tmp_ws:
     assert (tmp_ws.src / "zones" / "q.js").read_text() == "// old q\n"
 
 
-class ScriptedModel:
-    """Yields ``(text, finish_reason)`` pairs in order (same as test_fix_generation)."""
-
-    def __init__(self, answers):
-        self.answers = list(answers)
-
-    def generate(self, req):
-        text, fr = self.answers.pop(0)
-        return ChatResponse(text=text, usage=Usage(backend="fake", cost_usd=0.001), finish_reason=fr)
-
-
 ANSWER = (
     "=== FILE: src/parts/a.js ===\n// new a\n=== END FILE ===\n"
     "=== FILE: src/object.js ===\n// new entry\n=== END FILE ===\n"
@@ -105,7 +94,7 @@ def test_generate_files_enforces_the_task_scope(tmp_path):
     ws = _envelope_ws(tmp_path)
     events = EventLog(tmp_path / "e.jsonl")
     task = GenerationTask(label="refine_a", prompt="p", files_hint=["src/parts/a.js"], edit_only=True)
-    res = generate_files(ws, model=ScriptedModel([(ANSWER, "STOP")]), task=task, events=events)
+    res = generate_files(ws, model=scripted([(ANSWER, "STOP")]), task=task, events=events)
     assert res.ok and [c.path for c in res.files_changed] == ["src/parts/a.js", "src/parts/new.js"]
     assert (ws.src / "parts" / "a.js").read_text() == "// new a\n"
     assert (ws.src / "object.js").read_text() == "// entry\n", "the entry is not owned"
@@ -120,7 +109,7 @@ def test_generate_files_lets_an_owner_write_the_entry(tmp_path):
     ws = _envelope_ws(tmp_path)
     task = GenerationTask(label="refine_a", prompt="p", files_hint=["src/parts/a.js"],
                           edit_only=True, owns_entry=True)
-    res = generate_files(ws, model=ScriptedModel([(ANSWER, "STOP")]), task=task,
+    res = generate_files(ws, model=scripted([(ANSWER, "STOP")]), task=task,
                          events=EventLog(tmp_path / "e.jsonl"))
     assert res.ok and (ws.src / "object.js").read_text() == "// new entry\n"
     assert (ws.src / "parts" / "b.js").read_text() == "// b\n", "b stays out of scope"
@@ -129,7 +118,7 @@ def test_generate_files_lets_an_owner_write_the_entry(tmp_path):
 def test_generate_files_without_edit_only_is_unchanged(tmp_path):
     ws = _envelope_ws(tmp_path)
     task = GenerationTask(label="baseline", prompt="p", files_hint=["src/parts/a.js"])
-    generate_files(ws, model=ScriptedModel([(ANSWER, "STOP")]), task=task,
+    generate_files(ws, model=scripted([(ANSWER, "STOP")]), task=task,
                    events=EventLog(tmp_path / "e.jsonl"))
     assert (ws.src / "object.js").read_text() == "// new entry\n"
     assert (ws.src / "parts" / "b.js").read_text() == "// new b\n"
@@ -144,7 +133,7 @@ def test_generate_files_never_rewrites_a_harness_owned_file(tmp_path):
     events = EventLog(tmp_path / "e.jsonl")
     answer = ("=== FILE: src/shader.frag ===\nvoid main(){}\n=== END FILE ===\n"
               "=== FILE: src/recipes.glsl ===\n// clobbered\n=== END FILE ===")
-    res = generate_files(ws, model=ScriptedModel([(answer, "STOP")]),
+    res = generate_files(ws, model=scripted([(answer, "STOP")]),
                          task=GenerationTask(label="baseline", prompt="p"), events=events)
     assert res.ok and [c.path for c in res.files_changed] == ["src/shader.frag"]
     assert (ws.src / "recipes.glsl").read_text().startswith("float aurora")
@@ -164,7 +153,7 @@ def test_generate_files_never_writes_under_a_harness_owned_directory(tmp_path):
     events = EventLog(tmp_path / "e.jsonl")
     answer = ("=== FILE: src/scene.js ===\n// scene\n=== END FILE ===\n"
               "=== FILE: src/lib/post.js ===\n// clobbered\n=== END FILE ===")
-    res = generate_files(ws, model=ScriptedModel([(answer, "STOP")]),
+    res = generate_files(ws, model=scripted([(answer, "STOP")]),
                          task=GenerationTask(label="baseline", prompt="p"), events=events)
     assert res.ok and [c.path for c in res.files_changed] == ["src/scene.js"]
     assert (ws.src / "lib" / "post.js").read_text() == "// harness effect library\n"

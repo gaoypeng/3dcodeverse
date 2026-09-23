@@ -14,8 +14,8 @@ from codeverse3d.texturing.plan import (
     scene_texture_pack,
     texture_pack_prompt,
 )
+from tests.orchestrator_tracks.fakes import FakeChatModel
 from tests.texturing.conftest import FakeImageModel
-from tests.texturing.test_plan import _FakeChat
 
 
 @pytest.fixture
@@ -45,13 +45,13 @@ def test_scene_pack_plan_with_model_and_cap(garden_plan):
         {"name": "moss_ground", "material_family": "other", "subject": "dup", "tile_size_m": 1.0, "role": "ground"},
         {"name": "granite_gravel", "material_family": "stone", "subject": "fine grey gravel", "tile_size_m": 0.8, "role": "ground"},
     ], "notes": "n"}
-    chat = _FakeChat(payload)
+    chat = FakeChatModel(default=payload)
     entries, notes, usage = scene_pack_plan(garden_plan, "fake:fake", model=chat, n_max=2)
     assert [e.name for e in entries] == ["moss_ground", "granite_gravel"] and notes == "n" and usage.cost_usd > 0
     assert entries[0].tile_size_m == 1.2 and "green moss carpet, matte natural surface" in entries[0].prompt
-    assert "Zen Garden" in chat.calls[0].messages[0].text and "GravelCourt" in chat.calls[0].messages[0].text
+    assert "Zen Garden" in chat.requests[0].messages[0].text and "GravelCourt" in chat.requests[0].messages[0].text
     with pytest.raises(ValueError):
-        scene_pack_plan(garden_plan, "fake:fake", model=_FakeChat({"textures": []}))
+        scene_pack_plan(garden_plan, "fake:fake", model=FakeChatModel(default={"textures": []}))
 
 
 def test_scene_texture_pack_writes_manifest_and_prompt(tmp_path: Path, garden_plan):

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from codeverse3d.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZoneLayout, ZonePlan
 from codeverse3d.tracks.zone_layout import layout_block, layout_zones, validate_layout
+from tests.orchestrator_tracks.fakes import FakeChatModel
 
 
 def _plan() -> ScenePlan:
@@ -105,27 +104,15 @@ def test_layout_block_renders_numbers_the_builder_can_follow():
     assert layout_block(None) == ""
 
 
-class _Model:
-    """Scripted planner: first answer per zone from the queue, then valid ones."""
-
-    def __init__(self, answers):
-        self.answers = list(answers)
-        self.calls = 0
-
-    def generate(self, req):
-        self.calls += 1
-        return SimpleNamespace(parsed=self.answers.pop(0), text="", usage=None)
-
-
 def test_layout_zones_runs_per_zone_and_reasks_once_with_the_complaint():
     plan = _plan()
     good_quay = _layout().model_dump(mode="json")
     bad_quay = _layout(placements=[{"asset": "Kraken", "count": 1, "cluster": (0.0, 0.0), "spread_m": 1.0}]).model_dump(mode="json")
     good_market = {"zone": "Market", "placements": [{"asset": "Stall", "count": 4, "cluster": (10.0, 0.0), "spread_m": 5.0}]}
     # zones fan out with max_workers=1 so the scripted queue stays ordered
-    model = _Model([bad_quay, good_quay, good_market])
+    model = FakeChatModel([bad_quay, good_quay, good_market])
     out = layout_zones(plan, model, max_workers=1)
-    assert set(out) == {"Quay", "Market"} and model.calls == 3
+    assert set(out) == {"Quay", "Market"} and len(model.requests) == 3
     assert out["Quay"].placements[0].asset == "Bollard"
 
 
@@ -133,7 +120,7 @@ def test_layout_zones_drops_a_twice_rejected_zone_instead_of_dying():
     plan = _plan()
     bad = {"zone": "Quay", "placements": [{"asset": "Kraken", "count": 1, "cluster": (0.0, 0.0), "spread_m": 1.0}]}
     good_market = {"zone": "Market", "placements": [{"asset": "Stall", "count": 4, "cluster": (10.0, 0.0), "spread_m": 5.0}]}
-    out = layout_zones(plan, _Model([bad, bad, good_market]), max_workers=1)
+    out = layout_zones(plan, FakeChatModel([bad, bad, good_market]), max_workers=1)
     assert set(out) == {"Market"}
 
 
@@ -146,10 +133,10 @@ def test_a_run_past_its_ceiling_buys_no_layout_calls():
     from codeverse3d.contracts.common import Budget
     from codeverse3d.orchestrator import BudgetGuard
 
-    model = _Model([])   # any call would pop an empty queue and explode the test
+    model = FakeChatModel()   # any call finds no reply and raises
     guard = BudgetGuard(Budget(max_minutes=30), start_time=time.time() - 45 * 60)
     out = layout_zones(_plan(), model, budget=guard, max_workers=1)
-    assert out == {} and model.calls == 0
+    assert out == {} and len(model.requests) == 0
 
 
 def test_layout_waits_are_clipped_to_the_remaining_run_clock():
@@ -159,19 +146,11 @@ def test_layout_waits_are_clipped_to_the_remaining_run_clock():
     from codeverse3d.contracts.common import Budget
     from codeverse3d.orchestrator import BudgetGuard
 
-    class _Recorder(_Model):
-        def __init__(self, answers):
-            super().__init__(answers)
-            self.waits = []
-
-        def generate(self, req):
-            self.waits.append(req.max_wait_s)
-            return super().generate(req)
-
     good_quay = _layout().model_dump(mode="json")
     good_market = {"zone": "Market", "placements": [{"asset": "Stall", "count": 4, "cluster": (10.0, 0.0), "spread_m": 5.0}]}
-    model = _Recorder([good_quay, good_market])
+    model = FakeChatModel([good_quay, good_market])
     guard = BudgetGuard(Budget(max_minutes=30), start_time=time.time() - 28 * 60)   # ~2 min left
     out = layout_zones(_plan(), model, budget=guard, max_workers=1)
     assert set(out) == {"Quay", "Market"}
-    assert model.waits and all(20 <= w <= 125 for w in model.waits), model.waits
+    waits = [r.max_wait_s for r in model.requests]
+    assert waits and all(20 <= w <= 125 for w in waits), waits

@@ -13,11 +13,12 @@ from codeverse3d.reference import (
     template_hash,
     views_for,
 )
-from tests.reference.conftest import GOOD_GATE, PROMPT_PLAN, FakeChat, FakeImageModel, make_spec
+from tests.orchestrator_tracks.fakes import FakeChatModel
+from tests.reference.conftest import GOOD_GATE, PROMPT_PLAN, FakeImageModel, make_spec
 
 
 def _chat(gates=None, plan=PROMPT_PLAN):
-    return FakeChat({"reference_prompt": [plan], "reference_gate": list(gates or [GOOD_GATE, GOOD_GATE])})
+    return FakeChatModel(by_label={"reference_prompt": [plan], "reference_gate": list(gates or [GOOD_GATE, GOOD_GATE])})
 
 
 def test_views_and_prompt_composition():
@@ -89,7 +90,7 @@ def test_no_image_model_is_not_fatal(cache_dir: Path):
 
 
 def test_prompt_writer_failure_falls_back_to_the_brief(cache_dir: Path):
-    chat = FakeChat({"reference_prompt": [ModelError("boom")], "reference_gate": [GOOD_GATE]})
+    chat = FakeChatModel(by_label={"reference_prompt": [ModelError("boom")], "reference_gate": [GOOD_GATE]})
     rs = synth_reference(make_spec(), model=chat, image_model=FakeImageModel(), n_views=1, cache_dir=cache_dir)
     assert rs.ok and "coffee grinder" in rs.subject
 

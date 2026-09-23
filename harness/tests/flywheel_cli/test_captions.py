@@ -12,10 +12,10 @@ from codeverse3d.addons.dataset.captions import (
     caption_sample,
     validate_captions,
 )
-from codeverse3d.contracts.chat import ChatRequest, ChatResponse, ImagePart
-from codeverse3d.contracts.common import Usage
+from codeverse3d.contracts.chat import ImagePart
 from codeverse3d.record.deliverable import load_deliverable
 from codeverse3d.record.record import load_record
+from tests.orchestrator_tracks.fakes import FakeChatModel
 
 GOOD = {
     "detailed": "A four-legged wooden dining chair with a flat square seat and a tall slatted backrest.",
@@ -24,30 +24,13 @@ GOOD = {
 }
 
 
-class FakeModel:
-    provider, model = "fake", "fake"
-
-    def __init__(self, replies):
-        self.replies = list(replies)
-        self.requests: list[ChatRequest] = []
-
-    @property
-    def id(self):
-        return "fake:fake"
-
-    def generate(self, request: ChatRequest) -> ChatResponse:
-        self.requests.append(request)
-        data = self.replies.pop(0)
-        return ChatResponse(text=json.dumps(data), parsed=data, usage=Usage(cost_usd=0.001))
-
-
 def test_caption_sample_stores_and_writes(fake_run):
     from codeverse3d.addons import select
     from codeverse3d.record.deliverable import load_deliverable
 
     ws, rec = fake_run
     select.package(ws.root, 1)  # a round was handed over: its deliverable/ must follow the caption
-    m = FakeModel([GOOD])
+    m = FakeChatModel([GOOD])
     caps = caption_sample(ws, rec, "fake:fake", model=m)
     assert caps.detailed.startswith("A four-legged")
     req = m.requests[0]
@@ -59,7 +42,7 @@ def test_caption_sample_stores_and_writes(fake_run):
     again = load_record(ws)
     assert again.extra["captions"]["factory"] == GOOD["factory"]
     assert again.extra["captions"]["provenance"]["captioner"] == "fake:fake"
-    assert again.extra["captions"]["provenance"]["cost_usd"] == pytest.approx(0.001)
+    assert again.extra["captions"]["provenance"]["cost_usd"] == pytest.approx(0.002)
     # a caption changes the hand-over folder too — it used to leave deliverable/,
     # the manifest and telemetry/ describing an uncaptioned run
     assert json.loads((ws.deliverable / "captions.json").read_text())["factory"] == GOOD["factory"]
@@ -82,7 +65,7 @@ def test_caption_cmd_writes_the_captioner_row_into_the_run_ledger(fake_run, monk
     select.package(ws.root, 1)
     ledger = open_run_ledger(ws.root)  # the run already keeps one (create=False appends)
     ledger.path.touch()
-    monkeypatch.setattr(R, "build_chat_model", lambda _mid: FakeModel([GOOD]))
+    monkeypatch.setattr(R, "build_chat_model", lambda _mid: FakeChatModel([GOOD]))
     r = CliRunner().invoke(app, ["flywheel", "caption", ws.root.name, "--runs-dir", str(ws.root.parent),
                                  "--model", "fake:fake"])
     assert r.exit_code == 0, r.output
@@ -94,11 +77,11 @@ def test_caption_cmd_writes_the_captioner_row_into_the_run_ledger(fake_run, monk
 def test_caption_retry_then_fail(fake_run):
     ws, rec = fake_run
     bad = dict(GOOD, detailed="Made with bpy.ops primitives: a chair with four legs and a backrest.")
-    m = FakeModel([bad, GOOD])
+    m = FakeChatModel([bad, GOOD])
     caps = caption_sample(ws, rec, "fake:fake", model=m)
     assert caps.detailed == GOOD["detailed"] and len(m.requests) == 2
     assert "bpy" in m.requests[1].messages[-1].text
-    m2 = FakeModel([bad, bad])
+    m2 = FakeChatModel([bad, bad])
     with pytest.raises(CaptionError):
         caption_sample(ws, rec, "fake:fake", model=m2)
 
@@ -154,7 +137,7 @@ def test_caption_sample_threejs_run(tmp_path):
     from tests.flywheel_cli.conftest import make_fake_run
 
     ws, rec = make_fake_run(tmp_path / "runs", "lamp_js", prompt="a desk lamp", language=Language.THREEJS)
-    m = FakeModel([GOOD_JS])
+    m = FakeChatModel([GOOD_JS])
     caps = caption_sample(ws, rec, "fake:fake", model=m)
     assert "Three.js" in caps.instruction and len(m.requests) == 1  # no retry needed
 
@@ -190,7 +173,7 @@ def test_caption_graphics_run_from_frames(tmp_path):
         "instruction": "Write a GLSL fragment shader with neon rain streaking down a dark window.",
         "factory": "Hash-place bokeh discs in three depth layers, add per-cell rain trails, then tonemap and vignette.",
     }
-    m = FakeModel([reply])
+    m = FakeChatModel([reply])
     caps = caption_sample(ws, rec, "fake:fake", model=m)
     assert caps.instruction.lower().count("glsl")
     req = m.requests[0]
@@ -229,7 +212,7 @@ def test_an_old_runs_caption_then_export_still_ships_its_glb_gif_and_meshes(tmp_
 
     ws, rec = _old_urdf_run(tmp_path)
     urdf = dict(GOOD, instruction="Write a URDF model of a simple robot arm with a base and one hinged link.")
-    caption_sample(ws, rec, "fake:fake", model=FakeModel([urdf]))
+    caption_sample(ws, rec, "fake:fake", model=FakeChatModel([urdf]))
     assert json.loads(ws.record_path.read_text())["best_round"] == 1  # the rewrite keeps the legacy key
     handed = {f.path for f in load_deliverable(ws).files}
     assert {"deliverable/object.glb", "deliverable/preview.gif", "deliverable/meshes/base.glb"} <= handed

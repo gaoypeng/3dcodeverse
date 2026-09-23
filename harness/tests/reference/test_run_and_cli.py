@@ -11,11 +11,12 @@ from codeverse3d.contracts.spec import ReferenceImage
 from codeverse3d.proc import EventLog
 from codeverse3d.reference import SYNTH_TAG, ground_spec
 from codeverse3d.workspace import Workspace
-from tests.reference.conftest import GOOD_GATE, PROMPT_PLAN, FakeChat, FakeImageModel, make_spec
+from tests.orchestrator_tracks.fakes import FakeChatModel
+from tests.reference.conftest import GOOD_GATE, PROMPT_PLAN, FakeImageModel, make_spec
 
 
 def _chat(gates=None):
-    return FakeChat({"reference_prompt": [PROMPT_PLAN], "reference_gate": list(gates or [GOOD_GATE, GOOD_GATE])})
+    return FakeChatModel(by_label={"reference_prompt": [PROMPT_PLAN], "reference_gate": list(gates or [GOOD_GATE, GOOD_GATE])})
 
 
 def test_ground_spec_rewrites_the_spec_and_records_everything(tmp_ws: Workspace, cache_dir: Path):

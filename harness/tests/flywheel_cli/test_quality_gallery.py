@@ -16,7 +16,8 @@ from codeverse3d.addons.dataset.quality import (
 from codeverse3d.contracts.common import Language
 from codeverse3d.record.record import load_record
 from tests.flywheel_cli.conftest import make_fake_run
-from tests.flywheel_cli.test_captions import GOOD, FakeModel
+from tests.flywheel_cli.test_captions import GOOD
+from tests.orchestrator_tracks.fakes import FakeChatModel
 
 # --------------------------------------------------------------------------- tiers + dedupe
 
@@ -138,7 +139,7 @@ def test_caption_out_dir_leaves_run_untouched(fake_run, tmp_path: Path):
     ws, rec = fake_run
     before = ws.record_path.read_text()
     side = tmp_path / "caps"
-    caps = caption_sample(ws, rec, "fake:fake", model=FakeModel([GOOD]), out_dir=side)
+    caps = caption_sample(ws, rec, "fake:fake", model=FakeChatModel([GOOD]), out_dir=side)
     assert caps.factory == GOOD["factory"]
     assert ws.record_path.read_text() == before and not (ws.root / "captions.json").exists()
     data = json.loads((side / f"{ws.root.name}.json").read_text())

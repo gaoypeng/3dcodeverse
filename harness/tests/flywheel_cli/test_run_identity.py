@@ -131,13 +131,14 @@ def test_nested_run_identity_survives_every_flywheel_consumer(tmp_path: Path):
 
     # Caption sidecars are equally isolated.
     from codeverse3d.addons.dataset.captions import caption_sample
-    from tests.flywheel_cli.test_captions import GOOD, FakeModel
+    from tests.flywheel_cli.test_captions import GOOD
+    from tests.orchestrator_tracks.fakes import FakeChatModel
 
     side = tmp_path / "caps"
     by_slug = {f.run_id.slug: f for f in found}
     a = by_slug["cmp_a_stool__armx"]
     b = by_slug["cmp_b_lamp__armx"]
-    caption_sample(a.ws, a.record, "fake:fake", model=FakeModel([GOOD]),
+    caption_sample(a.ws, a.record, "fake:fake", model=FakeChatModel([GOOD]),
                    out_dir=side, slug=a.run_id.slug)
     assert (side / "cmp_a_stool__armx.json").is_file()
     assert not (side / "run.json").exists(), "the degenerate basename side-car is the bleed"

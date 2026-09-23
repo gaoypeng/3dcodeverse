@@ -32,6 +32,7 @@ from codeverse3d.contracts.plan import Plan
 from codeverse3d.contracts.run import RunRecord
 from codeverse3d.conventions import to_snake
 from codeverse3d.languages import get_runtime
+from codeverse3d.models.base import ModelError
 from codeverse3d.tracks.common import Services
 from codeverse3d.workspace import Workspace
 
@@ -136,12 +137,13 @@ class FakeRuntime:
 
 # ----------------------------------------------------------------------------- agent / model
 class FakeAgent:
-    """``writer(job, ws) -> dict[path, content]``; None → no files (silent bail)."""
+    """``writer(job, ws) -> dict[path, content]``; None → no files (silent bail); an
+    ``AgentResult`` → that session outcome, returned as is."""
 
     kind = "fake"
     model = "fake-model"
 
-    def __init__(self, writer: Callable[[AgentJob, Workspace], dict[str, str] | None], cost: float = 0.01,
+    def __init__(self, writer: Callable[[AgentJob, Workspace], dict[str, str] | AgentResult | None], cost: float = 0.01,
                  minutes: float = 0.0):
         self.writer = writer
         self.cost = cost
@@ -161,6 +163,8 @@ class FakeAgent:
         with ws._lock:  # noqa: SLF001 — the fake mimics a real agent's serialised writes
             before = ws.head()
         files = self.writer(job, ws)
+        if isinstance(files, AgentResult):  # a scripted session outcome: a crash, a quota wall, an idle session
+            return files
         for rel, content in (files or {}).items():
             p = ws.root / rel
             p.parent.mkdir(parents=True, exist_ok=True)
@@ -175,31 +179,56 @@ class FakeAgent:
 
 
 class FakeChatModel:
-    """``responder(request) -> str | dict``; dict is returned as ``parsed`` (structured output)."""
+    """The one ChatModel fake.  Each request is answered by the next reply: the longest
+    ``by_label`` key found in ``request.label`` that still has replies, else the ``replies``
+    queue, else ``default``.  ``replies`` may itself be a callable (the responder every
+    request goes to).  A callable reply is called with the request; an Exception is raised;
+    None raises ModelError; a ChatResponse is returned as is; a dict/list is returned as
+    ``parsed`` (structured output); anything else as text.  Thread-safe: judges fan samples
+    across threads."""
 
     provider = "fake"
-    model = "fake-model"
 
-    def __init__(self, responder: Callable[[ChatRequest], Any], cost: float = 0.002, minutes: float = 0.0):
-        self.responder = responder
-        self.cost = cost
+    def __init__(self, replies: Callable[[ChatRequest], Any] | Sequence[Any] | None = None, *, default: Any = None,
+                 by_label: dict[str, list[Any]] | None = None, model: str = "fake-model", cost: float = 0.002,
+                 tokens: tuple[int, int] = (500, 200), minutes: float = 0.0):
+        self.replies, self.default = ([], replies) if callable(replies) else (list(replies or []), default)
+        self.by_label = {k: list(v) for k, v in (by_label or {}).items()}
+        self.model, self.cost, self.tokens = model, cost, tokens
         self.minutes = minutes          # wall clock each call burns (see conftest.fake_clock)
         self.requests: list[ChatRequest] = []
+        self._lock = threading.Lock()
 
     @property
     def id(self) -> str:
-        return "fake:fake-model"
+        return f"fake:{self.model}"
+
+    def _next_reply(self, request: ChatRequest) -> Any:
+        for key in sorted(self.by_label, key=len, reverse=True):
+            if key in (request.label or "") and self.by_label[key]:
+                return self.by_label[key].pop(0)
+        return self.replies.pop(0) if self.replies else self.default
 
     def generate(self, request: ChatRequest) -> ChatResponse:
-        from tests.orchestrator_tracks.conftest import FAKE_CLOCK
+        with self._lock:
+            self.requests.append(request)
+            reply = self._next_reply(request)
+        if self.minutes:
+            from tests.orchestrator_tracks.conftest import FAKE_CLOCK
 
-        self.requests.append(request)
-        FAKE_CLOCK["minutes"] += self.minutes
-        out = self.responder(request)
-        usage = Usage(backend="fake", model="fake-model", cost_usd=self.cost, input_tokens=500, output_tokens=200)
-        if isinstance(out, (dict, list)):
-            return ChatResponse(text=json.dumps(out), parsed=out, usage=usage)
-        return ChatResponse(text=str(out), usage=usage)
+            FAKE_CLOCK["minutes"] += self.minutes
+        if callable(reply) and not isinstance(reply, type):
+            reply = reply(request)
+        if isinstance(reply, ChatResponse):
+            return reply
+        if isinstance(reply, Exception):
+            raise reply
+        if reply is None:
+            raise ModelError("no reply configured for " + (request.label or "?"), retryable=False)
+        usage = Usage(backend="fake", model=self.model, cost_usd=self.cost, input_tokens=self.tokens[0], output_tokens=self.tokens[1])
+        if isinstance(reply, (dict, list)):
+            return ChatResponse(text=json.dumps(reply), parsed=reply, usage=usage)
+        return ChatResponse(text=str(reply), usage=usage)
 
 
 def _planner(payload: Any) -> FakeChatModel:

@@ -13,22 +13,15 @@ from codeverse3d.tracks.generation import (
     run_agent_task,
 )
 from codeverse3d.workspace import Workspace
+from tests.orchestrator_tracks.fakes import FakeChatModel
 
 FULL = "=== FILE: src/model.py ===\nimport bpy\nprint('ok')\n=== END FILE ==="
 TRUNCATED = "=== FILE: src/model.py ===\nimport bpy\nbpy.ops.mesh.primitive_cube_add(size=0.4, location=(0, 0,"
 
 
-class ScriptedModel:
-    """Yields ``(text, finish_reason)`` pairs in order."""
-
-    def __init__(self, answers):
-        self.answers = list(answers)
-        self.requests = []
-
-    def generate(self, req):
-        self.requests.append(req)
-        text, fr = self.answers.pop(0)
-        return ChatResponse(text=text, usage=Usage(backend="fake", cost_usd=0.001), finish_reason=fr)
+def scripted(answers) -> FakeChatModel:
+    """A chat model answering ``(text, finish_reason)`` pairs in order."""
+    return FakeChatModel([ChatResponse(text=t, usage=Usage(backend="fake", cost_usd=0.001), finish_reason=fr) for t, fr in answers])
 
 
 # --------------------------------------------------------------------- finding: truncated single-shot answer written verbatim
@@ -41,7 +34,7 @@ def test_parse_multifile_strips_header_from_unterminated_block():
 
 def test_generate_files_truncation_policy(tmp_path):
     ws = Workspace(tmp_path / "success").create()
-    model = ScriptedModel([(TRUNCATED, "MAX_TOKENS"), (FULL, "STOP")])
+    model = scripted([(TRUNCATED, "MAX_TOKENS"), (FULL, "STOP")])
     events = EventLog(tmp_path / "success.jsonl")
     task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"], max_output_tokens=32000)
     res = generate_files(ws, model=model, task=task, events=events)
@@ -50,14 +43,14 @@ def test_generate_files_truncation_policy(tmp_path):
     assert "generate.truncated" in [e["event"] for e in events.read()]
 
     ws = Workspace(tmp_path / "failure").create()
-    model = ScriptedModel([(TRUNCATED, "MAX_TOKENS"), (TRUNCATED, "length")])
+    model = scripted([(TRUNCATED, "MAX_TOKENS"), (TRUNCATED, "length")])
     task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"], max_output_tokens=32000)
     res = generate_files(ws, model=model, task=task, events=EventLog(tmp_path / "failure.jsonl"))
     assert not res.ok and res.notes.startswith("truncated")
     assert not (ws.root / "src" / "model.py").exists()
 
     ws = Workspace(tmp_path / "ceiling").create()
-    model = ScriptedModel([(TRUNCATED, "MAX_TOKENS")])
+    model = scripted([(TRUNCATED, "MAX_TOKENS")])
     task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"])
     events = EventLog(tmp_path / "ceiling.jsonl")
     res = generate_files(ws, model=model, task=task, events=events)
@@ -77,7 +70,7 @@ def test_out_of_root_paths_are_skipped_not_fatal(tmp_path):
     )
     events = EventLog(tmp_path / "e.jsonl")
     task = GenerationTask(label="baseline", prompt="p", files_hint=["src/model.py"])
-    res = generate_files(ws, model=ScriptedModel([(answer, "STOP")]), task=task, events=events)
+    res = generate_files(ws, model=scripted([(answer, "STOP")]), task=task, events=events)
     assert res.ok, res.notes  # the good file was paid for — never abort the round on a README
     assert (ws.root / "src" / "model.py").is_file()
     assert not (ws.root / "README.md").exists() and not (tmp_path / "evil.py").exists()

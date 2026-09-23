@@ -1,49 +1,16 @@
-"""Fakes for the reference package: a scripted chat model and an image model."""
+"""Fakes for the reference package: an image model (chat: the shared FakeChatModel)."""
 
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 from typing import Any
 
 import pytest
 from PIL import Image, ImageDraw
 
-from codeverse3d.contracts.chat import ChatRequest, ChatResponse
 from codeverse3d.contracts.common import Language, Track, Usage
 from codeverse3d.contracts.spec import Constraints, Spec
 from codeverse3d.models.base import ModelError
-
-
-class FakeChat:
-    """ChatModel stand-in routed by ``request.label`` (``by_label``), else a queue."""
-
-    provider = "fake"
-    model = "fake-1"
-
-    def __init__(self, by_label: dict[str, list[Any]] | None = None, *, default: Any = None):
-        self.by_label = {k: list(v) for k, v in (by_label or {}).items()}
-        self.default = default
-        self.requests: list[ChatRequest] = []
-        self._lock = threading.Lock()
-
-    @property
-    def id(self) -> str:
-        return "fake:fake-1"
-
-    def generate(self, request: ChatRequest) -> ChatResponse:
-        with self._lock:
-            self.requests.append(request)
-            reply = self.default
-            for key in sorted(self.by_label, key=len, reverse=True):
-                if key in (request.label or "") and self.by_label[key]:
-                    reply = self.by_label[key].pop(0)
-                    break
-        if isinstance(reply, Exception):
-            raise reply
-        if reply is None:
-            raise ModelError("no reply configured for " + (request.label or "?"))
-        return ChatResponse(parsed=reply, text="", usage=Usage(backend="fake", model="fake-1", cost_usd=0.001))
 
 
 class FakeImageModel:

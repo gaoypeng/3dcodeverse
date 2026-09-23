@@ -181,13 +181,8 @@ def test_skip_judge_reasons_are_only_states_where_the_verdict_is_never_bought(tm
 def test_a_round_that_changed_no_file_never_reaches_the_judge_question(tmp_path, spec, settings):
     from codeverse3d.tracks.steps import RoundFailed, run_generation_tasks
 
-    class _Idle:
-        kind, model = "fake", "m"
-
-        def run(self, job: AgentJob) -> AgentResult:
-            return AgentResult(ok=True, exit_reason="completed", files_changed=[], usage=Usage(cost_usd=0.01))
-
-    ctx = _ctx(tmp_path, spec, settings, agent=_Idle(), name="nochange")
+    idle = FakeAgent(lambda job, ws: AgentResult(ok=True, exit_reason="completed", files_changed=[], usage=Usage(cost_usd=0.01)))
+    ctx = _ctx(tmp_path, spec, settings, agent=idle, name="nochange")
     with pytest.raises(RoundFailed):
         run_generation_tasks(ctx, [GenerationTask(label="refine", prompt="p", round=1, kind="refine")])
 

@@ -9,7 +9,8 @@ from typer.testing import CliRunner
 
 from codeverse3d.texturing.run import texture_pass
 from codeverse3d.workspace import Workspace
-from tests.texturing.conftest import FakeImageModel, FakeJudge, FakePlanModel, fake_render
+from tests.orchestrator_tracks.fakes import FakeChatModel
+from tests.texturing.conftest import PLAN_REPLY, FakeImageModel, FakeJudge, fake_render
 
 
 def _ws(tmp_path: Path, chair_glb, chair_spec, chair_plan) -> Workspace:
@@ -26,7 +27,7 @@ def test_texture_pass_runs_with_injected_fakes(tmp_path, chair_glb, chair_spec, 
     ws = _ws(tmp_path, chair_glb, chair_spec, chair_plan)
     judge = FakeJudge([(0.7, {"materials": 0.5}), (0.72, {"materials": 0.7})])
     rep = texture_pass(ws, chair_spec, chair_plan, model_id=chair_spec.backends.planner, image_model=FakeImageModel(),
-                       plan_model=FakePlanModel(), judge_obj=judge, render=fake_render, cache_dir=tmp_path / "c")
+                       plan_model=FakeChatModel(default=PLAN_REPLY), judge_obj=judge, render=fake_render, cache_dir=tmp_path / "c")
     assert rep.shipped and rep.plan.source != "default"
     assert (ws.artifacts / "object_textured.glb").is_file()
 

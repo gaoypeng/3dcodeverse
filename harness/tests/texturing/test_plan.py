@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 from PIL import Image
 
-from codeverse3d.contracts.chat import ChatRequest, ChatResponse
-from codeverse3d.contracts.common import Usage
 from codeverse3d.texturing.plan import (
     STYLE_SUFFIX,
     PlannerOutput,
@@ -22,6 +19,7 @@ from codeverse3d.texturing.plan import (
     material_plan,
     plan_table,
 )
+from tests.orchestrator_tracks.fakes import FakeChatModel
 
 
 def test_family_keywords_are_whole_words():
@@ -66,23 +64,6 @@ def test_compose_prompt():
     assert p.startswith("red brick wall, stone surface") and p.endswith("1:1 square")
 
 
-class _FakeChat:
-    provider = "fake"
-    model = "fake"
-
-    def __init__(self, payload: dict):
-        self.payload = payload
-        self.calls: list[ChatRequest] = []
-
-    @property
-    def id(self):
-        return "fake:fake"
-
-    def generate(self, req: ChatRequest) -> ChatResponse:
-        self.calls.append(req)
-        return ChatResponse(text=json.dumps(self.payload), parsed=self.payload, usage=Usage(cost_usd=0.002, input_tokens=100))
-
-
 def test_material_plan_one_call_with_sheet_and_cache(tmp_path: Path, chair_plan, chair_spec):
     sheet = tmp_path / "sheet.png"
     Image.new("RGB", (32, 32), (1, 2, 3)).save(sheet)
@@ -92,26 +73,26 @@ def test_material_plan_one_call_with_sheet_and_cache(tmp_path: Path, chair_plan,
         {"part": "Leg", "texture_id": "steel", "material_family": "metal", "subject": "brushed steel", "projection": "cylinder", "metallic": 1, "roughness": 0.3},
         {"part": "Knob", "texture_id": "glass", "material_family": "glass", "skip": True, "reason": "glass"},
     ], "notes": "two materials"}
-    chat = _FakeChat(payload)
+    chat = FakeChatModel(default=payload)
     tp = material_plan(chair_spec, chair_plan, sheet, "fake:fake", model=chat, cache_dir=tmp_path / "cache")
     assert isinstance(tp, TexturePlan) and tp.source == "vlm" and tp.usage.cost_usd == pytest.approx(0.002)
-    assert len(chat.calls) == 1
-    req = chat.calls[0]
+    assert len(chat.requests) == 1
+    req = chat.requests[0]
     assert req.response_schema is not None and any(p.type == "image" for p in req.messages[0].parts)
     assert "Seat" in req.messages[0].text and chair_spec.prompt in req.messages[0].text
     assert tp.by_part()["seat"].projection == "planar_y" and tp.by_part()["seat"].tile_size_m == 0.4
     assert tp.texture_ids() == ["oak_wood", "steel"]
     # cache hit: no second call
     tp2 = material_plan(chair_spec, chair_plan, sheet, "fake:fake", model=chat, cache_dir=tmp_path / "cache")
-    assert tp2.source == "cache" and len(chat.calls) == 1 and tp2.texture_ids() == tp.texture_ids()
+    assert tp2.source == "cache" and len(chat.requests) == 1 and tp2.texture_ids() == tp.texture_ids()
     # different sheet → new key → new call
     Image.new("RGB", (32, 32), (9, 9, 9)).save(sheet)
     material_plan(chair_spec, chair_plan, sheet, "fake:fake", model=chat, cache_dir=tmp_path / "cache")
-    assert len(chat.calls) == 2
+    assert len(chat.requests) == 2
 
 
 def test_material_plan_invalid_payload_fails_loud(tmp_path, chair_plan, chair_spec):
-    chat = _FakeChat({"nope": 1})
+    chat = FakeChatModel(default={"nope": 1})
     with pytest.raises(ValueError):
         material_plan(chair_spec, chair_plan, None, "fake:fake", model=chat, cache_dir=tmp_path, use_cache=False)
 

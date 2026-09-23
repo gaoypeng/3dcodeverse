@@ -253,13 +253,9 @@ def test_single_shot_ctx_is_none_for_cli_backends(tmp_path, settings):
     assert single_shot_ctx(ctx2) is None  # FakeServices has no chat model → agent path stays
 
 
-class _StormAgent(FakeAgent):
-    """A CLI session that died at the wall after a 503 streak: nothing written, transient."""
-
-    def run(self, job):
-        self.jobs.append(job)
-        return AgentResult(ok=False, exit_reason="timeout", transient=True,
-                           errors=["killed by watchdog (hard_timeout) after 720s", "11 x 503 inside the CLI's own retry loop before the wall; nothing produced"])
+# a CLI session that died at the wall after a 503 streak: nothing written, transient
+STORM_DEATH = AgentResult(ok=False, exit_reason="timeout", transient=True,
+                          errors=["killed by watchdog (hard_timeout) after 720s", "11 x 503 inside the CLI's own retry loop before the wall; nothing produced"])
 
 
 def test_a_storm_dead_session_falls_back_to_single_shot(tmp_path, settings):
@@ -270,7 +266,7 @@ def test_a_storm_dead_session_falls_back_to_single_shot(tmp_path, settings):
         return _envelope("src/env.js", "export function buildEnv() { return {}; }\n")
 
     services = _ChatServices(FakeChatModel(respond))
-    agent = _StormAgent(lambda j, w: None)
+    agent = FakeAgent(lambda j, w: STORM_DEATH)
     ctx = _scene_ctx(tmp_path, settings, services=services, agent=agent, agent_id="fake-agent:gemini:x")
     task = GenerationTask(label="env", prompt="write `src/env.js`", files_hint=["src/env.js"], round=0, kind="env")
     res = generate_for(ctx, task)

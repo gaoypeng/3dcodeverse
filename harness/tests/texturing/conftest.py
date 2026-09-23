@@ -4,7 +4,6 @@ its plan + spec, a fake image model, a fake render function and a fake judge."""
 from __future__ import annotations
 
 import hashlib
-import json
 import threading
 import time
 from collections.abc import Sequence
@@ -17,7 +16,6 @@ import trimesh
 from PIL import Image
 
 from codeverse3d.contracts.artifacts import Judgment, RenderSet, RenderView
-from codeverse3d.contracts.chat import ChatResponse
 from codeverse3d.contracts.common import Language, Track, Usage
 from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse3d.contracts.spec import Spec
@@ -113,31 +111,17 @@ class FakeJudge:
                         usage=Usage(cost_usd=0.01))
 
 
-class FakePlanModel:
-    """A ChatModel that answers the material-plan call — no credentials, no network.
-
-    ``texture_pass(plan_model=)`` is one of its five injection points, and a test that
-    leaves it None makes ``material_plan`` build a REAL model from the spec's planner id:
-    the test then only passes on a box that happens to have keys (PORT-2).
-    """
-
-    id = "fake:plan"
-
-    def __init__(self, payload: dict[str, Any] | None = None):
-        self.payload = payload or {"parts": [
-            {"part": "Seat", "texture_id": "oak_wood", "material_family": "wood",
-             "subject": "light oak", "projection": "planar_y", "tile_size_m": 0.4},
-            {"part": "Back", "texture_id": "oak_wood", "material_family": "wood",
-             "subject": "light oak", "projection": "box"},
-            {"part": "Leg", "texture_id": "steel", "material_family": "metal",
-             "subject": "brushed steel", "projection": "cylinder", "metallic": 1, "roughness": 0.3},
-        ], "notes": "fake plan"}
-        self.calls: list[Any] = []
-
-    def generate(self, req: Any) -> ChatResponse:
-        self.calls.append(req)
-        return ChatResponse(text=json.dumps(self.payload), parsed=self.payload,
-                            usage=Usage(cost_usd=0.002, input_tokens=100))
+# the material-plan answer for ``texture_pass(plan_model=FakeChatModel(default=PLAN_REPLY))``: a test
+# that leaves plan_model None makes ``material_plan`` build a REAL model from the spec's planner id
+# and then only passes on a box that happens to have keys (PORT-2)
+PLAN_REPLY = {"parts": [
+    {"part": "Seat", "texture_id": "oak_wood", "material_family": "wood",
+     "subject": "light oak", "projection": "planar_y", "tile_size_m": 0.4},
+    {"part": "Back", "texture_id": "oak_wood", "material_family": "wood",
+     "subject": "light oak", "projection": "box"},
+    {"part": "Leg", "texture_id": "steel", "material_family": "metal",
+     "subject": "brushed steel", "projection": "cylinder", "metallic": 1, "roughness": 0.3},
+], "notes": "fake plan"}
 
 
 # --------------------------------------------------------------------------- fake image model

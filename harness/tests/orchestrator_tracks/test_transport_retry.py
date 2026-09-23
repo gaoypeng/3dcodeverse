@@ -94,30 +94,16 @@ class CrashUntilRetried(FakeAgent):
         return super().run(job)
 
 
-class QuotaAfterBaseline(FakeAgent):
-    """Baseline works; every refine session dies on the vendor's usage limit."""
-
-    def __init__(self):
-        super().__init__(_writer)
-
-    def run(self, job: AgentJob) -> AgentResult:
-        if job.round == 0:
-            return super().run(job)
-        self.jobs.append(job)
-        return AgentResult(ok=False, exit_reason="error", errors=[QUOTA], usage=Usage(cost_usd=0.0), quota=True)
+def after_baseline(failure: AgentResult) -> FakeAgent:
+    """Baseline works; every refine session ends in ``failure``."""
+    return FakeAgent(lambda job, ws: _writer(job, ws) if job.round == 0 else failure)
 
 
-class IdleAfterBaseline(FakeAgent):
-    """Baseline works; every refine session completes fine and changes nothing."""
-
-    def __init__(self):
-        super().__init__(_writer)
-
-    def run(self, job: AgentJob) -> AgentResult:
-        if job.round == 0:
-            return super().run(job)
-        self.jobs.append(job)
-        return AgentResult(ok=True, exit_reason="no_changes", usage=Usage(cost_usd=0.01))
+QUOTA_WALL = AgentResult(ok=False, exit_reason="error", errors=[QUOTA], usage=Usage(cost_usd=0.0), quota=True)
+IDLE = AgentResult(ok=True, exit_reason="no_changes", usage=Usage(cost_usd=0.01))
+# a transport-looking message its backend did NOT classify transient (a CLI crash, no provider error)
+UNTYPED_CRASH = AgentResult(ok=False, exit_reason="error", usage=Usage(cost_usd=0.01),
+                            errors=["rc=1; response=<empty>; stderr tail: at process.processTicksAndRejections"])
 
 
 def _track(agent, scores, chair_plan, settings) -> StaticObjectTrack:
@@ -164,33 +150,18 @@ def test_baseline_transport_crash_is_retried_once_then_fails(tmp_path, chair_pla
     assert evs.count("round.transport_retry") == 1 and "run.failed" in evs
 
 
-class CrashAfterBaseline(FakeAgent):
-    """Baseline works; every refine session dies with a transport-looking message that its
-    backend did NOT classify transient (a CLI crash with no provider error)."""
-
-    def __init__(self):
-        super().__init__(_writer)
-
-    def run(self, job: AgentJob) -> AgentResult:
-        if job.round == 0:
-            return super().run(job)
-        self.jobs.append(job)
-        return AgentResult(ok=False, exit_reason="error", usage=Usage(cost_usd=0.01),
-                           errors=["rc=1; response=<empty>; stderr tail: at process.processTicksAndRejections"])
-
-
 def test_an_untyped_crash_is_no_longer_a_transport_retry(tmp_path, chair_plan, settings):
     """The words "response=<empty>" used to buy a retry of the whole round; only the backend's
     own verdict does now (0 of 34 recorded gemini-cli error exits lacked a provider signature)."""
     ws = Workspace(tmp_path / "runs" / "crash")
-    rec = _track(CrashAfterBaseline(), (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
+    rec = _track(after_baseline(UNTYPED_CRASH), (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
     assert rec.status is RunStatus.NO_CHANGE
     evs = _events(ws)
     assert "round.transport_retry" not in evs and "round.no_change" in evs
 
 
 def test_an_idle_agent_is_a_no_change_stop_not_a_retry(tmp_path, chair_plan, settings):
-    agent = IdleAfterBaseline()
+    agent = after_baseline(IDLE)
     ws = Workspace(tmp_path / "runs" / "idle")
     rec = _track(agent, (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
     assert rec.status is RunStatus.NO_CHANGE
@@ -199,7 +170,7 @@ def test_an_idle_agent_is_a_no_change_stop_not_a_retry(tmp_path, chair_plan, set
 
 
 def test_a_vendor_usage_limit_stops_the_run_as_agent_quota_not_no_change(tmp_path, chair_plan, settings):
-    agent = QuotaAfterBaseline()
+    agent = after_baseline(QUOTA_WALL)
     ws = Workspace(tmp_path / "runs" / "quota")
     rec = _track(agent, (0.55,), chair_plan, settings).run(make_spec(max_rounds=3), ws)
     assert rec.status is RunStatus.AGENT_QUOTA and rec.extra["stop_reason"] == "agent_quota"

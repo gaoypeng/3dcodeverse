@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import threading
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -10,13 +10,13 @@ import pytest
 from PIL import Image, ImageDraw
 
 from codeverse3d.contracts.artifacts import Measurement, PartMeasure, RenderSet, RenderView
-from codeverse3d.contracts.chat import ChatRequest, ChatResponse, ImagePart
-from codeverse3d.contracts.common import Language, Track, Usage
+from codeverse3d.contracts.chat import ChatRequest, ImagePart
+from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import AcceptanceItem
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.judges.base import JudgeInput
 from codeverse3d.judges.rubrics import Rubric
-from codeverse3d.models.base import ModelError
+from tests.orchestrator_tracks.fakes import FakeChatModel as _FakeChatModel
 
 VIEW_NAMES = ("front_right_high", "back_left_high", "front", "top")
 
@@ -110,51 +110,8 @@ def good_reply(rubric: Rubric, acceptance_ids: list[str], score: float = 0.8, *,
     }
 
 
-class FakeChatModel:
-    """ChatModel stand-in: pops replies from a queue (dict → parsed; str → text;
-    Exception → raised).  Thread-safe: judges fan samples/orderings across threads.
-
-    ``by_label`` routes deterministically under concurrency: each key is a substring
-    of ``request.label`` with its own reply queue (longest matching key wins);
-    unmatched requests fall back to the shared queue / ``default``."""
-
-    provider = "fake"
-    model = "fake-1"
-
-    def __init__(self, replies: list[Any] | None = None, *, default: Any = None, cost: float = 0.001,
-                 by_label: dict[str, list[Any]] | None = None):
-        self.replies = list(replies or [])
-        self.default = default
-        self.cost = cost
-        self.by_label = {k: list(v) for k, v in (by_label or {}).items()}
-        self.requests: list[ChatRequest] = []
-        self._lock = threading.Lock()
-
-    @property
-    def id(self) -> str:
-        return "fake:fake-1"
-
-    def _next_reply(self, request: ChatRequest) -> Any:
-        for key in sorted(self.by_label, key=len, reverse=True):
-            if key in (request.label or "") and self.by_label[key]:
-                return self.by_label[key].pop(0)
-        return self.replies.pop(0) if self.replies else self.default
-
-    def generate(self, request: ChatRequest) -> ChatResponse:
-        with self._lock:
-            self.requests.append(request)
-            reply = self._next_reply(request)
-        if callable(reply) and not isinstance(reply, type):
-            reply = reply(request)
-        if isinstance(reply, Exception):
-            raise reply
-        if reply is None:
-            raise ModelError("no reply configured", retryable=False)
-        usage = Usage(backend="fake", model="fake-1", input_tokens=1000, output_tokens=300, cost_usd=self.cost)
-        if isinstance(reply, str):
-            return ChatResponse(text=reply, parsed=None, usage=usage)
-        import json
-        return ChatResponse(text=json.dumps(reply), parsed=reply, usage=usage)
+# the shared fake, with the judge tests' id, price and token counts
+FakeChatModel = partial(_FakeChatModel, model="fake-1", cost=0.001, tokens=(1000, 300))
 
 
 def image_parts(req: ChatRequest) -> list[ImagePart]:
