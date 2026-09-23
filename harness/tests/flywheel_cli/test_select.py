@@ -301,3 +301,18 @@ def test_round_outputs_are_the_rounds_own_never_the_last_builds(tmp_path: Path):
     assert select.round_file(ws, rec.rounds[0]) is None
     assert select.round_file(ws, rec.rounds[1]) == ws.artifacts / "object.glb"
     assert select.round_complexity_block(ws, rec.rounds[1]) == {"index": 0.9}
+
+
+def test_cli_texture_pass_textures_the_picked_round_not_the_last_build(tmp_path: Path, monkeypatch):
+    """`3dcode texture pass` handed texture_pass no GLB, so it textured artifacts/object.glb — the
+    LAST round's since D80 — whichever round the run hands over."""
+    ws, _ = make_fake_run(tmp_path / "runs", "chair", scores=(0.90, 0.50))  # r00 is picked, r01 built last
+    seen: dict = {}
+    monkeypatch.setattr("codeverse3d.texturing.run.texture_pass", lambda *a, **kw: seen.update(kw))
+    monkeypatch.setattr("codeverse3d.cli.texture_cmd._print_report", lambda rep, ws: None)
+    monkeypatch.setattr("codeverse3d.cli.texture_cmd._image_model", lambda name: None)
+    monkeypatch.setattr("codeverse3d.spatial.tool_common.load_plan", lambda path: None)
+    r = runner.invoke(app, ["texture", "pass", "chair", "--runs-dir", str(tmp_path / "runs"), "--no-judge"])
+    assert r.exit_code == 0, r.output
+    assert seen["glb_in"] == ws.round_artifacts(0) / "object.glb"
+    assert seen["sheet"] is not None and seen["sheet"].is_relative_to(ws.renders_dir(0))

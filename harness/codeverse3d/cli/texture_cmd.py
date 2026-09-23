@@ -14,7 +14,6 @@ import typer
 
 from codeverse3d.cli import _common as C
 from codeverse3d.cli._common import console, kv_table, warn
-from codeverse3d.contracts.common import Track
 from codeverse3d.contracts.plan import ScenePlan
 
 texture_app = typer.Typer(name="texture", help="Text-to-image texturing: object pass + scene texture pack.",
@@ -39,15 +38,26 @@ def pass_(
     size: Annotated[int, typer.Option("--size", min=256, max=2048)] = 1024,
     runs_dir: RunsDirOpt = None,
 ) -> None:
-    """Texture the run's artifacts/object.glb → artifacts/object_textured.glb (+ textures/)."""
+    """Texture the picked round's object.glb (``addons.select``) → artifacts/object_textured.glb (+ textures/)."""
+    from codeverse3d.addons import select
+    from codeverse3d.cost.instrument import run_ledger
+    from codeverse3d.record.record import RecordError, load_record
+    from codeverse3d.spatial.tool_common import load_plan
+    from codeverse3d.texturing.run import texture_pass, texture_supported
+
     ws = C.open_workspace(slug, runs_dir)
     spec = C.load_spec(ws)
-    if spec.track not in (Track.STATIC_OBJECT, Track.ARTICULATED_OBJECT):
+    if not texture_supported(spec.track):
         raise C.CliError(f"texture pass is for object tracks; {spec.track.value} runs use `3dcode texture scene-pack`")
-    from codeverse3d.cost.instrument import run_ledger
-    from codeverse3d.spatial.tool_common import load_plan
-    from codeverse3d.texturing.run import texture_pass
-
+    try:
+        rec = load_record(ws)
+    except RecordError as e:
+        raise C.CliError(str(e), code=2) from e
+    picked = select.summarise(ws.root, record=rec).picked_round
+    rnd = next((r for r in rec.rounds if r.index == picked), None)
+    if rnd is None or (glb := select.round_file(ws, rnd)) is None:
+        raise C.CliError(f"no picked round with its own object.glb to texture in {ws.root.name} (picked: {picked})")
+    sheet = ws.rebase(rnd.renders.contact_sheet) if rnd.renders is not None and rnd.renders.contact_sheet else None
     plan = load_plan(ws.plan_path)
 
     # a post-hoc pass joins the run's ledger when it has one, else the per-process log;
@@ -56,7 +66,7 @@ def pass_(
           run_ledger(ws.root, run=ws.root.name, create=False)):
         rep = texture_pass(ws, spec, plan, model_id=model or spec.backends.planner,
                            image_model=_image_model(image_model), judge=judge,
-                           judge_model_id=judge_model, size=size)
+                           judge_model_id=judge_model, size=size, glb_in=glb, sheet=sheet)
     _print_report(rep, ws)
 
 
