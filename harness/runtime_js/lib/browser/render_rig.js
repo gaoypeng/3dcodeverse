@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { fitCameraToBox, viewDirection } from './camera_fit.js';
+import { fitCameraToBox } from './camera_fit.js';
 import { makeRenderer, buildStudio, applyMode, aimStudio, rendererString, RIG_VERSION } from './studio.js';
 
 const FOV_DEG = 35;
@@ -89,19 +89,6 @@ function uniformDistance(camera, box, views, fill) {
   return best;
 }
 
-/** Re-place an already-fitted camera at an explicit distance along (azimuth, elevation). */
-function placeAt(camera, box, azimuth, elevation, distance) {
-  const center = box.getCenter(new THREE.Vector3());
-  const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 1e-3);
-  camera.position.copy(center).addScaledVector(viewDirection(azimuth, elevation), distance);
-  camera.lookAt(center);
-  camera.near = Math.max(distance * 0.01, 1e-4);
-  camera.far = distance * 10 + radius * 4;
-  camera.updateProjectionMatrix();
-  camera.updateMatrixWorld(true);
-  return { position: camera.position.toArray(), lookAt: center.toArray(), distance };
-}
-
 /**
  * Render all views.  Resolves to
  * {ok, renderer, views:[{name, b64, camera_position, look_at, fov, width, height}], warnings, timing}
@@ -149,8 +136,8 @@ export async function renderGlbViews(cfg) {
   for (const v of cfg.views) {
     let fit = fitCameraToBox(camera, box, v.azimuth, v.elevation, { fill });
     if (uniform != null && Math.abs(v.elevation) <= UNIFORM_FRAMING_MAX_ELEVATION && uniform > fit.distance) {
-      fit = placeAt(camera, box, v.azimuth, v.elevation,
-                    Math.min(uniform, fit.distance * UNIFORM_FRAMING_MAX_PULLBACK));
+      fit = fitCameraToBox(camera, box, v.azimuth, v.elevation,
+                           { fill, distance: Math.min(uniform, fit.distance * UNIFORM_FRAMING_MAX_PULLBACK) });
     }
     aimStudio(rig, v.azimuth, v.elevation);
     renderer.render(scene, camera);
