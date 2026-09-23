@@ -455,18 +455,8 @@ def enrich_plan(plan_obj: Any, brief: EngineeringBrief | None) -> Any:
     if brief is None:
         return plan_obj
     items: list[AcceptanceItem] = list(getattr(plan_obj, "acceptance", None) or [])
-    known = {a.text.strip().lower() for a in items}
-    ids = {a.id for a in items}
-    n = 1
     for feature in brief.signature_features:
-        text = f"Signature feature visible: {feature.strip()}"
-        if text.lower() in known:
-            continue
-        while f"sig{n}" in ids:
-            n += 1
-        items.append(AcceptanceItem(id=f"sig{n}", text=text, how="visual", priority="should"))
-        ids.add(f"sig{n}")
-        known.add(text.lower())
+        add_acceptance_item(items, "sig", f"Signature feature visible: {feature.strip()}", "visual", priority="should")
     if hasattr(plan_obj, "acceptance"):
         plan_obj.acceptance = items
     notes = getattr(plan_obj, "style_notes", "")
@@ -983,16 +973,17 @@ def build_user_prompt(spec: Spec, *, brief: Any | None = None, budget: PlanBudge
 
 
 # ----------------------------------------------------------------------------- deterministic acceptance
-def add_acceptance_item(items: list[AcceptanceItem], prefix: str, text: str, how: str) -> None:
-    """Append a framework-derived *must* acceptance item unless an item with the
-    same text exists; the id is ``<prefix><N>`` with N chosen to be unique."""
+def add_acceptance_item(items: list[AcceptanceItem], prefix: str, text: str, how: str, *,
+                        priority: str = "must") -> None:
+    """Append a framework-derived acceptance item (*must* unless told otherwise) unless an
+    item with the same text exists; the id is ``<prefix><N>`` with N chosen to be unique."""
     if text.strip().lower() in {a.text.strip().lower() for a in items}:
         return
     ids = {a.id for a in items}
     n = 1
     while f"{prefix}{n}" in ids:
         n += 1
-    items.append(AcceptanceItem(id=f"{prefix}{n}", text=text, how=how, priority="must"))  # type: ignore[arg-type]
+    items.append(AcceptanceItem(id=f"{prefix}{n}", text=text, how=how, priority=priority))  # type: ignore[arg-type]
 
 
 def ensure_acceptance[P: BaseModel](plan_obj: P, spec: Spec) -> P:
