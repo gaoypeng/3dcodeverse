@@ -266,8 +266,7 @@ class VlmJudge:
         except Exception as e:  # noqa: BLE001 — the drawing must never sink the verdict
             log.warning("judge slice render failed for %s: %s", glb, e)
             return [], True
-        return [(SLICE_LABELS.get(s.name, f"cross-section {s.name} · interior view"),
-                 str(out_dir / s.png)) for s in manifest.rendered()], True
+        return [(SLICE_LABELS[s.name], str(out_dir / s.png)) for s in manifest.rendered()], True
 
     def _render_slices(self, glb: Path, pairs: list[tuple[str, str]]):
         """Render (or reuse) the slice set for ``glb`` under the judge cache dir.
