@@ -96,7 +96,7 @@ def test_single_shot_inlines_one_body_into_every_task(ctx, monkeypatch):
     monkeypatch.setenv("C3D_SKILLS", "on")
     ctx.single_shot = True
     got = H.attach_for_round(ctx, index=0, kind="baseline")
-    assert got.inlined and got.paths == []
+    assert got.inlined
 
     class Task:
         def __init__(self, prompt):

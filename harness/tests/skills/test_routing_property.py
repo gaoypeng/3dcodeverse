@@ -9,7 +9,7 @@ import pytest
 
 from codeverse3d.skills import all_skills, bundle_dirs, select, skills_dir
 from codeverse3d.skills.model import EVIDENCE_INHERITED
-from codeverse3d.skills.registry import QUIET_KINDS, ROUTED_SKILLS, ROUTES, SIGNAL_KEYS
+from codeverse3d.skills.registry import QUIET_KINDS, ROUTED_SKILLS, ROUTES, plan_signals
 
 pytestmark = pytest.mark.skipif(not bundle_dirs(), reason=f"no bundles in {skills_dir()} yet")
 
@@ -21,6 +21,7 @@ LANGUAGES = ("blender", "cadquery", "threejs", "urdf_blender", "scene_threejs",
 KINDS = ("baseline", "part", "refine", "rebuild", "repair", "env", "zone",
          "asset", "asset_fix", "reference")
 #: the boolean plan signals the table may test (n_parts / joint_types are derived)
+SIGNAL_KEYS = tuple(plan_signals(None))
 FLAGS = tuple(k for k in SIGNAL_KEYS if k not in ("n_parts", "joint_types"))
 JUNK = ("", "  ", "no_such_track", "STATIC_OBJECT", "static object", "1", "../etc")
 

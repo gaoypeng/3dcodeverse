@@ -173,9 +173,10 @@ def test_write_index_ignores_body_files_a_workspace_does_not_have(tmp_path: Path
 def test_attach_routes_writes_and_reports(ws, library):
     got = attach_skills(ws, track="static_object", language="blender", kind="baseline",
                         plan=_plan(), library=library, max_skills=5, allow_unverified=False)
-    assert got.listed and got.paths and got.index_tokens > 0
+    assert got.listed and got.index_tokens > 0
     assert set(got.reasons) == set(got.listed)
-    assert all("c3d-" in p for p in got.paths)
+    for root in SKILL_ROOTS:
+        assert all((ws / root / n / "SKILL.md").is_file() for n in got.listed)
     assert MANDATE in (ws / "AGENTS.md").read_text()
     assert got.inlined == ""
 
@@ -184,7 +185,8 @@ def test_attach_for_a_single_shot_session_inlines_instead_of_writing_files(ws, l
     got = attach_skills(ws, track="static_object", language="blender", kind="baseline",
                         plan=_plan(), library=library, single_shot=True,
                         max_skills=5, allow_unverified=False)
-    assert got.inlined and got.paths == [] and got.index_tokens == 0
+    assert got.inlined and got.index_tokens == 0
+    assert not any((ws / root / n).exists() for root in SKILL_ROOTS for n in got.listed)
     assert MARK_BEGIN not in (ws / "AGENTS.md").read_text()
 
 

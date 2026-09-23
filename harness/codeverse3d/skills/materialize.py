@@ -83,7 +83,7 @@ CONTROL_REFERENCE_MD = ("Control reference. If this file's access time moved, th
 
 
 def write_control(ws_root: Path) -> list[Path]:
-    """Materialise the control bundle into both roots, stamped like the real ones."""
+    """The control bundle, in both roots; ``materialize_skills`` stamps it with the rest."""
     written: list[Path] = []
     for rel in SKILL_ROOTS:
         d = Path(ws_root) / rel / CONTROL_NAME
@@ -91,9 +91,6 @@ def write_control(ws_root: Path) -> list[Path]:
         (d / "SKILL.md").write_text(CONTROL_SKILL_MD)
         (d / "references" / "control.md").write_text(CONTROL_REFERENCE_MD)
         written += [d / "SKILL.md", d / "references" / "control.md"]
-    now = time.time()
-    for p in written:
-        os.utime(p, (now, now))
     return written
 
 
@@ -224,17 +221,15 @@ def attach_skills(
         out.inlined = name
         out.index_tokens = 0
         if not name:
-            out.warnings.append("single-shot: every routed body is over the inline cap; nothing inlined")
+            log.warning("single-shot: every routed body is over the inline cap; nothing inlined")
         write_index(ws_root, "")
         return out
 
     try:
-        paths = materialize_skills(ws_root, [s.skill for s in sel])
+        materialize_skills(ws_root, [s.skill for s in sel])
     except OSError as e:  # a workspace we cannot write is a run problem, not a skills problem
-        out.warnings.append(f"could not materialise skills: {e}")
         log.warning("skills not materialised into %s: %s", ws_root, e)
         return out
-    out.paths = [str(p) for p in paths]
     out.index_tokens = index_tokens(sel)
     write_index(ws_root, index_block(sel))
     return out

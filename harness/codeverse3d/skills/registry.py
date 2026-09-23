@@ -266,11 +266,6 @@ ROUTED_SKILLS: tuple[str, ...] = tuple(dict.fromkeys(r.skill for r in ROUTES))
 # ===================================================================== router
 log = logging.getLogger(__name__)
 
-#: plan-derived booleans/ints the table may test.  Kept here (not on the Plan contracts)
-#: because they are a routing concern: adding one must not migrate every stored plan.
-SIGNAL_KEYS = ("n_parts", "multi_part", "has_instances", "has_symmetry", "has_assemblies",
-               "has_joints", "joint_types", "has_custom_shader", "wants_water", "wants_night")
-
 _SHADER_WORDS = ("shader", "glsl", "onbeforecompile", "shadermaterial", "custom material",
                  "raymarch", "postprocess", "post-process")
 
@@ -284,7 +279,8 @@ _NIGHT_WORDS = ("night", "neon", "dusk", "evening", "moonlit", "moonlight", "lam
 def plan_signals(plan: Any | None) -> dict[str, Any]:
     """Route-relevant facts about a plan.  Tolerant by design: a missing/partial plan
     yields all-false signals rather than raising, because a planner failure must not
-    also take out the round's skills."""
+    also take out the round's skills.  Kept here, not on the Plan contracts: adding a
+    routing signal must not migrate every stored plan."""
     parts = list(getattr(plan, "parts", None) or [])
     joints = list(getattr(plan, "joints", None) or [])
     effects = list(getattr(plan, "effects", None) or [])
@@ -384,19 +380,3 @@ def select(
     ranked = sorted(best.values(), key=lambda s: (-s.priority, first_seen[s.name]))
     return ranked[:max(0, max_skills)]
 
-
-def skills_for(
-    track: str,
-    language: str,
-    kind: str,
-    *,
-    plan: Any | None = None,
-    findings: Any = (),
-    library: dict[str, Skill] | None = None,
-    max_skills: int = 5,
-    allow_unverified: bool = False,
-) -> list[Skill]:
-    """``select`` without the reasons — the shape most callers want."""
-    sel = select(track, language, kind, signals=plan_signals(plan), findings=findings,
-                 library=library, max_skills=max_skills, allow_unverified=allow_unverified)
-    return [s.skill for s in sel]

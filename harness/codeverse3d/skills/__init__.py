@@ -17,9 +17,9 @@ silently empty for exactly this reason.
 
 Public surface for the rest of the harness::
 
-    from codeverse3d.skills import skills_for, attach_skills, probe_reads
+    from codeverse3d.skills import select, attach_skills, probe_reads
 
-``skills_for`` is pure and testable; ``attach_skills`` writes the routed bundles into a
+``select`` is pure and testable; ``attach_skills`` writes the routed bundles into a
 workspace and returns what it wrote; ``probe_reads`` says afterwards which of them were
 actually opened — from the CLI's own tool calls where its backend recorded them.  Everything
 is behind ``C3D_SKILLS``: ON by default since 2026-09-22, ``C3D_SKILLS=0`` turns it off.
@@ -35,7 +35,6 @@ from codeverse3d.skills.model import (
     SKILL_FILE,
     Skill,
     SkillError,
-    SkillRef,
     parse_skill,
     validate_bundle,
 )
@@ -104,9 +103,9 @@ def load_skill(name: str, root: Path | None = None) -> Skill:
 
 
 from codeverse3d.skills.materialize import attach_skills, materialize_skills  # noqa: E402
-from codeverse3d.skills.registry import plan_signals, select, skills_for  # noqa: E402
+from codeverse3d.skills.registry import plan_signals, select  # noqa: E402
 from codeverse3d.skills.telemetry import probe_reads  # noqa: E402
 
-__all__ = ["Skill", "SkillError", "SkillRef", "all_skills", "attach_skills", "bundle_dirs",
+__all__ = ["Skill", "SkillError", "all_skills", "attach_skills", "bundle_dirs",
            "iter_skills", "load_skill", "materialize_skills", "plan_signals", "probe_reads", "select",
-           "skills_dir", "skills_for", "validate_bundle"]
+           "skills_dir", "validate_bundle"]

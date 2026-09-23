@@ -17,44 +17,25 @@ the in-process api-agent and went with it: ``agents/registry.KINDS`` accepts onl
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 from codeverse3d.cost.guard import text_tokens
 from codeverse3d.skills.model import Selection, Skill
 
-__all__ = ["AGENTS_SKILL_ROOT", "CLAUDE_SKILL_ROOT", "Delivery", "delivery_for", "known_backends"]
+__all__ = ["AGENTS_SKILL_ROOT", "CLAUDE_SKILL_ROOT", "skill_path"]
 
 #: discovery roots, relative to the workspace root
 AGENTS_SKILL_ROOT = ".agents/skills"
 CLAUDE_SKILL_ROOT = ".claude/skills"
 
-
-@dataclass(frozen=True)
-class Delivery:
-    """What one backend needs in order to see the routed bundles."""
-
-    root: str
-    """Discovery root this backend reads (bundles are written to every known root anyway,
-    so one copy is never the only copy — this is the path we NAME to it)."""
-
-
-#: The whole per-backend policy.  One row per backend; a kind not listed here (a test's
-#: fake agent) reads the shared ``.agents`` root.
-_BACKENDS: dict[str, Delivery] = {
-    "claude-code": Delivery(root=CLAUDE_SKILL_ROOT),
-    "codex": Delivery(root=AGENTS_SKILL_ROOT),
-    "gemini-cli": Delivery(root=AGENTS_SKILL_ROOT),
-    "agy": Delivery(root=AGENTS_SKILL_ROOT),
+#: The whole per-backend policy: the discovery root each backend reads (bundles are written
+#: to every root anyway, so this is only the path we NAME to it).  One row per backend; a
+#: kind not listed here (a test's fake agent) reads the shared ``.agents`` root.
+_BACKEND_ROOTS: dict[str, str] = {
+    "claude-code": CLAUDE_SKILL_ROOT,
+    "codex": AGENTS_SKILL_ROOT,
+    "gemini-cli": AGENTS_SKILL_ROOT,
+    "agy": AGENTS_SKILL_ROOT,
 }
-
-
-def delivery_for(agent_kind: str) -> Delivery:
-    """The delivery policy for ``agent_kind`` (``codex:gpt-5.6-sol`` is codex)."""
-    return _BACKENDS.get((agent_kind or "").split(":", 1)[0]) or Delivery(root=AGENTS_SKILL_ROOT)
-
-
-def known_backends() -> tuple[str, ...]:
-    return tuple(_BACKENDS)
 
 
 # ===================================================================== prompting
@@ -67,7 +48,9 @@ _HEADING = "## Skills"
 
 
 def skill_path(name: str, *, agent_kind: str = "") -> str:
-    return f"{delivery_for(agent_kind).root}/{name}/SKILL.md"
+    """Where ``agent_kind``'s loader finds bundle ``name`` (``codex:gpt-5.6-sol`` is codex)."""
+    root = _BACKEND_ROOTS.get((agent_kind or "").split(":", 1)[0], AGENTS_SKILL_ROOT)
+    return f"{root}/{name}/SKILL.md"
 
 
 def index_block(skills: Sequence[Skill | Selection]) -> str:

@@ -63,19 +63,6 @@ class Skill(BaseModel):
         """ISO date the bundle's claims were last checked against the harness."""
         return self.metadata.get("verified", "")
 
-    def ref(self) -> SkillRef:
-        return SkillRef(name=self.name, description=self.description, body_tokens=self.body_tokens)
-
-
-class SkillRef(BaseModel):
-    """A skill without its body — what the index block and the run record carry."""
-
-    model_config = {"frozen": True}
-
-    name: str
-    description: str
-    body_tokens: int = 0
-
 
 class Selection(BaseModel):
     """One routed skill **with the reason it was routed**, so telemetry can say WHY.
@@ -106,13 +93,11 @@ class SkillsMaterialized(BaseModel):
 
     listed: list[str] = Field(default_factory=list, description="skill names, in attach order")
     selections: list[Selection] = Field(default_factory=list, description="the routed rows, with the reason each fired")
-    paths: list[str] = Field(default_factory=list, description="every SKILL.md written (both roots)")
     reasons: dict[str, str] = Field(default_factory=dict, description="name → why it was attached")
     index_tokens: int = Field(default=0, description="estimated tokens the index/mandate adds to message 0")
     inlined: str = Field(default="", description="single-shot: the one body inlined, '' otherwise")
     attached_at: float = Field(default=0.0, description="epoch seconds of the attach: the read probe credits "
                                "only tool calls a CLI session logged after it (telemetry.probe_reads)")
-    warnings: list[str] = Field(default_factory=list)
 
 
 # ===================================================================== loader

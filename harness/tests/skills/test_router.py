@@ -11,7 +11,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from codeverse3d.skills.model import EVIDENCE_INHERITED
-from codeverse3d.skills.registry import QUIET_KINDS, plan_signals, select, skills_for
+from codeverse3d.skills.registry import QUIET_KINDS, plan_signals, select
 from tests.skills.conftest import write_bundle
 
 
@@ -21,6 +21,10 @@ def part(name="Leg", instances=1, symmetry="none", children=()):
 
 def static_plan(n=3, **kw):
     return NS(parts=[part(f"P{i}", **kw) for i in range(n)], summary="a chair", style_notes="")
+
+
+def skills_for(track, language, kind, *, plan=None, **kw):
+    return [s.skill for s in select(track, language, kind, signals=plan_signals(plan), **kw)]
 
 
 # --------------------------------------------------------------------------- signals

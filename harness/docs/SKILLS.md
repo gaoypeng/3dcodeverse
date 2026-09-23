@@ -65,9 +65,9 @@ skills of its own; each is switched off with the CLI's documented knob where it 
 | `gemini-cli` 0.53.0 | 2 built-ins (skill-creator, antigravity-support) — `gemini skills list` hides them, the model does not | `skills.disabled` in the per-session system settings (by name) | the user roots (`~/.gemini/skills`, `~/.agents/skills`): no switch; none here |
 | `agy` 1.2.8 | 5 built-ins (agy-customizations, antigravity-guide, generative_ui, migrate-workflows, permissioned-github; `agy -p /skills` lists them without a turn) | none per session: built-ins survive even an agent's `inherit_user: false` | all 5 |
 
-**Adding a backend is one row in that table.**  A test (`tests/skills/test_delivery.py`)
-fails if per-backend knowledge leaks back out into the other modules, and another checks
-that `prompting.py` agrees with the policy rather than re-deriving it.
+**Adding a backend is one row in that table** (`_BACKEND_ROOTS`, read by `skill_path`).  A test
+(`tests/skills/test_delivery.py`) fails if per-backend knowledge leaks back out into the other
+modules, and another checks that a model-qualified kind (`codex:…`) resolves to its backend's row.
 
 ### Why only native loaders
 
@@ -193,7 +193,7 @@ against the 20 the rule requires (design §5.2 law 3).
 ## 3. Routing
 
 `codeverse3d/skills/registry.py` holds the typed table (R1–R24) and `finding_kind()`, the one
-place a gate message is pattern-matched; its router half (`select()`, `skills_for()`) turns
+place a gate message is pattern-matched; its router half (`select()`) turns
 `(track, language, kind, plan signals, findings)` into a ranked, capped, reasoned set.
 
 Four laws, all tested:

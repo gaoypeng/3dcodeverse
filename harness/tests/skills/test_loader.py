@@ -26,7 +26,6 @@ def test_parses_frontmatter_body_and_references(tmp_path: Path):
     assert s.license == "Apache-2.0" and s.evidence == "measured" and s.verified == "2026-08-25"
     assert s.references == ("references/table.md", "references/traps.md")
     assert s.body_tokens > 0 and s.body_lines >= 1
-    assert s.ref().name == "c3d-demo"
 
 
 def test_a_directory_argument_finds_the_skill_file(tmp_path: Path):
