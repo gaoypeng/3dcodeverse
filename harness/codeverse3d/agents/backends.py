@@ -261,7 +261,7 @@ class GeminiRetries:
         return ", ".join(f"{n} x {k}" for k, n in counts.items())
 
 
-def _model_usage(tok: dict[str, Any], name: str) -> Usage:
+def gemini_model_usage(tok: dict[str, Any], name: str) -> Usage:
     """One served model's counters in pricing semantics (``input_tokens`` = total prompt)."""
     cached = int(tok.get("cached") or 0)
     prompt = tok.get("prompt")
@@ -277,7 +277,7 @@ def usage_from_stats(stats: dict[str, Any], model: str) -> Usage:
     u = Usage(backend="gemini-cli", model=model)
     cost = 0.0
     for name, m in (stats.get("models") or {}).items():
-        part = _model_usage((m or {}).get("tokens") or {}, str(name))
+        part = gemini_model_usage((m or {}).get("tokens") or {}, str(name))
         c = estimate_cost("gemini", str(name), part)
         if c == 0.0 and name != model and (part.input_tokens or part.output_tokens):
             c = estimate_cost("gemini", model, part)  # utility model missing from the price table
