@@ -143,18 +143,7 @@ def test_the_cli_transcript_is_the_evidence_when_every_session_left_one(ws, libr
     assert usage.deep_read_rate == 1 / len(got.listed)
 
 
-def test_a_session_without_a_trace_sends_the_probe_back_to_atime(ws, library):
-    """A partial trace would under-count exactly as a blind probe over-counts."""
-    import time
-
-    got = _attach(ws, library)
-    _session(ws, "baseline", [{"tool": "Skill", "args": {}, "skill": got.listed[0]}], t=time.time() + 1)
-    _session(ws, "repair", [], t=time.time() + 2, traced=False)   # e.g. a CLI killed before its record
-    usage = probe_reads(ws, got)
-    assert usage.evidence == "atime" and usage.surfaced == []
-
-
-def test_only_sessions_after_the_attach_are_credited(ws, library):
+def test_only_traced_sessions_after_the_attach_are_credited(ws, library):
     import time
 
     got = _attach(ws, library)
@@ -163,6 +152,12 @@ def test_only_sessions_after_the_attach_are_credited(ws, library):
     _session(ws, "baseline", [{"tool": "Read", "args": {"file_path": "src/model.py"}}], t=time.time() + 1)
     usage = probe_reads(ws, got)
     assert usage.evidence == "transcript" and usage.surfaced == []   # last round's activation is last round's
+    # a session without a trace sends the probe back to atime: a partial trace would
+    # under-count exactly as a blind probe over-counts
+    _session(ws, "baseline", [{"tool": "Skill", "args": {}, "skill": name}], t=time.time() + 2)
+    _session(ws, "repair", [], t=time.time() + 3, traced=False)   # e.g. a CLI killed before its record
+    usage = probe_reads(ws, got)
+    assert usage.evidence == "atime" and usage.surfaced == []
 
 
 def test_a_call_the_cli_marked_failed_read_nothing(ws, library):

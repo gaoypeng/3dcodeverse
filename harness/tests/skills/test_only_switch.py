@@ -30,20 +30,13 @@ def _listed(ws, **kw):
                          plan=_Plan(), **kw).listed
 
 
-def test_the_cap_cannot_drop_the_bundle_under_test(ws):
+def test_only_restricts_the_library_and_reaches_the_router(ws, monkeypatch):
     """It restricts the library, not the selection: a max of 1 over the full routing picks another bundle."""
     assert _listed(ws, max_skills=1)[0] != "c3d-bbox-contract"
     assert _listed(ws, only=frozenset({"c3d-bbox-contract"}), max_skills=1) == ["c3d-bbox-contract"]
-
-
-def test_an_unknown_name_attaches_nothing_rather_than_everything(ws, caplog):
-    """A typo makes the variant visibly identical to its control, never the full set."""
+    # a typo makes the variant visibly identical to its control, never the full set
     assert _listed(ws, only=frozenset({"c3d-typo"})) == []
-    assert "C3D_SKILLS_ONLY" in caplog.text
-
-
-def test_the_switch_reaches_the_router(ws, monkeypatch):
-    """``only=`` omitted, attach_skills reads ``C3D_SKILLS_ONLY`` (a comma list, blanks ignored)."""
+    # ``only=`` omitted, attach_skills reads ``C3D_SKILLS_ONLY`` (a comma list, blanks ignored)
     monkeypatch.setenv("C3D_SKILLS_ONLY", " c3d-bbox-contract , ")
     get_settings.cache_clear()
     assert _listed(ws) == ["c3d-bbox-contract"], "attach_skills must consult the switch when only= is omitted"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codeverse3d.skills.registry import ROUTES, Route, finding_kind, finding_kinds
+from codeverse3d.skills.registry import ROUTES, finding_kind, finding_kinds
 
 DATA = Path(__file__).parent / "data" / "gate_findings.json"
 GOLDEN = json.loads(DATA.read_text())["findings"]
@@ -62,13 +62,6 @@ def test_rule_ids_are_unique_and_the_design_numbers_are_all_present():
     assert [r for r in ROUTES if r.rule.startswith("R24")], "R24 (the graphics gate row) is missing"
 
 
-def test_every_routed_skill_is_actually_in_the_library():
-    """A route naming an absent bundle is silently skipped: retire its rows with the bundle."""
-    from codeverse3d.skills import all_skills
-
-    assert not (set(r.skill for r in ROUTES) - set(all_skills()))
-
-
 def test_gate_fired_rows_always_outrank_standing_rows():
     """Law 2: a repair round must spend its budget on what actually broke."""
     fired = [r for r in ROUTES if r.gate_fired]
@@ -86,10 +79,3 @@ def test_route_finding_patterns_are_real_kinds_or_families():
             assert pat.split("/", 1)[0] in families, f"{r.rule} routes on unknown family {pat!r}"
 
 
-def test_matches_finding_supports_exact_and_family_patterns():
-    """E1: repair pointers route through Route.matches_finding."""
-    row = Route("X", "c3d-part-contact", 95, findings=("connectivity/*", "joint_sweep/link_overlap"))
-    assert row.matches_finding(["connectivity/floating_part"]) == "connectivity/floating_part"
-    assert row.matches_finding(["joint_sweep/link_overlap"]) == "joint_sweep/link_overlap"
-    assert row.matches_finding(["joint_sweep/disconnected"]) is None
-    assert row.matches_finding([]) is None

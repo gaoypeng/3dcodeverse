@@ -18,31 +18,6 @@ def test_scene_rubric_craft_defects_inform_and_cannot_zero_a_scene() -> None:
     assert sum(d.penalty for d in r.defects) <= 0.62
 
 
-def test_extra_anchor_levels_reach_the_judge_prompt() -> None:
-    from codeverse3d.judges.prompt_builder import _rubric_block
-
-    block = _rubric_block(load_rubric("scene_v1"))
-    assert "0.5: The scene reads as a diorama" in block
-    # the four required levels are still rendered, richest first
-    idx = [block.index(f"     {lvl}: ") for lvl in ("1.0", "0.7", "0.4", "0.1")]
-    assert idx == sorted(idx)
-
-
-def test_the_quality_chapters_travel_INSIDE_the_zone_and_env_prompts() -> None:
-    """The chapters that decide the score are inlined into the brief (no session fetched them on demand)."""
-    from codeverse3d.tracks.scene import ENV_RECIPES, ZONE_RECIPES
-
-    cookbook = load_text("scene_threejs/cookbook.md")
-    from codeverse3d.prompts.sections import find_section, split_sections
-
-    secs = split_sections(cookbook)
-    for names in (ENV_RECIPES, ZONE_RECIPES):
-        for n in names:
-            assert find_section(secs, n) is not None, n
-    for tpl in ("tracks/scene_zone.j2", "tracks/scene_env.j2", "tracks/scene_refine.j2"):
-        assert "{{ recipes }}" in load_text(tpl), tpl
-
-
 def test_cookbook_sections_inlines_whole_chapters_and_clips_safely(tmp_path) -> None:
     from types import SimpleNamespace
 

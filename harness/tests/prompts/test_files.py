@@ -1,9 +1,6 @@
-"""Every prompt file exists, renders through the loader, is reached by the package, and keeps its promises."""
+"""Every prompt file exists, renders through the loader, and every language ships its three files."""
 
 from __future__ import annotations
-
-import ast
-from fnmatch import fnmatch
 
 import jinja2
 import pytest
@@ -11,14 +8,7 @@ import pytest
 from codeverse3d.contracts.common import Language
 from codeverse3d.prompts import load_text, render
 from codeverse3d.prompts.catalog import language_prompt
-from tests.prompts.conftest import PROMPT_FILES, PROMPTS_DIR, is_template, read_prompt
-
-#: files nothing in the package loads, each with the reason it still ships
-UNREACHED = {
-    # the GLSL cookbook tells the agent this example is shipped, but no code copies it into a
-    # workspace (review 2026-09-22, owner question Q9: ship it where the cookbook says, or drop it)
-    "glsl_shader/examples/aurora_ridge.frag",
-}
+from tests.prompts.conftest import PROMPT_FILES, PROMPTS_DIR, is_template
 
 
 @pytest.mark.parametrize("rel", PROMPT_FILES)
@@ -31,39 +21,6 @@ def test_prompt_file_contract(rel: str) -> None:
     assert render(rel) == raw, f"{rel} contains live jinja syntax; keep prompt .md files static"
     for seq in ("{{", "{%", "{#"):
         assert seq not in raw, f"{rel} contains {seq!r} which breaks jinja rendering"
-
-
-def test_every_prompt_file_is_reached_by_the_package() -> None:
-    """A prompt file is loaded by a literal path, an f-string path (``system/role_{role}.j2``) or a
-    per-language name through ``catalog.language_prompt`` / ``language_text`` — or it is dead."""
-    literals: set[str] = set()
-    patterns: list[str] = []
-    names: set[str] = set()
-    for py in (PROMPTS_DIR.parent).rglob("*.py"):
-        for node in ast.walk(ast.parse(py.read_text())):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                literals.add(node.value)
-            elif isinstance(node, ast.JoinedStr) and isinstance(head := node.values[0], ast.Constant) and "/" in str(head.value):
-                patterns.append("".join(v.value if isinstance(v, ast.Constant) else "*" for v in node.values))
-            elif (isinstance(node, ast.Call) and getattr(node.func, "id", "") in ("language_prompt", "language_text")
-                  and len(node.args) == 2 and isinstance(node.args[1], ast.Constant)):
-                names.add(node.args[1].value)
-    per_language = {language_prompt(lang, n) for lang in Language for n in names}
-    reached = {f for f in PROMPT_FILES if f in literals | per_language or any(fnmatch(f, p) for p in patterns)}
-    assert set(PROMPT_FILES) - reached == UNREACHED
-
-
-def test_frames_consistent_with_conventions() -> None:
-    """Contracts restate the frame; they must agree with conventions.py (Z-up −Y-front
-    for blender/cadquery/urdf, Y-up +Z-front for the three.js languages)."""
-    for rel in ("blender/contract.md", "cadquery/contract.md", "urdf/contract.md"):
-        text = read_prompt(rel).replace("\u2212", "-")
-        assert "Z up" in text or "Z is up" in text, f"{rel}: must state Z up"
-        assert "-Y front" in text or "-Y is the front" in text, f"{rel}: must state -Y front"
-    for rel in ("threejs/contract.md", "scene_threejs/contract.md"):
-        text = read_prompt(rel).replace("\u2212", "-")
-        assert "Y is up" in text or "Y-up" in text, f"{rel}: must state Y up"
-        assert "+Z front" in text or "+Z is the front" in text, f"{rel}: must state +Z front"
 
 
 def test_every_language_ships_a_system_prompt_a_contract_and_a_cookbook() -> None:

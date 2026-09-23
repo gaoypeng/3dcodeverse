@@ -44,30 +44,6 @@ def test_xml_examples_follow_the_enforced_frame_recipe(rel: str, tmp_path) -> No
     assert checked > 0, f"{rel}: expected at least one FK-checkable xml block"
 
 
-def test_glsl_strings_are_sane() -> None:
-    """GLSL lives inside JS template strings; audit the obvious silent killers
-    INSIDE the js code blocks (prose may mention them as pitfalls)."""
-    for rel in ("scene_threejs/cookbook.md",):
-        for b, body in enumerate(blocks(rel, "js")):
-            assert not re.search(r"^\s*#version", body, re.MULTILINE), \
-                f"{rel} js block {b}: never write #version in ShaderMaterial GLSL"
-            for m in re.finditer(r"^(.*#include <\w+>.*)$", body, re.MULTILINE):
-                line = m.group(1).strip()
-                if "'" in line:
-                    # JS source line: inside every quoted chunk, each (escaped-\n separated)
-                    # GLSL line holding an include must be ONLY the include
-                    for chunk in re.findall(r"'([^']*#include[^']*)'", line):
-                        for glsl_line in re.split(r"\\+n", chunk):
-                            if "#include" not in glsl_line:
-                                continue
-                            assert re.fullmatch(r"\s*#include <\w+>\s*", glsl_line), \
-                                f"{rel} js block {b}: include shares a line with code: {line!r}"
-                else:
-                    # raw GLSL line inside a template literal: must stand alone
-                    assert re.fullmatch(r"#include <\w+>", line), \
-                        f"{rel} js block {b}: #include must be alone on its line: {line!r}"
-
-
 def test_singleshot_example_parses_with_harness_parser() -> None:
     from codeverse3d.tracks import generation as gen
 

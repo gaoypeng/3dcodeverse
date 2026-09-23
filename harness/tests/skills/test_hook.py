@@ -7,6 +7,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 
+from codeverse3d.config import get_settings
 from codeverse3d.tracks import skills_hook as H
 
 
@@ -39,27 +40,21 @@ def test_the_switch_off_means_no_files_no_events_no_record(ctx, monkeypatch):
     assert H.repair_pointers(ctx, None) == ""
 
 
-
-def test_a_broken_library_costs_the_skills_not_the_round(ctx, monkeypatch, caplog):
-    monkeypatch.setenv("C3D_SKILLS", "on")
-    monkeypatch.setenv("C3D_SKILLS_DIR", "/definitely/not/a/directory")
-    with caplog.at_level("WARNING"):
-        got = H.attach_for_round(ctx, index=0, kind="baseline")
-    assert got is not None and got.listed == []  # routed nothing, wrote nothing, raised nothing
-
-
-def test_a_failed_attach_clears_the_previous_rounds_set(ctx, monkeypatch):
-    """Otherwise round N+1 probes round N's bundles and reports reads it never earned."""
+def test_no_skill_failure_costs_the_round(ctx, monkeypatch):
     monkeypatch.setenv("C3D_SKILLS", "on")
     assert H.attach_for_round(ctx, index=0, kind="baseline")
-    monkeypatch.setattr("codeverse3d.skills.attach_skills",
-                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
-    assert H.attach_for_round(ctx, index=1, kind="refine") is None
+    # a probe failure is logged, not raised
+    with monkeypatch.context() as m:
+        m.setattr("codeverse3d.skills.telemetry.probe_reads", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+        assert H.record_usage(ctx, index=0, kind="baseline") is None
+    # a failed attach clears the previous round's set — otherwise round N+1 probes round N's
+    # bundles and reports reads it never earned
+    with monkeypatch.context() as m:
+        m.setattr("codeverse3d.skills.attach_skills", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+        assert H.attach_for_round(ctx, index=1, kind="refine") is None
     assert H.record_usage(ctx, index=1, kind="refine") is None
-
-
-def test_a_probe_failure_is_logged_not_raised(ctx, monkeypatch):
-    monkeypatch.setenv("C3D_SKILLS", "on")
-    H.attach_for_round(ctx, index=0, kind="baseline")
-    monkeypatch.setattr("codeverse3d.skills.telemetry.probe_reads", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
-    assert H.record_usage(ctx, index=0, kind="baseline") is None
+    # a broken library costs the skills, not the round: routed nothing, wrote nothing, raised nothing
+    monkeypatch.setenv("C3D_SKILLS_DIR", "/definitely/not/a/directory")
+    get_settings.cache_clear()
+    got = H.attach_for_round(ctx, index=2, kind="refine")
+    assert got is not None and got.listed == []

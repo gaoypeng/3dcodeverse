@@ -22,8 +22,7 @@ PROMPTS_DIR = Path(__file__).resolve().parents[2] / "codeverse3d" / "prompts"
 #: `src/lib/`, so a snippet may import from it exactly as an agent's file would
 STARTER_LIB = Path(__file__).resolve().parents[2] / "codeverse3d" / "languages" / "scene_threejs" / "starter" / "src" / "lib"
 
-#: every file of the prompt corpus (relative to codeverse3d/prompts/), read off the tree —
-#: test_files.test_every_prompt_file_is_reached says how the package loads each one
+#: every file of the prompt corpus (relative to codeverse3d/prompts/), read off the tree
 PROMPT_FILES = sorted(p.relative_to(PROMPTS_DIR).as_posix() for p in PROMPTS_DIR.rglob("*")
                       if p.is_file() and p.suffix != ".py" and "__pycache__" not in p.parts)
 

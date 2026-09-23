@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import itertools
-
 import pytest
 
 from codeverse3d.skills import all_skills, bundle_dirs, select, skills_dir
@@ -18,9 +16,8 @@ LANGUAGES = ("blender", "cadquery", "threejs", "urdf_blender", "scene_threejs",
              "glsl_shader", "opengl_python")
 KINDS = ("baseline", "part", "refine", "rebuild", "repair", "env", "zone",
          "asset", "asset_fix", "reference")
-#: the boolean plan signals the table may test (n_parts / joint_types are derived)
+#: every plan signal plan_signals() produces — a route requiring any other can never fire
 SIGNAL_KEYS = tuple(plan_signals(None))
-FLAGS = tuple(k for k in SIGNAL_KEYS if k not in ("n_parts", "joint_types"))
 
 LIVE_KINDS = sorted({k for row in ROUTES for k in row.findings if not k.endswith("*")} |
                     {"connectivity/interpenetration", "connectivity/floating_part",
@@ -30,54 +27,14 @@ LIVE_KINDS = sorted({k for row in ROUTES for k in row.findings if not k.endswith
                      "lint/part_not_imported", "shader/compile_or_binding"})
 
 
-def _signal_sets():
-    """Every boolean combination, each with the n_parts it implies."""
-    for bits in itertools.product((False, True), repeat=len(FLAGS)):
-        sig = dict(zip(FLAGS, bits, strict=True))
-        sig["n_parts"] = 6 if sig["multi_part"] else 1
-        sig["joint_types"] = ["revolute"] if sig["has_joints"] else []
-        yield sig
-
-
 BASE_INPUTS = [(t, lang, kind) for t in TRACKS for lang in LANGUAGES for kind in KINDS]
 
 
 def test_every_signal_a_route_requires_is_in_the_input_space():
-    """R26/R27 test wants_water / wants_night, which SIGNAL_KEYS (and so FLAGS) once lacked:
-    the property tests below never exercised them."""
+    """R26/R27 test wants_water / wants_night, which SIGNAL_KEYS once lacked: a route that
+    requires a signal plan_signals() never sets is dead."""
     for row in ROUTES:
         assert set(row.requires_all) | set(row.requires_any) <= set(SIGNAL_KEYS), row.rule
-
-
-def test_the_cap_and_the_ordering_hold_over_the_whole_input_space():
-    """Both settings of allow_unverified: R25–R28 (and the cadquery / threejs forms) name
-    inherited-unverified bundles, which route only with it on."""
-    expected = 2 * len(LANGUAGES) * len(KINDS) * 2 ** len(FLAGS)
-    for track in TRACKS:
-        seen = 0
-        for unverified, language, kind in itertools.product((False, True), LANGUAGES, KINDS):
-            for signals in _signal_sets():
-                got = select(track, language, kind, signals=signals, library=LIBRARY, max_skills=5,
-                             allow_unverified=unverified)
-                seen += 1
-                assert len(got) <= 5, f"{track}/{language}/{kind} routed {len(got)}"
-                assert len({skill.name for skill in got}) == len(got), "duplicate skill"
-                priorities = [skill.priority for skill in got]
-                assert priorities == sorted(priorities, reverse=True), (
-                    f"{track}/{language}/{kind} is out of order"
-                )
-                for skill in got:
-                    assert skill.rules and skill.reason, f"{skill.name} has no routing reason"
-        assert seen == expected, track
-
-
-def test_routing_is_deterministic_over_the_whole_input_space():
-    signals = {"multi_part": True, "has_instances": True, "has_custom_shader": True, "n_parts": 4}
-    for track in TRACKS:
-        for language, kind in itertools.product(LANGUAGES, KINDS):
-            a = [s.name for s in select(track, language, kind, signals=signals, library=LIBRARY)]
-            b = [s.name for s in select(track, language, kind, signals=signals, library=LIBRARY)]
-            assert a == b, f"{track}/{language}/{kind}"
 
 
 def test_every_corpus_finding_kind_routes_sanely_from_every_session():

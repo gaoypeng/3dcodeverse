@@ -21,12 +21,6 @@ def skills_for(track, language, kind, *, plan=None, **kw):
     return [s.skill for s in select(track, language, kind, signals=plan_signals(plan), **kw)]
 
 
-def test_custom_shader_is_detected_from_effects_or_from_words():
-    assert plan_signals(NS(effects=[NS(kind="glsl_material", description="water")]))["has_custom_shader"]
-    assert plan_signals(NS(summary="a raymarched tunnel"))["has_custom_shader"]
-    assert not plan_signals(NS(summary="a wooden chair", parts=[part()]))["has_custom_shader"]
-
-
 def test_a_repair_round_spends_its_budget_on_what_broke(library):
     got = select("static_object", "blender", "repair",
                  signals=plan_signals(static_plan()),

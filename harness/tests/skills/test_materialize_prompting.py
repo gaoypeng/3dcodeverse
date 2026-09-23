@@ -36,7 +36,7 @@ def ws(tmp_path: Path) -> Path:
 
 
 # --------------------------------------------------------------------------- files
-def test_bundles_and_the_read_control_land_in_both_roots_as_real_files(ws, library):
+def test_bundles_and_the_read_control_land_in_both_roots_and_an_empty_route_sweeps_them(ws, library):
     """codex refuses symlinks; the never-routed control falsifies the read probe (git diff opens files too)."""
     from codeverse3d.skills.materialize import CONTROL_NAME
     from codeverse3d.skills.registry import ROUTED_SKILLS
@@ -50,17 +50,11 @@ def test_bundles_and_the_read_control_land_in_both_roots_as_real_files(ws, libra
         assert not any(p.is_symlink() for p in (ws / root).rglob("*"))
     assert len(written) == 2 * 3 * 2   # 2 roots x (2 skills + control) x (SKILL.md + one reference)
     assert CONTROL_NAME not in index_block(skills) and CONTROL_NAME not in ROUTED_SKILLS
-
-
-def test_atime_equals_mtime_after_writing_so_the_read_probe_has_a_zero_point(ws, library):
-    for p in materialize_skills(ws, [library["c3d-part-contact"]]):
+    for p in written:   # atime == mtime after writing, so the read probe has a zero point
         st = os.stat(p)
         assert abs(st.st_atime - st.st_mtime) < 0.001
 
-
-def test_an_empty_selection_still_sweeps_last_rounds_bundles(ws, library):
-    """V4b: an empty route still removes last round's bundles — native CLIs discover by directory."""
-    materialize_skills(ws, [library["c3d-part-contact"]])
+    # V4b: an empty route still removes last round's bundles — native CLIs discover by directory
     out = attach_skills(ws, track="static_object", language="threejs", kind="generation", library={})
     assert out.listed == []
     for root in SKILL_ROOTS:
@@ -76,18 +70,14 @@ def test_native_loader_backends_get_one_sentence_and_no_second_index(library):
     assert index_tokens(skills) < 60
 
 
-def test_repair_pointers_name_only_the_gate_fired_skills(library):
+def test_repair_pointers_and_the_inlined_body_come_from_the_gate_fired_skill(library):
     sel = select("static_object", "blender", "repair", signals={"multi_part": True},
                  findings=["connectivity/interpenetration"], library=library)
     text = repair_pointers(sel)
     assert "c3d-part-contact" in text and "connectivity/interpenetration" in text
     assert "c3d-blender-forms" not in text  # standing rows are already in the workspace
     assert repair_pointers([]) == ""
-
-
-def test_inline_body_picks_the_highest_priority_body_and_respects_the_cap(library):
-    sel = select("static_object", "blender", "repair", signals={"multi_part": True},
-                 findings=["connectivity/interpenetration"], library=library)
+    # single-shot: the highest-priority body is inlined, within the cap
     name, text = inline_body(sel)
     assert name == "c3d-part-contact" and "c3d-part-contact" in text
     assert inline_body(sel, max_tokens=0) == ("", "")
