@@ -186,19 +186,10 @@ def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> lis
 
 
 def round_rows(ws: Workspace, rec: RunRecord) -> list[RoundRow]:
-    rows: list[RoundRow] = []
-    for r in rec.rounds:
-        j = effective_judgment(r)
-        gates = gate_error_summary(r)
-        rows.append(RoundRow(
-            index=r.index, kind=r.kind, commit=r.commit[:12],
-            build_ok=None if r.build is None else r.build.ok,
-            score=j.overall if j else None, passed=j.passed if j else None,
-            gate_errors=sum(gates.values()), gates={k: v for k, v in gates.items() if v},
-            cost_usd=round(r.usage.cost_usd, 6), minutes=round(r.minutes, 2),
-            sheet=_round_sheet(ws, rec, r.index),
-        ))
-    return rows
+    rounds = {r.index: r for r in rec.rounds}
+    return [RoundRow(**{**row.model_dump(), "commit": row.commit[:12]}, sheet=_round_sheet(ws, rec, row.index),
+                     gates={k: v for k, v in gate_error_summary(rounds[row.index]).items() if v})
+            for row in select.round_rows(ws.root, record=rec)]
 
 
 #: complexity axes worth putting on a card / detail page (the index carries the rest)

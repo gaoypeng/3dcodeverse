@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 from rich.console import Console
@@ -22,6 +22,9 @@ from codeverse3d.contracts.run import RunRecord
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import slugify
 from codeverse3d.workspace import Workspace
+
+if TYPE_CHECKING:
+    from codeverse3d.addons.select import RoundRow
 
 console = Console(emoji=False)
 err_console = Console(stderr=True, style="bold red", emoji=False)
@@ -49,18 +52,17 @@ def fmt_usd(v: float) -> str:
     return f"${v:.4f}"
 
 
-def rounds_table(record: RunRecord, picked: int | None) -> Table:
-    """One row per round; "passed" is the judge's own verdict for THAT round."""
+def rounds_table(rows: list[RoundRow], picked: int | None) -> Table:
+    """One row per round (``select.round_rows``: a degraded verdict counts as unjudged);
+    "passed" is the judge's own verdict for THAT round."""
     t = Table(title="rounds (* = picked)", show_lines=False)
-    for col in ("#", "kind", "build", "gate err", "score", "passed", "cost", "secs", "commit"):
-        t.add_column(col, justify="right" if col in ("#", "gate err", "score", "cost", "secs") else "left")
-    for r in record.rounds:
-        build = "-" if r.build is None else ("ok" if r.build.ok else "[red]FAIL[/red]")
-        j = r.judgment
-        passed = "-" if j is None else ("[green]yes[/green]" if j.passed else "no")
-        mark = "*" if r.index == picked else ""
-        t.add_row(f"{r.index}{mark}", r.kind, build, str(sum(len(g.errors) for g in r.gates)), fmt_score(r.score),
-                  passed, fmt_usd(r.usage.cost_usd), f"{r.duration_s:.0f}", r.commit[:8])
+    for col in ("#", "kind", "build", "gate err", "score", "passed", "cost", "min", "commit"):
+        t.add_column(col, justify="right" if col in ("#", "gate err", "score", "cost", "min") else "left")
+    for r in rows:
+        build = "-" if r.build_ok is None else ("ok" if r.build_ok else "[red]FAIL[/red]")
+        passed = "-" if r.passed is None else ("[green]yes[/green]" if r.passed else "no")
+        t.add_row(f"{r.index}{'*' if r.index == picked else ''}", r.kind, build, str(r.gate_errors), fmt_score(r.score),
+                  passed, fmt_usd(r.cost_usd), f"{r.minutes:.1f}", r.commit[:8])
     return t
 
 
@@ -96,7 +98,7 @@ def print_record_summary(record: RunRecord, ws_root: Path | None = None) -> None
             lines.append(f"deliverable: {handed}")
     console.print(Panel("\n".join(lines), title="run", expand=False))
     if record.rounds:
-        console.print(rounds_table(record, s.picked_round))
+        console.print(rounds_table(select.round_rows(root, record=record), s.picked_round))
 
 
 def kv_table(title: str, rows: dict[str, Any]) -> Table:

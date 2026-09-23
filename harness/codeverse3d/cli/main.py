@@ -655,9 +655,7 @@ def pick(
             raise C.CliError(str(e), code=2) from e
     if idx is None:
         raise typer.Exit(code=1)
-    console.print(kv_table("rounds (* = picked)", {
-        f"r{r.index:02d}{' *' if r.index == idx else ''}": f"{r.kind:<9} score {C.fmt_score(r.score)}  "
-        f"gate errors {r.gate_errors}  {C.fmt_usd(r.cost_usd)}" for r in rows}))
+    console.print(C.rounds_table(rows, idx))
 
 
 # --------------------------------------------------------------------------- render / judge

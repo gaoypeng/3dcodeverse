@@ -19,6 +19,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from codeverse3d.addons import select
+
 #: the three buckets, in the order they are always displayed
 VERDICTS = ("judged", "unjudged", "error")
 
@@ -104,20 +106,11 @@ class RunLink(BaseModel):
     kind: LinkKind = "file"
 
 
-class RoundRow(BaseModel):
-    """One round, flattened for the detail page's rounds table (``passed`` is the judge's
-    own verdict for THAT round — a fact about the round, never about the run)."""
+class RoundRow(select.RoundRow):
+    """``select.RoundRow`` plus what the detail page's rounds table draws: the gate
+    breakdown and the round's contact sheet."""
 
-    index: int
-    kind: str = ""
-    commit: str = ""
-    build_ok: bool | None = None
-    score: float | None = None
-    passed: bool | None = None
-    gate_errors: int = 0
     gates: dict[str, int] = Field(default_factory=dict, description="gate name → error count")
-    cost_usd: float = 0.0
-    minutes: float = Field(default=0.0, description="RoundRecord.minutes")
     sheet: str = Field(default="", description="run-relative contact sheet of this round")
 
 
