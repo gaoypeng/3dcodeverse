@@ -86,9 +86,16 @@ def cadquery_python() -> str:
     return os.environ.get("C3D_CQ_PYTHON") or sys.executable
 
 
+#: a variable whose NAME carries one of these words is a credential: model-written code runs in the
+#: tool subprocesses, so it never sees one (the harness's own rule is proc/cli_common clean_env; this
+#: package does not import the harness)
+_SECRET_WORDS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH", "COOKIE", "SESSION")
+
+
 def tool_env(**extra: str) -> dict[str, str]:
-    """Environment for Blender / OpenSCAD subprocesses: private HOME, extra libs, no audio."""
-    env = dict(os.environ)
+    """Environment for every subprocess that runs or compiles model-written code (Blender, CadQuery,
+    OpenSCAD, glslang): no credentials, private HOME, extra libs."""
+    env = {k: v for k, v in os.environ.items() if not any(w in k.upper() for w in _SECRET_WORDS)}
     if XLIBS.exists():
         env["LD_LIBRARY_PATH"] = f"{XLIBS}:{env.get('LD_LIBRARY_PATH', '')}"
     env.update(extra)

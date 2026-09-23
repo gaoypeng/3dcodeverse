@@ -101,3 +101,19 @@ def test_a_torn_results_line_does_not_crash_the_render_stage():
     with tempfile.TemporaryDirectory() as d:
         (Path(d) / "exec_results.jsonl").write_text('{"id": "a", "status": "FAIL"}\n{"id": "b", "sta')
         assert render_views.render_dir(Path(d)) == {}
+
+
+def test_model_written_code_never_sees_a_credential(monkeypatch, tmp_path):
+    """The tool subprocesses run model-written code: API keys and tokens must not reach them."""
+    from llm import config
+    from llm.executors import cadquery
+
+    for k in ("GEMINI_API_KEY", "GEMINI_API_KEYS", "OPENAI_API_KEY", "HF_TOKEN", "AWS_SECRET_ACCESS_KEY"):
+        monkeypatch.setenv(k, "secret-value")
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    env = config.tool_env(HOME="/tmp")
+    assert "secret-value" not in env.values() and env["PATH"] == "/usr/bin:/bin" and env["HOME"] == "/tmp"
+    # the script reports what it can see through its crash message, which the report keeps
+    rep = cadquery.run("import os\nraise SystemExit('LEAK' if any('secret' in v for v in os.environ.values()) else 'CLEAN')\n",
+                       str(tmp_path / "w"))
+    assert rep["error"] == "SystemExit: CLEAN"

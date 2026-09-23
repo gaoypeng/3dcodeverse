@@ -71,7 +71,7 @@ def run(code: str, workdir: str, timeout: int = 90) -> dict:
     try:
         p = subprocess.run([config.cadquery_python(), str(runner), str(script), str(stl)], cwd=str(wd),
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout, text=True, errors="replace",
-                           env={**os.environ, "OMP_NUM_THREADS": "1"})
+                           env=config.tool_env(OMP_NUM_THREADS="1"))
         m = re.search(r"CQ_REPORT (\{.*\})", p.stdout)
         rep = json.loads(m.group(1)) if m else {"status": "CRASH", "error": p.stdout[-800:]}
     except subprocess.TimeoutExpired:

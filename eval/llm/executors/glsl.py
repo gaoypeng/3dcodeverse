@@ -97,7 +97,7 @@ def compile_check(src: str, workdir: Path, timeout: int) -> dict:
     fp.write_text(PRELUDE + src + MAIN)
     try:
         p = subprocess.run([str(exe), "-S", "frag", str(fp)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                           timeout=timeout, text=True, errors="replace")
+                           timeout=timeout, text=True, errors="replace", env=config.tool_env())
         return {"status": "OK" if p.returncode == 0 else "FAIL", "error": None if p.returncode == 0 else p.stdout[-600:]}
     except subprocess.TimeoutExpired:
         return {"status": "TIMEOUT", "error": "glslang timeout"}
