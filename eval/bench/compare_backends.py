@@ -82,7 +82,7 @@ from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.config import get_settings  # noqa: E402
 from codeverse3d.contracts.artifacts import RenderSet  # noqa: E402
 from codeverse3d.contracts.common import ENTRY_FILE, Track  # noqa: E402
-from codeverse3d.contracts.run import RunRecord  # noqa: E402
+from codeverse3d.contracts.run import RunRecord, RunStatus  # noqa: E402
 from codeverse3d.contracts.spec import Spec  # noqa: E402
 from codeverse3d.cost import run_ledger  # noqa: E402
 from codeverse3d.cost.tally import tally  # noqa: E402
@@ -245,6 +245,13 @@ def entry_of(spec: Spec) -> str:
     return ENTRY_FILE[spec.language]
 
 
+def _stopped_on_judge(run_ws: Workspace) -> bool:
+    try:
+        return RunRecord.model_validate_json(run_ws.record_path.read_text()).status is RunStatus.JUDGE_UNAVAILABLE
+    except (OSError, ValueError):
+        return False
+
+
 def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOptions,
                  deps: CompareDeps, res: CellResult) -> None:
     run_ws = Workspace(cell / "run")
@@ -255,6 +262,10 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOption
         # cross-weather comparison the pairing exists to prevent (ab_plan.archive_cell has
         # the measured story).  The old tree is archived, never deleted: it holds that
         # attempt's cost ledger.
+        archive_attempt(run_ws.root)
+    elif run_ws.exists() and _stopped_on_judge(run_ws):
+        # a redo of a cell dropped for its judge's outage: that run is finished, and resuming it
+        # would hand back the same judge_unavailable record — start fresh, keep the old tree
         archive_attempt(run_ws.root)
     resume = run_ws.exists()
     if not resume:
@@ -274,6 +285,14 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOption
     res.harness_status, res.harness_rounds, res.harness_loop_score = rec.status.value, len(rec.rounds), summary.picked_score
     res.harness_stop_reason = summary.stop_reason
     res.harness_aborted_rounds = len(rec.extra.get("aborted_rounds") or [])
+    if rec.status is RunStatus.JUDGE_UNAVAILABLE:
+        # The run stopped because its judge never answered (p3_graphics_v2 mushroom_forest, 2026-09-23:
+        # two 900 s pro read timeouts after round 0).  Scoring what it had then would grade a one-round
+        # run for someone else's outage — the asymmetry §7 ends for the one-shot arms — so the cell is
+        # dropped as infra_failed and --redo-status re-runs it.
+        res.error = f"harness run stopped at {summary.stop_reason or 'judge_unavailable'}: the in-loop judge never answered"
+        res.error_is_infra = True
+        return
     # the DELIVERED code is the picked round's deliverable/ (src/ + public/ at its commit);
     # a run with no judged round handed nothing over, and its working tree — the last
     # round — is what it produced
@@ -341,7 +360,7 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
             # evaluated and scored 0 — a hard zero for someone else's downtime, the exact
             # asymmetry tests/compare_bench/test_infra_failures.py exists to end.  Drop the
             # cell instead (infra_failed); --redo-status re-runs the lost attempt only.
-            truncated = arm.kind not in ("harness", "agent") and res.error_is_infra
+            truncated = res.error_is_infra   # an arm whose protocol a provider outage cut short
             if (eval_ws.root / entry_of(spec)).is_file() and not truncated:
                 outcome = deps.evaluator.evaluate(eval_ws, spec)
                 eval_ws.write_json(eval_ws.root / "eval.json", outcome)

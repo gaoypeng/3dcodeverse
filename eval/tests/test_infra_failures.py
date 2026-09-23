@@ -277,3 +277,38 @@ def test_the_ab_viewer_refuses_to_call_a_winner_it_cannot_support():
                                    Run(slug="bx", arm="b", brief="brief x", picked=0.0)]
     head, why = verdict(arm("a", 0.5, 0.5, 0.5), b)
     assert head.startswith("Inconclusive") and "over 3 paired briefs" in why
+
+
+def test_a_harness_run_whose_judge_never_answered_is_dropped_and_redone_fresh(tmp_path):
+    """judge_unavailable is the provider's failure, not the harness's: infra_failed, no score — and a redo
+    archives the finished run instead of resuming it (p3_graphics_v2 mushroom_forest, 2026-09-23)."""
+    from bench.compare_backends import CompareDeps, CompareOptions, parse_arm, run_cell
+    from bench.run_bench import Battery
+    from codeverse3d.contracts.run import RunStatus
+    from tests.conftest import BATTERY, FakeEvaluator, fake_run_track
+
+    storm, calm = fake_run_track(), fake_run_track()
+
+    def judge_down(spec, ws, resume):
+        rec = storm(spec, ws, resume)
+        rec.status = RunStatus.JUDGE_UNAVAILABLE
+        ws.write_json(ws.record_path, rec)
+        return rec
+
+    battery = Battery.load(BATTERY)
+    opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x")
+    arm = parse_arm("harness:gemini-cli:gemini-3.8-flash")
+    ev = FakeEvaluator()
+    r = run_cell(battery, battery.prompts[0], arm, tmp_path, opts, CompareDeps(ev, run_track=judge_down))
+    assert (r.status, r.score, r.passed) == ("infra_failed", None, None), r
+    assert not ev.evaluated and "judge never answered" in r.error
+
+    seen: list[bool] = []
+
+    def redo(spec, ws, resume):
+        seen.append(resume)
+        return calm(spec, ws, resume)
+
+    r2 = run_cell(battery, battery.prompts[0], arm, tmp_path, opts, CompareDeps(FakeEvaluator(), run_track=redo))
+    assert seen == [False] and r2.status == "scored", (seen, r2)
+    assert any(p.name.startswith("run.attempt") for p in (tmp_path / "cells" / battery.prompts[0].id / arm.slug).iterdir())
