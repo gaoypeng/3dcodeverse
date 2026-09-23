@@ -21,10 +21,10 @@ from codeverse3d.languages._ast_lint import (
     dotted,
     safe_parse,
 )
-from codeverse3d.languages._common import MISSING_ENTRY, compose_build_result
+from codeverse3d.languages._common import run_wrapper_build
 from codeverse3d.languages.base import RuntimeLayout
 from codeverse3d.languages.blender import _fmt, finish_for, instance_centers
-from codeverse3d.proc import run_subprocess, scrub_secrets
+from codeverse3d.proc import scrub_secrets
 from codeverse3d.workspace import Workspace
 
 # ===================================================================== lint
@@ -356,19 +356,8 @@ class CadQueryRuntime(RuntimeLayout):
 
     def build(self, ws: Workspace, *, timeout_s: int | None = None, seed: int = 0,
               tri_limit: int = MAX_TRIS_OBJECT) -> BuildResult:
-        ws.artifacts.mkdir(parents=True, exist_ok=True)
-        build_json, census_json = ws.artifacts / "build.json", ws.artifacts / "census.json"
-        glb, step, stl = ws.artifacts / "object.glb", ws.artifacts / "object.step", ws.artifacts / "object.stl"
-        # invalidate BEFORE the missing-entry early return (same reasoning as BlenderRuntime.build)
-        ws.stage_artifacts("build.json", "census.json", "object.glb", "object.step", "object.stl").invalidate()
-        entry = self.entry_file(ws)
-        if not entry.is_file():
-            result = BuildResult(ok=False, language=self.language.value, error_type=MISSING_ENTRY,
-                                 error_message="src/model.py does not exist", error_file="src/model.py")
-            ws.write_json(build_json, result)
-            return result
-        proc = run_subprocess(self.build_command(ws, seed=seed, tri_limit=tri_limit), cwd=ws.root, env=cadquery_env(),
-                              timeout_s=timeout_s or self._settings.limits.build_timeout_s)
-        return compose_build_result(language=self.language.value, proc=proc, build_json=build_json, census_json=census_json,
-                                    glb_path=glb, extra_paths={"step": step, "stl": stl})
+        return run_wrapper_build(
+            ws, language=self.language.value, entry_rel=ENTRY_FILE[Language.CADQUERY], extras={"step": "object.step", "stl": "object.stl"},
+            argv=lambda: self.build_command(ws, seed=seed, tri_limit=tri_limit),
+            env=cadquery_env(), timeout_s=timeout_s or self._settings.limits.build_timeout_s)
 

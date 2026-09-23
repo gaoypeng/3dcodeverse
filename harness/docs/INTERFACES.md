@@ -272,7 +272,8 @@ together in `languages/wrappers/` — `run_bpy.py`, `run_bpy_links.py` (Blender'
 `sys.path`, traceback → `src/<file>:<line>`, `sys.exit(0)` is not a failure, the atomic
 report) and `_census.py` (the Blender census, blender AND urdf_blender); copy the directory
 whole.  Each writes its report as `build.json` + `census.json`, which the runtime reads
-once through `_common.compose_build_result` and replaces with the final `BuildResult` — for
+once through `_common.compose_build_result` (blender and cadquery: `_common.run_wrapper_build`, the
+invalidate → missing entry → subprocess prologue around it) and replaces with the final `BuildResult` — for
 EVERY runtime `artifacts/build.json` is the BuildResult (urdf_blender after its post-wrapper
 checks).  `opengl_python/wrappers/run_gl.py` is the moderngl runner; threejs/scene
 export+render live in `runtime_js/` (`export_glb.mjs`, `render_glb.mjs`,

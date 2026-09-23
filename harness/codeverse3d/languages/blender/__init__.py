@@ -20,9 +20,9 @@ from codeverse3d.languages._ast_lint import (
     dotted,
     safe_parse,
 )
-from codeverse3d.languages._common import MISSING_ENTRY, compose_build_result, strip_blender_noise
+from codeverse3d.languages._common import run_wrapper_build, strip_blender_noise
 from codeverse3d.languages.base import RuntimeLayout
-from codeverse3d.proc import run_subprocess, scrub_secrets
+from codeverse3d.proc import scrub_secrets
 from codeverse3d.workspace import Workspace
 
 # ===================================================================== lint
@@ -738,28 +738,8 @@ class BlenderRuntime(RuntimeLayout):
         seed: int = 0, tri_limit: int = MAX_TRIS_OBJECT,
     ) -> BuildResult:
         """Run the wrapper; never raises for agent-code failures (typed BuildResult instead)."""
-        ws.artifacts.mkdir(parents=True, exist_ok=True)
-        build_json = ws.artifacts / "build.json"
-        census_json = ws.artifacts / "census.json"
-        glb = ws.artifacts / "object.glb"
-        stl_path = ws.artifacts / "object.stl"
-        blend_path = ws.artifacts / "object.blend"
-        # invalidate BEFORE the missing-entry early return: a deleted model.py must not
-        # leave the previous round's object.glb + build.json (ok: true) looking current
-        ws.stage_artifacts("build.json", "census.json", "object.glb", "object.stl", "object.blend").invalidate()
-        entry = self.entry_file(ws)
-        if not entry.is_file():
-            result = BuildResult(ok=False, language=self.language.value, error_type=MISSING_ENTRY,
-                                 error_message=f"{ENTRY_REL} does not exist", error_file=ENTRY_REL)
-            ws.write_json(build_json, result)
-            return result
-        cmd = self.build_command(ws, stl=stl, blend=blend, seed=seed, tri_limit=tri_limit)
-        proc = run_subprocess(
-            cmd, cwd=ws.root, env=blender_env(),
-            timeout_s=timeout_s or self._settings.limits.build_timeout_s,
-        )
-        return compose_build_result(
-            language=self.language.value, proc=proc, build_json=build_json, census_json=census_json,
-            glb_path=glb, extra_paths={"stl": stl_path, "blend": blend_path}, output_filter=strip_blender_noise,
-        )
+        return run_wrapper_build(
+            ws, language=self.language.value, entry_rel=ENTRY_REL, extras={"stl": "object.stl", "blend": "object.blend"},
+            argv=lambda: self.build_command(ws, stl=stl, blend=blend, seed=seed, tri_limit=tri_limit),
+            env=blender_env(), timeout_s=timeout_s or self._settings.limits.build_timeout_s, output_filter=strip_blender_noise)
 

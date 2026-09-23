@@ -4,6 +4,8 @@ Runtimes execute a *wrapper script* in a subprocess (Blender's python or the
 harness python).  The wrapper writes ``artifacts/build.json`` (+ ``census.json``)
 and the runtime turns those into a :class:`BuildResult`.  This module owns:
 
+* :func:`run_wrapper_build` — the blender / cadquery build: invalidate, missing entry,
+  wrapper subprocess, then :func:`compose_build_result`;
 * :func:`compose_build_result` — wrapper json + process outcome → BuildResult,
   failing loud when the wrapper did not report, published as ``build.json``;
 * :func:`read_json_file` / :func:`strip_blender_noise`.
@@ -20,7 +22,8 @@ from pathlib import Path
 from typing import Any
 
 from codeverse3d.contracts.artifacts import BuildResult
-from codeverse3d.proc import ProcResult, tail, write_json_atomic
+from codeverse3d.proc import ProcResult, run_subprocess, tail, write_json_atomic
+from codeverse3d.workspace import Workspace
 
 #: The one spelling of every runtime's typed build failures — recorded in build.json /
 #: record.json / bench cells, so the strings stay as first recorded (2026-08-29: threejs,
@@ -73,6 +76,28 @@ def read_json_file(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise WrapperError(f"{path}: expected a JSON object")
     return data
+
+
+def run_wrapper_build(ws: Workspace, *, language: str, entry_rel: str, extras: Mapping[str, str],
+                      argv: Callable[[], list[str]], env: dict[str, str], timeout_s: float,
+                      output_filter: Callable[[str], str] | None = None) -> BuildResult:
+    """Run a python wrapper build; ``extras`` maps a ``BuildResult.extra_paths`` key to its
+    artifact file name.  The outputs are invalidated BEFORE the missing-entry early return
+    (a deleted model.py must not leave the previous round's object.glb + build.json
+    (ok: true) looking current), and ``argv`` is called only after that check, so a
+    missing Blender binary raises where it always did."""
+    ws.artifacts.mkdir(parents=True, exist_ok=True)
+    build_json = ws.artifacts / "build.json"
+    ws.stage_artifacts("build.json", "census.json", "object.glb", *extras.values()).invalidate()
+    if not (ws.root / entry_rel).is_file():
+        result = BuildResult(ok=False, language=language, error_type=MISSING_ENTRY,
+                             error_message=f"{entry_rel} does not exist", error_file=entry_rel)
+        ws.write_json(build_json, result)
+        return result
+    proc = run_subprocess(argv(), cwd=ws.root, env=env, timeout_s=timeout_s)
+    return compose_build_result(language=language, proc=proc, build_json=build_json, census_json=ws.artifacts / "census.json",
+                                glb_path=ws.artifacts / "object.glb", extra_paths={k: ws.artifacts / v for k, v in extras.items()},
+                                output_filter=output_filter)
 
 
 def compose_build_result(

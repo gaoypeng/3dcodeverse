@@ -373,8 +373,8 @@ weather: they leave the provider's errors out (docs/COST.md §31); the ceiling d
   (entry + `extra_files`, and `part_file` for a one-file-per-part language) or answer
   `expected_files(plan)` / `files_for(plan, target)` yourself, as the scene runtime does; the
   tracks never restate it.  A python-executed build wrapper goes beside the others in
-  `languages/wrappers/` (import `_wrapper_common`; read its report with
-  `_common.compose_build_result`, which publishes the final `build.json`); branch in
+  `languages/wrappers/` (import `_wrapper_common`; run it with `_common.run_wrapper_build`, or
+  read its report with `_common.compose_build_result`, which publishes the final `build.json`); branch in
   `languages/base.py::get_runtime`; `prompts/<lang>/{system,contract,cookbook}.md` (found by
   `prompts/catalog.language_prompt`; every cookbook snippet must run — `tests/prompts`
   executes them).
