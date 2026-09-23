@@ -993,7 +993,7 @@ storm independently spends a full failed round-trip to learn what its siblings a
 know, then sleeps on its own private backoff schedule.  That is the 2 833 waits / 17.7 h
 in §18.
 
-`codeverse3d/models/retry.py` adds a process-wide `StormGate` per model (`retry.py:449`):
+`codeverse3d/models/retry.py` added a process-wide `StormGate` per model (deleted 2026-09-22, below):
 
 * the first worker to see a 503 calls `hit()`, which closes the gate for a short,
   escalating window (never longer than `MAX_WAIT_S` — patience comes from the *number*

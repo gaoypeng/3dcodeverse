@@ -15,8 +15,8 @@ evaluations share one set of battery files — `bench/prompts/*.yaml` — and `l
 ask one-shot from there (`llm/config.py: HARNESS_BATTERIES`).
 
 ```bash
-pip install -e ../harness                     # once; both evaluations import codeverse3d
 cd eval
+pip install -e ../harness                     # once; both evaluations import codeverse3d
 python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator gemini-cli:gemini-3.7-flash
 python -m bench.report bench/out/static_objects_v1          # rebuild report.md + report.html
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.7-flash,oneshot:gemini:gemini-3.7-flash --out bench/out/compare_v1

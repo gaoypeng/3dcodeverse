@@ -172,7 +172,7 @@ Pending: rerun the parked sol battery, then terra, then luna, then the claude-co
 
 ## 5. Comparing backends inside the harness
 
-Same battery, same `--judge`, different `--generator` (`api-agent:*`, `single-shot:*`,
+Same battery, same `--judge`, different `--generator` (`single-shot:*`,
 `gemini-cli:*`, `claude-code:*`, `codex:*`, `agy:*`).  Report baseline, picked, delta,
 cost, time per tier; optionally feed the picked rounds of two arms through
 `PairwiseJudge.compare(spec, renders_a, renders_b)` (`flywheel pairs` already emits
@@ -288,10 +288,10 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
   29 corpus rounds that still carry view PNGs + the 24 h2h object-sides re-rendered from their
   GLBs — judged three times each with the identical prompt (`VlmJudge(fixed_order=True)`,
   pro, $7.79): σ of the final overall mean 0.035, median 0.027, p90 0.060; per criterion
-  0.037 (intent) – 0.065 (structure).  That is the number `cost/routing.JUDGE_NOISE` already
-  tables (0.030, measured with per-sample view shuffles), so the loop's σ-keyed stops are
-  keyed to the right magnitude and the 0.072 round-to-round spread in the corpus is
-  generation variance, not the judge.  Untested: temperature 0.0 (brilliana measured 0.013
+  0.037 (intent) – 0.065 (structure).  That is the number `cost/routing.JUDGE_NOISE` tabled
+  (0.030, measured with per-sample view shuffles; the table and the loop's σ-keyed stops went
+  on 2026-09-22), and the 0.072 round-to-round spread in the corpus is generation variance,
+  not the judge.  Untested: temperature 0.0 (brilliana measured 0.013
   vs 0.035 between 0.0 and 0.2 on 512 calls) — one more $8 battery.
 * Never tune rubric text against the battery you report on; bump the rubric version
   (`*_v2`) instead and re-run.

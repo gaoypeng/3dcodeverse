@@ -585,25 +585,26 @@ truncation and degenerate-plan re-asks around the planner (§5.1).
 ## 10. Reproduction
 
 ```bash
-cd harness
+cd eval   # the bench scripts live here since 2026-09-22 (they were harness/bench/)
 # the instrument
 python bench/ab_plan.py --prompts bench/prompts/articulated_v2.yaml --aa --pin-plan \
     --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview \
     --n-samples 3 --rounds 3 --out bench/out/aa_articulated
-# a switch A/B (generation-side switches only; plan-side is refused for --pin-plan)
+# a switch A/B (generation-side switches only; plan-side is refused for --pin-plan).  The arm
+# measured in §4 was C3D_FEWER_TURNS=1, a switch deleted since; name a live Settings flag instead
 python bench/ab_plan.py --prompts bench/prompts/articulated_v2.yaml \
-    --variant-env C3D_FEWER_TURNS=1 --pin-plan --out bench/out/fewer_turns
+    --variant-env C3D_<SWITCH>=1 --pin-plan --out bench/out/<switch>
 # harness vs one-shot
 python bench/compare_backends.py --prompts bench/prompts/articulated_v2.yaml \
     --arms harness:gemini-cli:gemini-3.7-flash,oneshot+repair:gemini:gemini-3.7-flash \
     --judge gemini:gemini-3.1-pro-preview --judge-samples 3 --out bench/out/art
 # the loss-event channel: the plan stage alone, one row per call
-python bench/plan_stage_bench.py --tree . --label restart_on --reps 20 \
+python bench/plan_stage_bench.py --tree ../harness --label restart_on --reps 20 \
     --out bench/data/plan_stage/restart_on.jsonl --env C3D_PLAN_RESTART=1
 python bench/plan_stage_report.py bench/data/plan_stage/*.jsonl
 # the corpus the loop produces
 3dcode flywheel refine bench/out refine.jsonl --with-code
-python ../toolkits/llamafactory/build_refine_sft.py refine.jsonl --out refine_sft.jsonl  # repo root, not harness/
+python ../toolkits/llamafactory/build_refine_sft.py refine.jsonl --out refine_sft.jsonl  # toolkits/ is at the repo root
 ```
 
 Recorded runs referenced above (not committed): `bench/out/{compare_v4_calm, compare_art_v2,
