@@ -434,8 +434,8 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   renderer-contract assertions dropped); every module rendered and LOOKED at (53 before/after
   pairs, 77 night renders), aesthetics measured, not asserted (linear albedo 0.02–0.8, hue variance
   inside every effect, emissives 1.5–4, fresnel on water/glass, fog in the sky's hue family); one
-  test file per module under `tests/scene_runtime/lib/` (678 tests at landing; the GPU compile in
-  them is real — godrays: 21 programs, 6 custom materials).  Companion: a post chain for scene
+  test file per module at landing (678 tests; since D96 one shared `lib/test_library.py` import/catalog
+  check and grouped GPU compile, plus the named-bug regressions).  Companion: a post chain for scene
   renders (`runtime_js/lib/browser/post.js`, ON; `--no-post` / `C3D_POST=0`; 18 tests) whose bloom
   is SELECTIVE (an emission mask), because on this renderer a daylight sky dome reaches 1.883
   linear while the brightest authored emissive is 1.231 — the reference's 0.85 bright-pass cut a
@@ -782,12 +782,12 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   and no harness python imports any of them, so each went with its
   `tests/scene_runtime/lib/test_<module>.py` and its `effects_catalog.md` row (~4.1k lines of
   lib, ~3.7k of tests); the library is 44 modules / 24.8k lines.  `windows.js` (0 runs) was on
-  the same list and STAYS: `test_neon.py` compiles `patchWindowInteriors` under
-  `patchNeonSpill` as its fixture, and `urban.js` / `neon.js` document that composition.
+  the same list and STAYS: the shared compile (`lib/test_library.py`) chains `patchNeonSpill` over
+  `patchWindowInteriors`, and `urban.js` / `neon.js` document that composition.
   A catalog row is a cost every scene session reads; a module no session calls is a row that
   buys nothing.  Restore any of them from git history (the commit before this one) if a
   battery needs it — module, test and catalog row together, since
-  `test_every_call_the_catalog_advertises_is_a_real_export` pins catalog == `lib_files()`.
+  `test_skeleton.py` pins catalog == `lib_files()`.
 * **D75 The core is what a run needs; what READS finished runs is `codeverse3d/addons`
   (2026-09-21).**  `codeverse/flywheel` (the package before D78) mixed the record every run writes (Law 6) with the tools
   that turn a tree of finished runs into something else.  The first is now `codeverse3d/record`
@@ -987,6 +987,14 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   payload the fakes drive; a code-only change must leave it byte-identical, a text change re-blesses it
   (`python -m tests.prompts.manifest --bless`) in the same commit.  claude-code's effort stays the
   harness's `agents.claude_effort`.  Test fakes: one `FakeChatModel`, one scripted `FakeAgent` (−800 test lines).
+
+* **D96 A test earns its place (owner, 2026-09-23).**  The suite had 64k lines for 52k of product code.
+  A test stays when it runs production lines no other test runs (per-test coverage contexts), pins a
+  contract or safety property (manifest, harness-owned paths, resume/record compatibility, the ledger,
+  typed failures, a D-rule), is the regression test of a named bug, or asserts a value no other test
+  does.  Everything else went: python tests −31 % (coverage 91.62 → 91.57 %, 14 defensive lines lost),
+  `tests/scene_runtime` 25.6k → 6.0k lines — the effect library is one shared import/catalog check and
+  one grouped GPU compile plus its named-bug regressions (17 of 17 mutations still caught).
 
 ## Rejected / deferred
 
