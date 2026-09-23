@@ -507,3 +507,32 @@ def test_a_config_file_that_is_not_a_mapping_is_a_bad_configuration(tmp_path: Pa
     assert r.exit_code == 2 and "bad configuration" in r.output and "3dcodeverse.yaml" in r.output
 
 
+def test_render_refuses_a_mode_it_would_not_honour(tmp_path: Path):
+    """An unknown --mode escaped as a RenderError; on a scene or shader any mode rendered shaded, silently."""
+    runs = tmp_path / "runs"
+    for track, slug in (("static_object", "o"), ("scene", "s")):
+        assert runner.invoke(app, ["make", "x", "--track", track, "--no-run", "--runs-dir", str(runs), "--slug", slug]).exit_code == 0
+    r = runner.invoke(app, ["render", "o", "--mode", "bogus", "--runs-dir", str(runs)])
+    assert r.exit_code == 2 and "--mode must be one of" in r.output and r.exception is None or isinstance(r.exception, SystemExit)
+    r = runner.invoke(app, ["render", "s", "--mode", "wire", "--runs-dir", str(runs)])
+    assert r.exit_code == 2 and "object runs" in r.output
+
+
+def test_judge_names_a_missing_record_or_missing_renders(tmp_path: Path, runs_dir: Path):
+    """No record.json / pruned per-view PNGs escaped as RecordError / FileNotFoundError."""
+    r = runner.invoke(app, ["make", "x", "--no-run", "--runs-dir", str(tmp_path / "r2"), "--slug", "nr"])
+    r = runner.invoke(app, ["judge", "nr", "--runs-dir", str(tmp_path / "r2")])
+    assert r.exit_code == 2 and "record.json" in r.output and isinstance(r.exception, SystemExit)
+    for p in (runs_dir / "wooden_chair_ab12cd34").rglob("view_*.png"):
+        p.unlink()
+    r = runner.invoke(app, ["judge", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir), "--model", "gemini:x"])
+    assert r.exit_code == 2 and "not on disk" in r.output and isinstance(r.exception, SystemExit)
+
+
+def test_resume_reports_a_corrupt_run_state_cleanly(made_run):
+    runs, run_dir = made_run("--language", "threejs")
+    (run_dir / "run_state.json").write_text("garbage")
+    r = runner.invoke(app, ["resume", run_dir.name, "--runs-dir", str(runs)])
+    assert r.exit_code == 2 and "run_state.json" in r.output and "Traceback" not in r.output
+
+

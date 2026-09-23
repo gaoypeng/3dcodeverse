@@ -497,12 +497,16 @@ def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, f
             f"interrupted; resume with `3dcode resume {ws.root.name}`", code=130
         ) from None
     except Exception as e:  # the track failed outside its own error handling
+        from codeverse3d.orchestrator import StateCorrupt
         from codeverse3d.tracks.lifecycle import SpecChanged
 
         if isinstance(e, SpecChanged):
             # a refusal with instructions, not a crash: no traceback, and the run
             # itself was never entered (reconcile_resume raises before any stage)
             raise C.CliError(str(e), code=2) from None
+        if isinstance(e, StateCorrupt):  # raised before any stage, like SpecChanged
+            raise C.CliError(f"{e} — unreadable run state; move run_state.json aside and resume from the "
+                             f"round journal (rounds/)", code=2) from None
         err_console.print_exception(max_frames=8)
         raise C.CliError(
             f"run failed: {type(e).__name__}: {e} (workspace {ws.root}; see events.jsonl)"

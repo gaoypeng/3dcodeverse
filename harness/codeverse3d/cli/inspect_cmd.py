@@ -18,6 +18,7 @@ import typer
 from codeverse3d.cli import _common as C
 from codeverse3d.cli._common import RunsDirOpt, console, kv_table
 from codeverse3d.config import get_settings
+from codeverse3d.contracts.artifacts import RENDER_MODES
 from codeverse3d.contracts.common import Track
 from codeverse3d.contracts.spec import Spec
 
@@ -43,6 +44,10 @@ def render(
     """Render the current artifact (object.glb or the scene) with the canonical rig."""
     ws = C.open_workspace(slug, runs_dir)
     spec = C.load_spec(ws)
+    if mode not in RENDER_MODES:
+        raise C.CliError(f"--mode must be one of {' | '.join(RENDER_MODES)}, not {mode!r}", code=2)
+    if mode != "shaded" and spec.track in (Track.SCENE, Track.GRAPHICS):  # was silently rendered shaded
+        raise C.CliError(f"--mode {mode} is for object runs; a {spec.track.value} run renders shaded only", code=2)
     idx = _render_round_or_refuse(ws, round_index)
     out_dir = out or ws.renders_dir(idx) / ("cli" if mode == "shaded" else f"cli_{mode}")
     # writes into the run (a graphics render even rebuilds it): one writer per run dir
@@ -95,10 +100,13 @@ def judge(
     artifacts/judge/rNN_cli.json."""
     from codeverse3d.addons import select
     from codeverse3d.cli import _judge as J
-    from codeverse3d.record.record import load_record
+    from codeverse3d.record.record import RecordError, load_record
 
     ws = C.open_workspace(slug, runs_dir)
-    rec = load_record(ws)
+    try:
+        rec = load_record(ws)
+    except RecordError as e:
+        raise C.CliError(str(e), code=2) from e
     picked = select.pick(ws.root, record=rec) if round_index is None else None
     idx = round_index if round_index is not None else (picked if picked is not None else _latest_round(ws))
     rnd = J.load_round(ws, rec, idx)
@@ -106,6 +114,12 @@ def judge(
         raise C.CliError(f"round {idx} has no renders (rounds/r{idx:02d}.json / record.json)")
     rubric_name = J.rubric_for(rec, rnd, rubric)
     inp = J.build_judge_input(ws, rec, rnd)
+    # an archived run keeps its sheet but may have pruned the per-view PNGs: say so, instead of
+    # the judge's own FileNotFoundError / JudgeImageError escaping as a traceback
+    missing = [v.path for v in inp.renders.views if not Path(v.path).is_file()]
+    if missing:
+        raise C.CliError(f"round {idx}: {len(missing)} of its {len(inp.renders.views)} judged renders are not on disk "
+                         f"(e.g. {missing[0]}): nothing to re-judge it from", code=2)
     judge_obj = J.make_judge(rec.spec, rubric_name, model or rec.spec.backends.judge, n)
     n_images = J.count_prompt_images(inp, rubric_name, judge_obj)
     from codeverse3d.cost.instrument import run_ledger
