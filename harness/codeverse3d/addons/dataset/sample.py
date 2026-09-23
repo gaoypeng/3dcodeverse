@@ -38,10 +38,9 @@ from codeverse3d.contracts.common import (
 )
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.record import _git
-from codeverse3d.record.deliverable import deliverable_path
+from codeverse3d.record.deliverable import deliverable_path, round_outputs
 from codeverse3d.record.record import (
     effective_judgment,
-    round_complexity,
     round_summary,
 )
 from codeverse3d.workspace import Workspace
@@ -225,12 +224,10 @@ def copy_renders(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str
     if not any(o.startswith("renders/sheet") for o in out):
         packaged = ws.deliverable / "sheet.png"  # the handed-over round's sheet
         _cp(packaged if packaged.is_file() else None, "sheet.png")
-    glb = deliverable_path(ws, "object.glb")
-    if glb is not None and glb.stat().st_size < MAX_GLB_BYTES:
-        _cp(glb, "object.glb")
-    gif = deliverable_path(ws, "preview.gif")  # graphics runs: animated loop preview
-    if gif is not None and gif.stat().st_size < MAX_GLB_BYTES:
-        _cp(gif, "preview.gif")
+    for name in ("object.glb", "preview.gif"):  # the round's OWN build (graphics: its animated loop preview)
+        src = select.round_file(ws, rnd, name)
+        if src is not None and src.stat().st_size < MAX_GLB_BYTES:
+            _cp(src, name)
     return out
 
 
@@ -259,11 +256,11 @@ def copy_textured(ws: Workspace, record: RunRecord, dest: Path) -> list[str]:
     return out
 
 
-def copy_link_meshes(ws: Workspace, dest: Path) -> list[str]:
-    """(urdf_blender) copy the per-link meshes so the sample's robot.urdf resolves
-    (``deliverable/meshes/`` on the new layout, ``artifacts/meshes/`` on the old)."""
-    src = next((d for d in (ws.deliverable / "meshes", ws.artifacts / "meshes") if d.is_dir()), None)
-    if src is None:
+def copy_link_meshes(ws: Workspace, rnd: RoundRecord | None, dest: Path) -> list[str]:
+    """(urdf_blender) copy the round's own per-link meshes so the sample's robot.urdf resolves."""
+    out_dir = round_outputs(ws, rnd)
+    src = out_dir / "meshes" if out_dir is not None else None
+    if src is None or not src.is_dir():
         return []
     out: list[str] = []
     total = 0
@@ -305,7 +302,7 @@ def build_meta(
     n_gate_errors = sum(gates.values())
     # difficulty next to quality: a tier-A five-box stool and a tier-A machine are
     # not the same training sample (eval/docs/COMPLEXITY.md)
-    cx = (round_complexity(rnd) if rnd is not None else None) or record.extra.get("complexity")
+    cx = select.round_complexity_block(ws, rnd)
     name = ""
     if record.plan is not None:
         name = getattr(record.plan, "object_name", "") or getattr(record.plan, "title", "")

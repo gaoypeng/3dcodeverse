@@ -623,6 +623,10 @@ select.summarise(run_dir, *, record=None) -> RunSummary{rounds, stop_reason, bas
 select.package(run_dir, round_index, *, texture=False, method="round", image_model=None) -> Path (deliverable/)
     # + selection.json {round, method, scores, textured, selected_at}; texture=True runs the pass on that round's
     # kept GLB unless a report already covers those bytes; a failed pass never fails the hand-over
+select.round_file(ws, rnd, name="object.glb") -> Path | None   # the round's OWN output (round_outputs), never the
+    # canonical artifacts/<name> (the last build's): calibration, `3dcode judge`, `texture pass`, export, eval/bench
+select.round_complexity_block(ws, rnd) -> dict | None   # its own measurement's vector (legacy: measurement.json only
+    # when the canonical build is this round's); gallery cards and dataset meta.  Never record.extra["complexity"]
 from codeverse3d.addons.gallery.index import hero_view          # (ws, rec, picked) -> (rel, label, n_views): the card image
 from codeverse3d.record.record import complexity_block, round_complexity   # objective complexity of what was built
     # finalize_record fills record.extra["complexity"] = the LAST measured round's vector + plan_parts /

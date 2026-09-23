@@ -190,7 +190,8 @@ def test_a_dirty_round_with_a_floating_only_error_still_elicits(tmp_path, cache_
 def test_replay_reproduces_the_conditional_payload_from_stored_gates_and_glb(tmp_ws: Workspace, tmp_path, cache_dir):
     from codeverse3d.cli._judge import build_judge_input
 
-    glb = two_box_glb(tmp_path / "object.glb")
+    tmp_ws.round_artifacts(0).mkdir(parents=True)
+    glb = two_box_glb(tmp_ws.round_artifacts(0) / "object.glb")  # the round's own GLB (artifacts/r00/)
     renders = make_renders(tmp_path / "renders")
     rec = RunRecord(spec=make_spec(), workspace=str(tmp_ws.root))
     rnd = RoundRecord(index=0, kind="baseline", gates=dirty_gates(), renders=renders,
@@ -206,7 +207,8 @@ def test_replay_reproduces_the_conditional_payload_from_stored_gates_and_glb(tmp
     scene_rec = RunRecord(spec=make_spec(track="scene", language="scene_threejs"), workspace=str(tmp_ws.root))
     assert build_judge_input(tmp_ws, scene_rec, rnd).glb_path is None
 
-    # a moved/deleted glb disables the channel instead of crashing the replay
-    rnd_gone = rnd.model_copy(update={"build": BuildResult(ok=True, language="blender",
-                                                           glb_path=str(tmp_path / "gone.glb"))})
-    assert build_judge_input(tmp_ws, rec, rnd_gone).glb_path is None
+    # the canonical GLB is the LAST build's, never another round's; a deleted one disables the
+    # channel instead of crashing the replay
+    assert build_judge_input(tmp_ws, rec, rnd.model_copy(update={"index": 1})).glb_path is None
+    glb.unlink()
+    assert build_judge_input(tmp_ws, rec, rnd).glb_path is None

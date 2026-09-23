@@ -107,13 +107,12 @@ def build_judge_input(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> Any:
 
 
 def stored_glb_path(ws: Workspace, rnd: RoundRecord) -> str | None:
-    """The round's canonical GLB, rebased to THIS workspace — what lets ``3dcode judge``
-    reproduce the D48 conditional slice payload from the stored gates."""
-    if rnd.build is None or not rnd.build.glb_path:
-        return None
-    kept = ws.round_artifacts(rnd.index) / "object.glb"  # the round's own GLB; the stored path is
-    p = kept if kept.is_file() else ws.rebase(rnd.build.glb_path)  # the canonical one, rebuilt since
-    return str(p) if p.is_file() else None
+    """The round's own GLB (``select.round_file``; never the canonical one, the last build's)
+    — what lets ``3dcode judge`` reproduce the D48 conditional slice payload from the stored gates."""
+    from codeverse3d.addons.select import round_file
+
+    glb = round_file(ws, rnd)
+    return str(glb) if glb is not None else None
 
 
 def make_judge(spec: Spec, rubric_name: str, model_id: str, n: int, **options: Any) -> Any:

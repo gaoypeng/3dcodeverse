@@ -75,9 +75,10 @@ def test_whitespace_inside_a_string_is_a_near_duplicate_not_a_duplicate(runs_dir
 def test_export_meta_tiers_duplicates_and_captions_sidecar(runs_dir: Path, tmp_path: Path):
     # a fourth run = exact duplicate (same code + prompt) of the first, and a urdf run with link meshes
     make_fake_run(runs_dir, "wooden_chair_again")
-    ws_u, _ = make_fake_run(runs_dir, "cabinet_urdf", prompt="a cabinet", language=Language.URDF_BLENDER)
-    (ws_u.artifacts / "meshes").mkdir()
-    (ws_u.artifacts / "meshes" / "Body.glb").write_bytes(b"glTF" + b"\0" * 8)
+    ws_u, rec_u = make_fake_run(runs_dir, "cabinet_urdf", prompt="a cabinet", language=Language.URDF_BLENDER)
+    for r in rec_u.rounds:  # each round keeps its own link meshes (artifacts/rNN/meshes/)
+        (ws_u.round_artifacts(r.index) / "meshes").mkdir()
+        (ws_u.round_artifacts(r.index) / "meshes" / "Body.glb").write_bytes(b"glTF" + b"\0" * 8)
     side = tmp_path / "caps"
     side.mkdir()
     (side / "lamp_three.json").write_text(json.dumps({**GOOD, "provenance": {"captioner": "gemini:x"}}))

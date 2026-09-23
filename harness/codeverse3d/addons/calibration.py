@@ -165,7 +165,6 @@ def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[Ro
     except RecordError:  # an interrupted run: rounds/ + spec.json
         run = RunRecord(spec=Spec.model_validate_json(ws.spec_path.read_text()), workspace=str(run_dir))
         picked = None
-    canonical = run_dir / "artifacts" / "object.glb"  # where a round's GLB was before rounds kept their own
     cases: list[RoundCase] = []
     for path in sorted((run_dir / "rounds").glob("r*.json")):
         rec = RoundRecord.model_validate_json(path.read_text())
@@ -180,7 +179,7 @@ def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[Ro
             gate_errors=sum(len(g.errors) for g in rec.gates),
             gate_warnings=sum(1 for g in rec.gates for f in g.findings if f.severity.value == "warn"),
             stored=rec.judgment, is_picked=picked == rec.index,
-            glb=next((str(p) for p in (ws.round_artifacts(rec.index) / "object.glb", canonical) if p.is_file()), None),
+            glb=str(glb) if (glb := select.round_file(ws, rec)) is not None else None,
         ))
     if picked is None and cases:  # no record / nothing judged: the tree's GLB is its last round's
         cases[-1].is_picked = True

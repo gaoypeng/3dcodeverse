@@ -279,3 +279,25 @@ def test_make_hands_over_the_picked_round_unless_no_pick(tmp_path, monkeypatch):
                             "--no-pick"])
     assert r.exit_code == 0, r.output
     assert not (runs / "kept" / "selection.json").exists() and not (runs / "kept" / "deliverable" / "manifest.json").exists()
+
+
+# --------------------------------------------------------------------------- a round's own outputs
+def test_round_outputs_are_the_rounds_own_never_the_last_builds(tmp_path: Path):
+    """artifacts/object.glb and measurement.json are the LAST build's: a reader asking for round N's
+    GLB or complexity got the last round's (calibration, `3dcode judge`, the export, gallery, dataset)."""
+    ws = _run(tmp_path / "r", [(0.8, 0), (0.6, 0)])
+    rec = RunRecord.model_validate_json(ws.record_path.read_text())
+    (ws.artifacts / "object.glb").write_bytes(b"last")
+    ws.write_json(ws.artifacts / "measurement.json", {"extra": {"complexity": {"index": 0.9}}})
+    assert select.round_file(ws, rec.rounds[0]) == ws.round_artifacts(0) / "object.glb"
+    assert select.round_file(ws, rec.rounds[0], "preview.gif") is None
+    assert select.round_complexity_block(ws, rec.rounds[0]) is None  # never the canonical file's
+    # a run recorded before rounds kept their own: the canonical build is its best_round's only
+    for i in (0, 1):
+        (ws.round_artifacts(i) / "object.glb").unlink()
+        ws.round_artifacts(i).rmdir()
+    data = json.loads(ws.record_path.read_text())
+    ws.write_json(ws.record_path, {**data, "best_round": 1})
+    assert select.round_file(ws, rec.rounds[0]) is None
+    assert select.round_file(ws, rec.rounds[1]) == ws.artifacts / "object.glb"
+    assert select.round_complexity_block(ws, rec.rounds[1]) == {"index": 0.9}

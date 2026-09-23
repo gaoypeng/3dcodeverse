@@ -181,7 +181,8 @@ package's own command, `3dcode cost show <runs-dir>`.
   `deliverable/` or `telemetry/` present.
 * Consumers resolve artifacts through
   `record.deliverable.deliverable_path(ws, name)`: `deliverable/<name>` first,
-  `artifacts/<name>` second.
+  `artifacts/<name>` second.  A reader that wants a given ROUND's file asks
+  `addons.select.round_file(ws, rnd, name)` (`round_outputs`), never `artifacts/<name>`.
 * `flywheel export` reads the packaged code snapshot only when git cannot answer
   (`meta.code_source == "deliverable"`), and adds a compact `meta.telemetry`
   digest when the run has one (`{}` otherwise).

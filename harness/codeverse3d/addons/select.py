@@ -15,6 +15,8 @@ other reader asks (gallery, dataset, cost report, calibration, the CLI, eval/ben
 * :func:`summarise`   baseline score, the picked round and its score, the delta, rounds run
                       and the stop reason — the round ``selection.json`` names when the run
                       was packaged, else :func:`pick`'s;
+* :func:`round_file`  a round's OWN build output (its GLB, GIF), never the last build's —
+                      and :func:`round_complexity_block` its complexity vector;
 * :func:`package`     ``deliverable/`` for one round, the texture pass on it when asked, and
                       ``selection.json`` (round, method, scores) beside ``record.json``.
 
@@ -32,13 +34,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.common import TRACK_INFO, Usage
-from codeverse3d.contracts.run import RunRecord
+from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.cost.context import call_context
 from codeverse3d.cost.types import Role, Stage
 from codeverse3d.judges.base import judged_subset, resolve_paths
 from codeverse3d.proc import EventLog, read_json_or_none
 from codeverse3d.record.deliverable import build_deliverable, round_outputs, texture_report_for
-from codeverse3d.record.record import effective_judgment, load_record, package_run
+from codeverse3d.record.record import effective_judgment, load_record, package_run, round_complexity
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -125,6 +127,25 @@ def round_rows(run_dir: Path | str, *, record: RunRecord | None = None) -> list[
 def _ranked(rows: list[RoundRow]) -> list[RoundRow]:
     """Judged rounds, best first: highest score, then fewer gate errors, then the earlier round."""
     return sorted((r for r in rows if r.score is not None), key=lambda r: (-(r.score or 0.0), r.gate_errors, r.index))
+
+
+# --------------------------------------------------------------------------- a round's own outputs
+def round_file(ws: Workspace, rnd: RoundRecord | None, name: str = "object.glb") -> Path | None:
+    """Round ``rnd``'s own build output ``name`` (``record.deliverable.round_outputs``), else
+    None — never the canonical ``artifacts/<name>`` on its own: that is the LAST build's."""
+    out = round_outputs(ws, rnd)
+    p = out / name if out is not None else None
+    return p if p is not None and p.is_file() else None
+
+
+def round_complexity_block(ws: Workspace, rnd: RoundRecord | None) -> dict | None:
+    """Round ``rnd``'s complexity vector: its own measurement's block, else — a run recorded
+    before rounds carried one — ``artifacts/measurement.json``'s when that canonical build is
+    this round's.  Never another round's (``record.extra["complexity"]`` is the LAST one's)."""
+    block = round_complexity(rnd) if rnd is not None else None
+    if block is None and rnd is not None and round_outputs(ws, rnd) == ws.artifacts:
+        block = ((read_json_or_none(ws.artifacts / "measurement.json") or {}).get("extra") or {}).get("complexity")
+    return block if isinstance(block, dict) else None
 
 
 # --------------------------------------------------------------------------- pick
@@ -249,9 +270,8 @@ def _texture(ws: Workspace, rec: RunRecord, index: int, *, image_model: Any | No
     if not texture_supported(rec.spec.track):
         raise ValueError(f"the texture pass is for object tracks; {rec.spec.track.value} runs have no GLB to texture")
     rnd = next(r for r in rec.rounds if r.index == index)
-    out = round_outputs(ws, rnd)
-    glb = out / "object.glb" if out is not None else None
-    if glb is None or not glb.is_file():
+    glb = round_file(ws, rnd)
+    if glb is None:
         raise ValueError(f"round {index} kept no object.glb to texture (artifacts/r{index:02d}/)")
     if texture_report_for(ws, glb) is not None:
         EventLog(ws.events_path).emit("texture.skipped", reason="already_textured_this_artifact", round=index)

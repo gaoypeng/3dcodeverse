@@ -377,7 +377,9 @@ def test_export_graphics_sample(tmp_path: Path):
     from tests.flywheel_cli.conftest import make_fake_run, tiny_png
 
     ws, rec = make_fake_run(tmp_path / "runs", "rain_glsl", prompt="neon rain", language=Language.GLSL_SHADER)
-    tiny_png(ws.artifacts / "preview.gif")  # gif magic irrelevant here — copied by name
+    for r in rec.rounds:  # each round keeps its own preview (gif magic irrelevant here — copied by name)
+        tiny_png(ws.round_artifacts(r.index) / "preview.gif")
+    tiny_png(ws.artifacts / "preview.gif")  # the canonical one is the LAST build's: never exported for another round
     out = tmp_path / "ds"
     rep = export_samples(ws.root.parent, out)
     assert rep.n_exported == 1, rep.skipped

@@ -129,7 +129,7 @@ def export_one(
     if entry not in written:
         raise S.SampleError(f"entry file {ENTRY_FILE[record.spec.language]} missing at {code_source}")
     renders = S.copy_renders(ws, rnd, dest)
-    meshes = S.copy_link_meshes(ws, dest) if record.spec.language is Language.URDF_BLENDER else []
+    meshes = S.copy_link_meshes(ws, rnd, dest) if record.spec.language is Language.URDF_BLENDER else []
     textured = S.copy_textured(ws, record, dest)
     captions = load_captions(ws, record, captions_dir, slug=key)
     (dest / "captions.json").write_text(json.dumps(_caption_texts(captions), indent=2, ensure_ascii=False))

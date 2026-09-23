@@ -197,28 +197,15 @@ _CX_AXES = ("part_count", "assembly_depth", "tri_count", "materials",
             "silhouette", "feature_density", "symmetry_groups", "hollowness")
 
 
-def _measurement_complexity(ws: Workspace) -> dict | None:
-    """The complexity block sitting in ``artifacts/measurement.json`` — how a run
-    finished before the record carried its own block (and after any re-measure)."""
-    data = read_json_or_none(ws.root / "artifacts" / "measurement.json") or {}
-    block = (data.get("extra") or {}).get("complexity")
-    return block if isinstance(block, dict) else None
-
-
 def _complexity(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[float | None, str, dict[str, float]]:
-    """``(index, band, axes)`` of the picked round's artifact: its own measurement,
-    else the record's complexity block, else the measurement file on disk.  A run built
-    before the complexity vector existed has none (``eval/bench/complexity_report.py``
+    """``(index, band, axes)`` of the picked round's artifact (``select.round_complexity_block``).
+    A run built before the complexity vector existed has none (``eval/bench/complexity_report.py``
     recomputes those from the GLB)."""
-    from codeverse3d.record.record import round_complexity
-
-    rnd = next((r for r in rec.rounds if r.index == picked), None)
     try:
-        block = ((round_complexity(rnd) if rnd is not None else None) or rec.extra.get("complexity")
-                 or _measurement_complexity(ws))
+        block = select.round_complexity_block(ws, next((r for r in rec.rounds if r.index == picked), None))
     except Exception:  # noqa: BLE001 - a card is never worth an exception
         block = None
-    if not isinstance(block, dict) or block.get("index") is None:
+    if block is None or block.get("index") is None:
         return None, "", {}
     axes = {a: float(block[a]) for a in _CX_AXES if isinstance(block.get(a), (int, float))}
     return float(block["index"]), str(block.get("band") or ""), axes
