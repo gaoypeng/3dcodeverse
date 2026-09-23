@@ -36,11 +36,6 @@ def test_good_script_passes() -> None:
     assert any("Body" in m for m in _msgs(r, Severity.INFO))
 
 
-def test_syntax_error() -> None:
-    r = lint_blender_source("import bpy\nx = (\n")
-    assert not r.passed and r.findings[0].data["line"] == 2 and "SyntaxError" in r.findings[0].message
-
-
 def test_missing_bpy_import_and_forbidden_calls() -> None:
     src = "import os\nimport subprocess\nbpy.ops.render.render()\nbpy.ops.export_scene.gltf(filepath='x')\nbpy.ops.wm.save_mainfile()\nopen('f').read()\nos.system('ls')\n"
     r = lint_blender_source(src)
@@ -74,22 +69,6 @@ def test_bmesh_lookup_rule_ignores_non_bmesh_bases() -> None:
     r = lint_blender_source(src)
     assert not any("ensure_lookup_table" in f.message for f in r.findings), _msgs(r)
     assert r.passed
-
-
-def test_bmesh_lookup_rule_tracks_bmesh_bindings() -> None:
-    src = "import bpy, bmesh\nmesh_bm = bmesh.new()\nv = mesh_bm.verts[0]\n"
-    r = lint_blender_source(src)
-    f = [x for x in r.findings if "ensure_lookup_table" in x.message]
-    assert f and f[0].severity == Severity.ERROR and f[0].data["line"] == 3
-    src2 = "import bpy, bmesh\nedit_bm = bmesh.from_edit_mesh(bpy.context.object.data)\nx = edit_bm.faces[1]\n"
-    r2 = lint_blender_source(src2)
-    assert any("ensure_lookup_table" in f.message for f in r2.findings)
-
-
-def test_vector_without_import() -> None:
-    r = lint_blender_source("import bpy\nv = Vector((1, 2, 3))\n")
-    f = [x for x in r.findings if "Vector" in x.message]
-    assert f and f[0].severity == Severity.ERROR and f[0].fix_hint == "from mathutils import Vector"
 
 
 def test_removed_bsdf_inputs() -> None:

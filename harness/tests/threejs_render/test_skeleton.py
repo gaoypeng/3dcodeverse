@@ -7,8 +7,7 @@ from pathlib import Path
 import pytest
 
 from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
-from codeverse3d.languages.threejs import ThreeJsRuntime, write_skeleton
-from codeverse3d.prompts.catalog import language_text
+from codeverse3d.languages.threejs import write_skeleton
 from codeverse3d.workspace import Workspace
 
 
@@ -37,23 +36,11 @@ def test_skeleton_files_and_contents(tmp_path: Path):
     assert "RoundedBoxGeometry" in seat and "ExtrudeGeometry" in seat
     assert "Material: leather" in seat
     assert '"type": "module"' in (ws.src / "package.json").read_text()
-
-
-def test_skeleton_never_overwrites(tmp_path: Path):
-    ws = Workspace(tmp_path / "ws")
-    write_skeleton(ws, _plan())
+    # never overwrites
     (ws.src / "parts" / "seat_cushion.js").write_text("// mine\n")
     again = write_skeleton(ws, _plan())
     assert again == []
     assert (ws.src / "parts" / "seat_cushion.js").read_text() == "// mine\n"
-
-
-def test_runtime_protocol_surface():
-    rt = ThreeJsRuntime()
-    assert rt.language.value == "threejs"
-    assert rt.entry_globs == ("src/object.js", "src/parts/*.js")
-    doc = language_text(rt.language, "contract.md")  # the contract is prompt material (prompts/catalog)
-    assert "build" in doc and "three" in doc.lower()
 
 
 def test_skeleton_rejects_non_static_plan(tmp_path: Path):

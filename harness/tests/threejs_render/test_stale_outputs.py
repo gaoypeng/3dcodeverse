@@ -1,9 +1,4 @@
-"""ThreeJsRuntime.build stale-output invalidation (offline — node never runs).
-
-The node-missing raise used to happen AFTER the glb/census wipe but BEFORE any
-build.json write, so a previous round's build.json (ok: true) survived a harness
-failure and every bare-existence reader treated the old outputs as current.
-"""
+"""ThreeJsRuntime.build never leaves a previous round's outputs looking current (offline)."""
 
 from __future__ import annotations
 

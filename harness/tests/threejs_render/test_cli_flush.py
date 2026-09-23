@@ -1,17 +1,4 @@
-"""A driver's summary survives a pipe, however big it is.
-
-`finish()` used to `process.stdout.write(...)` and then `process.exit()`.  Node's stdout
-to a PIPE is asynchronous, and `process.exit` does not flush it, so a summary larger than
-the pipe buffer was cut mid-JSON and the caller saw no parsable last line.
-
-Measured 2026-09-06 on the starter scene, `probe_scene.mjs --compile`: written to a file
-the summary is 10 462 bytes and parses; through a pipe it was **exactly 8192** and did not.
-That is the real mechanism behind every "driver output lost" and "[?] scene did not boot"
-in `eval/bench/out/scene_baseline` / `scene_textures` — it depends on how big the census is, not
-on how busy the machine is, which is why it read as weather for two batteries.  In
-`scene_textures/japanese_garden` it cost the round all three repair attempts and the
-texture use the arm existed to measure.
-"""
+"""A driver's summary survives a pipe larger than the 8 KiB buffer (finish() used to exit before flushing)."""
 
 from __future__ import annotations
 

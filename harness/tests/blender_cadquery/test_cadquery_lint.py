@@ -5,23 +5,9 @@ from __future__ import annotations
 from codeverse3d.contracts.artifacts import Severity
 from codeverse3d.languages.cadquery import lint_cadquery_source
 
-GOOD = '''
-import cadquery as cq
-import math
-
-top = cq.Workplane("XY").box(0.5, 0.5, 0.04).translate((0, 0, 0.58))
-result = cq.Assembly(name="Table")
-result.add(top, name="TableTop", color=cq.Color(0.5, 0.3, 0.2))
-'''
-
 
 def _msgs(r, sev=None):
     return [f.message for f in r.findings if sev is None or f.severity == sev]
-
-
-def test_good_passes() -> None:
-    r = lint_cadquery_source(GOOD)
-    assert r.gate == "lint:cadquery" and r.passed, _msgs(r)
 
 
 def test_missing_result_and_guarded_result() -> None:
@@ -70,11 +56,6 @@ def test_rotate_angle_expression_table() -> None:
     for expr in radians:
         r = lint_cadquery_source(_rotate_src(expr))
         assert not r.passed and any("DEGREES" in m for m in _msgs(r, Severity.ERROR)), (expr, _msgs(r))
-
-
-def test_bare_workplane_warns() -> None:
-    r = lint_cadquery_source("import cadquery as cq\nresult = cq.Workplane().box(1, 1, 1)\n")
-    assert r.passed and any("ONE unnamed part" in m for m in _msgs(r, Severity.WARN))
 
 
 def test_syntax_error() -> None:

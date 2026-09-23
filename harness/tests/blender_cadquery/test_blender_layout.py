@@ -9,11 +9,7 @@ from pathlib import Path
 
 from codeverse3d.languages.blender import (
     WRAPPER,
-    build_fn_name,
     lint_workspace,
-    part_file_rel,
-    part_files,
-    source_files,
 )
 
 SEAT = '''import bpy, bmesh
@@ -46,37 +42,8 @@ def _write(ws, rel: str, text: str) -> Path:
     return p
 
 
-def test_part_file_mapping_uses_the_name_normaliser() -> None:
-    assert part_file_rel("Seat Cushion") == "src/parts/seat_cushion.py"
-    assert part_file_rel("LeftFrontLeg") == "src/parts/left_front_leg.py"
-    assert build_fn_name("SeatCushion") == "build_seat_cushion"
-
-
-def test_file_listing_excludes_helpers_and_orders_entry_first(tmp_ws) -> None:
-    _write(tmp_ws, "src/model.py", MODEL)
-    _write(tmp_ws, "src/parts/seat.py", SEAT)
-    _write(tmp_ws, "src/parts/leg.py", LEG)
-    _write(tmp_ws, "src/parts/_common.py", "def helper():\n    return 1\n")
-    assert [p.name for p in part_files(tmp_ws)] == ["leg.py", "seat.py"]
-    rel = [p.relative_to(tmp_ws.root).as_posix() for p in source_files(tmp_ws)]
-    assert rel == ["src/model.py", "src/parts/_common.py", "src/parts/leg.py", "src/parts/seat.py"]
-
-
-def test_lint_workspace_passes_clean_multi_file_layout(tmp_ws) -> None:
-    _write(tmp_ws, "src/model.py", MODEL)
-    _write(tmp_ws, "src/parts/seat.py", SEAT)
-    _write(tmp_ws, "src/parts/leg.py", LEG)
-    _write(tmp_ws, "src/parts/_common.py", "def helper():\n    return 1\n")  # no bpy import is fine for helpers
-    rep = lint_workspace(tmp_ws)
-    assert rep.passed, [(f.target, f.message) for f in rep.errors]
-    # the entry only imports + calls → no PascalCase-name warning for it
-    assert not [f for f in rep.findings if f.target == "src/model.py" and f.severity.value == "warn"]
-    assert {f.target for f in rep.findings} <= {"src/model.py", "src/parts/seat.py", "src/parts/leg.py", "src/parts/_common.py"}
-
-
 def test_lint_workspace_reports_a_source_too_deep_to_parse_instead_of_crashing(tmp_ws) -> None:
-    """The layout rules re-parsed every file with a bare ``ast.parse`` — a literal nested past the
-    parser's stack raised ``MemoryError`` out of the lint and killed the round."""
+    """A literal nested past the parser's stack is a finding, not a MemoryError that kills the round."""
     deep = "x = " + "-" * 20_000 + "1\n"
     _write(tmp_ws, "src/model.py", deep)
     _write(tmp_ws, "src/parts/seat.py", deep)

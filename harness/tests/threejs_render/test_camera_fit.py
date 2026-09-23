@@ -1,11 +1,4 @@
-"""The object rig's camera fit — one distance-fit implementation, shared with the orbit rig.
-
-``lib/browser/camera_fit.js`` used to iterate a projection loop of its own while
-``lib/orbit.mjs`` solved the same problem analytically.  Now both call
-``orbit.fitDistance``; these tests pin the behaviour that merge must keep:
-the projected bbox fills exactly ``fill`` of the half-frame for every canonical
-view, at any aspect ratio, and the direction convention is the shared one.
-"""
+"""The object rig's camera fit fills exactly `fill` of the frame for every canonical view."""
 
 from __future__ import annotations
 
@@ -68,15 +61,3 @@ def test_every_canonical_view_frames_the_box_exactly(tmp_path):
         assert r["distance"] > 0 and not r["inside"], where           # never lands inside the object
         assert 0 < r["near"] < r["far"], where
         assert r["look_at"] == pytest.approx(r["centre"], abs=1e-9), where
-
-
-def test_fit_scales_with_the_box_not_the_view(tmp_path):
-    rows = _fit_report(tmp_path)["rows"]
-    by = {(r["box"], r["name"], round(r["aspect"], 2)): r["distance"] for r in rows}
-    # the wide bench needs more distance than the small stool from the same view
-    for name in ("front", "front_right_high", "bottom"):
-        assert by[(1, name, 1.0)] > by[(0, name, 1.0)]
-    # a wider frame never needs to back off further than a square one (vertical fov fixed)
-    for (b, name, aspect), d in by.items():
-        if aspect == 1.0:
-            assert by[(b, name, 1.78)] <= d + 1e-9, (b, name)

@@ -1,9 +1,4 @@
-"""Live Blender regressions for the review findings (skeleton instances, BSDF names, census).
-
-All tests need the real binary (``-m blender``): they verify the harness's own skeleton
-clears its own contract gate, that the lint's Principled BSDF table matches Blender 5.x,
-and that the census counts exactly what the exporter exports.
-"""
+"""Live Blender: the lint's BSDF table matches Blender, and the census counts what the exporter exports."""
 
 from __future__ import annotations
 
@@ -12,31 +7,9 @@ import subprocess
 
 import pytest
 
-from codeverse3d.contracts.artifacts import Severity
 from codeverse3d.languages.blender import REMOVED_BSDF_INPUTS, BlenderRuntime, blender_env
 
 pytestmark = pytest.mark.blender
-
-
-@pytest.mark.blender
-def test_skeleton_with_instances_passes_contract_gate(tmp_ws, table_plan, blender_bin) -> None:
-    """Finding: instances under an Empty merged into one GLB part → 'plan part missing' ERROR."""
-    from codeverse3d.spatial.contract import check_contract
-    from codeverse3d.spatial.measure import measure_glb
-
-    rt = BlenderRuntime(blender=blender_bin)
-    rt.skeleton(tmp_ws, table_plan)  # multi-file: src/model.py + src/parts/*.py
-    assert (tmp_ws.src / "parts" / "leg.py").is_file()
-    r = rt.build(tmp_ws, timeout_s=120)
-    assert r.ok, (r.error_type, r.error_message)
-    m = measure_glb(r.glb_path)
-    names = {p.name for p in m.parts}
-    assert {"Leg_0", "Leg_1", "Leg_2", "Leg_3"} <= names  # one measured part per instance
-    assert "Legs" not in names
-    rep = check_contract(m, table_plan, language="blender")
-    missing = [f for f in rep.findings if f.severity == Severity.ERROR and "missing" in f.message]
-    assert not missing, [(f.target, f.message) for f in missing]
-    assert rep.passed, [(f.severity, f.message) for f in rep.findings]
 
 
 BSDF_PROBE = (

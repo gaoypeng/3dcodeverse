@@ -52,8 +52,8 @@ def _axis_of(ws: Workspace, joint: str):
 
 
 def test_anti_parallel_negates_the_authored_axis(tmp_path):
-    ws = _ws(tmp_path)
-    assert repair_motion_axes(ws, _report(_finding("Hinge", cos=-0.98))) == ["Hinge"]
+    ws = _ws(tmp_path)  # the plan's casing maps to the URDF joint
+    assert repair_motion_axes(ws, _report(_finding("hinge", cos=-0.98))) == ["hinge"]
     assert _axis_of(ws, "Hinge") == (0.0, 0.0, 1.0)
     assert "authored comment must survive" in (ws.src / "robot.urdf").read_text()
 
@@ -64,28 +64,16 @@ def test_orthogonal_writes_suggested_axis_and_inserts_missing_element(tmp_path):
     assert _axis_of(ws, "Slide") == (0.0, 0.0, 1.0)
 
 
-def test_plan_casing_maps_to_urdf_joint(tmp_path):
+def test_warn_unknown_and_unmeasured_findings_are_skipped(tmp_path):
     ws = _ws(tmp_path)
-    assert repair_motion_axes(ws, _report(_finding("hinge", cos=-1.0))) == ["hinge"]
-    assert _axis_of(ws, "Hinge") == (0.0, 0.0, 1.0)
-
-
-def test_findings_without_measured_data_are_never_touched(tmp_path):
-    ws = _ws(tmp_path)  # the FakeServices shape: ERROR finding, empty data
-    assert repair_motion_axes(ws, _report(_finding("Hinge"))) == []
-    assert _axis_of(ws, "Hinge") == (0.0, 0.0, -1.0)
-
-
-def test_warn_and_unknown_joints_are_skipped(tmp_path):
-    ws = _ws(tmp_path)
-    rep = _report(_finding("Hinge", cos=-1.0, sev=Severity.WARN), _finding("Ghost", cos=-1.0))
+    rep = _report(_finding("Hinge", cos=-1.0, sev=Severity.WARN), _finding("Ghost", cos=-1.0), _finding("Hinge"))
     assert repair_motion_axes(ws, rep) == []
     assert _axis_of(ws, "Hinge") == (0.0, 0.0, -1.0)
 
 
 @pytest.mark.parametrize("raw", ["0", "off", "false"])
 def test_kill_switch_disables(tmp_path, switch, raw):
-    """``C3D_AXIS_REPAIR=off`` was silently ignored until 2026-09-22: only "0" was read."""
+    """Every off spelling disables it (only "0" used to be read)."""
     switch("C3D_AXIS_REPAIR", raw)
     ws = _ws(tmp_path)
     assert repair_motion_axes(ws, _report(_finding("Hinge", cos=-1.0))) == []
@@ -100,9 +88,7 @@ def test_artifacts_copy_is_kept_in_step(tmp_path):
 
 
 def test_a_paired_axis_tag_keeps_the_joints_limit():
-    """PR #3 review: '/>' never occurs inside '</axis>', so the old splice searched past
-    the paired tag, landed on the NEXT self-closing element and deleted the joint's
-    <limit/> — an invalid revolute joint shipped to src/ and artifacts/."""
+    """The splice of a paired <axis></axis> used to eat the joint's <limit/>."""
     from codeverse3d.tracks.articulated_object import _set_axis_in_urdf_text
 
     for axis_form in ('<axis xyz="1 0 0"></axis>', '<axis xyz="1 0 0"/>'):
@@ -115,10 +101,7 @@ def test_a_paired_axis_tag_keeps_the_joints_limit():
 
 
 def test_suggested_axis_is_expressed_in_the_joint_frame(tmp_path):
-    """PR #3 review: the suggestion was a WORLD vector written into the JOINT-frame
-    <axis>; with a rotated joint origin the 'exact' repair installed a provably wrong
-    axis and the motion gate kept its ERROR every round.  The suggestion must FIX the
-    motion when installed."""
+    """A rotated joint origin: installing the suggestion must actually fix the motion."""
     import numpy as np
 
     from codeverse3d.spatial.joints_model import load_urdf

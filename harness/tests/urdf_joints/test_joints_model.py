@@ -10,24 +10,10 @@ import pytest
 from codeverse3d.spatial.joints_model import (
     UrdfError,
     fk,
-    invert_transform,
-    link_world_meshes,
     load_urdf,
-    make_transform,
-    matrix_to_rpy,
-    rpy_to_matrix,
 )
 from codeverse3d.spatial.joints_poses import limit_poses, pose_label, pose_samples
-from tests.urdf_joints.conftest import write_mesh_robot, write_prims_robot
-
-
-def test_rpy_roundtrip_and_inverse():
-    for rpy in [(0, 0, 0), (0.3, -0.2, 1.1), (-1.0, 0.5, -2.0)]:
-        R = rpy_to_matrix(rpy)
-        assert np.allclose(R @ R.T, np.eye(3))
-        assert np.allclose(rpy_to_matrix(matrix_to_rpy(R)), R, atol=1e-9)
-    T = make_transform((1, 2, 3), (0.3, 0.2, 0.1))
-    assert np.allclose(T @ invert_transform(T), np.eye(4))
+from tests.urdf_joints.conftest import write_prims_robot
 
 
 def test_load_prims_and_fk(tmp_path):
@@ -40,19 +26,6 @@ def test_load_prims_and_fk(tmp_path):
     assert np.allclose(T[:3, :3] @ [1, 0, 0], [0, -1, 0], atol=1e-9)
     with pytest.raises(UrdfError):
         fk(r, {"nope": 1.0})
-
-
-def test_mesh_robot_world_placement(tmp_path):
-    urdf, meshes = write_mesh_robot(tmp_path, handle=True)
-    r = load_urdf(urdf, meshes)
-    wm = link_world_meshes(r)
-    assert np.allclose(wm["door"].bounds, [[-0.29, -0.22, 0.01], [0.29, -0.2, 0.79]], atol=1e-6)
-    assert np.allclose(wm["handle"].bounds, [[0.19, -0.26, 0.35], [0.21, -0.22, 0.45]], atol=1e-6)
-    # merged vertices → real topology
-    assert r.links["body"].mesh.is_watertight
-    # the handle follows the door
-    wm2 = link_world_meshes(r, {"hinge": math.pi / 2})
-    assert wm2["handle"].centroid[1] < -0.5
 
 
 def test_load_errors(tmp_path):

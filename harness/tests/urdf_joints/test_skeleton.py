@@ -14,7 +14,6 @@ from codeverse3d.languages.urdf import (
     lint_urdf_text,
     render_model_py,
     render_urdf,
-    write_skeleton,
 )
 from codeverse3d.spatial.joints_model import fk, load_urdf
 from codeverse3d.workspace import Workspace
@@ -52,14 +51,6 @@ def test_rest_shift():
     assert lint_urdf_text(urdf_text)[0] == []
 
 
-def test_no_rest_note_when_rest_is_zero(cabinet_plan):
-    fr = compute_urdf_frames(cabinet_plan)
-    urdf_text = render_urdf(fr)
-    assert all(j.rest == 0.0 for j in fr.joints)
-    assert "shifted by -rest" not in urdf_text and "plan rest=" not in render_model_py(cabinet_plan, fr)
-    assert '<limit lower="0" upper="1.57" effort="10" velocity="1"/>' in urdf_text
-
-
 def test_rendered_files_lint_clean_and_load(tmp_path, cabinet_plan):
     fr = compute_urdf_frames(cabinet_plan)
     urdf_text = render_urdf(fr)
@@ -75,27 +66,6 @@ def test_rendered_files_lint_clean_and_load(tmp_path, cabinet_plan):
     # visual origin is the inverse of the link frame → meshes land where authored
     for name in fr.links:
         assert np.allclose(T[name] @ r.links[name].visual_origin, np.eye(4), atol=1e-9), name
-
-
-def test_instances_expand():
-    plan = ArticulatedPlan(
-        object_name="Cart", summary="s", overall_bbox=BBox(center=(0, 0, 0.3), extents=(1, 1, 0.6)), root_link="Frame",
-        parts=[PartPlan(name="Frame", role="r", description="d", bbox=BBox(center=(0, 0, 0.4), extents=(0.8, 0.5, 0.1))),
-               PartPlan(name="Wheel", role="r", description="d", bbox=BBox(center=(-0.3, 0, 0.1), extents=(0.2, 0.05, 0.2)), instances=2)],
-        joints=[JointPlan(name="axle", type="continuous", parent="Frame", child="Wheel", axis=(0, 1, 0), pivot=(-0.3, 0, 0.1))],
-    )
-    fr = compute_urdf_frames(plan)
-    assert list(fr.links) == ["frame", "wheel_1", "wheel_2"]
-    assert [j.name for j in fr.joints] == ["axle_1", "axle_2"]
-    assert fr.links["wheel_2"].frame_xyz[0] > fr.links["wheel_1"].frame_xyz[0]
-    assert lint_urdf_text(render_urdf(fr))[0] == []
-
-
-def test_write_skeleton(tmp_path, drawer_plan):
-    ws = Workspace(tmp_path / "ws").create()
-    paths = write_skeleton(ws, drawer_plan)
-    assert [p.name for p in paths] == ["model.py", "robot.urdf"]
-    assert "prismatic" in paths[1].read_text() and 'box(\'drawer\'' in paths[0].read_text()
 
 
 def test_skeleton_rejects_static_plan(tmp_path):

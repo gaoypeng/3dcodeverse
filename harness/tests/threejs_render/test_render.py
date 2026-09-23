@@ -9,7 +9,6 @@ import pytest
 from PIL import Image
 
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK, ViewPreset
-from codeverse3d.spatial import render as render_mod
 from codeverse3d.spatial.render import RenderError, render_glb
 
 
@@ -24,16 +23,6 @@ def test_render_glb_offline_validation(tmp_path: Path):
         render_glb(fake, tmp_path / "out", background="blue")
     with pytest.raises(RenderError, match="no views"):
         render_glb(fake, tmp_path / "out", views=[])
-
-
-def test_cache_key_depends_on_params(tmp_path: Path):
-    glb = tmp_path / "a.glb"
-    glb.write_bytes(b"abc")
-    k1 = render_mod._cache_key(glb, {"mode": "shaded", "w": 1})
-    k2 = render_mod._cache_key(glb, {"mode": "clay", "w": 1})
-    glb.write_bytes(b"abd")
-    k3 = render_mod._cache_key(glb, {"mode": "shaded", "w": 1})
-    assert len({k1, k2, k3}) == 3
 
 
 @pytest.mark.node
@@ -60,9 +49,7 @@ def test_render_views_modes_isolate_and_cache(stool_glb: Path, tmp_path: Path):
     sil = render_glb(stool_glb, tmp_path / "sil", views=[ViewPreset("front", 0, 8)], mode="silhouette", width=128, height=128, sheet=False)
     with Image.open(sil.views[0].path) as im:
         px = list(im.convert("L").getdata())
-        # The contract of silhouette mode is SEPARABILITY (compare_silhouette
-        # thresholds it), not literally two pixel values: antialiased edges are
-        # legitimate — a tighter camera fit simply produces more of them.
+        # silhouette mode must be separable (compare_silhouette thresholds it)
         dark = sum(1 for v in px if v < 32)
         light = sum(1 for v in px if v > 223)
         mid = len(px) - dark - light

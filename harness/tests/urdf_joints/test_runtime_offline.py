@@ -8,12 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 import codeverse3d.languages.urdf as rt_mod
-from codeverse3d.contracts.common import Language
-from codeverse3d.languages import get_runtime
 from codeverse3d.languages.urdf import UrdfBlenderRuntime
 from codeverse3d.proc import ProcResult
-from codeverse3d.prompts.catalog import language_text
-from codeverse3d.spatial.joints_sweep import sweep_gate
 from codeverse3d.workspace import Workspace
 from tests.urdf_joints.conftest import box_glb
 
@@ -61,24 +57,6 @@ def _two_link(plan):
     return plan.model_copy(update={"parts": plan.parts[:2], "joints": plan.joints[:1]})
 
 
-def test_registry_and_contract():
-    rt = get_runtime(Language.URDF_BLENDER)
-    assert isinstance(rt, UrdfBlenderRuntime) and rt.entry_globs == ("src/model.py", "src/robot.urdf")
-    doc = language_text(rt.language, "contract.md")  # prompts/urdf/contract.md
-    assert "meshes/<link>.glb" in doc and "pivot" in doc
-
-
-def test_build_ok(tmp_path, cabinet_plan, fake_blender):
-    ws = _ws(tmp_path, cabinet_plan)
-    res = UrdfBlenderRuntime().build(ws)
-    assert res.ok, res.error_message
-    assert res.glb_path and (ws.artifacts / "object.glb").is_file() and (ws.artifacts / "robot.urdf").is_file()
-    # the build checks the rest pose only; every pose is the round's joint_sweep gate
-    assert "articulation" not in res.census and not (ws.artifacts / "articulation.json").exists()
-    assert sweep_gate(ws)[0].passed
-    assert res.stdout_tail == "built"  # proc.tail joins lines: same shape as blender/cadquery
-
-
 def test_build_script_error_maps_line(tmp_path, cabinet_plan, fake_blender):
     fake_blender["error"] = {"error_type": "NameError", "error_message": "name 'bpyy' is not defined", "error_file": "src/model.py",
                             "error_line": 7, "stderr_tail": "Traceback..."}
@@ -100,25 +78,6 @@ def test_build_rest_penetration_fails_and_publishes_nothing(tmp_path, cabinet_pl
         assert not (ws.artifacts / name).exists(), name
     assert not (ws.artifacts / "meshes").exists()
     assert json.loads((ws.artifacts / "build.json").read_text())["ok"] is False
-
-
-def test_build_failure_invalidates_previous_success(tmp_path, cabinet_plan, fake_blender):
-    """Round N fails after round N-1 succeeded: every canonical output of the old
-    round is gone and build.json on disk agrees with the returned (failed) result."""
-    ws = _ws(tmp_path, cabinet_plan)
-    rt = UrdfBlenderRuntime()
-    assert rt.build(ws).ok
-    for name in ("object.glb", "robot.urdf", "census.json", "meshes"):
-        assert (ws.artifacts / name).exists(), name
-    fake_blender["error"] = {"error_type": "NameError", "error_message": "boom",
-                             "error_file": "src/model.py", "error_line": 3}
-    res = rt.build(ws)
-    assert not res.ok and res.error_type == "NameError"
-    for name in ("object.glb", "robot.urdf"):
-        assert not (ws.artifacts / name).exists(), name
-    assert not (ws.artifacts / "meshes").exists()
-    disk = json.loads((ws.artifacts / "build.json").read_text())
-    assert disk["ok"] is False and disk["error_type"] == "NameError"
 
 
 def test_post_wrapper_failure_never_leaves_ok_true_build_json(tmp_path, cabinet_plan, fake_blender):

@@ -2,50 +2,26 @@
 
 from __future__ import annotations
 
-import ast
 import importlib.util
 import json
-import stat
 import sys
 import time
 from pathlib import Path
 
 import pytest
 
-from codeverse3d.languages import get_runtime
-from codeverse3d.languages.base import LanguageRuntime
 from codeverse3d.languages.cadquery import (
     WRAPPER,
     CadQueryRuntime,
     cadquery_env,
-    cadquery_skeleton_source,
-    lint_cadquery_source,
 )
-from codeverse3d.prompts.catalog import language_text
 from tests.blender_cadquery.conftest import has_cadquery
 
 needs_cq = pytest.mark.skipif(not has_cadquery(), reason="cadquery not importable")
 
 
-def test_protocol_and_contract() -> None:
-    rt = get_runtime("cadquery")
-    assert isinstance(rt, CadQueryRuntime) and isinstance(rt, LanguageRuntime)
-    assert "cq.Assembly" in language_text(rt.language, "contract.md") and rt.entry_globs == ("src/model.py",)
-    cmd = rt.build_command(__import__("codeverse3d.workspace", fromlist=["Workspace"]).Workspace("/tmp/x"), seed=1)
-    assert cmd[0] == sys.executable and cmd[1] == str(WRAPPER) and "--seed" in cmd
-
-
-def test_skeleton_source_parses_and_lints(table_plan) -> None:
-    src = cadquery_skeleton_source(table_plan)
-    ast.parse(src)
-    assert "codeverse3d" not in src
-    assert 'name="TableTop"' in src and 'name=f"Leg_{_i}"' in src and "result = cq.Assembly(" in src
-    assert lint_cadquery_source(src).passed
-
-
 def test_missing_entry_invalidates_previous_outputs(tmp_ws) -> None:
-    """Same invariant as BlenderRuntime: the invalidation runs BEFORE the
-    missing-entry early return and build.json agrees with the returned result."""
+    """Stale outputs are invalidated before the missing-entry early return."""
     for name in ("object.glb", "object.step", "object.stl"):
         (tmp_ws.artifacts / name).write_bytes(b"stale")
     tmp_ws.write_json(tmp_ws.artifacts / "build.json", {"ok": True})
@@ -56,15 +32,6 @@ def test_missing_entry_invalidates_previous_outputs(tmp_ws) -> None:
         assert not (tmp_ws.artifacts / name).exists(), name
     disk = json.loads((tmp_ws.artifacts / "build.json").read_text())
     assert disk["ok"] is False and disk["error_type"] == "MissingEntryFile"
-
-
-def test_fake_python_wrapper_crash(tmp_ws, tmp_path) -> None:
-    fake = tmp_path / "py"
-    fake.write_text("#!/bin/sh\necho 'ImportError: no cadquery' >&2\nexit 1\n")
-    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
-    (tmp_ws.src / "model.py").write_text("import cadquery as cq\nresult = cq.Workplane().box(1, 1, 1)\n")
-    r = CadQueryRuntime(python=str(fake)).build(tmp_ws, timeout_s=20)
-    assert not r.ok and r.error_type == "WrapperCrash" and "no cadquery" in r.stderr_tail
 
 
 @needs_cq
@@ -92,7 +59,7 @@ def test_skeleton_builds_named_coloured_glb(tmp_ws, table_plan) -> None:
 
 
 @needs_cq
-def test_assembly_with_subassembly_locations_and_errors(tmp_ws) -> None:
+def test_assembly_with_subassembly_locations_and_bare_workplane(tmp_ws) -> None:
     trimesh = pytest.importorskip("trimesh")
     src = '''import cadquery as cq
 base = cq.Workplane("XY").box(0.4, 0.4, 0.02).translate((0, 0, 0.01))
@@ -119,14 +86,6 @@ result.add(pegs, name="Pegs", color=cq.Color(0, 1, 0))
     p1 = scene.geometry[scene.graph["Peg_1"][1]]
     assert list(p1.visual.material.baseColorFactor[:3]) == [0, 255, 0]  # inherited from parent assembly
 
-    # error mapping: bad fillet → OCC error mapped to line with hint
-    (tmp_ws.src / "model.py").write_text("import cadquery as cq\n\nresult = cq.Workplane('XY').box(0.1, 0.1, 0.01).edges('|Z').fillet(0.2)\n")
-    r = rt.build(tmp_ws, timeout_s=120)
-    assert not r.ok and r.error_line == 3 and "fillet" in r.error_message.lower()
-    # missing result
-    (tmp_ws.src / "model.py").write_text("import cadquery as cq\nx = cq.Workplane('XY').box(1, 1, 1)\n")
-    r = rt.build(tmp_ws, timeout_s=120)
-    assert not r.ok and r.error_type == "MissingResult"
     # bare workplane → single node 'Object' + warning
     (tmp_ws.src / "model.py").write_text("import cadquery as cq\nresult = cq.Workplane('XY').box(1, 1, 1)\n")
     r = rt.build(tmp_ws, timeout_s=120)

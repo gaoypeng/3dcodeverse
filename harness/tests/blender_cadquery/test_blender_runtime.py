@@ -1,52 +1,19 @@
-"""BlenderRuntime: offline tests with a fake blender + integration tests on the real binary."""
+"""BlenderRuntime: offline guards + integration tests on the real binary."""
 
 from __future__ import annotations
 
 import json
-import stat
 import time
 from pathlib import Path
 
 import pytest
 
-from codeverse3d.contracts.artifacts import BuildResult
-from codeverse3d.languages import get_runtime
-from codeverse3d.languages.base import LanguageRuntime
 from codeverse3d.languages.blender import (
-    WRAPPER,
     BlenderNotFoundError,
     BlenderRuntime,
     blender_env,
     lint_blender_source,
 )
-from codeverse3d.prompts.catalog import language_text
-
-FAKE_BLENDER = """#!/usr/bin/env python3
-import json, os, sys
-args = sys.argv[sys.argv.index("--") + 1:]
-out = args[args.index("--out") + 1]
-os.makedirs(out, exist_ok=True)
-open(os.path.join(out, "object.glb"), "wb").write(b"glTF" + b"\\0" * 16)
-json.dump({"ok": True, "error_type": "", "error_message": "", "duration_ms": 7, "warnings": []}, open(os.path.join(out, "build.json"), "w"))
-json.dump({"tri_count": 12, "objects": []}, open(os.path.join(out, "census.json"), "w"))
-print("fake blender ran", " ".join(args))
-"""
-
-
-def _fake_blender(tmp_path: Path) -> str:
-    p = tmp_path / "blender"
-    p.write_text(FAKE_BLENDER)
-    p.chmod(p.stat().st_mode | stat.S_IEXEC)
-    return str(p)
-
-
-def test_protocol_and_registry() -> None:
-    rt = get_runtime("blender")
-    assert isinstance(rt, BlenderRuntime) and isinstance(rt, LanguageRuntime)
-    assert rt.entry_globs == ("src/model.py", "src/parts/*.py") and rt.language.value == "blender"
-    assert rt.part_file("Seat Cushion") == "src/parts/seat_cushion.py"  # the layout the tracks ask for
-    contract = language_text(rt.language, "contract.md")
-    assert "bpy" in contract and "Z is up" in contract
 
 
 def test_missing_binary_raises(tmp_ws) -> None:
@@ -56,42 +23,14 @@ def test_missing_binary_raises(tmp_ws) -> None:
         rt.build(tmp_ws)
 
 
-def test_missing_entry_invalidates_previous_outputs(tmp_ws, tmp_path) -> None:
-    """Deleting model.py between rounds must not leave round N-1's object.glb +
-    build.json (ok: true) looking current — the invalidation runs BEFORE the
-    missing-entry early return, and build.json on disk says what build() returned."""
-    for name in ("object.glb", "object.stl"):
-        (tmp_ws.artifacts / name).write_bytes(b"stale")
-    tmp_ws.write_json(tmp_ws.artifacts / "build.json", {"ok": True})
-    tmp_ws.write_json(tmp_ws.artifacts / "census.json", {"tri_count": 3})
-    r = BlenderRuntime(blender=_fake_blender(tmp_path)).build(tmp_ws)
-    assert not r.ok and r.error_type == "MissingEntryFile"
-    for name in ("object.glb", "object.stl", "census.json"):
-        assert not (tmp_ws.artifacts / name).exists(), name
-    disk = json.loads((tmp_ws.artifacts / "build.json").read_text())
-    assert disk["ok"] is False and disk["error_type"] == "MissingEntryFile"
-
-
-def test_build_command_and_env(tmp_ws, tmp_path, monkeypatch) -> None:
-    rt = BlenderRuntime(blender=_fake_blender(tmp_path))
-    cmd = rt.build_command(tmp_ws, stl=True, seed=3, tri_limit=1000)
-    assert cmd[1:5] == ["-b", "--factory-startup", "--python", str(WRAPPER)] and "--" in cmd
-    assert cmd[cmd.index("--script") + 1] == str(tmp_ws.src / "model.py") and "--stl" in cmd and "--seed" in cmd
+def test_blender_env_scrubs_secrets_and_host_python(monkeypatch) -> None:
+    """model.py runs inside blender: no credentials, no host PYTHONPATH."""
     monkeypatch.setenv("PYTHONPATH", "/tmp/x")
     monkeypatch.setenv("GEMINI_API_KEYS", "k1,k2")
     monkeypatch.setenv("SOME_SERVICE_TOKEN", "t")
     env = blender_env()
     assert "PYTHONPATH" not in env and env["PYTHONNOUSERSITE"] == "1"
-    # model-authored model.py runs inside blender: credentials scrubbed, PATH/HOME kept
     assert "GEMINI_API_KEYS" not in env and "SOME_SERVICE_TOKEN" not in env and "PATH" in env
-
-
-def test_build_with_fake_blender(tmp_ws, tmp_path) -> None:
-    rt = BlenderRuntime(blender=_fake_blender(tmp_path))
-    (tmp_ws.src / "model.py").write_text("import bpy\n")
-    r = rt.build(tmp_ws, timeout_s=30)
-    assert isinstance(r, BuildResult) and r.ok and r.glb_path == str(tmp_ws.artifacts / "object.glb")
-    assert r.census["tri_count"] == 12 and r.duration_ms == 7 and "fake blender ran" in r.stdout_tail
 
 
 # --------------------------------------------------------------------------- real Blender

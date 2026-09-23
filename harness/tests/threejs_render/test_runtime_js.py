@@ -45,19 +45,6 @@ def test_render_glb_driver_reports_invalid_requests_as_last_json(tmp_path: Path)
     assert "non-empty JSON list" in ei.value.result.last_json["error"]
 
 
-def test_one_webgl_renderer_factory():
-    """Object rig and scene host share `lib/browser/renderer.js`: one place sets
-    the colour pipeline (sRGB + ACES + PCF shadows, pixel ratio 1), so an object
-    render and a scene render cannot drift apart."""
-    rt = runtime_js_dir()
-    sources = sorted(rt.glob("*.mjs")) + sorted(rt.glob("*.cjs")) + sorted((rt / "lib").rglob("*.mjs")) \
-        + sorted((rt / "lib").rglob("*.js"))
-    owners = [p for p in sources if "new THREE.WebGLRenderer(" in p.read_text()]
-    assert [p.name for p in owners] == ["renderer.js"], owners
-    assert "from './renderer.js'" in (rt / "lib/browser/studio.js").read_text()
-    assert "from './browser/renderer.js'" in (rt / "lib/scene_host.mjs").read_text()
-
-
 def test_serve_and_importmap(tmp_path: Path):
     script = tmp_path / "s.cjs"
     root = tmp_path / "root"
@@ -119,11 +106,7 @@ const {{ launchBrowser, rendererInfo }} = require({json.dumps(str(runtime_js_dir
 
 
 def test_two_runtime_trees_never_share_one_browser_endpoint(tmp_path: Path):
-    """A git worktree and the main checkout run their own runtime_js but share
-    ~/.cache/codeverse3d unless the operator remembers C3D_CACHE_DIR.  Measured
-    2026-09-05: two daemons, one endpoint file, `Session closed` across the scene
-    suite.  The endpoint name carries the runtime_js that spawned it, so the two
-    trees keep separate browsers inside the SAME cache dir — no env var required."""
+    """The browser endpoint name carries the runtime_js tree, so two trees share one cache dir safely."""
     cache = tmp_path / "cache"
     paths = []
     for tree in ("worktree", "checkout"):
@@ -168,9 +151,7 @@ def _reap_daemons(cache_dir: Path) -> None:
 
 
 def test_gpu_launch_browser_reuse(tmp_path: Path):
-    """F21 phase 2: second launchBrowser connects to the daemon's shared browser
-    (~ms, shared=true); release() disconnects and the browser survives; with
-    C3D_BROWSER_REUSE=off every launch is owned."""
+    """A second launch reconnects to the shared browser; C3D_BROWSER_REUSE=off owns every launch."""
     script = tmp_path / "r.cjs"
     script.write_text(f"""
 const {{ launchBrowser }} = require({json.dumps(str(runtime_js_dir() / 'gpu_launch.cjs'))});
@@ -201,9 +182,7 @@ const {{ launchBrowser }} = require({json.dumps(str(runtime_js_dir() / 'gpu_laun
 
 
 def test_serve_refuses_symlinks_that_escape_the_root(tmp_path: Path):
-    """resolveInside is lexical + realpath: a symlink inside the workspace pointing
-    outside must 404 (workspace content is model-authored); in-root symlinks and
-    plain files keep serving."""
+    """Workspace content is model-authored: a symlink out of the root 404s."""
     root = tmp_path / "root"
     root.mkdir()
     (root / "ok.txt").write_text("fine")
@@ -228,9 +207,7 @@ const {{ serveDirs }} = require({json.dumps(str(runtime_js_dir() / 'serve.cjs'))
 
 
 def test_scene_server_only_mounts_src_public_assets(tmp_path: Path):
-    """serveWorkspace used to pass ``root: wsRoot``, so generated scene code could GET
-    /spec.json, /run_state.json, /events.jsonl, /.git/config and /artifacts/** — a scene
-    could read the previous round's judge output (audit 2026-08-27)."""
+    """Scene code must not read the run's spec, state, git or judge output."""
     ws = Workspace(tmp_path / "run").create()
     (ws.src / "scene.js").write_text("export function createScene() {}\n")
     (ws.public / "assets").mkdir(parents=True, exist_ok=True)

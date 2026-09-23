@@ -1,10 +1,4 @@
-"""The census sees material slots the polygons never use.
-
-The h2h microscope run authored 31 materials, assigned them through a helper that read
-``res['faces']`` from ``bmesh.ops.create_cube`` (which returns only ``{'verts'}``), and
-shipped an 11-slot arm in one off-white: every material was present, every polygon was on
-slot 0, and nothing in the build said so — the judge capped the run for ``untextured_flat``.
-"""
+"""The census warns about material slots the polygons never use (a judge-capped flat-colour run)."""
 
 from __future__ import annotations
 

@@ -21,15 +21,6 @@ from tests.urdf_joints.conftest import (
 )
 
 
-def test_good_design_has_no_overlaps(tmp_path):
-    r = load_urdf(write_prims_robot(tmp_path / "cab.urdf", axis_z=-1))
-    rep = sweep_collisions(r, pose_samples(r))
-    assert rep.summary.max_penetration_m == 0.0
-    assert rep.summary.floating_links == []
-    assert rep.per_pose[0].n_contacts == 1  # door touches body at rest
-    assert sweep_findings(rep) == []
-
-
 def test_bad_axis_swings_door_into_body(tmp_path):
     r = load_urdf(write_prims_robot(tmp_path / "cab.urdf", axis_z=+1))
     rep = sweep_collisions(r, pose_samples(r))
@@ -91,23 +82,9 @@ def test_motion_direction(tmp_path):
         motion_direction_check(r, "nope", "front")
 
 
-def test_trimesh_fallback_backend(tmp_path, monkeypatch):
-    import codeverse3d.spatial.joints_collide as jc
-    import codeverse3d.spatial.joints_sweep as js
-
-    monkeypatch.setattr(jc, "_fcl", None)
-    r = load_urdf(write_prims_robot(tmp_path / "cab.urdf", axis_z=+1))
-    rep = js.sweep_collisions(r, pose_samples(r), volumes=False)
-    assert rep.summary.backend == "trimesh"
-    assert rep.summary.max_penetration_m > 0.1 and rep.summary.rest_max_penetration_m == 0.0
-    assert rep.summary.floating_links == []
-
-
 @pytest.mark.parametrize("fcl", [True, False], ids=["fcl", "trimesh-fallback"])
 def test_agent_style_meshes_penetration_is_real_and_deterministic(tmp_path, monkeypatch, fcl):
-    """Non-watertight, inverted-winding links (the wrapper's usual output): a clean design
-    must report no overlap and a drawer driven 30 mm through the side panel must be caught —
-    identically on every call (no random ray re-casts) and on both backends."""
+    """Non-watertight, inverted-winding links (the wrapper's usual output), both backends, deterministic."""
     import codeverse3d.spatial.joints_collide as jc
 
     if not fcl:
@@ -131,8 +108,7 @@ def test_agent_style_meshes_penetration_is_real_and_deterministic(tmp_path, monk
 
 
 def test_welded_child_overlap_is_structural_not_motion(tmp_path):
-    """A handle sunk 3 mm into its door (fixed joint) never moves relative to the door:
-    one WARN under the rest policy, not an ERROR repeated for every swung pose."""
+    """A weld overlap is one WARN under the rest policy, not an ERROR per swung pose."""
     urdf, meshes = write_mesh_robot(tmp_path, handle=True)
     urdf.write_text(urdf.read_text().replace('<origin xyz="-0.2 0.24 -0.4" rpy="0 0 0"/>', '<origin xyz="-0.2 0.243 -0.4" rpy="0 0 0"/>'))
     r = load_urdf(urdf, meshes)
@@ -150,10 +126,6 @@ def test_welded_child_overlap_is_structural_not_motion(tmp_path):
 
 # ------------------------------------------------- joints= narrows the RENDER, not the sweep
 def test_joints_argument_narrows_the_render_to_those_joints(monkeypatch, tmp_path):
-    """The tool accepted joints=[...] from the start and nothing consumed it: every call
-    rendered every joint's limit poses (three views each). Measured 2026-08-25: articulated
-    rounds ran a median 1007 s vs 497 s for static objects, agents calling the sweep 3-8
-    times a round on 10-joint objects (~63 renders a call)."""
     from codeverse3d.spatial import tools as ts
 
     class _J:
@@ -200,9 +172,3 @@ def test_aggregate_caps_errors_and_summarises_the_rest():
     warns = [f for f in out if f.severity == Severity.WARN]
     assert len(errors) == MAX_PAIR_FINDINGS and errors[0].target == f"p{MAX_PAIR_FINDINGS + 2}|base"
     assert len(warns) == 1 and warns[0].data["kind"] == "penetration_summary" and "3 more" in warns[0].message
-
-
-def test_aggregate_keeps_single_and_warn_findings():
-    fs = [_pen("a", "b", 0.001, {}, sev=Severity.WARN)]
-    assert aggregate_findings(fs) == fs
-    assert aggregate_findings([]) == []

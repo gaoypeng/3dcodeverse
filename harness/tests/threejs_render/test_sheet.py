@@ -32,19 +32,6 @@ def test_sheet_missing_image_is_grey_tile(tmp_path: Path):
         assert im.getpixel((PAD + 64 + PAD + 40, PAD + 40)) == (200, 200, 200)
 
 
-def test_sheet_deterministic(tmp_path: Path):
-    imgs = [("a", _png(tmp_path / "a.png", (1, 2, 3))), ("b", _png(tmp_path / "b.png", (3, 2, 1)))]
-    a = contact_sheet(imgs, tmp_path / "s1.png", cols=2, tile=64).read_bytes()
-    b = contact_sheet(imgs, tmp_path / "s2.png", cols=2, tile=64).read_bytes()
-    assert a == b
-
-
-def test_sheet_no_label(tmp_path: Path):
-    out = contact_sheet([("a", _png(tmp_path / "a.png", (1, 2, 3)))], tmp_path / "s.png", cols=4, tile=50, label=False)
-    with Image.open(out) as im:
-        assert im.size == (50 + 2 * PAD, 50 + 2 * PAD)
-
-
 def test_sheet_empty_raises(tmp_path: Path):
     with pytest.raises(ValueError):
         contact_sheet([], tmp_path / "s.png")

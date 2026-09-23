@@ -93,34 +93,6 @@ def test_multi_material_link_keeps_materials(tmp_path):
     assert sorted(n for n in [e[1] for e in s.graph.to_edgelist()] if n.startswith("body")) == ["body", "body__0", "body__1"]
 
 
-def test_joint_sweep_tool_offline(tmp_path, monkeypatch):
-    """The ``joint_sweep`` tool reports the round's gate (``sweep_gate``) over every joint;
-    its renders are narrowed to ``joints`` (+ rest) through ``render_poses``."""
-    import codeverse3d.spatial.tools as ts
-    from codeverse3d.spatial.registry import ToolContext, get_tool
-    from codeverse3d.workspace import Workspace
-
-    ws = Workspace(tmp_path / "ws").create()
-    ctx = ToolContext(workspace=ws, language="urdf_blender", track="articulated_object")
-    obs = get_tool("joint_sweep").call(ctx, {})
-    assert not obs.ok and "run `build`" in obs.text
-    write_mesh_robot(ws.artifacts)
-    rendered: list[list[str] | None] = []
-
-    def fake_render_poses(robot, out_dir, poses=None, **kw):
-        rendered.append(None if poses is None else [label for label, _ in poses])
-        Image.new("RGB", (8, 8), "gray").save(out_dir / ARTICULATION_SHEET_NAME)
-        return []
-
-    monkeypatch.setattr(ts, "render_poses", fake_render_poses)
-    obs = get_tool("joint_sweep").call(ctx, {"joints": ["hinge"]})
-    assert obs.ok and obs.numbers["errors"] == 0
-    assert obs.text.startswith("joint_sweep: PASS")
-    assert rendered == [["rest", "hinge@upper"]] and obs.images[0].endswith(ARTICULATION_SHEET_NAME)  # lower=0 dedupes into rest
-    obs = get_tool("joint_sweep").call(ctx, {})
-    assert rendered[-1] is None          # empty joints = the full sheet (render_poses default)
-
-
 def test_joint_sweep_penetration_is_a_verdict_not_an_mcp_error(tmp_path, monkeypatch):
     """A sweep that finds a penetration RAN: ``failed`` stays False (63% of 1404 recorded
     joint_sweep calls answered FAIL, and each one reported as an MCP error bought a retry

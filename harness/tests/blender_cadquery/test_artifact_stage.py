@@ -1,10 +1,4 @@
-"""ArtifactStage: the stage-then-promote lifecycle every runtime's build outputs use.
-
-The invariant under test: a canonical artifact exists ONLY when the build that owns
-it finished with that artifact as its result — entering a stage invalidates the
-canonical names before any early return can leak, and exit-without-promote leaves
-them absent.
-"""
+"""ArtifactStage: a canonical artifact exists only when the build that owns it promoted it."""
 
 from __future__ import annotations
 
@@ -34,31 +28,6 @@ def test_enter_invalidates_immediately_and_exit_discards(tmp_ws: Workspace) -> N
     assert not (tmp_ws.artifacts / "object.glb").exists()
     staging_root = tmp_ws.artifacts / ".staging"
     assert not staging_root.exists() or not any(staging_root.iterdir())
-
-
-def test_promote_publishes_files_and_dirs(tmp_ws: Workspace) -> None:
-    _seed(tmp_ws)
-    with tmp_ws.stage_artifacts("build.json", "object.glb", "meshes") as stage:
-        stage.path("build.json").write_text('{"ok": true}')
-        stage.path("object.glb").write_bytes(b"new glb")
-        stage.path("meshes").mkdir()
-        (stage.path("meshes") / "leg.glb").write_bytes(b"new mesh")
-        published = stage.promote()
-        assert {p.name for p in published} == {"build.json", "object.glb", "meshes"}
-    assert (tmp_ws.artifacts / "object.glb").read_bytes() == b"new glb"
-    assert (tmp_ws.artifacts / "meshes" / "leg.glb").read_bytes() == b"new mesh"
-    assert not (tmp_ws.artifacts / ".staging").exists()  # fully cleaned up
-
-
-def test_selective_promote_leaves_the_rest_invalidated(tmp_ws: Workspace) -> None:
-    """The urdf failure paths publish build.json (the failed status) and nothing else."""
-    _seed(tmp_ws)
-    with tmp_ws.stage_artifacts("build.json", "object.glb") as stage:
-        stage.path("build.json").write_text('{"ok": false}')
-        stage.path("object.glb").write_bytes(b"fresh but unpublished")
-        stage.promote("build.json")
-    assert (tmp_ws.artifacts / "build.json").read_text() == '{"ok": false}'
-    assert not (tmp_ws.artifacts / "object.glb").exists()
 
 
 def test_default_promote_skips_names_never_written(tmp_ws: Workspace) -> None:

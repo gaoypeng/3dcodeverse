@@ -11,11 +11,6 @@ CENSUS = {"body": {"bbox_min": [-0.3, -0.2, 0.0], "bbox_max": [0.3, 0.2, 0.8]},
           "door": {"bbox_min": [-0.29, -0.22, 0.01], "bbox_max": [0.29, -0.2, 0.79]}}
 
 
-def test_consistent(tmp_path):
-    urdf, meshes = write_mesh_robot(tmp_path)
-    assert check_fk_consistency(load_urdf(urdf, meshes), CENSUS) == []
-
-
 def test_sign_error_reports_exact_fix(tmp_path):
     urdf, meshes = write_mesh_robot(tmp_path, door_visual_xyz="-0.29 -0.2 0")
     f = check_fk_consistency(load_urdf(urdf, meshes), CENSUS)

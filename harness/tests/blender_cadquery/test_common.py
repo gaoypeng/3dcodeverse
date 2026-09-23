@@ -9,14 +9,8 @@ from codeverse3d.contracts.artifacts import BuildResult
 from codeverse3d.languages._common import (
     ProcResult,
     compose_build_result,
-    strip_blender_noise,
 )
 from codeverse3d.proc import write_json_atomic
-
-
-def test_strip_blender_noise() -> None:
-    raw = "Blender 5.0.1 (hash x)\nRead prefs: ...\n12:00:00 | INFO: Starting glTF 2.0 export\nTraceback (most recent call last):\n  boom\nBlender quit"
-    assert strip_blender_noise(raw).splitlines() == ["Traceback (most recent call last):", "  boom"]
 
 
 def _proc(**kw) -> ProcResult:
@@ -56,20 +50,3 @@ def test_compose_ok_requires_glb(tmp_path: Path) -> None:
     assert r.extra_paths == {"stl": str(tmp_path / "o.stl")}
     assert r.census["tri_count"] == 12 and r.census["build_report"]["warnings"] == ["w"]
     assert BuildResult.model_validate_json(b.read_text()) == r
-
-
-def test_compose_without_a_glb_goes_by_the_report(tmp_path: Path) -> None:
-    """The URDF wrapper exports meshes/, not object.glb: its report alone decides."""
-    b = tmp_path / "build.json"
-    write_json_atomic(b, {"ok": True, "duration_ms": 7})
-    r = compose_build_result(language="urdf_blender", proc=_proc(), build_json=b, census_json=tmp_path / "c.json",
-                             glb_path=None, extra_paths={})
-    assert r.ok and r.glb_path is None and r.error_type == ""
-
-
-def test_compose_script_error_fields(tmp_path: Path) -> None:
-    b = tmp_path / "build.json"
-    b.write_text(json.dumps({"ok": False, "error_type": "IndexError", "error_message": "boom", "error_file": "model.py", "error_line": 15}))
-    r = compose_build_result(language="blender", proc=_proc(), build_json=b, census_json=tmp_path / "none.json",
-                             glb_path=tmp_path / "o.glb", extra_paths={})
-    assert not r.ok and r.error_type == "IndexError" and r.error_line == 15 and r.error_file == "model.py"

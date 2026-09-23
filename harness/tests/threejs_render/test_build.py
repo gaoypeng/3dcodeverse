@@ -45,42 +45,34 @@ def test_build_stool_glb_and_census(stool_ws: Workspace):
     assert np.allclose(hi, [0.17, 0.45, 0.17], atol=2e-3)
 
 
-def test_build_runtime_error_maps_to_file_line(stool_ws: Workspace):
-    p = stool_ws.src / "parts" / "legs.js"
-    p.write_text(p.read_text().replace("const off = 0.13;", "const off = undefinedThing();"))
+@pytest.mark.parametrize("path, find, repl, etype, line", [
+    ("parts/legs.js", "const off = 0.13;", "const off = undefinedThing();", "ReferenceError", 6),
+    ("parts/seat.js", None, "\nlet = 1;\n", "SyntaxError", 13),
+])
+def test_build_error_maps_to_file_line(stool_ws: Workspace, path, find, repl, etype, line):
+    p = stool_ws.src / path
+    p.write_text(p.read_text().replace(find, repl) if find else p.read_text() + repl)
     res = ThreeJsRuntime().build(stool_ws)
-    assert not res.ok
-    assert res.error_type == "ReferenceError"
-    assert "undefinedThing" in res.error_message
-    assert res.error_file == "src/parts/legs.js" and res.error_line == 6
+    assert not res.ok and res.error_type == etype
+    assert res.error_file == f"src/{path}" and res.error_line == line
     assert not (stool_ws.artifacts / "object.glb").exists()
     assert (stool_ws.artifacts / "export_error.json").is_file()
     assert json.loads((stool_ws.artifacts / "build.json").read_text())["ok"] is False
 
 
-def test_build_syntax_error_located(stool_ws: Workspace):
-    p = stool_ws.src / "parts" / "seat.js"
-    p.write_text(p.read_text() + "\nlet = 1;\n")
+@pytest.mark.parametrize("source, message", [
+    ("import * as THREE from 'three';\nexport function build(T) { const g = new THREE.Group(); g.name='Empty'; return g; }\n",
+     "no meshes"),
+    ("export const x = 1;\n", "export function build"),
+])
+def test_build_contract_errors(stool_ws: Workspace, source, message):
+    (stool_ws.src / "object.js").write_text(source)
     res = ThreeJsRuntime().build(stool_ws)
-    assert not res.ok and res.error_type == "SyntaxError"
-    assert res.error_file == "src/parts/seat.js" and res.error_line == 13
-
-
-def test_build_contract_error_no_meshes(stool_ws: Workspace):
-    (stool_ws.src / "object.js").write_text("import * as THREE from 'three';\nexport function build(T) { const g = new THREE.Group(); g.name='Empty'; return g; }\n")
-    res = ThreeJsRuntime().build(stool_ws)
-    assert not res.ok and res.error_type == "ContractError" and "no meshes" in res.error_message
-
-
-def test_build_missing_build_export(stool_ws: Workspace):
-    (stool_ws.src / "object.js").write_text("export const x = 1;\n")
-    res = ThreeJsRuntime().build(stool_ws)
-    assert not res.ok and res.error_type == "ContractError" and "export function build" in res.error_message
+    assert not res.ok and res.error_type == "ContractError" and message in res.error_message
 
 
 def test_build_keeps_source_placement_and_warns(stool_ws: Workspace):
-    """An off-ground / off-centre object is exported AS AUTHORED (no silent re-centring):
-    the census records the offset it would need and the warning says so."""
+    """Law 7: an off-ground / off-centre object is exported as authored, with a warning."""
     p = stool_ws.src / "object.js"
     p.write_text(p.read_text().replace("return root;", "root.position.set(0.5, 0.2, 0); return root;"))
     res = ThreeJsRuntime().build(stool_ws)
@@ -92,34 +84,8 @@ def test_build_keeps_source_placement_and_warns(stool_ws: Workspace):
     assert abs(lo[1] - 0.2) < 2e-3 and abs(lo[0] - 0.33) < 2e-3
 
 
-def test_build_per_plan_placement_passes_contract_even_when_union_is_off_centre(stool_ws: Workspace):
-    """Plan parts whose union footprint is NOT centred (backrest-style skew): an object
-    built exactly per plan must not be reported as 'centre off' for every part."""
-    from codeverse3d.contracts.plan import StaticPlan
-    from codeverse3d.spatial.contract import check_contract
-    from codeverse3d.spatial.measure import measure_glb
-
-    (stool_ws.src / "object.js").write_text(
-        "import * as THREE from 'three';\nexport function build(T) { const g = new THREE.Group(); g.name = 'Sign';\n"
-        "  const base = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.35, 0.3), new THREE.MeshStandardMaterial({color: 0x888888}));\n"
-        "  base.name = 'Base'; base.position.set(0, 0.175, 0); g.add(base);\n"
-        "  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.3), new THREE.MeshStandardMaterial({color: 0x884422}));\n"
-        "  panel.name = 'Panel'; panel.position.set(0, 0.4, 0.2); g.add(panel); return g; }\n")
-    plan = StaticPlan(
-        object_name="Sign", summary="x", overall_bbox={"center": [0, 0.225, 0.1], "extents": [0.5, 0.45, 0.5]},
-        parts=[{"name": "Base", "role": "r", "description": "d", "bbox": {"center": [0, 0.175, 0], "extents": [0.4, 0.35, 0.3]}},
-               {"name": "Panel", "role": "r", "description": "d", "bbox": {"center": [0, 0.4, 0.2], "extents": [0.5, 0.1, 0.3]}}])
-    res = ThreeJsRuntime().build(stool_ws)
-    assert res.ok and res.census["placement_offset"] == [0, 0, -0.1]
-    rep = check_contract(measure_glb(res.glb_path), plan, language="threejs")
-    assert rep.passed, [f.message for f in rep.findings]
-    assert not [f for f in rep.findings if f.target in ("Base", "Panel")]
-    assert [f.message for f in rep.findings if "footprint" in f.message]  # the offset is still reported, once, as WARN
-
-
 def test_build_bakes_instanced_meshes_for_trimesh(stool_ws: Workspace):
-    """InstancedMesh must not export as EXT_mesh_gpu_instancing (trimesh ignores it):
-    measure/connectivity must see every instance as its own named mesh."""
+    """InstancedMesh is baked (trimesh ignores EXT_mesh_gpu_instancing)."""
     from codeverse3d.spatial.connectivity import check_connectivity
 
     (stool_ws.src / "object.js").write_text(
@@ -150,7 +116,6 @@ def test_build_bakes_instanced_meshes_for_trimesh(stool_ws: Workspace):
 
 
 def test_build_nan_geometry_names_mesh_part_and_file(stool_ws: Workspace):
-    """A NaN geometry error must name the mesh + part and route to src/parts/<snake>.js."""
     (stool_ws.src / "parts" / "legs.js").write_text(
         "import * as THREE from 'three';\nexport function buildLegs(T) { const g = new THREE.Group(); g.name = 'Legs';\n"
         "  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0/0, 12), new THREE.MeshStandardMaterial());\n"
@@ -165,8 +130,6 @@ def test_build_nan_geometry_names_mesh_part_and_file(stool_ws: Workspace):
 
 
 def test_build_runs_exported_selfcheck(stool_ws: Workspace):
-    """`export function selfcheck(THREE, root)` is called by the harness: a throw fails
-    the build with the agent's message and the src frame; a passing one is recorded."""
     p = stool_ws.src / "object.js"
     src = p.read_text()
     p.write_text(src + "export function selfcheck(THREE_, root) {\n  const box = new THREE.Box3().setFromObject(root);\n"

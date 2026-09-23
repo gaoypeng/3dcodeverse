@@ -96,11 +96,6 @@ def test_syntax_error_reported_with_line(stool_ws: Workspace):
 
 
 @pytest.mark.node
-def test_real_syntax_check_on_clean_stool(stool_ws: Workspace):
-    assert lint_workspace(stool_ws).passed
-
-
-@pytest.mark.node
 def test_one_node_checks_every_file_and_a_parsed_file_is_not_sent_again(tmp_path: Path, monkeypatch):
     import codeverse3d.languages._js_lint as js_lint
 

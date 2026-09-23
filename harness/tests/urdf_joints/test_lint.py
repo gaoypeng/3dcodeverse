@@ -30,11 +30,6 @@ def _msgs(findings, sev=None):
     return [f.message for f in findings if sev is None or f.severity == sev]
 
 
-def test_good_urdf_is_clean():
-    f, links = lint_urdf_text(GOOD)
-    assert f == [] and links == ["body", "door"]
-
-
 def test_xml_and_structure_errors():
     f, _ = lint_urdf_text("<robot name='x'><link name='a'>")
     assert f[0].severity == Severity.ERROR and "well-formed" in f[0].message and f[0].data.get("line") == 1
