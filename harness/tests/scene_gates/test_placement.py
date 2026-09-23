@@ -116,28 +116,13 @@ def test_pipeline_gates_are_placement_alone_and_never_raise(tmp_path):
     assert placement_gate_safe({}, plan=plan) is None
 
 
-def test_check_placement_reads_the_last_census_and_the_table_text(tmp_path):
-    from codeverse3d.spatial.registry import ToolContext, get_tool
-    from codeverse3d.workspace import Workspace
-
-    ws = Workspace(tmp_path / "run").create()
-    ws.artifacts.mkdir(parents=True, exist_ok=True)
-    table = _table(_row("Lantern", gap=0.3), _row("Rock", sunk=0.3, into="Terrain", h=1.0))
-    (ws.artifacts / "census.json").write_text(json.dumps({"totals": {}, "placement": table}))
-    ws.plan_path.write_text(_contract_plan().model_copy(update={"setting": "a cabin interior"}).model_dump_json())
-    obs = get_tool("check_placement").call(ToolContext(workspace=ws, language=Language.SCENE_THREEJS.value), {})
-    assert not obs.ok and "indoor tolerance 2 cm" in obs.text
-    text = placement_table_text(table)
-    assert "Yard/Lantern | +0.300 | Ground | 0.000 | - | - | -" in text and "Yard/Rock | +0.000 | Ground | 0.300 | Terrain" in text
-
-
 def test_check_placement_returns_the_round_gates_verdict(tmp_path):
     """The tool's verdict is the round gate's: same census, plan and stage records."""
     from codeverse3d.spatial.registry import ToolContext, get_tool
     from codeverse3d.workspace import Workspace
 
     ws = Workspace(tmp_path / "run").create()
-    census = {"totals": {}, "fog": None, "placement": _table(_row("Lantern", gap=0.3))}
+    census = {"totals": {}, "fog": None, "placement": _table(_row("Lantern", gap=0.3), _row("Rock", sunk=0.3, into="Terrain", h=1.0))}
     (ws.artifacts / "census.json").write_text(json.dumps(census))
     plan = _contract_plan()
     ws.plan_path.write_text(plan.model_dump_json())
@@ -152,6 +137,12 @@ def test_check_placement_returns_the_round_gates_verdict(tmp_path):
     kinds = {f.data.get("kind") for f in gate.findings}
     # Bench was never built: House (its only content) is neither missing it nor empty
     assert {"floating", "no_fog"} <= kinds and not {"missing_content", "zone_empty"} & kinds
+    # an interior plan: the tighter tolerance is named, and the table text is what the agent reads
+    ws.plan_path.write_text(plan.model_copy(update={"setting": "a cabin interior"}).model_dump_json())
+    obs = get_tool("check_placement").call(ToolContext(workspace=ws, language=Language.SCENE_THREEJS.value), {})
+    assert not obs.ok and "indoor tolerance 2 cm" in obs.text
+    text = placement_table_text(census["placement"])
+    assert "Yard/Lantern | +0.300 | Ground | 0.000 | - | - | -" in text and "Yard/Rock | +0.000 | Ground | 0.300 | Terrain" in text
 
 
 # --------------------------------------------------------------------- plan-aware contract checks

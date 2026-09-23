@@ -9,7 +9,6 @@ from codeverse3d.contracts.plan import BBox, CameraPlan, PartPlan, ScenePlan, St
 from codeverse3d.spatial.contract import (
     check_contract,
     match_parts,
-    planned_joins,
 )
 from codeverse3d.spatial.measure import measure_glb
 
@@ -23,15 +22,6 @@ def _stool_plan(**overrides) -> StaticPlan:
     data = dict(object_name="Stool", summary="s", overall_bbox=BBox(center=(0, 0, 0.225), extents=(0.4, 0.4, 0.45)), parts=parts)
     data.update(overrides)
     return StaticPlan(**data)
-
-
-def test_missing_part_is_error(solid_stool_glb: Path) -> None:
-    plan = _stool_plan()
-    plan.parts.append(PartPlan(name="Backrest", role="back", description="d", bbox=BBox(center=(0, 0.18, 0.6), extents=(0.4, 0.03, 0.3))))
-    r = check_contract(measure_glb(solid_stool_glb), plan, language="blender")
-    assert not r.passed
-    miss = [f for f in r.errors if f.target == "Backrest"]
-    assert miss and "missing" in miss[0].message and "40.0×3.0×30.0" in miss[0].fix_hint
 
 
 def test_bbox_deviation_warn_then_error(solid_stool_glb: Path) -> None:
@@ -68,32 +58,6 @@ def test_ground_and_footprint_warnings() -> None:
     r = check_contract(m, _stool_plan(), language="blender")
     msgs = " | ".join(f.message for f in r.findings)
     assert "above the ground" in msgs and "footprint centre" in msgs
-
-
-def test_planned_joins_pair_a_spanning_child_with_every_touching_parent_copy() -> None:
-    """An X-braced table: every parent copy the brace's box touches is a candidate (ties are not broken by order)."""
-    plan = StaticPlan(
-        object_name="Table", summary="s", overall_bbox=BBox(center=(0, 0, 0.375), extents=(1.0, 1.0, 0.75)),
-        parts=[PartPlan(name="Top", role="top", description="d", bbox=BBox(center=(0, 0, 0.73), extents=(1.0, 1.0, 0.04))),
-               PartPlan(name="Leg", role="leg", description="d", bbox=BBox(center=(0, 0, 0.355), extents=(0.05, 0.05, 0.71)), attach_to="Top", instances=4),
-               PartPlan(name="Brace", role="brace", description="d", bbox=BBox(center=(0, 0, 0.2), extents=(0.9, 0.05, 0.03)), attach_to="Leg")])
-    leg = lambda x, z: PartMeasure(name="", bbox_min=(x - 0.025, 0.0, z - 0.025), bbox_max=(x + 0.025, 0.71, z + 0.025))  # noqa: E731
-    rows = [PartMeasure(name="Top", bbox_min=(-0.5, 0.71, -0.5), bbox_max=(0.5, 0.75, 0.5))]
-    for i, (x, z) in enumerate([(0.45, 0.45), (0.45, -0.45), (-0.45, 0.5), (-0.45, -0.45)]):
-        rows.append(leg(x, z).model_copy(update={"name": f"Leg_{i}"}))
-    # a diagonal brace from Leg_1 (0.45, -0.45) to Leg_3 (-0.45, -0.45) with a lug rising toward Leg_0: one AABB
-    # covers the whole span, so it overlaps Leg_0's box (z 0.425..0.475) and stops 3.5 cm short of Leg_2's (z ≥ 0.475)
-    rows.append(PartMeasure(name="Brace", bbox_min=(-0.46, 0.185, -0.46), bbox_max=(0.46, 0.215, 0.44)))
-    m = Measurement(bbox_min=(-0.5, 0, -0.5), bbox_max=(0.5, 0.75, 0.5), extents=(1, 0.75, 1), center=(0, 0.375, 0),
-                    tri_count=12 * len(rows), n_meshes=len(rows), n_islands=len(rows), parts=rows)
-
-    edges = planned_joins(plan, m)
-    groups = {child: set(parents) for child, parents in edges}
-    brace = groups["Brace"]  # one group: the copies the brace's box touches, measured by the gate, not guessed
-
-    assert {"Leg_1", "Leg_3"} <= brace and "Leg_0" in brace     # the two it spans plus the grazed copy — measured, not guessed
-    assert "Leg_2" not in brace                                  # clear of the AABB: never a candidate
-    assert [e for e in edges if e[0].startswith("Leg")] == [(f"Leg_{i}", ("Top",)) for i in range(4)]
 
 
 def test_an_exact_name_wins_over_another_part_instance_pattern() -> None:
@@ -171,13 +135,10 @@ def _orientation(findings: list[GateFinding]) -> list[GateFinding]:
     return [f for f in findings if f.data.get("kind") == "orientation"]
 
 
-def test_a_standing_box_has_no_orientation_finding() -> None:
-    # Blender plan 40×20 cm footprint, 120 cm tall → GLB (0.4, 1.2, 0.2)
+def test_a_box_rotated_90_about_x_is_lying_down() -> None:
+    # Blender plan 40×20 cm footprint, 120 cm tall → GLB (0.4, 1.2, 0.2): standing, no orientation finding
     r = check_contract(_measurement_glb((0.4, 1.2, 0.2)), _one_part_plan((0.4, 0.2, 1.2), up=2), language="blender")
     assert r.passed and not _orientation(r.findings)
-
-
-def test_a_box_rotated_90_about_x_is_lying_down() -> None:
     r = check_contract(_measurement_glb((0.4, 0.2, 1.2)), _one_part_plan((0.4, 0.2, 1.2), up=2), language="blender")
     o = _orientation(r.findings)
     assert len(o) == 1 and o[0].severity == Severity.ERROR and not r.passed

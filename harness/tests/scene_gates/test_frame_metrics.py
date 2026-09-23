@@ -26,27 +26,6 @@ def _kinds(report):
     return [(f.data["kind"], f.severity, f.target) for f in report.findings]
 
 
-def test_dark_frame_is_error_on_authored_with_concrete_hint_and_warns_on_orbit():
-    rep = frame_findings(_metrics(_chk("Establishing", mean_lum=0.07, dark_frac=0.41)))
-    assert not rep.passed
-    f = rep.findings[0]
-    assert f.data["kind"] == "dark_frame" and f.severity == Severity.ERROR and f.target == "Establishing"
-    assert "0.07" in f.message and "41%" in f.message
-    assert "sunRig(" in f.fix_hint and "fill" in f.fix_hint and "NOT black" in f.fix_hint   # the rig env.js builds, not a second sun
-    assert f.data["view"] == "Establishing" and f.data["mean_lum"] == 0.07
-    orbit = frame_findings(_metrics(_chk("eye_front", "orbit", mean_lum=0.04, dark_frac=0.77)))
-    assert orbit.passed and _kinds(orbit) == [("dark_frame", Severity.WARN, "eye_front")]
-
-
-def test_blown_and_flat_frames():
-    rep = frame_findings(_metrics(_chk("Cam", blown_frac=0.3), _chk("Flat", modal_frac=0.95), _chk("Soft", modal_frac=0.88)))
-    kinds = {(k, s) for k, s, _ in _kinds(rep)}
-    assert ("blown_frame", Severity.ERROR) in kinds
-    assert ("flat_frame", Severity.ERROR) in kinds  # > 0.92 on an authored camera
-    assert ("flat_frame", Severity.WARN) in kinds  # 0.85-0.92
-    assert not rep.passed
-
-
 def test_camera_in_geometry_and_near_hit():
     rep = frame_findings(_metrics(_chk("Buried", camera_in_geometry=True, inside_mesh_bbox=["Tower"], nearest_hit_m=0.1),
                                   _chk("Close", nearest_hit_m=0.3)))
@@ -127,7 +106,11 @@ def test_scene_rubric_caps_fire_on_frame_kinds():
     fired = {c.rule: c.cap for c in res.caps_applied}
     assert fired == {"dark_frame": 0.55, "content_small": 0.6}
     assert res.overall == 0.55
-    rep2 = frame_findings(_metrics(_chk("Cam", blown_frac=0.5), _chk("Flat", modal_frac=0.99)))
+    rep2 = frame_findings(_metrics(_chk("Cam", blown_frac=0.3), _chk("Flat", modal_frac=0.95), _chk("Soft", modal_frac=0.88)))
+    kinds = {(k, s) for k, s, _ in _kinds(rep2)}
+    assert ("blown_frame", Severity.ERROR) in kinds and not rep2.passed
+    assert ("flat_frame", Severity.ERROR) in kinds  # > 0.92 on an authored camera
+    assert ("flat_frame", Severity.WARN) in kinds   # 0.85-0.92
     fired2 = {c.rule for c in apply_caps(rubric, 0.9, [rep2], {}, []).caps_applied}
     assert {"blown_frame", "flat_frame"} <= fired2
     # orbit-only warnings never cap

@@ -61,9 +61,7 @@ def test_the_byte_bound_keeps_the_sheet_drops_the_rest_and_says_so(tmp_path: Pat
     from codeverse3d.spatial.mcp_server import MAX_IMAGE_BYTES, encode_image
 
     def noise(name: str, side: int) -> str:
-        rnd = __import__("random").Random(len(name))
-        img = Image.new("RGB", (side, side))
-        img.putdata([(rnd.randrange(256), rnd.randrange(256), rnd.randrange(256)) for _ in range(side * side)])
+        img = Image.frombytes("RGB", (side, side), __import__("random").Random(len(name)).randbytes(side * side * 3))
         p = tmp_path / name
         img.save(p)
         return str(p)

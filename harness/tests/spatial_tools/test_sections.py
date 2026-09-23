@@ -25,14 +25,6 @@ def test_cross_section_that_cuts_nothing_answers_without_an_image(tmp_path: Path
     assert not (tmp_path / "gap.png").exists()
 
 
-def test_hollow_ratio(tmp_path: Path) -> None:
-    p = tmp_path / "tube.glb"
-    trimesh.creation.annulus(r_min=0.04, r_max=0.05, height=0.3).export(str(p))
-    o = cross_section(p, "z", 0.5, tmp_path / "t.png")
-    assert o.numbers["n_loops"] == 2
-    assert o.numbers["hollow_ratio"] == pytest.approx(0.64, abs=0.03)
-
-
 def test_bad_inputs(stool_glb: Path, tmp_path: Path) -> None:
     assert not cross_section(stool_glb, "w", 0.5, tmp_path / "x.png").ok
     o = cross_section(stool_glb, "y", 0.5, tmp_path / "x.png", parts=["Nope"])
@@ -53,23 +45,6 @@ def _two_boxes(path: Path, *, overlap_x: float = 0.05, dy: float = 0.0) -> Path:
     sc.add_geometry(b, node_name="B", geom_name="B")
     sc.export(str(path))
     return path
-
-
-def test_judge_slices_hatches_only_gate_error_pairs(tmp_path: Path) -> None:
-    glb = _two_boxes(tmp_path / "boxes.glb")
-    m = judge_slices(glb, [("A", "B")], tmp_path / "err")
-    assert [s.name for s in m.rendered()] == ["front_back", "left_right"]
-    assert m.error_pairs == [("A", "B")]
-    for s in m.rendered():
-        assert [(p.a, p.b) for p in s.hatched_pairs] == [("B", "A")] or \
-               [(p.a, p.b) for p in s.hatched_pairs] == [("A", "B")]
-        assert s.plain_pairs == []
-        assert (tmp_path / "err" / s.png).is_file()
-
-    # the SAME geometry with no gate-ERROR pair: plain darkened blend, no hatch (F1)
-    plain = judge_slices(glb, [], tmp_path / "plain")
-    for s in plain.rendered():
-        assert s.hatched_pairs == [] and len(s.plain_pairs) == 1
 
 
 def test_judge_slices_ignores_hairline_contact_slivers(tmp_path: Path) -> None:

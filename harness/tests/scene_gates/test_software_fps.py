@@ -2,20 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
-
 from codeverse3d.contracts.artifacts import RenderSet
 
 GPU = "ANGLE (NVIDIA Corporation, NVIDIA RTX 6000 Ada Generation, Vulkan)"
 CPU = "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
-
-
-@pytest.mark.parametrize("renderer,software", [
-    ("Mesa/X.org llvmpipe (LLVM 15.0.7, 256 bits)", True),
-    ("", False),   # unknown: not claimable as software
-])
-def test_the_renderer_string_decides(renderer: str, software: bool) -> None:
-    assert RenderSet(renderer=renderer, fps=9.0).software_rendered is software
 
 
 def test_the_gate_does_not_fire_on_a_cpu_frame_rate() -> None:

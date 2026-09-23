@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from codeverse3d.contracts.plan import BBox
 from codeverse3d.conventions import SCENE_VIEWS
 from codeverse3d.proc import read_json_or_none
 from codeverse3d.spatial.frame_metrics import frame_gate_from_renders
@@ -43,8 +44,11 @@ def _darken(ws: Workspace) -> None:
 
 
 def test_example_scene_passes_frame_gate_and_judge_subset(starter_ws: Workspace):
+    """Also: plan bounds guard the orbit framing — bounds that contain everything (this run) change
+    nothing; a zone that sprawls far past tight bounds is dropped in favour of the zones inside them."""
     out = starter_ws.renders_dir(0)
-    rs = render_scene(starter_ws, out, times=(0.0, 1.5), width=640, height=360, fps_seconds=0.3)
+    rs = render_scene(starter_ws, out, times=(0.0, 1.5), width=640, height=360, fps_seconds=0.3,
+                      bounds=BBox(center=(0, 3, 0), extents=(90.0, 10, 90.0)))
     assert rs.console_errors == []
     names = {v.name for v in rs.views}
     assert {"overview", "pond_low", "windmill"} <= names
@@ -91,10 +95,18 @@ def test_example_scene_passes_frame_gate_and_judge_subset(starter_ws: Workspace)
     tile_h = Image.open(rs.views[0].path).size[1]
     assert sheet.size[1] < 5 * tile_h                             # 8 tiles in 4 columns → 2 rows, not 5
 
+    assert m["framing_bbox"]["size"][0] == pytest.approx(84.4, abs=0.5)   # the meadow (≈ 84 m) fits → framed whole
+    y_wide = next(v for v in rs.views if v.name == SCENE_VIEWS[0].name).camera_position[1]
+    tight_out = starter_ws.renders_dir(1)                                 # meadow sprawls past 33 m → the pondside zone
+    tight = render_scene(starter_ws, tight_out, times=(0.0,), orbit_views=SCENE_VIEWS[:1], width=320, height=180,
+                         fps_seconds=0, bounds=BBox(center=(0, 3, 0), extents=(30.0, 10, 30.0)), sheet=False)
+    assert 10 < read_json_or_none(tight_out / "metrics.json")["framing_bbox"]["size"][0] < 17.5
+    assert next(v for v in tight.views if v.name == SCENE_VIEWS[0].name).camera_position[1] < y_wide / 2
+
 
 def test_dark_variant_raises_dark_frame_errors(starter_ws: Workspace):
     _darken(starter_ws)
-    out = starter_ws.renders_dir(1)
+    out = starter_ws.renders_dir(2)
     rs = render_scene(starter_ws, out, times=(0.0,), orbit=False, width=480, height=270, fps_seconds=0)
     assert rs.views, rs.console_errors
     gate = frame_gate_from_renders(out)
@@ -104,21 +116,3 @@ def test_dark_variant_raises_dark_frame_errors(starter_ws: Workspace):
     assert dark[0].target == "overview" and "sunRig(" in dark[0].fix_hint and "NOT black" in dark[0].fix_hint
     assert dark[0].data["mean_lum"] < 0.12 or dark[0].data["dark_frac"] > 0.35
 
-
-def test_plan_bounds_guard_orbit_framing(starter_ws: Workspace, tmp_path: Path):
-    """Plan bounds guard the framing: a zone that sprawls far past the bounds is dropped in
-    favour of the zones inside them; bounds that contain everything change nothing."""
-    from codeverse3d.contracts.plan import BBox
-
-    def _run(i: int, extents: float) -> tuple[dict, float]:
-        out = starter_ws.renders_dir(i)
-        rs = render_scene(starter_ws, out, times=(0.0,), orbit_views=SCENE_VIEWS[:1], width=320, height=180, fps_seconds=0,
-                          bounds=BBox(center=(0, 3, 0), extents=(extents, 10, extents)), sheet=False)
-        ov = next(v for v in rs.views if v.name == SCENE_VIEWS[0].name)
-        return read_json_or_none(out / "metrics.json")["framing_bbox"], ov.camera_position[1]
-
-    wide, y_wide = _run(2, 90.0)         # meadow (≈ 84 m) fits → framed as a whole
-    assert wide["size"][0] == pytest.approx(84.4, abs=0.5)
-    tight, y_tight = _run(3, 30.0)       # meadow sprawls past 33 m → the pondside zone (16.7 m) is framed
-    assert 10 < tight["size"][0] < 17.5
-    assert y_tight < y_wide / 2

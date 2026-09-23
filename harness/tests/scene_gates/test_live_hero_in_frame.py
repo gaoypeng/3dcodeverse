@@ -61,15 +61,21 @@ def _with_hero(ws: Workspace, *, hidden: bool, roofed: bool = False, away_camera
     scene.write_text(text)
 
 
-def test_a_hero_behind_a_wall_in_every_authored_frame_is_an_error(starter_ws: Workspace):
-    _with_hero(starter_ws, hidden=True)
+def test_a_hero_behind_a_wall_in_every_authored_frame_is_an_error_and_the_rig_lifts_the_room_lid(starter_ws: Workspace):
+    """A hero in a room shell, behind a wall from the overview: in the scene, in no authored frame → an ERROR.
+    The overview rig hides the harness-injected shell's ceiling when the eye is above it; authored cameras keep it."""
+    _with_hero(starter_ws, hidden=True, roofed=True)
     out = starter_ws.renders_dir(0)
     rs = render_scene(starter_ws, out, times=(0.0,), width=640, height=360, fps_seconds=0.2)
+    assert rs.console_errors == []
     m = read_json_or_none(out / "metrics.json")
     row = next(r for r in m["census"]["glb_assets"] if r["url"] == URL)
     assert row["in_scene"] is True and abs(row["size_m"] - 4.0) < 0.05, row
+    assert "RoomShell" in [g["name"] for g in m["census"]["groups"]]                # the census counts the shell as built
     chk = {c["name"]: c for c in m["camera_checks"]}
-    assert chk["overview"]["glb_frac"].get(URL, 0.0) < 0.002, chk["overview"]["glb_frac"]   # in the scene, behind the wall
+    assert chk["overview"]["glb_frac"].get(URL, 0.0) < 0.002, chk["overview"]["glb_frac"]   # in the scene, hidden
+    # the lid is lifted for the rig: a 4 m cube from 100 m up is a few pixels, but it is there
+    assert chk["overview_top"]["glb_frac"].get(URL, 0.0) > 0.0005, chk["overview_top"]["glb_frac"]
     gate = frame_gate_from_renders(rs)
     unseen = [f for f in gate.findings if f.data["kind"] == "hero_unseen"]
     assert len(unseen) == 1 and unseen[0].target == "hero_cube.glb" and not gate.passed, [f.message for f in gate.findings]
@@ -78,22 +84,6 @@ def test_a_hero_behind_a_wall_in_every_authored_frame_is_an_error(starter_ws: Wo
     cut = [f for f in gate.findings if f.data["kind"] == "camera_target_blocked" and f.target == "overview"]
     assert cut and "StoneWall" in cut[0].message, [f.message for f in gate.findings]
     assert math.isfinite(cut[0].data["target_hit_m"])
-
-
-def test_the_overview_rig_lifts_the_room_shells_lid_but_an_authored_camera_keeps_it(starter_ws: Workspace):
-    """The rig hides the harness-injected shell's ceiling when the eye is above it; authored cameras keep it."""
-    _with_hero(starter_ws, hidden=False, roofed=True)
-    out = starter_ws.renders_dir(0)
-    rs = render_scene(starter_ws, out, times=(0.0,), width=640, height=360, fps_seconds=0.2)
-    assert rs.console_errors == []
-    m = read_json_or_none(out / "metrics.json")
-    chk = {c["name"]: c for c in m["camera_checks"]}
-    # the lid is lifted for the rig: a 4 m cube from 100 m up is a few pixels, but it is there
-    assert chk["overview_top"]["glb_frac"].get(URL, 0.0) > 0.0005, chk["overview_top"]["glb_frac"]
-    # the authored overview looks at the room from outside and above: the roof stays, the cube is hidden
-    assert chk["overview"]["glb_frac"].get(URL, 0.0) < 0.002, chk["overview"]["glb_frac"]
-    names = [g["name"] for g in m["census"]["groups"]]
-    assert "RoomShell" in names                                                     # the census counts the shell as built
 
 
 def test_a_camera_named_for_the_hero_is_re_aimed_when_the_hero_is_out_of_its_frame(starter_ws: Workspace):

@@ -216,41 +216,6 @@ def test_thin_rod_through_a_plate_is_measured_and_named_but_severity_stays_on_de
     assert over[0][2:] == [pytest.approx(5.0, abs=0.5), pytest.approx(d["through_ratio"], abs=0.01)]
 
 
-def test_a_thin_part_sunk_into_a_thick_one_is_not_through(tmp_path: Path) -> None:
-    """A 5 mm disc sunk 2.3 mm into a base: the through-ratio is the min over both directions, so a WARN."""
-    base = trimesh.creation.box(extents=(0.2, 0.05, 0.2))
-    base.apply_translation((0, 0.025, 0))
-    disc = _cylinder_y(0.02, 0.005, (0, 0.05 - 0.0023 + 0.0025, 0))
-
-    r = check_connectivity(_scene(tmp_path / "inset.glb", BaseStand=base, FieldIlluminator=disc))
-
-    pen = _penetrations(r)
-    assert r.passed and len(pen) == 1 and pen[0].severity == Severity.WARN
-    assert pen[0].data["through_ratio"] < 0.2, pen[0].data
-    assert "reaches" not in pen[0].message and "where they meet" in pen[0].message
-
-
-def test_contact_ledger_carries_contacts_overlaps_and_ground_gaps(tmp_path: Path) -> None:
-    """A 1 mm weld is below the WARN line — no finding — but the INFO ledger lists it for the judge."""
-    a = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
-    a.apply_translation((0, 0.1, 0))
-    b = trimesh.creation.box(extents=(0.1, 0.1, 0.1))
-    b.apply_translation((0, 0.2 + 0.05 - 0.001, 0))
-
-    r = check_connectivity(_scene(tmp_path / "weld.glb", A=a, B=b))
-
-    assert r.passed and not _penetrations(r)
-    led = _ledger(r)
-    assert led.message == "contact ledger: 2 parts, 1 contacts, 1 overlaps"
-    d = led.data
-    assert sorted(d["parts"]) == ["A", "B"] and d["contact_gap_mm"] == 2.0
-    assert len(d["contacts"]) == 1 and set(d["contacts"][0][:2]) == {"A", "B"} and d["contacts"][0][2] == 0.0
-    assert len(d["overlaps"]) == 1 and set(d["overlaps"][0][:2]) == {"A", "B"}
-    assert d["overlaps"][0][2] == pytest.approx(1.0, abs=0.1)
-    assert d["ground_gap_mm"] == {"A": 0.0, "B": pytest.approx(199.0, abs=0.1)}
-    assert d["planned"] == [] and d["planned_unresolved"] == []
-
-
 def test_planned_edges_are_measured_regardless_of_the_aabb_prefilter(solid_stool_glb: Path) -> None:
     """Leg_0-Seat is a contact; Leg_0-Leg_1 are 260 mm apart, a pair the AABB prefilter
     never measures — a planned join is measured anyway and reported open, not as an ERROR

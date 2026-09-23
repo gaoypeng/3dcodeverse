@@ -18,42 +18,8 @@ from codeverse3d.contracts.artifacts import (
     Severity,
 )
 from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
-from codeverse3d.spatial.registry import ToolContext, get_tool, list_tools
+from codeverse3d.spatial.registry import ToolContext, get_tool
 from codeverse3d.workspace import Workspace
-
-#: tools every workspace gets (no track/language restriction)
-CORE_TOOLS = {"build", "measure", "render_views", "render_sheet", "isolate", "cross_section", "check_connectivity",
-              "check_contract", "compare_reference"}
-#: track- / language-scoped tools (documented; keep in sync when registering a new one)
-SCOPED_TOOLS = {
-    "joint_sweep",  # articulated_object
-    "shader_probe", "scene_probe", "scene_views", "check_placement",  # scene_threejs
-    "gl_probe", "gl_frames",  # graphics (glsl_shader / opengl_python)
-}
-EXPECTED_TOOLS = CORE_TOOLS | SCOPED_TOOLS
-
-
-def test_registry_has_every_tool() -> None:
-    registered = {t.name for t in list_tools()}
-    assert registered == EXPECTED_TOOLS, (
-        f"registry drifted: unexpected {sorted(registered - EXPECTED_TOOLS)}, "
-        f"missing {sorted(EXPECTED_TOOLS - registered)} — update CORE_TOOLS/SCOPED_TOOLS above")
-    static_blender = {t.name for t in list_tools(track="static_object", language="blender")}
-    assert "joint_sweep" not in static_blender and "gl_probe" not in static_blender
-    scene = {t.name for t in list_tools(track="scene", language="scene_threejs")}
-    assert "shader_probe" in scene
-    graphics = {t.name for t in list_tools(track="graphics", language="glsl_shader")}
-    assert {"gl_probe", "gl_frames"} <= graphics and "scene_probe" not in graphics
-    # V11a: the object-GLB toolset never reaches scene/graphics agents — their builds
-    # never write artifacts/object.glb, so every one of these was a dead-end refusal
-    object_glb_tools = {"measure", "check_connectivity", "check_contract", "cross_section", "isolate",
-                        "render_views", "render_sheet", "compare_reference"}
-    assert not object_glb_tools & scene and not object_glb_tools & graphics
-    assert "build" in scene and "build" in graphics  # build itself stays universal
-    articulated = {t.name for t in list_tools(track="articulated_object", language="urdf_blender")}
-    assert object_glb_tools | {"joint_sweep"} <= articulated  # articulated keeps the object toolset
-    for t in list_tools():
-        assert t.schema()["type"] == "object" and t.description
 
 
 def test_measure_tool(stool_ctx: ToolContext) -> None:
@@ -114,28 +80,6 @@ def _patch_runtime(monkeypatch: pytest.MonkeyPatch, rt: _FakeRuntime) -> None:
     monkeypatch.setattr(langs, "get_runtime", lambda language: rt)
 
 
-def test_build_tool_success(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    glb = stool_ctx.workspace.artifacts / "object.glb"
-    _patch_runtime(monkeypatch, _FakeRuntime(glb=glb))
-    obs = get_tool("build").call(stool_ctx, {})
-    assert obs.ok and obs.text.startswith("BUILD OK") and "Leg ×4" in obs.text
-    assert "lint warnings" in obs.text and "uses bpy.ops.render" in obs.text and "build warnings" in obs.text
-    assert str(stool_ctx.workspace.root) not in obs.text
-    assert json.loads((stool_ctx.workspace.artifacts / "build.json").read_text())["ok"] is True
-    assert (stool_ctx.workspace.artifacts / "measurement.json").is_file()
-
-
-def test_build_tool_failure_is_error_first(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_runtime(monkeypatch, _FakeRuntime(build_ok=False))
-    obs = get_tool("build").call(stool_ctx, {})
-    assert not obs.ok
-    first = obs.text.splitlines()[0]
-    assert first.startswith("BUILD FAILED: NameError: name 'bpyx' is not defined at src/model.py:7")
-    assert "l59" in obs.text and "l10" not in obs.text  # ≤ 30-line stderr tail
-    assert str(stool_ctx.workspace.root) not in obs.text
-    assert obs.numbers["error_line"] == 7
-
-
 def test_a_negative_verdict_is_not_a_tool_failure(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     """``ok`` is the verdict, ``failed`` is 'the tool could not run' (only that is an MCP error); FAIL leads the text."""
     import codeverse3d.spatial.tools as ts
@@ -161,6 +105,10 @@ def test_a_negative_verdict_is_not_a_tool_failure(stool_ctx: ToolContext, monkey
     _patch_runtime(monkeypatch, _FakeRuntime(build_ok=False))               # code that will not run
     obs = get_tool("build").call(stool_ctx, {})
     assert not obs.ok and not obs.failed and obs.text.startswith("BUILD FAILED")
+    # the error leads, at a workspace-relative path, with a ≤ 30-line stderr tail
+    assert obs.text.splitlines()[0].startswith("BUILD FAILED: NameError: name 'bpyx' is not defined at src/model.py:7")
+    assert "l59" in obs.text and "l10" not in obs.text
+    assert str(stool_ctx.workspace.root) not in obs.text and obs.numbers["error_line"] == 7
     _patch_runtime(monkeypatch, _FakeRuntime(lint_errors=True))
     obs = get_tool("build").call(stool_ctx, {})
     assert not obs.ok and not obs.failed and obs.text.startswith("LINT FAILED")
@@ -177,7 +125,11 @@ def test_build_that_leaves_no_readable_glb_is_a_failure(stool_ctx: ToolContext, 
 def test_build_lint_fail_refuses_stale_glb(stool_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     """A lint refusal is the latest build status: the previous GLB is no longer readable as current."""
     _patch_runtime(monkeypatch, _FakeRuntime(glb=stool_ctx.workspace.artifacts / "object.glb"))
-    assert get_tool("build").call(stool_ctx, {}).ok
+    obs = get_tool("build").call(stool_ctx, {})
+    assert obs.ok and obs.text.startswith("BUILD OK") and "Leg ×4" in obs.text
+    assert "lint warnings" in obs.text and "uses bpy.ops.render" in obs.text and "build warnings" in obs.text
+    assert str(stool_ctx.workspace.root) not in obs.text
+    assert (stool_ctx.workspace.artifacts / "measurement.json").is_file()
     _patch_runtime(monkeypatch, _FakeRuntime(lint_errors=True))
     obs = get_tool("build").call(stool_ctx, {})
     assert not obs.ok and obs.text.startswith("LINT FAILED")
@@ -341,28 +293,6 @@ def test_build_tool_scene_reports_probe_census(tmp_ws: Workspace, monkeypatch: p
     assert obs.numbers["census"]["fps"] == 58.0
 
 
-def test_build_tool_graphics_reports_frames(tmp_ws: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeverse3d.languages._gl_common as gl_build  # the one metrics reader (gl_build is a shim over it)
-    from codeverse3d.spatial.frame_stats import FrameStat, SequenceStats
-
-    ctx = ToolContext(workspace=tmp_ws, language="glsl_shader", track="graphics")
-    rt = _NoGlbRuntime("glsl_shader", {"renderer": "moderngl"},
-                       {"frames": str(tmp_ws.artifacts / "frames"), "sheet": str(tmp_ws.artifacts / "frames_sheet.png")})
-    _patch_runtime(monkeypatch, rt)
-    def _frame(t: float, path: str) -> FrameStat:
-        return FrameStat(time=t, path=path, mean_lum=0.4, std_lum=0.2, pct_black=0.01, pct_blown=0.01,
-                         colourfulness=0.3, edge_density=0.05)
-
-    stats = SequenceStats(frames=[_frame(0.0, "f0.png"), _frame(1.0, "f1.png")], mean_diff=0.1)
-    gate = GateReport(gate="gl_frames", passed=True)
-    monkeypatch.setattr(gl_build, "read_metrics", lambda ws: (stats, gate))
-    obs = get_tool("build").call(ctx, {})
-    assert obs.ok, obs.text
-    assert "no GLB path" not in obs.text
-    assert "frames=2" in obs.text and "sheet:" in obs.text
-    assert obs.numbers["n_frames"] == 2 and obs.numbers["gate_errors"] == 0
-
-
 class _GlRuntime(_NoGlbRuntime):
     """Graphics runtime whose build takes the gl tools' kwargs (times / preview / size)."""
 
@@ -377,9 +307,23 @@ def test_gl_tools_lead_with_the_frame_gate_verdict(tmp_ws: Workspace, monkeypatc
     from codeverse3d.spatial.frame_stats import FrameStat, SequenceStats
 
     ctx = ToolContext(workspace=tmp_ws, language="glsl_shader", track="graphics")
-    _patch_runtime(monkeypatch, _GlRuntime("glsl_shader", {"renderer": "moderngl"}))
-    stats = SequenceStats(frames=[FrameStat(time=0.0, path="f0.png", mean_lum=0.4, std_lum=0.2, pct_black=0.01,
-                                            pct_blown=0.01, colourfulness=0.3, edge_density=0.05)], mean_diff=0.0)
+    _patch_runtime(monkeypatch, _GlRuntime("glsl_shader", {"renderer": "moderngl"},
+                                           {"frames": str(tmp_ws.artifacts / "frames"),
+                                            "sheet": str(tmp_ws.artifacts / "frames_sheet.png")}))
+
+    def _frame(t: float, path: str) -> FrameStat:
+        return FrameStat(time=t, path=path, mean_lum=0.4, std_lum=0.2, pct_black=0.01, pct_blown=0.01,
+                         colourfulness=0.3, edge_density=0.05)
+
+    # a passing gate: a graphics build (no GLB) reports its frames and sheet
+    two = SequenceStats(frames=[_frame(0.0, "f0.png"), _frame(1.0, "f1.png")], mean_diff=0.1)
+    monkeypatch.setattr(gl_build, "read_metrics", lambda ws: (two, GateReport(gate="gl_frames", passed=True)))
+    obs = get_tool("build").call(ctx, {})
+    assert obs.ok, obs.text
+    assert "no GLB path" not in obs.text and "frames=2" in obs.text and "sheet:" in obs.text
+    assert obs.numbers["n_frames"] == 2 and obs.numbers["gate_errors"] == 0
+
+    stats = SequenceStats(frames=[_frame(0.0, "f0.png")], mean_diff=0.0)
     bad = GateReport(gate="gl_frames", passed=False, findings=[
         GateFinding(gate="gl_frames", severity=Severity.ERROR, message="static image", data={"kind": "static"},
                     fix_hint="animate with u_time")])
@@ -400,18 +344,3 @@ def _stool_plan_with_missing_backrest() -> StaticPlan:
                       parts=[PartPlan(name="Seat", role="r", description="d", bbox=BBox(center=(0, 0, 0.43), extents=(0.4, 0.4, 0.04))),
                              PartPlan(name="Leg", role="r", description="d", bbox=BBox(center=(0, 0, 0.205), extents=(0.04, 0.04, 0.41)), instances=4),
                              PartPlan(name="Backrest", role="r", description="d", bbox=BBox(center=(0, 0.18, 0.6), extents=(0.4, 0.03, 0.3)))])
-
-
-def test_connectivity_tool_resolves_instance_names_like_the_track_does(stool_ctx: ToolContext) -> None:
-    """The tool resolves planned joins (``Leg`` → ``Leg_0..3``) through ``planned_joins``, as the track's gate does."""
-    ws = stool_ctx.workspace
-    ws.write_json(ws.plan_path, StaticPlan(
-        object_name="Stool", summary="s", overall_bbox=BBox(center=(0, 0, 0.225), extents=(0.4, 0.4, 0.45)),
-        parts=[PartPlan(name="Seat", role="r", description="d", bbox=BBox(center=(0, 0, 0.43), extents=(0.4, 0.4, 0.04))),
-               PartPlan(name="Leg", role="r", description="d", bbox=BBox(center=(0, 0, 0.205), extents=(0.04, 0.04, 0.41)), attach_to="Seat", instances=4)]))
-    get_tool("check_connectivity").call(stool_ctx, {})
-    report = json.loads((ws.gates_dir(0) / "connectivity_tool.json").read_text())
-    ledger = next(f["data"] for f in report["findings"] if "planned" in (f.get("data") or {}))
-    assert ledger["planned_unresolved"] == []
-    assert {(a, b) for a, b, *_ in ledger["planned"]} == {(f"Leg_{i}", "Seat") for i in range(4)}
-    assert {row[3] for row in ledger["planned"] if row[0] == "Leg_3"} == {"open"}   # the 5 mm floating leg

@@ -1,4 +1,4 @@
-"""Render caching: one cache authority, keyed by content and GPU mode, safe under concurrent writers."""
+"""Render caching: one cache authority, keyed by content, safe under concurrent writers."""
 
 from __future__ import annotations
 
@@ -76,33 +76,6 @@ def test_store_in_cache_survives_a_concurrent_identical_writer(tmp_path: Path, m
     assert (cache_dir / "views.json").is_file()
     assert sorted(p.name for p in cache_dir.glob("view_*.png")) == [f"view_v{i}.png" for i in range(6)]
     assert not list(cache_dir.parent.glob("*.tmp")), "no tmp dirs left behind"
-
-
-def test_object_render_cache_is_keyed_by_gpu_mode(stool_glb: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The requested GPU mode is part of the cache key: gpu=off is never served gpu=on's pixels."""
-    from types import SimpleNamespace
-
-    from codeverse3d.spatial import render as R
-
-    runs: list[tuple[str, Path]] = []
-
-    def fake_run_render(glb, out_dir, params, *, gpu, timeout_s):
-        runs.append((gpu, Path(out_dir)))
-        (Path(out_dir) / "view_front.png").write_bytes(b"png-" + gpu.encode())
-        return {"views": [{"name": "front"}], "renderer": f"webgl-{gpu}"}
-
-    fake_settings = SimpleNamespace(cache_dir=tmp_path / "cache",
-                                    render=SimpleNamespace(gpu="auto"),
-                                    limits=SimpleNamespace(render_timeout_s=5))
-    monkeypatch.setattr(R, "get_settings", lambda: fake_settings)
-    monkeypatch.setattr(R, "_run_render", fake_run_render)
-
-    a = R.render_glb(stool_glb, tmp_path / "a", views=[OBJECT_VIEWS[0]], sheet=False, gpu="on")
-    b = R.render_glb(stool_glb, tmp_path / "b", views=[OBJECT_VIEWS[0]], sheet=False, gpu="off")
-    assert len(runs) == 2, "gpu=off must not be served gpu=on's cached pixels"
-    assert a.renderer == "webgl-on" and b.renderer == "webgl-off"
-    c = R.render_glb(stool_glb, tmp_path / "c", views=[OBJECT_VIEWS[0]], sheet=False, gpu="on")
-    assert len(runs) == 2 and c.renderer == "webgl-on", "same mode still hits the cache"
 
 
 def test_gl_metrics_summary_is_the_one_frame_stats_formatter(tmp_ws: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
