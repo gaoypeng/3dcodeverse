@@ -258,6 +258,19 @@ def test_build_with_repair_single_shot_sends_file_contents_and_stops_at_max(tmp_
     assert out.usage.cost_usd == pytest.approx(0.004)
 
 
+
+def test_repair_rel_strips_a_prefix_not_a_character_set(tmp_ws):
+    """B14: ``lstrip("./")`` turned ``../x`` into ``x`` and ``.env.js`` into ``env.js``."""
+    from types import SimpleNamespace
+
+    from codeverse3d.tracks.repair import _rel
+
+    ctx = SimpleNamespace(ws=tmp_ws)
+    assert _rel(ctx, str(tmp_ws.root / "src" / "a.js")) == "src/a.js"
+    assert _rel(ctx, "./src/.env.js") == "src/.env.js"
+    assert _rel(ctx, "src/parts/seat.js") == "src/parts/seat.js"
+    assert _rel(ctx, "../outside.js") == "" and _rel(ctx, "/etc/passwd") == ""
+
 def test_format_error_report_and_cookbook_section():
     from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 

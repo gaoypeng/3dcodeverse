@@ -128,11 +128,15 @@ def files_for_repair(ctx: RunContext, build: BuildResult, lint: GateReport, file
 
 
 def _rel(ctx: RunContext, path: str) -> str:
+    """``path`` relative to the workspace, or ``""`` when it points outside it (an absolute
+    path elsewhere, a ``..`` escape): never a file to inline.  Was ``lstrip("./")``, which
+    strips a character SET — ``../x`` became ``x`` and ``.env.js`` became ``env.js`` (B14)."""
     p = path.replace("\\", "/")
     root = str(ctx.ws.root).replace("\\", "/").rstrip("/") + "/"
-    if p.startswith(root):
-        return p[len(root):]
-    return p.lstrip("./")
+    p = p.removeprefix(root)
+    while p.startswith("./"):
+        p = p[2:]
+    return "" if p.startswith("/") or ".." in p.split("/") else p
 
 
 def build_once(ctx: RunContext) -> tuple[BuildResult, GateReport]:
