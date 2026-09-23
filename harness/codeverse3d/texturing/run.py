@@ -182,7 +182,7 @@ def texture_pass(
     before/after judge gate (BEFORE is always the untouched ``glb_in``) decides
     whether the combined result ships."""
     t0 = time.time()
-    events = events or EventLog(ws.events_path)
+    events = EventLog(ws.events_path) if events is None else events
     glb_in = Path(glb_in) if glb_in else ws.artifacts / "object.glb"
     if not glb_in.is_file():
         raise FileNotFoundError(f"no GLB to texture: {glb_in}")
