@@ -616,7 +616,7 @@ sides.  Sheets: `bench/out/h2h_brilliana_v1/pairs/`, `bench/out/h2h_scene_v1/she
 cap — gives theirs 0.848 against ours 0.843: **Δ = −0.005, 6 W / 6 L**.  So the +0.105 above is
 produced *entirely* by the binary defect checklist (their mean penalty −0.192, ours −0.082), and the
 checklist is perception, not our gates — `h2h_glb.py:170` judges the visual pass with `gates=[]`.
-Its dominant term is `wrong_orientation`: theirs 4/12, ours 0/12, because `contracts/conventions.py`
+Its dominant term is `wrong_orientation`: theirs 4/12, ours 0/12, because `conventions.py`
 pins a front axis per language and their pipeline pins only up-axis.  Per criterion we lead
 intent_fidelity +0.042 / structure +0.029 / proportions +0.025 and trail assembly_fit −0.069 /
 geometry_detail −0.046 / materials −0.042 / craftsmanship −0.029 — right object, plainer object.
@@ -693,7 +693,7 @@ the PLAN (no FHoles part — see the defining-features rule added to `plan_stati
 day), not in judge prose.  Flash stays a ranking/fallback judge; pro stays the verdict judge.
 Two calibration-tool defects found the same day (colliding `run` labels overwriting judgment
 files; old records whose stored overall contradicts their own criterion scores) are fixed in
-`judges/calibration.py` and flagged in its report.
+`judges/calibration.py` (now `addons/calibration.py`) and flagged in its report.
 
 ### 2026-08-30 — scene stack iteration: five levers, four batteries, one honest ledger
 

@@ -285,7 +285,7 @@ demonstrated fix, and this document should not be read as claiming one.
 
 The honest next step is outside this owner's files: the judge currently *thinks*
 about refinement kinds and reports a number.  Making it **name the kinds it
-counted** in the wire schema (`judges/output_schema.py`) would turn the ladder
+counted** in the wire schema (`judges/rubrics.py`, `build_wire_model`) would turn the ladder
 from an instruction into an auditable observation — the same move that gave the
 defect checklist its range.
 

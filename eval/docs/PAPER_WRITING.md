@@ -430,7 +430,7 @@ answer 25.4 kB, median brief 28.2 kB), answered with the files the round produce
 `=== FILE: path ===` envelope.  This is the one thing the harness produces that a one-shot corpus cannot: *given
 a judged, gated object and a list of what is wrong with it, write the corrected files.*
 
-The pre-existing `flywheel/pairs.py` saw 57 % fewer transitions and carried neither the
+The pre-existing `flywheel/pairs.py` (now `addons/dataset/pairs.py`) saw 57 % fewer transitions and carried neither the
 instructions nor a diff.
 
 ## 8. Conclusions
