@@ -15,13 +15,12 @@ from pathlib import Path
 import pytest
 
 from codeverse3d.config import get_settings
+from codeverse3d.spatial.node import run_node
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "codeverse3d" / "prompts"
 #: the scene starter's harness-owned library (D51): a scene workspace always has it at
 #: `src/lib/`, so a snippet may import from it exactly as an agent's file would
 STARTER_LIB = Path(__file__).resolve().parents[2] / "codeverse3d" / "languages" / "scene_threejs" / "starter" / "src" / "lib"
-RUNTIME_JS = Path(__file__).resolve().parents[2] / "runtime_js"
-HELPERS = Path(__file__).resolve().parent / "helpers"
 
 #: every file of the prompt corpus (relative to codeverse3d/prompts/), read off the tree —
 #: test_files.test_every_prompt_file_is_reached says how the package loads each one
@@ -65,22 +64,14 @@ def labelled_files(rel: str, tag: str = "js") -> dict[str, str]:
 
 # ----------------------------------------------------------------------- runners
 def run_node_module(tmp_path: Path, code: str, timeout: int = 120) -> str:
-    """Write ``code`` as an ES module next to a node_modules symlink and run it."""
-    node = shutil.which(get_settings().binaries.node) or shutil.which("node")
-    if node is None:
-        pytest.skip("node not available")
-    link = tmp_path / "node_modules"
-    if not link.exists():
-        link.symlink_to(RUNTIME_JS / "node_modules")
+    """Write ``code`` as an ES module and run it under the harness's ``three`` resolve hook."""
     for lib in (tmp_path / "lib", tmp_path / "src" / "lib"):      # `./lib/...` from run.mjs and from src/*.js
-        if not lib.exists():   # a COPY: a symlinked lib resolves its bare `three` from the starter dir, which has none
+        if not lib.exists():
             shutil.copytree(STARTER_LIB, lib)
     mod = tmp_path / "run.mjs"
     mod.write_text(code)
-    proc = subprocess.run(
-        [node, "run.mjs"], cwd=tmp_path, capture_output=True, text=True, timeout=timeout
-    )
-    assert proc.returncode == 0, f"node failed:\nSTDOUT:{proc.stdout[-3000:]}\nSTDERR:{proc.stderr[-3000:]}"
+    proc = run_node(mod, cwd=tmp_path, timeout_s=timeout, three_hook=True, check=False)
+    assert proc.rc == 0, f"node failed:\nSTDOUT:{proc.stdout[-3000:]}\nSTDERR:{proc.stderr[-3000:]}"
     return proc.stdout
 
 

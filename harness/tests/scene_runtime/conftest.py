@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
 
 from codeverse3d.config import get_settings
 from codeverse3d.languages.scene_threejs import write_example
+from codeverse3d.spatial.node import run_node
 from codeverse3d.workspace import Workspace
 
 RUNTIME_JS = get_settings().runtime_js_dir()
@@ -42,10 +43,11 @@ def starter_ws(tmp_path: Path) -> Workspace:
     return w
 
 
-def run_node_json(script_body: str, *, cwd: Path = RUNTIME_JS, timeout: int = 60) -> dict | list:
-    """Run an inline ESM snippet under runtime_js and parse its last stdout line as JSON."""
-    proc = subprocess.run(
-        ["node", "--input-type=module", "-e", script_body], cwd=str(cwd), capture_output=True, text=True, timeout=timeout,
-    )
-    assert proc.returncode == 0, proc.stderr
+def run_node_json(script_body: str, *, timeout: int = 60) -> dict | list:
+    """Run an ESM snippet whose ``./lib/`` is runtime_js/lib and parse its last stdout line as JSON."""
+    with tempfile.TemporaryDirectory(prefix="c3d-node-json-") as tmp:
+        (Path(tmp) / "lib").symlink_to(RUNTIME_JS / "lib")
+        (Path(tmp) / "probe.mjs").write_text(script_body, encoding="utf-8")
+        proc = run_node(Path(tmp) / "probe.mjs", cwd=tmp, timeout_s=timeout, three_hook=True, check=False)
+    assert proc.rc == 0, proc.stderr_tail
     return json.loads(proc.stdout.strip().splitlines()[-1])

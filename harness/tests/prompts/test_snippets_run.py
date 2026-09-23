@@ -8,14 +8,9 @@
 
 from __future__ import annotations
 
-import json
-import shutil
-import subprocess
-
 import pytest
 
 from tests.prompts.conftest import (
-    HELPERS,
     blocks,
     js_prelude,
     labelled_files,
@@ -23,6 +18,7 @@ from tests.prompts.conftest import (
     run_node_module,
     strip_imports_exports,
 )
+from tests.scene_runtime.lib._probe import compile_scene
 
 
 # --------------------------------------------------------------------- cadquery
@@ -217,29 +213,19 @@ console.log('SCENE_OK', r.cameras.map((c) => c.name).join(','));
 
 
 @pytest.mark.node
-def test_scene_cookbook_sky_shader_compiles(tmp_path) -> None:
-    """The inline sky-dome ShaderMaterial from the scene cookbook must also compile."""
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("node not available")
+def test_scene_cookbook_sky_shader_compiles() -> None:
+    """The inline sky-dome ShaderMaterial from the scene cookbook must also compile — as a Mesh
+    (the dome) and as an InstancedMesh, through the production host (``check_shaders.mjs``)."""
     body = "".join("\n" + strip_imports_exports(b) for b in blocks("scene_threejs/cookbook.md", "js")[:2])
-    mod = (
+    scene = (
         "import * as THREE from 'three';\n" + body
-        + "\nexport function makeSkyMaterial(THREE_) {\n"
-        "  const s = new THREE_.Scene();\n"
-        "  buildEnv({ THREE: THREE_, scene: s });\n"
-        "  return s.getObjectByName('SkyDome').material;\n"
+        + "\nexport function createScene() {\n"
+        "  const scene = new THREE.Scene();\n"
+        "  const env = buildEnv({ THREE, scene });\n"
+        "  const sky = scene.getObjectByName('SkyDome');\n"
+        "  scene.add(new THREE.InstancedMesh(new THREE.PlaneGeometry(2, 2), sky.material, 4));\n"
+        "  return { scene, cameras: [{ name: 'a', position: [3, 3, 5], lookAt: [0, 0, 0] }], update: env.update };\n"
         "}\n"
     )
-    link = tmp_path / "node_modules"
-    if not link.exists():
-        from tests.prompts.conftest import RUNTIME_JS
-
-        link.symlink_to(RUNTIME_JS / "node_modules")
-    (tmp_path / "sky_mod.mjs").write_text(mod)
-    proc = subprocess.run(
-        [node, str(HELPERS / "glsl_compile.mjs"), str(tmp_path), "sky_mod.mjs"],
-        capture_output=True, text=True, timeout=300,
-    )
-    report = json.loads(proc.stdout.strip().splitlines()[-1])
-    assert report.get("ok"), f"sky shader failed to compile: {json.dumps(report)[:3000]}"
+    code, out = compile_scene(scene)
+    assert code == 0, f"sky shader failed to compile:\n{out}"
