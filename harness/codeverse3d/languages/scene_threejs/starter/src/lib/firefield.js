@@ -260,7 +260,6 @@ function depthCapture(roots, resolution) {
     return depth;
   }
   function sync() {
-    proxies.forEach(proxy=>{proxy.visible=false;});
     const seen=new Set();
     for(const root of roots)root.traverse(source=>{
       if(!source.isMesh||seen.has(source)||!visibleInTree(source))return;
@@ -277,7 +276,7 @@ function depthCapture(roots, resolution) {
         proxy.matrixAutoUpdate=false;proxy.frustumCulled=false;proxy.name='FireDepthProxy';
         proxies.set(source,proxy);scene.add(proxy);
       }
-      source.updateWorldMatrix(true,false);proxy.visible=true;proxy.geometry=source.geometry;proxy.material=material;
+      source.updateWorldMatrix(true,false);proxy.geometry=source.geometry;proxy.material=material;
       proxy.layers.mask=source.layers.mask;
       proxy.matrix.copy(source.matrixWorld);proxy.matrixWorld.copy(source.matrixWorld);
       if(source.morphTargetInfluences)proxy.morphTargetInfluences=source.morphTargetInfluences.slice();
@@ -288,6 +287,13 @@ function depthCapture(roots, resolution) {
         proxy.instanceMatrix.array.set(source.instanceMatrix.array);proxy.instanceMatrix.needsUpdate=true;
         proxy.count=Math.min(source.count,source.instanceMatrix.count);
       }
+    });
+    // A source removed, hidden or turned into a skip since the last capture
+    // loses its proxy, so the proxy scene never outgrows the live occluders.
+    proxies.forEach((proxy,source)=>{
+      if(seen.has(source)&&!source.userData?.astraNoOverride)return;
+      scene.remove(proxy);proxies.delete(source);
+      if(ownedInstances.delete(proxy))proxy.dispose();
     });
   }
   return {
@@ -310,6 +316,7 @@ function depthCapture(roots, resolution) {
     },
     get captures(){return captures;},
     get target(){return target;},
+    get proxies(){return proxies.size;},
     dispose(){if(disposed)return;disposed=true;target?.dispose();
       materials.forEach(m=>m.dispose());invisible.dispose();ownedInstances.forEach(m=>m.dispose());
       proxies.clear();materials.clear();ownedInstances.clear();scene.clear();},

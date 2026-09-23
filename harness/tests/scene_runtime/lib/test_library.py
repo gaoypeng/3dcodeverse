@@ -331,3 +331,29 @@ try {{ {call}; }} catch (e) {{ error = e instanceof RangeError ? e.message : 'no
 console.log(JSON.stringify({{ error }}));
 """, (module,))
     assert out["error"] and phrase in out["error"], out
+
+
+def test_fire_field_depth_proxies_follow_the_live_occluders():
+    """Named bug: a proxy for an occluder removed or hidden since the last
+    capture stayed in the proxy scene for the field's lifetime."""
+    code, out = compile_scene(r"""
+import * as THREE from 'three';
+import { makeFireField } from './lib/firefield.js';
+export function createScene({ renderer }) {
+  const root = new THREE.Group(), mat = new THREE.MeshStandardMaterial();
+  const a = new THREE.Mesh(new THREE.BoxGeometry(), mat), b = new THREE.Mesh(new THREE.BoxGeometry(), mat);
+  root.add(a, b);
+  const field = makeFireField({ occluders: [root], quality: 'low' }), depth = field.userData.depthCapture;
+  const camera = new THREE.PerspectiveCamera(50, 1, .1, 50);
+  camera.position.set(0, 1, 4); camera.lookAt(0, .5, 0); camera.updateMatrixWorld(true);
+  const view = new THREE.Vector4(0, 0, 64, 64), counts = [];
+  depth.capture(renderer, camera, view); counts.push(depth.proxies);
+  root.remove(b); depth.capture(renderer, camera, view); counts.push(depth.proxies);
+  a.visible = false; depth.capture(renderer, camera, view); counts.push(depth.proxies);
+  a.visible = true; depth.capture(renderer, camera, view); counts.push(depth.proxies);
+  if (counts.join() !== '2,1,0,1') throw Error('proxy counts ' + counts.join());
+  field.userData.dispose();
+  return { scene: new THREE.Scene(), cameras: [{ name: 'probe', position: [0, 3, 5], lookAt: [0, 0, 0] }] };
+}
+""", ("firefield.js",), audit_module="src/scene.js")
+    assert code == 0, out
