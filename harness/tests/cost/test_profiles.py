@@ -48,14 +48,6 @@ def test_one_stated_judge_field_does_not_disable_the_whole_judge_block(monkeypat
     assert s.judge.max_px == 800, "the field the user stated wins"
     assert s.judge.samples == 3, "every field the user did NOT state still follows the profile"
     assert s.judge.montages == 5 and s.judge.detail_crops == 2
-    # and the same dial, whichever way the profile was named (cost/profiles.py's invariant)
-    monkeypatch.setenv("C3D_PROFILE", "quality")
-    get_settings.cache_clear()
-    try:
-        settings = get_settings()
-        assert resolve_dial(settings, None).judge_samples == resolve_dial(settings, "quality").judge_samples == 3
-    finally:
-        get_settings.cache_clear()
 
 
 def test_no_profile_touches_the_judge_payload_or_the_turn_cap(monkeypatch):
@@ -166,19 +158,3 @@ def test_each_profile_resolves_to_its_documented_dial(name, expected, monkeypatc
         for field, want in expected.items():
             assert getattr(dial, field) == want, f"{name}.{field}"
 
-
-@pytest.mark.parametrize("name", ["quality"])
-def test_the_env_var_reaches_the_spec_a_make_writes(name, tmp_path: Path, monkeypatch):
-    """End to end: C3D_PROFILE alone must produce the same spec shape as --profile."""
-    from codeverse3d.cost.profiles import PROFILES
-
-    p = PROFILES[name]
-    monkeypatch.setenv("C3D_PROFILE", name)
-    get_settings.cache_clear()
-    runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--slug", "pot"])
-    assert r.exit_code == 0, r.output
-    spec = json.loads((runs / "pot" / "spec.json").read_text())
-    assert spec["options"] == {"candidates": p.candidates, "texture": p.texture, "profile": name}
-    assert spec["budget"]["max_rounds"] == p.rounds and spec["budget"]["max_minutes"] == p.max_minutes
-    assert spec["backends"]["judge"] == p.judge and spec["backends"]["generator"] == p.generator

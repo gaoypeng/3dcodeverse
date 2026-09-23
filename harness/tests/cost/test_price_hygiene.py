@@ -35,11 +35,6 @@ SUPPORTED_MODEL_IDS = (
 )
 
 
-def test_every_price_row_has_provenance():
-    for (provider, model), price in PRICES.items():
-        assert price.checked and price.checked[:2] == "20", model
-        assert price.status in ("verified", "inferred", "unverified"), model
-        assert (price.source or provider) in SOURCES, model
 
 
 def test_long_context_tier_is_applied():
@@ -79,11 +74,13 @@ def test_every_price_row_was_checked_within_the_maintenance_window():
     from datetime import date, datetime
 
     from codeverse3d.cli.cost_cmd import STALE_AFTER_DAYS
-    from codeverse3d.models.pricing import PRICES, price_provenance
+    from codeverse3d.models.pricing import price_provenance
 
     stale = []
     for prov, model in sorted(PRICES):
         row = price_provenance(prov, model)
+        assert row.status in ("verified", "inferred", "unverified"), model
+        assert (PRICES[(prov, model)].source or prov) in SOURCES, model
         try:
             age = (date.today() - datetime.strptime(row.checked, "%Y-%m-%d").date()).days
         except (TypeError, ValueError):

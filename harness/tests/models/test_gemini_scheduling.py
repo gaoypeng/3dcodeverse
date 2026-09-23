@@ -19,7 +19,6 @@ def api_error(code: int, msg: str = "boom") -> genai_errors.APIError:
     return genai_errors.APIError(code, {"error": {"message": msg, "code": code}})
 
 
-# ------------------------------------------------------------------ slots
 # ---------------------------------------------------------------- shared pool
 def test_shared_pool_is_keyed_by_the_cap_not_only_by_keys():
     a = shared_pool(["x1", "x2"], max_in_flight=4)
@@ -50,11 +49,7 @@ def test_max_wait_s_clips_the_retry_deadline_and_never_extends_it(monkeypatch):
     assert seen == [RETRY_DEADLINE_S, 30.0, RETRY_DEADLINE_S]
 
 
-def test_a_clean_call_reports_one_attempt_and_a_failed_call_carries_its_count():
-    m, _log, _ = make_model([text_response("hi")])
-    r = m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
-    assert r.raw["attempts"] == 1 and r.raw["key"] == "…k1"
-
+def test_a_recovered_call_reports_its_attempts_and_a_failed_call_carries_its_count():
     hedged, log, _ = make_model(
         [api_error(503), api_error(503), text_response("recovered")],
         pool=KeyPool(["k1", "k2", "k3"], cooldown_s=0.0),

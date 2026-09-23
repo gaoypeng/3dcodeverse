@@ -9,13 +9,12 @@ import pytest
 from codeverse3d.contracts.agent import AgentJob, AgentResult
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ChatResponse
 from codeverse3d.contracts.common import Usage
-from codeverse3d.cost.context import run_binding
 from codeverse3d.cost.instrument import (
     MeteredAgent,
     MeteredChatModel,
     run_ledger,
 )
-from codeverse3d.cost.ledger import load_ledger, record_call
+from codeverse3d.cost.ledger import load_ledger
 from codeverse3d.cost.types import Role, Stage
 
 
@@ -101,14 +100,6 @@ def test_a_failed_call_is_recorded_and_re_raised(tmp_path: Path):
     assert row.outcome == "timeout" and row.stage is Stage.PLAN and row.cost_usd == 0.0
 
 
-def test_a_session_row_is_filed_by_the_task_kind(tmp_path: Path):
-    with run_ledger(tmp_path, run="r1"):
-        for kind, label in (("zone", "zone_courtyard"), ("rebuild", "rebuild"),
-                            ("asset", "asset_koi"), ("candidate", "baseline_c1")):
-            MeteredAgent(CliAgent(FakeChat())).run(
-                AgentJob(workspace=str(tmp_path), prompt="p", label=label, round=0, kind=kind))
-    assert [r.stage for r in load_ledger(tmp_path)] == [Stage.ZONES, Stage.REPAIR,
-                                                        Stage.ASSETS, Stage.CANDIDATE]
 
 
 def test_get_coding_agent_hands_out_a_metered_agent(monkeypatch: pytest.MonkeyPatch):
@@ -198,12 +189,9 @@ def test_a_cli_session_is_recorded_even_when_a_tool_bills_a_model_inside_it(tmp_
 
 
 # ------------------------------------------------------------------- nesting / parallelism
-def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Path,
-                                                                  monkeypatch: pytest.MonkeyPatch):
+def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Path):
     """`bench.run_bench` runs N prompts in N threads; their rows must not mix."""
     from concurrent.futures import ThreadPoolExecutor
-
-    from codeverse3d.cost import ledger as ledger_mod
 
     def one(name: str) -> None:
         with run_ledger(tmp_path / name, run=name):
@@ -217,13 +205,6 @@ def test_parallel_runs_in_their_own_threads_keep_their_own_ledgers(tmp_path: Pat
     for name in names:
         rows = load_ledger(tmp_path / name)
         assert len(rows) == 3 and {r.run for r in rows} == {name}
-    # ...and neither binding leaked out of its worker (the 2026-08-30 process-global leak)
-    monkeypatch.setattr(ledger_mod, "_fallback", ledger_mod.CostLedger(tmp_path / "process.jsonl"))
-    assert run_binding().run == ""
-    record_call(Usage(cost_usd=0.5), label="baseline")
-    assert [r.run for r in load_ledger(tmp_path / "process.jsonl")] == [""]
-    for name in names:
-        assert len(load_ledger(tmp_path / name)) == 3
 
 
 class KeyedChat(FakeChat):

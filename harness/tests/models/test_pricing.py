@@ -18,8 +18,6 @@ def test_gemini_cost_math():
     assert abs(estimate_cost("gemini", "gemini-3.7-flash", u) - (0.45 + 0.03 + 0.5625)) < 1e-9
 
 
-
-
 @pytest.mark.parametrize(
     ("provider", "model", "row"),
     [

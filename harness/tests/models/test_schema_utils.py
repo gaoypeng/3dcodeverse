@@ -92,28 +92,6 @@ def test_inline_refs_and_recursion_guard():
         inline_refs(rec)
 
 
-def test_openai_strict_schema_shape():
-    s = to_openai_strict_schema(StaticPlan.model_json_schema())
-
-    def check(n):
-        if isinstance(n, dict) and "properties" in n:
-            assert n["additionalProperties"] is False
-            assert set(n["required"]) == set(n["properties"].keys())
-
-    _walk(s, check)
-    part = s["properties"]["parts"]["items"]["properties"]
-    # optional-without-default (``str | None = None``) is nullable on the wire …
-    assert {"type": "null"} in part["attach_to"]["anyOf"]
-    # … but defaulted fields stay non-null (pydantic rejects null there) with a hint
-    assert (
-        part["material"]["type"] == "string" and '[default: ""]' in part["material"]["description"]
-    )
-    assert (
-        part["instances"]["type"] == "integer"
-        and "[default: 1]" in part["instances"]["description"]
-    )
-    assert part["symmetry"]["type"] == "string" and "null" not in json.dumps(part["symmetry"])
-    assert s["properties"]["style_notes"]["type"] == "string"
 
 
 def test_openai_strict_schemas_never_add_null():

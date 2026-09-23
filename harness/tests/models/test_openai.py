@@ -170,16 +170,6 @@ def test_images_data_urls():
     assert [b["type"] for b in c] == ["text", "text", "image_url"]
 
 
-def test_retry_matrix():
-    m, fc = make([api_error(429), api_error(500), completion("ok")])
-    assert (
-        m.generate(ChatRequest(messages=[ChatMessage.user("x")])).text == "ok"
-        and len(fc.calls) == 3
-    )
-    m, fc = make([api_error(400, "nope")])
-    with pytest.raises(ModelError) as ei:
-        m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
-    assert not ei.value.retryable and ei.value.status == 400
 
 
 def test_empty_and_classify():

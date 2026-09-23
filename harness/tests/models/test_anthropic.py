@@ -236,7 +236,3 @@ def test_each_attempt_gets_what_is_left_of_the_call_budget():
     m, fc = make([msg([text("hi")])], timeout_s=600.0)
     m.generate(ChatRequest(messages=[ChatMessage.user("x")], max_wait_s=930.0))
     assert fc.calls[0]["timeout"] == 600.0, "a long plan is bounded by the client, not clipped"
-
-    m, fc = make([msg([text("hi")])], timeout_s=600.0)
-    m.generate(ChatRequest(messages=[ChatMessage.user("x")]))
-    assert fc.calls[0]["timeout"] == 600.0

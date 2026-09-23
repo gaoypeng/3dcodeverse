@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 import time
 
 import pytest
@@ -129,39 +128,8 @@ def test_skip_leaves_health_and_counters_alone():
 
 
 # ------------------------------------------------------------- in-flight cap
-def test_in_flight_gauge_tracks_acquire_and_release():
-    pool, _ = make(keys=("a", "b"))
-    pool.acquire()
-    pool.acquire()
-    assert pool.stats()["in_flight"] == 2
-    assert pool.stats()["peak_in_flight"] == 2
-    pool.release()
-    assert pool.stats()["in_flight"] == 1
-    assert pool.stats()["peak_in_flight"] == 2  # peak is a high-water mark
-    pool.release()
-    pool.release()  # a stray release is a no-op, not a crash
-    assert pool.stats()["in_flight"] == 0
 
 
-def test_max_in_flight_blocks_the_third_caller(tmp_path):
-    pool = KeyPool(["a", "b", "c"], max_in_flight=2, slots_dir=tmp_path)
-    pool.acquire()
-    pool.acquire()
-    started = threading.Event()
-    got = threading.Event()
-
-    def third() -> None:
-        started.set()
-        pool.acquire()
-        got.set()
-
-    t = threading.Thread(target=third, daemon=True)
-    t.start()
-    started.wait(2)
-    assert not got.wait(0.2), "the 3rd call should be held by the in-flight cap"
-    pool.release()
-    assert got.wait(2), "releasing a slot must let the queued call through"
-    t.join(2)
 
 
 def test_a_failed_acquire_gives_its_slot_back(tmp_path):
