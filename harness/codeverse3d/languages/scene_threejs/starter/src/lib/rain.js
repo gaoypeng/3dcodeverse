@@ -5,11 +5,13 @@
  * no post pass. Delivery frames are STILLS, so every effect must read
  * FROZEN: streaks are drawn long, splash phases are spread across the
  * field so all radii show at once, and puddle ripples displace real
- * geometry. World-space — add the returned objects
- * at the scene ROOT and drive them from `tick`: `obj.userData.update(t)`.
+ * geometry. Drive each factory with `obj.userData.update(t)`. Rainfall uses
+ * local coordinates and supports transformed parents. Surface-baked splashes
+ * store world-space impact positions and belong at the scene root.
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32, fbm2, noiseDataTexture } from './noise.js';
 import { makeShaderMaterial, keepOutOfDepthPasses } from './shader.js';
 
@@ -101,7 +103,19 @@ function _quads(count) {
  *   `opacity` (default 0.42) peak alpha before distance fade;
  *   `follow` (default true) wrap the box around the camera; false pins
  *     it to `center`;
- *   `center` (default [0, height / 2, 0]) box centre when not following.
+ *   `center` (default [0, height / 2, 0]) box centre when not following;
+ *   `groundY` optional local ground cutoff;
+ *   `surfaces` optional borrowed meshes/groups which shelter the rain;
+ *   `heightAt(x,z)` optional local terrain-height callback, null means no hit;
+ *   `shelterResolution` 8..64 (32), square height atlas samples;
+ *   `shelterUpdateDistance` local camera travel before rebuilding (radius*.2).
+ * Shelter uses vertical height-field occlusion: no undercuts, sideways entry
+ * under overhangs or moving-surface dynamics. Resolution limits thin roofs and
+ * edge precision. Each rebuild casts at most resolution squared rays, with
+ * cost also depending on source geometry. Atlas bounds cover the rain box plus
+ * movement padding. Call userData.refreshShelter() after moving/editing/hiding
+ * source surfaces; the next render rebuilds. Camera travel and effect transforms
+ * refresh automatically. Source meshes/materials remain caller-owned.
  * @returns {THREE.Mesh} Mesh named 'Rainfall', transparent and
  *   non-shadowing, with `userData.update(t)` advancing the fall.
  */
@@ -117,7 +131,23 @@ export function makeRain(opts = {}) {
   const opacity = opts.opacity === undefined ? 0.42 : opts.opacity;
   const follow = opts.follow === false ? 0 : 1;
   const center = opts.center || [0, height * 0.5, 0];
+  const surfaces = opts.surfaces ?? [];
+  const shelterResolution = opts.shelterResolution ?? 32;
+  const shelterUpdateDistance = opts.shelterUpdateDistance ?? Math.max(.5, radius * .20);
+  const groundY = opts.groundY ?? -1e8;
+  if (!Array.isArray(surfaces) || surfaces.some((surface) => !surface?.isObject3D) ||
+      !Number.isInteger(shelterResolution) || shelterResolution < 8 || shelterResolution > 64 ||
+      !Number.isFinite(shelterUpdateDistance) || shelterUpdateDistance <= 0 ||
+      !Number.isFinite(groundY) || (opts.heightAt != null && typeof opts.heightAt !== 'function')) {
+    throw new RangeError('makeRain: invalid surfaces, heightAt, groundY or shelter atlas options');
+  }
 
+  if (!Number.isInteger(count) || count < 0 || count > 1000000 ||
+      ![radius, height, speed, length, width, opacity, ...wind, ...center].every(Number.isFinite) ||
+      radius <= 0 || height <= 0 || speed <= 0 || length <= 0 || width <= 0 || opacity < 0 || opacity > 1 ||
+      wind.length !== 2 || center.length !== 3) {
+    throw new RangeError('makeRain: use finite positive dimensions/speed, count 0..1000000, wind [x,z], center [x,y,z] and opacity 0..1');
+  }
   const rand = mulberry32(seed);
   const inst = _quads(count);
   const off = new Float32Array(count * 3);
@@ -145,6 +175,11 @@ export function makeRain(opts = {}) {
       // source, and uTime undeclared there is two hard ERRORS in the
       // scene build's preflight — every scene importing this file.
       uTime: { value: 0 },
+      uCameraLocal: { value: new THREE.Vector3() },
+      uShelterMap: { value: null },
+      uShelterRect: { value: new THREE.Vector4() },
+      uHasShelter: { value: 0 },
+      uGroundY: { value: groundY },
       uVel: { value: new THREE.Vector3(wind[0], -speed, wind[1]) },
       uBox: { value: new THREE.Vector3(radius * 2, height, radius * 2) },
       uCenter: { value: new THREE.Vector3(...center) },
@@ -168,19 +203,21 @@ export function makeRain(opts = {}) {
       'attribute vec3 aCorner;',
       'attribute vec3 iOff; attribute vec3 iExtra;',
       'uniform float uTime;',
-      'uniform vec3 uVel; uniform vec3 uBox;',
+      'uniform vec3 uVel; uniform vec3 uBox; uniform vec3 uCameraLocal;',
       'uniform vec3 uCenter; uniform float uFollow;',
       'uniform float uLen; uniform float uWidth; uniform float uFar;',
+      'uniform sampler2D uShelterMap; uniform vec4 uShelterRect;',
+      'uniform float uHasShelter; uniform float uGroundY;',
     ].join('\n'),
     vertexMain: [
       '  vUv = uv; vJit = iExtra.z;',
-      '  vec3 anchor = mix(uCenter, cameraPosition, uFollow);',
+      '  vec3 anchor = mix(uCenter, uCameraLocal, uFollow);',
       // Wrap the whole field into a box centred on the anchor: rain is
       // everywhere the camera is, for a fixed instance budget.
       '  vec3 p = mod(iOff + uVel * uTime - anchor + uBox * 0.5, uBox)',
       '      - uBox * 0.5 + anchor;',
       '  vec3 axis = normalize(uVel);',
-      '  vec3 toCam = p - cameraPosition;',
+      '  vec3 toCam = p - uCameraLocal;',
       '  float dist = length(toCam);',
       '  vec3 side = cross(axis, toCam / max(dist, 1e-4));',
       '  float sl = length(side);',
@@ -189,6 +226,15 @@ export function makeRain(opts = {}) {
       '      + side * (aCorner.x * uWidth);',
       '  vFade = iExtra.y * smoothstep(1.0, 6.0, dist)',
       '      * (1.0 - smoothstep(uFar * 0.55, uFar, dist));',
+      '  vec3 head = p + axis * (.5 * uLen * iExtra.x);',
+      '  float roof = uGroundY;',
+      '  if (uHasShelter > .5) {',
+      '    vec2 shelterUv = (head.xz - uShelterRect.xy) / uShelterRect.zw;',
+      '    if (all(greaterThanEqual(shelterUv, vec2(0.0))) &&',
+      '        all(lessThanEqual(shelterUv, vec2(1.0))))',
+      '      roof = max(roof, texture2D(uShelterMap, shelterUv).r);',
+      '  }',
+      '  vFade *= step(roof + .015, head.y);',
     ].join('\n'),
     fragmentHead: [
       'uniform vec3 uColor; uniform vec3 uRim;',
@@ -223,8 +269,114 @@ export function makeRain(opts = {}) {
   mesh.name = 'Rainfall';
   mesh.frustumCulled = false;  // positions live in the shader
   mesh.renderOrder = 4;        // in front of splashes and puddles
+  keepOutOfDepthPasses(mesh);
+  const beforeRender = mesh.onBeforeRender;
+  const shelter = makeShelterAtlas(mesh, {
+    surfaces, heightAt: opts.heightAt, groundY, resolution: shelterResolution,
+    distance: shelterUpdateDistance, radius, height, center, follow,
+  });
+  const inverse = new THREE.Matrix4();
+  mesh.onBeforeRender = (...args) => {
+    beforeRender.apply(mesh, args);
+    const camera = args[2];
+    inverse.copy(mesh.matrixWorld).invert();
+    camera.getWorldPosition(mat.uniforms.uCameraLocal.value).applyMatrix4(inverse);
+    shelter?.update(mat.uniforms.uCameraLocal.value, inverse);
+  };
   mesh.userData.update = (t) => { mat.uniforms.uTime.value = t; };
-  return keepOutOfDepthPasses(mesh);
+  const owned = snapshotResources(mesh);
+  if (shelter) owned.add(shelter.texture);
+  return attachDisposal(mesh, owned);
+}
+
+
+/** A bounded vertical height atlas; source surfaces remain caller-owned. */
+function makeShelterAtlas(mesh, cfg) {
+  if (!cfg.surfaces.length && !cfg.heightAt) return null;
+  const n = cfg.resolution;
+  const data = new Float32Array(n * n).fill(cfg.groundY);
+  const texture = new THREE.DataTexture(data, n, n, THREE.RedFormat, THREE.FloatType);
+  texture.minFilter = texture.magFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  const uniforms = mesh.material.uniforms;
+  uniforms.uShelterMap.value = texture;
+  const rect = uniforms.uShelterRect.value;
+  const lastMatrix = new THREE.Matrix4();
+  const anchor = new THREE.Vector2(Infinity, Infinity);
+  const ray = new THREE.Raycaster();
+  const point = new THREE.Vector3(), hitLocal = new THREE.Vector3();
+  const box = new THREE.Box3(), corner = new THREE.Vector3();
+  const direction = new THREE.Vector3();
+  let dirty = true;
+  const info = { resolution: n, rebuilds: 0, raysPerRebuild: n * n, texelSize: 0 };
+  mesh.userData.shelter = info;
+  mesh.userData.refreshShelter = () => { dirty = true; };
+  mesh.userData.sampleShelterHeight = (x, z) => {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) throw new RangeError('Rainfall.sampleShelterHeight: finite coordinates required');
+    if (!info.rebuilds || x < rect.x || x > rect.x + rect.z || z < rect.y || z > rect.y + rect.w) return null;
+    const ix = Math.min(n - 1, Math.floor((x - rect.x) / rect.z * n));
+    const iz = Math.min(n - 1, Math.floor((z - rect.y) / rect.w * n));
+    const value = data[iz * n + ix];
+    return value <= -1e7 ? null : value;
+  };
+  return {
+    texture,
+    update(cameraLocal, inverse) {
+      const x = cfg.follow ? cameraLocal.x : cfg.center[0];
+      const z = cfg.follow ? cameraLocal.z : cfg.center[2];
+      if (!dirty && Math.hypot(x - anchor.x, z - anchor.y) < cfg.distance && lastMatrix.equals(mesh.matrixWorld)) return;
+      const extent = 2 * (cfg.radius + cfg.distance + .5);
+      const texel = extent / n;
+      // Keep the lattice in fixed local coordinates while the atlas follows.
+      const cx = Math.round(x / texel) * texel, cz = Math.round(z / texel) * texel;
+      rect.set(cx - extent * .5, cz - extent * .5, extent, extent);
+      let top = Math.max(cfg.center[1], cameraLocal.y) + cfg.height;
+      for (const surface of cfg.surfaces) {
+        surface.updateWorldMatrix(true, true);
+        box.setFromObject(surface);
+        if (box.isEmpty()) continue;
+        for (let mask = 0; mask < 8; mask++) {
+          corner.set(mask & 1 ? box.max.x : box.min.x,
+            mask & 2 ? box.max.y : box.min.y, mask & 4 ? box.max.z : box.min.z)
+            .applyMatrix4(inverse);
+          top = Math.max(top, corner.y + 1);
+        }
+      }
+      direction.set(0, -1, 0).transformDirection(mesh.matrixWorld);
+      ray.ray.direction.copy(direction);
+      for (let row = 0; row < n; row++) for (let col = 0; col < n; col++) {
+        const px = rect.x + (col + .5) * texel, pz = rect.y + (row + .5) * texel;
+        let height = cfg.groundY;
+        if (cfg.heightAt) {
+          const sample = cfg.heightAt(px, pz);
+          if (sample != null && !Number.isFinite(sample)) throw new RangeError('Rainfall.heightAt must return a finite height or null');
+          if (sample != null) height = Math.max(height, sample);
+        }
+        if (cfg.surfaces.length) {
+          point.set(px, top, pz).applyMatrix4(mesh.matrixWorld);
+          ray.ray.origin.copy(point);
+          for (const hit of ray.intersectObjects(cfg.surfaces, true)) {
+            let visible = true;
+            for (let object = hit.object; object; object = object.parent) if (!object.visible) { visible = false; break; }
+            if (!visible) continue;
+            hitLocal.copy(hit.point).applyMatrix4(inverse);
+            height = Math.max(height, hitLocal.y);
+            break;
+          }
+        }
+        data[row * n + col] = height;
+      }
+      texture.needsUpdate = true;
+      uniforms.uHasShelter.value = 1;
+      anchor.set(x, z);
+      lastMatrix.copy(mesh.matrixWorld);
+      dirty = false;
+      info.rebuilds++;
+      info.texelSize = texel;
+      info.bounds = [rect.x, rect.y, rect.x + extent, rect.y + extent];
+    },
+  };
 }
 
 /**
@@ -422,7 +574,7 @@ export function makeSplashes(opts = {}) {
   const pts = _impactPoints(opts, rand);
   if (!pts.length) {
     group.userData.update = () => {};
-    return group;
+    return attachDisposal(group, snapshotResources(group));
   }
 
   const n = pts.length;
@@ -597,7 +749,9 @@ export function makeSplashes(opts = {}) {
     ringMat.uniforms.uTime.value = t2;
     if (crownMat) crownMat.uniforms.uTime.value = t2;
   };
-  return keepOutOfDepthPasses(group);
+  const owned = snapshotResources(group);
+  if (crownMat) owned.add(crownMat.uniforms.map.value);
+  return attachDisposal(keepOutOfDepthPasses(group), owned);
 }
 
 /**
@@ -791,7 +945,7 @@ export function makePuddle(w, d, opts = {}) {
       // Crest and trough are not the same water: a crest tips toward
       // the sky it mirrors and goes cool, a trough shows the warm bed.
       // One achromatic multiply left the pool on a single flat hue.
-      const s = h / amp;
+      const s = amp > 0 ? h / amp : 0;
       const b = Math.max(0.72, Math.min(1.35, 1 + s * 0.14));
       const w = Math.max(0, Math.min(1, 0.5 + 0.5 * s));
       col[vi * 3] = b * (1.06 - 0.12 * w);
@@ -808,5 +962,7 @@ export function makePuddle(w, d, opts = {}) {
   mesh.receiveShadow = true;
   mesh.userData.update = update;
   update(0);
-  return mesh;
+  const owned = snapshotResources(mesh);
+  if (mat.alphaMap) owned.add(mat.alphaMap);
+  return attachDisposal(mesh, owned);
 }

@@ -17,7 +17,7 @@
 
 import * as THREE from 'three';
 import {
-  composeRoughness, toColor, unit, withBase, worldBase,
+  toColor, unit, withBase, worldBase,
 } from './shader.js';
 
 // One base for all three, on the world varyings terrain_shade shares, so
@@ -41,16 +41,8 @@ const BASE = worldBase('waterside:base', 'wsP', 'wsN');
  * sky-family colour a `<color_fragment>` patch can reach), which is
  * what separates wet sand from sand in shadow.
  *
- * `gloss` lands on the MATERIAL, not per pixel: this patch writes only
- * at `<color_fragment>`, BEFORE `<roughnessmap_fragment>` declares
- * `roughnessFactor`, and does not use `patchStandard`'s `roughnessBody`.
- * It therefore defaults to a LIGHT touch:
- * a shore ground is mostly dry, and the reference default of 0.45 took
- * `MAT.soil()` from roughness 0.95 to 0.43 over the whole beach —
- * measured on this renderer (ACES, exposure 1.0, baked environment) it
- * turned the dry sand into satin and pushed the frame to mean_lum 0.85.
- * The per-pixel sheen above is what the wet band actually reads from;
- * pass `gloss: 0.45` when the bank has a material of its own.
+ * `gloss` multiplies roughness inside the wet mask. Dry substrate keeps
+ * its authored roughness, even when one material spans the entire beach.
  *
  * @param {THREE.Material} material A built-in material, patched in
  *   place.
@@ -70,11 +62,12 @@ export function patchShoreWet(material, opts = {}) {
   const gloss = opts.gloss === undefined ? 0.85 : opts.gloss;
   const sat = opts.saturate === undefined ? 0.35 : opts.saturate;
   const sheen = opts.sheen === undefined ? 0.22 : opts.sheen;
-  composeRoughness(material, 'waterside:wet', Math.max(gloss, 0));
+
   return withBase(material, BASE, {
     name: 'waterside:shoreWet',
     uniforms: {
       uWetY: { value: level },
+      uWetGloss: { value: Math.max(0, gloss) },
       uWetBand: { value: Math.max(band, 1e-3) },
       uWetDark: { value: unit(darken) },
       uWetSat: { value: Math.max(sat, 0) },
@@ -82,10 +75,15 @@ export function patchShoreWet(material, opts = {}) {
     },
     fragmentHead: [
       'uniform float uWetY;',
+      'uniform float uWetGloss;',
       'uniform float uWetBand;',
       'uniform float uWetDark;',
       'uniform float uWetSat;',
       'uniform float uWetSheen;',
+    ].join('\n'),
+    roughnessBody: [
+      'roughnessFactor = mix(roughnessFactor,',
+      '    max(0.045, roughnessFactor * uWetGloss), wtK);',
     ].join('\n'),
     fragmentBody: [
       '  float wtH = vAstraWorld.y - uWetY;',
@@ -98,7 +96,7 @@ export function patchShoreWet(material, opts = {}) {
       '  vec3 wtWet = mix(vec3(wtL), wtDry, 1.0 + uWetSat)',
       '               * (1.0 - uWetDark);',
       '  diffuseColor.rgb = mix(wtDry, max(wtWet, vec3(0.0)), wtK);',
-      // The sheen the material-wide gloss cannot place: it belongs on
+      // The extra grazing sheen belongs on
       // the film, not on the dry beach behind it. cameraPosition is a
       // three built-in in both stages, so no extra varying is needed.
       '  vec3 wtSky = vec3(0.42, 0.50, 0.60);',
@@ -121,10 +119,9 @@ export function patchShoreWet(material, opts = {}) {
  * rather than ending at an edge. The tear runs ALONG the shore because
  * the waves run across it: the horizontal part of the world normal
  * points up-slope, so its perpendicular is the shore direction, and the
- * noise is stretched sevenfold along it into streamers instead of the
- * bands-marching-at-the-viewer a ranked field would give. On a dead
- * flat surface there is no shore direction to find and it falls back to
- * the world X axis.
+ * world-space field is smoothed along it into elongated patches.
+ * This keeps curved objects from collapsing a projected coordinate into
+ * stripes. On a flat surface it uses world X as the fallback direction.
  *
  * The band breathes: two decorrelated swells move the LINE itself, so
  * the foam runs up the bank and drains again. Drive it with
@@ -184,6 +181,11 @@ export function patchShoreFoam(material, opts = {}) {
       'uniform float uFoamSpeed;',
       'uniform float uFoamAmt;',
       'uniform float uFoamReach;',
+      'float astraFoamNoise(vec3 p, vec3 w) {',
+      '  return astraFbm2(p.yz, 2) * w.x',
+      '      + astraFbm2(p.xz, 2) * w.y',
+      '      + astraFbm2(p.xy, 2) * w.z;',
+      '}',
     ].join('\n'),
     fragmentBody: [
       '  float fmT = uTime * uFoamSpeed;',
@@ -198,20 +200,25 @@ export function patchShoreFoam(material, opts = {}) {
       '  float fmL = length(fmNx);',
       '  vec2 fmA = fmL > 1e-3 ? fmNx / fmL : vec2(1.0, 0.0);',
       '  vec2 fmB = vec2(-fmA.y, fmA.x);',
-      '  float fmU = dot(vAstraWorld.xz, fmB);',
-      '  float fmV = dot(vAstraWorld.xz, fmA);',
-      // Structure runs ACROSS the flow: waves run up the bank, so the
-      // tear varies slowly along the shore and fast across it.
-      '  float fmN = astraFbm2(vec2(fmU * 0.30 + fmT * 0.05,',
-      '                             fmV * 2.10 - fmT * 0.35), 3);',
-      // The lace: a second, much finer field across the same frame,
-      // drifting faster. Without it the streamers read as one poured
-      // sheet with a torn outline instead of as bubbles.
-      '  float fmD = astraFbm2(vec2(fmU * 1.70,',
-      '                             fmV * 6.40 - fmT * 0.60), 2);',
+      // Keep noise in world space. Projecting position onto a changing
+      // curved-surface normal collapses one coordinate on spheres and
+      // creates vertical stripe fans. Average along the shore instead.
+      '  vec3 fmW = pow(abs(normalize(vAstraWorldN)), vec3(4.0));',
+      '  fmW /= max(dot(fmW, vec3(1.0)), 1e-4);',
+      '  vec3 fmP = vAstraWorld;',
+      '  vec3 fmFlow = vec3(fmA.x, 0.0, fmA.y);',
+      '  vec3 fmAlong = vec3(fmB.x, 0.0, fmB.y);',
+      '  vec3 fmQ = fmP * 2.10 - fmFlow * fmT * 0.35;',
+      '  float fmN = astraFoamNoise(fmQ, fmW) * 0.50;',
+      '  fmN += astraFoamNoise(fmQ + fmAlong * 0.9, fmW) * 0.25;',
+      '  fmN += astraFoamNoise(fmQ - fmAlong * 0.9, fmW) * 0.25;',
+      '  float fmD = astraFoamNoise(fmP * 9.5',
+      '      - fmFlow * fmT * 0.60 + vec3(17.1, 8.7, 31.2), fmW);',
       '  float fmK = astraContact(abs(fmH), uFoamBand);',
       '  fmK *= smoothstep(0.24, 0.62, fmN);',
-      '  fmK *= 0.55 + 0.45 * smoothstep(0.18, 0.72, fmD);',
+      '  float fmAA = min(fwidth(fmD), 0.18);',
+      '  fmK *= 0.22 + 0.78 * smoothstep(0.28 - fmAA,',
+      '      0.66 + fmAA, fmD);',
       // How much GROUND this band covers: a rise of uFoamBand runs
       // band * Ny / |Nxz| metres along a surface of that slope, and
       // 1/0 on a level one — where the band would be the whole reach.

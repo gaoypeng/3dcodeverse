@@ -16,13 +16,14 @@
  * and a facade is never what should spend it — see the patch's own JSDoc for what it does instead.
  */
 
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 import { patchNeonSpill } from './neon.js';
 import { fbm2, mulberry32, noiseDataTexture } from './noise.js';
 import {
-  baseRoughness, composeRoughness, keepOutOfDepthPasses, makeShaderMaterial,
+  keepOutOfDepthPasses, makeShaderMaterial,
   patchStandard, tickShaders, toColor, unit,
 } from './shader.js';
 
@@ -73,10 +74,10 @@ const CW_VERTEX = [
   '  vec3 cwNo = normal;',
   '#ifdef USE_INSTANCING',
   '  cwP = instanceMatrix * cwP;',
-  '  cwNo = mat3(instanceMatrix) * cwNo;',
+  '  cwNo = astraNormalTransform(mat3(instanceMatrix), cwNo);',
   '#endif',
   '  vCwW = (modelMatrix * cwP).xyz;',
-  '  vCwN = normalize((modelMatrix * vec4(cwNo, 0.0)).xyz);',
+  '  vCwN = astraNormalTransform(mat3(modelMatrix), cwNo);',
 ].join('\n');
 
 const CW_HEAD = [
@@ -261,11 +262,6 @@ export function patchCurtainWall(material, opts = {}) {
       ? sky.clone().lerp(new THREE.Color(0xffffff), 0.62)
       : toColor(opts.haze, 0xdfe7ee);
   const reflect = opts.reflect === undefined ? 0.22 : unit(opts.reflect);
-  // Glass is the smoothest thing on a street; roughness is a MATERIAL
-  // property here (no patch can reach the per-pixel one).
-  const base = baseRoughness(material);
-  composeRoughness(material, 'urban:curtain',
-                   base > 0 ? Math.max(0.05, 0.10 / base) : 1);
   return patchStandard(material, {
     name: opts.name || 'urban:curtain',
     uniforms: {
@@ -296,6 +292,8 @@ export function patchCurtainWall(material, opts = {}) {
     vertexBody: CW_VERTEX,
     fragmentHead: [CW_VARYINGS, CW_HEAD].join('\n'),
     fragmentBody: CW_BODY,
+    roughnessBody: 'roughnessFactor = mix(roughnessFactor, 0.10, cwGlass);',
+    metalnessBody: 'metalnessFactor *= 1.0 - cwGlass;',
   });
 }
 
@@ -742,12 +740,12 @@ export function makePowerLines(opts = {}) {
   }
 
   g.userData.spans = spans;
-  g.userData.tick = (t) => tickShaders(g, t);
+  g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
   g.userData.setViewport = (px) => {
     cableMat.uniforms.uCbViewH.value = Math.max(64, px);
     return g;
   };
-  return g;
+  return attachDisposal(g, snapshotResources(g));
 }
 
 
@@ -1094,7 +1092,9 @@ export function makeBillboard(opts = {}) {
     return g;
   };
   g.userData.relight();
-  g.userData.tick = (t) => tickShaders(g, t);
+  g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
   g.userData.forward = '+Z';
-  return g;
+  const owned = snapshotResources(g);
+  owned.add(faceMat.map);
+  return attachDisposal(g, owned);
 }

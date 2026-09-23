@@ -6,6 +6,22 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { snapshotResources, attachDisposal } from './lifecycle.js';
+
+/** A baked mirror changes triangle orientation as well as vertex positions. */
+function reverseWinding(geometry) {
+  if (!geometry.index) {
+    geometry.setIndex(Array.from({length:geometry.attributes.position.count}, (_, i) => i));
+  }
+  const index = geometry.index;
+  for (let i = 0; i + 2 < index.count; i += 3) {
+    const b = index.getX(i + 1);
+    index.setX(i + 1, index.getX(i + 2));
+    index.setX(i + 2, b);
+  }
+  index.needsUpdate = true;
+  return geometry;
+}
 
 /**
  * Build one prototype and stamp it across many transforms.
@@ -34,21 +50,25 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
  *     prototype; `name` names the returned group.
  * @returns {THREE.Group} A group of InstancedMeshes, positioned in world
  *     space by the placements. Empty group when there are no placements.
+ *     Mirrored placements use a second batch with baked reversed winding;
+ *     every instance matrix then has positive determinant, as Three requires.
+ *     userData.dispose() releases copied geometry and instance buffers, while
+ *     prototype materials/textures remain borrowed. Later children are unowned.
  */
 export function instanceAsset(build, placements, opts = {}) {
   const group = new THREE.Group();
   group.name = opts.name || 'InstancedAsset';
-  if (!placements || placements.length === 0) return group;
+  if (!placements || placements.length === 0) return attachDisposal(group, []);
 
   const proto = build(opts.buildOpts || {});
-  proto.updateMatrixWorld(true);
+  proto.updateWorldMatrix(true, true);
 
   // Collect meshes with transforms RELATIVE to the prototype root,
   // then MERGE by material — unmerged, a 1418-mesh asset would cost
   // 1418 draw calls per placement batch; merged, one per material.
   const buckets = new Map();
   const inv = new THREE.Matrix4().copy(proto.matrixWorld).invert();
-  proto.traverse((n) => {
+  proto.traverseVisible((n) => {
     if (!n.isMesh || n.isInstancedMesh || !n.geometry) return;
     const mats = Array.isArray(n.material) ? n.material : [n.material];
     if (!mats[0]) return;
@@ -56,6 +76,7 @@ export function instanceAsset(build, placements, opts = {}) {
     for (const { material, geometry } of splitByMaterial(n.geometry, mats)) {
       const g = geometry;
       g.applyMatrix4(xf);
+      if (xf.determinant() < 0) reverseWinding(g);
       // Merging needs identical attribute sets; drop the extras.
       for (const name of Object.keys(g.attributes)) {
         // `color` stays: a vertexColors material with no color
@@ -81,7 +102,7 @@ export function instanceAsset(build, placements, opts = {}) {
       parts.push({ geometry, material, local: new THREE.Matrix4() });
     }
   }
-  if (!parts.length) return group;
+  if (!parts.length) return attachDisposal(group, []);
 
   const world = placements.map((p) => {
     const pos = p.position instanceof THREE.Vector3
@@ -91,25 +112,39 @@ export function instanceAsset(build, placements, opts = {}) {
         ? new THREE.Vector3(...p.scale)
         : new THREE.Vector3(1, 1, 1).multiplyScalar(
             typeof p.scale === 'number' ? p.scale : 1);
-    return new THREE.Matrix4().compose(
+    const matrix = new THREE.Matrix4().compose(
         pos,
         new THREE.Quaternion().setFromEuler(
             new THREE.Euler(0, p.rotationY || 0, 0)),
         s);
+    if (!matrix.elements.every(Number.isFinite) || Math.abs(matrix.determinant()) < 1e-12) {
+      throw new RangeError('instanceAsset: placements need finite transforms and nonzero scale');
+    }
+    return matrix;
   });
 
   const m = new THREE.Matrix4();
   const tint = new THREE.Color();
+  const reflection = new THREE.Matrix4().makeScale(-1, 1, 1);
+  const batches = [[], []];
+  for (let i = 0; i < world.length; i++) batches[world[i].determinant() < 0 ? 1 : 0].push(i);
   for (const part of parts) {
+   for (let mirrored = 0; mirrored < batches.length; mirrored++) {
+    const indices = batches[mirrored];
+    if (!indices.length) continue;
+    const geometry = mirrored
+        ? reverseWinding(part.geometry.clone().applyMatrix4(reflection)) : part.geometry;
     const mesh = new THREE.InstancedMesh(
-        part.geometry, part.material, placements.length);
+        geometry, part.material, indices.length);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     let tinted = false;
-    for (let i = 0; i < placements.length; i++) {
-      m.copy(world[i]).multiply(part.local);
+    for (let i = 0; i < indices.length; i++) {
+      const sourceIndex = indices[i];
+      m.copy(world[sourceIndex]).multiply(part.local);
+      if (mirrored) m.multiply(reflection);
       mesh.setMatrixAt(i, m);
-      const c = placements[i].color;
+      const c = placements[sourceIndex].color;
       if (c !== undefined && c !== null) {
         // An array is LINEAR — the space the multiply happens in, and the
         // only way to say "1.06 of the albedo". set() reads a hex or a
@@ -123,9 +158,11 @@ export function instanceAsset(build, placements, opts = {}) {
     mesh.instanceMatrix.needsUpdate = true;
     if (tinted && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.frustumCulled = false;  // one bbox for the whole spread
+    mesh.userData.placementIndices = Int32Array.from(indices);
     group.add(mesh);
+   }
   }
-  return group;
+  return attachDisposal(group, snapshotResources(group, {materials:false}));
 }
 
 /**
@@ -238,6 +275,11 @@ function mergeBucket(geos) {
  * @returns {Array<object>} Placements for `instanceAsset`.
  */
 export function scatterGrid(area, spacing, rand, opts = {}) {
+  if (!Number.isFinite(spacing) || spacing <= 0 ||
+      ![area.x, area.z, area.w, area.d].every(Number.isFinite) || area.w < 0 || area.d < 0) {
+    throw new RangeError('scatterGrid: spacing must be positive and area finite with nonnegative size');
+  }
+  if (area.w === 0 || area.d === 0) return [];
   const jitter = opts.jitter ?? 0.35;
   const scaleVar = opts.scaleVar ?? 0.12;
   // Per-instance SHAPE variation, not just yaw: cheap repetition is

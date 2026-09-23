@@ -14,22 +14,20 @@
  * `terrain_shade`, `waterside` and `aging` on one material.
  *
  * THE CONSTRAINT IS THAT NEITHER HAS THICKNESS. `fragmentBody` edits
- * albedo and nothing else; a vertex displacement would tear every
+ * albedo and the lit micro-normal; vertex displacement would tear every
  * hard-edged BoxGeometry open at its rim, because the top face's
  * vertices carry a different normal from the side's and would walk
  * away from them. So a layer sells its depth by what it COVERS (steep
  * faces lose it, concave lees keep it), by a torn edge instead of a
  * ruled one, and by the shade it drops on the material just outside
- * that edge. Gloss here is per MATERIAL, not per pixel (neither patch
- * uses `patchStandard`'s `roughnessBody`), so each patch composes ONE
- * factor through `composeRoughness`, weighted by how much of the
- * surface it took over.
+ * that edge. Roughness and metalness follow the same local coverage as
+ * the albedo; bare faces retain the authored substrate finish.
  */
 
 import * as THREE from 'three';
 import {
-  patchStandard, composeRoughness, glslAxes, glslCurv, glslTriNoise,
-  seedVec3, toColor, towardRoughness, unit, upVector, worldBase,
+  patchStandard, glslAxes, glslCurv, glslTriNoise,
+  seedVec3, toColor, unit, upVector, worldBase,
 } from './shader.js';
 
 // Both patches read these, so they are declared once, in the base.
@@ -106,7 +104,7 @@ function windVector(value, fallback) {
  * @param {object} [opts] `depth` metres of lying snow, which sets how
  *   far down a pitch it holds and how opaque it is (default 0.05; 0.01
  *   is a dusting, 0.15 buries); `color` THREE.Color or hex (default a
- *   cold white at 0.78 linear — snow is the brightest albedo in a scene
+ *   neutral white below 0.78 linear — snow is the brightest albedo in a scene
  *   and still has to sit UNDER the tone curve's shoulder, or its own
  *   shading clips to one flat card); `up` THREE.Vector3 or [x, y, z], the scene's up
  *   (default +Y); `wind` THREE.Vector3 or [x, y, z] it blows TOWARD,
@@ -131,16 +129,13 @@ export function patchSnow(material, opts = {}) {
       ? Math.max(1e-3, melt.radius === undefined ? 0.9 : melt.radius) : 0;
   // Snow is a diffuse cover with a faint sheen, and it takes the
   // material's gloss over only as far as it takes the surface over.
-  composeRoughness(material, 'acc:snow',
-                   towardRoughness(material, 0.86,
-                                   0.65 * unit(depth / 0.05)
-                                   * (1 - meltAmt)));
+
   patchStandard(material, BASE);
   return patchStandard(material, {
     name: 'acc:snow',
     uniforms: {
       uSnowDepth: { value: depth },
-      uSnowColor: { value: toColor(opts.color, 0xc9d2dd) },
+      uSnowColor: { value: toColor(opts.color, 0xe0e2e3) },
       uSnowUp: { value: upVector(opts.up) },
       uSnowWind: { value: windVector(opts.wind, null) },
       uSnowMelt: { value: meltAmt },
@@ -155,6 +150,20 @@ export function patchSnow(material, opts = {}) {
       'uniform float uSnowMelt;',
       'uniform vec4 uSnowWarm;',
       'uniform vec3 uSnowSeed;',
+    ].join('\n'),
+    roughnessBody: 'roughnessFactor = mix(roughnessFactor, 0.86, snAmt);',
+    metalnessBody: 'metalnessFactor *= 1.0 - snAmt;',
+    normalBody: [
+      'vec3 snDx = dFdx(-vViewPosition);',
+      'vec3 snDy = dFdy(-vViewPosition);',
+      'vec3 snR1 = cross(snDy, normal);',
+      'vec3 snR2 = cross(normal, snDx);',
+      'float snDet = dot(snDx, snR1);',
+      'float snHeight = snAmt * snF * snFad * 0.0009;',
+      'vec3 snGradient = sign(snDet) *',
+      '    (dFdx(snHeight) * snR1 + dFdy(snHeight) * snR2);',
+      'if (abs(snDet) > 1e-12)',
+      '  normal = normalize(abs(snDet) * normal - snGradient);',
     ].join('\n'),
     fragmentBody: [
       '  vec3 snN = normalize(vAstraWorldN);',
@@ -216,28 +225,12 @@ export function patchSnow(material, opts = {}) {
       '  float snF = astraAccNoise(snP * 6.0 + 17.3, snW);',
       '  float snTn = clamp(mix(snG, snG * 0.66 + snF * 0.34, snFad),',
       '                     0.0, 1.0);',
-      // The tone rides both fields, over a swing that has to live BELOW
-      // the tone curve's shoulder: at exposure 1.0 with no post chain,
-      // 0.85 linear and 0.56 linear come out of ACES as the same white,
-      // so a near-white cover shaded across the top of the curve renders
-      // as one flat card however much field is under it.
-      '  vec3 snCol = mix(uSnowColor * 0.46, uSnowColor * 1.04,',
+      // Fresh snow is nearly neutral. Wide blue/white albedo swings made
+      // flat ground look marbled; the scene light supplies its shadow hue.
+      '  vec3 snCol = mix(uSnowColor * 0.82, uSnowColor * 1.03,',
       '                   smoothstep(0.16, 0.86, snTn));',
-      // Deep pack goes BLUE and a scoured lane goes warm: a drift is lit
-      // by the sky through its own scattering, while thin snow hands
-      // some of the substrate back. The concave lee counts extra,
-      // because a hollow is the bluest snow in any photograph.
-      '  float snPack = clamp(smoothstep(0.30, 1.20, snD)',
-      '                       + clamp(snHold - 1.0, 0.0, 1.0) * 0.6,',
-      '                       0.0, 1.0);',
-      '  snCol *= mix(vec3(1.05, 1.01, 0.96), vec3(0.90, 0.96, 1.10),',
-      '               snPack);',
-      // Snow is the most coloured surface in any scene — it reflects
-      // whatever lights it — so it takes the swing too, but gently:
-      // past a narrow band it stops reading as snow. TWO scales, because
-      // one field the width of a yard is still one flat tint on a roof.
-      '  snCol = astraHueBreak(snCol, vAstraWorld.xz, 0.22, 0.14);',
-      '  snCol = astraHueBreak(snCol, vAstraWorld.xz + 31.7, 1.45, 0.07);',
+      '  snCol = astraHueBreak(snCol, vAstraWorld.xz, 0.22, 0.025);',
+      '  snCol = astraHueBreak(snCol, vAstraWorld.xz + 31.7, 1.45, 0.012);',
       // A third of a code value of screen dither: a near-white ramp
       // across a roof is the one place 8-bit banding is unmissable, and
       // there is no post chain here to dither it for us.
@@ -255,6 +248,7 @@ export function patchSnow(material, opts = {}) {
       // Thin snow is TRANSLUCENT — the substrate comes through it — so
       // the drifts read as deep and the scoured lanes as shallow.
       '  float snThin = mix(0.38, 1.0, smoothstep(0.55, 1.30, snD));',
+      '  snThin = mix(snThin, 1.0, snCov * 0.88);',
       '  float snAmt = clamp(snK * snThin * mix(0.55, 1.0, snCov)',
       '                      * smoothstep(0.0, 0.004, uSnowDepth), 0.0, 1.0);',
       '  diffuseColor.rgb = mix(diffuseColor.rgb, snCol, snAmt);',
@@ -311,8 +305,7 @@ export function patchSand(material, opts = {}) {
   const amount = opts.amount === undefined ? 0.45 : unit(opts.amount);
   const seed = opts.seed === undefined ? 1 : opts.seed;
   // Sand is the mattest thing in any scene it lands in.
-  composeRoughness(material, 'acc:sand',
-                   towardRoughness(material, 0.94, 0.70 * amount));
+
   patchStandard(material, BASE);
   return patchStandard(material, {
     name: 'acc:sand',
@@ -330,6 +323,8 @@ export function patchSand(material, opts = {}) {
       'uniform vec3 uSandUp;',
       'uniform vec3 uSandSeed;',
     ].join('\n'),
+    roughnessBody: 'roughnessFactor = mix(roughnessFactor, 0.94, sdAmt);',
+    metalnessBody: 'metalnessFactor *= 1.0 - sdAmt;',
     fragmentBody: [
       '  vec3 sdN = normalize(vAstraWorldN);',
       '  vec3 sdUp = normalize(uSandUp);',

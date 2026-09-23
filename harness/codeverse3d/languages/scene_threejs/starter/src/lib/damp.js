@@ -22,19 +22,34 @@
  * (measured: a splat over a triplanar did exactly that). Every one here
  * multiplies or mixes with what it is handed.
  *
- * Gloss is per MATERIAL, not per pixel — all three write only at
- * `<color_fragment>`, before `<roughnessmap_fragment>`, and none uses
- * `patchStandard`'s `roughnessBody` — so each composes ONE factor through
- * `composeRoughness`, and they pull BOTH ways: moss and dried mud are
- * matte, damp ground and a water-filled crack are glossy.
+ * Surface finish follows the local material masks through late PBR hooks.
+ * Moss and dry silt are matte; damp ground and water-filled cracks are glossy.
+ * Uncovered substrate keeps its own roughness and metalness.
  */
 
 import * as THREE from 'three';
 import {
-  patchStandard, composeRoughness, baseRoughness, frac, glslAxes, glslCurv,
-  glslTriNoise, seedVec3, toColor, towardRoughness, unit, upVector,
+  patchStandard, frac, glslAxes, glslCurv,
+  glslTriNoise, seedVec3, toColor, unit, upVector,
   worldBase,
 } from './shader.js';
+
+/** Perturb the lit view normal from a local coating height in world metres. */
+function coatingNormal(prefix, height) {
+  return [
+    `vec3 ${prefix}Dx = dFdx(-vViewPosition);`,
+    `vec3 ${prefix}Dy = dFdy(-vViewPosition);`,
+    `vec3 ${prefix}R1 = cross(${prefix}Dy, normal);`,
+    `vec3 ${prefix}R2 = cross(normal, ${prefix}Dx);`,
+    `float ${prefix}Det = dot(${prefix}Dx, ${prefix}R1);`,
+    `float ${prefix}Height = ${height};`,
+    `vec3 ${prefix}Gradient = sign(${prefix}Det) *`,
+    `    (dFdx(${prefix}Height) * ${prefix}R1`,
+    `    + dFdy(${prefix}Height) * ${prefix}R2);`,
+    `if (abs(${prefix}Det) > 1e-12)`,
+    `  normal = normalize(abs(${prefix}Det) * normal - ${prefix}Gradient);`,
+  ].join('\n');
+}
 
 // All three patches read these, so they are declared once, in the base.
 // astraDamp*, not a neighbour's spelling: patchStandard THROWS when two
@@ -112,28 +127,7 @@ function northVector(value, up) {
   return v.normalize();
 }
 
-/**
- * A wet target that is glossier than the surface it lands on — never a
- * mirror, and never rougher than what it landed on.
- *
- * A FIXED target is wrong in both directions, and roughness here is per
- * MATERIAL, so whatever it does it does to the whole surface. The
- * reference's 0.34 is a water FILM: on our renderer (a baked sky
- * environment, ACES at exposure 1.0, no post chain) it turned a
- * 0.95-rough bank into a sky mirror and lifted the ground from
- * luminance 0.607 to 0.823 — BRIGHTER, when the whole point of the
- * apron is that it is darker. Raising the fixed number instead just
- * moves the error: 0.62 on a 0.5-rough stone would ROUGHEN it when wet.
- *
- * So the target is a RATIO of what the material already is, floored so
- * a rough ground cannot be polished past wet soil, and clamped to the
- * base so a surface already smoother than the floor is left alone.
- */
-function wetTarget(material, floor, ratio) {
-  const base = baseRoughness(material);
-  if (!(base > 0)) return floor;
-  return Math.min(base, Math.max(floor, base * ratio));
-}
+
 
 /**
  * Move one colour in HSL, wrapping the hue so a shift may cross 0.
@@ -249,8 +243,7 @@ export function patchMoss(material, opts = {}) {
   const color = toColor(opts.color, 0x40592a);
   // Moss is matte and it takes the gloss over only as far as it takes
   // the surface over.
-  composeRoughness(material, 'damp:moss',
-                   towardRoughness(material, 0.97, 0.70 * amount));
+
   patchStandard(material, BASE);
   return patchStandard(material, {
     name: 'damp:moss',
@@ -276,6 +269,11 @@ export function patchMoss(material, opts = {}) {
       'uniform vec3 uMossNorth;',
       'uniform vec3 uMossSeed;',
     ].join('\n'),
+    roughnessBody: 'roughnessFactor = mix(roughnessFactor, 0.97, clamp((msK + msLiK) * msOn, 0.0, 1.0));',
+    metalnessBody: 'metalnessFactor *= 1.0 - clamp((msK + msLiK) * msOn, 0.0, 1.0);',
+    normalBody: coatingNormal('msBump',
+      'msOn * (msK * (0.001 + 0.003 * msG) + msLiK * 0.0008)'
+      + ' * (1.0 - smoothstep(0.03, 0.10, length(fwidth(vAstraWorld))))'),
     fragmentBody: [
       '  vec3 msN = normalize(vAstraWorldN);',
       '  vec3 msUp = normalize(uMossUp);',
@@ -333,6 +331,7 @@ export function patchMoss(material, opts = {}) {
       // the rest of the MASK, so everything above this line is scalar
       // maths a probe can lift out and evaluate against a swept normal.
       '  float msOn = smoothstep(0.0, 0.05, uMossAmt);',
+      '  msLip *= msOn;',
       '  diffuseColor.rgb *= 1.0 - 0.20 * msLip;',
       // THE CUSHION IS A HUE RANGE. Deep in the shade between the
       // clumps, body green where it is thick, a yellow-green crown on
@@ -395,9 +394,8 @@ export function patchMoss(material, opts = {}) {
  *
  * It MULTIPLIES the albedo it is handed and deepens its colour, so a
  * triplanar, a splat or a wear pattern underneath comes through the
- * apron rather than being replaced by it. Gloss here is per MATERIAL,
- * not per pixel, so the factor goes DOWN — the opposite direction from
- * moss on the same chain.
+ * apron rather than being replaced by it. The same local moisture mask
+ * lowers roughness; uncovered substrate retains its authored finish.
  *
  * @param {THREE.Material} material A built-in material, patched in
  *   place — a shared material damps every mesh wearing it.
@@ -414,11 +412,9 @@ export function patchMoisture(material, opts = {}) {
   const strength = opts.strength === undefined ? 0.45 : unit(opts.strength);
   const seed = opts.seed === undefined ? 1 : opts.seed;
   // Damp ground is the glossiest thing on a shore that is not water —
-  // but only a THIRD glossier than the ground it lands on, and never
-  // past wet soil: see `wetTarget` for what a fixed number did here.
-  composeRoughness(material, 'damp:moisture',
-                   towardRoughness(material, wetTarget(material, 0.30, 0.68),
-                                   0.45 * strength));
+  // but rough ground retains a broad wet-soil highlight. Already polished
+  // substrate must never become rougher when the moisture mask increases.
+
   patchStandard(material, BASE);
   return patchStandard(material, {
     name: 'damp:moisture',
@@ -434,6 +430,7 @@ export function patchMoisture(material, opts = {}) {
       'uniform float uMoistAmt;',
       'uniform vec3 uMoistSeed;',
     ].join('\n'),
+    roughnessBody: 'roughnessFactor = mix(roughnessFactor, min(roughnessFactor, max(0.30, roughnessFactor * 0.68)), moA);',
     fragmentBody: [
       '  float moH = vAstraWorld.y - uMoistY;',
       '  float moT = clamp(moH / uMoistReach, 0.0, 1.0);',
@@ -536,17 +533,9 @@ export function patchCrackedMud(material, opts = {}) {
   const wet = opts.wet === undefined ? 0 : unit(opts.wet);
   const seed = opts.seed === undefined ? 1 : opts.seed;
   const mudColor = toColor(opts.color, 0x9c8a71);
-  // Dry silt is the mattest thing in a bed and water standing in the
-  // cracks is the glossiest: ONE factor swings between the two. The dry
-  // end is absolute (silt is matte whatever it lands on); the wet end
-  // is relative, for the reason `wetTarget` gives — the cracks' gloss
-  // is charged to the whole plate, and a mirror-flat plate under a sky
-  // environment reads as a bright card, not as a bed holding water.
-  composeRoughness(material, 'damp:mud',
-                   towardRoughness(
-                       material,
-                       0.95 + (wetTarget(material, 0.30, 0.62) - 0.95) * wet,
-                       0.45));
+  // Dry silt is matte; wet cracks carry narrower highlights. Both finishes
+  // use the existing mud mask instead of changing the entire substrate.
+
   patchStandard(material, BASE);
   return patchStandard(material, {
     name: 'damp:mud',
@@ -568,6 +557,11 @@ export function patchCrackedMud(material, opts = {}) {
       'uniform float uMudWet;',
       'uniform vec3 uMudSeed;',
     ].join('\n'),
+    roughnessBody: 'roughnessFactor = mix(roughnessFactor, mix(0.95, 0.28, uMudWet * (0.32 + 0.68 * mdCrk)), mdAmt);',
+    metalnessBody: 'metalnessFactor *= 1.0 - mdAmt;',
+    normalBody: coatingNormal('mdBump',
+      'mdAmt * uMudDepth * uMudScale * (mdLip * 0.025 - mdCrk * 0.010)'
+      + ' * (1.0 - smoothstep(0.025, 0.12, length(fwidth(vAstraWorld))))'),
     fragmentBody: [
       '  vec3 mdN = normalize(vAstraWorldN);',
       // A bed is level: the cells are read from world XZ, and a face
@@ -581,7 +575,7 @@ export function patchCrackedMud(material, opts = {}) {
       '  vec2 mdC = astraDampCells(mdP + mdWp * 1.10);',
       // Crack width in CELLS, so one `depth` widens, darkens and lifts;
       // water standing in a crack spreads it wider still.
-      '  float mdW = mix(0.010, 0.055, uMudDepth)',
+      '  float mdW = mix(0.004, 0.022, uMudDepth)',
       '            * mix(1.0, 1.6, uMudWet)',
       // A bed does not dry evenly: the same warp opens the cracks in
       // one patch of it and leaves hairlines in the next.
@@ -618,9 +612,9 @@ export function patchCrackedMud(material, opts = {}) {
       '  vec3 mdCol = mix(mdPl, mix(mdDk, mdWc, uMudWet), mdCrk);',
       // The lip catches the SUN, so it is warmer as well as brighter —
       // a lip that only brightens reads as a highlight on plastic.
-      '  mdCol = mix(mdCol, mdCol * vec3(1.16, 1.06, 0.92),',
+      '  mdCol = mix(mdCol, mdCol * vec3(1.06, 1.02, 0.97),',
       '              clamp(mdLip * 1.30, 0.0, 1.0));',
-      '  mdCol *= 1.0 + mdLip * mix(0.08, 0.30, uMudDepth);',
+      '  mdCol *= 1.0 + mdLip * mix(0.04, 0.12, uMudDepth);',
       '  float mdAmt = clamp(mdLie * mix(0.55, 1.0, uMudDepth), 0.0, 1.0);',
       '  diffuseColor.rgb = mix(diffuseColor.rgb, mdCol, mdAmt);',
     ].join('\n'),

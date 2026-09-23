@@ -9,8 +9,9 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32 } from './noise.js';
-import { makeShaderMaterial, patchStandard, tickShaders } from './shader.js';
+import { makeShaderMaterial, patchStandard, tickShaders, keepOutOfDepthPasses } from './shader.js';
 
 // Sheets are packed toward the ground (h ~ f^PACK): an evenly spaced
 // stack spends most of its geometry in the thin top half where there
@@ -184,7 +185,7 @@ function readScene(scene) {
   }
   let best = null;
   let fill = null;
-  scene.traverse((o) => {
+  scene.traverseVisible((o) => {
     if (o.isDirectionalLight) {
       if (!best || o.intensity > best.intensity) best = o;
     } else if (o.isHemisphereLight || o.isAmbientLight) {
@@ -196,7 +197,8 @@ function readScene(scene) {
     // vector to the light — and at night that is the MOON, which is
     // what a bank actually scatters. An authored `sunDir` from a set
     // sun would point under the ground.
-    out.dir = best.position.clone();
+    out.dir = best.getWorldPosition(new THREE.Vector3());
+    if (best.target) out.dir.sub(best.target.getWorldPosition(new THREE.Vector3()));
     if (out.dir.lengthSq() < 1e-8) out.dir = null;
     else out.dir.normalize();
     out.sun = best.color.clone();
@@ -463,20 +465,31 @@ export function makeHeightFog(opts = {}) {
   });
   const mesh = new THREE.Mesh(fogSheets(extent, top, heightAt), mat);
   mesh.name = 'HeightFogBank';
-  // Drawn with an OVERRIDE material — GTAOPass's depth+normal buffer —
-  // a dozen sheets read as a dozen solid floors occluding each other:
-  // 50/255 of darkening on ground the fog was not even touching.
-  mesh.onBeforeRender = (r, s, cam, geo, m) => {
-    geo.setDrawRange(0, m === mat ? Infinity : 0);
+  const refreshLighting = (scene = opts.scene) => {
+    const current = readScene(scene);
+    const uniforms = mat.uniforms;
+    if (opts.color === undefined) {
+      const air = current.air || inScatterFloor(
+        current.fog || new THREE.Color(DAY_HORIZON), current.amb,
+        .55 * current.ambLum);
+      uniforms.uColor.value.copy(air);
+    }
+    if (!opts.sunDir && current.dir) uniforms.uSunDir.value.copy(current.dir);
+    const key = opts.sunAmount === undefined ? current.key : opts.sunAmount * 5;
+    uniforms.uSunAmt.value = Math.min(1, Math.max(0, key / 5));
+    uniforms.uBeam.value.copy(current.sun || new THREE.Color(0xffffff))
+      .multiplyScalar(Math.max(0, key) * BEAM_K);
+    uniforms.uSunTint.value.copy(chroma(current.sun || uniforms.uColor.value));
+    uniforms.uAmbTint.value.copy(chroma(current.amb || uniforms.uColor.value));
   };
-  mesh.onAfterRender = (r, s, cam, geo) => {
-    geo.setDrawRange(0, Infinity);
-  };
+  mesh.onBeforeRender = (_renderer, scene) => refreshLighting(scene);
+  keepOutOfDepthPasses(mesh);
   const group = new THREE.Group();
   group.name = 'HeightFog';
   group.add(mesh);
-  group.userData.tick = (t) => tickShaders(group, t);
-  return group;
+  group.userData.update = group.userData.tick = (t) => tickShaders(group, t);
+  group.userData.refreshLighting = refreshLighting;
+  return attachDisposal(group, snapshotResources(group));
 }
 
 const AERIAL_VERT = [

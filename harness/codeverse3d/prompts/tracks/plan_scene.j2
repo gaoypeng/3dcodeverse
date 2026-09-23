@@ -8,6 +8,20 @@ The scene uses the same frame: Y up, meters; the ground is around y=0 unless you
 LANGUAGE CONTRACT THE BUILDERS WILL FOLLOW:
 {{ contract }}
 
+SHIPPED NATURAL EFFECTS:
+The scene workspace already contains `src/lib/fire.js` (`makeFire`, `makeCandle`),
+`ocean.js` (`makeOceanSurface`), `stream.js` (`makeStream`), `sand.js`
+(`makeSandTerrain`), `rock.js` (`makeRock`, `makeRockField`) and `meadow.js`
+(`makeMeadow`). When they cover the brief, describe their calls and dimensions in
+the owning zone description / environment / effects. Do not request a separate
+StreamRibbon, Flame, CandleTrio or GrassPatch asset that rebuilds the same effect.
+The standalone asset stage only imports Three.js; shipped effects must be composed
+by zone/environment code, which may import `../lib/`. Zone `contents` still lists
+only actual asset names; library effects belong in prose, not invented asset ids.
+Plan the stream's upstream-to-downstream path once, with nonincreasing Y, and
+require terrain banks to use that same surface sampler and local coordinate frame.
+The zone drives each effect's `userData.update(t, dt)` exactly once per frame.
+
 ## What this track is graded on (write the plan that wins these points)
 A scene scores 0.8+ only when every authored camera makes a PICTURE: three depth layers
 (something within 5 m framing the shot, the subject at 8-30 m, a hazy horizon above), ground

@@ -35,15 +35,19 @@
  * toward the water, so a view from above integrates the profile
  * instead of a single slice of it.
  *
- * Both billboard against the WORLD camera axes, so add them at the
- * scene root or under a translated parent — a rotated or scaled parent
- * tilts the cards.
+ * Flow, height samples and ballistic gravity use group-local coordinates.
+ * Cards face the world camera under rotated, scaled or sheared parents;
+ * sunDir remains a world-space direction. Nonuniform scale changes apparent
+ * card size with view direction, while preserving local simulation units.
+ * These are transparent particles, without scene-depth soft intersections
+ * or collisions. Rotating the group also rotates its local gravity.
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 
 import { lehmer } from './noise.js';
-import { instancedQuad, makeShaderMaterial, tickShaders, keepOutOfDepthPasses } from './shader.js';
+import { instancedQuad, makeShaderMaterial, tickShaders, keepOutOfDepthPasses, glslLocalDir } from './shader.js';
 
 // Free fall. It is written twice on purpose — in the vertex shader and
 // in the CPU mirror `userData.sample` — so both read this one number.
@@ -130,7 +134,7 @@ function toFlow(v) {
  *   `heightAt` (x, z) => y water surface height, so the bank follows a
  *   sloping reach; `seed` PRNG seed (default 5).
  * @returns {THREE.Group} Named `WaterMist`, its foot on y = 0 (or on
- *   `heightAt`), with `userData.tick(t)` driving the drift. Move the
+ *   `heightAt`), with `userData.update(t)` (also `tick(t)`) driving the drift. Move the
  *   group to move the bank.
  */
 export function makeWaterMist(opts = {}) {
@@ -214,8 +218,8 @@ export function makeWaterMist(opts = {}) {
     const g = new THREE.Group();
     g.name = 'WaterMist';
     g.add(mesh);
-    g.userData.tick = (t) => tickShaders(g, t);
-    return keepOutOfDepthPasses(g);
+    g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+    return attachDisposal(keepOutOfDepthPasses(g), snapshotResources(g));
 }
 
 /** Camera-facing cards, all reading one scrolling field of air. */
@@ -261,9 +265,10 @@ function mistMaterial(cfg) {
             uDither: { value: 0.010 / Math.sqrt(Math.max(1, cfg.hits)) },
         },
         varyings: 'varying vec2 vUv; varying vec3 vP;'
-            + ' varying float vBase;',
+            + ' varying float vBase; varying vec3 vWaterWorld;',
         vertexHead: 'attribute vec3 aCorner; attribute vec4 aPuff;'
-            + ' attribute vec2 aCard; uniform vec2 uSize;',
+            + ' attribute vec2 aCard; uniform vec2 uSize;'
+            + glslLocalDir('waterLocalDir'),
         vertexMain: [
             '  vUv = uv;',
             '  vBase = aPuff.z;',
@@ -274,10 +279,15 @@ function mistMaterial(cfg) {
             '      viewMatrix[2][0]);',
             '  vec3 camU = vec3(viewMatrix[0][1], viewMatrix[1][1],',
             '      viewMatrix[2][1]);',
+            '  camR = waterLocalDir(camR);',
+            '  camU = waterLocalDir(camU);',
+            '  camR /= max(length(camR), 1e-8);',
+            '  camU /= max(length(camU), 1e-8);',
             '  vec3 mid = vec3(aPuff.x, aPuff.w, aPuff.y);',
             '  transformed = mid + camR * (aCorner.x * uSize.x * aCard.x)',
             '      + camU * (aCorner.y * uSize.y * aCard.y);',
             '  vP = transformed;',
+            '  vWaterWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;',
         ].join('\n'),
         fragmentHead: 'uniform vec3 uColor; uniform float uAlpha;'
             + ' uniform float uTop; uniform float uScale;'
@@ -372,7 +382,7 @@ function mistMaterial(cfg) {
             // which is no coupling at all at the angles a camera
             // actually stands at. Normalised so side-scatter (mu = 0)
             // reads 0.20, the value the power form had as its floor.
-            '  vec3 V = normalize(vP - cameraPosition);',
+            '  vec3 V = normalize(vWaterWorld - cameraPosition);',
             '  float mu = dot(V, uSunDir);',
             '  float den = 1.3025 - 1.10 * mu;',
             '  float hg = clamp(0.2929 / max(pow(den, 1.5), 1e-3),',
@@ -425,7 +435,7 @@ function mistMaterial(cfg) {
  *   once the sun is down; `sunColor` for that light (default a warm
  *   white); `seed` PRNG seed (default 3).
  * @returns {THREE.Group} Named `Spray`, positioned at `origin`, with
- *   `userData.tick(t)` driving it and `userData.sample(i, t)` returning
+ *   `userData.update(t)` (also `tick(t)`) driving it and `userData.sample(i, t)` returning
  *   droplet i's group-local position — the CPU mirror of the ballistics
  *   the vertex shader runs.
  */
@@ -488,7 +498,7 @@ export function makeSpray(opts = {}) {
     g.name = 'Spray';
     g.position.copy(origin);
     g.add(mesh);
-    g.userData.tick = (t) => tickShaders(g, t);
+    g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
     g.userData.sample = (i, t) => {
         const k = Math.min(count - 1, Math.max(0, i | 0));
         const vy = vel[k * 3 + 1];
@@ -499,7 +509,7 @@ export function makeSpray(opts = {}) {
             org[k * 3 + 1] + vy * age - 0.5 * _G * age * age,
             org[k * 3 + 2] + vel[k * 3 + 2] * age);
     };
-    return keepOutOfDepthPasses(g);
+    return attachDisposal(keepOutOfDepthPasses(g), snapshotResources(g));
 }
 
 /** One arc per droplet, stretched along the way it is going. */
@@ -529,7 +539,8 @@ function sprayMaterial(color, size, sun, sunColor) {
         vertexHead: 'attribute vec3 aCorner; attribute vec3 aOrg;'
             + ' attribute vec3 aVel; attribute vec2 aPhase;'
             + ' uniform float uSize; uniform float uG;'
-            + ' uniform float uStreak; uniform vec3 uSunDir;',
+            + ' uniform float uStreak; uniform vec3 uSunDir;'
+            + glslLocalDir('waterLocalDir'),
         vertexMain: [
             '  vUv = uv;',
             // Its own flight time, so every droplet relaunches on its
@@ -540,13 +551,22 @@ function sprayMaterial(color, size, sun, sunColor) {
             '  vec3 c = aOrg + vec3(aVel.x, 0.0, aVel.z) * age;',
             '  c.y += aVel.y * age - 0.5 * uG * age * age;',
             '  vec3 v = vec3(aVel.x, aVel.y - uG * age, aVel.z);',
-            '  vec3 f = normalize(cameraPosition - c);',
-            '  vec3 d = v - f * dot(v, f);',
-            '  float dl = length(d);',
-            '  vec3 dir = dl > 1e-4 ? d / dl',
-            '      : vec3(viewMatrix[0][1], viewMatrix[1][1],',
-            '             viewMatrix[2][1]);',
-            '  vec3 sid = normalize(cross(f, dir));',
+            '  vec3 cw = (modelMatrix * vec4(c, 1.0)).xyz;',
+            '  vec3 vw = mat3(modelMatrix) * v;',
+            '  vec3 f = cameraPosition - cw;',
+            '  f /= max(length(f), 1e-8);',
+            '  vec3 d = vw - f * dot(vw, f);',
+            '  if (length(d) < 1e-4) {',
+            '    d = vec3(viewMatrix[0][1], viewMatrix[1][1],',
+            '        viewMatrix[2][1]);',
+            '    d -= f * dot(d, f);',
+            '  }',
+            '  vec3 dir = d / max(length(d), 1e-8);',
+            '  vec3 sid = cross(f, dir);',
+            '  dir = waterLocalDir(dir);',
+            '  sid = waterLocalDir(sid);',
+            '  dir /= max(length(dir), 1e-8);',
+            '  sid /= max(length(sid), 1e-8);',
             '  float w = uSize * aPhase.y;',
             '  float st = 1.0 + uStreak * length(v);',
             '  transformed = c + dir * (aCorner.y * w * st)',

@@ -30,16 +30,13 @@
  * Tracks that must run somewhere else on the same material take
  * `offset` (metres across) rather than a second centreline.
  *
- * Gloss is per MATERIAL, not per pixel — all three write only at
- * `<color_fragment>`, before `<roughnessmap_fragment>`, and none uses
- * `patchStandard`'s `roughnessBody` — so each patch composes ONE factor
- * through `composeRoughness`: polished ruts and a damp gutter drop it,
- * grit and loose aggregate raise it.
+ * Gloss follows the same local masks as color: tire lanes polish,
+ * gutters stay damp and collected grit remains matte at the verge.
  */
 
 import * as THREE from 'three';
 import {
-  patchStandard, composeRoughness, glslAxes, glslTriNoise, matteFactor,
+  patchStandard, glslAxes, glslTriNoise,
   seedVec3, toColor, unit, WORLD_VARYINGS,
 } from './shader.js';
 
@@ -63,6 +60,14 @@ const ROAD_HEAD = [
   '  return 1.0 - smoothstep(0.30, 0.95,',
   '                          length(fwidth(p)) / max(cycle, 1e-4));',
   '}',
+  'vec3 astraRoadBump(vec3 eye, vec3 n, float height) {',
+  '  vec3 dx = dFdx(eye), dy = dFdy(eye);',
+  '  vec3 a = cross(dy, n), b = cross(n, dx);',
+  '  float determinant = dot(dx, a);',
+  '  if (abs(determinant) < 1e-12) return n;',
+  '  return normalize(abs(determinant) * n - sign(determinant)',
+  '    * (dFdx(height) * a + dFdy(height) * b));',
+  '}',
 ].join('\n');
 
 // `transformed` is still object-space after <begin_vertex>, so the
@@ -75,14 +80,14 @@ const FRAME_BODY = [
   '  vec4 rwO = vec4(0.0, 0.0, 0.0, 1.0);',
   '#ifdef USE_INSTANCING',
   '  rwP = instanceMatrix * rwP;',
-  '  rwN = mat3(instanceMatrix) * rwN;',
+  '  rwN = astraNormalTransform(mat3(instanceMatrix), rwN);',
   // Each copy is its own segment UNLESS a centreline was given, which
   // says every copy belongs to ONE road.
   '  rwD = mix(instanceMatrix * rwD, rwD, uRoadCenter.w);',
   '  rwO = mix(instanceMatrix * rwO, rwO, uRoadCenter.w);',
   '#endif',
   '  vAstraWorld = (modelMatrix * rwP).xyz;',
-  '  vAstraWorldN = normalize((modelMatrix * vec4(rwN, 0.0)).xyz);',
+  '  vAstraWorldN = astraNormalTransform(mat3(modelMatrix), rwN);',
   '  vec3 rwA = normalize((modelMatrix * rwD).xyz);',
   // The centreline is OBJECT-space like the direction, so a road built
   // inside a turned group needs no world arithmetic from its author.
@@ -181,7 +186,7 @@ function withFrame(material, opts) {
  * road's own frame, each its own batch of tar, sealed at the rim — a
  * soft-edged blob is an oil stain, not a repair. GUTTER is the
  * hand-span at the kerb that never dries: darker, greener and, through
- * `composeRoughness`, glossier.
+ * a local roughness mask, glossier.
  *
  * ON A COLOUR THAT IS ALREADY THERE: this one RULES the hue — it is the
  * made surface, and `color` is what it was made of — but it carries
@@ -212,22 +217,6 @@ export function patchRoadSurface(material, opts = {}) {
   const gutter = opts.gutter === undefined ? 0.35 : unit(opts.gutter);
   const lane = opts.lane === undefined ? 3.4 : Math.max(0.5, opts.lane);
   const seed = opts.seed === undefined ? 1 : opts.seed;
-  // Polished ruts and a damp gutter are the reachable half of gloss;
-  // loose stone is the matte half — but this ONE factor is the whole
-  // material's, so it has to be the AREA-WEIGHTED average and not the
-  // polished rut's own value. Wheel strips cover about a quarter of a
-  // lane and the gutter a twelfth of the width; spending the rut's full
-  // polish on all of it turns the road into a sky mirror here, where
-  // there is no post chain, a bright sky environment is the specular
-  // source and a road is nearly always seen at a grazing angle.
-  // Measured 2026-09-01 on this renderer: the old factors composed a
-  // tarmac authored at 0.85 down to 0.63 and it read (171,172,175) — a
-  // white card — while these compose the same material to 0.86 and it
-  // reads (136,138,144), with the repairs, the pale wheel strips and the
-  // dark drip line all back in the frame.
-  composeRoughness(material, 'road:surface',
-                   Math.min(matteFactor(material, 0.16 * agg),
-                            1 + 0.16 * agg - 0.09 * wear - 0.05 * gutter));
   withFrame(material, opts);
   return patchStandard(material, {
     name: 'road:surface',
@@ -286,17 +275,19 @@ export function patchRoadSurface(material, opts = {}) {
       // digital camouflage, not aggregate — and the break-up that makes
       // them stone is finer than the stone itself.
       '  float roG3 = astraNoise2(roQ * 5.9 + 41.7);',
-      '  float roGrain = ((roG1 - 0.5) * 0.52 + (roG2 - 0.5) * 0.34',
-      '                 + (roG3 - 0.5) * 0.30 * roFd) * roFd;',
+      '  float roG2Fade = astraRoadFade(vAstraWorld, roGs / 2.7);',
+      '  float roG3Fade = astraRoadFade(vAstraWorld, roGs / 5.9);',
+      '  float roGrain = ((roG1 - 0.5) * 0.52 + (roG2 - 0.5) * 0.34 * roG2Fade',
+      '                 + (roG3 - 0.5) * 0.30 * roG3Fade) * roFd;',
       '  roCol *= 1.0 + roGrain * mix(0.22, 0.60, uRoadAgg);',
       // A chip is a STONE, and a road is never mixed from one stone: the
       // exposed faces run warm (flint, limestone dust) to cool (granite,
       // basalt) on a field decorrelated from the one that placed them.
-      '  float roChip = smoothstep(0.62, 0.74, roG1 * 0.45 + roG3 * 0.55)',
+      '  float roChip = smoothstep(0.62, 0.74, roG1 * 0.45 + mix(0.5, roG3, roG3Fade) * 0.55)',
       '               * uRoadAgg * roFd;',
       '  vec3 roStone = roCol * 1.5 + vec3(0.035, 0.033, 0.030);',
       '  roStone *= mix(vec3(1.07, 1.00, 0.90),',
-      '                 vec3(0.93, 0.99, 1.09), roG2);',
+      '                 vec3(0.93, 0.99, 1.09), mix(0.5, roG2, roG2Fade));',
       '  roCol = mix(roCol, roStone, roChip * 0.7);',
       '  roCol = mix(roCol, uRoadColor * mix(1.06, 1.42, uRoadWear),',
       '              roRut * 0.85);',
@@ -317,11 +308,11 @@ export function patchRoadSurface(material, opts = {}) {
       '  vec2 roPs = vec2(0.13 + 0.25 * astraHash21(roPi + 3.1),',
       '                   0.11 + 0.27 * astraHash21(roPi + 7.7));',
       '  vec2 roPaa = fwidth(roPq) * 0.7 + 0.0015;',
-      '  vec2 roPe = smoothstep(roPs + roPaa, roPs - roPaa, roPf);',
+      '  vec2 roPe = 1.0 - smoothstep(roPs - roPaa, roPs + roPaa, roPf);',
       '  float roPk = roPe.x * roPe.y',
       '             * step(1.0 - uRoadPatch, astraHash21(roPi));',
-      '  vec2 roPn = smoothstep(roPs - 0.05 + roPaa, roPs - 0.05 - roPaa,',
-      '                         roPf);',
+      '  vec2 roPn = 1.0 - smoothstep(roPs - 0.05 - roPaa, roPs - 0.05 + roPaa,',
+      '                               roPf);',
       '  float roRim = roPk * (1.0 - roPn.x * roPn.y);',
       // A repair is a different BATCH, not a black rectangle: some are
       // darker than the road it was cut into and some are paler.
@@ -371,6 +362,18 @@ export function patchRoadSurface(material, opts = {}) {
       // costs one hash and never reads as noise.
       '  roCol *= 1.0 + (astraHash21(gl_FragCoord.xy) - 0.5) * 0.010;',
       '  diffuseColor.rgb = roCol;',
+      // Metric surface-gradient relief preserves the base mesh silhouette.
+      // Fine aggregate disappears before subpixel grain can shimmer.
+      '  float roHeight = roGrain * mix(0.0005, 0.008, uRoadAgg)',
+      '    * (1.0 - roRut * 0.7) + roChip * 0.002 - roRut * 0.004',
+      '    - roRim * 0.0008 + roSilt * 0.0008;',
+    ].join('\n'),
+    normalBody: 'normal = astraRoadBump(-vViewPosition, normal, roHeight);',
+    roughnessBody: [
+      'roughnessFactor = mix(roughnessFactor, max(roughnessFactor, 0.94), uRoadAgg * 0.18);',
+      'roughnessFactor = mix(roughnessFactor, max(0.32, roughnessFactor * 0.78), roRut);',
+      'roughnessFactor = mix(roughnessFactor, min(roughnessFactor, 0.32), roGut * (1.0 - roSilt));',
+      'roughnessFactor = mix(roughnessFactor, max(roughnessFactor, 0.95), roSilt);',
     ].join('\n'),
   });
 }
@@ -414,10 +417,6 @@ export function patchSeamBand(material, opts = {}) {
   const width = opts.width === undefined ? 0.5 : Math.max(1e-3, opts.width);
   const weeds = opts.weeds === undefined ? 0.4 : unit(opts.weeds);
   const seed = opts.seed === undefined ? 1 : opts.seed;
-  // Grit and weeds are matte, and they cover only the band, so this is
-  // the smallest gloss move in the library.
-  composeRoughness(material, 'road:seam',
-                   matteFactor(material, 0.06 + 0.08 * weeds));
   withFrame(material, opts);
   return patchStandard(material, {
     name: 'road:seam',
@@ -482,7 +481,11 @@ export function patchSeamBand(material, opts = {}) {
       '  float smJt = (1.0 - smoothstep(0.0, smH * 0.22, abs(smD)))',
       '             * astraRoadFade(vAstraWorld, smH * 0.44);',
       '  diffuseColor.rgb *= 1.0 - smJt * 0.45;',
+      '  float smHeight = smK * ((smG - 0.5) * 0.007 * smFd',
+      '    + (smC - 0.5) * 0.012 * smFc) - smJt * 0.004;',
     ].join('\n'),
+    roughnessBody: 'roughnessFactor = mix(roughnessFactor, max(roughnessFactor, 0.97), smK);',
+    normalBody: 'normal = astraRoadBump(-vViewPosition, normal, smHeight);',
   });
 }
 
@@ -496,12 +499,10 @@ export function patchSeamBand(material, opts = {}) {
  * the road frame's direction, each wandering on its own field (a pair
  * of ruled lines is a railway, not a vehicle).
  *
- * ALBEDO AND GLOSS ONLY: per-pixel DISPLACEMENT is not reachable from
- * this hook — `fragmentBody` edits `diffuseColor`, and a vertex
- * displacement would tear every hard-edged geometry open at its rim —
- * so depth is sold two ways instead. The press is DARKER (turned-over,
- * damp material) and the ground it displaced piles into a paler RIM
- * just outside it. `depth` drives both.
+ * Color, local gloss and filtered surface-gradient normals describe the
+ * press. Geometry and silhouette stay unchanged: use displaced meshes for
+ * foreground ruts that need to occlude a wheel or leave a visible edge.
+ * The press is darker and damp; a paler raised rim carries displaced soil.
  *
  * `kind` is a UNIFORM, not two sources: 'tyre' lays a continuous band
  * with chevron tread (through `astraStroke`, which kills itself once a
@@ -538,12 +539,7 @@ export function patchTracks(material, opts = {}) {
   const gauge = opts.gauge === undefined
       ? (foot ? 0.30 : 1.6) : Math.max(0.02, opts.gauge);
   const seed = opts.seed === undefined ? 1 : opts.seed;
-  // Pressed ground is packed and damp, which is smoother than the loose
-  // surface around it — over the width of the tracks, which is a tenth
-  // of the ground they cross, and this factor is the whole material's
-  // (see `patchRoadSurface`: an over-polished ground is a sky mirror at
-  // a grazing angle on this renderer).
-  composeRoughness(material, 'road:tracks', 1 - 0.08 * depth);
+  // Pressed ground is packed and damp only inside the track mask.
   withFrame(material, opts);
   return patchStandard(material, {
     name: 'road:tracks',
@@ -618,6 +614,10 @@ export function patchTracks(material, opts = {}) {
       // top of the surface, so it lifts WARM against the cool press.
       '  diffuseColor.rgb *= 1.0 + tkRim * uTrkDepth',
       '                    * vec3(0.30, 0.25, 0.17);',
+      '  float tkHeight = uTrkDepth * (-tkPress * 0.013',
+      '    - tkTread * tkFd * 0.002 + tkRim * 0.006);',
     ].join('\n'),
+    roughnessBody: 'roughnessFactor = mix(roughnessFactor, max(0.12, roughnessFactor * 0.58), clamp(tkPress * uTrkDepth, 0.0, 1.0));',
+    normalBody: 'normal = astraRoadBump(-vViewPosition, normal, tkHeight);',
   });
 }

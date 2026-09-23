@@ -172,11 +172,11 @@ console.log(JSON.stringify({ per, util: GLSL_UTIL, forward: union(ALL),
         vs, fs = got["vs"], got["fs"]
         body = _main_body(vs)
         p = _find(r"vAstraWorld = \(modelMatrix \* (\w+)\)\.xyz;", body).group(1)
-        n = _find(r"vAstraWorldN = normalize\(\(modelMatrix \* vec4\((\w+), 0\.0\)\)\.xyz\);",
+        n = _find(r"vAstraWorldN = astraNormalTransform\(mat3\(modelMatrix\), (\w+)\);",
                   body).group(1)
         assert "#ifdef USE_INSTANCING" in body, lib
         assert f"{p} = instanceMatrix * {p};" in body, (lib, p)
-        assert f"{n} = mat3(instanceMatrix) * {n};" in body, (lib, n)
+        assert f"{n} = astraNormalTransform(mat3(instanceMatrix), {n});" in body, (lib, n)
         assert "attribute mat4 instanceMatrix" not in vs, lib
         # A varying declared in one stage only is a link failure, and the
         # symptom is the patch simply not drawing.

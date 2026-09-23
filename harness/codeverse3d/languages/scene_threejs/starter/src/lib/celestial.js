@@ -35,6 +35,7 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 
 import { lehmer } from './noise.js';
 import {
@@ -71,9 +72,21 @@ const _SIZE = new THREE.Vector2();
 function frameGrabber(mat) {
     let tex = null;
     let fbo = null;
+    let context = null;
+    let disposed = false;
     let warned = false;
-    return (renderer) => {
+    const release = () => {
+        if (tex) tex.dispose();
+        if (fbo && context) context.deleteFramebuffer(fbo);
+        tex = null;
+        fbo = null;
+        mat.uniforms.uScene.value = null;
+    };
+    const grab = (renderer) => {
+        if (disposed) return;
         const gl = renderer.getContext();
+        if (context && context !== gl) release();
+        context = gl;
         if (typeof gl.blitFramebuffer !== 'function') {
             if (!warned) {
                 warned = true;
@@ -83,9 +96,10 @@ function frameGrabber(mat) {
             }
             return;
         }
-        renderer.getDrawingBufferSize(_SIZE);
-        const w = _SIZE.x, h = _SIZE.y;
         const rt = renderer.getRenderTarget();
+        if (rt) _SIZE.set(rt.width, rt.height);
+        else renderer.getDrawingBufferSize(_SIZE);
+        const w = _SIZE.x, h = _SIZE.y;
         const type = rt ? rt.texture.type : THREE.UnsignedByteType;
         if (!tex || tex.image.width !== w || tex.image.height !== h
             || tex.type !== type) {
@@ -103,14 +117,16 @@ function frameGrabber(mat) {
         if (!handle) return;
         if (!fbo) fbo = gl.createFramebuffer();
         const prev = gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING);
-        gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fbo);
-        gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
-                                gl.TEXTURE_2D, handle, 0);
-        gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h,
-                           gl.COLOR_BUFFER_BIT, gl.NEAREST);
-        // Restored to exactly what was bound, so three's own state
-        // cache is still telling the truth afterwards.
-        gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, prev);
+        try {
+            gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fbo);
+            gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
+                                    gl.TEXTURE_2D, handle, 0);
+            gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h,
+                               gl.COLOR_BUFFER_BIT, gl.NEAREST);
+        } finally {
+            // Restore even if an integration supplies a throwing GL wrapper.
+            gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, prev);
+        }
         mat.uniforms.uResolution.value.set(w, h);
         // Straight to canvas the frame is already sRGB-encoded and
         // <colorspace_fragment> is about to encode it again; into a
@@ -119,6 +135,13 @@ function frameGrabber(mat) {
             (!rt && renderer.outputColorSpace === THREE.SRGBColorSpace)
                 ? 1 : 0;
     };
+    grab.dispose = () => {
+        if (disposed) return;
+        disposed = true;
+        release();
+        context = null;
+    };
+    return grab;
 }
 
 /**
@@ -190,11 +213,13 @@ export function makeHeatShimmer(opts = {}) {
     const guard = mesh.onBeforeRender;
     const grab = frameGrabber(mat);
     mesh.onBeforeRender = (r, s, cam, geo, m) => {
-        guard(r, s, cam, geo, m);
+        guard.call(mesh, r, s, cam, geo, m);
         if (m === mat) grab(r);
     };
-    g.userData.tick = (t) => tickShaders(g, t);
-    return g;
+    g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+    const owned = snapshotResources(g);
+    owned.add(grab);
+    return attachDisposal(g, owned);
 }
 
 /** Resample the grabbed frame; emit no colour that is not in it. */
@@ -354,8 +379,8 @@ export function makeStars(opts = {}) {
     if (opts.milkyWay !== false) g.add(milkyWayMesh(radius, pole, bright));
     g.add(starMesh(count, radius, gain, twinkle, rnd, pole, bright,
                    opts.milkyWay !== false));
-    g.userData.tick = (t) => tickShaders(g, t);
-    return keepOutOfDepthPasses(g);
+    g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+    return attachDisposal(keepOutOfDepthPasses(g), snapshotResources(g));
 }
 
 /**
@@ -638,13 +663,13 @@ export function makeAurora(opts = {}) {
     const g = new THREE.Group();
     g.name = 'Aurora';
     g.add(mesh);
-    g.userData.tick = (t) => tickShaders(g, t);
-    return keepOutOfDepthPasses(g);
+    g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+    return attachDisposal(keepOutOfDepthPasses(g), snapshotResources(g));
 }
 
 /** All curtains in one ribbon geometry, tagged by `aCurtain`. */
 function curtainGeometry(n, rnd, radius, base, height, activity) {
-    const nu = 72, nv = 20;
+    const nu = 128, nv = 24;
     const pos = [], uv = [], glow = [], tag = [], idx = [];
     for (let c = 0; c < n; c++) {
         // STRATIFIED, not random: n independent draws clump, and a
@@ -752,8 +777,8 @@ function auroraMaterial(color, activity, swing, bright) {
             '  transformed += nrm * f0;',
             '  vec3 tg = normalize(cross(vec3(0.0, 1.0, 0.0), nrm));',
             '  float slope = (f1 - f0) / max(0.02 * aCurtain.y, 1e-3);',
-            '  vN = normalize(mat3(modelMatrix)',
-            '      * normalize(nrm - tg * slope));',
+            '  vN = astraNormalTransform(mat3(modelMatrix),',
+            '      normalize(nrm - tg * slope));',
             '  vW = (modelMatrix * vec4(transformed, 1.0)).xyz;',
         ].join('\n'),
         fragmentHead: 'uniform vec3 uColor; uniform vec3 uRim;'
@@ -763,19 +788,38 @@ function auroraMaterial(color, activity, swing, bright) {
         fragmentMain: [
             '  float v = vUv.y;',
             '  float x = vUv.x * uRays + vTag * 23.0 + uTime * uDrift;',
-            // Rays are strokes, not a sine: astraStroke antialiases by
-            // its own gradient and dissolves once a filament is finer
-            // than a pixel, which is what stops the shimmer crawling.
-            // The floor is 0.10, not 0.30: at 0.30 the gaps between
-            // filaments never went dark and the foot of the curtain
-            // rendered as one solid wall of light.
-            // Each filament its own width, or the curtain is a printed
-            // barcode: real rays run from a hairline to a hand's
-            // breadth inside one display.
-            '  float w = 0.085 + 0.115 * astraHash11(floor(x) * 0.37 + 2.0);',
-            '  float ray = 0.10 + 1.05 * astraStroke(x, w);',
-            '  ray *= 0.45 + 0.85 * astraNoise2(vec2(floor(x) * 0.71,',
-            '      uTime * 0.06 + vTag * 5.0));',
+            // A warped filament coordinate breaks the even barcode spacing.
+            // The broad envelope supplies luminous folds; narrow rays carry
+            // fine detail without forcing every column to the same height.
+            '  float fold = astraFbm2(vec2(vUv.x * 5.5 + vTag * 13.0,',
+            '      uTime * uDrift * 0.55), 3);',
+            '  x += (fold - 0.5) * 3.2;',
+            '  x += (astraNoise2(vec2(x * 0.41, v * 0.7 + vTag)) - 0.5)',
+            '      * (0.5 + v * 0.8);',
+            '  float ray = 0.0;',
+            '  float pixelWidth = max(fwidth(x), 0.001);',
+            '  for (int k = -1; k <= 1; k++) {',
+            '    float rayId = floor(x) + float(k);',
+            '    float centre = rayId + 0.16',
+            '        + 0.68 * astraHash11(rayId * 1.37 + 2.0);',
+            '    float w = 0.05',
+            '        + 0.13 * astraHash11(rayId * 0.37 + 2.0);',
+            '    float width = sqrt(w * w + pixelWidth * pixelWidth);',
+            '    float distance = x - centre;',
+            '    float strand = exp(-distance * distance / (width * width))',
+            '        * w / width;',
+            '    float rayTop = 0.32 + 0.64 * astraNoise2(',
+            '        vec2(rayId * 0.27 + vTag * 7.0, uTime * 0.035));',
+            '    strand *= 1.0 - smoothstep(rayTop * 0.40, rayTop, v);',
+            '    strand *= 0.20 + 1.25 * astraNoise2(vec2(rayId * 0.71,',
+            '        uTime * 0.06 + vTag * 5.0));',
+            '    ray += strand;',
+            '  }',
+            '  float curtain = smoothstep(0.16, 0.78, fold);',
+            '  ray = (0.35 * curtain + 0.95 * ray) * (0.35 + curtain);',
+            '  float foot = 0.018 + 0.035 * astraNoise2(',
+            '      vec2(vUv.x * 13.0 + vTag * 11.0, uTime * 0.045));',
+            '  ray *= smoothstep(foot, foot + 0.035, v);',
             '  vec3 eye = normalize(cameraPosition - vW);',
             // A sheet is thin: the eye cuts a LONGER chord through it
             // edge-on, so a fold turning away flares instead of

@@ -11,11 +11,8 @@
  * neither needs a UV; and both CHAIN with each other and with
  * `terrain_shade` / `waterside` on one material.
  *
- * Gloss is the one thing neither does per pixel: both write only at
- * `<color_fragment>`, which is BEFORE `<roughnessmap_fragment>`, and
- * neither uses `patchStandard`'s `roughnessBody`, so both retune
- * `material.roughness` instead and compose their factors through
- * `composeRoughness`.
+ * The same local fields modify roughness after the roughness map: clean
+ * areas retain their authored finish and worn edges alone become polished.
  *
  * PORT NOTES (2026-09-01, measured on our host — no post chain, ACES in
  * the fragment tail, a bright baked environment as the specular source):
@@ -46,7 +43,7 @@
  */
 
 import {
-  patchStandard, composeRoughness, glslAxes, glslTriNoise, hash11, seedVec3,
+  patchStandard, glslAxes, glslTriNoise, seedVec3,
   toColor, unit, worldBase,
 } from './shader.js';
 
@@ -85,10 +82,8 @@ const seedOffset = (seed) => seedVec3(seed, 0.17, 3.71, 7.13, 64);
  * — beyond that it is no longer texture but static, which is the one
  * way this reads as an effect rather than as a surface.
  *
- * Roughness varies per MATERIAL, not per pixel (see `composeRoughness`):
- * `seed` detunes the material's own roughness by a few percent, which
- * is what stops every surface in a scene from carrying one identical
- * highlight.
+ * Roughness follows the seeded breakup per pixel, breaking uniform
+ * highlights without changing the material's authored base roughness.
  *
  * @param {THREE.Material} material A built-in material, patched in
  *   place — a shared material from `materials.js` patches every mesh
@@ -110,8 +105,6 @@ export function patchMicroBreakup(material, opts = {}) {
   const strength = opts.strength === undefined ? 0.10 : opts.strength;
   const hue = opts.hue === undefined ? 0.15 : opts.hue;
   const seed = opts.seed === undefined ? 1 : opts.seed;
-  composeRoughness(material, 'micro',
-                 1 + (hash11(seed + 1.9) - 0.5) * unit(strength) * 2);
   patchStandard(material, BASE);
   return patchStandard(material, {
     name: 'wear:micro',
@@ -166,6 +159,7 @@ export function patchMicroBreakup(material, opts = {}) {
       '                         max(-mbV, 0.0) * uMicroAmt * 0.6);',
       '  diffuseColor.rgb *= 1.0 + mbV * uMicroAmt;',
     ].join('\n'),
+    roughnessBody: 'roughnessFactor = clamp(roughnessFactor * (1.0 - mbV * uMicroAmt * 0.5), 0.04, 1.0);',
   });
 }
 
@@ -191,9 +185,8 @@ export function patchMicroBreakup(material, opts = {}) {
  * this can never flicker into a wireframe. Bevel or smooth-shade the
  * edges you want worn; rounded geometry wears where it curves tightest.
  *
- * Gloss moves per MATERIAL, not per pixel (see `composeRoughness`): a
- * worn edge is polished, and the small drop in the material's own
- * roughness is the reachable half of that.
+ * Gloss follows the same wear mask: polished edges leave unworn paint
+ * at its authored roughness.
  *
  * @param {THREE.Material} material A built-in material, patched in
  *   place — a shared material patches every mesh wearing it.
@@ -218,11 +211,6 @@ export function patchEdgeWear(material, opts = {}) {
   const strength = opts.strength === undefined ? 0.35 : opts.strength;
   const width = opts.width === undefined ? 0.35 : opts.width;
   const seed = opts.seed === undefined ? 1 : opts.seed;
-  // Area-weighted: the gloss move is the MATERIAL's, and wear covers a
-  // fraction of it. Spending the worn patch's full polish on the whole
-  // surface is how a painted rail becomes a sky mirror on a renderer
-  // with no post chain and a bright environment.
-  composeRoughness(material, 'edge', 1 - 0.12 * unit(strength));
   patchStandard(material, BASE);
   return patchStandard(material, {
     name: 'wear:edge',
@@ -280,5 +268,6 @@ export function patchEdgeWear(material, opts = {}) {
       '  diffuseColor.rgb = mix(diffuseColor.rgb, ewTone,',
       '                         clamp(ewK * uEdgeAmt, 0.0, 1.0));',
     ].join('\n'),
+    roughnessBody: 'roughnessFactor = mix(roughnessFactor, max(0.06, roughnessFactor * 0.58), clamp(ewK * uEdgeAmt, 0.0, 1.0));',
   });
 }

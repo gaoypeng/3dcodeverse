@@ -18,11 +18,9 @@
  * `patchDripStains(m, { from })` is the one way to pin the source to an
  * exact sill.
  *
- * Gloss is per MATERIAL, not per pixel — all three write only at
- * `<color_fragment>`, before `<roughnessmap_fragment>`, and none uses
- * `patchStandard`'s `roughnessBody` — so each patch composes one
- * roughening factor through `composeRoughness`: dirt, rust and dust are
- * all matte.
+ * Coverage drives albedo, roughness and metalness together. Exposed
+ * substrate keeps its original finish; oxide and deposited dirt become
+ * rough dielectrics only where the surface is actually covered.
  *
  * COLOUR: no effect here is one tone. Weather is a mixture — the dirt
  * that ran down is not the salt it leached out of the wall, the pit in
@@ -36,7 +34,7 @@
  */
 
 import {
-  patchStandard, composeRoughness, glslAxes, glslCurv, matteFactor,
+  patchStandard, glslAxes, glslCurv,
   seedVec3, toColor, unit, upVector, worldBase,
 } from './shader.js';
 
@@ -56,6 +54,17 @@ const AGE_HEAD = [
   // Positive curvature is convex (swept clean), negative the concave
   // lee that holds.
   glslCurv('astraAgeCurv'),
+  // Surface-gradient bump in view space. Existing normal/bump maps have
+  // already run when normalBody calls this, so their detail is retained.
+  'vec3 astraAgeBump(vec3 eye, vec3 n, float height) {',
+  '  vec3 dx = dFdx(eye), dy = dFdy(eye);',
+  '  vec3 r1 = cross(dy, n), r2 = cross(n, dx);',
+  '  float determinant = dot(dx, r1);',
+  '  if (abs(determinant) < 1e-12) return n;',
+  '  vec3 gradient = sign(determinant)',
+  '    * (dFdx(height) * r1 + dFdy(height) * r2);',
+  '  return normalize(abs(determinant) * n - gradient);',
+  '}',
 ].join('\n');
 
 // One base for all three, on the world varyings every library shares;
@@ -67,14 +76,6 @@ const BASE = worldBase('aging:base', 'agP', 'agN', AGE_HEAD);
 // library's stains on that one's blotches.
 const seedOffset = (seed, salt) =>
   seedVec3(seed + salt, 0.29, 5.13, 9.47, 48);
-
-// Every effect here is matte, so each raises roughness through
-// `matteFactor`. The `add` each patch passes used to be token — a fully
-// rusted steel tank moved from 0.45 to 0.50 and went on mirroring the
-// sky, which washed the oxide off the frame at every distance. A crust
-// of oxide, dust or dried grime is one of the matte-est things there
-// is, so these now buy real roughness: the cap keeps a surface that
-// already starts rough from moving at all.
 
 /**
  * The vertical streaks that run down from every ledge, sill and joint.
@@ -129,8 +130,6 @@ export function patchDripStains(material, opts = {}) {
   const seed = opts.seed === undefined ? 1 : opts.seed;
   const from = opts.from;
   const gated = Number.isFinite(from);
-  composeRoughness(material, 'aging:drip',
-                   matteFactor(material, 0.22 * unit(strength)));
   patchStandard(material, BASE);
   return patchStandard(material, {
     name: 'aging:drip',
@@ -215,7 +214,10 @@ export function patchDripStains(material, opts = {}) {
       '  float drAmt = clamp((0.42 * drBody + 0.58 * drCore) * drG,',
       '                      0.0, 1.0);',
       '  diffuseColor.rgb = mix(diffuseColor.rgb, drDirt, drAmt);',
+      '  float drCover = clamp(drAmt + drRim * drG * 0.35, 0.0, 1.0);',
     ].join('\n'),
+    roughnessBody: 'roughnessFactor = mix(roughnessFactor, max(roughnessFactor, 0.92), drCover);',
+    metalnessBody: 'metalnessFactor *= 1.0 - drCover;',
   });
 }
 
@@ -245,14 +247,9 @@ export function patchDripStains(material, opts = {}) {
  * Curvature reads ZERO across a hard, unwelded edge (`BoxGeometry`'s
  * corners, anything flat-shaded), so the lee term needs bevelled or
  * smooth-shaded geometry; the pooling and bleeding terms work on
- * anything. And rust is a dielectric CRUST: per-pixel metalness is as
- * unreachable as per-pixel roughness from this hook, so on a shiny
- * `metalness: 1` tank the oxide tints the metal's own reflection and
- * comes out pink — give a rusting surface a low metalness yourself.
- * What this CAN do is take the whole material matte, and at full
- * strength it does (roughness x1.6, capped at fully rough): a corroded
- * tank that goes on mirroring the sky washes the oxide out of the frame
- * at every distance.
+ * anything. Rust becomes a rough dielectric under its coverage mask;
+ * exposed metal keeps its original reflection. Millimetre crust relief
+ * fades below a pixel and composes after existing normal and bump maps.
  *
  * @param {THREE.Material} material A built-in material, patched in
  *   place — a shared material rusts every mesh wearing it.
@@ -268,8 +265,6 @@ export function patchRust(material, opts = {}) {
   const strength = opts.strength === undefined ? 0.4 : opts.strength;
   const scale = opts.scale === undefined ? 1.2 : opts.scale;
   const seed = opts.seed === undefined ? 1 : opts.seed;
-  composeRoughness(material, 'aging:rust',
-                   matteFactor(material, 0.60 * unit(strength)));
   patchStandard(material, BASE);
   return patchStandard(material, {
     name: 'aging:rust',
@@ -317,9 +312,21 @@ export function patchRust(material, opts = {}) {
       '  float rsDown = 1.0 - smoothstep(0.30, 0.90, abs(rsN.y));',
       '  float rsRun = rsDown',
       '              * (0.12 + 0.88 * smoothstep(0.40, 0.62, rsB));',
+      // Fine corrosion islands interrupt a runoff column. The coarse
+      // wetting field still connects them to the rim above, while pits
+      // and flaking edges vary vertically rather than becoming paint.
+      '  float rsPatch = astraAgeStreak(rsP * 3.7 + 5.8, rsA, 1.0);',
+      '  float rsGrainFade = 1.0 - smoothstep(0.35, 1.2,',
+      '                                  length(fwidth(rsP)) * 140.0);',
+      '  float rsGrain = mix(0.5, astraAgeStreak(rsP * 140.0, rsA, 1.0), rsGrainFade);',
+      '  float rsFlakeFade = 1.0 - smoothstep(0.3, 1.0, length(fwidth(rsP)) * 15.0);',
+      '  float rsFlake = mix(0.5, astraAgeStreak(rsP * 15.0',
+      '    + vec3(rsPatch * 1.3, rsG * 0.8, rsPatch), rsA, 1.0), rsFlakeFade);',
       // The patch edge is torn by the finer field, or corrosion has a
       // soft airbrushed boundary no oxide ever had.
-      '  float rsK = smoothstep(0.46, 0.62, rsF + (rsB - 0.5) * 0.30)',
+      '  float rsK = smoothstep(0.46, 0.62, rsF + (rsB - 0.5) * 0.22',
+      '              + (rsPatch - 0.5) * 0.58 + (rsFlake - 0.5) * 0.38',
+      '              + (rsGrain - 0.5) * 0.08)',
       '            * clamp(rsSit + rsRun, 0.0, 1.0);',
       '  float rsAmt = clamp(rsK * uRustAmt, 0.0, 1.0);',
       // THREE tones, not one brightness ramp. Corrosion is a stack: a
@@ -340,8 +347,12 @@ export function patchRust(material, opts = {}) {
       '  vec3 rsCol = mix(rsPit, rsBase, smoothstep(0.16, 0.50, rsB));',
       '  rsCol = mix(rsCol, rsGlow, smoothstep(0.50, 0.78, rsB) * 0.60',
       '              + clamp(rsK * (1.0 - rsK) * 4.0, 0.0, 1.0) * 0.30);',
+      '  rsCol *= (0.70 + 0.60 * rsFlake) * (0.94 + 0.12 * rsGrain);',
       '  diffuseColor.rgb = mix(diffuseColor.rgb, rsCol, rsAmt);',
     ].join('\n'),
+    roughnessBody: 'roughnessFactor = mix(roughnessFactor, max(roughnessFactor, mix(0.82, 0.97, rsB)), rsAmt);',
+    metalnessBody: 'metalnessFactor *= 1.0 - rsAmt;',
+    normalBody: 'normal = astraAgeBump(-vViewPosition, normal, rsAmt * (0.00035 + rsFlake * 0.0004 * rsFlakeFade + rsGrain * 0.00015 * rsGrainFade));',
   });
 }
 
@@ -386,8 +397,6 @@ export function patchDust(material, opts = {}) {
   const strength = opts.strength === undefined ? 0.3 : opts.strength;
   const seed = opts.seed === undefined ? 1 : opts.seed;
   const up = upVector(opts.up);
-  composeRoughness(material, 'aging:dust',
-                   matteFactor(material, 0.55 * unit(strength)));
   patchStandard(material, BASE);
   return patchStandard(material, {
     name: 'aging:dust',
@@ -433,8 +442,10 @@ export function patchDust(material, opts = {}) {
       '  duCol = mix(duCol * vec3(0.92, 0.96, 1.10),',
       '              duCol * vec3(1.12, 0.94, 0.78),',
       '              smoothstep(0.22, 0.80, duB));',
-      '  diffuseColor.rgb = mix(diffuseColor.rgb, duCol,',
-      '                         duK * uDustAmt);',
+      '  float duAmt = clamp(duK * uDustAmt, 0.0, 1.0);',
+      '  diffuseColor.rgb = mix(diffuseColor.rgb, duCol, duAmt);',
     ].join('\n'),
+    roughnessBody: 'roughnessFactor = mix(roughnessFactor, max(roughnessFactor, 0.96), duAmt);',
+    metalnessBody: 'metalnessFactor *= 1.0 - duAmt;',
   });
 }

@@ -2,6 +2,7 @@
 // base, sun-tinted) + optional thin cirrus streaks. three r184's Sky
 // cloud branch grid-artifacts at any high contrast — this is the layer.
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32, fbm2 } from './noise.js';
 import { makeShaderMaterial, keepOutOfDepthPasses } from './shader.js';
 
@@ -52,34 +53,89 @@ function lightVector(v) {
       Math.cos(moonEl) * Math.sin(az));
 }
 
-/** Soft irregular puff alpha texture: radial falloff x fbm, flat base. */
+/** Seeded billowy puff: RGB stores a shading normal, alpha optical coverage.
+ * The base is flat. This is a distant impostor, not a participating volume.
+ */
 export function cloudTexture(seed = 7, size = 256) {
-  const data = new Uint8Array(size * size * 4);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const nx = x / size - 0.5, ny = y / size - 0.5;
-      const r = Math.sqrt(nx * nx * 1.05 + ny * ny * 2.2) * 2;
-      // Two bands: the low one carves the cauliflower lobes, the high
-      // one frays the silhouette. One octave set alone gives the soft
-      // airbrushed blob the old texture had.
-      const n = fbm2(x / 46, y / 46, { seed, octaves: 3 }) * 0.5 + 0.5;
-      const f = fbm2(x / 13, y / 13, { seed: seed + 5, octaves: 2 }) * 0.5 + 0.5;
-      let a = Math.max(0, 1 - r) * (0.45 + 0.85 * n) - 0.18;
-      a = Math.max(0, Math.min(1, a * 1.9));
-      a = a * a * (3 - 2 * a);
-      // Erosion, strongest where the body is already thin: keeps the
-      // core solid and turns the rim into wisps.
-      a *= 1 - 0.55 * (1 - a) * (1 - f);
-      a *= Math.min(1, Math.max(0, (ny + 0.34) / 0.10));
-      const k = (y * size + x) * 4;
-      data[k] = data[k + 1] = data[k + 2] = 255;
-      data[k + 3] = Math.round(a * 255);
+  const texture = puffTexture(seed, size, false);
+  // Public alpha texture remains white for callers using it as a color map.
+  const data = texture.image.data;
+  for (let i = 0; i < data.length; i += 4) data[i] = data[i + 1] = data[i + 2] = 255;
+  return texture;
+}
+
+function puffTexture(seed, size, cirrus) {
+  if (!Number.isSafeInteger(seed) || !Number.isInteger(size) || size < 16 || size > 1024) {
+    throw new RangeError('cloudTexture: use an integer seed and size in 16..1024');
+  }
+  const field = new Float32Array(size * size);
+  const rand = mulberry32(seed);
+  const lobes = Array.from({length: 7}, (_,i) => ({
+    x: (i / 6 - .5) * .58,
+    y: -.03 + rand() * .17 - Math.abs(i / 6 - .5) * .18,
+    radius: .15 + rand() * .12,
+  }));
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const u = (x + .5) / size - .5, v = (y + .5) / size - .5;
+    const broad = fbm2(u * 8 + 7, v * 8 + 3, {seed, octaves: 3});
+    const fine = fbm2(u * 29 - 3, v * 29 + 9, {seed: seed + 17, octaves: 2});
+    let density = -Infinity;
+    for (const l of lobes) {
+      const r = Math.hypot((u - l.x) * .96, (v - l.y) * 1.16) / l.radius;
+      density = Math.max(density, 1 - r * r);
     }
+    density = Math.max(0, density + broad * .18 + fine * .035);
+    const base = THREE.MathUtils.smoothstep(v, -.36, -.26);
+    const edge = THREE.MathUtils.smoothstep(density, 0, .12);
+    const border = 1 - THREE.MathUtils.smoothstep(Math.max(Math.abs(u), Math.abs(v)), .43, .49);
+    field[y * size + x] = Math.sqrt(density) * base * edge * border;
+    if (cirrus) {
+      // Wind-sheared ice filaments with curved, tapered ends. Unlike stretching
+      // a round cumulus stamp, these never make parallel cylindrical ribbons.
+      const taper = Math.pow(Math.max(0, 1 - Math.pow(u / .48, 2)), 1.8);
+      const bend = .20 * Math.sin((u + .35) * 3.8) - .06;
+      let threads = 0;
+      for (let k = 0; k < 7; k++) {
+        const center = bend + (k - 3) * .045 + .035 * Math.sin(u * 9 + k * 1.7);
+        const width = .011 + .024 * taper;
+        threads += Math.exp(-Math.pow((v - center) / width, 2)) * (.07 + .07 * Math.sin(k * 2.13 + 1));
+      }
+      field[y * size + x] = threads * taper * border * (.72 + .28 * broad);
+    }
+  }
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const h = field[y * size + x];
+    const at = (dx,dy) => field[Math.max(0,Math.min(size-1,y+dy))*size + Math.max(0,Math.min(size-1,x+dx))];
+    const nx = -(at(1,0)-at(-1,0)) * size * .045;
+    const ny = -(at(0,1)-at(0,-1)) * size * .045;
+    const len = Math.hypot(nx,ny,1),k=(y*size+x)*4;
+    data[k] = (nx/len*.5+.5)*255;
+    data[k+1] = (ny/len*.5+.5)*255;
+    data[k+2] = (1/len*.5+.5)*255;
+    data[k+3] = (1-Math.exp(-h*2.0))*255;
   }
   const tex = new THREE.DataTexture(data, size, size);
   tex.needsUpdate = true;
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
+  return tex;
+}
+
+function cloudAtlas(seed, cirrus = false) {
+  const tile = 128, cols = 4, rows = 2;
+  const data = new Uint8Array(tile * tile * cols * rows * 4);
+  for (let i=0;i<cols*rows;i++) {
+    const puff = puffTexture(seed + i*977, tile, cirrus);
+    for (let y=0;y<tile;y++) {
+      const start=((Math.floor(i/cols)*tile+y)*tile*cols+(i%cols)*tile)*4;
+      data.set(puff.image.data.subarray(y*tile*4,(y+1)*tile*4),start);
+    }
+    puff.dispose();
+  }
+  const tex = new THREE.DataTexture(data,tile*cols,tile*rows);
+  tex.minFilter=tex.magFilter=THREE.LinearFilter;
+  tex.needsUpdate=true;
   return tex;
 }
 
@@ -103,6 +159,11 @@ export function makeClouds(opts = {}) {
   const alpha = opts.alpha ?? p.alpha ?? 0.92;
   const wind = opts.wind ?? 3.0;
   const stretch = opts.stretch ?? p.stretch ?? 1.0;
+  if (!Number.isSafeInteger(seed) || !Number.isInteger(count) || count < 0 || count > 1000 ||
+      ![area, altitude, spread, alpha, wind, stretch].every(Number.isFinite) ||
+      area <= 0 || spread < 0 || alpha < 0 || alpha > 1 || stretch <= 0) {
+    throw new RangeError('makeClouds: invalid seed, count, area, altitude, spread, alpha, wind or stretch');
+  }
   const rand = mulberry32(seed);
   const rnd2 = mulberry32(seed + 977);
   const puffs = [];
@@ -202,8 +263,13 @@ export function makeClouds(opts = {}) {
       // the shader keeps the scene's fog COLOUR and density without
       // taking three's fog blend.
       ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
-      map: { value: cloudTexture(seed + 101) },
+      map: { value: cloudAtlas(seed + 101, opts._cirrus === true) },
+      uCirrus: { value: opts._cirrus ? 1 : 0 },
       uWind: { value: wind },
+      uCameraRight: { value: new THREE.Vector3(1, 0, 0) },
+      uCameraUp: { value: new THREE.Vector3(0, 1, 0) },
+      uCameraForward: { value: new THREE.Vector3(0, 0, 1) },
+      uSunLocal: { value: sunDir.clone() },
       uAlpha: { value: alpha },
       uLitGain: { value: opts.litGain ?? p.litGain },
       uSunDir: { value: sunDir },
@@ -225,7 +291,9 @@ export function makeClouds(opts = {}) {
     vertexHead: [
       'attribute vec3 aCorner;',
       'attribute vec3 iOff; attribute vec2 iScale; attribute vec3 iExtra;',
-      'uniform float uWind; uniform vec3 uSunDir;',
+      'uniform float uWind; uniform vec3 uSunDir; uniform float uCirrus;',
+      'uniform vec3 uCameraRight; uniform vec3 uCameraUp;',
+      'uniform vec3 uCameraForward; uniform vec3 uSunLocal;',
     ].join('\n'),
     vertexMain: [
       '  vExtra = iExtra;',
@@ -235,17 +303,17 @@ export function makeClouds(opts = {}) {
       // cannot lift a cloud off its own flat bottom.
       '  float flip = step(0.5, fract(iExtra.y * 0.1591));',
       '  vUv = vec2(mix(uv.x, 1.0 - uv.x, flip), uv.y);',
-      '  vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0],',
-      '      viewMatrix[2][0]);',
-      '  vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1],',
-      '      viewMatrix[2][1]);',
+      '  vec3 right = uCameraRight;',
+      '  vec3 up = uCameraUp;',
       '  vec3 p = iOff + vec3(uTime * uWind',
       '      + sin(iExtra.y + uTime * 0.05) * 6.0, 0.0, 0.0);',
-      '  transformed = p + right * aCorner.x * iScale.x',
-      '      + up * aCorner.y * iScale.y;',
+      '  float lean = uCirrus * sin(iExtra.y * 4.1) * .14;',
+      '  vec2 corner = mat2(cos(lean),sin(lean),-sin(lean),cos(lean))',
+      '      * (aCorner.xy * iScale);',
+      '  transformed = p + right * corner.x + up * corner.y;',
       // The sun in the billboard's own 2D frame: the lit side then
       // follows the rig instead of always being the top edge.
-      '  vec2 sp = vec2(dot(uSunDir, right), dot(uSunDir, up));',
+      '  vec2 sp = vec2(dot(uSunLocal, right), dot(uSunLocal, up));',
       '  vSun = length(sp) > 1e-3 ? normalize(sp) : vec2(0.0, 1.0);',
       // the lit side is a world direction: mirror it with the uv or the
       // light lands on the wrong half of every flipped puff
@@ -255,9 +323,7 @@ export function makeClouds(opts = {}) {
       // same cloud with the sun over the shoulder is a white one. One
       // dot product decides which, and it is the difference between a
       // sky that looks photographed and one that looks painted.
-      '  vec3 fwd = vec3(viewMatrix[0][2], viewMatrix[1][2],',
-      '      viewMatrix[2][2]);',
-      '  vSunZ = dot(uSunDir, fwd);',
+      '  vSunZ = dot(uSunLocal, uCameraForward);',
       '  vDepth = -(modelViewMatrix * vec4(transformed, 1.0)).z;',
     ].join('\n'),
     fragmentHead: [
@@ -268,37 +334,28 @@ export function makeClouds(opts = {}) {
       'uniform float fogDensity; uniform float fogNear; uniform float fogFar;',
     ].join('\n'),
     fragmentMain: [
-      '  float a = texture2D(map, vUv).a;',
+            '  float cell = floor(fract(vExtra.y * .7919) * 8.0);',
+      '  vec2 atlasUv = (clamp(vUv,vec2(.004),vec2(.996)) + vec2(mod(cell,4.0),floor(cell/4.0))) / vec2(4,2);',
+      '  vec4 puff = texture2D(map, atlasUv);',
+      '  float a = puff.a;',
       '  if (a < 0.004) discard;',
       // Two lighting terms: the sun's own direction across the puff,
       // and a vertical term for the flat shaded base every cumulus has.
-      '  float face = dot(vUv - 0.5, vSun) * 2.0;',
-      '  float vert = smoothstep(-0.10, 0.62, vUv.y);',
-      '  float front = smoothstep(-0.25, 0.65, vSunZ);',
-      // one gradient for the whole cluster: the puff\'s own top plus
-      // where the puff sits in the mass (iExtra.z)
-      '  float upness = clamp(0.45 * vert + 0.62 * vExtra.z, 0.0, 1.0);',
-      '  float lit = clamp(0.34 * upness',
-      '      + 0.78 * smoothstep(-0.75, 0.55, face), 0.0, 1.0);',
-      '  lit *= vExtra.x * mix(0.22, 1.0, front);',
+      '  vec3 normal = normalize(puff.rgb * 2.0 - 1.0);',
+      '  vec3 light = normalize(vec3(vSun * sqrt(max(0.0,1.0-vSunZ*vSunZ)),vSunZ));',
+      '  float incidence = max(dot(normal,light),0.0);',
+      '  float front = smoothstep(-.4,.6,vSunZ);',
+      '  float crown = mix(.68,1.0,vExtra.z);',
+      '  float thickness = -log(max(1.0-a,.02));',
+      '  float skyLit = smoothstep(-.45,.65,normal.y + .30*vExtra.z);',
+      '  float direct = (.20 + .40*incidence + .36*skyLit) * crown * vExtra.x;',
       '  vec3 sunLit = uSunColor * uLitGain;',
-      // The shaded side is sky-lit, so it carries the scene's own haze
-      // colour — no hardcoded ambient, and never a black underside.
-      // Backlit, the body we see is the shadowed one: darker, bluer.
-      '  vec3 ambient = mix(uShade, fogColor, 0.22) * mix(0.52, 1.0, front)',
-      '      * mix(0.78, 1.10, vExtra.z);',
-      '  vec3 col = mix(ambient, sunLit, lit);',
-      // Silver lining: a thin edge transmits instead of reflecting — the
-      // one read that says "cloud" and not "sprite". Front-lit it is the
-      // sun-facing edge only; backlit the whole silhouette burns.
-      // A BAND just inside the silhouette, not everything below an alpha
-      // threshold: a rim that runs all the way out into the wisps turns
-      // every puff into a lit soap bubble (seen on the night render).
-      '  float thin = smoothstep(0.03, 0.26, a)',
-      '      * (1.0 - smoothstep(0.24, 0.66, a));',
-      '  float rim = thin * mix(0.40 + 0.60 * smoothstep(-0.4, 0.9, face),',
-      '      smoothstep(0.0, 0.85, face), front);',
-      '  col += sunLit * uRim * rim * mix(2.1, 1.0, front);',
+      '  vec3 ambient = mix(uShade,fogColor,.20) * mix(.92,1.18,vExtra.z);',
+      '  vec3 col = ambient * (.65 + .35*front) + sunLit * direct;',
+      // A silver lining needs backlighting AND an optically thin path. The old
+      // alpha-band highlight outlined every puff, producing gray soap bubbles.
+      '  float silver = pow(max(-vSunZ,0.0),3.0) * thickness * exp(-thickness*1.8);',
+      '  col += sunLit * (uRim * silver * 1.7);',
       // Hue variance: warm where the sun reaches, cool where it does
       // not, decorrelated per puff by its phase. A cloud deck of one
       // flat white is the giveaway of a painted sky.
@@ -328,8 +385,21 @@ export function makeClouds(opts = {}) {
   const mesh = new THREE.Mesh(inst, mat);
   mesh.name = opts.name || 'CumulusLayer';
   mesh.frustumCulled = false;
-  mesh.userData.update = (t) => { mat.uniforms.uTime.value = t; };
-  return keepOutOfDepthPasses(mesh);
+  const inverse = new THREE.Matrix4();
+  mesh.onBeforeRender = (_renderer, _scene, camera) => {
+    inverse.copy(mesh.matrixWorld).invert();
+    mat.uniforms.uCameraRight.value.setFromMatrixColumn(camera.matrixWorld, 0).transformDirection(inverse);
+    mat.uniforms.uCameraUp.value.setFromMatrixColumn(camera.matrixWorld, 1).transformDirection(inverse);
+    mat.uniforms.uCameraForward.value.setFromMatrixColumn(camera.matrixWorld, 2).transformDirection(inverse);
+    mat.uniforms.uSunLocal.value.copy(mat.uniforms.uSunDir.value).transformDirection(inverse);
+  };
+  mesh.userData.update = (t) => {
+    if (!Number.isFinite(t)) throw new RangeError('CloudLayer.update: time must be finite');
+    mat.uniforms.uTime.value = t;
+  };
+  const owned = snapshotResources(mesh);
+  owned.add(mat.uniforms.map.value);
+  return attachDisposal(keepOutOfDepthPasses(mesh), owned);
 }
 
 /**
@@ -354,13 +424,14 @@ export function makeCirrus(opts = {}) {
   return makeClouds({
     // Its own name: two layers called CumulusLayer collide in the
     // census and in the viewer's find-by-name.
-    name: 'CirrusLayer',
+    name: opts.name ?? 'CirrusLayer',
+    _cirrus: true,
     seed,
     count: opts.count ?? 8,
     area: opts.area ?? 3200,
     altitude: opts.altitude ?? 520,
     spread: 120,
-    alpha: opts.alpha ?? 0.30,
+    alpha: opts.alpha ?? 0.44,
     wind: opts.wind ?? 6.0,
     litGain: (opts.litGain ?? p.litGain) * 0.85,
     sunColor: opts.sunColor ?? ice.getHex(),
@@ -368,6 +439,6 @@ export function makeCirrus(opts = {}) {
     sunDir: opts.sunDir,
     rim: opts.rim ?? 0.85,
     hueVariance: opts.hueVariance ?? 0.08,
-    stretch: opts.stretch ?? 7.0,
+    stretch: opts.stretch ?? 4.5,
   });
 }

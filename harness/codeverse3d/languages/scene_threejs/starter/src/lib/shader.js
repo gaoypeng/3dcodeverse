@@ -50,6 +50,23 @@ import { lehmer } from './noise.js';
  * build the field on the CPU and hand it over as an attribute.
  */
 export const GLSL_UTIL = [
+    // Cofactors implement inverse transpose in GLSL ES 1.00 too. Dividing
+    // by a determinant is unnecessary after normalization, but its SIGN
+    // matters for mirrored objects. Unlike column rescaling, this also
+    // handles shear from nested rotations and nonuniform parent scales.
+    'vec3 astraNormalTransform(mat3 m, vec3 n) {',
+    '  float magnitude = max(length(m[0]), max(length(m[1]), length(m[2])));',
+    '  m /= max(magnitude, 1e-30);',
+    '  vec3 a = cross(m[1], m[2]);',
+    '  vec3 b = cross(m[2], m[0]);',
+    '  vec3 c = cross(m[0], m[1]);',
+    '  vec3 v = mat3(a, b, c) * n;',
+    '  float len2 = dot(v, v);',
+    '  float determinant = dot(m[0], a);',
+    '  if (len2 > 1e-20) return v * inversesqrt(len2)',
+    '      * (determinant < 0.0 ? -1.0 : 1.0);',
+    '  return dot(n, n) > 1e-20 ? normalize(n) : vec3(0.0, 1.0, 0.0);',
+    '}',
     'float astraHash11(float p) {',
     '  p = fract(p * 0.1031);',
     '  p *= p + 33.33;',
@@ -244,9 +261,10 @@ export function glslCurv(name) {
 
 /**
  * `vec3 name(vec3 w)`: a world direction as the LOCAL offset that moves
- * this surface one metre along it — one projection per basis column,
- * valid because compose() leaves the columns orthogonal. `instanced`
- * folds in instanceMatrix, which three applies after the vertex hook.
+ * this surface one metre along it. Uses the reciprocal basis, including
+ * shear produced by nested rotations/nonuniform scales. `instanced` folds
+ * in instanceMatrix, which Three applies after the vertex hook. A singular
+ * transform has no inverse and returns a zero offset instead of NaNs.
  */
 export function glslLocalDir(name, instanced = false) {
     return [
@@ -254,9 +272,13 @@ export function glslLocalDir(name, instanced = false) {
         '  mat3 m = mat3(modelMatrix);',
         ...(instanced ? ['#ifdef USE_INSTANCING',
                          '  m = m * mat3(instanceMatrix);', '#endif'] : []),
-        '  return vec3(dot(w, m[0]) / max(dot(m[0], m[0]), 1e-6),',
-        '              dot(w, m[1]) / max(dot(m[1], m[1]), 1e-6),',
-        '              dot(w, m[2]) / max(dot(m[2], m[2]), 1e-6));',
+        '  vec3 a = cross(m[1], m[2]);',
+        '  vec3 b = cross(m[2], m[0]);',
+        '  vec3 c = cross(m[0], m[1]);',
+        '  float determinant = dot(m[0], a);',
+        '  float magnitude = length(m[0]) * length(m[1]) * length(m[2]);',
+        '  if (abs(determinant) <= max(magnitude * 1e-7, 1e-30)) return vec3(0.0);',
+        '  return vec3(dot(w, a), dot(w, b), dot(w, c)) / determinant;',
         '}',
     ].join('\n');
 }
@@ -579,10 +601,16 @@ export function makeShaderMaterial(opts = {}) {
  *   (uTime added, driven by `tickShaders`); `vertexHead`/`fragmentHead`
  *   code before main; `vertexBody` runs after `<begin_vertex>` (edit
  *   `transformed`); `fragmentBody` runs after `<color_fragment>` (edit
- *   `diffuseColor`); `roughnessBody` / `metalnessBody` / `outputBody`
+ *   `diffuseColor`); `alphaBody` runs before `<alphatest_fragment>` on
+ *   both surface and depth/distance materials (coverage/discard logic);
+ *   `normalBody` runs after `<normal_fragment_maps>` on the view-space
+ *   shading normal; `roughnessBody` / `metalnessBody` / `outputBody`
  *   run after `<roughnessmap_fragment>` / `<metalnessmap_fragment>` /
  *   `<opaque_fragment>` (per-pixel `roughnessFactor`, `metalnessFactor`,
- *   the lit `gl_FragColor`); `util` include GLSL_UTIL.
+ *   the lit `gl_FragColor`); `transmissionBody` edits a Physical material's
+ *   `material.thickness` / `material.transmission` after texture sampling
+ *   and before volume refraction (only with USE_TRANSMISSION enabled);
+ *   `util` include GLSL_UTIL.
  * @returns {THREE.Material} The same material.
  */
 /**
@@ -651,7 +679,8 @@ export function patchStandard(material, opts = {}) {
     const {
         name = 'AstraPatch', uniforms = {}, vertexHead = '',
         fragmentHead = '', vertexBody = '', fragmentBody = '', util = true,
-        roughnessBody = '', metalnessBody = '', outputBody = '',
+        roughnessBody = '', metalnessBody = '', outputBody = '', alphaBody = '', normalBody = '',
+        transmissionBody = '',
     } = opts;
     // Patches CHAIN. Assigning onBeforeCompile outright — which this did
     // — silently dropped every earlier patch and its uniforms, and
@@ -672,7 +701,8 @@ export function patchStandard(material, opts = {}) {
     const patches = material.userData.astraPatches || [];
     const at = patches.findIndex((p) => p.name === name);
     const patch = { name, vertexHead, fragmentHead, vertexBody, fragmentBody,
-                    roughnessBody, metalnessBody, outputBody, util };
+                    roughnessBody, metalnessBody, outputBody, alphaBody, normalBody,
+                    transmissionBody, util };
     // Re-applying a patch retunes it (its uniforms are already merged);
     // pushing it twice would declare its varyings twice.
     if (at >= 0) patches[at] = patch;
@@ -713,7 +743,7 @@ export function patchStandard(material, opts = {}) {
             fs = fs.replace('#include <color_fragment>',
                             '#include <color_fragment>\n' + fBody);
         }
-        // The three LATER hooks. `<color_fragment>` is the albedo, and for
+        // Later hooks. `<color_fragment>` is the albedo, and for
         // years it was the only one — which is why a rust crust could only
         // be sold by retuning the WHOLE material's roughness (a 30 % crust
         // demattes 100 % of the surface), and why aerial perspective could
@@ -721,6 +751,16 @@ export function patchStandard(material, opts = {}) {
         // and empty by default, so no existing patch changes.
         const join = (key) => patches.map((p) => p[key]).filter(Boolean)
             .join('\n');
+        const aBody = join('alphaBody');
+        if (aBody) {
+            fs = fs.replace('#include <alphatest_fragment>',
+                            aBody + '\n#include <alphatest_fragment>');
+        }
+        const nBody = join('normalBody');
+        if (nBody) {
+            fs = fs.replace('#include <normal_fragment_maps>',
+                            '#include <normal_fragment_maps>\n' + nBody);
+        }
         // after <roughnessmap_fragment>: `roughnessFactor` is in scope, and
         // every fragmentBody local above it still is.
         const rBody = join('roughnessBody');
@@ -733,6 +773,20 @@ export function patchStandard(material, opts = {}) {
         if (mBody) {
             fs = fs.replace('#include <metalnessmap_fragment>',
                             '#include <metalnessmap_fragment>\n' + mBody);
+        }
+        // Thickness and transmission maps are sampled INSIDE this chunk. A
+        // hook before it would be overwritten; one after it would miss the
+        // refraction calculation. Expand only this opt-in chunk, retaining
+        // Three's USE_TRANSMISSION guard and its native optical model.
+        const tBody = join('transmissionBody');
+        if (tBody && fs.includes('#include <transmission_fragment>')) {
+            const chunk = THREE.ShaderChunk.transmission_fragment;
+            const anchor = 'vec3 pos = vWorldPosition;';
+            if (!chunk?.includes(anchor)) {
+                throw new Error('shader.js: Three transmission chunk changed; review transmissionBody insertion');
+            }
+            fs = fs.replace('#include <transmission_fragment>',
+                            chunk.replace(anchor, tBody + '\n\t' + anchor));
         }
         // after <opaque_fragment>: `gl_FragColor` holds the LIT result, still
         // linear — tonemapping and the colour-space convert come after this,
@@ -752,6 +806,59 @@ export function patchStandard(material, opts = {}) {
     };
     material.needsUpdate = true;
     return material;
+}
+
+/** Clone a material and rebuild its registered Astra patch chain.
+ * Three's ordinary clone JSON-copies userData but drops onBeforeCompile, losing
+ * both the shader and typed uniform values. Built-in patches and ShaderMaterial
+ * uniforms follow the same rules: uniform values here are independent
+ * (including vectors, matrices and arrays); textures remain borrowed references,
+ * as they do for ordinary material map slots. Only registered Astra patches can
+ * be rebuilt: additional external wrappers around onBeforeCompile must be
+ * reapplied by their owner. An unpatched material's hook is kept by reference.
+ * Set shareUniforms:true when collapsing a static batch that must retain the
+ * source effect's externally driven uniform map rather than an independent one.
+ */
+export function clonePatchedMaterial(material, { shareUniforms = false } = {}) {
+    // Leave uniforms out of Three's JSON copy: a render-target sampler can carry
+    // a large object graph, and JSON cannot preserve its GPU identity anyway.
+    const source = Object.create(material);
+    source.userData = { ...material.userData };
+    delete source.userData.uniforms;
+    delete source.userData.astraPatches;
+    delete source.userData.astraShader;
+    delete source.userData.astraShared;
+    delete source.userData.shared;
+    // ShaderMaterial.copy uses UniformsUtils.clone, which duplicates ordinary
+    // texture samplers and replaces render-target samplers with null. Borrow
+    // them through the same typed copy used for registered surface patches.
+    if (material.isShaderMaterial) source.uniforms = {};
+    const clone = material.clone.call(source);
+    const copyValue = (value) => {
+        if (!value || typeof value !== 'object' || value.isTexture) return value;
+        if (ArrayBuffer.isView(value)) return value.slice();
+        if (Array.isArray(value)) return value.map(copyValue);
+        if (typeof value.clone === 'function') return value.clone();
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, copyValue(item)]));
+    };
+    const uniformMaps = new Map();
+    const copyUniforms = (uniforms) => {
+        if (shareUniforms) return uniforms;
+        if (!uniformMaps.has(uniforms)) uniformMaps.set(uniforms, Object.fromEntries(
+            Object.entries(uniforms).map(([key, binding]) =>
+                [key, { ...binding, value: copyValue(binding.value) }])));
+        return uniformMaps.get(uniforms);
+    };
+    if (material.isShaderMaterial) clone.uniforms = copyUniforms(material.uniforms);
+    if (material.userData.uniforms) clone.userData.uniforms = copyUniforms(material.userData.uniforms);
+    const patches = material.userData.astraPatches;
+    if (patches?.length) {
+        for (const patch of patches) patchStandard(clone, { ...patch });
+    } else {
+        clone.onBeforeCompile = material.onBeforeCompile;
+        clone.customProgramCacheKey = material.customProgramCacheKey;
+    }
+    return clone;
 }
 
 /**
@@ -780,10 +887,10 @@ export function worldBody(p, n) {
         `  vec3 ${n} = normal;`,
         '#ifdef USE_INSTANCING',
         `  ${p} = instanceMatrix * ${p};`,
-        `  ${n} = mat3(instanceMatrix) * ${n};`,
+        `  ${n} = astraNormalTransform(mat3(instanceMatrix), ${n});`,
         '#endif',
         `  vAstraWorld = (modelMatrix * ${p}).xyz;`,
-        `  vAstraWorldN = normalize((modelMatrix * vec4(${n}, 0.0)).xyz);`,
+        `  vAstraWorldN = astraNormalTransform(mat3(modelMatrix), ${n});`,
     ].join('\n');
 }
 
@@ -918,8 +1025,9 @@ export function tickShaders(root, t) {
 /**
  * Give a vertex-displaced mesh a shadow that moves with it.
  *
- * three draws the shadow map with its OWN MeshDepthMaterial, which
- * never sees `patchStandard`: a displaced surface casts the shadow of
+ * Three draws directional/spot shadows with MeshDepthMaterial and point
+ * shadows with MeshDistanceMaterial. Neither sees `patchStandard`: a
+ * displaced surface casts the shadow of
  * its undisplaced geometry — and for the `position`-at-zero instanced
  * lattices these libraries build, that is no shadow at all. This
  * patches a depth material with the SAME head and body and shares the
@@ -930,27 +1038,39 @@ export function tickShaders(root, t) {
  * passed WHOLE — a depth shader has no vNormal to write.
  *
  * @param {THREE.Mesh} mesh The mesh, its surface patched already.
- * @param {string} name Cache-key name for this depth patch.
+ * @param {string} name Cache-key name for these shadow patches.
  * @param {string} head The vertex head the body needs.
  * @param {string} body The vertex body: the displacement, or the whole
  *   body when its normal half is FLAT_SHADED-guarded.
+ * @param {object} [opts] `fragmentHead` and `fragmentBody` provide the same
+ *   silhouette test/discard as the surface. The body runs before the alpha
+ *   test in both shadow passes. Neither owns the surface's shared textures.
  * @returns {THREE.Mesh} The same mesh, now casting.
  */
-export function shadowLike(mesh, name, head, body) {
+export function shadowLike(mesh, name, head, body, opts = {}) {
     // A depth pass that matches the surface EXACTLY self-shadows into
     // moire, and shadow bias belongs to a light this library cannot
     // see: the offset is the surface's own, so it travels with it.
-    const dep = new THREE.MeshDepthMaterial({
-        depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide,
+    const settings = {
+        side: THREE.DoubleSide,
         polygonOffset: true, polygonOffsetFactor: 3, polygonOffsetUnits: 8,
+    };
+    const depth = new THREE.MeshDepthMaterial({
+        ...settings, depthPacking: THREE.RGBADepthPacking,
     });
-    dep.userData.uniforms = mesh.material.userData.uniforms;
-    patchStandard(dep, {
-        name,
-        vertexHead: '#define FLAT_SHADED 1\n' + head,
-        vertexBody: body,
-    });
-    mesh.customDepthMaterial = dep;
+    const distance = new THREE.MeshDistanceMaterial(settings);
+    for (const material of [depth, distance]) {
+        material.userData.uniforms = mesh.material.userData.uniforms;
+        patchStandard(material, {
+            name,
+            vertexHead: '#define FLAT_SHADED 1\n' + head,
+            vertexBody: body,
+            fragmentHead: opts.fragmentHead || '',
+            alphaBody: opts.fragmentBody || '',
+        });
+    }
+    mesh.customDepthMaterial = depth;
+    mesh.customDistanceMaterial = distance;
     mesh.castShadow = true;
     return mesh;
 }
@@ -1112,22 +1232,117 @@ export function instancedQuad(count, w = 1, h = 1, radius = 1e4) {
  * @param {THREE.Object3D} obj Mesh, or a group whose meshes to guard.
  * @returns {THREE.Object3D} The same object.
  */
+const overrideGuards = new WeakSet();
+
 export function keepOutOfDepthPasses(obj) {
     obj.traverse((o) => {
-        if (!o.isMesh || o.userData.astraNoOverride) return;
-        const own = o.material;
+        if (!o.isMesh || overrideGuards.has(o)) return;
+        overrideGuards.add(o);
         o.userData.astraNoOverride = true;
-        // A shaft of light does not cast a shadow. three 0.184 draws
+        const before = o.onBeforeRender, after = o.onAfterRender;
+        const ranges = [];
+        // A shaft of light does not cast a shadow. Three r182 draws
         // the shadow map through its own hook, so the draw-range guard
         // below never sees it — the flag is what keeps it out.
         o.castShadow = false;
-        o.onBeforeRender = (r, s, cam, geo, m) => {
-            geo.setDrawRange(0, m === own ? Infinity : 0);
+        o.onBeforeRender = function (...args) {
+            before?.apply(this, args);
+            const [, , , geo, material] = args;
+            ranges.push({geometry:geo, start:geo.drawRange.start, count:geo.drawRange.count});
+            const own = Array.isArray(this.material)
+                ? this.material.includes(material) : this.material === material;
+            if (!own) geo.setDrawRange(0, 0);
         };
-        o.onAfterRender = (r, s, cam, geo) => {
-            geo.setDrawRange(0, Infinity);
+        o.onAfterRender = function (...args) {
+            const range = ranges.pop();
+            if (range) range.geometry.setDrawRange(range.start, range.count);
+            after?.apply(this, args);
         };
     });
     return obj;
 }
 
+// A renderer may nest captures (for example a transmission pass inside a
+// reflection). Reuse one frame per nesting level without sharing live state.
+const rendererStateFrames = new WeakMap();
+
+/**
+ * Run a synchronous capture and restore the caller's renderer state, including
+ * active target rectangles that differ from the target's authored defaults.
+ * This scopes addon render callbacks; it does not coordinate recursive mirrors
+ * or recover the contents of an interrupted frame. Object visibility/matrices
+ * remain the caller's responsibility. The callback must finish synchronously.
+ */
+export function withRendererState(renderer, callback) {
+    let stack = rendererStateFrames.get(renderer);
+    if (!stack) {
+        stack = { depth: 0, frames: [] };
+        rendererStateFrames.set(renderer, stack);
+    }
+    let frame = stack.frames[stack.depth];
+    if (!frame) {
+        frame = {
+            viewport: new THREE.Vector4(), scissor: new THREE.Vector4(),
+            logicalViewport: new THREE.Vector4(), logicalScissor: new THREE.Vector4(),
+            targetViewport: new THREE.Vector4(), targetScissor: new THREE.Vector4(),
+            clearColor: new THREE.Color(),
+        };
+        stack.frames.push(frame);
+    }
+    const gl = renderer.getContext();
+    frame.target = renderer.getRenderTarget();
+    frame.face = renderer.getActiveCubeFace();
+    frame.mip = renderer.getActiveMipmapLevel();
+    frame.xr = renderer.xr.enabled;
+    frame.shadowUpdate = renderer.shadowMap.autoUpdate;
+    frame.toneMapping = renderer.toneMapping;
+    frame.clearAlpha = renderer.getClearAlpha();
+    frame.logicalScissorTest = renderer.getScissorTest();
+    frame.actualScissorTest = gl.isEnabled(gl.SCISSOR_TEST);
+    renderer.getCurrentViewport(frame.viewport);
+    renderer.getViewport(frame.logicalViewport);
+    renderer.getScissor(frame.logicalScissor);
+    frame.scissor.fromArray(gl.getParameter(gl.SCISSOR_BOX));
+    renderer.getClearColor(frame.clearColor);
+    stack.depth++;
+    try {
+        return callback();
+    } finally {
+        try {
+            renderer.xr.enabled = frame.xr;
+            renderer.shadowMap.autoUpdate = frame.shadowUpdate;
+            renderer.toneMapping = frame.toneMapping;
+            renderer.setClearColor(frame.clearColor, frame.clearAlpha);
+            renderer.setViewport(frame.logicalViewport);
+            renderer.setScissor(frame.logicalScissor);
+            renderer.setScissorTest(frame.logicalScissorTest);
+            if (frame.target) {
+                // Rebinding normally resets active rectangles to target
+                // defaults. Use the captured rectangles for this bind, then
+                // return its metadata intact so Three's cache and GL agree.
+                frame.targetViewport.copy(frame.target.viewport);
+                frame.targetScissor.copy(frame.target.scissor);
+                const targetScissorTest = frame.target.scissorTest;
+                frame.target.viewport.copy(frame.viewport);
+                frame.target.scissor.copy(frame.scissor);
+                frame.target.scissorTest = frame.actualScissorTest;
+                try {
+                    renderer.setRenderTarget(frame.target, frame.face, frame.mip);
+                } finally {
+                    frame.target.viewport.copy(frame.targetViewport);
+                    frame.target.scissor.copy(frame.targetScissor);
+                    frame.target.scissorTest = targetScissorTest;
+                }
+            } else {
+                renderer.setRenderTarget(null, frame.face, frame.mip);
+                renderer.state.viewport(frame.viewport);
+                renderer.state.scissor(frame.scissor);
+                renderer.state.setScissorTest(frame.actualScissorTest);
+            }
+        } finally {
+            stack.depth--;
+            // Do not keep a disposed caller target alive through this pool.
+            frame.target = null;
+        }
+    }
+}

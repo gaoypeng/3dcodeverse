@@ -143,3 +143,44 @@ def test_cliff_faceat_matches_the_displaced_mesh(probe):
     assert c["drift"] < 1e-4, c
     assert abs(c["minY"]) < 1e-6 and abs(c["maxY"] - 40) < 1e-6
     assert c["zSpan"] > 2, c
+
+
+def test_surface_samplers_match_triangles_between_vertices_after_parent_transform():
+    result = measure("""
+import * as THREE from 'three';
+import { ground, cliff } from './lib/terrain.js';
+let seed = 37;
+const rand = () => (seed = seed * 16807 % 2147483647) / 2147483647;
+const terrain = ground({ size: 113, segments: 19, relief: 8, scale: 13, rand });
+const wall = cliff({ length: 27, height: 9, relief: 3, rand });
+const parent = new THREE.Group();
+parent.position.set(8, -3, 12); parent.rotation.set(.2, -.5, .1);
+parent.scale.set(1.4, .8, 2.1); parent.add(terrain.mesh, wall.mesh);
+parent.updateMatrixWorld(true);
+const ray = new THREE.Raycaster();
+const error = (mesh, point, direction) => {
+  const origin = point.clone().addScaledVector(direction, -100).applyMatrix4(mesh.matrixWorld);
+  const endpoint = point.clone().add(direction).applyMatrix4(mesh.matrixWorld);
+  ray.set(origin, endpoint.sub(origin).normalize());
+  const hit = ray.intersectObject(mesh, false)[0];
+  if (!hit) throw new Error('Expected a surface hit');
+  return hit.point.distanceTo(point.clone().applyMatrix4(mesh.matrixWorld));
+};
+let groundError = 0, cliffError = 0;
+for (let i = 0; i < 200; i++) {
+  const x = (rand() - .5) * 112, z = (rand() - .5) * 112;
+  groundError = Math.max(groundError, error(terrain.mesh,
+    new THREE.Vector3(x, terrain.height(x, z), z), new THREE.Vector3(0, -1, 0)));
+  const s = rand() * 27, y = rand() * 9;
+  cliffError = Math.max(cliffError, error(wall.mesh,
+    wall.faceAt(s, y), new THREE.Vector3(0, 0, -1)));
+}
+const flat = cliff({ length: 11, height: 4, relief: 0, rand });
+console.log(JSON.stringify({ groundError, cliffError,
+  finiteFlatColors: Array.from(flat.mesh.geometry.attributes.color.array).every(Number.isFinite),
+  edge: terrain.height(-1000, 1000) === terrain.height(-56.5, 56.5) }));
+""", _LIBS)
+    assert result["groundError"] < 2e-5, result
+    assert result["cliffError"] < 2e-5, result
+    assert result["finiteFlatColors"] and result["edge"], result
+

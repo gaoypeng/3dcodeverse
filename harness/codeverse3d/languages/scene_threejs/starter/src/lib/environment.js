@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { fbm2, mulberry32 } from './noise.js';
 import { patchStandard } from './shader.js';
 import { skyRadiance } from './sky.js';
+import { snapshotResources, attachDisposal } from './lifecycle.js';
 
 const MOODS = {
   day: { zenith: 0x5d8fd6, horizon: 0xdbe3ea, ridge: 0x9fb2c4,
@@ -85,21 +86,33 @@ export function roomShell(opts = {}) {
       slab(name, sx, b1 - b0, sz, x, y0 + (b0 + b1) / 2, z, wallMat);
     };
     if (!holes.length) { place(`Wall_${face}`, 0, f.len, 0, h); continue; }
-    const sorted = holes.map((o) => ({ a0: o.center[0] - o.size[0] / 2, a1: o.center[0] + o.size[0] / 2,
-                                       b0: o.center[1] - o.size[1] / 2, b1: o.center[1] + o.size[1] / 2 }))
-                        .sort((p, q) => p.a0 - q.a0);
-    let cursor = 0, n = 0;
-    for (const o of sorted) {
-      const a0 = Math.max(0, o.a0), a1 = Math.min(f.len, o.a1);
-      place(`Wall_${face}_${n++}`, cursor, a0, 0, h);                       // solid span before the opening
-      place(`Wall_${face}_${n++}`, a0, a1, 0, Math.max(0, o.b0));         // sill below it
-      place(`Wall_${face}_${n++}`, a0, a1, Math.min(h, o.b1), h);         // lintel above it
-      cursor = a1;
+    const clipped = holes.map((o) => ({
+      a0:Math.max(0, o.center[0] - o.size[0] / 2),
+      a1:Math.min(f.len, o.center[0] + o.size[0] / 2),
+      b0:Math.max(0, o.center[1] - o.size[1] / 2),
+      b1:Math.min(h, o.center[1] + o.size[1] / 2),
+    })).filter((o) => o.a1 > o.a0 && o.b1 > o.b0);
+    // Subtract the UNION of openings. Independent sills/lintels fill each
+    // other's holes when windows overlap horizontally or sit above a door.
+    const cuts = [...new Set([0, f.len, ...clipped.flatMap((o) => [o.a0, o.a1])])]
+        .sort((a, b) => a - b);
+    let n = 0;
+    for (let i = 0; i + 1 < cuts.length; i++) {
+      const a0 = cuts[i], a1 = cuts[i + 1], middle = (a0 + a1) / 2;
+      const intervals = clipped.filter((o) => o.a0 < middle && middle < o.a1)
+          .sort((a, b) => a.b0 - b.b0);
+      let bottom = 0;
+      for (const opening of intervals) {
+        place(`Wall_${face}_${n++}`, a0, a1, bottom, opening.b0);
+        bottom = Math.max(bottom, opening.b1);
+      }
+      place(`Wall_${face}_${n++}`, a0, a1, bottom, h);
     }
-    place(`Wall_${face}_${n++}`, cursor, f.len, 0, h);
   }
   if (opts.ceiling !== false) slab('Ceiling', w + 2 * t, t, d + 2 * t, cx, y0 + h + t / 2, cz, ceilMat);
-  return group;
+  const owned = snapshotResources(group);
+  owned.add(wallMat);owned.add(ceilMat);
+  return attachDisposal(group, owned);
 }
 
 /**
@@ -202,7 +215,8 @@ export function worldShell(opts = {}) {
       horizon.getHex(),
       opts.fogDensity === undefined ? density : opts.fogDensity);
 
-  return { group, fog, radius };
+  attachDisposal(group, snapshotResources(group));
+  return { group, fog, radius, dispose:group.userData.dispose };
 }
 
 /**
@@ -419,7 +433,7 @@ export function makeOutskirts(opts = {}) {
     copse.name = 'OutskirtsCopses';
     group.add(copse);
   }
-  return group;
+  return attachDisposal(group, snapshotResources(group));
 }
 
 
@@ -664,6 +678,9 @@ export function sunRig(opts = {}) {
     sunDisc.renderOrder = -1.5;
   }
 
+  const owned = sunDisc ? snapshotResources(sunDisc) : new Set();
+  owned.add(envTex);owned.add(sun);owned.add(fill);
+  const lifecycle = attachDisposal(new THREE.Group(), owned);
   return { sun, fill, envTex, sunDisc, sunDir: dir.clone(), lightDir,
-           night, moonDir, mood: moodName };
+           night, moonDir, mood: moodName, dispose:lifecycle.userData.dispose };
 }

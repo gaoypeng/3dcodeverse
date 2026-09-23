@@ -30,6 +30,7 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 
 import { mulberry32 } from './noise.js';
 import {
@@ -38,7 +39,36 @@ import {
 } from './shader.js';
 
 const _TAU = Math.PI * 2;
-const _MAX_PTS = 8;   // the size of the shader's uPath array
+const _MAX_PTS = 8;
+const _PATH_SAMPLES = 2048;
+
+// Equal-distance samples avoid the acceleration produced by advancing a
+// Catmull-Rom parameter through unequally spaced control points. Manual linear
+// interpolation needs no floating-point texture filtering extension.
+function pathTable(curve) {
+    curve.arcLengthDivisions = _PATH_SAMPLES * 4;
+    curve.updateArcLengths();
+    const data = new Float32Array(_PATH_SAMPLES * 4);
+    const bounds = new THREE.Box3();
+    for (let i = 0; i < _PATH_SAMPLES; i++) {
+        const point = curve.getPointAt(i / _PATH_SAMPLES);
+        point.toArray(data, i * 4);
+        bounds.expandByPoint(point);
+    }
+    const texture = new THREE.DataTexture(data, _PATH_SAMPLES, 1,
+        THREE.RGBAFormat, THREE.FloatType);
+    texture.name = 'FlockArcLengthPath';
+    texture.minFilter = texture.magFilter = THREE.NearestFilter;
+    texture.generateMipmaps = false;
+    texture.needsUpdate = true;
+    const sample = (distance) => {
+        const f = THREE.MathUtils.euclideanModulo(distance, 1) * _PATH_SAMPLES;
+        const i = Math.floor(f), j = (i + 1) % _PATH_SAMPLES;
+        return new THREE.Vector3().fromArray(data, i * 4)
+            .lerp(new THREE.Vector3().fromArray(data, j * 4), f - i);
+    };
+    return { texture, bounds, sample };
+}
 
 /** Default route: a shallow ellipse over the scene, gently undulating. */
 function _defaultPath(extent, height) {
@@ -75,6 +105,8 @@ function _defaultPath(extent, height) {
  *   `size` wingspan in metres (default extent/20, clamped 0.35..2.4).
  * @returns {THREE.Group} Named `Flock`, holding ONE instanced mesh,
  *   with `userData.tick(t)` advancing the only thing that changes.
+ *   `userData.samplePath(t)` returns the local centreline point at absolute
+ *   seconds; lateral formation offsets and individual bobbing are additional.
  */
 export function makeFlock(opts = {}) {
     const count = Math.max(1, opts.count === undefined ? 120 : opts.count);
@@ -103,9 +135,11 @@ export function makeFlock(opts = {}) {
     const pts = (opts.path && opts.path.length >= 3
         ? opts.path.map((p) => readVec3(p))
         : _defaultPath(extent, height)).slice(0, _MAX_PTS);
-    // Uniform Catmull-Rom, closed: the same curve the shader evaluates,
-    // so `speed` is honest metres per second rather than a loop rate.
-    const curve = new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.5);
+    // Centripetal interpolation prevents cusps between unevenly spaced points.
+    // Sample the closed route at equal arc lengths; the shader
+    // interpolates the same table so speed is metres per second.
+    const curve = new THREE.CatmullRomCurve3(pts, true, 'centripetal');
+    const route = pathTable(curve);
     const loop = Math.max(curve.getLength(), 1e-3);
 
     const geom = instancedQuad(count, 1, 1);
@@ -138,18 +172,14 @@ export function makeFlock(opts = {}) {
     // `position` is all zeros, so the bounds three would compute are a
     // point at the origin: framing, culling and the census all need the
     // volume the shader actually flies the flock through.
-    const box = new THREE.Box3().setFromPoints(curve.getPoints(64));
+    const box = route.bounds.clone();
     box.expandByVector(new THREE.Vector3(
         wide + size, tall + size, wide + size));
     geom.boundingBox = box;
     geom.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
 
-    const path = [];
-    for (let k = 0; k < _MAX_PTS; k++) {
-        path.push(pts[Math.min(k, pts.length - 1)].clone());
-    }
     const mesh = new THREE.Mesh(geom, flockMaterial({
-        path, n: pts.length, rate: speed / loop, size: size * 0.5,
+        path: route.texture, rate: speed / loop, size: size * 0.5,
         beat, kind, color, sun, sunCol, skyCol,
     }));
     mesh.name = kind ? 'FlockFish' : 'FlockBirds';
@@ -159,7 +189,12 @@ export function makeFlock(opts = {}) {
     const g = new THREE.Group();
     g.name = 'Flock';
     g.add(mesh);
-    g.userData.tick = (t) => tickShaders(g, t);
+    g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+    g.userData.samplePath = (t = 0) => route.sample(t * speed / loop);
+    g.userData.pathLength = loop;
+    const owned = snapshotResources(g);
+    owned.add(route.texture);
+    attachDisposal(g, owned);
     return keepOutOfDepthPasses(g);
 }
 
@@ -169,7 +204,6 @@ function flockMaterial(o) {
         name: 'Flock',
         uniforms: {
             uPath: { value: o.path },
-            uPathN: { value: o.n },
             uRate: { value: o.rate },
             uSize: { value: o.size },
             uBeat: { value: o.beat },
@@ -191,28 +225,16 @@ function flockMaterial(o) {
             'attribute vec3 aCorner;',
             'attribute vec3 iOff;',
             'attribute vec4 iExtra;',
-            'uniform vec3 uPath[8];',
-            'uniform float uPathN; uniform float uRate;',
+            'uniform sampler2D uPath;',
+            'uniform float uRate;',
             'uniform float uSize; uniform float uBeat; uniform float uKind;',
             'uniform vec3 uColor; uniform vec3 uSun;',
-            // Indexed by a loop counter, which is the one form of array
-            // indexing every GLSL dialect here accepts.
-            'vec3 flockPt(float i) {',
-            '  int idx = int(i + 0.5);',
-            '  vec3 p = uPath[0];',
-            '  for (int k = 0; k < 8; k++) { if (k == idx) p = uPath[k]; }',
-            '  return p;',
-            '}',
             'vec3 flockPath(float u) {',
-            '  float n = uPathN;',
-            '  float s = fract(u) * n;',
+            `  float s = fract(u) * ${_PATH_SAMPLES.toFixed(1)};`,
             '  float i = floor(s), f = s - i;',
-            '  vec3 p0 = flockPt(mod(i - 1.0, n)), p1 = flockPt(mod(i, n));',
-            '  vec3 p2 = flockPt(mod(i + 1.0, n));',
-            '  vec3 p3 = flockPt(mod(i + 2.0, n));',
-            '  return 0.5 * (2.0 * p1 + (p2 - p0) * f',
-            '      + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * f * f',
-            '      + (3.0 * p1 - 3.0 * p2 + p3 - p0) * f * f * f);',
+            `  vec3 a = texture2D(uPath, vec2((i + 0.5) / ${_PATH_SAMPLES.toFixed(1)}, 0.5)).xyz;`,
+            `  vec3 b = texture2D(uPath, vec2((mod(i + 1.0, ${_PATH_SAMPLES.toFixed(1)}) + 0.5) / ${_PATH_SAMPLES.toFixed(1)}, 0.5)).xyz;`,
+            '  return mix(a, b, f);',
             '}',
         ].join('\n'),
         vertexMain: [
@@ -265,14 +287,17 @@ function flockMaterial(o) {
             // held: a frozen frame in which every bird holds the same V
             // is the second tell, after the flat colour.
             '  float gl = astraHash11(iExtra.x * 13.31 + 0.7);',
+            // The route is local but the key light is world-space. Transform
+            // the normal axes before taking their dot products with the sun.
+            '  ud = inverseTransformDirection(normalMatrix * ud, viewMatrix);',
+            '  sd = inverseTransformDirection(normalMatrix * sd, viewMatrix);',
             // The sun in the bird's OWN frame (x against its up axis, y
             // against its wing axis), so the fragment can roll each wing
             // between the two through the stroke, and how backlit the
             // flock is from this camera.
             '  vLit = vec4(dot(ud, uSun), dot(sd, uSun),',
-            '      smoothstep(0.05, 0.85, dot(uSun, -vec3(',
-            '          modelViewMatrix[0][2], modelViewMatrix[1][2],',
-            '          modelViewMatrix[2][2]))),',
+            '      smoothstep(0.05, 0.85, dot(uSun, normalize(',
+            '          (modelMatrix * vec4(c, 1.0)).xyz - cameraPosition))),',
             '      mix(0.30, 1.0, smoothstep(0.0, 0.32, gl)));',
         ].join('\n'),
         fragmentHead: [

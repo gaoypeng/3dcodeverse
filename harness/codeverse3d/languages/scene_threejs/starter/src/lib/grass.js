@@ -26,6 +26,7 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { fbm2, mulberry32 } from './noise.js';
 import {
   glslLocalDir, patchStandard, shadowLike, tickShaders, unit,
@@ -97,8 +98,8 @@ export function makeGrass(opts = {}) {
   if (opts.sward !== false) {
     g.add(swardMat(extent, density, lush, dry, clumpAt, ground));
   }
-  g.userData.tick = (t) => tickShaders(g, t);
-  return g;
+  g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+  return attachDisposal(g, snapshotResources(g));
 }
 
 /**
@@ -244,9 +245,11 @@ function bladeMesh(field, extent, lush, dry, wind, shadows) {
     low = Math.min(low, field.pos[i]);
     high = Math.max(high, field.pos[i]);
   }
+  // An arc stays inside its length about the root; include blade half-width.
+  const lateral = field.maxH * 1.10;
   geom.boundingBox = new THREE.Box3(
-      new THREE.Vector3(-extent / 2, low, -extent / 2),
-      new THREE.Vector3(extent / 2, high + field.maxH, extent / 2));
+      new THREE.Vector3(-extent / 2 - lateral, low - field.maxH*.08, -extent / 2 - lateral),
+      new THREE.Vector3(extent / 2 + lateral, high + field.maxH*1.08, extent / 2 + lateral));
   geom.boundingSphere = geom.boundingBox.getBoundingSphere(
       new THREE.Sphere());
 
@@ -266,10 +269,9 @@ function bladeMesh(field, extent, lush, dry, wind, shadows) {
     color: 0xffffff, roughness: 0.78, metalness: 0,
     specularIntensity: 0.30,
     side: THREE.DoubleSide, name: 'GrassBlade',
-    // And the AO this host does not have: the reference ran GTAO over
-    // the field, we have no post chain, and a blade standing in a
-    // sward sees a slot of sky rather than a dome.
-    envMapIntensity: 0.62,
+    // Shader-built blades do not appear in the host GTAO override pass.
+    // This modest sky occlusion complements the per-blade root treatment.
+    envMapIntensity: 0.80,
   });
   patchStandard(mat, {
     name: 'grass:blade',
@@ -418,17 +420,10 @@ const BLADE_FRAGMENT = [
   '  grC = astraHueBreak(grC, vGrassW, 0.55, 0.62);',
   // The sward is DEEP: a blade's base sits in the shade of its
   // neighbours, and that gradient is most of what reads as grass.
-  // Deeper than it looks, too — this host has no AO pass, so the
-  // occlusion the reference got from GTAO has to live here or the
-  // field has no dark interior at all (measured: p05 0.33 over the
-  // field, against 0.08-0.15 in a photograph of one).
-  // A POWER, not a smoothstep: a smoothstep that reaches the root is
-  // already back at 0.9 by mid-blade, which is where most of the
-  // field's pixels are, so the frame keeps none of it. Light falls
-  // through a sward roughly as a power of the height, and 1.7 is what
-  // put this field's fifth percentile in a photograph's range.
-  '  float grDepth = pow(clamp(vGrass.x, 0.0, 1.0), 1.7);',
-  '  grC *= 0.22 + 0.78 * grDepth;',
+  // These shader-built blades are absent from the host's AO override pass,
+  // so retain a root-occlusion approximation without crushing the mid-blade.
+  '  float grDepth = pow(clamp(vGrass.x, 0.0, 1.0), 1.25);',
+  '  grC *= 0.32 + 0.68 * grDepth;',
   '  grC += uGrassLush * 0.10 * smoothstep(0.68, 1.0, vGrass.x);',
   // TRANSLUCENCY. A blade is a fraction of a millimetre of sap: with
   // the sun behind it most of what reaches the eye came THROUGH it,
@@ -458,7 +453,13 @@ const BLADE_FRAGMENT = [
   // field, it IS the light on the field, exactly as it is in the
   // photograph. Weighted by the depth so the glow stops where the
   // sward closes over: a field that glows to its roots is fog.
-  '  totalEmissiveRadiance += directionalLights[0].color * grSap',
+  '  float grVisibility = 1.0;',
+  '  #if defined(USE_SHADOWMAP) && NUM_DIR_LIGHT_SHADOWS > 0',
+  '    grVisibility = getShadow(directionalShadowMap[0], directionalLightShadows[0].shadowMapSize,',
+  '      directionalLightShadows[0].shadowIntensity, directionalLightShadows[0].shadowBias,',
+  '      directionalLightShadows[0].shadowRadius, vDirectionalShadowCoord[0]);',
+  '  #endif',
+  '  totalEmissiveRadiance += directionalLights[0].color * grSap * grVisibility',
   '      * (0.75 * grThru * grBeam * grDepth * grDepth);',
   '#endif',
   '#endif',
@@ -545,11 +546,9 @@ function swardMat(extent, density, lush, dry, clumpAt, ground) {
       '  float swG = astraStroke(swU * uGrassGrain * 1.8, 0.10);',
       '  swCol *= 0.82 + 0.26 * swG;',
       // The mat lies UNDER a canopy, so it is always in shade, and
-      // deep grass swallows what thin dry ground bounces back. Deeper
-      // here than the reference set it: with no AO pass on this host,
-      // the mat IS the field's dark interior — everything a photograph
-      // of a meadow has between the blades comes from this line.
-      '  swCol *= 0.66 - 0.30 * swC;',
+      // deep grass swallows what thin dry ground bounces back. This
+      // approximation remains necessary for the shader-only blade field.
+      '  swCol *= 0.70 - 0.26 * swC;',
       '  diffuseColor.rgb = swCol;',
     ].join('\n'),
   });

@@ -152,11 +152,10 @@ export function patchDappledLight(material, opts = {}) {
       '#ifdef USE_INSTANCING',
       '  vAstraDapW = (modelMatrix * instanceMatrix'
           + ' * vec4(transformed, 1.0)).xyz;',
-      '  vAstraDapN = normalize(mat3(modelMatrix)'
-          + ' * mat3(instanceMatrix) * normal);',
+      '  vAstraDapN = astraNormalTransform(mat3(modelMatrix) * mat3(instanceMatrix), normal);',
       '#else',
       '  vAstraDapW = (modelMatrix * vec4(transformed, 1.0)).xyz;',
-      '  vAstraDapN = normalize(mat3(modelMatrix) * normal);',
+      '  vAstraDapN = astraNormalTransform(mat3(modelMatrix), normal);',
       '#endif',
     ].join('\n'),
     fragmentHead: [
@@ -215,7 +214,8 @@ export function patchDappledLight(material, opts = {}) {
       // fleck travel the way the gap's shadow would.
       '  vec3 dpS = normalize(uDapSun);',
       '  float dpUp = max(dpS.y, 0.15);',
-      '  vec2 dpAt = vAstraDapW.xz + dpS.xz * (uDapH / dpUp);',
+      '  float dpHeight = max(0.0, uDapH - vAstraDapW.y);',
+      '  vec2 dpAt = vAstraDapW.xz + dpS.xz * (dpHeight / dpUp);',
       '  vec2 dpP = dpAt / uDapScale + uDapSeed * 17.0;',
       // The canopy drifts across the wind; the floor sees that drift
       // magnified by how far overhead it is.
@@ -233,7 +233,7 @@ export function patchDappledLight(material, opts = {}) {
       // Edge = the sun's penumbra at this height, never finer than the
       // pixel: the second term is what keeps a receding floor from
       // boiling into noise.
-      '  float dpPen = ' + SUN_HALF_ANGLE.toFixed(5) + ' * uDapH / uDapScale;',
+      '  float dpPen = ' + SUN_HALF_ANGLE.toFixed(5) + ' * dpHeight / uDapScale;',
       '  float dpAA = fwidth(dpP.x) + fwidth(dpP.y);',
       '  float dpW = clamp((dpPen + dpAA) * ' + FIELD_SLOPE.toFixed(2) + ','
           + ' 0.012, 0.40);',
@@ -251,8 +251,16 @@ export function patchDappledLight(material, opts = {}) {
       // The core of a fleck is the whole sun; its rim is a sliver of
       // one. That ratio is what gives a bloom pass something to find.
       '  float dpBeam = dpG * (1.0 + 2.2 * dpCore);',
-      '  totalEmissiveRadiance += dpTint * (uDapAmt * dpBeam * dpF'
-          + ' * diffuseColor.rgb);',
+      '  float dpVisibility = 1.0;',
+      '  #if defined(USE_SHADOWMAP) && NUM_DIR_LIGHT_SHADOWS > 0',
+      '    dpVisibility = getShadow(directionalShadowMap[0], directionalLightShadows[0].shadowMapSize,',
+      '      directionalLightShadows[0].shadowIntensity, directionalLightShadows[0].shadowBias,',
+      '      directionalLightShadows[0].shadowRadius, vDirectionalShadowCoord[0]);',
+      '  #endif',
+      '  #if NUM_DIR_LIGHTS > 0',
+      '    totalEmissiveRadiance += dpTint * (uDapAmt * dpBeam * dpF * dpVisibility',
+      '      * diffuseColor.rgb) * directionalLights[0].color / 3.14159265;',
+      '  #endif',
     ].join('\n'),
   });
 }

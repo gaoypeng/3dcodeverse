@@ -1,6 +1,6 @@
 # The shipped effect library — call these before writing your own
 
-`src/lib/` is in your workspace already: 44 modules, every one of them compiled
+`src/lib/` is in your workspace already: the shipped modules are compiled
 and rendered on THIS renderer.  They carry the depth and fog chunks a
 hand-written shader silently loses, and they are not an outside package — they
 are harness code shipped into the workspace, so importing them is allowed where
@@ -16,7 +16,18 @@ says `import { makeGrass } from '../lib/grass.js';`, `src/scene.js` says
 
 | Want | Call |
 | --- | --- |
+| a small flame or wax candle | `makeFire({ radius, height, seed, quality: 'high' })` · `makeCandle({ radius, height, seed, lit: true })` — `lib/fire.js`; volumetric flame, moving illumination, wick and wax. Returns a Group with `userData.update(t, dt)`; use metres (candle radius about 0.025, height 0.15). Fire is transparent: avoid intersecting glass volumes. |
+| a campfire, large fuel bed or flames through a building | `makeFireField({ emitters: [{ position: [0,0,0], radius: 0.3, height: 1, strength: 1 }], wind: [0.15,0], smoke: {height: 3, density: 0.65}, occluders: [fuel, walls], quality: 'balanced', seed })` — `lib/firefield.js`; all sources share one flame/soot integration. Wind is local metres/second. Optional borrowed opaque occluders truncate rays, including instancing/alpha cuts; custom deformation needs customDepthMaterial. No glass interleaving, skinned occluders or log-depth capture. Layout/wind are baked: rebuild to change them. Group provides update/dispose, bounds, sampleField(x,y,z,t), sampleEmber(index,t) and cost. Start with one field: each field adds a ray march over 3D textures, plus a depth pass when occluders are given. |
+| rising smoke, steam from a cup or vent | `makeSmoke({ height: 3, radius: 0.14, wind: [0.06, 0], riseSpeed: 0.7, seed, quality: 'balanced' })` · `makeSteam({ height: 0.5, radius: 0.03 })` — `lib/smoke.js`; bounded 3D density with upward advection, widening, dilution and internal light attenuation. Mesh origin is the emitter at local y=0. `userData.update(t)`, `userData.sampleDensity(x,y,z,t)` and `userData.dispose()`. Directional/point/ambient scene lights illuminate it. Keep opaque geometry outside its `userData.bounds`; intersections and overlapping transparent volumes are not depth-resolved. |
+| moving OCEAN waves with real displaced geometry | `makeOceanSurface({ width, depth, waveHeight, wavelength, windDirection: [1, 0.2], seed })` — `lib/ocean.js`; dispersive Gerstner waves, reflected scene, crest foam; Group with `userData.update(t, dt)` and `userData.sampleHeight(x, z, t)`. One reflective water body per scene. |
+| a curved shallow STREAM | `makeStream({ points: [[0, 0.6, -8], [2, 0.3, 0], [0, 0, 8]], width: 2, depth: 0.3, speed: 1, seed })` — `lib/stream.js`; points run upstream → downstream, decreasing Y. Refracts the opaque bed/scene through depth-varying water; flowing ripples, stone wakes and approximate caustics. `waterColor: 0x80b6a6, attenuationDistance: 3` controls volume absorption over a distance in metres. Optional `reflectionSize: 512` captures the banks; default 0, and at most ONE planar reflector per scene. Group with `userData.update(t, dt)`, `userData.sample(u, lateral, t)`. Keep terrain BELOW the bed inside the channel. |
+| a falling sheet of water over a weir | `makeWaterfall({ width: 2, height: 3, speed: 1, thickness: 0.045, foam: 0.65, seed })` — `lib/waterfall.js`; gravity accelerates and thins the sheet, with advected ripples, local aeration and impact spray. Origin is impact water level, lip is `[0,height,0]`, flow is +Z. Supply the upstream water, cliff and pool. `userData.sample(u,lateral,t)` uses u=0..1 and lateral=-0.5..0.5; `userData.impact` gives the receiving point. No collision/fluid solver; opaque-scene refraction only. |
+| thick broken ice with actual open fissures | `makeFracturedIce({ size: [8,6], thickness: 0.28, crackDensity: 0.65, frost: 0.35, seed })` — `lib/ice.js`; closed floes, bevels, internal air and local optical thickness. Nominal top is y=0. `userData.sampleHeight(x,z)` returns local top height or null in a gap. Supply an opaque lakebed/water backing: transparent volumes are not recursively refracted. |
+| dunes, wind ripples, sand grains | `makeSandTerrain({ size: [60, 60], duneHeight: 3, duneSpacing: 18, windDirection: [1, 0.3], seed })` — `lib/sand.js`; Group with `userData.sampleHeight(x, z)` and `userData.update(t, dt)`. Sample height for every prop. |
+| a close-view fractured rock or a talus field | `makeRock({ type: 'sandstone', size: [2, 1.5, 2], seed, moisture: 0.2 })` · `makeRockField` — `lib/rock.js`; types sandstone / granite / basalt; closed geometry, stratification and weathering. Rock rests at local y≈0; place using terrain height. |
+| close-view grass with folded blades and flowing wind | `makeMeadow({ size: [8, 8], height: 0.3, density: 900, heightAt, mask, seed, wind: { direction: [1, 0.3], strength: 0.6, speed: 1 } })` — `lib/meadow.js`; mask(x,z) is 0..1 coverage; Group with `userData.update(t, dt)`. Set `ground: false` over an existing terrain. Fit the sun shadow frustum tightly; blades need millimetre-scale shadow texels. |
 | a grassy surface | `makeGrass({ extent, density, height, heightAt, patchy })` — `lib/grass.js` |
+| a complete near/middle-distance tree or shrub | `makeTree({ species: 'oak', height: 6, crownRadius: 2.5, leafDensity: 1, seed, wind: { dir: [1,0.3], strength: 0.5, speed: 1 } })` · `makeShrub` — `lib/tree.js`; oak/birch/willow, connected branches, individual leaves and matching moving shadows. Root at y=0, actual envelope in `userData.bounds`. A default tree is heavy geometry. `leafSegments: 4` reduces per-leaf geometry while preserving crown density; species defaults are 10–16 for close views. Also lower `opts.maxLeaves`/`opts.leafDensity`, or use distant imposters when leaves are unresolved. |
 | A CROWN OF LEAVES — every broadleaf tree, hedge and bush | `makeCanopy({ crowns: [{position, radius, height}] — or [{position, size:[x,y,z]}] for a mass that is not a ball, which is how a HEDGE is built — color, hue, wind })` — `lib/canopy.js`.  NEVER a displaced sphere: see the rule at the end. |
 | trees, bushes, leaves | `patchLeafSSS` · `patchWind` · `patchRootContact` — `lib/foliage_shade.js` |
 | bark, and a forest at distance | `patchBark` · `makeImposters` — `lib/woodland.js` |
@@ -41,6 +52,7 @@ says `import { makeGrass } from '../lib/grass.js';`, `src/scene.js` says
 | an interior's walls, ceiling and window/door openings | `roomShell({ center, extents, openings, thickness, wallColor, ceilingColor })` — `lib/environment.js`; walls outward of the bounds' faces (inner face = bounds face), openings cut as span / sill / lintel panels.  The skeleton's env.js builds it from its INTERIOR constant for an interior plan; six runs measured "not enclosed, a diorama on a flat plane" without one |
 | the sky itself | `makeSky(scene, { rig })` — `lib/sky.js`; the dome IS the backdrop, so `scene.background` stays null |
 | cloud, cirrus | `makeClouds({ preset, sunDir })` · `makeCirrus()` — `lib/clouds.js` |
+| volumetric cumulus with internal sunlight attenuation | `makeCloudVolume({ size: [600,180,360], coverage: 0.55, density: 0.028, wind: [2.5,0.4], seed, quality: 'balanced' })` — `lib/cloudvolume.js`; Mesh centred on its local origin. Move it to cloud altitude. Wind advects density/erosion inside a bounded billow scaffold; translate the Mesh to move the whole cloud. `userData.sampleDensity(x,y,z,t)` mirrors the GPU field. Use one bounded sky volume and inspect its screen cost. No terrain shadows or opaque-depth intersections. |
 | stars, the Milky Way, aurora, heat shimmer | `makeStars` · `makeAurora` · `makeHeatShimmer` — `lib/celestial.js` |
 | fog on the ground, distance haze | `makeHeightFog` · `patchAerialPerspective` — `lib/atmosphere.js` |
 | shafts of light | `makeGodRays({ count, height, sunDir, ambient })` — `lib/godrays.js`; the default is daylight — pass `ambient` BELOW 0.35 only for a genuinely unlit interior, where the shafts switch to adding light |
@@ -53,6 +65,7 @@ says `import { makeGrass } from '../lib/grass.js';`, `src/scene.js` says
 | a neon sign, and the light it throws | `makeNeonTube` · `patchNeonSpill` · `makeLightTrails` — `lib/neon.js`; a sign that does not light its own wall is a decal |
 | readable lettering on a sign | `makeText` (async — await ONCE at module top level, `.clone()` per copy) — `lib/signage.js` |
 | a road, a path, a worn surface | `patchRoadSurface` · `patchSeamBand` · `patchTracks` — `lib/roadway.js` |
+| foreground cobbles or rectangular stone setts with real joints | `makePaving({ size: [4,4], stoneSize: 0.24, pattern: 'cobble', joint: 0.012, thickness: 0.10, relief: 0.014, seed })` — `lib/paving.js`; merged closed bevelled stones and a recessed joint bed, two meshes and a bounded stone count. Nominal top is y=0, bottom=-thickness. `userData.sampleHeight(x,z)` returns the exact local stone/joint height or null outside; seat props using it. Use material-only cobbles for distant surfaces. |
 | a flag, a hanging banner, a wheat field | `makeFlag` · `makeBanner` · `makeWheatField` — `lib/cloth.js`; the wave TRAVELS |
 | a surface that has stood somewhere | `patchDripStains` · `patchRust` · `patchDust` — `lib/aging.js` |
 | any surface at all | `patchMicroBreakup` · `patchEdgeWear` — `lib/surface_wear.js` |
@@ -62,19 +75,36 @@ says `import { makeGrass } from '../lib/grass.js';`, `src/scene.js` says
 | a textured standard material without a texture file | `brick` · `granite` · `cobble` · `asphalt` · `weatheredWood` · `brushedSteel` · `fabric` · `foliage` · `soil` · `skin` · `glass` (21 in all) · `tint(mat, variant)` — `lib/materials.js` |
 | noise on the CPU (heightfields the shader must agree with) | `fbm2` · `fbm3` · `mulberry32` · `displaceY` — `lib/noise.js` |
 | your own shader, safely | `makeShaderMaterial` · `patchStandard` · `shadowLike` · `tickShaders` — `lib/shader.js` |
+| a scoped synchronous offscreen capture | `withRendererState(renderer, callback)` — `lib/shader.js`; restores target/cube/mip, viewport/scissor, XR, shadow auto-update, tone mapping and clear state even after an error. Object transforms/visibility and other modified flags remain the caller's responsibility. No recursive-reflector coordinator is implied. |
+| explicit cleanup for a procedural group you build | `snapshotResources(group)` · `attachDisposal(group, resources)` — `lib/lifecycle.js`; capture construction-owned geometry/materials before attaching borrowed children. Textures are borrowed unless explicitly added to the resource set. Disposal is idempotent and does not traverse later-added props. |
 
 ## The four rules that apply to all of them
+
+**New natural-element factories use one lifecycle.** Fire, fire field, candle, ocean, stream,
+sand, meadow, smoke, steam, waterfall, tree, shrub, cloud volume, ice and paving provide
+`object.userData.update(t, dt)` (absolute seconds)
+and `object.userData.dispose()`. Store the returned objects and update each ONCE
+from the zone's `userData.update`. Their dimensions, paths and height queries are
+LOCAL coordinates; move/rotate the whole returned object to place it. Call the
+factory before positioning props that sample its surface. These are realtime
+procedural effects, not fluid/combustion solvers. Read the module's JSDoc for
+options and bounds. For older effects, follow the hooks listed below.
 
 **1. `patch*` entries CHAIN.**  Apply as many as a surface deserves to one
 material, in any order — they are composed into one program.  Two patches may
 not define the same GLSL helper name with different bodies; the library prefixes
 its own (`astra…`), so prefix yours.
 
-**2. A `make*` entry that moves carries its own per-frame hook —
-`userData.tick(t, dt)` on most, `userData.update(t)` on `makeRain`,
-`makeSplashes`, `makePuddle`, `makeClouds`, `makeCirrus`, `makeOcean` and
-`makeRainRings` — and OUR contract drives it from `update(t, dt)`, not from a
-`tick` of your own.**  Fan out in `scene.js`:
+Use `clonePatchedMaterial(material)` from `lib/shader.js` to copy a material
+that already carries patches. Three's ordinary `.clone()` drops the shader hook
+and JSON-copies typed uniforms. The library helper replays its registered chain,
+copies vector/colour/matrix uniforms and borrows texture references. Custom
+external `onBeforeCompile` wrappers must still be reapplied by their owner.
+
+**2. Moving factories carry a per-frame hook.** Prefer `userData.update(t, dt)`;
+some older factories use `userData.tick(t, dt)`. Read the factory JSDoc or select
+`effect.userData.update ?? effect.userData.tick`, then call that hook exactly once.
+The host drives the scene's `update(t, dt)`. Fan out in `scene.js`:
 
 ```js
 function update(t, dt) {
@@ -91,8 +121,7 @@ g.add(rain);
 g.userData.update = (t, dt) => { rain.userData.update(t, dt); };
 ```
 
-Calling `.tick` on one of those seven throws, and the host then turns
-`update()` off for the whole scene — every animation in it freezes.
+Calling a missing hook throws and can stop the whole scene's animation.
 Anything built with `patchStandard` is driven instead by one
 `tickShaders(scene, t)` — call it once, in `scene.js`'s `update`.  An effect
 whose hook is never called stands still.

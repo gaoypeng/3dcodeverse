@@ -21,7 +21,7 @@
 
 import * as THREE from 'three';
 import {
-  patchStandard, composeRoughness, glslCurv, hash11, seedVec3, toColor,
+  patchStandard, glslCurv, hash11, seedVec3, toColor,
   unit, worldBase,
 } from './shader.js';
 
@@ -374,11 +374,8 @@ export function patchRockStrata(material, opts = {}) {
  * weaker than the last, so a run continues below where it started and
  * tapers out, which is flow rather than stripes.
  *
- * Roughness is per MATERIAL here, not per pixel (the patch writes only
- * at `<color_fragment>`, before `<roughnessmap_fragment>`, and does not
- * use `patchStandard`'s `roughnessBody`), so the wash takes a small
- * polish off the whole surface through `composeRoughness` — a face with
- * water tracks is a face that gets wet.
+ * The same wash mask polishes roughness locally. The dry rock between
+ * runs retains its original finish and a live strength of zero restores it.
  *
  * @param {THREE.Material} material A built-in material, patched in
  *   place — a shared material streaks every mesh wearing it.
@@ -397,8 +394,6 @@ export function patchErosionStreaks(material, opts = {}) {
   const strength = opts.strength === undefined ? 0.45 : opts.strength;
   const scale = opts.scale === undefined ? 0.8 : opts.scale;
   const seed = opts.seed === undefined ? 1 : opts.seed;
-  composeRoughness(material, 'strata:erosion',
-                   1 - 0.10 * unit(strength));
   patchStandard(material, BASE);
   return patchStandard(material, {
     name: 'strata:erosion',
@@ -483,5 +478,6 @@ export function patchErosionStreaks(material, opts = {}) {
       '  vec3 erCol = mix(erWet, erTint * mix(0.78, 1.22, erA), 0.56);',
       '  diffuseColor.rgb = mix(diffuseColor.rgb, erCol, erAmt);',
     ].join('\n'),
+    roughnessBody: 'roughnessFactor = mix(roughnessFactor, max(0.12, roughnessFactor * 0.72), erAmt);',
   });
 }

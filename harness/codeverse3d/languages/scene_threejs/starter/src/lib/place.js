@@ -16,6 +16,21 @@ const _v = new THREE.Vector3();
 const _t = new THREE.Vector3();
 const DEG = Math.PI / 180;
 
+/** Raycaster does not check Object3D.visible or invisible ancestors. */
+function visibleInTree(object) {
+  for (let p = object; p; p = p.parent) if (!p.visible) return false;
+  return true;
+}
+
+/** A world position must be converted before writing a child's local slot. */
+function positionInWorld(object, position) {
+  if (object.parent) {
+    object.parent.updateWorldMatrix(true, false);
+    object.position.copy(object.parent.worldToLocal(position.clone()));
+  } else object.position.copy(position);
+  object.updateWorldMatrix(false, true);
+}
+
 /** Unit vector for a `forward` string as reported by assets_api.json. */
 function fwdVec(forward) {
   switch (forward) {
@@ -36,6 +51,7 @@ function columnAt(x, z, targets, top, far, ignore) {
   _ray.far = far;
   const ys = [];
   for (const h of _ray.intersectObjects(targets, true)) {
+    if (!visibleInTree(h.object)) continue;
     if (ignore && (h.object === ignore || ignore.getObjectById(h.object.id))) {
       continue;
     }
@@ -79,18 +95,22 @@ function restingY(ys, y) {
 export function seat(obj, surfaces, opts = {}) {
   const targets = Array.isArray(surfaces) ? surfaces : [surfaces];
   const bite = opts.bite === undefined ? 0.03 : opts.bite;
-  obj.updateMatrixWorld(true);
+  obj.updateWorldMatrix(true, true);
   // The SURFACE's world matrix has to be current too: a ground group
   // built and moved in the same tick still carries its old matrix, so
   // every raycast hits the old height and the whole scene seats to it
   // (measured 1.53 m under a quay, 2026-08-04 drawbridge repair).
-  for (const t of targets) if (t) t.updateMatrixWorld(true);
+  for (const t of targets) if (t) t.updateWorldMatrix(true, true);
   _box.setFromObject(obj);
   if (_box.isEmpty()) return obj;
   const y0 = _box.min.y;
   const xs = [_box.min.x, _box.max.x, (_box.min.x + _box.max.x) / 2];
   const zs = [_box.min.z, _box.max.z, (_box.min.z + _box.max.z) / 2];
-  const drop = opts.maxDrop || 500;
+  const drop = opts.maxDrop ?? 500;
+  if (!Number.isFinite(drop) || drop < 0 || !Number.isFinite(bite)) {
+    throw new RangeError('seat: maxDrop must be finite and nonnegative, bite finite');
+  }
+  if (drop === 0) return obj;
   let best = null;
   for (const x of xs) {
     for (const z of zs) {
@@ -100,7 +120,9 @@ export function seat(obj, surfaces, opts = {}) {
     }
   }
   if (best === null) return obj;
-  obj.position.y += best - y0 - bite;
+  const position = obj.getWorldPosition(new THREE.Vector3());
+  position.y += best - y0 - bite;
+  positionInWorld(obj, position);
   return obj;
 }
 
@@ -122,7 +144,7 @@ function surfaceList(surfaces) {
  */
 function liftAbove(pos, targets, clearance) {
   if (!targets.length) return pos;
-  for (const t of targets) if (t) t.updateMatrixWorld(true);
+  for (const t of targets) if (t) t.updateWorldMatrix(true, true);
   const ys = columnAt(pos.x, pos.z, targets, pos.y + 1000, 4000);
   const floorY = restingY(ys, pos.y);
   if (floorY === null) return pos;
@@ -151,7 +173,7 @@ function probeView(pos, look, targets) {
   dir.multiplyScalar(1 / dist);
   _ray.set(pos, dir);
   _ray.far = dist;
-  const hits = _ray.intersectObjects(targets, true);
+  const hits = _ray.intersectObjects(targets, true).filter((h) => visibleInTree(h.object));
   return { dir, dist, hit: hits.length ? hits[0].distance : Infinity };
 }
 
@@ -271,7 +293,7 @@ export function establishingShot(name, heroObj, opts = {}) {
   const fov = opts.fov === undefined ? 45 : opts.fov;
   const coverage = opts.coverage === undefined ? 0.7 : opts.coverage;
   const targets = surfaceList(opts.surfaces);
-  heroObj.updateMatrixWorld(true);
+  heroObj.updateWorldMatrix(true, true);
   _box.setFromObject(heroObj);
   if (_box.isEmpty()) {
     return { name, position: [10, 6, 10], lookAt: [0, 0, 0], fov };
@@ -353,7 +375,7 @@ export function establishingShot(name, heroObj, opts = {}) {
 export function faceToward(obj, target, forward) {
   const p = target instanceof THREE.Vector3
       ? target : new THREE.Vector3(...target);
-  _t.subVectors(p, obj.position);
+  _t.subVectors(p, obj.getWorldPosition(new THREE.Vector3()));
   _t.y = 0;
   if (_t.lengthSq() < 1e-9) return obj;
   return alignAlong(obj, _t, forward);
@@ -365,7 +387,7 @@ export function faceToward(obj, target, forward) {
  * guessed yaws).
  *
  * @param {THREE.Object3D} obj
- * @param {THREE.Vector3|number[]} dir Direction of travel (y ignored).
+ * @param {THREE.Vector3|number[]} dir WORLD direction of travel (y ignored).
  * @param {string} [forward] Asset forward from assets_api.json.
  * @returns {THREE.Object3D} obj
  */
@@ -376,6 +398,18 @@ export function alignAlong(obj, dir, forward) {
   if (d.lengthSq() < 1e-9) return obj;
   d.normalize();
   const f = fwdVec(forward);
+  if (obj.parent) {
+    obj.parent.updateWorldMatrix(true, false);
+    const inverse = obj.parent.matrixWorld.clone().invert();
+    d.transformDirection(inverse);
+    // Map the world horizontal heading and up into the parent's axes. With
+    // a scaled parent, subtracting its Euler yaw is not a valid conversion.
+    const up = new THREE.Vector3(0, 1, 0).transformDirection(inverse);
+    const basis = new THREE.Matrix4().lookAt(new THREE.Vector3(), d, up);
+    obj.quaternion.setFromRotationMatrix(basis).multiply(
+        new THREE.Quaternion().setFromUnitVectors(f, new THREE.Vector3(0, 0, -1)));
+    return obj;
+  }
   // Yaw that takes the asset's own forward onto d.
   obj.rotation.y = Math.atan2(d.x, d.z) - Math.atan2(f.x, f.z);
   return obj;
@@ -453,9 +487,9 @@ function obstacleBoxes(avoid) {
   const roots = Array.isArray(avoid) ? avoid : [avoid];
   for (const root of roots) {
     if (!root || !root.traverse) continue;
-    if (root.updateMatrixWorld) root.updateMatrixWorld(true);
+    if (root.updateWorldMatrix) root.updateWorldMatrix(true, true);
     root.traverse((o) => {
-      if (!o.isMesh || solids.length >= 3000) return;
+      if (!o.isMesh || !visibleInTree(o) || solids.length >= 3000) return;
       const nm = (o.name || (o.parent && o.parent.name) || '');
       if (/ground|floor|terrain|road|path|water|sky|dome|wall|roof|ceiling/i
           .test(nm)) return;
@@ -576,7 +610,7 @@ export function route(points, opts = {}) {
       }
     }
     if (!obj) return { position, tangent, u };
-    obj.position.copy(position);
+    positionInWorld(obj, position);
     alignAlong(obj, tangent, opts.forward);
     // Roll from the arc distance actually COVERED, which on a ping-pong
     // return leg decreases: `s` only ever grows, so a cart driving back

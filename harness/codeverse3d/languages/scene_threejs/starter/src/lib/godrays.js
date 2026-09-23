@@ -29,6 +29,7 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 
 import { lehmer } from './noise.js';
 import {
@@ -210,8 +211,8 @@ export function makeGodRays(opts = {}) {
     }
     g.add(moteMesh(shafts, dir, side, perp, width, color, air,
                    moteAmp, seed));
-    g.userData.tick = (t) => tickShaders(g, t);
-    return keepOutOfDepthPasses(g);
+    g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+    return attachDisposal(keepOutOfDepthPasses(g), snapshotResources(g));
 }
 
 /**
@@ -367,7 +368,7 @@ function shaftMaterial(dir, color, air, soft, gain, hazy) {
         vertexMain: [
             '  vUv = uv;',
             '  vShaft = aShaft;',
-            '  vN = normalize(normalMatrix * normal);',
+            '  vN = inverseTransformDirection(normalize(normalMatrix * normal), viewMatrix);',
             '  vW = (modelMatrix * vec4(transformed, 1.0)).xyz;',
         ].join('\n'),
         fragmentHead: 'uniform vec3 uColor; uniform vec3 uAir;'

@@ -14,7 +14,9 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { Water } from 'three/addons/objects/Water.js';
+import { withRendererState } from './shader.js';
 
 // Battery-graded freeze point: mid-phase, waves clearly formed.
 const FROZEN_TIME = 7.3;
@@ -28,7 +30,6 @@ const _DAY_SUN = new THREE.Vector3(
     Math.cos(_EL) * Math.cos(_AZ), Math.sin(_EL),
     Math.cos(_EL) * Math.sin(_AZ));
 
-let _oceans = 0;
 
 /**
  * Synthesize the tiling wave-normal DataTexture the Water shader
@@ -168,7 +169,8 @@ const _TAIL = /* glsl */`
 	// together. Peak ~2.6, inside the 1.5-4 a bloom pass takes cleanly.
 	vec3 sunReflect = normalize( reflect( -sunDirection, surfaceNormal ) );
 	float glint = max( 0.0, dot( eyeDirection, sunReflect ) );
-	vec3 glitter = sunColor * glitterScale * shade
+	float keyGain = max( max( keyColor.r, keyColor.g ), keyColor.b ) * 3.14159265 / 5.4;
+	vec3 glitter = sunColor * glitterScale * keyGain * shade
 		* ( 0.3 + 0.7 * reflectance )
 		* ( pow( glint, 420.0 ) * 2.6 + pow( glint, 28.0 ) * 0.22 );
 
@@ -215,7 +217,7 @@ function _regrade(material) {
 }
 
 /**
- * Read the scene's own lighting once, at the first render, and point the
+ * Read the scene's visible lighting on each render and point the
  * water's key light at it. Water is built before the scene exists, so
  * without this a night pool glitters for a noon sun in a colour nothing
  * else in the frame is lit by — the failure the aesthetic brief calls
@@ -228,8 +230,7 @@ const _V2 = new THREE.Vector3();
 
 function _readScene(scene, uniforms, pinned) {
   let key = null, keyLum = -1, hemi = null, amb = null;
-  scene.traverse((o) => {
-    if (!o.visible) return;
+  scene.traverseVisible((o) => {
     if (o.isDirectionalLight) {
       const c = o.color;
       const l = o.intensity
@@ -245,6 +246,8 @@ function _readScene(scene, uniforms, pinned) {
   // Lambert term too, so the same 1/PI is what puts it on the same scale
   // as every MeshStandardMaterial around it.
   const INV_PI = 1 / Math.PI;
+  uniforms.keyColor.value.setRGB(0, 0, 0);
+  if (!pinned.sunColor) uniforms.sunColor.value.setRGB(0, 0, 0);
   if (key) {
     uniforms.keyColor.value.copy(key.color)
         .multiplyScalar(Math.min(6, key.intensity) * INV_PI);
@@ -272,9 +275,9 @@ function _readScene(scene, uniforms, pinned) {
   }
   if (!pinned.ambient) {
     const t = uniforms.ambientColor.value;
+    t.setRGB(0, 0, 0);
     if (hemi) t.copy(hemi.color).multiplyScalar(hemi.intensity * INV_PI);
     else if (amb) t.copy(amb.color).multiplyScalar(amb.intensity * INV_PI);
-    else if (scene.fog) t.copy(scene.fog.color).multiplyScalar(0.35);
     t.r = Math.min(t.r, 1); t.g = Math.min(t.g, 1); t.b = Math.min(t.b, 1);
   }
 }
@@ -300,7 +303,7 @@ function _readScene(scene, uniforms, pinned) {
  *   `rf0` Fresnel reflectance head-on (default 0.02, real water);
  *   `glitter` sun-track strength, 0 kills it (default 1);
  *   `ambient` hex sky ambient for the water BODY (default: read off the
- *   scene's hemisphere/ambient light, else its fog).
+ *   scene's visible hemisphere/ambient light).
  * @returns {THREE.Mesh} The Water mesh, rotated flat, named 'Ocean',
  *   with `userData.update(t)` driving the wave phase for `tick`.
  */
@@ -308,13 +311,6 @@ function _readScene(scene, uniforms, pinned) {
 export const BROADBAND_EXTENT_M = 300;
 
 export function makeOcean(width, depth, opts = {}) {
-  _oceans++;
-  if (_oceans > 1) {
-    console.warn(
-        'makeOcean: ' + _oceans + ' oceans in one scene — each one ' +
-        're-renders the whole scene per frame. Contract is ONE RTT ' +
-        'surface (one ocean, never alongside a Reflector).');
-  }
   const sunDir =
       (opts.sunDir ? opts.sunDir.clone() : _DAY_SUN.clone()).normalize();
   // 512, not 256: a 256px mirror stretched across half a 1280x720 frame
@@ -344,6 +340,8 @@ export function makeOcean(width, depth, opts = {}) {
   water.rotation.x = -Math.PI / 2;
   water.name = 'Ocean';
   const uniforms = water.material.uniforms;
+  let ownedTarget = null;
+  let disposed = false;
   uniforms.time.value = FROZEN_TIME;
   // The shader samples the normals at worldPosition.xz * size / 103, so
   // one wave period is ~103/size metres. Hold that at a twelfth of the
@@ -388,11 +386,21 @@ export function makeOcean(width, depth, opts = {}) {
       ambient: opts.ambient !== undefined,
     };
     const base = water.onBeforeRender;
+    const captureMaterial = water.material;
+    const actualWorld = new THREE.Matrix4();
+    const normalMatrix = new THREE.Matrix3();
+    const worldNormal = new THREE.Vector3();
+    const worldPoint = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+    const axis = new THREE.Vector3(0, 0, 1);
     let first = true;
-    water.onBeforeRender = function (renderer, scene, camera) {
+    let capturing = false;
+    water.onBeforeRender = function (renderer, scene, camera, geometry, material) {
+      if (disposed || scene.overrideMaterial || capturing || this.material !== captureMaterial
+          || (material && material !== captureMaterial)) return;
+      _readScene(scene, uniforms, pinned);
       if (first) {
         first = false;
-        _readScene(scene, uniforms, pinned);
         // The mirror target is 8-bit LINEAR (three disables tone mapping
         // and sRGB encoding when rendering to a non-sRGB target), so the
         // bottom of its range quantises to a handful of steps: a night
@@ -404,8 +412,69 @@ export function makeOcean(width, depth, opts = {}) {
           mirror.type = THREE.HalfFloatType;
         }
       }
-      base.call(this, renderer, scene, camera);
+      // Water's plane calculation assumes a rigid matrix. Supply the true
+      // inverse-transpose normal while keeping its world-space textureMatrix:
+      // unlike Reflector, Water does not project mesh-local positions.
+      actualWorld.copy(this.matrixWorld);
+      normalMatrix.getNormalMatrix(actualWorld);
+      worldNormal.copy(axis).applyMatrix3(normalMatrix).normalize();
+      if (worldNormal.lengthSq() < 0.5) return;
+      worldPoint.setFromMatrixPosition(actualWorld);
+      rotation.setFromUnitVectors(axis, worldNormal);
+      const autoUpdate = this.matrixWorldAutoUpdate;
+      const needsUpdate = this.matrixWorldNeedsUpdate;
+      const visible = this.visible;
+      // Nested scene updates must not propagate the temporary rigid frame
+      // into caller-owned descendants (including cameras and bones).
+      const descendants = [];
+      for (const child of this.children) child.traverse((node) => {
+        descendants.push([node, node.matrixWorldAutoUpdate, node.matrixWorldNeedsUpdate]);
+        node.matrixWorldAutoUpdate = false;
+      });
+      capturing = true;
+      this.matrixWorldAutoUpdate = false;
+      this.matrixWorld.makeRotationFromQuaternion(rotation).setPosition(worldPoint);
+      try {
+        withRendererState(renderer, () => {
+          if (ownedTarget) {
+            base.call(this, renderer, scene, camera);
+          } else {
+            // Three keeps this target private. Capture only its own target
+            // on the first mirror draw, restoring the method even on error.
+            const setTarget = renderer.setRenderTarget;
+            renderer.setRenderTarget = function (target, ...args) {
+              if (target && target.texture === uniforms.mirrorSampler.value) {
+                ownedTarget = target;
+              }
+              return setTarget.call(this, target, ...args);
+            };
+            try {
+              base.call(this, renderer, scene, camera);
+            } finally {
+              renderer.setRenderTarget = setTarget;
+            }
+          }
+        });
+      } finally {
+        this.matrixWorld.copy(actualWorld);
+        this.matrixWorldAutoUpdate = autoUpdate;
+        this.matrixWorldNeedsUpdate = needsUpdate;
+        for (const [node, childAutoUpdate, childNeedsUpdate] of descendants) {
+          node.matrixWorldAutoUpdate = childAutoUpdate;
+          node.matrixWorldNeedsUpdate = childNeedsUpdate;
+        }
+        this.visible = visible;
+        capturing = false;
+      }
     };
   }
-  return water;
+  const owned = snapshotResources(water);
+  if (!opts.waterNormals) owned.add(uniforms.normalSampler.value);
+  owned.add({ dispose() {
+    disposed = true;
+    if (ownedTarget) ownedTarget.dispose();
+    else uniforms.mirrorSampler.value.dispose();
+    ownedTarget = null;
+  } });
+  return attachDisposal(water, owned);
 }

@@ -19,6 +19,7 @@
  * onto).
  */
 
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import * as THREE from 'three';
 
 import {
@@ -391,7 +392,10 @@ export function makeNeonTube(opts = {}) {
 
     const g = new THREE.Group();
     g.name = 'NeonTube';
-    if (!strokes.length) return g;
+    if (!strokes.length) {
+        g.userData.update = g.userData.tick = () => {};
+        return attachDisposal(g, []);
+    }
     const st = strokeStations(strokes, bend,
         Math.max(0.02, Math.min(radius * 2.2, bend * 0.25)));
     const gain = Math.max(0, intensity) * (hazy ? 1.9 : 1.05);
@@ -411,11 +415,12 @@ export function makeNeonTube(opts = {}) {
     g.add(shell(st, radius, 14, tubeMaterial(
         'NeonCore', color, gain * (hazy ? 1.0 : 0.41), 0.85, 0.9,
         flicker, key, hazy, 0.10, 0.13), 'NeonCore', 3));
-    g.userData.tick = (t) => tickShaders(g, t);
+    g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
     // Sources for `patchNeonSpill`, read through the group's CURRENT
     // world matrix, so placing the sign moves the light it throws.
     g.userData.spillSources = (n) => sampleSources(g, st, color, n);
-    return keepOutOfDepthPasses(g);
+    keepOutOfDepthPasses(g);
+    return attachDisposal(g, snapshotResources(g));
 }
 
 /** One merged mesh for every stroke at one radius. */
@@ -456,10 +461,10 @@ const SPILL_VERTEX = [
     '  vec3 nsN = normal;',
     '#ifdef USE_INSTANCING',
     '  nsP = instanceMatrix * nsP;',
-    '  nsN = mat3(instanceMatrix) * nsN;',
+    '  nsN = astraNormalTransform(mat3(instanceMatrix), nsN);',
     '#endif',
     '  vNeonSW = (modelMatrix * nsP).xyz;',
-    '  vNeonSN = normalize((modelMatrix * vec4(nsN, 0.0)).xyz);',
+    '  vNeonSN = astraNormalTransform(mat3(modelMatrix), nsN);',
 ].join('\n');
 
 const SPILL_HEAD = [
@@ -750,7 +755,10 @@ export function makeLightTrails(opts = {}) {
 
     const g = new THREE.Group();
     g.name = 'LightTrails';
-    if (!strokes.length) return g;
+    if (!strokes.length) {
+        g.userData.update = g.userData.tick = () => {};
+        return attachDisposal(g, []);
+    }
     const line = strokes[0];
     const smooth = filletPath(line, Math.max(lane, width) * 2);
     const rough = resample(smooth, 4).length;
@@ -772,8 +780,9 @@ export function makeLightTrails(opts = {}) {
     g.add(laneMesh(fr, lane, half, lift, trailMaterial(
         'NeonTrailCool', toColor(opts.cool, 0xff1e14), -1, count, rate,
         gain, 0.15, 0.22, key + 5.3, hazy, 0.16), 'TrailsCool'));
-    g.userData.tick = (t) => tickShaders(g, t);
-    return keepOutOfDepthPasses(g);
+    g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+    keepOutOfDepthPasses(g);
+    return attachDisposal(g, snapshotResources(g));
 }
 
 /** One lane's ribbon, named so a test and a composer can find it. */

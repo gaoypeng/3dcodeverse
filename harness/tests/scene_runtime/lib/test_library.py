@@ -150,6 +150,29 @@ BUILD: dict[str, str] = {
                   " return [b, inst((m) => L.windows.patchWindowInteriors(m, { seed: 5 }))]; })()",
     "woodland.js": "[on((m) => L.woodland.patchBark(m, { kind: 'oak' })),"
                    " L.woodland.makeImposters({ count: 30, extent: 20, heightAt })]",
+    "cloudvolume.js": "[(() => { const c = L.cloudvolume.makeCloudVolume({ size: [60, 18, 36], quality: 'low',"
+                      " seed: 3 }); c.position.y = 20; return c; })()]",
+    "fire.js": "[L.fire.makeFire({ radius: 0.3, height: 0.9, quality: 'low', seed: 7 }),"
+               " L.fire.makeCandle({ seed: 2 })]",
+    "firefield.js": "[L.firefield.makeFireField({ emitters: [{ position: [0, 0, 0], radius: 0.3, height: 1,"
+                    " strength: 1 }, { position: [0.8, 0, 0.2], radius: 0.2, height: 0.6, strength: 0.7 }],"
+                    " quality: 'low', seed: 5 })]",
+    "ice.js": "[L.ice.makeFracturedIce({ size: [4, 3], thickness: 0.2, seed: 3 })]",
+    "lifecycle.js": "(() => { const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.BoxGeometry(), std()));"
+                    " L.lifecycle.attachDisposal(g, L.lifecycle.snapshotResources(g)); return [g]; })()",
+    "meadow.js": "[L.meadow.makeMeadow({ size: [2, 2], density: 60, heightAt, seed: 4 })]",
+    "ocean.js": "[L.ocean.makeOceanSurface({ width: 20, depth: 20, segments: 32, reflectionSize: 64, seed: 2 })]",
+    "paving.js": "[L.paving.makePaving({ size: [2, 2], stoneSize: 0.24, seed: 3 }),"
+                 " L.paving.makePaving({ size: [2, 2], pattern: 'setts', seed: 4 })]",
+    "rock.js": "[L.rock.makeRock({ type: 'granite', size: [1, 0.8, 1], seed: 4 }),"
+               " L.rock.makeRockField({ count: 6, radius: 3, seed: 5 })]",
+    "sand.js": "[L.sand.makeSandTerrain({ size: [20, 20], seed: 3 })]",
+    "smoke.js": "[L.smoke.makeSmoke({ quality: 'low', seed: 2 }), L.smoke.makeSteam({ quality: 'low' })]",
+    "stream.js": "[L.stream.makeStream({ points: [[0, 0.6, -8], [2, 0.3, 0], [0, 0, 8]], width: 2, depth: 0.3,"
+                 " seed: 4, obstacles: [{ u: 0.5, lateral: 0.2, radius: 0.3 }] })]",
+    "tree.js": "[L.tree.makeTree({ species: 'birch', height: 4, maxLeaves: 600, seed: 3 }),"
+               " L.tree.makeShrub({ maxLeaves: 300, seed: 2 })]",
+    "waterfall.js": "[L.waterfall.makeWaterfall({ width: 2, height: 3, seed: 4 })]",
 }
 
 # What the GPU compiles here, in groups so xdist spreads the browser boots.
@@ -161,6 +184,9 @@ GROUPS: dict[str, tuple[str, ...]] = {
     "sky_and_air": ("atmosphere.js", "celestial.js", "clouds.js", "environment.js", "godrays.js",
                     "sky.js", "veils.js", "flock.js"),
     "water": ("rain.js", "water.js", "watermist.js", "wetground.js", "finish.js"),
+    "volumes": ("cloudvolume.js", "fire.js", "firefield.js", "smoke.js"),
+    "ground": ("lifecycle.js", "meadow.js", "paving.js", "rock.js", "sand.js", "tree.js"),
+    "flowing_water": ("ice.js", "ocean.js", "stream.js", "waterfall.js"),
     "built": ("building.js", "figure.js", "instancing.js", "materials.js", "merge.js", "neon.js",
               "noise.js", "place.js", "signage.js", "terrain.js", "urban.js", "windows.js"),
 }

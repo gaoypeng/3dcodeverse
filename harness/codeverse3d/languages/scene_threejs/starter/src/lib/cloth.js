@@ -41,6 +41,7 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 
 import { windOf } from './grass.js';
 import { mulberry32 } from './noise.js';
@@ -53,7 +54,7 @@ const _G = 9.81;
 // Rows up a stalk, and where its ear starts. The ear is a fifth of the
 // stalk and takes nearly half the rows, because that is where the bend
 // turns hardest; fatter or longer and the crop reads as pennants.
-const _STALK_ROWS = 7;
+const _STALK_ROWS = 11;
 const _STEM_ROWS = 4;
 const _EAR_AT = 0.8;
 // Tileable modes of the gust field. Integer frequencies only: the
@@ -132,8 +133,8 @@ export function makeFlag(opts = {}) {
   fly.rotation.y = yawToX(wind.dir);
   fly.add(flagSheet(width, height, rad, color, wind, rand));
   g.add(fly);
-  g.userData.tick = (t) => tickShaders(g, t);
-  return g;
+  g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+  return attachDisposal(g, snapshotResources(g));
 }
 
 /** The pole, tapered and capped so it is not a bare cylinder. */
@@ -192,8 +193,9 @@ function flagSheet(width, height, rad, color, wind, rand) {
   // the droop is what `strength` buys back.
   const sag = height * 0.30 / (1 + 4.4 * wind.amp);
   const shrink = amp * amp * k * k / (4 * Math.max(width, 1e-6));
-  const mat = new THREE.MeshStandardMaterial({
+  const mat = new THREE.MeshPhysicalMaterial({
     color, roughness: 0.86, metalness: 0, side: THREE.DoubleSide,
+    sheen: 0.35, sheenRoughness: 0.85, sheenColor: color.clone().multiplyScalar(0.7),
     name: 'FlagCloth',
   });
   const head = [
@@ -393,8 +395,8 @@ export function makeBanner(opts = {}) {
   swing.add(bannerCloth(width, drop, folds, color, wind, rand));
   if (opts.rod !== false) swing.add(bannerRod(width, drop));
   g.add(swing);
-  g.userData.tick = (t) => tickShaders(g, t);
-  return g;
+  g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+  return attachDisposal(g, snapshotResources(g));
 }
 
 /** The rail: what makes "fixed along the top edge" visible. */
@@ -446,8 +448,9 @@ function bannerCloth(width, drop, folds, color, wind, rand) {
   const rate = Math.sqrt(_G / Math.max(drop, 0.05));
   const lean = 0.55 * wind.amp;
   const sway = 0.18 * wind.amp + 0.02;
-  const mat = new THREE.MeshStandardMaterial({
+  const mat = new THREE.MeshPhysicalMaterial({
     color, roughness: 0.9, metalness: 0, side: THREE.DoubleSide,
+    sheen: 0.45, sheenRoughness: 0.9, sheenColor: color.clone().multiplyScalar(0.7),
     name: 'BannerClothMat',
   });
   patchStandard(mat, {
@@ -680,8 +683,10 @@ export function makeWheatField(opts = {}) {
       extent, density, rowGap, maxStalks, height, ground, seed);
   g.add(stalkMesh(field, extent, straw, ear, wind, waveMps, seed,
                   opts.shadows === true));
-  g.userData.tick = (t) => tickShaders(g, t);
-  return g;
+  g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+  const owned = snapshotResources(g);
+  owned.add(g.getObjectByName('Stalks').material.userData.uniforms.uWheatWave.value);
+  return attachDisposal(g, owned);
 }
 
 /**
@@ -788,27 +793,24 @@ function gustTexture(seed, size = 128) {
  * the world origin and burn a black slab there.
  */
 function stalkLattice(count) {
-  const base = new THREE.PlaneGeometry(1, 1, 1, _STALK_ROWS);
-  base.translate(0, 0.5, 0);
-  // Spend the rows where the curvature is: an evenly spaced strip
-  // draws the nodding ear with one segment and it reads as an elbow.
-  const p = base.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const a = p.getY(i) * _STALK_ROWS;
-    p.setY(i, a <= _STEM_ROWS
-        ? _EAR_AT * a / _STEM_ROWS
-        : _EAR_AT + (1 - _EAR_AT) * (a - _STEM_ROWS)
-            / (_STALK_ROWS - _STEM_ROWS));
+  const corners=[], normals=[], uvs=[], parts=[], indices=[];
+  for(let part=0;part<3;part++) {
+    const rows=part===0 ? _STALK_ROWS : 4, start=corners.length/3;
+    for(let j=0;j<=rows;j++)for(let side=0;side<2;side++) {
+      let y=j/rows;
+      if(part===0) y=j<=_STEM_ROWS ? _EAR_AT*j/_STEM_ROWS
+        : _EAR_AT+(1-_EAR_AT)*(j-_STEM_ROWS)/(_STALK_ROWS-_STEM_ROWS);
+      corners.push(side-.5,y,0);normals.push(0,0,1);uvs.push(side,y);parts.push(part);
+    }
+    for(let j=0;j<rows;j++) {const a=start+j*2;indices.push(a,a+1,a+2,a+1,a+3,a+2);}
   }
-  const g = new THREE.InstancedBufferGeometry();
-  g.index = base.index;
-  g.setAttribute('position', new THREE.BufferAttribute(
-      new Float32Array(base.attributes.position.count * 3), 3));
-  g.setAttribute('aCorner', base.attributes.position);
-  g.setAttribute('normal', base.attributes.normal);
-  g.setAttribute('uv', base.attributes.uv);
-  g.instanceCount = count;
-  return g;
+  const g=new THREE.InstancedBufferGeometry();g.setIndex(indices);
+  g.setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(corners.length),3));
+  g.setAttribute('aCorner',new THREE.Float32BufferAttribute(corners,3));
+  g.setAttribute('aPart',new THREE.Float32BufferAttribute(parts,1));
+  g.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
+  g.instanceCount=count;return g;
 }
 
 /** One mesh, one draw call: every stalk lives in the vertex shader. */
@@ -911,6 +913,7 @@ const STALK_HEAD = [
   'uniform float uWheatPatch;',
   'uniform float uWheatRipen;',
   'attribute vec3 aCorner;',
+  'attribute float aPart;',
   'attribute vec3 iPos;',
   'attribute vec4 iCrop;',
   'attribute vec3 iVar;',
@@ -921,7 +924,7 @@ const STALK_HEAD = [
 
 const STALK_VERTEX = [
   '  vec3 whRoot = iPos;',
-  '  float whV = aCorner.y;',
+  '  float whV = aPart < 0.5 ? aCorner.y : 0.24 + aPart * 0.19;',
   '  float whH = max(iCrop.x, 1e-3);',
   // Ripeness: a field-wide patch field plus this stalk's own scatter,
   // read ONCE per vertex from the root, so a stalk is one tone from
@@ -976,11 +979,24 @@ const STALK_VERTEX = [
   '  vec3 whSide = whCl > 1e-4 ? whC / whCl : vec3(1.0, 0.0, 0.0);',
   '  float whX = aCorner.x * 2.0;',
   '  transformed = whSpine + whSide * (whX * whWid);',
+  '  vec3 whLeafN = vec3(0.0, 1.0, 0.0);',
+  '  if (aPart > 0.5) {',
+  '    float lu=aCorner.y;',
+  '    float la=iVar.x*6.28318+aPart*2.4;',
+  '    vec3 ld=vec3(cos(la),0.0,sin(la)), ls=vec3(-sin(la),0.0,cos(la));',
+  '    float ll=whH*(0.22+0.05*aPart);',
+  '    float lw=whH*0.009*sin(3.14159*lu);',
+  '    float ly=ll*(0.45*sin(2.5*lu)-0.20*lu*lu);',
+  '    transformed=whSpine+ld*(ll*lu)+ls*(whX*lw)+vec3(0.0,ly,0.0);',
+  '    vec3 lt=ld*ll+vec3(0.0,ll*(1.125*cos(2.5*lu)-0.40*lu),0.0);',
+  '    whLeafN=normalize(cross(ls,lt));',
+  '  }',
   '  vWheat = vec4(whV, whEar, whGust, whX);',
   '#ifndef FLAT_SHADED',
   '  vec3 whFace = normalize(cross(whSide, whTan));',
   '  vNormal = normalize(normalMatrix * normalize(',
   '      whFace * sqrt(max(1.0 - whX * whX, 0.04)) + whSide * whX));',
+  '  if (aPart > 0.5) vNormal = normalize(normalMatrix * whLeafN);',
   '#endif',
 ].join('\n');
 

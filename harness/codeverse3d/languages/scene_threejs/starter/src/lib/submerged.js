@@ -20,6 +20,7 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { lehmer } from './noise.js';
 import {
   composeRoughness, makeShaderMaterial, instancedQuad, keepOutOfDepthPasses,
@@ -412,7 +413,7 @@ export function makeRainRings(opts = {}) {
   mesh.name = 'RainRings';
   mesh.renderOrder = 2;
   mesh.userData.update = (t) => { mat.uniforms.uTime.value = t; };
-  return keepOutOfDepthPasses(mesh);
+  return attachDisposal(keepOutOfDepthPasses(mesh), snapshotResources(mesh));
 }
 
 const ICE_VARYING = 'varying vec2 vAstraIceUv;';

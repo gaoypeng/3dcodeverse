@@ -65,36 +65,20 @@ function addPatch(material, part) {
 /**
  * Backlit leaves glow — the strongest single cue that a tree is alive.
  *
- * One transmission term: light arriving from BEHIND the surface and
- * scattering out toward the eye. It is clamped at zero, so the crown
- * lifts only where the camera looks into the sun through it and a
- * front-lit leaf is left exactly as it was. The term rides on the
- * ALBEDO, the one hook `patchStandard` gives the fragment stage, so a
- * backlit leaf lightens toward `tint` instead of emitting on its own.
- *
- * Before the glow goes on, the PIGMENT is broken up. A crown built from
- * one material is one flat green over every leaf it owns, and a flat
- * green is the tell that says "geometry": a real canopy runs warm
- * yellow-green where new growth caught the sun and cool blue-green in
- * the mass behind it, at clump scale and again a metre down. The break
- * is `astraHueBreak` at two scales plus a value swing on the coarser
- * one's own field — so the transmission lands on a varied albedo
- * instead of washing a single tone paler. Measured on the showcase
- * pair: the crown's hue spread went 27 -> 35 degrees close in, 35 -> 45
- * at 20 m, and the share of it sitting in one value bin fell from 0.49
- * (no patch) to 0.30.
+ * Transmission uses the first directional light's radiance and shadow map.
+ * It vanishes when that light is off or occluded. A broad back-surface term
+ * and a narrower forward-scattering lobe reveal thin leaves without raising
+ * their albedo. Pigment variation remains a separate material treatment.
  *
  * @param {THREE.Material} material Leaf material, patched in place.
  * @param {object} [opts] `sunDir` (THREE.Vector3) direction TOWARD the
- *   sun — the same vector as the sun light's position, because the term
- *   asks whether the eye is looking into it (default a day sun, well
- *   above the horizon); at night pass the rig's `lightDir` (the moon),
- *   never its `sunDir`, which points under the ground; `tint`
+ *   sun; optional direction override, otherwise the first scene directional
+ *   light supplies the direction. At night use the moon's direction; `tint`
  *   (THREE.Color) the transmitted colour, the warm yellow-green a leaf
  *   turns when lit through; `light` (THREE.Color) the key light's own
  *   colour, multiplied into that tint so a golden or moonlit rig
  *   transmits its own light rather than a hardcoded noon (default
- *   white); `strength` (default 0.55) how far it lifts the albedo;
+ *   white); `strength` (default 0.55) transmitted-light amount;
  *   `power` (default 3) how tight the lobe is around the sun — lower
  *   spreads the glow wider off axis; `variance` (default 0.6) the
  *   pigment swing, 0 to leave the albedo alone; `varyScale` (default 1)
@@ -116,6 +100,7 @@ export function patchLeafSSS(material, opts = {}) {
     name: 'leaf',
     uniforms: {
       uLeafSun: { value: sun },
+      uLeafExplicit: { value: opts.sunDir ? 1 : 0 },
       uLeafTint: { value: tint },
       uLeafAmt: { value: strength },
       uLeafPow: { value: power },
@@ -124,6 +109,7 @@ export function patchLeafSSS(material, opts = {}) {
     },
     fragmentHead: [
       'uniform vec3 uLeafSun;',
+      'uniform float uLeafExplicit;',
       'uniform vec3 uLeafTint;',
       'uniform float uLeafAmt;',
       'uniform float uLeafPow;',
@@ -159,19 +145,31 @@ export function patchLeafSSS(material, opts = {}) {
       '  float lVar = clamp((astraFbm2(lP * 0.55 * uLeafVarS, 2)',
       '      - 0.375) * 2.6, -1.0, 1.0);',
       '  diffuseColor.rgb *= 1.0 + uLeafVar * 0.5 * lVar;',
-      '  vec3 lV = normalize(cameraPosition - vAstraFol);',
-      '  float lB = max(dot(lV, -uLeafSun), 0.0);',
-      '  float lT = uLeafAmt * pow(lB, uLeafPow);',
-      // A crown is not a lamp: what reaches the eye is dappled by how
-      // much leaf mass the light crossed, which also leaves
-      // neighbouring trees uncorrelated. Two scales — the gaps between
-      // clumps, and the leaves themselves — because one makes the glow
-      // a soft blob and both make it sparkle.
-      '  lT *= 0.42 + 0.72 * astraFbm2(vAstraFol.xz * 1.7 + vAstraFol.y,'
-          + ' 3)',
-      '      + 0.36 * astraFbm2(vAstraFol.xz * 7.3 - vAstraFol.y * 3.1,'
-          + ' 2);',
-      '  diffuseColor.rgb += uLeafTint * lT;',
+      // Thin-leaf transmission is incident light, not an albedo multiplier.
+      // The first directional light supplies irradiance and shadow visibility;
+      // a supplied sunDir overrides only the lobe direction for older callers.
+      '  #if NUM_DIR_LIGHTS > 0',
+      '    vec3 lV = normalize(vViewPosition);',
+      '    vec3 lSun = normalize(mix(directionalLights[0].direction,',
+      '      mat3(viewMatrix) * uLeafSun, uLeafExplicit));',
+      '    #ifdef FLAT_SHADED',
+      '      vec3 lN = normalize(cross(dFdx(-vViewPosition), dFdy(-vViewPosition)));',
+      '    #else',
+      '      vec3 lN = normalize(vNormal);',
+      '    #endif',
+      '    lN *= dot(lN, lV) < 0.0 ? -1.0 : 1.0;',
+      '    float lBack = max(-dot(lN, lSun), 0.0);',
+      '    float lForward = pow(max(dot(lV, -lSun), 0.0), uLeafPow);',
+      '    float lT = uLeafAmt * (0.65 * lBack + 0.35 * lForward);',
+      '    float lVisibility = 1.0;',
+      '    #if defined(USE_SHADOWMAP) && NUM_DIR_LIGHT_SHADOWS > 0',
+      '      lVisibility = getShadow(directionalShadowMap[0], directionalLightShadows[0].shadowMapSize,',
+      '        directionalLightShadows[0].shadowIntensity, directionalLightShadows[0].shadowBias,',
+      '        directionalLightShadows[0].shadowRadius, vDirectionalShadowCoord[0]);',
+      '    #endif',
+      '    totalEmissiveRadiance += uLeafTint * lT * directionalLights[0].color',
+      '      * lVisibility * sqrt(max(diffuseColor.rgb, vec3(0.0))) * 0.5;',
+      '  #endif',
     ].join('\n'),
   });
 }
@@ -233,7 +231,19 @@ export function patchWind(material, opts = {}) {
       // direction is carried into the plant's own frame — a scatter
       // gives every instance a different yaw.
       '  vec3 wD = astraFolLocalDir(vec3(uWindDir.x, 0.0, uWindDir.y));',
+      '  float wDerivative = transformed.y > 0.0 && transformed.y < uWindH',
+      '      ? 2.0 * uWindAmp * wB * wS / max(uWindH, 1e-3) : 0.0;',
       '  transformed += wD * (uWindAmp * wB * wB * wS);',
+      '  #ifndef FLAT_SHADED',
+      '    mat3 wJacobian = mat3(vec3(1.0, 0.0, 0.0),',
+      '      vec3(0.0, 1.0, 0.0) + wD * wDerivative, vec3(0.0, 0.0, 1.0));',
+      '    vec3 wN = astraNormalTransform(wJacobian, objectNormal);',
+      '    #ifdef USE_INSTANCING',
+      '      wN = astraNormalTransform(mat3(instanceMatrix), wN);',
+      '    #endif',
+      '    transformedNormal = normalMatrix * wN;',
+      '    vNormal = normalize(transformedNormal);',
+      '  #endif',
     ].join('\n'),
   });
 }

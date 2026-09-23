@@ -63,7 +63,7 @@ def _three_ready() -> None:
 def _stage(root: Path, libs: tuple[str, ...]) -> None:
     (root / "lib").mkdir()
     # the hub modules every effect imports ride along whatever the test names
-    for name in sorted(set(libs) | {"shader.js", "noise.js", "materials.js"}):
+    for name in sorted(set(libs) | {"shader.js", "noise.js", "materials.js", "lifecycle.js"}):
         shutil.copy(LIB_DIR / name, root / "lib" / name)
 
 

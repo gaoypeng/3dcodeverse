@@ -32,6 +32,7 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal } from './lifecycle.js';
 import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 
@@ -295,5 +296,6 @@ export async function makeText(str, opts = {}) {
     mesh.add(light);
     mesh.userData.light = light;
   }
+  attachDisposal(mesh, opts.material ? [geo] : [geo, mat]);
   return mesh;
 }

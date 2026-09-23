@@ -1,12 +1,33 @@
 /**
  * The ground, textured and seatable, in one call (the model takes CODE
  * and ignores prose, so the ground ships as a function). `ground()`
- * returns the SAME height function it displaced the mesh with — place
+ * samples the actual mesh triangles — place
  * every asset at `h(x, z)`; floating assets are the most-flagged defect.
  */
 
 import * as THREE from 'three';
 import * as MAT from './materials.js';
+import { attachDisposal } from './lifecycle.js';
+import { clonePatchedMaterial } from './shader.js';
+
+// PlaneGeometry splits each cell from its lower-left to upper-right vertex.
+// Interpolating the original noise field (or bilinearly interpolating four
+// corners) differs from that triangle surface between vertices.
+function triangleValue(position, nx, ny, gx, gy, component) {
+  gx = Math.max(0, Math.min(nx, gx));
+  gy = Math.max(0, Math.min(ny, gy));
+  const ix = Math.min(nx - 1, Math.floor(gx));
+  const iy = Math.min(ny - 1, Math.floor(gy));
+  const fx = gx - ix, fy = gy - iy;
+  const a = iy * (nx + 1) + ix;
+  const value = (i) => position.array[i * 3 + component];
+  if (fx + fy <= 1) {
+    return value(a) * (1 - fx - fy) + value(a + 1) * fx
+      + value(a + nx + 1) * fy;
+  }
+  return value(a + nx + 2) * (fx + fy - 1)
+    + value(a + 1) * (1 - fy) + value(a + nx + 1) * (1 - fx);
+}
 
 /**
  * Build a displaced, textured ground plane and its height function.
@@ -24,7 +45,7 @@ import * as MAT from './materials.js';
  */
 export function ground(opts = {}) {
   const size = opts.size || 400;
-  const segs = Math.min(opts.segments || 128, 128);
+  const segs = Math.max(1, Math.floor(Math.min(opts.segments || 128, 128)));
   const rand = opts.rand || (() => 0.5);
   const relief = opts.relief === undefined ? 6 : opts.relief;
   const scale = opts.scale || 90;
@@ -48,7 +69,7 @@ export function ground(opts = {}) {
     return (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz;
   };
 
-  const height = (x, z) => {
+  const fieldHeight = (x, z) => {
     let n = sample(x, z) * 0.65 + sample(x * 2.9, z * 2.9) * 0.35;
     n = (n - 0.5) * 2 * relief;
     return opts.flat ? n * (1 - Math.min(1, Math.max(0, opts.flat(x, z)))) : n;
@@ -58,7 +79,7 @@ export function ground(opts = {}) {
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
-    pos.setY(i, height(pos.getX(i), pos.getZ(i)));
+    pos.setY(i, fieldHeight(pos.getX(i), pos.getZ(i)));
   }
   geo.computeVertexNormals();
 
@@ -74,8 +95,7 @@ export function ground(opts = {}) {
   // is a few bytes of state, not a second upload.
   let material = opts.material || MAT.soil();
   if (material.userData && material.userData.shared) {
-    material = material.clone();
-    material.userData = {};
+    material = clonePatchedMaterial(material);
   }
   const retiled = new Map();
   for (const key of ['map', 'roughnessMap', 'bumpMap', 'normalMap']) {
@@ -98,6 +118,11 @@ export function ground(opts = {}) {
   const mesh = new THREE.Mesh(geo, material);
   mesh.name = opts.name || 'Ground';
   mesh.receiveShadow = true;
+  const owned = new Set([geo, ...retiled.values()]);
+  if (material !== opts.material) owned.add(material);
+  attachDisposal(mesh, owned);
+  const height = (x, z) => triangleValue(pos, segs, segs,
+    (x / size + 0.5) * segs, (z / size + 0.5) * segs, 1);
   return { mesh, height };
 }
 
@@ -220,7 +245,7 @@ export function cliff(opts = {}) {
     pos.setZ(i, z);
     tone.copy(bandColors[bandOf(x, y)]);
     // Cheap AO: recessed rock reads darker, ledges catch the light.
-    tone.offsetHSL(0, 0, Math.max(-1, Math.min(1, z / relief)) * 0.09);
+    tone.offsetHSL(0, 0, relief === 0 ? 0 : Math.max(-1, Math.min(1, z / relief)) * 0.09);
     col[i * 3] = tone.r;
     col[i * 3 + 1] = tone.g;
     col[i * 3 + 2] = tone.b;
@@ -249,11 +274,13 @@ export function cliff(opts = {}) {
   mesh.name = opts.name || 'Cliff';
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+  attachDisposal(mesh, [geo, material, map, rough]);
 
   const faceAt = (s, y) => {
     const x = Math.max(-length / 2, Math.min(length / 2, s - length / 2));
     const yy = Math.max(0, Math.min(height, y));
-    return new THREE.Vector3(x, yy, depth(x, yy));
+    return new THREE.Vector3(x, yy, triangleValue(pos, segX, segY,
+      (x / length + 0.5) * segX, (1 - yy / height) * segY, 2));
   };
 
   return { mesh, faceAt };

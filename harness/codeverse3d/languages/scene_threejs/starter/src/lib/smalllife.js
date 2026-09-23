@@ -19,6 +19,7 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 
 import { mulberry32 } from './noise.js';
 // One reader, so a scene's meadow, its reeds and its trees
@@ -30,9 +31,12 @@ import {
 } from './shader.js';
 
 const _TAU = Math.PI * 2;
-// Rows up a stem: 12 is where a two-arc bend stops faceting and the
-// top three can carry a seed head.
-const _REED_ROWS = 12;
+// Dense longitudinal rows resolve curved stems and the rounded seed head.
+const _REED_LEVELS = [
+  ...Array.from({length:17},(_,i)=>i*.75/16),
+  .78,.80,.81,.818,.835,.86,.885,.905,.922,.93,.95,1,
+];
+const _REED_ROWS = _REED_LEVELS.length - 1;
 // Water damps what stands in it: the submerged stem takes this much of
 // the surface bend, on the slower of the two sway rates below.
 const _SUB_DAMP = 0.28;
@@ -62,10 +66,8 @@ const _KINDS = {
   },
 };
 
-// A swarm is drawn UNLIT, so the scene's own lights have to reach it as a
-// number. Re-read every `_RELIGHT` ticks: a traverse is cheap, but not 60
-// times a second in a scene of thousands of objects.
-const _RELIGHT = 24;
+// A swarm is unlit geometry, so refresh its light approximation every update.
+// This follows animated lights and is independent of update-call history.
 // A billboard has no normal, so a direct light contributes its average
 // over the facings that see it; a point or spot light is somewhere else
 // in the scene and this cannot know how far, so it lands as a small
@@ -94,8 +96,9 @@ function sceneLight(obj, out) {
   _lightAcc.setRGB(0, 0, 0);
   let n = 0;
   root.traverse((o) => {
-    if (!o.isLight || o.visible === false || !(o.intensity > 0)) return;
+    if (!o.isLight) return;
     n++;
+    if (o.visible === false || !(o.intensity > 0)) return;
     const w = (o.isHemisphereLight || o.isAmbientLight) ? 1
         : (o.isDirectionalLight ? _DIRECT : _LOCAL);
     // A hemisphere light is its two halves averaged; every other kind
@@ -179,12 +182,11 @@ export function makeInsects(opts = {}) {
   // The swarm reads the rig it was added to, from the first tick on; a
   // caller who never adds it to a scene keeps the neutral 1.0 it was
   // built with, which is what an asset preview wants.
-  let age = 0;
-  g.userData.tick = (t) => {
-    if (age++ % _RELIGHT === 0) sceneLight(g, mat.uniforms.uLight.value);
+  g.userData.update = g.userData.tick = (t) => {
+    sceneLight(g, mat.uniforms.uLight.value);
     tickShaders(g, t);
   };
-  return g;
+  return attachDisposal(g, snapshotResources(g));
 }
 
 /**
@@ -445,8 +447,9 @@ function insectMaterial(kind, size, drift, color) {
  *   straw, mixed in per stem; `waterColor` what a drowned stem loses
  *   its colour INTO (pass the water's own tint, or a stand in a green
  *   pond fades toward a blue-green that is not there); `shadows` cast
- *   stem shadows through a displaced depth pass (default false, see
- *   `stemMesh`); `seed` seed (default 11); `name` group name.
+ *   stem and leaf shadows through matching depth/distance passes (default false, see
+ *   `stemMesh`); `underwaterDistortion` enables a small approximate image distortion
+ *   (default false; leave off with a refracting water surface); `seed` seed (default 11); `name` group name.
  * @returns {THREE.Group} Named `Reeds`, holding ONE instanced mesh
  *   `Stems`, with `userData.tick(t)` driving the wind.
  */
@@ -475,9 +478,9 @@ export function makeReeds(opts = {}) {
   const g = new THREE.Group();
   g.name = opts.name || 'Reeds';
   g.add(stemMesh(field, extent, waterY, { color, dry, deep }, wind,
-                 opts.shadows === true));
-  g.userData.tick = (t) => tickShaders(g, t);
-  return g;
+                 opts.shadows === true, opts.underwaterDistortion === true));
+  g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+  return attachDisposal(g, snapshotResources(g));
 }
 
 /**
@@ -537,17 +540,26 @@ function reedField(extent, density, height, waterY, ground, wind, seed,
  * the world origin and burn a black slab there.
  */
 function reedLattice(count) {
-  const base = new THREE.PlaneGeometry(1, 1, 1, _REED_ROWS);
-  base.translate(0, 0.5, 0);
-  const g = new THREE.InstancedBufferGeometry();
-  g.index = base.index;
-  g.setAttribute('position', new THREE.BufferAttribute(
-      new Float32Array(base.attributes.position.count * 3), 3));
-  g.setAttribute('aCorner', base.attributes.position);
-  g.setAttribute('normal', base.attributes.normal);
-  g.setAttribute('uv', base.attributes.uv);
-  g.instanceCount = count;
-  return g;
+  const corners=[], normals=[], uvs=[], parts=[], indices=[];
+  for(let part=0;part<5;part++) {
+    const rows=part===0 ? _REED_ROWS : 10;
+    const start=corners.length/3;
+    for(let j=0;j<=rows;j++)for(let side=0;side<3;side++) {
+      const u=part===0?_REED_LEVELS[j]:j/rows;
+      corners.push(side*.5-.5,u,0); normals.push(0,0,1);
+      uvs.push(side*.5,j/rows);parts.push(part);
+    }
+    for(let j=0;j<rows;j++)for(let side=0;side<2;side++) {
+      const a=start+j*3+side;indices.push(a,a+1,a+3,a+1,a+4,a+3);
+    }
+  }
+  const g=new THREE.InstancedBufferGeometry();g.setIndex(indices);
+  g.setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(corners.length),3));
+  g.setAttribute('aCorner',new THREE.Float32BufferAttribute(corners,3));
+  g.setAttribute('aPart',new THREE.Float32BufferAttribute(parts,1));
+  g.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
+  g.instanceCount=count;return g;
 }
 
 /**
@@ -562,7 +574,7 @@ function reedLattice(count) {
  * built when asked — a caller with a tight bound, or kelp with fat
  * blades, can have it.
  */
-function stemMesh(field, extent, waterY, palette, wind, shadows) {
+function stemMesh(field, extent, waterY, palette, wind, shadows, distortion) {
   const color = palette.color;
   const geom = reedLattice(field.n);
   const inst = (name, arr, size) => geom.setAttribute(
@@ -573,10 +585,10 @@ function stemMesh(field, extent, waterY, palette, wind, shadows) {
   inst('iVar', field.vary, 4);
   // position is zero, so the derived bounds would be a point at the
   // origin: state the box the bent stand really occupies.
-  const reach = extent / 2 + field.maxH * 0.45 + 0.05;
+  const reach = extent / 2 + field.maxH * 1.15 + 0.05;
   geom.boundingBox = new THREE.Box3(
       new THREE.Vector3(-reach, field.low, -reach),
-      new THREE.Vector3(reach, field.high, reach));
+      new THREE.Vector3(reach, field.high + field.maxH * .24, reach));
   geom.boundingSphere = geom.boundingBox.getBoundingSphere(new THREE.Sphere());
 
   const mat = new THREE.MeshStandardMaterial({
@@ -595,6 +607,7 @@ function stemMesh(field, extent, waterY, palette, wind, shadows) {
       uReedSpeed: { value: wind.speed },
       uReedRate: { value: _SWAY_RATE.clone() },
       uReedWater: { value: waterY },
+      uReedDistort: { value: distortion ? .012 : 0 },
     },
     vertexHead: STEM_HEAD,
     vertexBody: STEM_VERTEX,
@@ -606,6 +619,7 @@ function stemMesh(field, extent, waterY, palette, wind, shadows) {
       'varying vec4 vReed;',
       'varying vec4 vReedVar;',
       'varying vec2 vReedW;',
+      'varying float vReedPart;',
     ].join('\n'),
     fragmentBody: STEM_FRAGMENT,
   });
@@ -629,6 +643,8 @@ const STEM_HEAD = [
   'uniform float uReedSpeed;',
   'uniform vec2 uReedRate;',
   'uniform float uReedWater;',
+  'uniform float uReedDistort;',
+  'attribute float aPart;',
   'attribute vec3 aCorner;',
   'attribute vec3 iPos;',
   'attribute vec4 iShape;',
@@ -637,12 +653,14 @@ const STEM_HEAD = [
   'varying vec4 vReed;',
   'varying vec4 vReedVar;',
   'varying vec2 vReedW;',
+  'varying float vReedPart;',
   glslLocalDir('reedLocalDir'),
 ].join('\n');
 
 const STEM_VERTEX = [
   '  vec3 rdRoot = iPos;',
-  '  float rdV = aCorner.y;',
+  '  float rdV = aPart < 0.5 ? aCorner.y : 0.15 + aPart * 0.115;',
+  '  vReedPart = aPart;',
   '  float rdH = max(iShape.x, 1e-3);',
   // Gusts are streaks running downwind — the same field grass.js rides,
   // so a scene's meadow and its shallows lean together.
@@ -683,10 +701,11 @@ const STEM_VERTEX = [
   // Seen THROUGH moving water a submerged stem wavers, and the step at
   // the line is the break refraction really puts there.
   '  float rdWet = step(rdV, rdVw);',
-  '  rdSpine.xz += vec2(-rdF.y, rdF.x) * (0.012 * rdWet',
+  '  rdSpine.xz += vec2(-rdF.y, rdF.x) * (uReedDistort * rdV * rdWet',
   '      * sin(rdT * 0.9 + rdPh + rdV * 7.0));',
-  '  float rdT2 = (rdV - 0.9) / 0.11;',
-  '  float rdHead = iShape.w * sqrt(max(1.0 - rdT2 * rdT2, 0.0));',
+  '  float rdT2 = (rdV - 0.87) / 0.06;',
+  '  float rdCap = max(abs(rdT2) - 0.68, 0.0) / 0.32;',
+  '  float rdHead = aPart < 0.5 ? iShape.w * sqrt(max(1.0 - rdCap * rdCap, 0.0)) : 0.0;',
   '  float rdWid = iShape.y * (0.55 + 0.45 * sqrt(max(1.0 - rdV, 0.0)))',
   '      + rdHead;',
   // A stem is round, so its strip faces the eye from every angle
@@ -698,6 +717,24 @@ const STEM_VERTEX = [
   '  vec3 rdSide = rdCl > 1e-4 ? rdC / rdCl : vec3(1.0, 0.0, 0.0);',
   '  float rdX = aCorner.x * 2.0;',
   '  transformed = rdSpine + rdSide * (rdX * rdWid);',
+  '  vec3 rdLeafNormal = vec3(0.0, 1.0, 0.0);',
+  '  if (aPart > 0.5) {',
+  '    float lu = aCorner.y;',
+  '    float la = iBend.z + aPart * 2.39996;',
+  '    vec3 ld = normalize(vec3(cos(la), 0.0, sin(la)));',
+  '    vec3 ls = vec3(-ld.z, 0.0, ld.x);',
+  '    float ll = rdH * (0.30 + 0.12 * fract(iVar.x + aPart * 0.37));',
+  '    float lp = pow(max(sin(3.14159 * lu), 0.0), 0.65);',
+  '    float lw = rdH * (0.009 + 0.006 * iVar.z) * lp;',
+  '    float lrise = ll * (0.62 * sin(3.14159 * lu * 0.7) - 0.20 * lu * lu);',
+  '    float ldY = ll * (0.62 * 3.14159 * 0.7 * cos(3.14159 * lu * 0.7) - 0.40 * lu);',
+  '    float lflutter = iBend.x * 0.035 * sin(rdT * 3.0 + iVar.x + aPart);',
+  '    transformed = rdSpine + ld * (ll * lu) + vec3(0.0, lrise, 0.0)',
+  '      + ls * (rdX * lw) + vec3(0.0, -abs(rdX) * lw * 0.20 + lflutter * lu * lu, 0.0);',
+  '    vec3 ltangent = ld * ll + vec3(0.0, ldY + 2.0 * lflutter * lu, 0.0);',
+  '    rdLeafNormal = normalize(cross(ls - vec3(0.0, sign(rdX) * 0.20, 0.0), ltangent));',
+  '    rdWp = (modelMatrix * vec4(transformed, 1.0)).xyz;',
+  '  }',
   '  vReed = vec4(rdV, rdHead / max(iShape.w, 1e-4),',
   '      rdWp.y - uReedWater, rdX);',
   '  vReedVar = vec4(iVar.y, iVar.z, iVar.w, rdVw);',
@@ -711,6 +748,7 @@ const STEM_VERTEX = [
   '  vec3 rdFace = normalize(cross(rdSide, rdTan));',
   '  vNormal = normalize(normalMatrix * normalize(',
   '      rdFace * sqrt(max(1.0 - rdX * rdX, 0.04)) + rdSide * rdX));',
+  '  if (aPart > 0.5) vNormal = normalize(normalMatrix * rdLeafNormal);',
   '#endif',
 ].join('\n');
 
@@ -729,6 +767,7 @@ const STEM_FRAGMENT = [
   // A POWER, not a smoothstep — a smoothstep is already back at 0.9 by
   // mid-stem, which is where most of the stand's pixels are.
   '  float rdDepth = pow(clamp(vReed.x, 0.0, 1.0), 1.3);',
+  '  if (vReedPart > 0.5) rdDepth = pow(clamp(vReed.x + 0.3, 0.0, 1.0), 0.7);',
   '  rdCol *= 0.46 + 0.54 * rdDepth;',
   '  rdCol = mix(rdCol, rdCol * vec3(1.5, 1.35, 0.75),',
   '      vReedVar.y * smoothstep(0.45, 1.0, vReed.x));',
@@ -743,6 +782,7 @@ const STEM_FRAGMENT = [
   '      vReed.x * 150.0));',
   '  float rdIsHead = smoothstep(0.15, 0.6, vReed.y);',
   '  rdCol = mix(rdCol, rdHeadCol, rdIsHead);',
+  '  if (vReedPart > 0.5) rdCol *= 1.18 - 0.12 * exp(-abs(vReed.w) * 18.0);',
   // THE WATERLINE, the whole cue: a dark wet skin the water has
   // climbed, a bright meniscus where the surface grabs the stem, and
   // below it a stem losing its colour into the water EXPONENTIALLY —
@@ -775,7 +815,14 @@ const STEM_FRAGMENT = [
   // in the stand. Dead straw barely passes light either, and a drowned
   // stem passes it only as far as the water allows.
   '  vec3 rdSap = astraHueShift(rdCol, -0.20) * 1.7;',
-  '  totalEmissiveRadiance += directionalLights[0].color * rdSap',
+  '  if (vReedPart > 0.5) rdBeam = 0.45 + 0.55 * rdBeam;',
+  '  float rdVisibility = 1.0;',
+  '  #if defined(USE_SHADOWMAP) && NUM_DIR_LIGHT_SHADOWS > 0',
+  '    rdVisibility = getShadow(directionalShadowMap[0], directionalLightShadows[0].shadowMapSize,',
+  '      directionalLightShadows[0].shadowIntensity, directionalLightShadows[0].shadowBias,',
+  '      directionalLightShadows[0].shadowRadius, vDirectionalShadowCoord[0]);',
+  '  #endif',
+  '  totalEmissiveRadiance += directionalLights[0].color * rdSap * rdVisibility',
   '      * (0.44 * rdThru * rdBeam * rdDepth * (1.0 - 0.86 * rdIsHead)',
   '         * (1.0 - 0.7 * vReedVar.z) * (1.0 - rdSubm));',
   '#endif',

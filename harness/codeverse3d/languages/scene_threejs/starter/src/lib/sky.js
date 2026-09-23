@@ -20,6 +20,7 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 
 /**
@@ -244,5 +245,24 @@ export function makeSky(scene, opts = {}) {
 
   scene.add(sky);
   scene.background = null;   // the dome IS the backdrop (measured req)
-  return { sky, sunDir };
+  attachDisposal(sky, snapshotResources(sky));
+  // Update every dependent twilight uniform together. This controls the dome;
+  // callers still update their scene lights and rebake environment lighting.
+  const setSunDirection = (direction) => {
+    const next = direction?.isVector3 ? direction.clone() : new THREE.Vector3(...(direction || []));
+    if (![next.x, next.y, next.z].every(Number.isFinite) || next.lengthSq() < 1e-12) {
+      throw new RangeError('makeSky.setSunDirection: expected a finite nonzero direction');
+    }
+    sunDir.copy(next).normalize();
+    u.sunPosition.value.copy(sunDir);
+    u.uNight.value = nightAmount(sunDir.y);
+    u.uAfterglow.value = afterglowAmount(sunDir.y);
+    u.uLowSun.value = lowSunAmount(sunDir.y);
+    u.uSunAzimuth.value.set(sunDir.x, 0, sunDir.z);
+    if (u.uSunAzimuth.value.lengthSq() < 1e-12) u.uSunAzimuth.value.set(1, 0, 0);
+    else u.uSunAzimuth.value.normalize();
+    return sunDir;
+  };
+  sky.userData.setSunDirection = setSunDirection;
+  return { sky, sunDir, setSunDirection, dispose: sky.userData.dispose };
 }

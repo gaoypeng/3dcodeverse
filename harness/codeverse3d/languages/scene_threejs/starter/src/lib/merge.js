@@ -13,7 +13,8 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { patchStandard } from './shader.js';
+import { clonePatchedMaterial } from './shader.js';
+import { snapshotResources, attachDisposal } from './lifecycle.js';
 
 const _KEEP = ['position', 'normal', 'uv', 'color'];
 const _WHITE = new THREE.Color(1, 1, 1);
@@ -29,10 +30,19 @@ const _SCALARS = [
   'opacity', 'transparent', 'alphaTest', 'depthWrite', 'side', 'shadowSide',
   'flatShading', 'toneMapped', 'dithering', 'fog', 'aoMapIntensity',
   'bumpScale', 'displacementScale', 'displacementBias',
+  'depthTest', 'colorWrite', 'premultipliedAlpha', 'lightMapIntensity',
+  'transmission', 'thickness', 'attenuationDistance', 'ior', 'dispersion',
+  'clearcoat', 'clearcoatRoughness', 'sheen', 'sheenRoughness',
+  'specularIntensity', 'iridescence', 'iridescenceIOR',
+  'anisotropy', 'anisotropyRotation',
 ];
 const _MAPS = [
   'map', 'roughnessMap', 'metalnessMap', 'normalMap', 'bumpMap', 'aoMap',
   'alphaMap', 'emissiveMap', 'lightMap', 'displacementMap',
+  'envMap', 'transmissionMap', 'thicknessMap', 'clearcoatMap',
+  'clearcoatNormalMap', 'clearcoatRoughnessMap', 'sheenColorMap',
+  'sheenRoughnessMap', 'iridescenceMap', 'iridescenceThicknessMap',
+  'specularColorMap', 'specularIntensityMap', 'anisotropyMap',
 ];
 
 /** Stable per-piece hash in [0,1) from a world position. */
@@ -77,9 +87,12 @@ function _flipWinding(g) {
 /** What one material contributes to the shared surface response. */
 function _sig(m) {
   if (!m) return '';
-  return [m.type, m.side, m.transparent === true, m.flatShading === true,
-    m.roughness, m.metalness, m.emissive ? m.emissive.getHexString() : '',
-    m.emissiveIntensity, m.map ? m.map.uuid : ''].join('|');
+  return JSON.stringify([
+    m.type, ..._SCALARS.map((key) => m[key]), ..._MAPS.map((key) => m[key]?.uuid),
+    ...['emissive', 'attenuationColor', 'sheenColor', 'specularColor', 'normalScale',
+        'clearcoatNormalScale', 'iridescenceThicknessRange'].map((key) => m[key]?.toArray?.() ?? m[key]),
+    m.userData.astraPatches || [],
+  ]);
 }
 
 /**
@@ -104,7 +117,9 @@ function _sig(m) {
  *   one material stop being the same flat swatch. Set 0 when the baked
  *   colours are data (colour-coded parts, a legend, a gradient you built).
  * @returns {THREE.Mesh} One shadow-casting mesh named 'MergedStatic'
- *   — one draw call. Rename it to the zone it forms.
+ *   — one draw call. Preserves the first material's type and physical response.
+ *   userData.dispose() releases its owned geometry/material; source objects,
+ *   shared maps and caller additions remain borrowed.
  * @throws {Error} When the input holds no mesh or the geometries
  *   cannot merge.
  */
@@ -124,7 +139,6 @@ export function mergeStatic(meshes, opts = {}) {
       if (!n.geometry.attributes || !n.geometry.attributes.position) return;
       for (let p = n; p; p = p.parent) {
         if (!p.visible) return;
-        if (p === root) break;
       }
       found.push(n);
     });
@@ -197,29 +211,10 @@ export function mergeStatic(meshes, opts = {}) {
 
   // ONE material: colour lives per-vertex; surface response comes from
   // the first piece (colour-only differences by contract).
-  const material = new THREE.MeshStandardMaterial({ vertexColors: true });
-  if (firstMat) {
-    for (const k of _SCALARS) {
-      if (firstMat[k] !== undefined) material[k] = firstMat[k];
-    }
-    for (const k of _MAPS) {
-      if (firstMat[k]) material[k] = firstMat[k];
-    }
-    if (firstMat.emissive) material.emissive.copy(firstMat.emissive);
-    if (firstMat.normalMap && firstMat.normalScale) {
-      material.normalScale.copy(firstMat.normalScale);
-    }
-    // A shader-patched material does not survive being rebuilt, and
-    // Material.clone() would not have saved it either (it copies
-    // userData but NOT onBeforeCompile — a dead chain holding a live
-    // cache key). Replay the chain instead, sharing the SOURCE uniform
-    // map so one tickShaders still advances both.
-    const patches = firstMat.userData && firstMat.userData.astraPatches;
-    if (patches && patches.length) {
-      material.userData.uniforms = firstMat.userData.uniforms;
-      for (const p of patches) patchStandard(material, p);
-    }
-  }
+  const material = firstMat
+      ? clonePatchedMaterial(firstMat, {shareUniforms:true}) : new THREE.MeshStandardMaterial();
+  material.vertexColors = true;
+  if (material.color) material.color.setRGB(1, 1, 1);
   if (odd) {
     console.warn(
         `mergeStatic: ${odd} of ${found.length} pieces disagree with the `
@@ -232,5 +227,5 @@ export function mergeStatic(meshes, opts = {}) {
   out.name = 'MergedStatic';
   out.castShadow = true;
   out.receiveShadow = true;
-  return out;
+  return attachDisposal(out, snapshotResources(out));
 }

@@ -42,12 +42,12 @@
  * included with its falloff at the field's own origin, which is what
  * puts a mote volume standing in a lamp's pool into that pool.
  *
- * All three billboard against the WORLD camera axes, so add them at the
- * scene root or under a translated parent — a rotated or scaled parent
- * tilts the cards.
+ * Camera vectors are converted to local coordinates, so translated,
+ * rotated and scaled parents retain the authored local field.
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 
 import { lehmer } from './noise.js';
 import {
@@ -87,11 +87,11 @@ function _wrap(v, extent, half) {
  * motes stayed white inside a shadow. Nothing here can be lit properly
  * — a veil is a volume, not a surface — but what it SCATTERS is the
  * irradiance where it hangs, and that is one vec3 the scene can be
- * asked for. So each field probes its own scene once every few frames
+ * asked for. So each field probes its own scene once per render frame
  * and multiplies its colour by the answer, normalised so the library's
  * own day rig lands on 1.0 and every veil in daylight looks exactly as
- * it did. `uLight` stays (1,1,1) in a scene with no lights at all,
- * which is what an asset preview and the shader check build.
+ * it did. `uLight` becomes zero when all contributing lights are removed.
+ * Effect previews should provide an ambient light explicitly.
  */
 
 // Weights per light type: a veil sees the whole sky and only a slice of
@@ -110,11 +110,11 @@ const _TMP_LP = new THREE.Vector3();
 /** The distant (position-free) part of a scene's light, cached per frame. */
 function _probeScene(scene, frame) {
     const hit = _PROBE.get(scene);
-    if (hit && frame - hit.frame < 15) return hit;
+    if (hit && frame === hit.frame) return hit;
     const distant = { r: 0, g: 0, b: 0 };
     const punctual = [];
     let found = 0;
-    scene.traverse((o) => {
+    scene.traverseVisible((o) => {
         if (!o.isLight || o.visible === false || !(o.intensity > 0)) return;
         found++;
         const c = o.color;
@@ -157,10 +157,24 @@ function _litByScene(mesh, autoTint) {
     const base = autoTint ? autoTint.clone() : null;
     const hsl = { h: 0, s: 0, l: 0 };
     const own = { h: 0, s: 0, l: 0 };
+    const inverse = new THREE.Matrix4();
+    uni.uCameraLocal = { value: new THREE.Vector3() };
+    uni.uCameraRight = { value: new THREE.Vector3(1, 0, 0) };
+    uni.uCameraUp = { value: new THREE.Vector3(0, 1, 0) };
+    mesh.material.vertexShader = 'uniform vec3 uCameraLocal; uniform vec3 uCameraRight; uniform vec3 uCameraUp;\n' + mesh.material.vertexShader;
+    mesh.material.fragmentShader = 'uniform vec3 uCameraLocal;\n' + mesh.material.fragmentShader;
     mesh.onBeforeRender = (r, scene, cam, geo, mat, grp) => {
-        if (prev) prev(r, scene, cam, geo, mat, grp);
+        if (prev) prev.call(mesh, r, scene, cam, geo, mat, grp);
+        inverse.copy(mesh.matrixWorld).invert();
+        cam.getWorldPosition(uni.uCameraLocal.value).applyMatrix4(inverse);
+        uni.uCameraRight.value.setFromMatrixColumn(cam.matrixWorld, 0).transformDirection(inverse);
+        uni.uCameraUp.value.setFromMatrixColumn(cam.matrixWorld, 1).transformDirection(inverse);
         const p = _probeScene(scene, r.info.render.frame);
-        if (!p.found) return;
+        if (!p.found) {
+            uni.uLight.value.setRGB(0, 0, 0);
+            if (base) uni.uColor.value.copy(base);
+            return;
+        }
         let { r: er, g: eg, b: eb } = p.distant;
         if (p.punctual.length) {
             mesh.getWorldPosition(_TMP_AT);
@@ -196,7 +210,7 @@ function _litByScene(mesh, autoTint) {
             base.getHSL(own);
             uni.uColor.value.setHSL(hsl.h,
                 Math.min(0.30, hsl.s * 0.75 + own.s * 0.25), own.l);
-        }
+        } else if (base) uni.uColor.value.copy(base);
     };
 }
 
@@ -308,7 +322,7 @@ export function makeRainVeil(opts = {}) {
     // does not cast a shadow; every other veil in this library says so.
     keepOutOfDepthPasses(g);
     _litByScene(mesh, autoTint);
-    g.userData.tick = (t) => tickShaders(g, t);
+    g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
     g.userData.axis = axis.clone();
     g.userData.length = len;
     g.userData.sample = (i, t) => {
@@ -317,7 +331,7 @@ export function makeRainVeil(opts = {}) {
             _wrap(sheet[k * 4] + wind.x * t, extent, half), -sink,
             _wrap(sheet[k * 4 + 1] + wind.y * t, extent, half));
     };
-    return g;
+    return attachDisposal(g, snapshotResources(g));
 }
 
 /** One curtain per instance, rolled about its own fall axis. */
@@ -372,7 +386,7 @@ function veilMaterial(cfg) {
             // Rolled about its OWN fall axis: the slant stays true from
             // every camera and the sheet never turns edge-on, which is
             // the moment a curtain would betray itself as a card.
-            '  vec3 side = cross(uAxis, mid - cameraPosition);',
+            '  vec3 side = cross(uAxis, mid - uCameraLocal);',
             '  float sl = length(side);',
             '  side = sl > 1e-4 ? side / sl : vec3(1.0, 0.0, 0.0);',
             '  transformed = foot + up * ((aCorner.y + 0.5) * uLen)',
@@ -391,10 +405,11 @@ function veilMaterial(cfg) {
             // Denser at the foot and gone into the cloud at the top —
             // and soft on both flanks, because a rim IS the card.
             '  float prof = mix(1.0, 0.45, vUv.y)',
-            '      * (1.0 - smoothstep(0.80, 1.02, vUv.y))',
+            '      * smoothstep(0.0, 0.16, vUv.y)',
+            '      * (1.0 - smoothstep(0.76, 1.0, vUv.y))',
             '      * (1.0 - smoothstep(0.30, 1.0, e.x));',
             '  float near = smoothstep(uNear * 0.3, uNear,',
-            '      length(vP - cameraPosition));',
+            '      length(vP - uCameraLocal));',
             '  float cap = uAlpha * vBright * vFade * prof * near;',
             '  if (cap < 0.002) discard;',
             '  float wx = (vUv.x - 0.5) * 2.0 * vHalfW;',
@@ -420,10 +435,10 @@ function veilMaterial(cfg) {
             // own kill can still retire them at distance, never fully
             // off between heads, and coupled to `body` — a filament in
             // a thin part of the curtain has nothing to be made of.
-            '  float ux = wx / uSpacing;',
+            '  float ux = wx / uSpacing + 0.65 * astraNoise2(vec2(wx * .11, wy * .045) + vSeed);',
             '  float d = fract(wy / uSeg + astraStagger(floor(ux) + vSeed));',
             '  float fil = astraStroke(ux, 0.12)',
-            '      * (0.34 + 0.66 * exp(-d * 2.1)) * sqrt(body);',
+            '      * (0.12 + 0.38 * exp(-d * 4.5)) * body;',
             '  float a = cap * body * (1.0 + 0.66 * fil);',
             // Hue variance inside one curtain: broad warm/cool patches
             // across its face, plus a per-sheet offset, so a stack of
@@ -536,7 +551,7 @@ export function makeSnowfall(opts = {}) {
     g.add(mesh);
     keepOutOfDepthPasses(g);
     _litByScene(mesh, autoTint);
-    g.userData.tick = (t) => tickShaders(g, t);
+    g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
     g.userData.sample = (i, t) => {
         const k = Math.min(count - 1, Math.max(0, i | 0));
         const y = pos[k * 3 + 1] - fall * flake[k * 4 + 1] * t;
@@ -549,7 +564,7 @@ export function makeSnowfall(opts = {}) {
                 + wob * wobZ(swing[k * 4 + 2], swing[k * 4 + 3], t),
                   extent, half));
     };
-    return g;
+    return attachDisposal(g, snapshotResources(g));
 }
 
 /** Slow fall, wandering path, and a lens that cannot hold the near ones. */
@@ -604,12 +619,10 @@ function snowMaterial(cfg) {
             // Nearer than the focus distance: bigger and blurrier, the
             // way a lens focussed on the valley renders arm's length.
             '  vBlur = 1.0 - smoothstep(0.0, uFocus,',
-            '      length(p - cameraPosition));',
+            '      length(p - uCameraLocal));',
             '  float s = uSize * aFlake.x * (1.0 + uBokeh * vBlur);',
-            '  vec3 camR = vec3(viewMatrix[0][0], viewMatrix[1][0],',
-            '      viewMatrix[2][0]);',
-            '  vec3 camU = vec3(viewMatrix[0][1], viewMatrix[1][1],',
-            '      viewMatrix[2][1]);',
+            '  vec3 camR = uCameraRight;',
+            '  vec3 camU = uCameraUp;',
             '  transformed = p + camR * (aCorner.x * s)',
             '      + camU * (aCorner.y * s);',
             '  float vy = y / uHeight;',
@@ -729,7 +742,7 @@ export function makeMotes(opts = {}) {
     // not haze at distance, and the colour is the caller's statement
     // about the light they hang in.
     _litByScene(mesh, null);
-    g.userData.tick = (t) => tickShaders(g, t);
+    g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
     g.userData.volume = { extent, height };
     g.userData.sample = (i, t) => {
         const k = Math.min(count - 1, Math.max(0, i | 0));
@@ -740,7 +753,7 @@ export function makeMotes(opts = {}) {
             pos[k * 3 + 2] + wob * wobZ(swing[k * 4 + 2],
                 swing[k * 4 + 3], t));
     };
-    return g;
+    return attachDisposal(g, snapshotResources(g));
 }
 
 /** Near-still specks that flash as their faces come round. */
@@ -784,10 +797,8 @@ function moteMaterial(cfg) {
             // round to the light and all but vanishes edge-on.
             '  vTw = pow(abs(sin(uTime * uSpin * aMote.y + aMote.z)), 5.0);',
             '  float s = uSize * aMote.x * (0.45 + 0.75 * vTw);',
-            '  vec3 camR = vec3(viewMatrix[0][0], viewMatrix[1][0],',
-            '      viewMatrix[2][0]);',
-            '  vec3 camU = vec3(viewMatrix[0][1], viewMatrix[1][1],',
-            '      viewMatrix[2][1]);',
+            '  vec3 camR = uCameraRight;',
+            '  vec3 camU = uCameraUp;',
             '  transformed = p + camR * (aCorner.x * s)',
             '      + camU * (aCorner.y * s);',
             '  float vy = y / uHeight;',

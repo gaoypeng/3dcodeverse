@@ -20,6 +20,7 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 
 import { mulberry32 } from './noise.js';
 import { windOf } from './grass.js';
@@ -412,7 +413,9 @@ function rigLight(rig) {
 /**
  * Stand-ins on cards: a forest, a crowd or a town for one draw call.
  *
- * DO NOT USE THESE INSIDE ~35 m. Measured against the same stand built
+ * Use when each crown spans roughly 60 screen pixels or fewer. The older
+ * ~35 m guideline was measured at 512 px and is not resolution-independent.
+ * Measured against the same stand built
  * as real geometry (mean absolute pixel difference over the frame,
  * 512 px, daylight): 15 m 12.6/255 and plainly flat — the crown's
  * silhouette is right but it has no interior and the eye reads a
@@ -472,7 +475,8 @@ export function makeImposters(opts = {}) {
   const field = plant(count, extent, seed, kind, ground);
   const cards = cross ? count * 2 : count;
   const width = height * kind.aspect;
-  const half = 0.5 * width * field.scale * (cross ? Math.SQRT2 : 1);
+  const half = 0.5 * width * field.scale * (cross ? Math.SQRT2 : 1)
+      + Math.abs(kind.sway * wind.amp * 2) * height;
   const box = new THREE.Box3(
       new THREE.Vector3(-extent / 2 - half, field.low, -extent / 2 - half),
       new THREE.Vector3(extent / 2 + half, field.high + height * field.scale,
@@ -515,8 +519,8 @@ export function makeImposters(opts = {}) {
   const g = new THREE.Group();
   g.name = opts.name || 'Imposters';
   g.add(keepOutOfDepthPasses(mesh));
-  g.userData.tick = (t) => tickShaders(g, t);
-  return g;
+  g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+  return attachDisposal(g, snapshotResources(g));
 }
 
 /**
@@ -635,6 +639,7 @@ function imposterMaterial(cfg) {
       '  vImpN = right * (aCorner.x * uImpBow.x)',
       '        + up * ((hf - uImpMid) * uImpBow.y + uImpBow.w)',
       '        + fwd * uImpBow.z;',
+      '  vImpN = astraNormalTransform(mat3(modelMatrix), vImpN);',
       // The other quad of a cross is edge-on exactly when this one is
       // square to the camera, and an edge-on card is a lit 1 px sliver
       // down the middle of the crown. Fade it; nothing is lost.
@@ -668,12 +673,24 @@ function imposterMaterial(cfg) {
       '  if (uImpKind < 0.5) {',
       // A broadleaf is one ragged mass on a short stem, and the edge is
       // where the eye decides tree or lollipop.
-      '    vec2 tD = vec2(iq.x / 0.88, (iq.y - 0.66) / 0.36);',
+      '    float tLean = (fract(iPh * 0.73) - 0.5) * 0.20 * iq.y;',
+      '    float tWide = 0.76 + 0.18 * fract(iPh * 0.41);',
+      '    vec2 tD = vec2((iq.x - tLean) / tWide,',
+      '      (iq.y - 0.64 - 0.025 * sin(iPh)) / (0.31 + 0.035 * fract(iPh)));',
       '    float tR = length(tD);',
-      '    tR += 0.34 * (astraFbm2(vec2(atan(tD.y, tD.x) * 1.7, iPh), 3)',
+      '    tR += 0.48 * (astraFbm2(vec2(atan(tD.y, tD.x) * 1.7, iPh), 3)',
       '                  - 0.44);',
       '    float tCrown = 0.92 - tR;',
-      '    iS = max(tCrown, min(0.038 - abs(iq.x), 0.70 - iq.y));',
+      // Foliage has gaps between sprays and a porous outline. Filtering the
+      // finest field keeps a small distant crown stable rather than stippled.
+      '    vec2 tLeafP = iq * vec2(39.0, 52.0) + iPh;',
+      '    float tFootprint = max(length(dFdx(tLeafP)), length(dFdy(tLeafP)));',
+      '    float tLeaf = mix(astraFbm2(tLeafP, 3), 0.44, smoothstep(0.7, 2.0, tFootprint));',
+      '    float tClump = astraFbm2(iq * vec2(13.0, 19.0) + iPh * 1.3, 3);',
+      '    tCrown -= (0.50 - tClump) * 0.36 + (0.46 - tLeaf) * 0.22;',
+      '    float tGaps = tLeaf - mix(0.17, 0.33, smoothstep(0.28, 0.02, tCrown));',
+      '    tCrown = min(tCrown, tGaps);',
+      '    iS = max(tCrown, min(0.026 - abs(iq.x - tLean * iq.y), 0.70 - iq.y));',
       '    iAlb = mix(uImpSecond, uImpColor * (0.66 + 0.60 * iq.y),',
       '               smoothstep(-0.02, 0.10, tCrown));',
       '  } else if (uImpKind < 1.5) {',
@@ -717,7 +734,7 @@ function imposterMaterial(cfg) {
       '  float iA = clamp(iS / iAA + 0.5, 0.0, 1.0);',
       // Dropped whole, never faded: a card that still writes depth at
       // 5% alpha punches a sky-coloured hole through the one behind it.
-      '  if (iA < 0.02 || vImpVar.z < 0.5) discard;',
+      '  if (iA < 0.5 || vImpVar.z < 0.5) discard;',
       // LEAVES, NOT FELT. A crown is clumps with light between them,
       // and one flat mass is what makes a card read as a cut-out at any
       // distance. The field is in card space at the instance's own
@@ -728,7 +745,11 @@ function imposterMaterial(cfg) {
       '  iAlb *= 1.0 + iLeaf * (iMass - 0.375) * 1.15;',
       '  float iFine = astraFbm2(vec2(iq.x * 17.0, vImpUv.y * 17.0)',
       '                          + iPh * 1.7, 2);',
-      '  iAlb *= 1.0 + iLeaf * (iFine - 0.375) * 0.45;',
+      '  iAlb *= 1.0 + iLeaf * (iFine - 0.375) * 0.85;',
+      '  vec2 iSprayP = iq * vec2(55.0, 72.0) + iPh * 2.1;',
+      '  float iSprayFootprint = max(length(dFdx(iSprayP)), length(dFdy(iSprayP)));',
+      '  float iSpray = mix(astraNoise2(iSprayP), 0.5, smoothstep(0.6, 1.8, iSprayFootprint));',
+      '  iAlb *= 1.0 + iLeaf * (iSpray - 0.5) * 0.60;',
       // Hue VARIANCE inside one crown, not only between crowns: the
       // sunlit leaves are yellow and the ones in the mass are
       // blue-green, and a ball of one hue is a painted ball.
@@ -749,13 +770,13 @@ function imposterMaterial(cfg) {
       // What a backlit crown DOES do is glow: the sun comes through the
       // thin edge of the mass. Warm, weighted to the silhouette, and
       // gone the moment the sun is on the camera's side.
-      '  float iEdge = 1.0 - smoothstep(0.0, 0.26, iS);',
+      '  float iEdge = 1.0 - smoothstep(0.0, 0.12, iS);',
       '  float iBack = smoothstep(0.15, -0.70, vImpVar.w);',
       // Broken by the same clump field, or the glow is a stroke drawn
       // round the silhouette rather than light coming through leaves.
       '  vec3 iTrans = uImpSunColor * vec3(1.0, 0.82, 0.44)',
-      '              * (0.34 * iLeaf * iEdge * iBack',
-      '                 * (0.45 + 1.35 * iMass * iFine));',
+      '              * (0.065 * iLeaf * iEdge * iBack',
+      '                 * smoothstep(0.30, 0.52, iMass) * (0.25 + 0.75 * iFine));',
       // A CROWN OCCLUDES ITSELF. Nothing else here can supply that — a
       // card has no ambient occlusion, no self-shadow and no place in
       // the shadow map — and handed the TRUE environment irradiance
@@ -765,9 +786,9 @@ function imposterMaterial(cfg) {
       // fraction of the sky its outer leaves do. Floored, because that
       // fraction is not zero: what bounced off the ground and off the
       // rest of the wood gets in whatever the leaves do.
-      '  float iDeep = smoothstep(0.0, 0.38, iS);',
+      '  float iDeep = smoothstep(-0.02, 0.20, iS);',
       '  float iAO = max(0.26,',
-      '      1.0 - iLeaf * 0.86 * iDeep * (1.0 - 0.78 * iMass));',
+      '      0.60 - iLeaf * 0.34 * iDeep * (1.0 - 0.78 * iMass));',
       // Irradiance over PI, the same arithmetic a built-in Lambert
       // does, so a card sits at the brightness its geometry would.
       // A crown's underside sees less sky than its top, and that
@@ -775,20 +796,12 @@ function imposterMaterial(cfg) {
       '  vec3 iIrr = (uImpAmbient * iAO',
       '               + uImpSunColor * iNdL * mix(1.0, iAO, 0.75) + iTrans)',
       '            * mix(0.62, 1.06, smoothstep(0.0, 0.85, iq.y));',
-      '  gl_FragColor = vec4(iAlb * iIrr / PI, iA);',
+      '  gl_FragColor = vec4(iAlb * iIrr / PI, 1.0);',
     ].join('\n'),
-    // OPAQUE with alpha-to-coverage, not blended. One draw call means
-    // the cards are NOT sorted against each other, so a blended card
-    // resolves its soft edge against whatever was already in the buffer
-    // — the sky — and then writes depth, leaving a pale halo traced
-    // around every silhouette that has another card behind it (measured
-    // 2.5 per mille of the treeline band). Coverage is decided per
-    // MSAA sample instead, which this renderer has (antialias: true),
-    // so the edge stays soft, the card behind fills the samples this
-    // one did not take, and the field joins the opaque queue where it
-    // is depth-sorted front to back for free.
+    // Opaque clipping avoids partial-alpha halos between unsorted cards.
+    // The host post chain handles the silhouette's screen-space antialiasing.
     transparent: false,
-    alphaToCoverage: true,
+    alphaToCoverage: false,
     depthWrite: true,
     side: THREE.DoubleSide,
   });

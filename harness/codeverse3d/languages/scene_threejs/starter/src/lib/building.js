@@ -10,6 +10,19 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import * as MAT from './materials.js';
+import { clonePatchedMaterial } from './shader.js';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
+
+// Cached material factories remain borrowed; glazing and explicit color
+// variants are owned by this construction, as are its mesh buffers.
+function ownBuilding(root) {
+  const resources = snapshotResources(root);
+  for (const resource of resources) {
+    if (resource.isMaterial && resource.userData.shared) resources.delete(resource);
+  }
+  return attachDisposal(root, resources);
+}
+
 
 /** Metres of wall per texture tile. One number for the whole module, so
  *  a mullion, a spandrel and a cornice share one masonry scale. */
@@ -175,8 +188,7 @@ export function block(opts = {}) {
   // lightness buckets, so a hundred blocks cost nine materials.
   let wallMat = st.wall();
   if (opts.color !== undefined) {
-    wallMat = wallMat.clone();
-    wallMat.userData = {};
+    wallMat = clonePatchedMaterial(wallMat);
     wallMat.color = new THREE.Color(opts.color);
   } else {
     // Half of `tint`'s range: its full swing is +-25% lightness, which
@@ -299,7 +311,7 @@ export function block(opts = {}) {
                    [dark, darkMat, 'Reveals']], litBins);
   root.userData.forward = '-Z';
   root.userData.floors = floors + (baseH > 0 ? 1 : 0);
-  return root;
+  return ownBuilding(root);
 }
 
 /**
@@ -418,7 +430,7 @@ export function casement(opts = {}) {
     }
   }
   root.userData.forward = '-Z';
-  return root;
+  return ownBuilding(root);
 }
 
 /**
@@ -484,7 +496,7 @@ function interiorCasement(opts) {
     root.add(m);
   }
   root.userData.forward = '+Z';
-  return root;
+  return ownBuilding(root);
 }
 
 /**
@@ -715,7 +727,7 @@ export function cottage(opts = {}) {
                    [glass, glassMat, 'Glazing']], litBins);
   root.userData.forward = '-Z';
   root.userData.ridgeY = h + pitch;
-  return root;
+  return ownBuilding(root);
 }
 
 /**
@@ -761,7 +773,7 @@ export function tower(opts = {}) {
     root.add(mast);
   }
   root.userData.forward = '-Z';
-  return root;
+  return ownBuilding(root);
 }
 
 /**
@@ -823,7 +835,14 @@ export function roofClutter(host, opts = {}) {
   }
   g.traverse((o) => { if (o.isMesh) { o.castShadow = true;
       o.receiveShadow = true; } });
+  ownBuilding(g);
   host.add(g);
+  // Furniture is added after the host's original ownership snapshot.
+  // Chain its disposer without taking ownership of unrelated children.
+  const disposeHost = host.userData.dispose;
+  attachDisposal(host, [
+    { dispose: () => disposeHost?.() }, { dispose: () => g.userData.dispose() },
+  ]);
   return host;
 }
 
@@ -956,5 +975,6 @@ export function cityFabric(opts = {}) {
       }
     }
   }
+  ownBuilding(group);
   return { group, buildings, footprintFrac: builtArea / (width * depth) };
 }

@@ -20,8 +20,23 @@ const FBM_UNIT = [
   '#ifndef ASTRA_FBM_UNIT',
   '#define ASTRA_FBM_UNIT',
   'float astraFbmUnit(vec2 p, int oct) {',
-  '  float d = max(1.0 - pow(0.5, float(oct)), 0.25);',
-  '  return clamp(astraFbm2(p, oct) / d, 0.0, 1.0);',
+  '  float footprint = max(length(dFdx(p)), length(dFdy(p)));',
+  '  float sum = 0.0, weight = 0.0, amplitude = 0.5, frequency = 1.0;',
+  '  for (int i = 0; i < 6; i++) {',
+  '    if (i >= oct) break;',
+  '    float resolved = 1.0 - smoothstep(0.25, 0.85, footprint * frequency);',
+  '    sum += amplitude * mix(0.5, astraNoise2(p * frequency), resolved);',
+  '    weight += amplitude; amplitude *= 0.5; frequency *= 2.0;',
+  '  }',
+  '  return clamp(sum / max(weight, 0.25), 0.0, 1.0);',
+  '}',
+  'vec3 astraTerrainBump(vec3 eye, vec3 n, float height) {',
+  '  vec3 dx = dFdx(eye), dy = dFdy(eye);',
+  '  vec3 a = cross(dy, n), b = cross(n, dx);',
+  '  float determinant = dot(dx, a);',
+  '  if (abs(determinant) < 1e-12) return n;',
+  '  return normalize(abs(determinant) * n - sign(determinant)',
+  '    * (dFdx(height) * a + dFdy(height) * b));',
   '}',
   '#endif',
 ].join('\n');
@@ -69,6 +84,7 @@ const TRI_HEAD = [
   'uniform float uTriScale;',
   'uniform float uTriSharp;',
   'uniform int uTriOct;',
+  'uniform float uTriRelief, uTriRoughness;',
   'vec3 astraTriWeights(vec3 n, float sharp) {',
   '  vec3 w = pow(abs(n), vec3(sharp));',
   '  return w / max(w.x + w.y + w.z, 1e-4);',
@@ -102,6 +118,7 @@ const TRI_BODY = [
   // exactly this surface "one flat hue".
   '  tpC = astraTerrainGrain(tpC, vAstraWorld, 0.42);',
   '  diffuseColor.rgb = tpC;',
+  '  float tpHeight = (tpN - 0.5) * uTriRelief;',
 ].join('\n');
 
 const SPLAT_HEAD = [
@@ -114,6 +131,7 @@ const SPLAT_HEAD = [
   'uniform float uSplatBlend;',
   'uniform float uSplatSnowY;',
   'uniform float uSplatSnowBand;',
+  'uniform vec4 uSplatRoughness;',
 ].join('\n');
 
 const SPLAT_CORE = [
@@ -215,14 +233,16 @@ function withWorld(material) {
  * a vertical streak on a cliff), so this blends three world-axis noise
  * projections by the world normal instead: a face at ANY angle gets the
  * projection it faces most, and geometry that shares a scale shares a
- * look with no UV to author. Replaces the base colour, so pass the two
- * tones you want; the material's lighting and maps are untouched.
+ * look with no UV to author. Replaces the base color and mineral finish;
+ * existing normal maps remain underneath the filtered metric relief.
  *
  * @param {THREE.Material} material A built-in material, patched in place.
  * @param {object} [opts] `scale` world metres per repeat (default 2);
  *   `sharpness` blend exponent, higher = harder plane transitions
  *   (default 4); `colorA`/`colorB` THREE.Color or hex, the low and high
  *   ends of the noise; `noiseOctaves` detail levels 1..6 (default 4);
+ *   `relief` surface-gradient height in metres (default .002, zero disables),
+ *   `roughness` mineral finish (default .86). Geometry is not displaced.
  *   `name` the program cache key (default 'terrain:triplanar' — every
  *   patch KIND needs its own, or three's per-type program cache serves
  *   one compiled program to both and the second never runs).
@@ -249,9 +269,14 @@ export function patchTriplanar(material, opts = {}) {
       uTriScale: { value: Math.max(1e-3, scale) },
       uTriSharp: { value: Math.max(1, sharpness) },
       uTriOct: { value: toOctaves(oct) },
+      uTriRelief: { value: Math.max(0, opts.relief ?? 0.002) },
+      uTriRoughness: { value: Math.max(0, Math.min(1, opts.roughness ?? 0.86)) },
     },
     fragmentHead: [FBM_UNIT, GRAIN, TRI_HEAD].join('\n'),
     fragmentBody: TRI_BODY,
+    roughnessBody: 'roughnessFactor = clamp(uTriRoughness + (tpN - 0.5) * 0.10, 0.04, 1.0);',
+    metalnessBody: 'metalnessFactor = 0.0;',
+    normalBody: 'normal = astraTerrainBump(-vViewPosition, normal, tpHeight);',
   });
 }
 
@@ -279,6 +304,8 @@ export function patchTriplanar(material, opts = {}) {
  *   it is the LARGER normal.y, and the pair is ordered here because a
  *   GLSL smoothstep with its edges inverted is undefined); `blend`
  *   half-width of both slope transitions in normal.y (default 0.08);
+ *   `roughness` optional {grass, scree, rock, snow} finish values (defaults
+ *   .94/.9/.8/.92). All zones are dielectric; prior normal maps remain.
  *   `name` the program cache key (default 'terrain:slopeSplat').
  * @returns {THREE.Material} The same material. Its uniforms stay live on
  *   `material.userData.uniforms`, so `uSplatSnowY` can be animated.
@@ -327,8 +354,19 @@ export function patchSlopeSplat(material, opts = {}) {
         value: Number.isFinite(line)
             ? Math.max(1e-2, band) : Math.max(1, band),
       },
+      uSplatRoughness: { value: [
+        opts.roughness?.grass ?? 0.94, opts.roughness?.scree ?? 0.9,
+        opts.roughness?.rock ?? 0.8, opts.roughness?.snow ?? 0.92,
+      ].map(value => Math.max(0, Math.min(1, value))) },
     },
     fragmentHead: [FBM_UNIT, GRAIN, SPLAT_HEAD].join('\n'),
     fragmentBody: overTri ? SPLAT_BODY_OVER_TRI : SPLAT_BODY,
+    roughnessBody: [
+      'float spRough = mix(mix(uSplatRoughness.y, uSplatRoughness.z, spR),',
+      '  uSplatRoughness.x, spG);',
+      'roughnessFactor = clamp(mix(spRough, uSplatRoughness.w, spCov)',
+      '  + (spFine * 0.3 + spMass * 0.02 - 0.01) * (1.0 - spCov), 0.04, 1.0);',
+    ].join('\n'),
+    metalnessBody: 'metalnessFactor = 0.0;',
   });
 }

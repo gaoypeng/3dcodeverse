@@ -44,7 +44,7 @@ const lit = (field, scene, frame) => {
   scene.updateMatrixWorld(true);
   R.info.render.frame = frame;
   const m = field.children[0];
-  m.onBeforeRender(R, scene, null, m.geometry, m.material, null);
+  m.onBeforeRender(R, scene, new THREE.PerspectiveCamera(), m.geometry, m.material, null);
   return m.material.uniforms.uLight.value.toArray();
 };
 const rigScene = (elev, fog) => {

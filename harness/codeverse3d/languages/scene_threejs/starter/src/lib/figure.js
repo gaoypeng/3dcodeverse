@@ -8,6 +8,7 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import * as MAT from './materials.js';
 
 /**
@@ -193,7 +194,7 @@ export function figure(opts = {}) {
   head.name = 'head';
   head.castShadow = true;
   neck.add(new THREE.Mesh(
-      new THREE.CylinderGeometry(0.028 * h, 0.032 * h, 0.05 * h, 8), skin));
+      new THREE.CylinderGeometry(0.028 * h, 0.032 * h, 0.07 * h, 8), skin));
   neck.add(head);
   // A face, at ~150 triangles. Without it the head is a ball, and a
   // ball is what makes a close figure read as a shop dummy however
@@ -319,6 +320,16 @@ export function figure(opts = {}) {
   root.userData.height = h;
   root.userData.joints = joints;
   root.userData.hipHeight = hipY;
+  const sole = root.getObjectByName('footL');
+  root.userData.gaitDimensions = { thigh, shin,
+    sole: Array.from({ length: sole.geometry.attributes.position.count }, (_, i) => [
+      sole.geometry.attributes.position.getY(i) + sole.position.y,
+      sole.geometry.attributes.position.getZ(i) + sole.position.z,
+    ]) };
+  root.userData.update = root.userData.tick = () => {};
+  // MAT and eyeMaterial cache their materials across figures. Only the
+  // geometry belongs to this figure; attached held objects stay caller-owned.
+  attachDisposal(root, snapshotResources(root, { materials: false }));
   return neutral(root);
 }
 
@@ -330,6 +341,7 @@ function neutral(fig) {
     j.rotation.set(r[0], r[1], r[2]);
   }
   fig.userData.joints.waist.position.set(0, fig.userData.hipHeight, 0);
+  fig.getObjectByName('torso').rotation.set(0, 0, 0);
   return fig;
 }
 
@@ -425,44 +437,97 @@ export function walk(fig, t, opts = {}) {
   const j = fig.userData.joints;
   const h = fig.userData.height;
   const L = fig.userData.hipHeight;   // hip pivot to sole: the leg
-  let a, cyc;
+  if (!Number.isFinite(t)) throw new RangeError('walk: time must be finite');
+  let a, cyc, speed;
   if (opts.speed !== undefined) {
-    const v = Math.max(0.05, opts.speed);
+    if (!Number.isFinite(opts.speed) || opts.speed < 0)
+      throw new RangeError('walk: speed must be finite and nonnegative');
+    if (opts.speed === 0) {
+      neutral(fig);
+      fig.userData.gait = { phase: 0, speed: 0, stance: [true, true] };
+      return fig;
+    }
+    const v = opts.speed;
     const wr = 0.0065 * (h / 1.72);   // walk ratio, m per (step/min)
     const cadence = Math.min(145, Math.max(70, Math.sqrt(60 * v / wr)));
-    cyc = cadence / 120;              // stride cycles per second
+    // At an unusually high requested route speed, shorten the cycle instead
+    // of silently clamping foot travel and allowing the planted foot to slide.
+    const reach = fig.userData.gaitDimensions.thigh + fig.userData.gaitDimensions.shin;
+    cyc = Math.max(cadence / 120, v * .55 / (2 * reach * .68));
     // stepLen = v / (2 * cyc), so stepLen x cadence === v exactly,
     // even where the cadence clamps; a = asin(stepLen / (2 * L)).
     a = Math.asin(Math.min(0.98, v / (4 * cyc * L)));
+    speed = v;
   } else {
     a = opts.stride === undefined ? 0.42 : opts.stride;
     cyc = opts.rate === undefined ? 0.95 : opts.rate;
+    speed = 4 * L * Math.sin(a) * cyc;
   }
-  const p = (t * cyc + (opts.phase || 0)) * Math.PI * 2;
+  const cycle = t * cyc + (opts.phase || 0);
+  const p = cycle * Math.PI * 2;
   const sw = Math.sin(p);
-  j.hipL.rotation.x = sw * a;
-  j.hipR.rotation.x = -sw * a;
-  // A knee bends one way only: it flexes on the backswing, never past 0.
-  j.kneeL.rotation.x = -Math.max(0, -sw) * a * 1.5;
-  j.kneeR.rotation.x = -Math.max(0, sw) * a * 1.5;
-  // Ankles: toes up on the landing leg (heel strike), toes down
-  // pushing off behind — the two moments the eye reads as contact.
-  j.ankleL.rotation.x =
-      a * (0.25 * Math.max(0, sw) - 0.6 * Math.max(0, -sw));
-  j.ankleR.rotation.x =
-      a * (0.25 * Math.max(0, -sw) - 0.6 * Math.max(0, sw));
+  const dimensions = fig.userData.gaitDimensions;
+  const thigh = dimensions.thigh, shin = dimensions.shin;
+  const stanceFraction = 0.55;
+  const halfStroke = Math.min((thigh + shin) * .68,
+    speed * stanceFraction / (2 * Math.max(cyc, 1e-5)));
+  const smooth = (x) => { x = THREE.MathUtils.clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+  const feet = [0, .5].map((offset) => {
+    const phase = THREE.MathUtils.euclideanModulo(cycle - .25 + offset, 1);
+    const stance = phase < stanceFraction;
+    let z, lift = 0, pitch;
+    if (stance) {
+      // A planted foot travels BACKWARD in the figure frame at precisely the
+      // route speed. With root motion along -Z, it stays on one ground point.
+      z = halfStroke * (2 * phase / stanceFraction - 1);
+      pitch = .20 * (1 - smooth(phase / .10))
+        - .35 * smooth((phase - .40) / .15);
+    } else {
+      const q = (phase - stanceFraction) / (1 - stanceFraction);
+      // Cubic return with matching endpoint velocity: the foot does not snap
+      // from the moving stance arc to a zero-velocity swing arc.
+      const slope = 2 * halfStroke / stanceFraction * (1 - stanceFraction);
+      z = halfStroke * (4 * q ** 3 - 6 * q * q + 1)
+        + slope * (2 * q ** 3 - 3 * q * q + q);
+      lift = h * .065 * Math.sin(Math.PI * q) ** 2;
+      pitch = -.35 + .55 * smooth(q);
+    }
+    const c = Math.cos(pitch), s = Math.sin(pitch);
+    let soleY = Infinity;
+    for (const [y, pointZ] of dimensions.sole) soleY = Math.min(soleY, y * c - pointZ * s);
+    return { phase, stance, z: z + .03 * h, y: lift - soleY, pitch };
+  });
+  let pelvisY = L - .004 * h - .038 * h * sw * sw;
+  const reach = (thigh + shin) * .999;
+  for (const foot of feet) {
+    pelvisY = Math.min(pelvisY, foot.y + Math.sqrt(Math.max(.01, reach * reach - foot.z * foot.z)));
+  }
+  for (let i = 0; i < 2; i++) {
+    const side = i === 0 ? 'L' : 'R', foot = feet[i];
+    const y = foot.y - pelvisY, z = foot.z;
+    const cosine = THREE.MathUtils.clamp((y * y + z * z - thigh * thigh - shin * shin)
+      / (2 * thigh * shin), -1, 1);
+    const knee = -Math.acos(cosine);
+    const hip = Math.atan2(-z, -y) - Math.atan2(shin * Math.sin(knee), thigh + shin * Math.cos(knee));
+    j['hip' + side].rotation.set(hip, 0, 0);
+    j['knee' + side].rotation.set(knee, 0, 0);
+    j['ankle' + side].rotation.set(foot.pitch - hip - knee, 0, 0);
+  }
   // Arms counter-swing the legs, and the elbow flexes hardest when its
   // arm is forward — a straight pumping stick reads as a mannequin.
   j.shoulderL.rotation.x = -sw * a * 0.7;
   j.shoulderR.rotation.x = sw * a * 0.7;
   j.elbowL.rotation.x = 0.35 + 0.3 * Math.max(0, -sw);
   j.elbowR.rotation.x = 0.35 + 0.3 * Math.max(0, sw);
-  j.waist.rotation.y = sw * 0.06;
-  // Pelvis dips TWICE per stride (one dip is the classic procedural
-  // limp) and sways once toward the stance foot. Both live on the
-  // waist pivot, so route() still owns fig.position.
-  j.waist.position.y = L - 0.6 * L * (1 - Math.cos(a * sw));
-  j.waist.position.x = 0.023 * (h / 1.72) * sw;
+  // Keep the leg frame stable while the torso twists above it. Rotating the
+  // waist parent would rotate planted feet away from their ground contacts.
+  j.waist.rotation.set(0, 0, 0);
+  fig.getObjectByName('torso').rotation.y = sw * .06;
+  // Pelvis dips twice per stride and lowers enough to keep each target
+  // within leg reach. Route motion remains on fig.position.
+  j.waist.position.set(0, pelvisY, 0);
+  fig.userData.gait = { phase: THREE.MathUtils.euclideanModulo(cycle, 1),
+    speed, stance: feet.map((foot) => foot.stance) };
   return fig;
 }
 

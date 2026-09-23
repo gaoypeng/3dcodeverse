@@ -33,9 +33,10 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { fbm2, noiseDataTexture } from './noise.js';
-import { GLSL_UTIL, patchStandard } from './shader.js';
+import { GLSL_UTIL, patchStandard, withRendererState } from './shader.js';
 
 /**
  * The film's swell, shared verbatim by the mirror and the overlay.
@@ -106,7 +107,7 @@ const WET_REFLECTOR_SHADER = {
       vUv = textureMatrix * vec4(position, 1.0);
       vec4 worldPosition = modelMatrix * vec4(position, 1.0);
       vWorldPos = worldPosition.xyz;
-      vWorldNormal = normalize(mat3(modelMatrix) * normal);
+      vWorldNormal = inverseTransformDirection(normalize(normalMatrix * normal), viewMatrix);
       vec4 mvPosition = viewMatrix * worldPosition;
       gl_Position = projectionMatrix * mvPosition;
       #include <logdepthbuf_vertex>
@@ -320,6 +321,67 @@ export function makeMirrorFloor(w, d, opts = {}) {
   mirror.material.dithering = true;
   group.add(mirror);
 
+  // The addon extracts a rotation from its world matrix, which does not
+  // transform a plane normal correctly under nonuniform scale or shear.
+  // Capture in a rigid frame, then map its local projection back to the
+  // actual affine geometry used by the ordinary draw.
+  const capture = mirror.onBeforeRender;
+  const captureMaterial = mirror.material;
+  const actualWorld = new THREE.Matrix4();
+  const rigidWorld = new THREE.Matrix4();
+  const inverseRigid = new THREE.Matrix4();
+  const normalMatrix = new THREE.Matrix3();
+  const worldNormal = new THREE.Vector3();
+  const worldPoint = new THREE.Vector3();
+  const cameraPoint = new THREE.Vector3();
+  const rotation = new THREE.Quaternion();
+  const axis = new THREE.Vector3(0, 0, 1);
+  let capturing = false;
+  mirror.onBeforeRender = function (renderer, scene, camera, geometry, material) {
+    if (scene.overrideMaterial || capturing || this.material !== captureMaterial
+        || (material && material !== captureMaterial)) return;
+    actualWorld.copy(this.matrixWorld);
+    normalMatrix.getNormalMatrix(actualWorld);
+    worldNormal.copy(axis).applyMatrix3(normalMatrix).normalize();
+    if (worldNormal.lengthSq() < 0.5) return;
+    worldPoint.setFromMatrixPosition(actualWorld);
+    cameraPoint.setFromMatrixPosition(camera.matrixWorld);
+    if (cameraPoint.sub(worldPoint).dot(worldNormal) < 0 && !this.forceUpdate) return;
+    rotation.setFromUnitVectors(axis, worldNormal);
+    rigidWorld.makeRotationFromQuaternion(rotation).setPosition(worldPoint);
+    const autoUpdate = this.matrixWorldAutoUpdate;
+    const needsUpdate = this.matrixWorldNeedsUpdate;
+    const visible = this.visible;
+    // Nested scene updates must not propagate the temporary rigid frame
+    // into caller-owned descendants (including cameras and bones).
+    const descendants = [];
+    for (const child of this.children) child.traverse((node) => {
+      descendants.push([node, node.matrixWorldAutoUpdate, node.matrixWorldNeedsUpdate]);
+      node.matrixWorldAutoUpdate = false;
+    });
+    capturing = true;
+    this.matrixWorldAutoUpdate = false;
+    this.matrixWorld.copy(rigidWorld);
+    try {
+      withRendererState(renderer, () => {
+        capture.call(this, renderer, scene, camera);
+        inverseRigid.copy(rigidWorld).invert();
+        captureMaterial.uniforms.textureMatrix.value
+          .multiply(inverseRigid).multiply(actualWorld);
+      });
+    } finally {
+      this.matrixWorld.copy(actualWorld);
+      this.matrixWorldAutoUpdate = autoUpdate;
+      this.matrixWorldNeedsUpdate = needsUpdate;
+      for (const [node, childAutoUpdate, childNeedsUpdate] of descendants) {
+        node.matrixWorldAutoUpdate = childAutoUpdate;
+        node.matrixWorldNeedsUpdate = childNeedsUpdate;
+      }
+      this.visible = visible;
+      capturing = false;
+    }
+  };
+
   const overlayMat = new THREE.MeshStandardMaterial({
     color: overlayColor,
     roughness: 1,
@@ -381,5 +443,10 @@ export function makeMirrorFloor(w, d, opts = {}) {
   overlay.name = 'GroundOverlay';
   group.add(overlay);
 
-  return group;
+  const owned = snapshotResources(group);
+  owned.add(mirror.getRenderTarget());
+  for (const texture of [overlayMat.map, overlayMat.alphaMap, overlayMat.roughnessMap]) {
+    if (texture) owned.add(texture);
+  }
+  return attachDisposal(group, owned);
 }

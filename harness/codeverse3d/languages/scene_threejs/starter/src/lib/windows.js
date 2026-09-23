@@ -12,7 +12,8 @@
  */
 
 import * as THREE from 'three';
-import { patchStandard, toColor } from './shader.js';
+import { clonePatchedMaterial, patchStandard, toColor } from './shader.js';
+import { attachDisposal } from './lifecycle.js';
 
 const WIN_VARYINGS = [
   'varying vec2 vWinUv;',
@@ -29,12 +30,12 @@ const WIN_VERTEX = [
   '  vec4 winO = vec4(0.0, 0.0, 0.0, 1.0);',
   '#ifdef USE_INSTANCING',
   '  winP = instanceMatrix * winP;',
-  '  winNo = mat3(instanceMatrix) * winNo;',
+  '  winNo = astraNormalTransform(mat3(instanceMatrix), winNo);',
   '  winO = instanceMatrix * winO;',
   '#endif',
   '  vWinUv = uv;',
   '  vWinW = (modelMatrix * winP).xyz;',
-  '  vWinN = normalize((modelMatrix * vec4(winNo, 0.0)).xyz);',
+  '  vWinN = astraNormalTransform(mat3(modelMatrix), winNo);',
   // The draw's own origin, constant across the mesh: it keys the lit
   // pattern per BUILDING even where a whole city shares one material.
   '  vWinKey = (modelMatrix * winO).xyz;',
@@ -371,20 +372,24 @@ function facadeMeshes(root) {
 export function makeNightWindows(mesh, opts = {}) {
   if (!mesh || !mesh.traverse) return mesh;
   const done = new Map();
+  const owned = new Set();
   for (const target of facadeMeshes(mesh)) {
     const slots = [].concat(target.material);
     const next = slots.map((m) => {
       if (!m) return m;
       if (done.has(m.uuid)) return done.get(m.uuid);
-      const out = (m.userData && m.userData.shared) ? m.clone() : m;
-      // clone() JSON-copies userData, which would carry a dead patch
-      // chain into the cache key of a material that no longer runs it.
-      if (out !== m) out.userData = {};
+      const out = (m.userData && m.userData.shared) ? clonePatchedMaterial(m) : m;
+      if (out !== m) owned.add(out);
       patchWindowInteriors(out, opts);
       done.set(m.uuid, out);
       return out;
     });
     target.material = Array.isArray(target.material) ? next : next[0];
+  }
+  if (owned.size) {
+    const previous = mesh.userData.dispose;
+    if (previous) owned.add({ dispose: previous });
+    attachDisposal(mesh, owned);
   }
   return mesh;
 }

@@ -25,6 +25,7 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 
 import { windOf } from './grass.js';
 import { patchTranslucency } from './finish.js';
@@ -68,6 +69,7 @@ const _KINDS = {
     elev: 0.17, curl: -0.12, cup: 0.14, spike: 0,
     len: 0.055, wid: 0.022, disc: 0.017, bulge: 0.008,
     prof: [2.6, 0.40], blotch: 0,
+    leaf: [.32,.075,.25],
     height: 0.32, petal: 0xdedad0, throat: 0xc9c3a6, disc_: 0xbe8f10,
     // Warm cream to a cool paper white: the swing a white flower
     // really carries, and safe to rotate because it is barely coloured.
@@ -80,6 +82,7 @@ const _KINDS = {
     elev: 0.74, curl: 0.34, cup: 0.60, spike: 0,
     len: 0.060, wid: 0.052, disc: 0.013, bulge: 0.010,
     prof: [1.6, 0.60], blotch: 0.8,
+    leaf: [.32,.065,.60],
     height: 0.44, petal: 0xa2200c, throat: 0x4a1208, disc_: 0x2a1e12,
     // Scarlet to vermilion, the two ends of a field poppy — WARM, both
     // of them. The other way round the wheel is carmine, which the
@@ -91,6 +94,7 @@ const _KINDS = {
     elev: 1.00, curl: 0.10, cup: 0.30, spike: 0.30,
     len: 0.026, wid: 0.019, disc: 0, bulge: 0,
     prof: [2.0, 0.50], blotch: 0,
+    leaf: [.22,.025,.64],
     height: 0.52, petal: 0x8a72c8, throat: 0xa696d6, disc_: 0x6a5aa8,
     sib: [-0.035, 0.10, -0.10], hue: 0.16,
   },
@@ -158,8 +162,8 @@ export function makeFlowers(opts = {}) {
   g.name = opts.name || 'Flowers';
   g.add(plantMesh(field, kind, extent, petal, wind, opts.sunDir,
                   opts.shadows === true));
-  g.userData.tick = (t) => tickShaders(g, t);
-  return g;
+  g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+  return attachDisposal(g, snapshotResources(g));
 }
 
 /**
@@ -197,7 +201,7 @@ function plantField(extent, density, height, kind, wind, ground, seed,
                 0.82 + 0.32 * rand());
       const k = Math.min(_MAX_BEND, lean + wind.amp * stiff * _PUSH_MAX);
       const head = headReach(kind, hs);
-      reach = Math.max(reach, h * (1 - Math.cos(k)) / k + head);
+      reach = Math.max(reach, h * (1 - Math.cos(k)) / k + Math.max(head,h*.40));
       low = Math.min(low, y);
       high = Math.max(high, y + h + head);
       n++;
@@ -234,6 +238,7 @@ function plantLattice(kind, count) {
     pieces.push([new THREE.PlaneGeometry(1, 1, kind.cols, kind.rows),
                  1, i, kind.petals]);
   }
+  for(let i=0;i<6;i++) pieces.push([new THREE.PlaneGeometry(1,1,2,6),3,i,6]);
   if (kind.disc > 0) pieces.push([new THREE.PlaneGeometry(1, 1), 2, 0, 1]);
 
   let nv = 0, ni = 0;
@@ -291,7 +296,7 @@ function plantMesh(field, kind, extent, petal, wind, sunDir,
 
   const mat = new THREE.MeshStandardMaterial({
     color: 0xffffff, roughness: 0.62, metalness: 0,
-    side: THREE.DoubleSide, transparent: true, alphaTest: 0.08,
+    side: THREE.DoubleSide, transparent: false, alphaTest: 0.5, alphaToCoverage: false,
     name: 'FlowerPlant',
   });
   patchStandard(mat, {
@@ -302,6 +307,7 @@ function plantMesh(field, kind, extent, petal, wind, sunDir,
       uFlowBend: { value: _MAX_BEND },
       uFlowNod: { value: 0.22 },
       uFlowSpike: { value: kind.spike },
+      uFlowLeaf: { value: new THREE.Vector3(...kind.leaf) },
       uFlowStep: { value: kind.step },
       uFlowElev: { value: kind.elev },
       uFlowCurl: { value: kind.curl },
@@ -322,23 +328,15 @@ function plantMesh(field, kind, extent, petal, wind, sunDir,
     fragmentHead: PLANT_FRAGMENT_HEAD,
     fragmentBody: PLANT_FRAGMENT,
   });
-  // A petal is thin and lit through, and this is the thin-leaf patch:
-  // one albedo lift toward the light behind it, no third copy of it.
-  // The tint stays close to the PETAL: light through a red petal comes
-  // out red, and a lift halfway to warm white desaturates a scarlet
-  // poppy to salmon on exactly the plants the sun is behind.
+  // Thin-petal transmission uses the actual directional radiance and shadow
+  // visibility. Keep its tint near the petal pigment; generic green variation
+  // would colour white petals blue and scarlet poppies salmon.
   patchLeafSSS(mat, {
-    sunDir: sunDir, strength: 0.42, power: 2.4,
+    sunDir: sunDir, strength: 0.42, power: 2.4, variance: 0,
     tint: petal.clone().lerp(new THREE.Color(0xfff2d0), 0.26),
   });
-  // LAST in the chain, so it sees the transmitted lift as well as the
-  // rim brightening. Both are multiplied onto an albedo that already
-  // starts near paper on a white flower, and an albedo above 1 is not a
-  // brighter petal — it is a petal with no shading left: the tone map
-  // pins every pixel of it to the same white and the whole silhouette
-  // goes to a paper cut-out. Measured on the daisy: 0.73 base * 1.4 rim
-  // * 1.14 value + 0.20 transmitted = 1.36. The floor is the other end
-  // of the same rule: a poppy's blotch is a deep bruise, not a hole.
+  // Keep the pigment and bright rim inside a reflectance range. Transmitted
+  // radiance is separate and remains free to respond to the scene lighting.
   patchStandard(mat, {
     name: 'flowers:albedoRange',
     fragmentBody: '  diffuseColor.rgb = clamp(diffuseColor.rgb, '
@@ -356,39 +354,10 @@ function plantMesh(field, kind, extent, petal, wind, sunDir,
   // The AO guard must not cost the patch its shadow: the shadow pass
   // draws through its own hook with our depth material, so casting is
   // turned back on AFTER the guard, with the displacement it needs.
-  shadowLike(mesh, 'flowers:plantDepth', PLANT_VERTEX_HEAD, PLANT_VERTEX);
-  return cutDepthToSilhouette(mesh);
-}
-
-/**
- * Cut the shadow to the shape of the FLOWER, not of its cards.
- *
- * A petal is a rectangle that the fragment stage carves a petal out of,
- * and three's depth shader never sees that carving: measured on this
- * host, a shadowed daisy stamped thirteen hard slate parallelograms on
- * the ground and the patch read as litter dropped round the plants
- * rather than as shade. `patchStandard` writes a fragment body through
- * `<color_fragment>`, which the depth shader does not have — the whole
- * hook is silently dropped there — so the same cut is spliced in above
- * three's own alpha test, which is the one place a depth pass may
- * discard. The uniform map is the surface's own (`shadowLike` shares
- * it), so the profile the shadow is cut by is the profile that is drawn.
- */
-function cutDepthToSilhouette(mesh) {
-  const dep = mesh.customDepthMaterial;
-  const compile = dep.onBeforeCompile;
-  dep.onBeforeCompile = (shader, renderer) => {
-    compile(shader, renderer);
-    shader.fragmentShader = [
-      'uniform vec2 uFlowProf;',
-      'varying vec4 vFlow;',
-      PLANT_PROFILE,
-      shader.fragmentShader.replace(
-          '#include <alphatest_fragment>',
-          PLANT_DEPTH_CUT + '\n#include <alphatest_fragment>'),
-    ].join('\n');
-  };
-  dep.needsUpdate = true;
+  shadowLike(mesh, 'flowers:plantDepth', PLANT_VERTEX_HEAD, PLANT_VERTEX, {
+    fragmentHead: 'uniform vec2 uFlowProf;\nvarying vec4 vFlow;\n' + PLANT_PROFILE,
+    fragmentBody: PLANT_DEPTH_CUT,
+  });
   return mesh;
 }
 
@@ -399,6 +368,7 @@ const PLANT_VERTEX_HEAD = [
   'uniform float uFlowBend;',
   'uniform float uFlowNod;',
   'uniform float uFlowSpike;',
+  'uniform vec3 uFlowLeaf;',
   'uniform float uFlowStep;',
   'uniform float uFlowElev;',
   'uniform float uFlowCurl;',
@@ -455,6 +425,7 @@ const PLANT_VERTEX = [
   // disc or a cup: one uniform, three silhouettes.
   '  float flV = flPart < 0.5 ? aCorner.y',
   '      : 1.0 - uFlowSpike * (aPart.y / max(aPart.z - 1.0, 1.0));',
+  '  if (flPart > 2.5) flV = 0.06 + uFlowLeaf.z * aPart.y / 5.0;',
   '  vec3 flP, flT;',
   '  flowArc(flV, iShape.x, flK, flF, flP, flT);',
   '  vec3 flAt = flRoot + flP;',
@@ -462,7 +433,25 @@ const PLANT_VERTEX = [
   // petal albedos — hashed off the whorl phase so it is decorrelated
   // from both of the others and costs no attribute.
   '  vFlowVar = vec3(iVar.x, iVar.w, astraHash11(iVar.y * 1.37 + 0.21));',
-  '  if (flPart < 0.5) {',
+  '  if (flPart > 2.5) {',
+  '    float lu = aCorner.y + 0.5, lx = aCorner.x * 2.0;',
+  '    float la = iVar.y + aPart.y * 2.39996;',
+  '    vec3 ld = vec3(cos(la), 0.0, sin(la));',
+  '    vec3 ls = vec3(-ld.z, 0.0, ld.x);',
+  '    float ll = iShape.x * uFlowLeaf.x * (0.8 + 0.35 * iVar.z);',
+  '    float lp = pow(max(sin(3.14159 * lu), 0.0), 0.7);',
+  '    float lw = iShape.x * uFlowLeaf.y * lp;',
+  '    float ly = ll * (0.48 * sin(3.14159 * lu * 0.8) - 0.16 * lu * lu);',
+  '    transformed = flAt + ld * (ll * lu) + ls * (lx * lw)',
+  '      + vec3(0.0, ly - abs(lx) * lw * 0.22, 0.0);',
+  '    vFlow = vec4(3.0, lu, lx, flV);',
+  '#ifndef FLAT_SHADED',
+  '    vec3 lt = ld * ll + vec3(0.0, ll * (0.48 * 3.14159 * 0.8',
+  '      * cos(3.14159 * lu * 0.8) - 0.32 * lu), 0.0);',
+  '    vNormal = normalize(normalMatrix * normalize(cross(',
+  '      ls - vec3(0.0, sign(lx) * 0.22, 0.0), lt)));',
+  '#endif',
+  '  } else if (flPart < 0.5) {',
   '    vec3 flW = (modelMatrix * vec4(flAt, 1.0)).xyz;',
   '    vec3 flView = normalize(flowLocalDir(cameraPosition - flW));',
   '    vec3 flC = cross(flT, flView);',
@@ -503,7 +492,7 @@ const PLANT_VERTEX = [
   // vNormal must match the WINDING, not the intent: three flips it by
   // gl_FrontFacing on a double-sided face, so a normal that disagrees
   // is turned away from the eye and the face renders unlit.
-  '      vNormal = normalize(normalMatrix * flUp);',
+  '      vNormal = normalize(normalMatrix * -flUp);',
   '#endif',
   '    } else {',
   // Lifted off the head plane by its own openness, curled along its
@@ -526,7 +515,7 @@ const PLANT_VERTEX = [
   '          + flUp * (uFlowCup * aCorner.x * aCorner.x * flWid);',
   '      vFlow = vec4(1.0, flU, aCorner.x * 2.0, flJit);',
   '#ifndef FLAT_SHADED',
-  '      vNormal = normalize(normalMatrix * normalize(cross(flDu, flDs)));',
+  '      vNormal = normalize(normalMatrix * normalize(cross(flDs, flDu)));',
   '#endif',
   '    }',
   '  }',
@@ -553,9 +542,9 @@ const PLANT_PROFILE = [
 // it on is a scene whose sun rig is fitted to the patch (`bounds: 12`
 // puts six texels across a head, measured below).
 const PLANT_DEPTH_CUT = [
-  '  if (vFlow.x > 1.5) {',
+  '  if (vFlow.x > 1.5 && vFlow.x < 2.5) {',
   '    if (length(vec2(vFlow.y, vFlow.z)) * 2.0 > 1.0) discard;',
-  '  } else if (vFlow.x > 0.5) {',
+  '  } else if (vFlow.x > 0.5 && vFlow.x < 1.5) {',
   '    if (abs(vFlow.z) > flowProfile(vFlow.y, uFlowProf)) discard;',
   '  }',
 ].join('\n');
@@ -576,7 +565,13 @@ const PLANT_FRAGMENT_HEAD = [
 const PLANT_FRAGMENT = [
   '  vec3 flCol;',
   '  float flA = 1.0;',
-  '  if (vFlow.x < 0.5) {',
+  '  if (vFlow.x > 2.5) {',
+  '    flCol = uFlowStem * (0.82 + 0.32 * vFlowVar.z);',
+  '    flCol *= 1.0 - 0.15 * exp(-abs(vFlow.z) * 20.0);',
+  '    flCol *= 0.96 + 0.04 * sin(vFlow.y * 54.0 + abs(vFlow.z) * 8.0);',
+  '    flCol = mix(flCol, flCol * vec3(1.45, 1.05, 0.62),',
+  '      smoothstep(0.6, 1.0, vFlow.y) * smoothstep(0.6, 1.0, vFlowVar.z));',
+  '  } else if (vFlow.x < 0.5) {',
   // A patch is DEEP: the foot of a stem sits in its neighbours' shade.
   '    flCol = uFlowStem * (0.42 + 0.58 * smoothstep(0.0, 0.5, vFlow.y));',
   '    flCol *= 0.93 + 0.14 * astraNoise2(vec2(vFlow.y * 40.0, 3.0));',
@@ -600,9 +595,9 @@ const PLANT_FRAGMENT = [
   '    float flM = 1.0 - smoothstep(1.0 - flAa, 1.0 + flAa, flD);',
   '    if (flM < 0.02) discard;',
   // The rim of a petal is one cell thick: it passes light rather than
-  // reflecting it, so it goes both PALER and more transparent.
+  // reflecting it, so it grows paler. Alpha supplies silhouette coverage.
   '    float flCore = 1.0 - smoothstep(0.45, 1.0, flD);',
-  '    flA = flM * (0.34 + 0.66 * flCore);',
+  '    flA = flM;',
   // This plant's own place between the kind's two petal albedos, and
   // THEN the throat: the gradient into the centre belongs to the
   // flower actually being drawn, not to the row in the table.
@@ -767,7 +762,7 @@ export function makeFalling(opts = {}) {
   const g = new THREE.Group();
   g.name = opts.name || 'Falling';
   g.add(keepOutOfDepthPasses(mesh));
-  g.userData.tick = (t) => tickShaders(g, t);
+  g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
   g.userData.sample = (i, t) => {
     const k = Math.min(count - 1, Math.max(0, i | 0));
     const y = (pos[k * 3 + 1] - fall * fal[k * 4] * t) % drop;
@@ -778,14 +773,14 @@ export function makeFalling(opts = {}) {
         _wrap(pos[k * 3 + 2] + drift.y * t, lim)
             + wob * wobZ(swing[k * 4 + 2], swing[k * 4 + 3], t));
   };
-  return g;
+  return attachDisposal(g, snapshotResources(g));
 }
 
 /** Fall, tumble, slide and silhouette — all of it in GLSL. */
 function fallMaterial(cfg) {
   const mat = new THREE.MeshStandardMaterial({
     color: 0xffffff, roughness: 0.68, metalness: 0,
-    side: THREE.DoubleSide, transparent: true, alphaTest: 0.08,
+    side: THREE.DoubleSide, transparent: false, alphaTest: 0.5, alphaToCoverage: false,
     name: 'FallingLeaf',
   });
   // FIRST, so this patch's body runs after it and can hand it the
@@ -920,7 +915,7 @@ const FALL_FRAGMENT = [
   '  float flM = 1.0 - smoothstep(1.0 - flAa, 1.0 + flAa, flD);',
   '  if (flM < 0.02) discard;',
   // Thin at the rim: it passes light instead of reflecting it, so the
-  // edge goes paler AND more transparent.
+  // edge grows paler; alpha is clipped coverage rather than blended glass.
   '  float flCore = 1.0 - smoothstep(0.4, 1.0, flD);',
   // Its own place between the kind's two albedos first, then a SMALL
   // rotation clamped at zero: on a rust leaf a wide rotation drives

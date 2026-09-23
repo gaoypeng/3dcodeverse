@@ -58,6 +58,9 @@ function _offsets(seed, octaves) {
     for (let o = 0; o < octaves; o++) {
       offs.push([rand() * 256, rand() * 256, rand() * 256]);
     }
+    // Scene previews routinely cycle through fresh seeds. Eviction only
+    // recomputes deterministic offsets; it cannot change a field's values.
+    if (_offsetCache.size >= 256) _offsetCache.delete(_offsetCache.keys().next().value);
     _offsetCache.set(key, offs);
   }
   return offs;
@@ -74,9 +77,14 @@ function _offsets(seed, octaves) {
  * @returns {number} Normalized field value in measured about +-0.25 with a seed- and region-dependent bias, NOT the [-1, 1] the octave sum suggests.
  */
 export function fbm3(x, y, z, opts = {}) {
-  const octaves = opts.octaves || 4;
-  const lacunarity = opts.lacunarity || 2;
+  const octaves = opts.octaves ?? 4;
+  const lacunarity = opts.lacunarity ?? 2;
   const gain = opts.gain === undefined ? 0.5 : opts.gain;
+  if (!Number.isInteger(octaves) || octaves < 0 || octaves > 32 ||
+      ![x, y, z, lacunarity, gain].every(Number.isFinite) || gain < 0) {
+    throw new RangeError('fbm3: use finite coordinates, 0..32 integer octaves and nonnegative gain');
+  }
+  if (octaves === 0) return 0;
   const offs = _offsets(opts.seed === undefined ? 1 : opts.seed, octaves);
   let amp = 1;
   let freq = 1;
@@ -90,7 +98,9 @@ export function fbm3(x, y, z, opts = {}) {
     amp *= gain;
     freq *= lacunarity;
   }
-  return sum / norm;
+  const value = sum / norm;
+  if (!Number.isFinite(value)) throw new RangeError('fbm3: octave parameters overflow');
+  return value;
 }
 
 /**
@@ -122,6 +132,9 @@ export function fbm2(x, z, opts = {}) {
  * @returns {THREE.DataTexture} RepeatWrapping, needsUpdate already set.
  */
 export function noiseDataTexture(size = 256, fn) {
+  if (!Number.isInteger(size) || size < 1 || size > 4096) {
+    throw new RangeError('noiseDataTexture: size must be an integer from 1 to 4096');
+  }
   const f = fn ||
       ((u, v) => 0.5 + 0.35 * fbm2(u * 6, v * 6, { seed: 1 }));
   const data = new Uint8Array(size * size * 4);
@@ -156,13 +169,47 @@ export function noiseDataTexture(size = 256, fn) {
 }
 
 /**
+ * Trilinear read of a cubic n×n×n grid stored x-fastest, `stride` values per
+ * cell.  Coordinates are in cells; `periodic` wraps them, otherwise they clamp
+ * to the edge.  The CPU twin of sampling a Data3DTexture, so a density query
+ * and the texture it baked agree.
+ *
+ * @returns {number} The interpolated value of `channel`.
+ */
+export function sampleGrid3(data, n, x, y, z, stride = 1, channel = 0, periodic = true) {
+  const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+  const fx = x - ix, fy = y - iy, fz = z - iz;
+  const index = (v) => periodic ? ((v % n) + n) % n : Math.max(0, Math.min(n - 1, v));
+  let value = 0;
+  for (let dz = 0; dz < 2; dz++) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+    const weight = (dx ? fx : 1 - fx) * (dy ? fy : 1 - fy) * (dz ? fz : 1 - fz);
+    value += data[((index(iz + dz) * n + index(iy + dy)) * n + index(ix + dx)) * stride + channel] * weight;
+  }
+  return value;
+}
+
+/**
+ * An RGBA8 cubic Data3DTexture, linearly filtered, repeating unless
+ * `repeat` is false (then clamped to the edge).  needsUpdate is set.
+ */
+export function dataTexture3D(data, size, repeat = true) {
+  const texture = new THREE.Data3DTexture(data, size, size, size);
+  texture.format = THREE.RGBAFormat;
+  texture.minFilter = texture.magFilter = THREE.LinearFilter;
+  texture.wrapS = texture.wrapT = texture.wrapR = repeat ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+  texture.unpackAlignment = 1;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/**
  * Displace a geometry's Y by seeded fBm and refresh its normals.
  * Expects an XZ-plane geometry (`PlaneGeometry` after `rotateX`);
  * displacement ADDS to existing Y, so pre-shaped geometry keeps shape.
  *
  * @param {THREE.BufferGeometry} geometry Modified in place.
- * @param {number} amp Peak displacement in metres (fBm spans ~[-1, 1],
- *   so peak-to-trough relief is up to ~2 * amp).
+ * @param {number} amp Field multiplier in metres (fBm typically spans about
+ *   [-0.25, 0.25], depending on seed and sampled region).
  * @param {number} freq Spatial frequency, ~1 / featureMetres (0.02
  *   gives ~50 m hills).
  * @param {number} [seed] Noise seed (default 1).
@@ -177,5 +224,7 @@ export function displaceY(geometry, amp, freq, seed) {
   }
   pos.needsUpdate = true;
   geometry.computeVertexNormals();
+  if (geometry.boundingBox) geometry.computeBoundingBox();
+  if (geometry.boundingSphere) geometry.computeBoundingSphere();
   return geometry;
 }

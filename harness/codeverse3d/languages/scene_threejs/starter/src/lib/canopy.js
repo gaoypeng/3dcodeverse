@@ -28,6 +28,7 @@
  */
 
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { fbm3, mulberry32 } from './noise.js';
 import {
   glslLocalDir, patchStandard, shadowLike, tickShaders, unit,
@@ -68,8 +69,8 @@ const LOCAL_DIR = glslLocalDir('leafLocalDir');
  *   `backlit` the transmission through a leaf, as `patchLeafSSS` takes
  *   it (`{sunDir, tint, strength}`) — on by default, because the rim
  *   of a crown against the sky is lit through and not lit on; `false`
- *   turns it off, and a `sunDir` below the horizon fades it out for
- *   you (the glow is added to the ALBEDO, so nothing else would).
+ *   turns it off. Transmission follows actual scene-light radiance and shadows;
+ *   an explicit `sunDir` below the horizon additionally fades it out.
  *   `wind` as `makeGrass` takes it. `shadows` cast leaf
  *   shadows via a
  *   displaced depth pass (default false — the cost that made grass
@@ -107,8 +108,8 @@ export function makeCanopy(opts = {}) {
   g.add(leafMesh(field, size, droop, hue, lit, under, wind,
       opts.shadows === true,
       opts.backlit === false ? null : (opts.backlit || {})));
-  g.userData.tick = (t) => tickShaders(g, t);
-  return g;
+  g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+  return attachDisposal(g, snapshotResources(g));
 }
 
 /** Clamp to -1..1: the hue offset is scaled by `hue` downstream. */
@@ -131,16 +132,7 @@ function shadeOf(c) {
       hsl.h + 0.045, Math.min(1, hsl.s * 1.15), hsl.l * 0.3);
 }
 
-/**
- * How much SUN there is to come through a leaf, from the sun's own
- * direction. `patchLeafSSS` adds its transmission to the ALBEDO, before
- * any light is applied, so it does not go out when the sun does: on the
- * night pass of the showcase — sun at -20 deg, ground and sky correctly
- * dark — every crown stayed a bright yellow-green and read as daylight
- * foliage pasted onto a night frame. The ramp holds FULL strength for
- * any sun at or above the horizon, because a low sun is exactly when a
- * backlit crown glows most, and closes over the five degrees below it.
- */
+/** Fade an explicit below-horizon sunlight override; scene lights still set radiance. */
 function sunUp(dir) {
   if (!dir || dir.y === undefined) return 1;
   return unit((dir.y + 0.09) / 0.09);
@@ -208,13 +200,16 @@ function leafField(crowns, opts, shell, size, seed) {
   const pos = new Float32Array(n * 3);
   const axis = new Float32Array(n * 3);
   const vary = new Float32Array(n * 4);
+  const sprays = new Float32Array(n * 4);
   const box = new THREE.Box3();
   let k = 0;
   for (let ci = 0; ci < crowns.length; ci++) {
     const c = crowns[ci];
     const per = counts[ci];
     const rand = mulberry32(seed + c.seed);
+    let spray;
     for (let i = 0; i < per; i++, k++) {
+      if (i % 6 === 0) {
       // Direction first, radius second: sampling a box and rejecting
       // would thin the poles of every crown alike and read as a seam.
       const u = rand() * 2 - 1;
@@ -235,9 +230,19 @@ function leafField(crowns, opts, shell, size, seed) {
       // haze. Boughs are big; the fine detail is the leaf card itself.
       const lump = 1 + 0.42 * fbm3(dx * 1.15, dy * 1.15, dz * 1.15,
           { seed: c.seed + 3, octaves: 2 });
-      const px = c.x + dx * c.rx * t * lump;
-      const py = c.y + dy * c.ry * t * lump;
-      const pz = c.z + dz * c.rz * t * lump;
+      spray = {x:c.x+dx*c.rx*t*lump, y:c.y+dy*c.ry*t*lump,
+        z:c.z+dz*c.rz*t*lump, dx,dy,dz,t,phase:rand()*Math.PI*2};
+      }
+      // Six leaves share a short terminal shoot. Alternating pairs and an
+      // upward-biased shoot turn isolated confetti into coherent foliage.
+      const {dx,dy,dz,t}=spray;
+      const along=((i%6)/5-.5)*size*2.2;
+      const side=i%2===0 ? -1 : 1;
+      const angle=spray.phase;
+      const px=spray.x+Math.cos(angle)*along-Math.sin(angle)*size*.24*side;
+      const py=spray.y+along*.32+Math.sin((i%6)*1.8)*size*.12;
+      const pz=spray.z+Math.sin(angle)*along+Math.cos(angle)*size*.24*side;
+      sprays.set([spray.x,spray.y,spray.z,spray.phase],k*4);
       pos[k * 3] = px; pos[k * 3 + 1] = py; pos[k * 3 + 2] = pz;
       // The outward normal of an ELLIPSOID, not of the unit sphere the
       // direction was drawn on: on a long hedge those differ by most
@@ -263,7 +268,7 @@ function leafField(crowns, opts, shell, size, seed) {
       box.expandByPoint(new THREE.Vector3(px, py, pz));
     }
   }
-  return { n, pos, axis, vary, box };
+  return { n, pos, axis, vary, sprays, box };
 }
 
 /** The one instanced mesh every crown shares. */
@@ -272,7 +277,7 @@ function leafMesh(field, size, droop, hue, lit, under, wind, shadows,
   // Segmented along its length: the ovate profile is zero at BOTH
   // ends, so a single quad's four corners all collapse to zero width
   // and the crown draws nothing at all.
-  const base = new THREE.PlaneGeometry(1, 1, 1, 3);
+  const base = new THREE.PlaneGeometry(1, 1, 2, 6);
   const geom = new THREE.InstancedBufferGeometry();
   geom.index = base.index;
   geom.setAttribute('position', new THREE.BufferAttribute(
@@ -286,9 +291,10 @@ function leafMesh(field, size, droop, hue, lit, under, wind, shadows,
   inst('iPos', field.pos, 3);
   inst('iAxis', field.axis, 3);
   inst('iVar', field.vary, 4);
+  inst('iSpray', field.sprays, 4);
   // position is zero, so the derived bounds would be a point at the
   // origin: state the crowns' real box, and never cull on it.
-  geom.boundingBox = field.box.clone().expandByScalar(size);
+  geom.boundingBox = field.box.clone().expandByScalar(size * (1.6 + Math.abs(droop)) + Math.abs(wind.amp) * (1 + size));
   geom.boundingSphere = geom.boundingBox.getBoundingSphere(
       new THREE.Sphere());
 
@@ -299,7 +305,7 @@ function leafMesh(field, size, droop, hue, lit, under, wind, shadows,
   // grazing angles without chalking the top of the tree.
   const mat = new THREE.MeshStandardMaterial({
     color: 0xffffff, roughness: 0.78, metalness: 0,
-    side: THREE.FrontSide, name: 'CanopyLeaf',
+    side: THREE.DoubleSide, name: 'CanopyLeaf',
   });
   patchStandard(mat, {
     name: 'canopy:leaf',
@@ -328,11 +334,6 @@ function leafMesh(field, size, droop, hue, lit, under, wind, shadows,
   // the underside leaves take no sun and no bounce, and only light
   // coming THROUGH them says foliage rather than soot.
   if (backlit) {
-    // 0.62 was too much on OUR pipeline: the transmission lands on the
-    // ALBEDO (it is added before lighting), so at 0.62 the sun-side
-    // leaves ran past 1.0 albedo and tone-mapped to pale mint. 0.44
-    // keeps the whole crown inside the 0.02-0.8 albedo band and leaves
-    // the glow to read as glow rather than as a wash.
     const amt = backlit.strength === undefined ? 0.44 : backlit.strength;
     patchLeafSSS(mat, { sunDir: backlit.sunDir, tint: backlit.tint,
       strength: amt * sunUp(backlit.sunDir) });
@@ -362,6 +363,7 @@ const LEAF_HEAD = [
   'attribute vec3 iPos;',
   'attribute vec3 iAxis;',
   'attribute vec4 iVar;',
+  'attribute vec4 iSpray;',
   'varying vec3 vLeaf;',
   // Per-leaf constants the FRAGMENT grade needs and the geometry does
   // not: x a decorrelated lightness draw, y how far the leaf's own
@@ -372,7 +374,7 @@ const LEAF_HEAD = [
 ].join('\n');
 
 const LEAF_VERTEX = [
-  '  vec3 lfN = normalize(iAxis);',
+  '  vec3 lfN = normalize(iAxis * 0.38 + vec3(cos(iSpray.w) * 0.30, 0.78, sin(iSpray.w) * 0.30));',
   // Any stable tangent will do, but the naive cross with +Y collapses
   // for the leaves at the crown's top and bottom.
   '  vec3 lfRef = abs(lfN.y) > 0.9 ? vec3(1.0, 0.0, 0.0)',
@@ -391,17 +393,18 @@ const LEAF_VERTEX = [
   '  vec2 lfC = vec2(aCorner.x * lfProf, aCorner.y);',
   '  vec3 lfP = iPos + lfE1 * (lfC.x * lfS) + lfE2 * (lfC.y * lfS);',
   '  lfP.y -= uLeafDroop * lfS * lfV * lfV;',
+  '  lfP += lfN * (0.08 * lfS * sin(3.14159 * lfV) * (1.0 - 4.0 * aCorner.x * aCorner.x));',
   // Gusts are streaks running downwind, as in the grass: the same wind
   // has to move a meadow and the trees over it alike.
   '  vec3 lfW3 = leafLocalDir(vec3(uLeafWind.x, 0.0, uLeafWind.y));',
   '  vec2 lfW = normalize(lfW3.xz + vec2(1e-5, 0.0));',
   '  float lfG = astraFbm2(vec2(',
-  '      dot(iPos.xz, lfW) * 0.05 - uTime * uLeafSpeed * 0.5,',
-  '      dot(iPos.xz, vec2(-lfW.y, lfW.x)) * 0.2), 2);',
+  '      dot(iSpray.xz, lfW) * 0.05 - uTime * uLeafSpeed * 0.5,',
+  '      dot(iSpray.xz, vec2(-lfW.y, lfW.x)) * 0.2), 2);',
   '  float lfT2 = uTime * uLeafSpeed;',
   // Outer leaves move most: the trunk end of a bough barely travels.
   '  float lfSway = uLeafAmp * (0.2 + 1.1 * lfG) * iVar.w',
-  '      * (0.6 + 0.4 * sin(lfT2 * 1.7 + iVar.z));',
+  '      * (0.6 + 0.4 * sin(lfT2 * 1.7 + iSpray.w));',
   '  lfP.xz += lfW * lfSway * 0.45;',
   // Flutter is the leaf turning on its own stem, which is what catches
   // the light — a card that only translates reads as dead foliage.
@@ -418,21 +421,17 @@ const LEAF_VERTEX = [
   '      78.233))) * 43758.5453);',
   '  vLeafB = vec2(lfJit, lfN.y * 0.5 + 0.5);',
   '#ifndef FLAT_SHADED',
-  // Outward from the crown, not the card's own facing: this is what
-  // makes a crown light like a volume instead of a heap of flat chips.
-  // Leaves turn toward the light, and a canopy's light is the SKY, so
-  // the outward normal is bent upward — but only PART of the way. At
-  // the old fixed +1.15 every normal in the crown fell within ~40 deg
-  // of straight up, so with a 38 deg sun every leaf took the same
-  // near-full diffuse and the mass lost its form: measured, the two
-  // crowns rendered as flat pale discs with no lit side. The bend is
-  // now weak on the shell, where the outward normal IS the crown's
-  // shape, and strong in the interior, where nothing but sky reaches
-  // and a leaf lit only by its own facing goes to soot.
-  '  float lfSky = 0.34 + 0.44 * (1.0 - iVar.w);',
-  '  vNormal = normalize(normalMatrix',
-  '      * normalize(lfN + vec3(0.0, lfSky, 0.0)',
-  '                  + lfE1 * (lfFl * 0.5)));',
+  // The normal follows the actual curved blade, including droop and flutter.
+  '  float lfProfD = 3.14159 * 0.72 * pow(max(lfV, 0.001), -0.28)',
+  '      * cos(3.14159 * pow(lfV, 0.72));',
+  '  vec3 lfDx = lfE1 * (lfProf * lfS) - lfN * (0.64 * aCorner.x * lfS * sin(3.14159 * lfV));',
+  '  vec3 lfDy = lfE1 * (aCorner.x * lfProfD * lfS) + lfE2 * lfS',
+  '      - vec3(0.0, 2.0 * uLeafDroop * lfS * lfV, 0.0)',
+  '      + lfN * (0.08 * lfS * 3.14159 * cos(3.14159 * lfV)',
+  '      * (1.0 - 4.0 * aCorner.x * aCorner.x) + lfFl * lfS * 0.9);',
+  '  vec3 lfNormal = cross(lfDx, lfDy);',
+  '  if (dot(lfNormal, lfNormal) < 1e-10) lfNormal = lfN;',
+  '  vNormal = normalize(normalMatrix * normalize(lfNormal));',
   '#endif',
 ].join('\n');
 
