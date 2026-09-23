@@ -506,7 +506,8 @@ class BaseTrack:
                     rec = run_best_of_n(self, ctx, tasks, pipeline, files_hint=ctx.runtime.expected_files(ctx.plan))
                 else:
                     rec = run_round(ctx, index=index, kind=kind, tasks=tasks, pipeline=pipeline, instructions=instructions,
-                                    previous=previous, files_hint=ctx.runtime.expected_files(ctx.plan),
+                                    previous=previous, findings=rounds[-1].gates if rounds else (),
+                                    files_hint=ctx.runtime.expected_files(ctx.plan),
                                     extra_notes=self.round_extra_notes(ctx))
             except RoundFailed as e:
                 if e.quota:

@@ -60,17 +60,10 @@ def test_the_switch_on_attaches_records_and_measures(ctx, monkeypatch):
 
 def test_the_previous_rounds_findings_route_the_repair_sheet(ctx, monkeypatch):
     monkeypatch.setenv("C3D_SKILLS", "on")
-    rounds = ctx.ws.root / "rounds"
-    rounds.mkdir()
-    rec = {"index": 0, "kind": "baseline", "gates": [GateReport(
-        gate="connectivity", passed=False,
-        findings=[GateFinding(gate="connectivity", severity=Severity.ERROR,
-                              message="part 'Leg' is floating: nearest supported part is 'Seat' at 4.0 mm")],
-    ).model_dump(mode="json")]}
-    import json
-
-    (rounds / "r00.json").write_text(json.dumps(rec))
-    got = H.attach_for_round(ctx, index=1, kind="repair")
+    gates = [GateReport(gate="connectivity", passed=False, findings=[GateFinding(
+        gate="connectivity", severity=Severity.ERROR,
+        message="part 'Leg' is floating: nearest supported part is 'Seat' at 4.0 mm")])]
+    got = H.attach_for_round(ctx, index=1, kind="repair", findings=gates)
     assert "c3d-part-contact" in got.listed
     assert "connectivity/floating_part" in got.reasons["c3d-part-contact"]
     assert got.selections[0].gate_fired

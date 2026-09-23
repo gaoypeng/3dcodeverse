@@ -191,11 +191,14 @@ def run_round(
     pipeline: RoundPipeline,
     instructions: Sequence[str] = (),
     previous: Judgment | None = None,
+    findings: Sequence[GateReport] = (),
     files_hint: Sequence[str] = (),
     extra_usage: Usage | None = None,
     extra_notes: Sequence[str] = (),
 ) -> RoundRecord:
     """Execute one round and persist its record.  Budget is charged as it goes.
+    ``previous`` / ``findings``: the previous round's verdict and gates (the judge reads the one,
+    the skill router the other).
 
     ``tasks`` may be empty when the code is already in place (scene stages,
     best-of-N winner copied in): the round is then build → gates → render →
@@ -209,7 +212,7 @@ def run_round(
     with tally() as spent:
         try:
             return _run_round(ctx, index=index, kind=kind, tasks=tasks, pipeline=pipeline, instructions=instructions,
-                              previous=previous, files_hint=files_hint, extra_usage=extra_usage,
+                              previous=previous, findings=findings, files_hint=files_hint, extra_usage=extra_usage,
                               extra_notes=extra_notes, steps=steps, spent=spent)
         except BaseException as e:
             # the round died half-way (budget stop, 503 storm, RoundFailed): what it burned
@@ -228,6 +231,7 @@ def _run_round(
     pipeline: RoundPipeline,
     instructions: Sequence[str] = (),
     previous: Judgment | None = None,
+    findings: Sequence[GateReport] = (),
     files_hint: Sequence[str] = (),
     extra_usage: Usage | None = None,
     extra_notes: Sequence[str] = (),
@@ -249,7 +253,7 @@ def _run_round(
     # or every kind-gated bundle (the *-forms / *-joints routes) drops out and the winner is
     # generated with a strictly smaller library than a --candidates 1 baseline (review 2026-08-29)
     skill_kind = "baseline" if kind == "candidate" else kind
-    skills_hook.attach_for_round(ctx, index=index, kind=skill_kind)
+    skills_hook.attach_for_round(ctx, index=index, kind=skill_kind, findings=findings)
     gens = run_generation_tasks(ctx, skills_hook.with_inlined_skill(ctx, tasks), steps=steps)
     notes += [f"{g.label}: {g.notes}" for g in gens if not g.ok]
     ctx.ws.commit(f"r{index:02d} {kind}: generated")

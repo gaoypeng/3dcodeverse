@@ -15,14 +15,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Any
-
-from pydantic import ValidationError
 
 from codeverse3d.contracts.artifacts import GateReport
 from codeverse3d.contracts.run import SkillsUsage
-from codeverse3d.proc import read_json_or_none
 from codeverse3d.tracks.common import RunContext
 
 log = logging.getLogger(__name__)
@@ -30,33 +26,10 @@ log = logging.getLogger(__name__)
 CTX_KEY = "skills"  # ctx.extra slot holding this round's SkillsMaterialized
 
 
-def _previous_findings(ctx: RunContext, index: int) -> list[GateReport]:
-    """The gates of the last completed round — the input no CLI's own loader can see.
+def attach_for_round(ctx: RunContext, *, index: int, kind: str, findings: Sequence[GateReport] = ()) -> Any | None:
+    """Route + materialise this round's skills.  Returns the ``SkillsMaterialized``.
 
-    Read straight off disk rather than through ``steps.load_round_journal`` so the hook
-    stays independent of the round loop (and so a half-written record from a killed run
-    costs this round its gate routing, not the round itself)."""
-    if index <= 0:
-        return []
-    d = Path(ctx.ws.root) / "rounds"
-    if not d.is_dir():
-        return []
-    for p in sorted(d.glob("r*.json"), reverse=True):
-        data = read_json_or_none(p)
-        if data is None or int(data.get("index", -1)) >= index:  # unreadable, or not before this round
-            continue
-        gates = data.get("gates") or []
-        if gates:
-            try:
-                return [GateReport.model_validate(g) for g in gates]
-            except ValidationError as e:
-                log.debug("skills: round record %s has gates we cannot parse: %s", p, e)
-            return []
-    return []
-
-
-def attach_for_round(ctx: RunContext, *, index: int, kind: str) -> Any | None:
-    """Route + materialise this round's skills.  Returns the ``SkillsMaterialized``."""
+    ``findings``: the previous round's gates — the input no CLI's own loader can see."""
     from codeverse3d.config import get_settings
     from codeverse3d.skills import attach_skills
 
@@ -72,7 +45,7 @@ def attach_for_round(ctx: RunContext, *, index: int, kind: str) -> Any | None:
             language=ctx.language.value,
             kind=kind,
             plan=ctx.plan,
-            findings=_previous_findings(ctx, index),
+            findings=list(findings),
             single_shot=ctx.single_shot,
         )
     except Exception as e:  # noqa: BLE001 — never let the skill system break a round
@@ -118,31 +91,14 @@ def repair_pointers(ctx: RunContext, lint: GateReport | None) -> str:
     if not got or not getattr(got, "selections", None):
         return ""
     from codeverse3d.skills.prompting import repair_pointers as _fmt
-    from codeverse3d.skills.registry import finding_kinds
+    from codeverse3d.skills.registry import ROUTES, finding_kinds
 
-    kinds = set(finding_kinds([lint])) if lint is not None else set()
-    answering = [s.name for s in got.selections if kinds & _matched(s, kinds)]
+    kinds = finding_kinds([lint]) if lint is not None else []
+    # ANY route for the skill, not just the rules that fired at attach time: the build/lint failure a
+    # repair session is looking at was discovered afterwards, and the sheet that answers it is
+    # already sitting in the workspace
+    answering = [s.name for s in got.selections if any(r.skill == s.name and r.matches_finding(kinds) for r in ROUTES)]
     return _fmt(got.selections, agent_kind=ctx.agent_kind, answering=answering)
-
-
-def _matched(selection: Any, kinds: set[str]) -> set[str]:
-    """The current finding kinds this attached skill's routes answer (families included)."""
-    out: set[str] = set()
-    for pat in _kinds_of(selection):
-        family = pat[:-1] if pat.endswith("*") else ""
-        out |= {k for k in kinds if (family and k.startswith(family)) or k == pat}
-    return out
-
-
-def _kinds_of(selection: Any) -> tuple[str, ...]:
-    """Every finding kind ANY route for this skill answers.
-
-    Deliberately not just the rules that fired at attach time: the build/lint failure a
-    repair session is looking at was discovered afterwards, and the sheet that answers it
-    is already sitting in the workspace."""
-    from codeverse3d.skills.registry import ROUTES
-
-    return tuple(k for r in ROUTES if r.skill == selection.name for k in r.findings)
 
 
 def record_usage(ctx: RunContext, *, index: int, kind: str) -> SkillsUsage | None:
