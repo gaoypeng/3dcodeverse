@@ -143,7 +143,7 @@ def isolated(root: Path) -> Iterator[None]:
 _GIT = Workspace._git
 
 
-def _git_through_short_reads(ws: Workspace, *args: str, check: bool = True) -> Any:
+def _git_through_short_reads(ws: Workspace, *args: str, **kw: Any) -> Any:
     """``Workspace._git``, retried when ``git add`` met a file mid-rewrite ("short read").
 
     A production race, not a payload: the scene's parallel stages commit (``git add -A``) while a
@@ -152,11 +152,11 @@ def _git_through_short_reads(ws: Workspace, *args: str, check: bool = True) -> A
     GEMINI.md`` (seen here 2026-09-22; ``_git`` retries only ``index.lock``)."""
     for _ in range(3):
         try:
-            return _GIT(ws, *args, check=check)
+            return _GIT(ws, *args, **kw)
         except WorkspaceGitError as e:
             if "short read" not in str(e):
                 raise
-    return _GIT(ws, *args, check=check)
+    return _GIT(ws, *args, **kw)
 
 
 def _asset_check(ctx: Any, rel: str, pascal: str, *, timeout_s: float = 60.0,
