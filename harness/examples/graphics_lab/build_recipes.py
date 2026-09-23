@@ -1,12 +1,11 @@
 """Render the standalone GLSL recipe studies through the production GL host.
 
 python examples/graphics_lab/build_recipes.py [--video] [--case rain_window]
-All source dependencies and hashes are retained beside the rendered evidence.
+The study shader and the recipes it uses are copied beside the renders.
 """
 from __future__ import annotations
 
 import argparse
-import hashlib
 import html
 import json
 import re
@@ -27,7 +26,7 @@ TITLES = {"rain_window": "Rain on glass", "material_light": "Material and moving
 def build(out: Path, selected: list[str], video: bool) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     known = cookbook_functions(load_text("glsl_shader/cookbook.md"))
-    manifest = {"source_kind": "authored_recipe_study", "cases": []}
+    manifest = {"cases": []}
     host = GlHost(timeout_s=240)
     cards = []
     for key, title in TITLES.items():
@@ -68,9 +67,7 @@ def build(out: Path, selected: list[str], video: bool) -> dict:
                 if encoder.wait():
                     raise RuntimeError(f"{key}: video encoder failed")
         record = {"id": key, "title": title, "renderer": result.renderer, "gpu": result.gpu,
-                  "frames": len(result.frames), "render_ms": result.duration_ms,
-                  "source_sha256": {"shader.frag": hashlib.sha256(source.encode()).hexdigest(),
-                                    "recipes.glsl": hashlib.sha256(recipes.encode()).hexdigest()}}
+                  "frames": len(result.frames), "render_ms": result.duration_ms}
         manifest["cases"].append(record)
         media = (f'<video controls loop playsinline poster="{key}/preview.png" src="{key}/film.mp4"></video>'
                  if video else f'<img src="{key}/preview.png" alt="{html.escape(title)}">')
@@ -91,7 +88,7 @@ Rendered locally with the production OpenGL host. Source and dependencies are in
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", type=Path, default=HERE / "output/seven-hour/recipes")
+    parser.add_argument("--out", type=Path, default=HERE / "output/recipes")
     parser.add_argument("--case", action="append", choices=list(TITLES), default=[])
     parser.add_argument("--video", action="store_true")
     args = parser.parse_args()

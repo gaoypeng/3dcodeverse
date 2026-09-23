@@ -242,9 +242,3 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
-// Diagnostics used by the browser smoke test.
-window.graphicsLab = {
-  open, explore,
-  get active() { return bundle?.result; },
-  get time() { return time; },
-};
