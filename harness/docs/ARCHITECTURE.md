@@ -162,7 +162,7 @@ codeverse3d/
                       that does NOT meter itself; run_ledger nests + is context-local so bench --parallel works)
                       profiles.py (economy|balanced|quality; cli._common.resolve_dial is THE resolver)
                       tally.py (a block's money = its ledger rows, its lost seconds → StepTime; COST §31)
-                      guard.py
+                      guard.py (a call's cost estimated before it is sent — `3dcode cost estimate`)
   judges/             base.py (JudgeInput; `round_input` + `plan_summary(plan, language)`, the ONE payload
                       builder and plan digest the in-run judge, `3dcode judge`, calibration, the texture
                       gate and eval all use; the pure replay helpers), rubrics.py + rubrics/*.yaml (defect checklists, the wire

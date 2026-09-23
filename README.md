@@ -22,7 +22,7 @@ Python dist `3dcodeverse` (import `codeverse3d`, CLI `3dcodeverse` / `3dcode`).
 LLMs write raw 3D code across four tracks — `static_object` ·
 `articulated_object` · `scene` · `graphics` — in seven languages; the harness
 owns everything around the code: typed plans, deterministic gates
-(connectivity, contract, joint sweeps, frame metrics), a 20-tool spatial
+(connectivity, contract, joint sweeps, frame metrics), a spatial
 toolbox served to coding agents over MCP, labelled multi-view renders, a
 rubric VLM judge with binary defect checklists and code-computed caps, an
 optional text-to-image texture pass, and a git-versioned record of every round

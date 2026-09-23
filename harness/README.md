@@ -10,13 +10,12 @@ renders, judges, refines, textures and records every run as data-flywheel materi
 * **Backends:** Gemini / Anthropic / OpenAI chat models; coding agents `gemini-cli`,
   `claude-code`, `codex`, `agy` (Antigravity) — always a vendor's CLI — and
   `single-shot` generation on any chat model.
-* **Spatial tools** (direct, or over the MCP server `3dcode` for the agentic CLIs):
-  build, measure, render_views/sheet, isolate, cross_section,
-  check_connectivity, check_contract, compare_reference, joint_sweep, shader_probe,
-  scene_probe, scene_views, check_placement, gl_probe, gl_frames.
+* **Spatial tools** (direct, or over the MCP server `3dcode` for the agentic CLIs): build,
+  measure, render, section, connectivity/contract checks, joint sweeps, scene and GL probes —
+  the list is `docs/ARCHITECTURE.md` §5.
 * **Judging:** rubric VLM judge (default `gemini-3.1-pro-preview`) on labelled 2×2
   montages with binary defect checklists; code-computed scores, floors and caps from
-  deterministic gates; pairwise, ranking and reference judges; best-of-N candidates;
+  deterministic gates; pairwise, reference and likeness judges; best-of-N candidates;
   a calibration harness (`addons/calibration.py`).
 * **Texturing:** optional text-to-image pass — VLM material plan → seamless tiles →
   world-metre UVs → `object_textured.glb`, shipped only when a before/after judge
@@ -34,7 +33,7 @@ renders, judges, refines, textures and records every run as data-flywheel materi
 
 Every run is **spec → plan → skeleton → [scene stages] → baseline round (best-of-N
 optional) → refine rounds → finalise → record**, with an optional post-hoc texture
-pass.  The tree after the 2026-08-28 consolidation (172 python files):
+pass.  The package tree:
 
 ```
 codeverse3d/
@@ -43,8 +42,8 @@ codeverse3d/
   conventions.py   frames, units, views, naming, tolerances (THE constants source)
   config.py        Settings (C3D_* env + config.yaml) · workspace.py  run-dir layout + git snapshots
   proc.py          stdlib-only subprocess/JSON/JSONL primitives, run lock, fan-out (a leaf)
-  orchestrator.py  stage runner: resume, run state, round loop, budget
-  tracks/          the four track pipelines, the one planner loop, generation strategies
+  orchestrator.py  the round loop's library: stage runner + resume state, round knobs, the clock
+  tracks/          the four track pipelines + the round loop, the one planner loop, generation strategies
                    (vendor-CLI agent / single-shot), repair, best-of-N, skills hook
   languages/       one merged module per language (lint → skeleton → runtime) beside its
                    data dirs: blender cadquery threejs urdf scene_threejs glsl_shader opengl_python
@@ -56,7 +55,7 @@ codeverse3d/
   judges/          rubric VLM judge on labelled montages, pairwise, reference/likeness
   reference.py     reference grounding: synthesis, plausibility gate, proportions, diff
   texturing/       material plan → seamless tiles → world-metre UVs → object_textured.glb
-  cost/            append-only ledger, metering, budget guard, profiles, billing
+  cost/            append-only ledger, metering, per-block tallies, profiles, pre-call estimates
   skills/          typed skill routes + materialisation + read telemetry
   record/          what every run writes: record.json, deliverable/, telemetry
   addons/          optional tools that READ finished runs — nothing a run needs:
@@ -88,11 +87,8 @@ pip install -e '.[all,dev]'    # entry points: 3dcodeverse, 3dcode
 python -m pytest tests -q -m "not live"
 ```
 
-Observed end to end on Gemini flash-tier models: kitchen cabinet (URDF via
-gemini-cli) 0.85 pass; park bench (threejs via gemini-cli) 0.64 → 0.89, 36 min,
-$0.68; CadQuery object (single-shot + refine) 0.39 → 0.75 pass, 10 min, $0.40;
-multi-pass OpenGL program (gemini-cli) 0.70 → 0.86 pass, $0.74; neon-rain shader
-(graphics, single-shot) 0.79 first round, 2 min, $0.05.
+What a run costs and how long it takes: `docs/COST.md` (measured) and `docs/RUNBOOK.md` §2
+(expected, per track).
 
 Docs: `docs/INSTALL.md` (install / prerequisites / doctor troubleshooting) ·
 `docs/ARCHITECTURE.md` (design + what a run does) · `docs/INTERFACES.md`
