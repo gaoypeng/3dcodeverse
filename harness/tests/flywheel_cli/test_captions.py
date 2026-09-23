@@ -14,6 +14,7 @@ from codeverse3d.addons.dataset.captions import (
 )
 from codeverse3d.contracts.chat import ChatRequest, ChatResponse, ImagePart
 from codeverse3d.contracts.common import Usage
+from codeverse3d.record.deliverable import load_deliverable
 from codeverse3d.record.record import load_record
 
 GOOD = {
@@ -197,3 +198,54 @@ def test_caption_graphics_run_from_frames(tmp_path):
 
     imgs = [p for p in req.messages[0].parts if isinstance(p, IP)]
     assert len(imgs) == 3  # sheet + 2 frame views
+
+
+# --------------------------------------------------------------------------- a run recorded before artifacts/rNN/
+def _old_urdf_run(tmp_path):
+    """An urdf_blender run recorded before rounds kept ``artifacts/rNN/``: its finalise rebuilt
+    round 1 (the ``best_round`` its record.json names) into ``artifacts/`` and packaged it."""
+    from codeverse3d.addons import select
+    from codeverse3d.contracts.common import Language
+
+    from .conftest import make_fake_run
+
+    ws, rec = make_fake_run(tmp_path / "runs", "arm", language=Language.URDF_BLENDER)
+    for i in (0, 1):
+        (ws.round_artifacts(i) / "object.glb").unlink()
+        ws.round_artifacts(i).rmdir()
+    (ws.artifacts / "preview.gif").write_bytes(b"GIF89a")
+    (ws.artifacts / "meshes").mkdir()
+    (ws.artifacts / "meshes" / "base.glb").write_bytes(b"glTF-base")
+    ws.write_json(ws.record_path, {**json.loads(ws.record_path.read_text()), "best_round": 1})
+    select.package(ws.root, 1)
+    return ws, load_record(ws)
+
+
+def test_an_old_runs_caption_then_export_still_ships_its_glb_gif_and_meshes(tmp_path):
+    """`flywheel caption` rewrote record.json through RunRecord, which dropped the raw `best_round`
+    — the only pointer to the round artifacts/ holds — so the re-packaged deliverable and the
+    export lost the old run's object.glb, preview.gif and meshes/."""
+    from codeverse3d.addons.dataset.export import export_one
+
+    ws, rec = _old_urdf_run(tmp_path)
+    urdf = dict(GOOD, instruction="Write a URDF model of a simple robot arm with a base and one hinged link.")
+    caption_sample(ws, rec, "fake:fake", model=FakeModel([urdf]))
+    assert json.loads(ws.record_path.read_text())["best_round"] == 1  # the rewrite keeps the legacy key
+    handed = {f.path for f in load_deliverable(ws).files}
+    assert {"deliverable/object.glb", "deliverable/preview.gif", "deliverable/meshes/base.glb"} <= handed
+    sample = export_one(ws, load_record(ws), tmp_path / "ds")
+    assert {"renders/object.glb", "renders/preview.gif", "meshes/base.glb"} <= set(sample.file_hashes)
+
+
+def test_an_old_run_whose_record_lost_best_round_falls_back_to_its_deliverable(tmp_path):
+    """A record already rewritten without ``best_round``: its packaged deliverable names the round."""
+    from codeverse3d.addons import select
+
+    ws, rec = _old_urdf_run(tmp_path)
+    data = json.loads(ws.record_path.read_text())
+    del data["best_round"]
+    ws.write_json(ws.record_path, data)
+    assert select.round_file(ws, rec.rounds[1]) == ws.artifacts / "object.glb"
+    assert select.round_file(ws, rec.rounds[0]) is None
+    select.package(ws.root, 1)  # the rebuild wipes the old manifest: resolved before the wipe
+    assert (ws.deliverable / "object.glb").is_file() and (ws.deliverable / "meshes" / "base.glb").is_file()

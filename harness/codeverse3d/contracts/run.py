@@ -346,10 +346,10 @@ class RunDeliverable(BaseModel):
 
 
 class RunRecord(BaseModel):
-    """One run.  A record written before 2026-09-22 also names a best round, a baseline and a
-    final score (``best_round`` / ``baseline_score`` / ``final_score``) and a round may carry a
-    ``pairwise`` tie-break note: unknown keys, ignored — ``addons.select`` answers which round
-    to hand over, after the run."""
+    """One run.  A record written before 2026-09-22 also names a baseline and a final score
+    (``baseline_score`` / ``final_score``) and a round may carry a ``pairwise`` tie-break note:
+    unknown keys, ignored — ``addons.select`` answers which round to hand over, after the run.
+    Its ``best_round`` is kept (below): the only pointer to the round its ``artifacts/`` holds."""
 
     spec: Spec
     plan: StaticPlan | ArticulatedPlan | ScenePlan | GraphicsPlan | None = None
@@ -368,6 +368,12 @@ class RunRecord(BaseModel):
         default=None, description="the run-level timed steps (plan, the prepare stages, best-of-N, the part of "
                                   "an aborted round that ran); None = recorded before 2026-09-22")
     extra: dict[str, Any] = Field(default_factory=dict)
+    best_round: int | None = Field(
+        default=None, exclude_if=lambda v: v is None,
+        description="LEGACY, read-only: written only by runs recorded before 2026-09-22 (pre-D80), whose "
+                    "finalise rebuilt that round into artifacts/ — record.deliverable.round_outputs finds "
+                    "the round's GLB/GIF/meshes by it.  Kept so a record rewrite (flywheel caption, "
+                    "pick --texture) does not drop it; never set by a new run, never a pick")
 
     @property
     def minutes(self) -> float | None:

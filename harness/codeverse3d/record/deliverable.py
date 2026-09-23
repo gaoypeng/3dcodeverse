@@ -144,14 +144,27 @@ def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes]
 def round_outputs(ws: Workspace, rnd: RoundRecord | None) -> Path | None:
     """Where the round's build outputs are: ``artifacts/rNN/``, or — a run recorded before
     rounds kept their own (2026-09-22) — ``artifacts/`` itself, but only for the round
-    that run's finalise rebuilt there (the ``best_round`` its record.json still names)."""
+    that run's finalise rebuilt there: the legacy ``RunRecord.best_round``, or — a record
+    rewritten by a build that dropped that key — the round its old deliverable packaged."""
     if rnd is None:
         return None
     kept = ws.round_artifacts(rnd.index)
     if kept.is_dir():
         return kept
+    return ws.artifacts if legacy_canonical_round(ws) == rnd.index else None
+
+
+def legacy_canonical_round(ws: Workspace) -> int | None:
+    """The round a run recorded before rounds kept ``artifacts/rNN/`` rebuilt into ``artifacts/``
+    (its record's ``best_round``, else its deliverable's round); None for a run that keeps its
+    rounds — there ``artifacts/`` is the LAST build's, no round's by name."""
     legacy = (read_json_or_none(ws.record_path) or {}).get("best_round")
-    return ws.artifacts if legacy == rnd.index else None
+    if isinstance(legacy, int):
+        return legacy
+    if any(ws.artifacts.glob("r[0-9][0-9]")):
+        return None
+    old = load_deliverable(ws)
+    return old.round if old is not None else None
 
 
 def texture_report_for(ws: Workspace, glb: Path) -> dict | None:
@@ -167,8 +180,7 @@ def texture_report_for(ws: Workspace, glb: Path) -> dict | None:
     return rep
 
 
-def _copy_artifacts(ws: Workspace, record: RunRecord, rnd: RoundRecord | None, w: _Writer) -> None:
-    out = round_outputs(ws, rnd)
+def _copy_artifacts(ws: Workspace, record: RunRecord, rnd: RoundRecord | None, out: Path | None, w: _Writer) -> None:
     if out is None:
         return
     for name, role in _ARTIFACT_ROLES:
@@ -227,6 +239,7 @@ def build_deliverable(ws: Workspace, record: RunRecord, round_index: int | None,
     on an unchanged run produces byte-identical content."""
     rnd = next((r for r in record.rounds if r.index == round_index), None)
     previous = load_deliverable(ws) if ws.deliverable_manifest_path.is_file() else None
+    out = round_outputs(ws, rnd)  # before the wipe: an old run may be found by its old manifest
     if clean and ws.deliverable.exists():
         shutil.rmtree(ws.deliverable)
     ws.ensure_layout()
@@ -234,7 +247,7 @@ def build_deliverable(ws: Workspace, record: RunRecord, round_index: int | None,
     files, code_source = _code_tree(ws, rnd)
     for rel, data in sorted(files.items()):
         w.add_bytes(rel, data, "code" if rel.startswith("src/") else "bundle")
-    _copy_artifacts(ws, record, rnd, w)
+    _copy_artifacts(ws, record, rnd, out, w)
     _copy_sheet(ws, rnd, w)
     _copy_captions(ws, record, w)
     entry = ENTRY_FILE.get(record.spec.language, "")

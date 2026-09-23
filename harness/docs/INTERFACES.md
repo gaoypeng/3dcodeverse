@@ -718,7 +718,9 @@ rubric, budget{elapsed_min, max_minutes} (the clock), aborted_rounds?, candidate
 rounds/candidates.json payload), texturing?, captions?}.  `total_usage` is the sum of telemetry/cost.jsonl at
 list price — every billed row once, aborted rounds, retried sessions and billed-but-discarded round-trips
 included; a texture pass a pick buys joins it when `select.package` re-packages the run.  Δ 2026-09-22: no
-`cost_by_stage` / `rounds_summary` (written, never read), no `best_round` / `baseline_score` /
-`final_score` (old records carry them: ignored — `addons.select.summarise` answers), and `status` is only
+`cost_by_stage` / `rounds_summary` (written, never read), no `baseline_score` / `final_score` (old records
+carry them: ignored — `addons.select.summarise` answers), `best_round` only as a LEGACY read-only field (an old
+record's pointer to the round its `artifacts/` holds, `record.deliverable.round_outputs`; kept across a record
+rewrite, never written by a new run, absent from its JSON), and `status` is only
 the stop reason: max_rounds | budget | agent_quota | no_change | no_refine_tasks | judge_unavailable |
 failed (an old `passed` / `plateau` loads as `stopped`).

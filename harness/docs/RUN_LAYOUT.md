@@ -153,7 +153,9 @@ The hand-over is described by `deliverable/manifest.json` (`RunDeliverable(round
 code_source, entry, files[path, role, bytes, sha256], total_bytes, skipped, generated_at)`) and
 `selection.json`, not by the record: since 2026-09-22 the record names no best round and
 carries no `deliverable` block.  A `record.json` written before that still validates — its
-`best_round` / `baseline_score` / `final_score` / `deliverable` keys are ignored, a
+`baseline_score` / `final_score` / `deliverable` keys are ignored, its `best_round` is kept as the legacy
+read-only `RunRecord.best_round` (the round its `artifacts/` holds: `record.deliverable.round_outputs`
+finds that round's GLB / GIF / meshes by it, else by the round its old deliverable packaged), a
 `passed` / `plateau` status reads `stopped`, and a manifest that says `best_round` loads as
 `round`.
 
