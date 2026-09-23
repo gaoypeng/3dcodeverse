@@ -35,6 +35,25 @@ def test_finalize_and_load_record(fake_run):
     assert loaded.total_usage.cost_usd == pytest.approx(0.06), "the total is the ledger's"
 
 
+def test_a_missing_runtime_js_does_not_lose_a_finished_runs_record(fake_run, monkeypatch):
+    """The version probe raised through finalize_record, so a shader run (no node needed) with a
+    bad C3D_RUNTIME_JS paid for every round and ended with no record.json (sweep 2026-09-23)."""
+    from codeverse3d import config
+    from codeverse3d.record import record as R
+
+    ws, rec = fake_run
+    rec.environment = {}
+    monkeypatch.setenv("C3D_RUNTIME_JS", str(ws.root / "nowhere"))
+    config.get_settings.cache_clear()
+    R.environment_versions.cache_clear()
+    try:
+        finalize_record(ws, rec)
+        assert load_record(ws).environment["three"] == ""
+    finally:
+        config.get_settings.cache_clear()
+        R.environment_versions.cache_clear()
+
+
 def test_iter_runs_and_errors(runs_dir: Path):
     (runs_dir / "broken").mkdir()
     (runs_dir / "broken" / "record.json").write_text("{not json")

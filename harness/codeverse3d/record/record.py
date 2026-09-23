@@ -86,7 +86,10 @@ def _chrome_version() -> str:
 
 
 def _node_pkg_version(name: str) -> str:
-    pkg = get_settings().runtime_js_dir() / "node_modules" / name / "package.json"
+    try:
+        pkg = get_settings().runtime_js_dir() / "node_modules" / name / "package.json"
+    except RuntimeError:  # no runtime_js: a provenance field, never the end of a finished run
+        return ""
     if not pkg.is_file():
         return ""
     try:
