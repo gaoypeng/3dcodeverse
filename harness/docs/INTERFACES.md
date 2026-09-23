@@ -216,14 +216,10 @@ session may read but never write — `contracts.common.HARNESS_OWNED_SRC[languag
 sets it on every job of the run and `agents/cli_common._enforce_scope` reverts a
 post-session write to one and fails that session.  **Δ** an entry ending in `/` is a
 DIRECTORY prefix — `contracts.common.is_harness_owned(rel, owned)` is the predicate, and
-it is what names the 44-module effect library without listing 44 paths).  **Δ legacy lift**: the job keys (`round`, `kind`, `language`,
-`track`, `files_hint`, `mcp_command`) passed inside `extra={...}` are lifted into
-the typed fields at validation (extra itself is left untouched), so old constructors
-and serialized jobs keep working; `extra` stays for one-off backend hints.
-Trajectories: `ws/trajectories/<label>_rNN/{prompt.md, transcript.jsonl, stdout.json,
-stderr.log, result.json}`; **Δ** a re-run of the same label+round lands in
-`<label>.a2_rNN` (then `.a3` …) — the first attempt is never overwritten; `result.json`
-records `attempt` + `job_label`.  Each run makes two git commits (`pre:`/`agent:<label>`).
+it is what names the 44-module effect library without listing 44 paths).
+Each session writes `trajectories/<label>_rNN/` (files: docs/RUN_LAYOUT.md); **Δ** a re-run of the
+same label+round lands in `<label>.a2_rNN` (then `.a3` …) — the first attempt is never overwritten;
+`result.json` records `attempt` + `job_label`.  Each session makes two git commits (`pre:`/`agent:<label>`).
 gemini-cli specifics: system settings file via `GEMINI_CLI_SYSTEM_SETTINGS_PATH`
 (written per session into the trajectory dir: api-key auth, `dynamicModelConfiguration=true`
 else silent model substitution → `exit_reason="model_substituted"`, `folderTrust.enabled=false`
@@ -563,7 +559,7 @@ tracks.common.single_shot_agent_id(agent_id, chat_model_id='') -> str · single_
 from codeverse3d.tracks.repair import build_with_repair   # RepairOutcome(.ok/.max_attempts, attempts, usage); build_with_repair(ctx, *, round_index, label, files_hint=None, max_attempts=None, timeout_s=None) — timeout_s clips every repair session (a scene asset's window)
 # scene assets (tracks/scene_assets.py): build_threejs_asset / build_blender_asset climb ONE ladder (_ladder: single-shot → check → one feedback repair → agent session); a hero's parts come from the static planner (hero_plan); SceneThreeJsRuntime.render_asset(ws, name, out_dir) renders a module on the hero's quick rig; the assembled scene.js plays every GLB clone's clips (clone.userData.clipOffset de-phases a copy)
 # languages/blender.write_blender_skeleton(ws, plan, *, ground_tol_m=0.002) — the self-check's stands-on-z=0 tolerance (a scene hero passes 0.02)
-from codeverse3d.tracks.steps import run_round, skip_judge_reason, emit_round_cost, record_aborted_round
+from codeverse3d.tracks.steps import run_round, skip_judge_reason, record_aborted_round
 skip_judge_reason(ctx, *, renders, ignore_budget=False) -> str    # "" = judge it.  ONLY states where the
     # verdict is never bought at all: no judge / no renders / budget already exceeded
     # (docs/COST.md §17 — "no file change" and "build not repaired" were removed)
@@ -690,7 +686,7 @@ from codeverse3d.addons.dataset.index import build_index, query, summary   # sql
 3dcodeverse make [--profile economy|balanced|quality] [--no-pick]|resume [--no-pick]|pick|status|show|render|judge|tools|mcp
              |texture {pass,scene-pack,show}|cost {<slug>,show,cache,prices,profiles,estimate}
              |flywheel {export,pairs,refine,caption,index}|gallery {serve,build}
-             |bench {run,report}|doctor    # alias: 3dcode
+             |skills {list,show,validate,report}|doctor    # alias: 3dcode; batteries: eval/ (python -m bench.run_bench)
 ```
 
 ## Events and records
