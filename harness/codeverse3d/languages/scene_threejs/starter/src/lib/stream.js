@@ -257,6 +257,16 @@ export function makeStream(opts = {}) {
         .divideScalar((after - before) * length);
     return { position, tangent, across, longitudinal, acrossDerivative };
   }
+  // A bank further from the centreline than the bend's radius folds the
+  // ribbon back over itself (downward-facing water and bed). Refuse it.
+  const reach = opts.bed === false ? 0.5 : 0.625;
+  for (let i = 0; i <= segments; i++) {
+    const u = i / segments, radius = 1 / Math.max(1e-9, frame(u).acrossDerivative.length());
+    if (radius <= widthAt(u) * reach)
+      throw new RangeError(`makeStream: the path bends tighter (radius ${radius.toFixed(2)} m at u=${u.toFixed(3)}) `
+        + `than the ${opts.bed === false ? 'water' : 'bed'} half-width ${(widthAt(u) * reach).toFixed(2)} m; `
+        + 'narrow the stream or widen the bend');
+  }
   function height(s, l, t) {
     const bank = 1 - Math.pow(Math.min(1, Math.abs(l) / (widthAt(s / length) * 0.5)), 6);
     let h = 0;

@@ -308,3 +308,24 @@ export async function createScene({ renderer }) {
     compiled = report["compile"]
     assert compiled["gpu"], "this claim is only worth a real GPU"
     assert compiled["programs"] >= len(modules), compiled
+
+
+# Named bugs where a factory once built silently broken output from input it
+# should refuse: (module, call, a phrase the RangeError must carry).
+REFUSALS = [
+    # a bend tighter than the bank folded the ribbon into down-facing water
+    ("stream.js", "makeStream({ points: [[0, 1, 0], [6, .9, 4], [0, .8, 8], [6, .7, 12]], width: 2 })",
+     "bends tighter"),
+]
+
+
+@pytest.mark.parametrize(("module", "call", "phrase"), REFUSALS, ids=[r[0] for r in REFUSALS])
+def test_factories_refuse_input_they_would_silently_break(module, call, phrase):
+    out = measure(f"""
+import * as M from './lib/{module}';
+const {{ {call.split('(')[0]} }} = M;
+let error = null;
+try {{ {call}; }} catch (e) {{ error = e instanceof RangeError ? e.message : 'not a RangeError: ' + e; }}
+console.log(JSON.stringify({{ error }}));
+""", (module,))
+    assert out["error"] and phrase in out["error"], out
