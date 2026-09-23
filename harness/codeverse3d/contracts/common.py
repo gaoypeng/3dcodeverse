@@ -165,7 +165,7 @@ class Budget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     max_rounds: int = Field(default=4, ge=0)
-    max_minutes: float = Field(default=60.0, ge=0)
+    max_minutes: float = Field(default=60.0, ge=0, allow_inf_nan=False)
     max_repair_attempts: int = Field(default=3, ge=0)  # per build failure before escalating
 
 

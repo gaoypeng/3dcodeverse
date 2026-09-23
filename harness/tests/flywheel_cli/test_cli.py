@@ -537,6 +537,8 @@ def test_a_zero_minute_budget_is_refused(made_run, tmp_path: Path):
     runs, run_dir = made_run()
     r = runner.invoke(app, ["resume", run_dir.name, "--runs-dir", str(runs), "--max-minutes", "0"])
     assert r.exit_code == 2 and "--max-minutes" in r.output
+    r = runner.invoke(app, ["make", "a cup", "--max-minutes", "inf", "--no-run", "--runs-dir", str(tmp_path / "i"), "--slug", "i"])
+    assert r.exit_code == 2 and "finite" in r.output and not (tmp_path / "i" / "i").exists()
 
 
 def test_a_reference_that_is_not_an_image_is_refused_before_the_run_exists(tmp_path: Path):
