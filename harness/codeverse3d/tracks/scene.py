@@ -363,7 +363,6 @@ class SceneTrack(BaseTrack):
                                                                     zone_bbox=bbox_line(zone.bbox), zone_contents=zone.contents,
                                                                     zone_file=zone_file(zone.name), neighbours=neighbours,
                                                                     layout=layout_block(ctx.extra.get("layouts", {}).get(zone.name)))))
-        ctx.record_prompt("scene_zone", briefs[0])
         if len(batch) == 1:
             prompt, label = briefs[0], f"zone_{to_snake(names[0])}"
         else:
@@ -381,6 +380,7 @@ class SceneTrack(BaseTrack):
                       + "The recipes printed in the first brief apply to every zone in this session.\n")
             prompt = header + "\n\n---\n\n".join(briefs)
             label = "zones_" + "_".join(to_snake(n) for n in names)
+        ctx.record_prompt("scene_zone", prompt)   # the whole prompt the session read, not its first brief
         # the batch exclusively owns its zone files; env/scene/asset files belong to other sessions
         # the window grows with the batch: one author writing four zones is four zones of work
         return GenerationTask(label=label, prompt=prompt, system=self.system_prompt(ctx), files_hint=files,
