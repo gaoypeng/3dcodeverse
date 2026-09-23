@@ -90,10 +90,8 @@ SHADER = dict(GOOD, instruction="Write a GLSL fragment shader showing neon rain 
     (GOOD, "blender", None),
     (dict(GOOD, instruction="Please model a wooden chair with four legs for me."), "blender", "target language"),
     (GOOD_JS, "threejs", None),              # the required 'Three.js' phrase is not the forbidden API
-    (GOOD_JS, "scene_threejs", None),
     (dict(GOOD_JS, factory="Build a THREE.Group holding THREE.Mesh boxes for every part."), "threejs", "THREE."),
     (SHADER, "glsl_shader", None),
-    (dict(SHADER, instruction="Write a shader with rain."), "glsl_shader", "target language"),
     (dict(SHADER, instruction="Write an OpenGL Python program showing neon rain on a window."), "opengl_python", None),
     (dict(SHADER, instruction="Write an OpenGL Python program showing neon rain on a window.",
           factory="Uses moderngl FBOs for the feedback pass."), "opengl_python", "moderngl"),

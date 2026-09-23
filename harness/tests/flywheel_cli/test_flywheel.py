@@ -323,26 +323,10 @@ def test_export_includes_textured_assets_when_shipped(fake_run, tmp_path: Path):
     assert not (sdir2 / "textures").exists()
 
 
-def test_battery_layouts_are_discovered_by_flywheel_and_gallery(tmp_path):
-    """All three eval battery layouts resolve runs; eval siblings never become gallery runs."""
+def test_an_ab_plan_cell_is_one_run_and_its_eval_sibling_is_none(tmp_path):
+    """The ab_plan layout resolves to its run; the compare layout is pinned in gallery/test_index."""
     from codeverse3d.addons.gallery.index import scan_root
-    from codeverse3d.record.record import find_run_dirs, iter_runs
-
-    battery = tmp_path / "static_v2_flash"          # run_bench: runs/<id>
-    (battery / "runs" / "some_run").mkdir(parents=True)
-    (battery / "runs" / "some_run" / "record.json").write_text("{}")
-    assert [d.name for d in find_run_dirs(battery)] == ["some_run"]
-
-    compare = tmp_path / "compare_v3"               # compare_backends: cells/<id>/<arm>/run
-    for pid in ("p0", "p1"):
-        for arm in ("harness_codex", "oneshot_gemini"):
-            run = compare / "cells" / pid / arm / "run"
-            run.mkdir(parents=True)
-            (run / "record.json").write_text("{}")
-    assert len(find_run_dirs(compare)) == 4
-    invalid: list[str] = []
-    list(iter_runs(compare, on_error=lambda d, e: invalid.append(d.name)))
-    assert len(invalid) == 4, "every cell is reached; these stub records are invalid, not absent"
+    from codeverse3d.record.record import find_run_dirs
 
     ab = tmp_path / "ab_aa_noise"
     cell = ab / "arms" / "control" / "cells" / "ctrl_med_chair" / "harness_api-agent"

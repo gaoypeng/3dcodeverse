@@ -63,8 +63,5 @@ def test_record_carries_the_last_rounds_complexity_and_the_trail() -> None:
     assert block["parts_per_plan_part"] == pytest.approx(2.0)
     assert block["by_round"] == [0.42, 0.55]
     assert [round_summary(r)["complexity"] for r in rec.rounds] == [0.42, 0.55]
-
-
-def test_complexity_block_falls_back_to_the_last_measured_round() -> None:
-    rec = _record([_round(0, 0.6, 0.42), _round(1, 0.5, None)])
-    assert complexity_block(rec)["index"] == 0.42
+    # an unmeasured last round falls back to the last measured one
+    assert complexity_block(_record([_round(0, 0.6, 0.42), _round(1, 0.5, None)]))["index"] == 0.42

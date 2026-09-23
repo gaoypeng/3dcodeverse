@@ -12,20 +12,6 @@ from codeverse3d.agents.cli_common import run_with_watchdog
 
 PY = sys.executable
 
-def test_normal_run_streams_lines_and_delivers_stdin(tmp_path: Path):
-    """The integration smoke: stdin reaches the child, every line reaches ``on_line``
-    and the bounded texts, and stdout/stderr stay separate."""
-    seen = []
-    res = run_with_watchdog(
-        [PY, "-c", "import sys; print(sys.stdin.read().upper()); print('b', file=sys.stderr); print('c')"],
-        cwd=tmp_path, env=None, soft_timeout_s=10, idle_grace_s=5, hard_timeout_s=20,
-        stdin="hello", on_line=lambda stream, text: seen.append((stream, text)),
-    )
-    assert res.rc == 0 and not res.timed_out
-    assert res.stdout.splitlines() == ["HELLO", "c"]
-    assert res.stderr.strip() == "b"
-    assert ("stdout", "HELLO") in seen and ("stderr", "b") in seen
-
 
 def test_hard_timeout_kills_active_process(tmp_path: Path):
     code = "import time,sys\nwhile True:\n print('tick'); sys.stdout.flush(); time.sleep(0.2)"

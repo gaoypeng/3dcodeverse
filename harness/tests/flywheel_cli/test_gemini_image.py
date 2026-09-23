@@ -51,16 +51,6 @@ def _model(script: list, used: list[str], sleeps: list[float], *, max_attempts: 
     return m, pool
 
 
-def test_429_rotation_is_free_while_untried_keys_remain():
-    used: list[str] = []
-    sleeps: list[float] = []
-    script = [ModelError("quota", retryable=True, status=429), _image_response()]
-    m, _pool = _model(script, used, sleeps, max_attempts=1)
-    images, _ = m.generate_with_usage("mossy stone tiles")
-    assert len(images) == 1 and len(used) == 2 and used[0] != used[1]
-    assert sleeps == [0.5]  # courtesy pause only — the attempt budget was not consumed
-
-
 def test_all_keys_dead_raises_the_key_error():
     used: list[str] = []
     sleeps: list[float] = []

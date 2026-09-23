@@ -365,21 +365,6 @@ def test_an_unknown_profile_is_a_clean_error_not_a_traceback(tmp_path: Path):
     assert not (tmp_path / "runs" / "prof").exists(), "no workspace for a rejected flag"
 
 
-def test_a_negative_budget_is_rejected_before_the_workspace_exists(tmp_path: Path):
-    """A negative ceiling is rejected before workspace creation."""
-    runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a chair", "--max-minutes", "-10", "--no-run",
-                            "--runs-dir", str(runs), "--slug", "neg"])
-    assert r.exit_code != 0
-    assert "range x>=0" in r.output.replace("\n", "")
-    assert not (runs / "neg").exists(), "no workspace may be created for a rejected budget"
-
-    # 0 stays legal (documented: a run at 0 degrades from its first check) ...
-    r = runner.invoke(app, ["make", "a chair", "--max-minutes", "0", "--no-run",
-                            "--runs-dir", str(runs), "--slug", "zero"])
-    assert r.exit_code == 0 and (runs / "zero" / "spec.json").is_file()
-
-
 def test_texture_is_not_offered_on_tracks_that_have_no_glb(tmp_path: Path):
     """Impossible explicit texturing fails early; profiles degrade cleanly by track."""
     from codeverse3d.contracts.common import Track

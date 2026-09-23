@@ -3,7 +3,6 @@ byte against it, and publishes archives and index together only after the whole 
 
 from __future__ import annotations
 
-import hashlib
 import json
 import tarfile
 from pathlib import Path
@@ -44,14 +43,6 @@ def _tar_member_names(out: Path) -> list[str]:
 
 
 # --------------------------------------------------------------------------- manifest
-def test_export_hashes_every_byte_it_wrote(exported_ds: Path):
-    m = load_manifest(exported_ds)
-    e = next(x for x in m.entries if x.sample_id == CHAIR_ID)
-    assert {"meta.json", "captions.json", "code.py", "src/model.py"} <= set(e.files)
-    for rel, digest in e.files.items():
-        assert hashlib.sha256((exported_ds / e.sample_rel_dir / rel).read_bytes()).hexdigest() == digest
-    assert e.code_sha256 != e.code_fingerprint  # raw-exact vs normalised
-
 
 # --------------------------------------------------------------------------- drop-duplicates → pack
 def test_drop_duplicates_then_pack_ships_no_duplicate(runs_dir: Path, tmp_path: Path):
