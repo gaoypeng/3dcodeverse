@@ -20,13 +20,13 @@ Backends (``get_oneshot_backend``):
 
 Every call runs in a scratch directory *outside* the repository so the CLIs
 cannot pick up CLAUDE.md / AGENTS.md context, and with secrets stripped from the
-environment (``hardened_env``-style), keeping only the CLI's own auth variable.
+environment (``cli_common.clean_env``: no git ceiling — it runs outside any repo),
+keeping only the CLI's own auth variable.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import re
 import tempfile
 import time
@@ -43,7 +43,7 @@ from codeverse3d.agents.backends import (
     split_model_effort,
     usage_from_envelope,
 )
-from codeverse3d.agents.cli_common import is_secret_env, run_with_watchdog, tail
+from codeverse3d.agents.cli_common import clean_env, run_with_watchdog, tail
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import BuildResult, GateReport
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest
@@ -332,13 +332,6 @@ def _scratch_cwd(label: str) -> Path:
     return Path(tempfile.mkdtemp(prefix=f"c3d_oneshot_{label}_"))
 
 
-def _clean_env(keep: set[str]) -> dict[str, str]:
-    env = {k: v for k, v in os.environ.items() if k in keep or not is_secret_env(k)}
-    env["C3D_AGENT_CONTEXT"] = "1"
-    env["PYTHONUNBUFFERED"] = "1"
-    return env
-
-
 def _dump(out_dir: Path, prompt: str, argv: list[str], stdout: str, stderr: str) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "prompt.md").write_text(prompt)
@@ -368,7 +361,7 @@ class ClaudeOneShot:
     def generate(self, prompt: str, *, out_dir: Path, timeout_s: float = DEFAULT_TIMEOUT_S, label: str = "oneshot") -> OneShotResult:
         cwd = _scratch_cwd("claude")
         argv = self.argv(prompt)
-        proc = run_with_watchdog(argv, cwd=cwd, env=_clean_env({"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"}),
+        proc = run_with_watchdog(argv, cwd=cwd, env=clean_env({"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"}),
                                  soft_timeout_s=timeout_s, idle_grace_s=IDLE_GRACE_S, activity_dirs=[cwd])
         _dump(out_dir, prompt, argv, proc.stdout, proc.stderr)
         env = parse_claude_json(proc.stdout)
@@ -426,7 +419,7 @@ class CodexOneShot:
         out_dir.mkdir(parents=True, exist_ok=True)
         last_msg = out_dir / "last_message.md"
         argv = self.argv(cwd, last_msg)
-        proc = run_with_watchdog(argv, cwd=cwd, env=_clean_env({"OPENAI_API_KEY", "CODEX_API_KEY"}), soft_timeout_s=timeout_s,
+        proc = run_with_watchdog(argv, cwd=cwd, env=clean_env({"OPENAI_API_KEY", "CODEX_API_KEY"}), soft_timeout_s=timeout_s,
                                  idle_grace_s=IDLE_GRACE_S, stdin=prompt, activity_dirs=[cwd])
         _dump(out_dir, prompt, argv, proc.stdout, proc.stderr)
         events = parse_codex_jsonl(proc.stdout)

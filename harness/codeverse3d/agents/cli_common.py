@@ -248,24 +248,19 @@ def _reject_control_chars(cmd: Sequence[str], cwd: object) -> None:
 log = logging.getLogger(__name__)
 
 
-def is_secret_env(name: str) -> bool:
-    """True for env vars that look like credentials (stripped from agent children).
-
-    One owner for the patterns: :mod:`codeverse3d.proc` (a stdlib-only leaf every layer
-    may import), which also scrubs the generated-code subprocesses."""
-    return name not in scrub_secrets({name: ""})
+def clean_env(keep: set[str] | frozenset[str] = frozenset()) -> dict[str, str]:
+    """``os.environ`` minus secrets (the one owner of the patterns: ``proc.scrub_secrets``) but
+    for the ``keep`` names (a CLI's own auth var), plus the recursion guard — a vendor CLI's env."""
+    env = scrub_secrets(dict(os.environ)) | {k: v for k, v in os.environ.items() if k in keep}
+    env["C3D_AGENT_CONTEXT"] = "1"
+    env["PYTHONUNBUFFERED"] = "1"
+    return env
 
 
 def hardened_env(ws: Workspace, job: AgentJob, *, keep: set[str] | None = None) -> dict[str, str]:
-    """Copy ``os.environ`` minus secrets, plus recursion guard + git ceiling + ``job.env``.
-
-    ``keep`` names secrets that must survive (e.g. the CLI's own auth var).
-    """
-    keep = keep or set()
-    env = {k: v for k, v in os.environ.items() if k in keep or not is_secret_env(k)}
-    env["C3D_AGENT_CONTEXT"] = "1"
+    """:func:`clean_env` plus the git ceiling and ``job.env``."""
+    env = clean_env(keep or set())
     env["GIT_CEILING_DIRECTORIES"] = str(ws.root.parent)
-    env["PYTHONUNBUFFERED"] = "1"
     env.update(job.env)
     return env
 

@@ -346,8 +346,8 @@ class ManagedProcess:
 
 
 # ------------------------------------------------------------------ env scrubbing
-#: The ONE owner of the credential patterns: ``agents/cli_common.is_secret_env`` delegates
-#: here (tests/core/test_proc.py pins the two together).
+#: The ONE owner of the credential patterns: ``agents/cli_common.clean_env`` (the vendor CLIs'
+#: env) calls :func:`scrub_secrets` too.
 _SECRET_EXACT: frozenset[str] = frozenset({
     "GEMINI_API_KEYS", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
     "OPENAI_ORG_ID", "HF_TOKEN", "HUGGINGFACE_TOKEN", "GITHUB_TOKEN", "GH_TOKEN",

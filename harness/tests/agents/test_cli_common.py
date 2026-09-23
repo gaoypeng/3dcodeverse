@@ -9,12 +9,12 @@ from codeverse3d.agents.cli_common import (
     Trajectory,
     attribute_changes,
     begin_session,
+    clean_env,
     finish_session,
     hardened_env,
     invoke,
     is_quota_failure,
     is_rate_limited,
-    is_secret_env,
     is_transient_failure,
     provider_wait,
 )
@@ -23,9 +23,14 @@ from codeverse3d.contracts.common import Usage
 from codeverse3d.workspace import Workspace
 
 
-def test_secret_detection():
-    assert is_secret_env("OPENAI_API_KEY") and is_secret_env("FOO_TOKEN") and is_secret_env("GEMINI_API_KEYS")
-    assert not is_secret_env("PATH") and not is_secret_env("HOME") and not is_secret_env("NODE_OPTIONS")
+def test_clean_env_drops_secrets_but_the_kept_ones(monkeypatch):
+    for name in ("OPENAI_API_KEY", "FOO_TOKEN", "GEMINI_API_KEYS", "CODEX_API_KEY"):
+        monkeypatch.setenv(name, "s")
+    monkeypatch.setenv("NODE_OPTIONS", "--x")
+    env = clean_env({"CODEX_API_KEY"})
+    assert not {"OPENAI_API_KEY", "FOO_TOKEN", "GEMINI_API_KEYS"} & set(env)
+    assert env["CODEX_API_KEY"] == "s" and env["NODE_OPTIONS"] == "--x" and "PATH" in env and "HOME" in env
+    assert env["C3D_AGENT_CONTEXT"] == "1" and "GIT_CEILING_DIRECTORIES" not in env
 
 
 def test_hardened_env_strips_secrets_and_adds_guards(tmp_ws: Workspace, monkeypatch):
