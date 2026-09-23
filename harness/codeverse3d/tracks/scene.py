@@ -1,4 +1,4 @@
-"""SceneTrack: plan → skeleton → (assets ∥ env) → zones → assemble → rounds.
+"""SceneTrack: the plan, the pre-round stages (``SceneTrack.stages``: the whole baseline), rounds.
 
 Language: scene_threejs.  Generation is staged (each stage cached by
 ``StageRunner`` for resume); the round loop then builds (probe + shaders — the
@@ -26,7 +26,6 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import (
     BuildResult,
     GateFinding,
@@ -39,11 +38,9 @@ from codeverse3d.contracts.common import TRACK_INFO, Track
 from codeverse3d.contracts.plan import Plan, ScenePlan, ZonePlan
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import to_snake
-from codeverse3d.cost.tally import timed
 from codeverse3d.judges.base import judged_subset
 from codeverse3d.languages.scene_threejs import zone_file
-from codeverse3d.orchestrator import StageRunner, TaskGroup, compact_instructions
-from codeverse3d.proc import fan_out
+from codeverse3d.orchestrator import TaskGroup, compact_instructions
 from codeverse3d.prompts import render
 from codeverse3d.spatial.frame_motion import motion_text_for
 from codeverse3d.spatial.render_scene import perf_detail
@@ -52,7 +49,7 @@ from codeverse3d.texturing.plan import texture_pack_prompt
 from codeverse3d.tracks import skills_hook
 from codeverse3d.tracks.common import RunContext, generate_for, single_shot_ctx
 from codeverse3d.tracks.generation import GenerationResult, GenerationTask
-from codeverse3d.tracks.lifecycle import BaseTrack
+from codeverse3d.tracks.lifecycle import CLOCK, MATERIALIZE, SKELETON, BaseTrack, StageNode
 from codeverse3d.tracks.prompting import (
     base_prompt_context,
     bbox_line,
@@ -161,88 +158,79 @@ class ScenePipeline:
         return "\n".join(lines)
 
 
+def _plan_agent(ctx: RunContext) -> dict[str, Any]:
+    # the WHOLE plan (+ agent), not enumerated fields (2026-08-31): a mood/title/bounds/camera-only
+    # re-plan used to hit a stale cached stage
+    return {"plan": ctx.plan, "agent": ctx.agent_id}
+
+
+def _pack(ctx: RunContext) -> dict[str, Any]:
+    # the texture pack is part of a key only when it has files: a run without one keeps its keys
+    return {"textures": ctx.extra["textures"]} if ctx.extra.get("textures") else {}
+
+
 class SceneTrack(BaseTrack):
     track = Track.SCENE
     rubric = TRACK_INFO[Track.SCENE].rubric
     plan_model = ScenePlan
+    #: the pre-round graph writes the whole baseline; round 0 builds, renders and judges it
+    stages = (
+        SKELETON, MATERIALIZE,
+        # first and alone: env and zones name its files (Settings.scene_textures: off by default, and why)
+        StageNode("textures", lambda t, c: t._textures_stage(c), key=lambda c: {"plan": c.plan}, when=lambda s: s.scene_textures),
+        # side by side (2026-08-30): the env brief reads no asset output — la_boulevard's 15 + 12 min ran
+        # in max(15, 12), a whole refine round saved.  Each is its OWN cached stage (2026-08-31): a failing
+        # sibling never costs a succeeded one its paid result.  Layouts: L2 zone layouts, an accelerator
+        # (C3D_ZONE_LAYOUTS, default on), riding along at no wall clock (beb6605)
+        (StageNode("assets", lambda t, c: run_asset_stage(c), key=_plan_agent),
+         StageNode("env", lambda t, c: t._env_stage(c), key=lambda c: {**_plan_agent(c), **_pack(c)}),
+         StageNode("layouts", lambda t, c: t._layouts_stage(c), key=_plan_agent, when=lambda s: s.zone_layouts)),
+        StageNode("asset_api", lambda t, c: t._asset_api(c)),
+        # ONE session writes every zone (D70)
+        StageNode("zones", lambda t, c: t._zones_stage(c), key=lambda c: {
+            "plan": c.plan, "asset_api": c.extra["asset_api"], "layouts": c.extra.get("layouts", {}), "agent": c.agent_id,
+            **_pack(c)}),
+        # after the zones are recorded: a run the clock stops here keeps them (salvage assembles
+        # them; a resume serves them instead of paying the session again)
+        CLOCK,
+        # scene.js, deterministic: no session
+        StageNode("assemble", lambda t, c: t._assemble_stage(c), key=lambda c: {"plan": c.plan}),
+    )
 
     def make_pipeline(self) -> ScenePipeline:
         return ScenePipeline()
 
-    #: the baseline (assets → env → zones → assemble → round 0) may use this share of
-    #: the run budget; the rest belongs to the refine rounds.
+    #: the baseline (the pre-round stages → round 0) may use this share of the run budget; the
+    #: rest belongs to the refine rounds.
     soft_budget_fraction = 0.55
 
     # ------------------------------------------------------------------ stages
-    def prepare(self, ctx: RunContext, runner: StageRunner) -> None:
-        self.stage_skeleton(ctx, runner)
-        self.ensure_materialized(ctx)
+    def _layouts_stage(self, ctx: RunContext) -> dict[str, Any]:
+        """L2 zone layouts (optional accelerator): planner-model calls, never fatal."""
+        try:
+            model = self._planner_model
+            if model is None:
+                from codeverse3d.models import get_chat_model
+
+                model = get_chat_model(ctx.spec.backends.planner)
+            layouts = layout_zones(ctx.plan, model, budget=ctx.budget, events=ctx.events)
+            return {k: v.model_dump(mode="json") for k, v in layouts.items()}
+        except Exception as e:  # noqa: BLE001 — layouts accelerate, they must never kill
+            ctx.events.emit("layout.stage_failed", error=f"{type(e).__name__}: {e}"[:300])
+            return {}
+
+    def _asset_api(self, ctx: RunContext) -> str:
+        """What the zones are told about the assets.  The asset results come back revived (a cached
+        stage is JSON), with the merge map the STAGE used: its cap depends on the soft budget at the
+        time (a degraded run folded more), so it is read back for a resumed run and the zones to
+        agree; the plan-only recomputation is the fallback for a workspace without the note."""
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
-        # assets ∥ env (2026-08-30): the env brief is a pure function of the plan — the
-        # template references no asset output (0 uses of asset_api) and says "No assets/
-        # zones here" — yet the two stages ran back to back.  Measured on la_boulevard:
-        # assets 15 min + env 12 min sequential = 27 min of a 75-min budget; the pair
-        # runs in max(15, 12) and the ~12 saved minutes are a whole refine round
-        # (each measured at ~+0.13).  Workspace.commit serialises under its own lock,
-        # so the two stages' commits cannot race.
-        def _layouts() -> dict[str, Any]:
-            """L2 zone layouts (optional accelerator): planner-model calls, never fatal."""
-            try:
-                model = self._planner_model
-                if model is None:
-                    from codeverse3d.models import get_chat_model
-
-                    model = get_chat_model(ctx.spec.backends.planner)
-                layouts = layout_zones(plan, model, budget=ctx.budget, events=ctx.events)
-                return {k: v.model_dump(mode="json") for k, v in layouts.items()}
-            except Exception as e:  # noqa: BLE001 — layouts accelerate, they must never kill
-                ctx.events.emit("layout.stage_failed", error=f"{type(e).__name__}: {e}"[:300])
-                return {}
-
-        # each child is its OWN cached stage (2026-08-31): a failing sibling never
-        # invalidates a succeeded one's paid, committed result on resume.  The key is
-        # the WHOLE plan (+ agent) — correct-by-construction against future prompt
-        # fields; the old enumerated keys let a mood/title/bounds/camera-only re-plan
-        # hit a stale cached stage.  Old "assets+env" composite entries are ignored.
-        key = {"plan": plan, "agent": ctx.agent_id}
-        # textures first and alone: env and zones can only name the files if they exist by
-        # the time those prompts are built (Settings.scene_textures says why this
-        # is off by default and what it costs).  A pack is part of the env and zones keys
-        # only when it has files, so a run without one keeps the keys it always had.
-        if get_settings().scene_textures:
-            ctx.extra["textures"] = runner.stage("textures", lambda: self._textures_stage(ctx), inputs={"plan": plan}) or {}
-        textures = {"textures": ctx.extra["textures"]} if ctx.extra.get("textures") else {}
-        stage_fns: dict[str, Any] = {"assets": lambda: run_asset_stage(ctx), "env": lambda: self._env_stage(ctx)}
-        keys = {"env": {**key, **textures}}
-        if get_settings().zone_layouts:   # C3D_ZONE_LAYOUTS (an A/B switch, default on): off = no stage, so none is cached
-            stage_fns["layouts"] = _layouts
-        group = "+".join(stage_fns)
-        with timed(group, ctx.state.steps):  # side by side: ONE step of the run's minutes
-            results = fan_out(list(stage_fns.items()), lambda kv: runner.stage(kv[0], kv[1], inputs=keys.get(kv[0], key), timed_step=False),
-                              max_workers=len(stage_fns), label=group, item_name=lambda kv: kv[0])
-        staged = dict(zip(stage_fns, results, strict=True))
-        first_exc = next((r for r in results if isinstance(r, Exception)), None)
-        if first_exc is not None:
-            raise first_exc   # after every sibling has finished and cached its own result
-        ctx.extra["layouts"] = staged.get("layouts") or {}
-        assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v
-                  for k, v in (staged["assets"] or {}).items()}
-        # the merge map the STAGE used (its cap depends on the soft budget at the time: a
-        # degraded run folded more), read back so a resumed run and the zones agree; the
-        # plan-only recomputation is the fallback for a workspace without the note
+        assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v for k, v in (ctx.extra.get("assets") or {}).items()}
         alias = read_dedupe_note(ctx.ws)
         if alias is None:
             _, alias = select_assets(list(plan.assets), MAX_ASSETS)
-        ctx.extra["assets"] = assets
-        ctx.extra["asset_alias"] = alias
-        ctx.extra["asset_api"] = asset_api_summary(plan, assets, alias)
-        runner.stage("zones", lambda: self._zones_stage(ctx),
-                     inputs={"plan": plan, "asset_api": ctx.extra["asset_api"], "layouts": ctx.extra["layouts"], "agent": ctx.agent_id,
-                             **textures})
-        # stage boundary, AFTER the finished zones are recorded: a run the clock stops here keeps
-        # them (salvage assembles them; a resume serves them instead of paying the session again)
-        ctx.budget.check()
-        runner.stage("assemble", lambda: self._assemble_stage(ctx), inputs={"plan": plan})
+        ctx.extra["assets"], ctx.extra["asset_alias"] = assets, alias
+        return asset_api_summary(plan, assets, alias)
 
     # ---- degradation ------------------------------------------------------
     def _strategy(self, ctx: RunContext, stage: str) -> RunContext:
@@ -273,7 +261,7 @@ class SceneTrack(BaseTrack):
         session that raises still leaves its telemetry and its commit before the exception goes on.
 
         The skills are this hook's job, not ``steps.run_round``'s: a scene builds its whole baseline
-        in ``prepare()``, in sessions that never pass through ``run_round`` (``scene.js`` is
+        in its pre-round ``stages``, in sessions that never pass through ``run_round`` (``scene.js`` is
         assembled, not written), so the router's ``kinds=("env", "zone")`` rows were selected and
         delivered to nobody — 0 opens out of 30 listings, measured 2026-08-25.  ``index=0``: these
         stages ARE round 0's generation.  One attach per stage keeps it to one AGENTS.md write, and

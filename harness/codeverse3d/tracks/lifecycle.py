@@ -1,8 +1,9 @@
-"""BaseTrack: the resumable plan → prepare → rounds → finalise lifecycle.
+"""BaseTrack: the resumable plan → pre-round stages → rounds → finalise lifecycle.
 
-Concrete tracks (static / articulated / scene / graphics) override the hooks
-(``plan_model``, ``make_pipeline``, ``prepare``, ``baseline_tasks`` and the refine
-scaffold's ``_refine_task``); what differs per track at PLANNING time is
+Concrete tracks (static / articulated / scene / graphics) declare their pre-round graph
+(``stages``: :class:`StageNode` tuples, walked by :func:`run_stages`) and override the
+hooks (``plan_model``, ``make_pipeline``, ``baseline_tasks`` and the refine scaffold's
+``_refine_task``); what differs per track at PLANNING time is
 ``tracks/planner.py``'s alone.  All bookkeeping — workspace, events, budget, run
 state, stage cache, the fixed round count, record — lives here once.  Which round of a
 finished run to hand over is not the core's question: ``codeverse3d.addons.select``.
@@ -14,7 +15,7 @@ import logging
 import platform
 import traceback
 from collections.abc import Callable, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ from codeverse3d.contracts.spec import Spec
 from codeverse3d.cost.context import run_binding
 from codeverse3d.cost.instrument import metered_agent, metered_chat_model, run_ledger
 from codeverse3d.cost.ledger import ledger_usage, load_ledger
+from codeverse3d.cost.tally import timed
 from codeverse3d.orchestrator import (
     BudgetExceeded,
     BudgetGuard,
@@ -40,7 +42,7 @@ from codeverse3d.orchestrator import (
     hash_inputs,
     plan_refine_groups,
 )
-from codeverse3d.proc import EventLog
+from codeverse3d.proc import EventLog, fan_out
 from codeverse3d.prompts import load_text, render
 from codeverse3d.prompts.catalog import language_prompt, language_text
 from codeverse3d.tracks.candidates import run_best_of_n
@@ -109,13 +111,81 @@ class SpecChanged(RuntimeError):
     archive the old rounds under ``rounds/pre_force/`` and re-plan."""
 
 
+# ============================================================================ the pre-round graph
+@dataclass(frozen=True)
+class StageNode:
+    """One pre-round stage of a track's declared graph (``BaseTrack.stages``).
+
+    ``key``: what the result depends on — the stage is cached under it (``stages/<name>.json``,
+    ``StageRunner``), and served as recorded once rounds exist (``StageRunner.frozen``).  ``None``:
+    not cached, it runs every session (an idempotent step).  ``when``: the ``Settings`` switch the
+    stage runs under.  ``seeds_src``: it writes the whole ``src/`` — never run once rounds exist,
+    recorded or not.  The result lands in ``ctx.extra[name]`` for the stages after it."""
+
+    name: str
+    run: Callable[[Any, RunContext], Any]   # (track, ctx) -> result
+    key: Callable[[RunContext], dict[str, Any]] | None = None
+    when: Callable[[Settings], bool] | None = None
+    seeds_src: bool = False
+
+
+#: a track's pre-round graph, in order; an inner tuple = siblings that run side by side
+Stages = tuple[StageNode | tuple[StageNode, ...], ...]
+
+
+def run_stages(track: BaseTrack, ctx: RunContext, runner: StageRunner, stages: Stages) -> None:
+    """Walk ``stages``.  Siblings run side by side as ONE timed step of the run's minutes, each
+    its own cached stage; a failing sibling is raised after every sibling finished and cached."""
+    def one(node: StageNode, *, timed_step: bool = True) -> Any:
+        if node.key is None:
+            return node.run(track, ctx)
+        key = node.key(ctx)
+        if node.seeds_src and runner.frozen and not runner.is_done(node.name, key):
+            # a drifted key or a lost state entry under existing rounds: re-running the writer
+            # would overwrite agent-authored src/ — never do that
+            ctx.events.emit("stage.skipped", stage=node.name, reason="rounds_exist")
+            return None
+        return runner.stage(node.name, lambda: node.run(track, ctx), inputs=key, timed_step=timed_step)
+
+    for item in stages:
+        live = [n for n in (item if isinstance(item, tuple) else (item,)) if n.when is None or n.when(get_settings())]
+        if not live:
+            continue
+        if len(live) == 1:
+            results = [one(live[0])]
+        else:
+            group = "+".join(n.name for n in live)
+            with timed(group, ctx.state.steps):
+                results = fan_out(live, lambda n: one(n, timed_step=False), max_workers=len(live), label=group,
+                                  item_name=lambda n: n.name)
+            if (exc := next((r for r in results if isinstance(r, Exception)), None)) is not None:
+                raise exc
+        ctx.extra.update(zip((n.name for n in live), results, strict=True))
+
+
+def _skeleton(track: BaseTrack, ctx: RunContext) -> list[str]:
+    paths = ctx.runtime.skeleton(ctx.ws, ctx.plan)
+    ctx.ws.commit("skeleton")
+    return [str(Path(p).relative_to(ctx.ws.root)) if Path(p).is_absolute() else str(p) for p in paths]
+
+
+#: the buildable placeholder of every file the plan names
+SKELETON = StageNode("skeleton", _skeleton, key=lambda c: {"plan": c.plan, "language": c.language.value}, seeds_src=True)
+#: the vendor CLI's workspace files (AGENTS.md, MCP config, the cookbook copy): once per agent kind
+MATERIALIZE = StageNode("materialize", lambda t, c: t.ensure_materialized(c))
+#: a stage boundary: the run stops here when the hard budget is spent
+CLOCK = StageNode("clock", lambda t, c: c.budget.check())
+
+
 class BaseTrack:
-    """Shared lifecycle.  Subclasses set ``track``, ``rubric``, ``plan_model``
-    and parameterise the refine scaffold via the hooks below (``_refine_task`` …)."""
+    """Shared lifecycle.  Subclasses set ``track``, ``rubric``, ``plan_model``, their pre-round
+    ``stages`` and parameterise the refine scaffold via the hooks below (``_refine_task`` …)."""
 
     track: Track
     rubric: str
     plan_model: type[Plan]
+    #: the pre-round graph, between the plan and round 0 (docs/ARCHITECTURE.md §7 is drawn from it)
+    stages: Stages = (SKELETON, MATERIALIZE)
     generate_template: str = ""
     refine_template: str = ""
     #: refine fan-out (graphics is always ONE whole-program task)
@@ -152,10 +222,6 @@ class BaseTrack:
     # ------------------------------------------------------------------ hooks
     def make_pipeline(self) -> RoundPipeline:
         raise NotImplementedError
-
-    def prepare(self, ctx: RunContext, runner: StageRunner) -> None:
-        """Stages between plan and baseline (skeleton; scene assets/env/zones/assemble)."""
-        self.stage_skeleton(ctx, runner)
 
     def baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
         """Round 0: one whole-program session — ``generate_template`` over :meth:`generate_context`."""
@@ -261,7 +327,7 @@ class BaseTrack:
                 ctx.plan = runner.stage("plan", lambda: self._plan_stage(ctx), inputs=plan_stage_key(spec, self.track),
                                         model=self.plan_model)
                 self.after_plan(ctx)
-                self.prepare(ctx, runner)
+                run_stages(self, ctx, runner, self.stages)
                 ctx.extra["prepared_commit"] = ws.head()   # what a salvage compares the baseline's work with
                 stop = self._round_loop(ctx, rounds)
             except BudgetExceeded as e:
@@ -445,20 +511,6 @@ class BaseTrack:
         return plan
 
     # ------------------------------------------------------------------ stages
-    def stage_skeleton(self, ctx: RunContext, runner: StageRunner) -> list[str]:
-        def _do() -> list[str]:
-            paths = ctx.runtime.skeleton(ctx.ws, ctx.plan)
-            ctx.ws.commit("skeleton")
-            return [str(Path(p).relative_to(ctx.ws.root)) if Path(p).is_absolute() else str(p) for p in paths]
-
-        inputs = {"plan": ctx.plan, "language": ctx.language.value}
-        if not runner.is_done("skeleton", inputs) and (journal := load_round_journal(ctx.ws)):
-            # stale skeleton hash on resume: rounds exist, so re-running the skeleton
-            # writer would overwrite agent-authored src/ — never do that.
-            ctx.events.emit("skeleton.skipped", reason="rounds_exist", rounds=len(journal))
-            return []
-        return runner.stage("skeleton", _do, inputs=inputs)
-
     def ensure_materialized(self, ctx: RunContext) -> None:
         """Materialise AGENTS.md/MCP config once per run for agent generators."""
         if ctx.single_shot:
@@ -486,7 +538,6 @@ class BaseTrack:
         the vendor's quota, a refine round whose sessions changed nothing, or a last round
         that leaves nothing to ask for (no gate error, no failed must-item, no judge plan) or
         no verdict to ask from."""
-        self.ensure_materialized(ctx)
         pipeline = self.make_pipeline()
         rejudged: set[int] = set()
         transport_retried: set[int] = set()

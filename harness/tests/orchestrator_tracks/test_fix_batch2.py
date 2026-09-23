@@ -262,7 +262,7 @@ def test_skeleton_never_reruns_over_existing_rounds(tmp_path, chair_plan, settin
     assert rt.skeletons == 1, "skeleton must not overwrite agent-authored src/ once rounds exist"
     assert (ws.src / "object.js").read_text() == src_before
     kinds = [e["event"] for e in EventLog(ws.events_path).read()]
-    assert "skeleton.skipped" in kinds
+    assert "stage.skipped" in kinds
 
 
 # --------------------------------------------------------------------- finding: scene track rebuild path

@@ -43,7 +43,7 @@ from codeverse3d.prompts import render
 from codeverse3d.prompts.sections import Section, split_sections
 from codeverse3d.tracks.common import RunContext
 from codeverse3d.tracks.generation import GenerationTask
-from codeverse3d.tracks.lifecycle import BaseTrack, StageRunner
+from codeverse3d.tracks.lifecycle import MATERIALIZE, SKELETON, BaseTrack, StageNode
 from codeverse3d.tracks.prompting import (
     base_prompt_context,
     is_always_chapter,
@@ -356,6 +356,15 @@ def frame_stats_text(ws: Workspace, round_index: int | None = None) -> str:
     return "\n".join(lines)
 
 
+def _commit_recipes(ctx: RunContext) -> None:
+    """The brief's verified cookbook recipes into the harness-owned, read-only src/recipes.glsl
+    (seed_recipes: measured, flash does not call a recipe it is only shown — and a recipe seeded
+    into its own common.glsl was overwritten by the end of the run, so the file is one the agent
+    cannot write: AgentJob.read_only).  Idempotent (a resume adds only missing names): uncached."""
+    if seed_recipes(ctx):
+        ctx.ws.commit("recipes")
+
+
 class GraphicsPipeline:
     """No measurement; no gates of its own — the build's ``gl_frames`` report is the round's
     gate (``BuildResult.gates``, appended by ``steps``); render = the frames."""
@@ -383,19 +392,10 @@ class GraphicsTrack(BaseTrack):
     # refinement is always ONE whole-program task
     allow_refine_fanout = False
     baseline_temperature = 0.6
+    stages = (SKELETON, StageNode("recipes", lambda t, c: _commit_recipes(c)), MATERIALIZE)
 
     def make_pipeline(self) -> GraphicsPipeline:
         return GraphicsPipeline()
-
-    # ------------------------------------------------------------------ prepare
-    def prepare(self, ctx: RunContext, runner: StageRunner) -> None:
-        """Skeleton, then the brief's verified cookbook recipes into the harness-owned, read-only
-        src/recipes.glsl (seed_recipes: measured, flash does not call a recipe it is only shown — and a
-        recipe seeded into its own common.glsl was overwritten by the end of the run, so the file is one
-        the agent cannot write: AgentJob.read_only)."""
-        super().prepare(ctx, runner)
-        if seed_recipes(ctx):
-            ctx.ws.commit("recipes")
 
     def generate_context(self, ctx: RunContext, **extra: Any) -> dict[str, Any]:
         return graphics_prompt_context(ctx, **extra)

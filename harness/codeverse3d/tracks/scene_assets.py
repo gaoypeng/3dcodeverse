@@ -926,7 +926,7 @@ def variant_index(alias: dict[str, str], name: str) -> int:
 
 
 def write_dedupe_note(ws: Workspace, alias: dict[str, str]) -> None:
-    """Persist the merge map the stage USED: `prepare` reads it back, because the cap that
+    """Persist the merge map the stage USED: the ``asset_api`` stage reads it back, because the cap that
     made it (`MAX_ASSETS` or `DEGRADED_MAX_ASSETS`) depends on the soft budget at the time."""
     write_json_atomic(ws.root / "stages" / "asset_aliases.json", {"alias": alias})
 

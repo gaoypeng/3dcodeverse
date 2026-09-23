@@ -516,7 +516,8 @@ from codeverse3d.tracks.graphics import seed_recipes, graphics_brief, cookbook_f
     # [{name, signature, purpose}] for every seeded recipe on disk (the prompt block); emits recipes.seeded
     # {file, names, present, chapters, trimmed}.  Never writes src/common.glsl — except the untouched skeleton,
     # which loses the helpers recipes.glsl now provides (trim_skeleton_common; recipes are pasted first).
-    # GraphicsTrack.prepare() runs it after the skeleton and commits "recipes" when it wrote something.
+    # GraphicsTrack.stages runs it (the uncached "recipes" stage) after the skeleton and commits "recipes"
+    # when it wrote something.
 from codeverse3d.tracks.common import RunContext, Services   # common.py; RunContext.single_shot / .agent_kind
     # (Δ 2026-08-30) Services.connectivity(glb, language="", planned_edges=()) forwards the plan's attach_to pairs;
     #   spatial.contract.planned_joins(plan, measurement) -> [(child, (parent copies…))] spells them in GLB part names via

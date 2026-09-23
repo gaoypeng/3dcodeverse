@@ -459,13 +459,45 @@ its range is carried by the defect checklist).  Hence **default judge =
 `gemini-3.1-pro-preview`** (`Settings.default_judge`); flash stays the cheap
 in-loop option with `n_samples ≥ 2` for decisions.
 
-## 7. Round loop (all tracks)
+## 7. Run pipeline (all tracks)
+
+A run is three parts, and only the first is a graph.
+
+**7.1 The pre-round stages — declared, one tuple per track.**  `BaseTrack.stages` (the tracks'
+`stages` class attribute) is a tuple of `StageNode`s, walked by `lifecycle.run_stages` over
+`StageRunner`.  The block below is drawn from those declarations (`tests/install/test_docs.py`
+fails when it drifts, printing the block to paste):
+
+```stage-graph
+static_object       plan → skeleton → materialize* → round 0
+articulated_object  plan → skeleton → materialize* → round 0
+scene               plan → skeleton → materialize* → textures? → (assets ∥ env ∥ layouts?) → asset_api* → zones → clock* → assemble → round 0
+graphics            plan → skeleton → recipes* → materialize* → round 0
+```
+
+`→` in order; `(a ∥ b)` siblings side by side, each its own cached stage, timed as ONE step of the
+run's minutes, a failing sibling raised after every sibling has finished and cached; `?` runs under a
+`Settings` switch (`textures`: `scene_textures`, off by default; `layouts`: `zone_layouts`, on); `*`
+is not cached — it runs every session.  Every other stage is cached under its key
+(`stages/<name>.json`): what its result depends on, named in the declaration.  **Once rounds exist**
+a recorded stage is served whatever its key (`stage.frozen`), and the skeleton (`seeds_src`) never
+runs at all; `3dcode resume --force` (which archives the rounds) is the one way to regenerate a
+stage under them.  The plan itself is `run()`'s, before the graph (`plan_stage_key`).  What the
+scene stages do: `assets` — both kinds climb one ladder (single-shot → check → one repair → agent;
+blender_glb heroes get a sub-workspace with the static planner's parts + asset_v1 judge + one
+re-judged fix pass, undone when worse; a degraded asset verdict leaves score None / judged False,
+emits asset.judge_degraded and skips the fix pass); `env` — `src/env.js`; `layouts` — L2 zone
+layouts (planner calls, never fatal); `asset_api` — what the zones are told about the assets;
+`zones` — ONE session owns every zone file (D70); `clock` — the run stops here when the hard budget
+is spent, after the zones are recorded; `assemble` — `scene.js`, deterministic.
+
+**7.2 The round — `steps._run_round`, a fixed chain in code.**  Not nodes: nothing in a round can
+be cached (every step reads the git tree the step before it wrote), and articulated's axis repair
+ties gates to render.  **7.3 The round loop — `BaseTrack._round_loop`, a state machine in code**:
+each round's tasks come from the previous round's verdict, with seven exits and two retry-once sets.
+Best-of-N, refine planning and the asset ladder are sized at run time; they stay code too.
 
 ```
-plan (structured output, one re-ask) → skeleton (buildable placeholder) → materialise workspace
-[scene only] assets (parallel; both kinds climb one ladder — single-shot → check → one repair → agent; blender_glb heroes get a sub-workspace with the static planner's parts + asset_v1 judge + one re-judged fix pass, undone when worse; a degraded asset verdict leaves
-            score None / judged False, emits asset.judge_degraded and skips the fix pass)
-             → env → zones (ONE session owns every zone file, D70) → assemble (deterministic scene.js)
 round 0 "baseline": generate → build_with_repair → measure → gates → render → post-render gates → judge
    (object tracks, ≥ 8 plan parts, a language with one file per part, an agent backend: the baseline FANS OUT
     per part — phase 0 = one scoped session per attachment subtree (its parts + the planned boxes of the

@@ -317,6 +317,32 @@ def test_architecture_package_map_covers_every_module():
         "modules missing from the docs/ARCHITECTURE.md package map:\n  " + "\n  ".join(missing))
 
 
+def stage_graph() -> str:
+    """Every track's declared pre-round graph (``BaseTrack.stages``), one line per track."""
+    from codeverse3d.contracts.common import Track
+    from codeverse3d.tracks import get_track
+
+    def node(n) -> str:
+        return n.name + ("?" if n.when else "") + ("*" if n.key is None else "")
+
+    lines = []
+    for track in Track:
+        steps = ["plan"]
+        for item in get_track(track).stages:
+            steps.append(f"({' ∥ '.join(node(n) for n in item)})" if isinstance(item, tuple) else node(item))
+        lines.append(f"{track.value:<19} " + " → ".join([*steps, "round 0"]))
+    return "\n".join(lines)
+
+
+def test_architecture_stage_graph_is_drawn_from_the_declarations():
+    """ARCHITECTURE §7.1 shows the pre-round graph each track declares, and only that."""
+    arch = (Path(__file__).resolve().parents[2] / "docs" / "ARCHITECTURE.md").read_text()
+    drawn = [body for lang, body in fenced_blocks(arch) if lang == "stage-graph"]
+    assert drawn == [stage_graph()], (
+        "docs/ARCHITECTURE.md §7.1 no longer shows the declared stages; replace its stage-graph block with:\n"
+        + stage_graph())
+
+
 def test_setup_verifies_the_interpreter_it_installed_into(tmp_path) -> None:
     """The closing doctor uses ``--python``, not an unrelated executable on PATH."""
     import sys

@@ -404,8 +404,9 @@ weather: they leave the provider's errors out (docs/COST.md §31); the ceiling d
   `3dcode judge` maps track → rubric in `cli/_judge.py::rubric_for`.
 * **New backend**: ChatModel → `models/<provider>.py` + registry + prices;
   CodingAgent → `agents/backends.py` using `cli_common` + registry + `materialize.py`.
-* **New track**: subclass `tracks/lifecycle.py::BaseTrack` (hooks: `make_pipeline`,
-  `prepare`, `baseline_tasks`, `refine_tasks`; `system_prompt`
+* **New track**: subclass `tracks/lifecycle.py::BaseTrack` (its pre-round graph `stages`, a tuple of
+  `StageNode`s — the default is skeleton → materialize, and a new track adds its line to
+  `docs/ARCHITECTURE.md` §7.1; hooks: `make_pipeline`, `baseline_tasks`, `refine_tasks`; `system_prompt`
   defaults to `language_system_prompt(ctx.language, tools=not ctx.single_shot)` and
   `refine_file_for_target` to the runtime's `files_for` — override only for
   role-specific prompts), a `RoundPipeline`,
