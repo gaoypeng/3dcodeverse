@@ -1,12 +1,4 @@
-"""The 2 000-line cap (law 4, owner 2026-08-28; 3 000 is the absolute ceiling).
-
-A file may be long, but not a god file.  There is no soft threshold and no
-~400-line guideline — the owner rejected both; this single automated cap is the
-whole rule, and it was raised from 1 500 to 2 000 on 2026-08-28 along with the
-other half of the rule, which no test can check: merging files is not a goal in
-itself, so a merge has to DELETE code rather than move it.
-Largest file when the cap was raised: codeverse3d/orchestrator.py at 1 132 lines.
-"""
+"""The 2 000-line cap per source file (law 4, owner 2026-08-28)."""
 
 from __future__ import annotations
 

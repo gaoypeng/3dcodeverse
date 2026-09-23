@@ -12,9 +12,7 @@ from codeverse3d.doctor import check_gpu_probe, check_node
 
 @pytest.mark.node
 def test_the_gpu_probe_releases_the_browser_instead_of_closing_it(tmp_path: Path, monkeypatch):
-    """launchBrowser hands back the daemon's SHARED browser by default: ``browser.close()``
-    sends CDP Browser.close and takes it down under every concurrent run, ``release()``
-    disconnects.  A stand-in gpu_launch.cjs records which one the probe called."""
+    """close() would kill the daemon's SHARED browser under every concurrent run; release() disconnects."""
     mark = tmp_path / "mark"
     (tmp_path / "gpu_launch.cjs").write_text(
         f"const fs = require('fs'), mark = {json.dumps(str(mark))};\n"
@@ -27,8 +25,7 @@ def test_the_gpu_probe_releases_the_browser_instead_of_closing_it(tmp_path: Path
 
 
 def test_a_torn_package_json_is_a_failed_row_not_a_crash(tmp_path: Path, monkeypatch):
-    """Review 2 B9: ``json.loads`` on node_modules/*/package.json was unguarded, so one torn
-    file (an interrupted ``npm install``) crashed the whole doctor report."""
+    """B9: one torn node_modules/*/package.json crashed the whole report."""
     for pkg in ("three", "puppeteer"):
         (tmp_path / "node_modules" / pkg).mkdir(parents=True)
         (tmp_path / "node_modules" / pkg / "package.json").write_text('{"version": "0.18')

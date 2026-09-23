@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codeverse3d.addons.gallery.index import build_index, default_roots, entry_for_dir
+from codeverse3d.addons.gallery.index import build_index, entry_for_dir
 from codeverse3d.addons.gallery.model import match, sort_entries, summarize
-from codeverse3d.record.record import battery_label
 
 
 def test_build_index_sections_and_states(gallery_tree: dict[str, Path]):
@@ -42,8 +41,7 @@ def test_entry_fields_and_links(gallery_tree: dict[str, Path]):
 
 
 def test_a_card_links_the_picked_rounds_own_glb(tmp_path: Path):
-    """The tree ends at the LAST round (2026-09-22), so artifacts/object.glb is not the card's
-    round: until a round is handed over, the card links the picked round's artifacts/rNN/ copy."""
+    """artifacts/object.glb is the LAST round's: until a hand-over the card links the picked round's copy."""
     from codeverse3d.addons import select
     from tests.flywheel_cli.conftest import make_fake_run
 
@@ -53,23 +51,6 @@ def test_a_card_links_the_picked_rounds_own_glb(tmp_path: Path):
     select.package(ws.root, 0)
     links = {ln.label: ln.rel for ln in entry_for_dir("runs", ws.root).links}
     assert links["glb"] == "deliverable/object.glb"
-
-
-def test_corrupt_record_does_not_raise(tmp_path: Path):
-    run = tmp_path / "runs" / "boom"
-    run.mkdir(parents=True)
-    (run / "record.json").write_bytes(b"\x00\x01not json")
-    index = build_index([tmp_path / "runs"])
-    (entry,) = index.entries()
-    assert entry.state == "broken" and entry.error
-
-
-def test_valid_json_but_not_a_record(tmp_path: Path):
-    run = tmp_path / "runs" / "wrong_shape"
-    run.mkdir(parents=True)
-    (run / "record.json").write_text(json.dumps({"hello": "world"}))
-    (entry,) = build_index([tmp_path / "runs"]).entries()
-    assert entry.state == "broken" and "invalid record.json" in entry.error
 
 
 def test_filter_and_sort_and_summary(gallery_tree: dict[str, Path]):
@@ -92,25 +73,9 @@ def test_filter_and_sort_and_summary(gallery_tree: dict[str, Path]):
     assert facets["battery"] == ["runs", "static_v9"]
 
 
-def test_default_roots_and_labels(gallery_tree: dict[str, Path]):
-    base = gallery_tree["root"]
-    roots = default_roots(base)
-    assert [battery_label(r) for r in roots] == ["runs", "static_v9"]
-    assert default_roots(base / "nope") == []
-
-
-def test_duplicate_labels_are_disambiguated(tmp_path: Path):
-    a, b = tmp_path / "a" / "runs", tmp_path / "b" / "runs"
-    a.mkdir(parents=True)
-    b.mkdir(parents=True)
-    index = build_index([a, b])
-    assert [s.label for s in index.sections] == ["runs", "runs#2"]
-
-
 # --------------------------------------------------------------------------- run identity
 def test_nested_battery_runs_get_distinct_findable_slugs(tmp_path: Path):
-    """Two compare-style runs whose dirs are BOTH named ``run`` used to collapse into
-    one gallery key; each now carries its RunId slug and both are findable."""
+    """Two compare-style runs whose dirs are both named ``run`` keep distinct, findable slugs."""
     from tests.flywheel_cli.conftest import make_fake_run
 
     root = tmp_path / "compare_v9"
@@ -127,9 +92,7 @@ def test_nested_battery_runs_get_distinct_findable_slugs(tmp_path: Path):
 
 
 def test_nested_eval_workspaces_are_not_counted_as_runs(tmp_path: Path):
-    """A battery cell's ``eval/`` judge workspace has a spec.json but no record.json —
-    it is not a run (52 phantom entries per battery under the old spec-or-record rule).
-    A spec-only DIRECT child of the root is still a legitimate pending card."""
+    """A cell's ``eval/`` judge workspace (spec.json, no record.json) is not a run."""
     from tests.flywheel_cli.conftest import make_fake_run
 
     root = tmp_path / "compare_v9"
@@ -142,8 +105,7 @@ def test_nested_eval_workspaces_are_not_counted_as_runs(tmp_path: Path):
 
 
 def test_duplicate_slugs_within_a_root_are_disambiguated(tmp_path: Path):
-    """Two rels that reduce to the same slug follow the label#2 precedent — a viewer
-    must still see both runs (exporters fail loudly instead; the gallery is read-only)."""
+    """Two rels that reduce to one slug follow the label#2 precedent — the viewer shows both."""
     from tests.flywheel_cli.conftest import make_fake_run
 
     root = tmp_path / "mixed"

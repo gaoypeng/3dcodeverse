@@ -14,12 +14,9 @@ def _run(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run([sys.executable, "-c", code], env={**clean, **env}, capture_output=True, text=True, check=True)
 
 
-def test_an_old_prefix_is_read_as_the_new_one_and_named_in_a_warning():
+def test_an_old_prefix_is_read_as_the_new_one_warned_and_loses_to_the_new_name():
     p = _run({"CV3D_RUNS_DIR": "/tmp/old", "CV3D_RENDER__GPU": "off"})
     assert p.stdout.split() == ["/tmp/old", "off"]
     assert "CV3D_RENDER__GPU" in p.stderr and "CV3D_RUNS_DIR" in p.stderr
-
-
-def test_the_new_name_wins_when_both_are_set():
     p = _run({"CV3D_RUNS_DIR": "/tmp/old", "C3D_RUNS_DIR": "/tmp/new"})
     assert p.stdout.split()[0] == "/tmp/new" and p.stderr == ""

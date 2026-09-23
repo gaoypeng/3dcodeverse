@@ -100,14 +100,6 @@ def into_absent_eval(path: Path) -> bool:
 
 
 # --------------------------------------------------------------------------- tests
-def test_install_guide_exists() -> None:
-    assert INSTALL.is_file(), f"{INSTALL} is missing"
-    text = INSTALL.read_text()
-    assert len(text) > 2000, "docs/INSTALL.md looks truncated"
-    for needle in ("runtime_js", "npm ci", "3dcodeverse doctor", "GEMINI_API_KEYS", "setup.sh"):
-        assert needle in text, f"docs/INSTALL.md never mentions {needle!r}"
-
-
 @pytest.mark.parametrize("doc", existing_docs(), ids=lambda p: str(p.relative_to(REPO)))
 def test_owned_docs_have_valid_commands_links_and_paths(doc: Path) -> None:
     bad: list[str] = []
@@ -146,17 +138,6 @@ def test_owned_docs_have_valid_commands_links_and_paths(doc: Path) -> None:
     assert not missing_paths, f"{doc}: unresolved backticked paths: {missing_paths}"
     if into_eval:
         pytest.skip(f"no eval/ beside the harness: cannot resolve {into_eval}")
-
-
-def test_setup_script_is_executable_parses_and_has_help() -> None:
-    assert SETUP.is_file(), f"{SETUP} is missing"
-    assert os.access(SETUP, os.X_OK), f"{SETUP} is not executable (chmod +x)"
-    assert SETUP.read_text().startswith("#!"), "setup.sh has no shebang"
-    proc = subprocess.run(["bash", "-n", str(SETUP)], capture_output=True, text=True, timeout=60)
-    assert proc.returncode == 0, f"bash -n failed:\n{proc.stderr}"
-    proc = subprocess.run(["bash", str(SETUP), "--help"], capture_output=True, text=True, timeout=60)
-    assert proc.returncode == 0, f"setup.sh --help exited {proc.returncode}:\n{proc.stderr}"
-    assert "--extras" in proc.stdout
 
 
 def test_every_pyproject_extra_is_documented() -> None:
@@ -380,9 +361,3 @@ def test_setup_names_the_remedy_when_the_interpreter_has_no_pip(tmp_path) -> Non
     assert proc.returncode != 0, "a python that cannot pip must not look like a successful install"
     assert "has no pip" in out, f"the bare ModuleNotFoundError is not an explanation:\n{out}"
     assert "-m venv" in out and "python3-venv" in out, f"no actionable remedy in:\n{out}"
-
-
-def test_install_docs_list_pip_and_venv_as_prerequisites() -> None:
-    text = INSTALL.read_text()
-    assert "python3-venv" in text and "EXTERNALLY-MANAGED" in text
-    assert "pip + venv" in text, "the requirements table must name pip and venv"

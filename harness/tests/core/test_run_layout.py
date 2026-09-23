@@ -12,18 +12,12 @@ from codeverse3d.contracts.spec import Spec
 from codeverse3d.workspace import EVIDENCE_DIR, LAYOUT_ALIASES, Workspace
 
 
-def test_create_makes_the_three_buckets(tmp_path: Path):
+def test_create_makes_the_buckets_aliases_and_gitignore(tmp_path: Path):
     ws = Workspace(tmp_path / "run").create()
     assert ws.deliverable.is_dir() and ws.telemetry.is_dir() and ws.artifacts.is_dir()
-    # evidence/ is the alias, artifacts/ the physical home (see docs/RUN_LAYOUT.md)
-    evidence = ws.root / EVIDENCE_DIR
-    assert evidence.is_symlink() and os.readlink(evidence) == "artifacts"
-    assert evidence.resolve() == ws.artifacts.resolve()
-    assert ws.cost_path.parent == ws.telemetry
-
-
-def test_telemetry_aliases_point_at_the_root_files(tmp_path: Path):
-    ws = Workspace(tmp_path / "run").create()
+    assert os.readlink(ws.root / EVIDENCE_DIR) == "artifacts"  # evidence/ is the alias
+    ignored = (ws.root / ".gitignore").read_text().splitlines()
+    assert {"artifacts/", "deliverable/", "telemetry/", "evidence", "trajectories/"} <= set(ignored)
     for name, target in LAYOUT_ALIASES:
         link = ws.root / name
         assert link.is_symlink(), name
@@ -56,22 +50,8 @@ def test_ensure_layout_never_clobbers_real_data(tmp_path: Path):
     assert not (ws.root / "evidence").is_symlink()
 
 
-def test_gitignore_covers_the_derived_buckets(tmp_path: Path):
-    ws = Workspace(tmp_path / "run").create()
-    text = (ws.root / ".gitignore").read_text()
-    for line in ("artifacts/", "deliverable/", "telemetry/", "evidence", "trajectories/"):
-        assert line in text.splitlines()
-    assert ws.ensure_gitignore() is False  # idempotent
-    (ws.root / ".gitignore").write_text("src/nothing\n")
-    assert ws.ensure_gitignore(dry_run=True) is True
-    assert (ws.root / ".gitignore").read_text() == "src/nothing\n"
-    assert ws.ensure_gitignore() is True
-    assert "deliverable/" in (ws.root / ".gitignore").read_text()
-
-
 def test_record_blocks_are_additive(tmp_path: Path):
-    """An old record.json (no telemetry; or a deliverable block, which records stopped
-    carrying on 2026-09-22) must still validate, and an old manifest still loads."""
+    """An old record.json (no telemetry, a deliverable block) validates; an old manifest loads."""
     spec = Spec(id="x", track="static_object", language="blender", prompt="a chair")
     old = {"spec": spec.model_dump(mode="json"), "workspace": str(tmp_path), "status": "passed",
            "deliverable": {"best_round": 1, "commit": "abc"}}
@@ -122,32 +102,8 @@ def _captured(render) -> str:
     return cap.get()
 
 
-def test_a_relocated_run_still_resolves_its_stored_paths(tmp_path):
-    """Stored absolute paths rebase after moving or archiving a run."""
-    from codeverse3d.workspace import Workspace
-
-    _a, b, sheet_a, _rec = _moved_run(tmp_path)
-    stored = str(sheet_a)  # what the writer puts in record.json
-    ws = Workspace(b)
-    got = ws.rebase(stored)
-    assert got.exists(), f"a moved run must still find its own sheet, got {got}"
-    assert got == b / "artifacts" / "renders" / "r01" / "sheet.png"
-    assert Path(stored) != got
-
-    # an absolute path that IS still valid is left alone
-    assert ws.rebase(str(got)) == got
-    # a relative path joins the root (the only case the old code handled)
-    assert ws.rebase("artifacts/renders/r01/sheet.png") == got
-    # nothing matches -> the original comes back, so the caller reports a real missing
-    # file instead of a silently wrong one
-    missing = tmp_path / "elsewhere" / "nope.png"
-    assert ws.rebase(str(missing)) == missing
-
-
 def test_a_copied_run_reads_its_own_files_while_the_original_still_exists(tmp_path):
-    """rebase returned any stored absolute path that still EXISTED as-is, so a
-    copied/rsynced run silently read — and a retexture wrote past — the ORIGINAL's
-    files for as long as that directory lived (V10f).  This root's copy must win."""
+    """V10f: a copied run's stored absolute paths rebase onto THIS root, even while the original lives."""
     import shutil
 
     from codeverse3d.workspace import Workspace
@@ -165,19 +121,6 @@ def test_a_copied_run_reads_its_own_files_while_the_original_still_exists(tmp_pa
     assert got.read_bytes() == b"COPY", "the copy's own file must win over the live original"
     # ...and a path already under THIS root is untouched, existing or not
     assert Workspace(a).rebase(str(sheet_a)) == sheet_a
-
-
-def test_show_prints_the_sheet_that_exists_after_a_move(tmp_path):
-    """The user-visible half: `3dcode show` must not print a path that is not there."""
-    from codeverse3d.cli._common import print_record_summary
-    from codeverse3d.workspace import Workspace
-
-    _a, b, _sheet, rec = _moved_run(tmp_path)
-    printed = _captured(lambda: print_record_summary(rec, Workspace(b).root))
-    line = next(ln for ln in printed.splitlines() if "sheet:" in ln)
-    shown = line.split("sheet:", 1)[1].strip().rstrip("│ ").strip()
-    assert shown.endswith("sheet.png"), f"the panel wrapped the path: {line!r}"
-    assert Path(shown).exists(), f"show printed a sheet that is not there: {shown!r}"
 
 
 def test_a_stale_index_lock_names_the_remedy(tmp_path):

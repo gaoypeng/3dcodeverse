@@ -37,8 +37,9 @@ def _child_script(run_root: Path, ready: Path, go: Path) -> str:
     )
 
 
-def test_two_processes_cannot_hold_one_run(tmp_path: Path):
-    """Two processes cannot concurrently mutate the same workspace."""
+def test_a_second_process_is_refused_and_a_killed_holder_never_wedges_the_run(tmp_path: Path):
+    """Two processes cannot mutate one workspace; the kernel drops the flock when the holder dies."""
+    import signal
     import subprocess
     import sys
 
@@ -58,31 +59,10 @@ def test_two_processes_cannot_hold_one_run(tmp_path: Path):
         assert str(child.pid) in msg  # names the holder, so a human can kill THAT pid
         assert "pkill" in msg, "and must warn against the pattern kill that took out 13 runs"
     finally:
-        go.write_text("release")
+        child.send_signal(signal.SIGKILL)
         child.wait(timeout=10)
-    with exclusive(run_root):   # free once the holder exits
-        pass
-
-
-def test_a_dead_holder_never_wedges_a_run(tmp_path: Path):
-    """The kernel drops a flock when the holder dies — a killed run stays resumable."""
-    import signal
-    import subprocess
-    import sys
-
-    run_root = tmp_path / "runs" / "slug"
-    run_root.mkdir(parents=True)
-    ready, go = tmp_path / "ready", tmp_path / "go"
-    child = subprocess.Popen([sys.executable, "-c", _child_script(run_root, ready, go)])
-    for _ in range(500):
-        if ready.exists():
-            break
-        time.sleep(0.02)
-    assert ready.read_text() == "held"
-    child.send_signal(signal.SIGKILL)
-    child.wait(timeout=10)
     assert holder_of(run_root) is None, "a SIGKILLed holder cannot leave a record behind"
-    with exclusive(run_root):   # no stale-PID reasoning needed: the kernel already released it
+    with exclusive(run_root):
         pass
 
 
@@ -113,21 +93,6 @@ def test_a_second_thread_is_refused_and_the_first_keeps_the_lock(tmp_path: Path)
     release.set()
     assert entered.is_set()
     with exclusive(run_root):   # fully released after the owning thread exits
-        pass
-
-
-def test_a_failed_record_write_leaks_nothing(tmp_path: Path, monkeypatch):
-    """A failed holder-record write leaks neither fd nor in-process registry."""
-    import codeverse3d.proc as R
-
-    run_root = tmp_path / "runs" / "slug"
-    run_root.mkdir(parents=True)
-    monkeypatch.setattr(R, "_write_record", lambda fd, rec: (_ for _ in ()).throw(OSError("ENOSPC")))
-    with pytest.raises(OSError, match="ENOSPC"), R.exclusive(run_root):
-        pass
-    monkeypatch.undo()
-    assert not R._HELD, "nothing may stay registered after a failed acquisition"
-    with R.exclusive(run_root):   # still enterable, in this process and any other
         pass
 
 

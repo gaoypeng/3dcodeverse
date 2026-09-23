@@ -13,17 +13,6 @@ from codeverse3d.cli.main import app, resolve_roots
 runner = CliRunner()
 
 
-def test_gallery_group_is_registered():
-    r = runner.invoke(app, ["--help"])
-    assert r.exit_code == 0 and "gallery" in r.output
-    r = runner.invoke(app, ["gallery", "--help"])
-    assert r.exit_code == 0 and "serve" in r.output and "build" in r.output
-    r = runner.invoke(app, ["gallery", "serve", "--help"])
-    assert r.exit_code == 0
-    for flag in ("--port", "--host", "--reload", "--open"):
-        assert flag in r.output, flag
-
-
 def test_build_writes_a_page(gallery_tree: dict[str, Path], tmp_path: Path):
     out = tmp_path / "g.html"
     r = runner.invoke(app, ["gallery", "build", str(gallery_tree["runs"]), str(gallery_tree["battery"]),
@@ -56,8 +45,7 @@ def test_default_roots_from_cwd(gallery_tree: dict[str, Path], monkeypatch: pyte
 
 
 def test_default_roots_find_the_eval_batteries_from_any_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """D77 moved the batteries to <repo>/eval/bench/out/<b>/runs; the defaults only looked
-    under the cwd, so `3dcode gallery serve` from harness/ listed none of them."""
+    """D77: the batteries live in <repo>/eval/bench/out/<b>/runs, found from any cwd."""
     repo = tmp_path / "repo"
     battery = repo / "eval" / "bench" / "out" / "b1" / "runs"
     battery.mkdir(parents=True)

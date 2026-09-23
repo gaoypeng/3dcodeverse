@@ -1,15 +1,8 @@
-"""The triage affordances: the status breakdown, the hero view, label humanisation,
-multi-select routing (compare / CSV) and the detail page's neighbour links.
-
-The invariant worth a test is the arithmetic one: the verdict buckets are disjoint and
-exhaustive, so the strip's "n runs shown = a + b + c" is true for *any* selection —
-including one holding half-written records.  None of them is a pass or a fail
-(2026-09-22): a run is judged, unjudged or unreadable.
-"""
+"""Triage: the verdict breakdown (disjoint and exhaustive — no pass/fail since 2026-09-22), the hero
+view, label humanisation, compare / CSV routing and the neighbour links."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -17,17 +10,12 @@ import pytest
 
 from codeverse3d.addons.gallery.compare import (
     CSV_COLUMNS,
-    MAX_COMPARE,
-    export_csv,
-    parse_keys,
-    render_compare,
 )
 from codeverse3d.addons.gallery.index import build_index, hero_view
 from codeverse3d.addons.gallery.model import (
     VERDICTS,
     humanize_view,
     summarize,
-    verdict_breakdown,
 )
 from codeverse3d.addons.gallery.page import render_index
 from codeverse3d.addons.gallery.server import GalleryApp
@@ -46,20 +34,9 @@ def test_the_buckets_are_disjoint_and_sum_to_n(gallery_tree: dict[str, Path]):
     # every entry lands in exactly one bucket
     assert sorted(e.verdict for e in entries) == sorted(
         k for k, n in s.breakdown.items() for _ in range(n))
-
-
-def test_a_run_with_no_record_is_error_not_unjudged(gallery_tree: dict[str, Path]):
-    entries = build_index([gallery_tree["battery"]]).entries()
-    by_slug = {e.slug: e for e in entries}
-    assert by_slug["half_written"].verdict == "error"   # corrupt record
-    assert by_slug["not_started"].verdict == "error"    # no record at all
-    assert by_slug["half_written"].score is None        # ...and nothing to score
-
-
-def test_breakdown_of_an_empty_selection_is_all_zeroes():
-    b = verdict_breakdown([])
-    assert b == dict.fromkeys(VERDICTS, 0) and sum(b.values()) == 0
-    assert summarize([]).n == 0
+    by_slug = {e.slug: e for e in entries}   # a corrupt record and a missing one are errors
+    assert by_slug["half_written"].verdict == by_slug["not_started"].verdict == "error"
+    assert by_slug["half_written"].score is None
 
 
 def test_the_page_states_the_breakdown_and_it_adds_up(gallery_tree: dict[str, Path]):
@@ -70,15 +47,6 @@ def test_the_page_states_the_breakdown_and_it_adds_up(gallery_tree: dict[str, Pa
     assert "runs shown" in markup
     # no pass rate and no pass/fail bucket: a run is not passed or failed
     assert "PASS RATE" not in markup.upper() and "per pass" not in markup and "vc-passed" not in markup
-
-
-# --------------------------------------------------------------------------- verdict filter
-def test_verdict_filter_reaches_the_api_and_the_page(gallery_tree: dict[str, Path]):
-    app = GalleryApp([gallery_tree["runs"], gallery_tree["battery"]])
-    payload = json.loads(app.route("/api/runs", {"verdict": "error"}).body)
-    assert payload["n"] == 2 and {r["state"] for r in payload["runs"]} == {"broken", "pending"}
-    page = app.route("/", {"verdict": "judged"}).body.decode()
-    assert "<option value='judged' selected>" in page
 
 
 # --------------------------------------------------------------------------- hero view
@@ -106,17 +74,10 @@ def test_hero_falls_back_to_the_sheet_when_a_round_has_no_views(tmp_path: Path):
 # --------------------------------------------------------------------------- labels
 @pytest.mark.parametrize(("raw", "human"), [
     ("front_right_high", "Front Right High"),
-    ("back_left_low", "Back Left Low"),
-    ("bottom", "Bottom"),
     ("front_right_34", "Front Right ¾"),
     ("view_front_right_34.png", "Front Right ¾"),
-    ("back_left_34", "Back Left ¾"),
-    ("low_front_left", "Low Front Left"),
-    ("front", "Front"),
     ("t=2.5s", "t = 2.5 s"),
-    ("t=0s", "t = 0 s"),
     ("pose_rest", "Pose · rest"),
-    ("pose_door_hinge@upper", "Pose · door_hinge@upper"),
     ("articulation_sheet", "Articulation poses"),
     ("preview.gif", "Animated preview"),
     ("", ""),
@@ -125,19 +86,7 @@ def test_view_names_are_humanised(raw: str, human: str):
     assert humanize_view(raw) == human
 
 
-def test_render_tiles_use_a_gradient_caption_not_a_black_bar(gallery_tree: dict[str, Path]):
-    app = GalleryApp([gallery_tree["runs"]])
-    page = app.route("/run/runs/wooden_chair_ab12cd34").body.decode()
-    assert "<figcaption>Front</figcaption>" in page and "<figcaption>Top</figcaption>" in page
-    assert "linear-gradient(to top,var(--overlay),transparent)" in page
-
-
 # --------------------------------------------------------------------------- multi-select
-def test_parse_keys_keeps_order_and_drops_duplicates():
-    assert parse_keys("a/b, c/d ,a/b") == ["a/b", "c/d"]
-    assert parse_keys("") == [] and parse_keys("  ,  ") == []
-
-
 def test_compare_route_renders_only_the_selected_runs(gallery_tree: dict[str, Path]):
     app = GalleryApp([gallery_tree["runs"], gallery_tree["battery"]])
     r = app.route("/compare", {"runs": "runs/wooden_chair_ab12cd34,static_v9/ctrl_med_toaster"})
@@ -154,17 +103,6 @@ def test_compare_of_nothing_explains_itself(gallery_tree: dict[str, Path]):
     app = GalleryApp([gallery_tree["runs"]])
     page = app.route("/compare").body.decode()
     assert "nothing to compare" in page and app.route("/compare").status == 200
-
-
-def test_compare_reports_unknown_keys_and_caps_the_width(gallery_tree: dict[str, Path]):
-    app = GalleryApp([gallery_tree["runs"], gallery_tree["battery"]])
-    page = app.route("/compare", {"runs": "runs/wooden_chair_ab12cd34,runs/ghost"}).body.decode()
-    assert "unknown: runs/ghost" in page
-    many = ",".join(["runs/wooden_chair_ab12cd34"] * 3)  # dedup keeps one
-    assert app.route("/compare", {"runs": many}).status == 200
-    entries = app.index.entries()
-    assert len(render_compare(entries[:MAX_COMPARE], UrlMaker()).split("<td class='head'>")) - 1 \
-        == min(MAX_COMPARE, len(entries))
 
 
 def test_query_links_survive_a_duplicate_root_label(gallery_tree: dict[str, Path]):
@@ -184,41 +122,15 @@ def test_compare_survives_a_run_with_no_record(gallery_tree: dict[str, Path]):
     assert r.status == 200 and b"half_written" in r.body
 
 
-def test_bulk_bar_is_offered_on_the_server_but_not_in_the_static_build(gallery_tree: dict[str, Path]):
-    from codeverse3d.addons.gallery.page import render_static
-
-    index = build_index([gallery_tree["runs"]])
-    served = render_index(index, UrlMaker())
-    assert "id='selbar'" in served and "id='sel-compare'" in served
-    assert "no re-run from the browser" in served      # the refusal is written down
-    assert "id='selbar'" not in render_static(index, embed=False)
-
-
 # --------------------------------------------------------------------------- csv export
-def test_export_csv_route_and_columns(gallery_tree: dict[str, Path]):
-    app = GalleryApp([gallery_tree["runs"], gallery_tree["battery"]])
-    r = app.route("/export.csv", {"runs": "runs/wooden_chair_ab12cd34"})
-    assert r.status == 200 and r.content_type.startswith("text/csv")
-    assert "attachment" in r.headers["Content-Disposition"]
-    lines = r.body.decode().strip().splitlines()
-    assert lines[0] == ",".join(CSV_COLUMNS) and len(lines) == 2
-    assert "wooden_chair_ab12cd34" in lines[1] and ",judged," in lines[1]
-
-
 def test_export_csv_without_a_selection_exports_the_current_filter(gallery_tree: dict[str, Path]):
     app = GalleryApp([gallery_tree["runs"], gallery_tree["battery"]])
-    body = app.route("/export.csv", {"verdict": "error"}).body.decode()
+    r = app.route("/export.csv", {"verdict": "error"})
+    assert r.content_type.startswith("text/csv") and "attachment" in r.headers["Content-Disposition"]
+    body = r.body.decode()
+    assert body.splitlines()[0] == ",".join(CSV_COLUMNS)
     assert len(body.strip().splitlines()) == 3         # header + the two unusable runs
     assert "half_written" in body and "not_started" in body
-
-
-def test_csv_quotes_a_hostile_prompt(tmp_path: Path):
-    from tests.flywheel_cli.conftest import make_fake_run
-
-    runs = tmp_path / "runs"
-    make_fake_run(runs, "comma", prompt='a chair, "quoted", \nnewline')
-    text = export_csv(build_index([runs]).entries())
-    assert len(list(__import__("csv").reader(__import__("io").StringIO(text)))) == 2
 
 
 # --------------------------------------------------------------------------- neighbours

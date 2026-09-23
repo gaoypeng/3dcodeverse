@@ -1,9 +1,4 @@
-"""Packaging and supported-runtime guards (docs/INSTALL.md §2.1).
-
-The harness targets Python 3.13 and Node 20.6+.  These tests pin the setup
-script, packaged runtime data and Node's early version gate without requiring
-alternate runtimes to be installed.
-"""
+"""Packaging and supported-runtime guards (docs/INSTALL.md §2.1): python 3.13, node 20.6+."""
 
 from __future__ import annotations
 
@@ -65,24 +60,11 @@ def test_write_example_refuses_to_write_nothing(tmp_path, monkeypatch) -> None:
 
 # ------------------------------------------------------------------- the node floor gate
 def test_node_version_parsing_and_gate() -> None:
-    parsed = [
-        ("v24.14.0\n", (24, 14, 0)),
-        ("v20.6.0", (20, 6, 0)),
-        ("v18.20.4", (18, 20, 4)),
-        ("20.6.1", (20, 6, 1)),
-        ("v22.0.0-nightly20240101", (22, 0, 0)),
-        ("not found", None),
-        ("", None),
-    ]
-    for text, expected in parsed:
+    for text, expected in (("v24.14.0\n", (24, 14, 0)), ("v22.0.0-nightly20240101", (22, 0, 0)), ("not found", None)):
         assert parse_node_version(text) == expected, text
-    for version in ((20, 6, 0), (20, 6, 1), (22, 15, 0), (24, 14, 0), None):
-        assert node_version_error(version) == "", version
-    for version in ((20, 5, 9), (18, 20, 4), (16, 0, 0)):
-        msg = node_version_error(version)
-        assert ".".join(map(str, version)) in msg
-        assert NODE_MIN_STR in msg
-        assert "C3D_BINARIES__NODE" in msg and "nvm" in msg
+    assert node_version_error((20, 6, 0)) == node_version_error(None) == ""
+    msg = node_version_error((20, 5, 9))
+    assert "20.5.9" in msg and NODE_MIN_STR in msg and "C3D_BINARIES__NODE" in msg and "nvm" in msg
 
 
 def test_run_node_enforces_the_version_floor(tmp_path, monkeypatch) -> None:

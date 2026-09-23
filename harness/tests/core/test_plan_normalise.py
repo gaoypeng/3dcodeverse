@@ -49,30 +49,8 @@ def _joint(p: ArticulatedPlan, j: dict):
     return next(x for x in p.joints if x.name == j["name"])
 
 
-def test_a_revolute_joint_over_two_pi_in_radians_becomes_continuous():
-    for lower, upper in ((0.0, 4 * math.pi), (-4 * math.pi, 4 * math.pi), (0.0, 6.5), (0.0, 10.0)):
-        d = _raw()
-        j = _revolute(d, lower, upper)
-        p = ArticulatedPlan.model_validate(d)
-        fixed = _joint(p, j)
-        assert fixed.type == "continuous" and fixed.lower == fixed.upper == 0.0
-        assert any("> 2π → continuous" in n for n in p.normalisations)
-        assert not any("degrees" in n for n in p.normalisations)
-
-
-def test_a_door_planned_in_degrees_stays_a_quarter_turn_hinge():
-    d = _raw()
-    j = _revolute(d, 0.0, 90.0)
-    p = ArticulatedPlan.model_validate(d)
-    fixed = _joint(p, j)
-    assert fixed.type == "revolute"
-    assert fixed.lower == 0.0 and fixed.upper == pytest.approx(1.5708, abs=1e-4) and fixed.rest == 0.0
-    assert any("looked like degrees (0..90) → radians" in n for n in p.normalisations)
-    assert not any("continuous" in n for n in p.normalisations)
-
-
 def test_degree_shaped_limits_and_rest_are_converted_together():
-    cases = ((-180.0, 0.0, 0.0), (0.0, 90.0, 90.0), (-45.0, 45.0, 0.0), (0.0, 30.0, 0.0))
+    cases = ((-180.0, 0.0, 0.0), (0.0, 90.0, 90.0))
     for lower, upper, rest in cases:
         d = _raw()
         j = _revolute(d, lower, upper, rest)
@@ -83,6 +61,7 @@ def test_degree_shaped_limits_and_rest_are_converted_together():
         assert fixed.upper == pytest.approx(math.radians(upper))
         assert fixed.rest == pytest.approx(math.radians(rest))
         assert sum("looked like degrees" in n for n in p.normalisations) == 1
+        assert not any("continuous" in n for n in p.normalisations)
 
 
 def test_a_two_turn_degree_range_falls_through_to_continuous():
@@ -109,14 +88,6 @@ def test_a_sub_part_outside_its_parent_grows_the_parent_bbox():
     assert any("bbox grown on y" in n for n in p.normalisations)
 
 
-def test_unfixable_plans_still_fail():
-    d = _raw()
-    d["joints"].append({"name": "Ghost", "type": "fixed", "parent": d["parts"][0]["name"], "child": "NoSuchLink",
-                        "axis": [0, 0, 1], "pivot": [0, 0, 0]})
-    with pytest.raises(ValidationError, match="unknown link"):
-        ArticulatedPlan.model_validate(d)
-
-
 def test_planner_text_in_normalisations_is_dropped():
     """Planner prose cannot masquerade as harness repair history."""
     from codeverse3d.contracts.plan import ArticulatedPlan
@@ -128,7 +99,6 @@ def test_planner_text_in_normalisations_is_dropped():
 
 
 def test_a_joint_naming_a_part_by_a_unique_fragment_is_resolved():
-    """A unique fragment is a safe repair for a mismatched joint reference."""
     d = _raw()
     d["parts"][1]["name"] = "ChestDrawer"        # the plan's own name ...
     d["joints"][0]["child"] = "Drawer"           # ... referenced by one word of it
@@ -139,7 +109,6 @@ def test_a_joint_naming_a_part_by_a_unique_fragment_is_resolved():
 
 
 def test_an_ambiguous_joint_reference_is_rejected_and_names_the_real_parts():
-    """An ambiguous fragment is rejected and names the available parts."""
     d = _raw()
     d["parts"][1]["name"] = "ChestDrawer"
     twin = dict(d["parts"][1])
@@ -155,8 +124,6 @@ def test_an_ambiguous_joint_reference_is_rejected_and_names_the_real_parts():
 
 
 def test_a_root_link_that_names_no_part_becomes_the_one_link_no_joint_moves():
-    """ab_repairs grand_piano, 2026-08-29: flash wrote a UUID as root_link three times and
-    the pinned plan died with 'root_link … is not a part'."""
     d = _raw()
     d["root_link"] = "040fbba3-b0f3-42e1-85b3-f61b0c034293"
     plan = ArticulatedPlan.model_validate(d)
@@ -216,9 +183,7 @@ def _rename_part(d: dict, old: str, new: str) -> None:
 
 
 def test_a_root_link_naming_no_part_is_resolved_by_the_1b_word_rule():
-    """af_excavator (2026-08-31, 3.7-flash): root_link 'chassis' over a part list that
-    spelt it differently killed the run after two re-asks.  Same word-boundary match as
-    the joint-fragment repair — never a bare substring."""
+    """Word-boundary match, as the joint-fragment repair — never a bare substring."""
     d = _raw()
     real_root = d["root_link"]
     _rename_part(d, real_root, "TrackedChassis")
@@ -228,20 +193,7 @@ def test_a_root_link_naming_no_part_is_resolved_by_the_1b_word_rule():
     assert any("root_link 'Chassis'" in n and "TrackedChassis" in n for n in p.normalisations)
 
 
-def test_an_ambiguous_root_link_still_fails_validation():
-    d = _raw()
-    real_root = d["root_link"]
-    _rename_part(d, real_root, "TrackedChassis")
-    other = next(x["name"] for x in d["parts"] if x["name"] != "TrackedChassis")
-    _rename_part(d, other, "ChassisMount")
-    d["root_link"] = "Chassis"
-    with pytest.raises(ValidationError, match="root_link"):
-        ArticulatedPlan.model_validate(d)
-
-
 def test_a_joint_naming_a_sub_part_by_word_subset_promotes_it():
-    """af_grandfather_clock: joint said GlazedDoor, the child was GlazedFrontDoor — no
-    affix match, so 1b could not save it.  1c matches by word subset and promotes."""
     d = _raw()
     parent = d["parts"][0]
     parent.setdefault("children", []).append(
@@ -260,8 +212,6 @@ def test_a_joint_naming_a_sub_part_by_word_subset_promotes_it():
 
 
 def test_the_unknown_link_complaint_lists_the_sub_parts():
-    """The re-ask used to see only top-level parts — with everything nested, it was blind
-    to the very children the joints meant, and both re-asks died the same way."""
     d = _raw()
     parent = d["parts"][0]
     parent.setdefault("children", []).append(

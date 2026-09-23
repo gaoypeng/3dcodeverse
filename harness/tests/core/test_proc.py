@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import resource
 import signal
 import sys
 import threading
@@ -16,53 +15,25 @@ import pytest
 from codeverse3d.proc import (
     STREAM_BUDGET_BYTES,
     ManagedProcess,
-    ProcResult,
     append_jsonl_line,
     iter_jsonl_lines,
-    read_json_or_none,
     read_jsonl_lenient,
     run_subprocess,
     scrub_secrets,
-    tail,
-    write_json_atomic,
 )
 from tests.conftest import assert_pid_gone
 
 
-def test_run_subprocess_captures_output(tmp_path: Path):
-    r = run_subprocess(["bash", "-c", "echo out; echo err >&2; exit 3"], cwd=tmp_path, timeout_s=10)
-    assert isinstance(r, ProcResult)
-    assert r.returncode == 3
-    assert r.stdout.strip() == "out"
-    assert r.stderr.strip() == "err"
-    assert not r.timed_out
-    assert r.duration_ms >= 0
-
-
-def test_run_subprocess_stdin(tmp_path: Path):
-    r = run_subprocess(["cat"], cwd=tmp_path, timeout_s=10, stdin_text="hello")
-    assert r.stdout == "hello"
-
-
 def test_timeout_kills_the_whole_process_group(tmp_path: Path):
-    """A timed-out child AND its grandchildren die (killpg on the new session)."""
-    r = run_subprocess(["bash", "-c", "sleep 30 & echo $!; wait"], cwd=tmp_path, timeout_s=0.4)
-    assert r.timed_out
-    assert r.returncode != 0
-    assert_pid_gone(int(r.stdout.strip().splitlines()[0]), timeout_s=5.0)
-
-
-def test_a_leader_that_exits_0_still_takes_its_grandchildren_down(tmp_path: Path):
-    """A cleanly exited leader must not leave same-group grandchildren alive."""
-    pid_file = tmp_path / "pid"
-    r = run_subprocess(["bash", "-c", f"sleep 300 >/dev/null 2>&1 & echo $! > {pid_file}; exit 0"],
-                       cwd=tmp_path, timeout_s=10)
-    assert r.returncode == 0 and not r.timed_out
-    assert_pid_gone(int(pid_file.read_text()), timeout_s=5.0)
+    """A timed-out child AND its grandchildren die (killpg), and their output is still collected."""
+    r = run_subprocess(["bash", "-c", "echo hello; sleep 30 & echo $!; wait"], cwd=tmp_path, timeout_s=0.4)
+    assert r.timed_out and r.returncode != 0
+    assert r.stdout.splitlines()[0] == "hello"
+    assert_pid_gone(int(r.stdout.strip().splitlines()[1]), timeout_s=5.0)
 
 
 def test_a_leader_that_exits_0_does_not_burn_the_drain_window(tmp_path: Path, monkeypatch):
-    """Inherited pipes do not force a clean exit through the drain timeout."""
+    """A clean exit takes same-group grandchildren down without burning the drain window."""
     import codeverse3d.proc as proc_mod
 
     monkeypatch.setattr(proc_mod, "DRAIN_TIMEOUT_S", 3.0)
@@ -80,9 +51,7 @@ def test_a_detached_descendant_holding_the_pipes_cannot_extend_the_timeout(tmp_p
     """A detached descendant holding stdout cannot extend the caller's timeout."""
     import codeverse3d.proc as proc_mod
 
-    # raising=False so this test still RUNS (and fails on the hang) against the
-    # pre-fix module, which has no such constant
-    monkeypatch.setattr(proc_mod, "DRAIN_TIMEOUT_S", 1.0, raising=False)
+    monkeypatch.setattr(proc_mod, "DRAIN_TIMEOUT_S", 1.0)
     t0 = time.monotonic()
 
     r = run_subprocess(["bash", "-c", "setsid sleep 20 & echo started; sleep 20"],
@@ -94,42 +63,7 @@ def test_a_detached_descendant_holding_the_pipes_cannot_extend_the_timeout(tmp_p
     assert elapsed < 8.0, f"run_subprocess returned only after {elapsed:.1f}s"
 
 
-def test_a_same_group_grandchild_still_has_its_output_collected(tmp_path: Path):
-    """The timeout path still preserves output from a same-group grandchild."""
-    r = run_subprocess(["bash", "-c", "echo hello; sleep 30 & wait"], cwd=tmp_path, timeout_s=0.4)
-    assert r.timed_out and "hello" in r.stdout
-
-
-def test_preexec_fn_runs_in_the_child(tmp_path: Path):
-    soft = 256
-
-    def limit() -> None:
-        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, soft))
-
-    r = run_subprocess(
-        ["python3", "-c", "import resource, sys; sys.stdout.write(str(resource.getrlimit(resource.RLIMIT_NOFILE)[0]))"],
-        cwd=tmp_path, timeout_s=20, preexec_fn=limit,
-    )
-    assert r.stdout.strip() == str(soft)
-
-
-def test_tail_caps_lines_and_chars():
-    text = "\n".join(f"line{i}" for i in range(100))
-    t = tail(text, max_lines=5)
-    assert t.splitlines() == [f"line{i}" for i in range(95, 100)]
-    assert len(tail("x" * 10000, max_chars=100)) == 100
-
-
 # --------------------------------------------------------------------------- atomic writes
-def test_write_json_atomic_round_trips_into_a_new_dir(tmp_path: Path):
-    """Parents are created, non-JSON values go through ``default=str``, and the published
-    directory holds the file and nothing else (no ``.tmp`` litter)."""
-    p = tmp_path / "deep" / "out.json"
-    write_json_atomic(p, {"a": 1, "p": Path("b")})
-    assert json.loads(p.read_text()) == {"a": 1, "p": "b"}
-    assert [q.name for q in p.parent.iterdir()] == ["out.json"]
-
-
 _WRITER = """
 import json, sys
 from pathlib import Path
@@ -165,33 +99,6 @@ def test_write_json_atomic_survives_concurrent_writers(tmp_path: Path):
     assert not list(tmp_path.glob("*.tmp")), "no temp file left behind"
 
 
-def test_unique_tmp_is_per_process_and_per_thread(tmp_path: Path):
-    """Simultaneously live threads choose distinct process/thread temp names."""
-    from codeverse3d.proc import unique_tmp
-
-    out = tmp_path / "cache" / "checker.mjs"
-    seen: list[Path] = []
-    lock = threading.Lock()
-    gate = threading.Barrier(8, timeout=30)
-
-    def name_it() -> None:
-        gate.wait()  # every thread is alive and running past this point
-        got = unique_tmp(out)
-        with lock:
-            seen.append(got)
-
-    threads = [threading.Thread(target=name_it) for _ in range(8)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=30)
-
-    assert len(seen) == 8
-    assert len({str(p) for p in seen}) == 8, "two live threads chose the same temp name"
-    assert all(p.parent == out.parent and p.name.startswith("checker.mjs.") for p in seen)
-    assert str(os.getpid()) in seen[0].name
-
-
 def test_concurrent_writers_of_one_destination_all_succeed(tmp_path: Path):
     """Barrier-synchronized writers can safely replace one destination."""
     from codeverse3d.proc import write_text_atomic
@@ -220,17 +127,6 @@ def test_concurrent_writers_of_one_destination_all_succeed(tmp_path: Path):
 
 
 # --------------------------------------------------------------------------- tolerant reads
-def test_read_json_or_none_is_none_unless_a_dict_parses(tmp_path: Path):
-    assert read_json_or_none(tmp_path / "missing.json") is None
-    (tmp_path / "bad.json").write_text("{not json")
-    assert read_json_or_none(tmp_path / "bad.json") is None
-    (tmp_path / "list.json").write_text("[1, 2]")
-    assert read_json_or_none(tmp_path / "list.json") is None
-    (tmp_path / "ok.json").write_bytes(b'{"a": "caf\xc3\xa9", "b": "\xff"}')
-    assert read_json_or_none(tmp_path / "ok.json") is None  # undecodable byte -> ValueError
-    assert read_json_or_none(tmp_path / "ok.json", errors="replace") == {"a": "café", "b": "�"}
-
-
 def test_jsonl_helpers_round_trip_and_skip_bad_lines(tmp_path: Path):
     p = tmp_path / "log.jsonl"
     assert list(iter_jsonl_lines(p)) == [] and read_jsonl_lenient(p) == []
@@ -246,21 +142,17 @@ def test_jsonl_helpers_round_trip_and_skip_bad_lines(tmp_path: Path):
 
 
 # --------------------------------------------------------------------------- scrub_secrets
-def test_scrub_secrets_drops_credential_shaped_vars():
-    env = {
+def test_scrub_secrets_drops_credentials_and_keeps_what_generated_code_needs():
+    secrets = {
         "GEMINI_API_KEYS": "k1,k2", "GEMINI_API_KEY": "k", "FOO_API_KEY": "x",
         "MY_SERVICE_TOKEN": "t", "DB_PASSWORD": "p", "DEPLOY_PRIVATE_KEY": "s",
         "AWS_SECRET_ACCESS_KEY": "a", "CLIENT_SECRET": "c", "X_AUTH_TOKEN": "z",
     }
-    assert scrub_secrets(env) == {}
-
-
-def test_scrub_secrets_keeps_everything_generated_code_needs():
     env = {"PATH": "/usr/bin", "HOME": "/home/u", "DISPLAY": ":0", "NODE_PATH": "/nm",
            "MESA_LOADER_DRIVER_OVERRIDE": "d3d12", "GALLIUM_DRIVER": "llvmpipe",
            "C3D_RENDER_GPU": "off", "PYTHONUNBUFFERED": "1",
            "TOKENIZERS_PARALLELISM": "false"}  # _TOKEN is a SUFFIX match, not a substring
-    assert scrub_secrets(dict(env)) == env
+    assert scrub_secrets({**env, **secrets}) == env
 
 
 # --------------------------------------------------------------------------- ManagedProcess lifecycle

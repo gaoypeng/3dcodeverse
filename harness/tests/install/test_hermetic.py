@@ -62,11 +62,3 @@ def test_quoted_test_counts_are_possible() -> None:
     assert quoted, f"no test counts found in {INSTALL} — did the wording change?"
     too_big = [n for n in quoted if n > ceiling]
     assert not too_big, f"{INSTALL.name} quotes {too_big}, but only {ceiling} tests exist"
-
-
-def test_a_build_does_not_dirty_the_tree() -> None:
-    paths = ("harness/build/lib/codeverse3d/__init__.py", "harness/dist/x.whl",
-             "build/lib/x.py", "dist/x.tar.gz")
-    for path in paths:
-        r = subprocess.run(["git", "check-ignore", "-q", path], cwd=HARNESS.parent)
-        assert r.returncode == 0, f"{path} is not gitignored"

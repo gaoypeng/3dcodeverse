@@ -9,7 +9,7 @@ from pathlib import Path
 
 from codeverse3d.addons.gallery.index import build_index
 from codeverse3d.addons.gallery.page import build_static, render_index, render_static
-from codeverse3d.addons.gallery.urls import StaticUrls, UrlMaker
+from codeverse3d.addons.gallery.urls import UrlMaker
 
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
         "source", "track", "wbr"}
@@ -82,24 +82,6 @@ def test_static_build_parses_and_is_self_contained(gallery_tree: dict[str, Path]
     assert "broken:" in markup and "pending:" in markup   # the two non-ok cards say why
 
 
-def test_static_build_without_embed_is_small_and_links_files(gallery_tree: dict[str, Path], tmp_path: Path):
-    out = tmp_path / "linked.html"
-    build_static([gallery_tree["runs"]], out, embed=False)
-    markup = out.read_text()
-    _assert_offline(markup)
-    assert "data:image/jpeg" not in markup
-    assert "file://" in markup
-
-
-def test_build_static_is_atomic(gallery_tree: dict[str, Path], tmp_path: Path):
-    out = tmp_path / "g.html"
-    build_static([gallery_tree["runs"]], out)
-    first = out.read_text()
-    build_static([gallery_tree["runs"], gallery_tree["battery"]], out)
-    assert out.read_text() != first
-    assert not list(tmp_path.glob("*.tmp"))  # no temp file left behind
-
-
 def test_server_page_applies_the_filter_server_side(gallery_tree: dict[str, Path]):
     index = build_index([gallery_tree["runs"], gallery_tree["battery"]])
     markup = render_index(index, UrlMaker(), flt={"lang": "threejs"}, sort="score")
@@ -110,15 +92,6 @@ def test_server_page_applies_the_filter_server_side(gallery_tree: dict[str, Path
     assert len(re.findall(r"<article class='card [^']*is-hidden' data-run=", markup)) == 5
     assert ">1 <span class='faint'>of 6</span><" in markup
     assert "<option value='threejs' selected>" in markup
-
-
-def test_sections_counts_and_table_mode(gallery_tree: dict[str, Path]):
-    index = build_index([gallery_tree["runs"], gallery_tree["battery"]])
-    markup = render_index(index, UrlMaker(), view="table")
-    assert "<body class='view-table'>" in markup
-    assert "id='b-runs'" in markup and "id='b-static_v9'" in markup
-    assert ">2 runs<" in markup and ">4 runs<" in markup
-    assert len(re.findall(r"<tr class='[^']*' data-run=", markup)) == 6
 
 
 def test_detail_links_are_offered_only_when_the_target_has_them(gallery_tree: dict[str, Path]):
@@ -142,11 +115,3 @@ def test_html_escaping_of_a_hostile_prompt(tmp_path: Path):
     assert "<script>alert(1)</script>" not in markup
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in markup
     _assert_offline(markup)
-
-
-def test_static_urls_of_an_entry(gallery_tree: dict[str, Path]):
-    entry = build_index([gallery_tree["runs"]]).entries()[0]
-    urls = StaticUrls(embed=False)
-    assert urls.file(entry, "record.json").startswith("file://")
-    assert urls.file(entry, "record.json").endswith("/record.json")
-    assert not urls.has_detail

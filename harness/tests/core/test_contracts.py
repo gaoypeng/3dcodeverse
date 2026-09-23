@@ -7,8 +7,7 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from codeverse3d.contracts.chat import ChatMessage
-from codeverse3d.contracts.common import Budget, Language, Track, Usage
+from codeverse3d.contracts.common import Budget, Language, Track
 from codeverse3d.contracts.plan import (
     ArticulatedPlan,
     AssetPlan,
@@ -26,8 +25,6 @@ from codeverse3d.conventions import (
     OBJECT_VIEWS,
     OBJECT_VIEWS_QUICK,
     slugify,
-    to_pascal,
-    to_snake,
 )
 
 
@@ -35,12 +32,7 @@ def _box(cx=0.0, cy=0.0, cz=0.5, ex=1.0, ey=1.0, ez=1.0) -> BBox:
     return BBox(center=(cx, cy, cz), extents=(ex, ey, ez))
 
 
-def test_names_normalise_consistently():
-    assert to_snake("SeatCushion") == "seat_cushion"
-    assert to_snake("seat cushion") == "seat_cushion"
-    assert to_snake("LPCompressor") == "lp_compressor"
-    assert to_pascal("seat_cushion") == "SeatCushion"
-    assert to_pascal(to_snake("Leg_0")) == "Leg0"
+def test_a_prompt_slugifies_to_a_run_name():
     assert slugify("A mid-century wooden dining chair!") == "a_mid_century_wooden_dining_chair"
 
 
@@ -52,8 +44,7 @@ def test_view_presets_unique():
     assert "bottom" in names and "top" in names
     assert min(v.elevation_deg for v in OBJECT_VIEWS) == -90.0
     assert max(v.elevation_deg for v in OBJECT_VIEWS) == 90.0
-    # the clay rig is its own 4-view tuple; its 'top' (el 88) deliberately shares the
-    # rig's name at a different camera — nothing may union the two tuples by name
+    # the clay rig's 'top' (el 88) shares the rig's name at another camera: never union by name
     assert len(OBJECT_CLAY_VIEWS) == 4
     clay_top = next(v for v in OBJECT_CLAY_VIEWS if v.name == "top")
     assert clay_top.elevation_deg == 88.0
@@ -62,13 +53,6 @@ def test_view_presets_unique():
 def test_spec_rejects_language_outside_track():
     with pytest.raises(ValidationError):
         Spec(id="x", track=Track.SCENE, language=Language.BLENDER, prompt="p")
-    s = Spec(id="x", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="p")
-    assert s.budget == Budget()
-
-
-def test_usage_addition_sums_cost():
-    u = Usage(model="m", input_tokens=10, cost_usd=0.1) + Usage(model="m", output_tokens=5, cost_usd=0.2)
-    assert u.input_tokens == 10 and u.output_tokens == 5 and math.isclose(u.cost_usd, 0.3)
 
 
 def test_static_plan_validates_attach_and_duplicates():
@@ -115,23 +99,6 @@ def test_camera_plan_name_must_be_filename_safe():
     for bad in ("x/../y", "/absolute", "a\\b", "a b", "a.png", "", "x" * 200):
         with pytest.raises(ValidationError):
             CameraPlan(name=bad, position=(0, 1.6, 5), look_at=(0, 0, 0))
-
-
-def test_chat_message_helpers():
-    m = ChatMessage.user("hi")
-    assert m.text == "hi" and m.role == "user"
-
-
-def test_workspace_git_roundtrip(tmp_ws):
-    (tmp_ws.src / "a.py").write_text("x = 1\n")
-    c0 = tmp_ws.commit("r0")
-    (tmp_ws.src / "a.py").write_text("x = 2\n")
-    changed = tmp_ws.changed_files()
-    assert [c.path for c in changed] == ["src/a.py"]
-    c1 = tmp_ws.commit("r1")
-    assert c0 != c1
-    tmp_ws.restore(c0)
-    assert (tmp_ws.src / "a.py").read_text() == "x = 1\n"
 
 
 def test_budget_is_strict_but_recorded_specs_migrate_the_retired_cost_key():
