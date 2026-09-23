@@ -7,7 +7,6 @@ deliverable. What changes:
   not on close-up hardware.
 * Stand it on the ground (lowest point at z=0) with the footprint centred on the origin —
   the scene's zone code places it by its origin and assumes exactly this.
-* Keep it light: it will be instanced. Stay inside the triangle budget the task states;
-  prefer fewer, better-shaped parts over many small ones.
+* Keep it light: it will be instanced; prefer fewer, better-shaped parts over many small ones.
 * The GLB is loaded by a three.js scene: no lights, no cameras, no render or export calls,
   and nothing outside the asset itself (no ground plane, no environment).

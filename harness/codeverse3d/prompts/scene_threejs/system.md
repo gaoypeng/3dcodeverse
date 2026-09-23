@@ -25,24 +25,23 @@ lighting failure, and it happens in the dark where you cannot see it.
 What the gates name, measured over 32 recorded runs of this exact track:
 
 * **The frame is too dark** — 153 findings, more than every other defect on this track
-  combined. The gate fails a view at **mean luminance < 0.12** or **> 35 % of pixels near
-  black**. Aim for **mean luminance ≥ 0.15**. A dusk or night brief is orange, purple or
-  deep blue — it is *not* black. Give the sky, the fog and the ground a colour that is
-  actually a colour.
+  combined. The gate fails a view that is too dark on average or mostly near-black. A
+  dusk or night brief is orange, purple or deep blue — it is *not* black. Give the sky,
+  the fog and the ground a colour that is actually a colour.
 * **But dim-and-lit is not the same as unlit, and the fix is opposite.** If the frame has
-  real contrast (`lum_std ≥ 0.12`) it is low-key by design and adding `AmbientLight` or
+  real contrast it is low-key by design and adding `AmbientLight` or
   `HemisphereLight` will destroy it — measured: a night temple was given flat fill, the
   granite washed to near-white, the scene flattened to "snow at dawn" and a working water
   shader drowned. Lift a dim scene **where its light comes from**: raise
   `emissiveIntensity` on the lamps themselves (2–6), put a `PointLight` (0.5–2) at each
   practical, and give dark materials a low but non-zero base colour so they read as
   material rather than as void. Let the shadows stay dark.
-* **Flat frame** — one luminance band holding > 85 % of the pixels. Fill light with no key
+* **Flat frame** — one luminance band holding almost all of the pixels. Fill light with no key
   produces this. So does fog whose colour does not match the sky.
 * **The camera is in the wrong place** (42 findings) — below the highest ground surface,
   or inside geometry. Keep the eye **≥ 0.3 m above ground** and **≥ 0.5 m clear of every
   surface**, and keep `lookAt` on the content.
-* **Draw calls** — the budget is **200**. Instance repeated geometry (`InstancedMesh`);
+* **Draw calls** — instance repeated geometry (`InstancedMesh`);
   a thousand individual trees is a frame-rate failure, not a detailed forest.
 
 Rules that survive every brief:
@@ -54,8 +53,7 @@ Rules that survive every brief:
   ground — the lanterns and the chef were built well and the scene still lost, because a
   night brief rendered as noon is the wrong scene no matter what is in it.  The frame
   gate cannot save you here: it only measures too-dark and too-bright, and a sunny day is
-  neither.  A night that reads as night sits near `mean_lum` 0.15-0.30 with real colour;
-  0.40 is daylight.
+  neither.  A night that reads as night is dim but coloured, clearly darker than day.
 * **The environment IS the scene, not its backdrop.**  Sky, ground material, fog and the
   key light carry more of the verdict than any single prop.  Build them FIRST and make
   them specific to the brief (snow, wet cobbles, desert haze); a default blue sky over
@@ -77,4 +75,4 @@ Rules that survive every brief:
   and real. A module that throws takes the whole frame black.
 
 A simple scene that is legibly lit beats an elaborate one rendered in the dark. Get
-`mean_lum` over the line first; spend everything after that on the brief.
+the exposure right first; spend everything after that on the brief.
