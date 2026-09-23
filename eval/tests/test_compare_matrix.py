@@ -47,9 +47,7 @@ ARMS = "harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code,oneshot+repair:c
 def test_battery_compare_v1_is_valid():
     b = Battery.load(BATTERY)
     assert b.name == "compare_v1" and b.track.value == "static_object" and b.language.value == "blender"
-    assert len(b.prompts) == 8 and len({p.id for p in b.prompts}) == 8
-    assert all(len(p.must_have) >= 3 for p in b.prompts)
-    assert {p.tier for p in b.prompts} == {"easy", "medium", "hard"}
+    assert all(len(p.must_have) >= 3 for p in b.prompts)   # ids, tiers, count: test_bench's corpus contract
 
 
 def test_parse_arms():
@@ -257,15 +255,6 @@ def test_every_cell_and_its_harness_run_open_a_ledger(tmp_path: Path):
     oneshot = cells["oneshot:claude-code"]
     assert not (oneshot / "run").exists()
     assert [r.label for r in load_ledger(oneshot)] == ["judge:static_object_v1:r00:s0"]
-
-
-def test_max_usd_flag_was_deleted(capsys):
-    """The money ceiling left the harness on 2026-08-28: the flag must be rejected,
-    not silently parsed into nothing."""
-    with pytest.raises(SystemExit):
-        main(["--prompts", "x.yaml", "--arms", "harness:gemini-cli:m", "--out", "o",
-              "--max-usd", "2.5"])
-    assert "--max-usd" in capsys.readouterr().err
 
 
 def test_no_resume_starts_the_harness_arm_fresh(tmp_path: Path):

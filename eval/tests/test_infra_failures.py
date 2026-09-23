@@ -19,6 +19,9 @@ OUTAGES = [
     "ModelError: Gemini API error 503: This model is currently experiencing high demand.",
     "ModelError: Gemini request timed out: The read operation timed out",
     "ModelError: Gemini API error 529: is overloaded",
+    "Gemini API error 504: Deadline expired before operation could complete.",
+    "ModelError: Gemini stream exceeded its attempt budget after 293 chunks",
+    "ModelError: structured output unavailable (finish_reason=PROHIBITED_CONTENT; raise max_output_tokens if truncated)",
     "KeyPoolExhausted: every key is cooling down",
     "APIError: 500 Internal server error",
     "ConnectionError: Connection reset by peer",
@@ -78,21 +81,6 @@ def test_structured_exceptions_beat_string_matching():
         assert is_infra_failure(capability_failure) is False
 
 
-def test_outage_cells_leave_every_rate_alone():
-    """The bug in one assertion: an arm hit by downtime must score the same as one
-    that ran in the clear, and the loss must be reported rather than hidden."""
-    clear = [CellResult(prompt_id=f"p{i}", arm="A", kind="oneshot", status="scored",
-                        score=0.8, passed=True, build_ok=True, wall_s=60.0) for i in range(4)]
-    unlucky = [*[c.model_copy(update={"arm": "B"}) for c in clear],
-               CellResult(prompt_id="p9", arm="B", kind="oneshot", status="infra_failed",
-                          score=None, passed=None, build_ok=False, wall_s=3600.0)]
-    a, b = {s.arm: s for s in arm_stats([*clear, *unlucky])}["A"], {s.arm: s for s in arm_stats([*clear, *unlucky])}["B"]
-    assert a.mean_score == b.mean_score, "downtime changed the score"
-    assert a.build_ok_rate == b.build_ok_rate, "downtime changed the build rate"
-    assert a.mean_minutes == b.mean_minutes, "an hour spent retrying a 503 is not model latency"
-    assert b.infra_failed == 1 and b.n_evaluated == 4 and b.n == 5, "the loss must stay visible"
-
-
 def test_both_failure_paths_classify_the_same_way(tmp_path):
     """CQ-1, the asymmetry itself: ONE error hits both arms, both must reach one verdict.
 
@@ -147,7 +135,6 @@ def test_both_failure_paths_classify_the_same_way(tmp_path):
 
 def test_budget_exhaustion_is_scoreless_but_still_counts_against_build_rate():
     """The 50-minutes-for-nothing case: no score to average, but the arm did miss."""
-    from bench._compare_report import CellResult, arm_stats
 
     rows = [CellResult(prompt_id="p1", arm="A", kind="harness", status="scored",
                        score=0.9, passed=True, build_ok=True),
@@ -298,15 +285,6 @@ def test_a_classifier_crash_still_records_the_cell(tmp_path):
                     cb.CompareOptions(judge="gemini:x", loop_judge="gemini:x"), cb.CompareDeps(FakeEvaluator(), run_track=boom))
     assert r.status == "error" and "planner died" in r.error
     assert (Path(r.workspace) / "cell.json").is_file()
-
-
-
-def test_stream_attempt_budget_and_504_are_infra():
-    from bench._infra import is_infra_failure
-
-    assert is_infra_failure(RuntimeError("ModelError: Gemini stream exceeded its attempt budget after 293 chunks"))
-    assert is_infra_failure(RuntimeError("Gemini API error 504: Deadline expired before operation could complete."))
-    assert is_infra_failure(RuntimeError("ModelError: structured output unavailable (finish_reason=PROHIBITED_CONTENT; raise max_output_tokens if truncated)"))
 
 
 def test_the_ab_viewer_refuses_to_call_a_winner_it_cannot_support():

@@ -153,10 +153,10 @@ def test_graphics_v2_opengl_prompts_carry_language_override():
         assert spec.language == want, f"{prompt.id}: spec language {spec.language} != {want}"
 
 
-@pytest.mark.parametrize("name", ["compare_v2", "compare_v3"])
-def test_compare_is_a_subset_of_static_v2(name: str):
+def test_compare_is_a_subset_of_static_v2():
+    """compare_v3 holds compare_v2 verbatim (the test below), so v3 covers both."""
     static = {p.id.split("_", 1)[1]: p for p in _load("static_objects_v2").prompts}
-    for p in _load(name).prompts:
+    for p in _load("compare_v3").prompts:
         key = p.id.split("_", 1)[1]  # cmp_hard_violin -> hard_violin == prefix-stripped static key
         src = static.get(key)
         assert src is not None, f"{p.id}: no matching static_objects_v2 prompt"

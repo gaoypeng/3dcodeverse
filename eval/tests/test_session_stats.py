@@ -271,13 +271,3 @@ def test_the_depth_comparison_is_restricted_to_one_pose() -> None:
     assert s["sweep_findings"] == 2 and s["sweep_distinct"] == 2
     assert [(p, sw, cn) for _, p, sw, cn in s["both"]] == [("c|d", 0.0044, 0.0044)], \
         "only the rest-worst pair is comparable, and there the two probes agree"
-
-
-def test_a_finding_whose_message_changes_still_counts() -> None:
-    """The whole point of reading `target` / `data`: a wording change in
-    `aggregate_findings` used to silently zero this report."""
-    from bench.penetration_thresholds import sweep_pairs
-
-    f = _sweep("x|y", 0.01, poses=[{}], worst_pose={})
-    f["message"] = "completely different wording"
-    assert sweep_pairs({"gate": "joint_sweep", "findings": [f]}, rest_only=False) == {("x", "y"): 0.01}

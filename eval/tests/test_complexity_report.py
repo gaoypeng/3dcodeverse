@@ -62,7 +62,6 @@ def test_collect_and_report_over_a_battery(tmp_path: Path) -> None:
     rows, skipped = CR.collect([battery])
     assert skipped == 0 and len(rows) == 3
     assert {r["slug"]: r["minutes"] for r in rows} == {"low": 5, "mid": 20, "high": 40}
-    assert {r["slug"] for r in rows} == {"low", "mid", "high"}
     assert rows[0]["plan_parts"] == 2 and rows[0]["n_materials"] == 3
     # the whole point of the study: a monotone fall shows up as a strong negative r
     xs, ys = CR._pairs(rows, "index", "overall")

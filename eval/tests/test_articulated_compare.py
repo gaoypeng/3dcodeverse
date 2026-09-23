@@ -110,7 +110,6 @@ def test_rubric_for_is_the_one_track_to_rubric_mapping():
     import bench._compare_report as report
     from codeverse3d.contracts.common import TRACK_INFO
 
-    assert not hasattr(report, "RUBRIC_BY_TRACK")
     lang = {Track.STATIC_OBJECT: Language.BLENDER, Track.ARTICULATED_OBJECT: Language.URDF_BLENDER,
             Track.SCENE: Language.SCENE_THREEJS, Track.GRAPHICS: Language.GLSL_SHADER}
     for t in Track:

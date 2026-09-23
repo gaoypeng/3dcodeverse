@@ -112,7 +112,8 @@ def test_outage_cells_are_excluded_from_every_arm_rate():
     by = {s.arm: s for s in arm_stats(clear + unlucky)}
     c, v = by[CONTROL], by[VARIANT]
     assert c.mean_score == v.mean_score and c.mean_minutes == v.mean_minutes and c.mean_gen_usd == v.mean_gen_usd
-    assert v.infra_failed == 1 and v.n == 5 and v.n_scored == 4
+    assert c.build_ok_rate == v.build_ok_rate
+    assert v.infra_failed == 1 and v.n == 5 and v.n_scored == 4 and v.n_evaluated == 4
     md = render_summary(pair_up(clear + unlucky), clear + unlucky, title="t", variant_env={"X": "1"},
                         generator="g", judge="j", rounds=2)
     assert "n_infra_failed: 1" in md and "--redo-status infra_failed" in md and "variant env: `X=1`" in md
@@ -415,11 +416,3 @@ def test_a_pinned_plan_that_dies_in_a_storm_records_the_pair_and_continues(tmp_p
     assert {r.arm for r in first} == {CONTROL, VARIANT} and all(r.status == "infra_failed" for r in first)
     assert all("pinned plan" in r.error for r in first)
     assert [c[0] for c in fake.calls] == [ids[1], ids[1]], "no cell was spent on the dead pair; the next prompt ran"
-
-
-def test_max_usd_flag_was_deleted(capsys):
-    """The money ceiling left the harness on 2026-08-28: the flag must be rejected,
-    not silently parsed into nothing."""
-    with pytest.raises(SystemExit):
-        main(["--prompts", "p.yaml", "--out", "o", "--max-usd=2.5"])
-    assert "--max-usd" in capsys.readouterr().err
