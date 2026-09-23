@@ -110,13 +110,10 @@ def test_identity_holds_same_version_verdicts_and_reports_older_ones_as_drift(tm
     assert "identity OK: 1 of 1" in capsys.readouterr().out
 
 
-def test_a_verdict_written_before_the_stamp_reads_as_version_0(tmp_path):
+def test_a_pre_stamp_verdict_reads_as_version_0_and_an_unjudged_round_is_skipped(tmp_path):
     j = aggregate_samples(R, [_sample(0.9)], gates=GATES, acceptance_items=ITEMS)
     raw = json.loads(j.raw)
     raw.pop("scoring_version", None)
-    _write_round(tmp_path, j.model_copy(update={"raw": json.dumps(raw)}))
-    assert ro.replay_corpus([tmp_path], rubric_name=R.name).rows[0].scoring_version_stored == 0
-
-
-def test_a_round_without_a_judged_sample_is_skipped(tmp_path):
-    assert ro.replay_round(_write_round(tmp_path, None)) is None
+    _write_round(tmp_path / "old", j.model_copy(update={"raw": json.dumps(raw)}))
+    assert ro.replay_corpus([tmp_path / "old"], rubric_name=R.name).rows[0].scoring_version_stored == 0
+    assert ro.replay_round(_write_round(tmp_path / "unjudged", None)) is None

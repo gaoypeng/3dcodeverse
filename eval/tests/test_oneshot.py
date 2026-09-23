@@ -58,16 +58,11 @@ def test_scene_and_shader_prompts_are_their_contract_and_nothing_of_the_harness(
     assert not any(s in p for s in harness_only)
 
 
-@pytest.mark.parametrize("text", [
-    "Here you go:\n```python\nimport bpy\nprint(1)\n```\nDone.",
-    "=== FILE: src/model.py ===\nimport bpy\nprint(1)\n=== END FILE ===",
-    "import bpy\nprint(1)\n",
-])
-def test_extract_model_file_tolerant(text: str):
-    assert extract_model_file(text) == "import bpy\nprint(1)\n"
-
-
-def test_extract_model_file_rejects_prose():
+def test_extract_model_file_is_tolerant_but_rejects_prose():
+    for text in ("Here you go:\n```python\nimport bpy\nprint(1)\n```\nDone.",
+                 "=== FILE: src/model.py ===\nimport bpy\nprint(1)\n=== END FILE ===",
+                 "import bpy\nprint(1)\n"):
+        assert extract_model_file(text) == "import bpy\nprint(1)\n", text
     with pytest.raises(MultiFileParseError):
         extract_model_file("Sorry, I cannot do that.")
 
@@ -82,15 +77,13 @@ def test_claude_argv_disables_tools_and_is_single_turn():
     assert argv_m[argv_m.index("--model") + 1] == "opus"
 
 
-def test_codex_argv_is_read_only_and_reads_prompt_from_stdin(tmp_path: Path):
+def test_codex_argv_is_read_only_and_forces_a_reasoning_effort(tmp_path: Path):
+    """Read-only sandbox, no MCP, prompt on stdin.  Effort: default high
+    (Settings.agents.codex_reasoning_effort); `@effort` on the id wins; '' opts out."""
     argv = CodexOneShot("", binary="codex").argv(tmp_path, tmp_path / "last.md")
     assert argv[:3] == ["codex", "exec", "--json"]
     assert argv[argv.index("--sandbox") + 1] == "read-only" and argv[-1] == "-"
     assert "--ephemeral" in argv and "-o" in argv and "mcp_servers" not in " ".join(argv)
-
-
-def test_codex_oneshot_forces_a_reasoning_effort(tmp_path: Path):
-    """Default high (Settings.agents.codex_reasoning_effort); `@effort` on the id wins; '' opts out."""
     argv = CodexOneShot("gpt-5.6-terra", binary="codex").argv(tmp_path, tmp_path / "last.md")
     assert argv[argv.index("--model") + 1] == "gpt-5.6-terra"
     assert "model_reasoning_effort=high" in argv and argv[argv.index("-c") + 1] == "model_reasoning_effort=high"
@@ -113,13 +106,11 @@ def test_api_oneshot_uses_injected_chat_model(tmp_path: Path):
     r = ApiOneShot("gemini:x", chat_model=M()).generate(oneshot_prompt(_spec()), out_dir=tmp_path / "g")
     assert r.ok and r.usage.cost_usd == 0.004 and (tmp_path / "g" / "response.md").is_file() and r.tool_calls == 0
 
-
-def test_api_oneshot_model_error_is_recorded(tmp_path: Path):
     class Boom:
         def generate(self, req):
             raise RuntimeError("quota")
 
-    r = ApiOneShot("gemini:x", chat_model=Boom()).generate("p", out_dir=tmp_path / "g")
+    r = ApiOneShot("gemini:x", chat_model=Boom()).generate("p", out_dir=tmp_path / "boom")
     assert not r.ok and "quota" in r.notes
 
 

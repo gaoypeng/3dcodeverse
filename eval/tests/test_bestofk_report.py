@@ -78,23 +78,16 @@ def test_equal_compute_k_is_taken_per_prompt_not_per_row(tmp_path: Path):
         {"prompt_id": "b", "arm": "harness:x", "gen_cost_usd": 2.00},
         {"prompt_id": "a", "arm": "oneshot:x", "gen_cost_usd": 0.05},
         {"prompt_id": "b", "arm": "oneshot:x", "gen_cost_usd": 0.05},
+        # no recorded generation cost is missing data, not free: counting it would inflate k
+        {"prompt_id": "c", "arm": "oneshot:x", "gen_cost_usd": 0},
+        {"prompt_id": "d", "arm": "oneshot:x"},
     ]
     (tmp_path / "results.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
 
     assert sorted(gen_costs(tmp_path, "harness:")) == [2.00, 2.00], "last row per prompt"
+    assert gen_costs(tmp_path, "oneshot:") == [0.05, 0.05]
     h, b, k = equal_compute_k(tmp_path, "oneshot:")
     assert (h, b, k) == (2.00, 0.05, 40)
-
-
-def test_a_zero_cost_row_is_not_counted_as_free(tmp_path: Path):
-    """A row with no recorded generation cost is missing data; counting it would inflate k."""
-    rows = [
-        {"prompt_id": "a", "arm": "oneshot:x", "gen_cost_usd": 0.05},
-        {"prompt_id": "b", "arm": "oneshot:x", "gen_cost_usd": 0},
-        {"prompt_id": "c", "arm": "oneshot:x"},
-    ]
-    (tmp_path / "results.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
-    assert gen_costs(tmp_path, "oneshot:") == [0.05]
 
 
 def test_the_report_says_when_k_has_not_been_reached(tmp_path: Path):

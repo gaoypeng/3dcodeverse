@@ -41,14 +41,11 @@ def test_the_targets_own_state_survives(tmp_path):
     assert state["stages"]["plan"]["result_path"] == str((dst / "stages" / "plan.json").resolve())
 
 
-def test_an_unplanned_source_is_refused_by_name(tmp_path):
-    (tmp_path / "src_run" / "stages").mkdir(parents=True)
-    with pytest.raises(PinError, match="has not planned"):
-        seed_plan(tmp_path / "src_run", tmp_path / "dst")
-
-
-def test_a_source_without_a_cached_stage_is_refused(tmp_path):
+def test_an_unplanned_or_uncached_source_is_refused(tmp_path):
     """plan.json but no stage entry: the target would silently re-plan while the report claims a pin."""
+    (tmp_path / "bare" / "stages").mkdir(parents=True)
+    with pytest.raises(PinError, match="has not planned"):
+        seed_plan(tmp_path / "bare", tmp_path / "dst")
     src = _planned_run(tmp_path, parts=4)
     (src / "run_state.json").write_text(json.dumps({"status": "generating", "stages": {}}))
     dst = tmp_path / "dst_run"

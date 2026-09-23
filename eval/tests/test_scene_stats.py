@@ -30,24 +30,19 @@ def test_a_dead_browser_is_counted_apart_from_a_defect(tmp_path: Path) -> None:
         _gate("render_console", False, [DETACHED]),
         _gate("scene_placement", False, ["Crate is sunken 0.9 m into Wall"]),
     ])
-    d = layers(runs(tmp_path))
-    g = d["gates"]
-    # the browser loss lands in its own column and does NOT inflate the gate's failures
-    assert g["render_console:LOST"] == 1
-    assert g["render_console:FAILED"] == 0
-    assert d["gate_errors"]["render_console"] == 0
-    # the real defect in the same round is untouched
-    assert g["scene_placement:FAILED"] == 1 and d["gate_errors"]["scene_placement"] == 1
-    assert g["rounds_lost_to_the_box"] == 1
-
-
-def test_a_gate_that_failed_ONLY_on_the_browser_is_not_a_failure(tmp_path: Path) -> None:
-    """`scene_frames` with no frames to look at is the same browser loss reported twice."""
+    # `scene_frames` with no frames to look at is the same browser loss reported twice
     _run(tmp_path, "both", [_gate("render_console", False, [DETACHED]),
                             _gate("scene_frames", False, ["render produced no result: " + DETACHED])])
     d = layers(runs(tmp_path))
-    assert d["gates"]["scene_frames:FAILED"] == 0 and d["gates"]["scene_frames:LOST"] == 1
-    assert sum(d["gate_errors"].values()) == 0
+    g = d["gates"]
+    # the browser loss lands in its own column and does NOT inflate the gate's failures
+    assert g["render_console:LOST"] == 2
+    assert g["render_console:FAILED"] == 0
+    assert d["gate_errors"]["render_console"] == 0
+    assert g["scene_frames:FAILED"] == 0 and g["scene_frames:LOST"] == 1
+    # the real defect in the same round is untouched
+    assert g["scene_placement:FAILED"] == 1 and sum(d["gate_errors"].values()) == d["gate_errors"]["scene_placement"] == 1
+    assert g["rounds_lost_to_the_box"] == 2
 
 
 def test_the_median_score_is_read_off_the_real_Judgment_shape(tmp_path: Path) -> None:

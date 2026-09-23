@@ -90,13 +90,6 @@ def test_outage_cells_are_excluded_from_every_arm_rate():
     assert "| p9 |  | missing | infra_failed | — | unpaired: control missing; variant infra_failed |" in md
 
 
-def test_summary_marks_regressions_and_states_the_rule():
-    rows = [_row("a", CONTROL, 0.8), _row("a", VARIANT, 0.7), _row("b", CONTROL, 0.5), _row("b", VARIANT, 0.6)]
-    md = render_summary(pair_up(rows), rows, title="t", variant_env={}, generator="g", judge="j", rounds=1)
-    assert "| a |  | 0.800 | 0.700 | -0.100 | REGRESSION |" in md and "## Verdict: **inconclusive**" in md
-    assert "keep iff mean delta >= +0.02" in md and "(none)" in md
-
-
 # ----------------------------------------------------------------------------- noise floor
 def test_a_verdict_carries_its_noise_beside_the_word():
     """An A/A run once said "keep" on +0.344 from one prompt: the verdict must say when it is noise."""
@@ -110,14 +103,20 @@ def test_a_verdict_carries_its_noise_beside_the_word():
     assert v.sd_delta is None and not v.separated and "one pair cannot separate" in v.caution
 
 
-def test_an_aa_run_is_labelled_so_nobody_reads_it_as_a_decision():
-    rows = [_row("a", CONTROL, 0.59), _row("a", VARIANT, 0.93)]
+def test_the_summary_marks_regressions_states_the_rule_and_labels_an_aa_run():
+    rows = [_row("a", CONTROL, 0.8), _row("a", VARIANT, 0.7), _row("b", CONTROL, 0.5), _row("b", VARIANT, 0.6)]
+    md = render_summary(pair_up(rows), rows, title="t", variant_env={}, generator="g", judge="j", rounds=1)
+    assert "| a |  | 0.800 | 0.700 | -0.100 | REGRESSION |" in md and "## Verdict: **inconclusive**" in md
+    assert "keep iff mean delta >= +0.02" in md and "(none)" in md
+    # an A/A run is labelled so nobody reads it as a decision
     md = render_summary(pair_up(rows), rows, title="t", variant_env={}, generator="g", judge="j", rounds=1, aa=True)
     assert md.startswith("# A/A: t") and "A/A calibration — the arms are identical" in md
 
 
 # ----------------------------------------------------------------------------- env isolation
-def test_variant_env_is_applied_to_the_variant_arm_only():
+def test_child_env_isolates_the_variant_switch_and_pins_the_in_flight_cap(monkeypatch):
+    """The control never inherits the switch under test; CQ-3: an explicit --max-in-flight beats the
+    shell's C3D_MAX_IN_FLIGHT (docs/COST.md §23), and --variant-env may not set the cap."""
     opts = AbOptions(variant_env={"C3D_PLAN_BRIEF": "on"})
     base = {"PATH": "/bin", "C3D_PLAN_BRIEF": "on"}  # leaked from the launching shell
     c, v = child_env(CONTROL, opts, base), child_env(VARIANT, opts, base)
@@ -127,9 +126,6 @@ def test_variant_env_is_applied_to_the_variant_arm_only():
     assert c[MAX_IN_FLIGHT_ENV] == v[MAX_IN_FLIGHT_ENV] == "16"
     assert child_env(VARIANT, opts, {})["PYTHONUNBUFFERED"] == "1"
 
-
-def test_children_run_at_exactly_the_cap_the_budget_reserved(monkeypatch):
-    """CQ-3: an explicit --max-in-flight beats the shell's C3D_MAX_IN_FLIGHT (docs/COST.md §23)."""
     opts = AbOptions(variant_env={"K": "v"}, max_in_flight=8)
     base = {"PATH": "/bin", MAX_IN_FLIGHT_ENV: "32", NESTED_MAX_IN_FLIGHT_ENV: "48"}
     for arm in (CONTROL, VARIANT):
@@ -143,8 +139,6 @@ def test_children_run_at_exactly_the_cap_the_budget_reserved(monkeypatch):
     monkeypatch.delenv(MAX_IN_FLIGHT_ENV)
     assert inherited_max_in_flight() == DEFAULT_MAX_IN_FLIGHT
 
-
-def test_parse_variant_env():
     assert parse_variant_env(["A=1", "B=x=y", "C="]) == {"A": "1", "B": "x=y", "C": ""}
     for bad in (["A"], ["=1"]):
         with pytest.raises(ValueError):

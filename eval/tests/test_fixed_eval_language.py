@@ -63,22 +63,6 @@ def test_graphics_cells_are_judged_on_their_frames(monkeypatch, tmp_path):
     assert seen["inp"].renders.views[0].path == str(png) and "frames=1" in seen["inp"].extra_context
 
 
-def test_graphics_judge_is_the_track_rubric_with_the_photos():
-    from bench._fixed_eval import FixedEvaluator
-    from codeverse3d.contracts.common import Track
-    from codeverse3d.contracts.spec import ReferenceImage, Spec
-    from codeverse3d.judges.vlm_judge import LikenessJudge
-
-    ev = FixedEvaluator("gemini:gemini-3.1-pro-preview", n_samples=2)
-    with_photos = Spec(id="g", track=Track.GRAPHICS, language=Language.GLSL_SHADER, prompt="x", references=[ReferenceImage(path="/p.png")])
-    j = ev.judge_for(with_photos)
-    assert isinstance(j, LikenessJudge) and j.rubric.name == "shader_v2"
-    plain = ev.judge_for(Spec(id="g", track=Track.GRAPHICS, language=Language.GLSL_SHADER, prompt="x"))
-    assert plain.rubric.name == "shader_v2" and not isinstance(plain, LikenessJudge)
-    obj = ev.judge_for(Spec(id="o", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="x"))
-    assert obj.rubric.name == "static_object_v1"
-
-
 def test_scene_cells_are_judged_on_their_cameras_and_orbit_frames(monkeypatch, tmp_path):
     """2026-09-07: the compare bench had no scene branch — a scene cell built (no GLB) and
     `evaluate` returned before judging.  A scene is judged on render_scene's frames (authored

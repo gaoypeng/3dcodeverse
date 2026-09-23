@@ -29,47 +29,30 @@ def _run(root: Path, name: str, costs: list[float]) -> Path:
 
 
 def test_rates_and_costs_over_two_sessions(tmp_path: Path) -> None:
+    """An empty stdout.json is a CLI killed before its stats: killed, not a session — and never
+    doubled through the telemetry symlink.  A candidate's own run under ``_cand/`` is not the cell's."""
+    from bench.session_stats import _killed
+
     run = _run(tmp_path, "cell_a", [1.0, 3.0, 5.0])
     _session(run, "baseline_r00", tools={"build": (10, 0), "joint_sweep": (4, 2)},
              prompt=1000, cached=700, requests=5)
     _session(run, "refine_r01", tools={"build": (6, 1)}, prompt=1000, cached=900, requests=5)
+    dead = run / "trajectories" / "refine_r02"
+    dead.mkdir(parents=True)
+    (dead / "stdout.json").write_text("")
+    (run / "telemetry").mkdir()
+    (run / "telemetry" / "trajectories").symlink_to(run / "trajectories", target_is_directory=True)
+    _session(run / "_cand" / "c1" / "run", "baseline_r00", tools={"build": (99, 9)}, prompt=999, cached=0, requests=9)
 
+    assert len(_sessions(tmp_path)) == 2 and _killed(tmp_path) == 1
     calls, failed = tool_rates(_sessions(tmp_path))
     assert calls == {"build": 16, "joint_sweep": 4} and failed == {"build": 1, "joint_sweep": 2}
     tok = token_rates(_sessions(tmp_path))
     assert tok["cache_hit"] == 0.8 and tok["uncached_per_request"] == 40  # (2000-1600)/10
     assert round_costs(tmp_path) == [1.0, 3.0, 5.0]
-    assert "| 3.000 |" in report([tmp_path])                 # the median round, not the mean
-
-
-def test_a_killed_session_is_counted_as_killed_not_as_a_session(tmp_path: Path) -> None:
-    """An empty stdout.json is a CLI killed before its stats: killed, not a session — and never doubled."""
-    from bench.session_stats import _killed
-
-    run = _run(tmp_path, "cell_a", [2.0])
-    _session(run, "baseline_r00", tools={"build": (3, 0)}, prompt=100, cached=50, requests=1)
-    dead = run / "trajectories" / "refine_r01"
-    dead.mkdir(parents=True)
-    (dead / "stdout.json").write_text("")
-    # the telemetry symlink reaches the dead session too: killed must not double either
-    (run / "telemetry").mkdir()
-    (run / "telemetry" / "trajectories").symlink_to(run / "trajectories", target_is_directory=True)
-
-    assert len(_sessions(tmp_path)) == 1 and _killed(tmp_path) == 1
-    calls, _ = tool_rates(_sessions(tmp_path))
-    assert calls == {"build": 3}
-    assert "| 1 | 1 |" in report([tmp_path])                  # sessions | killed
-
-
-def test_a_sub_workspace_is_not_the_battery_cell_above_it(tmp_path: Path) -> None:
-    """A candidate's own run under ``_cand/`` is not the cell's, as in ``find_runs``."""
-    run = _run(tmp_path, "cell_a", [1.0])
-    _session(run, "baseline_r00", tools={"build": (2, 0)}, prompt=100, cached=50, requests=1)
-    sub = run / "_cand" / "c1" / "run"
-    _session(sub, "baseline_r00", tools={"build": (99, 9)}, prompt=999, cached=0, requests=9)
-
-    calls, failed = tool_rates(_sessions(tmp_path))
-    assert dict(calls) == {"build": 2} and failed["build"] == 0
+    text = report([tmp_path])
+    assert "| 3.000 |" in text                 # the median round, not the mean
+    assert "| 2 | 1 |" in text                 # sessions | killed
 
 
 def test_the_coupling_survey_counts_degrees_of_freedom_not_joints(tmp_path: Path) -> None:
@@ -91,6 +74,9 @@ def test_the_coupling_survey_counts_degrees_of_freedom_not_joints(tmp_path: Path
     cell = tmp_path / "cells" / "art_hard_umbrella" / "arm" / "run" / "artifacts"
     cell.mkdir(parents=True)
     (cell / "robot.urdf").write_text(urdf)
+    for where in ("src", "deliverable"):   # a run holds robot.urdf thrice: one per run, the built one
+        (cell.parent / where).mkdir()
+        (cell.parent / where / "robot.urdf").write_text(urdf)
     (tmp_path / "cells" / "plain" / "arm" / "run" / "artifacts").mkdir(parents=True)
     (tmp_path / "cells" / "plain" / "arm" / "run" / "artifacts" / "robot.urdf").write_text(
         urdf.replace('<mimic joint="drive" multiplier="1" offset="0"/>', ""))
@@ -121,27 +107,6 @@ def test_the_coupling_survey_also_reads_the_gate_that_judges_the_poses(tmp_path:
     g = gate_stats(tmp_path)
     assert g == {"rounds": 2, "sweep_ran": 2, "sweep_failed": 1, "sweep_errors": 1}
     assert "| 2 | 2 | 1 | 1 | 0.50 |" in report([tmp_path])
-
-
-def test_the_coupling_survey_counts_runs_not_copies_of_the_same_urdf(tmp_path: Path) -> None:
-    """A run holds robot.urdf in src/, artifacts/ and deliverable/: one per run, the built one."""
-    from bench._records import prompt_of
-    from bench.coupling_stats import _urdfs
-
-    urdf = """<?xml version="1.0"?>
-<robot name="rig"><link name="base"/><link name="a"/>
-  <joint name="drive" type="revolute"><parent link="base"/><child link="a"/>
-    <axis xyz="0 0 1"/><limit lower="0" upper="1" effort="1" velocity="1"/></joint>
-</robot>
-"""
-    run = tmp_path / "runs" / "cpl_umbrella"
-    for where in ("src", "artifacts", "deliverable"):
-        (run / where).mkdir(parents=True)
-        (run / where / "robot.urdf").write_text(urdf)
-
-    found = _urdfs(tmp_path)
-    assert [p.parent.name for p in found] == ["artifacts"], "one URDF per run, the built one"
-    assert prompt_of(found[0]) == "cpl_umbrella"
 
 
 def _sweep(pair: str, depth_m: float, *, poses: list[dict], worst_pose: dict) -> dict:
