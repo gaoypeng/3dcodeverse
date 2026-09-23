@@ -49,39 +49,28 @@ def captured(monkeypatch) -> dict[str, Any]:
     return seen
 
 
-def _run(tmp_path: Path, language: Language, track: Track) -> Path:
-    runs = tmp_path / "runs"
-    ws = Workspace(runs / "r1").create()
-    ws.write_json(ws.spec_path, Spec(id="r1", track=track, language=language, prompt="a stool",
+def _run(runs: Path, slug: str, language: Language, track: Track) -> None:
+    ws = Workspace(runs / slug).create()
+    ws.write_json(ws.spec_path, Spec(id=slug, track=track, language=language, prompt="a stool",
                                      backends=Backends(generator="gemini-cli:gemini-3.6-flash")))
     (ws.artifacts / "object.glb").write_bytes(b"glTF\x02\x00\x00\x00")
-    return runs
 
 
-def test_object_render_uses_configured_size_and_explicit_flags_win(tmp_path, captured, monkeypatch):
-    runs = _run(tmp_path, Language.BLENDER, Track.STATIC_OBJECT)
-    monkeypatch.setenv("C3D_RENDER__WIDTH", "1600")
-    monkeypatch.setenv("C3D_RENDER__HEIGHT", "1200")
+def test_render_uses_the_configured_object_and_scene_sizes_and_explicit_flags_win(tmp_path, captured, monkeypatch):
+    runs = tmp_path / "runs"
+    _run(runs, "obj", Language.BLENDER, Track.STATIC_OBJECT)
+    _run(runs, "scn", Language.SCENE_THREEJS, Track.SCENE)
+    for name, value in (("WIDTH", "1600"), ("HEIGHT", "1200"), ("SCENE_WIDTH", "1920"), ("SCENE_HEIGHT", "1080")):
+        monkeypatch.setenv(f"C3D_RENDER__{name}", value)
     from codeverse3d.config import get_settings
 
     get_settings.cache_clear()
-    res = runner.invoke(app, ["render", "r1", "--runs-dir", str(runs)])
-
+    res = runner.invoke(app, ["render", "obj", "--runs-dir", str(runs)])
     assert res.exit_code == 0, res.output
     assert (captured.get("width"), captured.get("height")) == (1600, 1200)
-    res = runner.invoke(app, ["render", "r1", "--runs-dir", str(runs), "--width", "320", "--height", "240"])
+    res = runner.invoke(app, ["render", "obj", "--runs-dir", str(runs), "--width", "320", "--height", "240"])
     assert res.exit_code == 0, res.output
     assert (captured.get("width"), captured.get("height")) == (320, 240)
-
-
-def test_scene_render_uses_the_scene_size(tmp_path, captured, monkeypatch):
-    runs = _run(tmp_path, Language.SCENE_THREEJS, Track.SCENE)
-    monkeypatch.setenv("C3D_RENDER__SCENE_WIDTH", "1920")
-    monkeypatch.setenv("C3D_RENDER__SCENE_HEIGHT", "1080")
-    from codeverse3d.config import get_settings
-
-    get_settings.cache_clear()
-    res = runner.invoke(app, ["render", "r1", "--runs-dir", str(runs)])
-
+    res = runner.invoke(app, ["render", "scn", "--runs-dir", str(runs)])
     assert res.exit_code == 0, res.output
     assert (captured.get("width"), captured.get("height")) == (1920, 1080)

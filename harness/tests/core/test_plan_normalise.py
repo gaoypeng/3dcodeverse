@@ -49,7 +49,7 @@ def _joint(p: ArticulatedPlan, j: dict):
     return next(x for x in p.joints if x.name == j["name"])
 
 
-def test_degree_shaped_limits_and_rest_are_converted_together():
+def test_degree_shaped_limits_convert_together_and_a_two_turn_range_becomes_continuous():
     d = _raw()
     j = _revolute(d, 0.0, 90.0, 90.0)
     p = ArticulatedPlan.model_validate(d)
@@ -59,13 +59,10 @@ def test_degree_shaped_limits_and_rest_are_converted_together():
     assert sum("looked like degrees" in n for n in p.normalisations) == 1
     assert not any("continuous" in n for n in p.normalisations)
 
-
-def test_a_two_turn_degree_range_falls_through_to_continuous():
     d = _raw()
     j = _revolute(d, -360.0, 360.0)
     p = ArticulatedPlan.model_validate(d)
-    fixed = _joint(p, j)
-    assert fixed.type == "continuous"
+    assert _joint(p, j).type == "continuous"
     assert any("looked like degrees" in n for n in p.normalisations) and any("> 2π → continuous" in n for n in p.normalisations)
 
 

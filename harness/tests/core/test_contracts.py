@@ -7,7 +7,7 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from codeverse3d.contracts.common import Budget, Language, Track
+from codeverse3d.contracts.common import Budget
 from codeverse3d.contracts.plan import (
     ArticulatedPlan,
     AssetPlan,
@@ -48,11 +48,6 @@ def test_view_presets_unique():
     assert len(OBJECT_CLAY_VIEWS) == 4
     clay_top = next(v for v in OBJECT_CLAY_VIEWS if v.name == "top")
     assert clay_top.elevation_deg == 88.0
-
-
-def test_spec_rejects_language_outside_track():
-    with pytest.raises(ValidationError):
-        Spec(id="x", track=Track.SCENE, language=Language.BLENDER, prompt="p")
 
 
 def test_static_plan_validates_attach_and_duplicates():

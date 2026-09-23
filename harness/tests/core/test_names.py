@@ -8,8 +8,6 @@ import ast
 import re
 from pathlib import Path
 
-import pytest
-
 from codeverse3d.contracts.common import Track
 from codeverse3d.contracts.plan import StaticPlan
 from codeverse3d.conventions import PASCAL_RE, to_pascal, to_snake
@@ -46,40 +44,25 @@ def _wrapper_snake():
     return ns["_snake"]
 
 
-@pytest.mark.parametrize("name", VALID)
-def test_acronym_names_are_valid_pascal(name):
-    assert PASCAL_RE.match(name)
-
-
-@pytest.mark.parametrize("name", INVALID)
-def test_lowercase_first_spaces_hyphens_and_empty_are_rejected(name):
-    assert not PASCAL_RE.match(name)
-
-
-def test_the_cadquery_wrapper_copy_is_the_conventions_rule():
-    """run_cq.py cannot import codeverse3d, so it keeps a copy — the same pattern, same verdicts."""
+def test_the_naming_rule_and_its_stdlib_wrapper_copies():
+    """One rule; run_cq.py / run_bpy_links.py cannot import codeverse3d, so they keep copies — same verdicts."""
+    assert [n for n in VALID if not PASCAL_RE.match(n)] == []
+    assert [n for n in INVALID if PASCAL_RE.match(n)] == []
     wrap = _wrapper_pascal_re()
     assert wrap.pattern == PASCAL_RE.pattern
     assert [bool(wrap.match(n)) for n in VALID + INVALID] == [bool(PASCAL_RE.match(n)) for n in VALID + INVALID]
-
-
-def test_the_links_wrapper_snake_copy_is_to_snake():
     snake = _wrapper_snake()
     for n in [*VALID, *INVALID[:-3], "LPCompressor", "Seat2Cushion"]:
         if n.strip():
             assert snake(n) == to_snake(n), n
 
 
-@pytest.mark.parametrize("name", list(SNAKE))
-def test_snake_round_trip_of_acronym_names(name):
-    snake, rebuilt = SNAKE[name]
-    assert to_snake(name) == snake
-    assert to_pascal(snake) == rebuilt                 # rebuilding from the key loses the acronym
-    if "_" not in name:                                # ... but for a plan name never the key itself
-        assert to_snake(to_pascal(name)) == snake == to_snake(rebuilt)
-
-
-def test_to_pascal_keeps_a_valid_name_and_still_normalises_the_rest():
+def test_snake_round_trip_and_to_pascal():
+    for name, (snake, rebuilt) in SNAKE.items():
+        assert to_snake(name) == snake, name
+        assert to_pascal(snake) == rebuilt, name        # rebuilding from the key loses the acronym
+        if "_" not in name:                              # ... but for a plan name never the key itself
+            assert to_snake(to_pascal(name)) == snake == to_snake(rebuilt), name
     assert [to_pascal(n) for n in ("TVStand", "LED", "A", "HDMIPort1", "SeatCushion")] == ["TVStand", "LED", "A", "HDMIPort1", "SeatCushion"]
     # an instance suffix / underscores / spaces / hyphens / lowercase still go through to_snake
     # (an instance name is not a plan name: to_pascal folds its suffix, CPU_2 -> Cpu2 -> key cpu2,

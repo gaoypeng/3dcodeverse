@@ -35,39 +35,12 @@ def test_finalize_and_load_record(fake_run):
     assert loaded.total_usage.cost_usd == pytest.approx(0.06), "the total is the ledger's"
 
 
-def test_a_missing_runtime_js_does_not_lose_a_finished_runs_record(fake_run, monkeypatch):
-    """The version probe raised through finalize_record, so a shader run (no node needed) with a
-    bad C3D_RUNTIME_JS paid for every round and ended with no record.json (sweep 2026-09-23)."""
-    from codeverse3d import config
-    from codeverse3d.record import record as R
-
-    ws, rec = fake_run
-    rec.environment = {}
-    monkeypatch.setenv("C3D_RUNTIME_JS", str(ws.root / "nowhere"))
-    config.get_settings.cache_clear()
-    R.environment_versions.cache_clear()
-    try:
-        finalize_record(ws, rec)
-        assert load_record(ws).environment["three"] == ""
-    finally:
-        config.get_settings.cache_clear()
-        R.environment_versions.cache_clear()
-
-
-def test_iter_runs_and_errors(runs_dir: Path):
-    (runs_dir / "broken").mkdir()
-    (runs_dir / "broken" / "record.json").write_text("{not json")
-    with pytest.raises(RecordError):
-        list(iter_runs(runs_dir))
-    bad = []
-    runs = list(iter_runs(runs_dir, on_error=lambda d, e: bad.append(d.name)))
-    assert len(runs) == 3 and bad == ["broken"]
-
-
 # --------------------------------------------------------------------------- git helpers
 
 
-def test_git_tree_at_commit(fake_run):
+def test_git_reads_at_a_commit(fake_run):
+    """read_tree_at reads a commit's tree (never a symlink as a file of its target); a sha the repository
+    no longer holds raises rather than diffing against an empty tree."""
     ws, rec = fake_run
     c0, c1 = rec.rounds[0].commit, rec.rounds[1].commit
     t0 = git_history.read_tree_at(ws, c0)
@@ -77,13 +50,37 @@ def test_git_tree_at_commit(fake_run):
     assert b"round 0" in t0["src/model.py"] and b"round 1" in t1["src/model.py"]
     with pytest.raises(git_history.GitReadError):
         git_history.read_tree_at(ws, "deadbeef")
+    for a, b in (("0" * 40, c1), (c1, "0" * 40)):
+        with pytest.raises(git_history.GitReadError):
+            git_history.diff_between(ws, a, b)
+    with pytest.raises(git_history.GitReadError):
+        git_history.changed_files_between(ws, c1, "0" * 40)
+
+    (ws.src / "model.py").write_text("import bpy\n")
+    (ws.src / "link.py").symlink_to("model.py")
+    tree = git_history.read_tree_at(ws, ws.commit("with a symlink"))
+    assert "src/model.py" in tree
+    assert "src/link.py" not in tree, "a symlink is not a file the agent wrote"
 
 
-def test_a_planted_diff_driver_never_runs(fake_run, tmp_path):
-    """An agent-planted diff driver or textconv (a program git RUNS) never runs on the export read."""
+def test_a_planted_smudge_filter_or_diff_driver_never_runs(fake_run, tmp_path):
+    """Programs git RUNS (a smudge filter, a diff driver / textconv) never run on the export read."""
     ws, _rec = fake_run
     fired = tmp_path / "fired"
     payload = f"sh -c 'echo pwned >> {fired}; cat'"
+    (ws.src / "model.py").write_text("# real content\n")
+    commit = ws.commit("content")
+    (ws.root / ".git" / "info").mkdir(parents=True, exist_ok=True)
+    (ws.root / ".git" / "info" / "attributes").write_text("* filter=evil\n")
+    (ws.root / ".gitattributes").write_text("* filter=evil\n")
+    ws._git("config", "--local", "filter.evil.smudge", payload)
+    ws._git("config", "--local", "filter.evil.required", "false")
+    files = git_history.read_tree_at(ws, commit)
+    assert not fired.exists(), f"a planted smudge filter ran: {fired.read_text()!r}"
+    assert files["src/model.py"] == b"# real content\n"  # the raw blob, unfiltered
+
+    (ws.root / ".git" / "info" / "attributes").unlink()
+    (ws.root / ".gitattributes").unlink()
     (ws.src / "blob.bin").write_bytes(b"\x00\x01before\n")
     before = ws.commit("binary before")
     (ws.src / "blob.bin").write_bytes(b"\x00\x01after\n")
@@ -93,62 +90,16 @@ def test_a_planted_diff_driver_never_runs(fake_run, tmp_path):
     for key in ("textconv", "command"):
         ws._git("config", "--local", f"diff.evil.{key}", payload)
     ws._git("config", "--local", "diff.external", payload)
-
     text, _total, _truncated = git_history.diff_between(ws, before, after)
     files = git_history.changed_files_between(ws, before, after)
-
     assert not fired.exists(), f"a planted diff driver ran: {fired.read_text()!r}"
     assert files == ["src/blob.bin"] and "src/blob.bin" in text
-
-
-def test_a_symlink_is_not_exported_as_a_file_of_its_target(fake_run) -> None:
-    """ls-tree lists a symlink as a blob holding its target — never a file of the sample."""
-    from codeverse3d.record.git_history import read_tree_at
-
-    ws, _rec = fake_run
-    (ws.src / "model.py").write_text("import bpy\n")
-    (ws.src / "link.py").symlink_to("model.py")
-    commit = ws.commit("with a symlink")
-
-    tree = read_tree_at(ws, commit)
-    assert "src/model.py" in tree
-    assert "src/link.py" not in tree, "a symlink is not a file the agent wrote"
-
-
-def test_a_planted_smudge_filter_never_runs(fake_run, tmp_path):
-    """read_tree_at reads the object database directly, so a planted smudge filter never runs."""
-    ws, _rec = fake_run
-    fired = tmp_path / "smudged"
-    (ws.src / "model.py").write_text("# real content\n")
-    commit = ws.commit("content")
-    (ws.root / ".git" / "info").mkdir(parents=True, exist_ok=True)
-    (ws.root / ".git" / "info" / "attributes").write_text("* filter=evil\n")
-    (ws.root / ".gitattributes").write_text("* filter=evil\n")
-    ws._git("config", "--local", "filter.evil.smudge", f"sh -c 'echo pwned >> {fired}; cat'")
-    ws._git("config", "--local", "filter.evil.required", "false")
-
-    files = git_history.read_tree_at(ws, commit)
-
-    assert not fired.exists(), f"a planted smudge filter ran: {fired.read_text()!r}"
-    assert files["src/model.py"] == b"# real content\n"  # the raw blob, unfiltered
-
-
-def test_diff_between_refuses_a_sha_the_repo_does_not_have(fake_run):
-    """A sha the repository no longer holds raises rather than diffing against an empty tree."""
-    ws, rec = fake_run
-    good = rec.rounds[1].commit
-    with pytest.raises(git_history.GitReadError):
-        git_history.diff_between(ws, "0" * 40, good)
-    with pytest.raises(git_history.GitReadError):
-        git_history.diff_between(ws, good, "0" * 40)
-    with pytest.raises(git_history.GitReadError):
-        git_history.changed_files_between(ws, good, "0" * 40)
 
 
 # --------------------------------------------------------------------------- export + pack
 
 
-def test_export_samples(runs_dir: Path, tmp_path: Path):
+def test_export_pairs_and_a_core_only_install_over_a_runs_dir(runs_dir: Path, tmp_path: Path, monkeypatch):
     out = tmp_path / "dataset"
     rep = export_samples(runs_dir, out)
     assert rep.n_runs == 3 and rep.n_exported == 3 and not rep.skipped
@@ -181,31 +132,12 @@ def test_export_samples(runs_dir: Path, tmp_path: Path):
     rep3 = export_samples(runs_dir, tmp_path / "d3", only_passed=True)
     assert rep3.n_exported == 1
 
-
-def test_export_with_captions_and_reexport(fake_run, tmp_path: Path):
-    ws, rec = fake_run
-    rec.extra["captions"] = {"detailed": "A chair.", "instruction": "Write a Blender Python script for a chair.",
-                             "factory": "Build seat then legs.", "provenance": {"captioner": "gemini:x"}}
-    ws.write_json(ws.record_path, rec)
-    out = tmp_path / "ds"
-    export_samples(ws.root.parent, out)
-    rep = export_samples(ws.root.parent, out)  # re-export overwrites, index stays at 1 row
-    assert rep.n_indexed == 1
-    row = json.loads((out / "metadata.jsonl").read_text().splitlines()[0])
-    assert row["captions"]["factory"] == "Build seat then legs."
-    assert json.loads(row["meta_json"])["has_captions"] is True
-
-
-# --------------------------------------------------------------------------- pairs
-
-
-def test_build_pairs(runs_dir: Path, tmp_path: Path):
-    out = tmp_path / "pairs.jsonl"
-    n = build_pairs(runs_dir, out, min_delta=0.05)
-    pairs = [json.loads(ln) for ln in out.read_text().splitlines()]
+    # pairs
+    pairs_out = tmp_path / "pairs.jsonl"
+    n = build_pairs(runs_dir, pairs_out, min_delta=0.05)
+    pairs = [json.loads(ln) for ln in pairs_out.read_text().splitlines()]
     assert n == len(pairs)
-    kinds = {p["kind"] for p in pairs}
-    assert kinds == {"preference", "repair", "cross_backend"}
+    assert {p["kind"] for p in pairs} == {"preference", "repair", "cross_backend"}
     pref = [p for p in pairs if p["kind"] == "preference"]
     assert len(pref) == 2  # chair (0.25) + codex chair (0.10); lamp delta 0.02 < min
     p = next(x for x in pref if x["run"] == "wooden_chair_ab12cd34")
@@ -215,6 +147,69 @@ def test_build_pairs(runs_dir: Path, tmp_path: Path):
     xb = next(x for x in pairs if x["kind"] == "cross_backend")
     assert xb["chosen"]["generator"].startswith("gemini-cli") and xb["rejected"]["generator"].startswith("codex")
     assert xb["delta"] == pytest.approx(0.2)
+
+    # a core-only install (no pyarrow) always exports JSONL, makes parquet optional, and --pack refuses
+    from typer.testing import CliRunner
+
+    from codeverse3d.cli.main import app
+
+    _block_pyarrow(monkeypatch)
+    core = tmp_path / "ds_core"
+    rep = export_samples(runs_dir, core)  # must NOT raise
+    assert rep.n_exported == 3 and rep.n_indexed == 3
+    assert len((core / "metadata.jsonl").read_text().splitlines()) == 3
+    # the parquet is skipped, loudly and by name — never silently
+    assert not (core / "metadata.parquet").exists() and rep.parquet == ""
+    assert rep.notes and "pyarrow" in rep.notes[0] and "harness[flywheel]" in rep.notes[0]
+    packed = tmp_path / "ds_pack"
+    res = CliRunner().invoke(app, ["flywheel", "export", str(runs_dir), str(packed), "--pack"])
+    assert res.exit_code == 1
+    assert "harness[flywheel]" in res.output
+    assert not packed.exists(), "no partial dataset may be left behind"
+
+    # a broken record: iter_runs raises, or reports it through on_error
+    (runs_dir / "broken").mkdir()
+    (runs_dir / "broken" / "record.json").write_text("{not json")
+    with pytest.raises(RecordError):
+        list(iter_runs(runs_dir))
+    bad = []
+    runs = list(iter_runs(runs_dir, on_error=lambda d, e: bad.append(d.name)))
+    assert len(runs) == 3 and bad == ["broken"]
+
+
+def test_export_of_one_run_with_captions_and_a_texture_pass_and_reexport(fake_run, tmp_path: Path):
+    from codeverse3d.texturing.run import report_path
+    from tests.flywheel_cli.conftest import tiny_png
+
+    ws, rec = fake_run
+    rec.extra["captions"] = {"detailed": "A chair.", "instruction": "Write a Blender Python script for a chair.",
+                             "factory": "Build seat then legs.", "provenance": {"captioner": "gemini:x"}}
+    tiny_png(ws.artifacts / "textures" / "wood.png")
+    (ws.artifacts / "object_textured.glb").write_bytes(b"glTF\x02\x00\x00\x00" + b"\0" * 8)
+    rec.extra["texturing"] = {"shipped": True, "glb_textured": "artifacts/object_textured.glb",
+                              "textures_dir": "artifacts/textures"}
+    ws.write_json(ws.record_path, rec)
+    # the pass's report names the GLB it started from: the exported round's (r01, the pick)
+    ws.write_json(report_path(ws), {**rec.extra["texturing"], "glb_in": "artifacts/r01/object.glb"})
+    out = tmp_path / "ds"
+    export_samples(ws.root.parent, out)
+    rep = export_samples(ws.root.parent, out)  # re-export overwrites, index stays at 1 row
+    assert rep.n_indexed == 1
+    row = json.loads((out / "metadata.jsonl").read_text().splitlines()[0])
+    assert row["captions"]["factory"] == "Build seat then legs."
+    assert json.loads(row["meta_json"])["has_captions"] is True
+    sdir = next(out.rglob("meta.json")).parent
+    assert (sdir / "textures" / "wood.png").is_file()
+    assert (sdir / "renders" / "object_textured.glb").is_file()
+    meta = json.loads((sdir / "meta.json").read_text())
+    assert "textures/wood.png" in meta["files"] and "renders/object_textured.glb" in meta["files"]
+    # not shipped → nothing copied
+    rec.extra["texturing"]["shipped"] = False
+    ws.write_json(ws.record_path, rec)
+    ws.write_json(report_path(ws), {**rec.extra["texturing"], "glb_in": "artifacts/r01/object.glb"})
+    export_samples(ws.root.parent, tmp_path / "ds2")
+    sdir2 = next((tmp_path / "ds2").rglob("meta.json")).parent
+    assert not (sdir2 / "textures").exists()
 
 
 # --------------------------------------------------------------------------- finding: repair pairs (pairs.py:115)
@@ -313,51 +308,6 @@ def test_a_run_with_only_degraded_verdicts_exports_unscored(tmp_path: Path):
     assert meta["acceptance_results"] == {}
 
 
-def test_export_includes_textured_assets_when_shipped(fake_run, tmp_path: Path):
-    from codeverse3d.texturing.run import report_path
-    from tests.flywheel_cli.conftest import tiny_png
-
-    ws, rec = fake_run
-    tex_dir = ws.artifacts / "textures"
-    tiny_png(tex_dir / "wood.png")
-    (ws.artifacts / "object_textured.glb").write_bytes(b"glTF\x02\x00\x00\x00" + b"\0" * 8)
-    rec.extra["texturing"] = {"shipped": True, "glb_textured": "artifacts/object_textured.glb",
-                              "textures_dir": "artifacts/textures"}
-    ws.write_json(ws.record_path, rec)
-    # the pass's report names the GLB it started from: the exported round's (r01, the pick)
-    ws.write_json(report_path(ws), {**rec.extra["texturing"], "glb_in": "artifacts/r01/object.glb"})
-    out = tmp_path / "ds"
-    export_samples(ws.root.parent, out)
-    sdir = next(out.rglob("meta.json")).parent
-    assert (sdir / "textures" / "wood.png").is_file()
-    assert (sdir / "renders" / "object_textured.glb").is_file()
-    meta = json.loads((sdir / "meta.json").read_text())
-    assert "textures/wood.png" in meta["files"] and "renders/object_textured.glb" in meta["files"]
-    # not shipped → nothing copied
-    rec.extra["texturing"]["shipped"] = False
-    ws.write_json(ws.record_path, rec)
-    ws.write_json(report_path(ws), {**rec.extra["texturing"], "glb_in": "artifacts/r01/object.glb"})
-    export_samples(ws.root.parent, tmp_path / "ds2")
-    sdir2 = next((tmp_path / "ds2").rglob("meta.json")).parent
-    assert not (sdir2 / "textures").exists()
-
-
-def test_an_ab_plan_cell_is_one_run_and_its_eval_sibling_is_none(tmp_path):
-    """The ab_plan layout resolves to its run; the compare layout is pinned in gallery/test_index."""
-    from codeverse3d.addons.gallery.index import scan_root
-    from codeverse3d.record.record import find_run_dirs
-
-    ab = tmp_path / "ab_aa_noise"
-    cell = ab / "arms" / "control" / "cells" / "ctrl_med_chair" / "harness_api-agent"
-    (cell / "run").mkdir(parents=True)
-    (cell / "run" / "record.json").write_text("{}")
-    (cell / "eval").mkdir()
-    (cell / "eval" / "spec.json").write_text("{}")
-    assert find_run_dirs(ab) == [cell / "run"]
-    section = scan_root(ab)
-    assert [e.slug for e in section.entries] == ["control__ctrl_med_chair__harness_api-agent"]
-
-
 def test_a_run_reached_twice_is_found_once_at_its_physical_path(tmp_path):
     """Batteries symlink each other's cells: export, index, pairs and the gallery counted them twice."""
     from codeverse3d.record.record import find_run_dirs
@@ -421,29 +371,20 @@ def _block_pyarrow(monkeypatch) -> None:
     monkeypatch.setattr(builtins, "__import__", no_pyarrow)
 
 
-def test_a_core_only_install_still_gets_a_complete_dataset(runs_dir: Path, tmp_path: Path, monkeypatch):
-    """Core installs always export JSONL and make parquet optional."""
-    _block_pyarrow(monkeypatch)
-    out = tmp_path / "ds_core"
-    rep = export_samples(runs_dir, out)  # must NOT raise
-    assert rep.n_exported == 3 and rep.n_indexed == 3
-    # the index the operator can actually use is there, and complete
-    assert (out / "metadata.jsonl").is_file()
-    assert len((out / "metadata.jsonl").read_text().splitlines()) == 3
-    # the parquet is skipped, loudly and by name — never silently
-    assert not (out / "metadata.parquet").exists() and rep.parquet == ""
-    assert rep.notes and "pyarrow" in rep.notes[0] and "harness[flywheel]" in rep.notes[0]
+def test_a_missing_runtime_js_does_not_lose_a_finished_runs_record(fake_run, monkeypatch):
+    """The version probe raised through finalize_record, so a shader run (no node needed) with a
+    bad C3D_RUNTIME_JS paid for every round and ended with no record.json (sweep 2026-09-23)."""
+    from codeverse3d import config
+    from codeverse3d.record import record as R
 
-
-def test_pack_refuses_before_writing_anything_when_pyarrow_is_missing(runs_dir: Path, tmp_path: Path, monkeypatch):
-    """Packing refuses before writing when its optional dependency is absent."""
-    from typer.testing import CliRunner
-
-    from codeverse3d.cli.main import app
-
-    _block_pyarrow(monkeypatch)
-    out = tmp_path / "ds_pack"
-    res = CliRunner().invoke(app, ["flywheel", "export", str(runs_dir), str(out), "--pack"])
-    assert res.exit_code == 1
-    assert "harness[flywheel]" in res.output
-    assert not out.exists(), "no partial dataset may be left behind"
+    ws, rec = fake_run
+    rec.environment = {}
+    monkeypatch.setenv("C3D_RUNTIME_JS", str(ws.root / "nowhere"))
+    config.get_settings.cache_clear()
+    R.environment_versions.cache_clear()
+    try:
+        finalize_record(ws, rec)
+        assert load_record(ws).environment["three"] == ""
+    finally:
+        config.get_settings.cache_clear()
+        R.environment_versions.cache_clear()

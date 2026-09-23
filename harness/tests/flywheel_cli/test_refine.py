@@ -33,6 +33,8 @@ def _rows(root: Path, **kw):
 
 
 def test_a_refine_round_carries_its_brief_its_diff_and_its_delta(tmp_path):
+    """One refine transition; --with-code inlines the answer and the tree it started from; the jsonl is
+    written atomically."""
     _corpus(tmp_path)
     rows, drops = _rows(tmp_path)
     assert len(rows) == 1 and not drops
@@ -48,15 +50,18 @@ def test_a_refine_round_carries_its_brief_its_diff_and_its_delta(tmp_path):
     assert t.before_commit and t.after_commit and t.before_commit != t.after_commit
     assert t.before_files is None and t.after_files is None       # --with-code is opt-in
 
-
-def test_with_code_inlines_the_answer_and_the_tree_it_started_from(tmp_path):
-    _corpus(tmp_path)
     rows, _ = _rows(tmp_path, with_code=True)
     t = rows[0]
     assert set(t.after_files) == {"src/model.py", "src/parts/leg.py"}    # what changed
     assert "size=2.0" in t.after_files["src/model.py"]
     assert "src/model.py" in t.before_files and "size=1.0" in t.before_files["src/model.py"]
     assert "src/parts/leg.py" not in t.before_files                      # it did not exist yet
+
+    out = tmp_path / "nested" / "refine.jsonl"
+    n, drops = build_refine(tmp_path, out)
+    assert n == 1 and not drops and not list(out.parent.glob("*.part"))
+    row = json.loads(out.read_text().splitlines()[0])
+    assert row["outcome"] == "improved" and "before_files" not in row   # exclude_none keeps rows small
 
 
 @pytest.mark.parametrize("delta,label", [(0.05, "improved"), (0.04, "unchanged"), (-0.05, "regressed"),
@@ -89,12 +94,3 @@ def test_every_unexportable_round_is_counted_under_a_named_reason(tmp_path, brea
     rows, drops = _rows(tmp_path)
     assert rows == []
     assert drops == ({} if reason is None else {reason: 1}), f"{break_it}: {dict(drops)}"
-
-
-def test_build_refine_writes_jsonl_atomically(tmp_path):
-    _corpus(tmp_path)
-    out = tmp_path / "nested" / "refine.jsonl"
-    n, drops = build_refine(tmp_path, out)
-    assert n == 1 and not drops and not list(out.parent.glob("*.part"))
-    row = json.loads(out.read_text().splitlines()[0])
-    assert row["outcome"] == "improved" and "before_files" not in row   # exclude_none keeps rows small

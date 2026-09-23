@@ -30,7 +30,10 @@ def test_every_switch_speaks_one_grammar(monkeypatch, caplog):
     assert env in caplog.text
 
 
-def test_flat_and_nested_max_in_flight_aliases(monkeypatch):
+def test_the_in_flight_cap_spellings_empty_zero_and_garbage(monkeypatch):
+    """Flat beats nested; empty is unset; 0 means unlimited; a cap is not a switch — garbage stops the run."""
+    from codeverse3d.config import Rate
+
     monkeypatch.delenv("C3D_RATE__MAX_IN_FLIGHT", raising=False)
     monkeypatch.setenv("C3D_MAX_IN_FLIGHT", "16")
     assert Settings().rate.max_in_flight == 16
@@ -42,24 +45,13 @@ def test_flat_and_nested_max_in_flight_aliases(monkeypatch):
     monkeypatch.delenv("C3D_RENDER__GPU", raising=False)
     monkeypatch.setenv("C3D_RENDER_GPU", " ON ")   # the documented flat spelling, case- and space-tolerant
     assert Settings().render.gpu == "on"
-
-
-def test_empty_is_unset_and_garbage_in_a_sizing_knob_is_loud(monkeypatch):
-    """A cap is not a switch: an unparsable one stops the run before it starts."""
     monkeypatch.delenv("C3D_RATE__MAX_IN_FLIGHT", raising=False)
     monkeypatch.setenv("C3D_MAX_IN_FLIGHT", "")
     assert Settings().rate.max_in_flight == 64
+    assert Rate(max_in_flight=0).max_in_flight == 0, "0 stays legal: it means unlimited"
     monkeypatch.setenv("C3D_MAX_IN_FLIGHT", "sixteen")
     with pytest.raises(ValueError, match="max_in_flight"):
         Settings()
-
-
-
-def test_zero_in_flight_is_unlimited_and_a_bad_turn_cap_asks_for_none():
-    from codeverse3d.config import Limits, Rate
-
-    assert Rate(max_in_flight=0).max_in_flight == 0, "0 stays legal: it means unlimited"
-    assert Limits(agent_max_turns=-1).agent_max_turns == 0, "a switch: a bad cap warns and asks for none"
 
 
 # --------------------------------------------------------------------------- yaml layering

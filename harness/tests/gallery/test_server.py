@@ -29,7 +29,7 @@ def app(gallery_tree: dict[str, Path]) -> GalleryApp:
 
 
 # --------------------------------------------------------------------------- routing
-def test_index_and_api_routes(app: GalleryApp):
+def test_routes(app: GalleryApp):
     r = app.route("/")
     assert r.status == 200 and r.content_type.startswith("text/html")
     assert b"3dcode gallery" in r.body
@@ -41,15 +41,13 @@ def test_index_and_api_routes(app: GalleryApp):
     assert summary["n"] == 2
     assert app.route("/api/nope").status == 404
 
-
-def test_detail_of_a_broken_run_does_not_crash(app: GalleryApp):
+    # the detail of a broken / pending run does not crash
     r = app.route("/run/static_v9/half_written")
     assert r.status == 200 and b"broken" in r.body
     r = app.route("/run/static_v9/not_started")
     assert r.status == 200 and b"pending" in r.body
 
-
-def test_file_dir_and_code_routes(app: GalleryApp):
+    # file, dir and code routes
     base = "/file/runs/wooden_chair_ab12cd34"
     rec = app.route(f"{base}/record.json")
     assert rec.status == 200 and rec.content_type == "application/json; charset=utf-8"
@@ -67,48 +65,12 @@ def test_file_dir_and_code_routes(app: GalleryApp):
     assert app.route(f"{base}/artifacts").status == 200          # a file route onto a dir lists it
     assert app.route(f"{base}/does/not/exist.png").status == 404
 
-
-@pytest.mark.parametrize("bad", [
-    "../../../../etc/passwd",
-    "..%2f..%2fetc/passwd",
-    "src/../../lamp_three/record.json",
-])
-def test_path_traversal_is_refused(app: GalleryApp, bad: str):
-    r = app.route(f"/file/runs/wooden_chair_ab12cd34/{bad}")
-    assert r.status in (403, 404), f"{bad} → {r.status}"
-    assert b"root:x:" not in r.body
-
-
-def test_absolute_paths_are_refused(app: GalleryApp):
-    # '//etc/passwd' collapses to 'etc/passwd' inside the run (404, not a read)
-    assert app.route("/file/runs/wooden_chair_ab12cd34//etc/passwd").status == 404
-    assert safe_join(app.roots[0], "wooden_chair_ab12cd34").is_dir()
-    with pytest.raises(PathError):
-        safe_join(app.roots[0], "/etc/passwd")
-    with pytest.raises(PathError):
-        safe_join(app.roots[0], "../..")
-    with pytest.raises(PathError):
-        safe_join(app.roots[0], "a/../../b")
-    with pytest.raises(PathError):
-        safe_join(app.roots[0], "x\x00y")
-
-
-def test_symlink_out_of_the_run_is_refused(app: GalleryApp, tmp_path: Path):
-    run = app.roots[0] / "wooden_chair_ab12cd34"
-    outside = tmp_path / "secret.txt"
-    outside.write_text("classified")
-    (run / "escape").symlink_to(outside)
-    r = app.route("/file/runs/wooden_chair_ab12cd34/escape")
-    assert r.status == 403 and b"classified" not in r.body
-
-
-def test_unknown_run_and_unknown_route(app: GalleryApp):
+    # unknown run / unknown route
     assert app.route("/file/nope/nope/record.json").status == 404
     assert app.route("/wat").status == 404
     assert app.route("/file").status == 404
 
-
-def test_vendor_and_viewer(app: GalleryApp):
+    # vendor and viewer
     from codeverse3d.addons.gallery.viewer import viewer_available
 
     v = app.route("/viewer/runs/wooden_chair_ab12cd34/artifacts/object.glb")
@@ -120,6 +82,25 @@ def test_vendor_and_viewer(app: GalleryApp):
         assert app.route("/vendor/nope.js").status == 404
     else:  # runtime_js/node_modules not installed
         assert v.status == 501
+
+
+def test_traversal_absolute_paths_and_symlinks_out_of_the_run_are_refused(app: GalleryApp, tmp_path: Path):
+    for bad in ("../../../../etc/passwd", "..%2f..%2fetc/passwd", "src/../../lamp_three/record.json"):
+        r = app.route(f"/file/runs/wooden_chair_ab12cd34/{bad}")
+        assert r.status in (403, 404), f"{bad} → {r.status}"
+        assert b"root:x:" not in r.body
+    # '//etc/passwd' collapses to 'etc/passwd' inside the run (404, not a read)
+    assert app.route("/file/runs/wooden_chair_ab12cd34//etc/passwd").status == 404
+    assert safe_join(app.roots[0], "wooden_chair_ab12cd34").is_dir()
+    for bad in ("/etc/passwd", "../..", "a/../../b", "x\x00y"):
+        with pytest.raises(PathError):
+            safe_join(app.roots[0], bad)
+    run = app.roots[0] / "wooden_chair_ab12cd34"
+    outside = tmp_path / "secret.txt"
+    outside.write_text("classified")
+    (run / "escape").symlink_to(outside)
+    r = app.route("/file/runs/wooden_chair_ab12cd34/escape")
+    assert r.status == 403 and b"classified" not in r.body
 
 
 def test_content_type_table():
@@ -169,6 +150,8 @@ def test_unknown_compare_keys_cost_one_rescan_not_one_each(gallery_tree: dict[st
 
 # --------------------------------------------------------------------------- over a real socket
 def test_over_a_loopback_socket(app: GalleryApp):
+    with pytest.raises(GalleryError):
+        make_server(app, "203.0.113.1", 0)  # TEST-NET-3: never assigned to this host
     httpd = make_server(app, DEFAULT_HOST, 0)
     port = httpd.server_address[1]
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -199,8 +182,3 @@ def test_over_a_loopback_socket(app: GalleryApp):
         httpd.shutdown()
         httpd.server_close()
         thread.join(timeout=5)
-
-
-def test_make_server_reports_a_bad_bind(app: GalleryApp):
-    with pytest.raises(GalleryError):
-        make_server(app, "203.0.113.1", 0)  # TEST-NET-3: never assigned to this host

@@ -27,13 +27,6 @@ def exported_ds(runs_dir: Path, tmp_path: Path) -> Path:
     return out
 
 
-@pytest.fixture
-def packed_ds(exported_ds: Path) -> Path:
-    """...and packed once — the previous GOOD dataset every failure window must leave intact."""
-    pack_samples(exported_ds)
-    return exported_ds
-
-
 def _tar_member_names(out: Path) -> list[str]:
     names: list[str] = []
     for tp in sorted(out.glob("samples-*.tar")):
@@ -41,8 +34,6 @@ def _tar_member_names(out: Path) -> list[str]:
             names += [m.name for m in tf.getmembers()]
     return names
 
-
-# --------------------------------------------------------------------------- manifest
 
 # --------------------------------------------------------------------------- drop-duplicates → pack
 def test_drop_duplicates_then_pack_ships_no_duplicate(runs_dir: Path, tmp_path: Path):
@@ -81,29 +72,6 @@ def _packed_state(out: Path) -> dict[str, bytes]:
             for p in [*out.glob("samples-*.tar"), out / "metadata.jsonl", out / "metadata.parquet"]}
 
 
-def test_a_failure_after_the_pack_loop_publishes_nothing(packed_ds: Path, monkeypatch):
-    """Every tar written, then the index write fails: the old dataset stays whole, tars and index."""
-    import codeverse3d.addons.dataset.pack as P
-
-    before = _packed_state(packed_ds)
-    monkeypatch.setattr(P, "write_parquet", lambda *a, **k: (_ for _ in ()).throw(OSError("No space left on device")))
-    with pytest.raises(OSError, match="No space left"):
-        pack_samples(packed_ds)
-    assert _packed_state(packed_ds) == before
-    assert not list(packed_ds.glob("*.tmp"))
-    assert verify_locators(packed_ds) == 3
-
-
-def test_repacking_over_an_existing_archive_succeeds_and_leaves_no_orphan_tar(packed_ds: Path):
-    """A repack into fewer shards leaves no orphan tar the new index never names."""
-    assert pack_samples(packed_ds, max_tar_bytes=1).tars == ["samples-000.tar", "samples-001.tar", "samples-002.tar"]
-    prep = pack_samples(packed_ds)
-    assert prep.tars == ["samples-000.tar"] and prep.n_samples == 3
-    assert sorted(p.name for p in packed_ds.glob("samples-*.tar")) == ["samples-000.tar"]
-    assert verify_locators(packed_ds) == 3
-    assert not list(packed_ds.glob("*.tmp"))
-
-
 def test_a_tampered_sample_file_fails_fast_and_names_it(exported_ds: Path):
     (exported_ds / "static_object" / "blender" / "wooden_chair_ab12cd34" / "code.py").write_text("tampered")
     with pytest.raises(PackError, match="code.py"):
@@ -111,8 +79,12 @@ def test_a_tampered_sample_file_fails_fast_and_names_it(exported_ds: Path):
     assert not list(exported_ds.glob("samples-*.tar")) and not list(exported_ds.glob("*.tmp"))
 
 
-# --------------------------------------------------------------------------- phantom rows
-def test_planted_src_meta_json_is_not_a_row_and_not_packed(exported_ds: Path):
+# --------------------------------------------------------------------------- phantom rows, failed and repeated packs
+def test_a_planted_row_a_failed_publish_and_a_repack(exported_ds: Path, monkeypatch):
+    """A planted src/meta.json is not a row and not packed; every tar written then the index write
+    fails: the old dataset stays whole; a repack into fewer shards leaves no orphan tar."""
+    import codeverse3d.addons.dataset.pack as P
+
     sdir = exported_ds / "static_object" / "blender" / "wooden_chair_ab12cd34"
     (sdir / "src" / "meta.json").write_text(json.dumps({"id": "phantom", "key": "phantom"}))
     pack_samples(exported_ds)  # and pack never looks at the directory tree at all
@@ -120,3 +92,19 @@ def test_planted_src_meta_json_is_not_a_row_and_not_packed(exported_ds: Path):
     assert "wooden_chair_ab12cd34/src/meta.json" not in _tar_member_names(exported_ds)
     keys = {json.loads(ln)["key"] for ln in (exported_ds / "metadata.jsonl").read_text().splitlines()}
     assert keys == {"wooden_chair_ab12cd34", "wooden_chair_codex", "lamp_three"}
+
+    before = _packed_state(exported_ds)
+    with monkeypatch.context() as mp:
+        mp.setattr(P, "write_parquet", lambda *a, **k: (_ for _ in ()).throw(OSError("No space left on device")))
+        with pytest.raises(OSError, match="No space left"):
+            pack_samples(exported_ds)
+    assert _packed_state(exported_ds) == before
+    assert not list(exported_ds.glob("*.tmp"))
+    assert verify_locators(exported_ds) == 3
+
+    assert pack_samples(exported_ds, max_tar_bytes=1).tars == ["samples-000.tar", "samples-001.tar", "samples-002.tar"]
+    prep = pack_samples(exported_ds)
+    assert prep.tars == ["samples-000.tar"] and prep.n_samples == 3
+    assert sorted(p.name for p in exported_ds.glob("samples-*.tar")) == ["samples-000.tar"]
+    assert verify_locators(exported_ds) == 3
+    assert not list(exported_ds.glob("*.tmp"))

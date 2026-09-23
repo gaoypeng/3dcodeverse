@@ -109,10 +109,7 @@ def test_telemetry_summarises_the_runs_own_ledger(fake_run):
     assert tele.cost is not None and tele.cost.by_stage[0].stage == "plan"
     assert {s.stage for s in tele.cost.by_stage} <= set(STAGE_ORDER)
     assert not (ws.telemetry / "usage.jsonl").exists(), "one ledger, one name"
-
-
-def test_telemetry_by_round_scores_a_degraded_verdict_as_unscored(fake_run):
-    ws, rec = fake_run
+    # a degraded verdict is unscored in the per-round cost table, never a 0.0
     rec.rounds[1].judgment = rec.rounds[1].judgment.model_copy(update={"summary": "judge_error: outage"})
     by_round = build_telemetry(ws, rec, write=False).cost.by_round
     assert [r["score"] for r in by_round] == [rec.rounds[0].judgment.overall, None]
@@ -271,16 +268,11 @@ def test_export_and_gallery_on_both_layouts(tmp_path: Path):
     assert old_links["glb"] == "artifacts/object.glb"
     assert new_links["glb"] == "deliverable/object.glb"
 
-
-def test_export_falls_back_to_the_packaged_snapshot_without_git(tmp_path: Path):
-    runs = tmp_path / "runs"
-    ws, rec = make_fake_run(runs, "run_new")
-    package_run(ws, rec)
-    ws.write_json(ws.record_path, rec)
-    select.package(ws.root, 1)
-    shutil.rmtree(ws.root / ".git")  # a run copied without its history
-    rep = export_samples(runs, tmp_path / "ds")
+    # a packaged run copied without its history exports from its deliverable snapshot
+    shutil.rmtree(ws_new.root / ".git")
+    shutil.rmtree(ws_old.root)
+    rep = export_samples(runs, tmp_path / "ds_nogit")
     assert rep.n_exported == 1, rep.skipped
-    meta = json.loads(next((tmp_path / "ds").rglob("meta.json")).read_text())
-    assert meta["code_source"] == "deliverable"
-    assert (next((tmp_path / "ds").rglob("meta.json")).parent / "src" / "model.py").is_file()
+    meta_path = next((tmp_path / "ds_nogit").rglob("meta.json"))
+    assert json.loads(meta_path.read_text())["code_source"] == "deliverable"
+    assert (meta_path.parent / "src" / "model.py").is_file()

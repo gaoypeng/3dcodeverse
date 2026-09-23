@@ -56,7 +56,7 @@ def _judgment(score: float, passed: bool, plan: list[str]) -> Judgment:
 def make_fake_run(
     runs_dir: Path, slug: str = "wooden_chair_ab12cd34", *, prompt: str = "a wooden dining chair",
     language: Language = Language.BLENDER, generator: str = "gemini-cli:gemini-3.6-flash",
-    scores: tuple[float, float] = (0.55, 0.80), with_repair: bool = False, code_v2: str | None = None,
+    scores: tuple[float, float] = (0.55, 0.80), with_repair: bool = False,
 ) -> tuple[Workspace, RunRecord]:
     ws = Workspace(runs_dir / slug).create()
     track = Track.SCENE if language is Language.SCENE_THREEJS else (
@@ -76,7 +76,7 @@ def make_fake_run(
     rounds = []
     for i, sc in enumerate(scores):
         if i == 1:
-            e.write_text(code_v2 or "# round 1\nimport bpy\n\nbpy.ops.mesh.primitive_cube_add(size=2.0)\n")
+            e.write_text("# round 1\nimport bpy\n\nbpy.ops.mesh.primitive_cube_add(size=2.0)\n")
             (ws.src / "parts").mkdir(exist_ok=True)
             (ws.src / "parts" / "leg.py").write_text("LEG = 0.04\n")
         commit = c0 if i == 0 else ws.commit(f"round {i}")

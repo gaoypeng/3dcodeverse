@@ -50,11 +50,11 @@ def test_a_detached_descendant_holding_the_pipes_cannot_extend_the_timeout(tmp_p
     """A detached descendant holding stdout cannot extend the caller's timeout."""
     import codeverse3d.proc as proc_mod
 
-    monkeypatch.setattr(proc_mod, "DRAIN_TIMEOUT_S", 1.0)
+    monkeypatch.setattr(proc_mod, "DRAIN_TIMEOUT_S", 0.3)
     t0 = time.monotonic()
 
     r = run_subprocess(["bash", "-c", "setsid sleep 20 & echo started; sleep 20"],
-                       cwd=tmp_path, timeout_s=1.0)
+                       cwd=tmp_path, timeout_s=0.3)
 
     elapsed = time.monotonic() - t0
     assert r.timed_out and r.returncode != 0
@@ -150,23 +150,14 @@ def test_keyboard_interrupt_kills_the_group(tmp_path: Path):
     assert_pid_gone(int(pid_file.read_text()), group=True)
 
 
-def test_invalid_utf8_replaces_instead_of_raising(tmp_path: Path):
-    """One bad byte is replaced instead of discarding the subprocess result."""
-    r = run_subprocess(
-        [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'ok \\xff\\xfe end')"],
-        cwd=tmp_path, timeout_s=30,
-    )
-    assert r.returncode == 0 and not r.timed_out
-    assert r.stdout == "ok �� end"
-
-
 @pytest.mark.timeout(120)
 def test_huge_output_is_bounded_head_and_tail(tmp_path: Path):
-    """Large output is bounded while preserving its head, tail, and truncation marker."""
+    """Large output is bounded while preserving its head, tail, and truncation marker; one bad byte
+    is replaced instead of discarding the subprocess result."""
     code = (
         "import sys\n"
         "w = sys.stdout.buffer.write\n"
-        "w(b'HEADSTART\\n')\n"
+        "w(b'HEADSTART ok \\xff\\xfe end\\n')\n"
         "chunk = b'x' * (1 << 20)\n"
         "for _ in range(48):\n"
         "    w(chunk)\n"
@@ -175,7 +166,7 @@ def test_huge_output_is_bounded_head_and_tail(tmp_path: Path):
     r = run_subprocess([sys.executable, "-c", code], cwd=tmp_path, timeout_s=110)
     assert r.returncode == 0 and not r.timed_out
     assert len(r.stdout) <= STREAM_BUDGET_BYTES + 200  # the budget plus the truncation marker
-    assert r.stdout.startswith("HEADSTART")            # head survived
+    assert r.stdout.startswith("HEADSTART ok �� end")  # head survived, invalid utf-8 replaced
     assert r.stdout.rstrip("\n").endswith("TAILEND")   # tail survived
     assert "bytes dropped" in r.stdout                 # marker sits between them
     cut = r.stdout.index("bytes dropped")

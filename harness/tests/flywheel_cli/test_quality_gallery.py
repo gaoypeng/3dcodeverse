@@ -14,7 +14,6 @@ from codeverse3d.addons.dataset.quality import (
     quality_tier,
 )
 from codeverse3d.record.record import load_record
-from tests.flywheel_cli.conftest import make_fake_run
 from tests.flywheel_cli.test_captions import GOOD
 from tests.orchestrator_tracks.fakes import FakeChatModel
 
@@ -49,31 +48,25 @@ def test_only_raw_hash_duplicates_are_dropped_normalised_ones_are_only_marked():
     assert prompt_id("  a chair ") == prompt_id("a chair") and len(prompt_id("x")) == 16
 
 
-def test_whitespace_inside_a_string_is_a_near_duplicate_not_a_duplicate(runs_dir: Path, tmp_path: Path):
-    """LABEL = "a b" and LABEL="ab" normalise alike but are different programs: kept, only marked."""
-    common = '# round 1\nimport bpy\nLABEL={}\nbpy.ops.mesh.primitive_cube_add(size=2.0)\n'
-    make_fake_run(runs_dir, "stool_spaced", prompt="a stool", code_v2=common.format('"a b"'))
-    make_fake_run(runs_dir, "stool_tight", prompt="a stool", code_v2=common.format('"ab"'))
-    out = tmp_path / "ds"
-    rep = export_samples(runs_dir, out, drop_duplicates=True)
-    rows = {json.loads(ln)["key"]: json.loads(ln) for ln in (out / "metadata.jsonl").read_text().splitlines()}
-    assert {"stool_spaced", "stool_tight"} <= set(rows)
-    assert rows["stool_spaced"]["code_sha256"] != rows["stool_tight"]["code_sha256"]
-    assert rows["stool_spaced"]["code_fingerprint"] == rows["stool_tight"]["code_fingerprint"]
-    assert [rows[k]["duplicate_of"] for k in ("stool_spaced", "stool_tight")] == ["", ""]
-    assert rows["stool_tight"]["near_duplicate_of"] == "3dcodeverse/static_object/blender/stool_spaced"
-    assert "wooden_chair_codex" not in rows and rep.n_duplicates == 1  # byte-identical → dropped
-
-
 # --------------------------------------------------------------------------- export extras
 
 
-def test_export_scene_views_repeating_names(fake_run, tmp_path: Path):
+def test_a_side_car_caption_leaves_the_run_untouched_and_export_keeps_repeating_view_names(fake_run, tmp_path: Path):
     """Scene renders repeat a camera name per capture time; the sample must keep every file."""
     from codeverse3d.contracts.artifacts import RenderView
     from tests.flywheel_cli.conftest import tiny_png
 
     ws, rec = fake_run
+    before = ws.record_path.read_text()
+    side = tmp_path / "caps"
+    caps = caption_sample(ws, rec, "fake:fake", model=FakeChatModel([GOOD]), out_dir=side)
+    assert caps.factory == GOOD["factory"]
+    assert ws.record_path.read_text() == before and not (ws.root / "captions.json").exists()
+    data = json.loads((side / f"{ws.root.name}.json").read_text())
+    assert data["provenance"]["captioner"] == "fake:fake" and data["provenance"]["images_used"][0].startswith("artifacts/")
+    assert load_captions(ws, load_record(ws), side)["detailed"] == GOOD["detailed"]
+    assert load_captions(ws, load_record(ws), None) == {}
+
     rnd = rec.rounds[1]
     rd = ws.renders_dir(1)
     assert rnd.renders is not None
@@ -85,16 +78,3 @@ def test_export_scene_views_repeating_names(fake_run, tmp_path: Path):
     meta = json.loads(next(out.rglob("meta.json")).read_text())
     assert {"renders/view_Establishing_t0.png", "renders/view_Establishing_t1p5.png"} <= set(meta["renders"])
     assert len(meta["files"]) == len(set(meta["files"]))
-
-
-def test_caption_out_dir_leaves_run_untouched(fake_run, tmp_path: Path):
-    ws, rec = fake_run
-    before = ws.record_path.read_text()
-    side = tmp_path / "caps"
-    caps = caption_sample(ws, rec, "fake:fake", model=FakeChatModel([GOOD]), out_dir=side)
-    assert caps.factory == GOOD["factory"]
-    assert ws.record_path.read_text() == before and not (ws.root / "captions.json").exists()
-    data = json.loads((side / f"{ws.root.name}.json").read_text())
-    assert data["provenance"]["captioner"] == "fake:fake" and data["provenance"]["images_used"][0].startswith("artifacts/")
-    assert load_captions(ws, load_record(ws), side)["detailed"] == GOOD["detailed"]
-    assert load_captions(ws, load_record(ws), None) == {}

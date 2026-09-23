@@ -37,13 +37,17 @@ def _child_script(run_root: Path, ready: Path, go: Path) -> str:
 
 
 def test_a_second_process_is_refused_and_a_killed_holder_never_wedges_the_run(tmp_path: Path):
-    """Two processes cannot mutate one workspace; the kernel drops the flock when the holder dies."""
+    """Two processes cannot mutate one workspace; ``--force`` may overwrite a dead run, never evict a
+    live holder; the kernel drops the flock when the holder dies."""
     import signal
     import subprocess
     import sys
 
+    from codeverse3d.cli._common import CliError, mutating
+
     run_root = tmp_path / "runs" / "slug"
     run_root.mkdir(parents=True)
+    (run_root / "spec.json").write_text("{}")  # non-empty, so --force would rmtree it
     ready, go = tmp_path / "ready", tmp_path / "go"
     child = subprocess.Popen([sys.executable, "-c", _child_script(run_root, ready, go)])
     try:
@@ -57,6 +61,10 @@ def test_a_second_process_is_refused_and_a_killed_holder_never_wedges_the_run(tm
         msg = str(got.value)
         assert str(child.pid) in msg  # names the holder, so a human can kill THAT pid
         assert "pkill" in msg, "and must warn against the pattern kill that took out 13 runs"
+        with pytest.raises(CliError) as ei, mutating(run_root, what="3dcode make slug"):
+            pytest.fail("the mutation boundary must not be entered")
+        assert ei.value.exit_code == 2
+        assert (run_root / "spec.json").exists(), "the live holder's workspace must survive"
     finally:
         child.send_signal(signal.SIGKILL)
         child.wait(timeout=10)
@@ -105,30 +113,3 @@ def test_the_lock_file_lives_outside_the_run_directory(tmp_path: Path):
         assert lock.is_file()
         assert run_root not in lock.parents
         assert lock.parent == run_root.parent / LOCKS_DIR
-
-
-def test_force_refuses_to_wipe_a_run_another_holder_is_using(tmp_path: Path):
-    """``--force`` may overwrite a dead run, never evict a live holder."""
-    import subprocess
-    import sys
-
-    from codeverse3d.cli._common import CliError, mutating
-
-    run_root = tmp_path / "runs" / "held_run"
-    run_root.mkdir(parents=True)
-    (run_root / "spec.json").write_text("{}")  # non-empty, so --force would rmtree it
-    ready, go = tmp_path / "ready", tmp_path / "go"
-    child = subprocess.Popen([sys.executable, "-c", _child_script(run_root, ready, go)])
-    try:
-        for _ in range(500):
-            if ready.exists():
-                break
-            time.sleep(0.02)
-        assert ready.read_text() == "held"
-        with pytest.raises(CliError) as ei, mutating(run_root, what="3dcode make held_run"):
-            pytest.fail("the mutation boundary must not be entered")
-        assert ei.value.exit_code == 2
-        assert (run_root / "spec.json").exists(), "the live holder's workspace must survive"
-    finally:
-        go.write_text("release")
-        child.wait(timeout=10)

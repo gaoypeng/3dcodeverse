@@ -66,7 +66,9 @@ def _assert_offline(markup: str) -> _Checker:
     return c
 
 
-def test_static_build_parses_and_is_self_contained(gallery_tree: dict[str, Path], tmp_path: Path):
+def test_static_and_server_pages(gallery_tree: dict[str, Path], tmp_path: Path):
+    """The static build parses and is self-contained; the server page filters server-side and offers
+    detail links only where the target has them; the static form never advertises server-only routes."""
     out = tmp_path / "out" / "gallery.html"
     path, n, index = build_static([gallery_tree["runs"], gallery_tree["battery"]], out, embed=True)
     assert path == out and n == 6 and out.is_file()
@@ -81,9 +83,6 @@ def test_static_build_parses_and_is_self_contained(gallery_tree: dict[str, Path]
         assert slug in markup
     assert "broken:" in markup and "pending:" in markup   # the two non-ok cards say why
 
-
-def test_server_page_applies_the_filter_server_side(gallery_tree: dict[str, Path]):
-    index = build_index([gallery_tree["runs"], gallery_tree["battery"]])
     markup = render_index(index, UrlMaker(), flt={"lang": "threejs"}, sort="score")
     _assert_offline(markup)
     # every card is still in the DOM (so the client can widen the filter without a reload)
@@ -94,15 +93,11 @@ def test_server_page_applies_the_filter_server_side(gallery_tree: dict[str, Path
     assert "<option value='threejs' selected>" in markup
     assert "vc-passed" not in markup and "PASS RATE" not in markup.upper()   # no pass/fail since 2026-09-22
 
-
-def test_detail_links_are_offered_only_when_the_target_has_them(gallery_tree: dict[str, Path]):
-    index = build_index([gallery_tree["runs"]])
     markup = render_index(index, UrlMaker())
     assert "/run/runs/wooden_chair_ab12cd34" in markup
     assert "/file/runs/wooden_chair_ab12cd34/artifacts/renders/r01/sheet.png" in markup
     assert "/code/runs/wooden_chair_ab12cd34/src" in markup
     assert "/viewer/runs/wooden_chair_ab12cd34/artifacts/r01/object.glb" in markup   # the picked round's
-    # the static form never advertises server-only routes
     static = render_static(index, embed=False)
     assert "/run/runs/" not in static and "/viewer/" not in static
 

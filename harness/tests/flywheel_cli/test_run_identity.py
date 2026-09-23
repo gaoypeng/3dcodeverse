@@ -15,22 +15,18 @@ from codeverse3d.record.record import unique_files
 from tests.flywheel_cli.conftest import make_fake_run
 
 
-@pytest.mark.parametrize("battery, rel, slug", [
-    ("runs", "wooden_chair_ab12cd34", "wooden_chair_ab12cd34"),
-    ("h2h_scene_v1", "h2h_b01_neon_alley.attempt1", "h2h_b01_neon_alley.attempt1"),   # a retry keeps its suffix
-    ("articulated_v1_flash", "runs/art_easy_laptop", "art_easy_laptop"),               # runs/ is noise
-    ("compare_v1_full", "cells/cmp_easy_stool/harness_x/run", "cmp_easy_stool__harness_x"),
-])
-def test_the_slug_rule(battery, rel, slug):
-    assert RunId(battery=battery, rel=rel).slug == slug
-
-
-def test_compare_backends_layout_arm_and_cell():
+def test_the_slug_rule_and_the_battery_layouts():
+    for battery, rel, slug in [
+        ("runs", "wooden_chair_ab12cd34", "wooden_chair_ab12cd34"),
+        ("h2h_scene_v1", "h2h_b01_neon_alley.attempt1", "h2h_b01_neon_alley.attempt1"),   # a retry keeps its suffix
+        ("articulated_v1_flash", "runs/art_easy_laptop", "art_easy_laptop"),               # runs/ is noise
+        ("compare_v1_full", "cells/cmp_easy_stool/harness_x/run", "cmp_easy_stool__harness_x"),
+    ]:
+        assert RunId(battery=battery, rel=rel).slug == slug, rel
+    # compare_backends: cell then arm
     rid = RunId(battery="compare_v1_full", rel="cells/cmp_easy_stool/harness_x/run")
     assert (rid.cell, rid.arm) == ("cmp_easy_stool", "harness_x")
-
-
-def test_ab_plan_layout_slug_arm_cell_and_attempt_suffix():
+    # ab_plan: slug, arm, cell and the attempt suffix
     rid = RunId(battery="plan_loop",
                 rel="C0/arms/control/cells/arch_hard_bay_window/"
                     "harness_api-agent_gemini_gemini-3.7-flash/run")

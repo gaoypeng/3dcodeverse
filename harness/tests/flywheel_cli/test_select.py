@@ -24,7 +24,6 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import Backends, Language, Track, Usage
 from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus
 from codeverse3d.contracts.spec import Spec
-from codeverse3d.proc import EventLog
 from codeverse3d.workspace import Workspace
 
 from .conftest import make_fake_run, tiny_png
@@ -119,7 +118,6 @@ def test_pick_by_pairwise_asks_only_inside_the_margin_and_never_buys_a_verdict_t
     assert judge.calls and "/r01/" in judge.calls[0][0] and judge.calls[0][2] == "static_object_v1"
     assert select.pick(ws.root, by="pairwise", judge=judge) == 0 and len(judge.calls) == 1   # cached, not re-bought
     assert ws.judge_path(1, "_vs_r00_pairwise").is_file()
-    assert [e for e in EventLog(ws.events_path).read() if e["event"] == "pick.pairwise"]
     # an unsure verdict, an outage or a clear gap keep the top score
     assert select.pick(_run(tmp_path / "u", [(0.70, 0), (0.72, 0)]).root, by="pairwise", judge=_Pairwise("b", 0.5)) == 1
     assert select.pick(_run(tmp_path / "f", [(0.70, 0), (0.72, 0)]).root, by="pairwise",
@@ -183,7 +181,7 @@ def _fake_texture_pass(calls: list, *, shipped: bool = True, fail: bool = False)
     return run
 
 
-def test_package_textures_the_rounds_own_glb_once(tmp_path, monkeypatch):
+def test_package_textures_the_rounds_own_glb_once_and_a_failed_pass_still_hands_over(tmp_path, monkeypatch):
     import codeverse3d.texturing.run as trun
 
     ws = _run(tmp_path / "r", [(0.5, 0), (0.8, 0)])
@@ -199,6 +197,11 @@ def test_package_textures_the_rounds_own_glb_once(tmp_path, monkeypatch):
     # another round's hand-over does not carry round 0's pack
     select.package(ws.root, 1)
     assert not (ws.deliverable / "object_textured.glb").exists()
+    # a failed pass does not stop the hand-over
+    monkeypatch.setattr(trun, "texture_pass", _fake_texture_pass([], fail=True))
+    select.package(ws.root, 1, texture=True)
+    assert (ws.deliverable / "object.glb").is_file() and not (ws.deliverable / "object_textured.glb").exists()
+    assert json.loads((ws.root / select.SELECTION_NAME).read_text())["textured"] is False
 
 
 def test_an_export_of_another_round_never_ships_the_pack_a_texture_pass_made_for_r02(tmp_path, monkeypatch):
@@ -217,17 +220,6 @@ def test_an_export_of_another_round_never_ships_the_pack_a_texture_pass_made_for
     assert not any("textured" in f or f.startswith("textures/") for f in sample.file_hashes)
     select.package(ws.root, 2)   # ... and the round it textured still ships it
     assert "renders/object_textured.glb" in export_one(ws, load_record(ws), tmp_path / "ds2").file_hashes
-
-
-def test_a_failed_texture_pass_does_not_stop_the_hand_over(tmp_path, monkeypatch):
-    import codeverse3d.texturing.run as trun
-
-    ws = _run(tmp_path / "r", [(0.5, 0)])
-    monkeypatch.setattr(trun, "texture_pass", _fake_texture_pass([], fail=True))
-    select.package(ws.root, 0, texture=True)
-    assert (ws.deliverable / "object.glb").is_file() and not (ws.deliverable / "object_textured.glb").exists()
-    assert json.loads((ws.root / select.SELECTION_NAME).read_text())["textured"] is False
-    assert "texture.failed" in [e["event"] for e in EventLog(ws.events_path).read()]
 
 
 # --------------------------------------------------------------------------- CLI

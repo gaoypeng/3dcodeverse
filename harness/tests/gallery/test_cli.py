@@ -13,7 +13,7 @@ from codeverse3d.cli.main import app, resolve_roots
 runner = CliRunner()
 
 
-def test_build_writes_a_page(gallery_tree: dict[str, Path], tmp_path: Path):
+def test_build_writes_a_linked_page_and_embed_inlines_the_images(gallery_tree: dict[str, Path], tmp_path: Path):
     out = tmp_path / "g.html"
     r = runner.invoke(app, ["gallery", "build", str(gallery_tree["runs"]), str(gallery_tree["battery"]),
                             "--out", str(out), "--title", "batch 9"])
@@ -22,10 +22,6 @@ def test_build_writes_a_page(gallery_tree: dict[str, Path], tmp_path: Path):
     markup = out.read_text()
     assert "batch 9" in markup and "wooden_chair_ab12cd34" in markup
     assert "data:image/jpeg" not in markup  # link mode by default
-
-
-def test_build_embed(gallery_tree: dict[str, Path], tmp_path: Path):
-    out = tmp_path / "e.html"
     r = runner.invoke(app, ["gallery", "build", str(gallery_tree["runs"]), "--out", str(out), "--embed"])
     assert r.exit_code == 0, r.output
     assert "data:image/jpeg;base64," in out.read_text()

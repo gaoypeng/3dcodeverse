@@ -148,14 +148,6 @@ def test_every_pyproject_extra_is_documented() -> None:
     assert not undocumented, f"extras missing from docs/INSTALL.md: {undocumented}"
 
 
-def test_bare_pytest_keeps_live_tests_opt_in() -> None:
-    """A default local run must never spend API quota or wait on a provider."""
-    with (HARNESS / "pyproject.toml").open("rb") as fh:
-        addopts = tomllib.load(fh)["tool"]["pytest"]["ini_options"]["addopts"]
-    assert "-m" in addopts
-    assert addopts[addopts.index("-m") + 1] == "not live"
-
-
 #: `pytest ... -m "<expr>"` as published in the docs
 _PYTEST_MARKER_EXPR = re.compile(r'pytest[^\n]*?-m\s+"([^"]+)"')
 #: every file that publishes a pytest command a reader will paste
@@ -163,14 +155,18 @@ DOCS_WITH_TEST_COMMANDS = [INSTALL, HARNESS / "docs" / "RUNBOOK.md", HARNESS / "
                            HARNESS / "README.md", REPO / "README.md"]
 
 
-@pytest.mark.parametrize("doc", DOCS_WITH_TEST_COMMANDS, ids=lambda p: p.name)
-def test_documented_pytest_subsets_never_re_enable_the_live_tests(doc: Path) -> None:
-    """Every documented marker override must keep live tests opt-in."""
-    if not doc.is_file():  # the harness can be checked out without the repo README
-        pytest.skip(f"{doc} not present")
-    for expr in _PYTEST_MARKER_EXPR.findall(doc.read_text()):
-        assert "not live" in expr or expr.strip() == "live", (
-            f"{doc.name} publishes pytest -m \"{expr}\", which re-enables the live tests")
+def test_live_tests_stay_opt_in_for_bare_pytest_and_every_documented_subset() -> None:
+    """A default local run — or a documented marker override — must never spend API quota or wait on a provider."""
+    with (HARNESS / "pyproject.toml").open("rb") as fh:
+        addopts = tomllib.load(fh)["tool"]["pytest"]["ini_options"]["addopts"]
+    assert "-m" in addopts
+    assert addopts[addopts.index("-m") + 1] == "not live"
+    for doc in DOCS_WITH_TEST_COMMANDS:
+        if not doc.is_file():  # the harness can be checked out without the repo README
+            continue
+        for expr in _PYTEST_MARKER_EXPR.findall(doc.read_text()):
+            assert "not live" in expr or expr.strip() == "live", (
+                f"{doc.name} publishes pytest -m \"{expr}\", which re-enables the live tests")
 
 
 def test_doctor_checks_every_module_of_every_optional_extra(monkeypatch) -> None:
@@ -333,14 +329,19 @@ def test_setup_verifies_the_interpreter_it_installed_into(tmp_path) -> None:
     impostor = fake / "3dcodeverse"
     impostor.write_text("#!/bin/sh\necho WRONG_INSTALL_ON_PATH\n")
     impostor.chmod(0o755)
+    # the --python interpreter answers the doctor call itself (the real doctor is ~10 s of probes)
+    py = tmp_path / "python-shim"
+    py.write_text('#!/bin/sh\n[ "$1 $2" = "-m codeverse3d.cli.main" ] && { echo "DOCTOR_VIA_PYTHON $3"; exit 0; }\n'
+                  f'exec {sys.executable} "$@"\n')
+    py.chmod(0o755)
 
     env = dict(os.environ, PATH=f"{fake}{os.pathsep}{os.environ['PATH']}")
     proc = subprocess.run(
-        ["bash", str(SETUP), "--python", sys.executable, "--no-node", "--no-chrome", "--no-gpu", "--no-python"],
+        ["bash", str(SETUP), "--python", str(py), "--no-node", "--no-chrome", "--no-gpu", "--no-python"],
         capture_output=True, text=True, timeout=300, env=env)
     assert "WRONG_INSTALL_ON_PATH" not in proc.stdout + proc.stderr, (
         "setup.sh verified the 3dcodeverse first on PATH instead of the --python interpreter")
-    assert "doctor" in proc.stdout
+    assert "DOCTOR_VIA_PYTHON doctor" in proc.stdout, proc.stdout + proc.stderr
 
 
 def test_setup_names_the_remedy_when_the_interpreter_has_no_pip(tmp_path) -> None:

@@ -34,14 +34,11 @@ def test_llm_html_and_svg_file_responses_are_sandboxed(gallery_tree: dict[str, P
 
 
 # --------------------------------------------------------------------------- csv injection
-def test_csv_safe_neutralises_formula_prefixes():
+def test_csv_cells_never_reach_a_spreadsheet_as_formulas(tmp_path: Path):
     assert csv_safe("=HYPERLINK(1)") == "'=HYPERLINK(1)"
     assert csv_safe("+1") == "'+1" and csv_safe("-1") == "'-1" and csv_safe("@cmd") == "'@cmd"
     assert csv_safe("a chair") == "a chair"
     assert csv_safe(3) == 3 and csv_safe(None) is None
-
-
-def test_a_formula_prompt_round_trips_csv_escaped(tmp_path: Path):
     runs = tmp_path / "runs"
     make_fake_run(runs, "formula_prompt", prompt="=2+5|cmd", scores=(0.5, 0.9))
     text = export_csv(build_index([runs]).entries())

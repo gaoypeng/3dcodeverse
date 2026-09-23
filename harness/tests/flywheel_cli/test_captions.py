@@ -24,7 +24,7 @@ GOOD = {
 }
 
 
-def test_caption_sample_captions_the_picked_round_and_records_provenance(fake_run):
+def test_caption_sample_captions_the_picked_round_records_provenance_and_retries_once(fake_run):
     ws, rec = fake_run
     m = FakeChatModel([GOOD])
     caption_sample(ws, rec, "fake:fake", model=m)
@@ -33,6 +33,14 @@ def test_caption_sample_captions_the_picked_round_and_records_provenance(fake_ru
     assert len([p for p in req.messages[0].parts if isinstance(p, ImagePart)]) == 3   # sheet + 2 views
     prov = load_record(ws).extra["captions"]["provenance"]
     assert prov["captioner"] == "fake:fake" and prov["cost_usd"] == pytest.approx(0.002)
+
+    bad = dict(GOOD, detailed="Made with bpy.ops primitives: a chair with four legs and a backrest.")
+    m = FakeChatModel([bad, GOOD])
+    caps = caption_sample(ws, rec, "fake:fake", model=m)
+    assert caps.detailed == GOOD["detailed"] and len(m.requests) == 2
+    assert "bpy" in m.requests[1].messages[-1].text
+    with pytest.raises(CaptionError):
+        caption_sample(ws, rec, "fake:fake", model=FakeChatModel([bad, bad]))
 
 
 def test_caption_cmd_writes_the_captioner_row_into_the_run_ledger(fake_run, monkeypatch):
@@ -55,18 +63,6 @@ def test_caption_cmd_writes_the_captioner_row_into_the_run_ledger(fake_run, monk
     rows = [json.loads(ln) for ln in ledger.path.read_text().splitlines() if ln.strip()]
     assert any(row.get("label") == "captioner" for row in rows), rows
     assert (ws.deliverable / "captions.json").is_file()
-
-
-def test_caption_retry_then_fail(fake_run):
-    ws, rec = fake_run
-    bad = dict(GOOD, detailed="Made with bpy.ops primitives: a chair with four legs and a backrest.")
-    m = FakeChatModel([bad, GOOD])
-    caps = caption_sample(ws, rec, "fake:fake", model=m)
-    assert caps.detailed == GOOD["detailed"] and len(m.requests) == 2
-    assert "bpy" in m.requests[1].messages[-1].text
-    m2 = FakeChatModel([bad, bad])
-    with pytest.raises(CaptionError):
-        caption_sample(ws, rec, "fake:fake", model=m2)
 
 
 @pytest.mark.live
@@ -125,7 +121,9 @@ def _old_urdf_run(tmp_path):
 
 
 def test_an_old_runs_caption_then_export_still_ships_its_glb_gif_and_meshes(tmp_path):
-    """The caption's record rewrite once dropped the raw best_round, and with it the old run's outputs."""
+    """The caption's record rewrite once dropped the raw best_round, and with it the old run's outputs;
+    a record already rewritten without ``best_round`` falls back to its packaged deliverable."""
+    from codeverse3d.addons import select
     from codeverse3d.addons.dataset.export import export_one
 
     ws, rec = _old_urdf_run(tmp_path)
@@ -137,12 +135,6 @@ def test_an_old_runs_caption_then_export_still_ships_its_glb_gif_and_meshes(tmp_
     sample = export_one(ws, load_record(ws), tmp_path / "ds")
     assert {"renders/object.glb", "renders/preview.gif", "meshes/base.glb"} <= set(sample.file_hashes)
 
-
-def test_an_old_run_whose_record_lost_best_round_falls_back_to_its_deliverable(tmp_path):
-    """A record already rewritten without ``best_round``: its packaged deliverable names the round."""
-    from codeverse3d.addons import select
-
-    ws, rec = _old_urdf_run(tmp_path)
     data = json.loads(ws.record_path.read_text())
     del data["best_round"]
     ws.write_json(ws.record_path, data)

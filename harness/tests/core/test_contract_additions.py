@@ -7,19 +7,6 @@ from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.spec import RunOptions, Spec
 
 
-# ------------------------------------------------------------------ RunOptions
-def test_spec_options_legacy_roundtrip():
-    s = Spec(id="x", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a chair")
-    d = s.model_dump(mode="json")
-    d.pop("options")
-    s2 = Spec(**d)  # old spec.json without options still parses
-    assert s2.options.candidates is None and s2.options.texture is False
-    s = Spec(id="x", track=Track.SCENE, language=Language.SCENE_THREEJS, prompt="p",
-             options=RunOptions(candidates=3, texture=True))
-    s2 = Spec(**s.model_dump(mode="json"))
-    assert s2.options == RunOptions(candidates=3, texture=True)
-
-
 def test_spec_options_do_not_change_the_plan_stage_hash():
     from codeverse3d.orchestrator import hash_inputs
     from codeverse3d.tracks.lifecycle import plan_stage_inputs
@@ -30,9 +17,14 @@ def test_spec_options_do_not_change_the_plan_stage_hash():
 
 
 def test_records_written_before_the_2026_08_30_field_retirements_still_load():
-    """Stored runs carry keys since retired; every model here must keep ignoring them."""
+    """Stored runs carry keys since retired (or lack ones added since); every model here must keep loading them."""
     from codeverse3d.contracts.agent import AgentJob
     from codeverse3d.contracts.run import RoundRecord, SkillRead
+
+    d = Spec(id="x", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a chair").model_dump(mode="json")
+    d.pop("options")
+    s2 = Spec(**d)  # old spec.json without options still parses
+    assert s2.options.candidates is None and s2.options.texture is False
 
     rs = RenderSet.model_validate({"renderer": "blender", "turntable": "renders/turntable.mp4",
                                    "contact_sheet": "renders/sheet.png"})

@@ -78,17 +78,6 @@ def test_make_no_run_creates_valid_workspace(tmp_path: Path):
     assert r3.exit_code == 0
 
 
-def test_flywheel_commands(runs_dir: Path, tmp_path: Path):
-    out = tmp_path / "ds"
-    r = runner.invoke(app, ["flywheel", "export", str(runs_dir), str(out), "--pack"])
-    assert r.exit_code == 0, r.output
-    assert (out / "metadata.parquet").is_file() and (out / "samples-000.tar").is_file()
-    r = runner.invoke(app, ["flywheel", "pairs", str(runs_dir), str(tmp_path / "p.jsonl")])
-    assert r.exit_code == 0 and "pairs" in r.output
-    r = runner.invoke(app, ["flywheel", "index", str(runs_dir), str(tmp_path / "i.sqlite")])
-    assert r.exit_code == 0 and "indexed 3 runs" in r.output
-
-
 def test_tools_list_handles_an_optional_spatial_install():
     r = runner.invoke(app, ["tools", "list"])
     # spatial tools may or may not be installed yet; either a table or a clear message, never a traceback
@@ -141,11 +130,33 @@ def _write_stool_plan(ws):
     ws.write_json(ws.plan_path, plan)
 
 
-def test_judge_rejudges_with_in_run_inputs(runs_dir: Path, monkeypatch):
+def test_commands_over_a_runs_dir(runs_dir: Path, tmp_path: Path, monkeypatch):
+    """flywheel export/pairs/index/caption, judge (in-run inputs, the reference judge, a typed failure), status."""
+    import codeverse3d.addons.dataset.captions as cap
     import codeverse3d.judges.vlm_judge as vj
+    from codeverse3d.config import get_settings
     from codeverse3d.workspace import Workspace
     from tests.flywheel_cli.conftest import tiny_png
 
+    out = tmp_path / "ds"
+    r = runner.invoke(app, ["flywheel", "export", str(runs_dir), str(out), "--pack"])
+    assert r.exit_code == 0, r.output
+    assert (out / "metadata.parquet").is_file() and (out / "samples-000.tar").is_file()
+    r = runner.invoke(app, ["flywheel", "pairs", str(runs_dir), str(tmp_path / "p.jsonl")])
+    assert r.exit_code == 0 and "pairs" in r.output
+    r = runner.invoke(app, ["flywheel", "index", str(runs_dir), str(tmp_path / "i.sqlite")])
+    assert r.exit_code == 0 and "indexed 3 runs" in r.output
+
+    # no --model: Settings.default_captioner, not a literal the CLI kept (a configured one was ignored)
+    seen: list[str] = []
+    monkeypatch.setattr(get_settings(), "default_captioner", "fake:configured")
+    monkeypatch.setattr(cap, "caption_sample", lambda ws, rec, model, **kw: seen.append(model) or SimpleNamespace(instruction="x"))
+    r = runner.invoke(app, ["flywheel", "caption", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir), "--out",
+                            str(tmp_path / "side")])
+    assert r.exit_code == 0, r.output
+    assert seen == ["fake:configured"]
+
+    # judge: re-judges with the run's own inputs
     ws = Workspace(runs_dir / "wooden_chair_ab12cd34")
     _write_stool_plan(ws)
     tiny_png(ws.renders_dir(1) / "clay" / "view_top.png", (128, 128, 128))
@@ -164,24 +175,17 @@ def test_judge_rejudges_with_in_run_inputs(runs_dir: Path, monkeypatch):
     assert (ws.artifacts / "judge" / "r01_cli.json").is_file()
     assert "prompt images" in r.output
 
-
-def test_judge_uses_reference_judge_for_measured_rubrics(runs_dir: Path, monkeypatch):
-    import codeverse3d.judges.vlm_judge as ref
-
+    # a measured rubric goes to the reference judge
     class _FakeRef(_FakeVlm):
         pass
 
-    monkeypatch.setattr(ref, "ReferenceJudge", _FakeRef)
+    monkeypatch.setattr(vj, "ReferenceJudge", _FakeRef)
     _FakeRef.captured.clear()
-    r = runner.invoke(app, ["judge", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir),
-                            "--rubric", "reference_v1"])
+    r = runner.invoke(app, ["judge", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir), "--rubric", "reference_v1"])
     assert r.exit_code == 0, r.output  # no ValueError traceback any more
     assert _FakeRef.captured["rubric"] == "reference_v1"
 
-
-def test_judge_wraps_value_error_as_cli_error(runs_dir: Path, monkeypatch):
-    import codeverse3d.judges.vlm_judge as vj
-
+    # a judge ValueError is a CLI error
     class _Boom(_FakeVlm):
         def judge(self, inp):
             raise ValueError("rubric has measured criteria but VlmJudge computes none")
@@ -189,8 +193,23 @@ def test_judge_wraps_value_error_as_cli_error(runs_dir: Path, monkeypatch):
     monkeypatch.setattr(vj, "VlmJudge", _Boom)
     r = runner.invoke(app, ["judge", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir)])
     assert r.exit_code == 1
-    out = r.output + str(getattr(r, "stderr", "") or "")
-    assert "judge failed" in out and "Traceback" not in r.output
+    assert "judge failed" in r.output + str(getattr(r, "stderr", "") or "") and "Traceback" not in r.output
+
+    # status shows candidates and texturing
+    (ws.root / "rounds").mkdir(exist_ok=True)
+    (ws.root / "rounds" / "candidates.json").write_text(json.dumps({
+        "n": 2, "selected": 1,
+        "candidates": [{"index": 0, "label": "c0", "score": 0.51, "build_ok": True},
+                       {"index": 1, "label": "c1", "score": 0.63, "build_ok": True}],
+        "pairwise": {"a": "c0", "b": "c1", "winner": "b", "confidence": 0.8}}))
+    rec = json.loads(ws.record_path.read_text())
+    rec.setdefault("extra", {})["texturing"] = {"shipped": True, "delta": 0.01, "reason": "", "n_textures": 3,
+                                                "glb_textured": "artifacts/object_textured.glb"}
+    ws.record_path.write_text(json.dumps(rec))
+    r = runner.invoke(app, ["status", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir)])
+    assert r.exit_code == 0, r.output
+    assert "candidates" in r.output and "c1" in r.output and "pairwise" in r.output
+    assert "texturing" in r.output and "shipped" in r.output
 
 
 def test_calibration_rubric_map_includes_graphics(tmp_path: Path):
@@ -218,22 +237,9 @@ def test_make_invalid_combo_leaves_no_orphan_workspace(tmp_path: Path):
     assert not (runs / "bad").exists(), "invalid spec must not leave an orphan run dir"
 
 
-def test_resume_budget_flags_rewrite_spec_and_emit_event(made_run, stub_track):
-    runs, ws = made_run("--max-minutes", "1.0", "--rounds", "1")
-    seen = {}
-    stub_track(lambda spec, resume, force: seen.__setitem__("spec", spec))
-    r2 = runner.invoke(app, ["resume", ws.name, "--runs-dir", str(runs), "--max-minutes", "60", "--rounds", "3"])
-    assert r2.exit_code == 130
-    spec = Spec.model_validate_json((ws / "spec.json").read_text())
-    assert spec.budget.max_rounds == 3 and spec.budget.max_minutes == 60.0
-    assert seen["spec"].budget.max_minutes == 60.0, "the resumed run must see the raised ceiling"
-    events = [json.loads(line) for line in (ws / "events.jsonl").read_text().splitlines()]
-    raised = [e for e in events if e.get("event") == "budget.raised"]
-    assert raised and raised[0]["max_rounds"] == 3
-
-
 def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_track):
-    """A finished run never re-enters the track unless forced."""
+    """A finished run never re-enters the track unless forced; a raised cap is written to spec.json
+    and seen by the resumed run; spec drift is a clean CLI error."""
     from codeverse3d.contracts.run import RunStatus
     from codeverse3d.orchestrator import RunState
     from codeverse3d.workspace import Workspace
@@ -245,8 +251,8 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_tra
                                          "best_commit": "abc", "best_score": 0.7436}))
     assert RunState.load(ws).status is RunStatus.STOPPED
 
-    entered = []
-    stub_track(lambda spec, resume, force: entered.append((resume, force)))
+    entered, specs = [], []
+    stub_track(lambda spec, resume, force: (entered.append((resume, force)), specs.append(spec)))
     r = runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)])
     assert r.exit_code == 1 and "already finished" in r.output and "stop_reason='pass'" in r.output
     assert entered == [], "the pipeline must not be re-entered"
@@ -261,49 +267,26 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_tra
     assert r.exit_code == 1 and "status=max_rounds" in r.output
     assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs), "--max-minutes", "90"]).exit_code == 1
     assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs), "--rounds", "5"]).exit_code == 130
+    assert Spec.model_validate_json(ws.spec_path.read_text()).budget.max_rounds == 5
 
     # a budget stop is the documented exception: it resumes when a cap is raised
     RunState(status=RunStatus.BUDGET, stop_reason="budget").save(ws)
     assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)]).exit_code == 1
     assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs), "--max-minutes", "60"]).exit_code == 130
+    assert Spec.model_validate_json(ws.spec_path.read_text()).budget.max_minutes == 60.0
+    assert specs[-1].budget.max_minutes == 60.0, "the resumed run must see the raised ceiling"
 
     # an interrupted run is untouched by the guard
     RunState(status=RunStatus.REFINING).save(ws)
     assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)]).exit_code == 130
 
-
-def test_a_spec_change_refusal_is_a_clean_cli_error(made_run, stub_track):
-    """Spec drift is a typed CLI refusal, not a traceback."""
+    # spec drift is a typed CLI refusal, not a traceback
     from codeverse3d.tracks.lifecycle import SpecChanged
 
-    runs, ws = made_run()
     stub_track(exc=SpecChanged("spec.json changed under this run; fork a new run or resume with --force"))
-    r = runner.invoke(app, ["resume", ws.name, "--runs-dir", str(runs)])
-    out = r.output + str(getattr(r, "stderr", "") or "")
-    assert r.exit_code == 2 and "--force" in out
+    r = runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)])
+    assert r.exit_code == 2 and "--force" in r.output + str(getattr(r, "stderr", "") or "")
     assert "Traceback" not in r.output
-
-
-def test_status_shows_candidates_and_texturing(runs_dir: Path):
-    import json as _json
-
-    from codeverse3d.workspace import Workspace
-
-    ws = Workspace(runs_dir / "wooden_chair_ab12cd34")
-    (ws.root / "rounds").mkdir(exist_ok=True)
-    (ws.root / "rounds" / "candidates.json").write_text(_json.dumps({
-        "n": 2, "selected": 1,
-        "candidates": [{"index": 0, "label": "c0", "score": 0.51, "build_ok": True},
-                       {"index": 1, "label": "c1", "score": 0.63, "build_ok": True}],
-        "pairwise": {"a": "c0", "b": "c1", "winner": "b", "confidence": 0.8}}))
-    rec = _json.loads(ws.record_path.read_text())
-    rec.setdefault("extra", {})["texturing"] = {"shipped": True, "delta": 0.01, "reason": "", "n_textures": 3,
-                                                "glb_textured": "artifacts/object_textured.glb"}
-    ws.record_path.write_text(_json.dumps(rec))
-    r = runner.invoke(app, ["status", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir)])
-    assert r.exit_code == 0, r.output
-    assert "candidates" in r.output and "c1" in r.output and "pairwise" in r.output
-    assert "texturing" in r.output and "shipped" in r.output
 
 
 def test_render_graphics_regenerates_frames(tmp_path: Path, monkeypatch):
@@ -453,21 +436,6 @@ def test_render_only_labels_the_working_tree_round(tmp_path: Path):
     assert _render_round_or_refuse(_round_guard_ws(tmp_path / "b", tree=1), None) == 1
 
 
-def test_flywheel_caption_defaults_to_the_configured_captioner(runs_dir: Path, monkeypatch):
-    """No --model: Settings.default_captioner, not a literal the CLI kept (a configured one was ignored)."""
-    import codeverse3d.addons.dataset.captions as cap
-    from codeverse3d.config import get_settings
-
-    seen: list[str] = []
-    monkeypatch.setattr(get_settings(), "default_captioner", "fake:configured")
-    monkeypatch.setattr(cap, "caption_sample", lambda ws, rec, model, **kw: seen.append(model) or SimpleNamespace(instruction="x"))
-    r = runner.invoke(app, ["flywheel", "caption", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir), "--out",
-                            str(runs_dir.parent / "side")])
-    assert r.exit_code == 0, r.output
-    assert seen == ["fake:configured"]
-
-
-# --------------------------------------------------- the configuration sweep (2026-09-23): refused up front, cleanly
 @pytest.mark.parametrize("flag,value", [
     ("--generator", "antigravity:gemini-3.7-flash"), ("--generator", "nocolon"), ("--generator", "single-shot:nope"),
     ("--generator", "single-shot:gemini:"), ("--planner", "gemini"), ("--judge", "bogus:model"),

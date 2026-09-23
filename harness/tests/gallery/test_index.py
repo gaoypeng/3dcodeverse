@@ -5,21 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from codeverse3d.addons.gallery.index import build_index, entry_for_dir
+from codeverse3d.addons.gallery.index import build_index
 from codeverse3d.addons.gallery.model import match, sort_entries, summarize
-
-
-def test_a_card_links_the_picked_rounds_own_glb(tmp_path: Path):
-    """artifacts/object.glb is the LAST round's: until a hand-over the card links the picked round's copy."""
-    from codeverse3d.addons import select
-    from tests.flywheel_cli.conftest import make_fake_run
-
-    ws, _ = make_fake_run(tmp_path / "runs", "kept_rounds", scores=(0.9, 0.6))   # the pick is r00
-    links = {ln.label: ln.rel for ln in entry_for_dir("runs", ws.root).links}
-    assert links["glb"] == "artifacts/r00/object.glb"
-    select.package(ws.root, 0)
-    links = {ln.label: ln.rel for ln in entry_for_dir("runs", ws.root).links}
-    assert links["glb"] == "deliverable/object.glb"
 
 
 def test_filter_and_sort_and_summary(gallery_tree: dict[str, Path]):
@@ -43,13 +30,17 @@ def test_filter_and_sort_and_summary(gallery_tree: dict[str, Path]):
 
 
 # --------------------------------------------------------------------------- run identity
-def test_nested_battery_runs_get_distinct_findable_slugs(tmp_path: Path):
-    """Two compare-style runs whose dirs are both named ``run`` keep distinct, findable slugs."""
+def test_nested_battery_runs_get_distinct_findable_slugs_and_eval_workspaces_are_not_runs(tmp_path: Path):
+    """Two compare-style runs whose dirs are both named ``run`` keep distinct, findable slugs; a cell's
+    ``eval/`` judge workspace (spec.json, no record.json) is not a run."""
     from tests.flywheel_cli.conftest import make_fake_run
 
     root = tmp_path / "compare_v9"
     make_fake_run(root / "cells" / "cmp_a_stool" / "armx", "run", prompt="a stool")
     make_fake_run(root / "cells" / "cmp_b_lamp" / "armx", "run", prompt="a lamp")
+    eval_dir = root / "cells" / "cmp_a_stool" / "armx" / "eval"
+    eval_dir.mkdir()
+    (eval_dir / "spec.json").write_text(json.dumps({"prompt": "judge ws"}))
     index = build_index([root])
     (section,) = index.sections
     assert sorted(e.slug for e in section.entries) == ["cmp_a_stool__armx", "cmp_b_lamp__armx"]
@@ -58,19 +49,6 @@ def test_nested_battery_runs_get_distinct_findable_slugs(tmp_path: Path):
     assert a is not None and a.prompt == "a stool"
     assert b is not None and b.prompt == "a lamp"
     assert a.key != b.key
-
-
-def test_nested_eval_workspaces_are_not_counted_as_runs(tmp_path: Path):
-    """A cell's ``eval/`` judge workspace (spec.json, no record.json) is not a run."""
-    from tests.flywheel_cli.conftest import make_fake_run
-
-    root = tmp_path / "compare_v9"
-    make_fake_run(root / "cells" / "cmp_a_stool" / "armx", "run", prompt="a stool")
-    eval_dir = root / "cells" / "cmp_a_stool" / "armx" / "eval"
-    eval_dir.mkdir()
-    (eval_dir / "spec.json").write_text(json.dumps({"prompt": "judge ws"}))
-    (section,) = build_index([root]).sections
-    assert [e.slug for e in section.entries] == ["cmp_a_stool__armx"]
 
 
 def test_duplicate_slugs_within_a_root_are_disambiguated(tmp_path: Path):

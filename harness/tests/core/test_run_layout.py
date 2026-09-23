@@ -123,13 +123,16 @@ def test_a_copied_run_reads_its_own_files_while_the_original_still_exists(tmp_pa
     assert Workspace(a).rebase(str(sheet_a)) == sheet_a
 
 
-def test_a_stale_index_lock_names_the_remedy(tmp_path):
+def test_a_stale_index_lock_names_the_remedy(tmp_path, monkeypatch):
     """A stale git index lock is surfaced with its exact safe remedy."""
     import subprocess
 
     import pytest
 
+    import codeverse3d.workspace as W
     from codeverse3d.workspace import Workspace, WorkspaceGitError
+
+    monkeypatch.setattr(W.time, "sleep", lambda _s: None)  # the live-holder retry backoff: nothing to wait for
 
     ws = Workspace(tmp_path / "run").create()
     ws.src.mkdir(parents=True, exist_ok=True)
