@@ -1008,8 +1008,7 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   `PCFSoftShadowMap` as BASIC (the renderer uses `PCFShadowMap`); the census missed shader-instanced
   geometry; GlHost doubled a relative out dir.  Tests follow D96 (a BUILD row + a GPU group each).  The
   catalog and planner say the effects are zone code, never assets, with no limits stated (D93).
-  `judges/cinematic.review_frames` + `cinematic_v1` review offline stills and are wired into NO run path
-  (no track, CLI, select or eval calls them).  `examples/graphics_lab/` is a dev lab (one scene per
+  `examples/graphics_lab/` is a dev lab (one scene per
   module, captures tied to source hashes); its `output/` is ignored and none of its media is committed.
 
 ## Rejected / deferred

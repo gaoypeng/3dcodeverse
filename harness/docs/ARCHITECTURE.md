@@ -167,7 +167,7 @@ codeverse3d/
                       gate and eval all use; the pure replay helpers), rubrics.py + rubrics/*.yaml (defect checklists, the wire
                       schema, caps and scoring), prompt_builder.py (image prep, montages, the
                       judge messages), vlm_judge.py (+ the reference/likeness judges),
-                      pairwise.py, cinematic.py (optional review of authored offline frames).
+                      pairwise.py.
                       No Judge Protocol: a judge is
                       duck-typed `.judge(JudgeInput) -> Judgment`
   reference.py        reference GROUNDING — give the pipeline a picture of what it is building:
