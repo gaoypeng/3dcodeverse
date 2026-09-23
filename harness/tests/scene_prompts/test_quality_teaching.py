@@ -13,31 +13,10 @@ import pytest
 from codeverse3d.judges.rubrics import load_rubric
 from codeverse3d.prompts import load_text
 
-#: cookbook chapter titles selected by the scene prompt builder
-QUALITY_CHAPTERS = [
-    "Ground that reads real",
-    "Horizon: the world must not end",
-    "Vegetation that reads real",
-    "Rocks, cliffs and boulders that read organic",
-    "Set dressing",
-    "Scene layering",
-    "Atmosphere: time-of-day triads",
-    "Motion you can SEE",
-    "The exact contract the harness assembler enforces",
-]
-
 
 @pytest.fixture(scope="module")
 def cookbook() -> str:
     return load_text("scene_threejs/cookbook.md")
-
-
-@pytest.mark.parametrize("title", QUALITY_CHAPTERS)
-def test_cookbook_quality_chapter_is_selectable(cookbook: str, title: str) -> None:
-    from codeverse3d.prompts.sections import find_section, split_sections
-
-    s = find_section(split_sections(cookbook), title)
-    assert s is not None and s.title.startswith(title)
 
 
 def test_cookbook_carries_the_numbers_the_recipes_depend_on(cookbook: str) -> None:

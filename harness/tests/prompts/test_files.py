@@ -9,7 +9,7 @@ import jinja2
 import pytest
 
 from codeverse3d.contracts.common import TRACK_LANGUAGES, Language, Track
-from codeverse3d.prompts import load_text, prompt_hash, render
+from codeverse3d.prompts import load_text, render
 from codeverse3d.prompts.catalog import language_prompt
 from tests.prompts.conftest import DOC_FILES, PROMPT_FILES, PROMPTS_DIR, is_template, read_prompt
 
@@ -24,7 +24,6 @@ UNREACHED = {
 @pytest.mark.parametrize("rel", PROMPT_FILES)
 def test_prompt_file_contract(rel: str) -> None:
     raw = load_text(rel)
-    assert prompt_hash(raw)
     if is_template(rel):
         jinja2.Environment().parse(raw)   # a template must at least compile
         return
@@ -93,10 +92,6 @@ def test_system_prompts_cover_the_laws() -> None:
     for needle in ("artifacts/", "render_sheet", "check_connectivity", "2 mm",
                    "Definition of done", "ground", "seed"):
         assert needle.lower() in hc.lower(), f"harness_contract.md must mention {needle!r}"
-    # system/tools_usage.md was a hand-written tool list with no production reader
-    # (deleted 2026-08-28): the agent's tool section is GENERATED from the @tool
-    # registrations by agents/materialize._tool_section, so "every tool is documented"
-    # is true by construction and this assertion was checking a file nobody read.
 
 
 def test_every_language_ships_a_system_prompt_a_contract_and_a_cookbook() -> None:

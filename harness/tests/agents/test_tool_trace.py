@@ -186,6 +186,8 @@ def test_gemini_system_settings_pin_skills_on_and_keep_the_workspace_trusted(tmp
     data = json.loads(write_system_settings(tmp_path / "s.json").read_text())
     assert data["skills"]["enabled"] is True and data["skills"] == SYSTEM_SETTINGS["skills"]
     assert data["security"]["folderTrust"] == {"enabled": False}
+    assert data["security"]["auth"]["selectedType"] == "gemini-api-key"
+    assert data["experimental"]["dynamicModelConfiguration"] is True   # else 0.53 substitutes models
 
 
 def test_gemini_sessions_see_the_routed_bundles_and_not_the_clis_own(tmp_path):

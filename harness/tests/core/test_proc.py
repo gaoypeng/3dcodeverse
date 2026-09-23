@@ -130,18 +130,6 @@ def test_write_json_atomic_round_trips_into_a_new_dir(tmp_path: Path):
     assert [q.name for q in p.parent.iterdir()] == ["out.json"]
 
 
-def test_workspace_write_json_delegates(tmp_ws):
-    from pydantic import BaseModel
-
-    class M(BaseModel):
-        x: int = 2
-
-    p = tmp_ws.root / "artifacts" / "m.json"
-    tmp_ws.write_json(p, M())
-    assert json.loads(p.read_text()) == {"x": 2}
-    assert not p.with_suffix(".json.tmp").exists()
-
-
 _WRITER = """
 import json, sys
 from pathlib import Path

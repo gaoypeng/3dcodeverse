@@ -233,7 +233,6 @@ def test_thinking_rejected_falls_back_without_thinking_config():
     assert log[0]["config"].thinking_config is not None and log[1]["config"].thinking_config is None
     assert any("thinking" in w for w in r.raw["warnings"])
     # sticky for the next call
-    m.pool  # noqa: B018
     log.clear()
     m._client_factory = lambda key: FakeClient([text_response("again")], key, log)
     m.generate(ChatRequest(messages=[ChatMessage.user("y")]))
@@ -391,8 +390,7 @@ def test_drain_stream_cuts_a_stream_past_its_attempt_budget():
     assert e.value.retryable and "attempt budget" in str(e.value)
 
 
-@pytest.mark.parametrize(("raw", "streamed"), [(None, True), ("0", False), ("off", False), ("OFF", False),
-                                               ("on", True), ("garbage", True)])
+@pytest.mark.parametrize(("raw", "streamed"), [(None, True), ("off", False)])  # spellings: test_config_env_aliases
 def test_streaming_toggle(monkeypatch, switch, raw, streamed):
     """``C3D_STREAM=off`` was silently ignored until 2026-09-22: only "0" was read."""
     switch("C3D_STREAM", raw)
@@ -404,7 +402,7 @@ def test_streaming_toggle(monkeypatch, switch, raw, streamed):
     assert bool(calls) is streamed
 
 
-@pytest.mark.parametrize(("raw", "bound"), [(None, True), ("0", False), ("off", False), ("no", False), ("1", True)])
+@pytest.mark.parametrize(("raw", "bound"), [(None, True), ("off", False)])  # spellings: test_config_env_aliases
 def test_ipv4_transport_toggle(switch, raw, bound):
     """``C3D_IPV4=off`` was silently ignored until 2026-09-22: only "0" restored dual-stack."""
     import httpx

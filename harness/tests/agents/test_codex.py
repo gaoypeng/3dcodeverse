@@ -103,7 +103,7 @@ def test_fake_run(tmp_ws: Workspace, fake_bin, monkeypatch):
     a = CodexAgent("gpt-5.6-sol", binary=fake_bin("codex", FAKE_CODEX))
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="x", timeout_s=30))
     assert res.ok and res.exit_reason == "completed" and res.text == "Done." and res.tool_calls == 2, res.errors
-    assert [f.path for f in res.files_changed] == ["src/hello.txt"]
+    assert [f.path for f in res.files_changed] == ["src/hello.txt"] and (tmp_ws.src / "hello.txt").read_text() == "hello"
     assert res.usage.input_tokens == 1000
     # the turn count lands in the TYPED result (one turn.completed event), not only in result.json
     assert res.turns == 1 == json.loads((Path(res.transcript_path).parent / "result.json").read_text())["turns"]
@@ -124,12 +124,6 @@ def test_a_codex_failure_is_typed_quota_or_transient(tmp_ws: Workspace, fake_bin
     monkeypatch.setenv("FAKE_MODE", "storm")
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="t", timeout_s=30))
     assert not res.ok and res.transient and not res.quota and res.provider_wait_s == 0.0   # codex does not say
-
-
-def test_every_prompt_goes_via_stdin(tmp_ws: Workspace, fake_bin):
-    a = CodexAgent("gpt-5.6-sol", binary=fake_bin("codex", FAKE_CODEX))
-    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello world", label="z", timeout_s=30))
-    assert res.ok and (tmp_ws.src / "hello.txt").read_text() == "hello"
 
 
 @pytest.mark.live

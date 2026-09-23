@@ -15,14 +15,9 @@ from codeverse3d.tracks.planner import plan_example
 
 def _raw() -> dict:
     d = copy.deepcopy(plan_example(Track.ARTICULATED_OBJECT))
-    assert ArticulatedPlan.model_validate(d).normalisations == []
+    p = ArticulatedPlan.model_validate(d)
+    assert p.normalisations == [] and [x.name for x in p.parts] == [x["name"] for x in d["parts"]]  # a valid plan is untouched
     return d
-
-
-def test_a_valid_plan_is_untouched():
-    d = _raw()
-    p = ArticulatedPlan.model_validate(copy.deepcopy(d))
-    assert p.normalisations == [] and [x.name for x in p.parts] == [x["name"] for x in d["parts"]]
 
 
 def test_a_joint_that_moves_a_sub_part_promotes_it_to_a_link():

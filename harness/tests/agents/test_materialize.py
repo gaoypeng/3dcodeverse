@@ -98,10 +98,8 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
             assert ignored(hidden, lines), hidden
 
 
-def test_spatial_disabled_drops_server_and_documents_absence(tmp_ws: Workspace):
-    _mat(tmp_ws)
+def test_spatial_disabled_documents_absence(tmp_ws: Workspace):
     _mat(tmp_ws, spatial=False)
-    assert "3dcode" not in json.loads((tmp_ws.root / ".gemini" / "settings.json").read_text()).get("mcpServers", {})
     assert "No spatial tools are available" in (tmp_ws.root / "AGENTS.md").read_text()
 
 

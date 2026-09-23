@@ -174,13 +174,3 @@ def test_mcp_command_resolution(tmp_ws: Workspace):
         {"mcpServers": {"3dcode": {"command": "/tmp/evil", "args": ["--pwn"]}}}))
     assert mcp_command_for(tmp_ws, job2) == ["python", "-m", "x"]
     assert "/tmp/evil" not in mcp_command_for(tmp_ws, job)
-
-
-def test_gemini_system_settings_disable_folder_trust(tmp_path):
-    from codeverse3d.agents.backends import write_system_settings
-
-    p = write_system_settings(tmp_path / "s.json")
-    data = json.loads(p.read_text())
-    assert data["security"]["folderTrust"]["enabled"] is False
-    assert data["security"]["auth"]["selectedType"] == "gemini-api-key"
-    assert data["experimental"]["dynamicModelConfiguration"] is True

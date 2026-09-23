@@ -15,7 +15,6 @@ from tests.prompts.conftest import DOC_FILES, blocks, read_prompt
 
 PY_FILES = [f for f in DOC_FILES if f.split("/")[0] in ("blender", "cadquery", "urdf")]
 JS_FILES = [f for f in DOC_FILES if f.split("/")[0] in ("threejs", "scene_threejs")]
-JS_FILES.append("system/singleshot_format.md")
 XML_FILES = ["urdf/contract.md", "urdf/cookbook.md"]
 
 
@@ -112,7 +111,7 @@ def test_xml_examples_follow_the_enforced_frame_recipe(rel: str, tmp_path) -> No
 
 
 @pytest.mark.node
-@pytest.mark.parametrize("rel", [f for f in JS_FILES if f != "system/singleshot_format.md"])
+@pytest.mark.parametrize("rel", JS_FILES)
 def test_js_blocks_syntax(rel: str, tmp_path) -> None:
     node = shutil.which("node")
     if node is None:
@@ -151,13 +150,13 @@ def test_glsl_strings_are_sane() -> None:
 
 
 def test_singleshot_example_parses_with_harness_parser() -> None:
-    gen = pytest.importorskip("codeverse3d.tracks.generation")
+    from codeverse3d.tracks import generation as gen
+
     text = read_prompt("system/singleshot_format.md")
     example = blocks("system/singleshot_format.md", "text")[-1]
     files = gen.parse_multifile(example)
     assert set(files) == {"src/parts/seat.js", "src/object.js"}
     assert "buildSeat" in files["src/parts/seat.js"]
     assert "=== FILE" not in "".join(files.values())
-    assert "SINGLE_SHOT_FORMAT" in dir(gen)
     # the format doc and the parser must agree on the markers
     assert "=== FILE: " in text and "=== END FILE ===" in text

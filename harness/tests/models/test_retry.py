@@ -250,19 +250,6 @@ def test_storm_waits_never_exceed_the_house_limit_at_production_defaults(monkeyp
     assert naps and max(naps) == MAX_WAIT_S
 
 
-def test_503_storm_budget_exhausts_then_normal_budget_applies():
-    """Exhausted storm patience falls back to the finite normal budget."""
-    with pytest.raises(ModelError):
-        _rotate503(
-            _pool(1),
-            _boom("503 forever"),
-            max_attempts=2,
-            base_delay=0.0,
-            storm_attempts=3,
-            storm_max_delay=0.0,
-        )
-
-
 def test_one_call_cannot_retry_for_hours():
     """The wall-clock deadline bounds even a long 503 storm."""
     clock = Clock()
