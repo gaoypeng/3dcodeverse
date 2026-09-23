@@ -187,8 +187,6 @@ class SceneTrack(BaseTrack):
         # so the two stages' commits cannot race.
         def _layouts() -> dict[str, Any]:
             """L2 zone layouts (optional accelerator): planner-model calls, never fatal."""
-            if not get_settings().zone_layouts:   # C3D_ZONE_LAYOUTS: an A/B switch, default on
-                return {}
             try:
                 model = self._planner_model
                 if model is None:
@@ -209,20 +207,24 @@ class SceneTrack(BaseTrack):
         key = {"plan": plan, "agent": ctx.agent_id}
         # textures first and alone: env and zones can only name the files if they exist by
         # the time those prompts are built (Settings.scene_textures says why this
-        # is off by default and what it costs)
+        # is off by default and what it costs).  A pack is part of the env and zones keys
+        # only when it has files, so a run without one keeps the keys it always had.
         if get_settings().scene_textures:
             ctx.extra["textures"] = runner.stage("textures", lambda: self._textures_stage(ctx), inputs={"plan": plan}) or {}
-        stage_fns: dict[str, Any] = {"assets": lambda: run_asset_stage(ctx),
-                                     "env": lambda: self._env_stage(ctx), "layouts": _layouts}
+        textures = {"textures": ctx.extra["textures"]} if ctx.extra.get("textures") else {}
+        stage_fns: dict[str, Any] = {"assets": lambda: run_asset_stage(ctx), "env": lambda: self._env_stage(ctx)}
+        keys = {"env": {**key, **textures}}
+        if get_settings().zone_layouts:   # C3D_ZONE_LAYOUTS (an A/B switch, default on): off = no stage, so none is cached
+            stage_fns["layouts"] = _layouts
         group = "+".join(stage_fns)
         with timed(group, ctx.state.steps):  # side by side: ONE step of the run's minutes
-            results = fan_out(list(stage_fns.items()), lambda kv: runner.stage(kv[0], kv[1], inputs=key, timed_step=False),
+            results = fan_out(list(stage_fns.items()), lambda kv: runner.stage(kv[0], kv[1], inputs=keys.get(kv[0], key), timed_step=False),
                               max_workers=len(stage_fns), label=group, item_name=lambda kv: kv[0])
         staged = dict(zip(stage_fns, results, strict=True))
         first_exc = next((r for r in results if isinstance(r, Exception)), None)
         if first_exc is not None:
             raise first_exc   # after every sibling has finished and cached its own result
-        ctx.extra["layouts"] = staged["layouts"] or {}
+        ctx.extra["layouts"] = staged.get("layouts") or {}
         assets = {k: AssetResult.model_validate(v) if isinstance(v, dict) else v
                   for k, v in (staged["assets"] or {}).items()}
         # the merge map the STAGE used (its cap depends on the soft budget at the time: a
@@ -235,7 +237,8 @@ class SceneTrack(BaseTrack):
         ctx.extra["asset_alias"] = alias
         ctx.extra["asset_api"] = asset_api_summary(plan, assets, alias)
         runner.stage("zones", lambda: self._zones_stage(ctx),
-                     inputs={"plan": plan, "asset_api": ctx.extra["asset_api"], "layouts": ctx.extra["layouts"], "agent": ctx.agent_id})
+                     inputs={"plan": plan, "asset_api": ctx.extra["asset_api"], "layouts": ctx.extra["layouts"], "agent": ctx.agent_id,
+                             **textures})
         runner.stage("assemble", lambda: self._assemble_stage(ctx), inputs={"plan": plan})
 
     # ---- degradation ------------------------------------------------------
