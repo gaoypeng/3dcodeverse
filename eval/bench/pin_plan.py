@@ -93,7 +93,7 @@ def plan_once(spec: Any, ws_root: Path) -> str:
     from codeverse3d.orchestrator import RunState, StageRunner
     from codeverse3d.proc import EventLog
     from codeverse3d.tracks import get_track
-    from codeverse3d.tracks.lifecycle import plan_stage_inputs
+    from codeverse3d.tracks.lifecycle import plan_stage_key
     from codeverse3d.workspace import Workspace
 
     ws = Workspace(Path(ws_root))
@@ -105,7 +105,7 @@ def plan_once(spec: Any, ws_root: Path) -> str:
     ctx = track.build_context(spec, ws, events, state)
     runner = StageRunner(ws, events, state)
     runner.stage("plan", lambda: track._plan_stage(ctx),  # noqa: SLF001 — see docstring
-                 inputs={"spec": plan_stage_inputs(spec), "track": track.track.value},
+                 inputs=plan_stage_key(spec, track.track),
                  model=track.plan_model)
     entry = state.stages.get(STAGE_NAME)
     if entry is None or not entry.inputs_hash:  # pragma: no cover — stage() always records one

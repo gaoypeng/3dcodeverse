@@ -86,6 +86,12 @@ def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
     }
 
 
+def plan_stage_key(spec: Spec, track: Track) -> dict[str, Any]:
+    """The plan stage's cache key: a run's, and the one a pinned A/B plan is seeded under
+    (``eval/bench/pin_plan``) — a seed under any other key is a cache MISS and re-plans."""
+    return {"spec": plan_stage_inputs(spec), "track": track.value}
+
+
 def spec_fingerprint(spec: Spec) -> str:
     """Identity of the spec THE PLAN depends on (hash of :func:`plan_stage_inputs`).
 
@@ -250,7 +256,7 @@ class BaseTrack:
             stop = RunStatus.FAILED
             error = ""
             try:
-                ctx.plan = runner.stage("plan", lambda: self._plan_stage(ctx), inputs={"spec": plan_stage_inputs(spec), "track": self.track.value},
+                ctx.plan = runner.stage("plan", lambda: self._plan_stage(ctx), inputs=plan_stage_key(spec, self.track),
                                         model=self.plan_model)
                 self.after_plan(ctx)
                 self.prepare(ctx, runner)

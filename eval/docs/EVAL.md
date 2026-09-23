@@ -452,7 +452,7 @@ Three details are the whole correctness of it:
   finished run.  Seeding off the control would serialise the pair, and the pair is launched
   together precisely so both arms see the same provider weather.
 * **The `inputs_hash` is asserted equal for every arm.**  It is derived from the spec
-  (`plan_stage_inputs`), so a mismatch means the seed is a cache MISS and the pair would
+  (`lifecycle.plan_stage_key`, the one key a run and the seed both use), so a mismatch means the seed is a cache MISS and the pair would
   re-plan per arm while reporting itself pinned — the one failure this must not have.
 * **`pin_plan_blockers` gates the flag** and `main` refuses the run when it is non-empty.
   Pinning a plan-side switch deletes the thing under test and the rig would then report
