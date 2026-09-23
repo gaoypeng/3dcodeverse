@@ -204,8 +204,8 @@ class ManifestServices(FakeServices):
     def tool_cards(self, track: str, language: str) -> str:
         return Services.tool_cards(self, track, language)
 
-    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_rel: str, spatial_tools: bool) -> None:
-        Services.materialize(self, ws, agent_kind=agent_kind, contract_md=contract_md, cookbook_rel=cookbook_rel,
+    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_text: str, spatial_tools: bool) -> None:
+        Services.materialize(self, ws, agent_kind=agent_kind, contract_md=contract_md, cookbook_text=cookbook_text,
                              spatial_tools=spatial_tools)
         self.materialized.append(agent_kind)
         self.contexts.append((ws.root, {n: (ws.root / n).read_text() for n in CONTEXT_FILES if (ws.root / n).is_file()}))

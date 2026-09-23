@@ -378,7 +378,7 @@ class FakeServices(Services):
                                 fix_hint=f"shrink {j.child} by 17 mm along the axis") for j in list(getattr(plan, "joints", []))[: self.sweep_errors]]
         return GateReport(gate="joint_sweep", passed=not findings, findings=findings), views
 
-    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_rel: str, spatial_tools: bool) -> None:
+    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_text: str, spatial_tools: bool) -> None:
         (ws.root / "AGENTS.md").write_text(contract_md)
         self.materialized.append(agent_kind)
 

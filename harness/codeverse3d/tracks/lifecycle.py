@@ -439,7 +439,7 @@ class BaseTrack:
         kind = ctx.agent_kind
         if ctx.state.materialized_for == kind:
             return
-        self.services.materialize(ctx.ws, agent_kind=kind, contract_md=self.agent_contract_md(ctx), cookbook_rel=ctx.cookbook_rel,
+        self.services.materialize(ctx.ws, agent_kind=kind, contract_md=self.agent_contract_md(ctx), cookbook_text=ctx.cookbook_text,
                                   spatial_tools=True)
         ctx.state.materialized_for = kind
         ctx.state.save(ctx.ws)

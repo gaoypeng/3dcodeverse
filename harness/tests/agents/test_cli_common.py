@@ -162,7 +162,7 @@ def test_mcp_command_resolution(tmp_ws: Workspace):
     assert mcp_command_for(tmp_ws, job2) == ["python", "-m", "x"]
     # a workspace .mcp.json NEVER wins: the agent works in that directory and could
     # otherwise choose what the next round's CLI launches (audit 2026-08-27)
-    materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_rel="", spatial_tools=True,
+    materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_text="", spatial_tools=True,
                           mcp_command=default_mcp_command(tmp_ws, language="cadquery"))
     assert mcp_command_for(tmp_ws, job2) == ["python", "-m", "x"]  # still the typed job
     (tmp_ws.root / ".mcp.json").write_text(json.dumps(

@@ -409,7 +409,7 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
         write_blender_skeleton(sub_ws, sub.plan, ground_tol_m=HERO_GROUND_TOL_M)
         sub_ws.commit("skeleton")
     if not ctx.single_shot:
-        ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=sub.contract_text, cookbook_rel=sub.cookbook_rel,
+        ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=sub.contract_text, cookbook_text=sub.cookbook_text,
                                  spatial_tools=True)
     files = sub.runtime.expected_files(sub.plan)
     timeout_s = asset_timeout_s(ctx, 180)

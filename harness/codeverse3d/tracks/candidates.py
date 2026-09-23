@@ -147,7 +147,7 @@ def make_candidate_context(track: Any, ctx: RunContext, k: int) -> RunContext:
             shutil.copyfile(path, sub_ws.root / path.name)
     if not ctx.single_shot:
         ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=track.agent_contract_md(ctx),
-                                 cookbook_rel=ctx.cookbook_rel, spatial_tools=True)
+                                 cookbook_text=ctx.cookbook_text, spatial_tools=True)
     sub_ws.commit("skeleton")
     # own event log (the run log keeps only candidate.*) and a one-sample judge for ranking
     return replace(ctx, ws=sub_ws, extra={}, events=EventLog(sub_ws.events_path),

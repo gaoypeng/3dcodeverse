@@ -13,8 +13,8 @@ from codeverse3d.workspace import Workspace
 CONTRACT = "## blender contract\nWrite pure bpy into src/model.py."
 
 
-def _mat(ws: Workspace, kind: str = "gemini-cli", spatial: bool = True, cookbook: str = "missing/cookbook.md"):
-    return materialize_workspace(ws, agent_kind=kind, contract_md=CONTRACT, cookbook_rel=cookbook,
+def _mat(ws: Workspace, kind: str = "gemini-cli", spatial: bool = True, cookbook: str = ""):
+    return materialize_workspace(ws, agent_kind=kind, contract_md=CONTRACT, cookbook_text=cookbook,
                                  spatial_tools=spatial, mcp_command=default_mcp_command(ws))
 
 
@@ -105,12 +105,10 @@ def test_spatial_disabled_drops_server_and_documents_absence(tmp_ws: Workspace):
     assert "No spatial tools are available" in (tmp_ws.root / "AGENTS.md").read_text()
 
 
-def test_cookbook_copied_when_found(tmp_ws: Workspace, tmp_path, caplog):
-    cb = tmp_path / "cookbook.md"
-    cb.write_text("# cookbook\nsnippet")
+def test_cookbook_copied_when_found(tmp_ws: Workspace, caplog):
     with caplog.at_level(logging.WARNING, logger="codeverse3d.agents.materialize"):
-        _mat(tmp_ws, cookbook=str(cb))
-    assert (tmp_ws.root / C3D_DIR / "cookbook.md").read_text().startswith("# cookbook")
+        _mat(tmp_ws, cookbook="# cookbook\nsnippet")
+    assert (tmp_ws.root / C3D_DIR / "cookbook.md").read_text() == "# cookbook\nsnippet"
     assert f"{C3D_DIR}/cookbook.md" in (tmp_ws.root / "AGENTS.md").read_text()
     assert not [r for r in caplog.records if r.name == "codeverse3d.agents.materialize"], \
         "a resolved cookbook must not warn"
@@ -122,9 +120,8 @@ def test_missing_cookbook_warns_where_someone_can_see_it(tmp_ws: Workspace, capl
     on disk).  It used to land in a `Materialized.warnings` list every caller threw away; the
     log line is the whole signal now, so it has to fire."""
     with caplog.at_level(logging.WARNING, logger="codeverse3d.agents.materialize"):
-        _mat(tmp_ws, cookbook="nope/cookbook.md")
-    assert any("cookbook not found" in r.getMessage() and "nope/cookbook.md" in r.getMessage()
-               for r in caplog.records)
+        _mat(tmp_ws, cookbook="")
+    assert any("cookbook not found" in r.getMessage() for r in caplog.records)
     assert "No cookbook is available" in (tmp_ws.root / "AGENTS.md").read_text()
 
 
@@ -147,7 +144,7 @@ def test_codex_overrides_are_valid_toml_fragments():
 
 def test_default_mcp_command_is_the_backends_interpreter(tmp_ws: Workspace):
     # one place knows the command: the body + codex overrides quote sys.executable, never bare "python"
-    materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_rel="", spatial_tools=True)
+    materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_text="", spatial_tools=True)
     body = (tmp_ws.root / "AGENTS.md").read_text()
     assert default_mcp_command(tmp_ws)[0] == sys.executable
     assert f"command: `{' '.join(default_mcp_command(tmp_ws))}`" in body

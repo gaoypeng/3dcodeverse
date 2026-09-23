@@ -141,9 +141,10 @@ def test_live_codex_mcp_tool_call_is_not_cancelled(tmp_ws: Workspace):
 
     from codeverse3d.agents.cli_common import default_mcp_command
     from codeverse3d.agents.materialize import materialize_workspace
+    from codeverse3d.prompts import load_text
 
     trimesh.creation.box().export(tmp_ws.artifacts / "object.glb")
-    materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_rel="threejs/cookbook.md", spatial_tools=True,
+    materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_text=load_text("threejs/cookbook.md"), spatial_tools=True,
                          mcp_command=default_mcp_command(tmp_ws, language="threejs"))
     a = CodexAgent("")
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="Call the 3dcode MCP tool `measure` exactly once, then reply with the "

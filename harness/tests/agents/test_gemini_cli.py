@@ -221,7 +221,7 @@ def test_agent_planted_mcp_server_never_reaches_the_cli(tmp_ws: Workspace, agent
     from codeverse3d.agents.cli_common import begin_session, default_mcp_command, release_session
     from codeverse3d.agents.materialize import materialize_workspace
 
-    materialize_workspace(tmp_ws, agent_kind="gemini-cli", contract_md="c", cookbook_rel="",
+    materialize_workspace(tmp_ws, agent_kind="gemini-cli", contract_md="c", cookbook_text="",
                           spatial_tools=True, mcp_command=default_mcp_command(tmp_ws))
     planted = tmp_ws.root / ".gemini" / "settings.json"
     data = json.loads(planted.read_text())

@@ -116,9 +116,9 @@ class Services:
         return default_joint_sweep(ws, plan, out_dir)
 
     # ---- agents' workspace materialisation + tool cards
-    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_rel: str, spatial_tools: bool) -> None:
+    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_text: str, spatial_tools: bool) -> None:
         _import("codeverse3d.agents.materialize", "materialize_workspace")(
-            ws, agent_kind=agent_kind, contract_md=contract_md, cookbook_rel=cookbook_rel, spatial_tools=spatial_tools)
+            ws, agent_kind=agent_kind, contract_md=contract_md, cookbook_text=cookbook_text, spatial_tools=spatial_tools)
 
     def tool_cards(self, track: str, language: str) -> str:
         try:

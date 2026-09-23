@@ -170,10 +170,12 @@ Every run is read from its ledger alone (`addons.costreport.audit.read_run` / `r
 ```python
 from codeverse3d.agents import get_coding_agent           # (agent_id) -> CodingAgent  .run(job) .available() .id .kind .model
 from codeverse3d.agents.materialize import materialize_workspace, codex_mcp_overrides
-materialize_workspace(ws, *, agent_kind, contract_md, cookbook_rel, spatial_tools, mcp_command=None) -> None
+materialize_workspace(ws, *, agent_kind, contract_md, cookbook_text, spatial_tools, mcp_command=None) -> None
+# cookbook_text = RunContext.cookbook_text, the catalog's text (Δ 2026-09-22: was cookbook_rel, resolved workspace-first,
+# so an agent-written <ws>/<lang>/cookbook.md shadowed the harness cookbook); "" → "No cookbook is available" + a warning
 # mcp_command defaults to cli_common.default_mcp_command(ws) = [sys.executable, -m codeverse3d.spatial.mcp_server --workspace …]
 # (None/[] = the default — no ValueError); tracks/common.Services.materialize takes no mcp_command
-# writes AGENTS.md + GEMINI.md + CLAUDE.md (same body), ws/.3dcode/cookbook.md (Δ copied in: gemini-cli cannot read
+# writes AGENTS.md + GEMINI.md + CLAUDE.md (same body), ws/.3dcode/cookbook.md (Δ written in: gemini-cli cannot read
 # outside the workspace), .geminiignore/.aiexclude, and MCP wiring:
 #   gemini-cli → ws/.gemini/settings.json only gets context.fileFiltering.respectGitIgnore=false; the 3dcode server
 #     and mcp.allowed live in the per-session system settings (Δ that file is agent-writable — audit 2026-08-27)

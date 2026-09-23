@@ -35,11 +35,9 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 from pathlib import Path
 
 from codeverse3d.agents.cli_common import default_mcp_command
-from codeverse3d.prompts import PROMPTS_DIR
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -192,22 +190,13 @@ def codex_mcp_overrides(mcp_command: list[str]) -> list[str]:
     ]
 
 
-def _resolve_cookbook(ws: Workspace, cookbook_rel: str) -> Path | None:
-    if not cookbook_rel:
-        return None
-    for cand in (ws.root / cookbook_rel, PROMPTS_DIR / cookbook_rel, Path(cookbook_rel)):
-        if cand.is_file():
-            return cand
-    return None
-
-
 # --------------------------------------------------------------------------- entry
 def materialize_workspace(
     ws: Workspace,
     *,
     agent_kind: str,
     contract_md: str,
-    cookbook_rel: str,
+    cookbook_text: str,
     spatial_tools: bool,
     mcp_command: list[str] | None = None,
 ) -> None:
@@ -223,22 +212,25 @@ def materialize_workspace(
     a cookbook that did not resolve, was written and read by nobody.  That is the exact
     failure ``tracks/common.cookbook_rel_for`` was fixed for on 2026-08-29 (an articulated
     run told the agent "No cookbook is available" while its 24 kB cookbook sat on disk);
-    it is a log line now, where someone reading the run can see it (2026-08-30)."""
+    it is a log line now, where someone reading the run can see it (2026-08-30).
+
+    ``cookbook_text`` is what the catalog loaded (``RunContext.cookbook_text``): until
+    2026-09-22 this took a path and resolved it itself, workspace first — so a
+    ``<ws>/blender/cookbook.md`` the agent wrote shadowed the harness cookbook."""
     mcp_command = list(mcp_command) if mcp_command else default_mcp_command(ws)
 
     # cookbook: copy into the harness-owned .3dcode/ dir so every CLI can read it in-workspace
-    src = _resolve_cookbook(ws, cookbook_rel)
-    if src is not None:
+    if cookbook_text:
         dest = ws.root / C3D_DIR / "cookbook.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(src, dest)
+        dest.write_text(cookbook_text, encoding="utf-8")
         cookbook_note = (
             f"The cookbook for this language — copyable, verified snippets and skeletons — is at "
             f"`{C3D_DIR}/cookbook.md` (relative to the workspace root). Read the relevant sections "
             "before writing code and copy its patterns exactly."
         )
     else:
-        log.warning("cookbook not found: %r — the %s session gets the contract only", cookbook_rel, agent_kind)
+        log.warning("cookbook not found — the %s session gets the contract only", agent_kind)
         cookbook_note = "No cookbook is available in this session; rely on the contract below."
 
     body = _body(agent_kind, contract_md, cookbook_note, spatial_tools, mcp_command, ws)
