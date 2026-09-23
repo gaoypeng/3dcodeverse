@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 import re
 import statistics
-from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -26,6 +25,7 @@ from codeverse3d.contracts.common import Track, Usage
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.judges.base import judged_subset
 from codeverse3d.judges.prompt_builder import (
+    MAX_PX,
     MONTAGE_TILE_PX,
     brief_section,
     image_part,
@@ -34,7 +34,7 @@ from codeverse3d.judges.prompt_builder import (
     prepare_image,
     render_montage,
 )
-from codeverse3d.judges.rubrics import JudgeParseError, Rubric, load_rubric
+from codeverse3d.judges.rubrics import Rubric, load_rubric
 from codeverse3d.models.base import ChatModel, ModelError
 from codeverse3d.models.schema_utils import JsonParseError, parse_json_lenient
 from codeverse3d.proc import fan_out
@@ -42,6 +42,7 @@ from codeverse3d.proc import fan_out
 log = logging.getLogger(__name__)
 
 Winner = Literal["a", "b", "tie"]
+TEMPERATURE = 0.2
 
 
 class CriterionWinner(BaseModel):
@@ -74,20 +75,9 @@ Compare criterion by criterion (intent, structure, detail, proportions, fit, mat
 class PairwiseJudge:
     name = "pairwise"
 
-    def __init__(
-        self,
-        model_id: str | None = None,
-        *,
-        temperature: float = 0.2,
-        max_px: int = 1024,
-        views_per_side: int = 4,
-        chat_model: ChatModel | None = None,
-        cache_dir: Path | None = None,
-    ):
+    def __init__(self, model_id: str | None = None, *, chat_model: ChatModel | None = None,
+                 cache_dir: Path | None = None):
         self.model_id = model_id or get_settings().default_judge
-        self.temperature = temperature
-        self.max_px = max(max_px, 1024)  # a 2×2 montage needs the resolution: 1024 is the floor, not a hint
-        self.views_per_side = min(4, views_per_side)
         self._model = chat_model
         self.cache_dir = cache_dir
 
@@ -147,7 +137,7 @@ class PairwiseJudge:
             reply = PairwiseReply.model_validate(payload)
         except JsonParseError as e:
             return resp.usage, None, None, f"parse: no JSON object in reply: {e}"
-        except (JudgeParseError, ValueError) as e:
+        except ValueError as e:  # pydantic's ValidationError
             return resp.usage, None, None, f"parse: {e}"
         winner = _map_winner(reply.winner, swapped)
         reasons = [_unswap_text(r, swapped) for r in reply.reasons]
@@ -174,7 +164,7 @@ class PairwiseJudge:
         parts.append(TextPart(text="Compare A and B and return the JSON object."))
         return ChatRequest(
             messages=[ChatMessage(role="user", parts=parts)], system=_SYSTEM,
-            response_schema=PairwiseReply.model_json_schema(), temperature=self.temperature,
+            response_schema=PairwiseReply.model_json_schema(), temperature=TEMPERATURE,
             max_wait_s=900.0, label=label,
         )
 
@@ -184,13 +174,11 @@ class PairwiseJudge:
         own cameras first, as the verdict judge ranks them."""
         montages = plan_montages(judged_subset(rs), scene=scene, max_montages=2, detail_crops=0)
         out: list[tuple[str, ImagePart]] = []
-        for i, m in enumerate(montages, 1):
-            if len(m.tiles) > self.views_per_side:
-                m = replace(m, tiles=m.tiles[: self.views_per_side])
+        for i, m in enumerate(montages, 1):  # plan_montages already caps a grid at MAX_TILES=4
             lbl = f"CANDIDATE {tag} — " + montage_label(m, i, len(montages))
             strip = f"CANDIDATE {tag} — {m.title.split(' (')[0]}"
             png = render_montage(m, cache_dir=self.cache_dir, tile_px=MONTAGE_TILE_PX)
-            out.append((lbl, image_part(prepare_image(png, label=strip, max_px=self.max_px, cache_dir=self.cache_dir), lbl)))
+            out.append((lbl, image_part(prepare_image(png, label=strip, max_px=MAX_PX, cache_dir=self.cache_dir), lbl)))
         return out
 
 
