@@ -395,11 +395,6 @@ def penetration_depth(a: trimesh.Trimesh, b: trimesh.Trimesh) -> tuple[float, fl
     return p.depth_m, p.fraction_inside
 
 
-def _fmt_vec(v: tuple[float, float, float]) -> str:
-    """Millimetre-precision translation vector (shared formatter, 4 decimals)."""
-    return fmt_vec(v, 4)
-
-
 def _mm(x: float) -> float:
     return round(float(x) * 1000.0, 1)
 
@@ -582,7 +577,7 @@ def check_connectivity(
         findings.append(GateFinding(
             gate=GATE, severity=Severity.ERROR, target=n,
             message=f"part '{n}' is floating: nearest supported part is '{other}' at {near.distance * 1000:.1f} mm",
-            fix_hint=f"translate '{n}' by {_fmt_vec(vec)} m ({frame_label(language)}) — or extend it by "
+            fix_hint=f"translate '{n}' by {fmt_vec(vec, 4)} m ({frame_label(language)}) — or extend it by "
                      f"{near.distance * 1000:.1f} mm towards '{other}' — so the surfaces touch",
             data={"kind": "floating", "nearest": other, "gap_m": near.distance, "gap_vector_m": list(vec),
                   "frame": language_frame(language).value, "gap_vector_glb_m": list(vec_glb),
