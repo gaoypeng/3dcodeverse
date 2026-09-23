@@ -10,7 +10,6 @@ the run's: which round to hand over is ``codeverse3d.addons.select``'s question
 
 from __future__ import annotations
 
-import json
 import logging
 import platform
 import subprocess
@@ -24,7 +23,8 @@ from codeverse3d import __version__
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.run import RoundRecord, RunId, RunRecord
 from codeverse3d.cost.ledger import existing_ledger_path, ledger_usage, load_ledger
-from codeverse3d.proc import version_line
+from codeverse3d.proc import read_json_or_none, version_line
+from codeverse3d.spatial.node import node_modules_dir
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -87,15 +87,10 @@ def _chrome_version() -> str:
 
 def _node_pkg_version(name: str) -> str:
     try:
-        pkg = get_settings().runtime_js_dir() / "node_modules" / name / "package.json"
+        pkg = node_modules_dir() / name / "package.json"
     except RuntimeError:  # no runtime_js: a provenance field, never the end of a finished run
         return ""
-    if not pkg.is_file():
-        return ""
-    try:
-        return str(json.loads(pkg.read_text()).get("version", ""))
-    except (OSError, ValueError):
-        return ""
+    return str((read_json_or_none(pkg) or {}).get("version", ""))
 
 
 @lru_cache(maxsize=1)
