@@ -869,7 +869,7 @@ def ground_spec(
         return spec, empty, why
     try:
         model = model if model is not None else _chat_model(spec.backends.planner)
-        image_model = image_model if image_model is not None else _image_model(image_model_id)
+        image_model = image_model if image_model is not None else get_image_model(image_model_id)
     except Exception as e:  # noqa: BLE001 — no keys / no package → run without a reference
         why = f"reference grounding unavailable: {type(e).__name__}: {e}"
         log.warning("%s", why)
@@ -895,7 +895,7 @@ def _chat_model(model_id: str) -> Any:
     return get_chat_model(model_id)
 
 
-def _image_model(model_id: str = "") -> Any:
+def get_image_model(model_id: str = "") -> Any:
     from codeverse3d.models.gemini import DEFAULT_IMAGE_MODEL, GeminiImageModel
 
     return GeminiImageModel(model_id or DEFAULT_IMAGE_MODEL)

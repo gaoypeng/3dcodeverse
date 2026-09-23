@@ -303,7 +303,7 @@ def test_cli_texture_pass_textures_the_picked_round_not_the_last_build(tmp_path:
     seen: dict = {}
     monkeypatch.setattr("codeverse3d.texturing.run.texture_pass", lambda *a, **kw: seen.update(kw))
     monkeypatch.setattr("codeverse3d.cli.texture_cmd._print_report", lambda rep, ws: None)
-    monkeypatch.setattr("codeverse3d.cli.texture_cmd._image_model", lambda name: None)
+    monkeypatch.setattr("codeverse3d.reference.get_image_model", lambda name: None)
     monkeypatch.setattr("codeverse3d.spatial.tool_common.load_plan", lambda path: None)
     r = runner.invoke(app, ["texture", "pass", "chair", "--runs-dir", str(tmp_path / "runs"), "--no-judge"])
     assert r.exit_code == 0, r.output

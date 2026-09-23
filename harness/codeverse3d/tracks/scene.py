@@ -281,12 +281,12 @@ class SceneTrack(BaseTrack):
         Runs BEFORE env / zones, because its whole point is that those prompts can name
         the files.  Advisory: a pack that cannot be generated leaves the run exactly as it
         was before this stage existed (an empty manifest renders no prompt block)."""
-        from codeverse3d.reference import _image_model
+        from codeverse3d.reference import get_image_model
         from codeverse3d.texturing.plan import scene_texture_pack
 
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         try:
-            pack = scene_texture_pack(plan, ctx.ws.public / "textures", _image_model(""),
+            pack = scene_texture_pack(plan, ctx.ws.public / "textures", get_image_model(),
                                       ctx.spec.backends.planner, cache_dir=ctx.settings.cache_dir / "textures")
         except Exception as e:  # noqa: BLE001 — textures accelerate, they must never kill a run
             ctx.events.emit("textures.stage_failed", error=f"{type(e).__name__}: {e}"[:300])

@@ -22,12 +22,6 @@ texture_app = typer.Typer(name="texture", help="Text-to-image texturing: object 
 RunsDirOpt = C.RunsDirOpt
 
 
-def _image_model(name: str | None):
-    from codeverse3d import reference
-
-    return reference._image_model(name or "")
-
-
 @texture_app.command("pass")
 def pass_(
     slug: str,
@@ -39,6 +33,7 @@ def pass_(
     runs_dir: RunsDirOpt = None,
 ) -> None:
     """Texture the picked round's object.glb (``addons.select``) → artifacts/object_textured.glb (+ textures/)."""
+    from codeverse3d import reference
     from codeverse3d.addons import select
     from codeverse3d.cost.instrument import run_ledger
     from codeverse3d.record.record import RecordError, load_record
@@ -65,7 +60,7 @@ def pass_(
     with (C.mutating(ws, what=f"3dcode texture pass {ws.root.name}", action="texture"),
           run_ledger(ws.root, run=ws.root.name, create=False)):
         rep = texture_pass(ws, spec, plan, model_id=model or spec.backends.planner,
-                           image_model=_image_model(image_model), judge=judge,
+                           image_model=reference.get_image_model(image_model or ""), judge=judge,
                            judge_model_id=judge_model, size=size, glb_in=glb, sheet=sheet)
     _print_report(rep, ws)
 
@@ -114,6 +109,7 @@ def scene_pack(
     runs_dir: RunsDirOpt = None,
 ) -> None:
     """Generate the scene's tileable texture pack into public/textures/ (+ manifest.json)."""
+    from codeverse3d import reference
     from codeverse3d.cost.instrument import run_ledger
     from codeverse3d.spatial.tool_common import load_plan
     from codeverse3d.texturing.plan import scene_texture_pack, texture_pack_prompt
@@ -128,7 +124,7 @@ def scene_pack(
     # like `pass`: the pack's plan + image spend joins the run's ledger when it has one
     with (C.mutating(ws, what=f"3dcode texture scene-pack {ws.root.name}", action="texture"),
           run_ledger(ws.root, run=ws.root.name, create=False)):
-        pack = scene_texture_pack(plan, out or ws.public / "textures", _image_model(image_model), model_id, size=size, n_max=n)
+        pack = scene_texture_pack(plan, out or ws.public / "textures", reference.get_image_model(image_model or ""), model_id, size=size, n_max=n)
     rows = {name: f"{e.file or 'FAILED'}  tile={e.tile_size_m:.2f}m {e.material_family}/{e.role} seam={e.seam_score:.3f}"
             + (f"  {e.error}" if e.error else "") for name, e in pack.entries.items()}
     console.print(kv_table("scene texture pack", rows))

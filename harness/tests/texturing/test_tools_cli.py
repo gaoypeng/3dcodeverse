@@ -73,7 +73,7 @@ def test_cli_scene_pack_spend_joins_the_runs_ledger(tmp_path, chair_spec, monkey
         return ScenePack(out_dir=str(out_dir))
 
     monkeypatch.setattr("codeverse3d.texturing.plan.scene_texture_pack", fake_pack)
-    monkeypatch.setattr("codeverse3d.cli.texture_cmd._image_model", lambda name: FakeImageModel())
+    monkeypatch.setattr("codeverse3d.reference.get_image_model", lambda name: FakeImageModel())
     res = CliRunner().invoke(app, ["texture", "scene-pack", str(ws.root), "--model", ""])
     assert res.exit_code == 0, res.output
     assert [r.label for r in load_ledger(ws.root)] == ["planner", "texture_pack"]

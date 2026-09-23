@@ -376,7 +376,7 @@ def _switch(name: str, value: str) -> None:
 
 def _scene_textures(rig: Rig) -> None:
     _switch("C3D_SCENE_TEXTURES", "on")
-    with mock.patch("codeverse3d.texturing.plan.scene_texture_pack", _textures), mock.patch("codeverse3d.reference._image_model"):
+    with mock.patch("codeverse3d.texturing.plan.scene_texture_pack", _textures), mock.patch("codeverse3d.reference.get_image_model"):
         rig.run(rounds=0)
         rig.run(rounds=1, resume=True)
 
