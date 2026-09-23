@@ -62,16 +62,6 @@ def commit_by_subject(ws: Workspace, subject: str) -> str | None:
     return None
 
 
-def commit_exists(ws: Workspace, commit: str) -> bool:
-    if not commit:
-        return False
-    try:
-        _run(ws, "cat-file", "-e", f"{commit}^{{commit}}")
-        return True
-    except GitReadError:
-        return False
-
-
 def _keep(rel: str) -> bool:
     parts = Path(rel).parts
     return bool(parts) and parts[0] in CODE_ROOTS and not any(p in _SKIP_PARTS for p in parts)
@@ -87,7 +77,7 @@ def read_tree_at(ws: Workspace, commit: str, *, paths: Collection[str] | None = 
     core.attributesFile=/dev/null`` only silences the GLOBAL attributes file; the
     in-repo ``.gitattributes`` and ``.git/info/attributes`` are still read).
     ``cat-file`` hands back the raw blob and applies no filter unless asked."""
-    if not commit_exists(ws, commit):
+    if not ws.has_commit(commit):
         raise GitReadError(f"commit {commit!r} not found in {ws.root}")
     entries: list[tuple[str, str]] = []  # (blob sha, path)
     out = _run(ws, "ls-tree", "-r", "-z", commit, "--", *CODE_ROOTS).stdout

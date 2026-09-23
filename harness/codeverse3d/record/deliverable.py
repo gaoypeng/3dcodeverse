@@ -130,7 +130,7 @@ def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes]
     """``src/**`` (+ ``public/**``) at the round's commit, else the working tree."""
     if rnd is not None and rnd.commit:
         try:
-            if _git.commit_exists(ws, rnd.commit):
+            if ws.has_commit(rnd.commit):
                 return _git.read_tree_at(ws, rnd.commit), "commit"
         except _git.GitReadError as e:
             log.warning("deliverable: git read failed in %s: %s", ws.root, e)

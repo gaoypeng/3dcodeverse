@@ -179,7 +179,7 @@ def in_round_repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = N
         if "repair attempts:" not in rnd.notes or "(fixed)" not in rnd.notes:
             continue
         generated = _git.commit_by_subject(ws, f"r{rnd.index:02d} {rnd.kind}: generated")
-        if not generated or generated == rnd.commit or not _git.commit_exists(ws, generated):
+        if not generated or generated == rnd.commit or not ws.has_commit(generated):
             continue
         try:
             raw = _git.read_tree_at(ws, generated)

@@ -634,7 +634,7 @@ from codeverse3d.addons.dataset.refine import build_refine, transitions, RefineT
     # one row per round i -> i+1 the harness asked to change; outcome improved|regressed|unchanged|unscored
     # (threshold: pairs.MIN_PREFERENCE_DELTA); dropped rows carry the reason (no_predecessor / no_commit /
     # predecessor_build_failed / predecessor_unjudged / git_read_failed / duplicate_run)
-from codeverse3d.record._git import read_tree_at, diff_between, changed_files_between, commit_exists, GitReadError
+from codeverse3d.record._git import read_tree_at, diff_between, changed_files_between, GitReadError
     # read_tree_at(ws, commit, *, paths=None) -> {path: bytes} via ls-tree + cat-file --batch — NEVER
     # `git archive`, which renders content through a planted filter.<name>.smudge and has no --no-filters
     # (tests/flywheel_cli); symlinks (mode 120000) are skipped; `paths` reads only those files
@@ -644,7 +644,7 @@ from codeverse3d.record.record import unique_files, SUBRUN_DIRS, BATTERY_MARKERS
     # one walker behind eval/bench/session_stats.py and eval/bench/coupling_stats.py (costreport.audit.find_runs
     # skips SUBRUN_DIRS the same way)
     # diff_between(ws, before, after, *, max_bytes=None) -> (text, untruncated size, was_truncated)
-    # changed_files_between(ws, before, after) -> [path];  commit_exists(ws, commit) -> bool
+    # changed_files_between(ws, before, after) -> [path];  "is the commit there?" is Workspace.has_commit
     # both under GIT_SAFE_DIFF_FLAGS (--no-ext-diff --no-textconv) on top of workspace.GIT_SAFE_FLAGS
 from codeverse3d.workspace import GIT_SAFE_FLAGS, GIT_SAFE_DIFF_FLAGS, git_safe_env
     # every read of an agent-written repo goes through these.  They do NOT disable .git/config —

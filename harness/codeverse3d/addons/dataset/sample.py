@@ -153,7 +153,7 @@ def exported_round(ws: Workspace, record: RunRecord) -> RoundRecord | None:
 def code_files_for_round(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes], str]:
     """Raw code tree for a round → ``(files, source)`` where source is ``commit``,
     ``deliverable`` (the packaged snapshot of the handed-over round) or ``working_tree``."""
-    if rnd is not None and rnd.commit and _git.commit_exists(ws, rnd.commit):
+    if rnd is not None and rnd.commit and ws.has_commit(rnd.commit):
         return _git.read_tree_at(ws, rnd.commit), "commit"
     packaged = _deliverable_code(ws)
     if packaged:
