@@ -382,13 +382,17 @@ class BaseTrack:
         return max(1, int(n or 1))
 
     def make_judge(self, ctx: RunContext, *, n_samples: int | None = None) -> Any:
-        """The main judge: injected → reference / likeness judge when the spec has images → rubric VLM judge."""
+        """The main judge: injected, else the class ``judges.vlm_judge.judge_for`` names (the rule
+        ``3dcode judge`` and calibration replay with), built through the services seam."""
         if self._judge is not None:
             return self._judge
+        from codeverse3d.judges.vlm_judge import LikenessJudge, ReferenceJudge, judge_for
+
         n_samples = ctx.policy.judge_samples if n_samples is None else n_samples
-        if ctx.spec.references:
-            if ctx.track in (Track.GRAPHICS, Track.SCENE):  # nothing to silhouette-match: likeness only
-                return self.services.likeness_judge(ctx.spec.backends.judge, n_samples=n_samples, rubric=ctx.rubric)
+        cls = judge_for(ctx.track, ctx.rubric, references=bool(ctx.spec.references))
+        if cls is LikenessJudge:
+            return self.services.likeness_judge(ctx.spec.backends.judge, n_samples=n_samples, rubric=ctx.rubric)
+        if cls is ReferenceJudge:
             return self.services.reference_judge(ctx.spec.backends.judge, n_samples=n_samples, rubric=ctx.rubric)
         return self.services.judge(ctx.rubric, ctx.spec.backends.judge, n_samples=n_samples)
 

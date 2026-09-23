@@ -6,9 +6,8 @@ disk: the round's renders / measurement / gates from ``rounds/rNN.json`` (fallba
 round inside record.json), the typed plan from record.json (else ``plan.json``), ``previous``
 the preceding round's (non-degraded) verdict, the track's ``extra_context`` rebuilt from the
 stored gates / frame metrics, and the clay geometry views rendered for the in-run judge
-(``renders/rNN/clay/``) reattached when present.  The judge class matches the in-run choice:
-``ReferenceJudge`` when the rubric has measured criteria or the spec carries reference
-images, ``VlmJudge`` otherwise.
+(``renders/rNN/clay/``) reattached when present.  The judge class is the in-run one:
+``judges.vlm_judge.judge_for``, the rule the live run uses.
 """
 
 from __future__ import annotations
@@ -118,8 +117,8 @@ def stored_glb_path(ws: Workspace, rnd: RoundRecord) -> str | None:
 
 
 def make_judge(spec: Spec, rubric_name: str, model_id: str, n: int, **options: Any) -> Any:
-    """ReferenceJudge for measured rubrics / reference specs, VlmJudge otherwise; ``options``
-    go to the judge (calibration's cache dir, thinking level, fixed order)."""
+    """The class the live run would use (``vlm_judge.judge_for``); ``options`` go to the
+    judge (calibration's cache dir, thinking level, fixed order)."""
     from codeverse3d.judges import vlm_judge
     from codeverse3d.judges.rubrics import load_rubric
 
@@ -127,9 +126,8 @@ def make_judge(spec: Spec, rubric_name: str, model_id: str, n: int, **options: A
         rubric = load_rubric(rubric_name)
     except Exception as e:  # unknown rubric name / bad yaml
         raise C.CliError(f"cannot load rubric {rubric_name!r}: {e}") from e
-    if rubric.measured_criteria() or spec.references:
-        return vlm_judge.ReferenceJudge(model_id=model_id, n_samples=n, rubric=rubric_name, **options)
-    return vlm_judge.VlmJudge(rubric=rubric_name, model_id=model_id, n_samples=n, **options)
+    cls = vlm_judge.judge_for(spec.track, rubric, references=bool(spec.references))
+    return cls(model_id=model_id, n_samples=n, rubric=rubric_name, **options)
 
 
 def count_prompt_images(inp: Any, rubric_name: str, judge: Any = None) -> int | None:

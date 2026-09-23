@@ -442,6 +442,9 @@ from codeverse3d.judges.pairwise import PairwiseJudge    # .compare(spec, render
 from codeverse3d.addons.calibration import calibrate, CalibrationTable   # (run_dirs, *, model_id, n_samples=3, out_dir, geometry_mode,
     # rounds, …) -> rows + pearson/spearman(errors vs score), mean_std, cost; CLI: python -m codeverse3d.addons.calibration RUN… --n 3
 from codeverse3d.judges.vlm_judge import ReferenceJudge  # image-conditioned specs
+from codeverse3d.judges.vlm_judge import judge_for  # (track, rubric, *, references) -> type[VlmJudge]: the ONE class rule
+    # for the live run (BaseTrack.make_judge) and every replay (3dcode judge, calibration): measured rubric or photos on an
+    # object track -> ReferenceJudge, photos on graphics/scene -> LikenessJudge, else VlmJudge
 ```
 Rubrics: `static_object_v1` (0.72), `articulated_v1` (requires pose views via
 `missing_pose_sheet` cap), `scene_v1` (frame-gate caps dark/blown/flat/content_small),
@@ -572,8 +575,8 @@ post-render gates → the build's own `BuildResult.gates` (also when the build f
 (when references), articulated `joint_sweep` + `motion_direction`, scene
 `render_console` + `scene_frames` (via `ctx.services.frame_gate` ->
 `frame_gate_from_renders`; advisory, a failure is logged not raised), graphics `gl_frames`.  Reference specs get a
-`ReferenceJudge` (rubric `reference_v1` for static_object) and images attached to
-generation prompts.
+`ReferenceJudge` (rubric `reference_v1` for static_object; `LikenessJudge` on graphics/scene —
+`vlm_judge.judge_for`) and images attached to generation prompts.
 
 ## texturing/  (derived asset pack; code stays truth — object.glb is never touched)
 ```python

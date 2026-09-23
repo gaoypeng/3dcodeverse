@@ -274,8 +274,8 @@ def calibrate(
         want = geometry_mode and c.is_picked and c.inp.geometry_views is None
         geometry[i] = render_geometry_views(c, out, geometry_mode) if want else None
 
-    def kind(c: RoundCase) -> tuple[str, bool]:  # what make_judge's choice of class depends on
-        return c.rubric, bool(c.inp.spec.references)
+    def kind(c: RoundCase) -> tuple[str, str, bool]:  # what make_judge's choice of class depends on
+        return c.rubric, c.inp.spec.track.value, bool(c.inp.spec.references)
 
     judges = {kind(c): make_judge(c.inp.spec, c.rubric, model_id, n_samples, thinking=thinking,
                                   cache_dir=out / "cache", label="calibrate", chat_model=chat_model,
