@@ -71,7 +71,7 @@ from codeverse3d.agents.materialize import MCP_SERVER_NAME, MCP_TOOL_TIMEOUT_MS,
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.agent import AgentJob, AgentResult
 from codeverse3d.contracts.common import Usage
-from codeverse3d.models.pricing import cache_write_surcharge, estimate_cost, openai_usage
+from codeverse3d.models.pricing import EFFORTS, cache_write_surcharge, estimate_cost, openai_usage
 from codeverse3d.models.retry import KeyPool, KeyPoolExhausted
 from codeverse3d.proc import read_jsonl_lenient, run_subprocess
 
@@ -941,8 +941,6 @@ class CodexAgent(_CliAgent):
 
 # ===================================================================== antigravity
 
-#: reasoning efforts agy exposes for the models that have them
-EFFORTS = ("low", "medium", "high")
 #: what a bare id is resolved to when agy offers only effort-suffixed spellings
 DEFAULT_EFFORT = "medium"
 _EFFORT_SUFFIXES = tuple(f"-{e}" for e in EFFORTS)

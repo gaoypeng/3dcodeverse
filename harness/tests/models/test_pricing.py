@@ -29,6 +29,9 @@ def test_gemini_cost_math():
         ("gemini", "gemini-3.7-flash-preview-09", "gemini-3.7-flash"),
         ("gemini", "gemini-3.7-flash-latest", "gemini-3.7-flash"),
         ("gemini", "gemini-2.5-flash-image-preview", "gemini-2.5-flash-image"),
+        # agy's effort-suffixed ids (every agy session was priced $0 until 2026-09-23)
+        ("gemini", "gemini-3.7-flash-medium", "gemini-3.7-flash"),
+        ("gemini", "gemini-3.7-flash-high", "gemini-3.7-flash"),
     ],
 )
 def test_a_dated_or_tagged_id_prices_on_its_family_row(provider, model, row):

@@ -198,8 +198,11 @@ def _normalise(model: str) -> str:
     return model.strip().lower()
 
 
+#: the reasoning efforts agy spells into its model ids (``gemini-3.7-flash-medium``): the same
+#: model at the same per-token rate — unmatched, every agy session was priced $0 (live, 2026-09-23)
+EFFORTS = ("low", "medium", "high")
 # words that may follow a priced model id without changing which model it is
-_VERSION_WORDS = frozenset({"latest", "preview", "exp", "beta", "alpha", "stable", "snapshot"})
+_VERSION_WORDS = frozenset({"latest", "preview", "exp", "beta", "alpha", "stable", "snapshot", *EFFORTS})
 
 
 def _is_version_suffix(rest: str) -> bool:
