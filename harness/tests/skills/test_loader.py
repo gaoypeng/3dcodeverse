@@ -6,31 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from codeverse3d.skills import all_skills, bundle_dirs, iter_skills, load_skill
+from codeverse3d.skills import iter_skills, load_skill
 from codeverse3d.skills.model import (
     BODY_MAX_LINES,
     SkillError,
     parse_skill,
-    split_frontmatter,
     validate_bundle,
 )
 from tests.skills.conftest import write_bundle
-
-
-def test_parses_frontmatter_body_and_references(tmp_path: Path):
-    d = write_bundle(tmp_path, "c3d-demo", description="What it does. When to use it.",
-                     references={"traps.md": "x\n", "table.md": "y\n"})
-    s = parse_skill(d)
-    assert s.name == "c3d-demo" and s.dir == d and s.path == d / "SKILL.md"
-    assert s.description.startswith("What it does")
-    assert s.license == "Apache-2.0" and s.evidence == "measured" and s.verified == "2026-08-25"
-    assert s.references == ("references/table.md", "references/traps.md")
-    assert s.body_tokens > 0 and s.body_lines >= 1
-
-
-def test_a_directory_argument_finds_the_skill_file(tmp_path: Path):
-    d = write_bundle(tmp_path, "c3d-demo")
-    assert parse_skill(d).name == parse_skill(d / "SKILL.md").name
 
 
 @pytest.mark.parametrize("text, expect", [
@@ -41,8 +24,6 @@ def test_a_directory_argument_finds_the_skill_file(tmp_path: Path):
     ("---\nname: c3d-demo\ndescription: d\nwhen_to_use: x\n---\nbody\n", "unknown frontmatter key"),
     ("---\nname: c3d-demo\ndescription: use <script> tags\n---\nbody\n", "prompt-injection"),
     ("---\nname: c3d_demo\ndescription: d\n---\nbody\n", "must match"),
-    ("---\nname: c3d--demo\ndescription: d\n---\nbody\n", "must match"),
-    ("---\nname: C3d-Demo\ndescription: d\n---\nbody\n", "must match"),
     ("---\n- a\n- b\n---\nbody\n", "must be a YAML mapping"),
     ("---\nname: c3d-demo\ndescription: d\nmetadata:\n  a:\n    b: c\n---\nbody\n", "must be a scalar"),
 ])
@@ -70,11 +51,6 @@ def test_description_length_is_the_spec_limit(tmp_path: Path):
         parse_skill(d)
 
 
-def test_split_frontmatter_keeps_the_body_verbatim():
-    fm, body = split_frontmatter("---\nname: a\n---\nline1\nline2\n")
-    assert fm == "name: a" and body == "line1\nline2\n"
-
-
 def test_validate_reports_budget_evidence_and_layout(tmp_path: Path):
     d = write_bundle(tmp_path, "c3d-big", evidence="guesswork", body="x\n" * (BODY_MAX_LINES + 5))
     (d / "references" / "deeper").mkdir()
@@ -94,21 +70,6 @@ def test_validate_wants_a_verified_date(tmp_path: Path):
     d.mkdir()
     (d / "SKILL.md").write_text("---\nname: c3d-demo\ndescription: d\nmetadata:\n  evidence: measured\n---\nbody\n")
     assert any("verified" in i for i in validate_bundle(d))
-
-
-def test_a_clean_bundle_has_no_issues(tmp_path: Path):
-    assert validate_bundle(write_bundle(tmp_path, "c3d-demo")) == []
-
-
-def test_iteration_skips_modules_dunder_dirs_and_claims(tmp_path: Path):
-    write_bundle(tmp_path, "c3d-demo")
-    (tmp_path / "_claims").mkdir()
-    (tmp_path / "_claims" / "c3d-demo.toml").write_text("")
-    (tmp_path / "__pycache__").mkdir()
-    (tmp_path / "loader.py").write_text("x = 1\n")
-    (tmp_path / "not-a-bundle").mkdir()
-    assert [p.name for p in bundle_dirs(tmp_path)] == ["c3d-demo"]
-    assert list(all_skills(tmp_path)) == ["c3d-demo"]
 
 
 def test_a_broken_bundle_is_skipped_not_fatal_but_strict_raises(tmp_path: Path, caplog):

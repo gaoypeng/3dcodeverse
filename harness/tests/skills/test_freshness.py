@@ -217,8 +217,6 @@ def test_every_named_cookbook_section_exists():
     from codeverse3d.prompts.catalog import PROMPT_DIRS
     from codeverse3d.prompts.sections import split_sections
 
-    # the language-id → prompts/<dir> mapping has ONE home now (prompts/catalog.py);
-    # this test used to import the third of its copies
     _PROMPT_DIR = {k.value: v for k, v in PROMPT_DIRS.items()}
 
     for s in SKILLS:

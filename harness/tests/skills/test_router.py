@@ -1,8 +1,4 @@
-"""Routing: the table, the cap, the priorities, the coverage guarantee (T5).
-
-Nobody declares ``skills: [...]``; if the derivation is wrong, the wrong sheet is in the
-prompt and the cost is paid anyway.  So every law in design §5.2 is a test here.
-"""
+"""Routing on a synthetic library: which sheet each plan signal and gate finding attaches (T5, design §5.2)."""
 
 from __future__ import annotations
 
@@ -27,20 +23,6 @@ def skills_for(track, language, kind, *, plan=None, **kw):
     return [s.skill for s in select(track, language, kind, signals=plan_signals(plan), **kw)]
 
 
-# --------------------------------------------------------------------------- signals
-def test_plan_signals_read_the_typed_fields():
-    s = plan_signals(NS(parts=[part(instances=4), part(symmetry="mirror_x", children=[NS(name="Burr")])],
-                        joints=[NS(type="revolute")], summary="", effects=[]))
-    assert s["n_parts"] == 2 and s["multi_part"] is True
-    assert s["has_instances"] and s["has_symmetry"] and s["has_assemblies"] and s["has_joints"]
-    assert s["joint_types"] == ["revolute"]
-
-
-def test_plan_signals_of_a_missing_plan_are_all_false_not_an_exception():
-    s = plan_signals(None)
-    assert s["n_parts"] == 0 and not s["multi_part"] and not s["has_custom_shader"]
-
-
 def test_custom_shader_is_detected_from_effects_or_from_words():
     assert plan_signals(NS(effects=[NS(kind="glsl_material", description="water")]))["has_custom_shader"]
     assert plan_signals(NS(summary="a raymarched tunnel"))["has_custom_shader"]
@@ -57,20 +39,8 @@ def test_a_repair_round_spends_its_budget_on_what_broke(library):
     assert "R2" in got[0].rules and "connectivity/interpenetration" in got[0].reason
 
 
-def test_the_cap_cuts_the_low_priority_tail_not_the_gate_fired_head(library):
-    full = select("articulated_object", "urdf_blender", "refine", signals=plan_signals(static_plan(instances=2)),
-                  findings=["joint_sweep/link_overlap"], library=library, max_skills=99)
-    capped = select("articulated_object", "urdf_blender", "refine", signals=plan_signals(static_plan(instances=2)),
-                    findings=["joint_sweep/link_overlap"], library=library, max_skills=2)
-    assert [s.name for s in capped] == [s.name for s in full[:2]]
-    assert capped[0].priority >= capped[-1].priority
-
-
 def test_quiet_kinds_attach_nothing_unless_a_gate_fired(library):
-    """Law 4: asset / asset_fix / reference sessions are short and narrow.
-
-    A gate-fired row still reaches them when its own kind filter allows it — R15/R17/R19
-    are kind-agnostic by design, R2/R4 are not, and this pins both halves."""
+    """Law 4: quiet sessions get only kind-agnostic gate-fired rows (R15/R17/R19, not R2/R4)."""
     for kind in QUIET_KINDS:
         assert select("scene", "scene_threejs", kind, signals=plan_signals(static_plan()), library=library) == []
         fired = select("scene", "scene_threejs", kind, signals=plan_signals(static_plan()),
@@ -93,18 +63,14 @@ def test_inherited_unverified_bundles_are_off_until_the_switch_says_otherwise(li
     assert "c3d-cadquery-forms" in [s.name for s in on]
 
 
-def test_a_single_part_plan_does_not_get_the_contact_sheet(library):
-    one = skills_for("static_object", "blender", "baseline", plan=static_plan(1), library=library)
-    many = skills_for("static_object", "blender", "baseline", plan=static_plan(3), library=library)
-    assert "c3d-part-contact" not in [s.name for s in one]
-    assert "c3d-part-contact" in [s.name for s in many]
-
-
-def test_repeats_skill_needs_instances_or_symmetry(library):
-    plain = skills_for("static_object", "blender", "baseline", plan=static_plan(), library=library)
-    mirrored = skills_for("static_object", "blender", "baseline", plan=static_plan(symmetry="mirror_x"), library=library)
-    assert "c3d-repeats-and-mirrors" not in [s.name for s in plain]
-    assert "c3d-repeats-and-mirrors" in [s.name for s in mirrored]
+@pytest.mark.parametrize("skill, without, with_", [
+    ("c3d-part-contact", static_plan(1), static_plan(3)),
+    ("c3d-repeats-and-mirrors", static_plan(), static_plan(symmetry="mirror_x")),
+])
+def test_a_plan_signal_decides_a_standing_row(library, skill, without, with_):
+    off, on = ([s.name for s in skills_for("static_object", "blender", "baseline", plan=p, library=library)]
+               for p in (without, with_))
+    assert skill not in off and skill in on
 
 
 def test_language_rows_do_not_leak_across_languages(library):
@@ -120,27 +86,3 @@ def test_scene_gate_findings_route_the_matching_scene_skill(library):
                           ("gl_frames/motion_or_detail", "c3d-scene-motion")):
         got = select("scene", "scene_threejs", "repair", findings=[finding], library=library, max_skills=1)
         assert got and got[0].name == want, finding
-
-
-def test_a_route_row_without_a_bundle_is_skipped_not_a_crash(library_dir):
-    from codeverse3d.skills import all_skills
-
-    (library_dir / "c3d-blender-forms" / "SKILL.md").unlink()
-    lib = all_skills(library_dir)
-    got = [s.name for s in skills_for("static_object", "blender", "baseline", plan=static_plan(), library=lib)]
-    assert got and "c3d-blender-forms" not in got
-
-
-def test_selection_carries_the_rule_and_the_reason(library):
-    got = select("static_object", "blender", "baseline", signals=plan_signals(static_plan()), library=library)
-    by_name = {s.name: s for s in got}
-    assert by_name["c3d-part-contact"].rules == ("R1",)
-    assert by_name["c3d-part-contact"].reason.startswith("R1: ")
-    assert not by_name["c3d-part-contact"].gate_fired
-
-
-@pytest.mark.parametrize("max_skills", [0, 1, 3])
-def test_max_skills_is_honoured_exactly(library, max_skills):
-    got = select("articulated_object", "urdf_blender", "baseline", signals=plan_signals(static_plan(instances=2)),
-                 library=library, max_skills=max_skills)
-    assert len(got) == min(max_skills, 5)

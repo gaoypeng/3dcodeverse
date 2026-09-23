@@ -44,23 +44,14 @@ def test_generated_scene_js_is_what_we_think_it_is(generated: str) -> None:
     assert "tickEnv" not in generated and "userData.tick" not in generated
 
 
-def test_zone_prompt_teaches_the_export_and_hook_the_assembler_calls(zone_prompt: str) -> None:
-    assert "export function build(ctx)" in zone_prompt
-    assert "userData.update" in zone_prompt
-    # the historical bug: the prompt asked for `userData.tick`, a hook nothing calls.
-    # It may only appear now as an explicit warning.
-    for line in zone_prompt.splitlines():
-        if "userData.tick" in line:
-            assert "never called" in line, f"zone prompt still advertises userData.tick: {line!r}"
-
-
-def test_env_prompt_teaches_ctx_signature_and_update(env_prompt: str) -> None:
-    assert "buildEnv(ctx)" in env_prompt
-    assert "buildEnv(THREE, scene)" not in env_prompt
-    assert "update(t, dt)" in env_prompt
-    assert "tickEnv" in env_prompt and "NEVER called" in env_prompt
-    # the assembler greps this out of env.js to place the overview cameras
-    assert "SUN_AZIMUTH_DEG" in env_prompt
+def test_the_prompts_teach_the_hooks_the_assembler_calls(zone_prompt: str, env_prompt: str) -> None:
+    assert "export function build(ctx)" in zone_prompt and "userData.update" in zone_prompt
+    # the historical bug: `userData.tick`, a hook nothing calls, may appear only as a warning
+    assert all("never called" in ln for ln in zone_prompt.splitlines() if "userData.tick" in ln)
+    assert "buildEnv(ctx)" in env_prompt and "buildEnv(THREE, scene)" not in env_prompt
+    assert "update(t, dt)" in env_prompt and "tickEnv" in env_prompt and "NEVER called" in env_prompt
+    asset = load_text("tracks/scene_asset.j2")
+    assert "group.userData.update" in asset and "`userData.tick` is never called" in asset
 
 
 def test_env_prompt_sun_azimuth_matches_the_assembler_regex(env_prompt: str) -> None:
@@ -69,9 +60,3 @@ def test_env_prompt_sun_azimuth_matches_the_assembler_regex(env_prompt: str) -> 
     example = re.search(r"`?export const SUN_AZIMUTH_DEG[^`\n]*", env_prompt)
     assert example, "env prompt must show the export the assembler looks for"
     assert _SUN_RE.search("export const SUN_AZIMUTH_DEG = 235;")
-
-
-def test_asset_prompt_uses_the_hook_zones_can_forward() -> None:
-    text = load_text("tracks/scene_asset.j2")
-    assert "group.userData.update" in text
-    assert "`userData.tick` is never called" in text

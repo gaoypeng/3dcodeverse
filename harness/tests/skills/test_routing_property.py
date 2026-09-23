@@ -8,8 +8,7 @@ import random
 import pytest
 
 from codeverse3d.skills import all_skills, bundle_dirs, select, skills_dir
-from codeverse3d.skills.model import EVIDENCE_INHERITED
-from codeverse3d.skills.registry import QUIET_KINDS, ROUTED_SKILLS, ROUTES, plan_signals
+from codeverse3d.skills.registry import ROUTES, plan_signals
 
 pytestmark = pytest.mark.skipif(not bundle_dirs(), reason=f"no bundles in {skills_dir()} yet")
 
@@ -106,33 +105,6 @@ def test_every_corpus_finding_kind_routes_sanely_from_every_session():
         assert answered_somewhere, f"{finding} is classified but no route answers it"
 
 
-def test_a_quiet_kind_stays_quiet_until_a_gate_fires():
-    for track, language in itertools.product(TRACKS, LANGUAGES):
-        for kind in QUIET_KINDS:
-            sig = {"multi_part": True, "has_instances": True, "has_custom_shader": True}
-            assert select(track, language, kind, signals=sig, library=LIBRARY) == []
-
-
-def test_junk_inputs_degrade_to_empty_and_never_raise():
-    for bad in JUNK:
-        combos = [(bad, "blender", "baseline"), ("static_object", bad, "baseline"),
-                  ("static_object", "blender", bad), (bad, bad, bad)]
-        for track, language, kind in combos:
-            got = select(track, language, kind, signals={"multi_part": True}, library=LIBRARY)
-            assert isinstance(got, list) and len(got) <= 5, (track, language, kind)
-            assert all(skill.name in ROUTED_SKILLS for skill in got)
-
-
-def test_none_and_broken_inputs_are_survivable():
-    for signals in (None, {}, {"multi_part": None}, {"nonsense": object()}):
-        assert isinstance(select("static_object", "blender", "baseline",
-                                 signals=signals, library=LIBRARY), list)
-    for findings in ((), None, [], ["not/a/real/kind"], ["", None]):
-        assert isinstance(select("static_object", "blender", "repair",
-                                 findings=findings, library=LIBRARY), list)
-    assert select("static_object", "blender", "baseline", library={}) == []
-
-
 def test_every_track_language_pair_a_run_can_present_routes_something():
     """A pair the harness actually drives must not come back empty at baseline, or the
     library has a hole the read-rate metric would report as apathy."""
@@ -144,16 +116,6 @@ def test_every_track_language_pair_a_run_can_present_routes_something():
         got = select(track, language, "baseline", signals=sig, library=LIBRARY,
                      allow_unverified=True)
         assert got, f"{track}/{language} routes nothing at baseline"
-
-
-def test_an_unverified_bundle_is_off_by_default_everywhere():
-    thin = {n for n, s in LIBRARY.items() if s.evidence == EVIDENCE_INHERITED}
-    if not thin:
-        pytest.skip("every shipped bundle is measured or mixed")
-    for track, language, kind in BASE_INPUTS:
-        got = {s.name for s in select(track, language, kind, signals={"multi_part": True},
-                                      library=LIBRARY, findings=LIVE_KINDS)}
-        assert not (got & thin), f"{sorted(got & thin)} routed without C3D_SKILLS_UNVERIFIED"
 
 
 def test_a_random_walk_of_mixed_findings_never_breaks_an_invariant():

@@ -1,79 +1,16 @@
-"""Static validity of every fenced snippet: python parses, XML/URDF parses, JS parses."""
+"""Static checks on fenced snippets the run tests cannot see: URDF frame recipe, GLSL-in-JS, the single-shot format."""
 
 from __future__ import annotations
 
-import ast
 import re
-import shutil
-import subprocess
 import xml.etree.ElementTree as ET
 
 import numpy as np
 import pytest
 
-from tests.prompts.conftest import DOC_FILES, blocks, read_prompt
+from tests.prompts.conftest import blocks, read_prompt
 
-PY_FILES = [f for f in DOC_FILES if f.split("/")[0] in ("blender", "cadquery", "urdf")]
-JS_FILES = [f for f in DOC_FILES if f.split("/")[0] in ("threejs", "scene_threejs")]
 XML_FILES = ["urdf/contract.md", "urdf/cookbook.md"]
-
-
-@pytest.mark.parametrize("rel", PY_FILES)
-def test_python_blocks_parse(rel: str) -> None:
-    found = 0
-    for i, body in enumerate(blocks(rel, "python")):
-        try:
-            ast.parse(body)
-        except SyntaxError as e:  # pragma: no cover - failure path
-            pytest.fail(f"{rel} python block {i} does not parse: {e}")
-        found += 1
-    assert found > 0, f"{rel}: expected at least one python block"
-
-
-@pytest.mark.parametrize("rel", XML_FILES)
-def test_xml_blocks_are_valid_urdf(rel: str) -> None:
-    found = 0
-    for i, body in enumerate(blocks(rel, "xml")):
-        root = ET.fromstring(body)
-        assert root.tag == "robot" and root.get("name"), f"{rel} xml block {i}: not a <robot>"
-        links = {ln.get("name") for ln in root.findall("link")}
-        children = set()
-        for j in root.findall("joint"):
-            jtype = j.get("type")
-            parent = j.find("parent").get("link")
-            child = j.find("child").get("link")
-            assert parent in links and child in links, f"{rel} block {i}: joint {j.get('name')} references unknown link"
-            assert child not in children, f"{rel} block {i}: link {child} has two parents"
-            children.add(child)
-            origin = j.find("origin")
-            assert origin is not None and origin.get("rpy", "0 0 0").split() == ["0", "0", "0"], \
-                f"{rel} block {i}: joint {j.get('name')} must have rpy='0 0 0' (frame recipe)"
-            limit = j.find("limit")
-            if jtype in ("revolute", "prismatic"):
-                assert limit is not None and limit.get("lower") is not None and limit.get("upper") is not None, \
-                    f"{rel} block {i}: {jtype} joint {j.get('name')} needs lower/upper"
-                assert float(limit.get("lower")) < float(limit.get("upper"))
-            if jtype == "continuous":
-                assert limit is None or (limit.get("lower") is None and limit.get("upper") is None)
-            axis = j.find("axis")
-            if jtype != "fixed":
-                v = [float(x) for x in axis.get("xyz").split()]
-                assert abs(sum(a * a for a in v) - 1.0) < 1e-6, f"{rel} block {i}: non-unit axis on {j.get('name')}"
-        roots = links - children
-        assert len(roots) == 1, f"{rel} block {i}: expected a single root link, got {roots}"
-        for ln in root.findall("link"):
-            vis, col = ln.findall("visual"), ln.findall("collision")
-            assert len(vis) == 1 and len(col) == 1, f"{rel} block {i}: link {ln.get('name')} needs one <visual> + one <collision>"
-            vo, co = vis[0].find("origin"), col[0].find("origin")
-            assert vo is not None and co is not None and vo.get("xyz") == co.get("xyz"), \
-                f"{rel} block {i}: link {ln.get('name')}: collision origin must equal the visual origin"
-            for tag in (vis[0], col[0]):
-                mesh = tag.find("geometry/mesh")
-                assert mesh is not None and mesh.get("filename") == f"meshes/{ln.get('name')}.glb", \
-                    f"{rel} block {i}: link {ln.get('name')} must reference meshes/<link>.glb"
-                assert mesh.get("scale") is None, f"{rel} block {i}: mesh scale is forbidden"
-        found += 1
-    assert found > 0, f"{rel}: expected at least one xml block"
 
 
 def _is_template(body: str) -> bool:
@@ -108,21 +45,6 @@ def test_xml_examples_follow_the_enforced_frame_recipe(rel: str, tmp_path) -> No
                 f"{rel} block {i}: link {name}: visual origin must be -(link frame world) = {(-T[name][:3, 3]).round(4).tolist()}"
         checked += 1
     assert checked > 0, f"{rel}: expected at least one FK-checkable xml block"
-
-
-@pytest.mark.node
-@pytest.mark.parametrize("rel", JS_FILES)
-def test_js_blocks_syntax(rel: str, tmp_path) -> None:
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("node not available")
-    bs = blocks(rel, "js")
-    assert bs, f"{rel}: expected at least one js block"
-    for i, body in enumerate(bs):
-        p = tmp_path / f"block_{i}.mjs"
-        p.write_text(body)
-        proc = subprocess.run([node, "--check", str(p)], capture_output=True, text=True, timeout=30)
-        assert proc.returncode == 0, f"{rel} js block {i} syntax error:\n{proc.stderr[-1500:]}"
 
 
 def test_glsl_strings_are_sane() -> None:

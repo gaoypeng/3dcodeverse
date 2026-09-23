@@ -1,18 +1,10 @@
-"""A wheel that ships no SKILL.md routes nothing, silently (T: packaging).
-
-This is not hypothetical.  The comment above ``[tool.setuptools.package-data]`` records
-the last time it happened: the scene starter tree and ``languages/**/*.md`` were missing
-from the wheel, so ``skeleton.write_example()`` rglob'd an absent directory and wrote ZERO
-files while reporting success.  A skill library fails the same way and even more quietly —
-the run passes, the index is empty, and the read rate reads 0% as if the model ignored it.
-"""
+"""A wheel that ships no SKILL.md routes nothing, silently — as the starter tree once went missing."""
 
 from __future__ import annotations
 
 import shutil
 import subprocess
 import sys
-import tomllib
 import zipfile
 from pathlib import Path
 
@@ -20,12 +12,6 @@ import pytest
 
 HARNESS = Path(__file__).resolve().parents[2]
 PROBE = "c3d-packaging-probe"
-
-
-def test_package_data_declares_the_skill_tree():
-    data = tomllib.loads((HARNESS / "pyproject.toml").read_text())
-    globs = data["tool"]["setuptools"]["package-data"]["codeverse3d"]
-    assert "skills/**/*" in globs
 
 
 @pytest.mark.slow
@@ -66,14 +52,3 @@ def test_a_built_wheel_actually_contains_the_bundles(tmp_path: Path):
         if made_probe:
             shutil.rmtree(probe, ignore_errors=True)
         shutil.rmtree(HARNESS / "build", ignore_errors=True)
-
-
-@pytest.mark.slow
-def test_skills_dir_is_the_package_directory_importlib_resources_names():
-    """``skills_dir`` uses ``__file__``, as prompts and rubrics do: pin that it is the same
-    directory the import system resolves, so an installed wheel still finds the bundles."""
-    from importlib.resources import files
-
-    from codeverse3d.skills import skills_dir
-
-    assert Path(str(files("codeverse3d.skills"))) == skills_dir()

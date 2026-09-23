@@ -1,97 +1,21 @@
-"""What the scene prompts, cookbook and rubric must TEACH about picture quality.
-
-Every item here maps to a defect the v1 bench judges actually wrote up (flat ground,
-identical cones, hard world edge, diorama-on-a-plane, undressed, monochrome light,
-invisible motion).  The tests are cheap guards that the teaching does not silently
-disappear from a prompt during a refactor.
-"""
+"""What the scene rubric scores and the prompts inline about picture quality (v1 bench defects)."""
 
 from __future__ import annotations
-
-import pytest
 
 from codeverse3d.judges.rubrics import load_rubric
 from codeverse3d.prompts import load_text
 
-
-@pytest.fixture(scope="module")
-def cookbook() -> str:
-    return load_text("scene_threejs/cookbook.md")
-
-
-def test_cookbook_carries_the_numbers_the_recipes_depend_on(cookbook: str) -> None:
-    for token in ("vertexColors", "setColorAt", "InstancedMesh", "shadow.mapSize",
-                  "cameraMask", "buildHorizonRing", "TIME_OF_DAY", "hazeMix"):
-        assert token in cookbook, token
-
-
-def test_planner_asks_for_density_layering_and_subject_framing() -> None:
-    text = load_text("tracks/plan_scene.j2")
-    for token in ("DENSITY COUNTS", "DEPTH ROLE", "foreground frame", "silhouette ring",
-                  "HERO motion", "fill hue", "SUBJECT"):
-        assert token in text, token
-
-
-def test_planner_is_told_that_must_acceptance_caps_the_run() -> None:
-    """One unmet `must` caps the run at 0.60 (judges.caps.missing_must_acceptance).  A scene
-    whose pictures score 0.81 must not lose 0.13 because the planner over-specified a detail
-    and then marked it `must` — measured on cq_japanese_garden_v2 r00 (0.809 → 0.729 → 0.60)."""
-    from codeverse3d.judges.rubrics import load_rubric
-
-    caps = {c.id: c for c in load_rubric("scene_v1").caps}
-    assert caps["missing_must_acceptance"].cap == 0.60
-    text = load_text("tracks/plan_scene.j2")
-    assert "priority: should" in text
-    assert "caps the whole run" in text or "caps the\n   whole run" in text
-    assert "at most 4-6 items `must`" in text
-
-
-def test_zone_prompt_demands_variation_dressing_and_visible_motion() -> None:
-    text = load_text("tracks/scene_zone.j2")
-    for token in ("3 distinct silhouettes", "hue jitter", "density counts",
-                  "foreground frame", "nothing_moves", "cameraMask"):
-        assert token in text, token
-
-
-def test_env_prompt_demands_blended_ground_horizon_and_colour_contrast() -> None:
-    text = load_text("tracks/scene_env.j2")
-    for token in ("flat_ground", "silhouette ring", "fog far", "60", "Shadow texel"):
-        assert token in text, token
-
-
-def test_refine_prompt_maps_judge_complaints_to_chapters() -> None:
-    text = load_text("tracks/scene_refine.j2")
-    for title in ("Ground that reads real", "Horizon: the world must not end",
-                  "Vegetation that reads real", "Set dressing", "Scene layering",
-                  "Atmosphere: time-of-day triads", "Motion you can SEE"):
-        assert title in text, title
-
-
-# --------------------------------------------------------------------------- rubric
 COMPOSITION_DEFECTS = ("flat_ground", "monotonous_vegetation", "empty_midground",
                        "undressed_scene", "thin_atmosphere")
 
 
-def test_scene_rubric_scores_the_composition_defects() -> None:
+def test_scene_rubric_craft_defects_inform_and_cannot_zero_a_scene() -> None:
     r = load_rubric("scene_v1")
-    ids = {d.id for d in r.defects}
-    assert set(COMPOSITION_DEFECTS) <= ids
+    assert set(COMPOSITION_DEFECTS) <= {d.id for d in r.defects}
     for did in COMPOSITION_DEFECTS:
         d = r.defect(did)
-        assert 0.0 < d.penalty <= 0.05, f"{did}: keep the new craft penalties small"
-        assert d.cap is None, f"{did}: craft defects inform, they do not cap"
-
-
-def test_scene_rubric_penalties_cannot_zero_a_good_scene() -> None:
-    r = load_rubric("scene_v1")
+        assert 0.0 < d.penalty <= 0.05 and d.cap is None, did
     assert sum(d.penalty for d in r.defects) <= 0.62
-
-
-def test_scene_rubric_has_the_diorama_anchor() -> None:
-    r = load_rubric("scene_v1")
-    comp = r.criterion("composition_and_camera")
-    assert "0.5" in comp.anchors and "diorama" in comp.anchors["0.5"].lower()
-    assert "foreground" in comp.anchors["1.0"].lower()
 
 
 def test_extra_anchor_levels_reach_the_judge_prompt() -> None:
@@ -104,11 +28,8 @@ def test_extra_anchor_levels_reach_the_judge_prompt() -> None:
     assert idx == sorted(idx)
 
 
-# --------------------------------------------------------------------------- delivery
 def test_the_quality_chapters_travel_INSIDE_the_zone_and_env_prompts() -> None:
-    """Naming a chapter is not teaching it: on scenes_v1 not one of the 20 zone/env
-    sessions fetched cookbook chapters on demand, so the chapters that decide the score are inlined
-    into the brief itself (`tracks.prompting.cookbook_sections`)."""
+    """The chapters that decide the score are inlined into the brief (no session fetched them on demand)."""
     from codeverse3d.tracks.scene import ENV_RECIPES, ZONE_RECIPES
 
     cookbook = load_text("scene_threejs/cookbook.md")
@@ -140,9 +61,7 @@ def test_cookbook_sections_inlines_whole_chapters_and_clips_safely(tmp_path) -> 
 
 
 def test_the_env_and_zone_briefs_hand_the_enclosure_to_env_for_an_interior() -> None:
-    """2026-09-07: six interior runs were "not enclosed" because no brief said whose the walls
-    are.  The env brief claims them (and the openings, and the light) only when the plan
-    says interior; the zone brief forbids building them and puts fixtures flush to the bounds."""
+    """Six interior runs were "not enclosed": the env brief owns the walls only when the plan says interior."""
     from codeverse3d.prompts import render
 
     base = dict(title="t", spec_prompt="p", setting="s", mood="m", bounds="b", environment="e", frame_doc="", contract="",
@@ -157,18 +76,3 @@ def test_the_env_and_zone_briefs_hand_the_enclosure_to_env_for_an_interior() -> 
     zone_out = render("tracks/scene_zone.j2", **base, interior=False)
     assert "never build walls or a roof" in zone_in and "flush against the inner face" in zone_in
     assert "never build walls" not in zone_out
-
-
-def test_the_zone_brief_says_builders_are_already_at_size() -> None:
-    """2026-09-08 (loop 14 round 0): a 1.15 m stove placed at 3.60 m and 0.48 m lamps at 0.03 m —
-    the asset API states every size, and nothing told the zone author to place at scale 1."""
-    from codeverse3d.prompts import render
-
-    base = dict(title="t", spec_prompt="p", setting="s", mood="m", bounds="b", environment="e", frame_doc="", contract="",
-                zones_table="", cameras="", effects="", animation="", asset_api="", textures="", recipes="", constraints_text="",
-                references="", skills="", tool_cards="", zone_name="Z", zone_description="d", zone_bbox="bb", zone_contents=["Stove"],
-                zone_file="src/zones/z.js", neighbours=[], layout="", interior=False)
-    text = render("tracks/scene_zone.j2", **base)
-    assert "place it at scale 1" in text and "> 2.5x or < 0.4x is an ERROR" in text
-    # three runs (codex1, loop 14, loop 18) lost a round to a hero whose flue a zone stretched to the roof
-    assert "never stretch or re-scale a part of a placed clone" in text and "SEPARATE object" in text

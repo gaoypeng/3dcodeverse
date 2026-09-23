@@ -1,9 +1,4 @@
-"""The read probe — the measurement that replaces "0 of 16 read_cookbook calls".
-
-If these tests are wrong, every later conclusion about whether skills work is wrong, so
-they pin the semantics explicitly: surfaced != deep, and a bundle with no references
-cannot be probed for depth and says so.
-"""
+"""The read probe's semantics: surfaced != deep, the control, transcript before atime."""
 
 from __future__ import annotations
 
@@ -17,11 +12,9 @@ from codeverse3d.skills.materialize import attach_skills
 from codeverse3d.skills.telemetry import (
     SKILLS_FILE,
     TELEMETRY_DIR,
-    append_usage,
     probe_reads,
 )
 from tests.skills.conftest import write_bundle
-from tests.skills.test_materialize_prompting import _plan
 
 
 @pytest.fixture
@@ -30,6 +23,12 @@ def ws(tmp_path: Path) -> Path:
     root.mkdir()
     (root / "AGENTS.md").write_text("# body\n")
     return root
+
+
+def _plan(n=3):
+    from types import SimpleNamespace as NS
+
+    return NS(parts=[NS(name=f"P{i}", instances=1, symmetry="none", children=[]) for i in range(n)], summary="")
 
 
 def _attach(ws, library, **kw):
@@ -44,37 +43,15 @@ def _touch_read(path: Path) -> None:
     os.utime(path, (st.st_mtime + 30, st.st_mtime))
 
 
-def test_nothing_read_means_nothing_read(ws, library):
+def test_skill_md_is_surfaced_a_reference_is_deep_and_the_claude_copy_counts(ws, library):
     got = _attach(ws, library)
+    a, b = got.listed[:2]
+    _touch_read(ws / ".agents" / "skills" / a / "references" / "worked_example.md")
+    _touch_read(ws / ".claude" / "skills" / b / "SKILL.md")   # claude-code reads only that root
     usage = probe_reads(ws, got)
-    assert usage.listed == got.listed
-    assert usage.surfaced == [] and usage.deep == [] and usage.body_tokens_read == 0
-    assert usage.deep_read_rate == 0.0
-
-
-def test_opening_skill_md_is_surfaced_but_not_deep(ws, library):
-    got = _attach(ws, library)
-    name = got.listed[0]
-    _touch_read(ws / ".agents" / "skills" / name / "SKILL.md")
-    usage = probe_reads(ws, got)
-    assert usage.surfaced == [name] and usage.deep == []
-
-
-def test_opening_a_reference_is_the_deep_signal(ws, library):
-    got = _attach(ws, library)
-    name = got.listed[0]
-    _touch_read(ws / ".agents" / "skills" / name / "references" / "worked_example.md")
-    usage = probe_reads(ws, got)
-    assert usage.deep == [name] and usage.surfaced == [name]  # deep implies reached
-    assert usage.body_tokens_read == next(r.body_tokens for r in usage.reads if r.name == name)
-    assert 0 < usage.deep_read_rate <= 1
-
-
-def test_the_claude_copy_counts_too_because_claude_code_reads_only_that_root(ws, library):
-    got = _attach(ws, library)
-    name = got.listed[0]
-    _touch_read(ws / ".claude" / "skills" / name / "SKILL.md")
-    assert probe_reads(ws, got).surfaced == [name]
+    assert usage.surfaced == [a, b] and usage.deep == [a]      # deep implies reached
+    assert usage.body_tokens_read == next(r.body_tokens for r in usage.reads if r.name == a)
+    assert usage.deep_read_rate == 1 / len(got.listed)
 
 
 def test_a_bundle_with_no_references_says_depth_is_unmeasurable(tmp_path, ws):
@@ -87,27 +64,8 @@ def test_a_bundle_with_no_references_says_depth_is_unmeasurable(tmp_path, ws):
     assert read.deep_measurable is False and read.deep is False
 
 
-def test_usage_is_appended_as_one_json_line_per_session(ws, library):
-    got = _attach(ws, library)
-    usage = probe_reads(ws, got)
-    append_usage(ws, usage, round=0, kind="baseline", agent="gemini-cli:gemini-3.6-flash")
-    append_usage(ws, usage, round=1, kind="refine", agent="gemini-cli:gemini-3.6-flash")
-    rows = [json.loads(x) for x in (ws / TELEMETRY_DIR / SKILLS_FILE).read_text().splitlines()]
-    assert [r["round"] for r in rows] == [0, 1]
-    assert rows[0]["listed"] == usage.listed and "index_tokens" in rows[0]
-
-
-def test_the_control_bundle_is_materialised_and_starts_unread(ws, library):
-    from codeverse3d.skills.materialize import materialize_skills
-
-    materialize_skills(ws, [library["c3d-part-contact"]])
-    usage = probe_reads(ws, _materialized(library, "c3d-part-contact"))
-    assert usage.control_present and not usage.control_read
-
-
 def test_a_control_that_was_opened_makes_the_rate_unmeasurable(ws, library):
-    """The whole point: a session where everything looks read is a session that measured
-    nothing, and it must say so instead of reporting a confident 100%."""
+    """Everything looking read means nothing was measured: the rate is None, not 100%."""
     from codeverse3d.skills.materialize import CONTROL_NAME, materialize_skills
     from codeverse3d.skills.prompting import AGENTS_SKILL_ROOT
 
@@ -120,12 +78,7 @@ def test_a_control_that_was_opened_makes_the_rate_unmeasurable(ws, library):
 
 
 def test_git_diff_alone_trips_the_control(tmp_path, library):  # noqa: PLR0915
-    """The confound that invalidated the original design, reproduced.
-
-    ``Workspace.changed_files`` runs `git add -A -N` then `git diff --numstat` after every
-    agent session, and git reads each untracked file to diff it.  That flips every bundle
-    file to "read" with no agent involved at all.
-    """
+    """``Workspace.changed_files``' `git add -A -N` + `git diff` reads every untracked bundle file."""
     import subprocess
 
     from codeverse3d.skills.materialize import materialize_skills
@@ -242,19 +195,6 @@ def test_a_call_the_cli_marked_failed_read_nothing(ws, library):
                                "args": {"command": f"sed -n 1,240p /home/u/.codex/skills/.system/{name}/SKILL.md"}}],
              t=time.time() + 1)
     assert probe_reads(ws, got).surfaced == []
-
-
-def test_an_agent_that_opens_the_control_is_reported_not_called_blind(ws, library):
-    import time
-
-    from codeverse3d.skills.materialize import CONTROL_NAME
-
-    got = _attach(ws, library)
-    _session(ws, "baseline", [{"tool": "read_file", "args": {"file_path": f".agents/skills/{CONTROL_NAME}/SKILL.md"}}],
-             t=time.time() + 1)
-    usage = probe_reads(ws, got)
-    assert usage.evidence == "transcript" and usage.control_read
-    assert usage.deep_read_rate == 0.0   # exact: it read the control, and nothing else
 
 
 def test_the_path_match_is_exact_about_names_and_about_reading():

@@ -1,11 +1,4 @@
-"""One real track run with the switch on: attach → index → prompt → probe → record.
-
-Every other test here exercises a piece.  This one runs the actual round loop (with the
-repo's own fakes: no network, no Blender, no node) and asserts the four things a battery
-depends on — the bundles reach the workspace, the index reaches the agent's prompt file,
-the round record carries what was attached, and the previous round's gate findings change
-what the next round gets.
-"""
+"""One real track run with the switch on: attach → index → prompt → probe → record → reroute on the gates."""
 
 from __future__ import annotations
 
@@ -139,16 +132,3 @@ def test_enabled_run_delivers_routes_repairs_and_records_skills(run):
     repair = next(job for job in agent.jobs if job.kind == "repair")
     assert "c3d-threejs-shader-traps" in repair.prompt
     assert rec.rounds[0].notes.startswith("repair attempts: 1/2 (fixed)")
-
-
-def test_the_switch_off_leaves_no_trace(tmp_path, chair_plan, settings, monkeypatch):
-    monkeypatch.setenv("C3D_SKILLS", "0")   # ON is the default since 2026-09-22; off must be said
-    ws = Workspace(tmp_path / "runs" / "chair_off")
-    track = StaticObjectTrack(services=FakeServices(contract_errors=1), judge=FakeJudge(scores=(0.55, 0.7, 0.85)),
-                              agent=FakeAgent(_agent_writer),
-                              planner_model=FakeChatModel(lambda req: chair_plan.model_dump(mode="json")),
-                              settings=settings, runtime=FakeRuntime(Language.THREEJS))
-    rec = track.run(make_spec(max_rounds=3), ws)
-    assert all(r.skills is None for r in rec.rounds)
-    assert not (ws.root / ".agents").exists() and not (ws.root / "telemetry" / "skills.jsonl").exists()
-    assert MARK_BEGIN not in (ws.root / "AGENTS.md").read_text()

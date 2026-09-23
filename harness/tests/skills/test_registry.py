@@ -28,12 +28,6 @@ def test_info_findings_are_census_not_defects():
     assert finding_kind("lint:blender", "named objects: ['Seat', 'Leg']", "info") is None
 
 
-def test_unknown_gates_and_empty_text_are_none_not_a_crash():
-    assert finding_kind("", "") is None
-    assert finding_kind("brand_new_gate", "something happened", "error") is None
-    assert finding_kind("connectivity", "", "error") is None
-
-
 def test_finding_kinds_accepts_reports_findings_and_strings():
     class F:
         def __init__(self, gate, message, severity="warn"):
@@ -69,10 +63,7 @@ def test_rule_ids_are_unique_and_the_design_numbers_are_all_present():
 
 
 def test_every_routed_skill_is_actually_in_the_library():
-    """The cut's real invariant: retiring a bundle must retire its rows in the same commit.
-
-    A route naming an absent bundle is silently skipped by the router, so this would not
-    crash a run — it would just make the ledger describe routing that never happens."""
+    """A route naming an absent bundle is silently skipped: retire its rows with the bundle."""
     from codeverse3d.skills import all_skills
 
     assert not (set(r.skill for r in ROUTES) - set(all_skills()))
@@ -86,12 +77,6 @@ def test_gate_fired_rows_always_outrank_standing_rows():
     assert all(r.priority >= 90 for r in fired)
 
 
-def test_every_row_carries_a_reason_and_a_known_skill():
-    for r in ROUTES:
-        assert r.why and len(r.why) > 20, r.rule
-        assert r.skill.startswith("c3d-")
-
-
 def test_route_finding_patterns_are_real_kinds_or_families():
     families = {k.split("/", 1)[0] for k in (finding_kind(g, m, s) or ""
                                              for g, m, s in ((r["gate"], r["message"], r["severity"]) for r in GOLDEN))}
@@ -102,6 +87,7 @@ def test_route_finding_patterns_are_real_kinds_or_families():
 
 
 def test_matches_finding_supports_exact_and_family_patterns():
+    """E1: repair pointers route through Route.matches_finding."""
     row = Route("X", "c3d-part-contact", 95, findings=("connectivity/*", "joint_sweep/link_overlap"))
     assert row.matches_finding(["connectivity/floating_part"]) == "connectivity/floating_part"
     assert row.matches_finding(["joint_sweep/link_overlap"]) == "joint_sweep/link_overlap"

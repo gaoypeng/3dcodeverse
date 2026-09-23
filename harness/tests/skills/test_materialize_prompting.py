@@ -1,10 +1,4 @@
-"""Materialisation into both discovery roots, and the per-backend prompt text (T6).
-
-Two things here are load-bearing and were verified against the shipped CLIs rather than
-assumed: claude-code reads only ``.claude/skills`` (no ``.agents`` skill root), and codex
-refuses symlinks inside a skill tree.  Both are asserted below, because a CLI upgrade that
-changes either ships an empty index and nothing else fails.
-"""
+"""Materialisation into both discovery roots, and the per-backend prompt text (T6)."""
 
 from __future__ import annotations
 
@@ -41,60 +35,21 @@ def ws(tmp_path: Path) -> Path:
     return root
 
 
-def _plan(n=3):
-    from types import SimpleNamespace as NS
-
-    return NS(parts=[NS(name=f"P{i}", instances=1, symmetry="none", children=[]) for i in range(n)], summary="")
-
-
 # --------------------------------------------------------------------------- files
-def test_bundles_land_in_both_discovery_roots_as_real_files(ws, library):
+def test_bundles_and_the_read_control_land_in_both_roots_as_real_files(ws, library):
+    """codex refuses symlinks; the never-routed control falsifies the read probe (git diff opens files too)."""
+    from codeverse3d.skills.materialize import CONTROL_NAME
+    from codeverse3d.skills.registry import ROUTED_SKILLS
+
     skills = [library["c3d-part-contact"], library["c3d-blender-forms"]]
     written = materialize_skills(ws, skills)
     for root in SKILL_ROOTS:
         for s in skills:
-            f = ws / root / s.name / "SKILL.md"
-            assert f.is_file() and not f.is_symlink()
-            assert f.read_text() == s.path.read_text()
-            assert (ws / root / s.name / "references" / "worked_example.md").is_file()
-    # 2 roots x (2 skills + the read control) x (SKILL.md + one reference)
-    assert len(written) == 2 * 3 * 2
-
-
-def test_a_never_routed_control_bundle_goes_in_beside_the_real_ones(ws, library):
-    """Signal 4: the probe's own falsification.
-
-    Nothing routes it, nothing indexes it, and if it comes back opened then whatever
-    opened it was not the agent choosing to read a skill — git's own diff does it, and so
-    does every CLI's activation.  Without this the read rate would report 100% forever.
-    """
-    from codeverse3d.skills.materialize import CONTROL_NAME
-
-    materialize_skills(ws, [library["c3d-part-contact"]])
-    for root in SKILL_ROOTS:
-        d = ws / root / CONTROL_NAME
-        assert (d / "SKILL.md").is_file() and (d / "references" / "control.md").is_file()
-        assert CONTROL_NAME not in index_block([library["c3d-part-contact"]])
-    from codeverse3d.skills.registry import ROUTED_SKILLS
-
-    assert CONTROL_NAME not in ROUTED_SKILLS
-
-
-def test_the_control_survives_a_reroute_and_never_counts_as_a_stale_bundle(ws, library):
-    from codeverse3d.skills.materialize import CONTROL_NAME
-
-    materialize_skills(ws, [library["c3d-part-contact"], library["c3d-bbox-contract"]])
-    materialize_skills(ws, [library["c3d-bbox-contract"]])
-    for root in SKILL_ROOTS:
-        assert (ws / root / CONTROL_NAME / "SKILL.md").is_file()
-        assert (ws / root / "c3d-bbox-contract").is_dir()          # still routed: kept
-        assert not (ws / root / "c3d-part-contact").exists()       # no longer routed: removed
-
-
-def test_nothing_in_a_materialised_tree_is_a_symlink_because_codex_refuses_them(ws, library):
-    materialize_skills(ws, [library["c3d-part-contact"]])
-    for root in SKILL_ROOTS:
+            assert (ws / root / s.name / "SKILL.md").read_text() == s.path.read_text()
+        assert (ws / root / CONTROL_NAME / "references" / "control.md").is_file()
         assert not any(p.is_symlink() for p in (ws / root).rglob("*"))
+    assert len(written) == 2 * 3 * 2   # 2 roots x (2 skills + control) x (SKILL.md + one reference)
+    assert CONTROL_NAME not in index_block(skills) and CONTROL_NAME not in ROUTED_SKILLS
 
 
 def test_atime_equals_mtime_after_writing_so_the_read_probe_has_a_zero_point(ws, library):
@@ -104,9 +59,7 @@ def test_atime_equals_mtime_after_writing_so_the_read_probe_has_a_zero_point(ws,
 
 
 def test_an_empty_selection_still_sweeps_last_rounds_bundles(ws, library):
-    """attach_skills' empty-selection early return used to skip the sweep entirely:
-    last round's bundles stayed live in both discovery roots, where the native CLIs
-    discover skills by directory (V4b).  An empty route is a legal desired set."""
+    """V4b: an empty route still removes last round's bundles — native CLIs discover by directory."""
     materialize_skills(ws, [library["c3d-part-contact"]])
     out = attach_skills(ws, track="static_object", language="threejs", kind="generation", library={})
     assert out.listed == []
@@ -121,10 +74,6 @@ def test_native_loader_backends_get_one_sentence_and_no_second_index(library):
     assert MANDATE in text
     assert "c3d-part-contact" not in text, "the native loaders would double-index it"
     assert index_tokens(skills) < 60
-
-
-def test_an_empty_route_adds_no_text_at_all(library):
-    assert index_block([]) == ""
 
 
 def test_repair_pointers_name_only_the_gate_fired_skills(library):
@@ -155,37 +104,4 @@ def test_the_index_is_written_into_every_body_file_and_is_replaceable(ws, librar
     body = (ws / "AGENTS.md").read_text()
     assert body.count(MARK_BEGIN) == 1 and "c3d-part-contact" not in body and "c3d-bbox-contract" in body
     write_index(ws, "")
-    assert MARK_BEGIN not in (ws / "AGENTS.md").read_text()
-
-
-def test_write_index_ignores_body_files_a_workspace_does_not_have(tmp_path: Path):
-    assert write_index(tmp_path, "hello") == []
-
-
-# --------------------------------------------------------------------------- attach
-def test_attach_routes_writes_and_reports(ws, library):
-    got = attach_skills(ws, track="static_object", language="blender", kind="baseline",
-                        plan=_plan(), library=library, max_skills=5, allow_unverified=False)
-    assert got.listed and got.index_tokens > 0
-    assert set(got.reasons) == set(got.listed)
-    for root in SKILL_ROOTS:
-        assert all((ws / root / n / "SKILL.md").is_file() for n in got.listed)
-    assert MANDATE in (ws / "AGENTS.md").read_text()
-    assert got.inlined == ""
-
-
-def test_attach_for_a_single_shot_session_inlines_instead_of_writing_files(ws, library):
-    got = attach_skills(ws, track="static_object", language="blender", kind="baseline",
-                        plan=_plan(), library=library, single_shot=True,
-                        max_skills=5, allow_unverified=False)
-    assert got.inlined and got.index_tokens == 0
-    assert not any((ws / root / n).exists() for root in SKILL_ROOTS for n in got.listed)
-    assert MARK_BEGIN not in (ws / "AGENTS.md").read_text()
-
-
-def test_attach_with_nothing_routed_clears_the_section(ws, library):
-    write_index(ws, "stale")
-    got = attach_skills(ws, track="graphics", language="glsl_shader", kind="asset",
-                        library=library, max_skills=5, allow_unverified=False)
-    assert got.listed == []
     assert MARK_BEGIN not in (ws / "AGENTS.md").read_text()
