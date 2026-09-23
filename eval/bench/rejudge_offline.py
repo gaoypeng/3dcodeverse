@@ -168,11 +168,12 @@ def _acceptance_items(run_dir: Path) -> list[AcceptanceItem]:
 
 
 # --------------------------------------------------------------------------- replay
-def replay_round(path: Path, rubric: Rubric | None = None) -> ReplayRow | None:
-    """Replay one stored round; ``None`` when the round carries no judged samples."""
+def replay_round(path: Path, rubric: Rubric | None = None, *, rubric_name: str = "") -> ReplayRow | None:
+    """Replay one stored round; ``None`` when the round carries no judged samples, or was judged
+    under another rubric than ``rubric_name`` (when given)."""
     rec = RoundRecord.model_validate_json(path.read_text())
     stored = rec.judgment
-    if stored is None or not stored.raw:
+    if stored is None or not stored.raw or (rubric_name and stored.rubric != rubric_name):
         return None
     raw = json.loads(stored.raw)
     samples = [JudgeOutput.model_validate(s) for s in raw.get("samples") or []]
@@ -214,7 +215,7 @@ def replay_corpus(roots: list[Path], *, rubric_name: str, rubric: Rubric | None 
     n_err = 0
     for p in round_files(roots):
         try:
-            row = replay_round(p, rubric)
+            row = replay_round(p, rubric, rubric_name=rubric_name)
         except Exception as e:  # noqa: BLE001 — one corrupt round must not stop the corpus
             n_err += 1
             rows.append(ReplayRow(run=str(p), round=-1, kind="?", rubric_hash_stored="", rubric_hash_now="",
@@ -222,12 +223,7 @@ def replay_corpus(roots: list[Path], *, rubric_name: str, rubric: Rubric | None 
                                   replay_passed=False, caps_before=[], caps_after=[], defects_before=[],
                                   defects_after=[], error=f"{type(e).__name__}: {e}"))
             continue
-        if row is None:
-            continue
-        rec_rubric = json.loads(p.read_text()).get("judgment", {}).get("rubric")
-        if rec_rubric != rubric_name:
-            continue
-        if kinds and row.kind not in kinds:
+        if row is None or (kinds and row.kind not in kinds):
             continue
         rows.append(row)
     ok = [r for r in rows if not r.error]
