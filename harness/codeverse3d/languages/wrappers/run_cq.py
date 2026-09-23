@@ -198,11 +198,10 @@ def main() -> int:
     out_dir = os.path.abspath(args.out)
     os.makedirs(out_dir, exist_ok=True)
     t0 = time.monotonic()
-    report = new_report("cadquery", args.rlimit_gb)
+    report = new_report(args.rlimit_gb)
     seed_everything(args.seed)
     import cadquery as cq  # noqa: PLC0415 — after the rlimit, before the script
 
-    report["cadquery_version"] = getattr(cq, "__version__", "?")
     script = os.path.abspath(args.script)
     err: dict[str, Any] | None = None
     ns: dict[str, Any] | None = {}

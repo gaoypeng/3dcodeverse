@@ -121,7 +121,7 @@ def main() -> int:
     t0 = time.monotonic()
     script, urdf, out = Path(args.script).resolve(), Path(args.urdf).resolve(), Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
-    report = new_report("urdf_blender", args.rlimit_gb, error_file="src/model.py")
+    report = new_report(args.rlimit_gb, error_file="src/model.py")
     census: dict = {"objects": [], "links": {}, "unmatched_objects": [], "missing_links": [], "hints": {}}
 
     def fail(error_type: str, message: str, error_file: str = "src/model.py") -> int:

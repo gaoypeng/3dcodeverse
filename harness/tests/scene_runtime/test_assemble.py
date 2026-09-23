@@ -95,12 +95,12 @@ def test_probe_zone_modules_reports_failures_and_bboxes(starter_ws):
     (starter_ws.src / "zones" / "broken.js").write_text("export function build(ctx) { throw new Error('kaboom'); }\n")
     (starter_ws.src / "zones" / "nobuild.js").write_text("export const x = 1;\n")
     report = probe_zone_modules(starter_ws, sun_azimuth_deg=60.0)
-    probes, census, other = report   # historical 3-tuple unpacking still works
+    probes = report.probes
     assert probes["meadow"].ok and probes["meadow"].bbox and probes["meadow"].meshes > 5
     assert probes["pondside"].ok
     assert not probes["broken"].ok and "kaboom" in probes["broken"].error
     assert not probes["nobuild"].ok and "no export build" in probes["nobuild"].error
-    assert census.get("ground_y") is not None
+    assert report.census.get("ground_y") is not None
     assert not (starter_ws.root / "src" / "_c3v_assemble_probe.js").exists()
     # driver-fitted cameras: an overview plus one eye-level spec per measured zone group
     specs = report.camera_specs

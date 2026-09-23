@@ -17,7 +17,7 @@ from codeverse3d.languages.blender import (
     BlenderNotFoundError,
     BlenderRuntime,
     blender_env,
-    lint_blender_file,
+    lint_blender_source,
 )
 from codeverse3d.prompts.catalog import language_text
 
@@ -142,7 +142,7 @@ bm.free()
 def test_live_error_maps_to_line_and_lint_catches_it(tmp_ws, blender_bin) -> None:
     rt = BlenderRuntime(blender=blender_bin)
     (tmp_ws.src / "model.py").write_text(BROKEN)
-    lint = lint_blender_file(tmp_ws.src / "model.py")
+    lint = lint_blender_source(BROKEN)
     assert not lint.passed and any("ensure_lookup_table" in f.message and f.data.get("line") == 10 for f in lint.errors)
     r = rt.build(tmp_ws, timeout_s=120)
     assert not r.ok and r.error_type == "IndexError" and r.error_file == "src/model.py" and r.error_line == 10

@@ -303,7 +303,7 @@ class GateResult(BaseModel):
     duration_s: float = 0.0
 
 
-def material_criterion(scores: dict[str, float], rubric_hint: str = "") -> str:
+def material_criterion(scores: dict[str, float]) -> str:
     """The rubric criterion that tracks surface quality (``materials``,
     ``material_color``, ``materials_shaders_effects``, ``material_truth`` ...)."""
     for k in scores:

@@ -511,13 +511,6 @@ def write_manifest(pack: ScenePack, out_dir: Path) -> Path:
     return p
 
 
-def load_manifest(path: Path) -> dict[str, dict[str, Any]]:
-    p = Path(path)
-    if p.is_dir():
-        p = p / MANIFEST_NAME
-    return json.loads(p.read_text())
-
-
 def texture_pack_prompt(manifest: dict[str, dict[str, Any]], *, url_prefix: str = DEFAULT_URL_PREFIX) -> str:
     """Prompt snippet for zone/env generation: what exists and the exact loading idiom.
 

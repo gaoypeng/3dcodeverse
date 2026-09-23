@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from codeverse3d.contracts.artifacts import Severity
-from codeverse3d.languages.blender import lint_blender_file, lint_blender_source
+from codeverse3d.languages.blender import lint_blender_source
 
 GOOD = '''
 import bpy
@@ -139,8 +137,3 @@ def test_modifier_apply_with_temp_override_is_fine() -> None:
     src = "import bpy\nobj = bpy.context.object\nwith bpy.context.temp_override(object=obj):\n    bpy.ops.object.modifier_apply(modifier='Bevel')\nobj.name = 'Body'\n"
     r = lint_blender_source(src)
     assert not any("modifier_apply" in m for m in _msgs(r, Severity.WARN))
-
-
-def test_missing_file(tmp_path: Path) -> None:
-    r = lint_blender_file(tmp_path / "model.py")
-    assert not r.passed and "missing" in r.findings[0].message

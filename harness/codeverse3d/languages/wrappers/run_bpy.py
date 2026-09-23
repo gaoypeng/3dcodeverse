@@ -167,7 +167,7 @@ def main() -> int:
     os.makedirs(out_dir, exist_ok=True)
     script = os.path.abspath(args.script)
     t0 = time.monotonic()
-    report = new_report("blender", args.rlimit_gb, blender_version=bpy.app.version_string)
+    report = new_report(args.rlimit_gb)
     if not os.path.isfile(script):
         report.update(error_type="FileNotFoundError", error_message=f"script not found: {script}")
         write_report(out_dir, report, {}, t0)

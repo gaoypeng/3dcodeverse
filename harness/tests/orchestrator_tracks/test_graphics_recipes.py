@@ -15,9 +15,10 @@ from codeverse3d.languages import get_runtime
 from codeverse3d.languages.glsl_shader import (
     COMMON_GLSL,
     GlslShaderRuntime,
+    _check_file,
     compose,
+    defined_functions,
     first_error,
-    lint_text,
     lint_workspace,
     parse_glsl_log,
     write_skeleton,
@@ -309,7 +310,7 @@ def test_recipes_compose_above_common_and_the_seeded_aurora_renders(tmp_path) ->
     (ws.src / "shader.frag").write_text(SHADER)
     common = (ws.src / "common.glsl").read_text()
     recipes = _recipes(ws).read_text()
-    assert lint_text(SHADER, common, recipes_src=recipes) == [] and lint_workspace(ws).passed
+    assert lint_workspace(ws).findings == []
     comp = compose(SHADER, common, recipes_src=recipes)
     assert comp.convention == "mainImage" and not comp.uses_feedback
     src = comp.source
@@ -361,12 +362,14 @@ def test_lint_flags_a_redefinition_of_a_seeded_recipe(tmp_path) -> None:
     recipes = "float curtain(vec2 p, float t, float seed, out float k) { k = 0.0; return 0.0; }\nvec3 aurora(vec2 p, float t) { return vec3(0.0); }\n"
     shader = "// mine\nfloat curtain(vec2 p, float t, float seed, out float k) { k = 1.0; return 1.0; }\n" + SHADER
     common = "float hash12(vec2 p) { return 0.0; }\n\nvec3 aurora(vec2 p, float t) { return vec3(1.0); }\n"
-    found = [f for f in lint_text(shader, common, recipes_src=recipes) if f.data["kind"] == "redefines_recipe"]
+    names = frozenset(defined_functions(recipes))
+    found = [f for rel, text, role in (("src/shader.frag", shader, "shader"), ("src/common.glsl", common, "common"))
+             for f in _check_file(rel, text, role=role, recipe_names=names) if f.data["kind"] == "redefines_recipe"]
     assert [(f.data["file"], f.data["line"]) for f in found] == [("src/shader.frag", 2), ("src/common.glsl", 3)]
     assert found[0].message == "src/shader.frag:2: `curtain` is already provided by src/recipes.glsl — call it instead of redefining it"
     assert found[1].message.endswith("`aurora` is already provided by src/recipes.glsl — call it instead of redefining it")
     assert all(f.severity.value == "error" for f in found) and "harness-owned" in found[0].fix_hint
-    assert not [f for f in lint_text(shader, common) if f.data["kind"] == "redefines_recipe"]      # no recipes: no rule
+    assert not [f for f in _check_file("src/shader.frag", shader, role="shader") if f.data["kind"] == "redefines_recipe"]  # no recipes: no rule
     # the workspace lint reads recipes.glsl itself (and does not call it a stray file); buffer_a is checked too
     ws = _ws(tmp_path, skeleton=False)
     (ws.src / "shader.frag").write_text(SHADER)

@@ -31,17 +31,18 @@ def wrapper_argv() -> list[str]:
     return sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:]
 
 
-def new_report(language: str, rlimit_gb: float, **extra: Any) -> dict[str, Any]:
-    """The build.json skeleton; applies the memory cap (RLIMIT_AS, so a geometry bomb dies
-    in-process) and says whether it took."""
-    return {"ok": False, "language": language, "error_type": "", "error_message": "", "error_file": "",
-            "error_line": None, "error_source": "", "traceback": "", "warnings": [], "exported": {},
-            "rlimit": _apply_rlimit(rlimit_gb), **extra}
+def new_report(rlimit_gb: float, **extra: Any) -> dict[str, Any]:
+    """The build.json skeleton; applies the memory cap first (RLIMIT_AS, so a geometry bomb
+    dies in-process)."""
+    _apply_rlimit(rlimit_gb)
+    return {"ok": False, "error_type": "", "error_message": "", "error_file": "",
+            "error_line": None, "error_source": "", "traceback": "", "warnings": [], "exported": {}, **extra}
 
 
-def _apply_rlimit(gb: float) -> str:
+def _apply_rlimit(gb: float) -> None:
+    """Best effort: where RLIMIT_AS cannot be set the build runs uncapped."""
     if gb <= 0:
-        return "rlimit disabled"
+        return
     try:
         import resource
 
@@ -49,9 +50,8 @@ def _apply_rlimit(gb: float) -> str:
         _soft, hard = resource.getrlimit(resource.RLIMIT_AS)
         lim = cap if hard == resource.RLIM_INFINITY else min(cap, hard)
         resource.setrlimit(resource.RLIMIT_AS, (lim, hard))
-        return f"RLIMIT_AS={lim // 1024**2} MB"
-    except (ImportError, ValueError, OSError) as e:
-        return f"rlimit not applied: {e}"
+    except (ImportError, ValueError, OSError):
+        pass
 
 
 def seed_everything(seed: int) -> None:

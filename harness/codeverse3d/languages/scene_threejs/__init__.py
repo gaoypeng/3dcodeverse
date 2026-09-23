@@ -392,19 +392,13 @@ class ZoneProbe(BaseModel):
 
 
 class ZoneProbeReport(BaseModel):
-    """``probe_zone_modules`` outcome.  Unpacks as ``probes, census, other = ...``
-    (historical 3-tuple); ``camera_specs`` carries the driver-fitted cameras
+    """``probe_zone_modules`` outcome; ``camera_specs`` carries the driver-fitted cameras
     (``{azimuth, overview, zones:[{group, position, lookAt, fov}]}``)."""
 
     probes: dict[str, ZoneProbe] = Field(default_factory=dict)
     census: dict[str, Any] = Field(default_factory=dict)
     other_errors: list[str] = Field(default_factory=list)
     camera_specs: dict[str, Any] = Field(default_factory=dict)
-
-    def __iter__(self):  # type: ignore[override]
-        yield self.probes
-        yield self.census
-        yield self.other_errors
 
 
 class AssembleResult(BaseModel):
@@ -530,8 +524,8 @@ export async function createScene({{ renderer, loaders }}) {{
 def probe_zone_modules(ws: Workspace, *, timeout_s: float = 90.0, sun_azimuth_deg: float | None = None) -> ZoneProbeReport:
     """Probe env + every zone module independently in the browser host.
 
-    Returns a :class:`ZoneProbeReport` (unpacks as the historical 3-tuple of
-    zone probes by snake name, census, other console errors).  When
+    Returns a :class:`ZoneProbeReport` (zone probes by snake name, census, other
+    console errors).  When
     ``sun_azimuth_deg`` is given the driver also fits overview + per-group
     cameras from the measured bboxes (``camera_specs``).
     """

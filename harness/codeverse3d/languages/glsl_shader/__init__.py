@@ -266,19 +266,6 @@ def lint_workspace(ws: Workspace) -> GateReport:
     return GateReport.of(GATE, findings)
 
 
-def lint_text(shader_src: str, common_src: str | None = None, buffer_a_src: str | None = None, *,
-              recipes_src: str | None = None) -> list[GateFinding]:
-    """Lint in-memory sources (tools / tests); ``recipes_src`` is the harness-owned recipe file whose
-    names the agent files may not redefine (it is not linted itself)."""
-    reserved = frozenset(defined_functions(recipes_src)) if recipes_src else frozenset()
-    out = _check_file(SHADER, shader_src, role="shader", recipe_names=reserved)
-    if common_src is not None:
-        out += _check_file(COMMON, common_src, role="common", recipe_names=reserved)
-    if buffer_a_src is not None:
-        out += _check_file(BUFFER_A, buffer_a_src, role="buffer_a", recipe_names=reserved)
-    return out
-
-
 # ===================================================================== skeleton
 COMMON_GLSL = """// src/common.glsl — helpers pasted above shader.frag by the harness (no #include needed).
 // Keep ONLY functions / constants here; no main(), no uniforms, no #version.

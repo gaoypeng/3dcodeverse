@@ -5,10 +5,10 @@ from __future__ import annotations
 from codeverse3d.contracts.artifacts import Severity
 from codeverse3d.languages.glsl_shader import (
     HEADER,
+    _check_file,
     compose,
     detect_convention,
     first_error,
-    lint_text,
     lint_workspace,
     parse_glsl_log,
 )
@@ -61,17 +61,18 @@ def test_glsl_lint_rules():
         "out vec4 fragColor;\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n  vec3 c = texture(iChannel2, vec2(0)).rgb;\n"
         "  c += texture(u_tex, vec2(0)).rgb;\n  float m = 3.0 % 2.0;\n  gl_FragColor = vec4(c, 1.0);\n}\n"
     )
-    kinds = {f.data["kind"] for f in lint_text(bad) if f.severity == Severity.ERROR}
+    kinds = {f.data["kind"] for f in _check_file("src/shader.frag", bad, role="shader") if f.severity == Severity.ERROR}
     assert {"version_line", "redeclared_uniform", "custom_uniform", "redeclared_output", "missing_input", "undeclared_sampler",
             "float_modulo", "legacy_glsl"} <= kinds
     # the comment on line 1 must not trigger anything; the #version is reported on line 2
-    ver = next(f for f in lint_text(bad) if f.data["kind"] == "version_line")
+    ver = next(f for f in _check_file("src/shader.frag", bad, role="shader") if f.data["kind"] == "version_line")
     assert ver.data["line"] == 2
-    assert not [f for f in lint_text(SHADER, COMMON) if f.severity == Severity.ERROR]
+    assert not [f for f in _check_file("src/shader.frag", SHADER, role="shader") + _check_file("src/common.glsl", COMMON, role="common")
+                if f.severity == Severity.ERROR]
     # common.glsl must not carry an entry point; no entry at all is an error
-    assert any(f.data["kind"] == "entry_in_common" for f in lint_text(SHADER, "void main(){}"))
-    assert any(f.data["kind"] == "no_entry" for f in lint_text("vec3 f() { return vec3(0); }"))
-    assert any(f.data["kind"] == "buffer_self_ref" for f in lint_text(SHADER, None, SHADER.replace("u_resolution", "u_buffer_a") + "\n"))
+    assert any(f.data["kind"] == "entry_in_common" for f in _check_file("src/common.glsl", "void main(){}", role="common"))
+    assert any(f.data["kind"] == "no_entry" for f in _check_file("src/shader.frag", "vec3 f() { return vec3(0); }", role="shader"))
+    assert any(f.data["kind"] == "buffer_self_ref" for f in _check_file("src/buffer_a.frag", SHADER.replace("u_resolution", "u_buffer_a") + "\n", role="buffer_a"))
 
 
 def test_glsl_lint_workspace_missing_and_stray(tmp_ws):

@@ -10,7 +10,6 @@ import pytest
 from codeverse3d.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
 from codeverse3d.texturing.plan import (
     default_scene_pack_plan,
-    load_manifest,
     scene_pack_plan,
     scene_texture_pack,
     texture_pack_prompt,
@@ -59,11 +58,11 @@ def test_scene_texture_pack_writes_manifest_and_prompt(tmp_path: Path, garden_pl
     model = FakeImageModel()
     out = tmp_path / "public" / "textures"
     pack = scene_texture_pack(garden_plan, out, model, "", size=64, cache_dir=tmp_path / "c", n_min=4, n_max=6)
-    man = load_manifest(out)
+    man = json.loads(Path(pack.manifest_path).read_text())
     assert pack.source == "default" and 4 <= len(man) <= 6 and Path(pack.manifest_path).name == "manifest.json"
     for name, e in man.items():
         assert (out / e["file"]).is_file() and e["file"] == f"{name}.png" and e["tile_size_m"] > 0 and "family" in e
-    assert json.loads(Path(pack.manifest_path).read_text()) == man
+    assert Path(pack.manifest_path).parent == out
     snippet = texture_pack_prompt(man)
     assert "/public/textures/" in snippet and "RepeatWrapping" in snippet and "SRGBColorSpace" in snippet
     assert "loaders.texture.load" in snippet and "tile =" in snippet
