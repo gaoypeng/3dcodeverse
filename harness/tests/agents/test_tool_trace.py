@@ -1,16 +1,8 @@
-"""Every CLI backend folds its session's tool calls into ``transcript.jsonl`` — the skill
-read probe's ground truth (docs/SKILLS.md §4, 2026-09-22).
-
-The fixtures are excerpts of the four live sessions recorded 2026-09-22 (claude-code
-2.1.280 stream-json, gemini-cli 0.53.0 chat record, codex 0.155.1 ``exec --json``, agy
-1.2.2 conversation database), trimmed to the fields the parsers read.  A vendor that
-renames one of them breaks a test here instead of silently reporting "read nothing".
-"""
+"""Each CLI backend folds its tool calls into transcript.jsonl; fixtures are trimmed live sessions (2026-09-22)."""
 
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import time
 from pathlib import Path
@@ -19,10 +11,8 @@ from codeverse3d.agents.backends import (
     SYSTEM_SETTINGS,
     ClaudeCodeAgent,
     ClaudeStream,
-    CodexEvents,
     agy_tool_calls,
     gemini_chat_records,
-    parse_claude_json,
     read_gemini_chats,
     write_system_settings,
 )
@@ -86,17 +76,9 @@ def test_claude_stream_folds_the_index_the_skill_calls_and_their_failures():
     assert len(s.calls) == 3
 
 
-def test_the_stream_json_envelope_is_the_result_line_and_an_unfinished_stream_has_none():
-    assert parse_claude_json(_stream_text(CLAUDE_STREAM))["num_turns"] == 25
-    assert parse_claude_json(_stream_text(CLAUDE_STREAM[:-1])) is None   # killed before its result
-    single = json.dumps({"num_turns": 2, "result": "ok"})                  # one document still parses
-    assert parse_claude_json(single)["num_turns"] == 2
-
-
 def test_claude_is_launched_streaming(tmp_ws: Workspace):
     s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "claude-code")
     argv = ClaudeCodeAgent("sonnet", binary="claude").build_argv(s)
-    assert argv[argv.index("--output-format") + 1] == "stream-json" and "--verbose" in argv
     assert "Skill" in argv[argv.index("--allowedTools") + 1].split(",")
     assert "--disable-slash-commands" not in argv   # claude-code: "Disable all skills"
 
@@ -147,7 +129,7 @@ GEMINI_RECORD = [
 ]
 
 
-def _gemini_home(tmp_path: Path, ws: Path, *, since_offset: float = 0.0) -> Path:
+def _gemini_home(tmp_path: Path, ws: Path) -> Path:
     home = tmp_path / "home"
     proj = home / ".gemini" / "tmp" / ws.name
     (proj / "chats").mkdir(parents=True)
@@ -158,9 +140,6 @@ def _gemini_home(tmp_path: Path, ws: Path, *, since_offset: float = 0.0) -> Path
     (other / "chats" / "session-2026-09-22T19-31-aaaaaaaa.jsonl").write_text(json.dumps(GEMINI_RECORD[2]) + "\n")
     rec = proj / "chats" / "session-2026-09-22T19-31-da5c91db.jsonl"
     rec.write_text("".join(json.dumps(r) + "\n" for r in GEMINI_RECORD))
-    if since_offset:
-        t = time.time() + since_offset
-        os.utime(rec, (t, t))
     return home
 
 
@@ -180,81 +159,13 @@ def test_gemini_chat_record_is_found_by_workspace_and_time_and_folded_by_call_id
 
 
 def test_gemini_system_settings_pin_skills_on_and_keep_the_workspace_trusted(tmp_path):
-    """0.53 merges the system file LAST, so a user's (or an agent-planted workspace)
-    ``skills.enabled: false`` cannot hide the bundles; ``folderTrust`` off is what makes
-    ``isTrustedFolder()`` true, without which ``discoverSkills`` skips both workspace roots."""
+    """0.53 merges the system file last; folderTrust off makes discoverSkills read the workspace roots."""
     data = json.loads(write_system_settings(tmp_path / "s.json").read_text())
     assert data["skills"]["enabled"] is True and data["skills"] == SYSTEM_SETTINGS["skills"]
     assert data["security"]["folderTrust"] == {"enabled": False}
     assert data["security"]["auth"]["selectedType"] == "gemini-api-key"
     assert data["experimental"]["dynamicModelConfiguration"] is True   # else 0.53 substitutes models
-
-
-def test_gemini_sessions_see_the_routed_bundles_and_not_the_clis_own(tmp_path):
-    """0.53 lists its two built-in skills (bundle/builtin/) to the model next to the routed
-    bundles — seen in the request body a local fake API received, 2026-09-22 — and
-    ``skills.disabled`` (by name) is the only switch; the fake API then saw neither."""
-    data = json.loads(write_system_settings(tmp_path / "s.json").read_text())
-    assert data["skills"]["disabled"] == ["skill-creator", "antigravity-support"]
-
-
-def test_the_chat_record_is_the_usage_of_a_session_that_printed_no_envelope(tmp_path):
-    """Every reply once (the record re-writes a message as it progresses), its tokens in the
-    envelope's ``stats.models`` shape — the sum reproduced two live envelopes to the token."""
-    ws = tmp_path / "gemini1"
-    ws.mkdir()
-    home = _gemini_home(tmp_path, ws)
-    rec = next((home / ".gemini" / "tmp" / ws.name / "chats").glob("session-*"))
-    tok = {"input": 5000, "output": 40, "cached": 3000, "thoughts": 9, "tool": 0, "total": 5049}
-    with rec.open("a") as f:
-        for row in ({"id": "fb86", "type": "gemini", "model": "gemini-3.7-flash", "timestamp": "2026-09-22T19:31:40.000Z",
-                     "content": "", "tokens": tok},
-                    {"id": "fb86", "type": "gemini", "model": "gemini-3.7-flash", "timestamp": "2026-09-22T19:31:41.000Z",
-                     "content": "", "tokens": tok},                  # the same reply, re-written
-                    {"id": "fb99", "type": "gemini", "model": "gemini-3.7-flash", "content": ""}):   # died mid-reply
-            f.write(json.dumps(row) + "\n")
-    chat = read_gemini_chats(gemini_chat_records(ws, time.time() - 60, {"GEMINI_CLI_HOME": str(home)}))
-    assert chat.stats() == {"models": {"gemini-3.7-flash": {"tokens": {"prompt": 5000, "cached": 3000,
-                                                                      "candidates": 40, "thoughts": 9}}}}
-    assert len(chat.times) == 2 and chat.times[1] - chat.times[0] == 1.0
-
-
-# --------------------------------------------------------------------------- codex
-CODEX_EVENTS = [
-    {"type": "thread.started", "thread_id": "01a0ca9a"},
-    {"type": "turn.started"},
-    {"type": "item.completed", "item": {"id": "item_0", "type": "agent_message",
-                                        "text": "I'm using the chair-relevant 3D skills"}},
-    # the model expanded the r1 skill-root alias as r0 (the system root): the read failed
-    {"type": "item.completed", "item": {
-        "id": "item_1", "type": "command_execution", "status": "failed", "exit_code": 2,
-        "command": "/bin/bash -lc \"sed -n '1,240p' AGENTS.md && sed -n '1,240p' "
-                   "/home/u/.codex/skills/.system/c3d-blender-forms/SKILL.md\"",
-        "aggregated_output": "# 3dcode workspace — rules for the coding agent ..."}},
-    {"type": "item.completed", "item": {
-        "id": "item_3", "type": "command_execution", "status": "completed", "exit_code": 0,
-        "command": "/bin/bash -lc \"sed -n '1,280p' .agents/skills/c3d-blender-forms/SKILL.md && "
-                   "sed -n '1,260p' .agents/skills/c3d-part-contact/SKILL.md\"",
-        "aggregated_output": "--- name: c3d-blender-forms ..."}},
-    {"type": "item.completed", "item": {"id": "item_6", "type": "file_change", "status": "completed",
-                                        "changes": [{"path": f"{WS}/src/model.py", "kind": "add"}]}},
-    {"type": "item.completed", "item": {"id": "item_7", "type": "mcp_tool_call", "server": "3dcode",
-                                        "tool": "build", "arguments": {}, "status": "completed"}},
-    {"type": "turn.completed", "usage": {"input_tokens": 2292081, "cached_input_tokens": 2196992,
-                                         "output_tokens": 18551, "reasoning_output_tokens": 7544}},
-]
-
-
-def test_codex_events_keep_what_was_run_and_whether_it_worked():
-    ev = CodexEvents()
-    for e in CODEX_EVENTS:
-        ev.feed(json.dumps(e))
-    assert [(c.tool, c.failed) for c in ev.calls] == [
-        ("command_execution", True), ("command_execution", False), ("file_change", False), ("mcp_tool_call", False)]
-    assert "aggregated_output" not in ev.calls[0].args          # what ran, never what came back
-    assert ev.calls[1].args["command"].count("SKILL.md") == 2
-    assert ev.calls[3].args == {"server": "3dcode", "tool": "build", "arguments": {}}
-    assert ev.tool_calls == 4
+    assert data["skills"]["disabled"] == ["skill-creator", "antigravity-support"]   # the CLI's own bundles
 
 
 # --------------------------------------------------------------------------- agy

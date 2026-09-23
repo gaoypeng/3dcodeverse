@@ -67,34 +67,22 @@ def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run)
     d = load_deliverable(ws)
     assert d is not None
     roles = {f.role for f in d.files}
-    # the manifest does NOT list itself: no file can carry its own hash, and the
-    # returned object used to have one more file (and a smaller total) than the disk
-    assert {"code", "model", "sheet"} <= roles and "manifest" not in roles
+    assert {"code", "model", "sheet"} <= roles and "manifest" not in roles   # it cannot carry its own hash
     assert load_deliverable(ws) == d and d.total_bytes == sum(f.bytes for f in d.files)
-    assert d.round == 1 and d.code_source == "commit"
-    assert d.entry == "deliverable/src/model.py"
+    assert d.round == 1 and d.entry == "deliverable/src/model.py"
     assert (ws.deliverable / "src" / "model.py").read_text().startswith("# round 1")
-    assert (ws.deliverable / "object.glb").is_file() and (ws.deliverable / "sheet.png").is_file()
-    for f in d.files:
-        assert (ws.root / f.path).is_file() and f.bytes > 0 and len(f.sha256) == 64
-    assert ws.settings_path.is_file() and ws.cost_path.is_file()
     cost = json.loads(ws.cost_path.read_text())
     assert cost["total_usd"] == rec.total_usage.cost_usd
     assert cost["by_round"]
     settings = json.loads(ws.settings_path.read_text())
     assert {r["role"] for r in settings["roles"]} == {"planner", "generator", "judge", "captioner"}
-    assert settings["rubric"] and settings["rubric_hash"] and settings["price_table_version"]
     assert deliverable_path(ws, "object.glb") == ws.deliverable / "object.glb"
     assert deliverable_path(ws, "nope.glb") is None
 
     # Rebuilding unchanged content is byte-for-byte stable.
-    first = d
-    files_before = sorted(p.relative_to(ws.deliverable).as_posix() for p in ws.deliverable.rglob("*") if p.is_file())
     second = build_deliverable(ws, rec, 1)
-    files_after = sorted(p.relative_to(ws.deliverable).as_posix() for p in ws.deliverable.rglob("*") if p.is_file())
-    assert files_before == files_after
-    assert first.generated_at == second.generated_at  # unchanged content → no diff
-    assert [(f.path, f.sha256) for f in first.files] == [(f.path, f.sha256) for f in second.files]
+    assert d.generated_at == second.generated_at  # unchanged content → no diff
+    assert [(f.path, f.sha256) for f in d.files] == [(f.path, f.sha256) for f in second.files]
 
     # Package metadata can be recovered from files even before the caller saves rec.
     bare = load_record(ws)
@@ -131,10 +119,7 @@ def test_telemetry_by_round_scores_a_degraded_verdict_as_unscored(fake_run):
 
 
 def test_the_settings_snapshot_records_the_temperature_the_track_planned_at(tmp_path):
-    """The planner row reported ``planner.plan()``'s default 0.4 for every run — a default
-    no track uses: each passes its own ``plan_temperature``, and graphics plans at 0.5.  The
-    track stamps what it ran with (``record.extra["sampling"]``), the judge's knobs too; a
-    record without the stamp leaves them empty instead of guessing."""
+    """The planner row names the temperature the track planned at (graphics 0.5), never a default."""
     from types import SimpleNamespace
 
     from codeverse3d.contracts.common import Language

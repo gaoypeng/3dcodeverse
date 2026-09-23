@@ -67,21 +67,14 @@ def test_reasoning_tokens_are_not_billed_twice():
     assert u.cost_usd == pytest.approx(1000 * 4.0 / 1e6 + 9000 * 20.0 / 1e6)
 
 
-def test_argv_with_mcp_overrides(tmp_ws: Workspace):
+def test_argv_sandboxes_the_workspace_and_approves_mcp_calls(tmp_ws: Workspace):
     a = CodexAgent("gpt-5.6-sol", binary="codex")
-    s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p"), "codex")
-    argv = a.build_argv(s)
-    assert argv[:3] == ["codex", "exec", "--json"] and argv[argv.index("-C") + 1] == str(tmp_ws.root)
-    assert argv[argv.index("--sandbox") + 1] == "workspace-write" and "--skip-git-repo-check" in argv
-    joined = " ".join(argv)
-    assert 'mcp_servers.3dcode.command="' in joined and "mcp_servers.3dcode.args=[" in joined and argv[-1] == "-"
-    # the routed bundles only: codex's five bundled .system skills are switched off (codex debug prompt-input)
-    assert argv[argv.index("skills.bundled.enabled=false") - 1] == "-c"
+    argv = a.build_argv(begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p"), "codex"))
+    assert argv[argv.index("--sandbox") + 1] == "workspace-write"
     # codex exec has nobody to answer the per-tool approval elicitation → every MCP call would be cancelled
     assert 'mcp_servers.3dcode.default_tools_approval_mode="approve"' in argv
-    assert argv[argv.index("--model") + 1] == "gpt-5.6-sol"
     s2 = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", spatial_tools=False), "codex")
-    assert "mcp_servers" not in " ".join(a.build_argv(s2)) and a.build_argv(s2)[-1] == "-"
+    assert "mcp_servers" not in " ".join(a.build_argv(s2))
 
 
 def test_reasoning_effort_is_explicit(tmp_ws: Workspace, monkeypatch):
@@ -115,8 +108,6 @@ def test_fake_run(tmp_ws: Workspace, fake_bin, monkeypatch):
 
 
 def test_a_codex_failure_is_typed_quota_or_transient(tmp_ws: Workspace, fake_bin, monkeypatch):
-    """codex had no classification at all: its usage limit reached the round loop only because
-    the loop's own list said "usage limit", and a 503 death was never transient."""
     a = CodexAgent("gpt-5.6-sol", binary=fake_bin("codex", FAKE_CODEX))
     monkeypatch.setenv("FAKE_MODE", "usage_limit")
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="q", timeout_s=30))

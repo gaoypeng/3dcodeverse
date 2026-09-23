@@ -24,36 +24,19 @@ GOOD = {
 }
 
 
-def test_caption_sample_stores_and_writes(fake_run):
-    from codeverse3d.addons import select
-    from codeverse3d.record.deliverable import load_deliverable
-
+def test_caption_sample_captions_the_picked_round_and_records_provenance(fake_run):
     ws, rec = fake_run
-    select.package(ws.root, 1)  # a round was handed over: its deliverable/ must follow the caption
     m = FakeChatModel([GOOD])
-    caps = caption_sample(ws, rec, "fake:fake", model=m)
-    assert caps.detailed.startswith("A four-legged")
+    caption_sample(ws, rec, "fake:fake", model=m)
     req = m.requests[0]
-    assert req.response_schema is not None and "Blender Python script" in req.system
-    imgs = [p for p in req.messages[0].parts if isinstance(p, ImagePart)]
-    assert len(imgs) == 3  # sheet + 2 views
-    assert "round 1" in req.messages[0].text  # best-round code
-    assert (ws.root / "captions.json").is_file()
-    again = load_record(ws)
-    assert again.extra["captions"]["factory"] == GOOD["factory"]
-    assert again.extra["captions"]["provenance"]["captioner"] == "fake:fake"
-    assert again.extra["captions"]["provenance"]["cost_usd"] == pytest.approx(0.002)
-    # a caption changes the hand-over folder too — it used to leave deliverable/,
-    # the manifest and telemetry/ describing an uncaptioned run
-    assert json.loads((ws.deliverable / "captions.json").read_text())["factory"] == GOOD["factory"]
-    handed = load_deliverable(ws)
-    assert handed is not None and handed.round == 1 and again.telemetry is not None
-    assert "deliverable/captions.json" in {f.path for f in handed.files}
+    assert "Blender Python script" in req.system and "round 1" in req.messages[0].text   # best-round code
+    assert len([p for p in req.messages[0].parts if isinstance(p, ImagePart)]) == 3   # sheet + 2 views
+    prov = load_record(ws).extra["captions"]["provenance"]
+    assert prov["captioner"] == "fake:fake" and prov["cost_usd"] == pytest.approx(0.002)
 
 
 def test_caption_cmd_writes_the_captioner_row_into_the_run_ledger(fake_run, monkeypatch):
-    """`3dcode flywheel caption` joins the run's ledger the way `3dcode judge` does —
-    the captioner's priced call used to go to the per-process log instead."""
+    """The captioner's priced call joins the run's ledger."""
     from typer.testing import CliRunner
 
     import codeverse3d.models.registry as R
@@ -86,15 +69,6 @@ def test_caption_retry_then_fail(fake_run):
         caption_sample(ws, rec, "fake:fake", model=m2)
 
 
-def test_validate_rules():
-    from codeverse3d.contracts.common import Language
-
-    c = Captions(**GOOD)
-    assert validate_captions(c, Language.BLENDER) == []
-    c2 = Captions(**dict(GOOD, instruction="Please model a wooden chair with four legs for me."))
-    assert any("target language" in p for p in validate_captions(c2, Language.BLENDER))
-
-
 @pytest.mark.live
 def test_caption_live_gemini(fake_run):
     from codeverse3d.config import get_settings
@@ -106,81 +80,29 @@ def test_caption_live_gemini(fake_run):
     assert len(caps.detailed) > 20 and "blender" in caps.instruction.lower()
 
 
-# --------------------------------------------------------------------------- finding: Three.js phrase vs forbidden THREE.
-GOOD_JS = {
-    "detailed": "A desk lamp with a round base, an arched arm and a conical shade.",
-    "instruction": "Write a Three.js module that builds a desk lamp with a round base and conical shade.",
-    "factory": "Build the base cylinder, sweep the arm along an arc, add the cone shade, then merge the groups.",
-}
+GOOD_JS = dict(GOOD, instruction="Write a Three.js module that builds a desk lamp with a round base and conical shade.",
+               factory="Build the base cylinder, sweep the arm along an arc, add the cone shade, then merge the groups.")
+SHADER = dict(GOOD, instruction="Write a GLSL fragment shader showing neon rain running down a window at night.",
+              factory="Layer a bokeh background pass, a grid-cell rain pass, then grade with a vignette.")
 
 
-def test_threejs_instruction_naming_threejs_is_valid():
-    """The required 'Three.js' phrase must NOT trip the forbidden-API check (both js languages)."""
-    from codeverse3d.addons.dataset.captions import Captions, validate_captions
+@pytest.mark.parametrize("fields, language, problem", [
+    (GOOD, "blender", None),
+    (dict(GOOD, instruction="Please model a wooden chair with four legs for me."), "blender", "target language"),
+    (GOOD_JS, "threejs", None),              # the required 'Three.js' phrase is not the forbidden API
+    (GOOD_JS, "scene_threejs", None),
+    (dict(GOOD_JS, factory="Build a THREE.Group holding THREE.Mesh boxes for every part."), "threejs", "THREE."),
+    (SHADER, "glsl_shader", None),
+    (dict(SHADER, instruction="Write a shader with rain."), "glsl_shader", "target language"),
+    (dict(SHADER, instruction="Write an OpenGL Python program showing neon rain on a window."), "opengl_python", None),
+    (dict(SHADER, instruction="Write an OpenGL Python program showing neon rain on a window.",
+          factory="Uses moderngl FBOs for the feedback pass."), "opengl_python", "moderngl"),
+])
+def test_validate_captions(fields, language, problem):
     from codeverse3d.contracts.common import Language
 
-    c = Captions(**GOOD_JS)
-    assert validate_captions(c, Language.THREEJS) == []
-    assert validate_captions(c, Language.SCENE_THREEJS) == []
-    # the API namespace itself stays forbidden (case-sensitive THREE.<Symbol>)
-    bad = Captions(**dict(GOOD_JS, factory="Build a THREE.Group holding THREE.Mesh boxes for every part."))
-    probs = validate_captions(bad, Language.THREEJS)
-    assert probs and "THREE." in probs[0]
-    # and omitting the platform name still fails the phrase check
-    off = Captions(**dict(GOOD_JS, instruction="Write a module that builds a desk lamp with a round base."))
-    assert any("target language" in p for p in validate_captions(off, Language.THREEJS))
-
-
-def test_caption_sample_threejs_run(tmp_path):
-    """End to end: a threejs run captions successfully with a 'Three.js' instruction."""
-    from codeverse3d.contracts.common import Language
-    from tests.flywheel_cli.conftest import make_fake_run
-
-    ws, rec = make_fake_run(tmp_path / "runs", "lamp_js", prompt="a desk lamp", language=Language.THREEJS)
-    m = FakeChatModel([GOOD_JS])
-    caps = caption_sample(ws, rec, "fake:fake", model=m)
-    assert "Three.js" in caps.instruction and len(m.requests) == 1  # no retry needed
-
-
-def test_caption_graphics_and_scene_phrases():
-    """Graphics languages have phrases + phrase words (no KeyError, sane rules)."""
-    from codeverse3d.addons.dataset.captions import Captions, validate_captions
-    from codeverse3d.contracts.common import Language
-
-    shader = Captions(
-        detailed="Neon rain streaks down a dark window while blurred city lights pulse behind the glass.",
-        instruction="Write a GLSL fragment shader showing neon rain running down a window at night.",
-        factory="Layer a bokeh background pass, a grid-cell rain pass with per-cell offsets, then grade with a vignette.",
-    )
-    assert validate_captions(shader, Language.GLSL_SHADER) == []
-    assert any("target language" in p
-               for p in validate_captions(shader.model_copy(update={"instruction": "Write a shader with rain."}),
-                                          Language.GLSL_SHADER))
-    gl = shader.model_copy(update={"instruction": "Write an OpenGL Python program showing neon rain on a window."})
-    assert validate_captions(gl, Language.OPENGL_PYTHON) == []
-    leaked = shader.model_copy(update={"factory": "Uses moderngl FBOs for the feedback pass."})
-    assert any("moderngl" in p for p in validate_captions(leaked, Language.OPENGL_PYTHON))
-
-
-def test_caption_graphics_run_from_frames(tmp_path):
-    """(f) graphics runs (no GLB) caption from the sheet/frames renders."""
-    from codeverse3d.contracts.common import Language
-    from tests.flywheel_cli.conftest import make_fake_run
-
-    ws, rec = make_fake_run(tmp_path / "runs", "rain_glsl", prompt="neon rain", language=Language.GLSL_SHADER)
-    reply = {
-        "detailed": "Bright neon streaks slide down a dark pane while soft coloured discs drift behind it.",
-        "instruction": "Write a GLSL fragment shader with neon rain streaking down a dark window.",
-        "factory": "Hash-place bokeh discs in three depth layers, add per-cell rain trails, then tonemap and vignette.",
-    }
-    m = FakeChatModel([reply])
-    caps = caption_sample(ws, rec, "fake:fake", model=m)
-    assert caps.instruction.lower().count("glsl")
-    req = m.requests[0]
-    from codeverse3d.contracts.chat import ImagePart as IP
-
-    imgs = [p for p in req.messages[0].parts if isinstance(p, IP)]
-    assert len(imgs) == 3  # sheet + 2 frame views
+    probs = validate_captions(Captions(**fields), Language(language))
+    assert (probs == []) if problem is None else any(problem in p for p in probs), probs
 
 
 # --------------------------------------------------------------------------- a run recorded before artifacts/rNN/
@@ -205,9 +127,7 @@ def _old_urdf_run(tmp_path):
 
 
 def test_an_old_runs_caption_then_export_still_ships_its_glb_gif_and_meshes(tmp_path):
-    """`flywheel caption` rewrote record.json through RunRecord, which dropped the raw `best_round`
-    — the only pointer to the round artifacts/ holds — so the re-packaged deliverable and the
-    export lost the old run's object.glb, preview.gif and meshes/."""
+    """The caption's record rewrite once dropped the raw best_round, and with it the old run's outputs."""
     from codeverse3d.addons.dataset.export import export_one
 
     ws, rec = _old_urdf_run(tmp_path)

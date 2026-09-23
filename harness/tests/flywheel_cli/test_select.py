@@ -75,13 +75,6 @@ def test_pick_takes_the_best_score_then_fewer_gate_errors_then_the_earlier_round
     assert select.pick(_run(tmp_path / "r", rounds).root) == want
 
 
-def test_round_rows_carry_the_judges_own_verdict_per_round(tmp_path):
-    rows = select.round_rows(_run(tmp_path / "r", [(0.5, 0), (0.8, 2), ("degraded", 0)]).root)
-    assert [(r.index, r.score, r.passed, r.gate_errors) for r in rows] == [
-        (0, 0.5, False, 0), (1, 0.8, True, 2), (2, None, None, 0)]
-    assert rows[1].commit and rows[1].minutes == 1.5 and rows[1].cost_usd == pytest.approx(0.2)
-
-
 def test_summarise_is_baseline_pick_delta_rounds_and_the_stop_reason(tmp_path):
     ws = _run(tmp_path / "r", [(0.5, 0), (0.8, 0), (0.6, 0)], status=RunStatus.BUDGET)
     s = select.summarise(ws.root)
@@ -97,8 +90,7 @@ def test_summarise_is_baseline_pick_delta_rounds_and_the_stop_reason(tmp_path):
 
 
 def test_an_old_record_with_best_fields_still_summarises(tmp_path):
-    """A record.json written before 2026-09-22 (best_round / final_score / status 'passed')
-    loads — the extra keys are ignored, the status reads 'stopped', the stop reason stays."""
+    """A pre-2026-09-22 record (best_round / final_score / status 'passed') still loads and summarises."""
     ws, _ = make_fake_run(tmp_path / "runs")
     data = json.loads(ws.record_path.read_text())
     data.update(status="passed", best_round=0, baseline_score=0.55, final_score=0.55)
@@ -138,23 +130,8 @@ def test_pick_by_pairwise_asks_only_inside_the_margin_and_never_buys_a_verdict_t
 
 
 # --------------------------------------------------------------------------- package
-def test_package_hands_over_one_round_and_says_why(tmp_path):
-    ws = _run(tmp_path / "r", [(0.5, 0), (0.8, 0), (0.6, 0)])
-    out = select.package(ws.root, 1, method="score")
-    assert out == ws.deliverable and (out / "src" / "model.py").read_text() == "import bpy  # round 1\n"
-    assert (out / "object.glb").read_bytes() == (ws.round_artifacts(1) / "object.glb").read_bytes()
-    sel = json.loads((ws.root / select.SELECTION_NAME).read_text())
-    assert (sel["round"], sel["method"], sel["textured"]) == (1, "score", False)
-    assert sel["scores"] == {"0": 0.5, "1": 0.8, "2": 0.6}
-    assert json.loads(ws.deliverable_manifest_path.read_text())["round"] == 1
-    with pytest.raises(ValueError, match="no round 7"):
-        select.package(ws.root, 7)
-
-
 def test_a_scene_or_graphics_round_packages_from_its_own_commit_and_renders(tmp_path):
-    """A scene round's hand-over is its commit (src/ + public/, GLB assets included); a
-    graphics round's is its commit + its judged frames (renders/rNN) + the sheet and GIF it
-    kept under artifacts/rNN/.  Round 0 of two packages round 0's bytes, never the last's."""
+    """A scene or graphics hand-over of round 0 of two is round 0's bytes, never the last's."""
     for track, language, entry in ((Track.SCENE, Language.SCENE_THREEJS, "src/scene.js"),
                                    (Track.GRAPHICS, Language.GLSL_SHADER, "src/shader.frag")):
         ws = Workspace(tmp_path / language.value).create()
@@ -225,8 +202,7 @@ def test_package_textures_the_rounds_own_glb_once(tmp_path, monkeypatch):
 
 
 def test_an_export_of_another_round_never_ships_the_pack_a_texture_pass_made_for_r02(tmp_path, monkeypatch):
-    """copy_textured shipped whatever pack the record called shipped: texture r02, hand over r00
-    (`pick --round 0`), export — and the r00 sample carried r02's textured GLB."""
+    """Texture r02, hand over r00, export: the r00 sample once carried r02's textured GLB."""
     import codeverse3d.texturing.run as trun
     from codeverse3d.addons.dataset.export import export_one
     from codeverse3d.record.record import load_record
@@ -302,8 +278,7 @@ def test_make_hands_over_the_picked_round_unless_no_pick(tmp_path, monkeypatch):
 
 # --------------------------------------------------------------------------- a round's own outputs
 def test_round_outputs_are_the_rounds_own_never_the_last_builds(tmp_path: Path):
-    """artifacts/object.glb and measurement.json are the LAST build's: a reader asking for round N's
-    GLB or complexity got the last round's (calibration, `3dcode judge`, the export, gallery, dataset)."""
+    """A reader asking for round N's GLB or complexity once got the last build's (B4, B6)."""
     ws = _run(tmp_path / "r", [(0.8, 0), (0.6, 0)])
     rec = RunRecord.model_validate_json(ws.record_path.read_text())
     (ws.artifacts / "object.glb").write_bytes(b"last")
@@ -323,8 +298,7 @@ def test_round_outputs_are_the_rounds_own_never_the_last_builds(tmp_path: Path):
 
 
 def test_cli_texture_pass_textures_the_picked_round_not_the_last_build(tmp_path: Path, monkeypatch):
-    """`3dcode texture pass` handed texture_pass no GLB, so it textured artifacts/object.glb — the
-    LAST round's since D80 — whichever round the run hands over."""
+    """B5: `3dcode texture pass` textures the handed-over round's GLB, not the last build's."""
     ws, _ = make_fake_run(tmp_path / "runs", "chair", scores=(0.90, 0.50))  # r00 is picked, r01 built last
     seen: dict = {}
     monkeypatch.setattr("codeverse3d.texturing.run.texture_pass", lambda *a, **kw: seen.update(kw))

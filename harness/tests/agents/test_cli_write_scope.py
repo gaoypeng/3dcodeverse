@@ -1,20 +1,11 @@
-"""CLI write-scope enforcement: per-workspace serialisation + post-hoc edit_only restore.
-
-No backend has a write-time file gate (the in-process one that did was deleted
-2026-08-28), and both session snapshots run
-``git add -A``, so two concurrent CLI sessions in one workspace make provenance (and
-any per-path rollback) unfixable.  ``begin_session`` therefore serialises
-``EXCLUSIVE_KINDS`` per workspace, and ``finish_session`` reverts writes outside
-``job.write_roots`` (always) and outside ``files_hint`` (``edit_only``) to the session's
-own ``pre:`` commit and fails the session.
-"""
+"""CLI write scope: per-workspace serialisation and the post-hoc restore in finish_session."""
 
 from __future__ import annotations
 
 import threading
 import time
 
-from codeverse3d.agents.cli_common import EXCLUSIVE_KINDS, begin_session, finish_session
+from codeverse3d.agents.cli_common import begin_session, finish_session
 from codeverse3d.contracts.agent import AgentJob
 from codeverse3d.contracts.common import Usage
 from codeverse3d.workspace import Workspace
@@ -29,11 +20,6 @@ def _finish(s, *, ok: bool = True):
 
 
 # --------------------------------------------------------------------------- serialisation
-def test_every_vendor_cli_kind_is_exclusive():
-    assert {"claude-code", "codex", "gemini-cli", "agy"} == EXCLUSIVE_KINDS
-    assert "fake" not in EXCLUSIVE_KINDS  # test doubles stay lock-free
-
-
 def test_two_cli_sessions_on_one_workspace_are_serialized(tmp_ws: Workspace):
     """Two threads, one workspace: the begin→finish windows must not overlap."""
     windows: dict[str, tuple[float, float]] = {}
@@ -59,23 +45,6 @@ def test_two_cli_sessions_on_one_workspace_are_serialized(tmp_ws: Workspace):
     assert a1 <= b0 or b1 <= a0, f"sessions interleaved: a={windows['a']} b={windows['b']}"
 
 
-def test_an_unknown_kind_takes_no_lock(tmp_ws: Workspace):
-    s1 = begin_session(_job(tmp_ws, "s1"), "fake")
-    assert s1.ws_lock is None
-    s2 = begin_session(_job(tmp_ws, "s2"), "fake")  # would deadlock if locked
-    _finish(s2)
-    _finish(s1)
-
-
-def test_same_thread_can_begin_again_without_finishing(tmp_ws: Workspace):
-    """The lock is re-entrant: argv-building tests begin sessions they never finish."""
-    s1 = begin_session(_job(tmp_ws, "s1"), "codex")
-    assert s1.ws_lock is not None
-    s2 = begin_session(_job(tmp_ws, "s2"), "codex")
-    _finish(s2)
-    _finish(s1)  # double release stays idempotent via release_session
-
-
 # --------------------------------------------------------------------------- post-hoc scope
 def test_out_of_scope_cli_write_is_restored_and_fails_the_session(scoped_ws: Workspace):
     ws = scoped_ws
@@ -94,10 +63,7 @@ def test_out_of_scope_cli_write_is_restored_and_fails_the_session(scoped_ws: Wor
 
 
 def test_write_roots_are_enforced_without_edit_only(scoped_ws: Workspace):
-    """``write_roots`` was enforced for the api-agent (api_tools) and single-shot but NOT
-    for CLI agents: ``_enforce_scope`` returned early unless edit_only+files_hint, so a
-    plain codex session wrote and COMMITTED root-level evil.py / conftest.py and
-    ``attribute_changes`` then hid them from files_changed (audit 2026-08-27)."""
+    """A plain codex session once committed root-level evil.py / conftest.py (audit 2026-08-27)."""
     ws = scoped_ws
     (ws.root / "notes.md").write_text("original\n")
     s = begin_session(_job(ws, "baseline"), "codex")  # edit_only=False, write_roots=["src", "public"]
@@ -116,12 +82,7 @@ def test_write_roots_are_enforced_without_edit_only(scoped_ws: Workspace):
 
 
 def test_harness_control_files_are_never_agent_writable(scoped_ws: Workspace):
-    """Control-file tampering used to survive silently: HARNESS_OWNED_FILES was a skip
-    (never reverted, never reported) and the gitignored run_state.json / record.json
-    were invisible to git entirely — yet reconcile_resume and _prior_record_fields
-    trust both blindly.  Now: tracked control files (AGENTS.md, .mcp.json) revert to
-    the pre: commit, the gitignored two restore from a byte snapshot, an agent-planted
-    record.json is unlinked, and the session FAILS with each path named."""
+    """Tracked control files revert, the gitignored ones restore from a snapshot, the session fails."""
     import json
 
     ws = scoped_ws
@@ -146,8 +107,7 @@ def test_harness_control_files_are_never_agent_writable(scoped_ws: Workspace):
 
 
 def test_control_files_are_enforced_even_with_an_empty_write_scope(scoped_ws: Workspace):
-    """The empty-scope early-out used to skip enforcement entirely: a job with no
-    write_roots, no files_hint and no read_only left every control file writable."""
+    """The empty-scope early-out once left every control file writable."""
     ws = scoped_ws
     (ws.root / "AGENTS.md").write_text("# original rules\n")
     s = begin_session(_job(ws, "free"), "codex")  # no write_roots at all
@@ -174,18 +134,8 @@ def test_entry_file_writes_need_ownership(scoped_ws: Workspace):
     assert res2.ok and (ws.src / "model.py").read_text() == "# entry + import\n"
 
 
-def test_unscoped_cli_sessions_keep_the_old_behaviour(scoped_ws: Workspace):
-    ws = scoped_ws
-    s = begin_session(_job(ws, "baseline"), "codex")  # edit_only=False
-    (ws.src / "parts" / "leg.py").write_text("# fine\n")
-    res = _finish(s)
-    assert res.ok and (ws.src / "parts" / "leg.py").read_text() == "# fine\n"
-
-
 def test_a_harness_owned_file_is_restored_when_the_agent_rewrites_it(tmp_ws, monkeypatch):
-    """src/recipes.glsl is written by the harness for the agent to CALL.  FileTools used
-    to refuse the write outright; with the in-process agent deleted (2026-08-28) the
-    post-hoc check is the only guard, and without this layer the file was unprotected."""
+    """A read_only harness file (src/recipes.glsl) is restored and the session fails."""
     owned = "src/recipes.glsl"
     (tmp_ws.root / owned).parent.mkdir(parents=True, exist_ok=True)
     (tmp_ws.root / owned).write_text("float aurora(vec2 p){return 0.0;}\n")

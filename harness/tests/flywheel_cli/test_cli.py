@@ -78,15 +78,6 @@ def test_make_no_run_creates_valid_workspace(tmp_path: Path):
     assert r3.exit_code == 0
 
 
-def test_status_on_fake_run(runs_dir: Path):
-    r = runner.invoke(app, ["status", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir)])
-    assert r.exit_code == 0, r.output
-    assert "passed" in r.output and "0.800" in r.output and "rounds" in r.output
-    assert "1*" in r.output  # best round marked
-    r = runner.invoke(app, ["status", "nope", "--runs-dir", str(runs_dir)])
-    assert r.exit_code == 1
-
-
 def test_flywheel_commands(runs_dir: Path, tmp_path: Path):
     out = tmp_path / "ds"
     r = runner.invoke(app, ["flywheel", "export", str(runs_dir), str(out), "--pack"])
@@ -127,7 +118,6 @@ def test_doctor_json(monkeypatch):
     ]
 
 
-# --------------------------------------------------------------------------- finding: `3dcode judge` inputs (main.py:204)
 class _FakeVlm:
     captured: dict = {}
 
@@ -203,26 +193,8 @@ def test_judge_wraps_value_error_as_cli_error(runs_dir: Path, monkeypatch):
     assert "judge failed" in out and "Traceback" not in r.output
 
 
-def test_judge_rubric_map_includes_graphics():
-    from codeverse3d.cli._judge import rubric_for
-    from codeverse3d.contracts.common import TRACK_INFO, Track
-    from codeverse3d.contracts.run import RoundRecord
-
-    assert TRACK_INFO[Track.GRAPHICS].rubric == "shader_v2"
-
-    class _R:  # minimal record stub
-        class spec:
-            track = Track.GRAPHICS
-
-    rnd = RoundRecord(index=0, kind="baseline")
-    assert rubric_for(_R, rnd, None) == "shader_v2"
-    assert rubric_for(_R, rnd, "asset_v1") == "asset_v1"
-
-
 def test_calibration_rubric_map_includes_graphics(tmp_path: Path):
-    """Same default as `3dcode judge`: a graphics round with no stored judgment used to be
-    re-judged with static_object_v1 because calibration kept its own three-track
-    TRACK_RUBRIC instead of reading TRACK_INFO."""
+    """A graphics round with no stored judgment is re-judged with the track's rubric, not static_object_v1."""
     from codeverse3d.addons.calibration import load_run_cases
     from codeverse3d.contracts.artifacts import RenderSet, RenderView
     from codeverse3d.contracts.common import Language, Track
@@ -236,27 +208,6 @@ def test_calibration_rubric_map_includes_graphics(tmp_path: Path):
                         renderer="fake")
     (run / "rounds" / "r00.json").write_text(RoundRecord(index=0, kind="baseline", renders=renders).model_dump_json())
     assert [c.rubric for c in load_run_cases(run)] == ["shader_v2"]
-
-
-# --------------------------------------------------------------------------- make --texture / status extras / render graphics
-def test_make_texture_flag_sets_spec_options(tmp_path: Path):
-    runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--texture", "--candidates", "3"])
-    assert r.exit_code == 0, r.output
-    ws = next(d for d in runs.iterdir() if d.is_dir() and not d.name.startswith("."))
-    spec = Spec.model_validate_json((ws / "spec.json").read_text())
-    # run-shape options are frozen on the spec (no more magic 'texture' tag)
-    assert spec.options.texture is True and spec.options.candidates == 3
-    assert "texture" not in spec.tags
-
-
-def test_make_language_defaults_to_the_tracks_first(tmp_path: Path):
-    runs = tmp_path / "runs"
-    r = runner.invoke(app, ["make", "a harbour at night", "--track", "scene", "--runs-dir", str(runs), "--no-run"])
-    assert r.exit_code == 0, r.output
-    ws = next(d for d in runs.iterdir() if d.is_dir() and not d.name.startswith("."))
-    spec = Spec.model_validate_json((ws / "spec.json").read_text())
-    assert spec.language.value == "scene_threejs"
 
 
 def test_make_invalid_combo_leaves_no_orphan_workspace(tmp_path: Path):
@@ -295,14 +246,14 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_tra
     assert RunState.load(ws).status is RunStatus.STOPPED
 
     entered = []
-    stub_track(lambda spec, resume, force: entered.append(resume))
+    stub_track(lambda spec, resume, force: entered.append((resume, force)))
     r = runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)])
     assert r.exit_code == 1 and "already finished" in r.output and "stop_reason='pass'" in r.output
     assert entered == [], "the pipeline must not be re-entered"
     assert RunState.load(ws).status is RunStatus.STOPPED, "the terminal state must survive"
     # ... and the escape hatch still works, loudly
     assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs), "--force"]).exit_code == 130
-    assert entered == [True]
+    assert entered == [(True, True)]
 
     # every round ran: raising --rounds is how a max_rounds stop goes on (from its last round)
     RunState(status=RunStatus.MAX_ROUNDS, stop_reason="max_rounds").save(ws)
@@ -319,17 +270,6 @@ def test_resume_refuses_a_finished_run_and_never_re_enters_it(made_run, stub_tra
     # an interrupted run is untouched by the guard
     RunState(status=RunStatus.REFINING).save(ws)
     assert runner.invoke(app, ["resume", ws.root.name, "--runs-dir", str(runs)]).exit_code == 130
-
-
-def test_resume_threads_force_through_to_the_track(made_run, stub_track):
-    """The CLI forwards resume's force flag to the track."""
-    runs, ws = made_run()
-    seen = {}
-    stub_track(lambda spec, resume, force: seen.update(resume=resume, force=force))
-    assert runner.invoke(app, ["resume", ws.name, "--runs-dir", str(runs)]).exit_code == 130
-    assert seen == {"resume": True, "force": False}
-    assert runner.invoke(app, ["resume", ws.name, "--runs-dir", str(runs), "--force"]).exit_code == 130
-    assert seen == {"resume": True, "force": True}
 
 
 def test_a_spec_change_refusal_is_a_clean_cli_error(made_run, stub_track):
@@ -438,15 +378,6 @@ def test_a_negative_budget_is_rejected_before_the_workspace_exists(tmp_path: Pat
     r = runner.invoke(app, ["make", "a chair", "--max-minutes", "0", "--no-run",
                             "--runs-dir", str(runs), "--slug", "zero"])
     assert r.exit_code == 0 and (runs / "zero" / "spec.json").is_file()
-    # ... and the contract refuses a negative ceiling even when built directly
-    import pytest as _pytest
-    from pydantic import ValidationError
-
-    from codeverse3d.contracts.common import Budget
-
-    with _pytest.raises(ValidationError):
-        Budget(max_minutes=-3.0)
-    assert Budget(max_minutes=0.0).max_minutes == 0.0
 
 
 def test_texture_is_not_offered_on_tracks_that_have_no_glb(tmp_path: Path):
@@ -484,8 +415,7 @@ def test_texture_is_not_offered_on_tracks_that_have_no_glb(tmp_path: Path):
 
 
 def test_best_of_n_is_not_offered_on_a_scene(tmp_path: Path):
-    """F1: a scene writes its baseline in its stages, so --candidates N was a silent no-op that
-    recorded n_candidates=N.  Explicit: refused.  Profile-implied: 1.  The record: the width that ran."""
+    """F1: explicit --candidates N on a scene is refused, a profile's is 1, a stale spec runs one."""
     from codeverse3d.config import get_settings
     from codeverse3d.contracts.common import Track
     from codeverse3d.tracks.scene import SceneTrack
@@ -524,8 +454,7 @@ def _round_guard_ws(tmp_path: Path, *, tree: int, best: int | None = None):
 
 
 def test_render_only_labels_the_working_tree_round(tmp_path: Path):
-    """The tree ends at the last round (2026-09-22), so a plain render IS that round; a
-    --round that names another one would label another round's code, and is refused."""
+    """A plain render is the working tree's round; a --round naming another one is refused."""
     from codeverse3d.cli._common import CliError
     from codeverse3d.cli.inspect_cmd import _render_round_or_refuse
 

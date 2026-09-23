@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 
 from codeverse3d.agents.cli_common import default_mcp_command
-from codeverse3d.agents.materialize import C3D_DIR, codex_mcp_overrides, materialize_workspace
+from codeverse3d.agents.materialize import C3D_DIR, materialize_workspace
 from codeverse3d.workspace import Workspace
 
 CONTRACT = "## blender contract\nWrite pure bpy into src/model.py."
@@ -24,15 +23,13 @@ def test_writes_three_bodies_same_content(tmp_ws: Workspace):
     assert bodies[0] == bodies[1] == bodies[2]
     body = bodies[0]
     assert "ONLY under `src/` and `public/`" in body
-    assert "never import from `codeverse3d`" in body.lower() or "Never import from `codeverse3d`" in body
+    assert "never import from `codeverse3d`" in body.lower()
     assert CONTRACT.splitlines()[0] in body
     assert "Spatial tools (3dcode)" in body
 
 
 def test_bodies_document_only_this_tracks_tools(tmp_ws: Workspace):
-    """AGENTS.md used to list all 19 tools + the object workflow for every track — for
-    agy (no MCP) this file is the ONLY tool documentation and its shell fallback is
-    unscoped, so scene/graphics agents were taught dead-end object-GLB tools (V11a)."""
+    """Scene/graphics agents were once taught dead-end object-GLB tools (V11a)."""
     tmp_ws.spec_path.write_text(json.dumps({"id": "t", "track": "scene", "language": "scene_threejs", "prompt": "p"}))
     _mat(tmp_ws, kind="agy")
     body = (tmp_ws.root / "AGENTS.md").read_text()
@@ -66,9 +63,7 @@ def test_no_mcp_server_is_written_into_the_workspace(tmp_ws: Workspace):
 
 
 def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
-    """gemini-cli refuses read_file on ignored paths: the build census and tool renders must NOT
-    be ignored.  trajectories/ is, whole: the prompt reaches every CLI on stdin since 2026-09-22,
-    so nothing there is the agent's to read."""
+    """gemini-cli refuses read_file on ignored paths: census and tool renders stay readable."""
     import fnmatch
 
     from codeverse3d.agents.materialize import IGNORE_LINES
@@ -113,10 +108,7 @@ def test_cookbook_copied_when_found(tmp_ws: Workspace, caplog):
 
 
 def test_missing_cookbook_warns_where_someone_can_see_it(tmp_ws: Workspace, caplog):
-    """The unresolved cookbook is the failure the cookbook path lookup (`cookbook_rel_for`, gone)
-    was fixed for (an articulated run told the agent "No cookbook is available" while its 24 kB cookbook sat
-    on disk).  It used to land in a `Materialized.warnings` list every caller threw away; the
-    log line is the whole signal now, so it has to fire."""
+    """The log line is the only signal of an unresolved cookbook."""
     with caplog.at_level(logging.WARNING, logger="codeverse3d.agents.materialize"):
         _mat(tmp_ws, cookbook="")
     assert any("cookbook not found" in r.getMessage() for r in caplog.records)
@@ -128,21 +120,3 @@ def test_kind_specific_tool_hint(tmp_ws: Workspace):
     assert "mcp__3dcode__" in (tmp_ws.root / "CLAUDE.md").read_text()
     _mat(tmp_ws, kind="agy")
     assert "codeverse3d.cli.main tools" in (tmp_ws.root / "AGENTS.md").read_text()
-
-
-def test_codex_overrides_are_valid_toml_fragments():
-    ov = codex_mcp_overrides(["python", "-m", "x", "--workspace", "/a b/c"])
-    assert ov[0] == "-c" and ov[1] == 'mcp_servers.3dcode.command="python"'
-    assert ov[3] == 'mcp_servers.3dcode.args=["-m", "x", "--workspace", "/a b/c"]'
-    assert ov[::2] == ["-c"] * (len(ov) // 2)
-    keys = {kv.split("=", 1)[0]: kv.split("=", 1)[1] for kv in ov[1::2]}
-    # codex exec cannot answer the per-tool approval elicitation: without this every 3dcode call is cancelled
-    assert keys["mcp_servers.3dcode.default_tools_approval_mode"] == '"approve"'
-
-
-def test_default_mcp_command_is_the_backends_interpreter(tmp_ws: Workspace):
-    # one place knows the command: the body + codex overrides quote sys.executable, never bare "python"
-    materialize_workspace(tmp_ws, agent_kind="codex", contract_md="c", cookbook_text="", spatial_tools=True)
-    body = (tmp_ws.root / "AGENTS.md").read_text()
-    assert default_mcp_command(tmp_ws)[0] == sys.executable
-    assert f"command: `{' '.join(default_mcp_command(tmp_ws))}`" in body

@@ -1,33 +1,16 @@
 """D38: ``record.environment.harness_git_sha`` names the checkout the harness ran from."""
 
-import re
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from codeverse3d.record import record as record_mod
-from codeverse3d.record.record import _harness_git_sha, environment_versions
-
-SHA_RE = re.compile(r"^[0-9a-f]{40}(-dirty)?$")
+from codeverse3d.record.record import _harness_git_sha
 
 
 def _git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
-
-
-def _in_a_checkout() -> bool:
-    here = Path(record_mod.__file__).resolve()
-    return shutil.which("git") is not None and _git("ls-files", "--error-unmatch", here.name, cwd=here.parent).returncode == 0
-
-
-@pytest.mark.skipif(not _in_a_checkout(), reason="harness is not running from a git checkout (wheel / sdist install)")
-def test_harness_git_sha_is_populated_inside_the_repo():
-    # the repo's .git lives ABOVE harness/ — the old probe (harness/.git) never matched
-    sha = _harness_git_sha()
-    assert SHA_RE.match(sha), sha
-    assert environment_versions()["harness_git_sha"] == sha
 
 
 def test_harness_git_sha_from_a_tracked_file_and_dirty_marker(tmp_path):

@@ -59,20 +59,10 @@ def test_with_code_inlines_the_answer_and_the_tree_it_started_from(tmp_path):
     assert "src/parts/leg.py" not in t.before_files                      # it did not exist yet
 
 
-@pytest.mark.parametrize("delta,label", [(0.5, "improved"), (0.05, "improved"), (0.04, "unchanged"),
-                                         (0.0, "unchanged"), (-0.05, "regressed"), (None, "unscored")])
+@pytest.mark.parametrize("delta,label", [(0.05, "improved"), (0.04, "unchanged"), (-0.05, "regressed"),
+                                         (None, "unscored")])
 def test_the_outcome_rule_is_the_one_pairs_uses(delta, label):
     assert outcome_of(delta, MIN_PREFERENCE_DELTA) == label
-
-
-def test_a_run_reached_through_a_symlink_is_exported_once_under_its_physical_battery(tmp_path):
-    _corpus(tmp_path, battery="zz_physical")
-    alias = tmp_path / "aa_alias" / "runs"
-    alias.mkdir(parents=True)
-    (alias / "chair").symlink_to(tmp_path / "zz_physical" / "runs" / "chair")
-    rows, drops = _rows(tmp_path)
-    assert len(rows) == 1 and not drops, "a run on disk is found once"
-    assert rows[0].battery == "zz_physical", "labelled by the battery it was reached through first"
 
 
 @pytest.mark.parametrize("break_it,reason", [

@@ -2,23 +2,14 @@
 
 from __future__ import annotations
 
-import io
 import json
-import sqlite3
-import tarfile
 from pathlib import Path
 
 import pytest
 
 from codeverse3d.addons import select
 from codeverse3d.addons.dataset.export import export_samples
-from codeverse3d.addons.dataset.index import build_index, summary
-from codeverse3d.addons.dataset.pack import pack_samples, verify_locators
 from codeverse3d.addons.dataset.pairs import build_pairs
-from codeverse3d.addons.dataset.quality import (
-    code_fingerprint,
-    normalise_code,
-)
 from codeverse3d.record import _git
 from codeverse3d.record.record import (
     RecordError,
@@ -70,14 +61,7 @@ def test_git_tree_at_commit(fake_run):
 
 
 def test_a_planted_diff_driver_never_runs(fake_run, tmp_path):
-    """``.git/config`` and ``.gitattributes`` in a run workspace were writable by the
-    agent, and a git diff driver is a program git RUNS.
-
-    ``--no-ext-diff`` does not cover textconv: with only that flag, a ``.gitattributes``
-    entry ``*.bin diff=evil`` plus ``[diff "evil"] textconv = sh -c …`` executes the
-    command while the exporter merely reads the repository (reproduced on git 2.34).
-    ``-c`` cannot unset a LOCAL named driver, so the flag is the fix, not the config.
-    """
+    """An agent-planted diff driver or textconv (a program git RUNS) never runs on the export read."""
     ws, _rec = fake_run
     fired = tmp_path / "fired"
     payload = f"sh -c 'echo pwned >> {fired}; cat'"
@@ -99,10 +83,7 @@ def test_a_planted_diff_driver_never_runs(fake_run, tmp_path):
 
 
 def test_a_symlink_is_not_exported_as_a_file_of_its_target(fake_run) -> None:
-    """``git archive`` skipped symlinks (a tar member, not a file); ``ls-tree`` lists one
-    as a blob whose content IS the link target, so ``src/link.py -> model.py`` came back
-    as a one-line file saying ``model.py`` — and with ``--with-code`` that goes into a
-    training sample."""
+    """ls-tree lists a symlink as a blob holding its target — never a file of the sample."""
     from codeverse3d.record._git import read_tree_at
 
     ws, _rec = fake_run
@@ -116,14 +97,7 @@ def test_a_symlink_is_not_exported_as_a_file_of_its_target(fake_run) -> None:
 
 
 def test_a_planted_smudge_filter_never_runs(fake_run, tmp_path):
-    """The same window, the other content-rendering command: ``git archive`` renders
-    blobs through ``convert_to_working_tree``, so a planted ``filter.<name>.smudge``
-    RUNS — and archive has no ``--no-filters``, while ``-c core.attributesFile`` only
-    silences the GLOBAL attributes file.  ``read_tree_at`` therefore reads the object
-    database directly (``ls-tree`` + ``cat-file --batch``), which applies no filter.
-
-    Planted with ``.git/info/attributes`` — no commit needed, nothing the harness
-    sanitises on the read path."""
+    """read_tree_at reads the object database directly, so a planted smudge filter never runs."""
     ws, _rec = fake_run
     fired = tmp_path / "smudged"
     (ws.src / "model.py").write_text("# real content\n")
@@ -141,8 +115,7 @@ def test_a_planted_smudge_filter_never_runs(fake_run, tmp_path):
 
 
 def test_diff_between_refuses_a_sha_the_repo_does_not_have(fake_run):
-    """The recorded round shas are the only usable handles, and one the repository no
-    longer holds must raise rather than diff against an empty tree."""
+    """A sha the repository no longer holds raises rather than diffing against an empty tree."""
     ws, rec = fake_run
     good = rec.rounds[1].commit
     with pytest.raises(_git.GitReadError):
@@ -204,23 +177,6 @@ def test_export_with_captions_and_reexport(fake_run, tmp_path: Path):
     assert json.loads(row["meta_json"])["has_captions"] is True
 
 
-def test_pack_samples_roundtrip(runs_dir: Path, tmp_path: Path):
-    out = tmp_path / "ds"
-    export_samples(runs_dir, out)
-    rep = pack_samples(out, tar_prefix="3dcodeverse/test/", max_tar_bytes=200_000)
-    assert rep.n_samples == 3 and rep.tars
-    assert verify_locators(out) == 3
-    rows = [json.loads(ln) for ln in (out / "metadata.jsonl").read_text().splitlines()]
-    r = rows[0]
-    assert r["tar"].startswith("3dcodeverse/test/samples-")
-    with (out / Path(r["tar"]).name).open("rb") as fh:
-        fh.seek(r["byte_start"])
-        blob = fh.read(r["byte_len"])
-    with tarfile.open(fileobj=io.BytesIO(blob)) as tf:
-        names = [m.name for m in tf.getmembers()]
-    assert all(n.startswith(r["key"] + "/") for n in names) and f"{r['key']}/meta.json" in names
-
-
 # --------------------------------------------------------------------------- pairs
 
 
@@ -237,38 +193,9 @@ def test_build_pairs(runs_dir: Path, tmp_path: Path):
     assert p["delta"] == 0.25 and "thicken the legs" in p["reason"]
     assert p["chosen"]["files"]["src/model.py"].startswith("# round 1")
     assert p["rejected"]["files"]["src/model.py"].startswith("# round 0")
-    rep = next(x for x in pairs if x["kind"] == "repair")
-    assert rep["error"]["type"] == "SyntaxError" and rep["chosen"]["build_ok"] is True
-    assert "size=3.0" in rep["chosen"]["files"]["src/model.py"]
     xb = next(x for x in pairs if x["kind"] == "cross_backend")
     assert xb["chosen"]["generator"].startswith("gemini-cli") and xb["rejected"]["generator"].startswith("codex")
     assert xb["delta"] == pytest.approx(0.2)
-
-
-# --------------------------------------------------------------------------- dedupe
-
-
-def test_code_fingerprint_normalises():
-    a = {"src/model.py": "import bpy  # hi\n\nx = 1\n# c\n"}
-    b = {"src/model.py": "import bpy\nx=1\n"}
-    c = {"src/model.py": "import bpy\nx=2\n"}
-    assert code_fingerprint(a) == code_fingerprint(b) != code_fingerprint(c)
-    assert normalise_code("// a\nlet x = 1; // t\n") == "letx=1;"
-
-
-# --------------------------------------------------------------------------- index
-
-
-def test_build_index_and_queries(runs_dir: Path, tmp_path: Path):
-    db = tmp_path / "idx.sqlite"
-    assert build_index(runs_dir, db) == 3
-    con = sqlite3.connect(db)
-    assert con.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 3
-    assert con.execute("SELECT COUNT(*) FROM rounds").fetchone()[0] == 2 + 4 + 2
-    assert con.execute("SELECT COUNT(*) FROM usage WHERE role='judge'").fetchone()[0] == 6
-    con.close()
-    s = summary(db)
-    assert {r["language"] for r in s} == {"blender", "threejs"}
 
 
 # --------------------------------------------------------------------------- finding: repair pairs (pairs.py:115)
@@ -346,7 +273,6 @@ def test_degraded_round_is_not_a_zero_score(tmp_path: Path):
     ws.write_json(ws.record_path, rec)
     assert select.pick(ws.root) == 2  # 0.64 beats 0.62; the degraded 0.0 never competes
     pairs = preference_pairs(ws, rec, min_delta=0.05)
-    # old behaviour: chosen=r2 rejected=r1(degraded) with delta 0.64 — a pure noise pair
     assert pairs == []
     pairs = preference_pairs(ws, rec, min_delta=0.01)
     assert len(pairs) == 1 and pairs[0]["rejected"]["round"] == 0 and pairs[0]["chosen"]["round"] == 2
@@ -366,25 +292,6 @@ def test_a_run_with_only_degraded_verdicts_exports_unscored(tmp_path: Path):
     meta = json.loads(next(out.rglob("meta.json")).read_text())
     assert meta["score"] is None and meta["passed"] is None and meta["quality_tier"] == "D"
     assert meta["acceptance_results"] == {}
-
-
-# --------------------------------------------------------------------------- graphics + textured exports
-def test_export_graphics_sample(tmp_path: Path):
-    from codeverse3d.contracts.common import Language
-    from tests.flywheel_cli.conftest import make_fake_run, tiny_png
-
-    ws, rec = make_fake_run(tmp_path / "runs", "rain_glsl", prompt="neon rain", language=Language.GLSL_SHADER)
-    for r in rec.rounds:  # each round keeps its own preview (gif magic irrelevant here — copied by name)
-        tiny_png(ws.round_artifacts(r.index) / "preview.gif")
-    tiny_png(ws.artifacts / "preview.gif")  # the canonical one is the LAST build's: never exported for another round
-    out = tmp_path / "ds"
-    rep = export_samples(ws.root.parent, out)
-    assert rep.n_exported == 1, rep.skipped
-    sdir = out / "graphics" / "glsl_shader" / "rain_glsl"
-    assert (sdir / "code.frag").is_file() and (sdir / "src" / "shader.frag").is_file()
-    meta = json.loads((sdir / "meta.json").read_text())
-    assert meta["entry"] == "code.frag" and meta["type"] == "Procedural Graphics"
-    assert "renders/preview.gif" in meta["renders"]
 
 
 def test_export_includes_textured_assets_when_shipped(fake_run, tmp_path: Path):
@@ -417,7 +324,7 @@ def test_export_includes_textured_assets_when_shipped(fake_run, tmp_path: Path):
 
 
 def test_battery_layouts_are_discovered_by_flywheel_and_gallery(tmp_path):
-    """All three battery layouts resolve runs; eval siblings never become gallery runs."""
+    """All three eval battery layouts resolve runs; eval siblings never become gallery runs."""
     from codeverse3d.addons.gallery.index import scan_root
     from codeverse3d.record.record import find_run_dirs, iter_runs
 

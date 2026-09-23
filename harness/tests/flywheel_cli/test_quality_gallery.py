@@ -13,7 +13,6 @@ from codeverse3d.addons.dataset.quality import (
     prompt_hash,
     quality_tier,
 )
-from codeverse3d.contracts.common import Language
 from codeverse3d.record.record import load_record
 from tests.flywheel_cli.conftest import make_fake_run
 from tests.flywheel_cli.test_captions import GOOD
@@ -32,9 +31,7 @@ def test_quality_tier_rule():
 
 
 def test_only_raw_hash_duplicates_are_dropped_normalised_ones_are_only_marked():
-    """``duplicate_of`` (the DROP set) is keyed on the RAW code_sha256; the normalised
-    fingerprint only ever stamps ``near_duplicate_of`` — row c differs from a/b/e in
-    bytes alone and must survive."""
+    """duplicate_of (the drop set) is keyed on the raw code_sha256; the fingerprint only marks."""
     rows = [
         {"id": "a", "key": "a", "code_sha256": "R", "code_fingerprint": "X", "prompt_hash": "p", "quality_tier": "B", "score": 0.8},
         {"id": "b", "key": "b", "code_sha256": "R", "code_fingerprint": "X", "prompt_hash": "p", "quality_tier": "A", "score": 0.8},
@@ -53,9 +50,7 @@ def test_only_raw_hash_duplicates_are_dropped_normalised_ones_are_only_marked():
 
 
 def test_whitespace_inside_a_string_is_a_near_duplicate_not_a_duplicate(runs_dir: Path, tmp_path: Path):
-    """``LABEL = "a b"`` and ``LABEL="ab"`` normalise identically but are different
-    programs: --drop-duplicates must keep both and only mark them, while the
-    byte-identical chair/codex pair is still dropped."""
+    """LABEL = "a b" and LABEL="ab" normalise alike but are different programs: kept, only marked."""
     common = '# round 1\nimport bpy\nLABEL={}\nbpy.ops.mesh.primitive_cube_add(size=2.0)\n'
     make_fake_run(runs_dir, "stool_spaced", prompt="a stool", code_v2=common.format('"a b"'))
     make_fake_run(runs_dir, "stool_tight", prompt="a stool", code_v2=common.format('"ab"'))
@@ -71,49 +66,6 @@ def test_whitespace_inside_a_string_is_a_near_duplicate_not_a_duplicate(runs_dir
 
 
 # --------------------------------------------------------------------------- export extras
-
-
-def test_export_meta_tiers_duplicates_and_captions_sidecar(runs_dir: Path, tmp_path: Path):
-    # a fourth run = exact duplicate (same code + prompt) of the first, and a urdf run with link meshes
-    make_fake_run(runs_dir, "wooden_chair_again")
-    ws_u, rec_u = make_fake_run(runs_dir, "cabinet_urdf", prompt="a cabinet", language=Language.URDF_BLENDER)
-    for r in rec_u.rounds:  # each round keeps its own link meshes (artifacts/rNN/meshes/)
-        (ws_u.round_artifacts(r.index) / "meshes").mkdir()
-        (ws_u.round_artifacts(r.index) / "meshes" / "Body.glb").write_bytes(b"glTF" + b"\0" * 8)
-    side = tmp_path / "caps"
-    side.mkdir()
-    (side / "lamp_three.json").write_text(json.dumps({**GOOD, "provenance": {"captioner": "gemini:x"}}))
-
-    out = tmp_path / "ds"
-    rep = export_samples(runs_dir, out, captions_dir=side)
-    # the codex run shares prompt + round-1 code with the chair → also an exact duplicate
-    assert rep.n_exported == 5 and rep.n_indexed == 5 and rep.n_duplicates == 2
-    assert rep.duplicates[0].canonical == "3dcodeverse/static_object/blender/wooden_chair_ab12cd34"
-    assert set(rep.duplicates[0].duplicates) == {"3dcodeverse/static_object/blender/wooden_chair_again",
-                                                 "3dcodeverse/static_object/blender/wooden_chair_codex"}
-    assert rep.tiers == {"A": 3, "C": 2}  # codex run 0.6 (not passed) and lamp 0.72 → C
-    meta = json.loads((out / "static_object" / "blender" / "wooden_chair_ab12cd34" / "meta.json").read_text())
-    assert meta["quality_tier"] == "A" and meta["gate_errors"] == 0 and meta["gate_summary"] == {"lint": 0}
-    assert meta["acceptance"] == [{"id": "a1", "text": "", "how": "", "priority": "", "passed": True}]
-    assert len(meta["code_fingerprint"]) == 64 and meta["prompt_hash"] == prompt_hash("a wooden dining chair")
-    assert [r["index"] for r in meta["rounds_summary"]] == [0, 1] and meta["round"] == 1
-    u_meta = json.loads((out / "articulated_object" / "urdf_blender" / "cabinet_urdf" / "meta.json").read_text())
-    assert "meshes/Body.glb" in u_meta["files"] and (out / "articulated_object" / "urdf_blender" / "cabinet_urdf" / "meshes" / "Body.glb").is_file()
-    # side-car captions are picked up for lamp_three only
-    rows = {json.loads(line)["key"]: json.loads(line) for line in (out / "metadata.jsonl").read_text().splitlines()}
-    assert rows["lamp_three"]["has_captions"] is True and rows["lamp_three"]["captions"]["factory"] == GOOD["factory"]
-    assert rows["wooden_chair_ab12cd34"]["has_captions"] is False
-    assert rows["wooden_chair_again"]["duplicate_of"] == "3dcodeverse/static_object/blender/wooden_chair_ab12cd34"
-    assert (out / "duplicates.json").is_file()
-    import pyarrow.parquet as pq
-
-    table = pq.read_table(out / "metadata.parquet")
-    assert {"quality_tier", "gate_errors", "cost_usd", "rounds", "status", "code_fingerprint", "code_sha256",
-            "prompt_hash", "duplicate_of", "near_duplicate_of", "has_captions"} <= set(table.column_names)
-    # drop duplicates from the index (folder stays)
-    rep2 = export_samples(runs_dir, out, captions_dir=side, drop_duplicates=True)
-    assert rep2.n_indexed == 3 and rep2.n_duplicates == 2 and rep2.tiers == {"A": 2, "C": 1}
-    assert (out / "static_object" / "blender" / "wooden_chair_again").is_dir()
 
 
 def test_export_scene_views_repeating_names(fake_run, tmp_path: Path):

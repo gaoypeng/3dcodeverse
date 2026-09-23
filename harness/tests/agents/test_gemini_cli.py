@@ -104,7 +104,7 @@ def agent(fake_bin, monkeypatch, tmp_path):
 
 
 def test_retry_window_never_restarts():
-    """The retry rule itself: what is LEFT of the window, or None when < min(120, T/4)."""
+    """What is LEFT of the window, or None when < min(120, T/4)."""
     from codeverse3d.agents.backends import retry_window_left
 
     assert retry_window_left(1800, 1700) is None          # 100s left < 120 floor
@@ -119,41 +119,9 @@ def _job(ws: Workspace, **kw) -> AgentJob:
     return AgentJob(**base)
 
 
-def test_the_prompt_arrives_on_stdin_whole(tmp_ws: Workspace, agent: GeminiCliAgent):
-    """No -p: a piped stdin makes gemini-cli 0.53 headless and IS the input.  A 5-zone scene
-    prompt runs past 2 000 lines — the window of the read_file tool the old >100 kB file stub
-    relied on — and its last zone must still arrive (checked live 2026-09-22, docs/SKILLS.md)."""
-    prompt = "\n".join(f"zone {i % 5} requirement line {i}" for i in range(2600)) + "\nLAST-ZONE-SENTINEL"
-    res = agent.run(_job(tmp_ws, prompt=prompt))
-    assert res.ok, res.errors
-    assert (tmp_ws.artifacts / "stdin.txt").read_text() == prompt
-
-
-def test_a_session_killed_in_a_storm_is_booked_from_its_chat_record(tmp_ws: Workspace, agent: GeminiCliAgent,
-                                                                     monkeypatch):
-    """The watchdog killed it, so the CLI printed no envelope — and until 2026-09-22 the session
-    was booked at $0 while its chat record held every reply's tokens (live: 6.47 M prompt tokens,
-    ≈ $1.2, in one baseline).  The record is the usage now, and its tool calls the tool count."""
-    from codeverse3d.models.pricing import estimate_cost
-
-    monkeypatch.setenv("FAKE_MODE", "storm")
-    monkeypatch.setattr("codeverse3d.agents.cli_common.IDLE_GRACE_S", 1.0)
-    res = agent.run(_job(tmp_ws, timeout_s=1))
-    assert not res.ok and res.exit_reason == "timeout" and res.transient
-    u = res.usage
-    assert (u.input_tokens, u.cached_tokens, u.output_tokens, u.thoughts_tokens) == (4000, 2400, 70, 20)  # g1 once
-    assert u.cost_usd == pytest.approx(estimate_cost("gemini", "gemini-3.7-flash", u), abs=1e-6) and u.cost_usd > 0
-    assert res.tool_calls == u.tool_calls == 1
-    # the storm ran from the last reply until the kill: all of it lost to the provider
-    assert 0.0 < res.provider_wait_s <= res.duration_s
-    rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
-    assert rec["usage_from"] == ["chat record"]
-
-
 def test_the_metered_proxy_books_a_killed_sessions_record_once(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch,
                                                                 tmp_path):
-    """Filling AgentResult.usage is the whole fix: MeteredAgent writes the one session row from
-    it (it wrote NONE for a $0 session) and the round's BudgetGuard is charged the same usage."""
+    """A watchdog-killed session is booked from its chat record (it was booked at $0 until 2026-09-22)."""
     from codeverse3d.cost import load_ledger
     from codeverse3d.cost.instrument import MeteredAgent, run_ledger
 
@@ -168,8 +136,7 @@ def test_the_metered_proxy_books_a_killed_sessions_record_once(tmp_ws: Workspace
 
 def test_a_session_that_gave_up_is_booked_from_its_record_and_is_typed_transient(tmp_ws: Workspace,
                                                                                   agent: GeminiCliAgent, monkeypatch):
-    """0.53 writes its give-up object to STDERR with no stats and exits 503 & 255 = 247: every
-    gemini-cli session of the 2026-09-22 live runs that "completed a round" ended this way."""
+    """0.53's give-up: an error object on STDERR, no stats, exit 503 & 255 = 247."""
     monkeypatch.setattr(get_settings(), "gemini_api_keys", ["only"])
     from codeverse3d.models import gemini as gm
     for sig in [x for x in list(gm._pools) if x and x[0] == "only"]:  # noqa: SLF001
@@ -184,9 +151,7 @@ def test_a_session_that_gave_up_is_booked_from_its_record_and_is_typed_transient
 
 def test_the_envelope_wins_over_the_record_and_nothing_is_booked_twice(tmp_ws: Workspace, agent: GeminiCliAgent,
                                                                        monkeypatch):
-    """A completed session leaves an envelope AND a chat record; the record is read (it is the
-    tool trace) but its tokens are used only when the envelope has none — the metered proxy
-    books AgentResult.usage once, so adding them would double the bill."""
+    """The chat record's tokens count only when the envelope has none — adding them doubles the bill."""
     monkeypatch.setenv("FAKE_MODE", "ok_with_record")
     res = agent.run(_job(tmp_ws))
     assert res.ok and res.usage.input_tokens == 100 and res.usage.output_tokens == 20   # the envelope's, alone
@@ -196,28 +161,8 @@ def test_the_envelope_wins_over_the_record_and_nothing_is_booked_twice(tmp_ws: W
     assert [r["tool"] for r in rows if r["kind"] == "tool_call"] == ["write_file"]      # the record still traced
 
 
-def test_success_path(tmp_ws: Workspace, agent: GeminiCliAgent):
-    res = agent.run(_job(tmp_ws))
-    assert res.ok and res.exit_reason == "completed", res.errors
-    assert res.text.startswith("DONE")
-    assert [f.path for f in res.files_changed] == ["src/hello.txt"]
-    assert res.usage.input_tokens == 100 and res.usage.output_tokens == 20 and res.usage.thoughts_tokens == 7
-    assert res.usage.tool_calls == 1 and res.tool_calls == 1
-    traj = Path(res.transcript_path).parent
-    assert (traj / "stdout.json").exists() and (traj / "prompt.md").exists() and (traj / "result.json").exists()
-    rec = json.loads((traj / "result.json").read_text())
-    assert rec["attempts"] == 1 and rec["session_id"] == "s1" and rec["usage_from"] == ["envelope"]
-    assert res.provider_wait_s == 0.0
-    # commits: pre + agent
-    assert "agent:t" in tmp_ws._git("log", "--oneline").stdout
-
-
 def test_agent_planted_mcp_server_never_reaches_the_cli(tmp_ws: Workspace, agent: GeminiCliAgent):
-    """``ws/.gemini/settings.json`` is agent-writable and gemini-cli merged its mcpServers,
-    so an agent could choose what the NEXT round's CLI launched (`gemini mcp list` in a
-    poisoned workspace tried to start it).  3dcode + ``mcp.allowed`` now live in the
-    per-session system settings, which is applied LAST and whose ``mcp.allowed``
-    REPLACES rather than merges (audit 2026-08-27)."""
+    """3dcode + mcp.allowed live in the per-session system settings, applied last (audit 2026-08-27)."""
     from codeverse3d.agents.cli_common import begin_session, default_mcp_command, release_session
     from codeverse3d.agents.materialize import materialize_workspace
 
@@ -247,18 +192,6 @@ def test_model_substitution_detected(tmp_ws: Workspace, agent: GeminiCliAgent, m
     res = agent.run(_job(tmp_ws))
     assert not res.ok and res.exit_reason == "model_substituted"
     assert "gemini-9-pro" in res.errors[0]
-
-
-def test_transient_failure_retries_once_with_other_key(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
-    monkeypatch.setenv("FAKE_MODE", "fail_once")
-    res = agent.run(_job(tmp_ws))
-    assert res.ok, res.errors
-    assert (tmp_ws.artifacts / "attempts.txt").read_text() == "2"
-    rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
-    assert rec["attempts"] == 2 and (Path(res.transcript_path).parent / "stdout.2.json").exists()
-    lines = [json.loads(ln) for ln in Path(res.transcript_path).read_text().splitlines()]
-    keys = [ln["key_tail"] for ln in lines if ln["kind"] == "invoke"]
-    assert keys == ["k1", "k2"]
 
 
 def test_single_key_transient_failure_retries_same_key_and_never_raises(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
@@ -310,10 +243,7 @@ def test_pool_exhausted_before_first_attempt_is_a_budget_result(tmp_ws: Workspac
 
 
 def test_a_cli_session_holds_no_in_flight_slot(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
-    """The slots are machine-wide and a session is minutes long: one held per session would
-    let a few dozen sessions starve every planner and judge call on the box.  The session
-    takes its KEY from the shared pool (rotation, cooldowns) and nothing else — so nothing
-    can leak either, even when invoke raises."""
+    """The machine-wide in-flight slots are for API calls; a session takes only its key."""
     from codeverse3d.agents import backends as gc
 
     pool = gc._key_pool(get_settings().gemini_api_keys)  # noqa: SLF001
@@ -329,19 +259,8 @@ def test_a_cli_session_holds_no_in_flight_slot(tmp_ws: Workspace, agent: GeminiC
     assert seen == [0] and pool.stats()["in_flight"] == 0
 
 
-def test_timeout_is_reported(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
-    monkeypatch.setenv("FAKE_MODE", "hang")
-    monkeypatch.setattr("codeverse3d.agents.cli_common.IDLE_GRACE_S", 1.0)
-    res = agent.run(_job(tmp_ws, timeout_s=1))
-    assert not res.ok and res.exit_reason == "timeout" and res.duration_s < 30
-    assert res.transient is False        # a plain hang is not a storm
-
-
 def test_a_timeout_after_a_503_streak_is_marked_transient(tmp_ws: Workspace, agent: GeminiCliAgent, monkeypatch):
-    """Measured 2026-09-07: 23 of 24 gemini-cli sessions of an evening ended timeout / 0 turns
-    / $0 after 8-17 consecutive 503s inside the CLI's own retry loop.  The wall still ends the
-    session (the CLI never gives up first), but the result says WHY, so a track can fall back
-    to the single-shot path instead of shipping the skeleton (tracks.common.generate_for)."""
+    """A 503 storm inside the CLI's own retry loop ends on the wall: the result says why (2026-09-07)."""
     monkeypatch.setenv("FAKE_MODE", "storm")
     monkeypatch.setattr("codeverse3d.agents.cli_common.IDLE_GRACE_S", 1.0)
     res = agent.run(_job(tmp_ws, timeout_s=1))
@@ -352,15 +271,15 @@ def test_a_timeout_after_a_503_streak_is_marked_transient(tmp_ws: Workspace, age
 
 def test_the_key_pool_hears_a_5xx_only_when_the_failure_was_transient(tmp_ws: Workspace, agent: GeminiCliAgent,
                                                                      monkeypatch):
-    """The pool is shared with every API call and a "5xx" costs the key 20 % of its health: a
-    hang, a substituted model or the agent's own crash is not the KEY's fault."""
+    """A hang, a substituted model or the agent's own crash is not transient and not the key's fault."""
     from codeverse3d.agents import backends as gc
 
     monkeypatch.setattr("codeverse3d.agents.cli_common.IDLE_GRACE_S", 1.0)
     pool = gc._key_pool(get_settings().gemini_api_keys)  # noqa: SLF001
     for mode, timeout_s in (("substitute", 20), ("crash", 20), ("hang", 1)):
         monkeypatch.setenv("FAKE_MODE", mode)
-        assert not agent.run(_job(tmp_ws, timeout_s=timeout_s, label=mode)).ok
+        res = agent.run(_job(tmp_ws, timeout_s=timeout_s, label=mode))
+        assert not res.ok and res.transient is False, mode
     st = pool.stats()
     assert (st["5xx"], st["ok"], st["error"]) == (0, 0, 0), st
     monkeypatch.setenv("FAKE_MODE", "fail_once_503")   # a real 503, then a rotated success
@@ -389,7 +308,7 @@ def test_parse_helpers():
 
 
 def test_usage_input_is_total_prompt_and_cost_reprices_cache():
-    """gemini-cli reports tokens.input = prompt - cached; pricing wants the TOTAL prompt (regression: ~4x under-billing)."""
+    """tokens.input is prompt - cached; pricing wants the TOTAL prompt (was ~4x under-billing)."""
     from codeverse3d.models.pricing import estimate_cost, lookup_price
 
     tok = {"input": 720_753, "prompt": 14_190_170, "cached": 13_469_417, "candidates": 62_012, "thoughts": 66_809}

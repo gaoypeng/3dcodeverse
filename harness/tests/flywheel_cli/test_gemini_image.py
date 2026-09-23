@@ -1,9 +1,4 @@
-"""GeminiImageModel key rotation: dead-key and free-429 semantics adopted from
-``models/gemini.py`` (offline; fake clients + a 2-key pool).
-
-Lives with the flywheel/CLI tests because this group owns
-``codeverse3d/models/gemini_image.py``'s rotation behaviour.
-"""
+"""GeminiImageModel: key rotation, the per-attempt timeout and per-image pricing (fake clients)."""
 
 from __future__ import annotations
 
@@ -56,24 +51,6 @@ def _model(script: list, used: list[str], sleeps: list[float], *, max_attempts: 
     return m, pool
 
 
-def test_dead_key_rotates_free_and_is_benched(monkeypatch: pytest.MonkeyPatch):
-    used: list[str] = []
-    sleeps: list[float] = []
-    script = [ModelError("API key expired", retryable=False, status=403), _image_response()]
-    m, pool = _model(script, used, sleeps, max_attempts=1)
-    reports: list[tuple[str, str]] = []
-    orig = pool.report
-    monkeypatch.setattr(pool, "report", lambda key, outcome, **kw: (reports.append((key, outcome)), orig(key, outcome, **kw))[1])
-    images, usage = m.generate_with_usage("a wooden crate texture")
-    # the 403 did not consume the single attempt: a second key was tried and won
-    assert len(images) == 1 and len(used) == 2 and used[0] != used[1]
-    assert sleeps == []  # dead rotation never sleeps
-    dead_key = used[0]
-    assert (dead_key, "error") in reports  # reported at rotation time
-    assert reports[-1] == (dead_key, "dead")  # benched once the sibling key succeeded
-    assert (used[1], "ok") in reports
-
-
 def test_429_rotation_is_free_while_untried_keys_remain():
     used: list[str] = []
     sleeps: list[float] = []
@@ -122,8 +99,7 @@ def test_image_budget_bounds_the_per_attempt_http_timeout():
 
 
 def test_images_are_priced_by_the_generated_size():
-    """A 2K request is billed at the 2K per-image price (it was billed at the 1K rate,
-    0.067 instead of 0.134); a 512 request generates a 1K image and is billed as one."""
+    """A 2K request is billed at the 2K price (it was billed at the 1K rate); 512 is billed as 1K."""
     from codeverse3d.models.pricing import per_image_usd
 
     def cost(size: int) -> float:

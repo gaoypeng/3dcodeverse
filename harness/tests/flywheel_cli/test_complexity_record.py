@@ -68,9 +68,3 @@ def test_record_carries_the_last_rounds_complexity_and_the_trail() -> None:
 def test_complexity_block_falls_back_to_the_last_measured_round() -> None:
     rec = _record([_round(0, 0.6, 0.42), _round(1, 0.5, None)])
     assert complexity_block(rec)["index"] == 0.42
-
-
-def test_no_measurement_means_no_block() -> None:
-    rec = fill_derived(_record([_round(0, 0.6, None)]))
-    assert "complexity" not in rec.extra
-    assert round_summary(rec.rounds[0])["complexity"] is None

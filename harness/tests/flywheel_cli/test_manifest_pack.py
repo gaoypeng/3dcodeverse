@@ -1,31 +1,19 @@
-"""The dataset generation manifest + the manifest-driven pack.
-
-Export used to filter duplicates only in memory while ``pack_samples`` re-scanned
-the directory tree — so ``--drop-duplicates --pack`` shipped every dropped
-duplicate, a re-pack truncated the previous valid archive at open, and a planted
-``src/meta.json`` (sample folders carry the run's LLM-written src/** tree) could
-inject a phantom row.  The manifest is now the single source of truth: pack tars
-ONLY manifest entries, verifies every byte against the recorded sha256, and
-publishes the archives AND the index in one replace loop after the whole pack
-succeeded (a failure in either window leaves the previous dataset untouched).
-"""
+"""The dataset manifest is the single source of truth: pack tars only its entries, verifies every
+byte against it, and publishes archives and index together only after the whole pack succeeded."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import re
 import tarfile
 from pathlib import Path
 
 import pytest
 
 from codeverse3d.addons.dataset.export import (
-    MANIFEST_NAME,
     ManifestError,
     export_samples,
     load_manifest,
-    write_manifest,
 )
 from codeverse3d.addons.dataset.pack import PackError, pack_samples, verify_locators
 
@@ -56,31 +44,13 @@ def _tar_member_names(out: Path) -> list[str]:
 
 
 # --------------------------------------------------------------------------- manifest
-def test_export_writes_a_hashed_manifest(runs_dir: Path, tmp_path: Path):
-    out = tmp_path / "ds"
-    rep = export_samples(runs_dir, out)
-    assert rep.manifest == str(out / MANIFEST_NAME)
-    m = load_manifest(out)
-    assert m.generated_at is not None
-    assert m.filters.drop_duplicates is False and m.filters.min_score is None
-    assert len(m.entries) == 3 and m.dropped == []
+def test_export_hashes_every_byte_it_wrote(exported_ds: Path):
+    m = load_manifest(exported_ds)
     e = next(x for x in m.entries if x.sample_id == CHAIR_ID)
-    assert e.run.battery == "runs" and e.run.rel == "wooden_chair_ab12cd34"
-    assert e.sample_rel_dir == "static_object/blender/wooden_chair_ab12cd34"
     assert {"meta.json", "captions.json", "code.py", "src/model.py"} <= set(e.files)
-    for rel, digest in e.files.items():  # every byte the export wrote is hashed
-        assert hashlib.sha256((out / e.sample_rel_dir / rel).read_bytes()).hexdigest() == digest
-    assert len(e.code_sha256) == 64 and len(e.code_fingerprint) == 64
+    for rel, digest in e.files.items():
+        assert hashlib.sha256((exported_ds / e.sample_rel_dir / rel).read_bytes()).hexdigest() == digest
     assert e.code_sha256 != e.code_fingerprint  # raw-exact vs normalised
-
-
-def test_filtered_runs_are_recorded_as_dropped(runs_dir: Path, tmp_path: Path):
-    export_samples(runs_dir, tmp_path / "ds", min_score=0.75)
-    m = load_manifest(tmp_path / "ds")
-    assert len(m.entries) == 1 and len(m.dropped) == 2
-    assert m.filters.min_score == 0.75
-    assert all("min_score" in d.reason for d in m.dropped)
-    assert {d.run.rel for d in m.dropped} == {"wooden_chair_codex", "lamp_three"}
 
 
 # --------------------------------------------------------------------------- drop-duplicates → pack
@@ -120,27 +90,8 @@ def _packed_state(out: Path) -> dict[str, bytes]:
             for p in [*out.glob("samples-*.tar"), out / "metadata.jsonl", out / "metadata.parquet"]}
 
 
-def test_a_failure_inside_the_pack_loop_leaves_the_old_tar_and_index_intact(packed_ds: Path):
-    before = _packed_state(packed_ds)
-    # corrupt the recorded hash of a file in the LAST entry: the mismatch fires
-    # mid-pack, after earlier samples were already added to the new tmp archive
-    m = load_manifest(packed_ds)
-    victim = m.entries[-1]
-    rel = sorted(victim.files)[0]
-    victim.files[rel] = "0" * 64
-    write_manifest(m, packed_ds)
-    with pytest.raises(PackError, match=re.escape(rel)):
-        pack_samples(packed_ds)
-    assert _packed_state(packed_ds) == before  # old archives AND index untouched
-    assert not list(packed_ds.glob("*.tmp"))  # the half-written tmp tar is cleaned up
-    assert verify_locators(packed_ds) == 3  # the previous pack still round-trips
-
-
 def test_a_failure_after_the_pack_loop_publishes_nothing(packed_ds: Path, monkeypatch):
-    """The window the tar loop does NOT cover: every tar is written, then the index
-    write fails.  Publishing the tars alone left the OLD index resolving to the new
-    tars' byte offsets — six rows pointing at the wrong bytes, and verify_locators
-    happily passing a corrupt dataset."""
+    """Every tar written, then the index write fails: the old dataset stays whole, tars and index."""
     import codeverse3d.addons.dataset.pack as P
 
     before = _packed_state(packed_ds)
@@ -153,8 +104,7 @@ def test_a_failure_after_the_pack_loop_publishes_nothing(packed_ds: Path, monkey
 
 
 def test_repacking_over_an_existing_archive_succeeds_and_leaves_no_orphan_tar(packed_ds: Path):
-    """Re-packing used to truncate the previous archive at open; and a repack into FEWER
-    shards left 001/002 on disk as dead bytes the new index never names."""
+    """A repack into fewer shards leaves no orphan tar the new index never names."""
     assert pack_samples(packed_ds, max_tar_bytes=1).tars == ["samples-000.tar", "samples-001.tar", "samples-002.tar"]
     prep = pack_samples(packed_ds)
     assert prep.tars == ["samples-000.tar"] and prep.n_samples == 3

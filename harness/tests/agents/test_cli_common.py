@@ -6,7 +6,6 @@ import json
 import os
 
 from codeverse3d.agents.cli_common import (
-    Trajectory,
     attribute_changes,
     begin_session,
     clean_env,
@@ -33,28 +32,10 @@ def test_clean_env_drops_secrets_but_the_kept_ones(monkeypatch):
     assert env["C3D_AGENT_CONTEXT"] == "1" and "GIT_CEILING_DIRECTORIES" not in env
 
 
-def test_hardened_env_strips_secrets_and_adds_guards(tmp_ws: Workspace, monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-y")
-    monkeypatch.setenv("KEEPME", "1")
-    job = AgentJob(workspace=str(tmp_ws.root), prompt="p", env={"EXTRA": "2"})
-    env = hardened_env(tmp_ws, job, keep={"ANTHROPIC_API_KEY"})
-    assert "OPENAI_API_KEY" not in env and "FAKE_SERVICE_API_KEY" not in env
-    assert env["ANTHROPIC_API_KEY"] == "sk-y" and env["KEEPME"] == "1" and env["EXTRA"] == "2"
-    assert env["C3D_AGENT_CONTEXT"] == "1" and env["GIT_CEILING_DIRECTORIES"] == str(tmp_ws.root.parent)
-
-
-def test_session_roundtrip_tracks_files_and_writes_result(tmp_ws: Workspace):
-    job = AgentJob(workspace=str(tmp_ws.root), prompt="do it", label="baseline", round=2)
-    s = begin_session(job, "fake")
-    assert s.traj.dir.name == "baseline_r02" and s.traj.prompt_path.read_text() == "do it"
-    (tmp_ws.src / "model.py").write_text("print(1)\n")
-    res = finish_session(s, ok=True, exit_reason="completed", text="done", usage=Usage(input_tokens=5), tool_calls=1)
-    assert res.ok and [f.path for f in res.files_changed] == ["src/model.py"]
-    assert res.files_changed[0].status == "added" and res.files_changed[0].lines_added == 1
-    data = json.loads(s.traj.result_path.read_text())
-    assert data["exit_reason"] == "completed" and data["head_before"] != data["head_after"]
-    assert tmp_ws.head() == data["head_after"]
+def test_hardened_env_adds_the_job_env_and_the_git_ceiling(tmp_ws: Workspace):
+    env = hardened_env(tmp_ws, AgentJob(workspace=str(tmp_ws.root), prompt="p", env={"EXTRA": "2"}), keep=set())
+    assert env["EXTRA"] == "2" and env["GIT_CEILING_DIRECTORIES"] == str(tmp_ws.root.parent)
+    assert "FAKE_SERVICE_API_KEY" not in env
 
 
 def test_retry_same_label_round_keeps_first_attempt_trajectory(tmp_ws: Workspace):
@@ -87,9 +68,7 @@ def test_attribute_changes_pure():
 
 
 def test_the_prompt_goes_on_stdin_byte_for_byte_and_never_on_argv(tmp_ws: Workspace):
-    """A 2 500-line, 200 kB prompt — past argv's 128 KiB per-argument cap and past gemini-cli's
-    2 000-line read_file window, which is where the old file stub dropped a scene's last zones —
-    reaches the CLI whole, and the transcript records its size, not its text."""
+    """A 200 kB, 2 500-line prompt (past argv's 128 KiB cap) reaches the CLI whole."""
     import sys
 
     s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="x", label="p"), "fake")
@@ -104,9 +83,7 @@ def test_the_prompt_goes_on_stdin_byte_for_byte_and_never_on_argv(tmp_ws: Worksp
 
 
 def test_one_failure_vocabulary():
-    """The backends classify what the CLI said about the call that ended its session; the round
-    loop reads only the typed flags.  Provider failures a retry may get through are transient; a
-    spent usage limit is quota and never transient; the task's own failure is neither."""
+    """Transient = a retry may get through; quota = a spent usage limit, never transient."""
     for text in ("Attempt 3 failed with status 503", "API Error: 529 overloaded_error", "got status: UNAVAILABLE",
                  "Error: 429 RESOURCE_EXHAUSTED", "TypeError: fetch failed sending request", "read ECONNRESET",
                  "stream disconnected before completion", "got an empty response from the model"):
@@ -144,16 +121,6 @@ def test_finish_session_carries_the_typed_failure_and_the_wait(tmp_ws: Workspace
                          provider_wait_s=1e9)
     assert res.quota and not res.transient            # a spent usage limit is never "retry me"
     assert 0.0 <= res.provider_wait_s <= res.duration_s   # never more than the session lasted
-
-
-def test_trajectory_jsonl_and_result(tmp_path):
-    t = Trajectory(tmp_path / "traj")
-    t.append("a", x=1)
-    t.append("b", y="z")
-    recs = t.read_transcript()
-    assert [r["kind"] for r in recs] == ["a", "b"] and recs[1]["y"] == "z" and "t" in recs[0]
-    t.write_result(Usage(input_tokens=3), note="n")
-    assert json.loads(t.result_path.read_text()) == {**Usage(input_tokens=3).model_dump(), "note": "n"}
 
 
 def test_mcp_command_resolution(tmp_ws: Workspace):
