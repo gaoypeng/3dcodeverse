@@ -31,7 +31,7 @@ from codeverse3d.contracts.run import RunRecord
 from codeverse3d.models import get_chat_model
 from codeverse3d.proc import write_json_atomic
 from codeverse3d.prompts import prompt_hash
-from codeverse3d.record import _git
+from codeverse3d.record import git_history
 from codeverse3d.workspace import Workspace
 
 MAX_CODE_CHARS = 12_000
@@ -128,7 +128,7 @@ def _code_excerpt(ws: Workspace, record: RunRecord) -> str:
     files, _src = code_files_for_round(ws, rnd)
     entry = ENTRY_FILE[record.spec.language]
     ordered = {k: files[k] for k in sorted(files, key=lambda k: (k != entry, k))}
-    text, _skipped = _git.decode_text_files(ordered, max_total=MAX_CODE_CHARS)
+    text, _skipped = git_history.decode_text_files(ordered, max_total=MAX_CODE_CHARS)
     return "\n\n".join(f"### {p}\n{t}" for p, t in text.items())
 
 

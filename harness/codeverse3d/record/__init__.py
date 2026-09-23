@@ -4,7 +4,7 @@
                    ``effective_judgment`` · ``unique_files``
 * ``deliverable``  every round's kept build (``artifacts/rNN/``) and ``deliverable/`` for one round
 * ``telemetry``    the settings / environment a record carries
-* ``_git``         reading the workspace's own git history (files at a round's commit)
+* ``git_history``  reading the workspace's own git history (files at a round's commit)
 
 Turning a tree of finished runs into a dataset, a gallery or a cost report is ``codeverse3d.addons``.
 """

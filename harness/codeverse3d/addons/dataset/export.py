@@ -40,7 +40,7 @@ from codeverse3d.addons.dataset.quality import DuplicateGroup, code_sha256, mark
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.run import RunId, RunRecord
 from codeverse3d.proc import read_json_or_none, sha256_file, write_json_atomic, write_text_atomic
-from codeverse3d.record._git import CODE_ROOTS
+from codeverse3d.record.git_history import CODE_ROOTS
 from codeverse3d.record.record import FoundRun, iter_runs
 from codeverse3d.workspace import Workspace
 

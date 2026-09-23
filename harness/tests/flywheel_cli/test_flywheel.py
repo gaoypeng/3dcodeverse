@@ -10,7 +10,7 @@ import pytest
 from codeverse3d.addons import select
 from codeverse3d.addons.dataset.export import export_samples
 from codeverse3d.addons.dataset.pairs import build_pairs
-from codeverse3d.record import _git
+from codeverse3d.record import git_history
 from codeverse3d.record.record import (
     RecordError,
     finalize_record,
@@ -70,13 +70,13 @@ def test_iter_runs_and_errors(runs_dir: Path):
 def test_git_tree_at_commit(fake_run):
     ws, rec = fake_run
     c0, c1 = rec.rounds[0].commit, rec.rounds[1].commit
-    t0 = _git.read_tree_at(ws, c0)
-    t1 = _git.read_tree_at(ws, c1)
+    t0 = git_history.read_tree_at(ws, c0)
+    t1 = git_history.read_tree_at(ws, c1)
     assert set(t0) == {"src/model.py"}
     assert set(t1) == {"src/model.py", "src/parts/leg.py"}
     assert b"round 0" in t0["src/model.py"] and b"round 1" in t1["src/model.py"]
-    with pytest.raises(_git.GitReadError):
-        _git.read_tree_at(ws, "deadbeef")
+    with pytest.raises(git_history.GitReadError):
+        git_history.read_tree_at(ws, "deadbeef")
 
 
 def test_a_planted_diff_driver_never_runs(fake_run, tmp_path):
@@ -94,8 +94,8 @@ def test_a_planted_diff_driver_never_runs(fake_run, tmp_path):
         ws._git("config", "--local", f"diff.evil.{key}", payload)
     ws._git("config", "--local", "diff.external", payload)
 
-    text, _total, _truncated = _git.diff_between(ws, before, after)
-    files = _git.changed_files_between(ws, before, after)
+    text, _total, _truncated = git_history.diff_between(ws, before, after)
+    files = git_history.changed_files_between(ws, before, after)
 
     assert not fired.exists(), f"a planted diff driver ran: {fired.read_text()!r}"
     assert files == ["src/blob.bin"] and "src/blob.bin" in text
@@ -103,7 +103,7 @@ def test_a_planted_diff_driver_never_runs(fake_run, tmp_path):
 
 def test_a_symlink_is_not_exported_as_a_file_of_its_target(fake_run) -> None:
     """ls-tree lists a symlink as a blob holding its target — never a file of the sample."""
-    from codeverse3d.record._git import read_tree_at
+    from codeverse3d.record.git_history import read_tree_at
 
     ws, _rec = fake_run
     (ws.src / "model.py").write_text("import bpy\n")
@@ -127,7 +127,7 @@ def test_a_planted_smudge_filter_never_runs(fake_run, tmp_path):
     ws._git("config", "--local", "filter.evil.smudge", f"sh -c 'echo pwned >> {fired}; cat'")
     ws._git("config", "--local", "filter.evil.required", "false")
 
-    files = _git.read_tree_at(ws, commit)
+    files = git_history.read_tree_at(ws, commit)
 
     assert not fired.exists(), f"a planted smudge filter ran: {fired.read_text()!r}"
     assert files["src/model.py"] == b"# real content\n"  # the raw blob, unfiltered
@@ -137,12 +137,12 @@ def test_diff_between_refuses_a_sha_the_repo_does_not_have(fake_run):
     """A sha the repository no longer holds raises rather than diffing against an empty tree."""
     ws, rec = fake_run
     good = rec.rounds[1].commit
-    with pytest.raises(_git.GitReadError):
-        _git.diff_between(ws, "0" * 40, good)
-    with pytest.raises(_git.GitReadError):
-        _git.diff_between(ws, good, "0" * 40)
-    with pytest.raises(_git.GitReadError):
-        _git.changed_files_between(ws, good, "0" * 40)
+    with pytest.raises(git_history.GitReadError):
+        git_history.diff_between(ws, "0" * 40, good)
+    with pytest.raises(git_history.GitReadError):
+        git_history.diff_between(ws, good, "0" * 40)
+    with pytest.raises(git_history.GitReadError):
+        git_history.changed_files_between(ws, good, "0" * 40)
 
 
 # --------------------------------------------------------------------------- export + pack

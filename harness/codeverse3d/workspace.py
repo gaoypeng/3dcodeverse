@@ -70,7 +70,7 @@ GIT_SAFE_FLAGS = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"
 #: in .git/config, both agent-writable — is not reachable by ``-c``, and ``--no-ext-diff``
 #: alone does not disable textconv: without ``--no-textconv`` that driver EXECUTES.
 GIT_SAFE_DIFF_FLAGS = ("--no-ext-diff", "--no-textconv")
-#: a has_commit probe that has not answered by then answers no (record/_git.py reads use 60 s too)
+#: a has_commit probe that has not answered by then answers no (record/git_history.py reads use 60 s too)
 HAS_COMMIT_TIMEOUT_S = 60
 #: local (.git/config) config that makes git EXECUTE a program.  ``-c`` cannot override a
 #: local ``filter.*`` / ``diff.*`` driver, so these are unset in place before every commit.

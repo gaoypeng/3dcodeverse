@@ -34,7 +34,7 @@ from codeverse3d.addons import select
 from codeverse3d.addons.dataset.quality import prompt_id
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.proc import read_jsonl_lenient
-from codeverse3d.record import _git
+from codeverse3d.record import git_history
 from codeverse3d.record.record import effective_judgment, iter_runs, skip_unreadable
 from codeverse3d.workspace import Workspace
 
@@ -49,10 +49,10 @@ def _side(ws: Workspace, rnd: RoundRecord, *, cache: dict[str, dict[str, Any]]) 
     key = rnd.commit or f"wt:{rnd.index}"
     if key not in cache:
         try:
-            raw = _git.read_tree_at(ws, rnd.commit) if rnd.commit else _git.read_working_tree(ws)
-        except _git.GitReadError:
+            raw = git_history.read_tree_at(ws, rnd.commit) if rnd.commit else git_history.read_working_tree(ws)
+        except git_history.GitReadError:
             raw = {}
-        text, skipped = _git.decode_text_files(raw, max_total=MAX_INLINE_CODE)
+        text, skipped = git_history.decode_text_files(raw, max_total=MAX_INLINE_CODE)
         cache[key] = {"files": text, "truncated_files": skipped}
     c = cache[key]
     j = effective_judgment(rnd)
@@ -178,14 +178,14 @@ def in_round_repair_pairs(ws: Workspace, rec: RunRecord, *, slug: str | None = N
             continue
         if "repair attempts:" not in rnd.notes or "(fixed)" not in rnd.notes:
             continue
-        generated = _git.commit_by_subject(ws, f"r{rnd.index:02d} {rnd.kind}: generated")
+        generated = git_history.commit_by_subject(ws, f"r{rnd.index:02d} {rnd.kind}: generated")
         if not generated or generated == rnd.commit or not ws.has_commit(generated):
             continue
         try:
-            raw = _git.read_tree_at(ws, generated)
-        except _git.GitReadError:
+            raw = git_history.read_tree_at(ws, generated)
+        except git_history.GitReadError:
             continue
-        rej_files, rej_skipped = _git.decode_text_files(raw, max_total=MAX_INLINE_CODE)
+        rej_files, rej_skipped = git_history.decode_text_files(raw, max_total=MAX_INLINE_CODE)
         chosen = _side(ws, rnd, cache=cache)
         if rej_files == chosen["files"]:
             continue  # the repair changed nothing under the code roots

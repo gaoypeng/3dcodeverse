@@ -37,7 +37,7 @@ from codeverse3d.contracts.common import (
     code_file,
 )
 from codeverse3d.contracts.run import RoundRecord, RunRecord
-from codeverse3d.record import _git
+from codeverse3d.record import git_history
 from codeverse3d.record.deliverable import deliverable_path, round_outputs, texture_shipped_for
 from codeverse3d.record.record import (
     effective_judgment,
@@ -153,18 +153,18 @@ def code_files_for_round(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[s
     """Raw code tree for a round → ``(files, source)`` where source is ``commit``,
     ``deliverable`` (the packaged snapshot of the handed-over round) or ``working_tree``."""
     if rnd is not None and rnd.commit and ws.has_commit(rnd.commit):
-        return _git.read_tree_at(ws, rnd.commit), "commit"
+        return git_history.read_tree_at(ws, rnd.commit), "commit"
     packaged = _deliverable_code(ws)
     if packaged:
         return packaged, "deliverable"
-    return _git.read_working_tree(ws), "working_tree"
+    return git_history.read_working_tree(ws), "working_tree"
 
 
 def _deliverable_code(ws: Workspace) -> dict[str, bytes]:
     """``deliverable/src|public/**`` — the snapshot kept when git is unreadable
     (a run copied without its .git, an archived deliverable)."""
     files: dict[str, bytes] = {}
-    for root in _git.CODE_ROOTS:
+    for root in git_history.CODE_ROOTS:
         base = ws.deliverable / root
         if not base.is_dir():
             continue

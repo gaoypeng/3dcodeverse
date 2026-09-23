@@ -30,7 +30,12 @@ from pydantic import BaseModel, Field
 from codeverse3d.addons.dataset.pairs import MIN_PREFERENCE_DELTA
 from codeverse3d.contracts.artifacts import Severity
 from codeverse3d.contracts.run import RoundRecord, RunRecord
-from codeverse3d.record._git import GitReadError, changed_files_between, diff_between, read_tree_at
+from codeverse3d.record.git_history import (
+    GitReadError,
+    changed_files_between,
+    diff_between,
+    read_tree_at,
+)
 from codeverse3d.record.record import (
     BATTERY_MARKERS,
     effective_judgment,

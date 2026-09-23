@@ -211,7 +211,7 @@ codeverse3d/
   record/             what every run WRITES: record.py (finalize_record, load_record, iter_runs,
                       effective_judgment), deliverable.py (every round's kept build under
                       artifacts/rNN/, and deliverable/ for ONE round — built by addons/select),
-                      telemetry.py, _git.py (files at a round's commit)
+                      telemetry.py, git_history.py (files at a round's commit)
   addons/             optional tools that READ finished runs; outside cli/ nothing imports them
                       (tests/core/test_addons_boundary.py).  dataset/ = export.py, pack.py, pairs.py,
                       refine.py, captions.py, index.py, sample.py, quality.py (tiers + code fingerprints +

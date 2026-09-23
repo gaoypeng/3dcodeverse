@@ -33,7 +33,7 @@ from pathlib import Path
 from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
 from codeverse3d.contracts.run import DeliverableFile, RoundRecord, RunDeliverable, RunRecord
 from codeverse3d.proc import read_json_or_none, sha256_file, write_json_atomic
-from codeverse3d.record import _git
+from codeverse3d.record import git_history
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -131,11 +131,11 @@ def _code_tree(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes]
     if rnd is not None and rnd.commit:
         try:
             if ws.has_commit(rnd.commit):
-                return _git.read_tree_at(ws, rnd.commit), "commit"
-        except _git.GitReadError as e:
+                return git_history.read_tree_at(ws, rnd.commit), "commit"
+        except git_history.GitReadError as e:
             log.warning("deliverable: git read failed in %s: %s", ws.root, e)
     try:
-        return _git.read_working_tree(ws), "working_tree"
+        return git_history.read_working_tree(ws), "working_tree"
     except OSError as e:  # pragma: no cover - defensive
         log.warning("deliverable: working tree unreadable in %s: %s", ws.root, e)
         return {}, "working_tree"
