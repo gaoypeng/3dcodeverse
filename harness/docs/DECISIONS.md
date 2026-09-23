@@ -11,7 +11,7 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
 ## Laws (standing, from CLAUDE.md)
 
 * **L1 Raw code only.**  Generated code never imports an SDK/helper; the harness owns
-  wrappers and exporters (`languages/*/wrappers`, `runtime_js/`).  Consequence: every
+  wrappers and exporters (`languages/wrappers/`, `languages/opengl_python/wrappers/`, `runtime_js/`).  Consequence: every
   language needs a standalone wrapper that cannot import `codeverse3d` (Blender's python
   cannot see the package anyway).
 * **L2 One contracts package, one conventions module.**  `contracts/` is data-only;
@@ -20,8 +20,7 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   `check_contract` converts to the GLB frame (Y-up) using `LANGUAGE_FRAME`.
 * **L3 Deterministic first, VLM for perception only.**  Score is computed in code
   from rubric weights; floors and caps are explicit; degraded verdicts are glitches.
-* **L4 Typed, no regex-on-id, no god files.**  Files ≤ 2 000 lines, 3 000 absolute (owner, 2026-08-28 — was 1 500, before that ~400); two wrappers
-  exceed it by design (`run_bpy.py` 418, `scene_host.mjs` 426).
+* **L4 Typed, no regex-on-id, no god files.**  Files ≤ 2 000 lines, 3 000 absolute (owner, 2026-08-28 — was 1 500, before that ~400).
 * **L5 Cheap first.**  Lint → build → gates → montaged views → VLM.  `build` tool
   skips the build when lint has ERRORs.
 * **L6 Every round = a git commit; every call = a Usage; every run = record.json.**
@@ -157,14 +156,14 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   2×2 montages (+ ≤ 2 detail crops, ≤ 1024 px) instead of sheet + 9 views; the wire
   schema is observe-then-score (defect checklist + acceptance before criteria);
   every rubric carries binary defects with penalties/caps.  Measured on the e2e
-  rounds (`judges/calibration.py`, n=3): flash std 0.083 / pearson(gate errors,
+  rounds (then `judges/calibration.py`, now `addons/calibration.py`, n=3): flash std 0.083 / pearson(gate errors,
   score) −0.33; pro std 0.030 / pearson +0.63 — so `default_judge =
   gemini-3.1-pro-preview` and flash's dynamic range is carried by the checklist.
   Consequence: `VlmJudge(max_images=)` is gone (`max_montages`, `detail_crops`);
   `JudgeInput.geometry_views` routes clay/normals views to a geometry-only montage.
 * **D31 Textures are a derived asset pack, never the deliverable.**  The texture
   pass (material plan → tileable tiles → world-metre UVs → `object_textured.glb`)
-  runs after finalise or standalone (`3dcode texture pass`); it never edits `src/` or
+  runs on the PICKED round, after the run (`3dcode pick --texture` or `3dcode texture pass`); it never edits `src/` or
   `object.glb`, ships only when the before/after judge gate agrees (Δoverall ≥
   −0.01 AND materials criterion improved), and is recorded in
   `record.extra["texturing"]`.  Scenes get a named tile pack under
@@ -174,7 +173,7 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   GLB/measure step, and gates on frame statistics (`gl_frames`: NaN/black/blown/
   static/flicker).  The harness owns the GLSL header (`#version`, uniforms,
   `out vec4 fragColor`) — agents write shader bodies only; feedback shaders are
-  simulated at 30 fps.  Rubric `shader_v1` (threshold 0.70).
+  simulated at 30 fps.  Rubric `shader_v2` (threshold 0.70; `shader_v1` stays frozen for old runs).
 * **D33 Export as authored (fix batch 1, all languages).**  No wrapper re-centres
   or grounds the object (threejs `--normalise` is an opt-in dataset flag); the
   build warns (`placement_offset`), the contract/connectivity gates report in the
@@ -875,7 +874,7 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
 * **D82 One verdict per check (2026-09-22).**  A tool returns the round's own gate, computed by the
   same function on the same inputs: `joint_sweep` → `joints_sweep.sweep_gate(ws)`, `check_placement` →
   `scene_placement.placement_gate(ws, census, plan)` (layouts and unbuilt assets from `stages/`),
-  `shader_probe` → `scene_threejs.probe_and_preflight`, the build's one-boot probe.  Not the rejected
+  `shader_probe` → the build's one-boot probe (`spatial/probes.run_probe(compile=True)` since D95).  Not the rejected
   GateDef registry: nothing is registered, the tools' private checkers are deleted (on 118 recorded
   scenes the old `check_placement` passed 20 runs the round gate failed).  `BuildResult.gates` carries a
   build's own reports (scene_probe + shader_preflight, gl_frames) and `_run_round` appends them after
@@ -945,6 +944,49 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   (a truncated last line is skipped) and deduplicated by `_jsonl.latest`; `ArmStats` is the one arm
   aggregate.  Numbers quoted before 2026-09-22 are 2·SE bands.  The battery launcher left the harness
   CLI: `cd eval && python -m bench.run_bench …` / `python -m bench.report …` (same flags).
+
+* **D90 Resume never re-pays a finished stage over existing rounds (2026-09-23).**  Once rounds exist,
+  `StageRunner(frozen=True)` serves every RECORDED pre-round stage whatever its key and emits
+  `stage.frozen` — 81 of 91 recorded scene runs had drifted keys (e.g. `ScenePlan.interior`, 964a0a7) and
+  a resume re-ran the paid env/zones sessions over refined `src/`.  The zones budget check runs after the
+  stage is recorded, so a finished zones session is cached even when the clock trips on it (its written
+  zones are recorded ok).  `resume --force` always archives the rounds to `rounds/pre_force/` and is THE
+  way to regenerate a stage (owner).  Not covered: a stage that never finished still re-runs.  Texture
+  packs join the env/zones keys only when they have files; `C3D_ZONE_LAYOUTS=off` skips the stage.
+* **D91 The pre-round pipeline is data (Phase B, owner's clarity trade, +39 lines).**  Each track declares
+  its pre-round stages as a `stages` tuple of `StageNode`s; `run_stages` walks them over `StageRunner`;
+  ARCHITECTURE §7.1 is generated from the declarations (a test fails on drift).  The round
+  (`steps._run_round`, a 15-step chain nothing can cache) and the loop (`_round_loop`, a 7-exit state
+  machine) stay code by design — a generic DAG framework measured +190 lines and four rejected
+  abstractions (review 2, `~/3dcodeverse_runs/arch_review2_2026-09-22/REVIEW.md`).  Scene refuses
+  `--candidates N>1` (`TrackInfo.best_of_n`; a profile's value becomes 1); a run whose baseline session
+  wrote code before the clock stop gets one judged salvage round.
+* **D92 A reader reads the round it names (2026-09-23).**  `select.round_file` / `round_complexity_block`
+  / `judge_for`: calibration, `3dcode judge`, the dataset export, the gallery, `texture pass` (the PICKED
+  round), h2h, complexity and skill_targets read that round's own GLB / GIF / meshes / metrics and the
+  live run's judge class — none falls back to the last build any more (D80's promise).  Old runs keep
+  their raw `best_round` across a record rewrite (a legacy read-only field) so their per-round files are
+  still found.  `find_run_dirs` lists a symlinked run once.
+* **D93 No agent-visible text states a harness limit (owner, 2026-09-23).**  Build/render time, triangle,
+  draw-call, instance, size and count caps, fps targets and gate thresholds are gone from contracts,
+  system prompts, cookbooks, templates, skills (their `_claims` went with them), tool headers and starter
+  comments — the inventory found most of them wrong (repair "300k" vs 600k, scenes "2 M" vs 3 M, builds
+  "120 s / 20 s" vs 300 s, hero assets "60k–600k" vs a 40k check).  Enforcement is unchanged, and an
+  error that fires on an actual violation still states its number; geometric tolerances stay.
+  DETAIL BUDGET became numberless advice.  Inventory: `…/arch_review2_2026-09-22/limits/INVENTORY.md`.
+* **D94 PascalCase accepts acronyms (owner).**  LED, TV, TVStand, USBPort, CPU_2 are valid names:
+  `conventions.PASCAL_RE` = `^[A-Z][A-Za-z0-9]*(?:_\d+)?$`, `to_pascal` keeps a valid name as written,
+  the stdlib wrapper copies are pinned to conventions by a test; snake keys (`tv_stand`) are unchanged.
+* **D95 Review-2 clean-up (2026-09-23): what it deleted and what it guards.**  ≈ −600 production lines
+  over 90+ commits: joints/spatial re-export facades, dead language code, the second cookbook-section
+  parser, `probe_and_preflight` (one `run_probe(compile=)`), an `SdkModel` base, a metered `_Proxy` base,
+  the write-only `RunTelemetry.files` / `.environment`, the `wasted_usage` money channel, the second
+  round-journal reader in `skills_hook`, dead skills surfaces.  One rule each for: harness-owned
+  paths (a single-shot write can no longer overwrite `src/lib/`, paths are normalised first), JSONL
+  resume reads in eval/llm, correlation.  Guard: `tests/prompts/manifest.py` hashes every prompt and judge
+  payload the fakes drive; a code-only change must leave it byte-identical, a text change re-blesses it
+  (`python -m tests.prompts.manifest --bless`) in the same commit.  claude-code's effort stays the
+  harness's `agents.claude_effort`.  Test fakes: one `FakeChatModel`, one scripted `FakeAgent` (−800 test lines).
 
 ## Rejected / deferred
 

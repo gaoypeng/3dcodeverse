@@ -7,7 +7,7 @@ a LOSS RATE — how often does planning end in a ``PlanningError`` instead of a 
 affordable at n in the hundreds.  That is how ``C3D_PLAN_RESTART`` was measured
 (4.7 % → 0.7 %, Fisher exact p = 0.0067 over 560 calls; ``docs/DECISIONS.md`` D52).
 
-    python bench/plan_stage_bench.py --tree . --label restart_on --reps 20 \
+    python bench/plan_stage_bench.py --tree ../harness --label restart_on --reps 20 \
         --out bench/data/plan_stage/restart_on.jsonl --env C3D_PLAN_RESTART=1
 
 ``--tree`` is the harness tree to import from, so the two arms can differ by a switch

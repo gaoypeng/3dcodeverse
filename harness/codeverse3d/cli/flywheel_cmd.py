@@ -71,7 +71,7 @@ def pairs_cmd(
     out_jsonl: Annotated[Path, typer.Argument()],
     min_delta: Annotated[float, typer.Option("--min-delta")] = MIN_PREFERENCE_DELTA,
 ) -> None:
-    """Preference / repair (round + in-session) / cross-backend pairs → JSONL."""
+    """Preference / repair (round-to-round) / cross-backend pairs → JSONL."""
     from codeverse3d.addons.dataset.pairs import build_pairs
 
     n = build_pairs(runs_dir, out_jsonl, min_delta=min_delta)
