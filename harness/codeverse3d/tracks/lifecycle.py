@@ -554,6 +554,8 @@ class BaseTrack:
             if index > ctx.policy.max_rounds:  # the baseline + max_rounds refine rounds all ran
                 return _stop(RunStatus.MAX_ROUNDS)
             if not ctx.budget.ok():
+                if not rounds:  # the stages spent the clock without raising: the ONE budget path (salvage)
+                    ctx.budget.check()
                 return _stop(RunStatus.BUDGET)
             previous = rounds[-1].judgment if rounds else None
             if index == 0:

@@ -274,6 +274,31 @@ def test_a_clock_that_trips_after_a_finished_zones_session_records_what_it_wrote
     assert "BudgetExceeded" in zones["Quay"]["notes"]
 
 
+def test_stages_that_spend_the_clock_without_raising_still_get_a_salvaged_round(tmp_path, settings):
+    """Live 2026-09-23 (jetty_scene, $1.16): a 503 storm stretched the stages past the ceiling without
+    any of them raising (the zones degraded to single-shot and failed quietly), so the round loop's own
+    clock check stopped the run at `budget` with NO round: the salvage only ran when a stage RAISED
+    BudgetExceeded.  Here the last stage (assemble) is the one that ends past the ceiling."""
+    from tests.orchestrator_tracks.conftest import FAKE_CLOCK
+
+    class SlowAssemble(FakeServices):
+        def assemble_scene(self, ws, plan):
+            FAKE_CLOCK["minutes"] += 30.0
+            return super().assemble_scene(ws, plan)
+
+    plan = small_scene()
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=1, max_minutes=10.0)
+    ws = Workspace(tmp_path / "runs" / "slowstages")
+    track = SceneTrack(services=SlowAssemble(assemble=True), judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(_writer),
+                       planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
+                       runtime=FakeRuntime(Language.SCENE_THREEJS))
+    with fake_clock():
+        rec = track.run(spec, ws)
+    names = [json.loads(x)["event"] for x in (ws.root / "events.jsonl").read_text().splitlines() if x.strip()]
+    assert rec.status is RunStatus.BUDGET and "budget.salvage" in names, names
+    assert len(rec.rounds) == 1 and rec.rounds[0].score == pytest.approx(0.6) and "salvaged" in rec.rounds[0].notes
+
+
 @needs_node
 def test_an_imperfect_asset_stays_available_but_a_broken_one_does_not(tmp_path, settings):
     services = FakeServices()
