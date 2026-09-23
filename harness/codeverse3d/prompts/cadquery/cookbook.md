@@ -339,7 +339,7 @@ spending a render.
     in place with `.rotate(...).translate(...)` and use `Location` only for translation +
     one yaw.
 17. **Very slow builds** → long loops of `.union` with fillets inside; fillet once at the
-    end, use `rarray`/`polarArray`, keep ≤ 40 parts.
+    end, use `rarray`/`polarArray`.
 18. **`hole()` on the wrong side** → it cuts in the −normal direction of the workplane;
     stand on the top face (`faces(">Z").workplane()`).
 

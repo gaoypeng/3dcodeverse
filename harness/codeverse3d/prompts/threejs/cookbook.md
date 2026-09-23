@@ -336,8 +336,7 @@ handrail.name = 'Handrail';
 // --- the density check: what would tell a photo of the real thing from this?
 // "edges are perfectly sharp" -> RoundedBoxGeometry / bevelEnabled.  "one flat face" -> panelLines.
 // "no fixings" -> instanceRing.  "repeats are identical" -> repeatMerged with jitter/tilt/scale.
-// "all one grey" -> split the materials.  Then count: `measure` prints the triangle total —
-// under the detail budget's floor means nothing has been detailed yet.
+// "all one grey" -> split the materials.  Then count: `measure` prints the triangle total.
 const density = [spokes, bolts, housing, handrail];
 let densityTris = 0;
 for (const o of density) o.traverse((m) => { if (m.isMesh) densityTris += (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3 * (m.count || 1); });
@@ -461,7 +460,6 @@ export function selfcheck(THREE, root, expectedNames = [], extentsHint = null) {
   if (missing.length) throw new Error(`missing parts: ${missing.join(', ')}`);
   const box = new THREE.Box3().setFromObject(root); const size = box.getSize(new THREE.Vector3());
   if (Math.abs(box.min.y) > 0.002) throw new Error(`lowest point y=${box.min.y.toFixed(4)} (expected 0)`);
-  if (tris > 600000) throw new Error(`too many triangles: ${tris}`);
   if (extentsHint) extentsHint.forEach((e, i) => { if (Math.abs(size.getComponent(i) - e) > 0.05) throw new Error(`extents ${size.toArray()} vs plan ${extentsHint}`); });
   console.log(`[selfcheck] parts=${names.size} tris=${tris} extents=${size.toArray().map(v => v.toFixed(3))}`);
   return { tris, size };

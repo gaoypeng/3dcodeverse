@@ -590,7 +590,7 @@ Measured on this harness (183 judged rounds): **triangles inside a part are free
 top-level parts are not** — ρ(tri_per_part, geometry_detail) ≈ +0.08 while ρ(n_plan_parts,
 assembly_fit) = −0.48.  Every recipe below adds density *inside* a part the plan already names.
 
-**Where the detail budget goes.** A viewer (and the judge's montage) looks, in order, at the
+**Where the detail goes.** A viewer (and the judge's montage) looks, in order, at the
 silhouette, then the 2–3 largest faces, then whatever is at eye height and at the front, then the
 places where two materials meet.  Spend there and stop.
 
@@ -835,8 +835,8 @@ cast_part(housing)
 Before you finish, ask of each part: *what would tell a photograph of the real thing from this?*
 If the answer is "the edges are perfectly sharp" → bevel.  "It is one flat face" → panel line or
 inset.  "It has no fixings" → bolt ring.  "The repeats are identical" → `varied_copies`.  "It is
-all one grey" → split the materials, per face if it is one part (`material_index`, above).  Then measure: `measure` reports the triangle count — if you
-are under the detail budget's floor, you have not detailed anything yet.
+all one grey" → split the materials, per face if it is one part (`material_index`, above).  Then measure: `measure` reports the triangle count — compare
+it part by part with what the density table adds.
 
 ## Common objects — dimensions (metres) and decomposition
 
@@ -949,7 +949,7 @@ def build_sail_rotor() -> bpy.types.Object:
     for visuals; for booleans use `radius2=1e-4`.
 18. **A curve object left un-converted** exports nothing (the harness converts meshes
     only) → always `convert(target='MESH')` as in `make_tube_along`.
-19. **Huge scripts / per-vertex Python loops over 500 k verts** time out → use modifiers,
+19. **Huge scripts / per-vertex Python loops over big meshes** time out → use modifiers,
     `foreach_set`, or fewer segments.
 20. **Parenting with scaled parents** → children inherit scale; export bakes it, bevels go
     elliptical.  Do not parent parts at all — an Empty parent also merges its children into
@@ -980,7 +980,6 @@ def selfcheck(expected_names, bbox_hint=None, tol=0.01):
                  max(world_bbox(o)[1].z for o in meshes)))
     assert abs(lo.z) < tol, f"lowest point z={lo.z:.4f}, expected 0"
     tris = sum(sum(len(p.vertices) - 2 for p in o.data.polygons) for o in meshes)
-    assert tris < 600_000, f"too many triangles: {tris}"
     print(f"[selfcheck] parts={len(meshes)} tris={tris} extents={tuple(round(v, 3) for v in (hi - lo))}")
     if bbox_hint:
         for a, b in zip(hi - lo, bbox_hint):

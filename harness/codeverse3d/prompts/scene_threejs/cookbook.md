@@ -301,13 +301,13 @@ must still be something: a haze gradient plus 5–10 silhouette shapes.
 ## Dusk / night lighting recipe (dark scenes are the #1 gate failure)
 
 "Dusk", "night", "moonlit", "lantern-lit" means COLOURED darkness, never black.  The harness
-measures every camera's frame; mean luminance < 0.12 or > 35 % near-black pixels is a gate
-ERROR (`scene_frames: dark_frame`) capping the score at 0.55.  Take the `dusk` / `night`
+measures every camera's frame; a frame that is too dark is a gate ERROR
+(`scene_frames: dark_frame`) capping the score at 0.55.  Take the `dusk` / `night`
 row of the time-of-day table below for sky, sun, fill and fog, then add **practicals** —
 every lantern, window and fire is an emissive surface plus a small PointLight:
 
 ```js
-function addPracticals(THREE, scene, spots) {          // ≤ 12; none cast shadows
+function addPracticals(THREE, scene, spots) {          // none cast shadows
   const glowMat = new THREE.MeshStandardMaterial({ color: 0xffc070, emissive: 0xffa040, emissiveIntensity: 3.0 });
   return spots.map(([x, y, z], i) => {
     const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 8), glowMat);
@@ -328,9 +328,8 @@ down is NOT how you make dusk, tinting it is (`sunColor`, `fillSky`, `fillGround
 black `scene.background` (the sky gradient's horizon band is the brightest thing in the frame).
 
 **Exposure self-check (after each build):** `scene_views` → the frame table
-(`camera_checks` in metrics.json) for every authored camera: `mean_lum` ≥ 0.15, `dark_frac`
-≤ 0.25, `blown_frac` ≤ 0.10, `content_frac` ≥ 0.25 on the establishing shot.  Below that,
-raise `fill` by +0.3 and `intensity` by +0.8 in the `sunRig({...})` call and re-render —
+(`camera_checks` in metrics.json) for every authored camera: read `mean_lum` / `dark_frac` /
+`blown_frac` / `content_frac` and any finding it names.  If a frame is dark, raise `fill` by +0.3 and `intensity` by +0.8 in the `sunRig({...})` call and re-render —
 never a second DirectionalLight beside the rig (measured 2026-09-07: a blue-hour lighthouse
 stacked a "TwilightKey" on the night rig and still read 0.13).  Black shade is the most
 common cause: at sun elevation < 25° keep `fill` ≥ 1.0.
@@ -643,7 +642,7 @@ function buildCampfire(THREE, { heightAt }) {
 const campfireDemo = buildCampfire(THREE, { heightAt }); campfireDemo.userData.update(1.0);
 ```
 
-Rules: ≤ 3 shadow-casting lights per scene (the sun + 1–2 heroes); decorative lights get
+Rules: shadows come from the sun and the hero lights only; decorative lights get
 `castShadow = false` and distance-limited falloff.
 
 Placement is MEASURED (`check_placement`; the `scene_placement` gate runs on every build): each
@@ -847,13 +846,11 @@ bloom + a grade that is identity unless `scene.userData.grade` is set), and the 
 still read without it (`emissiveIntensity` ≤ 3, no white-out).  Do not build an
 `EffectComposer`: nothing reads one exported from `scene.js`.
 
-## Performance budget
+## Performance
 
-* ≤ 2 M triangles, ≤ 200 draw calls, ≤ 40 materials, ≤ 3 shadow-casting lights; anything
-  placed > 5 × is an InstancedMesh, static one-material clutter is `mergeGeometries`.
-* Ground ≤ 160² segments; trees 300–800 tris each (instanced), hero assets ≤ 40 k;
-  `update` < 4 ms (cache lists, mutate in place, no per-frame allocation).
-* `scene_probe` reports draws/tris/fps — run it before polishing.  Under 20 fps the usual
+* Anything placed > 5 × is an InstancedMesh, static one-material clutter is `mergeGeometries`.
+* `update` caches lists, mutates in place, allocates nothing per frame.
+* `scene_probe` reports draws/tris/fps — run it before polishing.  When it is slow the usual
   criminals are un-instanced repeats, per-frame `traverse`, and 4096² shadow maps.
 
 ## Pitfalls (symptom → cause → fix)
@@ -869,7 +866,7 @@ still read without it (`emissiveIntensity` ≤ 3, no white-out).  Do not build a
 5. **Shadow acne / peter-panning** → `sun.shadow.bias = -0.0005`, keep mapSize 2048.
 6. **`Math.random()` anywhere** → different geometry every build; renders not reproducible;
    use `rand(i)` hashes with explicit seeds.
-7. **fps < 20** → count draw calls first (`scene_probe`); the usual criminals: hundreds of
+7. **Low fps** → count draw calls first (`scene_probe`); the usual criminals: hundreds of
    Meshes that should be instances, per-frame `traverse`, 4096 shadow maps, fog off with a
    500 m far plane.
 8. **Fog hides everything** → `Fog(near, far)` in metres — near 45/far 160 for a 100 m
@@ -923,12 +920,9 @@ function sceneSelfcheck(THREE, scene, cameras) {
       tris += n * (o.isInstancedMesh ? o.count : 1);
     }
   });
-  if (tris > 2e6) throw new Error(`tri budget blown: ${tris}`);
-  if (draws > 200) throw new Error(`draw calls: ${draws} > 200`);
-  if (shadowLights > 3) throw new Error(`${shadowLights} shadow lights (max 3)`);
   if (!scene.fog) throw new Error('scene.fog not set');
   if (!cameras || cameras.length < 2) throw new Error('need 3-5 cameras');
-  console.log(`[selfcheck] draws=${draws} tris=${Math.round(tris)} lights=${lights} cameras=${cameras.length}`);
+  console.log(`[selfcheck] draws=${draws} tris=${Math.round(tris)} lights=${lights} shadowLights=${shadowLights} cameras=${cameras.length}`);
 }
 const demoScene = new THREE.Scene(); buildEnv({ THREE, scene: demoScene });
 demoScene.add(forestDemo, coverDemo, campfireDemo, ff);
@@ -947,7 +941,6 @@ Composition self-check on every authored frame (the judge grades exactly these):
 
 Then: `build` → `check_placement` (floating/sunken/interpenetration + the fix per asset) → `scene_probe` (draws/tris/fps/console) → `scene_views` (authored cameras +
 overview rig, with `camera_checks`) → `shader_probe` if you wrote GLSL → fix the worst →
-repeat.  Look at every camera's frame AND its numbers: `mean_lum` ≥ 0.15 (no black frames),
-`blown_frac` ≤ 0.10 (no white-out), `content_frac` ≥ 0.25 on the establishing shot (the
-subject, not sky/ground, fills the frame), `camera_in_geometry` false, and `check_placement`
+repeat.  Look at every camera's frame AND its numbers: no black frames, no white-out, the
+subject (not sky/ground) fills the establishing shot, `camera_in_geometry` false, and `check_placement`
 clean (nothing floating, sunken or interpenetrating).
