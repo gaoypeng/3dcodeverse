@@ -19,7 +19,7 @@ from tests.flywheel_cli.conftest import make_fake_run, tiny_png
 def gallery_tree(tmp_path: Path) -> dict[str, Path]:
     """``{"runs": …, "battery": …}`` — two roots holding six run directories."""
     runs = tmp_path / "runs"
-    battery = tmp_path / "bench" / "out" / "static_v9" / "runs"
+    battery = tmp_path / "eval" / "bench" / "out" / "static_v9" / "runs"
     battery.mkdir(parents=True)
 
     make_fake_run(runs, "wooden_chair_ab12cd34")                                     # passes

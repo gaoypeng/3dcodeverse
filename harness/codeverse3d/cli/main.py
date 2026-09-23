@@ -92,7 +92,7 @@ def tools(
 gallery_app = typer.Typer(no_args_is_help=True)
 
 RootsArg = Annotated[list[Path] | None, typer.Argument(
-    help="run roots (default: ./runs, every ./bench/out/*/runs and every <repo>/eval/bench/out/*/runs that exists)")]
+    help="run roots (default: ./runs, every ./eval/bench/out/*/runs and every <repo>/eval/bench/out/*/runs that exists)")]
 
 
 def resolve_roots(roots: list[Path] | None) -> list[Path]:
@@ -113,7 +113,7 @@ def resolve_roots(roots: list[Path] | None) -> list[Path]:
         fallback = Path(get_settings().runs_dir)
         if fallback.is_dir():
             return [fallback]
-        raise C.CliError(f"no run roots found (looked for runs/ and bench/out/*/runs under {Path.cwd()}, "
+        raise C.CliError(f"no run roots found (looked for runs/ and eval/bench/out/*/runs under {Path.cwd()}, "
                          f"and {C.EVAL_ROOT / 'bench' / 'out'}/*/runs); "
                          f"pass one explicitly: `3dcode gallery serve path/to/runs`")
     return found

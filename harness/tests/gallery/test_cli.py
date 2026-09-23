@@ -52,20 +52,20 @@ def test_default_roots_from_cwd(gallery_tree: dict[str, Path], monkeypatch: pyte
     monkeypatch.chdir(gallery_tree["root"])
     roots = resolve_roots(None)
     assert [r.name for r in roots] == ["runs", "runs"]
-    assert str(roots[1]).endswith(os.path.join("bench", "out", "static_v9", "runs"))
+    assert str(roots[1]).endswith(os.path.join("eval", "bench", "out", "static_v9", "runs"))
 
 
-def test_default_roots_find_the_eval_batteries_from_any_cwd(gallery_tree: dict[str, Path], tmp_path: Path,
-                                                            monkeypatch: pytest.MonkeyPatch):
+def test_default_roots_find_the_eval_batteries_from_any_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """D77 moved the batteries to <repo>/eval/bench/out/<b>/runs; the defaults only looked
     under the cwd, so `3dcode gallery serve` from harness/ listed none of them."""
-    battery = tmp_path / "eval" / "bench" / "out" / "b1" / "runs"
+    repo = tmp_path / "repo"
+    battery = repo / "eval" / "bench" / "out" / "b1" / "runs"
     battery.mkdir(parents=True)
-    monkeypatch.setattr("codeverse3d.cli._common.EVAL_ROOT", tmp_path / "eval")
-    monkeypatch.chdir(gallery_tree["root"])
-    assert resolve_roots(None)[-1] == battery and len(resolve_roots(None)) == 3
-    monkeypatch.chdir(tmp_path / "eval")  # cwd IS the eval root: each battery listed once
-    assert resolve_roots(None) == [Path.cwd() / "bench" / "out" / "b1" / "runs"]
+    (repo / "harness").mkdir()
+    monkeypatch.setattr("codeverse3d.cli._common.EVAL_ROOT", repo / "eval")
+    for cwd in (repo / "harness", repo, repo / "eval"):  # each battery listed once, from anywhere
+        monkeypatch.chdir(cwd)
+        assert [p.resolve() for p in resolve_roots(None)] == [battery.resolve()], cwd
 
 
 def test_no_roots_anywhere_is_a_clear_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

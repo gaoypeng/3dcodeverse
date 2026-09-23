@@ -41,11 +41,11 @@ from codeverse3d.workspace import Workspace
 
 #: run roots the CLI defaults to when the user names none
 DEFAULT_RUNS = "runs"
-DEFAULT_BENCH_GLOB = "bench/out/*/runs"
+DEFAULT_BENCH_GLOB = "eval/bench/out/*/runs"
 
 
 def default_roots(base: Path | str = ".") -> list[Path]:
-    """``runs/`` plus every ``bench/out/*/runs`` that exists, in that order."""
+    """``runs/`` plus every ``eval/bench/out/*/runs`` that exists, in that order."""
     base = Path(base)
     roots: list[Path] = []
     if (base / DEFAULT_RUNS).is_dir():
