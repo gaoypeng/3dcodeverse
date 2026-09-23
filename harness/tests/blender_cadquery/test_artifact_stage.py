@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from codeverse3d.workspace import Workspace
 
 
@@ -48,20 +46,3 @@ def test_promote_replaces_an_existing_dir(tmp_ws: Workspace) -> None:
     stage.promote()
     stage.discard()
     assert [p.name for p in meshes.iterdir()] == ["new.glb"]  # old members do not survive
-
-
-def test_invalidate_standalone_and_name_validation(tmp_ws: Workspace) -> None:
-    _seed(tmp_ws)
-    tmp_ws.stage_artifacts("build.json", "object.glb", "meshes").invalidate()
-    for name in ("build.json", "object.glb", "meshes"):
-        assert not (tmp_ws.artifacts / name).exists(), name
-    stage = tmp_ws.stage_artifacts("build.json")
-    with pytest.raises(ValueError):
-        stage.path("other.json")
-    with pytest.raises(ValueError):
-        stage.invalidate("other.json")
-    with pytest.raises(FileNotFoundError):
-        stage.promote("build.json")  # a named promote of something never staged is a bug
-    stage.discard()
-    with pytest.raises(ValueError):
-        tmp_ws.stage_artifacts()

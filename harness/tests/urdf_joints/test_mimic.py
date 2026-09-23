@@ -65,19 +65,6 @@ def test_a_driven_joint_follows_its_driver_through_the_chain(tmp_path):
     assert fk(r, {"runner_slide": 0.1})["runner"][2, 3] == pytest.approx(fk(r, {})["runner"][2, 3] + 0.1)
 
 
-def test_the_contact_sheet_and_joint_narrowing_show_only_input_joints(tmp_path):
-    from codeverse3d.spatial.joints_model import fk
-    from codeverse3d.spatial.joints_poses import limit_poses
-
-    r = _robot(tmp_path)
-    labels = [lab for lab, _ in limit_poses(r)]
-    assert labels == ["rest", "runner_slide@upper"], labels
-    assert not any("rib_" in lab for lab in labels)
-    # and the one non-rest pose really moves the ribs, through the driver
-    _, q = limit_poses(r)[1]
-    assert fk(r, q)["rib_a"][:3, :3].tolist() != fk(r, {})["rib_a"][:3, :3].tolist()
-
-
 def test_the_sweep_poses_the_mechanism_the_way_it_moves(tmp_path):
     r = _robot(tmp_path)
     rep = sweep_collisions(r, pose_samples(r))

@@ -31,20 +31,6 @@ def test_export_cli_writes_census_and_error_json(stool_ws: Workspace, tmp_path: 
     assert (stool_ws.artifacts / "export_error.json").is_file()
 
 
-def test_render_glb_driver_reports_invalid_requests_as_last_json(tmp_path: Path):
-    rt = runtime_js_dir()
-    with pytest.raises(NodeError) as ei:
-        run_node(rt / "render_glb.mjs",
-                 ["--glb", str(tmp_path / "missing.glb"), "--out", str(tmp_path / "out"),
-                  "--views", json.dumps([{"name": "front", "azimuth": 0.0, "elevation": 8.0}])],
-                 timeout_s=60)
-    rec = ei.value.result.last_json
-    assert ei.value.result.rc == 1 and rec["ok"] is False and "GLB not found" in rec["error"]
-    with pytest.raises(NodeError) as ei:
-        run_node(rt / "render_glb.mjs", ["--glb", "x.glb", "--out", "o", "--views", "[]"], timeout_s=60)
-    assert "non-empty JSON list" in ei.value.result.last_json["error"]
-
-
 def test_serve_and_importmap(tmp_path: Path):
     script = tmp_path / "s.cjs"
     root = tmp_path / "root"

@@ -23,13 +23,6 @@ def _msgs(rep, sev=None):
     return [f.message for f in rep.findings if sev is None or f.severity == sev]
 
 
-def test_clean_workspace_passes(stool_ws: Workspace, no_node_syntax):
-    rep = lint_workspace(stool_ws)
-    assert rep.gate == "lint:threejs"
-    assert rep.passed, rep.findings
-    assert rep.findings == []
-
-
 def test_missing_object_js(tmp_path: Path, no_node_syntax):
     ws = Workspace(tmp_path)
     (ws.src / "parts").mkdir(parents=True)

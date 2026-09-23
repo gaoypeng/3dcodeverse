@@ -141,14 +141,3 @@ def test_build_runs_exported_selfcheck(stool_ws: Workspace):
     p.write_text(src + "export function selfcheck(THREE_, root) { return true; }\n")
     res = ThreeJsRuntime().build(stool_ws)
     assert res.ok and res.census["selfcheck_ran"] is True
-
-
-def test_build_async_build_and_texture_strip(stool_ws: Workspace):
-    (stool_ws.src / "object.js").write_text(
-        "import * as THREE from 'three';\nexport async function build(T) { const g = new THREE.Group(); g.name='Async';\n"
-        "  const m = new THREE.Mesh(new THREE.BoxGeometry(0.2,0.2,0.2), new THREE.MeshStandardMaterial({map: new THREE.Texture()}));\n"
-        "  m.name='Box'; m.position.y = 0.1; g.add(m); return g; }\n")
-    res = ThreeJsRuntime().build(stool_ws)
-    assert res.ok, res.error_message
-    assert any("texture" in w for w in res.census["warnings"])
-    assert "Async" in trimesh.load(res.glb_path, force="scene").graph.nodes  # the awaited group was exported

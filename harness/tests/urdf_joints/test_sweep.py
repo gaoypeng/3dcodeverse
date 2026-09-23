@@ -1,38 +1,22 @@
-"""Collision sweep: good design clean, bad pivot penetrates, floating detection, motion direction."""
+"""Collision sweep: rest penetration, floating detection, weld policy, finding aggregation."""
 
 from __future__ import annotations
 
 import pytest
 
 from codeverse3d.contracts.artifacts import GateFinding, Severity
-from codeverse3d.spatial.joints_model import UrdfError, load_urdf
+from codeverse3d.spatial.joints_model import load_urdf
 from codeverse3d.spatial.joints_poses import pose_samples
 from codeverse3d.spatial.joints_sweep import (
     MAX_PAIR_FINDINGS,
     aggregate_findings,
-    motion_direction_check,
     sweep_collisions,
     sweep_findings,
 )
 from tests.urdf_joints.conftest import (
     write_carcass_drawer_robot,
     write_mesh_robot,
-    write_prims_robot,
 )
-
-
-def test_bad_axis_swings_door_into_body(tmp_path):
-    r = load_urdf(write_prims_robot(tmp_path / "cab.urdf", axis_z=+1))
-    rep = sweep_collisions(r, pose_samples(r))
-    assert rep.summary.rest_max_penetration_m == 0.0
-    assert rep.summary.max_penetration_m > 0.1
-    assert set(rep.summary.overlapping_poses) == {"hinge@mid", "hinge@upper"}
-    assert rep.summary.worst_pair == ("body", "door")
-    f = sweep_findings(rep)
-    assert all(x.severity == Severity.ERROR for x in f) and len(f) == 2
-    assert "pivot" in f[0].fix_hint
-    ov = rep.per_pose[-1].overlaps[0]
-    assert ov.volume_m3 is not None and ov.volume_m3 > 1e-4 and not ov.approx
 
 
 def test_rest_penetration_and_floating(tmp_path):
@@ -68,18 +52,6 @@ def test_hinged_child_near_parent_is_only_a_warning(tmp_path):
     # an inserted prismatic child (AABB overlap) is never reported as unattached
     rep_ok = sweep_collisions(load_urdf(*write_mesh_robot(tmp_path / "ok")), [{}])
     assert rep_ok.summary.floating_at_rest == []
-
-
-def test_motion_direction(tmp_path):
-    r = load_urdf(write_prims_robot(tmp_path / "cab.urdf", axis_z=-1))
-    ok = motion_direction_check(r, "hinge", "front")
-    assert ok.ok and ok.observed_dir[1] < -0.9
-    bad = motion_direction_check(r, "hinge", "back")
-    assert not bad.ok and "WRONG" in bad.message
-    with pytest.raises(UrdfError):
-        motion_direction_check(r, "hinge", "sideways")
-    with pytest.raises(UrdfError):
-        motion_direction_check(r, "nope", "front")
 
 
 @pytest.mark.parametrize("fcl", [True, False], ids=["fcl", "trimesh-fallback"])

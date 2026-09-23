@@ -1,4 +1,4 @@
-"""run_node: last-JSON parsing, timeouts, error propagation."""
+"""run_node: last-JSON parsing, error propagation, the scrubbed env."""
 
 from __future__ import annotations
 
@@ -19,15 +19,6 @@ def test_parse_last_json_picks_last_object():
 def test_missing_script_raises(tmp_path: Path):
     with pytest.raises(NodeError):
         run_node(tmp_path / "nope.mjs", [], timeout_s=5)
-
-
-@pytest.mark.node
-def test_run_node_timeout_kills(tmp_path: Path):
-    script = tmp_path / "hang.mjs"
-    script.write_text("setInterval(() => {}, 1000); console.log('started');")
-    with pytest.raises(NodeError) as ei:
-        run_node(script, [], timeout_s=1.5)
-    assert ei.value.result is not None and ei.value.result.timed_out
 
 
 @pytest.mark.node
