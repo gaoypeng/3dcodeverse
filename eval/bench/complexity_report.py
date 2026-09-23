@@ -34,7 +34,7 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
 
 from bench.stats import correlation  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
-from codeverse3d.contracts.run import RunId, RunRecord  # noqa: E402
+from codeverse3d.contracts.run import RoundRecord, RunId, RunRecord  # noqa: E402
 from codeverse3d.proc import read_json_or_none  # noqa: E402
 from codeverse3d.record.record import find_run_dirs  # noqa: E402
 from codeverse3d.spatial.complexity import (  # noqa: E402
@@ -42,6 +42,7 @@ from codeverse3d.spatial.complexity import (  # noqa: E402
     ComplexityVector,
     band_of,
 )
+from codeverse3d.workspace import Workspace  # noqa: E402
 
 CRITERIA = (
     "intent_fidelity",
@@ -70,22 +71,23 @@ _read_json = read_json_or_none
 
 
 def _vector_for(run: Path, rnd: dict[str, Any] | None) -> ComplexityVector | None:
-    """The run's recorded complexity vector, else one recomputed from its GLB.
+    """The round's recorded complexity vector, else one recomputed from the round's own GLB.
 
     The historic corpus predates the vector, so recomputing is the normal path
     for anything recorded before 2026-08-24 — that is what makes the whole
-    corpus comparable.
+    corpus comparable.  The round is named by its index alone (a historic round may not
+    validate); ``addons.select`` answers for its own files, never the last build's.
     """
-    for meas in (rnd or {}).get("measurement"), (_read_json(run / "artifacts" / "measurement.json") or {}):
-        block = ((meas or {}).get("extra") or {}).get("complexity")
+    ws, one = Workspace(run), RoundRecord(index=int((rnd or {}).get("index") or 0), kind="")
+    own = (((rnd or {}).get("measurement") or {}).get("extra") or {}).get("complexity")
+    for block in (own, select.round_complexity_block(ws, one)):
         if isinstance(block, dict):
             try:
                 return ComplexityVector.model_validate(block)
             except Exception:  # noqa: BLE001 - an older/foreign block must not stop the scan
                 pass
-    kept = run / "artifacts" / f"r{int((rnd or {}).get('index') or 0):02d}" / "object.glb"
-    glb = kept if kept.is_file() else run / "artifacts" / "object.glb"
-    if not glb.is_file():
+    glb = select.round_file(ws, one)
+    if glb is None:
         return None
     from codeverse3d.spatial.complexity import complexity_of_glb
 
@@ -95,31 +97,26 @@ def _vector_for(run: Path, rnd: dict[str, Any] | None) -> ComplexityVector | Non
         return None
 
 
-def _picked_round(run: Path, record: dict[str, Any]) -> dict[str, Any] | None:
+def _picked_round(run: Path, record: dict[str, Any], rec: RunRecord | None) -> dict[str, Any] | None:
     """The round ``addons/select`` picks, as its raw dict; the last round when the record
     will not load (the scan reads the historic corpus as-is)."""
     rounds = record.get("rounds") or []
     try:
-        idx = select.summarise(run).picked_round
+        idx = select.summarise(run, record=rec).picked_round if rec is not None else None
     except Exception:  # noqa: BLE001 - one unreadable record must not stop the scan
         idx = None
     return next((r for r in rounds if r.get("index") == idx), rounds[-1] if rounds else None)
-
-
-def _minutes(record: dict[str, Any]) -> float | None:
-    """``RunRecord.minutes`` (docs/COST.md §31); None for a record that will not load."""
-    try:
-        minutes = RunRecord.model_validate(record).minutes
-    except Exception:  # noqa: BLE001 - the historic corpus is read as-is
-        return None
-    return None if minutes is None else round(minutes, 2)
 
 
 def row_for(run: Path, battery: str, slug: str | None = None) -> Row | None:
     record = _read_json(run / "record.json")
     if not record:
         return None
-    rnd = _picked_round(run, record)
+    try:  # validated once; the historic corpus is read as a raw dict where it will not load
+        rec: RunRecord | None = RunRecord.model_validate(record)
+    except Exception:  # noqa: BLE001
+        rec = None
+    rnd = _picked_round(run, record, rec)
     judgment = (rnd or {}).get("judgment") or {}
     scores = judgment.get("scores") or {}
     vec = _vector_for(run, rnd)
@@ -141,7 +138,7 @@ def row_for(run: Path, battery: str, slug: str | None = None) -> Row | None:
         overall=judgment.get("overall"),
         issues=len(judgment.get("issues") or []),
         cost_usd=round(float((record.get("total_usage") or {}).get("cost_usd") or 0.0), 4),
-        minutes=_minutes(record),
+        minutes=round(rec.minutes, 2) if rec is not None and rec.minutes is not None else None,
         index=vec.index,
         band=vec.band,
     )

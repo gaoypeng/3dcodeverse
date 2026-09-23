@@ -45,9 +45,11 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
 from bench._fixed_eval import RUBRIC  # noqa: E402
-from bench.run_bench import Battery, BenchPrompt, record_minutes  # noqa: E402
+from bench.run_bench import Battery, BenchPrompt  # noqa: E402
 from bench.stats import sign_test  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
+from codeverse3d.record.record import load_record  # noqa: E402
+from codeverse3d.workspace import Workspace  # noqa: E402
 
 JUDGE_MODEL = "gemini:gemini-3.1-pro-preview"
 N_SAMPLES = 2
@@ -108,31 +110,24 @@ def their_side(gallery: Path, slug: str) -> Side:
 
 def our_side(runs_dir: Path, item_id: str) -> Side:
     ws = runs_dir / item_id
-    rec_path = ws / "record.json"
-    if not rec_path.is_file():
+    if not (ws / "record.json").is_file():
         return Side(source="3dcodeverse", status="not_run", error=f"no record.json under {ws}")
-    rec: dict[str, Any] = json.loads(rec_path.read_text())
-    status = str(rec.get("status", ""))
-    side = Side(source="3dcodeverse", status=status, rounds=len(rec.get("rounds", [])),
-                cost_usd=float((rec.get("total_usage") or {}).get("cost_usd", 0.0)))
-    side.minutes = record_minutes(ws)
-    if not status or status in IN_PROGRESS:
-        side.error = f"run not finished (status={status!r})"
-        return side
-    try:
-        picked = select.summarise(ws).picked_round
+    try:  # read once: the round addons/select picks
+        rec = load_record(ws)
+        picked = select.summarise(ws, record=rec).picked_round
     except Exception as e:  # noqa: BLE001 - one unreadable record must not kill the battery
-        side.error = f"unreadable record: {e}"
-        return side
-    if picked is None:
+        return Side(source="3dcodeverse", error=f"unreadable record: {e}")
+    status = rec.status.value
+    side = Side(source="3dcodeverse", status=status, rounds=len(rec.rounds), cost_usd=rec.total_usage.cost_usd,
+                minutes=round(rec.minutes or 0.0, 2))
+    if status in IN_PROGRESS:
+        side.error = f"run not finished (status={status!r})"
+    elif picked is None:
         side.error = f"no judged round to hand over (status={status!r})"
-        return side
-    for cand in (ws / "deliverable" / "object.glb", ws / "artifacts" / f"r{picked:02d}" / "object.glb",
-                 ws / "artifacts" / "object.glb"):
-        if cand.is_file():
-            side.glb = str(cand)
-            return side
-    side.error = f"finished run has no object.glb under {ws}"
+    elif (glb := select.round_file(Workspace(ws), next(r for r in rec.rounds if r.index == picked))) is None:
+        side.error = f"round {picked} kept no object.glb under {ws}"  # never the last build's canonical one
+    else:
+        side.glb = str(glb)
     return side
 
 

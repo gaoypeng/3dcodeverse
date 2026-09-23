@@ -39,12 +39,13 @@ from pydantic import BaseModel
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
-from bench.run_bench import Battery, BenchPrompt, record_minutes  # noqa: E402
+from bench.run_bench import Battery, BenchPrompt  # noqa: E402
 from bench.stats import sign_test  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.contracts.artifacts import RenderSet, RenderView  # noqa: E402
 from codeverse3d.contracts.common import Language, Track  # noqa: E402
 from codeverse3d.contracts.spec import Spec  # noqa: E402
+from codeverse3d.record.record import load_record  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 BATTERY = HERE / "prompts" / "h2h_scene_v1.yaml"
@@ -129,26 +130,20 @@ def their_meta(out_dir: Path) -> dict[str, Any]:
 
 # ----------------------------------------------------------------------------- ours
 def our_frames(run_dir: Path) -> tuple[list[RenderView], dict[str, Any]] | None:
-    rec_path = run_dir / "record.json"
-    if not rec_path.is_file():
-        return None
-    rec = json.loads(rec_path.read_text())
-    try:
-        summary = select.summarise(run_dir)
-    except Exception:  # noqa: BLE001 - an unreadable record is a run we cannot compare
+    try:  # read once: the round addons/select picks
+        rec = load_record(run_dir)
+        summary = select.summarise(run_dir, record=rec)
+    except Exception:  # noqa: BLE001 - a missing or unreadable record is a run we cannot compare
         return None
     picked = summary.picked_round if summary.picked_round is not None else 0
-    rnd_path = run_dir / "rounds" / f"r{picked:02d}.json"
-    if not rnd_path.is_file():
+    rnd = next((r for r in rec.rounds if r.index == picked), None)
+    if rnd is None or rnd.renders is None:
         return None
-    rnd = json.loads(rnd_path.read_text())
-    views = [RenderView.model_validate(v) for v in (rnd.get("renders") or {}).get("views", [])]
-    stills = [v for v in views if (v.time_s or 0.0) == 0.0 and v.mode == "shaded" and Path(v.path).is_file()]
+    stills = [v for v in rnd.renders.views if (v.time_s or 0.0) == 0.0 and v.mode == "shaded" and Path(v.path).is_file()]
     flagged = [v for v in stills if v.judge] or stills
     chosen = flagged[:MAX_VIEWS]
-    meta = {"harness_score": summary.picked_score, "rounds": len(rec.get("rounds") or []), "picked_round": picked,
-            "cost_usd": float((rec.get("total_usage") or {}).get("cost_usd") or 0.0), "minutes": record_minutes(run_dir),
-            "status": summary.stop_reason}
+    meta = {"harness_score": summary.picked_score, "rounds": len(rec.rounds), "picked_round": picked,
+            "cost_usd": rec.total_usage.cost_usd, "minutes": round(rec.minutes or 0.0, 2), "status": summary.stop_reason}
     return [RenderView(name=v.name, path=v.path, mode="shaded", width=v.width, height=v.height) for v in chosen], meta
 
 

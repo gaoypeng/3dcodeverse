@@ -21,7 +21,6 @@ import argparse
 import base64
 import html
 import io
-import json
 import statistics
 import sys
 from dataclasses import dataclass, field
@@ -77,26 +76,19 @@ def _sheet_data_uri(run_dir: Path) -> str:
 
 def load_run(run_dir: Path, arm: str) -> Run:
     r = Run(slug=run_dir.name, arm=arm)
-    rec = run_dir / "record.json"
-    if rec.is_file():
-        d = json.loads(rec.read_text())
-        r.brief = str((d.get("spec") or {}).get("prompt") or "")
-        try:  # the round addons/select picks; a record it cannot read keeps only its status
-            s = select.summarise(run_dir)
-            r.status, r.picked, r.baseline = s.stop_reason or "?", s.picked_score, s.baseline_score
-        except Exception:  # noqa: BLE001 - one unreadable record must not blank the page
-            r.status = str(d.get("status") or "?")
-        r.rounds = len(d.get("rounds") or [])
-        try:  # the ledger's total and the steps' minutes, as every reader reports them
-            run = load_record(run_dir)
-            r.usd, r.minutes = round(run.total_usage.cost_usd, 2), round(run.minutes or 0)
-        except Exception:  # noqa: BLE001 - an unreadable record keeps $0 / 0 min
-            pass
-        r.error = str(d.get("error") or "")[:300]
-        for rd in d.get("rounds") or []:
-            failed = [g.get("gate") for g in (rd.get("gates") or []) if not g.get("passed")]
+    try:  # read once: the round addons/select picks, the ledger's total, the steps' minutes
+        rec = load_record(run_dir)
+        s = select.summarise(run_dir, record=rec)
+    except Exception:  # noqa: BLE001 - a missing or unreadable record must not blank the page
+        rec = None
+    if rec is not None:
+        r.brief, r.rounds, r.error = rec.spec.prompt, len(rec.rounds), (rec.error or "")[:300]
+        r.status, r.picked, r.baseline = s.stop_reason or "?", s.picked_score, s.baseline_score
+        r.usd, r.minutes = round(rec.total_usage.cost_usd, 2), round(rec.minutes or 0)
+        for rd in rec.rounds:
+            failed = [g.gate for g in rd.gates if not g.passed]
             if failed:
-                r.notes.append(f"r{rd.get('index')} gates: {', '.join(str(g) for g in failed[:4])}")
+                r.notes.append(f"r{rd.index} gates: {', '.join(failed[:4])}")
     r.sheet = _sheet_data_uri(run_dir)
     return r
 
