@@ -316,7 +316,8 @@ runs/<slug>/
                   textures/{<id>.png, texture_plan.json, texturing.json, gate/}
     rNN/          the round's own build, copied when it built: object.glb object.stl|step robot.urdf
                   meshes/*.glb preview.gif frames_sheet.png (only what a hand-over needs)
-    renders/rNN/  view_<name>.png sheet.png views.json (judge flags) (+ poses/ articulated; <cam>_t<t>.png metrics.json scenes)
+    renders/rNN/  view_<name>.png sheet.png views.json (judge flags) (+ poses/ articulated; <cam>_t<t>.png metrics.json scenes;
+                  frame_t<t>.png metrics.json graphics — the round's own frame metrics, what a replay quotes)
     gates/rNN/    lint_<lang>.json connectivity.json contract.json joint_sweep.json motion_direction.json … (+ *_tool.json)
     judge/rNN.json (+ rNN_cli.json from `3dcode judge`; rAA_vs_rBB_pairwise.json from `3dcode pick --by pairwise`)
     tool_renders/rNN_<hash>/

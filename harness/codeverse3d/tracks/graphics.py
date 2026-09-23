@@ -31,7 +31,7 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import HARNESS_OWNED_SRC, TRACK_INFO, Language, Track
 from codeverse3d.contracts.plan import GraphicsPlan, Plan
 from codeverse3d.contracts.run import RoundRecord
-from codeverse3d.languages._gl_common import SHEET_NAME, read_metrics
+from codeverse3d.languages._gl_common import METRICS_NAME, SHEET_NAME, read_metrics
 from codeverse3d.languages.glsl_shader import COMMON_GLSL, FUNC_DEF, strip_comments
 from codeverse3d.orchestrator import TaskGroup
 from codeverse3d.prompts import render
@@ -306,6 +306,8 @@ def frames_render_set(ws: Workspace, build: BuildResult, round_index: int) -> Re
     out.mkdir(parents=True, exist_ok=True)
     frames_dir = Path(build.extra_paths.get("frames", ws.artifacts / "frames"))
     metrics = read_metrics(ws)
+    if metrics is not None:  # the round's own copy: what a replay of THIS round quotes (frame_stats_text)
+        shutil.copy2(ws.artifacts / METRICS_NAME, out / METRICS_NAME)
     stats = metrics[0] if metrics else None
     views: list[RenderView] = []
     frames = stats.frames if stats else []
@@ -331,8 +333,16 @@ def frames_render_set(ws: Workspace, build: BuildResult, round_index: int) -> Re
                      duration_ms=build.duration_ms)
 
 
-def frame_stats_text(ws: Workspace) -> str:
-    m = read_metrics(ws)
+def frame_stats_text(ws: Workspace, round_index: int | None = None) -> str:
+    """The frame metrics as judge / refine text: round ``round_index``'s own copy
+    (``renders/rNN/metrics.json``), else the canonical file — the LAST build's, so for a round
+    rendered before rounds kept a copy it is quoted only when no later round exists."""
+    where = ws.renders_dir(round_index) if round_index is not None else None
+    if where is not None and not (where / METRICS_NAME).is_file():
+        if (ws.root / "rounds" / f"r{round_index + 1:02d}.json").is_file():
+            return "(not kept for this round: the metrics on disk are a later build's; judge motion from the frames)"
+        where = None
+    m = read_metrics(ws, where)
     if m is None:
         return "(no frame metrics)"
     stats, gate = m
@@ -357,7 +367,7 @@ class GraphicsPipeline:
 
     def judge_context(self, ws: Workspace, plan: Plan | None, round_index: int, build: BuildResult, gates: list[GateReport]) -> str:
         renderer = build.census.get("renderer", "") if isinstance(build.census, dict) else ""
-        return f"FRAME METRICS (harness-measured, renderer {renderer or 'moderngl'}):\n{frame_stats_text(ws)}"
+        return f"FRAME METRICS (harness-measured, renderer {renderer or 'moderngl'}):\n{frame_stats_text(ws, round_index)}"
 
 
 class GraphicsTrack(BaseTrack):

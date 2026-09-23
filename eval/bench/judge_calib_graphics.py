@@ -60,17 +60,12 @@ def judge_one(run: Path, rubric: str, model: str, n: int) -> dict[str, Any]:
         return {"run": str(run), "error": "no judged round"}
     renders = RenderSet.model_validate(rnd["renders"])
     gates = [GateReport.model_validate(g) for g in rnd.get("gates") or []]
-    # what the in-run judge also saw: the plan digest and the measured frame metrics (the metrics
-    # file is the LAST build's; it is only quoted when the picked round is the last one, else the
-    # judge is told so — without it, pro called four moving effects "static" in the first pass)
-    ws = Workspace(run)
+    # what the in-run judge also saw: the plan digest and the round's measured frame metrics
+    # (frame_stats_text: its own copy, never a later build's — without them, pro called four
+    # moving effects "static" in the first pass)
     plan_path = run / "plan.json"
     digest = plan_summary(GraphicsPlan.model_validate_json(plan_path.read_text()), spec.language) if plan_path.is_file() else ""
-    last_index = max((int(f.stem[1:]) for f in run.glob("rounds/r*.json")), default=0)
-    if int(rnd.get("index", 0)) == last_index:
-        extra = "FRAME METRICS (harness-measured):\n" + frame_stats_text(ws)
-    else:
-        extra = "FRAME METRICS: not available for this round (an earlier round than the last build); judge motion from the frames."
+    extra = "FRAME METRICS (harness-measured):\n" + frame_stats_text(Workspace(run), int(rnd.get("index", 0)))
     inp = JudgeInput(spec=spec, renders=renders, gates=gates, round_index=int(rnd.get("index", 0)),
                      plan_summary=digest, extra_context=extra)
     judge = VlmJudge(rubric=rubric, model_id=model, n_samples=n)

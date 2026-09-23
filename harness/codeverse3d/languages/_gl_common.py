@@ -140,8 +140,9 @@ def finish_build(ws: Workspace, res: GlResult, *, language: str, error_file: str
     return result
 
 
-def read_metrics(ws: Workspace) -> tuple[SequenceStats, GateReport] | None:
-    p = ws.artifacts / METRICS_NAME
+def read_metrics(ws: Workspace, where: Path | None = None) -> tuple[SequenceStats, GateReport] | None:
+    """``metrics.json`` in ``where`` (a round's ``renders/rNN/`` copy), default the canonical one."""
+    p = (where or ws.artifacts) / METRICS_NAME
     if not p.is_file():
         return None
     data = json.loads(p.read_text())
