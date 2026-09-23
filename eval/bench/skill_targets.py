@@ -78,6 +78,17 @@ class Run:
             return None
         return gated[0] if which == "first" else gated[-1]
 
+    def round_glb(self, rd: dict) -> Path | None:
+        """The round's OWN ``object.glb`` (``select.round_file``) — never ``artifacts/object.glb``,
+        which is the LAST build's; None when the round kept none."""
+        from codeverse3d.addons import select
+        from codeverse3d.contracts.run import RoundRecord
+        from codeverse3d.workspace import Workspace
+
+        # round_file locates a round by its index alone; the raw row is not re-validated
+        rnd = RoundRecord.model_construct(index=int(rd.get("index", 0)), kind=str(rd.get("kind") or ""))
+        return select.round_file(Workspace(self.dir), rnd)
+
     def render_dir(self, rd: dict) -> Path | None:
         """The round's render directory, resolved inside THIS tree.
 
@@ -214,8 +225,8 @@ def _measure_heavy(target: Target, run: Run, which: str) -> float | None:
     if rd is None:
         return None
     if target.source == SRC_GLB:
-        glb = run.dir / "artifacts" / "object.glb"
-        return _feature_density(glb) if glb.is_file() else None
+        glb = run.round_glb(rd)
+        return _feature_density(glb) if glb is not None else None
     if target.source == SRC_FRAMES:
         d = run.render_dir(rd)
         if d is None:

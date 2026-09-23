@@ -52,6 +52,20 @@ def test_load_cases_reads_the_plan_the_in_run_judge_read(tmp_path):
     assert load_run_cases(run, rounds=[1])[0].round_index == 1
 
 
+def test_with_nothing_picked_the_stand_in_is_the_last_round_that_kept_a_glb(tmp_path, caplog):
+    """No picked round: the geometry montage used the last round even when IT kept no GLB (and
+    the render was skipped in silence) while an earlier round kept one."""
+    from codeverse3d.addons.calibration import render_geometry_views
+
+    run = _fake_run(tmp_path, "runB")
+    (run / "artifacts" / "r00").mkdir(parents=True)
+    (run / "artifacts" / "r00" / "object.glb").write_bytes(b"glTF")
+    cases = load_run_cases(run)
+    assert cases[0].is_picked and not cases[1].is_picked and cases[0].glb.endswith("r00/object.glb")
+    assert render_geometry_views(cases[1], tmp_path / "out", "clay") is None
+    assert "kept no GLB" in caplog.text
+
+
 def test_correlations():
     assert pearson([0, 1, 2], [2, 1, 0]) == -1.0 and spearman([0, 1, 5], [5, 3, 1]) == -1.0
     assert pearson([1, 1], [0, 1]) is None and spearman([], []) is None

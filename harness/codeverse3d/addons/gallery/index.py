@@ -28,6 +28,7 @@ from codeverse3d.addons.gallery.model import (
 )
 from codeverse3d.contracts.run import RunId, RunRecord
 from codeverse3d.proc import read_json_or_none
+from codeverse3d.record.deliverable import round_outputs, texture_shipped_for
 from codeverse3d.record.record import (
     RecordError,
     battery_label,
@@ -135,13 +136,24 @@ def _articulation_sheet(ws: Workspace, picked: int | None) -> str:
 def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> list[RunLink]:
     """The working links of a card: workspace, record, code, sheet, GLB, track extras — the
     artifact files of the handed-over round (``deliverable/``), else of the picked round
-    (``artifacts/rNN/``), else whatever ``artifacts/`` holds (a run recorded before rounds
-    kept their own)."""
+    (``select.round_file``: ``artifacts/rNN/``, or ``artifacts/`` of a run recorded before rounds
+    kept their own, for the round it rebuilt there) — never another round's.  A run with no
+    picked round (no record yet, none judged) links whatever ``artifacts/`` holds."""
     run = ws.root
-    kept = [f"artifacts/r{picked:02d}"] if picked is not None else []
+    rnd = next((r for r in rec.rounds if r.index == picked), None) if rec is not None else None
+    out = round_outputs(ws, rnd)
 
     def artifact(name: str, *extra: str) -> str:
-        return _first_file(run, f"deliverable/{name}", *(f"{k}/{name}" for k in kept), f"artifacts/{name}", *extra)
+        if rnd is None:
+            own = [f"artifacts/{name}"]
+        else:
+            own = [_rel(ws, out / name)] if out is not None else []
+        return _first_file(run, f"deliverable/{name}", *own, *extra)
+
+    # the texture pack is a link only when a pass SHIPPED from this round's GLB — a stray file
+    # from a rejected pass (or an older harness that leaked one), or another round's pack, is not
+    tex = (rec.extra.get("texturing") or {}) if rec is not None else {}
+    shipped = texture_shipped_for(ws, rec, out) if rnd is not None and rec is not None else bool(tex.get("shipped"))
 
     links = [RunLink(label="workspace", rel="", kind="dir"),
              RunLink(label="record.json", rel="record.json")]
@@ -156,10 +168,7 @@ def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> lis
     glb = artifact("object.glb")
     if glb:
         links.append(RunLink(label="glb", rel=glb, kind="viewer"))
-    # the textured GLB is a link only when the texture pass SHIPPED — a stray file
-    # from a rejected pass (or an older harness that leaked one) is not a deliverable
-    tex = (rec.extra.get("texturing") or {}) if rec is not None else {}
-    if tex.get("shipped"):
+    if shipped:
         textured = _first_file(run, "deliverable/object_textured.glb", "artifacts/object_textured.glb")
         if textured:
             links.append(RunLink(label="textured glb", rel=textured, kind="viewer"))
@@ -172,11 +181,15 @@ def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> lis
     gif = artifact("preview.gif")
     if gif:
         links.append(RunLink(label="preview.gif", rel=gif))
-    if (run / "artifacts" / "frames").is_dir():
-        links.append(RunLink(label="frames/", rel="artifacts/frames", kind="dir"))
-    for tex in ("deliverable/textures", "artifacts/textures", "public/textures"):
-        if (run / tex).is_dir():
-            links.append(RunLink(label="textures/", rel=tex, kind="dir"))
+    frames = ("deliverable/frames", f"artifacts/renders/r{picked:02d}") if rnd is not None else ("artifacts/frames",)
+    if rnd is not None and out == ws.artifacts:
+        frames += ("artifacts/frames",)  # the one round an old run rebuilt there
+    frames_rel = next((f for f in frames if any((run / f).glob("f*_t*.png")) or any((run / f).glob("frame_t*.png"))), "")
+    if frames_rel:
+        links.append(RunLink(label="frames/", rel=frames_rel, kind="dir"))
+    for tex_rel in ("deliverable/textures", "artifacts/textures" if shipped else "", "public/textures"):
+        if tex_rel and (run / tex_rel).is_dir():
+            links.append(RunLink(label="textures/", rel=tex_rel, kind="dir"))
             break
     if (run / "public" / "assets").is_dir():
         links.append(RunLink(label="assets/", rel="public/assets", kind="dir"))

@@ -3,8 +3,8 @@
 ``FixedEvaluator.evaluate(ws, spec)``: the cell's runtime lint + build → ``measure_glb``
 → connectivity gate → 14-view ``render_glb`` (articulated: + joint sweep + pose sheet;
 graphics: the frame sheet; scene: authored cameras + orbit rig at two times + the
-scene_frames gate) → ``judge_for(spec)`` — a ``VlmJudge`` (or ``LikenessJudge``
-for graphics with reference photos) on ``rubric_for(spec)``, the track's ``TRACK_INFO``
+scene_frames gate) → ``judge_for(spec)`` — the class the loop would use
+(``vlm_judge.judge_for``) on ``rubric_for(spec)``, the track's ``TRACK_INFO``
 rubric, the ONE track→rubric mapping of the compare bench.  The judge's acceptance checklist is the brief's
 ``must_have`` list (``acceptance_from_spec``) so harness and one-shot arms are
 scored against exactly the same checklist — never the harness's plan.
@@ -116,8 +116,9 @@ class FixedEvaluator:
 
     def judge_for(self, spec: Spec) -> Any:
         """The fixed judge for THIS cell: ``rubric_for(spec)`` (the pinned rubric if a caller set
-        one), through ``LikenessJudge`` for a graphics cell with reference photos, ``VlmJudge``
-        (cached per rubric) otherwise.
+        one), through the class the loop would judge it with (``vlm_judge.judge_for``: reference
+        photos → ``LikenessJudge`` on graphics / scene, ``ReferenceJudge`` on an object track;
+        a measured rubric → ``ReferenceJudge``), else ``VlmJudge`` (cached per rubric).
 
         The evaluator judged every cell with the object rubric on a GLB.  A graphics cell
         has frames, not a GLB, so ``evaluate`` returned before judging and every graphics
@@ -127,12 +128,13 @@ class FixedEvaluator:
         rubric (``shader_v2``), through ``LikenessJudge`` when the spec carries reference
         photos so the arms see the same photos the loop saw.
         """
-        rubric = self.rubric if self._pinned else rubric_for(spec)
-        if spec.track is Track.GRAPHICS and spec.references:
-            from codeverse3d.judges.vlm_judge import LikenessJudge
+        from codeverse3d.judges.vlm_judge import VlmJudge, judge_for
 
-            return LikenessJudge(self.judge_model, n_samples=self.n_samples, rubric=rubric)
-        return self._vlm_judge(rubric)
+        rubric = self.rubric if self._pinned else rubric_for(spec)
+        cls = judge_for(spec.track, rubric, references=bool(spec.references))
+        if cls is VlmJudge:
+            return self._vlm_judge(rubric)
+        return cls(model_id=self.judge_model, n_samples=self.n_samples, rubric=rubric)
 
     def build(self, ws: Workspace, language: Language | str) -> tuple[BuildResult, GateReport]:
         rt = self.runtime(language)

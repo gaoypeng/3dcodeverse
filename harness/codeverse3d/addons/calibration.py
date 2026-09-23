@@ -10,7 +10,7 @@ per-criterion std, defects and caps.  Across rounds it reports the Pearson and
 Spearman correlation between gate error counts and the new scores (expected
 negative), and between stored and new overalls.  Optionally renders a clay /
 normals geometry set for the picked round (``addons/select``) when it stored none — from
-its own ``artifacts/rNN/object.glb`` — so the geometry montage is exercised.  Output goes to ``out_dir`` (never into the run).
+its own GLB (``select.round_file``; none when it kept none) — so the geometry montage is exercised.  Output goes to ``out_dir`` (never into the run).
 
 CLI: ``python -m codeverse3d.addons.calibration runs/a runs/b --model gemini:gemini-3.7-flash --n 3 --out scratch/``
 """
@@ -181,14 +181,18 @@ def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[Ro
             stored=rec.judgment, is_picked=picked == rec.index,
             glb=str(glb) if (glb := select.round_file(ws, rec)) is not None else None,
         ))
-    if picked is None and cases:  # no record / nothing judged: the tree's GLB is its last round's
-        cases[-1].is_picked = True
+    if picked is None and cases:  # no record / nothing judged: the last round that kept its own GLB stands in
+        next((c for c in reversed(cases) if c.glb), cases[-1]).is_picked = True
     return cases
 
 
 def render_geometry_views(case: RoundCase, out_dir: Path, mode: str) -> RenderSet | None:
-    """Clay/normals renders of the picked round's GLB (object tracks only)."""
-    if not case.glb or case.inp.spec.track.value == "scene":
+    """Clay/normals renders of the picked round's own GLB (object tracks only; None when that
+    round kept none — never the last build's ``artifacts/object.glb`` in its place)."""
+    if case.inp.spec.track.value == "scene":
+        return None
+    if not case.glb:
+        log.warning("no geometry views for %s r%02d: the round kept no GLB of its own", case.run, case.round_index)
         return None
     from codeverse3d.conventions import OBJECT_CLAY_VIEWS
     from codeverse3d.spatial.render import render_glb

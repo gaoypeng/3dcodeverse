@@ -163,3 +163,22 @@ def test_the_shader_preflight_row_reads_the_gate_not_the_raw_driver_json(tmp_pat
     rows = {r["skill"]: r for r in battery_rows(load_runs(root), list(TARGETS), which="last", cache=None)}
     assert rows["c3d-threejs-shader-traps"]["n"] == 2
     assert rows["c3d-threejs-shader-traps"]["mean"] == 1.5   # 2 in the round, 1 in the gate file
+
+
+def test_a_glb_row_measures_the_measured_rounds_own_glb(tmp_path, monkeypatch):
+    """`--round first` read artifacts/object.glb — the LAST build's — for a GLB-derived metric."""
+    import bench.skill_targets as st
+    from codeverse3d.addons.skill_targets import SRC_GLB, Target
+
+    gates = [{"gate": "connectivity", "findings": CONNECTIVITY}]
+    root = _battery(tmp_path, {"chair": {"spec": {"language": "blender"}, "rounds": [
+        {"index": i, "gates": gates, "build": {"ok": True}} for i in (0, 1)]}})
+    run_dir = root / "runs" / "chair"
+    for name, byte in (("r00/object.glb", 10), ("r01/object.glb", 11), ("object.glb", 99)):
+        (run_dir / "artifacts" / name).parent.mkdir(parents=True, exist_ok=True)
+        (run_dir / "artifacts" / name).write_bytes(bytes([byte]))
+    monkeypatch.setattr(st, "_feature_density", lambda glb: float(glb.read_bytes()[0]))
+    target = Target(skill="x", metric="feature_density", direction="up", unit="", source=SRC_GLB, why="")
+    run = st.load_runs(root)[0]
+    assert st.measure(target, run, which="first") == 10.0
+    assert st.measure(target, run, which="last") == 11.0

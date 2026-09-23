@@ -41,6 +41,23 @@ def _urdf_spec() -> Spec:
                 constraints=Constraints(must_have=["two revolute joints"], dimensions_m={"height": 0.6}))
 
 
+def test_the_fixed_judge_is_the_class_the_loop_would_use():
+    """_fixed_eval picked LikenessJudge by hand for graphics only: a scene or an object cell with
+    reference photos was judged by a plain VlmJudge the loop never uses for it."""
+    from codeverse3d.contracts.spec import ReferenceImage
+    from codeverse3d.judges.vlm_judge import LikenessJudge, ReferenceJudge, VlmJudge
+
+    ev = FixedEvaluator("gemini:x")
+    refs = [ReferenceImage(path="ref.png")]
+    lamp = _urdf_spec()
+    scene = Spec(id="t/s", track=Track.SCENE, language=Language.SCENE_THREEJS, prompt="a harbour at dusk")
+    shader = Spec(id="t/g", track=Track.GRAPHICS, language=Language.GLSL_SHADER, prompt="neon rain")
+    assert type(ev.judge_for(lamp)) is VlmJudge
+    assert type(ev.judge_for(lamp.model_copy(update={"references": refs}))) is ReferenceJudge
+    assert type(ev.judge_for(scene.model_copy(update={"references": refs}))) is LikenessJudge
+    assert type(ev.judge_for(shader.model_copy(update={"references": refs}))) is LikenessJudge
+
+
 def test_urdf_oneshot_prompt_carries_the_frame_recipe_and_the_two_file_envelope():
     p = oneshot_prompt(_urdf_spec())
     assert "hand-written URDF" in p and "architect lamp" in p and "MUST HAVE: two revolute joints" in p

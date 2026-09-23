@@ -181,6 +181,21 @@ def test_rejected_texture_pass_is_not_delivered_or_linked(fake_run):
     assert "textured glb" in {ln.label for ln in entry.links}
 
 
+def test_a_cards_links_are_the_picked_rounds_never_the_last_builds(tmp_path):
+    """The gallery linked artifacts/object.glb and artifacts/frames/ — the LAST build's — when the
+    picked round had no copy of its own (and frames/ always)."""
+    from .conftest import tiny_png
+
+    ws, rec = make_fake_run(tmp_path / "runs", scores=(0.90, 0.50))  # r00 is picked, r01 built last
+    tiny_png(ws.artifacts / "frames" / "f00_t0.png")                  # the last build's frames
+    tiny_png(ws.renders_dir(0) / "frame_t00.00.png")                  # r00's own
+    links = {ln.label: ln.rel for ln in entry_from_record("runs", ws, rec).links}
+    assert links["glb"] == "artifacts/r00/object.glb" and links["frames/"] == "artifacts/renders/r00"
+    shutil.rmtree(ws.round_artifacts(0))                               # r00 kept no build outputs
+    links = {ln.label: ln.rel for ln in entry_from_record("runs", ws, rec).links}
+    assert "glb" not in links
+
+
 # --------------------------------------------------------------------------- show
 def _show(slug: str, runs_dir: Path, *args: str):
     return runner.invoke(app, ["show", slug, "--runs-dir", str(runs_dir), *args])

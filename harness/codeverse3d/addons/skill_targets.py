@@ -42,7 +42,7 @@ DIRECTIONS = (DOWN, UP)
 #: where the readout gets the number
 SRC_GATE = "gate_kinds"     #: count findings of `kinds` in the last gated round
 SRC_BUILD = "build"         #: the round's BuildResult
-SRC_GLB = "glb"             #: recomputed from the exported object.glb
+SRC_GLB = "glb"             #: recomputed from the measured round's own object.glb (artifacts/rNN/)
 SRC_FRAMES = "frames"       #: recomputed from the round's sampled frames
 SRC_ARTIFACT = "artifact"   #: a gate report written beside the run, not into the record
 SOURCES = (SRC_GATE, SRC_BUILD, SRC_GLB, SRC_FRAMES, SRC_ARTIFACT)
