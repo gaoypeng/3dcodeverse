@@ -35,7 +35,7 @@ from codeverse3d.addons.dataset.quality import prompt_hash
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.proc import read_jsonl_lenient
 from codeverse3d.record import _git
-from codeverse3d.record.record import effective_judgment, iter_runs
+from codeverse3d.record.record import effective_judgment, iter_runs, skip_unreadable
 from codeverse3d.workspace import Workspace
 
 __all__ = ["build_pairs", "preference_pairs", "repair_pairs", "in_round_repair_pairs",
@@ -253,7 +253,7 @@ def build_pairs(runs_dir: Path | str, out_jsonl: Path | str, *, min_delta: float
     n = 0
     tmp = out.with_suffix(out.suffix + ".tmp")
     with tmp.open("w") as fh:
-        for ws, rec, rid in iter_runs(runs_dir):
+        for ws, rec, rid in iter_runs(runs_dir, on_error=skip_unreadable):
             slug = rid.slug
             groups[(prompt_hash(rec.spec.prompt), rec.spec.track.value, rec.spec.language.value)].append((ws, rec, slug))
             pairs = (preference_pairs(ws, rec, min_delta=min_delta, slug=slug)

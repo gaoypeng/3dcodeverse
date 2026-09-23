@@ -350,6 +350,12 @@ def _once(root: Path, dirs: list[Path]) -> list[Path]:
     return sorted(best.values())
 
 
+def skip_unreadable(run_dir: Path, error: Exception) -> None:
+    """``iter_runs(on_error=...)`` for a reader that indexes what it can: one unreadable
+    record.json is a warning, not the end of the whole pass."""
+    log.warning("skipping %s: %s", run_dir, error)
+
+
 def iter_runs(
     runs_dir: Path | str, *, on_error: Callable[[Path, Exception], None] | None = None
 ) -> Iterator[FoundRun]:

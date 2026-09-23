@@ -529,6 +529,17 @@ def test_judge_names_a_missing_record_or_missing_renders(tmp_path: Path, runs_di
     assert r.exit_code == 2 and "not on disk" in r.output and isinstance(r.exception, SystemExit)
 
 
+def test_pairs_and_index_skip_an_unreadable_record(runs_dir: Path, tmp_path: Path):
+    """One corrupt record.json ended `flywheel pairs` / `index` for the whole tree (export already skipped it)."""
+    (runs_dir / "broken").mkdir()
+    (runs_dir / "broken" / "record.json").write_text("{not json")
+    (runs_dir / "broken" / "spec.json").write_text("{}")
+    r = runner.invoke(app, ["flywheel", "pairs", str(runs_dir), str(tmp_path / "p.jsonl")])
+    assert r.exit_code == 0, r.output
+    r = runner.invoke(app, ["flywheel", "index", str(runs_dir), str(tmp_path / "i.sqlite")])
+    assert r.exit_code == 0 and "indexed 3 runs" in r.output
+
+
 def test_resume_reports_a_corrupt_run_state_cleanly(made_run):
     runs, run_dir = made_run("--language", "threejs")
     (run_dir / "run_state.json").write_text("garbage")

@@ -16,7 +16,7 @@ from codeverse3d.addons import select
 from codeverse3d.addons.dataset.quality import prompt_hash, quality_tier
 from codeverse3d.addons.dataset.sample import gate_error_summary
 from codeverse3d.contracts.run import RoundRecord, RunId, RunRecord
-from codeverse3d.record.record import effective_judgment, iter_runs
+from codeverse3d.record.record import effective_judgment, iter_runs, skip_unreadable
 from codeverse3d.workspace import Workspace
 
 _SCHEMA = """
@@ -99,7 +99,7 @@ def build_index(runs_dir: Path | str, out_sqlite: Path | str) -> int:
     try:
         con.executescript(_SCHEMA)
         seen: dict[str, str] = {}
-        for ws, rec, rid in iter_runs(runs_dir):
+        for ws, rec, rid in iter_runs(runs_dir, on_error=skip_unreadable):
             slug = rid.slug
             try:
                 con.execute(f"INSERT INTO runs VALUES ({','.join('?' * 28)})", _run_row(ws, rec, rid))
