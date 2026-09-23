@@ -1,4 +1,4 @@
-"""Quality tiers, (code, prompt) dedupe, richer meta.json, captions side-car, gallery."""
+"""Quality tiers, (code, prompt) dedupe, richer meta.json, captions side-car."""
 
 from __future__ import annotations
 
@@ -146,8 +146,3 @@ def test_caption_out_dir_leaves_run_untouched(fake_run, tmp_path: Path):
     assert data["provenance"]["captioner"] == "fake:fake" and data["provenance"]["images_used"][0].startswith("artifacts/")
     assert load_captions(ws, load_record(ws), side)["detailed"] == GOOD["detailed"]
     assert load_captions(ws, load_record(ws), None) == {}
-
-
-# --------------------------------------------------------------------------- gallery
-
-

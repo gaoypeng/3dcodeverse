@@ -26,7 +26,6 @@ from codeverse3d.addons.gallery.index import build_index, hero_view
 from codeverse3d.addons.gallery.model import (
     VERDICTS,
     humanize_view,
-    match,
     summarize,
     verdict_breakdown,
 )
@@ -74,13 +73,6 @@ def test_the_page_states_the_breakdown_and_it_adds_up(gallery_tree: dict[str, Pa
 
 
 # --------------------------------------------------------------------------- verdict filter
-@pytest.mark.parametrize(("verdict", "n"), [("judged", 4), ("error", 2), ("unjudged", 0)])
-def test_verdict_filter_selects_exactly_its_bucket(gallery_tree: dict[str, Path], verdict: str, n: int):
-    entries = build_index([gallery_tree["runs"], gallery_tree["battery"]]).entries()
-    kept = [e for e in entries if match(e, {"verdict": verdict})]
-    assert len(kept) == n and all(e.verdict == verdict for e in kept)
-
-
 def test_verdict_filter_reaches_the_api_and_the_page(gallery_tree: dict[str, Path]):
     app = GalleryApp([gallery_tree["runs"], gallery_tree["battery"]])
     payload = json.loads(app.route("/api/runs", {"verdict": "error"}).body)

@@ -19,7 +19,6 @@ from codeverse3d.addons.dataset.quality import (
     code_fingerprint,
     normalise_code,
 )
-from codeverse3d.contracts.run import RunRecord
 from codeverse3d.record import _git
 from codeverse3d.record.record import (
     RecordError,
@@ -27,7 +26,6 @@ from codeverse3d.record.record import (
     iter_runs,
     load_record,
 )
-from codeverse3d.workspace import Workspace
 
 # --------------------------------------------------------------------------- record
 
@@ -271,7 +269,6 @@ def test_build_index_and_queries(runs_dir: Path, tmp_path: Path):
     con.close()
     s = summary(db)
     assert {r["language"] for r in s} == {"blender", "threejs"}
-    assert isinstance(load_record(Workspace(runs_dir / "lamp_three")), RunRecord)
 
 
 # --------------------------------------------------------------------------- finding: repair pairs (pairs.py:115)

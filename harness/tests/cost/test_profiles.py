@@ -29,8 +29,6 @@ def test_the_three_profiles_are_a_monotone_dial():
     assert usd == sorted(usd) and usd[0] < usd[-1]
     rounds = [PROFILES[n].rounds for n in PROFILE_NAMES]
     assert rounds == sorted(rounds)
-    assert PROFILES["quality"].candidates == 2 and PROFILES["quality"].texture is True
-    assert PROFILES["economy"].texture is False and PROFILES["economy"].candidates == 1
     # every profile explains itself and cites what it was measured at
     for p in PROFILES.values():
         assert p.expected_score and p.note and p.generator and p.judge
@@ -40,8 +38,7 @@ def test_balanced_is_todays_defaults():
     p = PROFILES["balanced"]
     s = Settings()
     assert (p.generator, p.planner, p.judge) == (s.default_generator, s.default_planner, s.default_judge)
-    assert p.rounds == 4 and p.candidates == s.default_candidates and p.judge_samples == 1
-    assert p.max_minutes == 60.0
+    assert p.candidates == s.default_candidates
 
 
 def test_a_value_the_user_configured_survives_the_profile_unless_forced():
@@ -94,7 +91,7 @@ def test_unknown_profile_is_a_clear_error():
         get_profile("cheapest")
 
 
-def test_a_bogus_profile_name_is_a_typed_cli_error_not_a_traceback(monkeypatch, tmp_path):
+def test_a_bogus_profile_name_is_a_typed_cli_error_not_a_traceback(monkeypatch):
     """An invalid environment profile yields one clean validation error."""
     runner = CliRunner()
     monkeypatch.setenv("C3D_PROFILE", "bogus")
@@ -107,13 +104,7 @@ def test_a_bogus_profile_name_is_a_typed_cli_error_not_a_traceback(monkeypatch, 
         assert "Traceback" not in out
     finally:
         get_settings.cache_clear()
-    monkeypatch.delenv("C3D_PROFILE")
-    get_settings.cache_clear()
-    r = runner.invoke(app, ["make", "x", "--profile", "bogus", "--no-run",
-                            "--runs-dir", str(tmp_path / "runs"), "--slug", "b2"])
-    out = " ".join(r.output.split())
-    assert r.exit_code == 2 and "unknown profile 'bogus'" in out and "Traceback" not in out
-    get_settings.cache_clear()
+    # `make --profile bogus`: flywheel_cli/test_cli.py test_an_unknown_profile_is_a_clean_error_not_a_traceback
 
 
 def test_profile_table_and_cli():

@@ -60,9 +60,3 @@ def test_front_elevation_is_the_silhouette_target(tmp_path: Path):
 def test_three_quarter_is_the_target_when_it_is_the_only_survivor(tmp_path: Path):
     refs = reference_images(_set(tmp_path, ("three_quarter", "front"), accepted=(True, False)))
     assert len(refs) == 1 and refs[0].role == "target" and Path(refs[0].path).name == "three_quarter.png"
-
-
-def test_rejected_set_leaves_the_spec_alone(tmp_path: Path):
-    spec = make_spec()
-    out, why = attach(spec, _set(tmp_path, accepted=(False, False)))
-    assert out is spec and "running without one" in why

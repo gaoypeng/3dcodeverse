@@ -18,6 +18,8 @@ def test_cost_show(fake_run: Path, tmp_path: Path):
     assert r.exit_code == 0, r.output
     assert "per run" in r.stdout and "passing" not in r.stdout and "judge" in r.stdout
     assert out.is_file() and "## Per stage" in out.read_text()
+    r = runner.invoke(app, ["cost", "show", str(fake_run), "--no-per-run"])
+    assert r.exit_code == 0 and "| fake_run | static_object |" not in r.stdout  # the per-run table
 
 
 def test_cost_show_recheck_reports_drift(fake_run: Path):
@@ -113,7 +115,3 @@ def test_cost_prices_flags_stale_and_approximate_rows():
     r = runner.invoke(app, ["cost", "prices", "--days", "-1"])
     assert r.exit_code == 0 and "stale>-1d" in r.stdout  # nothing is younger than -1 days
 
-
-def test_cost_show_still_works_the_long_way(fake_run: Path):
-    r = runner.invoke(app, ["cost", "show", str(fake_run), "--no-per-run"])
-    assert r.exit_code == 0

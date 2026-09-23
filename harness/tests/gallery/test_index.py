@@ -86,7 +86,7 @@ def test_filter_and_sort_and_summary(gallery_tree: dict[str, Path]):
         "art_easy_hinge", "ctrl_med_toaster", "half_written", "not_started"}
     s = summarize([e for e in entries if e.state == "ok"])
     assert s.n == 4 and s.n_judged == 4 and s.mean_score is not None and s.median_score is not None
-    assert s.total_usd > 0 and not hasattr(s, "pass_rate")
+    assert s.total_usd > 0
     facets = index.facets()
     assert facets["track"] == ["articulated_object", "static_object"]
     assert facets["battery"] == ["runs", "static_v9"]

@@ -2,16 +2,9 @@
 
 from __future__ import annotations
 
-import codeverse3d.languages.glsl_shader as wrap
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.languages import _gl_common
 from codeverse3d.spatial.gl_render import GlHost
-
-
-def test_wrap_reexports_moved_glsl_log_types() -> None:
-    assert wrap.parse_glsl_log is _gl_common.parse_glsl_log
-    assert wrap.GlslMessage is _gl_common.GlslMessage
-    assert wrap.LineMap is _gl_common.LineMap and wrap.Segment is _gl_common.Segment
 
 
 def test_make_host_prefers_injected_host() -> None:
