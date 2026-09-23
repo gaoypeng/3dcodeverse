@@ -30,6 +30,7 @@ from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import Judgment, RenderView
 from codeverse3d.contracts.chat import ChatRequest, ChatResponse
 from codeverse3d.contracts.common import Usage
+from codeverse3d.conventions import front_view
 from codeverse3d.judges.base import SLICE_TRACKS, JudgeInput
 from codeverse3d.judges.prompt_builder import (
     _key,
@@ -374,7 +375,6 @@ class ReferenceJudge(VlmJudge):
         *,
         rubric: str | Rubric = "reference_v1",
         silhouette_fn: SilhouetteFn | None = None,
-        front_view_names: tuple[str, ...] = ("front", "front_right_high", "front_right_34"),
         best_view: bool = True,
         diff: bool = True,
         diff_model: Any | None = None,
@@ -383,7 +383,6 @@ class ReferenceJudge(VlmJudge):
     ):
         super().__init__(rubric, model_id, n_samples, temperature, **kwargs)
         self.silhouette_fn = silhouette_fn or compare_silhouette
-        self.front_view_names = front_view_names
         self.best_view = best_view
         self.diff = diff
         self._diff_model = diff_model
@@ -498,13 +497,6 @@ class ReferenceJudge(VlmJudge):
         return picked[:3]
 
     # ------------------------------------------------------------------ silhouette
-    def pick_front_view(self, views: list[RenderView]) -> RenderView | None:
-        for name in self.front_view_names:
-            for v in views:
-                if v.name == name:
-                    return v
-        return views[0] if views else None
-
     def measure_silhouette(self, inp: JudgeInput) -> dict[str, Any]:
         """{iou, render, reference, extra} or {error}.
 
@@ -538,7 +530,7 @@ class ReferenceJudge(VlmJudge):
             res = best_view_match(views, reference)
             if "iou" in res:
                 return res, str(res.get("view", ""))
-        view = self.pick_front_view(views)
+        view = front_view(views)
         if view is None:  # pragma: no cover - guarded by the caller
             return {}, ""
         return self.silhouette_fn(view.path, reference), view.name

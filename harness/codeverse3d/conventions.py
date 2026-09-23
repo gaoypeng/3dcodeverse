@@ -24,6 +24,10 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from codeverse3d.contracts.artifacts import RenderView
 
 
 class Frame(StrEnum):
@@ -134,6 +138,17 @@ _OBJECT_VIEW_BY_NAME: dict[str, ViewPreset] = {v.name: v for v in OBJECT_VIEWS}
 OBJECT_VIEWS_QUICK: tuple[ViewPreset, ...] = tuple(
     _OBJECT_VIEW_BY_NAME[n] for n in ("front_right_high", "back_left_high", "front", "top")
 )
+
+#: the view a one-camera comparison (the reference silhouette) takes, in preference order;
+#: ``*_34`` are pre-D47 stored runs
+FRONT_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_high", "front_left_high",
+                                     "front_right_34", "front_left_34")
+
+
+def front_view(views: Sequence[RenderView]) -> RenderView | None:
+    """The first of ``FRONT_VIEW_NAMES`` among ``views``, else the first view."""
+    return next((v for n in FRONT_VIEW_NAMES for v in views if v.name == n), views[0] if views else None)
+
 
 #: Scene overview rig (scenes sit on ground: aerial + eye level, no underside).
 SCENE_VIEWS: tuple[ViewPreset, ...] = (

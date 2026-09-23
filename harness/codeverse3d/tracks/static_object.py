@@ -17,7 +17,6 @@ from codeverse3d.contracts.artifacts import (
     GateReport,
     Measurement,
     RenderSet,
-    RenderView,
     Severity,
 )
 from codeverse3d.contracts.common import TRACK_INFO, Track
@@ -27,6 +26,7 @@ from codeverse3d.conventions import (
     BBOX_TOLERANCE_M,
     OBJECT_CLAY_VIEWS,
     OBJECT_VIEWS,
+    front_view,
 )
 from codeverse3d.orchestrator import RefineTask, TaskGroup, compact_instructions
 from codeverse3d.prompts import render
@@ -324,8 +324,6 @@ class StaticObjectTrack(BaseTrack):
 # ===================================================================== reference images
 SILHOUETTE_GATE = "reference_silhouette"
 IOU_REFINE_THRESHOLD = 0.6
-FRONT_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_high", "front_left_high",
-                                     "front_right_34", "front_left_34")  # *_34 = pre-D47 stored runs
 
 
 def target_reference(ctx: RunContext) -> str | None:
@@ -336,18 +334,10 @@ def target_reference(ctx: RunContext) -> str | None:
     return next((r.path for r in refs if r.role == "target"), refs[0].path)
 
 
-def front_view(renders: RenderSet) -> RenderView | None:
-    for name in FRONT_VIEW_NAMES:
-        for v in renders.views:
-            if v.name == name:
-                return v
-    return renders.views[0] if renders.views else None
-
-
 def silhouette_gate(ctx: RunContext, renders: RenderSet) -> GateReport | None:
     """``None`` when the spec has no reference images or nothing could be compared."""
     ref = target_reference(ctx)
-    view = front_view(renders)
+    view = front_view(renders.views)
     if ref is None or view is None:
         return None
     try:
