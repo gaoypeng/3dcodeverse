@@ -41,6 +41,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse3d.contracts.common import (
@@ -263,8 +264,6 @@ def agent_max_turns(default: int = DEFAULT_AGENT_MAX_TURNS) -> int:
 
     ``0`` means *no cap*: the caller leaves ``AgentJob.max_turns`` at the backend's
     own default.  That is the measured default (docs/COST.md §17)."""
-    from codeverse3d.config import get_settings
-
     return get_settings().limits.agent_max_turns or max(0, int(default))
 
 

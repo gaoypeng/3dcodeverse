@@ -12,6 +12,7 @@ from rich.markup import escape
 from codeverse3d.addons.dataset.pairs import MIN_PREFERENCE_DELTA, build_pairs
 from codeverse3d.cli import _common as C
 from codeverse3d.cli._common import console, kv_table, ok, warn
+from codeverse3d.config import get_settings
 
 flywheel_app = typer.Typer(no_args_is_help=True)
 
@@ -102,7 +103,6 @@ def caption_cmd(
     """Caption run(s): {detailed, instruction, factory} via a chat model."""
     from codeverse3d.addons.dataset.captions import CaptionError, caption_sample
     from codeverse3d.addons.dataset.export import load_captions
-    from codeverse3d.config import get_settings
     from codeverse3d.cost.instrument import run_ledger
     from codeverse3d.proc import RunLocked, exclusive
     from codeverse3d.record.record import iter_runs, load_record

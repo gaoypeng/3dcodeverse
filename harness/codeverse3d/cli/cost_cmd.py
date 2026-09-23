@@ -24,6 +24,7 @@ import typer
 from typer.core import TyperGroup
 
 from codeverse3d.cli._common import console, ok, runs_root, warn
+from codeverse3d.config import get_settings
 
 #: a price row older than this needs re-checking against the provider's page
 STALE_AFTER_DAYS = 90
@@ -212,7 +213,6 @@ def cache(
 @cost_app.command("profiles")
 def profiles() -> None:
     """The economy / balanced / quality dial and what each is measured to cost."""
-    from codeverse3d.config import get_settings
     from codeverse3d.cost.profiles import profile_table
 
     header = ("profile", "generator", "judge", "shape", "$/run", "measured quality")

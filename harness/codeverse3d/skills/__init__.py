@@ -30,6 +30,7 @@ import logging
 from collections.abc import Iterator
 from pathlib import Path
 
+from codeverse3d.config import get_settings
 from codeverse3d.skills.model import (
     SKILL_FILE,
     Skill,
@@ -43,8 +44,6 @@ log = logging.getLogger(__name__)
 def skills_dir() -> Path:
     """The bundle root: this package's directory, as for prompts and rubrics
     (``C3D_SKILLS_DIR`` points it elsewhere, read at call time)."""
-    from codeverse3d.config import get_settings
-
     override = get_settings().skills_dir
     if override:
         return override.expanduser()

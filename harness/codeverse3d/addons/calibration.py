@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from codeverse3d.addons import select
 from codeverse3d.cli._judge import build_judge_input, make_judge, rubric_for
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import Judgment, RenderSet
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.contracts.spec import Spec
@@ -262,8 +263,6 @@ def calibrate(
     ``fixed_order`` sends every sample the same montage order, so ``mean_std`` becomes the
     model's own re-judge σ instead of its order-permutation σ (see ``VlmJudge.fixed_order``).
     """
-    from codeverse3d.config import get_settings
-
     model_id = model_id or get_settings().default_judge
     out = Path(out_dir) if out_dir else Path.cwd()
     out.mkdir(parents=True, exist_ok=True)

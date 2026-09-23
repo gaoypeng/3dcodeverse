@@ -17,6 +17,7 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import GateReport
 from codeverse3d.contracts.run import SkillsUsage
 from codeverse3d.tracks.common import RunContext
@@ -30,7 +31,6 @@ def attach_for_round(ctx: RunContext, *, index: int, kind: str, findings: Sequen
     """Route + materialise this round's skills.  Returns the ``SkillsMaterialized``.
 
     ``findings``: the previous round's gates — the input no CLI's own loader can see."""
-    from codeverse3d.config import get_settings
     from codeverse3d.skills import attach_skills
 
     # drop the previous round's set first: a failure below must not leave this round

@@ -27,6 +27,7 @@ from google.genai import errors as genai_errors
 from google.genai import types
 from PIL import Image
 
+from codeverse3d.config import Rate, get_settings
 from codeverse3d.contracts.chat import (
     ChatMessage,
     ChatRequest,
@@ -211,8 +212,6 @@ def shared_pool(keys: list[str], *, max_in_flight: int | None = None) -> KeyPool
     """One ``KeyPool`` per distinct (key list, in-flight cap) per process; an unset cap comes
     from ``Settings.rate.max_in_flight``.  Its slots are machine-wide: every process draws
     from the same ``<cache_dir>/slots/gemini/NN.lock`` files (``retry.Slots``, COST §23)."""
-    from codeverse3d.config import get_settings
-
     cap = _rate().max_in_flight if max_in_flight is None else max_in_flight
     sig = (*keys, f"|{cap}")
     with _registry_lock:
@@ -225,8 +224,6 @@ def shared_pool(keys: list[str], *, max_in_flight: int | None = None) -> KeyPool
 
 
 def _rate() -> Any:
-    from codeverse3d.config import Rate, get_settings
-
     try:
         return get_settings().rate
     except Exception:  # pragma: no cover - settings must never break a model call
@@ -234,8 +231,6 @@ def _rate() -> Any:
 
 
 def _default_timeout_s() -> float:
-    from codeverse3d.config import get_settings
-
     try:
         return float(get_settings().model_timeout_s)
     except Exception:  # pragma: no cover - settings must never break a model call
@@ -243,8 +238,6 @@ def _default_timeout_s() -> float:
 
 
 def _default_keys() -> list[str]:
-    from codeverse3d.config import get_settings
-
     return list(get_settings().gemini_api_keys)
 
 
@@ -300,8 +293,6 @@ def _ipv4_client_args() -> dict[str, Any]:
     — the WSL2 IPv6 path drops these silently and a buffered read then holds the
     socket for the whole attempt budget.  ``C3D_IPV4=off`` restores the default
     (dual-stack) resolution."""
-    from codeverse3d.config import get_settings
-
     return {"transport": httpx.HTTPTransport(local_address="0.0.0.0")} if get_settings().ipv4 else {}
 
 
@@ -491,7 +482,6 @@ class GeminiModel:
         warnings: list[str],
     ) -> ChatResponse:
         client = _client_for(key, self.timeout_s, self._client_factory)
-        from codeverse3d.config import get_settings
 
         if not get_settings().stream:   # C3D_STREAM=off: the buffered call
             with Stopwatch() as sw:

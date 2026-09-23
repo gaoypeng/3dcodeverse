@@ -32,6 +32,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse3d.contracts.common import Language, Track, Usage
 from codeverse3d.contracts.plan import AcceptanceItem, EngineeringBrief
@@ -56,15 +57,11 @@ BRIEF_TEMPLATE = "tracks/brief_object.j2"
 # ----------------------------------------------------------------------------- brief
 def brief_enabled(spec: Spec) -> bool:
     """Whether to expand the brief for this spec (``C3D_PLAN_BRIEF``; object tracks only)."""
-    from codeverse3d.config import get_settings
-
     return get_settings().plan_brief and spec.track in BRIEF_TRACKS
 
 
 def brief_cache_dir() -> Path:
     """``Settings.cache_dir``/briefs: ``C3D_CACHE_DIR`` AND the config file's ``cache_dir:``."""
-    from codeverse3d.config import get_settings
-
     return get_settings().cache_dir / "briefs"
 
 
@@ -692,8 +689,6 @@ def restart_note(raw: Any, missing: list[str], budget: PlanBudget) -> str:
 
 def restart_enabled() -> bool:
     """Kill switch for the degenerate-plan restart (``C3D_PLAN_RESTART``, ON; docs/COST.md §30)."""
-    from codeverse3d.config import get_settings
-
     return get_settings().plan_restart
 
 

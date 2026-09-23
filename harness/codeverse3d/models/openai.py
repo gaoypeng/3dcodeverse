@@ -11,6 +11,7 @@ import logging
 import time
 from typing import Any
 
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.chat import (
     ChatMessage,
     ChatRequest,
@@ -153,7 +154,6 @@ class OpenAIModel(SdkModel):
     def _make_client(self) -> Any:
         import openai
 
-        from codeverse3d.config import get_settings
 
         s = get_settings()
         key = s.openai_api_key

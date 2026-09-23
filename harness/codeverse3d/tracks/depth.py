@@ -37,6 +37,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from codeverse3d.config import get_settings
 from codeverse3d.conventions import MAX_TRIS_OBJECT, to_pascal, to_snake
 
 log = logging.getLogger(__name__)
@@ -108,8 +109,6 @@ DEFAULT_PARTS_PER_SCOPE = 3
 
 def scoped_generation_enabled() -> bool:
     """``C3D_SCOPED_PARTS=off`` turns per-part scoped baselines off (A/B, debugging)."""
-    from codeverse3d.config import get_settings
-
     return get_settings().scoped_parts
 
 

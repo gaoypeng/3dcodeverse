@@ -23,6 +23,7 @@ import json
 import logging
 from typing import Any
 
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.common import TRACK_INFO
 from codeverse3d.contracts.run import (
     CostSummary,
@@ -113,8 +114,6 @@ def settings_snapshot(record: RunRecord) -> SettingsSnapshot:
     limits: dict[str, Any] = {}
     keys = 0
     try:
-        from codeverse3d.config import get_settings
-
         s = get_settings()
         render = s.render.model_dump(mode="json")
         limits = s.limits.model_dump(mode="json")

@@ -14,6 +14,7 @@ from pathlib import Path
 from codeverse3d.addons.gallery.model import RunEntry
 from codeverse3d.addons.gallery.theme import esc, footer, page_shell, top_bar
 from codeverse3d.addons.gallery.urls import PathError, UrlMaker, safe_join
+from codeverse3d.config import get_settings
 
 #: URL prefix → path under node_modules/three
 VENDOR_MAP = {"three/build/": "build/", "three/examples/jsm/": "examples/jsm/"}
@@ -88,8 +89,6 @@ addEventListener('resize', () => {
 def three_root(runtime_js: Path | str | None = None) -> Path | None:
     """``runtime_js/node_modules/three`` when the vendored copy is installed."""
     if runtime_js is None:
-        from codeverse3d.config import get_settings
-
         runtime_js = get_settings().runtime_js_dir()
     p = Path(runtime_js) / "node_modules" / "three"
     return p if (p / "build" / "three.module.js").is_file() else None

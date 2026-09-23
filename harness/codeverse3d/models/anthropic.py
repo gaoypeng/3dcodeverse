@@ -15,6 +15,7 @@ import json
 import time
 from typing import Any
 
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.chat import (
     ChatMessage,
     ChatRequest,
@@ -184,7 +185,6 @@ class AnthropicModel(SdkModel):
     def _make_client(self) -> Any:
         import anthropic
 
-        from codeverse3d.config import get_settings
 
         key = get_settings().anthropic_api_key
         if not key:
