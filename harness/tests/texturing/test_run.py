@@ -69,6 +69,11 @@ def test_texture_pass_no_judge_and_all_failed(tmp_path, chair_glb, chair_spec, c
     rep = texture_pass(ws, chair_spec, chair_plan, model_id="", image_model=FakeImageModel(), judge=False, render=fake_render,
                        cache_dir=tmp_path / "cache")
     assert rep.shipped and rep.gate is None and any("skipped" in n for n in rep.notes)
+    from codeverse3d.cli.main import app
+
+    # `texture show` tells the user the gate was skipped
+    res = CliRunner().invoke(app, ["texture", "show", str(ws.root)])
+    assert res.exit_code == 0 and "judge gate skipped" in res.output, res.output
     # every image fails → nothing applied, not shipped, no crash — and a stray
     # canonical file from an earlier pass is removed even on this early-return path
     ws2 = _ws(tmp_path / "b", chair_glb, chair_spec, chair_plan)
