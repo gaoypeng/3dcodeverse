@@ -94,7 +94,7 @@ def cross_section(
 #: horizontal axis index, human title, axes note).  Vertical is Y (up) on both.
 JUDGE_SLICE_PLANES: dict[str, tuple[int, int, str, str]] = {
     "front_back": (0, 2, "front-back",
-                   "horizontal = front-back (Z, front left), vertical = up (Y); cut at centre x"),
+                   "horizontal = front-back (Z, front right), vertical = up (Y); cut at centre x"),
     "left_right": (2, 0, "left-right",
                    "horizontal = left-right (X), vertical = up (Y); cut at centre z"),
 }

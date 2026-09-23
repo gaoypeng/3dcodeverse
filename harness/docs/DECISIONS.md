@@ -934,7 +934,8 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   (`build_last.json` gone).  JS syntax: one node process per lint, a content-hash cache (scene lint
   2.4–2.7 s → 0.01–0.24 s), `node --check` confirms any rejection.  One section renderer: the
   `cross_section` tool draws through the D48 judge path, whose slices are pinned to the pixel.
-  KNOWN, not fixed (owner's call): the front_back slice says "front left", the front is drawn right.
+  The front_back slice's note said "front left" while +Z (front) is drawn on the right; the note
+  now says "front right" (owner: the label must match the image the judge gets).
 * **D89 Evaluation states uncertainty one way (2026-09-22).**  `eval/bench/stats.py`: the paired 95 %
   Student-t interval ("separated" = excludes zero; 2·SE understated it by 15–38 % at n = 4–8), the
   exact sign test, `statistics.correlation`.  Every journal is read through `_jsonl.read_jsonl`

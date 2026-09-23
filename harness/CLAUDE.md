@@ -47,7 +47,7 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
 `tests/core/test_portability.py`.  Details: `docs/INSTALL.md` §2.1.
 
 ## Environment (this machine)
-- Gemini keys: `~/.config/astra3d/gemini_keys.env` (21 keys) → `get_settings().gemini_api_keys`
+- Gemini keys: `~/.config/astra3d/gemini_keys.env` (15 keys, the owner's list of 2026-09-22) → `get_settings().gemini_api_keys`
   (or `GEMINI_API_KEYS` / `GEMINI_API_KEY` env).  Settings: `~/.config/3dcodeverse/config.yaml`
   or `./3dcodeverse.yaml`, env prefix `C3D_` (the pre-D78 `CV3D_*` names are still read) (`C3D_RENDER__GPU=off`, `C3D_RUNS_DIR=…`,
   `C3D_DEFAULT_CANDIDATES=2`).  Every `C3D_*` switch is a `Settings` field read through `get_settings()`
