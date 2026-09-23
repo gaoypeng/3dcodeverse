@@ -119,12 +119,18 @@ def _jsonable(obj: Any) -> Any:
 
 
 class StageRunner:
-    """Runs stages with resume semantics on top of ``RunState`` + ``EventLog``."""
+    """Runs stages with resume semantics on top of ``RunState`` + ``EventLog``.
 
-    def __init__(self, ws: Workspace, events: EventLog, state: RunState | None = None):
+    ``frozen`` (the run already has rounds): a stage with a recorded result serves it even when
+    its key drifted (``stage.frozen``) — the rounds refined what it wrote, and re-running it would
+    re-pay its session and overwrite that work.  ``resume --force`` archives the rounds, and is
+    the one way to regenerate a stage under them."""
+
+    def __init__(self, ws: Workspace, events: EventLog, state: RunState | None = None, *, frozen: bool = False):
         self.ws = ws
         self.events = events
         self.state = state if state is not None else RunState()
+        self.frozen = frozen
         #: the scene baseline fans sibling stages out in parallel; the bookkeeping
         #: (``state.stages`` + the ``run_state.json`` save) must not interleave
         self._lock = threading.Lock()
@@ -149,7 +155,7 @@ class StageRunner:
         h = hash_inputs(inputs)
         path = self.result_path(name)
         prior = self.state.stages.get(name)
-        if prior is not None and prior.inputs_hash == h and path.is_file():
+        if prior is not None and (prior.inputs_hash == h or self.frozen) and path.is_file():
             # A cached result that cannot be read back is a cache MISS, not a dead run.
             # ``inputs_hash`` covers the INPUTS only, never the result model's schema, so a
             # contract that gained a field invalidates nothing — and a clobbered file
@@ -165,7 +171,8 @@ class StageRunner:
                                  error=f"{type(e).__name__}: {e}")
                 log.warning("stage %s: cached result at %s is unusable (%s); re-running", name, path, e)
             else:
-                self.events.emit("stage.cached", stage=name, inputs_hash=h, path=str(path))
+                self.events.emit("stage.cached" if prior.inputs_hash == h else "stage.frozen", stage=name,
+                                 inputs_hash=h, path=str(path))
                 return result  # type: ignore[return-value]
 
         self.events.emit("stage.start", stage=name, inputs_hash=h)

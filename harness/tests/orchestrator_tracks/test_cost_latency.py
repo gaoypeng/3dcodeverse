@@ -333,6 +333,27 @@ def test_a_budget_stop_before_round_zero_still_delivers_a_judged_round(tmp_path,
     assert salvage["grace_minutes"] > 0
 
 
+def test_a_zones_session_the_clock_stopped_is_kept_for_the_resume(tmp_path, settings):
+    """Q1: the clock is checked AFTER the zones stage is recorded, so the finished (paid) session
+    is cached, and the resume under the salvaged r00 serves it — it used to re-run the zones
+    session over r00's src/ (reproduced in the 2026-09-22 review)."""
+    plan = _threejs_scene_plan()
+    spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=1)
+    ws = Workspace(tmp_path / "runs" / "quay")
+    agent = FakeAgent(lambda job, ws_: {rel: "export function build(){}\n" for rel in (job.files_hint or ["src/scene.js"])},
+                      cost=1.3, minutes=3.0)
+    mk = lambda: SceneTrack(services=FakeServices(assemble=True), judge=FakeJudge(scores=(0.58, 0.6)), agent=agent,  # noqa: E731
+                            planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
+                            runtime=FakeRuntime(Language.SCENE_THREEJS))
+    with fake_clock():
+        rec = mk().run(spec, ws)
+        assert rec.status is RunStatus.BUDGET and len(rec.rounds) == 1
+        assert "zones" in RunState.load(ws).stages
+        agent.jobs.clear()
+        mk().run(spec.model_copy(update={"budget": spec.budget.model_copy(update={"max_minutes": 100.0})}), ws, resume=True)
+    assert agent.jobs and not any(j.label.startswith("zone") for j in agent.jobs)
+
+
 def test_soft_budget_notes_land_in_the_round_record(tmp_path, settings):
     plan = _threejs_scene_plan()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)

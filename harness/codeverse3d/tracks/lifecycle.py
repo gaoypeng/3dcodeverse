@@ -233,7 +233,7 @@ class BaseTrack:
             # FAILED/BUDGET handlers below serialize the real rounds, never [].
             rounds: list[RoundRecord] = self.reconcile_resume(spec, ws, events, state, resume=resume, force=force)
             ctx = self.build_context(spec, ws, events, state)
-            runner = StageRunner(ws, events, state)
+            runner = StageRunner(ws, events, state, frozen=bool(rounds))
             events.emit("run.start", track=self.track.value, language=spec.language.value, resume=resume,
                         agent=ctx.agent_id, planner=spec.backends.planner, judge=spec.backends.judge)
             stop = RunStatus.FAILED

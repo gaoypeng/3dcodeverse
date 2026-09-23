@@ -162,7 +162,10 @@ unless you type `--host` yourself; it never serves a path outside the declared r
                                         # resumes as is; the other stops are finished.  The budget
                                         # SNAPSHOT is restored: the active minutes already spent still count, so a
                                         # raised --max-minutes grants only the difference (downtime never counts);
-                                        # the money is the ledger's, and the step log (the run's minutes) carries on
+                                        # the money is the ledger's, and the step log (the run's minutes) carries on.
+                                        # Once rounds exist a recorded stage never runs again: one whose key drifted (a
+                                        # code change to what it hashes) serves its recorded result (`stage.frozen`); only
+                                        # `resume --force` — which archives the rounds — regenerates a stage under them
 3dcode pick <slug> [--by score|pairwise] [--round N] [--texture] [--judge MODEL]
                                         # hand over a round: deliverable/ + selection.json (addons/select).  score =
                                         # highest effective score, ties → fewer gate errors → the earlier round;

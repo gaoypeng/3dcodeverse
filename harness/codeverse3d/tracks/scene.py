@@ -239,6 +239,9 @@ class SceneTrack(BaseTrack):
         runner.stage("zones", lambda: self._zones_stage(ctx),
                      inputs={"plan": plan, "asset_api": ctx.extra["asset_api"], "layouts": ctx.extra["layouts"], "agent": ctx.agent_id,
                              **textures})
+        # stage boundary, AFTER the finished zones are recorded: a run the clock stops here keeps
+        # them (salvage assembles them; a resume serves them instead of paying the session again)
+        ctx.budget.check()
         runner.stage("assemble", lambda: self._assemble_stage(ctx), inputs={"plan": plan})
 
     # ---- degradation ------------------------------------------------------
@@ -327,7 +330,7 @@ class SceneTrack(BaseTrack):
         try:
             r = self._stage_session(ctx, "zones", "zone", lambda gen: self._zone_task(gen, zones))
         except Exception as e:  # noqa: BLE001 — BudgetExceeded included: the stage is still
-            # recorded + committed; the guard's boundary check below stops the run
+            # recorded + committed; the boundary check after the stage stops the run
             log.warning("zones session failed: %s: %s", type(e).__name__, e)
             out = {zone.name: {"ok": False, "notes": f"{type(e).__name__}: {e}"} for zone in zones}
         else:
@@ -341,7 +344,6 @@ class SceneTrack(BaseTrack):
                 ok = r.ok and (len(zones) == 1 or rel in written or _touched(ctx.ws.root / rel, t0))
                 out[zone.name] = {"ok": ok, "files": [rel] if ok else [], "notes": r.notes}
         ctx.events.emit("zones.done", ok=[k for k, v in out.items() if v["ok"]], failed=[k for k, v in out.items() if not v["ok"]])
-        ctx.budget.check()  # stage boundary: stop only after the finished zones are committed
         return out
 
     def _zone_task(self, ctx: RunContext, batch: list[ZonePlan]) -> GenerationTask:

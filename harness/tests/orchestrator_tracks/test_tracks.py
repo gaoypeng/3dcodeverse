@@ -281,27 +281,46 @@ def test_scene_children_are_stages_and_a_failed_env_never_repays_assets(tmp_path
     assert len(rec.rounds) == 1
 
 
-def test_a_mood_only_replan_invalidates_the_env_stage(tmp_path, settings):
-    """Review-3 V4a: the stage key is the whole plan, so a re-plan differing only in
-    `mood` misses the cache (it used to serve an env generated under the old mood)."""
+def _mood_replanned(tmp_path, settings, name, *, force):
+    """A scene run with r00, whose plan then changes ONLY in `mood`; resumed, after archiving the
+    rounds the way `resume --force` does when ``force``.  Returns (resumed job labels, event names)."""
     plan = _small_scene_plan()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
-    ws = Workspace(tmp_path / "runs" / "harbour4")
+    ws = Workspace(tmp_path / "runs" / name)
     agent = FakeAgent(_scene_writer)
     mk = lambda: SceneTrack(services=FakeServices(assemble=True), judge=FakeJudge(scores=(0.6, 0.6)), agent=agent,  # noqa: E731
                             planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
                             runtime=FakeRuntime(Language.SCENE_THREEJS))
     mk().run(spec, ws)
     assert "env" in [j.label for j in agent.jobs]
-    # simulate a `resume --force` re-plan that changed ONLY the mood
     stage_file = ws.root / "stages" / "plan.json"
     data = json.loads(stage_file.read_text())
     assert data["result"]["mood"] != "desolate, horror"
     data["result"]["mood"] = "desolate, horror"
     stage_file.write_text(json.dumps(data))
+    if force:
+        SceneTrack._archive_pre_force(ws)
     agent.jobs.clear()
+    n_events = len(EventLog(ws.events_path).read())
     mk().run(spec, ws, resume=True)
-    assert "env" in [j.label for j in agent.jobs]  # a stale cached env must not be served
+    return [j.label for j in agent.jobs], [e["event"] for e in EventLog(ws.events_path).read()[n_events:]]
+
+
+def test_a_mood_only_replan_invalidates_the_env_stage(tmp_path, settings):
+    """Review-3 V4a: the stage key is the whole plan, so a re-plan differing only in
+    `mood` misses the cache (it used to serve an env generated under the old mood) — once the
+    rounds are archived, as `resume --force` does."""
+    labels, _ = _mood_replanned(tmp_path, settings, "harbour4", force=True)
+    assert "env" in labels  # a stale cached env must not be served
+
+
+def test_a_drifted_stage_key_never_reruns_a_stage_under_existing_rounds(tmp_path, settings):
+    """F5: with r00 on disk, a drifted key (81 of 91 recorded scene runs, after ScenePlan.interior)
+    serves the recorded env / zones instead of re-paying their sessions over the rounds' src/."""
+    labels, events = _mood_replanned(tmp_path, settings, "harbour5", force=False)
+    assert labels == []
+    assert events.count("stage.frozen") >= 3  # env, zones, assets (at least)
+    assert "stage.start" not in events
 
 
 class _ProbedSceneRuntime(FakeRuntime):
