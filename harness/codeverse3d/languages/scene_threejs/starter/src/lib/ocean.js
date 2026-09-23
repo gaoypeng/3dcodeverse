@@ -450,11 +450,12 @@ export function makeOceanSurface(opts = {}) {
   group.name = opts.name ?? 'Ocean';
   group.add(sea);
   group.userData.placement = 'free';
-  // Shader displacement needs a conservative bound for frustum/scene probes.
-  geometry.computeBoundingSphere();
-  geometry.boundingSphere.radius += height * 2;
+  // Shader displacement needs a conservative bound for frustum/scene probes:
+  // crests reach the amplitude sum (local z), chop moves them by chopScale times it.
+  const reach = waves.reduce((sum, w) => sum + w.z, 0);
   geometry.computeBoundingBox();
-  geometry.boundingBox.expandByScalar(height);
+  geometry.boundingBox.expandByVector(new THREE.Vector3(chopScale * reach, chopScale * reach, reach));
+  geometry.boundingSphere = geometry.boundingBox.getBoundingSphere(new THREE.Sphere());
   const u = sea.material.uniforms,
     base = sea.onBeforeRender;
   const lp = new THREE.Vector3(),
