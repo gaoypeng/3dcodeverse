@@ -18,9 +18,8 @@ or off — write shaders that work either way) and `loaders = { gltf, texture, c
 manager }` (GLTFLoader etc.).  It awaits `createScene`, validates the return value, then
 for each camera renders at t ∈ {0, 1.5} s (calling `update`) and takes probes (tris, draw
 calls, console/shader errors, camera-inside-geometry, black/blown frames, content coverage,
-fps).  Frame gate (`scene_frames`, ERROR on authored cameras): mean luminance < 0.12 or
-> 35 % near-black pixels = too dark; > 20 % pure white = blown; establishing shot with < 20 %
-content pixels (rest sky/ground) = content too small.  Dusk/night = coloured, never black
+fps).  Frame gate (`scene_frames`, ERROR on authored cameras): too dark, blown out, or an
+establishing shot that is mostly sky/ground.  Dusk/night = coloured, never black
 (cookbook: "Dusk / night lighting recipe").
 
 ## createScene return value
@@ -54,10 +53,9 @@ bloom: author them at peak 1.5–4, not 20.  `--no-post` / `C3D_POST=0` turns it
 `Date.now()`/`performance.now()` (use `t`); `requestAnimationFrame`; creating a renderer;
 changing renderer settings; environment sniffing (`navigator.userAgent`, headless checks).
 
-## Budget
-≤ 2 M triangles, ≤ 200 draw calls (InstancedMesh for anything repeated > 5×), ≤ 40
-materials, textures only procedural (DataTexture / CanvasTexture is NOT available), GLB
-assets ≤ 5 MB each, `createScene` resolves in < 15 s, `update` < 4 ms.
+## Efficiency
+InstancedMesh for anything repeated > 5×; textures only procedural (DataTexture /
+CanvasTexture is NOT available); `update` allocates nothing and traverses nothing.
 
 ## Naming
 Zones are Groups named PascalCase (plan zone names); assets Groups PascalCase; every

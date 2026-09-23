@@ -46,7 +46,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) { ...; fragColor = vec4(co
   A static result caps the score at 0.5; NaN/Inf pixels cap it at 0; all-black / blown-out frames cap at 0.5.
 * Guard the maths: `x / max(d, 1e-4)`, `sqrt(max(x, 0.0))`, `normalize()` only of non-zero vectors,
   `clamp()` acos/asin inputs, `pow(max(x,0.0), k)`.
-* Keep it real-time: ≤ ~100 raymarch steps, ≤ 8 fbm octaves, no nested 100×100 loops.
+* Keep loop bounds constant and small.
 * Feedback (`u_prev`): sample at `uv` (optionally offset / scaled), mix with the new frame, and DECAY it
   (`prev * 0.9`) — unbounded accumulation blows out.  buffer_a.frag reads its own previous frame as `u_prev`;
   shader.frag reads the buffer as `u_buffer_a` and its own previous frame as `u_prev`.

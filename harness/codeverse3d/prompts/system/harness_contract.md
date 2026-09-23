@@ -69,12 +69,11 @@ is not evidence; a render is.
   that fails — a loud error is cheaper than a silent wrong model.
 * Do not edit `plan.json`, `spec.json` or anything under `artifacts/`.
 
-## 6. Performance limits
+## 6. Efficient code
 
-* Static objects ≤ 600 k triangles (aim 20–150 k); scenes ≤ 2 M triangles and ≤ 200
-  draw calls (instancing for repeats); URDF ≤ 60 links.
-* Build must finish in < 120 s (bpy / CadQuery) or < 20 s (node).  No infinite loops,
-  no per-vertex Python loops over > 200 k vertices, no subdivision level > 3.
+* Use instancing / merged geometry for repeats.
+* No infinite loops, no per-vertex Python loops over whole meshes (use modifiers /
+  `foreach_set`).
 
 ## 7. Definition of done (all boxes, in order)
 

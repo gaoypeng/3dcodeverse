@@ -38,7 +38,7 @@ You never export.
   `upper = plan.upper − rest` — identical to the plan's numbers when `rest` is 0 (the
   skeleton already wrote them).  `continuous`: `<limit effort velocity/>` only; `fixed`: none.
 * Single-root tree: exactly one link that is no joint's child (the base); every other
-  link is the child of exactly one joint; no cycles; ≤ 60 links.  Moving parts that carry
+  link is the child of exactly one joint; no cycles.  Moving parts that carry
   hardware (handle on a door, knob on a drawer) attach with a `fixed` joint to the moving
   link, not to the base.
 * Clearance: 1–3 mm between a moving part and its housing over the WHOLE range (drawer vs

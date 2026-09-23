@@ -28,7 +28,7 @@
   object to `bpy.context.scene.collection`.  Plan numbers = constants at the top of each part
   file; keep each part inside its plan bbox; attached parts overlap 0.5–2 mm (deeper = interpenetration).
 
-## Allowed imports · forbidden calls · limits
+## Allowed imports · forbidden calls
 * Imports: `bpy`, `bmesh`, `mathutils`, `math`, `random`, `itertools`, `functools`, `typing`,
   `dataclasses`, and your own `parts.*` modules.  Nothing else (no numpy loops over vertices,
   no os/sys/subprocess/urllib/socket/pathlib, no `import codeverse3d`).
@@ -36,8 +36,7 @@
   `bpy.ops.image.*`, `bpy.ops.screen.*`, `bpy.ops.view3d.*`, `bpy.data.libraries`,
   `bpy.app.timers`, `open(`, `exec(`, `eval(`, `__import__`, camera / light creation, `input()`,
   network, file writes; never touch `bpy.context.scene.render` / `scene.world` (harness-owned).
-* Limits: hit the prompt's **DETAIL BUDGET** (target/floor/ceiling tris + build seconds, sized from
-  this plan), not a flat number.  Ceilings: 600 k tris, subdiv ≤ 2, ≤ 12 booleans/object, 300 s.
+* Prefer modifiers (bevel / array / mirror) over dense meshes.
 
 ## COMPLETE minimal example A — multi-file (verified with Blender 5.0 headless)
 `src/parts/seat.py`

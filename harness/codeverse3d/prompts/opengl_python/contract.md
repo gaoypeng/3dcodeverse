@@ -34,7 +34,7 @@ def render(ctx: moderngl.Context, state, t: float, frame: int, fbo: moderngl.Fra
 * No `moderngl.create_context()` / `create_standalone_context()` (the harness owns the context), no windows, no
   `time.time()` / clocks, no `open()` / file writes / subprocess / network / `os` / `sys`.
 * GLSL strings: `#version 330 core`, `in`/`out` qualifiers, `out vec4 fragColor;` (no gl_FragColor / varying).
-* Keep frame cost sane (≤ 1M instances·vertices, ≤ 4 full-screen passes); the harness times out at a few minutes per build.
+* Keep frame cost sane.
 
 ## Errors come back as `src/program.py:LINE: <Exception>`.  GLSL compile errors show the driver log with line
 numbers inside the shader STRING; moderngl raises `KeyError: 'u_name'` when you set a uniform the compiler

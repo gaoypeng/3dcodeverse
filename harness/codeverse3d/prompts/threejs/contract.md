@@ -37,15 +37,13 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 No CDN URLs, no `three/examples/js/*`, no `three/webgpu`, no `three/tsl`, no npm
 packages other than `three`, no `import ... from 'codeverse3d'` / `../runtime_js`.
 
-## Forbidden / limits
+## Forbidden
 * No `document`, `window`, `canvas`, `Image`, `TextureLoader`, `fetch`, `XMLHttpRequest`,
   `Math.random()` (use a seeded hash), `Date`, `performance`.
 * ShaderMaterial is NOT exported to GLB — use `MeshStandardMaterial` /
   `MeshPhysicalMaterial` only.  Colours via `new THREE.Color(0xRRGGBB)`; vertex colours
   allowed (`geometry.setAttribute('color', …)` + `vertexColors: true`).
-* Triangles: hit the **DETAIL BUDGET in the prompt** (sized from this object's plan); the
-  absolute ceiling is 600 k.  ≤ 300 meshes (use `InstancedMesh` or merged
-  geometries for repeats); module evaluates + builds in < 20 s.  `InstancedMesh`
+* Use `InstancedMesh` or merged geometries for repeats.  `InstancedMesh`
   named `Posts` is exported as a group `Posts` of meshes `Posts_0 … Posts_{n-1}`
   (instance matrices and colours baked), so gates and the census see every copy.
 

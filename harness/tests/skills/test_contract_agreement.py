@@ -82,7 +82,7 @@ def _forbidden_apis(contract: Path) -> set[str]:
     text = contract.read_text()
     out: set[str] = set()
     for line in text.splitlines():
-        # ONLY the prohibitive bullets.  A "Forbidden / limits" block also carries the
+        # ONLY the prohibitive bullets.  A "Forbidden" block also carries the
         # allowed alternatives ("use MeshStandardMaterial only"), and treating those as
         # forbidden would fail every skill that recommends the right thing.
         if not re.match(r"\s*\*?\s*(?:No|Never|Forbidden)\b", line):
