@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { fbm3, mulberry32 } from './noise.js';
 import { patchStandard } from './shader.js';
 
@@ -307,12 +308,7 @@ export function makeRock(opts = {}) {
   rock.name = opts.name ?? `${type[0].toUpperCase() + type.slice(1)}Rock`;
   rock.castShadow = true; rock.receiveShadow = true;
   rock.userData.update = () => {};
-  let disposed = false;
-  rock.userData.dispose = () => {
-    if (disposed) return;
-    disposed = true;
-    geometry.dispose(); material.dispose();
-  };
+  attachDisposal(rock, snapshotResources(rock));
   rock.userData.seed = opts.seed ?? 31;
   rock.userData.rockType = type;
   return rock;
@@ -324,7 +320,6 @@ export function makeRock(opts = {}) {
  */
 export function makeRockField(opts = {}) {
   const rand = mulberry32(opts.seed ?? 31), group = new THREE.Group();
-  const owned = [];
   group.name = opts.name ?? 'RockField';
   const count = clamp(Math.round(opts.count ?? 24), 0, 160), radius = Math.max(0.1, opts.radius ?? 9);
   for (let i = 0; i < count; i++) {
@@ -334,14 +329,8 @@ export function makeRockField(opts = {}) {
     const size = Array.isArray(opts.size) ? opts.size.map((v) => v * factor) : (opts.size ?? 0.6) * factor;
     const rock = makeRock({ ...opts, seed, size, detail: opts.detail ?? 3, name: `${group.name}_${i + 1}` });
     rock.position.set(x, opts.heightAt?.(x, z) ?? 0, z); rock.rotation.y = rand() * Math.PI * 2;
-    group.add(rock); owned.push(rock);
+    group.add(rock);
   }
   group.userData.update = () => {};
-  let disposed = false;
-  group.userData.dispose = () => {
-    if (disposed) return;
-    disposed = true;
-    owned.forEach((rock) => rock.userData.dispose());
-  };
-  return group;
+  return attachDisposal(group, snapshotResources(group));
 }

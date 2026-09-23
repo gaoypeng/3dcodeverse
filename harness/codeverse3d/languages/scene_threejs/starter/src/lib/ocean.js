@@ -14,6 +14,7 @@
  * fall back to the reflection image. No screen-space refraction or fluid solve.
  */
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32 } from './noise.js';
 import { GLSL_UTIL, planarCapture } from './shader.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
@@ -550,15 +551,9 @@ export function makeOceanSurface(opts = {}) {
   };
   group.userData.sampleHeight = (x, z, t = time) =>
     group.userData.sampleSurface(x, z, t).position.y;
-  const ownedMaterial = sea.material;
-  const ownedReflection = sea.getRenderTarget();
-  group.userData.dispose = () => {
-    if (disposed) return;
-    disposed = true;
-    geometry.dispose();
-    ownedMaterial.dispose();
-    ownedReflection.dispose();
-  };
+  const owned = snapshotResources(group).add(sea.getRenderTarget());
+  owned.add({ dispose() { disposed = true; } });
+  attachDisposal(group, owned);
   group.userData.surface = sea;
   group.userData.description =
     '32-band dispersive Gerstner ocean; mean-plane reflection; no fluid interaction or overturning breakers';

@@ -3,6 +3,7 @@
  * footsteps can be seated without a second, subtly different height function.
  */
 import * as THREE from 'three';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { fbm2, mulberry32 } from './noise.js';
 import { patchStandard } from './shader.js';
 
@@ -156,16 +157,9 @@ export function makeSandTerrain(opts = {}) {
   };
   group.userData.sampleHeight = sampleHeight;
   group.userData.update = update;
-  // Assets are explicitly allowed to be parented to this terrain. Snapshot
-  // only the resources constructed here, so caller-owned attachments survive.
-  const owned = [geometry, surface.material, grains?.geometry, grains?.material].filter(Boolean);
-  let disposed = false;
-  group.userData.dispose = () => {
-    if (disposed) return;
-    disposed = true;
-    owned.forEach((resource) => resource.dispose());
-  };
   group.userData.seed = seed;
   update(0);
-  return group;
+  // Assets may be parented to this terrain later; the construction-time
+  // snapshot keeps those caller attachments borrowed.
+  return attachDisposal(group, snapshotResources(group));
 }

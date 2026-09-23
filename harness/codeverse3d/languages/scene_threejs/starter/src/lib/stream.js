@@ -12,6 +12,7 @@
  */
 import * as THREE from 'three';
 import { Reflector } from 'three/addons/objects/Reflector.js';
+import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32 } from './noise.js';
 import { GLSL_UTIL, planarCapture } from './shader.js';
 
@@ -519,7 +520,8 @@ export function makeStream(opts = {}) {
       reflection.onBeforeRender(renderer, scene, camera);
       uniforms.streamReflectionMatrix.value
         .copy(reflection.material.uniforms.textureMatrix.value).multiply(toRigid);
-    }, { mirror: reflection, frame: group, normal: gradeNormal, point: reflection.position });
+    }, { mirror: reflection, frame: group, normal: gradeNormal, point: reflection.position,
+      skip: () => disposed });
   }
   if (opts.bed !== false) {
     const bedMaterial = new THREE.MeshStandardMaterial({
@@ -707,29 +709,12 @@ export function makeStream(opts = {}) {
       width: widthAt(u),
     };
   };
-  // Snapshot owned resources now. Callers may add children or remove meshes
-  // later; neither action changes which allocations this constructor owns.
-  const ownedResources = new Set();
-  const ownedInstances = [];
-  group.traverse((object) => {
-    if (object.isInstancedMesh) ownedInstances.push(object);
-    for (const resource of [
-      object.geometry,
-      ...(Array.isArray(object.material) ? object.material : [object.material]),
-    ]) {
-      if (resource) ownedResources.add(resource);
-    }
-  });
-  group.userData.dispose = () => {
-    if (disposed) return;
-    disposed = true;
-    for (const resource of ownedResources) resource.dispose();
-    for (const object of ownedInstances) object.dispose();
-    if (reflection) {
-      reflection.geometry.dispose();
-      reflection.dispose();
-    }
-  };
+  // The helper Reflector never enters the graph: its geometry, material and
+  // render target are owned explicitly.
+  const owned = snapshotResources(group);
+  if (reflection) owned.add(reflection.geometry).add(reflection);
+  owned.add({ dispose() { disposed = true; } });
+  attachDisposal(group, owned);
   group.userData.surface = surface;
   group.userData.length = length;
   group.userData.description =
