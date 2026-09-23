@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
+from typing import Any
 
 from codeverse3d.contracts.common import Usage
 
@@ -320,6 +321,18 @@ def estimate_cost(provider: str, model: str, usage: Usage) -> float:
     cost += cached * p_cached / m
     cost += (usage.output_tokens + usage.thoughts_tokens) * p_out / m
     return cost
+
+
+def openai_usage(backend: str, model: str, *, prompt: int, cached: int, completion: int, reasoning: int,
+                 **extra: Any) -> Usage:
+    """OpenAI-family tokens (the SDK and codex alike) as a priced ``Usage``.  ``completion``
+    already CONTAINS ``reasoning`` (measured on codex: output − reasoning tracks the answer
+    length), so the reasoning share moves to ``thoughts_tokens`` — still visible, and billed
+    once by :func:`estimate_cost` (output + thoughts), never twice."""
+    usage = Usage(backend=backend, model=model, input_tokens=prompt, output_tokens=max(0, completion - reasoning),
+                  cached_tokens=cached, thoughts_tokens=reasoning, **extra)
+    usage.cost_usd = estimate_cost("openai", model, usage)
+    return usage
 
 
 def cache_write_surcharge(provider: str, model: str, cache_write_tokens: int) -> float:

@@ -29,7 +29,7 @@ from codeverse3d.models.parts import (
     retry_budget_s,
     retry_one_key,
 )
-from codeverse3d.models.pricing import estimate_cost
+from codeverse3d.models.pricing import openai_usage
 from codeverse3d.models.retry import cause_for
 from codeverse3d.models.schema_utils import (
     JsonParseError,
@@ -236,23 +236,9 @@ class OpenAIModel(SdkModel):
         return ChatResponse(text=text, parsed=parsed, finish_reason=finish, usage=usage, raw=raw)
 
     def _usage(self, u: Any, latency_ms: int) -> Usage:
-        if u is None:
-            usage = Usage(backend="openai", model=self.model, latency_ms=latency_ms)
-        else:
-            ptd = getattr(u, "prompt_tokens_details", None)
-            ctd = getattr(u, "completion_tokens_details", None)
-            cached = int(getattr(ptd, "cached_tokens", 0) or 0) if ptd else 0
-            reasoning = int(getattr(ctd, "reasoning_tokens", 0) or 0) if ctd else 0
-            completion = int(u.completion_tokens or 0)
-            usage = Usage(
-                backend="openai",
-                model=self.model,
-                input_tokens=int(u.prompt_tokens or 0),
-                # completion_tokens already includes reasoning; split so the sum stays exact
-                output_tokens=max(0, completion - reasoning),
-                cached_tokens=cached,
-                thoughts_tokens=reasoning,
-                latency_ms=latency_ms,
-            )
-        usage.cost_usd = estimate_cost("openai", self.model, usage)
-        return usage
+        ptd = getattr(u, "prompt_tokens_details", None)
+        ctd = getattr(u, "completion_tokens_details", None)
+        return openai_usage("openai", self.model, prompt=int(getattr(u, "prompt_tokens", 0) or 0),
+                            cached=int(getattr(ptd, "cached_tokens", 0) or 0),
+                            completion=int(getattr(u, "completion_tokens", 0) or 0),
+                            reasoning=int(getattr(ctd, "reasoning_tokens", 0) or 0), latency_ms=latency_ms)

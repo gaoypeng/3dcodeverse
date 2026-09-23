@@ -71,7 +71,7 @@ from codeverse3d.agents.materialize import MCP_SERVER_NAME, MCP_TOOL_TIMEOUT_MS,
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.agent import AgentJob, AgentResult
 from codeverse3d.contracts.common import Usage
-from codeverse3d.models.pricing import cache_write_surcharge, estimate_cost
+from codeverse3d.models.pricing import cache_write_surcharge, estimate_cost, openai_usage
 from codeverse3d.models.retry import KeyPool, KeyPoolExhausted
 from codeverse3d.proc import read_jsonl_lenient, run_subprocess
 
@@ -861,21 +861,10 @@ class CodexEvents:
             self.errors.append(str(ev.get("message") or ev))
 
     def usage(self, model: str) -> Usage:
-        # `output_tokens` from the Responses API already CONTAINS
-        # `reasoning_output_tokens` (measured: output − reasoning tracks the answer
-        # length across every recorded cell).  `estimate_cost` bills output +
-        # thoughts, so the reasoning share is subtracted here instead of being
-        # charged twice — it stays visible in `thoughts_tokens`.
-        reasoning = self.usage_raw["reasoning_output_tokens"]
-        u = Usage(
-            backend="codex", model=model,
-            input_tokens=self.usage_raw["input_tokens"],
-            output_tokens=max(0, self.usage_raw["output_tokens"] - reasoning),
-            cached_tokens=self.usage_raw["cached_input_tokens"], tool_calls=self.tool_calls,
-            thoughts_tokens=reasoning,
-        )
-        u.cost_usd = estimate_cost("openai", model, u)
-        return u
+        r = self.usage_raw   # the Responses API's output_tokens CONTAIN reasoning_output_tokens
+        return openai_usage("codex", model, prompt=r["input_tokens"], cached=r["cached_input_tokens"],
+                            completion=r["output_tokens"], reasoning=r["reasoning_output_tokens"],
+                            tool_calls=self.tool_calls)
 
 
 def parse_codex_jsonl(stdout: str) -> CodexEvents:
