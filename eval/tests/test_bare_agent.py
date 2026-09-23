@@ -72,3 +72,18 @@ def test_run_copies_the_deliverable_and_resumes(tmp_path, monkeypatch):
     assert started + 600 <= job.hard_deadline_s <= time.monotonic() + 600
     run_bare_agent(_spec(), "gemini-cli:gemini-3.7-flash", tmp_path, eval_ws, minutes=10)
     assert len(agent.jobs) == 1   # a finished session is not re-run
+
+
+def test_a_storm_killed_session_is_not_cached_so_a_redo_runs_it(tmp_path, monkeypatch):
+    calls: list[int] = []
+
+    class Storm:
+        def run(self, job: AgentJob) -> AgentResult:
+            calls.append(1)
+            return AgentResult(ok=False, exit_reason="error", transient=True)
+
+    monkeypatch.setattr("bench._bare_agent.get_coding_agent", lambda target: Storm())
+    eval_ws = Workspace(tmp_path / "eval").create()
+    run_bare_agent(_spec(), "gemini-cli:gemini-3.8-flash", tmp_path, eval_ws, minutes=10)
+    run_bare_agent(_spec(), "gemini-cli:gemini-3.8-flash", tmp_path, eval_ws, minutes=10)
+    assert len(calls) == 2 and not (tmp_path / "agent" / ".bare_done.json").exists()

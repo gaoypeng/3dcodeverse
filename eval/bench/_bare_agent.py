@@ -84,7 +84,8 @@ def run_bare_agent(spec: Spec, target: str, cell: Path, eval_ws: Workspace, *, m
                        kind="baseline", language=spec.language.value, track=spec.track.value,
                        env={"NODE_PATH": str(node_modules_dir())})
         result = get_coding_agent(target).run(job)
-        done.write_text(result.model_dump_json(indent=1))
+        if not result.transient:  # a session a 503 storm killed is not finished: a --redo must run it again
+            done.write_text(result.model_dump_json(indent=1))
     for rel in files_for(spec.language):
         src = ws.root / rel
         if src.is_file():
