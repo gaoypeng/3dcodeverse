@@ -132,6 +132,25 @@ def test_generate_files_never_rewrites_a_harness_owned_file(tmp_path):
     assert skip["path"] == "src/recipes.glsl" and "harness-owned" in skip["reason"]
 
 
+
+def test_generate_files_never_writes_under_a_harness_owned_directory(tmp_path):
+    """``HARNESS_OWNED_SRC`` names ``src/lib/`` as a DIRECTORY; the envelope checked by exact
+    match, so a single-shot answer could overwrite the effect library (B1, 2026-09-22) while
+    the CLI path (``is_harness_owned``) reverted the same write."""
+    ws = Workspace(tmp_path / "ws").create()
+    ws.write_json(ws.spec_path, {"language": "scene_threejs", "track": "scene"})
+    (ws.src / "lib").mkdir(parents=True)
+    (ws.src / "lib" / "post.js").write_text("// harness effect library\n")
+    events = EventLog(tmp_path / "e.jsonl")
+    answer = ("=== FILE: src/scene.js ===\n// scene\n=== END FILE ===\n"
+              "=== FILE: src/lib/post.js ===\n// clobbered\n=== END FILE ===")
+    res = generate_files(ws, model=ScriptedModel([(answer, "STOP")]),
+                         task=GenerationTask(label="baseline", prompt="p"), events=events)
+    assert res.ok and [c.path for c in res.files_changed] == ["src/scene.js"]
+    assert (ws.src / "lib" / "post.js").read_text() == "// harness effect library\n"
+    (skip,) = [e for e in events.read() if e["event"] == "generate.skipped_path"]
+    assert skip["path"] == "src/lib/post.js" and "harness-owned" in skip["reason"]
+
 # --------------------------------------------------------------------------- entry ownership
 def test_always_writable_requires_ownership():
     part = GenerationTask(label="p", prompt="p", files_hint=["src/parts/seat.js"])

@@ -43,7 +43,7 @@ from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
-from codeverse3d.contracts.common import Usage
+from codeverse3d.contracts.common import Usage, is_harness_owned
 from codeverse3d.proc import read_json_or_none
 from codeverse3d.workspace import Workspace
 
@@ -181,7 +181,8 @@ def write_files(
 
     ``only`` (an ``edit_only`` task's file scope, entry included when owned) skips a
     path that ALREADY EXISTS and is not listed — new files stay allowed; ``frozen``
-    (the language's harness-owned files, ``src/recipes.glsl``) is skipped outright.
+    (the language's harness-owned files and directories, ``src/recipes.glsl``, ``src/lib/``) is
+    skipped outright (``is_harness_owned``, the CLI side's rule).
     The single-shot envelope has no write-time gate, so this is where a scoped task is
     stopped from rewriting a sibling's file — the mirror of the CLI backends' post-hoc
     ``_enforce_scope`` (until 2026-08-29 only that side protected the harness files)."""
@@ -198,7 +199,7 @@ def write_files(
             continue
         dest = ws.root / rel
         existed = dest.exists()
-        if rel in owned:
+        if is_harness_owned(rel, owned):
             reason = "harness-owned: call its functions, never rewrite it"
             if on_skip is not None:
                 on_skip(raw, reason)
