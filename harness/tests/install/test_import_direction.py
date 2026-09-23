@@ -11,16 +11,15 @@ ROOT = Path(__file__).resolve().parents[2] / "codeverse3d"
 
 #: leaf → the codeverse3d packages it must NOT import
 FORBIDDEN: dict[str, tuple[str, ...]] = {
-    "judges": ("tracks", "flywheel", "cli", "orchestrator", "agents", "gallery", "skills", "texturing"),
-    "workspace.py": ("tracks", "flywheel", "cli", "orchestrator", "agents", "gallery", "skills", "texturing",
-                     "spatial", "languages", "reference", "judges", "models", "cost", "config", "events"),
-    "contracts": tuple(p for p in ("tracks", "flywheel", "cli", "orchestrator", "agents", "workspace", "gallery",
-                                   "skills", "texturing", "spatial", "languages", "reference", "judges", "models",
-                                   "cost", "config", "events", "runlock", "proc")),
-    "proc.py": ("tracks", "flywheel", "cli", "orchestrator", "agents", "workspace", "gallery", "skills", "texturing",
-                "spatial", "languages", "reference", "judges", "models", "cost", "config", "events", "contracts"),
-    "conventions.py": ("tracks", "flywheel", "cli", "orchestrator", "agents", "workspace", "gallery", "skills",
-                       "texturing", "spatial", "languages", "reference", "judges", "models", "cost", "config", "events"),
+    "judges": ("tracks", "addons", "cli", "orchestrator", "agents", "skills", "texturing"),
+    "workspace.py": ("tracks", "addons", "cli", "orchestrator", "agents", "skills", "texturing",
+                     "spatial", "languages", "reference", "judges", "models", "cost", "config"),
+    "contracts": ("tracks", "addons", "cli", "orchestrator", "agents", "workspace", "skills", "texturing",
+                  "spatial", "languages", "reference", "judges", "models", "cost", "config", "proc"),
+    "proc.py": ("tracks", "addons", "cli", "orchestrator", "agents", "workspace", "skills", "texturing",
+                "spatial", "languages", "reference", "judges", "models", "cost", "config", "contracts"),
+    "conventions.py": ("tracks", "addons", "cli", "orchestrator", "agents", "workspace", "skills",
+                       "texturing", "spatial", "languages", "reference", "judges", "models", "cost", "config"),
 }
 
 
@@ -49,3 +48,10 @@ def test_leaf_layer_never_imports_upward(leaf: str) -> None:
             if head in FORBIDDEN[leaf] or f"{head}.py" in FORBIDDEN[leaf]:
                 bad.append(f"{f.relative_to(ROOT.parent)}:{lineno} imports {mod}")
     assert not bad, "leaf layer imports upward:\n  " + "\n  ".join(bad)
+
+
+def test_every_named_layer_exists() -> None:
+    """A renamed or merged package must be renamed here too, or its rule silently guards nothing
+    (``flywheel``, ``gallery``, ``events`` and ``runlock`` stood here long after they were gone)."""
+    names = set(FORBIDDEN) | {n for banned in FORBIDDEN.values() for n in banned}
+    assert not [n for n in sorted(names) if not ((ROOT / n).exists() or (ROOT / f"{n}.py").exists())]
