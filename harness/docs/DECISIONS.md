@@ -883,7 +883,10 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   empty) went; the URDF build collides the rest pose only (D17) and writes no `articulation.json`;
   `GateReport.of` builds every report whose verdict is its findings.  Deleted as unused (owner):
   `effect_ablation`, `compare_silhouette` / `texture_pass` / `texture_preview` (0/1/0 calls in 616
-  sessions; 16 tools remain), `glsl_cookbook.md`.
+  sessions; 16 tools remain), `glsl_cookbook.md`.  Small A/B against its base (2026-09-22; 3 urdf + 2
+  scene prompts, `--rounds 1`, one run each, inside a 503 storm): articulated picked 0.75 / 0.61 / 0.50
+  → 0.63 / 0.70 / 0.59 (mean 0.621 → 0.642), scenes 0.03 / unjudged → 0.09 / 0.47 — nothing broke, and
+  n this small cannot resolve a gain (runs in `~/3dcodeverse_runs/ab_verdict_2026-09-22`).
 * **D83 A vendor session gets its prompt on stdin, sees only routed skills, and is read back from its
   own record (2026-09-22).**  Every CLI reads the prompt from stdin, byte-identical (a 5-zone scene prompt
   passed gemini's 2 000-line `read_file` cut when it went through `task_prompt.md`; argv caps an argument
