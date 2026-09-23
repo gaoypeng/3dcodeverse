@@ -37,6 +37,12 @@ def test_fan_out_preserves_order_and_captures_exceptions():
     res = fan_out([0, 1, 2, 3], fn, max_workers=4, label="t")
     assert res[0] == 0 and res[1] == 10 and res[3] == 30 and isinstance(res[2], ValueError)
     assert fan_out([], fn, 2) == []
+    # workers inherit the caller's context (the run ledger is a contextvar)
+    import contextvars
+
+    var: contextvars.ContextVar[str] = contextvars.ContextVar("attr", default="process-default")
+    var.set("run-42")
+    assert set(fan_out(range(6), lambda _i: var.get(), max_workers=4, label="attr")) == {"run-42"}
 
 
 def test_a_run_state_saved_before_2026_09_22_still_loads(tmp_ws):

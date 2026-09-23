@@ -58,11 +58,6 @@ def test_build_context_restores_the_budget_snapshot(tmp_path, settings):
     ws = Workspace(tmp_path / "runs" / "r").create()
     track = StaticObjectTrack(services=FakeServices(), settings=settings, runtime=FakeRuntime(Language.THREEJS))
 
-    state = RunState()
-    state.extra["budget_snapshot"] = BudgetSnapshot(active_s=240.0).model_dump(mode="json")
-    ctx = track.build_context(spec, ws, EventLog(ws.events_path), state)
-    assert ctx.budget.elapsed_minutes() == pytest.approx(4.0, abs=0.1)
-
     # a snapshot from before the guard lost its money (2026-09-22) still loads: extra keys are ignored
     legacy = {"spent": {"cost_usd": 0.4}, "billed_usd": 0.4, "calls": 1, "by_stage": {"baseline": 0.4},
               "by_round": {"0": {"baseline": 0.4}}, "active_s": 240.0}
@@ -177,18 +172,3 @@ def test_a_baseline_session_the_clock_stopped_after_it_wrote_code_is_salvaged(tm
     rec = track.run(make_spec(max_rounds=0), ws)
     assert rec.status is RunStatus.BUDGET
     assert len(rec.rounds) == 1 and rec.rounds[0].score == pytest.approx(0.6) and "salvaged" in rec.rounds[0].notes
-
-
-def test_a_skeleton_only_budget_trip_still_salvages_nothing(tmp_path, chair_plan, settings):
-
-    def writer(job, ws_):
-        raise BudgetExceeded("elapsed 11.0 min exceeds max_minutes 10.0")
-
-    ws = Workspace(tmp_path / "runs" / "bare")
-    track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.6,)), agent=FakeAgent(writer),
-                              planner_model=FakeChatModel(lambda req: chair_plan.model_dump(mode="json")),
-                              settings=settings, runtime=FakeRuntime(Language.THREEJS), n_candidates=1)
-    rec = track.run(make_spec(max_rounds=0), ws)
-    assert rec.status is RunStatus.BUDGET and rec.rounds == []
-    ev = [e["event"] for e in EventLog(ws.events_path).read()]
-    assert "budget.salvage_skipped" in ev

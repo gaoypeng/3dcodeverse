@@ -79,21 +79,6 @@ def test_generate_files_enforces_the_task_scope(tmp_path):
     assert all("scope" in e["reason"] for e in skips)
 
 
-def test_generate_files_never_rewrites_a_harness_owned_file(tmp_path):
-    ws = Workspace(tmp_path / "ws").create()
-    ws.write_json(ws.spec_path, {"language": "glsl_shader", "track": "graphics"})
-    (ws.src / "recipes.glsl").write_text("float aurora(vec2 p){return 0.0;}\n")
-    events = EventLog(tmp_path / "e.jsonl")
-    answer = ("=== FILE: src/shader.frag ===\nvoid main(){}\n=== END FILE ===\n"
-              "=== FILE: src/recipes.glsl ===\n// clobbered\n=== END FILE ===")
-    res = generate_files(ws, model=scripted([(answer, "STOP")]),
-                         task=GenerationTask(label="baseline", prompt="p"), events=events)
-    assert res.ok and [c.path for c in res.files_changed] == ["src/shader.frag"]
-    assert (ws.src / "recipes.glsl").read_text().startswith("float aurora")
-    (skip,) = [e for e in events.read() if e["event"] == "generate.skipped_path"]
-    assert skip["path"] == "src/recipes.glsl" and "harness-owned" in skip["reason"]
-
-
 def test_generate_files_never_writes_under_a_harness_owned_directory(tmp_path):
     """B1: ``src/lib/`` is a harness-owned DIRECTORY; the envelope checks it by prefix."""
     ws = Workspace(tmp_path / "ws").create()

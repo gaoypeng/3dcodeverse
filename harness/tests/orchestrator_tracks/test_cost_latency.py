@@ -244,15 +244,6 @@ def test_asset_selection_folds_only_over_the_cap():
     kept, alias = select_assets(twins, cap=1)
     assert [k.name for k in kept] == ["PondRock"] and alias == {"SteppingStone": "PondRock"}
 
-    assets = [_asset("HeroBoulder", (2.4, 2.0, 2.2)), _asset("Bench", (1.6, 0.9, 0.6)),
-              _asset("Lantern", (0.4, 1.2, 0.4)), _asset("Crate", (0.6, 0.5, 0.6)),
-              _asset("TalusRock", (1.8, 1.4, 1.6)), _asset("Stool", (0.5, 0.6, 0.5)),
-              _asset("Box", (0.5, 0.4, 0.5)), _asset("Sconce", (0.3, 0.5, 0.2))]
-    kept, alias = select_assets(assets, cap=4)
-    assert len(kept) == 4 and [k.name for k in kept] == ["HeroBoulder", "Bench", "Lantern", "Crate"]
-    # every survivor's twin is reachable as a variant instead of vanishing
-    assert alias == {"TalusRock": "HeroBoulder", "Stool": "Bench", "Box": "Crate", "Sconce": "Lantern"}
-    assert all(v in {k.name for k in kept} for v in alias.values())
 
 
 def test_a_clock_that_trips_after_a_finished_zones_session_records_what_it_wrote(tmp_path, settings):

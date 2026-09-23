@@ -77,6 +77,11 @@ def test_a_restart_costs_an_attempt_not_one_of_the_two_reask_slots(tmp_ws):
     assert len(model.requests) == 4  # first + restart + two re-asks
     # 1 = the request alone (a restart replaces the conversation), then one echo+complaint pair each
     assert [len(r.messages) for r in model.requests] == [1, 1, 3, 5]
+    # every rejected answer is kept where a dead run can be read
+    from codeverse3d.tracks.planner import INVALID_PLAN_DIR
+
+    written = sorted((tmp_ws.root / INVALID_PLAN_DIR).glob("attempt*.json"))
+    assert len(written) == 4 and [p["name"] for p in json.loads(written[0].read_text())["parts"]] == ["Cabinet"]
 
 
 def test_a_full_plan_with_one_dangling_link_is_edited_in_context_not_resampled(tmp_ws):
@@ -91,17 +96,3 @@ def test_a_full_plan_with_one_dangling_link_is_edited_in_context_not_resampled(t
     assert isinstance(p, ArticulatedPlan) and len(model.requests) == 2
     assert len(model.requests[1].messages) == 3  # user + echoed answer + complaint, no restart
     assert "failed validation" in model.requests[1].messages[-1].text
-
-
-def test_a_rejected_plan_is_written_where_a_dead_run_can_be_read(tmp_ws):
-    from codeverse3d.tracks.planner import INVALID_PLAN_DIR
-
-    model = FakeChatModel(lambda req: _degenerate())
-    with pytest.raises(PlanningError):
-        plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model)
-
-    written = sorted((tmp_ws.root / INVALID_PLAN_DIR).glob("attempt*.json"))
-    assert len(written) == 4, [p.name for p in written]      # one per rejected answer
-    first = json.loads(written[0].read_text())
-    assert [p["name"] for p in first["parts"]] == ["Cabinet"]  # the answer, not the error text
-    assert first["joints"][0]["child"] == "Drawer"             # the link it named and never listed

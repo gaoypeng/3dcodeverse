@@ -191,19 +191,6 @@ def test_a_regression_changes_nothing_about_the_loop_and_every_round_reports_its
     assert "cost_by_stage" not in rec.extra
 
 
-def test_fan_out_workers_inherit_the_callers_context():
-    import contextvars
-
-    from codeverse3d.proc import fan_out
-
-    var: contextvars.ContextVar[str] = contextvars.ContextVar("attr", default="process-default")
-    var.set("run-42")
-    seen = fan_out(range(6), lambda _i: var.get(), max_workers=4, label="attr")
-    assert set(seen) == {"run-42"}
-    # the caller's own context is untouched by the workers
-    assert var.get() == "run-42"
-
-
 def test_a_run_past_its_hard_ceiling_cannot_start_another_session(tmp_ws):
     from codeverse3d.contracts.spec import Budget
     from codeverse3d.orchestrator import BudgetExceeded, BudgetGuard

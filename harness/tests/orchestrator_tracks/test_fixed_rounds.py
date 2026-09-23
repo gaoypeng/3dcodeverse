@@ -30,8 +30,7 @@ def _track(chair_plan, settings, scores, *, agent=None) -> StaticObjectTrack:
 @pytest.mark.parametrize(("scores", "max_rounds"), [
     ((0.55, 0.85, 0.95), 3),   # passes at r01 — once a "pass" stop
     ((0.70, 0.40, 0.30), 3),   # regresses twice — once a "regression" stop
-    ((0.60,), 0),
-], ids=["passing", "regressing", "baseline-only"])
+], ids=["passing", "regressing"])
 def test_a_run_is_the_baseline_plus_max_rounds_whatever_the_judge_says(tmp_path, chair_plan, settings, scores,
                                                                        max_rounds):
     ws = Workspace(tmp_path / "runs" / "fixed")

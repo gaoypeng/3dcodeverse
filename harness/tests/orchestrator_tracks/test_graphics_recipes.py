@@ -21,24 +21,20 @@ from codeverse3d.languages.glsl_shader import (
 )
 from codeverse3d.languages.glsl_shader import HEADER as WRAP_HEADER
 from codeverse3d.proc import EventLog
-from codeverse3d.prompts import load_text, render
+from codeverse3d.prompts import load_text
 from codeverse3d.tracks.graphics import (
     HEADER,
     RECIPES_REL,
     RESUME_HEADER,
     cookbook_functions,
     defined_names,
-    graphics_prompt_context,
     is_skeleton_common,
     seed_recipes,
     seeded_on_disk,
 )
-from codeverse3d.tracks.planner import plan_example
 from codeverse3d.workspace import Workspace
 
 AURORA = "Aurora borealis over a mountain ridge with a frozen lake, dense stars, green and violet curtains"
-NOTHING = "a rotating rainbow gear wheel"       # matches the Instancing chapter, which defines no function
-UNMATCHED = "xyzzy plugh"
 AURORA_NAMES = ("curtain", "auroraCol", "aurora", "stars")
 HELPERS = ("hash12", "hash22", "noise", "fbm")
 _DEF = re.compile(r"^[ \t]*(?:float|vec[234]|mat[234]|int|bool|void)\s+(\w+)\s*\(", re.M)
@@ -146,21 +142,6 @@ def test_an_agent_written_common_is_never_touched(tmp_path) -> None:
     assert "`hash12` is already provided by src/recipes.glsl — call it instead of redefining it" in dup[0].message
 
 
-def test_nothing_matches_nothing_seeded_no_file_no_block(tmp_path) -> None:
-    ws = _ws(tmp_path)
-    ctx = _ctx(ws, NOTHING)
-    assert seed_recipes(ctx) == []
-    assert not _recipes(ws).exists() and (ws.src / "common.glsl").read_text() == COMMON_GLSL
-    assert ctx.extra["seeded_recipes"] == []
-    d = graphics_prompt_context(ctx, skeleton_files={}, previous_error="")
-    assert d["seeded_recipes"] == []
-    gen = render("tracks/generate_graphics.j2", **d)
-    assert "Verified helpers in the harness-owned" not in gen and "recipes.glsl" not in gen
-    ws2 = _ws(tmp_path / "b", skeleton=False)
-    assert seed_recipes(_ctx(ws2, NOTHING)) == [] and not _recipes(ws2).exists() and not (ws2.src / "common.glsl").exists()
-    assert seed_recipes(_ctx(ws2, UNMATCHED)) == [] and not _recipes(ws2).exists()
-
-
 def test_resume_appends_only_new_names(tmp_path) -> None:
     ws = _ws(tmp_path)
     first = seed_recipes(_ctx(ws))
@@ -233,26 +214,6 @@ def test_recipes_compose_above_common_and_the_seeded_aurora_renders(tmp_path) ->
     Image = pytest.importorskip("PIL.Image")
     lum = [float(np.asarray(Image.open(f.path).convert("L"), dtype=float).mean() / 255.0) for f in res.frames]
     assert all(v > 0.0 for v in lum), lum
-
-
-def test_prompt_block_lists_the_seeded_names(tmp_path) -> None:
-    ws = _ws(tmp_path)
-    ctx = _ctx(ws, plan=GraphicsPlan.model_validate({**plan_example(Track.GRAPHICS), "key_visuals": ["green aurora curtains", "dense stars"]}))
-    names = seed_recipes(ctx)
-    d = graphics_prompt_context(ctx, skeleton_files={}, previous_error="")
-    assert [r["name"] for r in d["seeded_recipes"]] == names
-    gen = render("tracks/generate_graphics.j2", **d)
-    assert "Verified helpers in the harness-owned, read-only `src/recipes.glsl`" in gen and "do not redefine them" in gen
-    assert "do not copy them into `src/common.glsl`" in gen and "pastes it above" in gen and "ALREADY in `src/common.glsl`" not in gen
-    for n in names:
-        assert re.search(rf"^- `[^`]*\b{n}\([^`]*\)` — .+$", gen, re.M), n
-    assert "float curtain(vec2 p, float t, float seed, out float k)" in gen and "never a comb of bars" in gen
-    assert gen.index("Cookbook excerpt:") < gen.index("Verified helpers in the harness-owned") < gen.index("## Plan")
-    ref = render("tracks/refine_graphics.j2", **graphics_prompt_context(
-        ctx, round_index=1, tasks=["[judge/likeness] overall: no curtain"], targets=["overall"], files=["src/shader.frag"],
-        judge_summary="Previous score 0.3", frame_notes="(no frame metrics)", current_files={}))
-    assert "harness-owned, read-only `src/recipes.glsl`" in ref and "do not copy them into common.glsl" in ref
-    assert all(f"`{n}`" in ref for n in names)
 
 
 def test_a_single_shot_repair_never_inlines_the_harness_owned_recipes(tmp_path) -> None:

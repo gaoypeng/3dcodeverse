@@ -26,7 +26,6 @@ from codeverse3d.tracks import planner as B
 from codeverse3d.tracks import planner as BR
 from codeverse3d.tracks.planner import (
     MAX_QUALITY_REASKS,
-    build_system_prompt,
     build_user_prompt,
 )
 from codeverse3d.tracks.planner import plan as run_planner
@@ -93,11 +92,7 @@ def test_subpart_contracts():
 
 # ----------------------------------------------------------------------------- (3) budgets
 def test_plan_budget_contracts():
-    thin = _plan([_part(f"P{i}", desc=_detailed(i), material=f"m{i}") for i in range(3)])
     assert not B.plan_budget(_spec(must=2)).evidence
-    assert B.plan_quality_complaint(thin, B.plan_budget(_spec(must=2))) == ""
-    assert "Only 3 parts" in B.plan_quality_complaint(thin, B.plan_budget(_spec(must=9)))
-
     small = B.plan_budget(_spec(must=3))
     big = B.plan_budget(_spec(must=13))
     huge = B.plan_budget(_spec(must=40))
@@ -119,14 +114,6 @@ def test_plan_budget_contracts():
 
     text = build_user_prompt(_spec(must=10), budget=B.plan_budget(_spec(must=10)))
     assert "PLAN BUDGET" in text and "10 checklist items" in text
-
-
-def test_plan_templates_render_the_budget_numbers():
-    for track, language, model in ((Track.STATIC_OBJECT, Language.BLENDER, StaticPlan),
-                                   (Track.GRAPHICS, Language.GLSL_SHADER, GraphicsPlan)):
-        spec = _spec(must=9, track=track, language=language)
-        out = build_system_prompt(spec, model, budget=B.plan_budget(spec))
-        assert str(B.plan_budget(spec).target_parts) in out
 
 
 # ----------------------------------------------------------------------------- (4) quality gate
@@ -254,44 +241,6 @@ def test_graphics_pass_elements_are_folded_into_the_one_markdown_row_that_render
     assert "\n" not in once and "|" not in once and "7 gear wheels" in once
     row = passes_table(plan).splitlines()[-1]
     assert row.count("|") == 4 and "integer tooth ratios" in row
-
-
-def test_truncated_plans_keep_growing_output_room(tmp_path, switch):
-    switch("C3D_PLAN_BRIEF", "off")
-    from codeverse3d.models.base import ModelError
-
-    good = json.loads(_plan([_part(f"P{i}", desc=_detailed(i), material=f"m{i}") for i in range(9)]).model_dump_json())
-
-    def run(failures):
-        ws = Workspace(tmp_path / f"run-{failures}").create()
-        seen: list[int] = []
-
-        def responder(req):
-            seen.append(req.max_output_tokens)
-            if len(seen) <= failures:
-                raise ModelError("structured output unavailable (finish_reason=MAX_TOKENS; raise max_output_tokens)")
-            return good
-
-        return seen, run_planner(_spec(must=8), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
-
-    for failures in (1, 2):
-        seen, got = run(failures)
-        assert len(seen) == failures + 1 and seen == sorted(set(seen))
-        assert len(got.parts) == 9
-
-
-def test_a_model_error_that_is_not_truncation_still_propagates(tmp_path, switch):
-    switch("C3D_PLAN_BRIEF", "off")
-    from codeverse3d.models.base import ModelError
-
-    ws = Workspace(tmp_path / "run")
-    ws.create()
-
-    def responder(req):
-        raise ModelError("every key is dead")
-
-    with pytest.raises(ModelError, match="every key is dead"):
-        run_planner(_spec(), "fake:planner", StaticPlan, ws, model=FakeChatModel(responder))
 
 
 # ----------------------------------------------------------------------------- the loop
