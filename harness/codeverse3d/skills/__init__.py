@@ -11,9 +11,8 @@ language / kind / plan / **previous round's gate findings** say it applies.
 
 Why the library lives inside the package: every backend reads it from a materialised
 workspace copy, but the source of truth ships in the wheel, so it must be package data
-(``pyproject.toml`` ``[tool.setuptools.package-data]``) and be resolved through
-``importlib.resources`` — a sibling wave already shipped a wheel whose starter tree was
-silently empty for exactly this reason.
+(``pyproject.toml`` ``[tool.setuptools.package-data]``) — a sibling wave already shipped
+a wheel whose starter tree was silently empty for want of that glob.
 
 Public surface for the rest of the harness::
 
@@ -42,20 +41,14 @@ from codeverse3d.skills.model import (
 log = logging.getLogger(__name__)
 
 def skills_dir() -> Path:
-    """The bundle root (``C3D_SKILLS_DIR`` points it elsewhere), resolved at call time so an
-    installed wheel works too."""
+    """The bundle root: this package's directory, as for prompts and rubrics
+    (``C3D_SKILLS_DIR`` points it elsewhere, read at call time)."""
     from codeverse3d.config import get_settings
 
     override = get_settings().skills_dir
     if override:
         return override.expanduser()
-    try:
-        from importlib.resources import files
-
-        return Path(str(files("codeverse3d.skills")))
-    except Exception as e:  # noqa: BLE001 — a namespace/zip install must not break a run
-        log.debug("importlib.resources could not resolve the skill library (%s); using __file__", e)
-        return Path(__file__).resolve().parent
+    return Path(__file__).resolve().parent
 
 
 def bundle_dirs(root: Path | None = None) -> list[Path]:
