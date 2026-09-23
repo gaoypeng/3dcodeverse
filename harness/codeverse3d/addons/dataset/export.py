@@ -39,7 +39,7 @@ from codeverse3d.addons.dataset import sample as S
 from codeverse3d.addons.dataset.quality import DuplicateGroup, code_sha256, mark_duplicates
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.run import RunId, RunRecord
-from codeverse3d.proc import sha256_file
+from codeverse3d.proc import read_json_or_none, sha256_file, write_json_atomic, write_text_atomic
 from codeverse3d.record._git import CODE_ROOTS
 from codeverse3d.record.record import FoundRun, iter_runs
 from codeverse3d.workspace import Workspace
@@ -84,13 +84,9 @@ def load_captions(
     if captions_dir is not None:
         candidates.append(Path(captions_dir) / f"{slug or ws.root.name}.json")
     for p in candidates:
-        if p.is_file():
-            try:
-                data = json.loads(p.read_text())
-            except ValueError:
-                continue
-            if isinstance(data, dict) and data.get("detailed"):
-                return data
+        data = read_json_or_none(p)
+        if data is not None and data.get("detailed"):
+            return data
     return {}
 
 
@@ -132,15 +128,13 @@ def export_one(
     meshes = S.copy_link_meshes(ws, rnd, dest) if record.spec.language is Language.URDF_BLENDER else []
     textured = S.copy_textured(ws, record, rnd, dest)
     captions = load_captions(ws, record, captions_dir, slug=key)
-    (dest / "captions.json").write_text(json.dumps(_caption_texts(captions), indent=2, ensure_ascii=False))
+    write_json_atomic(dest / "captions.json", _caption_texts(captions))
     all_files = sorted(written + renders + meshes + textured + ["captions.json", "meta.json"])
     meta = S.build_meta(
         ws, record, key=key, entry=entry, files=all_files, renders=renders, rnd=rnd, code_source=code_source,
         code=files, captions=captions,
     )
-    tmp = dest / "meta.json.tmp"
-    tmp.write_text(meta.model_dump_json(indent=2))
-    tmp.replace(dest / "meta.json")
+    write_text_atomic(dest / "meta.json", meta.model_dump_json(indent=2))
     hashes = {rel: sha256_file(dest / rel) for rel in all_files}
     return ExportedSample(dest=dest, file_hashes=hashes,
                           code_sha256=code_sha256(files), meta=meta)
@@ -442,11 +436,7 @@ def write_manifest(manifest: DatasetGenerationManifest, out_dir: Path | str) -> 
     """Atomic write (tmp + replace) of ``<out_dir>/dataset_manifest.json``."""
     if manifest.generated_at is None:
         manifest = manifest.model_copy(update={"generated_at": datetime.now(UTC)})
-    path = Path(out_dir) / MANIFEST_NAME
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(manifest.model_dump_json(indent=2))
-    tmp.replace(path)
-    return path
+    return write_text_atomic(Path(out_dir) / MANIFEST_NAME, manifest.model_dump_json(indent=2))
 
 
 def load_manifest(out_dir: Path | str) -> DatasetGenerationManifest:

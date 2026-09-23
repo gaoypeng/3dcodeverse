@@ -28,6 +28,7 @@ from codeverse3d.addons.dataset.sample import code_files_for_round, exported_rou
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
 from codeverse3d.contracts.run import RunRecord
+from codeverse3d.proc import write_json_atomic
 from codeverse3d.prompts import prompt_hash
 from codeverse3d.record import _git
 from codeverse3d.workspace import Workspace
@@ -204,9 +205,7 @@ def caption_sample(
     payload = {**caps.model_dump(), "provenance": prov.model_dump(mode="json")}
     record.extra["captions"] = payload
     if out_dir is not None:
-        out = Path(out_dir)
-        out.mkdir(parents=True, exist_ok=True)
-        (out / f"{slug or ws.root.name}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+        write_json_atomic(Path(out_dir) / f"{slug or ws.root.name}.json", payload)
         return caps
     from codeverse3d.record.deliverable import build_deliverable, load_deliverable
     from codeverse3d.record.record import package_run
