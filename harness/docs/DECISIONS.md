@@ -1000,7 +1000,7 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   modules join `starter/src/lib/` as source (D51): fire / firefield / smoke / cloudvolume (bounded ray
   marches over baked 3D noise — prescribed transport, not simulation), ocean / stream / waterfall / ice,
   meadow / tree / rock / sand / paving, and `lifecycle.js`: `snapshotResources` + `attachDisposal` are the
-  one rule every factory disposes by (construction-owned geometry, materials, instance buffers released
+  one rule every object factory in `src/lib/` disposes by (construction-owned geometry, materials, instance buffers released
   once; textures and caller additions borrowed).  `shader.js` gained `clonePatchedMaterial`,
   `withRendererState`, alpha/normal/transmission hooks and inverse-transpose normals; finish patches now
   change roughness per pixel under their own mask, not the material's.  Scenes may load
@@ -1008,8 +1008,10 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   `PCFSoftShadowMap` as BASIC (the renderer uses `PCFShadowMap`); the census missed shader-instanced
   geometry; GlHost doubled a relative out dir.  Tests follow D96 (a BUILD row + a GPU group each).  The
   catalog and planner say the effects are zone code, never assets, with no limits stated (D93).
-  `examples/graphics_lab/` is a dev lab (one scene per
-  module, captures tied to source hashes); its `output/` is ignored and none of its media is committed.
+  `examples/graphics_lab/` is a dev lab (sixteen hand-composed studies rendered through the production
+  scene and GL hosts); its `output/` is ignored and none of its media is committed.  2026-09-23: the lab's
+  session notes, provenance tooling, audit logs and the unused cinematic judge were deleted (owner); the lab
+  keeps build/capture/viewer/serve/scenes.
 
 ## Rejected / deferred
 

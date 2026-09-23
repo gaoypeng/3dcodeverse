@@ -95,5 +95,4 @@ Docs: `docs/INSTALL.md` (install / prerequisites / doctor troubleshooting) ·
 (signatures) · `docs/RUNBOOK.md` (operate / extend) · `docs/DECISIONS.md` (ADRs) ·
 `eval/docs/EVAL.md` (evaluation protocol + judge calibration) · `CLAUDE.md` (working rules).
 
-Graphics library: [integration and scope](docs/GRAPHICS_LIBRARY.md) ·
-[executable Graphics Lab](examples/graphics_lab/README.md).
+Effect library studies: [Graphics Lab](examples/graphics_lab/README.md).
