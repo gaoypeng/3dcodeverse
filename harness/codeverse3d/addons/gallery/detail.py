@@ -14,7 +14,7 @@ from urllib.parse import quote
 
 from codeverse3d.addons.gallery.cards import fmt, gallery_figure, tier_tag, verdict_tag
 from codeverse3d.addons.gallery.code import CODE_CSS, numbered, read_text, src_files
-from codeverse3d.addons.gallery.index import _rel
+from codeverse3d.addons.gallery.index import run_rel
 from codeverse3d.addons.gallery.model import RunEntry
 from codeverse3d.addons.gallery.theme import esc, footer, page_shell, top_bar
 from codeverse3d.addons.gallery.urls import UrlMaker
@@ -241,7 +241,7 @@ def _renders_panel(entry: RunEntry, urls: UrlMaker, rec: RunRecord) -> str:
     figs: list[tuple[str, str]] = []
     if rnd is not None and rnd.renders is not None:
         for v in rnd.renders.views:
-            rel = _rel(ws, v.path)
+            rel = run_rel(ws, v.path)
             if rel and (ws.root / rel).is_file():
                 figs.append((v.name, rel))
     figs += [(link.label, link.rel) for link in entry.links

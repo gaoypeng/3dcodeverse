@@ -54,7 +54,7 @@ def default_roots(base: Path | str = ".") -> list[Path]:
     return roots
 
 
-def _rel(ws: Workspace, path: Path | str | None) -> str:
+def run_rel(ws: Workspace, path: Path | str | None) -> str:
     """``path`` (rebased into this workspace) as a run-relative posix string, or ``""``
     when it is outside the run."""
     if not path:
@@ -75,7 +75,7 @@ def _first_file(run_dir: Path, *rels: str) -> str:
 def _round_sheet(ws: Workspace, rec: RunRecord, index: int) -> str:
     rnd = next((r for r in rec.rounds if r.index == index), None)
     if rnd is not None and rnd.renders is not None and rnd.renders.contact_sheet:
-        rel = _rel(ws, rnd.renders.contact_sheet)
+        rel = run_rel(ws, rnd.renders.contact_sheet)
         if rel and (ws.root / rel).is_file():
             return rel
     return _first_file(ws.root, f"artifacts/renders/r{index:02d}/sheet.png")
@@ -116,7 +116,7 @@ def hero_view(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[str, s
         return "", "", 0
     by_name = {v.name: v for v in views}
     chosen = next((by_name[n] for n in HERO_PREFERENCE if n in by_name), views[0])
-    rel = _rel(ws, chosen.path)
+    rel = run_rel(ws, chosen.path)
     if not rel or not (ws.root / rel).is_file():
         return "", "", len(views)
     return rel, humanize_view(chosen.name), len(views)
@@ -147,7 +147,7 @@ def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> lis
         if rnd is None:
             own = [f"artifacts/{name}"]
         else:
-            own = [_rel(ws, out / name)] if out is not None else []
+            own = [run_rel(ws, out / name)] if out is not None else []
         return _first_file(run, f"deliverable/{name}", *own, *extra)
 
     # the texture pack is a link only when a pass SHIPPED from this round's GLB — a stray file
