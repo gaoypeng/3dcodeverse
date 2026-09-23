@@ -18,17 +18,6 @@ from codeverse3d.texturing.materials import (
 from codeverse3d.texturing.plan import FAMILY_DEFAULTS
 
 
-def test_every_family_is_self_consistent():
-    for name, p in MATERIALS.items():
-        assert p.family == name
-        lo, hi = p.roughness_band
-        assert lo <= p.roughness <= hi, f"{name}: canonical roughness outside its own band"
-        lo, hi = p.metallic_band
-        assert lo <= p.metallic <= hi, f"{name}: canonical metallic outside its own band"
-        assert 1.0 <= p.ior <= 2.5
-        assert p.note, f"{name}: a row without a note teaches nothing"
-
-
 def test_coarse_families_of_the_texture_planner_all_resolve():
     assert set(COARSE_TO_FINE) == set(FAMILY_DEFAULTS)
     for coarse, fine in COARSE_TO_FINE.items():

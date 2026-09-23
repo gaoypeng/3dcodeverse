@@ -31,14 +31,12 @@ def _set(tmp_path: Path, views=("three_quarter", "front"), accepted=(True, True)
     return rs
 
 
-def test_user_images_always_win(tmp_path: Path):
-    spec = make_spec(references=[ReferenceImage(path=str(tmp_path / "mine.png"), note="my photo")])
-    assert has_user_references(spec)
-    out, why = attach(spec, _set(tmp_path))
-    assert out is spec and "user --image references win" in why
+def test_user_images_win_and_synthesized_ones_are_marked_everywhere(tmp_path: Path):
+    mine = make_spec(references=[ReferenceImage(path=str(tmp_path / "mine.png"), note="my photo")])
+    assert has_user_references(mine)
+    out, why = attach(mine, _set(tmp_path))
+    assert out is mine and "user --image references win" in why
 
-
-def test_attach_marks_synthesized_everywhere_and_keeps_constraints(tmp_path: Path):
     spec = make_spec()
     out, why = attach(spec, _set(tmp_path))
     assert out is not spec and "synthesized" in why.lower() and len(out.references) == 2

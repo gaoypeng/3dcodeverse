@@ -1,4 +1,4 @@
-"""The texture pass with every dependency injected, and the `3dcode texture` CLI, offline."""
+"""The texture pass with every dependency injected, and `3dcode texture scene-pack`, offline (`show`: test_run)."""
 
 from __future__ import annotations
 
@@ -30,22 +30,6 @@ def test_texture_pass_runs_with_injected_fakes(tmp_path, chair_glb, chair_spec, 
                        plan_model=FakeChatModel(default=PLAN_REPLY), judge_obj=judge, render=fake_render, cache_dir=tmp_path / "c")
     assert rep.shipped and rep.plan.source != "default"
     assert (ws.artifacts / "object_textured.glb").is_file()
-
-
-def test_cli_texture_show_and_help(tmp_path, chair_glb, chair_spec, chair_plan):
-    from codeverse3d.cli.main import app
-
-    ws = _ws(tmp_path, chair_glb, chair_spec, chair_plan)
-    texture_pass(ws, chair_spec, chair_plan, model_id="", image_model=FakeImageModel(), judge=False, render=fake_render,
-                 cache_dir=tmp_path / "c")
-    runner = CliRunner()
-    res = runner.invoke(app, ["texture", "show", str(ws.root)])
-    assert res.exit_code == 0, res.output
-    assert "texture pass" in res.output and "wood_oiled_oak" in res.output
-    res = runner.invoke(app, ["texture", "--help"])
-    assert res.exit_code == 0 and "scene-pack" in res.output and "pass" in res.output
-    res = runner.invoke(app, ["texture", "show", str(tmp_path / "nowhere")])
-    assert res.exit_code != 0
 
 
 def test_cli_scene_pack_spend_joins_the_runs_ledger(tmp_path, chair_spec, monkeypatch):

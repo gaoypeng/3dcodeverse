@@ -63,12 +63,6 @@ def test_a_failing_diff_never_breaks_the_verdict(ref_input, cache_dir):
     assert j.overall > 0 and j.rubric == "reference_v1"
 
 
-def test_diff_can_be_switched_off(ref_input, cache_dir):
-    model = FakeChatModel(by_label={"judge": [good_reply(REF, ["A1", "A2"], 0.8)]})
-    _judge(model, cache_dir=cache_dir, diff=False).judge(ref_input)
-    assert all(not r.label.startswith("reference_diff") for r in model.requests)
-
-
 @pytest.mark.parametrize(("value", "diffed"), [("off", False), ("OFF", False), ("of", True)])
 def test_diff_off_via_env(ref_input, cache_dir, switch, value, diffed):
     """D44 (c): ``C3D_REFERENCE_DIFF=off`` switches the pass off; a typo keeps the default (on)."""
@@ -124,3 +118,4 @@ def test_the_diff_call_is_charged_to_the_verdict(ref_input, cache_dir):
     model2 = FakeChatModel(by_label={"judge": [good_reply(REF, ["A1", "A2"], 0.8)]}, cost=0.01)
     without = _judge(model2, cache_dir=cache_dir, diff=False).judge(ref_input)
     assert with_diff.usage.cost_usd > without.usage.cost_usd
+    assert all(not r.label.startswith("reference_diff") for r in model2.requests)  # diff=False: no diff call

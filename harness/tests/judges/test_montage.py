@@ -37,6 +37,10 @@ def test_rank_views_objects_and_scenes():
     # and the eye-level rig last
     sv = [RenderView(name=n, path="x") for n in ("overview_top", "Establishing", "eye_front", "BridgeView", "cam_b")]
     assert [v.name for v in rank_views(sv, scene=True)] == ["Establishing", "BridgeView", "cam_b", "overview_top", "eye_front"]
+    # a re-judged stored pre-D47 8-view run ranks its legacy hero names first
+    legacy = ["front_right_34", "back_left_34", "front", "right", "back", "left", "top", "low_front_left"]
+    ranked = [v.name for v in rank_views([RenderView(name=n, path=f"/x/{n}.png") for n in legacy], scene=False)]
+    assert ranked[:2] == ["front_right_34", "back_left_34"], ranked
 
 
 def test_plan_montages_full_rig_plus_clay_is_the_measured_cprod_plan(tmp_path):
@@ -91,9 +95,3 @@ def test_missing_tile_is_judge_image_error(tmp_path):
     with pytest.raises(JudgeImageError):
         render_montage(m, cache_dir=tmp_path / "cache")
 
-
-def test_a_stored_pre_d47_render_set_still_leads_with_its_hero_views():
-    """A re-judged stored 8-view run ranks its legacy hero names first."""
-    legacy = ["front_right_34", "back_left_34", "front", "right", "back", "left", "top", "low_front_left"]
-    ranked = [v.name for v in rank_views([RenderView(name=n, path=f"/x/{n}.png") for n in legacy], scene=False)]
-    assert ranked[:2] == ["front_right_34", "back_left_34"], ranked

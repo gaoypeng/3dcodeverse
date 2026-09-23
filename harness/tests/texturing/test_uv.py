@@ -18,7 +18,7 @@ def test_choose_projection_rules():
     assert choose_projection(np.array([0.1, 2.0, 0.1]), "cylinder") == ("cylinder", 1)
 
 
-def test_box_projection_world_scale_and_splits():
+def test_box_and_cylinder_projections_keep_world_scale_and_split_seams():
     m = trimesh.creation.box(extents=(0.6, 0.3, 0.3))
     uw = unwrap(m.vertices, m.faces, np.eye(4), projection="box", tile_size_m=0.3)
     assert uw.projection == "box"
@@ -36,8 +36,6 @@ def test_box_projection_world_scale_and_splits():
     uw2 = unwrap(m.vertices, m.faces, T, projection="box", tile_size_m=0.3)
     assert (uw2.uv.max(0) - uw2.uv.min(0)) == pytest.approx(2 * (uw.uv.max(0) - uw.uv.min(0)), abs=1e-6)
 
-
-def test_cylinder_projection_seam_and_caps():
     m = trimesh.creation.cylinder(radius=0.05, height=0.5, sections=32)  # along z
     uw = unwrap(m.vertices, m.faces, np.eye(4), projection="auto", tile_size_m=0.1)
     assert uw.projection == "cylinder" and uw.axis == 2

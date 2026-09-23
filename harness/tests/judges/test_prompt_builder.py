@@ -11,11 +11,10 @@ from codeverse3d.contracts.artifacts import (
     RenderView,
     Severity,
 )
-from codeverse3d.contracts.chat import ImagePart, TextPart
+from codeverse3d.contracts.chat import ImagePart
 from codeverse3d.judges.prompt_builder import (
     TEXT_BUDGET_CHARS,
     build_judge_messages,
-    build_system_prompt,
     view_az_el,
 )
 from codeverse3d.judges.rubrics import load_rubric
@@ -32,48 +31,11 @@ def _images(msgs):
     return [p for p in _parts(msgs) if isinstance(p, ImagePart)]
 
 
-def test_the_scene_rig_rule_names_every_harness_camera_and_no_authored_prefix():
-    from codeverse3d.conventions import SCENE_VIEWS
-    from codeverse3d.judges.prompt_builder import RIG_RULES
-
-    rule = RIG_RULES["scene_cams"]
-    assert "cam_*" not in rule
-    assert all(f"{v.name.split('_')[0]}_*" in rule for v in SCENE_VIEWS)
-
-
-def test_system_has_role_rubric_anchors_and_defects():
-    system = build_system_prompt(R)
-    assert "BLIND JUDGE" in system
-    for c in R.criteria:
-        assert c.id in system and c.anchors["0.4"][:30] in system
-    assert "Do NOT compute an overall" in system
-    assert "DEFECT CHECKLIST" in system
-    for d in R.defects:
-        assert f"- {d.id}:" in system
-    assert "[-0.10, cap 0.60]" in system  # floating_part penalty + cap shown
-
-
-def test_user_message_layout(judge_input, cache_dir):
-    system, msgs = build_judge_messages(judge_input, R, cache_dir=cache_dir)
-    parts = _parts(msgs)
-    assert isinstance(parts[0], TextPart)
-    text = parts[0].text
-    for section in ("BRIEF", "PLAN DIGEST", "ACCEPTANCE CHECKLIST", "MEASUREMENTS", "GATE FINDINGS", "VIEW RIG"):
-        assert section in text, section
-    assert "A1 [must, via measure]" in text
-    assert "Seat" in text and "Backrest" in text  # measurement table (spatial or local fallback)
+def test_montage_images_are_cached_at_the_payload_size(judge_input, cache_dir):
+    """The labels and text are pinned by tests/prompts/manifest.json; the image bytes are not."""
+    _, msgs = build_judge_messages(judge_input, R, cache_dir=cache_dir)
     imgs = _images(msgs)
-    # 4 shaded views → ONE 2×2 montage + centre crop + ground-contact crop
-    assert len(imgs) == 3
-    assert imgs[0].label.startswith("MONTAGE 1/1 — SHADED views: top-left = front_right_high · az 45° el 30°")
-    assert "bottom-left = top · az 0° el 90°, bottom-right = front · az 0° el 0°" in imgs[0].label
-    assert imgs[1].label.startswith("DETAIL CROP — centre of front_right_high")
-    assert imgs[2].label.startswith("DETAIL CROP — ground-contact band of front")  # lowest elevation (0°)
-    # labelled text precedes each image; the rig paragraph lists images in send order
-    idx = parts.index(imgs[0])
-    assert isinstance(parts[idx - 1], TextPart) and parts[idx - 1].text == imgs[0].label
-    assert "- image 1: SHADED views" in text and "- detail crop 2: ground-contact band" in text
-    assert "MONTAGE k <position> (<view name>)" in text
+    assert len(imgs) == 3  # 4 shaded views → ONE 2×2 montage + centre crop + ground-contact crop
     for ip in imgs:
         assert Path(ip.path).is_file() and Path(ip.path).parent == cache_dir
     with Image.open(imgs[0].path) as im:

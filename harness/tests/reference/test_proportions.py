@@ -41,24 +41,21 @@ def test_expected_aspect_is_a_band_over_every_horizontal_extent():
 CHAIR = {"width": 0.45, "depth": 0.50, "height": 0.9}
 
 
-def test_a_photo_within_the_tolerance_is_not_a_conflict(tmp_path: Path):
-    """The measured chair: band 0.50-0.56, photo 0.64 → 16 % outside, kept."""
+def test_only_a_photo_beyond_the_tolerance_is_a_conflict(tmp_path: Path):
+    """The measured chair: band 0.50-0.56, photo 0.64 → 16 % outside, kept.  The coffee grinder:
+    the brief says 0.47 w/h; the studio photo includes the crank arm and is ~0.70 → flagged.  An
+    unreadable image is never a conflict."""
     from codeverse3d.contracts.spec import Constraints
 
     spec = make_spec(constraints=Constraints(dimensions_m=CHAIR))
     info = dimension_conflict(spec, _box(tmp_path / "p.png", 128, 200))
     assert not info["conflict"] and info["relative_error"] < ASPECT_TOL and conflict_note(info) == ""
 
-
-def test_the_coffee_grinder_case_is_flagged(tmp_path: Path):
-    """The brief says 0.47 w/h; the studio photo includes the crank arm and is ~0.70."""
     info = dimension_conflict(make_spec(), _box(tmp_path / "crank.png", 210, 300))
     assert info["conflict"] and info["relative_error"] > 0.4
     note = conflict_note(info)
     assert "BRIEF's dimensions are correct" in note and "part inventory" in note
     assert "0.47-0.47" in note
 
-
-def test_unreadable_image_is_never_a_conflict(tmp_path: Path):
     info = dimension_conflict(make_spec(), tmp_path / "missing.png")
     assert info["conflict"] is False and info["error"]

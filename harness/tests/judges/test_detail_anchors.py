@@ -5,22 +5,13 @@ from __future__ import annotations
 import pytest
 
 from codeverse3d.contracts.plan import AcceptanceItem
-from codeverse3d.judges.prompt_builder import build_system_prompt
 from codeverse3d.judges.rubrics import _rule_hit, load_rubric
 
-#: rubric -> the id of its geometry-detail criterion
-DETAIL_CRITERION = {
-    "static_object_v1": "geometry_detail",
-    "articulated_v1": "geometry_detail",
-    "asset_v1": "detail_level",
-    "reference_v1": "detail",
-}
 
-
-@pytest.mark.parametrize(("rubric", "criterion"), sorted(DETAIL_CRITERION.items()))
-def test_detail_anchors_are_a_graded_countable_geometry_ladder(rubric: str, criterion: str) -> None:
-    r = load_rubric(rubric)
-    c = r.criterion(criterion)
+def test_detail_anchors_are_a_graded_countable_geometry_ladder() -> None:
+    """reference_v1 only: the other rubrics' system prompts are pinned by tests/prompts/manifest.json."""
+    r = load_rubric("reference_v1")
+    c = r.criterion("detail")
     levels = sorted((float(k) for k in c.anchors), reverse=True)
     assert len(levels) >= 5 and levels[0] == 1.0 and levels[-1] == 0.1, levels
     top = c.anchors["1.0"].lower()
@@ -28,19 +19,6 @@ def test_detail_anchors_are_a_graded_countable_geometry_ladder(rubric: str, crit
     assert any(w in top for w in ("kind", "detail")), top
     text = (c.description + " " + r.extra_instructions).lower()
     assert "colour" in text and ("not" in text or "never" in text), "colour is not geometry"
-
-
-def test_static_notes_carry_the_refinement_kinds_and_the_majority_primitive_rule() -> None:
-    r = load_rubric("static_object_v1")
-    prompt = build_system_prompt(r)
-    for kind in ("REFINEMENT KINDS", "bevel", "taper", "cut-out", "wall thickness", "surface relief", "hardware",
-                 "DETAIL AND SIZE", "box-stack"):
-        assert kind in prompt, kind
-    text = r.defect("primitive_only").text.lower()
-    assert "two thirds" in text and "colour" in text
-    for rubric in ("static_object_v1", "articulated_v1"):
-        c = load_rubric(rubric).criterion("craftsmanship_no_artifacts")
-        assert "detail scale" in c.anchors["1.0"].lower() and "0.85" in c.anchors
 
 
 def test_physical_plausibility_caps_are_untouched() -> None:

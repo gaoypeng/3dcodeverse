@@ -20,7 +20,8 @@ def _grain(size: int = 64) -> Image.Image:
     return Image.fromarray(np.round(rgb * 255).astype(np.uint8), mode="RGB")
 
 
-def test_metallic_roughness_image_uses_the_gltf_channel_packing():
+def test_derived_maps_use_the_gltf_encodings():
+    """metallicRoughness: glTF channel packing; normal: tangent space, as seamless as the albedo."""
     img = _grain()
     mr = metallic_roughness_image(img, 0.62, 1.0, "cast_iron")
     a = np.asarray(mr)
@@ -28,10 +29,6 @@ def test_metallic_roughness_image_uses_the_gltf_channel_packing():
     assert (a[..., 2] == 255).all(), "metallic lives in B"
     assert a[..., 1].std() > 3, "roughness lives in G and must actually vary"
     assert 140 < a[..., 1].mean() < 180
-
-
-def test_normal_map_is_tangent_space_and_tiles():
-    img = _grain()
     n = np.asarray(normal_image(img, "cast_iron"), dtype=np.float32) / 255.0 * 2.0 - 1.0
     assert np.allclose(np.linalg.norm(n, axis=-1), 1.0, atol=1e-2)
     assert (n[..., 2] > 0).all(), "z always points out of the surface"

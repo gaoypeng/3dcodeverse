@@ -36,24 +36,20 @@ def test_ground_spec_rewrites_the_spec_and_records_everything(tmp_ws: Workspace,
     assert "reference.start" in names and "reference.done" in names
 
 
-def test_ground_spec_leaves_a_user_reference_alone(tmp_ws: Workspace, cache_dir: Path):
+def test_ground_spec_leaves_a_user_reference_alone_and_survives_every_failure(tmp_ws: Workspace, monkeypatch,
+                                                                             cache_dir: Path):
     spec = make_spec(references=[ReferenceImage(path=str(tmp_ws.root / "mine.png"), note="my photo")])
     out, refset, why = ground_spec(spec, tmp_ws, model=_chat(), image_model=FakeImageModel(), cache_dir=cache_dir)
     assert out is spec and refset.views == [] and "user --image references win" in why
-
-
-def test_ground_spec_survives_a_rejected_reference(tmp_ws: Workspace, cache_dir: Path):
+    # a rejected reference: the run goes on without one
     bad = dict(GOOD_GATE, plain_background=False)
     spec = make_spec()
     out, refset, why = ground_spec(spec, tmp_ws, model=_chat([bad, bad]), image_model=FakeImageModel(),
                                    cache_dir=cache_dir)
     assert out is spec and not refset.ok and "running without one" in why
-
-
-def test_ground_spec_survives_a_dead_backend(tmp_ws: Workspace, monkeypatch, cache_dir: Path):
+    # a dead backend
     monkeypatch.setattr("codeverse3d.reference._chat_model",
                         lambda mid: (_ for _ in ()).throw(RuntimeError("no keys")))
-    spec = make_spec()
     out, refset, why = ground_spec(spec, tmp_ws, cache_dir=cache_dir)
     assert out is spec and "reference grounding unavailable" in why
 

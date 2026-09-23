@@ -9,7 +9,7 @@ def _reply(w, conf=0.8):
     return {"winner": w, "confidence": conf, "reasons": [f"{w} has four legs"], "criteria_won": [{"criterion": "intent_fidelity", "winner": w}]}
 
 
-def test_agreement_across_swap(tmp_path, cache_dir):
+def test_the_swap_decides_the_winner_and_its_confidence(tmp_path, cache_dir):
     ra, rb = make_renders(tmp_path / "a"), make_renders(tmp_path / "b")
     # ordering 1: A=ra,B=rb → "A" wins; ordering 2 (swapped): A=rb,B=ra → "B" wins → both say ra
     model = FakeChatModel(by_label={":fwd": [_reply("A", 0.9)], ":swap": [_reply("B", 0.7)]})
@@ -26,12 +26,16 @@ def test_agreement_across_swap(tmp_path, cache_dir):
     labels2 = [p.label for p in image_parts(reqs["pairwise:swap"])]
     assert labels2[0].startswith("CANDIDATE A — MONTAGE")
 
-
-def test_disagreement_is_tie(tmp_path, cache_dir):
-    ra, rb = make_renders(tmp_path / "a"), make_renders(tmp_path / "b")
-    model = FakeChatModel([_reply("A", 0.9), _reply("A", 0.9)])  # position bias: always first
+    # the orderings disagree (position bias: always first) → a tie
+    model = FakeChatModel([_reply("A", 0.9), _reply("A", 0.9)])
     res = PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare(make_spec(), ra, rb)
     assert res.winner == "tie" and res.confidence <= 0.4 and res.error == "orderings disagree"
+
+    # one ordering fails → the other's verdict at half confidence
+    model = FakeChatModel(by_label={":fwd": [ModelError("x", retryable=True)],
+                                    ":swap": [_reply("A", 0.8)]})  # swapped ordering: A=rb → b wins
+    res = PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare(make_spec(), ra, rb)
+    assert res.winner == "b" and res.confidence == 0.4
 
 
 def test_tie_and_errors(tmp_path, cache_dir):
@@ -43,14 +47,6 @@ def test_tie_and_errors(tmp_path, cache_dir):
     model2 = FakeChatModel(default=ModelError("down", retryable=True))
     res2 = PairwiseJudge("fake:fake-1", chat_model=model2, cache_dir=cache_dir).compare(make_spec(), ra, rb)
     assert res2.winner == "tie" and res2.confidence == 0.0 and "ModelError" in res2.error
-
-
-def test_single_ordering_success_halves_confidence(tmp_path, cache_dir):
-    ra, rb = make_renders(tmp_path / "a"), make_renders(tmp_path / "b")
-    model = FakeChatModel(by_label={":fwd": [ModelError("x", retryable=True)],
-                                    ":swap": [_reply("A", 0.8)]})  # swapped ordering: A=rb → b wins
-    res = PairwiseJudge("fake:fake-1", chat_model=model, cache_dir=cache_dir).compare(make_spec(), ra, rb)
-    assert res.winner == "b" and res.confidence == 0.4
 
 
 def test_a_scene_pair_is_ranked_as_a_scene_from_the_views_the_judge_saw(tmp_path, cache_dir):

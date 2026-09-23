@@ -33,6 +33,11 @@ def test_full_path_single_sample(judge_input, cache_dir):
     assert len(image_parts(req)) == 3  # 2×2 montage + 2 detail crops
     assert "Defects" in req.response_schema["$defs"]
     assert raw["defects"] == {d.id: False for d in R.defects} and raw["defect_penalty"] == 0.0
+    # D37: the judge protocol hash is recorded in every verdict, beside (not instead of) the rubric hash
+    from codeverse3d.judges.prompt_builder import judge_prompt_hash
+    assert raw["judge_prompt_hash"] == judge_prompt_hash(R) and len(raw["judge_prompt_hash"]) == 12
+    assert raw["judge_prompt_hash"] != raw["rubric_hash"]
+    assert _judge(FakeChatModel([]), cache_dir=cache_dir).prompt_hash == judge_prompt_hash(R)
 
 
 @pytest.mark.parametrize("fixed_order", [False, True])
@@ -73,6 +78,9 @@ def test_a_failing_model_degrades_the_verdict(judge_input, cache_dir, retryable,
     assert not j.passed and j.overall == 0.0 and j.summary.startswith("judge_error:")
     assert j.degraded and json.loads(j.raw)["status"] == "degraded" and j.n_samples == 0
     assert len(model.requests) == calls  # max_attempts, or at once when not retryable
+    # a degraded verdict carries the protocol hash too, so a glitch is still attributable to a protocol
+    from codeverse3d.judges.prompt_builder import judge_prompt_hash
+    assert json.loads(j.raw)["judge_prompt_hash"] == judge_prompt_hash(R)
 
 
 def test_base_judge_rejects_measured_rubric(judge_input, cache_dir):
@@ -103,19 +111,6 @@ def test_judge_payload_size_comes_from_the_settings_dial(monkeypatch):
 
 
 # ----------------------------------------------------------------------------- D37 judge protocol hash
-def test_judge_prompt_hash_is_recorded_in_every_verdict(judge_input, cache_dir):
-    from codeverse3d.judges.prompt_builder import judge_prompt_hash
-
-    j = _judge(FakeChatModel([good_reply(R, IDS, 0.8)]), cache_dir=cache_dir).judge(judge_input)
-    raw = json.loads(j.raw)
-    assert raw["judge_prompt_hash"] == judge_prompt_hash(R) and len(raw["judge_prompt_hash"]) == 12
-    assert raw["rubric_hash"] == R.content_hash() and raw["judge_prompt_hash"] != raw["rubric_hash"]
-    # a degraded verdict carries it too, so a glitch is still attributable to a protocol
-    d = _judge(FakeChatModel([ModelError("down", retryable=False)]), cache_dir=cache_dir).judge(judge_input)
-    assert d.degraded and json.loads(d.raw)["judge_prompt_hash"] == judge_prompt_hash(R)
-    assert _judge(FakeChatModel([]), cache_dir=cache_dir).prompt_hash == judge_prompt_hash(R)
-
-
 def test_judge_prompt_hash_tracks_the_protocol_not_the_run(monkeypatch):
     from codeverse3d.judges import prompt_builder as pb
     from codeverse3d.judges.prompt_builder import judge_prompt_hash
@@ -137,22 +132,16 @@ def test_judge_prompt_hash_tracks_the_protocol_not_the_run(monkeypatch):
 
 
 # ---------------------------------------------------------------------- per-sample retry budget
-def _fake_clock(monkeypatch):
+def test_a_sample_stops_when_its_budget_is_spent(judge_input, cache_dir, monkeypatch):
     import time as real_time
     from types import SimpleNamespace
 
     import codeverse3d.judges.vlm_judge as mod
+    from codeverse3d.judges.vlm_judge import SAMPLE_BUDGET_S, SAMPLE_MIN_WAIT_S
 
     clock = {"t": 0.0}
     monkeypatch.setattr(mod, "time", SimpleNamespace(monotonic=lambda: clock["t"], time=real_time.time,
                                                       sleep=real_time.sleep))
-    return clock
-
-
-def test_a_sample_stops_when_its_budget_is_spent(judge_input, cache_dir, monkeypatch):
-    from codeverse3d.judges.vlm_judge import SAMPLE_BUDGET_S
-
-    clock = _fake_clock(monkeypatch)
 
     def spent(request):
         clock["t"] += SAMPLE_BUDGET_S + 10.0  # one attempt that retried for the whole budget
@@ -170,12 +159,7 @@ def test_a_sample_stops_when_its_budget_is_spent(judge_input, cache_dir, monkeyp
     burn = SAMPLE_BUDGET_S + 10.0
     assert [r.max_wait_s for r in model.requests] == [roomy, roomy - burn, roomy - 2 * burn]
 
-
-def test_the_last_attempt_still_gets_a_real_try(judge_input, cache_dir, monkeypatch):
-    from codeverse3d.judges.vlm_judge import SAMPLE_BUDGET_S, SAMPLE_MIN_WAIT_S
-
-    clock = _fake_clock(monkeypatch)
-
+    # the last attempt still gets a real try (SAMPLE_MIN_WAIT_S) when the budget is nearly spent
     def nearly_spent(request):
         clock["t"] += SAMPLE_BUDGET_S - 5.0
         return ModelError("503", retryable=True, status=503)
@@ -183,7 +167,6 @@ def test_the_last_attempt_still_gets_a_real_try(judge_input, cache_dir, monkeypa
     model = FakeChatModel([nearly_spent, good_reply(R, IDS, 0.8)])
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)
     assert j.passed and [r.max_wait_s for r in model.requests] == [SAMPLE_BUDGET_S, SAMPLE_MIN_WAIT_S]
-
 
 def test_scene_and_graphics_keep_the_pre_d47_montage_ceiling():
     """D47's 5 montages were measured on the object rig only; the other tracks keep 3."""

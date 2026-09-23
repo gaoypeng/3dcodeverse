@@ -74,15 +74,12 @@ def test_normalise_materials_rewrites_only_the_factors(tmp_path: Path):
     assert after == before, "base colour is the agent's decision and must survive"
 
 
-def test_nothing_to_do_writes_nothing(tmp_path: Path):
+def test_nothing_to_do_writes_nothing_and_a_texture_is_never_second_guessed(tmp_path: Path):
     glb = _glb(tmp_path, [("Bit", "PolishedSteelBit", 0.98, 0.15, (215, 215, 224, 255))])
     out = tmp_path / "out.glb"
     rep = normalise_materials(glb, out)
     assert not rep.changed() and rep.glb_out == "" and not out.exists()
     assert rep.table() == "no material needed normalising"
-
-
-def test_a_textured_material_is_never_second_guessed(tmp_path: Path):
     glb = _glb(tmp_path, [("Seat", "OakSeat", 0.0, 0.5, (150, 100, 60, 255))])
     scene = load_scene(glb)
     scene.geometry["Seat"].visual.material.baseColorTexture = Image.new("RGB", (8, 8), (120, 90, 40))

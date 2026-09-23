@@ -47,12 +47,9 @@ def test_compare_names_mismatches_and_builds_text(tmp_path: Path):
     assert [m.severity for m in d.top(3)] == ["critical", "major", "minor"]
 
 
-def test_model_failure_is_soft(tmp_path: Path):
+def test_a_failed_or_impossible_diff_is_soft(tmp_path: Path):
     ref, ren = _png(tmp_path / "ref.png"), _png(tmp_path / "ren.png")
     d = compare(make_spec(), [ref], [ren], model=FakeChatModel(by_label={"reference_diff": [ModelError("nope")]}))
     assert d.mismatches == [] and "diff call failed" in d.error and d.as_text() == ""
-
-
-def test_missing_images_short_circuit(tmp_path: Path):
-    d = compare(make_spec(), [tmp_path / "gone.png"], [_png(tmp_path / "r.png")], model=FakeChatModel())
+    d = compare(make_spec(), [tmp_path / "gone.png"], [ren], model=FakeChatModel())
     assert "nothing to compare" in d.error

@@ -26,19 +26,15 @@ def _views(tmp: Path) -> list[RenderView]:
             for n, b in boxes.items()]
 
 
-def test_candidate_filter_excludes_top_and_low_cameras(tmp_path: Path) -> None:
+def test_best_view_skips_top_and_low_cameras_and_writes_the_diff(tmp_path: Path) -> None:
     assert "top" not in CANDIDATE_VIEWS and "bottom" not in CANDIDATE_VIEWS
     assert "low_front_left" not in CANDIDATE_VIEWS and "front_right_low" not in CANDIDATE_VIEWS
     # pre-D47 stored runs must still match their own cameras
     assert "front_right_34" in CANDIDATE_VIEWS and "back_left_34" in CANDIDATE_VIEWS
     views = _views(tmp_path / "r")
     views.append(RenderView(name="top", path=views[0].path, width=256, height=256))
-    res = best_view_match(views, _shape(tmp_path / "ref.png", (20, 95, 236, 165)))
-    assert "top" not in res["per_view"]
-
-
-def test_diff_png_and_empty_input(tmp_path: Path) -> None:
     ref = _shape(tmp_path / "ref.png", (20, 95, 236, 165))
-    res = best_view_match(_views(tmp_path / "r"), ref, diff_png=tmp_path / "d.png")
+    res = best_view_match(views, ref, diff_png=tmp_path / "d.png")
+    assert "top" not in res["per_view"]
     assert (tmp_path / "d.png").is_file() and res["view"] == "right"
     assert "error" in best_view_match([], ref)

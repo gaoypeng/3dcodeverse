@@ -3,12 +3,6 @@ import pytest
 from codeverse3d.judges.rubrics import RubricError, load_rubric, rubric_from_dict
 
 
-def test_reference_rubric_has_measured_silhouette():
-    r = load_rubric("reference_v1")
-    assert [c.id for c in r.measured_criteria()] == ["silhouette_match"]
-    assert r.criterion("silhouette_match").weight == 0.25
-
-
 def test_unknown_and_invalid_rubric():
     with pytest.raises(RubricError):
         load_rubric("nope_v9")

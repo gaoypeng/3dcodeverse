@@ -81,20 +81,6 @@ def text_of(req) -> str:
     return "\n".join(p.text for m in req.messages for p in m.parts if isinstance(p, TextPart))
 
 
-# --------------------------------------------------------------------- (a) clean = byte-identical
-def test_clean_gates_build_byte_identical_messages(tmp_path, cache_dir):
-    """The invariant: glb present + knob on, but no gate ERROR → the exact pre-D48 payload."""
-    inp = make_input(make_renders(tmp_path / "r"), clean_gates(), two_box_glb(tmp_path / "o.glb"))
-    req = judge_request(inp, cache_dir)
-    system, messages = build_judge_messages(inp, R, cache_dir=cache_dir)  # the baseline builder
-    assert req.system == system
-    assert [m.model_dump() for m in req.messages] == [m.model_dump() for m in messages]
-    assert PROVENANCE_ELICITATION not in req.system
-    assert "cross-section" not in text_of(req)
-    # and the protocol hash is untouched: the hash builds the default (elicitation-free) prompt
-    assert judge_prompt_hash(R) == VlmJudge("static_object_v1", model_id="fake:fake-1").prompt_hash
-
-
 def test_knob_off_wrong_track_and_missing_glb_stay_baseline(tmp_path, cache_dir, monkeypatch):
     renders = make_renders(tmp_path / "r")
     glb = two_box_glb(tmp_path / "o.glb")
@@ -120,11 +106,22 @@ def test_knob_off_wrong_track_and_missing_glb_stay_baseline(tmp_path, cache_dir,
     get_settings.cache_clear()
 
 
-# --------------------------------------------------------------------- (b) dirty = slices appended
-def test_dirty_gates_append_slices_after_crops_with_rig_text_and_one_elicitation(tmp_path, cache_dir):
-    inp = make_input(make_renders(tmp_path / "r"), dirty_gates(), two_box_glb(tmp_path / "o.glb"))
+# --------------------------------------------------------------------- clean = byte-identical, dirty = slices appended
+def test_slices_ride_only_on_a_connectivity_error(tmp_path, cache_dir):
+    """The invariant: glb present + knob on, but no gate ERROR → the exact pre-D48 payload.  Any
+    connectivity ERROR (a penetration pair, or a floating part alone) appends the slices after the crops."""
+    renders, glb = make_renders(tmp_path / "r"), two_box_glb(tmp_path / "o.glb")
+    inp = make_input(renders, clean_gates(), glb)
     req = judge_request(inp, cache_dir)
+    system, messages = build_judge_messages(inp, R, cache_dir=cache_dir)  # the baseline builder
+    assert req.system == system
+    assert [m.model_dump() for m in req.messages] == [m.model_dump() for m in messages]
+    assert PROVENANCE_ELICITATION not in req.system
+    assert "cross-section" not in text_of(req)
+    # and the protocol hash is untouched: the hash builds the default (elicitation-free) prompt
+    assert judge_prompt_hash(R) == VlmJudge("static_object_v1", model_id="fake:fake-1").prompt_hash
 
+    req = judge_request(make_input(renders, dirty_gates(), glb), cache_dir)
     # placement: montage, 2 detail crops, THEN the two slices — never prepended
     lbls = labels(req)
     assert lbls[-2:] == [SLICE_LABELS["front_back"], SLICE_LABELS["left_right"]]
@@ -146,6 +143,14 @@ def test_dirty_gates_append_slices_after_crops_with_rig_text_and_one_elicitation
     assert man.error_pairs == [("A", "B")]
     assert all({p.a, p.b} == {"A", "B"} for s in man.rendered() for p in s.hatched_pairs)
 
+    # the trigger is ANY connectivity ERROR, not only a penetration pair
+    floating = [GateReport(gate="connectivity", passed=False, findings=[
+        GateFinding(gate="connectivity", severity=Severity.ERROR, target="B",
+                    message="part 'B' is floating", data={"kind": "floating"})])]
+    req = judge_request(make_input(renders, floating, glb), cache_dir)
+    assert req.system.count(PROVENANCE_ELICITATION) == 1
+    assert labels(req)[-2:] == [SLICE_LABELS["front_back"], SLICE_LABELS["left_right"]]
+
 
 def test_error_pair_extraction_reads_target_and_other(tmp_path):
     # target/other win over entering/container (the probe's direction is not the finding's)
@@ -160,17 +165,6 @@ def test_error_pair_extraction_reads_target_and_other(tmp_path):
     ])
     assert connectivity_error_pairs([g]) == [("Leg", "Seat")]
     assert connectivity_error_pairs([GateReport(gate="contract", passed=False, findings=[])]) == []
-
-
-def test_a_dirty_round_with_a_floating_only_error_still_elicits(tmp_path, cache_dir):
-    """The trigger is ANY connectivity ERROR, not only a penetration pair."""
-    gates = [GateReport(gate="connectivity", passed=False, findings=[
-        GateFinding(gate="connectivity", severity=Severity.ERROR, target="B",
-                    message="part 'B' is floating", data={"kind": "floating"})])]
-    inp = make_input(make_renders(tmp_path / "r"), gates, two_box_glb(tmp_path / "o.glb"))
-    req = judge_request(inp, cache_dir)
-    assert req.system.count(PROVENANCE_ELICITATION) == 1
-    assert labels(req)[-2:] == [SLICE_LABELS["front_back"], SLICE_LABELS["left_right"]]
 
 
 # --------------------------------------------------------------------- (d) 3dcode judge replay

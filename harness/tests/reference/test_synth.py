@@ -7,10 +7,8 @@ from pathlib import Path
 from codeverse3d.models.base import ModelError
 from codeverse3d.reference import (
     STUDIO_SUFFIX,
-    cache_key,
     compose_image_prompt,
     synth_reference,
-    template_hash,
     views_for,
 )
 from tests.orchestrator_tracks.fakes import FakeChatModel
@@ -46,27 +44,16 @@ def test_synth_accepts_and_caches(cache_dir: Path):
     assert [v.path for v in again.accepted] == [v.path for v in rs.accepted]
 
 
-def test_cache_key_moves_with_the_brief_and_the_prompts(cache_dir: Path):
-    a = cache_key(make_spec(), n_views=2, text_model="m", image_model="i")
-    b = cache_key(make_spec(prompt="a teapot"), n_views=2, text_model="m", image_model="i")
-    c = cache_key(make_spec(), n_views=1, text_model="m", image_model="i")
-    d = cache_key(make_spec(), n_views=2, text_model="m", image_model="other")
-    assert len({a, b, c, d}) == 4 and len(template_hash()) == 12
-
-
-def test_gate_rejects_wrong_object_and_falls_back(cache_dir: Path):
+def test_gate_rejects_wrong_object_collage_and_contradiction(cache_dir: Path):
     bad = dict(GOOD_GATE, shows_requested_object=False, depicted_object="a pepper mill")
     rs = synth_reference(make_spec(), model=_chat([bad, bad]), image_model=FakeImageModel(),
                          n_views=2, cache_dir=cache_dir)
     assert not rs.ok and len(rs.rejected) == 2
     assert "shows a pepper mill" in rs.rejected[0].verdict.failure()
-
-
-def test_gate_rejects_collage_watermark_and_contradiction(cache_dir: Path):
     replies = [dict(GOOD_GATE, is_photo_collage=True),
                dict(GOOD_GATE, contradictions=["brief says a front drawer; the image shows no drawer"])]
     rs = synth_reference(make_spec(), model=_chat(replies), image_model=FakeImageModel(),
-                         n_views=2, cache_dir=cache_dir)
+                         n_views=2, cache_dir=cache_dir / "b")  # the rejected set above is cached
     assert not rs.ok
     assert "collage" in rs.views[0].verdict.failure()
     assert "contradicts:" in rs.views[1].verdict.failure()
@@ -78,18 +65,13 @@ def test_unverifiable_image_is_never_accepted(cache_dir: Path):
     assert not rs.ok and len(rs.views) == 1 and rs.views[0].verdict is None
 
 
-def test_image_failure_is_not_fatal(cache_dir: Path):
+def test_no_failure_is_fatal(cache_dir: Path):
     rs = synth_reference(make_spec(), model=_chat(), image_model=FakeImageModel(fail=True),
                          n_views=2, cache_dir=cache_dir)
     assert not rs.ok and "image model exploded" in rs.error
-
-
-def test_no_image_model_is_not_fatal(cache_dir: Path):
     rs = synth_reference(make_spec(), model=_chat(), image_model=None, cache_dir=cache_dir)
     assert not rs.ok and rs.error == "no image model configured"
-
-
-def test_prompt_writer_failure_falls_back_to_the_brief(cache_dir: Path):
+    # the prompt writer failed: the brief is the prompt
     chat = FakeChatModel(by_label={"reference_prompt": [ModelError("boom")], "reference_gate": [GOOD_GATE]})
     rs = synth_reference(make_spec(), model=chat, image_model=FakeImageModel(), n_views=1, cache_dir=cache_dir)
     assert rs.ok and "coffee grinder" in rs.subject

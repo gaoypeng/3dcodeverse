@@ -1,4 +1,3 @@
-
 import pytest
 
 from codeverse3d.judges.rubrics import (
@@ -23,32 +22,25 @@ def test_wire_schema_has_fixed_keys_and_no_overall():
     assert "acceptance" not in wire_schema(R, [])["properties"]
 
 
-def test_parse_bare_bool_acceptance_and_numeric_scores():
+def test_parse_accepts_bare_values_defaults_missing_acceptance_and_rejects_bad_criteria():
     rep = good_reply(R, IDS)
     rep["acceptance"] = {"A1": True, "must-2": False}
     rep["criteria"] = {k: v["score"] for k, v in rep["criteria"].items()}
     out = parse_judge_output(rep, R, IDS)
     assert out.acceptance_bools == {"A1": True, "must-2": False}
     assert out.criteria["materials"].evidence == ""
-
-
-def test_missing_criterion_raises():
-    rep = good_reply(R, IDS)
-    rep["criteria"].pop("materials")
-    with pytest.raises(JudgeParseError, match="missing criteria"):
-        parse_judge_output(rep, R, IDS)
-
-
-def test_missing_acceptance_defaults_false_and_unknown_criteria_dropped():
+    # a missing acceptance item is unverified; an unknown criterion is dropped
     rep = good_reply(R, IDS)
     rep["acceptance"].pop("must-2")
     rep["criteria"]["bogus"] = {"score": 1.0, "evidence": ""}
     out = parse_judge_output(rep, R, IDS)
     assert out.acceptance_bools["must-2"] is False
     assert "bogus" not in out.criteria
-
-
-def test_out_of_range_score_raises():
+    # a missing criterion, or a score out of range, is a parse error (the judge retries)
+    rep = good_reply(R, IDS)
+    rep["criteria"].pop("materials")
+    with pytest.raises(JudgeParseError, match="missing criteria"):
+        parse_judge_output(rep, R, IDS)
     rep = good_reply(R, IDS)
     rep["criteria"]["materials"]["score"] = 1.4
     with pytest.raises(JudgeParseError):

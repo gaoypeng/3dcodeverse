@@ -35,10 +35,7 @@ def test_apply_textures_end_to_end(tmp_path: Path, chair_glb: Path, chair_plan):
     # UVs present and per-vertex on textured parts
     seat = s.geometry["Seat"]
     assert seat.visual.uv is not None and len(seat.visual.uv) == len(seat.vertices)
-
-
-def test_apply_with_missing_texture_file_warns(tmp_path: Path, chair_glb: Path, chair_plan):
-    tp = default_plan(chair_plan)
+    # a missing texture file warns and textures nothing
     rep = apply_textures(chair_glb, tp, {tp.texture_ids()[0]: tmp_path / "missing.png"}, tmp_path / "o.glb")
     assert any("missing" in w for w in rep.warnings)
     assert rep.parts_textured == []

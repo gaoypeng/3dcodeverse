@@ -6,6 +6,8 @@ import json
 import shutil
 from pathlib import Path
 
+from typer.testing import CliRunner
+
 from codeverse3d.contracts.run import RunRecord
 from codeverse3d.texturing.run import (
     TextureReport,
@@ -27,7 +29,7 @@ def _ws(tmp_path: Path, chair_glb: Path, chair_spec, chair_plan) -> Workspace:
     return ws
 
 
-def test_texture_pass_ships_and_records(tmp_path, chair_glb, chair_spec, chair_plan):
+def test_texture_pass_ships_records_and_shows(tmp_path, chair_glb, chair_spec, chair_plan):
     ws = _ws(tmp_path, chair_glb, chair_spec, chair_plan)
     judge = FakeJudge([(0.70, {"materials": 0.6, "intent_fidelity": 0.8}), (0.73, {"materials": 0.75, "intent_fidelity": 0.8})])
     img = FakeImageModel(usd_per_image=0.05)
@@ -49,6 +51,17 @@ def test_texture_pass_ships_and_records(tmp_path, chair_glb, chair_spec, chair_p
     assert load_report(ws).shipped
     # planner quick render was written because there was no sheet
     assert latest_sheet(ws) is None and (ws.artifacts / "textures" / "planner_views" / "sheet.png").is_file()
+    # `3dcode texture show` reads it back
+    from codeverse3d.cli.main import app
+
+    runner = CliRunner()
+    res = runner.invoke(app, ["texture", "show", str(ws.root)])
+    assert res.exit_code == 0, res.output
+    assert "texture pass" in res.output and "wood_oiled_oak" in res.output
+    res = runner.invoke(app, ["texture", "--help"])
+    assert res.exit_code == 0 and "scene-pack" in res.output and "pass" in res.output
+    res = runner.invoke(app, ["texture", "show", str(tmp_path / "nowhere")])
+    assert res.exit_code != 0
 
 
 def test_texture_pass_no_judge_and_all_failed(tmp_path, chair_glb, chair_spec, chair_plan):
