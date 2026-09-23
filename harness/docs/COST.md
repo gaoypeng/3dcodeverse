@@ -1566,7 +1566,7 @@ guard's `elapsed_min` (ab_view) and telemetry-else-Σ-rounds (complexity_report)
 
 **What is timed.**  `contracts.run.StepTime{step, round, wall_s, lost_s}`, one per step:
 `plan`, `skeleton`, the scene's `textures`, `assets+env+layouts` (the three run side by side, so
-they are ONE step), `zones`, `assemble`, best-of-N `candidates` — run-level, on
+they are ONE step; `assets+env` with `C3D_ZONE_LAYOUTS=off`), `zones`, `assemble`, best-of-N `candidates` — run-level, on
 `RunRecord.steps` (persisted in `run_state.json` as they happen, the part of an aborted round
 that ran included) — and per round `generate` (one per phase: a phase's sessions run side by
 side), `build` (+ repair), `gates`, `render`, `judge` (+ a re-judge), on `RoundRecord.steps`.
