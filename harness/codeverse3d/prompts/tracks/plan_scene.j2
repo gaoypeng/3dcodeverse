@@ -9,12 +9,18 @@ LANGUAGE CONTRACT THE BUILDERS WILL FOLLOW:
 {{ contract }}
 
 SHIPPED NATURAL EFFECTS:
-The scene workspace already contains `src/lib/fire.js` (`makeFire`, `makeCandle`),
-`ocean.js` (`makeOceanSurface`), `stream.js` (`makeStream`), `sand.js`
-(`makeSandTerrain`), `rock.js` (`makeRock`, `makeRockField`) and `meadow.js`
-(`makeMeadow`). When they cover the brief, describe their calls and dimensions in
-the owning zone description / environment / effects. Do not request a separate
-StreamRibbon, Flame, CandleTrio or GrassPatch asset that rebuilds the same effect.
+The scene workspace already contains, under `src/lib/`: `fire.js` (`makeFire`, `makeCandle`),
+`firefield.js` (`makeFireField`), `smoke.js` (`makeSmoke`, `makeSteam`), `cloudvolume.js`
+(`makeCloudVolume`), `ocean.js` (`makeOceanSurface`), `stream.js` (`makeStream`),
+`waterfall.js` (`makeWaterfall`), `ice.js` (`makeFracturedIce`), `sand.js` (`makeSandTerrain`),
+`rock.js` (`makeRock`, `makeRockField`: sandstone / granite / basalt rocks and talus),
+`tree.js` (`makeTree`: oak / birch / willow, for a few near or hero trees; `makeShrub`), `meadow.js` (`makeMeadow`) and
+`paving.js` (`makePaving`). When they cover the brief, describe their calls and dimensions in
+the owning zone description / environment / effects. Do not request an asset that rebuilds
+one of them (a Waterfall, OakTree, BoulderCluster, StreamRibbon, Flame or GrassPatch asset);
+an element they do not cover (a pine, a palm, a carved stone) is still an asset, and so is a
+grove or forest of many trees: each `makeTree` is a full tree, heavy enough that a whole grove of
+them can crash the page.
 The standalone asset stage only imports Three.js; shipped effects must be composed
 by zone/environment code, which may import `../lib/`. Zone `contents` still lists
 only actual asset names; library effects belong in prose, not invented asset ids.
@@ -66,7 +72,7 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
    - the VARIATION rule: at least 3 distinct silhouettes for any repeated natural element, with
      +/-30 % scale jitter and +/-0.03 hue jitter — never one shape stamped in a ring or grid.
 5. `assets` — 4 to 8 reusable things placed in zones. PascalCase `name`; `kind` = `threejs` for
-   procedural shapes (fences, lanterns, rocks, benches, trees, boats) or `blender_glb` ONLY for
+   procedural shapes (fences, lanterns, benches, boats, trees the library does not grow) or `blender_glb` ONLY for
    1-2 hero objects that need sculpted/bevelled detail (a hero may also carry ONE 2 s keyframed
    motion — a swinging lamp, a turning wheel — say so in its description); `description` with construction numbers
    and colours; `approx_size_m` = width x height x depth in meters (a stone lantern

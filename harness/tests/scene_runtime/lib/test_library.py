@@ -256,6 +256,13 @@ console.log(JSON.stringify({ exports, errors }));
         called = set(re.findall(r"`([a-z][A-Za-z0-9]*)\(", row))
         named = set(re.findall(r"`([a-z][A-Za-z0-9]*)`", row)) - _PROSE
         stale += [f"{c} ({', '.join(mods)})" for c in sorted((called - have) | (named - anywhere))]
+    # the scene planner's SHIPPED NATURAL EFFECTS list: every `module.js` (`makeX`, ...) pair is real, else
+    # the planner routes an element to a zone that cannot build it (or, listed short, to a hand-built asset)
+    plan = (PROMPTS_DIR / "tracks" / "plan_scene.j2").read_text(encoding="utf-8")
+    shipped = re.findall(r"`([a-z_]+\.js)`\s*\(([^)]*)\)", plan)
+    assert len(shipped) >= 13, shipped
+    stale += [f"plan_scene.j2: {n} ({m})" for m, calls in shipped
+              for n in re.findall(r"`(make[A-Za-z]+)`", calls) if n not in exported.get(m, ())]
     assert not stale, stale
 
 
