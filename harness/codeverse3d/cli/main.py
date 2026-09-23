@@ -590,6 +590,22 @@ def _finished_reason(ws, raised: dict) -> str:
     return detail if status in finished else ""
 
 
+def _clock_spent(ws, max_minutes: float) -> str:
+    """Why a resume would stop before doing anything, or "": the run's clock (the budget snapshot's
+    ACTIVE minutes, which a resume — ``--force`` included — keeps counting) is already at the cap.
+    Resumed anyway, a plain resume stopped at `budget` at once, and ``--force`` first archived every
+    paid round and then did so (live, 2026-09-23)."""
+    from codeverse3d.orchestrator import BudgetSnapshot, RunState, StateCorrupt
+
+    try:
+        state = RunState.load(ws)
+    except StateCorrupt:
+        return ""
+    snap = (state.extra.get("budget_snapshot") if state is not None else None) or {}
+    used = BudgetSnapshot.model_validate(snap).active_s / 60.0
+    return f"its clock is spent ({used:.1f} of {max_minutes:g} active minutes)" if used >= max_minutes else ""
+
+
 @app.command()
 def resume(
     slug: str,
@@ -644,6 +660,9 @@ def resume(
             for k, v in {"max_minutes": max_minutes, "max_rounds": rounds}.items()
             if v is not None
         }
+        if spent := _clock_spent(ws, raised.get("max_minutes", spec.budget.max_minutes)):
+            raise C.CliError(f"run {ws.root.name}: {spent} — raise --max-minutes to continue it"
+                             + (" (--force keeps the clock: it would archive every round and stop at once)" if force else ""))
         if not force and (why := _finished_reason(ws, raised)):
             raise C.CliError(
                 f"run {ws.root.name} already finished ({why}); nothing to resume.  "

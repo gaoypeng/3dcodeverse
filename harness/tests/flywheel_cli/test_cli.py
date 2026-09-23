@@ -591,3 +591,22 @@ def test_an_option_that_would_be_dropped_is_refused(tmp_path: Path, runs_dir: Pa
                                "--slug", "g"]).exit_code == 0
     r = runner.invoke(app, ["render", "g", "--width", "64", "--runs-dir", str(runs)])
     assert r.exit_code == 2 and "graphics run" in r.output
+
+
+def test_resume_refuses_a_run_whose_clock_is_spent_even_with_force(made_run, stub_track):
+    """Live 2026-09-23: `resume --force` on a budget-stopped run archived its paid round, kept the
+    spent clock and stopped at once with 0 rounds.  A spent clock needs a raised --max-minutes."""
+    from codeverse3d.contracts.run import RunStatus
+    from codeverse3d.orchestrator import RunState
+    from codeverse3d.workspace import Workspace
+
+    runs, run_dir = made_run("--max-minutes", "20")
+    RunState(status=RunStatus.BUDGET, stop_reason="budget", extra={"budget_snapshot": {"active_s": 20.5 * 60}}).save(
+        Workspace(run_dir))
+    entered = []
+    stub_track(lambda spec, resume, force: entered.append(force))
+    for extra in ([], ["--force"], ["--rounds", "3"], ["--max-minutes", "20.2"]):
+        r = runner.invoke(app, ["resume", run_dir.name, "--runs-dir", str(runs), *extra])
+        assert r.exit_code == 1 and "clock is spent" in r.output, extra
+    assert entered == []
+    assert runner.invoke(app, ["resume", run_dir.name, "--runs-dir", str(runs), "--max-minutes", "40"]).exit_code == 130

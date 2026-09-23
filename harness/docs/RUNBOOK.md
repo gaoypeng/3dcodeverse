@@ -145,7 +145,9 @@ unless you type `--host` yourself; it never serves a path outside the declared r
                                         # (its last round is re-judged) or failed run resumes as is; the other stops
                                         # are finished.  The budget
                                         # SNAPSHOT is restored: the active minutes already spent still count, so a
-                                        # raised --max-minutes grants only the difference (downtime never counts);
+                                        # raised --max-minutes grants only the difference (downtime never counts), and
+                                        # a run whose clock is already spent is refused until one is (--force too: it
+                                        # keeps the clock);
                                         # the money is the ledger's, and the step log (the run's minutes) carries on.
                                         # Once rounds exist a recorded stage never runs again: one whose key drifted (a
                                         # code change to what it hashes) serves its recorded result (`stage.frozen`); only
