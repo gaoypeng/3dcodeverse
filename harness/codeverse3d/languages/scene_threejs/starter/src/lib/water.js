@@ -283,7 +283,9 @@ function _readScene(scene, uniforms, pinned) {
 }
 
 /**
- * Build the scene's ONE reflective water plane (XZ, faces +Y).
+ * Build the scene's ONE reflective water plane (XZ, faces +Y): the flat,
+ * normal-mapped option for calm or distant water. Visible waves are
+ * ocean.js's makeOceanSurface, which owns "ocean".
  * Returned mesh is at y = 0; set `position.y` to the water level.
  * Defaults are graded values — keep them unless the brief says not to.
  *

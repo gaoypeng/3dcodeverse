@@ -252,7 +252,7 @@ console.log(JSON.stringify({ exports, errors }));
             continue
         have = {name for m in mods for name in exported[m]}
         # `name(` is a call into the row's own modules; a bare `name` may
-        # point at another row's (wetground's "re-renders like `makeOcean`")
+        # point at another row's (meadow's "read by grass.js's `windOf`")
         called = set(re.findall(r"`([a-z][A-Za-z0-9]*)\(", row))
         named = set(re.findall(r"`([a-z][A-Za-z0-9]*)`", row)) - _PROSE
         stale += [f"{c} ({', '.join(mods)})" for c in sorted((called - have) | (named - anywhere))]
