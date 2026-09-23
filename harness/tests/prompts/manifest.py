@@ -86,6 +86,7 @@ from tests.orchestrator_tracks.fakes import (
     FakeJudge,
     FakeRuntime,
     FakeServices,
+    small_scene,
 )
 
 MANIFEST = Path(__file__).with_name("manifest.json")
@@ -345,15 +346,6 @@ class Rig:
 
 
 # ============================================================================ the scenarios
-def small_scene() -> ScenePlan:
-    """The example scene without its Blender hero (every asset a three.js module)."""
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    plan.assets = [a for a in plan.assets if a.kind == "threejs"]
-    for z in plan.zones:
-        z.contents = [c for c in z.contents if c in {a.name for a in plan.assets}]
-    return plan
-
-
 def machine() -> StaticPlan:
     """An 11-part object: past the scoped-baseline threshold, with a real attachment tree."""
     parts = [PartPlan(name="Body", role="main mass", description="the shell", bbox=BBox(center=(0, 0.5, 0), extents=(0.6, 1.0, 0.4)))]

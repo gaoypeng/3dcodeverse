@@ -21,6 +21,7 @@ from codeverse3d.skills.telemetry import (
     probe_reads,
 )
 from tests.skills.conftest import write_bundle
+from tests.skills.test_materialize_prompting import _plan
 
 
 @pytest.fixture
@@ -29,12 +30,6 @@ def ws(tmp_path: Path) -> Path:
     root.mkdir()
     (root / "AGENTS.md").write_text("# body\n")
     return root
-
-
-def _plan(n=3):
-    from types import SimpleNamespace as NS
-
-    return NS(parts=[NS(name=f"P{i}", instances=1, symmetry="none", children=[]) for i in range(n)], summary="")
 
 
 def _attach(ws, library, **kw):

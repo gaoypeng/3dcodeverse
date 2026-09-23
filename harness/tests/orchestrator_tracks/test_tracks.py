@@ -28,6 +28,7 @@ from tests.orchestrator_tracks.fakes import (
     FakeRuntime,
     FakeServices,
     _planner,
+    small_scene,
 )
 
 
@@ -243,18 +244,10 @@ def test_scene_track_deterministic_assembler_and_resume(tmp_path, settings):
     assert len(rec2.rounds) == 1 and rec2.rounds[0].commit == rec.rounds[0].commit
 
 
-def _small_scene_plan():
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    plan.assets = [a for a in plan.assets if a.kind == "threejs"]
-    for z in plan.zones:
-        z.contents = [c for c in z.contents if c in {a.name for a in plan.assets}]
-    return plan
-
-
 def test_scene_children_are_stages_and_a_failed_env_never_repays_assets(tmp_path, settings):
     """Review-3 V3-claim3: assets/env/layouts each cache as their OWN stage, so a
     failing sibling leaves the paid asset results cached and resume re-runs only it."""
-    plan = _small_scene_plan()
+    plan = small_scene()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
     ws = Workspace(tmp_path / "runs" / "harbour3")
     boom = {"on": True}
@@ -284,7 +277,7 @@ def test_scene_children_are_stages_and_a_failed_env_never_repays_assets(tmp_path
 def _mood_replanned(tmp_path, settings, name, *, force):
     """A scene run with r00, whose plan then changes ONLY in `mood` (the spec does not change); resumed,
     with ``--force`` when ``force``.  Returns (resumed job labels, event names)."""
-    plan = _small_scene_plan()
+    plan = small_scene()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
     ws = Workspace(tmp_path / "runs" / name)
     agent = FakeAgent(_scene_writer)
@@ -341,7 +334,7 @@ def test_the_builds_own_gate_reports_join_the_round(tmp_path, settings, broken):
     error is what routes the shader skill (R21) into the next round."""
     from codeverse3d.skills.registry import SHADER_COMPILE_OR_BINDING, finding_kinds
 
-    plan = _small_scene_plan()
+    plan = small_scene()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
     ws = Workspace(tmp_path / "runs" / "probed")
 

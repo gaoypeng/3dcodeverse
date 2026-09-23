@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 from codeverse3d.config import get_settings
-from codeverse3d.languages.scene_threejs import write_example
 from codeverse3d.spatial.node import run_node
 from codeverse3d.workspace import Workspace
 
@@ -33,14 +32,6 @@ needs_browser = pytest.mark.skipif(not browser_available(), reason="puppeteer/ch
 def ws(tmp_path: Path) -> Workspace:
     """Empty workspace."""
     return Workspace(tmp_path / "run").create()
-
-
-@pytest.fixture
-def starter_ws(tmp_path: Path) -> Workspace:
-    """Workspace with the complete example scene."""
-    w = Workspace(tmp_path / "run").create()
-    write_example(w)
-    return w
 
 
 def run_node_json(script_body: str, *, timeout: int = 60) -> dict | list:

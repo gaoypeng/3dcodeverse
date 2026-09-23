@@ -55,6 +55,15 @@ def tmp_ws(tmp_path: Path) -> Workspace:
     return Workspace(tmp_path / "run").create()
 
 
+@pytest.fixture
+def starter_ws(tmp_ws: Workspace) -> Workspace:
+    """A workspace holding the complete example scene."""
+    from codeverse3d.languages.scene_threejs import write_example
+
+    write_example(tmp_ws)
+    return tmp_ws
+
+
 def assert_pid_gone(pid: int, *, group: bool = False, timeout_s: float = 10.0) -> None:
     """Block until ``pid`` (``group=True``: its whole process group) is dead and reaped.
 

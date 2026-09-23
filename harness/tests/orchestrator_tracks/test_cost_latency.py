@@ -40,6 +40,7 @@ from tests.orchestrator_tracks.fakes import (
     FakeRuntime,
     FakeServices,
     _planner,
+    small_scene,
 )
 
 RUNTIME_JS = get_settings().runtime_js_dir()
@@ -289,17 +290,8 @@ def test_a_plain_failed_session_does_not_fall_back(tmp_path, settings):
 
 
 # ----------------------------------------------------------------------------- salvage
-def _threejs_scene_plan() -> ScenePlan:
-    """The scene example narrowed to its three.js assets — the only kind these fakes build."""
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    plan.assets = [a for a in plan.assets if a.kind == "threejs"]
-    for z in plan.zones:
-        z.contents = [c for c in z.contents if c in {a.name for a in plan.assets}]
-    return plan
-
-
 def test_a_budget_stop_before_round_zero_still_delivers_a_judged_round(tmp_path, settings):
-    plan = _threejs_scene_plan()
+    plan = small_scene()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=1)
     ws = Workspace(tmp_path / "runs" / "greenhouse")
     services = FakeServices(assemble=True)
@@ -333,7 +325,7 @@ def test_a_zones_session_the_clock_stopped_is_kept_for_the_resume(tmp_path, sett
     """Q1: the clock is checked AFTER the zones stage is recorded, so the finished (paid) session
     is cached, and the resume under the salvaged r00 serves it — it used to re-run the zones
     session over r00's src/ (reproduced in the 2026-09-22 review)."""
-    plan = _threejs_scene_plan()
+    plan = small_scene()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=1)
     ws = Workspace(tmp_path / "runs" / "quay")
     agent = FakeAgent(lambda job, ws_: {rel: "export function build(){}\n" for rel in (job.files_hint or ["src/scene.js"])},
@@ -351,7 +343,7 @@ def test_a_zones_session_the_clock_stopped_is_kept_for_the_resume(tmp_path, sett
 
 
 def test_soft_budget_notes_land_in_the_round_record(tmp_path, settings):
-    plan = _threejs_scene_plan()
+    plan = small_scene()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=0)
     ws = Workspace(tmp_path / "runs" / "degraded")
     services = FakeServices(assemble=True)
@@ -485,7 +477,7 @@ def test_an_imperfect_asset_stays_available_but_a_broken_one_does_not(tmp_path, 
 
 
 def test_a_scene_round_judged_at_the_ceiling_keeps_its_verdict(tmp_path, settings):
-    plan = _threejs_scene_plan()
+    plan = small_scene()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=2)
     ws = Workspace(tmp_path / "runs" / "ceiling")
     judge = FakeJudge(scores=(0.61,), cost=0.5, minutes=12.0)

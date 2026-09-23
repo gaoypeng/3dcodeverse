@@ -27,13 +27,14 @@ from codeverse3d.contracts.artifacts import (
     Severity,
 )
 from codeverse3d.contracts.chat import ChatRequest, ChatResponse
-from codeverse3d.contracts.common import Language, Usage
-from codeverse3d.contracts.plan import Plan
+from codeverse3d.contracts.common import Language, Track, Usage
+from codeverse3d.contracts.plan import Plan, ScenePlan
 from codeverse3d.contracts.run import RunRecord
 from codeverse3d.conventions import to_snake
 from codeverse3d.languages import get_runtime
 from codeverse3d.models.base import ModelError
 from codeverse3d.tracks.common import Services
+from codeverse3d.tracks.planner import plan_example
 from codeverse3d.workspace import Workspace
 
 FAIL_MARK = "RAISE_BUILD_ERROR"
@@ -277,6 +278,16 @@ def bill_verdict(cost: float, round_index: int) -> Usage:
     usage = Usage(backend="fake", cost_usd=cost)
     record_call(usage, label=f"judge:fake_v1:r{round_index:02d}:s0")
     return usage
+
+
+def small_scene() -> ScenePlan:
+    """The example scene without its Blender hero (every asset a three.js module — the only kind
+    FakeRuntime builds)."""
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
+    plan.assets = [a for a in plan.assets if a.kind == "threejs"]
+    for z in plan.zones:
+        z.contents = [c for c in z.contents if c in {a.name for a in plan.assets}]
+    return plan
 
 
 # ----------------------------------------------------------------------------- services
