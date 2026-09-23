@@ -7,9 +7,10 @@ Protocol (one fixed judge, one renderer, one gate set, for BOTH sides):
    each prompt's last tag is the gallery slug.
 2. THEIR GLB is ``<gallery>/<slug>/object.glb`` (built by their harness, never
    rebuilt here).  OUR GLB is the round ``codeverse3d.addons.select`` picks from the
-   harness run under ``<bench_out>/<lang>/runs/<id>/`` (``deliverable/object.glb``, else
-   that round's own ``artifacts/rNN/object.glb``, else — a run recorded before rounds kept
-   their own — ``artifacts/object.glb``).
+   harness run under ``<bench_out>/<lang>/runs/<id>/``: that round's own GLB
+   (``select.round_file`` — ``artifacts/rNN/object.glb``, or ``artifacts/object.glb`` of a run
+   recorded before rounds kept their own, only for the round it rebuilt there); a picked round
+   with none is an error, never the last build's GLB in its place.
 3. Both GLBs go through the same pipeline as ``bench/_fixed_eval.FixedEvaluator``:
    ``measure_glb`` → ``check_connectivity`` → ``render_glb`` (OBJECT_VIEWS, settings
    size, contact sheet) → ``VlmJudge(static_object_v1, gemini-3.1-pro-preview,

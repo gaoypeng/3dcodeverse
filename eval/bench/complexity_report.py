@@ -14,8 +14,9 @@ A "root" is a battery directory (``<battery>/runs/<slug>``), a runs directory,
 or a single run directory — all three are detected.  A run is the round
 ``codeverse3d.addons.select`` picks (a record it cannot read: the last round).  The
 complexity vector is read from that round's recorded measurement when present and
-recomputed from its GLB (``artifacts/rNN/object.glb``, else ``artifacts/object.glb``)
-otherwise, so the whole historic corpus is usable.  Rows without a judgment or without
+recomputed from its own GLB (``select.round_file``: ``artifacts/rNN/object.glb``, or an old
+run's ``artifacts/object.glb`` for the round it rebuilt there) otherwise, so the whole historic
+corpus is usable.  Rows without a judgment or without
 geometry are skipped and counted.  There is no pass rate: a run is not passed or failed.
 """
 

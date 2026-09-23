@@ -115,8 +115,8 @@ def test_cookbook_copied_when_found(tmp_ws: Workspace, caplog):
 
 
 def test_missing_cookbook_warns_where_someone_can_see_it(tmp_ws: Workspace, caplog):
-    """The unresolved cookbook is the failure `tracks/common.cookbook_rel_for` was fixed for
-    (an articulated run told the agent "No cookbook is available" while its 24 kB cookbook sat
+    """The unresolved cookbook is the failure the cookbook path lookup (`cookbook_rel_for`, gone)
+    was fixed for (an articulated run told the agent "No cookbook is available" while its 24 kB cookbook sat
     on disk).  It used to land in a `Materialized.warnings` list every caller threw away; the
     log line is the whole signal now, so it has to fire."""
     with caplog.at_level(logging.WARNING, logger="codeverse3d.agents.materialize"):

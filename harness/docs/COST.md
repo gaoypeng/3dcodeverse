@@ -1323,8 +1323,8 @@ nothing, so the hedge is free while it storms; only a success-then-success waste
 *The ledger records the key and the attempt count.*  `keys.py` scanned 1 542 files of the corpus
 for the `"key": "…xxxx"` that `gemini.py:_once` puts in `ChatResponse.raw` and found none, so
 "is one key hammered" was unanswerable.  `rotate_with_retries(stats=)` hands back `attempts`
-(round-trips issued, hedged siblings included; 1 = clean) and `hedged`; `GeminiModel` puts both
-in `raw` and `attempts` on the raised `ModelError`; `cost/instrument.py` copies the key suffix
+(round-trips issued, hedged siblings included; 1 = clean) and `hedged`; `GeminiModel` puts
+`attempts` in `raw` and on the raised `ModelError` (`hedged` stays in the stats); `cost/instrument.py` copies the key suffix
 (last 4 chars, never more) and `attempts` onto every `CallCost` row (`key`, `attempts`, both
 defaulted so old rows load); `3dcode cost` adds a per-key table and a
 `tries/call` column (`CostBucket.attempts_per_call`) whenever the ledger carries them.

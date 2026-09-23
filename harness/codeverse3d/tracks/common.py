@@ -159,7 +159,6 @@ class RunContext:
     model: Any | None = None  # ChatModel (single-shot path)
     contract_text: str = ""
     cookbook_text: str = ""
-    cookbook_rel: str = ""
     tool_cards: str = ""
     prompt_hashes: dict[str, str] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)

@@ -131,7 +131,7 @@ def _code_at(ws: Workspace, commit: str) -> str:
 # --------------------------------------------------------------------- (b) history wipe
 def test_a_planner_outage_on_resume_keeps_the_recorded_history(completed_run):
     """The FAILED handler serialized record.json with rounds=[] because the journal was
-    loaded only AFTER plan/prepare — one planner outage on resume wiped record.rounds
+    loaded only AFTER the plan and the pre-round stages — one planner outage on resume wiped record.rounds
     (and with it the flywheel's rounds_summary)."""
     run = completed_run(max_rounds=0)
     ws = run.ws

@@ -154,7 +154,7 @@ def _scene_ctx(tmp_path, settings, *, services, agent=None, plan=None, agent_id=
     ctx = RunContext(spec=spec, ws=ws, events=EventLog(ws.events_path), settings=settings,
                      budget=BudgetGuard(spec.budget, soft_fraction=0.55), runtime=rt, services=services,
                      state=RunState(), policy=RoundPolicy(), track=Track.SCENE, rubric="scene_v1",
-                     agent_id=agent_id, plan=plan, agent=agent, contract_text="CONTRACT", cookbook_rel="x/cookbook.md")
+                     agent_id=agent_id, plan=plan, agent=agent, contract_text="CONTRACT")
     rt.skeleton(ws, plan)
     ws.commit("skeleton")
     return ctx

@@ -85,9 +85,8 @@ class Run:
         from codeverse3d.contracts.run import RoundRecord
         from codeverse3d.workspace import Workspace
 
-        # round_file locates a round by its index alone; the raw row is not re-validated
-        rnd = RoundRecord.model_construct(index=int(rd.get("index", 0)), kind=str(rd.get("kind") or ""))
-        return select.round_file(Workspace(self.dir), rnd)
+        # round_file locates a round by its index alone: the raw row is not re-validated
+        return select.round_file(Workspace(self.dir), RoundRecord(index=int(rd.get("index") or 0), kind=""))
 
     def render_dir(self, rd: dict) -> Path | None:
         """The round's render directory, resolved inside THIS tree.

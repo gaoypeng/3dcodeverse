@@ -258,8 +258,9 @@ The read loop saw `c3d-scene-composition` / `-lighting` / `-motion` / `-threejs-
 at **0 opens across 30 listings** and revised their descriptions. That was the wrong fix, and
 two effect owners independently found the right one in the code:
 
-* `SceneTrack.prepare()` generates the **entire** scene baseline — `_env_stage`,
-  `_zones_stage`, `_assemble_stage` each call `tracks.generation.generate` directly.
+* `SceneTrack.prepare()` (the pre-round hook then; the declared `stages` since 2026-09-22)
+  generated the **entire** scene baseline — `_env_stage`, `_zones_stage`, `_assemble_stage`
+  each called `tracks.generation.generate` directly.
 * `skills_hook.attach_for_round` was reached from **exactly one place**, `steps.run_round`.
 * `SceneTrack.baseline_tasks` returns `[]`, so round 0 listed the bundles to a round with no
   generation task to consume them — which is precisely "listed 3, opened 0".

@@ -48,7 +48,7 @@ def _ctx(tmp_ws, settings, spec, plan, *, agent_id="single-shot:gemini:x", servi
     return RunContext(spec=spec, ws=tmp_ws, events=EventLog(tmp_ws.events_path), settings=settings, budget=BudgetGuard(spec.budget),
                       runtime=FakeRuntime(lang), services=services or FakeServices(), state=RunState(), policy=RoundPolicy(),
                       track=spec.track, rubric="r", agent_id=agent_id, plan=plan, agent=agent, contract_text="CONTRACT TEXT",
-                      cookbook_rel=f"{lang.value}/cookbook.md", tool_cards="- `build`: builds")
+                      tool_cards="- `build`: builds")
 
 
 def test_judged_sheet_returns_one_labelled_existing_image(tmp_path):

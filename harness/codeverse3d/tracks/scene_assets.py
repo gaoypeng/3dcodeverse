@@ -39,7 +39,7 @@ from codeverse3d.languages.scene_threejs import asset_file
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import fan_out, read_json_or_none, write_json_atomic
 from codeverse3d.prompts import render
-from codeverse3d.prompts.catalog import language_prompt, language_text
+from codeverse3d.prompts.catalog import language_text
 from codeverse3d.tracks.common import (
     RunContext,
     generate_for,
@@ -394,7 +394,6 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     sub_ws.write_json(sub_ws.spec_path, sub_spec)
     sub = replace(ctx, spec=sub_spec, ws=sub_ws, runtime=runtime, plan=None, track=Track.STATIC_OBJECT,
                   contract_text=language_text(Language.BLENDER, "contract.md"),
-                  cookbook_rel=language_prompt(Language.BLENDER, "cookbook.md"),
                   cookbook_text=language_text(Language.BLENDER, "cookbook.md"),
                   tool_cards=ctx.services.tool_cards(Track.STATIC_OBJECT.value, Language.BLENDER.value),
                   extra={"scene_brief": ctx.spec.prompt, "scene_style": constraints_text(ctx.spec)})

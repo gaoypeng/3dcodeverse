@@ -417,7 +417,8 @@ per-group prompt text rendered from it), the unified `src/` diff between the two
 recorded commits, and the score delta with an improved/unchanged/regressed label.  On the
 recorded corpus, re-exported through the shipped CLI on 2026-09-03 (`bench/out`, 21
 batteries): **254 rows from 87 runs across 13 batteries**, the only drops being 54
-cross-battery symlink aliases (`duplicate_run`), median diff 26.2 kB over 2 changed files,
+cross-battery symlink aliases (dropped then as `duplicate_run`, a reason the exporter no longer
+has — history, not a current code path), median diff 26.2 kB over 2 changed files,
 **112 improved / 81 unchanged / 59 regressed / 2 unscored**, median gain on an improved
 round +0.197, 119 rows carrying gate ERRORs.  Both sides come from the round's own recorded
 commit, not from `HEAD`.  (The same export read 205 rows on 2026-09-02; the corpus grows

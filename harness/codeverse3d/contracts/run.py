@@ -363,9 +363,9 @@ class RunRecord(BaseModel):
     finished_at: datetime | None = None
     error: str = ""
     telemetry: RunTelemetry | None = Field(
-        default=None, description="settings snapshot + cost ledger + environment (written by finalize_record)")
+        default=None, description="settings snapshot + cost summary (written by finalize_record)")
     steps: list[StepTime] | None = Field(
-        default=None, description="the run-level timed steps (plan, the prepare stages, best-of-N, the part of "
+        default=None, description="the run-level timed steps (plan, the pre-round stages, best-of-N, the part of "
                                   "an aborted round that ran); None = recorded before 2026-09-22")
     extra: dict[str, Any] = Field(default_factory=dict)
     best_round: int | None = Field(

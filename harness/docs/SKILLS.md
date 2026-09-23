@@ -642,8 +642,8 @@ so; the rest are live.
 
 ### Closed this wave
 
-* ~~**The scene track never delivered its skills.**~~ **FIXED.** `SceneTrack.prepare()`
-  generated the whole baseline (`_env_stage`, `_zones_stage`, `_assemble_stage`) without ever
+* ~~**The scene track never delivered its skills.**~~ **FIXED.** `SceneTrack.prepare()` (the
+  pre-round hook then; the track's declared `stages` since 2026-09-22) generated the whole baseline (`_env_stage`, `_zones_stage`, `_assemble_stage`) without ever
   reaching `skills_hook.attach_for_round`, which lived only in `steps.run_round`; and
   `baseline_tasks` returned `[]`, so round 0 listed four bundles to a session that did not
   exist. Measured at **0 opens / 30 listings**. The generating stages now attach and record with

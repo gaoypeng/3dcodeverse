@@ -64,7 +64,7 @@ def _ws(tmp_path: Path, *, skeleton: bool = True) -> Workspace:
 
 
 def _ctx(ws: Workspace, brief: str = AURORA, *, plan: GraphicsPlan | None = None, language: Language = Language.GLSL_SHADER):
-    return SimpleNamespace(cookbook_text=load_text("glsl_shader/cookbook.md"), cookbook_rel="glsl_shader/cookbook.md", plan=plan,
+    return SimpleNamespace(cookbook_text=load_text("glsl_shader/cookbook.md"), plan=plan,
                            spec=SimpleNamespace(prompt=brief, constraints=SimpleNamespace(dimensions_m={}, max_triangles=None, style="",
                                                                                           must_have=[], must_not=[]), references=[]),
                            language=language, track=Track.GRAPHICS, ws=ws, extra={}, events=EventLog(ws.events_path),

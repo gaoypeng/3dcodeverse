@@ -458,9 +458,8 @@ def read_json_or_none(path: Path | str, *, errors: str | None = None) -> dict[st
     ``languages/threejs/__init__.py``'s plan loader, ``cost/reconstruct._read_json``,
     ``spatial/_render_common.read_json`` and ``cli/_judge.plan_summary_for`` — all
     the same algorithm, differing only in whether they also checked ``isinstance(dict)``
-    (which every caller then relied on anyway).  Strict readers that must raise on
-    a corrupt input (``Workspace.read_json``, ``judges/calibration._read_json``)
-    deliberately do NOT use this.
+    (which every caller then relied on anyway).  A strict reader that must raise on
+    a corrupt input (``Workspace.read_json``) deliberately does NOT use this.
 
     ``errors`` is ``read_text``'s decode policy (``"replace"`` for files another
     process may still be writing).  Reads UTF-8, the encoding :func:`write_json_atomic`

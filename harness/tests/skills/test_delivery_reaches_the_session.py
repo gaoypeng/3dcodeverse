@@ -2,7 +2,8 @@
 
 The read loop measured c3d-scene-composition / -lighting / -motion at 0 opens out of 3
 listings each and read it as a wording problem.  It was not: the scene track did all of
-its baseline generation in ``prepare()`` — the env and zones stages called
+its baseline generation in its pre-round hook (then ``prepare()``; the declared ``stages``
+since) — the env and zones stages called
 ``tracks.generation.generate`` directly — while ``skills_hook.attach_for_round`` was only
 reached from ``steps.run_round``.  ``SceneTrack.baseline_tasks`` returns ``[]``, so round 0
 listed the bundles to a round that had no generation task to consume them.  That was

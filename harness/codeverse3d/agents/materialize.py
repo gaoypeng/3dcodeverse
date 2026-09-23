@@ -205,8 +205,9 @@ def materialize_workspace(
     cookbook path, the argv, a warnings list) was discarded by every production caller —
     ``tracks/common.Services.materialize`` is typed ``-> None`` — so its one real signal,
     a cookbook that did not resolve, was written and read by nobody.  That is the exact
-    failure ``tracks/common.cookbook_rel_for`` was fixed for on 2026-08-29 (an articulated
-    run told the agent "No cookbook is available" while its 24 kB cookbook sat on disk);
+    failure the cookbook path lookup (``cookbook_rel_for``, gone since 2026-09-22) was fixed
+    for on 2026-08-29 (an articulated run told the agent "No cookbook is available" while its
+    24 kB cookbook sat on disk);
     it is a log line now, where someone reading the run can see it (2026-08-30).
 
     ``cookbook_text`` is what the catalog loaded (``RunContext.cookbook_text``): until

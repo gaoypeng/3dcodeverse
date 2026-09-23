@@ -44,7 +44,7 @@ from codeverse3d.orchestrator import (
 )
 from codeverse3d.proc import EventLog, fan_out
 from codeverse3d.prompts import load_text, render
-from codeverse3d.prompts.catalog import language_prompt, language_text
+from codeverse3d.prompts.catalog import language_text
 from codeverse3d.tracks.candidates import run_best_of_n
 from codeverse3d.tracks.common import RunContext, Services
 from codeverse3d.tracks.generation import ALLOWED_ROOTS, GenerationTask, single_shot_model_id
@@ -454,7 +454,6 @@ class BaseTrack:
                          # money too, and the ledger is the only record of it
                          agent=metered_agent(self._agent), model=metered_chat_model(self._model))
         ctx.contract_text = language_text(spec.language, "contract.md")
-        ctx.cookbook_rel = language_prompt(spec.language, "cookbook.md")
         ctx.cookbook_text = language_text(spec.language, "cookbook.md")
         ctx.tool_cards = self.services.tool_cards(self.track.value, spec.language.value)
         for name, text in (("contract", ctx.contract_text), ("cookbook", ctx.cookbook_text)):

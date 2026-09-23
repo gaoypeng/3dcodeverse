@@ -46,7 +46,7 @@ def test_every_track_sends_the_whole_cookbook(monkeypatch) -> None:
     ctx = SimpleNamespace(plan=None, spec=SimpleNamespace(prompt="an aurora", constraints=None, must=[], must_not=[],
                                                           dims={}, reference_images=[], reference_notes=""),
                           track=Track.GRAPHICS, language=Language.GLSL_SHADER,
-                          contract_text="CONTRACT", cookbook_rel="glsl_shader/cookbook.md",
+                          contract_text="CONTRACT",
                           cookbook_text=big, tool_cards="", single_shot=True, extra={},
                           runtime=get_runtime(Language.GLSL_SHADER))
     monkeypatch.setattr("codeverse3d.tracks.prompting.constraints_text", lambda spec: "")

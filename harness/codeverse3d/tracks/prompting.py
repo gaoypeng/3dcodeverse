@@ -270,7 +270,6 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "language": ctx.language.value,
         "frame_doc": frame_doc(LANGUAGE_FRAME[ctx.language.value]),
         "contract": ctx.contract_text,
-        "cookbook_rel": ctx.cookbook_rel,
         # the whole cookbook.  It used to be ctx.cookbook_text[:6000] — a blind byte
         # prefix that delivered 13 % of blender's and 10 % of scene_threejs's, cutting
         # mid-snippet, and the read_cookbook tool that was supposed to fetch the rest
