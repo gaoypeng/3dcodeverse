@@ -23,8 +23,8 @@ on eight objective axes — is ``codeverse3d/spatial/complexity.py`` + ``eval/do
 This module is the *target* side: what THIS plan should be allowed and asked to spend.
 
 Hence: :func:`depth_budget` (how many triangles / how much build time this *plan*
-deserves, checked by :func:`budget_gate` and never printed into a prompt — the prompt
-gets the numberless :data:`DETAIL_ADVICE`; how many PARTS a prompt deserves is
+deserves, checked by :func:`budget_gate`; no generate / refine prompt states it — they
+get the numberless :data:`DETAIL_ADVICE`; how many PARTS a prompt deserves is
 ``tracks.planner.plan_budget``, which also owns the thin-plan re-ask), and :func:`scope_groups` (how to split one plan into sessions small
 enough that each part gets real attention) with :func:`interfaces_text` handing
 each session the exact numbers of the parts it must touch but may not edit.
@@ -68,7 +68,8 @@ class DepthBudget:
 
 
 #: What the generate / refine prompts say about detail.  No numbers: the triangle and build-time
-#: budget below is enforced by :func:`budget_gate`, never stated to the builder (owner, 2026-09-22).
+#: budget below is enforced by :func:`budget_gate`, whose findings state a number only when it is
+#: missed (owner, 2026-09-22).
 DETAIL_ADVICE = (
     "- Spend detail INSIDE the parts the plan already names — bevels, chamfers, profile sweeps, "
     "fasteners, panel seams, arrays — not on new parts the plan does not list.  Measured on this harness: "
