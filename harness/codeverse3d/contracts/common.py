@@ -52,13 +52,15 @@ class TrackInfo(BaseModel):
 
     rubric: str = Field(description="rubric name under judges/rubrics/, e.g. 'static_object_v1'")
     label: str = Field(description="human label for galleries / captions / reports")
+    best_of_n: bool = Field(default=True, description="the baseline is one session that --candidates N can run N "
+                            "times side by side (a scene writes its baseline in the pre-round stages: no)")
 
 
 #: one registry row per track
 TRACK_INFO: dict[Track, TrackInfo] = {
     Track.STATIC_OBJECT: TrackInfo(rubric="static_object_v1", label="3D Objects"),
     Track.ARTICULATED_OBJECT: TrackInfo(rubric="articulated_v1", label="Articulated Objects"),
-    Track.SCENE: TrackInfo(rubric="scene_v1", label="3D Scenes"),
+    Track.SCENE: TrackInfo(rubric="scene_v1", label="3D Scenes", best_of_n=False),
     Track.GRAPHICS: TrackInfo(rubric="shader_v2", label="Procedural Graphics"),
 }
 

@@ -483,6 +483,30 @@ def test_texture_is_not_offered_on_tracks_that_have_no_glb(tmp_path: Path):
     assert not texture_requested(stale.model_copy(update={"track": Track.GRAPHICS}))
 
 
+def test_best_of_n_is_not_offered_on_a_scene(tmp_path: Path):
+    """F1: a scene writes its baseline in its stages, so --candidates N was a silent no-op that
+    recorded n_candidates=N.  Explicit: refused.  Profile-implied: 1.  The record: the width that ran."""
+    from codeverse3d.config import get_settings
+    from codeverse3d.contracts.common import Track
+    from codeverse3d.tracks.scene import SceneTrack
+
+    runs = tmp_path / "runs"
+    r = runner.invoke(app, ["make", "a kitchen", "--track", "scene", "--candidates", "2",
+                            "--no-run", "--runs-dir", str(runs), "--slug", "scn2"])
+    assert r.exit_code == 1 and "--candidates" in r.output and not (runs / "scn2").exists()
+    r = runner.invoke(app, ["make", "a kitchen", "--track", "scene", "--profile", "quality",
+                            "--no-run", "--runs-dir", str(runs), "--slug", "scnq"])
+    assert r.exit_code == 0
+    spec = Spec.model_validate(json.loads((runs / "scnq" / "spec.json").read_text()))
+    assert spec.options.candidates == 1
+    r = runner.invoke(app, ["resume", "scnq", "--runs-dir", str(runs), "--candidates", "2"])
+    assert r.exit_code == 1 and "--candidates" in r.output
+    # a scene spec recorded before the fix (options.candidates=2) runs, and records, one
+    stale = spec.model_copy(update={"options": spec.options.model_copy(update={"candidates": 2})})
+    assert SceneTrack(n_candidates=2)._resolve_candidates(stale, get_settings()) == 1
+    assert spec.track is Track.SCENE
+
+
 # --------------------------------------------------- render must not publish the wrong round
 def _round_guard_ws(tmp_path: Path, *, tree: int, best: int | None = None):
     """A workspace whose render tree sits at `tree` (an old record may still name a `best`)."""

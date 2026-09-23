@@ -61,7 +61,9 @@ run does exactly N, each built on the one before it, unless the clock or a hard 
 stops it; there is no pass / plateau / regression stop since 2026-09-22),
 `--candidates N` (best-of-N baseline: N parallel candidates in `<ws>/_cand/`,
 quick-judged, the highest quick score kept (fewer gate errors on a tie); multiplies baseline
-cost ≈ N; default from `settings.default_candidates`), `--texture` (texture the PICKED round
+cost ≈ N; default from `settings.default_candidates`; object and graphics tracks only —
+a scene writes its baseline in its stages, so `--candidates N>1` is refused there and a
+profile's best-of-2 runs one), `--texture` (texture the PICKED round
 after the run; see §6), `--no-pick` (package nothing: no `deliverable/`, no `selection.json` —
 `3dcode pick` later), `--max-minutes`, `--dim height=0.45`, `--must`,
 `--must-not`, `--style`, `--tag`, `--seed`, `--slug`, `--runs-dir`, `--force`,

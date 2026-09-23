@@ -41,7 +41,7 @@ from codeverse3d.cli.flywheel_cmd import flywheel_app
 from codeverse3d.cli.skills_cmd import skills_app
 from codeverse3d.cli.texture_cmd import texture_app
 from codeverse3d.config import get_settings
-from codeverse3d.contracts.common import TRACK_LANGUAGES, Budget, Language, Track
+from codeverse3d.contracts.common import TRACK_INFO, TRACK_LANGUAGES, Budget, Language, Track
 from codeverse3d.contracts.spec import Constraints, ReferenceImage, RunOptions, Spec
 
 
@@ -340,7 +340,7 @@ def make(
         language = TRACK_LANGUAGES[track][0]
     run_slug = C.make_slug(prompt, track.value, language.value, slug)
     settings = get_settings()
-    texture_arg = texture  # the dial folds the profile in below; remember what the USER asked
+    texture_arg, candidates_arg = texture, candidates  # the dial folds the profile in below; remember what the USER asked
     # ONE resolver for the whole dial, so `--profile X` and `C3D_PROFILE=X` land the same
     # values (they used to disagree on candidates + texture); an explicit flag beats both.
     dial = C.resolve_dial(
@@ -366,6 +366,10 @@ def make(
                 f"--texture is for object tracks; {track.value} runs have no GLB to texture{hint}"
             )
         texture = False  # profile-implied: quality simply has no texture pass on this track
+    if candidates > 1 and not TRACK_INFO[track].best_of_n:  # the same rule for best-of-N
+        if candidates_arg:
+            raise _no_best_of_n(track)
+        candidates = 1
     backends = settings.backends(
         generator=generator, planner=planner, judge=judge, captioner=captioner
     )
@@ -466,6 +470,11 @@ def _ground_in_reference(spec: Spec, ws, *, n_views: int) -> Spec:
     if refset.usage.cost_usd:
         console.print(f"  reference cost ${refset.usage.cost_usd:.4f} ({refset.source})")
     return grounded
+
+
+def _no_best_of_n(track: Track) -> C.CliError:
+    return C.CliError(f"--candidates is for tracks whose baseline is one session; a {track.value} run "
+                      "writes its baseline in its pre-round stages")
 
 
 def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, force: bool = False,
@@ -599,6 +608,8 @@ def resume(
     # the run mutex, before the spec is rewritten (a budget raise is a mutation)
     with C.mutating(ws, what=f"3dcode resume {ws.root.name}"):
         spec = C.load_spec(ws)
+        if candidates and candidates > 1 and not TRACK_INFO[spec.track].best_of_n:
+            raise _no_best_of_n(spec.track)
         if (
             spec.options.profile
         ):  # the dial the run was created with (judge samples, montage px, turn cap)

@@ -21,7 +21,7 @@ from typing import Any
 
 from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.artifacts import GateReport
-from codeverse3d.contracts.common import Track
+from codeverse3d.contracts.common import TRACK_INFO, Track
 from codeverse3d.contracts.plan import Plan
 from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus
 from codeverse3d.contracts.spec import Spec
@@ -390,7 +390,10 @@ class BaseTrack:
 
     def _resolve_candidates(self, spec: Spec, settings: Settings) -> int:
         """Best-of-N width: constructor (CLI --candidates) > ``spec.options.candidates``
-        (the persisted carrier — spec.json travels with the run) > settings default."""
+        (the persisted carrier — spec.json travels with the run) > settings default.  1 on a
+        track without best-of-N (``TrackInfo.best_of_n``): the record names the width that ran."""
+        if not TRACK_INFO[self.track].best_of_n:
+            return 1
         n = self._n_candidates
         if n is None:
             n = spec.options.candidates

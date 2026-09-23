@@ -118,7 +118,7 @@ prompts:
 # pale-blue frame with no ripples, no reflections and no koi.
 
 # CLI flags used, not expressible in this schema:
-#   --candidates 2
+#   --candidates 2   (a no-op on a scene — it wrote n_candidates=2 and ran one baseline; refused since 2026-09-22)
 #   --profile quality
 - id: tsr_scn_temple_night_v2
   tier: hard
@@ -177,7 +177,7 @@ prompts:
 # an open truss frame in a pine forest — so refining could not make it an interior.
 
 # CLI flags used, not expressible in this schema:
-#   --candidates 2
+#   --candidates 2   (a no-op on a scene — it wrote n_candidates=2 and ran one baseline; refused since 2026-09-22)
 #   --profile quality
 - id: tsr_scn_boat_workshop_v2
   tier: hard
@@ -239,7 +239,7 @@ prompts:
 # wet-asphalt ShaderMaterial the prompt is about never existed.
 
 # CLI flags used, not expressible in this schema:
-#   --candidates 2
+#   --candidates 2   (a no-op on a scene — it wrote n_candidates=2 and ran one baseline; refused since 2026-09-22)
 #   --profile quality
 - id: tsr_scn_neon_alley_v2
   tier: hard

@@ -26,7 +26,7 @@ file was reconciled against it on 2026-08-23 (waves 2–3 + fix batch 1).
 ## core (contracts · config · proc)
 
 ```python
-from codeverse3d.contracts.common import TRACK_INFO, TrackInfo   # {Track: TrackInfo(rubric, label)} — THE track registry
+from codeverse3d.contracts.common import TRACK_INFO, TrackInfo   # {Track: TrackInfo(rubric, label, best_of_n)} — THE track registry
 from codeverse3d.contracts.common import ENTRY_FILE, code_file, LANGUAGE_LABEL   # {Language: "src/<entry>"}; code_file(lang) -> "code.<ext>"
 from codeverse3d.contracts.spec import RunOptions                # Spec.options: candidates (int|None, ≥1), texture (bool)
 GateFinding.as_line(with_gate=False, with_severity=False, with_target=False, with_hint=True) -> str
@@ -461,7 +461,8 @@ must-acceptance`; gate authors set `GateFinding.data["kind"]` so caps match prec
 from codeverse3d.tracks import get_track
 rec = get_track(spec.track, **options).run(spec, ws, resume=False) -> RunRecord   # Δ kwargs forwarded to the constructor:
 # services=, judge=, agent=, model=, runtime=, policy=RoundPolicy, settings=, planner_model=, n_candidates=
-# (CLI --candidates > spec.options.candidates > settings.default_candidates); StaticObject | Articulated | Scene | Graphics
+# (CLI --candidates > spec.options.candidates > settings.default_candidates; 1 where not TRACK_INFO[track].best_of_n: scene)
+# StaticObject | Articulated | Scene | Graphics
 BaseTrack.run(spec, ws, *, resume=False, force=False) -> RunRecord   # get_track returns a tracks.lifecycle.BaseTrack
 from codeverse3d.orchestrator import RoundPolicy, build_refine_instructions, compact_instructions, gate_error_count
 RoundPolicy(max_rounds=4, max_refine_tasks=6, max_instructions_per_task=6, parallel_min_tasks=2,
