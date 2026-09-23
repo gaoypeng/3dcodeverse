@@ -16,9 +16,9 @@ from codeverse3d.languages._gl_common import (
     LineMap,
     Segment,
     finish_build,
+    graphics_plan,
     invalidate_stale_outputs,
     judge_times,
-    load_plan,
     make_host,
     parse_glsl_log,
     resolution_for,
@@ -413,7 +413,7 @@ class GlslShaderRuntime(RuntimeLayout):
         if not (ws.root / SHADER).is_file():
             res = GlResult(ok=False, mode="shader", stage="lint", error_type=MISSING_ENTRY, error_message=f"{SHADER} is missing")
             return finish_build(ws, res, language=self.language.value, error_file=SHADER)
-        plan = load_plan(ws)
+        plan = graphics_plan(ws)
         w, h = resolution_for(plan)
         if width and height:
             w, h = int(width), int(height)

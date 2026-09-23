@@ -18,9 +18,9 @@ from codeverse3d.languages._ast_lint import (
 from codeverse3d.languages._common import MISSING_ENTRY, ws_rel
 from codeverse3d.languages._gl_common import (
     finish_build,
+    graphics_plan,
     invalidate_stale_outputs,
     judge_times,
-    load_plan,
     make_host,
     parse_glsl_log,
     resolution_for,
@@ -361,7 +361,7 @@ class OpenGLPythonRuntime(RuntimeLayout):
         if not program.is_file():
             res = GlResult(ok=False, mode="program", stage="lint", error_type=MISSING_ENTRY, error_message=f"{PROGRAM} is missing")
             return finish_build(ws, res, language=self.language.value, error_file=PROGRAM)
-        plan = load_plan(ws)
+        plan = graphics_plan(ws)
         w, h = resolution_for(plan)
         if width and height:
             w, h = int(width), int(height)

@@ -70,7 +70,7 @@ def make_host(override: GlHost | None = None, timeout_s: float | None = None) ->
     return GlHost(gpu=settings.render.gpu, timeout_s=float(timeout_s or settings.limits.render_timeout_s))
 
 
-def load_plan(ws: Workspace) -> GraphicsPlan | None:
+def graphics_plan(ws: Workspace) -> GraphicsPlan | None:
     """The run's GraphicsPlan; ``None`` (→ defaults) without one."""
     plan = plan_or_none(ws.plan_path)
     return plan if isinstance(plan, GraphicsPlan) else None
