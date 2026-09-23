@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from typing import Any
 
@@ -105,8 +104,7 @@ def probe_scene(ws: Workspace, *, timeout_s: float = 60.0) -> SceneProbeResult:
     """Import-only probe: module loads, shape valid, cameras valid, update runs, census."""
     report, _, census = run_probe(ws, timeout_s=timeout_s)
     if census:
-        ws.artifacts.mkdir(parents=True, exist_ok=True)
-        (ws.artifacts / "census.json").write_text(json.dumps(census, indent=1))
+        ws.write_json(ws.artifacts / "census.json", census)
     return _result(report, census)
 
 

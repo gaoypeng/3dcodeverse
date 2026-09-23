@@ -12,9 +12,7 @@ import contextlib
 import hashlib
 import json
 import logging
-import os
 import shutil
-import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -23,7 +21,7 @@ from typing import Any
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import RENDER_MODES, RenderSet, RenderView
 from codeverse3d.conventions import OBJECT_VIEWS, ViewPreset
-from codeverse3d.proc import sha256_file
+from codeverse3d.proc import sha256_file, unique_tmp
 from codeverse3d.spatial._render_common import build_sheet, out_directory, view_specs
 from codeverse3d.spatial.node import (
     OWN_BROWSER_ENV,
@@ -223,7 +221,7 @@ def _run_render(
 def _store_in_cache(cache_dir: Path, out_dir: Path, record: dict[str, Any]) -> None:
     # per-writer tmp + tolerant rename (the vlm_judge._render_slices shape): a pid-only
     # name let two judge threads share a tmp dir and delete each other's half-copied PNGs
-    tmp = cache_dir.parent / f".{cache_dir.name}.{os.getpid()}-{threading.get_ident()}.tmp"
+    tmp = unique_tmp(cache_dir)
     shutil.rmtree(tmp, ignore_errors=True)
     try:
         tmp.mkdir(parents=True)

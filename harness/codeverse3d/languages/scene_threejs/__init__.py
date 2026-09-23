@@ -753,7 +753,7 @@ class SceneThreeJsRuntime:
 
         probe, shaders, census = run_probe(ws, compile=True, timeout_s=timeout_s)
         if census:
-            (ws.artifacts / "census.json").write_text(json.dumps(census, indent=1))
+            ws.write_json(ws.artifacts / "census.json", census)
         gates_dir = ws.artifacts / "gates"
         gates_dir.mkdir(exist_ok=True)
         (gates_dir / "scene_probe.json").write_text(probe.model_dump_json(indent=1))

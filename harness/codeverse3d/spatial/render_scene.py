@@ -25,7 +25,7 @@ from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import RenderSet, RenderView
 from codeverse3d.contracts.plan import BBox, CameraPlan
 from codeverse3d.conventions import SCENE_VIEWS, ViewPreset
-from codeverse3d.proc import read_json_or_none
+from codeverse3d.proc import read_json_or_none, write_json_atomic
 from codeverse3d.spatial._render_common import build_sheet, out_directory, view_specs
 from codeverse3d.spatial.node import (
     OWN_BROWSER_ENV,
@@ -279,14 +279,10 @@ def _store_motion(out_dir: Path, metrics: dict[str, Any]) -> None:
     if not rows:
         return
     metrics["motion"] = [r.as_dict() for r in rows]
-    path = out_dir / "metrics.json"
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
-        tmp.write_text(json.dumps(metrics, indent=1))
-        tmp.replace(path)
+        write_json_atomic(out_dir / "metrics.json", metrics)
     except OSError as e:
-        tmp.unlink(missing_ok=True)
-        log.warning("could not write motion into %s: %s", path, e)
+        log.warning("could not write motion into %s: %s", out_dir / "metrics.json", e)
 
 
 def perf_detail(rs: RenderSet) -> str:
