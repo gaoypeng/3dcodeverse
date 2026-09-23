@@ -244,3 +244,24 @@ def test_a_resumed_runs_total_is_its_ledger_whatever_a_session_saved(tmp_path):
     rec = RunRecord(spec=make_spec(), workspace=str(ws.root))
     package_run(ws, rec)
     assert rec.total_usage.cost_usd == pytest.approx(8.12)
+
+
+def test_has_commit_answers_no_when_git_cannot_answer(tmp_path, monkeypatch):
+    """has_commit raised on a missing run dir (the OSError of a cwd that is gone) and had no
+    timeout, unlike every other git read — a hung git hung the resume / the export."""
+    import subprocess
+
+    from codeverse3d.workspace import HAS_COMMIT_TIMEOUT_S, Workspace
+
+    assert Workspace(tmp_path / "gone").has_commit("abc123") is False
+    ws = Workspace(tmp_path / "ws").create()
+    sha = ws.commit("one")
+    assert ws.has_commit(sha)
+    seen: dict = {}
+
+    def hung(*a, **kw):
+        seen.update(kw)
+        raise subprocess.TimeoutExpired(a[0], kw.get("timeout"))
+
+    monkeypatch.setattr(subprocess, "run", hung)
+    assert ws.has_commit(sha) is False and seen["timeout"] == HAS_COMMIT_TIMEOUT_S

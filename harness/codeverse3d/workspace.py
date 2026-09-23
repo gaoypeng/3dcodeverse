@@ -70,6 +70,8 @@ GIT_SAFE_FLAGS = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"
 #: in .git/config, both agent-writable — is not reachable by ``-c``, and ``--no-ext-diff``
 #: alone does not disable textconv: without ``--no-textconv`` that driver EXECUTES.
 GIT_SAFE_DIFF_FLAGS = ("--no-ext-diff", "--no-textconv")
+#: a has_commit probe that has not answered by then answers no (record/_git.py reads use 60 s too)
+HAS_COMMIT_TIMEOUT_S = 60
 #: local (.git/config) config that makes git EXECUTE a program.  ``-c`` cannot override a
 #: local ``filter.*`` / ``diff.*`` driver, so these are unset in place before every commit.
 _GIT_EXEC_SECTIONS = ("filter", "diff", "alias", "gpg", "credential")
@@ -323,11 +325,12 @@ class Workspace:
         with Workspace._LOCKS_GUARD:
             return Workspace._LOCKS.setdefault(key, threading.RLock())
 
-    def _git(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    def _git(self, *args: str, check: bool = True, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
         with self._lock:
             for attempt in range(4):
                 proc = subprocess.run(
                     ["git", *GIT_SAFE_FLAGS, *args], cwd=self.root, text=True, capture_output=True, check=False,
+                    timeout=timeout,
                     env=git_safe_env(GIT_AUTHOR_NAME="3dcode", GIT_AUTHOR_EMAIL="3dcode@local",
                                      GIT_COMMITTER_NAME="3dcode", GIT_COMMITTER_EMAIL="3dcode@local"),
                 )
@@ -391,10 +394,15 @@ class Workspace:
 
     def has_commit(self, commit: str) -> bool:
         """Does this repo actually have ``commit``?  A round journal can name a commit
-        the crash never wrote (``tracks/lifecycle.reconcile_resume`` drops such rounds)."""
+        the crash never wrote (``tracks/lifecycle.reconcile_resume`` drops such rounds).
+        A read that cannot answer — no git binary, no repo dir, a hung git — is a no."""
         if not commit:
             return False
-        return self._git("cat-file", "-e", f"{commit}^{{commit}}", check=False).returncode == 0
+        try:
+            return self._git("cat-file", "-e", f"{commit}^{{commit}}", check=False,
+                             timeout=HAS_COMMIT_TIMEOUT_S).returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            return False
 
     def changed_files(self, since: str | None = None) -> list[FileChange]:
         """Files changed vs ``since`` (a commit) or vs HEAD (uncommitted work)."""
