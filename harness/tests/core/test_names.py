@@ -16,6 +16,7 @@ from codeverse3d.conventions import PASCAL_RE, to_pascal, to_snake
 from codeverse3d.languages.blender import lint_blender_source
 from codeverse3d.languages.cadquery import lint_cadquery_source
 from codeverse3d.languages.urdf import _IDENT as URDF_LINK_RE
+from codeverse3d.texturing.materials import family_for
 from codeverse3d.tracks.planner import normalise_names, plan_example
 
 WRAPPERS = Path(__file__).resolve().parents[2] / "codeverse3d" / "languages" / "wrappers"
@@ -103,3 +104,7 @@ def test_the_part_name_lints_accept_acronyms():
     assert any("named objects" in f.message and "USBPort" in f.message for f in rep.findings)
     assert all(URDF_LINK_RE.match(n) for n in ("TVStand", "LED", "CPU_2", "A"))
 
+
+def test_material_words_split_acronyms():
+    hit = family_for("PVCPipe")
+    assert hit is not None and hit == family_for("pvc pipe")

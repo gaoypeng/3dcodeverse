@@ -33,6 +33,8 @@ from typing import NamedTuple
 
 from pydantic import BaseModel, Field
 
+from codeverse3d.conventions import to_snake
+
 #: glTF/Blender/three framework defaults.  A material sitting exactly on one of
 #: these pairs was never authored — see ``is_framework_default``.
 FRAMEWORK_DEFAULTS: tuple[tuple[float, float], ...] = (
@@ -216,25 +218,11 @@ class FamilyMatch(NamedTuple):
 
 
 def _tokens(text: str) -> set[str]:
-    """Whole words of ``text``, splitting snake_case, kebab-case AND CamelCase."""
+    """Whole words of ``text`` as :func:`~codeverse3d.conventions.to_snake` splits them
+    (snake_case, kebab-case, CamelCase and acronyms: ``PVCPipe`` → ``pvc``, ``pipe``),
+    plus the words joined (``pvcpipe``)."""
     s = str(text or "")
-    parts: list[str] = []
-    cur: list[str] = []
-    prev_lower = False
-    for ch in s:
-        if ch.isalnum():
-            if ch.isupper() and prev_lower and cur:
-                parts.append("".join(cur))
-                cur = []
-            cur.append(ch.lower())
-            prev_lower = ch.islower() or ch.isdigit()
-        else:
-            if cur:
-                parts.append("".join(cur))
-                cur = []
-            prev_lower = False
-    if cur:
-        parts.append("".join(cur))
+    parts = [w for w in to_snake(s).split("_") if w] if any(c.isascii() and c.isalnum() for c in s) else []
     joined = "".join(parts)
     return {*parts, joined} if joined else set(parts)
 
