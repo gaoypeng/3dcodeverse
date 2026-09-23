@@ -38,6 +38,7 @@ import logging
 from pathlib import Path
 
 from codeverse3d.agents.cli_common import default_mcp_command
+from codeverse3d.proc import read_json_or_none
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -74,14 +75,8 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str], 
 
     # the MCP server's track/language filter (mcp_server.build_context): this file is
     # agy's ONLY tool documentation, and the whole registry taught dead-end object tools
-    track = language = ""
-    if ws is not None and ws.spec_path.is_file():
-        try:
-            spec = json.loads(ws.spec_path.read_text())
-            track, language = str(spec.get("track", "")), str(spec.get("language", ""))
-        except (OSError, json.JSONDecodeError) as e:
-            log.warning("could not read %s for tool filtering: %s", ws.spec_path, e)
-    tools = list_tools(track=track, language=language)
+    spec = (read_json_or_none(ws.spec_path) if ws is not None else None) or {}
+    tools = list_tools(track=str(spec.get("track", "")), language=str(spec.get("language", "")))
     names = {t.name for t in tools}
     cards = "\n".join(t.card() for t in tools) or "(the tool registry is empty in this environment)"
     look = [n for n in ("render_views", "render_sheet", "scene_views", "gl_frames") if n in names]
