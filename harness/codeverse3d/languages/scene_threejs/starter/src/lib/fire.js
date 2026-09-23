@@ -104,7 +104,7 @@ vec3 fireEmission(float heat) {
 
 function fireMaterial({ radius, height, wind, intensity, candle, seed, steps, box }) {
   const mat = makeShaderMaterial({
-    name: 'FireVolume', util: false, fog: true,
+    name: 'FireVolume', fog: true,
     uniforms: {
       uRadius: { value: radius }, uHeight: { value: height },
       uWind: { value: new THREE.Vector2(...wind) },
@@ -120,13 +120,8 @@ function fireMaterial({ radius, height, wind, intensity, candle, seed, steps, bo
     fragmentMain: /* glsl */`
       if (uIntensity <= 0.0) discard;
       vec3 ray = normalize(vFireLocal - uCameraLocal);
-      vec3 safeRay = mix(vec3(-1.0), vec3(1.0), step(vec3(0.0), ray))
-        * max(abs(ray), vec3(0.000001));
-      vec3 ta = (uBoxMin - uCameraLocal) / safeRay;
-      vec3 tb = (uBoxMax - uCameraLocal) / safeRay;
-      vec3 nearT = min(ta, tb), farT = max(ta, tb);
-      float enter = max(0.0, max(nearT.x, max(nearT.y, nearT.z)));
-      float leave = min(farT.x, min(farT.y, farT.z));
+      vec2 range = astraRayBox(uCameraLocal, ray, uBoxMin, uBoxMax);
+      float enter = max(0.0, range.x), leave = range.y;
       if (leave <= enter) discard;
       float ds = (leave - enter) / float(${steps});
       // Static sub-pixel jitter avoids axial banding without temporal noise.
@@ -154,8 +149,7 @@ function fireMaterial({ radius, height, wind, intensity, candle, seed, steps, bo
       // Depth from the luminous field, not its empty bounding cube. This also
       // makes the volume visible to a camera inside its proxy geometry.
       #ifndef USE_LOGDEPTHBUF
-        vec4 clip = uLocalToClip * vec4(firstHit, 1.0);
-        gl_FragDepth = clamp(clip.z / clip.w * 0.5 + 0.5, 0.0, 1.0);
+        gl_FragDepth = astraClipDepth(uLocalToClip, firstHit);
       #endif
       gl_FragColor = vec4(color / max(alpha, 0.001), alpha);
     `,

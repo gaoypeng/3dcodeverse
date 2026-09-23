@@ -132,13 +132,7 @@ float fireSootCoarse(vec3 p) {
   float n=texture(uFieldNoise,p*vec3(.32,.13,.32)/uCoarseScale-vec3(0.0,uTime*uRise*.13/uCoarseScale,0.0)+a.a*.31).r;
   return a.b*pow(clamp(.68+(n-.5)*2.4,0.0,1.6),1.3);
 }
-vec2 fireRange(vec3 origin,vec3 direction,vec3 boxMin,vec3 boxSize) {
-  vec3 safe=mix(vec3(-1.0),vec3(1.0),step(vec3(0.0),direction))*max(abs(direction),vec3(1e-7));
-  vec3 a=(boxMin-origin)/safe,b=(boxMin+boxSize-origin)/safe;
-  vec3 near=min(a,b),far=max(a,b);
-  return vec2(max(near.x,max(near.y,near.z)),min(far.x,min(far.y,far.z)));
-}
-vec2 fireBox(vec3 origin,vec3 direction){return fireRange(origin,direction,uBoxMin,uBoxSize);}
+vec2 fireBox(vec3 origin,vec3 direction){return astraRayBox(origin,direction,uBoxMin,uBoxMin+uBoxSize);}
 vec3 fireRadiance(float heat) {
   vec3 c=mix(vec3(1.8,.06,.002),vec3(4.0,.75,.04),smoothstep(.15,.58,heat));
   return mix(c,vec3(6.0,2.8,.65),smoothstep(.55,.96,heat))*.72;
@@ -155,7 +149,7 @@ float fireSunTransmission(vec3 p,float jitter) {
 `;
 
 function fieldMaterial(uniforms, tier) {
-  return makeShaderMaterial({name:'SharedFireSootVolume',util:false,fog:true,
+  return makeShaderMaterial({name:'SharedFireSootVolume',fog:true,
     transparent:true,depthWrite:false,side:THREE.BackSide,uniforms,
     defines:{FIELD_STEPS:tier.steps,FIELD_LIGHT_STEPS:tier.lightSteps},
     varyings:'varying vec3 vFieldLocal;',vertexMain:'vFieldLocal=position;',fragmentHead:FIELD,
@@ -177,7 +171,7 @@ function fieldMaterial(uniforms, tier) {
       }
       if(leave<=enter||uIntensity<=0.0)discard;
       float metric=length(uLocalToWorld*ray);
-      vec2 hot=fireRange(origin,ray,uFlameBoxMin,uFlameBoxSize);
+      vec2 hot=astraRayBox(origin,ray,uFlameBoxMin,uFlameBoxMin+uFlameBoxSize);
       hot=vec2(max(enter,hot.x),min(leave,hot.y));
       int pre=0,post=0;
       if(hot.y>hot.x){
@@ -213,8 +207,7 @@ function fieldMaterial(uniforms, tier) {
       }
       float alpha=1.0-transmittance;if(alpha<.005)discard;
       #ifndef USE_LOGDEPTHBUF
-      vec4 clip=uLocalToClip*vec4(first,1.0);
-      gl_FragDepth=clamp(clip.z/clip.w*.5+.5,0.0,1.0);
+      gl_FragDepth=astraClipDepth(uLocalToClip,first);
       #endif
       gl_FragColor=vec4(radiance/max(alpha,.001),alpha);
     `});

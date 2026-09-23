@@ -58,11 +58,7 @@ uniform float uTime;
 varying vec3 vPlumeLocal;
 
 vec2 plumeBox(vec3 origin, vec3 direction) {
-  vec3 safe = sign(direction) * max(abs(direction), vec3(1e-7));
-  safe += vec3(equal(direction, vec3(0.0))) * 1e-7;
-  vec3 a = (uBoundsMin - origin) / safe, b = (uBoundsMax - origin) / safe;
-  vec3 lo = min(a,b), hi = max(a,b);
-  return vec2(max(lo.x,max(lo.y,lo.z)), min(hi.x,min(hi.y,hi.z)));
+  return astraRayBox(origin, direction, uBoundsMin, uBoundsMax);
 }
 float plumeDensity(vec3 p) {
   float y = p.y;
@@ -208,8 +204,7 @@ function makePlume(opts, steam) {
       // The exit face is only a ray proxy, often behind nearby opaque objects.
       // Depth-test the visible field instead of discarding its entire ray.
       #ifndef USE_LOGDEPTHBUF
-        vec4 densityClip=uLocalToClip*vec4(firstDensity,1.0);
-        gl_FragDepth=clamp(densityClip.z/densityClip.w*.5+.5,0.0,1.0);
+        gl_FragDepth=astraClipDepth(uLocalToClip,firstDensity);
       #endif
       gl_FragColor=vec4(radiance/max(alpha,.001),alpha);
     `,

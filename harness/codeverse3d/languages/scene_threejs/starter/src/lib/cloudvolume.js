@@ -116,12 +116,7 @@ uniform float uTime;
 varying vec3 vLocal;
 
 vec2 cloudBox(vec3 origin, vec3 direction) {
-  vec3 safe = sign(direction) * max(abs(direction), vec3(1e-6));
-  safe += vec3(equal(direction, vec3(0.0))) * 1e-6;
-  vec3 a = (-uSize * .5 - origin) / safe;
-  vec3 b = (uSize * .5 - origin) / safe;
-  vec3 near = min(a, b), far = max(a, b);
-  return vec2(max(max(near.x, near.y), near.z), min(min(far.x, far.y), far.z));
+  return astraRayBox(origin, direction, -uSize * .5, uSize * .5);
 }
 float cloudDensity(vec3 position) {
   vec3 uv = position / uSize + .5;
@@ -263,8 +258,7 @@ export function makeCloudVolume(opts = {}) {
       // The back face only bounds the integration ray. Test the visible
       // density against opaque depth, not the often much farther proxy exit.
       #ifndef USE_LOGDEPTHBUF
-        vec4 densityClip = uLocalToClip * vec4(firstDensity, 1.0);
-        gl_FragDepth = clamp(densityClip.z / densityClip.w * .5 + .5, 0.0, 1.0);
+        gl_FragDepth = astraClipDepth(uLocalToClip, firstDensity);
       #endif
       gl_FragColor = vec4(radiance / max(alpha, .001), alpha);
     `,

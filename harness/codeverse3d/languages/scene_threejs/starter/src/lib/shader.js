@@ -153,6 +153,24 @@ export const GLSL_UTIL = [
     '  return astraBumpSlope(eye, n, vec2(dFdx(h), dFdy(h)));',
     '}',
     '#endif',
+    // Bounded ray marches (fire, smoke, clouds). Entry and exit distances of
+    // origin + t * direction through an axis-aligned box; an axis-parallel
+    // ray keeps a finite slab. Miss when y <= x.
+    'vec2 astraRayBox(vec3 origin, vec3 direction, vec3 boxMin, vec3 boxMax) {',
+    '  vec3 safe = mix(vec3(-1.0), vec3(1.0), step(vec3(0.0), direction))',
+    '    * max(abs(direction), vec3(1e-7));',
+    '  vec3 a = (boxMin - origin) / safe, b = (boxMax - origin) / safe;',
+    '  vec3 lo = min(a, b), hi = max(a, b);',
+    '  return vec2(max(lo.x, max(lo.y, lo.z)), min(hi.x, min(hi.y, hi.z)));',
+    '}',
+    // The depth a volume writes for its first visible density, so opaque
+    // geometry in front still hides it and its empty proxy box does not:
+    // `gl_FragDepth = astraClipDepth(uLocalToClip, firstHit);` (standard
+    // depth only — guard it with #ifndef USE_LOGDEPTHBUF).
+    'float astraClipDepth(mat4 localToClip, vec3 p) {',
+    '  vec4 clip = localToClip * vec4(p, 1.0);',
+    '  return clamp(clip.z / clip.w * 0.5 + 0.5, 0.0, 1.0);',
+    '}',
     // 0 edge-on, 1 facing. A double-sided shell piles its front and back
     // into the same pixels at the silhouette and stacks into a bright
     // rib; fade by this.
