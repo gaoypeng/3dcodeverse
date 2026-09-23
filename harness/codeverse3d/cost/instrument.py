@@ -57,16 +57,11 @@ from codeverse3d.cost.types import Role, Stage, stage_for_label
 log = logging.getLogger(__name__)
 
 
-class MeteredChatModel:
-    """ChatModel proxy that appends one ledger row per call."""
+class _Proxy:
+    """Forward everything to the wrapped object; the subclasses add the meter."""
 
     def __init__(self, inner: Any):
         self._inner = inner
-
-    # -- protocol ---------------------------------------------------------
-    @property
-    def provider(self) -> str:
-        return getattr(self._inner, "provider", "")
 
     @property
     def model(self) -> str:
@@ -76,11 +71,19 @@ class MeteredChatModel:
     def id(self) -> str:
         return str(self._inner.id)
 
-    def __getattr__(self, name: str) -> Any:  # everything else is the real model's
+    def __getattr__(self, name: str) -> Any:  # everything else is the real object's
         return getattr(self._inner, name)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return f"MeteredChatModel({self._inner!r})"
+        return f"{type(self).__name__}({self._inner!r})"
+
+
+class MeteredChatModel(_Proxy):
+    """ChatModel proxy that appends one ledger row per call."""
+
+    @property
+    def provider(self) -> str:
+        return getattr(self._inner, "provider", "")
 
     # -- the meter --------------------------------------------------------
     def generate(self, request: ChatRequest) -> ChatResponse:
@@ -206,33 +209,13 @@ def _outcome(exc: BaseException) -> str:
     return "error"
 
 
-class MeteredAgent:
+class MeteredAgent(_Proxy):
     """CodingAgent proxy: attribution for the session + its one ledger row.  The
     job runs as given — the turn cap is decided in ``tracks.generation``."""
-
-    def __init__(self, inner: Any):
-        self._inner = inner
 
     @property
     def kind(self) -> str:
         return str(getattr(self._inner, "kind", ""))
-
-    @property
-    def model(self) -> str:
-        return str(getattr(self._inner, "model", ""))
-
-    @property
-    def id(self) -> str:
-        return str(self._inner.id)
-
-    def available(self) -> tuple[bool, str]:
-        return self._inner.available()
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._inner, name)
-
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return f"MeteredAgent({self._inner!r})"
 
     def run(self, job: AgentJob) -> AgentResult:
         stage = stage_for_label(job.kind or job.label)
