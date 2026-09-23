@@ -464,6 +464,12 @@ rec = get_track(spec.track, **options).run(spec, ws, resume=False) -> RunRecord 
 # (CLI --candidates > spec.options.candidates > settings.default_candidates; 1 where not TRACK_INFO[track].best_of_n: scene)
 # StaticObject | Articulated | Scene | Graphics
 BaseTrack.run(spec, ws, *, resume=False, force=False) -> RunRecord   # get_track returns a tracks.lifecycle.BaseTrack
+BaseTrack.stages: Stages = (SKELETON, MATERIALIZE)   # the pre-round graph (docs/ARCHITECTURE.md §7.1); Stages =
+    # tuple[StageNode | tuple[StageNode, ...], ...], an inner tuple = siblings side by side
+StageNode(name, run: (track, ctx) -> Any, key: (ctx) -> dict | None = None, when: (Settings) -> bool | None = None,
+          seeds_src=False)   # key None = uncached; the result lands in ctx.extra[name]
+run_stages(track, ctx, runner, stages) -> None;  plan_stage_key(spec, track) -> dict   # the plan's key (eval pin_plan too)
+StageRunner(ws, events, state=None, *, frozen=False)   # frozen (rounds exist): a recorded stage is served whatever its key
 from codeverse3d.orchestrator import RoundPolicy, build_refine_instructions, compact_instructions, gate_error_count
 RoundPolicy(max_rounds=4, max_refine_tasks=6, max_instructions_per_task=6, parallel_min_tasks=2,
             n_candidates=1, judge_samples=1)   # lifecycle.build_context binds n_candidates with ONE dataclasses.replace
@@ -561,7 +567,8 @@ from codeverse3d.tracks.steps import run_round, skip_judge_reason, emit_round_co
 skip_judge_reason(ctx, *, renders, ignore_budget=False) -> str    # "" = judge it.  ONLY states where the
     # verdict is never bought at all: no judge / no renders / budget already exceeded
     # (docs/COST.md §17 — "no file change" and "build not repaired" were removed)
-run_round(ctx, *, index, kind, tasks, pipeline, ..., previous_best=None) -> RoundRecord
+run_round(ctx, *, index, kind, tasks, pipeline, ..., previous=None, findings=()) -> RoundRecord
+    # previous / findings: the previous round's verdict (the judge reads it) and gates (the skill router's input)
     # steps._run_round (the same round, no aborted-round record) also takes render: RenderFn | None (swaps the
     # pipeline's render; candidates pass quick_render) and geometry_views=False (skips the clay/normals views)
     # rec.usage = the ledger rows the round booked (its tally) + extra_usage; rec.steps = generate (per phase) /
