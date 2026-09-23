@@ -42,7 +42,7 @@ from codeverse3d.orchestrator import (
     hash_inputs,
     plan_refine_groups,
 )
-from codeverse3d.proc import EventLog, fan_out
+from codeverse3d.proc import EventLog, fan_out, read_json_or_none
 from codeverse3d.prompts import load_text, render
 from codeverse3d.prompts.catalog import language_text
 from codeverse3d.tracks.candidates import run_best_of_n
@@ -757,12 +757,10 @@ class BaseTrack:
     def _prior_record_fields(ws: Workspace) -> tuple[dict[str, Any], dict[str, str]]:
         """``(extra, prompt_hashes)`` of the record.json a previous session wrote
         (empty when there is none / it cannot be read — never run-fatal)."""
-        if not ws.record_path.is_file():
-            return {}, {}
-        try:
-            prior = ws.read_json(ws.record_path)
-        except Exception as e:  # noqa: BLE001 — a corrupt old record must not block finalise
-            log.warning("prior record.json unreadable; post-hoc extra keys not carried over: %s", e)
+        prior = read_json_or_none(ws.record_path)
+        if prior is None:  # a corrupt old record must not block finalise
+            if ws.record_path.is_file():
+                log.warning("prior record.json unreadable; post-hoc extra keys not carried over")
             return {}, {}
         extra = prior.get("extra")
         hashes = prior.get("prompt_hashes")
