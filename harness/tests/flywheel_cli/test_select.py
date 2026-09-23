@@ -118,6 +118,8 @@ def test_pick_by_pairwise_asks_only_inside_the_margin_and_never_buys_a_verdict_t
     assert judge.calls and "/r01/" in judge.calls[0][0] and judge.calls[0][2] == "static_object_v1"
     assert select.pick(ws.root, by="pairwise", judge=judge) == 0 and len(judge.calls) == 1   # cached, not re-bought
     assert ws.judge_path(1, "_vs_r00_pairwise").is_file()
+    Path(judge.calls[0][0]).write_bytes(b"re-rendered")   # new pictures are a new comparison
+    assert select.pick(ws.root, by="pairwise", judge=judge) == 0 and len(judge.calls) == 2
     # an unsure verdict, an outage or a clear gap keep the top score
     assert select.pick(_run(tmp_path / "u", [(0.70, 0), (0.72, 0)]).root, by="pairwise", judge=_Pairwise("b", 0.5)) == 1
     assert select.pick(_run(tmp_path / "f", [(0.70, 0), (0.72, 0)]).root, by="pairwise",
