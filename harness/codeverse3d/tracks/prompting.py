@@ -21,7 +21,7 @@ from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc, to_authoring_fram
 from codeverse3d.prompts import render
 from codeverse3d.prompts.catalog import language_prompt, language_text
 from codeverse3d.tracks.common import RunContext
-from codeverse3d.tracks.depth import DepthBudget, PartScope, depth_budget, interfaces_text
+from codeverse3d.tracks.depth import DepthBudget, PartScope, depth_budget, fmt3, interfaces_text
 from codeverse3d.tracks.generation import SINGLE_SHOT_FORMAT
 
 if TYPE_CHECKING:
@@ -46,10 +46,8 @@ def parts_table_for(parts: Sequence[Any]) -> str:
         "|---|---|---|---|---|---|---|",
     ]
     for p in parts:
-        c = ", ".join(f"{v:.3f}" for v in p.bbox.center)
-        e = ", ".join(f"{v:.3f}" for v in p.bbox.extents)
         rows.append(
-            f"| {p.name} | {p.role} | ({c}) | ({e}) | {p.attach_to or '-'} | {p.instances} | {p.material or '-'} |"
+            f"| {p.name} | {p.role} | ({fmt3(p.bbox.center)}) | ({fmt3(p.bbox.extents)}) | {p.attach_to or '-'} | {p.instances} | {p.material or '-'} |"
         )
     return "\n".join(rows)
 
@@ -73,12 +71,10 @@ def part_details_for(parts: Sequence[Any]) -> str:
             line += f"  _{hint}_"
         out.append(line)
         for c in getattr(p, "children", None) or ():
-            cc = ", ".join(f"{v:.3f}" for v in c.bbox.center)
-            ce = ", ".join(f"{v:.3f}" for v in c.bbox.extents)
             inst = f" ×{c.instances}" if getattr(c, "instances", 1) > 1 else ""
             mat = f" [{c.material}]" if getattr(c, "material", "") else ""
             out.append(
-                f"    - sub-part **{c.name}**{inst}{mat} — centre ({cc}) extents ({ce}) m: {c.description}"
+                f"    - sub-part **{c.name}**{inst}{mat} — centre ({fmt3(c.bbox.center)}) extents ({fmt3(c.bbox.extents)}) m: {c.description}"
             )
     return "\n".join(out)
 
@@ -92,10 +88,8 @@ def joints_table(plan: Plan) -> str:
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for j in joints:
-        ax = ", ".join(f"{v:.3f}" for v in j.axis)
-        pv = ", ".join(f"{v:.3f}" for v in j.pivot)
         rows.append(
-            f"| {j.name} | {j.type} | {j.parent} | {j.child} | ({ax}) | ({pv}) | {j.lower:.3f} | {j.upper:.3f} | {j.rest:.3f} | {j.motion} |"
+            f"| {j.name} | {j.type} | {j.parent} | {j.child} | ({fmt3(j.axis)}) | ({fmt3(j.pivot)}) | {j.lower:.3f} | {j.upper:.3f} | {j.rest:.3f} | {j.motion} |"
         )
     return "\n".join(rows)
 
@@ -108,9 +102,7 @@ def acceptance_lines(plan: Plan | None) -> str:
 
 
 def bbox_line(bbox: Any) -> str:
-    c = ", ".join(f"{v:.3f}" for v in bbox.center)
-    e = ", ".join(f"{v:.3f}" for v in bbox.extents)
-    return f"centre ({c}) m, extents ({e}) m"
+    return f"centre ({fmt3(bbox.center)}) m, extents ({fmt3(bbox.extents)}) m"
 
 
 def constraints_text(spec: Any) -> str:

@@ -270,7 +270,7 @@ def interfaces_text(plan: Any, scope: PartScope) -> str:
             return
         seen.add(key)
         rows.append(f"| {to_pascal(str(mine.name))} | {direction} | {to_pascal(str(other.name))} | "
-                    f"({_v(other.bbox.center)}) | ({_v(other.bbox.extents)}) | "
+                    f"({fmt3(other.bbox.center)}) | ({fmt3(other.bbox.extents)}) | "
                     f"x [{other.bbox.min[0]:.3f}, {other.bbox.max[0]:.3f}] "
                     f"y [{other.bbox.min[1]:.3f}, {other.bbox.max[1]:.3f}] "
                     f"z [{other.bbox.min[2]:.3f}, {other.bbox.max[2]:.3f}] |")
@@ -292,7 +292,8 @@ def interfaces_text(plan: Any, scope: PartScope) -> str:
     return head + "\n" + "\n".join(rows)
 
 
-def _v(vec: Sequence[float]) -> str:
+def fmt3(vec: Sequence[float]) -> str:
+    """A vector as the prompts print it: ``0.100, 0.250, -0.030`` (metres, 3 decimals)."""
     return ", ".join(f"{float(x):.3f}" for x in vec)
 
 
