@@ -431,13 +431,15 @@ export function makeFireField(opts = {}) {
   const dummy=new THREE.Object3D(),emberColor=new THREE.Color();let embers=null;
   if(count){embers=new THREE.InstancedMesh(new THREE.SphereGeometry(1,5,3),new THREE.MeshBasicMaterial(),count);
     embers.name='FieldEmbers';embers.frustumCulled=false;embers.instanceMatrix.setUsage(THREE.DynamicDrawUsage);group.add(embers);}
-  function sampleEmber(index,t){
+  // `out` lets update() reuse one record instead of allocating per ember.
+  function sampleEmber(index,t,out={position:new THREE.Vector3()}){
     if(!count)return null;const p=particles[clamp(index|0,0,count-1)],a=fract(t/p.life+p.phase),age=a*p.life;
     const e=p.emitter,swirl=Math.sin(age*2.1+p.angle)*.07*age;
-    return {position:new THREE.Vector3(e.position[0]+Math.cos(p.angle)*e.radius*p.offset+wind[0]*age+swirl,
-      e.position[1]+.08+emberRise*age,e.position[2]+Math.sin(p.angle)*e.radius*p.offset+wind[1]*age+Math.cos(age*1.7+p.angle)*.07*age),
-    size:p.size*Math.pow(Math.sin(a*Math.PI),.6),age:a};
+    out.position.set(e.position[0]+Math.cos(p.angle)*e.radius*p.offset+wind[0]*age+swirl,
+      e.position[1]+.08+emberRise*age,e.position[2]+Math.sin(p.angle)*e.radius*p.offset+wind[1]*age+Math.cos(age*1.7+p.angle)*.07*age);
+    out.size=p.size*Math.pow(Math.sin(a*Math.PI),.6);out.age=a;return out;
   }
+  const ember={position:new THREE.Vector3()};
   let disposed=false;
   group.userData.update=group.userData.tick=(t=0)=>{
     if(disposed)return;number(t,0,-1e9,1e9,'time');material.uniforms.uTime.value=t;
@@ -445,7 +447,7 @@ export function makeFireField(opts = {}) {
       light.intensity=lightIntensity*flicker*intensity*light.userData.sourceStrength;
       uniforms.uFireLights.value[i].set(light.position.x,light.position.y,light.position.z,light.intensity*.10);});
     if(embers){embers.visible=intensity>0;for(let i=0;i<count;i++){
-      const p=sampleEmber(i,t);dummy.position.copy(p.position);dummy.scale.set(p.size,p.size*2.5,p.size);dummy.updateMatrix();
+      const p=sampleEmber(i,t,ember);dummy.position.copy(p.position);dummy.scale.set(p.size,p.size*2.5,p.size);dummy.updateMatrix();
       embers.setMatrixAt(i,dummy.matrix);emberColor.setRGB(5*(1-p.age*.82),.6*(1-p.age),.01).multiplyScalar(intensity);embers.setColorAt(i,emberColor);
     }embers.instanceMatrix.needsUpdate=true;embers.instanceColor.needsUpdate=true;}
   };

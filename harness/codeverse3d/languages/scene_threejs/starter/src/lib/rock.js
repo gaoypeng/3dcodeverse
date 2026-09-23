@@ -332,7 +332,7 @@ export function makeRockField(opts = {}) {
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
     const seed = Math.floor(rand() * 100000), factor = 0.4 + rand() * 0.9;
     const size = Array.isArray(opts.size) ? opts.size.map((v) => v * factor) : (opts.size ?? 0.6) * factor;
-    const rock = makeRock({ ...opts, seed, size, detail: opts.detail ?? 3 });
+    const rock = makeRock({ ...opts, seed, size, detail: opts.detail ?? 3, name: `${group.name}_${i + 1}` });
     rock.position.set(x, opts.heightAt?.(x, z) ?? 0, z); rock.rotation.y = rand() * Math.PI * 2;
     group.add(rock); owned.push(rock);
   }

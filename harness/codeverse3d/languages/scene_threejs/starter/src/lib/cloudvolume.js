@@ -214,7 +214,7 @@ export function makeCloudVolume(opts = {}) {
   const skyTint = new THREE.Color(opts.skyColor ?? 0x9eb9da);
   const lightPosition = new THREE.Vector3(), lightTarget = new THREE.Vector3();
   const skyLight = new THREE.Color(0, 0, 0);
-  const keyColor = new THREE.Color(0, 0, 0);
+  const keyColor = new THREE.Color(0, 0, 0), scratch = new THREE.Color();
   const material = makeShaderMaterial({
     name: 'CloudVolumeMaterial', transparent: true, depthWrite: false,
     side: THREE.BackSide, fog: false,
@@ -293,10 +293,10 @@ export function makeCloudVolume(opts = {}) {
     scene.traverseVisible((light) => {
       if (!light.isLight || !(light.intensity > 0)) return;
       if (light.isDirectionalLight && (!key || light.intensity > key.intensity)) key = light;
-      if (light.isAmbientLight) skyLight.add(light.color.clone().multiplyScalar(light.intensity));
+      if (light.isAmbientLight) skyLight.add(scratch.copy(light.color).multiplyScalar(light.intensity));
       if (light.isHemisphereLight) {
-        skyLight.add(light.color.clone().multiplyScalar(light.intensity * .75));
-        skyLight.add(light.groundColor.clone().multiplyScalar(light.intensity * .25));
+        skyLight.add(scratch.copy(light.color).multiplyScalar(light.intensity * .75));
+        skyLight.add(scratch.copy(light.groundColor).multiplyScalar(light.intensity * .25));
       }
     });
     keyColor.setRGB(0, 0, 0);

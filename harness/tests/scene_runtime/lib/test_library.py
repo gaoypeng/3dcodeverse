@@ -316,6 +316,8 @@ REFUSALS = [
     # a bend tighter than the bank folded the ribbon into down-facing water
     ("stream.js", "makeStream({ points: [[0, 1, 0], [6, .9, 4], [0, .8, 8], [6, .7, 12]], width: 2 })",
      "bends tighter"),
+    # a NaN wind direction normalised to NaN and poisoned every dune vertex
+    ("sand.js", "makeSandTerrain({ windDirection: [NaN, 1] })", "windDirection"),
 ]
 
 

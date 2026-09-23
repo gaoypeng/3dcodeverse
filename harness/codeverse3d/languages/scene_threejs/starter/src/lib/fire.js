@@ -243,16 +243,18 @@ export function makeFire(opts = {}) {
     light.name = 'FireLight'; light.position.y = height * 0.27;
     group.add(light);
   }
-  const sampleEmber = (index, t) => {
+  // `out` lets update() reuse one record instead of allocating per ember.
+  const sampleEmber = (index, t, out = { position: new THREE.Vector3() }) => {
     if (!particles.length) return null;
     const p = particles[THREE.MathUtils.clamp(index | 0, 0, count - 1)];
     const a = ((t / p.life + p.phase) % 1 + 1) % 1;
-    const y = height * (0.15 + a * 2.2);
-    return { position: new THREE.Vector3(
+    out.position.set(
       p.x + wind[0] * height * a * 2 + Math.sin(a * 5 + p.drift) * radius * a * 0.3,
-      y, p.z + wind[1] * height * a * 2 + Math.cos(a * 4 + p.drift) * radius * a * 0.3),
-    scale: Math.pow(Math.sin(a * Math.PI), 0.7) * p.size, age: a };
+      height * (0.15 + a * 2.2), p.z + wind[1] * height * a * 2 + Math.cos(a * 4 + p.drift) * radius * a * 0.3);
+    out.scale = Math.pow(Math.sin(a * Math.PI), 0.7) * p.size; out.age = a;
+    return out;
   };
+  const ember = { position: new THREE.Vector3() };
   group.userData.update = (t, _dt) => {
     if (group.userData.disposed) return;
     t = Number.isFinite(t) ? t : 0;
@@ -261,7 +263,7 @@ export function makeFire(opts = {}) {
       + 0.05 * Math.sin(t * 17.3 + seed * 0.31);
     if (light) light.intensity = lightIntensity * flicker * intensity;
     for (let i = 0; i < count; i++) {
-      const p = sampleEmber(i, t);
+      const p = sampleEmber(i, t, ember);
       dummy.position.copy(p.position); dummy.scale.set(p.scale, p.scale * 2.7, p.scale);
       dummy.rotation.z = Math.sin(t + i) * 0.25; dummy.updateMatrix();
       embers.setMatrixAt(i, dummy.matrix);

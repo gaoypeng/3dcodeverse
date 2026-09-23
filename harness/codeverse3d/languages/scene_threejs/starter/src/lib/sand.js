@@ -78,7 +78,11 @@ export function makeSandTerrain(opts = {}) {
   const [width, depth] = size;
   const nx = clamp(Math.round(opts.segments ?? 256), 8, 512);
   const nz = clamp(Math.round(nx * depth / width), 8, 512);
-  const wind = new THREE.Vector2(...(opts.windDirection ?? [1, 0.18]));
+  const direction = opts.windDirection ?? [1, 0.18];
+  if (!Array.isArray(direction) || direction.length !== 2 || !direction.every(Number.isFinite)) {
+    throw new RangeError('sand windDirection must be two finite numbers [x,z]');
+  }
+  const wind = new THREE.Vector2(...direction);
   if (wind.lengthSq() < 1e-8) wind.set(1, 0);
   wind.normalize();
   const height = Math.max(0, opts.duneHeight ?? 3.8);
