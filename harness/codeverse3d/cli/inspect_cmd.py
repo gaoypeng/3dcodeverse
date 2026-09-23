@@ -48,6 +48,9 @@ def render(
         raise C.CliError(f"--mode must be one of {' | '.join(RENDER_MODES)}, not {mode!r}", code=2)
     if mode != "shaded" and spec.track in (Track.SCENE, Track.GRAPHICS):  # was silently rendered shaded
         raise C.CliError(f"--mode {mode} is for object runs; a {spec.track.value} run renders shaded only", code=2)
+    if spec.track is Track.GRAPHICS and (width or height):  # the frames are the runtime's size: dropped silently
+        raise C.CliError("--width/--height do not apply to a graphics run: its frames are rendered at the runtime's size",
+                         code=2)
     idx = _render_round_or_refuse(ws, round_index)
     out_dir = out or ws.renders_dir(idx) / ("cli" if mode == "shaded" else f"cli_{mode}")
     # writes into the run (a graphics render even rebuilds it): one writer per run dir

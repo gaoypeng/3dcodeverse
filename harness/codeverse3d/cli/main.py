@@ -260,15 +260,15 @@ def make(
         ),
     ] = False,
     reference_views: Annotated[
-        int,
+        int | None,
         typer.Option(
             "--reference-views",
             min=1,
             max=4,
             help="how many reference views to "
-            "synthesize (1 = 3/4 only, 2 = + straight front elevation)",
+            "synthesize (1 = 3/4 only, 2 = + straight front elevation; default 2); needs --reference",
         ),
-    ] = 2,
+    ] = None,
     profile: Annotated[
         str | None,
         typer.Option(
@@ -336,6 +336,9 @@ def make(
     if not prompt.strip():  # a blank prompt was planned, generated and judged as is
         raise C.CliError("the prompt is empty: say what to build", code=2)
     C.check_minutes(max_minutes)
+    if reference_views is not None and not reference:  # it was dropped without a word
+        raise C.CliError("--reference-views needs --reference", code=2)
+    reference_views = reference_views or 2
     for p in image:
         if not p.is_file():
             raise C.CliError(f"reference image not found: {p}")
@@ -673,6 +676,8 @@ def pick(
 
     if by not in ("score", "pairwise"):
         raise C.CliError(f"--by must be score or pairwise, not {by!r}", code=2)
+    if judge and (by != "pairwise" or round_index is not None):  # no pairwise verdict is bought: it was dropped
+        raise C.CliError("--judge is the pairwise judge: it goes with --by pairwise (and no --round)", code=2)
     ws = C.open_workspace(slug, runs_dir)
     # writes deliverable/ + selection.json (a texture pass or a pairwise verdict is paid):
     # one writer per run dir, and the money joins the run's ledger

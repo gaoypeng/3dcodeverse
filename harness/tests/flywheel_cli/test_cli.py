@@ -576,3 +576,18 @@ def test_a_reference_that_is_not_an_image_is_refused_before_the_run_exists(tmp_p
     bad.write_text("not an image")
     r = runner.invoke(app, ["make", "a cup", "--image", str(bad), "--no-run", "--runs-dir", str(tmp_path / "runs"), "--slug", "i"])
     assert r.exit_code == 1 and "not a readable image" in r.output and not (tmp_path / "runs" / "i").exists()
+
+
+def test_an_option_that_would_be_dropped_is_refused(tmp_path: Path, runs_dir: Path):
+    """--reference-views without --reference, pick --judge without a pairwise verdict to buy, and
+    render --width/--height on a graphics run were accepted and silently did nothing."""
+    runs = tmp_path / "runs"
+    r = runner.invoke(app, ["make", "a cup", "--reference-views", "1", "--no-run", "--runs-dir", str(runs), "--slug", "rv"])
+    assert r.exit_code == 2 and "--reference-views needs --reference" in r.output and not (runs / "rv").exists()
+    for extra in (["--judge", "gemini:gemini-3.7-flash"], ["--by", "pairwise", "--round", "0", "--judge", "gemini:x"]):
+        r = runner.invoke(app, ["pick", "wooden_chair_ab12cd34", "--runs-dir", str(runs_dir), *extra])
+        assert r.exit_code == 2 and "--judge is the pairwise judge" in r.output
+    assert runner.invoke(app, ["make", "a shader", "--track", "graphics", "--no-run", "--runs-dir", str(runs),
+                               "--slug", "g"]).exit_code == 0
+    r = runner.invoke(app, ["render", "g", "--width", "64", "--runs-dir", str(runs)])
+    assert r.exit_code == 2 and "graphics run" in r.output
