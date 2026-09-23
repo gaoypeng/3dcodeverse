@@ -40,6 +40,7 @@ from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import to_snake
 from codeverse3d.judges.base import judged_subset
 from codeverse3d.languages.scene_threejs import zone_file
+from codeverse3d.models import get_chat_model
 from codeverse3d.orchestrator import BudgetExceeded, TaskGroup, compact_instructions
 from codeverse3d.prompts import render
 from codeverse3d.spatial.frame_motion import motion_text_for
@@ -210,8 +211,6 @@ class SceneTrack(BaseTrack):
         try:
             model = self._planner_model
             if model is None:
-                from codeverse3d.models import get_chat_model
-
                 model = get_chat_model(ctx.spec.backends.planner)
             layouts = layout_zones(ctx.plan, model, budget=ctx.budget, events=ctx.events)
             return {k: v.model_dump(mode="json") for k, v in layouts.items()}

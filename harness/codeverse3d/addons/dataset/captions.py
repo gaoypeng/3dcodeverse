@@ -28,6 +28,7 @@ from codeverse3d.addons.dataset.sample import code_files_for_round, exported_rou
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
 from codeverse3d.contracts.run import RunRecord
+from codeverse3d.models import get_chat_model
 from codeverse3d.proc import write_json_atomic
 from codeverse3d.prompts import prompt_hash
 from codeverse3d.record import _git
@@ -167,8 +168,6 @@ def caption_sample(
     side-car falls back to the directory basename (flat layouts only: every nested
     battery run is named ``run`` and the side-cars would overwrite each other)."""
     if model is None:
-        from codeverse3d.models import get_chat_model
-
         model = get_chat_model(model_id)
     images, used = _round_images(ws, record)
     code = _code_excerpt(ws, record)

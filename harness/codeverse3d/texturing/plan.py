@@ -23,6 +23,7 @@ from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.plan import PartPlan, ScenePlan, StaticPlan
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import to_snake
+from codeverse3d.models import get_chat_model
 from codeverse3d.models.schema_utils import ask_structured
 from codeverse3d.proc import write_json_atomic, write_text_atomic
 from codeverse3d.prompts import load_text, prompt_hash, render
@@ -311,8 +312,6 @@ def material_plan(
         except ValidationError:
             cached.unlink(missing_ok=True)
     if model is None:
-        from codeverse3d.models import get_chat_model
-
         model = get_chat_model(model_id)
     text = render(PLAN_TEMPLATE, spec_prompt=spec.prompt, style_notes=getattr(plan, "style_notes", ""),
                   n_parts=len(plan.parts), parts_table=parts_table(plan))
@@ -444,8 +443,6 @@ def scene_pack_plan(
     if not model_id and model is None:
         return default_scene_pack_plan(plan, n_min=n_min, n_max=n_max), "default", Usage()
     if model is None:
-        from codeverse3d.models import get_chat_model
-
         model = get_chat_model(model_id)
     zones = "\n".join(f"- {z.name}: {z.description}" for z in plan.zones)
     assets = "\n".join(f"- {a.name} ({a.kind}): {a.description}" for a in plan.assets) or "- (none)"

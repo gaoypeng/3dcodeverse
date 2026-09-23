@@ -38,6 +38,7 @@ from codeverse3d.contracts.common import Language, Track, Usage
 from codeverse3d.contracts.plan import AcceptanceItem, EngineeringBrief
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc, to_pascal, to_snake
+from codeverse3d.models import get_chat_model
 from codeverse3d.models.schema_utils import ask_structured, parse_json_lenient
 from codeverse3d.proc import NULL_EVENTS, sha256_file, write_text_atomic
 from codeverse3d.prompts import load_text, prompt_hash, render
@@ -122,8 +123,6 @@ def expand_brief(spec: Spec, model_id: str, *, model: Any | None = None, events:
         except (ValidationError, ValueError, OSError) as e:  # a stale/corrupt cache entry is not fatal
             log.warning("brief cache %s unusable (%s); regenerating", path, e)
     if model is None:
-        from codeverse3d.models import get_chat_model
-
         model = get_chat_model(model_id)
     system = render(BRIEF_TEMPLATE, track=spec.track.value, language=spec.language.value)
     images = [ImagePart(path=r.path, label=f"{r.role}: {r.note}".strip(": ")) for r in spec.references]
@@ -810,8 +809,6 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
     guard = budget
     events = NULL_EVENTS if events is None else events
     if model is None:
-        from codeverse3d.models import get_chat_model
-
         model = get_chat_model(model_id)
     brief, usage = (None, Usage())
     if brief_enabled(spec):

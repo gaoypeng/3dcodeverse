@@ -35,6 +35,7 @@ from codeverse3d.judges.prompt_builder import (
     render_montage,
 )
 from codeverse3d.judges.rubrics import Rubric, load_rubric
+from codeverse3d.models import get_chat_model
 from codeverse3d.models.base import ChatModel, ModelError
 from codeverse3d.models.schema_utils import JsonParseError, parse_json_lenient
 from codeverse3d.proc import fan_out
@@ -84,8 +85,6 @@ class PairwiseJudge:
     @property
     def model(self) -> ChatModel:
         if self._model is None:
-            from codeverse3d.models import get_chat_model
-
             self._model = get_chat_model(self.model_id)
         return self._model
 

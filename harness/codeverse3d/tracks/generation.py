@@ -51,6 +51,7 @@ from codeverse3d.contracts.common import (
     Usage,
     is_harness_owned,
 )
+from codeverse3d.models import get_chat_model
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import NULL_EVENTS, read_json_or_none
 from codeverse3d.workspace import Workspace
@@ -769,8 +770,6 @@ def generate(
     """
     if is_single_shot(agent_id):
         if model is None:
-            from codeverse3d.models import get_chat_model
-
             model = get_chat_model(single_shot_model_id(agent_id))
         return generate_files(
             ws,

@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 
 from codeverse3d.config import get_settings
+from codeverse3d.models import get_chat_model
 from codeverse3d.proc import read_json_or_none, run_subprocess, version_line
 
 Row = tuple[str, str, str]
@@ -181,7 +182,6 @@ def check_keys(live: bool) -> list[Row]:
     if live and n:
         try:
             from codeverse3d.contracts.chat import ChatMessage, ChatRequest
-            from codeverse3d.models import get_chat_model
 
             m = get_chat_model("gemini:gemini-3.7-flash")
             r = m.generate(ChatRequest(messages=[ChatMessage.user("Reply with the single word: pong")],

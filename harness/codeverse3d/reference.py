@@ -39,6 +39,7 @@ from codeverse3d.config import get_settings
 from codeverse3d.contracts.chat import ImagePart
 from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.spec import ReferenceImage, Spec
+from codeverse3d.models import get_chat_model
 from codeverse3d.models.schema_utils import ask_structured
 from codeverse3d.proc import write_text_atomic
 from codeverse3d.prompts import prompt_hash
@@ -891,8 +892,6 @@ def ground_spec(
 
 
 def _chat_model(model_id: str) -> Any:
-    from codeverse3d.models import get_chat_model
-
     return get_chat_model(model_id)
 
 

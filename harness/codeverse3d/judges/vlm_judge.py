@@ -50,6 +50,7 @@ from codeverse3d.judges.rubrics import (
     parse_judge_output,
     wire_schema,
 )
+from codeverse3d.models import get_chat_model
 from codeverse3d.models.base import ChatModel, ModelError
 from codeverse3d.proc import fan_out, unique_tmp
 from codeverse3d.reference import compare, conflict_note, dimension_conflict
@@ -155,8 +156,6 @@ class VlmJudge:
     @property
     def model(self) -> ChatModel:
         if self._model is None:
-            from codeverse3d.models import get_chat_model
-
             self._model = get_chat_model(self.model_id)
         return self._model
 
@@ -476,8 +475,6 @@ class ReferenceJudge(VlmJudge):
         if self._diff_model is not None:
             return self._diff_model
         if self.diff_model_id:
-            from codeverse3d.models import get_chat_model
-
             self._diff_model = get_chat_model(self.diff_model_id)
             return self._diff_model
         return self.model
