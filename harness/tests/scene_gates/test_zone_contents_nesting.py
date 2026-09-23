@@ -28,13 +28,9 @@ def _missing(findings) -> list[str]:
     return [m for f in findings if f.data.get("kind") == "missing_content" for m in f.data.get("missing", [])]
 
 
-def test_content_one_group_down_is_found():
+def test_content_is_looked_up_anywhere_under_its_row():
     out = contract_findings(_census(WRAPPED), _plan(["Windmill", "FloatingRock", "SkyPine"]))
     assert _missing(out) == [], "the zone built and named all three; only the shape differed"
-
-
-def test_a_subtree_that_carries_the_name_nowhere_still_reads_as_missing():
-    """The rule is "somewhere under this row", not "anywhere in the scene"."""
     row = {"name": "Trees", "zone": "WindmillIsland", "inner": ["PineSway_0", "PineSway_1"]}
     out = contract_findings(_census(row), _plan(["SnowyPineTree"]))
     assert _missing(out) == ["SnowyPineTree"]

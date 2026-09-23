@@ -38,20 +38,14 @@ GARDEN = {
 BOUNDS = {"min": [-13, -1.5, -13], "max": [13, 6.5, 13]}
 
 
-def test_framing_box_is_content_union_not_ground_or_sky():
-    box = _call("framingBox", GARDEN, BOUNDS)
-    assert box["min"] == pytest.approx([-12.3, -0.3, -9.1]) and box["max"] == pytest.approx([10.4, 5.8, 11.7])
-    # without bounds: same union; no groups → the census content_bbox; no census → None
-    assert _call("framingBox", GARDEN)["size"] == pytest.approx(box["size"])
-    assert _call("framingBox", {"content_bbox": GARDEN["content_bbox"], "groups": []})["size"] == pytest.approx(GARDEN["content_bbox"]["size"])
-    assert _call("framingBox", None) is None
-
-
-def test_framing_box_drops_scatter_that_sprawls_past_bounds_and_clamps():
+def test_framing_box_is_the_content_union_without_sprawling_scatter():
     census = json.loads(json.dumps(GARDEN))
     census["groups"].append({"name": "GrassScatter", "kind": "content", "bbox": _box([-60, 0, -60], [60, 0.3, 60])})
-    box = _call("framingBox", census, BOUNDS)
-    assert box["max"][0] == pytest.approx(10.4) and box["min"][2] == pytest.approx(-9.1)  # scatter ignored
+    box = _call("framingBox", census, BOUNDS)    # not the ground or sky, and the scatter is ignored
+    assert box["min"] == pytest.approx([-12.3, -0.3, -9.1]) and box["max"] == pytest.approx([10.4, 5.8, 11.7])
+    # no groups → the census content_bbox; no census → None
+    assert _call("framingBox", {"content_bbox": GARDEN["content_bbox"], "groups": []})["size"] == pytest.approx(GARDEN["content_bbox"]["size"])
+    assert _call("framingBox", None) is None
     # no bounds → nothing to judge sprawl against, but the union is still content only
     box2 = _call("framingBox", census)
     assert box2["size"][0] == pytest.approx(120)

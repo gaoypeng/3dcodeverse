@@ -75,15 +75,12 @@ def plan_example() -> dict[str, Any]:
 
 
 def _plan(spec, ws, model, budget=None):
-    """The planner as the live path calls it: everything graphics-specific (template, worked
-    example, T = 0.5, acceptance) is dispatched on ``spec.track`` inside it."""
+    """The planner as the live path calls it (graphics dispatch happens on ``spec.track``)."""
     return planner.plan(spec, "fake:planner", GraphicsPlan, ws, model=model, budget=budget)
 
 
 def test_a_replayed_round_reads_the_payload_the_in_run_judge_read(tmp_path, settings):
-    """``3dcode judge`` / calibration (``cli/_judge.build_judge_input``) replayed a graphics round with
-    a digest of the plan's title and summary alone — no style, passes, key visuals or motion — while
-    the in-run judge read all of them.  Both build the payload with ``judges.base.round_input`` now."""
+    """``3dcode judge`` / calibration rebuild the payload the in-run judge read (``judges.base.round_input``)."""
     from codeverse3d.cli._judge import build_judge_input
     from codeverse3d.record.record import load_record
 

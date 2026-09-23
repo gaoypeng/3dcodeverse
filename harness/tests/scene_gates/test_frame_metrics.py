@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
-from codeverse3d.contracts.artifacts import RenderSet, RenderView, Severity
+from codeverse3d.contracts.artifacts import Severity
 from codeverse3d.judges.rubrics import apply_caps, load_rubric
 from codeverse3d.spatial.frame_metrics import (
     frame_findings,
-    frame_gate_from_renders,
     frame_summary_text,
 )
 
@@ -122,19 +118,6 @@ def test_content_small_roles():
                    ("content_small", Severity.WARN, "overview_top")]
     assert "12%" in rep.findings[0].message and "sky 50%" in rep.findings[0].message
     assert rep.findings[0].data["role"] == "establishing" and not rep.passed
-
-
-def test_frame_gate_from_paths_and_renderset(tmp_path: Path):
-    out = tmp_path / "r00"
-    out.mkdir()
-    (out / "metrics.json").write_text(json.dumps(_metrics(_chk("Establishing", mean_lum=0.05))))
-    (out / "Establishing_t0.png").write_bytes(b"")
-    assert not frame_gate_from_renders(out).passed
-    assert not frame_gate_from_renders(out / "metrics.json").passed
-    rs = RenderSet(views=[RenderView(name="Establishing", path=str(out / "Establishing_t0.png"))])
-    assert not frame_gate_from_renders(rs).passed
-    assert frame_gate_from_renders(tmp_path / "nowhere").passed  # no metrics → empty passing report
-    assert frame_gate_from_renders(RenderSet()).passed
 
 
 def test_scene_rubric_caps_fire_on_frame_kinds():

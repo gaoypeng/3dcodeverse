@@ -17,9 +17,7 @@ def _panel_title(obs: Observation) -> str:
 
 
 def test_print_observation_shows_three_states() -> None:
-    """ok / FAIL / error, the same split the MCP server reports as ``is_error``: a human
-    reading `3dcode tools check_connectivity` must be able to tell a gate that answered FAIL
-    from a tool that could not run, and the panel title is where they look."""
+    """ok / FAIL / error in the panel title — the split the MCP server reports as ``is_error``."""
     assert "ok" in _panel_title(Observation(ok=True, text="fine"))
     assert "FAIL" in _panel_title(Observation(ok=False, text="connectivity: FAIL — 1 error(s)"))
     assert "error" in _panel_title(Observation(ok=False, failed=True, text="measure: no GLB"))
@@ -31,12 +29,7 @@ def test_print_observation_shows_three_states() -> None:
 
 
 def test_cli_exit_code_follows_the_verdict_not_the_failure(stool_ctx: ToolContext) -> None:
-    """`3dcode tools` exits 1 on ``not ok`` — a FAIL verdict included.  Deliberate, and it
-    DID change one command: `scene_probe` used ``ok`` for "the probe tool ran", so a failing
-    scene gate now exits 1 where it exited 0 (docs/COST.md §30).  Every other gate tool
-    already exited 1 on a FAIL; the exit code speaks to the human or script at the terminal,
-    while the MCP boundary — the one that costs money when a verdict is called an error —
-    reports ``failed`` alone."""
+    """`3dcode tools` exits 1 on ``not ok`` — a FAIL verdict included (docs/COST.md §30)."""
     from codeverse3d.cli.main import app
 
     runner = CliRunner()

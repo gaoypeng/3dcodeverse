@@ -185,10 +185,7 @@ def test_a_box_rotated_90_about_x_is_lying_down() -> None:
     assert o[0].data["planned_up_m"] == pytest.approx(1.2) and o[0].data["measured_up_m"] == pytest.approx(0.2)
     assert "lying down relative to the planned box: planned 120.0 cm tall (z), measured 20.0 cm tall" in o[0].message
     assert "rotate the whole object 90° about x so its height runs along z (blender frame: Z-up, -Y front)" in o[0].fix_hint
-
-
-def test_the_same_in_the_threejs_frame() -> None:
-    # Y-up plan (0.4, 1.2, 0.2); built with the height along z: GLB (0.4, 0.2, 1.2)
+    # the same in the threejs frame: Y-up plan (0.4, 1.2, 0.2) built with the height along z
     r = check_contract(_measurement_glb((0.4, 0.2, 1.2)), _one_part_plan((0.4, 1.2, 0.2), up=1), language="threejs")
     o = _orientation(r.findings)
     assert len(o) == 1 and o[0].severity == Severity.ERROR and o[0].data["best_axis"] == "z"

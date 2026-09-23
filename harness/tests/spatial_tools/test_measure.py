@@ -54,7 +54,7 @@ def test_cyclic_scene_graph_does_not_hang(tmp_path: Path) -> None:
     assert [k for k, v in part_meshes(scene).items() if v is not None]
 
 
-def test_cached_parts_identity_and_invalidation(stool_glb: Path) -> None:
+def test_caches_share_meshes_invalidate_on_stat_and_never_leak_edits(stool_glb: Path) -> None:
     from codeverse3d.spatial.measure import cached_parts
 
     p1 = cached_parts(stool_glb)
@@ -66,9 +66,6 @@ def test_cached_parts_identity_and_invalidation(stool_glb: Path) -> None:
     os.utime(stool_glb, ns=(1, 1))
     p3 = cached_parts(stool_glb)
     assert set(p3) == set(p1) and all(p3[k] is not p1[k] for k in p3)
-
-
-def test_measure_glb_memoized_and_isolated(stool_glb: Path) -> None:
     m1 = measure_glb(stool_glb)
     m2 = measure_glb(stool_glb)
     assert m1 is not m2 and m1 == m2

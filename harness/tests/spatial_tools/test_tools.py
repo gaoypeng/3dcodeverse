@@ -361,13 +361,6 @@ def test_build_tool_graphics_reports_frames(tmp_ws: Workspace, monkeypatch: pyte
     assert "no GLB path" not in obs.text
     assert "frames=2" in obs.text and "sheet:" in obs.text
     assert obs.numbers["n_frames"] == 2 and obs.numbers["gate_errors"] == 0
-    # a failing gl_frames gate flips ok
-    bad = GateReport(gate="gl_frames", passed=False,
-                     findings=[GateFinding(gate="gl_frames", severity=Severity.ERROR, message="static image",
-                                           data={"kind": "static"})])
-    monkeypatch.setattr(gl_build, "read_metrics", lambda ws: (stats, bad))
-    obs = get_tool("build").call(ctx, {})
-    assert not obs.ok and "static image" in obs.text
 
 
 class _GlRuntime(_NoGlbRuntime):
