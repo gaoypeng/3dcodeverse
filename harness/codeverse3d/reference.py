@@ -40,6 +40,7 @@ from codeverse3d.contracts.chat import ImagePart
 from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.spec import ReferenceImage, Spec
 from codeverse3d.models.schema_utils import ask_structured
+from codeverse3d.proc import write_text_atomic
 from codeverse3d.prompts import prompt_hash
 
 log = logging.getLogger(__name__)
@@ -430,11 +431,7 @@ def load(key: str, *, cache_dir: Path | None = None) -> ReferenceSet | None:
 
 
 def store(rs: ReferenceSet, *, cache_dir: Path | None = None) -> Path:
-    d = cache_root(cache_dir) / rs.key
-    d.mkdir(parents=True, exist_ok=True)
-    out = d / "set.json"
-    out.write_text(rs.model_dump_json(indent=2))
-    return out
+    return write_text_atomic(cache_root(cache_dir) / rs.key / "set.json", rs.model_dump_json(indent=2))
 
 
 def image_dir(key: str, *, cache_dir: Path | None = None) -> Path:

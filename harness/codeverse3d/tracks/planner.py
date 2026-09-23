@@ -38,7 +38,7 @@ from codeverse3d.contracts.plan import AcceptanceItem, EngineeringBrief
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc, to_pascal, to_snake
 from codeverse3d.models.schema_utils import ask_structured, parse_json_lenient
-from codeverse3d.proc import NULL_EVENTS, sha256_file
+from codeverse3d.proc import NULL_EVENTS, sha256_file, write_text_atomic
 from codeverse3d.prompts import load_text, prompt_hash, render
 from codeverse3d.prompts.catalog import language_text
 from codeverse3d.tracks.prompting import constraints_text
@@ -150,8 +150,7 @@ def expand_brief(spec: Spec, model_id: str, *, model: Any | None = None, events:
         events.emit("plan.brief_failed", error=f"{type(e).__name__}: {e}"[:300])
         return None, usage
     try:
-        cdir.mkdir(parents=True, exist_ok=True)
-        path.write_text(brief.model_dump_json(indent=1))
+        write_text_atomic(path, brief.model_dump_json(indent=1))  # a torn entry re-buys the call
     except OSError as e:
         log.warning("could not cache brief at %s: %s", path, e)
     events.emit("plan.brief", cached=False, key=key, n_sub=len(brief.sub_assemblies),
