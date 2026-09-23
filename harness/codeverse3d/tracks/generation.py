@@ -45,7 +45,7 @@ from codeverse3d.contracts.agent import AgentJob, AgentResult, FileChange
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse3d.contracts.common import Usage, is_harness_owned
 from codeverse3d.orchestrator import BudgetExceeded
-from codeverse3d.proc import read_json_or_none
+from codeverse3d.proc import NULL_EVENTS, read_json_or_none
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -387,6 +387,7 @@ def generate_files(
     allowed_roots: tuple[str, ...] = ALLOWED_ROOTS,
 ) -> GenerationResult:
     """Single-shot API codegen: ChatRequest → envelope → files on disk (no commit)."""
+    events = NULL_EVENTS if events is None else events
     from codeverse3d.models.retry import RETRY_DEADLINE_S
     from codeverse3d.prompts import load_text
 
@@ -412,11 +413,6 @@ def generate_files(
     # discard it before transcript/parse/write_files — the round's phase boundary does
     # (steps._run_phase)
     retry = False
-
-    def _truncated(retry: bool) -> None:
-        if events is not None:
-            events.emit("generate.truncated", label=task.label, finish_reason=str(resp.finish_reason), retry=retry)
-
     if _is_truncated(resp):
         # cut off by max_output_tokens: the envelope is unterminated — one retry with a
         # DOUBLED budget beats writing a half-file.  Already at the 65,536 model ceiling
@@ -424,7 +420,7 @@ def generate_files(
         # it is not bought (the default task budget IS the ceiling since 2026-08-27).
         grown = min(task.max_output_tokens * 2, 65_536)
         retry = grown > int(req.max_output_tokens or 0)
-        _truncated(retry)
+        events.emit("generate.truncated", label=task.label, finish_reason=str(resp.finish_reason), retry=retry)
         if retry:
             # the retry is a second full-price call: preflight the clock again and
             # hand it only what is left of the run (BudgetExceeded past the ceiling)
@@ -443,31 +439,28 @@ def generate_files(
 
     if _is_truncated(resp):
         if retry:   # the RETRY was cut off too; the first cut is already in the log
-            _truncated(False)
+            events.emit("generate.truncated", label=task.label, finish_reason=str(resp.finish_reason), retry=False)
         return _result(f"truncated: finish_reason={resp.finish_reason}")
     try:
         files = parse_multifile(resp.text or "", expected_files=task.files_hint or None)
     except MultiFileParseError as e:
-        if events is not None:
-            events.emit("generate.parse_failed", label=task.label, error=str(e))
+        events.emit("generate.parse_failed", label=task.label, error=str(e))
         return _result(f"parse failed: {e}")
     skipped: list[str] = []
 
     def _skip(path: str, reason: str) -> None:
         skipped.append(path)
-        if events is not None:
-            events.emit("generate.skipped_path", label=task.label, path=path, reason=reason[:200])
+        events.emit("generate.skipped_path", label=task.label, path=path, reason=reason[:200])
 
     only, frozen = _envelope_scope(ws, task)
     changes = write_files(ws, files, allowed_roots=allowed_roots, only=only, frozen=frozen, on_skip=_skip)
-    if events is not None:
-        events.emit(
-            "generate.done",
-            label=task.label,
-            strategy="single-shot",
-            files=[c.path for c in changes],
-            cost_usd=round(usage.cost_usd, 4),
-        )
+    events.emit(
+        "generate.done",
+        label=task.label,
+        strategy="single-shot",
+        files=[c.path for c in changes],
+        cost_usd=round(usage.cost_usd, 4),
+    )
     return _result(f"skipped out-of-root paths: {', '.join(skipped)}" if skipped else "", changes)
 
 
@@ -512,6 +505,7 @@ def run_agent_task(
     already spent leaves a buildable workspace instead of a session that was cut
     off mid-edit.  Every session — first attempt, silent-bail retry, wrap-up — is
     charged to ``budget`` as it ends, so nothing is lost when a later attempt raises."""
+    events = NULL_EVENTS if events is None else events
     before = ws.head()
     timeout = task.timeout_s or (settings.limits.agent_timeout_s if settings is not None else 1800)
     # A task that chose its own window already clipped it the way its stage wanted
@@ -550,15 +544,14 @@ def run_agent_task(
 
     if turn_capped(res):
         # the turns are gone, the money is not wasted: ask for a landing, not more work
-        if events is not None:  # (the money itself is the session's ledger row)
-            events.emit(
-                "generate.turn_cap",
-                label=task.label,
-                round=task.round,
-                max_turns=job.max_turns,
-                turns=acc.turns,
-                session_usd=round(acc.usage.cost_usd, 4),
-            )
+        events.emit(  # (the money itself is the session's ledger row)
+            "generate.turn_cap",
+            label=task.label,
+            round=task.round,
+            max_turns=job.max_turns,
+            turns=acc.turns,
+            session_usd=round(acc.usage.cost_usd, 4),
+        )
         wrap = job.model_copy(
             update={"prompt": WRAPUP_PROMPT + prompt, "max_turns": DEFAULT_WRAPUP_TURNS}
         )
@@ -573,8 +566,7 @@ def run_agent_task(
         # same wall (the storm fallback and the round loop's one retry handle a transient)
         and not (res.transient or res.quota)
     ):
-        if events is not None:
-            events.emit("generate.silent_bail", label=task.label, exit_reason=res.exit_reason)
+        events.emit("generate.silent_bail", label=task.label, exit_reason=res.exit_reason)
         job2 = job.model_copy(
             update={
                 "prompt": (
@@ -590,19 +582,18 @@ def run_agent_task(
     notes += ("; " + "; ".join(acc.errors)) if acc.errors else ""
     if acc.wrapped:
         notes += f"; turn cap {job.max_turns} reached → wrap-up session"
-    if events is not None:
-        events.emit(
-            "generate.done",
-            label=task.label,
-            strategy=getattr(agent, "kind", "agent"),
-            files=[c.path for c in changes],
-            ok=bool(changes),
-            exit_reason=res.exit_reason,
-            turns=acc.turns,
-            sessions=acc.sessions,
-            turn_capped=acc.wrapped,
-            cost_usd=round(acc.usage.cost_usd, 4),
-        )
+    events.emit(
+        "generate.done",
+        label=task.label,
+        strategy=getattr(agent, "kind", "agent"),
+        files=[c.path for c in changes],
+        ok=bool(changes),
+        exit_reason=res.exit_reason,
+        turns=acc.turns,
+        sessions=acc.sessions,
+        turn_capped=acc.wrapped,
+        cost_usd=round(acc.usage.cost_usd, 4),
+    )
     return GenerationResult(
         ok=bool(changes),
         usage=acc.usage,

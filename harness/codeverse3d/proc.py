@@ -554,6 +554,18 @@ class EventLog:
         return read_jsonl_lenient(self.path, log=log)
 
 
+class _NullEvents:
+    """An event sink that drops everything: what a function that takes ``events=None`` emits to."""
+
+    def emit(self, event: str, **data: Any) -> None:
+        pass
+
+
+#: normalise optional telemetry once — ``events = NULL_EVENTS if events is None else events`` —
+#: never ``events or NULL_EVENTS``: an empty list-based fake log is falsy
+NULL_EVENTS = _NullEvents()
+
+
 # ===================================================================== runlock
 #: directory (beside the run dirs, never inside one) holding the flock files
 LOCKS_DIR = ".locks"

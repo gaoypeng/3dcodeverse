@@ -38,7 +38,7 @@ from codeverse3d.contracts.plan import AcceptanceItem, EngineeringBrief
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc, to_pascal, to_snake
 from codeverse3d.models.schema_utils import parse_json_lenient
-from codeverse3d.proc import sha256_file
+from codeverse3d.proc import NULL_EVENTS, sha256_file
 from codeverse3d.prompts import load_text, prompt_hash, render
 from codeverse3d.prompts.catalog import language_text
 from codeverse3d.tracks.prompting import constraints_text
@@ -110,6 +110,7 @@ def expand_brief(spec: Spec, model_id: str, *, model: Any | None = None, events:
 
     Never raises and never blocks planning: any failure returns ``(None, usage)`` and the
     planner runs exactly as it did before."""
+    events = NULL_EVENTS if events is None else events
     usage = Usage()
     cdir = cache_dir if cache_dir is not None else brief_cache_dir()
     key = brief_cache_key(spec, model_id)
@@ -119,9 +120,8 @@ def expand_brief(spec: Spec, model_id: str, *, model: Any | None = None, events:
             brief = EngineeringBrief.model_validate_json(path.read_text())
             if not brief.is_useful:
                 raise ValueError("cached brief has nothing to plan from")
-            if events is not None:
-                events.emit("plan.brief", cached=True, key=key, n_sub=len(brief.sub_assemblies),
-                            n_signature=len(brief.signature_features), cost_usd=0.0)
+            events.emit("plan.brief", cached=True, key=key, n_sub=len(brief.sub_assemblies),
+                        n_signature=len(brief.signature_features), cost_usd=0.0)
             return brief, usage
         except (ValidationError, ValueError, OSError) as e:  # a stale/corrupt cache entry is not fatal
             log.warning("brief cache %s unusable (%s); regenerating", path, e)
@@ -153,17 +153,15 @@ def expand_brief(spec: Spec, model_id: str, *, model: Any | None = None, events:
                              f"{len(brief.signature_features)} signature features — nothing to plan from")
     except Exception as e:  # noqa: BLE001 — the brief is an optional accelerator, never a failure mode
         log.warning("brief expansion failed (%s: %s); planning without it", type(e).__name__, e)
-        if events is not None:
-            events.emit("plan.brief_failed", error=f"{type(e).__name__}: {e}"[:300])
+        events.emit("plan.brief_failed", error=f"{type(e).__name__}: {e}"[:300])
         return None, usage
     try:
         cdir.mkdir(parents=True, exist_ok=True)
         path.write_text(brief.model_dump_json(indent=1))
     except OSError as e:
         log.warning("could not cache brief at %s: %s", path, e)
-    if events is not None:
-        events.emit("plan.brief", cached=False, key=key, n_sub=len(brief.sub_assemblies),
-                    n_signature=len(brief.signature_features), cost_usd=round(usage.cost_usd, 5))
+    events.emit("plan.brief", cached=False, key=key, n_sub=len(brief.sub_assemblies),
+                n_signature=len(brief.signature_features), cost_usd=round(usage.cost_usd, 5))
     return brief, usage
 
 
@@ -832,6 +830,7 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
     a LATER attempt all leave the earlier dollars on the ledger.  ``PlanningError`` carries
     the total usage for a caller that wants it."""
     guard = budget
+    events = NULL_EVENTS if events is None else events
     if model is None:
         from codeverse3d.models import get_chat_model
 
@@ -872,8 +871,7 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
             thinking = "off"  # "low" still streamed past a 990 s attempt budget on 2 of 6 pro cells
             wait_scale = TRUNCATION_WAIT_SCALE
             messages = messages[:-1] + [_with_note(messages[-1], TRUNCATION_NOTE.format(tokens=tokens))]
-            if events is not None:
-                events.emit("plan.truncated", attempt=attempt, max_output_tokens=tokens, thinking=thinking)
+            events.emit("plan.truncated", attempt=attempt, max_output_tokens=tokens, thinking=thinking)
             continue
         usage = usage + resp.usage
         try:
@@ -891,8 +889,7 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
         except (ValidationError, ValueError) as e:
             last_error = str(e)[:4000]
             _record_invalid(ws, attempt, raw, resp.text)
-            if events is not None:
-                events.emit("plan.invalid", attempt=attempt, error=last_error[:500])
+            events.emit("plan.invalid", attempt=attempt, error=last_error[:500])
             missing = missing_link_names(raw)
             # The measured class is BOTH conditions: a collapsed plan (one top-level part)
             # whose joints name links it never listed.  A full plan with one misspelled
@@ -905,9 +902,8 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
                 # replaces the conversation rather than extending it, so it spends an
                 # ATTEMPT, not one of the two re-ask slots the next invalid answer needs.
                 restarts += 1
-                if events is not None:
-                    events.emit("plan.restart", attempt=attempt, n_parts=len(raw.get("parts") or []),
-                                missing=missing[:10])
+                events.emit("plan.restart", attempt=attempt, n_parts=len(raw.get("parts") or []),
+                            missing=missing[:10])
                 # rebuilt from the ORIGINAL request, so a compact-answer note an earlier
                 # truncation retry added is rebuilt with it: this attempt keeps that
                 # retry's smaller `tokens` and thinking="off", and dropping the note
@@ -930,20 +926,18 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
         complaint = plan_quality_complaint(result, budget, unit=unit) if requeried < MAX_QUALITY_REASKS else ""
         if complaint:
             requeried += 1
-            if events is not None:
-                events.emit("plan.thin", attempt=attempt, n_parts=len(getattr(result, "parts", None) or getattr(result, "passes", None) or []),
-                            target_parts=budget.target_parts, complaint=complaint[:400])
+            events.emit("plan.thin", attempt=attempt, n_parts=len(getattr(result, "parts", None) or getattr(result, "passes", None) or []),
+                        target_parts=budget.target_parts, complaint=complaint[:400])
             messages = messages + [_echo(raw, resp.text), ChatMessage.user(complaint)]
             continue
         normalised = list(getattr(result, "normalisations", None) or [])
-        if normalised and events is not None:
+        if normalised:
             events.emit("plan.normalised", attempt=attempt, n=len(normalised), items=normalised[:8])
         result = enrich_plan(ensure_acceptance(normalise_names(result), spec), brief)
         ws.write_json(ws.plan_path, result)
-        if events is not None:
-            events.emit("plan.done", model=model_id, **plan_event_stats(result),
-                        cost_usd=round(usage.cost_usd, 4), prompt_hash=prompt_hash(system), attempt=attempt,
-                        brief=brief is not None, quality_reasks=requeried, restarts=restarts, **budget.as_dict())
+        events.emit("plan.done", model=model_id, **plan_event_stats(result),
+                    cost_usd=round(usage.cost_usd, 4), prompt_hash=prompt_hash(system), attempt=attempt,
+                    brief=brief is not None, quality_reasks=requeried, restarts=restarts, **budget.as_dict())
         if guard is not None:
             guard.check()
         return result

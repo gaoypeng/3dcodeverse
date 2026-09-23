@@ -24,7 +24,7 @@ from codeverse3d.contracts.plan import ScenePlan, ZoneLayout, ZonePlan
 from codeverse3d.conventions import to_snake
 from codeverse3d.models.schema_utils import parse_json_lenient
 from codeverse3d.orchestrator import BudgetExceeded
-from codeverse3d.proc import fan_out
+from codeverse3d.proc import NULL_EVENTS, fan_out
 from codeverse3d.prompts import render
 from codeverse3d.tracks.generation import _deadline_preflight
 
@@ -159,8 +159,7 @@ def _one_layout(zone: ZonePlan, plan: ScenePlan, model: Any, budget: Any, events
         try:
             max_wait_s = _deadline_preflight(budget, LAYOUT_WAIT_S, soft=True, floor_s=20.0)
         except BudgetExceeded as e:
-            if events is not None:
-                events.emit("layout.skipped_budget", zone=zone.name, error=str(e)[:200])
+            events.emit("layout.skipped_budget", zone=zone.name, error=str(e)[:200])
             return None
         ask = user if not complaint else f"{user}\n\nYour previous layout was rejected: {complaint}. Fix exactly these problems."
         resp = model.generate(ChatRequest(messages=[ChatMessage.user(ask)], system=system,
@@ -172,11 +171,9 @@ def _one_layout(zone: ZonePlan, plan: ScenePlan, model: Any, budget: Any, events
         layout.zone = zone.name   # the name is an input, never model-invented
         complaint = validate_layout(layout, zone, plan)
         if not complaint:
-            if events is not None:
-                events.emit("layout.done", zone=zone.name, placements=len(layout.placements), reasked=bool(attempt))
+            events.emit("layout.done", zone=zone.name, placements=len(layout.placements), reasked=bool(attempt))
             return layout
-    if events is not None:
-        events.emit("layout.rejected", zone=zone.name, complaint=complaint[:300])
+    events.emit("layout.rejected", zone=zone.name, complaint=complaint[:300])
     log.warning("zone layout for %s rejected twice (%s); building without one", zone.name, complaint)
     return None
 
@@ -185,6 +182,7 @@ def layout_zones(plan: ScenePlan, model: Any, *, budget: Any = None, events: Any
                  max_workers: int = 6) -> dict[str, ZoneLayout]:
     """One validated layout per zone, computed in parallel.  Failures drop out silently
     (an exception or double rejection yields no layout for that zone, never a dead run)."""
+    events = NULL_EVENTS if events is None else events
 
     def _safe(zone: ZonePlan) -> ZoneLayout | None:
         return _one_layout(zone, plan, model, budget, events)
@@ -194,8 +192,7 @@ def layout_zones(plan: ScenePlan, model: Any, *, budget: Any = None, events: Any
     out: dict[str, ZoneLayout] = {}
     for zone, r in zip(plan.zones, results, strict=True):
         if isinstance(r, Exception):
-            if events is not None:
-                events.emit("layout.failed", zone=zone.name, error=f"{type(r).__name__}: {r}"[:300])
+            events.emit("layout.failed", zone=zone.name, error=f"{type(r).__name__}: {r}"[:300])
             log.warning("zone layout for %s failed (%s); building without one", zone.name, r)
         elif r is not None:
             out[zone.name] = r
