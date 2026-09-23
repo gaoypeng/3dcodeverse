@@ -33,6 +33,7 @@ from bench._jsonl import latest  # noqa: E402
 from bench.stats import mean_ci  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.record.record import load_record  # noqa: E402
+from codeverse3d.workspace import Workspace  # noqa: E402
 
 SHEET_W = 1100
 
@@ -53,15 +54,17 @@ class Run:
     notes: list[str] = field(default_factory=list)
 
 
-def _sheet_data_uri(run_dir: Path) -> str:
+def _sheet_data_uri(run_dir: Path, picked: int | None) -> str:
+    """The handed-over sheet, else the picked round's own render sheet (a --no-pick run has no
+    deliverable), else whatever an agent tool rendered."""
     try:
         from PIL import Image
     except ImportError:                                     # pragma: no cover
         return ""
-    for cand in (run_dir / "deliverable" / "sheet.png",
+    own = [Workspace(run_dir).renders_dir(picked) / "sheet.png"] if picked is not None else []
+    for cand in (run_dir / "deliverable" / "sheet.png", *own,
                  *sorted(run_dir.glob("artifacts/tool_renders/*/sheet.png")),
-                 *sorted(run_dir.glob("artifacts/tool_renders/*/*sheet*.png")),
-                 *sorted(run_dir.glob("rounds/*/renders/*sheet*.png"))):
+                 *sorted(run_dir.glob("artifacts/tool_renders/*/*sheet*.png"))):
         if not cand.is_file():
             continue
         im = Image.open(cand).convert("RGB")
@@ -76,6 +79,7 @@ def _sheet_data_uri(run_dir: Path) -> str:
 
 def load_run(run_dir: Path, arm: str) -> Run:
     r = Run(slug=run_dir.name, arm=arm)
+    s = None
     try:  # read once: the round addons/select picks, the ledger's total, the steps' minutes
         rec = load_record(run_dir)
         s = select.summarise(run_dir, record=rec)
@@ -89,7 +93,7 @@ def load_run(run_dir: Path, arm: str) -> Run:
             failed = [g.gate for g in rd.gates if not g.passed]
             if failed:
                 r.notes.append(f"r{rd.index} gates: {', '.join(failed[:4])}")
-    r.sheet = _sheet_data_uri(run_dir)
+    r.sheet = _sheet_data_uri(run_dir, s.picked_round if s is not None else None)
     return r
 
 
