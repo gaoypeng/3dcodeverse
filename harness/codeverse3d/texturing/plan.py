@@ -409,15 +409,13 @@ def _plan_text(plan: ScenePlan) -> str:
 
 
 def _finalize_entry(e: PackEntry) -> PackEntry:
+    # the factors are validated non-optional floats (tile_size_m > 0), so FAMILY_DEFAULTS
+    # never reaches a pack entry — a "metal" pack ships metallic 0.0 (review 2 §2.4 C5)
     fam = e.material_family if e.material_family in FAMILY_DEFAULTS else "other"
-    d = FAMILY_DEFAULTS[fam]
     name = to_snake(e.name) or f"{fam}_texture"
     subject = e.subject.strip() or name.replace("_", " ")
     return e.model_copy(update={
         "name": name, "material_family": fam, "subject": subject, "prompt": compose_image_prompt(subject, fam),
-        "tile_size_m": float(e.tile_size_m) if e.tile_size_m > 0 else d.tile_size_m,
-        "roughness": float(e.roughness) if e.roughness is not None else d.roughness,
-        "metallic": float(e.metallic) if e.metallic is not None else d.metallic,
     })
 
 
