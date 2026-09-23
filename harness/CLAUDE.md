@@ -111,8 +111,3 @@ python -m pytest tests -q -m "not live and not blender and not node"   # pure py
 # both run PARALLEL by default (pytest-xdist, -n auto --dist worksteal, in pyproject addopts).
 # A nested pytest inside a test MUST pass -n0 or it forks another full set of workers.
 ```
-
-## Reference material (ideas only — never copy code)
-`/home/yipeng/3dcodeverse_refs/_reports/*.md` — deep reads of astra3d-brilliana,
-scene_multifile_graphics, opentopos, articraft, img2threejs, SpatialClaw, the owner's
-3dcodeverse_data scripts, and a skills/pitfalls research report.
