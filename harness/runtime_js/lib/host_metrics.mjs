@@ -3,7 +3,7 @@
  * readback of the render canvas and near-geometry tests for a camera.
  */
 
-import { GROUND_NAME_RE, classifyBackdrop, nonSolid, drawableBox } from './backdrop.mjs';
+import { GROUND_NAME_RE, classifyBackdrop, nonSolid, drawableBox, nameText } from './backdrop.mjs';
 
 export const SAMPLE_W = 96;
 export const SAMPLE_H = 54;
@@ -90,7 +90,7 @@ export const TERRAIN_SPAN_M = 40;
 
 /** Does the name carry a ground word?  CamelCase split first: `HeadlandTerrain` is a terrain. */
 export function groundNamed(name) {
-  return GROUND_NAME_RE.test(String(name || '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' '));
+  return GROUND_NAME_RE.test(nameText(name));
 }
 
 /**

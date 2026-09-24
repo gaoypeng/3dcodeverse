@@ -49,6 +49,25 @@ export function drawableBox(o, THREE) {
   return box.isEmpty() ? null : box;
 }
 
+/** python's `conventions._INSTANCE_RE`: `Leg_2` / `Rock.003` / `Fence-1` → ['Leg', '2']; a name with no
+ * instance suffix (`Leg2`, `Cart_800006`) → [name, '']. THE instance rule on the JS side (tests pin the two). */
+const INSTANCE_RE = /^(.+?)[_.-](\d{1,3})$/;
+export function splitInstance(name) {
+  const m = INSTANCE_RE.exec(String(name || ''));
+  return m ? [m[1], m[2]] : [String(name || ''), ''];
+}
+
+/** The words of python's `conventions.to_snake(name)`, digits-only words dropped: `LEDStairs` →
+ * ['led', 'stairs'].  THE name tokeniser every JS word rule (sky, ground, water, placement) reads. */
+export function nameWords(name) {
+  return String(name || '').replace(/[^0-9A-Za-z]+/g, ' ')
+    .replace(/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/g, ' ')
+    .toLowerCase().split(' ').filter((w) => w && !/^\d+$/.test(w));
+}
+
+/** `nameWords` as one string, for the word regexes: 'HDRISky' → 'hdri sky'. */
+export function nameText(name) { return nameWords(name).join(' '); }
+
 export const SKY_NAME_RE = /\b(sky|skydome|skybox|stars|clouds?|sun|moon|atmosphere)\b/i;
 export const GROUND_NAME_RE = /\b(ground|terrain|floor|water|ocean|sea|lake|river|plane|sand|grass|land)\b/i;
 
@@ -62,8 +81,7 @@ export function classifyBackdrop(obj, box, contentSpan = 0) {
   // Generated scene names normally use PascalCase / snake_case. Word boundaries
   // alone missed PlanetSkyBackdrop and SkyAtmosphereBand0, framing the sky as a
   // building. Keep the same vocabulary and shape rules for every naming style.
-  const name = (obj.name || (obj.parent && obj.parent.name) || '')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ');
+  const name = nameText(obj.name || (obj.parent && obj.parent.name) || '');
   const sx = box.max.x - box.min.x, sy = box.max.y - box.min.y, sz = box.max.z - box.min.z;
   const span = Math.max(sx, sz);
   // sunRig's MoonDisc can be only five metres wide in a compact worldShell, but

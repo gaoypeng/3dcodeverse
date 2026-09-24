@@ -6,7 +6,7 @@
  * overlap statistics.  Returns plain JSON.
  */
 
-import { classifyBackdrop, drawableBox } from './backdrop.mjs';
+import { classifyBackdrop, drawableBox, splitInstance } from './backdrop.mjs';
 import { geometryTriangles as triCount, geometryInstances } from './census.mjs';
 import { placementTable } from './host_placement.mjs';
 
@@ -92,7 +92,7 @@ function walkGroup(root, THREE) {
         copy(o.name || 'instances', tmp);
       }
     } else {
-      copy((o.name || '').replace(/[_.]\d+$/, '') || 'meshes', mb);
+      copy(splitInstance(o.name)[0] || 'meshes', mb);
     }
     if (mb.isEmpty()) return;
     const kind = classifyBackdrop(o, mb);   // shared rules (lib/backdrop.mjs); no content bbox yet here

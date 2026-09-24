@@ -31,6 +31,8 @@ CASES = [
     ("SkyAtmosphereBand0", [90, 4, 90], False, 0, "sky"),
     ("MoonLamp", [1, 1, 1], False, 0, "content"),            # a solid prop remains content
     ("SkyScraper", [25, 200, 25], False, 0, "content"),       # the size guard still matters
+    ("HDRISky", [400, 200, 400], False, 0, "sky"),             # acronym names split like to_snake (N5)
+    ("GPUTerrain", [30, 1.0, 30], False, 0, "ground"),
 ]
 
 
@@ -83,3 +85,23 @@ console.log(JSON.stringify({{ content: census.content_bbox, all: census.bbox, fr
     assert got["content"]["max"] == [15, 20, 20]
     assert got["framed"] == got["content"]
     assert got["all"]["min"][0] < -270  # background geometry is retained and still counted
+
+
+#: names on both sides of every JS name rule: acronyms, instance separators, long numeric ids
+NAMES = ["Leg_2", "Rock.003", "Fence-1", "Leg2", "DonkeyCart_800006", "Leg_", "Planter_12", "LEDStairs",
+         "HDRISky", "UVGround", "GPUTerrain", "PondWater", "pond_water", "SkyAtmosphereBand0", "TV-Stand.2", ""]
+
+
+def test_js_name_rules_mirror_conventions():
+    """Audit 2026-09-24 N3/N5: `splitInstance` IS `conventions.split_instance` and `nameWords` IS
+    `to_snake`'s words — the census/placement copies split `Fence-1` and `LEDStairs` otherwise."""
+    from codeverse3d.conventions import split_instance, to_snake
+
+    got = run_node_json(f"""
+import {{ splitInstance, nameWords }} from '{RUNTIME_JS}/lib/backdrop.mjs';
+const names = {json.dumps(NAMES)};
+console.log(JSON.stringify({{ split: names.map(splitInstance), words: names.map(nameWords) }}));
+""")
+    assert got["split"] == [list(split_instance(n)) for n in NAMES]
+    snake_words = [[w for w in to_snake(n).split("_") if not w.isdigit()] if n else [] for n in NAMES]
+    assert got["words"] == snake_words

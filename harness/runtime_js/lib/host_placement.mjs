@@ -54,7 +54,7 @@
  * below, which is exactly the sunk case).
  */
 
-import { classifyBackdrop, GROUND_NAME_RE, nonSolid } from './backdrop.mjs';
+import { classifyBackdrop, GROUND_NAME_RE, nonSolid, nameText, nameWords, splitInstance } from './backdrop.mjs';
 import { geometryTriangles } from './census.mjs';
 
 export const MAX_ASSETS = 400;
@@ -107,7 +107,7 @@ class ColumnIndex {
     this.grid = null;
     this.kind = this.empty ? 'content' : classifyBackdrop(mesh, { min: { x: minx, y: miny, z: minz }, max: { x: maxx, y: maxy, z: maxz } });
     this.water = isWaterLike(mesh);
-    this.groundLike = this.kind === 'ground' || GROUND_NAME_RE.test(spaced(mesh.name)) || GROUND_NAME_RE.test(spaced(nearestName(mesh)));
+    this.groundLike = this.kind === 'ground' || GROUND_NAME_RE.test(nameText(mesh.name)) || GROUND_NAME_RE.test(nameText(nearestName(mesh)));
   }
 
   get empty() { return this.count === 0 || this.tris === 0 || !Number.isFinite(this.min[0]); }
@@ -194,10 +194,7 @@ function nearestName(obj) {
   return obj.type || 'mesh';
 }
 
-/** 'PondWater' / 'pond_water' → 'Pond Water' so the shared word regexes see the words. */
-function spaced(name) { return String(name || '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_\-.]+/g, ' '); }
-
-function isWaterLike(mesh) { return !!mesh && (WATER_RE.test(spaced(mesh.name)) || WATER_RE.test(spaced(materialNames(mesh))) || WATER_RE.test(spaced(nearestName(mesh)))); }
+function isWaterLike(mesh) { return !!mesh && (WATER_RE.test(nameText(mesh.name)) || WATER_RE.test(nameText(materialNames(mesh))) || WATER_RE.test(nameText(nearestName(mesh)))); }
 
 /**
  * Every visible, non-instanced Mesh with a position attribute → ColumnIndex (skipping
@@ -251,7 +248,7 @@ function collectAssets(scene, indices, volumetrics, contentBox) {
         if (!o.visible) return;
         // one slot per FAMILY (Planter_3 / Planter.003 → Planter): the by-name check matches on
         // the plan's word, and 30 numbered props must not push the hero behind them past the cap
-        const family = o.name ? o.name.replace(/[_.]\d+$/, '') : '';
+        const family = o.name ? splitInstance(o.name)[0] : '';
         if (o !== child && family && inner.length < MAX_INNER_NAMES && !inner.includes(family)) inner.push(family);
         if (o.isInstancedMesh) instanced += 1;
         else if (indices.has(o)) {
@@ -259,7 +256,7 @@ function collectAssets(scene, indices, volumetrics, contentBox) {
           meshes.push(ci);
           for (let m = o; m && m !== child; m = m.parent) {
             if (!m.name) continue;
-            const fam = m.name.replace(/[_.]\d+$/, '');
+            const fam = splitInstance(m.name)[0];
             if (!members.has(fam)) members.set(fam, new Map());
             const box = members.get(fam).get(m) || [[Infinity, Infinity, Infinity], [-Infinity, -Infinity, -Infinity]];
             for (let k = 0; k < 3; k++) { box[0][k] = Math.min(box[0][k], ci.min[k]); box[1][k] = Math.max(box[1][k], ci.max[k]); }
@@ -291,7 +288,7 @@ function collectAssets(scene, indices, volumetrics, contentBox) {
           // a ground / floor / water surface is what things sit ON, whatever its size
           if (ci.kind !== 'content' || ci.groundLike || ci.water) backdrop += 1;
         }
-        if (backdrop === meshes.length || GROUND_NAME_RE.test(spaced(a.name)) || WATER_RE.test(spaced(a.name))) a.exempt = 'backdrop';
+        if (backdrop === meshes.length || GROUND_NAME_RE.test(nameText(a.name)) || WATER_RE.test(nameText(a.name))) a.exempt = 'backdrop';
         else if (contentBox && enclosesContent(a, contentBox)) a.exempt = 'enclosure';
       }
       assets.push(a);
@@ -521,14 +518,6 @@ const SETTLE_MAX_MOVE_M = 6;
 const SETTLE_SEAT_EPS_M = 0.005;
 const SLOPE_CONFORMAL_RE = /\b(stairs?|stairways?|staircases?|steps?|ramps?|walkways?|paths?|roads?|terraces?|platforms?)\b/i;
 
-/** The words of python's `conventions.to_snake(name)` (digits-only words dropped) — the
- * tokenisation the placement gate matches `placement_words.json` with. */
-function nameWords(name) {
-  return String(name || '').replace(/[^0-9A-Za-z]+/g, ' ')
-    .replace(/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/g, ' ')
-    .toLowerCase().split(' ').filter((w) => w && !/^\d+$/.test(w));
-}
-
 /** Measure every placed asset once, then translate the clearly mis-seated ones onto
  * their support.  Returns `{count, moves}`; mutates object positions (world-space dy
  * applied through each parent's frame) and leaves matrices updated.  `opts.words` is
@@ -544,7 +533,7 @@ export function settleScene(scene, THREE, opts = {}) {
     if (Date.now() - t0 > TIME_BUDGET_MS) break;
     const { columns, best, sunk, water, minSunk, anyRest } = probeFeet(a, indices, owner, groundY);
     if (!columns || water) continue;
-    const name = spaced(a.name), words = nameWords(a.name);
+    const name = nameText(a.name), words = nameWords(a.name);
     const height = Math.max(a.max[1] - a.min[1], 1e-6);
     let dy = 0, why = '';
     if (sunk && sunk.sunk > 0) {
