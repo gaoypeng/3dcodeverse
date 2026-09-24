@@ -23,6 +23,7 @@ from codeverse3d.languages._ast_lint import (
 from codeverse3d.languages._common import run_wrapper_build, strip_blender_noise, ws_rel
 from codeverse3d.languages.base import RuntimeLayout
 from codeverse3d.proc import scrub_secrets
+from codeverse3d.texturing.materials import family_for, pbr_for
 from codeverse3d.workspace import Workspace
 
 # ===================================================================== lint
@@ -403,30 +404,23 @@ def lint_workspace(ws: Workspace) -> GateReport:
 
 
 # ===================================================================== skeleton
-# keyword → (rgb, roughness, metallic) placeholder finishes so the first render is not all-grey
-_FINISHES: tuple[tuple[tuple[str, ...], tuple[float, float, float], float, float], ...] = (
-    (("wood", "oak", "walnut", "pine", "timber", "birch"), (0.55, 0.36, 0.20), 0.55, 0.0),
-    (("steel", "chrome", "aluminium", "aluminum", "metal", "iron", "brass"), (0.75, 0.75, 0.78), 0.35, 1.0),
-    (("fabric", "cloth", "cushion", "upholster", "velvet", "linen"), (0.45, 0.30, 0.30), 0.9, 0.0),
-    (("leather",), (0.30, 0.16, 0.10), 0.6, 0.0),
-    (("glass", "acrylic"), (0.85, 0.9, 0.95), 0.05, 0.0),
-    (("rubber", "tire", "tyre"), (0.05, 0.05, 0.05), 0.9, 0.0),
-    (("plastic", "abs", "nylon"), (0.9, 0.9, 0.9), 0.4, 0.0),
-    (("black",), (0.05, 0.05, 0.05), 0.5, 0.0),
-    (("white",), (0.9, 0.9, 0.9), 0.5, 0.0),
-    (("red",), (0.7, 0.1, 0.1), 0.5, 0.0),
-    (("blue",), (0.1, 0.2, 0.7), 0.5, 0.0),
-    (("green",), (0.1, 0.5, 0.2), 0.5, 0.0),
+#: base colour for a part whose material names no family: a bare colour word
+_COLOUR_WORDS: tuple[tuple[str, tuple[float, float, float]], ...] = (
+    ("black", (0.05, 0.05, 0.05)), ("white", (0.9, 0.9, 0.9)), ("red", (0.7, 0.1, 0.1)),
+    ("blue", (0.1, 0.2, 0.7)), ("green", (0.1, 0.5, 0.2)),
 )
 
 
 def finish_for(text: str) -> tuple[tuple[float, float, float], float, float]:
-    """Placeholder (rgb, roughness, metallic) from material words; neutral grey otherwise."""
+    """Placeholder (rgb, roughness, metallic) so the first render is not all-grey: the material
+    family's base hint and factors from ``texturing.materials`` (THE PBR table), else a bare
+    colour word at the Principled defaults, else neutral grey."""
+    hit = family_for(text)
+    pbr = pbr_for(hit.family) if hit else None
+    if pbr is not None:
+        return pbr.base_hint, pbr.roughness, pbr.metallic
     low = text.lower()
-    for words, rgb, rough, metal in _FINISHES:
-        if any(w in low for w in words):
-            return rgb, rough, metal
-    return (0.6, 0.6, 0.6), 0.5, 0.0
+    return next((rgb for word, rgb in _COLOUR_WORDS if word in low), (0.6, 0.6, 0.6)), 0.5, 0.0
 
 
 def instance_centers(bbox: BBox, n: int, symmetry: str) -> list[tuple[float, float, float]]:
