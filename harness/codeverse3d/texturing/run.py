@@ -261,6 +261,8 @@ def texture_pass(
 def _make_judge(spec: Spec, rubric: str | None, judge_model_id: str | None) -> Any:
     from codeverse3d.judges.vlm_judge import VlmJudge
 
+    # the track's own rubric even for a --image run, on purpose: this plain VlmJudge has no reference diff, so
+    # reference_v1's measured silhouette_match could not be scored, and textures never move a silhouette anyway
     return VlmJudge(rubric=rubric or TRACK_INFO[spec.track].rubric, model_id=judge_model_id or spec.backends.judge,
                     n_samples=1, label="texture_gate")
 
