@@ -342,6 +342,25 @@ def _dump(out_dir: Path, prompt: str, argv: list[str], stdout: str, stderr: str)
 
 
 # ----------------------------------------------------------------------------- claude -p
+def assistant_text(stream: str) -> str:
+    """Concatenate the text blocks of every ``assistant`` event of a ``--output-format stream-json`` run."""
+    parts: list[str] = []
+    for line in stream.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if ev.get("type") != "assistant":
+            continue
+        for block in (ev.get("message") or {}).get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "text" and block.get("text"):
+                parts.append(block["text"])
+    return "".join(parts)
+
+
 class ClaudeOneShot:
     """``claude -p`` with every tool disabled and a single turn."""
 
@@ -359,7 +378,7 @@ class ClaudeOneShot:
         self.id = f"oneshot:{self.kind}" + (f":{model}" if model else "")
 
     def argv(self, prompt: str) -> list[str]:
-        argv = [self.binary, "-p", prompt, "--output-format", "json", "--tools", "", "--max-turns", "1",
+        argv = [self.binary, "-p", prompt, "--output-format", "stream-json", "--verbose", "--tools", "", "--max-turns", "1",
                 "--no-session-persistence", "--strict-mcp-config", "--setting-sources", CLAUDE_SETTING_SOURCES]
         if self.model:
             argv += ["--model", self.model]
@@ -376,7 +395,10 @@ class ClaudeOneShot:
         env = parse_claude_json(proc.stdout)
         usage = usage_from_envelope(env, self.model or "default") if env else Usage(backend=self.kind, model=self.model)
         usage.latency_ms = usage.latency_ms or int(proc.duration_s * 1000)
-        text = str((env or {}).get("result") or "")
+        # the answer is EVERY assistant text block in order, not the result envelope's `result`: a reply that
+        # hits the per-message output limit is auto-continued, and `result` holds only the last continuation
+        # (3 sonnet scene answers began mid-statement, p3x_scenes_v2 2026-09-23)
+        text = assistant_text(proc.stdout) or str((env or {}).get("result") or "")
         notes = ""
         ok = bool(text.strip()) and not proc.timed_out
         if proc.timed_out:

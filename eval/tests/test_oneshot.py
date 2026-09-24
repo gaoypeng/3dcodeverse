@@ -140,3 +140,20 @@ def test_claude_one_shot_pins_its_effort_and_never_reads_the_users_settings():
     assert a[a.index("--setting-sources") + 1] == "project"
     b = ClaudeOneShot("opus").argv("brief")
     assert "--effort" in b and b[b.index("--effort") + 1]   # the harness's claude_effort, never inherited
+
+
+def test_a_continued_claude_reply_is_read_whole_not_just_its_last_continuation():
+    import json as _json
+
+    from bench._oneshot import assistant_text
+
+    first = "```js\nexport async function createScene({ THREE }) {\n  const a = 1;\n"
+    second = "  return { scene: null, cameras: [], update() {} };\n}\n```"
+    stream = "\n".join(_json.dumps(e) for e in (
+        {"type": "system", "subtype": "init"},
+        {"type": "assistant", "message": {"content": [{"type": "thinking", "thinking": "..."}, {"type": "text", "text": first}]}},
+        {"type": "user", "message": {"content": [{"type": "text", "text": "Output token limit hit. Resume directly"}]}, "isSynthetic": True},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": second}]}},
+        {"type": "result", "subtype": "success", "result": second, "is_error": False},
+    ))
+    assert assistant_text(stream) == first + second
