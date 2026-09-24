@@ -165,14 +165,8 @@ def probe_report(summary: dict[str, Any], *, duration_ms: int = 0) -> tuple[Gate
                            target="src/scene.js", hint="delete your own render loop; the host drives update()"))
     census = s.get("census") or {}
     findings.extend(_census_findings(census))
-    cam0 = s.get("first_camera") or {}
-    if cam0.get("camera_in_geometry"):
-        findings.append(_f(gate, Severity.WARN,
-                           f"camera '{cam0.get('name')}' is inside/too close to geometry (nearest hit {cam0.get('nearest_hit_m')} m, inside {cam0.get('inside_mesh_bbox')})",
-                           target=str(cam0.get("name")), hint="move the eye ≥ 0.5 m away from surfaces and above ground"))
-    if cam0 and cam0.get("dark_frac", 0) > 0.85:
-        findings.append(_f(gate, Severity.WARN, f"camera '{cam0.get('name')}' frame is {cam0['dark_frac']:.0%} black — no lights or nothing in view?",
-                           target=str(cam0.get("name")), hint="add a DirectionalLight + HemisphereLight in env, aim the camera at the content"))
+    # the first camera's lens and exposure are scene_frames' (frame_metrics) — one camera, one
+    # gate; `first_camera` stays in the probe summary (scene_probe.json)
     return GateReport.of(gate, findings, duration_ms=duration_ms), census
 
 

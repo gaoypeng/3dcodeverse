@@ -31,6 +31,13 @@ def test_camera_in_geometry_and_near_hit():
                                   _chk("Close", nearest_hit_m=0.3)))
     assert [(k, s) for k, s, _ in _kinds(rep)] == [("camera_in_geometry", Severity.ERROR)] * 2
     assert "Tower" in rep.findings[0].message and "0.5 m" in rep.findings[0].fix_hint
+    # one camera, one gate (audit 2026-09-24 N11): the build's scene_probe used to judge the first
+    # camera again (WARN at 0.3 m / 85 % dark) beside these ERRORs (0.5 m / 35 %) in the same round
+    from codeverse3d.spatial.probes import probe_report
+
+    cam0 = _chk("Buried", camera_in_geometry=True, inside_mesh_bbox=["Tower"], nearest_hit_m=0.1, dark_frac=0.9)
+    probe, _ = probe_report({"boot": {"ok": True, "stage": "ready"}, "update_ok": True, "first_camera": cam0})
+    assert not [f for f in probe.findings if f.target == "Buried"], [f.message for f in probe.findings]
 
 
 def test_a_lens_whose_sight_rays_end_within_reach_is_blocked():
