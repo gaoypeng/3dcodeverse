@@ -13,7 +13,8 @@ from __future__ import annotations
 import logging
 import platform
 import subprocess
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -21,6 +22,7 @@ from typing import Any, NamedTuple
 
 from codeverse3d import __version__
 from codeverse3d.config import get_settings
+from codeverse3d.contracts.artifacts import Judgment
 from codeverse3d.contracts.run import RoundRecord, RunId, RunRecord
 from codeverse3d.cost.ledger import existing_ledger_path, ledger_usage, load_ledger
 from codeverse3d.proc import read_json_or_none, version_line
@@ -120,6 +122,23 @@ def effective_judgment(r: RoundRecord):
     verdict — the flywheel must treat those as 'no score', never as a 0.0."""
     j = r.judgment
     return None if j is None or j.degraded else j
+
+
+def previous_verdict(rounds: Iterable[RoundRecord | None], index: int) -> Judgment | None:
+    """The verdict round ``index``'s judge is shown as the last one: round ``index - 1``'s effective
+    judgment, None when that round went unjudged — never an older round's (the judge prompt calls
+    it round N-1).  The round loop's rule; ``3dcode judge`` and calibration replay it."""
+    prev = next((r for r in rounds if r is not None and r.index == index - 1), None)
+    return effective_judgment(prev) if prev is not None else None
+
+
+def rubric_of(record: RunRecord) -> str:
+    """The rubric ``record``'s run is judged on: the one it stamped (``extra["rubric"]``), else —
+    an older record — its last judged round's, else the run rule (``judges.base.run_rubric``)."""
+    from codeverse3d.judges.base import run_rubric
+
+    judged = (r.judgment.rubric for r in reversed(record.rounds) if r.judgment is not None and r.judgment.rubric)
+    return str(record.extra.get("rubric") or "") or next(judged, "") or run_rubric(record.spec)
 
 
 def effective_score(r: RoundRecord) -> float | None:
@@ -222,6 +241,35 @@ def package_run(ws: Workspace, record: RunRecord) -> None:
         record.telemetry = build_telemetry(ws, record)
     except Exception as e:  # noqa: BLE001 - never fail a finished run over accounting
         log.warning("telemetry not written for %s: %s", ws.root, e)
+
+
+def repackage(ws: Workspace) -> RunRecord | None:
+    """Re-package a finished run's ``record.json`` after its ledger grew (:func:`package_run`), and
+    return it; None — nothing written — when the run keeps no ledger or no readable record."""
+    if existing_ledger_path(ws.root) is None:
+        return None
+    try:
+        record = load_record(ws)
+    except RecordError:
+        return None
+    package_run(ws, record)
+    ws.write_json(ws.record_path, record)
+    return record
+
+
+@contextmanager
+def join_post_run(ws: Workspace) -> Iterator[None]:
+    """Work on a FINISHED run that may spend money (a re-judge, a texture pass or pack, a pairwise
+    pick): its rows join the run's ledger when it keeps one (``run_ledger(create=False)``), and
+    on the way out — also when the work raised after paying — the record is re-packaged, so
+    ``record.total_usage`` stays the ledger's sum (D84)."""
+    from codeverse3d.cost.instrument import run_ledger
+
+    try:
+        with run_ledger(ws.root, run=ws.root.name, create=False):
+            yield
+    finally:
+        repackage(ws)
 
 
 def finalize_record(ws: Workspace, record: RunRecord) -> Path:

@@ -30,6 +30,7 @@ from codeverse3d.cost.context import run_binding
 from codeverse3d.cost.instrument import metered_agent, metered_chat_model, run_ledger
 from codeverse3d.cost.ledger import ledger_usage, load_ledger
 from codeverse3d.cost.tally import timed
+from codeverse3d.judges.base import run_rubric
 from codeverse3d.orchestrator import (
     BudgetExceeded,
     BudgetGuard,
@@ -45,6 +46,7 @@ from codeverse3d.orchestrator import (
 from codeverse3d.proc import EventLog, fan_out, read_json_or_none
 from codeverse3d.prompts import load_text, render
 from codeverse3d.prompts.catalog import language_text
+from codeverse3d.record.record import previous_verdict
 from codeverse3d.tracks.candidates import run_best_of_n
 from codeverse3d.tracks.common import RunContext, Services
 from codeverse3d.tracks.generation import ALLOWED_ROOTS, GenerationTask, single_shot_model_id
@@ -69,8 +71,6 @@ from codeverse3d.tracks.steps import (
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
-
-REFERENCE_RUBRIC = "reference_v1"
 
 
 def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
@@ -444,9 +444,7 @@ class BaseTrack:
             budget.restore(BudgetSnapshot.model_validate(snap))
         policy = self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds)
         policy = replace(policy, n_candidates=self._resolve_candidates(spec, settings))
-        # reference images: static objects are scored with reference_v1 (adds the measured silhouette
-        # criterion); other tracks keep their rubric but the judge still sees the references.
-        rubric = REFERENCE_RUBRIC if spec.references and self.track is Track.STATIC_OBJECT else self.rubric
+        rubric = run_rubric(spec, self.rubric)
         ctx = RunContext(spec=spec, ws=ws, events=events, settings=settings, budget=budget, runtime=runtime,
                          services=self.services, state=state, policy=policy, track=self.track, rubric=rubric,
                          agent_id=spec.backends.generator,
@@ -561,8 +559,7 @@ class BaseTrack:
                 # last round ends the run unscored (`--rounds 0` used to stop MAX_ROUNDS with an
                 # unjudged baseline: the re-judge lived in the refine branch only)
                 rejudged.add(last.index)
-                prev_j = rounds[-2].judgment if len(rounds) > 1 else None
-                if rejudge_round(ctx, pipeline, last, previous=prev_j):
+                if rejudge_round(ctx, pipeline, last, previous=previous_verdict(rounds, last.index)):
                     self._save_budget(ctx)
             if index > ctx.policy.max_rounds:  # the baseline + max_rounds refine rounds all ran
                 return _stop(RunStatus.JUDGE_UNAVAILABLE if _unjudged(last) else RunStatus.MAX_ROUNDS)
@@ -570,7 +567,7 @@ class BaseTrack:
                 if not rounds:  # the stages spent the clock without raising: the ONE budget path (salvage)
                     ctx.budget.check()
                 return _stop(RunStatus.BUDGET)
-            previous = last.judgment if last else None
+            previous = previous_verdict(rounds, index)
             if last is None:
                 ctx.state.status = RunStatus.GENERATING
                 tasks, instructions, kind = self.baseline_tasks(ctx), [], "baseline"

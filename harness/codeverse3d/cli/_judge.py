@@ -4,8 +4,8 @@ in-run judge saw.
 The payload is ``judges.base.round_input`` — the builder the in-run judge uses — fed from
 disk: the round's renders / measurement / gates from ``rounds/rNN.json`` (fallback: the
 round inside record.json), the typed plan from record.json (else ``plan.json``), ``previous``
-the preceding round's (non-degraded) verdict, the track's ``extra_context`` rebuilt from the
-stored gates / frame metrics, and the clay geometry views rendered for the in-run judge
+the loop's (``record.previous_verdict``: round N-1's, None when it went unjudged), the track's
+``extra_context`` rebuilt from the stored gates / frame metrics, and the clay geometry views rendered for the in-run judge
 (``renders/rNN/clay/``) reattached when present.  The judge class is the in-run one:
 ``judges.vlm_judge.judge_for``, the rule the live run uses.
 """
@@ -18,12 +18,12 @@ from pydantic import ValidationError
 
 from codeverse3d.cli import _common as C
 from codeverse3d.contracts.artifacts import BuildResult, RenderSet, RenderView
-from codeverse3d.contracts.common import TRACK_INFO
 from codeverse3d.contracts.plan import Plan
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.judges.base import judged_subset, resolve_paths, round_input
 from codeverse3d.proc import read_json_or_none
+from codeverse3d.record.record import previous_verdict
 from codeverse3d.workspace import Workspace
 
 
@@ -39,12 +39,14 @@ def load_round(ws: Workspace, rec: RunRecord, index: int) -> RoundRecord | None:
 
 
 def rubric_for(rec: RunRecord, rnd: RoundRecord, override: str | None) -> str:
-    """--rubric > the rubric the round was judged with > the track default (TRACK_INFO)."""
+    """--rubric > the rubric the round was judged with > the run's (``record.rubric_of``)."""
+    from codeverse3d.record.record import rubric_of
+
     if override:
         return override
     if rnd.judgment is not None and rnd.judgment.rubric:
         return rnd.judgment.rubric
-    return TRACK_INFO[rec.spec.track].rubric
+    return rubric_of(rec)
 
 
 def stored_plan(ws: Workspace, rec: RunRecord) -> Plan | None:
@@ -59,20 +61,6 @@ def stored_plan(ws: Workspace, rec: RunRecord) -> Plan | None:
         return get_track(rec.spec.track).plan_model.model_validate(data) if data else None
     except ValidationError:
         return None
-
-
-def previous_judgment(ws: Workspace, rec: RunRecord, index: int) -> Any:
-    """The preceding round's verdict (skipping degraded ones), like the round loop."""
-    from codeverse3d.record.record import effective_judgment
-
-    for i in range(index - 1, -1, -1):
-        rnd = load_round(ws, rec, i)
-        if rnd is None:
-            continue
-        j = effective_judgment(rnd)
-        if j is not None:
-            return j
-    return None
 
 
 def extra_context_for(ws: Workspace, rec: RunRecord, plan: Plan | None, rnd: RoundRecord) -> str:
@@ -102,7 +90,7 @@ def build_judge_input(ws: Workspace, rec: RunRecord, rnd: RoundRecord) -> Any:
     """``round_input`` for a stored round (``3dcode judge``, calibration)."""
     plan = stored_plan(ws, rec)
     return round_input(rec.spec, plan, rnd, renders=judged_subset(resolve_paths(ws, rnd.renders)), gates=rnd.gates,
-                       previous=previous_judgment(ws, rec, rnd.index), extra_context=extra_context_for(ws, rec, plan, rnd),
+                       previous=previous_verdict([load_round(ws, rec, rnd.index - 1)], rnd.index), extra_context=extra_context_for(ws, rec, plan, rnd),
                        geometry_views=clay_geometry_views(ws, rnd.index), glb_path=stored_glb_path(ws, rnd))
 
 

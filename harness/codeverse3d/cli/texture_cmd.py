@@ -30,38 +30,38 @@ def pass_(
     judge_model: Annotated[str | None, typer.Option("--judge-model", help="judge chat model id (default: spec judge)")] = None,
     image_model: Annotated[str | None, typer.Option("--image-model", help="gemini image model (default gemini-3.1-flash-image)")] = None,
     size: Annotated[int, typer.Option("--size", min=256, max=2048)] = 1024,
+    force: Annotated[bool, typer.Option("--force", help="buy a new pass even if one already started from this GLB")] = False,
     runs_dir: RunsDirOpt = None,
 ) -> None:
-    """Texture the picked round's object.glb (``addons.select``) → artifacts/object_textured.glb (+ textures/)."""
+    """Texture the picked round's object.glb (``addons.select.texture_round``) → artifacts/object_textured.glb
+    (+ textures/); a packaged hand-over of that round is refreshed."""
     from codeverse3d import reference
     from codeverse3d.addons import select
-    from codeverse3d.cost.instrument import run_ledger
-    from codeverse3d.record.record import RecordError, load_record
-    from codeverse3d.spatial.tool_common import load_plan
-    from codeverse3d.texturing.run import texture_pass, texture_supported
+    from codeverse3d.record.record import RecordError, join_post_run, load_record
+    from codeverse3d.texturing.run import load_report
 
     ws = C.open_workspace(slug, runs_dir)
-    spec = C.load_spec(ws)
-    if not texture_supported(spec.track):
-        raise C.CliError(f"texture pass is for object tracks; {spec.track.value} runs use `3dcode texture scene-pack`")
     try:
         rec = load_record(ws)
     except RecordError as e:
         raise C.CliError(str(e), code=2) from e
     picked = select.summarise(ws.root, record=rec).picked_round
-    rnd = next((r for r in rec.rounds if r.index == picked), None)
-    if rnd is None or (glb := select.round_file(ws, rnd)) is None:
-        raise C.CliError(f"no picked round with its own object.glb to texture in {ws.root.name} (picked: {picked})")
-    sheet = ws.rebase(rnd.renders.contact_sheet) if rnd.renders is not None and rnd.renders.contact_sheet else None
-    plan = load_plan(ws.plan_path)
-
-    # a post-hoc pass joins the run's ledger when it has one, else the per-process log;
-    # it rewrites the run's artifacts, so it holds the run mutex (one writer per run dir)
-    with (C.mutating(ws, what=f"3dcode texture pass {ws.root.name}", action="texture"),
-          run_ledger(ws.root, run=ws.root.name, create=False)):
-        rep = texture_pass(ws, spec, plan, model_id=model or spec.backends.planner,
-                           image_model=reference.get_image_model(image_model or ""), judge=judge,
-                           judge_model_id=judge_model, size=size, glb_in=glb, sheet=sheet)
+    if picked is None:
+        raise C.CliError(f"no picked round to texture in {ws.root.name}: `3dcode pick {ws.root.name} --round N` names one")
+    # a post-hoc pass joins the run's ledger (and its record's total) when it has one; it
+    # rewrites the run's artifacts, so it holds the run mutex (one writer per run dir)
+    with C.mutating(ws, what=f"3dcode texture pass {ws.root.name}", action="texture"), join_post_run(ws):
+        try:
+            rep = select.texture_round(ws, rec, picked, image_model=reference.get_image_model(image_model or ""),
+                                       model_id=model, judge=judge, judge_model_id=judge_model, size=size, force=force)
+        except ValueError as e:
+            raise C.CliError(str(e)) from e
+        sel = select.load_selection(ws)
+        if sel is not None and sel.round == picked:  # the hand-over carries the pack only if it is refreshed
+            select.package(ws.root, picked, method=sel.method)
+    if rep is None:
+        warn("a pass already started from this round's GLB: its report is below (--force buys a new one)")
+        rep = load_report(ws)
     _print_report(rep, ws)
 
 
@@ -110,7 +110,7 @@ def scene_pack(
 ) -> None:
     """Generate the scene's tileable texture pack into public/textures/ (+ manifest.json)."""
     from codeverse3d import reference
-    from codeverse3d.cost.instrument import run_ledger
+    from codeverse3d.record.record import join_post_run
     from codeverse3d.spatial.tool_common import load_plan
     from codeverse3d.texturing.plan import scene_texture_pack, texture_pack_prompt
 
@@ -122,8 +122,7 @@ def scene_pack(
     model_id = spec.backends.planner if model is None else model
 
     # like `pass`: the pack's plan + image spend joins the run's ledger when it has one
-    with (C.mutating(ws, what=f"3dcode texture scene-pack {ws.root.name}", action="texture"),
-          run_ledger(ws.root, run=ws.root.name, create=False)):
+    with C.mutating(ws, what=f"3dcode texture scene-pack {ws.root.name}", action="texture"), join_post_run(ws):
         pack = scene_texture_pack(plan, out or ws.public / "textures", reference.get_image_model(image_model or ""), model_id, size=size, n_max=n)
     rows = {name: f"{e.file or 'FAILED'}  tile={e.tile_size_m:.2f}m {e.material_family}/{e.role} seam={e.seam_score:.3f}"
             + (f"  {e.error}" if e.error else "") for name, e in pack.entries.items()}

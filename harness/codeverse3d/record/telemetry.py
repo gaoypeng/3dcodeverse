@@ -24,7 +24,6 @@ import logging
 from typing import Any
 
 from codeverse3d.config import get_settings
-from codeverse3d.contracts.common import TRACK_INFO
 from codeverse3d.contracts.run import (
     CostSummary,
     RoleSettings,
@@ -36,7 +35,7 @@ from codeverse3d.contracts.run import (
 from codeverse3d.cost.ledger import load_ledger, summarise
 from codeverse3d.cost.types import STAGE_ORDER, CallCost
 from codeverse3d.proc import read_json_or_none, write_json_atomic
-from codeverse3d.record.record import effective_score
+from codeverse3d.record.record import effective_score, rubric_of
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -61,17 +60,6 @@ def price_table_version() -> str:
 def backend_kind(model_id: str) -> str:
     """``api-agent:gemini:gemini-3.7-flash`` → ``api-agent``; ``gemini:x`` → ``gemini``."""
     return model_id.split(":", 1)[0] if ":" in model_id else model_id
-
-
-def _rubric_name(record: RunRecord) -> str:
-    name = str(record.extra.get("rubric") or "")
-    if name:
-        return name
-    for r in reversed(record.rounds):
-        if r.judgment is not None and r.judgment.rubric:
-            return r.judgment.rubric
-    info = TRACK_INFO.get(record.spec.track)
-    return info.rubric if info else ""
 
 
 def rubric_hash(name: str) -> str:
@@ -109,7 +97,7 @@ def _role_settings(record: RunRecord) -> list[RoleSettings]:
 def settings_snapshot(record: RunRecord) -> SettingsSnapshot:
     """The resolved 'how was this run configured' block (no secrets, ever)."""
     spec = record.spec
-    rubric = _rubric_name(record)
+    rubric = rubric_of(record)
     render: dict[str, Any] = {}
     limits: dict[str, Any] = {}
     keys = 0

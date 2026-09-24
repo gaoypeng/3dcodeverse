@@ -103,14 +103,15 @@ def judge(
     artifacts/judge/rNN_cli.json."""
     from codeverse3d.addons import select
     from codeverse3d.cli import _judge as J
-    from codeverse3d.record.record import RecordError, load_record
+    from codeverse3d.record.record import RecordError, join_post_run, load_record
 
     ws = C.open_workspace(slug, runs_dir)
     try:
         rec = load_record(ws)
     except RecordError as e:
         raise C.CliError(str(e), code=2) from e
-    picked = select.pick(ws.root, record=rec) if round_index is None else None
+    # the round `pick` packaged (selection.json), else the best-scored one
+    picked = select.summarise(ws.root, record=rec).picked_round if round_index is None else None
     idx = round_index if round_index is not None else (picked if picked is not None else max(ws.rendered_rounds(), default=0))
     rnd = J.load_round(ws, rec, idx)
     if rnd is None or rnd.renders is None or not rnd.renders.views:
@@ -125,14 +126,12 @@ def judge(
                          f"(e.g. {missing[0]}): nothing to re-judge it from", code=2)
     judge_obj = J.make_judge(rec.spec, rubric_name, model or rec.spec.backends.judge, n)
     n_images = J.count_prompt_images(inp, rubric_name, judge_obj)
-    from codeverse3d.cost.instrument import run_ledger
-
     # writes artifacts/judge/rNN_cli.json into the run: one writer per run dir
     with C.mutating(ws, what=f"3dcode judge {ws.root.name}", action="judge"):
         try:
-            # a re-judge joins the run's ledger when it has one; otherwise the per-process
-            # log (a ledger holding only this verdict would be read as the whole run's cost)
-            with run_ledger(ws.root, run=ws.root.name, create=False):
+            # a re-judge joins the run's ledger (and its record's total) when it has one; otherwise
+            # the per-process log (a ledger holding only this verdict would be read as the whole run's cost)
+            with join_post_run(ws):
                 verdict = judge_obj.judge(inp)
         except ValueError as e:  # e.g. a measured rubric fed to a judge that computes nothing
             raise C.CliError(f"judge failed: {e}") from e

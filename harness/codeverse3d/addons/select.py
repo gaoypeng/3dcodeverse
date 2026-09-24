@@ -17,7 +17,8 @@ other reader asks (gallery, dataset, cost report, calibration, the CLI, eval/ben
                       was packaged, else :func:`pick`'s;
 * :func:`round_file`  a round's OWN build output (its GLB, GIF), never the last build's —
                       and :func:`round_complexity_block` its complexity vector;
-* :func:`package`     ``deliverable/`` for one round, the texture pass on it when asked, and
+* :func:`package`     ``deliverable/`` for one round, the texture pass on it when asked
+                      (:func:`texture_round`, also ``3dcode texture pass``), and
                       ``selection.json`` (round, method, scores) beside ``record.json``.
 
 Nothing here runs during a run: ``3dcode make`` calls :func:`pick` + :func:`package` after the
@@ -34,14 +35,20 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from codeverse3d.contracts.common import TRACK_INFO, Usage
+from codeverse3d.contracts.common import Usage
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.cost.context import call_context
 from codeverse3d.cost.types import Role, Stage
 from codeverse3d.judges.base import judged_subset, resolve_paths
 from codeverse3d.proc import EventLog, read_json_or_none, sha256_file
 from codeverse3d.record.deliverable import build_deliverable, round_outputs, texture_report_for
-from codeverse3d.record.record import effective_judgment, load_record, package_run, round_complexity
+from codeverse3d.record.record import (
+    effective_judgment,
+    load_record,
+    repackage,
+    round_complexity,
+    rubric_of,
+)
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -196,7 +203,7 @@ def pairwise_verdict(ws: Workspace, rec: RunRecord, a: int, b: int, *, model: st
             judge = PairwiseJudge(model)
         with call_context(stage=Stage.PAIRWISE, role=Role.JUDGE, label="pick"):
             res = judge.compare(rec.spec, renders[0], renders[1],
-                                rubric=str(rec.extra.get("rubric") or TRACK_INFO[rec.spec.track].rubric))
+                                rubric=rubric_of(rec))
     except Exception as e:  # noqa: BLE001 — an outage must not move the pick
         log.warning("pairwise pick failed: %s", e)
         note.error = f"{type(e).__name__}: {e}"
@@ -243,21 +250,22 @@ def package(run_dir: Path | str, round_index: int, *, texture: bool = False, met
     """Write ``deliverable/`` for round ``round_index`` (from its commit and ``artifacts/rNN/``,
     no rebuild) and ``selection.json``; returns the deliverable directory.
 
-    ``texture=True`` runs the texture pass on that round's own GLB first, unless a pass
-    already started from those exact bytes (a paid pass is never bought twice); a pack
-    ships into the deliverable only when its judge gate shipped it, and the record is
-    re-packaged so its total takes the pass in (the run's money is its ledger's,
-    ``record.package_run``).  Otherwise the record is not rewritten."""
+    ``texture=True`` runs the texture pass on that round's own GLB first (:func:`texture_round`);
+    a pack ships into the deliverable only when its judge gate shipped it.  The record is
+    re-packaged (``record.repackage``), so its total takes in what the hand-over paid — the
+    texture pass, a pairwise verdict — the run's money is its ledger's."""
     ws = Workspace(run_dir)
     rec = load_record(ws)
-    rnd = next((r for r in rec.rounds if r.index == round_index), None)
-    if rnd is None:
+    if not any(r.index == round_index for r in rec.rounds):
         raise ValueError(f"no round {round_index} in {ws.root} (rounds: {[r.index for r in rec.rounds]})")
     if texture:
-        _texture(ws, rec, round_index, image_model=image_model)
-        rec = load_record(ws)  # the pass wrote extra["texturing"]
-        package_run(ws, rec)
-        ws.write_json(ws.record_path, rec)
+        texture_glb(ws, rec, round_index)  # nothing to texture is the caller's error; a failed pass is not
+        try:
+            texture_round(ws, rec, round_index, image_model=image_model)
+        except Exception as e:  # noqa: BLE001 — a derived asset pack: the hand-over goes out without it
+            log.warning("texture pass failed on round %d: %s", round_index, e)
+            EventLog(ws.events_path).emit("texture.failed", round=round_index, error=f"{type(e).__name__}: {e}")
+    rec = repackage(ws) or load_record(ws)  # a pass wrote extra["texturing"]
     manifest = build_deliverable(ws, rec, round_index)
     sel = Selection(round=round_index, method=method, scores={r.index: r.score for r in round_rows(ws.root, record=rec)},
                     textured=any(f.path == "deliverable/object_textured.glb" for f in manifest.files))
@@ -267,24 +275,34 @@ def package(run_dir: Path | str, round_index: int, *, texture: bool = False, met
     return ws.deliverable
 
 
-def _texture(ws: Workspace, rec: RunRecord, index: int, *, image_model: Any | None) -> None:
-    """The texture pass on round ``index``'s GLB (it records itself on ``record.json``)."""
-    from codeverse3d.texturing.run import texture_pass, texture_supported
+def texture_glb(ws: Workspace, rec: RunRecord, index: int) -> tuple[RoundRecord, Path]:
+    """Round ``index`` and its own GLB — what a texture pass on it starts from.  ValueError when
+    the track has no GLB or the round kept none."""
+    from codeverse3d.texturing.run import texture_supported
 
     if not texture_supported(rec.spec.track):
         raise ValueError(f"the texture pass is for object tracks; {rec.spec.track.value} runs have no GLB to texture")
-    rnd = next(r for r in rec.rounds if r.index == index)
+    rnd = next((r for r in rec.rounds if r.index == index), None)
     glb = round_file(ws, rnd)
-    if glb is None:
+    if rnd is None or glb is None:
         raise ValueError(f"round {index} kept no object.glb to texture (artifacts/r{index:02d}/)")
-    if texture_report_for(ws, glb) is not None:
-        EventLog(ws.events_path).emit("texture.skipped", reason="already_textured_this_artifact", round=index)
-        return
-    sheet = ws.rebase(rnd.renders.contact_sheet) if rnd.renders is not None and rnd.renders.contact_sheet else None
+    return rnd, glb
+
+
+def texture_round(ws: Workspace, rec: RunRecord, index: int, *, image_model: Any | None = None,
+                  model_id: str | None = None, judge: bool = True, judge_model_id: str | None = None,
+                  size: int = 1024, force: bool = False) -> Any | None:
+    """The texture pass on round ``index``'s own GLB (it records itself on ``record.json``), or None
+    when a pass already started from those exact bytes — a paid pass is never bought twice unless
+    ``force``.  ValueError from :func:`texture_glb`; the pass's own failures propagate."""
+    from codeverse3d.texturing.run import texture_pass
+
+    rnd, glb = texture_glb(ws, rec, index)
     events = EventLog(ws.events_path)
-    try:
-        texture_pass(ws, rec.spec, rec.plan, model_id=rec.spec.backends.planner, image_model=image_model, judge=True,
-                     judge_model_id=rec.spec.backends.judge, glb_in=glb, sheet=sheet, events=events)
-    except Exception as e:  # noqa: BLE001 — a derived asset pack: the hand-over goes out without it
-        log.warning("texture pass failed on round %d: %s", index, e)
-        events.emit("texture.failed", round=index, error=f"{type(e).__name__}: {e}")
+    if not force and texture_report_for(ws, glb) is not None:
+        events.emit("texture.skipped", reason="already_textured_this_artifact", round=index)
+        return None
+    sheet = ws.rebase(rnd.renders.contact_sheet) if rnd.renders is not None and rnd.renders.contact_sheet else None
+    return texture_pass(ws, rec.spec, rec.plan, model_id=model_id or rec.spec.backends.planner, image_model=image_model,
+                        judge=judge, judge_model_id=judge_model_id or rec.spec.backends.judge, size=size, glb_in=glb,
+                        sheet=sheet, events=events)

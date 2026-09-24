@@ -292,14 +292,28 @@ def test_round_outputs_are_the_rounds_own_never_the_last_builds(tmp_path: Path):
 
 
 def test_cli_texture_pass_textures_the_picked_round_not_the_last_build(tmp_path: Path, monkeypatch):
-    """B5: `3dcode texture pass` textures the handed-over round's GLB, not the last build's."""
+    """B5: `3dcode texture pass` textures the handed-over round's GLB, not the last build's — through
+    `select.texture_round` (N57): a pass that already started from those bytes is not bought again
+    (--force buys it), and the hand-over of that round is refreshed."""
+    from codeverse3d.texturing.run import report_path
+
     ws, _ = make_fake_run(tmp_path / "runs", "chair", scores=(0.90, 0.50))  # r00 is picked, r01 built last
-    seen: dict = {}
-    monkeypatch.setattr("codeverse3d.texturing.run.texture_pass", lambda *a, **kw: seen.update(kw))
+    select.package(ws.root, 0, method="score")
+    seen: list[dict] = []
+    monkeypatch.setattr("codeverse3d.texturing.run.texture_pass", lambda *a, **kw: seen.append(kw) or object())
+    monkeypatch.setattr("codeverse3d.texturing.run.load_report", lambda ws: object())
     monkeypatch.setattr("codeverse3d.cli.texture_cmd._print_report", lambda rep, ws: None)
     monkeypatch.setattr("codeverse3d.reference.get_image_model", lambda name: None)
-    monkeypatch.setattr("codeverse3d.spatial.tool_common.load_plan", lambda path: None)
-    r = runner.invoke(app, ["texture", "pass", "chair", "--runs-dir", str(tmp_path / "runs"), "--no-judge"])
+    packaged: list[int] = []
+    monkeypatch.setattr(select, "package", lambda run_dir, index, **kw: packaged.append(index))
+    cmd = ["texture", "pass", "chair", "--runs-dir", str(tmp_path / "runs"), "--no-judge"]
+    r = runner.invoke(app, cmd)
     assert r.exit_code == 0, r.output
-    assert seen["glb_in"] == ws.round_artifacts(0) / "object.glb"
-    assert seen["sheet"] is not None and seen["sheet"].is_relative_to(ws.renders_dir(0))
+    assert seen[0]["glb_in"] == ws.round_artifacts(0) / "object.glb" and seen[0]["judge"] is False
+    assert seen[0]["sheet"] is not None and seen[0]["sheet"].is_relative_to(ws.renders_dir(0))
+    assert packaged == [0]                                   # the hand-over carries the new pack
+    ws.write_json(report_path(ws), {"glb_in": str(ws.round_artifacts(0) / "object.glb")})
+    r = runner.invoke(app, cmd)
+    assert r.exit_code == 0 and len(seen) == 1 and "already started" in r.output   # never bought twice
+    r = runner.invoke(app, [*cmd, "--force"])
+    assert r.exit_code == 0 and len(seen) == 2

@@ -85,8 +85,7 @@ def test_package_run_builds_a_stable_independent_and_loadable_handover(fake_run)
     assert [(f.path, f.sha256) for f in d.files] == [(f.path, f.sha256) for f in second.files]
 
     # Package metadata can be recovered from files even before the caller saves rec.
-    bare = load_record(ws)
-    assert bare.telemetry is None
+    bare = load_record(ws).model_copy(update={"telemetry": None})
     assert load_telemetry(ws, bare) is not None and load_deliverable(ws) is not None
 
     # Delivered assets are copies: editing a hand-over cannot mutate evidence.

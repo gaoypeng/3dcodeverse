@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.artifacts import GateReport, Judgment, Measurement, RenderSet
+from codeverse3d.contracts.common import TRACK_INFO, Track
 from codeverse3d.contracts.plan import (
     AcceptanceItem,
     ArticulatedPlan,
@@ -24,6 +25,18 @@ from codeverse3d.workspace import Workspace
 #: tracks whose rounds have one canonical GLB the judge slice channel (D48) may cut;
 #: scene and graphics have none and are unaffected.
 SLICE_TRACKS = ("static_object", "articulated_object")
+#: the rubric of a static object judged against reference images: it adds the measured silhouette criterion
+REFERENCE_RUBRIC = "reference_v1"
+
+
+def run_rubric(spec: Spec, default: str = "") -> str:
+    """The rubric a run of ``spec`` is judged on — the ONE rule, for the run loop and every replay.
+    A static object with reference images is scored on :data:`REFERENCE_RUBRIC`; any other run on
+    ``default`` (a track's own) or its track's.  Other tracks keep their rubric with references:
+    their judge still sees the images."""
+    if spec.references and spec.track is Track.STATIC_OBJECT:
+        return REFERENCE_RUBRIC
+    return default or TRACK_INFO[spec.track].rubric
 
 
 class JudgeInput(BaseModel):

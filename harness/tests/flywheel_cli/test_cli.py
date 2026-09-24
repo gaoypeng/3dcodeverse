@@ -580,3 +580,60 @@ def test_resume_refuses_a_run_whose_clock_is_spent_even_with_force(made_run, stu
         assert r.exit_code == 1 and "clock is spent" in r.output, extra
     assert entered == []
     assert runner.invoke(app, ["resume", run_dir.name, "--runs-dir", str(runs), "--max-minutes", "40"]).exit_code == 130
+
+
+def test_a_replay_judges_the_picked_round_on_the_runs_rubric_and_books_into_the_record(tmp_path: Path, monkeypatch):
+    """`3dcode judge` replays the run it reads.  r0 0.55, r1 unjudged (a judge outage), r2 0.90, of a
+    static `--image` run:
+    * no --round after `pick --round 0` is r0, the packaged round — not the best-scored r2 (N55a);
+    * the unjudged r1 replays on the run's reference_v1, not the track's static_object_v1 (N49);
+    * r2's previous verdict is the loop's — r1's, i.e. none — not r0's (N56);
+    * what the replay (or a pick) paid joins record.total_usage: it stays the ledger's sum (N53)."""
+    import codeverse3d.judges.vlm_judge as vj
+    from codeverse3d.contracts.common import Usage
+    from codeverse3d.contracts.spec import ReferenceImage
+    from codeverse3d.cost.ledger import ledger_usage, load_ledger, record_call
+    from codeverse3d.record.record import load_record
+    from tests.flywheel_cli.conftest import _judgment, make_fake_run
+
+    runs = tmp_path / "runs"
+    ws, rec = make_fake_run(runs, "stool_img")
+    rec.spec.references = [ReferenceImage(path=str(tmp_path / "ref.png"))]
+    r2 = rec.rounds[1].model_copy(update={"index": 2, "judgment": _judgment(0.90, True, [])})
+    rec.rounds[1].judgment = None
+    rec.rounds.append(r2)
+    rec.extra["rubric"] = "reference_v1"
+    ws.write_json(ws.record_path, rec)
+    ws.write_json(ws.spec_path, rec.spec)
+    ledger = ws.telemetry / "cost.jsonl"
+
+    def paid(cost: float) -> float:   # a paid call booked into the run's ledger; returns the ledger total
+        record_call(Usage(backend="gemini", model="gemini-3.7-flash", cost_usd=cost), stage="judge", label="t", ledger=ledger)
+        return ledger_usage(load_ledger(ws.root)).cost_usd
+
+    total = paid(0.03)                # a pairwise verdict `pick` paid: the pick re-packages the record
+    assert runner.invoke(app, ["pick", "stool_img", "--round", "0", "--runs-dir", str(runs)]).exit_code == 0
+    assert load_record(ws).total_usage.cost_usd == pytest.approx(total)
+
+    class _Judge:
+        seen: list = []
+
+        def __init__(self, *, rubric=None, **kw):
+            self.rubric = rubric
+
+        def judge(self, inp):
+            _Judge.seen.append((inp.round_index, self.rubric, inp.previous))
+            paid(0.05)
+            return _judgment(0.7, False, [])
+
+    monkeypatch.setattr(vj, "ReferenceJudge", _Judge)
+    for args in ([], ["--round", "1"], ["--round", "2"]):
+        r = runner.invoke(app, ["judge", "stool_img", "--runs-dir", str(runs), *args])
+        assert r.exit_code == 0, r.output
+    (i0, _, _), (i1, rubric1, _), (i2, _, prev2) = _Judge.seen
+    assert (i0, i1, i2) == (0, 1, 2)
+    assert rubric1 == "reference_v1"
+    assert prev2 is None
+    assert load_record(ws).total_usage.cost_usd == pytest.approx(ledger_usage(load_ledger(ws.root)).cost_usd)
+    assert load_record(ws).total_usage.cost_usd == pytest.approx(total + 3 * 0.05)
+
