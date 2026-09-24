@@ -1,38 +1,34 @@
-"""The routing table (design §5.2) and the ONE place gate message text is pattern-matched.
+"""The routing table (design §5.2) and the one place a gate finding becomes a routing kind.
 
 Two things live here and nowhere else:
 
-**finding_kind()** — ``GateFinding`` carries no ``kind`` field (``contracts/artifacts.py``),
-so turning "'Lid' and 'Body' interpenetrate by ~7.4 mm" into the stable slug
-``connectivity/interpenetration`` needs a classifier.  Keeping it in one function means a
-gate reword breaks one golden test instead of silently unrouting a repair skill.  It
-classifies **actionable** findings only: INFO lines ("named objects: [...]") are census,
-not defects, and return ``None``.
+**finding_kind()** — a finding's kind is ``"<gate>/<data.kind>"``, the kind the gate itself
+wrote (``connectivity/penetration``, ``scene_frames/no_motion``); the ``lint:<language>``
+gates are one ``lint`` family.  A finding whose gate writes no kind (the lints, motion_direction,
+render_console) is ``"<gate>/untyped"``, which only a family row (``lint/*``) answers.  No
+message text is read: the regex this replaced left seven scene_frames kinds unrouted and R19
+unreachable (audit 2026-09-24, N52), and every gate reword could unroute a skill.  INFO lines
+("all 7 parts are connected") are census, not defects, and have no kind.
 
 **ROUTES** — typed rows, evaluated by ``select()`` below.  A row fires when ALL of its stated
 conditions hold; ``priority`` decides who survives the cap, and every gate-fired row sits
-at >= 90 so a repair round spends its budget on what actually broke.
-
-Classification is deliberately WIDER than routing: several kinds below have no rule at
-all.  Naming a defect costs nothing and lets the golden test assert full coverage of the
-corpus; routing one is a claim that a skill helps, and that claim needs evidence.
+at >= 90 so a repair round spends its budget on what actually broke.  Routing a kind is a
+claim that a skill helps, and that claim needs evidence; most kinds have no row.
 """
 
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 from typing import Any
 
 from codeverse3d.skills.model import EVIDENCE_INHERITED, Selection, Skill
 
 # --------------------------------------------------------------------------- finding kinds
-CONNECTIVITY_INTERPENETRATION = "connectivity/interpenetration"
-CONNECTIVITY_STRAY_ISLANDS = "connectivity/stray_islands"
-CONNECTIVITY_FLOATING_PART = "connectivity/floating_part"
-CONNECTIVITY_NO_GROUND = "connectivity/no_ground_contact"
-CONNECTIVITY_NO_GEOMETRY = "connectivity/no_geometry"
+#: the kind of a finding whose gate writes no ``data.kind``
+UNTYPED = "untyped"
+#: the kinds a route or a bundle target names on its own — the gates' own words
+CONNECTIVITY_PENETRATION = "connectivity/penetration"
 CONTRACT_PART_BBOX = "contract/part_bbox"
 CONTRACT_INSTANCE_BBOX = "contract/instance_bbox"
 CONTRACT_OVERALL_BBOX = "contract/overall_bbox"
@@ -40,80 +36,37 @@ CONTRACT_FOOTPRINT = "contract/footprint_offset"
 CONTRACT_GROUND_GAP = "contract/ground_gap"
 CONTRACT_MISSING_PART = "contract/missing_part"
 CONTRACT_INSTANCE_COUNT = "contract/instance_count"
-CONTRACT_SCENE_BOUNDS = "contract/scene_bounds"
-JOINT_SWEEP_LINK_OVERLAP = "joint_sweep/link_overlap"
-JOINT_SWEEP_DISCONNECTED = "joint_sweep/disconnected"
-JOINT_SWEEP_BURIED = "joint_sweep/buried_link"
-MOTION_WRONG_AXIS = "motion_direction/wrong_axis"
-MOTION_SKIPPED = "motion_direction/skipped"
-SCENE_DARK_OR_FLAT = "scene_frames/dark_or_flat"
-SCENE_CAMERA_PLACEMENT = "scene_frames/camera_placement"
-GL_MOTION_OR_DETAIL = "gl_frames/motion_or_detail"
-LINT_PART_NOT_IMPORTED = "lint/part_not_imported"
-LINT_LINK_NAME = "lint/link_name"
-LINT_API_TRAP = "lint/api_trap"
-SHADER_COMPILE_OR_BINDING = "shader/compile_or_binding"
-RUNTIME_SLOW = "render_console/slow_or_error"
-
-#: (gate predicate, message regex, kind).  Order matters: first match wins.
-_RULES: tuple[tuple[str, str, str], ...] = (
-    ("connectivity", r"interpenetrate", CONNECTIVITY_INTERPENETRATION),
-    ("connectivity", r"tiny disconnected island", CONNECTIVITY_STRAY_ISLANDS),
-    ("connectivity", r"is floating", CONNECTIVITY_FLOATING_PART),
-    ("connectivity", r"no part touches the ground", CONNECTIVITY_NO_GROUND),
-    ("connectivity", r"no mesh parts", CONNECTIVITY_NO_GEOMETRY),
-    ("contract", r"\(each instance\)|\(all instances\)", CONTRACT_INSTANCE_BBOX),
-    ("contract", r"part '.*' bbox deviates", CONTRACT_PART_BBOX),
-    ("contract", r"overall bbox deviates", CONTRACT_OVERALL_BBOX),
-    ("contract", r"footprint centre", CONTRACT_FOOTPRINT),
-    ("contract", r"floats .* the ground", CONTRACT_GROUND_GAP),
-    ("contract", r"missing from the GLB|not found in the exported scene", CONTRACT_MISSING_PART),
-    ("contract", r"instance\(s\), plan asks for", CONTRACT_INSTANCE_COUNT),
-    ("contract", r"exceeds the planned bounds", CONTRACT_SCENE_BOUNDS),
-    # "overlap by" is one pose; the round gate aggregates a pair's poses ("overlap in N of the
-    # sampled poses") and summarises the pairs past its cap ("more overlapping pair(s)")
-    ("joint_sweep", r"overlap by|overlap in \d+ of the sampled poses|more overlapping pair", JOINT_SWEEP_LINK_OVERLAP),
-    ("joint_sweep", r"lies entirely inside", JOINT_SWEEP_BURIED),
-    ("joint_sweep", r"apart at rest|nothing physically connects", JOINT_SWEEP_DISCONNECTED),
-    ("motion_direction", r"check skipped|checks skipped", MOTION_SKIPPED),
-    ("motion_direction", r"WRONG", MOTION_WRONG_AXIS),
-    ("scene_frames", r"too dark|flat frame", SCENE_DARK_OR_FLAT),
-    ("scene_frames", r"BELOW the ground|inside / touching geometry", SCENE_CAMERA_PLACEMENT),
-    ("gl_frames", r"frame-to-frame|visual detail|do not change over time"
-                 r"|essentially black|blown out|NaN/Inf|no frames were rendered", GL_MOTION_OR_DETAIL),
-    ("render_console", r"frame rate|error", RUNTIME_SLOW),
-    ("shader_preflight", r".", SHADER_COMPILE_OR_BINDING),
-    ("lint", r"never imported", LINT_PART_NOT_IMPORTED),
-    ("lint", r"never appears as a string", LINT_LINK_NAME),
-    ("lint", r"unbound|uniform|ignores scene\.fog|shader (?:fail|error|compile)", SHADER_COMPILE_OR_BINDING),
-    ("lint", r".", LINT_API_TRAP),
-)
-_COMPILED = tuple((gate, re.compile(pat, re.I), kind) for gate, pat, kind in _RULES)
+JOINT_SWEEP_PENETRATION = "joint_sweep/penetration"
+JOINT_SWEEP_UNATTACHED = "joint_sweep/unattached"
+SCENE_CAMERAS = "scene_frames/camera_*"
+SCENE_DARK = "scene_frames/dark_frame"
+SCENE_FLAT = "scene_frames/flat_frame"
+SCENE_BLOWN = "scene_frames/blown_frame"
+SCENE_NO_MOTION = "scene_frames/no_motion"
+GL_FRAMES = "gl_frames/*"
+SHADER_PREFLIGHT = "shader_preflight/*"
+LINT = f"lint/{UNTYPED}"
 
 
-def finding_kind(gate: str, message: str, severity: str = "warn") -> str | None:
-    """``(gate, message)`` → a stable defect slug, or ``None`` for census/INFO lines.
+def finding_kind(finding: Any) -> str | None:
+    """A ``GateFinding`` → ``"<gate>/<data.kind>"``, or ``None`` for census/INFO lines.
 
-    ``severity`` is honoured, not guessed at: an INFO finding is the gate reporting what
-    it saw ("all 7 parts are connected"), and routing a skill off it would attach the
-    interpenetration sheet to a run with no interpenetration.
-    """
-    if str(severity).lower() == "info":
+    Severity is honoured, not guessed at: an INFO finding is the gate reporting what it saw,
+    and routing a skill off it would attach the penetration sheet to a run with none."""
+    if str(getattr(finding, "severity", "warn")).lower() == "info":
         return None
-    g = (gate or "").strip().lower()
-    text = message or ""
-    for want, pattern, kind in _COMPILED:
-        if (g == want or (want == "lint" and g.startswith("lint:"))) and pattern.search(text):
-            return kind
-    return None
+    gate = str(getattr(finding, "gate", "") or "").strip().lower()
+    family = "lint" if gate.startswith("lint") else gate
+    data = getattr(finding, "data", None)
+    kind = data.get("kind") if isinstance(data, dict) else None
+    return f"{family}/{kind if isinstance(kind, str) and kind else UNTYPED}"
 
 
 def finding_kinds(findings: object) -> list[str]:
     """Distinct kinds of an iterable of ``GateFinding`` (or of ``GateReport``s), in order."""
     out: list[str] = []
     for f in _iter_findings(findings):
-        k = finding_kind(getattr(f, "gate", ""), getattr(f, "message", ""),
-                         str(getattr(f, "severity", "warn")))
+        k = finding_kind(f)
         if k and k not in out:
             out.append(k)
     return out
@@ -188,13 +141,13 @@ ROUTES: tuple[Route, ...] = (
           kinds=("baseline", "part", "refine", "rebuild"),
           requires_any=("has_instances", "has_symmetry"),
           why="the plan repeats or mirrors a part, and the contract gate measures each instance"),
-    Route("R7", "c3d-repeats-and-mirrors", 90, kinds=("repair", "refine"), findings=("contract/instance_bbox",),
+    Route("R7", "c3d-repeats-and-mirrors", 90, kinds=("repair", "refine"), findings=(CONTRACT_INSTANCE_BBOX,),
           why="an instanced part's bbox drifted"),
     Route("R8", "c3d-blender-forms", 75, languages=BLENDER_LANGS, kinds=BUILD_KINDS,
           why="blender authoring: the language of 47 of our graded runs"),
     Route("R9", "c3d-blender-forms", 95, languages=BLENDER_LANGS, kinds=("repair",),
-          findings=(LINT_PART_NOT_IMPORTED,),
-          why="a part file was written but never imported, so its geometry does not exist"),
+          findings=(LINT,),
+          why="the lint flagged the build script (a part file never imported, a bpy trap)"),
     Route("R10", "c3d-cadquery-forms", 75, languages=("cadquery",), kinds=BUILD_KINDS,
           why="cadquery authoring (evidence: inherited-unverified — unranked by our corpus; routed by default "
               "since 2026-09-22, C3D_SKILLS_UNVERIFIED=0 drops it)"),
@@ -211,25 +164,25 @@ ROUTES: tuple[Route, ...] = (
           kinds=("baseline", "env", "zone", "refine"),
           why="scene layout and camera framing"),
     Route("R15", "c3d-scene-composition", 95, tracks=("scene",), languages=("scene_threejs",),
-          findings=(SCENE_CAMERA_PLACEMENT,),
-          why="the camera was below ground or inside geometry"),
+          findings=(SCENE_CAMERAS, "scene_frames/content_small", "scene_frames/hero_*"),
+          why="a camera was badly placed, or a shot shows too little of the scene or its hero"),
     Route("R16", "c3d-scene-lighting", 65, tracks=("scene",), languages=("scene_threejs",),
           kinds=("baseline", "env", "refine"),
           why="lighting and exposure decide whether the frame reads at all"),
     Route("R17", "c3d-scene-lighting", 95, tracks=("scene",), languages=("scene_threejs",),
-          findings=(SCENE_DARK_OR_FLAT,),
-          why="the frame gate called the render dark or flat"),
+          findings=(SCENE_DARK, SCENE_FLAT, SCENE_BLOWN),
+          why="the frame gate called the render dark, flat or blown out"),
     Route("R18", "c3d-scene-motion", 70, tracks=("scene",), languages=("scene_threejs",),
           kinds=("baseline", "zone", "refine"),
           why="animation_life 0.431 is the lowest criterion in the whole corpus"),
     Route("R19", "c3d-scene-motion", 90, tracks=("scene",), languages=("scene_threejs",),
-          findings=(GL_MOTION_OR_DETAIL,),
-          why="the frame-difference gate saw a flicker or a still image"),
+          findings=(SCENE_NO_MOTION,),
+          why="the frame-difference gate saw nothing move on an authored camera"),
     Route("R20", "c3d-threejs-shader-traps", 60, tracks=("scene", "static_object"), languages=THREEJS_LANGS,
           requires_all=("has_custom_shader",),
           why="the plan names a custom shader/material effect"),
-    Route("R21", "c3d-threejs-shader-traps", 95, languages=THREEJS_LANGS, findings=(SHADER_COMPILE_OR_BINDING,),
-          why="a shader failed to compile or a uniform was unbound"),
+    Route("R21", "c3d-threejs-shader-traps", 95, languages=THREEJS_LANGS, findings=(SHADER_PREFLIGHT,),
+          why="the shader preflight flagged a material (a compile error, an unbound uniform, no fog)"),
     Route("R22", "c3d-glsl-craft", 80, tracks=("graphics",), languages=("glsl_shader",),
           kinds=("baseline", "refine", "repair", "rebuild"),
           why="fragment-shader craft: technical_cleanliness 0.597 is the lowest glsl criterion"),
@@ -239,9 +192,9 @@ ROUTES: tuple[Route, ...] = (
     # R24 is one row per language: the design writes it as a single line, but a Route names
     # exactly one skill so telemetry can say which one the finding routed.
     Route("R24-glsl", "c3d-glsl-craft", 90, tracks=("graphics",), languages=("glsl_shader",),
-          findings=(GL_MOTION_OR_DETAIL,), why="the frame gate saw no motion or no detail"),
+          findings=(GL_FRAMES,), why="the frame gate saw no motion or no detail"),
     Route("R24-opengl", "c3d-opengl-pipeline", 90, tracks=("graphics",), languages=("opengl_python",),
-          findings=(GL_MOTION_OR_DETAIL,), why="the frame gate saw no motion or no detail"),
+          findings=(GL_FRAMES,), why="the frame gate saw no motion or no detail"),
     # R25-R28 (2026-09-01): the graphics-recipe port from the scene_multifile_graphics
     # reference (eval/docs/EVAL.md sceneloop entry).  Atmosphere and materials ride every
     # env/baseline build; water and night only when the plan's own words ask for them.

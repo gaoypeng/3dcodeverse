@@ -1,48 +1,49 @@
-"""Classify the recorded gate-message corpus and validate the routing table."""
+"""Name gate findings by their typed kind and validate the routing table."""
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
+import pytest
 
-from codeverse3d.skills.registry import ROUTES, finding_kind, finding_kinds
+from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse3d.skills.registry import ROUTES, finding_kind, finding_kinds, select
 
-DATA = Path(__file__).parent / "data" / "gate_findings.json"
-GOLDEN = json.loads(DATA.read_text())["findings"]
-
-
-def test_every_recorded_finding_classifies_to_its_expected_kind():
-    assert len(GOLDEN) >= 30
-    assert {r["severity"] for r in GOLDEN} == {"warn", "error"}
-    for index, row in enumerate(GOLDEN):
-        got = finding_kind(row["gate"], row["message"], row["severity"])
-        label = f"row {index} ({row['gate']} / {row['message'][:90]})"
-        assert got is not None, f"unknown {label}"
-        assert got == row["kind"], label
+E, W, I = Severity.ERROR, Severity.WARN, Severity.INFO  # noqa: E741
 
 
-def test_info_findings_are_census_not_defects():
-    # "all 7 parts are connected" must not attach the interpenetration sheet
-    assert finding_kind("connectivity", "all 7 parts are connected (9 contacts, gap <= 2 mm)", "info") is None
-    assert finding_kind("contract", "all plan parts present and within tolerance", "info") is None
-    assert finding_kind("lint:blender", "named objects: ['Seat', 'Leg']", "info") is None
+def _f(gate, sev, message="", **data):
+    return GateFinding(gate=gate, severity=sev, message=message, data=data)
 
 
-def test_finding_kinds_accepts_reports_findings_and_strings():
-    class F:
-        def __init__(self, gate, message, severity="warn"):
-            self.gate, self.message, self.severity = gate, message, severity
+@pytest.mark.parametrize(("finding", "kind"), [
+    # the gate's own kind, whatever the message says (N52: the regex read "interpenetrate")
+    (_f("connectivity", W, "part 'X' contains 3 tiny disconnected island(s)", kind="penetration"),
+     "connectivity/penetration"),
+    (_f("scene_frames", E, "nothing moves: the largest change …", kind="no_motion"), "scene_frames/no_motion"),
+    # a gate that writes no kind; the lint gates are one family
+    (_f("lint:blender", W, "src/parts/leg.py is never imported by src/model.py"), "lint/untyped"),
+    (_f("motion_direction", E, "shoulder_joint: … (WRONG — flip the axis sign)"), "motion_direction/untyped"),
+    # INFO is census: "all 7 parts are connected" must not attach the penetration sheet
+    (_f("connectivity", I, "contact ledger: 7 parts", kind="ledger"), None),
+])
+def test_a_finding_is_named_by_its_gate_and_typed_kind(finding, kind):
+    assert finding_kind(finding) == kind
 
-    class R:
-        def __init__(self, findings):
-            self.findings = findings
 
-    a = F("connectivity", "'A' and 'B' interpenetrate by 5.0 mm (3% of surface samples inside)")
-    b = F("contract", "part 'Leg' bbox deviates from the plan (worst 2.2x tolerance)")
-    assert finding_kinds([a, b]) == ["connectivity/interpenetration", "contract/part_bbox"]
-    assert finding_kinds([R([a]), R([b])]) == ["connectivity/interpenetration", "contract/part_bbox"]
-    assert finding_kinds([a, a]) == ["connectivity/interpenetration"]  # distinct, in order
+def test_finding_kinds_accepts_reports_and_findings_distinct_in_order():
+    a = _f("connectivity", E, kind="penetration")
+    b = _f("contract", W, kind="part_bbox")
+    assert finding_kinds([a, b]) == finding_kinds([GateReport(gate="x", passed=False, findings=[a, b])]) \
+        == finding_kinds([a, b, a]) == ["connectivity/penetration", "contract/part_bbox"]
     assert finding_kinds([]) == [] and finding_kinds(None) == []
+
+
+def test_r19_answers_a_scene_with_nothing_moving(library):
+    """N52: R19 keyed on a gl_frames-only regex, so a scene's no_motion ERROR routed nothing."""
+    nothing_moves = _f("scene_frames", E, "nothing moves: …", kind="no_motion")
+    got = select("scene", "scene_threejs", "refine", findings=[GateReport(gate="scene_frames", passed=False, findings=[nothing_moves])],
+                 library=library)
+    motion = next(s for s in got if s.name == "c3d-scene-motion")
+    assert "R19" in motion.rules and motion.gate_fired
 
 
 # --------------------------------------------------------------------------- the table
@@ -68,14 +69,3 @@ def test_gate_fired_rows_always_outrank_standing_rows():
     standing = [r for r in ROUTES if not r.gate_fired]
     assert min(r.priority for r in fired) > max(r.priority for r in standing)
     assert all(r.priority >= 90 for r in fired)
-
-
-def test_route_finding_patterns_are_real_kinds_or_families():
-    families = {k.split("/", 1)[0] for k in (finding_kind(g, m, s) or ""
-                                             for g, m, s in ((r["gate"], r["message"], r["severity"]) for r in GOLDEN))}
-    families |= {"shader"}  # shader_preflight rows exist in the fixture as source-derived
-    for r in ROUTES:
-        for pat in r.findings:
-            assert pat.split("/", 1)[0] in families, f"{r.rule} routes on unknown family {pat!r}"
-
-

@@ -58,7 +58,7 @@ class Target:
     unit: str
     source: str
     why: str
-    #: gate kinds (skills.registry slugs) counted when ``source == SRC_GATE``
+    #: ``gate/kind`` (or a ``gate/*`` family, see skills.registry) counted when ``source == SRC_GATE``
     kinds: tuple[str, ...] = ()
     #: severities that count; empty == every actionable (non-INFO) finding
     severities: tuple[str, ...] = ()
@@ -78,7 +78,7 @@ TARGETS: tuple[Target, ...] = (
         direction=DOWN,
         unit="findings per run",
         source=SRC_GATE,
-        kinds=("connectivity/interpenetration",),
+        kinds=("connectivity/penetration",),
         languages=OBJECT_LANGS,
         why="the plain count of penetrating pairs is the strongest single predictor of "
             "assembly_fit (r = -0.258, eval/docs/COMPLEXITY.md §6) and the bundle exists to lower it",
@@ -90,8 +90,8 @@ TARGETS: tuple[Target, ...] = (
         unit="findings per run",
         source=SRC_GATE,
         kinds=("contract/part_bbox", "contract/overall_bbox", "contract/footprint_offset",
-               "contract/ground_gap", "contract/scene_bounds"),
-        languages=(*OBJECT_LANGS, "scene_threejs"),
+               "contract/ground_gap"),
+        languages=OBJECT_LANGS,
         why="the bundle is the contract gate's own tolerance arithmetic: a part that IS there "
             "and is the wrong size or in the wrong place",
         caveat="two contract kinds are deliberately somebody else's. contract/instance_* is "
@@ -116,7 +116,7 @@ TARGETS: tuple[Target, ...] = (
         direction=DOWN,
         unit="findings per run",
         source=SRC_GATE,
-        kinds=("lint/api_trap", "lint/part_not_imported"),
+        kinds=("lint/untyped",),
         languages=("blender", "urdf_blender"),
         why="the bundle is written around the five bpy traps the static lint already counts",
     ),
@@ -126,7 +126,7 @@ TARGETS: tuple[Target, ...] = (
         direction=DOWN,
         unit="ERROR findings per run",
         source=SRC_GATE,
-        kinds=("joint_sweep/link_overlap", "joint_sweep/disconnected"),
+        kinds=("joint_sweep/penetration", "joint_sweep/unattached"),
         severities=("error",),
         languages=("urdf_blender",),
         why="metadata.owns names joint_sweep; 653 of 691 sweep findings in the corpus are "
@@ -161,12 +161,12 @@ TARGETS: tuple[Target, ...] = (
         direction=DOWN,
         unit="findings per run",
         source=SRC_GATE,
-        kinds=("scene_frames/camera_placement",),
+        kinds=("scene_frames/camera_*",),
         languages=("scene_threejs",),
         why="cameras below ground or inside geometry are arithmetic failures, and the bundle's "
             "whole method is deriving them from measured bounds",
-        caveat="frame coverage (content_frac) is the bundle's other half and registry.py "
-               "classifies no kind for it, so it is not in this count.",
+        caveat="frame coverage (content_small, hero_*) is the bundle's other half and routes it "
+               "too (R15), but is not in this count.",
     ),
     Target(
         skill="c3d-scene-lighting",
@@ -174,7 +174,7 @@ TARGETS: tuple[Target, ...] = (
         direction=DOWN,
         unit="findings per run",
         source=SRC_GATE,
-        kinds=("scene_frames/dark_or_flat",),
+        kinds=("scene_frames/dark_frame", "scene_frames/flat_frame", "scene_frames/blown_frame"),
         languages=("scene_threejs",),
         why="the bundle is the exposure thresholds of frame_metrics.py restated with a recipe; "
             "the gate counts exactly the frames it failed to light",
@@ -201,9 +201,9 @@ TARGETS: tuple[Target, ...] = (
         direction=DOWN,
         unit="WARN+ERROR findings per run",
         source=SRC_ARTIFACT,
-        kinds=("shader/compile_or_binding",),
+        kinds=("shader_preflight/*",),
         languages=("scene_threejs", "threejs"),
-        why="metadata.owns names shader/compile_or_binding; every trap the bundle teaches lands "
+        why="every trap the bundle teaches lands "
             "in the one shader_preflight report",
         caveat="zero headroom in today's corpus: all 4 recorded scene runs are clean, so this can "
                "only detect a regression until a battery makes it fire. Runs recorded before "
@@ -227,7 +227,7 @@ TARGETS: tuple[Target, ...] = (
         direction=DOWN,
         unit="findings per run",
         source=SRC_GATE,
-        kinds=("gl_frames/motion_or_detail",),
+        kinds=("gl_frames/*",),
         languages=("opengl_python",),
         why="every gl_frames finding in the whole graphics corpus (3 flicker, 1 low detail) came "
             "from opengl_python, and flicker is trap 1 (a sampled solver) showing up in pixels",

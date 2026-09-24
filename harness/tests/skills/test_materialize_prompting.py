@@ -72,9 +72,9 @@ def test_native_loader_backends_get_one_sentence_and_no_second_index(library):
 
 def test_repair_pointers_and_the_inlined_body_come_from_the_gate_fired_skill(library):
     sel = select("static_object", "blender", "repair", signals={"multi_part": True},
-                 findings=["connectivity/interpenetration"], library=library)
+                 findings=["connectivity/penetration"], library=library)
     text = repair_pointers(sel)
-    assert "c3d-part-contact" in text and "connectivity/interpenetration" in text
+    assert "c3d-part-contact" in text and "connectivity/penetration" in text
     assert "c3d-blender-forms" not in text  # standing rows are already in the workspace
     assert repair_pointers([]) == ""
     # single-shot: the highest-priority body is inlined, within the cap

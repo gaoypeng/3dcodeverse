@@ -28,17 +28,15 @@ from tests.skills.conftest import write_bundle
 
 
 class RealMessageServices(FakeServices):
-    """FakeServices, but the contract gate speaks the words the real gate speaks.
-
-    The stock fake says "Seat bbox off by 0.03 m", which ``finding_kind`` correctly
-    refuses to classify — it is not a message our gates emit.  Routing off a gate is only
-    proven by the real text."""
+    """FakeServices, but the contract gate writes the findings the real gate writes —
+    routing keys on their ``data.kind``, so only the real shape proves it."""
 
     def contract(self, measurement, plan, tol_m, language=""):
         parts = list(getattr(plan, "parts", []))[: self.contract_errors]
         findings = [GateFinding(gate="contract", severity=Severity.ERROR, target=p.name,
                                 message=f"part '{p.name}' bbox deviates from the plan (worst 3.4x tolerance)",
-                                fix_hint=f"resize {p.name} to its plan extents") for p in parts]
+                                fix_hint=f"resize {p.name} to its plan extents", data={"kind": "part_bbox"})
+                    for p in parts]
         return GateReport(gate="contract", passed=not findings, findings=findings)
 
 
@@ -130,5 +128,5 @@ def test_enabled_run_delivers_routes_repairs_and_records_skills(run):
     assert len(rows) == len(rec.rounds) == 4 and all('"listed"' in r for r in rows)
 
     repair = next(job for job in agent.jobs if job.kind == "repair")
-    assert "c3d-threejs-shader-traps" in repair.prompt
+    assert "unbound uniform u_time" in repair.prompt
     assert rec.rounds[0].notes.startswith("repair attempts: 1/2 (fixed)")

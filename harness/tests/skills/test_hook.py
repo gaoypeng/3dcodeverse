@@ -8,6 +8,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from codeverse3d.config import get_settings
+from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse3d.tracks import skills_hook as H
 
 
@@ -58,3 +59,12 @@ def test_no_skill_failure_costs_the_round(ctx, monkeypatch):
     get_settings.cache_clear()
     got = H.attach_for_round(ctx, index=2, kind="refine")
     assert got is not None and got.listed == []
+
+
+def test_a_repair_names_the_sheet_that_answers_the_lint_it_is_fixing(ctx, monkeypatch):
+    """The lint is found after the round attached its set: R9 (``lint/*``) points at the sheet."""
+    monkeypatch.setenv("C3D_SKILLS", "on")
+    assert H.attach_for_round(ctx, index=0, kind="repair")
+    lint = GateReport(gate="lint:blender", passed=True, findings=[GateFinding(
+        gate="lint:blender", severity=Severity.WARN, message="src/parts/leg.py is never imported by src/model.py")])
+    assert "c3d-blender-forms" in H.repair_pointers(ctx, lint)

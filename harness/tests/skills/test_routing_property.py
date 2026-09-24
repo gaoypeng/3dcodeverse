@@ -20,11 +20,10 @@ KINDS = ("baseline", "part", "refine", "rebuild", "repair", "env", "zone",
 SIGNAL_KEYS = tuple(plan_signals(None))
 
 LIVE_KINDS = sorted({k for row in ROUTES for k in row.findings if not k.endswith("*")} |
-                    {"connectivity/interpenetration", "connectivity/floating_part",
-                     "connectivity/stray_islands", "contract/part_bbox", "contract/overall_bbox",
-                     "joint_sweep/link_overlap", "motion_direction/wrong_axis",
-                     "scene_frames/dark_or_flat", "gl_frames/motion_or_detail",
-                     "lint/part_not_imported", "shader/compile_or_binding"})
+                    {"connectivity/penetration", "connectivity/floating", "connectivity/untyped",
+                     "contract/part_bbox", "contract/orientation", "joint_sweep/penetration",
+                     "motion_direction/untyped", "scene_frames/camera_low", "scene_frames/hero_unseen",
+                     "gl_frames/static", "shader_preflight/no_fog", "lint/untyped"})
 
 
 BASE_INPUTS = [(t, lang, kind) for t in TRACKS for lang in LANGUAGES for kind in KINDS]

@@ -19,7 +19,7 @@ from codeverse3d.addons.skill_targets import (
     target_for,
 )
 from codeverse3d.skills import bundle_dirs, skills_dir
-from codeverse3d.skills.registry import ROUTED_SKILLS, finding_kind
+from codeverse3d.skills.registry import ROUTED_SKILLS
 
 BUNDLES = bundle_dirs()
 pytestmark = pytest.mark.skipif(not BUNDLES, reason=f"no bundles in {skills_dir()} yet")
@@ -88,23 +88,6 @@ def test_no_two_bundles_claim_the_same_quantity():
         for k in t.kinds:
             assert k not in seen, f"{t.skill} and {seen[k]} both count {k}"
             seen[k] = t.skill
-
-
-# --------------------------------------------------------------------------- classification
-def test_every_actionable_gl_frames_message_classifies():
-    messages = (
-        "very large frame-to-frame change (max |Δ| 0.412); flicker or hard cuts",
-        "very low visual detail (edge density 0.0014); the image is a near-flat gradient",
-        "frames do not change over time (mean |Δ| 0.0001); the shader looks static",
-        "frames are essentially black (mean luminance 0.004)",
-        "frames are blown out white (mean luminance 0.991)",
-        "NaN/Inf pixels in 3 frame(s) (first at t=1s: nan=1200 inf=0)",
-        "no frames were rendered",
-    )
-    for message in messages:
-        assert finding_kind("gl_frames", message, "warn") == "gl_frames/motion_or_detail", (
-            message
-        )
 
 
 def test_3dcode_skills_list_shows_every_bundles_claim():

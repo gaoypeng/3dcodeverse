@@ -18,6 +18,10 @@ Severity policy (``tol = max(tol_m, REL_TOL × plan extent)`` per axis):
   extents swapped → WARN "turned" (the az-0 view then shows a side, not the front)
 * not standing on the ground / footprint off-centre → WARN
 * GLB parts the plan never mentioned → INFO
+
+Every WARN/ERROR carries ``data["kind"]`` (missing_part · instance_count · part_bbox ·
+instance_bbox · overall_bbox · orientation · ground_gap · footprint_offset): the rubric
+caps and the skill router key on it, never on the message.
 """
 
 from __future__ import annotations
@@ -203,7 +207,7 @@ def _fmt_delta(v: np.ndarray) -> str:
     return ", ".join(f"{a}{d * 100:+.1f}cm" for a, d in zip(_AXES, v, strict=True))
 
 
-def _box_findings(target: str, d: _BoxDelta, plan: BBox, *, what: str, language: str,
+def _box_findings(target: str, d: _BoxDelta, plan: BBox, *, what: str, kind: str, language: str,
                   check_center: bool = True) -> list[GateFinding]:
     """WARN/ERROR findings for one box comparison (empty when within tolerance).
     ``d``/``plan`` are in the GLB frame; every number in the hint (and ``data``) is
@@ -229,7 +233,7 @@ def _box_findings(target: str, d: _BoxDelta, plan: BBox, *, what: str, language:
         gate=GATE, severity=sev, target=target,
         message=f"{what} bbox deviates from the plan (worst {ratio:.1f}× tolerance)",
         fix_hint=hint + f"; planned centre ({', '.join(f'{c:.3f}' for c in p_ctr)}) m ({frame_label(language)})",
-        data={"delta_center_m": d_ctr.tolist(), "delta_extents_m": d_ext.tolist(),
+        data={"kind": kind, "delta_center_m": d_ctr.tolist(), "delta_extents_m": d_ext.tolist(),
               "tol_m": glb_vec_to_plan(d.tol, language, extents=True).tolist(), "frame": language_frame(language).value},
     ))
     return out
@@ -314,7 +318,7 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
                 message=f"plan part '{pp.name}' is missing from the GLB",
                 fix_hint=f"create a part named exactly '{pp.name}'" + (f" (×{pp.instances} as {pp.name}_0..{pp.instances - 1})" if pp.instances > 1 else "")
                 + f" — {pp.role}; planned size {fmt_extent_cm(pp.bbox.extents)} cm",
-                data={"expected_instances": pp.instances},
+                data={"kind": "missing_part", "expected_instances": pp.instances},
             ))
             continue
         box = plan_bbox_to_glb(pp.bbox, language)
@@ -323,11 +327,11 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
                 gate=GATE, severity=Severity.WARN, target=target,
                 message=f"'{pp.name}': found {len(rows)} instance(s), plan asks for {pp.instances}",
                 fix_hint=f"name the copies {pp.name}_0 .. {pp.name}_{pp.instances - 1}",
-                data={"found": len(rows), "expected": pp.instances},
+                data={"kind": "instance_count", "found": len(rows), "expected": pp.instances},
             ))
         if len(rows) == 1 and pp.instances == 1:
             d = _box_delta(np.asarray(rows[0].bbox_min), np.asarray(rows[0].bbox_max), box, tol_m)
-            findings.extend(_box_findings(target, d, box, what=f"part '{pp.name}'", language=language))
+            findings.extend(_box_findings(target, d, box, what=f"part '{pp.name}'", kind="part_bbox", language=language))
         else:
             # instances: each copy should have the planned extents; the centre is unknowable
             per = [_box_delta(np.asarray(r.bbox_min), np.asarray(r.bbox_max), box, tol_m) for r in rows]
@@ -335,13 +339,13 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
             worst_each = max(per, key=lambda d: float(np.max(np.abs(d.extents) / d.tol)))
             # accept whichever reading (per-instance or union) fits the plan better
             if float(np.max(np.abs(union.extents) / union.tol)) < float(np.max(np.abs(worst_each.extents) / worst_each.tol)):
-                findings.extend(_box_findings(target, union, box, what=f"'{pp.name}' (all instances)", language=language, check_center=False))
+                findings.extend(_box_findings(target, union, box, what=f"'{pp.name}' (all instances)", kind="instance_bbox", language=language, check_center=False))
             else:
-                findings.extend(_box_findings(target, worst_each, box, what=f"'{pp.name}' (each instance)", language=language, check_center=False))
+                findings.extend(_box_findings(target, worst_each, box, what=f"'{pp.name}' (each instance)", kind="instance_bbox", language=language, check_center=False))
     # overall bbox
     ob = plan_bbox_to_glb(plan.overall_bbox, language)
     d = _box_delta(np.asarray(m.bbox_min), np.asarray(m.bbox_max), ob, tol_m)
-    findings.extend(_box_findings("overall", d, ob, what="overall", language=language))
+    findings.extend(_box_findings("overall", d, ob, what="overall", kind="overall_bbox", language=language))
     if (orient := _orientation_finding(m, plan, language)) is not None:
         findings.append(orient)
     # ground + footprint
@@ -351,7 +355,7 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
             gate=GATE, severity=Severity.WARN if abs(m.ground_gap_m) <= ERROR_FACTOR * tol_m else Severity.ERROR,
             target="overall", message=f"object floats {abs(m.ground_gap_m) * 1000:.1f} mm {where} the ground",
             fix_hint=f"translate everything by {-m.ground_gap_m:+.4f} m along the up axis so the lowest point is at 0",
-            data={"ground_gap_m": m.ground_gap_m},
+            data={"kind": "ground_gap", "ground_gap_m": m.ground_gap_m},
         ))
     if m.footprint_offset_m > max(tol_m, REL_TOL * max(m.extents[0], m.extents[2], 1e-9)):
         findings.append(GateFinding(
@@ -359,7 +363,7 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
             message=f"footprint centre is {m.footprint_offset_m * 100:.1f} cm off the up axis",
             fix_hint=f"translate everything by {fmt_vec(glb_vec_to_plan((-m.center[0], 0.0, -m.center[2]), language))} m "
                      f"({frame_label(language)}) to centre the footprint",
-            data={"footprint_offset_m": m.footprint_offset_m, "frame": language_frame(language).value},
+            data={"kind": "footprint_offset", "footprint_offset_m": m.footprint_offset_m, "frame": language_frame(language).value},
         ))
     for r in extra:
         findings.append(GateFinding(gate=GATE, severity=Severity.INFO, target=r.name,

@@ -192,8 +192,8 @@ against the 20 the rule requires (design §5.2 law 3).
 
 ## 3. Routing
 
-`codeverse3d/skills/registry.py` holds the typed table (R1–R24) and `finding_kind()`, the one
-place a gate message is pattern-matched; its router half (`select()`) turns
+`codeverse3d/skills/registry.py` holds the typed table (R1–R28) and `finding_kind()`, which names
+a finding `<gate>/<data.kind>` — the kind the gate wrote, never its message; its router half (`select()`) turns
 `(track, language, kind, plan signals, findings)` into a ranked, capped, reasoned set.
 
 Four laws, all tested:
@@ -216,12 +216,12 @@ the finding), and checks that every signal a route requires is one `plan_signals
 cap and the order themselves come from `select`'s final sort and slice, pinned by row in
 `test_router` (the exhaustive plan-signal sweep went in the D96 second pass, 2026-09-23).
 
-`finding_kind()` classifies **wider** than it routes — 113 distinct WARN/ERROR message
-shapes mined from `eval/bench/out`, with a 43-row golden fixture
-(`tests/skills/data/gate_findings.json`) asserting no `unknown`. Naming a defect costs
-nothing; routing one is a claim that a skill helps. INFO findings are census, not defects,
-and classify to `None` — routing off "all 7 parts are connected" would attach the
-interpenetration sheet to a run with no interpenetration.
+`finding_kind()` reads no message text (audit 2026-09-24, N52): the message regex it replaced
+left seven `scene_frames` kinds unrouted and R19 unreachable, and any gate reword could unroute
+a skill.  A gate that writes no `data.kind` (the lints, motion_direction, render_console) gives
+`<gate>/untyped`, which only a family row (`lint/*`, `motion_direction/*`) answers; the lint gates
+are one `lint` family.  INFO findings are census, not defects, and have no kind — routing off
+"all 7 parts are connected" would attach the penetration sheet to a run with none.
 
 Adding a bundle means adding its rows in the same commit: an unroutable bundle pays the
 index and never helps, and a test fails on both halves of that.

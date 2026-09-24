@@ -7,7 +7,7 @@ metadata:
   evidence: mixed
   evidence_note: "Every rule is read from the live runtime_js source and cross-checked against the shader_report merge path. Incidence is NOT measured: bench/out holds 4 scene_threejs runs, and all 4 shader_preflight reports are clean INFO (10, 9, 14 and 11 programs compiled; 1-12 custom materials). The corpus therefore supports the detection map, not a defect rate."
   verified: "2026-08-25"
-  owns: "shader/compile_or_binding"
+  owns: "shader_preflight"
   target_metric: "shader_preflight_findings"
   target_direction: "down"
   target_unit: "WARN+ERROR findings per run"

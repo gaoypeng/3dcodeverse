@@ -58,6 +58,9 @@ def test_ground_and_footprint_warnings() -> None:
     r = check_contract(m, _stool_plan(), language="blender")
     msgs = " | ".join(f.message for f in r.findings)
     assert "above the ground" in msgs and "footprint centre" in msgs
+    # every defect is typed: the caps and the skill router key on the kind, not the words (N52)
+    kinds = {f.data.get("kind") for f in r.findings if f.severity != Severity.INFO}
+    assert {"ground_gap", "footprint_offset", "part_bbox", "overall_bbox"} <= kinds and None not in kinds
 
 
 def test_an_exact_name_wins_over_another_part_instance_pattern() -> None:
