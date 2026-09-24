@@ -27,6 +27,7 @@ from codeverse3d.languages._js_lint import (
     check_imports,
     js_sources,
     node_check_syntax,
+    strip_js,
 )
 from codeverse3d.workspace import Workspace
 
@@ -115,10 +116,11 @@ def lint(ws: Workspace) -> GateReport:
         if _is_lib(path, ws):
             continue
         findings.extend(_check_imports(rel, text, ws, path))
+        code = strip_js(text, strings=False)   # a comment quoting the contract is not a call
         for pat, sev, msg, hint in _PATTERNS:
-            m = pat.search(text)
+            m = pat.search(code)
             if m:
-                line = line_of(text, m.start())
+                line = line_of(code, m.start())
                 findings.append(_f(sev, msg, target=f"{rel}:{line}", hint=hint))
         n_lines = text.count("\n") + 1
         if n_lines > MAX_LINES:

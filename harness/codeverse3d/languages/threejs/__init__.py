@@ -18,6 +18,7 @@ from codeverse3d.languages._js_lint import (
     ImportVerdict,
     check_imports,
     js_sources,
+    strip_js,
 )
 from codeverse3d.languages._js_lint import (
     node_check_syntax as check_syntax,  # module-level name: tests monkeypatch it
@@ -98,11 +99,6 @@ GATE = "lint:threejs"
 _EXPORT_BUILD_RE = re.compile(r"\bexport\s+(?:async\s+)?function\s+(build[A-Za-z0-9_]*)\s*\(")
 _EXPORT_CONST_BUILD_RE = re.compile(r"\bexport\s+(?:const|let|var)\s+(build[A-Za-z0-9_]*)\s*=")
 _EXPORT_LIST_RE = re.compile(r"\bexport\s*\{([^}]*)\}")
-# strings and comments in ONE alternation so a '//' inside a string is not a comment
-_TOKEN_RE = re.compile(
-    r"""'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`|//[^\n]*|/\*.*?\*/""", re.S
-)
-
 # token -> (severity, message, fix hint)
 _FORBIDDEN: dict[str, tuple[Severity, str, str]] = {
     r"\bfetch\s*\(": (Severity.ERROR, "network access (fetch) is not allowed in object code", "build geometry procedurally; no downloads"),
@@ -122,15 +118,6 @@ _FORBIDDEN: dict[str, tuple[Severity, str, str]] = {
     r"\bnew\s+THREE\.[A-Za-z]*Light\s*\(": (Severity.WARN, "lights in object code are exported as extras and ignored by the harness lighting", "delete them"),
     r"\bnew\s+THREE\.Scene\s*\(": (Severity.WARN, "do not build a Scene; return a Group", "replace Scene with Group"),
 }
-
-
-def _strip(src: str) -> str:
-    """Blank out comments and string contents (keeps newlines so line numbers survive)."""
-    def repl(m: re.Match[str]) -> str:
-        tok = m.group(0)
-        nl = "\n" * tok.count("\n")
-        return nl if tok.startswith("/") else '""' + nl
-    return _TOKEN_RE.sub(repl, src)
 
 
 def _lint_imports(ws: Workspace, path: Path, src: str, findings: list[GateFinding]) -> set[Path]:
@@ -157,7 +144,7 @@ def _lint_imports(ws: Workspace, path: Path, src: str, findings: list[GateFindin
 
 
 def _lint_forbidden(ws: Workspace, path: Path, src: str, findings: list[GateFinding]) -> None:
-    stripped = _strip(src)
+    stripped = strip_js(src)
     rel = ws_rel(ws, path)
     for pattern, (sev, msg, hint) in _FORBIDDEN.items():
         m = re.search(pattern, stripped)

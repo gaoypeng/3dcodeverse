@@ -36,6 +36,22 @@ _IMPORT_RE = re.compile(
 )
 _DYN_IMPORT_RE = re.compile(r"""\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)""")
 _URL_RE = re.compile(r"https?://")
+# strings and comments in ONE alternation so a '//' inside a string is not a comment
+_TOKEN_RE = re.compile(
+    r"""'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`|//[^\n]*|/\*.*?\*/""", re.S
+)
+
+
+def strip_js(src: str, *, strings: bool = True) -> str:
+    """Blank out comments (and, with ``strings``, string contents), keeping newlines so line
+    numbers survive: the forbidden-token lints read code, never a comment quoting the contract.
+    scene_threejs keeps strings (its network rule matches URL literals)."""
+    def repl(m: re.Match[str]) -> str:
+        tok = m.group(0)
+        if not tok.startswith("/"):
+            return '""' + "\n" * tok.count("\n") if strings else tok
+        return "\n" * tok.count("\n")
+    return _TOKEN_RE.sub(repl, src)
 
 
 @dataclass(frozen=True)

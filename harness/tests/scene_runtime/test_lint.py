@@ -50,6 +50,13 @@ def test_forbidden_imports_and_globals(ws):
     assert "BufferGeometry aliases" in text
     # targets carry file:line
     assert any(t and t.startswith("src/scene.js:") for t, _ in errs)
+    # a comment quoting the contract is not a call (audit 2026-09-24 N20, as three.js's lint);
+    # a URL string literal still is network access
+    (ws.src / "quoted.js").write_text(
+        "// never call renderer.render( or requestAnimationFrame( here: 'https://cdn.x/three.js'\n"
+        "/* new THREE.WebGLRenderer() */ export const url = 'https://cdn.x/tree.glb';\n")
+    quoted = [(t, m) for t, m in _msgs(lint(ws), Severity.ERROR) if t and t.startswith("src/quoted.js")]
+    assert quoted == [("src/quoted.js:2", "network / CDN access")], quoted
 
 
 def test_syntax_error_maps_to_line(ws):
