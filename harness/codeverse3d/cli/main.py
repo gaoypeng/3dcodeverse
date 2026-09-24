@@ -503,7 +503,6 @@ def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, f
     from codeverse3d.tracks import get_track
 
     options: dict = {"n_candidates": candidates} if candidates else {}
-    options.update(C.round_policy_options(spec))
     try:
         # already inside the run mutex (make / resume take it); every model call and
         # agent session of this run lands in telemetry/cost.jsonl

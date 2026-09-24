@@ -474,7 +474,7 @@ run_stages(track, ctx, runner, stages) -> None;  plan_stage_key(spec, track) -> 
 StageRunner(ws, events, state=None, *, frozen=False)   # frozen (rounds exist): a recorded stage is served whatever its key
 from codeverse3d.orchestrator import RoundPolicy, build_refine_instructions, compact_instructions, gate_error_count
 RoundPolicy(max_rounds=4, max_refine_tasks=6, max_instructions_per_task=6, parallel_min_tasks=2,
-            n_candidates=1, judge_samples=1)   # lifecycle.build_context binds n_candidates with ONE dataclasses.replace
+            n_candidates=1, judge_samples=1)   # lifecycle.build_context: judge_samples = Settings.judge.samples (N74), n_candidates by ONE dataclasses.replace
     # Δ 2026-09-22 FIXED rounds: a run is the baseline + max_rounds refine rounds, EACH built on the round before
     # it; only the clock (BudgetGuard) or a hard failure ends it early.  Gone with the judgement stops: StopPolicy /
     # StopDecision, pick_best_round, judge_sigma, best_score, last_gain, REWRITE_KIND / DETAIL_KIND /

@@ -84,18 +84,25 @@ def test_an_explicit_flag_beats_the_profile(tmp_path: Path):
     assert spec["backends"]["judge"] == "gemini:gemini-3.7-flash"  # unstated → still the profile's
 
 
-def test_judge_samples_reach_the_round_policy_only_when_a_profile_asks(tmp_path: Path):
-    from codeverse3d.cli import _common as C
-    from codeverse3d.contracts.common import Budget, Language, Track
-    from codeverse3d.contracts.spec import Spec
+def test_the_track_judges_at_the_profiles_sample_count_however_it_was_built(tmp_path: Path):
+    """N74: resolved in ``BaseTrack.build_context`` — a bench battery builds its track with no
+    policy, and judged at n=1 under the quality profile while ``3dcode make`` judged at n=3."""
+    from codeverse3d.contracts.common import Language
+    from codeverse3d.orchestrator import RunState
+    from codeverse3d.proc import EventLog
+    from codeverse3d.tracks.static_object import StaticObjectTrack
+    from codeverse3d.workspace import Workspace
+    from tests.orchestrator_tracks.conftest import make_spec
+    from tests.orchestrator_tracks.fakes import FakeRuntime, FakeServices
 
-    spec = Spec(id="x", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="p",
-                budget=Budget(max_rounds=3))
-    s = Settings()
-    assert C.round_policy_options(spec, s) == {}  # n=1: the track keeps its own policy
-    s.apply_profile("quality", force=True)
-    opts = C.round_policy_options(spec, s)
-    assert opts["policy"].judge_samples == 3 and opts["policy"].max_rounds == 3
+    ws = Workspace(tmp_path / "runs" / "d").create()
+    for profile, samples in ((None, 1), ("quality", 3)):
+        s = Settings(runs_dir=tmp_path / "runs", cache_dir=tmp_path / "cache")
+        if profile:
+            s.apply_profile(profile, force=True)
+        track = StaticObjectTrack(services=FakeServices(), settings=s, runtime=FakeRuntime(Language.THREEJS))
+        ctx = track.build_context(make_spec(language=Language.THREEJS), ws, EventLog(ws.events_path), RunState(slug="d"))
+        assert ctx.policy.judge_samples == samples, profile
 
 
 # --------------------------------------------------------------- flag == env var

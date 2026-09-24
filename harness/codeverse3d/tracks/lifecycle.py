@@ -442,7 +442,10 @@ class BaseTrack:
             # the active minutes keep counting, so a raised cap (--max-minutes / --rounds)
             # grants only the difference, never a fresh full cap
             budget.restore(BudgetSnapshot.model_validate(snap))
-        policy = self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds)
+        # the judge sample count is the settings' (a profile's), however the track was built:
+        # `3dcode make` and a bench battery judge alike (N74; it was resolved in the CLI only)
+        policy = self._policy or RoundPolicy(max_rounds=spec.budget.max_rounds,
+                                             judge_samples=max(1, int(settings.judge.samples or 1)))
         policy = replace(policy, n_candidates=self._resolve_candidates(spec, settings))
         rubric = run_rubric(spec, self.rubric)
         ctx = RunContext(spec=spec, ws=ws, events=events, settings=settings, budget=budget, runtime=runtime,

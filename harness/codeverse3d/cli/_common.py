@@ -338,18 +338,3 @@ def resolve_dial(
     )
 
 
-def round_policy_options(spec: Spec, settings: Any | None = None) -> dict[str, Any]:
-    """``get_track(...)`` options the active profile implies.
-
-    Only the judge sample count needs a ``RoundPolicy`` (rounds travel on
-    ``spec.budget``, best-of-N on ``spec.options``), so a run at the default
-    ``n=1`` gets **no** policy and keeps the track's own."""
-    settings = settings or get_settings()
-    samples = int(getattr(settings.judge, "samples", 1) or 1)
-    if samples <= 1:
-        return {}
-    from codeverse3d.orchestrator import RoundPolicy
-
-    return {"policy": RoundPolicy(max_rounds=spec.budget.max_rounds, judge_samples=samples)}
-
-
