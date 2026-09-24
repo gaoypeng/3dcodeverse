@@ -255,8 +255,8 @@ const BARK_FRAGMENT_BODY = [
  *   side, this is only what lodges in the cracks); `axis` the trunk's
  *   own axis in OBJECT space, THREE.Vector3 or [x, y, z] (default +Y);
  *   `tint` THREE.Color or hex, the bark colour (default by kind);
- *   `sun` world direction TOWARD the sun, for the relief (default a day
- *   sun); `seed` moves the field (default 1).
+ *   `sunDir` world direction TOWARD the sun, for the relief (default a
+ *   day sun; `sun` is read too); `seed` moves the field (default 1).
  * @returns {THREE.Material} The same material, uniforms live on
  *   `material.userData.uniforms`.
  */
@@ -290,7 +290,7 @@ export function patchBark(material, opts = {}) {
       uBarkAxis: { value: axis.normalize() },
       uBarkTint: { value: toColor(opts.tint, kind.tint) },
       uBarkMossColor: { value: toColor(opts.mossColor, 0x46551f) },
-      uBarkSun: { value: readVec3(opts.sun, 0.45, 0.78, 0.35).normalize() },
+      uBarkSun: { value: readVec3(opts.sunDir ?? opts.sun, 0.45, 0.78, 0.35).normalize() },
       uBarkSeed: { value: seedOffset(seed) },
     },
     vertexHead: BARK_VERTEX_HEAD,

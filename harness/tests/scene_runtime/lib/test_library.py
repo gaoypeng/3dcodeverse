@@ -379,3 +379,89 @@ def test_the_per_frame_hook_is_taught_as_update_only():
             unaliased.append(p.name)
     catalog = (PROMPTS_DIR / "scene_threejs" / "effects_catalog.md").read_text(encoding="utf-8")
     assert not taught and not unaliased and "userData.tick" not in catalog, (taught, unaliased)
+
+
+# One option rule (audit N33): a missing/`null` option takes its default, an invalid one
+# throws a RangeError naming it, a seed is any finite number, and the sun is `sunDir`
+# everywhere.  Before: the same derived seed built in one effect and threw in its
+# neighbour (null / 3.7 / 2**40 each refused by some), and ocean ignored `sunDir`.
+_OPTIONS = """
+import * as THREE from 'three';
+import { makeFire } from './lib/fire.js';
+import { makeFireField } from './lib/firefield.js';
+import { makeTree } from './lib/tree.js';
+import { makeMeadow } from './lib/meadow.js';
+import { makeOceanSurface } from './lib/ocean.js';
+import { makeStream } from './lib/stream.js';
+import { makeSmoke } from './lib/smoke.js';
+import { makeClouds } from './lib/clouds.js';
+import { makeCloudVolume } from './lib/cloudvolume.js';
+import { makeWaterfall } from './lib/waterfall.js';
+import { makeRain } from './lib/rain.js';
+import { makeSandTerrain } from './lib/sand.js';
+import { makeRock } from './lib/rock.js';
+import { makePaving } from './lib/paving.js';
+import { makeFracturedIce } from './lib/ice.js';
+import { readVec3 } from './lib/shader.js';
+const calls = {
+  fire: (o) => makeFire(o), firefield: (o) => makeFireField({ emitters: [{ position: [0, 0, 0] }], quality: 'low', ...o }),
+  tree: (o) => makeTree({ leafDensity: .05, ...o }), meadow: (o) => makeMeadow({ size: [1, 1], density: 20, ...o }),
+  ocean: (o) => makeOceanSurface({ width: 10, depth: 10, segments: 16, ...o }),
+  stream: (o) => makeStream({ points: [[0, .6, -8], [0, 0, 8]], stoneCount: 4, ...o }),
+  smoke: (o) => makeSmoke({ quality: 'low', ...o }), clouds: (o) => makeClouds({ count: 2, ...o }),
+  cloudvolume: (o) => makeCloudVolume({ quality: 'low', ...o }), waterfall: (o) => makeWaterfall(o),
+  rain: (o) => makeRain({ count: 10, ...o }), sand: (o) => makeSandTerrain({ size: [10, 10], segments: 16, ...o }),
+  rock: (o) => makeRock(o), paving: (o) => makePaving({ size: [2, 2], ...o }),
+  ice: (o) => makeFracturedIce({ size: [4, 3], ...o }),
+};
+const seeds = { null: null, big: 2 ** 40, fraction: 3.7, text: '7' };
+const run = (f) => { try { f(); return 'ok'; } catch (e) { return e instanceof RangeError ? e.message : 'not a RangeError: ' + e; } };
+const out = { seed: {} };
+for (const [name, call] of Object.entries(calls))
+  out.seed[name] = Object.fromEntries(Object.entries(seeds).map(([k, seed]) => [k, run(() => call({ seed }))]));
+const sunOf = (g) => { let v; g.traverse((o) => { const u = o.material?.uniforms; v ??= (u?.seaSun ?? u?.uSunWorld)?.value; }); return v?.toArray(); };
+out.sun = { ocean: sunOf(calls.ocean({ sunDir: [0, 1, 0] })), cloudvolume: sunOf(calls.cloudvolume({ sunDir: [0, 1, 0] })) };
+out.nullDefaults = run(() => calls.stream({ width: null, speed: null }) && calls.meadow({ height: null }) && calls.ice({ gap: null }));
+out.fireClamps = run(() => makeFire({ radius: 1e6 }));
+out.badNames = [run(() => calls.meadow({ height: 'tall' })), run(() => calls.smoke({ spread: 5 })), run(() => calls.cloudvolume({ coverage: 2 }))];
+out.point = readVec3([1, 2]).toArray().concat(readVec3(null, 4, 5, 6).toArray(), readVec3({ x: 1 }).toArray());
+console.log(JSON.stringify(out));
+"""
+
+
+def test_every_factory_reads_its_options_by_one_rule():
+    out = measure(_OPTIONS, tuple(MODULES))
+    for name, row in out["seed"].items():
+        assert row["null"] == row["big"] == row["fraction"] == "ok", (name, row)
+        assert "seed" in row["text"], (name, row)
+    assert out["sun"] == {"ocean": [0, 1, 0], "cloudvolume": [0, 1, 0]}, out["sun"]
+    assert out["nullDefaults"] == out["fireClamps"] == "ok", out
+    for phrase, message in zip(("height", "spread", "coverage"), out["badNames"], strict=True):
+        assert phrase in message, out["badNames"]
+    assert out["point"] == [1, 2, 0, 4, 5, 6, 1, 0, 0]
+
+
+def test_sample_height_is_null_off_the_patch_and_never_throws():
+    """Audit N36: sand returned its clamped edge height off the patch, ocean kept
+    extrapolating its waves (and threw on NaN), meadow returned 0."""
+    out = measure("""
+import { makeSandTerrain } from './lib/sand.js';
+import { makePaving } from './lib/paving.js';
+import { makeFracturedIce } from './lib/ice.js';
+import { makeOceanSurface } from './lib/ocean.js';
+import { makeMeadow } from './lib/meadow.js';
+const objs = { sand: makeSandTerrain({ size: [10, 10], segments: 16 }), paving: makePaving({ size: [4, 4] }),
+  ice: makeFracturedIce({ size: [8, 6] }), ocean: makeOceanSurface({ width: 10, depth: 10, segments: 16 }),
+  meadow: makeMeadow({ size: [2, 2], density: 20, heightAt: (x, z) => 0.5 + 0 * x * z }) };
+const out = {};
+for (const [k, o] of Object.entries(objs)) {
+  const f = o.userData.sampleHeight;
+  const at = (...a) => { try { return f(...a); } catch (e) { return 'THROW ' + e.message; } };
+  out[k] = { inside: at(0.3, 0.2), outside: at(50, 0), nan: at(NaN, 0), badTime: at(0.3, 0.2, NaN) };
+}
+console.log(JSON.stringify(out));
+""", tuple(MODULES))
+    for name, r in out.items():
+        assert isinstance(r["inside"], (int, float)), (name, r)
+        assert r["outside"] is None and r["nan"] is None, (name, r)
+    assert out["ocean"]["badTime"] is None and out["meadow"]["inside"] == 0.5, out

@@ -24,7 +24,7 @@ import * as THREE from 'three';
 
 import {
     keepOutOfDepthPasses, makeShaderMaterial, patchStandard, sweepProfile,
-    seedLattice, tickShaders, toColor } from './shader.js';
+    readVec3, seedLattice, tickShaders, toColor } from './shader.js';
 
 const _UP = new THREE.Vector3(0, 1, 0);
 
@@ -73,13 +73,6 @@ const TEMP_GLSL = [
 
 const seedKey = (seed) => seedLattice(seed) * 0.011;
 
-/** A point in any accepted spelling as its own Vector3. */
-function toVec(p) {
-    if (p && p.isVector3) return p.clone();
-    if (Array.isArray(p)) return new THREE.Vector3(p[0], p[1], p[2]);
-    return new THREE.Vector3(p.x || 0, p.y || 0, p.z || 0);
-}
-
 /**
  * One polyline or a set of them, always as an array of strokes.
  *
@@ -96,7 +89,7 @@ function toStrokes(path) {
     return raw.map((s) => {
         const out = [];
         for (const p of s) {
-            const v = toVec(p);
+            const v = readVec3(p);
             // A repeated point is a zero-length segment, and a
             // zero-length segment has no tangent to build a frame on.
             if (!out.length || out[out.length - 1].distanceTo(v) > 1e-6) {
@@ -560,7 +553,7 @@ export function patchNeonSpill(material, opts = {}) {
     for (let i = 0; i < SPILL_MAX; i++) {
         const s = list[i];
         const p = s && (s.position || s.point || s);
-        pos.push(s ? toVec(p) : new THREE.Vector3());
+        pos.push(readVec3(s && p));
         col.push(s ? toColor(s.color, 0xff2e6a) : new THREE.Color(0, 0, 0));
     }
     return patchStandard(material, {

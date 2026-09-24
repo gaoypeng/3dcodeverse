@@ -190,7 +190,7 @@ function iceMaterial(opts, optical, maximumThickness) {
 export function makeFracturedIce(opts = {}) {
   for (const key of ['gap', 'frost', 'bubbles', 'chipping', 'heave', 'seed', 'roughness',
     'transmission', 'attenuationDistance', 'envMapIntensity'])
-    if (opts[key] !== undefined && !Number.isFinite(opts[key]))
+    if (opts[key] != null && !Number.isFinite(opts[key]))
       throw new RangeError(`ice ${key} must be finite`);
   let outline = null;
   if (opts.outline !== undefined) {

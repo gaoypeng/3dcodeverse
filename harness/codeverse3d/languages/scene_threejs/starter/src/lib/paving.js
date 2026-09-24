@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import { mulberry32, fbm2 } from './noise.js';
-import { patchStandard } from './shader.js';
+import { boundedSampler, patchStandard } from './shader.js';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
@@ -227,8 +227,7 @@ export function makePaving(opts={}) {
       const key=x+','+z;if(!bins.has(key))bins.set(key,[]);bins.get(key).push(id);
     }
   }
-  root.userData.sampleHeight=(x,z)=>{
-    if(!Number.isFinite(x)||!Number.isFinite(z)||Math.abs(x)>width/2||Math.abs(z)>depth/2)return null;
+  root.userData.sampleHeight=boundedSampler(width,depth,(x,z)=>{
     let height=bedHeight;
     for(const id of bins.get(Math.floor(x/binSize)+','+Math.floor(z/binSize))??[]) {
       const t=triangles[id],a=((t.bz-t.cz)*(x-t.cx)+(t.cx-t.bx)*(z-t.cz))/t.det;
@@ -236,7 +235,7 @@ export function makePaving(opts={}) {
       if(Math.min(a,b,c)>=-1e-7)height=Math.max(height,a*t.ay+b*t.by+c*t.cy);
     }
     return height;
-  };
+  });
   root.userData.update=()=>{};
   Object.assign(root.userData,{seed,stoneCount:ranges.length,stoneRanges:ranges,
     stoneOutlines:outlines,size:[width,depth],stoneSize:layout.spacing,joint,relief,bedHeight});

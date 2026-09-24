@@ -20,10 +20,11 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32 } from './noise.js';
-import { makeShaderMaterial, keepOutOfDepthPasses, patchStandard, readWind } from './shader.js';
+import { makeShaderMaterial, keepOutOfDepthPasses, option, patchStandard, readWind } from './shader.js';
 
-const finite = (v, fallback, lo, hi) => Number.isFinite(v)
-  ? THREE.MathUtils.clamp(v, lo, hi) : fallback;
+// Fire CLAMPS a number outside its range (a flame too big or too bright is
+// still a flame); a value that is not a number throws like every option.
+const clamped = (v, fallback, lo, hi, label) => THREE.MathUtils.clamp(option(v, fallback, label), lo, hi);
 const QUALITY = { low: 32, medium: 56, high: 88 };
 
 const FIELD = /* glsl */`
@@ -175,10 +176,10 @@ function installDispose(group) {
  */
 export function makeFire(opts = {}) {
   const candle = opts.style === 'candle';
-  const radius = finite(opts.radius, candle ? 0.009 : 0.35, 0.001, 20);
-  const height = finite(opts.height, candle ? 0.055 : 1.1, 0.004, 50);
-  const intensity = finite(opts.intensity, 1, 0, 8);
-  const seed = finite(opts.seed, 7, -2147483648, 2147483647) | 0;
+  const radius = clamped(opts.radius, candle ? 0.009 : 0.35, 0.001, 20, 'makeFire: radius');
+  const height = clamped(opts.height, candle ? 0.055 : 1.1, 0.004, 50, 'makeFire: height');
+  const intensity = clamped(opts.intensity, 1, 0, 8, 'makeFire: intensity');
+  const seed = clamped(opts.seed, 7, -2147483648, 2147483647, 'makeFire: seed') | 0;
   const w = readWind(opts.wind, [0, 0], 'makeFire wind');
   // bounded to ±.6 per axis by scaling both, so a strong wind still leans the way it blows
   const lean = 0.6 / Math.max(0.6, Math.abs(w.x), Math.abs(w.z));
@@ -207,7 +208,7 @@ export function makeFire(opts = {}) {
   group.add(volume);
 
   const random = mulberry32(seed);
-  const count = Math.round(finite(opts.embers, candle ? 0 : 26, 0, 256));
+  const count = Math.round(clamped(opts.embers, candle ? 0 : 26, 0, 256, 'makeFire: embers'));
   const particles = Array.from({ length: count }, () => ({
     phase: random(), life: 1.5 + random() * 2.0,
     x: (random() - 0.5) * radius * 1.5, z: (random() - 0.5) * radius * 1.5,
@@ -227,11 +228,11 @@ export function makeFire(opts = {}) {
     box.expandByPoint(new THREE.Vector3(radius * 1.2 + Math.abs(wind[0]) * height * 2.1,
       height * 2.5 + radius * 0.05, radius * 1.2 + Math.abs(wind[1]) * height * 2.1));
   }
-  const lightIntensity = finite(opts.lightIntensity, candle ? 0.9 : 14, 0, 10000);
+  const lightIntensity = clamped(opts.lightIntensity, candle ? 0.9 : 14, 0, 10000, 'makeFire: lightIntensity');
   let light;
   if (opts.light !== false) {
     light = new THREE.PointLight(0xffab53, lightIntensity,
-      finite(opts.lightDistance, height * 8, 0, 1000), 2);
+      clamped(opts.lightDistance, height * 8, 0, 1000, 'makeFire: lightDistance'), 2);
     light.name = 'FireLight'; light.position.y = height * 0.27;
     group.add(light);
   }
@@ -313,9 +314,9 @@ function waxGeometry(radius, height, seed) {
  * lightIntensity=.8 candela approximates one candle; scene exposure is unchanged.
  */
 export function makeCandle(opts = {}) {
-  const radius = finite(opts.radius, 0.032, 0.004, 2);
-  const height = finite(opts.height, 0.16, 0.015, 8);
-  const seed = finite(opts.seed, 13, -2147483648, 2147483647) | 0;
+  const radius = clamped(opts.radius, 0.032, 0.004, 2, 'makeCandle: radius');
+  const height = clamped(opts.height, 0.16, 0.015, 8, 'makeCandle: height');
+  const seed = clamped(opts.seed, 13, -2147483648, 2147483647, 'makeCandle: seed') | 0;
   const lit = opts.lit !== false;
   const group = new THREE.Group(); group.name = 'Candle';
   const wax = new THREE.MeshPhysicalMaterial({ color: opts.color ?? 0xe9cf9b,
@@ -343,7 +344,7 @@ export function makeCandle(opts = {}) {
   pool.name = 'MoltenWaxPool'; pool.rotation.x = -Math.PI / 2; pool.position.y = height * 0.947;
   group.add(pool);
 
-  const random = mulberry32(seed), drips = Math.round(finite(opts.drips, 7, 0, 24));
+  const random = mulberry32(seed), drips = Math.round(clamped(opts.drips, 7, 0, 24, 'makeCandle: drips'));
   const dripMat = wax;
   for (let i = 0; i < drips; i++) {
     const angle = random() * Math.PI * 2;
@@ -372,10 +373,10 @@ export function makeCandle(opts = {}) {
   wick.name = 'CharredWick'; group.add(wick);
   let flame;
   if (lit) {
-    const flameHeight = finite(opts.flameHeight, radius * 1.47, 0.01, 3);
+    const flameHeight = clamped(opts.flameHeight, radius * 1.47, 0.01, 3, 'makeCandle: flameHeight');
     flame = makeFire({ radius: flameHeight * 0.17, height: flameHeight, style: 'candle',
       seed, wind: opts.wind, quality: opts.quality || 'high', light: opts.light,
-      lightIntensity: finite(opts.lightIntensity, 0.8, 0, 10000), lightDistance: Math.max(1, height * 14),
+      lightIntensity: clamped(opts.lightIntensity, 0.8, 0, 10000, 'makeCandle: lightIntensity'), lightDistance: Math.max(1, height * 14),
       intensity: opts.intensity });
     flame.position.y = height * 0.944 + wickHeight * 0.6;
     group.add(flame);

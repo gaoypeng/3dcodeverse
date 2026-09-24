@@ -29,7 +29,7 @@
  */
 import * as THREE from 'three';
 import { bakeFbm3, dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
-import { makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe, readWind, withRendererState } from './shader.js';
+import { intOption, makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe, option, readWind, vector, withRendererState } from './shader.js';
 import { snapshotResources, attachDisposal } from './lifecycle.js';
 
 const TIERS = {
@@ -41,18 +41,6 @@ const NOISE_RESOLUTION = 48;
 const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 const fract = x => x - Math.floor(x);
-function number(value, fallback, min, max, label) {
-  const v = value ?? fallback;
-  if (!Number.isFinite(v) || v < min || v > max) throw new RangeError(`makeFireField: invalid ${label}`);
-  return v;
-}
-function vector(value, fallback, length, label) {
-  const v = value?.toArray ? value.toArray() : value ?? fallback;
-  if (!Array.isArray(v) || v.length !== length || !v.every(Number.isFinite)) {
-    throw new RangeError(`makeFireField: ${label} needs ${length} finite components`);
-  }
-  return v.slice();
-}
 function noiseTexture(seed) {
   const { values } = bakeFbm3(mulberry32(seed), NOISE_RESOLUTION, [4, 8, 16], 4);
   return dataTexture3D(Uint8Array.from(values, v => Math.round(clamp(v) * 255)), NOISE_RESOLUTION, true);
@@ -306,22 +294,21 @@ function depthCapture(roots, resolution) {
 export function makeFireField(opts = {}) {
   const input=opts.emitters??[{position:[0,0,0],radius:.3,height:1,strength:1}];
   if(!Array.isArray(input)||input.length<1||input.length>16)throw new RangeError('makeFireField: needs1–16 emitters');
-  const emitters=input.map((e,i)=>({position:vector(e.position,[0,0,0],3,`emitter${i} position`),
-    radius:number(e.radius,.3,.025,8,'emitter radius'),height:number(e.height,1,.08,25,'emitter height'),
-    strength:number(e.strength,1,0,4,'emitter strength')}));
+  const emitters=input.map((e,i)=>({position:vector(e.position, [0,0,0], 3, `makeFireField: emitter${i} position`),
+    radius:option(e.radius, .3, 'makeFireField: emitter radius', .025, 8),height:option(e.height, 1, 'makeFireField: emitter height', .08, 25),
+    strength:option(e.strength, 1, 'makeFireField: emitter strength', 0, 4)}));
   const activeEmitters=emitters.filter(e=>e.strength>0);
   const sources=activeEmitters.length?activeEmitters:[emitters[0]];
-  const seed=number(opts.seed,7,-2147483648,2147483647,'seed');
-  if(!Number.isInteger(seed))throw new RangeError('makeFireField: seed must be an integer');
+  const seed=option(opts.seed, 7, 'makeFireField: seed');
   const quality=opts.quality??'balanced';if(!Object.hasOwn(TIERS,quality))throw new RangeError('makeFireField: invalid quality');
   const tier=TIERS[quality],w=readWind(opts.wind,[.12,0],'makeFireField wind'),wind=[w.x,w.z];
   if(wind.some(v=>Math.abs(v)>8))throw new RangeError('makeFireField: wind exceeds8m/s');
-  const intensity=number(opts.intensity,1,0,8,'intensity'),turbulence=number(opts.turbulence,1,0,2,'turbulence');
+  const intensity=option(opts.intensity, 1, 'makeFireField: intensity', 0, 8),turbulence=option(opts.turbulence, 1, 'makeFireField: turbulence', 0, 2);
   const radius=sources.reduce((s,e)=>s+e.radius,0)/sources.length;
-  const height=Math.max(...sources.map(e=>e.height)),rise=number(opts.riseSpeed,.75+Math.sqrt(height)*.75,.1,12,'riseSpeed');
+  const height=Math.max(...sources.map(e=>e.height)),rise=option(opts.riseSpeed, .75+Math.sqrt(height)*.75, 'makeFireField: riseSpeed', .1, 12);
   const smoke=opts.smoke===false?{density:0}:opts.smoke??{};
-  const smokeHeight=number(smoke.height,height*3,Math.max(.1,height),80,'smoke height');
-  const smokeDensity=number(smoke.density,.65,0,5,'smoke density');
+  const smokeHeight=option(smoke.height, height*3, 'makeFireField: smoke height', Math.max(.1,height), 80);
+  const smokeDensity=option(smoke.density, .65, 'makeFireField: smoke density', 0, 5);
   const warp=Math.max(.025,Math.sqrt(radius)*.25),box=new THREE.Box3();
   for(const e of sources){
     const top=smokeDensity>0?Math.max(e.height*1.1,smokeHeight):e.height*1.1;
@@ -341,14 +328,12 @@ export function makeFireField(opts = {}) {
   const emptyDepth=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1);emptyDepth.needsUpdate=true;
   const roots=opts.occluders??[];
   if(!Array.isArray(roots)||roots.some(o=>!o?.isObject3D))throw new TypeError('makeFireField: occluders must be Object3D roots');
-  const depthResolution=number(opts.depthResolution,512,64,2048,'depthResolution');
-  if(!Number.isInteger(depthResolution))throw new RangeError('makeFireField: depthResolution must be integer');
+  const depthResolution=intOption(opts.depthResolution, 512, 'makeFireField: depthResolution', 64, 2048);
   const depth=roots.length?depthCapture(roots.slice(),depthResolution):null;
   const lighting=opts.lighting===false?{count:0}:opts.lighting??{};
-  const requestedLights=number(lighting.count,Math.min(2,activeEmitters.length),0,4,'light count');
+  const requestedLights=intOption(lighting.count, Math.min(2,activeEmitters.length), 'makeFireField: light count', 0, 4);
   const lightCount=Math.min(requestedLights,activeEmitters.length);
-  if(!Number.isInteger(requestedLights))throw new RangeError('makeFireField: light count must be integer');
-  const lightIntensity=number(lighting.intensity,12*radius/.3,0,20000,'light intensity');
+  const lightIntensity=option(lighting.intensity, 12*radius/.3, 'makeFireField: light intensity', 0, 20000);
   const uniforms={
     uTime:{value:0},uSourceAtlas:{value:atlas},uFieldNoise:{value:noise},uOpaqueDepth:{value:emptyDepth},
     uBoxMin:{value:box.min.clone()},uBoxSize:{value:size.clone()},
@@ -397,13 +382,12 @@ export function makeFireField(opts = {}) {
     light.position.fromArray(e.position);light.position.y+=e.height*.24;light.userData.sourceStrength=e.strength;group.add(light);lights.push(light);
   }
   const emberOptions=opts.embers===false?{count:0}:opts.embers??{};
-  const requestedEmbers=number(emberOptions.count,48,0,512,'ember count');
+  const requestedEmbers=intOption(emberOptions.count, 48, 'makeFireField: ember count', 0, 512);
   const count=activeEmitters.length?requestedEmbers:0;
-  if(!Number.isInteger(requestedEmbers))throw new RangeError('makeFireField: ember count must be integer');
-  const emberSize=vector(emberOptions.size,[.0015,.006],2,'ember size');
-  const lifetime=vector(emberOptions.lifetime,[2,4],2,'ember lifetime');
+  const emberSize=vector(emberOptions.size, [.0015,.006], 2, 'makeFireField: ember size');
+  const lifetime=vector(emberOptions.lifetime, [2,4], 2, 'makeFireField: ember lifetime');
   if(emberSize[0]<=0||emberSize[1]<emberSize[0]||emberSize[1]>.12||lifetime[0]<=0||lifetime[1]<lifetime[0]||lifetime[1]>30)throw new RangeError('makeFireField: invalid ember size/lifetime');
-  const emberRise=number(emberOptions.riseSpeed,rise,.1,20,'ember rise speed');
+  const emberRise=option(emberOptions.riseSpeed, rise, 'makeFireField: ember rise speed', .1, 20);
   const random=mulberry32(seed^0x1837),particles=Array.from({length:count},()=>{
     const total=activeEmitters.reduce((sum,e)=>sum+e.radius*e.radius*e.strength,0);
     let pick=random()*total,emitter=activeEmitters[activeEmitters.length-1];
@@ -425,7 +409,7 @@ export function makeFireField(opts = {}) {
   const ember={position:new THREE.Vector3()};
   let disposed=false;
   group.userData.update=group.userData.tick=(t=0)=>{
-    if(disposed)return;number(t,0,-1e9,1e9,'time');material.uniforms.uTime.value=t;
+    if(disposed)return;option(t, 0, 'makeFireField: time', -1e9, 1e9);material.uniforms.uTime.value=t;
     lights.forEach((light,i)=>{const flicker=.83+.10*Math.sin(t*(3.1+i*.47)+seed+i*2)+.07*Math.sin(t*7.3+seed*.7+i);
       light.intensity=lightIntensity*flicker*intensity*light.userData.sourceStrength;
       uniforms.uFireLights.value[i].set(light.position.x,light.position.y,light.position.z,light.intensity*.10);});

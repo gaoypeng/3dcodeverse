@@ -64,7 +64,7 @@ says `import { makeGrass } from '../lib/grass.js';`, `src/scene.js` says
 | a neon sign, and the light it throws | `makeNeonTube` · `patchNeonSpill` · `makeLightTrails` — `lib/neon.js`; a sign that does not light its own wall is a decal |
 | readable lettering on a sign | `makeText` (async — await ONCE at module top level, `.clone()` per copy) — `lib/signage.js` |
 | a road, a path, a worn surface | `patchRoadSurface` · `patchSeamBand` · `patchTracks` — `lib/roadway.js` |
-| foreground cobbles or rectangular stone setts with real joints | `makePaving({ size: [4,4], stoneSize: 0.24, pattern: 'cobble', joint: 0.012, thickness: 0.10, relief: 0.014, seed })` — `lib/paving.js`; merged closed bevelled stones and a recessed joint bed, two meshes and a bounded stone count. Nominal top is y=0, bottom=-thickness. `userData.sampleHeight(x,z)` returns the exact local stone/joint height or null outside; seat props using it. Use material-only cobbles for distant surfaces. |
+| foreground cobbles or rectangular stone setts with real joints | `makePaving({ size: [4,4], stoneSize: 0.24, pattern: 'cobble', joint: 0.012, thickness: 0.10, relief: 0.014, seed })` — `lib/paving.js`; merged closed bevelled stones and a recessed joint bed, two meshes and a bounded stone count. Nominal top is y=0, bottom=-thickness. `userData.sampleHeight(x,z)` returns the exact local stone/joint height; seat props using it. Use material-only cobbles for distant surfaces. |
 | a flag, a hanging banner, a wheat field | `makeFlag` · `makeBanner` · `makeWheatField` — `lib/cloth.js`; the wave TRAVELS |
 | a surface that has stood somewhere | `patchDripStains` · `patchRust` · `patchDust` — `lib/aging.js` |
 | any surface at all | `patchMicroBreakup` · `patchEdgeWear` — `lib/surface_wear.js` |
@@ -85,9 +85,14 @@ sand, meadow, smoke, steam, waterfall, tree, shrub, cloud volume, ice and paving
 and `object.userData.dispose()`. Store the returned objects and update each ONCE
 from the zone's `userData.update`. Their dimensions, paths and height queries are
 LOCAL coordinates; move/rotate the whole returned object to place it. Call the
-factory before positioning props that sample its surface. These are realtime
+factory before positioning props that sample its surface: `userData.sampleHeight(x, z)`
+returns the surface height there, or `null` off the patch (and in an ice gap). It
+never throws, so test for `null` before seating a prop. These are realtime
 procedural effects, not fluid/combustion solvers. Read the module's JSDoc for
-options and bounds. For older effects, follow the hooks listed below.
+options and bounds: an option left out or `null` takes its default, and an invalid
+one throws a RangeError that names it (fire clamps an out-of-range number instead).
+The direction toward the sun is `sunDir` in every factory. For older effects, follow
+the hooks listed below.
 
 **1. `patch*` entries CHAIN.**  Apply as many as a surface deserves to one
 material, in any order — they are composed into one program.  Two patches may

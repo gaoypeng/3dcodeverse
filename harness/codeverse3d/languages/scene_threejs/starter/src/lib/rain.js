@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32, fbm2, noiseDataTexture } from './noise.js';
-import { makeShaderMaterial, keepOutOfDepthPasses, readWind } from './shader.js';
+import { intOption, makeShaderMaterial, keepOutOfDepthPasses, option, positive, readWind, vector } from './shader.js';
 
 const _UP = new THREE.Vector3(0, 1, 0);
 
@@ -120,34 +120,28 @@ function _quads(count) {
  *   non-shadowing, with `userData.update(t)` advancing the fall.
  */
 export function makeRain(opts = {}) {
-  const seed = opts.seed === undefined ? 5 : opts.seed;
-  const count = opts.count === undefined ? 7000 : opts.count;
-  const radius = opts.radius === undefined ? 16 : opts.radius;
-  const height = opts.height === undefined ? 18 : opts.height;
-  const speed = opts.speed === undefined ? 14 : opts.speed;
-  const length = opts.length === undefined ? 0.6 : opts.length;
-  const width = opts.width === undefined ? 0.014 : opts.width;
+  const seed = option(opts.seed, 5, 'makeRain: seed');
+  const count = intOption(opts.count, 7000, 'makeRain: count', 0, 1000000);
+  const radius = positive(opts.radius, 16, 'makeRain: radius');
+  const height = positive(opts.height, 18, 'makeRain: height');
+  const speed = positive(opts.speed, 14, 'makeRain: speed');
+  const length = positive(opts.length, 0.6, 'makeRain: length');
+  const width = positive(opts.width, 0.014, 'makeRain: width');
   const w = readWind(opts.wind, [1.4, 0], 'makeRain wind'), wind = [w.x, w.z];
-  const opacity = opts.opacity === undefined ? 0.42 : opts.opacity;
+  const opacity = option(opts.opacity, 0.42, 'makeRain: opacity', 0, 1);
   const follow = opts.follow === false ? 0 : 1;
-  const center = opts.center || [0, height * 0.5, 0];
+  const center = vector(opts.center, [0, height * 0.5, 0], 3, 'makeRain: center');
   const surfaces = opts.surfaces ?? [];
-  const shelterResolution = opts.shelterResolution ?? 32;
-  const shelterUpdateDistance = opts.shelterUpdateDistance ?? Math.max(.5, radius * .20);
-  const groundY = opts.groundY ?? -1e8;
-  if (!Array.isArray(surfaces) || surfaces.some((surface) => !surface?.isObject3D) ||
-      !Number.isInteger(shelterResolution) || shelterResolution < 8 || shelterResolution > 64 ||
-      !Number.isFinite(shelterUpdateDistance) || shelterUpdateDistance <= 0 ||
-      !Number.isFinite(groundY) || (opts.heightAt != null && typeof opts.heightAt !== 'function')) {
-    throw new RangeError('makeRain: invalid surfaces, heightAt, groundY or shelter atlas options');
+  if (!Array.isArray(surfaces) || surfaces.some((surface) => !surface?.isObject3D)) {
+    throw new RangeError('makeRain: surfaces must be an array of Object3D');
   }
-
-  if (!Number.isInteger(count) || count < 0 || count > 1000000 ||
-      ![radius, height, speed, length, width, opacity, ...center].every(Number.isFinite) ||
-      radius <= 0 || height <= 0 || speed <= 0 || length <= 0 || width <= 0 || opacity < 0 || opacity > 1 ||
-      center.length !== 3) {
-    throw new RangeError('makeRain: use finite positive dimensions/speed, count 0..1000000, wind [x,z], center [x,y,z] and opacity 0..1');
+  if (opts.heightAt != null && typeof opts.heightAt !== 'function') {
+    throw new RangeError('makeRain: heightAt must be a function');
   }
+  const shelterResolution = intOption(opts.shelterResolution, 32, 'makeRain: shelterResolution', 8, 64);
+  const shelterUpdateDistance = positive(opts.shelterUpdateDistance, Math.max(.5, radius * .20),
+    'makeRain: shelterUpdateDistance');
+  const groundY = option(opts.groundY, -1e8, 'makeRain: groundY');
   const rand = mulberry32(seed);
   const inst = _quads(count);
   const off = new Float32Array(count * 3);

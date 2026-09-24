@@ -13,7 +13,7 @@
  * Overlapping transparent objects use ordinary Three.js object sorting.
  */
 import * as THREE from 'three';
-import { makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe, readWind } from './shader.js';
+import { makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe, option, positive, readWind } from './shader.js';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { bakeFbm3, dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
 
@@ -120,23 +120,20 @@ export function makeSteam(opts = {}) {
 }
 
 function makePlume(opts, steam) {
-  const height = opts.height ?? (steam ? .7 : 3);
-  const radius = opts.radius ?? height * (steam ? .09 : .047);
-  const spread = opts.spread ?? (steam ? .16 : .20);
-  const rise = opts.riseSpeed ?? height * (steam ? .38 : .2333333);
+  const L = steam ? 'makeSteam: ' : 'makeSmoke: ';
+  const height = option(opts.height, steam ? .7 : 3, L + 'height', .001, 10000);
+  const radius = positive(opts.radius, height * (steam ? .09 : .047), L + 'radius', height * 4);
+  const spread = option(opts.spread, steam ? .16 : .20, L + 'spread', 0, 2);
+  const rise = positive(opts.riseSpeed, height * (steam ? .38 : .2333333), L + 'riseSpeed');
   const w = readWind(opts.wind, [height * .02, 0], 'makeSmoke/makeSteam wind'), wind = [w.x, w.z];
-  const extinction = opts.density ?? (steam ? 2.1 : 5) / height;
-  const turbulence = opts.turbulence ?? (steam ? .9 : 1);
-  const dissipation = opts.dissipation ?? (steam ? 1.2 : .7);
-  const anisotropy = opts.anisotropy ?? (steam ? .62 : .35);
-  const quality = opts.quality ?? 'balanced', seed = opts.seed ?? 21;
-  if (![height,radius,spread,rise,extinction,turbulence,dissipation,anisotropy].every(Number.isFinite) ||
-      height < .001 || height > 10000 || radius <= 0 || radius > height * 4 || spread < 0 || spread > 2 ||
-      rise <= 0 || extinction < 0 || turbulence < 0 || turbulence > 2 || dissipation < 0 ||
-      Math.abs(anisotropy) > .9 ||
-      !Number.isSafeInteger(seed) || !Object.hasOwn(TIERS,quality) || Math.hypot(...wind) / rise > 10) {
-    throw new RangeError('makeSmoke/makeSteam: invalid dimensions, flow, density, scattering, seed or quality');
-  }
+  const extinction = option(opts.density, (steam ? 2.1 : 5) / height, L + 'density', 0);
+  const turbulence = option(opts.turbulence, steam ? .9 : 1, L + 'turbulence', 0, 2);
+  const dissipation = option(opts.dissipation, steam ? 1.2 : .7, L + 'dissipation', 0);
+  const anisotropy = option(opts.anisotropy, steam ? .62 : .35, L + 'anisotropy', -.9, .9);
+  const seed = option(opts.seed, 21, L + 'seed');
+  const quality = opts.quality ?? 'balanced';
+  if (!Object.hasOwn(TIERS, quality)) throw new RangeError(`${L}quality must be one of ${Object.keys(TIERS)}`);
+  if (Math.hypot(...wind) / rise > 10) throw new RangeError(`${L}wind must be at most 10x riseSpeed`);
   const texture = noiseTexture(seed), [steps, lightSteps] = TIERS[quality];
   const maxRadius = (radius + spread * height) * (1 + turbulence * 1.9) + turbulence * height * .13;
   const drift = wind.map(v => v * height / rise);

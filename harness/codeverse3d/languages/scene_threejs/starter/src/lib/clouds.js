@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32, fbm2 } from './noise.js';
-import { makeShaderMaterial, keepOutOfDepthPasses, readWind, sunVector } from './shader.js';
+import { intOption, makeShaderMaterial, keepOutOfDepthPasses, option, positive, readWind, sunVector } from './shader.js';
 
 // Cumulus/cirrus mood presets, graded for THIS renderer: ACES filmic at
 // exposure 1.0, sRGB out, and nothing after that rescues a dim top or
@@ -61,9 +61,8 @@ export function cloudTexture(seed = 7, size = 256) {
 }
 
 function puffTexture(seed, size, cirrus) {
-  if (!Number.isSafeInteger(seed) || !Number.isInteger(size) || size < 16 || size > 1024) {
-    throw new RangeError('cloudTexture: use an integer seed and size in 16..1024');
-  }
+  option(seed, null, 'cloudTexture: seed');
+  intOption(size, null, 'cloudTexture: size', 16, 1024);
   const field = new Float32Array(size * size);
   const rand = mulberry32(seed);
   const lobes = Array.from({length: 7}, (_,i) => ({
@@ -147,19 +146,14 @@ function cloudAtlas(seed, cirrus = false) {
  */
 export function makeClouds(opts = {}) {
   const p = PRESETS[opts.preset || 'day'] || PRESETS.day;
-  const seed = opts.seed ?? 7;
-  const count = opts.count ?? p.count ?? 14;
-  const area = opts.area ?? 2600;
-  const altitude = opts.altitude ?? p.altitude ?? 260;
-  const spread = opts.spread ?? p.spread ?? 120;
-  const alpha = opts.alpha ?? p.alpha ?? 0.92;
+  const seed = option(opts.seed, 7, 'makeClouds: seed');
+  const count = intOption(opts.count, p.count ?? 14, 'makeClouds: count', 0, 1000);
+  const area = positive(opts.area, 2600, 'makeClouds: area');
+  const altitude = option(opts.altitude, p.altitude ?? 260, 'makeClouds: altitude');
+  const spread = option(opts.spread, p.spread ?? 120, 'makeClouds: spread', 0);
+  const alpha = option(opts.alpha, p.alpha ?? 0.92, 'makeClouds: alpha', 0, 1);
   const wind = readWind(opts.wind, 3.0, 'makeClouds wind').strength;
-  const stretch = opts.stretch ?? p.stretch ?? 1.0;
-  if (!Number.isSafeInteger(seed) || !Number.isInteger(count) || count < 0 || count > 1000 ||
-      ![area, altitude, spread, alpha, wind, stretch].every(Number.isFinite) ||
-      area <= 0 || spread < 0 || alpha < 0 || alpha > 1 || stretch <= 0) {
-    throw new RangeError('makeClouds: invalid seed, count, area, altitude, spread, alpha, wind or stretch');
-  }
+  const stretch = positive(opts.stretch, p.stretch ?? 1.0, 'makeClouds: stretch');
   const rand = mulberry32(seed);
   const rnd2 = mulberry32(seed + 977);
   const puffs = [];
@@ -407,7 +401,7 @@ export function makeCirrus(opts = {}) {
   // Reuses the proven cumulus billboard shader as stretched streaks —
   // Sprites rendered as black slabs under the post chain (measured on
   // the manhattan run), and tilted planes went edge-on from low cams.
-  const seed = opts.seed ?? 23;
+  const seed = option(opts.seed, 23, 'makeCirrus: seed');
   // Ice, not water: whiter and cooler than the cumulus of the same hour,
   // and thin enough that the light comes THROUGH — hence the wide rim.
   // Derived from the PRESET rather than fixed, or a night deck gets a

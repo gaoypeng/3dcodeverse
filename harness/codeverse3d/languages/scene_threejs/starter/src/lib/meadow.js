@@ -21,15 +21,7 @@ import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { windOf } from './grass.js';
 import { fbm2, mulberry32 } from './noise.js';
-import { patchStandard, shadowLike, tickShaders } from './shader.js';
-
-function finite(value, fallback, low, high, name) {
-  const v = value === undefined ? fallback : value;
-  if (!Number.isFinite(v) || v < low || v > high) {
-    throw new RangeError(`makeMeadow: ${name} must be finite in [${low}, ${high}]`);
-  }
-  return v;
-}
+import { boundedSampler, option, patchStandard, shadowLike, tickShaders } from './shader.js';
 
 // The rest mesh has an actual silhouette: GTAO's override material draws the
 // real instance matrices instead of the origin-degenerate helper lattices.
@@ -229,21 +221,21 @@ function makeSeedHeads({count,rand,roots,botany,height,green,straw,dir,strength,
 /** @returns {THREE.Group} Rooted meadow, animated by userData.update(seconds). */
 export function makeMeadow(opts = {}) {
   const dimensions = Array.isArray(opts.size) ? opts.size : [opts.size ?? 10, opts.size ?? 10];
-  const sx = finite(dimensions[0], 10, .05, 1000, 'size[0]');
-  const sz = finite(dimensions[1], 10, .05, 1000, 'size[1]');
-  const density = finite(opts.density, 700, 0, 20000, 'density');
-  const height = finite(opts.height, .38, .005, 4, 'height');
-  const width = finite(opts.bladeWidth, .011, .0005, .15, 'bladeWidth');
-  const seed = finite(opts.seed, 12, -2147483648, 2147483647, 'seed');
-  const dry = finite(opts.dry, .12, 0, 1, 'dry');
-  const diversity = finite(opts.diversity, .85, 0, 1, 'diversity');
-  const seedHeads = finite(opts.seedHeads, .003, 0, .05, 'seedHeads');
-  const maxBlades = Math.floor(finite(opts.maxBlades, 100000, 1, 300000, 'maxBlades'));
-  const rows = Math.floor(finite(opts.segments, 5, 3, 12, 'segments'));
+  const sx = option(dimensions[0], 10, 'makeMeadow: size[0]', .05, 1000);
+  const sz = option(dimensions[1], 10, 'makeMeadow: size[1]', .05, 1000);
+  const density = option(opts.density, 700, 'makeMeadow: density', 0, 20000);
+  const height = option(opts.height, .38, 'makeMeadow: height', .005, 4);
+  const width = option(opts.bladeWidth, .011, 'makeMeadow: bladeWidth', .0005, .15);
+  const seed = option(opts.seed, 12, 'makeMeadow: seed');
+  const dry = option(opts.dry, .12, 'makeMeadow: dry', 0, 1);
+  const diversity = option(opts.diversity, .85, 'makeMeadow: diversity', 0, 1);
+  const seedHeads = option(opts.seedHeads, .003, 'makeMeadow: seedHeads', 0, .05);
+  const maxBlades = Math.floor(option(opts.maxBlades, 100000, 'makeMeadow: maxBlades', 1, 300000));
+  const rows = Math.floor(option(opts.segments, 5, 'makeMeadow: segments', 3, 12));
   const wind = windOf(opts.wind);
-  const strength = finite(wind.amp, .5, 0, 3, 'wind.strength');
+  const strength = option(wind.amp, .5, 'makeMeadow: wind.strength', 0, 3);
   // The meadow's own gust clock runs 1.2x the shared wind's.
-  const speed = finite(wind.speed * 1.2, 1.2, 0, 10, 'wind.speed');
+  const speed = option(wind.speed * 1.2, 1.2, 'makeMeadow: wind.speed', 0, 10);
   const dir = wind.dir;
   if (!Number.isFinite(dir.x) || !Number.isFinite(dir.y)) {
     throw new TypeError('makeMeadow: wind direction must be [x,z] finite numbers');
@@ -369,7 +361,7 @@ export function makeMeadow(opts = {}) {
   }
   group.userData.bladeCount = matrices.length;
   group.userData.roots = new Float32Array(roots);
-  group.userData.sampleHeight = sampleHeight;
+  group.userData.sampleHeight = boundedSampler(sx, sz, heightAt);
   group.userData.update = (t) => {
     if (!Number.isFinite(t)) throw new RangeError('makeMeadow.update: time must be finite');
     tickShaders(group, t);

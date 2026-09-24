@@ -24,17 +24,10 @@ import { patchNeonSpill } from './neon.js';
 import { fbm2, mulberry32, noiseDataTexture } from './noise.js';
 import {
   keepOutOfDepthPasses, makeShaderMaterial,
-  patchStandard, seedLattice, tickShaders, toColor, unit,
+  patchStandard, readVec3, seedLattice, tickShaders, toColor, unit,
 } from './shader.js';
 
 const _UP = new THREE.Vector3(0, 1, 0);
-
-/** A point in any accepted spelling as its own Vector3. */
-function toVec(p) {
-  if (p && p.isVector3) return p.clone();
-  if (Array.isArray(p)) return new THREE.Vector3(p[0], p[1], p[2] || 0);
-  return new THREE.Vector3(p.x || 0, p.y || 0, p.z || 0);
-}
 
 const seedOffset = (seed) => seedLattice(seed) * 0.0517;
 
@@ -580,7 +573,7 @@ function resample(points, spans) {
  */
 export function makePowerLines(opts = {}) {
   const raw = (Array.isArray(opts.points) && opts.points.length >= 2
-      ? opts.points : [[-22, 0, 0], [22, 0, 0]]).map(toVec);
+      ? opts.points : [[-22, 0, 0], [22, 0, 0]]).map((p) => readVec3(p));
   const poleAt = opts.spans > 0 ? resample(raw, Math.round(opts.spans))
                                 : raw;
   const spec = Object.assign(

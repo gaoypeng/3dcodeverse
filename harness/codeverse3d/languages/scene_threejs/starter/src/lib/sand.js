@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { fbm2, mulberry32 } from './noise.js';
-import { patchStandard, readWind } from './shader.js';
+import { boundedSampler, option, patchStandard, readWind } from './shader.js';
 import { triangleValue } from './terrain.js';
 
 const TAU = Math.PI * 2;
@@ -67,7 +67,7 @@ function sandMaterial(opts, wind, seed) {
  * sampleHeight takes LOCAL x,z; parent assets to this group after seating them.
  */
 export function makeSandTerrain(opts = {}) {
-  const seed = opts.seed ?? 17;
+  const seed = option(opts.seed, 17, 'makeSandTerrain: seed');
   const rand = mulberry32(seed);
   const size = Array.isArray(opts.size) ? opts.size : [opts.size ?? 80, opts.size ?? 80];
   if (size.length !== 2 || !size.every((n) => Number.isFinite(n) && n > 0)) throw new RangeError('sand size must be positive metres');
@@ -136,7 +136,7 @@ export function makeSandTerrain(opts = {}) {
     }
     pos.needsUpdate = true;
   };
-  group.userData.sampleHeight = sampleHeight;
+  group.userData.sampleHeight = boundedSampler(width, depth, sampleHeight);
   group.userData.update = update;
   group.userData.seed = seed;
   update(0);

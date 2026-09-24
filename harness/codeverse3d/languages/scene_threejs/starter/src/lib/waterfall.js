@@ -6,7 +6,7 @@
  * The caller supplies the cliff, upstream water and receiving pool.
  */
 import * as THREE from 'three';
-import { patchStandard, keepOutOfDepthPasses } from './shader.js';
+import { keepOutOfDepthPasses, option, patchStandard, positive } from './shader.js';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32 } from './noise.js';
 import { makeSpray } from './watermist.js';
@@ -57,19 +57,16 @@ vec3 fallPosition(vec2 uv,float t) {
  * Update once with absolute seconds; dispose releases construction-owned data.
  */
 export function makeWaterfall(opts = {}) {
-  const width=opts.width??2, height=opts.height??3, speed=opts.speed??1;
-  const thickness=opts.thickness??.045, breakup=opts.breakup??.6, foam=opts.foam??.65;
-  const seed=opts.seed??17, quality=opts.quality??'balanced';
-  const attenuationDistance=opts.attenuationDistance??8;
-  const sprayRate=opts.sprayRate??Math.min(500,100*width);
-  if (![width,height,speed,thickness,breakup,foam].every(Number.isFinite) ||
-      width<.02 || width>500 || height<.02 || height>500 || speed<.02 || speed>50 ||
-      thickness<=0 || thickness>Math.min(width,height)*.5 || breakup<0 || breakup>1 || foam<0 || foam>1 ||
-      !Number.isSafeInteger(seed) || !Object.hasOwn(TIERS,quality) ||
-      !(attenuationDistance>0) || (!Number.isFinite(attenuationDistance) && attenuationDistance!==Infinity) ||
-      !Number.isFinite(sprayRate) || sprayRate<0 || sprayRate>100000) {
-    throw new RangeError('makeWaterfall: invalid dimensions, flow, foam, seed or quality');
-  }
+  const L='makeWaterfall: ';
+  const width=option(opts.width,2,L+'width',.02,500), height=option(opts.height,3,L+'height',.02,500);
+  const speed=option(opts.speed,1,L+'speed',.02,50);
+  const thickness=positive(opts.thickness,.045,L+'thickness',Math.min(width,height)*.5);
+  const breakup=option(opts.breakup,.6,L+'breakup',0,1), foam=option(opts.foam,.65,L+'foam',0,1);
+  const seed=option(opts.seed,17,L+'seed'), quality=opts.quality??'balanced';
+  if(!Object.hasOwn(TIERS,quality)) throw new RangeError(`${L}quality must be one of ${Object.keys(TIERS)}`);
+  // Infinity is a valid attenuation distance: perfectly clear water.
+  const attenuationDistance=opts.attenuationDistance===Infinity?Infinity:positive(opts.attenuationDistance,8,L+'attenuationDistance');
+  const sprayRate=option(opts.sprayRate,Math.min(500,100*width),L+'sprayRate',0,100000);
   const flight=Math.sqrt(2*height/GRAVITY), impactZ=speed*flight;
   const random=mulberry32(seed), waves=[];
   for(let i=0;i<4;i++) waves.push(new THREE.Vector4(

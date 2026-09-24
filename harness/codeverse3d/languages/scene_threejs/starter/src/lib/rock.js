@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { fbm3, mulberry32 } from './noise.js';
-import { patchStandard } from './shader.js';
+import { option, patchStandard } from './shader.js';
 
 const TYPES = {
   sandstone: { color: 0x9e7250, erosion: 0.028, roughness: 0.91, index: 0 },
@@ -292,7 +292,8 @@ export function makeRock(opts = {}) {
   const s = opts.size ?? 1.8;
   const size = Array.isArray(s) ? s : [s * 1.2, s * 0.82, s];
   if (size.length !== 3 || !size.every((v) => Number.isFinite(v) && v > 0)) throw new RangeError('rock size must be positive metres');
-  const geometry = rockGeometry(opts, type, size, mulberry32(opts.seed ?? 31));
+  // rockGeometry and rockMaterial read opts.seed themselves, with this default
+  const geometry = rockGeometry(opts, type, size, mulberry32(option(opts.seed, 31, 'makeRock: seed')));
   const material = rockMaterial(opts, type, size[1]);
   const rock = new THREE.Mesh(geometry, material);
   rock.name = opts.name ?? `${type[0].toUpperCase() + type.slice(1)}Rock`;
@@ -309,7 +310,7 @@ export function makeRock(opts = {}) {
  * instancing.js for distant repetitions of a few shared prototypes.
  */
 export function makeRockField(opts = {}) {
-  const rand = mulberry32(opts.seed ?? 31), group = new THREE.Group();
+  const rand = mulberry32(option(opts.seed, 31, 'makeRockField: seed')), group = new THREE.Group();
   group.name = opts.name ?? 'RockField';
   const count = clamp(Math.round(opts.count ?? 24), 0, 160), radius = Math.max(0.1, opts.radius ?? 9);
   for (let i = 0; i < count; i++) {

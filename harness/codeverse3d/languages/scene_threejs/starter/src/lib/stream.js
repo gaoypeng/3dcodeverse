@@ -14,7 +14,7 @@ import * as THREE from 'three';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32 } from './noise.js';
-import { GLSL_UTIL, planarCapture } from './shader.js';
+import { GLSL_UTIL, option, planarCapture } from './shader.js';
 
 // IcosahedronGeometry duplicates triangle vertices. Preserve rounded cobble
 // shading after deformation by averaging normals at coincident positions.
@@ -37,12 +37,6 @@ function smoothCobbleNormals(geometry) {
   }
 }
 
-function option(v, d, name, min, max = Infinity) {
-  v = v === undefined ? d : v;
-  if (!Number.isFinite(v) || v < min || v > max)
-    throw new RangeError(`makeStream: ${name} must be ${min}..${max}`);
-  return v;
-}
 // the library's one GLSL value noise (astraHash21 / astraNoise2)
 const noiseGLSL = GLSL_UTIL;
 
@@ -64,20 +58,20 @@ const noiseGLSL = GLSL_UTIL;
  * speed/depth are constant along the path; no tributaries/overturning falls.
  */
 export function makeStream(opts = {}) {
-  const width = option(opts.width, 3, 'width', 0.1, 100),
-    depth = option(opts.depth, 0.45, 'depth', 0.03, 10);
-  const widthVariation = option(opts.widthVariation, 0, 'widthVariation', 0, 0.3);
-  const speed = option(opts.speed, 1.1, 'speed', 0, 15),
-    activity = option(opts.roughness, 0.5, 'roughness', 0, 1);
-  const segments = Math.round(option(opts.segments, 180, 'segments', 16, 512));
-  const acrossSegments = Math.round(option(opts.widthSegments, 20, 'widthSegments', 4, 96));
-  const count = Math.round(option(opts.stoneCount, 220, 'stoneCount', 0, 12000));
-  const attenuationDistance = option(opts.attenuationDistance, 3, 'attenuationDistance', 0.01, 10000);
-  const caustics = option(opts.caustics, 0.45, 'caustics', 0, 1);
-  const reflectionSize = option(opts.reflectionSize, 0, 'reflectionSize', 0, 2048);
+  const width = option(opts.width, 3, 'makeStream: width', 0.1, 100),
+    depth = option(opts.depth, 0.45, 'makeStream: depth', 0.03, 10);
+  const widthVariation = option(opts.widthVariation, 0, 'makeStream: widthVariation', 0, 0.3);
+  const speed = option(opts.speed, 1.1, 'makeStream: speed', 0, 15),
+    activity = option(opts.roughness, 0.5, 'makeStream: roughness', 0, 1);
+  const segments = Math.round(option(opts.segments, 180, 'makeStream: segments', 16, 512));
+  const acrossSegments = Math.round(option(opts.widthSegments, 20, 'makeStream: widthSegments', 4, 96));
+  const count = Math.round(option(opts.stoneCount, 220, 'makeStream: stoneCount', 0, 12000));
+  const attenuationDistance = option(opts.attenuationDistance, 3, 'makeStream: attenuationDistance', 0.01, 10000);
+  const caustics = option(opts.caustics, 0.45, 'makeStream: caustics', 0, 1);
+  const reflectionSize = option(opts.reflectionSize, 0, 'makeStream: reflectionSize', 0, 2048);
   if (reflectionSize !== 0 && (!Number.isInteger(reflectionSize) || reflectionSize < 256))
     throw new RangeError('makeStream: reflectionSize must be 0 or an integer from 256 to 2048');
-  const seed = option(opts.seed, 42, 'seed', 0, 4294967295),
+  const seed = option(opts.seed, 42, 'makeStream: seed'),
     rng = mulberry32(seed);
   const points = opts.points ?? [
     [-2, 0.8, -12],
@@ -109,7 +103,7 @@ export function makeStream(opts = {}) {
   path.arcLengthDivisions = Math.max(400, segments * 3);
   path.updateArcLengths();
   const length = path.getLength();
-  const endFade = option(opts.endFade, 0, 'endFade', 0, length * .5);
+  const endFade = option(opts.endFade, 0, 'makeStream: endFade', 0, length * .5);
   // A spatial Catmull-Rom spline can overshoot perfectly valid flat-to-sloped
   // control heights and make water run uphill. Use it only for the XZ course;
   // harmonic Hermite slopes preserve each monotone height interval exactly.
@@ -144,9 +138,9 @@ export function makeStream(opts = {}) {
   if (!Array.isArray(obstacles) || obstacles.length > 24)
     throw new RangeError('makeStream: at most 24 obstacles');
   const stones = obstacles.map((o, i) => ({
-    u: option(o.u, undefined, `obstacles[${i}].u`, 0, 1),
-    lateral: option(o.lateral, 0, `obstacles[${i}].lateral`, -0.95, 0.95),
-    radius: option(o.radius, width * 0.1, `obstacles[${i}].radius`, 0.002, width * 0.45),
+    u: option(o.u, undefined, `makeStream: obstacles[${i}].u`, 0, 1),
+    lateral: option(o.lateral, 0, `makeStream: obstacles[${i}].lateral`, -0.95, 0.95),
+    radius: option(o.radius, width * 0.1, `makeStream: obstacles[${i}].radius`, 0.002, width * 0.45),
   }));
   const phase = rng() * 6.28;
   const waveRng = mulberry32(seed ^ 0x57a4f319);

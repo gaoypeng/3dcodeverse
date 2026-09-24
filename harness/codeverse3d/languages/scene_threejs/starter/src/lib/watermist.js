@@ -47,20 +47,11 @@ import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 
 import { lehmer } from './noise.js';
-import { instancedQuad, makeShaderMaterial, tickShaders, keepOutOfDepthPasses, glslLocalDir } from './shader.js';
+import { instancedQuad, makeShaderMaterial, readVec3, tickShaders, keepOutOfDepthPasses, glslLocalDir } from './shader.js';
 
 // Free fall. It is written twice on purpose — in the vertex shader and
 // in the CPU mirror `userData.sample` — so both read this one number.
 const _G = 9.81;
-
-/** A THREE.Vector3 from a vector, an [x,y,z] array or nothing. */
-function toVec3(v) {
-    if (Array.isArray(v)) {
-        return new THREE.Vector3(v[0] || 0, v[1] || 0, v[2] || 0);
-    }
-    if (v && v.isVector3) return v.clone();
-    return new THREE.Vector3();
-}
 
 /**
  * The key light as a direction plus how much of it there is.
@@ -77,7 +68,7 @@ function toVec3(v) {
  *   caller with no rig to hand) and 0..1 for how far it has risen.
  */
 function toSun(v) {
-    const d = toVec3(v);
+    const d = readVec3(v);
     if (d.lengthSq() < 1e-8) return { dir: new THREE.Vector3(0, 1, 0), gain: 1 };
     d.normalize();
     // 0 at the horizon, full by ten degrees up: the last of the sun
@@ -440,7 +431,7 @@ function mistMaterial(cfg) {
  *   the vertex shader runs.
  */
 export function makeSpray(opts = {}) {
-    const origin = toVec3(opts.origin);
+    const origin = readVec3(opts.origin);
     const radius = Math.max(0.01,
         opts.radius === undefined ? 0.7 : opts.radius);
     const rate = Math.max(1, opts.rate === undefined ? 120 : opts.rate);

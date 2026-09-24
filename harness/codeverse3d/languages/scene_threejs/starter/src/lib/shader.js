@@ -304,11 +304,75 @@ export function seedLattice(seed, k = 16807, m = 9973) {
     return (s * k) % m;
 }
 
-/** Read a Vector3, an array or an {x,y,z} into a new Vector3. */
+/**
+ * A point as a new Vector3, from a THREE.Vector3, an `[x, y, z]` or an
+ * `{x, y, z}`.  `null`/missing reads `(fx, fy, fz)`; a coordinate a
+ * given point leaves out is 0, so `[x, y]` lies at z = 0.
+ */
 export function readVec3(p, fx = 0, fy = 0, fz = 0) {
-    if (!p) return new THREE.Vector3(fx, fy, fz);
-    if (Array.isArray(p)) return new THREE.Vector3(p[0], p[1], p[2]);
-    return new THREE.Vector3(p.x, p.y, p.z);
+    if (p === undefined || p === null) return new THREE.Vector3(fx, fy, fz);
+    if (Array.isArray(p)) return new THREE.Vector3(p[0] ?? 0, p[1] ?? 0, p[2] ?? 0);
+    return new THREE.Vector3(p.x ?? 0, p.y ?? 0, p.z ?? 0);
+}
+
+/**
+ * The library's ONE option rule.  `null` or missing reads `fallback`;
+ * anything else that is not a finite number in `[min, max]` throws a
+ * RangeError naming `label` — never a silent fallback or clamp (fire
+ * clamps on purpose, after this check).  A seed is any finite number:
+ * `option(opts.seed, 7, 'makeX: seed')`.
+ */
+export function option(value, fallback, label, min = -Infinity, max = Infinity) {
+    const v = value ?? fallback;
+    if (!Number.isFinite(v) || v < min || v > max) {
+        const range = min === -Infinity ? (max === Infinity ? '' : ` <= ${max}`)
+            : max === Infinity ? ` >= ${min}` : ` in [${min}, ${max}]`;
+        throw new RangeError(`${label} must be a finite number${range}, got ${String(value)}`);
+    }
+    return v;
+}
+
+/** `option` for a count: an integer in `[min, max]`. */
+export function intOption(value, fallback, label, min = -Infinity, max = Infinity) {
+    const v = option(value, fallback, label, min, max);
+    if (!Number.isInteger(v)) throw new RangeError(`${label} must be an integer, got ${String(value)}`);
+    return v;
+}
+
+/** `option` for a size or a speed: a finite number above 0 (and <= `max`). */
+export function positive(value, fallback, label, max = Infinity) {
+    const v = option(value, fallback, label, -Infinity, max);
+    if (!(v > 0)) throw new RangeError(`${label} must be above 0, got ${String(value)}`);
+    return v;
+}
+
+/**
+ * `option` for a vector: a THREE vector or an array of `length` finite
+ * numbers, returned as a new array.  `null`/missing reads `fallback`.
+ */
+export function vector(value, fallback, length, label) {
+    const w = value ?? fallback;
+    const v = w?.toArray ? w.toArray() : w;
+    if (!Array.isArray(v) || v.length !== length || !v.every(Number.isFinite)) {
+        throw new RangeError(`${label} must be ${length} finite numbers, got ${String(value)}`);
+    }
+    return v.slice();
+}
+
+/**
+ * The library's ONE `userData.sampleHeight(x, z, ...)` contract, for a
+ * `width` x `depth` patch centred on its local origin: `fn`'s height
+ * inside the patch, and `null` outside it, for a non-finite argument or
+ * where `fn` has no finite height.  It never throws, so a prop just off
+ * the patch reads `null` instead of the edge's height.
+ */
+export function boundedSampler(width, depth, fn) {
+    return (x, z, ...rest) => {
+        if (!(Math.abs(x) <= width / 2 && Math.abs(z) <= depth / 2)) return null;
+        if (!rest.every((v) => v === undefined || Number.isFinite(v))) return null;
+        const y = fn(x, z, ...rest);
+        return Number.isFinite(y) ? y : null;
+    };
 }
 
 /**

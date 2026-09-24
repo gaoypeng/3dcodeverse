@@ -15,7 +15,7 @@
  * reconstruction or external textures are required.
  */
 import * as THREE from 'three';
-import { makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe, readWind } from './shader.js';
+import { makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe, option, readWind, vector } from './shader.js';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { bakeFbm3, dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
 
@@ -30,14 +30,6 @@ const smooth = (a, b, x) => {
   const t = clamp((x - a) / (b - a));
   return t * t * (3 - 2 * t);
 };
-
-function vector(value, fallback, length, label) {
-  const values = value?.toArray ? value.toArray() : value ?? fallback;
-  if (!Array.isArray(values) || values.length !== length || !values.every(Number.isFinite)) {
-    throw new RangeError(`makeCloudVolume: ${label} must contain ${length} finite numbers`);
-  }
-  return values;
-}
 
 function densityTexture(seed) {
   const random = mulberry32(seed);
@@ -163,12 +155,12 @@ float cloudSunDepth(vec3 position, float jitter) {
 `;
 
 /**
- * size: local [x,y,z] metres (default [600,180,360]), seed: integer,
+ * size: local [x,y,z] metres (default [600,180,360]), seed (19),
  * coverage: 0..1 (.55), density: extinction / metre (.028),
  * quality: 'low'|'balanced'|'high', wind: local [x,z] metres/second,
  * advecting density detail through a bounded stationary form. Move the Mesh
  * itself for whole-cloud travel; the cloud scaffold never wraps across its box.
- * sunDirection: WORLD direction toward the sun, sunColor and skyColor:
+ * sunDir: WORLD direction toward the sun (`sunDirection` is read too), sunColor and skyColor:
  * linear-light THREE.Color or sRGB hex. sunIntensity scales the strongest
  * visible directional light (1.25 at the standard 5.4-unit daylight rig).
  * Ambient/hemisphere lights and scene.environment supply the sky contribution.
@@ -178,23 +170,22 @@ float cloudSunDepth(vec3 position, float jitter) {
  * the GPU before optical extinction. setSunDirection() supports moving light.
  */
 export function makeCloudVolume(opts = {}) {
-  const size = vector(opts.size, [600, 180, 360], 3, 'size');
+  const size = vector(opts.size, [600, 180, 360], 3, 'makeCloudVolume: size');
+  if (size.some((v) => v <= 0 || v > 100000)) throw new RangeError('makeCloudVolume: size must be in (0, 100000] metres');
   const w = readWind(opts.wind, [2.5, .4], 'makeCloudVolume wind'), wind = [w.x, w.z];
-  const direction = vector(opts.sunDirection, [-.5, .7, -.3], 3, 'sunDirection');
-  const seed = opts.seed ?? 19;
-  const coverage = opts.coverage ?? .55;
-  const extinction = opts.density ?? .028;
-  const detail = opts.detail ?? .65;
-  const intensity = opts.sunIntensity ?? 1.25;
+  const sunOption = opts.sunDir ?? opts.sunDirection;
+  const direction = vector(sunOption, [-.5, .7, -.3], 3, 'makeCloudVolume: sunDir');
+  if (Math.hypot(...direction) < 1e-9) throw new RangeError('makeCloudVolume: sunDir must be nonzero');
+  const seed = option(opts.seed, 19, 'makeCloudVolume: seed');
+  const coverage = option(opts.coverage, .55, 'makeCloudVolume: coverage', 0, 1);
+  const extinction = option(opts.density, .028, 'makeCloudVolume: density', 0, 10);
+  const detail = option(opts.detail, .65, 'makeCloudVolume: detail', 0, 1);
+  const intensity = option(opts.sunIntensity, 1.25, 'makeCloudVolume: sunIntensity', 0);
   const quality = opts.quality ?? 'balanced';
-  if (!Number.isSafeInteger(seed) || size.some((v) => v <= 0 || v > 100000) ||
-      ![coverage, extinction, intensity, detail].every(Number.isFinite) || coverage < 0 || coverage > 1 ||
-      extinction < 0 || extinction > 10 || intensity < 0 || detail < 0 || detail > 1 || !Object.hasOwn(TIERS, quality) || Math.hypot(...direction) < 1e-9) {
-    throw new RangeError('makeCloudVolume: invalid dimensions, seed, coverage, density, sun intensity or quality');
-  }
+  if (!Object.hasOwn(TIERS, quality)) throw new RangeError(`makeCloudVolume: quality must be one of ${Object.keys(TIERS)}`);
   const tier = TIERS[quality];
   const texture = densityTexture(seed);
-  let sunPinned = opts.sunDirection !== undefined;
+  let sunPinned = sunOption !== undefined && sunOption !== null;
   const sun = new THREE.Vector3(...direction).normalize();
   const sunTint = new THREE.Color(opts.sunColor ?? 0xfff3dc);
   const skyTint = new THREE.Color(opts.skyColor ?? 0x9eb9da);
@@ -294,7 +285,7 @@ export function makeCloudVolume(opts = {}) {
     material.uniforms.uTime.value = t;
   };
   mesh.userData.setSunDirection = (value) => {
-    const values = vector(value, null, 3, 'sunDirection');
+    const values = vector(value, null, 3, 'CloudVolume.setSunDirection');
     if (Math.hypot(...values) < 1e-9) throw new RangeError('CloudVolume: sunDirection must be nonzero');
     sun.fromArray(values).normalize();
     sunPinned = true;

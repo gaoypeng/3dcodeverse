@@ -27,7 +27,7 @@
 import * as THREE from 'three';
 import {mulberry32} from './noise.js';
 import {windOf} from './grass.js';
-import {patchStandard,shadowLike,tickShaders} from './shader.js';
+import {intOption,option,patchStandard,shadowLike,tickShaders} from './shader.js';
 import {patchLeafSSS} from './foliage_shade.js';
 import {attachDisposal,snapshotResources} from './lifecycle.js';
 
@@ -39,11 +39,6 @@ const SPECIES={
     primary:14,secondary:4,twigs:4,droop:.08,crownStart:.28},
   willow:{radius:.46,trunk:.029,bark:0x625c45,leaf:0x607742,leafSize:.17,width:.19,
     primary:11,secondary:5,twigs:5,droop:.30,crownStart:.32},
-};
-const finite=(value,fallback,min,max,name)=>{
-  const n=value===undefined?fallback:value;
-  if(!Number.isFinite(n)||n<min||n>max)throw new RangeError(`tree: ${name} must be finite in [${min}, ${max}]`);
-  return n;
 };
 const V=(x=0,y=0,z=0)=>new THREE.Vector3(x,y,z);
 
@@ -396,15 +391,14 @@ function leafMaterial(config,uniforms) {
 function build(opts,shrub) {
   const species=opts.species===undefined?'oak':opts.species;
   if(!Object.hasOwn(SPECIES,species))throw new RangeError('tree: species must be oak, birch or willow');
-  const spec=SPECIES[species],height=finite(opts.height,shrub?2.2:6,.3,35,'height');
-  const leafSegments=finite(opts.leafSegments,species==='birch'?16:species==='willow'?10:12,3,32,'leafSegments');
-  if(!Number.isInteger(leafSegments))throw new RangeError('tree: leafSegments must be an integer');
-  const config={species,spec,height,shrub,seed:finite(opts.seed,7,-2147483648,2147483647,'seed'),
-    radius:finite(opts.crownRadius,height*(shrub?.58:spec.radius),.1,25,'crownRadius'),
-    leafDensity:finite(opts.leafDensity,1,0,4,'leafDensity'),
-    leafSize:finite(opts.leafSize,spec.leafSize,.025,.5,'leafSize'),
-    maxLeaves:Math.floor(finite(opts.maxLeaves,24000,0,100000,'maxLeaves')),
-    autumn:finite(opts.autumn,0,0,1,'autumn'),
+  const spec=SPECIES[species],height=option(opts.height, shrub?2.2:6, 'tree: height', .3, 35);
+  const leafSegments=intOption(opts.leafSegments, species==='birch'?16:species==='willow'?10:12, 'tree: leafSegments', 3, 32);
+  const config={species,spec,height,shrub,seed:option(opts.seed, 7, 'tree: seed'),
+    radius:option(opts.crownRadius, height*(shrub?.58:spec.radius), 'tree: crownRadius', .1, 25),
+    leafDensity:option(opts.leafDensity, 1, 'tree: leafDensity', 0, 4),
+    leafSize:option(opts.leafSize, spec.leafSize, 'tree: leafSize', .025, .5),
+    maxLeaves:Math.floor(option(opts.maxLeaves, 24000, 'tree: maxLeaves', 0, 100000)),
+    autumn:option(opts.autumn, 0, 'tree: autumn', 0, 1),
     barkColor:opts.barkColor??spec.bark,leafColor:opts.leafColor??spec.leaf};
   const wind=windOf(opts.wind),random=mulberry32(config.seed);
   if(![wind.amp,wind.speed,wind.dir.x,wind.dir.y].every(Number.isFinite))throw new RangeError('tree: wind must be finite');
@@ -457,10 +451,10 @@ function build(opts,shrub) {
   group.userData.leafCount=leaves.length;
   group.userData.branches=branches.map(branch=>({id:branch.id,parent:branch.parent,at:branch.at,order:branch.order,
     radius:branch.radius,start:branch.curve.v0.clone(),end:branch.curve.v3.clone(),
-    sample:(u)=>pointOn(branch,finite(u,0,0,1,'branch parameter'))}));
+    sample:(u)=>pointOn(branch,option(u, 0, 'tree: branch parameter', 0, 1))}));
   group.userData.leafAttachments=leaves.map(leaf=>({branch:leaf.branch,at:leaf.at,anchor:leaf.anchor.clone()}));
   group.userData.sampleWind=(point,t=0)=>{
-    finite(t,0,-1e9,1e9,'time');const p=point?.isVector3?point.clone():Array.isArray(point)&&point.length===3?V(...point):null;
+    option(t, 0, 'tree: time', -1e9, 1e9);const p=point?.isVector3?point.clone():Array.isArray(point)&&point.length===3?V(...point):null;
     if(!p||![p.x,p.y,p.z].every(Number.isFinite))throw new RangeError('tree: sampleWind needs a finite local Vector3 or [x,y,z]');
     const u=uniforms,b=THREE.MathUtils.clamp(p.y/height,0,1),time=t*wind.speed,phase=u.uTreePhase.value;
     const main=(.62*Math.sin(time+phase)+.28*Math.sin(time*.53+phase*1.7))*(.65+.35*Math.sin(time*.24+phase));
@@ -470,7 +464,7 @@ function build(opts,shrub) {
     p.z+=(wind.dir.y*(main+twig)+wind.dir.x*side)*amp;
     return p;
   };
-  group.userData.update=group.userData.tick=(t=0)=>{finite(t,0,-1e9,1e9,'time');tickShaders(group,t);};
+  group.userData.update=group.userData.tick=(t=0)=>{option(t, 0, 'tree: time', -1e9, 1e9);tickShaders(group,t);};
   return attachDisposal(group,snapshotResources(group));
 }
 

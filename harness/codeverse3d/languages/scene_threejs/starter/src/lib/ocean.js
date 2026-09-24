@@ -16,17 +16,11 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32 } from './noise.js';
-import { GLSL_UTIL, makeLightProbe, planarCapture, readWind } from './shader.js';
+import { boundedSampler, GLSL_UTIL, makeLightProbe, option, planarCapture, readWind, vector } from './shader.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 
 const TAU = Math.PI * 2;
 const COUNT = 32;
-function finite(value, fallback, name, min, max = Infinity) {
-  const v = value === undefined ? fallback : value;
-  if (!Number.isFinite(v) || v < min || v > max)
-    throw new RangeError(`makeOceanSurface: ${name} must be ${min}..${max}`);
-  return v;
-}
 const waveGLSL = /* glsl */ `
 uniform float seaTime;
 uniform vec4 seaWaves[32];
@@ -268,7 +262,7 @@ void main() {
  * width/depth (metres); waveHeight (significant wave height Hs); wavelength (m);
  * windDirection [x,z]; waterDepth (m); choppiness [0,1]; foam [0,2]; seed;
  * segments [16,384] along the longest edge; reflectionSize [64,2048];
- * waterColor/shallowColor; optional sunDirection THREE.Vector3 or [x,y,z].
+ * waterColor/shallowColor; optional sunDir THREE.Vector3 or [x,y,z] (`sunDirection` is read too).
  * shoreline: {direction:[x,z],position,width}; water is on the positive side
  * of dot(localXZ,direction)-position. It softens waves and adds swash foam.
  * Return Group: .userData.update(t,dt), sampleHeight(x,z,t), sampleSurface(x,z,t),
@@ -277,18 +271,18 @@ void main() {
  */
 export function makeOceanSurface(opts = {}) {
   let disposed = false;
-  const width = finite(opts.width, 160, 'width', 1, 10000),
-    depth = finite(opts.depth, 160, 'depth', 1, 10000);
-  const height = finite(opts.waveHeight, 1.2, 'waveHeight', 0, 20);
-  const length = finite(opts.wavelength, 18, 'wavelength', 1, 500);
-  const waterDepth = finite(opts.waterDepth, 24, 'waterDepth', 0.1, 10000);
-  const chop = finite(opts.choppiness, 0.85, 'choppiness', 0, 1);
-  const foam = finite(opts.foam, 0.8, 'foam', 0, 2);
-  const segments = Math.round(finite(opts.segments, 160, 'segments', 16, 384));
+  const width = option(opts.width, 160, 'makeOceanSurface: width', 1, 10000),
+    depth = option(opts.depth, 160, 'makeOceanSurface: depth', 1, 10000);
+  const height = option(opts.waveHeight, 1.2, 'makeOceanSurface: waveHeight', 0, 20);
+  const length = option(opts.wavelength, 18, 'makeOceanSurface: wavelength', 1, 500);
+  const waterDepth = option(opts.waterDepth, 24, 'makeOceanSurface: waterDepth', 0.1, 10000);
+  const chop = option(opts.choppiness, 0.85, 'makeOceanSurface: choppiness', 0, 1);
+  const foam = option(opts.foam, 0.8, 'makeOceanSurface: foam', 0, 2);
+  const segments = Math.round(option(opts.segments, 160, 'makeOceanSurface: segments', 16, 384));
   const reflectionSize = Math.round(
-    finite(opts.reflectionSize, 512, 'reflectionSize', 64, 2048)
+    option(opts.reflectionSize, 512, 'makeOceanSurface: reflectionSize', 64, 2048)
   );
-  const seed = finite(opts.seed, 42, 'seed', 0, 4294967295);
+  const seed = option(opts.seed, 42, 'makeOceanSurface: seed');
   const wind = readWind(opts.windDirection, [1, 0.2], 'makeOceanSurface windDirection');
   if (Math.hypot(wind.x, wind.z) < 1e-8)
     throw new RangeError('makeOceanSurface: windDirection must be a nonzero [x,z]');
@@ -339,10 +333,10 @@ export function makeOceanSurface(opts = {}) {
     shore = new THREE.Vector4(
       direction[0] / norm,
       direction[1] / norm,
-      finite(spec.position, 0, 'shoreline.position', -10000, 10000),
+      option(spec.position, 0, 'makeOceanSurface: shoreline.position', -10000, 10000),
       1
     );
-    shoreWidth = finite(spec.width, 5, 'shoreline.width', 0.1, 500);
+    shoreWidth = option(spec.width, 5, 'makeOceanSurface: shoreline.width', 0.1, 500);
   }
   // Bound BOTH the wave derivative and the changing shoaling envelope. A
   // narrow beach under large waves otherwise folds horizontal coordinates,
@@ -350,21 +344,10 @@ export function makeOceanSurface(opts = {}) {
   const shoreGradient = shore.w ? 1.5 / (shoreWidth * 1.7 + 0.5) : 0;
   const derivativeBound = steepness + waves.reduce((sum, w) => sum + w.z, 0) * shoreGradient;
   const chopScale = chop * Math.min(1.1, 0.88 / Math.max(derivativeBound, 1e-8));
-  let sun = new THREE.Vector3(0.6, 0.7, 0.3).normalize();
-  if (opts.sunDirection !== undefined) {
-    if (
-      !opts.sunDirection?.isVector3 &&
-      (!Array.isArray(opts.sunDirection) || opts.sunDirection.length !== 3)
-    ) {
-      throw new RangeError('makeOceanSurface: sunDirection must be a Vector3 or [x,y,z]');
-    }
-    sun = opts.sunDirection.isVector3
-      ? opts.sunDirection.clone()
-      : new THREE.Vector3(...opts.sunDirection);
-    if (![sun.x, sun.y, sun.z].every(Number.isFinite) || sun.length() < 1e-8)
-      throw new RangeError('makeOceanSurface: invalid sunDirection');
-    sun.normalize();
-  }
+  const sunOption = opts.sunDir ?? opts.sunDirection;
+  const sun = new THREE.Vector3(...vector(sunOption, [0.6, 0.7, 0.3], 3, 'makeOceanSurface: sunDir'));
+  if (sun.length() < 1e-8) throw new RangeError('makeOceanSurface: sunDir must be nonzero');
+  sun.normalize();
   const uniforms = THREE.UniformsUtils.merge([
     THREE.UniformsLib.fog,
     THREE.UniformsLib.lights,
@@ -476,7 +459,7 @@ export function makeOceanSurface(opts = {}) {
     u.seaSunColor.value.setRGB(0, 0, 0);
     u.seaAmbient.value.copy(ambient).add(sky).multiplyScalar(1 / Math.PI);
     if (key) {
-      if (opts.sunDirection === undefined) u.seaSun.value.copy(sunDirection);
+      if (sunOption === undefined || sunOption === null) u.seaSun.value.copy(sunDirection);
       u.seaSunColor.value.copy(key.color);
       u.seaKey.value.copy(key.color).multiplyScalar(key.intensity / Math.PI);
     }
@@ -530,8 +513,8 @@ export function makeOceanSurface(opts = {}) {
     const dz = evaluate(qx, qz + 0.005, t).sub(evaluate(qx, qz - 0.005, t));
     return { position, normal: dz.cross(dx).normalize() };
   };
-  group.userData.sampleHeight = (x, z, t = time) =>
-    group.userData.sampleSurface(x, z, t).position.y;
+  group.userData.sampleHeight = boundedSampler(width, depth,
+    (x, z, t = time) => group.userData.sampleSurface(x, z, t).position.y);
   const owned = snapshotResources(group).add(sea.getRenderTarget());
   owned.add({ dispose() { disposed = true; } });
   attachDisposal(group, owned);
