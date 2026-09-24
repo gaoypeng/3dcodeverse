@@ -76,3 +76,20 @@ def test_live_timeout_and_memory_cap(tmp_ws, blender_bin) -> None:
     (tmp_ws.src / "model.py").write_text("import bpy\nimport numpy as np\nbpy.ops.mesh.primitive_cube_add(size=1)\nbig = np.ones((3_000_000_000,))\n")
     r = rt.build(tmp_ws, timeout_s=60)
     assert not r.ok and r.error_type == "MemoryError" and r.error_line == 4
+
+
+@pytest.mark.blender
+def test_live_selfcheck_skips_hidden_cutters(tmp_ws, blender_bin) -> None:
+    """Audit 2026-09-24 N6a: the skeleton's self-check measured a hidden boolean cutter
+    (`Cutter.001`, reaching z = -0.5) and failed a build whose GLB stands exactly on z = 0."""
+    from codeverse3d.languages.blender import selfcheck_source
+
+    (tmp_ws.src / "model.py").write_text(
+        "import bpy\nfrom mathutils import Vector\n" + selfcheck_source() +
+        "bpy.ops.mesh.primitive_cube_add(size=1, location=(0, 0, 0.5)); body = bpy.context.object; body.name = 'Body'\n"
+        "bpy.ops.mesh.primitive_cylinder_add(radius=0.2, depth=2, location=(0, 0, 0.5)); cut = bpy.context.object\n"
+        "cut.name = 'Cutter.001'; body.modifiers.new('Hole', 'BOOLEAN').object = cut\n"
+        "cut.hide_set(True); cut.hide_render = True\n_selfcheck()\n")
+    r = BlenderRuntime(blender=blender_bin).build(tmp_ws, timeout_s=120)
+    assert r.ok, (r.error_type, r.error_message)
+    assert "[selfcheck] 1 mesh objects, z_min=0.0000" in r.stdout_tail

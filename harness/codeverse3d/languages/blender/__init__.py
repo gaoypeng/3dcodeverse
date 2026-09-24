@@ -494,9 +494,12 @@ def add_box(name, center, extents, material=None, bevel=0.0):
 
 SELFCHECK = '''
 def _selfcheck():
-    """What the harness checks first: meshes exist, no auto-suffixed names, stands on z=0."""
+    """What the harness checks first: meshes exist, no auto-suffixed names, stands on z=0 —
+    over the meshes that export (a hidden boolean cutter does not)."""
     bpy.context.view_layer.update()
-    meshes = [o for o in bpy.data.objects if o.type == "MESH"]
+    shown = set(bpy.context.view_layer.objects.keys())
+    meshes = [o for o in bpy.data.objects if o.type == "MESH" and o.name in shown
+              and not (o.hide_render or o.hide_viewport or o.hide_get())]
     assert meshes, "no mesh objects built"
     for o in meshes:
         assert "." not in o.name, f"auto-suffixed name {o.name!r}: give every instance its own name"

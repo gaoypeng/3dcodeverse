@@ -187,7 +187,7 @@ async function main() {
   if (tickPresent) delete group.userData.tick; // functions cannot be serialised into glTF extras
 
   const offset = placement(THREE, group);
-  if (offset) warnings.push(`object is off ground/centre: it needs a translation of ${JSON.stringify(offset)} m to stand on y=0 centred on the Y axis; exported as authored — fix the source (the contract gate reports this too)`);
+  if (offset) warnings.push(`object is off ground/centre: it needs a translation of ${JSON.stringify(offset)} m to stand on y=0 centred on the Y axis; exported as authored — fix the source`);
   stripTextures(group, warnings);
 
   // what only the export knows; the object's measurements are read off the GLB (spatial/measure.py)

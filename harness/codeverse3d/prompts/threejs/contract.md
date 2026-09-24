@@ -19,7 +19,7 @@ The harness loads `src/object.js` in node, calls `build(THREE)`, and exports
 * Lowest point at y = 0, footprint centred on the Y axis.  Real-world dimensions.
   The harness exports the object **exactly where you put it** (no automatic drop to
   the ground or re-centring): an off-ground / off-centre build only gets a build
-  warning plus a contract-gate finding, so place every part at its plan centre.
+  warning, so place every part at its plan centre.
 
 ## Naming
 * Part Group: `g.name = "<PartName>"` — PascalCase exactly as the plan (`SeatCushion`);

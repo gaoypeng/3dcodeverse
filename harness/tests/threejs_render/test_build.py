@@ -87,7 +87,8 @@ def test_build_keeps_source_placement_and_warns(stool_ws: Workspace):
     assert res.ok and res.census["selfcheck_ran"] is True
     off = res.census["placement_offset"]
     assert off is not None and abs(off[0] + 0.5) < 1e-4 and abs(off[1] + 0.2) < 1e-4
-    assert any("off ground/centre" in w and "exported as authored" in w for w in res.census["warnings"])
+    warn = next(w for w in res.census["warnings"] if "off ground/centre" in w)
+    assert "exported as authored" in warn and "contract gate" not in warn  # N6b: the gate's tolerance differs
     lo, _ = trimesh.load(res.glb_path, force="scene").bounds
     assert abs(lo[1] - 0.2) < 2e-3 and abs(lo[0] - 0.33) < 2e-3
 
