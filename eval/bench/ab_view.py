@@ -30,7 +30,7 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
 from bench._jsonl import latest  # noqa: E402
-from bench.stats import mean_ci  # noqa: E402
+from bench.stats import MIN_PAIRS, decide  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.record.record import load_record  # noqa: E402
 from codeverse3d.workspace import Workspace  # noqa: E402
@@ -97,15 +97,6 @@ def load_run(run_dir: Path, arm: str) -> Run:
     return r
 
 
-#: scored pairs below which this function will not name a winner, whatever the numbers
-#: say.  A reference harness on the same model tier measured a run-to-run score sd of
-#: 0.159 against a re-judge sd of 0.013, giving a minimum detectable effect of 0.081 at
-#: n=30 — and it published, then retracted, several prompt findings because a promising
-#: first replicate turned out to be noise pointing the right way (interpenetration −0.40
-#: in replicate 1, +0.03 in replicate 2, pooled p=0.405).
-MIN_PAIRS = 3
-
-
 def paired_by_brief(a: list[Run], b: list[Run]) -> dict[str, tuple[Run | None, Run | None]]:
     """``{brief: (A run, B run)}`` — the pairing the page shows and the verdict reads.  A
     brief run twice in one arm (a redo) is its LAST run, the rule of every bench journal."""
@@ -114,22 +105,24 @@ def paired_by_brief(a: list[Run], b: list[Run]) -> dict[str, tuple[Run | None, R
 
 
 def verdict(a: list[Run], b: list[Run]) -> tuple[str, str]:
-    """(headline, why): B − A per paired brief and the 95 % t-interval of its mean
-    (``bench/stats.py``) — no winner unless that interval excludes zero."""
-    deltas = [rb.picked - ra.picked for ra, rb in paired_by_brief(a, b).values()
-              if ra is not None and rb is not None and ra.picked is not None and rb.picked is not None]
-    if len(deltas) < MIN_PAIRS:
+    """(headline, why): B − A per paired brief, decided by ``bench.stats.decide`` — the one paired
+    rule (N84): no winner unless the 95 % t-interval excludes zero over enough pairs."""
+    deltas = {k: rb.picked - ra.picked for k, (ra, rb) in paired_by_brief(a, b).items()
+              if ra is not None and rb is not None and ra.picked is not None and rb.picked is not None}
+    d = decide(deltas)
+    if d.too_few:
         scored_a, scored_b = (sum(x.picked is not None for x in rs) for rs in (a, b))
         return ("Inconclusive — not enough scored pairs",
                 f"{len(deltas)} brief(s) scored in both arms (arm A scored {scored_a} of {len(a)} runs, arm B "
                 f"{scored_b} of {len(b)}); this needs at least {MIN_PAIRS} before a winner is named. A run that "
                 "died before it scored is not an observation about the arm — it is a missing one.")
-    ci = mean_ci(deltas)
-    if not ci.separated:
+    ci = d.ci
+    assert ci is not None and ci.half is not None
+    if d.outcome == "inconclusive":
         return (f"Inconclusive — Δ {ci.mean:+.3f} ± {ci.half:.3f} includes zero",
                 f"B − A over {ci.n} paired briefs: the 95 % t-interval of the mean includes zero — the pairs "
                 "disagree with each other by more than the mean moved, so this is not evidence.")
-    return (f"B {'wins' if ci.mean > 0 else 'loses'} by {ci.mean:+.3f} ± {ci.half:.3f}",
+    return (f"B {'wins' if d.outcome == 'better' else 'loses'} by {ci.mean:+.3f} ± {ci.half:.3f}",
             f"B − A over {ci.n} paired briefs, 95 % t-interval. Worth a confirming replicate before it is believed.")
 
 

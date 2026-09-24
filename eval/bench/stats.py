@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import math
 import statistics
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 # two-sided 97.5 % Student-t quantiles by degrees of freedom (df 1..30, then 40/60/120, ∞);
 # a table, not scipy: the [urdf] extra is optional and this must run on a [dev] install
@@ -58,6 +59,52 @@ def mean_ci(xs: Sequence[float]) -> MeanCI:
     sd = statistics.stdev(xs)
     se = sd / math.sqrt(len(xs))
     return MeanCI(n=len(xs), mean=mean, sd=sd, se=se, half=t975(len(xs) - 1) * se)
+
+
+#: paired deltas below which no report names a winner, whatever the numbers say.  A reference
+#: harness on the same model tier measured a run-to-run score sd of 0.159 against a re-judge sd of
+#: 0.013 and published, then retracted, several findings because a promising first replicate was
+#: noise pointing the right way (interpenetration -0.40 in replicate 1, +0.03 in replicate 2).
+MIN_PAIRS = 3
+#: a paired delta at or below this is a regression on that prompt.  Wider than the fixed judge's own
+#: sample noise (n_samples 2 on pro, ~±0.02), so one unlucky verdict is not a regression but a real
+#: loss on one prompt is.
+REGRESSION_DELTA = -0.03
+
+
+@dataclass(frozen=True)
+class Decision:
+    """One paired comparison, decided: ``better`` / ``worse`` (B − A) or ``inconclusive``."""
+
+    outcome: Literal["better", "worse", "inconclusive"]
+    reason: str
+    ci: MeanCI | None
+    regressions: tuple[str, ...] = ()
+
+    @property
+    def too_few(self) -> bool:
+        return self.ci is None
+
+
+def decide(deltas: Mapping[str, float], *, veto_regressions: bool = False) -> Decision:
+    """THE rule for "is B better than A?" over paired deltas (``key`` → B − A), used by the A/B
+    summary (``_ab_report``), the harness-vs-one-shot table (``paired_compare``) and the blind A/B
+    page (``ab_view``) — N84: on ``[0.25, 0.01, 0.00, 0.02]`` the three said keep / unsupported /
+    inconclusive.  Better or worse only when the 95 % t-interval excludes zero over at least
+    :data:`MIN_PAIRS` pairs.  ``veto_regressions`` is the A/B rig's extra condition on a switch it
+    would keep: a better mean never outvotes a prompt at or below :data:`REGRESSION_DELTA`."""
+    if len(deltas) < MIN_PAIRS:
+        return Decision("inconclusive", f"{len(deltas)} paired prompt(s) — at least {MIN_PAIRS} are needed", None)
+    ci = mean_ci(list(deltas.values()))
+    regs = tuple(k for k, d in deltas.items() if d <= REGRESSION_DELTA)
+    band = f"mean delta {ci.mean:+.3f} ± {ci.half:.3f} (95 % t-interval, n={ci.n})"
+    if not ci.separated:
+        return Decision("inconclusive", f"{band} includes zero", ci, regs)
+    if ci.mean < 0:
+        return Decision("worse", f"{band} excludes zero", ci, regs)
+    if veto_regressions and regs:
+        return Decision("inconclusive", f"{band} excludes zero, but {len(regs)} regression(s): {', '.join(regs)}", ci, regs)
+    return Decision("better", f"{band} excludes zero and no prompt regressed", ci, regs)
 
 
 def n_to_resolve(sd: float, width: float) -> int:

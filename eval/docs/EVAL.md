@@ -355,12 +355,18 @@ Rules that follow from it:
 
 `bench/ab_plan.py` runs one switch as control-vs-variant, paired per prompt, both arms
 launched together so the weather matches, both scored by the same fixed judge.  The
-verdict rule is blunt on purpose (`bench/_ab_report.verdict_of`, stated once):
+verdict is `bench/stats.decide`, the one paired rule of every report (owner, 2026-09-24, N84):
 
-> keep iff mean paired delta ≥ +0.02 **and** no prompt at ≤ −0.03; revert iff mean ≤ −0.02
-> **or** ≥ 2 such prompts; else inconclusive.  A prompt counts only when BOTH arms scored.
+> keep iff the 95 % t-interval of the mean paired delta excludes zero above it, over at least 3
+> pairs, **and** no prompt is at ≤ −0.03 (the A/B rig's regression veto); revert iff it excludes
+> zero below it; else inconclusive.  A prompt counts only when BOTH arms scored.
+> `paired_compare` says better / worse / inconclusive and `ab_view` B wins / loses / Inconclusive
+> by the same rule (without the veto).
 
-**That rule is a screen, not a proof, and the numbers say by how much.**  Measured
+Until 2026-09-24 the A/B rule was a threshold — keep iff mean ≥ +0.02 and no regression; revert
+iff mean ≤ −0.02 or ≥ 2 regressions — and on `[0.25, 0.01, 0.00, 0.02]` it said keep where
+`paired_compare` said unsupported and `ab_view` inconclusive.  Summaries written before then carry
+the old word.  **That threshold rule was a screen, not a proof, and the numbers say by how much.**  Measured
 2026-08-24 with two A/A runs — arms identical by construction — on the *same* prompt
 `ctrl_med_dining_chair` at rounds 1, `gemini-cli:gemini-3.6-flash`, fixed judge
 `gemini-3.1-pro-preview` n=2:

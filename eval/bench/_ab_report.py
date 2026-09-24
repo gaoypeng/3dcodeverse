@@ -7,7 +7,7 @@ fixed judge — that is the whole point of the rig.  Anything that breaks the pa
 the decision instead of leaning it: a missing arm is a missing measurement, not a
 zero (``docs/EVAL.md`` §7).
 
-The verdict rule is deliberately blunt and stated once, in :func:`verdict_of`, so a
+The verdict is ``bench.stats.decide`` — the one rule every paired report uses (N84) — so a
 report can never be argued into "keep" by hand.
 """
 
@@ -22,25 +22,18 @@ from pydantic import BaseModel, Field
 
 from bench._compare_report import CellResult, arm_stats
 from bench._jsonl import latest
-from bench.stats import mean_ci, n_to_resolve, sign_test
+from bench.stats import REGRESSION_DELTA, decide, n_to_resolve, sign_test
 
 CONTROL = "control"
 VARIANT = "variant"
 ARMS = (CONTROL, VARIANT)
 
-#: a paired delta at or below this is a regression on that prompt.  Wider than the
-#: fixed judge's own sample noise (n_samples 2 on pro, ~±0.02), so one unlucky verdict
-#: is not a regression but a real loss on one prompt is.
-REGRESSION_DELTA = -0.03
-#: mean paired delta needed to call the change a win / a loss (symmetric)
+#: the effect a battery should be able to resolve: ``n_for_power`` is the pairs this spread needs
+#: before the t-interval fits inside it
 KEEP_DELTA = 0.02
-REVERT_DELTA = -0.02
-#: this many regressing prompts is a revert even when the mean looks fine
-REVERT_REGRESSIONS = 2
-# The rule above is the protocol and no report can argue itself out of it, but alone it is
-# dangerously confident: two A/A runs of one prompt printed "keep" (+0.344) and "revert"
-# (-0.100) from identical code (docs/EVAL.md §8).  So every summary states the paired 95 %
-# t-interval and the sign test beside it (bench/stats.py) — reported, never enforced.
+# Until 2026-09-24 the verdict was its own threshold rule (keep iff mean >= +0.02 and no regression),
+# and two A/A runs of one prompt printed "keep" (+0.344) and "revert" (-0.100) from identical code
+# (docs/EVAL.md §8).  It is now ``stats.decide``: keep only when the interval excludes zero.
 
 
 class PairOutcome(BaseModel):
@@ -79,7 +72,7 @@ class Verdict(BaseModel):
         if self.n_pairs == 0:
             return ""
         if self.se_delta is None:
-            return ("one pair cannot separate a change from run-to-run noise: two A/A runs of this rig "
+            return (f"{self.n_pairs} pair(s) cannot separate a change from run-to-run noise: two A/A runs of this rig "
                     "(identical arms, same prompt) measured +0.344 and -0.100 — 'keep' and 'revert' from "
                     "nothing at all.")
         if self.separated:
@@ -123,31 +116,24 @@ def pair_up(rows: list[CellResult], prompt_order: list[tuple[str, str]] | None =
 
 
 def verdict_of(pairs: list[PairOutcome]) -> Verdict:
-    """keep iff mean delta >= +0.02 AND no regression; revert iff mean delta <= -0.02
-    OR >= 2 regressions; otherwise inconclusive.  No pairs is inconclusive, never keep."""
-    deltas = [p.delta for p in pairs if p.paired and p.delta is not None]
-    regressions = [p.prompt_id for p in pairs if p.regression]
+    """``stats.decide`` over the paired deltas: keep = better, revert = worse, else inconclusive.
+    No pairs is inconclusive, never keep."""
+    deltas = {p.prompt_id: p.delta for p in pairs if p.paired and p.delta is not None}
     if not deltas:
         return Verdict(decision="inconclusive", n_pairs=0, mean_delta=None, median_delta=None,
                        reason="no prompt has both arms scored")
-    mean, median = round(statistics.fmean(deltas), 4), round(statistics.median(deltas), 4)
+    d = decide(deltas, veto_regressions=True)
+    xs = list(deltas.values())
     # the SIGN is far cheaper to move than the mean: 7 of 8 one way is p = 0.07, a bar an
     # eight-prompt battery clears where a ±0.02 mean at a paired sd near 0.23 never will
-    ci = mean_ci(deltas)
-    up, down, sign_p = sign_test(deltas)
-    v = Verdict(decision="inconclusive", n_pairs=len(deltas), mean_delta=mean, median_delta=median,
-                regressions=regressions, n_up=up, n_down=down, sign_p=sign_p, separated=ci.separated)
-    if ci.sd is not None:  # one pair has no spread to state
-        v.sd_delta, v.se_delta, v.ci_half = round(ci.sd, 4), round(ci.se, 4), round(ci.half, 4)
-        v.n_for_power = n_to_resolve(ci.sd, KEEP_DELTA)
-    if mean <= REVERT_DELTA or len(regressions) >= REVERT_REGRESSIONS:
-        v.decision, v.reason = "revert", (f"mean delta {mean:+.3f} <= {REVERT_DELTA:+.2f}" if mean <= REVERT_DELTA
-                                          else f"{len(regressions)} regressions (>= {REVERT_REGRESSIONS})")
-    elif mean >= KEEP_DELTA and not regressions:
-        v.decision, v.reason = "keep", f"mean delta {mean:+.3f} >= {KEEP_DELTA:+.2f} and no regression"
-    else:
-        v.reason = (f"mean delta {mean:+.3f} inside ({REVERT_DELTA:+.2f}, {KEEP_DELTA:+.2f})" if not regressions
-                    else f"mean delta {mean:+.3f} but {len(regressions)} regression(s): {', '.join(regressions)}")
+    up, down, sign_p = sign_test(xs)
+    v = Verdict(decision={"better": "keep", "worse": "revert"}.get(d.outcome, "inconclusive"), n_pairs=len(xs),
+                mean_delta=round(statistics.fmean(xs), 4), median_delta=round(statistics.median(xs), 4),
+                regressions=[p.prompt_id for p in pairs if p.regression], reason=d.reason,
+                n_up=up, n_down=down, sign_p=sign_p, separated=d.ci is not None and d.ci.separated)
+    if d.ci is not None and d.ci.sd is not None:
+        v.sd_delta, v.se_delta, v.ci_half = round(d.ci.sd, 4), round(d.ci.se, 4), round(d.ci.half, 4)
+        v.n_for_power = n_to_resolve(d.ci.sd, KEEP_DELTA)
     return v
 
 
@@ -208,8 +194,9 @@ def render_summary(pairs: list[PairOutcome], rows: list[CellResult], *, title: s
     dropped = sum(a.infra_failed for a in arms)
     lines += ["", f"n_infra_failed: {dropped}" + (" — re-run with `--redo-status infra_failed` before trusting the verdict"
                                                  if dropped else ""), "",
-              "Rule: keep iff mean delta >= +0.02 and no regression; revert iff mean delta <= -0.02 or >= 2 regressions; "
-              "else inconclusive.  A prompt counts only when BOTH arms were scored by the fixed judge.", ""]
+              "Rule (bench/stats.decide): keep iff the 95 % t-interval of the mean delta excludes zero above it and no "
+              "prompt regressed; revert iff it excludes zero below it; else inconclusive.  A prompt counts only when "
+              "BOTH arms were scored by the fixed judge.", ""]
     return "\n".join(lines)
 
 
@@ -224,7 +211,6 @@ def write_report(out: Path, rows: list[CellResult], prompt_order: list[tuple[str
     return v
 
 
-__all__ = ["ARMS", "CONTROL", "KEEP_DELTA", "REGRESSION_DELTA", "REVERT_DELTA",
-           "REVERT_REGRESSIONS", "VARIANT",
+__all__ = ["ARMS", "CONTROL", "KEEP_DELTA", "REGRESSION_DELTA", "VARIANT",
            "PairOutcome", "Verdict", "pair_up", "render_summary", "verdict_of",
            "write_report"]

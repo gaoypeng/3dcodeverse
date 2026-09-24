@@ -41,17 +41,17 @@ def test_paired_stats_ci_sign_test_and_drops():
     assert st.mean_delta == round((0.22 + 0.2 + 0.3 + 0.05 - 0.05 + 0.35) / 6, 4)
     assert st.ci95_low is not None and st.ci95_high is not None and st.ci95_low < st.mean_delta < st.ci95_high
     assert st.ci95_high - st.mean_delta == round(t975(5) * st.se_delta, 4) or abs((st.ci95_high - st.mean_delta) - t975(5) * st.se_delta) < 1e-3
-    assert st.verdict == "supported" and st.pass_rate_harness == round(4 / 6, 4) and st.pass_rate_oneshot == 0.0
+    assert st.verdict == "better" and st.pass_rate_harness == round(4 / 6, 4) and st.pass_rate_oneshot == 0.0
 
 
-def test_interval_crossing_zero_is_unsupported_and_tiers_split():
+def test_interval_crossing_zero_is_inconclusive_and_tiers_split():
     rows = []
     for i, (h, o, t) in enumerate([(0.8, 0.7, "easy"), (0.6, 0.7, "easy"), (0.9, 0.5, "hard"), (0.5, 0.8, "hard")]):
         rows += [_cell(f"p{i}", HA, h, tier=t), _cell(f"p{i}", OA, o, tier=t)]
     stats = analyse(rows)
     by = {(s.tier): s for s in stats}
     assert set(by) == {"all", "easy", "hard"}
-    assert by["all"].n == 4 and by["all"].verdict == "unsupported" and by["all"].ci95_low < 0 < by["all"].ci95_high
+    assert by["all"].n == 4 and by["all"].verdict == "inconclusive" and by["all"].ci95_low < 0 < by["all"].ci95_high
     assert by["easy"].n == 2 and by["hard"].n == 2 and by["hard"].wins == 1 and by["hard"].losses == 1
 
 

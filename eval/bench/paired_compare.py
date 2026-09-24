@@ -3,8 +3,9 @@
 ``bench/_compare_report.py`` tabulates arms; this answers the paper's question — *is the
 harness lift separated from noise?* — the way the retired compare report framed it: every
 comparison carries its paired standard error, a 95 % confidence interval and the exact
-two-sided sign test, and a comparison whose interval crosses zero is labelled
-``unsupported`` however good the mean looks.
+two-sided sign test, and the verdict is ``bench.stats.decide`` — the one paired rule every
+report uses (N84): ``better`` / ``worse`` only when the interval excludes zero, else
+``inconclusive`` however good the mean looks.
 
     python bench/paired_compare.py bench/out/compare_v4            # writes paired.md + paired.json
 
@@ -36,7 +37,7 @@ for _p in (REPO, Path(__file__).resolve().parents[1]):      # its codeverse3d + 
 from bench._ab_report import _fmt as _f  # noqa: E402
 from bench._compare_report import CellResult  # noqa: E402
 from bench._jsonl import latest, read_jsonl  # noqa: E402
-from bench.stats import mean_ci, sign_test  # noqa: E402
+from bench.stats import MIN_PAIRS, decide, mean_ci, sign_test  # noqa: E402
 
 
 class PairedStats(BaseModel):
@@ -65,7 +66,7 @@ class PairedStats(BaseModel):
     pass_rate_oneshot: float | None = None
     build_ok_harness: float | None = None
     build_ok_oneshot: float | None = None
-    verdict: str = Field(default="", description="supported | unsupported | too few pairs")
+    verdict: str = Field(default="", description="harness better | worse | inconclusive (stats.decide) | too few pairs")
     deltas: dict[str, float] = Field(default_factory=dict, description="prompt id → harness − one-shot")
 
 
@@ -131,12 +132,11 @@ def paired(cells: dict[tuple[str, str], CellResult], harness_arm: str, oneshot_a
     st.pass_rate_oneshot = round(sum(op) / len(op), 4) if op else None
     st.build_ok_harness = round(sum(hb) / st.n, 4)
     st.build_ok_oneshot = round(sum(ob) / st.n, 4)
-    if ci.half is None:
-        st.verdict = "too few pairs"
-        return st
-    st.sd_delta, st.se_delta = round(ci.sd, 4), round(ci.se, 4)
-    st.ci95_low, st.ci95_high = round(st.mean_delta - ci.half, 4), round(st.mean_delta + ci.half, 4)
-    st.verdict = "supported" if ci.separated else "unsupported"
+    d = decide(st.deltas)
+    st.verdict = "too few pairs" if d.too_few else d.outcome
+    if ci.half is not None:
+        st.sd_delta, st.se_delta = round(ci.sd, 4), round(ci.se, 4)
+        st.ci95_low, st.ci95_high = round(st.mean_delta - ci.half, 4), round(st.mean_delta + ci.half, 4)
     return st
 
 
@@ -206,7 +206,8 @@ def render_markdown(stats: list[PairedStats], title: str, gates: list[ArmGateSta
     lines = [f"# paired harness − one-shot — {title}", "",
              "Mean Δ with its paired 95 % t-interval and the exact two-sided sign test over prompts scored on BOTH arms; "
              "`infra` = pairs dropped to a provider outage, `unscored` = pairs dropped to a cell with no score for any other reason. "
-             "A comparison is **supported** only when the interval excludes zero.", "",
+             "The verdict (`bench/stats.decide`) is **better** / **worse** only when the interval excludes zero over at least "
+             f"{MIN_PAIRS} pairs.", "",
              "`degraded` = pairs whose harness cell is storm-degraded (kept in every row except `all −degraded`, where they are excluded).", "",
              "| harness arm | one-shot arm | tier | n | infra | unscored | degraded | harness | one-shot | Δ | 95 % CI | W/L/T | sign p | pass h/o | build h/o | verdict |",
              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
@@ -230,7 +231,7 @@ def rows_from_bench_run(out_dir: Path, arm: str) -> list[CellResult]:
     ``compare_backends`` writes one journal with an ``arm`` column; ``bench run`` writes a
     directory per arm with ``id`` / ``score_picked`` (``score_final`` before 2026-09-22).  Two of those directories are a paired
     comparison — same prompts, one thing different — and this lets the statistics below
-    (paired CI, exact sign test, the "unsupported when the interval crosses zero" rule) be
+    (paired CI, exact sign test, the one ``stats.decide`` rule) be
     the same for both shapes rather than recomputed by hand.
     """
     rows: list[CellResult] = []

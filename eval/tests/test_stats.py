@@ -39,3 +39,32 @@ def test_correlation_needs_three_points_and_a_spread():
     assert correlation([1, 2, 3], [2, 4, 6.5]) == pytest.approx(4.5 / math.sqrt(2 * 61 / 6))
     assert correlation([1, 2, 3], [3, 1, 2], ranked=True) == pytest.approx(-0.5)
     assert correlation([1, 2], [1, 2]) is None and correlation([1, 1, 1], [1, 2, 3]) is None
+
+
+@pytest.mark.parametrize("deltas, outcome", [
+    ((0.25, 0.01, 0.00, 0.02), "inconclusive"),   # N84: keep / unsupported / inconclusive before
+    ((0.10, 0.11, 0.09, 0.12), "better"),
+    ((-0.10, -0.12, -0.09), "worse"),
+    ((0.30, 0.30), "inconclusive"),               # below MIN_PAIRS: no winner, however consistent
+])
+def test_every_paired_report_decides_by_one_rule(deltas, outcome):
+    """The A/B summary, the harness-vs-one-shot table and the blind A/B page reach one decision."""
+    from bench._ab_report import PairOutcome, verdict_of
+    from bench._compare_report import CellResult
+    from bench.ab_view import Run
+    from bench.ab_view import verdict as ab_view_verdict
+    from bench.paired_compare import paired
+    from bench.stats import decide
+
+    assert decide({f"p{i}": d for i, d in enumerate(deltas)}).outcome == outcome
+    ab = verdict_of([PairOutcome(prompt_id=f"p{i}", paired=True, delta=d) for i, d in enumerate(deltas)])
+    assert ab.decision == {"better": "keep", "worse": "revert"}.get(outcome, "inconclusive")
+    cells = {}
+    for i, d in enumerate(deltas):
+        for arm, score in (("harness:h", 0.5 + d), ("oneshot:o", 0.5)):
+            cells[(f"p{i}", arm)] = CellResult(prompt_id=f"p{i}", arm=arm, kind=arm.split(":")[0], score=score, status="scored")
+    assert paired(cells, "harness:h", "oneshot:o").verdict == (outcome if len(deltas) >= 3 else "too few pairs")
+    a = [Run(slug=f"a{i}", arm="a", brief=f"b{i}", picked=0.5) for i in range(len(deltas))]
+    b = [Run(slug=f"b{i}", arm="b", brief=f"b{i}", picked=0.5 + d) for i, d in enumerate(deltas)]
+    head, _ = ab_view_verdict(a, b)
+    assert head.startswith({"better": "B wins", "worse": "B loses"}.get(outcome, "Inconclusive")), head

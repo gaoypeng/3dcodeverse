@@ -59,10 +59,10 @@ def _pairs(*deltas: float) -> list[PairOutcome]:
 # ----------------------------------------------------------------------------- verdict rule
 @pytest.mark.parametrize("deltas, decision, regressions", [
     ((0.03, 0.02, 0.01, 0.04), "keep", []),
-    ((0.10, 0.10, 0.10, -0.03), "inconclusive", ["p3"]),     # one regression blocks a keep
-    ((0.01, 0.02, 0.02, 0.01), "inconclusive", []),           # a mean just under the bar
+    ((0.08, 0.08, 0.09, -0.03), "inconclusive", ["p3"]),     # one regression vetoes a keep
+    ((0.08, 0.08, 0.09, 0.08), "keep", []),                  # ... the same gain without it is kept
     ((-0.02, -0.02, -0.02), "revert", []),
-    ((0.20, 0.20, -0.03, -0.05), "revert", ["p2", "p3"]),     # mean +0.08 but two prompts lost
+    ((0.20, 0.20, -0.03, -0.05), "inconclusive", ["p2", "p3"]),   # mean +0.08, the interval includes zero
     ((-0.019, 0.0), "inconclusive", []),
 ])
 def test_the_verdict_rule(deltas, decision, regressions):
@@ -99,15 +99,15 @@ def test_a_verdict_carries_its_noise_beside_the_word():
     v = verdict_of(_pairs(0.10, 0.11, 0.09, 0.12))
     assert v.decision == "keep" and v.separated and v.caution == ""
     v = verdict_of(_pairs(0.344))
-    assert v.decision == "keep", "the blunt rule still fires — that is exactly the danger"
-    assert v.sd_delta is None and not v.separated and "one pair cannot separate" in v.caution
+    assert v.decision == "inconclusive", "the old threshold rule said keep — exactly the danger"
+    assert v.sd_delta is None and not v.separated and "1 pair(s) cannot separate" in v.caution
 
 
 def test_the_summary_marks_regressions_states_the_rule_and_labels_an_aa_run():
     rows = [_row("a", CONTROL, 0.8), _row("a", VARIANT, 0.7), _row("b", CONTROL, 0.5), _row("b", VARIANT, 0.6)]
     md = render_summary(pair_up(rows), rows, title="t", variant_env={}, generator="g", judge="j", rounds=1)
     assert "| a |  | 0.800 | 0.700 | -0.100 | REGRESSION |" in md and "## Verdict: **inconclusive**" in md
-    assert "keep iff mean delta >= +0.02" in md and "(none)" in md
+    assert "keep iff the 95 % t-interval" in md and "(none)" in md
     # an A/A run is labelled so nobody reads it as a decision
     md = render_summary(pair_up(rows), rows, title="t", variant_env={}, generator="g", judge="j", rounds=1, aa=True)
     assert md.startswith("# A/A: t") and "A/A calibration — the arms are identical" in md
@@ -207,13 +207,13 @@ def test_a_relative_battery_path_reaches_the_workers_absolute(tmp_path: Path, mo
 def test_driver_runs_pairs_in_prompt_order_and_writes_the_verdict(tmp_path: Path):
     b = Battery.load(BATTERY)
     ids = [p.id for p in b.prompts[:3]]
-    fake = FakeCells({(ids[0], VARIANT): 0.55, (ids[1], VARIANT): 0.53, (ids[2], VARIANT): 0.52})
+    fake = FakeCells({(ids[0], VARIANT): 0.54, (ids[1], VARIANT): 0.53, (ids[2], VARIANT): 0.53})
     opts = AbOptions(variant_env={"C3D_PLAN_BRIEF": "on"}, ids=ids)
     v = run_ab(BATTERY, tmp_path, opts, run_cell_fn=fake)
     # both arms of prompt N before anything of prompt N+1
     assert [c[0] for c in fake.calls] == [i for i in ids for _ in range(2)]
     assert {c[1] for c in fake.calls} == {CONTROL, VARIANT}
-    assert v.decision == "keep" and v.n_pairs == 3 and v.mean_delta == pytest.approx(0.0333, abs=1e-3)
+    assert v.decision == "keep" and v.n_pairs == 3 and v.mean_delta == pytest.approx(0.0333, abs=1e-3), v
     rows = _journal(tmp_path)
     assert len(rows) == 6
     # the env reached only the variant cells
@@ -291,7 +291,7 @@ def test_cli_report_only_rebuilds_from_results(tmp_path: Path, capsys):
     opts = AbOptions(variant_env={"C3D_SKILLS": "0"}, rounds=1)   # skills are on by default: the variant turns them off
     (tmp_path / "ab.json").write_text(json.dumps({"options": json.loads(opts.model_dump_json())}))
     assert main(["--prompts", str(BATTERY), "--out", str(tmp_path), "--report-only"]) == 0
-    assert "verdict: revert" in capsys.readouterr().out
+    assert "verdict: inconclusive" in capsys.readouterr().out   # one pair decides nothing
     assert (tmp_path / "pairs.json").is_file()
     summary = (tmp_path / "summary.md").read_text()
     assert "variant env: `C3D_SKILLS=0`" in summary and "n_infra_failed: 0" in summary
