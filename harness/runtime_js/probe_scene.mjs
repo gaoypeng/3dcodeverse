@@ -6,7 +6,7 @@
  * console/page/shader errors.  No screenshots.
  *
  *   node probe_scene.mjs --ws <ws> [--scene src/scene.js] [--gpu auto] [--timeout-ms 60000] [--out probe.json]
- *        [--compile] [--shaders-out report.json] [--sun-azimuth 60]
+ *        [--compile] [--shaders-out report.json] [--sun-azimuth 60] [--bounds '{"min":[..],"max":[..]}'|none]
  *
  * `--compile` additionally runs the full shader preflight (static GLSL audits +
  * force-compile of every material, lib/shader_report.mjs) on the SAME booted
@@ -17,12 +17,15 @@
  * the single owner of camera-fit math) from the measured census: an overview
  * of the content bounds plus one eye-level camera per top-level group, all
  * standing on the sun side — `fitted_cameras: {azimuth, overview, zones}`.
+ * The azimuth is `sunRig`'s (x-first: 0 = +X, 90 = +Z), converted here to orbit.mjs's
+ * z-first angle; `--bounds` (the plan's) guards the overview framing exactly as
+ * render_scene.mjs does, so a 400 m instanced meadow cannot shrink the content to a speck.
  * The scene assembler (assemble.py) converts these into its CameraPlans.
  * Last stdout line = JSON {ok, boot, census, console_errors, shader_errors, ...}.
  */
 
 import path from 'node:path';
-import { armWatchdog, fail, finish, parseCli, writeJson } from './lib/cli.mjs';
+import { armWatchdog, fail, finish, parseCli, readJsonArg, writeJson } from './lib/cli.mjs';
 import { createTimeoutMs, errorSummary, openHost } from './lib/host_page.mjs';
 import { fitOverviewCamera, fitZoneCamera, framingBox } from './lib/orbit.mjs';
 import { compileIntoReport, staticShaderReport } from './lib/shader_report.mjs';
@@ -38,17 +41,22 @@ const args = parseCli({
   ws: {}, out: {}, gpu: { default: process.env.C3D_RENDER_GPU || 'auto' }, 'timeout-ms': { default: '60000' },
   scene: { default: 'src/scene.js' },
   compile: { type: 'boolean', default: false }, 'shaders-out': { default: '' }, 'sun-azimuth': { default: '' },
+  bounds: { default: 'none' },
 });
 
-/** Harness-fitted camera specs from the census: overview + one per group. */
-function fitCameras(census, azimuth) {
+/** Harness-fitted camera specs from the census: overview + one per group, on the side
+ *  `sunRig({azimuth})` lights.  sunRig's sun is x-first — (cos A, ·, sin A) — and
+ *  orbitDirection z-first — (sin B, ·, cos B) — so the same side is B = 90 − A (they agree
+ *  only at 45°; at 135° the "sun-side" camera stood exactly opposite the sun). */
+function fitCameras(census, azimuth, bounds) {
   const groundY = census.ground_y;
-  const box = framingBox(census, null);
-  const overview = box ? fitOverviewCamera(box, { azimuth, elevation: 30, groundY }) : null;
+  const orbitAz = 90 - azimuth;
+  const box = framingBox(census, bounds);
+  const overview = box ? fitOverviewCamera(box, { azimuth: orbitAz, elevation: 30, groundY }) : null;
   const zones = [];
   for (const g of census.groups || []) {
     if (!g.bbox || g.kind === 'sky' || g.kind === 'empty' || g.kind === 'light') continue;
-    zones.push({ group: g.name, ...fitZoneCamera(g.bbox, { azimuth, floor: groundY }) });
+    zones.push({ group: g.name, ...fitZoneCamera(g.bbox, { azimuth: orbitAz, floor: groundY }) });
   }
   return { azimuth, overview, zones };
 }
@@ -109,7 +117,8 @@ async function main() {
       const reps = await page.evaluate(() => window.__c3v.cameraRepairs());
       if (reps.length) result.census.camera_repair = reps;
       const sunAz = parseFloat(args['sun-azimuth']);
-      if (Number.isFinite(sunAz)) result.fitted_cameras = fitCameras(result.census, sunAz);
+      const bounds = args.bounds !== 'none' ? readJsonArg(args.bounds, 'bounds') : null;
+      if (Number.isFinite(sunAz)) result.fitted_cameras = fitCameras(result.census, sunAz, bounds);
     }
     // Probe truth is snapshotted BEFORE any forced compile: the probe gate sees
     // exactly what a standalone probe would; the preflight below sees everything.
