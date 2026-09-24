@@ -151,10 +151,17 @@ def test_a_hero_in_the_scene_but_in_no_authored_frame_is_an_error():
     msg = next(f.message for f in unseen.findings if f.data["kind"] == "hero_unseen")
     assert "AthanorDetail 0.0%" in msg and "no camera sees the hero" in msg
     assert "(2.2 m across as placed)" in msg and "not small" in msg      # loop 23: 0.3 % read as "microscopic" without the size
-    # seen well in one shot, but the camera NAMED for it barely shows it → WARN on that camera
+    # seen well in one shot, but the camera NAMED for it (the host's hero_for) barely shows it → WARN on that camera
     small = frame_findings({"census": census, "camera_checks": [
-        _chk("AthanorDetail", glb_frac={url: 0.004}), _chk("StairsPushIn", glb_frac={url: 0.12})]})
+        _chk("AthanorDetail", glb_frac={url: 0.004}, hero_for=[url]), _chk("StairsPushIn", glb_frac={url: 0.12})]})
     assert [(k, s, t) for k, s, t in _kinds(small)] == [("hero_small_in_its_camera", Severity.WARN, "AthanorDetail")]
+    # the host's rule is the one rule: a name WORD of the file (lantern_room.glb → LanternDetail), which the
+    # gate's own whole-stem match missed in 24 of 25 recorded camera/hero pairs
+    lamp = "/assets/lantern_room.glb"
+    lcensus = {"glb_assets": [{"url": lamp, "meshes": 3, "meshes_in_scene": 3, "in_scene": True}]}
+    word = frame_findings({"census": lcensus, "camera_checks": [
+        _chk("LanternDetail", glb_frac={lamp: 0.004}, hero_for=[lamp]), _chk("Harbour", glb_frac={lamp: 0.2})]})
+    assert [(k, t) for k, _, t in _kinds(word)] == [("hero_small_in_its_camera", "LanternDetail")]
     # a well-framed hero, and an older census without glb_frac, say nothing
     fine = frame_findings({"census": census, "camera_checks": [_chk("AthanorDetail", glb_frac={url: 0.2})]})
     old = frame_findings({"census": census, "camera_checks": [_chk("AthanorDetail")]})

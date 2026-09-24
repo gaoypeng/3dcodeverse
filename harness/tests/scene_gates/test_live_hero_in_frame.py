@@ -95,6 +95,8 @@ def test_a_camera_named_for_the_hero_is_re_aimed_when_the_hero_is_out_of_its_fra
     m = read_json_or_none(out / "metrics.json")
     chk = {c["name"]: c for c in m["camera_checks"]}
     assert chk["HeroCubeDetail"]["glb_frac"].get(URL, 0.0) > 0.01, chk["HeroCubeDetail"]["glb_frac"]
+    # the census carries the host's naming rule for the gate (one rule, scene_host.mjs namesHero)
+    assert chk["HeroCubeDetail"]["hero_for"] == [URL] and all(c["hero_for"] == [] for n, c in chk.items() if n != "HeroCubeDetail")
     aimed = [r for r in m["census"]["camera_repair"] if r.get("aimed_at")]
     assert aimed and aimed[0]["name"] == "HeroCubeDetail" and aimed[0]["aimed_at"] == URL, m["census"]["camera_repair"]
     # the other authored cameras are not named for it and keep their shots

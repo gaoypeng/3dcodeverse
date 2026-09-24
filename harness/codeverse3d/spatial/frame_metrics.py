@@ -344,11 +344,6 @@ HERO_MIN_FRAC = 0.005            # of the frame, best authored camera: below it 
 HERO_DETAIL_MIN_FRAC = 0.02      # of the frame, in the camera NAMED for the hero
 
 
-def _hero_key(url: str) -> str:
-    """``/assets/longcase_clock.glb`` → ``longcaseclock`` (the plan's snake name, joined)."""
-    return "".join(ch for ch in url.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower() if ch.isalnum())
-
-
 def _hero_findings(checks: list[dict[str, Any]], census: dict[str, Any]) -> list[GateFinding]:
     """A Blender hero that is IN the scene but in no authored frame — or nearly absent from
     the camera named for it.  ``camera_checks[].glb_frac`` (``glbCoverage``: a mask render
@@ -360,6 +355,9 @@ def _hero_findings(checks: list[dict[str, Any]], census: dict[str, Any]) -> list
     if not isinstance(rows, list):
         return []
     authored = [c for c in checks if _view_kind(c) == "authored"]
+    # which camera is NAMED for which hero is the host's rule (scene_host.mjs namesHero — the one
+    # camera repair re-aims by); a census from before 2026-09-23 carries no hero_for
+    named = {str(c.get("name", "?")): c.get("hero_for") or [] for c in authored}
     out: list[GateFinding] = []
     for r in rows:
         if not isinstance(r, dict) or not r.get("in_scene"):
@@ -387,9 +385,8 @@ def _hero_findings(checks: list[dict[str, Any]], census: dict[str, Any]) -> list
                           "frames never show cannot pass its must-have",
                           kind="hero_unseen", url=url, best_frac=best, per_camera=seen))
             continue
-        key = _hero_key(url)
         for cam, v in seen.items():
-            if key and key in "".join(ch for ch in cam.lower() if ch.isalnum()) and v < HERO_DETAIL_MIN_FRAC:
+            if url in named.get(cam, ()) and v < HERO_DETAIL_MIN_FRAC:
                 out.append(_f(Severity.WARN, cam,
                               f"{cam} is named for {base} but shows it at {v:.1%} of the frame (its best view is {best:.1%})",
                               "a detail shot fills 10-40% of the frame with its subject: move the camera closer along "

@@ -165,14 +165,20 @@ function heroWords(url) {
     .map((w) => w.toLowerCase()).filter((w) => w.length >= 4 && !GENERIC_HERO_WORDS.has(w));
 }
 
-/** The loaded GLB a camera is named for (a name word of the file in the camera's name), with its
- *  world box as placed — or null. */
+/** THE "camera named for a hero" rule: a name word of the GLB's file is in the camera's name.
+ *  Camera repair re-aims by it, and the census carries it (`camera_checks[].hero_for`) for the
+ *  frames gate (frame_metrics._hero_findings), which has no copy of its own. */
+function namesHero(cameraName, url) {
+  const lower = String(cameraName || '').toLowerCase();
+  return heroWords(url).some((w) => lower.includes(w));
+}
+
+/** The loaded GLB a camera is named for, with its world box as placed — or null. */
 function heroForCamera(name) {
   if (!loadedGlbs.length) return null;
-  const lower = String(name || '').toLowerCase();
   let boxes = null;
   for (const g of loadedGlbs) {
-    if (!heroWords(g.url).some((w) => lower.includes(w))) continue;
+    if (!namesHero(name, g.url)) continue;
     if (!boxes) { try { boxes = geometryBoxes(state.scene); } catch (e) { return null; } }
     const all = new THREE.Box3();
     for (const u of g.geometry_uuids) { const b = boxes.get(u); if (b && !b.isEmpty()) all.union(b); }
@@ -597,7 +603,8 @@ function cameraChecks(spec) {
   } finally {
     for (const o of hiddenLayers) o.visible = true;
   }
-  return { name: spec.name, ...near, ...stats, ...coverage, glb_frac: glbFrac };
+  const heroFor = loadedGlbs.filter((g) => namesHero(spec.name, g.url)).map((g) => g.url);
+  return { name: spec.name, ...near, ...stats, ...coverage, glb_frac: glbFrac, hero_for: heroFor };
 }
 
 /** Force-compile every material as seen from spec (or the first camera). */
