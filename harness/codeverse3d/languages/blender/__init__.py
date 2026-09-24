@@ -241,7 +241,10 @@ def _rules(c: _Collector, source: str, *, target: str, expect_names: bool, expec
         if name.endswith("modifier_apply") and not c.has_temp_override:
             out.append(_f(W, "bpy.ops.object.modifier_apply needs the object active+selected in OBJECT mode", call.lineno,
                           "either leave modifiers unapplied (the exporter applies them) or wrap: `with bpy.context.temp_override(object=obj): bpy.ops.object.modifier_apply(modifier=mod.name)`"))
-        if name.endswith("bpy.ops.object.join") or name == "bpy.ops.object.join":
+        # the rule's own precondition: a script that sets the active object before joining (the urdf
+        # cookbook's `join_as`, one joined object per link) has done what the warning asks
+        if (name.endswith("bpy.ops.object.join") or name == "bpy.ops.object.join") and not any(
+                t.endswith("view_layer.objects.active") for t, _ in c.attr_stores):
             out.append(_f(W, "bpy.ops.object.join needs all parts selected + an active object; the result inherits the ACTIVE object's transform", call.lineno,
                           "select all, set `bpy.context.view_layer.objects.active = main_obj` (identity transform) before join — or keep parts separate (preferred: named parts)"))
         if name.endswith("shade_smooth") and any(k.arg == "use_auto_smooth" for k in call.keywords):

@@ -107,6 +107,13 @@ def test_camera_light_and_render_settings_warn() -> None:
     assert any("light_add" in m for m in w) and any("cameras.new" in m for m in w) and any("render settings" in m for m in w)
 
 
+def test_a_join_after_setting_the_active_object_is_not_warned() -> None:
+    """The urdf cookbook's `join_as` sets the active object first — what the join warning asks for."""
+    src = ("import bpy\nobjs = [o for o in bpy.data.objects]\nfor o in objs: o.select_set(True)\n"
+           "bpy.context.view_layer.objects.active = objs[0]\nbpy.ops.object.join()\n")
+    assert not any("join" in m for m in _msgs(lint_blender_source(src), Severity.WARN))
+
+
 def test_headless_pitfalls() -> None:
     src = ("import bpy\nbpy.ops.mesh.primitive_cube_add(scale=(1, 2, 3))\nbpy.ops.object.transform_apply(scale=True)\n"
            "bpy.ops.object.modifier_apply(modifier='Bevel')\nbpy.ops.object.join()\nsel = bpy.context.selected_objects\n"
