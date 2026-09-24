@@ -62,6 +62,11 @@ def finding_kind(finding: Any) -> str | None:
     return f"{family}/{kind if isinstance(kind, str) and kind else UNTYPED}"
 
 
+def kind_matches(kind: str, patterns: tuple[str, ...]) -> bool:
+    """``kind`` is one of ``patterns``: an exact kind, or a family ending in ``*`` (``gl_frames/*``)."""
+    return any(kind.startswith(p[:-1]) if p.endswith("*") else kind == p for p in patterns)
+
+
 def finding_kinds(findings: object) -> list[str]:
     """Distinct kinds of an iterable of ``GateFinding`` (or of ``GateReport``s), in order."""
     out: list[str] = []
@@ -112,12 +117,7 @@ class Route:
 
     def matches_finding(self, kinds: list[str]) -> str | None:
         """The first routed finding kind this row answers, or None."""
-        for pat in self.findings:
-            family = pat[:-1] if pat.endswith("*") else ""
-            for k in kinds:
-                if (family and k.startswith(family)) or k == pat:
-                    return k
-        return None
+        return next((k for pat in self.findings for k in kinds if kind_matches(k, (pat,))), None)
 
 
 ROUTES: tuple[Route, ...] = (

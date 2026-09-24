@@ -146,3 +146,16 @@ def test_a_glb_row_measures_the_measured_rounds_own_glb(tmp_path, monkeypatch):
     run = st.load_runs(root)[0]
     assert st.measure(target, run, which="first") == 10.0
     assert st.measure(target, run, which="last") == 11.0
+
+
+def test_a_typed_finding_counts_by_its_kind_and_an_old_record_by_its_shape():
+    """N52: the harness routes on ``data.kind``; the readout counts the same kind, and reads a
+    record written before its gate typed the finding by the old message shape."""
+    from bench.skill_targets import count_kinds
+
+    typed = {"gate": "contract", "severity": "warn", "message": "reworded", "data": {"kind": "part_bbox"}}
+    camera = {"gate": "scene_frames", "severity": "warn", "message": "x", "data": {"kind": "camera_below_high_ground"}}
+    rd = {"gates": [{"gate": "contract", "findings": [typed, *CONTRACT]},
+                    {"gate": "scene_frames", "findings": [camera]}]}
+    assert count_kinds(rd, ("contract/part_bbox",), ()) == 2
+    assert count_kinds(rd, ("scene_frames/camera_*",), ()) == 1

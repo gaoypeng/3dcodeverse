@@ -28,6 +28,7 @@ import statistics
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
@@ -45,7 +46,7 @@ from codeverse3d.addons.skill_targets import (  # noqa: E402
     Target,
 )
 from codeverse3d.proc import write_text_atomic  # noqa: E402
-from codeverse3d.skills.registry import finding_kind  # noqa: E402
+from codeverse3d.skills.registry import UNTYPED, finding_kind, kind_matches  # noqa: E402
 
 CACHE_NAME = ".skill_targets_cache.json"
 _FRAME_T = re.compile(r"_t(\d+(?:\.\d+)?)\.png$")
@@ -120,6 +121,36 @@ def ab_arms(root: Path) -> dict[str, Path] | None:
 
 
 # --------------------------------------------------------------------------- metrics
+#: How a record written before its gate typed ``data.kind`` (the contract gate until
+#: 2026-09-24, connectivity until 2026-08-30) names a finding the targets count: the
+#: harness routes on the typed kind only, and these message shapes are the old gates'.
+_UNTYPED_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = tuple(
+    (gate, re.compile(pattern), kind) for gate, pattern, kind in (
+        ("connectivity", r"interpenetrate", "connectivity/penetration"),
+        ("contract", r"\(each instance\)|\(all instances\)", "contract/instance_bbox"),
+        ("contract", r"part '.*' bbox deviates", "contract/part_bbox"),
+        ("contract", r"overall bbox deviates", "contract/overall_bbox"),
+        ("contract", r"footprint centre", "contract/footprint_offset"),
+        ("contract", r"floats .* the ground", "contract/ground_gap"),
+        ("contract", r"missing from the GLB", "contract/missing_part"),
+        ("contract", r"instance\(s\), plan asks for", "contract/instance_count"),
+        ("joint_sweep", r"overlap by|overlap in \d+ of the sampled poses|more overlapping pair", "joint_sweep/penetration"),
+        ("joint_sweep", r"apart at rest|nothing physically connects", "joint_sweep/unattached"),
+        ("scene_frames", r"too dark", "scene_frames/dark_frame"),
+        ("scene_frames", r"flat frame", "scene_frames/flat_frame"),
+        ("scene_frames", r"BELOW the ground|inside / touching geometry", "scene_frames/camera_in_geometry"),
+    ))
+
+
+def _kind_of(gate: str, f: dict, severity: str) -> str | None:
+    """``skills.registry.finding_kind``, with the old message shapes for an untyped record."""
+    kind = finding_kind(SimpleNamespace(gate=str(f.get("gate") or gate), severity=severity, data=f.get("data") or {}))
+    if kind is None or not kind.endswith(f"/{UNTYPED}"):
+        return kind
+    msg = str(f.get("message", ""))
+    return next((k for g, pat, k in _UNTYPED_SHAPES if kind == f"{g}/{UNTYPED}" and pat.search(msg)), kind)
+
+
 def count_kinds(rd: dict, kinds: tuple[str, ...], severities: tuple[str, ...]) -> int:
     n = 0
     for g in rd.get("gates") or []:
@@ -127,7 +158,8 @@ def count_kinds(rd: dict, kinds: tuple[str, ...], severities: tuple[str, ...]) -
             sev = str(f.get("severity", "warn")).lower()
             if severities and sev not in severities:
                 continue
-            if finding_kind(str(g.get("gate", "")), str(f.get("message", "")), sev) in kinds:
+            kind = _kind_of(str(g.get("gate", "")), f, sev)
+            if kind is not None and kind_matches(kind, kinds):
                 n += 1
     return n
 
