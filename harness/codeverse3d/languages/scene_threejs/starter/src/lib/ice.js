@@ -134,14 +134,6 @@ function iceMaterial(opts, optical, maximumThickness) {
       varying vec3 vIceLocal, vIceFace;
       varying vec2 vIceUV;
       varying float vIceEdge, vIcePath, vIceChip;
-      vec3 iceSurfaceBump(vec3 eye, vec3 n, float height) {
-        vec3 dx = dFdx(eye), dy = dFdy(eye);
-        vec3 a = cross(dy, n), b = cross(n, dx);
-        float determinant = dot(dx, a);
-        if (abs(determinant) < 1e-12) return n;
-        return normalize(abs(determinant) * n - sign(determinant)
-          * (dFdx(height) * a + dFdy(height) * b));
-      }
     `,
     fragmentBody: `
       vec4 iceOptical = texture2D(uIceOptical, vIceUV);
@@ -166,7 +158,7 @@ function iceMaterial(opts, optical, maximumThickness) {
         + iceFine * 0.000025 + iceFracture * iceFaceGrain * 0.000015;
     `,
     roughnessBody: 'roughnessFactor = mix(roughnessFactor + iceFracture, 0.86, iceCover);',
-    normalBody: 'normal = iceSurfaceBump(-vViewPosition, normal, iceHeight);',
+    normalBody: 'normal = astraBump(-vViewPosition, normal, iceHeight);',
     transmissionBody: `
       material.thickness = max(0.001, vIcePath);
       material.transmission = transmission * (1.0 - iceCover * 0.96) * (1.0 - iceFracture);

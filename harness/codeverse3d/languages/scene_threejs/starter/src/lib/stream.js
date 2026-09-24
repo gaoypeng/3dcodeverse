@@ -392,7 +392,7 @@ export function makeStream(opts = {}) {
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        `#include <common>\nuniform mat3 normalMatrix; varying vec2 vStreamFlow; varying vec3 vStreamPosition; varying vec3 vStreamLongitudinal; varying vec3 vStreamAcross;\n${heightGLSL}\n${noiseGLSL}`
+        `#include <common>\nuniform mat3 normalMatrix; varying vec2 vStreamFlow; varying vec3 vStreamPosition; varying vec3 vStreamLongitudinal; varying vec3 vStreamAcross;\n${heightGLSL}\n#define ASTRA_FRAG\n${noiseGLSL}`
       )
       .replace(
         '#include <color_fragment>',
@@ -424,11 +424,7 @@ export function makeStream(opts = {}) {
       normal=normalize(normalMatrix*cross(vStreamLongitudinal+vec3(0,streamHs,0),vStreamAcross+vec3(0,streamHl,0)));
       float microFilter=1.0-smoothstep(.035,.14,flowFootprint);
       float streamMicro=(astraNoise2(advect*vec2(8.0,12.0))*.0012+astraNoise2(advect*vec2(19.0,24.0))*.0003)*microFilter;
-      vec3 sx=dFdx(-vViewPosition),sy=dFdy(-vViewPosition);
-      vec3 rx=cross(sy,normal),ry=cross(normal,sx);
-      float det=dot(sx,rx);
-      vec2 grad=vec2(dFdx(streamMicro),dFdy(streamMicro));
-      normal=normalize(abs(det)*normal-sign(det)*(grad.x*rx+grad.y*ry));
+      normal=astraBump(-vViewPosition,normal,streamMicro);
       `
       )
       .replace(

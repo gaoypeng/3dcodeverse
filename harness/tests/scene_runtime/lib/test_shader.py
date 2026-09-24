@@ -461,3 +461,15 @@ def test_one_wind_is_read_the_same_way_by_every_effect(wind, spelling):
     if spelling != "number":   # windOf's own fallback direction is (1, 0.45)
         assert w["windOf"] == pytest.approx(ref)
     assert w["firefield"] == "ok" and math.isfinite(w["clouds"]) and w["clouds"] > 0
+
+
+def test_the_surface_gradient_bump_is_written_once():
+    """astraBump/astraBumpSlope return n at a degenerate footprint (det 0); five modules
+    kept their own copy after the helper landed, and stream.js's had no guard, so a
+    grazing pixel shaded NaN.  Only tree.js's clamped variant and windows.js's
+    cotangent frame (a different job) build a screen-space frame of their own."""
+    import re
+    from _probe import LIB_DIR
+    frame = re.compile(r"cross\(\s*\w+\s*,\s*(normal|n)\s*\)")
+    own = sorted(p.name for p in LIB_DIR.glob("*.js") if frame.search(p.read_text(encoding="utf-8")))
+    assert own == ["shader.js", "tree.js", "windows.js"], own

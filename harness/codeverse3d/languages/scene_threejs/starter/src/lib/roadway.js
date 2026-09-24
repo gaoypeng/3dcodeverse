@@ -60,14 +60,6 @@ const ROAD_HEAD = [
   '  return 1.0 - smoothstep(0.30, 0.95,',
   '                          length(fwidth(p)) / max(cycle, 1e-4));',
   '}',
-  'vec3 astraRoadBump(vec3 eye, vec3 n, float height) {',
-  '  vec3 dx = dFdx(eye), dy = dFdy(eye);',
-  '  vec3 a = cross(dy, n), b = cross(n, dx);',
-  '  float determinant = dot(dx, a);',
-  '  if (abs(determinant) < 1e-12) return n;',
-  '  return normalize(abs(determinant) * n - sign(determinant)',
-  '    * (dFdx(height) * a + dFdy(height) * b));',
-  '}',
 ].join('\n');
 
 // `transformed` is still object-space after <begin_vertex>, so the
@@ -368,7 +360,7 @@ export function patchRoadSurface(material, opts = {}) {
       '    * (1.0 - roRut * 0.7) + roChip * 0.002 - roRut * 0.004',
       '    - roRim * 0.0008 + roSilt * 0.0008;',
     ].join('\n'),
-    normalBody: 'normal = astraRoadBump(-vViewPosition, normal, roHeight);',
+    normalBody: 'normal = astraBump(-vViewPosition, normal, roHeight);',
     roughnessBody: [
       'roughnessFactor = mix(roughnessFactor, max(roughnessFactor, 0.94), uRoadAgg * 0.18);',
       'roughnessFactor = mix(roughnessFactor, max(0.32, roughnessFactor * 0.78), roRut);',
@@ -485,7 +477,7 @@ export function patchSeamBand(material, opts = {}) {
       '    + (smC - 0.5) * 0.012 * smFc) - smJt * 0.004;',
     ].join('\n'),
     roughnessBody: 'roughnessFactor = mix(roughnessFactor, max(roughnessFactor, 0.97), smK);',
-    normalBody: 'normal = astraRoadBump(-vViewPosition, normal, smHeight);',
+    normalBody: 'normal = astraBump(-vViewPosition, normal, smHeight);',
   });
 }
 
@@ -618,6 +610,6 @@ export function patchTracks(material, opts = {}) {
       '    - tkTread * tkFd * 0.002 + tkRim * 0.006);',
     ].join('\n'),
     roughnessBody: 'roughnessFactor = mix(roughnessFactor, max(0.12, roughnessFactor * 0.58), clamp(tkPress * uTrkDepth, 0.0, 1.0));',
-    normalBody: 'normal = astraRoadBump(-vViewPosition, normal, tkHeight);',
+    normalBody: 'normal = astraBump(-vViewPosition, normal, tkHeight);',
   });
 }

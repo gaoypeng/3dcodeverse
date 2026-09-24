@@ -152,16 +152,7 @@ export function patchSnow(material, opts = {}) {
     roughnessBody: 'roughnessFactor = mix(roughnessFactor, 0.86, snAmt);',
     metalnessBody: 'metalnessFactor *= 1.0 - snAmt;',
     normalBody: [
-      'vec3 snDx = dFdx(-vViewPosition);',
-      'vec3 snDy = dFdy(-vViewPosition);',
-      'vec3 snR1 = cross(snDy, normal);',
-      'vec3 snR2 = cross(normal, snDx);',
-      'float snDet = dot(snDx, snR1);',
-      'float snHeight = snAmt * snF * snFad * 0.0009;',
-      'vec3 snGradient = sign(snDet) *',
-      '    (dFdx(snHeight) * snR1 + dFdy(snHeight) * snR2);',
-      'if (abs(snDet) > 1e-12)',
-      '  normal = normalize(abs(snDet) * normal - snGradient);',
+      'normal = astraBump(-vViewPosition, normal, snAmt * snF * snFad * 0.0009);',
     ].join('\n'),
     fragmentBody: [
       '  vec3 snN = normalize(vAstraWorldN);',

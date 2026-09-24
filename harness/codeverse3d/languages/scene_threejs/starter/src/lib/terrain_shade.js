@@ -30,14 +30,6 @@ const FBM_UNIT = [
   '  }',
   '  return clamp(sum / max(weight, 0.25), 0.0, 1.0);',
   '}',
-  'vec3 astraTerrainBump(vec3 eye, vec3 n, float height) {',
-  '  vec3 dx = dFdx(eye), dy = dFdy(eye);',
-  '  vec3 a = cross(dy, n), b = cross(n, dx);',
-  '  float determinant = dot(dx, a);',
-  '  if (abs(determinant) < 1e-12) return n;',
-  '  return normalize(abs(determinant) * n - sign(determinant)',
-  '    * (dFdx(height) * a + dFdy(height) * b));',
-  '}',
   '#endif',
 ].join('\n');
 
@@ -276,7 +268,7 @@ export function patchTriplanar(material, opts = {}) {
     fragmentBody: TRI_BODY,
     roughnessBody: 'roughnessFactor = clamp(uTriRoughness + (tpN - 0.5) * 0.10, 0.04, 1.0);',
     metalnessBody: 'metalnessFactor = 0.0;',
-    normalBody: 'normal = astraTerrainBump(-vViewPosition, normal, tpHeight);',
+    normalBody: 'normal = astraBump(-vViewPosition, normal, tpHeight);',
   });
 }
 
