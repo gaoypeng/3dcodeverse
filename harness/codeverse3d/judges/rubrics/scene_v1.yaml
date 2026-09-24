@@ -113,6 +113,7 @@ criteria:
 
   - id: materials_shaders_effects
     weight: 0.12
+    materials: true
     title: Materials, shaders and effects
     description: >
       Do surfaces read as materials (water with specular life, glass, foliage,

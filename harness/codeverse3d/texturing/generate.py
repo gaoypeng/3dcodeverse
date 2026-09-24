@@ -30,6 +30,7 @@ from codeverse3d.contracts.plan import AcceptanceItem, StaticPlan
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK, ViewPreset
 from codeverse3d.judges.base import JudgeInput, plan_summary
+from codeverse3d.judges.rubrics import load_rubric
 from codeverse3d.proc import fan_out, unique_tmp
 
 #: seam score above which a texture is considered NOT tileable (after make_tileable)
@@ -303,18 +304,6 @@ class GateResult(BaseModel):
     duration_s: float = 0.0
 
 
-def material_criterion(scores: dict[str, float]) -> str:
-    """The rubric criterion that tracks surface quality (``materials``,
-    ``material_color``, ``materials_shaders_effects``, ``material_truth`` ...)."""
-    for k in scores:
-        if k.startswith("material"):
-            return k
-    for k in scores:
-        if "material" in k or "texture" in k or "surface" in k:
-            return k
-    return ""
-
-
 def judge_gate(
     spec: Spec,
     plan: StaticPlan | None,
@@ -357,7 +346,7 @@ def judge_gate(
         return res
     res.overall_before, res.overall_after = float(jb.overall), float(ja.overall)
     res.delta = round(res.overall_after - res.overall_before, 4)
-    crit = material_criterion(ja.scores)
+    crit = load_rubric(ja.rubric).materials_criterion  # "" (articulated_v1): Δoverall alone decides
     res.materials_criterion = crit
     if crit:
         res.materials_before = float(jb.scores.get(crit, 0.0))

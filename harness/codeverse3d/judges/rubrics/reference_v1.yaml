@@ -58,6 +58,7 @@ criteria:
 
   - id: material_color
     weight: 0.15
+    materials: true
     title: Material and colour
     description: >
       Do the colours and material types match the reference per part (wood vs metal,

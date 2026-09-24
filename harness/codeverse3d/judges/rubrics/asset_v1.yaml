@@ -92,6 +92,7 @@ criteria:
 
   - id: material_truth
     weight: 0.10
+    materials: true
     title: Material truth
     description: >
       Do the surfaces read as the right materials (stone, wood, glass, foliage, metal)

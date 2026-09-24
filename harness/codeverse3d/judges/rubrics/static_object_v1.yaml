@@ -119,6 +119,7 @@ criteria:
 
   - id: materials
     weight: 0.10
+    materials: true
     title: Materials
     description: >
       Do surfaces read as sensible materials for each part (colour, roughness,

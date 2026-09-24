@@ -68,6 +68,7 @@ class Criterion(BaseModel):
     anchors: dict[str, str] = Field(description="score level → what it looks like; keys 1.0/0.7/0.4/0.1")
     floor: float | None = Field(default=None, ge=0.0, le=1.0, description="hard floor: below → verdict fails")
     kind: Literal["visual", "measured"] = "visual"
+    materials: bool = Field(default=False, description="this criterion judges the surfaces: the texture gate reads it")
 
     @field_validator("id")
     @classmethod
@@ -182,12 +183,19 @@ class Rubric(BaseModel):
         d_ids = [d.id for d in self.defects]
         if len(d_ids) != len(set(d_ids)):
             raise ValueError(f"duplicate defect ids in rubric {self.name}")
+        if sum(c.materials for c in self.criteria) > 1:
+            raise ValueError(f"rubric {self.name}: more than one criterion is flagged materials")
         return self
 
     # ------------------------------------------------------------------ helpers
     @property
     def weights(self) -> dict[str, float]:
         return {c.id: c.weight for c in self.criteria}
+
+    @property
+    def materials_criterion(self) -> str:
+        """The id of the criterion flagged ``materials``, or "" when the rubric has none."""
+        return next((c.id for c in self.criteria if c.materials), "")
 
     def criterion(self, cid: str) -> Criterion:
         for c in self.criteria:
