@@ -118,7 +118,7 @@ class ScenePipeline:
     def post_render_gates(self, ctx: RunContext, round_index: int, renders: RenderSet) -> list[GateReport]:
         errs = [e for e in renders.console_errors if e.strip()]
         findings = [GateFinding(gate="render_console", severity=Severity.ERROR, target=_guess_target(e, ctx.plan), message=e[:300],
-                                fix_hint="open the named module, fix the thrown error; run the build/probe tool until no console errors")
+                                data={"kind": "console_error"}, fix_hint="open the named module, fix the thrown error; run the build/probe tool until no console errors")
                     for e in errs[:MAX_CONSOLE_ERRORS]]
         # `hardware_fps`, not `fps`: a number measured on SwiftShader is the box's, and
         # telling the agent to merge geometry because the CPU rasteriser is slow sends it
@@ -126,7 +126,7 @@ class ScenePipeline:
         # scenes_v1 measured 2-7 fps on SwiftShader while a fourth measured 11.5 on an
         # RTX 6000 — four different renderers, one gate threshold).
         if renders.hardware_fps is not None and renders.hardware_fps < 20:
-            findings.append(GateFinding(gate="render_console", severity=Severity.WARN, target="overall",
+            findings.append(GateFinding(gate="render_console", severity=Severity.WARN, target="overall", data={"kind": "low_fps"},
                                         message=f"low frame rate {renders.hardware_fps:.0f} fps" + perf_detail(renders),
                                         fix_hint="merge static geometry "
                                                  "(BufferGeometryUtils.mergeGeometries) and put anything repeated > 5x in ONE "

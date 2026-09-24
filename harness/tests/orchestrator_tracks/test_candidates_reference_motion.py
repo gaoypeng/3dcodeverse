@@ -202,9 +202,11 @@ def test_default_motion_checks_on_real_urdf(tmp_path):
                            acceptance=[])
     good = default_motion_checks(robot(tmp_path / "good", -1), plan)
     assert good is not None and good.passed and good.findings[0].severity.value == "info"
+    assert good.findings[0].data["kind"] == "as_planned"
     bad = default_motion_checks(robot(tmp_path / "bad", 1), plan)
     assert bad is not None and not bad.passed and bad.errors[0].target == "DoorHinge"
     assert "WRONG" in bad.errors[0].message and '<axis xyz="-0 -0 -1"/>' in bad.errors[0].fix_hint
+    assert bad.errors[0].data["kind"] == "wrong_direction"
     # orthogonal (the swiss-knife class): a prismatic joint sliding +x when the plan says
     # up — cos = 0 exactly, and the hint states the computed axis verbatim
     import copy

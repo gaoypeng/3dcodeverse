@@ -410,7 +410,7 @@ def _island_findings(name: str, mesh: trimesh.Trimesh, islands: list[trimesh.Tri
             gate=GATE, severity=Severity.WARN, target=name,
             message=f"part '{name}' contains {len(tiny)} tiny disconnected island(s) (< {TINY_ISLAND_FRACTION:.0%} of the part size) — stray geometry",
             fix_hint=f"remove the stray pieces or merge them into '{name}'; the part should be {len(islands) - len(tiny)} solid piece(s)",
-            data={"islands": len(islands), "tiny_islands": len(tiny)},
+            data={"kind": "stray_islands", "islands": len(islands), "tiny_islands": len(tiny)},
         ))
     return out
 
@@ -560,6 +560,7 @@ def check_connectivity(
         support = min(comps, key=lambda c: (round(min(float(parts[n].bounds[0][1]) for n in c), 6),
                                             -sum(len(parts[n].faces) for n in c))) if comps else set()
         findings.append(GateFinding(gate=GATE, severity=Severity.WARN, message=f"no part touches the ground ({up}=0)",
+                                    data={"kind": "no_ground"},
                                     fix_hint=f"move the whole object down so its lowest point sits on the ground ({up}=0, {frame_label(language)})"))
     for n in big:
         if n in support:

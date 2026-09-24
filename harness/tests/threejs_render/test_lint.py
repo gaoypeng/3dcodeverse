@@ -61,7 +61,7 @@ def test_part_export_name_dead_file_and_build_export(stool_ws: Workspace, no_nod
     rep = lint_workspace(stool_ws)
     warns = _msgs(rep, Severity.WARN)
     assert any("expected `export function buildExtra(THREE)`" in m for m in warns)
-    assert any("not imported by any module" in m for m in warns)
+    assert any("not imported by any module" in f.message and f.data["kind"] == "part_not_imported" for f in rep.findings)
     assert not any("tv_stand.js: expected" in m for m in _msgs(rep))
     (stool_ws.src / "parts" / "extra.js").write_text("export const nothing = 1;\n")
     rep = lint_workspace(stool_ws)

@@ -154,6 +154,8 @@ def default_joint_sweep(ws: Workspace, plan: Plan | None, out_dir: Path) -> tupl
 
 # ===================================================================== planned-motion gate
 MOTION_GATE = "motion_direction"
+#: its findings' ``data.kind``: the joint moves the way the plan says / the other way / not measured
+MOTION_OK, MOTION_WRONG, MOTION_SKIPPED = "as_planned", "wrong_direction", "skipped"
 
 #: phrase → direction key understood by ``spatial.joints_sweep.motion_direction_check``.
 #: Longer phrases first so "pulls out" wins over "out"; explicit axes first of all.
@@ -356,7 +358,8 @@ def default_motion_checks(ws: Workspace, plan: Plan | None) -> GateReport | None
         robot = load_urdf(urdf, ws.artifacts / "meshes")
     except UrdfError as e:
         return GateReport.of(MOTION_GATE, [GateFinding(
-            gate=MOTION_GATE, severity=Severity.WARN, target="robot.urdf", message=f"motion checks skipped: {e}")])
+            gate=MOTION_GATE, severity=Severity.WARN, target="robot.urdf", message=f"motion checks skipped: {e}",
+            data={"kind": MOTION_SKIPPED})])
     urdf_names = {to_snake(n): n for n in getattr(robot, "joints", {})}
     for j, expected in wanted:
         name = urdf_names.get(to_snake(j.name), j.name)  # URDF joint named like the plan joint (any casing)
@@ -364,9 +367,9 @@ def default_motion_checks(ws: Workspace, plan: Plan | None) -> GateReport | None
             chk = motion_direction_check(robot, name, expected)
         except UrdfError as e:
             findings.append(GateFinding(gate=MOTION_GATE, severity=Severity.WARN, target=j.name,
-                                        message=f"motion check skipped: {e}", data={"expected": expected}))
+                                        message=f"motion check skipped: {e}", data={"kind": MOTION_SKIPPED, "expected": expected}))
             continue
-        data = {"expected": expected, "observed_dir": list(chk.observed_dir), "motion": j.motion,
+        data = {"kind": MOTION_OK if chk.ok else MOTION_WRONG, "expected": expected, "observed_dir": list(chk.observed_dir), "motion": j.motion,
                 "cos": chk.cos, "suggested_axis": list(chk.suggested_axis) if chk.suggested_axis else None}
         if chk.ok:
             findings.append(GateFinding(gate=MOTION_GATE, severity=Severity.INFO, target=j.name, message=chk.message, data=data))

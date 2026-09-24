@@ -218,9 +218,12 @@ cap and the order themselves come from `select`'s final sort and slice, pinned b
 
 `finding_kind()` reads no message text (audit 2026-09-24, N52): the message regex it replaced
 left seven `scene_frames` kinds unrouted and R19 unreachable, and any gate reword could unroute
-a skill.  A gate that writes no `data.kind` (the lints, motion_direction, render_console) gives
-`<gate>/untyped`, which only a family row (`lint/*`, `motion_direction/*`) answers; the lint gates
-are one `lint` family.  INFO findings are census, not defects, and have no kind — routing off
+a skill.  Every gate writes a `data.kind` — the lints from one vocabulary
+(`contracts.artifacts.LintKind`), connectivity `stray_islands` / `no_ground`, motion_direction
+`wrong_direction` / `skipped`, render_console `console_error` / `low_fps` (2026-09-24) — so R9
+answers `lint/part_not_imported` and R13 `motion_direction/wrong_direction`, not every lint or
+motion line.  A finding recorded before its gate wrote one is `<gate>/untyped`, which only a
+family row answers; the lint gates are one `lint` family.  INFO findings are census, not defects, and have no kind — routing off
 "all 7 parts are connected" would attach the penetration sheet to a run with none.
 
 Adding a bundle means adding its rows in the same commit: an unroutable bundle pays the

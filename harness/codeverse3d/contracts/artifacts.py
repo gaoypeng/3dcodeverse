@@ -18,6 +18,31 @@ class Severity(StrEnum):
     INFO = "info"
 
 
+class LintKind(StrEnum):
+    """``data.kind`` of a ``lint:<language>`` finding — what routes a skill (``skills.registry``)
+    and what a cap rule's ``kinds`` are matched against.  One vocabulary for every lint."""
+
+    SYNTAX = "syntax"                        # the file does not parse
+    MISSING_FILE = "missing_file"            # an entry / planned part file is absent
+    FORBIDDEN_IMPORT = "forbidden_import"    # an import the sandbox forbids
+    BAD_IMPORT = "bad_import"                # an import that cannot resolve here (package, URL, escape, missing)
+    SANDBOX = "sandbox"                      # file IO, network, subprocess, DOM, eval, exiting the process
+    HARNESS_OWNED = "harness_owned"          # camera, light, world, renderer, render loop, export
+    API_TRAP = "api_trap"                    # a removed / renamed / context-dependent API
+    UNDEFINED_NAME = "undefined_name"        # a name used and never imported
+    NAMING = "naming"                        # object / link / file naming
+    LAYOUT = "layout"                        # module exports and the multi-file layout
+    PART_NOT_IMPORTED = "part_not_imported"  # a part file nothing imports, so its part is never built
+    LINK_NAME = "link_name"                  # a URDF link no object in model.py is named after
+    URDF_STRUCTURE = "urdf_structure"        # the XML, the root, the link/joint tree
+    URDF_LINK = "urdf_link"                  # a link's visual / collision / mesh
+    URDF_JOINT = "urdf_joint"                # a joint's type, parent/child, axis, limits
+    MIMIC = "mimic"                          # a <mimic> coupling
+    HANG_RISK = "hang_risk"                  # a loop / call that can stall a headless build
+    NONDETERMINISM = "nondeterminism"        # an unseeded random source
+    CENSUS = "census"                        # INFO: what the lint saw
+
+
 class GateFinding(BaseModel):
     gate: str
     severity: Severity

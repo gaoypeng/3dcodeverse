@@ -4,8 +4,9 @@ Two things live here and nowhere else:
 
 **finding_kind()** — a finding's kind is ``"<gate>/<data.kind>"``, the kind the gate itself
 wrote (``connectivity/penetration``, ``scene_frames/no_motion``); the ``lint:<language>``
-gates are one ``lint`` family.  A finding whose gate writes no kind (the lints, motion_direction,
-render_console) is ``"<gate>/untyped"``, which only a family row (``lint/*``) answers.  No
+gates are one ``lint`` family, typed by ``contracts.artifacts.LintKind``.  Every gate now writes
+a kind; a finding recorded before its gate did (a lint or motion_direction round before
+2026-09-24) is ``"<gate>/untyped"``, which only a family row (``joint_sweep/*``) answers.  No
 message text is read: the regex this replaced left seven scene_frames kinds unrouted and R19
 unreachable (audit 2026-09-24, N52), and every gate reword could unroute a skill.  INFO lines
 ("all 7 parts are connected") are census, not defects, and have no kind.
@@ -22,6 +23,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from codeverse3d.contracts.artifacts import LintKind
 from codeverse3d.skills.model import EVIDENCE_INHERITED, Selection, Skill
 
 # --------------------------------------------------------------------------- finding kinds
@@ -45,7 +47,9 @@ SCENE_BLOWN = "scene_frames/blown_frame"
 SCENE_NO_MOTION = "scene_frames/no_motion"
 GL_FRAMES = "gl_frames/*"
 SHADER_PREFLIGHT = "shader_preflight/*"
-LINT = f"lint/{UNTYPED}"
+MOTION_WRONG_DIRECTION = "motion_direction/wrong_direction"
+LINT = "lint/*"
+LINT_PART_NOT_IMPORTED = f"lint/{LintKind.PART_NOT_IMPORTED.value}"
 
 
 def finding_kind(finding: Any) -> str | None:
@@ -146,8 +150,8 @@ ROUTES: tuple[Route, ...] = (
     Route("R8", "c3d-blender-forms", 75, languages=BLENDER_LANGS, kinds=BUILD_KINDS,
           why="blender authoring: the language of 47 of our graded runs"),
     Route("R9", "c3d-blender-forms", 95, languages=BLENDER_LANGS, kinds=("repair",),
-          findings=(LINT,),
-          why="the lint flagged the build script (a part file never imported, a bpy trap)"),
+          findings=(LINT_PART_NOT_IMPORTED,),
+          why="a part file was written but never imported, so its geometry does not exist"),
     Route("R10", "c3d-cadquery-forms", 75, languages=("cadquery",), kinds=BUILD_KINDS,
           why="cadquery authoring (evidence: inherited-unverified — unranked by our corpus; routed by default "
               "since 2026-09-22, C3D_SKILLS_UNVERIFIED=0 drops it)"),
@@ -158,8 +162,8 @@ ROUTES: tuple[Route, ...] = (
           kinds=("baseline", "refine", "rebuild", "repair"),
           why="joints, limits and axes: joint_sweep fires on 38% and motion_direction on 35% of urdf runs"),
     Route("R13", "c3d-urdf-joints", 95, tracks=("articulated_object",), languages=("urdf_blender",),
-          findings=("joint_sweep/*", "motion_direction/*"),
-          why="a joint_sweep or motion_direction gate fired on the previous round"),
+          findings=("joint_sweep/*", MOTION_WRONG_DIRECTION),
+          why="a joint_sweep finding, or a joint that moves against the plan, on the previous round"),
     Route("R14", "c3d-scene-composition", 75, tracks=("scene",), languages=("scene_threejs",),
           kinds=("baseline", "env", "zone", "refine"),
           why="scene layout and camera framing"),

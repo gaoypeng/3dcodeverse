@@ -117,7 +117,7 @@ TARGETS: tuple[Target, ...] = (
         direction=DOWN,
         unit="findings per run",
         source=SRC_GATE,
-        kinds=("lint/untyped",),
+        kinds=("lint/*",),
         languages=("blender", "urdf_blender"),
         why="the bundle is written around the five bpy traps the static lint already counts",
     ),

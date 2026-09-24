@@ -22,8 +22,8 @@ SIGNAL_KEYS = tuple(plan_signals(None))
 LIVE_KINDS = sorted({k for row in ROUTES for k in row.findings if not k.endswith("*")} |
                     {"connectivity/penetration", "connectivity/floating", "connectivity/untyped",
                      "contract/part_bbox", "contract/orientation", "joint_sweep/penetration",
-                     "motion_direction/untyped", "scene_frames/camera_low", "scene_frames/hero_unseen",
-                     "gl_frames/static", "shader_preflight/no_fog", "lint/untyped"})
+                     "connectivity/stray_islands", "scene_frames/camera_low", "scene_frames/hero_unseen",
+                     "gl_frames/static", "shader_preflight/no_fog"})
 
 
 BASE_INPUTS = [(t, lang, kind) for t in TRACKS for lang in LANGUAGES for kind in KINDS]

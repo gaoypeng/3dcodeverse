@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from codeverse3d.config import get_settings
-from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
+from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, LintKind, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import Plan, StaticPlan
 from codeverse3d.conventions import to_pascal, to_snake
@@ -99,25 +99,29 @@ GATE = "lint:threejs"
 _EXPORT_BUILD_RE = re.compile(r"\bexport\s+(?:async\s+)?function\s+(build[A-Za-z0-9_]*)\s*\(")
 _EXPORT_CONST_BUILD_RE = re.compile(r"\bexport\s+(?:const|let|var)\s+(build[A-Za-z0-9_]*)\s*=")
 _EXPORT_LIST_RE = re.compile(r"\bexport\s*\{([^}]*)\}")
-# token -> (severity, message, fix hint)
-_FORBIDDEN: dict[str, tuple[Severity, str, str]] = {
-    r"\bfetch\s*\(": (Severity.ERROR, "network access (fetch) is not allowed in object code", "build geometry procedurally; no downloads"),
-    r"\bXMLHttpRequest\b": (Severity.ERROR, "network access (XMLHttpRequest) is not allowed", "remove it"),
-    r"\bWebSocket\b": (Severity.ERROR, "network access (WebSocket) is not allowed", "remove it"),
-    r"\bdocument\b": (Severity.ERROR, "DOM access (document) is not available: code runs in node", "remove DOM/canvas usage; no textures"),
-    r"\bwindow\b": (Severity.ERROR, "DOM access (window) is not available: code runs in node", "remove it"),
-    r"\bnavigator\b": (Severity.ERROR, "navigator is not available in node", "remove it"),
-    r"\blocalStorage\b": (Severity.ERROR, "localStorage is not available", "remove it"),
-    r"\brequire\s*\(": (Severity.ERROR, "CommonJS require() is not allowed; use ESM imports of 'three' only", "import * as THREE from 'three'"),
-    r"\bprocess\.": (Severity.ERROR, "node process access is not allowed in object code", "remove it"),
-    r"\beval\s*\(": (Severity.ERROR, "eval is not allowed", "remove it"),
-    r"\bWebGLRenderer\b": (Severity.ERROR, "do not create renderers: the harness renders", "return the Group from build(THREE); delete renderer code"),
-    r"\brequestAnimationFrame\b": (Severity.ERROR, "no render loops: put idle motion in root.userData.tick = (t, dt) => {}", "move per-frame logic into userData.tick"),
-    r"\bTextureLoader\b|\bImageLoader\b|\bFileLoader\b": (Severity.ERROR, "loaders/textures cannot be exported from node", "use MeshStandardMaterial colour/roughness/metalness instead"),
-    r"\bnew\s+THREE\.(?:Perspective|Orthographic)Camera\b": (Severity.WARN, "cameras in object code are ignored (harness owns the camera)", "delete it"),
-    r"\bnew\s+THREE\.[A-Za-z]*Light\s*\(": (Severity.WARN, "lights in object code are exported as extras and ignored by the harness lighting", "delete them"),
-    r"\bnew\s+THREE\.Scene\s*\(": (Severity.WARN, "do not build a Scene; return a Group", "replace Scene with Group"),
+# token -> (severity, message, fix hint, kind)
+_FORBIDDEN: dict[str, tuple[Severity, str, str, LintKind]] = {
+    r"\bfetch\s*\(": (Severity.ERROR, "network access (fetch) is not allowed in object code", "build geometry procedurally; no downloads", LintKind.SANDBOX),
+    r"\bXMLHttpRequest\b": (Severity.ERROR, "network access (XMLHttpRequest) is not allowed", "remove it", LintKind.SANDBOX),
+    r"\bWebSocket\b": (Severity.ERROR, "network access (WebSocket) is not allowed", "remove it", LintKind.SANDBOX),
+    r"\bdocument\b": (Severity.ERROR, "DOM access (document) is not available: code runs in node", "remove DOM/canvas usage; no textures", LintKind.SANDBOX),
+    r"\bwindow\b": (Severity.ERROR, "DOM access (window) is not available: code runs in node", "remove it", LintKind.SANDBOX),
+    r"\bnavigator\b": (Severity.ERROR, "navigator is not available in node", "remove it", LintKind.SANDBOX),
+    r"\blocalStorage\b": (Severity.ERROR, "localStorage is not available", "remove it", LintKind.SANDBOX),
+    r"\brequire\s*\(": (Severity.ERROR, "CommonJS require() is not allowed; use ESM imports of 'three' only", "import * as THREE from 'three'", LintKind.SANDBOX),
+    r"\bprocess\.": (Severity.ERROR, "node process access is not allowed in object code", "remove it", LintKind.SANDBOX),
+    r"\beval\s*\(": (Severity.ERROR, "eval is not allowed", "remove it", LintKind.SANDBOX),
+    r"\bWebGLRenderer\b": (Severity.ERROR, "do not create renderers: the harness renders", "return the Group from build(THREE); delete renderer code", LintKind.HARNESS_OWNED),
+    r"\brequestAnimationFrame\b": (Severity.ERROR, "no render loops: put idle motion in root.userData.tick = (t, dt) => {}", "move per-frame logic into userData.tick", LintKind.HARNESS_OWNED),
+    r"\bTextureLoader\b|\bImageLoader\b|\bFileLoader\b": (Severity.ERROR, "loaders/textures cannot be exported from node", "use MeshStandardMaterial colour/roughness/metalness instead", LintKind.SANDBOX),
+    r"\bnew\s+THREE\.(?:Perspective|Orthographic)Camera\b": (Severity.WARN, "cameras in object code are ignored (harness owns the camera)", "delete it", LintKind.HARNESS_OWNED),
+    r"\bnew\s+THREE\.[A-Za-z]*Light\s*\(": (Severity.WARN, "lights in object code are exported as extras and ignored by the harness lighting", "delete them", LintKind.HARNESS_OWNED),
+    r"\bnew\s+THREE\.Scene\s*\(": (Severity.WARN, "do not build a Scene; return a Group", "replace Scene with Group", LintKind.HARNESS_OWNED),
 }
+
+
+def _f(kind: LintKind, sev: Severity, target: str, message: str, hint: str) -> GateFinding:
+    return GateFinding(gate=GATE, severity=sev, target=target, message=message, fix_hint=hint, data={"kind": kind.value})
 
 
 def _lint_imports(ws: Workspace, path: Path, src: str, findings: list[GateFinding]) -> set[Path]:
@@ -126,17 +130,15 @@ def _lint_imports(ws: Workspace, path: Path, src: str, findings: list[GateFindin
 
     def make_finding(v: ImportVerdict, spec: str, line: int) -> GateFinding:
         if v.kind is ImportKind.ESCAPES:
-            return GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
-                message=f"{rel}:{line}: import '{spec}' escapes src/", fix_hint="keep all files under src/")
+            return _f(LintKind.BAD_IMPORT, Severity.ERROR, rel, f"{rel}:{line}: import '{spec}' escapes src/",
+                      "keep all files under src/")
         if v.kind is ImportKind.MISSING:
             assert v.target is not None
-            return GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
-                message=f"{rel}:{line}: imported file does not exist: '{spec}'",
-                fix_hint=f"create {ws_rel(ws, v.target)} or fix the path (extension '.js' is required)")
+            return _f(LintKind.BAD_IMPORT, Severity.ERROR, rel, f"{rel}:{line}: imported file does not exist: '{spec}'",
+                      f"create {ws_rel(ws, v.target)} or fix the path (extension '.js' is required)")
         kind = "URL" if v.kind is ImportKind.URL else "package"
-        return GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
-            message=f"{rel}:{line}: import of {kind} '{spec}' is not allowed",
-            fix_hint="only 'three', 'three/addons/...' and relative './' imports are available")
+        return _f(LintKind.BAD_IMPORT, Severity.ERROR, rel, f"{rel}:{line}: import of {kind} '{spec}' is not allowed",
+                  "only 'three', 'three/addons/...' and relative './' imports are available")
 
     new, targets = check_imports(src, path, ws.src, make_finding=make_finding)
     findings.extend(new)
@@ -146,11 +148,10 @@ def _lint_imports(ws: Workspace, path: Path, src: str, findings: list[GateFindin
 def _lint_forbidden(ws: Workspace, path: Path, src: str, findings: list[GateFinding]) -> None:
     stripped = strip_js(src)
     rel = ws_rel(ws, path)
-    for pattern, (sev, msg, hint) in _FORBIDDEN.items():
+    for pattern, (sev, msg, hint, kind) in _FORBIDDEN.items():
         m = re.search(pattern, stripped)
         if m:
-            findings.append(GateFinding(gate=GATE, severity=sev, target=rel,
-                message=f"{rel}:{line_of(stripped, m.start())}: {msg}", fix_hint=hint))
+            findings.append(_f(kind, sev, rel, f"{rel}:{line_of(stripped, m.start())}: {msg}", hint))
 
 
 def _exports(src: str) -> set[str]:
@@ -176,8 +177,8 @@ def lint_workspace(ws: Workspace) -> GateReport:
     syntax = check_syntax(sources)
 
     if not entry.is_file():
-        findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, target="src/object.js",
-            message="src/object.js is missing", fix_hint="create src/object.js with `export function build(THREE) { ... return root; }`"))
+        findings.append(_f(LintKind.MISSING_FILE, Severity.ERROR, "src/object.js",
+            "src/object.js is missing", "create src/object.js with `export function build(THREE) { ... return root; }`"))
 
     imported: set[Path] = set()
     for path in sources:
@@ -185,16 +186,16 @@ def lint_workspace(ws: Workspace) -> GateReport:
         rel = ws_rel(ws, path)
         syn = syntax.get(path)
         if syn is not None:
-            findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
-                message=f"{rel}:{syn.line or '?'}: {syn.message}", fix_hint="fix the syntax error at that line"))
+            findings.append(_f(LintKind.SYNTAX, Severity.ERROR, rel, f"{rel}:{syn.line or '?'}: {syn.message}",
+                               "fix the syntax error at that line"))
             continue  # other checks are noise on a file that does not parse
         imported |= _lint_imports(ws, path, src, findings)
         _lint_forbidden(ws, path, src, findings)
         exports = _exports(src)
         if path == entry:
             if "build" not in exports:
-                findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, target=rel,
-                    message="src/object.js must `export function build(THREE)`", fix_hint="add `export function build(THREE) { const root = new THREE.Group(); ...; return root; }`"))
+                findings.append(_f(LintKind.LAYOUT, Severity.ERROR, rel,
+                    "src/object.js must `export function build(THREE)`", "add `export function build(THREE) { const root = new THREE.Group(); ...; return root; }`"))
         elif path.parent == ws.src / "parts":
             # matched by snake: the plan's `TVStand` lives in tv_stand.js and exports buildTVStand
             expected = "build" + to_pascal(path.stem)
@@ -202,28 +203,28 @@ def lint_workspace(ws: Workspace) -> GateReport:
                     e.startswith("build") and len(e) > 5 and to_snake(e[5:]) == path.stem for e in exports):
                 named = sorted(e for e in exports if e != "build")
                 sev = Severity.WARN if any(e != "build" for e in exports) else Severity.ERROR
-                findings.append(GateFinding(gate=GATE, severity=sev, target=rel,
-                    message=f"{rel}: expected `export function {expected}(THREE)` (found {sorted(exports) or 'no build export'})",
-                    fix_hint=f"rename the export to {expected} or the file to parts/{to_snake(named[0][5:]) if named else path.stem}.js"))
+                findings.append(_f(LintKind.LAYOUT, sev, rel,
+                    f"{rel}: expected `export function {expected}(THREE)` (found {sorted(exports) or 'no build export'})",
+                    f"rename the export to {expected} or the file to parts/{to_snake(named[0][5:]) if named else path.stem}.js"))
 
     part_files = [p for p in sources if p.parent == ws.src / "parts"]
     for p in part_files:
         if p not in imported:
-            findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target=ws_rel(ws, p),
-                message=f"{ws_rel(ws, p)} is not imported by any module (dead part file?)", fix_hint="import and add it in src/object.js or delete it"))
+            findings.append(_f(LintKind.PART_NOT_IMPORTED, Severity.WARN, ws_rel(ws, p),
+                f"{ws_rel(ws, p)} is not imported by any module (dead part file?)", "import and add it in src/object.js or delete it"))
 
     plan = plan_or_none(ws.plan_path)
     if type(plan) is StaticPlan:  # an articulated plan's parts are not threejs part files
         for part in plan.parts:
             pf = ws.src / "parts" / f"{to_snake(part.name)}.js"
             if not pf.is_file():
-                findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target=part.name,
-                    message=f"planned part {part.name} has no file src/parts/{to_snake(part.name)}.js",
-                    fix_hint=f"create it with `export function build{to_pascal(part.name)}(THREE)`"))
+                findings.append(_f(LintKind.MISSING_FILE, Severity.WARN, part.name,
+                    f"planned part {part.name} has no file src/parts/{to_snake(part.name)}.js",
+                    f"create it with `export function build{to_pascal(part.name)}(THREE)`"))
             elif pf not in imported and entry.is_file():
-                findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target=part.name,
-                    message=f"planned part {part.name} is not assembled by src/object.js",
-                    fix_hint=f"import {{ build{to_pascal(part.name)} }} from './parts/{to_snake(part.name)}.js' and root.add(...)"))
+                findings.append(_f(LintKind.PART_NOT_IMPORTED, Severity.WARN, part.name,
+                    f"planned part {part.name} is not assembled by src/object.js",
+                    f"import {{ build{to_pascal(part.name)} }} from './parts/{to_snake(part.name)}.js' and root.add(...)"))
 
     return GateReport.of(GATE, findings, duration_ms=int((time.time() - t0) * 1000))
 

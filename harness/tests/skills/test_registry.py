@@ -19,9 +19,9 @@ def _f(gate, sev, message="", **data):
     (_f("connectivity", W, "part 'X' contains 3 tiny disconnected island(s)", kind="penetration"),
      "connectivity/penetration"),
     (_f("scene_frames", E, "nothing moves: the largest change …", kind="no_motion"), "scene_frames/no_motion"),
-    # a gate that writes no kind; the lint gates are one family
+    # the lint gates are one family; a finding recorded before its gate typed it is untyped
+    (_f("lint:urdf", W, "link 'lid' never appears as a string", kind="link_name"), "lint/link_name"),
     (_f("lint:blender", W, "src/parts/leg.py is never imported by src/model.py"), "lint/untyped"),
-    (_f("motion_direction", E, "shoulder_joint: … (WRONG — flip the axis sign)"), "motion_direction/untyped"),
     # INFO is census: "all 7 parts are connected" must not attach the penetration sheet
     (_f("connectivity", I, "contact ledger: 7 parts", kind="ledger"), None),
 ])
@@ -35,6 +35,38 @@ def test_finding_kinds_accepts_reports_and_findings_distinct_in_order():
     assert finding_kinds([a, b]) == finding_kinds([GateReport(gate="x", passed=False, findings=[a, b])]) \
         == finding_kinds([a, b, a]) == ["connectivity/penetration", "contract/part_bbox"]
     assert finding_kinds([]) == [] and finding_kinds(None) == []
+
+
+_LEG = "import bpy\n\n\ndef build_leg():\n    bpy.ops.mesh.primitive_cube_add(size=1)\n    obj = bpy.context.object\n    obj.name = 'Leg'\n    return obj\n"
+_JOIN = "bpy.ops.object.join()\n"
+
+
+@pytest.mark.parametrize(("model", "r9"), [
+    ("import bpy\n", True),                                                           # parts/leg.py never imported
+    ("import bpy\nfrom parts.leg import build_leg\n\nbuild_leg()\n" + _JOIN, False),  # a bpy trap is not R9's
+])
+def test_r9_answers_a_part_file_never_imported_and_no_other_lint(tmp_ws, library, model, r9):
+    """R9 fired on ANY blender lint finding while the lints wrote no kind."""
+    from codeverse3d.languages.blender import lint_workspace
+
+    (tmp_ws.src / "parts").mkdir(parents=True, exist_ok=True)
+    (tmp_ws.src / "parts" / "leg.py").write_text(_LEG)
+    (tmp_ws.src / "model.py").write_text(model)
+    lint = lint_workspace(tmp_ws)
+    assert [f for f in lint.findings if f.severity != I], "the fixture must give the lint something to report"
+    got = select("static_object", "blender", "repair", findings=[lint], library=library)
+    assert ("R9" in next(s for s in got if s.name == "c3d-blender-forms").rules) is r9
+
+
+def test_r13_answers_a_joint_moving_against_the_plan_not_a_skipped_check(library):
+    from codeverse3d.tracks.articulated_object import MOTION_GATE, MOTION_SKIPPED, MOTION_WRONG
+
+    def rules(kind):
+        rep = GateReport(gate=MOTION_GATE, passed=False, findings=[_f(MOTION_GATE, E, "m", kind=kind)])
+        got = select("articulated_object", "urdf_blender", "repair", findings=[rep], library=library)
+        return next(s for s in got if s.name == "c3d-urdf-joints").rules
+
+    assert "R13" in rules(MOTION_WRONG) and "R13" not in rules(MOTION_SKIPPED)
 
 
 def test_r19_answers_a_scene_with_nothing_moving(library):

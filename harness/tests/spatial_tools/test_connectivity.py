@@ -52,7 +52,7 @@ def test_tiny_island_warns(tmp_path: Path) -> None:
     sc.export(str(p))
     r = check_connectivity(p)
     warns = [f for f in r.findings if f.severity == Severity.WARN]
-    assert warns and "tiny disconnected island" in warns[0].message
+    assert warns and "tiny disconnected island" in warns[0].message and warns[0].data["kind"] == "stray_islands"
 
 
 def test_missing_glb_is_error(tmp_path: Path) -> None:
@@ -163,7 +163,7 @@ def test_a_model_authored_below_the_floor_still_reports_its_floating_part(tmp_pa
     assert not sunk.passed, "a sunk model must not disable the floating check"
     assert [(e.target, e.data["nearest"]) for e in sunk.errors] == [("hat", "body")]
     # ... plus the ground warning, since nothing is on the floor any more
-    assert any("touches the ground" in f.message for f in sunk.findings)
+    assert any("touches the ground" in f.message and f.data["kind"] == "no_ground" for f in sunk.findings)
 
 
 def _scene(path: Path, **meshes: trimesh.Trimesh) -> Path:
