@@ -21,6 +21,7 @@
 
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
+import { sunVector } from './shader.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 
 /**
@@ -178,14 +179,8 @@ export function makeSky(scene, opts = {}) {
   } else if (opts.sunDir) {
     sunDir = opts.sunDir.clone().normalize();
   } else {
-    const el = (opts.elevationDeg === undefined ? 15
-                                                : opts.elevationDeg) *
-        Math.PI / 180;
-    const az = (opts.azimuthDeg === undefined ? 135 : opts.azimuthDeg) *
-        Math.PI / 180;
-    sunDir = new THREE.Vector3(
-        Math.cos(el) * Math.cos(az), Math.sin(el),
-        Math.cos(el) * Math.sin(az));
+    sunDir = sunVector(opts.azimuthDeg === undefined ? 135 : opts.azimuthDeg,
+                       opts.elevationDeg === undefined ? 15 : opts.elevationDeg);
   }
   u.sunPosition.value.copy(sunDir);
   // r184 Sky ships value-noise clouds ON by default — grid artifacts

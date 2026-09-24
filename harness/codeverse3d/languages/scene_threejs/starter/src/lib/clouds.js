@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32, fbm2 } from './noise.js';
-import { makeShaderMaterial, keepOutOfDepthPasses } from './shader.js';
+import { makeShaderMaterial, keepOutOfDepthPasses, sunVector } from './shader.js';
 
 // Cumulus/cirrus mood presets, graded for THIS renderer: ACES filmic at
 // exposure 1.0, sRGB out, and nothing after that rescues a dim top or
@@ -45,12 +45,8 @@ function lightVector(v) {
   const d = v.clone().normalize();
   if (d.y >= -0.02) return d;
   const el = Math.asin(-d.y);                    // how deep the sun is
-  const moonEl = Math.max(30, Math.min(55, 25 + el * 180 / Math.PI))
-      * Math.PI / 180;
-  const az = Math.atan2(-d.z, -d.x);             // opposite azimuth
-  return new THREE.Vector3(
-      Math.cos(moonEl) * Math.cos(az), Math.sin(moonEl),
-      Math.cos(moonEl) * Math.sin(az));
+  const az = Math.atan2(-d.z, -d.x) * 180 / Math.PI;   // opposite azimuth
+  return sunVector(az, Math.max(30, Math.min(55, 25 + el * 180 / Math.PI)));
 }
 
 /** Seeded billowy puff: RGB stores a shading normal, alpha optical coverage.

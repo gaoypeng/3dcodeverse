@@ -8,6 +8,7 @@
  */
 
 import * as THREE from 'three';
+import { sunVector } from './shader.js';
 
 const _ray = new THREE.Raycaster();
 const _down = new THREE.Vector3(0, -1, 0);
@@ -324,12 +325,6 @@ export function establishingShot(name, heroObj, opts = {}) {
     }
     return d;
   };
-  const eyeDir = (aDeg, eDeg) => {
-    const a = aDeg * DEG;
-    const e = eDeg * DEG;
-    return new THREE.Vector3(Math.cos(e) * Math.cos(a), Math.sin(e),
-                             Math.cos(e) * Math.sin(a));
-  };
   // MOVE ON THE FIT SPHERE, NEVER BACKWARDS. `shot()` retreats from a
   // blocker, which is right for a street camera and wrong here: backing
   // away shrinks the hero the establishing shot exists to show. Look
@@ -346,7 +341,7 @@ export function establishingShot(name, heroObj, opts = {}) {
   for (const [dAz, dEl] of arcs) {
     const a = dAz === 0 ? azDeg
         : awayFromSun(azDeg + dAz + 180, opts.sunAzDeg) - 180;
-    const dir = eyeDir(a, Math.min(70, elDeg + dEl));
+    const dir = sunVector(a, Math.min(70, elDeg + dEl));
     const p = center.clone().addScaledVector(dir, fit(dir));
     liftAbove(p, targets, 1.6);
     const v = probeView(p, center, targets);

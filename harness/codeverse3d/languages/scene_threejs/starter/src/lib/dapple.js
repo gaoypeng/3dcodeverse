@@ -19,15 +19,11 @@
  */
 
 import * as THREE from 'three';
-import { patchStandard, composeRoughness } from './shader.js';
+import { patchStandard, composeRoughness, sunVector } from './shader.js';
 
 // The day rig's sun (azimuth 35, elevation 48), matching water.js,
 // so a surface that was not told where the sun is agrees.
-const _AZ = 35 * Math.PI / 180;
-const _EL = 48 * Math.PI / 180;
-const DAY_SUN = new THREE.Vector3(
-    Math.cos(_EL) * Math.cos(_AZ), Math.sin(_EL),
-    Math.cos(_EL) * Math.sin(_AZ)).normalize();
+const DAY_SUN = sunVector(35, 48);
 
 // Half the sun's angular diameter, in radians (0.53 deg across). This is
 // the ONE number that sets how soft a sunfleck's edge is: the penumbra a

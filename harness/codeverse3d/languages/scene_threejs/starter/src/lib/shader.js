@@ -226,6 +226,19 @@ export function seedVec3(s, a, b, c, k) {
         .multiplyScalar(k);
 }
 
+/**
+ * The library's ONE azimuth/elevation -> direction rule: azimuth in degrees
+ * from +X toward +Z (0 = +X, 90 = +Z), elevation in degrees above the
+ * horizon.  sunRig, makeSky, the moon, establishingShot's eye and every
+ * default sun use it, so an angle means the same thing to all of them.
+ */
+export function sunVector(azDeg, elDeg) {
+    const az = azDeg * Math.PI / 180;
+    const el = elDeg * Math.PI / 180;
+    return new THREE.Vector3(Math.cos(el) * Math.cos(az), Math.sin(el),
+                             Math.cos(el) * Math.sin(az));
+}
+
 /** Read a Vector3, an array or an {x,y,z} into a new Vector3. */
 export function readVec3(p, fx = 0, fy = 0, fz = 0) {
     if (!p) return new THREE.Vector3(fx, fy, fz);

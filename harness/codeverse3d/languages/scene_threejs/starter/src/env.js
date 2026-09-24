@@ -16,7 +16,7 @@ import { makeOutskirts, roomShell, sunRig, worldShell } from './lib/environment.
 import { mulberry32 } from './lib/noise.js';
 import { ground } from './lib/terrain.js';
 
-export const SUN_AZIMUTH_DEG = 60;    // where the sun is (0 = +Z front, CCW from above); cameras on the sun side are front-lit
+export const SUN_AZIMUTH_DEG = 60;    // where the sun is, as sunRig reads it (0 = +X, 90 = +Z front); cameras on the sun side are front-lit
 export const SUN_ELEVATION_DEG = 38;
 export const MOOD = 'day';            // day | golden | night | overcast — the rig, the shell and the fog agree on it
 export const GROUND_SIZE = 160;       // ground plane extent (m); the outskirts start at its edge

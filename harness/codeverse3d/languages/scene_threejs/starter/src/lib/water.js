@@ -16,7 +16,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { Water } from 'three/addons/objects/Water.js';
-import { planarCapture } from './shader.js';
+import { planarCapture, sunVector } from './shader.js';
 
 // Battery-graded freeze point: mid-phase, waves clearly formed.
 const FROZEN_TIME = 7.3;
@@ -24,11 +24,7 @@ const FROZEN_TIME = 7.3;
 // Default sun matches the day rig in lib/environment.js (azimuth 35,
 // elevation 48, same axis convention), so a scene that forgot to pass
 // sunDir still gets specular broadly agreeing with the shipped light.
-const _AZ = 35 * Math.PI / 180;
-const _EL = 48 * Math.PI / 180;
-const _DAY_SUN = new THREE.Vector3(
-    Math.cos(_EL) * Math.cos(_AZ), Math.sin(_EL),
-    Math.cos(_EL) * Math.sin(_AZ));
+const _DAY_SUN = sunVector(35, 48);
 
 
 /**

@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 
 import { fbm2, mulberry32 } from './noise.js';
-import { patchStandard } from './shader.js';
+import { patchStandard, sunVector } from './shader.js';
 import { skyRadiance } from './sky.js';
 import { snapshotResources, attachDisposal } from './lifecycle.js';
 
@@ -600,14 +600,11 @@ export function sunRig(opts = {}) {
       opts.zenith === undefined ? mood.zenith : opts.zenith);
   const horizon = new THREE.Color(
       opts.horizon === undefined ? mood.horizon : opts.horizon);
-  const toDir = (az, el) => new THREE.Vector3(
-      Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
-  const dir = toDir(azDeg * Math.PI / 180, elDeg * Math.PI / 180);
+  const dir = sunVector(azDeg, elDeg);
   // A set sun lights nothing from under the ground: the moon rises
   // opposite it, 30-55 deg up (deeper sun, higher moon).
   const moonDir = belowHorizon
-      ? toDir((azDeg + 180) * Math.PI / 180,
-              Math.max(30, Math.min(55, 25 - elDeg)) * Math.PI / 180)
+      ? sunVector(azDeg + 180, Math.max(30, Math.min(55, 25 - elDeg)))
       : (night ? dir.clone() : null);
   const lightDir = belowHorizon ? moonDir.clone() : dir.clone();
 

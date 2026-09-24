@@ -124,6 +124,9 @@ out.set = { night: set.night, mood: set.mood, sunY: set.sunDir.y, moonY: moon.y,
   opposite: Math.atan2(moon.z, moon.x) * 180 / Math.PI, discName: set.sunDisc.name, discOnMoon: set.sunDisc.position.clone().normalize().dot(moon),
   lightDirIsMoon: set.lightDir.dot(moon) > 0.999, envZenith: sample(set, new THREE.Vector3(0, 1, 0)), envMoon: lum(sample(set, moon)),
   envAway: lum(sample(set, moon.clone().multiply(new THREE.Vector3(-1, 1, -1)))), sunIntensity: set.sun.intensity };
+// The azimuth convention env.js's SUN_AZIMUTH_DEG comment states (0 = +X, 90 = +Z):
+// the harness's camera fitter converts from it, so it must not drift.
+out.axes = [0, 90].map((a) => sunRig({ azimuth: a, elevation: 0 }).sunDir.toArray().map((v) => Math.round(v * 1e6) / 1e6));
 console.log(JSON.stringify(out));
 """
 
@@ -133,6 +136,10 @@ _MOODS = ("day", "golden", "night", "overcast")
 @pytest.fixture(scope="module")
 def sun() -> dict:
     return _measure(_SUN)
+
+
+def test_azimuth_zero_is_plus_x_and_ninety_is_plus_z(sun):
+    assert sun["axes"] == [[1, 0, 0], [0, 0, 1]]
 
 
 def test_the_env_texture_is_a_linear_half_float_equirect(sun):
