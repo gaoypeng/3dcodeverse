@@ -519,7 +519,7 @@ class GlProbeArgs(BaseModel):
 
 
 class GlFramesArgs(BaseModel):
-    times: list[float] = Field(default=[0.0, 1.0, 2.5, 4.0, 6.0], description="times (s) to render, 1..8 values")
+    times: list[float] | None = Field(default=None, description="times (s) to render, 1..8 values; default: the times the judge sees")
     width: int = Field(default=0, ge=0, le=1920, description="override width (0 = plan resolution)")
     height: int = Field(default=0, ge=0, le=1080, description="override height (0 = plan resolution)")
 
@@ -533,7 +533,7 @@ def _runtime(ctx: ToolContext):
     return get_runtime(lang)
 
 
-def _run_build(ctx: ToolContext, *, times: list[float], width: int = 0, height: int = 0) -> tuple[Observation | None, BuildResult | None, list[str]]:
+def _run_build(ctx: ToolContext, *, times: list[float] | None, width: int = 0, height: int = 0) -> tuple[Observation | None, BuildResult | None, list[str]]:
     """Lint → build; returns (error observation | None, build, lint warnings)."""
     ws = ctx.workspace
     rt = _runtime(ctx)
@@ -567,12 +567,14 @@ def gl_probe(ctx: ToolContext, args: GlProbeArgs) -> Observation:
                             images=[str(p) for p in frames[:1]], limit=3000)
 
 
-@tool("gl_frames", GlFramesArgs, "Render frames at the judged times (0,1,2.5,4,6 s by default) → labelled contact sheet + per-frame metrics (luminance, colour, detail, motion, NaN) + the gl_frames gate. LOOK at the sheet.",
+@tool("gl_frames", GlFramesArgs, "Render frames (by default at the times the judge sees) → labelled contact sheet + per-frame metrics (luminance, colour, detail, motion, NaN) + the gl_frames gate. LOOK at the sheet.",
       languages=GRAPHICS_LANGS, cost_hint="slow")
 def gl_frames(ctx: ToolContext, args: GlFramesArgs) -> Observation:
-    if not args.times or len(args.times) > MAX_FRAMES:
-        raise ToolUsageError(f"times must hold 1..{MAX_FRAMES} values", "gl_frames(times=[0, 1, 2.5, 4, 6])")
-    err, br, warns = _run_build(ctx, times=sorted(set(float(t) for t in args.times)), width=args.width, height=args.height)
+    if args.times is not None and not 1 <= len(args.times) <= MAX_FRAMES:
+        raise ToolUsageError(f"times must hold 1..{MAX_FRAMES} values", "gl_frames() renders the judged times")
+    # None → the build's own default, `judge_times(plan duration)`: the frames the judge will see
+    times = sorted(set(float(t) for t in args.times)) if args.times else None
+    err, br, warns = _run_build(ctx, times=times, width=args.width, height=args.height)
     if err is not None:
         return err
     assert br is not None

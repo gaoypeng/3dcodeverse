@@ -42,7 +42,6 @@ GPU_ENV: dict[str, str] = {
 CPU_ENV: dict[str, str] = {"LIBGL_ALWAYS_SOFTWARE": "1", "GALLIUM_DRIVER": "llvmpipe"}
 _ENV_PASS = ("PATH", "HOME", "LANG", "LC_ALL", "PYTHONHASHSEED", "LD_LIBRARY_PATH", "XDG_RUNTIME_DIR", "TMPDIR")
 
-DEFAULT_TIMES: tuple[float, ...] = (0.0, 1.0, 2.5, 4.0, 6.0)
 EXIT_CONTEXT = 3
 RESULT_NAME = "gl_result.json"
 JOB_NAME = "gl_job.json"
@@ -116,7 +115,7 @@ class GlHost:
 
     # ------------------------------------------------------------------ public
     def render_fragment_shader(self, frag_src: str, out_dir: Path, *, width: int = 1280, height: int = 720,
-                               times: Sequence[float] = DEFAULT_TIMES, buffer_a_src: str | None = None,
+                               times: Sequence[float], buffer_a_src: str | None = None,
                                feedback: bool = False, extra_times: Sequence[float] = ()) -> GlResult:
         job = {"mode": "shader", "frag_src": frag_src, "buffer_a_src": buffer_a_src, "feedback": bool(feedback),
                "width": int(width), "height": int(height), "times": [float(t) for t in times],
@@ -124,7 +123,7 @@ class GlHost:
         return self._run(job, out_dir)
 
     def run_program(self, program_path: Path, out_dir: Path, *, width: int = 1280, height: int = 720,
-                    times: Sequence[float] = DEFAULT_TIMES, extra_times: Sequence[float] = (),
+                    times: Sequence[float], extra_times: Sequence[float] = (),
                     cwd: Path | None = None) -> GlResult:
         program_path = Path(program_path).resolve()
         job = {"mode": "program", "program_path": str(program_path), "program_cwd": str(cwd or program_path.parent),

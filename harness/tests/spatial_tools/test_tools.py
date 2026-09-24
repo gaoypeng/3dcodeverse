@@ -338,6 +338,29 @@ def test_gl_tools_lead_with_the_frame_gate_verdict(tmp_ws: Workspace, monkeypatc
         assert obs.numbers["gate_errors"] == 1, name
 
 
+def test_gl_frames_renders_the_judged_times_by_default(tmp_ws: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression (audit 2026-09-24 N17): the tool rendered its own (0, 1, 2.5, 4, 6) whatever the
+    loop; on a 2 s loop the judge sees (0, .5, 1, 1.5, 2) — the build's `judge_times(duration)`."""
+    from codeverse3d.contracts.plan import GraphicsPlan, PassPlan
+    from codeverse3d.languages.glsl_shader import GlslShaderRuntime
+    from codeverse3d.spatial.gl_render import GlResult
+
+    seen: list[list[float]] = []
+
+    class _Host:
+        def render_fragment_shader(self, frag_src, out_dir, *, times, **kw):
+            seen.append([float(t) for t in times])
+            return GlResult(ok=False, mode="shader", stage="compile", error_type="Error", error_message="stop here")
+
+    tmp_ws.write_json(tmp_ws.plan_path, GraphicsPlan(
+        title="T", summary="s", style="st", passes=[PassPlan(name="Sky", description="d")], motion="m",
+        key_visuals=["k"], duration_s=2.0))
+    (tmp_ws.src / "shader.frag").write_text("void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(1.0); }\n")
+    _patch_runtime(monkeypatch, GlslShaderRuntime(host=_Host()))
+    obs = get_tool("gl_frames").call(ToolContext(workspace=tmp_ws, language="glsl_shader", track="graphics"), {})
+    assert seen == [[0.0, 0.5, 1.0, 1.5, 2.0]], obs.text
+
+
 # --------------------------------------------------------------------------- the gate tools on a stool
 def _stool_plan_with_missing_backrest() -> StaticPlan:
     return StaticPlan(object_name="Stool", summary="s", overall_bbox=BBox(center=(0, 0, 0.225), extents=(0.4, 0.4, 0.45)),
