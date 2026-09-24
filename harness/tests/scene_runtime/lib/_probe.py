@@ -19,7 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from codeverse3d.spatial.node import node_modules_dir, run_node, runtime_js_dir
+from codeverse3d.spatial.node import node_modules_dir, run_node
+from codeverse3d.spatial.render_scene import SceneRenderError, run_scene_script
 
 HARNESS = Path(__file__).resolve().parents[3]
 LIB_DIR = HARNESS / "codeverse3d" / "languages" / "scene_threejs" / "starter" / "src" / "lib"
@@ -116,9 +117,14 @@ def compile_scene(scene_src: str, libs: tuple[str, ...] = (), *,
         (root / "src" / "scene.js").write_text(scene_src, encoding="utf-8")
         for rel, text in (extra or {}).items():
             (root / "src" / rel).write_text(text, encoding="utf-8")
-        out = run_node(runtime_js_dir() / "check_shaders.mjs",
-                       ["--ws", str(root), "--timeout-ms", str(int(timeout_s * 1000))]
-                       + (["--module", audit_module] if audit_module else [])
-                       + (["--out", str(report)] if report else []),
-                       cwd=runtime_js_dir(), timeout_s=timeout_s + 30, three_hook=True, check=False)
+        # through the production driver runner, so a browser lost under load is retried
+        # once on an owned browser exactly as a build's probe is (run_node alone had no retry)
+        try:
+            out = run_scene_script("check_shaders.mjs",
+                                   ["--ws", str(root), "--timeout-ms", str(int(timeout_s * 1000))]
+                                   + (["--module", audit_module] if audit_module else [])
+                                   + (["--out", str(report)] if report else []),
+                                   timeout_s=timeout_s + 30)
+        except SceneRenderError as e:
+            return 2, str(e)[-4000:]
         return out.rc, (out.stdout + "\n" + out.stderr)[-4000:]

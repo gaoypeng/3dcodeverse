@@ -109,7 +109,9 @@ def test_probe_scene_hanging_create_scene_times_out_as_agent_finding(starter_ws)
         "  return { scene: new THREE.Scene(), cameras: [], update() {} };\n"
         "}\n"
     )
-    res = probe_scene(starter_ws, timeout_s=10)   # createScene timeout = 6 s < watchdog
+    # createScene gets 0.6 x the driver budget (host_page.createTimeoutMs): 18 s, leaving the
+    # page boot 12 s before the watchdog — at 10 s (6 s + 4 s) a loaded box hit the watchdog first
+    res = probe_scene(starter_ws, timeout_s=30)
     gate = res.gate
     assert not gate.passed
     err = next(f for f in gate.errors if f.data.get("stage") == "createScene")

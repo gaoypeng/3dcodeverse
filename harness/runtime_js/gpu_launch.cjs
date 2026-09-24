@@ -267,12 +267,19 @@ function spawnDaemon(backend) {
 async function sharedBrowser(puppeteer, backend) {
   let handle = await connectShared(puppeteer, backend);
   if (handle) return handle;
+  // Still advertised = this caller REJECTED a live browser (canary timeout / page budget).
+  // It is everyone else's, so this caller launches its own.  Spawning a daemon here
+  // superseded it, and a superseded daemon closes its browser under its clients' pages:
+  // 'Target closed' across a loaded suite, six browsers in 30 s (2026-09-23).
+  const rejected = () => { const cur = readJson(endpointPath(backend)); return !!cur && cur.ws === rejectedWs; };
+  if (rejected()) return null;
   spawnDaemon(backend);
   const deadline = Date.now() + DAEMON_WAIT_MS;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 50));
     handle = await connectShared(puppeteer, backend);
     if (handle) return handle;
+    if (rejected()) return null;
     const failed = readJson(daemonFailPath(backend));
     if (failed) return { failed: String(failed.error || 'daemon launch failed') };
   }

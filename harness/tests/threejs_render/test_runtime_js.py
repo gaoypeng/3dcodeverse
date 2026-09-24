@@ -146,6 +146,39 @@ const {{ launchBrowser, rendererInfo }} = require({json.dumps(str(runtime_js_dir
     _reap_daemons(tmp_path / "cache")
 
 
+def test_a_rejected_shared_browser_is_never_superseded(tmp_path: Path):
+    """A caller whose canary rejects the shared browser launches its own and leaves
+    the advertised one alone.  It used to spawn a second daemon, whose advertisement
+    superseded the first; the superseded daemon then closed its browser under its
+    clients' pages — "Target closed" across a loaded test suite (2026-09-23)."""
+    script = tmp_path / "r.cjs"
+    script.write_text(f"""
+const fs = require('fs');
+const {{ launchBrowser, _internal }} = require({json.dumps(str(runtime_js_dir() / 'gpu_launch.cjs'))});
+(async () => {{
+  const a = await launchBrowser({{ gpu: 'off' }});
+  const before = _internal.readJson(_internal.endpointPath('cpu')).ws;
+  const pages = [];
+  for (let i = 0; i < 13; i++) pages.push(await a.browser.newPage());   // over the canary's page budget
+  const b = await launchBrowser({{ gpu: 'off' }});
+  await new Promise((r) => setTimeout(r, 1500));   // a spawned daemon would have advertised by now
+  const after = _internal.readJson(_internal.endpointPath('cpu'));
+  const out = {{ a_shared: a.shared, b_shared: b.shared, same: !!after && after.ws === before }};
+  await b.release();
+  for (const p of pages) await p.close();
+  await a.release();
+  console.log(JSON.stringify(out));
+}})().catch((e) => {{ console.error(e); process.exit(1); }});
+""")
+    cache = tmp_path / "cache"
+    try:
+        out = run_node(script, [], timeout_s=120, env_extra={"C3D_CACHE_DIR": str(cache)}).last_json
+    finally:
+        _reap_daemons(cache)
+    assert out["a_shared"] is True and out["b_shared"] is False
+    assert out["same"], "the rejecting caller replaced the advertised browser"
+
+
 def test_scene_server_only_mounts_src_public_assets(tmp_path: Path):
     """Scene code must not read the run's spec, state, git or judge output."""
     ws = Workspace(tmp_path / "run").create()
