@@ -2,7 +2,7 @@
 
     blender -b --factory-startup --python run_bpy.py -- \
         --script /abs/src/model.py --out /abs/artifacts [--stl] [--blend] \
-        [--rlimit-gb 12] [--tri-limit 600000] [--seed 0]
+        [--rlimit-gb 12] [--seed 0]
 
 What it does (in order):
   1. caps the address space (RLIMIT_AS) so geometry bombs die in-process;
@@ -59,7 +59,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--stl", action="store_true")
     p.add_argument("--blend", action="store_true")
     p.add_argument("--rlimit-gb", type=float, default=12.0)
-    p.add_argument("--tri-limit", type=int, default=600_000)
     p.add_argument("--seed", type=int, default=0)
     return p.parse_args(argv)
 
@@ -190,16 +189,10 @@ def main() -> int:
     except RuntimeError:
         pass
 
-    census = collect_census(bpy, args.tri_limit)
+    census = collect_census(bpy)
     if render_fingerprint(bpy) != render_before:
         census["warnings"].append("script changed render settings (engine/resolution/filepath/frames): remove that code")
     report["warnings"] = census["warnings"]
-
-    if exc is None and census["tri_count"] > args.tri_limit:
-        report.update(
-            error_type="TriangleBudgetExceeded",
-            error_message=f"{census['tri_count']} triangles > limit {args.tri_limit}; lower subdivision levels / segment counts",
-        )
 
     chosen = select_exportables(bpy)
     if chosen:

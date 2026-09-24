@@ -125,7 +125,7 @@ def material_slot_warnings(meshes: list[dict[str, Any]]) -> list[str]:
 
 
 def _warnings(bpy: Any, objects: list[dict[str, Any]], boolean_operands: dict[str, list[str]],
-              scene_objects: set[str], vl_names: set[str], total_tris: int, tri_limit: int) -> list[str]:
+              scene_objects: set[str], vl_names: set[str]) -> list[str]:
     warnings: list[str] = []
     excluded = [o["name"] for o in objects if o["in_scene"] and not o["in_view_layer"]]
     if excluded:
@@ -157,12 +157,10 @@ def _warnings(bpy: Any, objects: list[dict[str, Any]], boolean_operands: dict[st
     if unlinked:
         warnings.append(f"mesh object(s) {unlinked} were created but never linked to the scene → not exported; "
                         "call bpy.context.collection.objects.link(obj)")
-    if total_tris > tri_limit:
-        warnings.append(f"triangle budget exceeded: {total_tris} > {tri_limit}")
     return warnings
 
 
-def collect_census(bpy: Any, tri_limit: int) -> dict[str, Any]:
+def collect_census(bpy: Any) -> dict[str, Any]:
     """Census of every object in ``bpy.data`` (visible meshes count toward the scene bbox / tris)."""
     from mathutils import Vector
 
@@ -191,11 +189,10 @@ def collect_census(bpy: Any, tri_limit: int) -> dict[str, Any]:
         "objects": objects,
         "n_mesh_objects": len(visible),
         "tri_count": total_tris,
-        "tri_limit": tri_limit,
         "materials": [m.name for m in bpy.data.materials],
         "cameras": [o.name for o in bpy.data.objects if o.type == "CAMERA"],
         "lights": [o.name for o in bpy.data.objects if o.type == "LIGHT"],
-        "warnings": _warnings(bpy, objects, boolean_operands, scene_objects, vl_names, total_tris, tri_limit),
+        "warnings": _warnings(bpy, objects, boolean_operands, scene_objects, vl_names),
         "frame": "z_up_neg_y_front",
     }
     if mins:

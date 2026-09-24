@@ -94,3 +94,15 @@ def test_live_selfcheck_skips_hidden_cutters(tmp_ws, blender_bin) -> None:
     r = BlenderRuntime(blender=blender_bin).build(tmp_ws, timeout_s=120)
     assert r.ok, (r.error_type, r.error_message)
     assert "[selfcheck] 1 mesh objects, z_min=0.0050" in r.stdout_tail
+
+
+@pytest.mark.blender
+def test_live_triangle_count_is_not_a_build_error(tmp_ws, blender_bin) -> None:
+    """Audit 2026-09-24 N22: a 720k-triangle object failed the Blender build
+    (`TriangleBudgetExceeded`) while three.js built it clean; the depth gate is the one ceiling."""
+    (tmp_ws.src / "model.py").write_text(
+        "import bpy\nbpy.ops.mesh.primitive_grid_add(x_subdivisions=600, y_subdivisions=600, size=1)\n"
+        "bpy.context.object.name = 'Sheet'\n")
+    r = BlenderRuntime(blender=blender_bin).build(tmp_ws, timeout_s=120)
+    assert r.ok and r.census["tri_count"] == 720_000, (r.error_type, r.error_message)
+    assert not any("triangle" in w for w in r.census["warnings"])

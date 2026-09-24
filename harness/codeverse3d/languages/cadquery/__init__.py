@@ -13,7 +13,7 @@ from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import PartPlan, Plan, StaticPlan
-from codeverse3d.conventions import MAX_TRIS_OBJECT, PASCAL_RE, fmt3, to_pascal, to_snake
+from codeverse3d.conventions import PASCAL_RE, fmt3, to_pascal, to_snake
 from codeverse3d.languages._ast_lint import (
     BASE_FORBIDDEN_IMPORTS,
     ImportCollector,
@@ -331,11 +331,11 @@ class CadQueryRuntime(RuntimeLayout):
     def entry_file(self, ws: Workspace) -> Path:
         return ws.src / "model.py"
 
-    def build_command(self, ws: Workspace, *, seed: int = 0, tri_limit: int = MAX_TRIS_OBJECT) -> list[str]:
+    def build_command(self, ws: Workspace, *, seed: int = 0) -> list[str]:
         """The wrapper's own --tolerance / --angular-tolerance defaults are the tessellation."""
         return [
             self._python, str(WRAPPER), "--script", str(self.entry_file(ws)), "--out", str(ws.artifacts),
-            "--rlimit-gb", str(self._rlimit_gb), "--tri-limit", str(tri_limit), "--seed", str(seed),
+            "--rlimit-gb", str(self._rlimit_gb), "--seed", str(seed),
         ]
 
     # ------------------------------------------------------------------ protocol
@@ -347,10 +347,9 @@ class CadQueryRuntime(RuntimeLayout):
     def lint(self, ws: Workspace) -> GateReport:
         return lint_cadquery_file(self.entry_file(ws))
 
-    def build(self, ws: Workspace, *, timeout_s: int | None = None, seed: int = 0,
-              tri_limit: int = MAX_TRIS_OBJECT) -> BuildResult:
+    def build(self, ws: Workspace, *, timeout_s: int | None = None, seed: int = 0) -> BuildResult:
         return run_wrapper_build(
             ws, language=self.language, extras={"step": "object.step", "stl": "object.stl"},
-            argv=lambda: self.build_command(ws, seed=seed, tri_limit=tri_limit),
+            argv=lambda: self.build_command(ws, seed=seed),
             env=cadquery_env(), timeout_s=timeout_s or self._settings.limits.build_timeout_s)
 

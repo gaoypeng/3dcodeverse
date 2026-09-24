@@ -12,14 +12,7 @@ from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import BBox, PartPlan, Plan, StaticPlan
-from codeverse3d.conventions import (
-    GROUND_TOL_M,
-    MAX_TRIS_OBJECT,
-    PASCAL_RE,
-    fmt3,
-    to_pascal,
-    to_snake,
-)
+from codeverse3d.conventions import GROUND_TOL_M, PASCAL_RE, fmt3, to_pascal, to_snake
 from codeverse3d.languages._ast_lint import (
     BASE_FORBIDDEN_IMPORTS,
     check_imports,
@@ -727,13 +720,12 @@ class BlenderRuntime(RuntimeLayout):
 
     def build_command(
         self, ws: Workspace, *, stl: bool = True, blend: bool = False, seed: int = 0,
-        tri_limit: int = MAX_TRIS_OBJECT,
     ) -> list[str]:
         cmd = [
             self.blender_binary(), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
             "--script", str(self.entry_file(ws)), "--out", str(ws.artifacts),
             "--rlimit-gb", str(self._settings.limits.bpy_rlimit_gb),
-            "--tri-limit", str(tri_limit), "--seed", str(seed),
+            "--seed", str(seed),
         ]
         if stl:
             cmd.append("--stl")
@@ -753,11 +745,11 @@ class BlenderRuntime(RuntimeLayout):
 
     def build(
         self, ws: Workspace, *, timeout_s: int | None = None, stl: bool = True, blend: bool = False,
-        seed: int = 0, tri_limit: int = MAX_TRIS_OBJECT,
+        seed: int = 0,
     ) -> BuildResult:
         """Run the wrapper; never raises for agent-code failures (typed BuildResult instead)."""
         return run_wrapper_build(
             ws, language=self.language, extras={"stl": "object.stl", "blend": "object.blend"},
-            argv=lambda: self.build_command(ws, stl=stl, blend=blend, seed=seed, tri_limit=tri_limit),
+            argv=lambda: self.build_command(ws, stl=stl, blend=blend, seed=seed),
             env=blender_env(), timeout_s=timeout_s or self._settings.limits.build_timeout_s, output_filter=strip_blender_noise)
 

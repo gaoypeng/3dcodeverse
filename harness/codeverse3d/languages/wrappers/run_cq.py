@@ -1,7 +1,7 @@
 """CadQuery build wrapper — run by the harness in a subprocess, never imported.
 
     python run_cq.py --script /abs/src/model.py --out /abs/artifacts \
-        [--rlimit-gb 8] [--tri-limit 600000] [--tolerance 0.001] [--angular-tolerance 0.15] [--seed 0]
+        [--rlimit-gb 8] [--tolerance 0.001] [--angular-tolerance 0.15] [--seed 0]
 
 Steps: RLIMIT_AS → seed → exec model.py with traceback→line mapping (``_wrapper_common``,
 shared with the Blender wrappers) → read the module-level ``result`` (cq.Assembly
@@ -44,7 +44,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--script", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--rlimit-gb", type=float, default=8.0)
-    p.add_argument("--tri-limit", type=int, default=600_000)
     p.add_argument("--tolerance", type=float, default=0.001)
     p.add_argument("--angular-tolerance", type=float, default=0.15)
     p.add_argument("--seed", type=int, default=0)
@@ -244,9 +243,6 @@ def main() -> int:
             if census["parts"]:
                 census["scene_bbox_min"] = [min(p["bbox_min"][i] for p in census["parts"]) for i in range(3)]
                 census["scene_bbox_max"] = [max(p["bbox_max"][i] for p in census["parts"]) for i in range(3)]
-            if census["tri_count"] > args.tri_limit:
-                err = {"error_type": "TriangleBudgetExceeded",
-                       "error_message": f"{census['tri_count']} triangles > limit {args.tri_limit}; simplify (fewer pattern copies / coarser curves)"}
             glb = os.path.join(out_dir, GLB_NAME)
             build_glb(meshes, glb)
             report["exported"]["glb"] = glb

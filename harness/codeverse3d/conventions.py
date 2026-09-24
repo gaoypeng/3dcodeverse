@@ -266,7 +266,8 @@ def fmt3(vec: Sequence[float]) -> str:
 
 
 # --------------------------------------------------------------------------- limits
-#: Triangle budgets used by gates/prompts (soft caps; judge sees the count).
+#: Triangle ceilings: the object one is the depth gate's upper clamp (``tracks/depth.budget_gate``),
+#: the only place an object's triangle count is enforced — no build wrapper checks it.
 MAX_TRIS_OBJECT = 600_000
 MAX_TRIS_SCENE = 3_000_000
 #: Default tolerance for bbox contract checks, in meters.

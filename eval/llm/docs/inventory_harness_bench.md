@@ -46,7 +46,7 @@ Schema (`bench/run_bench.py:49-71`): `Battery{name, track, language, description
 ## 4. Renderers / executors (`codeverse3d/languages/<lang>`)
 | language | build | outputs |
 |---|---|---|
-| blender | `blender -b --factory-startup --python wrappers/run_bpy.py -- --script src/model.py --out artifacts --rlimit-gb 12 --tri-limit 600000 --seed 0 --stl` | `object.glb` (Y-up), `object.stl`, `build.json`, `census.json` |
+| blender | `blender -b --factory-startup --python wrappers/run_bpy.py -- --script src/model.py --out artifacts --rlimit-gb 12 --seed 0 --stl` | `object.glb` (Y-up), `object.stl`, `build.json`, `census.json` |
 | cadquery | `wrappers/run_cq.py --script … --tolerance 0.001` | `object.glb/.step/.stl` |
 | threejs | `node runtime_js/export_glb.mjs` (three@0.182) | `object.glb` |
 | urdf_blender | `run_bpy_links.py` + FK check + fcl sweep | `robot.urdf`, `meshes/*.glb`, pose renders |

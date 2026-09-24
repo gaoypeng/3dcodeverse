@@ -45,8 +45,6 @@ from _wrapper_common import (  # noqa: E402
     write_report,
 )
 
-TRI_LIMIT = 600_000  # a warning here (census), the blender language's build error
-
 
 def _snake(name: str) -> str:
     s = re.sub(r"[^0-9A-Za-z]+", "_", name.strip())
@@ -150,7 +148,7 @@ def main() -> int:
         write_report(str(out), report, census, t0)
         return 0
 
-    census.update(collect_census(bpy, TRI_LIMIT))
+    census.update(collect_census(bpy))
     depsgraph = bpy.context.evaluated_depsgraph_get()
     by_name = {ob.name: ob for ob in bpy.data.objects if ob.type in MEASURABLE_TYPES or ob.type == "EMPTY"}
     # a hidden object (a boolean cutter, as the census tells agents to hide one) is not
