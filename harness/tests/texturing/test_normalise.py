@@ -87,3 +87,14 @@ def test_nothing_to_do_writes_nothing_and_a_texture_is_never_second_guessed(tmp_
     scene.export(textured)
     rep = normalise_materials(textured, tmp_path / "out.glb")
     assert not rep.changed() and rep.n_unchanged == 1
+
+
+def test_an_instanced_part_reads_its_plan_material(tmp_path: Path):
+    """N4: the normaliser matched a node to its plan part by exact name or link piece only, so
+    ``Leg_0`` never read the plan's "solid oak" and kept the untouched default."""
+    from types import SimpleNamespace as NS
+
+    glb = _glb(tmp_path, [("Leg_0", "Mat0", 0.0, 0.5, (150, 100, 60, 255))])
+    plan = NS(parts=[NS(name="Leg", material="solid oak", description="leg")])
+    rep = normalise_materials(glb, tmp_path / "out.glb", plan=plan)
+    assert [(c.node, c.family) for c in rep.changes] == [("Leg_0", "hardwood")]

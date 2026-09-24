@@ -10,7 +10,7 @@ from pathlib import Path
 
 from codeverse3d.contracts.common import Track
 from codeverse3d.contracts.plan import StaticPlan
-from codeverse3d.conventions import PASCAL_RE, split_instance, to_pascal, to_snake
+from codeverse3d.conventions import PASCAL_RE, part_key, split_instance, to_pascal, to_snake
 from codeverse3d.languages.blender import lint_blender_source
 from codeverse3d.languages.cadquery import lint_cadquery_source
 from codeverse3d.languages.urdf import _IDENT as URDF_LINK_RE
@@ -108,3 +108,17 @@ def test_one_instance_rule_for_every_reader():
         ["Leg", "Shelf", "Shelf2", "Cart_800006", "Cart_801"]
     assert _instance_base("DonkeyCart_800006") == "DonkeyCart_800006" and _instance_base("") == "overall"
     assert _canon_target("leg_1", {"leg": "Leg"}) == "Leg_1"
+
+
+def test_one_part_rule_for_the_texture_pass_and_the_normaliser():
+    """N4: the texture pass stripped an instance suffix only when 2+ copies existed and the
+    normaliser never did, so a single ``Arm-2`` the contract gate accepts went untextured and
+    instanced legs kept their default factors.  Both read ``conventions.part_key`` now."""
+    from codeverse3d.texturing.apply import node_part_lookup
+
+    plan = {"leg", "seat", "arm", "handle", "link", "cpu_2"}
+    rows = {"Leg_0": "leg", "Arm-2": "arm", "Handle.001": "handle", "Link__2": "link", "Leg_0__1": "leg",
+            "Seat": "seat", "CPU_2": "cpu_2", "Shelf": None}
+    assert {n: part_key(n, plan) for n in rows} == rows
+    parts = {k: k.upper() for k in plan}
+    assert node_part_lookup(list(rows), parts)["Arm-2"] == "ARM"

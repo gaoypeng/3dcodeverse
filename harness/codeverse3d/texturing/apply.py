@@ -37,8 +37,8 @@ from PIL import Image, ImageFilter
 from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.plan import StaticPlan
-from codeverse3d.conventions import to_snake
-from codeverse3d.spatial.measure import GlbLoadError, instance_groups, load_scene
+from codeverse3d.conventions import part_key, to_snake
+from codeverse3d.spatial.measure import GlbLoadError, load_scene
 from codeverse3d.texturing.materials import (
     COARSE_TO_FINE,
     FamilyMatch,
@@ -334,19 +334,8 @@ class ApplyReport(BaseModel):
 
 
 def node_part_lookup(node_names: list[str], plan_parts: dict[str, TexturePart]) -> dict[str, TexturePart | None]:
-    """Map scene node names to plan parts: exact (snake) → instance base (``Leg_0`` →
-    ``Leg``) → link piece (``Link__2`` → ``Link``)."""
-    groups = instance_groups(list(node_names))
-    base_of: dict[str, str] = {}
-    for base, members in groups.items():
-        for m in members:
-            base_of[m] = base
-    out: dict[str, TexturePart | None] = {}
-    for n in node_names:
-        cands = [to_snake(n), to_snake(base_of.get(n, n)), to_snake(n.split("__", 1)[0])]
-        hit = next((plan_parts[c] for c in cands if c in plan_parts), None)
-        out[n] = hit
-    return out
+    """Map scene node names to plan parts by :func:`conventions.part_key`."""
+    return {n: plan_parts[k] if (k := part_key(n, plan_parts)) else None for n in node_names}
 
 
 def _material(part: TexturePart, image: Image.Image) -> trimesh.visual.material.PBRMaterial:
@@ -634,8 +623,8 @@ def normalise_materials(
             seen[id(mat)] = None
             continue
         metallic, roughness = _factors(mat)
-        snake = to_snake(node)
-        plan_text = plan_mats.get(snake) or plan_mats.get(to_snake(node.split("__", 1)[0])) or ""
+        key = part_key(node, plan_mats)
+        plan_text = plan_mats[key] if key else ""
         verdict = classify(node, str(getattr(mat, "name", "") or ""), plan_text, metallic, roughness,
                            _base_rgb(mat))
         if verdict is None:

@@ -32,7 +32,7 @@ import numpy as np
 import trimesh
 
 from codeverse3d.contracts.artifacts import Measurement, PartMeasure
-from codeverse3d.conventions import split_instance
+from codeverse3d.conventions import LINK_PIECE_SEP, split_instance
 
 __all__ = [
     "load_scene",
@@ -208,7 +208,7 @@ def part_meshes(scene: trimesh.Scene) -> OrderedDict[str, trimesh.Trimesh | None
     if isinstance(links, list) and links and all(str(link) in nodes for link in links):
         for link in links:
             link = str(link)
-            own = [n for n in _subtree_nodes(scene, link) if n == link or str(n).startswith(link + "__")]
+            own = [n for n in _subtree_nodes(scene, link) if n == link or str(n).startswith(link + LINK_PIECE_SEP)]
             meshes = [m for n in own if (m := _world_mesh(scene, n)) is not None]
             out[link] = trimesh.util.concatenate(meshes) if meshes else None
         return out

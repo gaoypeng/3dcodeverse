@@ -19,7 +19,7 @@ import numpy as np
 import trimesh
 
 from codeverse3d.contracts.artifacts import RenderSet
-from codeverse3d.conventions import ARTICULATION_VIEWS, ViewPreset
+from codeverse3d.conventions import ARTICULATION_VIEWS, LINK_PIECE_SEP, ViewPreset
 from codeverse3d.spatial._render_common import out_directory
 from codeverse3d.spatial.joints_model import Joint, Robot, fk, resolve_q
 from codeverse3d.spatial.joints_poses import limit_poses
@@ -80,7 +80,7 @@ def robot_scene(robot: Robot, pose: dict[str, float] | None = None) -> trimesh.S
         else:  # several materials: link node + one geometry child per piece (names stay unique)
             scene.graph.update(frame_to=name, frame_from=parent_node, matrix=local, metadata=extras)
             for i, piece in enumerate(pieces):
-                scene.add_geometry(piece.copy(), node_name=f"{name}__{i}", geom_name=f"{name}__{i}", parent_node_name=name,
+                scene.add_geometry(piece.copy(), node_name=f"{name}{LINK_PIECE_SEP}{i}", geom_name=f"{name}{LINK_PIECE_SEP}{i}", parent_node_name=name,
                                    transform=np.eye(4))
     scene.metadata.update(meta)
     return scene

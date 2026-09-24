@@ -21,7 +21,7 @@ Frames
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -202,6 +202,21 @@ def split_instance(name: str) -> tuple[str, str]:
     instance rule: the measure table, the contract match and refine grouping all read it."""
     m = _INSTANCE_RE.match(name)
     return (m.group("base"), m.group("idx")) if m else (name, "")
+
+
+#: a URDF link's geometry pieces are exported as ``<link>__<i>`` nodes under the link node
+#: (``spatial/joints_export``); ``spatial/measure`` merges them back into the link's part.
+LINK_PIECE_SEP = "__"
+
+
+def part_key(node: str, plan_keys: Collection[str]) -> str | None:
+    """The plan part (a snake key in ``plan_keys``) a GLB node belongs to, or None: the
+    node's own name, else its link (``Link__2`` → ``link``), else that name's instance base
+    (``Leg_0`` / ``Arm-2`` / ``Handle.001`` → ``leg`` / ``arm`` / ``handle``, one copy or
+    many).  The texture pass and the material normaliser both read it; the contract gate's
+    ``match_parts`` applies the same :func:`split_instance` rule."""
+    own = to_snake(node.split(LINK_PIECE_SEP, 1)[0])
+    return next((k for k in (to_snake(node), own, split_instance(own)[0]) if k in plan_keys), None)
 
 
 def to_pascal(name: str) -> str:
