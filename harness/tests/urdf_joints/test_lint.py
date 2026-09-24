@@ -112,14 +112,29 @@ def test_model_lint():
     f = lint_model_text("import bpy, subprocess\nbpy.ops.wm.save_mainfile()\nbpy.ops.render.render()\nsys.exit()\nbpy.ops.object.camera_add()\n", [])
     msgs = _msgs(f, Severity.ERROR)
     assert any("subprocess" in m for m in msgs) and any("bpy.ops.wm.save_mainfile" in m for m in msgs)
-    assert any("render" in m for m in msgs) and any("sys.exit" in m for m in msgs)
-    assert any("camera" in m for m in _msgs(f, Severity.WARN))
+    assert any("render" in m for m in msgs)
+    assert any("camera" in m for m in _msgs(f, Severity.WARN)) and any("sys.exit" in m for m in _msgs(f, Severity.WARN))
+    assert any("quit()" in m for m in _msgs(lint_model_text("import bpy\nquit()\n", []), Severity.ERROR))
     f = lint_model_text("x = (1,\n", [])
     assert f[0].severity == Severity.ERROR and "SyntaxError" in f[0].message and f[0].data["line"] == 1
     f = lint_model_text("import math\n", [])
     assert any("never imports bpy" in m for m in _msgs(f, Severity.ERROR))
     f = lint_model_text("import bpy\nfrom codeverse3d.x import y\n", [])
-    assert any("harness" in m for m in _msgs(f, Severity.ERROR))
+    assert any("codeverse3d" in m for m in _msgs(f, Severity.WARN))
+
+
+def test_model_py_is_linted_by_the_blender_rules():
+    """Regression (audit 2026-09-24 N19): model.py runs in the blender language's interpreter and
+    gets that lint; the URDF copy caught 2 WARNs where blender found 7 ERRORs on this source."""
+    from codeverse3d.languages.blender import lint_blender_source
+
+    src = ("import bpy\nimport pathlib\nimport os\ncfg = open('/etc/passwd').read()\nos.makedirs('/tmp/x')\n"
+           "bpy.data.libraries.load('/tmp/a.blend')\nbpy.ops.image.save_as()\n"
+           "bsdf = bpy.data.materials.new('m').node_tree.nodes['Principled BSDF']\n"
+           "bsdf.inputs['Specular'].default_value = 0.5\nbpy.ops.object.join({'object': None})\n"
+           "o = bpy.context.active_object\no.name = 'base'\n")
+    blender = _msgs(lint_blender_source(src).findings, Severity.ERROR)
+    assert len(blender) == 7 and _msgs(lint_model_text(src, ["base"]), Severity.ERROR) == blender
 
 
 def test_lint_workspace(tmp_path):

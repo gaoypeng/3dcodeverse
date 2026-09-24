@@ -22,16 +22,10 @@ from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport
 from codeverse3d.contracts.common import ENTRY_FILE, Language, MimicSpec, mimic_issues
 from codeverse3d.contracts.plan import ArticulatedPlan, JointPlan, PartPlan, Plan
 from codeverse3d.conventions import to_snake
-from codeverse3d.languages._ast_lint import (
-    BASE_FORBIDDEN_IMPORTS,
-    ImportCollector,
-    check_imports,
-    describe_parse_failure,
-    dotted,
-    safe_parse,
-)
+from codeverse3d.languages._ast_lint import dotted, safe_parse
 from codeverse3d.languages._common import compose_build_result, missing_entry, strip_blender_noise
 from codeverse3d.languages.base import RuntimeLayout
+from codeverse3d.languages.blender import lint_blender_source
 from codeverse3d.proc import ProcResult, run_subprocess
 from codeverse3d.spatial.joints_export import urdf_to_glb
 from codeverse3d.spatial.joints_model import (
@@ -112,35 +106,15 @@ _STATE_WORDS = ("open", "closed", "opened", "extended", "retracted", "raised", "
 #: identifiers only (``door``, ``handle_left``, ``DoorHandle``) — never ``Door.001`` / spaces.
 _IDENT = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
-#: attribute chains that must not appear in model.py (harness owns these)
-FORBIDDEN_BPY_PREFIXES: tuple[tuple[str, str], ...] = (
-    ("bpy.ops.wm.", "file/session operators (open/save/quit/read_factory_settings) — the harness owns the session"),
-    ("bpy.ops.render.", "rendering — the harness renders"),
-    ("bpy.ops.export_scene.", "exporting — the harness exports meshes/<link>.glb"),
-    ("bpy.ops.export_mesh.", "exporting — the harness exports"),
-    ("bpy.ops.import_scene.", "importing external files — build geometry procedurally"),
-    ("bpy.ops.import_mesh.", "importing external files — build geometry procedurally"),
-)
-#: the shared floor (subprocess/network/pickle/threading/importlib …): the wrapper execs
-#: model.py inside the same Blender interpreter as the blender language, so no looser list
-FORBIDDEN_IMPORTS: frozenset[str] = frozenset(BASE_FORBIDDEN_IMPORTS)
-#: model.py runs inside the SAME Blender python as blender/model.py, so the pure-computation
-#: stdlib it allows is allowed here too; anything else is an "unexpected" WARN (os/sys stay out:
-#: a link-mesh script has no business in the filesystem, and FORBIDDEN_CALLS catches the uses)
-ALLOWED_IMPORTS: frozenset[str] = frozenset({
-    "bpy", "bmesh", "mathutils", "math", "random", "numpy", "np", "bpy_extras", "__future__",
-    "typing", "dataclasses", "itertools", "functools", "collections", "enum", "copy",
-    "colorsys", "statistics", "operator",
-})
-FORBIDDEN_CALLS: dict[str, str] = {
-    "os.system": "shell access", "os.remove": "file deletion", "os.unlink": "file deletion", "os.rmdir": "file deletion",
-    "sys.exit": "exits Blender before the export — just return/raise instead", "exit": "exits Blender", "quit": "exits Blender",
-    "input": "blocks headless Blender forever",
-}
-WARN_CALLS: dict[str, str] = {
-    "bpy.ops.object.camera_add": "cameras are ignored (and stripped) by the wrapper",
-    "bpy.ops.object.light_add": "lights are ignored (and stripped) by the wrapper",
-    "time.sleep": "pointless in a build script",
+#: model.py runs in the SAME Blender python as the blender language's model.py, so it is linted
+#: by that language's rules (``lint_blender_source``: imports, harness-owned and removed bpy APIs,
+#: file IO); these are the few a link script adds on top.  Until 2026-09-24 this module kept its
+#: own looser lists: one source gave 7 ERRORs as blender and 2 WARNs as urdf.
+LINK_SCRIPT_CALLS: dict[str, tuple[Severity, str]] = {
+    "exit": (Severity.ERROR, "exits Blender before the links are exported"),
+    "quit": (Severity.ERROR, "exits Blender before the links are exported"),
+    "input": (Severity.ERROR, "blocks headless Blender forever"),
+    "time.sleep": (Severity.WARN, "pointless in a build script"),
 }
 
 
@@ -403,62 +377,27 @@ def _lint_joint(el: ET.Element, jname: str, link_names: list[str], parent_of: di
 
 
 # ------------------------------------------------------------------ model.py
-class _Visitor(ImportCollector):
-    def __init__(self) -> None:
-        super().__init__()
-        self.findings: list[GateFinding] = []
-        self.strings: set[str] = set()
-
-    def visit_Call(self, node: ast.Call) -> None:
-        chain = dotted(node.func)
-        for prefix, why in FORBIDDEN_BPY_PREFIXES:
-            if chain.startswith(prefix):
-                self.findings.append(_f(Severity.ERROR, f"line {node.lineno}: {chain}() is forbidden: {why}", target=MODEL_REL,
-                                        fix="Delete this call; the harness owns sessions/exports/renders.", line=node.lineno))
-        if chain in FORBIDDEN_CALLS:
-            self.findings.append(_f(Severity.ERROR, f"line {node.lineno}: {chain}() is forbidden: {FORBIDDEN_CALLS[chain]}",
-                                    target=MODEL_REL, fix="Remove the call.", line=node.lineno))
-        if chain in WARN_CALLS:
-            self.findings.append(_f(Severity.WARN, f"line {node.lineno}: {chain}(): {WARN_CALLS[chain]}", target=MODEL_REL, line=node.lineno))
-        if chain == "open" and len(node.args) > 1 and isinstance(node.args[1], ast.Constant) and "w" in str(node.args[1].value):
-            self.findings.append(_f(Severity.WARN, f"line {node.lineno}: writing files from model.py is ignored by the harness",
-                                    target=MODEL_REL, line=node.lineno))
-        self.generic_visit(node)
-
-    def visit_While(self, node: ast.While) -> None:
-        if isinstance(node.test, ast.Constant) and node.test.value is True:
-            self.findings.append(_f(Severity.WARN, f"line {node.lineno}: 'while True' in a build script risks a hang", target=MODEL_REL, line=node.lineno))
-        self.generic_visit(node)
-
-    def visit_Constant(self, node: ast.Constant) -> None:
-        if isinstance(node.value, str):
-            self.strings.add(node.value)
-
-
 def lint_model_text(text: str, link_names: list[str], *, label: str = MODEL_REL) -> list[GateFinding]:
-    """AST lint of model.py: forbidden APIs + every URDF link name appears as a string literal."""
-    tree, exc = safe_parse(text, label)
+    """model.py: the blender language's lint + LINK_SCRIPT_CALLS, ``while True`` and every URDF
+    link name appearing as a string literal (the wrapper looks objects up by exact name)."""
+    out = [f.model_copy(update={"gate": GATE})
+           for f in lint_blender_source(text, target=label, expect_names=False).findings]
+    tree, _ = safe_parse(text, label)
     if tree is None:
-        msg, hint, line = describe_parse_failure(exc)  # type: ignore[arg-type]
-        return [_f(Severity.ERROR, f"{label}:{line or '?'}: {msg}", target=label, fix=hint, line=line)]
-    v = _Visitor()
-    v.visit(tree)
-    out = v.findings
-
-    def _import_finding(kind: str, mod: str, line: int) -> GateFinding:
-        if mod == "codeverse3d":
-            return _f(Severity.ERROR, f"line {line}: model.py must not import the harness", target=label, fix="Raw bpy only.", line=line)
-        if kind == "forbidden":
-            return _f(Severity.ERROR, f"line {line}: import of '{mod}' is not allowed in model.py", target=label,
-                      fix="Build geometry with bpy/bmesh/mathutils/math only.", line=line)
-        return _f(Severity.WARN, f"line {line}: import of '{mod}' is unexpected in model.py (outside the contract's list)",
-                  target=label, fix="Build geometry with bpy/bmesh/mathutils/math only.", line=line)
-
-    out.extend(check_imports(v.imports, forbidden=FORBIDDEN_IMPORTS, allowed=ALLOWED_IMPORTS, make_finding=_import_finding))
-    if "bpy" not in v.imports:
-        out.append(_f(Severity.ERROR, f"{label} never imports bpy", target=label, fix="import bpy"))
+        return out      # the blender lint already reported the parse failure
+    strings: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            strings.add(node.value)
+        elif isinstance(node, ast.Call) and (rule := LINK_SCRIPT_CALLS.get(dotted(node.func))):
+            sev, why = rule
+            out.append(_f(sev, f"line {node.lineno}: {dotted(node.func)}(): {why}", target=label,
+                          fix="Remove the call." if sev == Severity.ERROR else "", line=node.lineno))
+        elif isinstance(node, ast.While) and isinstance(node.test, ast.Constant) and node.test.value is True:
+            out.append(_f(Severity.WARN, f"line {node.lineno}: 'while True' in a build script risks a hang",
+                          target=label, line=node.lineno))
     for link in link_names:
-        if link not in v.strings and not any(link in s for s in v.strings):
+        if not any(link in s for s in strings):
             out.append(_f(Severity.WARN, f"link '{link}' never appears as a string in {label} — the wrapper looks for an object named exactly '{link}'",
                           target=link, fix=f'obj.name = "{link}"'))
     return out
