@@ -661,7 +661,7 @@ Rules: shadows come from the sun and the hero lights only; decorative lights get
 Placement is MEASURED (`check_placement`; the `scene_placement` gate runs on every build): each
 direct child of your zone group is an asset; from its lowest vertices the harness looks down for the
 nearest surface and up for one passing through it.  A gap under the foot → `floating`; a foot buried
-under a surface → `sunken` (rocks/posts/bushes may sit half their height in the ground; a basin
+under a surface → `sunken` (rocks, posts and bushes may sit partly in the ground; stairs, ramps and paths may follow the slope; a basin
 or pit never counts; a foot at/under water is fine); bbox touching nothing → `unsupported`; boxes sharing
 a large share of their volume → `interpenetration`.  Seat things with `heightAt(x, z)` and they pass.  A thing MEANT to hang in
 the air (bird, drone): `obj.userData.placement = 'free'` on it or its zone = exempt.  Instanced meshes are not checked.
