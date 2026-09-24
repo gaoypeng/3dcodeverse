@@ -69,3 +69,6 @@ def test_a_scene_pair_is_ranked_as_a_scene_from_the_views_the_judge_saw(tmp_path
     labels = [p.label for p in image_parts(next(r for r in model.requests if r.label == "pairwise:fwd"))]
     assert "top-left = Establishing" in labels[0]
     assert not any("unjudged_extra" in lbl for lbl in labels)
+    # N66: the system prompt names no criteria of its own (it listed the object rubric's for every pair)
+    system = next(r for r in model.requests if r.label == "pairwise:fwd").system
+    assert "CRITERIA listed" in system and "proportions" not in system

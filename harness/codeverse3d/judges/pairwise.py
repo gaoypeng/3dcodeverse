@@ -70,7 +70,7 @@ class PairwiseResult(BaseModel):
 
 
 _SYSTEM = """You are a BLIND comparative judge for a 3D-code harness. You see a brief, a rubric and renders of TWO candidates, labelled A and B. Decide which candidate better satisfies the brief, judging ONLY what is visible. Position carries no information: A is not better for being first.
-Compare criterion by criterion (intent, structure, detail, proportions, fit, materials, cleanliness as listed), then decide overall. Prefer the candidate with no major defect over the one with more detail but a floating or broken part. Say 'tie' only when the two are genuinely equivalent. Reply with one JSON object: winner ('A'|'B'|'tie'), confidence 0..1, reasons[], criteria_won[{criterion, winner}]."""
+Compare criterion by criterion over the CRITERIA listed, then decide overall. Prefer the candidate with no major defect over the one with more detail but a floating or broken part. Say 'tie' only when the two are genuinely equivalent. Reply with one JSON object: winner ('A'|'B'|'tie'), confidence 0..1, reasons[], criteria_won[{criterion, winner}]."""
 
 
 class PairwiseJudge:
