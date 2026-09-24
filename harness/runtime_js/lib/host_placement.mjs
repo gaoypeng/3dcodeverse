@@ -501,22 +501,24 @@ export function placementTable(scene, THREE, opts = {}) {
 // support.  The zone code keeps its wrong constant; every frame anyone sees or judges
 // is seated.  The moves are returned and carried in the census, so nothing is silent.
 //
-// Deliberately conservative, mirroring the python gate's exemptions
-// (codeverse3d/spatial/scene_placement.py; the name words are ONE list both read,
-// placement_words.json):
+// Deliberately conservative.  What it accepts as seated, the python gate exempts too
+// (codeverse3d/spatial/scene_placement.py; the words and the partial fraction are ONE
+// file both read, placement_words.json):
 //   · exempt assets (free / backdrop / enclosure / instanced) are never touched
 //   · a foot in the water is a boat / jetty: never touched
 //   · BURIED-ok names (basin, trench, pool…) are below ground by definition
-//   · PARTIAL-ok names (rocks, posts, trees…) may bury half their height; only a
-//     burial past 3/4 height is pulled up, and only to the 40 % embed that reads
-//     as "grown in", never to the surface
+//   · SLOPE-ok names (stairs, ramps, paths, terraces…) follow the terrain
+//   · PARTIAL-ok names (rocks, posts, trees…) may bury up to partial_ok_frac of their
+//     height; a deeper burial is pulled up only to the 40 % embed that reads as
+//     "grown in", never to the surface
 //   · a floating asset that TOUCHES another asset may be mounted on it: skipped
+// (Not accepted, only not auto-fixed — the gate still reports them: the slope guard
+// below, a move beyond SETTLE_MAX_MOVE_M, a burial under SUNK_M at its shallowest column.)
 //   · normal sunken assets keep a 4 cm embed (the zone recipes ask for 3-5 cm)
 const SETTLE_EMBED_M = 0.04;
 const SETTLE_PARTIAL_FRAC = 0.40;
 const SETTLE_MAX_MOVE_M = 6;
 const SETTLE_SEAT_EPS_M = 0.005;
-const SLOPE_CONFORMAL_RE = /\b(stairs?|stairways?|staircases?|steps?|ramps?|walkways?|paths?|roads?|terraces?|platforms?)\b/i;
 
 /** Measure every placed asset once, then translate the clearly mis-seated ones onto
  * their support.  Returns `{count, moves}`; mutates object positions (world-space dy
@@ -524,7 +526,8 @@ const SLOPE_CONFORMAL_RE = /\b(stairs?|stairways?|staircases?|steps?|ramps?|walk
  * `placement_words.json` (the gate's own list: the host fetches it, a test reads it). */
 export function settleScene(scene, THREE, opts = {}) {
   if (!opts.words) throw new Error('settleScene needs opts.words (runtime_js/lib/placement_words.json)');
-  const buriedOk = new Set(opts.words.buried_ok), partialOk = new Set(opts.words.partial_ok);
+  const buriedOk = new Set(opts.words.buried_ok), slopeOk = new Set(opts.words.slope_ok);
+  const partialOk = new Set(opts.words.partial_ok), partialFrac = opts.words.partial_ok_frac;
   const { groundY, indices, assets, owner } = survey(scene, opts);
   const checked = assets.filter((a) => !a.exempt);
   const moves = [];
@@ -533,11 +536,11 @@ export function settleScene(scene, THREE, opts = {}) {
     if (Date.now() - t0 > TIME_BUDGET_MS) break;
     const { columns, best, sunk, water, minSunk, anyRest } = probeFeet(a, indices, owner, groundY);
     if (!columns || water) continue;
-    const name = nameText(a.name), words = nameWords(a.name);
+    const words = nameWords(a.name);
     const height = Math.max(a.max[1] - a.min[1], 1e-6);
     let dy = 0, why = '';
     if (sunk && sunk.sunk > 0) {
-      if (words.some((w) => buriedOk.has(w)) || SLOPE_CONFORMAL_RE.test(name)) continue;
+      if (words.some((w) => buriedOk.has(w) || slopeOk.has(w))) continue;
       // Slope guard (2026-08-30): a structure following a hillside is "deeply sunk" at
       // its uphill columns while its downhill columns rest — lifting by the DEEPEST
       // burial strands the low end in the air.  Measured on t36_santorini: six
@@ -546,7 +549,7 @@ export function settleScene(scene, THREE, opts = {}) {
       if (anyRest || minSunk < Math.max(SUNK_M, 0.5 * sunk.sunk)) continue;
       const frac = minSunk / height;
       if (words.some((w) => partialOk.has(w))) {
-        if (frac <= 0.75) continue;                       // grown / driven in: fine
+        if (frac <= partialFrac) continue;                // grown / driven in: fine
         dy = minSunk - SETTLE_PARTIAL_FRAC * height;      // pull up to a 40 % embed
         why = 'sunken_partial';
       } else if (minSunk > SUNK_M) {

@@ -1,13 +1,22 @@
 {
  "_comment": [
-  "Name words the scene placement rules exempt from 'sunken' (one home, review 2 C5):",
-  "codeverse3d/spatial/scene_placement.py (the gate) and runtime_js/lib/host_placement.mjs (the boot-time settle) both read this file.",
+  "What the scene placement rules accept as seated (one home, review 2 C5; audit 2026-09-24 N27):",
+  "codeverse3d/spatial/scene_placement.py (the gate) and runtime_js/lib/host_placement.mjs (the boot-time settle) both read this file,",
+  "so the gate never reports what the settle deliberately leaves.",
+  "buried_ok: below ground by definition.  slope_ok: follows the terrain, so sunk uphill by construction.",
+  "partial_ok: driven / grown in, fine up to partial_ok_frac of its height buried.",
   "A name matches when one of its to_snake words is listed; list plurals explicitly."
  ],
+ "partial_ok_frac": 0.75,
  "buried_ok": [
   "basin", "bed", "canal", "cave", "cellar", "crater", "ditch", "drain", "foundation", "foundations",
   "grave", "graves", "gutter", "hole", "holes", "lakebed", "moat", "pit", "pits", "pool", "pools",
   "riverbed", "trench", "trenches", "tunnel", "tunnels", "well", "wells"
+ ],
+ "slope_ok": [
+  "path", "paths", "platform", "platforms", "ramp", "ramps", "road", "roads", "stair", "stairs",
+  "staircase", "staircases", "stairway", "stairways", "step", "steps", "terrace", "terraces",
+  "walkway", "walkways"
  ],
  "partial_ok": [
   "boulder", "boulders", "bridge", "bridges", "bush", "bushes", "cliff", "cliffs", "dock", "docks",

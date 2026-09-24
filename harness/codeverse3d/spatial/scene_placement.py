@@ -24,7 +24,6 @@ posts 0.97 m into the pond bed — a naive "> 0.10 m" rule flagged all of them
 from __future__ import annotations
 
 import functools
-import json
 import logging
 from collections.abc import Sequence
 from typing import Any
@@ -45,7 +44,6 @@ FLOATING_OUTDOOR_M, FLOATING_INDOOR_M = 0.05, 0.02
 FLOATING_ERROR_M, FLOATING_ERROR_COUNT = 0.15, 3   # this high, or more than this many, → ERROR
 SUNK_M, SUNK_ERROR_M = 0.10, 0.30
 SUNK_ERROR_FRAC = 0.25           # an ERROR burial must also swallow this fraction of the height
-PARTIAL_OK_FRAC, PARTIAL_OK_ERROR_FRAC = 0.50, 0.75   # rocks / posts / bushes: WARN past half, ERROR past 3/4
 OVERLAP_WARN, OVERLAP_ERROR = 0.20, 0.60
 MAX_FINDINGS_PER_KIND = 8
 
@@ -54,17 +52,27 @@ INDOOR_WORDS = frozenset({
     "attic", "basement", "bathroom", "bedroom", "cabin", "cellar", "chamber", "classroom", "cockpit", "corridor", "garage", "hall", "hut", "indoor",
     "indoors", "inside", "interior", "kitchen", "lab", "laboratory", "library", "lobby", "office", "room", "studio", "tent", "warehouse", "workshop",
 })
-#: name words exempt from "sunken" — BELOW ground by definition (``buried_ok``) or normally
-#: driven / grown in, sunken only past half their height (``partial_ok``).  ONE list, shared with
-#: the boot-time settle (``host_placement.settleScene``): ``runtime_js/lib/placement_words.json``.
+#: What counts as seated, ONE file shared with the boot-time settle (``host_placement.settleScene``),
+#: so the gate never reports what the settle deliberately leaves (audit 2026-09-24 N27): name words
+#: exempt from "sunken" — below ground by definition (``buried_ok``), following the terrain
+#: (``slope_ok``), or driven / grown in up to ``partial_ok_frac`` of their height (``partial_ok``).
+#: The settle's other acceptance — a floating asset that touches a neighbour is mounted on it — is
+#: ``AssetRow.attached`` here.
 PLACEMENT_WORDS = "placement_words.json"
 
 
+class _SeatedWords(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    buried_ok: frozenset[str]
+    slope_ok: frozenset[str]
+    partial_ok: frozenset[str]
+    partial_ok_frac: float
+
+
 @functools.cache
-def _exempt_words() -> tuple[frozenset[str], frozenset[str]]:
-    """``(buried_ok, partial_ok)`` from :data:`PLACEMENT_WORDS`."""
-    d = json.loads((runtime_js_dir() / "lib" / PLACEMENT_WORDS).read_text(encoding="utf-8"))
-    return frozenset(d["buried_ok"]), frozenset(d["partial_ok"])
+def _seated_words() -> _SeatedWords:
+    return _SeatedWords.model_validate_json((runtime_js_dir() / "lib" / PLACEMENT_WORDS).read_text(encoding="utf-8"))
 
 
 def _nums(v: object) -> list[float] | None:
@@ -182,15 +190,14 @@ def _sunk_severity(row: AssetRow) -> Severity | None:
     """WARN / ERROR / None for a buried foot, honouring height fraction and name words."""
     if row.sunk_m <= 0 or row.on_water:
         return None
-    words = _words(row.name)
-    buried_ok, partial_ok = _exempt_words()
-    if words & buried_ok:
+    words, seated = _words(row.name), _seated_words()
+    if words & (seated.buried_ok | seated.slope_ok):
         return None
     frac = row.sunk_m / row.height if row.height > 1e-6 else 1.0
-    if words & partial_ok:
-        if frac > PARTIAL_OK_ERROR_FRAC and row.sunk_m > SUNK_ERROR_M:
-            return Severity.ERROR
-        return Severity.WARN if frac > PARTIAL_OK_FRAC else None
+    if words & seated.partial_ok:
+        if frac <= seated.partial_ok_frac:
+            return None
+        return Severity.ERROR if row.sunk_m > SUNK_ERROR_M else Severity.WARN
     if row.sunk_m > SUNK_ERROR_M and frac > SUNK_ERROR_FRAC:
         return Severity.ERROR
     return Severity.WARN if row.sunk_m > SUNK_M else None
@@ -210,14 +217,12 @@ def _asset_findings(rows: list[AssetRow], *, floating_m: float, ground_y: float 
         gap = row.ground_gap_m
         if gap is None or row.on_water or row.sunk_m > 0 or gap <= CONTACT_M:
             continue
+        if row.attached:   # mounted on what it touches: the settle leaves it, so does the gate
+            continue
         support = _support_label(row, ground_y)
-        if gap > floating_m and row.attached:
-            out.append(_f(Severity.WARN, f"{q} is floating {gap:.2f} m above {support}, but its bbox touches {', '.join(row.attached[:3])}",
-                          target=q, hint=f"fine if {q} is mounted on {row.attached[0]}; otherwise lower it by {gap:.2f} m onto {support}",
-                          kind="floating", gap_m=gap, attached=row.attached[:3], zone=row.zone))
-        elif gap > floating_m:
+        if gap > floating_m:
             floating.append((row, gap))
-        elif not row.attached:
+        else:
             out.append(_f(Severity.WARN, f"{q} is unsupported: hovers {gap:.2f} m above {support} and touches nothing", target=q,
                           hint=f"lower {q} by {gap:.2f} m onto {support}, or attach it to a neighbour; "
                                f"if it is meant to hang free set {row.name}.userData.placement = 'free'",

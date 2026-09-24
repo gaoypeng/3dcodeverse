@@ -122,6 +122,7 @@ zone.add(box('Boat', 2, 0.6, 0.8, -20, 0.0, -20));              // foot at pond 
 const rock = box('Rock', 1, 1.2, 1, 8, -0.6, -8); zone.add(rock);  // half-buried rock: partial-ok, frac 0.5 <= 0.75
 const upper = box('UpperGround', 8, 1, 8, 9, 0, 20); env.add(upper);    // an uphill terrace: slab y 0..1, top face at y=1
 const aqueduct = box('Aqueduct', 6, 0.5, 1, 5, 0.4, 20); zone.add(aqueduct); // spans flat ground -> terrace: downhill col floats, uphill col sunk 0.6
+zone.add(box('GardenStairs', 2, 1, 1, 0, -0.5, -8));             // sunk 0.5 at every column: slope-ok, left
 const shelf = box('Shelf', 1, 0.1, 0.4, 12, 1.2, 0);            // floating but TOUCHING the wall
 const wall = box('Wall', 0.2, 2.5, 3, 12.5, 0, 0); zone.add(wall); zone.add(shelf);
 shelf.position.x = 12.35;                                        // AABBs meet the wall's
@@ -153,6 +154,7 @@ def test_settle_leaves_exempt_water_partial_and_mounted_alone(settled):
     # rests / floats low while another is buried 0.6 m in the terrace.  Columns
     # disagree, so settle must refuse (the santorini stairway lesson).
     assert "Aqueduct" not in touched
+    assert "GardenStairs" not in touched   # slope-ok word (placement_words.json), the gate's list too (N27)
     after = {a["name"]: a for a in settled["after"]["assets"]}
     assert after["Bird"]["exempt"] == "free"                          # tagged free: untouched
     assert after["Boat"]["supported"]                                 # on water: untouched

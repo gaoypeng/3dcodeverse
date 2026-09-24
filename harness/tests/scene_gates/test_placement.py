@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from codeverse3d.contracts.artifacts import BuildResult, Severity
 from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.plan import AssetPlan, BBox, CameraPlan, ScenePlan, ZonePlan
@@ -48,11 +50,16 @@ def test_floating_severity_by_gap_then_by_count():
     assert all(f.severity == Severity.ERROR for f in _by_kind(many, "floating")) and not many.passed
 
 
-def test_floating_but_attached_is_only_a_warning():
-    r = placement_findings(_table(_row("Sign", gap=0.9, attached=("Post",))))
-    (f,) = _by_kind(r, "floating")
-    assert f.severity == Severity.WARN and "touches Post" in f.message and "mounted on Post" in f.fix_hint
-    assert r.passed
+@pytest.mark.parametrize("row", [
+    _row("Sign", gap=0.9, attached=("Post",)),                  # mounted on what it touches
+    _row("Rock", sunk=0.6, into="Terrain", h=1.0),              # partial-ok, 60 % buried
+    _row("GardenStairways", sunk=1.3, into="Terrain", h=2.0),    # slope-ok: sunk uphill by construction
+])
+def test_the_gate_accepts_what_the_settle_leaves(row):
+    """Audit 2026-09-24 N27: the settle left these (placement_words.json + the touching rule) and the
+    gate then reported them every round.  One file now says what is seated."""
+    r = placement_findings(_table(row))
+    assert [f for f in r.findings if f.severity != Severity.INFO] == []
 
 
 def test_indoor_tolerance_is_tighter():
