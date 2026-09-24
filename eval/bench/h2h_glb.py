@@ -11,12 +11,12 @@ Protocol (one fixed judge, one renderer, one gate set, for BOTH sides):
    (``select.round_file`` — ``artifacts/rNN/object.glb``, or ``artifacts/object.glb`` of a run
    recorded before rounds kept their own, only for the round it rebuilt there); a picked round
    with none is an error, never the last build's GLB in its place.
-3. Both GLBs go through the same pipeline as ``bench/_fixed_eval.FixedEvaluator``:
-   ``measure_glb`` → ``check_connectivity`` → ``render_glb`` (OBJECT_VIEWS, settings
-   size, contact sheet) → ``VlmJudge(static_object_v1, gemini-3.1-pro-preview,
-   n_samples=2)`` with a ``Spec`` built from the prompt and an EMPTY acceptance list.
-   The judge is called directly on a ``JudgeInput`` because their side has no
-   workspace to build from.  Every judged side is cached as
+3. Both GLBs go through the object path of ``bench/_fixed_eval.FixedEvaluator``:
+   ``glb_evidence`` (measure, connectivity in the prompt's language frame, 14-view render,
+   clay views) → ``fixed_input`` (the harness's ``round_input``: clay montage + the GLB for the
+   D48 slice channel) → ``VlmJudge(static_object_v1, gemini-3.1-pro-preview, n_samples=2)``
+   with a ``Spec`` built from the prompt, so an EMPTY acceptance list.  No build step: their
+   side has no workspace to build from.  Every judged side is cached as
    ``<out>/eval/<id>/<side>.json`` so a re-run never re-buys a verdict.
 4. Outputs: ``<out>/h2h.jsonl`` (one row per prompt), ``<out>/pairs/<id>.png``
    (their sheet | our sheet) and ``<out>/h2h_summary.md`` (paired mean delta, sd,
@@ -45,7 +45,7 @@ from pydantic import BaseModel, Field
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
-from bench._fixed_eval import RUBRIC  # noqa: E402
+from bench._fixed_eval import RUBRIC, fixed_input, glb_evidence  # noqa: E402
 from bench.run_bench import Battery, BenchPrompt  # noqa: E402
 from bench.stats import sign_test  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
@@ -57,6 +57,7 @@ JUDGE_MODEL = "gemini:gemini-3.1-pro-preview"
 N_SAMPLES = 2
 IN_PROGRESS = {"planning", "generating", "refining"}  # RunStatus values of a run that has not stopped
 _H2H_TAGS = {"h2h", "brilliana"}
+PAYLOAD = "round_input"  # the judge input a cached verdict was bought on (hand-built before 2026-09-24, N83)
 
 
 class Side(BaseModel):
@@ -81,6 +82,7 @@ class Side(BaseModel):
     minutes: float | None = None
     status: str = ""
     gallery_score: float | None = None  # their own judge; reference only
+    payload: str = ""                   # PAYLOAD once judged on fixed_input; a cached verdict without it predates N83
 
 
 class Row(BaseModel):
@@ -142,27 +144,19 @@ def build_spec(battery: Battery, item: BenchPrompt) -> Any:
 
 
 def evaluate(side: Side, spec: Any, out_dir: Path, judge: Any) -> Side:
-    """measure → connectivity → render → judge, exactly the FixedEvaluator order."""
+    """``glb_evidence`` → ``fixed_input`` → judge: the FixedEvaluator's object path, on a GLB with no workspace."""
     from codeverse3d.config import get_settings
-    from codeverse3d.conventions import OBJECT_VIEWS
-    from codeverse3d.judges.base import JudgeInput
-    from codeverse3d.spatial.connectivity import check_connectivity
-    from codeverse3d.spatial.measure import measure_glb
-    from codeverse3d.spatial.render import render_glb
 
     if side.error or not side.glb:
         return side
     try:
-        glb = Path(side.glb)
-        m = measure_glb(glb)
+        m, gate, renders, clay = glb_evidence(Path(side.glb), out_dir / "renders", spec.language, get_settings())
         side.tris, side.parts, side.ground_gap_m = m.tri_count, m.n_meshes, round(m.ground_gap_m, 4)
-        gate = check_connectivity(glb, language=str(spec.language))
         side.gate_errors = [f"{gate.gate}: {f.message}" for f in gate.errors]
         side.floating_parts = sum("is floating" in f.message for f in gate.errors)
-        r = get_settings().render
-        renders = render_glb(glb, out_dir / "renders", views=list(OBJECT_VIEWS), width=r.width, height=r.height, sheet=True)
-        side.sheet = renders.contact_sheet or ""
-        j = judge.judge(JudgeInput(spec=spec, renders=renders, measurement=m, gates=[gate], acceptance=[], round_index=0))
+        side.sheet, side.payload = renders.contact_sheet or "", PAYLOAD
+        inp = fixed_input(spec, renders=renders, gates=[gate], measurement=m, geometry_views=clay, glb_path=side.glb)
+        j = judge.judge(inp)
         side.score, side.score_std, side.passed, side.summary = j.overall, j.score_std, j.passed, j.summary
         (out_dir / "judgment.json").write_text(j.model_dump_json(indent=2))
         # Perception only: the gallery GLBs are merged, un-welded exports whose "floating"
@@ -170,7 +164,7 @@ def evaluate(side: Side, spec: Any, out_dir: Path, judge: Any) -> Side:
         # sits 22 mm from its arm in the mesh but looks attached), so a judge that reads
         # the gate text in its context caps them for what the eye cannot see.  The
         # visual number is the fair headline; the gated one is what the harness would say.
-        jv = judge.judge(JudgeInput(spec=spec, renders=renders, measurement=m, gates=[], acceptance=[], round_index=0))
+        jv = judge.judge(inp.model_copy(update={"gates": []}))
         side.visual_score = jv.overall
         (out_dir / "judgment_visual.json").write_text(jv.model_dump_json(indent=2))
     except Exception as e:  # noqa: BLE001 — one bad GLB must not kill the battery
@@ -182,7 +176,7 @@ def cached_eval(side: Side, spec: Any, out_dir: Path, judge: Any, *, force: bool
     cache = out_dir / f"{side.source}.json"
     if cache.is_file() and not force:
         prev = Side.model_validate_json(cache.read_text())
-        if prev.score is not None and prev.visual_score is not None and prev.glb == side.glb:
+        if prev.score is not None and prev.visual_score is not None and prev.glb == side.glb and prev.payload == PAYLOAD:
             return prev.model_copy(update={k: getattr(side, k) for k in ("rounds", "cost_usd", "minutes", "status")})
     out_dir.mkdir(parents=True, exist_ok=True)
     side = evaluate(side, spec, out_dir, judge)

@@ -123,8 +123,13 @@ Arms:
   the CLI dies before printing stats.
 
 Every arm ends with a `src/model.py` copied into a fresh eval workspace and scored by
-the same `FixedEvaluator` (`BlenderRuntime` lint+build → measure → connectivity →
-14-view render → `VlmJudge(static_object_v1, --judge, n_samples=2)`).  Then a pairwise
+the same `FixedEvaluator` (the cell's runtime lint+build → measure → connectivity →
+14-view render + clay views → `VlmJudge(static_object_v1, --judge, n_samples=2)`).  Its payload
+is the harness's `round_input` (`_fixed_eval.fixed_input`), so it is the in-run judge's for the
+same round — clay montage, the GLB for the D48 slice channel, connectivity in the author's frame —
+except the checklist, the brief's `must_have`.  (N83, 2026-09-24: before that it was hand-built
+without clay views or GLB; a fixed-judge score from before then is not comparable with one after —
+re-judge a baseline before comparing.)  Then a pairwise
 arena runs every harness arm against every one-shot arm per prompt (both orderings).
 Output under `--out`: `matrix.json`, `results.jsonl` (cells, resume source),
 `pairwise.jsonl`, `cells/<prompt>/<arm>/{run,gen,eval}`, `report.md`, `report.html`.
@@ -615,7 +620,7 @@ sides.  Sheets: `bench/out/h2h_brilliana_v1/pairs/`, `bench/out/h2h_scene_v1/she
 `overall_uncapped` — the rubric-weighted mean of the seven criteria, before any defect penalty or
 cap — gives theirs 0.848 against ours 0.843: **Δ = −0.005, 6 W / 6 L**.  So the +0.105 above is
 produced *entirely* by the binary defect checklist (their mean penalty −0.192, ours −0.082), and the
-checklist is perception, not our gates — `h2h_glb.py:170` judges the visual pass with `gates=[]`.
+checklist is perception, not our gates — `h2h_glb.evaluate` judges the visual pass with `gates=[]`.
 Its dominant term is `wrong_orientation`: theirs 4/12, ours 0/12, because `conventions.py`
 pins a front axis per language and their pipeline pins only up-axis.  Per criterion we lead
 intent_fidelity +0.042 / structure +0.029 / proportions +0.025 and trail assembly_fit −0.069 /

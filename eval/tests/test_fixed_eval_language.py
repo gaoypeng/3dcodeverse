@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from codeverse3d.contracts.common import Language
 
 
@@ -46,7 +48,7 @@ def test_graphics_cells_are_judged_on_their_frames(monkeypatch, tmp_path):
     import codeverse3d.tracks.graphics as gs
 
     monkeypatch.setattr(gs, "frames_render_set", lambda ws, b, i: RenderSet(views=[RenderView(name="t=0s", path=str(png))], renderer="fake"))
-    monkeypatch.setattr(gs, "frame_stats_text", lambda ws: "frames=1")
+    monkeypatch.setattr(gs, "frame_stats_text", lambda ws, i=None: "frames=1")
     seen: dict[str, object] = {}
 
     class _J:
@@ -102,3 +104,78 @@ def test_scene_cells_are_judged_on_their_cameras_and_orbit_frames(monkeypatch, t
     assert seen["kw"]["orbit"] is True and tuple(seen["kw"]["times"]) == (0.0, 1.5)
     assert [g.gate for g in seen["inp"].gates] == ["lint", "scene_frames"]
     assert [a.text for a in seen["inp"].acceptance] == ["boats"]
+
+
+def test_the_fixed_judge_reads_the_in_run_payload_for_the_same_round(monkeypatch, tmp_path):
+    """N83 (audit 2026-09-24): the fixed judge built its JudgeInput by hand — no clay views, no
+    GLB (so no D48 slices on a floating-part cell), connectivity without the language.  It is now
+    ``round_input``: for one built GLB the fixed payload equals the in-run judge's
+    (``steps._judge`` over ``ObjectPipeline``, no plan) except the acceptance list, the brief's
+    ``must_have`` by design."""
+    from types import SimpleNamespace
+
+    import codeverse3d.spatial.connectivity as conn
+    import codeverse3d.spatial.measure as meas
+    import codeverse3d.spatial.render as rend
+    from bench._fixed_eval import FixedEvaluator, acceptance_from_spec
+    from codeverse3d.contracts.artifacts import (
+        BuildResult,
+        GateFinding,
+        GateReport,
+        Measurement,
+        RenderSet,
+        RenderView,
+        Severity,
+    )
+    from codeverse3d.contracts.common import Track
+    from codeverse3d.contracts.run import RoundRecord
+    from codeverse3d.contracts.spec import Constraints, Spec
+    from codeverse3d.tracks import steps
+    from codeverse3d.tracks.common import Services
+    from codeverse3d.tracks.static_object import ObjectPipeline
+    from codeverse3d.workspace import Workspace
+
+    ws = Workspace(tmp_path / "run").create()
+    glb = ws.root / "artifacts" / "object.glb"
+    glb.parent.mkdir(parents=True, exist_ok=True)
+    glb.write_bytes(b"glTF")
+    m = Measurement(bbox_min=(0, 0, 0), bbox_max=(1, 1, 1), extents=(1, 1, 1), center=(0.5, 0.5, 0.5),
+                    tri_count=100, n_meshes=2, n_islands=2)
+    monkeypatch.setattr(meas, "measure_glb", lambda p: m)
+    monkeypatch.setattr(conn, "check_connectivity", lambda p, language="", planned_edges=(): GateReport(
+        gate="connectivity", passed=False, findings=[GateFinding(gate="connectivity", severity=Severity.ERROR,
+                                                                 target="Leg", message=f"Leg is floating ({language})")]))
+    monkeypatch.setattr(rend, "render_glb", lambda p, d, *, views, mode="color", **k: RenderSet(
+        views=[RenderView(name=v.name, path=str(Path(d) / f"view_{v.name}.png"), mode=mode) for v in views], renderer="fake"))
+    build = BuildResult(ok=True, language="blender", glb_path=str(glb))
+    lint = GateReport(gate="lint", passed=True)
+    spec = Spec(id="t/stool", track=Track.STATIC_OBJECT, language=Language.BLENDER, prompt="a three-legged stool",
+                constraints=Constraints(must_have=["three legs"]))
+    seen: list = []
+
+    class _Spy:
+        def judge(self, inp):
+            seen.append(inp)
+            raise RuntimeError("captured")
+
+    ev = FixedEvaluator("fake:judge", n_samples=1)
+    ev._runtimes[Language.BLENDER] = SimpleNamespace(lint=lambda ws: lint, build=lambda ws, timeout_s: build)
+    monkeypatch.setattr(FixedEvaluator, "judge_for", lambda self, spec: _Spy())
+    ev.evaluate(ws, spec)
+
+    # the loop's round 0 over the same build: steps._run_round's gate order, then steps._judge
+    ctx = SimpleNamespace(spec=spec, plan=None, ws=ws, services=Services(), settings=ev.settings, language=Language.BLENDER,
+                          judge=_Spy(), events=SimpleNamespace(emit=lambda *a, **k: None))
+    pipe = ObjectPipeline()
+    rec = RoundRecord(index=0, kind="baseline", build=build, measurement=pipe.measure(ctx, build))
+    gates = [lint, *pipe.gates(ctx, 0, build, rec.measurement), *build.gates]
+    rec.renders = pipe.render(ctx, 0, build, rec.measurement)
+    steps._judge(ctx, pipe, 0, build, gates, rec, None, [])
+
+    fixed, in_run = seen
+    assert fixed.acceptance == acceptance_from_spec(spec) and in_run.acceptance == []
+    assert fixed.model_dump(exclude={"acceptance"}) == in_run.model_dump(exclude={"acceptance"})
+    # what the hand-built payload lacked
+    assert fixed.geometry_views is not None and {v.mode for v in fixed.geometry_views.views} == {"clay"}
+    assert fixed.glb_path == str(glb)
+    assert "(blender)" in fixed.gates[1].errors[0].message

@@ -123,7 +123,7 @@ def test_articulated_cells_add_the_joint_sweep_and_the_pose_sheet(monkeypatch, t
     ev._runtimes[Language.URDF_BLENDER] = SimpleNamespace(lint=lambda ws: GateReport(gate="lint", passed=True),
                                                           build=lambda ws, timeout_s: build)
     monkeypatch.setattr(meas, "measure_glb", lambda p: None)
-    monkeypatch.setattr(conn, "check_connectivity", lambda p: GateReport(gate="connectivity", passed=True))
+    monkeypatch.setattr(conn, "check_connectivity", lambda p, **k: GateReport(gate="connectivity", passed=True))
     monkeypatch.setattr(rend, "render_glb", lambda p, d, **k: RenderSet(views=[RenderView(name="front", path=str(glb))], renderer="fake"))
     sweep = GateReport(gate="joint_sweep", passed=True)
     pose = RenderView(name="articulation_sheet", path=str(glb))

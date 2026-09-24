@@ -1,13 +1,14 @@
 """The fixed evaluator shared by every arm of ``bench/compare_backends.py``.
 
-``FixedEvaluator.evaluate(ws, spec)``: the cell's runtime lint + build → ``measure_glb``
-→ connectivity gate → 14-view ``render_glb`` (articulated: + joint sweep + pose sheet;
-graphics: the frame sheet; scene: authored cameras + orbit rig at two times + the
-scene_frames gate) → ``judge_for(spec)`` — the class the loop would use
-(``vlm_judge.judge_for``) on ``rubric_for(spec)``, the track's ``TRACK_INFO``
-rubric, the ONE track→rubric mapping of the compare bench.  The judge's acceptance checklist is the brief's
-``must_have`` list (``acceptance_from_spec``) so harness and one-shot arms are
-scored against exactly the same checklist — never the harness's plan.
+``FixedEvaluator.evaluate(ws, spec)``: the cell's runtime lint + build → the track's evidence
+(objects: ``glb_evidence`` — measure, connectivity in the author's frame, 14-view render, clay
+views; articulated: + joint sweep + pose sheet; graphics: the frame sheet; scene: authored
+cameras + orbit rig at two times + the scene_frames gate) → ``fixed_input`` — the harness's
+``round_input``, so the payload is the in-run judge's for the same round → ``judge_for(spec)``
+— the class the loop would use (``vlm_judge.judge_for``) on ``rubric_for(spec)``, the track's
+``TRACK_INFO`` rubric, the ONE track→rubric mapping of the compare bench.  The judge's
+acceptance checklist is the brief's ``must_have`` list (``acceptance_from_spec``) so harness
+and one-shot arms are scored against exactly the same checklist — never the harness's plan.
 """
 
 from __future__ import annotations
@@ -27,8 +28,10 @@ from codeverse3d.contracts.artifacts import (
 )
 from codeverse3d.contracts.common import TRACK_INFO, Language, Track
 from codeverse3d.contracts.plan import AcceptanceItem
+from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import OBJECT_VIEWS
+from codeverse3d.judges.base import SLICE_TRACKS, JudgeInput, judged_subset, round_input
 from codeverse3d.workspace import Workspace
 
 RUBRIC = "static_object_v1"
@@ -143,74 +146,73 @@ class FixedEvaluator:
         return build, lint
 
     def evaluate(self, ws: Workspace, spec: Spec) -> EvalOutcome:
-        from codeverse3d.judges.base import JudgeInput
-        from codeverse3d.spatial.connectivity import check_connectivity
-        from codeverse3d.spatial.measure import measure_glb
-        from codeverse3d.spatial.render import render_glb
+        """build → the track's evidence (articulated: the sweep reads the built URDF, no plan, so
+        every arm is swept alike; the build's own gates last, as in ``steps._run_round``) → judge."""
+        from codeverse3d.tracks import get_track
 
         build, lint = self.build(ws, spec.language)
         out = EvalOutcome(build=build, lint=lint, gates=[lint])
-        if build.ok and spec.track is Track.GRAPHICS:
-            return self._evaluate_frames(ws, spec, out)
-        if build.ok and spec.track is Track.SCENE:
-            return self._evaluate_scene(ws, spec, out)
-        if not build.ok or not build.glb_path:
+        if not build.ok or (spec.track.value in SLICE_TRACKS and not build.glb_path):
             return out
+        geometry = None
         try:
-            glb = Path(build.glb_path)
-            out.measurement = measure_glb(glb)
-            out.gates.append(check_connectivity(glb))
-            r = self.settings.render
-            out.renders = render_glb(glb, ws.renders_dir(0), views=list(OBJECT_VIEWS), width=r.width, height=r.height, sheet=True)
-            if spec.track is Track.ARTICULATED_OBJECT:
-                # the same deterministic articulation evidence the track gives its judge: the
-                # joint sweep (collisions over every joint's range) and the pose sheet / pose
-                # tiles, read straight from the built URDF — no plan, so every arm is treated alike
-                from codeverse3d.tracks.articulated_object import default_joint_sweep
+            if spec.track is Track.GRAPHICS:
+                from codeverse3d.tracks.graphics import frames_render_set
 
-                sweep, pose_views = default_joint_sweep(ws, None, ws.renders_dir(0) / "poses")
-                out.gates.append(sweep)
-                if pose_views:
+                out.renders = frames_render_set(ws, build, 0)
+            elif spec.track is Track.SCENE:
+                from codeverse3d.spatial.frame_metrics import frame_gate_from_renders
+                from codeverse3d.spatial.render_scene import render_scene
+
+                out.renders = render_scene(ws, ws.renders_dir(0), orbit=True, times=(0.0, 1.5), sheet=True)
+                out.gates.append(frame_gate_from_renders(ws.renders_dir(0)))
+            else:
+                out.measurement, gate, out.renders, geometry = glb_evidence(
+                    Path(build.glb_path), ws.renders_dir(0), spec.language, self.settings)
+                out.gates.append(gate)
+                if spec.track is Track.ARTICULATED_OBJECT:
+                    from codeverse3d.tracks.articulated_object import default_joint_sweep
+
+                    sweep, pose_views = default_joint_sweep(ws, None, ws.renders_dir(0) / "poses")
+                    out.gates.append(sweep)
                     out.renders.views = list(out.renders.views) + pose_views
-            inp = JudgeInput(spec=spec, renders=out.renders, measurement=out.measurement, gates=out.gates,
-                             acceptance=acceptance_from_spec(spec), round_index=0)
+            out.gates.extend(build.gates)
+            extra = get_track(spec.track).make_pipeline().judge_context(ws, None, 0, build, out.gates)
+            inp = fixed_input(spec, renders=out.renders, gates=out.gates, measurement=out.measurement,
+                              geometry_views=geometry, glb_path=build.glb_path, extra_context=extra)
             out.judgment = self.judge_for(spec).judge(inp)
         except Exception as e:  # noqa: BLE001 — recorded per cell, never kills the matrix
             out.error = f"{type(e).__name__}: {e}"
         return out
 
 
-    def _evaluate_scene(self, ws: Workspace, spec: Spec, out: EvalOutcome) -> EvalOutcome:
-        """Scene: the authored cameras plus the orbit rig at t = 0 and 1.5 s, the scene_frames gate,
-        the scene rubric — the pictures the loop's judge sees, minus the loop's plan (2026-09-07:
-        the compare bench had no scene branch, so a scene cell built, then returned unjudged)."""
-        from codeverse3d.judges.base import JudgeInput
-        from codeverse3d.spatial.frame_metrics import frame_gate_from_renders
-        from codeverse3d.spatial.render_scene import render_scene
-        try:
-            out.renders = render_scene(ws, ws.renders_dir(0), orbit=True, times=(0.0, 1.5), sheet=True)
-            out.gates.append(frame_gate_from_renders(ws.renders_dir(0)))
-            inp = JudgeInput(spec=spec, renders=out.renders, gates=out.gates, acceptance=acceptance_from_spec(spec),
-                             round_index=0)
-            out.judgment = self.judge_for(spec).judge(inp)
-        except Exception as e:  # noqa: BLE001 — recorded per cell, never kills the matrix
-            out.error = f"{type(e).__name__}: {e}"
-        return out
+def glb_evidence(glb: Path, renders_dir: Path, language: Language | str,
+                 settings: Settings) -> tuple[Measurement, GateReport, RenderSet, RenderSet | None]:
+    """``ObjectPipeline``'s measure / connectivity (author's frame) / render / clay views for a GLB
+    with no plan, through the same ``Services`` calls; clay ``None`` when it fails, as in the loop."""
+    from codeverse3d.tracks.common import Services
+    from codeverse3d.tracks.static_object import GEOMETRY_VIEWS
 
-    def _evaluate_frames(self, ws: Workspace, spec: Spec, out: EvalOutcome) -> EvalOutcome:
-        """Graphics: the judged frames + the gl_frames gate + the frame metrics, as the loop does."""
-        from codeverse3d.judges.base import JudgeInput
-        from codeverse3d.tracks.graphics import frame_stats_text, frames_render_set
-
-        try:
-            out.renders = frames_render_set(ws, out.build, 0)
-            out.gates.extend(out.build.gates)   # the build's own gl_frames gate (BuildResult.gates, D82)
-            inp = JudgeInput(spec=spec, renders=out.renders, gates=out.gates, acceptance=acceptance_from_spec(spec),
-                             round_index=0, extra_context="FRAME METRICS (harness-measured):\n" + frame_stats_text(ws))
-            out.judgment = self.judge_for(spec).judge(inp)
-        except Exception as e:  # noqa: BLE001 — recorded per cell, never kills the matrix
-            out.error = f"{type(e).__name__}: {e}"
-        return out
+    svc, r = Services(), settings.render
+    measurement = svc.measure(glb)
+    gate = svc.connectivity(glb, str(language))
+    renders = svc.render_object(glb, renders_dir, views=OBJECT_VIEWS, width=r.width, height=r.height)
+    try:
+        geometry = svc.render_geometry(glb, renders_dir / "clay", views=GEOMETRY_VIEWS)
+    except Exception:  # noqa: BLE001 — optional judge context, never fatal (ObjectPipeline.geometry_views)
+        geometry = None
+    return measurement, gate, renders, geometry
 
 
-__all__ = ["RUBRIC", "EvalOutcome", "FixedEvaluator", "acceptance_from_spec", "rubric_for"]
+def fixed_input(spec: Spec, *, renders: RenderSet, gates: list[GateReport], measurement: Measurement | None = None,
+                geometry_views: RenderSet | None = None, glb_path: str | None = None,
+                extra_context: str = "") -> JudgeInput:
+    """``round_input`` (the in-run judge's builder) for a round 0 with no plan and no previous verdict;
+    the ONE deliberate difference: the checklist is the brief's ``must_have``, never a plan's (N83)."""
+    inp = round_input(spec, None, RoundRecord(index=0, kind="baseline", measurement=measurement),
+                      renders=judged_subset(renders), gates=gates, previous=None, extra_context=extra_context,
+                      geometry_views=geometry_views, glb_path=glb_path)
+    return inp.model_copy(update={"acceptance": acceptance_from_spec(spec)})
+
+
+__all__ = ["RUBRIC", "EvalOutcome", "FixedEvaluator", "acceptance_from_spec", "fixed_input", "glb_evidence", "rubric_for"]

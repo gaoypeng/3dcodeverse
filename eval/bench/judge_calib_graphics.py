@@ -12,9 +12,9 @@ person sees → revise) never ran for graphics.  This script is that loop's meas
 * ``eye.json``: ``{run_dir: score}`` — a person's 0–1 reading of the SAME sheets ("would a
   curator screenshot it / does it look like the thing").  The ground truth this calibrates to.
 
-For every run and every rubric it rebuilds the JudgeInput the loop used (spec, the picked round's
-RenderSet and gates; no planner acceptance items, so the rubric is measured on its own) and
-judges it with a fresh ``VlmJudge`` (n samples, pro).  Output per rubric: ``<rubric>.jsonl`` (one
+For every run and every rubric it rebuilds the JudgeInput the loop used — ``build_judge_input``,
+the ``3dcode judge`` payload (the picked round's judged views, gates, plan digest and acceptance
+list, previous verdict, frame metrics) — and judges it with a fresh ``VlmJudge`` (n samples, pro).  Output per rubric: ``<rubric>.jsonl`` (one
 row per run: overall, per-criterion, defects present, caps) and one ``summary.md`` with
 Spearman(judge, eye), mean judge vs mean eye, the biggest disagreements, and defect firing rates.
 Judging only; nothing under the runs is modified.
@@ -31,48 +31,30 @@ from typing import Any
 
 from codeverse3d.addons import select
 from codeverse3d.addons.calibration import spearman
-from codeverse3d.contracts.artifacts import GateReport, RenderSet
-from codeverse3d.contracts.plan import GraphicsPlan
-from codeverse3d.contracts.spec import Spec
-from codeverse3d.judges.base import JudgeInput, plan_summary
+from codeverse3d.cli._judge import build_judge_input, load_round
 from codeverse3d.judges.vlm_judge import VlmJudge
-from codeverse3d.record.record import RecordError
-from codeverse3d.tracks.graphics import frame_stats_text
+from codeverse3d.record.record import RecordError, load_record
 from codeverse3d.workspace import Workspace
 
 OUT_ROOT = Path(__file__).resolve().parent / "out"
 
 
-def picked_round(run: Path) -> dict[str, Any] | None:
-    """The round ``codeverse3d.addons.select`` picks, as its rounds/rNN.json (None: nothing judged)."""
-    try:
-        idx = select.pick(run)
-    except RecordError:
-        return None
-    path = run / "rounds" / f"r{idx:02d}.json" if idx is not None else None
-    return json.loads(path.read_text()) if path is not None and path.is_file() else None
-
-
 def judge_one(run: Path, rubric: str, model: str, n: int) -> dict[str, Any]:
-    spec = Spec.model_validate(json.loads((run / "spec.json").read_text()))
-    rnd = picked_round(run)
+    """Re-judge the round ``codeverse3d.addons.select`` picks on the payload ``3dcode judge`` builds
+    (``build_judge_input``: the harness's ``round_input`` from disk), with ``rubric`` swapped in."""
+    ws = Workspace(run)
+    try:
+        rec = load_record(ws)
+        idx = select.pick(run, record=rec)
+    except RecordError:
+        return {"run": str(run), "error": "no judged round"}
+    rnd = load_round(ws, rec, idx) if idx is not None else None
     if rnd is None:
         return {"run": str(run), "error": "no judged round"}
-    renders = RenderSet.model_validate(rnd["renders"])
-    gates = [GateReport.model_validate(g) for g in rnd.get("gates") or []]
-    # what the in-run judge also saw: the plan digest and the round's measured frame metrics
-    # (frame_stats_text: its own copy, never a later build's — without them, pro called four
-    # moving effects "static" in the first pass)
-    plan_path = run / "plan.json"
-    digest = plan_summary(GraphicsPlan.model_validate_json(plan_path.read_text()), spec.language) if plan_path.is_file() else ""
-    extra = "FRAME METRICS (harness-measured):\n" + frame_stats_text(Workspace(run), int(rnd.get("index", 0)))
-    inp = JudgeInput(spec=spec, renders=renders, gates=gates, round_index=int(rnd.get("index", 0)),
-                     plan_summary=digest, extra_context=extra)
-    judge = VlmJudge(rubric=rubric, model_id=model, n_samples=n)
-    v = judge.judge(inp)
+    v = VlmJudge(rubric=rubric, model_id=model, n_samples=n).judge(build_judge_input(ws, rec, rnd))
     raw = v.raw if isinstance(v.raw, dict) else json.loads(v.raw or "{}")
     return {
-        "run": str(run), "rubric": rubric, "overall": v.overall, "loop_overall": (rnd.get("judgment") or {}).get("overall"),
+        "run": str(run), "rubric": rubric, "overall": v.overall, "loop_overall": rnd.score,
         "scores": v.scores, "uncapped": raw.get("overall_uncapped"),
         "defects": [d for d, on in (raw.get("defects") or {}).items() if on],
         "caps": [c.get("rule") for c in (raw.get("caps") or {}).get("caps_applied", [])],
