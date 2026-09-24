@@ -487,7 +487,8 @@ plateau, regression or diminishing-returns stop, no rewrite or surface-detail ro
              escalates on identical signatures) → gates → … → judge (SKIPPED only where the verdict is never
              bought at all: no judge or no renders — a round that finishes past the clock is still judged)
    → commit src/ (the round's commit) and copy its build to artifacts/rNN/
-   a round left without a verdict (judge outage / degraded) is re-judged once before the next is planned
+   a round left without a verdict (judge outage / degraded) is re-judged once before the next is planned,
+   and so is the LAST round before the run ends (still none → judge_unavailable, `--rounds 0` included)
    a round's cost is the ledger rows it booked (a cost.tally) and its steps are timed (RoundRecord.steps); a round
    that raises mid-way still reports what it burned (rounds/aborted_rNN.json + record.extra["aborted_rounds"])
    a round whose every task failed raises RoundFailed, TYPED (2026-09-22 — the loop never reads its message):

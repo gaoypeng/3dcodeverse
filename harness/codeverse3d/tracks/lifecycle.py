@@ -549,36 +549,39 @@ class BaseTrack:
             ctx.events.emit("stop", reason=reason.value, rounds=len(rounds))
             return reason
 
+        def _unjudged(rec: RoundRecord | None) -> bool:
+            return rec is not None and rec.judgment is None and rec.build is not None and rec.build.ok
+
         while True:
             index = len(rounds)
+            last = rounds[-1] if rounds else None
+            if _unjudged(last) and last.index not in rejudged and ctx.budget.ok():
+                # judge outage/degraded verdict on a clean build: re-judge the SAME commit once
+                # (no regeneration) — before planning refinements from nothing, and before the
+                # last round ends the run unscored (`--rounds 0` used to stop MAX_ROUNDS with an
+                # unjudged baseline: the re-judge lived in the refine branch only)
+                rejudged.add(last.index)
+                prev_j = rounds[-2].judgment if len(rounds) > 1 else None
+                if rejudge_round(ctx, pipeline, last, previous=prev_j):
+                    self._save_budget(ctx)
             if index > ctx.policy.max_rounds:  # the baseline + max_rounds refine rounds all ran
-                return _stop(RunStatus.MAX_ROUNDS)
+                return _stop(RunStatus.JUDGE_UNAVAILABLE if _unjudged(last) else RunStatus.MAX_ROUNDS)
             if not ctx.budget.ok():
                 if not rounds:  # the stages spent the clock without raising: the ONE budget path (salvage)
                     ctx.budget.check()
                 return _stop(RunStatus.BUDGET)
-            previous = rounds[-1].judgment if rounds else None
-            if index == 0:
+            previous = last.judgment if last else None
+            if last is None:
                 ctx.state.status = RunStatus.GENERATING
                 tasks, instructions, kind = self.baseline_tasks(ctx), [], "baseline"
             else:
                 ctx.state.status = RunStatus.REFINING
-                last = rounds[-1]
-                if last.judgment is None and last.build is not None and last.build.ok and last.index not in rejudged:
-                    # judge outage/degraded verdict on a clean build: re-judge the SAME
-                    # commit once (no regeneration) before planning refinements from nothing.
-                    rejudged.add(last.index)
-                    prev_j = rounds[-2].judgment if len(rounds) > 1 else None
-                    if rejudge_round(ctx, pipeline, last, previous=prev_j):
-                        self._save_budget(ctx)
-                        continue  # plan the next round from the recovered verdict
                 tasks, instructions = self.refine_tasks(ctx, last)
                 kind = "refine"
                 if not tasks:
                     # no gate error, no failed must-item, no judge plan: nothing to ask for.  When
                     # that is only because the judge never scored the round, say so.
-                    unjudged = last.judgment is None and last.build is not None and last.build.ok
-                    return _stop(RunStatus.JUDGE_UNAVAILABLE if unjudged else RunStatus.NO_REFINE_TASKS)
+                    return _stop(RunStatus.JUDGE_UNAVAILABLE if _unjudged(last) else RunStatus.NO_REFINE_TASKS)
             ctx.state.save(ctx.ws)
             try:
                 if index == 0 and tasks and ctx.policy.n_candidates > 1:

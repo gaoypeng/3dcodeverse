@@ -116,6 +116,24 @@ def test_degraded_verdict_never_scores_and_run_stops_as_judge_unavailable(tmp_pa
     assert "judge degraded" in saved["notes"] and saved["usage"]["cost_usd"] == pytest.approx(0.016, abs=1e-6)
 
 
+@pytest.mark.parametrize(("verdicts", "status", "score"), [
+    (["degraded", 0.7], RunStatus.MAX_ROUNDS, 0.7),
+    (["degraded", "degraded"], RunStatus.JUDGE_UNAVAILABLE, None),
+])
+def test_the_last_round_is_rejudged_before_the_run_ends(tmp_path, chair_plan, settings, verdicts, status, score):
+    """`--rounds 0`: the baseline IS the last round.  Its failed verdict was never re-judged (the
+    re-judge lived in the refine branch) and the run stopped MAX_ROUNDS unscored; now it gets the
+    same one re-judge as any round, and a second failure says judge_unavailable (D80)."""
+    ws = Workspace(tmp_path / "runs" / "r")
+    judge = ScriptedJudge(verdicts)
+    track = StaticObjectTrack(services=FakeServices(), judge=judge, agent=FakeAgent(_writer),
+                              planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
+                              runtime=FakeRuntime(Language.THREEJS))
+    rec = track.run(make_spec(max_rounds=0), ws)
+    assert rec.status is status and len(rec.rounds) == 1 and len(judge.all_calls) == 2
+    assert rec.rounds[0].score == (pytest.approx(score) if score is not None else None)
+
+
 def test_degraded_verdict_recovers_via_rejudge_of_same_commit(tmp_path, chair_plan, settings):
     spec = make_spec(max_rounds=3)
     ws = Workspace(tmp_path / "runs" / "r")
