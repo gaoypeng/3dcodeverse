@@ -19,7 +19,7 @@ import numpy as np
 import trimesh
 
 from codeverse3d.contracts.artifacts import RenderSet
-from codeverse3d.conventions import OBJECT_VIEWS_QUICK, ViewPreset
+from codeverse3d.conventions import ARTICULATION_VIEWS, ViewPreset
 from codeverse3d.spatial._render_common import out_directory
 from codeverse3d.spatial.joints_model import Joint, Robot, fk, resolve_q
 from codeverse3d.spatial.joints_poses import limit_poses
@@ -105,12 +105,12 @@ def render_poses(
     width: int = 512,
     height: int = 512,
 ) -> list[tuple[str, RenderSet]]:
-    """Export one GLB per pose, render ``views`` for each (default: 3 quick views)
+    """Export one GLB per pose, render ``views`` for each (default: ``ARTICULATION_VIEWS``)
     and write ``out_dir/articulation_sheet.png`` (rest / each joint at lower & upper
     by default — the image the judge sees).  Returns ``[(pose_name, RenderSet)]``."""
     out_dir = out_directory(out_dir)
     poses = poses if poses is not None else limit_poses(robot)
-    views = tuple(views or OBJECT_VIEWS_QUICK[:3])
+    views = tuple(views or ARTICULATION_VIEWS)
     results: list[tuple[str, RenderSet]] = []
     tiles: list[tuple[str, Path]] = []
     for label, q in poses:

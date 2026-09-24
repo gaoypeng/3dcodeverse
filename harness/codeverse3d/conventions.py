@@ -139,6 +139,12 @@ OBJECT_VIEWS_QUICK: tuple[ViewPreset, ...] = tuple(
     _OBJECT_VIEW_BY_NAME[n] for n in ("front_right_high", "back_left_high", "front", "top")
 )
 
+#: The articulation sheet's three views per pose (``joints_export.render_poses``) — by
+#: NAME too: it was ``OBJECT_VIEWS_QUICK[:3]``, which a reorder of the quick set changes.
+ARTICULATION_VIEWS: tuple[ViewPreset, ...] = tuple(
+    _OBJECT_VIEW_BY_NAME[n] for n in ("front_right_high", "back_left_high", "front")
+)
+
 #: the view a one-camera comparison (the reference silhouette) takes, in preference order;
 #: ``*_34`` are pre-D47 stored runs
 FRONT_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_high", "front_left_high",

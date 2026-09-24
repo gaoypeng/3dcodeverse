@@ -81,6 +81,8 @@ def test_render_poses_with_fake_renderer_builds_sheet(tmp_path, monkeypatch):
     out = render_poses(r, tmp_path / "ren")
     assert [label for label, _ in out] == ["rest", "hinge@upper"]
     assert len(calls) == 2 and all(c.exists() for c in calls)
+    # the judge's sheet shows these views by name, whatever order the quick set lists
+    assert [v.name for v in out[0][1].views] == ["front_right_high", "back_left_high", "front"]
     sheet = tmp_path / "ren" / ARTICULATION_SHEET_NAME
     assert sheet.is_file() and Image.open(sheet).size[0] > 32
 
