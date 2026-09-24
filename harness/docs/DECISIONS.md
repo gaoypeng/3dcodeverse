@@ -901,7 +901,9 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   over the 11 gemini sessions of the 2026-09-22 live runs, $0.219 booked → $5.11.  `provider_wait_s`
   is the time a session lost to provider errors (a lower bound for gemini, 0 for codex).  Failure
   classes travel typed (`AgentResult.transient/quota` → `RoundFailed`); a plain timeout is no longer
-  retried as a transport death.
+  retried as a transport death.  One `cli_common.classify_end` decides every vendor's end (owner,
+  2026-09-24, N71): a watchdog kill is transient only when nothing was produced and the CLI's own record
+  shows provider retries, and a spent usage limit or a 429 is `budget` for all four.
 * **D84 One minutes, one record of money (owner, 2026-09-22).**  Every step is a `StepTime{step,
   round, wall_s, lost_s}`; `RunRecord.minutes` = Σ(wall − lost) over run and round steps — lost is a
   session's `provider_wait_s` or an API call's time outside its answered round-trips; parallel work is

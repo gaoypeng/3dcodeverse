@@ -184,3 +184,43 @@ def test_mcp_command_resolution(tmp_ws: Workspace):
         {"mcpServers": {"3dcode": {"command": "/tmp/evil", "args": ["--pwn"]}}}))
     assert mcp_command_for(tmp_ws, job2) == ["python", "-m", "x"]
     assert "/tmp/evil" not in mcp_command_for(tmp_ws, job)
+
+
+_ENDINGS = {
+    # the watchdog kills a session that printed a transport line and recorded no provider retry (D83)
+    "killed": ('print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "working"}}),'
+               ' flush=True)\nprint("Error: read ECONNRESET (mcp child)", file=sys.stderr, flush=True)\ntime.sleep(60)\n',
+               ("timeout", False, False)),
+    "usage_limit": ('print("You\'ve hit your usage limit. Try again later.", file=sys.stderr)\nsys.exit(1)\n',
+                    ("budget", False, True)),
+    "rate_limited": ('print("Error 429 Too Many Requests: rate limit", file=sys.stderr)\nsys.exit(1)\n',
+                     ("budget", True, False)),
+}
+
+
+@pytest.mark.parametrize("ending", sorted(_ENDINGS))
+@pytest.mark.parametrize("vendor", ["gemini-cli", "claude-code", "codex", "agy"])
+def test_every_cli_backend_ends_by_one_rule(tmp_ws: Workspace, fake_bin, monkeypatch, vendor, ending):
+    """N71: one ``classify_end`` — a kill with no provider evidence is not transient, and a spent
+    usage limit or a 429 is ``budget``, whichever vendor's CLI said it."""
+    from codeverse3d.agents.backends import (
+        AntigravityAgent,
+        ClaudeCodeAgent,
+        CodexAgent,
+        GeminiCliAgent,
+    )
+    from codeverse3d.config import get_settings
+
+    monkeypatch.setattr(cli_common, "IDLE_GRACE_S", 0.3)
+    monkeypatch.setattr("codeverse3d.agents.backends.RETRY_KEY_WAIT_S", 0.05)
+    monkeypatch.setattr(get_settings(), "gemini_api_keys", ["n71-key"])
+    body, want = _ENDINGS[ending]
+    binary = fake_bin(vendor, "sys.stdin.read()\n" + body)
+    agent = {"gemini-cli": lambda: GeminiCliAgent("m", binary=binary), "claude-code": lambda: ClaudeCodeAgent("m", binary=binary),
+             "codex": lambda: CodexAgent("m", binary=binary, reasoning_effort=""),
+             "agy": lambda: AntigravityAgent("m", binary=binary)}[vendor]()
+    if vendor == "agy":
+        monkeypatch.setattr(agent, "served_model", lambda: "m")
+    res = agent.run(AgentJob(workspace=str(tmp_ws.root), prompt="p", label=ending, spatial_tools=False,
+                             timeout_s=1 if ending == "killed" else 30))
+    assert (res.exit_reason, res.transient, res.quota) == want

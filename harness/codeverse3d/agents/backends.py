@@ -49,16 +49,16 @@ from typing import Any
 from codeverse3d.agents.cli_common import (
     CompletedProc,
     Session,
+    SessionEnd,
     ToolCall,
     begin_session,
+    classify_end,
     exists_on_path,
     failed,
     find_json_object,
     finish_session,
     hardened_env,
     invoke,
-    is_quota_failure,
-    is_rate_limited,
     is_transient_failure,
     mcp_command_for,
     provider_wait,
@@ -469,33 +469,31 @@ class GeminiCliAgent(_CliAgent):
         text = out.text.strip()
         served = list((stats.get("models") or {}).keys())
         if proc.timed_out:
-            out.exit_reason = "timeout"
-            out.errors.append(watchdog_error(proc))
             # the CLI retries 503s itself, with backoff, and never gives up before our wall:
             # measured 2026-09-07, 8-17 "Attempt N failed with status 503" per 12-minute
             # session, nothing produced.  That is a storm, not the task.
-            out.transient = not text and bool(retries.rows)
-            if out.transient:
+            end = classify_end(proc, ok=False, text=text, provider_retried=bool(retries.rows))
+            out.errors.append(watchdog_error(proc))
+            if end.transient:
                 out.errors.append(f"{retries.tally()} inside the CLI's own retry loop before the wall; nothing produced")
-            return out
-        if served and self.model not in served:
+        elif served and self.model not in served:
             out.exit_reason = "model_substituted"
             out.errors.append(f"requested {self.model!r} but CLI served {served}")
             return out
-        if parsed is None or proc.rc != 0 or not text:
+        elif parsed is None or proc.rc != 0 or not text:
             # the CLI's own give-up object (stderr: {"session_id", "error": {"type", "message", "code"}}),
             # else whatever it printed before it died
             gave_up = find_json_object(proc.stderr, lambda d: isinstance(d.get("error"), dict))
             err = (gave_up or {}).get("error") or {}
             said = f"{err.get('code', '')} {err.get('type', '')}: {err.get('message', '')}" if err else proc.stderr + proc.stdout
             out.session_id = out.session_id or str((gave_up or {}).get("session_id") or "")
-            out.quota = is_quota_failure(said)
-            out.transient = is_transient_failure(said) or (parsed is not None and not text)
-            out.rate_limited = err.get("code") == 429 or (not err and is_rate_limited(said))
+            end = classify_end(proc, ok=False, text=text, said=(said,), provider_failed=parsed is not None and not text,
+                               rate_limited=err.get("code") == 429 if err else None)
             out.errors.append(f"rc={proc.rc}; response={'<empty>' if not text else 'ok'}; stderr tail: {proc.stderr[-1500:]}")
-            out.exit_reason = "budget" if out.rate_limited or out.quota else "error"
-            return out
-        out.ok, out.exit_reason = True, "completed"
+        else:
+            end = classify_end(proc, ok=True, text=text)
+            out.ok = True
+        out.exit_reason, out.transient, out.quota, out.rate_limited = end.exit_reason, end.transient, end.quota, end.rate_limited
         return out
 
 
@@ -741,31 +739,23 @@ class ClaudeCodeAgent(_CliAgent):
             text = str((env or {}).get("result") or "")
             turns = int((env or {}).get("num_turns") or 0)
             errors: list[str] = []
-            transient = quota = False
+            sub = str((env or {}).get("subtype", ""))
             if proc.timed_out:
-                reason, ok = "timeout", False
+                end = classify_end(proc, ok=False, text=text, provider_retried=bool(stream.retries))
                 errors.append(watchdog_error(proc))
-                transient = not text.strip() and (bool(stream.retries) or is_transient_failure(proc.stderr))
             elif env is None or proc.rc != 0:
-                reason, ok = "error", False
-                errors.append(f"rc={proc.rc}; no result envelope; stderr tail: {proc.stderr[-1500:]}")
                 # a 529 / overloaded exit is the provider's, not the task's (AgentResult.transient)
-                quota = is_quota_failure(proc.stderr, proc.stdout)
-                transient = is_transient_failure(proc.stderr, proc.stdout)
-                if quota or (transient and is_rate_limited(proc.stderr)):
-                    reason = "budget"
-            elif env.get("is_error") or str(env.get("subtype", "")).startswith("error"):
-                ok = False
-                sub = str(env.get("subtype", ""))
-                quota = is_quota_failure(text)
-                transient = "max_turns" not in sub and is_transient_failure(text)
-                reason = "budget" if "max_turns" in sub or quota else "error"
+                end = classify_end(proc, ok=False, text=text, said=(proc.stderr, proc.stdout))
+                errors.append(f"rc={proc.rc}; no result envelope; stderr tail: {proc.stderr[-1500:]}")
+            elif env.get("is_error") or sub.startswith("error"):
+                # the turn cap is the task's budget, never the provider's
+                end = SessionEnd("budget") if "max_turns" in sub else classify_end(proc, ok=False, text=text, said=(text,))
                 errors.append(f"claude reported {sub or 'is_error'}: {text[-800:]}")
             else:
-                reason, ok = "completed", True
+                end = classify_end(proc, ok=True, text=text)
             return finish_session(
-                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=n_calls, turns=turns,
-                errors=errors, transient=transient, quota=quota,
+                s, ok=end.exit_reason == "completed", exit_reason=end.exit_reason, text=text, usage=usage,
+                tool_calls=n_calls, turns=turns, errors=errors, transient=end.transient, quota=end.quota,
                 provider_wait_s=provider_wait([(t, b) for t, b, _ in stream.retries], ended, stream.progress),
                 rc=proc.rc, killed_reason=proc.killed_reason, num_turns=turns,
                 session_id=(env or {}).get("session_id", ""), subtype=(env or {}).get("subtype", ""),
@@ -954,20 +944,16 @@ class CodexAgent(_CliAgent):
             text = "\n\n".join(m for m in events.messages if m.strip())
             errors = list(events.errors)
             if proc.timed_out:
-                ok, reason = False, "timeout"
                 errors.append(watchdog_error(proc))
             elif proc.rc != 0 or events.n_events == 0:
-                ok, reason = False, "error"
                 errors.append(f"rc={proc.rc}; events={events.n_events}; stderr tail: {proc.stderr[-1500:]}")
-            elif events.errors and events.turns_completed == 0:
-                ok, reason = False, "error"
-            else:
-                ok, reason = True, "completed"
-            said = (*events.errors, proc.stderr) if not ok else ()
+            ok = not proc.timed_out and proc.rc == 0 and events.n_events > 0 and not (events.errors and events.turns_completed == 0)
+            # codex's provider record is its own error events (a dropped stream, a 5xx it gave up on)
+            end = classify_end(proc, ok=ok, text=text, said=(*events.errors, proc.stderr),
+                               provider_retried=is_transient_failure(*events.errors))
             return finish_session(
-                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=events.tool_calls,
-                turns=events.turns_completed, errors=errors,
-                transient=is_transient_failure(*said), quota=is_quota_failure(*said),
+                s, ok=ok, exit_reason=end.exit_reason, text=text, usage=usage, tool_calls=events.tool_calls,
+                turns=events.turns_completed, errors=errors, transient=end.transient, quota=end.quota,
                 rc=proc.rc, killed_reason=proc.killed_reason, thread_id=events.thread_id,
                 turns_completed=events.turns_completed, usage_raw=events.usage_raw, usage_estimated=estimated,
             )
@@ -1233,25 +1219,22 @@ class AntigravityAgent(_CliAgent):
             s.notes.append("agy is subscription-billed: cost_usd=0")
             died = agy_error(proc.stderr)
             said = (json.dumps(died), str((env or {}).get("error") or ""), proc.stderr)
+            ok = False
             if proc.timed_out:
-                ok, reason = False, "timeout"
                 errors.append(watchdog_error(proc))
             elif proc.rc != 0 or (env is not None and str(env.get("status", "SUCCESS")).upper() not in ("SUCCESS", "OK")):
-                ok, reason = False, "error"
                 errors.append(f"rc={proc.rc}; status={(env or {}).get('status')}; error={(env or {}).get('error', '')}; "
                               f"stderr tail: {proc.stderr[-1500:]}")
             elif not text.strip():
-                ok, reason = False, "error"
                 errors.append("empty response")
             else:
-                ok, reason = True, "completed"
-            quota = not ok and is_quota_failure(*said)
-            transient = not ok and (bool(died.get("retryable")) or is_transient_failure(*said)
-                                    or (proc.timed_out and not text.strip() and bool(retries)))
+                ok = True
+            end = classify_end(proc, ok=ok, text=text, said=said, provider_retried=bool(retries) or bool(died.get("retryable")),
+                               provider_failed=bool(died.get("retryable")))
             usage.tool_calls = n_calls
             return finish_session(
-                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=n_calls,
-                turns=int((env or {}).get("num_turns") or 0), errors=errors, transient=transient, quota=quota,
+                s, ok=ok, exit_reason=end.exit_reason, text=text, usage=usage, tool_calls=n_calls,
+                turns=int((env or {}).get("num_turns") or 0), errors=errors, transient=end.transient, quota=end.quota,
                 provider_wait_s=provider_wait([(t, b) for t, b, _ in retries], ended),
                 rc=proc.rc, killed_reason=proc.killed_reason, agy_error=died,
                 conversation_id=(env or {}).get("conversation_id", ""), num_turns=(env or {}).get("num_turns", 0),

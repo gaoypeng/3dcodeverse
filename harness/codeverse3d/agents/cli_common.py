@@ -718,6 +718,43 @@ def is_rate_limited(*texts: str) -> bool:
     return any(_RATE_LIMIT_RE.search(t or "") for t in texts)
 
 
+@dataclass(frozen=True)
+class SessionEnd:
+    """How a CLI session ended: ``exit_reason`` (completed | timeout | budget | error) and the
+    typed failure class ``AgentResult.transient`` / ``.quota`` carry.  ``rate_limited`` is a
+    429 — gemini-cli cools its key and rotates."""
+
+    exit_reason: str
+    transient: bool = False
+    quota: bool = False
+    rate_limited: bool = False
+
+
+def classify_end(proc: CompletedProc, *, ok: bool, text: str, said: Sequence[str] = (),
+                 provider_retried: bool = False, provider_failed: bool = False,
+                 rate_limited: bool | None = None) -> SessionEnd:
+    """THE end rule for every CLI backend (N71; D83) — each backend brings only its vendor's
+    evidence: ``said`` (what the CLI printed about the call that ended it), ``provider_retried``
+    (the CLI's OWN record of retried provider calls: gemini-cli's retry lines, claude's
+    ``api_retry`` events, codex's error events, agy's log) and ``provider_failed`` (a typed
+    vendor verdict: agy's ``AGY_ERROR.retryable``, gemini-cli's empty envelope).
+
+    A watchdog kill is ``timeout``, and transient only when nothing was produced AND the CLI
+    recorded provider retries: a kill with no provider evidence is the task's (a retry buys
+    another full window for the same outcome), whatever its stderr says.  Any other failure is
+    ``quota`` / ``transient`` by the vocabulary above, and ``budget`` when the usage limit is
+    spent or the call was rate limited, for every vendor."""
+    if ok:
+        return SessionEnd("completed")
+    if proc.timed_out:
+        return SessionEnd("timeout", transient=provider_retried and not text.strip())
+    quota = is_quota_failure(*said)
+    limited = is_rate_limited(*said) if rate_limited is None else rate_limited
+    return SessionEnd("budget" if quota or limited else "error",
+                      transient=not quota and (provider_failed or is_transient_failure(*said)),
+                      quota=quota, rate_limited=limited)
+
+
 # --------------------------------------------------------------------------- provider wait
 def provider_wait(failures: Iterable[tuple[float, float]], end: float,
                   progress: Iterable[float] | None = None) -> float:
