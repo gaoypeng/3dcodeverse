@@ -98,3 +98,33 @@ def test_an_instanced_part_reads_its_plan_material(tmp_path: Path):
     plan = NS(parts=[NS(name="Leg", material="solid oak", description="leg")])
     rep = normalise_materials(glb, tmp_path / "out.glb", plan=plan)
     assert [(c.node, c.family) for c in rep.changes] == [("Leg_0", "hardwood")]
+
+
+def _cq_export_factors() -> tuple[float, float]:
+    """The (metallic, roughness) run_cq.py writes on every material (a stdlib-only wrapper: read, not imported)."""
+    import ast
+
+    from codeverse3d import languages
+
+    tree = ast.parse((Path(languages.__file__).parent / "wrappers" / "run_cq.py").read_text())
+    call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "PBRMaterial")
+    kw = {k.arg: ast.literal_eval(k.value) for k in call.keywords if k.arg in ("metallicFactor", "roughnessFactor")}
+    return kw["metallicFactor"], kw["roughnessFactor"]
+
+
+def test_the_harness_writers_own_defaults_count_as_never_authored():
+    """N54: CadQuery's (0, 0.6) and the three.js stub's (0.05, 0.6) read as authored, so CadQuery
+    steel was clamped to half-metallic and CadQuery wood was never normalised."""
+    import re
+
+    from codeverse3d.languages.threejs import PART_TEMPLATE
+    from codeverse3d.texturing.materials import is_framework_default
+
+    stub = re.search(r"roughness: ([\d.]+), metalness: ([\d.]+)", PART_TEMPLATE)
+    assert stub and is_framework_default(float(stub[2]), float(stub[1]))
+    cq = _cq_export_factors()
+    assert is_framework_default(*cq)
+    steel = classify("SteelFrame", "SteelFrameMat", "", *cq)
+    assert steel is not None and steel.reason == "untouched" and steel.metallic == 1.0
+    oak = classify("Leg", "LegMat", "solid oak", *cq)
+    assert oak is not None and oak.family == "hardwood"

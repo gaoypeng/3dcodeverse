@@ -35,12 +35,16 @@ from pydantic import BaseModel, Field
 
 from codeverse3d.conventions import to_snake
 
-#: glTF/Blender/three framework defaults.  A material sitting exactly on one of
-#: these pairs was never authored — see ``is_framework_default``.
+#: glTF/Blender/three framework defaults, and the factors the harness's own writers put
+#: on a material nobody authored.  A material sitting exactly on one of these pairs was
+#: never authored — see ``is_framework_default``.  The two harness rows are pinned to their
+#: writers by ``tests/texturing/test_normalise.py``.
 FRAMEWORK_DEFAULTS: tuple[tuple[float, float], ...] = (
     (1.0, 1.0),   # glTF 2.0 material default (metallic 1, roughness 1) — renders as dark mud
     (0.0, 1.0),   # three.js MeshStandardMaterial default
     (0.0, 0.5),   # Blender Principled BSDF default
+    (0.0, 0.6),   # languages/wrappers/run_cq.py: every CadQuery part's exported material
+    (0.05, 0.6),  # languages/threejs PART_TEMPLATE: the part stub's placeholder material
 )
 
 
