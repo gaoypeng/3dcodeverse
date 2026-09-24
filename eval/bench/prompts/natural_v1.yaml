@@ -1,0 +1,109 @@
+name: natural_v1
+track: scene
+language: scene_threejs
+description: >
+  20 outdoor scene prompts built on natural elements the scene library ships as factories (waterfall, stream,
+  ocean, fire, smoke/steam, cloud volume, ice, sand, rock, oak/birch/willow tree, shrub, meadow, paving) mixed
+  with elements it does not (pine, palm, carved stone), so a planner that routes elements to the library — or
+  hand-builds them as assets — shows up in the renders.  Built for the planner shipped-effects A/B (2026-09-23).
+prompts:
+  - id: nat_easy_waterfall_clearing
+    tier: easy
+    category: nature
+    prompt: a misty waterfall pouring into a pool in a mossy forest clearing at dawn
+    must_have: [waterfall falling from a rock ledge into a pool, mossy rocks around the pool, mist or spray at the impact, dawn light, visibly moving water]
+  - id: nat_easy_birch_stream
+    tier: easy
+    category: nature
+    prompt: a shallow stream winding through a birch grove with scattered boulders
+    must_have: [a winding shallow stream, white-barked birch trees, boulders in and beside the stream, flowing water animation]
+  - id: nat_easy_beach_campfire
+    tier: easy
+    category: nature
+    prompt: a campfire on a rocky beach at dusk with smoke drifting over the waves
+    must_have: [a burning campfire with flickering flames, smoke rising and drifting, rocks on the beach, ocean waves moving, dusk sky]
+  - id: nat_easy_oak_meadow
+    tier: easy
+    category: nature
+    prompt: a lone old oak tree on a hill in a wildflower meadow swaying in the wind
+    must_have: [one large oak tree with a full crown, wildflower meadow, grass and flowers swaying, open sky]
+  - id: nat_easy_desert_dunes
+    tier: easy
+    category: nature
+    prompt: rolling sand dunes at sunset with wind-carved ripples and a few scattered rocks
+    must_have: [several sand dunes with ripples, scattered rocks, low sunset light with long shadows, drifting sand or dust]
+  - id: nat_easy_frozen_lake
+    tier: easy
+    category: nature
+    prompt: a frozen lake with cracked ice, snowy banks and a wooden cabin with chimney smoke
+    must_have: [lake surface of cracked ice, snowy banks, a wooden cabin, smoke rising from the chimney, winter light]
+  - id: nat_easy_palm_lagoon
+    tier: easy
+    category: nature
+    prompt: a tropical lagoon with palm trees, gentle waves on white sand and a rocky point
+    must_have: [several palm trees, turquoise water with gentle waves, white sand beach, rocks at the point]
+  - id: nat_med_willow_pond
+    tier: medium
+    category: nature
+    prompt: a weeping willow leaning over a still pond with reeds, stepping stones and a small stone bench
+    must_have: [weeping willow with hanging branches, pond water, reeds at the edge, a line of stepping stones, a stone bench, branches or water moving gently]
+  - id: nat_med_courtyard_brazier
+    tier: medium
+    category: urban
+    prompt: a stone-paved courtyard with an oak tree, a wildflower bed and a small brazier fire at twilight
+    must_have: [stone paving across the courtyard, one oak tree, a flower bed, a brazier with live flames, twilight mood with the fire as a warm light]
+  - id: nat_med_hot_spring
+    tier: medium
+    category: nature
+    prompt: a mountain hot spring pool among granite rocks with steam rising into cold air and pine trees behind
+    must_have: [a pool of water among granite boulders, steam rising from the water, pine trees in the background, cold mountain light]
+  - id: nat_med_cliff_ocean
+    tier: medium
+    category: nature
+    prompt: basalt sea cliffs with waves crashing below, sea spray and low clouds rolling over the top
+    must_have: [dark basalt cliffs, ocean waves at the cliff base, spray where waves hit, low clouds over the cliff tops, moving water]
+  - id: nat_med_garden_stream
+    tier: medium
+    category: nature
+    prompt: a japanese-style garden with a stream over a small weir, paved path, shrubs and a maple tree
+    must_have: [a stream with a small weir or waterfall step, a paved stone path, clipped shrubs, a red maple tree, flowing water]
+  - id: nat_med_ruins_bonfire
+    tier: medium
+    category: nature
+    prompt: ancient stone ruins at night with a bonfire in the middle, smoke and embers rising, and scattered rubble
+    must_have: [broken stone walls or columns, a large bonfire, embers and smoke rising, rubble on the ground, night with the fire as the main light]
+  - id: nat_med_canyon_river
+    tier: medium
+    category: nature
+    prompt: a sandstone canyon with a river running along its floor, boulders and a narrow waterfall from the rim
+    must_have: [layered sandstone walls, a river on the canyon floor, boulders, a thin waterfall falling from the rim, flowing water]
+  - id: nat_hard_forest_waterfall_bridge
+    tier: hard
+    category: nature
+    prompt: a tall waterfall in an old-growth forest with a wooden footbridge over the stream below, ferns and fallen logs
+    must_have: [a tall waterfall, a stream leaving the plunge pool, a wooden footbridge over the stream, ferns, fallen mossy logs, large trees, mist, moving water]
+  - id: nat_hard_winter_camp
+    tier: hard
+    category: nature
+    prompt: a winter camp by an icy river with a campfire, two tents, pine trees heavy with snow and falling snow
+    must_have: [an icy river with cracked ice at the banks, a campfire with smoke, two tents, snow-laden pine trees, falling snow particles, firelight on the snow]
+  - id: nat_hard_oasis
+    tier: hard
+    category: nature
+    prompt: a desert oasis at noon with a spring-fed pond, palm trees, dunes all around and heat haze
+    must_have: [a pond of clear water, a ring of palm trees, sand dunes surrounding the oasis, rocks by the water, heat haze or drifting sand]
+  - id: nat_hard_volcano_shore
+    tier: hard
+    category: nature
+    prompt: a volcanic shore where lava meets the sea, with steam clouds, black basalt rocks and glowing cracks
+    must_have: [black basalt rocks and shore, glowing lava or cracks, waves meeting the lava, large steam clouds rising, moving water and steam]
+  - id: nat_hard_orchard_storm
+    tier: hard
+    category: nature
+    prompt: an apple orchard on a hillside before a storm, rows of trees bending in the wind under dark rolling clouds
+    must_have: [rows of fruit trees, trees and grass bending in strong wind, dark volumetric storm clouds, a stone wall or path through the orchard, dramatic light]
+  - id: nat_hard_monastery_terraces
+    tier: hard
+    category: urban
+    prompt: a mountain monastery above rice terraces with a paved stair, prayer flags, a stream cascading down the terraces and clouds below
+    must_have: [a monastery building, stepped rice terraces, a paved stair, prayer flags moving in wind, water cascading down the terraces, clouds below the monastery]
