@@ -99,7 +99,8 @@ def test_a_torn_results_line_does_not_crash_the_render_stage():
     """render_views / score read exec_results.jsonl strictly: one torn line crashed the stage."""
     render_views = importlib.import_module(f"{PKG}.render_views")
     with tempfile.TemporaryDirectory() as d:
-        (Path(d) / "exec_results.jsonl").write_text('{"id": "a", "status": "FAIL"}\n{"id": "b", "sta')
+        # and a bad byte (N85: read_rows decoded strictly — UnicodeDecodeError lost the whole file)
+        (Path(d) / "exec_results.jsonl").write_bytes(b'{"id": "a", "status": "FAIL"}\n{"id": "b\xff", "status": "FAIL"}\n{"id": "c", "sta')
         assert render_views.render_dir(Path(d)) == {}
 
 
