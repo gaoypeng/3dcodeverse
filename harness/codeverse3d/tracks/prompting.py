@@ -33,7 +33,6 @@ from codeverse3d.tracks.depth import (
     depth_budget,
     interfaces_text,
 )
-from codeverse3d.tracks.generation import SINGLE_SHOT_FORMAT
 
 if TYPE_CHECKING:
     from codeverse3d.prompts.sections import Section
@@ -293,7 +292,7 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "cookbook_excerpt": ctx.cookbook_text,
         "tool_cards": ctx.tool_cards,
         "single_shot": ctx.single_shot,
-        "output_format": SINGLE_SHOT_FORMAT if ctx.single_shot else AGENT_OUTPUT_RULES,
+        "output_format": SINGLE_SHOT_OUTPUT if ctx.single_shot else AGENT_OUTPUT_RULES,
         "spec_prompt": ctx.spec.prompt,
         "constraints": constraints_text(ctx.spec),
         "object_name": object_name,
@@ -519,6 +518,10 @@ def measurement_vs_plan(
     gate_lines = [f"- {f.as_line(with_gate=True)}" for g in last.gates for f in g.errors][:12]
     return "\n".join(lines + gate_lines)
 
+
+#: the format itself is stated once, in the system prompt ``generate_files`` appends
+#: (``prompts/system/singleshot_format.md``); the brief only points at it
+SINGLE_SHOT_OUTPUT = "Reply with the file blocks exactly as the single-shot response format in your system prompt says."
 
 AGENT_OUTPUT_RULES = """HOW TO FINISH (agent mode): edit files under src/ only (and public/ for compiled assets).
 Before you finish you MUST run the `build` tool and fix every error it reports; then run `measure`

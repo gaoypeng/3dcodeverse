@@ -12,7 +12,6 @@ from codeverse3d.orchestrator import BudgetGuard, RoundPolicy, RunState
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.common import RunContext
 from codeverse3d.tracks.generation import (
-    SINGLE_SHOT_FORMAT,
     GenerationError,
     GenerationTask,
     MultiFileParseError,
@@ -60,7 +59,6 @@ def test_write_files_filters_paths_and_os_errors(tmp_ws):
             safe_relpath(bad)
     changes = write_files(tmp_ws, {"src/a.js": "x", "public/b.txt": "y\n"})
     assert [c.path for c in changes] == ["src/a.js", "public/b.txt"] and (tmp_ws.src / "a.js").read_text() == "x\n"
-    assert "=== FILE:" in SINGLE_SHOT_FORMAT
 
     skipped: list[str] = []
     changes = write_files(

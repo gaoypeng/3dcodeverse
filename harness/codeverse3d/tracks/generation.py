@@ -5,7 +5,7 @@
   the workspace is materialised once per run (AGENTS.md + MCP config), then
   ``agent.run(AgentJob)``.  Truth is on disk: ``ok`` means files changed.
 * **Single-shot path** — ``agent_id = "single-shot:<provider>:<model>"``: one
-  ``ChatRequest`` whose answer is a multi-file envelope (``SINGLE_SHOT_FORMAT``),
+  ``ChatRequest`` whose answer is a multi-file envelope (``prompts/system/singleshot_format.md``),
   parsed by ``parse_multifile`` and written under the allowed roots.  This is
   handled here (not in the agents registry) because it is not an agent.
 
@@ -67,17 +67,6 @@ ALLOWED_ROOTS: tuple[str, ...] = ("src/", "public/")
 #: where an out-of-workspace task image is copied so a vendor CLI can read it (D9, like the cookbook)
 IMAGES_DIR = ".3dcode/images"
 
-SINGLE_SHOT_FORMAT = """OUTPUT FORMAT (exactly this, nothing else around it):
-For EVERY file you create or fully rewrite, emit one block:
-
-=== FILE: <relative path, e.g. src/parts/seat.js> ===
-<complete file contents — the whole file, not a diff>
-=== END FILE ===
-
-Rules: paths are relative to the workspace root and must start with src/ (or public/);
-emit the COMPLETE contents of each file (no "...rest unchanged"); no prose outside the blocks;
-no markdown fences inside a block (plain code).  Files you do not emit are left untouched."""
-
 
 class GenerationError(RuntimeError):
     """Raised when the generator cannot produce usable files (bad envelope, agent crash)."""
@@ -98,7 +87,7 @@ _FENCE_PATH_HINT = re.compile(
 
 
 def parse_multifile(text: str, *, expected_files: list[str] | None = None) -> dict[str, str]:
-    """Parse ``SINGLE_SHOT_FORMAT`` → ``{path: content}``.
+    """Parse the ``system/singleshot_format.md`` envelope → ``{path: content}``.
 
     Tolerant to: a fenced block wrapping a file body; an answer that is ONE fenced
     block when exactly one entry file is expected; fenced blocks preceded by a line
