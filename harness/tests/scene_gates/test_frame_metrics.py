@@ -173,3 +173,16 @@ def test_a_hero_in_the_scene_but_in_no_authored_frame_is_an_error():
     fine = frame_findings({"census": census, "camera_checks": [_chk("AthanorDetail", glb_frac={url: 0.2})]})
     old = frame_findings({"census": census, "camera_checks": [_chk("AthanorDetail")]})
     assert fine.passed and old.passed and not [k for k, _, _ in _kinds(fine) + _kinds(old) if k.startswith("hero_")]
+
+
+def test_auto_exposure_lifts_a_frame_past_the_gates_dark_line():
+    """Regression (audit 2026-09-24 N13): the host's auto-exposure stopped at mean 0.10 while the
+    gate calls < 0.12 "frame too dark", so a lifted frame still drew the ERROR.  Pinned by value."""
+    import re
+
+    from codeverse3d.spatial.frame_metrics import DARK_MEAN_LUM
+    from codeverse3d.spatial.node import runtime_js_dir
+
+    host = (runtime_js_dir() / "lib" / "scene_host.mjs").read_text()
+    lo = float(re.search(r"const EXPOSURE_BAND = \[([\d.]+),", host).group(1))
+    assert lo == DARK_MEAN_LUM

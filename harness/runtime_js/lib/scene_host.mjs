@@ -88,6 +88,11 @@ function makeHostRenderer(width, height, opts) {
   return { renderer: makeRenderer(canvas, width, height, { logDepth: !!opts.logDepth }), canvas };
 }
 
+/** Auto-exposure's target mean-luminance band.  Its floor is the scene_frames gate's dark line
+ *  (`frame_metrics.DARK_MEAN_LUM`, pinned by a test): at 0.10 a frame lifted to 0.10-0.119
+ *  still drew "frame too dark". */
+const EXPOSURE_BAND = [0.12, 0.45];
+
 /** The authored cameras, and each problem as {severity, text}: the severity is decided HERE,
  *  where the problem is known (the python gate used to re-derive it from the wording).
  *  The plan's own cameras pass the same fov / position / name rules (contracts/plan.CameraPlan). */
@@ -347,8 +352,9 @@ async function boot(opts) {
         const before = lum();
         let factor = 1;
         let after = before;
-        for (let i = 0; i < 4 && (after < 0.10 || after > 0.45); i++) {
-          const step = after < 0.10 ? 1.6 : 0.7;
+        const [lo, hi] = EXPOSURE_BAND;
+        for (let i = 0; i < 4 && (after < lo || after > hi); i++) {
+          const step = after < lo ? 1.6 : 0.7;
           const next = Math.min(3.0, Math.max(0.5, factor * step));
           if (next === factor) break;
           factor = next;
