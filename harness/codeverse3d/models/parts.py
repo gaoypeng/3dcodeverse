@@ -111,14 +111,20 @@ class Stopwatch:
         self.ms = int((time.perf_counter() - self._t0) * 1000)
 
 
-def classify_sdk_exception(exc: BaseException, sdk: Any, label: str,
-                           *, extra_retry: frozenset[int] = frozenset()) -> Any:
+def retryable_status(status: int | None) -> bool:
+    """THE HTTP statuses a retry may get through, for every provider (N76): request timeout
+    408, conflict 409, rate limit 429 and every 5xx (anthropic's 529 overloaded among them) —
+    the list the openai and anthropic SDKs retry themselves."""
+    return status is not None and (status in (408, 409, 429) or status >= 500)
+
+
+def classify_sdk_exception(exc: BaseException, sdk: Any, label: str) -> Any:
     """The openai/anthropic SDK exception ladder → ``ModelError``.
 
     anthropic-sdk-python is a fork of openai-python, so ``APIStatusError`` /
     ``APITimeoutError`` / ``APIConnectionError`` / ``APIError`` and ``.status_code`` /
     ``.message`` are the same names on both — this ladder was written out twice,
-    differing only in the module, the label and anthropic's extra 529.
+    differing only in the module and the label.
 
     The MESSAGE WORDING IS LOAD-BEARING: eval/bench/_infra.py string-matches "request timed
     out" and "connection error" to tell a provider outage from a model failure, so the
@@ -128,8 +134,7 @@ def classify_sdk_exception(exc: BaseException, sdk: Any, label: str,
         return exc
     if isinstance(exc, sdk.APIStatusError):
         status = int(getattr(exc, "status_code", 0) or 0)
-        retry = status in ({408, 409, 429} | set(extra_retry)) or status >= 500
-        return ModelError(f"{label} API error {status}: {exc.message}", retryable=retry, status=status)
+        return ModelError(f"{label} API error {status}: {exc.message}", retryable=retryable_status(status), status=status)
     if isinstance(exc, sdk.APITimeoutError):
         return ModelError(f"{label} request timed out: {exc}", retryable=True, status=408)
     if isinstance(exc, sdk.APIConnectionError):

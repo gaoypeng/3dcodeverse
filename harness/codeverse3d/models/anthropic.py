@@ -174,7 +174,7 @@ def classify_exception(exc: BaseException) -> ModelError:
     """Map anthropic SDK exceptions onto ``ModelError`` (the shared ladder in parts.py)."""
     import anthropic
 
-    return classify_sdk_exception(exc, anthropic, "Anthropic", extra_retry=frozenset({529}))
+    return classify_sdk_exception(exc, anthropic, "Anthropic")
 
 
 class AnthropicModel(SdkModel):

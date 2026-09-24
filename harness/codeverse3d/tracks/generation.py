@@ -361,9 +361,10 @@ def is_model_outage(e: BaseException) -> bool:
     capacity / rate limiting — never off its message.  A 503 capacity storm reaches us only
     after ``models.retry`` has already spent its whole storm budget waiting."""
     from codeverse3d.models.base import ModelError
+    from codeverse3d.models.parts import retryable_status
 
-    if isinstance(e, ModelError):
-        return bool(e.retryable) or e.status in (429, 500, 502, 503, 504, 529)
+    if isinstance(e, ModelError):   # a spent key pool is retryable=False, status 429: an outage all the same
+        return bool(e.retryable) or retryable_status(e.status)
     return False
 
 

@@ -46,6 +46,7 @@ from codeverse3d.models.parts import (
     image_bytes,
     message_blocks,
     retry_budget_s,
+    retryable_status,
 )
 from codeverse3d.models.pricing import estimate_cost, per_image_usd
 from codeverse3d.models.retry import KeyPool, KeyPoolExhausted, OnAttempt, _Try, rotate_with_retries
@@ -263,9 +264,7 @@ def classify_exception(exc: BaseException) -> ModelError:
     if isinstance(exc, genai_errors.APIError):
         code = int(exc.code or 0)
         msg = f"Gemini API error {code}: {exc.message}"
-        if code == 429 or code == 408 or code >= 500:
-            return ModelError(msg, retryable=True, status=code)
-        return ModelError(msg, retryable=False, status=code)
+        return ModelError(msg, retryable=retryable_status(code), status=code)
     if isinstance(exc, (httpx.TimeoutException, TimeoutError)):
         return ModelError(f"Gemini request timed out: {exc}", retryable=True, status=408)
     if isinstance(exc, (httpx.TransportError, ConnectionError)):

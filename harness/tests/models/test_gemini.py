@@ -209,6 +209,12 @@ def test_classify_exception_transport():
     assert classify_exception(httpx.ReadTimeout("t")).retryable
     assert classify_exception(httpx.ConnectError("c")).retryable
     assert not classify_exception(ValueError("v")).retryable
+    # one status table with the SDK adapters (N76): a 409 is retried and is an outage, a 400 is neither
+    from codeverse3d.tracks.generation import is_model_outage
+
+    for code, retry in ((409, True), (408, True), (429, True), (529, True), (400, False), (404, False)):
+        err = classify_exception(_api_error(code, "x", "X"))
+        assert (err.retryable, is_model_outage(err)) == (retry, retry), code
 
 
 def test_to_contents_merges_same_role_and_requires_content():
