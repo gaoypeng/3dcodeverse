@@ -107,6 +107,13 @@ def test_joint_sweep_penetration_is_a_verdict_not_an_mcp_error(tmp_path, monkeyp
     assert "links 'body|door' overlap in 2 of the sampled poses" in obs.text and "fix:" in obs.text
     gate, _ = sweep_gate(ws)
     assert not gate.passed and [f.message for f in gate.errors][0] in obs.text
+    # the tool and the gate share ONE urdf rule, the built copy: an authored src/robot.urdf with no
+    # build behind it is "run build first" for both, never a sweep against the last build's meshes
+    bare = Workspace(tmp_path / "bare").create()
+    write_prims_robot(bare.src / "robot.urdf", axis_z=+1)
+    obs = get_tool("joint_sweep").call(ToolContext(workspace=bare, language="urdf_blender", track="articulated_object"), {})
+    gate, robot = sweep_gate(bare)
+    assert "run `build` first" in obs.text and robot is None and [f.message for f in gate.errors] == ["no robot.urdf found after build"]
 
 
 def test_robot_named_like_a_link_keeps_frame_and_placement(tmp_path):

@@ -336,11 +336,14 @@ def buried_links(robot: Robot, *, samples: int = BURIED_SAMPLES, fraction: float
 
 # ------------------------------------------------------------------ the gate
 def find_urdf(ws: Workspace) -> Path | None:
-    """The built ``artifacts/robot.urdf``, else the authored ``src/robot.urdf``."""
-    for cand in (ws.artifacts / "robot.urdf", ws.src / "robot.urdf"):
-        if cand.is_file():
-            return cand
-    return None
+    """The BUILT ``artifacts/robot.urdf`` — or None, which means "run build first".
+
+    Only the build's copy pairs with ``artifacts/meshes`` (a failed build invalidates both).
+    The authored ``src/robot.urdf`` was a fallback until 2026-09-23: the round never reached
+    it (its gates run on a green build only), and the tool refused before it; what it could
+    do was sweep an edited URDF against the last build's meshes (review 2 C5)."""
+    urdf = ws.artifacts / "robot.urdf"
+    return urdf if urdf.is_file() else None
 
 
 def sweep_gate(ws: Workspace) -> tuple[GateReport, Robot | None]:

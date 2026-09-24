@@ -26,7 +26,7 @@ from codeverse3d.spatial.contract import planned_joins
 from codeverse3d.spatial.frame_metrics import frame_summary_text
 from codeverse3d.spatial.joints_export import ARTICULATION_SHEET_NAME, render_poses
 from codeverse3d.spatial.joints_poses import limit_poses
-from codeverse3d.spatial.joints_sweep import sweep_gate
+from codeverse3d.spatial.joints_sweep import find_urdf, sweep_gate
 from codeverse3d.spatial.measure import GlbLoadError, measure_glb, measure_summary_table
 from codeverse3d.spatial.observe import (
     build_failure_lines,
@@ -397,7 +397,7 @@ def joint_sweep(ctx: ToolContext, args: JointSweepArgs) -> Observation:
     Measured 2026-08-25: articulated rounds ran a median 1007 s against 497 s for static
     objects, with the agent session — mostly waiting on sweeps — as the whole difference."""
     ws = ctx.workspace
-    if not (ws.artifacts / "robot.urdf").is_file():
+    if find_urdf(ws) is None:   # the gate's own rule: the built URDF only
         return Observation.error("joint_sweep: artifacts/robot.urdf not found — run `build` first")
     report, robot = sweep_gate(ws)
     images: list[str] = []
