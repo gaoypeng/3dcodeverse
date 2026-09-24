@@ -35,10 +35,15 @@ def test_scene_pack_plan_with_model_and_cap(garden_plan):
         {"name": "Moss Ground", "material_family": "other", "subject": "green moss carpet", "tile_size_m": 1.2, "role": "ground"},
         {"name": "moss_ground", "material_family": "other", "subject": "dup", "tile_size_m": 1.0, "role": "ground"},
         {"name": "granite_gravel", "material_family": "stone", "subject": "fine grey gravel", "tile_size_m": 0.8, "role": "ground"},
+        {"name": "iron_grate", "material_family": "metal", "subject": "cast iron grate", "tile_size_m": 0.5, "role": "prop"},
+        {"name": "zinc_sheet", "material_family": "metal", "subject": "painted zinc", "metallic": 0, "role": "roof"},
     ], "notes": "n"}
     chat = FakeChatModel(default=payload)
-    entries, notes, usage = scene_pack_plan(garden_plan, "fake:fake", model=chat, n_max=2)
-    assert [e.name for e in entries] == ["moss_ground", "granite_gravel"] and notes == "n" and usage.cost_usd > 0
+    entries, notes, usage = scene_pack_plan(garden_plan, "fake:fake", model=chat, n_max=4)
+    assert [e.name for e in entries] == ["moss_ground", "granite_gravel", "iron_grate", "zinc_sheet"] and notes == "n"
+    assert usage.cost_usd > 0
+    # a metal the planner left unset is metallic (it shipped 0.0 until 2026-09-23); a stated 0 is kept
+    assert [e.metallic for e in entries] == [0.0, 0.0, 1.0, 0.0]
     assert entries[0].tile_size_m == 1.2 and "green moss carpet, matte natural surface" in entries[0].prompt
     assert "Zen Garden" in chat.requests[0].messages[0].text and "GravelCourt" in chat.requests[0].messages[0].text
     with pytest.raises(ValueError):

@@ -28,6 +28,7 @@ from codeverse3d.models.schema_utils import ask_structured
 from codeverse3d.proc import write_json_atomic, write_text_atomic
 from codeverse3d.prompts import load_text, prompt_hash, render
 from codeverse3d.texturing.generate import TextureSet, generate_textures
+from codeverse3d.texturing.materials import COARSE_TO_FINE, MATERIALS, Pbr
 
 log = logging.getLogger(__name__)
 
@@ -48,25 +49,26 @@ STYLE_SUFFIX = (
 
 
 class FamilyDefault(BaseModel):
-    roughness: float
-    metallic: float
+    """A coarse family's IMAGE side (tile, prompt phrase, skip).  Its PBR factors are
+    ``materials.pbr_for(family)`` — the one table the normaliser uses too (review 2 C5)."""
+
     tile_size_m: float
     phrase: str
     skip: bool = False
 
 
 FAMILY_DEFAULTS: dict[str, FamilyDefault] = {
-    "wood": FamilyDefault(roughness=0.55, metallic=0.0, tile_size_m=0.35, phrase="natural wood surface, visible grain and subtle pores"),
-    "metal": FamilyDefault(roughness=0.35, metallic=1.0, tile_size_m=0.3, phrase="metal surface albedo only, matte base colour, no reflections or environment"),
-    "fabric": FamilyDefault(roughness=0.9, metallic=0.0, tile_size_m=0.2, phrase="woven textile close-up, visible thread weave, soft matte"),
-    "stone": FamilyDefault(roughness=0.8, metallic=0.0, tile_size_m=0.6, phrase="stone surface, natural mineral variation, matte"),
-    "plastic": FamilyDefault(roughness=0.45, metallic=0.0, tile_size_m=0.3, phrase="smooth plastic surface, subtle fine noise, uniform colour"),
-    "leather": FamilyDefault(roughness=0.6, metallic=0.0, tile_size_m=0.25, phrase="leather surface, fine natural grain and pores, matte"),
-    "glass": FamilyDefault(roughness=0.05, metallic=0.0, tile_size_m=0.3, phrase="clear glass", skip=True),
-    "ceramic": FamilyDefault(roughness=0.3, metallic=0.0, tile_size_m=0.3, phrase="glazed ceramic surface, subtle speckle, uniform colour"),
-    "painted": FamilyDefault(roughness=0.5, metallic=0.0, tile_size_m=0.4, phrase="painted surface, subtle brush or roller micro-texture, uniform colour"),
-    "rubber": FamilyDefault(roughness=0.85, metallic=0.0, tile_size_m=0.2, phrase="matte rubber surface, fine uniform grain"),
-    "other": FamilyDefault(roughness=0.6, metallic=0.0, tile_size_m=0.3, phrase="matte natural surface material, fine detail", skip=True),
+    "wood": FamilyDefault(tile_size_m=0.35, phrase="natural wood surface, visible grain and subtle pores"),
+    "metal": FamilyDefault(tile_size_m=0.3, phrase="metal surface albedo only, matte base colour, no reflections or environment"),
+    "fabric": FamilyDefault(tile_size_m=0.2, phrase="woven textile close-up, visible thread weave, soft matte"),
+    "stone": FamilyDefault(tile_size_m=0.6, phrase="stone surface, natural mineral variation, matte"),
+    "plastic": FamilyDefault(tile_size_m=0.3, phrase="smooth plastic surface, subtle fine noise, uniform colour"),
+    "leather": FamilyDefault(tile_size_m=0.25, phrase="leather surface, fine natural grain and pores, matte"),
+    "glass": FamilyDefault(tile_size_m=0.3, phrase="clear glass", skip=True),
+    "ceramic": FamilyDefault(tile_size_m=0.3, phrase="glazed ceramic surface, subtle speckle, uniform colour"),
+    "painted": FamilyDefault(tile_size_m=0.4, phrase="painted surface, subtle brush or roller micro-texture, uniform colour"),
+    "rubber": FamilyDefault(tile_size_m=0.2, phrase="matte rubber surface, fine uniform grain"),
+    "other": FamilyDefault(tile_size_m=0.3, phrase="matte natural surface material, fine detail", skip=True),
 }
 
 _FAMILY_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
@@ -86,6 +88,11 @@ _SKIP_WORDS = ("chrome", "mirror", "mirrored", "polished", "glossy", "emissive",
 
 def _words(text: str) -> set[str]:
     return set(to_snake(text).split("_"))
+
+
+def _pbr(family: str) -> Pbr:
+    """A coarse family's factors from THE material table (``COARSE_TO_FINE`` maps every one)."""
+    return MATERIALS[COARSE_TO_FINE[family]]
 
 
 def family_from_text(text: str) -> str:
@@ -185,7 +192,7 @@ def _clean_id(s: str, fallback: str) -> str:
 
 def finalize_part(raw: PlannerPart, plan_part: PartPlan) -> TexturePart:
     fam = raw.material_family if raw.material_family in FAMILY_DEFAULTS else "other"
-    d = FAMILY_DEFAULTS[fam]
+    d, pbr = FAMILY_DEFAULTS[fam], _pbr(fam)
     subject = raw.subject.strip() or (plan_part.material.strip() or f"{fam} surface")
     skip, reason = bool(raw.skip), raw.reason
     if _max_extent(plan_part) < TINY_PART_M:
@@ -205,8 +212,8 @@ def finalize_part(raw: PlannerPart, plan_part: PartPlan) -> TexturePart:
         prompt=compose_image_prompt(subject, fam),
         projection=raw.projection,
         tile_size_m=float(raw.tile_size_m) if raw.tile_size_m and raw.tile_size_m > 0 else d.tile_size_m,
-        roughness=float(raw.roughness) if raw.roughness is not None else d.roughness,
-        metallic=float(raw.metallic) if raw.metallic is not None else d.metallic,
+        roughness=float(raw.roughness) if raw.roughness is not None else pbr.roughness,
+        metallic=float(raw.metallic) if raw.metallic is not None else pbr.metallic,
         tint_rgb=tint,
         skip=skip,
         reason=reason,
@@ -352,7 +359,9 @@ class PackEntry(BaseModel):
     prompt: str = ""
     tile_size_m: float = Field(default=1.0, gt=0.0, le=50.0)
     role: str = "ground"
+    #: a scene SURFACE default (ground, walls, planks read rough), deliberately not the object table's
     roughness: float = Field(default=0.8, ge=0.0, le=1.0)
+    #: left unset by the planner → the family's (``materials``), set by ``_finalize_entry``
     metallic: float = Field(default=0.0, ge=0.0, le=1.0)
     file: str = ""
     seam_score: float = 0.0
@@ -408,13 +417,13 @@ def _plan_text(plan: ScenePlan) -> str:
 
 
 def _finalize_entry(e: PackEntry) -> PackEntry:
-    # the factors are validated non-optional floats (tile_size_m > 0), so FAMILY_DEFAULTS
-    # never reaches a pack entry — a "metal" pack ships metallic 0.0 (review 2 §2.4 C5)
     fam = e.material_family if e.material_family in FAMILY_DEFAULTS else "other"
     name = to_snake(e.name) or f"{fam}_texture"
     subject = e.subject.strip() or name.replace("_", " ")
     return e.model_copy(update={
         "name": name, "material_family": fam, "subject": subject, "prompt": compose_image_prompt(subject, fam),
+        # a "metal" pack the planner left unset shipped metallic 0.0 until 2026-09-23 (review 2 C5)
+        "metallic": e.metallic if "metallic" in e.model_fields_set else _pbr(fam).metallic,
     })
 
 

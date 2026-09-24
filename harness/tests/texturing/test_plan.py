@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from codeverse3d.texturing.materials import pbr_for
 from codeverse3d.texturing.plan import (
     PlannerOutput,
     PlannerPart,
@@ -41,6 +42,9 @@ def test_finalize_plan_defaults_and_unification(chair_plan):
     assert by["leg"].material_family == "metal" and not by["leg"].skip
     assert by["knob"].skip
     assert by["seat"].tile_size_m == 0.35  # wood default
+    # an unset factor is THE material table's, the numbers the normaliser writes in the same pass (C5)
+    assert (by["seat"].roughness, by["leg"].metallic, by["leg"].roughness) == (
+        pbr_for("wood").roughness, pbr_for("metal").metallic, pbr_for("metal").roughness)
 
 
 def test_compose_prompt():
