@@ -185,6 +185,16 @@ def _fresh_ws(path: Path) -> Workspace:
     return Workspace(path).create()
 
 
+def _render_scaffold(deps: CompareDeps, spec: Spec, eval_ws: Workspace) -> None:
+    """The scene render host's scaffold (package.json, the harness-owned lib) WITHOUT its example
+    ``src/scene.js``.  The example used to stay on disk, so an arm whose generation failed was evaluated
+    on it: all 10 claude-code:sonnet scene cells timed out with no answer and scored the scaffold's
+    ~0.03 as if it were theirs (p3x_scenes_v2, 2026-09-23).  With the entry gone, a failed generation
+    is a missing file — no_code, or infra_failed when the provider is to blame."""
+    deps.evaluator.runtime(spec.language).skeleton(eval_ws, None)
+    (eval_ws.root / entry_of(spec)).unlink(missing_ok=True)
+
+
 def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOptions,
                       deps: CompareDeps, res: CellResult) -> None:
     backend = deps.oneshot_backend(arm.target)
@@ -193,7 +203,7 @@ def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts
         # the answer is ONE src/scene.js; the render host still needs the workspace scaffold
         # (package.json, the harness-owned lib the example imports).  The example's own
         # scene.js is overwritten by the answer below — the model never sees any of it.
-        deps.evaluator.runtime(spec.language).skeleton(eval_ws, None)
+        _render_scaffold(deps, spec, eval_ws)
     max_attempts = 1 + (opts.repair_attempts if arm.kind == "oneshot+repair" else 0)
     for attempt in range(max_attempts):
         gen_dir = cell / "gen" / f"attempt{attempt}"
@@ -318,7 +328,7 @@ def _run_bare_agent(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts: 
     from bench._bare_agent import run_bare_agent
 
     if spec.track is Track.SCENE:  # the render host's scaffold, exactly as a one-shot scene cell gets it
-        deps.evaluator.runtime(spec.language).skeleton(eval_ws, None)
+        _render_scaffold(deps, spec, eval_ws)
     result = run_bare_agent(spec, arm.target, cell, eval_ws, minutes=opts.max_minutes)
     res.gen_cost_usd = result.usage.cost_usd
     res.tool_calls = result.tool_calls

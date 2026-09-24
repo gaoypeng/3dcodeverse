@@ -425,3 +425,27 @@ def test_bare_agent_provider_failure_with_a_partial_file_is_not_a_quality_zero(t
     else:
         assert (result.status,result.score)==('build_failed',0.0)
         assert evaluator.evaluated
+
+
+def test_the_scene_scaffold_leaves_no_example_entry_to_score(tmp_path):
+    """A scene one-shot that never answered was scored on the scaffold's example scene.js (all 10
+    claude-code:sonnet cells, 2026-09-23).  The scaffold keeps its lib and drops the entry file."""
+    from bench.compare_backends import CompareDeps, _render_scaffold
+    from codeverse3d.contracts.common import Language, Track
+    from codeverse3d.contracts.spec import Spec
+    from codeverse3d.workspace import Workspace
+
+    class Runtime:
+        def skeleton(self, ws, plan):
+            (ws.root / "src" / "lib").mkdir(parents=True, exist_ok=True)
+            (ws.root / "src" / "lib" / "env.js").write_text("export {}\n")
+            (ws.root / "src" / "scene.js").write_text("export async function createScene(){}\n")
+
+    class Evaluator:
+        def runtime(self, language):
+            return Runtime()
+
+    spec = Spec(id="t/harbour", track=Track.SCENE, language=Language.SCENE_THREEJS, prompt="a harbour")
+    ws = Workspace(tmp_path / "eval").create()
+    _render_scaffold(CompareDeps(Evaluator()), spec, ws)
+    assert not (ws.root / "src" / "scene.js").exists() and (ws.root / "src" / "lib" / "env.js").is_file()
