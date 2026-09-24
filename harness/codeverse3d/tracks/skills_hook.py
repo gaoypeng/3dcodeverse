@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from codeverse3d.config import get_settings
-from codeverse3d.contracts.artifacts import GateReport
+from codeverse3d.contracts.artifacts import BuildResult, GateReport
 from codeverse3d.contracts.run import SkillsUsage
 from codeverse3d.tracks.common import RunContext
 
@@ -80,8 +80,10 @@ def with_inlined_skill(ctx: RunContext, tasks: Sequence[Any]) -> list[Any]:
     return [t.model_copy(update={"prompt": f"{text}\n---\n\n{t.prompt}"}) for t in tasks]
 
 
-def repair_pointers(ctx: RunContext, lint: GateReport | None) -> str:
-    """Name the attached skills that answer the CURRENT lint/build failure.
+def repair_pointers(ctx: RunContext, build: BuildResult, lint: GateReport) -> str:
+    """Name the attached skills that answer the CURRENT failure: the lint and the build's own
+    reports (``BuildResult.gates`` — a scene's shader_preflight), the same reports a refine
+    round routes on.
 
     ``tracks/repair.py`` already picks a cookbook section by keyword; this is the same
     idea one level up, and it only names skills that are already in the workspace, so it
@@ -93,7 +95,7 @@ def repair_pointers(ctx: RunContext, lint: GateReport | None) -> str:
     from codeverse3d.skills.prompting import repair_pointers as _fmt
     from codeverse3d.skills.registry import ROUTES, finding_kinds
 
-    kinds = finding_kinds([lint]) if lint is not None else []
+    kinds = finding_kinds([lint, *build.gates])
     # ANY route for the skill, not just the rules that fired at attach time: the build/lint failure a
     # repair session is looking at was discovered afterwards, and the sheet that answers it is
     # already sitting in the workspace

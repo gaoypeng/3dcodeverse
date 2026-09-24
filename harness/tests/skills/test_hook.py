@@ -8,7 +8,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from codeverse3d.config import get_settings
-from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.tracks import skills_hook as H
 
 
@@ -38,7 +38,7 @@ def test_the_switch_off_means_no_files_no_events_no_record(ctx, monkeypatch):
     assert not (ctx.ws.root / ".agents").exists()
     assert ctx.events == [] and ctx.extra == {}
     assert H.record_usage(ctx, index=0, kind="baseline") is None
-    assert H.repair_pointers(ctx, None) == ""
+    assert H.repair_pointers(ctx, BuildResult(ok=True, language="blender"), GateReport(gate="lint:blender", passed=True)) == ""
 
 
 def test_no_skill_failure_costs_the_round(ctx, monkeypatch):
@@ -61,11 +61,23 @@ def test_no_skill_failure_costs_the_round(ctx, monkeypatch):
     assert got is not None and got.listed == []
 
 
-def test_a_repair_names_the_sheet_that_answers_the_lint_it_is_fixing(ctx, monkeypatch):
-    """The lint is found after the round attached its set: R9 points at the sheet."""
+def _report(gate: str, kind: str) -> GateReport:
+    return GateReport(gate=gate, passed=False, findings=[GateFinding(gate=gate, severity=Severity.ERROR, message="m",
+                                                                     data={"kind": kind})])
+
+
+@pytest.mark.parametrize(("track", "language", "lint", "build_gates", "sheet"), [
+    # the lint is found after the round attached its set: R9 points at the sheet
+    ("static_object", "blender", _report("lint:blender", "part_not_imported"), [], "c3d-blender-forms"),
+    # a scene's shader error is the BUILD's own report, not the lint's: R21 must see it too
+    ("scene", "scene_threejs", GateReport(gate="lint:scene_threejs", passed=True),
+     [_report("shader_preflight", "compile_error")], "c3d-threejs-shader-traps"),
+])
+def test_a_repair_names_the_sheet_that_answers_the_failure_it_is_fixing(ctx, monkeypatch, track, language, lint,
+                                                                        build_gates, sheet):
     monkeypatch.setenv("C3D_SKILLS", "on")
+    ctx.spec.track.value, ctx.language.value = track, language
+    ctx.plan.effects = [NS(kind="shader", description="a custom water shader")]
     assert H.attach_for_round(ctx, index=0, kind="repair")
-    lint = GateReport(gate="lint:blender", passed=True, findings=[GateFinding(
-        gate="lint:blender", severity=Severity.WARN, message="src/parts/leg.py is never imported by src/model.py",
-        data={"kind": "part_not_imported"})])
-    assert "c3d-blender-forms" in H.repair_pointers(ctx, lint)
+    build = BuildResult(ok=not build_gates, language=language, gates=build_gates)
+    assert sheet in H.repair_pointers(ctx, build, lint)

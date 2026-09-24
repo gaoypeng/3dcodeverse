@@ -209,7 +209,7 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
 def make_repair_task(ctx: RunContext, build: BuildResult, lint: GateReport, *, round_index: int, attempt: int,
                      repeats: int, label: str, files_hint: list[str], timeout_s: int | None = None) -> GenerationTask:
     """Render prompts/tracks/repair.j2 for the current strategy."""
-    report = format_error_report(build, lint, ctx.cookbook_text, skills_hook.repair_pointers(ctx, lint))
+    report = format_error_report(build, lint, ctx.cookbook_text, skills_hook.repair_pointers(ctx, build, lint))
     files = files_for_repair(ctx, build, lint, files_hint) if ctx.single_shot else {}
     prompt = render("tracks/repair.j2", **base_prompt_context(
         ctx, error_report=report, files=files, repeats=repeats, attempt=attempt,
