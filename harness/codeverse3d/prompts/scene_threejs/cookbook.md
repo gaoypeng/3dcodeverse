@@ -306,7 +306,7 @@ function addPracticals(THREE, scene, spots) {          // none cast shadows
   const glowMat = new THREE.MeshStandardMaterial({ color: 0xffc070, emissive: 0xffa040, emissiveIntensity: 3.0 });
   return spots.map(([x, y, z], i) => {
     const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 8), glowMat);
-    bulb.position.set(x, y, z); bulb.name = `Practical${i}`;
+    bulb.position.set(x, y, z); bulb.name = `Practical_${i}`;
     const light = new THREE.PointLight(0xffa040, 1.5, 9, 2); light.position.set(x, y, z);
     scene.add(bulb, light); return light;              // flicker from update(): ×0.75…×1.3
   });
