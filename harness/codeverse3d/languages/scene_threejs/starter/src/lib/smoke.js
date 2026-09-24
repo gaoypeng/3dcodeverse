@@ -13,7 +13,7 @@
  * Overlapping transparent objects use ordinary Three.js object sorting.
  */
 import * as THREE from 'three';
-import { makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe } from './shader.js';
+import { makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe, readWind } from './shader.js';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { bakeFbm3, dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
 
@@ -124,7 +124,7 @@ function makePlume(opts, steam) {
   const radius = opts.radius ?? height * (steam ? .09 : .047);
   const spread = opts.spread ?? (steam ? .16 : .20);
   const rise = opts.riseSpeed ?? height * (steam ? .38 : .2333333);
-  const wind = opts.wind?.toArray ? opts.wind.toArray() : opts.wind ?? [height * .02, 0];
+  const w = readWind(opts.wind, [height * .02, 0], 'makeSmoke/makeSteam wind'), wind = [w.x, w.z];
   const extinction = opts.density ?? (steam ? 2.1 : 5) / height;
   const turbulence = opts.turbulence ?? (steam ? .9 : 1);
   const dissipation = opts.dissipation ?? (steam ? 1.2 : .7);
@@ -133,7 +133,7 @@ function makePlume(opts, steam) {
   if (![height,radius,spread,rise,extinction,turbulence,dissipation,anisotropy].every(Number.isFinite) ||
       height < .001 || height > 10000 || radius <= 0 || radius > height * 4 || spread < 0 || spread > 2 ||
       rise <= 0 || extinction < 0 || turbulence < 0 || turbulence > 2 || dissipation < 0 ||
-      Math.abs(anisotropy) > .9 || !Array.isArray(wind) || wind.length !== 2 || !wind.every(Number.isFinite) ||
+      Math.abs(anisotropy) > .9 ||
       !Number.isSafeInteger(seed) || !Object.hasOwn(TIERS,quality) || Math.hypot(...wind) / rise > 10) {
     throw new RangeError('makeSmoke/makeSteam: invalid dimensions, flow, density, scattering, seed or quality');
   }

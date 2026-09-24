@@ -20,7 +20,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32 } from './noise.js';
-import { makeShaderMaterial, keepOutOfDepthPasses, patchStandard } from './shader.js';
+import { makeShaderMaterial, keepOutOfDepthPasses, patchStandard, readWind } from './shader.js';
 
 const finite = (v, fallback, lo, hi) => Number.isFinite(v)
   ? THREE.MathUtils.clamp(v, lo, hi) : fallback;
@@ -172,7 +172,7 @@ function installDispose(group) {
 /**
  * @param {object} [opts]
  * radius=.35, height=1.1: flame envelope in metres; style='campfire'|'candle'.
- * wind=[x,z]: lateral lean / height, bounded to ±.6. intensity=1: emission.
+ * wind=[x,z] (or any shader.js readWind spelling): lateral lean / height, bounded to ±.6. intensity=1: emission.
  * quality='medium'; seed=7; embers=26 (0 for candle), max 256.
  * light=true, lightIntensity=14 (candela), lightDistance=height*8.
  * Flame geometry only: add your own logs/burner. userData.bounds is local and
@@ -184,7 +184,10 @@ export function makeFire(opts = {}) {
   const height = finite(opts.height, candle ? 0.055 : 1.1, 0.004, 50);
   const intensity = finite(opts.intensity, 1, 0, 8);
   const seed = finite(opts.seed, 7, -2147483648, 2147483647) | 0;
-  const wind = [finite(opts.wind?.[0], 0, -0.6, 0.6), finite(opts.wind?.[1], 0, -0.6, 0.6)];
+  const w = readWind(opts.wind, [0, 0], 'makeFire wind');
+  // bounded to ±.6 per axis by scaling both, so a strong wind still leans the way it blows
+  const lean = 0.6 / Math.max(0.6, Math.abs(w.x), Math.abs(w.z));
+  const wind = [w.x * lean, w.z * lean];
   const steps = Object.hasOwn(QUALITY, opts.quality) ? QUALITY[opts.quality] : QUALITY.medium;
   const extentX = radius * 1.65 + Math.abs(wind[0]) * height * 1.2;
   const extentZ = radius * 1.65 + Math.abs(wind[1]) * height * 1.2;

@@ -10,7 +10,7 @@
  */
 
 import * as THREE from 'three';
-import { glslLocalDir, patchStandard } from './shader.js';
+import { glslLocalDir, patchStandard, readWind } from './shader.js';
 
 // three applies instanceMatrix in <project_vertex>, AFTER the body
 // patched in here, so anything that needs world space at this point has
@@ -200,7 +200,7 @@ export function patchLeafSSS(material, opts = {}) {
  * @returns {THREE.Material} The same material.
  */
 export function patchWind(material, opts = {}) {
-  const dir = (opts.dir || new THREE.Vector2(1, 0.35)).clone().normalize();
+  const dir = readWind(opts.dir, [1, 0.35], 'patchWind dir').dir;
   const strength = opts.strength === undefined ? 0.25 : opts.strength;
   const speed = opts.speed === undefined ? 0.9 : opts.speed;
   const height = opts.height === undefined ? 4 : opts.height;

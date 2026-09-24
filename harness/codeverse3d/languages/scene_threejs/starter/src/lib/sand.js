@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { fbm2, mulberry32 } from './noise.js';
-import { patchStandard } from './shader.js';
+import { patchStandard, readWind } from './shader.js';
 import { triangleValue } from './terrain.js';
 
 const TAU = Math.PI * 2;
@@ -74,13 +74,7 @@ export function makeSandTerrain(opts = {}) {
   const [width, depth] = size;
   const nx = clamp(Math.round(opts.segments ?? 256), 8, 512);
   const nz = clamp(Math.round(nx * depth / width), 8, 512);
-  const direction = opts.windDirection ?? [1, 0.18];
-  if (!Array.isArray(direction) || direction.length !== 2 || !direction.every(Number.isFinite)) {
-    throw new RangeError('sand windDirection must be two finite numbers [x,z]');
-  }
-  const wind = new THREE.Vector2(...direction);
-  if (wind.lengthSq() < 1e-8) wind.set(1, 0);
-  wind.normalize();
+  const wind = readWind(opts.windDirection, [1, 0.18], 'makeSandTerrain windDirection').dir;
   const height = Math.max(0, opts.duneHeight ?? 3.8);
   const spacing = Math.max(1, opts.duneSpacing ?? 19);
   const phase = rand() * spacing;

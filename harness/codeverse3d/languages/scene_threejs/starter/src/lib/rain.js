@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32, fbm2, noiseDataTexture } from './noise.js';
-import { makeShaderMaterial, keepOutOfDepthPasses } from './shader.js';
+import { makeShaderMaterial, keepOutOfDepthPasses, readWind } from './shader.js';
 
 const _UP = new THREE.Vector3(0, 1, 0);
 
@@ -127,7 +127,7 @@ export function makeRain(opts = {}) {
   const speed = opts.speed === undefined ? 14 : opts.speed;
   const length = opts.length === undefined ? 0.6 : opts.length;
   const width = opts.width === undefined ? 0.014 : opts.width;
-  const wind = opts.wind || [1.4, 0];
+  const w = readWind(opts.wind, [1.4, 0], 'makeRain wind'), wind = [w.x, w.z];
   const opacity = opts.opacity === undefined ? 0.42 : opts.opacity;
   const follow = opts.follow === false ? 0 : 1;
   const center = opts.center || [0, height * 0.5, 0];
@@ -143,9 +143,9 @@ export function makeRain(opts = {}) {
   }
 
   if (!Number.isInteger(count) || count < 0 || count > 1000000 ||
-      ![radius, height, speed, length, width, opacity, ...wind, ...center].every(Number.isFinite) ||
+      ![radius, height, speed, length, width, opacity, ...center].every(Number.isFinite) ||
       radius <= 0 || height <= 0 || speed <= 0 || length <= 0 || width <= 0 || opacity < 0 || opacity > 1 ||
-      wind.length !== 2 || center.length !== 3) {
+      center.length !== 3) {
     throw new RangeError('makeRain: use finite positive dimensions/speed, count 0..1000000, wind [x,z], center [x,y,z] and opacity 0..1');
   }
   const rand = mulberry32(seed);

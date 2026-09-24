@@ -27,7 +27,7 @@
 import * as THREE from 'three';
 import {
   patchStandard, glslAxes, glslCurv, glslTriNoise,
-  seedVec3, toColor, unit, upVector, worldBase,
+  readWind, seedVec3, toColor, unit, upVector, worldBase,
 } from './shader.js';
 
 // Both patches read these, so they are declared once, in the base.
@@ -54,17 +54,15 @@ const seedOffset = (seed, salt) =>
   seedVec3(seed + salt, 1.61, 8.09, 13.77, 56);
 
 /**
- * Read `wind` as a direction it blows TOWARD, length 0..1 = strength.
+ * Read `wind` as the horizontal direction it blows TOWARD, length 0..1 = strength.
  *
  * Length rather than a second option: zero wind must mean an even fall
  * with no drift axis at all, and normalizing a zero vector is NaN.
  */
 function windVector(value, fallback) {
-  const v = new THREE.Vector3();
-  if (value) v.fromArray(value.toArray ? value.toArray() : value);
-  else if (fallback) v.fromArray(fallback);
-  if (v.lengthSq() > 1) v.normalize();
-  return v;
+  if (value == null && !fallback) return new THREE.Vector3();
+  const w = readWind(value, fallback, 'wind');
+  return new THREE.Vector3(w.x, 0, w.z).clampLength(0, 1);
 }
 
 /**
@@ -107,8 +105,8 @@ function windVector(value, fallback) {
  *   neutral white below 0.78 linear — snow is the brightest albedo in a scene
  *   and still has to sit UNDER the tone curve's shoulder, or its own
  *   shading clips to one flat card); `up` THREE.Vector3 or [x, y, z], the scene's up
- *   (default +Y); `wind` THREE.Vector3 or [x, y, z] it blows TOWARD,
- *   its LENGTH 0..1 the strength (default none, an even fall);
+ *   (default +Y); `wind` the scene's wind (shader.js `readWind`) it blows
+ *   TOWARD, its horizontal LENGTH 0..1 the strength (default none, an even fall);
  *   `melt` 0..1 how high the thaw has climbed, or
  *   `{ amount, at, radius }` to melt around a warm point as well
  *   (default 0); `seed` moves the drifts (default 1).
@@ -294,8 +292,8 @@ export function patchSnow(material, opts = {}) {
  *   `color` THREE.Color or hex (default a warm ochre at 0.42 linear, the
  *   luminance family a lit ground sits in — a paler one renders as cream
  *   under a physical sun and stops reading as sand at all); `wind`
- *   THREE.Vector3 or [x, y, z] it blows TOWARD, its LENGTH 0..1 the
- *   strength (default [1, 0, 0]); `up` THREE.Vector3 or [x, y, z], the
+ *   the scene's wind (shader.js `readWind`) it blows TOWARD, its
+ *   horizontal LENGTH 0..1 the strength (default [1, 0, 0]); `up` THREE.Vector3 or [x, y, z], the
  *   scene's up (default +Y); `seed` moves the drifts (default 1).
  * @returns {THREE.Material} The same material, with its uniforms live
  *   on `material.userData.uniforms`, so `uSandWind` can swing with a

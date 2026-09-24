@@ -29,7 +29,7 @@
  */
 import * as THREE from 'three';
 import { bakeFbm3, dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
-import { makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe, withRendererState } from './shader.js';
+import { makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe, readWind, withRendererState } from './shader.js';
 import { snapshotResources, attachDisposal } from './lifecycle.js';
 
 const TIERS = {
@@ -314,7 +314,7 @@ export function makeFireField(opts = {}) {
   const seed=number(opts.seed,7,-2147483648,2147483647,'seed');
   if(!Number.isInteger(seed))throw new RangeError('makeFireField: seed must be an integer');
   const quality=opts.quality??'balanced';if(!Object.hasOwn(TIERS,quality))throw new RangeError('makeFireField: invalid quality');
-  const tier=TIERS[quality],wind=vector(opts.wind,[.12,0],2,'wind');
+  const tier=TIERS[quality],w=readWind(opts.wind,[.12,0],'makeFireField wind'),wind=[w.x,w.z];
   if(wind.some(v=>Math.abs(v)>8))throw new RangeError('makeFireField: wind exceeds8m/s');
   const intensity=number(opts.intensity,1,0,8,'intensity'),turbulence=number(opts.turbulence,1,0,2,'turbulence');
   const radius=sources.reduce((s,e)=>s+e.radius,0)/sources.length;

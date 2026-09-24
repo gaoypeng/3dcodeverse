@@ -15,7 +15,7 @@
  * reconstruction or external textures are required.
  */
 import * as THREE from 'three';
-import { makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe } from './shader.js';
+import { makeShaderMaterial, keepOutOfDepthPasses, makeLightProbe, readWind } from './shader.js';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { bakeFbm3, dataTexture3D, mulberry32, sampleGrid3 } from './noise.js';
 
@@ -179,7 +179,7 @@ float cloudSunDepth(vec3 position, float jitter) {
  */
 export function makeCloudVolume(opts = {}) {
   const size = vector(opts.size, [600, 180, 360], 3, 'size');
-  const wind = vector(opts.wind, [2.5, .4], 2, 'wind');
+  const w = readWind(opts.wind, [2.5, .4], 'makeCloudVolume wind'), wind = [w.x, w.z];
   const direction = vector(opts.sunDirection, [-.5, .7, -.3], 3, 'sunDirection');
   const seed = opts.seed ?? 19;
   const coverage = opts.coverage ?? .55;

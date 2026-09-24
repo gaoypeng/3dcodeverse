@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32, fbm2 } from './noise.js';
-import { makeShaderMaterial, keepOutOfDepthPasses, sunVector } from './shader.js';
+import { makeShaderMaterial, keepOutOfDepthPasses, readWind, sunVector } from './shader.js';
 
 // Cumulus/cirrus mood presets, graded for THIS renderer: ACES filmic at
 // exposure 1.0, sRGB out, and nothing after that rescues a dim top or
@@ -153,7 +153,7 @@ export function makeClouds(opts = {}) {
   const altitude = opts.altitude ?? p.altitude ?? 260;
   const spread = opts.spread ?? p.spread ?? 120;
   const alpha = opts.alpha ?? p.alpha ?? 0.92;
-  const wind = opts.wind ?? 3.0;
+  const wind = readWind(opts.wind, 3.0, 'makeClouds wind').strength;
   const stretch = opts.stretch ?? p.stretch ?? 1.0;
   if (!Number.isSafeInteger(seed) || !Number.isInteger(count) || count < 0 || count > 1000 ||
       ![area, altitude, spread, alpha, wind, stretch].every(Number.isFinite) ||

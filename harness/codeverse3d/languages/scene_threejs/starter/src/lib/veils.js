@@ -52,23 +52,11 @@ import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { lehmer } from './noise.js';
 import {
     glslWob, instancedQuad, keepOutOfDepthPasses, makeShaderMaterial,
-    tickShaders, wobX, wobZ } from './shader.js';
+    readWind, tickShaders, wobX, wobZ } from './shader.js';
 
 // Terminal fall of medium rain. Written once because the slant, the
 // sheet length and the streak rate must all read the same number.
 const _RAIN_FALL = 9.0;
-
-/** Horizontal velocity in xz from a number, an array or a vector. */
-function toWind(v, dx, dz) {
-    if (typeof v === 'number') return new THREE.Vector2(v, 0);
-    if (Array.isArray(v)) {
-        return new THREE.Vector2(v[0] || 0,
-            (v.length > 2 ? v[2] : v[1]) || 0);
-    }
-    if (v && v.isVector3) return new THREE.Vector2(v.x, v.z);
-    if (v && v.isVector2) return new THREE.Vector2(v.x, v.y);
-    return new THREE.Vector2(dx, dz);
-}
 
 // The swing: `wobX`/`wobZ` on the CPU mirror, the same pair in GLSL.
 const _WOB_GLSL = glslWob('astraVeilWob');
@@ -258,7 +246,8 @@ export function makeRainVeil(opts = {}) {
         opts.extent === undefined ? 120 : opts.extent);
     const height = Math.max(3,
         opts.height === undefined ? 60 : opts.height);
-    const wind = toWind(opts.direction, 3.5, 0);
+    const w = readWind(opts.direction, [3.5, 0], 'makeRainVeil direction');
+    const wind = new THREE.Vector2(w.x, w.z);
     const density = Math.min(0.97, Math.max(0.02,
         opts.density === undefined ? 0.6 : opts.density));
     const color = new THREE.Color(
@@ -497,7 +486,8 @@ export function makeSnowfall(opts = {}) {
     const rate = Math.max(1, opts.rate === undefined ? 260 : opts.rate);
     const size = Math.max(0.002,
         opts.size === undefined ? 0.035 : opts.size);
-    const drift = toWind(opts.drift, 0.35, 0);
+    const d = readWind(opts.drift, [0.35, 0], 'makeSnowfall drift');
+    const drift = new THREE.Vector2(d.x, d.z);
     const color = new THREE.Color(
         opts.color === undefined ? 0xf2f7ff : opts.color);
     const rnd = lehmer(opts.seed === undefined ? 9 : opts.seed);

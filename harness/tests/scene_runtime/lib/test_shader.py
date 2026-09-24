@@ -394,3 +394,70 @@ console.log(JSON.stringify({ tail }));
     assert out["tail"] == ("#include <roughnessmap_fragment>\n"
                           "#include <metalnessmap_fragment>\n"
                           "#include <opaque_fragment>\n}")
+
+
+# The catalog's one wind object, the [x,z] pair the fire/smoke rows use, a number and a
+# Vector3: each handed to every wind reader.  Before readWind, the object threw in
+# firefield/smoke/clouds/cloudvolume (RangeError) and rain (TypeError), fire read no wind,
+# snow read NaN, and windOf ignored the pair and blew the default way.
+_WIND = """
+import * as THREE from 'three';
+import { readWind } from './lib/shader.js';
+import { windOf } from './lib/grass.js';
+import { makeFire } from './lib/fire.js';
+import { makeFireField } from './lib/firefield.js';
+import { makeSmoke } from './lib/smoke.js';
+import { makeRain } from './lib/rain.js';
+import { makeCloudVolume } from './lib/cloudvolume.js';
+import { makeClouds } from './lib/clouds.js';
+import { patchSnow } from './lib/accumulation.js';
+import { makeRainVeil } from './lib/veils.js';
+const uni = (g, name) => { let u; g.traverse((o) => { const v = o.material?.uniforms?.[name]; if (v && !u) u = v.value; }); return u; };
+const xz = (v) => v.isVector3 ? [v.x, v.z] : typeof v === 'number' ? [v, 0] : [v.x, v.y];
+const winds = { object: { dir: [1, 0.3], strength: 1.2, speed: 1 }, pair: [1, 0.3], number: 1.2,
+                vec3: new THREE.Vector3(1, 5, 0.3) };
+const out = {};
+for (const [k, w] of Object.entries(winds)) {
+  const r = readWind(w, [0, 0]);
+  out[k] = {
+    read: [r.dir.x, r.dir.y],
+    windOf: xz(windOf(w).dir),
+    fire: xz(uni(makeFire({ wind: w }), 'uWind')),
+    firefield: 'ok' && makeFireField({ emitters: [{ position: [0, 0, 0], radius: 0.3, height: 1 }], wind: w, quality: 'low' }) && 'ok',
+    smoke: xz(makeSmoke({ wind: w }).material.uniforms.uWind.value),
+    rain: (({ x, z }) => [x, z])(makeRain({ wind: w, count: 10 }).material.uniforms.uVel.value),
+    cloudVolume: xz(makeCloudVolume({ wind: w, quality: 'low' }).material.uniforms.uWind.value),
+    clouds: uni(makeClouds({ wind: w, count: 2 }), 'uWind'),
+    snow: xz(patchSnow(new THREE.MeshStandardMaterial(), { wind: w }).userData.uniforms.uSnowWind.value),
+    veil: xz(uni(makeRainVeil({ direction: w }), 'uWind')),
+  };
+}
+console.log(JSON.stringify(out));
+"""
+
+_WIND_LIBS = ("grass.js", "fire.js", "firefield.js", "smoke.js", "rain.js", "cloudvolume.js",
+              "clouds.js", "accumulation.js", "veils.js")
+
+
+@pytest.fixture(scope="module")
+def wind() -> dict:
+    return measure(_WIND, _WIND_LIBS)
+
+
+@pytest.mark.parametrize("spelling", ["object", "pair", "number", "vec3"])
+def test_one_wind_is_read_the_same_way_by_every_effect(wind, spelling):
+    import math
+    w = wind[spelling]
+    ref = w["read"]
+    # the number has no direction of its own: it blows along the fallback's
+    expect = [1, 0] if spelling == "number" else [1 / math.hypot(1, 0.3), 0.3 / math.hypot(1, 0.3)]
+    assert ref == pytest.approx(expect)
+    for reader in ("fire", "smoke", "rain", "cloudVolume", "snow", "veil"):
+        v = w[reader]
+        n = math.hypot(*v)
+        assert n > 0 and all(math.isfinite(c) for c in v), (reader, v)
+        if spelling != "number":   # a number blows along each effect's own default direction
+            assert (v[0] / n, v[1] / n) == pytest.approx(tuple(ref), abs=1e-6), (reader, v)
+    if spelling != "number":   # windOf's own fallback direction is (1, 0.45)
+        assert w["windOf"] == pytest.approx(ref)
+    assert w["firefield"] == "ok" and math.isfinite(w["clouds"]) and w["clouds"] > 0

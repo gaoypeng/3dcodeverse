@@ -16,7 +16,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32 } from './noise.js';
-import { GLSL_UTIL, makeLightProbe, planarCapture } from './shader.js';
+import { GLSL_UTIL, makeLightProbe, planarCapture, readWind } from './shader.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 
 const TAU = Math.PI * 2;
@@ -289,15 +289,10 @@ export function makeOceanSurface(opts = {}) {
     finite(opts.reflectionSize, 512, 'reflectionSize', 64, 2048)
   );
   const seed = finite(opts.seed, 42, 'seed', 0, 4294967295);
-  const wind = opts.windDirection ?? [1, 0.2];
-  if (
-    !Array.isArray(wind) ||
-    wind.length !== 2 ||
-    !wind.every(Number.isFinite) ||
-    Math.hypot(...wind) < 1e-8
-  )
+  const wind = readWind(opts.windDirection, [1, 0.2], 'makeOceanSurface windDirection');
+  if (Math.hypot(wind.x, wind.z) < 1e-8)
     throw new RangeError('makeOceanSurface: windDirection must be a nonzero [x,z]');
-  const windAngle = Math.atan2(wind[1], wind[0]);
+  const windAngle = Math.atan2(wind.z, wind.x);
   const rng = mulberry32(seed),
     waves = [],
     phases = [];
@@ -400,7 +395,7 @@ export function makeOceanSurface(opts = {}) {
       seaSunColor: { value: new THREE.Color(0xffffff) },
       seaAmbient: { value: new THREE.Color(0.28, 0.36, 0.43) },
       seaKey: { value: new THREE.Color(0.8, 0.8, 0.8) },
-      seaWind: { value: new THREE.Vector2(...wind).normalize() },
+      seaWind: { value: wind.dir.clone() },
       seaRotation: { value: new THREE.Matrix3() },
     },
   ]);

@@ -29,7 +29,7 @@ import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { fbm2, mulberry32 } from './noise.js';
 import {
-  glslLocalDir, patchStandard, shadowLike, tickShaders, unit,
+  glslLocalDir, patchStandard, readWind, shadowLike, tickShaders, unit,
 } from './shader.js';
 
 // Blade shape: enough rows to curve, one column because the width is
@@ -103,27 +103,15 @@ export function makeGrass(opts = {}) {
 }
 
 /**
- * Read the `wind` option in either of its two spellings: a number
- * (strength) or {dir (alias `direction`): [x,z] or {x,y}, strength, speed}.
- *
- * Exported because one scene's wind has to move its meadow,
- * its reeds and its trees as ONE wind: a library that
- * re-implements this reader is a library that will drift
- * away from it.
+ * The grass family's reading of the scene's one `wind` (shader.js
+ * `readWind`: a number, [x,z], a vector or {dir|direction, strength,
+ * speed}): its direction, `amp` radians of tip bend at a full gust from a
+ * 1 = breeze strength, and speed.  Meadow, reeds, trees, canopy, flowers,
+ * cloth and small life all read it here, so one wind moves them alike.
  */
 export function windOf(w) {
-  const o = (w && typeof w === 'object') ? w : { strength: w };
-  const d = o.dir ?? o.direction;
-  const dir = new THREE.Vector2(
-      d ? (d.x === undefined ? d[0] : d.x) : 1,
-      d ? (d.y === undefined ? d[1] : d.y) : 0.45);
-  if (dir.lengthSq() < 1e-9) dir.set(1, 0);
-  return {
-    dir: dir.normalize(),
-    // Radians of tip bend at a full gust, from a 1 = breeze strength.
-    amp: 0.5 * (o.strength === undefined ? 1 : o.strength),
-    speed: o.speed === undefined ? 1 : o.speed,
-  };
+  const r = readWind(w, { dir: [1, 0.45], strength: 1 }, 'wind');
+  return { dir: r.dir, amp: 0.5 * r.strength, speed: r.speed };
 }
 
 /**

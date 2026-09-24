@@ -239,6 +239,55 @@ export function sunVector(azDeg, elDeg) {
                              Math.cos(el) * Math.sin(az));
 }
 
+/**
+ * Read "the scene's wind" in every spelling the library documents, so ONE
+ * wind can be handed to every effect: a number (strength, along the
+ * fallback's direction); `[x, z]`; `[x, y, z]` or a THREE.Vector3 / `{x, y, z}`
+ * (y is ignored); a THREE.Vector2 / `{x, y}` (y is world z); or `{ dir |
+ * direction, strength, speed }` with `dir` in any of those forms.
+ * `null`/missing reads `fallback`, which takes the same spellings; anything
+ * else throws a RangeError naming `label`.
+ *
+ * Returns `{ x, z, dir, strength, speed }`: (x, z) is the horizontal
+ * vector — an array or vector IS it, an object is dir * strength; `dir`
+ * its unit Vector2 over world XZ ((1, 0) when it has no direction);
+ * `speed` defaults to 1.  Each effect keeps its own units for strength.
+ */
+export function readWind(value, fallback, label = 'wind') {
+    const bad = () => new RangeError(`${label}: a wind is a number, [x, z], [x, y, z], `
+        + 'a THREE vector or { dir, strength, speed } of finite numbers');
+    // [x, z] of an array or a vector, or null when it is neither
+    const xz = (v) => {
+        const r = Array.isArray(v) ? (v.length === 2 ? [v[0], v[1]] : v.length === 3 ? [v[0], v[2]] : null)
+            : v && typeof v === 'object' && v.x !== undefined ? [v.x, v.z ?? v.y] : null;
+        if (r && !r.every(Number.isFinite)) throw bad();
+        return r;
+    };
+    const unitXZ = ([x, z]) => {
+        const l = Math.hypot(x, z);
+        return l > 1e-9 ? new THREE.Vector2(x / l, z / l) : new THREE.Vector2(1, 0);
+    };
+    const w = value ?? fallback;
+    const vec = xz(w);
+    if (vec) return { x: vec[0], z: vec[1], dir: unitXZ(vec), strength: Math.hypot(...vec), speed: 1 };
+    if (typeof w !== 'number' && !(w && typeof w === 'object')) throw bad();
+    const o = typeof w === 'number' ? { strength: w } : w;
+    const d = o.dir ?? o.direction;
+    let dir;
+    if (d !== undefined && d !== null) {
+        const v = xz(d);
+        if (!v) throw bad();
+        dir = unitXZ(v);
+    } else {
+        dir = w !== fallback && fallback !== undefined && fallback !== null
+            ? readWind(fallback, null, label).dir : new THREE.Vector2(1, 0);
+    }
+    const strength = o.strength ?? 1;
+    const speed = o.speed ?? 1;
+    if (!Number.isFinite(strength) || !Number.isFinite(speed)) throw bad();
+    return { x: dir.x * strength, z: dir.y * strength, dir, strength, speed };
+}
+
 /** Read a Vector3, an array or an {x,y,z} into a new Vector3. */
 export function readVec3(p, fx = 0, fy = 0, fz = 0) {
     if (!p) return new THREE.Vector3(fx, fy, fz);

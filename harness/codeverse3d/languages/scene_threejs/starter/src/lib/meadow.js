@@ -9,8 +9,8 @@
  * makeMeadow({size:[10,10], density:700, height:.38, seed:12, heightAt,
  *   mask, wind:{dir:[1,.3],strength:1,speed:1}, dry:.12,
  *   shadows:true, ground:true, diversity:.85, seedHeads:.003}) -> Group; userData.update(t), dispose().
- * wind is grass.js's `windOf`: a number (strength) or {dir|direction, strength, speed},
- * so one wind moves the meadow, grass and trees alike (strength 1 = breeze).
+ * wind is grass.js's `windOf` over shader.js `readWind`: a number (strength), [x,z] or
+ * {dir|direction, strength, speed}, so one wind moves the meadow, grass and trees alike (strength 1 = breeze).
  * density = blades/m² before the mask; maxBlades bounds memory and triangles.
  * mask(x,z) -> 0..1 and heightAt(x,z) are LOCAL coordinates. A mask of 0
  * leaves soil, a mask of 1 grows all blades. diversity (0..1) blends between
