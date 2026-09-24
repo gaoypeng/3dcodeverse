@@ -1012,6 +1012,17 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   scene and GL hosts); its `output/` is ignored and none of its media is committed.  2026-09-23: the lab's
   session notes, provenance tooling, audit logs and the unused cinematic judge were deleted (owner); the lab
   keeps build/capture/viewer/serve/scenes.
+* **D98 One statement per rule, across python/JS and prompts (review 2 C2/C4/C5, 2026-09-23).**  The
+  single-shot envelope is stated once, in `system/singleshot_format.md` (the brief points at it).  Where
+  python and JS each decided a rule, the side the recorded runs proved right became the one home:
+  placement exempt words = `runtime_js/lib/placement_words.json` (gate + settle, plurals included); "camera
+  named for a hero" = the host's `namesHero`, carried as `camera_checks[].hero_for`; the URDF a sweep reads
+  = the built `artifacts/robot.urdf` only; an unset PBR factor = `texturing/materials.py` (a scene pack's
+  roughness stays its own 0.8 surface default).  The hero asset's context file omits `harness_contract.md`
+  on purpose (its ±1 cm object acceptance contradicts the prop sheet).  D93 extended: a gate's detection
+  threshold is not stated as a geometric rule in always-on text (bbox ±0.01 m, camera 0.3/0.5 m, placement
+  2 cm/2.5x…); construction values (weld overlap, clearances, wall thickness) and the skills' pinned
+  gate explanations stay.
 
 ## Rejected / deferred
 
