@@ -145,15 +145,35 @@ ARTICULATION_VIEWS: tuple[ViewPreset, ...] = tuple(
     _OBJECT_VIEW_BY_NAME[n] for n in ("front_right_high", "back_left_high", "front")
 )
 
-#: the view a one-camera comparison (the reference silhouette) takes, in preference order;
-#: ``*_34`` are pre-D47 stored runs
-FRONT_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_high", "front_left_high",
-                                     "front_right_34", "front_left_34")
+#: the pre-D47 8-view rig's names → their twin in the 14-view rig.  Stored runs carry them,
+#: and the clay cameras (``OBJECT_CLAY_VIEWS``) still use them.  Every view preference list
+#: is written in rig names and matches a view by :func:`view_key`, so no list keeps its own
+#: subset of the old names.
+LEGACY_VIEW_ALIASES: dict[str, str] = {
+    "front_right_34": "front_right_high",
+    "back_left_34": "back_left_high",
+    "low_front_left": "front_left_low",
+}
+
+
+def view_key(name: str) -> str:
+    """A view's rig name: ``front_right_34`` → ``front_right_high``; anything else unchanged."""
+    return LEGACY_VIEW_ALIASES.get(name, name)
+
+
+def views_by_preference(views: Sequence[RenderView], names: Sequence[str]) -> list[RenderView]:
+    """The ``views`` whose :func:`view_key` is in ``names``, in the order of ``names``."""
+    rank = {n: i for i, n in enumerate(names)}
+    return sorted((v for v in views if view_key(v.name) in rank), key=lambda v: rank[view_key(v.name)])
+
+
+#: the view a one-camera comparison (the reference silhouette) takes, in preference order
+FRONT_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_high", "front_left_high")
 
 
 def front_view(views: Sequence[RenderView]) -> RenderView | None:
     """The first of ``FRONT_VIEW_NAMES`` among ``views``, else the first view."""
-    return next((v for n in FRONT_VIEW_NAMES for v in views if v.name == n), views[0] if views else None)
+    return next(iter(views_by_preference(views, FRONT_VIEW_NAMES)), views[0] if views else None)
 
 
 #: Scene overview rig (scenes sit on ground: aerial + eye level, no underside).

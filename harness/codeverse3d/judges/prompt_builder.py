@@ -37,7 +37,13 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.chat import ChatMessage, ImagePart, TextPart
 from codeverse3d.contracts.plan import AcceptanceItem
 from codeverse3d.contracts.spec import Spec
-from codeverse3d.conventions import OBJECT_CLAY_VIEWS, OBJECT_VIEWS, SCENE_VIEWS, ViewPreset
+from codeverse3d.conventions import (
+    OBJECT_CLAY_VIEWS,
+    OBJECT_VIEWS,
+    SCENE_VIEWS,
+    ViewPreset,
+    view_key,
+)
 from codeverse3d.judges.rubrics import VETO_PENETRATION_DEPTH_M, Rubric, wire_schema
 from codeverse3d.proc import unique_tmp
 from codeverse3d.prompts import prompt_hash
@@ -137,13 +143,10 @@ GEOMETRY_MODES = tuple(m for m in RENDER_MODES if m != "shaded")
 #: montage 1 = {front_right_high, back_left_high, top, bottom}, so a montage-cap
 #: truncation still sees the underside; then the eye ring, then the remaining rings.
 OBJECT_RANK = (
-    # legacy pre-D47 names ride beside their D47 twins so a STORED 8-view run
-    # re-judges with the same montage shape the in-run judge saw (3/4 heroes first)
-    # — DIFF_VIEW_NAMES / CANDIDATE_VIEWS / FRONT_VIEW_NAMES / HERO_PREFERENCE all
-    # kept them; this one had forgotten (review of PR #3)
-    "front_right_high", "front_right_34", "back_left_high", "back_left_34", "top", "bottom",
+    # a STORED pre-D47 run (and a clay tile) ranks by its rig twin, ``conventions.view_key``
+    "front_right_high", "back_left_high", "top", "bottom",
     "front", "right", "back", "left",
-    "front_right_low", "low_front_left", "back_left_low", "front_left_high", "back_right_high",
+    "front_right_low", "back_left_low", "front_left_high", "back_right_high",
     "front_left_low", "back_right_low",
 )
 #: scene rig: authored cameras first (graded for composition), then the overview rig.
@@ -209,7 +212,8 @@ def rank_views(views: list[RenderView], *, scene: bool) -> list[RenderView]:
     else:
         def key(iv: tuple[int, RenderView]) -> tuple[int, int, int]:
             i, v = iv
-            return (0, OBJECT_RANK.index(v.name), i) if v.name in OBJECT_RANK else (1, 0, i)
+            name = view_key(v.name)
+            return (0, OBJECT_RANK.index(name), i) if name in OBJECT_RANK else (1, 0, i)
     return [v for _, v in sorted(enumerate(views), key=key)]
 
 

@@ -27,6 +27,7 @@ from codeverse3d.addons.gallery.model import (
     humanize_view,
 )
 from codeverse3d.contracts.run import RunId, RunRecord
+from codeverse3d.conventions import views_by_preference
 from codeverse3d.proc import read_json_or_none
 from codeverse3d.record.deliverable import round_outputs, texture_shipped_for
 from codeverse3d.record.record import (
@@ -96,10 +97,9 @@ def picked_sheet(ws: Workspace, rec: RunRecord, picked: int | None) -> str:
 
 
 #: view names that make the best single thumbnail, most telling first.  A ¾ view
-#: shows silhouette *and* depth; a flat orthographic front hides both.  The ``*_34``
-#: names are the pre-D47 rig, kept because the gallery serves stored runs.
-HERO_PREFERENCE = ("front_right_high", "back_left_high", "front_right_low",
-                   "front_right_34", "back_left_34", "low_front_left", "front")
+#: shows silhouette *and* depth; a flat orthographic front hides both.  A stored pre-D47
+#: run matches through ``conventions.view_key``.
+HERO_PREFERENCE = ("front_right_high", "back_left_high", "front_right_low", "front_left_low", "front")
 
 
 def hero_view(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[str, str, int]:
@@ -114,8 +114,7 @@ def hero_view(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[str, s
     views = [v for v in rnd.renders.views if not v.name.startswith(("pose_", "articulation"))]
     if not views:
         return "", "", 0
-    by_name = {v.name: v for v in views}
-    chosen = next((by_name[n] for n in HERO_PREFERENCE if n in by_name), views[0])
+    chosen = next(iter(views_by_preference(views, HERO_PREFERENCE)), views[0])
     rel = run_rel(ws, chosen.path)
     if not rel or not (ws.root / rel).is_file():
         return "", "", len(views)

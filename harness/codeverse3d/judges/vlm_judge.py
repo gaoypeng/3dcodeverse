@@ -30,7 +30,7 @@ from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import Judgment, RenderView
 from codeverse3d.contracts.chat import ChatRequest, ChatResponse
 from codeverse3d.contracts.common import TRACK_INFO, Track, Usage
-from codeverse3d.conventions import front_view
+from codeverse3d.conventions import front_view, views_by_preference
 from codeverse3d.judges.base import SLICE_TRACKS, JudgeInput
 from codeverse3d.judges.prompt_builder import (
     _key,
@@ -341,10 +341,9 @@ IOU_LOW, IOU_HIGH = 0.25, 0.85
 #: (unreliable mask, or a reference whose proportions contradict the brief)
 NEUTRAL_SCORE = 0.5
 
-#: views handed to the mismatch pass (front-ish first, then a 3/4 and a side);
-#: ``*_34`` names are the pre-D47 rig, kept for re-judging stored runs.
-DIFF_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_high", "front_left_high", "right", "left",
-                                    "front_right_34", "front_left_34")
+#: views handed to the mismatch pass (front-ish first, then a 3/4 and a side); a stored
+#: pre-D47 run matches through ``conventions.view_key``.
+DIFF_VIEW_NAMES: tuple[str, ...] = ("front", "front_right_high", "front_left_high", "right", "left")
 
 
 def iou_to_score(iou: float) -> float:
@@ -481,8 +480,7 @@ class ReferenceJudge(VlmJudge):
 
     def diff_views(self, views: list[RenderView]) -> list[str]:
         """Up to 3 shaded views for the diff, front-ish first."""
-        by_name = {v.name: v for v in views}
-        picked = [by_name[n].path for n in DIFF_VIEW_NAMES if n in by_name]
+        picked = [v.path for v in views_by_preference(views, DIFF_VIEW_NAMES)]
         for v in views:
             if len(picked) >= 3:
                 break

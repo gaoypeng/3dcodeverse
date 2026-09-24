@@ -30,6 +30,7 @@ import numpy as np
 from PIL import Image
 
 from codeverse3d.contracts.artifacts import RenderView
+from codeverse3d.conventions import views_by_preference
 
 MASK_SIZE = 256
 #: colour-distance tolerance (0-441) from the border colour: adaptive between these bounds
@@ -206,11 +207,9 @@ def silhouette_aspect(path: Path | str) -> float:
 #: render views a reference photo could plausibly have been shot from — a straight-on
 #: studio elevation matches ``front``/``right``/``left``/``back``, a 3/4 product shot
 #: matches the ``*_high`` ring.  ``top``, ``bottom`` and the low ring are never a
-#: product-shot camera.  The ``*_34`` names are the pre-D47 rig, kept so stored runs
-#: (``3dcode judge <old-slug>``, calibration replays) still match their own cameras.
+#: product-shot camera.  A stored pre-D47 run matches through ``conventions.view_key``.
 CANDIDATE_VIEWS: tuple[str, ...] = (
     "front", "front_right_high", "front_left_high", "right", "left", "back", "back_left_high",
-    "front_right_34", "back_left_34",  # legacy pre-D47 runs
 )
 
 
@@ -231,29 +230,24 @@ def best_view_match(
     Returns the :func:`compare_silhouette` dict plus ``view`` (the winning view name)
     and ``per_view`` (name → IoU).  ``{"error": ...}`` when nothing could be compared.
     """
-    named = {v.name: v for v in renders}
-    order = [n for n in candidates if n in named] or [v.name for v in renders]
     per_view: dict[str, float] = {}
-    best: tuple[float, str, dict[str, Any]] | None = None
-    for name in order:
-        view = named.get(name) or next((v for v in renders if v.name == name), None)
-        if view is None or not Path(view.path).is_file():
+    best: tuple[float, RenderView, dict[str, Any]] | None = None
+    for view in views_by_preference(renders, candidates) or list(renders):
+        if not Path(view.path).is_file():
             continue
         try:
             res = compare_silhouette(view.path, reference)
         except (OSError, ValueError):
             continue
-        per_view[name] = res["iou"]
+        per_view[view.name] = res["iou"]
         if best is None or res["iou"] > best[0]:
-            best = (res["iou"], name, res)
+            best = (res["iou"], view, res)
     if best is None:
         return {"error": "no comparable render view"}
-    _, name, res = best
+    _, view, res = best
     out = dict(res)
-    out["view"] = name
     out["per_view"] = {k: round(v, 4) for k, v in per_view.items()}
     if diff_png is not None:
-        view = named[name] if name in named else next(v for v in renders if v.name == name)
         out.update(compare_silhouette(view.path, reference, diff_png=diff_png))
-        out["view"] = name
+    out["view"] = view.name
     return out
