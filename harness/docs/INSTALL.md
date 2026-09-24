@@ -296,9 +296,12 @@ skip the wrapper entirely.
 
 `Settings.resolve_blender()` (`codeverse3d/config.py`) returns the first hit of:
 
-1. `settings.binaries.blender` if that path exists — set it in the settings YAML
-   or with `C3D_BINARIES__BLENDER=/path/to/blender`;
-2. `blender-5.0`, `blender`, `blender-5.1`, `blender-4.2` on `PATH`, in that order.
+1. `settings.binaries.blender` when it is set — in the settings YAML or with
+   `C3D_BINARIES__BLENDER=/path/to/blender`.  A configured binary is never replaced
+   by one from `PATH`: if it is missing or not executable, builds raise
+   `BlenderNotFoundError` and `doctor` reports `blender FAIL`;
+2. only when nothing is configured: `blender-5.0`, `blender`, `blender-5.1`,
+   `blender-4.2` on `PATH`, in that order.
 
 Nothing found → `3dcodeverse doctor` reports `blender FAIL` and builds raise
 `BlenderNotFoundError`.  Blender is always invoked `-b --factory-startup` with

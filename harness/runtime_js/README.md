@@ -76,7 +76,7 @@ lib/resolve_three.mjs node --import hook: bare 'three' / 'three/addons/*' resolv
                       on the 20.6 floor.  Redirect rule stated once in lib/three_redirect.mjs
 lib/node_polyfills.mjs FileReader/self shims so GLTFExporter writes binary GLB without a DOM
 lib/census.mjs        NaN/Infinity check naming mesh + part, world boxes, geometry triangles (node + browser)
-lib/instances.mjs     bakeInstancedMeshes(THREE, root): InstancedMesh → Group of named plain meshes
+lib/instances.mjs     bakeInstancedMeshes(THREE, root): InstancedMesh → sibling plain meshes Name_0.. in its place
 lib/stack.mjs         Error → {type,message,file,line,frames} with workspace-relative src/ paths
 lib/syntax_check.mjs  THE JS syntax check: every file parsed as an ES module in ONE node
                       (vm.SourceTextModule, never linked or run; `node --check` only for a failing

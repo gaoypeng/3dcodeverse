@@ -168,7 +168,7 @@ def frame_gate(seq: SequenceStats, *, motion_expected: bool = True, gate: str = 
             "tone-map and clamp: col = col / (1.0 + col); keep accumulated glow sums bounded")
     if seq.static and motion_expected:
         add(Severity.WARN, "static", f"frames do not change over time (largest |Δ| between any two sampled frames {seq.max_diff:.4f}); the shader looks static",
-            "use u_time for motion: scroll uv, rotate, animate noise offsets, move lights — the judge compares frames at t=0..6s")
+            "use u_time for motion: move what is in the scene, rotate, animate noise offsets, move lights — the judge compares frames at t=0..6s")
     elif seq.n_duplicates and motion_expected:
         add(Severity.INFO, "duplicate", f"{seq.n_duplicates} consecutive frame pair(s) are identical",
             "make sure every sampled time differs visibly (continuous motion rather than rare jumps)")
