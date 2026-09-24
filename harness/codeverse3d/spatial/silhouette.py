@@ -22,14 +22,16 @@ signal separately.
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from PIL import Image
+from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.artifacts import RenderView
+from codeverse3d.contracts.spec import ReferenceImage, Spec
 from codeverse3d.conventions import views_by_preference
 
 MASK_SIZE = 256
@@ -213,12 +215,18 @@ CANDIDATE_VIEWS: tuple[str, ...] = (
 )
 
 
+#: ``compare_silhouette``'s shape: (render png, reference png) → its result dict.  Injectable, so
+#: the track's services and the judge's tests can stand in for the mask arithmetic.
+CompareFn = Callable[[str, str], dict[str, Any]]
+
+
 def best_view_match(
     renders: Sequence[RenderView],
     reference: Path | str,
     *,
     candidates: Sequence[str] = CANDIDATE_VIEWS,
     diff_png: Path | str | None = None,
+    compare: CompareFn | None = None,
 ) -> dict[str, Any]:
     """IoU of the render view that best matches ``reference``, and which one it was.
 
@@ -230,14 +238,17 @@ def best_view_match(
     Returns the :func:`compare_silhouette` dict plus ``view`` (the winning view name)
     and ``per_view`` (name → IoU).  ``{"error": ...}`` when nothing could be compared.
     """
+    compare = compare or compare_silhouette
     per_view: dict[str, float] = {}
     best: tuple[float, RenderView, dict[str, Any]] | None = None
     for view in views_by_preference(renders, candidates) or list(renders):
         if not Path(view.path).is_file():
             continue
         try:
-            res = compare_silhouette(view.path, reference)
+            res = compare(str(view.path), str(reference))
         except (OSError, ValueError):
+            continue
+        if not isinstance(res, dict) or "iou" not in res:
             continue
         per_view[view.name] = res["iou"]
         if best is None or res["iou"] > best[0]:
@@ -251,3 +262,52 @@ def best_view_match(
         out.update(compare_silhouette(view.path, reference, diff_png=diff_png))
     out["view"] = view.name
     return out
+
+
+def target_reference(references: Sequence[ReferenceImage]) -> str | None:
+    """THE silhouette target: the first readable reference with role ``target``, else the first
+    readable one; ``None`` when no reference file exists."""
+    readable = [r for r in references if Path(r.path).is_file()]
+    return next((r.path for r in readable if r.role == "target"), readable[0].path if readable else None)
+
+
+class ReferenceMatch(BaseModel):
+    """The one silhouette measurement of a round against its target reference: the
+    ``reference_silhouette`` gate records it (and refines on it), the reference judge scores
+    ``silhouette_match`` from it.  Until 2026-09-24 the gate compared the ``front`` render only
+    while the judge took the best-matching view — 0.26 vs 0.995 on one reference (audit N51)."""
+
+    iou: float
+    ref_fill: float | None = None
+    render_fill: float | None = None
+    aspect_ratio_err: float | None = None
+    ref_aspect: float | None = None
+    render_aspect: float | None = None
+    reliable: bool = Field(default=True, description="both foreground masks localised something")
+    view: str = Field(description="the render view that best matches the reference's camera")
+    reference: str = Field(description="path of the target reference image")
+    conflict: bool = Field(default=False, description="the reference's own proportions contradict the brief's dimensions")
+    per_view: dict[str, float] = Field(default_factory=dict)
+
+    @property
+    def scorable(self) -> bool:
+        """May the IoU be read as a shape verdict?  Not on an unreliable mask, and not when
+        the reference contradicts the brief (the brief wins; the score is neutral)."""
+        return self.reliable and not self.conflict
+
+
+def measure_reference(renders: Sequence[RenderView], spec: Spec, *, compare: CompareFn | None = None) -> ReferenceMatch | None:
+    """:class:`ReferenceMatch` of ``renders`` against ``spec``'s target reference, or ``None``
+    when the spec has no readable reference or no render view could be compared.  An error in
+    ``compare`` itself propagates: the caller decides what "unavailable" means."""
+    from codeverse3d.reference import dimension_conflict  # reference.py imports this module
+
+    ref = target_reference(spec.references)
+    if ref is None:
+        return None
+    res = best_view_match(renders, ref, compare=compare)
+    if "iou" not in res:
+        return None
+    num = {k: float(res[k]) for k in ("ref_fill", "render_fill", "aspect_ratio_err", "ref_aspect", "render_aspect") if isinstance(res.get(k), int | float)}
+    return ReferenceMatch(iou=float(res["iou"]), view=str(res.get("view", "")), reference=ref, reliable=bool(res.get("reliable", True)),
+                          conflict=bool(dimension_conflict(spec, ref).get("conflict")), per_view=res.get("per_view") or {}, **num)

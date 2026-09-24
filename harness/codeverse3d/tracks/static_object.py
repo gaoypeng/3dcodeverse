@@ -26,11 +26,11 @@ from codeverse3d.conventions import (
     BBOX_TOLERANCE_M,
     OBJECT_CLAY_VIEWS,
     OBJECT_VIEWS,
-    front_view,
 )
 from codeverse3d.orchestrator import RefineTask, TaskGroup, compact_instructions
 from codeverse3d.prompts import render
 from codeverse3d.spatial.contract import planned_joins
+from codeverse3d.spatial.silhouette import measure_reference
 from codeverse3d.tracks.common import RunContext
 from codeverse3d.tracks.depth import (
     PartScope,
@@ -102,7 +102,7 @@ class ObjectPipeline:
     def post_render_gates(
         self, ctx: RunContext, round_index: int, renders: RenderSet
     ) -> list[GateReport]:
-        """Reference-image runs: front-view outline IoU vs the target image (WARN finding with the number)."""
+        """Reference-image runs: outline IoU vs the target image (WARN finding with the number)."""
         gate = silhouette_gate(ctx, renders)
         return [gate] if gate is not None else []
 
@@ -299,36 +299,26 @@ SILHOUETTE_GATE = "reference_silhouette"
 IOU_REFINE_THRESHOLD = 0.6
 
 
-def target_reference(ctx: RunContext) -> str | None:
-    """Path of the reference image to match the silhouette against (role ``target`` first)."""
-    refs = [r for r in ctx.spec.references if Path(r.path).is_file()]
-    if not refs:
-        return None
-    return next((r.path for r in refs if r.role == "target"), refs[0].path)
-
-
 def silhouette_gate(ctx: RunContext, renders: RenderSet) -> GateReport | None:
-    """``None`` when the spec has no reference images or nothing could be compared."""
-    ref = target_reference(ctx)
-    view = front_view(renders.views)
-    if ref is None or view is None:
-        return None
+    """The round's :func:`~codeverse3d.spatial.silhouette.measure_reference` — the measurement the
+    reference judge scores — as a finding: WARN below the refine threshold when the IoU is a shape
+    verdict (reliable mask, reference agrees with the brief), else INFO.  ``None`` when the spec
+    has no reference or nothing could be compared."""
     try:
-        res = ctx.services.silhouette(view.path, ref)
+        m = measure_reference(renders.views, ctx.spec, compare=ctx.services.silhouette)
     except Exception as e:  # noqa: BLE001 — advisory measurement; never fails a round
         log.warning("compare_silhouette failed: %s", e)
         return GateReport.of(SILHOUETTE_GATE, [GateFinding(
             gate=SILHOUETTE_GATE, severity=Severity.INFO, target="overall", message=f"silhouette comparison unavailable: {e}")])
-    iou = float(res.get("iou", 0.0)) if isinstance(res, dict) else 0.0
-    reliable = bool(res.get("reliable", True)) if isinstance(res, dict) else False
-    data = {k: v for k, v in (res.items() if isinstance(res, dict) else []) if isinstance(v, (int, float, str, bool))}
-    data["view"] = view.name
-    data["reference"] = ref
-    low = reliable and iou < IOU_REFINE_THRESHOLD
-    msg = (f"front-view outline IoU vs reference = {iou:.3f}" + ("" if reliable else " (unreliable mask)")
+    if m is None:
+        return None
+    low = m.scorable and m.iou < IOU_REFINE_THRESHOLD
+    msg = (f"outline IoU vs reference = {m.iou:.3f} (best-matching view: {m.view})"
+           + ("" if m.reliable else " (unreliable mask)")
+           + (" (the reference's proportions contradict the brief: not a shape verdict)" if m.conflict else "")
            + (f" — below {IOU_REFINE_THRESHOLD:.1f}" if low else ""))
     finding = GateFinding(gate=SILHOUETTE_GATE, severity=Severity.WARN if low else Severity.INFO, target="overall",
-                          message=msg, data=data,
+                          message=msg, data=m.model_dump(exclude={"per_view"}),
                           fix_hint=("match the reference outline: compare proportions (aspect ratio), overall extents and the "
                                     "silhouette of each major part against the reference image" if low else ""))
     return GateReport.of(SILHOUETTE_GATE, [finding])
@@ -356,9 +346,10 @@ def reference_refine_tasks(ctx: RunContext, last: RoundRecord) -> list[RefineTas
     if hit is None:
         return []
     iou, data = hit
-    if iou >= IOU_REFINE_THRESHOLD or data.get("reliable") is False:
+    if iou >= IOU_REFINE_THRESHOLD or data.get("reliable") is False or data.get("conflict"):
         return []
-    bits = [f"Front-view silhouette IoU vs the reference image is {iou:.2f} (target ≥ {IOU_REFINE_THRESHOLD:.1f})."]
+    seen = f" (best-matching view: {data['view']})" if data.get("view") else ""
+    bits = [f"Silhouette IoU vs the reference image is {iou:.2f}{seen} (target ≥ {IOU_REFINE_THRESHOLD:.1f})."]
     aspect = data.get("aspect_ratio_err")
     if isinstance(aspect, (int, float)):
         ra, rr = data.get("ref_aspect"), data.get("render_aspect")

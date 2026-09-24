@@ -21,7 +21,6 @@ import contextlib
 import logging
 import shutil
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -30,7 +29,7 @@ from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import Judgment, RenderView
 from codeverse3d.contracts.chat import ChatRequest, ChatResponse
 from codeverse3d.contracts.common import TRACK_INFO, Track, Usage
-from codeverse3d.conventions import front_view, views_by_preference
+from codeverse3d.conventions import views_by_preference
 from codeverse3d.judges.base import SLICE_TRACKS, JudgeInput
 from codeverse3d.judges.prompt_builder import (
     _key,
@@ -54,7 +53,12 @@ from codeverse3d.models import get_chat_model
 from codeverse3d.models.base import ChatModel, ModelError
 from codeverse3d.proc import fan_out, unique_tmp
 from codeverse3d.reference import compare, conflict_note, dimension_conflict
-from codeverse3d.spatial.silhouette import best_view_match, compare_silhouette
+from codeverse3d.spatial.silhouette import (
+    CompareFn,
+    ReferenceMatch,
+    compare_silhouette,
+    measure_reference,
+)
 
 log = logging.getLogger(__name__)
 
@@ -332,8 +336,6 @@ class VlmJudge:
 
 # ===================================================================== reference
 
-SilhouetteFn = Callable[[str, str], dict[str, Any]]
-
 #: IoU → score mapping: ≤ 0.25 → 0, ≥ 0.85 → 1, linear in between (matches the rubric anchors).
 IOU_LOW, IOU_HIGH = 0.25, 0.85
 
@@ -371,8 +373,7 @@ class ReferenceJudge(VlmJudge):
         temperature: float = 0.2,
         *,
         rubric: str | Rubric = "reference_v1",
-        silhouette_fn: SilhouetteFn | None = None,
-        best_view: bool = True,
+        silhouette_fn: CompareFn | None = None,
         diff: bool = True,
         diff_model: Any | None = None,
         diff_model_id: str = "",
@@ -380,7 +381,6 @@ class ReferenceJudge(VlmJudge):
     ):
         super().__init__(rubric, model_id, n_samples, temperature, **kwargs)
         self.silhouette_fn = silhouette_fn or compare_silhouette
-        self.best_view = best_view
         self.diff = diff
         self._diff_model = diff_model
         self.diff_model_id = diff_model_id
@@ -405,22 +405,19 @@ class ReferenceJudge(VlmJudge):
         if note:
             blocks.append(note)
         measured_ids = [c.id for c in self.rubric.measured_criteria()]
-        info: dict[str, Any] = {}
         measured_scores: dict[str, float] = {}
+        match = measure_reference(inp.renders.views, inp.spec, compare=self.silhouette_fn) if refs else None
         if measured_ids:
-            info = self.measure_silhouette(inp)
-            if "iou" not in info:
-                raise ReferenceJudgeError(
-                    f"cannot score measured criteria {measured_ids}: {info.get('error', 'no iou')}")
-            score, why = self.silhouette_score(info, conflict)
+            if match is None:
+                raise ReferenceJudgeError(f"cannot score measured criteria {measured_ids}: "
+                                          + ("no render view compared" if refs else "spec has no readable reference images"))
+            score, why = self.silhouette_score(match)
             measured_scores = {cid: score for cid in measured_ids}
+            extra = match.model_dump(exclude={"iou", "reference", "conflict", "per_view"}, exclude_none=True)
             blocks.append(
-                f"MEASURED SILHOUETTE (harness): {info['render']} render vs reference {info['reference']}: "
-                f"IoU {info['iou']:.3f} → silhouette_match score {score:.2f}{why}."
-                + (f" extra: {info['extra']}" if info.get("extra") else ""))
-        elif refs:
-            info = self.measure_silhouette(inp)
-        diff = self.reference_diff(inp, refs, info, synthesized=synth) if refs else None
+                f"MEASURED SILHOUETTE (harness): {match.view} render vs reference {Path(match.reference).name}: "
+                f"IoU {match.iou:.3f} → silhouette_match score {score:.2f}{why}. extra: {extra}")
+        diff = self.reference_diff(inp, refs, match, synthesized=synth) if refs else None
         if diff is not None and diff.as_text():
             blocks.append(diff.as_text())
         return JudgeContext(measured_scores=measured_scores, extra_text="\n\n".join(blocks), extra_images=images,
@@ -442,26 +439,25 @@ class ReferenceJudge(VlmJudge):
             log.warning("dimension-conflict check failed: %s", e)
             return {"conflict": False, "error": str(e)}
 
-    def silhouette_score(self, info: dict[str, Any], conflict: dict[str, Any]) -> tuple[float, str]:
+    def silhouette_score(self, match: ReferenceMatch) -> tuple[float, str]:
         """IoU → measured score, NEUTRAL when the reference contradicts the brief or the
         mask is unreliable.  Returns ``(score, ' (why)')``."""
-        if conflict.get("conflict"):
+        if match.conflict:
             return NEUTRAL_SCORE, " (NEUTRAL: the reference's proportions contradict the brief's dimensions)"
-        if info.get("reliable") is False:
+        if not match.reliable:
             return NEUTRAL_SCORE, " (NEUTRAL: the background mask was unreliable)"
-        return iou_to_score(info["iou"]), ""
+        return iou_to_score(match.iou), ""
 
     # ------------------------------------------------------------------ mismatch pass
-    def reference_diff(self, inp: JudgeInput, refs: list[Any], info: dict[str, Any], *, synthesized: bool) -> Any | None:
+    def reference_diff(self, inp: JudgeInput, refs: list[Any], match: ReferenceMatch | None, *, synthesized: bool) -> Any | None:
         """One extra vision call naming concrete mismatches.  ``None`` when disabled;
         never raises (a failed diff simply contributes no text)."""
         if not _diff_enabled(self.diff):
             return None
         targets = [r.path for r in refs if r.role == "target"] or [r.path for r in refs]
         renders = self.diff_views(list(inp.renders.views))
-        measured = dict(info) if "iou" in info else None
-        if measured is not None:
-            measured.setdefault("view", info.get("render", ""))
+        measured = None if match is None else {"iou": match.iou, "aspect_ratio_err": match.aspect_ratio_err, "reliable": match.reliable,
+                                                "view": match.view, "reference": Path(match.reference).name}
         try:
             return compare(inp.spec, targets, renders, model=self._pick_diff_model(),
                            part_names=inp.part_names, measured=measured, synthesized=synthesized)
@@ -488,45 +484,6 @@ class ReferenceJudge(VlmJudge):
                 picked.append(v.path)
         return picked[:3]
 
-    # ------------------------------------------------------------------ silhouette
-    def measure_silhouette(self, inp: JudgeInput) -> dict[str, Any]:
-        """{iou, render, reference, extra} or {error}.
-
-        With ``best_view=True`` (default) the IoU is taken from the render view that
-        best matches the reference's camera instead of a hardcoded ``front``: a
-        reference photograph has ONE camera, and comparing a three-quarter product
-        shot to a straight-on elevation measures camera agreement, not shape.  The
-        winning view name travels in ``render`` so the number stays auditable.
-        """
-        targets = [r for r in inp.spec.references if r.role == "target" and Path(r.path).is_file()] or [
-            r for r in inp.spec.references if Path(r.path).is_file()]
-        if not targets:
-            return {"error": "spec has no readable reference images"}
-        views = list(inp.renders.views)
-        if not views:
-            return {"error": "render set has no views"}
-        res, name = self._measure(views, targets[0].path)
-        if not isinstance(res, dict) or "iou" not in res:
-            return {"error": f"compare_silhouette returned no iou: {res!r}"}
-        extra = {k: v for k, v in res.items() if k not in ("iou", "per_view") and isinstance(v, (int, float, str, bool))}
-        out = {"iou": float(res["iou"]), "render": name, "reference": Path(targets[0].path).name,
-               "reliable": bool(res.get("reliable", True)),
-               "aspect_ratio_err": res.get("aspect_ratio_err"), "extra": extra}
-        if res.get("per_view"):
-            out["per_view"] = res["per_view"]
-        return out
-
-    def _measure(self, views: list[RenderView], reference: str) -> tuple[dict[str, Any], str]:
-        """(result, view name).  Best-matching view when enabled and available."""
-        if self.best_view and self.silhouette_fn is compare_silhouette:
-            res = best_view_match(views, reference)
-            if "iou" in res:
-                return res, str(res.get("view", ""))
-        view = front_view(views)
-        if view is None:  # pragma: no cover - guarded by the caller
-            return {}, ""
-        return self.silhouette_fn(view.path, reference), view.name
-
 
 LIKENESS_NOTE = (
     "REAL-WORLD REFERENCE PHOTOS are attached (labelled REAL-WORLD REFERENCE n/N).  They are not a "
@@ -545,7 +502,7 @@ LIKENESS_NOTE = (
 class LikenessJudge(VlmJudge):
     """``VlmJudge`` + the reference photos of the REAL thing — for tracks with no silhouette.
 
-    ``ReferenceJudge`` is built for objects: it measures a front-view silhouette IoU against
+    ``ReferenceJudge`` is built for objects: it measures a best-view silhouette IoU against
     the target photo and runs a part-inventory mismatch pass.  Neither means anything for a
     fragment shader or a scene, where a reference photo answers a different question — does
     this LOOK like the thing?  Measured 2026-08-26 (teaser aurora, three versions, flash and

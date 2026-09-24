@@ -125,7 +125,7 @@ def test_reference_images_wire_judge_prompts_and_silhouette(tmp_path, chair_plan
     # silhouette gate recorded with the IoU, and the refine round got the reference task
     gate = next(g for g in rec.rounds[0].gates if g.gate == "reference_silhouette")
     assert gate.passed and gate.findings[0].data["iou"] == pytest.approx(0.42) and services.silhouette_calls
-    assert any("silhouette IoU vs the reference image is 0.42" in i for i in rec.rounds[1].instructions)
+    assert any("Silhouette IoU vs the reference image is 0.42" in i for i in rec.rounds[1].instructions)
     assert any("wider relative to its height" in i for i in rec.rounds[1].instructions)
     refine_prompt = model.requests[-1].messages[0].text
     assert "## Reference images" in refine_prompt and "compare_reference" not in refine_prompt  # single-shot: no tools

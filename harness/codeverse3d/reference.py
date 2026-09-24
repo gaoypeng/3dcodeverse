@@ -314,9 +314,9 @@ VIEW_CLAUSE: dict[str, str] = {
 }
 
 #: order views are requested in as ``n_views`` grows.  The straight-on ``front``
-#: elevation comes second on purpose: it is the SILHOUETTE TARGET, and the harness
-#: measures IoU against the run's ``front`` render (``tracks.static_object.silhouette_gate``),
-#: so the two cameras must agree.  The 3/4 shot carries the part inventory.
+#: elevation comes second on purpose: it is the SILHOUETTE TARGET, and a straight-on
+#: elevation has a render camera to match (``silhouette.measure_reference`` takes the
+#: best-matching view — the gate and the judge both).  The 3/4 shot carries the part inventory.
 VIEW_ORDER: tuple[str, ...] = ("three_quarter", "front", "side", "back")
 
 
