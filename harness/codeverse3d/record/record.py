@@ -26,7 +26,7 @@ from codeverse3d.contracts.artifacts import Judgment
 from codeverse3d.contracts.run import RoundRecord, RunId, RunRecord
 from codeverse3d.cost.ledger import existing_ledger_path, ledger_usage, load_ledger
 from codeverse3d.proc import read_json_or_none, version_line
-from codeverse3d.spatial.node import node_modules_dir
+from codeverse3d.spatial.node import node_modules_dir, puppeteer_cache_dir
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ def _harness_git_sha(pkg_file: Path | None = None) -> str:
 
 def _chrome_version() -> str:
     """Chrome build from the puppeteer cache directory name (offline, no launch)."""
-    cache = Path.home() / ".cache" / "puppeteer" / "chrome"
+    cache = puppeteer_cache_dir() / "chrome"
     if not cache.is_dir():
         return ""
     builds = sorted(p.name for p in cache.iterdir() if p.is_dir())

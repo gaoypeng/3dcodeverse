@@ -122,6 +122,11 @@ def node_modules_dir() -> Path:
     return runtime_js_dir() / "node_modules"
 
 
+def puppeteer_cache_dir() -> Path:
+    """Where puppeteer keeps its downloaded Chrome builds (``<dir>/chrome/<build>``)."""
+    return Path.home() / ".cache" / "puppeteer"
+
+
 def three_import_hook() -> Path:
     """The ``--import`` hook that redirects bare ``three`` specifiers to runtime_js."""
     return runtime_js_dir() / "lib" / "resolve_three.mjs"

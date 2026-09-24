@@ -101,7 +101,9 @@ def check_node() -> list[Row]:
     else:
         rows.append(("three", "FAIL", f"runtime_js/node_modules/three missing or unreadable — run `npm install` in {rj}"))
     if pup is not None:
-        cache = Path.home() / ".cache" / "puppeteer"
+        from codeverse3d.spatial.node import puppeteer_cache_dir
+
+        cache = puppeteer_cache_dir()
         chrome = any(cache.rglob("chrome")) if cache.is_dir() else False
         rows.append(("puppeteer", "OK" if chrome else "WARN",
                      f"v{pup.get('version', '?')}; chrome cache {'found' if chrome else 'missing'} ({cache})"))
