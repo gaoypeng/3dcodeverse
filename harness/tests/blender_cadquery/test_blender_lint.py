@@ -75,9 +75,17 @@ def test_bmesh_lookup_rule_ignores_non_bmesh_bases() -> None:
 
 
 def test_removed_bsdf_inputs() -> None:
-    r = lint_blender_source("import bpy\nm = bpy.data.materials.new('x')\nm.node_tree.nodes['Principled BSDF'].inputs['Specular'].default_value = 0.5\n")
-    f = [x for x in r.findings if "Specular" in x.message]
-    assert f and f[0].severity == Severity.ERROR and "Specular IOR Level" in f[0].fix_hint
+    """A removed input is an ERROR unless its access sits under `'<key>' in x.inputs` (the
+    version-proof `elif` 18 of 984 recorded scripts use, e.g. the laptop_urdf model.py)."""
+    src = ("import bpy\nm = bpy.data.materials.new('x')\nb = m.node_tree.nodes['Principled BSDF']\n"
+           "if 'Specular IOR Level' in b.inputs:\n    b.inputs['Specular IOR Level'].default_value = 0.5\n"
+           "elif 'Specular' in b.inputs:\n    b.inputs['Specular'].default_value = 0.5\n"
+           "if m and 'Clearcoat' in b.inputs:\n    b.inputs['Clearcoat'].default_value = 0.2\n"
+           "b.inputs['Specular'].default_value = 0.5\n")
+    r = lint_blender_source(src)
+    f = [x for x in r.findings if "does not exist" in x.message]
+    assert [(x.severity, x.data["line"]) for x in f] == [(Severity.ERROR, 10)]
+    assert "Specular IOR Level" in f[0].fix_hint
 
 
 def test_valid_bsdf_inputs_not_flagged() -> None:

@@ -85,7 +85,8 @@ class _Collector(ast.NodeVisitor):
         self.name_loads: list[tuple[str, int]] = []
         self.bm_names: set[str] = set()  # names bound from bmesh.new() / bmesh.from_edit_mesh()
         self.bm_subscripts: list[tuple[str, int]] = []  # (base name, line) of <name>.verts/edges/faces[i]
-        self.bsdf_inputs: list[tuple[str, int]] = []
+        self.bsdf_inputs: list[tuple[str, int, bool]] = []  # (key, line, inside `if '<key>' in x.inputs:`)
+        self._guarded: list[frozenset[str]] = []  # keys the enclosing if/elif tests are membership checks of
         self.names_assigned: list[str] = []  # string constants assigned to .name / name=
         self.constants: list[tuple[str, int]] = []
         self.has_temp_override = False
@@ -159,6 +160,28 @@ class _Collector(ast.NodeVisitor):
             self.names_assigned.append(str(v.values[0].value).rstrip("_"))
         self.generic_visit(node)
 
+    @staticmethod
+    def _input_guards(test: ast.expr) -> frozenset[str]:
+        """Keys ``k`` a test asserts present: ``'k' in x.inputs`` (also inside an ``and``)."""
+        if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
+            return frozenset().union(*(_Collector._input_guards(v) for v in test.values))
+        if (isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], ast.In)
+                and isinstance(test.left, ast.Constant) and isinstance(test.left.value, str)
+                and isinstance(test.comparators[0], ast.Attribute) and test.comparators[0].attr == "inputs"):
+            return frozenset({test.left.value})
+        return frozenset()
+
+    def visit_If(self, node: ast.If | ast.IfExp) -> None:
+        self.visit(node.test)
+        self._guarded.append(self._input_guards(node.test))
+        for child in node.body if isinstance(node.body, list) else [node.body]:
+            self.visit(child)
+        self._guarded.pop()
+        for child in node.orelse if isinstance(node.orelse, list) else [node.orelse]:
+            self.visit(child)
+
+    visit_IfExp = visit_If  # type: ignore[assignment]
+
     def visit_Subscript(self, node: ast.Subscript) -> None:
         if isinstance(node.value, ast.Attribute):
             # only <Name>.verts/edges/faces[i] — e.verts[0] (BMEdge) / me.edges[i] (Mesh) are
@@ -167,7 +190,8 @@ class _Collector(ast.NodeVisitor):
                     and isinstance(node.value.value, ast.Name)):
                 self.bm_subscripts.append((node.value.value.id, node.lineno))
             if node.value.attr == "inputs" and isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
-                self.bsdf_inputs.append((node.slice.value, node.lineno))
+                key = node.slice.value
+                self.bsdf_inputs.append((key, node.lineno, any(key in g for g in self._guarded)))
         self.generic_visit(node)
 
     def visit_Constant(self, node: ast.Constant) -> None:
@@ -233,8 +257,8 @@ def _rules(c: _Collector, source: str, *, target: str, expect_names: bool, expec
             out.append(_f(W, f"`{target}` assignment — cameras/world are owned by the harness", line, "remove camera/world code"))
         if target.endswith(".use_nodes"):
             out.append(_f(I, "`use_nodes = True` is a no-op in Blender 5.x (materials always have a node tree); harmless", line, ""))
-    for key, line in c.bsdf_inputs:
-        if key in REMOVED_BSDF_INPUTS:
+    for key, line, guarded in c.bsdf_inputs:
+        if key in REMOVED_BSDF_INPUTS and not guarded:  # `elif 'Specular' in bsdf.inputs:` is version-proof
             out.append(_f(E, f"Principled BSDF input '{key}' does not exist in Blender 4.x/5.x (KeyError at runtime)", line,
                           f"use inputs['{REMOVED_BSDF_INPUTS[key]}']"))
         elif key == "Specular Tint":
