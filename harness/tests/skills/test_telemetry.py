@@ -192,7 +192,8 @@ def test_the_report_counts_exact_sessions_and_drops_only_blind_ones(tmp_path):
 
     from codeverse3d.cli.main import app
 
-    tele = tmp_path / "run" / TELEMETRY_DIR
+    root = tmp_path / "bat"
+    tele = root / "run" / TELEMETRY_DIR
     tele.mkdir(parents=True)
     rows = [  # exact, the agent opened the control too: counted, and said so
         {"agent": "gemini-cli:gemini-3.7-flash", "listed": ["c3d-a"], "evidence": "transcript",
@@ -202,9 +203,15 @@ def test_the_report_counts_exact_sessions_and_drops_only_blind_ones(tmp_path):
          "reads": [{"name": "c3d-a", "surfaced": True, "deep": True}]},
     ]
     (tele / SKILLS_FILE).write_text("".join(json.dumps(r) + "\n" for r in rows))
-    r = CliRunner().invoke(app, ["skills", "report", str(tmp_path), "--json"])
+    # N58: a best-of-N candidate's session counts, and a cell another battery symlinks in is read, once
+    for d in (root / "run" / "_cand" / "c0", tmp_path / "other" / "cell"):
+        (d / TELEMETRY_DIR).mkdir(parents=True)
+        (d / TELEMETRY_DIR / SKILLS_FILE).write_text(json.dumps(rows[0]) + "\n")
+    (root / "cell").symlink_to(tmp_path / "other" / "cell")
+    (root / "alias").symlink_to(tmp_path / "other" / "cell")
+    r = CliRunner().invoke(app, ["skills", "report", str(root), "--json"])
     assert r.exit_code == 0, r.output
     out = json.loads(r.output)
-    assert out["transcript_sessions"] == 1 and out["control_opened_by_agent_sessions"] == 1
+    assert out["transcript_sessions"] == 3 and out["control_opened_by_agent_sessions"] == 3
     assert out["control_read_sessions"] == 1
-    assert [(s["backend"], s["deep"]) for s in out["skills"]] == [("gemini-cli", 1)]
+    assert [(s["backend"], s["deep"]) for s in out["skills"]] == [("gemini-cli", 3)]

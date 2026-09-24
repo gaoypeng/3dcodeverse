@@ -131,17 +131,23 @@ def report(
     """
     from rich.table import Table
 
+    from codeverse3d.contracts.run import SkillsUsage
+    from codeverse3d.record.record import unique_files
+    from codeverse3d.skills.telemetry import SKILLS_FILE, TELEMETRY_DIR
+
     rows: list[dict] = []
-    for p in sorted(Path(runs_dir).rglob("telemetry/skills.jsonl")):
-        rows.extend(read_jsonl_lenient(p))
+    for p in unique_files(runs_dir, SKILLS_FILE, subruns=True):  # a symlinked cell once; candidates' sessions too
+        if p.parent.name == TELEMETRY_DIR:
+            rows.extend(read_jsonl_lenient(p))
     if not rows:
         err_console.print(f"[yellow]no telemetry/skills.jsonl under {runs_dir}[/] (was C3D_SKILLS=0?)")
         raise typer.Exit(code=1)
 
     per: dict[tuple[str, str], list[int]] = {}
 
-    def _blind(r: dict) -> bool:          # an atime row whose control fired saw nothing
-        return bool(r.get("control_read")) and r.get("evidence", "atime") != "transcript"
+    def _blind(r: dict) -> bool:          # the probe saw nothing: SkillsUsage.deep_read_rate says None
+        u = SkillsUsage.model_validate(r)
+        return bool(u.listed) and u.deep_read_rate is None
 
     blind = sum(1 for r in rows if _blind(r))
     exact = sum(1 for r in rows if r.get("evidence") == "transcript")

@@ -39,10 +39,7 @@ from codeverse3d.contracts.common import (
 from codeverse3d.contracts.run import RoundRecord, RunRecord
 from codeverse3d.record import git_history
 from codeverse3d.record.deliverable import deliverable_path, round_outputs, texture_shipped_for
-from codeverse3d.record.record import (
-    effective_judgment,
-    round_summary,
-)
+from codeverse3d.record.record import effective_judgment, round_summary, stop_reason
 from codeverse3d.workspace import Workspace
 
 MAX_GLB_BYTES = 20 * 1024 * 1024
@@ -341,7 +338,7 @@ def build_meta(
         rounds=len(record.rounds),
         round=rnd.index if rnd is not None else None,
         rounds_summary=[round_summary(r) for r in record.rounds],
-        stop_reason=str(record.extra.get("stop_reason", "") or ""),
+        stop_reason=stop_reason(record),
         code_commit=rnd.commit if rnd is not None else "",
         code_source=code_source,
         code_fingerprint=code_fingerprint(code) if code else "",

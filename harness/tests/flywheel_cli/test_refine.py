@@ -39,7 +39,8 @@ def test_a_refine_round_carries_its_brief_its_diff_and_its_delta(tmp_path):
     rows, drops = _rows(tmp_path)
     assert len(rows) == 1 and not drops
     t = rows[0]
-    assert t.round == 1 and t.round_kind == "refine" and t.battery == "batt"
+    assert t.round == 1 and t.round_kind == "refine"
+    assert (t.battery, t.run) == (tmp_path.name, "batt__chair")   # its RunId: the key index.sqlite joins on (N59)
     assert t.score_before == 0.30 and t.score_after == 0.80 and t.score_delta == 0.50 and t.outcome == "improved"
     assert t.instructions == ["thicken the legs"]
     assert [g["message"] for g in t.gate_errors] == ["part 'Leg' is floating"]   # ERRORs only

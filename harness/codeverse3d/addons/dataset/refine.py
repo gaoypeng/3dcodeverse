@@ -36,12 +36,7 @@ from codeverse3d.record.git_history import (
     diff_between,
     read_tree_at,
 )
-from codeverse3d.record.record import (
-    BATTERY_MARKERS,
-    effective_judgment,
-    effective_score,
-    iter_runs,
-)
+from codeverse3d.record.record import effective_judgment, effective_score, iter_runs
 from codeverse3d.workspace import Workspace
 
 #: rounds that answer a judgment.  A texture or asset round is driven by its own pass, and
@@ -136,35 +131,15 @@ def _transition(ws: Workspace, rec: RunRecord, prev: RoundRecord, cur: RoundReco
         outcome=outcome_of(delta, threshold), before_files=files_before, after_files=files_after)
 
 
-#: path segments that are run LAYOUT, not a battery name — the same markers ``iter_runs``
-#: discovers batteries by
-_LAYOUT_DIRS = frozenset(BATTERY_MARKERS)
-
-
-def _identity(root: Path, found: Any) -> tuple[str, str]:
-    """``(battery, run)`` for a run, taken from where it PHYSICALLY lives.
-
-    ``eval/bench/out``'s batteries symlink each other's cells (54 of 239 runs are reachable
-    twice), so labelling by the path a scan happened to reach first credits a run to a
-    battery it never ran in."""
-    try:
-        rel = found.ws.root.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return found.run_id.battery, found.run_id.rel
-    head, _, rest = rel.partition("/")
-    if not rest or head in _LAYOUT_DIRS:
-        return found.run_id.battery, rel
-    return head, rest
-
-
 def transitions(runs_dir: Path | str, *, threshold: float = MIN_PREFERENCE_DELTA,
                 max_diff_bytes: int = MAX_DIFF_BYTES, with_code: bool = False,
                 drops: Counter[str] | None = None) -> Iterator[RefineTransition]:
     """Every exportable refine transition under ``runs_dir``; every one that is not is counted.
 
     A run reachable through more than one path (54 of 239 under ``eval/bench/out``, where the
-    batteries symlink each other's cells) is found once (``find_run_dirs``) and exported under
-    the battery it physically lives in."""
+    batteries symlink each other's cells) is found once (``find_run_dirs``), at the path it
+    physically lives at.  A row is named by its ``RunId`` (``battery``, ``run`` = the slug), the
+    key of ``index.sqlite`` and of the exported samples."""
     drops = drops if drops is not None else Counter()
     root = Path(runs_dir)
     for found in iter_runs(root, on_error=lambda p, e: drops.update([f"unreadable_record: {type(e).__name__}"])):
@@ -183,8 +158,7 @@ def transitions(runs_dir: Path | str, *, threshold: float = MIN_PREFERENCE_DELTA
                 drops["predecessor_unjudged"] += 1
             else:
                 try:
-                    battery, run = _identity(root, found)
-                    yield _transition(found.ws, found.record, prev, cur, battery=battery, run=run,
+                    yield _transition(found.ws, found.record, prev, cur, battery=found.run_id.battery, run=found.run_id.slug,
                                       threshold=threshold, max_diff_bytes=max_diff_bytes, with_code=with_code)
                 except GitReadError as e:
                     drops[f"git_read_failed: {str(e)[:60]}"] += 1

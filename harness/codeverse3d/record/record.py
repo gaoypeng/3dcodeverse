@@ -141,6 +141,11 @@ def rubric_of(record: RunRecord) -> str:
     return str(record.extra.get("rubric") or "") or next(judged, "") or run_rubric(record.spec)
 
 
+def stop_reason(record: RunRecord) -> str:
+    """Why the run stopped: ``extra["stop_reason"]`` (what the loop stamped), else its status."""
+    return str(record.extra.get("stop_reason") or record.status.value)
+
+
 def effective_score(r: RoundRecord) -> float | None:
     """``r.score`` with degraded judgments filtered out (None = unscored)."""
     j = effective_judgment(r)
@@ -301,23 +306,23 @@ RUN_SEARCH_DEPTH = 7
 BATTERY_MARKERS = ("runs", "cells", "arms")
 #: run-layout directories that hold a SUB-workspace (a scene asset candidate, a rejected
 #: best-of-N candidate): their files belong to that sub-run, not to the run above them.
-#: ``addons.costreport.audit.find_runs`` and the bench survey scripts skip them by this one name.
+#: :func:`unique_files` and the bench survey scripts skip them by this one name.
 SUBRUN_DIRS: frozenset[str] = frozenset({"_cand", "_assets"})
 
 
-def unique_files(root: Path | str, name: str) -> list[Path]:
+def unique_files(root: Path | str, name: str, *, subruns: bool = False) -> list[Path]:
     """Every file called ``name`` under ``root``, once per file on disk.
 
     Battery trees symlink each other's cells and every run has
     ``run/telemetry/trajectories -> run/trajectories``, so a walk must say what it does
     about symlinks: this one follows them (``recurse_symlinks=True``) and collapses the
     two paths of one file by its resolved path.  Sub-workspaces (:data:`SUBRUN_DIRS`) are
-    skipped.  The one walker for every survey that counts sessions, records or artefacts —
+    skipped unless ``subruns`` (a best-of-N candidate's session is a session).  The one walker for every survey that counts sessions, records or artefacts —
     each hand-rolled copy of it has at some point counted a file twice."""
     seen: dict[Path, Path] = {}
     root = Path(root)
     for p in sorted(root.rglob(name, recurse_symlinks=True)):
-        if SUBRUN_DIRS & set(p.relative_to(root).parts):
+        if not subruns and SUBRUN_DIRS & set(p.relative_to(root).parts):
             continue
         seen.setdefault(p.resolve(), p)
     return sorted(seen.values())

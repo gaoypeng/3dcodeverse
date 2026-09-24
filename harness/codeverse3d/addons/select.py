@@ -48,6 +48,7 @@ from codeverse3d.record.record import (
     repackage,
     round_complexity,
     rubric_of,
+    stop_reason,
 )
 from codeverse3d.workspace import Workspace
 
@@ -239,7 +240,7 @@ def summarise(run_dir: Path | str, *, record: RunRecord | None = None) -> RunSum
         picked, method = pick(run_dir, record=rec), "score"
     baseline = by_index[0].score if 0 in by_index else None
     score = by_index[picked].score if picked is not None else None
-    return RunSummary(rounds=len(rows), stop_reason=str(rec.extra.get("stop_reason") or rec.status.value),
+    return RunSummary(rounds=len(rows), stop_reason=stop_reason(rec),
                       baseline_score=baseline, picked_round=picked, picked_score=score, method=method,
                       delta=round(score - baseline, 6) if score is not None and baseline is not None else None)
 

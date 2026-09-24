@@ -637,3 +637,25 @@ def test_a_replay_judges_the_picked_round_on_the_runs_rubric_and_books_into_the_
     assert load_record(ws).total_usage.cost_usd == pytest.approx(ledger_usage(load_ledger(ws.root)).cost_usd)
     assert load_record(ws).total_usage.cost_usd == pytest.approx(total + 3 * 0.05)
 
+
+def test_render_of_a_scene_uses_the_in_run_cameras_and_times(tmp_path: Path, monkeypatch):
+    """N69: `3dcode render` on a scene renders the plan's cameras at SCENE_TIMES — what the in-run judge
+    saw (tracks/scene.ScenePipeline.render) — not the cameras createScene() authored."""
+    import codeverse3d.spatial.render_scene as RS
+    from codeverse3d.contracts.artifacts import RenderSet
+    from codeverse3d.contracts.plan import BBox, CameraPlan, ScenePlan, ZonePlan
+    from codeverse3d.tracks.scene import SCENE_TIMES
+    from codeverse3d.workspace import Workspace
+
+    runs = tmp_path / "runs"
+    assert runner.invoke(app, ["make", "x", "--track", "scene", "--no-run", "--runs-dir", str(runs), "--slug", "s"]).exit_code == 0
+    ws = Workspace(runs / "s")
+    cam = CameraPlan(name="hero", position=(4, 2, 4), look_at=(0, 0, 0))
+    ws.write_json(ws.plan_path, ScenePlan(title="t", summary="s", setting="x", environment="e", bounds=BBox(center=(0, 0, 0), extents=(10, 4, 10)),
+                                          zones=[ZonePlan(name="z", description="d", bbox=BBox(center=(0, 0, 0), extents=(1, 1, 1)))],
+                                          cameras=[cam]))
+    seen: dict = {}
+    monkeypatch.setattr(RS, "render_scene", lambda ws, out_dir, **kw: seen.update(kw) or RenderSet(views=[], renderer="fake"))
+    r = runner.invoke(app, ["render", "s", "--runs-dir", str(runs)])
+    assert r.exit_code == 0, r.output
+    assert [c.name for c in seen["cameras"]] == ["hero"] and tuple(seen["times"]) == SCENE_TIMES

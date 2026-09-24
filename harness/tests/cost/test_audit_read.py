@@ -26,15 +26,25 @@ def test_a_run_reads_as_its_ledger_rows_and_its_record_facts(fake_run: Path, tmp
     shutil.copytree(fake_run, bare)
     shutil.rmtree(bare / "telemetry")
     assert audit_runs([tmp_path]).n_runs == 1
+    # a record with no extra["stop_reason"] stops where its status says (it read blank, N60)
+    rec = json.loads((bare / "record.json").read_text())
+    rec["extra"].pop("stop_reason")
+    (bare / "record.json").write_text(json.dumps(rec))
+    assert read_run(bare).stop_reason == "max_rounds"
 
 
-def test_find_runs_skips_sub_workspaces(tmp_path: Path):
-    (tmp_path / "a").mkdir()
-    (tmp_path / "a" / "record.json").write_text("{}")
-    sub = tmp_path / "a" / "_assets" / "x"
-    sub.mkdir(parents=True)
-    (sub / "record.json").write_text("{}")
-    assert find_runs(tmp_path) == [tmp_path / "a"]
+def test_find_runs_counts_each_run_once_and_never_one_inside_a_run(tmp_path: Path):
+    """N58: `record.find_run_dirs` — a sub-workspace or a directory nested in a run is part of that run,
+    and a cell another battery symlinks in is found (a bare rglob missed it)."""
+    bat = tmp_path / "bat"
+    for d in (bat / "runs" / "a", bat / "runs" / "a" / "_assets" / "x", bat / "runs" / "a" / "eval" / "inner",
+              tmp_path / "other" / "cells" / "c" / "run"):
+        d.mkdir(parents=True)
+        (d / "record.json").write_text("{}")
+    (tmp_path / "other" / "cells" / "c" / "cell.json").write_text("{}")
+    (bat / "cells").mkdir()
+    (bat / "cells" / "c").symlink_to(tmp_path / "other" / "cells" / "c")
+    assert find_runs(bat) == [bat / "cells" / "c", bat / "runs" / "a"]
 
 
 def test_an_ab_batterys_control_and_variant_cells_stay_two_runs(fake_run: Path, tmp_path: Path):

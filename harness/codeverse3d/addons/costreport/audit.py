@@ -28,7 +28,13 @@ from codeverse3d.contracts.run import RunId
 from codeverse3d.cost.ledger import load_ledger, price_call, summarise
 from codeverse3d.cost.types import CallCost, Stage, Summary
 from codeverse3d.proc import read_json_or_none
-from codeverse3d.record.record import SUBRUN_DIRS, RecordError, load_record
+from codeverse3d.record.record import (
+    RecordError,
+    find_run_dirs,
+    is_run_dir,
+    load_record,
+    stop_reason,
+)
 
 
 @dataclass
@@ -83,7 +89,7 @@ def read_run(run_dir: Path, *, name: str = "", recheck: bool = False) -> RunLedg
         rec = None
     if rec is not None:
         led.track, led.language, led.status = rec.spec.track.value, rec.spec.language.value, rec.status.value
-        led.stop_reason = str(rec.extra.get("stop_reason") or "")
+        led.stop_reason = stop_reason(rec)
         led.n_rounds, led.minutes = len(rec.rounds), rec.minutes
         led.round_built = [None if r.build is None else r.build.ok for r in rec.rounds]
         cands = read_json_or_none(run_dir / "rounds" / "candidates.json") or rec.extra.get("candidates") or {}
@@ -114,18 +120,16 @@ def read_cell(cell_dir: Path, *, name: str, recheck: bool = False) -> RunLedger:
 def find_runs(root: str | Path) -> list[Path]:
     """Every run directory under ``root`` (a dir with ``record.json``) and every compare cell
     (a dir with ``cell.json``; one that wraps a harness run is named by the cell, not its
-    ``run/``).  Sub-workspaces (``_assets/``, ``_cand/``) are part of their run."""
+    ``run/``), found by ``record.find_run_dirs``: once each — a cell another battery symlinks in
+    included — and never inside a run (its ``_assets/``, ``_cand/`` sub-workspaces are part of it)."""
     base = Path(root)
-    if (base / "record.json").is_file() or (base / "cell.json").is_file():
+    if _is_run_or_cell(base):
         return [base]
-    out: set[Path] = set()
-    for marker in ("record.json", "cell.json"):
-        for path in base.rglob(marker):
-            d = path.parent
-            if SUBRUN_DIRS & set(d.relative_to(base).parts):
-                continue
-            out.add(d.parent if d.name == "run" and (d.parent / "cell.json").is_file() else d)
-    return sorted(out)
+    return find_run_dirs(base, predicate=_is_run_or_cell)
+
+
+def _is_run_or_cell(d: Path) -> bool:
+    return is_run_dir(d) or (d / "cell.json").is_file()
 
 
 #: dimensions the audit always aggregates on

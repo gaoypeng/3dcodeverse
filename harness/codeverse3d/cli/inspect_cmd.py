@@ -20,6 +20,7 @@ from codeverse3d.cli._common import RunsDirOpt, console, kv_table
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import RENDER_MODES
 from codeverse3d.contracts.common import Track
+from codeverse3d.contracts.plan import ScenePlan
 from codeverse3d.contracts.spec import Spec
 
 
@@ -64,9 +65,14 @@ def render(
         r = get_settings().render
         if spec.track is Track.SCENE:
             from codeverse3d.spatial.render_scene import render_scene
+            from codeverse3d.spatial.tool_common import load_plan
+            from codeverse3d.tracks.scene import SCENE_TIMES
 
-            rs = render_scene(ws, out_dir, cameras=None, width=width or r.scene_width,
-                              height=height or r.scene_height)
+            # the in-run rig (tracks/scene.ScenePipeline.render): the plan's cameras at the judged
+            # times — not the cameras createScene() authored, which the judge never saw on their own
+            plan = load_plan(ws.plan_path) if ws.plan_path.is_file() else None
+            rs = render_scene(ws, out_dir, cameras=list(plan.cameras) if isinstance(plan, ScenePlan) else None,
+                              times=SCENE_TIMES, width=width or r.scene_width, height=height or r.scene_height)
         else:
             glb = ws.artifacts / "object.glb"
             if not glb.is_file():

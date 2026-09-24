@@ -22,7 +22,7 @@ from codeverse3d.contracts.artifacts import (
     RenderView,
     Severity,
 )
-from codeverse3d.contracts.common import Backends, Language, Track, Usage
+from codeverse3d.contracts.common import ENTRY_FILE, TRACK_LANGUAGES, Backends, Language, Usage
 from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus, StepTime
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.cost.ledger import record_call
@@ -59,15 +59,10 @@ def make_fake_run(
     scores: tuple[float, float] = (0.55, 0.80), with_repair: bool = False,
 ) -> tuple[Workspace, RunRecord]:
     ws = Workspace(runs_dir / slug).create()
-    track = Track.SCENE if language is Language.SCENE_THREEJS else (
-        Track.ARTICULATED_OBJECT if language is Language.URDF_BLENDER else (
-            Track.GRAPHICS if language in (Language.GLSL_SHADER, Language.OPENGL_PYTHON) else Track.STATIC_OBJECT))
+    track = next(t for t, languages in TRACK_LANGUAGES.items() if language in languages)
     spec = Spec(id=slug, track=track, language=language, prompt=prompt, backends=Backends(generator=generator))
     ws.write_json(ws.spec_path, spec)
-    entry = {"blender": "src/model.py", "cadquery": "src/model.py", "urdf_blender": "src/model.py",
-             "threejs": "src/object.js", "scene_threejs": "src/scene.js",
-             "glsl_shader": "src/shader.frag", "opengl_python": "src/program.py"}[language.value]
-    e = ws.root / entry
+    e = ws.root / ENTRY_FILE[language]
     e.parent.mkdir(parents=True, exist_ok=True)
     e.write_text("# round 0\nimport bpy  # comment\n\nbpy.ops.mesh.primitive_cube_add(size=1.0)\n")
     if language is Language.URDF_BLENDER:
