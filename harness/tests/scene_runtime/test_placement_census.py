@@ -104,7 +104,9 @@ def test_no_false_positives_on_legitimate_placements(table):
 
 SETTLE_JS = """
 import * as THREE from 'three';
+import fs from 'node:fs';
 import { settleScene, placementTable } from './lib/host_placement.mjs';
+const words = JSON.parse(fs.readFileSync('./lib/placement_words.json', 'utf8'));
 const mat = new THREE.MeshStandardMaterial();
 const box = (name, sx, sy, sz, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat); m.name = name; m.position.set(x, y + sy / 2, z); return m; };
 const scene = new THREE.Scene();
@@ -124,7 +126,7 @@ const shelf = box('Shelf', 1, 0.1, 0.4, 12, 1.2, 0);            // floating but 
 const wall = box('Wall', 0.2, 2.5, 3, 12.5, 0, 0); zone.add(wall); zone.add(shelf);
 shelf.position.x = 12.35;                                        // AABBs meet the wall's
 scene.updateMatrixWorld(true);
-const settle = settleScene(scene, THREE, { groundY: 0 });
+const settle = settleScene(scene, THREE, { groundY: 0, words });
 const after = placementTable(scene, THREE, { groundY: 0 });
 console.log(JSON.stringify({ settle, after: { assets: after.assets.map((a) => ({ name: a.name, gap: a.ground_gap_m, sunk: a.sunk_m, supported: a.supported, exempt: a.exempt })) } }));
 """

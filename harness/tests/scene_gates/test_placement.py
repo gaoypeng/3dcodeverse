@@ -71,6 +71,8 @@ def test_sunken_thresholds_height_fraction_and_name_words():
         _row("Rock", sunk=0.45, into="Terrain", h=1.2),           # starter-scene rock: 37 % buried is fine
         _row("Boulder", sunk=0.8, into="Terrain", h=1.0),         # 80 % buried → ERROR even for a rock
         _row("PondBasin", sunk=1.4, into="Terrain", h=1.2),       # dug in by definition
+        _row("OldWells", sunk=0.5, into="Terrain", h=1.0),        # plurals too (the settle's rule; was ERROR here)
+        _row("SeaReefOutcrops", sunk=0.45, into="Terrain", h=1.0),  # partial-ok plural: 45 % buried is fine
         _row("Jetty", sunk=0.97, into="Terrain", h=1.1, water=True),   # posts in the pond bed
     ))
     sev = {f.target: f.severity for f in _by_kind(r, "sunken")}

@@ -505,7 +505,8 @@ export function placementTable(scene, THREE, opts = {}) {
 // is seated.  The moves are returned and carried in the census, so nothing is silent.
 //
 // Deliberately conservative, mirroring the python gate's exemptions
-// (codeverse3d/spatial/scene_placement.py — keep the two in sync):
+// (codeverse3d/spatial/scene_placement.py; the name words are ONE list both read,
+// placement_words.json):
 //   · exempt assets (free / backdrop / enclosure / instanced) are never touched
 //   · a foot in the water is a boat / jetty: never touched
 //   · BURIED-ok names (basin, trench, pool…) are below ground by definition
@@ -518,14 +519,23 @@ const SETTLE_EMBED_M = 0.04;
 const SETTLE_PARTIAL_FRAC = 0.40;
 const SETTLE_MAX_MOVE_M = 6;
 const SETTLE_SEAT_EPS_M = 0.005;
-const BURIED_OK_RE = /\b(basin|bed|canal|cave|cellar|crater|ditch|drain|foundations?|graves?|gutter|holes?|lakebed|moat|pits?|pools?|riverbed|trench(es)?|tunnels?|wells?)\b/i;
 const SLOPE_CONFORMAL_RE = /\b(stairs?|stairways?|staircases?|steps?|ramps?|walkways?|paths?|roads?|terraces?|platforms?)\b/i;
-const PARTIAL_OK_RE = /\b(boulders?|bridges?|bush(es)?|cliffs?|docks?|dunes?|fences?|flowers?|grass|hills?|jett(y|ies)|logs?|mounds?|outcrops?|pebbles?|piers?|piles?|plants?|poles?|posts?|reeds?|rocks?|roots?|shrubs?|stakes?|stones?|stumps?|trees?|trunks?|tufts?)\b/i;
+
+/** The words of python's `conventions.to_snake(name)` (digits-only words dropped) — the
+ * tokenisation the placement gate matches `placement_words.json` with. */
+function nameWords(name) {
+  return String(name || '').replace(/[^0-9A-Za-z]+/g, ' ')
+    .replace(/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/g, ' ')
+    .toLowerCase().split(' ').filter((w) => w && !/^\d+$/.test(w));
+}
 
 /** Measure every placed asset once, then translate the clearly mis-seated ones onto
  * their support.  Returns `{count, moves}`; mutates object positions (world-space dy
- * applied through each parent's frame) and leaves matrices updated. */
+ * applied through each parent's frame) and leaves matrices updated.  `opts.words` is
+ * `placement_words.json` (the gate's own list: the host fetches it, a test reads it). */
 export function settleScene(scene, THREE, opts = {}) {
+  if (!opts.words) throw new Error('settleScene needs opts.words (runtime_js/lib/placement_words.json)');
+  const buriedOk = new Set(opts.words.buried_ok), partialOk = new Set(opts.words.partial_ok);
   const { groundY, indices, assets, owner } = survey(scene, opts);
   const checked = assets.filter((a) => !a.exempt);
   const moves = [];
@@ -534,11 +544,11 @@ export function settleScene(scene, THREE, opts = {}) {
     if (Date.now() - t0 > TIME_BUDGET_MS) break;
     const { columns, best, sunk, water, minSunk, anyRest } = probeFeet(a, indices, owner, groundY);
     if (!columns || water) continue;
-    const name = spaced(a.name);
+    const name = spaced(a.name), words = nameWords(a.name);
     const height = Math.max(a.max[1] - a.min[1], 1e-6);
     let dy = 0, why = '';
     if (sunk && sunk.sunk > 0) {
-      if (BURIED_OK_RE.test(name) || SLOPE_CONFORMAL_RE.test(name)) continue;
+      if (words.some((w) => buriedOk.has(w)) || SLOPE_CONFORMAL_RE.test(name)) continue;
       // Slope guard (2026-08-30): a structure following a hillside is "deeply sunk" at
       // its uphill columns while its downhill columns rest — lifting by the DEEPEST
       // burial strands the low end in the air.  Measured on t36_santorini: six
@@ -546,7 +556,7 @@ export function settleScene(scene, THREE, opts = {}) {
       // Settle only what is sunk at EVERY column, and lift by the SHALLOWEST burial.
       if (anyRest || minSunk < Math.max(SUNK_M, 0.5 * sunk.sunk)) continue;
       const frac = minSunk / height;
-      if (PARTIAL_OK_RE.test(name)) {
+      if (words.some((w) => partialOk.has(w))) {
         if (frac <= 0.75) continue;                       // grown / driven in: fine
         dy = minSunk - SETTLE_PARTIAL_FRAC * height;      // pull up to a 40 % embed
         why = 'sunken_partial';

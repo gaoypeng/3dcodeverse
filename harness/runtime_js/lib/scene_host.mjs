@@ -315,7 +315,8 @@ async function boot(opts) {
       info.stage = 'settle';
       try {
         const c0 = sceneCensus(state.scene, THREE);
-        state.settleInfo = settleScene(state.scene, THREE, { groundY: c0.ground_y, contentBox: c0.content_bbox });
+        const words = await (await fetch(new URL('./placement_words.json', import.meta.url))).json();
+        state.settleInfo = settleScene(state.scene, THREE, { groundY: c0.ground_y, contentBox: c0.content_bbox, words });
       } catch (e) {
         state.settleInfo = { count: 0, moves: [], error: String((e && e.message) || e).slice(0, 300) };
       }

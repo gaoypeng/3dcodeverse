@@ -23,6 +23,8 @@ posts 0.97 m into the pond bed — a naive "> 0.10 m" rule flagged all of them
 
 from __future__ import annotations
 
+import functools
+import json
 import logging
 from collections.abc import Sequence
 from typing import Any
@@ -32,6 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse3d.conventions import to_snake
 from codeverse3d.proc import read_json_or_none
+from codeverse3d.spatial.node import runtime_js_dir
 from codeverse3d.workspace import Workspace
 
 log = logging.getLogger(__name__)
@@ -51,18 +54,17 @@ INDOOR_WORDS = frozenset({
     "attic", "basement", "bathroom", "bedroom", "cabin", "cellar", "chamber", "classroom", "cockpit", "corridor", "garage", "hall", "hut", "indoor",
     "indoors", "inside", "interior", "kitchen", "lab", "laboratory", "library", "lobby", "office", "room", "studio", "tent", "warehouse", "workshop",
 })
-#: things that are BELOW ground by definition: never "sunken"
-BURIED_OK_WORDS = frozenset({
-    "basin", "bed", "canal", "cave", "cellar", "crater", "ditch", "drain", "foundation", "foundations", "grave", "gutter", "hole", "lakebed", "moat",
-    "pit", "pool", "riverbed", "trench", "tunnel", "well",
-})
-#: things normally driven or grown into the ground: sunken only past half their height
-PARTIAL_OK_WORDS = frozenset({
-    "boulder", "boulders", "bridge", "bush", "bushes", "cliff", "cliffs", "dock", "dune", "dunes", "fence", "fences", "flower", "flowers", "grass",
-    "hill", "hills", "jetty", "log", "logs", "mound", "mounds", "outcrop", "pebble", "pebbles", "pier", "pile", "piles", "plant", "plants", "pole",
-    "poles", "post", "posts", "reed", "reeds", "rock", "rocks", "root", "roots", "shrub", "shrubs", "stake", "stakes", "stone", "stones", "stump",
-    "stumps", "tree", "trees", "trunk", "trunks", "tuft", "tufts",
-})
+#: name words exempt from "sunken" — BELOW ground by definition (``buried_ok``) or normally
+#: driven / grown in, sunken only past half their height (``partial_ok``).  ONE list, shared with
+#: the boot-time settle (``host_placement.settleScene``): ``runtime_js/lib/placement_words.json``.
+PLACEMENT_WORDS = "placement_words.json"
+
+
+@functools.cache
+def _exempt_words() -> tuple[frozenset[str], frozenset[str]]:
+    """``(buried_ok, partial_ok)`` from :data:`PLACEMENT_WORDS`."""
+    d = json.loads((runtime_js_dir() / "lib" / PLACEMENT_WORDS).read_text(encoding="utf-8"))
+    return frozenset(d["buried_ok"]), frozenset(d["partial_ok"])
 
 
 def _nums(v: object) -> list[float] | None:
@@ -181,10 +183,11 @@ def _sunk_severity(row: AssetRow) -> Severity | None:
     if row.sunk_m <= 0 or row.on_water:
         return None
     words = _words(row.name)
-    if words & BURIED_OK_WORDS:
+    buried_ok, partial_ok = _exempt_words()
+    if words & buried_ok:
         return None
     frac = row.sunk_m / row.height if row.height > 1e-6 else 1.0
-    if words & PARTIAL_OK_WORDS:
+    if words & partial_ok:
         if frac > PARTIAL_OK_ERROR_FRAC and row.sunk_m > SUNK_ERROR_M:
             return Severity.ERROR
         return Severity.WARN if frac > PARTIAL_OK_FRAC else None
