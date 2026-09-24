@@ -22,6 +22,25 @@ Every call runs in a scratch directory *outside* the repository so the CLIs
 cannot pick up CLAUDE.md / AGENTS.md context, and with secrets stripped from the
 environment (``cli_common.clean_env``: no git ceiling — it runs outside any repo),
 keeping only the CLI's own auth variable.
+
+Why the CLI one-shots are NOT an ``AgentJob`` through ``codeverse3d.agents`` (owner, 2026-09-24,
+N82b): that route was taken only if the argv and the prompt stayed byte-identical, and they cannot.
+The harness sessions pass the prompt on stdin, allow a tool list (``--allowedTools`` /
+``--dangerously-skip-permissions``, codex ``--sandbox workspace-write`` + skill and MCP overrides)
+and run in a Workspace; the one-shot passes ``-p <prompt>`` with ``--tools "" --max-turns 1``, runs
+codex ``--sandbox read-only -o <last message>``, in an empty scratch dir.  Moving them changes the
+one-shot arm itself, and its recorded history would stop being comparable.  So only the READING is
+shared: usage from ``ClaudeStream`` / ``CodexEvents.estimated_usage`` (N82a) and the provider verdict
+from ``claude_end`` / ``codex_end`` — the harness's own end rule (N76).
+
+Why the answer is read by :func:`extract_model_file` and not ``eval/llm/extract.py`` (N86): the two
+answer different questions and each keeps its own history comparable.  ``llm.extract`` is the
+finetune/paper extractor (scored candidates, think blocks, the LAST good block), copied so the bare-LLM
+numbers stay comparable with the paper's; this one is ``parse_multifile`` — the parser the harness
+reads a single-shot answer with — so the one-shot arm is read the way the harness reads its own.
+They disagree on some answers (a "variant" second block; unfenced code after a prose line), so a
+model's one-shot number is not portable between the two stacks.  Revisit only if the one-shot
+``no_code`` rate matters.
 """
 
 from __future__ import annotations
@@ -39,6 +58,8 @@ from bench._infra import is_infra_failure
 from codeverse3d.agents.backends import (
     CLAUDE_SETTING_SOURCES,
     ClaudeStream,
+    claude_end,
+    codex_end,
     effort_overrides,
     parse_claude_json,
     parse_codex_jsonl,
@@ -415,8 +436,12 @@ class ClaudeOneShot:
         elif env.get("is_error"):
             notes = f"claude is_error subtype={env.get('subtype', '')}: {text[-400:]}"
             ok = False
+        # the provider's failure, by the harness's own reading of the same stream (N76): a 529 or a spent
+        # usage limit drops the cell instead of scoring the arm 0 for someone else's outage
+        end = claude_end(proc, env, stream, text)
         (out_dir / "response.md").write_text(text)
         return OneShotResult(ok=ok, text=text, usage=usage, tool_calls=usage.tool_calls, notes=notes,
+                             infra_failed=not ok and (end.transient or end.quota),
                              duration_s=round(proc.duration_s, 2), transcript_dir=str(out_dir))
 
 
@@ -473,8 +498,10 @@ class CodexOneShot:
         elif proc.rc != 0 or events.n_events == 0:
             notes = f"rc={proc.rc}; events={events.n_events}; stderr: {proc.stderr[-800:]}"
             ok = ok and events.n_events > 0
+        end = codex_end(proc, events, text)   # the provider's failure, read as the harness reads it (N76)
         (out_dir / "response.md").write_text(text)
         return OneShotResult(ok=ok, text=text, usage=usage, tool_calls=events.tool_calls, notes=notes,
+                             infra_failed=not ok and (end.transient or end.quota),
                              duration_s=round(proc.duration_s, 2), transcript_dir=str(out_dir))
 
 

@@ -20,6 +20,11 @@ extract(text, dialect) -> (code, meta)
   * ties are broken toward the LAST high-scoring block (models put the final program last), then length.
 
 meta keys: n_blocks, chosen, score, lang, had_think, think_chars, from_think, no_fence, valid, markers.
+
+Not shared with the bench one-shot arm (``eval/bench/_oneshot.extract_model_file``, which reads an
+answer with the harness's own ``parse_multifile``): owner, 2026-09-24 (N86) — each extractor keeps its
+own history comparable (this one the paper's, that one the one-shot arm's).  They score some answers
+differently; the reasons are in ``bench/_oneshot.py``'s module docstring.
 """
 import ast
 import json

@@ -183,3 +183,19 @@ def test_a_session_that_never_finished_books_what_it_spent_not_zero(tmp_path: Pa
     fake.chmod(0o755)
     r = backend(str(fake)).generate("brief", out_dir=tmp_path / "o", timeout_s=30)
     assert r.usage.input_tokens > 0 and r.usage.cost_usd > 0, r.usage
+
+
+@pytest.mark.parametrize("said, infra", [
+    ("API Error: 529 {\"type\":\"overloaded_error\"}", True),   # matched no marker: scored 0.0 before
+    ("You've hit your usage limit. Try again later.", True),
+    ("TypeError: cannot read properties of undefined", False),  # the CLI's own crash stays a zero
+])
+@pytest.mark.parametrize("backend", [lambda b: ClaudeOneShot("claude-sonnet-5", binary=b),
+                                     lambda b: CodexOneShot("gpt-5.5", binary=b)], ids=["claude", "codex"])
+def test_a_provider_failure_drops_the_one_shot_cell(tmp_path: Path, backend, said, infra):
+    """N76: the one-shot reads its CLI's end the way the harness session does (claude_end / codex_end)."""
+    fake = tmp_path / "cli"
+    fake.write_text(f"#!{sys.executable}\nimport sys\nsys.stdin.read()\nprint({said!r}, file=sys.stderr)\nsys.exit(1)\n")
+    fake.chmod(0o755)
+    r = backend(str(fake)).generate("brief", out_dir=tmp_path / "o", timeout_s=30)
+    assert not r.ok and r.infra_failed is infra, r

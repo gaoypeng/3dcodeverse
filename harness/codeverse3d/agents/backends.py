@@ -678,6 +678,21 @@ def primary_served_model(env: dict[str, Any], model: str) -> str:
     return max(served, key=lambda n: float((served[n] or {}).get("costUSD") or 0.0))
 
 
+def claude_end(proc: CompletedProc, env: dict[str, Any] | None, stream: ClaudeStream, text: str) -> SessionEnd:
+    """How a ``claude -p`` process ended (``cli_common.classify_end`` with claude's evidence: its
+    ``api_retry`` events, its result envelope) — the harness session and the bench one-shot alike."""
+    sub = str((env or {}).get("subtype", ""))
+    if proc.timed_out:
+        return classify_end(proc, ok=False, text=text, provider_retried=bool(stream.retries))
+    if env is None or proc.rc != 0:
+        # a 529 / overloaded exit is the provider's, not the task's (AgentResult.transient)
+        return classify_end(proc, ok=False, text=text, said=(proc.stderr, proc.stdout))
+    if env.get("is_error") or sub.startswith("error"):
+        # the turn cap is the task's budget, never the provider's
+        return SessionEnd("budget") if "max_turns" in sub else classify_end(proc, ok=False, text=text, said=(text,))
+    return classify_end(proc, ok=True, text=text)
+
+
 class ClaudeCodeAgent(_CliAgent):
     kind = "claude-code"
     cli_label = "claude"
@@ -740,19 +755,13 @@ class ClaudeCodeAgent(_CliAgent):
             turns = int((env or {}).get("num_turns") or 0)
             errors: list[str] = []
             sub = str((env or {}).get("subtype", ""))
+            end = claude_end(proc, env, stream, text)
             if proc.timed_out:
-                end = classify_end(proc, ok=False, text=text, provider_retried=bool(stream.retries))
                 errors.append(watchdog_error(proc))
             elif env is None or proc.rc != 0:
-                # a 529 / overloaded exit is the provider's, not the task's (AgentResult.transient)
-                end = classify_end(proc, ok=False, text=text, said=(proc.stderr, proc.stdout))
                 errors.append(f"rc={proc.rc}; no result envelope; stderr tail: {proc.stderr[-1500:]}")
-            elif env.get("is_error") or sub.startswith("error"):
-                # the turn cap is the task's budget, never the provider's
-                end = SessionEnd("budget") if "max_turns" in sub else classify_end(proc, ok=False, text=text, said=(text,))
+            elif end.exit_reason != "completed":
                 errors.append(f"claude reported {sub or 'is_error'}: {text[-800:]}")
-            else:
-                end = classify_end(proc, ok=True, text=text)
             return finish_session(
                 s, ok=end.exit_reason == "completed", exit_reason=end.exit_reason, text=text, usage=usage,
                 tool_calls=n_calls, turns=turns, errors=errors, transient=end.transient, quota=end.quota,
@@ -896,6 +905,15 @@ def parse_codex_jsonl(stdout: str) -> CodexEvents:
     return ev
 
 
+def codex_end(proc: CompletedProc, events: CodexEvents, text: str) -> SessionEnd:
+    """How a ``codex exec --json`` process ended (``cli_common.classify_end`` with codex's evidence:
+    its own error events — a dropped stream, a 5xx it gave up on) — the harness session and the
+    bench one-shot alike."""
+    ok = not proc.timed_out and proc.rc == 0 and events.n_events > 0 and not (events.errors and events.turns_completed == 0)
+    return classify_end(proc, ok=ok, text=text, said=(*events.errors, proc.stderr),
+                        provider_retried=is_transient_failure(*events.errors))
+
+
 class CodexAgent(_CliAgent):
     kind = "codex"
     cli_label = "codex"
@@ -947,10 +965,8 @@ class CodexAgent(_CliAgent):
                 errors.append(watchdog_error(proc))
             elif proc.rc != 0 or events.n_events == 0:
                 errors.append(f"rc={proc.rc}; events={events.n_events}; stderr tail: {proc.stderr[-1500:]}")
-            ok = not proc.timed_out and proc.rc == 0 and events.n_events > 0 and not (events.errors and events.turns_completed == 0)
-            # codex's provider record is its own error events (a dropped stream, a 5xx it gave up on)
-            end = classify_end(proc, ok=ok, text=text, said=(*events.errors, proc.stderr),
-                               provider_retried=is_transient_failure(*events.errors))
+            end = codex_end(proc, events, text)
+            ok = end.exit_reason == "completed"
             return finish_session(
                 s, ok=ok, exit_reason=end.exit_reason, text=text, usage=usage, tool_calls=events.tool_calls,
                 turns=events.turns_completed, errors=errors, transient=end.transient, quota=end.quota,
