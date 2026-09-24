@@ -191,6 +191,19 @@ class FakeCells:
         return _row(item.id, arm, s, tier=item.tier, workspace=env.get("C3D_PLAN_BRIEF", ""))
 
 
+def test_a_relative_battery_path_reaches_the_workers_absolute(tmp_path: Path, monkeypatch):
+    """Workers run with cwd=REPO: the relative --prompts the usage line shows must not reach them as-is."""
+    seen: list[Path] = []
+
+    def record(battery_path, out, item, arm, opts):
+        seen.append(Path(battery_path))
+        return _row(item.id, arm, 0.5, tier=item.tier)
+
+    monkeypatch.chdir(Path(BATTERY).parent)
+    run_ab(Path(BATTERY).name, tmp_path, AbOptions(variant_env={"K": "v"}, limit=1), run_cell_fn=record)
+    assert seen and all(p.is_absolute() and p.is_file() for p in seen)
+
+
 def test_driver_runs_pairs_in_prompt_order_and_writes_the_verdict(tmp_path: Path):
     b = Battery.load(BATTERY)
     ids = [p.id for p in b.prompts[:3]]

@@ -456,7 +456,9 @@ def run_ab(
     on_result: Callable[[CellResult], None] | None = None,
 ) -> Verdict:
     """Run (or resume) the A/B, one prompt-pair at a time; write pairs.json + summary.md."""
-    battery_path, out = Path(battery_path), Path(out_dir)
+    # absolute before any worker sees them: a worker runs with cwd=REPO, so the relative
+    # `--prompts bench/prompts/x.yaml` the docstring shows made every cell exit 1 (2026-09-23)
+    battery_path, out = Path(battery_path).resolve(), Path(out_dir).resolve()
     battery = Battery.load(battery_path)
     out.mkdir(parents=True, exist_ok=True)
     (out / "ab.json").write_text(
