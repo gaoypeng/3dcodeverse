@@ -45,7 +45,7 @@ def test_cadquery_contract_example_runs() -> None:
     result = ns["result"]
     bb = result.toCompound().BoundingBox()
     assert abs(bb.zmin) < 1e-6 and abs(bb.zmax - 0.45) < 1e-3
-    assert [c.name for c in result.children] == ["Top", "Leg1", "Leg2", "Leg3", "Leg4"]
+    assert [c.name for c in result.children] == ["Top", "Leg_0", "Leg_1", "Leg_2", "Leg_3"]
 
 
 # --------------------------------------------------------------------- blender
@@ -67,7 +67,7 @@ def test_blender_contract_example_builds_and_exports(tmp_path) -> None:
         "print('PARTS', sorted(o.name for o in bpy.data.objects))\n"
     )
     out = run_blender_script(tmp_path, code)
-    assert "PARTS ['Leg1', 'Leg2', 'Leg3', 'Seat']" in out
+    assert "PARTS ['Leg_0', 'Leg_1', 'Leg_2', 'Seat']" in out
     assert glb.stat().st_size > 1000
     trimesh = pytest.importorskip("trimesh")
     scene = trimesh.load(str(glb))
