@@ -94,6 +94,10 @@ def test_camera_plan_name_must_be_filename_safe():
     for bad in ("x/../y", "/absolute", "a\\b", "a b", "a.png", "", "x" * 200):
         with pytest.raises(ValidationError):
             CameraPlan(name=bad, position=(0, 1.6, 5), look_at=(0, 0, 0))
+    # the scene host's other rules (audit 2026-09-24 N10): a plan camera it would flag fails here
+    for bad in ({"fov": 170}, {"fov": 2}, {"look_at": (0, 1.6, 5)}):
+        with pytest.raises(ValidationError):
+            CameraPlan(**{"name": "cam", "position": (0, 1.6, 5), "look_at": (0, 0, 0), **bad})
 
 
 def test_budget_is_strict_but_recorded_specs_migrate_the_retired_cost_key():

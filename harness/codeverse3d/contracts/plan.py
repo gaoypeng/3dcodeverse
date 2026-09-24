@@ -574,11 +574,14 @@ class EffectPlan(BaseModel):
 CAMERA_NAME_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
+#: The scene host (``scene_host.mjs`` validateCameras) states the same name / fov / position
+#: rules for the cameras ``createScene`` returns; a plan that broke them used to validate here and
+#: then draw a WARN on src/scene.js every round that no agent owns (audit 2026-09-24 N10).
 class CameraPlan(BaseModel):
     name: str = Field(description="letters/digits/_/- only; it becomes a render filename")
     position: Vec3
     look_at: Vec3
-    fov: float = 50.0
+    fov: float = Field(default=50.0, ge=5.0, le=150.0)
     purpose: str = ""
 
     @field_validator("name")
@@ -590,6 +593,12 @@ class CameraPlan(BaseModel):
                 f"camera name {v!r} must match [A-Za-z0-9_-]{{1,64}}: it becomes a render "
                 "filename (no spaces, dots, slashes or other path characters)")
         return v
+
+    @model_validator(mode="after")
+    def _looks_somewhere(self) -> CameraPlan:
+        if all(abs(p - q) < 1e-6 for p, q in zip(self.position, self.look_at, strict=True)):
+            raise ValueError(f"camera {self.name!r}: position equals look_at (it looks nowhere)")
+        return self
 
 
 class ScenePlan(BaseModel):

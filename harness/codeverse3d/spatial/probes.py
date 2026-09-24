@@ -140,9 +140,8 @@ def probe_report(summary: dict[str, Any], *, duration_ms: int = 0) -> tuple[Gate
                 msg += " — " + "; ".join(missing[:4])
         findings.append(_f(gate, Severity.ERROR, f"[{stage}] {msg}"[:1500], target="src/scene.js",
                            hint=_BOOT_HINTS.get(stage, "fix the quoted error"), stage=stage))
-    for p in boot.get("camera_problems", []):
-        sev = Severity.ERROR if ("no valid cameras" in p or "not an array" in p or "must be" in p) else Severity.WARN
-        findings.append(_f(gate, sev, f"cameras: {p}", target="src/scene.js",
+    for p in boot.get("camera_problems", []):   # {severity, text}: the host grades each problem
+        findings.append(_f(gate, Severity(p["severity"]), f"cameras: {p['text']}", target="src/scene.js",
                            hint="cameras: [{name:'overview', position:[x,y,z], lookAt:[x,y,z], fov:50}, ...] (1-6 entries)"))
     if boot.get("ok") and s.get("update_ok") is False:
         findings.append(_f(gate, Severity.ERROR, f"update(t, dt) threw: {s.get('update_error', '')[:800]}", target="src/scene.js",

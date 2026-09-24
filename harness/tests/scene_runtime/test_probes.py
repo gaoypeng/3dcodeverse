@@ -21,6 +21,17 @@ def test_probe_scene_flags_bad_shape_and_cameras(starter_ws):
     assert not gate.passed
     assert "position must be [x,y,z]" in msgs and "no valid cameras" in msgs
     assert census == {} or census.get("totals", {}).get("meshes") == 1  # census only when booted; boot fails on cameras here
+    # the host grades each camera problem itself ({severity, text}); nothing re-derives it from the wording
+    (starter_ws.src / "scene.js").write_text(
+        "import * as THREE from 'three';\n"
+        "export function createScene() { const scene = new THREE.Scene(); scene.add(new THREE.AmbientLight());\n"
+        "  return { scene, update() {}, cameras: [{ name: 'x', position: [3, 3, 3], lookAt: [0, 0, 0], fov: 170 },\n"
+        "    { name: 'bad name', position: [3, 3, 3], lookAt: [0, 0, 0] }, { name: 'y', position: [1, 2], lookAt: [0, 0, 0] }] }; }\n"
+    )
+    gate, _ = probe_scene(starter_ws)
+    graded = {f.message: f.severity for f in gate.findings if f.message.startswith("cameras: ")}
+    assert sorted(graded.values()) == ["error", "warn", "warn"], graded
+    assert [m for m, sev in graded.items() if sev == "error"][0].startswith("cameras: cameras[2] position must be")
 
 
 def test_probe_scene_catches_update_throw_and_console_errors(starter_ws):

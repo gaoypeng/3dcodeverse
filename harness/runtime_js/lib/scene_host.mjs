@@ -88,32 +88,37 @@ function makeHostRenderer(width, height, opts) {
   return { renderer: makeRenderer(canvas, width, height, { logDepth: !!opts.logDepth }), canvas };
 }
 
+/** The authored cameras, and each problem as {severity, text}: the severity is decided HERE,
+ *  where the problem is known (the python gate used to re-derive it from the wording).
+ *  The plan's own cameras pass the same fov / position / name rules (contracts/plan.CameraPlan). */
 function validateCameras(raw) {
   const out = [];
   const problems = [];
+  const error = (text) => problems.push({ severity: 'error', text });
+  const warn = (text) => problems.push({ severity: 'warn', text });
   if (!Array.isArray(raw)) {
-    problems.push('createScene().cameras is not an array');
+    error('createScene().cameras is not an array');
     return { cameras: out, problems };
   }
   raw.forEach((c, i) => {
     const p = c && c.position;
     const l = c && c.lookAt;
     const okVec = (v) => Array.isArray(v) && v.length === 3 && v.every((x) => Number.isFinite(x));
-    if (!c || typeof c !== 'object') { problems.push(`cameras[${i}] is not an object`); return; }
-    if (!okVec(p)) { problems.push(`cameras[${i}] position must be [x,y,z] finite numbers`); return; }
-    if (!okVec(l)) { problems.push(`cameras[${i}] lookAt must be [x,y,z] finite numbers`); return; }
+    if (!c || typeof c !== 'object') { warn(`cameras[${i}] is not an object`); return; }
+    if (!okVec(p)) { error(`cameras[${i}] position must be [x,y,z] finite numbers`); return; }
+    if (!okVec(l)) { error(`cameras[${i}] lookAt must be [x,y,z] finite numbers`); return; }
     const fov = Number.isFinite(c.fov) ? c.fov : 50;
-    if (fov < 5 || fov > 150) problems.push(`cameras[${i}] fov ${fov} outside [5,150]`);
-    if (p.every((x, k) => Math.abs(x - l[k]) < 1e-6)) problems.push(`cameras[${i}] position equals lookAt`);
+    if (fov < 5 || fov > 150) warn(`cameras[${i}] fov ${fov} outside [5,150]`);
+    if (p.every((x, k) => Math.abs(x - l[k]) < 1e-6)) warn(`cameras[${i}] position equals lookAt`);
     const name = String(c.name || `cam_${i}`);
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) {
-      problems.push(`cameras[${i}] name ${JSON.stringify(name)} must match [A-Za-z0-9_-]{1,64} — it becomes a render filename`);
+      warn(`cameras[${i}] name ${JSON.stringify(name)} must match [A-Za-z0-9_-]{1,64} — it becomes a render filename`);
       return;
     }
     out.push({ name, position: p.map(Number), lookAt: l.map(Number), fov });
   });
-  if (out.length === 0) problems.push('no valid cameras (author 1-6 {name, position, lookAt, fov})');
-  if (out.length > 6) problems.push(`too many cameras (${out.length} > 6)`);
+  if (out.length === 0) error('no valid cameras (author 1-6 {name, position, lookAt, fov})');
+  if (out.length > 6) warn(`too many cameras (${out.length} > 6)`);
   return { cameras: out, problems };
 }
 
@@ -277,7 +282,7 @@ async function boot(opts) {
     state.scene = result.scene;
     state.cameras = cameras;
     state.update = typeof result.update === 'function' ? result.update : null;
-    if (!state.update) info.camera_problems.push('createScene().update(t, dt) is not a function (scene will be static)');
+    if (!state.update) info.camera_problems.push({ severity: 'warn', text: 'createScene().update(t, dt) is not a function (scene will be static)' });
 
     info.stage = 'loads';
     const tLd = performance.now();
@@ -363,7 +368,7 @@ async function boot(opts) {
     // validateCameras already said WHY; carry it into the error.
     if (!info.ok) {
       info.error = 'createScene() returned no usable cameras'
-        + (problems.length ? ': ' + problems.join('; ') : '');
+        + (problems.length ? ': ' + problems.map((q) => q.text).join('; ') : '');
     }
     info.stage = 'ready';
   } catch (e) {
