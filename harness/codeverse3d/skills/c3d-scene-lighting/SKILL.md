@@ -92,15 +92,18 @@ Working numbers for a scene lit from the SKY (day, overcast, dusk), straight fro
 gate's fix hint: the starter's `sunRig({ mood, intensity, fill, sunColor, fillSky, fillGround })`
 — pick the mood (`day | golden | night | overcast`; a set sun is the night rig), raise
 `intensity` / `fill` (the rig clamps requests below its floors UP, so under-lighting is not
-reachable through it), never a second DirectionalLight on top — plus `emissiveIntensity`
-**2-6** with a PointLight **0.5-2** per practical. If the frame is blown instead: `intensity` at the
-floor, `fill` <= 1.2, sky below 0.9 white, `emissiveIntensity` <= 4 on large surfaces.
+reachable through it), never a second DirectionalLight on top — plus the practicals of
+cookbook section "Dusk / night lighting recipe" (an emissive and its own small PointLight,
+numbers from `PRACTICAL` in `lib/environment.js`). If the frame is blown instead: `intensity`
+at the floor, `fill` <= 1.2, sky below 0.9 white, large emissive surfaces back at the
+practical level.
 
 For a scene lit from its PRACTICALS the target is contrast, not average — but it is a
 BAND, not a floor you can fall through. Aim at real contrast with a dim-but-lit mean and
-little pure black on every authored camera. One dim moon/sky key at
-**<= 0.2** for shape in the shadows, at most one low ambient **0.06-0.12**, and no
-HemisphereLight and no second DirectionalLight.
+little pure black on every authored camera. Keep the starter's night rig as it is — its
+moon key and hemisphere fill (clamped up to a measured readability floor) are what "dark but
+lit" was measured with — and add no AmbientLight, no second HemisphereLight and no second
+DirectionalLight on top of it.
 
 Both ends of that band are measured failures, one week apart in the same wave:
 * Over the top: chasing a sky-lit average in a lantern-lit courtyard produced a
@@ -119,10 +122,10 @@ it was not. Check the band on EVERY camera, including the harness rig views nobo
 a shot for — that is where a scene quietly keeps the failure you thought you had fixed.
 
 So removing fill is only half the instruction and is destructive alone. Every lantern,
-lamp, sign, window or fire needs its OWN `PointLight` next to its emissive surface —
-`decay: 2`, `distance` 12-18 m, `intensity` 6-14, and enough of them (10-16 in a courtyard
-or a street) that the lit pools overlap into a readable picture. The practicals are the
-lighting rig; the emissive is only what the fixture looks like.
+lamp, sign, window or fire near the camera needs its OWN `PointLight` next to its emissive
+surface — the cookbook recipe's `PRACTICAL` — so that the lit pools overlap into a readable
+picture. The practicals are the lighting rig; the emissive is only what the fixture looks
+like.
 
 For a flat frame, add contrast rather than light: a shadow-casting key, materials with
 genuinely different albedos, and a camera aimed at content rather than at sky.

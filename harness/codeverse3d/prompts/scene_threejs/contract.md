@@ -74,7 +74,8 @@ version of the same effect — the want → call table ships with this brief.
 
 The harness renders scene pictures THROUGH a post chain (GTAO + a selective emissive
 bloom + a grade that is identity unless `scene.userData.grade` is set).  So emissives DO
-bloom: author them at peak 1.5–4, not 20.  `--no-post` / `C3D_POST=0` turns it off.
+bloom: author them at the cookbook's practical level (`PRACTICAL` in `lib/environment.js`),
+not 20.  `--no-post` / `C3D_POST=0` turns it off.
 
 ## Forbidden
 `document.*` / `window.*` except `window.innerWidth` — never create canvases or DOM;

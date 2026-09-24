@@ -73,11 +73,11 @@ hovers on a blade of grass — the placement gate measures floaters.
 
 ## The tight shadow camera
 
-One key light (sun) at intensity 2.5-4 with `castShadow`, a dim
-`HemisphereLight` 0.3-0.6 fill with a ground-bounce colour, and no third light
-without a reason. Then TIGHTEN `light.shadow.camera.left/right/top/bottom` to
-the extent the cameras can actually see, `mapSize` 2048-4096: a shadow map
-stretched over two kilometres has metre-wide pixels and every shadow is mush.
+The key and the fill are the starter's `sunRig` (its numbers: cookbook section
+"Dusk / night lighting recipe"), and no third light without a reason. Its shadow camera
+is fitted to `bounds`, so pass the radius the cameras can actually see, not the
+world's: a shadow map stretched over two kilometres has metre-wide pixels and every
+shadow is mush.
 
 ## Ground the frame
 

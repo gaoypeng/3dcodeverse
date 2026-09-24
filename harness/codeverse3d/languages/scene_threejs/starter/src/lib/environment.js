@@ -538,6 +538,15 @@ const RIGS = {
 };
 
 /**
+ * A PRACTICAL — a lantern, lamp, sign, window or fire: an emissive surface
+ * (it glows, and the post chain blooms it, but it lights nothing) plus its
+ * own small PointLight beside it, which is what lights the ground around
+ * it.  These are the numbers the cookbook's dusk/night recipe builds one
+ * with; flicker scales `intensity`.
+ */
+export const PRACTICAL = Object.freeze({ emissiveIntensity: 3.0, intensity: 1.5, distance: 9, decay: 2 });
+
+/**
  * The matched sun + fill + environment + sun-disc package. Failing
  * scenes break this package piecewise; built here, the env-map sun,
  * the shadow sun and the visible disc agree by construction and the
@@ -563,7 +572,7 @@ const RIGS = {
  *   the shadow frustum must cover (default 150); `azimuth`/`elevation`
  *   sun direction in degrees (per-mood defaults; golden sits low);
  *   `sunColor`/`intensity` sun overrides; `fill` hemisphere intensity,
- *   clamped UP to the mood's readability floor (night floor 0.55);
+ *   clamped UP to the mood's readability floor (its `fillFloor` in RIGS);
  *   `fillSky`/`fillGround` hex overrides of the hemisphere's colours (the
  *   baked environment's ground half follows `fillGround`);
  *   `zenith`/`horizon` hex overrides matching `worldShell()`'s (used by

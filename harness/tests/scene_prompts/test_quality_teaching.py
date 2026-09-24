@@ -51,3 +51,30 @@ def test_the_env_and_zone_briefs_hand_the_enclosure_to_env_for_an_interior() -> 
     zone_out = render("tracks/scene_zone.j2", **base, interior=False)
     assert "never build walls or a roof" in zone_in and "flush against the inner face" in zone_in
     assert "never build walls" not in zone_out
+
+
+def test_the_practical_light_numbers_are_stated_once_and_are_the_libs() -> None:
+    """Audit N41: one scene session read PointLight 0.5–2 (system prompt, skill) and 6–14 with
+    10–16 lights (same skill), emissive 1.5–4 / ≤ 3 / 2–6, and a night rig of "moon ≤ 0.2, no
+    HemisphereLight" that sunRig never builds.  `PRACTICAL` in environment.js owns the numbers;
+    the cookbook's dusk/night recipe states them once and every other text points there."""
+    import re
+
+    from codeverse3d.languages.scene_threejs import lib_files
+    from codeverse3d.skills import skills_dir
+
+    env = next(p for p in lib_files() if p.name == "environment.js").read_text(encoding="utf-8")
+    body = re.search(r"export const PRACTICAL = Object\.freeze\(\{([^}]*)\}\)", env)
+    assert body, "environment.js no longer exports PRACTICAL"
+    practical = {k: float(v) for k, v in re.findall(r"(\w+): ([\d.]+)", body.group(1))}
+    cookbook = load_text("scene_threejs/cookbook.md")
+    stated = re.search(r"`emissiveIntensity` ([\d.]+), a PointLight of ([\d.]+) reaching ([\d.]+) m, decay ([\d.]+)",
+                       cookbook)
+    assert stated and tuple(map(float, stated.groups())) == (
+        practical["emissiveIntensity"], practical["intensity"], practical["distance"], practical["decay"])
+    others = {"system": load_text("scene_threejs/system.md"), "contract": load_text("scene_threejs/contract.md"),
+              "lighting": (skills_dir() / "c3d-scene-lighting" / "SKILL.md").read_text(encoding="utf-8"),
+              "materials": (skills_dir() / "c3d-scene-materials" / "SKILL.md").read_text(encoding="utf-8")}
+    restated = re.compile(r"PointLight\W{0,4}\(?\*{0,2}\d|`intensity` \d|emissive\w*`?\W{0,4}\*{0,2}\d|<= 0\.2|"
+                          r"HemisphereLight` \d")
+    assert not {k: restated.findall(v) for k, v in others.items() if restated.search(v)}

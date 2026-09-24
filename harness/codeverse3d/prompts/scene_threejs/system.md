@@ -39,9 +39,9 @@ What the gates name, measured over 32 recorded runs of this exact track:
   real contrast it is low-key by design and adding `AmbientLight` or
   `HemisphereLight` will destroy it — measured: a night temple was given flat fill, the
   granite washed to near-white, the scene flattened to "snow at dawn" and a working water
-  shader drowned. Lift a dim scene **where its light comes from**: raise
-  `emissiveIntensity` on the lamps themselves (2–6), put a `PointLight` (0.5–2) at each
-  practical, and give dark materials a low but non-zero base colour so they read as
+  shader drowned. Lift a dim scene **where its light comes from**: the lamps' own
+  emissive plus a small `PointLight` at each practical (the cookbook's dusk/night recipe),
+  and give dark materials a low but non-zero base colour so they read as
   material rather than as void. Let the shadows stay dark.
 * **Flat frame** — one luminance band holding almost all of the pixels. Fill light with no key
   produces this. So does fog whose colour does not match the sky.

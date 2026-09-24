@@ -299,15 +299,22 @@ must still be something: a haze gradient plus 5–10 silhouette shapes.
 measures every camera's frame; a frame that is too dark is a gate ERROR
 (`scene_frames: dark_frame`) capping the score at 0.55.  Take the `dusk` / `night`
 row of the time-of-day table below for sky, sun, fill and fog, then add **practicals** —
-every lantern, window and fire is an emissive surface plus a small PointLight:
+every lantern, window and fire near the camera is an emissive surface plus its own small
+PointLight (the emissive glows and blooms but lights nothing; the PointLight lights the
+ground around it).  The numbers are `PRACTICAL` from `lib/environment.js` —
+`emissiveIntensity` 3, a PointLight of 1.5 reaching 9 m, decay 2 — and this is the one
+place they are stated:
 
 ```js
+import { PRACTICAL } from './lib/environment.js';
 function addPracticals(THREE, scene, spots) {          // none cast shadows
-  const glowMat = new THREE.MeshStandardMaterial({ color: 0xffc070, emissive: 0xffa040, emissiveIntensity: 3.0 });
+  const glowMat = new THREE.MeshStandardMaterial({ color: 0xffc070, emissive: 0xffa040,
+    emissiveIntensity: PRACTICAL.emissiveIntensity });
   return spots.map(([x, y, z], i) => {
     const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 8), glowMat);
     bulb.position.set(x, y, z); bulb.name = `Practical_${i}`;
-    const light = new THREE.PointLight(0xffa040, 1.5, 9, 2); light.position.set(x, y, z);
+    const light = new THREE.PointLight(0xffa040, PRACTICAL.intensity, PRACTICAL.distance, PRACTICAL.decay);
+    light.position.set(x, y, z);
     scene.add(bulb, light); return light;              // flicker from update(): ×0.75…×1.3
   });
 }
@@ -850,7 +857,8 @@ establishing → mid → detail.  Compute positions from measured bounds/heightA
 
 The harness renders scene pictures through its own post chain (GTAO + a selective emissive
 bloom + a grade that is identity unless `scene.userData.grade` is set), and the scene must
-still read without it (`emissiveIntensity` ≤ 3, no white-out).  Do not build an
+still read without it (emissives at the practical level of the dusk/night recipe, no
+white-out).  Do not build an
 `EffectComposer`: nothing reads one exported from `scene.js`.
 
 ## Performance
@@ -890,8 +898,9 @@ still read without it (`emissiveIntensity` ≤ 3, no white-out).  Do not build a
     hoist scratch objects to module scope.
 13. **Zones overlap / fight** → each zone stays in its plan rectangle; shared borders
     belong to the env (paths, fences).
-14. **Lights per lantern** → 30 PointLights kill the frame; ONE emissive material + 1–2
-    real lights near the camera path.
+14. **Lights per lantern** → a real PointLight on every lamp down a long street is slow
+    and flat; the practicals near the camera path get their own (the dusk/night recipe),
+    the far ones share ONE emissive material and light nothing.
 15. **`nothing_moves` although you animated things** → the hook is named `userData.tick`
     (never called), or `tickEnv` (never called), or the amplitude is < 2 cm / < 0.05 rad so
     t=0 and t=1.5 look identical.  Hook = `userData.update`; amplitudes from

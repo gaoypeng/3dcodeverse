@@ -173,6 +173,7 @@ _SCENE_LIB_IMPORTS = (
     "import { mulberry32 } from './lib/noise.js';\n"
     "import { makeShaderMaterial } from './lib/shader.js';\n"
     "import { makeCanopy } from './lib/canopy.js';\n"
+    "import { PRACTICAL } from './lib/environment.js';\n"
 )
 
 
