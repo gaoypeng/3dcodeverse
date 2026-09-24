@@ -105,3 +105,26 @@ console.log(JSON.stringify({{ split: names.map(splitInstance), words: names.map(
     assert got["split"] == [list(split_instance(n)) for n in NAMES]
     snake_words = [[w for w in to_snake(n).split("_") if not w.isdigit()] if n else [] for n in NAMES]
     assert got["words"] == snake_words
+
+
+def test_instanced_scatter_is_one_box_for_census_and_coverage():
+    """Audit 2026-09-24 N28: 40 cloud puffs over 3 km were `sky` to the census (its own
+    per-instance box) and `content` to coverage (`drawableBox` = one 10 m puff)."""
+    got = run_node_json(f"""
+import * as THREE from 'three';
+import {{ classifyBackdrop, drawableBox }} from '{RUNTIME_JS}/lib/backdrop.mjs';
+import {{ sceneCensus }} from '{RUNTIME_JS}/lib/host_census.mjs';
+const scene = new THREE.Scene(), sky = new THREE.Group(), village = new THREE.Group();
+sky.name = 'Sky'; village.name = 'Village'; scene.add(sky, village);
+const inst = new THREE.InstancedMesh(new THREE.SphereGeometry(5), new THREE.MeshStandardMaterial(), 40);
+inst.name = 'Clouds'; sky.add(inst);
+const m = new THREE.Matrix4();
+for (let i = 0; i < 40; i++) {{ m.makeTranslation(-1500 + i * 75, 200, (i % 5) * 300 - 600); inst.setMatrixAt(i, m); }}
+const house = new THREE.Mesh(new THREE.BoxGeometry(10, 6, 8), new THREE.MeshStandardMaterial()); village.add(house);
+scene.updateMatrixWorld(true);
+const census = sceneCensus(scene, THREE);
+const box = drawableBox(inst, THREE);
+console.log(JSON.stringify({{ census: census.groups.find((g) => g.name === 'Sky').kind,
+  coverage: classifyBackdrop(inst, box, 10), span: box.max.x - box.min.x }}));
+""")
+    assert got == {"census": "sky", "coverage": "sky", "span": 2935}, got

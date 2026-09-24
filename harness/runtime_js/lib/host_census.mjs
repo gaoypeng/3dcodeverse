@@ -78,23 +78,17 @@ function walkGroup(root, THREE) {
     if (o.isMesh) tris += triCount(o.geometry) * count;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     if (mats.some((m) => isCustomShader(m, THREE))) custom += 1;
-    let mb = drawableBox(o, THREE);
+    const mb = drawableBox(o, THREE);   // an InstancedMesh's box spans its instances
     if (!mb) return;
-    if (o.isInstancedMesh) {
-      const gb = o.geometry.boundingBox;
-      mb = new THREE.Box3();
+    if (o.isInstancedMesh) {             // each instance is a placed copy of its family
       const m = new THREE.Matrix4();
-      const n = Math.min(o.count, 4096);
-      for (let i = 0; i < n; i++) {
+      for (let i = 0, n = Math.min(o.count, 4096); i < n; i++) {
         o.getMatrixAt(i, m);
-        tmp.copy(gb).applyMatrix4(m).applyMatrix4(o.matrixWorld);
-        mb.union(tmp);
-        copy(o.name || 'instances', tmp);
+        copy(o.name || 'instances', tmp.copy(o.geometry.boundingBox).applyMatrix4(m).applyMatrix4(o.matrixWorld));
       }
     } else {
       copy(splitInstance(o.name)[0] || 'meshes', mb);
     }
-    if (mb.isEmpty()) return;
     const kind = classifyBackdrop(o, mb);   // shared rules (lib/backdrop.mjs); no content bbox yet here
     kinds[kind] += 1;
     boxAll.union(mb);

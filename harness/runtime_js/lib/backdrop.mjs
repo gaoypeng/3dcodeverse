@@ -39,11 +39,14 @@ export function nonSolid(mesh) {
   return real.length > 0 && real.every((m) => m.depthWrite === false);
 }
 
-/** World-space AABB of a drawable (a fresh THREE.Box3), or null when it has none. */
+/** World-space AABB of a drawable (a fresh THREE.Box3), or null when it has none.  An
+ * InstancedMesh's box spans every instance (three's own `InstancedMesh.boundingBox`), not the
+ * prototype's: 40 cloud puffs over 3 km are a 3 km box, whoever asks. */
 export function drawableBox(o, THREE) {
   if (!o.geometry) return null;
   if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-  const gb = o.geometry.boundingBox;
+  if (o.isInstancedMesh && !o.boundingBox) o.computeBoundingBox();
+  const gb = o.isInstancedMesh ? o.boundingBox : o.geometry.boundingBox;
   if (!gb || gb.isEmpty()) return null;
   const box = new THREE.Box3().copy(gb).applyMatrix4(o.matrixWorld);
   return box.isEmpty() ? null : box;
