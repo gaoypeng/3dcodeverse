@@ -17,7 +17,7 @@ import pytest
 
 from codeverse3d.languages.scene_threejs import lib_files
 from codeverse3d.prompts import PROMPTS_DIR
-from tests.scene_runtime.lib._probe import compile_scene, measure
+from tests.scene_runtime.lib._probe import LIB_DIR, compile_scene, measure
 from tests.scene_runtime.lib.test_patch_union import LIBRARIES as PATCH_UNION
 
 pytestmark = pytest.mark.node
@@ -364,3 +364,18 @@ export function createScene({ renderer }) {
 }
 """, ("firefield.js",), audit_module="src/scene.js")
     assert code == 0, out
+
+
+def test_the_per_frame_hook_is_taught_as_update_only():
+    """Every moving factory sets `userData.update` (and keeps a `tick` alias, which 72
+    recorded zone/env files call); the docs used to teach `tick` while the cookbook
+    calls a hook named `tick` the `nothing_moves` cause.  The docs say `update`."""
+    taught, unaliased = [], []
+    for p in sorted(LIB_DIR.glob("*.js")):
+        src = p.read_text(encoding="utf-8")
+        taught += [f"{p.name}: {ln.strip()}" for ln in src.splitlines()
+                   if re.match(r"\s*(\*|//)", ln) and "userData.tick" in ln]
+        if "userData.tick =" in src and "userData.update" not in src:
+            unaliased.append(p.name)
+    catalog = (PROMPTS_DIR / "scene_threejs" / "effects_catalog.md").read_text(encoding="utf-8")
+    assert not taught and not unaliased and "userData.tick" not in catalog, (taught, unaliased)

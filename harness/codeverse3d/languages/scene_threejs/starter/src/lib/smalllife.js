@@ -123,7 +123,7 @@ function sceneLight(obj, out) {
  * Buys the midges over a pond at dusk, the butterflies over a meadow,
  * the fireflies after dark — at one draw call and one float per frame,
  * so the count can be what a real swarm is. Drive it from your
- * `tick()` — `insects.userData.tick(t)` — or nothing moves.
+ * `update` — `insects.userData.update(t)` — or nothing moves.
  *
  * The constraint: every insect, quad and all, stays inside the volume
  * this advertises (`center` +- (`extent`, `height`/2, `extent`)), which
@@ -142,7 +142,7 @@ function sceneLight(obj, out) {
  *   `color` body or glow colour; `seed` PRNG seed (default 11); `name`
  *   group name.
  * @returns {THREE.Group} Named `Insects`, holding ONE instanced mesh,
- *   with `userData.tick(t)` advancing the only thing that changes.
+ *   with `userData.update(t)` advancing the only thing that changes.
  */
 export function makeInsects(opts = {}) {
   const kind = _KINDS[opts.kind] || _KINDS.midge;
@@ -431,8 +431,8 @@ function insectMaterial(kind, size, drift, color) {
  * because water damps what it holds.
  *
  * Deterministic in `seed`, one draw call at any count, and every
- * moving part in the vertex shader. Drive it from your `tick()` —
- * `reeds.userData.tick(t)` — or the wind never blows.
+ * moving part in the vertex shader. Drive it from your zone's `update` —
+ * `reeds.userData.update(t)` — or the wind never blows.
  *
  * @param {object} [opts]
  *   `extent` metres of the square patch's side (default 12, centred on
@@ -451,7 +451,7 @@ function insectMaterial(kind, size, drift, color) {
  *   `stemMesh`); `underwaterDistortion` enables a small approximate image distortion
  *   (default false; leave off with a refracting water surface); `seed` seed (default 11); `name` group name.
  * @returns {THREE.Group} Named `Reeds`, holding ONE instanced mesh
- *   `Stems`, with `userData.tick(t)` driving the wind.
+ *   `Stems`, with `userData.update(t)` driving the wind.
  */
 export function makeReeds(opts = {}) {
   const extent = opts.extent === undefined ? 12 : opts.extent;

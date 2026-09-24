@@ -189,7 +189,7 @@ export function makeWaterfall(opts = {}) {
     if(!Number.isFinite(t)) throw new RangeError('Waterfall.update: time must be finite');
     material.userData.uniforms.uTime.value=t;
     if(foamMaterial) foamMaterial.userData.uniforms.uTime.value=t;
-    if(spray) (spray.userData.update??spray.userData.tick)(t);
+    if(spray) spray.userData.update(t);
   };
   group.userData.sample=(u,lateral=0,t=material.userData.uniforms.uTime.value)=>{
     if(![u,lateral,t].every(Number.isFinite)) throw new RangeError('Waterfall.sample: inputs must be finite');

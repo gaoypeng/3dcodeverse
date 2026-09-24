@@ -36,7 +36,7 @@
  * All three take grass.js's `wind` (its `windOf` is imported, never
  * re-read), so one scene's meadow, its wheat and its flags move as one
  * wind. All three are deterministic in `seed`, and all three need
- * driving from your `tick()` — `obj.userData.tick(t)` — or the wind
+ * driving from your zone's `update` — `obj.userData.update(t)` — or the wind
  * never blows.
  */
 
@@ -105,7 +105,7 @@ function yawToZ(dir) {
  *   `name` group name.
  * @returns {THREE.Group} Named `Flag`, resting on y = 0, holding
  *   `Mast` and a `FlagSheet` whose ripple is one patched material,
- *   with `userData.tick(t)` driving it.
+ *   with `userData.update(t)` driving it.
  */
 export function makeFlag(opts = {}) {
   const width = opts.width === undefined ? 1.6 : opts.width;
@@ -365,7 +365,7 @@ const FLAG_FRAGMENT = [
  *   (default true); `folds` how many fold lines across the width
  *   (default 5); `name` group name.
  * @returns {THREE.Group} Named `Banner`, holding `BannerCloth` and
- *   (unless declined) `BannerRod`, with `userData.tick(t)` driving the
+ *   (unless declined) `BannerRod`, with `userData.update(t)` driving the
  *   swing.
  */
 export function makeBanner(opts = {}) {
@@ -660,7 +660,7 @@ const BANNER_FRAGMENT = [
  *   `name` group name.
  * @returns {THREE.Group} Named `Wheat`, resting on y = 0 (or on
  *   `heightAt`), holding `Stalks` — ONE draw call — with
- *   `userData.tick(t)` driving the wave.
+ *   `userData.update(t)` driving the wave.
  */
 export function makeWheatField(opts = {}) {
   const extent = opts.extent === undefined ? 30 : opts.extent;

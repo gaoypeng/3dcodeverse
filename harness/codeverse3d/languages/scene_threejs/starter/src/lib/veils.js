@@ -237,7 +237,7 @@ function _litByScene(mesh, autoTint) {
  *   front of the weather; pass a colour to keep that from happening);
  *   `seed` PRNG seed (default 7).
  * @returns {THREE.Group} Named `RainVeil`, centred on its own origin
- *   with the sheets' feet at y ~ 0, with `userData.tick(t)`,
+ *   with the sheets' feet at y ~ 0, with `userData.update(t)`,
  *   `userData.sample(i, t)` giving sheet i's foot and `userData.axis`
  *   the shared fall direction. Move the group to place the field.
  */
@@ -477,7 +477,7 @@ function veilMaterial(cfg) {
  *   hex, the flake albedo the scene's light multiplies (default a cold
  *   white that takes the fog's hue); `seed` PRNG seed (default 9).
  * @returns {THREE.Group} Named `Snowfall`, its foot on y = 0, with
- *   `userData.tick(t)` and `userData.sample(i, t)` returning flake i's
+ *   `userData.update(t)` and `userData.sample(i, t)` returning flake i's
  *   group-local position — the CPU mirror of the vertex shader.
  */
 export function makeSnowfall(opts = {}) {
@@ -671,7 +671,7 @@ function snowMaterial(cfg) {
  *   reaching the volume, lamps included); `seed` PRNG seed
  *   (default 13).
  * @returns {THREE.Group} Named `Motes`, its foot on y = 0, with
- *   `userData.tick(t)`, `userData.sample(i, t)` giving speck i's
+ *   `userData.update(t)`, `userData.sample(i, t)` giving speck i's
  *   group-local position and `userData.volume` the box it stays in.
  */
 export function makeMotes(opts = {}) {

@@ -2,7 +2,7 @@
  * Draw-call collapse for static props: many positioned meshes in, ONE
  * mesh out. Software GL is DRAW-CALL-bound, making this the biggest
  * SwiftShader perf lever. Never
- * merge anything tick() animates or a fix round must retarget alone.
+ * merge anything update animates or a fix round must retarget alone.
  *
  * The merge is also where a batch stops looking like a batch: 40 stones
  * cut from one material arrive as ONE albedo, and a wall of one albedo

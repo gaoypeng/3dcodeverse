@@ -573,7 +573,7 @@ function resample(points, spans) {
  *   wind swing at midspan, driven by `tick` (default 0.05); `seed`
  *   detunes each conductor's sag and swing (default 1).
  * @returns {THREE.Group} Named `PowerLines`, resting on the y of its
- *   points, with `userData.tick(t)` (the sway), `userData.setViewport(px)`
+ *   points, with `userData.update(t)` (the sway), `userData.setViewport(px)`
  *   and `userData.spans` — the measured span lengths. The cable mesh is
  *   guarded by `keepOutOfDepthPasses`: a transparent ribbon is a solid
  *   wall to the GTAO override pass.
@@ -892,7 +892,7 @@ function posterTexture(color, seed, lit) {
  *   points, read through the group's CURRENT matrix),
  *   `userData.relight()` — call it after MOVING a lit sign, since the
  *   spill on its own structure was aimed where it was built — and
- *   `userData.tick(t)`. The halo is guarded by `keepOutOfDepthPasses`.
+ *   `userData.update(t)`. The halo is guarded by `keepOutOfDepthPasses`.
  */
 export function makeBillboard(opts = {}) {
   const w = Math.max(0.5, opts.width === undefined ? 6 : opts.width);

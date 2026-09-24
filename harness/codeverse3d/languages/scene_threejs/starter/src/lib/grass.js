@@ -42,7 +42,7 @@ const LOCAL_DIR = glslLocalDir('grassLocalDir');
  * Cover a patch of ground in grass.
  *
  * The whole field is deterministic in `seed`: same seed, same blades.
- * Drive it from your `tick()` — `grass.userData.tick(t)` — or the wind
+ * Drive it from your zone's `update` — `grass.userData.update(t)` — or the wind
  * never blows.
  *
  * @param {object} [opts]
@@ -66,7 +66,7 @@ const LOCAL_DIR = glslLocalDir('grassLocalDir');
  *   default); `name` group name.
  * @returns {THREE.Group} Named `Grass`, resting on y = 0 (or on
  *   `heightAt`), holding `Blades` (one draw call) and `Sward`, with
- *   `userData.tick(t)` driving both.
+ *   `userData.update(t)` driving both.
  */
 export function makeGrass(opts = {}) {
   const extent = opts.extent === undefined ? 24 : opts.extent;

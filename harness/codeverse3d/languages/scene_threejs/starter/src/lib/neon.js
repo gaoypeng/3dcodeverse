@@ -367,7 +367,7 @@ function tubeMaterial(name, color, gain, core, hot, flicker, key, hazy,
  * @returns {THREE.Group} Named `NeonTube`, guarded by
  *   `keepOutOfDepthPasses` (a glow card is a solid wall to the GTAO
  *   override pass, and a light source must cast no shadow), with
- *   `userData.tick(t)` and `userData.spillSources()` — the world points
+ *   `userData.update(t)` and `userData.spillSources()` — the world points
  *   to hand straight to `patchNeonSpill`.
  */
 export function makeNeonTube(opts = {}) {
@@ -732,7 +732,7 @@ function trailMaterial(name, color, dir, count, rate, gain, hot, fore,
  * @returns {THREE.Group} Named `LightTrails`, holding `TrailsWarm` and
  *   `TrailsCool`, guarded by `keepOutOfDepthPasses` (an additive card
  *   is an opaque wall to the GTAO override pass, and a moving light
- *   must cast no shadow), with `userData.tick(t)`.
+ *   must cast no shadow), with `userData.update(t)`.
  */
 export function makeLightTrails(opts = {}) {
     const strokes = toStrokes(opts.path && opts.path.length ? opts.path

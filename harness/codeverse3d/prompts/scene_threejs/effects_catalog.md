@@ -100,9 +100,8 @@ and JSON-copies typed uniforms. The library helper replays its registered chain,
 copies vector/colour/matrix uniforms and borrows texture references. Custom
 external `onBeforeCompile` wrappers must still be reapplied by their owner.
 
-**2. Moving factories carry a per-frame hook.** Prefer `userData.update(t, dt)`;
-some older factories use `userData.tick(t, dt)`. Read the factory JSDoc or select
-`effect.userData.update ?? effect.userData.tick`, then call that hook exactly once.
+**2. Moving factories carry a per-frame hook: `userData.update(t, dt)`.** Call it
+exactly once per frame.
 The host drives the scene's `update(t, dt)`. Fan out in `scene.js`:
 
 ```js

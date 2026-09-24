@@ -457,7 +457,7 @@ function rigLight(rig) {
  *   renderer's own daylight rig); `wind` as `grass.js`'s `windOf` reads
  *   it; `name` group name.
  * @returns {THREE.Group} Named `Imposters`, resting on the ground,
- *   holding ONE mesh, with `userData.tick(t)` driving the lean. Add it
+ *   holding ONE mesh, with `userData.update(t)` driving the lean. Add it
  *   at the scene ROOT: the cards billboard against WORLD axes.
  */
 export function makeImposters(opts = {}) {

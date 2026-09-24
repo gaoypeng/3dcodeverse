@@ -21,7 +21,7 @@
  *
  * Both are ONE draw call whose every moving part lives in the vertex
  * shader, both are deterministic in `seed`, and both need driving from
- * your `tick()` — `obj.userData.tick(t)` — or nothing moves.
+ * your zone's `update` — `obj.userData.update(t)` — or nothing moves.
  */
 
 import * as THREE from 'three';
@@ -140,7 +140,7 @@ function siblingOf(color, kind) {
  *   `name` group name.
  * @returns {THREE.Group} Named `Flowers`, holding ONE instanced mesh
  *   `Plants` whose stated box is the box it occupies at any bend, with
- *   `userData.tick(t)` driving the wind.
+ *   `userData.update(t)` driving the wind.
  */
 export function makeFlowers(opts = {}) {
   const kind = _KINDS[opts.kind] || _KINDS.daisy;
@@ -680,7 +680,7 @@ function _wrap(v, lim) {
  *   THROUGH a piece is read from the scene's OWN lights, so there is no
  *   sun to state and nothing to keep in step.
  * @returns {THREE.Group} Named `Falling`, holding ONE instanced mesh
- *   `Drift`, with `userData.tick(t)` advancing the fall and
+ *   `Drift`, with `userData.update(t)` advancing the fall and
  *   `userData.sample(i, t)` giving piece i's group-local position — the
  *   CPU mirror of the vertex shader.
  */

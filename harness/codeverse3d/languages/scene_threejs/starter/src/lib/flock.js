@@ -104,7 +104,7 @@ function _defaultPath(extent, height) {
  *   ([x,y,z] or Vector3) of a CLOSED loop replacing the default one;
  *   `size` wingspan in metres (default extent/20, clamped 0.35..2.4).
  * @returns {THREE.Group} Named `Flock`, holding ONE instanced mesh,
- *   with `userData.tick(t)` advancing the only thing that changes.
+ *   with `userData.update(t)` advancing the only thing that changes.
  *   `userData.samplePath(t)` returns the local centreline point at absolute
  *   seconds; lateral formation offsets and individual bobbing are additional.
  */

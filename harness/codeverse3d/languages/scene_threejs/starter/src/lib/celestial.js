@@ -173,7 +173,7 @@ function frameGrabber(mat) {
  *   an engine's slow roll, more is a fire's boil); `seed` PRNG seed
  *   (default 5).
  * @returns {THREE.Group} Named `HeatShimmer`, resting on y = 0, with
- *   `userData.tick(t)`. No `ambient` escape and none needed: a
+ *   `userData.update(t)`. No `ambient` escape and none needed: a
  *   material whose output IS the backdrop cannot brighten a frame it
  *   never adds to.
  */
@@ -351,7 +351,7 @@ function shimmerMaterial(strength, speed, cells, aspect, height, phase) {
  *   switches from ADDING to a plain blend that cannot clip; pass
  *   `ambient: 0.9` when the sky behind is genuinely bright.
  * @returns {THREE.Group} Named `Stars`, centred on the camera's world
- *   — put it at the origin — with `userData.tick(t)`.
+ *   — put it at the origin — with `userData.update(t)`.
  */
 export function makeStars(opts = {}) {
     const count = Math.max(1, Math.round(
@@ -630,7 +630,7 @@ function auroraGlow(v) {
  * The curtains are laid one per equal slice of the compass, jittered
  * inside it, so a display always crosses whatever the camera is looking
  * at — n independent draws leave holes a hundred degrees wide.
- * @returns {THREE.Group} Named `Aurora`, with `userData.tick(t)`.
+ * @returns {THREE.Group} Named `Aurora`, with `userData.update(t)`.
  */
 export function makeAurora(opts = {}) {
     const radius = opts.radius === undefined ? 1400 : opts.radius;

@@ -1113,7 +1113,7 @@ export function towardRoughness(material, target, blend) {
 
 
 /**
- * Drive every astra shader under `root` from one call in `tick()`.
+ * Drive every astra shader under `root` from one call in `update`.
  *
  * @param {THREE.Object3D} root Scene or group to walk.
  * @param {number} t Scene time in seconds.

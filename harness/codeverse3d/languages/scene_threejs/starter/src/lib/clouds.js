@@ -143,7 +143,7 @@ function cloudAtlas(seed, cirrus = false) {
  * sunColor, shadeColor, alpha, wind (m/s along +x), rim (silver-lining
  * strength, 0.55), haze (how far the deck may recede into scene.fog,
  * 0.22 — the fog COLOUR is always the scene's), hueVariance (0.13).
- * Animate cloud drift from tick(): `layer.userData.update(t)`.
+ * Animate cloud drift from your update: `layer.userData.update(t)`.
  */
 export function makeClouds(opts = {}) {
   const p = PRESETS[opts.preset || 'day'] || PRESETS.day;

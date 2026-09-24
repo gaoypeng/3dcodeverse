@@ -73,7 +73,7 @@ const _UP = new THREE.Vector3(0, 1, 0);
  *   `softness` 0..1 how far the edge feathers into the air (default
  *   0.55); `seed` PRNG seed (default 11).
  * @returns {THREE.Group} Named `GodRays`, resting on y = 0, with
- *   `userData.tick(t)` driving every shader in it.
+ *   `userData.update(t)` driving every shader in it.
  */
 export function makeGodRays(opts = {}) {
     const count = Math.max(1, Math.round(

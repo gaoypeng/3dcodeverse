@@ -400,7 +400,7 @@ function fogSheets(extent, top, heightAt) {
  *   light itself); `heightAt` (x, z) => y to follow terrain —
  *   omit it and the bank is flat and costs 20 quads; `seed` noise
  *   offset.
- * @returns {THREE.Group} Named `HeightFog`, with `userData.tick(t)`
+ * @returns {THREE.Group} Named `HeightFog`, with `userData.update(t)`
  *   driving the drift. Move the group to move the bank: the soft rim
  *   is inscribed in `extent`, so it never shows a boundary of its own.
  *   Retune later through `uniforms.uColor` / `uDensity` / `uSunAmt`.

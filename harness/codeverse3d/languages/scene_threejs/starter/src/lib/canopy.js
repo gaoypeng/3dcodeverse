@@ -42,7 +42,7 @@ const LOCAL_DIR = glslLocalDir('leafLocalDir');
  * Build the leaf mass for one or more crowns.
  *
  * Deterministic in `seed`: same seed, same leaves. Drive it from your
- * `tick()` — `canopy.userData.tick(t)` — or nothing moves.
+ * `update` — `canopy.userData.update(t)` — or nothing moves.
  *
  * @param {object} [opts]
  *   `crowns` array of `{position: [x, y, z], radius, height?, seed?}`,
@@ -77,7 +77,7 @@ const LOCAL_DIR = glslLocalDir('leafLocalDir');
  *   default the same way). `seed` PRNG seed (default 7). `name` group
  *   name.
  * @returns {THREE.Group} Named `Canopy`, holding one `Leaves` mesh,
- *   with `userData.tick(t)`.
+ *   with `userData.update(t)`.
  */
 export function makeCanopy(opts = {}) {
   const crowns = crownList(opts);
