@@ -647,7 +647,6 @@ def usage_from_envelope(env: dict[str, Any], model: str) -> Usage:
         output_tokens=int(u.get("output_tokens") or 0),
         cached_tokens=cache_read,
         thoughts_tokens=int(((u.get("output_tokens_details") or {}).get("thinking_tokens")) or 0),
-        tool_calls=max(int(env.get("num_turns") or 0) - 1, 0),
         cost_usd=float(env.get("total_cost_usd") or 0.0),
         latency_ms=int(env.get("duration_ms") or 0),
     )
@@ -734,9 +733,10 @@ class ClaudeCodeAgent(_CliAgent):
             stream = ClaudeStream()
             proc = invoke(s, self.build_argv(s), self.build_env(s), prompt=job.prompt, on_stdout=stream.feed)
             ended = time.time()
-            record_tool_calls(s, stream.calls, source="claude-code stream-json", skills_index=stream.skills)
+            n_calls = record_tool_calls(s, stream.calls, source="claude-code stream-json", skills_index=stream.skills)
             env = parse_claude_json(proc.stdout)
             usage = usage_from_envelope(env, self.model) if env else stream.usage(self.model)
+            usage.tool_calls = n_calls
             usage.latency_ms = usage.latency_ms or int(proc.duration_s * 1000)
             text = str((env or {}).get("result") or "")
             turns = int((env or {}).get("num_turns") or 0)
@@ -764,7 +764,7 @@ class ClaudeCodeAgent(_CliAgent):
             else:
                 reason, ok = "completed", True
             return finish_session(
-                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=max(turns - 1, 0), turns=turns,
+                s, ok=ok, exit_reason=reason, text=text, usage=usage, tool_calls=n_calls, turns=turns,
                 errors=errors, transient=transient, quota=quota,
                 provider_wait_s=provider_wait([(t, b) for t, b, _ in stream.retries], ended, stream.progress),
                 rc=proc.rc, killed_reason=proc.killed_reason, num_turns=turns,

@@ -67,6 +67,8 @@ if mode == "error":
     env["is_error"] = True; env["subtype"] = "error_max_turns"
 if "--append-system-prompt" in args:
     env["result"] += " | sys=" + args[args.index("--append-system-prompt") + 1]
+print(json.dumps({"type": "assistant", "message": {"id": "m1", "content": [
+    {"type": "tool_use", "id": "t1", "name": "Write", "input": {"file_path": "src/hello.txt"}}]}}))
 print("some log line")
 print(json.dumps(env))
 '''
@@ -104,7 +106,9 @@ def test_fake_run_success_and_error(tmp_ws: Workspace, fake_bin, monkeypatch):
     a = ClaudeCodeAgent("sonnet", binary=fake_bin("claude", FAKE_CLAUDE))
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="c", system_append="SYS", timeout_s=30))
     assert res.ok and res.exit_reason == "completed", res.errors
-    assert res.text.endswith("sys=SYS") and res.usage.cost_usd == 0.0123 and res.tool_calls == 2
+    assert res.text.endswith("sys=SYS") and res.usage.cost_usd == 0.0123
+    # the calls the stream shows, not num_turns - 1 (N75: 24 "calls" for 3 real ones)
+    assert res.tool_calls == res.usage.tool_calls == 1
     assert res.turns == 3  # the envelope's num_turns, in the typed result
     assert [f.path for f in res.files_changed] == ["src/hello.txt", "src/prompt.txt"]
     assert (tmp_ws.src / "prompt.txt").read_text() == "hello"   # on stdin, byte for byte
