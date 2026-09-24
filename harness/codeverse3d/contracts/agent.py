@@ -12,6 +12,9 @@ from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.common import Usage
 
+#: one agent session's wall clock — ``Settings.limits.agent_timeout_s`` defaults to it
+AGENT_TIMEOUT_S = 1800
+
 
 class FileChange(BaseModel):
     path: str
@@ -25,7 +28,7 @@ class AgentJob(BaseModel):
     prompt: str
     system_append: str = ""
     label: str = ""
-    timeout_s: int = 1800
+    timeout_s: int = AGENT_TIMEOUT_S
     hard_deadline_s: float | None = Field(
         default=None, ge=0, allow_inf_nan=False,
         description="absolute time.monotonic() deadline on this host, derived from the run's "

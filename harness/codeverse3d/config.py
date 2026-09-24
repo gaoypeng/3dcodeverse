@@ -38,6 +38,7 @@ from pydantic import (
 from pydantic_core import PydanticUseDefault
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from codeverse3d.contracts.agent import AGENT_TIMEOUT_S
 from codeverse3d.contracts.common import Backends
 
 _LEGACY_KEYS_FILE = Path.home() / ".config" / "astra3d" / "gemini_keys.env"
@@ -106,7 +107,7 @@ class Render(BaseModel):
 class Limits(BaseModel):
     build_timeout_s: int = 300
     render_timeout_s: int = 300
-    agent_timeout_s: int = 1800
+    agent_timeout_s: int = AGENT_TIMEOUT_S
     bpy_rlimit_gb: int = 12
     # Both measured, not guessed (docs/COST.md Part III).  These size the
     # *subprocess* side (blender / node / chrome), which is bound by cores — 24

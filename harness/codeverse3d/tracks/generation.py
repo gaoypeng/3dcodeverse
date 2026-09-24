@@ -511,7 +511,7 @@ def run_agent_task(
     charged to ``budget`` as it ends, so nothing is lost when a later attempt raises."""
     events = NULL_EVENTS if events is None else events
     before = ws.head()
-    timeout = task.timeout_s or (settings.limits.agent_timeout_s if settings is not None else 1800)
+    timeout = task.timeout_s or (settings or get_settings()).limits.agent_timeout_s
     # A task that chose its own window already clipped it the way its stage wanted
     # (scene.py: soft for env/zones/assets, hard for refine/rebuild) — re-clipping THAT
     # against the soft share handed every scene refine session after the 0.55 share

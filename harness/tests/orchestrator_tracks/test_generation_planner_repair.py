@@ -95,7 +95,8 @@ def test_generate_single_shot_writes_files_and_charges(tmp_ws):
     assert not res2.ok and "parse failed" in res2.notes
 
 
-def test_generate_agent_path_silent_bail_retry(tmp_ws):
+def test_generate_agent_path_silent_bail_retry(tmp_ws, switch):
+    switch("C3D_LIMITS__AGENT_TIMEOUT_S", "900")   # N78: a settings-less call sat on a 1800 literal
     calls = []
 
     def writer(job, ws):
@@ -108,6 +109,7 @@ def test_generate_agent_path_silent_bail_retry(tmp_ws):
     assert res.ok and len(calls) == 2 and calls[1].startswith("Your previous attempt ended WITHOUT")
     assert res.usage.cost_usd == pytest.approx(0.02)
     assert agent.jobs[0].write_roots == ["src", "public"] and agent.jobs[0].label == "baseline"
+    assert agent.jobs[0].timeout_s == 900
 
 
 # ----------------------------------------------------------------------------- planner
