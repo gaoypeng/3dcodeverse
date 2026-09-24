@@ -31,18 +31,13 @@ uniform float uRadius, uHeight, uIntensity, uCandle, uSeed;
 uniform vec2 uWind;
 uniform vec3 uBoxMin, uBoxMax, uCameraLocal;
 uniform mat4 uLocalToClip;
-float fireHash(vec3 p) {
-  p = fract(p * 0.1031);
-  p += dot(p, p.yzx + 33.33);
-  return fract((p.x + p.y) * p.z);
-}
 float fireNoise(vec3 p) {
   vec3 i = floor(p), f = fract(p);
   f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(mix(fireHash(i), fireHash(i + vec3(1,0,0)), f.x),
-                 mix(fireHash(i + vec3(0,1,0)), fireHash(i + vec3(1,1,0)), f.x), f.y),
-             mix(mix(fireHash(i + vec3(0,0,1)), fireHash(i + vec3(1,0,1)), f.x),
-                 mix(fireHash(i + vec3(0,1,1)), fireHash(i + vec3(1,1,1)), f.x), f.y), f.z);
+  return mix(mix(mix(astraHash31(i), astraHash31(i + vec3(1,0,0)), f.x),
+                 mix(astraHash31(i + vec3(0,1,0)), astraHash31(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(astraHash31(i + vec3(0,0,1)), astraHash31(i + vec3(1,0,1)), f.x),
+                 mix(astraHash31(i + vec3(0,1,1)), astraHash31(i + vec3(1,1,1)), f.x), f.y), f.z);
 }
 float fireFbm(vec3 p) {
   return fireNoise(p) * 0.57 + fireNoise(p * 2.07 + 13.4) * 0.28
@@ -125,7 +120,7 @@ function fireMaterial({ radius, height, wind, intensity, candle, seed, steps, bo
       if (leave <= enter) discard;
       float ds = (leave - enter) / float(${steps});
       // Static sub-pixel jitter avoids axial banding without temporal noise.
-      float jitter = fireHash(vec3(gl_FragCoord.xy, 0.13));
+      float jitter = astraHash31(vec3(gl_FragCoord.xy, 0.13));
       vec3 color = vec3(0.0);
       float transmittance = 1.0;
       vec3 firstHit = uCameraLocal + ray * leave;

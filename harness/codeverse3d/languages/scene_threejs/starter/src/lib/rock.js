@@ -204,11 +204,6 @@ function rockMaterial(opts, type, height) {
       varying vec3 vRockLocal, vRockLocalNormal;
       varying float vRockCavity;
       uniform float uRockKind, uRockSeed, uRockHeight, uRockMoisture, uRockMoss;
-      float rockHash(vec3 p) {
-        p = fract(p * 0.1031);
-        p += dot(p, p.yzx + 33.33);
-        return fract((p.x + p.y) * p.z);
-      }
       // Value and analytic spatial gradient. The gradient is filtered before
       // normal perturbation; differentiating sampled noise makes visible
       // 2x2 pixel blocks at grazing angles and when the camera approaches.
@@ -216,10 +211,10 @@ function rockMaterial(opts, type, height) {
         vec3 i = floor(p), f = fract(p);
         vec3 u = f*f*f*(f*(f*6.0-15.0)+10.0);
         vec3 du = 30.0*f*f*(f*(f-2.0)+1.0);
-        float a=rockHash(i), b=rockHash(i+vec3(1,0,0));
-        float c=rockHash(i+vec3(0,1,0)), d=rockHash(i+vec3(1,1,0));
-        float e=rockHash(i+vec3(0,0,1)), f1=rockHash(i+vec3(1,0,1));
-        float g=rockHash(i+vec3(0,1,1)), h=rockHash(i+vec3(1,1,1));
+        float a=astraHash31(i), b=astraHash31(i+vec3(1,0,0));
+        float c=astraHash31(i+vec3(0,1,0)), d=astraHash31(i+vec3(1,1,0));
+        float e=astraHash31(i+vec3(0,0,1)), f1=astraHash31(i+vec3(1,0,1));
+        float g=astraHash31(i+vec3(0,1,1)), h=astraHash31(i+vec3(1,1,1));
         float x0=mix(a,b,u.x), x1=mix(c,d,u.x), x2=mix(e,f1,u.x), x3=mix(g,h,u.x);
         float y0=mix(x0,x1,u.y), y1=mix(x2,x3,u.y);
         return vec4(mix(y0,y1,u.z),
