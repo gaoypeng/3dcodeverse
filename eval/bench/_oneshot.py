@@ -37,6 +37,7 @@ from pydantic import BaseModel, Field
 
 from bench._infra import is_infra_failure
 from codeverse3d.agents.backends import (
+    CLAUDE_SETTING_SOURCES,
     effort_overrides,
     parse_claude_json,
     parse_codex_jsonl,
@@ -347,15 +348,23 @@ class ClaudeOneShot:
     kind = "claude-code"
 
     def __init__(self, model: str = "", binary: str | None = None):
-        self.model = model
+        # ``claude-code:<model>[@<effort>]`` like codex.  The effort is ALWAYS passed and the user's
+        # settings are never read (--setting-sources project, as the harness's own sessions since D83):
+        # an arm that inherited ~/.claude/settings.json's effortLevel xhigh let sonnet think 94k tokens
+        # for 40 min and write no code on every scene brief (p3x_scenes_v2, 2026-09-23).
+        name, _, effort = model.partition("@")
+        self.model = name
+        self.effort = effort.strip().lower() or get_settings().agents.claude_effort
         self.binary = binary or get_settings().binaries.claude_cli
         self.id = f"oneshot:{self.kind}" + (f":{model}" if model else "")
 
     def argv(self, prompt: str) -> list[str]:
         argv = [self.binary, "-p", prompt, "--output-format", "json", "--tools", "", "--max-turns", "1",
-                "--no-session-persistence", "--strict-mcp-config"]
+                "--no-session-persistence", "--strict-mcp-config", "--setting-sources", CLAUDE_SETTING_SOURCES]
         if self.model:
             argv += ["--model", self.model]
+        if self.effort:
+            argv += ["--effort", self.effort]
         return argv
 
     def generate(self, prompt: str, *, out_dir: Path, timeout_s: float = DEFAULT_TIMEOUT_S, label: str = "oneshot") -> OneShotResult:

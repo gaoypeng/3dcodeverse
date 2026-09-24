@@ -130,3 +130,13 @@ def test_a_hallucinated_write_tool_of_a_scene_module_is_still_read():
            "</parameter></invoke>")
     got = extract_files(xml, Language.SCENE_THREEJS)[SCENE_FILE]
     assert got.startswith("export async function createScene")
+
+
+def test_claude_one_shot_pins_its_effort_and_never_reads_the_users_settings():
+    from bench._oneshot import ClaudeOneShot
+
+    a = ClaudeOneShot("sonnet@high").argv("brief")
+    assert a[a.index("--model") + 1] == "sonnet" and a[a.index("--effort") + 1] == "high"
+    assert a[a.index("--setting-sources") + 1] == "project"
+    b = ClaudeOneShot("opus").argv("brief")
+    assert "--effort" in b and b[b.index("--effort") + 1]   # the harness's claude_effort, never inherited
