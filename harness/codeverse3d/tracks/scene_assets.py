@@ -329,13 +329,14 @@ def _ladder(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Language, 
 def _generate_asset(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Language, attempt: int,
                     feedback: str = "", timeout_s: int | None = None, files: list[str] | None = None) -> Any:
     files = list(files or [rel])
-    label = f"asset_{to_snake(asset.name)}" + ("_retry" if attempt else "")
+    # pre-round work is round 0 (the ledger's round dimension); the attempt lives in the label
+    label = f"asset_{to_snake(asset.name)}" + (f"_retry{attempt}" if attempt else "")
     prompt = _asset_prompt(ctx, asset, rel, language=language, files=files)
     if feedback:
         prompt = prompt + "\n\n" + feedback + "## Current file(s) (rewrite COMPLETELY)\n" + _inline(ctx, files)
     task = GenerationTask(label=label, prompt=prompt,
                           system=_asset_system(ctx, language),
-                          files_hint=files, round=attempt, kind="asset", temperature=0.5, timeout_s=timeout_s,
+                          files_hint=files, round=0, kind="asset", temperature=0.5, timeout_s=timeout_s,
                           images=reference_images(ctx),
                           # threejs assets share the scene workspace (a stray write would hit
                           # zones/env); blender heroes own their whole sub-workspace
@@ -654,7 +655,7 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
         asset_size=asset.approx_size_m, asset_file=files[0], asset_files=files, asset_language=language.value,
         fix_instructions=instructions, current_code=current, skeleton_files={}, **_scene_context(ctx)))
     task = GenerationTask(label=f"asset_{to_snake(asset.name)}_fix", prompt=prompt, system=_asset_system(gen, language),
-                          files_hint=files, round=1, kind="asset_fix", temperature=0.4,
+                          files_hint=files, round=0, kind="asset_fix", temperature=0.4,
                           edit_only=language is Language.SCENE_THREEJS, timeout_s=asset_timeout_s(ctx, 120))
     restore = snapshot() if snapshot is not None else None   # BEFORE the fix rewrites the files
     res = generate_for(gen, task)

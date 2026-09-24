@@ -293,3 +293,22 @@ def test_a_failed_call_is_recorded_re_raised_and_carries_what_was_billed(tmp_pat
         assert row.stage is Stage.PLAN and row.key == ""
         assert (row.outcome, row.attempts, row.input_tokens) == tuple(want.values()), err
         assert (row.cost_usd > 0) is (want["input_tokens"] > 0), "a billed failure is no longer a $0 row"
+
+
+@pytest.mark.parametrize("kind,label,stage", [
+    ("zone", "zones_quay_water", Stage.ZONES),        # N72: single-shot filed it under `other`
+    ("candidate", "baseline_c0", Stage.CANDIDATE),
+])
+def test_a_single_shot_task_is_booked_where_its_agent_session_would_be(tmp_path: Path, kind, label, stage):
+    from codeverse3d.tracks.generation import GenerationTask, generate_files
+    from codeverse3d.workspace import Workspace
+
+    ws = Workspace(tmp_path / "run").create()
+    with run_ledger(tmp_path / "ss", run="r1"):
+        generate_files(ws, model=MeteredChatModel(FakeChat()),
+                       task=GenerationTask(label=label, prompt="p", round=0, kind=kind))
+    with run_ledger(tmp_path / "ag", run="r1"):
+        MeteredAgent(CliAgent(FakeChat())).run(
+            AgentJob(workspace=str(ws.root), prompt="p", label=label, round=0, kind=kind))
+    (single,), (session,) = load_ledger(tmp_path / "ss"), load_ledger(tmp_path / "ag")
+    assert (single.stage, single.round) == (session.stage, session.round) == (stage, 0)

@@ -52,6 +52,8 @@ from codeverse3d.contracts.common import (
     Usage,
     is_harness_owned,
 )
+from codeverse3d.cost.context import call_context
+from codeverse3d.cost.types import stage_for_label
 from codeverse3d.models import get_chat_model
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import NULL_EVENTS, read_json_or_none
@@ -400,11 +402,16 @@ def generate_files(
         # the RUN's remaining wall clock, not the models' 1800 s default — and past
         # the hard ceiling this refuses to buy the call at all (agent-path symmetry)
         max_wait_s=_deadline_preflight(budget, RETRY_DEADLINE_S),
-        # the round tag is the cost ledger's only way to attribute a single-shot call:
-        # it has no agent session to inherit an ambient round from (codeverse3d.cost.context)
         label=f"{task.label}:r{task.round:02d}",
     )
-    resp = model.generate(req)
+
+    def ask(r: ChatRequest) -> Any:
+        # attributed like ``MeteredAgent.run``: stage from the task's kind, its round — the
+        # label alone filed ``zones_*`` under ``other`` (audit 2026-09-24 N72)
+        with call_context(round=task.round, stage=stage_for_label(task.kind or task.label)):
+            return model.generate(r)
+
+    resp = ask(req)
     usage = resp.usage
     # the clock is not enforced here: the response is already paid for, and raising would
     # discard it before transcript/parse/write_files — the round's phase boundary does
@@ -423,7 +430,7 @@ def generate_files(
             # hand it only what is left of the run (BudgetExceeded past the ceiling)
             req = req.model_copy(update={"max_output_tokens": grown,
                                          "max_wait_s": _deadline_preflight(budget, RETRY_DEADLINE_S)})
-            resp = model.generate(req)
+            resp = ask(req)
             usage = usage + resp.usage
     traj = ws.trajectory_dir(task.label.replace("/", "_"), task.round)
     (traj / "prompt.md").write_text(f"# system\n{system}\n\n# user\n{task.prompt}\n")
