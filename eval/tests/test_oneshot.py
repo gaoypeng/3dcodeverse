@@ -157,3 +157,29 @@ def test_a_continued_claude_reply_is_read_whole_not_just_its_last_continuation()
         {"type": "result", "subtype": "success", "result": second, "is_error": False},
     ))
     assert assistant_text(stream) == first + second
+
+
+_CLAUDE_KILLED = [  # a reply's usage block, then no result envelope
+    {"type": "system", "subtype": "init"},
+    {"type": "assistant", "message": {"id": "m1", "model": "claude-sonnet-5", "content": [{"type": "text", "text": "```js"}],
+                                      "usage": {"input_tokens": 9000, "output_tokens": 4000}}}]
+_CODEX_KILLED = [  # an item completed, no turn did
+    {"type": "thread.started", "thread_id": "t"}, {"type": "turn.started"},
+    {"type": "item.completed", "item": {"type": "agent_message", "text": "import bpy\n" + "# pad\n" * 500}}]
+
+
+@pytest.mark.parametrize("backend, events", [
+    (lambda b: ClaudeOneShot("claude-sonnet-5", binary=b), _CLAUDE_KILLED),
+    (lambda b: CodexOneShot("gpt-5.5", binary=b), _CODEX_KILLED),
+], ids=["claude", "codex"])
+def test_a_session_that_never_finished_books_what_it_spent_not_zero(tmp_path: Path, backend, events):
+    """N82a: the harness books these sessions (stream usage / codex estimate); the one-shot booked $0."""
+    import json as _json
+
+    out = tmp_path / "stdout.jsonl"
+    out.write_text("\n".join(_json.dumps(e) for e in events) + "\n")
+    fake = tmp_path / "cli"
+    fake.write_text(f"#!{sys.executable}\nimport sys\nsys.stdin.read()\nprint(open({str(out)!r}).read())\nsys.exit(1)\n")
+    fake.chmod(0o755)
+    r = backend(str(fake)).generate("brief", out_dir=tmp_path / "o", timeout_s=30)
+    assert r.usage.input_tokens > 0 and r.usage.cost_usd > 0, r.usage

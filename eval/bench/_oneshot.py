@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field
 from bench._infra import is_infra_failure
 from codeverse3d.agents.backends import (
     CLAUDE_SETTING_SOURCES,
+    ClaudeStream,
     effort_overrides,
     parse_claude_json,
     parse_codex_jsonl,
@@ -393,7 +394,12 @@ class ClaudeOneShot:
                                  soft_timeout_s=timeout_s, idle_grace_s=IDLE_GRACE_S, activity_dirs=[cwd])
         _dump(out_dir, prompt, argv, proc.stdout, proc.stderr)
         env = parse_claude_json(proc.stdout)
-        usage = usage_from_envelope(env, self.model or "default") if env else Usage(backend=self.kind, model=self.model)
+        stream = ClaudeStream()
+        for line in proc.stdout.splitlines():
+            stream.feed(line)
+        # a killed session printed no envelope: its per-message usage blocks, as the harness books it
+        usage = usage_from_envelope(env, self.model or "default") if env else stream.usage(self.model or "default")
+        usage.tool_calls = len(stream.calls)
         usage.latency_ms = usage.latency_ms or int(proc.duration_s * 1000)
         # the answer is EVERY assistant text block in order, not the result envelope's `result`: a reply that
         # hits the per-message output limit is auto-continued, and `result` holds only the last continuation
@@ -455,7 +461,10 @@ class CodexOneShot:
         _dump(out_dir, prompt, argv, proc.stdout, proc.stderr)
         events = parse_codex_jsonl(proc.stdout)
         text = last_msg.read_text() if last_msg.is_file() else "\n\n".join(m for m in events.messages if m.strip())
-        usage = events.usage(self.model or codex_default_model() or "default")
+        model = self.model or codex_default_model() or "default"
+        # no turn completed but requests were made: an estimate, as CodexAgent books it — never a silent $0
+        estimated = events.turns_completed == 0 and (bool(events.items) or proc.timed_out)
+        usage = events.estimated_usage(model, len(prompt)) if estimated else events.usage(model)
         usage.latency_ms = int(proc.duration_s * 1000)
         notes = "; ".join(events.errors[:3])
         ok = bool(text.strip()) and not proc.timed_out
