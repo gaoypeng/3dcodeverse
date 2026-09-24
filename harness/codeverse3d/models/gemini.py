@@ -42,6 +42,7 @@ from codeverse3d.models.base import ModelError
 from codeverse3d.models.parts import (
     Stopwatch,
     attempt_timeout_s,
+    default_timeout_s,
     image_bytes,
     message_blocks,
     retry_budget_s,
@@ -230,13 +231,6 @@ def _rate() -> Any:
         return Rate()
 
 
-def _default_timeout_s() -> float:
-    try:
-        return float(get_settings().model_timeout_s)
-    except Exception:  # pragma: no cover - settings must never break a model call
-        return 300.0
-
-
 def _default_keys() -> list[str]:
     return list(get_settings().gemini_api_keys)
 
@@ -383,7 +377,7 @@ class GeminiModel:
         self.hedge = max(1, int(_rate().hedge if hedge is None else hedge))
         keys = _keys_or_raise(keys, pool)
         self.pool = pool or shared_pool(keys)
-        self.timeout_s = _default_timeout_s() if timeout_s is None else timeout_s
+        self.timeout_s = default_timeout_s() if timeout_s is None else timeout_s
         self.max_attempts = max(1, max_attempts)
         self._sleep = sleep
         self._client_factory = client_factory

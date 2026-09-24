@@ -21,6 +21,8 @@ from codeverse3d.models.anthropic import (
     to_messages,
 )
 from codeverse3d.models.base import ModelError
+from codeverse3d.models.gemini import GeminiModel
+from codeverse3d.models.openai import OpenAIModel
 
 PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
@@ -216,3 +218,14 @@ def test_a_failed_reply_carries_what_it_was_billed():
             m.generate(req)
         assert e.value.usage.input_tokens == 100 and e.value.usage.output_tokens == 20
 
+
+
+@pytest.mark.parametrize("make", [
+    lambda: AnthropicModel("claude-opus-5"),
+    lambda: OpenAIModel("gpt-x"),
+    lambda: GeminiModel("g", keys=["k"]),
+], ids=["anthropic", "openai", "gemini"])
+def test_every_api_adapter_reads_model_timeout_s(make, switch):
+    """N73: ``C3D_MODEL_TIMEOUT_S`` reached Gemini only; anthropic/openai sat on a 600 s literal."""
+    switch("C3D_MODEL_TIMEOUT_S", "2000")
+    assert make().timeout_s == 2000.0

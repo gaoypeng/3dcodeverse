@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.chat import ChatMessage, ImagePart, TextPart
 from codeverse3d.models.base import ModelError
 
@@ -54,6 +55,14 @@ def message_blocks(msg: ChatMessage, *, text: Callable[[str], Any], image: Calla
     return out
 
 
+def default_timeout_s() -> float:
+    """``Settings.model_timeout_s`` — the per-attempt HTTP ceiling every API adapter uses."""
+    try:
+        return float(get_settings().model_timeout_s)
+    except Exception:  # pragma: no cover - settings must never break a model call
+        return float(Settings.model_fields["model_timeout_s"].default)
+
+
 class SdkModel:
     """The shell the SDK adapters (anthropic, openai) share: the constructor, ``id`` and the
     lazily built client.  Each adapter owns ``_make_client`` and its own ``generate``."""
@@ -64,13 +73,13 @@ class SdkModel:
         self,
         model: str,
         *,
-        timeout_s: float = 600.0,
+        timeout_s: float | None = None,
         max_attempts: int = 6,
         sleep: Callable[[float], None] = time.sleep,
         client: Any | None = None,
     ) -> None:
         self.model = model
-        self.timeout_s = timeout_s
+        self.timeout_s = default_timeout_s() if timeout_s is None else timeout_s
         self.max_attempts = max(1, max_attempts)
         self._sleep = sleep
         self._client = client
