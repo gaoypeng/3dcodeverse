@@ -1,6 +1,6 @@
 """``3dcode texture`` — text-to-image texturing commands.
 
-    3dcode texture pass <slug> [--no-judge] [--model gemini:gemini-3.7-flash] [--image-model gemini-3.1-flash-image]
+    3dcode texture pass <slug> [--no-judge] [--model gemini:gemini-3.7-flash] [--image-model MODEL]
     3dcode texture scene-pack <slug> [--n 8] [--model ...]
     3dcode texture show <slug>
 """
@@ -14,6 +14,7 @@ import typer
 
 from codeverse3d.cli import _common as C
 from codeverse3d.cli._common import console, kv_table, warn
+from codeverse3d.contracts.common import DEFAULT_IMAGE_MODEL
 from codeverse3d.contracts.plan import ScenePlan
 
 texture_app = typer.Typer(name="texture", help="Text-to-image texturing: object pass + scene texture pack.",
@@ -28,7 +29,7 @@ def pass_(
     judge: Annotated[bool, typer.Option("--judge/--no-judge", help="before/after VLM ship gate")] = True,
     model: Annotated[str | None, typer.Option("--model", help="material-plan chat model id (default: spec planner)")] = None,
     judge_model: Annotated[str | None, typer.Option("--judge-model", help="judge chat model id (default: spec judge)")] = None,
-    image_model: Annotated[str | None, typer.Option("--image-model", help="gemini image model (default gemini-3.1-flash-image)")] = None,
+    image_model: Annotated[str | None, typer.Option("--image-model", help=f"gemini image model (default {DEFAULT_IMAGE_MODEL})")] = None,
     size: Annotated[int, typer.Option("--size", min=256, max=2048)] = 1024,
     force: Annotated[bool, typer.Option("--force", help="buy a new pass even if one already started from this GLB")] = False,
     runs_dir: RunsDirOpt = None,

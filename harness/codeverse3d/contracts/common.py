@@ -191,6 +191,10 @@ class Backends(BaseModel):
     captioner: str = "gemini:gemini-3.7-flash"
 
 
+#: The text-to-image model (texture pass, scene texture pack, synthetic references) when none is named.
+DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
+
+
 # ------------------------------------------------------------------ joint coupling
 #: |multiplier| below this is a coupling that transmits no motion.  ONE value: the plan
 #: validator used 1e-9 while the URDF loader and lint used 1e-12, so a coupling the

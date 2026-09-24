@@ -34,7 +34,7 @@ from codeverse3d.contracts.chat import (
     ChatResponse,
     ImagePart,
 )
-from codeverse3d.contracts.common import Usage
+from codeverse3d.contracts.common import DEFAULT_IMAGE_MODEL, Usage
 from codeverse3d.cost.context import AttemptRecord, attempt_sink
 from codeverse3d.cost.ledger import record_call
 from codeverse3d.cost.types import Role, Stage
@@ -535,7 +535,6 @@ class GeminiModel:
 
 # ===================================================================== gemini_image
 
-DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
 FALLBACK_IMAGE_MODEL = "gemini-2.5-flash-image"
 
 #: requested pixel size → Gemini ``image_size`` token; a 512 request GENERATES a 1K
