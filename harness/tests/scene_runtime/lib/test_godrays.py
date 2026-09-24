@@ -124,3 +124,21 @@ console.log(JSON.stringify({
     assert out["steepNames"] == ["Motes", "Pools", "Shafts"], out
 
 
+
+
+def test_added_light_fades_with_distance_and_never_takes_the_fog_colour():
+    """The pools and dust were additive but built without `additive: true`, so each
+    faded its alpha AND ran three's fog chunk, which ADDS fog-coloured haze to an
+    added light.  Every additive material ends in the alpha fade only."""
+    out = measure("""
+import * as THREE from 'three';
+import { makeGodRays } from './lib/godrays.js';
+const g = makeGodRays({ count: 3, height: 6, seed: 2 });
+const mats = [];
+g.traverse((o) => { if (o.material && o.material.blending === THREE.AdditiveBlending) mats.push({
+  name: o.material.name, mix: o.material.fragmentShader.includes('#include <fog_fragment>'),
+  fade: o.material.fragmentShader.includes('gl_FragColor.a *= 1.0 - clamp(astraFogF') }); });
+console.log(JSON.stringify(mats));
+""", _LIBS)
+    assert {m["name"] for m in out} >= {"GodRayPool", "GodRayMotes"}, out
+    assert all(m["fade"] and not m["mix"] for m in out), out

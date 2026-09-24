@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32 } from './noise.js';
 import { makeShaderMaterial, patchStandard, tickShaders, keepOutOfDepthPasses } from './shader.js';
+import { MOODS } from './environment.js';
 
 // Sheets are packed toward the ground (h ~ f^PACK): an evenly spaced
 // stack spends most of its geometry in the thin top half where there
@@ -31,10 +32,10 @@ const BASE_H = 0.03;
 // the dial means one physical thing at any `extent`, `height` or
 // LAYERS. Written into the GLSL below as 1/REF_M.
 const REF_M = 10;
-// environment.js MOODS.day.horizon — the fallback for a bank built with
-// no scene to read. Not a light colour anyone should be relying on:
-// pass `scene` (or `color`) and the bank takes the scene's own.
-const DAY_HORIZON = 0xdbe3ea;
+// The day mood's horizon — the fallback for a bank built with no scene
+// to read. Not a light colour anyone should be relying on: pass `scene`
+// (or `color`) and the bank takes the scene's own.
+const DAY_HORIZON = MOODS.day.horizon;
 // Henyey-Greenstein asymmetry. Water droplets scatter hard forward, so
 // a bank you look THROUGH toward the sun is a light source and the same
 // bank with the sun behind you is a grey wall. HG_NORM normalises the
@@ -172,16 +173,19 @@ function inScatterFloor(color, ref, floor) {
  * @param {THREE.Scene} [scene]
  * @returns {{air: THREE.Color|null, fog: THREE.Color|null,
  *   dir: THREE.Vector3|null, sun: THREE.Color|null, key: number,
- *   amb: THREE.Color|null, ambLum: number, fogDensity: number}}
+ *   amb: THREE.Color|null, ambLum: number, fogFar: number}} — `fogFar` is
+ *   where the scene's fog is (nearly) opaque: a linear Fog's `far`, one
+ *   e-fold of a FogExp2, 0 without fog.
  */
 function readScene(scene) {
   const out = { air: null, fog: null, dir: null, sun: null, key: 0,
-                amb: null, ambLum: 0, fogDensity: 0 };
+                amb: null, ambLum: 0, fogFar: 0 };
   if (!scene || typeof scene.traverse !== 'function') return out;
   out.air = horizonRadiance(scene);
   if (scene.fog && scene.fog.color) {
     out.fog = scene.fog.color.clone();
-    out.fogDensity = scene.fog.density || 0;
+    out.fogFar = scene.fog.isFog ? scene.fog.far
+        : scene.fog.density > 0 ? 1 / scene.fog.density : 0;
   }
   let best = null;
   let fill = null;
@@ -550,12 +554,13 @@ const AERIAL_HEAD = [
  * @param {THREE.Material} material Any built-in material (the patch
  *   needs three's `<color_fragment>`); patched in place.
  * @param {object} [opts] `scene` THREE.Scene to read — the shift then
- *   targets the scene's OWN fog colour and finishes at one e-fold of
- *   its density, so the two cues cannot disagree about where far is;
+ *   targets the scene's OWN fog colour and finishes where that fog
+ *   closes, so the two cues cannot disagree about where far is;
  *   `skyColor` THREE.Color override (default the day mood horizon,
  *   matching `worldShell`); `start`/`end` metres over which the shift
- *   ramps in (default 40/600 — `end` is one e-fold of the day fog
- *   density, so the shift completes as fog takes over); `strength`
+ *   ramps in (default 40 and where the scene's fog closes — a linear
+ *   Fog's far, a FogExp2's e-fold, else the day mood's ~556 m — so the
+ *   shift completes as fog takes over); `strength`
  *   maximum shift (default 0.8; 1.0 is pure sky); `lift` how much of
  *   the sky's own brightness the far field takes on — airlight
  *   (default 0.35; 0 is the pure hue shift, 1 flattens the far field
@@ -576,10 +581,10 @@ export function patchAerialPerspective(material, opts = {}) {
                        env.air || env.amb,
                        env.air ? 0.5 * lumOf(env.air) : 0.2 * env.ambLum);
   const start = opts.start ?? 40;
-  // One e-fold of the scene's own fog, exactly as the 600 m default is
-  // one e-fold of the day mood's 0.0018.
-  const efold = env.fogDensity > 0 ? 1 / env.fogDensity : 600;
-  const end = Math.max(start + 1, opts.end ?? efold);
+  // Where the scene's own fog closes (a linear Fog's far, a FogExp2's
+  // e-fold); with no fog, the day mood's e-fold.
+  const far = env.fogFar > 0 ? env.fogFar : 1 / MOODS.day.fogDensity;
+  const end = Math.max(start + 1, opts.end ?? far);
   // Pre-divided by its own luminance, so `uAerialSky * L` lands back on
   // the fragment's brightness and the shader stays two instructions.
   const lum = lumOf(sky);

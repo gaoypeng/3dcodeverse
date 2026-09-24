@@ -37,19 +37,6 @@ import {
 
 const _UP = new THREE.Vector3(0, 1, 0);
 
-// Additive light must FADE with distance. three's fog chunk mixes
-// toward the fog colour, which on an additive pass ADDS haze instead of
-// removing contrast, so the alpha carries the recession itself.
-const _FOG_FADE = [
-    '#ifdef USE_FOG',
-    '  #ifdef FOG_EXP2',
-    '  a *= exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);',
-    '  #else',
-    '  a *= 1.0 - smoothstep(fogNear, fogFar, vFogDepth);',
-    '  #endif',
-    '#endif',
-].join('\n');
-
 /**
  * Build a field of light shafts, their floor pools and their dust.
  *
@@ -402,7 +389,6 @@ function shaftMaterial(dir, color, air, soft, gain, hazy) {
             // through what they let through.
             '  float amp = 0.55 + 0.8 * astraHash11(vShaft * 13.0 + 0.5);',
             '  float a = uGain * amp * chord * striae * fade * ends;',
-            _FOG_FADE,
             // Rolled off instead of clamped: a beam that saturates
             // draws a flat white band with a hard rim, which is the
             // cylinder again.
@@ -425,6 +411,9 @@ function shaftMaterial(dir, color, air, soft, gain, hazy) {
             '  gl_FragColor = vec4(c, clamp(a, 0.0, 1.0));',
         ].join('\n'),
         transparent: true,
+        // Added light fades into distance through its alpha (shader.js
+        // `additive`); a hazy veil is a surface and takes the fog colour.
+        additive: !hazy,
         blending: hazy ? THREE.NormalBlending : THREE.AdditiveBlending,
         side: THREE.DoubleSide,
         depthWrite: false,
@@ -484,16 +473,13 @@ function poolMesh(shafts, dir, run, side, color, air, spark) {
             // on. One power alone is a soft blob with no centre.
             '  float a = (pow(1.0 - d, 2.9) * 0.44',
             '      + pow(1.0 - d, 7.0) * 0.26) * shim * uAmp;',
-            _FOG_FADE,
             // A pool has a hot heart and a scattered margin: holding one
             // tint out to the rim is what makes it read as a decal.
             '  vec3 c = mix(uColor, uAir, smoothstep(0.15, 1.0, d) * 0.7);',
             '  a += (astraHash21(gl_FragCoord.xy) - 0.5) * 0.005;',
             '  gl_FragColor = vec4(c, clamp(a, 0.0, 1.0));',
         ].join('\n'),
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
+        additive: true,
     });
     const mesh = new THREE.Mesh(geom, mat);
     mesh.name = 'Pools';
@@ -610,17 +596,13 @@ function moteMaterial(dir, side, perp, color, air, spark, width) {
             '#include <fog_vertex>',
             '}',
         ].join('\n'),
-        fragmentShader: [
-            '#include <common>',
-            '#include <logdepthbuf_pars_fragment>',
-            '#include <fog_pars_fragment>',
-            'uniform vec3 uColor; uniform vec3 uAir; uniform float uAmp;',
-            'varying vec2 vUv;',
-            'varying float vLife;',
-            'varying float vTwinkle;',
-            'varying float vMist;',
-            'void main() {',
-            '#include <logdepthbuf_fragment>',
+        // The fragment is built by makeShaderMaterial so `additive` can
+        // fade the dust into distance through its alpha.
+        util: false,
+        fragmentHead: 'uniform vec3 uColor; uniform vec3 uAir; uniform float uAmp;'
+            + ' varying vec2 vUv; varying float vLife; varying float vTwinkle;'
+            + ' varying float vMist;',
+        fragmentMain: [
             '  float d = length(vUv - 0.5) * 2.0;',
             '  if (d > 1.0) discard;',
             // Lives and dies inside the beam so nothing pops at the
@@ -631,15 +613,10 @@ function moteMaterial(dir, side, perp, color, air, spark, width) {
             // a ball of cotton.
             '  float a = (pow(1.0 - d, 3.4) + 0.14 * pow(1.0 - d, 1.3))',
             '      * life * vTwinkle * exp(-vLife * 1.2) * 1.05 * uAmp;',
-            _FOG_FADE,
             '  if (a < 0.003) discard;',
             '  gl_FragColor = vec4(mix(uColor, uAir, vMist),',
             '      clamp(a, 0.0, 1.0));',
-            '#include <fog_fragment>',
-            '}',
         ].join('\n'),
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
+        additive: true,
     });
 }

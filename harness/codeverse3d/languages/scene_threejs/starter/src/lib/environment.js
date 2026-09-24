@@ -13,7 +13,7 @@ import { patchStandard, sunVector } from './shader.js';
 import { skyRadiance } from './sky.js';
 import { snapshotResources, attachDisposal } from './lifecycle.js';
 
-const MOODS = {
+export const MOODS = {
   day: { zenith: 0x5d8fd6, horizon: 0xdbe3ea, ridge: 0x9fb2c4,
          fogDensity: 0.0018 },
   golden: { zenith: 0x3f5a9e, horizon: 0xf2c17e, ridge: 0x8c7a90,

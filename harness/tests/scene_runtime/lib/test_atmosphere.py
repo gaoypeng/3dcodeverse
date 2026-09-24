@@ -34,3 +34,21 @@ console.log(JSON.stringify({
     assert out["day"] > 0.5 and 0.02 < out["night"] < 0.08, out
     assert out["night"] > out["fog"] * 4 and out["nightRB"] < 0.75, out  # lit, and blue
     assert out["forced"][0] > 0.9 and out["forced"][2] < 0.05, out
+
+
+@pytest.mark.parametrize("fog, end", [
+    ("new THREE.FogExp2(0xdbe3ea, 0.0018)", 1 / 0.0018),
+    # the linear Fog contract.md and the cookbook teach: the ramp once ran on to 600 m,
+    # four times past the fog wall, where no hue shift can be seen
+    ("new THREE.Fog(0x9fc4e8, 40, 140)", 140),
+    ("null", 1 / 0.0018),                    # no fog: the day mood's e-fold
+])
+def test_the_aerial_ramp_ends_where_the_scene_fog_closes(fog, end):
+    out = measure(f"""
+import * as THREE from 'three';
+import {{ patchAerialPerspective }} from './lib/atmosphere.js';
+const scene = new THREE.Scene(); scene.fog = {fog};
+const m = patchAerialPerspective(new THREE.MeshStandardMaterial(), {{ scene }});
+console.log(JSON.stringify({{ end: m.userData.uniforms.uAerialEnd.value }}));
+""", ("atmosphere.js", "environment.js", "sky.js"))
+    assert out["end"] == pytest.approx(end)
