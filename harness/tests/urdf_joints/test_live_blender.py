@@ -104,3 +104,34 @@ def test_links_script_that_calls_sys_exit_0_still_builds(tmp_path):
     assert census["links"]["base"]["bbox_max"][0] == pytest.approx((0.2 + random.random()) / 2, abs=1e-5)
     assert (out / "meshes" / "base.glb").is_file()
     assert any("has no material" in w for w in census["warnings"])  # the blender language's census
+
+
+@needs_blender
+@pytest.mark.parametrize("parented", [True, False])
+def test_a_hidden_boolean_cutter_is_not_link_geometry(tmp_path, parented):
+    """Regression (audit 2026-09-24 N7): the link exporter skips hidden objects by the blender
+    language's own predicate (``_census.is_hidden``).  It used to export a parented hidden cutter
+    as a solid rod inside the link (z 0..2) and fail an unparented one as UnmatchedObjects."""
+    import json as _json
+    import subprocess
+
+    from codeverse3d.languages.urdf import WRAPPER
+
+    (tmp_path / "robot.urdf").write_text('<robot name="r"><link name="base"/></robot>')
+    (tmp_path / "model.py").write_text(
+        "import bpy\n"
+        "bpy.ops.mesh.primitive_cube_add(size=1, location=(0, 0, 0.5)); base = bpy.context.active_object; base.name = 'base'\n"
+        "bpy.ops.mesh.primitive_cylinder_add(radius=0.2, depth=2, location=(0, 0, 0.5)); cut = bpy.context.active_object\n"
+        "cut.name = 'HoleCutter'\n"
+        "m = base.modifiers.new('hole', 'BOOLEAN'); m.object = cut; m.operation = 'DIFFERENCE'\n"
+        + ("cut.parent = base\n" if parented else "")
+        + "cut.hide_set(True); cut.hide_render = True\n")
+    out = tmp_path / "art"
+    subprocess.run(
+        [get_settings().resolve_blender(), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
+         "--script", str(tmp_path / "model.py"), "--urdf", str(tmp_path / "robot.urdf"), "--out", str(out)],
+        capture_output=True, text=True, timeout=180, check=False)
+    build = _json.loads((out / "build.json").read_text())
+    assert build["ok"], build
+    link = _json.loads((out / "census.json").read_text())["links"]["base"]
+    assert link["objects"] == ["base"] and link["bbox_max"][2] == pytest.approx(1.0, abs=1e-4)

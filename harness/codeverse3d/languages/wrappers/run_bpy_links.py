@@ -29,7 +29,12 @@ import bpy
 from mathutils import Matrix, Vector
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from _census import collect_census, world_bbox  # noqa: E402  (siblings, Blender-executed)
+from _census import (  # noqa: E402  (siblings, Blender-executed)
+    MEASURABLE_TYPES,
+    collect_census,
+    is_hidden,
+    world_bbox,
+)
 from _wrapper_common import (  # noqa: E402
     exit_after,
     map_exception,
@@ -40,7 +45,6 @@ from _wrapper_common import (  # noqa: E402
     write_report,
 )
 
-MESH_LIKE = {"MESH", "CURVE", "FONT", "SURFACE", "META"}
 TRI_LIMIT = 600_000  # a warning here (census), the blender language's build error
 
 
@@ -148,20 +152,23 @@ def main() -> int:
 
     census.update(collect_census(bpy, TRI_LIMIT))
     depsgraph = bpy.context.evaluated_depsgraph_get()
-    by_name = {ob.name: ob for ob in bpy.data.objects if ob.type in MESH_LIKE or ob.type == "EMPTY"}
+    by_name = {ob.name: ob for ob in bpy.data.objects if ob.type in MEASURABLE_TYPES or ob.type == "EMPTY"}
+    # a hidden object (a boolean cutter, as the census tells agents to hide one) is not
+    # geometry: the blender language's export skips it by the same predicate
+    vl_names = set(bpy.context.view_layer.objects.keys())
     claimed: set[str] = set()
     for link in links:
         ob = by_name.get(link)
         if ob is None:
             census["missing_links"].append(link)
-            near = [o.name for o in bpy.data.objects if o.type in MESH_LIKE and _snake(o.name) == _snake(link)]
+            near = [o.name for o in bpy.data.objects if o.type in MEASURABLE_TYPES and _snake(o.name) == _snake(link)]
             if near:
                 census["hints"][link] = f"no object named exactly '{link}' — did you mean {near}? names are case-sensitive"
             continue
-        group = [o for o in (ob, *ob.children_recursive) if o.type in MESH_LIKE]
+        group = [o for o in (ob, *ob.children_recursive) if o.type in MEASURABLE_TYPES and not is_hidden(o, vl_names)]
         if not group:
             census["missing_links"].append(link)
-            census["hints"][link] = f"object '{link}' has no mesh geometry (type {ob.type})"
+            census["hints"][link] = f"object '{link}' has no visible mesh geometry (type {ob.type})"
             continue
         claimed.update(o.name for o in group)
         try:
@@ -169,7 +176,7 @@ def main() -> int:
         except Exception as e:  # export failure is a build failure
             return fail("ExportError", f"link {link}: {e}")
     census["unmatched_objects"] = [o["name"] for o in census["objects"]
-                                   if o["type"] in MESH_LIKE and o["name"] not in claimed]
+                                   if o["type"] in MEASURABLE_TYPES and not o["hidden"] and o["name"] not in claimed]
     if census["missing_links"]:
         return fail("MissingLinkObjects",
                     "URDF links without a mesh object in model.py: " + ", ".join(census["missing_links"]))
