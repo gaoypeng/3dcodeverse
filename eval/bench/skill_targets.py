@@ -44,6 +44,7 @@ from codeverse3d.addons.skill_targets import (  # noqa: E402
     TARGETS,
     Target,
 )
+from codeverse3d.proc import write_text_atomic  # noqa: E402
 from codeverse3d.skills.registry import finding_kind  # noqa: E402
 
 CACHE_NAME = ".skill_targets_cache.json"
@@ -405,7 +406,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if cache is not None:
         with contextlib.suppress(OSError):
-            cache_path.write_text(json.dumps(cache))
+            write_text_atomic(cache_path, json.dumps(cache))
 
     if a.json:
         print(json.dumps({"out": str(a.out), "mode": "ab" if arms else "battery",

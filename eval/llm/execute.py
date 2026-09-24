@@ -1,13 +1,12 @@
 """Execute every generated program in a gen dir with the suite's executor → <gen_dir>/exec_results.jsonl."""
 from __future__ import annotations
 
-import json
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from . import executors
-from ._jsonl import read_rows
+from ._jsonl import read_rows, write_rows
 from .executors import CODE_EXT
 
 # Blender and Chromium are heavy; CadQuery/OpenSCAD/glslang are light.
@@ -44,9 +43,7 @@ def execute_dir(gen_dir: Path, dialect: str, workers: int | None = None, timeout
             if i % 25 == 0:
                 print(f"[exec] {gen_dir.name} {i}/{len(todo)}", flush=True)
     res.sort(key=lambda r: r["id"])
-    with out_path.open("w") as f:
-        for r in res:
-            f.write(json.dumps(r) + "\n")
+    write_rows(out_path, res)
     c = Counter(r["status"] for r in res)
     print(f"[exec] {gen_dir.name}: {dict(c)} | OK {c.get('OK', 0)}/{len(res)} = {100 * c.get('OK', 0) / max(1, len(res)):.1f}%", flush=True)
     return res

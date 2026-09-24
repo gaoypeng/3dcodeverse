@@ -21,6 +21,8 @@ from pathlib import Path
 from . import config
 from ._jsonl import read_rows
 
+from codeverse3d.proc import write_text_atomic
+
 VIEWS = ["Image_005.png", "Image_015.png", "Image_025.png", "Image_035.png"]
 
 BLENDER_SCRIPT = r'''
@@ -104,7 +106,9 @@ try:
 except Exception as e:
     rec["status"] = "ERR_RENDER"; rec["error"] = f"{type(e).__name__}: {e}\n{traceback.format_exc()[-800:]}"
 rec["latency_s"] = round(time.time() - t0, 2)
-open(os.path.join(out_dir, "render_log.json"), "w").write(json.dumps(rec, indent=1))
+# tmp + rename (Blender's python cannot import codeverse3d.proc): the log is the cache marker
+open(os.path.join(out_dir, "render_log.json.tmp"), "w").write(json.dumps(rec, indent=1))
+os.replace(os.path.join(out_dir, "render_log.json.tmp"), os.path.join(out_dir, "render_log.json"))
 '''
 
 
@@ -127,12 +131,12 @@ def render_glb_views(glb: str | Path, out_dir: str | Path, samples: int = 64, re
         subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=config.tool_env(HOME="/tmp", XDG_CONFIG_HOME="/tmp/.bcfg"))
     except subprocess.TimeoutExpired:
         rec = {"status": "ERR_TIMEOUT", "error": f"render > {timeout}s", "n_views": 0, "latency_s": round(time.time() - t0, 1)}
-        log.write_text(json.dumps(rec))
+        write_text_atomic(log, json.dumps(rec))
         return rec
     if log.exists():
         return json.loads(log.read_text())
     rec = {"status": "ERR_NOLOG", "error": "blender exited without a log", "n_views": 0, "latency_s": round(time.time() - t0, 1)}
-    log.write_text(json.dumps(rec))
+    write_text_atomic(log, json.dumps(rec))
     return rec
 
 

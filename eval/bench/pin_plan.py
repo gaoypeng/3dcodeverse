@@ -23,6 +23,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from codeverse3d.proc import write_text_atomic
+
 __all__ = ["PinError", "plan_artifacts", "plan_once", "seed_plan"]
 
 #: what a planned run leaves behind that a later run resumes from
@@ -73,7 +75,7 @@ def seed_plan(src_run: Path, dst_run: Path) -> str:
     stages = dict(target.get("stages") or {})
     stages[STAGE_NAME] = {**entry, "result_path": str(dst_stage.resolve())}
     target["stages"] = stages
-    dst_state.write_text(json.dumps(target, indent=1))
+    write_text_atomic(dst_state, json.dumps(target, indent=1))   # a torn run_state.json is an unresumable run
     return str(entry["inputs_hash"])
 
 

@@ -49,6 +49,7 @@ from bench._fixed_eval import RUBRIC  # noqa: E402
 from bench.run_bench import Battery, BenchPrompt  # noqa: E402
 from bench.stats import sign_test  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
+from codeverse3d.proc import write_text_atomic  # noqa: E402
 from codeverse3d.record.record import load_record  # noqa: E402
 from codeverse3d.workspace import Workspace  # noqa: E402
 
@@ -185,7 +186,7 @@ def cached_eval(side: Side, spec: Any, out_dir: Path, judge: Any, *, force: bool
             return prev.model_copy(update={k: getattr(side, k) for k in ("rounds", "cost_usd", "minutes", "status")})
     out_dir.mkdir(parents=True, exist_ok=True)
     side = evaluate(side, spec, out_dir, judge)
-    cache.write_text(side.model_dump_json(indent=2))
+    write_text_atomic(cache, side.model_dump_json(indent=2))
     return side
 
 

@@ -123,7 +123,7 @@ from bench.run_bench import (  # noqa: E402
     select_prompts,
 )
 from codeverse3d.contracts.common import Backends  # noqa: E402
-from codeverse3d.proc import exclusive  # noqa: E402
+from codeverse3d.proc import exclusive, write_text_atomic  # noqa: E402
 from codeverse3d.tracks.plan_features import pin_plan_blockers  # noqa: E402
 from codeverse3d.workspace import Workspace  # noqa: E402
 
@@ -352,7 +352,7 @@ def cell_main(battery_path: Path, out: Path, item_id: str, arm: str, opts: AbOpt
         battery, item, _harness_arm(opts.generator), arm_dir(out, arm), opts.compare_options(), deps
     )
     res.arm, res.target = arm, opts.generator  # the row is keyed by A/B arm, not by generator
-    (Path(res.workspace) / "cell.json").write_text(res.model_dump_json(indent=1))
+    write_text_atomic(Path(res.workspace) / "cell.json", res.model_dump_json(indent=1))   # the parent's marker
     print(
         f"cell {arm} {item_id}: status={res.status} score={res.score} ${res.gen_cost_usd + res.judge_cost_usd:.2f}"
     )

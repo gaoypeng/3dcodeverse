@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from . import config
-from ._jsonl import read_rows
+from ._jsonl import read_rows, write_rows
 from .executors import CODE_EXT
 from .extract import extract, summarize
 from .suites import resolve
@@ -69,9 +69,7 @@ def write_answer(gen_dir: Path, row: dict, text: str, meta: dict) -> dict:
 
 def finish(gen_dir: Path, recs: list[dict], info: dict) -> None:
     recs.sort(key=lambda r: r["id"])
-    with (gen_dir / "gens.jsonl").open("w") as f:
-        for r in recs:
-            f.write(json.dumps(r) + "\n")
+    write_rows(gen_dir / "gens.jsonl", recs)   # run_eval skips a stage whose gens.jsonl exists
     stats = summarize([r["extract"] for r in recs])
     n = max(1, len(recs))
     stats.update(info, n_rows=len(recs), truncated=sum(bool(r.get("truncated")) for r in recs),

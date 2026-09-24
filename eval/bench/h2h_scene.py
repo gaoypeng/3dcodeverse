@@ -45,6 +45,7 @@ from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.contracts.artifacts import RenderSet, RenderView  # noqa: E402
 from codeverse3d.contracts.common import Language, Track  # noqa: E402
 from codeverse3d.contracts.spec import Spec  # noqa: E402
+from codeverse3d.proc import write_text_atomic  # noqa: E402
 from codeverse3d.record.record import load_record  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -169,7 +170,7 @@ def judge_side(judge: Any, spec: Spec, views: list[RenderView], cache: Path) -> 
     inp = JudgeInput(spec=spec, renders=render_set(views), gates=[], acceptance=[], round_index=0, extra_context=EXTRA_CONTEXT)
     j = judge.judge(inp)
     cache.parent.mkdir(parents=True, exist_ok=True)
-    cache.write_text(j.model_dump_json(indent=1))
+    write_text_atomic(cache, j.model_dump_json(indent=1))
     return json.loads(cache.read_text())
 
 

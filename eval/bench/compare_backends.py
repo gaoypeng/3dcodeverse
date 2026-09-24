@@ -86,7 +86,7 @@ from codeverse3d.contracts.run import RunRecord, RunStatus  # noqa: E402
 from codeverse3d.contracts.spec import Spec  # noqa: E402
 from codeverse3d.cost import run_ledger  # noqa: E402
 from codeverse3d.cost.tally import tally  # noqa: E402
-from codeverse3d.proc import exclusive  # noqa: E402
+from codeverse3d.proc import exclusive, write_text_atomic  # noqa: E402
 from codeverse3d.tracks.generation import MultiFileParseError  # noqa: E402
 from codeverse3d.tracks.planner import PlanningError  # noqa: E402
 from codeverse3d.workspace import Workspace  # noqa: E402
@@ -216,7 +216,7 @@ def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts
                                        label=f"oneshot_{spec.id.split('/')[-1]}")
             if gen.ok:  # failures (timeouts, 5xx) are not cached so a redo regenerates
                 gen_dir.mkdir(parents=True, exist_ok=True)
-                cached.write_text(gen.model_dump_json(indent=1))
+                write_text_atomic(cached, gen.model_dump_json(indent=1))
         res.attempts = attempt + 1
         res.gen_cost_usd += gen.usage.cost_usd
         res.tool_calls += gen.tool_calls
@@ -520,7 +520,7 @@ def _drop_pairs(path: Path, key: tuple[str, str]) -> None:
     rows = [p for p in latest(read_jsonl(path, PairRow)).values()
             if not (p.prompt_id == key[0] and key[1] in (p.arm_a, p.arm_b))]
     if path.is_file():
-        path.write_text("".join(p.model_dump_json() + "\n" for p in rows))
+        write_text_atomic(path, "".join(p.model_dump_json() + "\n" for p in rows))
 
 
 def run_matrix(battery_path: Path | str, out_dir: Path | str, arms: Sequence[Arm], opts: CompareOptions,

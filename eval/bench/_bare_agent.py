@@ -23,6 +23,7 @@ from codeverse3d.config import get_settings
 from codeverse3d.contracts.agent import AgentJob, AgentResult
 from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.spec import Spec
+from codeverse3d.proc import write_text_atomic
 from codeverse3d.spatial.node import node_modules_dir
 from codeverse3d.workspace import Workspace
 
@@ -85,7 +86,7 @@ def run_bare_agent(spec: Spec, target: str, cell: Path, eval_ws: Workspace, *, m
                        env={"NODE_PATH": str(node_modules_dir())})
         result = get_coding_agent(target).run(job)
         if not result.transient:  # a session a 503 storm killed is not finished: a --redo must run it again
-            done.write_text(result.model_dump_json(indent=1))
+            write_text_atomic(done, result.model_dump_json(indent=1))
     for rel in files_for(spec.language):
         src = ws.root / rel
         if src.is_file():

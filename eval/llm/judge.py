@@ -31,7 +31,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from . import config
-from ._jsonl import read_rows
+from ._jsonl import read_rows, write_rows
 from .render_views import VIEWS
 from .suites import load_prompts, resolve
 
@@ -159,9 +159,7 @@ def judge_absolute(run: str, suite: str, jc: JudgeClient, tag: str, workers: int
             if i % 20 == 0:
                 print(f"[judge] {run}/{suite} {i}/{len(todo)}", flush=True)
     recs.sort(key=lambda r: r["id"])
-    with out_path.open("w") as f:
-        for r in recs:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    write_rows(out_path, recs, ensure_ascii=False)
     ok = [r for r in recs if r["status"] == "OK"]
     n = len(rows)
 
