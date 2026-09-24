@@ -39,7 +39,7 @@ Joints (the URDF must realise EXACTLY these; pivots are WORLD points at rest):
 {{ acceptance }}
 
 ## DO
-- Build every link at its WORLD rest pose with the plan's bbox centre/extents (±0.01 m); each link is
+- Build every link at its WORLD rest pose with the plan's bbox centre/extents; each link is
   ONE object (join sub-shapes into it) named exactly as the link.
 - Joint origins: every link frame sits at its joint's world pivot (root at the world origin), so the
   URDF `<joint><origin xyz>` = pivot_child − pivot_parent (plain subtraction of world points; root
@@ -56,7 +56,7 @@ Joints (the URDF must realise EXACTLY these; pivots are WORLD points at rest):
 ## DON'T
 - No camera/light/render/export calls in bpy; no imports beyond bpy/bmesh/math/mathutils/random.
 - No links that float (every non-root link touches its parent at rest, or is attached by its joint
-  at a pivot that lies ON the child link's geometry ± 0.01 m).
+  at a pivot that lies ON the child link's geometry).
 - No joint whose child passes through another link anywhere in [lower, upper].
 - No renaming of links/joints; no extra root links; one tree rooted at `{{ root_link }}` as planned.
 

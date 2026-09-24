@@ -46,8 +46,8 @@ What the gates name, measured over 32 recorded runs of this exact track:
 * **Flat frame** — one luminance band holding almost all of the pixels. Fill light with no key
   produces this. So does fog whose colour does not match the sky.
 * **The camera is in the wrong place** (42 findings) — below the highest ground surface,
-  or inside geometry. Keep the eye **≥ 0.3 m above ground** and **≥ 0.5 m clear of every
-  surface**, and keep `lookAt` on the content.
+  or inside geometry. Keep the eye **above the ground** and **clear of every surface**, and keep
+  `lookAt` on the content.
 * **Draw calls** — instance repeated geometry (`InstancedMesh`);
   a thousand individual trees is a frame-rate failure, not a detailed forest.
 

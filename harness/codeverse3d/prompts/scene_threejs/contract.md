@@ -27,7 +27,7 @@ establishing shot that is mostly sky/ground.  Dusk/night = coloured, never black
 * `cameras`: 3–5 **plain objects** `{ name, position: [x, y, z], lookAt: [x, y, z], fov }`
   (the harness builds the PerspectiveCameras: aspect 16/9, near 0.1, far from bounds).
   Names PascalCase from the plan (`Establishing`, `HarbourMid`, `LanternDetail`); fov
-  35–60; eye height ≈ 1.6 m for human views; never inside or within 0.5 m of geometry; the
+  35–60; eye height ≈ 1.6 m for human views; never inside or up against geometry; the
   first camera is the establishing shot showing ≥ 70 % of the bounds.
 * `update(t, dt)`: advance animation (t seconds since start, dt seconds).  MUST be cheap
   (no allocations, no traversals — cache lists of animated objects / materials at build

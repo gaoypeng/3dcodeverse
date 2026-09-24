@@ -39,7 +39,7 @@ artifacts/  harness output (object.glb, renders/, gates/, measurement.json).  RE
 ## 3. Physical plausibility (what gates will reject)
 
 * **Touch or overlap, never float**: every part must share volume with (or sit flush
-  against) at least one other part; seams overlap by ≥ 2 mm (`CONTACT_GAP_M = 0.002`).
+  against) at least one other part; seams overlap by ≥ 2 mm.
   No piece may hover.  The connectivity gate hard-fails on any island with a positive gap.
 * **Weld by overlap, not by rods**: fix a floating piece by extending / embedding it
   ≥ 2 mm into its neighbour, never by adding thin connector sticks.
@@ -79,7 +79,7 @@ is not evidence; a render is.
 
 1. [ ] `build` succeeds with zero errors (exit 0, GLB written).
 2. [ ] Every plan part exists by exact name; no extra junk objects (`Cube`, `Camera`).
-3. [ ] Measured overall bbox within ± 1 cm (objects) / declared bounds (scenes).
+3. [ ] Measured overall bbox matches the plan's `overall_bbox` (objects) / declared bounds (scenes).
 4. [ ] `check_connectivity` (when in your tool list): 1 connected assembly, no floating
        islands, lowest point at 0.
 5. [ ] `render_sheet` (when in your tool list) looked at: silhouette reads as the requested

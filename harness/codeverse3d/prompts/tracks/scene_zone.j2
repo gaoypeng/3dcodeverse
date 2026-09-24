@@ -11,7 +11,7 @@ Scene: {{ spec_prompt }} · Setting: {{ setting }} · Mood: {{ mood }}
 {% endif %}- Contents (asset names to place): {{ zone_contents | join(', ') if zone_contents else '(none — build local detail from primitives)' }}
 - Every builder returns its asset AT THE SIZE the asset API states; place it at scale 1 (per-instance jitter
   within +/-30 %, never a re-size to "fit").  The placement gate measures every placed thing against the
-  plan's size: > 2.5x or < 0.4x is an ERROR the judge repeats (measured 2026-09-08, round 0: a 1.15 m stove
+  plan's size, and a mismatch is a finding the judge repeats (measured 2026-09-08, round 0: a 1.15 m stove
   placed at 3.60 m, 0.48 m oil lamps at 0.03 m — both cost the round).  The same gate measures a placed
   asset as ONE object, parts included: never stretch or re-scale a part of a placed clone (a stove whose
   flue you pulled up to the roof reads as a 4.8 m stove — three runs lost their round to it); a chimney,

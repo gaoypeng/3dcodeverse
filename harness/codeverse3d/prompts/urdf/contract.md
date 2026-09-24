@@ -9,7 +9,7 @@ src/robot.urdf  hand-written URDF: links + joints; every link has ONE <visual> a
 ```
 The harness runs `model.py` headless, exports `artifacts/meshes/<link>.glb` with the WORLD
 coordinates baked in (nothing is shifted for you), lints the URDF, checks that FK at q=0
-puts every mesh back where you authored it (1 mm — the build FAILS otherwise and prints the
+puts every mesh back where you authored it (the build FAILS otherwise and prints the
 corrected `<origin>`), sweeps every joint over its range for collisions, renders q=0 plus
 every joint at its lower/upper limit, and builds `object.glb` with one node per link.
 You never export.

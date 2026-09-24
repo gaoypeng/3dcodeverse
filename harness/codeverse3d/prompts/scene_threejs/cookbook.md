@@ -648,10 +648,10 @@ Rules: shadows come from the sun and the hero lights only; decorative lights get
 
 Placement is MEASURED (`check_placement`; the `scene_placement` gate runs on every build): each
 direct child of your zone group is an asset; from its lowest vertices the harness looks down for the
-nearest surface and up for one passing through it.  Gap > 5 cm (2 cm indoors) → `floating`; foot
-> 10 cm under a surface → `sunken` (rocks/posts/bushes may sit half their height in the ground; a basin
+nearest surface and up for one passing through it.  A gap under the foot → `floating`; a foot buried
+under a surface → `sunken` (rocks/posts/bushes may sit half their height in the ground; a basin
 or pit never counts; a foot at/under water is fine); bbox touching nothing → `unsupported`; boxes sharing
-> 20 % → `interpenetration`.  Seat things with `heightAt(x, z)` and they pass.  A thing MEANT to hang in
+a large share of their volume → `interpenetration`.  Seat things with `heightAt(x, z)` and they pass.  A thing MEANT to hang in
 the air (bird, drone): `obj.userData.placement = 'free'` on it or its zone = exempt.  Instanced meshes are not checked.
 
 ## Assets (`src/assets/*.js`) and GLB assets from Blender
@@ -837,7 +837,7 @@ console.log('cameras', planCameras(THREE, new THREE.Scene()).map(c => c.name));
 ```
 
 Rules: eye height 1.6 m (+ terrain!), fov 35–60, look at a focal POINT (an object, not
-the horizon), never inside geometry and ≥ 0.5 m from any surface, 3–5 cameras:
+the horizon), never inside geometry or up against a surface, 3–5 cameras:
 establishing → mid → detail.  Compute positions from measured bounds/heightAt, not vibes.
 
 ## Post-processing (the harness's own chain, ON by default)

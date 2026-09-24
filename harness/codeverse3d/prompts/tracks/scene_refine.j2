@@ -44,7 +44,7 @@ Animation: {{ animation }}
 - A zone change lives in its `src/zones/<zone>.js` (`export function build(ctx)`, animation on
   `group.userData.update`); an asset change in `src/assets/<asset>.js`.
 - Console/shader errors: fix the named module; never wrap in try/catch to hide them.
-- Everything rests on `heightAt(x, z)`; nothing floats or sinks > 2 cm; InstancedMesh for repeats.
+- Everything rests on `heightAt(x, z)`; nothing floats or sinks; InstancedMesh for repeats.
 - No DOM, no textures, no fetch, no Math.random, no CDN imports.
 
 ## The recurring defects on this track and the cookbook chapter that fixes each
