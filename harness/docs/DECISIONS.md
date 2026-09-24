@@ -709,7 +709,12 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   a storm-dead env session ships a room, not a plane; the env brief claims the openings and the
   light, the zone brief forbids walls.  Harness-owned starter geometry the agent edits, like
   `worldShell` (D51) — not a wrapper that re-centres or grounds anything (L7).  Details:
-  `tests/scene_runtime/lib/test_room_shell.py`.
+  `tests/scene_runtime/lib/test_room_shell.py`.  2026-09-23: a glass house is `ScenePlan.glazed`
+  → `roomShell({ glazed: true })` (glass walls and roof on an iron frame grid, panes cast no shadow,
+  the outskirts are built).  Every recorded `scn_med_conservatory` round on 3.7-flash (0.00–0.14)
+  was a glass house inside the opaque shell ("a solid white box … blocking the exterior view and
+  lighting", critical); the 3.8-flash runs that scored 0.56–0.62 had cut each wall into one
+  opening and hand-built the same glass and grid.
 
 * **D70 One author for the whole world — `C3D_ONE_WORLD_SESSION`, ON by default since the
   fixed-judge confirmation of the session that is told its window (2026-09-08).**  Under one fixed

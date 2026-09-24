@@ -455,7 +455,7 @@ class SceneTrack(BaseTrack):
         effects = "\n".join(f"- {e.name} ({e.kind}, on {e.target or 'scene'}): {e.description}" for e in plan.effects) or "(none)"
         return base_prompt_context(
             ctx, title=plan.title, setting=plan.setting, mood=plan.mood, bounds=bbox_line(plan.bounds), environment=plan.environment,
-            interior=plan.interior,
+            interior=plan.interior, glazed=plan.glazed,
             zones_table=zones_table, cameras=cameras, effects=effects, animation="; ".join(plan.animation) or "(none)",
             asset_api=ctx.extra.get("asset_api", "(no assets)"),
             textures=texture_pack_prompt(ctx.extra.get("textures") or {}), **extra)

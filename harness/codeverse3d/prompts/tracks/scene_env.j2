@@ -6,7 +6,15 @@ Bounds: {{ bounds }}
 
 ## Environment plan (realise these numbers)
 {{ environment }}
-{% if interior %}
+{% if interior and glazed %}
+## This is a GLASS HOUSE — the enclosure is yours
+The skeleton already builds it: `export const INTERIOR = { center, extents, openings, glazed: true }`
+feeds `roomShell()` from `lib/environment.js` — floor (the ground), glass walls and a glass roof on
+the bounds' faces, on an iron frame grid (`frameColor`, `bay`), with the land outside built beyond
+it.  Keep it.  Your job: cut the plan's doors as `openings`, tune the frame, and let the SUN do the
+lighting — it comes through the glass and the frame throws its grid of shadows on the floor.  Never
+put an opaque wall or roof around it.
+{% elif interior %}
 ## This is an INTERIOR — the enclosure is yours
 The skeleton already builds the room: `export const INTERIOR = { center, extents, openings }` feeds
 `roomShell()` from `lib/environment.js` — floor (the ground), four walls and a ceiling on the bounds'

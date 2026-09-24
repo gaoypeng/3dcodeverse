@@ -23,7 +23,9 @@ export const GROUND_SIZE = 160;       // ground plane extent (m); the outskirts 
 export const CONTENT_RADIUS = 45;     // the plan bounds' radius (m): level ground inside, rolling beyond; the shadow frustum
 // An INTERIOR plan (the skeleton fills this from plan.bounds): the room shell — floor is the
 // ground, walls and ceiling on the bounds' faces.  Cut the plan's windows and doors as
-// `openings` (see lib/environment.js roomShell) and light the inside; never delete it.
+// `openings` (see lib/environment.js roomShell) and light the inside; never delete it.  A glass
+// house (`glazed: true`, from the plan) is glass walls and roof on an iron frame grid: the sun
+// and the land outside come through it.
 export const INTERIOR = null;         // e.g. { center: [0, 3, 0], extents: [14, 6, 16], openings: [{ face: 'west', center: [8, 2.5], size: [6, 3] }] }
 const SEED = 7;
 
@@ -54,7 +56,7 @@ export function buildEnv(ctx) {
   // land between the content and that ridge (relief, field patchwork, distant copses)
   const shell = worldShell({ rand: mulberry32(SEED + 1), mood: MOOD, bounds: CONTENT_RADIUS });
   group.add(shell.group);
-  if (!INTERIOR) group.add(makeOutskirts({ inner: GROUND_SIZE / 2, shellRadius: shell.radius, heightAt, seed: SEED }));
+  if (!INTERIOR || INTERIOR.glazed) group.add(makeOutskirts({ inner: GROUND_SIZE / 2, shellRadius: shell.radius, heightAt, seed: SEED }));
 
   // --- lights + the baked environment: the library's rig — sun, hemisphere fill, the env map
   // metals read from, the visible disc.  Measured 2026-09-07 on this renderer: a metalness-0.9

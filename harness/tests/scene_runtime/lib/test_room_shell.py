@@ -48,3 +48,48 @@ def test_the_skeleton_env_carries_the_shell_only_for_an_interior_plan():
     c, e = plan.bounds.center, plan.bounds.extents
     assert f"export const INTERIOR = {{ center: [{c[0]}, {c[1]}, {c[2]}], extents: [{e[0]}, {e[1]}, {e[2]}], openings: [] }};" in inside
     assert "if (INTERIOR) group.add(roomShell(INTERIOR));" in inside
+    glass = _env_for_plan(plan.model_copy(update={"interior": True, "glazed": True}))
+    assert "openings: [], glazed: true };" in glass
+    assert "if (!INTERIOR || INTERIOR.glazed) group.add(makeOutskirts(" in glass   # the land outside is built
+
+
+_GLASS = """
+import * as THREE from 'three';
+import { roomShell } from './lib/environment.js';
+const g = roomShell({ center: [0, 5, 0], extents: [20, 10, 16], glazed: true,
+                      openings: [{ face: 'south', center: [10, 1.5], size: [3, 3] }] });
+g.updateMatrixWorld(true);
+const panes = g.children.filter((m) => !m.isInstancedMesh);
+const frame = g.children.find((m) => m.name === 'Frame');
+// rays from a floor grid toward a high sun: the share a shadow caster stops
+const lit = (shell) => {
+  shell.updateMatrixWorld(true);
+  const sun = new THREE.Vector3(1, 1.4, 0.5).normalize();
+  let blocked = 0, n = 0;
+  for (let x = -8; x <= 8; x += 1.7) for (let z = -6; z <= 6; z += 1.3) {
+    const rc = new THREE.Raycaster(new THREE.Vector3(x, 0.01, z), sun);
+    n += 1;
+    if (rc.intersectObjects(shell.children, false).some((h) => h.object.castShadow)) blocked += 1;
+  }
+  return blocked / n;
+};
+const shaded = lit(g), opaque = lit(roomShell({ center: [0, 5, 0], extents: [20, 10, 16] }));
+console.log(JSON.stringify({
+  names: g.children.map((m) => m.name),
+  paneShadow: panes.some((m) => m.castShadow),
+  seeThrough: panes.every((m) => m.material.transparent && m.material.depthWrite === false),
+  bars: frame ? frame.count : 0, frameShadow: !!(frame && frame.castShadow), shaded, opaque,
+}));
+"""
+
+
+def test_a_glazed_shell_is_glass_on_a_frame_grid_that_lets_the_sun_in():
+    """The conservatory's round 0 (ab_verdict 2026-09-22, live_wave2): an opaque shell around a
+    glass house — "a solid white box encloses the dome, blocking the exterior view and lighting"."""
+    got = measure(_GLASS, ("environment.js", "sky.js"))
+    assert "Roof" in got["names"] and "Ceiling" not in got["names"], got["names"]   # the overview rig keeps a glass roof
+    assert "Wall_east" in got["names"] and "Frame" in got["names"], got["names"]
+    assert got["seeThrough"] and not got["paneShadow"], got
+    assert got["bars"] > 40 and got["frameShadow"], got
+    # between the bars the sun reaches the floor; the opaque shell shades all of it
+    assert got["opaque"] == 1.0 and got["shaded"] < 0.3, got

@@ -197,7 +197,9 @@ def _env_for_plan(plan: ScenePlan) -> str:
     if plan.interior:
         c = [round(float(v), 2) for v in plan.bounds.center]
         e = [round(float(v), 2) for v in ex]
-        text = re.sub(r"export const INTERIOR = null;", f"export const INTERIOR = {{ center: {c}, extents: {e}, openings: [] }};", text)
+        glazed = ", glazed: true" if plan.glazed else ""
+        text = re.sub(r"export const INTERIOR = null;",
+                      f"export const INTERIOR = {{ center: {c}, extents: {e}, openings: []{glazed} }};", text)
     header = (
         f"// ENV PLAN: {plan.environment.strip()}\n"
         f"// setting: {plan.setting.strip()}  mood: {plan.mood.strip()}\n"

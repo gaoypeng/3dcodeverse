@@ -605,6 +605,13 @@ class ScenePlan(BaseModel):
         "environment module owns the enclosure — floor, walls and ceiling on the bounds' faces with "
         "openings where the windows and doors are — and the zones dress the inside; false outdoors",
     )
+    glazed: bool = Field(
+        default=False,
+        description="only with interior: the enclosure itself is glass on a metal frame (glasshouse, "
+        "conservatory, palm house, greenhouse, glass atrium) — the environment builds glass walls and "
+        "roof on a frame grid, and the sun and the land outside come through them; false for a room "
+        "with windows",
+    )
     zones: list[ZonePlan] = Field(min_length=1)
     assets: list[AssetPlan] = Field(default_factory=list)
     effects: list[EffectPlan] = Field(default_factory=list)
