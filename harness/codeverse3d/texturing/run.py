@@ -213,9 +213,9 @@ def texture_pass(
 
     # 3. images
     if image_model is None:
-        from codeverse3d.models.gemini import GeminiImageModel
+        from codeverse3d.reference import get_image_model
 
-        image_model = GeminiImageModel()
+        image_model = get_image_model()
     tset = generate_textures(tplan, tex_dir, image_model, size=size, cache_dir=cache_dir)
     usage = usage + tset.usage
     seam = seam_gate(tset.textures)
