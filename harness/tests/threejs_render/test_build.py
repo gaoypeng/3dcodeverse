@@ -92,6 +92,15 @@ def test_build_keeps_source_placement_and_warns(stool_ws: Workspace):
     assert abs(lo[1] - 0.2) < 2e-3 and abs(lo[0] - 0.33) < 2e-3
 
 
+def test_build_seeds_math_random(stool_ws: Workspace):
+    """Audit 2026-09-24 N23: export_glb neither seeded nor warned on `Math.random`, so the round's
+    re-build measured a different object than the agent's build.  Seeded like the Python wrappers."""
+    p = stool_ws.src / "object.js"
+    p.write_text(p.read_text().replace("return root;", "root.position.x = Math.random() * 0.1; return root;"))
+    offsets = [ThreeJsRuntime().build(stool_ws).census["placement_offset"][0] for _ in range(2)]
+    assert offsets[0] == offsets[1] and offsets[0] < 0
+
+
 @pytest.mark.parametrize("bare_root", [False, True])
 def test_build_bakes_instanced_meshes_for_trimesh(stool_ws: Workspace, bare_root: bool):
     """InstancedMesh is baked (trimesh ignores EXT_mesh_gpu_instancing) into SIBLING meshes

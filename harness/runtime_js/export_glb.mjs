@@ -7,7 +7,8 @@
 // Runs in plain node (no browser).  The agent module must `export function build(THREE)`
 // returning a THREE.Group (or a Promise of one); an optional `export function
 // selfcheck(THREE, root)` is called on the built group and fails the build when it
-// throws.  InstancedMesh objects are baked into sibling plain meshes `Name_0..`
+// throws.  `Math.random` is seeded (--seed, default 0), like `random` in the Blender and CadQuery
+// wrappers, so a rebuild of the same source measures the same object.  InstancedMesh objects are baked into sibling plain meshes `Name_0..`
 // (lib/instances.mjs) so trimesh-based gates see every copy as an instance.  The object is exported exactly where the
 // source put it: an off-ground / off-centre build only WARNS (census.placement_offset),
 // like the Blender/CadQuery wrappers, so plan-frame gates stay valid.
@@ -37,7 +38,7 @@ const PLACEMENT_THRESHOLD_M = 0.01;
 function cli() {
   const values = parseCli({
     ws: {}, entry: { default: 'src/object.js' }, out: { default: 'artifacts/object.glb' },
-    census: { default: 'artifacts/census.json' },
+    census: { default: 'artifacts/census.json' }, seed: { default: '0' },
   });
   if (!values.ws) throw new Error('--ws <workspace dir> is required');
   const ws = path.resolve(values.ws);
@@ -47,6 +48,19 @@ function cli() {
     entry: abs(values.entry),
     out: abs(values.out),
     census: abs(values.census),
+    seed: Number(values.seed) >>> 0,
+  };
+}
+
+/** Replace `Math.random` with mulberry32(seed): the agent's module draws a fixed sequence. */
+function seedMathRandom(seed) {
+  let a = seed >>> 0;
+  Math.random = () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
@@ -171,6 +185,7 @@ async function main() {
   const warnings = [];
   captureWarnings(warnings);
   installExporterPolyfills();
+  seedMathRandom(args.seed);
 
   const THREE = await import('three');
   const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
