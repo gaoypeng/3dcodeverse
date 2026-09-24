@@ -19,7 +19,7 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, ZonePlan
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
-from codeverse3d.languages._common import line_of, ws_rel
+from codeverse3d.languages._common import line_of, missing_entry, ws_rel
 from codeverse3d.languages._js_lint import (
     ImportKind,
     ImportVerdict,
@@ -741,6 +741,8 @@ class SceneThreeJsRuntime:
         # driver outputs (scene_probe.json / shader_preflight.json) looking current;
         # census.json is only rewritten `if census:` below, so it MUST be wiped here
         ws.stage_artifacts("census.json", "scene_probe.json", "shader_preflight.json", "build.json").invalidate()
+        if (missing := missing_entry(ws, self.language)) is not None:
+            return missing
         from codeverse3d.spatial.probes import run_probe
 
         probe, shaders, census = run_probe(ws, compile=True, timeout_s=timeout_s)

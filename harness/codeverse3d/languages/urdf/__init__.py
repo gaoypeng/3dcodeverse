@@ -30,7 +30,7 @@ from codeverse3d.languages._ast_lint import (
     dotted,
     safe_parse,
 )
-from codeverse3d.languages._common import compose_build_result, strip_blender_noise
+from codeverse3d.languages._common import compose_build_result, missing_entry, strip_blender_noise
 from codeverse3d.languages.base import RuntimeLayout
 from codeverse3d.proc import ProcResult, run_subprocess
 from codeverse3d.spatial.joints_export import urdf_to_glb
@@ -777,6 +777,8 @@ class UrdfBlenderRuntime(RuntimeLayout):
                                       error_message=message, error_file=file, error_line=line,
                                       duration_ms=int((time.time() - t0) * 1000), census=census or {}, **kw))
 
+        if (missing := missing_entry(ws, self.language, write=False)) is not None:
+            return finish(missing)
         # 1. lint (cheap, no Blender)
         lint = self.lint(ws)
         census: dict[str, Any] = {"lint": [f.model_dump(mode="json") for f in lint.findings]}

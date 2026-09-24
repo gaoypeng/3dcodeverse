@@ -350,7 +350,7 @@ class CadQueryRuntime(RuntimeLayout):
     def build(self, ws: Workspace, *, timeout_s: int | None = None, seed: int = 0,
               tri_limit: int = MAX_TRIS_OBJECT) -> BuildResult:
         return run_wrapper_build(
-            ws, language=self.language.value, entry_rel=ENTRY_FILE[Language.CADQUERY], extras={"step": "object.step", "stl": "object.stl"},
+            ws, language=self.language, extras={"step": "object.step", "stl": "object.stl"},
             argv=lambda: self.build_command(ws, seed=seed, tri_limit=tri_limit),
             env=cadquery_env(), timeout_s=timeout_s or self._settings.limits.build_timeout_s)
 

@@ -15,7 +15,7 @@ from codeverse3d.languages._ast_lint import (
     describe_parse_failure,
     safe_parse,
 )
-from codeverse3d.languages._common import MISSING_ENTRY, ws_rel
+from codeverse3d.languages._common import missing_entry, ws_rel
 from codeverse3d.languages._gl_common import (
     finish_build,
     graphics_plan,
@@ -27,7 +27,7 @@ from codeverse3d.languages._gl_common import (
     traceback_location,
 )
 from codeverse3d.languages.base import RuntimeLayout
-from codeverse3d.spatial.gl_render import GlHost, GlResult, gif_times
+from codeverse3d.spatial.gl_render import GlHost, gif_times
 from codeverse3d.workspace import Workspace
 
 # ===================================================================== lint
@@ -357,10 +357,9 @@ class OpenGLPythonRuntime(RuntimeLayout):
               preview: bool = True, width: int | None = None, height: int | None = None) -> BuildResult:
         ws.artifacts.mkdir(parents=True, exist_ok=True)
         invalidate_stale_outputs(ws)  # BEFORE the MISSING_ENTRY return, so it also clears
+        if (missing := missing_entry(ws, self.language)) is not None:
+            return missing
         program = ws.root / PROGRAM
-        if not program.is_file():
-            res = GlResult(ok=False, mode="program", stage="lint", error_type=MISSING_ENTRY, error_message=f"{PROGRAM} is missing")
-            return finish_build(ws, res, language=self.language.value, error_file=PROGRAM)
         plan = graphics_plan(ws)
         w, h = resolution_for(plan)
         if width and height:

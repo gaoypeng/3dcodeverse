@@ -106,6 +106,7 @@ def test_build_interprets_combined_summary_offline(ws, monkeypatch):
 
     import codeverse3d.spatial.probes as probes_mod
     monkeypatch.setattr(probes_mod, "run_scene_script", fake_run)
+    (ws.src / "scene.js").write_text("export function createScene() {}\n")
     res = rt_mod.SceneThreeJsRuntime().build(ws)
     assert len(calls) == 1 and calls[0][0] == "probe_scene.mjs" and "--compile" in calls[0]
     assert not res.ok  # shader gate failed

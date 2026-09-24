@@ -750,7 +750,7 @@ class BlenderRuntime(RuntimeLayout):
     ) -> BuildResult:
         """Run the wrapper; never raises for agent-code failures (typed BuildResult instead)."""
         return run_wrapper_build(
-            ws, language=self.language.value, entry_rel=ENTRY_REL, extras={"stl": "object.stl", "blend": "object.blend"},
+            ws, language=self.language, extras={"stl": "object.stl", "blend": "object.blend"},
             argv=lambda: self.build_command(ws, stl=stl, blend=blend, seed=seed, tri_limit=tri_limit),
             env=blender_env(), timeout_s=timeout_s or self._settings.limits.build_timeout_s, output_filter=strip_blender_noise)
 

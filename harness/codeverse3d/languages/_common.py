@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from codeverse3d.contracts.artifacts import BuildResult
+from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.proc import ProcResult, read_json_or_none, run_subprocess, tail, write_json_atomic
 from codeverse3d.workspace import Workspace
 
@@ -93,7 +94,23 @@ def read_json_file(path: Path) -> dict[str, Any]:
     return data
 
 
-def run_wrapper_build(ws: Workspace, *, language: str, entry_rel: str, extras: Mapping[str, str],
+def missing_entry(ws: Workspace, language: Language, *, write: bool = True) -> BuildResult | None:
+    """The one "entry file missing" check every runtime's ``build`` makes after wiping its
+    outputs: a typed ``MISSING_ENTRY`` failure (published as ``build.json`` unless ``write``
+    is off) when ``ENTRY_FILE[language]`` is absent, else ``None``.  Until 2026-09-24 five
+    checks gave three outcomes: urdf a ``LintError``, and a scene with no ``scene.js`` a
+    ``scene_probe`` harness failure that no repair was ever asked to fix."""
+    entry = ENTRY_FILE[language]
+    if (ws.root / entry).is_file():
+        return None
+    result = BuildResult(ok=False, language=language.value, error_type=MISSING_ENTRY,
+                         error_message=f"{entry} does not exist", error_file=entry)
+    if write:
+        ws.write_json(ws.artifacts / "build.json", result)
+    return result
+
+
+def run_wrapper_build(ws: Workspace, *, language: Language, extras: Mapping[str, str],
                       argv: Callable[[], list[str]], env: dict[str, str], timeout_s: float,
                       output_filter: Callable[[str], str] | None = None) -> BuildResult:
     """Run a python wrapper build; ``extras`` maps a ``BuildResult.extra_paths`` key to its
@@ -104,13 +121,10 @@ def run_wrapper_build(ws: Workspace, *, language: str, entry_rel: str, extras: M
     ws.artifacts.mkdir(parents=True, exist_ok=True)
     build_json = ws.artifacts / "build.json"
     ws.stage_artifacts("build.json", "census.json", "object.glb", *extras.values()).invalidate()
-    if not (ws.root / entry_rel).is_file():
-        result = BuildResult(ok=False, language=language, error_type=MISSING_ENTRY,
-                             error_message=f"{entry_rel} does not exist", error_file=entry_rel)
-        ws.write_json(build_json, result)
-        return result
+    if (missing := missing_entry(ws, language)) is not None:
+        return missing
     proc = run_subprocess(argv(), cwd=ws.root, env=env, timeout_s=timeout_s)
-    return compose_build_result(language=language, proc=proc, build_json=build_json, census_json=ws.artifacts / "census.json",
+    return compose_build_result(language=language.value, proc=proc, build_json=build_json, census_json=ws.artifacts / "census.json",
                                 glb_path=ws.artifacts / "object.glb", extra_paths={k: ws.artifacts / v for k, v in extras.items()},
                                 output_filter=output_filter)
 

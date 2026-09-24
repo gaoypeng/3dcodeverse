@@ -12,7 +12,7 @@ from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import Plan, StaticPlan
 from codeverse3d.conventions import to_pascal, to_snake
-from codeverse3d.languages._common import BUILD_TIMEOUT, line_of, ws_rel
+from codeverse3d.languages._common import BUILD_TIMEOUT, line_of, missing_entry, ws_rel
 from codeverse3d.languages._js_lint import (
     ImportKind,
     ImportVerdict,
@@ -346,6 +346,8 @@ class ThreeJsRuntime(RuntimeLayout):
         # build.json is in the wipe too: the node-missing raise below returns before
         # _write_build_json, and a stale ok:true build.json must not survive it
         ws.stage_artifacts(GLB_NAME, CENSUS_NAME, BUILD_JSON, "export_error.json").invalidate()
+        if (missing := missing_entry(ws, self.language)) is not None:
+            return missing
         self._ensure_module_type(ws)
 
         t0 = time.time()

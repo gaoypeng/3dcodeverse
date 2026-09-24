@@ -44,11 +44,10 @@ def test_build_stool_glb_and_census(stool_build, stool_ws: Workspace):
     lo, hi = scene.bounds
     assert np.allclose(lo, [-0.17, 0.0, -0.17], atol=2e-3)
     assert np.allclose(hi, [0.17, 0.45, 0.17], atol=2e-3)
-    # no entry module: the exporter's typed error, with its record on disk
+    # no entry module: the shared typed failure, before any node boot, and the GLB is wiped
     (stool_ws.src / "object.js").unlink()
     res = ThreeJsRuntime().build(stool_ws)
-    assert not res.ok and res.error_type == "MissingEntryFile"
-    assert (stool_ws.artifacts / "export_error.json").is_file()
+    assert not res.ok and res.error_type == "MissingEntryFile" and not (stool_ws.artifacts / "object.glb").exists()
 
 
 @pytest.mark.parametrize("path, find, repl, etype, line", [

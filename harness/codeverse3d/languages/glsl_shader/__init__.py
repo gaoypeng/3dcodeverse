@@ -10,7 +10,7 @@ from pathlib import Path
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import GraphicsPlan, Plan
-from codeverse3d.languages._common import MISSING_ENTRY, line_of, ws_rel
+from codeverse3d.languages._common import line_of, missing_entry, ws_rel
 from codeverse3d.languages._gl_common import (
     GlslMessage,
     LineMap,
@@ -24,7 +24,7 @@ from codeverse3d.languages._gl_common import (
     resolution_for,
 )
 from codeverse3d.languages.base import RuntimeLayout
-from codeverse3d.spatial.gl_render import GlHost, GlResult, gif_times
+from codeverse3d.spatial.gl_render import GlHost, gif_times
 from codeverse3d.workspace import Workspace
 
 # ===================================================================== wrap
@@ -429,9 +429,8 @@ class GlslShaderRuntime(RuntimeLayout):
               preview: bool = True, width: int | None = None, height: int | None = None) -> BuildResult:
         ws.artifacts.mkdir(parents=True, exist_ok=True)
         invalidate_stale_outputs(ws)  # BEFORE the MISSING_ENTRY return, so it also clears
-        if not (ws.root / SHADER).is_file():
-            res = GlResult(ok=False, mode="shader", stage="lint", error_type=MISSING_ENTRY, error_message=f"{SHADER} is missing")
-            return finish_build(ws, res, language=self.language.value, error_file=SHADER)
+        if (missing := missing_entry(ws, self.language)) is not None:
+            return missing
         plan = graphics_plan(ws)
         w, h = resolution_for(plan)
         if width and height:
