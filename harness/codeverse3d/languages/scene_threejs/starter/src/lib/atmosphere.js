@@ -565,9 +565,8 @@ const AERIAL_HEAD = [
  *   the sky's own brightness the far field takes on — airlight
  *   (default 0.35; 0 is the pure hue shift, 1 flattens the far field
  *   to the sky).
- * @returns {THREE.Material} The same material. Apply it LAST: every
- *   `patchStandard` owns `onBeforeCompile`, so a second patch on the
- *   same material replaces this one. Tune later through
+ * @returns {THREE.Material} The same material; it chains with other
+ *   patches in any order. Tune later through
  *   `material.userData.uniforms.uAerialK.value`.
  */
 export function patchAerialPerspective(material, opts = {}) {
