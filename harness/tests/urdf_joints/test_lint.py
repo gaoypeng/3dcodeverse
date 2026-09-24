@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from codeverse3d.contracts.artifacts import Severity
 from codeverse3d.languages.urdf import lint_model_text, lint_urdf_text, lint_workspace
+from codeverse3d.spatial.joints_model import UrdfError, load_urdf
 from codeverse3d.workspace import Workspace
 
 GOOD = """<?xml version="1.0"?>
@@ -75,7 +78,7 @@ def test_joint_rules():
     f, _ = lint_urdf_text(GOOD.replace('type="revolute"', 'type="hinge"'))
     assert any("must be one of" in m for m in _msgs(f, Severity.ERROR))
     f, _ = lint_urdf_text(GOOD.replace('<origin xyz="-0.29 -0.2 0" rpy="0 0 0"/>', '<origin xyz="-0.29 -0.2" rpy="0 0 0"/>'))
-    assert any("3 finite numbers" in m for m in _msgs(f, Severity.ERROR))
+    assert any("origin xyz: expected 3 numbers" in m for m in _msgs(f, Severity.ERROR))
     f, _ = lint_urdf_text(GOOD.replace('<axis xyz="0 0 -1"/>', ""))
     assert any("no <axis>" in m for m in _msgs(f, Severity.WARN))
 
@@ -133,3 +136,24 @@ def test_reserved_link_name_world():
     # glTF readers use 'world' as the scene-graph base frame: a link of that name cannot become a GLB node
     f, _ = lint_urdf_text(GOOD.replace('name="body"', 'name="world"').replace('link="body"', 'link="world"').replace("meshes/body.glb", "meshes/world.glb"))
     assert any("reserved" in m for m in _msgs(f, Severity.ERROR))
+
+
+@pytest.mark.parametrize("old,new", [
+    ('lower="0" upper="1.57"', 'lower="0 1" upper="1.57"'),          # raised a bare ValueError in the build
+    ('effort="10"', 'effort="ten"'),                                  # ditto
+    ('lower="0" upper="1.57"', 'lower="0" upper="inf"'),
+    ('<axis xyz="0 0 -1"/>', '<axis xyz="0 0"/>'),
+    ('type="revolute"', 'type="fixed"'),                              # the loader checks a FIXED joint's axis too
+    ('<limit lower="0" upper="1.57" effort="10" velocity="1"/>', '<mimic/>'),
+])
+def test_lint_clean_means_the_loader_parses(tmp_path, old, new):
+    """Regression (audit 2026-09-24 N18): the lint and the build parse joints through one
+    ``parse_joint``, so a URDF the lint passes never fails (or raises) in ``load_urdf``."""
+    text = GOOD.replace(old, new)
+    if new == 'type="fixed"':
+        text = text.replace('<axis xyz="0 0 -1"/>', '<axis xyz="0 0 0"/>')
+    (tmp_path / "robot.urdf").write_text(text)
+    with pytest.raises(UrdfError) as e:
+        load_urdf(tmp_path / "robot.urdf", load_meshes=False)
+    f, _ = lint_urdf_text(text)
+    assert str(e.value) in _msgs(f, Severity.ERROR)

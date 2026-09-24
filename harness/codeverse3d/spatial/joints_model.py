@@ -40,14 +40,25 @@ class UrdfError(ValueError):
 
 # ------------------------------------------------------------------ small math
 def parse_floats(text: str | None, n: int, what: str) -> tuple[float, ...]:
-    """Parse ``"a b c"`` → floats; raises ``UrdfError`` with ``what`` on bad input."""
+    """Parse ``"a b c"`` → ``n`` finite floats; raises ``UrdfError`` with ``what`` on bad input.
+    The ONE number reader of a URDF: the loader and the lint both parse through it, so
+    lint-clean text cannot raise here at build time (``lower="0 1"`` did, 2026-09-24)."""
     parts = (text or "").split()
     if len(parts) != n:
-        raise UrdfError(f"{what}: expected {n} numbers, got {text!r}")
+        raise UrdfError(f"{what}: expected {n} number{'s' if n > 1 else ''}, got {text!r}")
     try:
-        return tuple(float(p) for p in parts)
+        vals = tuple(float(p) for p in parts)
     except ValueError as e:
         raise UrdfError(f"{what}: not numeric: {text!r}") from e
+    if not all(math.isfinite(v) for v in vals):
+        raise UrdfError(f"{what}: not finite: {text!r}")
+    return vals
+
+
+def _scalar(el: ET.Element, attr: str, what: str, default: float | None = None) -> float | None:
+    """One optional numeric attribute (``default`` when absent or empty)."""
+    text = el.get(attr)
+    return default if text is None or not text.strip() else parse_floats(text, 1, f"{what} {attr}")[0]
 
 
 def rpy_to_matrix(rpy: tuple[float, float, float] | np.ndarray) -> np.ndarray:
@@ -220,9 +231,9 @@ def _primitive_mesh(geom: ET.Element, what: str) -> trimesh.Trimesh:
     if (b := geom.find("box")) is not None:
         return trimesh.creation.box(parse_floats(b.get("size"), 3, f"{what} box size"))
     if (c := geom.find("cylinder")) is not None:
-        return trimesh.creation.cylinder(radius=float(c.get("radius", 0)), height=float(c.get("length", 0)))
+        return trimesh.creation.cylinder(radius=_scalar(c, "radius", what, 0.0), height=_scalar(c, "length", what, 0.0))
     if (s := geom.find("sphere")) is not None:
-        return trimesh.creation.icosphere(subdivisions=3, radius=float(s.get("radius", 0)))
+        return trimesh.creation.icosphere(subdivisions=3, radius=_scalar(s, "radius", what, 0.0))
     raise UrdfError(f"{what}: unsupported geometry {[e.tag for e in geom]}")
 
 
@@ -285,7 +296,9 @@ def _link_from_xml(el: ET.Element, urdf_dir: Path, meshes_dir: Path | None, *, l
     return link
 
 
-def _joint_from_xml(el: ET.Element) -> Joint:
+def parse_joint(el: ET.Element) -> Joint:
+    """One ``<joint>`` element → :class:`Joint` (strict: raises ``UrdfError``).  The URDF
+    lint calls it too, so every rule it enforces is a lint ERROR before any Blender run."""
     name = el.get("name", "")
     jtype = el.get("type", "")
     if jtype not in JOINT_TYPES:
@@ -305,27 +318,26 @@ def _joint_from_xml(el: ET.Element) -> Joint:
         j.axis = a / n
     lim = el.find("limit")
     if lim is not None:
-        j.effort = float(lim.get("effort", 0) or 0)
-        j.velocity = float(lim.get("velocity", 0) or 0)
-        if lim.get("lower") is not None:
-            j.lower = float(lim.get("lower"))
-        if lim.get("upper") is not None:
-            j.upper = float(lim.get("upper"))
+        what = f"joint {name} <limit>"
+        j.effort = _scalar(lim, "effort", what, 0.0)
+        j.velocity = _scalar(lim, "velocity", what, 0.0)
+        j.lower = _scalar(lim, "lower", what)
+        j.upper = _scalar(lim, "upper", what)
     if jtype in ("revolute", "prismatic"):
         if j.lower is None or j.upper is None:
-            raise UrdfError(f"joint {name}: {jtype} joints need <limit lower upper>")
+            unit = "rad" if jtype == "revolute" else "m"
+            raise UrdfError(f"joint {name}: {jtype} joints need <limit lower upper effort velocity> ({unit}), "
+                            'e.g. <limit lower="0" upper="1.57" effort="10" velocity="1"/>')
         if j.upper < j.lower:
-            raise UrdfError(f"joint {name}: upper {j.upper} < lower {j.lower}")
+            raise UrdfError(f"joint {name}: upper {j.upper} < lower {j.lower}; swap them "
+                            "(to move the other way, negate the <axis> instead)")
     mim = el.find("mimic")
     if mim is not None:
         src = mim.get("joint")
         if not src:
             raise UrdfError(f"joint {name}: <mimic> needs joint=\"<other joint>\"")
-        try:
-            mult = float(mim.get("multiplier", 1.0) or 1.0)
-            off = float(mim.get("offset", 0.0) or 0.0)
-        except ValueError as e:
-            raise UrdfError(f"joint {name}: <mimic> multiplier/offset must be numbers") from e
+        mult = _scalar(mim, "multiplier", f"joint {name} <mimic>", 1.0)
+        off = _scalar(mim, "offset", f"joint {name} <mimic>", 0.0)
         # the multiplier floor is NOT checked here: mimic_issues owns every coupling rule,
         # and a copy at parse time makes the shared one unreachable (review, 2026-09-03)
         j.mimic = Mimic(joint=src, multiplier=mult, offset=off)
@@ -372,7 +384,7 @@ def load_urdf(urdf_path: Path | str, meshes_dir: Path | str | None = None, *, lo
         links[link.name] = link
     joints = {}
     for el in root_el.findall("joint"):
-        j = _joint_from_xml(el)
+        j = parse_joint(el)
         if j.name in joints:
             raise UrdfError(f"duplicate joint name {j.name!r}")
         if j.parent not in links or j.child not in links:

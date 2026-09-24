@@ -44,6 +44,9 @@ from codeverse3d.spatial.joints_model import (
     invert_transform,
     load_urdf,
     matrix_to_rpy,
+    parse_floats,
+    parse_joint,
+    parse_origin,
 )
 from codeverse3d.spatial.joints_sweep import sweep_collisions, sweep_findings
 from codeverse3d.workspace import ArtifactStage, Workspace
@@ -240,16 +243,11 @@ def _lint_mimics(joints: list[ET.Element], out: list[GateFinding]) -> None:
         mim = el.find("mimic")
         src = (mim.get("joint") or "").strip() if mim is not None else ""
         mult, off = 1.0, 0.0
-        if mim is not None and not src:
-            out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic> without joint=", target=jname,
-                          fix='<mimic joint="runner_slide" multiplier="1" offset="0"/>'))
-            src = ""
-        elif mim is not None:
+        if src:   # a <mimic> with no joint= or non-numeric factors is parse_joint's ERROR (_lint_joint)
             try:
                 mult = float(mim.get("multiplier", 1) or 1)
                 off = float(mim.get("offset", 0) or 0)
             except ValueError:
-                out.append(_f(Severity.ERROR, f"joint '{jname}': <mimic> multiplier/offset must be numbers", target=jname))
                 src = ""
         specs.append(MimicSpec(key=jname, name=jname, movable=movable, target=src or None,
                                multiplier=mult, offset=off, lower=lo, upper=hi))
@@ -312,11 +310,18 @@ def _lint_link(el: ET.Element, name: str, out: list[GateFinding]) -> None:
             if fn != expected:
                 out.append(_f(Severity.ERROR, f"link '{name}': mesh filename '{fn}' must be '{expected}'", target=name,
                               fix=f'<mesh filename="{expected}"/>'))
-            sc = _floats(mesh.get("scale")) if mesh.get("scale") else None
+            try:
+                sc = parse_floats(mesh.get("scale"), 3, f"link {name} mesh scale") if mesh.get("scale") else None
+            except UrdfError as e:
+                out.append(_f(Severity.ERROR, str(e), target=name, fix="Drop the scale attribute and size the geometry in model.py."))
+                sc = None
             if sc is not None and any(abs(s - 1) > 1e-9 for s in sc):
-                out.append(_f(Severity.WARN, f"link '{name}': mesh scale {sc} — model in meters in model.py instead", target=name,
+                out.append(_f(Severity.WARN, f"link '{name}': mesh scale {list(sc)} — model in meters in model.py instead", target=name,
                               fix="Drop the scale attribute and size the geometry in model.py."))
-        _lint_origin(vis.find("origin"), f"link '{name}' visual", name, out)
+        try:
+            parse_origin(vis, f"link {name} visual")
+        except UrdfError as e:
+            out.append(_f(Severity.ERROR, str(e), target=name, fix='<origin xyz="0 0 0" rpy="0 0 0"/>'))
         col = el.find("collision")
         if col is None:
             out.append(_f(Severity.WARN, f"link '{name}' has no <collision> twin of its visual", target=name,
@@ -335,18 +340,6 @@ def _origin_sig(o: ET.Element | None) -> tuple[tuple[float, ...], tuple[float, .
     if o is None:
         return ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
     return (tuple(_floats(o.get("xyz")) or (0.0, 0.0, 0.0)), tuple(_floats(o.get("rpy")) or (0.0, 0.0, 0.0)))
-
-
-def _lint_origin(o: ET.Element | None, what: str, target: str, out: list[GateFinding]) -> None:
-    if o is None:
-        return
-    for attr in ("xyz", "rpy"):
-        if o.get(attr) is None:
-            continue
-        vals = _floats(o.get(attr))
-        if vals is None or len(vals) != 3 or any(not math.isfinite(v) for v in vals):
-            out.append(_f(Severity.ERROR, f"{what}: origin {attr}='{o.get(attr)}' must be 3 finite numbers", target=target,
-                          fix=f'<origin {attr}="0 0 0"/>'))
 
 
 def _lint_joint(el: ET.Element, jname: str, link_names: list[str], parent_of: dict[str, str],
@@ -372,43 +365,35 @@ def _lint_joint(el: ET.Element, jname: str, link_names: list[str], parent_of: di
             out.append(_f(Severity.ERROR, f"link '{child}' is the child of two joints ('{jname}' and another)", target=jname,
                           fix="Each link has exactly one parent joint (tree)."))
         parent_of[child] = parent
-    _lint_origin(el.find("origin"), f"joint '{jname}'", jname, out)
-    o = el.find("origin")
-    if o is not None and o.get("rpy") and any(abs(v) > 1e-9 for v in (_floats(o.get("rpy")) or [])):
+    if jtype not in JOINT_TYPES or not parent or not child:
+        return
+    # the numbers (origin, axis, limit, mimic) and the per-joint rules are the loader's own:
+    # the build parses this element through the same function, so lint-clean never raises there
+    try:
+        j = parse_joint(el)
+    except UrdfError as e:
+        out.append(_f(Severity.ERROR, str(e), target=jname))
+        return
+    rpy = matrix_to_rpy(j.origin[:3, :3])
+    if any(abs(v) > 1e-9 for v in rpy):
         out.append(_f(Severity.INFO, f"joint '{jname}' uses a rotated origin (rpy); allowed, but point the <axis> instead where possible", target=jname))
     ax = el.find("axis")
     if jtype in MOVABLE_TYPES:
         if ax is None or ax.get("xyz") is None:
             out.append(_f(Severity.WARN, f"joint '{jname}': no <axis>; URDF defaults to '1 0 0'", target=jname, fix='<axis xyz="0 0 1"/>'))
         else:
-            vals = _floats(ax.get("xyz"))
-            if vals is None or len(vals) != 3:
-                out.append(_f(Severity.ERROR, f"joint '{jname}': axis '{ax.get('xyz')}' must be 3 numbers", target=jname, fix='<axis xyz="0 0 1"/>'))
-            else:
-                n = math.sqrt(sum(v * v for v in vals))
-                if n < 1e-9:
-                    out.append(_f(Severity.ERROR, f"joint '{jname}': zero axis", target=jname, fix='<axis xyz="0 0 1"/>'))
-                elif abs(n - 1) > 1e-3:
-                    unit = " ".join(f"{v / n:.6g}" for v in vals)
-                    out.append(_f(Severity.WARN, f"joint '{jname}': axis not unit length (|a|={n:.4g}); auto-normalised", target=jname,
-                                  fix=f'<axis xyz="{unit}"/>'))
+            n = math.sqrt(sum(v * v for v in parse_floats(ax.get("xyz"), 3, "axis")))
+            if abs(n - 1) > 1e-3:
+                unit = " ".join(f"{v:.6g}" for v in j.axis)
+                out.append(_f(Severity.WARN, f"joint '{jname}': axis not unit length (|a|={n:.4g}); auto-normalised", target=jname,
+                              fix=f'<axis xyz="{unit}"/>'))
     lim = el.find("limit")
-    if jtype in ("revolute", "prismatic"):
-        lo = _floats(lim.get("lower")) if lim is not None and lim.get("lower") is not None else None
-        hi = _floats(lim.get("upper")) if lim is not None and lim.get("upper") is not None else None
-        if lim is None or not lo or not hi:
-            unit = "rad" if jtype == "revolute" else "m"
-            out.append(_f(Severity.ERROR, f"joint '{jname}': {jtype} joints need <limit lower upper effort velocity> ({unit})", target=jname,
-                          fix='<limit lower="0" upper="1.57" effort="10" velocity="1"/>'))
-        else:
-            if hi[0] < lo[0]:
-                out.append(_f(Severity.ERROR, f"joint '{jname}': upper {hi[0]} < lower {lo[0]}", target=jname,
-                              fix="Swap lower/upper; if the motion should go the other way, negate the <axis> instead."))
-            if abs(hi[0] - lo[0]) < 1e-9:
-                out.append(_f(Severity.WARN, f"joint '{jname}': lower == upper (joint cannot move)", target=jname,
-                              fix="Give the joint a range, or make it type=fixed."))
-            if jtype == "revolute" and hi[0] - lo[0] > 2 * math.pi + 1e-6:
-                out.append(_f(Severity.WARN, f"joint '{jname}': revolute range > 2π — use type=continuous", target=jname))
+    if jtype in ("revolute", "prismatic") and j.lower is not None and j.upper is not None:
+        if abs(j.upper - j.lower) < 1e-9:
+            out.append(_f(Severity.WARN, f"joint '{jname}': lower == upper (joint cannot move)", target=jname,
+                          fix="Give the joint a range, or make it type=fixed."))
+        if jtype == "revolute" and j.upper - j.lower > 2 * math.pi + 1e-6:
+            out.append(_f(Severity.WARN, f"joint '{jname}': revolute range > 2π — use type=continuous", target=jname))
         if lim is not None and (lim.get("effort") is None or lim.get("velocity") is None):
             out.append(_f(Severity.WARN, f"joint '{jname}': <limit> should carry effort and velocity", target=jname,
                           fix='effort="10" velocity="1"'))
