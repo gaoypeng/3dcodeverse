@@ -42,8 +42,10 @@ Rules that survive every brief:
   never by eyeballing a scale factor.
 * **Name every object exactly as the plan names it**, and give it nothing else: no
   `.001` duplicates, no leftover `Cube`, no empties. The gates match on names.
-* **Do not re-centre or ground the object.** Export it as authored. The harness measures
-  where you put it, and a helpful `origin_set` destroys the thing being measured.
+* **You place the object; the harness exports it as authored.** It never re-centres or
+  grounds it and measures where you put it, so seating the whole assembly on the ground
+  yourself (the cookbook's `drop_to_ground`) is fine — a helpful `origin_set` is not: it
+  destroys the thing being measured.
 * **Build parts as separate objects**, joined only where the plan says they are one part.
   A single merged mesh cannot be checked, cannot be isolated, and scores worse.
 

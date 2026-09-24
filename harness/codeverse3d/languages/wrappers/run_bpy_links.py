@@ -53,7 +53,7 @@ def _snake(name: str) -> str:
 
 
 #: link names double as ``meshes/<link>.glb`` filename stems: plain identifiers only.
-#: The lint layer states the same rule (``languages/urdf/lint._IDENT``) but only WARNs,
+#: The lint layer states the same rule (``conventions.LINK_NAME_RE``) but only WARNs,
 #: so the wrapper enforces it — ``../evil`` must be a build error, never a file written
 #: outside ``meshes/``.
 _SAFE_LINK = re.compile(r"[A-Za-z][A-Za-z0-9_]*")

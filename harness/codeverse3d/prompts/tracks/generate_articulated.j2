@@ -26,7 +26,8 @@ Cookbook excerpt:
 Overall bbox (rest pose): {{ overall_bbox }}
 Style: {{ style_notes }}
 
-Links (one bpy object each, named EXACTLY like the `part` column):
+Links (one bpy object each; link name = the snake_case of the `part` column, `DoorHandle` →
+`door_handle`, as the skeleton writes it — the PascalCase spelling is accepted too):
 {{ parts_table }}
 
 Link construction notes:

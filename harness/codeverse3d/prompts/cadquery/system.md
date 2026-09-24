@@ -45,7 +45,8 @@ Rules that survive every brief:
   chair is 0.45 m to the seat. State the unit conversion once, explicitly.
 * **Prefer a boolean to a fillet** when you need a soft edge on a thin wall. The kernel
   will do a `cut` with a rounded tool where it refuses a `fillet`.
-* **Do not re-centre or ground the object.** Export it as authored.
+* **You place the object; the harness exports it as authored.** It never re-centres or
+  grounds it, so seating the whole assembly on the ground yourself is fine.
 
 A clean simpler solid beats a richer one whose fillets silently failed. Get the build
 clean first, then add the detail the brief asked for.

@@ -44,7 +44,8 @@ Rules that survive every brief:
   in this corpus are that one term.
 * **Give every part real material properties** but no lights and no environment — the
   harness lights the scene, and a light you add is a light it did not expect.
-* **Do not re-centre or ground the object.** Export it as authored.
+* **You place the object; the harness exports it as authored.** It never re-centres or
+  grounds it, so seating the whole assembly on the ground yourself is fine.
 
 A clean simpler object beats a richer one carrying a visible defect. Clear connectivity
 and contract first, then spend what is left on the detail the brief asked for.

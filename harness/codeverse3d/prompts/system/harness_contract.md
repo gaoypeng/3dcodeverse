@@ -29,8 +29,10 @@ artifacts/  harness output (object.glb, renders/, gates/, measurement.json).  RE
   meters, attach_to, instances.  **Use those numbers literally** in your code (as named
   constants at the top of the file).  If you disagree with a number, keep the plan's value
   and note why in a comment — do not silently drift.
-* Part names are PascalCase and unique (`SeatCushion`, `LeftFrontLeg`); object / node /
-  link names in the exported artifact must equal the plan's part names exactly.
+* Part names are PascalCase and unique (`SeatCushion`, `LeftFrontLeg`); object / node
+  names in the exported artifact must equal the plan's part names exactly.  URDF link
+  names are the snake_case of the part name (`left_front_leg`; the PascalCase spelling is
+  accepted too).
 * Deterministic: seed every random source (`random.seed(0)`, a hash-based `rand(i)`), no
   time-dependent geometry.  Two builds of the same code must produce identical geometry.
 * Real-world scale: a chair seat is 0.45 m high, a door 2.0 m, a mug 0.09 m.  Check your

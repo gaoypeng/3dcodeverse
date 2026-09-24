@@ -211,6 +211,14 @@ def to_snake(name: str) -> str:
 PASCAL_RE = re.compile(r"^[A-Z][A-Za-z0-9]*(?:_\d+)?$")
 
 
+#: a URDF link name — also its Blender object name and its ``meshes/<link>.glb`` stem.  The
+#: skeleton writes the plan part's snake_case key (``DoorHandle`` → ``door_handle``); the plan's
+#: PascalCase spelling is accepted too, because every gate matches parts by :func:`to_snake`.
+#: Either way a plain identifier — never ``Door.001``, a space or a path.  The Blender-run link
+#: wrapper keeps a copy (``run_bpy_links._SAFE_LINK``); ``tests/core/test_names.py`` pins them.
+LINK_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+
+
 #: how an instance name maps to its part: ``Leg_2`` (the contract's ``Name_N``), Blender's
 #: auto-suffix ``Leg.001`` and ``Leg-2`` all read as part ``Leg``; up to three digits, so a
 #: scene asset's hex id that happens to be all digits (``DonkeyCart_800006``) is no index.

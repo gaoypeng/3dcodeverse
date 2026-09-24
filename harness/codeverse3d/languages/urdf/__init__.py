@@ -7,7 +7,6 @@ import ast
 import contextlib
 import math
 import os
-import re
 import shutil
 import time
 import xml.etree.ElementTree as ET
@@ -21,7 +20,7 @@ from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language, MimicSpec, mimic_issues
 from codeverse3d.contracts.plan import ArticulatedPlan, JointPlan, PartPlan, Plan
-from codeverse3d.conventions import to_snake
+from codeverse3d.conventions import LINK_NAME_RE, to_snake
 from codeverse3d.languages._ast_lint import dotted, safe_parse
 from codeverse3d.languages._common import compose_build_result, missing_entry, strip_blender_noise
 from codeverse3d.languages.base import RuntimeLayout
@@ -102,9 +101,6 @@ GATE = "lint:urdf"
 URDF_REL = "src/robot.urdf"
 MODEL_REL = ENTRY_FILE[Language.URDF_BLENDER]
 _STATE_WORDS = ("open", "closed", "opened", "extended", "retracted", "raised", "lowered", "folded", "unfolded")
-#: link names double as Blender object names and ``meshes/<link>.glb`` stems: plain
-#: identifiers only (``door``, ``handle_left``, ``DoorHandle``) — never ``Door.001`` / spaces.
-_IDENT = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 #: model.py runs in the SAME Blender python as the blender language's model.py, so it is linted
 #: by that language's rules (``lint_blender_source``: imports, harness-owned and removed bpy APIs,
@@ -260,7 +256,7 @@ def _lint_link(el: ET.Element, name: str, out: list[GateFinding]) -> None:
     if name in RESERVED_LINK_NAMES:
         out.append(_f(Severity.ERROR, f"link name '{name}' is reserved by the GLB scene graph (glTF readers use it as the base frame)",
                       target=name, fix="Rename the link (e.g. 'base' or the part's name) in BOTH robot.urdf and model.py."))
-    if not _IDENT.match(name):
+    if not LINK_NAME_RE.match(name):
         out.append(_f(Severity.WARN, f"link name '{name}' is not a plain identifier (letters/digits/underscore)", target=name,
                       fix=f"Rename to '{to_snake(name)}' in BOTH robot.urdf and model.py (object names are case-sensitive; "
                           "Blender's auto-suffix '.001' means two objects shared a name)."))

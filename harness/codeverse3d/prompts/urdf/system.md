@@ -46,8 +46,8 @@ Rules that survive every brief:
   modelling error the sweep will find.
 * **The kinematic tree is a tree.** One root, every other link reachable through exactly
   one parent. No cycles, no orphans, no link named in a joint that does not exist.
-* **Author in metres at real scale**, and do not re-centre or ground the assembly. Export
-  it as authored.
+* **Author in metres at real scale.** The harness exports the assembly as authored and
+  never re-centres or grounds it, so seating it on the ground yourself is fine.
 
 A mechanism that moves cleanly through its whole range beats a more detailed one that
 jams. Clear `joint_sweep` first; spend what is left on the geometry.

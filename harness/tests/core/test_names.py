@@ -10,10 +10,10 @@ from pathlib import Path
 
 from codeverse3d.contracts.common import Track
 from codeverse3d.contracts.plan import StaticPlan
+from codeverse3d.conventions import LINK_NAME_RE as URDF_LINK_RE
 from codeverse3d.conventions import PASCAL_RE, part_key, split_instance, to_pascal, to_snake
 from codeverse3d.languages.blender import lint_blender_source
 from codeverse3d.languages.cadquery import lint_cadquery_source
-from codeverse3d.languages.urdf import _IDENT as URDF_LINK_RE
 from codeverse3d.texturing.materials import family_for
 from codeverse3d.tracks.planner import normalise_names, plan_example
 
@@ -85,7 +85,12 @@ def test_the_part_name_lints_accept_acronyms():
     assert not any("not PascalCase" in f.message for f in lint_cadquery_source(src).findings)
     rep = lint_blender_source("import bpy\nobj = bpy.context.object\nobj.name = 'USBPort'\n")
     assert any("named objects" in f.message and "USBPort" in f.message for f in rep.findings)
-    assert all(URDF_LINK_RE.match(n) for n in ("TVStand", "LED", "CPU_2", "A"))
+    # N47o: a URDF link is the part's snake key, the PascalCase spelling accepted — one rule, and
+    # the Blender-run link wrapper's copy of it is the same pattern
+    assert all(URDF_LINK_RE.match(n) for n in ("TVStand", "LED", "CPU_2", "A", "door_handle", "DoorHandle"))
+    assert not any(URDF_LINK_RE.match(n) for n in ("Door.001", "door handle", "../evil", "9lives"))
+    safe = _wrapper_assign("run_bpy_links.py", "_SAFE_LINK")
+    assert f"^{ast.literal_eval(safe.value.args[0])}$" == URDF_LINK_RE.pattern  # type: ignore[attr-defined]
 
 
 def test_material_words_split_acronyms():
