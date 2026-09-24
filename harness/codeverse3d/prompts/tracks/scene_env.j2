@@ -92,7 +92,7 @@ The chapters behind these rules are printed in full at the end of this brief
 5. **Shadows must not be jagged.**  Shadow texel = `2 x shadowSpan / mapSize` <= 0.05 m: fit the
    shadow camera to the BOUNDS (not the whole ground), then pick mapSize 2048 (span <= 30 m) /
    3072 (<= 60 m) / 4096 (larger).  `bias = -0.0004`, `normalBias = 0.02`.
-6. No textures, no DOM, no fetch, no Math.random.
+6. No {% if not (textures is defined and textures) %}textures, no {% endif %}DOM, no fetch, no Math.random.
 
 ## DON'T
 - No assets/zones here (they come from other modules). No cameras. No `scene.background` image loads.

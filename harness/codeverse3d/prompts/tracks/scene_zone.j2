@@ -87,7 +87,7 @@ The recipes for all five points below are printed in full at the end of this bri
 
 ## DON'T
 - No lights except small point lights for lanterns; no cameras; no sky/ground here.
-- No DOM, no textures, no fetch, no Math.random (hash `rand(i)` with an explicit seed).
+- No DOM, {% if not (textures is defined and textures) %}no textures, {% endif %}no fetch, no Math.random (hash `rand(i)` with an explicit seed).
 - Do not import assets marked NOT AVAILABLE; do not edit other files.
 {% if tool_cards and not single_shot %}
 

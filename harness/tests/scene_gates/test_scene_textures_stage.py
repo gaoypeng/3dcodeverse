@@ -32,3 +32,10 @@ def test_the_pack_has_the_last_word_over_the_recipes(template: str):
     """The cookbook's ground chapter is long and specific; whichever comes last wins."""
     out = _render(template, textures="TEXTURE_BLOCK_MARKER", recipes="RECIPE_MARKER")
     assert out.index("RECIPE_MARKER") < out.index("TEXTURE_BLOCK_MARKER")
+
+
+@pytest.mark.parametrize("template", ["scene_env.j2", "scene_zone.j2"])
+def test_a_prompt_with_the_pack_does_not_forbid_textures(template: str):
+    """The rules said "no textures" and the pack below them said "use them"."""
+    assert "no textures" not in _render(template, textures="TEXTURE_BLOCK_MARKER").lower()
+    assert "no textures" in _render(template).lower()
