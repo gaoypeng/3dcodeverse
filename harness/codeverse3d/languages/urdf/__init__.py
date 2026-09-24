@@ -566,7 +566,6 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
     """Pure function: plan → link frames + joint rows in the enforced convention."""
     parts = _expand_parts(plan)
     base_names = {to_snake(p.name) for p in plan.parts}
-    instance_links = {n for n, p, _ in parts if p.instances > 1}
     root = to_snake(plan.root_link)
     links: dict[str, LinkFrame] = {}
     pivot_of: dict[str, tuple[float, float, float]] = {}
@@ -594,7 +593,8 @@ def compute_urdf_frames(plan: ArticulatedPlan) -> UrdfFrames:
         parent, child = to_snake(j.parent), to_snake(j.child)
         if parent in base_names and parent not in {n for n, _, _ in parts}:
             parent = f"{parent}_1"  # joint to an instanced parent → first instance
-        children = [n for n, p, _ in parts if n == child or (n in instance_links and n.rsplit("_", 1)[0] == child)]
+        # one instance link by its own name, else the part and every instance link it expanded to
+        children = [n for n, p, _ in parts if n == child or to_snake(p.name) == child]
         for k, c in enumerate(children):
             add_joint(j, c, parent, "" if len(children) == 1 else f"_{k + 1}")
 

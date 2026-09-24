@@ -23,7 +23,6 @@ Severity policy (``tol = max(tol_m, REL_TOL × plan extent)`` per axis):
 
 from __future__ import annotations
 
-import re
 import time
 from dataclasses import dataclass
 
@@ -42,6 +41,7 @@ from codeverse3d.conventions import (
     CONTACT_GAP_M,
     FRAME_AXES,
     Frame,
+    split_instance,
     to_authoring_frame,
     to_snake,
 )
@@ -106,20 +106,16 @@ def glb_vec_to_plan(v, language: str, *, extents: bool = False) -> np.ndarray:
 
 
 # --------------------------------------------------------------------------- matching
-def _instance_re(snake: str) -> re.Pattern[str]:
-    return re.compile(rf"^{re.escape(snake)}(?:[_.-]?\d{{1,3}})?$")
-
-
 def match_parts(plan_parts: list[PartPlan], measured: list[PartMeasure]) -> tuple[dict[str, list[PartMeasure]], list[PartMeasure]]:
     """Map each plan part → measured rows (``Name``, ``Name_0``… accepted); plus unmatched rows.
 
-    Exact names are claimed FIRST, and the ``Name_0..Name_N`` instance pass never takes
-    a node that another plan part names exactly.  ``_instance_re("shelf")`` matches
-    ``shelf2``, so a plan of ``Shelf`` + ``Shelf2`` used to have ``Shelf`` swallow the
-    ``Shelf2`` node before ``Shelf2`` was considered — a false "missing from the GLB"
-    ERROR and a real 0.75 judge cap on geometry that matched the plan exactly.
-    ``Shelf``/``Shelf2``, ``Slat``/``Slat1``, ``Tier``/``Tier2`` are ordinary planner
-    output for PascalCase part names.
+    Exact names are claimed FIRST, and the ``Name_0..Name_N`` instance pass
+    (``conventions.split_instance``) never takes a node that another plan part names
+    exactly.  The instance pattern once took ``shelf2`` for ``Shelf``, so a plan of
+    ``Shelf`` + ``Shelf2`` had ``Shelf`` swallow the ``Shelf2`` node before ``Shelf2`` was
+    considered — a false "missing from the GLB" ERROR and a real 0.75 judge cap on geometry
+    that matched the plan exactly.  ``Shelf``/``Shelf2``, ``Slat``/``Slat1``, ``Tier``/``Tier2``
+    are ordinary planner output for PascalCase part names.
     """
     remaining = {m.name: m for m in measured}
     matched: dict[str, list[PartMeasure]] = {pp.name: [] for pp in plan_parts}
@@ -131,9 +127,9 @@ def match_parts(plan_parts: list[PartPlan], measured: list[PartMeasure]) -> tupl
             remaining.pop(m.name, None)
         matched[pp.name].extend(hits)
     for pp in plan_parts:  # pass 2: its Name_0..Name_N instances
-        pat = _instance_re(to_snake(pp.name))
+        snake = to_snake(pp.name)
         hits = [m for n, m in list(remaining.items())
-                if to_snake(n) not in reserved and pat.match(to_snake(n))]
+                if to_snake(n) not in reserved and split_instance(to_snake(n))[0] == snake]
         for m in hits:
             remaining.pop(m.name, None)
         matched[pp.name].extend(hits)

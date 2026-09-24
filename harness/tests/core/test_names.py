@@ -10,7 +10,7 @@ from pathlib import Path
 
 from codeverse3d.contracts.common import Track
 from codeverse3d.contracts.plan import StaticPlan
-from codeverse3d.conventions import PASCAL_RE, to_pascal, to_snake
+from codeverse3d.conventions import PASCAL_RE, split_instance, to_pascal, to_snake
 from codeverse3d.languages.blender import lint_blender_source
 from codeverse3d.languages.cadquery import lint_cadquery_source
 from codeverse3d.languages.urdf import _IDENT as URDF_LINK_RE
@@ -91,3 +91,20 @@ def test_the_part_name_lints_accept_acronyms():
 def test_material_words_split_acronyms():
     hit = family_for("PVCPipe")
     assert hit is not None and hit == family_for("pvc pipe")
+
+
+def test_one_instance_rule_for_every_reader():
+    """``conventions.split_instance`` is the rule the measure table, the contract match and
+    refine grouping read (four hand-written copies until 2026-09-23 — the refine grouping
+    read ``DonkeyCart_800006``, a scene asset's all-digit hex id, as instance 800006)."""
+    from codeverse3d.orchestrator import _canon_target, _instance_base
+    from codeverse3d.spatial.measure import instance_groups
+
+    rows = {"Leg_2": ("Leg", "2"), "Leg.001": ("Leg", "001"), "leg-3": ("leg", "3"), "Leg_1_2": ("Leg_1", "2"),
+            "Leg": ("Leg", ""), "Shelf2": ("Shelf2", ""), "HDMIPort1": ("HDMIPort1", ""),
+            "DonkeyCart_800006": ("DonkeyCart_800006", ""), "Leg_": ("Leg_", "")}
+    assert {n: split_instance(n) for n in rows} == rows
+    assert list(instance_groups(["Leg_1", "Leg.002", "Shelf", "Shelf2", "Cart_800006", "Cart_801"])) == \
+        ["Leg", "Shelf", "Shelf2", "Cart_800006", "Cart_801"]
+    assert _instance_base("DonkeyCart_800006") == "DonkeyCart_800006" and _instance_base("") == "overall"
+    assert _canon_target("leg_1", {"leg": "Leg"}) == "Leg_1"

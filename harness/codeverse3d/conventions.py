@@ -191,6 +191,19 @@ def to_snake(name: str) -> str:
 PASCAL_RE = re.compile(r"^[A-Z][A-Za-z0-9]*(?:_\d+)?$")
 
 
+#: how an instance name maps to its part: ``Leg_2`` (the contract's ``Name_N``), Blender's
+#: auto-suffix ``Leg.001`` and ``Leg-2`` all read as part ``Leg``; up to three digits, so a
+#: scene asset's hex id that happens to be all digits (``DonkeyCart_800006``) is no index.
+_INSTANCE_RE = re.compile(r"^(?P<base>.+?)[_.-](?P<idx>\d{1,3})$")
+
+
+def split_instance(name: str) -> tuple[str, str]:
+    """``Leg_2`` → (``Leg``, ``"2"``); a name with no instance suffix → (name, ``""``).  THE
+    instance rule: the measure table, the contract match and refine grouping all read it."""
+    m = _INSTANCE_RE.match(name)
+    return (m.group("base"), m.group("idx")) if m else (name, "")
+
+
 def to_pascal(name: str) -> str:
     """``seat_cushion`` / ``seat cushion`` → ``SeatCushion``; a name that is already
     PascalCase (no underscore) comes back unchanged, so ``TVStand`` stays ``TVStand``.

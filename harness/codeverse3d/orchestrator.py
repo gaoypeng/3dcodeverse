@@ -26,7 +26,7 @@ from codeverse3d.contracts.artifacts import GateReport, Judgment
 from codeverse3d.contracts.common import Budget
 from codeverse3d.contracts.plan import AcceptanceItem, Plan
 from codeverse3d.contracts.run import RoundRecord, RunStatus, StepTime
-from codeverse3d.conventions import to_snake
+from codeverse3d.conventions import split_instance, to_snake
 from codeverse3d.cost.tally import timed
 from codeverse3d.proc import EventLog
 from codeverse3d.workspace import Workspace
@@ -387,12 +387,8 @@ def compact_instructions(tasks: Sequence[RefineTask], max_lines: int = 6) -> lis
 
 # ----------------------------------------------------------------------------- helpers
 def _split_instance(target: str) -> tuple[str, str]:
-    """``BackLeg_1`` → (``BackLeg``, ``1``) per the ``Name_0..N-1`` instance naming
-    convention; anything else → (target, "")."""
-    base, sep, suffix = (target or "").rpartition("_")
-    if sep and base and suffix.isdigit():
-        return base, suffix
-    return target or "overall", ""
+    """``conventions.split_instance``; an empty target is ``overall``."""
+    return split_instance(target) if target else ("overall", "")
 
 
 def _instance_base(target: str) -> str:

@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import re
 import struct
 import threading
 from collections import Counter, OrderedDict
@@ -33,6 +32,7 @@ import numpy as np
 import trimesh
 
 from codeverse3d.contracts.artifacts import Measurement, PartMeasure
+from codeverse3d.conventions import split_instance
 
 __all__ = [
     "load_scene",
@@ -46,9 +46,6 @@ __all__ = [
     "instance_groups",
     "merged_mesh",
 ]
-
-_INSTANCE_RE = re.compile(r"^(?P<base>.+?)[_.-](?P<idx>\d{1,3})$")
-
 
 class GlbLoadError(RuntimeError):
     """The GLB could not be loaded or contains no mesh geometry."""
@@ -429,16 +426,14 @@ def instance_groups(names: list[str]) -> OrderedDict[str, list[str]]:
     """Group ``Leg_0, Leg_1, Leg_2`` → ``{"Leg": [...]}``; singletons keep their name."""
     groups: OrderedDict[str, list[str]] = OrderedDict()
     for n in names:
-        m = _INSTANCE_RE.match(n)
-        key = m.group("base") if m else n
-        groups.setdefault(key, []).append(n)
+        groups.setdefault(split_instance(n)[0], []).append(n)
     # a "group" with a single member is just the part itself
     out: OrderedDict[str, list[str]] = OrderedDict()
     for key, members in groups.items():
         if len(members) > 1:
-            # a bare base name ("lens" beside "lens_1") lands in the group without
-            # matching the regex — sort it first instead of crashing on the None match
-            members = sorted(members, key=lambda n: int(m.group("idx")) if (m := _INSTANCE_RE.match(n)) else -1)
+            # a bare base name ("lens" beside "lens_1") lands in the group with no
+            # index — sort it first
+            members = sorted(members, key=lambda n: int(split_instance(n)[1] or -1))
         out[key if len(members) > 1 else members[0]] = members
     return out
 
@@ -479,7 +474,7 @@ def measure_summary_table(m: Measurement, max_rows: int = 30) -> str:
         if len(ps) == 1:
             label, size_txt = key, fmt_extent_cm(ext)
         else:
-            label = f"{key} ×{len(ps)} ({members[0]}..{members[-1].rsplit('_', 1)[-1]})"
+            label = f"{key} ×{len(ps)} ({members[0]}..{split_instance(members[-1])[1]})"
             each = np.max([np.subtract(p.bbox_max, p.bbox_min) for p in ps], axis=0)
             size_txt = f"{fmt_extent_cm(each)} each, span {fmt_extent_cm(ext)}"
         tris = sum(p.tri_count for p in ps)
