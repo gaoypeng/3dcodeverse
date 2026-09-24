@@ -317,7 +317,15 @@ def make(
             "(`3dcode pick <slug>` does it later)",
         ),
     ] = False,
-    seed: Annotated[int, typer.Option("--seed")] = 0,
+    seed: Annotated[
+        int,
+        typer.Option(
+            "--seed",
+            help="a run label, not a sampling seed: another value re-plans (it keys the plan cache) and "
+            "re-draws the --reference images; the models, the coding agent, the judge and the builds "
+            "(always seed 0) do not read it",
+        ),
+    ] = 0,
     force: Annotated[bool, typer.Option("--force", help="overwrite an existing run dir")] = False,
     no_run: Annotated[
         bool,

@@ -50,7 +50,8 @@ a scene writes its baseline in its stages, so `--candidates N>1` is refused ther
 profile's best-of-2 runs one), `--texture` (texture the PICKED round
 after the run; see §6), `--no-pick` (package nothing: no `deliverable/`, no `selection.json` —
 `3dcode pick` later), `--max-minutes`, `--dim height=0.45`, `--must`,
-`--must-not`, `--style`, `--tag`, `--seed`, `--slug`, `--runs-dir`, `--force`,
+`--must-not`, `--style`, `--tag`, `--seed` (a label: it re-keys the plan and the reference
+images, nothing else is seeded by it), `--slug`, `--runs-dir`, `--force`,
 `--no-run` (workspace + spec.json only — except that `--reference` still runs its
 paid grounding pass first, since the grounded spec is what it writes).
 
