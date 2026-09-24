@@ -31,7 +31,7 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import HARNESS_OWNED_SRC, TRACK_INFO, Language, Track
 from codeverse3d.contracts.plan import GraphicsPlan, Plan
 from codeverse3d.contracts.run import RoundRecord
-from codeverse3d.languages._gl_common import METRICS_NAME, SHEET_NAME, read_metrics
+from codeverse3d.languages._gl_common import JUDGE_TIMES, METRICS_NAME, SHEET_NAME, read_metrics
 from codeverse3d.languages.glsl_shader import (
     COMMON,
     COMMON_GLSL,
@@ -305,7 +305,7 @@ def graphics_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "style": plan.style if plan else "", "resolution": f"{res[0]}x{res[1]}", "duration": f"{plan.duration_s:g}" if plan else "8",
         "passes_table": passes_table(plan), "motion": plan.motion if plan else "", "key_visuals": list(plan.key_visuals) if plan else [],
         "uniforms": ", ".join(plan.uniforms) if plan and plan.uniforms else "u_time, u_resolution",
-        "expected_files": ctx.runtime.expected_files(ctx.plan), "judge_times": "0, 1, 2.5, 4, 6 s", **extra})
+        "expected_files": ctx.runtime.expected_files(ctx.plan), "judge_times": ", ".join(f"{t:g}" for t in JUDGE_TIMES) + " s", **extra})
 
 
 # ----------------------------------------------------------------------------- renders / gates

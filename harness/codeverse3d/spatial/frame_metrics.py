@@ -53,10 +53,10 @@ EYE_MAX_ABOVE_GROUND_M = 80.0
 _DARK_HINT = (
     "raise the light through the rig env.js already builds — `sunRig({ mood: 'day'|'golden'|'night'|'overcast', "
     "intensity, fill, … })`: pick the brief's mood (a set sun, elevation < 0, is the night rig), raise `intensity` (key, "
-    "the rig clamps requests below its floor UP) and `fill` (hemisphere, 1.0–2.0) — do not add a second sun on top; "
-    "add emissive lights where the brief has them (lantern glow: MeshStandardMaterial emissive + emissiveIntensity 2–6, "
-    "a PointLight 0.5–2 per lantern); scene.fog colour must match the sky colour; dusk/night is orange/purple/deep blue, "
-    "NOT black — keep mean luminance ≥ 0.15 (check with scene_views: camera_checks.mean_lum)"
+    "the rig clamps requests below its floor UP) and `fill` (the hemisphere) — do not add a second sun on top; "
+    "add emissive lights where the brief has them (lantern glow: the cookbook's practical-light recipe, `PRACTICAL` "
+    "from lib/environment.js — an emissive face plus one PointLight per lantern); scene.fog colour must match the sky "
+    "colour; dusk/night is orange/purple/deep blue, NOT black (check with scene_views: camera_checks.mean_lum)"
 )
 #: for a frame that is dark but CONTRASTY -- something IS lit, so adding fill is the
 #: wrong move and actively destroys the picture.  Measured 2026-08-25: temple_night was

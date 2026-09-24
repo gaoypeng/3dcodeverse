@@ -19,6 +19,10 @@ artifacts/  harness output (object.glb, renders/, gates/, measurement.json).  RE
   imports are listed in the language contract (bpy/bmesh/mathutils/math/random/… ;
   `cadquery` + stdlib ; `three` + `three/addons/*`).  Nothing else.  No network, no DOM,
   no file I/O from generated code (except `src/robot.urdf` for the articulated track).
+  Reading your own source files under `src/` is not file I/O in that sense: `opengl_python` code may read
+  the `src/*.glsl` it ships (`Path(__file__).with_name(...).read_text()`), and scene code loads its `src/`
+  shader files with `THREE.FileLoader` — exactly as your language contract shows.  Writing files stays
+  forbidden everywhere.
   A language contract may ALSO ship harness-owned modules inside your own `src/` and tell
   you to call them (`scene_threejs`: `src/lib/*.js`).  Those are not an SDK import — they
   are code the harness wrote into your workspace.  Call them; never rewrite them.
@@ -61,6 +65,9 @@ Before declaring done you MUST look at what you built: `build` → `render_sheet
 → `compare_reference` if a reference image exists (each step whose tool is in your tool
 list).  Read the numbers (bbox, islands, tri count) and the images.  "It should be fine"
 is not evidence; a render is.
+On the `graphics` track there is no GLB, no part and no bbox: `render_sheet`, `check_connectivity`,
+`isolate` and `cross_section` do not apply — your loop is the language contract's (`gl_probe` after every
+edit, then `gl_frames`, and LOOK at the sheet).
 
 ## 5. Honesty rules
 
@@ -80,6 +87,11 @@ is not evidence; a render is.
   `foreach_set`).
 
 ## 7. Definition of done (all boxes, in order)
+
+Items 2–4 and 6's mesh checks are for GLB tracks.  On the `scene` track they apply to each compiled asset
+under `public/assets/`, and the scene itself is checked with `scene_probe`, `scene_views` and
+`check_placement` against the plan's declared bounds.  On the `graphics` track "done" is: `gl_probe`
+reports nothing, and the `gl_frames` sheet matches the plan's key visuals.
 
 1. [ ] `build` succeeds with zero errors (exit 0, GLB written).
 2. [ ] Every plan part exists by exact name; no extra junk objects (`Cube`, `Camera`).
