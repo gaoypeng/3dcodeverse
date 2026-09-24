@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from codeverse3d.contracts.artifacts import GateFinding, Measurement, PartMeasure, Severity
-from codeverse3d.contracts.plan import BBox, CameraPlan, PartPlan, ScenePlan, StaticPlan, ZonePlan
+from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
 from codeverse3d.spatial.contract import (
     check_contract,
     match_parts,
@@ -72,18 +72,6 @@ def test_an_exact_name_wins_over_another_part_instance_pattern() -> None:
     assert {m.name for m in matched["Slat"]} == {"Slat", "Slat_0", "Slat_1"}
     assert [m.name for m in matched["Slat1"]] == ["Slat1"]
     assert extra == []
-
-
-def test_scene_plan_bounds() -> None:
-    plan = ScenePlan(title="t", summary="s", setting="x", bounds=BBox(center=(0, 0, 0), extents=(10, 10, 10)), environment="e",
-                     zones=[ZonePlan(name="Harbour", description="d", bbox=BBox(center=(0, 0, 0), extents=(5, 5, 5)))],
-                     cameras=[CameraPlan(name="main", position=(0, 2, 10), look_at=(0, 0, 0))])
-    m = Measurement(bbox_min=(-3, 0, -3), bbox_max=(12, 3, 3), extents=(15, 3, 6), center=(4.5, 1.5, 0), tri_count=1, n_meshes=1, n_islands=1,
-                    parts=[PartMeasure(name="Harbour", bbox_min=(-3, 0, -3), bbox_max=(3, 3, 3))])
-    r = check_contract(m, plan, language="scene_threejs")
-    assert r.passed  # scene findings are warnings
-    assert any("exceeds the planned bounds" in f.message for f in r.findings)
-    assert not any("zone group" in f.message for f in r.findings)
 
 
 def test_hints_are_written_in_the_authoring_frame() -> None:

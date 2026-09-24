@@ -18,7 +18,6 @@ Severity policy (``tol = max(tol_m, REL_TOL × plan extent)`` per axis):
   extents swapped → WARN "turned" (the az-0 view then shows a side, not the front)
 * not standing on the ground / footprint off-centre → WARN
 * GLB parts the plan never mentioned → INFO
-* ScenePlan: zone groups missing → WARN; model outside ``bounds`` → WARN
 """
 
 from __future__ import annotations
@@ -35,7 +34,7 @@ from codeverse3d.contracts.artifacts import (
     PartMeasure,
     Severity,
 )
-from codeverse3d.contracts.plan import BBox, PartPlan, Plan, ScenePlan, StaticPlan
+from codeverse3d.contracts.plan import BBox, PartPlan, Plan, StaticPlan
 from codeverse3d.conventions import (
     BBOX_TOLERANCE_M,
     CONTACT_GAP_M,
@@ -368,34 +367,11 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
     return findings
 
 
-def _check_scene_plan(m: Measurement, plan: ScenePlan, language: str, tol_m: float) -> list[GateFinding]:
-    findings: list[GateFinding] = []
-    names = {to_snake(p.name) for p in m.parts}
-    for z in plan.zones:
-        if to_snake(z.name) not in names:
-            findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target=z.name,
-                                        message=f"zone group '{z.name}' not found in the exported scene",
-                                        fix_hint=f"put the zone's objects under a THREE.Group named '{z.name}'"))
-    b = plan_bbox_to_glb(plan.bounds, language)
-    lo, hi = np.asarray(b.min), np.asarray(b.max)
-    over = np.maximum(lo - np.asarray(m.bbox_min), 0) + np.maximum(np.asarray(m.bbox_max) - hi, 0)
-    if float(np.max(over)) > max(tol_m, REL_TOL * float(np.max(b.extents))):
-        over_plan = glb_vec_to_plan(over, language, extents=True)
-        findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target="bounds",
-                                    message=f"scene geometry exceeds the planned bounds by {_fmt_delta(over_plan)}",
-                                    fix_hint=f"keep everything inside centre {plan.bounds.center}, extents {plan.bounds.extents} m "
-                                             f"({frame_label(language)})",
-                                    data={"overshoot_m": over_plan.tolist(), "frame": language_frame(language).value}))
-    return findings
-
-
-def check_contract(measurement: Measurement, plan: Plan, *, language: str, tol_m: float = BBOX_TOLERANCE_M) -> GateReport:
-    """Compare ``measurement`` (from the GLB) with ``plan`` authored in ``language``'s frame."""
+def check_contract(measurement: Measurement, plan: StaticPlan, *, language: str, tol_m: float = BBOX_TOLERANCE_M) -> GateReport:
+    """Compare ``measurement`` (from the GLB) with an object ``plan`` authored in ``language``'s frame.
+    Scenes are checked by ``scene_placement`` from the census, never here."""
     t0 = time.time()
-    if isinstance(plan, ScenePlan):
-        findings = _check_scene_plan(measurement, plan, language, tol_m)
-    else:
-        findings = _check_object_plan(measurement, plan, language, tol_m)
+    findings = _check_object_plan(measurement, plan, language, tol_m)
     if not findings:
         findings.append(GateFinding(gate=GATE, severity=Severity.INFO, message="all plan parts present and within tolerance"))
     return GateReport.of(GATE, findings, duration_ms=int((time.time() - t0) * 1000))
