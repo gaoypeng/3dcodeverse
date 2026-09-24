@@ -12,7 +12,7 @@
  */
 
 import * as THREE from 'three';
-import { clonePatchedMaterial, patchStandard, toColor } from './shader.js';
+import { clonePatchedMaterial, patchStandard, seedLattice, toColor } from './shader.js';
 import { attachDisposal } from './lifecycle.js';
 
 const WIN_VARYINGS = [
@@ -241,10 +241,7 @@ const WIN_BODY = [
  * lattice points, where the hash is a thousand times more sensitive to
  * the last bit of the inputs than it is to the cell.
  */
-function seedOffset(seed) {
-  const s = Math.abs(Math.round(seed === undefined ? 1 : seed)) % 9973;
-  return (s * 16807) % 257;
-}
+const seedOffset = (seed) => seedLattice(seed, 16807, 257);
 
 /**
  * Shade the ROOM behind each window instead of the window itself.

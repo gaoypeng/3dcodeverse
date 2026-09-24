@@ -24,7 +24,7 @@ import * as THREE from 'three';
 
 import {
     keepOutOfDepthPasses, makeShaderMaterial, patchStandard, sweepProfile,
-    tickShaders, toColor } from './shader.js';
+    seedLattice, tickShaders, toColor } from './shader.js';
 
 const _UP = new THREE.Vector3(0, 1, 0);
 
@@ -71,11 +71,7 @@ const TEMP_GLSL = [
     '}',
 ].join('\n');
 
-/** A seed becomes a far-apart hash offset, not a one-cell shift. */
-function seedKey(seed) {
-    const s = Math.abs(Math.round(seed === undefined ? 1 : seed)) % 9973;
-    return ((s * 16807) % 9973) * 0.011;
-}
+const seedKey = (seed) => seedLattice(seed) * 0.011;
 
 /** A point in any accepted spelling as its own Vector3. */
 function toVec(p) {

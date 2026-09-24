@@ -473,3 +473,16 @@ def test_the_surface_gradient_bump_is_written_once():
     frame = re.compile(r"cross\(\s*\w+\s*,\s*(normal|n)\s*\)")
     own = sorted(p.name for p in LIB_DIR.glob("*.js") if frame.search(p.read_text(encoding="utf-8")))
     assert own == ["shader.js", "tree.js", "windows.js"], own
+
+
+def test_seed_lattice_keeps_the_formula_the_five_copies_used():
+    """neon, urban, caustics, submerged and windows each carried this body; the one
+    helper must give every recorded seed the same pattern it had."""
+    out = measure("""
+import { seedLattice } from './lib/shader.js';
+const old = (seed, k, m) => (Math.abs(Math.round(seed === undefined ? 1 : seed)) % 9973 * k) % m;
+const seeds = [undefined, 0, 1, 7, -7, 3.6, 9980, 123456];
+console.log(JSON.stringify(seeds.flatMap((s) => [[16807, 9973], [48271, 9973], [16807, 257]]
+  .map(([k, m]) => seedLattice(s, k, m) === old(s, k, m)))));
+""", _LIBS)
+    assert out and all(out), out

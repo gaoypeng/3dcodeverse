@@ -24,7 +24,7 @@ import { patchNeonSpill } from './neon.js';
 import { fbm2, mulberry32, noiseDataTexture } from './noise.js';
 import {
   keepOutOfDepthPasses, makeShaderMaterial,
-  patchStandard, tickShaders, toColor, unit,
+  patchStandard, seedLattice, tickShaders, toColor, unit,
 } from './shader.js';
 
 const _UP = new THREE.Vector3(0, 1, 0);
@@ -36,16 +36,7 @@ function toVec(p) {
   return new THREE.Vector3(p.x || 0, p.y || 0, p.z || 0);
 }
 
-/**
- * A seed becomes a far-apart lattice offset, not a one-cell shift.
- *
- * Seeds 7 and 8 offsetting a hash lattice by 1 would merely TRANSLATE
- * the pattern by one panel, which reads as the same tower twice.
- */
-function seedOffset(seed) {
-  const s = Math.abs(Math.round(seed === undefined ? 1 : seed)) % 9973;
-  return ((s * 16807) % 9973) * 0.0517;
-}
+const seedOffset = (seed) => seedLattice(seed) * 0.0517;
 
 /** Read a `[w, h]`, `{w, h}` or single number as a metric pair. */
 function toPair(value, dw, dh) {

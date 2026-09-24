@@ -288,6 +288,17 @@ export function readWind(value, fallback, label = 'wind') {
     return { x: dir.x * strength, z: dir.y * strength, dir, strength, speed };
 }
 
+/**
+ * A seed as a far-apart lattice coordinate, not a one-cell shift: the
+ * integer seed (1 when undefined) mod 9973, times the multiplier `k`,
+ * mod `m`.  Seeds 7 and 8 offsetting a hash lattice by 1 would merely
+ * TRANSLATE the pattern by one cell, which reads as the same object twice.
+ */
+export function seedLattice(seed, k = 16807, m = 9973) {
+    const s = Math.abs(Math.round(seed === undefined ? 1 : seed)) % 9973;
+    return (s * k) % m;
+}
+
 /** Read a Vector3, an array or an {x,y,z} into a new Vector3. */
 export function readVec3(p, fx = 0, fy = 0, fz = 0) {
     if (!p) return new THREE.Vector3(fx, fy, fz);

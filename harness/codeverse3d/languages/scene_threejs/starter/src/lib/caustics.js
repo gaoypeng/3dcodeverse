@@ -11,7 +11,7 @@
  */
 
 import * as THREE from 'three';
-import { patchStandard, toColor, WORLD_VARYINGS, worldBody } from './shader.js';
+import { patchStandard, seedLattice, toColor, WORLD_VARYINGS, worldBody } from './shader.js';
 
 // The world varyings terrain_shade and waterside share, so a submerged
 // bank wearing a splat, a waterline and this declares ONE pair; the
@@ -190,17 +190,8 @@ function sourceReach(source, reach) {
   return new THREE.Vector4(source.x, source.y, source.z, 1 / r);
 }
 
-/**
- * A seed becomes a far-apart lattice offset, not a one-cell shift.
- *
- * Seeds 7 and 8 offsetting by 1 would TRANSLATE the net by one cell,
- * which is the same pool twice.
- */
-function seedOffset(seed) {
-  const s = Math.abs(Math.round(seed === undefined ? 1 : seed)) % 9973;
-  return new THREE.Vector2(((s * 16807) % 9973) * 0.103,
-                           ((s * 48271) % 9973) * 0.071);
-}
+const seedOffset = (seed) => new THREE.Vector2(seedLattice(seed) * 0.103,
+                                               seedLattice(seed, 48271) * 0.071);
 
 /**
  * Throw a moving net of caustic light on what is under the water.

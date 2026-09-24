@@ -24,7 +24,7 @@ import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { lehmer } from './noise.js';
 import {
   composeRoughness, makeShaderMaterial, instancedQuad, keepOutOfDepthPasses,
-  toColor, unit, withBase, worldBase,
+  seedLattice, toColor, unit, withBase, worldBase,
 } from './shader.js';
 
 // Water absorbs red an order of magnitude faster than blue, and that
@@ -41,17 +41,8 @@ const LIFT = 0.012;
 // this declares ONE pair.
 const BASE = worldBase('submerged:base', 'subWp', 'subWn');
 
-/**
- * A seed becomes a far-apart lattice offset, not a one-cell shift.
- *
- * Seeds 7 and 8 offsetting by 1 would TRANSLATE the field by one cell,
- * which is the same pool twice.
- */
-function seedOffset(seed) {
-  const s = Math.abs(Math.round(seed === undefined ? 1 : seed)) % 9973;
-  return new THREE.Vector2(((s * 16807) % 9973) * 0.091,
-                           ((s * 48271) % 9973) * 0.067);
-}
+const seedOffset = (seed) => new THREE.Vector2(seedLattice(seed) * 0.091,
+                                               seedLattice(seed, 48271) * 0.067);
 
 /**
  * Per-channel extinction: a scalar on water's spectrum, or three
