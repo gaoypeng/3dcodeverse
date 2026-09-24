@@ -51,12 +51,11 @@ Scene: {{ spec_prompt }}
   the origin, sized as stated (±5%). `opts.seed` (number) and `opts.variant` (0..n) may vary
   details deterministically (use a tiny mulberry32 PRNG inside the file — never Math.random).
 - Build from primitives (Box/Cylinder/Cone/Sphere/Lathe/Extrude/Tube) with MeshStandardMaterial
-  colours in hex; merge repeated pieces with InstancedMesh when > 20 copies.
+  colours in hex.
 - Set `group.userData.size = [w, h, d]` to the measured size.  Optional animation hook:
   `group.userData.update = (t, dt) => {...}` (the zone that places you caches it and calls it;
   `userData.tick` is never called by anything).  Amplitudes must be visible after 1.5 s:
   >= 0.10 rad of rotation or >= 0.05 m of travel — not sub-centimetre jitter.
-- No DOM, no texture/image loading, no fetch, no imports except `import * as THREE from 'three'`.
 - Segments 12-24.
 {% endif %}
 
