@@ -118,7 +118,7 @@ class CapRule(BaseModel):
     ``when="gate"`` rules match ``GateFinding`` records: ``gate`` is an fnmatch
     pattern on the gate name (``"build*"``), ``severity`` the minimum severity,
     ``kinds`` a list of tokens any of which must appear in ``finding.data.kind``
-    / ``finding.data.code`` or, as a fallback, in the lower-cased message.
+    / ``finding.data.code`` or, only for a finding that has neither, in the lower-cased message.
     ``when="acceptance"`` fires when any ``must`` acceptance item is not verified;
     with ``graded`` the cap is ``cap + (1 - cap) · verified/total`` over the must
     items instead of the flat ``cap``.
@@ -486,9 +486,12 @@ class CapResult(BaseModel):
 
 
 def _finding_tokens(f: GateFinding) -> str:
-    """Searchable lower-cased text for a finding: data.kind / data.code / message / target."""
-    bits = [str(f.data.get("kind", "")), str(f.data.get("code", "")), f.message, f.target or ""]
-    return " ".join(bits).lower()
+    """What a cap rule's ``kinds`` are matched against: the gate's typed ``data.kind`` /
+    ``data.code``, and the message only for a finding that carries neither (old records).
+    Never the target: a part named ``kitchen_island`` fired ``floating_part`` on a
+    penetration finding (audit 2026-09-24, N50)."""
+    typed = " ".join(str(f.data.get(k, "")) for k in ("kind", "code")).strip()
+    return (typed or f.message).lower()
 
 
 def _finding_matches(rule: CapRule, report: GateReport, f: GateFinding) -> bool:
@@ -680,7 +683,7 @@ def _rule_hit(
 
 
 # ===================================================================== scoring
-SCORING_VERSION = 2
+SCORING_VERSION = 3
 """The arithmetic downstream of the model, stamped into every ``ScoreBreakdown``.
 
 A stored verdict is reproducible from its samples only under the version that wrote
@@ -694,6 +697,9 @@ drift to report, not a fault.
 2 — 2026-08-30: ``CapRule.measures`` (the veto reaches ``interpenetration``), the object
     rubrics' floating/penetration rules watch ``connectivity`` alone, a defect vote tie
     is absent, ``missing_must_acceptance`` is graded, ``overridden`` + this stamp in raw.
+3 — 2026-09-24: a gate cap rule's ``kinds`` match the finding's typed ``data.kind`` /
+    ``data.code``; the message only when it has neither, the target never (N50).  A replay
+    of the 1 229 recorded judged rounds moved no cap and no veto.
 """
 
 

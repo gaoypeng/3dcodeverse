@@ -40,6 +40,9 @@ E, W = Severity.ERROR, Severity.WARN
     (R, [_gate("connectivity", E, "penetration Seat/Leg 12mm"), _gate("connectivity", E, "Arm floating", kind="floating")],
      {}, 0.6, {"floating_part", "penetration_error"}),
     (R, [_gate("connectivity", E, "'Leg' and 'Seat' interpenetrate by ≈15 mm", target="Leg")], {}, 0.7, {"penetration_error"}),
+    # N50: a typed finding caps by its kind — neither the part's name ("island") nor its message fires floating_part
+    (R, [_gate("connectivity", E, "'kitchen_island' and 'stool_leg' interpenetrate", target="kitchen_island",
+               kind="penetration")], {}, 0.7, {"penetration_error"}),
     (A, [_gate("connectivity", E, "'Leg' and 'Seat' interpenetrate by ≈15 mm", target="Leg")], {"views": POSE}, 0.7,
      {"penetration_error"}),
     (A, [_gate("joint_sweep", E, "link 'DrawerKnob' touches nothing connected to the root at pose rest "
