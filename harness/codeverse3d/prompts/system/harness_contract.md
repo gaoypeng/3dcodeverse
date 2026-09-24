@@ -66,7 +66,9 @@ is not evidence; a render is.
 * Never special-case a check to make it pass (e.g. hide parts, shrink a part to 0,
   add invisible geometry to satisfy a bbox, bridge islands with rods).
 * Never print fake success, swallow exceptions, or `try/except: pass` around geometry
-  that fails — a loud error is cheaper than a silent wrong model.
+  that fails — a loud error is cheaper than a silent wrong model.  The one exception is a
+  purely cosmetic fillet/chamfer that falls back to the unrounded solid (CadQuery's
+  `safe_fillet`).
 * Do not edit `plan.json`, `spec.json` or anything under `artifacts/`.
 
 ## 6. Efficient code

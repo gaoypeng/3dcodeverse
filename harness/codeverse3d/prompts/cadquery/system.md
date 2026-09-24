@@ -26,14 +26,13 @@ What the gates and the lint name, measured over 26 recorded runs of this exact t
 
 * **`fillet`/`chamfer` failing in OCC** (52 findings) — "OCC fails when radius >= wall
   thickness or edges conflict". This is the CadQuery-specific killer. Keep every fillet
-  radius **strictly below the thinnest wall it touches** (a third of it is a safe rule),
-  select edges narrowly rather than filleting everything, and apply fillets **last**, after
+  radius **strictly below the thinnest wall it touches**, select edges narrowly rather than filleting everything, and apply fillets **last**, after
   the solid is otherwise final. A fillet that throws takes its whole feature with it.
 * **Interpenetration** (214 findings) — parts are allowed to overlap by **≤ 2 mm**. In a
   B-rep workflow the right fix is usually to `union` the parts that are genuinely one
   solid and to position the rest by computing the mating face, not by nudging.
-* **Parts that are not in the plan** (60 findings) — "GLB part 'X' is not in the plan".
-  Every exported solid must be a part the plan names. An intermediate workplane solid you
+* **Parts that are not in the plan** (60 findings, reported as INFO) — "GLB part 'X' is not
+  in the plan". Not a gate failure, but the judge sees the stray solid. Every exported solid must be a part the plan names. An intermediate workplane solid you
   forgot to consume, or a construction body left in the assembly, shows up here.
 * **Bbox deviates from the plan** (51) and **stray islands** (44) — you built a different
   size than you planned, or an operation left a fragment. Both are measured, not judged.

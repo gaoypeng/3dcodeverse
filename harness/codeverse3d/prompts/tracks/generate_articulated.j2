@@ -49,7 +49,7 @@ Joints (the URDF must realise EXACTLY these; pivots are WORLD points at rest):
   write them out explicitly as comments in the URDF before the joint.
 - Use the axis vectors from the table verbatim; limits = lower/upper from the table; `effort`/
   `velocity` any positive numbers.
-- Keep ≥ 0.003 m clearance along each joint's motion direction between the child link and the
+- Keep 1–3 mm of clearance along each joint's motion direction between the child link and the
   links it moves past (drawer vs cabinet walls, door vs frame); fixed neighbours overlap ≥ 0.002 m.
 - Hinged lids/doors pivot at their EDGE (the hinge line), drawers slide along the cabinet depth.
 

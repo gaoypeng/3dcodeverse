@@ -284,7 +284,7 @@ fragColor = vec4(col, 1.0);
 * Aspect: divide by `u_resolution.y`, never by `u_resolution.xy` for shapes (ellipses otherwise).
 * `smoothstep(a, b, x)` needs a < b; AA width ≈ `1.5 / u_resolution.y`.
 * Brightness: accumulations (glow, bokeh sums) blow out → tonemap (`c/(1+c)` or ACES) before gamma; do not gamma twice.
-* Motion: use u_time directly (`sin(u_time)`, `fract(u_time*0.2)`); do NOT use u_frame alone (frames are sampled at
+* Motion: use u_time directly (`sin(u_time)`, `u_time*0.2` as a noise offset); do NOT use u_frame alone (frames are sampled at
   arbitrary times) and never seed per-frame randomness with u_frame (flicker).
 * `precision` qualifiers, `#version`, `#extension`, `#include`, `uniform` / `out` declarations: leave them out.
 * gl_FragCoord origin is bottom-left; y up.  (The harness flips rows when writing PNGs, so what you compute is what you see.)
