@@ -116,9 +116,10 @@ def judge(
         rec = load_record(ws)
     except RecordError as e:
         raise C.CliError(str(e), code=2) from e
-    # the round `pick` packaged (selection.json), else the best-scored one
-    picked = select.summarise(ws.root, record=rec).picked_round if round_index is None else None
-    idx = round_index if round_index is not None else (picked if picked is not None else max(ws.rendered_rounds(), default=0))
+    # the round `pick` packaged (selection.json), else the best-scored one, else select.fallback_round
+    idx = round_index if round_index is not None else select.summarise(ws.root, record=rec).round
+    if idx is None:
+        raise C.CliError(f"no round of {ws.root.name} built with renders: nothing to judge (--round N names one)")
     rnd = J.load_round(ws, rec, idx)
     if rnd is None or rnd.renders is None or not rnd.renders.views:
         raise C.CliError(f"round {idx} has no renders (rounds/r{idx:02d}.json / record.json)")

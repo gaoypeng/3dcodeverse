@@ -82,12 +82,6 @@ class TextureReport(BaseModel):
         }
 
 
-def latest_sheet(ws: Workspace) -> Path | None:
-    """The most recent round's contact sheet (``artifacts/renders/rNN/sheet.png``)."""
-    sheets = (ws.renders_dir(i) / "sheet.png" for i in reversed(ws.rendered_rounds()))
-    return next((p for p in sheets if p.is_file()), None)
-
-
 def _render_quick(glb: Path, out_dir: Path, views: Sequence[ViewPreset], render: Any | None) -> RenderSet:
     if render is None:
         from codeverse3d.spatial.render import render_glb
@@ -170,7 +164,7 @@ def texture_pass(
     textured and no seam failed); ``judge_obj`` replaces the constructed
     ``VlmJudge`` (tests; ``image_model`` / ``plan_model`` / ``render`` / ``cache_dir`` are
     the other injection points).  ``sheet`` is the contact sheet the material
-    planner looks at — the round being textured; the latest round's otherwise.
+    planner looks at — the round being textured; a quick render of ``glb_in`` otherwise.
 
     ``normalise=True`` first runs the deterministic material normaliser
     (:func:`codeverse3d.texturing.apply.normalise_materials`) over the input GLB,
@@ -188,8 +182,9 @@ def texture_pass(
     notes: list[str] = []
     events.emit("texture.start", model=model_id, glb=glb_in.name)
 
-    # 1. renders for the planner (the round's own sheet, else the latest; else a quick render)
-    sheet = sheet if sheet is not None and Path(sheet).is_file() else latest_sheet(ws)
+    # 1. renders for the planner: the round's own sheet, else a quick render of glb_in — never
+    #    another round's sheet (the planner would name materials for parts this GLB may not have)
+    sheet = sheet if sheet is not None and Path(sheet).is_file() else None
     if sheet is None:
         rs = _render_quick(glb_in, tex_dir / "planner_views", views, render)
         sheet = Path(rs.contact_sheet) if rs.contact_sheet else (Path(rs.views[0].path) if rs.views else None)

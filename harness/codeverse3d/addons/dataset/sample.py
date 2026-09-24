@@ -136,14 +136,11 @@ def sample_rel_dir(record: RunRecord, key: str) -> Path:
 
 
 def exported_round(ws: Workspace, record: RunRecord) -> RoundRecord | None:
-    """The round a sample is made of: the one ``addons/select`` picks, else — a run with no
-    judged round — its last round that built (a score-less, tier-D sample), else its last."""
-    picked = select.summarise(ws.root, record=record).picked_round
-    rnd = next((r for r in record.rounds if r.index == picked), None)
-    if rnd is None:
-        built = [r for r in record.rounds if r.build is not None and r.build.ok]
-        rnd = (built or record.rounds or [None])[-1]
-    return rnd
+    """The round a sample is made of: the one every reader shows (``select.summarise().round``:
+    the pick, else — nothing judged — ``select.fallback_round``, a score-less tier-D sample),
+    else — no round built with renders — the last round (``export --include-unbuilt``'s code)."""
+    shown = select.summarise(ws.root, record=record).round
+    return next((r for r in record.rounds if r.index == shown), record.rounds[-1] if record.rounds else None)
 
 
 def code_files_for_round(ws: Workspace, rnd: RoundRecord | None) -> tuple[dict[str, bytes], str]:

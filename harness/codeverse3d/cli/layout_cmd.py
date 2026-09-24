@@ -172,7 +172,7 @@ def print_evidence(ws: Workspace, record: RunRecord) -> None:
 
     _section("QUALITY EVIDENCE — why we believe it")
     s = select.summarise(ws.root, record=record)
-    rnd = next((r for r in record.rounds if r.index == s.picked_round), None)
+    rnd = next((r for r in record.rounds if r.index == s.round), None)   # the pick, else select.fallback_round
     j = effective_judgment(rnd) if rnd is not None else None
     gates = gate_error_summary(rnd)
     rows: dict[str, Any] = {

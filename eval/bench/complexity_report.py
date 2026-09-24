@@ -99,11 +99,11 @@ def _vector_for(run: Path, rnd: dict[str, Any] | None) -> ComplexityVector | Non
 
 
 def _picked_round(run: Path, record: dict[str, Any], rec: RunRecord | None) -> dict[str, Any] | None:
-    """The round ``addons/select`` picks, as its raw dict; the last round when the record
-    will not load (the scan reads the historic corpus as-is)."""
+    """The round every reader shows (``select.summarise().round``), as its raw dict; the last
+    round when the record will not load (the scan reads the historic corpus as-is)."""
     rounds = record.get("rounds") or []
     try:
-        idx = select.summarise(run, record=rec).picked_round if rec is not None else None
+        idx = select.summarise(run, record=rec).round if rec is not None else None
     except Exception:  # noqa: BLE001 - one unreadable record must not stop the scan
         idx = None
     return next((r for r in rounds if r.get("index") == idx), rounds[-1] if rounds else None)

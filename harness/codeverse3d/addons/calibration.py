@@ -160,15 +160,15 @@ def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[Ro
     """Rebuild judge inputs for every judgeable round of a run (rounds with renders)."""
     run_dir = Path(run_dir)
     ws = Workspace(run_dir)
+    saved = [RoundRecord.model_validate_json(p.read_text()) for p in sorted((run_dir / "rounds").glob("r*.json"))]
     try:
         run = load_record(ws)
-        picked = select.summarise(run_dir, record=run).picked_round
-    except RecordError:  # an interrupted run: rounds/ + spec.json
+        picked = select.summarise(run_dir, record=run).round
+    except RecordError:  # an interrupted run: rounds/ + spec.json, and the same fallback rule over them
         run = RunRecord(spec=Spec.model_validate_json(ws.spec_path.read_text()), workspace=str(run_dir))
-        picked = None
+        picked = select.fallback_round(saved)
     cases: list[RoundCase] = []
-    for path in sorted((run_dir / "rounds").glob("r*.json")):
-        rec = RoundRecord.model_validate_json(path.read_text())
+    for rec in saved:
         if rounds is not None and rec.index not in rounds:
             continue
         if rec.renders is None or not rec.renders.views:
@@ -182,8 +182,6 @@ def load_run_cases(run_dir: Path, *, rounds: list[int] | None = None) -> list[Ro
             stored=rec.judgment, is_picked=picked == rec.index,
             glb=str(glb) if (glb := select.round_file(ws, rec)) is not None else None,
         ))
-    if picked is None and cases:  # no record / nothing judged: the last round that kept its own GLB stands in
-        next((c for c in reversed(cases) if c.glb), cases[-1]).is_picked = True
     return cases
 
 

@@ -27,7 +27,7 @@ def cell_stats(record: Path, rec: dict) -> dict | None:
     if not rounds:
         return None
     summary = select.summarise(record.parent)
-    rnd = next((r for r in rounds if r.get("index") == summary.picked_round), rounds[-1])
+    rnd = next((r for r in rounds if r.get("index") == summary.round), rounds[-1])
     pairs = floats = islands = contract_n = 0
     worst = 0.0
     for g in rnd.get("gates") or []:

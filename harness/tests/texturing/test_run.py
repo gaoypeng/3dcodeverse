@@ -11,7 +11,6 @@ from typer.testing import CliRunner
 from codeverse3d.contracts.run import RunRecord
 from codeverse3d.texturing.run import (
     TextureReport,
-    latest_sheet,
     load_report,
     texture_pass,
 )
@@ -31,6 +30,9 @@ def _ws(tmp_path: Path, chair_glb: Path, chair_spec, chair_plan) -> Workspace:
 
 def test_texture_pass_ships_records_and_shows(tmp_path, chair_glb, chair_spec, chair_plan):
     ws = _ws(tmp_path, chair_glb, chair_spec, chair_plan)
+    other = ws.renders_dir(0) / "sheet.png"  # another round's sheet: never the planner's picture of THIS glb
+    other.parent.mkdir(parents=True)
+    other.write_bytes(b"not this glb")
     judge = FakeJudge([(0.70, {"materials": 0.6, "intent_fidelity": 0.8}), (0.73, {"materials": 0.75, "intent_fidelity": 0.8})])
     img = FakeImageModel(usd_per_image=0.05)
     rep = texture_pass(ws, chair_spec, chair_plan, model_id="", image_model=img, judge_obj=judge, render=fake_render,
@@ -49,8 +51,8 @@ def test_texture_pass_ships_records_and_shows(tmp_path, chair_glb, chair_spec, c
     assert events[0] == "texture.start" and "texture.gate" in events and events[-1] == "texture.done"
     # report reloads
     assert load_report(ws).shipped
-    # planner quick render was written because there was no sheet
-    assert latest_sheet(ws) is None and (ws.artifacts / "textures" / "planner_views" / "sheet.png").is_file()
+    # planner quick render was written because the round passed no sheet of its own
+    assert (ws.artifacts / "textures" / "planner_views" / "sheet.png").is_file()
     # `3dcode texture show` reads it back
     from codeverse3d.cli.main import app
 

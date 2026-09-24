@@ -2,7 +2,8 @@
 
 ``build_index(runs_dir, out_sqlite)`` rebuilds the database from scratch;
 query helpers return plain dicts so a dashboard / notebook needs no ORM.  A run's
-row describes the round ``addons/select`` picks (``picked_round``); a run has no
+row describes the round every reader shows (``picked_round`` = ``select.summarise().round``:
+the pick, else ``select.fallback_round``; a NULL ``picked_score`` marks it unjudged); a run has no
 pass/fail — the ``rounds`` table carries the judge's own verdict per round.
 """
 
@@ -48,14 +49,14 @@ CREATE INDEX idx_rounds_slug ON rounds(slug);
 
 def _run_row(ws: Workspace, rec: RunRecord, rid: RunId) -> tuple:
     s = select.summarise(ws.root, record=rec)
-    picked = next((r for r in rec.rounds if r.index == s.picked_round), None)
+    picked = next((r for r in rec.rounds if r.index == s.round), None)
     j = effective_judgment(picked) if picked is not None else None  # degraded → unjudged
     n_err = sum(gate_error_summary(picked).values())
     tier = quality_tier(passed=j.passed if j else None, gate_errors=n_err, score=j.overall if j else None)
     return (
         rid.slug, str(ws.root), rec.spec.track.value, rec.spec.language.value, rec.spec.prompt,
         prompt_id(rec.spec.prompt), rec.spec.backends.generator, rec.spec.backends.planner,
-        rec.spec.backends.judge, s.stop_reason, s.baseline_score, s.picked_score, s.picked_round,
+        rec.spec.backends.judge, s.stop_reason, s.baseline_score, s.picked_score, s.round,
         len(rec.rounds), rec.total_usage.cost_usd, rec.total_usage.input_tokens,
         rec.total_usage.output_tokens, rec.started_at.isoformat(),
         rec.finished_at.isoformat() if rec.finished_at else None, rec.minutes, rec.error,

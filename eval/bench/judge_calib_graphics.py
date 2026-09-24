@@ -45,12 +45,12 @@ def judge_one(run: Path, rubric: str, model: str, n: int) -> dict[str, Any]:
     ws = Workspace(run)
     try:
         rec = load_record(ws)
-        idx = select.pick(run, record=rec)
+        idx = select.summarise(run, record=rec).round   # the pick, else select.fallback_round
     except RecordError:
         return {"run": str(run), "error": "no judged round"}
     rnd = load_round(ws, rec, idx) if idx is not None else None
     if rnd is None:
-        return {"run": str(run), "error": "no judged round"}
+        return {"run": str(run), "error": "no round built with renders"}
     v = VlmJudge(rubric=rubric, model_id=model, n_samples=n).judge(build_judge_input(ws, rec, rnd))
     raw = v.raw if isinstance(v.raw, dict) else json.loads(v.raw or "{}")
     return {

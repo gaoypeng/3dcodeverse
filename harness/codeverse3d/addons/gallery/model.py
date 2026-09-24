@@ -145,7 +145,8 @@ class RunEntry(BaseModel):
     cost_usd: float = 0.0
     minutes: float | None = None
     rounds: int = 0
-    picked_round: int | None = Field(default=None, description="the round addons/select hands over")
+    picked_round: int | None = Field(default=None, description="the round every reader shows: "
+                                     "select.summarise().round (the pick, else select.fallback_round)")
 
     complexity: float | None = Field(
         default=None, description="objective complexity index of the delivered artifact (spatial/complexity.py)")

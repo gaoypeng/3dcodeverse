@@ -81,7 +81,8 @@ def print_record_summary(record: RunRecord, ws_root: Path | None = None) -> None
         f"track={spec.track.value}  language={spec.language.value}  generator={spec.backends.generator}  "
         f"judge={spec.backends.judge}",
         f"stop=[{status_col}]{s.stop_reason}[/{status_col}]  baseline={fmt_score(s.baseline_score)}  "
-        f"picked={fmt_score(s.picked_score)} (round {s.picked_round}, by {s.method})  rounds={s.rounds}  "
+        f"picked={fmt_score(s.picked_score)} (round {s.round}, "
+        f"{f'by {s.method}' if s.picked_round is not None else 'nothing judged: the latest built round with renders'})  rounds={s.rounds}  "
         f"cost={fmt_usd(record.total_usage.cost_usd)}",
     ]
     if record.error:
@@ -89,7 +90,7 @@ def print_record_summary(record: RunRecord, ws_root: Path | None = None) -> None
     if ws_root is not None:
         ws = Workspace(ws_root)
         lines.append(f"workspace: {ws_root}")
-        picked = next((r for r in record.rounds if r.index == s.picked_round), None)
+        picked = next((r for r in record.rounds if r.index == s.round), None)
         if picked is not None and picked.renders is not None and picked.renders.contact_sheet:
             # rebase, never print the stored string: record.json holds the ABSOLUTE path
             # of the host that produced the run, so a moved/archived run printed a sheet
@@ -99,7 +100,7 @@ def print_record_summary(record: RunRecord, ws_root: Path | None = None) -> None
             lines.append(f"deliverable: {ws.deliverable}")
     console.print(Panel("\n".join(lines), title="run", expand=False))
     if record.rounds:
-        console.print(rounds_table(select.round_rows(root, record=record), s.picked_round))
+        console.print(rounds_table(select.round_rows(root, record=record), s.round))
 
 
 def kv_table(title: str, rows: dict[str, Any]) -> Table:

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from codeverse3d.addons.calibration import calibrate, load_run_cases
-from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.judges.rubrics import load_rubric
 from tests.judges.conftest import (
@@ -35,16 +35,17 @@ def _fake_run(root: Path, name: str) -> Path:
         GateFinding(gate="connectivity", severity=Severity.WARN, message="sliver")])
     for i, gates in enumerate(([bad], [GateReport(gate="connectivity", passed=True)])):
         rec = RoundRecord(index=i, kind="baseline" if i == 0 else "refine", gates=gates, measurement=make_measurement(),
+                          build=BuildResult(ok=True, language="blender"),
                           renders=make_renders(run / "artifacts" / "renders" / f"r{i:02d}", sheet=False))
         (run / "rounds" / f"r{i:02d}.json").write_text(rec.model_dump_json())
     return run
 
 
-def test_load_cases_reads_the_plan_and_picks_the_last_round_that_kept_a_glb(tmp_path, caplog):
+def test_load_cases_reads_the_plan_and_picks_the_fallback_round(tmp_path, caplog):
     """No usable record.json: the plan comes from plan.json, typed, and its digest is the
     in-run one — a Z-up object's size in the measurement frame (W×H×D).  No picked round: the
-    geometry montage used the last round even when IT kept no GLB (and the render was skipped in
-    silence) while an earlier round kept one."""
+    stand-in is ``select.fallback_round`` (the latest built round with renders), as in every other
+    reader — even when an earlier round kept a GLB and it did not; its skipped geometry montage says so."""
     from codeverse3d.addons.calibration import render_geometry_views
 
     run = _fake_run(tmp_path, "runA")
@@ -58,7 +59,7 @@ def test_load_cases_reads_the_plan_and_picks_the_last_round_that_kept_a_glb(tmp_
     (run / "artifacts" / "r00").mkdir(parents=True)
     (run / "artifacts" / "r00" / "object.glb").write_bytes(b"glTF")
     cases = load_run_cases(run)
-    assert cases[0].is_picked and not cases[1].is_picked and cases[0].glb.endswith("r00/object.glb")
+    assert cases[1].is_picked and not cases[0].is_picked and cases[0].glb.endswith("r00/object.glb")
     assert render_geometry_views(cases[1], tmp_path / "out", "clay") is None
     assert "kept no GLB" in caplog.text
 

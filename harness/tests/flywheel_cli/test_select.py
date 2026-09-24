@@ -88,6 +88,41 @@ def test_summarise_is_baseline_pick_delta_rounds_and_the_stop_reason(tmp_path):
     assert (none.picked_round, none.picked_score, none.baseline_score, none.delta) == (None, None, None, None)
 
 
+def test_an_unjudged_run_shows_one_fallback_round_in_every_reader(tmp_path, monkeypatch):
+    """N55b: nothing judged → every reader shows ``select.fallback_round``, the latest round that
+    built AND has renders — here r0 (r1 failed to build but kept renders, r2 built with no
+    renders).  Before, five readers gave four answers (2, None, r02's sheet, 1, 2)."""
+    from codeverse3d.addons.calibration import load_run_cases
+    from codeverse3d.addons.dataset import index as dsi
+    from codeverse3d.addons.dataset.sample import exported_round
+    from codeverse3d.addons.gallery.index import entry_from_record
+    from codeverse3d.cli import _judge as J
+    from codeverse3d.contracts.run import RunId
+    from codeverse3d.record.record import load_record
+
+    ws = _run(tmp_path / "u", [(None, 2), (None, 0), (None, 0)])
+    rec = load_record(ws)
+    rec.rounds[1].build = BuildResult(ok=False, language="blender")
+    rec.rounds[2].renders = None
+    ws.write_json(ws.record_path, rec)
+    (ws.root / "rounds").mkdir()
+    for r in rec.rounds:
+        ws.write_json(ws.root / "rounds" / f"r{r.index:02d}.json", r)
+
+    s = select.summarise(ws.root, record=rec)
+    assert (s.picked_round, s.round) == (None, 0)
+    assert exported_round(ws, rec).index == 0
+    row = dsi._run_row(ws, rec, RunId(battery="b", rel="u"))
+    assert (row[12], row[-6], row[-4]) == (0, 2, rec.rounds[0].commit)   # picked_round, n_err, commit
+    card = entry_from_record("b", ws, rec)
+    assert (card.picked_round, card.gate_errors, card.sheet) == (0, 2, "artifacts/renders/r00/sheet.png")
+    assert [c.round_index for c in load_run_cases(ws.root) if c.is_picked] == [0]
+    asked: list[int] = []
+    monkeypatch.setattr(J, "load_round", lambda ws, rec, idx: asked.append(idx))
+    runner.invoke(app, ["judge", str(ws.root)])
+    assert asked == [0]                                           # `3dcode judge`'s default round
+
+
 def test_an_old_record_with_best_fields_still_summarises(tmp_path):
     """A pre-2026-09-22 record (best_round / final_score / status 'passed') still loads and summarises."""
     ws, _ = make_fake_run(tmp_path / "runs")

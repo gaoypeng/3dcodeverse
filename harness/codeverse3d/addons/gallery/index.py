@@ -83,17 +83,10 @@ def _round_sheet(ws: Workspace, rec: RunRecord, index: int) -> str:
 
 
 def picked_sheet(ws: Workspace, rec: RunRecord, picked: int | None) -> str:
-    """Contact sheet of the picked round, else the latest round that has one, else the
-    packaged deliverable sheet."""
-    if picked is not None:
-        rel = _round_sheet(ws, rec, picked)
-        if rel:
-            return rel
-    for rnd in reversed(rec.rounds):
-        rel = _round_sheet(ws, rec, rnd.index)
-        if rel:
-            return rel
-    return _first_file(ws.root, "deliverable/sheet.png", "artifacts/frames_sheet.png")
+    """Contact sheet of the card's round (``select.summarise().round``), else the packaged
+    deliverable sheet — never another round's."""
+    return (_round_sheet(ws, rec, picked) if picked is not None else "") or _first_file(
+        ws.root, "deliverable/sheet.png", "artifacts/frames_sheet.png")
 
 
 #: view names that make the best single thumbnail, most telling first.  A ¾ view
@@ -122,13 +115,9 @@ def hero_view(ws: Workspace, rec: RunRecord, picked: int | None) -> tuple[str, s
 
 
 def _articulation_sheet(ws: Workspace, picked: int | None) -> str:
-    order = [picked] if picked is not None else []
-    order += ws.rendered_rounds()[::-1]
-    for idx in order:
-        rel = f"artifacts/renders/r{idx:02d}/poses/articulation_sheet.png"
-        if (ws.root / rel).is_file():
-            return rel
-    return ""
+    """The card's round's pose sheet — never another round's."""
+    rel = f"artifacts/renders/r{picked:02d}/poses/articulation_sheet.png" if picked is not None else ""
+    return rel if rel and (ws.root / rel).is_file() else ""
 
 
 def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> list[RunLink]:
@@ -136,7 +125,7 @@ def entry_links(ws: Workspace, rec: RunRecord | None, picked: int | None) -> lis
     artifact files of the handed-over round (``deliverable/``), else of the picked round
     (``select.round_file``: ``artifacts/rNN/``, or ``artifacts/`` of a run recorded before rounds
     kept their own, for the round it rebuilt there) — never another round's.  A run with no
-    picked round (no record yet, none judged) links whatever ``artifacts/`` holds."""
+    round to show (no record yet, no round built with renders) links whatever ``artifacts/`` holds."""
     run = ws.root
     rnd = next((r for r in rec.rounds if r.index == picked), None) if rec is not None else None
     out = round_outputs(ws, rnd)
@@ -227,9 +216,10 @@ def entry_from_record(battery: str, ws: Workspace, rec: RunRecord, *, slug: str 
 
     ``slug`` is the RunId slug the scan minted; without one the directory basename is
     used (correct for flat layouts only — nested battery runs are all named ``run``).
-    The card is the round ``addons/select`` picks: its score, sheet, hero and tier."""
+    The card is the round every reader shows (``select.summarise().round``: the pick, else
+    ``select.fallback_round``): its score, sheet, hero and tier."""
     summary = select.summarise(ws.root, record=rec)
-    picked = summary.picked_round
+    picked = summary.round
     rnd = next((r for r in rec.rounds if r.index == picked), None)
     j = effective_judgment(rnd) if rnd is not None else None
     gates = gate_error_summary(rnd)

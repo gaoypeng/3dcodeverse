@@ -14,7 +14,10 @@ other reader asks (gallery, dataset, cost report, calibration, the CLI, eval/ben
                       ``artifacts/judge/``);
 * :func:`summarise`   baseline score, the picked round and its score, the delta, rounds run
                       and the stop reason — the round ``selection.json`` names when the run
-                      was packaged, else :func:`pick`'s;
+                      was packaged, else :func:`pick`'s — and ``round``, the one a reader
+                      SHOWS: the picked round, else :func:`fallback_round`;
+* :func:`fallback_round` the round every reader shows when nothing was judged: the latest
+                      round that built and has renders;
 * :func:`round_file`  a round's OWN build output (its GLB, GIF), never the last build's —
                       and :func:`round_complexity_block` its complexity vector;
 * :func:`package`     ``deliverable/`` for one round, the texture pass on it when asked
@@ -29,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -88,6 +92,8 @@ class RunSummary(BaseModel):
     baseline_score: float | None = Field(default=None, description="round 0's effective score")
     picked_round: int | None = None
     picked_score: float | None = None
+    round: int | None = Field(default=None, description="the round a reader shows: picked_round, else "
+                                                        "fallback_round (None = no round built with renders)")
     delta: float | None = Field(default=None, description="picked − baseline, when both were judged")
     method: Method = "score"
 
@@ -218,6 +224,14 @@ def pairwise_verdict(ws: Workspace, rec: RunRecord, a: int, b: int, *, model: st
     return note
 
 
+def fallback_round(rounds: Iterable[RoundRecord]) -> int | None:
+    """The round a reader shows when nothing was judged (no pick, no ``selection.json``): the
+    latest round that built and has renders, else None.  The ONE rule for the gallery card,
+    the dataset sample and index row, ``3dcode judge``'s default and calibration's stand-in."""
+    return max((r.index for r in rounds
+                if r.build is not None and r.build.ok and r.renders is not None and r.renders.views), default=None)
+
+
 # --------------------------------------------------------------------------- summarise
 def load_selection(ws: Workspace) -> Selection | None:
     data = read_json_or_none(ws.root / SELECTION_NAME)
@@ -229,7 +243,8 @@ def load_selection(ws: Workspace) -> Selection | None:
 
 def summarise(run_dir: Path | str, *, record: RunRecord | None = None) -> RunSummary:
     """The run in one line.  The picked round is the one ``selection.json`` names (what was
-    packaged), else what :func:`pick` chooses by score."""
+    packaged), else what :func:`pick` chooses by score; ``round`` is that, else
+    :func:`fallback_round`."""
     rec = _load(run_dir, record)
     rows = round_rows(run_dir, record=rec)
     by_index = {r.index: r for r in rows}
@@ -242,6 +257,7 @@ def summarise(run_dir: Path | str, *, record: RunRecord | None = None) -> RunSum
     score = by_index[picked].score if picked is not None else None
     return RunSummary(rounds=len(rows), stop_reason=stop_reason(rec),
                       baseline_score=baseline, picked_round=picked, picked_score=score, method=method,
+                      round=picked if picked is not None else fallback_round(rec.rounds),
                       delta=round(score - baseline, 6) if score is not None and baseline is not None else None)
 
 
