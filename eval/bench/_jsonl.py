@@ -15,7 +15,6 @@ loses the rest of the file").
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Callable, Hashable, Iterable
 from pathlib import Path
@@ -23,21 +22,22 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from codeverse3d.proc import iter_jsonl_lines
+from codeverse3d.proc import iter_jsonl_lines, read_jsonl_lenient
 
 log = logging.getLogger(__name__)
 
 
 def read_jsonl(path: Path, model: type[BaseModel] | None = None) -> list[Any]:
     """Every row of ``path`` — a ``model`` per line, or a JSON object when no model is
-    given — skipping unreadable lines with a warning.  Missing file → ``[]``."""
-    rows: list[Any] = []
+    given — skipping unreadable lines with a warning.  Missing file → ``[]``.  Without a
+    model this IS the harness's one lenient reader (``read_jsonl_lenient``)."""
+    if model is None:
+        return read_jsonl_lenient(path, log=log, dicts_only=True)
+    rows: list[BaseModel] = []
     bad = 0
     for i, line in iter_jsonl_lines(path):
         try:
-            row = model.model_validate_json(line) if model is not None else json.loads(line)
-            if not isinstance(row, (BaseModel, dict)):
-                raise ValueError(f"a JSON {type(row).__name__}, not an object")
+            row = model.model_validate_json(line)
         except Exception as e:  # a truncated/corrupt row must not cost us the good ones
             bad += 1
             log.warning("%s:%d unreadable, skipping (%s: %s)", path, i, type(e).__name__, str(e)[:120])
