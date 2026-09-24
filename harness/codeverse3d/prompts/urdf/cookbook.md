@@ -421,7 +421,7 @@ def urdf_selfcheck(expected_links):
         assert n in PIVOT, f"no pivot recorded for {n}"
     bpy.context.view_layer.update()
     zmin = min((o.matrix_world @ Vector(c)).z for o in bpy.data.objects if o.type == 'MESH' for c in o.bound_box)
-    assert abs(zmin) < 0.002, f"lowest point z={zmin:.4f}"
+    assert abs(zmin) < 0.01, f"lowest point z={zmin:.4f}"
     print("[selfcheck] links", names, "pivots ok")
 
 urdf_selfcheck(["carcass", "door", "door_handle", "drawer", "base", "lid",

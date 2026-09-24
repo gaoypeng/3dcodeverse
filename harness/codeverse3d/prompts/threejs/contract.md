@@ -55,7 +55,7 @@ are sure about (the contract gate measures the GLB anyway).
 ```js
 export function selfcheck(THREE, root) {
   const box = new THREE.Box3().setFromObject(root);
-  if (!(box.min.y > -0.002 && box.min.y < 0.002)) throw new Error(`object not on ground: min.y=${box.min.y}`);
+  if (Math.abs(box.min.y) > 0.01) throw new Error(`object not on ground: min.y=${box.min.y}`);
   return box;
 }
 ```

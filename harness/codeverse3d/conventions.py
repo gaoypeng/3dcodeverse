@@ -271,5 +271,9 @@ MAX_TRIS_OBJECT = 600_000
 MAX_TRIS_SCENE = 3_000_000
 #: Default tolerance for bbox contract checks, in meters.
 BBOX_TOLERANCE_M = 0.01
+#: "Stands on the ground": the lowest point within this of up = 0 (meters).  The contract gate
+#: WARNs past it (ERRORs past 3x) and the Blender skeleton's self-check asserts it; texts say
+#: "at up = 0" without the number (D93/D98).
+GROUND_TOL_M = 0.01
 #: Parts are "touching" when the surface gap is below this (meters).
 CONTACT_GAP_M = 0.002

@@ -1,5 +1,5 @@
 # Numbers this bundle quotes, pinned to the constants the contract gate actually reads.
-# Move BBOX_TOLERANCE_M / REL_TOL / ERROR_FACTOR and the test that ships this skill fails.
+# Move BBOX_TOLERANCE_M / GROUND_TOL_M / REL_TOL / ERROR_FACTOR and the test that ships this skill fails.
 
 [[claim]]
 key    = "bbox_tolerance_m"
@@ -7,6 +7,13 @@ text   = "1 cm"
 python = "codeverse3d.conventions:BBOX_TOLERANCE_M"
 scale  = 100
 format = "{:.0f} cm"
+
+[[claim]]
+key    = "ground_tol_m"
+text   = "a gap beyond 1 cm"
+python = "codeverse3d.conventions:GROUND_TOL_M"
+scale  = 100
+format = "a gap beyond {:.0f} cm"
 
 [[claim]]
 key    = "bbox_rel_tol"

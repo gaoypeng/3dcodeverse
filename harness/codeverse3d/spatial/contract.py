@@ -16,7 +16,8 @@ Severity policy (``tol = max(tol_m, REL_TOL × plan extent)`` per axis):
 * overall extents are the plan's with up swapped for a horizontal axis → ERROR
   ``data["kind"] == "orientation"`` (lying down / stood on end); the two horizontal
   extents swapped → WARN "turned" (the az-0 view then shows a side, not the front)
-* not standing on the ground / footprint off-centre → WARN
+* lowest point off up = 0 by > ``GROUND_TOL_M`` → WARN (> ``ERROR_FACTOR ×`` → ERROR);
+  footprint off-centre → WARN
 * GLB parts the plan never mentioned → INFO
 
 Every WARN/ERROR carries ``data["kind"]`` (missing_part · instance_count · part_bbox ·
@@ -43,6 +44,7 @@ from codeverse3d.conventions import (
     BBOX_TOLERANCE_M,
     CONTACT_GAP_M,
     FRAME_AXES,
+    GROUND_TOL_M,
     Frame,
     split_instance,
     to_authoring_frame,
@@ -349,10 +351,10 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
     if (orient := _orientation_finding(m, plan, language)) is not None:
         findings.append(orient)
     # ground + footprint
-    if abs(m.ground_gap_m) > tol_m:
+    if abs(m.ground_gap_m) > GROUND_TOL_M:
         where = "above" if m.ground_gap_m > 0 else "below"
         findings.append(GateFinding(
-            gate=GATE, severity=Severity.WARN if abs(m.ground_gap_m) <= ERROR_FACTOR * tol_m else Severity.ERROR,
+            gate=GATE, severity=Severity.WARN if abs(m.ground_gap_m) <= ERROR_FACTOR * GROUND_TOL_M else Severity.ERROR,
             target="overall", message=f"object floats {abs(m.ground_gap_m) * 1000:.1f} mm {where} the ground",
             fix_hint=f"translate everything by {-m.ground_gap_m:+.4f} m along the up axis so the lowest point is at 0",
             data={"kind": "ground_gap", "ground_gap_m": m.ground_gap_m},

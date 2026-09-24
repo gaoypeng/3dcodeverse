@@ -459,7 +459,7 @@ export function selfcheck(THREE, root, expectedNames = [], extentsHint = null) {
   const missing = expectedNames.filter(n => !names.has(n));
   if (missing.length) throw new Error(`missing parts: ${missing.join(', ')}`);
   const box = new THREE.Box3().setFromObject(root); const size = box.getSize(new THREE.Vector3());
-  if (Math.abs(box.min.y) > 0.002) throw new Error(`lowest point y=${box.min.y.toFixed(4)} (expected 0)`);
+  if (Math.abs(box.min.y) > 0.01) throw new Error(`lowest point y=${box.min.y.toFixed(4)} (expected 0)`);
   if (extentsHint) extentsHint.forEach((e, i) => { if (Math.abs(size.getComponent(i) - e) > 0.05) throw new Error(`extents ${size.toArray()} vs plan ${extentsHint}`); });
   console.log(`[selfcheck] parts=${names.size} tris=${tris} extents=${size.toArray().map(v => v.toFixed(3))}`);
   return { tris, size };

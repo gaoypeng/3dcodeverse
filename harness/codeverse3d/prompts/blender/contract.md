@@ -19,7 +19,7 @@
 ## Frame, units, placement
 * **Z is up, -Y is the front, +X is the right.  Meters.**  (glTF export maps this to
   Y-up / +Z-front automatically — do not pre-rotate.)  The object stands on z = 0 (lowest
-  vertex at z = 0 ± 1 mm), footprint centred on the Z axis; real-world dimensions.
+  vertex at z = 0), footprint centred on the Z axis; real-world dimensions.
 
 ## Naming and structure
 * One Blender **object per plan part**, `obj.name = "<PartName>"` in PascalCase exactly as the

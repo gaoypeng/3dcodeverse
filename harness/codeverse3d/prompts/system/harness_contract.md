@@ -43,7 +43,7 @@ artifacts/  harness output (object.glb, renders/, gates/, measurement.json).  RE
   No piece may hover.  The connectivity gate hard-fails on any island with a positive gap.
 * **Weld by overlap, not by rods**: fix a floating piece by extending / embedding it
   ≥ 2 mm into its neighbour, never by adding thin connector sticks.
-* **Ground contact**: the lowest point of the object is at up = 0 (± 1 mm); footprint
+* **Ground contact**: the lowest point of the object is at up = 0; footprint
   centred on the up-axis.  Scenes: bounds as declared in the plan.
 * **No concealed interpenetration**: neighbours that are not welded keep ≥ 15 mm
   clearance; limbs do not sink into bodies; rings wrap cores, they do not intersect them.

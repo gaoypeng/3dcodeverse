@@ -12,7 +12,14 @@ from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.artifacts import BuildResult, GateFinding, GateReport, Severity
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import BBox, PartPlan, Plan, StaticPlan
-from codeverse3d.conventions import MAX_TRIS_OBJECT, PASCAL_RE, fmt3, to_pascal, to_snake
+from codeverse3d.conventions import (
+    GROUND_TOL_M,
+    MAX_TRIS_OBJECT,
+    PASCAL_RE,
+    fmt3,
+    to_pascal,
+    to_snake,
+)
 from codeverse3d.languages._ast_lint import (
     BASE_FORBIDDEN_IMPORTS,
     check_imports,
@@ -640,12 +647,12 @@ def part_file_source(p: PartPlan) -> str:
     return doc + IMPORTS + "\n" + _constants(p) + HELPERS + "\n# ----------------------------------------------------------------------------- part\n" + _part_function(p)
 
 
-def selfcheck_source(ground_tol_m: float = 0.002) -> str:
+def selfcheck_source(ground_tol_m: float = GROUND_TOL_M) -> str:
     """The entry's self-check with its "stands on z=0" tolerance filled in."""
     return SELFCHECK.replace("__GROUND_TOL__", f"{ground_tol_m:g}")
 
 
-def model_file_source(plan: StaticPlan, *, ground_tol_m: float = 0.002) -> str:
+def model_file_source(plan: StaticPlan, *, ground_tol_m: float = GROUND_TOL_M) -> str:
     """Complete multi-file entry ``src/model.py``: imports, ordered calls, self-check."""
     imports = "\n".join(f"from {PARTS_DIR}.{to_snake(p.name)} import {build_fn_name(p.name)}" for p in plan.parts)
     calls = "\n".join(f"    {build_fn_name(p.name)}()" for p in plan.parts)
@@ -659,11 +666,11 @@ def model_file_source(plan: StaticPlan, *, ground_tol_m: float = 0.002) -> str:
     )
 
 
-def write_blender_skeleton(ws: Workspace, plan: StaticPlan, *, ground_tol_m: float = 0.002) -> list[Path]:
+def write_blender_skeleton(ws: Workspace, plan: StaticPlan, *, ground_tol_m: float = GROUND_TOL_M) -> list[Path]:
     """Write the starter files (overwrites) and return the written paths (entry first).
 
-    ``ground_tol_m`` is the self-check's "stands on z=0" tolerance: 2 mm for an object
-    (the contract's ±1 mm, measured by check_contract), looser for a scene hero, which
+    ``ground_tol_m`` is the self-check's "stands on z=0" tolerance: ``conventions.GROUND_TOL_M``
+    for an object (the contract gate's own line), looser for a scene hero, which
     the scene seats anyway (`lib/place.js seat`) and whose module twin is allowed 20 mm."""
     ws.src.mkdir(parents=True, exist_ok=True)
     entry = ws.src / "model.py"
