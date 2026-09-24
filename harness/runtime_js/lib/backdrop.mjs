@@ -71,6 +71,14 @@ export function nameWords(name) {
 /** `nameWords` as one string, for the word regexes: 'HDRISky' → 'hdri sky'. */
 export function nameText(name) { return nameWords(name).join(' '); }
 
+/** classifyBackdrop's shape rules (metres, fractions of the horizontal span).  The scene-composition
+ * skill quotes them; its `_claims` pin each one, so a change here fails that test. */
+export const SKY_NAMED_SPAN_M = 50;       // a sky-named mesh wider than this is sky
+export const GROUND_NAMED_SPAN_M = 20;    // a ground-named mesh wider than this ...
+export const GROUND_NAMED_FLAT = 0.06;    // ... and flatter than this fraction of its span is ground
+export const GROUND_SPAN_M = 40;          // ANY mesh wider than this ...
+export const GROUND_FLAT = 0.02;          // ... and flatter than this fraction of its span is ground
+
 export const SKY_NAME_RE = /\b(sky|skydome|skybox|stars|clouds?|sun|moon|atmosphere)\b/i;
 export const GROUND_NAME_RE = /\b(ground|terrain|floor|water|ocean|sea|lake|river|plane|sand|grass|land)\b/i;
 
@@ -89,7 +97,7 @@ export function classifyBackdrop(obj, box, contentSpan = 0) {
   const span = Math.max(sx, sz);
   // sunRig's MoonDisc can be only five metres wide in a compact worldShell, but
   // its non-depth-writing light image still must not move the scene's centre.
-  if (SKY_NAME_RE.test(name) && (span > 50 || nonSolid(obj))) return 'sky';
+  if (SKY_NAME_RE.test(name) && (span > SKY_NAMED_SPAN_M || nonSolid(obj))) return 'sky';
   if (span > 2000 || (sy > 300 && span > 300)) return 'sky';
   // a small thing kilometres from the origin is a backdrop whatever it is called: the sun/moon
   // disc `sunRig` parks at 0.9 × the sky radius ('SunDisc' — no word boundary for the regex)
@@ -98,8 +106,8 @@ export function classifyBackdrop(obj, box, contentSpan = 0) {
                        Math.abs(box.min.z), Math.abs(box.max.z));
   if (far > 1500 && span < 0.1 * far) return 'sky';
   if (obj.isInstancedMesh) return 'content';   // scattered instances span the map but are not ground
-  if (span > 20 && sy < 0.06 * span && GROUND_NAME_RE.test(name)) return 'ground';
-  if (span > 40 && sy < 0.02 * span) return 'ground';
+  if (span > GROUND_NAMED_SPAN_M && sy < GROUND_NAMED_FLAT * span && GROUND_NAME_RE.test(name)) return 'ground';
+  if (span > GROUND_SPAN_M && sy < GROUND_FLAT * span) return 'ground';
   if (contentSpan > 0 && span > 2.5 * contentSpan && sy < 0.1 * span) return 'ground';
   return 'content';
 }

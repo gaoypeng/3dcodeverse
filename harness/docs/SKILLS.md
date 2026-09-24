@@ -331,7 +331,7 @@ the `live` cases drive a real CLI.
 | `test_freshness.py` | every tool, gate kind, rubric criterion, constant, switch, sibling skill and cookbook section a bundle names still exists |
 | `test_router.py` / `test_routing_property.py` | the four routing laws by row; every corpus finding kind from every session |
 | `test_telemetry.py` | the read probe, **including the control that catches git reading the tree** |
-| `test_packaging.py` | **a built wheel contains all 17 `SKILL.md`, all 17 `references/`, all 9 `_claims`** |
+| `test_packaging.py` | **a built wheel contains all 17 `SKILL.md`, all 17 `references/`, every `_claims` file** |
 | `test_live_discovery.py` | §7 — a real CLI actually finds and opens a bundle |
 
 Two contradiction checks are worth separating, because they answer different questions:
@@ -621,6 +621,12 @@ chose to go deeper" (§1).
    scale  = 1000
    format = "{:.0f} mm"
    ```
+   A row may also pin a sentence in a bundle file (`file = "references/x.md"`), a JS constant
+   (`js = "runtime_js/lib/backdrop.mjs:GROUND_SPAN_M"`, a numeric `export const`), a whole
+   sequence (`sep = ", "`, optional `last_sep = " and "`), and the line it must stand on
+   (`context = "WARN below"`); the text counts only as its own token.  The prompt corpus pins
+   its numbers the same way in `codeverse3d/prompts/_claims.toml` (`file` relative to prompts/;
+   `check_prompt_claims`, also run by `3dcode skills validate`).
 4. Add its rows to `ROUTES` in `codeverse3d/skills/registry.py`, in the same commit.
 5. Add a `Target` row to `codeverse3d/addons/skill_targets.py` and the matching `target_*` keys to
    the frontmatter — the ONE deterministic quantity the bundle claims to move, its

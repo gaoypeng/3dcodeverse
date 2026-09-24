@@ -85,7 +85,7 @@ def validate(
     strict: Annotated[bool, typer.Option("--strict", help="also fail on a routed skill with no bundle")] = False,
 ) -> None:
     """Check every bundle against the open spec and our budget/evidence rules."""
-    from codeverse3d.addons.skill_targets import check_claims
+    from codeverse3d.addons.skill_targets import check_claims, check_prompt_claims
     from codeverse3d.skills import bundle_dirs, validate_bundle
     from codeverse3d.skills.model import SkillError, parse_skill
     from codeverse3d.skills.registry import ROUTED_SKILLS
@@ -103,12 +103,15 @@ def validate(
                 console.print(f"      - {i}")
         else:
             console.print(f"[green]ok[/]   {d.name}")
+    prompt_issues = check_prompt_claims()   # the prompt corpus's pinned numbers, the same check
+    for i in prompt_issues:
+        console.print(f"[red]FAIL[/] prompts/_claims.toml - {i}")
     missing = [n for n in ROUTED_SKILLS if n not in {d.name for d in dirs}]
     if missing:
         style = "red" if strict else "yellow"
         console.print(f"[{style}]{len(missing)} routed skill(s) have no bundle:[/] {', '.join(missing)}")
     console.print(f"\n{len(dirs) - bad}/{len(dirs)} bundles valid")
-    if bad or (strict and missing):
+    if bad or prompt_issues or (strict and missing):
         raise typer.Exit(code=1)
 
 

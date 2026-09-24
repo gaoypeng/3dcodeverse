@@ -1,0 +1,8 @@
+# The judged frame times this bundle quotes, pinned to the tuple the graphics track renders.
+
+[[claim]]
+key     = "judge_times"
+text    = "0, 1, 2.5, 4, 6"
+python  = "codeverse3d.languages._gl_common:JUDGE_TIMES"
+sep     = ", "
+context = "renders five frames"

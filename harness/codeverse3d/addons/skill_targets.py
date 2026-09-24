@@ -27,6 +27,7 @@ rows against the live gate vocabulary and against each bundle's own frontmatter.
 from __future__ import annotations
 
 import importlib
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -302,7 +303,16 @@ def gate_kinds_claimed() -> frozenset[str]:
 
 
 # ===================================================================== claims
+# A claim pins a number some text states to the code constant that produces it: a skill's
+# ``_claims/<name>.toml`` (its SKILL.md body, or a bundle file such as ``references/x.md`` via
+# ``file``) and the prompt corpus's ``prompts/_claims.toml`` (``file`` relative to prompts/).
+# The constant is ``python = "module:NAME"`` or ``js = "<path>:NAME"`` (an ``export const`` numeric
+# literal; ``runtime_js/...`` under the configured runtime, any other path under the package).
+# The text must stand as its own token (``0.5 m`` is not inside ``10.5 m`` or ``0.5 mm``) and, with
+# ``context``, on a line that also carries that phrase — a short "2 mm" cannot pass by occurring
+# anywhere else in the file.
 CLAIMS_DIR = "_claims"
+PROMPT_CLAIMS = "_claims.toml"
 
 
 def claims_path(name: str, root: Path | None = None) -> Path:
@@ -312,16 +322,18 @@ def claims_path(name: str, root: Path | None = None) -> Path:
     return base / CLAIMS_DIR / f"{name}.toml"
 
 
-def load_claims(name: str, root: Path | None = None) -> list[dict[str, Any]]:
-    """The claim rows for one skill ([] when the bundle pins nothing)."""
-    p = claims_path(name, root)
+def _load_rows(p: Path) -> list[dict[str, Any]]:
     if not p.is_file():
         return []
-    data = tomllib.loads(p.read_text())
-    rows = data.get("claim") or []
+    rows = tomllib.loads(p.read_text()).get("claim") or []
     if not isinstance(rows, list):
         raise ValueError(f"{p}: [[claim]] must be an array of tables")
     return [dict(r) for r in rows]
+
+
+def load_claims(name: str, root: Path | None = None) -> list[dict[str, Any]]:
+    """The claim rows for one skill ([] when the bundle pins nothing)."""
+    return _load_rows(claims_path(name, root))
 
 
 def resolve(dotted: str) -> Any:
@@ -332,40 +344,102 @@ def resolve(dotted: str) -> Any:
     return getattr(importlib.import_module(mod), attr)
 
 
+def resolve_js(target: str) -> float:
+    """``<path>:NAME`` → the number ``[export] const NAME = <literal>`` states in that JS file."""
+    rel, _, name = target.rpartition(":")
+    if not rel or not name:
+        raise ValueError(f"claim js target {target!r} must be '<path>:NAME'")
+    head, _, tail = rel.partition("/")
+    if head == "runtime_js":
+        from codeverse3d.spatial.node import runtime_js_dir
+
+        path = runtime_js_dir() / tail
+    else:
+        path = Path(__file__).resolve().parents[1] / rel
+    m = re.search(rf"^\s*(?:export\s+)?const\s+{re.escape(name)}\s*=\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)\s*[;,]",
+                  path.read_text(), re.M)
+    if m is None:
+        raise ValueError(f"{path} states no numeric `const {name} = …`")
+    return float(m.group(1))
+
+
+def _target(row: dict[str, Any]) -> tuple[str, Any]:
+    """``(target, live value)`` of a row — its ``python`` or ``js`` constant."""
+    if row.get("js"):
+        return f"js:{row['js']}", resolve_js(str(row["js"]))
+    return str(row["python"]), resolve(str(row["python"]))
+
+
 def render_claim(row: dict[str, Any]) -> str:
-    """The string the live constant produces, per this row's scale/format."""
-    value = resolve(str(row["python"]))
+    """The string the live constant produces, per this row's scale/format.  With ``sep`` the
+    constant is a sequence: each item is formatted (default ``{:g}``) and joined by ``sep``, the
+    last pair by ``last_sep`` when given — so ``(0, 1, 2.5)`` renders ``0, 1 and 2.5`` whole,
+    and a fourth item changes the text."""
+    value = _target(row)[1]
     scale = row.get("scale")
+    fmt = row.get("format")
+    if row.get("sep"):
+        items = [str(fmt or "{:g}").format(v * scale if scale is not None else v) for v in value]
+        head, last = items[:-1], items[-1:]
+        return str(row["sep"]).join(head) + (str(row.get("last_sep") or row["sep"]) if head else "") + "".join(last)
     if scale is not None:
         value = value * scale
-    fmt = row.get("format")
     return format(value, "") if not fmt else str(fmt).format(value)
+
+
+def stated(text: str, doc: str, context: str = "") -> bool:
+    """Does ``doc`` state ``text`` as its own token (on a line that also says ``context``)?"""
+    pat = re.compile(rf"(?<![\w.]){re.escape(text)}(?!\w|\.\d)")
+    return any(pat.search(line) and context in line for line in doc.splitlines())
+
+
+def check_rows(rows: list[dict[str, Any]], read: Any) -> list[str]:
+    """Every stale or missing claim among ``rows``; ``read(file)`` returns the text a row's
+    ``file`` names (``file`` absent → ``read(None)``)."""
+    issues: list[str] = []
+    for i, row in enumerate(rows):
+        where = f"claim[{i}] {row.get('key', '?')}"
+        missing = [k for k in ("key", "text") if not row.get(k)]
+        if not row.get("python") and not row.get("js"):
+            missing.append("python` or `js")
+        if missing:
+            issues += [f"{where}: missing `{k}`" for k in missing]
+            continue
+        try:
+            live = render_claim(row)
+        except Exception as e:  # noqa: BLE001 — a bad target is a claim problem
+            issues.append(f"{where}: cannot resolve {row.get('js') or row.get('python')!r}: {e}")
+            continue
+        try:
+            doc = read(row.get("file"))
+        except OSError as e:
+            issues.append(f"{where}: cannot read {row.get('file')!r}: {e}")
+            continue
+        if live != row["text"]:
+            issues.append(f"{where}: the constant now renders {live!r}, the text says {row['text']!r}")
+        elif not stated(row["text"], doc, str(row.get("context", ""))):
+            ctx = f" on a line with {row['context']!r}" if row.get("context") else ""
+            issues.append(f"{where}: {row['text']!r} no longer appears{ctx} in {row.get('file') or 'the body'}")
+    return issues
 
 
 def check_claims(skill: Skill, root: Path | None = None) -> list[str]:
     """Every stale or missing claim in one bundle, as human lines (empty == clean)."""
-    issues: list[str] = []
     try:
         rows = load_claims(skill.name, root)
     except (ValueError, OSError) as e:
         return [f"claims file unreadable: {e}"]
-    for i, row in enumerate(rows):
-        where = f"claim[{i}] {row.get('key', '?')}"
-        for key_name in ("key", "text", "python"):
-            if not row.get(key_name):
-                issues.append(f"{where}: missing `{key_name}`")
-        if issues and issues[-1].startswith(where):
-            continue
-        try:
-            live = render_claim(row)
-        except Exception as e:  # noqa: BLE001 — a bad dotted path is a claim problem
-            issues.append(f"{where}: cannot resolve {row['python']!r}: {e}")
-            continue
-        if live != row["text"]:
-            issues.append(f"{where}: the constant now renders {live!r}, the body says {row['text']!r}")
-        elif row["text"] not in skill.body:
-            issues.append(f"{where}: {row['text']!r} no longer appears in the body")
-    return issues
+    return check_rows(rows, lambda f: skill.body if not f else (skill.dir / f).read_text())
+
+
+def check_prompt_claims(root: Path | None = None) -> list[str]:
+    """The same check over the prompt corpus: ``prompts/_claims.toml``, ``file`` relative to prompts/."""
+    base = Path(root) if root is not None else Path(__file__).resolve().parents[1] / "prompts"
+    try:
+        rows = _load_rows(base / PROMPT_CLAIMS)
+    except (ValueError, OSError) as e:
+        return [f"prompt claims file unreadable: {e}"]
+    return check_rows(rows, lambda f: (base / f).read_text() if f else "")
 
 
 def claim_bases(name: str, root: Path | None = None) -> dict[str, tuple[str, Any]]:
@@ -380,7 +454,7 @@ def claim_bases(name: str, root: Path | None = None) -> dict[str, tuple[str, Any
     out: dict[str, tuple[str, Any]] = {}
     for row in load_claims(name, root):
         key = row.get("key")
-        if not key or not row.get("python"):
+        if not key or not (row.get("python") or row.get("js")):
             continue
-        out[str(key)] = (str(row["python"]), resolve(str(row["python"])))
+        out[str(key)] = _target(row)
     return out

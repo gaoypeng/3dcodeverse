@@ -49,3 +49,32 @@ text = "10 mm"
 python = "codeverse3d.spatial.connectivity:MIN_PART_SIZE_M"
 scale = 1000
 format = "{:.0f} mm"
+
+# references/contact-recipes.md quotes the same gate numbers in its finding table
+
+[[claim]]
+key = "penetration_error"
+file = "references/contact-recipes.md"
+text = "10 mm"
+python = "codeverse3d.spatial.connectivity:PENETRATION_ERROR_M"
+scale = 1000
+format = "{:.0f} mm"
+context = "WARN below"
+
+[[claim]]
+key = "penetration_min_fraction"
+file = "references/contact-recipes.md"
+text = "2%"
+python = "codeverse3d.spatial.connectivity:PENETRATION_MIN_FRACTION"
+scale = 100
+format = "{:.0f}%"
+context = "surface samples are inside"
+
+[[claim]]
+key = "tiny_island_fraction"
+file = "references/contact-recipes.md"
+text = "5%"
+python = "codeverse3d.spatial.connectivity:TINY_ISLAND_FRACTION"
+scale = 100
+format = "{:.0f}%"
+context = "tiny disconnected island"

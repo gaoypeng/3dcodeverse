@@ -1,0 +1,60 @@
+# Numbers the prompt corpus states, pinned to the code constant that produces them
+# (addons/skill_targets.check_prompt_claims; `file` is relative to prompts/).  Change the
+# constant, or reword the sentence, and tests/skills/test_library.py fails until both agree.
+
+[[claim]]
+key      = "judge_times"
+file     = "tracks/plan_graphics.j2"
+text     = "0, 1, 2.5, 4 and 6"
+python   = "codeverse3d.languages._gl_common:JUDGE_TIMES"
+sep      = ", "
+last_sep = " and "
+context  = "judged on frames sampled at"
+
+[[claim]]
+key     = "judge_times"
+file    = "glsl_shader/contract.md"
+text    = "0, 1, 2.5, 4, 6"
+python  = "codeverse3d.languages._gl_common:JUDGE_TIMES"
+sep     = ", "
+context = "renders frames"
+
+[[claim]]
+key     = "judge_times"
+file    = "glsl_shader/contract.md"
+text    = "0, 1, 2.5, 4, 6"
+python  = "codeverse3d.languages._gl_common:JUDGE_TIMES"
+sep     = ", "
+context = "uniform float u_time"
+
+[[claim]]
+key     = "judge_times"
+file    = "opengl_python/contract.md"
+text    = "0, 1, 2.5, 4, 6"
+python  = "codeverse3d.languages._gl_common:JUDGE_TIMES"
+sep     = ", "
+context = "PNG per frame"
+
+[[claim]]
+key     = "judge_times"
+file    = "opengl_python/system.md"
+text    = "0, 1, 2.5, 4, 6"
+python  = "codeverse3d.languages._gl_common:JUDGE_TIMES"
+sep     = ", "
+context = "sampled-time trap"
+
+[[claim]]
+key     = "scene_times"
+file    = "scene_threejs/cookbook.md"
+text    = "0 and t = 1.5"
+python  = "codeverse3d.tracks.scene:SCENE_TIMES"
+sep     = " and t = "
+context = "renders every camera at t ="
+
+[[claim]]
+key     = "scene_times"
+file    = "scene_threejs/cookbook.md"
+text    = "0, 1.5"
+python  = "codeverse3d.tracks.scene:SCENE_TIMES"
+sep     = ", "
+context = "scene_views(times=["

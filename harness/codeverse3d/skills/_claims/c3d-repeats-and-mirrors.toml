@@ -17,3 +17,20 @@ format = "{:.2f}"
 key    = "error_factor"
 text   = "3.0"
 python = "codeverse3d.spatial.contract:ERROR_FACTOR"
+
+# references/instances.md works the tolerance through for one part
+
+[[claim]]
+key     = "bbox_tolerance_m"
+file    = "references/instances.md"
+text    = "0.01"
+python  = "codeverse3d.conventions:BBOX_TOLERANCE_M"
+context = "max(0.01, 0.10 * 0.04)"
+
+[[claim]]
+key     = "rel_tol"
+file    = "references/instances.md"
+text    = "0.10"
+python  = "codeverse3d.spatial.contract:REL_TOL"
+format  = "{:.2f}"
+context = "max(0.01, 0.10 * 0.04)"

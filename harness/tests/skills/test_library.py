@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 from collections import defaultdict
 
 import pytest
 
-from codeverse3d.addons.skill_targets import check_claims, claim_bases, load_claims
+from codeverse3d.addons.skill_targets import (
+    check_claims,
+    check_prompt_claims,
+    claim_bases,
+    load_claims,
+)
 from codeverse3d.skills import bundle_dirs, iter_skills, skills_dir, validate_bundle
 from codeverse3d.skills.registry import ROUTES
 
@@ -62,6 +68,31 @@ def test_every_bundle_is_valid_and_its_claims_are_current():
             assert PROVENANCE.search(window), (
                 f"{skill.name} gives {match.group(0)!r} without nearby provenance"
             )
+    assert not check_prompt_claims(), check_prompt_claims()   # prompts/_claims.toml, the same check
+
+
+_JS = "export const SPAN_M = 40;\n"
+
+
+@pytest.mark.parametrize("row,doc,js", [
+    ({"text": "0.5 m", "python": "codeverse3d.spatial.frame_metrics:NEAR_HIT_M", "format": "{:.1f} m"},
+     "stay 10.5 m back", _JS),                                        # inside a longer number
+    ({"text": "0.5 m", "python": "codeverse3d.spatial.frame_metrics:NEAR_HIT_M", "format": "{:.1f} m",
+      "context": "near-hit"}, "near-hit: see below\nkeep 0.5 m", _JS),     # not on the line that says what it is
+    ({"text": "40 m", "js": "{js}:SPAN_M", "format": "{:.0f} m"}, "over 40 m", _JS.replace("40", "45")),  # JS moved
+    ({"text": "0, 1, 2.5, 4", "python": "codeverse3d.languages._gl_common:JUDGE_TIMES", "sep": ", "},
+     "t = 0, 1, 2.5, 4, 6 s", _JS),                                   # a sequence renders whole
+], ids=["token", "context", "js", "sequence"])
+def test_a_claim_fails_when_its_text_or_its_constant_moves(tmp_path, row, doc, js):
+    """N48: prompts/**, a bundle's references/ and JS constants are pinned like a SKILL body — and a
+    short number only counts where it stands as its own token, on the line its ``context`` names."""
+    (tmp_path / "x.js").write_text(js)
+    (tmp_path / "doc.md").write_text(doc)
+    cells = {**row, "key": "k", "file": "doc.md"}
+    if "js" in cells:
+        cells["js"] = cells["js"].format(js=tmp_path / "x.js")
+    (tmp_path / "_claims.toml").write_text("[[claim]]\n" + "".join(f"{k} = {json.dumps(v)}\n" for k, v in cells.items()))
+    assert check_prompt_claims(tmp_path), row
 
 
 def test_no_two_skills_anywhere_point_one_claim_key_at_different_numbers():
@@ -87,7 +118,7 @@ def test_co_routing_skills_render_a_shared_number_the_same_way():
                 continue
             for key in sorted(set(rows[a]) & set(rows[b])):
                 ra, rb = rows[a][key], rows[b][key]
-                if (ra.get("scale"), ra.get("format")) != (rb.get("scale"), rb.get("format")):
+                if any(ra.get(k) != rb.get(k) for k in ("scale", "format", "sep", "last_sep")):
                     continue
                 assert ra.get("text") == rb.get("text"), f"{a} and {b} disagree about {key}"
 

@@ -20,3 +20,47 @@ text = "80 m"
 python = "codeverse3d.spatial.frame_metrics:EYE_MAX_ABOVE_GROUND_M"
 scale = 1
 format = "{:.0f} m"
+
+# references/measured-cameras.md quotes the host's backdrop classifier (runtime_js/lib/backdrop.mjs)
+
+[[claim]]
+key     = "ground_named_span_m"
+file    = "references/measured-cameras.md"
+text    = "20 m"
+js      = "runtime_js/lib/backdrop.mjs:GROUND_NAMED_SPAN_M"
+format  = "{:.0f} m"
+context = "| ground |"
+
+[[claim]]
+key     = "ground_named_flat"
+file    = "references/measured-cameras.md"
+text    = "6%"
+js      = "runtime_js/lib/backdrop.mjs:GROUND_NAMED_FLAT"
+scale   = 100
+format  = "{:.0f}%"
+context = "| ground |"
+
+[[claim]]
+key     = "sky_named_span_m"
+file    = "references/measured-cameras.md"
+text    = "50 m"
+js      = "runtime_js/lib/backdrop.mjs:SKY_NAMED_SPAN_M"
+format  = "{:.0f} m"
+context = "| sky |"
+
+[[claim]]
+key     = "ground_span_m"
+file    = "references/measured-cameras.md"
+text    = "40 m"
+js      = "runtime_js/lib/backdrop.mjs:GROUND_SPAN_M"
+format  = "{:.0f} m"
+context = "flatter than"
+
+[[claim]]
+key     = "ground_flat"
+file    = "references/measured-cameras.md"
+text    = "2%"
+js      = "runtime_js/lib/backdrop.mjs:GROUND_FLAT"
+scale   = 100
+format  = "{:.0f}%"
+context = "flatter than"

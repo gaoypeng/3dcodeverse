@@ -1,0 +1,17 @@
+# The judged frame times this bundle quotes, pinned to the tuple the graphics track renders.
+
+[[claim]]
+key      = "judge_times"
+text     = "0, 1, 2.5, 4 and 6"
+python   = "codeverse3d.languages._gl_common:JUDGE_TIMES"
+sep      = ", "
+last_sep = " and "
+context  = "judged times"
+
+[[claim]]
+key     = "judge_times"
+file    = "references/sampled-time.md"
+text    = "0, 1, 2.5, 4, 6"
+python  = "codeverse3d.languages._gl_common:JUDGE_TIMES"
+sep     = ", "
+context = "Judged times"
