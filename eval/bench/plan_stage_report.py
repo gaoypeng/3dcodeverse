@@ -18,6 +18,7 @@ from pathlib import Path
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     sys.path.insert(0, str(_p))  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
 
+from bench._infra import is_infra_failure  # noqa: E402
 from bench._jsonl import read_jsonl  # noqa: E402
 
 #: what a validation failure was ABOUT, read off the error text.  The mechanism under test
@@ -33,19 +34,16 @@ FAILURE_CLASSES: dict[str, str] = {
 def outcome(row: dict) -> str:
     """``valid`` | ``planning_error`` (the code under test lost the call) | ``provider``.
 
-    ``provider`` is dropped from the denominator, so it is deliberately narrow: only the
-    model-side failures the harness cannot help.  A harness-side death — a budget ceiling,
-    an unexpected exception — is a loss of the run and must NOT be hidden here, so anything
-    that is neither a ``PlanningError`` nor a known provider failure counts as a loss.
+    ``provider`` is dropped from the denominator by the bench's one outage rule
+    (``_infra.is_infra_failure``; N76 — this kept its own word list, which dropped a model's
+    MAX_TOKENS or HTTP 400 as weather and counted a spent key pool as a loss).  A harness-side
+    death — a budget ceiling, an unexpected exception — is a loss of the run and must NOT be
+    hidden here, so anything that is neither a ``PlanningError`` nor an outage counts as a loss.
     """
     if row["ok"]:
         return "valid"
     err = row.get("error", "")
-    if "PlanningError" in err:
-        return "planning_error"
-    if any(w in err for w in ("ModelError", "BlockedReason", "429", "503", "Deadline", "RESOURCE_EXHAUSTED")):
-        return "provider"
-    return "planning_error"
+    return "provider" if "PlanningError" not in err and is_infra_failure(err) else "planning_error"
 
 
 def failure_class(row: dict) -> str:

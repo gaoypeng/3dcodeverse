@@ -45,7 +45,7 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
     if str(_p) not in sys.path:  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
         sys.path.insert(0, str(_p))
 
-from bench._infra import is_infra_failure  # noqa: E402
+from bench._infra import is_infra_failure, judge_outage  # noqa: E402
 from bench._jsonl import latest, read_jsonl, seal_for_append  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.config import get_settings  # noqa: E402
@@ -211,11 +211,13 @@ def result_from_record(item: BenchPrompt, rec: RunRecord, ws: Workspace) -> Benc
     error = rec.error
     if unjudged and not error:
         error = f"no verdict in any of {len(rec.rounds)} round(s) — the judge was skipped every time"
+    # the judge's outage is not the arm's result: dropped and --redo-status-able, as compare_backends does
+    status = "infra_failed" if judge_outage(rec.status, s.picked_score) else s.stop_reason
     return BenchItemResult(
         id=item.id, tier=item.tier, category=item.category, score_baseline=s.baseline_score,
         score_picked=s.picked_score, picked_round=s.picked_round,
         rounds=len(rec.rounds), cost_usd=rec.total_usage.cost_usd, minutes=round(rec.minutes or 0.0, 2),
-        status=s.stop_reason, errors=error, workspace=str(ws.root),
+        status=status, errors=error, workspace=str(ws.root),
         generator=rec.spec.backends.generator, judge=rec.spec.backends.judge,
     )
 

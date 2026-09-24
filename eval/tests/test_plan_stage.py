@@ -61,6 +61,11 @@ def test_a_harness_side_death_is_a_loss_not_provider_weather() -> None:
 
     assert outcome({"ok": False, "error": "ModelError: Gemini prompt blocked: BlockedReason.OTHER"}) == "provider"
     assert outcome({"ok": False, "error": "KeyError: 'parts'"}) == "planning_error"
+    # one outage rule with the bench (N76): a model's own bad answer is a loss, a spent key pool is weather
+    for err, want in (("ModelError: Gemini returned no JSON (finish_reason=MAX_TOKENS)", "planning_error"),
+                      ("ModelError: HTTP 400 invalid argument", "planning_error"),
+                      ("KeyPoolExhausted: all 15 keys cooling", "provider")):
+        assert outcome({"ok": False, "error": err}) == want, err
 
 
 def test_a_killed_arm_file_still_reports(tmp_path: Path, capsys) -> None:

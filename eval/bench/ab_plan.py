@@ -499,7 +499,7 @@ def run_ab(
                     # pair is recorded the way a dead cell is (docs/EVAL.md §7 — an outage is
                     # not a score) so `--redo-status infra_failed` picks it up, and the loop
                     # goes on to the next prompt.
-                    status = "infra_failed" if is_infra_failure(str(e)) else "error"
+                    status = "infra_failed" if is_infra_failure(e) else "error"   # the exception: its typed flags and status
                     log.warning(
                         "%s: pinned plan failed (%s) — pair recorded %s, continuing",
                         item.id,

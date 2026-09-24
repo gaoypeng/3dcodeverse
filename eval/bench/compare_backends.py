@@ -58,7 +58,7 @@ from datetime import UTC  # noqa: E402
 
 from bench._compare_report import CellResult, PairRow, build_compare_report  # noqa: E402
 from bench._fixed_eval import EvalOutcome, FixedEvaluator, rubric_for  # noqa: E402
-from bench._infra import is_budget_exhaustion, is_infra_failure  # noqa: E402
+from bench._infra import is_budget_exhaustion, is_infra_failure, judge_outage  # noqa: E402
 from bench._jsonl import latest, read_jsonl, seal_for_append  # noqa: E402
 from bench._oneshot import (  # noqa: E402
     OneShotBackend,
@@ -295,7 +295,7 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOption
     res.harness_status, res.harness_rounds, res.harness_loop_score = rec.status.value, len(rec.rounds), summary.picked_score
     res.harness_stop_reason = summary.stop_reason
     res.harness_aborted_rounds = len(rec.extra.get("aborted_rounds") or [])
-    if rec.status is RunStatus.JUDGE_UNAVAILABLE and summary.picked_score is None:
+    if judge_outage(rec.status, summary.picked_score):
         # The run stopped because its judge never answered (p3_graphics_v2 mushroom_forest, 2026-09-23:
         # two 900 s pro read timeouts after round 0).  Scoring what it had then would grade a one-round
         # run for someone else's outage — the asymmetry §7 ends for the one-shot arms — so the cell is

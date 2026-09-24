@@ -166,16 +166,30 @@ def test_a_provider_outage_is_not_model_latency_and_not_an_error():
     assert BenchItemResult.model_validate({"id": "old", "tier": "easy", "score_final": 0.7, "passed": True}).score_picked == 0.7
 
 
-def test_the_runner_classifies_the_outage_that_reaches_it(tmp_path: Path):
+@pytest.mark.parametrize("outage", ["api_503", "cli_storm", "cli_quota", "judge_down"])
+def test_the_runner_classifies_the_outage_that_reaches_it(tmp_path: Path, outage):
     """The status has to be recorded in the first place — the reporter can only honour
-    what run_battery wrote."""
+    what run_battery wrote.  The harness's typed verdict (``RoundFailed.transient`` / ``.quota``)
+    decides before any wording (N76: a gemini-cli storm's message matches no marker), and a run
+    whose judge never answered is dropped the way compare_backends drops it."""
     from codeverse3d.models.base import ModelError
+    from codeverse3d.tracks.steps import RoundFailed
 
     battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"
     out = tmp_path / "bench_out"
 
     def storm(spec, ws, resume):
-        raise ModelError("Gemini API error 503: The model is overloaded.", retryable=True, status=503)
+        if outage == "judge_down":
+            rec = _fake_run_fn({})(spec, ws, resume)
+            rec.status = RunStatus.JUDGE_UNAVAILABLE
+            for r in rec.rounds:
+                r.judgment = None
+            ws.write_json(ws.record_path, rec)
+            return rec
+        raise {"api_503": ModelError("Gemini API error 503: The model is overloaded.", retryable=True, status=503),
+               "cli_storm": RoundFailed("baseline: gemini-cli exit 1: [API Error: got status: 503 UNAVAILABLE]",
+                                        transient=True),
+               "cli_quota": RoundFailed("baseline: codex: You've hit your usage limit", quota=True)}[outage]
 
     res = run_battery(battery, out, BenchOptions(parallel=1, limit=1), run_fn=storm)
     assert [r.status for r in res] == ["infra_failed"]

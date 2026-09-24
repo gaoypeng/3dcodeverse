@@ -22,6 +22,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator
 
+from codeverse3d.contracts.run import RunStatus
+from codeverse3d.models.parts import retryable_status
+
 log = logging.getLogger(__name__)
 
 #: substrings that identify a provider-side outage in a *stringified* error.  Kept
@@ -36,6 +39,7 @@ INFRA_MARKERS: tuple[str, ...] = (
     "read operation timed out",
     "deadline expired",  # Gemini 504
     "finish_reason=prohibited_content",  # the provider's content filter tripped mid-JSON on a furniture plan (2026-08-28): provider behaviour, redone
+    "prompt blocked",  # the same filter on the harness's own prompt (BlockedReason.OTHER): plan_stage_report's "provider" since D52
     "exceeded its attempt budget",  # models/gemini.py streaming: the provider held the socket past the attempt budget (2026-08-28, pro planner)
     "deadline exceeded",
     "connection reset",
@@ -57,29 +61,37 @@ INFRA_MARKERS: tuple[str, ...] = (
     "error creating webgl context",
 )
 
-#: HTTP statuses that mean "the provider could not serve this", not "the model was bad".
-#: 408 is the adapters' own code for a request timeout (gemini.py:117, openai.py:40,
-#: anthropic.py:43) — the exception path must agree with the "request timed out" marker
-#: the string path already had.
-INFRA_STATUSES: frozenset[int] = frozenset({408, 429, 500, 502, 503, 504, 529})
-
-
 def _has_marker(text: str) -> bool:
     return any(marker in text.lower() for marker in INFRA_MARKERS)
 
 
 def _looks_infra(exc: BaseException) -> bool:
-    """The outage rules, applied to ONE exception.  Structured first — a ``ModelError`` /
-    ``KeyPoolExhausted`` carries its status, and trusting that beats guessing from prose —
-    with the string markers as the fallback.  ONE copy: this ran as two hand-kept copies
-    (head vs each wrapped cause) until 2026-08-28, which is how a rule reaches one path
-    and not the other."""
+    """The outage rules, applied to ONE exception.  Typed first: the harness's own verdict
+    (``RoundFailed`` / ``GenerationResult`` ``.transient`` — a provider storm, a dropped socket
+    — and ``.quota`` — the vendor's usage limit, "not ours") decided from the CLI's own record,
+    which the bench must not re-guess from the message (N76: a gemini-cli 503 storm that killed a
+    baseline twice matched no marker and was scored as an error).  Then the HTTP status, from the
+    harness's one table (``models.parts.retryable_status``: 408/409/429/5xx), and a spent key
+    pool.  The string markers are the fallback, for exceptions nobody typed and for the error
+    TEXT of old records.  ONE copy: this ran as two hand-kept copies (head vs each wrapped
+    cause) until 2026-08-28, which is how a rule reaches one path and not the other."""
+    if getattr(exc, "transient", False) is True or getattr(exc, "quota", False) is True:
+        return True
     if type(exc).__name__ == "KeyPoolExhausted" or isinstance(exc, TimeoutError):
         return True
     status = getattr(exc, "status", None)
-    if isinstance(status, int) and status in INFRA_STATUSES:
+    if isinstance(status, int) and retryable_status(status):
         return True
     return _has_marker(f"{type(exc).__name__}: {exc}")
+
+
+def judge_outage(status: RunStatus, picked_score: float | None) -> bool:
+    """A harness run that stopped because its in-loop judge never answered, with no round
+    judged and picked before it: the judge's outage, not the arm's result — dropped as
+    ``infra_failed`` and re-run fresh by ``--redo-status``.  A run that had picked a round
+    before the outage is scored on that pick (owner, 2026-09-23).  THE rule for run_bench
+    and compare_backends (N76)."""
+    return status is RunStatus.JUDGE_UNAVAILABLE and picked_score is None
 
 
 def _chain(err: BaseException, limit: int = 32) -> Iterator[BaseException]:
