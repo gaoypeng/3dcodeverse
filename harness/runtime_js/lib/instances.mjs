@@ -4,15 +4,18 @@
 // EXT_mesh_gpu_instancing extension.  Browser loaders understand that, but the
 // python side (trimesh: measure / connectivity / contract / cross-sections) does
 // not and sees a single copy at the node origin.  Baking every instance into a
-// named child mesh keeps the GLB, the census and every gate consistent.
+// named mesh keeps the GLB, the census and every gate consistent.
 //
 //   import { bakeInstancedMeshes } from './instances.mjs';
-//   const baked = bakeInstancedMeshes(THREE, root);   // -> number of InstancedMesh objects replaced
+//   const { root: baked, count } = bakeInstancedMeshes(THREE, root);
 //
-// Each `InstancedMesh` named `Posts` becomes a `Group` named `Posts` (same local
-// transform, userData, visibility) holding meshes `Posts_0 .. Posts_{n-1}` that
-// share the source geometry (the exporter dedupes it) and material; per-instance
-// colours (`instanceColor`) become per-colour material clones.
+// Each `InstancedMesh` named `Posts` is REPLACED, in its parent, by sibling meshes
+// `Posts_0 .. Posts_{n-1}` (no wrapper group: the contract gate counts top-level
+// `Name_i` nodes as the instances of plan part `Name`, conventions.split_instance).
+// They share the source geometry (the exporter dedupes it) and material, carry the
+// InstancedMesh's own transform times each instance matrix, and per-instance colours
+// (`instanceColor`) become per-colour material clones.  A bare InstancedMesh root has
+// no parent, so it becomes a Group of the same name holding the meshes.
 
 function instanceMaterial(THREE, source, color, cache) {
   if (!color) return source;
@@ -28,16 +31,16 @@ function instanceMaterial(THREE, source, color, cache) {
   return m;
 }
 
-/** Replace one InstancedMesh by a Group of plain meshes; returns the Group. */
-export function expandInstancedMesh(THREE, inst) {
-  const group = new THREE.Group();
-  group.name = inst.name || '';
+/** The plain objects that replace one InstancedMesh, posed in its parent's frame. */
+function expand(THREE, inst) {
   if (inst.matrixAutoUpdate) inst.updateMatrix();
-  group.matrix.copy(inst.matrix);
-  group.matrix.decompose(group.position, group.quaternion, group.scale);
-  group.visible = inst.visible;
-  group.userData = inst.userData;
-  group.renderOrder = inst.renderOrder;
+  const out = [];
+  const pose = (obj, local) => {
+    obj.matrix.multiplyMatrices(inst.matrix, local);
+    obj.matrix.decompose(obj.position, obj.quaternion, obj.scale);
+    obj.visible = obj.visible && inst.visible;
+    out.push(obj);
+  };
   const count = Math.max(0, Number(inst.count) || 0);
   const m4 = new THREE.Matrix4();
   const color = new THREE.Color();
@@ -50,36 +53,48 @@ export function expandInstancedMesh(THREE, inst) {
       mat = instanceMaterial(THREE, inst.material, color, matCache);
     }
     const mesh = new THREE.Mesh(inst.geometry, mat);
-    mesh.name = group.name ? `${group.name}_${i}` : '';
-    mesh.matrix.copy(m4);
-    mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
+    mesh.name = inst.name ? `${inst.name}_${i}` : '';
+    mesh.userData = inst.userData;
+    mesh.renderOrder = inst.renderOrder;
     mesh.castShadow = inst.castShadow;
     mesh.receiveShadow = inst.receiveShadow;
-    group.add(mesh);
+    pose(mesh, m4.clone());
   }
-  // nested children (rare) ride along unchanged
-  for (const child of [...inst.children]) group.add(child);
-  return group;
+  // nested children (rare) ride along in the same frame
+  for (const child of [...inst.children]) {
+    if (child.matrixAutoUpdate) child.updateMatrix();
+    inst.remove(child);
+    pose(child, child.matrix.clone());
+  }
+  return out;
 }
 
 /**
  * Bake every InstancedMesh under `root` (root itself included) in place, keeping
- * child order so census part order is unchanged.  Returns how many were baked.
+ * child order.  Returns `{ root, count }`: `root` is a new Group only when `root`
+ * itself was an InstancedMesh; `count` is how many InstancedMesh objects were baked.
  */
 export function bakeInstancedMeshes(THREE, root) {
   const found = [];
   root.traverse((o) => {
     if (o.isInstancedMesh) found.push(o);
   });
+  let out = root;
   for (const inst of found) {
-    const parent = inst.parent;
-    const group = expandInstancedMesh(THREE, inst);
-    if (!parent) continue; // a bare InstancedMesh root cannot be swapped; caller wraps it
+    const parent = inst === root ? null : inst.parent;
+    const parts = expand(THREE, inst);
+    if (!parent) {
+      out = new THREE.Group();
+      out.name = inst.name || '';
+      out.userData = inst.userData; // the root's userData (e.g. tick) stays on the root
+      for (const p of parts) out.add(p);
+      continue;
+    }
     const idx = parent.children.indexOf(inst);
-    parent.children[idx] = group;
-    group.parent = parent;
+    for (const p of parts) p.parent = parent;
+    parent.children.splice(idx, 1, ...parts);
     inst.parent = null;
   }
-  root.updateWorldMatrix(true, true);
-  return found.length;
+  out.updateWorldMatrix(true, true);
+  return { root: out, count: found.length };
 }

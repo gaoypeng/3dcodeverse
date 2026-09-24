@@ -44,8 +44,8 @@ packages other than `three`, no `import ... from 'codeverse3d'` / `../runtime_js
   `MeshPhysicalMaterial` only.  Colours via `new THREE.Color(0xRRGGBB)`; vertex colours
   allowed (`geometry.setAttribute('color', …)` + `vertexColors: true`).
 * Use `InstancedMesh` or merged geometries for repeats.  `InstancedMesh`
-  named `Posts` is exported as a group `Posts` of meshes `Posts_0 … Posts_{n-1}`
-  (instance matrices and colours baked), so gates and the census see every copy.
+  named `Posts` is exported as sibling meshes `Posts_0 … Posts_{n-1}` in its place
+  (instance matrices and colours baked), so gates see every copy as an instance of `Posts`.
 
 ## Self-check (optional, keep it tiny, at the end of object.js)
 If `object.js` exports `selfcheck(THREE, root)`, the harness calls it on the group

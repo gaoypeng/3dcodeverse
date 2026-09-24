@@ -7,8 +7,8 @@
 // Runs in plain node (no browser).  The agent module must `export function build(THREE)`
 // returning a THREE.Group (or a Promise of one); an optional `export function
 // selfcheck(THREE, root)` is called on the built group and fails the build when it
-// throws.  InstancedMesh objects are baked into named plain meshes (lib/instances.mjs)
-// so trimesh-based gates see every copy.  The object is exported exactly where the
+// throws.  InstancedMesh objects are baked into sibling plain meshes `Name_0..`
+// (lib/instances.mjs) so trimesh-based gates see every copy as an instance.  The object is exported exactly where the
 // source put it: an off-ground / off-centre build only WARNS (census.placement_offset),
 // like the Blender/CadQuery wrappers, so plan-frame gates stay valid.
 // Last stdout line is a JSON record:
@@ -24,7 +24,7 @@ import { pathToFileURL } from 'node:url';
 import { finish, parseCli } from './lib/cli.mjs';
 import { installExporterPolyfills } from './lib/node_polyfills.mjs';
 import { findNonFinitePositions, worldBox } from './lib/census.mjs';
-import { bakeInstancedMeshes, expandInstancedMesh } from './lib/instances.mjs';
+import { bakeInstancedMeshes } from './lib/instances.mjs';
 import { errorRecord } from './lib/stack.mjs';
 import { findSyntaxError } from './lib/syntax_check.mjs';
 
@@ -180,12 +180,8 @@ async function main() {
   if (group && typeof group.then === 'function') group = await group;
   validateGroup(THREE, group, args.entry);
   const selfchecked = await runSelfcheck(mod, THREE, group);
-  let bakedInstances = 0;
-  if (group.isInstancedMesh) {
-    group = expandInstancedMesh(THREE, group); // a bare InstancedMesh root has no parent to swap it in
-    bakedInstances += 1;
-  }
-  bakedInstances += bakeInstancedMeshes(THREE, group);
+  const baked = bakeInstancedMeshes(THREE, group);
+  group = baked.root;
 
   const tickPresent = typeof (group.userData && group.userData.tick) === 'function';
   if (tickPresent) delete group.userData.tick; // functions cannot be serialised into glTF extras
@@ -195,7 +191,7 @@ async function main() {
   stripTextures(group, warnings);
 
   // what only the export knows; the object's measurements are read off the GLB (spatial/measure.py)
-  const census = { placement_offset: offset, instanced_meshes_baked: bakedInstances,
+  const census = { placement_offset: offset, instanced_meshes_baked: baked.count,
     selfcheck_ran: selfchecked, tick_present: tickPresent };
   let unnamed = 0;
   group.traverse((o) => {

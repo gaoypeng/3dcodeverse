@@ -92,35 +92,51 @@ def test_build_keeps_source_placement_and_warns(stool_ws: Workspace):
     assert abs(lo[1] - 0.2) < 2e-3 and abs(lo[0] - 0.33) < 2e-3
 
 
-def test_build_bakes_instanced_meshes_for_trimesh(stool_ws: Workspace):
-    """InstancedMesh is baked (trimesh ignores EXT_mesh_gpu_instancing)."""
+@pytest.mark.parametrize("bare_root", [False, True])
+def test_build_bakes_instanced_meshes_for_trimesh(stool_ws: Workspace, bare_root: bool):
+    """InstancedMesh is baked (trimesh ignores EXT_mesh_gpu_instancing) into SIBLING meshes
+    ``Posts_0..9``, so the contract gate counts them as the plan's ×10 instances (audit
+    2026-09-24 N2: a wrapper Group ``Posts`` was one part, "found 1 instance(s)" + a bbox ERROR)."""
+    from codeverse3d.contracts.plan import BBox, PartPlan, StaticPlan
     from codeverse3d.spatial.connectivity import check_connectivity
+    from codeverse3d.spatial.contract import check_contract
 
-    (stool_ws.src / "object.js").write_text(
-        "import * as THREE from 'three';\nexport function build(T) { const g = new THREE.Group(); g.name = 'Fence';\n"
-        "  const mat = new THREE.MeshStandardMaterial({ color: 0x885533 });\n"
-        "  const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.05, 1, 0.05), mat, 10); posts.name = 'Posts';\n"
-        "  const m = new THREE.Matrix4();\n"
-        "  for (let i = 0; i < 10; i++) { m.makeTranslation(-2.25 + i * 0.5, 0.5, 0); posts.setMatrixAt(i, m); posts.setColorAt(i, new THREE.Color(i % 2 ? 0xff0000 : 0x00ff00)); }\n"
-        "  posts.instanceMatrix.needsUpdate = true; g.add(posts);\n"
-        "  const rail = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.05, 0.03), mat); rail.name = 'Rail'; rail.position.set(0, 1.025, 0); g.add(rail);\n"
-        "  return g; }\n")
+    posts = ("  const mat = new THREE.MeshStandardMaterial({ color: 0x885533 });\n"
+             "  const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.05, 1, 0.05), mat, 10); posts.name = 'Posts';\n"
+             "  const m = new THREE.Matrix4();\n"
+             "  for (let i = 0; i < 10; i++) { m.makeTranslation(-2.25 + i * 0.5, 0.5, 0); posts.setMatrixAt(i, m); posts.setColorAt(i, new THREE.Color(i % 2 ? 0xff0000 : 0x00ff00)); }\n"
+             "  posts.instanceMatrix.needsUpdate = true;\n")
+    if bare_root:
+        body = posts + "  return posts; }\n"
+    else:
+        body = ("  const g = new THREE.Group(); g.name = 'Fence';\n" + posts + "  g.add(posts);\n"
+                "  const rail = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.05, 0.03), mat); rail.name = 'Rail'; rail.position.set(0, 1.025, 0); g.add(rail);\n"
+                "  return g; }\n")
+    (stool_ws.src / "object.js").write_text("import * as THREE from 'three';\nexport function build(T) {\n" + body)
     res = ThreeJsRuntime().build(stool_ws)
     assert res.ok, res.error_message
     assert res.census["instanced_meshes_baked"] == 1
     header = _glb_json(res.glb_path)
     assert "EXT_mesh_gpu_instancing" not in (header.get("extensionsUsed") or [])
-    assert len(header["materials"]) == 3  # base + two instance colours
-    scene = trimesh.load(res.glb_path, force="scene")
-    assert {"Posts_0", "Posts_9", "Rail"} <= set(scene.graph.nodes) and len(scene.graph.nodes_geometry) == 11
+    assert len(header["materials"]) == (2 if bare_root else 3)  # (base +) two instance colours
+    names = [f"Posts_{i}" for i in range(10)] + ([] if bare_root else ["Rail"])
     m = measure_glb(res.glb_path)
-    assert sorted(p.name for p in m.parts) == ["Posts", "Rail"]
-    assert m.tri_count == 132 and abs(m.ground_gap_m) < 1e-3
-    posts = next(p for p in m.parts if p.name == "Posts")
-    assert np.allclose(posts.bbox_min, [-2.275, 0.0, -0.025], atol=1e-3)
-    assert np.allclose(posts.bbox_max, [2.275, 1.0, 0.025], atol=1e-3)
-    assert posts.tri_count == 120
-    assert check_connectivity(res.glb_path).passed
+    assert sorted(p.name for p in m.parts) == sorted(names)
+    assert m.tri_count == 12 * len(names) and abs(m.ground_gap_m) < 1e-3
+    p9 = next(p for p in m.parts if p.name == "Posts_9")
+    assert np.allclose(p9.bbox_min, [2.225, 0.0, -0.025], atol=1e-3)
+    assert np.allclose(p9.bbox_max, [2.275, 1.0, 0.025], atol=1e-3)
+    parts = [PartPlan(name="Posts", role="r", description="d", instances=10,
+                      bbox=BBox(center=(0, 0.5, 0), extents=(0.05, 1.0, 0.05)))]
+    if not bare_root:
+        parts.append(PartPlan(name="Rail", role="r", description="d",
+                              bbox=BBox(center=(0, 1.025, 0), extents=(4.6, 0.05, 0.03))))
+    plan = StaticPlan(object_name="Fence", summary="s", overall_bbox=BBox(center=(0, 0.525, 0), extents=(4.6, 1.05, 0.05)),
+                      parts=parts)
+    assert [f.message for f in check_contract(m, plan, language="threejs").findings
+            if f.severity.value != "info"] == []
+    if not bare_root:
+        assert check_connectivity(res.glb_path).passed
 
 
 def test_build_nan_geometry_names_mesh_part_and_file(stool_ws: Workspace):
