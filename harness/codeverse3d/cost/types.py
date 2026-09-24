@@ -214,7 +214,8 @@ class CallCost(BaseModel):
     n_calls: int = 1  # >1 when a row aggregates a whole agent session
     #: extra = a round-trip that was discarded yet billed (hedge loser, charged-but-invalid
     #: reply); nothing else records it, so unlike ``attempt`` it counts in every total
-    source: str = "live"  # live | record | events | transcript | stdout | residual | session | attempt | extra
+    #: estimate = a session whose vendor reported no usage (a killed codex turn), priced from its stream
+    source: str = "live"  # live | record | events | transcript | stdout | residual | session | estimate | attempt | extra
     #: which API key served the call, as its last 4 chars ("…ab12") — never the key
     #: itself; "" for a failed call, a session row, or a row older than 2026-08-26
     key: str = ""

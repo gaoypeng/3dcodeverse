@@ -568,8 +568,10 @@ the since-deleted in-process `api-agent` and the since-removed pass / plateau st
 * threejs: textures are stripped on GLB export (the texture pass re-adds them as a
   derived pack); `userData.tick` cannot survive export.
 * agy exposes no per-workspace MCP, cost or served model; a killed agy session books no
-  usage (its tokens are in the envelope only).  A killed codex session neither (usage is
-  per turn and `--ephemeral` leaves no rollout); a killed claude-code session books its
+  usage (its tokens are in the envelope only).  A killed codex session books an ESTIMATE
+  (usage is per turn and `--ephemeral` leaves no rollout; `CodexEvents.estimated_usage` prices
+  the stream it left, ledger `source="estimate"`, $ within 0.62–1.34× of actual on 356 recorded
+  sessions); a killed claude-code session books its
   per-message usage, whose output side is a floor.  A killed or given-up gemini-cli
   session books its chat record (exact).
 * Vendor sessions see only the routed skill bundles, except agy (5 built-ins; no

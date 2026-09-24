@@ -814,6 +814,20 @@ def effort_overrides(effort: str) -> list[str]:
     return ["-c", f"model_reasoning_effort={effort}"] if effort else []
 
 
+#: A session killed before its turn completed books no usage (codex reports it per TURN and
+#: ``--ephemeral`` leaves no rollout), so its cost is ESTIMATED from what the stream shows: every
+#: completed item is one more request that re-reads the context, which grows by that item.
+#: Constants fitted on the 356 completed codex sessions on record (2026-09-23): codex's own
+#: system prompt + tool schemas ≈ 20k tokens, ≈ 1k tokens per returned image, 4 chars/token,
+#: output ≈ 1.13 % of input.  Estimated input / actual: median 1.01, p10–p90 0.66–1.35;
+#: estimated $ / actual $: median 0.93, p10–p90 0.62–1.34.
+_EST_SYSTEM_TOKENS = 20_000
+_EST_IMAGE_TOKENS = 1_000
+_EST_CHARS_PER_TOKEN = 4.0
+_EST_OUTPUT_SHARE = 0.0113
+_B64_DATA = re.compile(r'"data"\s*:\s*"[A-Za-z0-9+/=]{200,}"')
+
+
 class CodexEvents:
     """Folded view over the JSONL event stream."""
 
@@ -827,6 +841,8 @@ class CodexEvents:
         self.thread_id = ""
         self.n_events = 0
         self.calls: list[ToolCall] = []
+        #: (text tokens, images) each completed item added to the context — the estimate's input
+        self.items: list[tuple[float, int]] = []
 
     def feed(self, line: str) -> None:
         line = line.strip()
@@ -843,6 +859,9 @@ class CodexEvents:
         elif t == "item.completed":
             item = ev.get("item") or {}
             it = item.get("type", "")
+            if it != "reasoning":
+                images = len(_B64_DATA.findall(line))
+                self.items.append((len(_B64_DATA.sub('"data":""', line)) / _EST_CHARS_PER_TOKEN, images))
             if it == "agent_message":
                 self.messages.append(str(item.get("text", "")))
             elif it in _TOOL_ITEMS:
@@ -864,6 +883,20 @@ class CodexEvents:
         return openai_usage("codex", model, prompt=r["input_tokens"], cached=r["cached_input_tokens"],
                             completion=r["output_tokens"], reasoning=r["reasoning_output_tokens"],
                             tool_calls=self.tool_calls)
+
+    def estimated_usage(self, model: str, prompt_chars: int) -> Usage:
+        """What a session whose turn never completed most likely spent (see ``_EST_*``):
+        one request per completed item plus the one in flight, each reading the whole context
+        so far; everything but each request's new content is a cache hit."""
+        ctx = prompt_chars / _EST_CHARS_PER_TOKEN + _EST_SYSTEM_TOKENS
+        prompt = uncached = ctx
+        for text, images in self.items:
+            grown = text + images * _EST_IMAGE_TOKENS
+            ctx += grown
+            uncached += grown
+            prompt += ctx
+        return openai_usage("codex", model, prompt=int(prompt), cached=int(prompt - uncached),
+                            completion=int(prompt * _EST_OUTPUT_SHARE), reasoning=0, tool_calls=self.tool_calls)
 
 
 def parse_codex_jsonl(stdout: str) -> CodexEvents:
@@ -899,9 +932,9 @@ class CodexAgent(_CliAgent):
         return hardened_env(s.ws, s.job, keep={"OPENAI_API_KEY", "CODEX_API_KEY"})
 
     def run(self, job: AgentJob) -> AgentResult:
-        """``usage`` arrives per TURN (``turn.completed``): a session killed mid-turn books
-        nothing, and ``--ephemeral`` leaves no rollout to recover it from — 1 of 357 recorded
-        codex sessions.  ``provider_wait_s`` stays 0.0: codex retries a 5xx inside its HTTP
+        """``usage`` arrives per TURN (``turn.completed``), and ``--ephemeral`` leaves no rollout,
+        so a session killed mid-turn (1 of 357 recorded codex sessions) books an ESTIMATE from its
+        stream (:meth:`CodexEvents.estimated_usage`, ``usage_estimated``).  ``provider_wait_s`` stays 0.0: codex retries a 5xx inside its HTTP
         client without an event (two fake 503s, 2026-09-22: nothing on the stream)."""
         ok, why = self.available()
         s = begin_session(job, self.kind)
@@ -909,10 +942,14 @@ class CodexAgent(_CliAgent):
             if not ok:
                 return failed(s, "error", why)
             events = CodexEvents()
-            proc = invoke(s, self.build_argv(s), self.build_env(s), prompt=_compose_prompt(job),
+            prompt = _compose_prompt(job)
+            proc = invoke(s, self.build_argv(s), self.build_env(s), prompt=prompt,
                           stdout_name="stdout.jsonl", on_stdout=events.feed)
             record_tool_calls(s, events.calls, source="codex exec --json")
-            usage = events.usage(self.model)
+            # no turn completed but requests were made (items, or a watchdog kill): an estimate,
+            # flagged on the result and booked as source="estimate" — never a silent $0
+            estimated = events.turns_completed == 0 and (bool(events.items) or proc.timed_out)
+            usage = (events.estimated_usage(self.model, len(prompt)) if estimated else events.usage(self.model))
             usage.latency_ms = int(proc.duration_s * 1000)
             text = "\n\n".join(m for m in events.messages if m.strip())
             errors = list(events.errors)
@@ -932,7 +969,7 @@ class CodexAgent(_CliAgent):
                 turns=events.turns_completed, errors=errors,
                 transient=is_transient_failure(*said), quota=is_quota_failure(*said),
                 rc=proc.rc, killed_reason=proc.killed_reason, thread_id=events.thread_id,
-                turns_completed=events.turns_completed, usage_raw=events.usage_raw,
+                turns_completed=events.turns_completed, usage_raw=events.usage_raw, usage_estimated=estimated,
             )
         finally:
             release_session(s)

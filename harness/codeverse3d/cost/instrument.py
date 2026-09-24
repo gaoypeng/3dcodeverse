@@ -238,7 +238,8 @@ class MeteredAgent(_Proxy):
                         backend=usage.backend or self.kind, model=usage.model or self.model,
                         outcome="ok" if result.ok else (result.exit_reason or "error"),
                         latency_ms=usage.latency_ms or ms,
-                        n_calls=max(1, int(result.tool_calls or 1)), source="session")
+                        n_calls=max(1, int(result.tool_calls or 1)),
+                        source="estimate" if result.usage_estimated else "session")
         except Exception as e:  # pragma: no cover
             log.debug("cost: could not record agent session %s: %s", job.label, e)
 

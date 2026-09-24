@@ -485,6 +485,7 @@ def finish_session(
     transient: bool = False,
     quota: bool = False,
     provider_wait_s: float = 0.0,
+    usage_estimated: bool = False,
     **extra: Any,
 ) -> AgentResult:
     """Commit the agent's work, compute ``files_changed`` via git (attributed to this
@@ -516,6 +517,7 @@ def finish_session(
             transcript_path=str(s.traj.transcript_path if s.traj.transcript_path.exists() else s.traj.dir),
             usage=usage, duration_s=duration, provider_wait_s=round(min(max(provider_wait_s, 0.0), duration), 3),
             tool_calls=tool_calls, turns=turns, errors=errors, transient=transient and not quota, quota=quota,
+            usage_estimated=usage_estimated,
         )
         s.traj.write_result(res, kind=s.kind, label=s.label, round=s.round_index, attempt=s.attempt, job_label=s.job.label,
                             head_before=s.head_before, head_after=s.ws.head(), notes=s.notes, **extra)

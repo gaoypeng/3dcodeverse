@@ -95,6 +95,11 @@ class AgentResult(BaseModel):
         "claude-code its stream-json ``api_retry`` events; agy the retry lines of its ``--log-file``; "
         "codex none (its HTTP client retries without an event)",
     )
+    usage_estimated: bool = Field(
+        default=False, description="``usage`` is an estimate, not the vendor's count: a codex session "
+        "killed before its turn completed reports none (backends.CodexEvents.estimated_usage); its ledger "
+        "row says source=\"estimate\"",
+    )
     tool_calls: int = 0
     turns: int = Field(
         default=0, description="model turns as the backend counts them (claude-code num_turns, codex "

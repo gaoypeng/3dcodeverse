@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -44,8 +45,12 @@ if mode == "usage_limit":
 if mode == "storm":
     events = events[:2] + [{"type": "error", "message": "stream disconnected before completion: 503 Service Unavailable"},
                            {"type": "turn.failed", "error": {"message": "exceeded retry limit, last status: 503"}}]
+if mode == "killed":   # the turn never completes: the watchdog kills the session mid-turn
+    events = events[:5]
 for e in events:
     print(json.dumps(e)); sys.stdout.flush()
+if mode == "killed":
+    import time; time.sleep(60)
 '''
 
 
@@ -108,6 +113,16 @@ def test_fake_run_and_every_failure_is_typed(tmp_ws: Workspace, fake_bin, monkey
     monkeypatch.setenv("FAKE_MODE", "storm")
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="t", timeout_s=30))
     assert not res.ok and res.transient and not res.quota and res.provider_wait_s == 0.0   # codex does not say
+    # killed mid-turn: codex reported no usage, so the session books an estimate from its stream
+    # (it used to book $0 — 1 of 357 recorded sessions, a 10-minute baseline among them)
+    monkeypatch.setenv("FAKE_MODE", "killed")
+    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="k", timeout_s=3,
+                         hard_deadline_s=time.monotonic() + 3))
+    assert not res.ok and res.exit_reason == "timeout" and res.usage_estimated
+    # 3 requests (two items + the one in flight), each re-reading a context of ≥ the 20k-token codex system prompt
+    assert 60_000 < res.usage.input_tokens < 61_000 and 0 < res.usage.cached_tokens < res.usage.input_tokens
+    assert res.usage.cost_usd > 0 and res.usage.tool_calls == 2
+    assert json.loads((Path(res.transcript_path).parent / "result.json").read_text())["usage_estimated"] is True
 
 
 @pytest.mark.live
