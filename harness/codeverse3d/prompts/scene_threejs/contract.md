@@ -24,7 +24,7 @@ establishing shot that is mostly sky/ground.  Dusk/night = coloured, never black
 
 ## createScene return value
 * `scene`: `THREE.Scene` with `scene.fog` set and a background colour or sky dome.
-* `cameras`: 3–5 **plain objects** `{ name, position: [x, y, z], lookAt: [x, y, z], fov }`
+* `cameras`: 3–4 **plain objects** `{ name, position: [x, y, z], lookAt: [x, y, z], fov }`
   (the harness builds the PerspectiveCameras: aspect 16/9, near 0.1, far from bounds).
   Names PascalCase from the plan (`Establishing`, `HarbourMid`, `LanternDetail`); fov
   35–60; eye height ≈ 1.6 m for human views; never inside or up against geometry; the
@@ -158,6 +158,7 @@ export async function createScene({ THREE, renderer, loaders }) {
   const cameras = [                                   // plain objects; the harness builds the cameras
     { name: 'Establishing', position: [38, 14, 42], lookAt: [0, 2, 0], fov: 40 },
     { name: 'GroveWalk', position: [6, heightAt(6, 20) + 1.6, 20], lookAt: [0, 2, 0], fov: 55 },
+    { name: 'GroveDetail', position: [-4, heightAt(-4, 9) + 1.6, 9], lookAt: [-6, 1.2, 4], fov: 45 },
   ];
   const movers = [grove];
   return { scene, cameras, update(t, dt) { env.update(t, dt); for (const m of movers) m.userData.update?.(t, dt); } };

@@ -4,7 +4,7 @@
 //   export function createScene({ THREE, renderer, loaders })
 //     → { scene, cameras: [{ name, position: [x,y,z], lookAt: [x,y,z], fov }], update(t, dt) }
 //   • Y is up, +Z is front, units are meters.  The scene owns its lights, sky/env and fog.
-//   • cameras: 1-6 authored shots (eye above the ground, clear of every surface).
+//   • cameras: 3–4 authored shots (eye above the ground, clear of every surface).
 //   • update(t, dt): t = seconds since start, dt = step; animate here (no requestAnimationFrame).
 //   • loaders.gltf is a GLTFLoader: loaders.gltf.loadAsync('/assets/<name>.glb') for Blender-built assets.
 //   • Imports allowed: 'three', 'three/addons/*', relative files.  No CDN, no network, no DOM access.

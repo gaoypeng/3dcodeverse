@@ -424,8 +424,8 @@ function buildLightShaft(THREE, opts = {}) {
 console.log('haze bands', buildHazeBands(THREE).children.length, 'shaft', buildLightShaft(THREE).name);
 ```
 
-Camera safety: the harness raycasts from every authored camera and calls anything within
-0.3 m "camera inside geometry" (an ERROR).  Keep haze bands and shafts at least 1 m clear
+Camera safety: the harness raycasts from every authored camera and calls geometry right in
+front of the lens "camera inside geometry" (an ERROR).  Keep haze bands and shafts at least 1 m clear
 of every eye-level camera, or — since these cards are not solid surfaces — give them
 `mesh.raycast = () => {};` so the probe ignores them.  Never do that to real geometry.
 
@@ -837,7 +837,7 @@ console.log('cameras', planCameras(THREE, new THREE.Scene()).map(c => c.name));
 ```
 
 Rules: eye height 1.6 m (+ terrain!), fov 35–60, look at a focal POINT (an object, not
-the horizon), never inside geometry or up against a surface, 3–5 cameras:
+the horizon), never inside geometry or up against a surface, 3–4 cameras:
 establishing → mid → detail.  Compute positions from measured bounds/heightAt, not vibes.
 
 ## Post-processing (the harness's own chain, ON by default)
@@ -922,7 +922,7 @@ function sceneSelfcheck(THREE, scene, cameras) {
     }
   });
   if (!scene.fog) throw new Error('scene.fog not set');
-  if (!cameras || cameras.length < 2) throw new Error('need 3-5 cameras');
+  if (!cameras || cameras.length < 3) throw new Error('need 3-4 cameras');
   console.log(`[selfcheck] draws=${draws} tris=${Math.round(tris)} lights=${lights} shadowLights=${shadowLights} cameras=${cameras.length}`);
 }
 const demoScene = new THREE.Scene(); buildEnv({ THREE, scene: demoScene });
