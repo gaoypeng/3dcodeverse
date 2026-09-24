@@ -5,9 +5,7 @@
 import * as THREE from 'three';
 import { pineTreeParts } from '../assets/pine_tree.js';
 import { buildWindmill } from '../assets/windmill.js';
-
-// deterministic PRNG: same layout every run (the harness diffs renders between rounds)
-function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+import { mulberry32 } from '../lib/noise.js';
 
 export function build(ctx) {
   const { heightAt } = ctx;
@@ -15,7 +13,7 @@ export function build(ctx) {
   zone.name = 'Meadow';
 
   // --- instanced pine trees (one InstancedMesh per part; shared matrices)
-  const rand = rng(7);
+  const rand = mulberry32(7);   // seeded: the same layout every run (the harness diffs rounds)
   const N = 140;
   const mats = [];
   for (let i = 0; i < N; i++) {

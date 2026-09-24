@@ -22,8 +22,7 @@ five repeatable defects, one chapter each:
 
 ```js
 const BOUNDS = { min: [-50, 0, -50], max: [50, 30, 50] };     // export const in real env.js
-const rand = (i) => { const s = Math.sin(i * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); };  // seeded, never Math.random
-const SUN_DIR = new THREE.Vector3(0.55, 0.62, 0.35).normalize();  // one sun direction, reused everywhere
+const rand = mulberry32(7);        // lib/noise.js: the seeded PRNG — never Math.random
 
 function heightAt(x, z) {
   // deterministic analytic terrain — EVERY placement must call this, or things float
@@ -36,24 +35,20 @@ function buildEnv({ THREE, scene }) {
   scene.background = new THREE.Color(0xa8c4dd);
   // sky dome gradient (cheap, always works; the Sky addon is the fancy alternative)
   const skyGeo = new THREE.SphereGeometry(240, 24, 12);
-  const skyMat = new THREE.ShaderMaterial({
-    side: THREE.BackSide, fog: false, depthWrite: false,
+  const skyMat = makeShaderMaterial({                         // lib/shader.js: tonemap + colorspace included
+    name: 'SkyDome', side: THREE.BackSide, fog: false, depthWrite: false,
     uniforms: { uTop: { value: new THREE.Color(0x4e7fb8) }, uHorizon: { value: new THREE.Color(0xd8e4ec) } },
-    vertexShader: 'varying vec3 vP; void main() { vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: `uniform vec3 uTop; uniform vec3 uHorizon; varying vec3 vP;
-      void main() { float h = clamp(normalize(vP).y, 0.0, 1.0); gl_FragColor = vec4(mix(uHorizon, uTop, pow(h, 0.55)), 1.0);
-      #include <tonemapping_fragment>
-      #include <colorspace_fragment>
-      }`,
+    varyings: 'varying vec3 vP;', vertexMain: '  vP = position;',
+    fragmentHead: 'uniform vec3 uTop; uniform vec3 uHorizon;',
+    fragmentMain: '  float h = clamp(normalize(vP).y, 0.0, 1.0); gl_FragColor = vec4(mix(uHorizon, uTop, pow(h, 0.55)), 1.0);',
   });
   const sky = new THREE.Mesh(skyGeo, skyMat); sky.name = 'SkyDome'; scene.add(sky);
-  // lights: hemisphere fill + ONE shadow-casting sun.  Physical intensities (no legacy lights).
-  scene.add(new THREE.HemisphereLight(0xbfd6f0, 0x5e5442, 0.55));
-  const sun = new THREE.DirectionalLight(0xfff0d8, 2.6);
-  sun.position.copy(SUN_DIR).multiplyScalar(80); sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0005;
-  Object.assign(sun.shadow.camera, { left: -55, right: 55, top: 55, bottom: -55, near: 5, far: 200 });
-  scene.add(sun, sun.target);
+  // lights: ONE sunRig (lib/environment.js) — key, hemisphere fill, the environment map,
+  // the disc, and a shadow camera, map size and bias it fits to `bounds` itself
+  const rig = sunRig({ mood: 'day', azimuth: 35, elevation: 48, bounds: 50 });
+  scene.add(rig.sun, rig.sun.target, rig.fill);
+  if (rig.sunDisc) scene.add(rig.sunDisc);
+  scene.environment = rig.envTex;
   // ground displaced by heightAt, vertex-coloured by slope/height (no textures)
   const g = new THREE.PlaneGeometry(100, 100, 128, 128); g.rotateX(-Math.PI / 2);
   const pos = g.attributes.position, col = new Float32Array(pos.count * 3);
@@ -72,8 +67,8 @@ function buildEnv({ THREE, scene }) {
 }
 ```
 
-Numbers: sun 2.2–3.2, hemisphere 0.4–0.7 (never both high — washed out); shadow frustum
-just past the bounds; fog near ≈ half the bounds, far ≈ 2 × the diagonal; ground ≈ 1
+Numbers: the rig's own per-mood intensities (tint it, do not add lights); `bounds` = the
+content radius, which fits the shadows; fog near ≈ half the bounds, far ≈ 2 × the diagonal; ground ≈ 1
 segment per metre.  Full palettes per time of day are in the time-of-day chapter.
 
 ## The exact contract the harness assembler enforces
@@ -449,15 +444,17 @@ species**, per-instance **scale / hue / rotation jitter**, **clustered** placeme
 **ground-cover** layer — all instanced, so a whole forest is 6–10 draw calls.
 
 ```js
-// One species = one geometry pair (trunk + crown) with its own silhouette + hue band.
+// One species = a trunk + a crown with its own silhouette + hue band.  A conifer's crown is
+// a cone; a broadleaf or scrub crown is LEAVES — `makeCanopy` (lib/canopy.js), never an
+// icosahedron or any displaced ball (the catalog's crown rule).
 function speciesGeometries(THREE) {
   return {
     conifer: { trunk: new THREE.CylinderGeometry(0.10, 0.20, 3.0, 6).translate(0, 1.5, 0),
                crown: new THREE.ConeGeometry(1.15, 4.4, 8).translate(0, 4.4, 0), hue: 0.32, sat: 0.42, lum: 0.20, h: [0.8, 1.5] },
     broadleaf: { trunk: new THREE.CylinderGeometry(0.14, 0.26, 2.4, 7).translate(0, 1.2, 0),
-               crown: new THREE.IcosahedronGeometry(1.7, 1).translate(0, 3.4, 0), hue: 0.24, sat: 0.45, lum: 0.28, h: [0.9, 1.6] },
+               canopy: { y: 3.4, radius: 1.7 }, hue: 0.24, sat: 0.45, lum: 0.28, h: [0.9, 1.6] },
     scrub:  { trunk: new THREE.CylinderGeometry(0.07, 0.11, 0.7, 5).translate(0, 0.35, 0),
-               crown: new THREE.DodecahedronGeometry(0.75, 0).translate(0, 1.0, 0), hue: 0.18, sat: 0.35, lum: 0.30, h: [0.7, 1.3] },
+               canopy: { y: 1.0, radius: 0.75 }, hue: 0.18, sat: 0.35, lum: 0.30, h: [0.7, 1.3] },
   };
 }
 
@@ -488,7 +485,8 @@ function buildForest(THREE, opts = {}) {
   for (const [name, count] of Object.entries(mix)) {
     const sp = SP[name]; if (!sp || count <= 0) continue;
     const trunks = new THREE.InstancedMesh(sp.trunk, bark, count);
-    const crowns = new THREE.InstancedMesh(sp.crown, new THREE.MeshStandardMaterial({ roughness: 0.85, flatShading: name !== 'broadleaf' }), count);
+    const crowns = sp.crown ? new THREE.InstancedMesh(sp.crown, new THREE.MeshStandardMaterial({ roughness: 0.85, flatShading: true }), count) : null;
+    const leafy = [];                                                                 // this species' makeCanopy crowns
     const pts = clusteredPoints(count, area, seed + si * 37);
     pts.forEach(([x, z], i) => {
       const k = sp.h[0] + (sp.h[1] - sp.h[0]) * gHash(seed + si * 31 + i, 211);      // 1) scale jitter
@@ -496,18 +494,25 @@ function buildForest(THREE, opts = {}) {
       q.setFromAxisAngle(up, gHash(seed + i, 217) * 6.283);                          // 3) yaw jitter
       const qq = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0.3).normalize(), lean).multiply(q);
       p.set(x, heightAtFn(x, z), z); s.set(k * (0.85 + 0.3 * gHash(i, 219)), k, k * (0.85 + 0.3 * gHash(i, 221)));
-      m.compose(p, qq, s); trunks.setMatrixAt(i, m); crowns.setMatrixAt(i, m);
+      m.compose(p, qq, s); trunks.setMatrixAt(i, m);
+      if (!crowns) { leafy.push({ position: [x, p.y + sp.canopy.y * k, z], radius: sp.canopy.radius * k }); return; }
+      crowns.setMatrixAt(i, m);
       tint.setHSL(sp.hue + (gHash(seed + i, 223) - 0.5) * 0.055,                     // 4) hue jitter ±0.03
                   sp.sat + (gHash(seed + i, 227) - 0.5) * 0.18,
                   sp.lum + (gHash(seed + i, 229) - 0.5) * 0.10);                     // 5) value jitter
       crowns.setColorAt(i, tint);
     });
-    trunks.instanceMatrix.needsUpdate = crowns.instanceMatrix.needsUpdate = true;
-    if (crowns.instanceColor) crowns.instanceColor.needsUpdate = true;
-    trunks.castShadow = crowns.castShadow = true; crowns.receiveShadow = true;
-    trunks.computeBoundingSphere(); crowns.computeBoundingSphere();
-    trunks.name = `${name}Trunks`; crowns.name = `${name}Crowns`;
-    group.add(trunks, crowns); si++;
+    trunks.instanceMatrix.needsUpdate = true; trunks.castShadow = true;
+    trunks.computeBoundingSphere(); trunks.name = `${name}Trunks`; group.add(trunks);
+    if (crowns) {
+      crowns.instanceMatrix.needsUpdate = true;
+      if (crowns.instanceColor) crowns.instanceColor.needsUpdate = true;
+      crowns.castShadow = crowns.receiveShadow = true; crowns.computeBoundingSphere();
+      crowns.name = `${name}Crowns`; group.add(crowns);
+    } else {                                                                           // one leaf mesh per species
+      group.add(makeCanopy({ crowns: leafy, color: new THREE.Color().setHSL(sp.hue, sp.sat, sp.lum), seed: seed + si, name: `${name}Crowns` }));
+    }
+    si++;
   }
   return group;
 }
@@ -692,7 +697,8 @@ Why: a scene mixes cheap instanced fillers with a few hero assets; GLBs come in 
 // point shaders only if the plan demands).  Recycle positions inside update.
 function buildFireflies(THREE, n = 120, area = { x: 0, z: 0, w: 30, d: 30 }) {
   const pos = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) pos.set([area.x + (rand(i) - 0.5) * area.w, 0.6 + rand(i + 300) * 2.2, area.z + (rand(i + 600) - 0.5) * area.d], i * 3);
+  const rnd = mulberry32(11);
+  for (let i = 0; i < n; i++) pos.set([area.x + (rnd() - 0.5) * area.w, 0.6 + rnd() * 2.2, area.z + (rnd() - 0.5) * area.d], i * 3);
   const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xd9f76e, size: 0.06, sizeAttenuation: true, transparent: true, opacity: 0.9 }));
   pts.name = 'Fireflies';
@@ -864,9 +870,10 @@ still read without it (`emissiveIntensity` ≤ 3, no white-out).  Do not build a
    ratio (sun ≈ 4–6 × hemisphere).
 4. **Shadows missing** → `castShadow` on the light AND meshes, `receiveShadow` on ground,
    shadow camera frustum too small, or light too far (increase `far`).
-5. **Shadow acne / peter-panning** → `sun.shadow.bias = -0.0005`, keep mapSize 2048.
+5. **Shadow acne / peter-panning** → a hand-set bias or map size on the rig's sun; `sunRig`
+   fits both to `bounds` — pass the content radius and leave them alone.
 6. **`Math.random()` anywhere** → different geometry every build; renders not reproducible;
-   use `rand(i)` hashes with explicit seeds.
+   use `mulberry32(seed)` from `lib/noise.js`.
 7. **Low fps** → count draw calls first (`scene_probe`); the usual criminals: hundreds of
    Meshes that should be instances, per-frame `traverse`, 4096 shadow maps, fog off with a
    500 m far plane.
@@ -894,9 +901,9 @@ still read without it (`emissiveIntensity` ≤ 3, no white-out).  Do not build a
 17. **The backdrop reads as pale cardboard** → hand-lerped toward a light fog colour
     (double haze → brighter than the ground) and/or built from flat planes.  Darken the
     base colour, let `scene.fog` haze it, use solid geometry.
-18. **Jagged / stair-stepped shadows** → shadow texel = `2 × shadowSpan / mapSize`; keep it
-    ≤ 0.05 m.  A 60 m span needs 3072², a 100 m span needs 4096² — or shrink the span to
-    the bounds instead of the whole terrain.
+18. **Jagged / stair-stepped shadows** → the shadow span is the whole terrain instead of the
+    content: `sunRig({ bounds })` sizes the map to the span it is given, so give it the
+    content radius, not the ground size.
 19. **Monochrome orange (or blue) frame** → key and fill share a hue.  The fill
     (HemisphereLight sky colour) must be ≥ 60° of hue away from the sun colour.
 20. **The scene is a diorama on a plane** → no foreground layer and no background layer.

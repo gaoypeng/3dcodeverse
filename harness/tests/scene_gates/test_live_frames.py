@@ -95,7 +95,7 @@ def test_example_scene_passes_frame_gate_and_judge_subset(starter_ws: Workspace)
     tile_h = Image.open(rs.views[0].path).size[1]
     assert sheet.size[1] < 5 * tile_h                             # 8 tiles in 4 columns → 2 rows, not 5
 
-    assert m["framing_bbox"]["size"][0] == pytest.approx(84.4, abs=0.5)   # the meadow (≈ 84 m) fits → framed whole
+    assert m["framing_bbox"]["size"][0] == pytest.approx(89.9, abs=0.5)   # the meadow (≈ 90 m) fits → framed whole
     y_wide = next(v for v in rs.views if v.name == SCENE_VIEWS[0].name).camera_position[1]
     tight_out = starter_ws.renders_dir(1)                                 # meadow sprawls past 33 m → the pondside zone
     tight = render_scene(starter_ws, tight_out, times=(0.0,), orbit_views=SCENE_VIEWS[:1], width=320, height=180,

@@ -168,9 +168,18 @@ console.log('GLB_OK', verts, buf.byteLength);
     assert (tmp_path / "object.glb").stat().st_size > 1000
 
 
+# the lib calls the scene cookbook's snippets make (their `import` lines are stripped)
+_SCENE_LIB_IMPORTS = (
+    "import { mulberry32 } from './lib/noise.js';\n"
+    "import { makeShaderMaterial } from './lib/shader.js';\n"
+    "import { makeCanopy } from './lib/canopy.js';\n"
+)
+
+
 @pytest.mark.node
 def test_scene_cookbook_runs(tmp_path) -> None:
     stub = (
+        _SCENE_LIB_IMPORTS +
         "function collectAnimatedMaterials(scene){const mats=[];scene.traverse(o=>{"
         "const l=Array.isArray(o.material)?o.material:(o.material?[o.material]:[]);"
         "for(const m of l) if(m.userData&&typeof m.userData.update==='function'&&!mats.includes(m))"
@@ -212,11 +221,13 @@ console.log('SCENE_OK', r.cameras.map((c) => c.name).join(','));
 
 @pytest.mark.node
 def test_scene_cookbook_sky_shader_compiles() -> None:
-    """The inline sky-dome ShaderMaterial from the scene cookbook must also compile — as a Mesh
+    """The sky dome the scene cookbook builds with makeShaderMaterial must also compile — as a Mesh
     (the dome) and as an InstancedMesh, through the production host (``check_shaders.mjs``)."""
     body = "".join("\n" + strip_imports_exports(b) for b in blocks("scene_threejs/cookbook.md", "js")[:2])
     scene = (
-        "import * as THREE from 'three';\n" + body
+        "import * as THREE from 'three';\nimport { sunRig } from './lib/environment.js';\n"
+        "import { mulberry32 } from './lib/noise.js';\nimport { makeShaderMaterial } from './lib/shader.js';\n"
+        + body
         + "\nexport function createScene() {\n"
         "  const scene = new THREE.Scene();\n"
         "  const env = buildEnv({ THREE, scene });\n"
@@ -225,5 +236,5 @@ def test_scene_cookbook_sky_shader_compiles() -> None:
         "  return { scene, cameras: [{ name: 'a', position: [3, 3, 5], lookAt: [0, 0, 0] }], update: env.update };\n"
         "}\n"
     )
-    code, out = compile_scene(scene)
+    code, out = compile_scene(scene, ("environment.js", "sky.js"))
     assert code == 0, f"sky shader failed to compile:\n{out}"

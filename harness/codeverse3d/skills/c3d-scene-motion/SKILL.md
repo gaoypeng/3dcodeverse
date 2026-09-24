@@ -143,8 +143,8 @@ Two more rules that follow from the pair of frames:
   in the t = 0 photograph and the scene reads dead in the very frame the judge
   looks at first. Give each element a phase offset, or drive it with
   `Math.sin(t / P * 6.283 + 1.0)`.
-* **Seed the phase per instance.** `phase = rand(i) * 6.283` from your seeded
-  hash. A hundred trees sharing one phase is one big object nodding, which both
+* **Seed the phase per instance.** `phase = rand() * 6.283` from your seeded
+  `mulberry32`. A hundred trees sharing one phase is one big object nodding, which both
   looks wrong and cancels itself out in the pixel diff when half the crowd moves
   into the space the other half left.
 

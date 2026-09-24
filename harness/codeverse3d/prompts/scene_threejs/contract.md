@@ -79,7 +79,7 @@ bloom: author them at peak 1.5–4, not 20.  `--no-post` / `C3D_POST=0` turns it
 ## Forbidden
 `document.*` / `window.*` except `window.innerWidth` — never create canvases or DOM;
 external network requests or arbitrary `fetch`/XHR (use `loaders.gltf` for assets
-and the local FileLoader pattern above for shader text); `Math.random()` (use a seeded hash `rand(i)`);
+and the local FileLoader pattern above for shader text); `Math.random()` (use `mulberry32(seed)` from `lib/noise.js`);
 `Date.now()`/`performance.now()` (use `t`); `requestAnimationFrame`; creating a renderer;
 changing renderer settings; environment sniffing (`navigator.userAgent`, headless checks).
 
@@ -122,8 +122,9 @@ export function buildEnv({ THREE, scene }) {
 `src/zones/grove.js`
 ```js
 import * as THREE from 'three';
-const rand = (i) => { const s = Math.sin(i * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); };
+import { mulberry32 } from '../lib/noise.js';
 export function build({ THREE, heightAt }) {
+  const rand = mulberry32(7);                    // seeded: the same grove every build
   const zone = new THREE.Group(); zone.name = 'Grove';
   const N = 40;
   const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.18, 2.4, 8),
@@ -132,8 +133,8 @@ export function build({ THREE, heightAt }) {
                                         new THREE.MeshStandardMaterial({ color: 0x2f6b2a, roughness: 0.8 }), N);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
   for (let i = 0; i < N; i++) {
-    const x = -18 + 36 * rand(i), z = -18 + 36 * rand(i + 100), y = heightAt(x, z);
-    const k = 0.8 + 0.5 * rand(i + 200);
+    const x = -18 + 36 * rand(), z = -18 + 36 * rand(), y = heightAt(x, z);
+    const k = 0.8 + 0.5 * rand();
     p.set(x, y + 1.2 * k, z); s.set(k, k, k); m.compose(p, q, s); trunk.setMatrixAt(i, m);
     p.set(x, y + 2.4 * k + 1.4 * k, z); m.compose(p, q, s); crown.setMatrixAt(i, m);
   }
