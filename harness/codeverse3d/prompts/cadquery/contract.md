@@ -74,7 +74,7 @@ def build_leg(sx: int, sy: int) -> cq.Workplane:
 assy = cq.Assembly(name="SideTable")
 assy.add(build_top(), name="Top", color=cq.Color(0.55, 0.33, 0.16))
 for i, (sx, sy) in enumerate([(1, 1), (-1, 1), (-1, -1), (1, -1)]):
-    assy.add(build_leg(sx, sy), name=f"Leg{i + 1}", color=cq.Color(0.2, 0.2, 0.22))
+    assy.add(build_leg(sx, sy), name=f"Leg_{i}", color=cq.Color(0.2, 0.2, 0.22))
 
 _selfcheck(assy)
 result = assy

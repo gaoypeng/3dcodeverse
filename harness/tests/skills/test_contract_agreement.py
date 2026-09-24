@@ -134,3 +134,21 @@ def test_skill_advice_respects_gates_and_language_contracts():
                         f"{skill.name} recommends {api!r}, forbidden by {language}/contract.md:\n"
                         f"    {' '.join(paragraph.split())[:160]}"
                     )
+
+
+#: a node name built from a loop index with nothing between the stem and the index
+#: (``f"Leg{i + 1}"``, `` `Leg${i}` ``): `conventions.split_instance` does not split it
+_GLUED_INDEX = re.compile(r"[A-Za-z]\$?\{i\b")
+_OBJECT_TEXTS = [p for d in ("blender", "cadquery", "threejs", "urdf") for p in sorted((PROMPTS / d).glob("*.md"))] \
+    + sorted((PROMPTS / "tracks").glob("generate_*.j2")) + sorted(skills_dir().rglob("*.md"))
+
+
+def test_object_texts_name_instances_the_way_the_gate_splits_them():
+    """Audit 2026-09-24 N1: the contracts' own examples named copies ``Leg1``..``Leg4``, which
+    the contract gate does not count as instances of plan part ``Leg`` (missing-part ERROR)."""
+    from codeverse3d.conventions import split_instance, to_snake
+
+    assert split_instance(to_snake("Leg1")) == ("leg1", "") and split_instance(to_snake("Leg_1")) == ("leg", "1")
+    glued = [f"{p.relative_to(HARNESS)}:{n}: {line.strip()}" for p in _OBJECT_TEXTS
+             for n, line in enumerate(p.read_text().splitlines(), 1) if _GLUED_INDEX.search(line)]
+    assert not glued, "name instances Name_{i}:\n" + "\n".join(glued)

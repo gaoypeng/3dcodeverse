@@ -36,7 +36,7 @@ export function buildLegs(THREE) {
   const g = new THREE.Group(); g.name = 'Legs';
   const geo = new THREE.BoxGeometry(LEG, SEAT_H - SEAT_T + WELD, LEG);
   [[1, 1], [-1, 1], [-1, -1], [1, -1]].forEach(([sx, sz], i) =>
-    g.add(mesh(geo, MAT.oak(), `Leg${i + 1}`, sx * (SEAT_W / 2 - LEG / 2 - 0.01),
+    g.add(mesh(geo, MAT.oak(), `Leg_${i}`, sx * (SEAT_W / 2 - LEG / 2 - 0.01),
                (SEAT_H - SEAT_T + WELD) / 2, sz * (SEAT_D / 2 - LEG / 2 - 0.01))));
   return g;
 }
@@ -121,7 +121,7 @@ function buildFan(THREE) {
   const bladeGeo = new THREE.BoxGeometry(0.02, 0.4, 0.004).translate(0, 0.25, 0);      // blade root at the hub
   for (let i = 0; i < 3; i++) {
     const b = new THREE.Mesh(bladeGeo, new THREE.MeshStandardMaterial({ color: 0xdddddd }));
-    b.name = `Blade${i + 1}`; b.rotation.z = i * Math.PI * 2 / 3; hub.add(b);
+    b.name = `Blade_${i}`; b.rotation.z = i * Math.PI * 2 / 3; hub.add(b);
   }
   g.add(hub);
   g.userData.tick = (dt) => { hub.rotation.z += dt * 2.0; };   // rad/s
@@ -348,9 +348,9 @@ if (densityTris < 3000) throw new Error('density recipes produced almost no geom
 
 | object | W × D × H | parts | key numbers |
 |---|---|---|---|
-| dining chair | 0.45 × 0.50 × 0.90 | Seat, Backrest, Leg1..4, Stretchers | seat y 0.45, t 0.035, leg 0.035, rake 8° |
-| sofa | 2.0 × 0.9 × 0.85 | Base, SeatCushion1..3, BackCushion1..3, ArmLeft/Right, Legs | seat y 0.42, arm y 0.60, cushion 0.11 |
-| table | 1.6 × 0.9 × 0.75 | Top, Apron, Leg1..4 | top t 0.035, legs 0.07 at 0.05 inset |
+| dining chair | 0.45 × 0.50 × 0.90 | Seat, Backrest, Leg ×4, Stretchers | seat y 0.45, t 0.035, leg 0.035, rake 8° |
+| sofa | 2.0 × 0.9 × 0.85 | Base, SeatCushion ×3, BackCushion ×3, ArmLeft/Right, Legs | seat y 0.42, arm y 0.60, cushion 0.11 |
+| table | 1.6 × 0.9 × 0.75 | Top, Apron, Leg ×4 | top t 0.035, legs 0.07 at 0.05 inset |
 | desk lamp | Ø 0.18 × 0.55 | Base, ArmLower, ArmUpper, Shade, Bulb | arm Ø 0.012, shade Ø 0.15 |
 | mug | Ø 0.085 × 0.095 | Body (Lathe), Handle (Tube) | wall 4 mm, handle Ø 12 mm |
 | bottle | Ø 0.075 × 0.30 | Body (Lathe), Cap | neck Ø 0.028 |
@@ -358,7 +358,7 @@ if (densityTris < 3000) throw new Error('density recipes produced almost no geom
 | car | 4.6 × 1.85 × 1.45 | Body(Extrude side profile), Cabin, Wheel×4, Bumpers, Mirrors, Lights | wheel Ø 0.65, wheelbase 2.7, clearance 0.15 |
 | house | 10 × 8 × 7 | Walls, Roof(Extrude triangle), Door, Windows, Chimney | storey 2.8, pitch 35°, door 0.9 × 2.1 |
 | tree | crown Ø 7 × H 12 | Trunk(Cylinder taper), Branches(Tube), Crown(3–6 spheres, vertex colours) | trunk Ø 0.4 |
-| bookshelf | 0.8 × 0.3 × 1.8 | SideLeft/Right, Top, Bottom, Shelf1..4, Back | panel 18 mm |
+| bookshelf | 0.8 × 0.3 × 1.8 | SideLeft/Right, Top, Bottom, Shelf ×4, Back | panel 18 mm |
 | monitor | 0.62 × 0.2 × 0.45 | Panel, Stand, Base | bezel 8 mm |
 
 Decomposition: 1 main mass → 2–6 secondary masses touching it → attachments overlapping
@@ -464,7 +464,7 @@ export function selfcheck(THREE, root, expectedNames = [], extentsHint = null) {
   console.log(`[selfcheck] parts=${names.size} tris=${tris} extents=${size.toArray().map(v => v.toFixed(3))}`);
   return { tris, size };
 }
-selfcheck(THREE, build(THREE), ['Seat', 'Legs', 'Leg1', 'Leg4'], [0.44, 0.45, 0.44]);
+selfcheck(THREE, build(THREE), ['Seat', 'Legs', 'Leg_0', 'Leg_3'], [0.44, 0.45, 0.44]);
 ```
 The harness also calls an exported `selfcheck(THREE, root)` on the built group (defaults
 above make that call permissive); a throw fails the build as `SelfCheckError` with your

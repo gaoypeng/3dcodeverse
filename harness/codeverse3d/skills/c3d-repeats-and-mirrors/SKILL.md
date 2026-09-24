@@ -28,7 +28,7 @@ of the plan row. A hand-typed second copy is how the pair stops matching.
 `check_contract` (`spatial/contract.py`) treats an instanced part differently from a single part.
 
 * **Naming.** The gate first claims the node named exactly like the plan part, then claims
-  `Name_0`, `Name_1`, ... (regex `^name([_.-]?\d{1,3})?$`, so `Leg1` and `Leg.2` also match).
+  `Name_0`, `Name_1`, ... (`Leg1`, with no separator, is NOT an instance of `Leg`).
   A node whose name is exactly *another* plan part's name is never stolen. Use
   `Name_0 .. Name_{N-1}` — that is the string the gate's own fix hint asks for.
 * **Count.** `instances = N` but a different number of nodes found is a WARN:

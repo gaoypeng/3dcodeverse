@@ -24,7 +24,7 @@ The harness loads `src/object.js` in node, calls `build(THREE)`, and exports
 ## Naming
 * Part Group: `g.name = "<PartName>"` — PascalCase exactly as the plan (`SeatCushion`);
   meshes inside may be unnamed or `<PartName>_<detail>`.  Unique names; instances get
-  their own names (`Leg1`…`Leg4`) even if built by one function.
+  their own names (`Leg_0`…`Leg_3`) even if built by one function.
 * Optional animation hook: `root.userData.tick = (dt) => { ... }` on a pivot Group
   (position + rotation only; identity scale).  No other userData contract.
 
@@ -85,7 +85,7 @@ export function buildLegs(THREE) {
   const geo = new THREE.CylinderGeometry(LEG_R, LEG_R, LEG_H, 24);
   const mat = new THREE.MeshStandardMaterial({ color: 0x555a60, roughness: 0.35, metalness: 0.9 });
   [[1, 1], [-1, 1], [-1, -1], [1, -1]].forEach(([sx, sz], i) => {
-    const m = new THREE.Mesh(geo, mat); m.name = `Leg${i + 1}`;
+    const m = new THREE.Mesh(geo, mat); m.name = `Leg_${i}`;
     m.position.set(sx * LEG_XZ, LEG_H / 2, sz * LEG_XZ);
     g.add(m);
   });

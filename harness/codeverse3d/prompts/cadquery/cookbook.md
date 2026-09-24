@@ -183,7 +183,7 @@ stool.add(seat, name="Seat", color=cq.Color(0.55, 0.34, 0.16))
 leg = cq.Workplane("XY").circle(0.015).extrude(0.41 + WELD)      # authored at the origin
 for i in range(3):
     a = math.radians(90 + 120 * i)
-    stool.add(leg, name=f"Leg{i + 1}", color=cq.Color(0.3, 0.3, 0.32),
+    stool.add(leg, name=f"Leg_{i}", color=cq.Color(0.3, 0.3, 0.32),
               loc=place(leg, (0.12 * math.cos(a), 0.12 * math.sin(a), 0)))
 # sub-assemblies nest: stool.add(other_assy, name="Footrest", loc=...)
 names = [c.name for c in stool.children]
@@ -363,7 +363,7 @@ def selfcheck(assy: cq.Assembly, expected_parts, overall_hint=None, tol=0.01) ->
         for a, b in zip(ext, overall_hint):
             assert abs(a - b) < 0.05, f"extents {ext} vs plan {overall_hint}"
 
-selfcheck(stool, ["Seat", "Leg1", "Leg2", "Leg3"], (0.34, 0.34, 0.45))
+selfcheck(stool, ["Seat", "Leg_0", "Leg_1", "Leg_2"], (0.34, 0.34, 0.45))
 selfcheck(result, ["Body", "Lid"])
 ```
 
@@ -399,13 +399,13 @@ def chair_back():
 chair = cq.Assembly(name="DiningChair")
 chair.add(chair_seat(), name="Seat", color=cq.Color(0.6, 0.4, 0.2))
 for i, (sx, sy) in enumerate([(1, 1), (-1, 1), (-1, -1), (1, -1)]):
-    chair.add(chair_leg(SEAT_H - SEAT_T), name=f"Leg{i + 1}", color=cq.Color(0.45, 0.3, 0.15),
+    chair.add(chair_leg(SEAT_H - SEAT_T), name=f"Leg_{i}", color=cq.Color(0.45, 0.3, 0.15),
               loc=cq.Location(cq.Vector(sx * (SEAT_W / 2 - LEG / 2 - 0.01), sy * (SEAT_D / 2 - LEG / 2 - 0.01), 0)))
 chair.add(chair_back(), name="Backrest", color=cq.Color(0.45, 0.3, 0.15))
 stretch = cq.Workplane("XY").box(SEAT_W - LEG - 0.02 + 2 * WELD, 0.02, 0.02).translate((0, 0, 0.20))
 chair.add(stretch.translate((0, SEAT_D / 2 - LEG / 2 - 0.01, 0)), name="StretcherBack", color=cq.Color(0.45, 0.3, 0.15))
 chair.add(stretch.translate((0, -(SEAT_D / 2 - LEG / 2 - 0.01), 0)), name="StretcherFront", color=cq.Color(0.45, 0.3, 0.15))
-selfcheck(chair, ["Seat", "Leg1", "Leg2", "Leg3", "Leg4", "Backrest", "StretcherBack", "StretcherFront"])
+selfcheck(chair, ["Seat", "Leg_0", "Leg_1", "Leg_2", "Leg_3", "Backrest", "StretcherBack", "StretcherFront"])
 ```
 
 Why: the plan's numbers appear once as constants; legs are one solid placed four times;

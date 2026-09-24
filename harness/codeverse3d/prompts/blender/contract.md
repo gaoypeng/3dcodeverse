@@ -131,8 +131,8 @@ def build_seat() -> bpy.types.Object:
 
 def build_leg(i: int) -> bpy.types.Object:
     a, h = 2 * math.pi * i / LEG_N, SEAT_Z - SEAT_T + 0.001          # 1 mm into the seat (weld)
-    leg = make_cylinder(f"Leg{i + 1}", LEG_R, h, (LEG_RING * math.cos(a), LEG_RING * math.sin(a), h / 2), 24)
-    leg.data.materials.append(make_material(f"Steel{i + 1}", (0.6, 0.6, 0.62), 0.35, 1.0))
+    leg = make_cylinder(f"Leg_{i}", LEG_R, h, (LEG_RING * math.cos(a), LEG_RING * math.sin(a), h / 2), 24)
+    leg.data.materials.append(make_material(f"Steel_{i}", (0.6, 0.6, 0.62), 0.35, 1.0))
     return leg
 
 def _selfcheck() -> None:

@@ -230,7 +230,7 @@ WR, WT = 0.10, 0.03                         # wheel radius / width
 POST_Y, POST_Z0, POST_H, POST_W, WALL = CD / 2 - 0.016, WR + CH, 0.60, 0.032, 0.003
 deck = make_box("deck", (CW, CD, CH), (0, 0, WR + CH / 2))         # deck rides above the axle height
 # the handle post is a HOLLOW square tube (4 walls) so the telescopic grip can slide inside it
-walls = [make_box(f"deck_post_w{i}", s, c) for i, (s, c) in enumerate([
+walls = [make_box(f"deck_post_w_{i}", s, c) for i, (s, c) in enumerate([
     ((POST_W, WALL, POST_H), (0, POST_Y - POST_W / 2 + WALL / 2, POST_Z0 + POST_H / 2)),
     ((POST_W, WALL, POST_H), (0, POST_Y + POST_W / 2 - WALL / 2, POST_Z0 + POST_H / 2)),
     ((WALL, POST_W - 2 * WALL, POST_H), (-POST_W / 2 + WALL / 2, POST_Y, POST_Z0 + POST_H / 2)),

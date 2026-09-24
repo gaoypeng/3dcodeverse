@@ -11,9 +11,9 @@ Everything here was read out of the live harness on 2026-08-25:
 
 1. **Exact pass.** For each plan part, claim every node whose `to_snake(name)` equals the plan
    part's `to_snake(name)`.
-2. **Instance pass.** For each plan part, claim the remaining nodes matching
-   `^{snake}(?:[_.-]?\d{1,3})?$` — but never a node whose snake name is *reserved*, i.e. is the
-   exact snake name of some other plan part.
+2. **Instance pass.** For each plan part, claim the remaining nodes named `{snake}`, a
+   separator (`_`, `.` or `-`) and one to three digits (`conventions.split_instance`) — but never
+   a node whose snake name is *reserved*, i.e. is the exact snake name of some other plan part.
 
 Pass 2's reservation exists because of a real regression: a plan with `Shelf` and `Shelf2` had
 `Shelf` swallow the `Shelf2` node, producing a false `plan part 'Shelf2' is missing from the
@@ -21,8 +21,8 @@ GLB` ERROR on geometry that matched the plan exactly.
 
 Consequences you can act on:
 
-* `Leg_0`, `Leg.1`, `Leg-2`, `Leg3` all count as instances of plan part `Leg`. Only up to three
-  digits.
+* `Leg_0`, `Leg.1`, `Leg-2` all count as instances of plan part `Leg`; `Leg3` does NOT (no
+  separator: it is another name, so plan part `Leg` is reported missing). Only up to three digits.
 * Blender's auto-suffix `Leg.001` also matches (3 digits) — but do not rely on it; auto-suffixes
   mean you created a name collision and the numbering is not yours.
 * `LegFront` does **not** match `Leg` (the regex allows digits only after the stem).

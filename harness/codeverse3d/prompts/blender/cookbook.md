@@ -522,9 +522,9 @@ def separate_loose(obj) -> list:
     return [obj] + sorted(set(bpy.data.objects) - before, key=lambda o: o.name)
 
 legs = collection("Legs")
-leg0 = make_cylinder("Leg1", 0.02, 0.42, (0.18, 0.18, 0.21), 16)
-for i, (sx, sy) in enumerate([(-1, 1), (-1, -1), (1, -1)], start=2):
-    linked_copy(leg0, f"Leg{i}", (sx * 0.18, sy * 0.18, 0.21))
+leg0 = make_cylinder("Leg_0", 0.02, 0.42, (0.18, 0.18, 0.21), 16)
+for i, (sx, sy) in enumerate([(-1, 1), (-1, -1), (1, -1)], start=1):
+    linked_copy(leg0, f"Leg_{i}", (sx * 0.18, sy * 0.18, 0.21))
 for o in bpy.data.objects:
     if o.name.startswith("Leg"): move_to(o, legs)
 ```
@@ -844,8 +844,8 @@ it part by part with what the density table adds.
 |---|---|---|---|
 | dining chair | 0.45 × 0.50 × 0.90 | Seat, Backrest, LegFrontLeft/Right, LegBackLeft/Right, Stretchers | seat h 0.45, seat t 0.04, leg Ø/□ 0.035, back top 0.90, back rake 8° |
 | armchair / sofa seat | 0.85 × 0.90 × 0.85 (sofa W 1.8–2.2) | Base, SeatCushion(s), BackCushion(s), ArmLeft, ArmRight, Legs | seat h 0.42, cushion 0.10–0.12, arm h 0.60, arm w 0.15–0.25 |
-| dining table | 1.6 × 0.9 × 0.75 | Top, Apron, Leg1..4 | top t 0.03–0.04, leg 0.07 □ at 0.05 inset |
-| coffee table | 1.2 × 0.6 × 0.45 | Top, Leg1..4 or Base | top t 0.025 |
+| dining table | 1.6 × 0.9 × 0.75 | Top, Apron, Leg ×4 | top t 0.03–0.04, leg 0.07 □ at 0.05 inset |
+| coffee table | 1.2 × 0.6 × 0.45 | Top, Leg ×4 or Base | top t 0.025 |
 | desk lamp | 0.18 Ø base, H 0.45–0.60 | Base, ArmLower, ArmUpper, Shade, Bulb | base t 0.02, arm Ø 0.012, shade Ø 0.15 h 0.12 |
 | floor lamp | 0.30 Ø base, H 1.6 | Base, Pole, Shade | pole Ø 0.025, shade Ø 0.40 |
 | mug | Ø 0.085 × 0.095 | MugBody, MugHandle | wall 4 mm, bottom 6 mm, handle tube Ø 12 mm |
@@ -855,7 +855,7 @@ it part by part with what the density table adds.
 | house (small) | 10 × 8 × 7 | Walls, Roof, Door, Windows, Chimney, Steps | wall h 2.8/storey, roof pitch 30–40°, door 0.9 × 2.1, window 1.2 × 1.2 at sill 0.9 |
 | tree (deciduous) | crown Ø 6–9, H 10–14 | Trunk, Branches, Crown(s) | trunk Ø 0.4 at base, first branch at 2.5, crown = 3–6 overlapping spheres |
 | door | 0.9 × 0.045 × 2.05 | Leaf, Frame, Handle, Hinges | handle h 1.05, frame 0.07 wide |
-| bookshelf | 0.80 × 0.30 × 1.80 | SideLeft, SideRight, Top, Bottom, Shelf1..4, Back | panel 18 mm, shelf pitch 0.33 |
+| bookshelf | 0.80 × 0.30 × 1.80 | SideLeft, SideRight, Top, Bottom, Shelf ×4, Back | panel 18 mm, shelf pitch 0.33 |
 | kitchen cabinet | 0.60 × 0.58 × 0.87 | Carcass, Door(s)/Drawer(s), Handle(s), Plinth | plinth h 0.10, front 18 mm, handle proud 30 mm |
 | monitor | 0.62 × 0.20 × 0.45 | Panel, Stand, Base | panel t 0.02, bezel 8 mm, base 0.25 × 0.20 |
 | keyboard | 0.44 × 0.14 × 0.03 | Body, Keys(instanced) | key 0.018 pitch 0.019 |
@@ -920,7 +920,7 @@ def build_sail_rotor() -> bpy.types.Object:
 4. **Modifier apply fails "Modifier cannot be applied to a multi-user mesh"** →
    `obj.data = obj.data.copy()` first (`apply_modifiers` does it).
 5. **Names like `Leg.001`** → you created two objects/meshes with the same name; give every
-   instance its plan name (`Leg2`); rename meshes too if you care (`o.data.name = o.name`).
+   instance its plan name (`Leg_2`); rename meshes too if you care (`o.data.name = o.name`).
 6. **Boolean does nothing / leaves holes** → cutter coplanar with a face or not closed.
    Overshoot the cutter by ≥ 5 mm, make it watertight (`cap_ends=True`), use `EXACT`.
 7. **Dark/inverted shading, inside-out parts** → flipped normals after `bmesh.ops.scale`
