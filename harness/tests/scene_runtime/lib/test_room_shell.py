@@ -93,3 +93,25 @@ def test_a_glazed_shell_is_glass_on_a_frame_grid_that_lets_the_sun_in():
     assert got["bars"] > 40 and got["frameShadow"], got
     # between the bars the sun reaches the floor; the opaque shell shades all of it
     assert got["opaque"] == 1.0 and got["shaded"] < 0.3, got
+
+
+_THIN_PANELS = """
+import * as THREE from 'three';
+import { roomShell } from './lib/environment.js';
+// two south windows 0.1 m apart with 0.2 m sills: a strip and sills narrower than the 0.3 m wall
+const g = roomShell({ center: [0, 5, 0], extents: [20, 10, 16], glazed: true, thickness: 0.3,
+                      openings: [{ face: 'south', center: [5, 2.0], size: [2, 3.6] },
+                                 { face: 'south', center: [7.1, 2.0], size: [2, 3.6] }] });
+const south = g.children.filter((m) => m.name.startsWith('Wall_south')).map((m) => {
+  const s = new THREE.Vector3(); new THREE.Box3().setFromObject(m).getSize(s); return s.toArray(); });
+console.log(JSON.stringify({ south }));
+"""
+
+
+def test_glazed_panes_are_thin_along_the_wall_even_when_narrower_than_it():
+    """/code-review 2026-09-24: the glass (and its frame) took the SMALLEST size as the thickness axis,
+    so a 0.2 m sill became a horizontal plate and a 0.1 m strip a fin through the wall."""
+    got = measure(_THIN_PANELS, ("environment.js", "sky.js"))
+    assert len(got["south"]) >= 5, got
+    assert all(abs(size[2] - 0.02) < 1e-6 for size in got["south"]), got      # z is the south wall's thickness
+    assert any(size[0] < 0.3 for size in got["south"]) and any(size[1] < 0.3 for size in got["south"]), got

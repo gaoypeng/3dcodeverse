@@ -85,9 +85,10 @@ export function roomShell(opts = {}) {
   const bars = [];                   // [cx, cy, cz, sx, sy, sz] per bar
   // The frame of one glazed panel: bars on a WORLD lattice (so the grid runs on across
   // adjacent panels and around an opening) plus a bar on every panel edge.
-  const frame = (sx, sy, sz, x, y, z) => {
+  // `thin` is the slab's thickness axis (0 x, 1 y, 2 z), known from the face — never the smallest
+  // size: a sill or a strip between openings can be narrower than the wall is thick.
+  const frame = (sx, sy, sz, x, y, z, thin) => {
     const dims = [sx, sy, sz], c = [x, y, z];
-    const thin = dims.indexOf(Math.min(...dims));
     const [i, j] = [0, 1, 2].filter((k) => k !== thin);
     const step = (k) => (k === 1 ? bayU : bayA);
     const lines = (k) => {
@@ -104,15 +105,15 @@ export function roomShell(opts = {}) {
       }
     }
   };
-  const slab = (name, sx, sy, sz, x, y, z, mat) => {
+  const slab = (name, sx, sy, sz, x, y, z, mat, thin) => {
     if (glazed) {
       // one sheet of glass in the slab's mid-plane (a 0.3 m glass BOX is four faces of glass)
       const sheet = [sx, sy, sz];
-      sheet[sheet.indexOf(Math.min(...sheet))] = 0.02;
+      sheet[thin] = 0.02;
       const m = new THREE.Mesh(new THREE.BoxGeometry(...sheet), glassMat);
       m.name = name === 'Ceiling' ? 'Roof' : name; m.position.set(x, y, z);
       group.add(m);
-      frame(sx, sy, sz, x, y, z);
+      frame(sx, sy, sz, x, y, z, thin);
       return m;
     }
     const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
@@ -136,7 +137,7 @@ export function roomShell(opts = {}) {
       if (a1 - a0 < 0.01 || b1 - b0 < 0.01) return;
       const [x, z] = along(origin + (a0 + a1) / 2);
       const sx = f.axis === 'x' ? t : a1 - a0, sz = f.axis === 'x' ? a1 - a0 : t;
-      slab(name, sx, b1 - b0, sz, x, y0 + (b0 + b1) / 2, z, wallMat);
+      slab(name, sx, b1 - b0, sz, x, y0 + (b0 + b1) / 2, z, wallMat, f.axis === 'x' ? 0 : 2);
     };
     if (!holes.length) { place(`Wall_${face}`, 0, f.len, 0, h); continue; }
     const clipped = holes.map((o) => ({
@@ -162,7 +163,7 @@ export function roomShell(opts = {}) {
       place(`Wall_${face}_${n++}`, a0, a1, bottom, h);
     }
   }
-  if (opts.ceiling !== false) slab('Ceiling', w + 2 * t, t, d + 2 * t, cx, y0 + h + t / 2, cz, ceilMat);
+  if (opts.ceiling !== false) slab('Ceiling', w + 2 * t, t, d + 2 * t, cx, y0 + h + t / 2, cz, ceilMat, 1);
   if (bars.length) {
     const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), frameMat, bars.length);
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion();
