@@ -23,6 +23,7 @@ import concurrent.futures as cf
 import logging
 from dataclasses import dataclass
 
+from codeverse3d.contracts.common import Backends
 from codeverse3d.models.registry import build_chat_model
 
 log = logging.getLogger(__name__)
@@ -68,7 +69,7 @@ class Health:
 
 
 def probe(
-    model: str = "gemini:gemini-3.7-flash",
+    model: str = Backends().planner,
     *,
     sample: int = DEFAULT_SAMPLE,
     timeout_s: float = DEFAULT_TIMEOUT_S,

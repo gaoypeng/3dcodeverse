@@ -28,6 +28,7 @@ def test_setup_and_runtime_js_declare_the_same_runtime_floors() -> None:
     assert re.search(rf"^MIN_PY_MINOR={PY_FLOOR[1]}\b", text, re.M), "setup.sh python floor drifted"
     assert re.search(rf"^MIN_NODE_MAJOR={NODE_MIN[0]}\b", text, re.M), "setup.sh node major floor drifted"
     assert re.search(rf"^MIN_NODE_MINOR={NODE_MIN[1]}\b", text, re.M), "setup.sh node minor floor drifted"
+    assert f"(python {PY_FLOOR[0]}.{PY_FLOOR[1]}," in text, "setup.sh's header states another python floor"
     pkg = json.loads((HARNESS / "runtime_js" / "package.json").read_text())
     assert pkg["engines"]["node"] == f">={NODE_MIN_STR}"
 
@@ -78,3 +79,19 @@ def test_run_node_enforces_the_version_floor(tmp_path, monkeypatch) -> None:
         node_mod.run_node(script)
     monkeypatch.setattr(node_mod, "node_version", lambda _bin: (20, 6, 0))
     require_node_version("node")  # must not raise
+
+
+def test_a_configured_blender_is_never_substituted_and_its_floor_is_checked(tmp_path: Path, switch) -> None:
+    """N67: a typo'd C3D_BINARIES__BLENDER silently fell back to whatever was on PATH; 4.2 was unchecked."""
+    from codeverse3d import doctor
+    from codeverse3d.config import get_settings
+
+    switch("C3D_BINARIES__BLENDER", str(tmp_path / "blendr"))
+    assert get_settings().resolve_blender() == ""
+    assert doctor.check_blender()[0][1] == "FAIL" and "blendr" in doctor.check_blender()[0][2]
+    old = tmp_path / "blender-3.6"
+    old.write_text("#!/bin/sh\necho 'Blender 3.6.5'\n")
+    old.chmod(0o755)
+    switch("C3D_BINARIES__BLENDER", str(old))
+    name, status, detail = doctor.check_blender()[0]
+    assert get_settings().resolve_blender() == str(old) and status == "FAIL" and "too old" in detail

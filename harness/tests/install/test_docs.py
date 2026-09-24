@@ -237,11 +237,9 @@ def test_doctor_rows_have_troubleshooting_entries(monkeypatch) -> None:
                         lambda keys, **kw: SimpleNamespace(slots=busy, stats=lambda: {
                             "n_keys": 1, "in_flight": 0, "peak_in_flight": 0, "acquired": 0, "ok": 0,
                             "429": 0, "5xx": 0, "n_dead": 0, "n_cooling": 0}))
-    monkeypatch.setattr(
-        "codeverse3d.models.get_chat_model",
-        lambda model: SimpleNamespace(generate=lambda request: SimpleNamespace(
-            text="pong", usage=SimpleNamespace(cost_usd=0.0))),
-    )
+    from codeverse3d.models.health import Health
+
+    monkeypatch.setattr("codeverse3d.models.health.probe", lambda **kw: Health(model="gemini:m", n_ok=1, n_tried=1))
     monkeypatch.setattr("codeverse3d.skills.registry.ROUTED_SKILLS", ("missing",))
 
     rows = doctor_mod.run_doctor(live=True, gpu=True, skills=True)

@@ -3,7 +3,7 @@
 #
 #   bash harness/setup.sh [options]
 #
-# Does, in order: version checks (python >= 3.10, node >= 20.6) -> `pip install -e
+# Does, in order: version checks (python 3.13, node >= 20.6) -> `pip install -e
 # harness[<extras>]` -> `npm ci` in runtime_js *only when the lockfile moved* ->
 # puppeteer chrome download (no-op when cached) -> `3dcodeverse doctor`.
 # Re-running is safe: every step is a no-op when it is already satisfied.
@@ -125,11 +125,8 @@ else
   info "node     not found (three.js / scene / GLB export tracks will not run)"
 fi
 
-if command -v blender-5.0 >/dev/null 2>&1 || command -v blender >/dev/null 2>&1 || [ -n "${C3D_BINARIES__BLENDER:-}" ]; then
-  info "blender  found"
-else
-  info "blender  not found (optional: blender / urdf_blender tracks unavailable — docs/INSTALL.md §6)"
-fi
+# Blender (optional: the blender / urdf_blender tracks) is found and version-checked by the
+# closing doctor, through the harness's own resolver (docs/INSTALL.md §6).
 
 # ------------------------------------------------------------------ python pkg
 if [ "$DO_PYTHON" -eq 1 ]; then

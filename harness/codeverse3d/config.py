@@ -67,6 +67,10 @@ Flag = Annotated[bool, WrapValidator(_or_default)]
 Count = Annotated[int, Field(ge=0), WrapValidator(_or_default)]
 
 
+#: the oldest Blender the wrappers support (docs/INSTALL.md §2.1); ``3dcode doctor`` checks it
+BLENDER_MIN: tuple[int, int] = (4, 2)
+
+
 class Binaries(BaseModel):
     blender: str = Field(default="", description="path to a Blender 4.2+/5.x binary (headless capable)")
     node: str = "node"
@@ -364,8 +368,10 @@ class Settings(BaseSettings):
         return p
 
     def resolve_blender(self) -> str:
-        if self.binaries.blender and Path(self.binaries.blender).exists():
-            return self.binaries.blender
+        """The configured binary (a path or a name on PATH), else the first Blender on PATH.  A
+        configured one that is not there is "none", never a silent substitute for it."""
+        if self.binaries.blender:
+            return shutil.which(self.binaries.blender) or ""
         for cand in ("blender-5.0", "blender", "blender-5.1", "blender-4.2"):
             p = shutil.which(cand)
             if p:

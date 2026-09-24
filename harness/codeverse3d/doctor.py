@@ -7,11 +7,11 @@ shim is a CLI concern (tests/install imports these checks as documentation facts
 from __future__ import annotations
 
 import importlib
+import re
 import shutil
 from pathlib import Path
 
-from codeverse3d.config import get_settings
-from codeverse3d.models import get_chat_model
+from codeverse3d.config import BLENDER_MIN, get_settings
 from codeverse3d.proc import read_json_or_none, run_subprocess, version_line
 
 Row = tuple[str, str, str]
@@ -68,8 +68,12 @@ def check_blender() -> list[Row]:
     s = get_settings()
     b = s.resolve_blender()
     if not b:
-        return [("blender", "FAIL", "no binary (set C3D_BINARIES__BLENDER or put blender-5.0 on PATH)")]
+        return [("blender", "FAIL", f"C3D_BINARIES__BLENDER={s.binaries.blender} is not an executable"
+                 if s.binaries.blender else "no binary (set C3D_BINARIES__BLENDER or put blender-5.0 on PATH)")]
     okk, v = _ver([b, "--version"], timeout=60)
+    m = re.search(r"Blender (\d+)\.(\d+)", v)
+    if okk and m and (int(m[1]), int(m[2])) < BLENDER_MIN:
+        return [("blender", "FAIL", f"{v} @ {b} — too old, need >= {'.'.join(map(str, BLENDER_MIN))}")]
     return [("blender", "OK" if okk else "FAIL", f"{v} @ {b}")]
 
 
@@ -180,18 +184,10 @@ def check_keys(live: bool) -> list[Row]:
     rows.append(("anthropic key", "OK" if s.anthropic_api_key else "WARN", "set" if s.anthropic_api_key else "not set (anthropic:* backends unavailable)"))
     rows.append(("openai key", "OK" if s.openai_api_key else "WARN", "set" if s.openai_api_key else "not set (openai:* backends unavailable)"))
     if live and n:
-        try:
-            from codeverse3d.contracts.chat import ChatMessage, ChatRequest
+        from codeverse3d.models.health import probe
 
-            m = get_chat_model("gemini:gemini-3.7-flash")
-            r = m.generate(ChatRequest(messages=[ChatMessage.user("Reply with the single word: pong")],
-                                       # 256, not 16: gemini-3.x spends output tokens on thoughts even
-                                       # with thinking="off", and a 16-token budget comes back empty
-                                       temperature=0.0, max_output_tokens=256, thinking="off", label="doctor"))
-            rows.append(("gemini live call", "OK" if "pong" in r.text.lower() else "WARN",
-                         f"{r.text.strip()[:40]!r} cost=${r.usage.cost_usd:.5f}"))
-        except Exception as e:
-            rows.append(("gemini live call", "FAIL", f"{type(e).__name__}: {str(e)[:120]}"))
+        h = probe(sample=1)   # one workload-sized call, no retries; never raises
+        rows.append(("gemini live call", "OK" if h.ok else "FAIL", str(h)))
     return rows
 
 
