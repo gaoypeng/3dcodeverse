@@ -41,6 +41,7 @@ const args = parseCli({
   gpu: { default: process.env.C3D_RENDER_GPU || 'auto' }, 'fps-seconds': { default: '2' },
   'timeout-ms': { default: '240000' }, 'log-depth': { type: 'boolean', default: false },
   scene: { default: 'src/scene.js' }, 'external-frames': { default: '' },
+  glb: { default: '' },   // scene_blender: the census GLB, booted through lib/glb_scene.mjs (D102)
 });
 
 function tag(t) {
@@ -85,6 +86,7 @@ async function main() {
   try {
     host = await openHost(args.ws, {
       width, height, gpu: args.gpu, logDepth: args['log-depth'], sceneRel: args.scene.replace(/^\.?\//, ''),
+      glb: args.glb ? path.resolve(args.glb) : null,
       createSceneTimeoutMs: createTimeoutMs(timeoutMs),
       settle: !args['no-settle'],
       cameraRepair: !!args['camera-repair'],

@@ -77,21 +77,29 @@ bpy.ops.export_scene.gltf(filepath=glb, export_format="GLB", export_cameras=Fals
 bpy.ops.wm.save_as_mainfile(filepath=blend, compress=True)
 '''
 
-#: the census-GLB host entry's shape (lane A owns the real one): load the GLB, hoist its roots
-ADAPTER_JS = """import * as THREE from 'three';
-export async function createScene({ loaders }) {
-  const scene = new THREE.Scene();
-  const gltf = await loaders.gltf.loadAsync('/assets/scene.glb');
-  for (const c of [...gltf.scene.children]) scene.add(c);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
-  const cameras = [{ name: 'Front', position: [0, 4, 14], lookAt: [0, 1, 0], fov: 40.1 }];
-  return { scene, cameras };
-}
-"""
+#: the harness cameras the census GLB carries (``extras.c3d_cameras``, GLB frame — the shape
+#: ``_census_glb._glb_camera`` writes): Blender (x, y, z) → GLB (x, z, -y), vertical fov 0.7 rad
+GLB_CAMERAS = [{"name": "Front", "position": [0, 4, 14], "lookAt": [0, 1, 0], "fov": 40.107},
+               {"name": "Side", "position": [14, 4, 0], "lookAt": [0, 1, 0], "fov": 40.107}]
+
+
+def _with_scene_extras(glb: bytes, extras: dict) -> bytes:
+    """``glb`` with ``extras`` on its first scene (the census writer's camera channel)."""
+    import json
+    import struct
+
+    n = struct.unpack("<I", glb[12:16])[0]
+    doc = json.loads(glb[20:20 + n])
+    doc["scenes"][0]["extras"] = extras
+    body = json.dumps(doc, separators=(",", ":")).encode()
+    body += b" " * (-len(body) % 4)
+    rest = glb[20 + n:]
+    return struct.pack("<4sII", b"glTF", 2, 12 + 8 + len(body) + len(rest)) + struct.pack("<I4s", len(body), b"JSON") + body + rest
 
 
 def build_fixture(ws: Workspace, *, moving: bool = True, probe: bool = True) -> Workspace:
-    """Write the fixture into ``ws`` (Blender + optionally the three.js probe for census.json)."""
+    """Write the fixture into ``ws``: the .blend, its census GLB (cameras in the extras) and, with
+    ``probe``, census.json from the JS probe of that GLB — the path ``SceneBlenderRuntime`` takes."""
     ws.artifacts.mkdir(parents=True, exist_ok=True)
     script = ws.root / "build_fixture.py"
     script.write_text(BUILD_BPY)
@@ -102,13 +110,14 @@ def build_fixture(ws: Workspace, *, moving: bool = True, probe: bool = True) -> 
     proc = run_subprocess([blender, "-b", "--factory-startup", "--python", str(script), "--",
                            str(blend), str(glb), "1" if moving else "0"], cwd=ws.root, env=blender_env(), timeout_s=120)
     assert proc.returncode == 0 and blend.is_file() and glb.is_file(), proc.stderr[-2000:]
-    ws.src.mkdir(parents=True, exist_ok=True)
-    (ws.src / "scene.js").write_text(ADAPTER_JS)
+    census_glb = ws.artifacts / "census.glb"
+    census_glb.write_bytes(_with_scene_extras(glb.read_bytes(), {"c3d_cameras": GLB_CAMERAS}))
     if probe:
-        from codeverse3d.spatial.probes import probe_scene
+        from codeverse3d.spatial.probes import run_probe
 
-        res = probe_scene(ws, timeout_s=90)
-        assert res.census, res.errors
+        _, _, census = run_probe(ws, glb=census_glb, timeout_s=90)
+        assert census, "the census-GLB probe produced no census"
+        ws.write_json(ws.artifacts / "census.json", {**census, "language": "scene_blender"})
     return ws
 
 

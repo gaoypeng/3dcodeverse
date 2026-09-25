@@ -14,7 +14,7 @@
    default); a GPU render holds one of ``blender_gpu_slots`` machine-wide flock'd slots and
    falls back to the CPU when none frees within ``blender_gpu_wait_s`` or the GPU run dies;
 3. **geometry** — ``runtime_js/render_scene.mjs --external-frames`` on the census GLB the build
-   wrote (loaded through the language's host entry, ``scene_rel``): camera checks (near
+   wrote (``--glb``: booted through ``runtime_js/lib/glb_scene.mjs``): camera checks (near
    geometry, inside a mesh, ground below/above, line of sight, coverage masks) from the scene,
    luminance statistics from the Blender PNG (``host_metrics.imageFrameStats`` — the one
    ``frameStats``), ``views.json`` / ``metrics.json`` in the three.js driver's schema, with no
@@ -62,7 +62,7 @@ log = logging.getLogger(__name__)
 DRIVER = Path(__file__).resolve().parent.parent / "languages" / "wrappers" / "render_bpy_scene.py"
 #: the language whose authoring frame the .blend is in.  scene_blender's LANGUAGE_FRAME row
 #: (lane A) is Z-up / -Y front, the same frame as blender's; switch to it once that row lands.
-FRAME_LANGUAGE = "blender"
+FRAME_LANGUAGE = "scene_blender"
 LANGUAGE = "scene_blender"
 JOB_NAME = "blender_job.json"
 RESULT_NAME = "blender_frames.json"
@@ -201,7 +201,7 @@ def render_blender_scene(
     bounds: BBox | None = None,
     blend: Path | None = None,
     census: Path | None = None,
-    scene_rel: str = "src/scene.js",
+    glb: Path | None = None,
     engine: str | None = None,
     samples: int | None = None,
 ) -> RenderSet:
@@ -211,7 +211,7 @@ def render_blender_scene(
     ``cameras=None`` renders the cameras the .blend carries (the build made them from the
     plan); explicit ``cameras`` (GLB frame, like every plan camera) replace them.  ``blend``
     defaults to ``artifacts/scene.blend``, ``census`` (the orbit fit) to ``artifacts/census.json``;
-    ``scene_rel`` is the host entry that loads the census GLB for the geometry pass.  ``engine``
+    ``glb`` (default ``artifacts/census.glb``) is what the geometry pass boots through the host.  ``engine``
     / ``samples`` override Settings (a tool's preview tier: ``engine="workbench"``).  A missing
     .blend yields an empty RenderSet whose ``console_errors`` say why; a driver that cannot run
     raises ``SceneRenderError``."""
@@ -219,6 +219,7 @@ def render_blender_scene(
     out_dir = out_directory(out_dir, clean=("metrics.json", "views.json", RESULT_NAME, EXTERNAL_NAME))
     blend = blend or ws.artifacts / "scene.blend"
     census = census or ws.artifacts / "census.json"
+    glb = glb or ws.artifacts / "census.glb"
     times = sorted({float(t) for t in times}) or [0.0]
     tmo = float(timeout_s or s.limits.render_timeout_s)
     t_all = time.monotonic()
@@ -257,7 +258,7 @@ def render_blender_scene(
     specs += [{**o, "kind": "orbit"} for o in orbit_specs]
     t0 = time.monotonic()
     metrics, geometry_error = _geometry_pass(ws, out_dir, specs, times=times, width=width, height=height,
-                                             timeout_s=tmo, scene_rel=scene_rel)
+                                             timeout_s=tmo, glb=glb)
     geometry_ms = int((time.monotonic() - t0) * 1000)
     if not metrics.get("views"):
         metrics["views"] = views   # the pictures exist even when the geometry pass could not run
@@ -316,11 +317,11 @@ def _renderer_line(frames: dict[str, Any]) -> str:
 
 
 def _geometry_pass(ws: Workspace, out_dir: Path, specs: list[dict[str, Any]], *, times: Sequence[float], width: int,
-                   height: int, timeout_s: float, scene_rel: str) -> tuple[dict[str, Any], str]:
+                   height: int, timeout_s: float, glb: Path) -> tuple[dict[str, Any], str]:
     """render_scene.mjs --external-frames → (its metrics payload, an error line or '')."""
     if not specs:
         return {"views": [], "camera_checks": [], "console_errors": []}, ""
-    args = ["--ws", str(ws.root), "--out", str(out_dir), "--scene", scene_rel,
+    args = ["--ws", str(ws.root), "--out", str(out_dir), "--glb", str(glb),
             "--cameras", json.dumps(specs), "--orbit-views", "none",
             "--times", ",".join(f"{t:g}" for t in times), "--width", str(width), "--height", str(height),
             "--fps-seconds", "0", "--timeout-ms", str(int(timeout_s * 1000)),

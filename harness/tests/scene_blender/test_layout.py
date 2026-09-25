@@ -36,12 +36,6 @@ def test_scene_blender_is_a_scene_language_with_a_runtime() -> None:
     assert ENTRY_FILE[Language.SCENE_BLENDER] == "src/scene.py" == rt.entry_globs[0]
 
 
-def test_render_scene_is_not_there_yet(tmp_ws) -> None:
-    """Phase 2 (lane B) lands it; until then a clear error, never a silent empty RenderSet."""
-    with pytest.raises(NotImplementedError, match="phase 2"):
-        get_runtime(Language.SCENE_BLENDER).render_scene(tmp_ws, tmp_ws.artifacts / "renders")
-
-
 def test_the_file_table() -> None:
     rt = get_runtime(Language.SCENE_BLENDER)
     plan = _plan()

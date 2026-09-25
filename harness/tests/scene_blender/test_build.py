@@ -4,6 +4,7 @@ the unchanged JS census / placement code measures it (real Blender + headless Ch
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -103,6 +104,25 @@ def test_the_skeleton_builds_and_passes(tmp_ws) -> None:
     probe = json.loads((tmp_ws.artifacts / "scene_probe.json").read_text())
     # the plan's cameras, named as scene_threejs's assembler names them
     assert [cam["name"] for cam in probe["boot"]["cameras"]] == [to_snake(c.name) for c in plan.cameras[:6]]
+
+
+def test_the_skeleton_renders_through_the_runtime(tmp_ws, switch) -> None:
+    """plan → skeleton → build → ``runtime.render_scene``: Blender pictures for every plan camera at
+    both times, measured by the JS host on the census GLB (lanes A + B joined, DESIGN §2)."""
+    switch("C3D_RENDER__BLENDER_DEVICE", "cpu")
+    switch("C3D_RENDER__BLENDER_SAMPLES", "4")
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
+    rt = _rt()
+    rt.skeleton(tmp_ws, plan)
+    rt.assemble(tmp_ws, plan)
+    assert rt.build(tmp_ws).ok
+    rs = rt.render_scene(tmp_ws, tmp_ws.root / "renders", times=(0.0, 1.5), width=96, height=54, sheet=False)
+    names = [to_snake(c.name) for c in plan.cameras[:6]]
+    authored = {(v.name, v.time_s) for v in rs.views if v.name in names}
+    assert authored == {(n, t) for n in names for t in (0.0, 1.5)}, rs.views
+    assert all((tmp_ws.root / "renders" / Path(v.path).name).is_file() or Path(v.path).is_file() for v in rs.views)
+    metrics = json.loads((tmp_ws.root / "renders" / "metrics.json").read_text())
+    assert metrics["language"] == "scene_blender" and {c["name"] for c in metrics["camera_checks"]} >= set(names)
 
 
 def test_assemble_leaves_a_failing_zone_out(tmp_ws) -> None:

@@ -870,9 +870,10 @@ class SceneBlenderRuntime:
 
     def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None = None, orbit: bool = True,
                      times: Sequence[float] = TIMES, width: int = 1024, height: int = 576, sheet: bool = True) -> RenderSet:
-        raise NotImplementedError(
-            "scene_blender rendering is DESIGN phase 2 (render_bpy_scene.py + spatial/render_blender.py), not landed yet: "
-            "a scene_blender workspace builds and passes its geometry gates but cannot be rendered or judged")
+        from codeverse3d.spatial.render_blender import render_blender_scene
+
+        return render_blender_scene(ws, out_dir, cameras=cameras, orbit=orbit, times=times, width=width,
+                                    height=height, sheet=sheet)
 
 
 def stage_findings(report: dict[str, Any]) -> list[GateFinding]:

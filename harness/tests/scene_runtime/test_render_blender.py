@@ -89,13 +89,34 @@ def test_a_fixture_scene_renders_two_cameras_at_two_times(moving):
     assert [e["judge"] for e in json.loads((out / "views.json").read_text())].count(True) == len(judged)
 
 
+#: a three.js scene of the fixture (its GLB as an asset, the same Front camera): the schema reference
+THREE_REFERENCE_JS = """import * as THREE from 'three';
+export async function createScene({ loaders }) {
+  const scene = new THREE.Scene();
+  const gltf = await loaders.gltf.loadAsync('/assets/scene.glb');
+  for (const c of [...gltf.scene.children]) scene.add(c);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
+  const cameras = [{ name: 'Front', position: [0, 4, 14], lookAt: [0, 1, 0], fov: 40.1 }];
+  return { scene, cameras };
+}
+"""
+
+
 @pytest.mark.blender
 @pytest.mark.node
 @needs_blender
 @needs_browser
 def test_metrics_schema_equals_the_threejs_one(moving, tmp_path):
     ws, _, bm = moving
-    render_scene(ws, tmp_path / "three", width=W, height=H, fps_seconds=0.2)
+    # the three.js reference: the same geometry and cameras as a three.js scene (the fixture GLB as an asset)
+    import shutil
+
+    three = Workspace(tmp_path / "three_ws").create()
+    (three.root / "public" / "assets").mkdir(parents=True, exist_ok=True)
+    shutil.copy(ws.root / "public" / "assets" / "scene.glb", three.root / "public" / "assets" / "scene.glb")
+    three.src.mkdir(parents=True, exist_ok=True)
+    (three.src / "scene.js").write_text(THREE_REFERENCE_JS)
+    render_scene(three, tmp_path / "three", width=W, height=H, fps_seconds=0.2)
     tm = json.loads((tmp_path / "three" / "metrics.json").read_text())
     assert set(bm) - set(tm) == {"language", "blender"}, "Blender metrics add only language + blender"
     assert set(tm) - set(bm) == set(), f"keys the three.js payload has and Blender's lacks: {set(tm) - set(bm)}"
@@ -140,14 +161,11 @@ def test_exposure_statistics_of_a_known_png_come_from_the_external_frame(tmp_pat
     """Half black, half white: mean 0.5, half near-black, half blown, the modal bucket 50 % — from
     the Blender PNG, not from the host's own (bright grey) render of the same camera."""
     ws = Workspace(tmp_path / "run").create()
-    ws.src.mkdir(parents=True, exist_ok=True)
-    (ws.src / "scene.js").write_text(
-        "import * as THREE from 'three';\n"
-        "export function createScene() {\n"
-        "  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x888888);\n"
-        "  const g = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x888888 }));\n"
-        "  g.name = 'Ground'; scene.add(g);\n"
-        "  return { scene, cameras: [{ name: 'K', position: [0, 3, 10], lookAt: [0, 0, 0], fov: 50 }] };\n}\n")
+    import trimesh  # a 40 m ground as the census GLB the geometry pass boots (lib/glb_scene.mjs)
+
+    ws.artifacts.mkdir(parents=True, exist_ok=True)
+    ground = trimesh.creation.box(extents=(40.0, 0.01, 40.0))
+    trimesh.Scene({"Ground": ground}, metadata={"c3d_cameras": [{"name": "K", "position": [0, 3, 10], "lookAt": [0, 0, 0], "fov": 50}]}).export(ws.artifacts / "census.glb")
     out = tmp_path / "out"
     out.mkdir()
     _half_png(out / "K_t0.png")
@@ -156,7 +174,7 @@ def test_exposure_statistics_of_a_known_png_come_from_the_external_frame(tmp_pat
     (out / rb.EXTERNAL_NAME).write_text(json.dumps(views))
     specs = [{"name": "K", "kind": "authored", "position": [0, 3, 10], "lookAt": [0, 0, 0], "fov": 50},
              {"name": "Blank", "kind": "orbit", "position": [5, 3, 10], "lookAt": [0, 0, 0], "fov": 50}]
-    metrics, err = rb._geometry_pass(ws, out, specs, times=(0.0,), width=W, height=H, timeout_s=90, scene_rel="src/scene.js")
+    metrics, err = rb._geometry_pass(ws, out, specs, times=(0.0,), width=W, height=H, timeout_s=90, glb=ws.artifacts / "census.glb")
     assert err == ""
     k = next(c for c in metrics["camera_checks"] if c["name"] == "K")
     assert k["mean_lum"] == pytest.approx(0.5, abs=0.02)
