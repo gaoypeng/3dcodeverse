@@ -5,7 +5,8 @@
  * (`host_coverage.mjs`, which masks the same three classes per frame), so the
  * word "content" means exactly one thing everywhere.
  *
- * Rules (name + world-box shape, in order):
+ * Rules (explicit metadata, then name + world-box shape, in order):
+ *   sky      a non-depth-writing drawable with userData.sceneBackdrop === 'sky'
  *   sky      a sky-ish name spanning > 50 m or not writing depth, or anything enormous (span > 2 km,
  *            or tall AND wide: sy > 300 with span > 300)
  *   content  an InstancedMesh (scatter spans the map but is not ground)
@@ -84,11 +85,14 @@ export const GROUND_NAME_RE = /\b(ground|terrain|floor|water|ocean|sea|lake|rive
 
 /**
  * 'sky' | 'ground' | 'content' for one drawable with world box `box`.
- * @param {object} obj           mesh/points/line/sprite (only `name`, `parent`, `isInstancedMesh` are read)
+ * @param {object} obj           mesh/points/line/sprite (name, parent, userData, material, isInstancedMesh)
  * @param {{min:{x,y,z}, max:{x,y,z}}} box   world-space AABB
  * @param {number} contentSpan   horizontal span of the known content bbox (0 = unknown)
  */
 export function classifyBackdrop(obj, box, contentSpan = 0) {
+  // Procedural sky volumes may be compact or carry a caller's custom name.
+  // Only non-solid drawables can opt in; metadata cannot hide opaque content.
+  if (obj.userData?.sceneBackdrop === 'sky' && nonSolid(obj)) return 'sky';
   // Generated scene names normally use PascalCase / snake_case. Word boundaries
   // alone missed PlanetSkyBackdrop and SkyAtmosphereBand0, framing the sky as a
   // building. Keep the same vocabulary and shape rules for every naming style.

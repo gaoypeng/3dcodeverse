@@ -132,7 +132,7 @@ export function skyRadiance(dir, sunDir, opts = {}) {
 /**
  * Build the atmosphere dome, add it to the scene, null the
  * background, and return the normalized sun vector for the key light.
- * Sun precedence: `rig` (slaves to rig.sunDir; hides the rig's flat
+ * Sun precedence: `rig` (uses the rig's baked skySunDir; hides its flat
  * disc — the Preetham shader draws its own; a NIGHT rig's disc is the
  * moon and stays) > `sunDir` (normalized copy, input untouched) >
  * `elevationDeg`/`azimuthDeg` (same convention as `sunRig()`).
@@ -151,7 +151,9 @@ export function skyRadiance(dir, sunDir, opts = {}) {
  *   half-extent driver (default 4500).
  * @returns {{sky: THREE.Mesh, sunDir: THREE.Vector3}} The dome
  *   (already in the scene) and the normalized sun direction — place
- *   the key light at `sunDir * distance`, aimed at the origin.
+ *   the key light at `sunDir * distance`, aimed at the origin. With a
+ *   rig, this preserves its authored `sunDir` (the moon for an explicit
+ *   night mood); the dome uses the rig's separate `skySunDir`.
  */
 export function makeSky(scene, opts = {}) {
   const sky = new Sky();
@@ -171,7 +173,9 @@ export function makeSky(scene, opts = {}) {
 
   let sunDir;
   if (opts.rig && opts.rig.sunDir) {
-    sunDir = opts.rig.sunDir.clone().normalize();
+    // A night rig's above-horizon direction belongs to the moon. Use
+    // the same set-sun direction that the rig baked into its environment.
+    sunDir = (opts.rig.skySunDir || opts.rig.sunDir).clone().normalize();
     // The Preetham shader draws its own solar disc; the rig's flat
     // CircleGeometry disc on the same vector would double the sun.  A
     // night rig's disc is the MOON on another vector: it stays.
@@ -182,6 +186,8 @@ export function makeSky(scene, opts = {}) {
     sunDir = sunVector(opts.azimuthDeg === undefined ? 135 : opts.azimuthDeg,
                        opts.elevationDeg === undefined ? 15 : opts.elevationDeg);
   }
+  const reportedSunDir = opts.rig?.sunDir
+      ? opts.rig.sunDir.clone().normalize() : sunDir;
   u.sunPosition.value.copy(sunDir);
   // r184 Sky ships value-noise clouds ON by default — grid artifacts
   // at readable contrast. Clouds come from ./clouds.js instead.
@@ -256,8 +262,9 @@ export function makeSky(scene, opts = {}) {
     u.uSunAzimuth.value.set(sunDir.x, 0, sunDir.z);
     if (u.uSunAzimuth.value.lengthSq() < 1e-12) u.uSunAzimuth.value.set(1, 0, 0);
     else u.uSunAzimuth.value.normalize();
-    return sunDir;
+    reportedSunDir.copy(sunDir);
+    return reportedSunDir;
   };
   sky.userData.setSunDirection = setSunDirection;
-  return { sky, sunDir, setSunDirection, dispose: sky.userData.dispose };
+  return { sky, sunDir: reportedSunDir, setSunDirection, dispose: sky.userData.dispose };
 }

@@ -38,3 +38,17 @@ console.log(JSON.stringify({
     assert out["none"] == out["high"], out
     assert out["noneDir"] == [0, 1, 0], out
     assert abs(sum(v * v for v in out["unit"]) - 1.0) < 1e-6, out
+
+
+def test_zero_mist_density_has_zero_optical_opacity():
+    out = measure("""
+import { makeWaterMist } from './lib/watermist.js';
+const alpha = density => {
+  const mist = makeWaterMist({ density, extent: 4 });
+  const a = mist.getObjectByName('MistCards').material.uniforms.uAlpha.value;
+  mist.userData.dispose(); return a;
+};
+console.log(JSON.stringify({ off: alpha(0), faint: alpha(.0001), normal: alpha(.5) }));
+""", _LIBS)
+    assert out["off"] == 0, out
+    assert 0 < out["faint"] < out["normal"], out

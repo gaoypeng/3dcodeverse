@@ -21,6 +21,7 @@
 
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 import {
     keepOutOfDepthPasses, makeShaderMaterial, patchStandard, sweepProfile,
@@ -189,34 +190,6 @@ function frames(pts) {
     return out;
 }
 
-/** Concatenate position / normal / uv geometries into one draw. */
-function mergeGeoms(list) {
-    let nv = 0, ni = 0;
-    for (const g of list) {
-        nv += g.attributes.position.count;
-        ni += g.index.count;
-    }
-    const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3);
-    const uv = new Float32Array(nv * 2), idx = new Uint32Array(ni);
-    let v = 0, k = 0;
-    for (const g of list) {
-        const a = g.attributes;
-        pos.set(a.position.array, v * 3);
-        nor.set(a.normal.array, v * 3);
-        uv.set(a.uv.array, v * 2);
-        const src = g.index.array;
-        for (let i = 0; i < src.length; i++) idx[k + i] = src[i] + v;
-        v += a.position.count;
-        k += src.length;
-    }
-    const out = new THREE.BufferGeometry();
-    out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-    out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    out.setIndex(new THREE.BufferAttribute(idx, 1));
-    return out;
-}
-
 /** One stroke as a swept circular section around its own frame. */
 function tubeGeometry(st, radius, nu) {
     const nv = st.length - 1;
@@ -283,7 +256,7 @@ function tubeMaterial(name, color, gain, core, hot, flicker, key, hazy,
         varyings:
             'varying vec3 vNeonN; varying vec3 vNeonW; varying vec2 vNeonUv;',
         vertexMain: [
-            '  vNeonN = normalize(mat3(modelMatrix) * normal);',
+            '  vNeonN = inverseTransformDirection(normalize(normalMatrix * normal), viewMatrix);',
             '  vNeonW = (modelMatrix * vec4(transformed, 1.0)).xyz;',
             '  vNeonUv = uv;',
         ].join('\n'),
@@ -414,9 +387,10 @@ export function makeNeonTube(opts = {}) {
 
 /** One merged mesh for every stroke at one radius. */
 function shell(st, radius, nu, material, name, order) {
-    const mesh = new THREE.Mesh(
-        mergeGeoms(st.map((s) => tubeGeometry(s.frames, radius, nu))),
-        material);
+    const parts = st.map((s) => tubeGeometry(s.frames, radius, nu));
+    const geometry = mergeGeometries(parts);
+    for (const part of parts) part.dispose();
+    const mesh = new THREE.Mesh(geometry, material);
     mesh.name = name;
     mesh.renderOrder = order;
     return mesh;

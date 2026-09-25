@@ -17,6 +17,64 @@ def _measure(script: str) -> dict:
     return measure(script, _LIBS)
 
 
+def test_night_dome_uses_the_bakes_set_sun_instead_of_the_moon():
+    """An explicit night rig baked night reflections but painted a daylight dome."""
+    out = _measure("""
+import * as THREE from 'three';
+import { sunRig } from './lib/environment.js';
+import { makeSky } from './lib/sky.js';
+const states = [
+  {mood:'night'}, {mood:'day'}, {mood:'golden',elevation:-5},
+].map(options => {
+  const rig = sunRig({...options, disc:true});
+  const original = rig.sunDir.clone();
+  const {sky, sunDir, setSunDirection} = makeSky(new THREE.Scene(), {rig});
+  const u = sky.material.uniforms;
+  const state = {night:u.uNight.value, solarY:u.sunPosition.value.y,
+    lightY:rig.lightDir.y, discVisible:rig.sunDisc.visible,
+    agreesWithBake:u.sunPosition.value.distanceTo(rig.skySunDir),
+    inputUnchanged:rig.sunDir.distanceTo(original),
+    publicDirectionUnchanged:sunDir.distanceTo(original)};
+  setSunDirection([0,1,0]);
+  state.canReturnToDay = u.uNight.value === 0 && u.sunPosition.value.y === 1 && sunDir.y === 1;
+  sky.userData.dispose(); rig.dispose();
+  return state;
+});
+console.log(JSON.stringify(states));
+""")
+    night, day, twilight = out
+    assert night["night"] == 1 and night["solarY"] < 0 < night["lightY"]
+    assert night["discVisible"], "The moon remains visible beside the night sky"
+    assert day["night"] == 0 and day["solarY"] > 0
+    assert not day["discVisible"], "The physical sky already draws its own sun"
+    assert 0 < twilight["night"] < 1 and twilight["solarY"] < 0
+    assert all(s["agreesWithBake"] < 1e-12 and s["inputUnchanged"] == 0 for s in out)
+    assert all(s["publicDirectionUnchanged"] < 1e-12 for s in out)
+    assert all(s["canReturnToDay"] for s in out)
+
+
+def test_moon_angular_size_is_independent_of_sky_radius_and_scene_fog():
+    out = _measure("""
+import * as THREE from 'three';
+import { sunRig } from './lib/environment.js';
+const moons = [400,4000,12000].map(radius => {
+  const rig=sunRig({mood:'night',radius}), moon=rig.sunDisc;
+  const diameter=THREE.MathUtils.radToDeg(2*Math.atan(moon.geometry.parameters.radius/moon.position.length()));
+  const state={diameter,fog:moon.material.fog,depthWrite:moon.material.depthWrite,
+    aligned:moon.position.clone().normalize().dot(rig.lightDir)};
+  rig.dispose();return state;
+});
+const day=sunRig({mood:'day',radius:4000});
+const daytime={radius:day.sunDisc.geometry.parameters.radius,segments:day.sunDisc.geometry.parameters.segments};
+day.dispose();console.log(JSON.stringify({moons,daytime}));
+""")
+    for moon in out["moons"]:
+        assert moon["diameter"] == pytest.approx(.52)
+        assert not moon["fog"] and not moon["depthWrite"]
+        assert moon["aligned"] == pytest.approx(1)
+    assert out["daytime"] == {"radius": 48, "segments": 24}
+
+
 _SHELL = """
 import * as THREE from 'three';
 import { worldShell } from './lib/environment.js';

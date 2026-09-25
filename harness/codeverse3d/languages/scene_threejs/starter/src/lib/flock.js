@@ -330,7 +330,7 @@ function flockMaterial(o) {
             '    stroke = sin(vPhase + q.x * 2.6);',
             '    cl = stroke * 0.15 * (0.32 + 0.68 * (0.5 - q.x * 0.5));',
             '    h = 0.30 * sqrt(max(0.0, 1.0 - q.x * q.x))',
-            '        + 0.26 * smoothstep(-0.55, -1.0, q.x);',
+            '        + 0.26 * (1.0 - smoothstep(-1.0, -0.55, q.x));',
             '  }',
             '  float d = abs(q.y - cl);',
             // A bird is a handful of pixels: without gradient-width

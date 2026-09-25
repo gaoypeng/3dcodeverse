@@ -34,7 +34,7 @@ import {
   glslLocalDir, patchStandard, shadowLike, tickShaders, unit,
 } from './shader.js';
 import { patchLeafSSS } from './foliage_shade.js';
-import { windOf } from './grass.js';
+import { WIND_GUST_GLSL, windOf } from './grass.js';
 
 const LOCAL_DIR = glslLocalDir('leafLocalDir');
 
@@ -370,7 +370,7 @@ const LEAF_HEAD = [
   // facing looks at the sky. Both are constant over a card, so they
   // ride a varying rather than being recomputed per pixel.
   'varying vec2 vLeafB;',
-  LOCAL_DIR,
+  LOCAL_DIR, WIND_GUST_GLSL,
 ].join('\n');
 
 const LEAF_VERTEX = [
@@ -398,9 +398,9 @@ const LEAF_VERTEX = [
   // has to move a meadow and the trees over it alike.
   '  vec3 lfW3 = leafLocalDir(vec3(uLeafWind.x, 0.0, uLeafWind.y));',
   '  vec2 lfW = normalize(lfW3.xz + vec2(1e-5, 0.0));',
-  '  float lfG = astraFbm2(vec2(',
-  '      dot(iSpray.xz, lfW) * 0.05 - uTime * uLeafSpeed * 0.5,',
-  '      dot(iSpray.xz, vec2(-lfW.y, lfW.x)) * 0.2), 2);',
+  '  vec3 lfRootWorld = (modelMatrix * vec4(iSpray.xyz, 1.0)).xyz;',
+  '  float lfG = astraWindGust(lfRootWorld, uLeafWind,',
+  '      uTime * uLeafSpeed, vec2(0.05, 0.2));',
   '  float lfT2 = uTime * uLeafSpeed;',
   // Outer leaves move most: the trunk end of a bough barely travels.
   '  float lfSway = uLeafAmp * (0.2 + 1.1 * lfG) * iVar.w',

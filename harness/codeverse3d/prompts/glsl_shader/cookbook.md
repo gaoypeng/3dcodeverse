@@ -246,9 +246,9 @@ float curtain(vec2 p, float t, float seed, out float k) {
 vec3 auroraCol(float k) { return mix(vec3(0.10, 0.95, 0.42), vec3(0.70, 0.20, 0.85), smoothstep(0.18, 0.9, k)); }  // green low, violet crown
 vec3 aurora(vec2 p, float t) {                       // three curtains at different depths: nearest brightest
     vec3 acc = vec3(0.0); float k = 0.0;
-    acc += auroraCol(k) * curtain(p, t, 0.0, k) * 1.00;
-    acc += auroraCol(k) * curtain(p - vec2(0.3, 0.12), t * 0.8, 11.0, k) * 0.55;
-    acc += auroraCol(k) * curtain(p - vec2(-0.5, 0.22), t * 0.6, 23.0, k) * 0.30;
+    float a = curtain(p, t, 0.0, k); acc += auroraCol(k) * a;  // curtain() sets k
+    a = curtain(p - vec2(0.3, 0.12), t * 0.8, 11.0, k); acc += auroraCol(k) * a * 0.55;
+    a = curtain(p - vec2(-0.5, 0.22), t * 0.6, 23.0, k); acc += auroraCol(k) * a * 0.30;
     return acc;                                      // then: col += au * 1.7 + au * au * 0.5;  (bloom on the bright edge)
 }
 ```

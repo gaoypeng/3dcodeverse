@@ -49,11 +49,17 @@ const seedOffset = (seed) => new THREE.Vector2(seedLattice(seed) * 0.091,
  * coefficients given outright (THREE.Vector3 or [r, g, b], per metre).
  */
 function extinctionVec(value) {
-  if (value && value.isVector3) return value.clone();
-  if (Array.isArray(value)) {
-    return new THREE.Vector3(value[0] || 0, value[1] || 0, value[2] || 0);
+  const channels = value?.isVector3 ? value.toArray() : Array.isArray(value) ? value : null;
+  if (channels) {
+    if (channels.length !== 3 || !channels.every(k => Number.isFinite(k) && k >= 0)) {
+      throw new RangeError('patchUnderwater: extinction requires three finite nonnegative coefficients');
+    }
+    return new THREE.Vector3(...channels);
   }
-  const k = value === undefined ? 0.35 : Math.max(0, value);
+  const k = value === undefined ? 0.35 : value;
+  if (!Number.isFinite(k) || k < 0) {
+    throw new RangeError('patchUnderwater: extinction must be finite and nonnegative');
+  }
   return EXT_RATIO.clone().multiplyScalar(k);
 }
 
@@ -184,7 +190,7 @@ const UNDER_BODY = [
  *   0); `color` THREE.Color or hex the water goes toward (default a
  *   green-blue); `extinction` per-metre loss — a scalar on water's own
  *   spectrum (default 0.35) or a THREE.Vector3 / [r, g, b] of
- *   coefficients outright; `murk` how far drifting silt swings the
+ *   finite nonnegative coefficients outright; `murk` how far drifting silt swings the
  *   path length AND its colour, 0..1 (default 0.5); `light` how much
  *   light there is for the column to scatter, 1 = open daylight
  *   (default 1; 0.15..0.3 under a night sky, more under a lamp);

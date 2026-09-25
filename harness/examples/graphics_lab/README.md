@@ -1,6 +1,6 @@
 # Graphics Lab
 
-Sixteen hand-composed studies of fire, water, terrain, vegetation, atmosphere,
+Seventeen hand-composed studies of fire, water, terrain, vegetation, atmosphere,
 worked materials and independent shader files, covering the effect modules in
 `codeverse3d/languages/scene_threejs/starter/src/lib/`.  Every image and film
 comes from Three.js scene code rendered through the production scene host; there
@@ -57,3 +57,17 @@ with the cookbook recipes it calls exactly as the `graphics` track does.  Output
 goes to `output/recipes/` with an `index.html` of stills or 144-frame films.
 
 All example UI, code and documentation stay in English.
+
+## Library regression checks
+
+Run `python -m pytest tests/scene_runtime/lib tests/graphics -q -n2` from
+`harness/` when maintaining effects. Besides shader compilation, these checks
+measure transformed wind and cloth normals, light selection, underwater
+transport, material filtering, and feedback initialization on the real rendering
+paths. Use the rendered studies above to assess appearance and motion as well;
+passing numerical checks alone does not establish visual realism.
+
+The moonlit coast (`--case night`) exercises the connected cloud deck, restrained
+star field, physical moon size, and their reflections. `makeClouds` now integrates
+one 3D density field; `quality: 'low' | 'balanced' | 'high'` controls sampling cost.
+The original alpha-map helper `cloudTexture` remains available for custom sprites.

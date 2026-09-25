@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import pytest
+from PIL import Image
 
 from codeverse3d.contracts.plan import GraphicsPlan, PassPlan
 from codeverse3d.languages.glsl_shader import GlslShaderRuntime
 from codeverse3d.languages.opengl_python import OpenGLPythonRuntime
+from codeverse3d.spatial import gl_render
 from codeverse3d.spatial.gl_render import GlHost, GlHostError
 from codeverse3d.spatial.registry import ToolContext, get_tool
 
@@ -70,6 +73,56 @@ def test_feedback_and_nan_detection(tmp_ws, host):
     metrics = json.loads((ws.artifacts / "metrics.json").read_text())
     assert metrics["stats"]["any_nan"] is True
     assert any(f["data"]["kind"] == "nan" for f in metrics["gate"]["findings"]) and not metrics["gate"]["passed"]
+
+
+@pytest.mark.parametrize("buffer_a", [False, True], ids=["image", "buffer_a"])
+def test_feedback_starts_black_even_when_allocated_texture_memory_is_dirty(tmp_path, monkeypatch, buffer_a):
+    """Exercise real GL with nonzero allocation contents, not driver-provided zeros."""
+    runner = tmp_path / "dirty_gl_runner.py"
+    runner.write_text(f"""
+import importlib.util
+import sys
+import moderngl
+import numpy as np
+original = moderngl.Context.texture
+def dirty_texture(self, size, components, data=None, **kwargs):
+    if data is None and kwargs.get('dtype') == 'f4':
+        data = np.full((size[1], size[0], components), .375, dtype='f4').tobytes()
+    return original(self, size, components, data=data, **kwargs)
+moderngl.Context.texture = dirty_texture
+spec = importlib.util.spec_from_file_location('real_runner', {str(gl_render.RUNNER)!r})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+sys.exit(module.main())
+""")
+    monkeypatch.setattr(gl_render, "RUNNER", runner)
+    previous = """#version 330 core
+uniform vec2 u_resolution;
+uniform sampler2D u_prev;
+out vec4 fragColor;
+void main() { fragColor = texture(u_prev, gl_FragCoord.xy / u_resolution); }
+"""
+    image = """#version 330 core
+uniform vec2 u_resolution;
+uniform sampler2D u_prev;
+uniform sampler2D u_buffer_a;
+out vec4 fragColor;
+void main() {
+ vec2 uv=gl_FragCoord.xy/u_resolution;
+ vec4 a=texture(u_prev,uv), b=texture(u_buffer_a,uv);
+ bool black=all(equal(a,vec4(0,0,0,1))) && all(equal(b,vec4(0,0,0,1)));
+ fragColor=black?vec4(0,1,0,1):vec4(1,0,0,1);
+}
+""" if buffer_a else previous
+    try:
+        result = GlHost(timeout_s=90).render_fragment_shader(
+            image, tmp_path / "frames", width=8, height=8, times=(0.0,),
+            buffer_a_src=previous if buffer_a else None, feedback=True)
+    except GlHostError as exc:
+        pytest.skip(f"OpenGL unavailable: {exc}")
+    assert result.ok, result.error_message
+    pixels = np.asarray(Image.open(result.frames[0].path).convert("RGB"))
+    assert np.all(pixels == ([0, 255, 0] if buffer_a else [0, 0, 0])), pixels.tolist()
 
 
 def test_program_skeleton_builds_and_errors_map(tmp_ws, host):

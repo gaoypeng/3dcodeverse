@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,7 @@ from tests.scene_runtime.conftest import needs_node, run_node_json
 pytestmark = [pytest.mark.node, needs_node]
 
 RUNTIME_JS = get_settings().runtime_js_dir()
+LIB_DIR = Path(__file__).resolve().parents[2] / "codeverse3d/languages/scene_threejs/starter/src/lib"
 
 CASES = [
     # (name, box size [sx, sy, sz], instanced, content span, expected)
@@ -85,6 +87,50 @@ console.log(JSON.stringify({{ content: census.content_bbox, all: census.bbox, fr
     assert got["content"]["max"] == [15, 20, 20]
     assert got["framed"] == got["content"]
     assert got["all"]["min"][0] < -270  # background geometry is retained and still counted
+
+
+def test_explicit_sky_metadata_requires_non_depth_writing_materials():
+    got = run_node_json(f"""
+import * as THREE from 'three';
+import {{ classifyBackdrop, drawableBox }} from '{RUNTIME_JS}/lib/backdrop.mjs';
+const clear = new THREE.MeshBasicMaterial({{ depthWrite: false }});
+const solid = new THREE.MeshBasicMaterial();
+const classify = (material, marker) => {{
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10), material);
+  mesh.name = 'WeatherPart'; mesh.userData.sceneBackdrop = marker;
+  return classifyBackdrop(mesh, drawableBox(mesh, THREE));
+}};
+console.log(JSON.stringify([
+  classify(clear, 'sky'), classify(solid, 'sky'), classify([clear, solid], 'sky'),
+  classify(clear, undefined), classify(clear, 'content'),
+]));
+""")
+    assert got == ["sky", "content", "content", "content", "content"]
+
+
+def test_compact_clouds_preserve_content_framing_with_custom_names_and_scale():
+    got = run_node_json(f"""
+import * as THREE from 'three';
+import {{ makeClouds, makeCirrus }} from '{LIB_DIR}/clouds.js';
+import {{ sceneCensus }} from '{RUNTIME_JS}/lib/host_census.mjs';
+import {{ framingBox }} from '{RUNTIME_JS}/lib/orbit.mjs';
+const results = [];
+for (const factory of [makeClouds, makeCirrus]) for (const custom of [false, true]) {{
+  const scene = new THREE.Scene();
+  const subject = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10), new THREE.MeshStandardMaterial());
+  subject.name = 'House'; scene.add(subject);
+  const cloud = factory({{ count: 1, area: 600, quality: 'low', ...(custom ? {{ name: 'WeatherDeck' }} : {{}}) }});
+  if (custom) cloud.scale.setScalar(.01);
+  scene.add(cloud);
+  const census = sceneCensus(scene, THREE);
+  results.push({{ kind: census.groups[1].kind, framed: framingBox(census) }});
+  cloud.userData.dispose(); subject.geometry.dispose(); subject.material.dispose();
+}}
+console.log(JSON.stringify(results));
+""")
+    for result in got:
+        assert result["kind"] == "sky", result
+        assert result["framed"] == {"min": [-5, -5, -5], "max": [5, 5, 5], "size": [10, 10, 10]}, result
 
 
 #: names on both sides of every JS name rule: acronyms, instance separators, long numeric ids

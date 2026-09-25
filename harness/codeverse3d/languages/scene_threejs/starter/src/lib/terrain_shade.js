@@ -335,7 +335,9 @@ export function patchSlopeSplat(material, opts = {}) {
       // room ACES needs and lets the drift break show.
       uSplatSnow: { value: toColor(opts.snow, 0xcbc9c4) },
       uSplatLow: { value: Math.max(low, high) },
-      uSplatHigh: { value: Math.min(low, high) },
+      // Equal slope thresholds otherwise make the snow-holding smoothstep
+      // divide by zero, even though the grass/rock ramps still have a blend.
+      uSplatHigh: { value: Math.min(low, high, Math.max(low, high) - 1e-4) },
       uSplatBlend: { value: Math.max(1e-3, blend) },
       uSplatSnowY: { value: Number.isFinite(line) ? line : SNOW_OFF },
       // A band that cannot RESOLVE against the off-sentinel makes a

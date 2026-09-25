@@ -113,6 +113,10 @@ class Pass:
             t.filter = (ctx.LINEAR, ctx.LINEAR)
             t.repeat_x = t.repeat_y = False
         self.fbo = [ctx.framebuffer(color_attachments=[t]) for t in self.tex]
+        # Texture allocation does not define its contents. Both sides must
+        # start black: the first draw samples the other side as u_prev.
+        for fbo in self.fbo:
+            fbo.clear(0.0, 0.0, 0.0, 1.0)
         self.cur = 0
 
     @property

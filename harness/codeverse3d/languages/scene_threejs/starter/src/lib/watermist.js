@@ -160,8 +160,8 @@ export function makeWaterMist(opts = {}) {
     // mist-free control: the bank's own contribution over the wall came
     // back to 5.3/255 where the hard-edged 9 gave 5.9.
     const hits = Math.max(1, (count * cardW) / extent);
-    const alpha = Math.min(0.60, Math.max(0.004,
-        16.0 * (1 - Math.pow(1 - density, 1 / hits))));
+    const alpha = Math.min(0.60,
+        16.0 * (1 - Math.pow(1 - density, 1 / hits)));
     // Wisps scale with the bank's own height, not with the reach: a
     // pattern stretched to the extent reads as one printed backdrop.
     const wisp = Math.min(Math.max(top * 1.2, 0.8), extent * 0.28);

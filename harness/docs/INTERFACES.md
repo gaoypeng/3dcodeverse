@@ -270,6 +270,10 @@ BuildResult.error_type spellings (languages/_common.py): MISSING_ENTRY = "Missin
 
 **Scene effect ownership and shader composition** are stated where they live: `src/lib/lifecycle.js`
 (`snapshotResources` / `attachDisposal`) and `src/lib/shader.js` (`patchStandard`, `clonePatchedMaterial`) (D97).
+Scene drawables whose materials all have `depthWrite: false` may set
+`userData.sceneBackdrop = 'sky'` to exclude themselves from content camera framing
+and classify as sky in census/coverage regardless of name or scale; opaque drawables
+cannot opt in (`runtime_js/lib/backdrop.mjs`).
 
 Wrappers are standalone (never import codeverse3d).  The three python build wrappers live
 together in `languages/wrappers/` — `run_bpy.py`, `run_bpy_links.py` (Blender's python 3.11),

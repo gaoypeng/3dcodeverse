@@ -1599,13 +1599,16 @@ export function planarCapture(mesh, capture, {
  * A reader for the lights an effect shades itself with, reused per draw:
  * `const readLights = makeLightProbe(); const l = readLights(scene, near);`
  * Over the VISIBLE lights with intensity > 0 it returns (one reused object):
- * `sun` the strongest directional light and `sunDirection` the world unit
+ * `sun` the directional light with the greatest linear luminance and
+ * `sunDirection` the world unit
  * vector toward it (position minus target; +Y without a sun); `ambient`,
  * `sky` and `ground` the summed ambient colour and hemisphere sky/ground
  * colours, each times intensity (linear); `environment` the scene
  * environment's intensity (0 without one); and, when `near` (a world
- * Vector3) is given, `point` the point light with the most
- * intensity / distance² there. Each effect applies its own calibration.
+ * Vector3) is given, `point` the point light with the greatest attenuated
+ * luminance there, using Three's decay and smooth distance cutoff.
+ * Black lights and lights beyond their cutoff cannot displace a visible
+ * source. Each effect applies its own calibration after selection.
  */
 export function makeLightProbe() {
     const probe = {
@@ -1613,21 +1616,31 @@ export function makeLightProbe() {
         ambient: new THREE.Color(), sky: new THREE.Color(), ground: new THREE.Color(),
     };
     const at = new THREE.Vector3(), target = new THREE.Vector3(), scratch = new THREE.Color();
+    const luminance = (color) => .2126 * color.r + .7152 * color.g + .0722 * color.b;
     return (scene, near = null) => {
-        let score = -1;
+        let sunScore = 0, pointScore = 0;
         probe.sun = probe.point = null;
         probe.ambient.setRGB(0, 0, 0); probe.sky.setRGB(0, 0, 0); probe.ground.setRGB(0, 0, 0);
         scene.traverseVisible((light) => {
             if (!light.isLight || !(light.intensity > 0)) return;
             const i = light.intensity;
-            if (light.isDirectionalLight && (!probe.sun || i > probe.sun.intensity)) probe.sun = light;
+            if (light.isDirectionalLight) {
+                const score = i * luminance(light.color);
+                if (score > sunScore) { sunScore = score; probe.sun = light; }
+            }
             else if (light.isAmbientLight) probe.ambient.add(scratch.copy(light.color).multiplyScalar(i));
             else if (light.isHemisphereLight) {
                 probe.sky.add(scratch.copy(light.color).multiplyScalar(i));
                 probe.ground.add(scratch.copy(light.groundColor).multiplyScalar(i));
             } else if (near && light.isPointLight) {
-                const s = i / Math.max(.01, light.getWorldPosition(at).distanceToSquared(near));
-                if (s > score) { score = s; probe.point = light; }
+                const distance = light.getWorldPosition(at).distanceTo(near);
+                // Same attenuation as Three's getDistanceAttenuation: selection
+                // must not prefer a nearby lamp whose range has already ended.
+                const cutoff = light.distance > 0
+                    ? Math.max(0, 1 - (distance / light.distance) ** 4) ** 2 : 1;
+                const score = i * luminance(light.color) * cutoff
+                    / Math.max(.01, distance ** light.decay);
+                if (score > pointScore) { pointScore = score; probe.point = light; }
             }
         });
         probe.sunDirection.set(0, 1, 0);

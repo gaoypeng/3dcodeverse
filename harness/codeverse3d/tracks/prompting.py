@@ -200,7 +200,7 @@ def is_always_chapter(title: str, always: Sequence[str] = COOKBOOK_ALWAYS) -> bo
     return any(name.lower() in low for name in always)
 
 
-def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9000,
+def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9500,
                              always: Sequence[str] = COOKBOOK_ALWAYS) -> list[Section]:
     """The cookbook chapters (cookbook order) a brief calls for.
 

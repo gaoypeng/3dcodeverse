@@ -334,15 +334,16 @@ function shimmerMaterial(strength, speed, cells, aspect, height, phase) {
  *
  * Combine with a dome, never instead of one: `worldShell({mood:
  * 'night'})` (lib/environment.js) draws the gradient this sits in
- * front of, and `makeSky()` (lib/sky.js) is a DAYLIGHT dome — its
- * Preetham shader has no night. Both leave `scene.background` null and
+ * front of, or `makeSky(scene, { rig })` with a night `sunRig()` for
+ * a graded physical dome. Both leave `scene.background` null and
  * neither writes depth, so the stars paint over either one.
  *
  * @param {object} [opts]
  *   `count` stars (default 1400); `radius` metres to the star sphere
  *   (default 2000 — inside `worldShell`'s 4 km dome and the camera's
  *   far plane, outside any content); `magnitude` overall brightness
- *   gain (default 1); `twinkle` scintillation depth 0..1 (default
+ *   gain for both stars and unresolved Milky Way light (default 1;
+ *   0 hides both); `twinkle` scintillation depth 0..1 (default
  *   0.35, over periods of 4-9 s); `milkyWay` the band of unresolved
  *   light, which also pulls part of the field into it (default true);
  *   `seed` PRNG seed (default 3); `ambient` how bright the frame
@@ -357,7 +358,7 @@ export function makeStars(opts = {}) {
     const count = Math.max(1, Math.round(
         opts.count === undefined ? 1400 : opts.count));
     const radius = opts.radius === undefined ? 2000 : opts.radius;
-    const gain = opts.magnitude === undefined ? 1 : opts.magnitude;
+    const gain = Math.max(0, opts.magnitude === undefined ? 1 : opts.magnitude);
     const twinkle = Math.min(Math.max(
         opts.twinkle === undefined ? 0.35 : opts.twinkle, 0), 1);
     const seed = opts.seed === undefined ? 3 : opts.seed;
@@ -376,7 +377,7 @@ export function makeStars(opts = {}) {
 
     const g = new THREE.Group();
     g.name = 'Stars';
-    if (opts.milkyWay !== false) g.add(milkyWayMesh(radius, pole, bright));
+    if (opts.milkyWay !== false) g.add(milkyWayMesh(radius, pole, bright, gain));
     g.add(starMesh(count, radius, gain, twinkle, rnd, pole, bright,
                    opts.milkyWay !== false));
     g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
@@ -498,7 +499,7 @@ function starMaterial(radius, gain, twinkle, bright) {
 }
 
 /** The band: unresolved light, dust lanes, and a bulge to aim at. */
-function milkyWayMesh(radius, pole, bright) {
+function milkyWayMesh(radius, pole, bright, gain) {
     const geom = new THREE.SphereGeometry(radius * 1.01, 48, 24);
     // Two axes across the band give the noise a seamless 2D coordinate
     // — an atan around the pole would print a meridian down the sky.
@@ -513,19 +514,11 @@ function milkyWayMesh(radius, pole, bright) {
             uAxisA: { value: a },
             uAxisB: { value: b },
             uCore: { value: core },
-            // TWO colours, because the band has two: the bulge is seen
-            // through the whole disc of dust and comes out reddened,
-            // while the outer arms are the blue-white of the young
-            // stars in them. One flat tint is what made this render as
-            // a grey cloud (sky hue sigma 0.0025 over the band).
-            uArm: { value: new THREE.Color(0x9fbcf8) },
-            uHub: { value: new THREE.Color(0xffd79a) },
-            // Higher than the 0.42 this shipped with, because the alpha
-            // it multiplies is no longer a plateau: deep dust lanes,
-            // the rift and a real extinction ramp take most of the band
-            // to nearly nothing, and the gain has to buy the star
-            // clouds back or the whole band disappears with the wash.
-            uGain: { value: bright ? 0.24 : 0.62 },
+            // Unresolved starlight is faint and nearly neutral. The
+            // previous warm, high-alpha band became a luminous fog bank.
+            uArm: { value: new THREE.Color(0xc3c9d9) },
+            uHub: { value: new THREE.Color(0xd5cbbb) },
+            uGain: { value: gain * (bright ? 0.018 : 0.045) },
         },
         varyings: 'varying vec3 vDir;',
         vertexMain: '  vDir = normalize(position);',
@@ -536,29 +529,27 @@ function milkyWayMesh(radius, pole, bright) {
         fragmentMain: [
             '  vec3 d = normalize(vDir);',
             '  float s = dot(d, uPole);',
-            '  float band = exp(-(s * s) / 0.032);',
-            // 7.0, not 3.2: at the coarse scale one lobe of the noise
-            // spanned tens of degrees and the band arrived as a bank of
-            // grey FOG. The band is unresolved STARS — its texture has
-            // to be finer than the shape it fills.
-            '  vec2 p = vec2(dot(d, uAxisA), dot(d, uAxisB)) * 7.0;',
-            '  float n = astraFbm2(p + vec2(s * 6.0, 0.0), 4);',
+            '  float band = exp(-(s * s) / 0.009);',
+            // Angular detail follows the galactic plane without a seam.
+            // Fine star clouds sit inside the narrow unresolved band.
+            '  vec2 p = vec2(dot(d, uAxisA), dot(d, uAxisB)) * 22.0;',
+            '  float n = astraFbm2(p + vec2(s * 12.0, 0.0), 4);',
             // Dark lanes are dust in front of the band, so they CUT it
             // rather than tinting it; a smooth gaussian is a smear.
-            '  float lanes = smoothstep(0.26, 0.72, n);',
+            '  float lanes = smoothstep(0.28, 0.72, n);',
             // A second field finer again: star clouds INSIDE the arms.
             // One scale of noise is a smear at any contrast.
             '  float fine = astraFbm2(p * 2.9 + vec2(11.0, s * 4.0), 3);',
-            '  lanes *= 0.34 + 1.05 * fine;',
+            '  lanes *= 0.45 + 0.75 * fine;',
             // The Great Rift: dust lying IN the plane, so it splits the
             // band down its own spine instead of dimming it evenly.
             // Without it the brightest pixel is the exact centre line,
             // which is the one place the real band is darkest.
-            '  float spine = abs(s + (astraNoise2(p * 0.35) - 0.5) * 0.05);',
-            '  float rift = smoothstep(0.05, 0.17, spine);',
-            '  float bulge = exp(-pow(1.0 - dot(d, uCore), 2.0) / 0.09);',
-            '  float a = band * (0.10 + 1.15 * lanes)',
-            '      * (0.55 + 1.15 * bulge) * mix(0.30, 1.0, rift) * uGain',
+            '  float spine = abs(s + (astraNoise2(p * 0.35) - 0.5) * 0.025);',
+            '  float rift = smoothstep(0.012, 0.065, spine);',
+            '  float bulge = exp(-(1.0 - dot(d, uCore)) / 0.055);',
+            '  float a = band * (0.08 + 0.92 * lanes)',
+            '      * (0.55 + 0.75 * bulge) * mix(0.20, 1.0, rift) * uGain',
             // Extinction is a LONG ramp. Ending it at 0.12 put the
             // whole fade inside the sky a level camera actually frames,
             // and drew a straight horizontal edge across the band.
@@ -566,11 +557,11 @@ function milkyWayMesh(radius, pole, bright) {
             // Warm hub, cool arms, and the star clouds carry the mix so
             // the band has warm and cold patches instead of one tint.
             '  vec3 c = mix(uArm, uHub,',
-            '      clamp(bulge * 0.8 + (fine - 0.42) * 1.1, 0.0, 1.0));',
-            // Sub-LSB dither: a veil this smooth bands into visible
-            // contour rings on an 8-bit frame.
-            '  a += (astraHash21(gl_FragCoord.xy) - 0.5) * 0.004;',
-            '  if (a < 0.003) discard;',
+            '      clamp(bulge * 0.65 + (fine - 0.5) * 0.25, 0.0, 1.0));',
+            // Relative grain preserves zero and scales with magnitude;
+            // an absolute alpha floor would resurrect a disabled band.
+            '  a *= 1.0 + (astraHash21(gl_FragCoord.xy) - 0.5) * 0.10;',
+            '  if (a <= 0.0) discard;',
             '  gl_FragColor = vec4(c, clamp(a, 0.0, 1.0));',
         ].join('\n'),
         // 3dcode: no-fog — see StarField.

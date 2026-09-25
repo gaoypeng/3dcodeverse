@@ -18,7 +18,7 @@ pytest.importorskip("moderngl")
 
 def test_sdf_transport_and_surface_response_on_real_gl(tmp_path):
     known = cookbook_functions(load_text("glsl_shader/cookbook.md"))
-    requested = ("sdStar", "sdSegment", "sun", "dropsLayer", "bokehSoft", "beerTransmittance", "phaseHG", "pbrDirect")
+    requested = ("sdStar", "sdSegment", "sun", "dropsLayer", "bokehSoft", "beerTransmittance", "phaseHG", "pbrDirect", "aurora")
     recipes = "\n\n".join(r.text for r in with_helpers([known[k] for k in requested], known))
     shader = """
 void mainImage(out vec4 fragColor,in vec2 fragCoord) {
@@ -54,6 +54,13 @@ void mainImage(out vec4 fragColor,in vec2 fragCoord) {
  float disc=sun(uv,vec2(.5),.1);
  if(any(isnan(rain))||any(isnan(bokeh))||isnan(disc)) failures+=1.0;
  if(any(lessThan(rain,vec2(0)))||any(greaterThan(rain,vec2(1)))) failures+=1.0;
+ // The color of each curtain uses its OWN output height. Evaluating color
+ // before an out-parameter call silently borrowed the preceding layer's k.
+ vec2 p=uv-vec2(.5,.15); float k=0.0; vec3 expectedAurora=vec3(0);
+ float a0=curtain(p,u_time,0.0,k); expectedAurora+=auroraCol(k)*a0;
+ float a1=curtain(p-vec2(.3,.12),u_time*.8,11.0,k); expectedAurora+=auroraCol(k)*a1*.55;
+ float a2=curtain(p-vec2(-.5,.22),u_time*.6,23.0,k); expectedAurora+=auroraCol(k)*a2*.30;
+ if(length(aurora(p,u_time)-expectedAurora)>1e-6) failures+=1.0;
  fragColor=vec4(min(failures,1.0),failures==0.0?1.0:0.0,failures/16.0,1.0);
 }
 """

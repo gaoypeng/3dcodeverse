@@ -308,7 +308,10 @@ export function patchMoss(material, opts = {}) {
       '              * (1.0 - msK) * max(msLie, 0.35);',
       // The material just OUTSIDE the edge stays damp under the growth.
       '  float msLip = (1.0 - msK)',
-      '              * smoothstep(msT - 0.55, msT - 0.02, msD);',
+      // Keep the edge shadow inside positive growth. A fixed subtraction
+      // made this threshold negative at high coverage, darkening dry,
+      // sun-facing walls even though both moss and lichen were absent.
+      '              * smoothstep(msT * 0.40, msT - 0.02, msD);',
       // `amount` 0 is OFF, which a threshold alone cannot say: a deep
       // enough crevice would clear any threshold. Declared here with
       // the rest of the MASK, so everything above this line is scalar

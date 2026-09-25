@@ -565,6 +565,9 @@ export const PRACTICAL = Object.freeze({ emissiveIntensity: 3.0, intensity: 1.5,
  * the moon.  `sunDir` still reports the authored (below-horizon) sun so
  * `makeSky()` paints twilight/night on it; `lightDir` is the vector the
  * shadow light actually uses (equal to `sunDir` by day).
+ * An explicit night mood with an above-horizon direction uses that
+ * direction for the moon; `skySunDir` supplies the set sun to both
+ * the environment bake and `makeSky()`.
  *
  * @param {object} [opts]
  *   `mood` one of `day | golden | night | overcast` (default `day`;
@@ -582,13 +585,13 @@ export const PRACTICAL = Object.freeze({ emissiveIntensity: 3.0, intensity: 1.5,
  *   on, except overcast).
  * @returns {{sun: THREE.DirectionalLight, fill: THREE.HemisphereLight,
  *   envTex: THREE.DataTexture, sunDisc: THREE.Mesh|null,
- *   sunDir: THREE.Vector3, lightDir: THREE.Vector3, night: boolean,
+ *   sunDir: THREE.Vector3, skySunDir: THREE.Vector3, lightDir: THREE.Vector3, night: boolean,
  *   moonDir: THREE.Vector3|null, mood: string}}
  *   Add `sun`, `fill` (and `sunDisc` when present) to the scene and
  *   assign `envTex` to `scene.environment`. The sun aims at the origin.
  *   `sunDir` is the normalized sun vector — for a physical atmosphere
  *   dome hand the whole rig to `makeSky(scene, { rig })` from ./sky.js,
- *   which slaves the dome to this vector and hides the flat disc (the
+ *   which uses `skySunDir` and hides the flat disc (the
  *   Preetham shader draws its own sun; a night rig's moon disc stays).
  */
 export function sunRig(opts = {}) {
@@ -737,8 +740,13 @@ export function sunRig(opts = {}) {
   // it at the skyline the way hills occlude a low sun.
   let sunDisc = null;
   if (opts.disc === undefined ? rig.disc : opts.disc) {
+    // The moon subtends about half a degree, independent of sky radius.
+    // Keep the existing daytime disc grade; only the moon was oversized.
+    const discRadius = night
+        ? radius * 0.9 * Math.tan(THREE.MathUtils.degToRad(0.52 / 2))
+        : radius * 0.012;
     sunDisc = new THREE.Mesh(
-        new THREE.CircleGeometry(radius * (night ? 0.007 : 0.012), 24),
+        new THREE.CircleGeometry(discRadius, night ? 48 : 24),
         new THREE.MeshBasicMaterial({
           color: rig.discColor, fog: false, depthWrite: false,
         }));
@@ -751,6 +759,6 @@ export function sunRig(opts = {}) {
   const owned = sunDisc ? snapshotResources(sunDisc) : new Set();
   owned.add(envTex);owned.add(sun);owned.add(fill);
   const lifecycle = attachDisposal(new THREE.Group(), owned);
-  return { sun, fill, envTex, sunDisc, sunDir: dir.clone(), lightDir,
+  return { sun, fill, envTex, sunDisc, sunDir: dir.clone(), skySunDir: skySun.clone(), lightDir,
            night, moonDir, mood: moodName, dispose:lifecycle.userData.dispose };
 }

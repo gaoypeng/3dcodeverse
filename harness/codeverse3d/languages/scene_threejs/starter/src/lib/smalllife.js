@@ -24,7 +24,7 @@ import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32 } from './noise.js';
 // One reader, so a scene's meadow, its reeds and its trees
 // cannot drift apart on the same `wind` option.
-import { windOf } from './grass.js';
+import { WIND_GUST_GLSL, windOf } from './grass.js';
 import {
   glslLocalDir, instancedQuad, makeShaderMaterial, patchStandard, readVec3,
   shadowLike, tickShaders, unit,
@@ -403,7 +403,7 @@ function insectMaterial(kind, size, drift, color) {
       // the same flash is a beetle, and at full strength it landed on
       // the day frame as a white speck that read as a dirty lens.
       '    float dim = 1.0 - clamp(dot(uLight, vec3(0.5)), 0.0, 1.0);',
-      '    float lit = clamp(pulse * (0.4 + 0.6 * smoothstep(0.5, 0.0, d))',
+      '    float lit = clamp(pulse * (0.4 + 0.6 * (1.0 - smoothstep(0.0, 0.5, d)))',
       '        * (0.25 + 0.75 * dim), 0.0, 1.0);',
       '    col = mix(body * uLight, hot, lit);',
       '  }',
@@ -654,7 +654,7 @@ const STEM_HEAD = [
   'varying vec4 vReedVar;',
   'varying vec2 vReedW;',
   'varying float vReedPart;',
-  glslLocalDir('reedLocalDir'),
+  glslLocalDir('reedLocalDir'), WIND_GUST_GLSL,
 ].join('\n');
 
 const STEM_VERTEX = [
@@ -664,13 +664,12 @@ const STEM_VERTEX = [
   '  float rdH = max(iShape.x, 1e-3);',
   // Gusts are streaks running downwind — the same field grass.js rides,
   // so a scene's meadow and its shallows lean together.
-  '  vec2 rdW = uReedWind;',
-  '  vec2 rdP = vec2(dot(rdRoot.xz, rdW),',
-  '                  dot(rdRoot.xz, vec2(-rdW.y, rdW.x)));',
+  '  vec3 rdRootWorld = (modelMatrix * vec4(rdRoot, 1.0)).xyz;',
+  '  vec2 rdW = reedLocalDir(vec3(uReedWind.x, 0.0, uReedWind.y)).xz;',
+  '  rdW /= max(length(rdW), 1e-5);',
   '  float rdT = uTime * uReedSpeed;',
-  '  float rdGust = astraFbm2(vec2(rdP.x * 0.055 - rdT * 0.5,',
-  '      rdP.y * 0.21), 2);',
-  '  float rdPh = astraStagger(iVar.x + rdRoot.x * 0.07 + rdRoot.z * 0.11);',
+  '  float rdGust = astraWindGust(rdRootWorld, uReedWind, rdT, vec2(0.055, 0.21));',
+  '  float rdPh = astraWindPhase(rdRootWorld, iVar.x);',
   '  float rdSway = (sin(rdT * uReedRate.x + rdPh)',
   '      + 0.35 * sin(rdT * uReedRate.x * 1.8 + rdPh * 1.7)) / 1.35;',
   // Under water: one slow sine, no harmonic, and late — the surface has

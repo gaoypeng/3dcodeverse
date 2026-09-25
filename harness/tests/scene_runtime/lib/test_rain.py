@@ -64,3 +64,62 @@ const finite = (g) => {
 console.log(JSON.stringify(finite(makeSplashes({ area: 12, y: 0, seed: 4 }))));
 """, _LIBS)
     assert out["total"] > 0 and out["bad"] == 0, out
+
+
+def test_hidden_surfaces_do_not_collect_splashes_or_shelter_rain():
+    """A hidden ancestor/material must agree with what is actually rendered."""
+    out = measure("""
+import * as THREE from 'three';
+import { makeRain, makeSplashes } from './lib/rain.js';
+const scene = new THREE.Scene(), hidden = new THREE.Group();
+hidden.visible = false; scene.add(hidden);
+const roof = new THREE.Mesh(new THREE.BoxGeometry(5, .3, 5), new THREE.MeshStandardMaterial());
+roof.position.y = 4; hidden.add(roof);
+const invisible = roof.clone(); invisible.material = roof.material.clone();
+invisible.material.visible = false; invisible.position.y = 2; scene.add(invisible);
+scene.updateMatrixWorld(true);
+const surfaces = [roof, invisible];
+const splashes = makeSplashes({ surfaces, area: 4, count: 60, surfaceBias: 0, crowns: false });
+const impact = splashes.getObjectByName('SplashRings').geometry.attributes.iOff;
+const rainfall = makeRain({ surfaces, radius: 3, count: 2, follow: false, groundY: 0 });
+scene.add(rainfall); scene.updateMatrixWorld(true);
+const camera = new THREE.PerspectiveCamera(); camera.position.set(0, 3, 6); camera.updateMatrixWorld(true);
+rainfall.onBeforeRender({}, scene, camera, rainfall.geometry, rainfall.material);
+rainfall.onAfterRender({}, scene, camera, rainfall.geometry, rainfall.material);
+console.log(JSON.stringify({ heights: Array.from({length: impact.count}, (_, i) => impact.getY(i)),
+  shelter: rainfall.userData.sampleShelterHeight(0, 0) }));
+splashes.userData.dispose(); rainfall.userData.dispose();
+""", _LIBS)
+    assert out["shelter"] == 0, out
+    assert out["heights"] == pytest.approx([0.012] * 60), out
+
+
+def test_instanced_splash_normals_follow_affine_surface_and_reject_steep_faces():
+    """The normal and lift belong to each tilted instance, including parent scale."""
+    out = measure("""
+import * as THREE from 'three';
+import { makeSplashes } from './lib/rain.js';
+const parent = new THREE.Group(); parent.rotation.y = .4; parent.scale.set(1.6, .8, 1.2);
+const geometry = new THREE.PlaneGeometry(5, 5); geometry.rotateX(-Math.PI / 2);
+const roof = new THREE.InstancedMesh(geometry, new THREE.MeshStandardMaterial({side: THREE.DoubleSide}), 1);
+parent.add(roof); const instance = new THREE.Matrix4().makeRotationZ(.55);
+instance.setPosition(0, 3, 0); roof.setMatrixAt(0, instance); parent.updateMatrixWorld(true);
+const expected = new THREE.Vector3(0, 1, 0).applyMatrix3(new THREE.Matrix3()
+  .getNormalMatrix(roof.matrixWorld.clone().multiply(instance))).normalize();
+const center = new THREE.Vector3(0, 0, 0).applyMatrix4(roof.matrixWorld.clone().multiply(instance));
+const splash = makeSplashes({surfaces: [roof], count: 80, surfaceBias: 1, ground: false, crowns: false});
+const rings = splash.getObjectByName('SplashRings'), normal = rings.geometry.attributes.iNrm, off = rings.geometry.attributes.iOff;
+let normalError = 0, liftError = 0;
+for (let i = 0; i < off.count; i++) {
+  normalError = Math.max(normalError, new THREE.Vector3().fromBufferAttribute(normal, i).distanceTo(expected));
+  liftError = Math.max(liftError, Math.abs(new THREE.Vector3().fromBufferAttribute(off, i).sub(center).dot(expected) - .012));
+}
+instance.makeRotationZ(1.48).setPosition(0, 3, 0); roof.setMatrixAt(0, instance);
+roof.computeBoundingBox(); roof.computeBoundingSphere();
+const steep = makeSplashes({surfaces: [roof], count: 40, surfaceBias: 1, ground: false, crowns: false});
+console.log(JSON.stringify({normalError, liftError, count: off.count, steepCount: steep.children.length}));
+splash.userData.dispose(); steep.userData.dispose();
+""", _LIBS)
+    assert out["count"] == 80, out
+    assert out["normalError"] < 1e-6 and out["liftError"] < 1e-6, out
+    assert out["steepCount"] == 0, out

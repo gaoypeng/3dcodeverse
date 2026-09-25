@@ -38,6 +38,18 @@ const BLADE_ROWS = 4;
 
 const LOCAL_DIR = glslLocalDir('grassLocalDir');
 
+// Shared by grass, flowers, reeds and canopy. Sample in world metres, then
+// carry the direction into each plant's local frame before bending it.
+export const WIND_GUST_GLSL = [
+  'float astraWindGust(vec3 root, vec2 wind, float time, vec2 scale) {',
+  '  vec2 p = vec2(dot(root.xz, wind), dot(root.xz, vec2(-wind.y, wind.x)));',
+  '  return astraFbm2(p * scale - vec2(time * 0.5, 0.0), 2);',
+  '}',
+  'float astraWindPhase(vec3 root, float phase) {',
+  '  return astraStagger(phase + root.x * 0.07 + root.z * 0.11);',
+  '}',
+].join('\n');
+
 /**
  * Cover a patch of ground in grass.
  *
@@ -306,7 +318,7 @@ const BLADE_HEAD = [
   'attribute vec4 iVar;',
   'varying vec3 vGrass;',
   'varying vec2 vGrassW;',
-  LOCAL_DIR,
+  LOCAL_DIR, WIND_GUST_GLSL,
 ].join('\n');
 
 const BLADE_VERTEX = [
@@ -314,15 +326,14 @@ const BLADE_VERTEX = [
   '  float grV = aCorner.y;',
   // Gusts are streaks running downwind, so the field is compressed
   // ALONG the wind and travels with it; across it, structure is fine.
-  '  vec2 grW = uGrassWind;',
-  '  vec2 grP = vec2(dot(grBase.xz, grW),',
-  '                  dot(grBase.xz, vec2(-grW.y, grW.x)));',
-  '  float grGust = astraFbm2(',
-  '      vec2(grP.x * 0.055 - uTime * uGrassSpeed * 0.5, grP.y * 0.21), 2);',
+  '  vec3 grRootWorld = (modelMatrix * vec4(grBase, 1.0)).xyz;',
+  '  vec2 grW = grassLocalDir(vec3(uGrassWind.x, 0.0, uGrassWind.y)).xz;',
+  '  grW /= max(length(grW), 1e-5);',
+  '  float grGust = astraWindGust(grRootWorld, uGrassWind,',
+  '      uTime * uGrassSpeed, vec2(0.055, 0.21));',
   // Neighbours out of phase: offsets under a full turn leave a whole
   // row nodding in step.
-  '  float grPh = astraStagger(iVar.y + grBase.x * 0.07',
-  '      + grBase.z * 0.11);',
+  '  float grPh = astraWindPhase(grRootWorld, iVar.y);',
   '  float grT = uTime * uGrassSpeed;',
   '  float grS = (sin(grT * 2.1 + grPh)',
   '      + 0.35 * sin(grT * 3.7 + grPh * 1.7)) / 1.35;',
@@ -365,7 +376,7 @@ const BLADE_VERTEX = [
   // it reads the same coordinate, so a straw patch is straw in both,
   // and a value that moved with the gust would make the field's colour
   // slide about under the wind.
-  '  vGrassW = (modelMatrix * vec4(grBase, 1.0)).xz;',
+  '  vGrassW = grRootWorld.xz;',
   // Dryness swings at the METRE as well as per blade. The clump field
   // already dries the thin ground, but a meadow also goes to straw in
   // bands that have nothing to do with how dense it is — sun, drainage,

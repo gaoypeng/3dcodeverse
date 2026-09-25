@@ -789,12 +789,30 @@ export function tower(opts = {}) {
  */
 export function roofClutter(host, opts = {}) {
   const rand = opts.rand || (() => 0.5);
-  host.updateMatrixWorld(true);
-  const b = new THREE.Box3().setFromObject(host);
+  // Clutter becomes a child of the host, so measure the roof in that
+  // same local frame. A world bbox would apply the host transform twice.
+  host.updateWorldMatrix(true, true);
+  const inverse = host.matrixWorld.clone().invert();
+  const b = new THREE.Box3(), part = new THREE.Box3(), matrix = new THREE.Matrix4();
+  host.traverse((o) => {
+    let bounds;
+    if (o.boundingBox !== undefined) {
+      if (!o.boundingBox) o.computeBoundingBox();
+      bounds = o.boundingBox;
+    } else if (o.geometry) {
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      bounds = o.geometry.boundingBox;
+    }
+    if (bounds) {
+      matrix.multiplyMatrices(inverse, o.matrixWorld);
+      b.union(part.copy(bounds).applyMatrix4(matrix));
+    }
+  });
   const y = b.max.y;
   const w = (b.max.x - b.min.x) * 0.7, d = (b.max.z - b.min.z) * 0.7;
   const g = new THREE.Group();
   g.name = 'RoofClutter';
+  g.position.set((b.min.x + b.max.x) * 0.5, 0, (b.min.z + b.max.z) * 0.5);
   const wood = MAT.weatheredWood();
   const steel = MAT.brushedSteel({ color: 0x8d949b });
   for (let i = 0; i < (opts.tanks === undefined ? 1 : opts.tanks); i++) {

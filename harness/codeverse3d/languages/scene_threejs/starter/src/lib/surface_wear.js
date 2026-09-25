@@ -43,7 +43,7 @@
  */
 
 import {
-  patchStandard, glslAxes, glslTriNoise, seedVec3,
+  patchStandard, glslAxes, glslCurv, glslTriNoise, seedVec3,
   toColor, unit, worldBase,
 } from './shader.js';
 
@@ -53,6 +53,7 @@ import {
 const WEAR_HEAD = [
   glslAxes('astraWearAxes'),
   glslTriNoise('astraWearNoise', 13.7, 41.3, 71.9),
+  glslCurv('astraWearCurv'),
 ].join('\n');
 
 // On the world varyings terrain_shade and waterside share, so a material
@@ -132,16 +133,20 @@ export function patchMicroBreakup(material, opts = {}) {
       // fades, or the mid one aliases across a floor at grazing angle
       // while the fine one is already gone.
       '  float mbFw = length(fwidth(mbP));',
-      '  float mbGm = 1.0 - smoothstep(0.35, 1.00, mbFw * 2.03);',
-      '  float mbG = 1.0 - smoothstep(0.35, 1.00, mbFw * 4.1);',
+      // Filter each field toward its mean BEFORE either brightness or
+      // hue reads it. Filtering only brightness left coloured static at
+      // grazing angles, and even the coarsest octave aliases far away.
+      '  mbLo = mix(0.5, mbLo, 1.0 - smoothstep(0.35, 1.00, mbFw));',
+      '  mbMi = mix(0.5, mbMi, 1.0 - smoothstep(0.35, 1.00, mbFw * 2.03));',
+      '  mbHi = mix(0.5, mbHi, 1.0 - smoothstep(0.35, 1.00, mbFw * 4.1));',
       // Value noise clusters around 0.5, so it is centred and stretched
       // to reach the strength asked for; three octaves rather than two
       // because a surface with one blotch size and one grain size is
       // still a pattern, and the clamp keeps `strength` a hard bound
       // however they stack.
       '  float mbV = clamp((mbLo - 0.5) * 2.4',
-      '                    + (mbMi - 0.5) * 1.5 * mbGm',
-      '                    + (mbHi - 0.5) * 1.6 * mbG, -1.0, 1.0);',
+      '                    + (mbMi - 0.5) * 1.5',
+      '                    + (mbHi - 0.5) * 1.6, -1.0, 1.0);',
       // WARM/COOL, not a hue rotation: rotating about the grey axis
       // leaves a neutral exactly unchanged, and stone, plaster and
       // concrete are most of what this rides on. Warm where the sun has
@@ -228,16 +233,10 @@ export function patchEdgeWear(material, opts = {}) {
     ].join('\n'),
     fragmentBody: [
       '  vec3 ewN = normalize(vAstraWorldN);',
-      '  vec3 ewPx = dFdx(vAstraWorld);',
-      '  vec3 ewPy = dFdy(vAstraWorld);',
-      '  vec3 ewNx = dFdx(ewN);',
-      '  vec3 ewNy = dFdy(ewN);',
       // Curvature in 1/m: how far the normal turns per metre the
       // surface travels under one pixel. Positive is convex, and only
       // the convex half wears.
-      '  float ewD = dot(ewPx, ewPx) + dot(ewPy, ewPy);',
-      '  float ewC = (dot(ewNx, ewPx) + dot(ewNy, ewPy))',
-      '            / max(ewD, 1e-12);',
+      '  float ewC = astraWearCurv(ewN, vAstraWorld);',
       '  float ewR = 1.0 / uEdgeWidth;',
       '  float ewK = smoothstep(ewR, ewR * 3.0, ewC);',
       // Rubbing is patchy and FINE, at TWO scales. The ramp above is
@@ -261,7 +260,7 @@ export function patchEdgeWear(material, opts = {}) {
       // warm/cool spread, so no two worn patches are the same colour.
       '  float ewL = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));',
       '  vec3 ewThin = mix(diffuseColor.rgb, vec3(ewL), 0.45) * 1.16;',
-      '  float ewT = (ewF - 0.5) * 0.24;',
+      '  float ewT = (ewF - 0.5) * ewG * 0.24;',
       '  vec3 ewBare = uEdgeColor * (0.86 + 0.24 * ewP)',
       '              * vec3(1.0 + ewT, 1.0 + ewT * 0.15, 1.0 - ewT);',
       '  vec3 ewTone = mix(ewThin, ewBare, smoothstep(0.35, 0.90, ewK));',

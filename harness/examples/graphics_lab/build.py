@@ -32,6 +32,7 @@ CASES = (
     ("campfire", "14", "Fire in the clearing", "Campfire and bonfire · Char, embers and rising smoke", "flame"),
     ("structural_fire", "15", "Fire through a structure", "Window and roof flames · Opaque-depth intersections", "flame"),
     ("external_shader", "16", "Light on alloy", "External GLSL · An animated material study", "shader study"),
+    ("night", "17", "The moonlit coast", "Connected cloud volumes · Moonlight over open water", "night"),
 )
 
 

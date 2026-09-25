@@ -45,6 +45,11 @@ const CAU_HEAD = [
 
 const CAU_BODY = [
   '  float cauD = max(uCauLevel - vAstraWorld.y, 0.0);',
+  // The projection, incident cosine and extinction must describe the SAME
+  // refracted beam. Using the air direction here put low-sun caustics on
+  // near-vertical faces while starving the floor the bent ray actually hits.
+  '  vec3 cauBeam = normalize(vec3(uCauSlide.x, 1.0, uCauSlide.y));',
+  '  float cauPath = cauD / cauBeam.y;',
   // Shade from where this fragment's light ENTERED the water: the net
   // belongs to the surface overhead, so a riser takes a stretched
   // slice of the floor's net instead of a pattern of its own.
@@ -104,8 +109,10 @@ const CAU_BODY = [
   // fraction of a depth down. The column it loses light IN is the
   // tint below — extinction is per channel, not one number.
   '  float cauK = smoothstep(0.0, uCauFade * 0.3, cauD);',
-  '  cauK *= 0.12 + 0.88 * max(dot(normalize(vAstraWorldN), uCauSun),',
-  '                            0.0);',
+  '  cauK *= max(dot(normalize(vAstraWorldN), cauBeam), 0.0);',
+  // No beam enters the surface from a sun below its horizon. The short
+  // transition also avoids a hard on/off edge at grazing incidence.
+  '  cauK *= smoothstep(0.0, 0.05, uCauSun.y);',
   // A long shallow shelf is one smooth ramp of this term over hundreds
   // of pixels, which is exactly where 8-bit output bands.
   '  cauK *= 1.0 + (astraHash21(gl_FragCoord.xy) - 0.5) * 0.05;',
@@ -118,9 +125,9 @@ const CAU_BODY = [
   // net evenly and left a deep floor lit the same colour as a shin-
   // deep one; a per-channel Beer-Lambert is what makes shallow water
   // warm and a depth go green-blue — the whole reason a pool
-  // photographs. uCauAbs is luminance-neutral, so the net still dims
-  // over exactly the `depthFade` metres asked for: only the hue splits.
-  '  vec3 cauTint = uCauColor * exp(-cauD * uCauAbs);',
+  // photographs. The coefficients have unit luminance-weighted mean,
+  // preserving the initial extinction rate set by `depthFade`.
+  '  vec3 cauTint = uCauColor * exp(-cauPath * uCauAbs);',
   // Dispersion: a lone filament is a fold seen edge-on and keeps the
   // cool end, a crossing is achromatic and runs warm-white.
   '  float cauNf = cauNode / (cauNode + cauFil * 0.5 + 1e-4);',
@@ -160,13 +167,10 @@ function refractSlide(sun) {
  * water really has, because the true ratio takes the net monochrome
  * cyan inside three metres and a pool is not an ocean trench.
  *
- * NORMALISED to luminance, so this is a pure hue split and not a
- * dimmer: mid-grey still decays over exactly the metres the caller
- * asked for, and `depthFade` keeps meaning what it meant before there
- * was a colour here at all. (Weighting by Rec.709 rather than thirds
- * matters — green carries 71% of the luminance and is the channel in
- * the middle, so an unweighted normalisation would darken the net by a
- * tenth at every depth.)
+ * Normalised to a unit luminance-weighted mean extinction rate, so
+ * `depthFade` sets the initial loss per metre. At greater depth the
+ * surviving blue/green light decays more slowly; a spectral mixture
+ * cannot retain one exact luminance e-fold distance at every depth.
  */
 function absorption(fade) {
   const w = new THREE.Vector3(1 / 0.62, 1 / 1.00, 1 / 1.45);
@@ -206,7 +210,11 @@ const seedOffset = (seed) => new THREE.Vector2(seedLattice(seed) * 0.103,
  * ENTERED the water: this fragment's world XZ slid toward the sun by
  * its own depth, refracted. So the net belongs to the surface overhead
  * and a step riser takes a stretched slice of the same net rather than
- * a pattern of its own. And it is ridged interference — two wave
+ * a pattern of its own. Incidence and absorption use that same bent
+ * ray: a grazing sun still reaches the floor steeply, the beam loses
+ * light over its full slanted water path, and back-facing surfaces
+ * receive no direct caustics. A sun below the horizon contributes none.
+ * And it is ridged interference — two wave
  * trains crossing, plus a slow third that bunches the light — so the
  * bright nodes travel at neither train's speed, where one fbm at any
  * speed reads as dirt sliding over the floor.
@@ -239,7 +247,7 @@ const seedOffset = (seed) => new THREE.Vector2(seedLattice(seed) * 0.103,
  *   burns — a node peaks near 3 x this (default 4); `speed` how fast
  *   the water runs (default 0.35); `color` THREE.Color or hex of the
  *   light ABOVE the surface, before the water tints it (default a
- *   warm daylight white); `depthFade` metres of water the net survives
+ *   warm daylight white); `depthFade` metres of beam travel in water the net survives
  *   in luminance — red keeps 0.62 of that and blue 1.45, which is the
  *   ramp from a warm step to a green-blue drain (default 3); `seed`
  *   moves the lattice, so two pools are not one pool twice (default 1);

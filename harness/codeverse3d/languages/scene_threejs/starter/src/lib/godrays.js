@@ -29,6 +29,7 @@
  */
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 
 import { lehmer } from './noise.js';
@@ -253,37 +254,6 @@ function fieldRadius(shafts, dir) {
     return r;
 }
 
-/** Every shaft in one geometry, tagged by `aShaft` so they differ. */
-function mergeShafts(parts) {
-    let nv = 0, ni = 0;
-    for (const p of parts) {
-        nv += p.geometry.attributes.position.count;
-        ni += p.geometry.index.count;
-    }
-    const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3);
-    const uv = new Float32Array(nv * 2), tag = new Float32Array(nv);
-    const idx = new Uint32Array(ni);
-    let v = 0, k = 0;
-    for (const p of parts) {
-        const a = p.geometry.attributes;
-        pos.set(a.position.array, v * 3);
-        nor.set(a.normal.array, v * 3);
-        uv.set(a.uv.array, v * 2);
-        for (let i = 0; i < a.position.count; i++) tag[v + i] = p.tag;
-        const src = p.geometry.index.array;
-        for (let i = 0; i < src.length; i++) idx[k + i] = src[i] + v;
-        v += a.position.count;
-        k += src.length;
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    g.setAttribute('aShaft', new THREE.BufferAttribute(tag, 1));
-    g.setIndex(new THREE.BufferAttribute(idx, 1));
-    return g;
-}
-
 /** The beams themselves: swept tubes carrying a volume integral. */
 function shaftMesh(shafts, dir, color, air, soft, gain, hazy) {
     const parts = shafts.map((s, i) => ({
@@ -307,8 +277,14 @@ function shaftMesh(shafts, dir, color, air, soft, gain, hazy) {
             },
             { nu: 28, nv: 22 }),
     }));
+    for (const { geometry, tag } of parts) {
+        geometry.setAttribute('aShaft', new THREE.BufferAttribute(
+            new Float32Array(geometry.attributes.position.count).fill(tag), 1));
+    }
+    const geometry = mergeGeometries(parts.map((p) => p.geometry));
+    for (const part of parts) part.geometry.dispose();
     const mesh = new THREE.Mesh(
-        mergeShafts(parts),
+        geometry,
         shaftMaterial(dir, color, air, soft, gain, hazy));
     mesh.name = 'Shafts';
     mesh.renderOrder = 3;
@@ -349,17 +325,18 @@ function shaftMaterial(dir, color, air, soft, gain, hazy) {
             uSoft: { value: 1.0 + 2.0 * Math.min(Math.max(soft, 0), 1) },
             uGain: { value: gain },
         },
-        varyings: 'varying vec2 vUv; varying vec3 vN; varying vec3 vW;'
+        varyings: 'varying vec2 vUv; varying vec3 vN; varying vec3 vW; varying vec3 vDir;'
             + ' varying float vShaft;',
-        vertexHead: 'attribute float aShaft;',
+        vertexHead: 'attribute float aShaft; uniform vec3 uDir;',
         vertexMain: [
             '  vUv = uv;',
             '  vShaft = aShaft;',
             '  vN = inverseTransformDirection(normalize(normalMatrix * normal), viewMatrix);',
             '  vW = (modelMatrix * vec4(transformed, 1.0)).xyz;',
+            '  vDir = normalize(mat3(modelMatrix) * uDir);',
         ].join('\n'),
         fragmentHead: 'uniform vec3 uColor; uniform vec3 uAir;'
-            + ' uniform float uAirMix; uniform vec3 uDir;'
+            + ' uniform float uAirMix;'
             + ' uniform float uSoft;'
             + ' uniform float uGain;',
         fragmentMain: [
@@ -371,8 +348,8 @@ function shaftMaterial(dir, color, air, soft, gain, hazy) {
             '  float chord = pow(face, uSoft);',
             // |n.v| is the chord only ACROSS the beam; looking down it
             // the walls turn edge-on while the real chord grows.
-            '  float axial = abs(dot(eye, uDir));',
-            '  chord *= 1.0 / max(sqrt(1.0 - axial * axial), 0.62);',
+            '  float axial = abs(dot(eye, normalize(vDir)));',
+            '  chord *= 1.0 / max(sqrt(max(0.0, 1.0 - axial * axial)), 0.62);',
             '  float sd = astraStagger(vShaft);',
             // Sampled on a circle so the pattern has no seam where the
             // section closes, and drifts far slower ALONG than across.

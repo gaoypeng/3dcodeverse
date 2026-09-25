@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { mulberry32, fbm2, noiseDataTexture } from './noise.js';
-import { intOption, makeShaderMaterial, keepOutOfDepthPasses, option, positive, readWind, vector } from './shader.js';
+import { instancedQuad, intOption, makeShaderMaterial, keepOutOfDepthPasses, option, positive, readWind, vector } from './shader.js';
 
 const _UP = new THREE.Vector3(0, 1, 0);
 
@@ -46,29 +46,14 @@ const _AIR_GLSL = [
   '}',
 ].join('\n');
 
-/**
- * Build the instanced quad geometry every effect here draws with.
- *
- * `position` is deliberately ZERO and the corners travel in `aCorner`:
- * the render chain's GTAO pass re-draws the scene with an override
- * material that ignores these shaders, and a real unit quad then
- * printed a black AO slab at the world origin.
- *
- * @param {number} count Instances.
- * @returns {THREE.InstancedBufferGeometry} Degenerate quad with
- *   `aCorner` + `uv`, instanceCount set.
- */
-function _quads(count) {
-  const geo = new THREE.PlaneGeometry(1, 1);
-  const verts = geo.attributes.position.count;
-  const inst = new THREE.InstancedBufferGeometry();
-  inst.index = geo.index;
-  inst.setAttribute('position',
-      new THREE.BufferAttribute(new Float32Array(verts * 3), 3));
-  inst.setAttribute('aCorner', geo.attributes.position);
-  inst.attributes.uv = geo.attributes.uv;
-  inst.instanceCount = count;
-  return inst;
+/** Raycaster includes invisible meshes and children of hidden groups. */
+function visibleHit(hit) {
+  for (let object = hit.object; object; object = object.parent) {
+    if (!object.visible) return false;
+  }
+  const material = Array.isArray(hit.object.material)
+    ? hit.object.material[hit.face?.materialIndex ?? 0] : hit.object.material;
+  return material?.visible !== false;
 }
 
 /**
@@ -143,7 +128,7 @@ export function makeRain(opts = {}) {
     'makeRain: shelterUpdateDistance');
   const groundY = option(opts.groundY, -1e8, 'makeRain: groundY');
   const rand = mulberry32(seed);
-  const inst = _quads(count);
+  const inst = instancedQuad(count);
   const off = new Float32Array(count * 3);
   const ext = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
@@ -351,9 +336,7 @@ function makeShelterAtlas(mesh, cfg) {
           point.set(px, top, pz).applyMatrix4(mesh.matrixWorld);
           ray.ray.origin.copy(point);
           for (const hit of ray.intersectObjects(cfg.surfaces, true)) {
-            let visible = true;
-            for (let object = hit.object; object; object = object.parent) if (!object.visible) { visible = false; break; }
-            if (!visible) continue;
+            if (!visibleHit(hit)) continue;
             hitLocal.copy(hit.point).applyMatrix4(inverse);
             height = Math.max(height, hitLocal.y);
             break;
@@ -482,6 +465,7 @@ function _impactPoints(opts, rand) {
   const ray = new THREE.Raycaster(
       new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
   const nm = new THREE.Matrix3();
+  const surfaceMatrix = new THREE.Matrix4();
   const out = [];
   // Rejections (steep faces, undersides) re-sample; the budget stops a
   // scene whose only "surface" is a wall from looping forever.
@@ -501,11 +485,18 @@ function _impactPoints(opts, rand) {
     if (surfaces.length) {
       ray.ray.origin.set(x, top, z);
       for (const h of ray.intersectObjects(surfaces, true)) {
-        if (h.face) { hit = h; break; }
+        if (h.face && visibleHit(h)) { hit = h; break; }
       }
     }
     if (hit) {
-      nm.getNormalMatrix(hit.object.matrixWorld);
+      // InstancedMesh raycasts return geometry-local face normals. Include
+      // the individual transform before the object's world normal matrix,
+      // or tilted instances splash flat and steep ones evade maxSlopeDeg.
+      if (hit.instanceId !== undefined) {
+        hit.object.getMatrixAt(hit.instanceId, surfaceMatrix);
+        surfaceMatrix.premultiply(hit.object.matrixWorld);
+      } else surfaceMatrix.copy(hit.object.matrixWorld);
+      nm.getNormalMatrix(surfaceMatrix);
       const n = hit.face.normal.clone().applyMatrix3(nm).normalize();
       if (n.y < minNy) continue;
       out.push({ p: hit.point.clone().addScaledVector(n, lift), n });
@@ -658,7 +649,7 @@ export function makeSplashes(opts = {}) {
       '  gl_FragColor = vec4(c, a);',
     ].join('\n'),
   });
-  const rings = new THREE.Mesh(attrs(_quads(n)), ringMat);
+  const rings = new THREE.Mesh(attrs(instancedQuad(n)), ringMat);
   rings.name = 'SplashRings';
   rings.frustumCulled = false;
   rings.renderOrder = 2;
@@ -732,7 +723,7 @@ export function makeSplashes(opts = {}) {
         '  gl_FragColor = vec4(c, a);',
       ].join('\n'),
     });
-    const crowns = new THREE.Mesh(attrs(_quads(n)), crownMat);
+    const crowns = new THREE.Mesh(attrs(instancedQuad(n)), crownMat);
     crowns.name = 'SplashCrowns';
     crowns.frustumCulled = false;
     crowns.renderOrder = 3;

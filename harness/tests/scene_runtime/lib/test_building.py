@@ -64,6 +64,38 @@ def _measure(script: str) -> dict:
     return measure(_PRELUDE + script, _LIBS)
 
 
+def test_roof_clutter_uses_the_hosts_local_roof_after_placement():
+    """World roof height was added as local Y, applying host transforms twice."""
+    out = _measure("""
+import { roofClutter } from './lib/building.js';
+const layouts = [false,true].map(transformed => {
+  const parent = new THREE.Group(), host = new THREE.Group();
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(10,4,6), new THREE.MeshStandardMaterial());
+  roof.position.set(2,3,-1); host.add(roof); parent.add(host);
+  if(transformed) {
+    parent.position.set(19,-3,7); parent.rotation.set(.1,.5,-.2);
+    parent.scale.set(.8,1.3,1.6);
+    host.position.set(8,11,-4); host.rotation.set(.2,-.7,.1);
+    host.scale.set(2,.6,1.2);
+  }
+  roofClutter(host,{rand:()=>.5,tanks:0,units:1});
+  const clutter=host.getObjectByName('RoofClutter'), unit=clutter.children[0];
+  unit.geometry.computeBoundingBox();
+  const local = unit.geometry.boundingBox.clone().translate(unit.position).translate(clutter.position);
+  return {center:local.getCenter(new THREE.Vector3()).toArray(),
+    size:local.getSize(new THREE.Vector3()).toArray(),foot:local.min.y};
+});
+console.log(JSON.stringify(layouts));
+""")
+    plain, transformed = out
+    assert plain["center"][0] == pytest.approx(2)
+    assert plain["center"][2] == pytest.approx(-1)
+    assert plain["foot"] == pytest.approx(5)
+    assert transformed["foot"] == pytest.approx(plain["foot"])
+    assert transformed["center"] == pytest.approx(plain["center"])
+    assert transformed["size"] == pytest.approx(plain["size"])
+
+
 @pytest.fixture(scope="module")
 def facade() -> dict:
     return _measure("""
@@ -221,5 +253,4 @@ def test_cottage_joinery_is_not_roof_tile(cot):
     assert "Trim" in m["names"] and "Door" in m["names"], m["names"]
     assert m["chimneyIsNotWall"], (
         "the stack is limewash, not masonry", m["names"])
-
 

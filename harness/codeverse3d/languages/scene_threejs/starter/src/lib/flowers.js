@@ -27,7 +27,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 
-import { windOf } from './grass.js';
+import { WIND_GUST_GLSL, windOf } from './grass.js';
 import { patchTranslucency } from './finish.js';
 import { patchLeafSSS } from './foliage_shade.js';
 import { mulberry32 } from './noise.js';
@@ -384,21 +384,22 @@ const PLANT_VERTEX_HEAD = [
   'attribute vec4 iVar;',
   'varying vec4 vFlow;',
   'varying vec3 vFlowVar;',
-  glslLocalDir('flowLocalDir'),
+  glslLocalDir('flowLocalDir'), WIND_GUST_GLSL,
   // The gust field grass.js rides: streaks running downwind, so a
   // scene's meadow and its flowers are pushed by the same air.
   'float flowSway(vec3 root, float ph, float lag) {',
-  '  vec2 w = uFlowWind;',
+  '  vec3 worldRoot = (modelMatrix * vec4(root, 1.0)).xyz;',
   '  float t = uTime * uFlowSpeed;',
-  '  float s = astraStagger(ph + root.x * 0.07 + root.z * 0.11);',
+  '  float s = astraWindPhase(worldRoot, ph);',
   '  return (sin(t * 1.7 + s - lag)',
   '      + 0.35 * sin(t * 2.9 + s * 1.7 - lag)) / 1.35;',
   '}',
   'vec2 flowBend(vec3 root, vec4 b) {',
-  '  vec2 w = uFlowWind;',
-  '  vec2 q = vec2(dot(root.xz, w), dot(root.xz, vec2(-w.y, w.x)));',
-  '  float t = uTime * uFlowSpeed;',
-  '  float gust = astraFbm2(vec2(q.x * 0.055 - t * 0.5, q.y * 0.21), 2);',
+  '  vec2 w = flowLocalDir(vec3(uFlowWind.x, 0.0, uFlowWind.y)).xz;',
+  '  w /= max(length(w), 1e-5);',
+  '  vec3 worldRoot = (modelMatrix * vec4(root, 1.0)).xyz;',
+  '  float gust = astraWindGust(worldRoot, uFlowWind,',
+  '      uTime * uFlowSpeed, vec2(0.055, 0.21));',
   '  float push = (0.25 + 1.25 * gust)',
   '      * (0.62 + 0.38 * flowSway(root, b.w, 0.0));',
   '  return vec2(cos(b.y), sin(b.y)) * b.z + w * (b.x * push);',
@@ -469,7 +470,7 @@ const PLANT_VERTEX = [
   '#endif',
   '  } else {',
   // The head is heavy, so it nods a beat BEHIND the stem it sits on.
-  '    vec3 flUp = normalize(flT + vec3(uFlowWind.x, 0.0, uFlowWind.y)',
+  '    vec3 flUp = normalize(flT + flowLocalDir(vec3(uFlowWind.x, 0.0, uFlowWind.y))',
   '        * (uFlowNod * flowSway(flRoot, iBend.w, 0.9)));',
   '    vec3 flRef = abs(flUp.z) < 0.9 ? vec3(0.0, 0.0, 1.0)',
   '        : vec3(1.0, 0.0, 0.0);',
@@ -763,15 +764,29 @@ export function makeFalling(opts = {}) {
   g.name = opts.name || 'Falling';
   g.add(keepOutOfDepthPasses(mesh));
   g.userData.update = g.userData.tick = (t) => tickShaders(g, t);
+  const driftFrame = new THREE.Matrix3(), localDrift = new THREE.Vector3();
   g.userData.sample = (i, t) => {
+    // Match fallLocalDir's inverse linear map and singular cutoff, even
+    // when a caller changes an ancestor before the next render.
+    mesh.updateWorldMatrix(true, false);
+    driftFrame.setFromMatrix4(mesh.matrixWorld);
+    const m = driftFrame.elements;
+    const magnitude = Math.hypot(m[0], m[1], m[2])
+        * Math.hypot(m[3], m[4], m[5]) * Math.hypot(m[6], m[7], m[8]);
+    if (Math.abs(driftFrame.determinant()) <= Math.max(magnitude * 1e-7, 1e-30)) {
+      localDrift.set(0, 0, 0);
+    } else {
+      localDrift.set(drift.x, 0, drift.y).applyMatrix3(driftFrame.invert());
+    }
     const k = Math.min(count - 1, Math.max(0, i | 0));
     const y = (pos[k * 3 + 1] - fall * fal[k * 4] * t) % drop;
     return new THREE.Vector3(
-        _wrap(pos[k * 3] + drift.x * t, lim)
+        _wrap(pos[k * 3] + localDrift.x * t, lim)
             + wob * wobX(swing[k * 4], swing[k * 4 + 1], t),
         (y < 0 ? y + drop : y) + span,
-        _wrap(pos[k * 3 + 2] + drift.y * t, lim)
-            + wob * wobZ(swing[k * 4 + 2], swing[k * 4 + 3], t));
+        _wrap(pos[k * 3 + 2] + localDrift.z * t, lim)
+            + wob * wobZ(swing[k * 4 + 2], swing[k * 4 + 3], t))
+        .applyMatrix4(mesh.matrix); // Piece center in the advertised group frame.
   };
   return attachDisposal(g, snapshotResources(g));
 }
@@ -848,7 +863,7 @@ const FALL_VERTEX_HEAD = [
   // is a constant — so this patch runs last and supplies the truth.
   'varying vec3 vAstraWorld;',
   'varying vec3 vAstraWorldN;',
-  _FALL_WOB_GLSL,
+  _FALL_WOB_GLSL, glslLocalDir('fallLocalDir'),
 ].join('\n');
 
 const FALL_VERTEX = [
@@ -857,7 +872,8 @@ const FALL_VERTEX = [
   // Every piece wraps inside the stated box: its own fall rate down,
   // the shared wind across, its own slide on top of that.
   '  float flY = mod(aPos.y - uFallRate * aFall.x * uTime, uFallDrop);',
-  '  vec2 flXZ = mod(aPos.xz + uFallDrift * uTime + uFallLim,',
+  '  vec2 flDrift = fallLocalDir(vec3(uFallDrift.x, 0.0, uFallDrift.y)).xz;',
+  '  vec2 flXZ = mod(aPos.xz + flDrift * uTime + uFallLim,',
   '      2.0 * uFallLim) - uFallLim + uFallWob * flW;',
   '  vec3 flP = vec3(flXZ.x, flY + uFallFoot, flXZ.y);',
   // The tumble axis lies IN the leaf, so the face turns edge-on and

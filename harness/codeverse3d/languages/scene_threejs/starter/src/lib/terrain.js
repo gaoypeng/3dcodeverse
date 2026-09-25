@@ -29,6 +29,23 @@ export function triangleValue(position, nx, ny, gx, gy, component) {
     + value(a + 1) * (1 - fy) + value(a + nx + 1) * (1 - fx);
 }
 
+// Ground and cliff share the same seeded, periodic bilinear lattice. Keep
+// wrapping here: a tiny negative coordinate can round up to N after adding N.
+function latticeSampler(rand) {
+  const N = 32, lat = new Float32Array(N * N);
+  for (let i = 0; i < lat.length; i++) lat[i] = rand();
+  const wrap = (t) => { let w = t % N; if (w < 0) w += N; return w >= N ? w - N : w; };
+  return (u, v) => {
+    const uu = wrap(u), vv = wrap(v);
+    const i0 = Math.floor(uu), j0 = Math.floor(vv);
+    const fx = uu - i0, fz = vv - j0;
+    const i1 = (i0 + 1) % N, j1 = (j0 + 1) % N;
+    const a = lat[j0 * N + i0], b = lat[j0 * N + i1];
+    const c = lat[j1 * N + i0], d = lat[j1 * N + i1];
+    return (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz;
+  };
+}
+
 /**
  * Build a displaced, textured ground plane and its height function.
  *
@@ -50,24 +67,8 @@ export function ground(opts = {}) {
   const relief = opts.relief === undefined ? 6 : opts.relief;
   const scale = opts.scale || 90;
 
-  // A small seeded lattice, bilinearly sampled: the same field drives the
-  // mesh and the height function, so they cannot drift apart.
-  const N = 32;
-  const lat = new Float32Array(N * N);
-  for (let i = 0; i < N * N; i++) lat[i] = rand();
-  const sample = (x, z) => {
-    // wrap into [0, N): `u + N` for a u of -1e-16 rounds to N itself (below one ulp of 32),
-    // and lat[j * N + N] is the next row or undefined — measured 2026-09-08, 15 NaN vertices
-    // in an outskirts ring where the polar grid's x came out as -1.5e-14 (D71)
-    const wrap = (t) => { let w = t % N; if (w < 0) w += N; return w >= N ? w - N : w; };
-    const uu = wrap(x / scale), vv = wrap(z / scale);
-    const i0 = Math.floor(uu), j0 = Math.floor(vv);
-    const fx = uu - i0, fz = vv - j0;
-    const i1 = (i0 + 1) % N, j1 = (j0 + 1) % N;
-    const a = lat[j0 * N + i0], b = lat[j0 * N + i1];
-    const c = lat[j1 * N + i0], d = lat[j1 * N + i1];
-    return (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz;
-  };
+  const lattice = latticeSampler(rand);
+  const sample = (x, z) => lattice(x / scale, z / scale);
 
   const fieldHeight = (x, z) => {
     let n = sample(x, z) * 0.65 + sample(x * 2.9, z * 2.9) * 0.35;
@@ -181,20 +182,7 @@ export function cliff(opts = {}) {
   const bands = bandColors.length;
   const bandH = height / bands;
 
-  // One seeded lattice drives the mesh, the band edges AND faceAt, so
-  // none of them can drift apart (the same trick ground() uses).
-  const N = 32;
-  const lat = new Float32Array(N * N);
-  for (let i = 0; i < N * N; i++) lat[i] = rand();
-  const sample = (u, v) => {
-    const uu = ((u % N) + N) % N, vv = ((v % N) + N) % N;
-    const i0 = Math.floor(uu), j0 = Math.floor(vv);
-    const fx = uu - i0, fz = vv - j0;
-    const i1 = (i0 + 1) % N, j1 = (j0 + 1) % N;
-    const a = lat[j0 * N + i0], b = lat[j0 * N + i1];
-    const c = lat[j1 * N + i0], d = lat[j1 * N + i1];
-    return (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz;
-  };
+  const sample = latticeSampler(rand);
 
   // Per-band ledge offsets and a few meandering gullies, all seeded up
   // front so faceAt closes over the exact numbers the mesh used.

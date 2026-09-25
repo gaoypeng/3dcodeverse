@@ -16,7 +16,7 @@
 import * as THREE from 'three';
 import { attachDisposal, snapshotResources } from './lifecycle.js';
 import { Water } from 'three/addons/objects/Water.js';
-import { planarCapture, sunVector } from './shader.js';
+import { makeLightProbe, planarCapture, sunVector } from './shader.js';
 
 // Battery-graded freeze point: mid-phase, waves clearly formed.
 const FROZEN_TIME = 7.3;
@@ -30,8 +30,8 @@ const _DAY_SUN = sunVector(35, 48);
 /**
  * Synthesize the tiling wave-normal DataTexture the Water shader
  * needs (npm three ships no waternormals.jpg). A sum of integer-
- * frequency sines guarantees a seamless wrap; finite differences at
- * strength 2.2 turn the heightfield into tangent-space normals.
+ * frequency sines guarantees a seamless wrap; finite differences use
+ * a fixed UV-space strength, independent of texture resolution.
  *
  * @param {number} [size] Texture width and height in px (default 256).
  * @returns {THREE.DataTexture} RGBA, RepeatWrapping, needsUpdate set.
@@ -76,7 +76,10 @@ export function makeWaterNormals(size = 256, opts = {}) {
   }
   // Finite-difference normals -> RGB.
   const data = new Uint8Array(size * size * 4);
-  const amp = 2.2; // normal strength (the battery-graded value)
+  // A central difference spans 2/size in UV. Preserve the graded 256px
+  // slopes while changing resolution; without the texel-spacing factor,
+  // doubling quality halved every wave slope and flattened the water.
+  const amp = 2.2 * (size / 256);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const xm = (x - 1 + size) % size, xp = (x + 1) % size;
@@ -221,23 +224,8 @@ function _regrade(material) {
  *
  * Only uniforms the caller did NOT pin are touched.
  */
-const _V1 = new THREE.Vector3();
-const _V2 = new THREE.Vector3();
-
-function _readScene(scene, uniforms, pinned) {
-  let key = null, keyLum = -1, hemi = null, amb = null;
-  scene.traverseVisible((o) => {
-    if (o.isDirectionalLight) {
-      const c = o.color;
-      const l = o.intensity
-          * (c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722);
-      if (l > keyLum) { keyLum = l; key = o; }
-    } else if (o.isHemisphereLight) {
-      if (!hemi || o.intensity > hemi.intensity) hemi = o;
-    } else if (o.isAmbientLight) {
-      if (!amb || o.intensity > amb.intensity) amb = o;
-    }
-  });
+function _readScene(lights, uniforms, pinned) {
+  const { sun: key, sunDirection, ambient, sky } = lights;
   // three's Lambert BRDF divides irradiance by PI; the water body is a
   // Lambert term too, so the same 1/PI is what puts it on the same scale
   // as every MeshStandardMaterial around it.
@@ -256,24 +244,14 @@ function _readScene(scene, uniforms, pinned) {
       uniforms.sunColor.value.copy(c).multiplyScalar(1 / peak);
     }
     if (!pinned.sunDir) {
-      // A directional light aims from its world position at its TARGET,
-      // and a rig that moved the target (a low sun tracked onto a
-      // subject) would otherwise hand the glitter a direction the
-      // shadows do not use. An un-parented target sits at the origin,
-      // which is exactly what `position` alone assumes.
-      const p = _V1.setFromMatrixPosition(key.matrixWorld);
-      const q = key.target
-          ? _V2.setFromMatrixPosition(key.target.matrixWorld)
-          : _V2.set(0, 0, 0);
-      p.sub(q);
-      if (p.lengthSq() > 1e-12) uniforms.sunDirection.value.copy(p).normalize();
+      uniforms.sunDirection.value.copy(sunDirection);
     }
   }
   if (!pinned.ambient) {
     const t = uniforms.ambientColor.value;
-    t.setRGB(0, 0, 0);
-    if (hemi) t.copy(hemi.color).multiplyScalar(hemi.intensity * INV_PI);
-    else if (amb) t.copy(amb.color).multiplyScalar(amb.intensity * INV_PI);
+    // Hemisphere and ambient irradiance add, as they do on nearby PBR
+    // surfaces. Selecting one dropped fill light whenever a sky rig existed.
+    t.copy(ambient).add(sky).multiplyScalar(INV_PI);
     t.r = Math.min(t.r, 1); t.g = Math.min(t.g, 1); t.b = Math.min(t.b, 1);
   }
 }
@@ -384,12 +362,13 @@ export function makeOcean(width, depth, opts = {}) {
       ambient: opts.ambient !== undefined,
     };
     const base = water.onBeforeRender;
+    const readLights = makeLightProbe();
     let first = true;
     // Water's plane calculation assumes a rigid matrix; planarCapture
     // supplies one while keeping Water's world-space textureMatrix (unlike
     // Reflector, Water does not project mesh-local positions).
     planarCapture(water, (renderer, scene, camera) => {
-      _readScene(scene, uniforms, pinned);
+      _readScene(readLights(scene), uniforms, pinned);
       if (first) {
         first = false;
         // The mirror target is 8-bit LINEAR (three disables tone mapping

@@ -293,8 +293,13 @@ const FLAG_NORMAL = [
   '  float flZx = uFlagAmp * (aFlag.z * flS + aFlag.y * flD * uFlagK)',
   '      / max(uFlagWidth, 1e-4);',
   '  float flZy = uFlagAmp * aFlag.y * flD * uFlagTilt;',
+  // Differentiate the shortened, sagging sheet, not only its Z ripple.
+  // The clamped shortening has zero derivative beyond the cap.
+  '  float flXx = 1.0 - (uFlagShrink * aFlag.w < uFlagMaxShrink',
+  '      ? uFlagShrink * aFlag.y * aFlag.y / max(uFlagWidth, 1e-4) : 0.0);',
+  '  float flYx = -uFlagSag * aFlag.z / max(uFlagWidth, 1e-4);',
   '  vNormal = normalize(normalMatrix * normalize(',
-  '      vec3(-flZx, -flZy, 1.0)));',
+  '      cross(vec3(flXx, flYx, flZx), vec3(0.0, 1.0, flZy))));',
   // Both in VIEW space, so a scaled or rotated flag needs no basis of
   // its own: 1 square on to the eye, 0 edge-on.
   '  vec4 flMv = modelViewMatrix * vec4(transformed, 1.0);',
@@ -590,11 +595,18 @@ const BANNER_MOVE = [
 
 const BANNER_NORMAL = [
   '#ifndef FLAT_SHADED',
-  '  float bnZx = uBanFold * aBan.z * bnE;',
-  '  float bnZd = uBanFold * aBan.y * (2.0 - 2.0 * bnS)',
-  '      / max(uBanDrop, 1e-4);',
-  '  vNormal = normalize(normalMatrix * normalize(',
-  '      vec3(-bnZx * bnC, bnSi + bnZd, bnC)));',
+  // The pendulum angle changes down the sheet, and gathering changes X.
+  // Differentiate both tangents; omitting either leaves fixed-card lighting.
+  '  float bnEd = 2.0 - 2.0 * bnS;',
+  '  float bnAd = -uBanSway * uBanLag * cos(uBanRate * uTime + uBanPhase',
+  '      - uBanLag * bnS);',
+  '  float bnFree = abs(uBanShrink * aBan.w * bnE * bnE) < uBanShrinkMax ? 1.0 : 0.0;',
+  '  vec3 bnDx = vec3(1.0 - bnFree * 0.5 * uBanFold * uBanFold',
+  '      * aBan.z * aBan.z * bnE * bnE, 0.0, uBanFold * aBan.z * bnE);',
+  '  vec3 bnDs = vec3(-bnFree * uBanShrink * aBan.w * 2.0 * bnE * bnEd,',
+  '      -uBanDrop * bnC + bnD * bnSi * bnAd,',
+  '      uBanDrop * bnSi + bnD * bnC * bnAd + uBanFold * aBan.y * bnEd);',
+  '  vNormal = normalize(normalMatrix * normalize(cross(bnDs, bnDx)));',
   // View space, as the flag's: 1 square on to the eye, 0 edge-on.
   '  vec4 bnMv = modelViewMatrix * vec4(transformed, 1.0);',
   '  vBan.w = astraFacing(vNormal, -bnMv.xyz);',
@@ -934,9 +946,11 @@ const STALK_VERTEX = [
   '      -1.0, 1.0);',
   // ONE gust field for the whole crop, scrolled downwind at a stated
   // m/s: two stalks a metre apart see the same wave, a lag apart.
-  '  vec2 whW = uWheatWind;',
-  '  vec2 whP = vec2(dot(whRoot.xz, whW),',
-  '                  dot(whRoot.xz, vec2(-whW.y, whW.x)));',
+  '  vec3 whRootWorld = (modelMatrix * vec4(whRoot, 1.0)).xyz;',
+  '  vec2 whW = clothLocalDir(vec3(uWheatWind.x, 0.0, uWheatWind.y)).xz;',
+  '  whW /= max(length(whW), 1e-5);',
+  '  vec2 whP = vec2(dot(whRootWorld.xz, uWheatWind),',
+  '      dot(whRootWorld.xz, vec2(-uWheatWind.y, uWheatWind.x)));',
   '  vec2 whUv = vec2((whP.x - uWheatMps * uTime) * uWheatTile.x,',
   '                   whP.y * uWheatTile.y);',
   '  float whWave = texture2D(uWheatWave, whUv).r;',

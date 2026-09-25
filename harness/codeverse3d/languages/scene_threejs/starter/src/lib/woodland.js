@@ -610,6 +610,7 @@ function imposterMaterial(cfg) {
       // front/back test below needs it here too, and dedupeUniforms
       // keeps the two declarations from colliding.
       'uniform vec3 uImpSun;',
+      glslLocalDir('impLocalDir'),
     ].join('\n'),
     vertexMain: [
       '  vImpUv = uv;',
@@ -629,8 +630,10 @@ function imposterMaterial(cfg) {
       '         + up * (hf * uImpSize.y * aCard.y);',
       // One wind for the whole scene (grass.js windOf), and only the
       // top of the stand-in answers it.
-      '  float sw = uTime * uImpSpeed + astraStagger(aPos.x + aPos.z * 0.31);',
-      '  p.xz += uImpWind * (uImpSway * uImpSize.y * hf * hf * sin(sw));',
+      '  vec3 rootWorld = (modelMatrix * vec4(aPos, 1.0)).xyz;',
+      '  float sw = uTime * uImpSpeed + astraStagger(rootWorld.x + rootWorld.z * 0.31);',
+      '  p += impLocalDir(vec3(uImpWind.x, 0.0, uImpWind.y))',
+      '      * (uImpSway * uImpSize.y * hf * hf * sin(sw));',
       '  transformed = p;',
       // A crown is round, and the two quads of a cross have to agree
       // about that or the seam between them lights as a hard edge: the
@@ -688,7 +691,7 @@ function imposterMaterial(cfg) {
       '    float tLeaf = mix(astraFbm2(tLeafP, 3), 0.44, smoothstep(0.7, 2.0, tFootprint));',
       '    float tClump = astraFbm2(iq * vec2(13.0, 19.0) + iPh * 1.3, 3);',
       '    tCrown -= (0.50 - tClump) * 0.36 + (0.46 - tLeaf) * 0.22;',
-      '    float tGaps = tLeaf - mix(0.17, 0.33, smoothstep(0.28, 0.02, tCrown));',
+      '    float tGaps = tLeaf - mix(0.17, 0.33, (1.0 - smoothstep(0.02, 0.28, tCrown)));',
       '    tCrown = min(tCrown, tGaps);',
       '    iS = max(tCrown, min(0.026 - abs(iq.x - tLean * iq.y), 0.70 - iq.y));',
       '    iAlb = mix(uImpSecond, uImpColor * (0.66 + 0.60 * iq.y),',
@@ -707,8 +710,8 @@ function imposterMaterial(cfg) {
       // the card and iq.y the whole height, so a round head is an
       // ellipse here.
       '    float pW = 0.60 - 0.17 * smoothstep(0.80, 0.90, iq.y)',
-      '             - 0.17 * smoothstep(0.74, 0.52, iq.y)',
-      '             + 0.07 * smoothstep(0.52, 0.34, iq.y);',
+      '             - 0.17 * (1.0 - smoothstep(0.52, 0.74, iq.y))',
+      '             + 0.07 * (1.0 - smoothstep(0.34, 0.52, iq.y));',
       '    float pBody = min(min(pW - abs(iq.x), 0.90 - iq.y), iq.y);',
       '    iS = max(0.29 - length(vec2(iq.x, (iq.y - 0.915) * 4.8)),',
       '             min(pBody, max(abs(iq.x) - 0.11, iq.y - 0.38)));',
@@ -771,7 +774,7 @@ function imposterMaterial(cfg) {
       // thin edge of the mass. Warm, weighted to the silhouette, and
       // gone the moment the sun is on the camera's side.
       '  float iEdge = 1.0 - smoothstep(0.0, 0.12, iS);',
-      '  float iBack = smoothstep(0.15, -0.70, vImpVar.w);',
+      '  float iBack = (1.0 - smoothstep(-0.70, 0.15, vImpVar.w));',
       // Broken by the same clump field, or the glow is a stroke drawn
       // round the silhouette rather than light coming through leaves.
       '  vec3 iTrans = uImpSunColor * vec3(1.0, 0.82, 0.44)',
