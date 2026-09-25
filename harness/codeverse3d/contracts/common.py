@@ -28,6 +28,7 @@ class Language(StrEnum):
     THREEJS = "threejs"  # procedural three.js (ESM) → GLB via GLTFExporter
     URDF_BLENDER = "urdf_blender"  # bpy link meshes + hand-written URDF
     SCENE_THREEJS = "scene_threejs"  # multi-file three.js scene (+GLSL, +GLB assets)
+    SCENE_BLENDER = "scene_blender"  # multi-file bpy scene (+GLB heroes), rendered by Blender
     GLSL_SHADER = "glsl_shader"  # Shadertoy-style fragment shader (GLSL 330/ES 3.0), rendered by moderngl
     OPENGL_PYTHON = "opengl_python"  # raw OpenGL via moderngl + GLSL (multi-pass, geometry, FBOs)
 
@@ -36,7 +37,7 @@ class Language(StrEnum):
 TRACK_LANGUAGES: dict[Track, tuple[Language, ...]] = {
     Track.STATIC_OBJECT: (Language.BLENDER, Language.CADQUERY, Language.THREEJS),
     Track.ARTICULATED_OBJECT: (Language.URDF_BLENDER,),
-    Track.SCENE: (Language.SCENE_THREEJS,),
+    Track.SCENE: (Language.SCENE_THREEJS, Language.SCENE_BLENDER),
     Track.GRAPHICS: (Language.GLSL_SHADER, Language.OPENGL_PYTHON),
 }
 
@@ -74,6 +75,7 @@ ENTRY_FILE: dict[Language, str] = {
     Language.URDF_BLENDER: "src/model.py",
     Language.THREEJS: "src/object.js",
     Language.SCENE_THREEJS: "src/scene.js",
+    Language.SCENE_BLENDER: "src/scene.py",
     Language.GLSL_SHADER: "src/shader.frag",
     Language.OPENGL_PYTHON: "src/program.py",
 }
@@ -90,6 +92,8 @@ HARNESS_OWNED_SRC: dict[Language, tuple[str, ...]] = {
     Language.GLSL_SHADER: ("src/recipes.glsl",),
     # the effect library (D51): the agent imports and calls it, never rewrites it.
     Language.SCENE_THREEJS: ("src/lib/",),
+    # the small bpy library (DESIGN phase 4, D51 extended): same rule, same directory
+    Language.SCENE_BLENDER: ("src/lib/",),
 }
 
 
@@ -107,6 +111,7 @@ LANGUAGE_LABEL: dict[Language, str] = {
     Language.URDF_BLENDER: "URDF + Blender Python",
     Language.THREEJS: "Three.js (ESM)",
     Language.SCENE_THREEJS: "Three.js scene (multi-file ESM + GLSL)",
+    Language.SCENE_BLENDER: "Blender scene (multi-file bpy)",
     Language.GLSL_SHADER: "GLSL fragment shader",
     Language.OPENGL_PYTHON: "OpenGL (moderngl Python + GLSL)",
 }

@@ -552,10 +552,23 @@ class ZonePlan(BaseModel):
     contents: list[str] = Field(default_factory=list, description="asset names placed in this zone")
 
 
+#: the asset kinds each scene language plans (D5): ``bpy`` = a procedural module of a Blender
+#: scene (``src/assets/<snake>.py``), ``threejs`` its three.js twin, ``blender_glb`` a hero built as
+#: an object and shipped as a GLB (both languages)
+SCENE_ASSET_KINDS: dict[str, tuple[str, ...]] = {
+    "scene_threejs": ("threejs", "blender_glb"),
+    "scene_blender": ("bpy", "blender_glb"),
+}
+
+
 class AssetPlan(BaseModel):
     name: str = Field(description="PascalCase asset name")
-    kind: Literal["threejs", "blender_glb"] = Field(
-        description="threejs = procedural module; blender_glb = built with bpy and compiled to a GLB"
+    kind: Literal["threejs", "bpy", "blender_glb"] = Field(
+        description="threejs = procedural module; blender_glb = built with bpy and compiled to a GLB",
+        # the schema a planner is handed names the kinds of ITS language (SCENE_ASSET_KINDS): the
+        # default is scene_threejs's, byte-identical to before `bpy` existed; a scene_blender
+        # planner swaps in its own enum
+        json_schema_extra={"enum": list(SCENE_ASSET_KINDS["scene_threejs"])},
     )
     description: str
     approx_size_m: Vec3

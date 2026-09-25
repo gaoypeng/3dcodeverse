@@ -6,11 +6,19 @@
 * ``probe_scene(ws)``  → (GateReport 'scene_probe', census) — the standalone probe
   (the ``scene_probe`` tool, ``check_placement(rebuild=true)``)
 * ``probe_report`` / ``shader_report`` — the two gates, pure over the driver JSON.
+
+An OFFLINE scene (scene_blender, D2/D3) is probed on its census GLB (``glb=``): the same driver,
+census and placement code through the harness adapter ``runtime_js/lib/glb_scene.mjs``, with no
+settle and no camera repair (the picture is Blender's, so the JS copy is never mutated), the bpy
+facts the GLB cannot carry merged into the census before any finding is drawn (``facts=``), and
+the triangle gate on UNIQUE triangles instead of the draw budget (D99 has no meaning offline).
 """
 
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -52,7 +60,7 @@ class SceneProbeResult(BaseModel):
         yield self.census
 
 
-def _result(gate: GateReport, census: dict[str, Any]) -> SceneProbeResult:
+def probe_result(gate: GateReport, census: dict[str, Any]) -> SceneProbeResult:
     """A ``harness_failure`` finding IS a driver failure, wherever it was raised.
 
     ``ok`` is "the tool could run" (``registry.Observation.failed = not ok``) and the
@@ -70,22 +78,28 @@ def _f(gate: str, sev: Severity, msg: str, *, target: str | None = None, hint: s
 
 
 def run_probe(ws: Workspace, *, compile: bool = False, timeout_s: float | None = None,
+              glb: Path | None = None, facts: Mapping[str, Any] | None = None,
               ) -> tuple[GateReport, GateReport, dict[str, Any]]:
     """One ``probe_scene.mjs`` boot → (scene_probe, shader_preflight, census).
 
     ``compile`` also runs the shader preflight on the same page; without it — or when the
     scene never boots — the preflight is a failed-empty gate.  ``timeout_s`` defaults to
     the build timeout, capped at 120 s.  A driver that cannot run is a ``harness_failure``
-    finding, never a raise."""
+    finding, never a raise.  ``glb`` probes an offline scene's census GLB instead of
+    ``src/scene.js`` (module docstring), ``facts`` its bpy census."""
     t0 = time.time()
     timeout_s = min(float(timeout_s or get_settings().limits.build_timeout_s), 120.0)
     args = ["--ws", str(ws.root), "--out", str(ws.artifacts / "scene_probe.json"), "--timeout-ms", str(int(timeout_s * 1000))]
     if compile:
         args += ["--compile", "--shaders-out", str(ws.artifacts / "shader_preflight.json")]
-    # every probe runs under the SAME settle / camera-repair / auto-exposure policy every
-    # render uses — ONE parser, render_scene (review-3 S4: the build used to carry none of
-    # the flags, so its gate measured a census the renders then contradicted)
-    args += probe_env_args()
+    if glb is not None:
+        # D3: nothing moves the JS copy of a scene Blender renders — no settle, no camera repair
+        args += ["--glb", str(glb), "--no-settle"]
+    else:
+        # every probe runs under the SAME settle / camera-repair / auto-exposure policy every
+        # render uses — ONE parser, render_scene (review-3 S4: the build used to carry none of
+        # the flags, so its gate measured a census the renders then contradicted)
+        args += probe_env_args()
     no_preflight = GateReport(gate=SHADER_GATE, passed=False, findings=[])
     try:
         res = run_scene_script("probe_scene.mjs", args, timeout_s=timeout_s + 20)
@@ -93,6 +107,9 @@ def run_probe(ws: Workspace, *, compile: bool = False, timeout_s: float | None =
         finding = _f(PROBE_GATE, Severity.ERROR, f"scene probe could not run: {e}"[:1500], target="src/scene.js",
                      hint="this is a harness/driver failure, not your code; retry or report", harness_failure=True)
         return GateReport.of(PROBE_GATE, [finding], duration_ms=int((time.time() - t0) * 1000)), no_preflight, {}
+    if glb is not None:
+        probe, census = offline_report(res.summary, facts or {}, duration_ms=int((time.time() - t0) * 1000))
+        return probe, no_preflight, census
     probe, census = probe_report(res.summary, duration_ms=int((time.time() - t0) * 1000))
     rep = res.summary.get("shader_report") or {}
     if not compile or not rep or rep.get("skipped"):
@@ -105,7 +122,7 @@ def probe_scene(ws: Workspace, *, timeout_s: float = 60.0) -> SceneProbeResult:
     report, _, census = run_probe(ws, timeout_s=timeout_s)
     if census:
         ws.write_json(ws.artifacts / "census.json", census)
-    return _result(report, census)
+    return probe_result(report, census)
 
 
 def probe_report(summary: dict[str, Any], *, duration_ms: int = 0) -> tuple[GateReport, dict[str, Any]]:
@@ -170,7 +187,71 @@ def probe_report(summary: dict[str, Any], *, duration_ms: int = 0) -> tuple[Gate
     return GateReport.of(gate, findings, duration_ms=duration_ms), census
 
 
-def _census_findings(c: dict[str, Any]) -> list[GateFinding]:
+#: census keys an offline scene's bpy facts own: the JS census of a GLB cannot see a world, a
+#: volume or a lamp, so its own values for these are replaced, never mixed
+FACT_KEYS = ("fog", "background", "environment", "light_types")
+
+
+def merge_facts(census: dict[str, Any], facts: Mapping[str, Any]) -> dict[str, Any]:
+    """The GLB census with the bpy facts in the keys the gates already read (``fog``,
+    ``background``, ``totals.lights`` …) and the rest under ``bpy``."""
+    if not census:
+        return {}
+    out = {**census, **{k: facts[k] for k in FACT_KEYS if k in facts}}
+    out["totals"] = {**(census.get("totals") or {}), "lights": int(facts.get("lights") or 0)}
+    out["bpy"] = {k: v for k, v in facts.items() if k not in FACT_KEYS and k != "lights"}
+    return out
+
+
+def offline_report(summary: dict[str, Any], facts: Mapping[str, Any], *, duration_ms: int = 0) -> tuple[GateReport, dict[str, Any]]:
+    """The ``scene_probe`` gate of an offline scene over its census-GLB probe.  The host loaded a
+    file the HARNESS wrote, so a boot or console failure is the harness's (``harness_failure``),
+    never the agent's; the verdict is the census's."""
+    boot = summary.get("boot") or {}
+    fail = [e for e in summary.get("console_errors", []) if not e.startswith("boot[")]
+    if not boot.get("ok"):
+        fail.insert(0, f"[{boot.get('stage', '?')}] {boot.get('error') or 'no probe result (driver output lost)'}")
+    if fail:
+        finding = _f(PROBE_GATE, Severity.ERROR, f"the census GLB did not load cleanly in the probe host: {fail[0]}"[:1500],
+                     target="artifacts/census.glb", hint="this is a harness failure, not your code; retry or report",
+                     harness_failure=True)
+        return GateReport.of(PROBE_GATE, [finding], duration_ms=duration_ms), {}
+    findings = [_f(PROBE_GATE, Severity(p["severity"]), f"cameras: {p['text']}", target="src/scene.py",
+                   hint="the plan's cameras become src/scene.py CAMERAS at assembly")
+                for p in boot.get("camera_problems", [])]
+    census = merge_facts(summary.get("census") or {}, facts)
+    findings.extend(_census_findings(census, offline=True))
+    return GateReport.of(PROBE_GATE, findings, duration_ms=duration_ms), census
+
+
+def _offline_findings(c: dict[str, Any]) -> list[GateFinding]:
+    """What only an offline scene can get wrong: a triangle count the renderer must hold in
+    memory (UNIQUE triangles — an instance costs a matrix, not a mesh; D2), drivers the build
+    will never evaluate (D10) and frame handlers the deliverable would depend on."""
+    bpy = c.get("bpy") or {}
+    out: list[GateFinding] = []
+    unique = int(bpy.get("unique_tris") or 0)
+    if unique > MAX_TRIS_SCENE:
+        out.append(_f(PROBE_GATE, Severity.ERROR,
+                      f"{unique:,} unique triangles (instanced copies not counted) exceed the {MAX_TRIS_SCENE:,} budget",
+                      target="scene", kind="unique_tris", unique_tris=unique, limit=MAX_TRIS_SCENE,
+                      hint="place repeats as collection instances or geometry-nodes instances instead of copies, and lower "
+                           "subdivision levels / segment counts on large meshes"))
+    for d in (bpy.get("drivers_invalid") or [])[:8]:
+        why = "runs Python, which the harness never executes (it evaluates to 0)" if d.get("python") else "is invalid"
+        out.append(_f(PROBE_GATE, Severity.ERROR,
+                      f"driver {d.get('id')} {d.get('path')}[{d.get('index')}] = {str(d.get('expression'))[:120]!r} {why}",
+                      target=str(d.get("id") or "scene"), kind="python_driver",
+                      hint="use keyframes, or a simple expression of `frame` (sin/cos/min/max/clamp/lerp, + - * / and "
+                           "comparisons, no attribute access, no ** or %)"))
+    for h in bpy.get("handlers") or []:
+        out.append(_f(PROBE_GATE, Severity.ERROR, f"bpy.app.handlers.{h} is set: the deliverable .blend would depend on "
+                      "code that does not travel with it", target="scene", kind="app_handler",
+                      hint="animate with keyframes, simple drivers or the geometry-nodes Scene Time node"))
+    return out
+
+
+def _census_findings(c: dict[str, Any], *, offline: bool = False) -> list[GateFinding]:
     gate = PROBE_GATE
     out: list[GateFinding] = []
     if not c:
@@ -187,15 +268,24 @@ def _census_findings(c: dict[str, Any]) -> list[GateFinding]:
             kind="unobserved_animation_hook", hook_path=hook.get("path"),
         ))
     tot = c.get("totals", {})
-    if tot.get("lights", 0) == 0:
-        out.append(_f(gate, Severity.WARN, "scene has no lights (MeshStandardMaterial renders black)", target="src/env.js",
-                      hint="add new THREE.DirectionalLight (castShadow) + new THREE.HemisphereLight in buildEnv"))
-    if tot.get("meshes", 0) == 0:
-        out.append(_f(gate, Severity.ERROR, "scene has no meshes", target="src/scene.js", hint="add zones to the scene in createScene"))
-    if tot.get("triangles", 0) > MAX_TRIS_SCENE:
-        out.append(_f(gate, Severity.WARN, f"{tot['triangles']:,} triangles exceeds the {MAX_TRIS_SCENE:,} budget", target="scene",
-                      hint="lower segment counts, use InstancedMesh for repeats, merge static geometry"))
-    out.extend(_draw_findings(c))
+    if offline:
+        if tot.get("lights", 0) == 0 and not c.get("background"):
+            out.append(_f(gate, Severity.WARN, "scene has no lamps and no world: it renders black", target="src/env.py",
+                          hint="in build_env create a world (Sky Texture) and a Sun lamp"))
+        if tot.get("meshes", 0) == 0:
+            out.append(_f(gate, Severity.ERROR, "scene has no meshes", target="src/scene.py",
+                          hint="every zone's build(ctx) links its objects into ctx.collection"))
+        out.extend(_offline_findings(c))
+    else:
+        if tot.get("lights", 0) == 0:
+            out.append(_f(gate, Severity.WARN, "scene has no lights (MeshStandardMaterial renders black)", target="src/env.js",
+                          hint="add new THREE.DirectionalLight (castShadow) + new THREE.HemisphereLight in buildEnv"))
+        if tot.get("meshes", 0) == 0:
+            out.append(_f(gate, Severity.ERROR, "scene has no meshes", target="src/scene.js", hint="add zones to the scene in createScene"))
+        if tot.get("triangles", 0) > MAX_TRIS_SCENE:
+            out.append(_f(gate, Severity.WARN, f"{tot['triangles']:,} triangles exceeds the {MAX_TRIS_SCENE:,} budget", target="scene",
+                          hint="lower segment counts, use InstancedMesh for repeats, merge static geometry"))
+        out.extend(_draw_findings(c))
     unnamed = [g["name"] for g in c.get("groups", []) if not g.get("named") and g.get("kind") == "content"]
     if unnamed:
         out.append(_f(gate, Severity.WARN, f"{len(unnamed)} top-level content object(s) without a name: {unnamed[:5]}", target="src/scene.js",

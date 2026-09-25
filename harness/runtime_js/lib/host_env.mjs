@@ -6,6 +6,7 @@
  * `render_glb.mjs` (objects) — no other module reaches for the CJS files.
  */
 
+import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -29,9 +30,10 @@ export const { serveDirs, importMapHtml, RUNTIME_MOUNT } = serve;
  *   /assets/**              → <ws>/public/assets  (contract: '/assets/x.glb')
  *   <RUNTIME_MOUNT>/**      → runtime_js (node_modules/three, lib/*.mjs)
  *   /__host.html            → generated host page (import map + scene_host.mjs)
+ *   /__census.glb           → `glb` (an offline scene's census GLB, lib/glb_scene.mjs), when given
  * @returns {Promise<{server, base: string, close: () => Promise<void>}>}
  */
-export async function serveWorkspace(wsRoot, { hostHtml = '' } = {}) {
+export async function serveWorkspace(wsRoot, { hostHtml = '', glb = null } = {}) {
   wsRoot = path.resolve(wsRoot);
   const srv = await serve.serveDirs({
     // explicit mounts, no `root`: the workspace root also holds spec.json, run_state.json,
@@ -41,7 +43,11 @@ export async function serveWorkspace(wsRoot, { hostHtml = '' } = {}) {
       '/public/': path.join(wsRoot, 'public'),
       '/assets/': path.join(wsRoot, 'public', 'assets'),
     },
-    routes: { '/__host.html': { body: hostHtml, type: 'text/html; charset=utf-8' } },
+    routes: {
+      '/__host.html': { body: hostHtml, type: 'text/html; charset=utf-8' },
+      // one file by exact path: artifacts/ itself stays unserved
+      ...(glb ? { '/__census.glb': { body: fs.readFileSync(glb), type: 'model/gltf-binary' } } : {}),
+    },
   });
   return { server: srv.server, base: srv.base, close: srv.close };
 }

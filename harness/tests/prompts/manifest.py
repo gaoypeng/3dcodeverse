@@ -453,11 +453,16 @@ def run_scenario(name: str, root: Path) -> Result:
         return Result(capture(rig), stage_keys(rig))
 
 
+#: a language whose agent-facing payloads are not blessed yet: scene_blender's tool list is blessed by
+#: the lane that ships its prompts and scenarios (DESIGN phase 3), which deletes this entry
+UNBLESSED_LANGUAGES = frozenset({Language.SCENE_BLENDER})
+
+
 def mcp_tools() -> dict[str, str]:
     """The tool list an MCP session is offered, per (track, language)."""
     return {f"mcp_tools:{t.value}/{lang.value}": _json([{"name": d.name, "cost": d.cost_hint, "description": d.description,
                                                          "schema": d.schema()} for d in list_tools(track=t.value, language=lang.value)])
-            for t, langs in TRACK_LANGUAGES.items() for lang in langs}
+            for t, langs in TRACK_LANGUAGES.items() for lang in langs if lang not in UNBLESSED_LANGUAGES}
 
 
 def capture(rig: Rig) -> dict[str, str]:

@@ -117,6 +117,7 @@ _RUNTIMES: dict[Language, tuple[str, str]] = {
     Language.THREEJS: ("codeverse3d.languages.threejs", "ThreeJsRuntime"),
     Language.URDF_BLENDER: ("codeverse3d.languages.urdf", "UrdfBlenderRuntime"),
     Language.SCENE_THREEJS: ("codeverse3d.languages.scene_threejs", "SceneThreeJsRuntime"),
+    Language.SCENE_BLENDER: ("codeverse3d.languages.scene_blender", "SceneBlenderRuntime"),
     Language.GLSL_SHADER: ("codeverse3d.languages.glsl_shader", "GlslShaderRuntime"),
     Language.OPENGL_PYTHON: ("codeverse3d.languages.opengl_python", "OpenGLPythonRuntime"),
 }

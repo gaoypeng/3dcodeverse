@@ -257,6 +257,10 @@ rt.asset_file(asset: AssetPlan) -> str                 # factory module, or publ
 rt.assemble(ws, plan: ScenePlan) -> BaseModel          # writes the entry; plan cameras, else derived; artifacts/assemble.json
 rt.probe(ws, *, timeout_s=60.0) -> SceneProbeResult    # scene_probe gate + census.json (scene_probe / check_placement tools)
 rt.render_scene(ws, out_dir, *, cameras=None, orbit=True, times=(0.0, 1.5), width=1024, height=576, sheet=True) -> RenderSet
+# Δ 2026-09-24 (D102) spatial.probes.run_probe(ws, *, compile=False, timeout_s=None, glb: Path | None = None, facts=None):
+#   glb = an OFFLINE scene's census GLB (probe_scene.mjs --glb → runtime_js/lib/glb_scene.mjs, served at /__census.glb;
+#   host_page.openHost(..., glb=)), facts merged into the census by probes.merge_facts before any finding;
+#   probes.probe_result (was _result); conventions.glb_basis(language) (3×3, language frame → GLB frame)
 from codeverse3d.prompts.catalog import language_prompt, language_text
 language_prompt(language, name) -> str   # "<dir>/<name>" under prompts/ (urdf_blender → urdf/): THE per-language prompt
 language_text(language, name) -> str     # its text, "" for a file the language does not ship (Δ 2026-09-22: replaces
@@ -272,6 +276,7 @@ BuildResult.error_type spellings (languages/_common.py): MISSING_ENTRY = "Missin
 | `ThreeJsRuntime` | `src/object.js`, `src/parts/*.js` | **Δ export as authored** (census `placement_offset`); InstancedMesh baked to `<Name>_<i>` meshes (`instanced_meshes_baked`); exported `selfcheck(THREE, root)` is called (throw → SelfCheckError); NaN geometry errors name mesh/part → routed to `src/parts/<snake>.js` |
 | `UrdfBlenderRuntime` | `src/model.py`, `src/robot.urdf` | object.glb (Y-up, node=link, joint extras), meshes/<link>.glb (raw Z-up link frames); link name `world` is reserved (lint ERROR + UrdfError); robot GLB root gets `__root` suffix on name clash; the build collides the REST pose only (RestPenetration > 5 mm, D17) — every pose is the round's `joint_sweep` gate — and writes no articulation.json / census.articulation (Δ 2026-09-22) |
 | `SceneThreeJsRuntime` | `src/scene.js`, `src/zones/*.js`, `src/assets/*.js`, `src/env.js`, `src/shaders/*.{js,vert,frag,glsl}` | glb_path=None; local shader text loads inside async createScene; ok iff `spatial.probes.run_probe(ws, *, compile=True, timeout_s=None) -> (scene_probe, shader_preflight, census)` (one `probe_scene.mjs --compile` boot; `probe_scene` is the same call without `compile`) passes both; both reports ride `BuildResult.gates`, and the `shader_probe` tool reports the same call |
+| `SceneBlenderRuntime` | `src/scene.py`, `src/zones/*.py`, `src/assets/*.py`, `src/env.py` | **Δ 2026-09-24 (D102)** glb_path=None; `scene.py` is assembled DATA (`ZONES`/`ASSETS`/`HEROES` `{snake: Pascal}`, `CAMERAS` in the Blender frame, vertical fov); build = one Blender process (`wrappers/run_bpy_scene.py`: env, heroes, assets, zones each isolated — a raise is an ERROR on its `file:line` and the zone is dropped) → `artifacts/{census.glb, scene.blend, bpy_build.json, bpy_census.json}` → `run_probe(ws, glb=artifacts/census.glb, facts=bpy_census)` (no settle / camera repair; D2 unique-tri ERROR, no draw gate; D10 python drivers ERROR) → `BuildResult.gates=[scene_probe]`; `probe()` = the same measurement without touching build.json; `render_scene` raises NotImplementedError until DESIGN phase 2; frame clock `scene_blender.FPS`/`frame_of(t) = 1 + round(30 t)` |
 | `GlslShaderRuntime` | `src/shader.frag`, `src/common.glsl`, `src/buffer_a.frag` (+ the harness-owned `src/recipes.glsl` when seeded) | harness owns `#version`/uniforms/`out` (wrap.HEADER: u_time/u_resolution/u_mouse/u_frame/u_prev/u_noise + iTime/iChannel* aliases); `wrap.compose(shader, common, recipes_src=…)` pastes header < recipes < common < shader; build renders judge frames via GlHost; compile errors → GlslCompileError at mapped src file:line (recipes.glsl included); lint ERROR `redefines_recipe` when an agent file defines a recipes.glsl name; artifacts frames/, frames_sheet.png, preview.gif, metrics.json |
 | `OpenGLPythonRuntime` | `src/program.py`, `src/*.glsl` | `setup(ctx,w,h)->state` + `render(ctx,state,t,frame,fbo)` run in a moderngl subprocess (`wrappers/run_gl.py`); exceptions map to src/program.py:line, in-string GLSL errors carry both line numbers |
 
@@ -284,7 +289,7 @@ cannot opt in (`runtime_js/lib/backdrop.mjs`).
 
 Wrappers are standalone (never import codeverse3d).  The three python build wrappers live
 together in `languages/wrappers/` — `run_bpy.py`, `run_bpy_links.py` (Blender's python 3.11),
-`run_cq.py` — beside the sibling modules they import from their own directory:
+`run_cq.py`, and `run_bpy_scene.py` + `_census_glb.py` (scene_blender, D102) — beside the sibling modules they import from their own directory:
 `_wrapper_common.py` (stdlib only: rlimit, seeding, running the script with `src/` on
 `sys.path`, traceback → `src/<file>:<line>`, `sys.exit(0)` is not a failure, the atomic
 report) and `_census.py` (the Blender census, blender AND urdf_blender); copy the directory

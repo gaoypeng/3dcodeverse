@@ -132,12 +132,14 @@ def run_script(script_path: str) -> tuple[BaseException | None, dict[str, Any] |
         sys.argv = saved_argv
 
 
-def write_report(out_dir: str, report: dict[str, Any], census: dict[str, Any], t0: float) -> None:
-    """census.json + build.json, atomically; a failure's traceback also goes to stderr, where
-    the runtime's ``stderr_tail`` (and so the repair prompt) picks it up."""
+def write_report(out_dir: str, report: dict[str, Any], census: dict[str, Any], t0: float, *,
+                 names: tuple[str, str] = ("build.json", "census.json")) -> None:
+    """census.json + build.json (``names``: the report's and the census's file names), atomically;
+    a failure's traceback also goes to stderr, where the runtime's ``stderr_tail`` (and so the
+    repair prompt) picks it up."""
     report["duration_ms"] = int((time.monotonic() - t0) * 1000)
-    _write_json_atomic(os.path.join(out_dir, "census.json"), census)
-    _write_json_atomic(os.path.join(out_dir, "build.json"), report)
+    _write_json_atomic(os.path.join(out_dir, names[1]), census)
+    _write_json_atomic(os.path.join(out_dir, names[0]), report)
     if report.get("traceback"):
         print(report["traceback"], file=sys.stderr, end="")
 

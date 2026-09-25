@@ -47,6 +47,7 @@ LANGUAGE_PHRASE: dict[Language, tuple[str, str]] = {
     Language.THREEJS: ("a Three.js module", "three.js"),
     Language.URDF_BLENDER: ("a URDF model with Blender-Python-built link meshes", "urdf"),
     Language.SCENE_THREEJS: ("a Three.js scene", "three.js"),
+    Language.SCENE_BLENDER: ("a Blender Python scene", "blender"),
     Language.GLSL_SHADER: ("a GLSL fragment shader", "glsl"),
     Language.OPENGL_PYTHON: ("an OpenGL Python program", "opengl"),
 }

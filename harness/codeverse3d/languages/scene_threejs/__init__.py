@@ -21,7 +21,7 @@ from codeverse3d.contracts.artifacts import (
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, ZonePlan
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
-from codeverse3d.languages._common import line_of, missing_entry, ws_rel
+from codeverse3d.languages._common import line_of, missing_entry, target_file, target_line, ws_rel
 from codeverse3d.languages._js_lint import (
     ImportKind,
     ImportVerdict,
@@ -779,7 +779,7 @@ class SceneThreeJsRuntime:
         gates_dir = ws.artifacts / "gates"
         ws.write_json(gates_dir / "scene_probe.json", probe)
         ws.write_json(gates_dir / "shader_preflight.json", shaders)
-        errors = sorted(probe.errors + shaders.errors, key=lambda f: 0 if _target_line(f.target) else 1)
+        errors = sorted(probe.errors + shaders.errors, key=lambda f: 0 if target_line(f.target) else 1)
         first = errors[0] if errors else None
         res = BuildResult(
             ok=probe.passed and shaders.passed,
@@ -793,8 +793,8 @@ class SceneThreeJsRuntime:
             stdout_tail=_summary_text(probe, shaders),
             error_type=(first.data.get("kind") or first.gate) if first else "",
             error_message=first.message if first else "",
-            error_file=_target_file(first.target) if first else "",
-            error_line=_target_line(first.target) if first else None,
+            error_file=target_file(first.target) if first else "",
+            error_line=target_line(first.target) if first else None,
             duration_ms=int((time.time() - t0) * 1000),
             census=census,
             gates=[probe, shaders],
@@ -814,16 +814,3 @@ def _summary_text(probe: GateReport, shaders: GateReport) -> str:
     lines += [f"  - {f.target or ''}: {f.message}"[:400] for f in shaders.findings if f.severity != Severity.INFO][:12]
     return "\n".join(lines)
 
-
-def _target_file(target: str | None) -> str:
-    if not target:
-        return ""
-    head, sep, tail = target.rpartition(":")
-    return head if sep and tail.isdigit() else target
-
-
-def _target_line(target: str | None) -> int | None:
-    if not target:
-        return None
-    _, sep, tail = target.rpartition(":")
-    return int(tail) if sep and tail.isdigit() else None

@@ -121,13 +121,14 @@ codeverse3d/
                       provider_wait), materialize.py
   languages/          LanguageRuntime + RuntimeLayout (base.py: every runtime states its file layout —
                       expected_files / files_for — and the tracks ask it); one merged module per language since 2026-08-28 —
-                      blender/ cadquery/ threejs/ urdf/ scene_threejs/ glsl_shader/ opengl_python/ are each
+                      blender/ cadquery/ threejs/ urdf/ scene_threejs/ scene_blender/ glsl_shader/ opengl_python/ are each
                       a single __init__.py (lint → skeleton → runtime, in dependency order) beside their
                       data (starter/, opengl_python/wrappers/run_gl.py; the contract text is
                       prompts/<lang>/contract.md, found like every per-language prompt file by
                       prompts/catalog.language_prompt — a runtime holds no prompt text); wrappers/
-                      holds the python build wrappers (run_bpy, run_bpy_links, run_cq) and what they
-                      share (_wrapper_common: script run + error mapping + report; _census: the Blender census)
+                      holds the python build wrappers (run_bpy, run_bpy_links, run_cq, run_bpy_scene) and what they
+                      share (_wrapper_common: script run + error mapping + report; _census: the Blender census;
+                      _census_glb: scene_blender's census GLB writer, D102)
   spatial/            node.py, render.py, observe.py, tool_common.py (shared tool plumbing),
                       render_scene.py (judge view subset, content-fitted orbit),
                       frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),

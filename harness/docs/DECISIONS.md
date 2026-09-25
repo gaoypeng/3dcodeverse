@@ -1090,6 +1090,30 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   The design's `probe_args` member was left out: the probe's driver flags are the runtime's own business
   inside `probe`/`build`, and nothing outside a runtime would read them.  `shader_probe` stays three.js-only.
 
+* **D102 scene_blender phase 1: contracts, the Blender build and the geometry gates on a census GLB (2026-09-24).**
+  DESIGN (`/home/yipeng/3dcodeverse_runs/scene_blender_2026-09-24/DESIGN.md`) §11 phase 1, owner decisions D1–D12.
+  `Language.SCENE_BLENDER` is the scene track's second language (`src/scene.py` entry, Z-up frame in
+  `conventions.LANGUAGE_FRAME`, `HARNESS_OWNED_SRC` `src/lib/`), with `SceneBlenderRuntime` (`languages/scene_blender`).
+  `src/scene.py` is assembled DATA (`ZONES` / `ASSETS` / `HEROES` / `CAMERAS`, the plan's cameras converted
+  to the Blender frame; the plan stays Y-up, D12).  The build is one Blender process (`wrappers/run_bpy_scene.py`):
+  env, heroes (GLB import, D6), assets and every zone each run in isolation.  A builder that raises is an
+  ERROR on its `file:line`, and everything it created is removed, so the zone is dropped while the rest is
+  still measured.  The geometry gates stay the JS ones.  The wrapper writes `artifacts/census.glb` with the
+  harness writer (`wrappers/_census_glb.py`, from the evaluated depsgraph: collection instances become
+  clones, other instance clouds become `EXT_mesh_gpu_instancing`, fog volumes are not matter, custom props
+  become `extras`).  `probe_scene.mjs --glb` boots `runtime_js/lib/glb_scene.mjs` on it with no settle
+  and no camera repair (D3).  `probes.run_probe(glb=, facts=)` merges the bpy facts the GLB cannot carry
+  (fog, background, lamps, drivers, handlers, unique/instanced triangles).  D2: no draw gate offline; an
+  ERROR above `MAX_TRIS_SCENE` UNIQUE triangles instead.  D10: Python drivers and added `bpy.app.handlers`
+  are a lint ERROR and a census ERROR.  `AssetPlan.kind` gains `bpy` (D5).  The schema a planner is
+  handed keeps scene_threejs's enum (`SCENE_ASSET_KINDS`), so every scene_threejs payload stays
+  byte-identical (manifest not re-blessed).  scene_blender's tool list is held out of the manifest
+  (`UNBLESSED_LANGUAGES`) and its prompt files are pending (`PROMPTS_PENDING`) until phase 3.  The
+  object lint's bpy traps are shared (`blender.call_traps` / `store_traps` / `source_traps`), not copied.
+  Measured on the design's probe scenes: bpy 520 760 / 619 968 triangles = census 520 760 / 619 968;
+  build 5.0 s / 7.5 s (wrapper 3.4–5.3 s, of which GLB 0.1 / 0.8 s; JS probe 1–2.4 s).
+  `render_scene` raises NotImplementedError until phase 2.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

@@ -64,6 +64,22 @@ def line_of(text: str, pos: int) -> int:
     return text.count("\n", 0, pos) + 1
 
 
+def target_file(target: str | None) -> str:
+    """``src/zones/a.js:12`` → ``src/zones/a.js`` (a finding's target without its line)."""
+    if not target:
+        return ""
+    head, sep, tail = target.rpartition(":")
+    return head if sep and tail.isdigit() else target
+
+
+def target_line(target: str | None) -> int | None:
+    """``src/zones/a.js:12`` → ``12``; ``None`` when the target names no line."""
+    if not target:
+        return None
+    _, sep, tail = target.rpartition(":")
+    return int(tail) if sep and tail.isdigit() else None
+
+
 def ws_rel(ws: Workspace, p: Path) -> str:
     """``p`` workspace-relative (posix), or as given when it lies outside the workspace."""
     try:
@@ -138,6 +154,7 @@ def compose_build_result(
     glb_path: Path | None,
     extra_paths: Mapping[str, Path],
     output_filter: Callable[[str], str] | None = None,
+    publish: bool = True,
 ) -> BuildResult:
     """Merge the wrapper's ``build.json`` with the process outcome, and write the result
     over it: ``build.json`` is always the BuildResult, the one status file the tools read.
@@ -147,7 +164,8 @@ def compose_build_result(
     exists become a failed BuildResult with a typed error (``BUILD_TIMEOUT`` /
     ``WrapperCrash``) — never an exception — so the orchestrator can route them to repair.
     The wrapper's own diagnostics (traceback, warnings, exports …) land in
-    ``census["build_report"]``.
+    ``census["build_report"]``.  ``publish=False`` leaves ``build_json`` as the wrapper wrote it
+    (a runtime that finishes the build itself — scene_blender probes the census GLB next).
     """
     stdout_tail = tail(output_filter(proc.stdout) if output_filter else proc.stdout)
     stderr_tail = tail(output_filter(proc.stderr) if output_filter else proc.stderr)
@@ -172,7 +190,8 @@ def compose_build_result(
         )
     else:
         res = _merge_report(read_json_file(build_json), census_json, glb_path, extra_paths, base)
-    write_json_atomic(build_json, res.model_dump(mode="json"))
+    if publish:
+        write_json_atomic(build_json, res.model_dump(mode="json"))
     return res
 
 

@@ -93,7 +93,7 @@ def _f(sev: Severity, msg: str, line: int | None = None, hint: str = "", target:
     return GateFinding(gate=GATE, severity=sev, target=target, message=msg, fix_hint=hint, data={"line": line} if line else {})
 
 
-class _Collector(ImportCollector):
+class BpyCollector(ImportCollector):
     def __init__(self) -> None:
         super().__init__()
         self.calls: list[tuple[str, ast.Call]] = []
@@ -138,7 +138,7 @@ def _top_level_assigned(tree: ast.Module) -> tuple[set[str], set[str]]:
     return top, guarded
 
 
-def _rules(c: _Collector, tree: ast.Module, source: str) -> list[GateFinding]:
+def _rules(c: BpyCollector, tree: ast.Module, source: str) -> list[GateFinding]:
     E, W, I = Severity.ERROR, Severity.WARN, Severity.INFO  # noqa: E741
     out: list[GateFinding] = []
     if "cadquery" not in c.imports:
@@ -197,7 +197,7 @@ def lint_cadquery_source(source: str, *, target: str = "src/model.py") -> GateRe
         msg, hint, line = describe_parse_failure(exc)  # type: ignore[arg-type]
         f = _f(Severity.ERROR, msg, line, hint, target)
         return GateReport.of(GATE, [f], duration_ms=int((time.monotonic() - t0) * 1000))
-    c = _Collector()
+    c = BpyCollector()
     c.visit(tree)
     findings = _rules(c, tree, source)
     for f in findings:

@@ -52,12 +52,15 @@ export function requestFailureLine(url, base, hasResponse, errorText) {
  * Open the host for workspace `wsRoot`.
  * @returns {Promise<{page, browser, base, gpu, renderer, errors, boot, close}>}
  */
-export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto', logDepth = false, sceneRel = 'src/scene.js', createSceneTimeoutMs = 0, settle = true, cameraRepair = false, autoExposure = false, post = true, postOptions = null } = {}) {
+export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto', logDepth = false, sceneRel = 'src/scene.js', createSceneTimeoutMs = 0, settle = true, cameraRepair = false, autoExposure = false, post = true, postOptions = null, glb = null } = {}) {
   wsRoot = path.resolve(wsRoot);
-  if (!fs.existsSync(path.join(wsRoot, sceneRel))) {
-    throw new Error(`missing ${sceneRel} in workspace ${wsRoot}`);
+  // an offline scene (`glb`: its census GLB) boots the harness adapter, never a workspace module
+  const sceneFile = glb || path.join(wsRoot, sceneRel);
+  if (!fs.existsSync(sceneFile)) {
+    throw new Error(glb ? `missing census GLB ${glb}` : `missing ${sceneRel} in workspace ${wsRoot}`);
   }
-  const srv = await serveWorkspace(wsRoot, { hostHtml: hostHtml() });
+  const sceneUrl = glb ? `${RUNTIME_MOUNT}lib/glb_scene.mjs` : `/${sceneRel}`;
+  const srv = await serveWorkspace(wsRoot, { hostHtml: hostHtml(), glb });
   const errors = { console: [], page: [], shader_console: [], warnings: [] };
   let launched = null;
   let page = null;
@@ -98,7 +101,7 @@ export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto
     await page.waitForFunction('window.__c3v_ready === true', { timeout: 60000 });
     const boot = await page.evaluate(
       (o) => window.__c3v.boot(o),
-      { sceneUrl: `/${sceneRel}`, width, height, logDepth, createSceneTimeoutMs, settle, cameraRepair, autoExposure, post, postOptions },
+      { sceneUrl, width, height, logDepth, createSceneTimeoutMs, settle, cameraRepair, autoExposure, post, postOptions },
     );
     const close = async () => {
       // page first, then release: a SHARED browser (connect-first reuse) must get

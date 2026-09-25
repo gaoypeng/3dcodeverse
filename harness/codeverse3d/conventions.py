@@ -6,7 +6,7 @@ drifted into 3-4 incompatible ``snake_case`` helpers and two up-axes).
 
 Frames
 ------
-* ``blender`` / ``cadquery`` / ``urdf``:  **Z-up, -Y is the object's front**,
+* ``blender`` / ``cadquery`` / ``urdf`` / ``scene_blender``:  **Z-up, -Y is the object's front**,
   meters.  (Blender's "Front" view looks along +Y, so a front face points -Y.)
 * ``threejs`` / ``scene_threejs``:        **Y-up, +Z is the front**, meters.
 * ``glsl_shader`` / ``opengl_python``:    **Y-up, +Z front** (GL clip space is
@@ -50,6 +50,8 @@ LANGUAGE_FRAME: dict[str, Frame] = {
     "urdf_blender": Frame.Z_UP_NEG_Y_FRONT,
     "threejs": Frame.Y_UP_POS_Z_FRONT,
     "scene_threejs": Frame.Y_UP_POS_Z_FRONT,
+    # a Blender scene is authored Z-up; its plan, gates and census GLB stay in the GLB frame (D12)
+    "scene_blender": Frame.Z_UP_NEG_Y_FRONT,
     # GL clip space is Y-up: graphics output is framed like the three.js/glTF frame.
     "glsl_shader": Frame.Y_UP_POS_Z_FRONT,
     "opengl_python": Frame.Y_UP_POS_Z_FRONT,
@@ -72,6 +74,16 @@ def to_authoring_frame(v: Sequence[float], language: str, *, extents: bool = Fal
     if authoring_frame(language) is Frame.Z_UP_NEG_Y_FRONT:
         return (x, z if extents else -z, y)
     return (x, y, z)
+
+
+def glb_basis(language: str) -> tuple[tuple[float, float, float], ...]:
+    """The 3×3 rows taking a ``language``-frame vector into the GLB frame — the glTF export
+    mapping ``(x, y, z) → (x, z, -y)`` for a Z-up language, identity otherwise; the inverse of
+    :func:`to_authoring_frame`.  Handed to a harness writer that cannot import this module (the
+    scene_blender census-GLB writer runs inside Blender), so the mapping is still stated once."""
+    if authoring_frame(language) is Frame.Z_UP_NEG_Y_FRONT:
+        return ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, -1.0, 0.0))
+    return ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
 
 
 def frame_doc(frame: Frame) -> str:

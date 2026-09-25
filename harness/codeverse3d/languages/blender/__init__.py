@@ -74,7 +74,7 @@ REMOVED_BSDF_INPUTS = {
 KNOWN_BINDINGS = ("Vector", "Matrix", "Euler", "Quaternion", "bmesh", "math", "random", "np", "numpy", "bpy")
 
 
-class _Collector(ast.NodeVisitor):
+class BpyCollector(ast.NodeVisitor):
     """One pass over the tree; rules read the collected facts."""
 
     def __init__(self) -> None:
@@ -164,7 +164,7 @@ class _Collector(ast.NodeVisitor):
     def _input_guards(test: ast.expr) -> frozenset[str]:
         """Keys ``k`` a test asserts present: ``'k' in x.inputs`` (also inside an ``and``)."""
         if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
-            return frozenset().union(*(_Collector._input_guards(v) for v in test.values))
+            return frozenset().union(*(BpyCollector._input_guards(v) for v in test.values))
         if (isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], ast.In)
                 and isinstance(test.left, ast.Constant) and isinstance(test.left.value, str)
                 and isinstance(test.comparators[0], ast.Attribute) and test.comparators[0].attr == "inputs"):
@@ -207,62 +207,60 @@ def _f(kind: LintKind, sev: Severity, msg: str, line: int | None = None, hint: s
     return GateFinding(gate=GATE, severity=sev, target=target, message=msg, fix_hint=hint, data=data)
 
 
-def _rules(c: _Collector, source: str, *, target: str, expect_names: bool, expect_bpy: bool) -> list[GateFinding]:
+
+# The API traps of bpy itself, whatever the file builds: the object lint (``_rules``) and the scene
+# lint (``languages/scene_blender``) both call these, so a Blender rename is learned once.
+def call_traps(c: BpyCollector, name: str, call: ast.Call) -> list[GateFinding]:
+    """Removed / context-dependent operator and method calls (one call)."""
+    out: list[GateFinding] = []
+    E, W = Severity.ERROR, Severity.WARN
+    if name.startswith("bpy.ops.") and call.args and isinstance(call.args[0], ast.Dict):
+        out.append(_f(LintKind.API_TRAP, E, f"`{name}({{...}})` context-dict override was removed in Blender 4.0", call.lineno,
+                      "use `with bpy.context.temp_override(object=obj, active_object=obj, selected_objects=[obj]): bpy.ops....()`"))
+    if name.endswith("primitive_cube_add"):
+        kws = {k.arg for k in call.keywords}
+        if "scale" in kws and "size" not in kws:
+            out.append(_f(LintKind.API_TRAP, W, "primitive_cube_add(scale=...) without size=1 makes a 2 m cube × scale (extents doubled)", call.lineno,
+                          "pass `size=1, scale=(sx, sy, sz)` then `bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)`"))
+    if name.endswith("transform_apply"):
+        kws = {k.arg for k in call.keywords}
+        if kws and not {"location", "rotation", "scale"} <= kws:
+            out.append(_f(LintKind.API_TRAP, W, "transform_apply with partial kwargs: unspecified ones default to True (bakes location into mesh data)", call.lineno,
+                          "always pass all three: transform_apply(location=False, rotation=False, scale=True)"))
+    if name.endswith("modifier_apply") and not c.has_temp_override:
+        out.append(_f(LintKind.API_TRAP, W, "bpy.ops.object.modifier_apply needs the object active+selected in OBJECT mode", call.lineno,
+                      "either leave modifiers unapplied (the exporter applies them) or wrap: `with bpy.context.temp_override(object=obj): bpy.ops.object.modifier_apply(modifier=mod.name)`"))
+    # the rule's own precondition: a script that sets the active object before joining (the urdf
+    # cookbook's `join_as`, one joined object per link) has done what the warning asks
+    if (name.endswith("bpy.ops.object.join") or name == "bpy.ops.object.join") and not any(
+            t.endswith("view_layer.objects.active") for t, _ in c.attr_stores):
+        out.append(_f(LintKind.API_TRAP, W, "bpy.ops.object.join needs all parts selected + an active object; the result inherits the ACTIVE object's transform", call.lineno,
+                      "select all, set `bpy.context.view_layer.objects.active = main_obj` (identity transform) before join — or keep parts separate (preferred: named parts)"))
+    if name.endswith("shade_smooth") and any(k.arg == "use_auto_smooth" for k in call.keywords):
+        out.append(_f(LintKind.API_TRAP, E, "shade_smooth(use_auto_smooth=...) was removed in 4.1", call.lineno, "use `bpy.ops.object.shade_smooth_by_angle(angle=0.523599)` or `bpy.ops.object.shade_auto_smooth()`"))
+    if name.endswith(".calc_normals"):
+        out.append(_f(LintKind.API_TRAP, E, "Mesh.calc_normals() was removed in 4.0 (normals are computed automatically)", call.lineno, "delete the call (use me.update() if needed)"))
+    return out
+
+
+def store_traps(target: str, line: int) -> list[GateFinding]:
+    """Assignments to properties Blender 4.1 removed."""
+    if target.endswith(".use_auto_smooth") or target.endswith(".auto_smooth_angle"):
+        return [_f(LintKind.API_TRAP, Severity.ERROR, f"`{target}` was removed in Blender 4.1", line, "use bpy.ops.object.shade_smooth_by_angle(angle=...) or mark sharp edges; or just shade_smooth()")]
+    return []
+
+
+def use_nodes_trap(target: str, line: int) -> list[GateFinding]:
+    if target.endswith(".use_nodes"):
+        return [_f(LintKind.API_TRAP, Severity.INFO, "`use_nodes = True` is a no-op in Blender 5.x (materials always have a node tree); harmless", line, "")]
+    return []
+
+
+def source_traps(c: BpyCollector, source: str) -> list[GateFinding]:
+    """Whole-file traps: removed Principled inputs, bmesh lookup tables, undefined names, the
+    background-mode selection, invalid engine ids."""
     out: list[GateFinding] = []
     E, W, I = Severity.ERROR, Severity.WARN, Severity.INFO  # noqa: E741
-    if expect_bpy and "bpy" not in c.imports:
-        out.append(_f(LintKind.UNDEFINED_NAME, E, f"{target} never imports bpy", 1, "start the file with `import bpy`"))
-
-    def _import_finding(kind: str, mod: str, line: int) -> GateFinding:
-        if kind == "forbidden":
-            return _f(LintKind.FORBIDDEN_IMPORT, E, f"forbidden import `{mod}`", line, "only bpy/bmesh/mathutils/math/random/numpy (+stdlib data helpers) are allowed")
-        return _f(LintKind.BAD_IMPORT, W, f"unexpected import `{mod}` (not available / not allowed in the build sandbox)", line, "use only bpy, bmesh, mathutils, math, random, numpy")
-
-    out.extend(check_imports(c.imports, forbidden=FORBIDDEN_IMPORTS, allowed=ALLOWED_IMPORTS, make_finding=_import_finding))
-    for name, call in c.calls:
-        for prefix, hint in FORBIDDEN_CALL_PREFIXES:
-            if name.startswith(prefix):
-                out.append(_f(LintKind.SANDBOX, E, f"forbidden call `{name}`", call.lineno, hint))
-        for prefix, hint, kind in WARN_CALL_PREFIXES:
-            if name.startswith(prefix):
-                out.append(_f(kind, W, f"`{name}` — {hint}", call.lineno, hint))
-        if name == "open":
-            out.append(_f(LintKind.SANDBOX, E, "file IO via open() is forbidden", call.lineno, "no file reads/writes; the harness exports for you"))
-        if name.startswith("bpy.ops.") and call.args and isinstance(call.args[0], ast.Dict):
-            out.append(_f(LintKind.API_TRAP, E, f"`{name}({{...}})` context-dict override was removed in Blender 4.0", call.lineno,
-                          "use `with bpy.context.temp_override(object=obj, active_object=obj, selected_objects=[obj]): bpy.ops....()`"))
-        if name.endswith("primitive_cube_add"):
-            kws = {k.arg for k in call.keywords}
-            if "scale" in kws and "size" not in kws:
-                out.append(_f(LintKind.API_TRAP, W, "primitive_cube_add(scale=...) without size=1 makes a 2 m cube × scale (extents doubled)", call.lineno,
-                              "pass `size=1, scale=(sx, sy, sz)` then `bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)`"))
-        if name.endswith("transform_apply"):
-            kws = {k.arg for k in call.keywords}
-            if kws and not {"location", "rotation", "scale"} <= kws:
-                out.append(_f(LintKind.API_TRAP, W, "transform_apply with partial kwargs: unspecified ones default to True (bakes location into mesh data)", call.lineno,
-                              "always pass all three: transform_apply(location=False, rotation=False, scale=True)"))
-        if name.endswith("modifier_apply") and not c.has_temp_override:
-            out.append(_f(LintKind.API_TRAP, W, "bpy.ops.object.modifier_apply needs the object active+selected in OBJECT mode", call.lineno,
-                          "either leave modifiers unapplied (the exporter applies them) or wrap: `with bpy.context.temp_override(object=obj): bpy.ops.object.modifier_apply(modifier=mod.name)`"))
-        # the rule's own precondition: a script that sets the active object before joining (the urdf
-        # cookbook's `join_as`, one joined object per link) has done what the warning asks
-        if (name.endswith("bpy.ops.object.join") or name == "bpy.ops.object.join") and not any(
-                t.endswith("view_layer.objects.active") for t, _ in c.attr_stores):
-            out.append(_f(LintKind.API_TRAP, W, "bpy.ops.object.join needs all parts selected + an active object; the result inherits the ACTIVE object's transform", call.lineno,
-                          "select all, set `bpy.context.view_layer.objects.active = main_obj` (identity transform) before join — or keep parts separate (preferred: named parts)"))
-        if name.endswith("shade_smooth") and any(k.arg == "use_auto_smooth" for k in call.keywords):
-            out.append(_f(LintKind.API_TRAP, E, "shade_smooth(use_auto_smooth=...) was removed in 4.1", call.lineno, "use `bpy.ops.object.shade_smooth_by_angle(angle=0.523599)` or `bpy.ops.object.shade_auto_smooth()`"))
-        if name.endswith(".calc_normals"):
-            out.append(_f(LintKind.API_TRAP, E, "Mesh.calc_normals() was removed in 4.0 (normals are computed automatically)", call.lineno, "delete the call (use me.update() if needed)"))
-    for target, line in c.attr_stores:
-        if target.endswith(".use_auto_smooth") or target.endswith(".auto_smooth_angle"):
-            out.append(_f(LintKind.API_TRAP, E, f"`{target}` was removed in Blender 4.1", line, "use bpy.ops.object.shade_smooth_by_angle(angle=...) or mark sharp edges; or just shade_smooth()"))
-        if ".render." in target or target.endswith(".render"):
-            out.append(_f(LintKind.HARNESS_OWNED, W, f"render settings touched: `{target}`", line, "the harness owns rendering; delete render/engine/resolution code"))
-        if target.endswith("scene.camera") or target.endswith(".world"):
-            out.append(_f(LintKind.HARNESS_OWNED, W, f"`{target}` assignment — cameras/world are owned by the harness", line, "remove camera/world code"))
-        if target.endswith(".use_nodes"):
-            out.append(_f(LintKind.API_TRAP, I, "`use_nodes = True` is a no-op in Blender 5.x (materials always have a node tree); harmless", line, ""))
     for key, line, guarded in c.bsdf_inputs:
         if key in REMOVED_BSDF_INPUTS and not guarded:  # `elif 'Specular' in bsdf.inputs:` is version-proof
             out.append(_f(LintKind.API_TRAP, E, f"Principled BSDF input '{key}' does not exist in Blender 4.x/5.x (KeyError at runtime)", line,
@@ -289,6 +287,39 @@ def _rules(c: _Collector, source: str, *, target: str, expect_names: bool, expec
     for const, line in c.constants:
         if const == "BLENDER_EEVEE_NEXT":
             out.append(_f(LintKind.HARNESS_OWNED, W, "'BLENDER_EEVEE_NEXT' is not a valid engine id in Blender 5.0", line, "render settings are owned by the harness; delete the line"))
+    return out
+
+
+def _rules(c: BpyCollector, source: str, *, target: str, expect_names: bool, expect_bpy: bool) -> list[GateFinding]:
+    out: list[GateFinding] = []
+    E, W, I = Severity.ERROR, Severity.WARN, Severity.INFO  # noqa: E741
+    if expect_bpy and "bpy" not in c.imports:
+        out.append(_f(LintKind.UNDEFINED_NAME, E, f"{target} never imports bpy", 1, "start the file with `import bpy`"))
+
+    def _import_finding(kind: str, mod: str, line: int) -> GateFinding:
+        if kind == "forbidden":
+            return _f(LintKind.FORBIDDEN_IMPORT, E, f"forbidden import `{mod}`", line, "only bpy/bmesh/mathutils/math/random/numpy (+stdlib data helpers) are allowed")
+        return _f(LintKind.BAD_IMPORT, W, f"unexpected import `{mod}` (not available / not allowed in the build sandbox)", line, "use only bpy, bmesh, mathutils, math, random, numpy")
+
+    out.extend(check_imports(c.imports, forbidden=FORBIDDEN_IMPORTS, allowed=ALLOWED_IMPORTS, make_finding=_import_finding))
+    for name, call in c.calls:
+        for prefix, hint in FORBIDDEN_CALL_PREFIXES:
+            if name.startswith(prefix):
+                out.append(_f(LintKind.SANDBOX, E, f"forbidden call `{name}`", call.lineno, hint))
+        for prefix, hint, kind in WARN_CALL_PREFIXES:
+            if name.startswith(prefix):
+                out.append(_f(kind, W, f"`{name}` — {hint}", call.lineno, hint))
+        if name == "open":
+            out.append(_f(LintKind.SANDBOX, E, "file IO via open() is forbidden", call.lineno, "no file reads/writes; the harness exports for you"))
+        out.extend(call_traps(c, name, call))
+    for target, line in c.attr_stores:
+        out.extend(store_traps(target, line))
+        if ".render." in target or target.endswith(".render"):
+            out.append(_f(LintKind.HARNESS_OWNED, W, f"render settings touched: `{target}`", line, "the harness owns rendering; delete render/engine/resolution code"))
+        if target.endswith("scene.camera") or target.endswith(".world"):
+            out.append(_f(LintKind.HARNESS_OWNED, W, f"`{target}` assignment — cameras/world are owned by the harness", line, "remove camera/world code"))
+        out.extend(use_nodes_trap(target, line))
+    out.extend(source_traps(c, source))
     pascal = [n for n in c.names_assigned if PASCAL_RE.match(n) and n not in ("Cube", "Cylinder", "Sphere", "Plane")]
     if pascal:
         out.append(_f(LintKind.CENSUS, I, f"named objects: {sorted(set(pascal))[:12]}", None, ""))
@@ -315,7 +346,7 @@ def lint_blender_source(
         msg, hint, line = describe_parse_failure(exc)  # type: ignore[arg-type]
         findings.append(_f(LintKind.SYNTAX, Severity.ERROR, msg, line, hint, target))
         return GateReport.of(GATE, findings, duration_ms=int((time.monotonic() - t0) * 1000))
-    c = _Collector()
+    c = BpyCollector()
     c.visit(tree)
     findings = _rules(c, source, target=target, expect_names=expect_names, expect_bpy=expect_bpy)
     for f in findings:

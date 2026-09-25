@@ -7,6 +7,10 @@
  *
  *   node probe_scene.mjs --ws <ws> [--scene src/scene.js] [--gpu auto] [--timeout-ms 60000] [--out probe.json]
  *        [--compile] [--shaders-out report.json] [--sun-azimuth 60] [--bounds '{"min":[..],"max":[..]}'|none]
+ *        [--glb artifacts/census.glb]
+ *
+ * `--glb` probes an OFFLINE scene (scene_blender): the host boots lib/glb_scene.mjs on that
+ * harness-written census GLB instead of `--scene` — the same census and placement code.
  *
  * `--compile` additionally runs the full shader preflight (static GLSL audits +
  * force-compile of every material, lib/shader_report.mjs) on the SAME booted
@@ -39,7 +43,7 @@ const args = parseCli({
   // flag parses (drivers share a switch list) and changes nothing.
   'no-post': { type: 'boolean', default: false },
   ws: {}, out: {}, gpu: { default: process.env.C3D_RENDER_GPU || 'auto' }, 'timeout-ms': { default: '60000' },
-  scene: { default: 'src/scene.js' },
+  scene: { default: 'src/scene.js' }, glb: { default: '' },
   compile: { type: 'boolean', default: false }, 'shaders-out': { default: '' }, 'sun-azimuth': { default: '' },
   bounds: { default: 'none' },
 });
@@ -70,6 +74,7 @@ async function main() {
   try {
     host = await openHost(args.ws, {
       width: 320, height: 180, gpu: args.gpu, sceneRel: args.scene.replace(/^\.?\//, ''),
+      glb: args.glb ? path.resolve(args.glb) : null,
       createSceneTimeoutMs: createTimeoutMs(timeoutMs),
       settle: !args['no-settle'],
       cameraRepair: !!args['camera-repair'],

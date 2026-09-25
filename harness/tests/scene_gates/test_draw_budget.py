@@ -93,13 +93,13 @@ def test_a_probe_with_no_boot_record_is_a_harness_failure_not_a_verdict() -> Non
 def test_a_harness_failure_finding_makes_the_probe_result_not_ok() -> None:
     """`ok` is "the tool could run"; a harness failure is an error, never an agent-facing finding."""
     from codeverse3d.contracts.artifacts import GateFinding
-    from codeverse3d.spatial.probes import _result
+    from codeverse3d.spatial.probes import probe_result
 
     harness = GateReport(gate="scene_probe", passed=False, findings=[GateFinding(
         gate="scene_probe", severity=Severity.ERROR, target="src/scene.js",
         message="scene probe produced no result (driver output lost)",
         fix_hint="retry or report", data={"harness_failure": True})])
-    r = _result(harness, {})
+    r = probe_result(harness, {})
     assert r.ok is False
     assert r.errors == ["scene probe produced no result (driver output lost)"]
     assert r.findings == [], "a harness failure is never handed to the agent as a defect"
@@ -107,5 +107,5 @@ def test_a_harness_failure_finding_makes_the_probe_result_not_ok() -> None:
     real = GateReport(gate="scene_probe", passed=False, findings=[GateFinding(
         gate="scene_probe", severity=Severity.ERROR, target="src/scene.js",
         message="[createScene] TypeError: x is not a function", fix_hint="fix it")])
-    r2 = _result(real, {"totals": {}})
+    r2 = probe_result(real, {"totals": {}})
     assert r2.ok is True and r2.errors == [] and len(r2.findings) == 1
