@@ -11,8 +11,8 @@ and then build it with `makeShaderMaterial` / `patchStandard` from
 `lib/shader.js`.
 
 Import with a relative path from the file you are writing — `src/zones/x.js`
-says `import { makeGrass } from '../lib/grass.js';`, `src/scene.js` says
-`'./lib/grass.js'`.
+and `src/assets/x.js` say `import { makeGrass } from '../lib/grass.js';`,
+`src/scene.js` says `'./lib/grass.js'`.
 
 | Want | Call |
 | --- | --- |

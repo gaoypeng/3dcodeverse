@@ -27,6 +27,17 @@ export function snapshotResources(root, {
     return resources;
 }
 
+/** Every object in a factory's tree when it claimed ownership (attachDisposal):
+ * how a check tells what the library built from what its caller built around it.
+ * Weak, so it keeps nothing alive; caller additions made afterwards are not in it.
+ */
+const BUILT = new WeakSet();
+
+/** Did a library factory build this object (it was in the tree it claimed)? */
+export function isLibraryBuilt(object) {
+    return BUILT.has(object);
+}
+
 /** Install userData.dispose() for an explicit iterable of owned resources.
  * Duplicate resources are released once; repeated disposal is harmless. A
  * resource may be a Three.js disposable or {dispose(){...}} for external state.
@@ -39,6 +50,7 @@ export function attachDisposal(root, resources) {
             throw new TypeError('Every owned resource must implement dispose()');
         }
     }
+    if (typeof root.traverse === 'function') root.traverse((object) => BUILT.add(object));
     let disposed = false;
     root.userData.dispose = () => {
         if (disposed) return false;

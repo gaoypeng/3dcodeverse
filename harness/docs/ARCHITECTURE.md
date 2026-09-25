@@ -338,8 +338,12 @@ summary:
   Plus the harness-owned, read-only **effect library** `src/lib/*.js` (the starter's other
   `.js` files are the example scene), shipped into every workspace by BOTH skeleton paths and
   listed in `HARNESS_OWNED_SRC` so agent writes to it are reverted (D51, D97).  The want → call
-  table the prompts carry is `prompts/scene_threejs/effects_catalog.md`; an asset module
-  imports only `three` (`prompts/scene_threejs/asset.md`), so effects are called from zone/env code.
+  table the prompts carry is `prompts/scene_threejs/effects_catalog.md`.  A three.js asset module
+  may compose it too (D100): its prompt carries the catalog rows of the factories its sheet names
+  (`scene_assets.library_rows`), and the asset check (`runtime_js/lib/asset_check.mjs`) counts what
+  a factory built — `lib/lifecycle.js` `isLibraryBuilt` — as `lib_tris` against the one-object
+  ceiling, not the per-asset budget, and seats a factory by its origin.  `src/lib/` is committed
+  with `src/`, so the deliverable and the dataset sample carry it.
 * **glsl_shader**: `src/shader.frag` (+ optional `src/common.glsl`,
   `src/buffer_a.frag` for feedback; the harness-owned, read-only `src/recipes.glsl`
   is pasted above them when the track seeded recipes) — the agent never writes

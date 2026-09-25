@@ -1015,7 +1015,8 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   `src/shaders/*.{vert,frag,glsl}` as text (audited by `shader_report`).  Named bugs: three r182 compiles
   `PCFSoftShadowMap` as BASIC (the renderer uses `PCFShadowMap`); the census missed shader-instanced
   geometry; GlHost doubled a relative out dir.  Tests follow D96 (a BUILD row + a GPU group each).  The
-  catalog and planner say the effects are zone code, never assets, with no limits stated (D93).
+  catalog and planner say the effects are zone code, never assets, with no limits stated (D93) — the
+  "never assets" half is superseded by D100.
   `examples/graphics_lab/` is a dev lab (sixteen hand-composed studies rendered through the production
   scene and GL hosts); its `output/` is ignored and none of its media is committed.  2026-09-23: the lab's
   session notes, provenance tooling, audit logs and the unused cinematic judge were deleted (owner); the lab
@@ -1059,6 +1060,24 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   and a stored verdict still replays; the judge INPUT changed (manifest re-blessed), so a scene judged before
   and after this commit differs by the fps line and two rubric phrases.  A draw WARN is still a gate WARN in
   the judge's list, which the judge is told never makes a defect present.
+
+* **D100 A three.js scene asset may import the effect library (owner, 2026-09-24).**  `src/assets/<snake>.js`
+  may `import { makeTree } from '../lib/tree.js'` and compose a factory with its own parts: `src/lib/` is
+  copied into every workspace and committed with `src/`, so the deliverable and the dataset sample (both
+  read the round's commit) carry it and the output stays self-contained — a copied-out deliverable boots
+  alone.  Until now `asset.md` said "no imports beyond three" and `plan_scene.j2` routed every effect to
+  zone/env code; the code never rejected the import (lint, node check and GLB export all resolve
+  `../lib/`), but the asset check did: a factory's triangles counted against the per-asset budget (one
+  lean birch is 80 k, the wood alone 75 k) and its below-grade roots read as "sinks", so every such asset
+  failed twice and escalated to an agent session.  Now `lib/lifecycle.js` `attachDisposal` records the
+  tree it claims (`isLibraryBuilt`, a WeakSet); `asset_check.mjs` loads the workspace's own lifecycle
+  module (the instance the asset's imports load) and reports what a factory built as `lib_tris` — held to
+  the one-object ceiling `MAX_TRIS_OBJECT`, not `ASSET_MAX_TRIS` — and seats a factory by its origin.  The
+  asset's own geometry keeps every rule.  A `blender_glb` hero cannot import it.  The asset prompt carries
+  only the catalog rows of the factories its sheet names (by camelCase call or module file,
+  `scene_assets.library_rows`), not the whole catalog.  Not changed: the scene placement gate still
+  measures an asset's lowest vertex, so a library tree's roots inside a non-exempt asset name can read
+  as sunken there, as they already did for zone-placed trees.
 
 ## Rejected / deferred
 

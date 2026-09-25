@@ -57,6 +57,13 @@ Scene: {{ spec_prompt }}
   `userData.tick` is never called by anything).  Amplitudes must be visible after 1.5 s:
   >= 0.10 rad of rotation or >= 0.05 m of travel — not sub-centimetre jitter.
 - Segments 12-24.
+{% if library_rows %}
+- The sheet names shipped effect-library factories. `src/lib/` ships with the scene: import them
+  (`import { makeTree } from '../lib/tree.js'`) and compose what they return into your group
+  instead of rebuilding them. Each returned object stands on its own origin; place it by that
+  origin, and pass the lighter options its row names when the asset is repeated.
+{{ library_rows }}
+{% endif %}
 {% endif %}
 
 ## DO / DON'T

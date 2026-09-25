@@ -21,9 +21,11 @@ one of them (a Waterfall, OakTree, BoulderCluster, StreamRibbon, Flame or GrassP
 an element they do not cover (a pine, a palm, a carved stone) is still an asset, and so is a
 grove or forest of many trees: each `makeTree` is a full tree, heavy enough that a whole grove of
 them can crash the page.
-The standalone asset stage only imports Three.js; shipped effects must be composed
-by zone/environment code, which may import `../lib/`. Zone `contents` still lists
-only actual asset names; library effects belong in prose, not invented asset ids.
+A `threejs` asset may compose a factory with its own parts (a shrine with a `makeTree` beside it,
+a well ringed by `makeRock`s): name the call and its module (`makeTree`, `tree.js`) in that
+asset's description, and the asset imports `../lib/`. A `blender_glb` hero cannot. Zone
+`contents` still lists only actual asset names; library effects a zone places itself belong in
+prose, not invented asset ids.
 Plan the stream's upstream-to-downstream path once, with nonincreasing Y, and
 require terrain banks to use that same surface sampler and local coordinate frame.
 The zone drives each effect's `userData.update(t, dt)` exactly once per frame.

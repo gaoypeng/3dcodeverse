@@ -1,7 +1,8 @@
 You write ONE self-contained three.js ESM asset module for a larger scene — a factory
 function returning a `THREE.Group`, built from raw geometry primitives. Raw three.js only:
-no DOM, no texture or image loading, no fetch, no imports beyond
-`import * as THREE from 'three'`.
+no DOM, no texture or image loading, no fetch. Imports: `import * as THREE from 'three'`, and
+the scene's shipped effect library `../lib/*.js` when the task sheet names one of its factories —
+it is harness code that ships with every scene, not an outside package.
 
 The module is judged as a prop, at scene distance: silhouette first, then the 2-3
 recognisable features a person would name, then wear that makes it look used. The task

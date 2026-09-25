@@ -34,7 +34,7 @@ from codeverse3d.contracts.artifacts import Judgment
 from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
 from codeverse3d.contracts.plan import AssetPlan, BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse3d.contracts.spec import Constraints, Spec
-from codeverse3d.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
+from codeverse3d.conventions import MAX_TRIS_OBJECT, OBJECT_VIEWS_QUICK, to_pascal, to_snake
 from codeverse3d.languages.scene_threejs import asset_file
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import fan_out, read_json_or_none, write_json_atomic
@@ -706,10 +706,28 @@ def _scene_context(ctx: RunContext) -> dict[str, Any]:
     return {"spec_prompt": brief, "constraints": ctx.extra.get("scene_style") or "(none)"} if brief else {}
 
 
+#: what names a library row: a camelCase factory right after a backtick (``makeTree(``,
+#: ``patchMoss``) — a bare lowercase one (``seat``, ``block``) is an ordinary word in a sheet —
+#: and the module it lives in (``lib/tree.js``)
+_CATALOG_CALL_RE = re.compile(r"`([a-z]+[A-Z]\w*)[(`]")
+_CATALOG_MODULE_RE = re.compile(r"`lib/(\w+\.js)`")
+
+
+def library_rows(description: str) -> str:
+    """The effects-catalog rows of the library factories an asset sheet names, by call or by module
+    (D100): a three.js asset may compose ``src/lib/``, and a single-shot writer cannot open the
+    module to learn the call — the rows carry it.  The whole catalog is a zone-sized prompt."""
+    words = set(re.findall(r"\w+(?:\.\w+)*", description))
+    return "\n".join(line for line in language_text(Language.SCENE_THREEJS, "effects_catalog.md").splitlines()
+                     if line.startswith("| ")
+                     and words & (set(_CATALOG_CALL_RE.findall(line)) | set(_CATALOG_MODULE_RE.findall(line))))
+
+
 def _asset_prompt(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Language, files: list[str] | None = None) -> str:
     files = list(files or [rel])
     prompt = render("tracks/scene_asset.j2", **base_prompt_context(
         ctx, asset_name=asset.name, asset_kind=asset.kind, asset_description=asset.description, asset_size=asset.approx_size_m,
+        library_rows=library_rows(asset.description) if language is Language.SCENE_THREEJS else "",
         asset_file=rel, asset_files=files, asset_language=language.value, fix_instructions=[], current_code="",
         # a single-shot hero has to see the multi-file skeleton it is filling in, like a static object
         skeleton_files=skeleton_files(ctx) if (ctx.single_shot and len(files) > 1) else {},
@@ -774,7 +792,8 @@ class AssetCheck(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     size_m: tuple[float, float, float] | None = None
     min_y: float | None = None
-    tris: int = 0
+    tris: int = Field(default=0, description="triangles the asset built itself (the per-asset budget)")
+    lib_tris: int = Field(default=0, description="triangles the effect-library factories it composes built (D100)")
     meshes: int = 0
     materials: int = 0
     glb: str = Field(default="", description="the built GLB (blender heroes), '' for a module")
@@ -795,7 +814,10 @@ def check_threejs_asset(ctx: RunContext, rel: str, pascal: str, *, timeout_s: fl
     try:
         from codeverse3d.spatial.node import run_node, runtime_js_dir
 
-        res = run_node(runtime_js_dir() / "lib" / "asset_check.mjs", [path.resolve().as_uri(), f"build{pascal}"], cwd=ctx.ws.root,
+        # the workspace's own lib/lifecycle.js: the instance the asset's `../lib/` imports load (D100)
+        lifecycle = ctx.ws.src / "lib" / "lifecycle.js"
+        args = [path.resolve().as_uri(), f"build{pascal}"] + ([lifecycle.resolve().as_uri()] if lifecycle.is_file() else [])
+        res = run_node(runtime_js_dir() / "lib" / "asset_check.mjs", args, cwd=ctx.ws.root,
                        three_hook=True, timeout_s=timeout_s, check=False)
         data = res.last_json
         if data is None:
@@ -804,7 +826,7 @@ def check_threejs_asset(ctx: RunContext, rel: str, pascal: str, *, timeout_s: fl
         chk = AssetCheck(ok=bool(data.get("ok")), ran=True, errors=list(data.get("errors") or []),
                          warnings=list(data.get("warnings") or []),
                          size_m=tuple(data["size_m"]) if data.get("size_m") else None,  # type: ignore[arg-type]
-                         min_y=data.get("min_y"), tris=int(data.get("tris") or 0),
+                         min_y=data.get("min_y"), tris=int(data.get("tris") or 0), lib_tris=int(data.get("lib_tris") or 0),
                          meshes=int(data.get("meshes") or 0), materials=int(data.get("materials") or 0))
     except Exception as e:  # noqa: BLE001 — the checker is an optimisation, never a blocker
         log.warning("asset check could not run for %s: %s", rel, e)
@@ -822,7 +844,10 @@ def _soft_findings(chk: AssetCheck, expected: tuple[float, float, float] | None,
         chk.errors.append(f"the group sinks {abs(chk.min_y):.2f} m below y=0 — its lowest point must sit at y=0")
     if chk.tris > max_tris:
         chk.errors.append(f"{chk.tris} triangles exceeds the {max_tris} budget per asset — lower the segment counts")
-    if chk.meshes == 1 and chk.materials <= 1 and chk.tris < 200:
+    if chk.tris + chk.lib_tris > MAX_TRIS_OBJECT:
+        chk.errors.append(f"the effect-library factories it calls build {chk.lib_tris} triangles, past the {MAX_TRIS_OBJECT} "
+                          "ceiling for one object — pass their lighter options (fewer leaves, fewer leaf segments) or call fewer")
+    if chk.meshes == 1 and chk.materials <= 1 and chk.tris + chk.lib_tris < 200:
         chk.errors.append("the asset is still a single low-poly box (one mesh, one material): build it from several "
                           "parts with distinct materials so it reads as the described object")
     if expected and chk.size_m:

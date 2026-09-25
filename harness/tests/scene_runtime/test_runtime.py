@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -27,13 +28,66 @@ def test_runtime_registered_conforms_and_writes_skeleton(ws):
     assert (ws.src / "scene.js") in paths
 
 
+#: an asset module composing an effect-library factory around its own plinth (D100)
+LIB_ASSET = """import { makeTree } from '../lib/tree.js';
+export function buildBirchStand(THREE, opts = {}) {
+  const g = new THREE.Group(); g.name = 'BirchStand';
+  const tree = makeTree({ species: 'birch', height: 5, leafSegments: 3, maxLeaves: 400, seed: opts.seed ?? 3 });
+  g.add(tree);
+  const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 0.2, 12),
+                                new THREE.MeshStandardMaterial({ color: 0x6b6259 }));
+  plinth.position.y = 0.1; g.add(plinth);
+  return g;
+}
+"""
+
+
+def add_lib_asset(ws, body: str = LIB_ASSET) -> str:
+    rel = "src/assets/birch_stand.js"
+    (ws.root / rel).parent.mkdir(parents=True, exist_ok=True)
+    (ws.root / rel).write_text(body)
+    return rel
+
+
+@pytest.mark.node
+def test_asset_composing_a_library_factory_passes_the_asset_check(starter_ws):
+    """D100: an asset may import ``../lib/``.  The factory's triangles are the library's, not the
+    asset's budget, and its foot is its origin (a tree's roots go below grade by design) — before,
+    every such asset failed the check (80k tris "over budget", roots "sinking") and escalated."""
+    from codeverse3d.languages.scene_threejs import lint
+    from codeverse3d.tracks.scene_assets import ASSET_MAX_TRIS, check_threejs_asset
+
+    ctx = SimpleNamespace(ws=starter_ws)
+    rel = add_lib_asset(starter_ws)
+    assert not [f for f in lint(starter_ws).findings if f.target.startswith(rel)]
+    chk = check_threejs_asset(ctx, rel, "BirchStand", expected_size_m=(3.0, 5.0, 3.0))
+    assert chk.ran and chk.ok, chk.errors
+    assert chk.tris < 200 < ASSET_MAX_TRIS < chk.lib_tris and chk.min_y == 0.0
+    # the asset's OWN geometry is still held to the rules — a sunk plinth — and so is where it
+    # puts a factory: a tree lowered by half a metre sinks by its origin
+    for sunk, text in (("plinth.position.y = -0.3", "sinks 0.40 m"), ("plinth.position.y = 0.1; tree.position.y = -0.5", "sinks 0.50 m")):
+        add_lib_asset(starter_ws, LIB_ASSET.replace("plinth.position.y = 0.1", sunk))
+        assert any(text in e for e in check_threejs_asset(ctx, rel, "BirchStand").errors), sunk
+    # ... and a factory at its heaviest defaults is past the one-object ceiling
+    add_lib_asset(starter_ws, LIB_ASSET.replace("leafSegments: 3, maxLeaves: 400, ", ""))
+    heavy = check_threejs_asset(ctx, rel, "BirchStand")
+    assert not heavy.fatal and any("effect-library factories" in e for e in heavy.errors), heavy.errors
+
+
 @pytest.mark.node
 @needs_browser
 def test_build_ok_on_example(starter_ws):
-    """The example scene: one probe boot passes both gates and records its census."""
+    """The example scene: one probe boot passes both gates and records its census — with a zone
+    placing an asset that composes a library factory (D100)."""
+    add_lib_asset(starter_ws)
+    meadow = starter_ws.src / "zones" / "meadow.js"
+    meadow.write_text(meadow.read_text()
+                      .replace("import { buildWindmill }", "import { buildBirchStand } from '../assets/birch_stand.js';\nimport { buildWindmill }")
+                      .replace("  return zone;\n", "  const stand = buildBirchStand(THREE); stand.position.set(6, 0, 6); zone.add(stand);\n  return zone;\n"))
     rt = SceneThreeJsRuntime()
     res = rt.build(starter_ws)
     assert res.ok, res.stdout_tail
+    assert "BirchStand" in json.dumps(res.census), "the zone placed the library-composing asset"
     assert res.language == "scene_threejs" and res.glb_path is None
     census = res.census
     assert census["totals"]["meshes"] > 10 and census["totals"]["lights"] == 3
@@ -152,3 +206,28 @@ def test_probe_crash_leaves_no_stale_probe_outputs(ws, monkeypatch):
     for name in ("census.json", "scene_probe.json", "shader_preflight.json"):
         assert not (ws.artifacts / name).exists(), name
     assert json.loads((ws.artifacts / "build.json").read_text())["ok"] is False
+
+
+@pytest.mark.node
+def test_hand_over_of_a_library_composing_asset_is_self_contained(starter_ws):
+    """D100: the deliverable and the dataset sample read the round's commit, and ``src/lib/`` is
+    committed with ``src/`` — every import of the handed-over code resolves inside it."""
+    from codeverse3d.addons.dataset.sample import code_files_for_round
+    from codeverse3d.contracts.common import Track
+    from codeverse3d.contracts.run import RoundRecord, RunRecord, RunStatus
+    from codeverse3d.contracts.spec import Spec
+    from codeverse3d.languages.scene_threejs import lint
+    from codeverse3d.record.deliverable import build_deliverable
+    from codeverse3d.workspace import Workspace
+
+    add_lib_asset(starter_ws)
+    rnd = RoundRecord(index=0, kind="baseline", commit=starter_ws.commit("r0"))
+    rec = RunRecord(spec=Spec(id="s", track=Track.SCENE, language=Language.SCENE_THREEJS, prompt="a grove"),
+                    workspace=str(starter_ws.root), status=RunStatus.MAX_ROUNDS, rounds=[rnd])
+    manifest = build_deliverable(starter_ws, rec, 0)
+    shipped = {f.path for f in manifest.files}
+    assert {"deliverable/src/assets/birch_stand.js", "deliverable/src/lib/tree.js", "deliverable/src/lib/lifecycle.js"} <= shipped
+    bad = [f for f in lint(Workspace(starter_ws.deliverable)).findings if f.data.get("kind") == "bad_import"]
+    assert not bad, bad
+    files, source = code_files_for_round(starter_ws, rnd)
+    assert source == "commit" and {p[len("deliverable/"):] for p in shipped if p.startswith("deliverable/src/")} <= set(files)

@@ -91,6 +91,15 @@ def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     sa = render("tracks/scene_asset.j2", **base_prompt_context(ctx, asset_name="Bollard", asset_kind="threejs", asset_description="d", asset_size=(0.3, 0.5, 0.3),
                                                               asset_file="src/assets/bollard.js", asset_language="scene_threejs", fix_instructions=["- x"], current_code=""))
     assert "buildBollard" in sa and "FIX PASS" in sa
+    # D100: a three.js asset whose sheet names a library factory gets that factory's catalog row
+    from codeverse3d.tracks.scene_assets import _asset_prompt
+
+    shrine = plan.assets[0].model_copy(update={"description": "a wayside shrine with a birch (makeTree) beside it"})
+    lead = "The sheet names shipped effect-library factories"
+    with_lib = _asset_prompt(ctx, shrine, "src/assets/shrine.js", language=Language.SCENE_THREEJS)
+    assert lead in with_lib and "leafSegments" in with_lib and "`lib/rock.js`" not in with_lib
+    assert lead not in _asset_prompt(ctx, plan.assets[0], "src/assets/x.js", language=Language.SCENE_THREEJS)
+    assert lead not in _asset_prompt(ctx, shrine, "src/model.py", language=Language.BLENDER)
     # ... but a committed, import-broken module is NOT reused: it goes back through generation
     (tmp_ws.root / boat.path).write_text("export function nope() {}\n")
     third = run_asset_stage(ctx)
