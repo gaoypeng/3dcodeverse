@@ -74,7 +74,7 @@ counting as content, and its top surface becomes `ground_y` for every camera che
 ## 5. Cheap self-check before you finish
 
 ```
-scene_probe    -> triangles, draw calls, fps, console errors, custom-shader mesh count
+scene_probe    -> triangles, draws, console errors, custom-shader mesh count
 scene_views    -> camera_checks per camera: mean_lum, modal_frac, content_frac,
                   nearest_hit_m, eye_height_m, ground_y
 ```

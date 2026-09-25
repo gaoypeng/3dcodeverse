@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
-from codeverse3d.conventions import MAX_TRIS_SCENE
+from codeverse3d.conventions import DRAWS_WARN_SCENE, MAX_DRAWS_SCENE, MAX_TRIS_SCENE
 from codeverse3d.spatial.render_scene import SceneRenderError, probe_env_args, run_scene_script
 from codeverse3d.workspace import Workspace
 
@@ -195,6 +195,7 @@ def _census_findings(c: dict[str, Any]) -> list[GateFinding]:
     if tot.get("triangles", 0) > MAX_TRIS_SCENE:
         out.append(_f(gate, Severity.WARN, f"{tot['triangles']:,} triangles exceeds the {MAX_TRIS_SCENE:,} budget", target="scene",
                       hint="lower segment counts, use InstancedMesh for repeats, merge static geometry"))
+    out.extend(_draw_findings(c))
     unnamed = [g["name"] for g in c.get("groups", []) if not g.get("named") and g.get("kind") == "content"]
     if unnamed:
         out.append(_f(gate, Severity.WARN, f"{len(unnamed)} top-level content object(s) without a name: {unnamed[:5]}", target="src/scene.js",
@@ -204,6 +205,25 @@ def _census_findings(c: dict[str, Any]) -> list[GateFinding]:
             out.append(_f(gate, Severity.INFO, f"zones {o['a']} and {o['b']} footprints overlap {o['footprint_overlap']:.0%}",
                           target=o["a"], hint="fine if intended (nested zones); otherwise move one"))
     return out
+
+
+def _draw_findings(c: dict[str, Any]) -> list[GateFinding]:
+    """The scene draw budget (D99): ``totals.draws`` against ``DRAWS_WARN_SCENE`` /
+    ``MAX_DRAWS_SCENE``.  The count is the census's, so it is the number ``scene_probe`` shows
+    and the same on every machine, camera and load — fps is not (2 961 draws measured 10.4,
+    9.6 and 1.6 fps in three rounds of one run).  An ERROR fails the build, which puts it in the repair loop."""
+    draws = int(c.get("totals", {}).get("draws", 0))
+    if draws <= DRAWS_WARN_SCENE:
+        return []
+    sev, limit = (Severity.ERROR, MAX_DRAWS_SCENE) if draws > MAX_DRAWS_SCENE else (Severity.WARN, DRAWS_WARN_SCENE)
+    heavy = sorted((g for g in c.get("groups", []) if g.get("draws")), key=lambda g: -g["draws"])[:3]
+    where = ", ".join(f"{g['name']} {g['draws']:,}" for g in heavy)
+    return [_f(PROBE_GATE, sev,
+               f"{draws:,} draw calls per frame (each visible mesh is one) exceed the {limit:,} budget"
+               + (f" — most in {where}" if where else "")
+               + "; instance repeated geometry with InstancedMesh (lib/instancing.js instanceAsset) or merge "
+                 "static clutter with mergeGeometries (lib/merge.js mergeStatic)",
+               target="scene", kind="draw_calls", draws=draws, limit=limit)]
 
 
 def shader_report(report: dict[str, Any], *, duration_ms: int = 0) -> GateReport:

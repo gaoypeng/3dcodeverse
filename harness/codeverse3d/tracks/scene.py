@@ -44,7 +44,6 @@ from codeverse3d.models import get_chat_model
 from codeverse3d.orchestrator import BudgetExceeded, TaskGroup, compact_instructions
 from codeverse3d.prompts import render
 from codeverse3d.spatial.frame_motion import motion_text_for
-from codeverse3d.spatial.render_scene import perf_detail
 from codeverse3d.spatial.scene_placement import placement_gate
 from codeverse3d.texturing.plan import texture_pack_prompt
 from codeverse3d.tracks import skills_hook
@@ -120,17 +119,6 @@ class ScenePipeline:
         findings = [GateFinding(gate="render_console", severity=Severity.ERROR, target=_guess_target(e, ctx.plan), message=e[:300],
                                 data={"kind": "console_error"}, fix_hint="open the named module, fix the thrown error; run the build/probe tool until no console errors")
                     for e in errs[:MAX_CONSOLE_ERRORS]]
-        # `hardware_fps`, not `fps`: a number measured on SwiftShader is the box's, and
-        # telling the agent to merge geometry because the CPU rasteriser is slow sends it
-        # optimising a scene that was never the problem (2026-09-05, three cells of
-        # scenes_v1 measured 2-7 fps on SwiftShader while a fourth measured 11.5 on an
-        # RTX 6000 — four different renderers, one gate threshold).
-        if renders.hardware_fps is not None and renders.hardware_fps < 20:
-            findings.append(GateFinding(gate="render_console", severity=Severity.WARN, target="overall", data={"kind": "low_fps"},
-                                        message=f"low frame rate {renders.hardware_fps:.0f} fps" + perf_detail(renders),
-                                        fix_hint="merge static geometry "
-                                                 "(BufferGeometryUtils.mergeGeometries) and put anything repeated > 5x in ONE "
-                                                 "InstancedMesh per material — a per-object mesh loop is what costs the frame rate"))
         out = [GateReport.of("render_console", findings)]
         try:
             # scene_frames: exposure / camera-in-geometry / coverage checks from metrics.json

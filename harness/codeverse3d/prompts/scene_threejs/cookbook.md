@@ -865,7 +865,7 @@ white-out).  Do not build an
 
 * Anything placed > 5 × is an InstancedMesh, static one-material clutter is `mergeGeometries`.
 * `update` caches lists, mutates in place, allocates nothing per frame.
-* `scene_probe` reports draws/tris/fps — run it before polishing.  When it is slow the usual
+* `scene_probe` reports draws/tris — run it before polishing.  When it is slow the usual
   criminals are un-instanced repeats, per-frame `traverse`, and 4096² shadow maps.
 
 ## Pitfalls (symptom → cause → fix)
@@ -956,7 +956,7 @@ Composition self-check on every authored frame (the judge grades exactly these):
 * shade is coloured (sky-tinted), not black; key and fill hues differ;
 * t=0 and t=1.5 are visibly different.
 
-Then: `build` → `check_placement` (floating/sunken/interpenetration + the fix per asset) → `scene_probe` (draws/tris/fps/console) → `scene_views` (authored cameras +
+Then: `build` → `check_placement` (floating/sunken/interpenetration + the fix per asset) → `scene_probe` (draws/tris/console) → `scene_views` (authored cameras +
 overview rig, with `camera_checks`) → `shader_probe` if you wrote GLSL → fix the worst →
 repeat.  Look at every camera's frame AND its numbers: no black frames, no white-out, the
 subject (not sky/ground) fills the establishing shot, `camera_in_geometry` false, and `check_placement`

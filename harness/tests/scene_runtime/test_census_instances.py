@@ -1,4 +1,4 @@
-"""Scene budgets include shader-instanced geometry and respect hidden parents."""
+"""Scene budgets include shader-instanced geometry, count draws, and respect hidden parents."""
 import pytest
 
 from codeverse3d.config import get_settings
@@ -25,16 +25,21 @@ const range=sceneCensus(scene,THREE).totals;geo.setDrawRange(10,99);const empty=
 const points=new THREE.Points(new THREE.BoxGeometry(),new THREE.PointsMaterial());zone.add(points);
 const lines=new THREE.LineSegments(new THREE.BoxGeometry(),new THREE.LineBasicMaterial());zone.add(lines);
 const nonTriangles=sceneCensus(scene,THREE).totals.triangles;
-zone.visible=false;const hidden=sceneCensus(scene,THREE).totals;
 const instanced=new THREE.InstancedMesh(new THREE.BoxGeometry(),new THREE.MeshBasicMaterial(),7);
-instanced.count=2;
-console.log(JSON.stringify({full,limited,range,empty,nonTriangles,hidden,matrix:geometryInstances(instanced)}));
+instanced.count=2;zone.add(instanced);
+const faces=[0,1,2,3,4,5].map(()=>new THREE.MeshBasicMaterial());zone.add(new THREE.Mesh(new THREE.BoxGeometry(),faces));
+const draws=sceneCensus(scene,THREE);
+zone.visible=false;const hidden=sceneCensus(scene,THREE).totals;
+console.log(JSON.stringify({full,limited,range,empty,nonTriangles,hidden,matrix:geometryInstances(instanced),
+  draws:draws.totals.draws,zoneDraws:draws.groups[0].draws}));
 """.replace("'./lib/", f"'{RUNTIME_JS}/lib/"))
     assert out["full"]["instances"] == 8 and out["full"]["triangles"] == 16
     assert out["limited"]["instances"] == 3 and out["limited"]["triangles"] == 6
     assert out["range"]["triangles"] == 3 and out["empty"] == 0
     assert out["nonTriangles"] == 0 and out["matrix"] == 2
     assert out["hidden"]["meshes"] == out["hidden"]["instances"] == out["hidden"]["triangles"] == 0
+    # the draw gate's count (D99): cards + points + lines + the InstancedMesh once + one per face group
+    assert out["draws"] == out["zoneDraws"] == 1 + 1 + 1 + 1 + 6 and out["hidden"]["draws"] == 0
 
 
 def test_census_matches_actual_gpu_instanced_triangle_submission():

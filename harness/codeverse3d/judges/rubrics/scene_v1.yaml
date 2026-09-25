@@ -4,8 +4,8 @@ track_hint: scene
 pass_threshold: 0.70
 description: >
   Rubric for a procedural 3D SCENE (a place) judged on its authored cameras plus a
-  fitted overview rig, at one or more animation times, with a probe digest (fps,
-  console/shader errors, census).  The scene owns its lighting, sky and fog: grade
+  fitted overview rig, at one or more animation times, with a probe digest (console/shader
+  errors, census).  The scene owns its lighting, sky and fog: grade
   the picture it makes, and the place it depicts.
 
 extra_instructions: >
@@ -18,7 +18,7 @@ extra_instructions: >
   different montage images: do NOT judge motion by comparing them — the harness measures
   the pixel change between the two times per camera and states it in the context; that
   measurement decides `nothing_moves` and every "it must move" acceptance item.  The probe
-  digest lists console/shader errors and fps measured by the harness; treat those as facts.
+  digest lists console/shader errors measured by the harness; treat those as facts.
   A gate finding that starts with "harness rig view" describes one of the harness's own
   cameras, not the scene: never turn it into a defect against the scene.
   Use zone and asset names from the plan digest as targets.
@@ -144,9 +144,9 @@ criteria:
     title: Technical cleanliness
     description: >
       No z-fighting, no magenta/default materials, no missing faces, no visible world
-      edge cliff, no console or shader errors in the probe digest, acceptable fps.
+      edge cliff, no console or shader errors in the probe digest.
     anchors:
-      "1.0": Clean renders, zero console/shader errors, healthy fps.
+      "1.0": Clean renders, zero console/shader errors.
       "0.7": A minor artefact or a single non-fatal warning.
       "0.4": Visible z-fighting / missing faces / hard world edge, or a console error.
       "0.1": Broken renders, shader failures, or the scene does not run.

@@ -426,7 +426,7 @@ def shader_probe(ctx: ToolContext, args: NoArgs) -> Observation:
     return gate_observation(shaders if ran else probe, title="shader probe")
 
 
-@tool("scene_probe", NoArgs, "Load the scene headlessly: object/material/light census, triangle count, fps, console errors.",
+@tool("scene_probe", NoArgs, "Load the scene headlessly: object/material/light census, draw and triangle counts, console errors.",
       languages=(Language.SCENE_THREEJS.value,), cost_hint="slow")
 def scene_probe(ctx: ToolContext, args: NoArgs) -> Observation:
     res = probe_scene(ctx.workspace)

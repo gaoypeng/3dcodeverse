@@ -1,6 +1,6 @@
 /**
  * Deterministic scene census (page-side, pure over a THREE.Scene).
- * Counts meshes / instances / lights / triangles / custom-shader materials,
+ * Counts meshes / instances / draws / lights / triangles / custom-shader materials,
  * measures per top-level group (zone) world bboxes, classifies sky/ground
  * groups (shared rules: `backdrop.mjs`), computes a content bbox (sky + ground excluded) and pairwise zone
  * overlap statistics.  Returns plain JSON.
@@ -54,8 +54,19 @@ export function stampStats(points, sizes) {
   return { n, radius_m: +r.toFixed(2), radius_cv: +cv(radii).toFixed(3), gap_cv: +cv(gaps).toFixed(3), size_cv: +cv(sizes).toFixed(3) };
 }
 
+/**
+ * Draw calls one visible object submits per pass: one per material group when its material is
+ * an array (three.js draws each group separately), else one.  An InstancedMesh is ONE draw at
+ * any instance count.  Load-, camera- and GPU-independent — the `scene_probe` draw gate's count
+ * (spatial/probes.py), where `fps.draw_calls` is one frame from one camera after culling.
+ */
+export function objectDraws(o) {
+  if (!Array.isArray(o.material)) return 1;
+  return Math.max(1, o.geometry?.groups?.length || 0);
+}
+
 function walkGroup(root, THREE) {
-  let meshes = 0, instances = 0, tris = 0, lights = 0, custom = 0;
+  let meshes = 0, instances = 0, draws = 0, tris = 0, lights = 0, custom = 0;
   const kinds = { sky: 0, ground: 0, content: 0 };
   const box = new THREE.Box3();       // content only
   const boxAll = new THREE.Box3();    // everything drawable
@@ -74,6 +85,7 @@ function walkGroup(root, THREE) {
     if (o.isLight) lights += 1;
     if (!(o.isMesh || o.isPoints || o.isLine || o.isSprite)) return;
     const count = geometryInstances(o);
+    draws += objectDraws(o);
     if (o.isMesh) { meshes += 1; instances += count; }
     if (o.isMesh) tris += triCount(o.geometry) * count;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
@@ -102,7 +114,7 @@ function walkGroup(root, THREE) {
     if (st) stamps.push({ name, ...st });
   }
   stamps.sort((a, b) => b.n - a.n);
-  return { meshes, instances, tris, lights, custom, box, boxAll, groundBox, kind, kinds, stamps: stamps.slice(0, STAMPS_PER_GROUP) };
+  return { meshes, instances, draws, tris, lights, custom, box, boxAll, groundBox, kind, kinds, stamps: stamps.slice(0, STAMPS_PER_GROUP) };
 }
 
 function overlapStats(groups) {
@@ -129,7 +141,7 @@ function overlapStats(groups) {
 export function sceneCensus(scene, THREE, opts = {}) {
   scene.updateMatrixWorld(true);
   const groups = [];
-  const totals = { meshes: 0, instances: 0, triangles: 0, lights: 0, custom_shader_meshes: 0 };
+  const totals = { meshes: 0, instances: 0, draws: 0, triangles: 0, lights: 0, custom_shader_meshes: 0 };
   const lightTypes = {};
   const materials = new Set();
   const customMaterials = [];
@@ -156,11 +168,11 @@ export function sceneCensus(scene, THREE, opts = {}) {
     const g = walkGroup(child, THREE);
     const name = child.name || `${child.type}_${groups.length}`;
     groups.push({
-      name, named: !!child.name, type: child.type, kind: g.kind, meshes: g.meshes, instances: g.instances,
+      name, named: !!child.name, type: child.type, kind: g.kind, meshes: g.meshes, instances: g.instances, draws: g.draws,
       triangles: g.tris, lights: g.lights, custom_shader_meshes: g.custom, mesh_kinds: g.kinds,
       bbox: boxToJson(g.kind === 'content' ? g.box : g.boxAll), stamps: g.stamps,
     });
-    totals.meshes += g.meshes; totals.instances += g.instances; totals.triangles += g.tris; totals.lights += g.lights; totals.custom_shader_meshes += g.custom;
+    totals.meshes += g.meshes; totals.instances += g.instances; totals.draws += g.draws; totals.triangles += g.tris; totals.lights += g.lights; totals.custom_shader_meshes += g.custom;
     if (!g.boxAll.isEmpty()) unionAll.union(g.boxAll);
     if (!g.box.isEmpty()) content.union(g.box);
     if (!g.groundBox.isEmpty()) groundAll.union(g.groundBox);

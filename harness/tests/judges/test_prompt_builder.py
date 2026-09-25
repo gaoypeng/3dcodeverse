@@ -80,10 +80,9 @@ def test_scene_rig_paragraph(judge_input, cache_dir):
     from codeverse3d.contracts.common import Language, Track
     judge_input.spec = judge_input.spec.model_copy(update={"track": Track.SCENE, "language": Language.SCENE_THREEJS})
     judge_input.renders.console_errors = ["ReferenceError: foo"]
-    judge_input.renders.fps = 48.0
     _, msgs = build_judge_messages(judge_input, load_rubric("scene_v1"), cache_dir=cache_dir)
     text = _parts(msgs)[0].text
-    assert "overview_*" in text and "console error" in text and "48 fps" in text
+    assert "overview_*" in text and "console error" in text
     assert len(_images(msgs)) == 2  # montage + centre crop only (no ground band for scenes)
 
 

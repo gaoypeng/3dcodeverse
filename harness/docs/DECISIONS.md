@@ -550,7 +550,8 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   `RenderSet.software_rendered` reads the renderer string with the words `gpu_launch.cjs` uses; the
   judge prompt keeps a software number but LABELS it, and an unrecognised renderer string is never
   claimed as software.  An fps comparison across cells is valid only within one backend
-  (`contracts/artifacts.py`, `tests/scene_gates/test_software_fps.py`).
+  (`contracts/artifacts.py`, `tests/scene_gates/test_software_fps.py`).  Superseded by D99: no gate or
+  judge reads fps at all.
 
 * **D58 The scene texture pack is wired into the loop, behind a switch that is off (2026-09-05).**
   Four of the 24 judge issues over the first `scenes_v1` battery's five scored cells say the
@@ -1030,6 +1031,34 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   threshold is not stated as a geometric rule in always-on text (bbox ±0.01 m, camera 0.3/0.5 m, placement
   2 cm/2.5x…); construction values (weld overlap, clearances, wall thickness) and the skills' pinned
   gate explanations stay.
+* **D99 The scene draw budget is a census count gated in code; fps is a record only (owner, 2026-09-24).**
+  The regression: D93 took "≤ 200 draw calls" / "≤ 40 per zone" / "fps ≥ 30" / "≤ 300 meshes" out of the
+  scene prompts, but nothing in code enforced draws — only a `hardware_fps < 20` WARN, which never becomes a
+  task.  On the same scenes_v2 prompts the new tree's agents wrote 3–6x the meshes (P3 95a9820 → P4
+  93af8d6e: cliff_monastery 506 → 1 450 meshes and 69 → 4.9 fps, conservatory 311 → 1 776, canal_town
+  1 950 → 12 665; the conservatory's round 0 drew 46 567 calls at 1 fps).  Decision 1: `scene_probe` gates
+  the census's `totals.draws` — one per visible Mesh / Points / Line / Sprite per material group, an
+  InstancedMesh once (`host_census.mjs` `objectDraws`) — the number the probe (and the `scene_probe` tool)
+  reports, independent of camera, culling, GPU and load; the render's `fps.draw_calls` is one frame from one
+  camera and adds culling and shadow passes (0.54 / 0.91 / 1.81x the mesh count at p5 / p50 / p95 on
+  the corpus).  WARN above
+  `conventions.DRAWS_WARN_SCENE` = 5 000, ERROR above `MAX_DRAWS_SCENE` = 15 000; the ERROR fails the build,
+  so `build_with_repair` hands it to the round's repair session with the count, the threshold, the three
+  heaviest top-level groups and the fix (InstancedMesh / `mergeGeometries`, `lib/instancing.js` /
+  `lib/merge.js`).  Tuned on 753 recorded rendered scene rounds (~/3dcodeverse_bench_out, ~/3dcodeverse_runs;
+  mesh count, which the re-probed draws match to < 1 %): log(meshes) vs log(fps) r = −0.88 (triangles −0.54);
+  median fps 232 below 500 meshes, 15 at 1–2 k, 10 at 2–4 k, 4.5 at 5–7.5 k, 2 past 10 k, 0.6 past 20 k.
+  Pre-D93 harness rounds (n = 255): p50 2 943, p90 6 203, p99 12 348, max 17 291 — 20 % WARN, 0.4 % (one
+  1-fps conservatory) ERROR; post-D93 (n = 218): p90 11 212, p95 20 450, max 55 990 — 6.9 % ERROR, every one
+  at ≤ 4.4 fps.  One-shot baselines never pass 4 761.  The `render_console` fps WARN, `perf_detail`,
+  `RenderSet.hardware_fps` / `software_rendered` are deleted (D57's labelling has no reader left).
+  Decision 2: fps leaves the judge — no `PROBE: … fps` line, and `scene_v1` no longer asks for "acceptable /
+  healthy fps" (Law 3: the VLM judges pictures; performance is gated in code, animation by the
+  frame-difference metric).  `RenderSet.fps` stays as a recorded measurement (and in the `scene_views` tool's
+  output).  `SCORING_VERSION` stays 3: it stamps the arithmetic downstream of the model, which is unchanged,
+  and a stored verdict still replays; the judge INPUT changed (manifest re-blessed), so a scene judged before
+  and after this commit differs by the fps line and two rubric phrases.  A draw WARN is still a gate WARN in
+  the judge's list, which the judge is told never makes a defect present.
 
 ## Rejected / deferred
 

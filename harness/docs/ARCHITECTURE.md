@@ -524,7 +524,9 @@ A build's OWN gate reports ride `BuildResult.gates` — scene `scene_probe` + `s
 (one browser boot), graphics `gl_frames` — and `steps._run_round` appends them to the round's
 gates after the track's (a failed build's too: a shader compile error is what routes the
 shader-traps skill); before 2026-09-22 the scene's two never reached a round, and an always-empty
-`scene_census` gate parsed census keys the probe had stopped writing.
+`scene_census` gate parsed census keys the probe had stopped writing.  `scene_probe` also holds the scene draw budget
+(D99): the census's `totals.draws` WARNs past `conventions.DRAWS_WARN_SCENE` and fails the build past
+`MAX_DRAWS_SCENE`, so the round's repair session gets it; no gate or judge reads fps.
 
 ## 8. Texturing (derived asset pack)
 
@@ -565,7 +567,8 @@ the since-deleted in-process `api-agent` and the since-removed pass / plateau st
 * Articulated: candidate selection uses the quick 4-view rig plus the sweep's pose views;
   mimic joints are honoured (the sweep drives independent joints only and resolves
   followers through the chain); sweep is O(links² × poses).
-* Scenes: fps is a relative cost; camera-in-geometry can miss open-back enclosures.
+* Scenes: fps is a record only (machine- and load-dependent; the draw count is what is gated);
+  camera-in-geometry can miss open-back enclosures.
 * threejs: textures are stripped on GLB export (the texture pass re-adds them as a
   derived pack); `userData.tick` cannot survive export.
 * agy exposes no per-workspace MCP, cost or served model; a killed agy session books no

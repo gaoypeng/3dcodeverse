@@ -278,6 +278,14 @@ def fmt3(vec: Sequence[float]) -> str:
 #: the only place an object's triangle count is enforced — no build wrapper checks it.
 MAX_TRIS_OBJECT = 600_000
 MAX_TRIS_SCENE = 3_000_000
+#: Scene draw budget on the probe census's ``totals.draws`` — one per visible mesh / points /
+#: line / sprite per material group, an InstancedMesh once (``host_census.mjs`` ``objectDraws``).
+#: ``scene_probe`` WARNs above the first and fails the build above the second, so the repair loop
+#: fixes it inside the round (D99).  Tuned on 753 recorded scene rounds: median fps drops below 5
+#: past ~5 000; every round past 15 000 ran at ≤ 5 fps, and only 0.4 % of pre-D93 harness rounds
+#: (p99 12 348) reach it.
+DRAWS_WARN_SCENE = 5_000
+MAX_DRAWS_SCENE = 15_000
 #: Default tolerance for bbox contract checks, in meters.
 BBOX_TOLERANCE_M = 0.01
 #: "Stands on the ground": the lowest point within this of up = 0 (meters).  The contract gate

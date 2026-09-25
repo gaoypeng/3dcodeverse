@@ -220,7 +220,7 @@ cap and the order themselves come from `select`'s final sort and slice, pinned b
 left seven `scene_frames` kinds unrouted and R19 unreachable, and any gate reword could unroute
 a skill.  Every gate writes a `data.kind` — the lints from one vocabulary
 (`contracts.artifacts.LintKind`), connectivity `stray_islands` / `no_ground`, motion_direction
-`wrong_direction` / `skipped`, render_console `console_error` / `low_fps` (2026-09-24) — so R9
+`wrong_direction` / `skipped`, render_console `console_error` (2026-09-24), scene_probe `draw_calls` (D99) — so R9
 answers `lint/part_not_imported` and R13 `motion_direction/wrong_direction`, not every lint or
 motion line.  A finding recorded before its gate wrote one is `<gate>/untyped`, which only a
 family row answers; the lint gates are one `lint` family.  INFO findings are census, not defects, and have no kind — routing off
