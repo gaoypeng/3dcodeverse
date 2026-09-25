@@ -67,7 +67,7 @@ from codeverse3d.languages import get_runtime
 from codeverse3d.languages._gl_common import finish_build, judge_times
 from codeverse3d.languages.glsl_shader import GlslShaderRuntime
 from codeverse3d.languages.opengl_python import OpenGLPythonRuntime
-from codeverse3d.languages.scene_threejs import zone_file
+from codeverse3d.languages.scene_threejs import asset_file, zone_file
 from codeverse3d.models.base import ModelError
 from codeverse3d.orchestrator import BudgetGuard
 from codeverse3d.spatial.gl_render import GlFrame, GlResult, gif_times
@@ -76,7 +76,7 @@ from codeverse3d.texturing.plan import PackEntry, ScenePack
 from codeverse3d.tracks import get_track, scene_assets
 from codeverse3d.tracks.common import Services
 from codeverse3d.tracks.planner import plan_example
-from codeverse3d.tracks.scene_assets import AssetCheck, asset_file
+from codeverse3d.tracks.scene_assets import AssetCheck
 from codeverse3d.tracks.zone_layout import validate_layout
 from codeverse3d.workspace import Workspace, WorkspaceGitError
 from tests.orchestrator_tracks.fakes import (

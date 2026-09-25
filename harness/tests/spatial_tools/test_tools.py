@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image, ImageDraw
@@ -74,7 +75,7 @@ class _FakeRuntime:
         return res
 
 
-def _patch_runtime(monkeypatch: pytest.MonkeyPatch, rt: _FakeRuntime) -> None:
+def _patch_runtime(monkeypatch: pytest.MonkeyPatch, rt: object) -> None:
     import codeverse3d.languages as langs
 
     monkeypatch.setattr(langs, "get_runtime", lambda language: rt)
@@ -238,7 +239,6 @@ def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pyt
 
     # shader_probe reports the BUILD's probe + preflight (one boot), never a driver of its own
     monkeypatch.setattr(ts, "run_probe", lambda ws, **kw: (GateReport.of("scene_probe"), shaders, {}))
-    monkeypatch.setattr(ts, "probe_scene", fake_probe_scene)
     obs = get_tool("shader_probe").call(stool_ctx, {})
     assert not obs.ok and not obs.failed and "vUv" in obs.text and "declare varying" in obs.text
     assert obs.text.startswith("shader probe: FAIL")        # a shader that will not compile is a verdict
@@ -255,14 +255,17 @@ def test_scene_tools_with_fake_siblings(stool_ctx: ToolContext, monkeypatch: pyt
     monkeypatch.setattr(ts, "run_probe", lambda ws, **kw: (died, skipped, {}))
     obs = get_tool("shader_probe").call(stool_ctx, {})
     assert obs.failed and "could not run" in obs.text
-    obs = get_tool("scene_probe").call(stool_ctx, {})
+    # scene_probe probes through the workspace language's SceneRuntime (D101)
+    scene_ctx = ToolContext(workspace=stool_ctx.workspace, language="scene_threejs", track="scene")
+    _patch_runtime(monkeypatch, SimpleNamespace(probe=fake_probe_scene))
+    obs = get_tool("scene_probe").call(scene_ctx, {})
     # ok = the gate verdict; failed = the probe TOOL could not run.  The gate fails on
     # agent-fixable findings here, so the observation is a FAIL, not a tool error
     assert not obs.ok and not obs.failed
     assert obs.text.startswith("scene probe: FAIL")
     assert "meshes=12" in obs.text and "boom" in obs.text and obs.numbers["census"]["meshes"] == 12
-    monkeypatch.setattr(ts, "probe_scene", lambda ws, **kw: SceneProbeResult(gate=failed, errors=["driver died"], ok=False))
-    obs = get_tool("scene_probe").call(stool_ctx, {})
+    _patch_runtime(monkeypatch, SimpleNamespace(probe=lambda ws, **kw: SceneProbeResult(gate=failed, errors=["driver died"], ok=False)))
+    obs = get_tool("scene_probe").call(scene_ctx, {})
     assert not obs.ok and obs.failed and "driver died" in obs.text
     obs = get_tool("joint_sweep").call(stool_ctx, {})
     assert not obs.ok and obs.failed and "run `build`" in obs.text   # no robot.urdf in a static workspace

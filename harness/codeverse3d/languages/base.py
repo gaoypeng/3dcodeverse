@@ -10,16 +10,21 @@ Runtimes never import agent code into the harness process.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from importlib import import_module
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from codeverse3d.contracts.artifacts import BuildResult, GateReport
+from pydantic import BaseModel
+
+from codeverse3d.contracts.artifacts import BuildResult, GateReport, RenderSet
 from codeverse3d.contracts.common import ENTRY_FILE, Language
-from codeverse3d.contracts.plan import Plan
+from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan
 from codeverse3d.conventions import to_snake
 from codeverse3d.workspace import Workspace
+
+if TYPE_CHECKING:
+    from codeverse3d.spatial.probes import SceneProbeResult
 
 
 @runtime_checkable
@@ -47,6 +52,36 @@ class LanguageRuntime(Protocol):
     def files_for(self, plan: Plan | None, target: str) -> list[str]:
         """The files that own a refine target (a part, zone, asset, camera, env word); ``[]`` = no
         owner, so the task stays whole-artifact."""
+        ...
+
+
+@runtime_checkable
+class SceneRuntime(LanguageRuntime, Protocol):
+    """What the scene track asks of its language (D101): where a zone / asset lives, how the
+    entry is assembled from the zones, how the built scene is probed and rendered.  The scene
+    stages, ``Services`` and the scene tools reach a scene language only through this."""
+
+    def zone_file(self, name: str) -> str:
+        """The module that builds zone ``name`` (``src/zones/<snake>.<ext>``)."""
+        ...
+
+    def asset_file(self, asset: AssetPlan) -> str:
+        """The file an asset ships as: its factory module, or a hero's GLB."""
+        ...
+
+    def assemble(self, ws: Workspace, plan: ScenePlan) -> BaseModel:
+        """Write the entry file from the zones that load (the plan's cameras, else derived ones);
+        the result lands in ``artifacts/assemble.json``."""
+        ...
+
+    def probe(self, ws: Workspace, *, timeout_s: float = 60.0) -> SceneProbeResult:
+        """Load the built scene headlessly: the ``scene_probe`` gate + the census (``census.json``)."""
+        ...
+
+    def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None = None, orbit: bool = True,
+                     times: Sequence[float] = (0.0, 1.5), width: int = 1024, height: int = 576,
+                     sheet: bool = True) -> RenderSet:
+        """Authored cameras (+ the orbit rig) × ``times`` → views, metrics.json, the contact sheet."""
         ...
 
 

@@ -82,13 +82,14 @@ def test_scene_cells_are_judged_on_their_cameras_and_orbit_frames(monkeypatch, t
     png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
     build = BuildResult(ok=True, language="scene_threejs", glb_path=None)
     ev = FixedEvaluator("fake:judge", n_samples=1)
-    ev._runtimes[Language.SCENE_THREEJS] = SimpleNamespace(lint=lambda ws: GateReport(gate="lint", passed=True), build=lambda ws, timeout_s: build)
+    seen: dict[str, object] = {}
+    # the cell renders through ITS runtime (SceneRuntime.render_scene, D101), never a language module
+    ev._runtimes[Language.SCENE_THREEJS] = SimpleNamespace(
+        lint=lambda ws: GateReport(gate="lint", passed=True), build=lambda ws, timeout_s: build,
+        render_scene=lambda ws, out, **kw: (seen.__setitem__("kw", kw),
+                                            RenderSet(views=[RenderView(name="Establishing_t0", path=str(png))], renderer="fake"))[1])
     import bench._fixed_eval as fe
     import codeverse3d.spatial.frame_metrics as fm
-    import codeverse3d.spatial.render_scene as rs
-    seen: dict[str, object] = {}
-    monkeypatch.setattr(rs, "render_scene", lambda ws, out, **kw: (seen.__setitem__("kw", kw),
-                        RenderSet(views=[RenderView(name="Establishing_t0", path=str(png))], renderer="fake"))[1])
     monkeypatch.setattr(fm, "frame_gate_from_renders", lambda src: GateReport(gate="scene_frames", passed=True))
 
     class _J:

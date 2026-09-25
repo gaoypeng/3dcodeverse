@@ -1079,6 +1079,17 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   measures an asset's lowest vertex, so a library tree's roots inside a non-exempt asset name can read
   as sunken there, as they already did for zone-placed trees.
 
+* **D101 The scene track is language-dispatched through `SceneRuntime` (2026-09-24).**  In preparation for
+  `scene_blender` (`/home/yipeng/3dcodeverse_runs/scene_blender_2026-09-24/DESIGN.md` §11 phase 0):
+  `languages/base.py` `SceneRuntime` (a `LanguageRuntime` plus `zone_file`, `asset_file`, `assemble`,
+  `probe`, `render_scene`) is the only way the scene stages (`tracks/scene.py`, `tracks/scene_assets.py`),
+  `Services.render_scene` / `assemble_scene` (which now take the runtime), the scene tools (`scene_probe`,
+  `scene_views`, `check_placement`, registered for `SCENE_LANGUAGES`), `3dcode render` and the fixed
+  evaluator reach a scene language; none of them imports `scene_threejs` any more.  `SceneThreeJsRuntime`
+  implements it by delegation, so behaviour is byte-identical (prompt manifest unchanged, not re-blessed).
+  The design's `probe_args` member was left out: the probe's driver flags are the runtime's own business
+  inside `probe`/`build`, and nothing outside a runtime would read them.  `shader_probe` stays three.js-only.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

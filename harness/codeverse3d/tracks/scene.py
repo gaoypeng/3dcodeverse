@@ -1,6 +1,6 @@
 """SceneTrack: the plan, the pre-round stages (``SceneTrack.stages``: the whole baseline), rounds.
 
-Language: scene_threejs.  Generation is staged (each stage cached by
+Languages: every scene language, through its ``SceneRuntime`` (D101).  Generation is staged (each stage cached by
 ``StageRunner`` for resume); the round loop then builds (probe + shaders — the
 build's two gate reports join the round's gates),
 renders authored cameras + orbit at t=0 and t=1.5, judges with ``scene_v1``
@@ -39,7 +39,6 @@ from codeverse3d.contracts.plan import Plan, ScenePlan, ZonePlan
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import to_snake
 from codeverse3d.judges.base import judged_subset
-from codeverse3d.languages.scene_threejs import zone_file
 from codeverse3d.models import get_chat_model
 from codeverse3d.orchestrator import BudgetExceeded, TaskGroup, compact_instructions
 from codeverse3d.prompts import render
@@ -111,7 +110,7 @@ class ScenePipeline:
     def render(self, ctx: RunContext, round_index: int, build: BuildResult, measurement: Measurement | None) -> RenderSet:
         r = ctx.settings.render
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
-        return ctx.services.render_scene(ctx.ws, ctx.ws.renders_dir(round_index), cameras=list(plan.cameras), times=SCENE_TIMES,
+        return ctx.services.render_scene(ctx.runtime, ctx.ws, ctx.ws.renders_dir(round_index), cameras=list(plan.cameras), times=SCENE_TIMES,
                                          width=r.scene_width, height=r.scene_height)
 
     def post_render_gates(self, ctx: RunContext, round_index: int, renders: RenderSet) -> list[GateReport]:
@@ -312,14 +311,14 @@ class SceneTrack(BaseTrack):
             stopped = isinstance(e, BudgetExceeded)
             out = {}
             for zone in zones:
-                done = stopped and _touched(ctx.ws.root / zone_file(zone.name), t0)
-                out[zone.name] = {"ok": done, "files": [zone_file(zone.name)] if done else [],
+                done = stopped and _touched(ctx.ws.root / ctx.runtime.zone_file(zone.name), t0)
+                out[zone.name] = {"ok": done, "files": [ctx.runtime.zone_file(zone.name)] if done else [],
                                   "notes": f"{type(e).__name__}: {e}"}
         else:
             written = {c.path for c in r.files_changed}
             out = {}
             for zone in zones:
-                rel = zone_file(zone.name)
+                rel = ctx.runtime.zone_file(zone.name)
                 # a session that owns several zones must have produced EVERY file; the skeleton
                 # left a stub at every zone path, so existence proves nothing — the file
                 # must have been reported as changed or actually rewritten in this stage
@@ -335,7 +334,7 @@ class SceneTrack(BaseTrack):
         attribution and the refine fan-out stay file-disjoint."""
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         names = [z.name for z in batch]
-        files = [zone_file(z.name) for z in batch]
+        files = [ctx.runtime.zone_file(z.name) for z in batch]
         recipes = cookbook_sections(ctx, ZONE_RECIPES)
         briefs = []
         for i, zone in enumerate(batch):
@@ -343,7 +342,7 @@ class SceneTrack(BaseTrack):
             # a batched session reads ONE copy of the recipes (they are identical per zone)
             briefs.append(render("tracks/scene_zone.j2", **self._ctx(ctx, recipes=recipes if i == 0 else "", zone_name=zone.name, zone_description=zone.description,
                                                                     zone_bbox=bbox_line(zone.bbox), zone_contents=zone.contents,
-                                                                    zone_file=zone_file(zone.name), neighbours=neighbours,
+                                                                    zone_file=ctx.runtime.zone_file(zone.name), neighbours=neighbours,
                                                                     layout=layout_block(ctx.extra.get("layouts", {}).get(zone.name)))))
         if len(batch) == 1:
             prompt, label = briefs[0], f"zone_{to_snake(names[0])}"
@@ -369,7 +368,7 @@ class SceneTrack(BaseTrack):
                               timeout_s=ctx.budget.timeout_s(ZONE_TIMEOUT_S * max(1, len(batch)), floor_s=180))
 
     def _assemble_stage(self, ctx: RunContext) -> dict[str, Any]:
-        result = ctx.services.assemble_scene(ctx.ws, ctx.plan)
+        result = ctx.services.assemble_scene(ctx.runtime, ctx.ws, ctx.plan)
         ctx.ws.commit("assemble")
         ctx.events.emit("assemble.done", deterministic=True)
         return {"ok": True, "deterministic": True, "result": result}  # StageRunner.stage jsonables it
@@ -379,7 +378,7 @@ class SceneTrack(BaseTrack):
         write (the skeleton guarantees a stub per zone) so the run still delivers a
         built, rendered, judged scene instead of no score at all."""
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
-        zones = [z for z in plan.zones if (ctx.ws.root / zone_file(z.name)).is_file()]
+        zones = [z for z in plan.zones if (ctx.ws.root / ctx.runtime.zone_file(z.name)).is_file()]
         if not zones:
             return False
         ctx.extra.setdefault("asset_api", asset_api_summary(plan, ctx.extra.get("assets") or {}, ctx.extra.get("asset_alias")))

@@ -32,6 +32,7 @@ from codeverse3d.contracts.plan import Plan, ScenePlan
 from codeverse3d.contracts.run import RunRecord
 from codeverse3d.conventions import to_snake
 from codeverse3d.languages import get_runtime
+from codeverse3d.languages.base import SceneRuntime
 from codeverse3d.models.base import ModelError
 from codeverse3d.tracks.common import Services
 from codeverse3d.tracks.planner import plan_example
@@ -56,6 +57,8 @@ class FakeRuntime:
         self.lock = threading.Lock()
         layout = get_runtime(language)
         self.expected_files, self.files_for = layout.expected_files, layout.files_for
+        if isinstance(layout, SceneRuntime):
+            self.zone_file, self.asset_file = layout.zone_file, layout.asset_file
 
     def skeleton(self, ws: Workspace, plan: Plan) -> list[Path]:
         out = []
@@ -384,7 +387,7 @@ class FakeServices(Services):
             vs.append(RenderView(name=v.name, path=str(p), mode="clay", width=32, height=32))
         return RenderSet(views=vs, renderer="fake")
 
-    def render_scene(self, ws: Workspace, out_dir: Path, *, cameras, times, width: int, height: int) -> RenderSet:
+    def render_scene(self, runtime, ws: Workspace, out_dir: Path, *, cameras, times, width: int, height: int) -> RenderSet:
         vs = []
         for c in cameras or []:
             for t in times:
@@ -419,7 +422,7 @@ class FakeServices(Services):
     def tool_cards(self, track: str, language: str) -> str:
         return "- `build` (slow): lint+build+measure\n- `measure` (fast): bbox per part"
 
-    def assemble_scene(self, ws: Workspace, plan: Plan) -> Any:
+    def assemble_scene(self, runtime, ws: Workspace, plan: Plan) -> Any:
         if not self.assemble:
             raise ServiceUnavailable("no assembler in tests")
         (ws.src / "scene.js").write_text("// assembled by fake\nexport function createScene(){}\n")

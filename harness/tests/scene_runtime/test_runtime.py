@@ -8,9 +8,9 @@ from types import SimpleNamespace
 import pytest
 
 from codeverse3d.contracts.artifacts import Severity
-from codeverse3d.contracts.common import Language
+from codeverse3d.contracts.common import TRACK_LANGUAGES, Language, Track
 from codeverse3d.languages import get_runtime
-from codeverse3d.languages.base import LanguageRuntime
+from codeverse3d.languages.base import LanguageRuntime, SceneRuntime
 from codeverse3d.languages.scene_threejs import SceneThreeJsRuntime
 from codeverse3d.prompts.catalog import language_text
 from tests.scene_runtime.conftest import needs_browser
@@ -20,6 +20,8 @@ def test_runtime_registered_conforms_and_writes_skeleton(ws):
     rt = get_runtime(Language.SCENE_THREEJS)
     assert isinstance(rt, SceneThreeJsRuntime)
     assert isinstance(rt, LanguageRuntime)
+    # the scene track reaches every scene language only through SceneRuntime (D101)
+    assert all(isinstance(get_runtime(lang), SceneRuntime) for lang in TRACK_LANGUAGES[Track.SCENE])
     assert rt.language == Language.SCENE_THREEJS
     assert "src/scene.js" in rt.entry_globs and "src/zones/*.js" in rt.entry_globs
     doc = language_text(rt.language, "contract.md")

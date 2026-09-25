@@ -64,15 +64,16 @@ def render(
         # rendering, so a CLI render did not match the one the judge saw
         r = get_settings().render
         if spec.track is Track.SCENE:
-            from codeverse3d.spatial.render_scene import render_scene
+            from codeverse3d.languages import get_runtime
             from codeverse3d.spatial.tool_common import load_plan
             from codeverse3d.tracks.scene import SCENE_TIMES
 
             # the in-run rig (tracks/scene.ScenePipeline.render): the plan's cameras at the judged
             # times — not the cameras createScene() authored, which the judge never saw on their own
             plan = load_plan(ws.plan_path) if ws.plan_path.is_file() else None
-            rs = render_scene(ws, out_dir, cameras=list(plan.cameras) if isinstance(plan, ScenePlan) else None,
-                              times=SCENE_TIMES, width=width or r.scene_width, height=height or r.scene_height)
+            rs = get_runtime(spec.language).render_scene(  # a scene language's runtime is a SceneRuntime (D101)
+                ws, out_dir, cameras=list(plan.cameras) if isinstance(plan, ScenePlan) else None,
+                times=SCENE_TIMES, width=width or r.scene_width, height=height or r.scene_height)
         else:
             glb = ws.artifacts / "object.glb"
             if not glb.is_file():

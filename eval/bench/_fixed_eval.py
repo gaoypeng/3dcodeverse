@@ -162,9 +162,8 @@ class FixedEvaluator:
                 out.renders = frames_render_set(ws, build, 0)
             elif spec.track is Track.SCENE:
                 from codeverse3d.spatial.frame_metrics import frame_gate_from_renders
-                from codeverse3d.spatial.render_scene import render_scene
 
-                out.renders = render_scene(ws, ws.renders_dir(0), orbit=True, times=(0.0, 1.5), sheet=True)
+                out.renders = self.runtime(spec.language).render_scene(ws, ws.renders_dir(0), orbit=True, times=(0.0, 1.5), sheet=True)
                 out.gates.append(frame_gate_from_renders(ws.renders_dir(0)))
             else:
                 out.measurement, gate, out.renders, geometry = glb_evidence(

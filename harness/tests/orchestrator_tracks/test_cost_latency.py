@@ -261,9 +261,9 @@ def test_stages_that_spend_the_clock_without_raising_still_get_a_salvaged_round(
     from tests.orchestrator_tracks.conftest import FAKE_CLOCK
 
     class SlowAssemble(FakeServices):
-        def assemble_scene(self, ws, plan):
+        def assemble_scene(self, runtime, ws, plan):
             FAKE_CLOCK["minutes"] += 30.0
-            return super().assemble_scene(ws, plan)
+            return super().assemble_scene(runtime, ws, plan)
 
     plan = small_scene()
     spec = make_spec(Track.SCENE, Language.SCENE_THREEJS, max_rounds=1, max_minutes=10.0)

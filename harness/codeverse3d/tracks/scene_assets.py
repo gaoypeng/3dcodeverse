@@ -35,7 +35,6 @@ from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
 from codeverse3d.contracts.plan import AssetPlan, BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse3d.contracts.spec import Constraints, Spec
 from codeverse3d.conventions import MAX_TRIS_OBJECT, OBJECT_VIEWS_QUICK, to_pascal, to_snake
-from codeverse3d.languages.scene_threejs import asset_file
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import fan_out, read_json_or_none, write_json_atomic
 from codeverse3d.prompts import render
@@ -200,7 +199,7 @@ def _record_spec_hashes(ctx: RunContext, results: dict[str, AssetResult], assets
 # ----------------------------------------------------------------------------- threejs asset
 def build_threejs_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> AssetResult:
     """Single-shot → deterministic check → ONE repair → (only then) an agent session."""
-    rel, pascal = asset_file(asset), to_pascal(asset.name)
+    rel, pascal = ctx.runtime.asset_file(asset), to_pascal(asset.name)
     # committed-child reuse (review-3 S2): a resume that re-enters the stage — budget
     # stop after the commit, or a failed sibling — must not re-pay a finished asset.
     # Deterministic node import-check only, no model call; the skeleton stub never
@@ -376,11 +375,11 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     snake = to_snake(asset.name)
     # committed-child reuse (review-3 S2), blender twin: a GLB only exists at this
     # path when a previous session finished the build+copy; a measurable one is done.
-    glb = ctx.ws.root / asset_file(asset)
+    glb = ctx.ws.root / ctx.runtime.asset_file(asset)
     if glb.is_file() and glb.stat().st_size > 0 and _spec_hash_matches(ctx, asset) \
             and (size := _measure_size(ctx, glb)) is not None:
         ctx.events.emit("asset.generated", asset=asset.name, strategy="reused", ok=True, tris=0, errors=[])
-        return AssetResult(name=asset.name, kind=asset.kind, ok=True, path=asset_file(asset), size_m=size,
+        return AssetResult(name=asset.name, kind=asset.kind, ok=True, path=ctx.runtime.asset_file(asset), size_m=size,
                            strategy="reused", notes="committed GLB reused")
     w, h, d = asset.approx_size_m
     sub_ws = Workspace(ctx.ws.root / "_assets" / snake).create()
@@ -431,7 +430,7 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
         why = "; ".join(chk.errors[:2]) if chk and chk.errors else (notes or "no build")
         return AssetResult(name=asset.name, kind=asset.kind, ok=False, strategy=strategy, notes=f"build failed: {why}"[:300])
     sub_ws.commit("asset built")
-    rel = asset_file(asset)
+    rel = ctx.runtime.asset_file(asset)
     dest = _copy_glb(ctx.ws, Path(chk.glb), rel)
     result = _stamp_glb(AssetResult(name=asset.name, kind=asset.kind, ok=True, path=rel, size_m=chk.size_m, strategy=strategy,
                                     notes=notes), ctx, dest)

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -31,6 +32,9 @@ from codeverse3d.languages._js_lint import (
     strip_js,
 )
 from codeverse3d.workspace import Workspace
+
+if TYPE_CHECKING:
+    from codeverse3d.spatial.probes import SceneProbeResult
 
 # ===================================================================== lint
 GATE = "lint:scene_threejs"
@@ -699,8 +703,26 @@ class SceneThreeJsRuntime:
     language = Language.SCENE_THREEJS
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.SCENE_THREEJS], "src/zones/*.js", "src/assets/*.js", "src/env.js", "src/shaders/*.js")
 
+    zone_file = staticmethod(zone_file)
+    asset_file = staticmethod(asset_file)
+
     def expected_files(self, plan: Plan | None) -> list[str]:
         return list(SCENE_FILES)
+
+    def assemble(self, ws: Workspace, plan: ScenePlan) -> AssembleResult:
+        return assemble(ws, plan, cameras="plan" if getattr(plan, "cameras", None) else "derive")
+
+    def probe(self, ws: Workspace, *, timeout_s: float = 60.0) -> SceneProbeResult:
+        from codeverse3d.spatial.probes import probe_scene
+
+        return probe_scene(ws, timeout_s=timeout_s)
+
+    def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None = None, orbit: bool = True,
+                     times: Sequence[float] = (0.0, 1.5), width: int = 1024, height: int = 576,
+                     sheet: bool = True) -> RenderSet:
+        from codeverse3d.spatial.render_scene import render_scene
+
+        return render_scene(ws, out_dir, cameras=cameras, orbit=orbit, times=tuple(times), width=width, height=height, sheet=sheet)
 
     def files_for(self, plan: Plan | None, target: str, *, alias: dict[str, str] | None = None) -> list[str]:
         return scene_files_for(plan, target, alias=alias)

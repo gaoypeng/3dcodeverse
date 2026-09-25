@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -41,9 +41,8 @@ from codeverse3d.spatial.observe import (
     text_observation,
     truncate,
 )
-from codeverse3d.spatial.probes import probe_scene, run_probe
+from codeverse3d.spatial.probes import run_probe
 from codeverse3d.spatial.registry import NoArgs, Observation, ToolContext, ToolUsageError, tool
-from codeverse3d.spatial.render_scene import render_scene
 from codeverse3d.spatial.scene_placement import placement_census as _placement_census
 from codeverse3d.spatial.scene_placement import placement_gate, placement_table_text
 from codeverse3d.spatial.sections import cross_section as _cross_section
@@ -63,6 +62,9 @@ from codeverse3d.spatial.tool_common import (
     tool_out_dir,
 )
 
+if TYPE_CHECKING:
+    from codeverse3d.languages.base import SceneRuntime
+
 
 # --------------------------------------------------------------------------- build
 def _measure_after_build(ctx: ToolContext, br: BuildResult) -> tuple[Measurement | None, str]:
@@ -77,8 +79,9 @@ def _measure_after_build(ctx: ToolContext, br: BuildResult) -> tuple[Measurement
 
 
 #: languages whose build has no GLB deliverable — build ok is reported through
-#: the language's own artifacts instead of 'no GLB path'
-_SCENE_LANGS = tuple(lang.value for lang in TRACK_LANGUAGES[Track.SCENE])
+#: the language's own artifacts instead of 'no GLB path'; the scene tools serve every
+#: scene language through its ``SceneRuntime`` (D101)
+SCENE_LANGUAGES = tuple(lang.value for lang in TRACK_LANGUAGES[Track.SCENE])
 GRAPHICS_LANGS = tuple(lang.value for lang in TRACK_LANGUAGES[Track.GRAPHICS])
 
 
@@ -167,7 +170,7 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
         return _build_failed(ctx, br, lint_warns)
     numbers: dict[str, Any] = {"stage": "build", "ok": br.ok, "duration_ms": br.duration_ms}
     broken = False
-    if not br.glb_path and language in _SCENE_LANGS + GRAPHICS_LANGS:
+    if not br.glb_path and language in SCENE_LANGUAGES + GRAPHICS_LANGS:
         # languages without a GLB deliverable: report the language's own artifacts
         ok, extra_lines, extra_numbers = _no_glb_summary(ctx, br, language)
         lines = _gl_gate_verdict(extra_numbers) + [f"BUILD OK ({br.duration_ms} ms)"] + extra_lines
@@ -409,6 +412,15 @@ def joint_sweep(ctx: ToolContext, args: JointSweepArgs) -> Observation:
 
 
 # ===================================================================== scenes
+def _scene_runtime(ctx: ToolContext) -> SceneRuntime:
+    from codeverse3d.languages import get_runtime
+
+    lang = language_of(ctx)
+    if lang not in SCENE_LANGUAGES:
+        raise ToolUsageError(f"scene tools only apply to {SCENE_LANGUAGES}; workspace language is {lang!r}")
+    return get_runtime(lang)  # type: ignore[return-value]  # every scene language's runtime is one
+
+
 @tool("shader_probe", NoArgs, "Compile every GLSL/ShaderMaterial in the scene headlessly and report shader errors with "
       "line numbers — the build's own probe + preflight, so the verdict is the build's.",
       languages=(Language.SCENE_THREEJS.value,), cost_hint="slow")
@@ -427,9 +439,9 @@ def shader_probe(ctx: ToolContext, args: NoArgs) -> Observation:
 
 
 @tool("scene_probe", NoArgs, "Load the scene headlessly: object/material/light census, draw and triangle counts, console errors.",
-      languages=(Language.SCENE_THREEJS.value,), cost_hint="slow")
+      languages=SCENE_LANGUAGES, cost_hint="slow")
 def scene_probe(ctx: ToolContext, args: NoArgs) -> Observation:
-    res = probe_scene(ctx.workspace)
+    res = _scene_runtime(ctx).probe(ctx.workspace)
     # ok = the gate verdict; failed = the probe TOOL could not run (SceneProbeResult
     # semantics): agent-fixable findings are a FAIL the agent must read, not an error
     obs = gate_observation(res.gate, title="scene probe", failed=bool(res.errors))
@@ -448,7 +460,7 @@ class SceneViewsArgs(BaseModel):
 
 
 @tool("scene_views", SceneViewsArgs, "Render the scene from its authored cameras and/or the overview rig at given times (contact sheet + views).",
-      languages=(Language.SCENE_THREEJS.value,), cost_hint="slow")
+      languages=SCENE_LANGUAGES, cost_hint="slow")
 def scene_views(ctx: ToolContext, args: SceneViewsArgs) -> Observation:
     if args.cameras not in ("authored", "orbit", "all"):
         raise ToolUsageError("cameras must be authored | orbit | all", "scene_views(cameras='authored')")
@@ -464,7 +476,7 @@ def scene_views(ctx: ToolContext, args: SceneViewsArgs) -> Observation:
     orbit = args.cameras in ("orbit", "all") or (args.cameras == "authored" and cams is None)
     key = f"{args.cameras}_{'_'.join(f'{t:g}' for t in args.times)}".replace(".", "p")
     out_dir = tool_out_dir(ctx, f"scene_{key}")
-    rs = render_scene(ctx.workspace, out_dir, cameras=cams, orbit=orbit, times=tuple(args.times), sheet=True)
+    rs = _scene_runtime(ctx).render_scene(ctx.workspace, out_dir, cameras=cams, orbit=orbit, times=tuple(args.times), sheet=True)
     obs = render_observation(rs, ctx.workspace.root, note=f"scene views ({args.cameras}, t={args.times})")
     table = _frame_table(out_dir)
     return obs.model_copy(update={"text": truncate(obs.text + "\n\n" + table)}) if table else obs
@@ -491,10 +503,10 @@ class CheckPlacementArgs(BaseModel):
       "'floating / sunken / unsupported / interpenetration' with 'lower X by 0.23 m onto Terrain' hints — and the "
       "plan checks (fog, backdrop, zone contents, scale, bounds). Reads the census of the last build/scene_probe; "
       "rebuild=true probes again. Tag a deliberately airborne thing with obj.userData.placement = 'free'.",
-      languages=(Language.SCENE_THREEJS.value,), cost_hint="fast")
+      languages=SCENE_LANGUAGES, cost_hint="fast")
 def check_placement(ctx: ToolContext, args: CheckPlacementArgs) -> Observation:
     ws = ctx.workspace
-    census = _placement_census(ws, force_probe=args.rebuild)
+    census = _placement_census(ws, _scene_runtime(ctx).probe, force_probe=args.rebuild)
     plan = None
     if ws.plan_path.is_file():
         try:

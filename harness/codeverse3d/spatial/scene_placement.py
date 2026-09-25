@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import functools
 import logging
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -35,6 +35,9 @@ from codeverse3d.conventions import to_snake
 from codeverse3d.proc import read_json_or_none
 from codeverse3d.spatial.node import runtime_js_dir
 from codeverse3d.workspace import Workspace
+
+if TYPE_CHECKING:
+    from codeverse3d.spatial.probes import SceneProbeResult
 
 log = logging.getLogger(__name__)
 
@@ -588,15 +591,15 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
     return out
 
 
-def placement_census(ws: Workspace, *, force_probe: bool = False, timeout_s: float = 60.0) -> dict[str, Any]:
+def placement_census(ws: Workspace, probe: Callable[..., SceneProbeResult], *, force_probe: bool = False,
+                     timeout_s: float = 60.0) -> dict[str, Any]:
     """The census dict carrying ``placement``: the last build's ``artifacts/census.json``,
-    or a fresh ``probe_scene`` when it is missing / predates the table / ``force_probe``."""
+    or a fresh ``probe`` (the language's ``SceneRuntime.probe``) when it is missing / predates
+    the table / ``force_probe``."""
     census = None if force_probe else read_json_or_none(ws.artifacts / "census.json")
     if isinstance(census, dict) and isinstance(census.get("placement"), dict):
         return census
-    from codeverse3d.spatial.probes import probe_scene
-
-    res = probe_scene(ws, timeout_s=timeout_s)
+    res = probe(ws, timeout_s=timeout_s)
     if res.errors:
         return {"placement": {"error": res.errors[0]}}
     census = res.census or {}

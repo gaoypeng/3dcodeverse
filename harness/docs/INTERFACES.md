@@ -250,6 +250,13 @@ rt.files_for(plan, target) -> list[str]                #   whole-artifact sessio
     # note).  Gone: tracks/prompting.expected_files / file_for_target_factory / SCENE_FILES, graphics EXPECTED_FILES,
     # BaseTrack.round_files_hint, StaticObjectTrack.entry_files, scene.zone_file, scene_assets.asset_file,
     # BlenderRuntime.file_for_part (now part_file)
+# Δ 2026-09-24 (D101) a scene-track runtime is a languages/base.SceneRuntime — the scene stages, Services, the scene
+# tools, `3dcode render` and eval's fixed evaluator reach a scene language only through it (none imports scene_threejs):
+rt.zone_file(name) -> str                              # src/zones/<snake>.<ext>
+rt.asset_file(asset: AssetPlan) -> str                 # factory module, or public/assets/<snake>.glb for a hero
+rt.assemble(ws, plan: ScenePlan) -> BaseModel          # writes the entry; plan cameras, else derived; artifacts/assemble.json
+rt.probe(ws, *, timeout_s=60.0) -> SceneProbeResult    # scene_probe gate + census.json (scene_probe / check_placement tools)
+rt.render_scene(ws, out_dir, *, cameras=None, orbit=True, times=(0.0, 1.5), width=1024, height=576, sheet=True) -> RenderSet
 from codeverse3d.prompts.catalog import language_prompt, language_text
 language_prompt(language, name) -> str   # "<dir>/<name>" under prompts/ (urdf_blender → urdf/): THE per-language prompt
 language_text(language, name) -> str     # its text, "" for a file the language does not ship (Δ 2026-09-22: replaces
@@ -360,6 +367,7 @@ from codeverse3d.spatial.measure import measure_glb, world_transform, node_name_
     # by walking the graph's edge matrices (trimesh's get() dropped a root pivot's rotation); a GLB with duplicate / unnamed nodes
     # lands a finding in Measurement.extra["findings"] — trimesh re-parents renamed nodes and the numbers are approximate
 from codeverse3d.spatial.scene_placement import placement_findings, placement_gate, placement_gate_safe, placement_census, placement_table_text
+placement_census(ws, probe, *, force_probe=False, timeout_s=60.0) -> dict   # Δ D101: probe = the language's SceneRuntime.probe
 placement_findings(table, *, indoor=False) -> GateReport   # gate "scene_placement"; data.kind ∈ floating | sunken |
     # unsupported | interpenetration | summary | probe_failed; target "Zone/Asset" (routes to src/zones/<zone>.js);
     # messages carry the scene_v1 floating_part cap words; reads artifacts/census.json["placement"] (host_placement.mjs)

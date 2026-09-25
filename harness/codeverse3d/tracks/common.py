@@ -16,12 +16,12 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from codeverse3d.config import Settings
 from codeverse3d.contracts.artifacts import GateReport, Measurement, RenderSet, RenderView
 from codeverse3d.contracts.common import Language, Track
-from codeverse3d.contracts.plan import CameraPlan, Plan
+from codeverse3d.contracts.plan import CameraPlan, Plan, ScenePlan
 from codeverse3d.contracts.run import RunRecord
 from codeverse3d.conventions import ViewPreset
 from codeverse3d.orchestrator import BudgetGuard, RoundPolicy, RunState
@@ -35,6 +35,9 @@ from codeverse3d.tracks.generation import (
     is_single_shot,
 )
 from codeverse3d.workspace import Workspace
+
+if TYPE_CHECKING:
+    from codeverse3d.languages.base import SceneRuntime
 
 log = logging.getLogger(__name__)
 
@@ -85,10 +88,9 @@ class Services:
     def render_object(self, glb: Path, out_dir: Path, *, views: Sequence[ViewPreset], width: int, height: int) -> RenderSet:
         return _import("codeverse3d.spatial.render", "render_glb")(glb, out_dir, views=list(views), width=width, height=height, sheet=True)
 
-    def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None, times: Sequence[float],
-                     width: int, height: int) -> RenderSet:
-        return _import("codeverse3d.spatial.render_scene", "render_scene")(ws, out_dir, cameras=cameras, orbit=True, times=tuple(times),
-                                                                        width=width, height=height, sheet=True)
+    def render_scene(self, runtime: SceneRuntime, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None,
+                     times: Sequence[float], width: int, height: int) -> RenderSet:
+        return runtime.render_scene(ws, out_dir, cameras=cameras, orbit=True, times=tuple(times), width=width, height=height, sheet=True)
 
     def render_geometry(self, glb: Path, out_dir: Path, *, views: Sequence[ViewPreset]) -> RenderSet:
         """Clay renders (no materials/textures) exposing holes/intersections for the judge's
@@ -124,9 +126,8 @@ class Services:
             return ""
 
     # ---- scene assembly + record
-    def assemble_scene(self, ws: Workspace, plan: Plan) -> Any:
-        fn = _import("codeverse3d.languages.scene_threejs", "assemble")
-        return fn(ws, plan, cameras="plan" if getattr(plan, "cameras", None) else "derive")
+    def assemble_scene(self, runtime: SceneRuntime, ws: Workspace, plan: ScenePlan) -> Any:
+        return runtime.assemble(ws, plan)
 
     def finalize_record(self, ws: Workspace, record: RunRecord) -> None:
         _import("codeverse3d.record.record", "finalize_record")(ws, record)
