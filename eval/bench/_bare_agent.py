@@ -40,6 +40,11 @@ def _tools_note(language: Language) -> str:
         return (f"`{GLSLANG}` validates GLSL; python3 has moderngl, numpy and Pillow, so you can write your own "
                 "offscreen renderer under tmp/ (prepend the uniforms above, draw a fullscreen quad, save PNGs at a "
                 "few times) and open the PNGs to look at them.")
+    if language is Language.THREEJS:
+        return (f"node is installed; `{node_modules_dir()}` contains three (r182) and puppeteer with a cached headless "
+                "Chrome (set NODE_PATH to it, or import by absolute path).  You may write throwaway scripts under tmp/ "
+                "that import src/object.js, call build(THREE), print its bounding box, and render it to PNGs in "
+                "headless Chrome, then open the PNGs to look at them.")
     if language is Language.SCENE_THREEJS:
         return (f"node is installed; `{node_modules_dir()}` contains three (r182) and puppeteer with a cached headless "
                 "Chrome (set NODE_PATH to it, or import by absolute path).  You may write your own throwaway "

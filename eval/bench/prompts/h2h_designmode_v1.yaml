@@ -1,0 +1,670 @@
+# h2h_designmode_v1 — generated 2026-09-25 from the design-mode repo (commit 465e8ad); edit here, not by hand-copying.
+name: h2h_designmode_v1
+track: static_object
+language: threejs
+description: 100 object briefs from github.com/jameson475/3d_batch_with_designmode (Claude Design outputs in its
+  code/), verbatim, no must_have — every arm gets exactly the brief Claude Design got. tier = the repo's detail
+  level (simple→easy, medium→medium, detailed→hard). ids are the repo's file stems, so `import:<repo>/code` scores
+  Claude Design's own build(THREE) modules as src/object.js.
+prompts:
+- id: 01_desk_lamp
+  tier: hard
+  category: batch_01
+  tags:
+  - detailed
+  prompt: An articulated desk lamp with a weighted round base, two arm segments joined by hinges, and a cone shade
+    with a glowing bulb.
+- id: 02_wooden_chair
+  tier: hard
+  category: batch_01
+  tags:
+  - detailed
+  prompt: A simple Scandinavian wooden dining chair with four tapered legs, a slatted backrest, and a light oak
+    finish.
+- id: 03_ceramic_mug
+  tier: hard
+  category: batch_01
+  tags:
+  - detailed
+  prompt: A glazed ceramic coffee mug with a curved handle, a thick rim, and dark coffee inside.
+- id: 04_potted_succulent
+  tier: hard
+  category: batch_01
+  tags:
+  - detailed
+  prompt: A small terracotta pot holding an echeveria succulent with rosette leaves arranged in a golden-angle spiral.
+- id: 05_retro_rocket
+  tier: hard
+  category: batch_01
+  tags:
+  - detailed
+  prompt: A 1950s retro rocket ship with a pointed nose cone, porthole window, three swept fins, and a flame exhaust.
+- id: 06_lighthouse
+  tier: hard
+  category: batch_01
+  tags:
+  - detailed
+  prompt: A red-and-white striped lighthouse on a rocky base, with a gallery railing and a glowing lantern room.
+- id: 07_bonsai_tree
+  tier: hard
+  category: batch_01
+  tags:
+  - detailed
+  prompt: A bonsai tree in a shallow rectangular tray, with a recursively branching trunk and clustered foliage
+    pads.
+- id: 08_toy_robot
+  tier: hard
+  category: batch_01
+  tags:
+  - detailed
+  prompt: A boxy tin toy robot with antenna, glowing eyes, chest dial panel, jointed arms with claw hands, and wind-up
+    key.
+- id: 09_spiral_staircase
+  tier: hard
+  category: batch_01
+  tags:
+  - detailed
+  prompt: A cast-iron spiral staircase with 20 wedge-shaped treads around a central pole and a helical handrail.
+- id: 10_hot_air_balloon
+  tier: hard
+  category: batch_01
+  tags:
+  - detailed
+  prompt: A hot air balloon with a teardrop envelope in alternating colored gores, suspension ropes, a burner, and
+    a wicker basket.
+- id: 11_vintage_radio
+  tier: hard
+  category: batch_02
+  tags:
+  - detailed
+  prompt: A 1940s tabletop tube radio with a rounded-top walnut cabinet, a fabric speaker grille, a glowing tuning
+    dial, and two knobs.
+- id: 12_windmill
+  tier: hard
+  category: batch_02
+  tags:
+  - detailed
+  prompt: A Dutch windmill with an octagonal tapered tower, a thatched cap, four lattice sails, and a wraparound
+    balcony.
+- id: 13_sailboat
+  tier: hard
+  category: batch_02
+  tags:
+  - detailed
+  prompt: A small wooden sloop sailboat with a curved hull, a single mast, a triangular mainsail and jib, and a
+    boom.
+- id: 14_acoustic_guitar
+  tier: hard
+  category: batch_02
+  tags:
+  - detailed
+  prompt: An acoustic guitar with a figure-eight spruce body, a sound hole with rosette, a long fretted neck, a
+    headstock with tuning pegs, and six strings.
+- id: 15_park_bench
+  tier: hard
+  category: batch_02
+  tags:
+  - detailed
+  prompt: A classic park bench with cast-iron scrolled side frames, wooden slat seat and curved backrest, and armrests.
+- id: 16_mushroom_cluster
+  tier: hard
+  category: batch_02
+  tags:
+  - detailed
+  prompt: A cluster of five fly-agaric mushrooms of different sizes growing from a mossy log, red caps with white
+    spots.
+- id: 17_castle_tower
+  tier: hard
+  category: batch_02
+  tags:
+  - detailed
+  prompt: A medieval stone castle tower with crenellated battlements, arrow-slit windows, a wooden door, and a flag
+    on a pole.
+- id: 18_hourglass
+  tier: hard
+  category: batch_02
+  tags:
+  - detailed
+  prompt: An antique hourglass with a turned wooden frame, three spindle posts, a glass double bulb, and sand mid-flow.
+- id: 19_satellite
+  tier: hard
+  category: batch_02
+  tags:
+  - detailed
+  prompt: A communications satellite with a gold-foil bus, two deployable solar panel wings, a parabolic dish antenna,
+    and thruster nozzles.
+- id: 20_treasure_chest
+  tier: hard
+  category: batch_02
+  tags:
+  - detailed
+  prompt: A pirate treasure chest with a half-cylinder lid propped open, iron bands and rivets, a padlock hasp,
+    and gold coins spilling out.
+- id: 21_bicycle
+  tier: hard
+  category: batch_03
+  tags:
+  - detailed
+  prompt: A classic city bicycle with spoked wheels, a diamond steel frame, a leather saddle, curved handlebars,
+    and a front basket.
+- id: 22_grand_piano
+  tier: hard
+  category: batch_03
+  tags:
+  - detailed
+  prompt: A glossy black grand piano with a curved case, a propped-open lid, 52 white and 36 black keys, three legs,
+    and pedals.
+- id: 23_teapot
+  tier: hard
+  category: batch_03
+  tags:
+  - detailed
+  prompt: A round porcelain teapot with blue bands, a curved spout, a loop handle, and a lid with a knob, on a saucer.
+- id: 24_film_camera
+  tier: hard
+  category: batch_03
+  tags:
+  - detailed
+  prompt: A vintage 35mm rangefinder film camera with a leatherette body, chrome top plate, a lens barrel with focus
+    ring, dials, and a shutter button.
+- id: 25_desk_fan
+  tier: hard
+  category: batch_03
+  tags:
+  - detailed
+  prompt: A retro oscillating desk fan with a round wire cage, four curved blades, a motor housing, a tilting neck,
+    and a heavy base.
+- id: 26_wine_set
+  tier: hard
+  category: batch_03
+  tags:
+  - detailed
+  prompt: A dark green wine bottle with a cork and label beside a stemmed wine glass half-filled with red wine.
+- id: 27_anvil
+  tier: hard
+  category: batch_03
+  tags:
+  - detailed
+  prompt: A blacksmith's anvil with a tapered horn, a flat face with a hardy hole, a waisted body, mounted on a
+    tree-stump block with a hammer resting on it.
+- id: 28_fire_hydrant
+  tier: hard
+  category: batch_03
+  tags:
+  - detailed
+  prompt: A red cast-iron fire hydrant with a domed bonnet, a pentagonal operating nut, two side hose outlets with
+    chained caps, and a flanged base bolted to the sidewalk.
+- id: 29_umbrella
+  tier: hard
+  category: batch_03
+  tags:
+  - detailed
+  prompt: An open umbrella with an eight-panel canopy in alternating colors, visible ribs, a finial tip, and a curved
+    wooden J-handle, tilted as if held.
+- id: 30_pagoda
+  tier: hard
+  category: batch_03
+  tags:
+  - detailed
+  prompt: A five-tiered East Asian pagoda on a stone plinth, each tier with red columns and upturned curved eaves,
+    topped by a bronze spire with rings.
+- id: 31_steam_locomotive
+  tier: hard
+  category: batch_04
+  tags:
+  - detailed
+  prompt: A toy-scale steam locomotive with a cylindrical boiler, smokestack, steam dome, cab with windows, cowcatcher,
+    and six red driving wheels linked by coupling rods.
+- id: 32_desk_globe
+  tier: hard
+  category: batch_04
+  tags:
+  - detailed
+  prompt: A desk globe tilted at 23.5 degrees on a brass meridian ring and a turned wooden stand, with procedurally
+    generated continents.
+- id: 33_bookshelf
+  tier: hard
+  category: batch_04
+  tags:
+  - detailed
+  prompt: A wooden bookshelf with four shelves filled with books of varied heights, thicknesses and colors, some
+    leaning, plus a small plant on top.
+- id: 34_candelabra
+  tier: hard
+  category: batch_04
+  tags:
+  - detailed
+  prompt: An ornate silver five-arm candelabra with S-curved arms, drip cups, lit white candles with flames, and
+    a turned base.
+- id: 35_birdhouse
+  tier: hard
+  category: batch_04
+  tags:
+  - detailed
+  prompt: A painted wooden birdhouse on a post, with a pitched shingled roof, a round entrance hole, a perch dowel,
+    and a small bird sitting on the roof.
+- id: 36_snowman
+  tier: hard
+  category: batch_04
+  tags:
+  - detailed
+  prompt: A three-ball snowman with a carrot nose, coal eyes and buttons, stick arms, a knitted striped scarf, and
+    a black top hat, standing on a snowy mound.
+- id: 37_telescope
+  tier: hard
+  category: batch_04
+  tags:
+  - detailed
+  prompt: A brass refracting telescope on a wooden tripod with an altitude mount, a finder scope, an eyepiece, and
+    a dew shield, pointed at the sky.
+- id: 38_wooden_barrel
+  tier: hard
+  category: batch_04
+  tags:
+  - detailed
+  prompt: An oak wine barrel built from individual bulging staves held by four iron hoops, with a round head and
+    a bung hole, lying on a wooden cradle.
+- id: 39_wind_chime
+  tier: hard
+  category: batch_04
+  tags:
+  - detailed
+  prompt: A hanging wind chime with a round wooden top disk, six aluminum tubes of graded lengths on strings, a
+    central striker, and a sail.
+- id: 40_oil_lantern
+  tier: hard
+  category: batch_04
+  tags:
+  - detailed
+  prompt: A hurricane oil lantern with a red-painted fuel tank, a glass globe with a glowing flame, a wire guard,
+    a vented cap, and a bail handle.
+- id: 41_office_chair
+  tier: hard
+  category: batch_05
+  tags:
+  - detailed
+  prompt: An ergonomic office swivel chair with a five-star base on casters, a gas-lift column, a padded seat, a
+    curved mesh backrest, and armrests.
+- id: 42_knight_helmet
+  tier: hard
+  category: batch_05
+  tags:
+  - detailed
+  prompt: 'A medieval knight''s great helm on a display stand: a steel bucket helmet with a riveted cross reinforcement,
+    eye slits, breathing holes, and a red plume.'
+- id: 43_microscope
+  tier: hard
+  category: batch_05
+  tags:
+  - detailed
+  prompt: A laboratory compound microscope with a curved arm, an angled eyepiece tube, a rotating nosepiece with
+    three objectives, a mechanical stage with slide clips, coarse and fine focus knobs, and a base lamp.
+- id: 44_cupcake
+  tier: hard
+  category: batch_05
+  tags:
+  - detailed
+  prompt: A cupcake in a pleated paper liner topped with a swirled pink frosting spiral, rainbow sprinkles, and
+    a cherry with a stem.
+- id: 45_traffic_cones
+  tier: hard
+  category: batch_05
+  tags:
+  - detailed
+  prompt: Three orange traffic cones with white reflective bands on square black bases, one knocked over, next to
+    a striped road barrier on A-frame legs.
+- id: 46_chess_set
+  tier: hard
+  category: batch_05
+  tags:
+  - detailed
+  prompt: A corner of a wooden chessboard with a Staunton-style king, queen, rook, bishop, and pawn in ivory and
+    ebony, all turned on a lathe.
+- id: 47_wheelbarrow
+  tier: hard
+  category: batch_05
+  tags:
+  - detailed
+  prompt: A garden wheelbarrow with a deep green steel tray, a single pneumatic front wheel, tubular handles with
+    rubber grips, rear legs, and a load of soil.
+- id: 48_jellyfish
+  tier: hard
+  category: batch_05
+  tags:
+  - detailed
+  prompt: A translucent glowing jellyfish with a scalloped bell, frilly oral arms, and long trailing tentacles that
+    wave in sine curves.
+- id: 49_grandfather_clock
+  tier: hard
+  category: batch_05
+  tags:
+  - detailed
+  prompt: A tall mahogany grandfather clock with an arched hood, a clock face with Roman-numeral ticks and hands,
+    a glass-front trunk showing a brass pendulum and weights, and a plinth base.
+- id: 50_ferris_wheel
+  tier: hard
+  category: batch_05
+  tags:
+  - detailed
+  prompt: A carnival Ferris wheel with a double-rim spoked wheel, twelve colorful gondolas hanging level, an A-frame
+    support tower, and light bulbs along the rim.
+- id: 51_apple
+  tier: easy
+  category: batch_06
+  tags:
+  - simple
+  prompt: A red apple.
+- id: 52_donut
+  tier: easy
+  category: batch_06
+  tags:
+  - simple
+  prompt: A donut with pink icing and sprinkles.
+- id: 53_coffee_table
+  tier: medium
+  category: batch_06
+  tags:
+  - medium
+  prompt: A mid-century modern coffee table with a walnut oval top and splayed legs.
+- id: 54_rubber_duck
+  tier: easy
+  category: batch_06
+  tags:
+  - simple
+  prompt: A rubber duck.
+- id: 55_pencil
+  tier: easy
+  category: batch_06
+  tags:
+  - simple
+  prompt: A yellow pencil.
+- id: 56_alarm_clock
+  tier: medium
+  category: batch_06
+  tags:
+  - medium
+  prompt: A classic twin-bell alarm clock with a hammer between the bells and little feet.
+- id: 57_saguaro_cactus
+  tier: medium
+  category: batch_06
+  tags:
+  - medium
+  prompt: A saguaro cactus with two arms in a clay pot, with ribbed stems and spines.
+- id: 58_laptop
+  tier: medium
+  category: batch_06
+  tags:
+  - medium
+  prompt: An open laptop with a keyboard, trackpad, and a glowing screen.
+- id: 59_electric_guitar
+  tier: hard
+  category: batch_06
+  tags:
+  - detailed
+  prompt: A sunburst electric guitar with an offset double-cutaway solid body, a white pickguard, three single-coil
+    pickups, volume and tone knobs, a whammy bar, a maple neck with dot inlays, and a six-in-line headstock.
+- id: 60_space_shuttle
+  tier: hard
+  category: batch_06
+  tags:
+  - detailed
+  prompt: 'A space shuttle orbiter stacked for launch: the white orbiter with black heat-shield underside and delta
+    wings, mounted on a large orange external fuel tank flanked by two white solid rocket boosters, standing on
+    a launch platform.'
+- id: 61_tree
+  tier: easy
+  category: batch_07
+  tags:
+  - simple
+  prompt: A tree.
+- id: 62_house
+  tier: easy
+  category: batch_07
+  tags:
+  - simple
+  prompt: A small house.
+- id: 63_old_key
+  tier: easy
+  category: batch_07
+  tags:
+  - simple
+  prompt: An old key.
+- id: 64_street_lamp
+  tier: medium
+  category: batch_07
+  tags:
+  - medium
+  prompt: A Victorian cast-iron street lamp with a lantern head and a fluted post.
+- id: 65_sofa
+  tier: medium
+  category: batch_07
+  tags:
+  - medium
+  prompt: A three-seat fabric sofa with rounded arms, seat cushions, and throw pillows.
+- id: 66_fishbowl
+  tier: medium
+  category: batch_07
+  tags:
+  - medium
+  prompt: A round glass fishbowl with water, gravel, a plant, and a goldfish.
+- id: 67_viking_ship
+  tier: hard
+  category: batch_07
+  tags:
+  - detailed
+  prompt: A Viking longship with an overlapping clinker-built plank hull, a carved dragon-head prow and curled stern,
+    a single mast with a red-and-white striped square sail, a row of painted round shields along each gunwale, and
+    oars.
+- id: 68_drum_kit
+  tier: hard
+  category: batch_07
+  tags:
+  - detailed
+  prompt: 'A five-piece rock drum kit: a bass drum with a logo head and pedal, a snare on a stand, two rack toms
+    mounted on the bass drum, a floor tom on legs, a hi-hat, and two cymbals on boom stands, all with sparkle-red
+    wraps and chrome hoops.'
+- id: 69_mailbox
+  tier: easy
+  category: batch_07
+  tags:
+  - simple
+  prompt: A mailbox.
+- id: 70_skateboard
+  tier: medium
+  category: batch_07
+  tags:
+  - medium
+  prompt: A skateboard with a concave deck, kicktails, trucks, and colorful wheels.
+- id: 71_star
+  tier: easy
+  category: batch_08
+  tags:
+  - simple
+  prompt: A gold star.
+- id: 72_gem
+  tier: easy
+  category: batch_08
+  tags:
+  - simple
+  prompt: A blue gemstone.
+- id: 73_bucket
+  tier: easy
+  category: batch_08
+  tags:
+  - simple
+  prompt: A metal bucket.
+- id: 74_toaster
+  tier: medium
+  category: batch_08
+  tags:
+  - medium
+  prompt: A retro chrome two-slice toaster with toast popping out.
+- id: 75_headphones
+  tier: medium
+  category: batch_08
+  tags:
+  - medium
+  prompt: Over-ear headphones with a padded headband and cushioned ear cups.
+- id: 76_excavator
+  tier: hard
+  category: batch_08
+  tags:
+  - detailed
+  prompt: A yellow hydraulic excavator on steel crawler tracks, with a rotating cab with windows, a counterweight,
+    and an articulated boom, stick, and toothed bucket driven by hydraulic cylinders, digging pose.
+- id: 77_carousel
+  tier: hard
+  category: batch_08
+  tags:
+  - detailed
+  prompt: A fairground carousel with a striped conical canopy with scalloped valance, a central mirrored column,
+    twisted brass poles, eight horses at alternating heights, a round wooden platform, and bulbs around the canopy
+    edge.
+- id: 78_ice_cream
+  tier: easy
+  category: batch_08
+  tags:
+  - simple
+  prompt: An ice cream cone.
+- id: 79_picnic_table
+  tier: medium
+  category: batch_08
+  tags:
+  - medium
+  prompt: A wooden picnic table with attached benches and a checkered tablecloth.
+- id: 80_trophy
+  tier: medium
+  category: batch_08
+  tags:
+  - medium
+  prompt: A gold trophy cup with two handles on a marble base.
+- id: 81_cloud
+  tier: easy
+  category: batch_09
+  tags:
+  - simple
+  prompt: A cloud.
+- id: 82_mushroom_house
+  tier: medium
+  category: batch_09
+  tags:
+  - medium
+  prompt: A fairy-tale mushroom house with a round door, windows, and a chimney.
+- id: 83_biplane
+  tier: hard
+  category: batch_09
+  tags:
+  - detailed
+  prompt: A 1930s biplane with fabric-covered upper and lower wings joined by struts and bracing wires, an open
+    cockpit with a windscreen, a radial engine with a two-blade wooden propeller, a tail with rudder and elevators,
+    and fixed landing gear with spoked wheels.
+- id: 84_vase
+  tier: easy
+  category: batch_09
+  tags:
+  - simple
+  prompt: A vase.
+- id: 85_watering_can
+  tier: medium
+  category: batch_09
+  tags:
+  - medium
+  prompt: A green metal watering can with a long spout and a sprinkler rose.
+- id: 86_stone_bridge
+  tier: hard
+  category: batch_09
+  tags:
+  - detailed
+  prompt: A medieval stone arch bridge with three semicircular arches of individual voussoir stones, cutwater piers,
+    a paved deck, and low parapet walls, spanning a stream.
+- id: 87_toy_blocks
+  tier: easy
+  category: batch_09
+  tags:
+  - simple
+  prompt: Toy blocks.
+- id: 88_sewing_machine
+  tier: hard
+  category: batch_09
+  tags:
+  - detailed
+  prompt: An antique black cast-iron sewing machine with gold decals, a curved arm and head, a hand wheel, a needle
+    bar and presser foot above a chrome bed plate, a thread spool on a pin, mounted on a wooden base.
+- id: 89_bell
+  tier: easy
+  category: batch_09
+  tags:
+  - simple
+  prompt: A bell.
+- id: 90_kite
+  tier: easy
+  category: batch_09
+  tags:
+  - simple
+  prompt: A kite.
+- id: 91_snail
+  tier: medium
+  category: batch_10
+  tags:
+  - medium
+  prompt: A garden snail with a spiral shell and eye stalks.
+- id: 92_robot_vacuum
+  tier: easy
+  category: batch_10
+  tags:
+  - simple
+  prompt: A robot vacuum.
+- id: 93_water_tower
+  tier: medium
+  category: batch_10
+  tags:
+  - medium
+  prompt: A rooftop wooden water tower on a steel stand with a conical roof and a ladder.
+- id: 94_typewriter
+  tier: hard
+  category: batch_10
+  tags:
+  - detailed
+  prompt: 'A 1920s manual typewriter in black enamel: four staggered rows of round glass-topped keys with chrome
+    rims, a semicircular basket of typebars, a platen roller with knobs and a sheet of paper, a carriage return
+    lever, and gold lettering.'
+- id: 95_igloo
+  tier: easy
+  category: batch_10
+  tags:
+  - simple
+  prompt: An igloo.
+- id: 96_tent
+  tier: easy
+  category: batch_10
+  tags:
+  - simple
+  prompt: A camping tent.
+- id: 97_submarine
+  tier: medium
+  category: batch_10
+  tags:
+  - medium
+  prompt: A yellow cartoon submarine with portholes, a periscope, and a propeller.
+- id: 98_treehouse
+  tier: hard
+  category: batch_10
+  tags:
+  - detailed
+  prompt: 'A treehouse built into a large oak: a thick trunk with branching limbs and leafy canopy clusters, a plank
+    platform with railings resting on the branches, a small cabin with a shingled roof and a window, a rope ladder
+    hanging to the ground, and a tire swing on another branch.'
+- id: 99_pumpkin
+  tier: easy
+  category: batch_10
+  tags:
+  - simple
+  prompt: A pumpkin.
+- id: 100_gramophone
+  tier: hard
+  category: batch_10
+  tags:
+  - detailed
+  prompt: 'An antique gramophone: a square mahogany cabinet with a side winding crank, a turntable with a black
+    shellac record showing grooves and a red label, a curved tonearm with a soundbox and needle, and a large flared
+    brass horn.'

@@ -111,6 +111,9 @@ PRICES: dict[tuple[str, str], Price] = {
     ("anthropic", "claude-fable-5"):          Price(10.00, 50.00, 1.00, cache_write=12.50,
                                                     note="1h cache write 20.00 (not modelled)"),
     ("anthropic", "claude-mythos-5"):         Price(10.00, 50.00, 1.00, cache_write=12.50, note="limited availability"),
+    # Claude Opus 5.5: cheaper than Opus 5 (claude-api skill model table, cached 2026-06-24); cache write = the
+    # standard 1.25x input for the 5-minute TTL, as every other Anthropic row.
+    ("anthropic", "claude-opus-5-5"):         Price(4.00, 20.00, 0.20, cache_write=5.00, checked="2026-09-25"),
     ("anthropic", "claude-opus-5"):           Price(5.00, 25.00, 0.50, cache_write=6.25,
                                                     note="fast mode is 10.00/50.00 (not modelled)"),
     # the 1M-context variant of opus-5, and the id the DEFAULT claude-code arm serves.
@@ -146,6 +149,12 @@ PRICES: dict[tuple[str, str], Price] = {
     ("anthropic", "claude-haiku-3-5"):        Price(0.80, 4.00, 0.08, cache_write=1.00,
                                                     note="retired except on Bedrock / Google Cloud"),
     # ---------------------------------------------------------------- openai
+    ("openai", "gpt-6-luna"):                Price(0.10, 0.50, 0.01,
+                                                    long_context=LongContext(272_000, 0.20, 0.75, 0.02),
+                                                    checked="2026-09-25",
+                                                    note="Standard rates: developers.openai.com/api/docs/models/gpt-6-luna; "
+                                                         ">272k input uses 2x input/cache and 1.5x output. "
+                                                         "CLI aggregate usage is a notional estimate, not per-request billing."),
     ("openai", "gpt-6-astra"):               Price(10.00, 50.00, 1.00, cache_write=12.50,
                                                     long_context=LongContext(272_000, 20.00, 75.00, 2.00),
                                                     checked="2026-09-23",

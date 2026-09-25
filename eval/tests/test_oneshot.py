@@ -120,8 +120,10 @@ def test_single_file_answers_are_extracted_under_their_own_entry():
     glsl = "void mainImage(out vec4 o, in vec2 p) { o = vec4(p / iResolution.xy, 0.5, 1.0); }"
     assert extract_files(f"```glsl\n{glsl}\n```", Language.GLSL_SHADER) == {SHADER_FILE: glsl + "\n"}
     assert files_for(Language.SCENE_THREEJS) == [SCENE_FILE] and files_for(Language.GLSL_SHADER) == [SHADER_FILE]
+    obj = "export function build(THREE) { return new THREE.Group(); }"
+    assert extract_files(f"```js\n{obj}\n```", Language.THREEJS) == {"src/object.js": obj + "\n"}
     with pytest.raises(ValueError, match="no one-shot contract"):
-        files_for(Language.THREEJS)
+        files_for(Language.CADQUERY)
 
 
 def test_a_hallucinated_write_tool_of_a_scene_module_is_still_read():

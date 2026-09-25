@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import shutil
 import statistics
 from pathlib import Path
@@ -48,6 +49,9 @@ class CellResult(BaseModel):
     tris: int | None = None
     gen_cost_usd: float = Field(default=0.0, description="generation cost (harness: whole run incl. its loop judge)")
     judge_cost_usd: float = Field(default=0.0, description="fixed-judge cost for this cell")
+    gen_input_tokens: int = Field(default=0, description="generation input tokens (uncached + cached), whole run")
+    gen_output_tokens: int = Field(default=0, description="generation output tokens incl. thinking, whole run")
+    gen_cached_tokens: int = Field(default=0, description="the cache-read share of gen_input_tokens")
     gen_seconds: float = 0.0
     wall_s: float = Field(default=0.0, description="the cell's clock, provider waits included: what flag_degraded reads")
     minutes: float | None = Field(default=None, description=(
@@ -303,7 +307,8 @@ def compare_html(out: Path, rows: list[CellResult], pairs: list[PairRow], meta: 
                 continue
             img = ""
             if r.sheet and Path(r.sheet).is_file():
-                dst = assets / f"{pid}__{a.replace(':', '_').replace('+', '_')}{Path(r.sheet).suffix}"
+                safe = re.sub(r"[^A-Za-z0-9._-]+", "_", a)   # an import arm's name carries a path
+                dst = assets / f"{pid}__{safe}{Path(r.sheet).suffix}"
                 shutil.copy2(r.sheet, dst)
                 img = f"<img src='report_assets/{dst.name}' loading='lazy'>"
             cls = "ok" if r.passed else "bad"

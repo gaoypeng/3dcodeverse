@@ -81,7 +81,7 @@ from bench.run_bench import (  # noqa: E402
 from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.config import get_settings  # noqa: E402
 from codeverse3d.contracts.artifacts import RenderSet  # noqa: E402
-from codeverse3d.contracts.common import ENTRY_FILE, Track  # noqa: E402
+from codeverse3d.contracts.common import ENTRY_FILE, Track, Usage  # noqa: E402
 from codeverse3d.contracts.run import RunRecord, RunStatus  # noqa: E402
 from codeverse3d.contracts.spec import Spec  # noqa: E402
 from codeverse3d.cost import run_ledger  # noqa: E402
@@ -93,7 +93,7 @@ from codeverse3d.workspace import Workspace  # noqa: E402
 
 log = logging.getLogger(__name__)
 
-ArmKind = Literal["harness", "oneshot", "oneshot+repair", "agent"]
+ArmKind = Literal["harness", "oneshot", "oneshot+repair", "agent", "import"]
 
 
 # ----------------------------------------------------------------------------- arms / options
@@ -109,10 +109,13 @@ class Arm(BaseModel):
 
 def parse_arm(text: str) -> Arm:
     kind, sep, target = text.strip().partition(":")
-    if not sep or not target or kind not in ("harness", "oneshot", "oneshot+repair", "agent"):
+    if not sep or not target or kind not in ("harness", "oneshot", "oneshot+repair", "agent", "import"):
         raise ValueError(f"bad arm {text!r}: expected harness:<generator-id> | oneshot:<target> | oneshot+repair:<target>"
-                         " | agent:<generator-id>")
-    if kind == "agent":
+                         " | agent:<generator-id> | import:<directory>")
+    if kind == "import":
+        if not Path(target).expanduser().is_dir():
+            raise ValueError(f"import arm: {target!r} is not a directory")
+    elif kind == "agent":
         from codeverse3d.agents.registry import parse_agent_id
         parse_agent_id(target)  # validates the vendor id early
     elif kind != "harness":
@@ -150,7 +153,8 @@ class CompareOptions(BaseModel):
 
 
 def spec_for(battery: Battery, item: BenchPrompt, arm: Arm, opts: CompareOptions) -> Spec:
-    generator = arm.target if arm.kind in ("harness", "agent") else f"single-shot:{arm.target}"
+    generator = arm.target if arm.kind in ("harness", "agent") else (
+        "single-shot:gemini:gemini-3.8-flash" if arm.kind == "import" else f"single-shot:{arm.target}")
     backends = get_settings().backends(generator=generator, judge=opts.loop_judge, planner=opts.planner)
     return build_spec(battery, item, backends=backends, rounds=opts.rounds,
                       max_minutes=opts.max_minutes, tag0="compare", extra_tags=(arm.kind,))
@@ -195,6 +199,30 @@ def _render_scaffold(deps: CompareDeps, spec: Spec, eval_ws: Workspace) -> None:
     (eval_ws.root / entry_of(spec)).unlink(missing_ok=True)
 
 
+def _add_usage(res: CellResult, usage: Usage) -> None:
+    """Token accounting beside the dollars: subscription CLIs bill no money, so tokens are the comparable unit."""
+    res.gen_input_tokens += int(usage.input_tokens or 0)
+    res.gen_output_tokens += int(usage.output_tokens or 0) + int(usage.thoughts_tokens or 0)
+    res.gen_cached_tokens += int(usage.cached_tokens or 0)
+
+
+def _import_answer(arm: Arm, spec: Spec, eval_ws: Workspace, deps: CompareDeps, res: CellResult) -> None:
+    """``import:<directory>``: score a file some OTHER tool already produced — no model is asked.  The file
+    is ``<directory>/<prompt id>.<ext>`` (the battery's id is the file stem), copied as the language's entry file
+    (e.g. Claude Design's three.js ``build(THREE)`` modules → ``src/object.js``)."""
+    root = Path(arm.target).expanduser()
+    stem = spec.id.split("/")[-1]
+    hits = sorted(p for p in root.glob(f"{stem}.*") if p.is_file())
+    if not hits:
+        res.error = f"import arm: no {stem}.* in {root}"
+        return
+    if spec.track is Track.SCENE:
+        _render_scaffold(deps, spec, eval_ws)
+    dst = eval_ws.root / entry_of(spec)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(hits[0], dst)
+
+
 def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOptions,
                       deps: CompareDeps, res: CellResult) -> None:
     backend = deps.oneshot_backend(arm.target)
@@ -220,6 +248,7 @@ def _generate_oneshot(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts
         res.attempts = attempt + 1
         res.gen_cost_usd += gen.usage.cost_usd
         res.tool_calls += gen.tool_calls
+        _add_usage(res, gen.usage)
         res.gen_seconds += gen.duration_s
         res.minutes = round((res.minutes or 0.0) + max(0.0, gen.duration_s - lost.lost_s()) / 60, 2)
         if not gen.ok:
@@ -291,6 +320,7 @@ def _run_harness(spec: Spec, cell: Path, eval_ws: Workspace, opts: CompareOption
     summary = select.summarise(run_ws.root, record=rec)
     res.gen_cost_usd = rec.total_usage.cost_usd
     res.tool_calls = rec.total_usage.tool_calls
+    _add_usage(res, rec.total_usage)
     res.minutes = round(rec.minutes or 0.0, 2)
     res.harness_status, res.harness_rounds, res.harness_loop_score = rec.status.value, len(rec.rounds), summary.picked_score
     res.harness_stop_reason = summary.stop_reason
@@ -332,6 +362,7 @@ def _run_bare_agent(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts: 
     result = run_bare_agent(spec, arm.target, cell, eval_ws, minutes=opts.max_minutes)
     res.gen_cost_usd = result.usage.cost_usd
     res.tool_calls = result.tool_calls
+    _add_usage(res, result.usage)
     res.gen_seconds = result.duration_s
     res.minutes = round(max(0.0, result.duration_s - result.provider_wait_s) / 60, 2)
     res.harness_status = result.exit_reason
@@ -370,6 +401,8 @@ def run_cell(battery: Battery, item: BenchPrompt, arm: Arm, out: Path, opts: Com
         with run_ledger(cell, run=f"{item.id}:{arm.slug}"):
             if arm.kind == "harness":
                 _run_harness(spec, cell, eval_ws, opts, deps, res)
+            elif arm.kind == "import":
+                _import_answer(arm, spec, eval_ws, deps, res)
             elif arm.kind == "agent":
                 _run_bare_agent(arm, spec, cell, eval_ws, opts, deps, res)
             else:

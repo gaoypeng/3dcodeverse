@@ -81,6 +81,7 @@ MODEL_FILE = "src/model.py"
 URDF_FILE = "src/robot.urdf"
 SHADER_FILE = ENTRY_FILE[Language.GLSL_SHADER]   # src/shader.frag
 SCENE_FILE = ENTRY_FILE[Language.SCENE_THREEJS]  # src/scene.js
+OBJECT_FILE = ENTRY_FILE[Language.THREEJS]       # src/object.js
 DEFAULT_TIMEOUT_S = 900.0
 IDLE_GRACE_S = 600.0
 
@@ -201,8 +202,26 @@ _OUTPUT_RULE_SCENE = (f"You have NO tools in this session: you cannot write file
                       f"```js fenced code block and nothing else (no prose before or after, no partial snippets).")
 
 
+#: The three.js static-object minimal contract: the build(THREE) shape, frame and units of
+#: codeverse3d/prompts/threejs/contract.md — no plan, no parts files, no cookbook, no gates table.
+_OBJECT_CONTRACT_BODY = """You write ONE file, `{object_file}`, an ES module for three.js r182:
+  export function build(THREE) → THREE.Group   (the whole object, returned as one root Group)
+Imports: only `three` and `three/addons/*` (BufferGeometryUtils, RoundedBoxGeometry …).  No renderer, scene,
+camera, lights, DOM, textures, images, files or network — procedural geometry and MeshStandardMaterial only.
+Y is up, +Z is the front, +X the right; metres at real-world size; the lowest point sits at y = 0 and the
+footprint is centred on the Y axis.  Name the main part Groups (PascalCase, unique).
+The harness imports the module in node, calls build(THREE), exports a GLB, renders it from 14 views and
+judges it: the object must be recognisable and complete, parts must touch (nothing floating, no deep
+interpenetration), proportions plausible."""
+
+_OUTPUT_RULE_OBJECT = (f"You have NO tools in this session: you cannot write files, run node or render anything — "
+                       f"the code must appear in your reply.  Reply with the COMPLETE contents of `{OBJECT_FILE}` as ONE "
+                       f"```js fenced code block and nothing else (no prose before or after, no partial snippets).")
+
+
 #: the one file a single-file language answers with (URDF answers with two, see files_for)
-_ENTRY = {Language.BLENDER: MODEL_FILE, Language.GLSL_SHADER: SHADER_FILE, Language.SCENE_THREEJS: SCENE_FILE}
+_ENTRY = {Language.BLENDER: MODEL_FILE, Language.GLSL_SHADER: SHADER_FILE, Language.SCENE_THREEJS: SCENE_FILE,
+          Language.THREEJS: OBJECT_FILE}
 
 
 def files_for(language: Language) -> list[str]:
@@ -223,12 +242,14 @@ def minimal_contract(language: Language = Language.BLENDER) -> str:
         return _GLSL_CONTRACT_BODY.format(shader_file=SHADER_FILE)
     if language is Language.SCENE_THREEJS:
         return _SCENE_CONTRACT_BODY.format(scene_file=SCENE_FILE)
+    if language is Language.THREEJS:
+        return _OBJECT_CONTRACT_BODY.format(object_file=OBJECT_FILE)
     return _CONTRACT_BODY.format(model_file=MODEL_FILE, frame=frame_doc(LANGUAGE_FRAME["blender"]))
 
 
 def output_rule(language: Language = Language.BLENDER) -> str:
     return {Language.URDF_BLENDER: _OUTPUT_RULE_URDF, Language.GLSL_SHADER: _OUTPUT_RULE_GLSL,
-            Language.SCENE_THREEJS: _OUTPUT_RULE_SCENE}.get(language, _OUTPUT_RULE)
+            Language.SCENE_THREEJS: _OUTPUT_RULE_SCENE, Language.THREEJS: _OUTPUT_RULE_OBJECT}.get(language, _OUTPUT_RULE)
 
 
 def oneshot_prompt(spec: Spec) -> str:
@@ -236,7 +257,8 @@ def oneshot_prompt(spec: Spec) -> str:
     c = spec.constraints
     lead = {Language.URDF_BLENDER: "Model this ARTICULATED object as raw bpy link meshes plus a hand-written URDF",
             Language.GLSL_SHADER: "Write this as a Shadertoy-style fragment shader",
-            Language.SCENE_THREEJS: "Build this scene in raw three.js"}.get(spec.language, "Model this object in raw bpy")
+            Language.SCENE_THREEJS: "Build this scene in raw three.js",
+            Language.THREEJS: "Model this object in raw three.js"}.get(spec.language, "Model this object in raw bpy")
     lines = [f"{lead}: {spec.prompt.strip()}"]
     if c.dimensions_m:
         lines.append("Dimensions (m): " + ", ".join(f"{k}={v:g}" for k, v in c.dimensions_m.items()))
@@ -293,11 +315,11 @@ def _strip_hallucinated_tool_xml(text: str) -> str:
     if not bodies:
         return text
     body = max(bodies, key=len)
-    return body if any(k in body for k in ("import bpy", "createScene", "mainImage", "void main")) else text
+    return body if any(k in body for k in ("import bpy", "createScene", "mainImage", "void main", "function build")) else text
 
 
 #: what a bare (unfenced) answer must contain to be read as the file at all
-_BARE_MARKERS = {SCENE_FILE: ("createScene",), SHADER_FILE: ("mainImage", "void main(")}
+_BARE_MARKERS = {SCENE_FILE: ("createScene",), SHADER_FILE: ("mainImage", "void main("), OBJECT_FILE: ("function build",)}
 
 
 def extract_model_file(text: str, rel: str = MODEL_FILE) -> str:
