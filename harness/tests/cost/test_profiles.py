@@ -154,3 +154,17 @@ def test_each_profile_resolves_to_its_documented_dial(name, expected, monkeypatc
         assert dial.profile == name
         for field, want in expected.items():
             assert getattr(dial, field) == want, f"{name}.{field}"
+
+
+@pytest.mark.parametrize(("name", "spp"), [("economy", 16), ("balanced", 32), ("quality", 64)])
+def test_the_profile_sets_the_blender_samples_unless_the_user_stated_them(name, spp, monkeypatch):
+    """scene_blender's judged-frame samples are a profile dial (owner D1: economy 16 · 32 · quality 64)."""
+    s = Settings()
+    s.apply_profile(name)
+    assert s.render.blender_samples == spp
+    monkeypatch.setenv("C3D_RENDER__BLENDER_SAMPLES", "8")
+    stated = Settings()
+    stated.apply_profile(name)
+    assert stated.render.blender_samples == 8
+    stated.apply_profile(name, force=True)
+    assert stated.render.blender_samples == spp

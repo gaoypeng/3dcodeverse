@@ -126,11 +126,14 @@ codeverse3d/
                       data (starter/, opengl_python/wrappers/run_gl.py; the contract text is
                       prompts/<lang>/contract.md, found like every per-language prompt file by
                       prompts/catalog.language_prompt — a runtime holds no prompt text); wrappers/
-                      holds the python build wrappers (run_bpy, run_bpy_links, run_cq, run_bpy_scene) and what they
+                      holds the python build wrappers (run_bpy, run_bpy_links, run_cq, run_bpy_scene), the
+                      scene_blender render driver (render_bpy_scene) and what they
                       share (_wrapper_common: script run + error mapping + report; _census: the Blender census;
                       _census_glb: scene_blender's census GLB writer, D102)
   spatial/            node.py, render.py, observe.py, tool_common.py (shared tool plumbing),
                       render_scene.py (judge view subset, content-fitted orbit),
+                      render_blender.py (scene_blender: Blender pixels under a GPU slot + CPU fallback,
+                      the JS host's camera checks on them, the same metrics.json),
                       frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),
                       scene_placement.py (scene_placement gate = the check_placement tool's verdict,
                       placement_gate(ws, census, plan) for both: floating / sunken /

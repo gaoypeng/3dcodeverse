@@ -308,3 +308,18 @@ def test_a_ring_of_identical_copies_round_the_world_is_warned_but_not_a_rotunda(
     assert not [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "stamped_ring"]
     census["groups"][0]["stamps"] = [dict(ring, name="Column", n=12, radius_m=4.0)]       # a rotunda: inside the content
     assert not [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "stamped_ring"]
+
+
+def test_blender_census_gets_bpy_words_in_placement_hints():
+    """Same checks, same numbers; a scene_blender census (``census["language"]``) is told what to type in bpy."""
+    t = _table(_row("Lantern", gap=0.3))
+    three = placement_findings(t)
+    bpy = placement_findings(t, language="scene_blender")
+    f3, fb = _by_kind(three, "floating")[0], _by_kind(bpy, "floating")[0]
+    assert f3.severity == fb.severity and f3.message == fb.message
+    assert "userData.placement" in f3.fix_hint and "heightAt" in f3.fix_hint
+    assert 'Lantern["placement"] = "free"' in fb.fix_hint and "ctx.height_at" in fb.fix_hint
+    census = {"placement": t, "fog": None, "background": None, "language": "scene_blender"}
+    gate = placement_gate_safe(census, plan={"title": "t", "setting": "outdoor", "zones": []})
+    no_fog = next(f for f in gate.findings if f.data.get("kind") == "no_fog")
+    assert "Volume" in no_fog.fix_hint and "THREE.Fog" not in no_fog.fix_hint

@@ -33,3 +33,41 @@ def test_a_torn_package_json_is_a_failed_row_not_a_crash(tmp_path: Path, monkeyp
     rows = {name: (status, detail) for name, status, detail in check_node()}
     assert rows["three"][0] == "FAIL" and "unreadable" in rows["three"][1]
     assert rows["puppeteer"][0] == "FAIL"
+
+
+def _fake_probe(monkeypatch, tmp_path: Path, payload: dict) -> list:
+    from codeverse3d import doctor
+    from codeverse3d.proc import ProcResult
+
+    seen: dict = {}
+
+    def run(cmd, **kw):
+        seen["cmd"], seen["env"] = cmd, kw.get("env") or {}
+        return ProcResult(0, "Blender 5.0.1\nC3D_DOCTOR " + json.dumps(payload) + "\nBlender quit\n", "", False, 5)
+
+    monkeypatch.setenv("C3D_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(doctor, "run_subprocess", run)
+    rows = doctor.check_blender_render(eevee=True)
+    assert seen["env"].get("GALLIUM_DRIVER") == "d3d12", "EEVEE is probed under the d3d12 env it renders with"
+    return rows
+
+
+def test_doctor_reports_the_blender_render_capability(tmp_path: Path, monkeypatch):
+    rows = {r[0]: r for r in _fake_probe(monkeypatch, tmp_path, {"cuda": ["RTX"], "gl": "D3D12 (NVIDIA RTX)"})}
+    assert rows["blender cycles"][1] == "OK" and "CUDA: RTX" in rows["blender cycles"][2]
+    assert "cycles 32 spp" in rows["blender cycles"][2]
+    assert rows["blender eevee"][1] == "OK" and rows["blender gpu slots"][1] == "OK"
+    soft = {r[0]: r for r in _fake_probe(monkeypatch, tmp_path, {"cuda": [], "gl": "llvmpipe (LLVM 19.1.1, 256 bits)"})}
+    assert soft["blender cycles"][1] == "WARN" and "CPU" in soft["blender cycles"][2]
+    assert soft["blender eevee"][1] == "WARN" and "software GL" in soft["blender eevee"][2]
+
+
+@pytest.mark.blender
+def test_doctor_blender_render_probe_runs_for_real():
+    from codeverse3d.config import get_settings
+    from codeverse3d.doctor import check_blender_render
+
+    if not get_settings().resolve_blender():
+        pytest.skip("no Blender binary")
+    rows = {r[0]: r for r in check_blender_render(eevee=False)}
+    assert rows["blender cycles"][1] in ("OK", "WARN") and "blender eevee" not in rows

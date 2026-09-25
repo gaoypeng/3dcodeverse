@@ -70,6 +70,8 @@ class Profile:
     candidates: int = 1              # best-of-N baselines
     judge_samples: int = 1           # VLM judge samples per verdict
     texture: bool = False            # run the derived texture pass
+    #: scene_blender judged frames: Cycles samples (adaptive + OIDN), owner D1 2026-09-24
+    blender_samples: int = 32
     #: budget ceilings a run of this shape should not need to exceed
     max_minutes: float = 60.0
     #: measured expectation (docs/COST.md) — reported by ``3dcode cost profiles``
@@ -94,7 +96,7 @@ PROFILES: dict[str, Profile] = {
         planner=_D.planner,
         judge="gemini:gemini-3.7-flash",
         captioner=_D.captioner,
-        rounds=2, candidates=1, judge_samples=2, texture=False,
+        rounds=2, candidates=1, judge_samples=2, texture=False, blender_samples=16,
         max_minutes=30.0,
         expected_usd=0.30,
         expected_score="graphics 0.81 median (5/6 passed); objects clear the gates less often "
@@ -124,7 +126,7 @@ PROFILES: dict[str, Profile] = {
         planner=_D.planner,
         judge=_D.judge,
         captioner=_D.captioner,
-        rounds=4, candidates=2, judge_samples=3, texture=True,
+        rounds=4, candidates=2, judge_samples=3, texture=True, blender_samples=64,
         max_minutes=90.0,
         expected_usd=3.20,
         expected_score="best-of-2 lifted the stool baseline 0.563 → 0.612 and the texture pass "

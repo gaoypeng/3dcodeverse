@@ -9,12 +9,20 @@
  *        [--times 0,1.5] [--width 1024] [--height 576] [--gpu auto|on|off]
  *        [--fps-seconds 2] [--timeout-ms 240000]
  *        [--no-post] [--post-options '{"ao":0.45,"bloomStrength":0.22}']
+ *        [--scene src/scene.js]   (the entry the host imports, workspace-relative)
+ *        [--external-frames <views.json>]   (scene_blender, D1: the PIXELS come from another
+ *            renderer — a list of {name, kind, path, time_s, position, lookAt, fov, render_ms}
+ *            whose PNGs are already in --out; needs explicit --cameras.  This driver then renders
+ *            nothing: camera checks (near geometry, coverage) run on the loaded scene, luminance
+ *            statistics are frameStats of the external PNG, and views.json / metrics.json keep
+ *            the one schema)
  *
  * Writes PNG per (camera, time), views.json, metrics.json
  * {console_errors, shader_errors, fps, census, camera_checks, ...}.
  * Last stdout line = JSON summary.  Exit 0 ok, 1 scene failed, 2 driver error.
  */
 
+import fs from 'node:fs';
 import path from 'node:path';
 import { armWatchdog, dataUrlToPng, ensureDir, fail, finish, parseCli, readJsonArg, safeName, writeJson } from './lib/cli.mjs';
 import { createTimeoutMs, errorSummary, openHost } from './lib/host_page.mjs';
@@ -32,6 +40,7 @@ const args = parseCli({
   times: { default: '0,1.5' }, width: { default: '1024' }, height: { default: '576' },
   gpu: { default: process.env.C3D_RENDER_GPU || 'auto' }, 'fps-seconds': { default: '2' },
   'timeout-ms': { default: '240000' }, 'log-depth': { type: 'boolean', default: false },
+  scene: { default: 'src/scene.js' }, 'external-frames': { default: '' },
 });
 
 function tag(t) {
@@ -45,12 +54,29 @@ function outFile(outDir, file) {
   return p;
 }
 
+/** The external views (`--external-frames`) whose PNG exists in outDir; null when not external. */
+function externalViews(outDir) {
+  if (!args['external-frames']) return null;
+  if (args.cameras === 'authored' || args.cameras === 'none') throw new Error('--external-frames needs explicit --cameras');
+  const list = JSON.parse(fs.readFileSync(args['external-frames'], 'utf8'));
+  if (!Array.isArray(list)) throw new Error('--external-frames must hold a JSON list of views');
+  return list.filter((v) => v && typeof v.path === 'string' && fs.existsSync(outFile(outDir, v.path)));
+}
+
+/** The camera's earliest external frame as a data URL (its luminance statistics), else null. */
+function externalFrameUrl(external, outDir, name) {
+  const mine = external.filter((v) => v.name === name).sort((a, b) => (a.time_s || 0) - (b.time_s || 0));
+  if (!mine.length) return null;
+  return 'data:image/png;base64,' + fs.readFileSync(outFile(outDir, mine[0].path)).toString('base64');
+}
+
 async function main() {
   if (!args.ws || !args.out) throw new Error('--ws and --out are required');
   const width = parseInt(args.width, 10), height = parseInt(args.height, 10);
   const times = String(args.times).split(',').map((s) => parseFloat(s)).filter((x) => Number.isFinite(x) && x >= 0).sort((a, b) => a - b);
   if (!times.length) throw new Error('--times must list non-negative numbers');
   const outDir = ensureDir(path.resolve(args.out));
+  const external = externalViews(outDir);
   const timeoutMs = parseInt(args['timeout-ms'], 10);
   const watchdog = armWatchdog(timeoutMs);
   const t0 = Date.now();
@@ -58,7 +84,7 @@ async function main() {
   let host;
   try {
     host = await openHost(args.ws, {
-      width, height, gpu: args.gpu, logDepth: args['log-depth'],
+      width, height, gpu: args.gpu, logDepth: args['log-depth'], sceneRel: args.scene.replace(/^\.?\//, ''),
       createSceneTimeoutMs: createTimeoutMs(timeoutMs),
       settle: !args['no-settle'],
       cameraRepair: !!args['camera-repair'],
@@ -105,12 +131,15 @@ async function main() {
     // instruments per camera (at t=0, before any stepping)
     for (const c of cams) {
       try {
-        const chk = await page.evaluate((spec) => window.__c3v.cameraChecks(spec), c);
+        const chk = external
+          ? await page.evaluate((spec, url) => window.__c3v.externalCameraChecks(spec, url), c, externalFrameUrl(external, outDir, c.name))
+          : await page.evaluate((spec) => window.__c3v.cameraChecks(spec), c);
         metrics.camera_checks.push({ kind: c.kind, ...chk });
       } catch (e) { sceneErr(`camera checks failed for '${c.name}'`, e); }
     }
-    // renders: times ascending (sim time cannot rewind)
-    for (const t of times) {
+    // renders: times ascending (sim time cannot rewind); external pixels are views already
+    if (external) metrics.views.push(...external);
+    for (const t of external ? [] : times) {
       for (const c of cams) {
         try {
           const r = await page.evaluate((spec, tt) => window.__c3v.renderAt(spec, tt), c, t);

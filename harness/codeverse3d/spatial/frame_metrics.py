@@ -93,6 +93,71 @@ _SMALL_HINT = (
 )
 
 
+_EYE_HINT = "set position[1] = heightAt(x, z) + 1.6 (eye level) — never below the terrain"
+_LOW_HINT = "human shots: position[1] = heightAt(x, z) + 1.6; establishing: 6–20 m above ground looking down 15–30°"
+
+#: scene_blender's words for the same fixes (D1, lane B): bpy lamps / world nodes / keyframes, the
+#: Blender frame (z up), ``ctx.height_at``.  The thresholds are the same; only the advice differs.
+_BPY_HINTS: dict[str, str] = {
+    "dark": (
+        "raise the light in build_env (src/env.py): the Sun lamp's strength (`sun.data.energy` 3–5 for day, 1–2 at golden "
+        "hour; a sun below the horizon is the night rig) and the world Background / Sky Texture Strength (the fill) — do not "
+        "add a second sun; add practical lights where the brief has them (a Point lamp of 20–200 W at each lantern plus an "
+        "Emission shader on the lamp mesh); keep a world Volume thin (density ≤ 0.02) or it swallows the light; dusk/night is "
+        "orange/purple/deep blue, NOT black (check with scene_views: camera_checks.mean_lum)"),
+    "lowkey": (
+        "this frame is DIM BUT LIT — it has real contrast, so do NOT raise the world Background strength or add a big "
+        "area/sun lamp to fix it: flat fill turns a night scene into a grey wash, washes dark materials out and drowns "
+        "emissive effects. Lift the picture where the light actually comes from: raise the Emission Strength of the "
+        "lamps/lanterns, add or brighten a Point lamp at each practical light, give dark materials a low but non-zero Base "
+        "Color so they read as material and not as void, and let the shadowed areas stay dark. Only if the frame is ALSO "
+        "flat (no contrast) does it need key/fill."),
+    "blown": (
+        "lower exposure: Sun lamp strength ≤ 5, world Background / Sky Texture strength ≤ 1.5, no white Emission planes, "
+        "Emission Strength ≤ 5 on large surfaces — the harness renders AgX at exposure 0 and owns the view settings"),
+    "flat": (
+        "one colour dominates the frame: aim the camera at content (look_at the zone centre), add contrast with a Sun lamp "
+        "that casts shadows, vary materials, and make sure the world (Sky Texture / Background) and any Volume are not one "
+        "flat tint"),
+    "near": ("move the camera ≥ 0.5 m away from every surface (raise it above ground/terrain: z = ctx.height_at(x, y) + 1.6, "
+             "pull it out of walls and trees) and keep look_at on the content"),
+    "static": (
+        "nothing moved between the animation times: give the planned motion a visible amplitude — foliage/banner sway "
+        "±0.10–0.20 rad, water surface ≥ 3 cm vertical, particles ≥ 0.6 m of travel per 1.5 s, rotating parts ≥ 20°/s — "
+        "as DATA the .blend plays by itself: keyframes (object location/rotation, node inputs, shape keys), a "
+        "simple-expression driver on `frame` (e.g. `sin(frame*0.2)*0.15`; python-function drivers never run here) or the "
+        "geometry-nodes Scene Time node.  The harness renders t = 0 s and t = 1.5 s as frames 1 and 46 (30 fps)"),
+    "small": _SMALL_HINT.replace("lookAt", "look_at"),
+    "eye": "set the camera's z = ctx.height_at(x, y) + 1.6 (eye level) — never below the terrain",
+    "low": "human shots: z = ctx.height_at(x, y) + 1.6; establishing: 6–20 m above ground looking down 15–30°",
+    "unused_glb": (
+        "the hero GLB is imported into ctx.assets['<key>'] and nothing places it — add a collection-instance Empty of "
+        "ctx.assets['<key>'] inside the zone the plan puts it in.  If a refine round replaced the hero with a procedural "
+        "rebuild, say so in the plan: `assets[].kind: blender_glb` must not claim a hero the rendered scene does not contain."),
+}
+
+#: fix hints per scene language (``metrics["language"]``; a payload without one is three.js, as
+#: every recorded round is)
+HINTS: dict[str, dict[str, str]] = {
+    "scene_threejs": {"dark": _DARK_HINT, "lowkey": _LOWKEY_HINT, "blown": _BLOWN_HINT, "flat": _FLAT_HINT,
+                      "near": _NEAR_HINT, "static": _STATIC_HINT, "small": _SMALL_HINT, "eye": _EYE_HINT, "low": _LOW_HINT},
+    "scene_blender": _BPY_HINTS,
+}
+
+#: a judged Blender frame slower than this (GPU seconds at the configured samples; the CPU
+#: fallback gets ``SLOW_FRAME_CPU_FACTOR`` x) is a WARN naming the heaviest zone (owner D2).
+#: Calibrated 2026-09-24 on this box, Cycles CUDA 32 spp + OIDN at 1024x576: 0.9 s for a
+#: 520 k-tri / 310-object scene, 3.6 s with 72 k GN grass blades + 30 point lights + glass +
+#: a world volume — 10 s is ~3x the heaviest probe scene.
+SLOW_FRAME_S = 10.0
+SLOW_FRAME_CPU_FACTOR = 3.3
+
+
+def hints_for(metrics: dict[str, Any]) -> dict[str, str]:
+    """The fix-hint table for ``metrics``' scene language."""
+    return HINTS.get(str(metrics.get("language") or "scene_threejs"), HINTS["scene_threejs"])
+
+
 def _view_kind(chk: dict[str, Any]) -> str:
     return str(chk.get("kind") or "authored")
 
@@ -106,7 +171,7 @@ def _num(chk: dict[str, Any], key: str) -> float | None:
     return float(v) if isinstance(v, (int, float)) else None
 
 
-def _exposure_findings(chk: dict[str, Any], *, authored: bool) -> list[GateFinding]:
+def _exposure_findings(chk: dict[str, Any], *, authored: bool, hints: dict[str, str]) -> list[GateFinding]:
     name = str(chk.get("name", "?"))
     sev = Severity.ERROR if authored else Severity.WARN
     out: list[GateFinding] = []
@@ -127,19 +192,20 @@ def _exposure_findings(chk: dict[str, Any], *, authored: bool) -> list[GateFindi
             msg = (f"frame is dim but lit: mean luminance {mean:.2f} with contrast {std:.2f} "
                    f"({dark or 0:.0%} of pixels near black) — low-key by design, not unlit")
         out.append(_f(Severity.WARN if low_key else sev, name, rig + msg,
-                      _LOWKEY_HINT if low_key else _DARK_HINT,
+                      hints["lowkey"] if low_key else hints["dark"],
                       kind="dark_frame", view=name, mean_lum=mean, dark_frac=dark))
     if blown is not None and blown > BLOWN_FRAC:
-        out.append(_f(sev, name, rig + f"frame blown out: {blown:.0%} of pixels pure white", _BLOWN_HINT,
+        out.append(_f(sev, name, rig + f"frame blown out: {blown:.0%} of pixels pure white", hints["blown"],
                       kind="blown_frame", view=name, blown_frac=blown))
     if modal is not None and modal > FLAT_MODAL_FRAC and not is_dark:
         flat_sev = sev if modal > FLAT_MODAL_ERROR else Severity.WARN
-        out.append(_f(flat_sev, name, rig + f"flat frame: one luminance band holds {modal:.0%} of the pixels", _FLAT_HINT,
+        out.append(_f(flat_sev, name, rig + f"flat frame: one luminance band holds {modal:.0%} of the pixels", hints["flat"],
                       kind="flat_frame", view=name, modal_frac=modal, mean_lum=mean))
     return out
 
 
-def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float | None) -> list[GateFinding]:
+def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float | None,
+                       hints: dict[str, str]) -> list[GateFinding]:
     name = str(chk.get("name", "?"))
     sev = Severity.ERROR if authored else Severity.WARN
     out: list[GateFinding] = []
@@ -148,7 +214,7 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
     rig = "" if authored else "harness rig view (not an authored camera): "
     if chk.get("camera_in_geometry") or (near is not None and near < NEAR_HIT_M):
         where = f"inside {inside[:3]}" if inside else f"nearest surface {near:.2f} m ({chk.get('nearest_hit_name', '')})"
-        out.append(_f(sev, name, rig + f"camera inside / touching geometry: {where}", _NEAR_HINT,
+        out.append(_f(sev, name, rig + f"camera inside / touching geometry: {where}", hints["near"],
                       kind="camera_in_geometry", view=name, nearest_hit_m=near, inside=inside[:5]))
     else:
         # The shot is a surface: most of the 3 x 3 sight rays end within arm's reach.  cmp6's
@@ -187,7 +253,7 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
         buried = _frame_looks_buried(chk)
         out.append(_f(Severity.ERROR if buried else Severity.WARN, name,
                       f"camera is {above_g:.1f} m under {under} — the frame is its underside",
-                      "set position[1] = heightAt(x, z) + 1.6 (eye level) — never below the terrain",
+                      hints["eye"],
                       kind="camera_underground" if buried else "camera_under_ground_mesh",
                       view=name, eye_height_m=eye, ground_above_m=above_g))
     elif authored and below is not None:
@@ -199,7 +265,7 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
         under = str(chk.get("ground_below_name") or "the surface beneath it")
         if below < EYE_MIN_ABOVE_GROUND_M:
             out.append(_f(Severity.WARN, name, f"camera eye only {below:.2f} m above {under} — ant's-eye view",
-                          "human shots: position[1] = heightAt(x, z) + 1.6; establishing: 6–20 m above ground looking down 15–30°",
+                          hints["low"],
                           kind="camera_low", view=name, eye_height_m=eye, ground_below_m=below))
         elif below > EYE_MAX_ABOVE_GROUND_M:
             out.append(_f(Severity.WARN, name, f"camera {below:.0f} m above {under} — satellite view, not a shot",
@@ -219,12 +285,12 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
                           f"camera is {-above:.1f} m below the scene's highest ground surface ({ground_y:.2f} m)"
                           + ("" if buried else " — the frame itself renders fine, so this is probably terrain"
                              " (a hill / raised bed / backdrop) reaching above the camera, not a buried camera"),
-                          "set position[1] = heightAt(x, z) + 1.6 (eye level) — never below the terrain",
+                          hints["eye"],
                           kind="camera_underground" if buried else "camera_below_high_ground",
                           view=name, eye_height_m=eye, ground_y=ground_y))
         elif above < EYE_MIN_ABOVE_GROUND_M:
             out.append(_f(Severity.WARN, name, f"camera eye only {above:.2f} m above ground — ant's-eye view",
-                          "human shots: position[1] = heightAt(x, z) + 1.6; establishing: 6–20 m above ground looking down 15–30°",
+                          hints["low"],
                           kind="camera_low", view=name, eye_height_m=eye, ground_y=ground_y))
         elif above > EYE_MAX_ABOVE_GROUND_M:
             out.append(_f(Severity.WARN, name, f"camera {above:.0f} m above ground — satellite view, not a shot",
@@ -245,7 +311,7 @@ def _frame_looks_buried(chk: dict[str, Any]) -> bool:
     return modal is not None and modal > FLAT_MODAL_ERROR
 
 
-def _coverage_finding(chk: dict[str, Any], *, role: str) -> GateFinding | None:
+def _coverage_finding(chk: dict[str, Any], *, role: str, hints: dict[str, str]) -> GateFinding | None:
     """role: 'establishing' | 'authored' | 'overview' | 'eye'."""
     content = _num(chk, "content_frac")
     if content is None or role == "eye":
@@ -254,10 +320,10 @@ def _coverage_finding(chk: dict[str, Any], *, role: str) -> GateFinding | None:
     sky, ground = _num(chk, "sky_frac"), _num(chk, "ground_frac")
     detail = f"content {content:.0%} of the frame (sky {sky or 0:.0%}, ground {ground or 0:.0%})"
     if role == "establishing" and content < CONTENT_MIN_ESTABLISHING:
-        return _f(Severity.ERROR, name, f"establishing shot shows too little content: {detail}", _SMALL_HINT,
+        return _f(Severity.ERROR, name, f"establishing shot shows too little content: {detail}", hints["small"],
                   kind="content_small", view=name, content_frac=content, sky_frac=sky, ground_frac=ground, role=role)
     if role == "authored" and content < CONTENT_MIN_AUTHORED:
-        return _f(Severity.WARN, name, f"shot shows little content: {detail}", _SMALL_HINT,
+        return _f(Severity.WARN, name, f"shot shows little content: {detail}", hints["small"],
                   kind="content_small", view=name, content_frac=content, sky_frac=sky, ground_frac=ground, role=role)
     if role == "overview" and content < CONTENT_MIN_OVERVIEW:
         return _f(Severity.WARN, name, f"overview rig sees sparse content: {detail}",
@@ -283,7 +349,7 @@ def stored_motion(metrics: dict[str, Any]) -> list[MotionRow]:
     return out
 
 
-def _motion_findings(rows: list[MotionRow]) -> list[GateFinding]:
+def _motion_findings(rows: list[MotionRow], hints: dict[str, str]) -> list[GateFinding]:
     """One finding for the whole scene: frozen (ERROR) or the measured per-camera table (INFO)."""
     moves = scene_moves(rows)
     if moves is None:
@@ -292,7 +358,7 @@ def _motion_findings(rows: list[MotionRow]) -> list[GateFinding]:
         worst = max((r.changed_frac for r in rows if r.authored), default=0.0)
         return [_f(Severity.ERROR, "overall",
                    f"nothing moves: the largest change on an authored camera is {worst:.2%} of pixels between "
-                   f"t={rows[0].t0:g}s and t={rows[0].t1:g}s (measured, not perceived)", _STATIC_HINT,
+                   f"t={rows[0].t0:g}s and t={rows[0].t1:g}s (measured, not perceived)", hints["static"],
                    kind="no_motion", changed_frac=round(worst, 5),
                    views=[r.name for r in rows if r.authored][:6])]
     moving = [r for r in rows if r.authored and r.moving]
@@ -310,7 +376,10 @@ _UNUSED_GLB_HINT = (
 )
 
 
-def _glb_findings(census: dict[str, Any]) -> list[GateFinding]:
+HINTS["scene_threejs"]["unused_glb"] = _UNUSED_GLB_HINT
+
+
+def _glb_findings(census: dict[str, Any], hints: dict[str, str]) -> list[GateFinding]:
     """A GLB that was loaded and contributed no geometry to the rendered scene.
 
     Measured 2026-08-25 on tsr_scn_boat_workshop_v2: ``src/scene.js`` loads
@@ -335,7 +404,7 @@ def _glb_findings(census: dict[str, Any]) -> list[GateFinding]:
         out.append(_f(Severity.WARN, "overall",
                       f"{url} is loaded but no geometry from it reaches the rendered scene "
                       f"({r.get('meshes', 0)} mesh(es) in the file, 0 in the frame)",
-                      _UNUSED_GLB_HINT, kind="unused_glb_asset", url=url,
+                      hints["unused_glb"], kind="unused_glb_asset", url=url,
                       meshes=r.get("meshes"), meshes_in_scene=r.get("meshes_in_scene")))
     return out
 
@@ -395,6 +464,36 @@ def _hero_findings(checks: list[dict[str, Any]], census: dict[str, Any]) -> list
     return out
 
 
+def _render_time_findings(metrics: dict[str, Any]) -> list[GateFinding]:
+    """A Blender frame set whose median JUDGED frame took longer than ``SLOW_FRAME_S`` (owner
+    D2: offline rendering has no draw budget; its cost is seconds per frame).  WARN, naming the
+    zone with the most triangles — the first place to thin.  Silent for every payload without a
+    ``blender`` block (three.js)."""
+    b = metrics.get("blender")
+    if not isinstance(b, dict):
+        return []
+    ms = sorted(float(v["render_ms"]) for v in metrics.get("views") or []
+                if isinstance(v, dict) and v.get("judge", True) and isinstance(v.get("render_ms"), int | float))
+    if not ms:
+        return []
+    median_s = ms[len(ms) // 2] / 1000.0
+    limit = SLOW_FRAME_S * (SLOW_FRAME_CPU_FACTOR if str(b.get("device")).upper() == "CPU" else 1.0)
+    if median_s <= limit:
+        return []
+    groups = [g for g in (metrics.get("census") or {}).get("groups") or []
+              if isinstance(g, dict) and g.get("kind") == "content" and isinstance(g.get("triangles"), int | float)]
+    heavy = max(groups, key=lambda g: g["triangles"], default=None)
+    where = f"; the heaviest zone is {heavy.get('name')} ({int(heavy['triangles']):,} triangles)" if heavy else ""
+    return [_f(Severity.WARN, str(heavy.get("name")) if heavy else "overall",
+               f"a judged frame takes {median_s:.1f} s to render (median, {b.get('engine')} {b.get('samples')} spp on the "
+               f"{b.get('device')}; the ceiling is {limit:.0f} s){where}",
+               "thin what costs render time: instance repeated geometry (collection instances / geometry-nodes Instance on "
+               "Points) instead of copying meshes, fewer lights (a Point lamp per lantern only where it is seen), fewer "
+               "transmissive/glass and volume objects, lower subdivision levels on what is far from every camera",
+               kind="slow_frame", median_s=round(median_s, 2), limit_s=limit, device=b.get("device"),
+               zone=heavy.get("name") if heavy else None)]
+
+
 def frame_findings(metrics: dict[str, Any]) -> GateReport:
     """``scene_frames`` gate from a ``metrics.json`` payload (``camera_checks`` + ``census`` + ``motion``)."""
     checks: list[dict[str, Any]] = [c for c in metrics.get("camera_checks") or [] if isinstance(c, dict)]
@@ -402,20 +501,22 @@ def frame_findings(metrics: dict[str, Any]) -> GateReport:
     ground_y = float(ground_y) if isinstance(ground_y, (int, float)) else None
     findings: list[GateFinding] = []
     first_authored = next((c for c in checks if _view_kind(c) == "authored"), None)
+    hints = hints_for(metrics)
     for chk in checks:
         authored = _view_kind(chk) == "authored"
-        findings += _exposure_findings(chk, authored=authored)
-        findings += _geometry_findings(chk, authored=authored, ground_y=ground_y)
+        findings += _exposure_findings(chk, authored=authored, hints=hints)
+        findings += _geometry_findings(chk, authored=authored, ground_y=ground_y, hints=hints)
         if authored:
             role = "establishing" if chk is first_authored else "authored"
         else:
             role = "overview" if str(chk.get("name", "")).startswith("overview") else "eye"
-        cov = _coverage_finding(chk, role=role)
+        cov = _coverage_finding(chk, role=role, hints=hints)
         if cov is not None:
             findings.append(cov)
-    findings += _motion_findings(stored_motion(metrics))
-    findings += _glb_findings(metrics.get("census") or {})
+    findings += _motion_findings(stored_motion(metrics), hints)
+    findings += _glb_findings(metrics.get("census") or {}, hints)
     findings += _hero_findings(checks, metrics.get("census") or {})
+    findings += _render_time_findings(metrics)
     if checks and not [f for f in findings if f.severity != Severity.INFO]:
         n = len(checks)
         findings.append(_f(Severity.INFO, "overall", f"{n} camera frame(s) checked: exposure, geometry and coverage within limits", "",

@@ -77,6 +77,80 @@ def check_blender() -> list[Row]:
     return [("blender", "OK" if okk else "FAIL", f"{v} @ {b}")]
 
 
+#: one headless Blender run: the Cycles CUDA device list and (with EEVEE) a 32x18 EEVEE frame whose GL
+#: renderer string says whether the d3d12 env put it on the GPU or it fell to llvmpipe
+_BLENDER_RENDER_PROBE = """
+import json, sys
+import bpy
+out = {}
+p = bpy.context.preferences.addons["cycles"].preferences
+try:
+    p.compute_device_type = "CUDA"
+    p.refresh_devices()
+    out["cuda"] = [d.name for d in p.devices if d.type == "CUDA"]
+except Exception as e:
+    out["cuda"], out["cuda_error"] = [], str(e)[:200]
+if "--eevee" in sys.argv:
+    try:
+        sc = bpy.context.scene
+        sc.render.engine = "BLENDER_EEVEE"
+        sc.render.resolution_x, sc.render.resolution_y = 32, 18
+        sc.eevee.taa_render_samples = 1
+        bpy.ops.render.render()
+        import gpu
+        out["gl"] = gpu.platform.renderer_get()
+    except Exception as e:
+        out["gl_error"] = str(e)[:200]
+print("C3D_DOCTOR " + json.dumps(out))
+"""
+
+
+def check_blender_render(*, eevee: bool = True, timeout_s: int = 120) -> list[Row]:
+    """What scene_blender's judged frames render on (owner D1/D8): Cycles on CUDA or on the CPU,
+    EEVEE on the GPU or silently on llvmpipe, and the machine-wide GPU render slots."""
+    import json
+
+    from codeverse3d.languages.blender import blender_env
+    from codeverse3d.spatial.gl_render import GPU_ENV
+    from codeverse3d.spatial.render_blender import gpu_slots
+
+    s = get_settings()
+    b = s.resolve_blender()
+    if not b:
+        return [("blender render", "SKIP", "no Blender binary")]
+    cmd = [b, "-b", "--factory-startup", "--python-expr", _BLENDER_RENDER_PROBE, "--"] + (["--eevee"] if eevee else [])
+    try:
+        proc = run_subprocess(cmd, cwd=Path.cwd(), env={**blender_env(), **GPU_ENV}, timeout_s=timeout_s)
+    except OSError as e:
+        return [("blender render", "FAIL", f"could not run {b}: {e}")]
+    line = next((ln for ln in reversed(proc.stdout.splitlines()) if ln.startswith("C3D_DOCTOR ")), "")
+    if proc.timed_out or not line:
+        why = f"timed out after {timeout_s}s" if proc.timed_out else f"exit {proc.returncode}, no probe line"
+        return [("blender render", "FAIL", why)]
+    res = json.loads(line.removeprefix("C3D_DOCTOR "))
+    r = s.render
+    cuda = res.get("cuda") or []
+    rows: list[Row] = [(
+        "blender cycles", "OK" if cuda else "WARN",
+        (f"CUDA: {', '.join(cuda)}" if cuda else f"no CUDA device{' (' + res['cuda_error'] + ')' if res.get('cuda_error') else ''}"
+         " — scene_blender frames render on the CPU (~3.3x slower)")
+        + f"; judged frames: {r.blender_engine} {r.blender_samples} spp, device {r.blender_device}")]
+    if eevee:
+        gl = str(res.get("gl") or "")
+        if res.get("gl_error") or not gl:
+            rows.append(("blender eevee", "FAIL", f"EEVEE smoke frame failed: {res.get('gl_error', 'no GL renderer')}"))
+        else:
+            soft = "llvmpipe" in gl.lower()
+            rows.append(("blender eevee", "WARN" if soft else "OK",
+                         f"{gl} — software GL: EEVEE would be ~10x slower (the Cycles default is unaffected)" if soft
+                         else f"GPU (Mesa d3d12 env): {gl}"))
+    slots = gpu_slots(s)
+    busy = slots.busy()
+    rows.append(("blender gpu slots", "WARN" if busy >= slots.n else "OK",
+                 f"{busy}/{slots.n} busy machine-wide ({slots.root}); a render waits {r.blender_gpu_wait_s:g}s, then the CPU"))
+    return rows
+
+
 def check_node() -> list[Row]:
     from codeverse3d.spatial.node import NODE_MIN_STR, node_version_error, parse_node_version
 
@@ -257,6 +331,7 @@ def run_doctor(*, live: bool = False, gpu: bool = True, skills: bool = False) ->
     rows: list[Row] = []
     rows += check_python_deps()
     rows += check_blender()
+    rows += check_blender_render(eevee=gpu)
     rows += check_node()
     if gpu:
         rows += check_gpu_probe()

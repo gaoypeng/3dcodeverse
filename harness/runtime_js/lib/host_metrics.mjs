@@ -51,6 +51,21 @@ export function frameStats(canvas) {
   };
 }
 
+/** The keys `frameStats` returns — what an external frame replaces in a camera check. */
+export const FRAME_STAT_KEYS = ['mean_lum', 'lum_std', 'dark_frac', 'blown_frac', 'modal_frac'];
+
+/**
+ * `frameStats` of an image another renderer wrote (scene_blender: the Blender PNG of a view,
+ * handed in as a data URL): the SAME sampling grid and the same statistics as a canvas frame,
+ * so both languages' metrics.json read through one implementation and one set of thresholds.
+ */
+export async function imageFrameStats(url) {
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  return frameStats(img);
+}
+
 // six skewed directions, not the axes: a ray straight up from a round camera position hits the
 // centre line of an axis-aligned ceiling, i.e. the diagonal both triangles share, twice
 const PARITY_DIRS = [[1, 0.37, 0.23], [-1, 0.29, -0.41], [0.31, 1, 0.19], [-0.27, -1, 0.35], [0.23, 0.41, 1], [-0.39, 0.17, -1]];

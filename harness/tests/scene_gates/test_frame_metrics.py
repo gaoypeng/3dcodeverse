@@ -186,3 +186,47 @@ def test_auto_exposure_lifts_a_frame_past_the_gates_dark_line():
     host = (runtime_js_dir() / "lib" / "scene_host.mjs").read_text()
     lo = float(re.search(r"const EXPOSURE_BAND = \[([\d.]+),", host).group(1))
     assert lo == DARK_MEAN_LUM
+
+
+def test_a_blender_payload_gets_bpy_fix_hints_and_three_js_keeps_its_own():
+    """The thresholds are one; the words are the language's (``metrics["language"]``)."""
+    from codeverse3d.spatial.frame_metrics import HINTS
+
+    dark = _chk("Establishing", mean_lum=0.04, lum_std=0.03, dark_frac=0.8)
+    low = _chk("Street", eye_height_m=0.1, ground_below_m=0.1, ground_below_name="Ground")
+    three = frame_findings(_metrics(dark, low))
+    bpy = frame_findings({**_metrics(dark, low), "language": "scene_blender"})
+    assert [(f.data["kind"], f.severity) for f in three.findings] == [(f.data["kind"], f.severity) for f in bpy.findings]
+    t_hints = {f.data["kind"]: f.fix_hint for f in three.findings}
+    b_hints = {f.data["kind"]: f.fix_hint for f in bpy.findings}
+    assert t_hints["dark_frame"] == HINTS["scene_threejs"]["dark"] and "sunRig" in t_hints["dark_frame"]
+    assert "sun.data.energy" in b_hints["dark_frame"] and "sunRig" not in b_hints["dark_frame"]
+    assert "heightAt" in t_hints["camera_low"] and "ctx.height_at" in b_hints["camera_low"]
+    assert set(HINTS["scene_blender"]) == set(HINTS["scene_threejs"]), "every hint has a bpy wording"
+
+
+def test_a_slow_blender_frame_set_warns_and_names_the_heaviest_zone():
+    """Owner D2: offline rendering has no draw budget; seconds per judged frame is its cost."""
+    from codeverse3d.spatial.frame_metrics import SLOW_FRAME_CPU_FACTOR, SLOW_FRAME_S
+
+    def payload(ms: float, device: str = "GPU") -> dict:
+        views = [{"name": "A", "kind": "authored", "path": "a.png", "time_s": t, "position": [0, 1, 5],
+                  "lookAt": [0, 0, 0], "fov": 50, "render_ms": ms} for t in (0.0, 1.5)]
+        groups = [{"name": "Market", "kind": "content", "triangles": 900_000},
+                  {"name": "Harbour", "kind": "content", "triangles": 120_000},
+                  {"name": "Ground", "kind": "ground", "triangles": 5_000_000}]
+        return {**_metrics(_chk("A")), "views": views, "census": {"ground_y": 0.0, "groups": groups},
+                "language": "scene_blender", "blender": {"engine": "cycles", "samples": 32, "device": device}}
+
+    slow = [f for f in frame_findings(payload(SLOW_FRAME_S * 1000 + 500)).findings if f.data.get("kind") == "slow_frame"]
+    assert len(slow) == 1 and slow[0].severity == Severity.WARN and slow[0].target == "Market"
+    assert "Market" in slow[0].message and "900,000" in slow[0].message
+    assert not [f for f in frame_findings(payload(SLOW_FRAME_S * 1000 - 500)).findings if f.data.get("kind") == "slow_frame"]
+    # the CPU fallback is ~3.3x slower by construction: the same frame there is not the scene's fault
+    cpu = payload(SLOW_FRAME_S * 1000 + 500, device="CPU")
+    assert not [f for f in frame_findings(cpu).findings if f.data.get("kind") == "slow_frame"]
+    assert [f for f in frame_findings(payload(SLOW_FRAME_S * SLOW_FRAME_CPU_FACTOR * 1000 + 500, "CPU")).findings
+            if f.data.get("kind") == "slow_frame"]
+    # a three.js payload (no blender block) never reads render_ms
+    three = {k: v for k, v in payload(60_000).items() if k not in ("blender", "language")}
+    assert not [f for f in frame_findings(three).findings if f.data.get("kind") == "slow_frame"]

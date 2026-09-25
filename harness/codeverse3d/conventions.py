@@ -86,6 +86,15 @@ def glb_basis(language: str) -> tuple[tuple[float, float, float], ...]:
     return ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
 
 
+def from_authoring_frame(v: Sequence[float], language: str) -> tuple[float, float, float]:
+    """The inverse of :func:`to_authoring_frame` for a point / direction: ``language``'s frame
+    into the GLB frame — :func:`glb_basis` applied, so the mapping is stated once."""
+    x, y, z = (float(c) for c in v)
+    r = glb_basis(language)
+    return (r[0][0] * x + r[0][1] * y + r[0][2] * z, r[1][0] * x + r[1][1] * y + r[1][2] * z,
+            r[2][0] * x + r[2][1] * y + r[2][2] * z)
+
+
 def frame_doc(frame: Frame) -> str:
     """Return the one-paragraph prompt text describing ``frame``."""
     if frame is Frame.Z_UP_NEG_Y_FRONT:

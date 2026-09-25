@@ -329,6 +329,14 @@ render_scene(ws, out_dir, *, cameras=None, orbit=True, times=(0.0, 1.5), width=1
              bounds=None) -> RenderSet
     # Δ bounds default from ws plan.json → orbit rig frustum-fits the CONTENT box (not ground/sky);
     # contact sheet = judge subset only; views.json entries get judge: true|false
+from codeverse3d.spatial.render_scene import render_set_from_metrics   # metrics.json payload → RenderSet (both scene languages)
+from codeverse3d.spatial.render_blender import render_blender_scene     # scene_blender (lane B): Blender pixels, JS camera checks
+render_blender_scene(ws, out_dir, *, cameras=None, orbit=True, times=(0.0, 1.5), width=1024, height=576, sheet=True,
+                     orbit_views=SCENE_VIEWS, timeout_s=None, bounds=None, blend=None, census=None,
+                     scene_rel="src/scene.js", engine=None, samples=None) -> RenderSet
+    # blend = artifacts/scene.blend, census = artifacts/census.json (orbit fit); scene_rel = the host entry that loads the
+    # census GLB; metrics.json = the three.js schema + {"language": "scene_blender", "blender": {engine, device, samples,
+    # fallback, frame_ms, timings_ms}}; Settings.render.blender_{engine,samples,device,gpu_slots,gpu_wait_s}
 from codeverse3d.spatial.render_scene import select_judge_views, JUDGE_MAX_VIEWS, plan_bounds
 select_judge_views(rs, max_n=10) -> RenderSet          # priority: authored@t0, 2 overview@t0, 2 authored@t_last, rest
 from codeverse3d.spatial.frame_metrics import frame_gate_from_renders, frame_findings, frame_summary_text, FRAME_GATE

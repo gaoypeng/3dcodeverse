@@ -106,6 +106,24 @@ class Render(BaseModel):
         "the node side reads too)")
     sheet_cols: int = 4
     sheet_tile: int = 384
+    # scene_blender pictures (spatial/render_blender.py, owner D1/D8 2026-09-24).  Measured on this
+    # box at 1024x576: Cycles CUDA 32 spp + OIDN 0.9 s/frame (light scene) - 3.6 s (heavy), CPU 2.9 s
+    # at 16 spp; EEVEE 64 spp 1.5 - 3.0 s plus a 7-12 s shader compile per process, GPU only under the
+    # Mesa d3d12 env (spatial/gl_render.GPU_ENV) — without it EEVEE silently lands on llvmpipe (10x).
+    blender_engine: Annotated[Literal["cycles", "eevee"], BeforeValidator(lambda v: str(v).strip().lower())] = Field(
+        default="cycles", description="judged-frame engine for scene_blender (C3D_RENDER__BLENDER_ENGINE)")
+    blender_samples: int = Field(
+        default=32, ge=1, description="Cycles samples (adaptive + OIDN) / EEVEE TAA samples; the profile dial sets "
+        "economy 16 · balanced 32 · quality 64 (C3D_RENDER__BLENDER_SAMPLES)")
+    blender_device: Annotated[Literal["gpu", "cpu"], BeforeValidator(lambda v: str(v).strip().lower())] = Field(
+        default="gpu", description="'gpu' takes a machine-wide GPU slot and falls back to the CPU when none frees "
+        "within blender_gpu_wait_s or the GPU render dies; 'cpu' never touches the GPU")
+    blender_gpu_slots: int = Field(
+        default=2, ge=1, description="machine-wide concurrent GPU Blender renders (flock'd files under "
+        "<cache_dir>/slots/blender_gpu/)")
+    blender_gpu_wait_s: float = Field(
+        default=60.0, ge=0, description="how long a render waits for a GPU slot before it renders on the CPU "
+        "(~3.3x slower, measured)")
 
 
 class Limits(BaseModel):
@@ -365,6 +383,7 @@ class Settings(BaseSettings):
         put("default_captioner", p.captioner)
         put("default_candidates", p.candidates)
         put_section("judge", {"samples": p.judge_samples})
+        put_section("render", {"blender_samples": p.blender_samples})
         return p
 
     def resolve_blender(self) -> str:

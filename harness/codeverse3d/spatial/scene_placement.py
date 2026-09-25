@@ -179,6 +179,48 @@ def is_interior(plan: Any) -> bool:
     return bool(flag) or infer_indoor(setting_text(plan))
 
 
+#: the fix hints / messages that name a language's API, per scene language (``census["language"]``;
+#: a census without one is three.js, as every recorded round is).  The checks and their numbers
+#: are the same for every language; only the words that tell the author what to type differ.
+LANGUAGE_WORDS: dict[str, dict[str, str]] = {
+    "scene_threejs": {
+        "seat": "seat it with heightAt(x, z) or on the surface it stands on",
+        "free": "{name}.userData.placement = 'free'",
+        "no_fog_msg": "scene.fog is not set — frames read as thin_atmosphere (32/48 measured runs)",
+        "no_fog": "in buildEnv set scene.fog = new THREE.Fog(<sky horizon hex>, near, far) with the plan's numbers",
+        "no_background_msg": "scene.background is not set (renders on the raw clear colour)",
+        "no_background": "in buildEnv set scene.background to the sky colour or sky texture the plan names",
+        "fog_far": ("fog far >= {need:.0f} m ({spans:g} x the plan span; the starter's shell fog is scaled to it: keep "
+                    "`scene.fog = shell.fog`, or lengthen yours) and let the horizon ridge / outskirts close the world"),
+        "underdressed": ("the layout's dressing counts are binding: add the missing props and the instanced ground cover "
+                         "(tufts/pebbles count via InstancedMesh.count)"),
+        "ring": ("vary them — at least 3 silhouettes, scale 0.6-1.6x, radius +-25 %, random yaw, clusters rather than a "
+                 "ring — or drop the ring and let the starter's worldShell ridge and makeOutskirts hills close the horizon"),
+        "place": "import its builder / clone its GLB",
+    },
+    "scene_blender": {
+        "seat": "seat it with ctx.height_at(x, y) or on the surface it stands on",
+        "free": '{name}["placement"] = "free"',
+        "no_fog_msg": "the scene has no atmosphere: no world Volume, bounded fog volume or mist — frames read as thin_atmosphere",
+        "no_fog": ("in build_env link a Volume Scatter / Principled Volume to the World Output's Volume (density "
+                   "0.002-0.02, tinted like the sky horizon) or place a bounded fog volume over the play area"),
+        "no_background_msg": "the world has no sky: no Sky Texture or Background colour on the world output",
+        "no_background": "in build_env give scene.world a Sky Texture (or the plan's sky colour on its Background node)",
+        "fog_far": ("thin the fog so 1/density >= {need:.0f} m ({spans:g} x the plan span) and let the horizon ridge / "
+                    "outskirts close the world"),
+        "underdressed": ("the layout's dressing counts are binding: add the missing props and the instanced ground cover "
+                         "(every collection instance / geometry-nodes instance counts)"),
+        "ring": ("vary them — at least 3 silhouettes, scale 0.6-1.6x, radius +-25 %, random yaw, clusters rather than a "
+                 "ring — or drop the ring and close the horizon with terrain ridges and hills"),
+        "place": "place a collection-instance Empty of ctx.assets['<snake>']",
+    },
+}
+
+
+def placement_words(language: str | None) -> dict[str, str]:
+    return LANGUAGE_WORDS.get(str(language or "scene_threejs"), LANGUAGE_WORDS["scene_threejs"])
+
+
 def _f(sev: Severity, msg: str, *, target: str, hint: str = "", kind: str, **data: Any) -> GateFinding:
     return GateFinding(gate=GATE, severity=sev, target=target, message=msg, fix_hint=hint, data={"kind": kind, **data})
 
@@ -206,7 +248,8 @@ def _sunk_severity(row: AssetRow) -> Severity | None:
     return Severity.WARN if row.sunk_m > SUNK_M else None
 
 
-def _asset_findings(rows: list[AssetRow], *, floating_m: float, ground_y: float | None) -> list[GateFinding]:
+def _asset_findings(rows: list[AssetRow], *, floating_m: float, ground_y: float | None,
+                    words: dict[str, str]) -> list[GateFinding]:
     out: list[GateFinding] = []
     floating: list[tuple[AssetRow, float]] = []
     for row in rows:
@@ -228,7 +271,7 @@ def _asset_findings(rows: list[AssetRow], *, floating_m: float, ground_y: float 
         else:
             out.append(_f(Severity.WARN, f"{q} is unsupported: hovers {gap:.2f} m above {support} and touches nothing", target=q,
                           hint=f"lower {q} by {gap:.2f} m onto {support}, or attach it to a neighbour; "
-                               f"if it is meant to hang free set {row.name}.userData.placement = 'free'",
+                               f"if it is meant to hang free set {words['free'].format(name=row.name)}",
                           kind="unsupported", gap_m=gap, zone=row.zone))
     many = len(floating) > FLOATING_ERROR_COUNT
     for row, gap in floating:
@@ -236,8 +279,8 @@ def _asset_findings(rows: list[AssetRow], *, floating_m: float, ground_y: float 
         support = _support_label(row, ground_y)
         sev = Severity.ERROR if (many or gap > FLOATING_ERROR_M) else Severity.WARN
         out.append(_f(sev, f"{q} is floating {gap:.2f} m above {support} (touches nothing)", target=q,
-                      hint=f"lower {q} by {gap:.2f} m onto {support} — seat it with heightAt(x, z) or on the surface it stands on; "
-                           f"a deliberately airborne thing gets {row.name}.userData.placement = 'free'",
+                      hint=f"lower {q} by {gap:.2f} m onto {support} — {words['seat']}; "
+                           f"a deliberately airborne thing gets {words['free'].format(name=row.name)}",
                       kind="floating", gap_m=gap, zone=row.zone))
     return out
 
@@ -280,7 +323,8 @@ def _cap_per_kind(findings: list[GateFinding]) -> list[GateFinding]:
     return out
 
 
-def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool = False) -> GateReport:
+def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool = False,
+                       language: str | None = None) -> GateReport:
     """The ``scene_placement`` GateReport for one census placement table (pure)."""
     t = table if isinstance(table, PlacementTable) else PlacementTable.model_validate(table or {})
     if t.error:
@@ -289,7 +333,8 @@ def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool =
                hint="harness instrumentation, not your code; the placement check was skipped this round")])
     floating_m = FLOATING_INDOOR_M if indoor else FLOATING_OUTDOOR_M
     rows = [r for r in t.assets if not r.exempt]
-    findings = _cap_per_kind(_asset_findings(rows, floating_m=floating_m, ground_y=t.ground_y) + _pair_findings(t.interpenetrations))
+    findings = _cap_per_kind(_asset_findings(rows, floating_m=floating_m, ground_y=t.ground_y, words=placement_words(language))
+                             + _pair_findings(t.interpenetrations))
     counts = {k: sum(1 for f in findings if f.data.get("kind") == k and f.severity != Severity.INFO)
               for k in ("floating", "sunken", "unsupported", "interpenetration")}
     n_exempt = sum(t.exempt.values())
@@ -415,6 +460,7 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
     "clone its GLB"."""
     if not isinstance(census, dict) or plan is None:
         return []
+    words = placement_words(census.get("language"))
     out: list[GateFinding] = []
     # -- density: the layout's counts are binding, and the census counts every instance
     groups = {to_snake(g.get("name", "")): g for g in (census.get("groups") or [])
@@ -432,17 +478,13 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
                           f"zone {zone_name} holds ~{have} instances but its layout budgeted {budget} "
                           f"(placements + mid/small props + ground cover)",
                           target=zone_name, kind="underdressed", have=have, budget=budget,
-                          hint="the layout's dressing counts are binding: add the missing props and the "
-                               "instanced ground cover (tufts/pebbles count via InstancedMesh.count)"))
+                          hint=words["underdressed"]))
     # -- atmosphere: the two env facts the census measures on every boot
     if "fog" in census and census.get("fog") is None:
-        out.append(_f(Severity.ERROR, "scene.fog is not set — frames read as thin_atmosphere (32/48 measured runs)",
-                      target="env", kind="no_fog",
-                      hint="in buildEnv set scene.fog = new THREE.Fog(<sky horizon hex>, near, far) with the plan's numbers"))
+        out.append(_f(Severity.ERROR, words["no_fog_msg"], target="env", kind="no_fog", hint=words["no_fog"]))
     if "background" in census and census.get("background") is None:
-        out.append(_f(Severity.ERROR, "scene.background is not set (renders on the raw clear colour)",
-                      target="env", kind="no_background",
-                      hint="in buildEnv set scene.background to the sky colour or sky texture the plan names"))
+        out.append(_f(Severity.ERROR, words["no_background_msg"], target="env", kind="no_background",
+                      hint=words["no_background"]))
     # -- fog that ends inside the world: measured 2026-09-08 over eleven exterior runs, every
     # one with fog far >= 2 x the plan span scored >= 0.60 and the three at 1.4-1.6 x scored
     # 0.42-0.60 with "no aerial perspective", "world edge", "backdrop floating in the sky" —
@@ -461,9 +503,7 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
             out.append(_f(Severity.WARN, short + " — past it the land is the background colour while the unfogged sky "
                           "stays sharp: a world edge and backdrops floating in the sky",
                           target="env", kind="fog_short", fog=fog, plan_span_m=round(span, 1),
-                          hint=f"fog far >= {FOG_FAR_MIN_SPANS * span:.0f} m ({FOG_FAR_MIN_SPANS:g} x the plan span; the starter's "
-                               "shell fog is scaled to it: keep `scene.fog = shell.fog`, or lengthen yours) and let the horizon "
-                               "ridge / outskirts close the world"))
+                          hint=words["fog_far"].format(need=FOG_FAR_MIN_SPANS * span, spans=FOG_FAR_MIN_SPANS)))
     # -- a stamped ring: >= 8 same-size copies evenly on a circle round the world's edge.
     # Five of six exteriors on 2026-09-09 drew their horizon as "a ring of identical cones
     # stamped round the perimeter" / "rocks in a perfect circle" and the judge called each a
@@ -487,9 +527,7 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
                                   f"(radius spread {rcv:.0%}, spacing spread {gcv:.0%}, size spread {scv:.0%}) — a toy backdrop",
                                   target=str(g.get("name", "overall")), kind="stamped_ring", n=n, radius_m=r,
                                   radius_cv=rcv, gap_cv=gcv, size_cv=scv,
-                                  hint="vary them — at least 3 silhouettes, scale 0.6-1.6x, radius +-25 %, random yaw, "
-                                       "clusters rather than a ring — or drop the ring and let the starter's worldShell "
-                                       "ridge and makeOutskirts hills close the horizon"))
+                                  hint=words["ring"]))
     # -- backdrop ring: outdoor worlds must have geometry past the play area
     groups = census.get("groups")
     if bounds and isinstance(groups, list) and not is_interior(plan):
@@ -543,7 +581,7 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
                           f"zone {zone_name} is missing planned contents: {', '.join(missing[:5])}"
                           + (f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""),
                           target=zone_name, kind="missing_content", missing=missing[:8],
-                          hint="place each listed asset (import its builder / clone its GLB) inside this "
+                          hint=f"place each listed asset ({words['place']}) inside this "
                                "zone's bbox AND give the object the plan's name for it — every gate and the "
                                "judge find it by that name, so a lantern called 'LanternPost1' reads as absent"))
     # -- plausible scale vs the plan's approx_size_m
@@ -643,7 +681,7 @@ def placement_gate_safe(census: dict[str, Any] | None, *, plan: Any = None,
         table = (census or {}).get("placement")
         if not isinstance(table, dict):
             return None
-        report = placement_findings(table, indoor=is_interior(plan))
+        report = placement_findings(table, indoor=is_interior(plan), language=(census or {}).get("language"))
         extra = _cap_per_kind(contract_findings(census, plan, layouts=layouts, unavailable=unavailable))
         if extra:
             report = GateReport.of(GATE, report.findings + extra, duration_ms=report.duration_ms)

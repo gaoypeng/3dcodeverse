@@ -227,6 +227,22 @@ def render_scene(
     metrics = read_json_or_none(out_dir / "metrics.json") or {}
     for w in metrics.get("host_warnings") or []:   # e.g. a post chain that could not be built: judged RAW
         log.warning("render_scene host warning: %s", w)
+    extra = [driver_error] if driver_error else []
+    if not metrics and res.summary.get("error"):
+        extra.append(str(res.summary["error"]))
+    return render_set_from_metrics(out_dir, metrics, width=width, height=height, orbit_views=orbit_views, sheet=sheet,
+                                   duration_ms=res.duration_ms, renderer=str(res.summary.get("renderer") or ""),
+                                   extra_errors=extra)
+
+
+def render_set_from_metrics(out_dir: Path, metrics: dict[str, Any], *, width: int, height: int,
+                            orbit_views: Sequence[ViewPreset] = SCENE_VIEWS, sheet: bool = True, duration_ms: int = 0,
+                            renderer: str = "", extra_errors: Sequence[str] = ()) -> RenderSet:
+    """A scene driver's ``metrics.json`` payload → the RenderSet every scene language returns:
+    motion measured and persisted, the views, the console / shader / driver errors, the judge
+    subset stamped once (``select_judge_views``) into the views and ``views.json``, the contact
+    sheet.  ``render_scene`` (three.js pixels) and ``render_blender.render_blender_scene``
+    (Blender pixels) both end here, so the two languages cannot drift apart downstream."""
     _store_motion(out_dir, metrics)
     views: list[RenderView] = []
     for v in metrics.get("views", []):
@@ -239,13 +255,12 @@ def render_scene(
     errors = list(metrics.get("console_errors", []))
     for e in metrics.get("shader_errors", []):
         errors.append(f"shader[{e.get('stage')}]: {e.get('message')} — {e.get('source_line', '')}".strip())
-    if driver_error and driver_error not in errors:
-        errors.append(driver_error)
-    if not metrics and res.summary.get("error"):
-        errors.append(str(res.summary["error"]))
+    for e in extra_errors:
+        if e and e not in errors:
+            errors.append(e)
     rs = RenderSet(
-        views=views, renderer=str(metrics.get("renderer") or res.summary.get("renderer") or ""),
-        duration_ms=res.duration_ms, console_errors=errors, fps=float(fps) if fps is not None else None,
+        views=views, renderer=str(metrics.get("renderer") or renderer or ""),
+        duration_ms=duration_ms, console_errors=errors, fps=float(fps) if fps is not None else None,
         out_dir=str(out_dir),
     )
     # stamp the judge subset ONCE (select_judge_views stays a pure function)

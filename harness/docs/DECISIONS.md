@@ -1114,6 +1114,34 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   build 5.0 s / 7.5 s (wrapper 3.4–5.3 s, of which GLB 0.1 / 0.8 s; JS probe 1–2.4 s).
   `render_scene` raises NotImplementedError until phase 2.
 
+* **D103 scene_blender pictures come from Blender; the camera checks and the metrics schema stay the JS host's
+  (2026-09-24, lane B; the lead renumbers).**  DESIGN §11 phase 2, owner D1/D2/D3/D8.
+  `spatial/render_blender.render_blender_scene` is what the language's `render_scene` calls: (1)
+  `runtime_js/fit_orbit.mjs` fits the orbit rig to the build's `census.json` with the unchanged `orbit.mjs`; (2)
+  `languages/wrappers/render_bpy_scene.py` opens `artifacts/scene.blend` and renders the authored cameras × every
+  time plus the first three overviews at t0 — the judge's views and the motion pair, nothing else — with
+  harness-owned settings (Cycles CUDA 32 spp adaptive + OIDN, fixed seed, AgX / exposure 0, RGB PNG; frames
+  `1 + round(30 t)`); (3) `render_scene.mjs --external-frames` loads the census GLB through the language's host
+  entry and computes every camera check on it, but its luminance statistics from the Blender PNG
+  (`host_metrics.imageFrameStats` = the one `frameStats` on an image), no settle / repair / post; (4)
+  `render_scene.render_set_from_metrics` (split out of `render_scene`, byte-identical for three.js) builds the
+  RenderSet.  metrics.json has the three.js schema plus `language` and `blender` (engine, device, samples, the
+  fallback, per-frame and per-step times).  GPU sharing (D8): `Settings.render.blender_gpu_slots` (2) flock'd
+  slots under `<cache_dir>/slots/blender_gpu/`; a render waits `blender_gpu_wait_s` (60 s) and then renders on the
+  CPU, and a GPU run that dies without a result is rendered once more on the CPU; a timeout is the scene's, no
+  retry.  `blender_engine` (cycles | eevee — EEVEE runs under `gl_render.GPU_ENV`) and `blender_samples` (the
+  profile dial: economy 16 · balanced 32 · quality 64).  The frame and placement gates keep one set of
+  thresholds and carry a per-language fix-hint table (`frame_metrics.HINTS` keyed by `metrics["language"]`,
+  `scene_placement.LANGUAGE_WORDS` by `census["language"]`); D2's render-time WARN is `slow_frame` (median
+  judged frame > 10 s GPU / 33 s CPU, naming the content group with the most triangles).  `3dcode doctor` gains
+  `blender cycles` / `blender eevee` / `blender gpu slots`.  Measured on this box, 1024x576, 7 frames (2 authored ×
+  2 times + 3 overviews), GPU shared with other work: Cycles CUDA 32 spp 0.9-1.6 s/frame on the 520 k-tri probe
+  scene (13.3 s for the whole render incl. 2.4-3.6 s geometry pass), 1.4-4.2 s/frame on the heavy one (21.1 s);
+  16 spp 10.5 / 18.9 s; 64 spp 14.1 / 36.2 s; CPU 32 spp 33.7 / 80.9 s; EEVEE 64 24.3 / 66.4 s (first frame
+  9-20 s of shader compile).  Not done here: the eye-level rig views get no Blender pixels (DESIGN §5.2: nobody
+  reads them), so their exposure is unmeasured; `no_fog` overviews unlink only the world volume (a bounded fog
+  object still renders).
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { sceneCensus } from './host_census.mjs';
 import { settleScene } from './host_placement.mjs';
-import { frameStats, nearGeometry, repairCameraSpec } from './host_metrics.mjs';
+import { FRAME_STAT_KEYS, frameStats, imageFrameStats, nearGeometry, repairCameraSpec } from './host_metrics.mjs';
 import { frameCoverage, glbCoverage } from './host_coverage.mjs';
 import { classifyBackdrop, nonSolid, drawableBox } from './backdrop.mjs';
 import { installShaderErrorHook } from './host_shader_errors.mjs';
@@ -618,6 +618,18 @@ function cameraChecks(spec) {
   return { name: spec.name, ...near, ...stats, ...coverage, glb_frac: glbFrac, hero_for: heroFor };
 }
 
+/**
+ * `cameraChecks` for a view whose PIXELS another renderer made (scene_blender, D1): the
+ * geometry instruments (near geometry, coverage masks) still come from this scene, the
+ * luminance statistics from `dataUrl` — the other renderer's frame — and a camera with no
+ * external frame carries no luminance at all (this scene's own pixels are not the picture).
+ */
+async function externalCameraChecks(spec, dataUrl) {
+  const chk = cameraChecks(spec);
+  for (const k of FRAME_STAT_KEYS) delete chk[k];
+  return dataUrl ? { ...chk, ...(await imageFrameStats(dataUrl)) } : chk;
+}
+
 /** Force-compile every material as seen from spec (or the first camera). */
 function compileAll(spec) {
   const cam = buildCamera(spec || state.cameras[0] || { position: [10, 10, 10], lookAt: [0, 0, 0], fov: 50 });
@@ -696,6 +708,7 @@ window.__c3v = {
   boot,
   renderAt,
   cameraChecks,
+  externalCameraChecks,
   cameraRepairs,
   compileAll,
   census,
