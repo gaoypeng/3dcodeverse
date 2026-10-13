@@ -1,4 +1,4 @@
-"""AntigravityAgent: envelope parsing, argv, fake binary, Gemini-API mode, live smoke."""
+"""AntigravityAgent (Gemini-API mode only): envelope parsing, argv, fake binary, pool key, live smoke."""
 
 from __future__ import annotations
 
@@ -8,11 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from codeverse3d.agents.backends import (
-    AntigravityAgent,
-    available_models,
-    resolve_model,
-)
+from codeverse3d.agents.backends import DEFAULT_AGY_MODEL, AntigravityAgent
 from codeverse3d.agents.cli_common import begin_session
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.agent import AgentJob
@@ -20,9 +16,12 @@ from codeverse3d.workspace import Workspace
 
 
 @pytest.fixture(autouse=True)
-def _subscription(monkeypatch, tmp_path):
-    """Every test here runs on the subscription sign-in unless it hands out keys itself."""
-    monkeypatch.setattr(get_settings(), "gemini_api_keys", [])
+def _one_key(monkeypatch, tmp_path, request):
+    """agy runs on API keys only: every test gets one key of its own (so its own pool — a 429
+    in one test never cools another's key) and a cache dir for the session HOMEs."""
+    if request.node.get_closest_marker("live"):
+        return   # the real pool and cache
+    monkeypatch.setattr(get_settings(), "gemini_api_keys", [f"key-{request.node.name}"])
     monkeypatch.setattr(get_settings(), "cache_dir", tmp_path / "cache")
 
 ENVELOPE = {"conversation_id": "c1", "status": "SUCCESS", "response": "DONE\n", "duration_seconds": 3.0, "num_turns": 1,
@@ -61,39 +60,15 @@ else:
 '''
 
 
-#: `agy models` output, as agy 1.1.19 prints it: a model with reasoning efforts is
-#: listed ONLY in its effort-suffixed spellings, one that has none is listed bare.
-FAKE_AGY_MODELS = r"""
-args = sys.argv[1:]
-if args[:1] == ["models"]:
-    print("Fetching available models...")
-    print("gemini-3.7-flash-high\tGemini 3.7 Flash (High)")
-    print("gemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)")
-    print("gemini-3.7-flash-low\tGemini 3.7 Flash (Low)")
-    print("claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)")
-    sys.exit(0)
-# agy 1.1.19 refuses a bare id that has efforts, and refuses --effort for one that has none
-model = args[args.index("--model") + 1] if "--model" in args else ""
-if model in ("gemini-3.7-flash",):
-    print(json.dumps({"conversation_id": "", "status": "ERROR", "response": "",
-                      "error": 'invalid model selection (--model "%s" --effort ""): '
-                               "--model %s requires --effort (available: low, medium, high)" % (model, model)}))
-    sys.exit(0)
-os.makedirs("src", exist_ok=True)
-open("src/hello.txt", "w").write("hi")
-print(""" + repr(json.dumps(ENVELOPE)) + r""")
-"""
-
-
 def test_argv_sets_the_print_timeout_a_minute_past_the_session(tmp_ws: Workspace):
-    a = AntigravityAgent("gemini-3.6-flash-high", binary="agy")
+    a = AntigravityAgent("gemini-4-argon-high", binary="agy")
     s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", timeout_s=1800), "agy")
     argv = a.build_argv(s)
     assert argv[argv.index("--print-timeout") + 1] == "31m"
 
 
 def test_fake_run_json_and_text(tmp_ws: Workspace, fake_bin, monkeypatch):
-    a = AntigravityAgent("gemini-3.6-flash-high", binary=fake_bin("agy", FAKE_AGY))
+    a = AntigravityAgent("gemini-4-argon-high", binary=fake_bin("agy", FAKE_AGY))
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="a", timeout_s=30))
     assert res.ok and res.text.strip() == "DONE", res.errors
     u = res.usage
@@ -114,7 +89,7 @@ def test_the_retries_in_agys_own_log_are_its_provider_wait(tmp_ws: Workspace, fa
     from codeverse3d.agents.backends import agy_retries
     from codeverse3d.agents.cli_common import provider_wait
 
-    a = AntigravityAgent("gemini-3.6-flash-high", binary=fake_bin("agy", FAKE_AGY))
+    a = AntigravityAgent("gemini-4-argon-high", binary=fake_bin("agy", FAKE_AGY))
     monkeypatch.setenv("FAKE_MODE", "retried")
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="r", timeout_s=30))
     assert res.ok, res.errors
@@ -128,7 +103,7 @@ def test_the_retries_in_agys_own_log_are_its_provider_wait(tmp_ws: Workspace, fa
 
 
 def test_agy_says_itself_whether_a_dead_turn_is_worth_a_retry(tmp_ws: Workspace, fake_bin, monkeypatch):
-    a = AntigravityAgent("gemini-3.6-flash-high", binary=fake_bin("agy", FAKE_AGY))
+    a = AntigravityAgent("gemini-4-argon-high", binary=fake_bin("agy", FAKE_AGY))
     monkeypatch.setenv("FAKE_MODE", "died")
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="d", timeout_s=30))
     assert not res.ok and res.exit_reason == "error" and res.transient and not res.quota
@@ -140,33 +115,11 @@ def test_agy_says_itself_whether_a_dead_turn_is_worth_a_retry(tmp_ws: Workspace,
 def test_live_agy_tiny(tmp_ws: Workspace):
     if not shutil.which("agy"):
         pytest.skip("agy not installed")
-    a = AntigravityAgent("gemini-3.6-flash-low")
+    a = AntigravityAgent("gemini-4-argon-low")
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="Use your file-writing tool to create src/hello.txt containing exactly 'hi'. Reply DONE.",
                          timeout_s=300, label="live", spatial_tools=False))
     assert res.ok, res.errors
     assert (tmp_ws.src / "hello.txt").read_text().strip() == "hi"
-
-
-def test_an_unknown_model_and_an_unreachable_agy_are_passed_through(tmp_ws: Workspace, fake_bin):
-    """Resolution can only turn a guaranteed failure into a run, never the reverse."""
-    available_models.cache_clear()
-    binary = fake_bin("agy", FAKE_AGY_MODELS)
-    assert resolve_model("gemini-3.7-flash-low", binary) == "gemini-3.7-flash-low"
-    assert resolve_model("claude-sonnet-4-6", binary) == "claude-sonnet-4-6"   # has no effort
-    assert resolve_model("some-future-model", binary) == "some-future-model"
-    available_models.cache_clear()
-    assert resolve_model("gemini-3.7-flash", "/nonexistent/agy") == "gemini-3.7-flash"
-
-
-def test_the_run_uses_and_records_the_resolved_id(tmp_ws: Workspace, fake_bin):
-    """agy 1.1.19 refuses a bare id that has efforts: the run sends the effort-suffixed id."""
-    available_models.cache_clear()
-    a = AntigravityAgent("gemini-3.7-flash", binary=fake_bin("agy", FAKE_AGY_MODELS))
-
-    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="a", timeout_s=60))
-
-    assert res.ok and res.text.strip() == "DONE", res.errors
-    assert res.usage.model == "gemini-3.7-flash-medium"
 
 
 #: agy in Gemini-API mode, as the harness drives it: everything it needs is in its own HOME
@@ -188,24 +141,25 @@ print(''' + repr(json.dumps(ENVELOPE)) + r''')
 '''
 
 
-def test_api_mode_runs_on_a_pool_key_in_a_home_of_its_own(tmp_ws: Workspace, fake_bin, monkeypatch):
-    """A Gemini model with keys configured: one pool key, agy's API-mode setting and the 3dcode MCP
-    server in a fresh HOME (gone afterwards), the model sent verbatim with its effort, usage priced."""
+def test_a_session_runs_on_a_pool_key_in_a_home_of_its_own(tmp_ws: Workspace, fake_bin, monkeypatch):
+    """One pool key, agy's API-mode setting and the 3dcode MCP server in a fresh HOME (gone
+    afterwards), the model sent verbatim with its effort, usage priced."""
     from codeverse3d.agents import backends
 
-    monkeypatch.setattr(get_settings(), "gemini_api_keys", ["key-one"])
-    a = AntigravityAgent("gemini-3.7-flash-low", binary=fake_bin("agy", FAKE_AGY_API))
-    assert a.api_mode and a.served_model() == "gemini-3.7-flash"
+    key = get_settings().gemini_api_keys[0]
+    a = AntigravityAgent("gemini-4-argon-low", binary=fake_bin("agy", FAKE_AGY_API))
+    assert a.served_model() == "gemini-4-argon"
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="api", timeout_s=30, language="blender"))
     assert res.ok, res.errors
     seen = json.loads((tmp_ws.src / "seen.json").read_text())
-    assert seen["key"] == "key-one" and seen["settings"] == {"modelProvider": "gemini"}
-    assert (seen["model"], seen["effort"]) == ("gemini-api://gemini-3.7-flash", "low")
+    assert seen["key"] == key and seen["settings"] == {"modelProvider": "gemini"}
+    assert (seen["model"], seen["effort"]) == ("gemini-api://gemini-4-argon", "low")
     server = seen["mcp"]["mcpServers"]["3dcode"]
     assert server["args"][:2] == ["-m", "codeverse3d.spatial.mcp_server"] and server["env"] == {"HOME": str(Path.home())}
     assert seen["home"] != str(Path.home()) and not Path(seen["home"]).exists()   # deleted after the session
-    assert res.usage.model == "gemini-3.7-flash" and res.usage.cost_usd > 0
-    # a bare id runs at the API's own default effort
+    assert res.usage.model == "gemini-4-argon" and res.usage.cost_usd > 0
+    # a bare id runs at the API's own default effort; no model at all is argon
+    assert AntigravityAgent("").model == DEFAULT_AGY_MODEL == "gemini-4-argon"
     assert AntigravityAgent("gemini-4-argon").model_args() == ["--model", "gemini-api://gemini-4-argon", "--effort", "high"]
     # a 429 cools the key in the shared pool
     monkeypatch.setenv("FAKE_MODE", "429")
@@ -215,7 +169,11 @@ def test_api_mode_runs_on_a_pool_key_in_a_home_of_its_own(tmp_ws: Workspace, fak
     assert json.loads((tmp_ws.src / "seen.json").read_text())["mcp"] == {"mcpServers": {}}
 
 
-def test_a_model_agy_only_serves_on_the_subscription_never_takes_a_key(monkeypatch):
-    monkeypatch.setattr(get_settings(), "gemini_api_keys", ["key-one"])
-    assert not AntigravityAgent("claude-sonnet-4-6").api_mode
-    assert AntigravityAgent("gemini-3.7-flash").api_mode
+def test_without_keys_agy_is_unavailable_and_never_starts(tmp_ws: Workspace, fake_bin, monkeypatch):
+    """No subscription fallback (owner, 2026-10-13): no keys is a clear error, not a sign-in run."""
+    monkeypatch.setattr(get_settings(), "gemini_api_keys", [])
+    a = AntigravityAgent("gemini-4-argon", binary=fake_bin("agy", FAKE_AGY))
+    ok, why = a.available()
+    assert not ok and "API keys" in why
+    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="nokey", timeout_s=30))
+    assert not res.ok and res.exit_reason == "error" and not (tmp_ws.src / "hello.txt").exists()

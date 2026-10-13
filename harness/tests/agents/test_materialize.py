@@ -88,7 +88,7 @@ def test_kind_specific_tool_hint_and_spatial_disabled_documents_absence(tmp_ws: 
     assert "mcp__3dcode__" in (tmp_ws.root / "CLAUDE.md").read_text()
     _mat(tmp_ws, kind="agy")
     body = (tmp_ws.root / "AGENTS.md").read_text()
-    assert "MCP server `3dcode`" in body and "codeverse3d.cli.main tools" in body   # API mode / sign-in fallback
+    assert "MCP server `3dcode`" in body and "codeverse3d.cli.main tools" not in body   # always MCP: no shell fallback
     _mat(tmp_ws, spatial=False)
     assert "No spatial tools are available" in (tmp_ws.root / "AGENTS.md").read_text()
 

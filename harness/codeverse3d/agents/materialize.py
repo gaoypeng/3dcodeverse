@@ -7,9 +7,7 @@ loaded twice.)  MCP wiring — never a file in the workspace, which is agent-wri
 
 * claude-code → per-session ``trajectories/<label>_rNN/mcp.json`` (``agents/backends.py``)
 * codex → ``-c`` overrides (:func:`codex_mcp_overrides`, built per session by its backend)
-* agy → in API mode, the ``mcp_config.json`` of the session's own HOME
-  (``AntigravityAgent.build_home``); on a subscription sign-in none — the body documents the
-  shell fallback.
+* agy → the ``mcp_config.json`` of the session's own HOME (``AntigravityAgent.build_home``)
 
 Skills: the routed ``SKILL.md`` bundles are written per ROUND, not here — the set depends
 on the round's kind and the previous round's gate findings (``codeverse3d/skills``,
@@ -74,12 +72,8 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str], 
         how = (f"Tools are exposed by the MCP server `{MCP_SERVER_NAME}`; their names appear as "
                f"`mcp__{MCP_SERVER_NAME}__<name>` (e.g. `mcp__{MCP_SERVER_NAME}__build`).")
     elif agent_kind == "agy":
-        how = (
-            f"Tools are exposed by the MCP server `{MCP_SERVER_NAME}`; call them by name and prefer them "
-            "over shell commands. If your tool list has no such server, call a tool from the shell instead:\n"
-            "`python -m codeverse3d.cli.main tools <name> --json '{\"arg\": \"value\"}'` "
-            "(run from the workspace root; prints the observation as text + JSON)."
-        )
+        how = (f"Tools are exposed by the MCP server `{MCP_SERVER_NAME}`; call them by name and prefer them "
+               "over shell commands.")
     else:
         how = f"Tools are exposed by the MCP server `{MCP_SERVER_NAME}` (command: `{' '.join(mcp_command)}`); call them by name."
     workflow = (

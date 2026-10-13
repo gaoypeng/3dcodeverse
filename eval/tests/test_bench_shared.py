@@ -29,8 +29,8 @@ def test_select_prompts_ids_tiers_limit():
 def test_spec_for_routes_through_settings_backends():
     b = _battery()
     s = rb.get_settings()
-    spec = spec_for(b, b.prompts[0], BenchOptions(generator="agy:gemini-3.7-flash"))
-    assert spec.backends.generator == "agy:gemini-3.7-flash"
+    spec = spec_for(b, b.prompts[0], BenchOptions(generator="agy:gemini-4-argon"))
+    assert spec.backends.generator == "agy:gemini-4-argon"
     # unset roles fall through to the settings defaults, not the Backends() literals
     assert spec.backends.planner == s.default_planner and spec.backends.judge == s.default_judge
     assert spec.backends.captioner == s.default_captioner

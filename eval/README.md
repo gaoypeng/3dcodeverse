@@ -17,9 +17,9 @@ ask one-shot from there (`llm/config.py: HARNESS_BATTERIES`).
 ```bash
 cd eval
 pip install -e ../harness                     # once; both evaluations import codeverse3d
-python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator agy:gemini-3.7-flash
+python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator agy:gemini-4-argon
 python -m bench.report bench/out/static_objects_v1          # rebuild report.md + report.html
-python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:agy:gemini-3.7-flash,oneshot:gemini:gemini-3.7-flash --out bench/out/compare_v1
+python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:agy:gemini-4-argon,oneshot:gemini:gemini-3.7-flash --out bench/out/compare_v1
 python -m llm.config                          # doctor for the LLM evaluation: tools and assets it can / cannot find
 python -m pytest                              # the bench tests (offline)
 ruff check .

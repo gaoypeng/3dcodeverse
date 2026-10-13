@@ -179,7 +179,7 @@ class Backends(BaseModel):
 
     * API chat models:  ``gemini:gemini-3.7-flash`` · ``anthropic:claude-sonnet-5``
       · ``openai:gpt-5.6-sol``
-    * Coding agents:    ``agy:gemini-3.7-flash`` (``-low``/``-medium``/``-high``) · ``claude-code:sonnet``
+    * Coding agents:    ``agy:gemini-4-argon`` (``-low``/``-medium``/``-high``; Gemini models only) · ``claude-code:sonnet``
       · ``codex:gpt-5.6-sol``
 
     The coding agent is always a VENDOR agent: the harness supplies the workspace, the
@@ -189,7 +189,7 @@ class Backends(BaseModel):
     """
 
     planner: str = "gemini:gemini-3.7-flash"
-    generator: str = "agy:gemini-3.7-flash"
+    generator: str = "agy:gemini-4-argon"
     # The judge drives the refine loop: the pro tier has ~3x lower sample noise than
     # flash (calibration 2026-08-23: std 0.03 vs 0.08-0.12) for ~$0.07 per verdict.
     judge: str = "gemini:gemini-3.1-pro-preview"

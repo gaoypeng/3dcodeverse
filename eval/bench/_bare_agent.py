@@ -2,7 +2,7 @@
 
 The strongest objection to the harness is not "a model asked once does worse" — it is "give the SAME
 agent the SAME minutes and a Blender, and it does as well on its own".  This arm answers that: the same
-vendor CLI and model the harness drives (``agent:agy:gemini-3.7-flash``), the one-shot arm's
+vendor CLI and model the harness drives (``agent:agy:gemini-4-argon``), the one-shot arm's
 brief and minimal contract, a shell with the machine's own tools (Blender, node + three + puppeteer,
 python + moderngl, glslangValidator) and the harness arm's wall clock.  It gets no plan, no 3dcode MCP
 tools, no cookbook, no gates, no judge, no starter library and no deterministic repairs — the agent

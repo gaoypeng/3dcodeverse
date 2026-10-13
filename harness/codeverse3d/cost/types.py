@@ -133,7 +133,7 @@ _BACKEND_PROVIDER: dict[str, str] = {
     "openai": "openai",
     "claude-code": "anthropic",
     "anthropic": "anthropic",
-    "agy": "gemini",  # Antigravity serves gemini models by default
+    "agy": "gemini",  # the harness runs agy on Gemini API keys only (D103)
     "antigravity": "gemini",
 }
 
@@ -190,7 +190,7 @@ class CallCost(BaseModel):
     backend: str = ""
     provider: str = ""
     model: str = ""  # bare model name, canonical (no provider prefix)
-    model_id: str = ""  # as reported by the backend ("agy:gemini-3.7-flash")
+    model_id: str = ""  # as reported by the backend ("agy:gemini-4-argon")
 
     input_tokens: int = 0
     cached_tokens: int = 0

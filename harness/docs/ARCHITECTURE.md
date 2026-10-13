@@ -580,9 +580,8 @@ the since-deleted in-process `api-agent` and the since-removed pass / plateau st
   camera-in-geometry can miss open-back enclosures.
 * threejs: textures are stripped on GLB export (the texture pass re-adds them as a
   derived pack); `userData.tick` cannot survive export.
-* agy has no per-workspace MCP: in Gemini-API mode each session gets a HOME of its own with
-  the 3dcode server in it; on the subscription sign-in it has no MCP (shell fallback) and books
-  $0.  A killed agy session books no usage (its tokens are in the envelope only).  A killed codex session books an ESTIMATE
+* agy has no per-workspace MCP: each session (Gemini-API mode, the only one the harness runs)
+  gets a HOME of its own with the 3dcode server in it.  A killed agy session books no usage (its tokens are in the envelope only).  A killed codex session books an ESTIMATE
   (usage is per turn and `--ephemeral` leaves no rollout; `CodexEvents.estimated_usage` prices
   the stream it left, ledger `source="estimate"`, $ within 0.62–1.34× of actual on 356 recorded
   sessions); a killed claude-code session books its

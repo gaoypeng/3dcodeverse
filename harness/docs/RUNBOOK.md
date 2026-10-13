@@ -30,7 +30,7 @@ one home); each setting's default and description is its `Settings` field in
 # static object — Blender (default language, multi-file src/model.py + src/parts/*.py)
 3dcode make "a mid-century wooden dining chair" --track static_object --language blender
 3dcode make "a brass desk lamp" --track static_object --language cadquery
-3dcode make "a classic park bench" --track static_object --language threejs --generator agy:gemini-3.7-flash
+3dcode make "a classic park bench" --track static_object --language threejs --generator agy:gemini-4-argon
 # articulated object — bpy links + URDF
 3dcode make "a bedside cabinet with one hinged door and one drawer" --track articulated_object --language urdf_blender
 # scene — multi-file three.js + GLSL (+ optional bpy GLB assets chosen by the planner)
@@ -65,19 +65,20 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 
 | id | what runs | notes |
 |---|---|---|
-| `agy:gemini-3.7-flash` (default) | `agy --dangerously-skip-permissions --print-timeout … --output-format json --add-dir ws --log-file trajectories/<label>_rNN/agy.log --model gemini-api://gemini-3.7-flash --effort high`, prompt on stdin (no `--print`: `--print -` sends "-") | Gemini-API mode with keys: pool key, every spatial tool over MCP, priced; see gotchas below.  Truncates a prompt past ~175 kB itself |
+| `agy:gemini-4-argon` (default) | `agy --dangerously-skip-permissions --print-timeout … --output-format json --add-dir ws --log-file trajectories/<label>_rNN/agy.log --model gemini-api://gemini-4-argon --effort high`, prompt on stdin (no `--print`: `--print -` sends "-") | Gemini-API mode only (Gemini keys required, Gemini models only): pool key, every spatial tool over MCP, priced; see gotchas below.  Truncates a prompt past ~175 kB itself |
 | `single-shot:gemini:gemini-3.7-flash` | one structured-output call → multi-file envelope, no tools | fastest/cheapest; baseline for "raw model" deltas |
 | `claude-code:<model>` | `claude -p --dangerously-skip-permissions --setting-sources project --settings '{"skillOverrides":…}' --mcp-config trajectories/<label>_rNN/mcp.json --strict-mcp-config …`, prompt on stdin, `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1` | local subscription — test lightly; no user setting source, so `~/.claude/settings.json` (effortLevel, hooks, env) does not reach a session |
 | `codex:<model>[@<effort>]` | `codex exec --json -C ws --sandbox workspace-write -c model_reasoning_effort=high -c skills.bundled.enabled=false -c mcp_servers.3dcode.… -`, prompt on stdin | subscription; MCP tools need `default_tools_approval_mode="approve"` (harness passes it); reasoning effort is always stated (`Settings.agents.codex_reasoning_effort`, default `high`; `codex:gpt-5.6-sol@medium` per id, `""` to defer to `~/.codex/config.toml`) |
-| `agy:<model>` (non-Gemini, e.g. `claude-sonnet-4-6`, or no keys) | same argv, `--model <id>` (a bare id gains agy's effort suffix) | subscription sign-in: no MCP (tools via `python -m codeverse3d.cli.main tools <name> --json …`), booked $0; the sign-in no longer serves `gemini-3.7-flash` (2026-10-13) |
 | `gemini:* / anthropic:* / openai:*` | ChatModel for planner / judge / captioner / single-shot | Anthropic/OpenAI untested live here |
 
 ### agy gotchas (handled by `agents/backends.py`; do not undo — D103)
-* API mode (`AntigravityAgent.api_mode`: a `gemini*` model AND Gemini keys configured): one key
+* API mode only (owner, 2026-10-13: no subscription sign-in, no Claude models; no keys →
+  `available()` is false and the session fails at once).  `agy` with no model = `gemini-4-argon`
+  (`DEFAULT_AGY_MODEL`).  One key
   per session from THE shared pool (`KeyPool.session_key`, no in-flight slot) as `GEMINI_API_KEY`,
   its outcome reported back (429 → cooldown, 401/403/`API_KEY_INVALID` → dead, 5xx, ok, skip);
   other credential env stripped; KeyPoolExhausted → `exit_reason=budget`, never raised.
-* Each API-mode session gets a fresh HOME under `<cache_dir>/agy_homes/…` holding
+* Each session gets a fresh HOME under `<cache_dir>/agy_homes/…` holding
   `.gemini/antigravity-cli/settings.json` = `{"modelProvider": "gemini"}` (without it agy ignores
   the key and asks for a login) and `.gemini/config/mcp_config.json` with the `3dcode` server
   (agy has no per-workspace MCP; the server's `env.HOME` is the real home).  The HOME is deleted
@@ -88,8 +89,6 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
   default `high` (the Gemini API's own default).
 * Cost: priced at Gemini list price; agy's `output_tokens` already include `thinking_tokens`, so
   output = output − thinking, thoughts = thinking (billed once).
-* Subscription mode (non-Gemini model, or no keys): real HOME and sign-in, no MCP (AGENTS.md
-  documents the shell fallback), booked $0 by the backend (the ledger re-prices $0 rows).
 * No retry loop in the backend: agy retries its own model calls (≤ 30 s waits since 1.3.4, stops
   at once on a spent daily quota); a transient death goes to the round loop's ONE transport retry,
   which takes a fresh key.  There is no single-shot storm fallback (deleted in D103).
@@ -298,7 +297,7 @@ python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator singl
 python -m bench.report bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
 cd ../harness
 python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml \
-    --arms harness:agy:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
+    --arms harness:agy:gemini-4-argon,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
 ```
 Results stream to `results.jsonl` (resumable).  The batteries, the protocol and judge
 calibration: `eval/docs/EVAL.md` (§2 lists the batteries).

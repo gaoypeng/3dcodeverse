@@ -59,9 +59,9 @@ deterministic contract check.
 ```bash
 cd eval   # was `3dcode bench run|report` until 2026-09-22: the launcher lives with the evaluation now
 python -m bench.run_bench bench/prompts/static_objects_v1.yaml \
-    --generator agy:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview \
+    --generator agy:gemini-4-argon --judge gemini:gemini-3.1-pro-preview \
     --rounds 2 --parallel 4 --out bench/out/static_v1_apiagent
-python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator agy:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --out bench/out/static_v1_gemcli
+python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator agy:gemini-4-argon --judge gemini:gemini-3.1-pro-preview --out bench/out/static_v1_gemcli
 python -m bench.report bench/out/static_v1_apiagent
 ```
 Like every bench script it imports THIS tree's `codeverse3d` (`../harness`), so a battery
@@ -98,7 +98,7 @@ cheaply.
 
 ```bash
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \
-    --arms harness:agy:gemini-3.6-flash,harness:agy:gemini-3.7-flash,oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.7-flash,oneshot+repair:gemini:gemini-3.7-flash \
+    --arms harness:agy:gemini-3.6-flash,harness:agy:gemini-4-argon,oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.7-flash,oneshot+repair:gemini:gemini-3.7-flash \
     --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1 [--parallel 3] [--limit N] [--ids a,b]
     [--rounds 3] [--loop-judge gemini:gemini-3.7-flash] [--repair-attempts 2] [--gen-timeout 900]
     [--no-pairwise] [--no-resume] [--report-only]

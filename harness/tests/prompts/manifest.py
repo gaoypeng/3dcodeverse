@@ -90,7 +90,7 @@ from tests.orchestrator_tracks.fakes import (
 )
 
 MANIFEST = Path(__file__).with_name("manifest.json")
-AGENT = "agy:gemini-3.7-flash"                        # the default generator (a vendor CLI; FakeAgent answers)
+AGENT = "agy:gemini-4-argon"                        # the default generator (a vendor CLI; FakeAgent answers)
 SINGLE_SHOT = "single-shot:gemini:gemini-3.7-flash"
 #: what each track is asked for
 REQUESTS = {Track.STATIC_OBJECT: ("a mid-century wooden dining chair", Constraints(dimensions_m={"height": 0.82}, must_have=["armrests"])),

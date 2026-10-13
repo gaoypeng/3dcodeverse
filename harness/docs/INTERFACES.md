@@ -228,16 +228,15 @@ it is what names the effect library without listing every module).
 Each session writes `trajectories/<label>_rNN/` (files: docs/RUN_LAYOUT.md); **Δ** a re-run of the
 same label+round lands in `<label>.a2_rNN` (then `.a3` …) — the first attempt is never overwritten;
 `result.json` records `attempt` + `job_label`.  Each session makes two git commits (`pre:`/`agent:<label>`).
-agy specifics (**Δ D103**, which deleted the gemini-cli backend): `AntigravityAgent.api_mode` = model starts
-with `gemini` AND Gemini keys are configured.  API mode: one key per session from THE shared pool
+agy specifics (**Δ D103**, which deleted the gemini-cli backend): Gemini-API mode only — no keys →
+`available()` false; a bare `agy` runs `DEFAULT_AGY_MODEL` = `gemini-4-argon`.  One key per session from THE shared pool
 (`models.gemini.shared_pool`, `pool.session_key()`, no in-flight slot), outcome reported back
 (`_pool_outcome`: 401/403/API_KEY_INVALID → dead, 429 → cooldown, 5xx, ok, skip); a fresh HOME under
 `<cache_dir>/agy_homes/` holds `.gemini/antigravity-cli/settings.json` = `{"modelProvider": "gemini"}` (without
 it agy ignores `GEMINI_API_KEY` and asks for a login) + the MCP config, and is deleted after the session (the
 tool trace is read from its conversation db first); argv `--model gemini-api://<bare id> --effort <e>`, effort
 from a `-low/-medium/-high` suffix, default `high`; usage priced at Gemini list price with
-output = output − thinking, thoughts = thinking (agy's output already includes thinking).  Subscription mode:
-real HOME, no MCP, `cost_usd=0` (the ledger re-prices $0 rows at list price).  KeyPoolExhausted never escapes
+output = output − thinking, thoughts = thinking (agy's output already includes thinking).  KeyPoolExhausted never escapes
 `run()` (→ `exit_reason=budget`).  No retry loop in the backend: agy retries its own calls; a transient
 death goes to the round loop's one retry, which takes a fresh key.
 ## languages/

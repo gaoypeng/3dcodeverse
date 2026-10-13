@@ -1,7 +1,7 @@
 """Harness vs raw one-shot generation under ONE fixed judge (methodology bench).
 
     python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \\
-        --arms harness:agy:gemini-3.6-flash,harness:agy:gemini-3.7-flash,\\
+        --arms harness:agy:gemini-3.6-flash,harness:agy:gemini-4-argon,\\
 oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.7-flash \\
         --judge gemini:gemini-3.1-pro-preview --out <dir> [--parallel 8] [--limit N]
 

@@ -361,12 +361,11 @@ export GEMINI_API_KEYS="key1,key2,key3"        # e.g. in ~/.bashrc
 ### 8.2 The coding-agent CLIs (`agy` required, the rest optional)
 
 The generator is always a vendor CLI: `--generator agy:… | claude-code:… | codex:…`.
-Since 2026-10-13 (D103; gemini-cli was removed) the default is `agy:gemini-3.7-flash`, so **`agy` is
-the one CLI a default run needs**.  With Gemini keys configured (§8.1) an `agy:gemini-*` session runs
-in **Gemini-API mode**: one key from the harness's own pool, the 3dcode MCP tools, priced at Gemini
-list price — no sign-in.  Without keys, or for a non-Gemini model (`agy:claude-sonnet-4-6`), it runs
-on agy's own subscription sign-in, without the MCP tools, booked $0 (doctor row `agy gemini mode`).
-The other two are needed only when you name them.
+Since 2026-10-13 (D103; gemini-cli was removed) the default is `agy:gemini-4-argon`, so **`agy` is
+the one CLI a default run needs**.  The harness runs agy **only in Gemini-API mode**, so it needs
+Gemini keys (§8.1): one key from the harness's own pool per session, the 3dcode MCP tools, priced at
+Gemini list price — no sign-in, no non-Gemini model.  Without keys an agy session fails at once
+(doctor row `agy gemini keys`).  The other two are needed only when you name them.
 
 ```bash
 # agy (Antigravity CLI, 1.3.4 here): the Antigravity installer puts it in ~/.local/bin
@@ -374,7 +373,7 @@ npm i -g @anthropic-ai/claude-code # claude   (2.1.241 here)
 npm i -g @openai/codex             # codex    (0.149.0 here)
 ```
 
-`claude` and `codex` (and agy outside API mode) authenticate against your local subscription
+`claude` and `codex` authenticate against your local subscription
 (their own `login` flows) — test lightly.  The harness handles the per-CLI quirks for you
 (agy's per-session API-mode HOME, codex's MCP approval mode); what each one is and why it must
 not be undone: `docs/RUNBOOK.md` §3.
@@ -454,7 +453,7 @@ Real output on this box (exit code 0; any FAIL row makes it exit 1):
 │ claude        │ OK     │ 2.1.241 (Claude Code)                               │
 │ codex         │ OK     │ codex-cli 0.149.0                                   │
 │ git           │ OK     │ git version 2.53.0                                  │
-│ agy gemini mode │ OK   │ API-key mode: 15-key pool, 3dcode MCP, priced       │
+│ agy gemini keys │ OK   │ 15-key pool (Gemini-API mode, 3dcode MCP, priced)   │
 │ mcp           │ OK     │ mcp + codeverse3d.spatial.mcp_server importable       │
 └───────────────┴────────┴─────────────────────────────────────────────────────┘
 ```
@@ -490,7 +489,7 @@ that the keys work end to end):
 | `anthropic key` / `openai key` | WARN | not set | expected unless you use `anthropic:*` / `openai:*`; export the key to clear it |
 | `agy` / `claude` / `codex` | WARN | CLI not on `PATH` | only that `--generator` is unavailable — but `agy` serves the default generator (§8.2) |
 | `git` | FAIL | git missing | install git — run workspaces are git repos |
-| `agy gemini mode` | WARN | no Gemini keys: `agy:gemini-*` runs on agy's subscription sign-in, without the 3dcode MCP tools, booked $0 | export `GEMINI_API_KEYS` (§8.1) for API-key mode (pool key, MCP, priced); the subscription sign-in no longer serves `gemini-3.7-flash` (2026-10-13) |
+| `agy gemini keys` | FAIL | no Gemini keys: agy runs on API keys only, so the default generator cannot run | export `GEMINI_API_KEYS` (§8.1), or name a `claude-code:` / `codex:` generator |
 | `mcp` | WARN | `mcp` package or the server module missing | `pip install -e 'harness[mcp]'`; only affects the agentic CLI backends |
 | `gemini live call` (`--live`) | FAIL | key rejected / no network | check the key value and outbound access; a `503 … high demand` is transient, not an install problem |
 | `in-flight slots` | WARN | every machine-wide slot is held right now (`busy n/n`), or `max_in_flight=0` switched the cap off | busy: other harness processes are mid-call and new calls wait for a slot (docs/COST.md §23) — nothing to fix unless it stays full; a slot is held only while a call is out and a killed process frees its slots at once.  Off: unset `C3D_MAX_IN_FLIGHT` |

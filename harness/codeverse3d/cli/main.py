@@ -240,7 +240,7 @@ def make(
     generator: Annotated[
         str | None,
         typer.Option(
-            help="agy:gemini-3.7-flash[-low|-medium|-high] | claude-code:... | codex:... | single-shot:gemini:..."
+            help="agy:gemini-4-argon[-low|-medium|-high] | claude-code:... | codex:... | single-shot:gemini:..."
         ),
     ] = None,
     planner: Annotated[str | None, typer.Option()] = None,

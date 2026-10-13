@@ -115,11 +115,10 @@ PROFILES: dict[str, Profile] = {
         expected_usd=1.47,
         expected_score="0.835 mean on compare_v1, 36/61 runs passed ($2.50 per passing artifact) "
                        "— MEASURED ON gemini-cli:gemini-3.6-flash, not on this dial's generator",
-        note="today's defaults.  The generator moved to 3.7-flash on 2026-08-28 and from gemini-cli "
-             "to agy on 2026-10-13 (D103), and these two expectations have NOT been re-measured on "
-             "either: docs/COST.md §12 puts the 3.7 CLI arm at $0.73/call against 3.6's $0.52 and "
-             "0.827 against 0.835, so expect this run to cost more and score about the same until a "
-             "battery says otherwise",
+        note="today's defaults.  The generator moved to 3.7-flash on 2026-08-28 and to "
+             "agy:gemini-4-argon on 2026-10-13 (D103), and these two expectations have NOT been "
+             "re-measured on it: argon lists at $2.00/$10.00 per M tokens against 3.6-flash's "
+             "$0.75/$3.75, so expect this run to cost more until a battery says otherwise",
     ),
     "quality": Profile(
         name="quality",
@@ -133,11 +132,11 @@ PROFILES: dict[str, Profile] = {
         expected_score="best-of-2 lifted the stool baseline 0.563 → 0.612 and the texture pass "
                        "0.686 → 0.701; judge σ 0.017 at n=3 "
                        "— MEASURED ON gemini-cli:gemini-3.6-flash, not on this dial's generator",
-        note="agy + pro judge n=3 + 4 rounds + best-of-2 + texture pass.  The generator "
-             "moved to 3.7-flash on 2026-08-28 and to agy on 2026-10-13 (D103), and the $3.20 / score expectations above have NOT "
-             "been re-measured on it (same caveat as balanced: docs/COST.md §12 puts the 3.7 CLI "
-             "arm at $0.73/call vs 3.6's $0.52), so expect this dial to cost more and score about "
-             "the same until a battery says otherwise",
+        note="agy:gemini-4-argon + pro judge n=3 + 4 rounds + best-of-2 + texture pass.  The "
+             "generator moved to agy:gemini-4-argon on 2026-10-13 (D103), and the $3.20 / score "
+             "expectations above have NOT been re-measured on it (same caveat as balanced: argon "
+             "lists at ~2.7x 3.6-flash's per-token price), so expect this dial to cost more until "
+             "a battery says otherwise",
     ),
 }
 

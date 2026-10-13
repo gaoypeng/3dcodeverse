@@ -61,18 +61,14 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
   (`spatial.node.run_node(three_hook=True)`) — `NODE_PATH` alone does not work;
   that hook is `module.registerHooks` on node ≥ 22.15, `module.register` below.
   The `graphics` track renders with moderngl (d3d12 GPU context, llvmpipe fallback).
-- CLIs: `agy` 1.3.4 (Antigravity; gemini-cli was deleted in D103, 2026-10-13) — an `agy:gemini-*`
-  session runs in Gemini-API mode: one key from the shared pool, a per-session HOME carrying
-  `modelProvider: gemini` + the 3dcode MCP server, priced; without keys, or for a non-Gemini model,
-  it runs on the local subscription sign-in with no MCP.  `codex` 0.147+ (MCP needs
+- CLIs: `agy` 1.3.4 (Antigravity; gemini-cli was deleted in D103, 2026-10-13) — runs ONLY in
+  Gemini-API mode (Gemini models only, keys required; no subscription sign-in): one key from the
+  shared pool, a per-session HOME carrying `modelProvider: gemini` + the 3dcode MCP server, priced.  `codex` 0.147+ (MCP needs
   `default_tools_approval_mode="approve"`) and `claude` 2.1 run on local subscriptions: test
   lightly.  No Anthropic/OpenAI API keys here.
-- Main test model: `gemini-3.7-flash` — also the DEFAULT generator, `agy:gemini-3.7-flash`
-  since 2026-10-13 (D103; `gemini-cli:` from 2026-08-28), verified live through agy's API mode
-  (which lists gemini-3.8/3.7/3.6-flash and 3.1-pro; the subscription sign-in no longer serves
-  3.7-flash, so never judge model availability by a sign-in probe).
-  (lenient judge; needs the defect checklist for
-  range).  Judge default `gemini-3.1-pro-preview` (`Settings.default_judge`; tracks use
+- DEFAULT generator: `agy:gemini-4-argon` (D103, 2026-10-13; `gemini-cli:gemini-3.7-flash` before).
+  `gemini-3.7-flash` stays the cheap API model (single-shot / economy, flash judge — lenient; needs
+  the defect checklist for range).  Judge default `gemini-3.1-pro-preview` (`Settings.default_judge`; tracks use
   n_samples=1); flash + `--n 3` is the cheap fallback, pro for calibration/eval.
 - Live runs under `runs/` (`e2e_*`): read-only reference material; never modify.
 - Every model call and vendor session is priced into the run's `telemetry/cost.jsonl` — the ONLY record of
@@ -86,7 +82,7 @@ cd /home/yipeng/3dcodeverse/harness
 3dcodeverse doctor [--live] [--no-gpu] [--json]
 3dcodeverse make "a mid-century wooden dining chair" --track static_object --language blender
 3dcodeverse make "..." --profile economy|balanced|quality   # one dial: models, judge n, rounds, candidates, texture, ceilings (--profile == C3D_PROFILE)
-3dcodeverse make "..." --track static_object --language threejs --generator agy:gemini-3.7-flash
+3dcodeverse make "..." --track static_object --language threejs --generator agy:gemini-4-argon
 3dcodeverse make "..." --track articulated_object --language urdf_blender
 3dcodeverse make "..." --track scene --language scene_threejs --rounds 2 --max-minutes 60
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader

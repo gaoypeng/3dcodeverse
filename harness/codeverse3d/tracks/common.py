@@ -170,7 +170,7 @@ class RunContext:
 
     @property
     def agent_kind(self) -> str:
-        """``agy`` of ``agy:gemini-3.7-flash``."""
+        """``agy`` of ``agy:gemini-4-argon``."""
         return self.agent_id.split(":", 1)[0]
 
     def record_prompt(self, name: str, text: str) -> None:

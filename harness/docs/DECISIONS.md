@@ -1153,9 +1153,10 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   `Settings.binaries.gemini_cli`, `cli_common.invoke`'s `attempt` / `soft_timeout_s` (captures are always
   `stdout.json` / `stderr.log`), `find_json_object`'s multi-line scan (only gemini-cli printed indented
   JSON), the doctor rows `gemini-cli` and `gemini-cli skills setting`.  `agents/registry.KINDS` =
-  `("claude-code", "codex", "agy")`; the default generator (and balanced / quality) is `agy:gemini-3.7-flash`.
-  agy has two modes, `AntigravityAgent.api_mode` = a `gemini*` model AND Gemini keys configured:
-  **Gemini-API mode** — one key per session from THE shared pool (`models.gemini.shared_pool`,
+  `("claude-code", "codex", "agy")`; the default generator (and balanced / quality) is `agy:gemini-4-argon`.
+  agy runs in **Gemini-API mode only** (owner, same day: no subscription sign-in, no Claude models, and
+  the default is `agy:gemini-4-argon`, `DEFAULT_AGY_MODEL` for a bare `agy`; no keys → `available()` is
+  false, the session fails at once) — one key per session from THE shared pool (`models.gemini.shared_pool`,
   `KeyPool.session_key`, no in-flight slot), the outcome reported back (429 → cooldown, 401/403/
   `API_KEY_INVALID` → dead, 5xx, ok, skip); a fresh HOME under `<cache_dir>/agy_homes/…` holding
   `.gemini/antigravity-cli/settings.json` = `{"modelProvider": "gemini"}` (without it agy ignores
@@ -1165,24 +1166,24 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   e.g. gemini-4-argon; effort from an agy-style `-low/-medium/-high` suffix, default `high` — the Gemini
   API's own default, what gemini-cli sessions ran at); priced at Gemini list price with output = output −
   thinking and thoughts = thinking (agy's `output_tokens` already include thinking: billed once);
-  `PUPPETEER_CACHE_DIR` = the real cache for the agent's shell.  **Subscription mode** (a non-Gemini model
-  such as `agy:claude-sonnet-4-6`, or no keys) — real HOME, the sign-in, no MCP (AGENTS.md documents the
-  shell fallback `python -m codeverse3d.cli.main tools <name> --json …`), booked $0 by the backend (the
-  ledger re-prices $0 rows at list price as before).  No retry loop in the backend: agy retries its own
+  `PUPPETEER_CACHE_DIR` = the real cache for the agent's shell.  Deleted with the subscription mode:
+  `available_models` / `resolve_model` (the `agy models` probe that added an effort suffix), the AGENTS.md
+  shell-fallback paragraph, and the $0 booking.  No retry loop in the backend: agy retries its own
   model calls (≤ 30 s waits since 1.3.4, stops at once on a spent daily quota), and a transient death goes
   to the round loop's ONE transport retry (`tracks/lifecycle`), which takes a fresh key.  Workspace
   materialisation writes `AGENTS.md` + `CLAUDE.md` only — no `GEMINI.md` (agy reads it AND `AGENTS.md`,
   so the body was loaded twice), no `.gemini/settings.json` — and `.antigravityignore` replaces
-  `.geminiignore` / `.aiexclude`.  doctor: CLI rows agy / claude / codex and a new `agy gemini mode` row
-  (OK "API-key mode: N-key pool, 3dcode MCP, priced"; WARN without keys).  Prompt manifest re-blessed
+  `.geminiignore` / `.aiexclude`.  doctor: CLI rows agy / claude / codex and a new `agy gemini keys` row
+  (OK "N-key pool"; FAIL without keys).  Prompt manifest re-blessed
   (context files, generator id).  Consequences: **no single-shot storm fallback** — `tracks.common.
   generate_for` is plain `generate()`, `GenerationResult.storm` is gone, and so are the asset ladder's
   storm-repair rung (strategy `escalated+repair`) and the events `generate.storm_fallback` /
   `asset.storm_repair` (D68 superseded; `repair.storm` and the lifecycle transport retry stay); agy gets
-  the 3dcode MCP tools in API mode (it had none); the GEMINI.md double load is fixed; effort defaults to
+  the 3dcode MCP tools (it had none); the GEMINI.md double load is fixed; effort defaults to
   `high`.  Live facts (2026-10-13, agy 1.3.4): API mode lists gemini-3.8/3.7/3.6-flash and 3.1-pro; the
   subscription sign-in no longer serves gemini-3.7-flash (only 3.8-flash, claude-sonnet/opus-4-6, gpt-oss).
-  The profiles' $ / score expectations were measured on gemini-cli and are not re-measured on agy.
+  The profiles' $ / score expectations were measured on gemini-cli:gemini-3.6-flash and are not re-measured
+  on agy:gemini-4-argon ($2.00 / $10.00 per M, ~2.7× 3.6-flash).
 
 ## Rejected / deferred
 

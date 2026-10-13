@@ -277,9 +277,9 @@ def check_clis() -> list[Row]:
     okk, v = _ver(["git", "--version"])
     rows.append(("git", "OK" if okk else "FAIL", v))
     n = len(s.gemini_api_keys)
-    rows.append(("agy gemini mode", "OK" if n else "WARN",
-                 f"API-key mode: {n}-key pool, 3dcode MCP, priced" if n
-                 else "no Gemini keys: agy:gemini-* runs on the subscription sign-in, without the 3dcode MCP tools"))
+    rows.append(("agy gemini keys", "OK" if n else "FAIL",
+                 f"{n}-key pool (Gemini-API mode, 3dcode MCP, priced)" if n
+                 else "no Gemini keys: agy runs on API keys only, so the default generator cannot run"))
     return rows
 
 

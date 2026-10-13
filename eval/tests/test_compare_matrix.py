@@ -58,9 +58,9 @@ def test_parse_arms():
 def test_spec_for_and_acceptance():
     b = Battery.load(BATTERY)
     opts = CompareOptions(judge="gemini:gemini-3.1-pro-preview", loop_judge="gemini:gemini-3.7-flash")
-    harness = spec_for(b, b.prompts[0], parse_arm("harness:agy:gemini-3.7-flash"), opts)
+    harness = spec_for(b, b.prompts[0], parse_arm("harness:agy:gemini-4-argon"), opts)
     one = spec_for(b, b.prompts[0], parse_arm("oneshot:codex"), opts)
-    assert harness.backends.generator == "agy:gemini-3.7-flash" and harness.backends.judge == "gemini:gemini-3.7-flash"
+    assert harness.backends.generator == "agy:gemini-4-argon" and harness.backends.judge == "gemini:gemini-3.7-flash"
     assert harness.budget.max_rounds == 3
     assert one.backends.generator == "single-shot:codex" and one.constraints.must_have == b.prompts[0].must_have
 

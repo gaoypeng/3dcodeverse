@@ -339,7 +339,7 @@ residency (1.1x) and fast-mode multipliers, per-search server-tool fees.
 | role | model | $/call | measured quality | when |
 |---|---|---|---|---|
 | planner | `gemini:gemini-3.7-flash` ★ | $0.013 | no failure attributable to the planner | always — the plan is 0.8% of a run |
-| generator | `agy:gemini-3.7-flash` ★ | not yet measured | — | default for every track with tools since 2026-10-13 (D103: gemini-cli removed; agy in Gemini-API mode, pool key + MCP, priced at list) |
+| generator | `agy:gemini-4-argon` ★ | not yet measured | — | default for every track with tools since 2026-10-13 (D103: gemini-cli removed; agy in Gemini-API mode, pool key + MCP, priced at list) |
 | generator | `gemini-cli:gemini-3.7-flash` (removed in D103) | $0.73 | 0.827 on compare_v1 | the default 2026-08-28 – 2026-10-13; the expectation the agy arm is held to until a battery re-measures it |
 | generator | `single-shot:gemini:gemini-3.7-flash` | $0.05 | graphics: 5/6 passed, median 0.810 | glsl / opengl — one file, compiler feedback |
 | generator | `gemini-cli:gemini-3.6-flash` (removed in D103; `agy:gemini-3.6-flash` is its successor) | $0.52 | compare_v1 mean 0.835 (best arm measured) | the cheaper arm, and the one every recorded battery was run on |
@@ -671,7 +671,7 @@ given**, so `3dcode resume` reproduces it.
 
 | | economy | balanced | quality |
 |---|---|---|---|
-| generator | `single-shot:gemini:gemini-3.7-flash` | `agy:gemini-3.7-flash` | `agy:gemini-3.7-flash` |
+| generator | `single-shot:gemini:gemini-3.7-flash` | `agy:gemini-4-argon` | `agy:gemini-4-argon` |
 | judge | flash, n=2 | **pro, n=1** | **pro, n=3** |
 | refine rounds | 2 | 4 | 4 |
 | best-of-N | 1 | 1 | 2 |

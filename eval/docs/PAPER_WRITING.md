@@ -590,7 +590,7 @@ cd eval   # the bench scripts live here since 2026-09-22 (they were harness/benc
 # Google's models is `agy:*`, so a rerun is a new measurement, not a replay
 # the instrument
 python bench/ab_plan.py --prompts bench/prompts/articulated_v2.yaml --aa --pin-plan \
-    --generator agy:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview \
+    --generator agy:gemini-4-argon --judge gemini:gemini-3.1-pro-preview \
     --n-samples 3 --rounds 3 --out bench/out/aa_articulated
 # a switch A/B (generation-side switches only; plan-side is refused for --pin-plan).  The arm
 # measured in §4 was C3D_FEWER_TURNS=1, a switch deleted since; name a live Settings flag instead
@@ -598,7 +598,7 @@ python bench/ab_plan.py --prompts bench/prompts/articulated_v2.yaml \
     --variant-env C3D_<SWITCH>=1 --pin-plan --out bench/out/<switch>
 # harness vs one-shot
 python bench/compare_backends.py --prompts bench/prompts/articulated_v2.yaml \
-    --arms harness:agy:gemini-3.7-flash,oneshot+repair:gemini:gemini-3.7-flash \
+    --arms harness:agy:gemini-4-argon,oneshot+repair:gemini:gemini-3.7-flash \
     --judge gemini:gemini-3.1-pro-preview --judge-samples 3 --out bench/out/art
 # the loss-event channel: the plan stage alone, one row per call
 python bench/plan_stage_bench.py --tree ../harness --label restart_on --reps 20 \

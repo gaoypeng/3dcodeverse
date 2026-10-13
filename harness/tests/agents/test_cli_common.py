@@ -199,7 +199,7 @@ _ENDINGS = {
 
 
 @pytest.mark.parametrize("ending", sorted(_ENDINGS))
-@pytest.mark.parametrize("vendor", ["claude-code", "codex", "agy", "agy-api"])
+@pytest.mark.parametrize("vendor", ["claude-code", "codex", "agy"])
 def test_every_cli_backend_ends_by_one_rule(tmp_ws: Workspace, fake_bin, monkeypatch, vendor, ending):
     """N71: one ``classify_end`` — a kill with no provider evidence is not transient, and a spent
     usage limit or a 429 is ``budget``, whichever vendor's CLI said it."""
@@ -211,16 +211,13 @@ def test_every_cli_backend_ends_by_one_rule(tmp_ws: Workspace, fake_bin, monkeyp
     from codeverse3d.config import get_settings
 
     monkeypatch.setattr(cli_common, "IDLE_GRACE_S", 0.3)
-    monkeypatch.setattr(get_settings(), "gemini_api_keys", ["n71-key"])
+    monkeypatch.setattr(get_settings(), "gemini_api_keys", [f"n71-key-{ending}"])   # agy's pool key, one per ending
     body, want = _ENDINGS[ending]
     monkeypatch.setattr(get_settings(), "cache_dir", tmp_ws.root.parent / "cache")
     binary = fake_bin(vendor, "sys.stdin.read()\n" + body)
     agent = {"claude-code": lambda: ClaudeCodeAgent("m", binary=binary),
              "codex": lambda: CodexAgent("m", binary=binary, reasoning_effort=""),
-             "agy": lambda: AntigravityAgent("m", binary=binary),               # subscription sign-in
-             "agy-api": lambda: AntigravityAgent("gemini-m", binary=binary)}[vendor]()   # a pool key
-    if vendor == "agy":
-        monkeypatch.setattr(agent, "served_model", lambda: "m")
+             "agy": lambda: AntigravityAgent("m", binary=binary)}[vendor]()
     res = agent.run(AgentJob(workspace=str(tmp_ws.root), prompt="p", label=ending, spatial_tools=False,
                              timeout_s=1 if ending == "killed" else 30))
     assert (res.exit_reason, res.transient, res.quota) == want

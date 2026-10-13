@@ -18,7 +18,6 @@ import re
 import shutil
 import sqlite3
 import time
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +47,6 @@ from codeverse3d.contracts.agent import AgentJob, AgentResult
 from codeverse3d.contracts.common import Usage
 from codeverse3d.models.pricing import EFFORTS, cache_write_surcharge, estimate_cost, openai_usage
 from codeverse3d.models.retry import KeyPool, KeyPoolExhausted
-from codeverse3d.proc import run_subprocess
 
 log = logging.getLogger(__name__)
 
@@ -543,59 +541,8 @@ class CodexAgent(_CliAgent):
 
 # ===================================================================== antigravity
 
-#: what a bare id is resolved to when agy offers only effort-suffixed spellings
-DEFAULT_EFFORT = "medium"
-_EFFORT_SUFFIXES = tuple(f"-{e}" for e in EFFORTS)
-
-
-@lru_cache(maxsize=4)
-def available_models(binary: str) -> tuple[str, ...]:
-    """The model ids ``agy models`` offers, or ``()`` when it cannot be reached.
-
-    Cached: one lookup per binary per process, and only for an id that needs it.
-    """
-    try:
-        r = run_subprocess([binary, "models"], cwd=Path.cwd(), timeout_s=30.0)
-    except OSError as e:  # pragma: no cover - defensive
-        log.debug("agy models unavailable: %s", e)
-        return ()
-    if r.returncode != 0:
-        return ()
-    ids = []
-    for line in r.stdout.splitlines():
-        head = line.split("\t", 1)[0].strip()
-        if head and " " not in head:
-            ids.append(head)
-    return tuple(ids)
-
-
-def resolve_model(model: str, binary: str) -> str:
-    """Map a bare model id onto the effort-suffixed one agy actually accepts.
-
-    agy 1.1.19 rejects ``--model gemini-3.7-flash`` outright ("requires --effort
-    (available: low, medium, high)") and equally rejects ``--effort`` for a model that
-    has none ("--effort is not supported for model claude-sonnet-4-6"), so the effort
-    cannot be a blanket flag — it belongs in the MODEL ID, which is the only spelling
-    ``agy models`` lists (gemini-3.7-flash-low/-medium/-high).
-
-    A bare id agy DOES offer (claude-sonnet-4-6) is passed through untouched, and so is
-    anything we cannot check, so this can only turn a guaranteed failure into a run.
-    """
-    if not model or model.endswith(_EFFORT_SUFFIXES):
-        return model
-    offered = available_models(binary)
-    if not offered or model in offered:
-        return model
-    for effort in (DEFAULT_EFFORT, *EFFORTS):
-        if f"{model}-{effort}" in offered:
-            log.info("agy has no bare %r; using the %s-effort id %r", model, effort, f"{model}-{effort}")
-            return f"{model}-{effort}"
-    return model
-
-
 def api_model_effort(model: str) -> tuple[str, str]:
-    """``gemini-3.7-flash-low`` → ``('gemini-3.7-flash', 'low')``; a bare id runs at
-    ``AGY_API_EFFORT`` — the agy spelling of an effort is accepted so either id works."""
+    """``gemini-4-argon-low`` → ``('gemini-4-argon', 'low')``; a bare id runs at ``AGY_API_EFFORT``."""
     for effort in EFFORTS:
         if model.endswith(f"-{effort}"):
             return model[: -len(effort) - 1], effort
@@ -614,8 +561,9 @@ AGY_LOG = "agy.log"
 AGY_CONVERSATIONS = Path(".gemini") / "antigravity-cli" / "conversations"
 #: agy's Gemini-API mode (1.2+, checked live on 1.3.4, 2026-10-13): ``modelProvider: "gemini"``
 #: in its settings plus ``GEMINI_API_KEY`` in the env — no sign-in, billed to the key, and the
-#: catalogue is the API's (gemini-3.7-flash, 3.6-flash, 3.1-pro, …).  Without the setting the
-#: key alone is ignored and the CLI asks for a login.
+#: catalogue is the API's.  Without the setting the key alone is ignored and the CLI asks for a
+#: login.  It is the ONLY way the harness runs agy (owner, 2026-10-13): no subscription sign-in,
+#: no non-Gemini model.
 AGY_SETTINGS = Path(".gemini") / "antigravity-cli" / "settings.json"
 AGY_API_SETTINGS = {"modelProvider": "gemini"}
 #: in API mode ``--model gemini-api://<id>`` sends ``<id>`` to the API verbatim — any model the
@@ -623,8 +571,10 @@ AGY_API_SETTINGS = {"modelProvider": "gemini"}
 #: thinking level (low → 1, high → 3 in the CLI log, 2026-10-13)
 AGY_API_SCHEME = "gemini-api://"
 #: the effort an API-mode id without a ``-low/-medium/-high`` suffix runs at: the Gemini API's
-#: own default thinking level, which every gemini-cli session ran at before agy replaced it
+#: own default thinking level
 AGY_API_EFFORT = "high"
+#: the model an ``agy`` generator with no model runs (owner, 2026-10-13)
+DEFAULT_AGY_MODEL = "gemini-4-argon"
 #: agy's ONLY MCP config is per user (``~/.gemini/config/mcp_config.json``, the shape
 #: ``agy mcp add`` writes) — so an API-key session gets a HOME of its own, and this file in it
 AGY_MCP_CONFIG = Path(".gemini") / "config" / "mcp_config.json"
@@ -748,9 +698,8 @@ def agy_error(stderr: str) -> dict[str, Any]:
     return {}
 
 
-def usage_from_agy(env: dict[str, Any], model: str, *, priced: bool) -> Usage:
-    """The envelope's tokens; priced at the Gemini list rate when the session ran on an API
-    key (``priced``), ``$0`` on a subscription sign-in, which exposes no USD.  agy 1.3.4 splits
+def usage_from_agy(env: dict[str, Any], model: str) -> Usage:
+    """The envelope's tokens, priced at the Gemini list rate.  agy 1.3.4 splits
     neither way the pricing convention does: ``input_tokens`` EXCLUDES ``cache_read_tokens`` (a
     live 18-minute session, 2026-10-13: 582 179 input against 10 980 664 cache reads), so the total
     prompt is their sum; and ``output_tokens`` CONTAINS ``thinking_tokens`` (``total == input +
@@ -766,7 +715,7 @@ def usage_from_agy(env: dict[str, Any], model: str, *, priced: bool) -> Usage:
         thoughts_tokens=thinking,
         latency_ms=int(float(env.get("duration_seconds") or 0.0) * 1000),
     )
-    out.cost_usd = estimate_cost("gemini", model, out) if priced else 0.0
+    out.cost_usd = estimate_cost("gemini", model, out)
     return out
 
 
@@ -791,35 +740,29 @@ def _pool_outcome(end: SessionEnd, ok: bool, died: dict[str, Any]) -> str:
 
 
 class AntigravityAgent(_CliAgent):
-    """``agy:<model>``.  A Gemini model with keys configured runs in Gemini-API mode: one pool key,
-    a HOME of its own under the cache dir holding the API-mode settings and the 3dcode MCP server
-    (deleted after the session; the tool trace is read out first), usage priced.  Anything else —
-    a non-Gemini model agy serves (``claude-sonnet-4-6``), or no keys — runs on the machine's
-    subscription sign-in: real HOME, no MCP (the body documents the shell fallback), ``$0``."""
+    """``agy:<gemini model>`` (default ``gemini-4-argon``), always in agy's Gemini-API mode: one
+    pool key, a HOME of its own under the cache dir holding the API-mode settings and the 3dcode
+    MCP server (deleted after the session; the tool trace is read out first), usage priced."""
 
     kind = "agy"
     cli_label = "agy"
 
     def __init__(self, model: str, binary: str | None = None):
-        self.model = model
+        self.model = model or DEFAULT_AGY_MODEL
         self.binary = binary or get_settings().binaries.agy_cli
 
-    @property
-    def api_mode(self) -> bool:
-        return self.model.startswith("gemini") and bool(get_settings().gemini_api_keys)
+    def available(self) -> tuple[bool, str]:
+        if not get_settings().gemini_api_keys:
+            return False, "agy runs on Gemini API keys only: none configured (GEMINI_API_KEYS)"
+        return super().available()
 
     def served_model(self) -> str:
-        """The model id the session is booked under: the API model in API mode, else the id
-        sent to agy (a bare one gains its effort suffix)."""
-        return api_model_effort(self.model)[0] if self.api_mode else resolve_model(self.model, self.binary)
+        """The API model id the session is booked under (the effort suffix stripped)."""
+        return api_model_effort(self.model)[0]
 
     def model_args(self) -> list[str]:
-        if not self.model:
-            return []
-        if self.api_mode:
-            name, effort = api_model_effort(self.model)
-            return ["--model", f"{AGY_API_SCHEME}{name}", "--effort", effort]
-        return ["--model", self.served_model()]
+        name, effort = api_model_effort(self.model)
+        return ["--model", f"{AGY_API_SCHEME}{name}", "--effort", effort]
 
     def build_argv(self, s: Session) -> list[str]:
         """No ``--print``: agy reads the prompt from a piped stdin, byte for byte, and still
@@ -832,7 +775,7 @@ class AntigravityAgent(_CliAgent):
                 *self.model_args()]
 
     def build_home(self, s: Session) -> Path:
-        """A fresh HOME for one API-mode session: the API-mode settings and, when the job has
+        """A fresh HOME for one session: the API-mode settings and, when the job has
         spatial tools, the 3dcode MCP server — which keeps the REAL home (the harness reads its
         settings, keys and caches from there)."""
         home = get_settings().cache_dir / "agy_homes" / f"{s.traj.dir.name}-{os.getpid()}-{time.time_ns()}"
@@ -846,13 +789,12 @@ class AntigravityAgent(_CliAgent):
         (home / AGY_MCP_CONFIG).write_text(json.dumps({"mcpServers": servers}, indent=2))
         return home
 
-    def build_env(self, s: Session, *, key: str = "", home: Path | None = None) -> dict[str, str]:
+    def build_env(self, s: Session, *, key: str, home: Path) -> dict[str, str]:
         env = hardened_env(s.ws, s.job)
-        if key and home is not None:
-            env["GEMINI_API_KEY"] = key
-            env["HOME"] = str(home)
-            # the agent's own shell inherits the fake HOME: keep puppeteer on the real Chrome cache
-            env.setdefault("PUPPETEER_CACHE_DIR", str(Path.home() / ".cache" / "puppeteer"))
+        env["GEMINI_API_KEY"] = key
+        env["HOME"] = str(home)
+        # the agent's own shell inherits the fake HOME: keep puppeteer on the real Chrome cache
+        env.setdefault("PUPPETEER_CACHE_DIR", str(Path.home() / ".cache" / "puppeteer"))
         return env
 
     def _record_trace(self, s: Session, home: Path, conversation_id: str) -> int:
@@ -876,32 +818,29 @@ class AntigravityAgent(_CliAgent):
         which takes a fresh key, the 429'd one cooling in the pool."""
         ok, why = self.available()
         s = begin_session(job, self.kind)
-        key, home = "", None
+        home = None
         try:
             if not ok:
                 return failed(s, "error", why)
-            if self.api_mode:
-                pool = _key_pool()
-                try:
-                    key = pool.session_key()
-                except KeyPoolExhausted as e:  # every key throttled for the whole wait budget
-                    return failed(s, "budget", f"Gemini key pool exhausted: {e}")
-                home = self.build_home(s)
+            pool = _key_pool()
+            try:
+                key = pool.session_key()
+            except KeyPoolExhausted as e:  # every key throttled for the whole wait budget
+                return failed(s, "budget", f"Gemini key pool exhausted: {e}")
+            home = self.build_home(s)
             proc = invoke(s, self.build_argv(s), self.build_env(s, key=key, home=home), prompt=_compose_prompt_agy(s),
-                          **({"model": self.model, "key_tail": key[-4:]} if key else {}))
+                          model=self.model, key_tail=key[-4:])
             ended = time.time()
             env = parse_agy_json(proc.stdout)
-            n_calls = self._record_trace(s, home or Path.home(), str((env or {}).get("conversation_id") or ""))
+            n_calls = self._record_trace(s, home, str((env or {}).get("conversation_id") or ""))
             retries = agy_retries(s.traj.dir / AGY_LOG)
             served = self.served_model()
-            usage = usage_from_agy(env, served, priced=bool(key)) if env else Usage(backend=self.kind, model=served)
+            usage = usage_from_agy(env, served) if env else Usage(backend=self.kind, model=served)
             usage.latency_ms = usage.latency_ms or int(proc.duration_s * 1000)
             text = str(env.get("response", "")) if env else proc.stdout.strip()
             errors: list[str] = []
             if env is None:
                 s.notes.append("no JSON envelope from agy; usage unknown (zeros), response taken from plain stdout")
-            if not key:
-                s.notes.append("agy ran on the subscription sign-in: cost_usd=0")
             died = agy_error(proc.stderr)
             said = (json.dumps(died), str((env or {}).get("error") or ""), proc.stderr)
             ok = False
@@ -916,8 +855,7 @@ class AntigravityAgent(_CliAgent):
                 ok = True
             end = classify_end(proc, ok=ok, text=text, said=said, provider_retried=bool(retries) or bool(died.get("retryable")),
                                provider_failed=bool(died.get("retryable")))
-            if key:
-                _key_pool().report(key, _pool_outcome(end, ok, died))
+            pool.report(key, _pool_outcome(end, ok, died))
             usage.tool_calls = n_calls
             return finish_session(
                 s, ok=ok, exit_reason=end.exit_reason, text=text, usage=usage, tool_calls=n_calls,

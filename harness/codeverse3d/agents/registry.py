@@ -44,7 +44,7 @@ KINDS = ("claude-code", "codex", "agy")
 
 
 def parse_agent_id(agent_id: str) -> tuple[str, str]:
-    """``agy:gemini-3.7-flash`` → ('agy', 'gemini-3.7-flash')."""
+    """``agy:gemini-4-argon`` → ('agy', 'gemini-4-argon')."""
     if ":" not in agent_id:
         raise ValueError(f"agent id must be '<kind>:<model>', got {agent_id!r}")
     kind, model = agent_id.split(":", 1)
