@@ -4,16 +4,20 @@
 
 <h2>Exploring 3D Worlds as Code</h2>
 
+<p>
 <sub>
 <b>Yipeng Gao</b><sup>1*†</sup>, <b>Ziyao Zeng</b><sup>2*</sup>, <b>Jinfa Huang</b><sup>3*</sup>, <b>Yijiang Li</b><sup>4*</sup>, Haolin Xiong<sup>1</sup>, Wang Qin<sup>1</sup>, Xinlei Yu<sup>1</sup>, Youheng Yao<sup>2</sup>, Jie Zhang<sup>5</sup>, Kun-Yu Lin<sup>6</sup>,<br>
 Rong Liu<sup>1</sup>, Yinyuan Zhao<sup>7</sup>, Yajie Zhao<sup>1</sup>, Meiqi Guo<sup>8</sup>, Jiebo Luo<sup>3</sup>, Lei Shu<sup>8</sup>, Yunhao Ge<sup>1</sup>, Xinyu Hu<sup>9</sup>, Laurent Itti<sup>1</sup>
 </sub>
+</p>
 
+<p>
 <sub>
 <sup>1</sup>University of Southern California · <sup>2</sup>Yale University · <sup>3</sup>University of Rochester · <sup>4</sup>University of California, San Diego · <sup>5</sup>Columbia University<br>
 <sup>6</sup>Nanyang Technological University · <sup>7</sup>University of California, Santa Cruz · <sup>8</sup>Google DeepMind · <sup>9</sup>Philo Labs<br>
 <sup>*</sup>Equal contribution · <sup>†</sup>Project lead
 </sub>
+</p>
 
 <!-- TODO: point the arXiv badge at the paper (and swap "coming soon" for its id) once it is up -->
 <a href="#"><img src="https://img.shields.io/badge/arXiv-coming%20soon-B31B1B?logo=arxiv&logoColor=white" alt="arXiv"></a>
