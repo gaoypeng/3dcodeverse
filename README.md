@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/wordmark.png" alt="3DCodeVerse" width="85%">
+<img src="assets/wordmark.png" alt="3DCodeVerse" width="60%">
 
 <h2>Exploring 3D Worlds as Code</h2>
 
@@ -18,10 +18,7 @@ Yunhao Ge<sup>1</sup>, Xinyu Hu<sup>9</sup>, Laurent Itti<sup>1</sup>
 <sup>\*</sup>Equal contribution · <sup>†</sup>Project lead
 
 [![Project Page](https://img.shields.io/badge/Project-3dcodeverse.com-4A90D9?style=for-the-badge&logo=data%3Aimage%2Fpng%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAABwAAAAUCAYAAACeXl35AAAFi0lEQVR42pWWa0xUVxDH%2F3Pu3bssjyAoorZgpbU2tmqUauoD8dmngIC7tZ8kGh%2FEkIhGi9bmgoLgKhVsm1jUJn0YK9iCjxjT%2BkBEiYLVbq2iFBWrWBDUxV1g7%2B690w%2BU1ie18%2Bl8mJnfOXNm%2FucQejBrMUslNtIBICGvbpwkzAvAPAXg%2FgBkgO%2BSkKrAXPT9ioF7Ho15ktF%2Fwd5THVGWoN6fMfObbBgOZt8RZrpgwOeTYYokiaYQSTEg6ay3s23BntVDzvUEpZ5g8dmX3jP7h5TC8NV4tPvpe1cNOfUk%2F5nrLrwsK702SrI5Tuts%2B6A0Y9B3T4M%2BBrRai6WSEpsel3N5emBQ2I8%2BjzuvZPnzKwFAVVmUo1x0%2B7puBVHUtGijO%2FHM3GvL%2FQJC7B33mxP3fDS4rDvX0y9NZQFVFe%2Bq5%2FvNst%2FoTF5%2FPb%2F7xFYrS0%2FbrKqyiD3KMgAk5tZnztpwU09YWxcBZlJVFj02CQAkZNftTLI31AJArMoymMlqLZYeDY6NPSpDVYW1mCUwU6zaBU1a3%2BCYue7KDw%2FmfMLpVAEA8erFAcnrG3hGdu073cAHQV1rppj0yuSY9MrfHqxO9IIaEwCKz700bZb9D05YWxfRFaOKx8piVVkZWl5uON6OXAgSqnymuj8AdN9BzLKTc2BwcuuNm7MulNi0mPTK0wB5mLlcmBRvxYYxa7o2eFQ%2BhnIjyZLSaDDnjjjY8PmFSZNESRZpAECqyiIzE0xEDADx6%2Bp3CEHBZRlRMwAgeobqHzg07lPFEjzX42zaHn6zcWFT%2F4goOSjgstbueoeA5yy9wrd53HcPuO41zjlTFN8CAIl5V%2Fcyo71s5aDZAMDMlJkJkrOyyMjKAvIWO6b7ab6p58hv%2Bm3SvgKA8enHR5jMgV8CFN5xrzmxsnBCGQDEpJ9Y5PO0OzvcLRVniuLbJyypqJX9ArcH9xlYNWHJyZTKgnEndAkXQ72muZvm1qz3mJRDRPQTABZ5KSeH5af%2Bekhm8TGxXuNmrUEy2B8AZBJDlYDQUYbPU1VZOL7s75L5kSSlsK5%2FfaYovh0AKgsmntC92jEloPdLRBgJAEI3LC7WrrPgapMQq%2FNTHYdz5lUNl6EoNT7d2%2FRh0ahIAEjKuWIzAQMZTOIT2jl28WG3ObjPt5NX%2FnLZ6HS%2FaziNKJPFEqp5nFsA0Pj048NlxX%2BHIOlFd3P97MrC2F0MpiT96gs64drSbaN3A9htX3S2QZLNNcJg3i%2FJSoQ91WEvtFaEuRWxzyOJaAIxAzj5%2BdS9bS3NrzFDY8YqIrHC23n%2F4tTQmNpia7GQIOUTBLldTUOPF8buYgAEYq9Jet1lwt5Ca0WYPdVhlyQlkg1jHwFA7vzTc02yZYWha700WTTf7R0yzNzamhbgQYUrQGvK3Ty2qbubo5ceK3SRKL2UH1PeNQ7FCrJsGgCsnFcVHiyZ%2BjpNmKiFhn0W2tJ6zqyjH0umNt3bac%2FYNnr7Q9KWvbB6jJnF5A6JkuSAkDHyvdbrhoCZAY2InGTAKRO36QB0gkIMmQCJiYKZuZcgUqDrHj0kLFJvd1ZbNN7tEyjP%2BGLk6YfmsNjKkq3kX6EdtPXP8JFOvV7uaP9m2s91Oc3hA1412BtuYgQDHGTorECQIZHQGOTWyXAKFs0Rt9vO7x8ZkeHz90%2BpDpIHX1%2FY91Z3zkcZ%2F6hIWtoBc5finI%2B3FdzhhA2Ny%2FCMNmPjjaW2zXc5Lrs2AQDS0g6Ye9TSRzV1Zk6d7f1NLWzd2Hg4cc2lEU%2FzT1Zrh1s3NB56v%2BAOJ%2Bb8PrsnDX2GB%2Fjca36BfbaA8QbYqALrRwzmehKCCfwig6aSkMcSxCmPqy11X9Yrjv%2F9AD%2F5i3HlLZnk%2BQBPMNgIIyKA6DZAJxjYWroi8uCzfDH%2BAqlswAyKrJ59AAAAAElFTkSuQmCC)](https://3dcodeverse.com)
-[![GitHub](https://img.shields.io/badge/GitHub-3dcodeverse-181717?style=for-the-badge&logo=github)](https://github.com/gaoypeng/3dcodeverse)
 [![Dataset](https://img.shields.io/badge/Dataset-ilabai%2F3dcodeverse-FFD21E?style=for-the-badge&logo=huggingface)](https://huggingface.co/datasets/ilabai/3dcodeverse)
-[![LLaMA-Factory sets](https://img.shields.io/badge/LLaMA--Factory%20sets-ilabai%2F3dcodeverse--llamafactory-FFD21E?style=for-the-badge&logo=huggingface)](https://huggingface.co/datasets/ilabai/3dcodeverse-llamafactory)
-[![License](https://img.shields.io/badge/Code-Apache--2.0-8A5CB5?style=for-the-badge)](LICENSE)
 
 </div>
 
