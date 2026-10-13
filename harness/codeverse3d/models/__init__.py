@@ -1,4 +1,4 @@
-"""ChatModel backends (API).  Use ``get_chat_model("gemini:gemini-3.7-flash")``."""
+"""ChatModel backends (API).  Use ``get_chat_model("gemini:gemini-4-argon")``."""
 
 from codeverse3d.models.registry import get_chat_model
 

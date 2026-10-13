@@ -1,6 +1,6 @@
 """``3dcode texture`` — text-to-image texturing commands.
 
-    3dcode texture pass <slug> [--no-judge] [--model gemini:gemini-3.7-flash] [--image-model MODEL]
+    3dcode texture pass <slug> [--no-judge] [--model gemini:gemini-4-argon] [--image-model MODEL]
     3dcode texture scene-pack <slug> [--n 8] [--model ...]
     3dcode texture show <slug>
 """

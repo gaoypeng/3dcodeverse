@@ -12,7 +12,7 @@ negative), and between stored and new overalls.  Optionally renders a clay /
 normals geometry set for the picked round (``addons/select``) when it stored none — from
 its own GLB (``select.round_file``; none when it kept none) — so the geometry montage is exercised.  Output goes to ``out_dir`` (never into the run).
 
-CLI: ``python -m codeverse3d.addons.calibration runs/a runs/b --model gemini:gemini-3.7-flash --n 3 --out scratch/``
+CLI: ``python -m codeverse3d.addons.calibration runs/a runs/b --model gemini:gemini-4-argon --n 3 --out scratch/``
 """
 
 from __future__ import annotations
@@ -302,7 +302,7 @@ def calibrate(
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Re-judge finished runs to calibrate the VLM judge.")
     ap.add_argument("run_dirs", nargs="+")
-    ap.add_argument("--model", default=None, help="chat model id, e.g. gemini:gemini-3.7-flash")
+    ap.add_argument("--model", default=None, help="chat model id, e.g. gemini:gemini-4-argon")
     ap.add_argument("--n", type=int, default=3, help="samples per round")
     ap.add_argument("--out", default=".", help="output directory (json + md)")
     ap.add_argument("--geometry", default="clay", help="clay | normals | none (geometry montage for the picked round)")

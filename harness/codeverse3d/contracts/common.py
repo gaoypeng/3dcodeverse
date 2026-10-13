@@ -177,10 +177,10 @@ class Budget(BaseModel):
 class Backends(BaseModel):
     """Which model/agent does which job.  Ids are ``<kind>:<model>``:
 
-    * API chat models:  ``gemini:gemini-3.7-flash`` · ``anthropic:claude-sonnet-5``
-      · ``openai:gpt-5.6-sol``
+    * API chat models:  ``gemini:gemini-4-argon`` · ``anthropic:claude-opus-5-5``
+      · ``openai:gpt-6.1-sol``
     * Coding agents:    ``agy:gemini-4-argon`` (``-low``/``-medium``/``-high``; Gemini models only) · ``claude-code:sonnet``
-      · ``codex:gpt-5.6-sol``
+      · ``codex:gpt-6.1-sol``
 
     The coding agent is always a VENDOR agent: the harness supplies the workspace, the
     prompt and its 3D tools (over MCP) and reads the result.  The in-process
@@ -188,12 +188,12 @@ class Backends(BaseModel):
     vendors already ship was never this project's job (owner's call).
     """
 
-    planner: str = "gemini:gemini-3.7-flash"
+    planner: str = "gemini:gemini-4-argon"
     generator: str = "agy:gemini-4-argon"
     # The judge drives the refine loop: the pro tier has ~3x lower sample noise than
     # flash (calibration 2026-08-23: std 0.03 vs 0.08-0.12) for ~$0.07 per verdict.
     judge: str = "gemini:gemini-3.1-pro-preview"
-    captioner: str = "gemini:gemini-3.7-flash"
+    captioner: str = "gemini:gemini-4-argon"
 
 
 #: The text-to-image model (texture pass, scene texture pack, synthetic references) when none is named.

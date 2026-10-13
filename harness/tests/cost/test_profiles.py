@@ -25,9 +25,9 @@ def _fresh_settings():
 
 
 def test_a_value_the_user_configured_survives_the_profile_unless_forced(monkeypatch):
-    s = Settings(default_generator="codex:gpt-5.6-sol")
+    s = Settings(default_generator="codex:gpt-6.1-sol")
     s.apply_profile("economy")
-    assert s.default_generator == "codex:gpt-5.6-sol"  # config.yaml / C3D_* wins over a default dial
+    assert s.default_generator == "codex:gpt-6.1-sol"  # config.yaml / C3D_* wins over a default dial
     assert s.default_judge == "gemini:gemini-3.7-flash"  # everything unstated still moves
     s.apply_profile("economy", force=True)
     assert s.default_generator == "single-shot:gemini:gemini-3.7-flash"

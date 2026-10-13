@@ -66,7 +66,8 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
   shared pool, a per-session HOME carrying `modelProvider: gemini` + the 3dcode MCP server, priced.  `codex` 0.147+ (MCP needs
   `default_tools_approval_mode="approve"`) and `claude` 2.1 run on local subscriptions: test
   lightly.  No Anthropic/OpenAI API keys here.
-- DEFAULT generator: `agy:gemini-4-argon` (D103, 2026-10-13; `gemini-cli:gemini-3.7-flash` before).
+- DEFAULT generator: `agy:gemini-4-argon` (D103, 2026-10-13; `gemini-cli:gemini-3.7-flash` before); planner and
+  captioner default to `gemini:gemini-4-argon` too.
   `gemini-3.7-flash` stays the cheap API model (single-shot / economy, flash judge — lenient; needs
   the defect checklist for range).  Judge default `gemini-3.1-pro-preview` (`Settings.default_judge`; tracks use
   n_samples=1); flash + `--n 3` is the cheap fallback, pro for calibration/eval.
