@@ -5,13 +5,13 @@ The library itself is agent-agnostic: plain `agentskills.io` bundles under
 in it knows what a backend is.  What genuinely differs between backends is only
 **delivery**, and only in one bit: which discovery root does it read?
 
-Read out of the shipped binaries, not assumed: gemini-cli, codex and agy read
+Read out of the shipped binaries, not assumed: codex and agy read
 ``<ws>/.agents/skills/<name>/SKILL.md``; claude-code 2.1 reads ``<ws>/.claude/skills/…``
-and has no ``.agents`` skill root at all.  All four have a NATIVE skill loader (they find
+and has no ``.agents`` skill root at all.  All three have a NATIVE skill loader (they find
 and index the bundles themselves), so none is handed a second index — it would list the
 same skills twice.  Adding a backend is ONE row here — not a new module, not a branch in
 three files.  (The loaderless path — an explicit index plus a ``read_skill`` tool — served
-the in-process api-agent and went with it: ``agents/registry.KINDS`` accepts only these four.)
+the in-process api-agent and went with it: ``agents/registry.KINDS`` accepts only these three.)
 """
 
 from __future__ import annotations
@@ -33,7 +33,6 @@ CLAUDE_SKILL_ROOT = ".claude/skills"
 _BACKEND_ROOTS: dict[str, str] = {
     "claude-code": CLAUDE_SKILL_ROOT,
     "codex": AGENTS_SKILL_ROOT,
-    "gemini-cli": AGENTS_SKILL_ROOT,
     "agy": AGENTS_SKILL_ROOT,
 }
 

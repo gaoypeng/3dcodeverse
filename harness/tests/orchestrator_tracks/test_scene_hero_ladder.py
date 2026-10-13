@@ -76,50 +76,6 @@ def _crate_plan(asset):
                       acceptance=[])
 
 
-class _StormAgent(FakeAgent):
-    """A CLI session that wrote partial files and died at the wall in a 503 streak (D68)."""
-
-    def run(self, job):
-        from codeverse3d.contracts.agent import AgentResult
-        from codeverse3d.workspace import Workspace
-
-        self.jobs.append(job)
-        ws = Workspace(job.workspace)
-        before = ws.head()
-        for rel, content in (self.writer(job, ws) or {}).items():
-            (ws.root / rel).parent.mkdir(parents=True, exist_ok=True)
-            (ws.root / rel).write_text(content)
-        return AgentResult(ok=False, exit_reason="timeout", transient=True, files_changed=ws.changed_files(before),
-                           errors=["killed by watchdog (hard_timeout) after 720s", "7 x 503 inside the CLI's own retry loop before the wall; nothing produced"])
-
-
-def test_a_hero_session_that_died_in_the_storm_gets_one_more_cheap_repair(tmp_ws, settings, monkeypatch):
-    """A storm-dead hero session gets ONE more single-shot repair with the check's feedback."""
-    calls = {"n": 0}
-
-    class FailTwiceThenGood(SingleShotServices):
-        def _answer(self, req):
-            if req.response_schema is not None:
-                return plan_example(Track.STATIC_OBJECT)
-            calls["n"] += 1
-            body = GOOD_MODEL if calls["n"] >= 3 else f"import bpy\n{FAIL_MARK}\n"   # two shots fail, the rung answers
-            return f"=== FILE: src/model.py ===\n{body}=== END FILE ==="
-
-    services = FailTwiceThenGood()
-    agent = _StormAgent(_writer(f"import bpy\n{FAIL_MARK}\n"))       # partial, broken parts
-    monkeypatch.setattr(SA, "hero_plan", lambda sub, asset: _crate_plan(asset))
-    ctx, hero = _scene(tmp_ws, settings, services=services, agent=agent)
-    res = SA.build_blender_asset(ctx, hero, judge=False)
-    assert res.ok and res.strategy == "escalated+repair", (res.strategy, res.notes)
-    # ONE agent session: the partial files were checked on the cheap context (no agent repair) and the rung went single-shot
-    assert calls["n"] == 3 and [j.label for j in agent.jobs] == [f"asset_{SA.to_snake(hero.name)}"]
-    texts = [" ".join(p.text for m in r.messages for p in m.parts if getattr(p, "text", "")) for r in services.chat.requests
-             if r.response_schema is None]
-    assert "did NOT pass the deterministic asset check" in texts[2]
-    events = [json.loads(line) for line in tmp_ws.events_path.read_text().splitlines()]
-    assert [e["event"] for e in events if e["event"] in ("asset.escalated", "asset.storm_repair")] == ["asset.escalated", "asset.storm_repair"]
-
-
 def test_hero_repair_sessions_are_clipped_to_the_asset_window_and_capped_at_one(tmp_ws, settings):
     agent = FakeAgent(_writer(f"import bpy\n# {FAIL_MARK}\n"))   # every session leaves a build that fails
     ctx, hero = _scene(tmp_ws, settings, services=CardedServices(), agent=agent)

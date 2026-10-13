@@ -158,21 +158,15 @@ STORM_DEATH = AgentResult(ok=False, exit_reason="timeout", transient=True,
                           errors=["killed by watchdog (hard_timeout) after 720s", "11 x 503 inside the CLI's own retry loop before the wall; nothing produced"])
 
 
-def test_a_storm_dead_session_falls_back_to_single_shot(tmp_path, settings):
-    """A session that died in a 503 storm goes once more through the single-shot path."""
-    def respond(req):
-        return _envelope("src/env.js", "export function buildEnv() { return {}; }\n")
-
-    services = _ChatServices(FakeChatModel(respond))
+def test_a_storm_dead_session_comes_back_transient_and_is_not_retried_here(tmp_path, settings):
+    """No hidden single-shot fallback under ``generate_for`` (D103): the session's death is typed
+    ``transient`` and the round loop's one transport retry is the only retry above the CLI's own."""
+    services = _ChatServices(FakeChatModel(lambda req: pytest.fail("no single-shot call")))
     agent = FakeAgent(lambda j, w: STORM_DEATH)
     ctx = _scene_ctx(tmp_path, settings, services=services, agent=agent, agent_id="fake-agent:gemini:x")
     task = GenerationTask(label="env", prompt="write `src/env.js`", files_hint=["src/env.js"], round=0, kind="env")
     res = generate_for(ctx, task)
-    assert res.ok and [c.path for c in res.files_changed] == ["src/env.js"]
-    assert len(agent.jobs) == 1 and services.chat_ids == [ctx.spec.backends.planner]   # the planner backend, always an API model
-    assert "503 storm" in res.notes and "single-shot" in res.notes
-    kinds = [e["event"] for e in _events(ctx)]
-    assert "generate.storm_fallback" in kinds
+    assert not res.ok and res.transient and len(agent.jobs) == 1 and services.chat_ids == []
 
 
 def test_a_zones_session_the_clock_stopped_is_kept_for_the_resume(tmp_path, settings):

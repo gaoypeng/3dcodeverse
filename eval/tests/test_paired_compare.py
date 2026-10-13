@@ -15,7 +15,7 @@ from bench._jsonl import latest  # noqa: E402
 from bench.paired_compare import analyse, main, paired, rows_from_bench_run  # noqa: E402
 from bench.stats import t975  # noqa: E402
 
-HA, OA = "harness:gemini-cli:gemini-3.6-flash", "oneshot:gemini:x"
+HA, OA = "harness:agy:gemini-3.6-flash", "oneshot:gemini:x"
 
 
 def _cell(pid: str, arm: str, score: float | None, *, tier: str = "hard", status: str = "scored",

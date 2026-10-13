@@ -72,7 +72,7 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   The cookbook is copied to `ws/.3dcode/cookbook.md` (gemini-cli cannot read outside the
   workspace); the MCP argv defaults to `cli_common.default_mcp_command(ws)`, i.e.
   `sys.executable`, for every backend (the track-side bare-`python` literals are gone).
-* **D10 gemini-cli needs a system-settings file (Δ).**  api-key auth +
+* **D10 gemini-cli needs a system-settings file (Δ; superseded by D103 — the gemini-cli backend is deleted).**  api-key auth +
   `dynamicModelConfiguration` (else silent model substitution) + `folderTrust.enabled=false`
   (else workspace MCP servers are silently disabled even with `--skip-trust`).  Served
   model is checked; mismatch → `exit_reason=model_substituted`.
@@ -696,7 +696,9 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   a hero's escalated session that died transient with a failing check gets ONE more single-shot
   repair (`asset.storm_repair`).  The owner's rule for the storm (2026-09-07 evening): keep
   querying, keep retrying.  `single_shot_agent_id` / `single_shot_ctx` live in `tracks.common`
-  (they were never scene-specific).
+  (they were never scene-specific).  **Superseded by D103 (2026-10-13):** the single-shot storm
+  fallback, `GenerationResult.storm` and `asset.storm_repair` are deleted; a transient death gets the
+  round loop's one transport retry.
 
 * **D69 An interior scene's enclosure has an owner: the environment, from the plan's bounds
   (2026-09-07).**  Six interior runs of the day were judged "not enclosed — a diorama on a flat
@@ -874,7 +876,7 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   one session per vendor CLI (gemini-cli ×2, claude-code, codex, agy) activated every routed bundle
   — 20 of 20, all before writing code — and never the control.  Reads are now ground truth: each
   backend records its CLI's own tool calls in `transcript.jsonl` and the read probe reads those
-  first (the atime probe was wrong on every session).  gemini-cli pins `skills.enabled`,
+  first (the atime probe was wrong on every session).  gemini-cli pins `skills.enabled` (moot since D103),
   claude-code streams JSON; `.agents/` is harness-owned and git-ignored.  SKILLS_LEDGER §0b.
 
 * **D82 One verdict per check (2026-09-22).**  A tool returns the round's own gate, computed by the
@@ -1114,8 +1116,8 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   build 5.0 s / 7.5 s (wrapper 3.4–5.3 s, of which GLB 0.1 / 0.8 s; JS probe 1–2.4 s).
   `render_scene` raises NotImplementedError until phase 2.
 
-* **D103 scene_blender pictures come from Blender; the camera checks and the metrics schema stay the JS host's
-  (2026-09-24, lane B; the lead renumbers).**  DESIGN §11 phase 2, owner D1/D2/D3/D8.
+* **D102b scene_blender pictures come from Blender; the camera checks and the metrics schema stay the JS host's
+  (2026-09-24, lane B of D102; written as "D103, the lead renumbers" — renumbered D102b, as its commit names it).**  DESIGN §11 phase 2, owner D1/D2/D3/D8.
   `spatial/render_blender.render_blender_scene` is what the language's `render_scene` calls: (1)
   `runtime_js/fit_orbit.mjs` fits the orbit rig to the build's `census.json` with the unchanged `orbit.mjs`; (2)
   `languages/wrappers/render_bpy_scene.py` opens `artifacts/scene.blend` and renders the authored cameras × every
@@ -1141,6 +1143,46 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   9-20 s of shader compile).  Not done here: the eye-level rig views get no Blender pixels (DESIGN §5.2: nobody
   reads them), so their exposure is unmeasured; `no_fog` overviews unlink only the world volume (a bounded fog
   object still renders).
+
+* **D103 gemini-cli is deleted; Google's models run through agy (owner, 2026-10-13).**  gemini-cli and its
+  retry layers were the heaviest vendor-specific burden in `agents/` (a per-session system settings file,
+  chat-record reading, stderr retry-line parsing, a key-rotating retry loop inside the backend, a storm
+  fallback above it), and agy 1.3.4 now takes a Gemini API key and an MCP server, so Google's models lose
+  nothing.  Deleted: `GeminiCliAgent`, its system settings file, `read_gemini_chats`, `GeminiRetries`, the
+  2–3-attempt retry loop with `retry_window_left` / `_retry_key` / `RETRY_KEY_WAIT_S` / `QUOTA_MAX_ATTEMPTS`,
+  `Settings.binaries.gemini_cli`, `cli_common.invoke`'s `attempt` / `soft_timeout_s` (captures are always
+  `stdout.json` / `stderr.log`), `find_json_object`'s multi-line scan (only gemini-cli printed indented
+  JSON), the doctor rows `gemini-cli` and `gemini-cli skills setting`.  `agents/registry.KINDS` =
+  `("claude-code", "codex", "agy")`; the default generator (and balanced / quality) is `agy:gemini-3.7-flash`.
+  agy has two modes, `AntigravityAgent.api_mode` = a `gemini*` model AND Gemini keys configured:
+  **Gemini-API mode** — one key per session from THE shared pool (`models.gemini.shared_pool`,
+  `KeyPool.session_key`, no in-flight slot), the outcome reported back (429 → cooldown, 401/403/
+  `API_KEY_INVALID` → dead, 5xx, ok, skip); a fresh HOME under `<cache_dir>/agy_homes/…` holding
+  `.gemini/antigravity-cli/settings.json` = `{"modelProvider": "gemini"}` (without it agy ignores
+  `GEMINI_API_KEY` and demands a login) and `.gemini/config/mcp_config.json` with the `3dcode` server
+  (`env.HOME` = the real home), deleted after the session once the tool trace is read from its
+  conversation db; argv `--model gemini-api://<bare id> --effort <low|medium|high>` (any id goes verbatim,
+  e.g. gemini-4-argon; effort from an agy-style `-low/-medium/-high` suffix, default `high` — the Gemini
+  API's own default, what gemini-cli sessions ran at); priced at Gemini list price with output = output −
+  thinking and thoughts = thinking (agy's `output_tokens` already include thinking: billed once);
+  `PUPPETEER_CACHE_DIR` = the real cache for the agent's shell.  **Subscription mode** (a non-Gemini model
+  such as `agy:claude-sonnet-4-6`, or no keys) — real HOME, the sign-in, no MCP (AGENTS.md documents the
+  shell fallback `python -m codeverse3d.cli.main tools <name> --json …`), booked $0 by the backend (the
+  ledger re-prices $0 rows at list price as before).  No retry loop in the backend: agy retries its own
+  model calls (≤ 30 s waits since 1.3.4, stops at once on a spent daily quota), and a transient death goes
+  to the round loop's ONE transport retry (`tracks/lifecycle`), which takes a fresh key.  Workspace
+  materialisation writes `AGENTS.md` + `CLAUDE.md` only — no `GEMINI.md` (agy reads it AND `AGENTS.md`,
+  so the body was loaded twice), no `.gemini/settings.json` — and `.antigravityignore` replaces
+  `.geminiignore` / `.aiexclude`.  doctor: CLI rows agy / claude / codex and a new `agy gemini mode` row
+  (OK "API-key mode: N-key pool, 3dcode MCP, priced"; WARN without keys).  Prompt manifest re-blessed
+  (context files, generator id).  Consequences: **no single-shot storm fallback** — `tracks.common.
+  generate_for` is plain `generate()`, `GenerationResult.storm` is gone, and so are the asset ladder's
+  storm-repair rung (strategy `escalated+repair`) and the events `generate.storm_fallback` /
+  `asset.storm_repair` (D68 superseded; `repair.storm` and the lifecycle transport retry stay); agy gets
+  the 3dcode MCP tools in API mode (it had none); the GEMINI.md double load is fixed; effort defaults to
+  `high`.  Live facts (2026-10-13, agy 1.3.4): API mode lists gemini-3.8/3.7/3.6-flash and 3.1-pro; the
+  subscription sign-in no longer serves gemini-3.7-flash (only 3.8-flash, claude-sonnet/opus-4-6, gpt-oss).
+  The profiles' $ / score expectations were measured on gemini-cli and are not re-measured on agy.
 
 ## Rejected / deferred
 

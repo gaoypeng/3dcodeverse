@@ -1,4 +1,4 @@
-"""AntigravityAgent: envelope parsing, argv, fake binary, live smoke."""
+"""AntigravityAgent: envelope parsing, argv, fake binary, Gemini-API mode, live smoke."""
 
 from __future__ import annotations
 
@@ -14,8 +14,16 @@ from codeverse3d.agents.backends import (
     resolve_model,
 )
 from codeverse3d.agents.cli_common import begin_session
+from codeverse3d.config import get_settings
 from codeverse3d.contracts.agent import AgentJob
 from codeverse3d.workspace import Workspace
+
+
+@pytest.fixture(autouse=True)
+def _subscription(monkeypatch, tmp_path):
+    """Every test here runs on the subscription sign-in unless it hands out keys itself."""
+    monkeypatch.setattr(get_settings(), "gemini_api_keys", [])
+    monkeypatch.setattr(get_settings(), "cache_dir", tmp_path / "cache")
 
 ENVELOPE = {"conversation_id": "c1", "status": "SUCCESS", "response": "DONE\n", "duration_seconds": 3.0, "num_turns": 1,
             "usage": {"input_tokens": 18589, "output_tokens": 494, "thinking_tokens": 413, "cache_read_tokens": 12199, "total_tokens": 19083}}
@@ -89,7 +97,9 @@ def test_fake_run_json_and_text(tmp_ws: Workspace, fake_bin, monkeypatch):
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="a", timeout_s=30))
     assert res.ok and res.text.strip() == "DONE", res.errors
     u = res.usage
-    assert (u.input_tokens, u.output_tokens, u.thoughts_tokens, u.cached_tokens) == (18589, 494, 413, 12199)
+    # agy's input_tokens EXCLUDE the cache reads and its output_tokens CONTAIN the thinking
+    # (total == input + output): the pricing convention is total prompt, thinking billed once
+    assert (u.input_tokens, u.output_tokens, u.thoughts_tokens, u.cached_tokens) == (18589 + 12199, 81, 413, 12199)
     assert [f.path for f in res.files_changed] == ["src/hello.txt", "src/prompt.txt"]
     assert (tmp_ws.src / "prompt.txt").read_text().endswith("\n\nhello")   # on stdin, after the workspace header
     monkeypatch.setenv("FAKE_MODE", "text")
@@ -157,3 +167,55 @@ def test_the_run_uses_and_records_the_resolved_id(tmp_ws: Workspace, fake_bin):
 
     assert res.ok and res.text.strip() == "DONE", res.errors
     assert res.usage.model == "gemini-3.7-flash-medium"
+
+
+#: agy in Gemini-API mode, as the harness drives it: everything it needs is in its own HOME
+FAKE_AGY_API = r'''
+args = sys.argv[1:]
+prompt = sys.stdin.read()
+home = os.environ["HOME"]
+settings = json.load(open(os.path.join(home, ".gemini/antigravity-cli/settings.json")))
+mcp = json.load(open(os.path.join(home, ".gemini/config/mcp_config.json")))
+os.makedirs("src", exist_ok=True)
+open("src/seen.json", "w").write(json.dumps({
+    "key": os.environ.get("GEMINI_API_KEY"), "home": home, "settings": settings, "mcp": mcp,
+    "model": args[args.index("--model") + 1], "effort": args[args.index("--effort") + 1]}))
+if os.environ.get("FAKE_MODE") == "429":
+    print(json.dumps({"conversation_id": "c9", "status": "ERROR", "response": "", "error": "Error 429"}))
+    print('AGY_ERROR: {"status":"RESOURCE_EXHAUSTED","error_code":429,"retryable":true}', file=sys.stderr)
+    sys.exit(3)
+print(''' + repr(json.dumps(ENVELOPE)) + r''')
+'''
+
+
+def test_api_mode_runs_on_a_pool_key_in_a_home_of_its_own(tmp_ws: Workspace, fake_bin, monkeypatch):
+    """A Gemini model with keys configured: one pool key, agy's API-mode setting and the 3dcode MCP
+    server in a fresh HOME (gone afterwards), the model sent verbatim with its effort, usage priced."""
+    from codeverse3d.agents import backends
+
+    monkeypatch.setattr(get_settings(), "gemini_api_keys", ["key-one"])
+    a = AntigravityAgent("gemini-3.7-flash-low", binary=fake_bin("agy", FAKE_AGY_API))
+    assert a.api_mode and a.served_model() == "gemini-3.7-flash"
+    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="api", timeout_s=30, language="blender"))
+    assert res.ok, res.errors
+    seen = json.loads((tmp_ws.src / "seen.json").read_text())
+    assert seen["key"] == "key-one" and seen["settings"] == {"modelProvider": "gemini"}
+    assert (seen["model"], seen["effort"]) == ("gemini-api://gemini-3.7-flash", "low")
+    server = seen["mcp"]["mcpServers"]["3dcode"]
+    assert server["args"][:2] == ["-m", "codeverse3d.spatial.mcp_server"] and server["env"] == {"HOME": str(Path.home())}
+    assert seen["home"] != str(Path.home()) and not Path(seen["home"]).exists()   # deleted after the session
+    assert res.usage.model == "gemini-3.7-flash" and res.usage.cost_usd > 0
+    # a bare id runs at the API's own default effort
+    assert AntigravityAgent("gemini-4-argon").model_args() == ["--model", "gemini-api://gemini-4-argon", "--effort", "high"]
+    # a 429 cools the key in the shared pool
+    monkeypatch.setenv("FAKE_MODE", "429")
+    res2 = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="api429", timeout_s=30, spatial_tools=False))
+    assert not res2.ok and res2.exit_reason == "budget" and res2.transient
+    assert backends._key_pool().stats()["keys"][0]["429"] >= 1
+    assert json.loads((tmp_ws.src / "seen.json").read_text())["mcp"] == {"mcpServers": {}}
+
+
+def test_a_model_agy_only_serves_on_the_subscription_never_takes_a_key(monkeypatch):
+    monkeypatch.setattr(get_settings(), "gemini_api_keys", ["key-one"])
+    assert not AntigravityAgent("claude-sonnet-4-6").api_mode
+    assert AntigravityAgent("gemini-3.7-flash").api_mode

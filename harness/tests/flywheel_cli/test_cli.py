@@ -58,7 +58,7 @@ def test_make_no_run_creates_valid_workspace(tmp_path: Path):
     runs = tmp_path / "runs"
     r = runner.invoke(app, ["make", "a wooden dining chair", "--track", "static_object", "--language", "blender",
                             "--runs-dir", str(runs), "--no-run", "--dim", "width=0.5", "--must", "four legs",
-                            "--rounds", "2", "--generator", "gemini-cli:gemini-3.7-flash"])
+                            "--rounds", "2", "--generator", "agy:gemini-3.7-flash"])
     assert r.exit_code == 0, r.output
     # `.locks/` (runlock.exclusive) lives beside the run dirs on purpose — a lock inside
     # the directory a --force wipe deletes is no lock
@@ -69,7 +69,7 @@ def test_make_no_run_creates_valid_workspace(tmp_path: Path):
     spec = Spec.model_validate_json((ws / "spec.json").read_text())
     assert spec.constraints.dimensions_m == {"width": 0.5} and spec.constraints.must_have == ["four legs"]
     assert spec.budget.max_rounds == 2 and spec.budget.max_minutes == 60.0
-    assert spec.backends.generator == "gemini-cli:gemini-3.7-flash"
+    assert spec.backends.generator == "agy:gemini-3.7-flash"
     assert (ws / "src").is_dir() and (ws / "artifacts" / "renders").is_dir()
     # same prompt again → same slug → refuse without --force
     r2 = runner.invoke(app, ["make", "a wooden dining chair", "--runs-dir", str(runs), "--no-run"])
@@ -437,7 +437,7 @@ def test_render_only_labels_the_working_tree_round(tmp_path: Path):
 
 
 @pytest.mark.parametrize("flag,value", [
-    ("--generator", "antigravity:gemini-3.7-flash"), ("--generator", "nocolon"), ("--generator", "single-shot:nope"),
+    ("--generator", "antigravity:gemini-3.7-flash"), ("--generator", "gemini-cli:gemini-3.7-flash"), ("--generator", "nocolon"), ("--generator", "single-shot:nope"),
     ("--generator", "single-shot:gemini:"), ("--planner", "gemini"), ("--judge", "bogus:model"),
     ("--captioner", "gemini:"),
 ], ids=lambda v: v.strip("-"))

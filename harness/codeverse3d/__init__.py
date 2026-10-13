@@ -13,8 +13,8 @@ Package map (each sub-package has its own docstring):
 - ``contracts``     pydantic models shared by everything (Spec, Plan, Gate,
                     Judgment, Usage, RunRecord ...).  No logic lives here.
 - ``models``        ChatModel backends: Gemini / Anthropic / OpenAI (+ key pool).
-- ``agents``        CodingAgent backends: the vendor CLIs — gemini-cli /
-                    claude-code / codex / antigravity.
+- ``agents``        CodingAgent backends: the vendor CLIs — antigravity (agy,
+                    Google's models) / claude-code / codex.
 - ``languages``     LanguageRuntime per raw language: lint, build, export.
 - ``spatial``       language-agnostic 3D tools on GLB/scene: measure, render,
                     slice, isolate, silhouette, joints, probes — also served as

@@ -25,13 +25,13 @@ def test_on_by_default_and_garbage_keeps_the_default(monkeypatch, name, raw, wan
     assert (s.skills, s.skills_unverified, s.skills_max) == want
 
 
-def test_doctor_reports_the_default_and_the_gemini_pin(monkeypatch):
-    """ON is healthy, and gemini-cli's skills.enabled must be pinned per session."""
+def test_doctor_reports_the_default_and_the_skill_tool(monkeypatch):
+    """ON is healthy, and claude-code's Skill tool must be allowed."""
     from codeverse3d.doctor import check_skills
 
     monkeypatch.delenv("C3D_SKILLS", raising=False)
     rows = {name: status for name, status, _ in check_skills()}
-    assert rows["skills switch"] == "OK" and rows["gemini-cli skills setting"] == "OK"
+    assert rows["skills switch"] == "OK"
     assert rows["claude-code Skill tool"] == "OK"
     monkeypatch.setenv("C3D_SKILLS", "0")
     get_settings.cache_clear()

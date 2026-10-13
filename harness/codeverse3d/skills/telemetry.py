@@ -7,8 +7,8 @@ nicer file format without measuring reads would repeat that at a new price.
 
 **Ground truth first (2026-09-22).**  Every CLI backend now folds its session's tool
 calls into ``trajectories/<label>/transcript.jsonl`` (``agents/cli_common.record_tool_calls``:
-claude-code's ``Skill``/``Read`` from stream-json, gemini-cli's ``activate_skill``/
-``read_file`` from its chat record, codex's shell commands from ``exec --json``).  A
+claude-code's ``Skill``/``Read`` from stream-json, codex's shell commands from
+``exec --json``, agy's ``view_file`` from its conversation database).  A
 bundle is *surfaced* when a call activated it or named its ``SKILL.md``, *deep* when a
 call named a file under its ``references/``, and the control is read when a call touched
 it — ``SkillsUsage.evidence == "transcript"``.  Only when a session after the attach left

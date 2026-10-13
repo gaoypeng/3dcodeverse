@@ -35,7 +35,7 @@ class AgentJob(BaseModel):
         "remaining hard clock before queuing. Shared by retries; recomputed on resume. "
         "None preserves the standalone CLI's session grace",
     )
-    #: consumed only by claude-code (``--max-turns``); gemini-cli / codex / agy have no
+    #: consumed only by claude-code (``--max-turns``); codex / agy have no
     #: turn flag and run unbounded except by ``timeout_s`` and the run's wall clock
     max_turns: int = 60
     spatial_tools: bool = Field(
@@ -93,9 +93,7 @@ class AgentResult(BaseModel):
         "overloaded / token-limit retries and their back-off inside the CLI — read from the CLI's "
         "own log; 0.0 when none were seen or the CLI does not expose them.  A step's effective "
         "time is ``duration_s - provider_wait_s`` (owner, 2026-09-22).  Sources "
-        "(cli_common.provider_wait): gemini-cli its stderr retry lines against its chat record — a "
-        "lower bound, its 5xx back-off is unannounced — plus the key rotation between attempts; "
-        "claude-code its stream-json ``api_retry`` events; agy the retry lines of its ``--log-file``; "
+        "(cli_common.provider_wait): claude-code its stream-json ``api_retry`` events; agy the retry lines of its ``--log-file``; "
         "codex none (its HTTP client retries without an event)",
     )
     usage_estimated: bool = Field(
@@ -106,16 +104,14 @@ class AgentResult(BaseModel):
     tool_calls: int = 0
     turns: int = Field(
         default=0, description="model turns as the backend counts them (claude-code num_turns, codex "
-        "turn.completed events, agy num_turns); 0 for gemini-cli, which exposes no turn count",
+        "turn.completed events, agy num_turns)",
     )
     errors: list[str] = Field(default_factory=list)
     transient: bool = Field(
         default=False,
         description="the session died of a provider failure a retry may get through — 5xx / UNAVAILABLE / "
         "overloaded / a 429 rate limit / a dropped connection, as the CLI itself reported it — not of "
-        "the task: the round loop re-runs such a round once, and a session that also wrote nothing falls "
-        "back to the cheap single-shot path, hedged across keys (measured 2026-09-07: 23 of 24 gemini-cli "
-        "sessions of one evening died in a 503 storm)",
+        "the task: the round loop re-runs such a round once",
     )
     quota: bool = Field(
         default=False,

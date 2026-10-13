@@ -170,7 +170,7 @@ class RunContext:
 
     @property
     def agent_kind(self) -> str:
-        """``gemini-cli`` of ``gemini-cli:gemini-3.7-flash``."""
+        """``agy`` of ``agy:gemini-3.7-flash``."""
         return self.agent_id.split(":", 1)[0]
 
     def record_prompt(self, name: str, text: str) -> None:
@@ -216,26 +216,8 @@ def single_shot_ctx(ctx: RunContext) -> RunContext | None:
 
 
 def generate_for(ctx: RunContext, task: GenerationTask) -> GenerationResult:
-    """``generate()`` with everything ``ctx`` knows — the one call every stage makes — plus the
-    storm fallback: a session that died on a transient-failure streak and wrote nothing
-    (``GenerationResult.storm``) is retried through the single-shot path, one hedged,
-    key-rotating API call.  Measured 2026-09-07: 23 of 24 gemini-cli sessions of an evening
-    ended ``timeout / 0 turns / $0`` after 8-17 consecutive 503s inside the CLI's own retry
-    loop, while every single-shot in the same minutes got through; the stages that lost
-    their session shipped the skeleton env and empty zones and judged 0.00-0.14."""
-    res = generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
-                   budget=ctx.budget, events=ctx.events)
-    if not res.storm or ctx.single_shot:
-        return res
-    sub = single_shot_ctx(ctx)
-    if sub is None:
-        return res
-    ctx.events.emit("generate.storm_fallback", label=task.label, sessions=res.sessions, notes=res.notes[:300])
-    again = generate(sub.ws, agent_id=sub.agent_id, task=task, agent=sub.agent, model=sub.model, settings=sub.settings,
-                     budget=sub.budget, events=sub.events)
-    again.usage = res.usage + again.usage
-    again.notes = f"agent session died in a 503 storm ({res.notes[:120]}) → single-shot: {again.notes}"
-    # the cheap route did not get through either: the task still died of the storm (the round
-    # loop's one retry keys on it — RoundFailed.transient)
-    again.transient = again.transient or not again.ok
-    return again
+    """``generate()`` with everything ``ctx`` knows — the one call every stage makes.  A session
+    that died of a provider failure comes back ``transient``; the round loop's one retry is the
+    only retry above the CLI's own."""
+    return generate(ctx.ws, agent_id=ctx.agent_id, task=task, agent=ctx.agent, model=ctx.model, settings=ctx.settings,
+                    budget=ctx.budget, events=ctx.events)

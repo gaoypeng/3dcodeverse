@@ -339,9 +339,10 @@ residency (1.1x) and fast-mode multipliers, per-search server-tool fees.
 | role | model | $/call | measured quality | when |
 |---|---|---|---|---|
 | planner | `gemini:gemini-3.7-flash` ★ | $0.013 | no failure attributable to the planner | always — the plan is 0.8% of a run |
-| generator | `gemini-cli:gemini-3.7-flash` ★ | $0.73 | 0.827 on compare_v1 | default for every track with tools since 2026-08-28 |
+| generator | `agy:gemini-3.7-flash` ★ | not yet measured | — | default for every track with tools since 2026-10-13 (D103: gemini-cli removed; agy in Gemini-API mode, pool key + MCP, priced at list) |
+| generator | `gemini-cli:gemini-3.7-flash` (removed in D103) | $0.73 | 0.827 on compare_v1 | the default 2026-08-28 – 2026-10-13; the expectation the agy arm is held to until a battery re-measures it |
 | generator | `single-shot:gemini:gemini-3.7-flash` | $0.05 | graphics: 5/6 passed, median 0.810 | glsl / opengl — one file, compiler feedback |
-| generator | `gemini-cli:gemini-3.6-flash` | $0.52 | compare_v1 mean 0.835 (best arm measured) | the cheaper arm, and the one every recorded battery was run on |
+| generator | `gemini-cli:gemini-3.6-flash` (removed in D103; `agy:gemini-3.6-flash` is its successor) | $0.52 | compare_v1 mean 0.835 (best arm measured) | the cheaper arm, and the one every recorded battery was run on |
 | generator | `codex:gpt-5.6-sol` | $1.93 in-loop / $0.20 one-shot | one-shot 0.786 | strong one-shot baseline, expensive loop |
 | generator | `oneshot:claude-code` | $1.04 | 0.673, 0/2 passed | not for bulk generation |
 | judge | `gemini:gemini-3.1-pro-preview` ★ | $0.060 | σ 0.030, pearson(gate errors, score) **+0.63** | every decision that persists |
@@ -446,8 +447,8 @@ out not to pay.
   captioner, texturing and single-shot generation.
 * **`MeteredAgent`** wraps everything `agents.get_coding_agent` hands out: it sets
   the ambient round/stage for the session (so the rows above land in the right
-  bucket) and, for a backend whose calls we cannot see (gemini-cli / claude-code / codex /
-  agy), records one session row from `AgentResult.usage`.
+  bucket) and, for a backend whose calls we cannot see (claude-code / codex / agy; gemini-cli
+  until D103), records one session row from `AgentResult.usage`.
 
   **Which backends those are is a property of the backend, not a guess.**  The
   first version asked "did anybody write a ledger row while this session ran?"
@@ -670,7 +671,7 @@ given**, so `3dcode resume` reproduces it.
 
 | | economy | balanced | quality |
 |---|---|---|---|
-| generator | `single-shot:gemini:gemini-3.7-flash` | `gemini-cli:gemini-3.7-flash` | `gemini-cli:gemini-3.7-flash` |
+| generator | `single-shot:gemini:gemini-3.7-flash` | `agy:gemini-3.7-flash` | `agy:gemini-3.7-flash` |
 | judge | flash, n=2 | **pro, n=1** | **pro, n=3** |
 | refine rounds | 2 | 4 | 4 |
 | best-of-N | 1 | 1 | 2 |
@@ -679,6 +680,9 @@ given**, so `3dcode resume` reproduces it.
 | texture pass | off | off | on |
 | ceilings | $1.50 / 30 min | $5 / 60 min | $8 / 90 min |
 | expected from the audit | ~$0.30/run | ~$1.47/run | ~$3.20/run |
+
+(balanced / quality expectations were measured on gemini-cli; the generator moved to agy on
+2026-10-13, D103, and they have not been re-measured on it.)
 
 Why these numbers: r01 buys a score point for $4.93 and r02 for $6.80 while r03
 costs $33.49 (§5), so economy stops at 2; the pro judge is *cheaper* than matching
@@ -1241,7 +1245,7 @@ only what is billed.  `cost/billing.py` names the flat-rate backends
 counter, `billed_usd`, alongside `spent.cost_usd`.  `summary()` reports both:
 `spent_usd` (billed, real dollars) and `notional_usd` (list price, what the reports want).
 
-`gemini-cli` is deliberately **not** exempt: it authenticates with an API key, so its
+`gemini-cli` (removed in D103; agy in Gemini-API mode is the same case today) is deliberately **not** exempt: it authenticates with an API key, so its
 tokens draw on a real per-token quota even when that quota is free.  Unknown backends
 bill by default — a new provider nobody classified must be enforced, not exempted.
 Getting it wrong the other way reports a run as free when someone was billed for it.

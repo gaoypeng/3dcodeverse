@@ -4,8 +4,8 @@ Backend harness (python package `codeverse3d`, CLI `3dcodeverse` / short alias `
 repo path `/home/yipeng/3dcodeverse/harness`) for LLM-written **raw** 3D code:
 Blender bpy · CadQuery · Three.js · URDF · GLSL / OpenGL, across four tracks
 (`static_object`, `articulated_object`, `scene`, `graphics`), with pluggable
-backends.  **The coding agent is always a VENDOR's** — gemini-cli / claude-code /
-codex / antigravity — and the harness supplies the workspace, the prompt and the
+backends.  **The coding agent is always a VENDOR's** — antigravity (`agy`, Google's
+models) / claude-code / codex — and the harness supplies the workspace, the prompt and the
 3D tools its track can use (over MCP; 16 in the registry, filtered per track — D48
 review), then reads the result.  The harness's OWN api use is planning,
 judging, single-shot file generation and the texture pass (Gemini/Anthropic/OpenAI).
@@ -61,17 +61,16 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
   (`spatial.node.run_node(three_hook=True)`) — `NODE_PATH` alone does not work;
   that hook is `module.registerHooks` on node ≥ 22.15, `module.register` below.
   The `graphics` track renders with moderngl (d3d12 GPU context, llvmpipe fallback).
-- CLIs: `gemini` 0.53 (api-key auth + `dynamicModelConfiguration` + `folderTrust.enabled=false`
-  via the system settings file the harness writes — else it silently substitutes models /
-  drops workspace MCP servers), `codex` 0.147+ (MCP needs
-  `default_tools_approval_mode="approve"`), `claude` 2.1, `agy` 1.1 — the last three run
-  on local subscriptions: test lightly.  No Anthropic/OpenAI API keys here.
-- Main test model: `gemini-3.7-flash` — and since 2026-08-28 it is also the DEFAULT
-  generator (`gemini-cli:gemini-3.7-flash`), verified live through the harness on both
-  vendor paths: gemini-cli completes and is not silently substituted, and `agy` 1.1.22
-  lists and serves `gemini-3.7-flash-{high,medium,low}`.  A BARE `gemini -m ...` is
-  substituted down to 3.5-flash — the harness's per-session system settings file is
-  what prevents that, so never judge model availability with a raw CLI probe.
+- CLIs: `agy` 1.3.4 (Antigravity; gemini-cli was deleted in D103, 2026-10-13) — an `agy:gemini-*`
+  session runs in Gemini-API mode: one key from the shared pool, a per-session HOME carrying
+  `modelProvider: gemini` + the 3dcode MCP server, priced; without keys, or for a non-Gemini model,
+  it runs on the local subscription sign-in with no MCP.  `codex` 0.147+ (MCP needs
+  `default_tools_approval_mode="approve"`) and `claude` 2.1 run on local subscriptions: test
+  lightly.  No Anthropic/OpenAI API keys here.
+- Main test model: `gemini-3.7-flash` — also the DEFAULT generator, `agy:gemini-3.7-flash`
+  since 2026-10-13 (D103; `gemini-cli:` from 2026-08-28), verified live through agy's API mode
+  (which lists gemini-3.8/3.7/3.6-flash and 3.1-pro; the subscription sign-in no longer serves
+  3.7-flash, so never judge model availability by a sign-in probe).
   (lenient judge; needs the defect checklist for
   range).  Judge default `gemini-3.1-pro-preview` (`Settings.default_judge`; tracks use
   n_samples=1); flash + `--n 3` is the cheap fallback, pro for calibration/eval.
@@ -87,7 +86,7 @@ cd /home/yipeng/3dcodeverse/harness
 3dcodeverse doctor [--live] [--no-gpu] [--json]
 3dcodeverse make "a mid-century wooden dining chair" --track static_object --language blender
 3dcodeverse make "..." --profile economy|balanced|quality   # one dial: models, judge n, rounds, candidates, texture, ceilings (--profile == C3D_PROFILE)
-3dcodeverse make "..." --track static_object --language threejs --generator gemini-cli:gemini-3.7-flash
+3dcodeverse make "..." --track static_object --language threejs --generator agy:gemini-3.7-flash
 3dcodeverse make "..." --track articulated_object --language urdf_blender
 3dcodeverse make "..." --track scene --language scene_threejs --rounds 2 --max-minutes 60
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader
@@ -105,7 +104,7 @@ cd /home/yipeng/3dcodeverse/harness
 (cd ../eval && python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview)   # report: python -m bench.report bench/out/<battery>
 python -m codeverse3d.addons.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
 python ../eval/bench/complexity_report.py ../eval/bench/out --recursive   # score-vs-complexity + $/complexity point (eval/docs/COMPLEXITY.md)
-python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml --arms harness:gemini-cli:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
+python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml --arms harness:agy:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
 python -m tests.prompts.manifest [--bless | --dump DIR]   # what every model is shown, pinned (RUNBOOK §8): bless only a change a model is MEANT to see
 python -m pytest tests -q -m "not live"            # the offline suite (real Blender + headless Chrome + CadQuery)
 python -m pytest tests -q -m "not live and not blender and not node"   # pure python   (the bench tests: `cd ../eval && python -m pytest`)

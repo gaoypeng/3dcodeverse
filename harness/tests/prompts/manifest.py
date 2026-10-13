@@ -13,7 +13,7 @@ are dropped) and stored in ``manifest.json`` as ``kind → {sha256, bytes}``:
   ``JudgeInput`` the in-run judge reads (``FakeJudge.calls``) and the request the real
   ``VlmJudge`` builds from it;
 * ``context:<workspace>/files`` — what a session reads in its workspace, as materialised
-  (AGENTS/GEMINI/CLAUDE.md, the cookbook copy, the gemini settings, the ignore files);
+  (AGENTS/CLAUDE.md, the cookbook copy, the ignore file);
 * ``skills:<workspace>:<kind>@rNN/routed`` — the skill bundles routed to a round;
 * ``mcp_tools:<track>/<language>`` — the MCP tool list a session is offered;
 
@@ -29,7 +29,7 @@ Not covered (the fakes cannot drive it): reference-image runs (reference and lik
 silhouette gate), the texture pack's own planner (``texturing/scene_pack.md``: the scene is handed
 a canned pack) and the texture pass (``texturing/material_plan.md``), replays (``3dcode judge``),
 the budget-stop salvage (the clock is frozen), the node asset checker (a python stand-in answers)
-and each vendor CLI's own framing of a session (only gemini-cli's workspace files are built).
+and each vendor CLI's own framing of a session (only agy's workspace files are built).
 """
 
 from __future__ import annotations
@@ -90,7 +90,7 @@ from tests.orchestrator_tracks.fakes import (
 )
 
 MANIFEST = Path(__file__).with_name("manifest.json")
-AGENT = "gemini-cli:gemini-3.7-flash"                 # the default generator (a vendor CLI; FakeAgent answers)
+AGENT = "agy:gemini-3.7-flash"                        # the default generator (a vendor CLI; FakeAgent answers)
 SINGLE_SHOT = "single-shot:gemini:gemini-3.7-flash"
 #: what each track is asked for
 REQUESTS = {Track.STATIC_OBJECT: ("a mid-century wooden dining chair", Constraints(dimensions_m={"height": 0.82}, must_have=["armrests"])),
@@ -103,7 +103,7 @@ BRIEF = {"object_name": "DiningChair", "reference": "a Danish oak dining chair",
          "sub_assemblies": [{"name": "frame", "purpose": "carries the load", "parts": ["legs", "rails"], "material": "oak"}],
          "mechanism": "the legs carry the seat", "visible_from_outside": ["seat", "legs", "backrest"],
          "signature_features": ["tapered legs", "curved backrest"], "materials": ["seat: oiled oak"]}
-CONTEXT_FILES = ("AGENTS.md", "GEMINI.md", "CLAUDE.md", ".3dcode/cookbook.md", ".gemini/settings.json", ".geminiignore", ".aiexclude")
+CONTEXT_FILES = ("AGENTS.md", "CLAUDE.md", ".3dcode/cookbook.md", ".antigravityignore")
 VOLATILE = frozenset({"duration_ms", "duration_s", "latency_ms", "max_wait_s", "timeout_s", "hard_deadline_s", "workspace", "data_b64"})
 SHADER = ("void mainImage(out vec4 fragColor, in vec2 fragCoord) {{\n  vec2 uv = fragCoord / u_resolution.xy;\n"
           "  // {tag}\n  fragColor = vec4(uv, 0.5 + 0.5 * sin(u_time), 1.0);\n}}\n")

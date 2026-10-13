@@ -1,4 +1,4 @@
-"""materialize_workspace: bodies, MCP configs, ignore files, cookbook, codex overrides."""
+"""materialize_workspace: bodies, ignore file, cookbook, codex overrides."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from codeverse3d.workspace import Workspace
 CONTRACT = "## blender contract\nWrite pure bpy into src/model.py."
 
 
-def _mat(ws: Workspace, kind: str = "gemini-cli", spatial: bool = True, cookbook: str = ""):
+def _mat(ws: Workspace, kind: str = "agy", spatial: bool = True, cookbook: str = ""):
     return materialize_workspace(ws, agent_kind=kind, contract_md=CONTRACT, cookbook_text=cookbook,
                                  spatial_tools=spatial, mcp_command=default_mcp_command(ws))
 
@@ -40,22 +40,18 @@ def test_bodies_document_only_this_tracks_tools(tmp_ws: Workspace):
     assert "`joint_sweep`" in (tmp_ws.root / "AGENTS.md").read_text()
 
 
-def test_no_mcp_server_is_written_into_the_workspace(tmp_ws: Workspace):
-    """Only the ``context`` block goes into the agent-writable ws/.gemini/settings.json;
-    3dcode reaches each CLI through a harness-owned per-session file (audit 2026-08-27)."""
-    gs = tmp_ws.root / ".gemini" / "settings.json"
-    gs.parent.mkdir(parents=True)
-    gs.write_text(json.dumps({"mcpServers": {"3dcode": {"command": "/tmp/evil"}}, "ui": {"theme": "dark"}}))
-    _mat(tmp_ws)
-    data = json.loads(gs.read_text())
-    assert data["ui"]["theme"] == "dark"
-    assert "3dcode" not in data["mcpServers"], "an agent-planted 3dcode impostor must be dropped"
+def test_no_mcp_config_and_no_gemini_body_is_written_into_the_workspace(tmp_ws: Workspace):
+    """3dcode reaches each CLI through a harness-owned per-session file (audit 2026-08-27), and
+    agy reads GEMINI.md as well as AGENTS.md — a third copy of the body would be loaded twice."""
+    for kind in ("agy", "claude-code", "codex"):
+        _mat(tmp_ws, kind=kind)
     assert not (tmp_ws.root / ".mcp.json").exists(), "claude-code writes its own per-session mcp.json"
-    assert data["context"]["fileFiltering"]["respectGitIgnore"] is False  # .gitignore hides artifacts/ + trajectories/
+    assert not (tmp_ws.root / ".gemini").exists() and not (tmp_ws.root / "GEMINI.md").exists()
+    assert {p.name for p in tmp_ws.root.glob("*.md")} >= {"AGENTS.md", "CLAUDE.md"}
 
 
 def test_ignore_files_keep_agent_facing_paths_readable_and_a_missing_cookbook_is_said(tmp_ws: Workspace):
-    """gemini-cli refuses read_file on ignored paths: census and tool renders stay readable."""
+    """Ignored paths are hidden from the agent: census and tool renders stay readable."""
     import fnmatch
 
     from codeverse3d.agents.materialize import IGNORE_LINES
@@ -71,7 +67,7 @@ def test_ignore_files_keep_agent_facing_paths_readable_and_a_missing_cookbook_is
                 return True
         return False
 
-    for f in (".geminiignore", ".aiexclude"):
+    for f in (".antigravityignore",):
         lines = tuple(ln for ln in (tmp_ws.root / f).read_text().splitlines() if ln.strip())
         assert lines == IGNORE_LINES
         assert "artifacts/" not in lines and "trajectories/" in lines
@@ -80,7 +76,7 @@ def test_ignore_files_keep_agent_facing_paths_readable_and_a_missing_cookbook_is
                          "src/model.py", ".3dcode/cookbook.md"):
             assert not ignored(readable, lines), readable
         for hidden in ("artifacts/renders/r00/sheet.png", "trajectories/baseline_r00/stdout.json",
-                       "trajectories/baseline_r00/prompt.md", "trajectories/baseline_r00/gemini_settings.json",
+                       "trajectories/baseline_r00/prompt.md", "trajectories/baseline_r00/agy.log",
                        "trajectories/baseline_r00/stderr.log", "node_modules/three/x.js", ".git/HEAD"):
             assert ignored(hidden, lines), hidden
     # no cookbook resolved (the default here): the body says so rather than naming a missing file
@@ -91,7 +87,8 @@ def test_kind_specific_tool_hint_and_spatial_disabled_documents_absence(tmp_ws: 
     _mat(tmp_ws, kind="claude-code")
     assert "mcp__3dcode__" in (tmp_ws.root / "CLAUDE.md").read_text()
     _mat(tmp_ws, kind="agy")
-    assert "codeverse3d.cli.main tools" in (tmp_ws.root / "AGENTS.md").read_text()
+    body = (tmp_ws.root / "AGENTS.md").read_text()
+    assert "MCP server `3dcode`" in body and "codeverse3d.cli.main tools" in body   # API mode / sign-in fallback
     _mat(tmp_ws, spatial=False)
     assert "No spatial tools are available" in (tmp_ws.root / "AGENTS.md").read_text()
 

@@ -79,6 +79,10 @@ class Price:
 # fmt: off
 PRICES: dict[tuple[str, str], Price] = {
     # ---------------------------------------------------------------- gemini
+    # 4 argon: introductory rates valid through 2026-11-30; they double on 2026-12-01
+    # ($4.00 / $20.00 / $0.20).  Update then.  No >200k tier; output includes thinking.
+    ("gemini", "gemini-4-argon"):             Price(2.00, 10.00, 0.10, checked="2026-10-13",
+                                                    note="intro rate through 2026-11-30, then 4.00/20.00/0.20"),
     # 3.6 / 3.7 / 3.8 flash: introductory rates valid through 2026-12-31; they double
     # on 2027-01-01 ($1.50 / $7.50 / $0.15).  Update then.  No >200k surcharge.
     ("gemini", "gemini-3.8-flash"):           Price(0.75, 3.75, 0.075, checked="2026-09-21",

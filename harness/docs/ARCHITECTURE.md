@@ -25,8 +25,9 @@ layered on top of the language — for four **tracks**:
 * `ChatModel` (API): `gemini:*`, `anthropic:*`, `openai:*` — planner, judge,
   captioner, single-shot generation.
 * `CodingAgent` (agentic session on a workspace): always a vendor CLI —
-  `gemini-cli:*`, `claude-code:*`, `codex:*`, `agy:*` (Antigravity); the in-process
-  `api-agent` was deleted 2026-08-28.  Plus `single-shot:<chat-model>` (one envelope
+  `agy:*` (Antigravity — Google's models, in Gemini-API mode with pool keys + MCP),
+  `claude-code:*`, `codex:*`; the in-process `api-agent` was deleted 2026-08-28 and
+  `gemini-cli:*` on 2026-10-13 (D103).  Plus `single-shot:<chat-model>` (one envelope
   of files, no tools) handled inside `tracks/generation.py`.
 
 Every run is: **spec → plan → skeleton → [scene stages] → baseline round
@@ -114,10 +115,10 @@ codeverse3d/
                       probe: no retries, no backoff), schema_utils.py (strict schema), registry.py
   agents/             registry.py (the CodingAgent protocol + dispatch — every backend is a
                       vendor CLI; the in-process api-agent died 2026-08-28), backends.py
-                      (gemini-cli / claude-code / codex / antigravity: argv, env, each CLI's own
-                      record read back — envelope, chat record / stream, retry reports), cli_common.py
-                      (sessions, the watchdog clocks, the prompt on stdin, the transcript, retry
-                      trajectory naming, files_changed attribution, THE failure vocabulary,
+                      (claude-code / codex / antigravity: argv, env, each CLI's own record read
+                      back — envelope, stream, conversation db, retry reports; agy's API-mode
+                      HOME + pool key), cli_common.py (sessions, the watchdog clocks, the prompt
+                      on stdin, the transcript, files_changed attribution, THE failure vocabulary,
                       provider_wait), materialize.py
   languages/          LanguageRuntime + RuntimeLayout (base.py: every runtime states its file layout —
                       expected_files / files_for — and the tracks ask it); one merged module per language since 2026-08-28 —
@@ -378,7 +379,7 @@ says the tool **could not run** (exception, missing artefact, unusable arguments
 tools set `failed` on an observation they compose themselves; the list of those places
 lives with the field, in `spatial/registry.Observation.error`.  MCP `is_error` is `failed` alone: a
 negative verdict is a result whose text leads with FAIL, because a vendor CLI retries an
-errored call, and over 224 recorded gemini-cli sessions `is_error = not ok` made 62 % of
+errored call, and over 224 recorded gemini-cli sessions (removed in D103) `is_error = not ok` made 62 % of
 1 445 `joint_sweep` calls, 23 % of 2 144 `build`s and ~15 % of the connectivity/contract
 calls look broken (a mean 119 k prompt tokens ≈ $0.030 blended a retry — docs/COST.md §30
 for the selector, and for what an errored result costs when it carries an image).
@@ -579,20 +580,22 @@ the since-deleted in-process `api-agent` and the since-removed pass / plateau st
   camera-in-geometry can miss open-back enclosures.
 * threejs: textures are stripped on GLB export (the texture pass re-adds them as a
   derived pack); `userData.tick` cannot survive export.
-* agy exposes no per-workspace MCP, cost or served model; a killed agy session books no
-  usage (its tokens are in the envelope only).  A killed codex session books an ESTIMATE
+* agy has no per-workspace MCP: in Gemini-API mode each session gets a HOME of its own with
+  the 3dcode server in it; on the subscription sign-in it has no MCP (shell fallback) and books
+  $0.  A killed agy session books no usage (its tokens are in the envelope only).  A killed codex session books an ESTIMATE
   (usage is per turn and `--ephemeral` leaves no rollout; `CodexEvents.estimated_usage` prices
   the stream it left, ledger `source="estimate"`, $ within 0.62–1.34× of actual on 356 recorded
   sessions); a killed claude-code session books its
-  per-message usage, whose output side is a floor.  A killed or given-up gemini-cli
-  session books its chat record (exact).
+  per-message usage, whose output side is a floor.
 * Vendor sessions see only the routed skill bundles, except agy (5 built-ins; no
-  per-session switch) and any user-level skill root codex or gemini-cli might grow.
+  per-session switch) and any user-level skill root codex might grow.
 * Anthropic / OpenAI backends are mock-tested only (no keys on this box).
 * Budget checks run between steps: a round the clock cuts mid-way is rolled back (its
   spend stays in `aborted_rounds`) — give scenes `--max-minutes 60`.
 * Gemini flash 503 storms happen; dead keys and 429s rotate freely now, but a
-  sustained outage can still fail a round (`3dcode resume` re-uses cached stages).
+  sustained outage can still fail a round (`3dcode resume` re-uses cached stages).  A
+  storm-dead agent session gets the round loop's ONE transport retry (fresh key), no
+  single-shot fallback (D103).
 
 ## 11. Flywheel
 

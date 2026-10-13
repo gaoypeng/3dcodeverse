@@ -13,8 +13,8 @@ test-pinned (`tests/core/test_interfaces_names.py`).
 
 * Chat models: `<provider>:<model>` — `gemini:*` · `anthropic:*` · `openai:*`
   (`models.registry.parse_model_id`).
-* Coding agents: `<kind>:<model>` — `gemini-cli:*` · `claude-code:*` · `codex:*` ·
-  `agy:*` (`agents.registry.parse_agent_id`).
+* Coding agents: `<kind>:<model>` — `agy:*` · `claude-code:*` · `codex:*`
+  (`agents.registry.parse_agent_id`; `KINDS`; `gemini-cli:*` deleted in D103).
 * **Δ** Single-shot generation ids: `single-shot:<provider>:<model>` — handled only
   inside `tracks/generation.py` (`is_single_shot`, `single_shot_model_id`); never
   registered in `agents/`.  `Spec.backends.generator` accepts any of the three.
@@ -180,29 +180,30 @@ materialize_workspace(ws, *, agent_kind, contract_md, cookbook_text, spatial_too
 # so an agent-written <ws>/<lang>/cookbook.md shadowed the harness cookbook); "" → "No cookbook is available" + a warning
 # mcp_command defaults to cli_common.default_mcp_command(ws) = [sys.executable, -m codeverse3d.spatial.mcp_server --workspace …]
 # (None/[] = the default — no ValueError); tracks/common.Services.materialize takes no mcp_command
-# writes AGENTS.md + GEMINI.md + CLAUDE.md (same body), ws/.3dcode/cookbook.md (Δ written in: gemini-cli cannot read
-# outside the workspace), .geminiignore/.aiexclude, and MCP wiring:
-#   gemini-cli → ws/.gemini/settings.json only gets context.fileFiltering.respectGitIgnore=false; the 3dcode server
-#     and mcp.allowed live in the per-session system settings (Δ that file is agent-writable — audit 2026-08-27)
+# writes AGENTS.md + CLAUDE.md (same body; Δ D103 no GEMINI.md — agy reads it AND AGENTS.md, so the body loaded
+# twice), ws/.3dcode/cookbook.md (Δ written in: an agent may not read outside the workspace), .antigravityignore,
+# and NO MCP file in the workspace (it is agent-writable — audit 2026-08-27); MCP wiring is per session:
 #   claude-code → trajectories/<label>_rNN/mcp.json      codex → codex_mcp_overrides(mcp_command) built PER SESSION:
 #     -c mcp_servers.3dcode.command=… -c mcp_servers.3dcode.args=[…] -c mcp_servers.3dcode.default_tools_approval_mode="approve"
 #     (Δ without the approval mode every MCP tool call is elicited and auto-cancelled)
-#   agy → no per-workspace MCP; body documents `3dcode tools <name> --json … --workspace .` as the fallback
+#   agy → API mode (Gemini model + keys): <cache_dir>/agy_homes/<session>/.gemini/config/mcp_config.json in the
+#     session's own HOME (its env.HOME = the real home); subscription mode: none.  The body documents the shell
+#     fallback `python -m codeverse3d.cli.main tools <name> --json …` either way
 res = agent.run(AgentJob(workspace=..., prompt=..., label="baseline", timeout_s=1800, max_turns=60,
                          spatial_tools=True, write_roots=["src","public"]))   # typed kwargs only: no extra=, no model=
-res.ok, res.exit_reason  # completed | timeout | error | budget | model_substituted
-res.turns                # claude-code num_turns · codex turn.completed count · agy num_turns · gemini-cli 0 (not on the wire)
+res.ok, res.exit_reason  # completed | timeout | error | budget (model_substituted: gemini-cli's, no backend sets it since D103)
+res.turns                # claude-code num_turns · codex turn.completed count · agy num_turns
 res.files_changed (git-derived, attributed per session), res.usage, res.transcript_path, res.tool_calls, res.errors
 res.transient            # a provider failure a retry may get through (5xx / overloaded / 429 / dropped connection)
 res.quota                # Δ 2026-09-22 the vendor's usage limit is spent — never also transient
 res.provider_wait_s      # Δ seconds of duration_s lost to provider errors (cli_common.provider_wait; codex: 0.0)
 # Δ 2026-09-22 the prompt reaches EVERY CLI on stdin (cli_common.invoke; no -p / --print / positional text,
 #   codex "-"), byte for byte; the >100 kB task_prompt.md stub is gone.  The transcript's invoke row keeps
-#   argv + stdin_bytes.  res.usage is the CLI's envelope; with none (killed / given up) gemini-cli's comes
-#   from its chat record (read_gemini_chats) and claude-code's from its stream's per-message usage
-#   (output a floor); result.json "usage_from" says which.  A session sees only the routed skill bundles:
+#   argv + stdin_bytes.  res.usage is the CLI's envelope; with none (killed / given up) claude-code's comes
+#   from its stream's per-message usage (output a floor), codex's is an estimate, agy books none;
+#   result.json "usage_from" says which.  A session sees only the routed skill bundles:
 #   claude --setting-sources project + CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1 + --settings skillOverrides;
-#   codex -c skills.bundled.enabled=false; gemini-cli skills.disabled (its two built-ins); agy: no switch.
+#   codex -c skills.bundled.enabled=false; agy: no switch.
 from codeverse3d.agents.cli_common import is_transient_failure, is_quota_failure, is_rate_limited, provider_wait
 # THE failure vocabulary (one place; the backends apply it to what the CLI said about the call that ended
 # its session) and provider_wait(failures=[(t, backoff_s)], end, progress=[t] | None) -> seconds
@@ -227,14 +228,18 @@ it is what names the effect library without listing every module).
 Each session writes `trajectories/<label>_rNN/` (files: docs/RUN_LAYOUT.md); **Δ** a re-run of the
 same label+round lands in `<label>.a2_rNN` (then `.a3` …) — the first attempt is never overwritten;
 `result.json` records `attempt` + `job_label`.  Each session makes two git commits (`pre:`/`agent:<label>`).
-gemini-cli specifics: system settings file via `GEMINI_CLI_SYSTEM_SETTINGS_PATH`
-(written per session into the trajectory dir: api-key auth, `dynamicModelConfiguration=true`
-else silent model substitution → `exit_reason="model_substituted"`, `folderTrust.enabled=false`
-else workspace MCP silently dropped, plus `mcpServers.3dcode` + `mcp.allowed=["3dcode"]` — **Δ** it is
-applied LAST and `mcp.allowed` replaces, so an agent-planted server in ws/.gemini/settings.json is Blocked).  **Δ** `Usage.input_tokens` = `tokens.prompt` (TOTAL prompt incl.
-cached; `tokens.input` is the uncached count) and each served model is priced at its
-own rate.  KeyPoolExhausted never escapes `run()` (→ `exit_reason=budget`); retries
-prefer a different key (10 s wait) before re-using the same one.
+agy specifics (**Δ D103**, which deleted the gemini-cli backend): `AntigravityAgent.api_mode` = model starts
+with `gemini` AND Gemini keys are configured.  API mode: one key per session from THE shared pool
+(`models.gemini.shared_pool`, `pool.session_key()`, no in-flight slot), outcome reported back
+(`_pool_outcome`: 401/403/API_KEY_INVALID → dead, 429 → cooldown, 5xx, ok, skip); a fresh HOME under
+`<cache_dir>/agy_homes/` holds `.gemini/antigravity-cli/settings.json` = `{"modelProvider": "gemini"}` (without
+it agy ignores `GEMINI_API_KEY` and asks for a login) + the MCP config, and is deleted after the session (the
+tool trace is read from its conversation db first); argv `--model gemini-api://<bare id> --effort <e>`, effort
+from a `-low/-medium/-high` suffix, default `high`; usage priced at Gemini list price with
+output = output − thinking, thoughts = thinking (agy's output already includes thinking).  Subscription mode:
+real HOME, no MCP, `cost_usd=0` (the ledger re-prices $0 rows at list price).  KeyPoolExhausted never escapes
+`run()` (→ `exit_reason=budget`).  No retry loop in the backend: agy retries its own calls; a transient
+death goes to the round loop's one retry, which takes a fresh key.
 ## languages/
 ```python
 from codeverse3d.languages import get_runtime            # (Language | str) -> LanguageRuntime
@@ -562,14 +567,13 @@ from codeverse3d.judges.prompt_builder import gates_section, contact_ledger   # 
 from codeverse3d.tracks.generation import write_files        # (ws, files, *, allowed_roots, only=None, frozen=(), on_skip=None):
     # frozen = harness-owned paths a single-shot envelope may not rewrite (skipped with a reason, never an error)
 from codeverse3d.agents.cli_common import find_json_object, default_mcp_command   # THE one JSON-envelope finder behind
-    # parse_gemini_json / parse_claude_json / parse_agy_json; default_mcp_command(ws, *, language, track, round_index)
+    # parse_claude_json / parse_agy_json; default_mcp_command(ws, *, language, track, round_index)
 from codeverse3d.tracks.generation import generate, run_agent_task, parse_multifile, is_single_shot
 GenerationTask.phase: int = 0   # tasks run in parallel WITHIN a phase, phases in ascending order
     # (tracks.steps.run_generation_tasks).  Only user: the scoped baseline — phase 0 = one session per
     # part group (`baseline_<parts>`, own files only), phase 1 = ONE `assemble` session that owns the
     # entry file and the placement gates.  Every other caller is phase 0, i.e. unchanged.
 generate(ws, *, agent_id, task, ..., budget=BudgetGuard) -> GenerationResult
-    # GenerationResult.storm: every session died on a transient streak (AgentResult.transient) and wrote nothing
     # Δ 2026-09-22 GenerationResult.transient / .quota carry the backend's typed class; a call that RAISED is
     #   GenerationResult.from_error(label, e) — transient = tracks.generation.is_model_outage(e) (ModelError
     #   retryable or 429/5xx; moved from scene_assets, the one exception classifier)
@@ -578,7 +582,8 @@ from codeverse3d.tracks.steps import RoundFailed   # RoundFailed(message, *, tra
     # the round once), never the message (looks_transport / looks_quota deleted)
 tracks.common.generate_for(ctx: RunContext, task: GenerationTask) -> GenerationResult
     # THE call every stage makes (env, zones, rounds, repairs, asset ladder, judged fix): generate()
-    # with everything ctx knows, and a storm-dead task retried through single_shot_ctx(ctx) (D68)
+    # with everything ctx knows; Δ D103 no storm fallback (D68's single-shot retry, GenerationResult.storm and
+    # the asset ladder's storm-repair rung are gone): a transient death reaches the round loop's one retry
 tracks.common.single_shot_agent_id(agent_id, chat_model_id='') -> str · single_shot_ctx(ctx) -> RunContext | None
     # moved from tracks.scene_assets 2026-09-07 (never scene-specific)
     # GenerationResult adds turns / sessions / turn_capped.  A turn cap is applied ONLY if the machine

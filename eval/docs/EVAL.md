@@ -59,9 +59,9 @@ deterministic contract check.
 ```bash
 cd eval   # was `3dcode bench run|report` until 2026-09-22: the launcher lives with the evaluation now
 python -m bench.run_bench bench/prompts/static_objects_v1.yaml \
-    --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview \
+    --generator agy:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview \
     --rounds 2 --parallel 4 --out bench/out/static_v1_apiagent
-python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator gemini-cli:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --out bench/out/static_v1_gemcli
+python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator agy:gemini-3.7-flash --judge gemini:gemini-3.1-pro-preview --out bench/out/static_v1_gemcli
 python -m bench.report bench/out/static_v1_apiagent
 ```
 Like every bench script it imports THIS tree's `codeverse3d` (`../harness`), so a battery
@@ -98,7 +98,7 @@ cheaply.
 
 ```bash
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml \
-    --arms harness:gemini-cli:gemini-3.6-flash,harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.7-flash,oneshot+repair:gemini:gemini-3.7-flash \
+    --arms harness:agy:gemini-3.6-flash,harness:agy:gemini-3.7-flash,oneshot:claude-code,oneshot:codex,oneshot:gemini:gemini-3.7-flash,oneshot+repair:gemini:gemini-3.7-flash \
     --judge gemini:gemini-3.1-pro-preview --out bench/out/compare_v1 [--parallel 3] [--limit N] [--ids a,b]
     [--rounds 3] [--loop-judge gemini:gemini-3.7-flash] [--repair-attempts 2] [--gen-timeout 900]
     [--no-pairwise] [--no-resume] [--report-only]
@@ -118,9 +118,10 @@ Arms:
   judge, no starter library, no deterministic repairs.  It answers "give the same agent the same
   minutes and a Blender": the harness's lift over it is what the harness itself adds.  Smoke
   (dining chair, 15 min): the agent wrote its own test + render scripts, looked at its PNGs, 0.682.
-  Two known asymmetries: a session killed by a 503 storm has no single-shot fallback (the harness
-  has D68), so on a storm day this arm loses more cells to `infra_failed`; and its USD is 0 when
-  the CLI dies before printing stats.
+  One known asymmetry: its USD is 0 when the CLI dies before printing stats.  (Until D103,
+  2026-10-13, there was a second: the harness had a single-shot fallback for a session killed by a
+  503 storm (D68) and this arm did not, so on a storm day it lost more cells to `infra_failed`.
+  D103 deleted that fallback with the gemini-cli backend.)
 
 Every arm ends with a `src/model.py` copied into a fresh eval workspace and scored by
 the same `FixedEvaluator` (the cell's runtime lint+build → measure → connectivity →
@@ -178,7 +179,8 @@ Pending: rerun the parked sol battery, then terra, then luna, then the claude-co
 ## 5. Comparing backends inside the harness
 
 Same battery, same `--judge`, different `--generator` (`single-shot:*`,
-`gemini-cli:*`, `claude-code:*`, `codex:*`, `agy:*`).  Report baseline, picked, delta,
+`claude-code:*`, `codex:*`, `agy:*`; `gemini-cli:*` was deleted in D103, 2026-10-13 —
+Google's models run as `agy:gemini-*`).  Report baseline, picked, delta,
 cost, time per tier; optionally feed the picked rounds of two arms through
 `PairwiseJudge.compare(spec, renders_a, renders_b)` (`flywheel pairs` already emits
 cross-backend candidate pairs keyed by prompt hash).

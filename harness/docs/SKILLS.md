@@ -9,8 +9,8 @@ stays the reference manual with the copyable code; a skill states rules and numb
 names the cookbook section to fetch. Two libraries of truth would be worse than one.
 
 `SKILL.md` is an open standard (agentskills.io, Dec 2025), which is why the format below is
-not ours to bend: **claude-code, codex, gemini-cli and agy discover these bundles
-themselves** — proven live, see §7.  (The in-process `api-agent`, the one backend that
+not ours to bend: **claude-code, codex and agy discover these bundles
+themselves** — proven live, see §7 (gemini-cli did too, until its backend was deleted in D103).  (The in-process `api-agent`, the one backend that
 needed harness-side injection, was deleted 2026-08-28; bundles now reach a session only
 through its vendor's native skill loader.)
 
@@ -36,7 +36,7 @@ one file, `skills/prompting.py`:
 | backend | discovery root |
 |---|---|
 | `claude-code` | `.claude/skills` |
-| `codex`, `gemini-cli`, `agy` | `.agents/skills` |
+| `codex`, `agy` | `.agents/skills` |
 
 It was read out of the shipped binaries, not assumed — and re-read 2026-09-22 against the
 installed versions, with what each CLI needs to see the bundles and what its own record of
@@ -45,7 +45,7 @@ a session says it did with them:
 | CLI (2026-09-22) | workspace roots · user roots | what must hold | what the model is shown | activation, as its own record logs it |
 |---|---|---|---|---|
 | `claude-code` 2.1.280 | `.claude/skills` · `~/.claude/skills` (+ claude.ai-synced skills, plugins) | `Skill` in `--allowedTools`; never `--disable-slash-commands` ("Disable all skills") | name + description list; stream-json `init` event's `skills` | `Skill` tool `{"skill": name}`, then `Read` of `references/` |
-| `gemini-cli` 0.53.0 | `.gemini/skills`, `.agents/skills` — **only in a trusted folder** · `~/.gemini/skills`, `~/.agents/skills` | `skills.enabled` (default true; the harness pins it in the per-session system settings, merged last) and folder trust (`folderTrust.enabled=false` ⇒ trusted) | `<available_skills>` XML (name, description, location) in the system prompt + `activate_skill` with an enum of names | `activate_skill` `{"name": name}` returns the body; `read_file` for `references/` |
+| `gemini-cli` 0.53.0 (backend deleted in D103) | `.gemini/skills`, `.agents/skills` — **only in a trusted folder** · `~/.gemini/skills`, `~/.agents/skills` | `skills.enabled` (default true; the harness pins it in the per-session system settings, merged last) and folder trust (`folderTrust.enabled=false` ⇒ trusted) | `<available_skills>` XML (name, description, location) in the system prompt + `activate_skill` with an enum of names | `activate_skill` `{"name": name}` returns the body; `read_file` for `references/` |
 | `codex` 0.155.1 | `.agents/skills` of the working root (`-C <ws>`, also the repo root) · `$CODEX_HOME/skills` (+ `.system`) | nothing — listed from an untrusted `/tmp` workspace too (`codex debug prompt-input`) | `## Skills` section: name, description and an aliased path `r1/<name>/SKILL.md` with a `### Skill roots` table | a shell `sed`/`cat` of `SKILL.md` (an `exec --json` `command_execution` item) |
 | `agy` 1.2.2 | `.agents/skills` under the repo root · a global customization root under `~/.gemini/` | nothing; `--disable-slash-commands` only stops `/name` expansion of the prompt (1.1.9 changelog) | a skills section of its system prompt (paths included: its first calls were the four absolute `SKILL.md` paths, with no listing before them) | `view_file` of `SKILL.md` (a step in its conversation database) |
 
@@ -62,7 +62,7 @@ skills of its own; each is switched off with the CLI's documented knob where it 
 |---|---|---|---|
 | `claude-code` 2.1.280 | 26: bundled (`update-config`, `code-review`, `loop`, …), account-synced (`deep-research`, `anthropic-skills:*`, …) | `--setting-sources project` (synced skills and plugins come with the "user" source) + `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1` + `--settings {"skillOverrides": {"design": "off", "doctor": "off"}}` (the two that survive the bundled switch by design) | nothing — and the owner's `~/.claude/settings.json` (effortLevel, hooks, env) no longer reaches a session |
 | `codex` 0.155.1 | 5 `.system` (imagegen, openai-docs, plugin-creator, skill-creator, skill-installer) | `-c skills.bundled.enabled=false` | any user root (`~/.codex/skills`, `~/.agents/skills`): no stable switch; none here |
-| `gemini-cli` 0.53.0 | 2 built-ins (skill-creator, antigravity-support) — `gemini skills list` hides them, the model does not | `skills.disabled` in the per-session system settings (by name) | the user roots (`~/.gemini/skills`, `~/.agents/skills`): no switch; none here |
+| `gemini-cli` 0.53.0 (deleted in D103) | 2 built-ins (skill-creator, antigravity-support) — `gemini skills list` hides them, the model does not | `skills.disabled` in the per-session system settings (by name) | the user roots (`~/.gemini/skills`, `~/.agents/skills`): no switch; none here |
 | `agy` 1.2.8 | 5 built-ins (agy-customizations, antigravity-guide, generative_ui, migrate-workflows, permissioned-github; `agy -p /skills` lists them without a turn) | none per session: built-ins survive even an agent's `inherit_user: false` | all 5 |
 
 **Adding a backend is one row in that table** (`_BACKEND_ROOTS`, read by `skill_path`).  A test
@@ -249,9 +249,9 @@ failure verdict as `failed`), then one `tool_trace` row that closes the session
 | backend | source | skill activation looks like |
 |---|---|---|
 | claude-code | `--output-format stream-json --verbose` (was `json`, which carried no tool stream); the `init` event's `skills` list is kept as `skills_index` | `Skill {"skill": name}` |
-| gemini-cli | its chat record, `~/.gemini/tmp/<project>/chats/session-*.jsonl`, found by the project's `.project_root` + mtime — so a session the watchdog killed before it printed JSON still has one (and, since 2026-09-22, its usage: `read_gemini_chats` reads calls, tokens and times in one pass).  `--output-format json` stays: it has per-tool COUNTS only, and `stream-json` drops the `thoughts` tokens pricing needs | `activate_skill {"name": name}` |
+| gemini-cli (deleted in D103) | its chat record, `~/.gemini/tmp/<project>/chats/session-*.jsonl`, found by the project's `.project_root` + mtime — so a session the watchdog killed before it printed JSON still has one (and, since 2026-09-22, its usage: `read_gemini_chats` reads calls, tokens and times in one pass).  `--output-format json` stays: it has per-tool COUNTS only, and `stream-json` drops the `thoughts` tokens pricing needs | `activate_skill {"name": name}` |
 | codex | the `exec --json` events it already streamed (`command_execution`, `mcp_tool_call`, `file_change`) | a `sed`/`cat` of `…/<name>/SKILL.md` |
-| agy | its conversation database, `~/.gemini/antigravity-cli/conversations/<conversation_id>.db` — a schema-free walk of each step's protobuf for (call id, tool, JSON args) | `view_file` of `…/<name>/SKILL.md` |
+| agy | its conversation database, `<HOME>/.gemini/antigravity-cli/conversations/<conversation_id>.db` (HOME = the API-mode session's own, read before it is deleted; else `~`) — a schema-free walk of each step's protobuf for (call id, tool, JSON args) | `view_file` of `…/<name>/SKILL.md` |
 
 `skills/telemetry.probe_reads` credits only sessions logged after the attach
 (`SkillsMaterialized.attached_at`), and uses the transcript only when **every** such session

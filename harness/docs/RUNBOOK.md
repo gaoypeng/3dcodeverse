@@ -1,7 +1,8 @@
 # Runbook — operating the harness
 
 Everything here was exercised on this machine (WSL2, RTX 5090, Blender 5.0.1,
-node 24, gemini-cli 0.53, claude 2.1, codex 0.147+, agy 1.1) on 2026-08-23.  Paths
+node 24, gemini-cli 0.53 (removed in D103), claude 2.1, codex 0.147+, agy 1.1) on 2026-08-23;
+the agy rows re-checked on agy 1.3.4, 2026-10-13.  Paths
 are relative to `/home/yipeng/3dcodeverse/harness` unless absolute.  The CLI is
 `3dcodeverse` with short alias `3dcode` (used below).
 
@@ -29,7 +30,7 @@ one home); each setting's default and description is its `Settings` field in
 # static object — Blender (default language, multi-file src/model.py + src/parts/*.py)
 3dcode make "a mid-century wooden dining chair" --track static_object --language blender
 3dcode make "a brass desk lamp" --track static_object --language cadquery
-3dcode make "a classic park bench" --track static_object --language threejs --generator gemini-cli:gemini-3.7-flash
+3dcode make "a classic park bench" --track static_object --language threejs --generator agy:gemini-3.7-flash
 # articulated object — bpy links + URDF
 3dcode make "a bedside cabinet with one hinged door and one drawer" --track articulated_object --language urdf_blender
 # scene — multi-file three.js + GLSL (+ optional bpy GLB assets chosen by the planner)
@@ -64,39 +65,40 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 
 | id | what runs | notes |
 |---|---|---|
-| `gemini-cli:gemini-3.7-flash` (default) | `gemini -m … --approval-mode yolo --skip-trust --output-format json`, prompt on stdin; every spatial tool over MCP | cheapest agentic path; see gotchas below |
+| `agy:gemini-3.7-flash` (default) | `agy --dangerously-skip-permissions --print-timeout … --output-format json --add-dir ws --log-file trajectories/<label>_rNN/agy.log --model gemini-api://gemini-3.7-flash --effort high`, prompt on stdin (no `--print`: `--print -` sends "-") | Gemini-API mode with keys: pool key, every spatial tool over MCP, priced; see gotchas below.  Truncates a prompt past ~175 kB itself |
 | `single-shot:gemini:gemini-3.7-flash` | one structured-output call → multi-file envelope, no tools | fastest/cheapest; baseline for "raw model" deltas |
 | `claude-code:<model>` | `claude -p --dangerously-skip-permissions --setting-sources project --settings '{"skillOverrides":…}' --mcp-config trajectories/<label>_rNN/mcp.json --strict-mcp-config …`, prompt on stdin, `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1` | local subscription — test lightly; no user setting source, so `~/.claude/settings.json` (effortLevel, hooks, env) does not reach a session |
 | `codex:<model>[@<effort>]` | `codex exec --json -C ws --sandbox workspace-write -c model_reasoning_effort=high -c skills.bundled.enabled=false -c mcp_servers.3dcode.… -`, prompt on stdin | subscription; MCP tools need `default_tools_approval_mode="approve"` (harness passes it); reasoning effort is always stated (`Settings.agents.codex_reasoning_effort`, default `high`; `codex:gpt-5.6-sol@medium` per id, `""` to defer to `~/.codex/config.toml`) |
-| `agy:<model>` | `agy --add-dir ws --log-file trajectories/<label>_rNN/agy.log …`, prompt on stdin (no `--print`: `--print -` sends "-") | no per-workspace MCP: tools via `3dcode tools <name> --json … --workspace .`; no served-model or cost reporting; truncates a prompt past ~175 kB itself |
+| `agy:<model>` (non-Gemini, e.g. `claude-sonnet-4-6`, or no keys) | same argv, `--model <id>` (a bare id gains agy's effort suffix) | subscription sign-in: no MCP (tools via `python -m codeverse3d.cli.main tools <name> --json …`), booked $0; the sign-in no longer serves `gemini-3.7-flash` (2026-10-13) |
 | `gemini:* / anthropic:* / openai:*` | ChatModel for planner / judge / captioner / single-shot | Anthropic/OpenAI untested live here |
 
-### gemini-cli gotchas (handled by `agents/backends.py`; do not undo)
-* A system settings file, written per session into `trajectories/<label>_rNN/` and passed via
-  `GEMINI_CLI_SYSTEM_SETTINGS_PATH`: api-key auth (`security.auth.selectedType="gemini-api-key"`;
-  a pre-existing OAuth login of your own is overridden, not consumed),
-  `experimental.dynamicModelConfiguration=true` (else unknown models are silently
-  substituted → checked, `exit_reason=model_substituted`), `security.folderTrust.enabled=false`
-  (else workspace MCP servers are silently ignored even with `--skip-trust`), and the `3dcode`
-  MCP server itself with `mcp.allowed=["3dcode"]` — the file is merged LAST and `mcp.allowed`
-  replaces, so a server the agent plants in the workspace's `.gemini/settings.json` is Blocked.
-* Workspace `.gemini/settings.json` sets `context.fileFiltering.respectGitIgnore=false`
-  so the fine-grained `.geminiignore` (not the git ignore) decides what the agent can
-  read: build/census/measurement JSON stay readable, renders/judge output and the whole
-  `trajectories/` stay hidden (the prompt comes on stdin; there is no prompt file).
-* The system settings also disable gemini-cli's two built-in skills (`skills.disabled`),
-  so a session lists only the routed bundles.
-* Usage when the CLI printed no envelope (watchdog kill; a give-up after its own 503
-  retries, which writes an error object to STDERR and exits 247): the attempt's chat
-  record under `~/.gemini/tmp/<project>/chats/` — `result.json` `usage_from` says which.
-* One pool key injected as `GEMINI_API_KEY`; other credential env stripped; retries
-  prefer a different key (never raise KeyPoolExhausted out of a session).
-* Cost accounting: `tokens.prompt` (total, incl. cached) is the input count; each
-  served model priced at its own rate.
-* Cookbook copied to `ws/.3dcode/cookbook.md` (gemini-cli cannot read outside the ws).
+### agy gotchas (handled by `agents/backends.py`; do not undo — D103)
+* API mode (`AntigravityAgent.api_mode`: a `gemini*` model AND Gemini keys configured): one key
+  per session from THE shared pool (`KeyPool.session_key`, no in-flight slot) as `GEMINI_API_KEY`,
+  its outcome reported back (429 → cooldown, 401/403/`API_KEY_INVALID` → dead, 5xx, ok, skip);
+  other credential env stripped; KeyPoolExhausted → `exit_reason=budget`, never raised.
+* Each API-mode session gets a fresh HOME under `<cache_dir>/agy_homes/…` holding
+  `.gemini/antigravity-cli/settings.json` = `{"modelProvider": "gemini"}` (without it agy ignores
+  the key and asks for a login) and `.gemini/config/mcp_config.json` with the `3dcode` server
+  (agy has no per-workspace MCP; the server's `env.HOME` is the real home).  The HOME is deleted
+  after the session; the tool trace is read from its conversation db first.  `PUPPETEER_CACHE_DIR`
+  points the agent's shell at the real Chrome cache.
+* argv `--model gemini-api://<bare id> --effort <low|medium|high>`: the id goes to the API
+  verbatim (any model the key serves); effort from an agy-style `-low/-medium/-high` suffix,
+  default `high` (the Gemini API's own default).
+* Cost: priced at Gemini list price; agy's `output_tokens` already include `thinking_tokens`, so
+  output = output − thinking, thoughts = thinking (billed once).
+* Subscription mode (non-Gemini model, or no keys): real HOME and sign-in, no MCP (AGENTS.md
+  documents the shell fallback), booked $0 by the backend (the ledger re-prices $0 rows).
+* No retry loop in the backend: agy retries its own model calls (≤ 30 s waits since 1.3.4, stops
+  at once on a spent daily quota); a transient death goes to the round loop's ONE transport retry,
+  which takes a fresh key.  There is no single-shot storm fallback (deleted in D103).
+* Workspace files: `AGENTS.md` + `CLAUDE.md` (no `GEMINI.md`: agy reads both it and AGENTS.md)
+  and `.antigravityignore`, which hides only noise (renders/judge output, the whole
+  `trajectories/`); build/census/measurement JSON stay readable.
+* Cookbook copied to `ws/.3dcode/cookbook.md` (an agent may not read outside the ws).
 * MCP server argv is `[sys.executable, -m, codeverse3d.spatial.mcp_server, --workspace, ws]`;
-  server name `3dcode` → tools appear as `mcp_3dcode_<name>` (gemini) / `mcp__3dcode__<name>`
-  (claude).  `3dcode mcp --workspace runs/<slug>` execs the same server;
+  server name `3dcode` → tools appear as `mcp__3dcode__<name>` (claude).  `3dcode mcp --workspace runs/<slug>` execs the same server;
   `python -m codeverse3d.spatial.mcp_server --workspace ws --list` prints the tools.
 
 ## 4. Where outputs land
@@ -296,7 +298,7 @@ python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator singl
 python -m bench.report bench/out/static_objects_v1      # report.md + self-contained report.html (gallery)
 cd ../harness
 python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml \
-    --arms harness:gemini-cli:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
+    --arms harness:agy:gemini-3.7-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
 ```
 Results stream to `results.jsonl` (resumable).  The batteries, the protocol and judge
 calibration: `eval/docs/EVAL.md` (§2 lists the batteries).

@@ -32,7 +32,7 @@ from pathlib import Path
 
 DEFAULT_BATTERY = "bench/prompts/articulated_v2.yaml"
 DEFAULT_PLANNER = "gemini:gemini-3.7-flash"
-DEFAULT_GENERATOR = "gemini-cli:gemini-3.7-flash"
+DEFAULT_GENERATOR = "agy:gemini-3.7-flash"
 DEFAULT_JUDGE = "gemini:gemini-3.1-pro-preview"
 
 

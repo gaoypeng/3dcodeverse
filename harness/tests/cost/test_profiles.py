@@ -76,11 +76,11 @@ def test_an_explicit_flag_beats_the_profile(tmp_path: Path):
     runs = tmp_path / "runs"
     r = runner.invoke(app, ["make", "a clay pot", "--runs-dir", str(runs), "--no-run", "--slug", "pot",
                             "--profile", "economy", "--rounds", "4",
-                            "--generator", "gemini-cli:gemini-3.6-flash"])
+                            "--generator", "agy:gemini-3.6-flash"])
     assert r.exit_code == 0, r.output
     spec = json.loads((runs / "pot" / "spec.json").read_text())
     assert spec["budget"]["max_rounds"] == 4 and spec["budget"]["max_minutes"] > 0
-    assert spec["backends"]["generator"] == "gemini-cli:gemini-3.6-flash"
+    assert spec["backends"]["generator"] == "agy:gemini-3.6-flash"
     assert spec["backends"]["judge"] == "gemini:gemini-3.7-flash"  # unstated → still the profile's
 
 
@@ -133,12 +133,12 @@ def _dial_from_env(name: str, monkeypatch):
                      "rounds": 2, "candidates": 1, "texture": False,
                      "judge_max_px": 1024, "judge_montages": 5, "judge_detail_crops": 2,
                      "agent_max_turns": 0, "max_minutes": 30.0}),
-        ("balanced", {"generator": "gemini-cli:gemini-3.7-flash",
+        ("balanced", {"generator": "agy:gemini-3.7-flash",
                       "judge": "gemini:gemini-3.1-pro-preview", "judge_samples": 1,
                       "rounds": 4, "candidates": 1, "texture": False,
                       "judge_max_px": 1024, "judge_montages": 5, "judge_detail_crops": 2,
                       "agent_max_turns": 0, "max_minutes": 60.0}),
-        ("quality", {"generator": "gemini-cli:gemini-3.7-flash",
+        ("quality", {"generator": "agy:gemini-3.7-flash",
                      "judge": "gemini:gemini-3.1-pro-preview", "judge_samples": 3,
                      "rounds": 4, "candidates": 2, "texture": True,
                      "judge_max_px": 1024, "judge_montages": 5, "judge_detail_crops": 2,

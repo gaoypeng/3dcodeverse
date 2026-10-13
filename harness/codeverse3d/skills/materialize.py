@@ -1,7 +1,7 @@
 """Write the routed bundles into a workspace, as real files, twice.
 
 WHY twice: the discovery roots were read out of the shipped binaries, not assumed.
-gemini-cli, codex and agy all read ``<ws>/.agents/skills/<name>/SKILL.md``; claude-code
+codex and agy both read ``<ws>/.agents/skills/<name>/SKILL.md``; claude-code
 2.1 reads ``<ws>/.claude/skills/<name>/SKILL.md`` and has **no** ``.agents`` skill root at
 all (its ``.agents`` strings are plugin-migration paths).  So the same bytes go to both.
 
@@ -19,7 +19,7 @@ nobody reading anything.  Two independent causes, both verified:
 * ``Workspace.changed_files`` runs ``git add -A -N`` then ``git diff --numstat`` after
   every agent session, and git reads each untracked file to compute the diff.  On a real
   git workspace that alone flips all four files of a bundle to "read".
-* all four CLIs (codex 0.149.0, claude-code 2.1.245, agy 1.1.20, gemini-cli 0.53.0) open
+* every CLI (codex 0.149.0, claude-code 2.1.245, agy 1.1.20 — and gemini-cli 0.53.0, gone since D103) opens
   ``references/*.md`` while activating a skill, including on a task whose description does
   not match and with the prompt telling them not to activate anything.
 
@@ -54,8 +54,8 @@ from codeverse3d.skills.registry import plan_signals, select
 log = logging.getLogger(__name__)
 
 SKILL_ROOTS = (AGENTS_SKILL_ROOT, CLAUDE_SKILL_ROOT)
-#: the AGENTS.md/GEMINI.md/CLAUDE.md body files a workspace already has
-BODY_FILES = ("AGENTS.md", "GEMINI.md", "CLAUDE.md")
+#: the AGENTS.md/CLAUDE.md body files a workspace already has
+BODY_FILES = ("AGENTS.md", "CLAUDE.md")
 MARK_BEGIN = "<!-- 3dcode:skills -->"
 MARK_END = "<!-- /3dcode:skills -->"
 

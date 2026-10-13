@@ -4,17 +4,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import time
-from pathlib import Path
 
 from codeverse3d.agents.backends import (
-    SYSTEM_SETTINGS,
     ClaudeCodeAgent,
     ClaudeStream,
     agy_tool_calls,
-    gemini_chat_records,
-    read_gemini_chats,
-    write_system_settings,
 )
 from codeverse3d.agents.cli_common import (
     TOOL_CALL_ROW,
@@ -82,69 +76,6 @@ def test_claude_is_launched_streaming(tmp_ws: Workspace):
     assert "Skill" in argv[argv.index("--allowedTools") + 1].split(",")
     assert "--disable-slash-commands" not in argv   # claude-code: "Disable all skills"
     assert argv[argv.index("--output-format") + 1] == "stream-json" and "--verbose" in argv
-
-
-# --------------------------------------------------------------------------- gemini-cli
-GEMINI_RECORD = [
-    {"sessionId": "da5c91db-7d90-4dd9-a360-56b03e1fd339", "projectHash": "4b58", "startTime": "2026-09-22T19:31:33.522Z",
-     "lastUpdated": "2026-09-22T19:31:33.522Z", "kind": "main"},
-    {"$set": {"messages": [{"id": "d049", "type": "user", "content": [{"text": "<session_context>..."}]}]}},
-    {"id": "fb86", "type": "gemini", "content": "I will activate the relevant skills for Blender modeling",
-     "toolCalls": [
-         {"id": "activate_skill__call_48964", "name": "activate_skill", "args": {"name": "c3d-blender-forms"},
-          "status": "success"},
-         {"id": "activate_skill__call_48965", "name": "activate_skill", "args": {"name": "c3d-part-contact"},
-          "status": "success"}]},
-    {"$set": {"lastUpdated": "2026-09-22T19:31:48.148Z"}},
-    {"id": "fb87", "type": "gemini", "content": "",
-     "toolCalls": [{"id": "read_file__call_5", "name": "read_file", "status": "success",
-                    "args": {"file_path": ".agents/skills/c3d-part-contact/references/worked_example.md"}},
-                   {"id": "read_file__call_6", "name": "read_file", "status": "error",
-                    "args": {"file_path": ".agents/skills/zz-c3d-read-control/SKILL.md"}}]},
-    # the append-only record re-writes a message as it progresses: one call, not two
-    {"id": "fb86", "type": "gemini", "content": "", "toolCalls": [
-        {"id": "activate_skill__call_48964", "name": "activate_skill", "args": {"name": "c3d-blender-forms"},
-         "status": "success"}]},
-]
-
-
-def _gemini_home(tmp_path: Path, ws: Path) -> Path:
-    home = tmp_path / "home"
-    proj = home / ".gemini" / "tmp" / ws.name
-    (proj / "chats").mkdir(parents=True)
-    (proj / ".project_root").write_text(str(ws))
-    other = home / ".gemini" / "tmp" / "someone-else"
-    (other / "chats").mkdir(parents=True)
-    (other / ".project_root").write_text("/elsewhere/run")
-    (other / "chats" / "session-2026-09-22T19-31-aaaaaaaa.jsonl").write_text(json.dumps(GEMINI_RECORD[2]) + "\n")
-    rec = proj / "chats" / "session-2026-09-22T19-31-da5c91db.jsonl"
-    rec.write_text("".join(json.dumps(r) + "\n" for r in GEMINI_RECORD))
-    return home
-
-
-def test_gemini_chat_record_is_found_by_workspace_and_time_and_folded_by_call_id(tmp_path):
-    ws = tmp_path / "gemini1"
-    ws.mkdir()
-    home = _gemini_home(tmp_path, ws)
-    recs = gemini_chat_records(ws, time.time() - 60, {"GEMINI_CLI_HOME": str(home)})
-    assert [p.name for p in recs] == ["session-2026-09-22T19-31-da5c91db.jsonl"]
-    calls = read_gemini_chats(recs).calls
-    assert [(c.tool, c.skill, c.failed) for c in calls] == [
-        ("activate_skill", "c3d-blender-forms", False), ("activate_skill", "c3d-part-contact", False),
-        ("read_file", "", False), ("read_file", "", True)]
-    # an earlier session's record in the same workspace belongs to that session
-    assert gemini_chat_records(ws, time.time() + 60, {"GEMINI_CLI_HOME": str(home)}) == []
-    assert gemini_chat_records(tmp_path / "unknown", 0.0, {"GEMINI_CLI_HOME": str(home)}) == []
-
-
-def test_gemini_system_settings_pin_skills_on_and_keep_the_workspace_trusted(tmp_path):
-    """0.53 merges the system file last; folderTrust off makes discoverSkills read the workspace roots."""
-    data = json.loads(write_system_settings(tmp_path / "s.json").read_text())
-    assert data["skills"]["enabled"] is True and data["skills"] == SYSTEM_SETTINGS["skills"]
-    assert data["security"]["folderTrust"] == {"enabled": False}
-    assert data["security"]["auth"]["selectedType"] == "gemini-api-key"
-    assert data["experimental"]["dynamicModelConfiguration"] is True   # else 0.53 substitutes models
-    assert data["skills"]["disabled"] == ["skill-creator", "antigravity-support"]   # the CLI's own bundles
 
 
 # --------------------------------------------------------------------------- agy

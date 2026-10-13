@@ -116,13 +116,15 @@ system settings listed the four + the control, all `[Enabled]`, from
   their tool trace (found by `.project_root` + mtime, not `session_id`, for exactly this
   case).  They also expose a cost gap outside this lane: a killed gemini-cli session is
   recorded at $0 although its chat record holds ~$0.34 of tokens (closed the same day:
-  the chat record is such a session's usage — `agents/backends.read_gemini_chats`).
+  the chat record is such a session's usage — `agents/backends.read_gemini_chats`; deleted with the
+  gemini-cli backend in D103).
 * codex's MCP server did not start in this rig (codex hands MCP servers a scrubbed env; the
   lane worktree is on `PYTHONPATH`, not installed), so it spent its session probing the
   server by hand — a rig artefact, not a skills result.
 
 **Gaps closed** (code, 2026-09-22): gemini-cli `skills.enabled` pinned in the per-session
-system settings (merged last; a user's `false` would have hidden every bundle); claude-code
+system settings (merged last; a user's `false` would have hidden every bundle — moot since D103
+deleted that backend); claude-code
 switched to `--output-format stream-json --verbose` (its `json` output carried no tool
 calls); every backend writes its CLI's tool calls into `transcript.jsonl` and the read probe
 reads them first; agy's `AgentResult.tool_calls` is the trace count (was always 0).

@@ -270,12 +270,16 @@ def check_keys(live: bool) -> list[Row]:
 def check_clis() -> list[Row]:
     s = get_settings()
     rows: list[Row] = []
-    for name, binary in (("gemini-cli", s.binaries.gemini_cli), ("claude", s.binaries.claude_cli),
-                         ("codex", s.binaries.codex_cli), ("agy", s.binaries.agy_cli)):
+    for name, binary in (("agy", s.binaries.agy_cli), ("claude", s.binaries.claude_cli),
+                         ("codex", s.binaries.codex_cli)):
         okk, v = _ver([binary, "--version"])
         rows.append((name, "OK" if okk else "WARN", v if okk else f"{v} (backend {name} unavailable)"))
     okk, v = _ver(["git", "--version"])
     rows.append(("git", "OK" if okk else "FAIL", v))
+    n = len(s.gemini_api_keys)
+    rows.append(("agy gemini mode", "OK" if n else "WARN",
+                 f"API-key mode: {n}-key pool, 3dcode MCP, priced" if n
+                 else "no Gemini keys: agy:gemini-* runs on the subscription sign-in, without the 3dcode MCP tools"))
     return rows
 
 
@@ -297,7 +301,7 @@ def check_skills() -> list[Row]:
     A CLI upgrade that moves its skills root ships an empty index and the run still
     passes — the failure is invisible except as a read rate of zero a battery later.  So
     the wiring gets a check you can run before spending money."""
-    from codeverse3d.agents.backends import ALLOWED_TOOLS, SYSTEM_SETTINGS
+    from codeverse3d.agents.backends import ALLOWED_TOOLS
     from codeverse3d.skills import bundle_dirs, skills_dir, validate_bundle
     from codeverse3d.skills.materialize import SKILL_ROOTS
     from codeverse3d.skills.registry import ROUTED_SKILLS
@@ -320,10 +324,6 @@ def check_skills() -> list[Row]:
     rows.append(("skills discovery", "OK", "materialised into " + " + ".join(SKILL_ROOTS)))
     rows.append(("claude-code Skill tool", "OK" if "Skill" in ALLOWED_TOOLS else "FAIL",
                  "in --allowedTools" if "Skill" in ALLOWED_TOOLS else "missing: claude-code would deny skill activation"))
-    pinned = (SYSTEM_SETTINGS.get("skills") or {}).get("enabled") is True
-    rows.append(("gemini-cli skills setting", "OK" if pinned else "FAIL",
-                 "skills.enabled pinned in the per-session system settings" if pinned
-                 else "not pinned: a user's skills.enabled=false would hide every bundle from gemini-cli"))
     return rows
 
 

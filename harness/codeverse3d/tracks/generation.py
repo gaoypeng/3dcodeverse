@@ -1,7 +1,7 @@
 """Code generation: one entry point, two strategies.
 
 * **CodingAgent path** — ``agent_id`` is any id ``codeverse3d.agents`` knows
-  (``gemini-cli:*``, ``claude-code:*``, ``codex:*``, ``agy:*``):
+  (``agy:*``, ``claude-code:*``, ``codex:*``):
   the workspace is materialised once per run (AGENTS.md + MCP config), then
   ``agent.run(AgentJob)``.  Truth is on disk: ``ok`` means files changed.
 * **Single-shot path** — ``agent_id = "single-shot:<provider>:<model>"``: one
@@ -341,11 +341,6 @@ class GenerationResult(BaseModel):
         description="the last session met the vendor's usage limit (AgentResult.quota): no retry gets "
         "through until it resets",
     )
-    storm: bool = Field(
-        default=False,
-        description="transient AND nothing was written — the agent route is down, not the task; "
-        "tracks fall back to the hedged single-shot path (tracks.common.generate_for)",
-    )
 
     @classmethod
     def from_error(cls, label: str, e: BaseException) -> GenerationResult:
@@ -574,7 +569,7 @@ def run_agent_task(
         and not acc.wrapped
         and res.exit_reason not in ("timeout", "budget")
         # a provider failure or a spent usage limit is not a bail: a second session meets the
-        # same wall (the storm fallback and the round loop's one retry handle a transient)
+        # same wall (the round loop's one retry handles a transient)
         and not (res.transient or res.quota)
     ):
         events.emit("generate.silent_bail", label=task.label, exit_reason=res.exit_reason)
@@ -618,7 +613,6 @@ def run_agent_task(
         turn_capped=acc.wrapped,
         transient=bool(res.transient),
         quota=bool(res.quota),
-        storm=not changes and bool(res.transient),
     )
 
 
@@ -663,7 +657,7 @@ class _SessionAcc:
             self.errors.append(f"{label}: {type(e).__name__}: {e}")
             return None
         self.usage = self.usage + res.usage
-        # the count as the BACKEND reports it (0 for gemini-cli, which exposes none): a size
+        # the count as the BACKEND reports it: a size
         # signal for the generate.turn_cap event, not what the cap is enforced against
         self.turns += res.turns
         if self.budget is not None:
@@ -681,7 +675,7 @@ def _images_block(images: list[ImagePart], ws: Workspace) -> str:
     Every image is copied into ``.3dcode/images/`` first, exactly as the cookbook is (D9),
     and listed workspace-relative: a CLI reads only INSIDE its workspace (``--image
     ref.png`` stores the host's absolute path), and the judged contact sheet sits under
-    ``artifacts/renders/``, which ``.geminiignore`` hides from gemini-cli's read_file."""
+    ``artifacts/renders/``, which ``.antigravityignore`` hides from agy."""
     paths: list[tuple[str, str]] = []
     for i in images:
         if not i.path:

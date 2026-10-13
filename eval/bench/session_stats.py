@@ -28,8 +28,9 @@ from bench._records import records  # noqa: E402
 from codeverse3d.proc import read_json_or_none  # noqa: E402
 from codeverse3d.record.record import unique_files  # noqa: E402
 
-#: gemini-cli names an MCP tool ``mcp_<server>_<tool>``; ours is the ``3dcode`` server
-#: (``3dcv`` in every session recorded before the 2026-09-21 rename).
+#: gemini-cli (the backend deleted in D103, 2026-10-13 — this file reads the sessions it
+#: recorded before then) names an MCP tool ``mcp_<server>_<tool>``; ours is the ``3dcode``
+#: server (``3dcv`` in every session recorded before the 2026-09-21 rename).
 MCP_PREFIXES = ("mcp_3dcode_", "mcp_3dcv_")
 
 
@@ -67,27 +68,34 @@ def tool_rates(sessions: list[Path]) -> tuple[Counter, Counter]:
     return calls, failed
 
 
+def _prompt_cached(tok: dict) -> tuple[int, int]:
+    """(total prompt, cached) tokens of one served model in a pre-D103 gemini-cli stats block.
+    ``tokens.prompt`` is the total; the older schema has only ``tokens.input`` = prompt − cached,
+    which would otherwise read as zero."""
+    cached = int(tok.get("cached") or 0)
+    prompt = tok.get("prompt")
+    return (int(prompt) if prompt is not None else int(tok.get("input") or 0) + cached), cached
+
+
 def token_rates(sessions: list[Path]) -> dict[str, float]:
     """Prompt/cached tokens and requests for each session's MAIN model.
 
-    ``agents.backends.gemini_model_usage`` owns the envelope — including the older
-    ``tokens.input`` schema this file would otherwise read as zero — so the tokens come
-    from it rather than from a second parser.  A session's ``models`` map also carries
-    gemini-cli's own bookkeeping model (one request per session for the session title),
-    and docs/COST.md §30 counts main-role requests: the model with the most requests IS
-    the main role, and mixing the other in moves ``uncached per request`` by ~3 %.
+    Reads gemini-cli sessions recorded before D103 (2026-10-13), when the harness's own
+    parser for this envelope was deleted with the backend — hence :func:`_prompt_cached`
+    here.  A session's ``models`` map also carries gemini-cli's own bookkeeping model (one
+    request per session for the session title), and docs/COST.md §30 counts main-role
+    requests: the model with the most requests IS the main role, and mixing the other in
+    moves ``uncached per request`` by ~3 %.
     """
-    from codeverse3d.agents.backends import gemini_model_usage
-
     prompt = cached = requests = 0
     for path in sessions:
         models = (((read_json_or_none(path) or {}).get("stats") or {}).get("models")) or {}
         if not models:
             continue
         main = max(models, key=lambda n: int(((models[n] or {}).get("api") or {}).get("totalRequests") or 0))
-        usage = gemini_model_usage((models[main] or {}).get("tokens") or {}, main)
-        prompt += usage.input_tokens
-        cached += usage.cached_tokens
+        p, c = _prompt_cached((models[main] or {}).get("tokens") or {})
+        prompt += p
+        cached += c
         requests += int(((models[main] or {}).get("api") or {}).get("totalRequests") or 0)
     return {"requests": requests, "prompt": prompt, "cached": cached,
             "cache_hit": cached / prompt if prompt else float("nan"),

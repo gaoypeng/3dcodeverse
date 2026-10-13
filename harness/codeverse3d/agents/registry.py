@@ -14,7 +14,7 @@ class CodingAgent(Protocol):
 
     Contract for implementations:
     * the agent may only write under ``job.write_roots`` (harness materialises
-      AGENTS.md/GEMINI.md/CLAUDE.md + MCP config before the call; see
+      AGENTS.md/CLAUDE.md + MCP config before the call; see
       ``agents/materialize.py``),
     * never raise for agent failures — return ``AgentResult(ok=False, exit_reason=...)``,
     * fill ``usage`` (tokens + cost) as precisely as the CLI allows,
@@ -26,7 +26,7 @@ class CodingAgent(Protocol):
       process group on timeout).
     """
 
-    kind: str  # gemini-cli | claude-code | codex | agy
+    kind: str  # claude-code | codex | agy
     model: str
 
     @property
@@ -40,11 +40,11 @@ class CodingAgent(Protocol):
 
 
 # ===================================================================== registry
-KINDS = ("gemini-cli", "claude-code", "codex", "agy")
+KINDS = ("claude-code", "codex", "agy")
 
 
 def parse_agent_id(agent_id: str) -> tuple[str, str]:
-    """``gemini-cli:gemini-3.6-flash`` → ('gemini-cli', 'gemini-3.6-flash')."""
+    """``agy:gemini-3.7-flash`` → ('agy', 'gemini-3.7-flash')."""
     if ":" not in agent_id:
         raise ValueError(f"agent id must be '<kind>:<model>', got {agent_id!r}")
     kind, model = agent_id.split(":", 1)
@@ -66,5 +66,5 @@ def _build_agent(agent_id: str) -> CodingAgent:
     kind, model = parse_agent_id(agent_id)  # an unknown kind has raised already
     from codeverse3d.agents import backends
 
-    return {"gemini-cli": backends.GeminiCliAgent, "claude-code": backends.ClaudeCodeAgent,
-            "codex": backends.CodexAgent, "agy": backends.AntigravityAgent}[kind](model)
+    return {"claude-code": backends.ClaudeCodeAgent, "codex": backends.CodexAgent,
+            "agy": backends.AntigravityAgent}[kind](model)

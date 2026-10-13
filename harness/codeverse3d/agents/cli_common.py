@@ -98,7 +98,7 @@ class Trajectory:
 
 
 # ===================================================================== watchdog
-_SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".gemini", ".gemini_home"}
+_SKIP_DIRS = {"node_modules", ".git", "__pycache__", ".gemini"}
 
 
 @dataclass
@@ -291,8 +291,8 @@ def mcp_command_for(ws: Workspace, job: AgentJob) -> list[str]:
 #: paths the harness owns; never attributed to an agent session even when git sees them change
 #: (`.3dcv` = `.3dcode` in a workspace made before the 2026-09-21 rename, still resumable)
 HARNESS_OWNED_DIRS = ("artifacts", "trajectories", "stages", "rounds", "_cand", "_assets", ".3dcode", ".3dcv", ".gemini", ".claude", ".agents", ".git")
-HARNESS_OWNED_FILES = frozenset({"events.jsonl", "run_state.json", "record.json", "AGENTS.md", "GEMINI.md", "CLAUDE.md",
-                                 ".mcp.json", ".geminiignore", ".aiexclude", ".gitignore"})
+HARNESS_OWNED_FILES = frozenset({"events.jsonl", "run_state.json", "record.json", "AGENTS.md", "CLAUDE.md",
+                                 ".mcp.json", ".antigravityignore", ".gitignore"})
 #: gitignored control files git cannot revert (downstream trusts both blindly):
 #: byte-snapshotted by :func:`begin_session`, compared + restored by :func:`_enforce_scope`
 UNTRACKED_CONTROL_FILES = ("run_state.json", "record.json")
@@ -350,7 +350,7 @@ class Session:
 #: late-starting session's ``pre:`` commit absorbs a sibling's in-flight writes, which
 #: makes concurrent provenance (and any per-path rollback) unfixable after the fact.
 #: So agent sessions on one workspace are serialised.
-EXCLUSIVE_KINDS = frozenset({"claude-code", "codex", "gemini-cli", "agy"})
+EXCLUSIVE_KINDS = frozenset({"claude-code", "codex", "agy"})
 
 _WS_SESSION_LOCKS: dict[str, threading.RLock] = {}
 _WS_SESSION_LOCKS_GUARD = threading.Lock()
@@ -552,8 +552,6 @@ def invoke(
     stdout_name: str = "stdout.json",
     on_stdout: Callable[[str], None] | None = None,
     on_stderr: Callable[[str], None] | None = None,
-    attempt: int = 1,
-    soft_timeout_s: float | None = None,
     **invoke_extra: Any,
 ) -> CompletedProc:
     """Run one CLI agent process under the watchdog and record it in the trajectory.
@@ -561,9 +559,9 @@ def invoke(
     The prompt goes to the CLI on STDIN, always, for every backend — never on argv and never
     through a file the agent must read.  argv caps one argument at 128 KiB (``MAX_ARG_STRLEN``),
     and the file stub this replaced (``task_prompt.md`` above 100 kB) handed the prompt to the
-    agent's own file tool: gemini-cli's ``read_file`` stops at 2 000 lines, so the last zones of a
-    5-zone scene prompt were silently dropped.  Each CLI reads its whole stdin as the prompt,
-    byte for byte (checked 2026-09-22 against gemini-cli 0.53, claude-code 2.1.280, codex
+    agent's own file tool, which (gemini-cli's ``read_file``, 2 000 lines) silently dropped the
+    last zones of a 5-zone scene prompt.  Each CLI reads its whole stdin as the prompt,
+    byte for byte (checked 2026-09-22 against claude-code 2.1.280, codex
     0.155.1 and agy 1.2.8 with a 185 000-character, 2 502-line prompt; agy alone truncates a
     request past ~175 kB, whatever carries it).
 
@@ -572,19 +570,16 @@ def invoke(
     transcript, ``src/`` + ``public/`` as activity dirs) and the stdout/stderr captures next to
     the transcript.  ``stdout_name`` sets the capture's name (codex streams JSONL →
     ``stdout.jsonl``); ``on_stdout`` / ``on_stderr`` also receive each line as it arrives (the
-    backends fold their event streams and retry reports live); ``attempt`` > 1 writes
-    ``stdout.<n>.json`` / ``stderr.<n>.log`` so a retry keeps attempt 1's captures.  The
-    ``invoke`` line records ``attempt`` and the prompt's size, plus ``invoke_extra`` (gemini-cli
-    adds ``model`` and ``key_tail``).
+    backends fold their event streams live).  The ``invoke`` line records the prompt's size,
+    plus ``invoke_extra`` (agy in API mode adds ``model`` and ``key_tail``).
     """
-    soft = float(s.job.timeout_s if soft_timeout_s is None else soft_timeout_s)
+    soft = float(s.job.timeout_s)
     hard = soft + 300.0
     if s.job.hard_deadline_s is not None:
-        # This runs AFTER begin_session's workspace lock and on every vendor retry.
-        # A queued job must not regain the window it had before waiting for a peer.
+        # This runs AFTER begin_session's workspace lock.  A queued job must not regain the window it had before waiting for a peer.
         hard = min(hard, max(0.0, s.job.hard_deadline_s - time.monotonic()))
         soft = min(soft, hard)
-    s.traj.append("invoke", argv=list(argv), attempt=attempt, stdin_bytes=len(prompt.encode("utf-8")),
+    s.traj.append("invoke", argv=list(argv), stdin_bytes=len(prompt.encode("utf-8")),
                   soft_timeout_s=soft, hard_timeout_s=hard, started=hard > 0, **invoke_extra)
 
     def on_line(stream: str, line: str) -> None:
@@ -602,10 +597,8 @@ def invoke(
             idle_grace_s=IDLE_GRACE_S, poll_s=POLL_S,
             on_line=on_line, stdin=prompt, activity_dirs=[s.ws.src, s.ws.public],
         )
-    suffix = "" if attempt == 1 else f".{attempt}"
-    out = Path(stdout_name)
-    s.traj.write_text(f"{out.stem}{suffix}{out.suffix}", proc.stdout)
-    s.traj.write_text(f"stderr{suffix}.log", proc.stderr)
+    s.traj.write_text(stdout_name, proc.stdout)
+    s.traj.write_text("stderr.log", proc.stderr)
     return proc
 
 
@@ -630,7 +623,7 @@ TRACE_ARG_CHARS = 400
 @dataclass(frozen=True)
 class ToolCall:
     """One tool call as the CLI reported it.  ``skill`` names the bundle when the call was
-    the CLI's own skill-activation tool (claude-code ``Skill``, gemini-cli ``activate_skill``),
+    the CLI's own skill-activation tool (claude-code ``Skill``),
     so a reader of the trace never needs any vendor's tool vocabulary; ``failed`` is the
     CLI's own verdict on the call (a ``sed`` of a mis-expanded skill path read nothing —
     codex 0.155.1 did exactly that on its first try, 2026-09-22)."""
@@ -681,7 +674,7 @@ def record_tool_calls(s: Session, calls: Iterable[ToolCall], *, source: str,
 #: lower-case "internal" is in every node stack trace (``node:internal/process/...``), which made
 #: any crashed CLI look transient.  A plain "timed out" is NOT here: the watchdog's own kill, a
 #: slow MCP tool and a provider timeout all say it, and a retry of the first two buys another
-#: full window for the same outcome (provider timeouts arrive typed: gemini-cli's retry lines,
+#: full window for the same outcome (provider timeouts arrive typed: agy's ``AGY_ERROR``,
 #: ``ModelError(status=408, retryable=True)``).
 _TRANSIENT_RE = re.compile(
     r"(?-i:\b(?:UNAVAILABLE|INTERNAL|RESOURCE_EXHAUSTED|DEADLINE_EXCEEDED)\b)|\b(?:429|50[0234]|529)\b|overloaded"
@@ -722,7 +715,7 @@ def is_rate_limited(*texts: str) -> bool:
 class SessionEnd:
     """How a CLI session ended: ``exit_reason`` (completed | timeout | budget | error) and the
     typed failure class ``AgentResult.transient`` / ``.quota`` carry.  ``rate_limited`` is a
-    429 — gemini-cli cools its key and rotates."""
+    429 — agy in API mode cools its key in the pool."""
 
     exit_reason: str
     transient: bool = False
@@ -735,9 +728,9 @@ def classify_end(proc: CompletedProc, *, ok: bool, text: str, said: Sequence[str
                  rate_limited: bool | None = None) -> SessionEnd:
     """THE end rule for every CLI backend (N71; D83) — each backend brings only its vendor's
     evidence: ``said`` (what the CLI printed about the call that ended it), ``provider_retried``
-    (the CLI's OWN record of retried provider calls: gemini-cli's retry lines, claude's
+    (the CLI's OWN record of retried provider calls: claude's
     ``api_retry`` events, codex's error events, agy's log) and ``provider_failed`` (a typed
-    vendor verdict: agy's ``AGY_ERROR.retryable``, gemini-cli's empty envelope).
+    vendor verdict: agy's ``AGY_ERROR.retryable``).
 
     A watchdog kill is ``timeout``, and transient only when nothing was produced AND the CLI
     recorded provider retries: a kill with no provider evidence is the task's (a retry buys
@@ -761,14 +754,13 @@ def provider_wait(failures: Iterable[tuple[float, float]], end: float,
     """Seconds a session lost to provider errors, from the CLI's own record of them.
 
     ``failures`` are ``(t, backoff_s)``: when the CLI reported a failed API attempt, and the
-    back-off it announced before the next one (0 when it does not say — gemini-cli's 5xx
-    lines).  ``progress`` are the times the session demonstrably moved on (a model message, a
+    back-off it announced before the next one (0 when it does not say).  ``progress`` are the times the session demonstrably moved on (a model message, a
     tool result); ``None`` when the CLI records none (agy's log).  Failures with no progress
     between them form one burst, which costs from the last progress before it — when the
     request that failed went out; its first failure when nothing precedes it — until the
     CLI tried again after the burst's last failure (``t + backoff``).  A burst no progress
     ever followed costs until ``end``: the CLI gave up, or the watchdog killed it mid-storm.
-    A lower bound wherever the back-off is unannounced (≤ 30 s per burst for gemini-cli)."""
+    A lower bound wherever the back-off is unannounced."""
     fails = sorted(failures)
     prog = sorted(progress) if progress is not None else []
     total, i = 0.0, 0
@@ -789,10 +781,8 @@ def find_json_object(stdout: str, accept: Callable[[dict[str, Any]], bool]) -> d
 
     Tries the whole text; unwraps a top-level list (claude's stream-json array) to
     its LAST accepted element; then ``{``-starting lines from the END (claude / agy
-    print one envelope per line after their chatter); then ``json.loads(s[start:])``
-    forward from every ``{`` — mandatory, not a fallback: ``gemini --output-format
-    json`` prints an INDENTED multi-line object that no single-line scan can parse.
-    ``accept`` says which dict is the envelope."""
+    print one envelope per line after their chatter).  ``accept`` says which dict is the
+    envelope."""
     s = stdout.strip()
     if not s:
         return None
@@ -815,14 +805,6 @@ def find_json_object(stdout: str, accept: Callable[[dict[str, Any]], bool]) -> d
             continue
         if isinstance(cand, dict) and accept(cand):
             return cand
-    start = s.find("{")
-    while start != -1:
-        try:
-            obj = json.loads(s[start:])
-        except json.JSONDecodeError:
-            start = s.find("{", start + 1)
-            continue
-        return obj if isinstance(obj, dict) and accept(obj) else None
     return None
 
 

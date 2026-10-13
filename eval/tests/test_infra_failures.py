@@ -20,7 +20,7 @@ def test_pairwise_outage_is_unavailable_even_with_cached_win(tmp_path, monkeypat
     battery = Battery.load(BATTERY)
     battery = battery.model_copy(update={"prompts": battery.prompts[:1]})
     prompt = battery.prompts[0].id
-    arms = cb.parse_arms("harness:codex:gpt-6-astra@high,agent:gemini-cli:gemini-3.8-flash")
+    arms = cb.parse_arms("harness:codex:gpt-6-astra@high,agent:agy:gemini-3.8-flash")
     rows = [CellResult(prompt_id=prompt, arm=a.raw, kind=a.kind, status="scored", score=0.6) for a in arms]
     rows[failed_side] = rows[failed_side].model_copy(update={"status": "infra_failed", "error_is_infra": True, "score": None})
     cells = {(r.prompt_id, r.arm): r for r in rows}
@@ -51,7 +51,7 @@ def test_scene_pairwise_uses_the_same_track_rubric_as_fixed_evaluation(tmp_path,
     battery = Battery.load(BATTERY)
     battery = battery.model_copy(update={"prompts": battery.prompts[:1], "track": Track.SCENE,
                                          "language": Language.SCENE_THREEJS})
-    arms = cb.parse_arms("harness:codex:gpt-6-astra@high,agent:gemini-cli:gemini-3.8-flash")
+    arms = cb.parse_arms("harness:codex:gpt-6-astra@high,agent:agy:gemini-3.8-flash")
     cells = {(battery.prompts[0].id, a.raw): CellResult(prompt_id=battery.prompts[0].id,
                arm=a.raw, kind=a.kind, status="scored", score=0.6) for a in arms}
     monkeypatch.setattr(cb, "_renders_of", lambda *args: object())
@@ -149,7 +149,7 @@ def test_both_failure_paths_classify_the_same_way(tmp_path):
                            oneshot_backend=lambda t: ApiOneShot("gemini:gemini-3.7-flash", chat_model=DeadModel()))
         opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x")
         got = {}
-        for raw in ("harness:gemini-cli:gemini-3.6-flash", "oneshot:gemini:gemini-3.7-flash"):
+        for raw in ("harness:agy:gemini-3.6-flash", "oneshot:gemini:gemini-3.7-flash"):
             arm = parse_arm(raw)
             r = run_cell(battery, battery.prompts[0], arm, out, opts, deps)
             got[arm.kind] = (r.status, r.score)
@@ -270,7 +270,7 @@ def test_a_harness_planning_failure_is_a_zero_not_a_dropped_cell(tmp_path):
 
     battery = Battery.load(BATTERY)
     opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x")
-    r = run_cell(battery, battery.prompts[0], parse_arm("harness:gemini-cli:gemini-3.6-flash"), tmp_path, opts,
+    r = run_cell(battery, battery.prompts[0], parse_arm("harness:agy:gemini-3.6-flash"), tmp_path, opts,
                  CompareDeps(FakeEvaluator(), run_track=no_plan))
     assert (r.status, r.score, r.passed, r.build_ok) == ("no_code", 0.0, False, False)
     assert r.error.startswith("PlanningError:")
@@ -297,7 +297,7 @@ def test_a_classifier_crash_still_records_the_cell(tmp_path):
         raise ClassifierTrap("planner died")
 
     battery = Battery.load(BATTERY)
-    r = cb.run_cell(battery, battery.prompts[0], cb.parse_arm("harness:gemini-cli:gemini-3.6-flash"), tmp_path,
+    r = cb.run_cell(battery, battery.prompts[0], cb.parse_arm("harness:agy:gemini-3.6-flash"), tmp_path,
                     cb.CompareOptions(judge="gemini:x", loop_judge="gemini:x"), cb.CompareDeps(FakeEvaluator(), run_track=boom))
     assert r.status == "error" and "planner died" in r.error
     assert (Path(r.workspace) / "cell.json").is_file()
@@ -356,7 +356,7 @@ def test_a_harness_run_whose_judge_never_answered_is_dropped_and_redone_fresh(tm
 
     battery = Battery.load(BATTERY)
     opts = CompareOptions(judge="gemini:x", loop_judge="gemini:x")
-    arm = parse_arm("harness:gemini-cli:gemini-3.8-flash")
+    arm = parse_arm("harness:agy:gemini-3.8-flash")
     ev = FakeEvaluator()
     r = run_cell(battery, battery.prompts[0], arm, tmp_path, opts, CompareDeps(ev, run_track=judge_down))
     assert (r.status, r.score, r.passed) == ("infra_failed", None, None), r
@@ -391,7 +391,7 @@ def test_a_harness_run_that_picked_a_round_before_its_judge_went_down_is_scored(
 
     battery = Battery.load(BATTERY)
     ev = FakeEvaluator()
-    r = run_cell(battery, battery.prompts[0], parse_arm("harness:gemini-cli:gemini-3.8-flash"), tmp_path,
+    r = run_cell(battery, battery.prompts[0], parse_arm("harness:agy:gemini-3.8-flash"), tmp_path,
                  CompareOptions(judge="gemini:x", loop_judge="gemini:x"), CompareDeps(ev, run_track=judged_then_down))
     assert r.status == "scored" and ev.evaluated, r
 
@@ -416,7 +416,7 @@ def test_bare_agent_provider_failure_with_a_partial_file_is_not_a_quality_zero(t
     monkeypatch.setattr('bench._bare_agent.run_bare_agent', interrupted)
     battery=Battery.load(BATTERY)
     evaluator=FakeEvaluator()
-    result=run_cell(battery,battery.prompts[0],parse_arm('agent:gemini-cli:gemini-3.8-flash'),
+    result=run_cell(battery,battery.prompts[0],parse_arm('agent:agy:gemini-3.8-flash'),
                     tmp_path,CompareOptions(judge='gemini:x',loop_judge='gemini:x'),CompareDeps(evaluator))
     if outage and reason == 'error':
         assert (result.status,result.score,result.error_is_infra)==('infra_failed',None,True)

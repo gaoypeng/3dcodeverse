@@ -94,7 +94,7 @@ def test_one_failure_vocabulary():
     assert is_rate_limited("status 429") and is_rate_limited("RESOURCE_EXHAUSTED") and not is_rate_limited("503")
 
 
-def test_queued_invocation_and_retry_share_the_run_deadline(tmp_ws: Workspace, monkeypatch):
+def test_queued_invocations_share_the_run_deadline(tmp_ws: Workspace, monkeypatch):
     clock = [100.0]
     windows = []
 
@@ -109,12 +109,12 @@ def test_queued_invocation_and_retry_share_the_run_deadline(tmp_ws: Workspace, m
     clock[0] = 104.0  # waiting for a workspace lock consumed four seconds
     invoke(s, ["unused"], {}, prompt="p")
     clock[0] = 109.0
-    invoke(s, ["unused"], {}, prompt="p", attempt=2, soft_timeout_s=90)
+    invoke(s, ["unused"], {}, prompt="p")
     assert windows == [(6.0, 6.0), (1.0, 1.0)]
     clock[0] = 111.0
-    expired = invoke(s, ["unused"], {}, prompt="p", attempt=3)
+    expired = invoke(s, ["unused"], {}, prompt="p")
     assert len(windows) == 2 and expired.timed_out and expired.duration_s == 0
-    assert "before CLI launch" in (s.traj.dir / "stderr.3.log").read_text()
+    assert "before CLI launch" in (s.traj.dir / "stderr.log").read_text()
     assert [r["started"] for r in s.traj.read_transcript() if r["kind"] == "invoke"] == [True, True, False]
 
 
@@ -199,7 +199,7 @@ _ENDINGS = {
 
 
 @pytest.mark.parametrize("ending", sorted(_ENDINGS))
-@pytest.mark.parametrize("vendor", ["gemini-cli", "claude-code", "codex", "agy"])
+@pytest.mark.parametrize("vendor", ["claude-code", "codex", "agy", "agy-api"])
 def test_every_cli_backend_ends_by_one_rule(tmp_ws: Workspace, fake_bin, monkeypatch, vendor, ending):
     """N71: one ``classify_end`` — a kill with no provider evidence is not transient, and a spent
     usage limit or a 429 is ``budget``, whichever vendor's CLI said it."""
@@ -207,18 +207,18 @@ def test_every_cli_backend_ends_by_one_rule(tmp_ws: Workspace, fake_bin, monkeyp
         AntigravityAgent,
         ClaudeCodeAgent,
         CodexAgent,
-        GeminiCliAgent,
     )
     from codeverse3d.config import get_settings
 
     monkeypatch.setattr(cli_common, "IDLE_GRACE_S", 0.3)
-    monkeypatch.setattr("codeverse3d.agents.backends.RETRY_KEY_WAIT_S", 0.05)
     monkeypatch.setattr(get_settings(), "gemini_api_keys", ["n71-key"])
     body, want = _ENDINGS[ending]
+    monkeypatch.setattr(get_settings(), "cache_dir", tmp_ws.root.parent / "cache")
     binary = fake_bin(vendor, "sys.stdin.read()\n" + body)
-    agent = {"gemini-cli": lambda: GeminiCliAgent("m", binary=binary), "claude-code": lambda: ClaudeCodeAgent("m", binary=binary),
+    agent = {"claude-code": lambda: ClaudeCodeAgent("m", binary=binary),
              "codex": lambda: CodexAgent("m", binary=binary, reasoning_effort=""),
-             "agy": lambda: AntigravityAgent("m", binary=binary)}[vendor]()
+             "agy": lambda: AntigravityAgent("m", binary=binary),               # subscription sign-in
+             "agy-api": lambda: AntigravityAgent("gemini-m", binary=binary)}[vendor]()   # a pool key
     if vendor == "agy":
         monkeypatch.setattr(agent, "served_model", lambda: "m")
     res = agent.run(AgentJob(workspace=str(tmp_ws.root), prompt="p", label=ending, spatial_tools=False,

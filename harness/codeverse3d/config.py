@@ -74,7 +74,6 @@ BLENDER_MIN: tuple[int, int] = (4, 2)
 class Binaries(BaseModel):
     blender: str = Field(default="", description="path to a Blender 4.2+/5.x binary (headless capable)")
     node: str = "node"
-    gemini_cli: str = "gemini"
     claude_cli: str = "claude"
     codex_cli: str = "codex"
     agy_cli: str = "agy"

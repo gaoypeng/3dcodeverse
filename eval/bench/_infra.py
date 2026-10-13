@@ -69,7 +69,7 @@ def _looks_infra(exc: BaseException) -> bool:
     """The outage rules, applied to ONE exception.  Typed first: the harness's own verdict
     (``RoundFailed`` / ``GenerationResult`` ``.transient`` — a provider storm, a dropped socket
     — and ``.quota`` — the vendor's usage limit, "not ours") decided from the CLI's own record,
-    which the bench must not re-guess from the message (N76: a gemini-cli 503 storm that killed a
+    which the bench must not re-guess from the message (N76: a gemini-cli (pre-D103) 503 storm that killed a
     baseline twice matched no marker and was scored as an error).  Then the HTTP status, from the
     harness's one table (``models.parts.retryable_status``: 408/409/429/5xx), and a spent key
     pool.  The string markers are the fallback, for exceptions nobody typed and for the error

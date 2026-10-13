@@ -134,7 +134,7 @@ openai.
 | `urdf` | yourdfpy, scipy | the `articulated_object` track: URDF parse/validate + joint math |
 | `graphics` | moderngl | the `graphics` track (`glsl_shader`, `opengl_python`) — headless GL rendering in `spatial/gl_render.py` |
 | `mesh` | shapely, networkx, manifold3d, matplotlib | `cross_section` (filled area / hollow ratio from shapely, the image drawn by the judge-slice renderer in matplotlib), mesh split / connectivity (networkx), joint-sweep boolean intersections (`trimesh.boolean(engine="manifold")`), judge cross-section slices on gate-ERROR rounds (`judge_slices`, D48; without the extra the judge logs a warning and sends the pre-D48 payload) |
-| `mcp` | mcp | `3dcode mcp` / `codeverse3d.spatial.mcp_server`, i.e. spatial tools for the `gemini-cli`, `claude-code` and `codex` backends |
+| `mcp` | mcp | `3dcode mcp` / `codeverse3d.spatial.mcp_server`, i.e. spatial tools for the `agy` (Gemini-API mode), `claude-code` and `codex` backends |
 | `flywheel` | pyarrow | `3dcode flywheel export --pack` (parquet shards). A plain `flywheel export` needs nothing: without pyarrow it writes `metadata.jsonl` and skips `metadata.parquet` with a warning. |
 | `all` | all of the above | — |
 | `dev` | pytest, pytest-timeout, ruff | the test suite and the linter |
@@ -358,24 +358,26 @@ export GEMINI_API_KEYS="key1,key2,key3"        # e.g. in ~/.bashrc
 3dcodeverse doctor --live                      # one ~$0.00001 "pong" call
 ```
 
-### 8.2 The coding-agent CLIs (`gemini` required, the rest optional)
+### 8.2 The coding-agent CLIs (`agy` required, the rest optional)
 
-The generator is always a vendor CLI: `--generator gemini-cli:… | claude-code:… | codex:… | agy:…`.
-Since 2026-08-28 the default is `gemini-cli:gemini-3.7-flash`, so **`gemini` is the one CLI a default
-run needs**; it authenticates with the same api key as the harness's own calls.  The other three are
-needed only when you name them.
+The generator is always a vendor CLI: `--generator agy:… | claude-code:… | codex:…`.
+Since 2026-10-13 (D103; gemini-cli was removed) the default is `agy:gemini-3.7-flash`, so **`agy` is
+the one CLI a default run needs**.  With Gemini keys configured (§8.1) an `agy:gemini-*` session runs
+in **Gemini-API mode**: one key from the harness's own pool, the 3dcode MCP tools, priced at Gemini
+list price — no sign-in.  Without keys, or for a non-Gemini model (`agy:claude-sonnet-4-6`), it runs
+on agy's own subscription sign-in, without the MCP tools, booked $0 (doctor row `agy gemini mode`).
+The other two are needed only when you name them.
 
 ```bash
-npm i -g @google/gemini-cli        # gemini   (0.53.0 here)
+# agy (Antigravity CLI, 1.3.4 here): the Antigravity installer puts it in ~/.local/bin
 npm i -g @anthropic-ai/claude-code # claude   (2.1.241 here)
 npm i -g @openai/codex             # codex    (0.149.0 here)
-# agy (Antigravity, 1.1.19 here) ships with the Antigravity IDE
 ```
 
-`claude`, `codex` and `agy` authenticate against your local subscription (their
-own `login` flows) — test lightly.  The harness handles the per-CLI quirks for you (the
-gemini-cli system settings file, codex's MCP approval mode, agy's missing per-workspace
-MCP); what each one is and why it must not be undone: `docs/RUNBOOK.md` §3.
+`claude` and `codex` (and agy outside API mode) authenticate against your local subscription
+(their own `login` flows) — test lightly.  The harness handles the per-CLI quirks for you
+(agy's per-session API-mode HOME, codex's MCP approval mode); what each one is and why it must
+not be undone: `docs/RUNBOOK.md` §3.
 
 The spatial MCP server itself is the `mcp` extra (§4); check it with
 `python -m codeverse3d.spatial.mcp_server --workspace <ws> --list`.
@@ -448,11 +450,11 @@ Real output on this box (exit code 0; any FAIL row makes it exit 1):
 │ gemini keys   │ OK     │ 22 key(s)                                           │
 │ anthropic key │ WARN   │ not set (anthropic:* backends unavailable)          │
 │ openai key    │ WARN   │ not set (openai:* backends unavailable)             │
-│ gemini-cli    │ OK     │ 0.53.0                                              │
+│ agy           │ OK     │ 1.3.4                                               │
 │ claude        │ OK     │ 2.1.241 (Claude Code)                               │
 │ codex         │ OK     │ codex-cli 0.149.0                                   │
-│ agy           │ OK     │ 1.1.19                                              │
 │ git           │ OK     │ git version 2.53.0                                  │
+│ agy gemini mode │ OK   │ API-key mode: 15-key pool, 3dcode MCP, priced       │
 │ mcp           │ OK     │ mcp + codeverse3d.spatial.mcp_server importable       │
 └───────────────┴────────┴─────────────────────────────────────────────────────┘
 ```
@@ -486,8 +488,9 @@ that the keys work end to end):
 | `chrome webgl` | SKIP | `runtime_js/gpu_launch.cjs` not present | you are not in a full checkout |
 | `gemini keys` | FAIL | no keys resolved | `export GEMINI_API_KEYS="k1,k2"` (§8.1) — everything model-driven needs this |
 | `anthropic key` / `openai key` | WARN | not set | expected unless you use `anthropic:*` / `openai:*`; export the key to clear it |
-| `gemini-cli` / `claude` / `codex` / `agy` | WARN | CLI not on `PATH` | optional (§8.2); only that `--generator` is unavailable |
+| `agy` / `claude` / `codex` | WARN | CLI not on `PATH` | only that `--generator` is unavailable — but `agy` serves the default generator (§8.2) |
 | `git` | FAIL | git missing | install git — run workspaces are git repos |
+| `agy gemini mode` | WARN | no Gemini keys: `agy:gemini-*` runs on agy's subscription sign-in, without the 3dcode MCP tools, booked $0 | export `GEMINI_API_KEYS` (§8.1) for API-key mode (pool key, MCP, priced); the subscription sign-in no longer serves `gemini-3.7-flash` (2026-10-13) |
 | `mcp` | WARN | `mcp` package or the server module missing | `pip install -e 'harness[mcp]'`; only affects the agentic CLI backends |
 | `gemini live call` (`--live`) | FAIL | key rejected / no network | check the key value and outbound access; a `503 … high demand` is transient, not an install problem |
 | `in-flight slots` | WARN | every machine-wide slot is held right now (`busy n/n`), or `max_in_flight=0` switched the cap off | busy: other harness processes are mid-call and new calls wait for a slot (docs/COST.md §23) — nothing to fix unless it stays full; a slot is held only while a call is out and a killed process frees its slots at once.  Off: unset `C3D_MAX_IN_FLIGHT` |
@@ -497,7 +500,6 @@ that the keys work end to end):
 | `skills routing` | WARN | a routed skill has no installed bundle | restore the missing bundle from the checkout or update the stale route |
 | `skills discovery` | OK | always informational | shows the agent-native directories where bundles are materialised |
 | `claude-code Skill tool` | FAIL | the Claude backend would deny native skill activation | update/reinstall the harness so `Skill` is present in Claude Code's allowed tools |
-| `gemini-cli skills setting` | FAIL | the per-session gemini-cli system settings do not pin `skills.enabled` | update/reinstall the harness; without the pin a user's `skills.enabled: false` hides every bundle from gemini-cli |
 
 ---
 
@@ -574,7 +576,7 @@ cleanup.  On this machine `eval/bench/out/` is read-only reference material
 
 Uninstalling does not touch `~/.config/3dcodeverse/config.yaml`,
 `~/.config/astra3d/gemini_keys.env` or the globally installed CLIs — remove
-those by hand (`npm rm -g @google/gemini-cli @anthropic-ai/claude-code @openai/codex`).
+those by hand (`npm rm -g @anthropic-ai/claude-code @openai/codex`; agy: `rm ~/.local/bin/agy`).
 
 ---
 
@@ -589,5 +591,5 @@ those by hand (`npm rm -g @google/gemini-cli @anthropic-ai/claude-code @openai/c
 | Chrome (puppeteer) | 148.0.7778.97 (+ headless-shell) | `~/.cache/puppeteer` |
 | Blender | 5.0.1 (2025-12-16) | `~/.local/bin/blender-5.0` → `~/3dcodeverse_data/tools/blender-5.0.1-linux-x64` |
 | git | 2.53.0 | `/usr/bin/git` |
-| gemini-cli / claude / codex / agy | 0.53.0 / 2.1.241 / 0.149.0 / 1.1.19 | npm global / `~/.local/bin` |
+| agy / claude / codex | 1.3.4 / 2.1.241 / 0.149.0 | `~/.local/bin` / npm global |
 | GPU (Chrome WebGL) | ANGLE · D3D12 · NVIDIA GeForce RTX 5090 Laptop GPU · OpenGL ES 3.1 | via `--use-angle=gl-egl` + Mesa d3d12 |

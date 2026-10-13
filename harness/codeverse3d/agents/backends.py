@@ -1,33 +1,10 @@
-"""``gemini-cli:<model>`` — headless Gemini CLI session on a workspace.
+"""The three vendor CLI backends: ``claude-code:<model>``, ``codex:<model>``, ``agy:<model>``.
 
-argv: ``gemini -m <model> --approval-mode yolo --skip-trust --output-format json`` with the
-prompt on stdin (every backend: ``cli_common.invoke``).
-
-* env hardening: host secrets stripped, one pool key as ``GEMINI_API_KEY``,
-  ``GEMINI_CLI_SYSTEM_SETTINGS_PATH`` (per session, in the trajectory dir) forcing
-  api-key auth + dynamic model configuration (otherwise an unknown model is *silently*
-  substituted), ``skills.enabled`` with the CLI's own built-in skills disabled, the 3dcode
-  MCP server and ``mcp.allowed``, Node heap cap, no self-relaunch.
-* gemini-cli's own chat record of the attempt (``~/.gemini/tmp/<project>/chats/
-  session-*.jsonl``, found by ``gemini_chat_records``) is read once (``read_gemini_chats``):
-  its tool calls become the transcript's ``tool_call`` rows (``cli_common.record_tool_calls``;
-  ``--output-format json`` carries only per-tool COUNTS), and its per-message tokens are the
-  usage of an attempt that printed no envelope — the CLI prints its JSON once, at the end,
-  so a session the watchdog killed printed nothing, and one that gave up on a 503 printed
-  only an error object on stderr with no stats (every gemini-cli session of the 2026-09-22
-  live runs, booked at $0 before this).  ``stream-json`` would cost the per-model
-  ``thoughts`` tokens pricing needs.
-* JSON envelope ``{session_id, response, stats:{models:{<m>:{tokens:{prompt,
-  input, candidates, cached, thoughts}}}, tools:{totalCalls}}}`` → Usage (+ cost
-  via pricing).  ``tokens.prompt`` is the TOTAL prompt size and ``tokens.input``
-  the UNCACHED part (``prompt - cached``); ``Usage.input_tokens`` follows the
-  pricing convention (total prompt, cached re-priced).  Each served model is
-  priced at its own rate.  Requested model absent from ``stats.models`` →
-  ``model_substituted``.
-* provider wait: the CLI's own stderr line for each API attempt it retries, timed as it
-  arrives, against the chat record's message times (``cli_common.provider_wait``).
-* one retry (rotated key when the pool has one, else the same key) on transient
-  failures (503 / empty response), two on a rate-limit 429; a throttled/empty pool never raises.
+Each one runs ONE headless session with the prompt on stdin (``cli_common.invoke``), reads its
+CLI's own wire format back into an ``AgentResult`` and leaves retrying to the CLI itself: the
+harness never loops over a session (one round-level transport retry lives in
+``tracks/lifecycle``).  Google's models go through ``agy`` — Antigravity in Gemini-API mode,
+one key per session from the shared pool (see the antigravity section).
 """
 
 from __future__ import annotations
@@ -38,10 +15,9 @@ import json
 import logging
 import os
 import re
+import shutil
 import sqlite3
 import time
-from collections.abc import Iterable, Mapping
-from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -72,238 +48,13 @@ from codeverse3d.contracts.agent import AgentJob, AgentResult
 from codeverse3d.contracts.common import Usage
 from codeverse3d.models.pricing import EFFORTS, cache_write_surcharge, estimate_cost, openai_usage
 from codeverse3d.models.retry import KeyPool, KeyPoolExhausted
-from codeverse3d.proc import read_jsonl_lenient, run_subprocess
+from codeverse3d.proc import run_subprocess
 
 log = logging.getLogger(__name__)
 
-#: the skills gemini-cli 0.53 ships in its own install (``bundle/builtin/``): listed to the model
-#: next to the routed bundles, and ``skills.disabled`` is the only switch — by name (2026-09-22).
-#: The user-level roots (``~/.gemini/skills``, ``~/.agents/skills``) have no settings switch at
-#: all; none exist on this machine.
-GEMINI_BUILTIN_SKILLS = ("skill-creator", "antigravity-support")
-
-SYSTEM_SETTINGS = {
-    # folderTrust must be OFF: with it on, gemini-cli silently disables the workspace
-    # .gemini/settings.json mcpServers (even with --skip-trust) → no 3dcode tools.  It is
-    # also what keeps the WORKSPACE skill roots visible: 0.53's SkillManager.discoverSkills
-    # skips <ws>/.gemini/skills and <ws>/.agents/skills when the folder is not trusted, and
-    # isTrustedFolder() is true exactly when folderTrust is off.
-    "security": {"auth": {"selectedType": "gemini-api-key"}, "folderTrust": {"enabled": False}},
-    "experimental": {"dynamicModelConfiguration": True},
-    "general": {"topicUpdateNarration": False},
-    # default true in 0.53, but a user's ~/.gemini/settings.json (or an agent-written
-    # ws/.gemini/settings.json) could turn it off; this file is merged LAST, so the routed
-    # bundles stay indexed and ``activate_skill`` stays registered (2026-09-22).  The
-    # CLI's own built-ins are off: a session sees the bundles the harness routed, nothing else
-    "skills": {"enabled": True, "disabled": list(GEMINI_BUILTIN_SKILLS)},
-}
-#: gemini-cli's skill-activation tool (0.53: ``activate_skill``, arg ``name``); the body
-#: comes back in the tool result, so its call — not a file read — is the activation
-GEMINI_SKILL_TOOL = "activate_skill"
-#: how long a retry waits for a *different* healthy key before reusing the same one
-RETRY_KEY_WAIT_S = 10.0
-#: attempts allowed when the failure is a quota 429 (transient non-quota failures keep 2)
-QUOTA_MAX_ATTEMPTS = 3
-
-
-def retry_window_left(timeout_s: float, elapsed_s: float) -> float | None:
-    """Seconds of the session window a retry may still use, or ``None`` when too little
-    is left to be worth an invoke.  A retry never restarts the window: chair_bl
-    (loop_w1, 2026-08-28) got a FULL fresh window on attempt 2 and ran 32 more minutes
-    against a run wall that had expired before the retry began."""
-    min_window = min(120.0, float(timeout_s) * 0.25)
-    left = float(timeout_s) - float(elapsed_s)
-    return None if left < min_window else left
-
-
-def _key_pool(keys: list[str]) -> KeyPool:
-    """THE process-wide pool for these keys — ``models.gemini.shared_pool``, i.e. the
-    same cooldowns and dead-key bench the API path uses (a session takes its key with
-    ``session_key``: no in-flight slot).  This module used to build its own
-    ``KeyPool(keys)`` with library defaults, so the CLI agent and the API path scheduled
-    the same 22 keys under two different quotas (found by review 2026-08-28)."""
-    from codeverse3d.models.gemini import shared_pool
-
-    return shared_pool(keys)
-
-
-def write_system_settings(path: Path | None = None, *, mcp_command: list[str] | None = None) -> Path:
-    """Write the gemini-cli system-settings json (api-key auth + dynamic models) and return its path.
-
-    gemini-cli applies this file LAST and ``mcp.allowed`` REPLACES rather than merges, so the
-    3dcode server and the allow-list belong here, not in the agent-writable
-    ``ws/.gemini/settings.json``: a server the agent planted there is Blocked."""
-    path = path or (get_settings().cache_dir / "gemini_cli_settings.json")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    data: dict[str, Any] = {**SYSTEM_SETTINGS, "mcp": {"allowed": [MCP_SERVER_NAME]}}
-    if mcp_command:
-        data["mcpServers"] = {MCP_SERVER_NAME: {"command": mcp_command[0], "args": list(mcp_command[1:]),
-                                                "timeout": MCP_TOOL_TIMEOUT_MS}}
-    want = json.dumps(data, indent=2)
-    if not path.is_file() or path.read_text() != want:
-        path.write_text(want)
-    return path
-
-
-def parse_gemini_json(stdout: str) -> dict[str, Any] | None:
-    """The CLI prints one (indented, multi-line) JSON object, possibly after log noise."""
-    return find_json_object(stdout, lambda d: True)
-
-
-def gemini_chat_records(ws_root: Path, since: float, env: Mapping[str, str] | None = None) -> list[Path]:
-    """gemini-cli's OWN record of the sessions it ran in ``ws_root`` since ``since`` (epoch s).
-
-    0.53 appends every session to ``<home>/.gemini/tmp/<project>/chats/session-<ts>-<id8>.jsonl``
-    (``<home>`` is ``GEMINI_CLI_HOME`` or ``~``) and names the project dir's workspace in its
-    ``.project_root``.  Found by that marker plus mtime rather than by ``session_id``: a
-    session the watchdog killed printed no JSON envelope, and its record is still on disk.
-    Sessions on one workspace are serialised (``cli_common.EXCLUSIVE_KINDS``), so every
-    record written after ``since`` is this session's."""
-    home = Path((env if env is not None else os.environ).get("GEMINI_CLI_HOME") or Path.home())
-    want = {str(ws_root), str(Path(ws_root).resolve())}
-    for marker in (home / ".gemini" / "tmp").glob("*/.project_root"):
-        try:
-            if marker.read_text().strip() not in want:
-                continue
-        except OSError:
-            continue
-        return sorted(p for p in (marker.parent / "chats").rglob("session-*.json*")
-                      if p.is_file() and p.stat().st_mtime >= since)
-    return []
-
-
-@dataclasses.dataclass
-class GeminiChatLog:
-    """What gemini-cli's own chat records of one attempt hold: its tool calls, each served
-    model's tokens (``tokens`` in the envelope's ``stats.models`` shape) and when each
-    message landed (epoch seconds — the session's progress, for ``provider_wait``)."""
-
-    calls: list[ToolCall]
-    tokens: dict[str, dict[str, int]]
-    times: list[float]
-
-    def stats(self) -> dict[str, Any]:
-        return {"models": {m: {"tokens": t} for m, t in self.tokens.items()}}
-
-
-def read_gemini_chats(records: Iterable[Path]) -> GeminiChatLog:
-    """One pass over the chat records.  The record is append-only — a message is re-written
-    as it progresses — so every tool call counts once per call id and every model message
-    once per message id, the last copy winning.  A model message's ``tokens`` are the API's
-    own usage metadata (``input`` = promptTokenCount, the TOTAL prompt), so their sum is the
-    envelope's ``stats.models`` to the token: checked on two completed sessions of the
-    2026-09-22 live runs (917 248 / 704 375 cached / 18 767 / 5 306, and 1 056 300 / 907 666
-    / 5 464 / 5 047).  What it misses: a utility call outside the main chat (none in either)
-    and a subagent's own record (``chats/<session id>/``; none on this machine)."""
-    calls: dict[str, ToolCall] = {}
-    replies: dict[str, dict[str, Any]] = {}
-    times: list[float] = []
-    for path in records:
-        for row in read_jsonl_lenient(path, dicts_only=True):
-            update = row.get("$set") if isinstance(row.get("$set"), dict) else {}
-            for msg in (row, *(update.get("messages") or [])):
-                if not isinstance(msg, dict):
-                    continue
-                if msg.get("timestamp"):
-                    with contextlib.suppress(TypeError, ValueError):
-                        times.append(datetime.fromisoformat(str(msg["timestamp"]).replace("Z", "+00:00")).timestamp())
-                if msg.get("type") == "gemini" and msg.get("id"):
-                    replies[str(msg["id"])] = msg
-                for tc in msg.get("toolCalls") or []:
-                    if not isinstance(tc, dict):
-                        continue
-                    name = str(tc.get("name") or "")
-                    args = tc.get("args") if isinstance(tc.get("args"), dict) else {}
-                    calls[str(tc.get("id") or f"{path.name}#{len(calls)}")] = ToolCall(
-                        tool=name, args=args, skill=str(args.get("name") or "") if name == GEMINI_SKILL_TOOL else "",
-                        failed=tc.get("status") in ("error", "cancelled"))
-    tokens: dict[str, dict[str, int]] = {}
-    for msg in replies.values():
-        tok = msg.get("tokens") if isinstance(msg.get("tokens"), dict) else None
-        if not tok:
-            continue  # a reply the session died in the middle of: never counted
-        t = tokens.setdefault(str(msg.get("model") or ""), {"prompt": 0, "cached": 0, "candidates": 0, "thoughts": 0})
-        for ours, theirs in (("prompt", "input"), ("cached", "cached"), ("candidates", "output"), ("thoughts", "thoughts")):
-            t[ours] += int(tok.get(theirs) or 0)
-    return GeminiChatLog(calls=list(calls.values()), tokens=tokens, times=sorted(set(times)))
-
-
-#: what gemini-cli 0.53 prints on stderr for each failed API attempt it is about to retry — with
-#: the HTTP status when it has one ("... with status 503", "... with 5xx error"), with the delay
-#: when the server named one ("Retrying after 2500ms") — and the first line of its give-up
-_GEMINI_RETRY_LINE = re.compile(r"Attempt \d+ failed(?: with status (?P<status>\d{3})| with (?P<kind>429|5xx) error)?"
-                                r"(?:.*Retrying after (?P<ms>\d+)ms)?")
-_GEMINI_GIVE_UP = "Error when talking to Gemini API"
-
-
-class GeminiRetries:
-    """gemini-cli's own report of its failed API attempts, timed as its stderr lines arrive:
-    ``rows`` = ``(t, announced back-off s, status)`` — ``"503"`` / ``"429"`` / ``"5xx"``,
-    ``"network"`` for a transport failure ("fetch failed"), ``"gave up"`` for the last line."""
-
-    def __init__(self) -> None:
-        self.rows: list[tuple[float, float, str]] = []
-
-    def feed(self, line: str) -> None:
-        m = _GEMINI_RETRY_LINE.search(line)
-        if m:
-            status = m.group("status") or m.group("kind") or "network"
-            self.rows.append((time.time(), int(m.group("ms") or 0) / 1000.0, status))
-        elif _GEMINI_GIVE_UP in line:
-            self.rows.append((time.time(), 0.0, "gave up"))
-
-    def tally(self) -> str:
-        """``4 x 503, 2 x network`` — what the storm was made of."""
-        counts: dict[str, int] = {}
-        for _, _, status in self.rows:
-            counts[status] = counts.get(status, 0) + 1
-        return ", ".join(f"{n} x {k}" for k, n in counts.items())
-
-
-def gemini_model_usage(tok: dict[str, Any], name: str) -> Usage:
-    """One served model's counters in pricing semantics (``input_tokens`` = total prompt)."""
-    cached = int(tok.get("cached") or 0)
-    prompt = tok.get("prompt")
-    # gemini-cli: tokens.prompt = promptTokenCount (total), tokens.input = prompt - cached
-    total = int(prompt) if prompt is not None else int(tok.get("input") or 0) + cached
-    return Usage(backend="gemini-cli", model=name, input_tokens=total, cached_tokens=cached,
-                 output_tokens=int(tok.get("candidates") or 0), thoughts_tokens=int(tok.get("thoughts") or 0))
-
-
-def usage_from_stats(stats: dict[str, Any], model: str) -> Usage:
-    """Sum tokens across every served model (normally just ``model``); cost is the
-    sum of each served model priced at its own rate (unknown → requested model's)."""
-    u = Usage(backend="gemini-cli", model=model)
-    cost = 0.0
-    for name, m in (stats.get("models") or {}).items():
-        part = gemini_model_usage((m or {}).get("tokens") or {}, str(name))
-        c = estimate_cost("gemini", str(name), part)
-        if c == 0.0 and name != model and (part.input_tokens or part.output_tokens):
-            c = estimate_cost("gemini", model, part)  # utility model missing from the price table
-        cost += c
-        u.input_tokens += part.input_tokens
-        u.output_tokens += part.output_tokens
-        u.cached_tokens += part.cached_tokens
-        u.thoughts_tokens += part.thoughts_tokens
-    u.tool_calls = int(((stats.get("tools") or {}).get("totalCalls")) or 0)
-    u.cost_usd = cost
-    return u
-
-
-def _retry_key(pool: KeyPool, used: set[str]) -> str | None:
-    """Key for a retry: a different healthy key if one frees up within
-    ``RETRY_KEY_WAIT_S``, else the same key again (single-key pools, 5xx), else
-    ``None`` when every key is throttled (429 cooldown) — the caller then stops."""
-    for exclude in (used, None):
-        try:
-            return pool.session_key(exclude=exclude or None, timeout_s=RETRY_KEY_WAIT_S)
-        except KeyPoolExhausted:
-            continue
-    return None
-
 
 class _CliAgent:
-    """What all four vendor backends share.
+    """What the vendor backends share.
 
     Everything that MATTERS about a CLI backend differs — argv vocabulary, JSON wire
     format, usage/pricing shape, key handling — and stays in the subclass.  What they
@@ -327,195 +78,8 @@ class _CliAgent:
         return True, "ok"
 
 
-class GeminiCliAgent(_CliAgent):
-    kind = "gemini-cli"
-    cli_label = "gemini"
-
-    def __init__(self, model: str, binary: str | None = None):
-        self.model = model
-        self.binary = binary or get_settings().binaries.gemini_cli
-
-    def available(self) -> tuple[bool, str]:
-        ok, why = super().available()
-        if not ok:
-            return ok, why
-        if not get_settings().gemini_api_keys:
-            return False, "no Gemini API keys configured"   # the only backend with a key pool
-        return True, "ok"
-
-    # ------------------------------------------------------------------ build
-    def build_argv(self) -> list[str]:
-        """No ``-p``: the prompt comes on stdin, and a piped stdin is what makes 0.53 headless
-        (``isHeadlessMode``); with no ``-p`` the input IS the stdin text, byte for byte."""
-        return [self.binary, "-m", self.model, "--approval-mode", "yolo", "--skip-trust", "--output-format", "json"]
-
-    def build_env(self, s: Session, api_key: str) -> dict[str, str]:
-        env = hardened_env(s.ws, s.job)
-        env["GEMINI_API_KEY"] = api_key
-        # per SESSION, in the harness-owned trajectory dir: the command is per-run
-        # (``--workspace <ws>``) and it is rewritten immediately before every invoke
-        env["GEMINI_CLI_SYSTEM_SETTINGS_PATH"] = str(write_system_settings(
-            s.traj.dir / "gemini_settings.json",
-            mcp_command=mcp_command_for(s.ws, s.job) if s.job.spatial_tools else None))
-        env["GEMINI_CLI_NO_RELAUNCH"] = "1"
-        node_opts = env.get("NODE_OPTIONS", "")
-        if "--max-old-space-size" not in node_opts:
-            env["NODE_OPTIONS"] = f"{node_opts} --max-old-space-size=6144".strip()
-        return env
-
-    # ------------------------------------------------------------------ run
-    def run(self, job: AgentJob) -> AgentResult:
-        ok, why = self.available()
-        s = begin_session(job, self.kind)
-        try:
-            if not ok:
-                return failed(s, "error", why)
-            prompt = _compose_prompt(job)
-            pool = _key_pool(get_settings().gemini_api_keys)
-            try:
-                key = pool.session_key()   # no in-flight slot: the CLI makes its own calls
-            except KeyPoolExhausted as e:  # every key throttled for the whole wait budget
-                return failed(s, "budget", f"Gemini key pool exhausted before the first attempt: {e}")
-            attempts = 0
-            used: set[str] = set()
-            t0 = time.monotonic()
-            next_soft: float | None = None  # attempt 1 uses the job's own window
-            usage_total = Usage(backend=self.kind, model=self.model)
-            wait_s, retry_from, usage_from = 0.0, 0.0, []
-            while True:
-                attempts += 1
-                used.add(key)
-                started, env = time.time(), self.build_env(s, key)
-                if retry_from:  # rotating off a failed key is time the provider cost, too
-                    wait_s += max(0.0, started - retry_from)
-                retries = GeminiRetries()
-                proc = invoke(s, self.build_argv(), env, prompt=prompt, attempt=attempts, soft_timeout_s=next_soft,
-                              on_stderr=retries.feed, model=self.model, key_tail=key[-4:])
-                ended = time.time()
-                outcome = self._interpret(proc, retries, self._read_record(s, started, env), started, ended)
-                usage_total = usage_total + outcome.usage
-                usage_from.append(outcome.usage_source)
-                wait_s += outcome.wait_s
-                # the pool is shared with every API call: a hang, a substituted model or the
-                # agent's own failure is not the key's fault ("skip" = counters untouched).
-                # session_key took no in-flight slot, so there is nothing to release.
-                pool.report(key, "429" if outcome.rate_limited else "ok" if outcome.ok
-                            else "5xx" if outcome.transient else "skip")
-                # a per-minute 429 on the single key a CLI process holds clears within the
-                # rotated retry's wait; ab_fewer_turns (2026-08-29) lost 4 of 10 cells to
-                # two 429s in a row, so a rate-limited failure gets one more rotated attempt
-                max_attempts = QUOTA_MAX_ATTEMPTS if outcome.rate_limited else 2
-                if (outcome.ok or outcome.exit_reason in ("timeout", "model_substituted") or not outcome.transient
-                        or attempts >= max_attempts):
-                    break
-                next_soft = retry_window_left(job.timeout_s, time.monotonic() - t0)
-                if next_soft is None:
-                    s.notes.append(f"attempt {attempts} transient failure ({outcome.exit_reason}); "
-                                   "no session window left — not retrying past the wall")
-                    break
-                retry_from = time.time()
-                next_key = _retry_key(pool, used)
-                if next_key is None:
-                    s.notes.append(f"attempt {attempts} transient failure ({outcome.exit_reason}); no usable key for a retry")
-                    break
-                key = next_key
-                how = "rotated key" if key not in used else "same key (no alternative available)"
-                s.notes.append(f"attempt {attempts} transient failure ({outcome.exit_reason}); retrying with {how}")
-                s.traj.append("retry", attempt=attempts, reason=outcome.errors[:1])
-            usage_total.cost_usd = round(usage_total.cost_usd, 6)
-            # turns stays 0: gemini-cli's stats carry tools.totalCalls only, no turn count
-            return finish_session(
-                s, ok=outcome.ok, exit_reason=outcome.exit_reason, text=outcome.text,
-                usage=usage_total, tool_calls=usage_total.tool_calls, errors=outcome.errors,
-                transient=outcome.transient and not outcome.ok, quota=outcome.quota, provider_wait_s=wait_s,
-                attempts=attempts, rc=proc.rc, killed_reason=proc.killed_reason, session_id=outcome.session_id,
-                usage_from=usage_from,   # per attempt: envelope | chat record | none
-            )
-        finally:
-            release_session(s)
-
-    def _read_record(self, s: Session, started: float, env: Mapping[str, str]) -> GeminiChatLog | None:
-        """This attempt's chat record, its tool calls written as the transcript's trace — never fatal."""
-        try:
-            records = gemini_chat_records(s.ws.root, started, env)
-            if not records:
-                s.notes.append("no gemini-cli chat record found for this attempt: tool trace missing")
-                return None
-            chat = read_gemini_chats(records)
-            record_tool_calls(s, chat.calls, source="gemini-cli chat record")
-            return chat
-        except Exception as e:  # noqa: BLE001 — the trace is telemetry; a session must never fail on it
-            log.debug("gemini-cli chat record unreadable: %s", e)
-            return None
-
-    def _interpret(self, proc: CompletedProc, retries: GeminiRetries, chat: GeminiChatLog | None,
-                   started: float, ended: float) -> _GeminiAttempt:
-        parsed = parse_gemini_json(proc.stdout)
-        stats = (parsed or {}).get("stats") or {}
-        out = _GeminiAttempt(usage=Usage(backend=self.kind, model=self.model), text=str((parsed or {}).get("response") or ""),
-                             session_id=str((parsed or {}).get("session_id") or ""))
-        if stats:
-            out.usage, out.usage_source = usage_from_stats(stats, self.model), "envelope"
-        elif chat is not None and chat.tokens:
-            # no envelope — the CLI prints its JSON once, at the end: a session the watchdog killed
-            # printed none, and one that gave up printed an error object on stderr with no stats.
-            # Its chat record holds every reply's tokens; the envelope, when there is one, wins.
-            out.usage, out.usage_source = usage_from_stats(chat.stats(), self.model), "chat record"
-            out.usage.tool_calls = len(chat.calls)
-        out.usage.latency_ms = int(proc.duration_s * 1000)
-        # without the record's message times there is no telling a storm from the work around
-        # it (every failure would run to the end): unknown, so 0.0
-        out.wait_s = provider_wait([(t, b) for t, b, _ in retries.rows], ended, [started, *chat.times]) if chat else 0.0
-        text = out.text.strip()
-        served = list((stats.get("models") or {}).keys())
-        if proc.timed_out:
-            # the CLI retries 503s itself, with backoff, and never gives up before our wall:
-            # measured 2026-09-07, 8-17 "Attempt N failed with status 503" per 12-minute
-            # session, nothing produced.  That is a storm, not the task.
-            end = classify_end(proc, ok=False, text=text, provider_retried=bool(retries.rows))
-            out.errors.append(watchdog_error(proc))
-            if end.transient:
-                out.errors.append(f"{retries.tally()} inside the CLI's own retry loop before the wall; nothing produced")
-        elif served and self.model not in served:
-            out.exit_reason = "model_substituted"
-            out.errors.append(f"requested {self.model!r} but CLI served {served}")
-            return out
-        elif parsed is None or proc.rc != 0 or not text:
-            # the CLI's own give-up object (stderr: {"session_id", "error": {"type", "message", "code"}}),
-            # else whatever it printed before it died
-            gave_up = find_json_object(proc.stderr, lambda d: isinstance(d.get("error"), dict))
-            err = (gave_up or {}).get("error") or {}
-            said = f"{err.get('code', '')} {err.get('type', '')}: {err.get('message', '')}" if err else proc.stderr + proc.stdout
-            out.session_id = out.session_id or str((gave_up or {}).get("session_id") or "")
-            end = classify_end(proc, ok=False, text=text, said=(said,), provider_failed=parsed is not None and not text,
-                               rate_limited=err.get("code") == 429 if err else None)
-            out.errors.append(f"rc={proc.rc}; response={'<empty>' if not text else 'ok'}; stderr tail: {proc.stderr[-1500:]}")
-        else:
-            end = classify_end(proc, ok=True, text=text)
-            out.ok = True
-        out.exit_reason, out.transient, out.quota, out.rate_limited = end.exit_reason, end.transient, end.quota, end.rate_limited
-        return out
-
-
-@dataclasses.dataclass
-class _GeminiAttempt:
-    """One gemini-cli invocation, read: its envelope when it printed one, else its chat record."""
-
-    usage: Usage
-    text: str = ""
-    session_id: str = ""
-    ok: bool = False
-    exit_reason: str = "error"
-    errors: list[str] = dataclasses.field(default_factory=list)
-    transient: bool = False
-    quota: bool = False
-    rate_limited: bool = False    # a 429: the key cools down in the pool, the retry rotates
-    wait_s: float = 0.0
-    usage_source: str = "none"    # envelope | chat record | none
-
-
 def _compose_prompt(job: AgentJob) -> str:
-    """gemini-cli and codex have no system-prompt flag: prepend ``system_append``."""
+    """codex and agy have no system-prompt flag: prepend ``system_append``."""
     if not job.system_append:
         return job.prompt
     return f"<harness_instructions>\n{job.system_append}\n</harness_instructions>\n\n{job.prompt}"
@@ -1029,6 +593,15 @@ def resolve_model(model: str, binary: str) -> str:
     return model
 
 
+def api_model_effort(model: str) -> tuple[str, str]:
+    """``gemini-3.7-flash-low`` → ``('gemini-3.7-flash', 'low')``; a bare id runs at
+    ``AGY_API_EFFORT`` — the agy spelling of an effort is accepted so either id works."""
+    for effort in EFFORTS:
+        if model.endswith(f"-{effort}"):
+            return model[: -len(effort) - 1], effort
+    return model, AGY_API_EFFORT
+
+
 def parse_agy_json(stdout: str) -> dict[str, Any] | None:
     """agy's envelope is the JSON line carrying ``response`` or ``status``."""
     return find_json_object(stdout, lambda d: "response" in d or "status" in d)
@@ -1036,9 +609,25 @@ def parse_agy_json(stdout: str) -> dict[str, Any] | None:
 
 #: the per-session CLI log agy writes into the trajectory dir (``--log-file``)
 AGY_LOG = "agy.log"
-#: where agy 1.2.2 keeps each conversation: one SQLite file named by the envelope's
+#: where agy keeps each conversation under its HOME: one SQLite file named by the envelope's
 #: ``conversation_id``, a ``steps`` table whose ``step_payload`` is protobuf
-AGY_CONVERSATIONS = Path.home() / ".gemini" / "antigravity-cli" / "conversations"
+AGY_CONVERSATIONS = Path(".gemini") / "antigravity-cli" / "conversations"
+#: agy's Gemini-API mode (1.2+, checked live on 1.3.4, 2026-10-13): ``modelProvider: "gemini"``
+#: in its settings plus ``GEMINI_API_KEY`` in the env — no sign-in, billed to the key, and the
+#: catalogue is the API's (gemini-3.7-flash, 3.6-flash, 3.1-pro, …).  Without the setting the
+#: key alone is ignored and the CLI asks for a login.
+AGY_SETTINGS = Path(".gemini") / "antigravity-cli" / "settings.json"
+AGY_API_SETTINGS = {"modelProvider": "gemini"}
+#: in API mode ``--model gemini-api://<id>`` sends ``<id>`` to the API verbatim — any model the
+#: key serves, listed by ``agy models`` or not (gemini-4-argon) — and ``--effort`` sets its
+#: thinking level (low → 1, high → 3 in the CLI log, 2026-10-13)
+AGY_API_SCHEME = "gemini-api://"
+#: the effort an API-mode id without a ``-low/-medium/-high`` suffix runs at: the Gemini API's
+#: own default thinking level, which every gemini-cli session ran at before agy replaced it
+AGY_API_EFFORT = "high"
+#: agy's ONLY MCP config is per user (``~/.gemini/config/mcp_config.json``, the shape
+#: ``agy mcp add`` writes) — so an API-key session gets a HOME of its own, and this file in it
+AGY_MCP_CONFIG = Path(".gemini") / "config" / "mcp_config.json"
 #: a tool call inside a step payload is three consecutive strings — its id, the tool name,
 #: the JSON arguments (``call_4419682`` · ``view_file`` · ``{"AbsolutePath": ...}``), read out
 #: of recorded conversations; no schema needed, and a tool result step that echoes the
@@ -1159,20 +748,55 @@ def agy_error(stderr: str) -> dict[str, Any]:
     return {}
 
 
-def usage_from_agy(env: dict[str, Any], model: str) -> Usage:
+def usage_from_agy(env: dict[str, Any], model: str, *, priced: bool) -> Usage:
+    """The envelope's tokens; priced at the Gemini list rate when the session ran on an API
+    key (``priced``), ``$0`` on a subscription sign-in, which exposes no USD.  agy 1.3.4 splits
+    neither way the pricing convention does: ``input_tokens`` EXCLUDES ``cache_read_tokens`` (a
+    live 18-minute session, 2026-10-13: 582 179 input against 10 980 664 cache reads), so the total
+    prompt is their sum; and ``output_tokens`` CONTAINS ``thinking_tokens`` (``total == input +
+    output`` on every envelope), so the thinking share moves to ``thoughts_tokens``, billed once."""
     u = env.get("usage") or {}
-    return Usage(
+    thinking = int(u.get("thinking_tokens") or 0)
+    cached = int(u.get("cache_read_tokens") or 0)
+    out = Usage(
         backend="agy", model=model,
-        input_tokens=int(u.get("input_tokens") or 0),
-        output_tokens=int(u.get("output_tokens") or 0),
-        cached_tokens=int(u.get("cache_read_tokens") or 0),
-        thoughts_tokens=int(u.get("thinking_tokens") or 0),
-        cost_usd=0.0,  # subscription; no USD exposed
+        input_tokens=int(u.get("input_tokens") or 0) + cached,
+        output_tokens=max(0, int(u.get("output_tokens") or 0) - thinking),
+        cached_tokens=cached,
+        thoughts_tokens=thinking,
         latency_ms=int(float(env.get("duration_seconds") or 0.0) * 1000),
     )
+    out.cost_usd = estimate_cost("gemini", model, out) if priced else 0.0
+    return out
+
+
+def _key_pool() -> KeyPool:
+    """THE process-wide Gemini pool — ``models.gemini.shared_pool``: the same cooldowns and
+    dead-key bench the API path uses; a session takes its key with ``session_key`` (no
+    in-flight slot: the CLI makes its own calls for minutes)."""
+    from codeverse3d.models.gemini import shared_pool
+
+    return shared_pool(list(get_settings().gemini_api_keys))
+
+
+def _pool_outcome(end: SessionEnd, ok: bool, died: dict[str, Any]) -> str:
+    """What one session tells the pool about its key.  A hang, a bad answer or the agent's own
+    failure is not the key's fault (``skip``: counters untouched)."""
+    code = died.get("error_code")
+    if code in (401, 403) or "API_KEY_INVALID" in json.dumps(died):
+        return "dead"
+    if end.rate_limited:
+        return "429"
+    return "ok" if ok else "5xx" if end.transient else "skip"
 
 
 class AntigravityAgent(_CliAgent):
+    """``agy:<model>``.  A Gemini model with keys configured runs in Gemini-API mode: one pool key,
+    a HOME of its own under the cache dir holding the API-mode settings and the 3dcode MCP server
+    (deleted after the session; the tool trace is read out first), usage priced.  Anything else —
+    a non-Gemini model agy serves (``claude-sonnet-4-6``), or no keys — runs on the machine's
+    subscription sign-in: real HOME, no MCP (the body documents the shell fallback), ``$0``."""
+
     kind = "agy"
     cli_label = "agy"
 
@@ -1180,29 +804,61 @@ class AntigravityAgent(_CliAgent):
         self.model = model
         self.binary = binary or get_settings().binaries.agy_cli
 
+    @property
+    def api_mode(self) -> bool:
+        return self.model.startswith("gemini") and bool(get_settings().gemini_api_keys)
+
     def served_model(self) -> str:
-        """The id actually sent to agy (a bare one gains its effort suffix)."""
-        return resolve_model(self.model, self.binary)
+        """The model id the session is booked under: the API model in API mode, else the id
+        sent to agy (a bare one gains its effort suffix)."""
+        return api_model_effort(self.model)[0] if self.api_mode else resolve_model(self.model, self.binary)
+
+    def model_args(self) -> list[str]:
+        if not self.model:
+            return []
+        if self.api_mode:
+            name, effort = api_model_effort(self.model)
+            return ["--model", f"{AGY_API_SCHEME}{name}", "--effort", effort]
+        return ["--model", self.served_model()]
 
     def build_argv(self, s: Session) -> list[str]:
-        """No ``--print``: agy 1.2.8 reads the prompt from a piped stdin, byte for byte, and
-        still answers as print mode (``--print -`` would send the prompt "-").  ``--log-file``
-        keeps its CLI log with the session — the record of the retries it made."""
+        """No ``--print``: agy reads the prompt from a piped stdin, byte for byte, and still
+        answers as print mode (``--print -`` would send the prompt "-").  ``--log-file`` keeps
+        its CLI log with the session — the record of the retries it made."""
         minutes = max(1, int(s.job.timeout_s // 60) + 1)
-        argv = [self.binary, "--dangerously-skip-permissions",
+        return [self.binary, "--dangerously-skip-permissions",
                 "--print-timeout", f"{minutes}m", "--output-format", "json",
-                "--add-dir", str(s.ws.root), "--disable-slash-commands", "--log-file", str(s.traj.dir / AGY_LOG)]
-        if self.model:
-            argv += ["--model", self.served_model()]
-        return argv
+                "--add-dir", str(s.ws.root), "--disable-slash-commands", "--log-file", str(s.traj.dir / AGY_LOG),
+                *self.model_args()]
 
-    def build_env(self, s: Session) -> dict[str, str]:
-        return hardened_env(s.ws, s.job)
+    def build_home(self, s: Session) -> Path:
+        """A fresh HOME for one API-mode session: the API-mode settings and, when the job has
+        spatial tools, the 3dcode MCP server — which keeps the REAL home (the harness reads its
+        settings, keys and caches from there)."""
+        home = get_settings().cache_dir / "agy_homes" / f"{s.traj.dir.name}-{os.getpid()}-{time.time_ns()}"
+        (home / AGY_SETTINGS).parent.mkdir(parents=True, exist_ok=True)
+        (home / AGY_SETTINGS).write_text(json.dumps(AGY_API_SETTINGS))
+        servers: dict[str, Any] = {}
+        if s.job.spatial_tools:
+            cmd = mcp_command_for(s.ws, s.job)
+            servers[MCP_SERVER_NAME] = {"command": cmd[0], "args": cmd[1:], "env": {"HOME": str(Path.home())}}
+        (home / AGY_MCP_CONFIG).parent.mkdir(parents=True, exist_ok=True)
+        (home / AGY_MCP_CONFIG).write_text(json.dumps({"mcpServers": servers}, indent=2))
+        return home
 
-    def _record_trace(self, s: Session, conversation_id: str) -> int:
+    def build_env(self, s: Session, *, key: str = "", home: Path | None = None) -> dict[str, str]:
+        env = hardened_env(s.ws, s.job)
+        if key and home is not None:
+            env["GEMINI_API_KEY"] = key
+            env["HOME"] = str(home)
+            # the agent's own shell inherits the fake HOME: keep puppeteer on the real Chrome cache
+            env.setdefault("PUPPETEER_CACHE_DIR", str(Path.home() / ".cache" / "puppeteer"))
+        return env
+
+    def _record_trace(self, s: Session, home: Path, conversation_id: str) -> int:
         """The session's tool calls, from agy's own conversation database — never fatal.
         Returns how many (agy's JSON envelope carries no tool count of its own)."""
-        db = AGY_CONVERSATIONS / f"{conversation_id}.db" if conversation_id else None
+        db = home / AGY_CONVERSATIONS / f"{conversation_id}.db" if conversation_id else None
         if db is None or not db.is_file():
             s.notes.append("no agy conversation record found for this session: tool trace missing")
             return 0
@@ -1214,25 +870,38 @@ class AntigravityAgent(_CliAgent):
 
     def run(self, job: AgentJob) -> AgentResult:
         """``usage`` comes from agy's envelope only: a killed session books nothing (its
-        conversation database is named by the envelope's id).  ``provider_wait_s`` from its log."""
+        conversation database is named by the envelope's id).  ``provider_wait_s`` from its log.
+        No retry loop: agy retries its own model calls (waits ≤ 30 s since 1.3.4, stops at once
+        on a spent daily quota), and a transient death goes back to the round loop's one retry —
+        which takes a fresh key, the 429'd one cooling in the pool."""
         ok, why = self.available()
         s = begin_session(job, self.kind)
+        key, home = "", None
         try:
             if not ok:
                 return failed(s, "error", why)
-            proc = invoke(s, self.build_argv(s), self.build_env(s), prompt=_compose_prompt_agy(s))
+            if self.api_mode:
+                pool = _key_pool()
+                try:
+                    key = pool.session_key()
+                except KeyPoolExhausted as e:  # every key throttled for the whole wait budget
+                    return failed(s, "budget", f"Gemini key pool exhausted: {e}")
+                home = self.build_home(s)
+            proc = invoke(s, self.build_argv(s), self.build_env(s, key=key, home=home), prompt=_compose_prompt_agy(s),
+                          **({"model": self.model, "key_tail": key[-4:]} if key else {}))
             ended = time.time()
             env = parse_agy_json(proc.stdout)
-            n_calls = self._record_trace(s, str((env or {}).get("conversation_id") or ""))
+            n_calls = self._record_trace(s, home or Path.home(), str((env or {}).get("conversation_id") or ""))
             retries = agy_retries(s.traj.dir / AGY_LOG)
             served = self.served_model()
-            usage = usage_from_agy(env, served) if env else Usage(backend=self.kind, model=served)
+            usage = usage_from_agy(env, served, priced=bool(key)) if env else Usage(backend=self.kind, model=served)
             usage.latency_ms = usage.latency_ms or int(proc.duration_s * 1000)
             text = str(env.get("response", "")) if env else proc.stdout.strip()
             errors: list[str] = []
             if env is None:
                 s.notes.append("no JSON envelope from agy; usage unknown (zeros), response taken from plain stdout")
-            s.notes.append("agy is subscription-billed: cost_usd=0")
+            if not key:
+                s.notes.append("agy ran on the subscription sign-in: cost_usd=0")
             died = agy_error(proc.stderr)
             said = (json.dumps(died), str((env or {}).get("error") or ""), proc.stderr)
             ok = False
@@ -1247,6 +916,8 @@ class AntigravityAgent(_CliAgent):
                 ok = True
             end = classify_end(proc, ok=ok, text=text, said=said, provider_retried=bool(retries) or bool(died.get("retryable")),
                                provider_failed=bool(died.get("retryable")))
+            if key:
+                _key_pool().report(key, _pool_outcome(end, ok, died))
             usage.tool_calls = n_calls
             return finish_session(
                 s, ok=ok, exit_reason=end.exit_reason, text=text, usage=usage, tool_calls=n_calls,
@@ -1256,6 +927,8 @@ class AntigravityAgent(_CliAgent):
                 conversation_id=(env or {}).get("conversation_id", ""), num_turns=(env or {}).get("num_turns", 0),
             )
         finally:
+            if home is not None:
+                shutil.rmtree(home, ignore_errors=True)
             release_session(s)
 
 
