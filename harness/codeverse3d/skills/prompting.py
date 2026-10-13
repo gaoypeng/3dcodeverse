@@ -47,7 +47,7 @@ _HEADING = "## Skills"
 
 
 def skill_path(name: str, *, agent_kind: str = "") -> str:
-    """Where ``agent_kind``'s loader finds bundle ``name`` (``codex:gpt-5.6-sol`` is codex)."""
+    """Where ``agent_kind``'s loader finds bundle ``name`` (``codex:gpt-6.1-sol`` is codex)."""
     root = _BACKEND_ROOTS.get((agent_kind or "").split(":", 1)[0], AGENTS_SKILL_ROOT)
     return f"{root}/{name}/SKILL.md"
 

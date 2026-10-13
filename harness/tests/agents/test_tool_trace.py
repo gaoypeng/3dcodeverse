@@ -25,25 +25,25 @@ WS = "/tmp/probe/live/claude1"
 
 # --------------------------------------------------------------------------- claude-code
 CLAUDE_STREAM = [
-    {"type": "system", "subtype": "init", "cwd": WS, "session_id": "893f6373", "model": "claude-sonnet-5",
+    {"type": "system", "subtype": "init", "cwd": WS, "session_id": "893f6373", "model": "claude-opus-5-5",
      "claude_code_version": "2.1.280", "tools": ["Bash", "Read", "Skill"],
      "skills": ["c3d-bbox-contract", "c3d-blender-forms", "c3d-part-contact", "c3d-repeats-and-mirrors",
                 "zz-c3d-read-control", "dataviz"]},
     {"type": "system", "subtype": "thinking_tokens", "estimated_tokens": 12},
-    {"type": "assistant", "message": {"model": "claude-sonnet-5", "id": "msg_1", "role": "assistant", "content": [
+    {"type": "assistant", "message": {"model": "claude-opus-5-5", "id": "msg_1", "role": "assistant", "content": [
         {"type": "text", "text": "I'll start by loading the mandatory skills for this task"}]}},
-    {"type": "assistant", "message": {"model": "claude-sonnet-5", "id": "msg_1", "role": "assistant", "content": [
+    {"type": "assistant", "message": {"model": "claude-opus-5-5", "id": "msg_1", "role": "assistant", "content": [
         {"type": "tool_use", "id": "toolu_01KmUt", "name": "Skill", "input": {"skill": "c3d-bbox-contract"},
          "caller": {"type": "direct"}}]}},
     {"type": "user", "message": {"role": "user", "content": [
         {"type": "tool_result", "tool_use_id": "toolu_01KmUt", "content": "Launching skill: c3d-bbox-contract"}]},
      "tool_use_result": {"success": True, "commandName": "c3d-bbox-contract"}},
-    {"type": "assistant", "message": {"model": "claude-sonnet-5", "id": "msg_2", "role": "assistant", "content": [
+    {"type": "assistant", "message": {"model": "claude-opus-5-5", "id": "msg_2", "role": "assistant", "content": [
         {"type": "tool_use", "id": "toolu_02", "name": "Read",
          "input": {"file_path": f"{WS}/.claude/skills/c3d-bbox-contract/references/worked_example.md"}}]}},
     {"type": "user", "message": {"role": "user", "content": [
         {"type": "tool_result", "tool_use_id": "toolu_02", "content": "..."}]}},
-    {"type": "assistant", "message": {"model": "claude-sonnet-5", "id": "msg_3", "role": "assistant", "content": [
+    {"type": "assistant", "message": {"model": "claude-opus-5-5", "id": "msg_3", "role": "assistant", "content": [
         {"type": "tool_use", "id": "toolu_03", "name": "mcp__3dcode__check_contract", "input": {}}]}},
     {"type": "user", "message": {"role": "user", "content": [
         {"type": "tool_result", "tool_use_id": "toolu_03", "is_error": True,

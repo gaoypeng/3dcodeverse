@@ -142,7 +142,7 @@ def split_model_id(backend: str, model: str) -> tuple[str, str]:
     """``("api-agent", "gemini:gemini-3.7-flash") -> ("gemini", "gemini-3.7-flash")``.
 
     Falls back to the backend kind when the id carries no provider prefix
-    (``("codex", "gpt-5.6-sol") -> ("openai", "gpt-5.6-sol")``); an unknown
+    (``("codex", "gpt-6.1-sol") -> ("openai", "gpt-6.1-sol")``); an unknown
     backend yields provider ``""`` so pricing reports the model as unknown
     instead of guessing a rate."""
     m = (model or "").strip()

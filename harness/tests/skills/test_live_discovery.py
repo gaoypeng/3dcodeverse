@@ -32,8 +32,7 @@ MAGIC = "ORTHOGONAL-KUMQUAT"
 #: the model each CLI is driven with here.  ``codex`` must name a model the local login
 #: is entitled to — a 400 "not supported when using Codex with a ChatGPT account" is an
 #: auth problem, not a discovery problem, and would read as a discovery failure.
-BACKENDS = [("gemini-cli", "gemini-3.7-flash"), ("codex", "gpt-5.6-luna"),
-            ("claude-code", "claude-opus-5"), ("agy", "gemini-3.7-flash")]
+BACKENDS = [("codex", "gpt-6-luna"), ("claude-code", "claude-opus-5-5"), ("agy", "gemini-4-argon")]
 
 
 @pytest.mark.parametrize("kind, model", BACKENDS, ids=[k for k, _ in BACKENDS])
