@@ -535,6 +535,10 @@ def failed(s: Session, reason: str, message: str, usage: Usage | None = None) ->
 #: seconds without output or workspace activity before the watchdog kills a CLI agent;
 #: read at call time by :func:`invoke` so a test can monkeypatch it here.
 IDLE_GRACE_S = 300.0
+#: how far past its soft timeout a session that is still working may run before the watchdog
+#: kills it whatever it is doing — the hard limit is ``timeout_s + HARD_GRACE_S``.  A CLI with
+#: a clock of its own must be set past it (agy ``--print-timeout``), or that clock decides.
+HARD_GRACE_S = 300.0
 
 #: watchdog poll period.  A real vendor CLI runs for minutes, so 1 s of latency on
 #: noticing it exited is free — but a FAKE cli in a test exits in milliseconds and then
@@ -574,7 +578,7 @@ def invoke(
     plus ``invoke_extra`` (agy in API mode adds ``model`` and ``key_tail``).
     """
     soft = float(s.job.timeout_s)
-    hard = soft + 300.0
+    hard = soft + HARD_GRACE_S
     if s.job.hard_deadline_s is not None:
         # This runs AFTER begin_session's workspace lock.  A queued job must not regain the window it had before waiting for a peer.
         hard = min(hard, max(0.0, s.job.hard_deadline_s - time.monotonic()))

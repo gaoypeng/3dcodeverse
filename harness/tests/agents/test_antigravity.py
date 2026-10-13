@@ -53,6 +53,10 @@ if mode == "died":      # a turn that ended on the API: AGY_ERROR on stderr, exi
     print('AGY_ERROR: {"short_error":"generating: Error 503","status":"UNAVAILABLE","error_code":503,'
           '"code_kind":"http","retryable":true,"error_id":"x"}', file=sys.stderr)
     sys.exit(3)
+if mode == "print_timeout":   # agy 1.3.4's own clock: SUCCESS, no response, one stderr line
+    print(json.dumps({"conversation_id": "c8", "status": "SUCCESS", "response": "", "num_turns": 1}))
+    print("[agy] print timeout after 8m0s with turn in progress; returning partial output", file=sys.stderr)
+    sys.exit(0)
 if mode == "text":
     print("plain text answer")
 else:
@@ -60,11 +64,11 @@ else:
 '''
 
 
-def test_argv_sets_the_print_timeout_a_minute_past_the_session(tmp_ws: Workspace):
+def test_argv_sets_the_print_timeout_a_minute_past_the_watchdogs_hard_limit(tmp_ws: Workspace):
     a = AntigravityAgent("gemini-4-argon-high", binary="agy")
     s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", timeout_s=1800), "agy")
     argv = a.build_argv(s)
-    assert argv[argv.index("--print-timeout") + 1] == "31m"
+    assert argv[argv.index("--print-timeout") + 1] == "36m"   # 30 min + the 5 min grace + 1
 
 
 def test_fake_run_json_and_text(tmp_ws: Workspace, fake_bin, monkeypatch):
@@ -109,6 +113,14 @@ def test_agy_says_itself_whether_a_dead_turn_is_worth_a_retry(tmp_ws: Workspace,
     assert not res.ok and res.exit_reason == "error" and res.transient and not res.quota
     rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
     assert rec["agy_error"]["retryable"] is True and rec["agy_error"]["error_code"] == 503
+
+
+def test_agys_own_print_timeout_is_a_timeout_not_an_empty_answer(tmp_ws: Workspace, fake_bin, monkeypatch):
+    a = AntigravityAgent("gemini-4-argon-high", binary=fake_bin("agy", FAKE_AGY))
+    monkeypatch.setenv("FAKE_MODE", "print_timeout")
+    res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="pt", timeout_s=30))
+    assert not res.ok and res.exit_reason == "timeout" and not res.transient
+    assert "--print-timeout" in res.errors[0] and "empty response" not in " ".join(res.errors)
 
 
 @pytest.mark.live

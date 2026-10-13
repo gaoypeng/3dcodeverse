@@ -500,8 +500,10 @@ def _no_best_of_n(track: Track) -> C.CliError:
 def _run_track(spec: Spec, ws, *, resume: bool, candidates: int | None = None, force: bool = False,
                pick: bool = True) -> None:
     from codeverse3d.cost.instrument import run_ledger
+    from codeverse3d.proc import install_stop_handlers
     from codeverse3d.tracks import get_track
 
+    install_stop_handlers()   # a stop signal kills the run's agent / build trees too
     options: dict = {"n_candidates": candidates} if candidates else {}
     try:
         # already inside the run mutex (make / resume take it); every model call and

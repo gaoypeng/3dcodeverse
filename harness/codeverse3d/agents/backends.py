@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from codeverse3d.agents.cli_common import (
+    HARD_GRACE_S,
     CompletedProc,
     Session,
     SessionEnd,
@@ -554,6 +555,10 @@ def parse_agy_json(stdout: str) -> dict[str, Any] | None:
     return find_json_object(stdout, lambda d: "response" in d or "status" in d)
 
 
+#: what agy prints on stderr when its own ``--print-timeout`` stops a turn in progress (1.3.4:
+#: ``[agy] print timeout after 8m0s with turn in progress; returning partial output``) — the
+#: envelope still says ``SUCCESS``, with whatever response there was (usually none)
+AGY_PRINT_TIMEOUT = "print timeout after"
 #: the per-session CLI log agy writes into the trajectory dir (``--log-file``)
 AGY_LOG = "agy.log"
 #: where agy keeps each conversation under its HOME: one SQLite file named by the envelope's
@@ -767,8 +772,11 @@ class AntigravityAgent(_CliAgent):
     def build_argv(self, s: Session) -> list[str]:
         """No ``--print``: agy reads the prompt from a piped stdin, byte for byte, and still
         answers as print mode (``--print -`` would send the prompt "-").  ``--log-file`` keeps
-        its CLI log with the session — the record of the retries it made."""
-        minutes = max(1, int(s.job.timeout_s // 60) + 1)
+        its CLI log with the session — the record of the retries it made.  ``--print-timeout``
+        sits a minute past the watchdog's hard limit: at ``timeout_s + 1 min`` (as it was) agy
+        cut off every session still working, with ``status: SUCCESS`` and an empty response
+        (live, argon scene sessions, 2026-10-13), before the watchdog's grace began."""
+        minutes = max(1, int((s.job.timeout_s + HARD_GRACE_S) // 60) + 1)
         return [self.binary, "--dangerously-skip-permissions",
                 "--print-timeout", f"{minutes}m", "--output-format", "json",
                 "--add-dir", str(s.ws.root), "--disable-slash-commands", "--log-file", str(s.traj.dir / AGY_LOG),
@@ -818,13 +826,13 @@ class AntigravityAgent(_CliAgent):
         which takes a fresh key, the 429'd one cooling in the pool."""
         ok, why = self.available()
         s = begin_session(job, self.kind)
-        home = None
+        home, lease = None, None
         try:
             if not ok:
                 return failed(s, "error", why)
             pool = _key_pool()
             try:
-                key = pool.session_key()
+                key, lease = pool.lease_session_key(get_settings().cache_dir / "slots" / "agy_keys")
             except KeyPoolExhausted as e:  # every key throttled for the whole wait budget
                 return failed(s, "budget", f"Gemini key pool exhausted: {e}")
             home = self.build_home(s)
@@ -844,7 +852,10 @@ class AntigravityAgent(_CliAgent):
             died = agy_error(proc.stderr)
             said = (json.dumps(died), str((env or {}).get("error") or ""), proc.stderr)
             ok = False
-            if proc.timed_out:
+            if AGY_PRINT_TIMEOUT in proc.stderr:   # agy's own clock stopped a turn in progress
+                proc = dataclasses.replace(proc, timed_out=True, killed_reason="agy_print_timeout")
+                errors.append(f"agy's own --print-timeout stopped the turn after {proc.duration_s:.0f}s")
+            elif proc.timed_out:
                 errors.append(watchdog_error(proc))
             elif proc.rc != 0 or (env is not None and str(env.get("status", "SUCCESS")).upper() not in ("SUCCESS", "OK")):
                 errors.append(f"rc={proc.rc}; status={(env or {}).get('status')}; error={(env or {}).get('error', '')}; "
@@ -867,6 +878,7 @@ class AntigravityAgent(_CliAgent):
         finally:
             if home is not None:
                 shutil.rmtree(home, ignore_errors=True)
+            KeyPool.end_lease(lease)
             release_session(s)
 
 

@@ -180,3 +180,50 @@ def test_managed_process_reaps_on_exit_no_zombie(tmp_path: Path):
     assert mp.stdout_text.strip() == "hi"
     with pytest.raises(ChildProcessError):
         os.waitpid(pid, os.WNOHANG)  # __exit__ already reaped it — no zombie left
+
+
+def test_a_stop_signal_kills_the_children_refuses_new_ones_and_cannot_hang(tmp_path):
+    """A run's sessions and builds run in worker threads; SIGTERM reaches the main thread
+    only, and used to leave their trees running (a SIGTERM'd make orphaned its agy session).
+    Now: the live child group dies, a worker cannot start another one (its retry, its next
+    build), and a worker stuck in a long call cannot hold the exit past STOP_GRACE_S."""
+    import subprocess
+
+    marker = tmp_path / "refused"
+    script = tmp_path / "victim.py"
+    script.write_text(
+        "import threading, time\n"
+        "from codeverse3d import proc\n"
+        "proc.STOP_GRACE_S = 1.0\n"
+        "proc.install_stop_handlers()\n"
+        "def session():\n"
+        "    with proc.ManagedProcess(['sleep', '120'], cwd='.') as mp:\n"
+        "        print(mp.proc.pid, flush=True)\n"
+        "        mp.proc.wait()\n"
+        "    try:\n"
+        "        proc.ManagedProcess(['sleep', '120'], cwd='.')   # the retry after the kill\n"
+        "    except proc.ProcessStopping:\n"
+        f"        open({str(marker)!r}, 'w').write('refused')\n"
+        "threading.Thread(target=session).start()\n"
+        "threading.Thread(target=time.sleep, args=(120,)).start()   # a model call that never ends\n"
+        "time.sleep(120)\n")
+    victim = subprocess.Popen([sys.executable, str(script)], stdout=subprocess.PIPE, text=True)
+    child = int(victim.stdout.readline())
+    t0 = time.monotonic()
+    os.kill(victim.pid, signal.SIGTERM)
+    assert victim.wait(timeout=20) == 128 + signal.SIGTERM
+    assert time.monotonic() - t0 < 10, "a stuck worker thread held the exit"
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and _alive(child):
+        time.sleep(0.05)
+    assert not _alive(child), "the worker thread's sleep survived its parent's SIGTERM"
+    assert marker.read_text() == "refused", "a new child started after the stop"
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    with open(f"/proc/{pid}/stat") as f:   # a zombie is dead
+        return f.read().split()[2] != "Z"

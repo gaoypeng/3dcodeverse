@@ -36,6 +36,7 @@ Thread-safe; ``clock`` / ``sleep`` are injectable for deterministic tests.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import logging
 import os
 import random
@@ -232,7 +233,9 @@ class KeyPool:
         min_health: float = 0.3,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        start: int = 0,
     ) -> None:
+        """``start``: the key the round-robin begins at (``shared_pool`` draws it at random)."""
         uniq = [k for i, k in enumerate(keys) if k and k not in keys[:i]]
         if not uniq:
             raise ValueError("KeyPool needs at least one non-empty key")
@@ -242,7 +245,7 @@ class KeyPool:
         self._dead_cooldown_s = float(dead_cooldown_s)
         self._min_health = min_health
         self._lock = threading.Lock()
-        self._rr = 0
+        self._rr = start % len(uniq)
         self._in_flight = 0
         self._peak_in_flight = 0
         # Machine-wide ceiling on concurrent model calls, independent of the caller's
@@ -331,6 +334,42 @@ class KeyPool:
         held that long would let a few dozen sessions starve every planner and judge call
         on the box (docs/COST.md §23)."""
         return self._acquire_key(exclude, timeout_s)
+
+    def lease_session_key(self, leases: Path | str, *, timeout_s: float | None = ACQUIRE_TIMEOUT_S) -> tuple[str, int | None]:
+        """:meth:`session_key`, one live session per key MACHINE-wide while there are keys enough.
+
+        A key's per-minute quota is what a long CLI session runs out of (live, 2026-10-13: one
+        agy session, 11 M prompt tokens in 18 min, 429'd), and every parallel ``3dcode make``
+        is its own process with its own pool — so a session holds ``fcntl.flock`` on
+        ``<leases>/<key hash>.lock`` for its length, and the next one, in any process, skips a
+        key that is held.  Only when every ready key is in a session is one shared (lease
+        ``None``).  Returns ``(key, lease)``; close the lease with :meth:`end_lease`.  The kernel
+        drops a dead holder's lock, so a killed run never strands a key (as :class:`Slots`)."""
+        root = Path(leases)
+        root.mkdir(parents=True, exist_ok=True)
+        busy: set[str] = set()
+        while True:
+            try:
+                key = self._acquire_key(busy, 0.0 if busy else timeout_s)
+            except KeyPoolExhausted:
+                if not busy:
+                    raise
+                return self._acquire_key(None, timeout_s), None   # every ready key is in a session
+            fd = os.open(root / f"{hashlib.sha256(key.encode()).hexdigest()[:16]}.lock", os.O_RDWR | os.O_CREAT, 0o666)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                os.close(fd)
+                busy.add(key)
+                with self._lock:
+                    self._by_key[key].n_acquired -= 1   # passed over, not handed out
+                continue
+            return key, fd
+
+    @staticmethod
+    def end_lease(lease: int | None) -> None:
+        if lease is not None:
+            os.close(lease)
 
     def _hold(self, slot: int | None) -> None:
         with self._lock:

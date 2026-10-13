@@ -75,7 +75,9 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 * API mode only (owner, 2026-10-13: no subscription sign-in, no Claude models; no keys →
   `available()` is false and the session fails at once).  `agy` with no model = `gemini-4-argon`
   (`DEFAULT_AGY_MODEL`).  One key
-  per session from THE shared pool (`KeyPool.session_key`, no in-flight slot) as `GEMINI_API_KEY`,
+  per session from THE shared pool (`KeyPool.lease_session_key`: no in-flight slot, but a machine-wide
+  flock lease under `<cache_dir>/slots/agy_keys/`, so parallel runs put one session per key until every
+  key is in one; the shared pool also starts each process's rotation at a random key) as `GEMINI_API_KEY`,
   its outcome reported back (429 → cooldown, 401/403/`API_KEY_INVALID` → dead, 5xx, ok, skip);
   other credential env stripped; KeyPoolExhausted → `exit_reason=budget`, never raised.
 * Each session gets a fresh HOME under `<cache_dir>/agy_homes/…` holding
@@ -89,6 +91,10 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
   default `high` (the Gemini API's own default).
 * Cost: priced at Gemini list price; agy's `output_tokens` already include `thinking_tokens`, so
   output = output − thinking, thoughts = thinking (billed once).
+* `--print-timeout` = `timeout_s` + the watchdog's `HARD_GRACE_S` (5 min) + 1 min, so the watchdog
+  decides; agy's own clock stopping a turn (stderr `[agy] print timeout after …`, envelope still
+  `SUCCESS` with an empty response) is booked `exit_reason=timeout`.  At `timeout_s + 1 min` it cut off
+  every argon scene asset/env session still working at 8 min (2026-10-13).
 * No retry loop in the backend: agy retries its own model calls (≤ 30 s waits since 1.3.4, stops
   at once on a spent daily quota); a transient death goes to the round loop's ONE transport retry,
   which takes a fresh key.  There is no single-shot storm fallback (deleted in D103).
@@ -271,7 +277,11 @@ says `no verdict in any of N round(s)` when this happens.
 
 A run that crashed outside its own handling leaves `record.json` with `status=failed`;
 `3dcode resume` retries from the last completed stage/round (cached plan/skeleton/scene
-stages are reused — this also recovers from Gemini 503 storms).  Ctrl-C is safe.
+stages are reused — this also recovers from Gemini 503 storms).  Ctrl-C and `kill <pid>` (SIGTERM)
+are safe: `make` / `resume` kill every agent / build process group the run has open — worker
+threads' included — refuse new ones, record the stop, and end within `proc.STOP_GRACE_S` (30 s) even
+if a worker is inside a long model call.  Before 2026-10-13 a SIGTERM left the agy session running
+and billing.
 
 ## 6. Texture pass
 

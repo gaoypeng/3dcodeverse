@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import logging
+import random
 import re
 import threading
 import time
@@ -220,7 +221,10 @@ def shared_pool(keys: list[str], *, max_in_flight: int | None = None) -> KeyPool
         pool = _pools.get(sig)
         if pool is None:
             slots = get_settings().cache_dir / "slots" / "gemini" if cap else None
-            pool = KeyPool(keys, max_in_flight=cap or 0, slots_dir=slots)
+            # a random first key: every process makes the same calls in the same order, so
+            # parallel runs starting at key 0 all put their planner calls and agy sessions
+            # on the same few keys (live, 2026-10-13: 4 parallel runs, one planner key)
+            pool = KeyPool(keys, max_in_flight=cap or 0, slots_dir=slots, start=random.randrange(len(keys)))
             _pools[sig] = pool
         return pool
 

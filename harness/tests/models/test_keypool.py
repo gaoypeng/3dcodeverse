@@ -118,3 +118,38 @@ def test_a_capped_pool_names_its_slot_directory_and_a_session_key_takes_no_slot(
     assert pool.stats()["in_flight"] == 1 and pool.slots.busy() == 1
     pool.release()
     assert pool.stats()["in_flight"] == 0 and pool.slots.busy() == 0
+
+
+def test_the_rotation_starts_where_it_is_told_and_the_shared_pool_starts_anywhere(monkeypatch, tmp_path):
+    """Parallel ``3dcode make`` processes make the same calls in the same order: every pool
+    starting at key 0 put four runs' planner calls on one key (live, 2026-10-13)."""
+    from codeverse3d.config import get_settings
+    from codeverse3d.models import gemini
+
+    pool, _ = make(start=4)
+    assert [pool.session_key() for _ in range(3)] == ["k2", "k3", "k1"]
+    monkeypatch.setattr(get_settings(), "cache_dir", tmp_path)
+    firsts = set()
+    for _ in range(40):
+        gemini._pools.clear()
+        firsts.add(gemini.shared_pool([f"s{j}" for j in range(12)], max_in_flight=0).session_key())
+    assert len(firsts) > 3
+    gemini._pools.clear()
+
+
+def test_a_session_lease_keeps_one_session_per_key_across_pools_until_keys_run_out(tmp_path):
+    """Two pools stand in for two ``3dcode make`` processes: each session leases a key no
+    other live session holds; with every key leased the next one shares (lease ``None``);
+    closing a lease frees its key for the next session."""
+    a, _ = make(keys=("k1", "k2"))
+    b, _ = make(keys=("k1", "k2"))
+    k1, l1 = a.lease_session_key(tmp_path)
+    k2, l2 = b.lease_session_key(tmp_path)
+    assert {k1, k2} == {"k1", "k2"} and l1 is not None and l2 is not None
+    k3, l3 = a.lease_session_key(tmp_path)
+    assert k3 in ("k1", "k2") and l3 is None   # every key in a session: shared, not refused
+    KeyPool.end_lease(l1)
+    k4, l4 = b.lease_session_key(tmp_path)
+    assert (k4, l4 is not None) == (k1, True)
+    KeyPool.end_lease(l2)
+    KeyPool.end_lease(l4)

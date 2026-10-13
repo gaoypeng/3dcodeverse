@@ -210,16 +210,22 @@ class ManagedProcess:
         self._stop = threading.Event()  # tells an abandoned pump to quit feeding
         self._abandoned = ""  # the truncation note to append, once we know which one
         self._sinks = {"stdout": _BoundedSink(stream_budget), "stderr": _BoundedSink(stream_budget)}
-        self.proc: subprocess.Popen[bytes] = subprocess.Popen(
-            list(cmd),
-            cwd=str(cwd),
-            env=dict(env) if env is not None else None,
-            stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-            preexec_fn=preexec_fn,
-        )
+        # started and registered under the guard: a stop between the two can neither miss
+        # this group nor let a worker start a new one once the stop has begun
+        with _LIVE_GUARD:
+            if _STOPPING.is_set():
+                raise ProcessStopping(f"not starting {cmd[0]!r}: this process is stopping")
+            self.proc: subprocess.Popen[bytes] = subprocess.Popen(
+                list(cmd),
+                cwd=str(cwd),
+                env=dict(env) if env is not None else None,
+                stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+                preexec_fn=preexec_fn,
+            )
+            _LIVE.add(self)
         assert self.proc.stdout is not None and self.proc.stderr is not None
         self._pumps = [
             threading.Thread(target=self._pump, args=(self.proc.stdout, "stdout"), daemon=True),
@@ -329,10 +335,14 @@ class ManagedProcess:
         # orphaned blender/node/chrome tree.  Never swallows exc.  LEADER liveness is the
         # wrong question — one that exits 0 leaves its same-group grandchildren running;
         # reap it (a zombie still counts as a member), then ask if the GROUP exists.
-        self.proc.poll()
-        if _group_alive(self.proc.pid):
-            self.terminate()
-        self._drain_and_reap()
+        try:
+            self.proc.poll()
+            if _group_alive(self.proc.pid):
+                self.terminate()
+            self._drain_and_reap()
+        finally:
+            with _LIVE_GUARD:
+                _LIVE.discard(self)
 
     def _drain_and_reap(self) -> None:
         deadline = time.monotonic() + DRAIN_TIMEOUT_S  # module global on purpose: tests dial it down
@@ -345,6 +355,57 @@ class ManagedProcess:
         if any(t.is_alive() for t in self._pumps):
             self._stop.set()  # the parked daemon pump self-cleans when its read returns
             self._abandoned = _STILL_HELD if _group_alive(self.proc.pid) else _ABANDONED
+
+
+#: every :class:`ManagedProcess` whose group may still be alive, in THIS process — what a stop
+#: signal kills.  A run's agent sessions and builds run in worker threads, and a signal is
+#: delivered to the main thread only: ``__exit__`` never ran for them, so SIGTERM (and Ctrl-C,
+#: while the main thread waited on the pool) left agy / blender / chrome trees running and
+#: billing (live, 2026-10-13: a SIGTERM'd ``3dcode make`` orphaned its agy session).
+_LIVE: set[ManagedProcess] = set()
+_LIVE_GUARD = threading.Lock()
+#: set once a stop began: no new child is started after it (a worker thread whose session was
+#: just killed would otherwise go on to its retry or its next build)
+_STOPPING = threading.Event()
+#: how long a stopping process may take to unwind before it is ended outright.  Exit joins the
+#: worker threads, and one inside a model call can hold it for that call's whole timeout (20 min)
+STOP_GRACE_S = 30.0
+
+
+class ProcessStopping(RuntimeError):
+    """A child was asked for after this process began to stop."""
+
+
+def kill_live_children() -> int:
+    """Refuse new children from now on and SIGKILL every live child group; how many there were."""
+    with _LIVE_GUARD:
+        _STOPPING.set()
+        live = list(_LIVE)
+    for mp in live:
+        mp.kill()
+    return len(live)
+
+
+def install_stop_handlers() -> None:
+    """SIGTERM and SIGINT kill every live child group and refuse new ones, then end the process
+    as they would (``KeyboardInterrupt`` / exit 143) so the run records its stop — and, should
+    the unwinding outlast :data:`STOP_GRACE_S` (exit waits on worker threads), end it outright
+    with the same status.  Main thread only — a no-op elsewhere."""
+    if threading.current_thread() is not threading.main_thread():
+        return
+
+    def stop(signum: int, _frame: object) -> None:
+        kill_live_children()
+        status = 130 if signum == signal.SIGINT else 128 + signum
+        backstop = threading.Timer(STOP_GRACE_S, os._exit, args=(status,))
+        backstop.daemon = True
+        backstop.start()
+        if signum == signal.SIGINT:
+            raise KeyboardInterrupt
+        raise SystemExit(status)
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, stop)
 
 
 # ------------------------------------------------------------------ env scrubbing

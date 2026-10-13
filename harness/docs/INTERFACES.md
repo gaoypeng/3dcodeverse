@@ -74,6 +74,8 @@ KeyPool(keys, *, max_in_flight=0, slots_dir=None, cooldown_s=3, dead_cooldown_s=
 pool.acquire(*, exclude=None, timeout_s=120) -> key    # a slot + a key; raises immediately when every key is dead/cooling past the deadline
 pool.try_acquire(*, exclude=None) -> key | None        # never waits (a hedged retry's extra key); holds a slot like acquire
 pool.session_key(*, exclude=None, timeout_s=120) -> key   # a vendor CLI session's key: no slot, nothing to release
+pool.lease_session_key(leases_dir, *, timeout_s=120) -> (key, lease|None)   # + one live session per key machine-wide (flock); KeyPool.end_lease(lease)
+KeyPool(keys, ..., start=0)                                # shared_pool passes a random start: parallel processes spread
 pool.report(key, "ok"|"429"|"5xx"|"error"|"dead"|"skip", *, retry_after_s=None)   # Δ "dead": health 0, benched dead_cooldown_s,
     # re-probed after; "skip" (a content failure the key did not cause) leaves health and counters untouched
 from codeverse3d.models.retry import rotate_with_retries, RETRY_DEADLINE_S
@@ -230,7 +232,8 @@ same label+round lands in `<label>.a2_rNN` (then `.a3` …) — the first attemp
 `result.json` records `attempt` + `job_label`.  Each session makes two git commits (`pre:`/`agent:<label>`).
 agy specifics (**Δ D103**, which deleted the gemini-cli backend): Gemini-API mode only — no keys →
 `available()` false; a bare `agy` runs `DEFAULT_AGY_MODEL` = `gemini-4-argon`.  One key per session from THE shared pool
-(`models.gemini.shared_pool`, `pool.session_key()`, no in-flight slot), outcome reported back
+(`models.gemini.shared_pool`, `pool.lease_session_key(<cache_dir>/slots/agy_keys)`, no in-flight slot, one
+live session per key machine-wide while keys last), outcome reported back
 (`_pool_outcome`: 401/403/API_KEY_INVALID → dead, 429 → cooldown, 5xx, ok, skip); a fresh HOME under
 `<cache_dir>/agy_homes/` holds `.gemini/antigravity-cli/settings.json` = `{"modelProvider": "gemini"}` (without
 it agy ignores `GEMINI_API_KEY` and asks for a login) + the MCP config, and is deleted after the session (the

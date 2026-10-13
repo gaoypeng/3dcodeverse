@@ -1157,7 +1157,9 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   agy runs in **Gemini-API mode only** (owner, same day: no subscription sign-in, no Claude models, and
   the default is `agy:gemini-4-argon`, `DEFAULT_AGY_MODEL` for a bare `agy`; no keys → `available()` is
   false, the session fails at once) — one key per session from THE shared pool (`models.gemini.shared_pool`,
-  `KeyPool.session_key`, no in-flight slot), the outcome reported back (429 → cooldown, 401/403/
+  `KeyPool.lease_session_key`, no in-flight slot; a machine-wide flock lease per key keeps parallel runs
+  one session per key until the keys run out, then shares — added after a 14-run parallel wave put 4
+  sessions on one key; `shared_pool` also starts each process at a random key), the outcome reported back (429 → cooldown, 401/403/
   `API_KEY_INVALID` → dead, 5xx, ok, skip); a fresh HOME under `<cache_dir>/agy_homes/…` holding
   `.gemini/antigravity-cli/settings.json` = `{"modelProvider": "gemini"}` (without it agy ignores
   `GEMINI_API_KEY` and demands a login) and `.gemini/config/mcp_config.json` with the `3dcode` server
