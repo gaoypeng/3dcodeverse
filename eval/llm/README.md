@@ -73,11 +73,11 @@ python -m llm.run_eval --backend vllm --model ... --run qwen3_8b_t07 --suites lo
 # 4. any OpenAI-compatible endpoint (vLLM server, OpenRouter, GPT…) or Claude
 vllm serve ~/3dcodeverse_data/models/Qwen3-8B --port 8000 &
 python -m llm.run_eval --backend openai --base-url http://localhost:8000/v1 --model Qwen3-8B --run q8_server --suites all
-ANTHROPIC_API_KEY=… python -m llm.run_eval --backend anthropic --model claude-sonnet-4-6 --run sonnet --suites headline
+ANTHROPIC_API_KEY=… python -m llm.run_eval --backend anthropic --model claude-sonnet-5-5 --run sonnet --suites headline
 
 # 5. quality without ground truth: VLM judge (any OpenAI-compatible VLM endpoint, or Claude)
-python -m llm.run_eval ... --judge-model gpt-5.4 --judge-base-url https://…/v1      # absolute 1-5 after scoring
-python -m llm.judge pairwise --run-a qwen3_8b --run-b official_gpt-5.5 --suite 3dcodebench_official_text --judge-model …
+python -m llm.run_eval ... --judge-model gpt-6.1-sol --judge-base-url https://…/v1      # absolute 1-5 after scoring
+python -m llm.judge pairwise --run-a qwen3_8b --run-b official_gpt-6-astra --suite 3dcodebench_official_text --judge-model …
 
 # 6. tables
 python -m llm.report --root $C3D_EVAL_DATA/out

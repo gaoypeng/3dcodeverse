@@ -57,7 +57,7 @@ if mode == "killed":
 def test_parse_jsonl():
     ev = parse_codex_jsonl("\n".join(json.dumps(e) for e in EVENTS) + "\nnot json\n")
     assert ev.thread_id == "th1" and ev.messages == ["Done."] and ev.tool_calls == 2 and ev.turns_completed == 1
-    u = ev.usage("gpt-5.6-sol")
+    u = ev.usage("gpt-6.1-sol")
     assert u.input_tokens == 1000 and u.cached_tokens == 600 and u.output_tokens == 50 and u.tool_calls == 2
 
 
@@ -66,14 +66,14 @@ def test_reasoning_tokens_are_not_billed_twice():
     ev = parse_codex_jsonl(json.dumps(
         {"type": "turn.completed", "usage": {"input_tokens": 1000, "output_tokens": 9000,
                                              "reasoning_output_tokens": 5000}}))
-    u = ev.usage("gpt-5.6-sol")
+    u = ev.usage("gpt-6.1-sol")
     assert (u.output_tokens, u.thoughts_tokens) == (4000, 5000)
-    # 1000 in @ $4/M + 9000 billable output @ $20/M — the reasoning share counted once
-    assert u.cost_usd == pytest.approx(1000 * 4.0 / 1e6 + 9000 * 20.0 / 1e6)
+    # 1000 in @ $2/M + 9000 billable output @ $10/M — the reasoning share counted once
+    assert u.cost_usd == pytest.approx(1000 * 2.0 / 1e6 + 9000 * 10.0 / 1e6)
 
 
 def test_argv_sandboxes_the_workspace_approves_mcp_calls_and_states_the_effort(tmp_ws: Workspace):
-    a = CodexAgent("gpt-5.6-sol", binary="codex")
+    a = CodexAgent("gpt-6.1-sol", binary="codex")
     argv = a.build_argv(begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p"), "codex"))
     assert argv[argv.index("--sandbox") + 1] == "workspace-write"
     # codex exec has nobody to answer the per-tool approval elicitation → every MCP call would be cancelled
@@ -83,18 +83,18 @@ def test_argv_sandboxes_the_workspace_approves_mcp_calls_and_states_the_effort(t
     assert "mcp_servers" not in " ".join(argv)
     # `codex exec` defaults to medium; every harness call states the effort instead
     assert argv[argv.index("-c") + 1] == "model_reasoning_effort=high"
-    a = CodexAgent("gpt-5.6-terra@medium", binary="codex")
-    assert (a.model, a.reasoning_effort, a.id) == ("gpt-5.6-terra", "medium", "codex:gpt-5.6-terra")
+    a = CodexAgent("gpt-6-sol@medium", binary="codex")
+    assert (a.model, a.reasoning_effort, a.id) == ("gpt-6-sol", "medium", "codex:gpt-6-sol")
     assert "model_reasoning_effort=medium" in a.build_argv(s)
-    assert "model_reasoning_effort" not in " ".join(CodexAgent("gpt-5.6-sol", binary="codex",
+    assert "model_reasoning_effort" not in " ".join(CodexAgent("gpt-6.1-sol", binary="codex",
                                                                reasoning_effort="").build_argv(s))
-    assert split_model_effort("gpt-5.6-luna", "high") == ("gpt-5.6-luna", "high")
+    assert split_model_effort("gpt-6-luna", "high") == ("gpt-6-luna", "high")
     with pytest.raises(ValueError, match="reasoning effort"):
-        CodexAgent("gpt-5.6-sol", binary="codex", reasoning_effort="ludicrous")
+        CodexAgent("gpt-6.1-sol", binary="codex", reasoning_effort="ludicrous")
 
 
 def test_fake_run_and_every_failure_is_typed(tmp_ws: Workspace, fake_bin, monkeypatch):
-    a = CodexAgent("gpt-5.6-sol", binary=fake_bin("codex", FAKE_CODEX))
+    a = CodexAgent("gpt-6.1-sol", binary=fake_bin("codex", FAKE_CODEX))
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="x", timeout_s=30))
     assert res.ok and res.exit_reason == "completed" and res.text == "Done." and res.tool_calls == 2, res.errors
     assert [f.path for f in res.files_changed] == ["src/hello.txt"] and (tmp_ws.src / "hello.txt").read_text() == "hello"
@@ -154,7 +154,7 @@ def test_live_codex_mcp_tool_call_is_not_cancelled(tmp_ws: Workspace):
 def test_live_codex_tiny(tmp_ws: Workspace):
     if not shutil.which("codex"):
         pytest.skip("codex not installed")
-    a = CodexAgent("gpt-5.6-sol")
+    a = CodexAgent("gpt-6.1-sol")
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="Create src/hello.txt containing exactly 'hi'. Reply DONE.",
                          timeout_s=300, label="live", spatial_tools=False))
     assert res.ok, res.errors

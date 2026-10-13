@@ -1,9 +1,11 @@
 """ChatRequest ⇄ Anthropic Messages API dicts (messages, submit tool, thinking, parse).
 
-Model-family rules (Anthropic API, 2026-08):
-* 4.6+ family (opus-5, sonnet-5, fable-5, mythos, opus-4-6/7/8, sonnet-4-6):
-  ``thinking={"type":"adaptive"}`` + ``output_config.effort``; ``budget_tokens``
-  is rejected; sampling params are rejected on opus-5/sonnet-5/fable/4.7/4.8.
+Model-family rules (Anthropic API, 2026-10):
+* 4.6+ family (opus-5/5.5, sonnet-5/5.5, haiku-5.5, fable-5/5.1, mythos, opus-4-6/7/8,
+  sonnet-4-6): ``thinking={"type":"adaptive"}`` + ``output_config.effort``;
+  ``budget_tokens`` is rejected; sampling params are rejected on opus-5/sonnet-5/haiku-5/
+  fable/4.7/4.8.  Fable, Mythos, Opus 5.5 and Sonnet 5.5 cannot turn thinking off
+  (``disabled`` is a 400) and reject a forced ``tool_choice``: "off" is effort ``low``.
 * older models (haiku-4-5, sonnet-4-5, opus-4-1 …): ``thinking={"type":
   "enabled","budget_tokens":N}`` (N < max_tokens), temperature must be left
   at default while thinking is on.
@@ -49,6 +51,7 @@ EFFORT: dict[str, str] = {"off": "low", "low": "low", "medium": "medium", "high"
 _ADAPTIVE_MARKERS = (
     "opus-5",
     "sonnet-5",
+    "haiku-5",
     "fable-5",
     "mythos",
     "opus-4-6",
@@ -56,8 +59,8 @@ _ADAPTIVE_MARKERS = (
     "opus-4-8",
     "sonnet-4-6",
 )
-_ALWAYS_THINKING = ("fable-5", "mythos")
-_NO_SAMPLING = ("opus-5", "sonnet-5", "fable-5", "mythos", "opus-4-7", "opus-4-8")
+_ALWAYS_THINKING = ("fable-5", "mythos", "opus-5-5", "sonnet-5-5")
+_NO_SAMPLING = ("opus-5", "sonnet-5", "haiku-5", "fable-5", "mythos", "opus-4-7", "opus-4-8")
 
 
 def uses_adaptive_thinking(model: str) -> bool:

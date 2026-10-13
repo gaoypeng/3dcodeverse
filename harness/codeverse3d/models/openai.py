@@ -45,22 +45,15 @@ SCHEMA_NAME = "response"
 
 # ------------------------------------------------------------- model families
 def is_reasoning_model(model: str) -> bool:
-    m = model.lower()
-    return m.startswith(("o1", "o3", "o4", "gpt-5"))
+    return model.lower().startswith("gpt-6")
 
 
 def reasoning_effort(model: str, thinking: str) -> str | None:
-    """Map ``thinking`` onto ``reasoning_effort`` (None for non-reasoning models)."""
+    """Map ``thinking`` onto ``reasoning_effort`` (None for non-reasoning models).  gpt-6 has no
+    off switch — ``none`` / ``minimal`` are rejected — so "off" is its lowest effort, ``low``."""
     if not is_reasoning_model(model):
         return None
-    m = model.lower()
-    if thinking == "off":
-        if m.startswith("gpt-5.") and not m.startswith("gpt-5.0"):
-            return "none"  # gpt-5.1+ accept "none"
-        if m.startswith("gpt-5"):
-            return "minimal"
-        return "low"  # o-series has no off switch
-    return thinking
+    return "low" if thinking == "off" else thinking
 
 
 # ------------------------------------------------------------------ messages

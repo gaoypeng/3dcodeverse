@@ -32,7 +32,7 @@ def completion(
 ):
     return NS(
         id="cmpl_1",
-        model="gpt-5.6-sol",
+        model="gpt-6.1-sol",
         choices=[
             NS(
                 message=NS(content=content, refusal=None),
@@ -61,7 +61,7 @@ class FakeClient:
         return item
 
 
-def make(script, model="gpt-5.6-sol", **kw):
+def make(script, model="gpt-6.1-sol", **kw):
     fc = FakeClient(script)
     return OpenAIModel(model, client=fc, sleep=lambda s: None, **kw), fc
 
@@ -101,19 +101,18 @@ def test_text_reasoning_effort_usage_cost():
         20,
         10,
     )
-    # gpt-5.6-sol: 80*4.00 + 20*0.40 + 30*20.00 per 1M (pricing checked 2026-08-23)
-    assert abs(u.cost_usd - (320 + 8 + 600) / 1e6) < 1e-12
+    # gpt-6.1-sol: 80*2.00 + 20*0.10 + 30*10.00 per 1M (pricing checked 2026-10-13)
+    assert abs(u.cost_usd - (160 + 2 + 300) / 1e6) < 1e-12
 
 
 def test_reasoning_effort_mapping_and_temperature_for_non_reasoning():
-    assert reasoning_effort("gpt-5", "off") == "minimal"
-    assert reasoning_effort("gpt-5.5", "off") == "none"
-    assert reasoning_effort("o3", "off") == "low"
-    assert reasoning_effort("gpt-5.6-sol", "medium") == "medium"
-    assert reasoning_effort("gpt-4.1", "high") is None
+    assert reasoning_effort("gpt-6.1-sol", "off") == "low"  # gpt-6 rejects "none" / "minimal"
+    assert reasoning_effort("gpt-6-astra", "off") == "low"
+    assert reasoning_effort("gpt-6.1-sol", "medium") == "medium"
+    assert reasoning_effort("gpt-x", "high") is None
     kw = build_kwargs(
         ChatRequest(messages=[ChatMessage.user("x")], temperature=0.1),
-        "gpt-4.1",
+        "gpt-x",
         strict_schema=False,
     )
     assert kw["temperature"] == 0.1 and "reasoning_effort" not in kw

@@ -188,7 +188,7 @@ def test_budget_and_outage_are_different_buckets():
 
 
 @pytest.mark.parametrize(("raw_arms", "needs_loop"), [
-    ("harness:codex:gpt-5.6-sol", True),
+    ("harness:codex:gpt-6.1-sol", True),
     ("oneshot:claude-code,oneshot:codex", False),
 ])
 def test_preflight_probes_only_models_the_selected_arms_need(monkeypatch, raw_arms, needs_loop):

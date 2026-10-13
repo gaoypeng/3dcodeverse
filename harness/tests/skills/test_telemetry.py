@@ -199,7 +199,7 @@ def test_the_report_counts_exact_sessions_and_drops_only_blind_ones(tmp_path):
         {"agent": "gemini-cli:gemini-3.7-flash", "listed": ["c3d-a"], "evidence": "transcript",
          "control_present": True, "control_read": True, "reads": [{"name": "c3d-a", "surfaced": True, "deep": True}]},
         # atime, control fired: blind, dropped
-        {"agent": "codex:gpt-5.6-luna", "listed": ["c3d-a"], "control_present": True, "control_read": True,
+        {"agent": "codex:gpt-6-luna", "listed": ["c3d-a"], "control_present": True, "control_read": True,
          "reads": [{"name": "c3d-a", "surfaced": True, "deep": True}]},
     ]
     (tele / SKILLS_FILE).write_text("".join(json.dumps(r) + "\n" for r in rows))

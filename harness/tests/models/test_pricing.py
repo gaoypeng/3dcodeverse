@@ -24,16 +24,19 @@ def test_astra_prices_cached_input_reasoning_and_its_strict_long_prompt_tier():
     assert estimate_cost("openai", "gpt-6-astra", usage) == pytest.approx(.78)
     assert unit_prices("openai", "gpt-6-astra", prompt_tokens=272_000) == (10, 1, 50)
     assert unit_prices("openai", "gpt-6-astra", prompt_tokens=272_001) == (20, 2, 75)
+    # haiku-5.5 switches the whole request at 100k prompt tokens
+    assert unit_prices("anthropic", "claude-haiku-5-5", prompt_tokens=100_000) == (0.10, 0.01, 0.50)
+    assert unit_prices("anthropic", "claude-haiku-5-5", prompt_tokens=100_001) == (0.50, 0.05, 2.50)
 
 
 @pytest.mark.parametrize(
     ("provider", "model", "row"),
     [
-        ("anthropic", "claude-opus-5-20260301", "claude-opus-5"),
-        ("anthropic", "claude-sonnet-5@20260301", "claude-sonnet-5"),
-        ("openai", "gpt-5.5-2026", "gpt-5.5"),
-        ("openai", "gpt-5", "gpt-5"),
-        ("openai", "gpt-4o-2024-08-06", "gpt-4o"),
+        ("anthropic", "claude-opus-5-5-20260301", "claude-opus-5-5"),
+        ("anthropic", "claude-sonnet-5-5@20260301", "claude-sonnet-5-5"),
+        ("anthropic", "claude-haiku-4-5-20251001", "claude-haiku-4-5"),
+        ("openai", "gpt-6.1-sol-2026", "gpt-6.1-sol"),
+        ("openai", "gpt-6-sol", "gpt-6-sol"),
         ("gemini", "gemini-3.7-flash-preview-09", "gemini-3.7-flash"),
         ("gemini", "gemini-3.7-flash-latest", "gemini-3.7-flash"),
         ("gemini", "gemini-2.5-flash-image-preview", "gemini-2.5-flash-image"),
@@ -53,7 +56,9 @@ def test_a_dated_or_tagged_id_prices_on_its_family_row(provider, model, row):
         ("openai", "gpt-55"),
         ("openai", "gpt-5.7"),  # ".7" is a different minor version, not a date tag
         ("gemini", "gemini-3.7-flash-lite"),
-        ("anthropic", "claude-opus-5-turbo"),
+        ("anthropic", "claude-opus-5-5-turbo"),
+        ("anthropic", "claude-opus-5"),  # an older generation is no longer priced
+        ("openai", "gpt-6.1-sol-mini"),
         ("openai", "gpt-6-astra-mini"),
     ],
 )

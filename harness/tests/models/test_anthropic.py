@@ -30,7 +30,7 @@ PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwACh
 def msg(blocks: list[Any], *, stop="end_turn", in_tok=100, out_tok=20, cache_read=0, cache_write=0):
     return NS(
         id="msg_1",
-        model="claude-opus-5",
+        model="claude-opus-5-5",
         content=blocks,
         stop_reason=stop,
         stop_details=None,
@@ -64,7 +64,7 @@ class FakeClient:
         return item
 
 
-def make(script, model="claude-opus-5", **kw):
+def make(script, model="claude-opus-5-5", **kw):
     fc = FakeClient(script)
     return AnthropicModel(model, client=fc, sleep=lambda s: None, **kw), fc
 
@@ -97,7 +97,7 @@ def test_text_thinking_adaptive_and_usage_cost():
         and kw["thinking"] == {"type": "adaptive"}
         and kw["output_config"] == {"effort": "medium"}
     )
-    assert "temperature" not in kw  # opus-5 rejects sampling params
+    assert "temperature" not in kw  # opus-5.5 rejects sampling params
     u = r.usage
     assert (
         u.input_tokens == 140
@@ -105,8 +105,8 @@ def test_text_thinking_adaptive_and_usage_cost():
         and u.output_tokens == 20
         and u.thoughts_tokens == 0
     )
-    # 100*5 + 30*0.5 + 10*5 + 20*25 + surcharge 10*1.25 (per 1M)
-    assert abs(u.cost_usd - (500 + 15 + 50 + 500 + 12.5) / 1e6) < 1e-12
+    # 100*4 + 30*0.2 + 10*4 + 20*20 + surcharge 10*1.00 (per 1M)
+    assert abs(u.cost_usd - (400 + 6 + 40 + 400 + 10) / 1e6) < 1e-12
 
 
 def test_budget_thinking_for_older_models_and_temperature_rules():
@@ -133,15 +133,20 @@ def test_budget_thinking_for_older_models_and_temperature_rules():
         ChatRequest(messages=[ChatMessage.user("x")], thinking="off"), "claude-opus-4-8"
     )
     assert kw["thinking"] == {"type": "disabled"}
-    kw = build_kwargs(
-        ChatRequest(messages=[ChatMessage.user("x")], thinking="off"), "claude-fable-5"
-    )
-    assert "thinking" not in kw and kw["output_config"] == {"effort": "low"}
+    for always_on in ("claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5"):
+        kw = build_kwargs(ChatRequest(messages=[ChatMessage.user("x")], thinking="off",
+                                      response_schema={"type": "object"}), always_on)
+        assert "thinking" not in kw and kw["output_config"] == {"effort": "low"}, always_on
+        assert "tool_choice" not in kw, always_on   # forced tool use is a 400 on these
+    kw = build_kwargs(ChatRequest(messages=[ChatMessage.user("x")], thinking="high", temperature=0.5),
+                      "claude-haiku-5-5")
+    assert kw["thinking"] == {"type": "adaptive"} and "temperature" not in kw
 
 
 def test_structured_output_via_forced_submit_tool():
     schema = {"type": "object", "properties": {"a": {"type": "integer"}}, "required": ["a"]}
-    m, fc = make([msg([tool_use("tu_1", "submit", {"a": 1})], stop="tool_use")])
+    # haiku-5.5 can still turn thinking off and force a tool (opus-5.5 / sonnet-5.5 / fable cannot)
+    m, fc = make([msg([tool_use("tu_1", "submit", {"a": 1})], stop="tool_use")], model="claude-haiku-5-5")
     r = m.generate(
         ChatRequest(messages=[ChatMessage.user("x")], response_schema=schema, thinking="off")
     )
@@ -196,7 +201,7 @@ def test_missing_key_is_loud(monkeypatch):
     from codeverse3d.config import get_settings
 
     get_settings.cache_clear()
-    m = AnthropicModel("claude-opus-5")
+    m = AnthropicModel("claude-opus-5-5")
     if not get_settings().anthropic_api_key:
         with pytest.raises(ModelError):
             m.client()
@@ -221,7 +226,7 @@ def test_a_failed_reply_carries_what_it_was_billed():
 
 
 @pytest.mark.parametrize("make", [
-    lambda: AnthropicModel("claude-opus-5"),
+    lambda: AnthropicModel("claude-opus-5-5"),
     lambda: OpenAIModel("gpt-x"),
     lambda: GeminiModel("g", keys=["k"]),
 ], ids=["anthropic", "openai", "gemini"])

@@ -23,7 +23,7 @@ ENVELOPE = {
     "type": "result", "subtype": "success", "is_error": False, "duration_ms": 4200, "duration_api_ms": 3900,
     "num_turns": 3, "result": "Created src/hello.txt", "session_id": "abc", "total_cost_usd": 0.0123,
     "usage": {"input_tokens": 10, "cache_creation_input_tokens": 200, "cache_read_input_tokens": 5000, "output_tokens": 40},
-    "modelUsage": {"claude-sonnet-4-6": {"inputTokens": 10, "outputTokens": 40, "costUSD": 0.0123}},
+    "modelUsage": {"claude-opus-5-5": {"inputTokens": 10, "outputTokens": 40, "costUSD": 0.0123}},
 }
 
 #: what a real `claude -p --model sonnet` session bills: the work model PLUS the small
@@ -35,7 +35,7 @@ TWO_MODEL_ENVELOPE = {
     "usage": {"input_tokens": 2, "output_tokens": 4, "cache_read_input_tokens": 0},
     "modelUsage": {
         "claude-haiku-4-5-20251001": {"inputTokens": 1035, "outputTokens": 21, "costUSD": 0.000955},
-        "claude-sonnet-5": {"inputTokens": 2, "outputTokens": 4, "costUSD": 0.02284},
+        "claude-sonnet-5-5": {"inputTokens": 2, "outputTokens": 4, "costUSD": 0.02284},
     },
 }
 
@@ -80,7 +80,7 @@ def test_parse_envelope_variants():
     assert parse_claude_json(json.dumps([{"type": "assistant"}, ENVELOPE]))["type"] == "result"
     assert parse_claude_json("") is None
     u = usage_from_envelope(ENVELOPE, "sonnet")
-    assert u.cached_tokens == 5000 and u.cost_usd == 0.0123 and u.model == "claude-sonnet-4-6"
+    assert u.cached_tokens == 5000 and u.cost_usd == 0.0123 and u.model == "claude-opus-5-5"
     # input_tokens is the TOTAL prompt (10 uncached + 5 000 read + 200 written), as for every
     # other backend: the uncached 10 alone let CostBucket clamp 4 990 cached + the 200 away
     assert u.input_tokens == 5210
@@ -146,10 +146,10 @@ def test_live_claude_tiny(tmp_ws: Workspace):
 
 def test_the_served_model_is_the_work_model_not_the_housekeeping_one():
     """`claude -p` bills two models and lists the auxiliary one first (CC-1)."""
-    assert usage_from_envelope(TWO_MODEL_ENVELOPE, "").model == "claude-sonnet-5"
+    assert usage_from_envelope(TWO_MODEL_ENVELOPE, "").model == "claude-sonnet-5-5"
     assert primary_served_model(TWO_MODEL_ENVELOPE, "claude-haiku-4-5-20251001") == "claude-haiku-4-5-20251001"
     env = {**TWO_MODEL_ENVELOPE, "usage": {"input_tokens": 0, "output_tokens": 0}}   # no row lines up
-    assert primary_served_model(env, "sonnet") == "claude-sonnet-5"   # the dearest wins
+    assert primary_served_model(env, "sonnet") == "claude-sonnet-5-5"   # the dearest wins
 
 
 # --------------------------------------------------------------------------- killed sessions
@@ -161,10 +161,10 @@ time.sleep(60)   # an overloaded provider: claude keeps retrying until the watch
 '''
 _MSG_USAGE = {"input_tokens": 2, "cache_creation_input_tokens": 19190, "cache_read_input_tokens": 20354, "output_tokens": 5}
 KILLED_STREAM = [
-    {"type": "system", "subtype": "init", "session_id": "k", "model": "claude-sonnet-5", "skills": []},
-    {"type": "assistant", "message": {"id": "msg_1", "model": "claude-sonnet-5", "usage": _MSG_USAGE,
+    {"type": "system", "subtype": "init", "session_id": "k", "model": "claude-sonnet-5-5", "skills": []},
+    {"type": "assistant", "message": {"id": "msg_1", "model": "claude-sonnet-5-5", "usage": _MSG_USAGE,
                                       "content": [{"type": "text", "text": "Reading the plan"}]}},
-    {"type": "assistant", "message": {"id": "msg_1", "model": "claude-sonnet-5", "usage": _MSG_USAGE,   # same message
+    {"type": "assistant", "message": {"id": "msg_1", "model": "claude-sonnet-5-5", "usage": _MSG_USAGE,   # same message
                                       "content": [{"type": "tool_use", "id": "t1", "name": "Read", "input": {}}]}},
     {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1"}]}},
     {"type": "system", "subtype": "api_retry", "attempt": 1, "max_retries": 10, "retry_delay_ms": 500,
@@ -185,9 +185,9 @@ def test_a_killed_session_is_booked_from_its_messages_and_its_retries_are_provid
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="k", timeout_s=1, spatial_tools=False))
     assert not res.ok and res.exit_reason == "timeout" and res.transient and not res.quota
     u = res.usage
-    assert (u.input_tokens, u.cached_tokens, u.output_tokens, u.model) == (2 + 19190 + 20354, 20354, 5, "claude-sonnet-5")
-    assert u.cost_usd == pytest.approx(estimate_cost("anthropic", "claude-sonnet-5", u)
-                                       + cache_write_surcharge("anthropic", "claude-sonnet-5", 19190)) and u.cost_usd > 0
+    assert (u.input_tokens, u.cached_tokens, u.output_tokens, u.model) == (2 + 19190 + 20354, 20354, 5, "claude-sonnet-5-5")
+    assert u.cost_usd == pytest.approx(estimate_cost("anthropic", "claude-sonnet-5-5", u)
+                                       + cache_write_surcharge("anthropic", "claude-sonnet-5-5", 19190)) and u.cost_usd > 0
     assert 0.0 < res.provider_wait_s <= res.duration_s
     rec = json.loads((Path(res.transcript_path).parent / "result.json").read_text())
     assert rec["usage_from"] == "stream messages"

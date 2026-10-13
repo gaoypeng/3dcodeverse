@@ -53,7 +53,7 @@ def main() -> None:
     ap.add_argument("--exec-workers", type=int, default=None)
     ap.add_argument("--score-workers", type=int, default=4, help="geometry-metric processes (each loads full meshes; keep small on <64 GB RAM)")
     # optional VLM judge (absolute 1-5 grades from the 4 renders; see judge.py)
-    ap.add_argument("--judge-model", default=None, help="run judge.py absolute mode after scoring, e.g. gpt-5.4 or a local VLM")
+    ap.add_argument("--judge-model", default=None, help="run judge.py absolute mode after scoring, e.g. gpt-6.1-sol or a local VLM")
     ap.add_argument("--judge-backend", choices=["openai", "anthropic"], default="openai")
     ap.add_argument("--judge-base-url", default=None)
     a = ap.parse_args()

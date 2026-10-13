@@ -84,13 +84,13 @@ def test_codex_argv_is_read_only_and_forces_a_reasoning_effort(tmp_path: Path):
     assert argv[:3] == ["codex", "exec", "--json"]
     assert argv[argv.index("--sandbox") + 1] == "read-only" and argv[-1] == "-"
     assert "--ephemeral" in argv and "-o" in argv and "mcp_servers" not in " ".join(argv)
-    argv = CodexOneShot("gpt-5.6-terra", binary="codex").argv(tmp_path, tmp_path / "last.md")
-    assert argv[argv.index("--model") + 1] == "gpt-5.6-terra"
+    argv = CodexOneShot("gpt-6-sol", binary="codex").argv(tmp_path, tmp_path / "last.md")
+    assert argv[argv.index("--model") + 1] == "gpt-6-sol"
     assert "model_reasoning_effort=high" in argv and argv[argv.index("-c") + 1] == "model_reasoning_effort=high"
-    b = CodexOneShot("gpt-5.6-luna@low", binary="codex")
-    assert b.model == "gpt-5.6-luna" and b.id == "oneshot:codex:gpt-5.6-luna"
+    b = CodexOneShot("gpt-6-luna@low", binary="codex")
+    assert b.model == "gpt-6-luna" and b.id == "oneshot:codex:gpt-6-luna"
     assert "model_reasoning_effort=low" in b.argv(tmp_path, tmp_path / "last.md")
-    plain = CodexOneShot("gpt-5.6-sol", binary="codex", reasoning_effort="").argv(tmp_path, tmp_path / "l.md")
+    plain = CodexOneShot("gpt-6.1-sol", binary="codex", reasoning_effort="").argv(tmp_path, tmp_path / "l.md")
     assert "model_reasoning_effort" not in " ".join(plain)
 
 
@@ -163,7 +163,7 @@ def test_a_continued_claude_reply_is_read_whole_not_just_its_last_continuation()
 
 _CLAUDE_KILLED = [  # a reply's usage block, then no result envelope
     {"type": "system", "subtype": "init"},
-    {"type": "assistant", "message": {"id": "m1", "model": "claude-sonnet-5", "content": [{"type": "text", "text": "```js"}],
+    {"type": "assistant", "message": {"id": "m1", "model": "claude-sonnet-5-5", "content": [{"type": "text", "text": "```js"}],
                                       "usage": {"input_tokens": 9000, "output_tokens": 4000}}}]
 _CODEX_KILLED = [  # an item completed, no turn did
     {"type": "thread.started", "thread_id": "t"}, {"type": "turn.started"},
@@ -171,8 +171,8 @@ _CODEX_KILLED = [  # an item completed, no turn did
 
 
 @pytest.mark.parametrize("backend, events", [
-    (lambda b: ClaudeOneShot("claude-sonnet-5", binary=b), _CLAUDE_KILLED),
-    (lambda b: CodexOneShot("gpt-5.5", binary=b), _CODEX_KILLED),
+    (lambda b: ClaudeOneShot("claude-sonnet-5-5", binary=b), _CLAUDE_KILLED),
+    (lambda b: CodexOneShot("gpt-6-astra", binary=b), _CODEX_KILLED),
 ], ids=["claude", "codex"])
 def test_a_session_that_never_finished_books_what_it_spent_not_zero(tmp_path: Path, backend, events):
     """N82a: the harness books these sessions (stream usage / codex estimate); the one-shot booked $0."""
@@ -192,8 +192,8 @@ def test_a_session_that_never_finished_books_what_it_spent_not_zero(tmp_path: Pa
     ("You've hit your usage limit. Try again later.", True),
     ("TypeError: cannot read properties of undefined", False),  # the CLI's own crash stays a zero
 ])
-@pytest.mark.parametrize("backend", [lambda b: ClaudeOneShot("claude-sonnet-5", binary=b),
-                                     lambda b: CodexOneShot("gpt-5.5", binary=b)], ids=["claude", "codex"])
+@pytest.mark.parametrize("backend", [lambda b: ClaudeOneShot("claude-sonnet-5-5", binary=b),
+                                     lambda b: CodexOneShot("gpt-6-astra", binary=b)], ids=["claude", "codex"])
 def test_a_provider_failure_drops_the_one_shot_cell(tmp_path: Path, backend, said, infra):
     """N76: the one-shot reads its CLI's end the way the harness session does (claude_end / codex_end)."""
     fake = tmp_path / "cli"

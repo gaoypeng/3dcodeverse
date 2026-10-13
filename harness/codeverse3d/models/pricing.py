@@ -6,7 +6,7 @@ report can say *which* price row produced a dollar and whether it was verified o
 merely inferred (``3dcode cost prices``).
 
 Only the standard (short-context) tier is modelled, **except** the documented
-long-prompt tiers of Gemini pro and GPT-6 Astra, which ``estimate_cost`` applies
+long-prompt tiers of Gemini pro, Claude Haiku 5.5 and GPT-6, which ``estimate_cost`` applies
 automatically (``Price.long_context``).  Cache *storage* fees (Gemini explicit
 caching, $/1M-tokens/hour), Anthropic 1h-cache writes, batch/flex discounts,
 data-residency and fast-mode multipliers are **not** modelled — see
@@ -112,93 +112,30 @@ PRICES: dict[tuple[str, str], Price] = {
     ("gemini", "gemini-2.5-flash-image"):     Price(0.30, 30.00, 0.03, image_usd=0.039, status="inferred",
                                                     note="output/M derived from $0.039 per 1290-token 1024² image"),
     # ------------------------------------------------------------- anthropic
-    ("anthropic", "claude-fable-5"):          Price(10.00, 50.00, 1.00, cache_write=12.50,
+    # Only the current generation is kept (owner, 2026-10-13): a model no longer
+    # here prices at $0 with a warning; a recorded run keeps the cost it was booked at.
+    ("anthropic", "claude-fable-5-1"):        Price(10.00, 50.00, 0.25, cache_write=12.50, checked="2026-10-13",
                                                     note="1h cache write 20.00 (not modelled)"),
-    ("anthropic", "claude-mythos-5"):         Price(10.00, 50.00, 1.00, cache_write=12.50, note="limited availability"),
-    # Claude Opus 5.5: cheaper than Opus 5 (claude-api skill model table, cached 2026-06-24); cache write = the
-    # standard 1.25x input for the 5-minute TTL, as every other Anthropic row.
-    ("anthropic", "claude-opus-5-5"):         Price(4.00, 20.00, 0.20, cache_write=5.00, checked="2026-09-25"),
-    ("anthropic", "claude-opus-5"):           Price(5.00, 25.00, 0.50, cache_write=6.25,
-                                                    note="fast mode is 10.00/50.00 (not modelled)"),
-    # the 1M-context variant of opus-5, and the id the DEFAULT claude-code arm serves.
-    # "[1m]" is not a version suffix, so it cannot prefix-match claude-opus-5 and priced
-    # at $0.00 until 2026-08-24 (a recorded run billed $1.218 under this exact key).
-    ("anthropic", "claude-opus-5[1m]"):       Price(5.00, 25.00, 0.50, cache_write=6.25, source="provider-cost",
-                                                    checked="2026-08-24", status="inferred",
-                                                    note="1M-context opus-5, served by the default claude-code arm.  A probe "
-                                                         "billed costUSD 0.034620 for in=2, out=4, 1h-cache-write=3451 — "
-                                                         "exactly 2x5.00 + 4x25.00 + 3451x10.00 per 1M, i.e. the standard "
-                                                         "opus-5 rates with the 1h cache write at 2x input (not modelled here, "
-                                                         "as for every other Anthropic row)"),
-    ("anthropic", "claude-opus-4-8"):         Price(5.00, 25.00, 0.50, cache_write=6.25,
-                                                    note="fast mode is 10.00/50.00 (not modelled)"),
-    ("anthropic", "claude-opus-4-7"):         Price(5.00, 25.00, 0.50, cache_write=6.25),
-    ("anthropic", "claude-opus-4-6"):         Price(5.00, 25.00, 0.50, cache_write=6.25),
-    ("anthropic", "claude-opus-4-5"):         Price(5.00, 25.00, 0.50, cache_write=6.25),
-    ("anthropic", "claude-opus-4-1"):         Price(15.00, 75.00, 1.50, cache_write=18.75,
-                                                    note="retired except on Bedrock / Google Cloud"),
-    ("anthropic", "claude-opus-4"):           Price(15.00, 75.00, 1.50, cache_write=18.75, note="retired except on Google Cloud"),
-    # sonnet-5: the $2/$10 launch rate became the standard rate (the 2026-09-01
-    # increase to $3/$15 was cancelled) — was priced 50% too high here until 2026-08-23.
-    ("anthropic", "claude-sonnet-5"):         Price(2.00, 10.00, 0.20, cache_write=2.50,
-                                                    note="launch rate 2.00/10.00 is now standard; was 3.00/15.00 here"),
-    ("anthropic", "claude-sonnet-4-6"):       Price(3.00, 15.00, 0.30, cache_write=3.75),
-    ("anthropic", "claude-sonnet-4-5"):       Price(3.00, 15.00, 0.30, cache_write=3.75),
-    ("anthropic", "claude-sonnet-4"):         Price(3.00, 15.00, 0.30, cache_write=3.75,
-                                                    note="retired except on Bedrock / Google Cloud"),
-    ("anthropic", "claude-haiku-4-5"):        Price(1.00, 5.00, 0.10, cache_write=1.25),
-    ("anthropic", "claude-haiku-4"):          Price(1.00, 5.00, 0.10, cache_write=1.25, approximate=True, source="inferred",
-                                                    status="unverified",
-                                                    note="not listed on the pricing page; assumed = haiku-4.5"),
-    ("anthropic", "claude-haiku-3-5"):        Price(0.80, 4.00, 0.08, cache_write=1.00,
-                                                    note="retired except on Bedrock / Google Cloud"),
+    ("anthropic", "claude-opus-5-5"):         Price(4.00, 20.00, 0.20, cache_write=5.00, checked="2026-10-13",
+                                                    note="fast mode is 8.00/40.00 (not modelled)"),
+    ("anthropic", "claude-sonnet-5-5"):       Price(2.00, 10.00, 0.10, cache_write=2.50, checked="2026-10-13"),
+    # haiku-5.5 is priced by prompt length: >100k tokens (cache reads and writes included)
+    # pays 0.50/2.50/0.05 for the whole request; its 0.625 cache write there is not modelled.
+    ("anthropic", "claude-haiku-5-5"):        Price(0.10, 0.50, 0.01, cache_write=0.125, checked="2026-10-13",
+                                                    long_context=LongContext(100_000, 0.50, 2.50, 0.05)),
+    # kept for the small model claude-code reports next to the main one (``claude-haiku-4-5-20251001``)
+    ("anthropic", "claude-haiku-4-5"):        Price(1.00, 5.00, 0.10, cache_write=1.25, checked="2026-10-13"),
     # ---------------------------------------------------------------- openai
-    ("openai", "gpt-6-luna"):                Price(0.10, 0.50, 0.01,
-                                                    long_context=LongContext(272_000, 0.20, 0.75, 0.02),
-                                                    checked="2026-09-25",
-                                                    note="Standard rates: developers.openai.com/api/docs/models/gpt-6-luna; "
-                                                         ">272k input uses 2x input/cache and 1.5x output. "
-                                                         "CLI aggregate usage is a notional estimate, not per-request billing."),
-    ("openai", "gpt-6-astra"):               Price(10.00, 50.00, 1.00, cache_write=12.50,
-                                                    long_context=LongContext(272_000, 20.00, 75.00, 2.00),
-                                                    checked="2026-09-23",
-                                                    note="Standard rates: developers.openai.com/api/docs/models/gpt-6-astra; "
-                                                         ">272k input uses 2x input/cache and 1.5x output. "
-                                                         "CLI aggregate usage is a notional estimate, not per-request billing."),
-    # gpt-5.6-sol is CHEAPER than gpt-5.6 (was priced as its equal until 2026-08-23).
-    ("openai", "gpt-5.6-sol"):                Price(4.00, 20.00, 0.40,
-                                                    note="4.00/20.00/0.40; was 5.00/30.00/0.50 here until 2026-08-23"),
-    ("openai", "gpt-5.6-terra"):              Price(2.00, 12.00, 0.20, checked="2026-08-24",
-                                                    note="mid tier; fast mode is 4.00/24.00 (not modelled)"),
-    ("openai", "gpt-5.6-luna"):               Price(0.20, 1.20, 0.02, checked="2026-08-24",
-                                                    note="small tier, cut 80% on 2026-07-30; fast mode is 0.40/2.40 (not modelled)"),
-    ("openai", "gpt-5.6"):                    Price(5.00, 30.00, 0.50),
-    ("openai", "gpt-5.5"):                    Price(5.00, 30.00, 0.50),
-    ("openai", "gpt-5.4"):                    Price(2.50, 15.00, 0.25),
-    ("openai", "gpt-5.3-codex"):              Price(1.75, 14.00, 0.175),
-    ("openai", "gpt-5.2-codex"):              Price(1.75, 14.00, 0.175, approximate=True, source="inferred",
-                                                    status="inferred", note="not listed; assumed = gpt-5.2"),
-    ("openai", "gpt-5.2"):                    Price(1.75, 14.00, 0.175),
-    ("openai", "gpt-5.1-codex"):              Price(1.25, 10.00, 0.125, approximate=True, source="inferred",
-                                                    status="inferred", note="not listed; assumed = gpt-5.1"),
-    ("openai", "gpt-5.1"):                    Price(1.25, 10.00, 0.125),
-    ("openai", "gpt-5-codex"):                Price(1.25, 10.00, 0.125, approximate=True, source="inferred",
-                                                    status="inferred", note="not listed; assumed = gpt-5"),
-    ("openai", "gpt-5-mini"):                 Price(0.25, 2.00, 0.025),
-    ("openai", "gpt-5-nano"):                 Price(0.05, 0.40, 0.005),
-    ("openai", "gpt-5"):                      Price(1.25, 10.00, 0.125),
-    ("openai", "gpt-4.1"):                    Price(2.00, 8.00, 0.50),
-    ("openai", "gpt-4.1-mini"):               Price(0.40, 1.60, 0.10),
-    ("openai", "gpt-4.1-nano"):               Price(0.10, 0.40, 0.025),
-    ("openai", "gpt-4o"):                     Price(2.50, 10.00, 1.25),
-    ("openai", "gpt-4o-mini"):                Price(0.15, 0.60, 0.075),
-    ("openai", "o3"):                         Price(2.00, 8.00, 0.50),
-    ("openai", "o3-mini"):                    Price(1.10, 4.40, 0.55),
-    ("openai", "o3-pro"):                     Price(20.00, 80.00, note="no cached-input rate published"),
-    ("openai", "o4-mini"):                    Price(1.10, 4.40, 0.275),
-    ("openai", "o1"):                         Price(15.00, 60.00, 7.50),
-    ("openai", "o1-mini"):                    Price(1.10, 4.40, 0.55, approximate=True, source="inferred",
-                                                    status="unverified", note="not listed; kept at the o3-mini rate"),
+    # >272k input bills the whole request at 2x input/cache and 1.5x output.  CLI aggregate
+    # usage is a notional estimate, not per-request billing.
+    ("openai", "gpt-6-astra"):               Price(10.00, 50.00, 1.00, cache_write=12.50, checked="2026-10-13",
+                                                    long_context=LongContext(272_000, 20.00, 75.00, 2.00)),
+    ("openai", "gpt-6.1-sol"):               Price(2.00, 10.00, 0.10, cache_write=2.50, checked="2026-10-13",
+                                                    long_context=LongContext(272_000, 4.00, 15.00, 0.20)),
+    ("openai", "gpt-6-sol"):                 Price(2.00, 10.00, 0.20, cache_write=2.50, checked="2026-10-13",
+                                                    long_context=LongContext(272_000, 4.00, 15.00, 0.40)),
+    ("openai", "gpt-6-luna"):                Price(0.10, 0.50, 0.01, cache_write=0.125, checked="2026-10-13",
+                                                    long_context=LongContext(272_000, 0.20, 0.75, 0.02)),
 }
 # fmt: on
 
@@ -252,7 +189,7 @@ def _match(provider: str, model: str) -> tuple[tuple[str, str], Price] | None:
 def lookup_price(provider: str, model: str) -> Price | None:
     """Exact match first, then the longest table key that ``model`` extends by a
     pure version/date suffix (``claude-opus-5-20260301``, ``gemini-3.7-flash-preview-09``).
-    A different family name after the key (``gpt-4.1-nano`` vs ``gpt-4.1``) is NOT a
+    A different family name after the key (``gpt-6.1-sol-mini`` vs ``gpt-6.1-sol``) is NOT a
     match: unknown → ``None`` so the caller prices 0.0 and warns, never a sibling's rate."""
     found = _match(provider, model)
     return found[1] if found else None

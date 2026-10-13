@@ -95,6 +95,6 @@ def test_cost_cache_reports_the_cold_head_of_every_session(fake_run: Path):
 def test_cost_prices_flags_stale_and_approximate_rows():
     r = runner.invoke(app, ["cost", "prices", "--stale"])
     assert r.exit_code == 0
-    assert "flags" in r.stdout and ("approximate" in r.stdout or "none older than" in r.stdout)
+    assert "flags" in r.stdout and ("flagged" in r.stdout or "none older than" in r.stdout)
     r = runner.invoke(app, ["cost", "prices", "--days", "-1"])
     assert r.exit_code == 0 and "stale>-1d" in r.stdout  # nothing is younger than -1 days

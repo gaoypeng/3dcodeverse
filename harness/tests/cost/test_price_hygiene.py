@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from codeverse3d.contracts.common import Usage
 from codeverse3d.models.pricing import (
     PRICES,
@@ -23,15 +21,18 @@ SUPPORTED_MODEL_IDS = (
     "gemini:gemini-3.1-flash-lite",
     "gemini:gemini-3.1-flash-image",
     "gemini:gemini-2.5-flash-image",
-    "openai:gpt-5.6-sol",
-    "openai:gpt-5.5",
-    "openai:gpt-5",
-    "anthropic:claude-fable-5",
-    "anthropic:claude-opus-5",
-    "anthropic:claude-sonnet-5",
+    "gemini:gemini-3.8-flash",
+    "gemini:gemini-4-argon",
+    "openai:gpt-6-astra",
+    "openai:gpt-6.1-sol",
+    "openai:gpt-6-sol",
+    "openai:gpt-6-luna",
+    "anthropic:claude-fable-5-1",
+    "anthropic:claude-opus-5-5",  # what the DEFAULT claude-code arm reports (live, 2026-10-13)
+    "anthropic:claude-sonnet-5-5",
+    "anthropic:claude-haiku-5-5",
     "anthropic:claude-haiku-4-5",
     "anthropic:claude-haiku-4-5-20251001",
-    "anthropic:claude-opus-5[1m]",  # what the DEFAULT claude-code arm reports (CC-2)
 )
 
 
@@ -54,16 +55,10 @@ def test_supported_model_ids_resolve_to_a_price():
         assert estimate_cost(provider, model, u) > 0, model_id
 
 
-def test_the_bracketed_context_variant_prices_on_its_own_row():
-    """A bracketed context variant requires its own exact price row."""
-    row = price_provenance("anthropic", "claude-opus-5[1m]")
-    assert row.match == "exact" and row.price is not None
-    assert row.status == "inferred" and row.checked >= "2026-08-24"
-    u = Usage(input_tokens=2, output_tokens=46_921)
-    assert estimate_cost("anthropic", "claude-opus-5[1m]", u) == pytest.approx(
-        estimate_cost("anthropic", "claude-opus-5", u)), "same rates as the standard-context row"
-    # a bracketed suffix still must not borrow a sibling's price by accident
-    assert price_provenance("anthropic", "claude-sonnet-5[1m]").price is None
+def test_a_bracketed_context_variant_never_borrows_a_sibling_price():
+    """``[1m]`` is not a version suffix: a bracketed id needs its own exact row, and has none."""
+    assert price_provenance("anthropic", "claude-opus-5-5[1m]").price is None
+    assert price_provenance("anthropic", "claude-sonnet-5-5[1m]").price is None
 
 
 # --------------------------------------------------------------- staleness maintenance

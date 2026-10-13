@@ -131,6 +131,6 @@ def fake_run(tmp_path: Path) -> tuple[Workspace, RunRecord]:
 def runs_dir(tmp_path: Path) -> Path:
     d = tmp_path / "runs"
     make_fake_run(d)
-    make_fake_run(d, "wooden_chair_codex", generator="codex:gpt-5.6-sol", scores=(0.5, 0.6), with_repair=True)
+    make_fake_run(d, "wooden_chair_codex", generator="codex:gpt-6.1-sol", scores=(0.5, 0.6), with_repair=True)
     make_fake_run(d, "lamp_three", prompt="a desk lamp", language=Language.THREEJS, scores=(0.7, 0.72))
     return d

@@ -5,8 +5,8 @@ the paper's 12 models (one row per trial, `code` column).  Writing them into the
 `run_eval --stages exec render score` produce exec / Chamfer / SigLIP-2 / DINOv3 numbers for the frontier
 models on *this* machine — the calibration that tells whether a local 8B number is comparable to the paper.
 
-    python -m llm.rescore_logs --setting text_to_3D --models gpt-5.5 claude-opus-4-7
-    python -m llm.run_eval --backend reference --run official_gpt-5.5 --suites 3dcodebench_official_text --stages exec render score
+    python -m llm.rescore_logs --setting text_to_3D --models gpt-6-astra claude-opus-5-5
+    python -m llm.run_eval --backend reference --run official_gpt-6-astra --suites 3dcodebench_official_text --stages exec render score
 
 Runs are named `official_<model>`; the suite is `3dcodebench_official_text` (or `_img4`).
 """
