@@ -6,8 +6,8 @@
 
 <p>
 <sub>
-<b>Yipeng Gao</b><sup>1*†</sup>, <b>Ziyao Zeng</b><sup>2*</sup>, <b>Jinfa Huang</b><sup>3*</sup>, <b>Yijiang Li</b><sup>4*</sup>, Haolin Xiong<sup>1</sup>, Wang Qin<sup>1</sup>, Xinlei Yu<sup>1</sup>, Youheng Yao<sup>2</sup>, Jie Zhang<sup>5</sup>, Kun-Yu Lin<sup>6</sup>,<br>
-Rong Liu<sup>1</sup>, Yinyuan Zhao<sup>7</sup>, Yajie Zhao<sup>1</sup>, Meiqi Guo<sup>8</sup>, Jiebo Luo<sup>3</sup>, Lei Shu<sup>8</sup>, Yunhao Ge<sup>1</sup>, Xinyu Hu<sup>9</sup>, Laurent Itti<sup>1</sup>
+<a href="https://gaoypeng.github.io/"><b>Yipeng Gao</b></a><sup>1*†</sup>, <a href="https://adonis-galaxy.github.io/homepage/"><b>Ziyao Zeng</b></a><sup>2*</sup>, <a href="https://infaaa.github.io/"><b>Jinfa Huang</b></a><sup>3*</sup>, <a href="https://williamium3000.github.io/"><b>Yijiang Li</b></a><sup>4*</sup>, <a href="https://haolinxiong.com/">Haolin Xiong</a><sup>1</sup>, <a href="https://www.linkedin.com/in/wang-qin">Wang Qin</a><sup>1</sup>, <a href="https://xinleiyuleo.com/">Xinlei Yu</a><sup>1</sup>, <a href="https://lionelyao.github.io/">Youheng Yao</a><sup>2</sup>, <a href="https://www.linkedin.com/in/jie-zhang-6907a1328">Jie Zhang</a><sup>5</sup>, <a href="https://kunyulin.github.io/">Kun-Yu Lin</a><sup>6</sup>,<br>
+<a href="https://rongliu-leo.github.io/">Rong Liu</a><sup>1</sup>, <a href="https://yzhao321.github.io/">Yinyuan Zhao</a><sup>7</sup>, <a href="https://www.yajie-zhao.com/">Yajie Zhao</a><sup>1</sup>, <a href="https://meiqiguo.github.io/">Meiqi Guo</a><sup>8</sup>, <a href="https://www.cs.rochester.edu/u/jluo/">Jiebo Luo</a><sup>3</sup>, <a href="https://leishu02.github.io/">Lei Shu</a><sup>8</sup>, <a href="https://gyhandy.github.io/">Yunhao Ge</a><sup>1</sup>, <a href="https://scholar.google.com/citations?user=YK4oCiwAAAAJ&amp;hl=en">Xinyu Hu</a><sup>9</sup>, <a href="https://ilab.usc.edu/itti/">Laurent Itti</a><sup>1</sup>
 </sub>
 </p>
 
