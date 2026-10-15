@@ -6,7 +6,7 @@ variables first and sensible defaults second:
   C3D_EVAL_DATA   root for downloaded assets, reference meshes and run outputs
                    (default ~/3dcodeverse_data/3dcodeverse_eval)
   C3D_EVAL_OUT    run outputs (default $C3D_EVAL_DATA/out)
-  C3D_TOOLS       directory holding blender-5.0.1-linux-x64/, openscad/, glslang/
+  C3D_TOOLS       directory holding blender-5.2.2-linux-x64/, openscad/, glslang/
                    (default ~/3dcodeverse_data/tools)
   C3D_BLENDER, C3D_OPENSCAD, C3D_GLSLANG, C3D_CQ_PYTHON   explicit binaries
   C3D_XLIBS       extra shared-library dir prepended to LD_LIBRARY_PATH for Blender/OpenSCAD
@@ -56,8 +56,8 @@ def _first_existing(*cands: str | Path | None) -> Path | None:
 def find_blender() -> Path | None:
     return _first_existing(
         os.environ.get("C3D_BLENDER"),
-        "~/.local/bin/blender-5.0",
-        TOOLS_DIR / "blender-5.0.1-linux-x64" / "blender",
+        "~/.local/bin/blender-5.2",
+        TOOLS_DIR / "blender-5.2.2-linux-x64" / "blender",
         shutil.which("blender"),
     )
 

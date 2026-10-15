@@ -20,8 +20,9 @@ import math
 from typing import Any
 
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest
+from codeverse3d.contracts.common import Language
 from codeverse3d.contracts.plan import ScenePlan, ZoneLayout, ZonePlan
-from codeverse3d.conventions import to_snake
+from codeverse3d.conventions import Frame, authoring_frame, to_authoring_frame, to_snake
 from codeverse3d.models.schema_utils import parse_json_lenient
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import NULL_EVENTS, fan_out
@@ -116,8 +117,21 @@ def validate_layout(layout: ZoneLayout, zone: ZonePlan, plan: ScenePlan) -> str:
     return "; ".join(problems)
 
 
-def layout_block(layout: ZoneLayout | dict[str, Any] | None) -> str:
-    """The prompt table a zone builder realises (`""` when there is no layout)."""
+def ground_point(xz: tuple[float, float], language: Language | str) -> tuple[float, float]:
+    """A layout's ground point — ``(x, z)`` in the plan's Y-up frame — as the two horizontal
+    coordinates an author of ``language`` places with: the same pair for a Y-up language, ``(x, y)``
+    with ``y = -z`` for a Z-up one (``conventions.to_authoring_frame``; D12: the plan stays Y-up,
+    only what the author reads is converted)."""
+    v = to_authoring_frame((xz[0], 0.0, xz[1]), str(language))
+    x, y = (v[0], v[1]) if authoring_frame(str(language)) is Frame.Z_UP_NEG_Y_FRONT else (v[0], v[2])
+    # ``+ 0.0`` folds the ``-0.0`` a negated zero leaves (z = 0 is the director's default cluster line;
+    # the brief would print ``(3.0, -0.0)``) — the fold ``tracks.scene.plan_vec`` uses
+    return (x + 0.0, y + 0.0)
+
+
+def layout_block(layout: ZoneLayout | dict[str, Any] | None, *, language: Language | str = Language.SCENE_THREEJS) -> str:
+    """The prompt table a zone builder realises (`""` when there is no layout), its points in the
+    authoring frame of ``language`` (scene_threejs's reads the layout's own numbers)."""
     if layout is None:
         return ""
     lay = layout if isinstance(layout, ZoneLayout) else ZoneLayout.model_validate(layout)
@@ -125,10 +139,11 @@ def layout_block(layout: ZoneLayout | dict[str, Any] | None) -> str:
     for p in lay.placements:
         faces = f", facing {p.faces}" if p.faces else ""
         support = f", on {p.support}" if p.support and p.support != "ground" else ""
-        lines.append(f"- {p.count}x {p.asset} around ({p.cluster[0]:.1f}, {p.cluster[1]:.1f}) "
+        cx, cz = ground_point(p.cluster, language)
+        lines.append(f"- {p.count}x {p.asset} around ({cx:.1f}, {cz:.1f}) "
                      f"spread {p.spread_m:.1f} m{faces}{support}")
     if lay.path_points:
-        pts = " -> ".join(f"({x:.1f}, {z:.1f})" for x, z in lay.path_points)
+        pts = " -> ".join("({:.1f}, {:.1f})".format(*ground_point(pt, language)) for pt in lay.path_points)
         lines.append(f"- path polyline: {pts}")
     dress = [f"{n} {label}" for n, label in ((lay.mid_props, "mid props"), (lay.small_props, "small props"),
                                              (lay.ground_cover, "ground-cover instances")) if n]

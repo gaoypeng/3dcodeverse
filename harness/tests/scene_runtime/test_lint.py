@@ -82,3 +82,99 @@ def test_large_file_warning(ws):
     rep = lint(ws)
     assert any("large file" in m for _, m in _msgs(rep, Severity.WARN))
 
+
+# ------------------------------------------------- named imports (argon loop iter 0, 2026-10-15)
+MATERIALS_JS = (
+    "import * as THREE from 'three';\n"
+    "export const brick = (o = {}) => new THREE.MeshStandardMaterial(o);\n"
+    "export const granite = (o = {}) => new THREE.MeshStandardMaterial(o);\n"
+    "export function weather(mat) { return mat; }\n"
+)
+SCENE_JS = "export function createScene() { return {}; }\n"
+CATALOG_HINT = "import only names the module actually exports (for src/lib modules: the names the effects catalog lists)"
+
+
+def _lib(ws, name: str, text: str) -> None:
+    (ws.src / "lib").mkdir(exist_ok=True)
+    (ws.src / "lib" / name).write_text(text)
+
+
+def _zone(ws, name: str, head: str) -> None:
+    (ws.src / "zones").mkdir(exist_ok=True)
+    (ws.src / "zones" / f"{name}.js").write_text(head + "export function build(ctx) { return new ctx.THREE.Group(); }\n")
+
+
+def _zone_errors(ws, zone: str) -> list[tuple[str, str, str]]:
+    return [(f.target, f.message, f.fix_hint) for f in lint(ws).findings
+            if f.severity == Severity.ERROR and f.target.startswith(f"src/zones/{zone}.js")]
+
+
+def test_importing_a_name_the_lib_module_does_not_export_is_an_error(ws):
+    """it00_scene_threejs_r1_18: two zones did ``import { concrete } from '../lib/materials.js'``.
+    The FILE exists, so the import lint passed it — and the browser threw a SyntaxError at
+    module link, the assembler dropped both zones, the run scored 0.47."""
+    (ws.src / "scene.js").write_text(SCENE_JS)
+    _lib(ws, "materials.js", MATERIALS_JS)
+    _zone(ws, "yard", "import * as THREE from 'three';\nimport { brick, concrete } from '../lib/materials.js';\n")
+    errs = _zone_errors(ws, "yard")
+    assert errs == [("src/zones/yard.js:2",
+                     "import { concrete } from '../lib/materials.js': that module exports no 'concrete' (it exports: brick, granite, weather)",
+                     CATALOG_HINT)], errs
+    assert all(f.data["kind"] == "bad_import" for f in lint(ws).findings if f.target.startswith("src/zones/"))
+    # the library module is read as a TARGET, never linted as agent code
+    assert not [f for f in lint(ws).findings if f.target.startswith("src/lib/")]
+
+
+def test_every_export_form_is_recognised(ws):
+    (ws.src / "scene.js").write_text(SCENE_JS)
+    _lib(ws, "forms.js",
+         "const x = 1;\nexport { x as y };\nexport const k = 2;\nexport class Thing {}\n"
+         "export async function load() {}\nexport let cur = 0;\nexport function* gen() {}\nexport default 3;\n")
+    _zone(ws, "ok", "import { y, k, Thing, load, cur, gen, default as three } from '../lib/forms.js';\n")
+    assert _zone_errors(ws, "ok") == []
+    # ``export { x as y }`` exports y: importing the LOCAL name x is the error
+    _zone(ws, "bad", "import { x } from '../lib/forms.js';\n")
+    assert [m for _, m, _ in _zone_errors(ws, "bad")] == [
+        "import { x } from '../lib/forms.js': that module exports no 'x' (it exports: Thing, cur, default, gen, k, load, y)"]
+
+
+def test_namespace_and_default_imports_are_not_checked(ws):
+    (ws.src / "scene.js").write_text(SCENE_JS)
+    _lib(ws, "m.js", "export const a = 1;\nexport default 2;\n")
+    _zone(ws, "ns", "import * as m from '../lib/m.js';\nimport d from '../lib/m.js';\nimport d2, { a } from '../lib/m.js';\n")
+    assert _zone_errors(ws, "ns") == []
+    # the named half of a default+named import IS checked
+    _zone(ws, "mix", "import d3, { b } from '../lib/m.js';\n")
+    assert [m for _, m, _ in _zone_errors(ws, "mix")] == [
+        "import { b } from '../lib/m.js': that module exports no 'b' (it exports: a, default)"]
+
+
+def test_a_star_reexporting_module_never_reports(ws):
+    """``export * from`` is not resolved transitively: that module's surface is unknown, so
+    nothing is reported against it (its own named exports included)."""
+    (ws.src / "scene.js").write_text(SCENE_JS)
+    _lib(ws, "materials.js", MATERIALS_JS)
+    _lib(ws, "index.js", "export * from './materials.js';\nexport const extra = 1;\n")
+    _zone(ws, "z", "import { brick, concrete, whatever, extra } from '../lib/index.js';\n")
+    assert _zone_errors(ws, "z") == []
+
+
+def test_a_commented_out_bad_import_is_ignored(ws):
+    (ws.src / "scene.js").write_text(SCENE_JS)
+    _lib(ws, "materials.js", MATERIALS_JS)
+    _zone(ws, "z", "// import { concrete } from '../lib/materials.js';\n"
+                   "/*\nimport { marble } from '../lib/materials.js';\n*/\n"
+                   "import { brick } from '../lib/materials.js';\n")
+    assert _zone_errors(ws, "z") == []
+
+
+def test_multi_line_import_reports_the_import_line_and_a_missing_file_only_once(ws):
+    (ws.src / "scene.js").write_text(SCENE_JS)
+    _lib(ws, "materials.js", MATERIALS_JS)
+    _zone(ws, "z", "import {\n  brick,\n  concrete as cement,\n} from '../lib/materials.js';\n"
+                   "import { nope } from '../lib/missing.js';\n")
+    errs = _zone_errors(ws, "z")
+    assert sorted(t for t, _, _ in errs) == ["src/zones/z.js:1", "src/zones/z.js:5"], errs
+    assert [m for _, m, _ in errs if "missing file" in m] == ["import of missing file '../lib/missing.js'"]
+    assert [m for _, m, _ in errs if "exports no" in m] == [
+        "import { concrete } from '../lib/materials.js': that module exports no 'concrete' (it exports: brick, granite, weather)"]

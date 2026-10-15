@@ -38,7 +38,7 @@
   network, file writes; never touch `bpy.context.scene.render` / `scene.world` (harness-owned).
 * Prefer modifiers (bevel / array / mirror) over dense meshes.
 
-## COMPLETE minimal example A — multi-file (verified with Blender 5.0 headless)
+## COMPLETE minimal example A — multi-file (verified with Blender 5.2.2 LTS headless)
 `src/parts/seat.py`
 ```py
 import bpy, bmesh
@@ -102,7 +102,7 @@ def main() -> None:
 main()
 ```
 
-## COMPLETE minimal example B — single file (small objects; verified with Blender 5.0)
+## COMPLETE minimal example B — single file (small objects; verified with Blender 5.2.2 LTS)
 ```python
 import bpy, bmesh, math
 

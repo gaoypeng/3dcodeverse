@@ -9,10 +9,15 @@
 2. **pixels** — ``languages/wrappers/render_bpy_scene.py`` inside Blender on the built
    ``artifacts/scene.blend``: the authored cameras × every time + the first
    ``MAX_JUDGE_OVERVIEWS`` overview views at the first time (what someone reads — the judge and
-   the motion metric; the eye-level rig views get geometry checks but no pixels).  Engine /
-   samples / device come from ``Settings.render.blender_*`` (Cycles CUDA 32 spp + OIDN by
-   default); a GPU render holds one of ``blender_gpu_slots`` machine-wide flock'd slots and
-   falls back to the CPU when none frees within ``blender_gpu_wait_s`` or the GPU run dies;
+   the motion metric; the eye-level rig views get geometry checks but no pixels).  The high
+   overviews (``noFog``) render without the world volume and with a room shell's lid lifted —
+   the three.js host's ``skyLayersBelow`` rule, so both languages are judged on the same
+   interior (the driver names what it hid in each frame's ``hidden``).  Engine /
+   samples / device / per-frame time cap come from ``Settings.render.blender_*`` (Cycles CUDA
+   32 spp + GPU OIDN + persistent data by default — the fast path measured on Blender 5.2.2 LTS,
+   see ``render_bpy_scene.setup_render``); a GPU render holds one of ``blender_gpu_slots``
+   machine-wide flock'd slots and falls back to the CPU when none frees within
+   ``blender_gpu_wait_s`` or the GPU run dies;
 3. **geometry** — ``runtime_js/render_scene.mjs --external-frames`` on the census GLB the build
    wrote (``--glb``: booted through ``runtime_js/lib/glb_scene.mjs``): camera checks (near
    geometry, inside a mesh, ground below/above, line of sight, coverage masks) from the scene,
@@ -108,7 +113,7 @@ def _run_driver(blend: Path, job: dict[str, Any], out_dir: Path, *, device: str,
     write_json_atomic(job_path, job)
     blender = settings.resolve_blender()
     if not blender:
-        raise SceneRenderError("no Blender binary (set C3D_BINARIES__BLENDER or put blender-5.0 on PATH)")
+        raise SceneRenderError("no Blender binary (set C3D_BINARIES__BLENDER or put blender-5.2 on PATH)")
     cmd = [blender, "-b", "--factory-startup", str(blend), "--python", str(DRIVER), "--", str(job_path)]
     proc = run_subprocess(cmd, cwd=out_dir, env=_blender_env(str(job["engine"]), device), timeout_s=timeout_s)
     result = read_json_or_none(result_path)
@@ -181,7 +186,10 @@ def fit_orbit(census_path: Path, views: Sequence[ViewPreset], *, width: int, hei
 
 
 def _pixel_orbit(specs: list[dict[str, Any]]) -> set[str]:
-    """The rig views that get Blender pixels: the first ``MAX_JUDGE_OVERVIEWS`` overviews."""
+    """The rig views that get Blender pixels: the first ``MAX_JUDGE_OVERVIEWS`` overviews — the
+    same four tiles ``render_scene.select_judge_views`` hands the judge (the three high views
+    and the ground-level ``overview_low_front`` since scene_v2); the eye-level rig is measured
+    by the geometry pass and never rendered."""
     return set([str(o["name"]) for o in specs if str(o["name"]).startswith("overview")][:MAX_JUDGE_OVERVIEWS])
 
 
@@ -244,8 +252,8 @@ def render_blender_scene(
                   "look_at": _to_blender(o["lookAt"]), "fov": o.get("fov") or 50.0, "no_fog": bool(o.get("noFog")),
                   "times": times[:1]} for o in orbit_specs if o["name"] in pixel]
     job = {"out": str(out_dir), "result": str(out_dir / RESULT_NAME), "engine": engine or s.render.blender_engine,
-           "samples": int(samples or s.render.blender_samples), "width": width, "height": height, "times": times,
-           "authored": cameras is None, "cameras": job_cams}
+           "samples": int(samples or s.render.blender_samples), "frame_time_limit_s": s.render.blender_frame_time_limit_s,
+           "width": width, "height": height, "times": times, "authored": cameras is None, "cameras": job_cams}
     t0 = time.monotonic()
     frames = render_frames(blend, out_dir, job, timeout_s=tmo, settings=s)
     blender_ms = int((time.monotonic() - t0) * 1000)
@@ -282,6 +290,7 @@ def render_blender_scene(
     metrics["blender"] = {
         "engine": frames.get("engine"), "device": frames.get("device"), "device_names": frames.get("device_names") or [],
         "samples": frames.get("samples"), "fallback": frames.get("fallback") or "", "version": frames.get("blender"),
+        "persistent_data": bool(frames.get("persistent_data", False)), "frame_time_limit_s": frames.get("frame_time_limit_s"),
         "gl_renderer": frames.get("gl_renderer") or "", "n_frames": len(views),
         "frame_ms": [v["render_ms"] for v in views],
         "timings_ms": {"fit": fit_ms, "slot_wait": frames.get("slot_wait_ms", 0), "blender": blender_ms,

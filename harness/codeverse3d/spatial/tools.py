@@ -500,9 +500,11 @@ class CheckPlacementArgs(BaseModel):
 @tool("check_placement", CheckPlacementArgs,
       "The round's scene_placement gate on the last build (scene only): per placed asset the gap from its feet to what "
       "is under them, burial depth, water, contacts, plus 3-D interpenetrations between assets — findings read "
-      "'floating / sunken / unsupported / interpenetration' with 'lower X by 0.23 m onto Terrain' hints — and the "
-      "plan checks (fog, backdrop, zone contents, scale, bounds). Reads the census of the last build/scene_probe; "
-      "rebuild=true probes again. Tag a deliberately airborne thing with obj.userData.placement = 'free'.",
+      "'floating / sunken / unsupported / cantilevered / interpenetration' with 'lower X by 0.23 m onto Terrain' hints, the "
+      "share of assets tagged placement='free' (a 'free_exempt' finding when the tag hides more than a quarter of them) — "
+      "and the plan checks (fog, backdrop, zone contents, scale, bounds). Reads the census of the last build/scene_probe; "
+      "rebuild=true probes again. Tag ONLY a deliberately airborne thing (a hanging lantern, a bird) with "
+      "obj.userData.placement = 'free' (bpy: obj['placement'] = 'free').",
       languages=SCENE_LANGUAGES, cost_hint="fast")
 def check_placement(ctx: ToolContext, args: CheckPlacementArgs) -> Observation:
     ws = ctx.workspace

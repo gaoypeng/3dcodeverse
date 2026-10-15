@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import pytest
 
-from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.contracts.artifacts import LintKind, Severity
 from codeverse3d.contracts.common import Track
 from codeverse3d.contracts.plan import ScenePlan
 from codeverse3d.languages._ast_lint import BASE_FORBIDDEN_IMPORTS
 from codeverse3d.languages.scene_blender import (
     FORBIDDEN_IMPORTS,
+    lib_files,
     lint,
     lint_scene_source,
     simple_driver,
+    write_example,
     write_skeleton,
 )
 from codeverse3d.tracks.planner import plan_example
@@ -131,6 +133,27 @@ def test_the_skeleton_lints_clean(tmp_ws) -> None:
     write_skeleton(tmp_ws, plan)
     rep = lint(tmp_ws)
     assert rep.passed and not [f for f in rep.findings if f.severity is not Severity.INFO], rep.findings
+
+
+def test_the_example_scene_lints_clean(tmp_ws) -> None:
+    """The plan-less starter is what an agent reads as the worked example of the library."""
+    write_example(tmp_ws)
+    rep = lint(tmp_ws)
+    assert rep.passed and not [f for f in rep.findings if f.severity is not Severity.INFO], rep.findings
+
+
+@pytest.mark.parametrize("path", lib_files(), ids=[p.stem for p in lib_files()])
+def test_the_library_passes_the_agent_lint_itself(path) -> None:
+    """The workspace gate reads ``src/lib/`` for syntax only — but agents COPY what they read, so
+    every module must also pass the policy an agent's file is held to: no trap API, no unseeded
+    randomness, no bpy.ops, no clock or file access.  ``sky.py`` holds the world setters, which
+    only ``src/env.py`` may call, so it is linted in the env role (minus the env's own
+    ``build_env`` / ``height_at`` export requirement)."""
+    role = "env" if path.stem == "sky" else "helper"
+    findings = lint_scene_source(path.read_text(), target=f"src/lib/{path.name}", role=role)
+    bad = [f for f in findings if f.severity is not Severity.INFO
+           and not (role == "env" and f.data.get("kind") == LintKind.LAYOUT.value)]
+    assert not bad, [(f.severity.value, f.message) for f in bad]
 
 
 def test_a_missing_entry_is_a_lint_error(tmp_ws) -> None:

@@ -1,0 +1,103 @@
+# The frame-gate thresholds this bundle quotes, pinned to spatial/frame_metrics.py.  The measured
+# exposure bands (references/exposure-bands.md section 2) are measurements with their provenance,
+# not code constants, so they carry no rows.
+
+[[claim]]
+key     = "dark_mean_lum"
+text    = "0.12"
+python  = "codeverse3d.spatial.frame_metrics:DARK_MEAN_LUM"
+format  = "{:.2f}"
+context = "mean luminance below"
+
+[[claim]]
+key     = "lowkey_min_std"
+text    = "0.12"
+python  = "codeverse3d.spatial.frame_metrics:LOWKEY_MIN_STD"
+format  = "{:.2f}"
+context = "contrast"
+
+[[claim]]
+key     = "dark_frac"
+text    = "35 %"
+python  = "codeverse3d.spatial.frame_metrics:DARK_FRAC"
+scale   = 100
+format  = "{:.0f} %"
+context = "near black"
+
+[[claim]]
+key     = "blown_frac"
+text    = "20 %"
+python  = "codeverse3d.spatial.frame_metrics:BLOWN_FRAC"
+scale   = 100
+format  = "{:.0f} %"
+context = "pure white"
+
+[[claim]]
+key     = "flat_modal_frac"
+text    = "85 %"
+python  = "codeverse3d.spatial.frame_metrics:FLAT_MODAL_FRAC"
+scale   = 100
+format  = "{:.0f} %"
+context = "one luminance band"
+
+[[claim]]
+key     = "flat_modal_error"
+text    = "92 %"
+python  = "codeverse3d.spatial.frame_metrics:FLAT_MODAL_ERROR"
+scale   = 100
+format  = "{:.0f} %"
+context = "ERROR above"
+
+# references/exposure-bands.md restates the five in its own table
+
+[[claim]]
+key     = "dark_mean_lum"
+file    = "references/exposure-bands.md"
+text    = "0.12"
+python  = "codeverse3d.spatial.frame_metrics:DARK_MEAN_LUM"
+format  = "{:.2f}"
+context = "below"
+
+[[claim]]
+key     = "lowkey_min_std"
+file    = "references/exposure-bands.md"
+text    = "0.12"
+python  = "codeverse3d.spatial.frame_metrics:LOWKEY_MIN_STD"
+format  = "{:.2f}"
+context = "at least"
+
+[[claim]]
+key     = "dark_frac"
+file    = "references/exposure-bands.md"
+text    = "35 %"
+python  = "codeverse3d.spatial.frame_metrics:DARK_FRAC"
+scale   = 100
+format  = "{:.0f} %"
+context = "dark_frac"
+
+[[claim]]
+key     = "blown_frac"
+file    = "references/exposure-bands.md"
+text    = "20 %"
+python  = "codeverse3d.spatial.frame_metrics:BLOWN_FRAC"
+scale   = 100
+format  = "{:.0f} %"
+context = "blown_frac"
+
+[[claim]]
+key     = "flat_modal_frac"
+file    = "references/exposure-bands.md"
+text    = "85 %"
+python  = "codeverse3d.spatial.frame_metrics:FLAT_MODAL_FRAC"
+scale   = 100
+format  = "{:.0f} %"
+context = "modal_frac"
+
+[[claim]]
+key     = "flat_modal_error"
+file    = "references/exposure-bands.md"
+text    = "92 %"
+python  = "codeverse3d.spatial.frame_metrics:FLAT_MODAL_ERROR"
+scale   = 100
+format  = "{:.0f} %"
+context = "modal_frac"

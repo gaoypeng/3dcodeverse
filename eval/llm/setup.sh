@@ -27,13 +27,17 @@ log "python: $PY"
                         pyyaml tqdm pillow "transformers>=4.50" accelerate pytest
 "$PY" -m playwright install chromium
 
-# ---------------------------------------------------------------------------------------------- Blender 5.0.1
-if [ ! -x "$TOOLS/blender-5.0.1-linux-x64/blender" ]; then
-  log "downloading Blender 5.0.1"
-  curl -L -o "$TOOLS/blender.tar.xz" https://download.blender.org/release/Blender5.0/blender-5.0.1-linux-x64.tar.xz
-  tar -xJf "$TOOLS/blender.tar.xz" -C "$TOOLS" && rm "$TOOLS/blender.tar.xz"
+# ---------------------------------------------------------------------------------------------- Blender 5.2.2 LTS
+# The one supported Blender (harness D104, 2026-10-14): 5.2 LTS only, no 4.2 / 5.0 compatibility.
+BL_VER=5.2.2
+if [ ! -x "$TOOLS/blender-$BL_VER-linux-x64/blender" ]; then
+  log "downloading Blender $BL_VER LTS"
+  curl -L -o "$TOOLS/blender.tar.xz" "https://download.blender.org/release/Blender5.2/blender-$BL_VER-linux-x64.tar.xz"
+  curl -L -o "$TOOLS/blender.sha256" "https://download.blender.org/release/Blender5.2/blender-$BL_VER.sha256"
+  (cd "$TOOLS" && grep "blender-$BL_VER-linux-x64.tar.xz" blender.sha256 | sed "s#blender-$BL_VER-linux-x64.tar.xz#blender.tar.xz#" | sha256sum -c -)
+  tar -xJf "$TOOLS/blender.tar.xz" -C "$TOOLS" && rm "$TOOLS/blender.tar.xz" "$TOOLS/blender.sha256"
 fi
-BPY="$(ls -d "$TOOLS"/blender-5.0.1-linux-x64/5.0/python/bin/python3* | head -1)"
+BPY="$(ls -d "$TOOLS"/blender-$BL_VER-linux-x64/5.2/python/bin/python3* | head -1)"
 "$BPY" -m ensurepip >/dev/null 2>&1 || true
 "$BPY" -m pip install -q "scipy>=1.14" shapely      # 15/212 reference scripts import scipy; one needs shapely
 # libSM / libICE / libglvnd are often missing on headless boxes; unpack the Ubuntu debs locally (no sudo)
@@ -45,13 +49,13 @@ if [ ! -e "$XLIBS/libOpenGL.so.0" ] || [ ! -e "$XLIBS/libSM.so.6" ]; then
   for d in *.deb; do [ -f "$d" ] && dpkg-deb -x "$d" "$HOME/.local/xlibs"; done
   popd >/dev/null; rm -rf "$tmp"
 fi
-cat > "$HOME/.local/bin/blender-5.0" <<EOF
+cat > "$HOME/.local/bin/blender-5.2" <<EOF
 #!/bin/bash
 export LD_LIBRARY_PATH="$XLIBS:\${LD_LIBRARY_PATH:-}"
-exec "$TOOLS/blender-5.0.1-linux-x64/blender" "\$@"
+exec "$TOOLS/blender-$BL_VER-linux-x64/blender" "\$@"
 EOF
-chmod +x "$HOME/.local/bin/blender-5.0"
-"$HOME/.local/bin/blender-5.0" --version | head -1
+chmod +x "$HOME/.local/bin/blender-5.2"
+"$HOME/.local/bin/blender-5.2" --version | head -1
 
 # ---------------------------------------------------------------------------------------------- OpenSCAD (nightly, --export-format binstl)
 if [ ! -x "$TOOLS/openscad/AppRun" ]; then

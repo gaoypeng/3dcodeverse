@@ -178,3 +178,51 @@ def test_a_render_timeout_degrades_the_round_instead_of_failing_the_run(tmp_path
     assert "render failed" in r1.notes
     kinds = [e["event"] for e in EventLog(ws.events_path).read()]
     assert "render.failed" in kinds and "run.done" in kinds and "run.failed" not in kinds
+
+
+# ----------------------------------------------------------------------------- scene_blender
+def _bpy_scene_writer(job, ws):
+    """The scene_blender twin of ``_scene_writer``: every session writes the ``.py`` files it owns,
+    each defining the function the wrapper calls (``build_env`` / ``build`` / ``build_<snake>``)."""
+    out = {}
+    for rel in job.files_hint:
+        stem = rel.rsplit("/", 1)[-1][:-3]
+        if rel.startswith("src/assets/"):
+            out[rel] = f"import bpy  # {job.label}\n\n\ndef build_{stem}(ctx, variant=0):\n    return ctx.collection\n"
+        elif rel == "src/env.py":
+            out[rel] = f"import bpy  # {job.label}\n\n\ndef height_at(x, y):\n    return 0.0\n\n\ndef build_env(ctx):\n    return {{}}\n"
+        else:
+            out[rel] = f"import bpy  # {job.label}\n\n\ndef build(ctx):\n    return ctx.collection\n"
+    return out
+
+
+def test_scene_blender_runs_the_same_stages_with_bpy_prompts_and_files(tmp_path, settings):
+    """A scene_blender run is the scene track over the bpy templates and the runtime's file table:
+    every stage session owns ``.py`` files, reads the bpy briefs (the wrapper's hooks, the bpy asset
+    API, plan numbers in the Z-up frame) and the module assets go through the bpy ladder."""
+    plan = small_scene(Language.SCENE_BLENDER)
+    assert {a.kind for a in plan.assets} == {"bpy"}
+    spec = make_spec(Track.SCENE, Language.SCENE_BLENDER, max_rounds=1)
+    ws = Workspace(tmp_path / "runs" / "harbour_bpy")
+    agent = FakeAgent(_bpy_scene_writer)
+    track = SceneTrack(services=FakeServices(assemble=True), judge=FakeJudge(scores=(0.6, 0.7), targets=("Quay", "Water")), agent=agent,
+                       planner_model=_planner(plan.model_dump(mode="json")), settings=settings,
+                       runtime=FakeRuntime(Language.SCENE_BLENDER))
+    rec = track.run(spec, ws)
+    assert rec.status is RunStatus.MAX_ROUNDS and [r.kind for r in rec.rounds] == ["baseline", "refine"]
+    jobs = {j.label: j for j in agent.jobs}
+    env = jobs["env"]
+    assert env.files_hint == ["src/env.py"] and "build_env(ctx)" in env.prompt and "env.js" not in env.prompt
+    # the plan's bounds, centre (0, 5, 0) Y-up, reach the bpy author as (0, 0, 5): Z up (D12)
+    assert "centre (0.000, 0.000, 5.000) m" in env.prompt
+    zones = next(j for label, j in jobs.items() if label.startswith("zones_"))
+    assert zones.files_hint == ["src/zones/quay.py", "src/zones/water.py"] and "def build(ctx)" in zones.prompt
+    assert "ctx.assets['bollard']" in zones.prompt and "import {" not in zones.prompt
+    assets = [j for label, j in jobs.items() if label.startswith("asset_")]
+    assert {j.files_hint[0] for j in assets} == {"src/assets/fishing_boat.py", "src/assets/bollard.py"}
+    assert all("variant=0" in j.prompt and "ctx.collection" in j.prompt for j in assets)
+    refine = next(j for label, j in jobs.items() if label.startswith("refine"))
+    assert refine.files_hint and all(f.endswith(".py") for f in refine.files_hint) and "src/env.py" in refine.prompt
+    events = [e for e in EventLog(ws.events_path).read() if e["event"] == "asset.generated"]
+    assert {e["asset"]: e["ok"] for e in events} == {"FishingBoat": True, "Bollard": True}
+    assert (ws.root / "src" / "scene.py").read_text().startswith("# assembled by fake")

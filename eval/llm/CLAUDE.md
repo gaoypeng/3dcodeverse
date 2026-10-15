@@ -7,7 +7,7 @@ this package is the portable re-implementation (provenance in `docs/inventory_*.
 - **Paths**: never hardcode; everything goes through `config.py` (`C3D_EVAL_DATA`, `C3D_TOOLS`, `C3D_BLENDER` …).
   Large assets live under `$C3D_EVAL_DATA` (hub/, refs/, out/), never in git. `data/prompts/*.jsonl` are committed.
 - **Environment**: conda env `cv3d-eval` (`~/miniconda3/envs/cv3d-eval/bin/python`): vLLM 0.28 + torch cu130
-  (RTX 5090 works), cadquery, playwright, trimesh, transformers. Blender 5.0.1 at `~/.local/bin/blender-5.0`
+  (RTX 5090 works), cadquery, playwright, trimesh, transformers. Blender 5.2.2 LTS at `~/.local/bin/blender-5.2`
   (bundled python has scipy 1.17.1 + shapely), OpenSCAD AppImage + glslang under `~/3dcodeverse_data/tools`.
   `python -m llm.config` is the doctor.
 - **Protocols**: keep the report protocol (`3dcodebench_text`, `heldout_*`) byte-identical to

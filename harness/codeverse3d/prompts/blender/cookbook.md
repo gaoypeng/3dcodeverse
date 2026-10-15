@@ -1,4 +1,4 @@
-# Blender (bpy) cookbook — static objects, Blender 4.2–5.x headless
+# Blender (bpy) cookbook — static objects, Blender 5.2 LTS headless
 
 Every snippet below runs as-is in `blender -b --factory-startup` (they are executed in
 order by the harness test suite).  Z-up, −Y front, meters, PascalCase object names.
@@ -205,13 +205,13 @@ def add_bevel(obj, width=0.003, segments=3, angle_deg=30.0):
     return b
 
 def boolean_cut(obj, cutter, solver='MANIFOLD') -> None:
-    """obj -= cutter, applied, cutter deleted.  MANIFOLD (5.0+) is fast + robust on closed
-    meshes; fall back to EXACT when inputs are not watertight.  Cutter must overshoot the
-    face it pierces by ≥ 5 mm, never be coplanar with it."""
+    """obj -= cutter, applied, cutter deleted.  MANIFOLD is fast + robust on closed meshes;
+    fall back to EXACT when inputs are not watertight (solvers: MANIFOLD / EXACT / FLOAT —
+    there is no 'FAST').  Cutter must overshoot the face it pierces by ≥ 5 mm, never be
+    coplanar with it."""
     m = obj.modifiers.new("Cut", 'BOOLEAN')
     m.operation = 'DIFFERENCE'; m.object = cutter
-    solvers = m.bl_rna.properties["solver"].enum_items.keys()     # 4.2: FAST/EXACT; 5.0: +MANIFOLD
-    m.solver = solver if solver in solvers else 'EXACT'
+    m.solver = solver
     try:
         apply_modifiers(obj)
     except RuntimeError:                          # MANIFOLD refused (non-manifold input)
@@ -930,7 +930,8 @@ def build_sail_rotor() -> bpy.types.Object:
    `bpy.ops.object.shade_smooth_by_angle(angle=math.radians(30))` under `temp_override`.
 9. **`bsdf.inputs["Specular"]` KeyError** → 4.x names: `"Specular IOR Level"`,
    `"Transmission Weight"`, `"Emission Color"`/`"Emission Strength"`, `"Coat Weight"`.
-10. **`mat.use_nodes = True`** is a no-op/deprecated in 5.0 — the node tree already exists.
+10. **`mat.use_nodes = True`** is deprecated in 5.x (removed in 6.0) — every new material, world
+    and light already has a node tree; never write it.
 11. **Object scaled with `obj.scale` looks right but exports wrong / bevels uneven** → bake
     with `apply_transforms(obj)` before bevel/boolean; keep scale (1,1,1) on export.
 12. **`bpy.ops.mesh.primitive_cube_add(size=1, scale=(…))`** — default size is 2 m; with
@@ -941,10 +942,14 @@ def build_sail_rotor() -> bpy.types.Object:
 14. **Units**: the scene is in meters; a 450 mm seat is `0.45`, never `450`.  If you see a
     bbox of 450 × 500 × 900 the plan numbers were typed in mm.
 15. **`bpy.context.object` is None in background** → do not rely on it; keep your own refs.
-16. **Deprecated in 4.x/5.x (do not use)**: `mesh.calc_normals()`, `mesh.calc_normals_split()`,
+16. **Gone in 5.2 (do not use)**: `mesh.calc_normals()`, `mesh.calc_normals_split()`,
     `edge.crease` / `edge.bevel_weight` (use attributes `crease_edge`, `bevel_weight_edge`),
     `bpy.ops.*({'object': o})` dict overrides, `mat.blend_method`, `scene.node_tree`,
-    `BLENDER_EEVEE_NEXT` (5.0 is `BLENDER_EEVEE`), `bgl`, `gpu.types.GPUShader(...)`.
+    `BLENDER_EEVEE_NEXT` (5.x is `BLENDER_EEVEE`), `bgl`, `gpu.types.GPUShader(...)`,
+    the boolean solver `'FAST'` (now `'FLOAT'`; prefer `'MANIFOLD'` / `'EXACT'`), and
+    geometry-nodes inputs by item access — `mod["Socket_2"] = v` raises TypeError in 5.2:
+    `getattr(mod.properties.inputs, "Socket_2").value = v` (identifiers:
+    `mod.properties.inputs.keys()`).
 17. **`bmesh.ops.create_cone` with `radius2=0`** makes a cone with a degenerate cap — fine
     for visuals; for booleans use `radius2=1e-4`.
 18. **A curve object left un-converted** exports nothing (the harness converts meshes

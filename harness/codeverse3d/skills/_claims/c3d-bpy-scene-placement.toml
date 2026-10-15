@@ -1,0 +1,42 @@
+# Numbers this bundle quotes, pinned to the constants that produce them.
+#
+# The gate's THRESHOLDS (contact, floating, sunk, overlap, free-exempt) are pydantic defaults on
+# codeverse3d.config:Placement, which this grammar cannot reach (`python = "module:NAME"` resolves
+# a module attribute, and `Placement.model_fields[...].default` is not one).  The body therefore
+# names the Settings FIELDS and sends the reader to the summary line of `check_placement`, which
+# prints the values a run used, instead of quoting numbers.  A `field = "floating_error_m"` key
+# reading `Placement.model_fields[field].default` would let the numbers back in (REPORT.md).
+
+[[claim]]
+key     = "foot_columns"
+text    = "5"
+js      = "runtime_js/lib/host_placement.mjs:MAX_COLUMNS"
+format  = "{:.0f}"
+context = "foot columns"
+
+# references/finding-to-fix.md
+
+[[claim]]
+key     = "max_findings_per_kind"
+file    = "references/finding-to-fix.md"
+text    = "8"
+python  = "codeverse3d.spatial.scene_placement:MAX_FINDINGS_PER_KIND"
+format  = "{:.0f}"
+context = "per kind"
+
+[[claim]]
+key     = "max_assets"
+file    = "references/finding-to-fix.md"
+text    = "400"
+js      = "runtime_js/lib/host_placement.mjs:MAX_ASSETS"
+format  = "{:.0f}"
+context = "stops at"
+
+[[claim]]
+key     = "time_budget_s"
+file    = "references/finding-to-fix.md"
+text    = "4 s"
+js      = "runtime_js/lib/host_placement.mjs:TIME_BUDGET_MS"
+scale   = 0.001
+format  = "{:.0f} s"
+context = "stops at"

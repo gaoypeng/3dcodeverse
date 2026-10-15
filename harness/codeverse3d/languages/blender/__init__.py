@@ -64,7 +64,8 @@ WARN_CALL_PREFIXES: tuple[tuple[str, str, LintKind], ...] = (
     ("sys.exit", "do not exit; let the script fall off the end", LintKind.SANDBOX),
 )
 # Principled BSDF inputs that raise KeyError in Blender 4.x/5.x → their replacement.
-# Verified against Blender 5.0.1: 'Anisotropic' and 'Specular Tint' STILL EXIST (do not list them).
+# Verified against Blender 5.2.2 LTS (2026-10-14): 'Anisotropic' and 'Specular Tint' STILL EXIST (do not
+# list them); 5.2.2 also has 'Thin Wall', 'Thin Film Thickness' and 'Thin Film IOR'.
 REMOVED_BSDF_INPUTS = {
     "Specular": "Specular IOR Level", "Subsurface": "Subsurface Weight", "Transmission": "Transmission Weight",
     "Emission": "Emission Color (+ 'Emission Strength')", "Subsurface Color": "Base Color (subsurface tint removed)",
@@ -89,6 +90,7 @@ class BpyCollector(ast.NodeVisitor):
         self._guarded: list[frozenset[str]] = []  # keys the enclosing if/elif tests are membership checks of
         self.names_assigned: list[str] = []  # string constants assigned to .name / name=
         self.constants: list[tuple[str, int]] = []
+        self.gn_item_stores: list[tuple[str, int]] = []  # (key, line) of <x>["Socket_N"] = … (pre-5.2 GN inputs)
         self.has_temp_override = False
         self.keywords: list[tuple[str, int]] = []
 
@@ -192,6 +194,9 @@ class BpyCollector(ast.NodeVisitor):
             if node.value.attr == "inputs" and isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
                 key = node.slice.value
                 self.bsdf_inputs.append((key, node.lineno, any(key in g for g in self._guarded)))
+        if (isinstance(node.ctx, ast.Store) and isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str)
+                and node.slice.value.startswith(("Socket_", "Input_"))):
+            self.gn_item_stores.append((node.slice.value, node.lineno))
         self.generic_visit(node)
 
     def visit_Constant(self, node: ast.Constant) -> None:
@@ -252,8 +257,27 @@ def store_traps(target: str, line: int) -> list[GateFinding]:
 
 def use_nodes_trap(target: str, line: int) -> list[GateFinding]:
     if target.endswith(".use_nodes"):
-        return [_f(LintKind.API_TRAP, Severity.INFO, "`use_nodes = True` is a no-op in Blender 5.x (materials always have a node tree); harmless", line, "")]
+        return [_f(LintKind.API_TRAP, Severity.INFO, "`use_nodes = True` is deprecated in Blender 5.x (removed in 6.0): materials, worlds and lights "
+                   "always have a node tree; harmless", line, "delete the line")]
     return []
+
+
+def gn_input_traps(c: BpyCollector) -> list[GateFinding]:
+    """Geometry-nodes modifier inputs set the pre-5.2 way: ``mod["Socket_2"] = v`` raises TypeError
+    ("id properties not supported for this type") since Blender 5.2 (verified on 5.2.2)."""
+    return [_f(LintKind.API_TRAP, Severity.ERROR, f"`[...][{key!r}] = ...`: geometry-nodes modifier inputs are RNA properties in Blender 5.2 "
+               "(TypeError at runtime)", line,
+               f"getattr(mod.properties.inputs, {key!r}).value = <value>  (identifiers: mod.properties.inputs.keys(); "
+               "an attribute-driven input: `.type = 'ATTRIBUTE'` + `.attribute_name = ...`)")
+            for key, line in c.gn_item_stores]
+
+
+def solver_traps(c: BpyCollector, source: str) -> list[GateFinding]:
+    """``solver = 'FAST'``: the boolean solver was renamed — Blender 5.2.2 has FLOAT / EXACT / MANIFOLD."""
+    lines = source.splitlines()
+    return [_f(LintKind.API_TRAP, Severity.ERROR, "boolean solver 'FAST' does not exist in Blender 5.x (TypeError at runtime)", line,
+               "solver = 'MANIFOLD' (closed meshes) or 'EXACT'; 'FLOAT' is the old FAST")
+            for const, line in c.constants if const == "FAST" and 0 < line <= len(lines) and ".solver" in lines[line - 1]]
 
 
 def source_traps(c: BpyCollector, source: str) -> list[GateFinding]:
@@ -286,7 +310,9 @@ def source_traps(c: BpyCollector, source: str) -> list[GateFinding]:
                       "keep references to the objects you create (`obj = bpy.context.object` right after primitive_*_add) instead of re-reading the selection"))
     for const, line in c.constants:
         if const == "BLENDER_EEVEE_NEXT":
-            out.append(_f(LintKind.HARNESS_OWNED, W, "'BLENDER_EEVEE_NEXT' is not a valid engine id in Blender 5.0", line, "render settings are owned by the harness; delete the line"))
+            out.append(_f(LintKind.HARNESS_OWNED, W, "'BLENDER_EEVEE_NEXT' is not a valid engine id in Blender 5.x", line, "render settings are owned by the harness; delete the line"))
+    out.extend(gn_input_traps(c))
+    out.extend(solver_traps(c, source))
     return out
 
 

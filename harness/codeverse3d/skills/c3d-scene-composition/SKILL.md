@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: track scene, language scene_threejs (three r182, headless Chrome, the harness builds the cameras from your plain camera objects).
 metadata:
   evidence: mixed
-  evidence_note: "Camera checks, score caps and the backdrop classifier are read from live code (spatial/frame_metrics.py, judges/rubrics/scene_v1.yaml, runtime_js/lib/backdrop.mjs, runtime_js/lib/scene_host.mjs). The corpus behind them is thin: only 3 graded scene runs exist, so every count below names its n."
+  evidence_note: "Camera checks, score caps and the backdrop classifier are read from live code (spatial/frame_metrics.py, judges/rubrics/scene_v2.yaml, runtime_js/lib/backdrop.mjs, runtime_js/lib/scene_host.mjs). The corpus behind them is thin: only 3 graded scene runs exist, so every count below names its n."
   verified: "2026-08-25"
   corpus: "3 graded scene_threejs runs with gate artefacts, mined 2026-08-25"
   target_metric: "camera_placement_findings"
@@ -62,7 +62,7 @@ Three consequences you must design around:
 ## Cameras are measured, and the numbers are hard
 
 `codeverse3d/spatial/frame_metrics.py` runs on the authored cameras, where every finding is an
-**ERROR** (the harness's own orbit rig only gets WARNs). `judges/rubrics/scene_v1.yaml`
+**ERROR** (the harness's own orbit rig only gets WARNs). `judges/rubrics/scene_v2.yaml`
 turns those ERRORs into score ceilings:
 
 | condition | constant | finding | cap on the run |

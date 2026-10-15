@@ -34,8 +34,10 @@ import sys
 import traceback
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
+from time import sleep
 from typing import Any
 
 import yaml
@@ -51,9 +53,9 @@ from codeverse3d.addons import select  # noqa: E402
 from codeverse3d.config import get_settings  # noqa: E402
 from codeverse3d.contracts.common import TRACK_INFO, Backends, Budget, Language, Track  # noqa: E402
 from codeverse3d.contracts.run import RunRecord  # noqa: E402
-from codeverse3d.contracts.spec import Constraints, ReferenceImage, Spec  # noqa: E402
+from codeverse3d.contracts.spec import Constraints, ReferenceImage, RunOptions, Spec  # noqa: E402
 from codeverse3d.cost import run_ledger  # noqa: E402
-from codeverse3d.proc import exclusive  # noqa: E402
+from codeverse3d.proc import exclusive, install_stop_handlers  # noqa: E402
 from codeverse3d.record.record import load_record  # noqa: E402
 from codeverse3d.workspace import Workspace  # noqa: E402
 
@@ -127,6 +129,9 @@ class BenchOptions(BaseModel):
     #: in flight, so 8 cells sit near 7 — far inside the 64-call model knee — and
     #: their builds sit inside the 16-build subprocess knee.
     parallel: int = 8
+    stagger_s: float = Field(default=0.0, ge=0.0,
+                             description="seconds between the launches of the FIRST wave's workers; later cells "
+                                         "start when an earlier one finishes, which is already staggered")
     limit: int | None = None
     ids: list[str] = Field(default_factory=list)
     tiers: list[str] = Field(default_factory=list)
@@ -136,6 +141,8 @@ class BenchOptions(BaseModel):
     redo_status: list[str] = Field(default_factory=list,
                                    description="re-run prompts already recorded with one of these statuses "
                                                "(the point of `infra_failed`: retry what the weather lost)")
+    variant: str = Field(default="", description="the per-model prompt/skill variant every run is created with "
+                                                 "(RunOptions.variant, D105); '' = resolve from Settings like `3dcode make`")
 
 
 REFS_DIR = Path(__file__).resolve().parent / "refs"
@@ -172,23 +179,54 @@ def discover_references(item: BenchPrompt, track: Track, *, battery_dir: Path | 
 
 def build_spec(
     battery: Battery, item: BenchPrompt, *, backends: Backends, rounds: int,
-    max_minutes: float, tag0: str, extra_tags: Sequence[str] = (),
+    max_minutes: float, tag0: str, extra_tags: Sequence[str] = (), variant: str = "",
 ) -> Spec:
     """Shared Spec core for bench drivers (``run_bench`` / ``compare_backends``).
-    Drivers resolve their own ``Backends`` and pass their leading tag."""
+    Drivers resolve their own ``Backends`` and pass their leading tag; ``variant`` is frozen on
+    ``RunOptions.variant`` the way ``3dcode make --variant`` freezes it (the track activates it)."""
     return Spec(
         id=f"{battery.name}/{item.id}", track=battery.track, language=item.language or battery.language, prompt=item.prompt,
         constraints=Constraints(must_have=list(item.must_have), dimensions_m=item.dimensions_m),
         references=discover_references(item, battery.track, battery_dir=battery.source_dir),
         budget=Budget(max_rounds=rounds, max_minutes=max_minutes),
         backends=backends, tags=[tag0, battery.name, item.tier, item.category, *extra_tags, *item.tags],
+        options=RunOptions(variant=variant),
     )
+
+
+def resolve_variant(name: str, generator_id: str) -> str:
+    """The variant a bench run is created with: ``name`` when stated (``--variant``), else what the
+    settings resolve for the generator (``prompts.variants.resolve_variant`` — the same rule as
+    ``3dcode make``), else the base.  A tree without the variant layer (pre-D105) resolves to the base
+    unless a name was stated, which it cannot honour."""
+    if name:
+        return name
+    try:
+        from codeverse3d.prompts.variants import resolve_variant as _resolve
+    except ImportError:
+        return ""
+    return str(_resolve(get_settings(), generator_id) or "")
+
+
+def activate_variant(name: str) -> AbstractContextManager[Any]:
+    """``prompts.variants.activate(name)`` for the block (prompt / skill loads of THIS thread read the
+    overlay) — a no-op for the base.  A stated name on a tree without the layer is an error, never a
+    silent base run: that would be an A/B comparing a tree against itself."""
+    if not name:
+        return nullcontext()
+    try:
+        from codeverse3d.prompts.variants import activate
+    except ImportError as e:
+        raise RuntimeError(f"--variant {name!r} needs codeverse3d.prompts.variants (D105), which this tree "
+                           f"does not have: {e}") from e
+    return activate(name)
 
 
 def spec_for(battery: Battery, item: BenchPrompt, opts: BenchOptions) -> Spec:
     backends = get_settings().backends(generator=opts.generator, planner=opts.planner, judge=opts.judge)
     return build_spec(battery, item, backends=backends, rounds=opts.rounds,
-                      max_minutes=opts.max_minutes, tag0="bench")
+                      max_minutes=opts.max_minutes, tag0="bench",
+                      variant=resolve_variant(opts.variant, backends.generator))
 
 
 def record_minutes(run_dir: Path) -> float:
@@ -278,8 +316,19 @@ def run_battery(
     battery_path: Path | str, out_dir: Path | str, opts: BenchOptions | None = None, *,
     run_fn: RunFn | None = None, on_result: Callable[[BenchItemResult], None] | None = None,
 ) -> list[BenchItemResult]:
-    """Run (or resume) a battery; returns every result (previous + new)."""
+    """Run (or resume) a battery; returns every result (previous + new).  A stated ``opts.variant``
+    is active for the whole battery (``activate_variant``) and frozen on every spec, which is what
+    the worker threads' runs read (``BaseTrack.run`` activates ``spec.options.variant`` — a
+    ContextVar does not cross into a pool thread by itself)."""
     opts = opts or BenchOptions()
+    with activate_variant(opts.variant):
+        return _run_battery(battery_path, out_dir, opts, run_fn=run_fn, on_result=on_result)
+
+
+def _run_battery(
+    battery_path: Path | str, out_dir: Path | str, opts: BenchOptions, *,
+    run_fn: RunFn | None, on_result: Callable[[BenchItemResult], None] | None,
+) -> list[BenchItemResult]:
     run_fn = run_fn or default_run_track
     battery = Battery.load(battery_path)
     out = Path(out_dir)
@@ -295,7 +344,14 @@ def run_battery(
         del done[pid]
     todo = [p for p in select_prompts(battery, ids=opts.ids, tiers=opts.tiers, limit=opts.limit) if p.id not in done]
 
-    def _one(item: BenchPrompt) -> BenchItemResult:
+    def _one(k: int, item: BenchPrompt) -> BenchItemResult:
+        if opts.stagger_s > 0 and 0 < k < opts.parallel:
+            # The first wave launches together, and every run plans and single-shots its assets the
+            # moment it starts — N of those at once is what exhausts the key pool (loop iteration 0:
+            # 160 of its 172 `asset.generate_failed` outages fell in the runs' first ten minutes).  A
+            # later cell starts when an earlier one finishes, which is staggered by itself.  Before
+            # the workspace, so a resumed or --redo-status cell staggers too.
+            sleep(k * opts.stagger_s)
         ws = Workspace(out / "runs" / item.id)
         if item.id in redo_ids and ws.exists():
             # A redo starts FRESH: resuming the old workspace keeps its spec (the old
@@ -331,7 +387,7 @@ def run_battery(
 
     seal_for_append(results_jsonl)  # a kill left the last row unterminated; do not glue onto it
     with ThreadPoolExecutor(max_workers=max(1, opts.parallel)) as pool, results_jsonl.open("a") as fh:
-        futs = {pool.submit(_one, item): item for item in todo}
+        futs = {pool.submit(_one, k, item): item for k, item in enumerate(todo)}
         for fut in as_completed(futs):
             res = fut.result()
             done[res.id] = res
@@ -363,6 +419,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--judge", help="fixed judge model for the whole battery")
     ap.add_argument("--parallel", type=int, default=None,
                     help="workers (default: BenchOptions.parallel — the measured knee)")
+    ap.add_argument("--stagger", type=float, default=None,
+                    help="seconds between the launches of the first wave's workers (default: BenchOptions.stagger_s, "
+                         "0 = all at once); a cell that starts when another finishes is staggered by itself")
     ap.add_argument("--rounds", type=int, default=4)
     ap.add_argument("--max-minutes", type=float, default=60.0,
                     help="wall-clock budget per run; size it to the weather (RUNBOOK 7.x: 120 in a 503 storm, "
@@ -374,19 +433,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="comma list of recorded statuses to re-run, e.g. infra_failed once the provider recovers")
     ap.add_argument("--report", action=argparse.BooleanOptionalAction, default=True,
                     help="write report.md + report.html when the battery ends")
+    ap.add_argument("--variant", default="",
+                    help="per-model prompt/skill variant for every run (codeverse3d/prompts/variants/<name>, D105); "
+                         "default: what the settings resolve for the generator, like `3dcode make`")
     ns = ap.parse_args(argv)
     if not ns.battery.is_file():
         ap.error(f"battery not found: {ns.battery}")
-    if ns.rounds < 0 or (ns.parallel is not None and ns.parallel < 1):
-        ap.error("--rounds must be >= 0 and --parallel >= 1")
-    # one source of truth for the worker count: BenchOptions.parallel (the measured knee)
+    if ns.rounds < 0 or (ns.parallel is not None and ns.parallel < 1) or (ns.stagger is not None and ns.stagger < 0):
+        ap.error("--rounds must be >= 0, --parallel >= 1 and --stagger >= 0")
+    # A SIGTERM (the loop driver stopping, a timeout) kills every live agent / blender / chrome group
+    # of this battery and ends the process so the runs record their stop; without it the worker
+    # threads' children outlived the driver and kept billing (live, 2026-10-13).
+    install_stop_handlers()
+    # one source of truth for the worker count and the stagger: BenchOptions (the measured knee; none)
     opts = BenchOptions(generator=ns.generator, planner=ns.planner, judge=ns.judge, rounds=ns.rounds,
                         max_minutes=ns.max_minutes, limit=ns.limit, ids=ns.ids, tiers=ns.tiers,
-                        redo_status=[x for x in ns.redo_status.split(",") if x],
-                        **({} if ns.parallel is None else {"parallel": ns.parallel}))
+                        redo_status=[x for x in ns.redo_status.split(",") if x], variant=ns.variant,
+                        **({} if ns.parallel is None else {"parallel": ns.parallel}),
+                        **({} if ns.stagger is None else {"stagger_s": ns.stagger}))
     out = ns.out or Path(__file__).resolve().parent / "out" / ns.battery.stem
-    print(f"battery={ns.battery} out={out} generator={ns.generator or 'default'} judge={ns.judge or 'default'}",
-          flush=True)
+    print(f"battery={ns.battery} out={out} generator={ns.generator or 'default'} judge={ns.judge or 'default'}"
+          + (f" variant={ns.variant}" if ns.variant else ""), flush=True)
 
     def _on(res: BenchItemResult) -> None:
         print(f"  [{res.status}] {res.id}: baseline={res.score_baseline} picked={res.score_picked} "

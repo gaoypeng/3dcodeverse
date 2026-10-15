@@ -20,7 +20,15 @@ from codeverse3d.conventions import (
 )
 from codeverse3d.languages import get_runtime
 from codeverse3d.languages.base import SceneRuntime
-from codeverse3d.languages.scene_blender import frame_of, render_scene_py, write_skeleton
+from codeverse3d.languages.scene_blender import (
+    ENV_FILE,
+    SceneBlenderRuntime,
+    frame_of,
+    lib_files,
+    render_scene_py,
+    write_example,
+    write_skeleton,
+)
 from codeverse3d.spatial.probes import _census_findings, merge_facts
 from codeverse3d.tracks.planner import plan_example
 
@@ -47,6 +55,7 @@ def test_the_file_table() -> None:
     assert rt.files_for(plan, "fog") == ["src/env.py"]
     assert rt.files_for(plan, "cameras") == ["src/scene.py"]
     assert rt.expected_files(plan) == ["src/scene.py", "src/env.py"]
+    assert rt.env_file == ENV_FILE == "src/env.py"   # the SceneRuntime protocol's env hint
 
 
 def test_asset_kind_bpy_loads() -> None:
@@ -94,6 +103,28 @@ def test_the_skeleton_writes_the_layout(tmp_ws) -> None:
              for n in re.findall(r'place\(ctx, "\w+", "(\w+)"', (tmp_ws.src / "zones" / f"{z}.py").read_text())]
     assert names
     assert len(names) == len(set(names))
+    # the library ships with the plan skeleton (D51: a catalog with no src/lib/ to import from
+    # made every library import a build error on the three.js side), and the env / stubs USE it
+    lib = {p.rsplit("/", 1)[1] for p in paths if p.startswith("src/lib/")}
+    assert lib == {p.name for p in lib_files()} | {"__init__.py"} and len(lib) == 14
+    assert "from lib import architecture, lighting, materials, sky, terrain" in (tmp_ws.src / "env.py").read_text()
+    assert "from lib.scatter import instance" in (tmp_ws.src / "zones" / "quay.py").read_text()
+    assert "from lib.mesh import Batch" in (tmp_ws.src / "assets" / "bollard.py").read_text()
+
+
+def test_the_plan_less_skeleton_is_the_example_scene(tmp_ws) -> None:
+    """``write_skeleton(ws, None)`` is ``write_example``: the complete lakeside hamlet (three
+    zones, two assets, the entry, the env and the library), like scene_threejs's meadow."""
+    paths = {p.relative_to(tmp_ws.src).as_posix() for p in write_skeleton(tmp_ws, None)}
+    assert {"scene.py", "env.py", "zones/hamlet.py", "zones/lakeside.py", "zones/orchard.py", "assets/crate.py",
+            "assets/lantern_post.py", "lib/mesh.py", "lib/__init__.py"} <= paths
+    assert paths == {p.relative_to(tmp_ws.src).as_posix() for p in write_example(tmp_ws)}
+    ns: dict = {}
+    exec(compile((tmp_ws.src / "scene.py").read_text(), "scene.py", "exec"), ns)   # data only
+    assert set(ns["ZONES"]) == {"hamlet", "lakeside", "orchard"} and set(ns["ASSETS"]) == {"crate", "lantern_post"}
+    assert len(ns["CAMERAS"]) == 3 and (tmp_ws.public / "assets").is_dir()
+    with pytest.raises(TypeError, match="ScenePlan"):
+        SceneBlenderRuntime().skeleton(tmp_ws, object())  # type: ignore[arg-type]
 
 
 # --------------------------------------------------------------------------- the offline census gate
@@ -146,13 +177,21 @@ def test_each_scene_language_plans_its_own_asset_kinds() -> None:
     scene_threejs's (its prompts are byte-identical), a scene_blender planner swaps its own in."""
     from typing import get_args
 
-    from codeverse3d.contracts.plan import SCENE_ASSET_KINDS
+    from codeverse3d.contracts.plan import SCENE_ASSET_KINDS, scene_plan_schema
 
     kinds = set(get_args(AssetPlan.model_fields["kind"].annotation))
     assert {lang.value for lang in TRACK_LANGUAGES[Track.SCENE]} == set(SCENE_ASSET_KINDS)
     assert all(set(v) <= kinds for v in SCENE_ASSET_KINDS.values())
     enum = ScenePlan.model_json_schema()["$defs"]["AssetPlan"]["properties"]["kind"]["enum"]
     assert enum == list(SCENE_ASSET_KINDS["scene_threejs"])
+    # the swap the planner hands out (lane B1, 2026-10-14): scene_threejs's schema IS the default, byte for
+    # byte; a scene_blender planner is offered bpy / blender_glb and never threejs, with the kind documented
+    assert scene_plan_schema(Language.SCENE_THREEJS) == ScenePlan.model_json_schema()
+    bpy_kind = scene_plan_schema("scene_blender")["$defs"]["AssetPlan"]["properties"]["kind"]
+    assert bpy_kind["enum"] == list(SCENE_ASSET_KINDS["scene_blender"]) == ["bpy", "blender_glb"]
+    assert bpy_kind["description"].startswith("bpy = ")
+    with pytest.raises(KeyError):
+        scene_plan_schema(Language.BLENDER)   # not a scene language
 
 
 def test_the_adapter_and_the_host_agree_on_the_census_url() -> None:

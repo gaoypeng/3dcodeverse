@@ -85,3 +85,28 @@ def test_the_build_layer_is_attributed(tmp_path: Path) -> None:
     b = layers(runs(tmp_path))["build"]
     assert dict(b) == {"failed": 2, "harness_retry": 1, "repair": 1, "ok": 1}
     assert "## build" in report(tmp_path)
+
+
+def test_gate_findings_are_counted_per_typed_kind(tmp_path: Path) -> None:
+    """``gate_kinds`` / ``gate_warn_kinds`` read ``data.kind`` (never the message); a finding without
+    one is ``untyped``; a browser loss is the box and is not a kind."""
+    def finding(sev: str, kind: str | None, msg: str = "m") -> dict:
+        f = {"severity": sev, "message": msg}
+        if kind is not None:
+            f["data"] = {"kind": kind}
+        return f
+
+    _run(tmp_path, "kinds", [
+        {"gate": "scene_placement", "passed": False, "findings": [
+            finding("error", "floating"), finding("error", "floating"), finding("error", "sunken"),
+            finding("warn", "unsupported"), finding("error", None), finding("info", "summary")]},
+        {"gate": "scene_frames", "passed": False, "findings": [finding("error", "dark_frame"), finding("error", None, DETACHED)]},
+    ])
+    d = layers(runs(tmp_path))
+    assert d["gate_kinds"] == {"scene_placement/floating": 2, "scene_placement/sunken": 1, "scene_placement/untyped": 1,
+                               "scene_frames/dark_frame": 1}
+    assert d["gate_warn_kinds"] == {"scene_placement/unsupported": 1}
+    text = report(tmp_path)
+    assert "## gate findings by kind" in text
+    assert "| scene_placement/floating | 2 | 0 |" in text and "| scene_placement/unsupported | 0 | 1 |" in text
+    assert text.index("| scene_placement/floating | 2 | 0 |") < text.index("| scene_placement/sunken | 1 | 0 |")

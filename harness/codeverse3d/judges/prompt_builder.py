@@ -17,6 +17,7 @@ import hashlib
 import json
 import math
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -153,8 +154,14 @@ OBJECT_RANK = (
 #: The rig names come from ``conventions.SCENE_VIEWS`` — anything else in a scene render
 #: set is a camera the SCENE authored, whatever it is called (they are PascalCase plan
 #: names such as ``Establishing``, never a fixed prefix).
-SCENE_OVERVIEW_RANK = ("overview_front_right", "overview_back_left", "overview_top", "eye_front", "eye_right", "eye_back_left")
+SCENE_OVERVIEW_RANK = ("overview_front_right", "overview_back_left", "overview_top", "overview_low_front",
+                       "eye_front", "eye_right", "eye_back_left")
 SCENE_RIG_NAMES = frozenset(v.name for v in SCENE_VIEWS) | frozenset(SCENE_OVERVIEW_RANK)
+#: the rig tiles a contact crop may be cut from (the judged ``overview_*`` views; the eye
+#: rig never reaches the judge, so a crop from it would cite a tile the judge cannot see)
+SCENE_OVERVIEW_NAMES = frozenset(n for n in SCENE_OVERVIEW_RANK if n.startswith("overview"))
+#: the gate whose findings become contact crops and the MEASURED PLACEMENT line
+PLACEMENT_GATE = "scene_placement"
 POSE_PREFIX = "pose_"
 POSE_SHEET_NAMES = ("articulation_sheet", "pose_sheet")
 _POSITIONS = {
@@ -228,8 +235,10 @@ def plan_montages(
     scene: bool = False,
     max_montages: int = MAX_MONTAGES,
     detail_crops: int = MAX_DETAIL_CROPS,
+    gates: Sequence[GateReport] = (),
 ) -> list[Montage]:
-    """Decide which montages a judge call gets (see module docstring for the priority)."""
+    """Decide which montages a judge call gets (see module docstring for the priority).
+    ``gates`` feed a scene's contact crops (``plan_detail_crops``); objects ignore them."""
     shaded = [v for v in renders.views if not (is_pose_view(v) or is_pose_sheet(v) or is_geometry_view(v))]
     poses = [v for v in renders.views if is_pose_view(v)]
     sheets = [v for v in renders.views if is_pose_sheet(v)]
@@ -254,7 +263,7 @@ def plan_montages(
     if sheets and poses:  # the sheet already shows the poses; the 2×2 is a larger-tile duplicate, lowest priority
         candidates.append(Montage("poses", tuple(poses[:MAX_TILES]), "POSED views (joints moved by the harness; tile label = pose)"))
     chosen = candidates[: max(0, max_montages)]
-    chosen.extend(plan_detail_crops(shaded, scene=scene)[: max(0, detail_crops)])
+    chosen.extend(plan_detail_crops(shaded, scene=scene, gates=gates, limit=max(0, detail_crops)))
     return chosen
 
 
@@ -267,20 +276,218 @@ def _match_geometry(geometry: list[RenderView], primary: tuple[RenderView, ...])
     return out[:MAX_TILES]
 
 
-def plan_detail_crops(shaded: list[RenderView], *, scene: bool) -> list[Montage]:
-    """Centre crop of the best view at 2× (detail legibility) + ground band of the lowest view (objects only)."""
-    if not shaded:
+def plan_detail_crops(shaded: list[RenderView], *, scene: bool, gates: Sequence[GateReport] = (),
+                      limit: int = MAX_DETAIL_CROPS) -> list[Montage]:
+    """The crops a verdict sends, ``limit`` = ``Settings.judge.detail_crops`` (0 = none).
+
+    Objects: the centre crop of the best view at 2× (detail legibility) + the ground band of
+    the lowest view, cut to ``limit``.  Scenes (scene_v2, 2026-10-14): the centre crop plus up
+    to ``limit`` CONTACT CROPS — close-ups around the placement findings the gate measured
+    (``plan_contact_crops``), so the judge sees the daylight under a base at crop scale
+    instead of reading the gate's sentence about it.
+    """
+    if not shaded or limit <= 0:
         return []
-    out = [Montage("detail", (shaded[0],), f"DETAIL CROP — centre of {shaded[0].name} at 2×",
-                   crop=(0.25, 0.25, 0.75, 0.75),
-                   hint="look for bevels, seams, gaps and surface artefacts; judge detail at this scale")]
+    centre = Montage("detail", (shaded[0],), f"DETAIL CROP — centre of {shaded[0].name} at 2×",
+                     crop=(0.25, 0.25, 0.75, 0.75),
+                     hint="look for bevels, seams, gaps and surface artefacts; judge detail at this scale")
     if scene:
-        return out
+        return [centre, *plan_contact_crops(shaded, gates)[:limit]]
+    out = [centre]
     lowest = min(shaded, key=lambda v: (view_az_el(v) or (0.0, 90.0))[1])
     if lowest is not shaded[0] or len(shaded) == 1:
         out.append(Montage("detail", (lowest,), f"DETAIL CROP — ground-contact band of {lowest.name}",
                            crop=(0.0, 0.55, 1.0, 1.0),
                            hint="look for feet/legs that do not reach the ground and parts hovering above their support"))
+    return out[:limit]
+
+
+# --------------------------------------------------------------------------- scene contact crops
+#: a crop smaller than this of the frame (per axis) would upscale a 1024-px tile past ~4.5×
+CONTACT_CROP_MIN_FRAC = 0.22
+#: padding around the projected asset box, as a fraction of the box's own size: the gap
+#: under a base and the neighbour a part passes through are OUTSIDE the box
+CONTACT_CROP_PAD = 0.6
+#: an asset filling more than this of the tile on either axis needs no crop: the tile is the crop
+CONTACT_CROP_MAX_FRAC = 0.8
+#: which rig tile a crop prefers, by the tile's elevation: ``(upper bound, weight)`` rows, the
+#: first whose bound exceeds the elevation applies.  The ground-level contact tile (< 10°) is
+#: built for this and counts 1.5×; a 32° overview counts as drawn; a top-down tile (≥ 60°)
+#: shows a base's shadow, not its gap, and is the last resort at a quarter.
+CONTACT_TILE_WEIGHT: tuple[tuple[float, float], ...] = ((10.0, 1.5), (60.0, 1.0), (90.1, 0.25))
+#: placement kinds that carry a per-asset box, and how their magnitude is printed in the label
+CONTACT_KINDS: dict[str, tuple[str, str]] = {
+    "floating": ("gap_m", "{:.2f} m"), "unsupported": ("gap_m", "{:.2f} m"), "cantilevered": ("gap_max_m", "{:.2f} m"),
+    "sunken": ("sunk_m", "{:.2f} m"), "interpenetration": ("overlap", "{:.0%}"), "scale": ("factor", "{:g}×"),
+}
+
+
+def _camera_frame(view: RenderView) -> tuple[tuple[float, float, float], ...] | None:
+    """``(eye, forward, right, up)`` of a view's camera in the GLB frame, with THREE's lookAt
+    roll (world up +Y unless the view is vertical, then −Z) — the convention ``orbit.mjs``
+    fits the rig with, so a projection here lands where the tile drew it."""
+    if view.camera_position is None or view.look_at is None:
+        return None
+    eye = tuple(float(c) for c in view.camera_position)
+    f = tuple(float(target) - e for target, e in zip(view.look_at, eye, strict=True))
+    fl = math.hypot(*f)
+    if fl < 1e-9:
+        return None
+    f = (f[0] / fl, f[1] / fl, f[2] / fl)
+    up0 = (0.0, 0.0, -1.0) if abs(f[1]) > 0.9999 else (0.0, 1.0, 0.0)
+    r = (f[1] * up0[2] - f[2] * up0[1], f[2] * up0[0] - f[0] * up0[2], f[0] * up0[1] - f[1] * up0[0])
+    rl = math.hypot(*r)
+    if rl < 1e-9:
+        return None
+    r = (r[0] / rl, r[1] / rl, r[2] / rl)
+    u = (r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0])
+    return eye, f, r, u
+
+
+def _view_aspect(view: RenderView) -> float:
+    return view.width / view.height if view.width > 0 and view.height > 0 else 16 / 9
+
+
+def project_box(view: RenderView, center: Sequence[float], size: Sequence[float]) -> tuple[float, float, float, float] | None:
+    """The frame-fraction box ``(left, top, right, bottom)`` the GLB-frame AABB ``center ±
+    size/2`` covers in ``view`` (vertical ``fov``, the rig's 50° when the record has none), or
+    None when the camera is unknown, a corner is behind the lens, or the box's centre is
+    outside the frame.  Fractions may run past 0..1 for a box that is partly out of frame."""
+    frame = _camera_frame(view)
+    if frame is None:
+        return None
+    eye, f, r, u = frame
+    tan_v = math.tan(math.radians(float(view.fov or 50.0)) / 2)
+    tan_h = tan_v * _view_aspect(view)
+    half = [abs(float(s)) / 2 for s in size]
+    pts = [(float(center[0]) + sx * half[0], float(center[1]) + sy * half[1], float(center[2]) + sz * half[2])
+           for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+    us: list[float] = []
+    vs: list[float] = []
+    for p in [tuple(float(c) for c in center), *pts]:
+        rel = (p[0] - eye[0], p[1] - eye[1], p[2] - eye[2])
+        depth = rel[0] * f[0] + rel[1] * f[1] + rel[2] * f[2]
+        if depth <= 1e-6:
+            return None
+        x = (rel[0] * r[0] + rel[1] * r[1] + rel[2] * r[2]) / (depth * tan_h)
+        y = (rel[0] * u[0] + rel[1] * u[1] + rel[2] * u[2]) / (depth * tan_v)
+        us.append((x + 1) / 2)
+        vs.append((1 - y) / 2)
+    if not (0.0 <= us[0] <= 1.0 and 0.0 <= vs[0] <= 1.0):  # the centre must be in the picture
+        return None
+    return min(us[1:]), min(vs[1:]), max(us[1:]), max(vs[1:])
+
+
+def _finding_box(f: GateFinding) -> tuple[list[float], list[float]] | None:
+    """``(center, size)`` from a placement finding's ``data.bbox`` (scene_placement, 2026-10-14), or None."""
+    box = f.data.get("bbox") if isinstance(f.data, dict) else None
+    if not isinstance(box, dict):
+        return None
+    try:
+        center = [float(c) for c in box.get("center") or ()]
+        size = [float(s) for s in box.get("size") or ()]
+    except (TypeError, ValueError):
+        return None
+    if len(center) != 3 or len(size) != 3 or max(size) <= 0:
+        return None
+    return center, size
+
+
+def _contact_label(f: GateFinding) -> str:
+    kind = str(f.data.get("kind") or "")
+    key, fmt = CONTACT_KINDS.get(kind, ("", ""))
+    v = f.data.get(key) if key else None
+    mag = fmt.format(float(v)) if isinstance(v, (int, float)) and not isinstance(v, bool) else ""
+    return f"CONTACT CROP — {f.target or 'asset'} (gate: {kind}{' ' + mag if mag else ''})"
+
+
+def _crop_around(box: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    """A crop window around a projected box: padded by ``CONTACT_CROP_PAD``, never under
+    ``CONTACT_CROP_MIN_FRAC`` on either axis, shifted (not shrunk) back inside the frame."""
+    left, top, right, bottom = box
+    cx, cy = (left + right) / 2, (top + bottom) / 2
+    hw = max((right - left) * (1 + CONTACT_CROP_PAD) / 2, CONTACT_CROP_MIN_FRAC / 2)
+    hh = max((bottom - top) * (1 + CONTACT_CROP_PAD) / 2, CONTACT_CROP_MIN_FRAC / 2)
+
+    def span(c: float, h: float) -> tuple[float, float]:
+        lo, hi = c - h, c + h
+        if lo < 0:
+            hi, lo = min(1.0, hi - lo), 0.0
+        if hi > 1:
+            lo, hi = max(0.0, lo - (hi - 1)), 1.0
+        return round(lo, 4), round(hi, 4)
+
+    x0, x1 = span(cx, hw)
+    y0, y1 = span(cy, hh)
+    return x0, y0, x1, y1
+
+
+def placement_findings_for_crops(gates: Sequence[GateReport]) -> list[GateFinding]:
+    """The scene_placement findings a contact crop can be cut for: ERROR before WARN, the larger
+    magnitude first, one per asset, only those carrying a box."""
+    rank = {Severity.ERROR: 0, Severity.WARN: 1, Severity.INFO: 2}
+    found: list[GateFinding] = [f for g in gates if g.gate == PLACEMENT_GATE for f in g.findings
+                                if f.severity != Severity.INFO and str(f.data.get("kind") or "") in CONTACT_KINDS
+                                and _finding_box(f) is not None]
+
+    def magnitude(f: GateFinding) -> float:
+        key = CONTACT_KINDS[str(f.data.get("kind"))][0]
+        v = f.data.get(key)
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0.0
+
+    out: list[GateFinding] = []
+    seen: set[str] = set()
+    for f in sorted(found, key=lambda f: (rank[f.severity], -magnitude(f))):
+        if (f.target or "") in seen:
+            continue
+        seen.add(f.target or "")
+        out.append(f)
+    return out
+
+
+def _tile_weight(elevation_deg: float) -> float:
+    return next(w for bound, w in CONTACT_TILE_WEIGHT if elevation_deg < bound)
+
+
+def plan_contact_crops(shaded: list[RenderView], gates: Sequence[GateReport]) -> list[Montage]:
+    """One crop per placement finding (``placement_findings_for_crops`` order), cut from the
+    judged overview tile that shows the asset largest: every ``overview_*`` view at the first
+    time whose camera is recorded projects the finding's box (``project_box``), its projected
+    size weighted by the tile's elevation (``CONTACT_TILE_WEIGHT``: the ground-level contact
+    tile first, the top-down one last); a tile where the box fills the frame needs no crop.  No
+    box, no camera, no tile that sees it — no crop: the verdict never dies on a crop.  Added
+    2026-10-14 (scene_v2) because the judge read the gate's floating sentences instead of the
+    pictures: the crop puts the measured contact in front of it at the scale a person would
+    check."""
+    overviews = [v for v in shaded if v.name in SCENE_OVERVIEW_NAMES]
+    if not overviews:
+        return []
+    t0 = min((v.time_s if v.time_s is not None else 0.0) for v in overviews)
+    tiles = [v for v in overviews if (v.time_s if v.time_s is not None else 0.0) == t0]
+    out: list[Montage] = []
+    for f in placement_findings_for_crops(gates):
+        box = _finding_box(f)
+        if box is None:
+            continue
+        best: tuple[float, RenderView, tuple[float, float, float, float]] | None = None
+        for i, v in enumerate(tiles):
+            proj = project_box(v, *box)
+            if proj is None:
+                continue
+            w, h = proj[2] - proj[0], proj[3] - proj[1]
+            if max(w, h) > CONTACT_CROP_MAX_FRAC:
+                continue
+            el = (view_az_el(v) or (0.0, 0.0))[1]
+            score = max(w, h) * _tile_weight(el) - i * 1e-6  # ties keep rank order
+            if best is None or score > best[0]:
+                best = (score, v, proj)
+        if best is None:
+            continue
+        _, view, proj = best
+        out.append(Montage("detail", (view,), _contact_label(f), crop=_crop_around(proj),
+                           hint=f"diagnostic close-up cut from {view.name} at a placement finding the gate measured: "
+                                "judge the CONTACT — does the base meet what is under it, does the part pass through "
+                                "its neighbour — not the composition, lighting or dressing"))
     return out
 
 
@@ -537,7 +744,7 @@ def contact_ledger(gates: list[GateReport]) -> tuple[GateReport, GateFinding] | 
     return None
 
 
-def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: int = 8) -> str:
+def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: int = 8, scene: bool = False) -> str:
     """The judge's gate facts.  ERRORs are listed as recorded.  With a contact ledger the
     connectivity WARNs are not prose any more: the audit of 420 judged static rounds
     (2026-08-30, eval/docs/EVAL.md §6) found the judge marking interpenetration on every gate
@@ -546,9 +753,13 @@ def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: i
     13 of 24 flags flipped).  So the WARNs become one measured line and a MEASURED STRUCTURE
     block (contacts, planned joins contact/open, floor gaps) the judge can cite instead.
     Without a ledger (older rounds) the text is the pre-ledger text byte for byte, which is
-    what keeps ``3dcode judge <old-slug>`` comparable with the verdict it stored."""
+    what keeps ``3dcode judge <old-slug>`` comparable with the verdict it stored.
+    ``scene`` (scene_v2, 2026-10-14) is the scene track's own branch — ``_scene_gates_section``;
+    the object text above is untouched by it."""
     if not gates:
         return "GATE FINDINGS: (no gates run)"
+    if scene:
+        return _scene_gates_section(gates, max_errors=max_errors, max_warns=max_warns)
     status = ", ".join(f"{g.gate}={'pass' if g.passed else 'FAIL'}" for g in gates)
     lines = [f"GATE FINDINGS (deterministic; treat as facts): {status}"]
     errs = [_finding_line(g, f) for g in gates for f in g.findings if f.severity == Severity.ERROR]
@@ -584,6 +795,96 @@ def gates_section(gates: list[GateReport], *, max_errors: int = 12, max_warns: i
         lines.append(_passed_paragraph(n_parts, len(d.get("contacts") or []), float(d.get("contact_gap_mm") or 0.0),
                                        list(d.get("overlaps") or [])))
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- the scene branch
+#: the order the scene gates are listed in: what was measured about the place first (the
+#: placement rows), then the frames, then lint / build / console reports.  A typed rank, so a
+#: new gate name lands in the tail by default — never a regex on the name.
+SCENE_GATE_ORDER: dict[str, int] = {PLACEMENT_GATE: 0, "scene_frames": 1}
+#: the per-kind magnitude a MEASURED PLACEMENT line reports as "worst" (the same keys the
+#: findings carry; cantilevered rows report their widest column gap)
+PLACEMENT_WORST: dict[str, tuple[str, str]] = {
+    "floating": ("gap_m", "{:.2f} m"), "sunken": ("sunk_m", "{:.2f} m"), "unsupported": ("gap_m", "{:.2f} m"),
+    "interpenetration": ("overlap", "{:.0%} of the smaller box"), "cantilevered": ("gap_max_m", "{:.2f} m"),
+}
+
+
+def _scene_gates_section(gates: list[GateReport], *, max_errors: int, max_warns: int) -> str:
+    """The scene judge's gate facts (scene_v2): reports in ``SCENE_GATE_ORDER``, the ERRORs as
+    recorded, one MEASURED PLACEMENT line built from the scene_placement report's own counts
+    (``placement_block``), and the WARNs grouped by (gate, kind) as the object ledger branch
+    groups them — eight flat lines used to cut a round's WARNs mid-list with every frame
+    WARN behind the placement ones."""
+    ordered = sorted(gates, key=lambda g: SCENE_GATE_ORDER.get(g.gate, len(SCENE_GATE_ORDER)))
+    status = ", ".join(f"{g.gate}={'pass' if g.passed else 'FAIL'}" for g in ordered)
+    lines = [f"GATE FINDINGS (deterministic; treat as facts): {status}"]
+    errs = [_finding_line(g, f) for g in ordered for f in g.findings if f.severity == Severity.ERROR]
+    lines += _capped("errors", errs, max_errors)
+    block = placement_block(gates)
+    if block:
+        lines.append(block)
+    warns = [(g, f) for g in ordered for f in g.findings if f.severity == Severity.WARN]
+    lines += _grouped_warnings(warns, max_warns)
+    if not errs and not warns:
+        lines.append("no errors or warnings — every checked asset is seated, the frames are exposed and the contracts hold.")
+    return "\n".join(lines)
+
+
+def placement_report(gates: Sequence[GateReport]) -> GateReport | None:
+    return next((g for g in gates if g.gate == PLACEMENT_GATE), None)
+
+
+def placement_block(gates: Sequence[GateReport]) -> str:
+    """MEASURED PLACEMENT: the scene_placement gate's own summary (checked / placed / exempt /
+    free-tagged, the count per kind) with the worst magnitude per kind read off the typed
+    findings, the thresholds the gate used when it recorded them, and — on a clean report — the
+    sentence that tells the judge which checklist items the measurement already answered (the
+    arithmetic veto, ``rubrics.measured_absent``, holds when the judge does not listen).  Empty
+    without the gate or when its probe failed (nothing was measured)."""
+    rep = placement_report(gates)
+    if rep is None:
+        return ""
+    summary = next((f for f in rep.findings if f.severity == Severity.INFO and f.data.get("kind") == "summary"), None)
+    if summary is None:
+        return ""
+    d = summary.data
+    counts = {k: int(v) for k, v in (d.get("counts") or {}).items() if isinstance(v, (int, float))}
+    exempt = {str(k): int(v) for k, v in (d.get("exempt") or {}).items() if isinstance(v, (int, float))}
+    worst: dict[str, float] = {}
+    for f in rep.findings:
+        kind = str(f.data.get("kind") or "")
+        if f.severity == Severity.INFO or kind not in PLACEMENT_WORST:
+            continue
+        v = f.data.get(PLACEMENT_WORST[kind][0])
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            worst[kind] = max(worst.get(kind, 0.0), float(v))
+    free = sum(1 for g in gates if g.gate == PLACEMENT_GATE for f in g.findings if f.data.get("kind") == "free_exempt")
+    head = (f"MEASURED PLACEMENT (scene_placement gate: every placed asset's foot columns against what is under it, "
+            f"every pair's box overlap): {int(d.get('checked') or 0)} assets checked of {int(d.get('total') or 0)} placed, "
+            f"{sum(exempt.values())} exempt ({exempt.get('free', 0)} tagged free)")
+    # the gate's own per-kind counts (floating / sunken / unsupported / interpenetration, in its
+    # order), then any kind only the findings know (a cantilevered row has no count yet)
+    kinds = [k for k in PLACEMENT_WORST if k in counts] + [k for k in worst if k not in counts]
+    parts = []
+    for kind in kinds:
+        text = f"{counts.get(kind, 0) or sum(1 for f in rep.findings if f.data.get('kind') == kind)} "
+        text += "interpenetrating" if kind == "interpenetration" else kind
+        if kind in worst:
+            text += f" (worst {PLACEMENT_WORST[kind][1].format(worst[kind])})"
+        parts.append(text)
+    head += ": " + ", ".join(parts) + "."
+    if free:
+        head += " The share of assets tagged placement='free' is over the line (see the free_exempt finding): an author hiding from the gate."
+    thresholds = d.get("thresholds")
+    if isinstance(thresholds, dict) and thresholds:
+        head += " Thresholds: " + ", ".join(f"{k} {float(v):g}" for k, v in sorted(thresholds.items())
+                                             if isinstance(v, (int, float)) and not isinstance(v, bool)) + "."
+    if rep.passed and not any(counts.get(k, 0) for k in kinds) and not worst:
+        head += (" PLACEMENT PASSED: no checked asset floats, sinks or overlaps another beyond the thresholds. A dark seam "
+                 "under a base is contact, not daylight: mark floating_asset / sunken_asset / interpenetration present only "
+                 "where a render VISIBLY shows it, and name the view.")
+    return head
 
 
 def connectivity_error_pairs(gates: list[GateReport]) -> list[tuple[str, str]]:
@@ -821,6 +1122,9 @@ RIG_RULES: dict[str, str] = {
     "poses": "POSE tiles show the SAME object with joints moved by the harness (tile label = joint@value or rest). Judge articulation only from them and the joint table.",
     "scene_cams": "Views named overview_* and eye_* are harness cameras fitted to the scene bounds (layout X-ray); every other view is one of the scene's own authored cameras (grade composition/lighting on those); 't=' is the animation time.",
     "scene_craft": "On the authored cameras also read the CRAFT of the picture, not only its contents: depth layering (is there anything within a few metres framing the shot, and anything on the horizon), ground variation (blended materials, paths, dressed edges vs one flat colour), variety among repeated natural elements, small-prop dressing, and aerial perspective (distant things hazier than near ones). The same camera at two times appears as separate tiles — compare them pixel-for-pixel before answering nothing_moves.",
+    # scene_v2 (2026-10-14): the high overview tiles lift room ceilings (scene_host.skyLayersBelow) and
+    # drop the fog; the low one is the contact camera; CONTACT CROPs are diagnostic close-ups
+    "scene_contact": "The high overview_* tiles (overview_front_right / overview_back_left / overview_top) are rendered with the fog removed and room ceilings lifted: a missing roof, lid or haze in them is never a defect. overview_low_front stands at ground level just outside the content, where daylight under a base shows. CONTACT CROP images are diagnostic close-ups cut from an overview tile around a placement finding the gate measured (the label names the asset, the kind and the number): judge the contact they show — base meets ground, part through neighbour — never their composition, lighting or dressing. Every floating / sunken / clipping / scale claim must name its view and its asset.",
     "object": "All views show the same object. Use top + low views for symmetry, footprint and ground contact.",
 }
 
@@ -840,6 +1144,7 @@ def view_rig_section(renders: RenderSet, montages: list[Montage], *, scene: bool
     if scene:
         bits.append(RIG_RULES["scene_cams"])
         bits.append(RIG_RULES["scene_craft"])
+        bits.append(RIG_RULES["scene_contact"])
     else:
         bits.append(RIG_RULES["object"])
     if renders.console_errors:
@@ -895,10 +1200,13 @@ def montage_image_parts(
     detail_crops: int = MAX_DETAIL_CROPS,
     max_px: int = MAX_PX,
     cache_dir: Path | None = None,
+    gates: Sequence[GateReport] = (),
 ) -> tuple[list[tuple[str, ImagePart]], list[Montage]]:
-    """(label, ImagePart) pairs for the montages of a render set, plus the montage plan (in send order)."""
+    """(label, ImagePart) pairs for the montages of a render set, plus the montage plan (in send
+    order).  ``gates`` feed a scene's contact crops (``plan_contact_crops``)."""
     montages = shuffle_montages(
-        plan_montages(renders, geometry_views=geometry_views, scene=scene, max_montages=max_montages, detail_crops=detail_crops),
+        plan_montages(renders, geometry_views=geometry_views, scene=scene, max_montages=max_montages, detail_crops=detail_crops,
+                      gates=gates),
         shuffle_seed,
     )
     grids = [m for m in montages if not m.is_detail]
@@ -955,7 +1263,7 @@ def build_judge_messages(
         ("PLAN DIGEST:\n" + _clip(inp.plan_summary, 5000)) if inp.plan_summary.strip() else "PLAN DIGEST: (none)",
         acceptance_section(inp.acceptance),
         measurement_section(inp.measurement),
-        gates_section(inp.gates),
+        gates_section(inp.gates, scene=is_scene),
         previous_section(inp.previous, inp.round_index),
         _clip(inp.extra_context, 2500) if inp.extra_context.strip() else "",
         _clip(extra_text, 2500) if extra_text.strip() else "",
@@ -964,6 +1272,7 @@ def build_judge_messages(
     images, montages = montage_image_parts(
         inp.renders, geometry_views=geometry_views, scene=is_scene, shuffle_seed=shuffle_seed,
         max_montages=max_montages, detail_crops=detail_crops, max_px=max_px, cache_dir=cache_dir,
+        gates=inp.gates if is_scene else (),
     )
     slices = slice_images or []
     rig = view_rig_section(inp.renders, montages, scene=is_scene)

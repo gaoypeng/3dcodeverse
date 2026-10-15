@@ -249,7 +249,7 @@ def calibrate(
     out_dir: Path | str | None = None,
     geometry_mode: str | None = "clay",
     rounds: list[int] | None = None,
-    thinking: str = "low",
+    thinking: str | None = None,
     max_workers: int = 4,
     chat_model: Any = None,
     fixed_order: bool = False,
@@ -260,8 +260,11 @@ def calibrate(
     never touches the run directories.  ``chat_model`` injects a ChatModel (tests).
     ``fixed_order`` sends every sample the same montage order, so ``mean_std`` becomes the
     model's own re-judge σ instead of its order-permutation σ (see ``VlmJudge.fixed_order``).
+    ``thinking`` defaults to ``Settings.judge.thinking`` — the level the in-run judge uses, so
+    a calibration measures the judge the loop runs (gemini-4-argon thinks only from 'medium', D105).
     """
     model_id = model_id or get_settings().default_judge
+    thinking = thinking or get_settings().judge.thinking
     out = Path(out_dir) if out_dir else Path.cwd()
     out.mkdir(parents=True, exist_ok=True)
     cases: list[RoundCase] = []
@@ -307,7 +310,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default=".", help="output directory (json + md)")
     ap.add_argument("--geometry", default="clay", help="clay | normals | none (geometry montage for the picked round)")
     ap.add_argument("--rounds", default="", help="comma-separated round indices (default all)")
-    ap.add_argument("--thinking", default="low")
+    ap.add_argument("--thinking", default=None, choices=("off", "low", "medium", "high"),
+                    help="judge thinking level (default: Settings.judge.thinking / C3D_JUDGE__THINKING)")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--fixed-order", action="store_true",
                     help="same montage order for every sample: measures the model's re-judge σ, not order robustness")

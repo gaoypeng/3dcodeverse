@@ -107,6 +107,54 @@ def test_scene_cells_are_judged_on_their_cameras_and_orbit_frames(monkeypatch, t
     assert [a.text for a in seen["inp"].acceptance] == ["boats"]
 
 
+def test_scene_cells_run_the_placement_gate_before_the_judge(monkeypatch, tmp_path):
+    """scene_v2 (2026-10-14): a scene cell's deterministic placement caps fire in an A/B exactly as in
+    the loop — ``placement_gate`` over the build's census and the cell's plan.json, before the frames
+    gate; a build whose census has no placement table (the fake above) adds no report."""
+    import json
+    from types import SimpleNamespace
+
+    from bench._fixed_eval import FixedEvaluator
+    from codeverse3d.contracts.artifacts import BuildResult, GateReport, RenderSet, RenderView
+    from codeverse3d.contracts.common import Track
+    from codeverse3d.contracts.spec import Spec
+    from codeverse3d.workspace import Workspace
+
+    ws = Workspace(tmp_path / "run").create()
+    ws.plan_path.write_text(json.dumps({"title": "quay", "setting": "a harbour quay", "zones": [{"name": "Quay", "contents": ["Crate"]}],
+                                        "assets": [{"name": "Crate", "approx_size_m": [1.0, 1.0, 1.0]}]}))
+    png = tmp_path / "f.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    census = {"language": "scene_threejs", "placement": {
+        "assets": [{"name": "Crate", "zone": "Quay", "ground_gap_m": 0.31, "support": "ground_y", "sunk_m": 0.0,
+                    "bbox": {"min": [0, 0.31, 0], "max": [1, 1.31, 1], "size": [1, 1, 1]}}],
+        "interpenetrations": [], "total": 1, "checked": 1, "exempt": {}, "ground_y": 0.0}}
+    build = BuildResult(ok=True, language="scene_threejs", glb_path=None, census=census)
+    ev = FixedEvaluator("fake:judge", n_samples=1)
+    ev._runtimes[Language.SCENE_THREEJS] = SimpleNamespace(
+        lint=lambda ws: GateReport(gate="lint", passed=True), build=lambda ws, timeout_s: build,
+        render_scene=lambda ws, out, **kw: RenderSet(views=[RenderView(name="Establishing_t0", path=str(png))], renderer="fake"))
+    import bench._fixed_eval as fe
+    import codeverse3d.spatial.frame_metrics as fm
+    monkeypatch.setattr(fm, "frame_gate_from_renders", lambda src: GateReport(gate="scene_frames", passed=True))
+    seen: dict[str, object] = {}
+
+    class _J:
+        def judge(self, inp):
+            seen["inp"] = inp
+            return SimpleNamespace(overall=0.5, passed=False)
+    monkeypatch.setattr(fe.FixedEvaluator, "judge_for", lambda self, spec: _J())
+    spec = Spec(id="s", track=Track.SCENE, language=Language.SCENE_THREEJS, prompt="a quay")
+    out = ev.evaluate(ws, spec)
+    assert out.error == "", out.error
+    gates = seen["inp"].gates
+    assert [g.gate for g in gates] == ["lint", "scene_placement", "scene_frames"]
+    placement = gates[1]
+    assert not placement.passed and [f.data["kind"] for f in placement.errors] == ["floating"]
+    assert placement.errors[0].target == "Quay/Crate" and placement.errors[0].data["gap_m"] == 0.31
+    assert "Quay/Crate is floating 0.31 m" in placement.errors[0].message
+
+
 def test_the_fixed_judge_reads_the_in_run_payload_for_the_same_round(monkeypatch, tmp_path):
     """N83 (audit 2026-09-24): the fixed judge built its JudgeInput by hand — no clay views, no
     GLB (so no D48 slices on a floating-part cell), connectivity without the language.  It is now

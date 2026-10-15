@@ -5,6 +5,10 @@ Until the language's build wrapper exists this stands in for its outputs: ``arti
 authored cameras with ``c3d_look_at`` and ``scene["c3d_cameras"]``), the geometry as a GLB, a
 host entry that loads it (the shape of the census-GLB adapter), and ``artifacts/census.json``
 from the unchanged probe.  Blender frame: Z-up, -Y front; the GLB and every spec are Y-up.
+
+``build_room_shell`` is the interior case: the starter library's own ``room_shell`` (a red
+shell, its floor swapped green) under a sun, so a top-down ``no_fog`` view shows the floor only
+when the driver lifts the lid.
 """
 
 from __future__ import annotations
@@ -119,6 +123,49 @@ def build_fixture(ws: Workspace, *, moving: bool = True, probe: bool = True) -> 
         assert census, "the census-GLB probe produced no census"
         ws.write_json(ws.artifacts / "census.json", {**census, "language": "scene_blender"})
     return ws
+
+
+#: a 6 x 6 x 3 m room on the ground, built by the REAL ``lib.architecture.room_shell`` (so the
+#: names the driver's lid rule reads — root ``RoomShell``, lid ``Ceiling`` — are the library's,
+#: not the test's); the shell is red, the floor green, a near-vertical sun lights the inside
+ROOM_SHELL_BPY = r'''
+import sys
+import bpy
+
+argv = sys.argv[sys.argv.index("--") + 1:]
+blend, starter = argv[0], argv[1]
+sys.path.insert(0, starter)
+from lib.architecture import room_shell
+from lib.materials import material
+
+bpy.ops.wm.read_factory_settings(use_empty=True)
+sc = bpy.context.scene
+red = material("ShellRed", (0.8, 0.08, 0.08), roughness=0.9)
+green = material("FloorGreen", (0.08, 0.8, 0.08), roughness=0.9)
+root, floor, ceiling, *walls = room_shell(sc.collection, red, center=(0.0, 0.0, 1.5), extents=(6.0, 6.0, 3.0), thickness=0.2)
+floor.data.materials[0] = green
+assert root.name == "RoomShell" and ceiling.name == "Ceiling" and ceiling.parent is root
+sun = bpy.data.objects.new("Sun", bpy.data.lights.new("Sun", "SUN"))
+sun.data.energy = 5.0
+sun.rotation_euler = (0.15, 0.1, 0.0)
+sc.collection.objects.link(sun)
+bpy.ops.wm.save_as_mainfile(filepath=blend, compress=True)
+'''
+
+
+def build_room_shell(root: Path) -> Path:
+    """Write ``root/scene.blend``: the room-shell interior; returns the .blend's path."""
+    from codeverse3d.languages.scene_blender import STARTER_DIR
+
+    root.mkdir(parents=True, exist_ok=True)
+    script = root / "build_room_shell.py"
+    script.write_text(ROOM_SHELL_BPY)
+    blend = root / "scene.blend"
+    blender = get_settings().resolve_blender()
+    proc = run_subprocess([blender, "-b", "--factory-startup", "--python", str(script), "--", str(blend), str(STARTER_DIR)],
+                          cwd=root, env=blender_env(), timeout_s=120)
+    assert proc.returncode == 0 and blend.is_file(), proc.stderr[-2000:]
+    return blend
 
 
 def blender_available() -> bool:

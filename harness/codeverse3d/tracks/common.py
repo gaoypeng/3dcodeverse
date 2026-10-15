@@ -159,6 +159,9 @@ class RunContext:
     tool_cards: str = ""
     prompt_hashes: dict[str, str] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
+    #: the prompt/skill variant this run activated (``prompts/variants.py``, D105): ``""`` = base.
+    #: Informative here — the overlay itself is the ContextVar ``BaseTrack.run`` sets around the run
+    variant: str = ""
 
     @property
     def language(self) -> Language:

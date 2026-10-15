@@ -339,3 +339,70 @@ def resolve_dial(
     )
 
 
+# --------------------------------------------------------------------------- the variant (D105)
+@dataclass(frozen=True)
+class ResolvedVariant:
+    """The prompt/skill variant a ``3dcode make`` freezes on ``RunOptions.variant``: its name
+    (``""`` = base), version and overlay hash, and where the choice came from."""
+
+    name: str
+    version: int
+    hash: str
+    source: str   # "--variant" | "settings.variant" | "settings.variants" | "" (base)
+
+    @property
+    def label(self) -> str:
+        """One line for the run table: ``argon v1 (3f2a…) via --variant``, or ``base``."""
+        return f"{self.name} v{self.version} ({self.hash}) via {self.source}" if self.name else "base"
+
+
+def resolve_variant(settings: Any | None, generator: str, flag: str | None = None) -> ResolvedVariant:
+    """THE resolver for the variant (a sibling of :func:`resolve_dial`): ``--variant NAME`` (``flag``)
+    over ``settings.variant`` (``C3D_VARIANT``) over ``settings.variants[<generator>]`` — the id as
+    typed, then by ``<kind>:<served model>`` — over the base.  An unknown name is the typed
+    'bad configuration' refusal (exit 2) BEFORE a run directory exists, never a traceback after
+    the paid plan stage."""
+    from codeverse3d.prompts import variants as V
+
+    settings = settings or get_settings()
+    try:
+        if flag and flag.strip():
+            name, source = flag.strip(), "--variant"
+        else:
+            name = V.resolve_variant(settings, generator)
+            source = ("settings.variant" if name and settings.variant.strip() == name
+                      else "settings.variants" if name else "")
+        if not name:
+            return ResolvedVariant(name="", version=0, hash="", source="")
+        info = V.variant_info(name)
+        return ResolvedVariant(name=name, version=info.version, hash=V.variant_hash(name), source=source)
+    except ValueError as e:
+        raise CliError(f"bad configuration: {e}", code=2) from e
+
+
+def record_variant(record: RunRecord) -> str:
+    """The variant a stored run used: the spec's frozen name, else what the track stamped on the record
+    (``extra["variant"]["name"]`` — a run that resolved it from the process switch)."""
+    block = record.extra.get("variant")
+    stamped = str(block.get("name") or "") if isinstance(block, dict) else ""
+    return record.spec.options.variant or stamped
+
+
+@contextmanager
+def replay_variant(record: RunRecord) -> Iterator[str]:
+    """Activate the variant a stored run used, so a replay (``3dcode judge``) reads the prompt files the
+    run read.  A variant this tree no longer ships is a warning and the base prompts, never a refusal:
+    the renders and gates being replayed are on disk."""
+    from codeverse3d.prompts.variants import activate, variant_info
+
+    name = record_variant(record)
+    if name:
+        try:
+            variant_info(name)
+        except ValueError as e:
+            warn(f"replaying with the base prompts: {e}")
+            name = ""
+    with activate(name):
+        yield name
+
+

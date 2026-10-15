@@ -58,3 +58,181 @@ text    = "0, 1.5"
 python  = "codeverse3d.tracks.scene:SCENE_TIMES"
 sep     = ", "
 context = "scene_views(times=["
+
+# ---- scene_blender (prompts/scene_blender/*, DESIGN 2026-10-14 lane B1).  The placement thresholds
+# are Settings defaults (config.Placement — no module constant since lane G deleted them): `python`
+# names the class and `format` reads the field's default through str.format's attribute / item
+# syntax; a tightened default fails the claim until the prompt agrees.
+
+[[claim]]
+key     = "scene_times"
+file    = "scene_blender/cookbook.md"
+text    = "0 and t = 1.5"
+python  = "codeverse3d.tracks.scene:SCENE_TIMES"
+sep     = " and t = "
+context = "renders every camera at t ="
+
+[[claim]]
+key     = "scene_fps"
+file    = "scene_blender/contract.md"
+text    = "30"
+python  = "codeverse3d.languages.scene_blender:FPS"
+context = "fps="
+
+[[claim]]
+key     = "asset_max_tris"
+file    = "scene_blender/cookbook.md"
+text    = "15000"
+python  = "codeverse3d.tracks.scene_assets:ASSET_MAX_TRIS"
+context = "per asset"
+
+[[claim]]
+key     = "hero_max_tris"
+file    = "scene_blender/cookbook.md"
+text    = "40000"
+python  = "codeverse3d.tracks.scene_assets:HERO_MAX_TRIS"
+context = "for a hero"
+
+[[claim]]
+key     = "scene_max_tris"
+file    = "scene_blender/contract.md"
+text    = "3,000,000"
+python  = "codeverse3d.conventions:MAX_TRIS_SCENE"
+format  = "{:,}"
+context = "scene ceiling"
+
+[[claim]]
+key     = "placement_floating_outdoor_m"
+file    = "scene_blender/contract.md"
+text    = "0.05"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[floating_outdoor_m].default:.2f}"
+context = "outdoors"
+
+[[claim]]
+key     = "placement_floating_indoor_m"
+file    = "scene_blender/contract.md"
+text    = "0.02"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[floating_indoor_m].default:.2f}"
+context = "indoors"
+
+[[claim]]
+key     = "placement_floating_error_m"
+file    = "scene_blender/contract.md"
+text    = "0.08"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[floating_error_m].default:.2f}"
+context = "ERROR at"
+
+[[claim]]
+key     = "placement_floating_error_count"
+file    = "scene_blender/contract.md"
+text    = "2"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[floating_error_count].default}"
+context = "things float"
+
+[[claim]]
+key     = "placement_sunk_m"
+file    = "scene_blender/contract.md"
+text    = "0.10"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[sunk_m].default:.2f}"
+context = "buried deeper than"
+
+[[claim]]
+key     = "placement_sunk_error_m"
+file    = "scene_blender/contract.md"
+text    = "0.20"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[sunk_error_m].default:.2f}"
+context = "ERROR at"
+
+[[claim]]
+key     = "placement_overlap_warn"
+file    = "scene_blender/contract.md"
+text    = "10%"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[overlap_warn].default:.0%}"
+context = "interpenetration"
+
+[[claim]]
+key     = "placement_overlap_error"
+file    = "scene_blender/contract.md"
+text    = "35%"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[overlap_error].default:.0%}"
+context = "ERROR at"
+
+[[claim]]
+key     = "placement_contact_m"
+file    = "scene_blender/contract.md"
+text    = "0.02"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[contact_m].default:.2f}"
+context = "gap ≤"
+
+[[claim]]
+key     = "placement_free_exempt_warn"
+file    = "scene_blender/contract.md"
+text    = "25%"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[free_exempt_warn].default:.0%}"
+context = "warns past"
+
+[[claim]]
+key     = "placement_free_exempt_error"
+file    = "scene_blender/contract.md"
+text    = "50%"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[free_exempt_error].default:.0%}"
+context = "errors past"
+
+[[claim]]
+key     = "placement_floating_error_m"
+file    = "scene_blender/system.md"
+text    = "0.08"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[floating_error_m].default:.2f}"
+context = "ERRORS at"
+
+[[claim]]
+key     = "placement_sunk_error_m"
+file    = "scene_blender/system.md"
+text    = "0.20"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[sunk_error_m].default:.2f}"
+context = "ERRORS at"
+
+[[claim]]
+key     = "placement_overlap_error"
+file    = "scene_blender/system.md"
+text    = "35%"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[overlap_error].default:.0%}"
+context = "ERRORS at"
+
+[[claim]]
+key     = "placement_floating_error_m"
+file    = "scene_blender/cookbook.md"
+text    = "0.08"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[floating_error_m].default:.2f}"
+context = "ERROR at"
+
+[[claim]]
+key     = "placement_sunk_error_m"
+file    = "scene_blender/cookbook.md"
+text    = "0.20"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[sunk_error_m].default:.2f}"
+context = "ERROR at"
+
+[[claim]]
+key     = "placement_overlap_error"
+file    = "scene_blender/cookbook.md"
+text    = "35%"
+python  = "codeverse3d.config:Placement"
+format  = "{0.model_fields[overlap_error].default:.0%}"
+context = "ERROR at"

@@ -41,6 +41,9 @@ class RunOptions(BaseModel):
     profile: str = Field(default="", description="cost/quality dial this run was created with "
                          "(codeverse3d/cost/profiles.py); '' = the settings default, and a resume "
                          "re-applies it so judge samples / montage size / turn cap survive")
+    variant: str = Field(default="", description="per-model prompt/skill variant this run was created with "
+                         "(codeverse3d/prompts/variants/<name>/, D105); '' = the base prompts and skills; "
+                         "frozen here so a resume and the record name the same overlay")
 
 
 class Spec(BaseModel):

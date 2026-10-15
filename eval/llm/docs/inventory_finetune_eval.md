@@ -1,6 +1,6 @@
 # Inventory: the existing `finetune/eval` + `scripts` evaluation code
 
-Read-only audit of `/home/yipeng/3dcodeverse/finetune/` (2026-09-08). This is the reference for what
+Read-only audit of `finetune/` (2026-09-08). This is the reference for what
 `3dcodeverse_eval/` re-implements portably. All paths relative to `finetune/` unless absolute.
 
 ## 1. Evaluation suites

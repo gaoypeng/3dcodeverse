@@ -67,12 +67,13 @@ Flag = Annotated[bool, WrapValidator(_or_default)]
 Count = Annotated[int, Field(ge=0), WrapValidator(_or_default)]
 
 
-#: the oldest Blender the wrappers support (docs/INSTALL.md §2.1); ``3dcode doctor`` checks it
-BLENDER_MIN: tuple[int, int] = (4, 2)
+#: THE supported Blender: 5.2 LTS (owner, 2026-10-14 — developed and measured on 5.2.2; 4.2 / 5.0
+#: compatibility was dropped, D104).  ``3dcode doctor`` fails anything older.
+BLENDER_MIN: tuple[int, int] = (5, 2)
 
 
 class Binaries(BaseModel):
-    blender: str = Field(default="", description="path to a Blender 4.2+/5.x binary (headless capable)")
+    blender: str = Field(default="", description="path to the Blender 5.2 LTS binary (headless capable)")
     node: str = "node"
     claude_cli: str = "claude"
     codex_cli: str = "codex"
@@ -105,12 +106,18 @@ class Render(BaseModel):
         "the node side reads too)")
     sheet_cols: int = 4
     sheet_tile: int = 384
-    # scene_blender pictures (spatial/render_blender.py, owner D1/D8 2026-09-24).  Measured on this
-    # box at 1024x576: Cycles CUDA 32 spp + OIDN 0.9 s/frame (light scene) - 3.6 s (heavy), CPU 2.9 s
-    # at 16 spp; EEVEE 64 spp 1.5 - 3.0 s plus a 7-12 s shader compile per process, GPU only under the
-    # Mesa d3d12 env (spatial/gl_render.GPU_ENV) — without it EEVEE silently lands on llvmpipe (10x).
+    # scene_blender pictures (spatial/render_blender.py, owner D1/D8 2026-09-24; the 5.2.2 fast path D104,
+    # 2026-10-14).  Measured on this box (RTX 5090, Blender 5.2.2 LTS, 1024x576, 460 objects): Cycles
+    # CUDA 32 spp + GPU OIDN 0.64 s/frame, 0.21 s/frame once persistent data keeps the synced scene
+    # between the cameras of one job (8 frames 5.3 s → 2.2 s); 64 spp 0.69 s, 128 spp 0.86 s; CPU 2.3 s
+    # at 32 spp.  EEVEE in background is SLOWER here: 5.2 s/frame + a 12 s shader compile per process,
+    # GPU only under the Mesa d3d12 env (spatial/gl_render.GPU_ENV) — without it EEVEE silently lands
+    # on llvmpipe (10x).  OptiX is unavailable under WSL2 (and probing it crashes Blender): CUDA only.
     blender_engine: Annotated[Literal["cycles", "eevee"], BeforeValidator(lambda v: str(v).strip().lower())] = Field(
         default="cycles", description="judged-frame engine for scene_blender (C3D_RENDER__BLENDER_ENGINE)")
+    blender_frame_time_limit_s: float = Field(
+        default=20.0, ge=0, description="Cycles time cap per judged frame, seconds (0 = none): a heavy scene stops "
+        "sampling early instead of eating the render timeout (C3D_RENDER__BLENDER_FRAME_TIME_LIMIT_S)")
     blender_samples: int = Field(
         default=32, ge=1, description="Cycles samples (adaptive + OIDN) / EEVEE TAA samples; the profile dial sets "
         "economy 16 · balanced 32 · quality 64 (C3D_RENDER__BLENDER_SAMPLES)")
@@ -122,7 +129,7 @@ class Render(BaseModel):
         "<cache_dir>/slots/blender_gpu/)")
     blender_gpu_wait_s: float = Field(
         default=60.0, ge=0, description="how long a render waits for a GPU slot before it renders on the CPU "
-        "(~3.3x slower, measured)")
+        "(~4x slower, measured on 5.2.2)")
 
 
 class Limits(BaseModel):
@@ -206,6 +213,35 @@ class Judge(BaseModel):
         "interior slice images + one provenance-elicitation sentence to an object-track verdict whose "
         "connectivity gate carries an ERROR; clean rounds build a byte-identical payload either way.  "
         "Slice render is local CPU; no profile touches this dial (the channel measured ≤ $0).")
+    thinking: Annotated[Literal["off", "low", "medium", "high"], BeforeValidator(lambda v: str(v).strip().lower())] = Field(
+        default="low",
+        description="the in-run VLM judge's thinking level (C3D_JUDGE__THINKING; models/gemini.THINKING_BUDGET).  "
+        "'low' = 1024 tokens is enough for gemini-3.1-pro; gemini-4-argon thinks only from 'medium' "
+        "(4096) — measured 2026-10-14 on 19 scene/object rounds: argon@medium within-sd .012 vs .029 at low, "
+        "same cost, same mean (D105).  `3dcode judge --thinking` replays with another level.")
+
+
+class Placement(BaseModel):
+    """The scene_placement gate's thresholds (spatial/scene_placement.py), metres / fractions.  Settings
+    fields so a per-model variant or an A/B can tighten them and the record names what a run used.
+    The defaults are the STRICT standards the owner asked for on 2026-10-14 (D105; the 2026-09
+    calibration was floating ERROR 0.15 m / > 3, sunk ERROR 0.30 m + 25 %, overlap WARN 0.20 /
+    ERROR 0.60): a 8 cm hover, a 20 cm burial or a 35 % box overlap is an ERROR now, and a
+    10 % overlap is reported.  The JS measurement (host_placement.mjs) keeps its own CONTACT /
+    FLOATING / SUNK constants: these decide severities only."""
+
+    contact_m: float = Field(default=0.02, ge=0, description="foot within this of a surface = seated")
+    floating_outdoor_m: float = Field(default=0.05, ge=0, description="gap above which an outdoor asset floats")
+    floating_indoor_m: float = Field(default=0.02, ge=0, description="gap above which an indoor asset floats")
+    floating_error_m: float = Field(default=0.08, ge=0, description="a gap this large is an ERROR (else WARN)")
+    floating_error_count: int = Field(default=2, ge=0, description="more floating assets than this = ERROR")
+    sunk_m: float = Field(default=0.10, ge=0, description="burial deeper than this = WARN")
+    sunk_error_m: float = Field(default=0.20, ge=0, description="burial deeper than this AND > sunk_error_frac of the height = ERROR")
+    sunk_error_frac: float = Field(default=0.20, ge=0, le=1)
+    overlap_warn: float = Field(default=0.10, ge=0, le=1, description="AABB overlap (fraction of the smaller box) = interpenetration WARN")
+    overlap_error: float = Field(default=0.35, ge=0, le=1, description="… = interpenetration ERROR")
+    free_exempt_warn: float = Field(default=0.25, ge=0, le=1, description="share of placed assets tagged placement='free' above which the gate WARNs (the agent is hiding from it)")
+    free_exempt_error: float = Field(default=0.50, ge=0, le=1, description="… above which it is an ERROR")
 
 
 class Settings(BaseSettings):
@@ -250,6 +286,7 @@ class Settings(BaseSettings):
     limits: Limits = Field(default_factory=Limits)
     rate: Rate = Field(default_factory=Rate)
     judge: Judge = Field(default_factory=Judge)
+    placement: Placement = Field(default_factory=Placement)
 
     gemini_api_keys: list[str] = Field(default_factory=list)
     anthropic_api_key: str = ""
@@ -275,6 +312,18 @@ class Settings(BaseSettings):
         "a 55 800-token plan needs ~930 s and died at the socket, its tokens billed and discarded. "
         "Owner's rule 2026-08-27: time may be generous, errors may not.")
     profile: str = Field(default="balanced", description="economy | balanced | quality")
+
+    # Per-model prompt/skill variants (D105, 2026-10-14): an overlay directory
+    # codeverse3d/prompts/variants/<name>/ (prompt files that shadow the base ones) plus
+    # codeverse3d/skills/variants/<name>/ (bundles that shadow base bundles, routes.toml with
+    # boosts).  Chosen EXPLICITLY — by name, or by an exact generator-id lookup — never by a
+    # regex over the model id (Law 4).  `3dcode make --variant` freezes the choice on the spec.
+    variant: str = Field(default="", description="prompt/skill variant for every run of this process "
+                         "(C3D_VARIANT; a name under codeverse3d/prompts/variants/); '' = base")
+    variants: dict[str, str] = Field(default_factory=dict, description="exact generator id → variant name, "
+                                     "e.g. {'agy:gemini-4-argon': 'argon'} (yaml mapping, or env as JSON "
+                                     "C3D_VARIANTS='{\"agy:gemini-4-argon\": \"argon\"}'); consulted when "
+                                     "`variant` is empty, by the id as typed and then by '<kind>:<served model>'")
 
     # ------------------------------------------------------------------ switches
     # The A/B switches and runtime overrides, each read as C3D_<NAME> at the call that uses
@@ -390,7 +439,7 @@ class Settings(BaseSettings):
         configured one that is not there is "none", never a silent substitute for it."""
         if self.binaries.blender:
             return shutil.which(self.binaries.blender) or ""
-        for cand in ("blender-5.0", "blender", "blender-5.1", "blender-4.2"):
+        for cand in ("blender-5.2", "blender"):
             p = shutil.which(cand)
             if p:
                 return p

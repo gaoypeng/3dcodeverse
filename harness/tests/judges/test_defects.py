@@ -30,7 +30,7 @@ def _reply(score=0.9, defects=None):
 
 
 def test_rubrics_declare_defects_with_costs():
-    for name in ("static_object_v1", "articulated_v1", "scene_v1", "asset_v1", "reference_v1"):
+    for name in ("static_object_v1", "articulated_v1", "scene_v1", "scene_v2", "asset_v1", "reference_v1"):
         r = load_rubric(name)
         assert r.defects, name
         assert all(d.penalty > 0 or d.cap is not None for d in r.defects)
@@ -100,7 +100,7 @@ def test_defect_vote_ties_are_absent(judge_input, cache_dir, caplog):
     assert raw["defect_votes"]["render_artifacts"] == [True, False]
     assert raw["defects"]["render_artifacts"] is False and j.overall == pytest.approx(0.9)
     assert raw["tie_broken"] == ["render_artifacts"]
-    assert raw["scoring_version"] == 3 and raw["overridden"] == []
+    assert raw["scoring_version"] == 4 and raw["overridden"] == []  # 4: the kind-scoped veto (scene_v2, 2026-10-14)
 
     clean_first = FakeChatModel(by_label={":s0": [_reply(0.9)], ":s1": [_reply(0.9, ["render_artifacts"])]})
     j2 = VlmJudge("static_object_v1", chat_model=clean_first, n_samples=2, cache_dir=cache_dir).judge(judge_input)

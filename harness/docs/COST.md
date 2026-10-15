@@ -1609,8 +1609,8 @@ it the harness kept two books — the ledger, one row per call, and `BudgetGuard
 fed by twelve `charge` / `add` call sites — and `record.total_usage` took the guard's.  The guard
 never saw a round-trip the provider billed and the call discarded (a hedge loser that landed
 after the winner, a charged-but-invalid reply: the ledger's `source="extra"` rows), so the two
-drifted.  Selector: every `record.json` under `/home/yipeng/3dcodeverse_bench_out` and
-`/home/yipeng/3dcodeverse_runs` that has a `telemetry/cost.jsonl` (437 of 470): the ledgers sum to
+drifted.  Selector: every `record.json` under `~/3dcodeverse_bench_out` and
+`~/3dcodeverse_runs` that has a `telemetry/cost.jsonl` (437 of 470): the ledgers sum to
 **$882.77**, the records to **$845.63**, and 119 runs differ by more than 5 %.  The live stool run
 of 2026-09-22b recorded **$0.3054** over a ledger of **$0.379**: its judge's hedged retry landed a
 second, discarded verdict for $0.0736 that only the ledger saw.

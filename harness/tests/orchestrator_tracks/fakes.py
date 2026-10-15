@@ -27,15 +27,15 @@ from codeverse3d.contracts.artifacts import (
     Severity,
 )
 from codeverse3d.contracts.chat import ChatRequest, ChatResponse
-from codeverse3d.contracts.common import Language, Track, Usage
+from codeverse3d.contracts.common import ENTRY_FILE, TRACK_LANGUAGES, Language, Track, Usage
 from codeverse3d.contracts.plan import Plan, ScenePlan
 from codeverse3d.contracts.run import RunRecord
 from codeverse3d.conventions import to_snake
 from codeverse3d.languages import get_runtime
-from codeverse3d.languages.base import SceneRuntime
 from codeverse3d.models.base import ModelError
 from codeverse3d.tracks.common import Services
 from codeverse3d.tracks.planner import plan_example
+from codeverse3d.tracks.scene import ENV_FILES
 from codeverse3d.workspace import Workspace
 
 FAIL_MARK = "RAISE_BUILD_ERROR"
@@ -52,13 +52,20 @@ class FakeRuntime:
 
     def __init__(self, language: Language = Language.THREEJS):
         self.language = language
-        self.entry_globs = ("src/**/*.js",) if language in (Language.THREEJS, Language.SCENE_THREEJS) else ("src/model.py",)
+        if language in (Language.THREEJS, Language.SCENE_THREEJS):
+            self.entry_globs: tuple[str, ...] = ("src/**/*.js",)
+        elif language is Language.SCENE_BLENDER:
+            self.entry_globs = ("src/scene.py", "src/zones/*.py", "src/assets/*.py", "src/env.py")
+        else:
+            self.entry_globs = ("src/model.py",)
         self.builds = 0
         self.lock = threading.Lock()
         layout = get_runtime(language)
         self.expected_files, self.files_for = layout.expected_files, layout.files_for
-        if isinstance(layout, SceneRuntime):
+        if language in TRACK_LANGUAGES[Track.SCENE]:
             self.zone_file, self.asset_file = layout.zone_file, layout.asset_file
+            # the runtime's word, else the track's typed table (tracks/scene.env_file does the same)
+            self.env_file: str = getattr(layout, "env_file", None) or ENV_FILES[language]
 
     def skeleton(self, ws: Workspace, plan: Plan) -> list[Path]:
         out = []
@@ -89,6 +96,28 @@ class FakeRuntime:
                 if a.kind == "threejs":
                     f = ws.src / "assets" / f"{to_snake(a.name)}.js"
                     f.write_text(f"// skeleton asset {a.name}\nexport function build{a.name}(THREE) {{ return null; }}\n")
+                    out.append(f)
+        elif self.language is Language.SCENE_BLENDER:
+            # the bpy layout (languages/scene_blender): harness data at src/scene.py, env, a stub per
+            # zone and per `bpy` module — the same shape the real skeleton leaves
+            f = ws.root / "src" / "scene.py"
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("# skeleton src/scene.py (harness data)\nZONES = {}\nASSETS = {}\nHEROES = {}\nCAMERAS = []\n")
+            out.append(f)
+            f = ws.src / "env.py"
+            f.write_text("import bpy  # skeleton src/env.py\n\n\ndef height_at(x, y):\n    return 0.0\n\n\ndef build_env(ctx):\n    return {}\n")
+            out.append(f)
+            (ws.src / "zones").mkdir(exist_ok=True)
+            (ws.src / "assets").mkdir(exist_ok=True)
+            for z in getattr(plan, "zones", []) or []:
+                f = ws.src / "zones" / f"{to_snake(z.name)}.py"
+                f.write_text(f"import bpy  # skeleton zone {z.name}\n\n\ndef build(ctx):\n    return ctx.collection\n")
+                out.append(f)
+            for a in getattr(plan, "assets", []) or []:
+                if a.kind == "bpy":
+                    f = ws.src / "assets" / f"{to_snake(a.name)}.py"
+                    f.write_text(f"import bpy  # skeleton asset {a.name}\n\n\ndef build_{to_snake(a.name)}(ctx, variant=0):\n"
+                                 "    return ctx.collection\n")
                     out.append(f)
         else:
             f = ws.src / "model.py"
@@ -281,11 +310,12 @@ def bill_verdict(cost: float, round_index: int) -> Usage:
     return usage
 
 
-def small_scene() -> ScenePlan:
-    """The example scene without its Blender hero (every asset a three.js module — the only kind
-    FakeRuntime builds)."""
-    plan = ScenePlan.model_validate(plan_example(Track.SCENE))
-    plan.assets = [a for a in plan.assets if a.kind == "threejs"]
+def small_scene(language: Language = Language.SCENE_THREEJS) -> ScenePlan:
+    """The example scene without its Blender hero (every asset a module of ``language`` — the only
+    kind FakeRuntime builds: ``threejs`` for scene_threejs, ``bpy`` for scene_blender)."""
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE, language))
+    module_kind = "bpy" if language is Language.SCENE_BLENDER else "threejs"
+    plan.assets = [a for a in plan.assets if a.kind == module_kind]
     for z in plan.zones:
         z.contents = [c for c in z.contents if c in {a.name for a in plan.assets}]
     return plan
@@ -425,7 +455,12 @@ class FakeServices(Services):
     def assemble_scene(self, runtime, ws: Workspace, plan: Plan) -> Any:
         if not self.assemble:
             raise ServiceUnavailable("no assembler in tests")
-        (ws.src / "scene.js").write_text("// assembled by fake\nexport function createScene(){}\n")
+        if runtime.language is Language.SCENE_BLENDER:   # the entry of a bpy scene is harness DATA
+            zones = ", ".join(f'"{to_snake(z.name)}": "{z.name}"' for z in plan.zones)
+            (ws.root / ENTRY_FILE[Language.SCENE_BLENDER]).write_text(
+                f"# assembled by fake\nZONES = {{{zones}}}\nASSETS = {{}}\nHEROES = {{}}\nCAMERAS = []\n")
+        else:
+            (ws.src / "scene.js").write_text("// assembled by fake\nexport function createScene(){}\n")
         return {"zones": [z.name for z in plan.zones]}
 
     def finalize_record(self, ws: Workspace, record: RunRecord) -> None:

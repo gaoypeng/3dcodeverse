@@ -8,12 +8,13 @@ the BLENDER frame (Z-up, -Y front, metres — the harness converts, ``convention
 
     {"out": "/abs/dir", "result": "/abs/dir/blender_frames.json",
      "engine": "cycles" | "eevee" | "workbench", "samples": 32, "device": "GPU" | "CPU",
-     "width": 1024, "height": 576, "times": [0.0, 1.5], "authored": true,
-     "cameras": [{"name", "kind", "position", "look_at", "fov", "no_fog", "times"}]}
+     "frame_time_limit_s": 20.0, "width": 1024, "height": 576, "times": [0.0, 1.5],
+     "authored": true, "cameras": [{"name", "kind", "position", "look_at", "fov", "no_fog", "times"}]}
 
 What it does:
   1. render settings — ALL harness-owned, whatever the .blend carries: engine, samples,
-     device (Cycles CUDA; no CUDA device → CPU, recorded), adaptive sampling + OIDN, a fixed
+     device (Cycles CUDA; no CUDA device → CPU, recorded), adaptive sampling + OIDN on the GPU,
+     persistent data (the scene is synced once for all cameras), a per-frame time cap, a fixed
      seed, AgX / look None / exposure 0 on the sRGB display, RGB 8-bit PNG, no transparent film;
   2. cameras: with ``authored`` the .blend's own camera objects (``scene["c3d_cameras"]`` gives
      their order, else the scene camera first then by name; ``cam["c3d_look_at"]`` their target,
@@ -21,7 +22,11 @@ What it does:
      per job spec (vertical ``fov`` like three.js), at the spec's own times;
   3. per time (ascending): ``frame_set(1 + round(t * fps))``, then every camera renders one PNG
      ``<name>_<tag>.png`` (the three.js driver's file names); ``no_fog`` views render with the
-     world volume unlinked (the overview rig reads structure, not atmosphere);
+     world volume unlinked AND a room shell's lid lifted — every mesh named ``Ceiling…`` under
+     a ``RoomShell…`` parent whose evaluated world bbox top is below the camera is render-hidden
+     for that frame (the three.js host's ``skyLayersBelow`` rule, scene_host.mjs; the rubric
+     tells the judge the high overviews show interiors with the lid off) and named in the
+     frame's ``hidden`` (the overview rig reads structure, not atmosphere);
   4. writes the result json atomically: the frames (Blender-frame poses, per-frame wall ms),
      the device actually used, the GL renderer (EEVEE / Workbench) and every per-frame error.
 
@@ -100,6 +105,8 @@ def setup_render(scene: Any, job: dict[str, Any]) -> dict[str, Any]:
     if engine == "cycles":
         c = scene.cycles
         if want == "GPU":
+            # CUDA only — OptiX is never probed: on this WSL2 box Blender 5.2.2 has no libnvoptix
+            # (init error 7804) and setting compute_device_type to OPTIX and back crashes Blender.
             prefs = bpy.context.preferences.addons["cycles"].preferences
             try:
                 prefs.compute_device_type = "CUDA"
@@ -122,6 +129,14 @@ def setup_render(scene: Any, job: dict[str, Any]) -> dict[str, Any]:
         c.denoising_use_gpu = info["device"] == "GPU"
         c.seed = 0
         c.use_animated_seed = False
+        # The fast path (Blender 5.2.2 LTS, RTX 5090, 1024x576, 460 objects, 32 spp): persistent
+        # data keeps the synced scene + BVH across the cameras of one job — 8 frames 5.3 s → 2.2 s
+        # (0.64 → 0.21 s per frame after the first).  The per-frame time cap bounds a heavy
+        # scene's sampling (0 = none); the job's render timeout is the outer wall.
+        r.use_persistent_data = True
+        c.time_limit = max(0.0, float(job.get("frame_time_limit_s") or 0.0))
+        info["persistent_data"] = True
+        info["frame_time_limit_s"] = c.time_limit
     elif engine == "eevee":
         scene.eevee.taa_render_samples = samples
         info["device"] = want   # the GL context decides; the harness picks the env (d3d12 = GPU)
@@ -191,7 +206,7 @@ def harness_camera(spec: dict[str, Any]) -> Any:
 def unlink_world_volume(scene: Any) -> list[tuple[Any, Any]]:
     """Remove the world output's Volume links; returns them for ``relink``."""
     w = scene.world
-    if w is None or not w.use_nodes or w.node_tree is None:
+    if w is None or w.node_tree is None:   # 5.x: a world always has a node tree (use_nodes is deprecated)
         return []
     removed = []
     for n in w.node_tree.nodes:
@@ -205,6 +220,35 @@ def unlink_world_volume(scene: Any) -> list[tuple[Any, Any]]:
 def relink(scene: Any, links: list[tuple[Any, Any]]) -> None:
     for a, b in links:
         scene.world.node_tree.links.new(a, b)
+
+
+# --------------------------------------------------------------------------- room shells
+ROOM_SHELL_PREFIX, LID_PREFIX = "RoomShell", "Ceiling"
+
+
+def lift_lids(scene: Any, camera: Any) -> list[Any]:
+    """Render-hide every room shell lid under ``camera`` and return those objects (restore with
+    ``hide_render = False``).  A lid is a mesh object named ``Ceiling…`` whose parent is named
+    ``RoomShell…`` (what ``lib.architecture.room_shell`` builds — the prompts promise the author
+    the rig lifts it by name) and whose evaluated world-space bbox top is below the camera's
+    z: ``scene_host.skyLayersBelow``'s rule, so both languages' overview tiles show the same
+    interior.  An author's own roof, a lid the camera is under, an already hidden lid and
+    linked library data (never written) stay."""
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    eye_z = camera.evaluated_get(depsgraph).matrix_world.translation.z
+    lids = []
+    for ob in scene.objects:
+        if ob.type != "MESH" or ob.hide_render or ob.parent is None or ob.library is not None:
+            continue
+        if not (ob.name.startswith(LID_PREFIX) and ob.parent.name.startswith(ROOM_SHELL_PREFIX)):
+            continue
+        ev = ob.evaluated_get(depsgraph)
+        top = max((ev.matrix_world @ Vector(corner)).z for corner in ev.bound_box)
+        if top < eye_z:
+            lids.append(ob)
+    for ob in lids:
+        ob.hide_render = True
+    return lids
 
 
 def gl_renderer() -> str:
@@ -260,6 +304,7 @@ def main() -> int:
             scene.camera = s["object"]
             scene.render.filepath = os.path.join(out, path)
             fog = unlink_world_volume(scene) if s.get("no_fog") else []
+            lids = lift_lids(scene, s["object"]) if s.get("no_fog") else []
             t0 = time.perf_counter()
             try:
                 bpy.ops.render.render(write_still=True)
@@ -269,6 +314,8 @@ def main() -> int:
             finally:
                 if fog:
                     relink(scene, fog)
+                for ob in lids:
+                    ob.hide_render = False
             ms = int((time.perf_counter() - t0) * 1000)
             if not os.path.isfile(os.path.join(out, path)):
                 result["errors"].append(f"render of '{s['name']}' at t={t:g} wrote no image")
@@ -276,7 +323,7 @@ def main() -> int:
             result["frames"].append({
                 "name": s["name"], "kind": s["kind"], "path": path, "time_s": t, "frame": frame,
                 "position": s["position"], "look_at": s["look_at"], "fov": s["fov"],
-                "no_fog": bool(s.get("no_fog")), "render_ms": ms,
+                "no_fog": bool(s.get("no_fog")), "hidden": sorted(ob.name for ob in lids), "render_ms": ms,
             })
     if result["engine"] in ("eevee", "workbench"):
         result["gl_renderer"] = gl_renderer()

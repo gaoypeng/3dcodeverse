@@ -61,6 +61,11 @@ class SceneRuntime(LanguageRuntime, Protocol):
     entry is assembled from the zones, how the built scene is probed and rendered.  The scene
     stages, ``Services`` and the scene tools reach a scene language only through this."""
 
+    #: the environment module the env stage writes (``src/env.js`` / ``src/env.py``): the one
+    #: file a scene session owns besides the zones and assets, named by the runtime so no track
+    #: code tests a path for ``.js`` / ``.py``
+    env_file: str
+
     def zone_file(self, name: str) -> str:
         """The module that builds zone ``name`` (``src/zones/<snake>.<ext>``)."""
         ...

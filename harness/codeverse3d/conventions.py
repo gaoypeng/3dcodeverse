@@ -197,11 +197,17 @@ def front_view(views: Sequence[RenderView]) -> RenderView | None:
     return next(iter(views_by_preference(views, FRONT_VIEW_NAMES)), views[0] if views else None)
 
 
-#: Scene overview rig (scenes sit on ground: aerial + eye level, no underside).
+#: Scene overview rig (scenes sit on ground: aerial + eye level, no underside).  The
+#: ``overview_*`` views reach the judge (the first ``render_scene.MAX_JUDGE_OVERVIEWS``);
+#: ``overview_low_front`` (2026-10-14, scene_v2) is the CONTACT camera — elevation under 10°
+#: puts it at ground level just outside the content (``orbit.mjs fitContactCamera``), the
+#: angle at which daylight under a base and a part through a neighbour are visible, and the
+#: tile the judge's contact crops are cut from.  The ``eye_*`` views are diagnostics only.
 SCENE_VIEWS: tuple[ViewPreset, ...] = (
     ViewPreset("overview_front_right", 40.0, 32.0),
     ViewPreset("overview_back_left", 220.0, 32.0),
     ViewPreset("overview_top", 0.0, 87.0),
+    ViewPreset("overview_low_front", 20.0, 7.0),
     ViewPreset("eye_front", 0.0, 10.0),
     ViewPreset("eye_right", 90.0, 14.0),
     ViewPreset("eye_back_left", 235.0, 12.0),

@@ -262,6 +262,15 @@ def arm_names(a: Path, b: Path) -> tuple[str, str]:
     return "/".join(pa[-depth:]), "/".join(pb[-depth:])
 
 
+def paired_rows(out_a: Path, out_b: Path) -> tuple[dict[tuple[str, str], CellResult], str, str]:
+    """Two ``bench.run_bench`` directories as the cells of two arms, named apart
+    (:func:`arm_names`) and deduplicated (``latest``): what ``--against`` and
+    ``bench.loop compare`` pair by prompt id — ``(cells, name_a, name_b)``."""
+    name_a, name_b = arm_names(Path(out_a), Path(out_b))
+    rows = rows_from_bench_run(Path(out_a), name_a) + rows_from_bench_run(Path(out_b), name_b)
+    return latest(rows), name_a, name_b
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("out_dir", help="a compare_backends output directory (holds results.jsonl)")
@@ -271,9 +280,8 @@ def main(argv: list[str] | None = None) -> int:
     ns = ap.parse_args(argv)
     out = Path(ns.out_dir)
     if ns.against is not None:
-        name_a, name_b = arm_names(out, ns.against)
-        rows = rows_from_bench_run(out, name_a) + rows_from_bench_run(ns.against, name_b)
-        stats = [paired(latest(rows), name_a, name_b)]
+        cells, name_a, name_b = paired_rows(out, ns.against)
+        stats = [paired(cells, name_a, name_b)]
         md = render_markdown(stats, f"{name_a} vs {name_b}")
         (out / "paired.md").write_text(md)
         print(md)

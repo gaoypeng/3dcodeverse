@@ -12,11 +12,12 @@ from __future__ import annotations
 import contextlib
 import math
 import re
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, Field, field_validator, model_validator
 
 from codeverse3d.contracts.common import (
+    Language,
     MimicSpec,
     Vec3,
     mimic_issues,
@@ -561,13 +562,21 @@ SCENE_ASSET_KINDS: dict[str, tuple[str, ...]] = {
 }
 
 
+#: what ``AssetPlan.kind`` means to the planner of each scene language — the description the
+#: swapped schema carries (scene_threejs keeps the field's own text, byte-identical)
+SCENE_KIND_DOCS: dict[str, str] = {
+    "scene_blender": "bpy = a procedural Blender module (src/assets/<snake>.py, built once at the origin and "
+                     "placed as collection instances); blender_glb = a hero built as an object and shipped as a GLB",
+}
+
+
 class AssetPlan(BaseModel):
     name: str = Field(description="PascalCase asset name")
     kind: Literal["threejs", "bpy", "blender_glb"] = Field(
         description="threejs = procedural module; blender_glb = built with bpy and compiled to a GLB",
         # the schema a planner is handed names the kinds of ITS language (SCENE_ASSET_KINDS): the
         # default is scene_threejs's, byte-identical to before `bpy` existed; a scene_blender
-        # planner swaps in its own enum
+        # planner swaps in its own enum (``scene_plan_schema``)
         json_schema_extra={"enum": list(SCENE_ASSET_KINDS["scene_threejs"])},
     )
     description: str
@@ -654,6 +663,23 @@ class ScenePlan(BaseModel):
                 if to_snake(c) not in assets:
                     raise ValueError(f"zone {z.name} lists unknown asset {c}")
         return self
+
+
+def scene_plan_schema(language: Language | str) -> dict[str, Any]:
+    """The ``ScenePlan`` JSON schema a planner of ``language`` is handed: ``AssetPlan.kind``'s enum
+    (and its description) are that language's (:data:`SCENE_ASSET_KINDS`).  scene_threejs's is
+    ``ScenePlan.model_json_schema()`` byte for byte — the default the field carries — so every
+    recorded scene_threejs planner request is unchanged; a scene_blender planner is offered
+    ``bpy`` / ``blender_glb`` and never ``threejs``.  ``KeyError`` for a language that plans no
+    scene."""
+    kinds = SCENE_ASSET_KINDS[Language(language).value]
+    schema = ScenePlan.model_json_schema()
+    kind = schema["$defs"]["AssetPlan"]["properties"]["kind"]
+    kind["enum"] = list(kinds)
+    doc = SCENE_KIND_DOCS.get(Language(language).value)
+    if doc:
+        kind["description"] = doc
+    return schema
 
 
 class ZonePlacement(BaseModel):

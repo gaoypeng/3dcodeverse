@@ -1,0 +1,83 @@
+# Scene asset `{{ asset_name }}` ({{ asset_kind }}) — write `{{ asset_file }}`
+
+Scene: {{ spec_prompt }}
+{% if fix_instructions %}
+## FIX PASS — the asset was judged; apply exactly these changes and keep the rest
+{% for i in fix_instructions %}
+{{ i }}
+{% endfor %}
+{% endif %}
+
+## The asset
+- Name: `{{ asset_name }}`
+- Size (width × height × depth, metres — the plan's Y-up order; in Blender x = width, y = depth, z = height): {{ '%.2f' % asset_size[0] }} × {{ '%.2f' % asset_size[1] }} × {{ '%.2f' % asset_size[2] }}
+- Description: {{ asset_description }}
+- Style of the whole scene: {{ style_notes or constraints }}
+
+## Contract (raw bpy module; the harness builds it once and the zones instance it)
+{{ frame_doc }}
+{{ contract }}
+- `{{ asset_file }}` must define `def build_{{ asset_file.rsplit('/', 1)[-1][:-3] }}(ctx, variant=0)` that links
+  every part into `ctx.collection` (its own Collection, pre-made and active) and returns it: built at
+  the origin, lowest point on z = 0, footprint centred on the origin, front facing −Y, sized as stated
+  (±5 %).  Zone code places collection instances of `ctx.assets['{{ asset_file.rsplit('/', 1)[-1][:-3] }}']` by
+  that origin and never calls you.
+- Build from bmesh (`create_cube` / `create_cone` / `create_icosphere` / `create_circle`, scaled and
+  translated) and Principled materials with colours (`Base Color`, `Roughness`, `Metallic`; a noise
+  bump; `lib/materials.py` has the palette) — several parts with distinct materials, each a uniquely
+  named PascalCase object (one root mesh, or children parented under it with a RELATIVE location).
+- `variant` (0..n) and `ctx.rng(seed)` may vary details deterministically; `random.*` is a lint error.
+- Segments 10–24; at most 15000 triangles for the whole asset (it is instanced).
+- No lights, no cameras, no world, no `bpy.ops` in loops, no file IO; nothing outside the asset
+  itself (no ground plane).
+- MOTION (only when the description names a moving part — a swinging lamp, a turning wheel): keyframe
+  that part's OWN rotation/location on `ctx.frame(0.0)` and `ctx.frame(1.5)` (LINEAR), or a simple
+  driver of `frame` (`frame * 0.2`); put the part's origin at its pivot.  Amplitude must read at scene
+  distance (≥ 0.15 rad or ≥ 0.05 m).
+{% if library_rows %}
+- The sheet names shipped library calls.  `src/lib/` ships with the scene: import them
+  (`from lib.vegetation import tree`) and compose what they build into `ctx.collection` instead of
+  rebuilding them; every factory takes the collection, a name and a seed.
+{{ library_rows }}
+{% endif %}
+{% if skeleton_files is defined and skeleton_files %}
+
+## Current files (skeleton already in src/ — keep its structure, fill in every stub)
+{% for path, body in skeleton_files.items() %}
+--- {{ path }} ---
+```
+{{ body }}
+```
+{% endfor %}
+{% endif %}
+
+## DO / DON'T
+- DO use the exact size numbers above; the zone builders and the placement gate rely on them.
+- DO give it the 3–4 recognisable features a person would name (a stone lantern: base, post, light
+  box with 4 windows, curved roof, finial) — plus 2–3 pieces of wear or incident that make it look
+  used: a chipped corner, a leaning post, moss at the base, a rope, a hanging tool.
+- DO make `variant` (0..n) change the SILHOUETTE, not just the scale: at least 3 visibly different
+  versions (a different crown shape, a different roof pitch, a broken vs whole rail).  Zones rely on
+  this for variety, so a `variant` that only scales is a wasted asset.
+- DO give any repeated natural asset per-instance hue room: vary the colour from `variant` /
+  `ctx.rng(seed)` so 20 copies are not one colour.
+- DON'T model a flat plane with a colour where the thing has real thickness (a fence is stakes and
+  rails, not a textured quad) — closeups are judged.
+- DON'T leave floating pieces: every sub-shape overlaps a neighbour by ≥ 2 mm, and the lowest point
+  is exactly z = 0 (the harness measures a part sunk below it or hovering above it).
+- DON'T write anything outside the listed file.
+{% if current_code %}
+
+## Current file (edit and return COMPLETE)
+```
+{{ current_code }}
+```
+{% endif %}
+{% if tool_cards and not single_shot %}
+
+## Tools
+{{ tool_cards }}
+{% endif %}
+
+## Output
+{{ output_format }}

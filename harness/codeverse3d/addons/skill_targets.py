@@ -287,6 +287,53 @@ TARGETS: tuple[Target, ...] = (
         caveat="NOT yet measurable here: judged quality only. A variance census (per-material "
                "value spread over sampled texels) is the candidate instrument.",
     ),
+    # ------------------------------------------------------------- 2026-10-14 scene_blender (D105)
+    Target(
+        skill="c3d-bpy-scene-placement",
+        metric="bpy_placement_errors",
+        direction=DOWN,
+        unit="ERROR findings per run",
+        source=SRC_GATE,
+        kinds=("scene_placement/floating", "scene_placement/sunken", "scene_placement/unsupported",
+               "scene_placement/interpenetration"),
+        severities=("error",),
+        languages=("scene_blender",),
+        why="the bundle's whole method is seating every placed row on height_at or its support; the loop's "
+            "own accept rule vetoes an iteration whose floating+sunken+interpenetration ERROR count per run "
+            "rises, so the bundle is measured by the number the loop already reads",
+        caveat="unsupported is a WARN-only kind in scene_placement.py today, so it contributes zero until the "
+               "gate escalates it; cantilevered and free_exempt route the bundle (R30) but are not counted — "
+               "cantilevered is WARN-only and free_exempt is one finding per report, not per asset.",
+    ),
+    Target(
+        skill="c3d-bpy-scene-lighting",
+        metric="bpy_exposure_findings",
+        direction=DOWN,
+        unit="findings per run",
+        source=SRC_GATE,
+        kinds=("scene_frames/dark_frame", "scene_frames/flat_frame", "scene_frames/blown_frame"),
+        languages=("scene_blender",),
+        why="the bundle is the exposure thresholds of frame_metrics.py restated with the Cycles/AgX bands "
+            "measured under them; the gate counts exactly the frames it failed to light",
+        caveat="the same three kinds as c3d-scene-lighting, over a disjoint language: a run is scene_threejs "
+               "or scene_blender, never both, so each A/B still names one owner. The uniqueness test must key "
+               "on (kind, language), not on the kind alone.",
+    ),
+    Target(
+        skill="c3d-bpy-scene-materials",
+        metric="flat_principled_materials",
+        direction=DOWN,
+        unit="materials whose Base Color, Roughness and Metallic are all unlinked constants (prospective census)",
+        source=SRC_ARTIFACT,
+        languages=("scene_blender",),
+        measurable=False,
+        why="placeholder_material, flat_ground and monotonous_vegetation are judge defects with no deterministic "
+            "twin; the census GLB reads three Principled default values and a linked socket exports as its default",
+        caveat="NOT yet measurable here: judged quality only. The candidate instrument is one census field per "
+               "material — which of Base Color / Roughness / Metallic / Normal are linked — written by "
+               "wrappers/_census_glb.py next to the values it already reads; until it exists this row is a "
+               "finding about the bundle, not a number.",
+    ),
 )
 
 BY_SKILL: dict[str, Target] = {t.skill: t for t in TARGETS}
@@ -315,10 +362,18 @@ CLAIMS_DIR = "_claims"
 PROMPT_CLAIMS = "_claims.toml"
 
 
-def claims_path(name: str, root: Path | None = None) -> Path:
+def claims_path(skill: Skill | str, root: Path | None = None) -> Path:
+    """The claims file for ``skill``: a ``Skill``'s OWN root first (``<its dir>.parent/_claims/<name>.toml``
+    — a variant overlay bundle pins its numbers beside itself, D105), then the library root ``root``
+    (default ``skills_dir()``).  A bare name looks in the library root only."""
     from codeverse3d.skills import skills_dir
 
+    name = skill.name if isinstance(skill, Skill) else skill
     base = Path(root) if root is not None else skills_dir()
+    if isinstance(skill, Skill):
+        own = skill.dir.parent / CLAIMS_DIR / f"{name}.toml"
+        if own.is_file():
+            return own
     return base / CLAIMS_DIR / f"{name}.toml"
 
 
@@ -331,9 +386,10 @@ def _load_rows(p: Path) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def load_claims(name: str, root: Path | None = None) -> list[dict[str, Any]]:
-    """The claim rows for one skill ([] when the bundle pins nothing)."""
-    return _load_rows(claims_path(name, root))
+def load_claims(skill: Skill | str, root: Path | None = None) -> list[dict[str, Any]]:
+    """The claim rows for one skill ([] when the bundle pins nothing); a ``Skill`` finds an overlay's
+    own ``_claims/`` first (:func:`claims_path`)."""
+    return _load_rows(claims_path(skill, root))
 
 
 def resolve(dotted: str) -> Any:
@@ -426,7 +482,7 @@ def check_rows(rows: list[dict[str, Any]], read: Any) -> list[str]:
 def check_claims(skill: Skill, root: Path | None = None) -> list[str]:
     """Every stale or missing claim in one bundle, as human lines (empty == clean)."""
     try:
-        rows = load_claims(skill.name, root)
+        rows = load_claims(skill, root)
     except (ValueError, OSError) as e:
         return [f"claims file unreadable: {e}"]
     return check_rows(rows, lambda f: skill.body if not f else (skill.dir / f).read_text())
@@ -442,7 +498,7 @@ def check_prompt_claims(root: Path | None = None) -> list[str]:
     return check_rows(rows, lambda f: (base / f).read_text() if f else "")
 
 
-def claim_bases(name: str, root: Path | None = None) -> dict[str, tuple[str, Any]]:
+def claim_bases(skill: Skill | str, root: Path | None = None) -> dict[str, tuple[str, Any]]:
     """``key -> (dotted target, live value)`` — the agreement test's real comparison.
 
     WHY not the rendered text: two skills may honestly quote one constant in two units.
@@ -452,7 +508,7 @@ def claim_bases(name: str, root: Path | None = None) -> dict[str, tuple[str, Any
     is compared — the pre-scale value, and the target it came from.
     """
     out: dict[str, tuple[str, Any]] = {}
-    for row in load_claims(name, root):
+    for row in load_claims(skill, root):
         key = row.get("key")
         if not key or not (row.get("python") or row.get("js")):
             continue

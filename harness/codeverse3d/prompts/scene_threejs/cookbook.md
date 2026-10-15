@@ -666,6 +666,28 @@ or pit never counts; a foot at/under water is fine); bbox touching nothing → `
 a large share of their volume → `interpenetration`.  Seat things with `heightAt(x, z)` and they pass.  A thing MEANT to hang in
 the air (bird, drone): `obj.userData.placement = 'free'` on it or its zone = exempt.  Instanced meshes are not checked.
 
+Three placement rules the argon loop's iteration 0 paid for (2026-10-15: 7 of 30 zones shipped
+interpenetration ERRORs, 5 shipped sunken ones):
+
+1. **One placed thing = one direct child of the zone group.**  Never wrap several props in a
+   `MidProps` / `Dressing` / `SeamDressing` Group: the gate measures that Group as ONE asset whose
+   box is the union, so every prop inside it reads as interpenetrating it (11 of 29 rows).  A prop
+   built from parts is one Group; hundreds of the same thing are one `InstancedMesh`.
+2. **Scatter clear of what you placed.**  Keep the boxes of the hand-placed things and skip every
+   scatter point inside them (+0.3 m); a scattered rock, fern or crate inside a placed table,
+   rockery or tower is an interpenetration at 100 % of the smaller box:
+
+```js
+const placed = [];                                          // push after every hand placement
+function keepClear(THREE, obj, margin = 0.3) { placed.push(new THREE.Box3().setFromObject(obj).expandByScalar(margin)); }
+const isClear = (x, z) => !placed.some((b) => x >= b.min.x && x <= b.max.x && z >= b.min.z && z <= b.max.z);
+// inside a scatter loop:  if (!isClear(x, z)) { m.makeScale(0, 0, 0); mesh.setMatrixAt(i, m); continue; }
+```
+
+3. **A wide flat thing on a slope** (a talus field, a long conveyor, a bench row) is measured at
+   its lowest vertices against the ground under THEM: conform each piece to `heightAt` or split it,
+   or its uphill end is `sunken` by the slope's rise (0.24-0.36 m in iteration 0).
+
 ## Assets (`src/assets/*.js`) and GLB assets from Blender
 
 ```js
@@ -700,14 +722,24 @@ Why: a scene mixes cheap instanced fillers with a few hero assets; GLBs come in 
 ```js
 // Rigid movers: cache a `home` Vector3 at build time, then set (never accumulate) the
 // pose from t — `obj.position.y = home.y + Math.sin(t * 0.9) * 0.06` etc.
-// Particles: THREE.Points + PointsMaterial is enough for dust/fireflies/snow (custom
-// point shaders only if the plan demands).  Recycle positions inside update.
+// Particles: THREE.Points with a RADIAL alpha sprite (`softDot`) — a bare PointsMaterial
+// draws SQUARES, which is the judge's `hard_edged_particles` defect (see "Soft particles").
+function softDot(THREE, size = 64) {
+  const data = new Uint8Array(size * size * 4);            // no DOM: a DataTexture, not a canvas
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const r = Math.min(1, Math.hypot((x + 0.5) / size - 0.5, (y + 0.5) / size - 0.5) * 2);
+    const i = (y * size + x) * 4;
+    data[i] = data[i + 1] = data[i + 2] = 255; data[i + 3] = Math.round(255 * (1 - r) * (1 - r));
+  }
+  const tex = new THREE.DataTexture(data, size, size); tex.needsUpdate = true; return tex;
+}
 function buildFireflies(THREE, n = 120, area = { x: 0, z: 0, w: 30, d: 30 }) {
   const pos = new Float32Array(n * 3);
   const rnd = mulberry32(11);
   for (let i = 0; i < n; i++) pos.set([area.x + (rnd() - 0.5) * area.w, 0.6 + rnd() * 2.2, area.z + (rnd() - 0.5) * area.d], i * 3);
   const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xd9f76e, size: 0.06, sizeAttenuation: true, transparent: true, opacity: 0.9 }));
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ map: softDot(THREE), color: 0xd9f76e, size: 0.06, sizeAttenuation: true,
+    transparent: true, opacity: 0.9, depthWrite: false, alphaTest: 0.02, blending: THREE.AdditiveBlending }));   // NormalBlending for dust/snow
   pts.name = 'Fireflies';
   const base = pos.slice();
   pts.userData.update = (t) => {
@@ -767,6 +799,26 @@ console.log('sway delta (rad) over 1.5s', Math.abs(a1 - a0).toFixed(3), (Math.ab
 
 Self-check: after `scene_views(times=[0, 1.5])` compare the two sheets.  If you cannot
 point at what changed, double the amplitude.
+
+## Soft particles: steam, smoke, dust, motes and sparks (never a hard-edged quad)
+
+The judge's `hard_edged_particles` defect — and the brief's "a soft particle effect … never
+hard-edged quads" must-item, which caps the whole score — fired on 5 of 30 argon scenes on
+2026-10-15: bare `PointsMaterial` squares for motes, a chain of opaque spheres for a steam jet,
+polygon "sparks".  The library already does the soft version — prefer it:
+
+| want | call |
+|---|---|
+| steam from a vent, a cup, a chimney; rising smoke | `makeSmoke({ height, radius, wind, riseSpeed, seed })` · `makeSteam({ height, radius })` (`lib/smoke.js`) — a bounded density field, no edge anywhere |
+| dust motes, pollen, drifting sparkle | `makeMotes({ extent, height, count, size, color, seed })` (`lib/veils.js`) — glinting specks with radial falloff |
+| snow, distant rain | `makeSnowfall` · `makeRainVeil` (`lib/veils.js`) |
+| sparks and embers | `makeFire` / `makeFireField` (`lib/fire.js`, `lib/firefield.js`) — the embers ride the flame |
+| a cloud of your own | `THREE.Points` + `PointsMaterial({ map: softDot(THREE), transparent: true, depthWrite: false, alphaTest: 0.02 })` — the `softDot` sprite from the Animation chapter; `AdditiveBlending` for fireflies and sparks, `NormalBlending` for dust and snow |
+
+Rules: every point carries a radial alpha sprite or it is a square; a steam jet is ONE
+`makeSteam` / `makeSmoke`, never spheres in a row; sparks are points, never triangles or
+hexagons; the cloud MOVES (>= 0.6 m of travel in 1.5 s, see the motion table) or it is a
+static decal; keep it to 60-400 points — a fog of them reads as noise.
 
 ## Scene layering: foreground, midground, background
 

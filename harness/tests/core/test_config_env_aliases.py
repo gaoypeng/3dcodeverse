@@ -54,6 +54,24 @@ def test_the_in_flight_cap_spellings_empty_zero_and_garbage(monkeypatch):
         Settings()
 
 
+def test_the_variant_switches_parse_a_name_and_a_json_mapping(monkeypatch):
+    """D105: ``C3D_VARIANT`` names one variant for the process; ``C3D_VARIANTS`` is a JSON object of exact
+    generator id → name (consulted when the first is empty); unset / empty is the base, garbage JSON is a
+    configuration error (the CLI's exit 2), not a silently empty table."""
+    for name in ("C3D_VARIANT", "C3D_VARIANTS"):
+        monkeypatch.delenv(name, raising=False)
+    assert (Settings().variant, Settings().variants) == ("", {})
+    monkeypatch.setenv("C3D_VARIANT", "argon")
+    monkeypatch.setenv("C3D_VARIANTS", '{"agy:gemini-4-argon": "argon", "codex:gpt-6.1-sol": "sol"}')
+    s = Settings()
+    assert s.variant == "argon" and s.variants == {"agy:gemini-4-argon": "argon", "codex:gpt-6.1-sol": "sol"}
+    monkeypatch.setenv("C3D_VARIANT", "")
+    assert Settings().variant == "", "an empty value is unset, never the name ''"
+    monkeypatch.setenv("C3D_VARIANTS", "argon")
+    with pytest.raises(ValueError):
+        Settings()
+
+
 # --------------------------------------------------------------------------- yaml layering
 
 def test_the_environment_beats_the_config_files_per_setting(monkeypatch):

@@ -67,7 +67,6 @@ from codeverse3d.languages import get_runtime
 from codeverse3d.languages._gl_common import finish_build, judge_times
 from codeverse3d.languages.glsl_shader import GlslShaderRuntime
 from codeverse3d.languages.opengl_python import OpenGLPythonRuntime
-from codeverse3d.languages.scene_threejs import asset_file, zone_file
 from codeverse3d.models.base import ModelError
 from codeverse3d.orchestrator import BudgetGuard
 from codeverse3d.spatial.gl_render import GlFrame, GlResult, gif_times
@@ -76,6 +75,7 @@ from codeverse3d.texturing.plan import PackEntry, ScenePack
 from codeverse3d.tracks import get_track, scene_assets
 from codeverse3d.tracks.common import Services
 from codeverse3d.tracks.planner import plan_example
+from codeverse3d.tracks.scene import ENV_FILES
 from codeverse3d.tracks.scene_assets import AssetCheck
 from codeverse3d.tracks.zone_layout import validate_layout
 from codeverse3d.workspace import Workspace, WorkspaceGitError
@@ -128,6 +128,7 @@ def isolated(root: Path) -> Iterator[None]:
                                     (BudgetGuard, "elapsed_minutes", lambda self: 0.0),
                                     (ledger, "_fallback", ledger.CostLedger(root / "process.jsonl")),
                                     (scene_assets, "check_threejs_asset", _asset_check),
+                                    (scene_assets, "check_bpy_asset", _bpy_asset_check),
                                     (Workspace, "_git", _git_through_short_reads)):
             stack.enter_context(mock.patch.object(target, name, value))
         os.chdir(root)       # no ./3dcodeverse.yaml
@@ -168,6 +169,16 @@ def _asset_check(ctx: Any, rel: str, pascal: str, *, timeout_s: float = 60.0,
         return AssetCheck(ok=True, ran=True, size_m=expected_size_m, tris=480, meshes=3, materials=2)
     return AssetCheck(ok=False, ran=True, fatal=True,
                       errors=[f"missing export: this file must `export function build{pascal}(THREE, opts = {{}})`"])
+
+
+def _bpy_asset_check(ctx: Any, rel: str, snake: str, *, expected_size_m: tuple[float, float, float] | None = None,
+                     timeout_s: float | None = None) -> AssetCheck:
+    """``scene_assets.check_bpy_asset`` without Blender: a module passes when it defines its builder."""
+    path = ctx.ws.root / rel
+    if path.is_file() and f"def build_{snake}(" in path.read_text():
+        return AssetCheck(ok=True, ran=True, size_m=expected_size_m, tris=480, meshes=3, materials=2)
+    return AssetCheck(ok=False, ran=True, fatal=True,
+                      errors=[f"missing builder: this file must define `build_{snake}(ctx, variant=0)`"])
 
 
 class StableJudge(FakeJudge):
@@ -286,16 +297,17 @@ class Rig:
 
     def single_shot_files(self, label: str) -> list[str]:
         """The files a single-shot answer for ``label`` returns (an agent job names them in ``files_hint``)."""
-        if isinstance(self.plan, ScenePlan):
+        if isinstance(self.plan, ScenePlan):   # the scene language's own file table (D101)
+            rt = get_runtime(self.language)
             if label == "env":
-                return ["src/env.js"]
+                return [getattr(rt, "env_file", None) or ENV_FILES[self.language]]
             if label.startswith("zone"):
-                return [zone_file(z.name) for z in self.plan.zones]
+                return [rt.zone_file(z.name) for z in self.plan.zones]
             if label.startswith("asset_"):
                 asset = self.asset(label)
-                if asset.kind == "threejs":
-                    return [asset_file(asset)]
-                return get_runtime(Language.BLENDER).expected_files(StaticPlan.model_validate(plan_example(Track.STATIC_OBJECT)))
+                if asset.kind == "blender_glb":
+                    return get_runtime(Language.BLENDER).expected_files(StaticPlan.model_validate(plan_example(Track.STATIC_OBJECT)))
+                return [rt.asset_file(asset)]
         return get_runtime(self.language).expected_files(self.plan)
 
     def asset(self, label: str) -> Any:
@@ -318,6 +330,14 @@ class Rig:
                 out[rel] = PROGRAM.format(tag=tag)
             elif rel.endswith(".urdf"):
                 out[rel] = f"<robot name='x'/>\n<!-- {tag} -->\n"
+            elif rel.startswith("src/assets/") and rel.endswith(".py"):   # a scene_blender module: its builder, or none
+                snake = Path(rel).stem
+                fn = "build" if single_shot and to_pascal(snake) in self.broken_assets else f"build_{snake}"
+                out[rel] = f"import bpy  # {tag}\n\n\ndef {fn}(ctx, variant=0):\n    return ctx.collection\n"
+            elif rel == "src/env.py":
+                out[rel] = f"import bpy  # {tag}\n\n\ndef height_at(x, y):\n    return 0.0\n\n\ndef build_env(ctx):\n    return {{}}\n"
+            elif rel.startswith("src/zones/") and rel.endswith(".py"):
+                out[rel] = f"import bpy  # {tag}\n\n\ndef build(ctx):\n    return ctx.collection\n"
             elif rel.endswith(".py"):
                 out[rel] = f"import bpy  # {tag}\n"
             else:
@@ -416,11 +436,19 @@ SCENARIOS: dict[str, tuple[Track, Language, dict[str, Any], Callable[[Rig], None
                                         _two_runs(1, 2)),
     "scene.scene_threejs.agent.textures": (SC, Language.SCENE_THREEJS, {"plan": small_scene()}, _scene_textures),
     "scene.scene_threejs.agent.no_layouts": (SC, Language.SCENE_THREEJS, {"plan": small_scene()}, _switched("C3D_ZONE_LAYOUTS", "off", 0)),
+    # the argon variant (D105) ships EMPTY overlays: every payload equals the fresh scene's, only the
+    # plan stage key carries the variant name — iteration 0 of the loop measures exactly this
+    "scene.scene_threejs.agent.variant_argon": (SC, Language.SCENE_THREEJS, {"plan": small_scene()}, _switched("C3D_VARIANT", "argon", 1)),
     "scene.scene_threejs.agent.hero": (SC, Language.SCENE_THREEJS, {"scores": (0.6, 0.7)}, lambda r: r.run(rounds=0)),
     # the zones never build again: repairs and the rebuild own scene.js/env.js, not the zone files
     "scene.scene_threejs.agent.rebuild": (SC, Language.SCENE_THREEJS, {"plan": small_scene(), "fail": frozenset({"zones_quay_water"})},
                                           lambda r: r.run(rounds=1)),
     "scene.scene_threejs.single_shot.fresh": (SC, Language.SCENE_THREEJS, {"plan": small_scene(), "broken_assets": frozenset({"Bollard"})},
+                                              lambda r: r.run(rounds=1, single_shot=True)),
+    # the bpy scene language over the same harbour (lane B1, 2026-10-14): the bpy templates, the bpy asset ladder
+    "scene.scene_blender.agent.fresh": (SC, Language.SCENE_BLENDER, {"plan": small_scene(Language.SCENE_BLENDER), "broken_assets": frozenset({"Bollard"})},
+                                        _two_runs(1, 2)),
+    "scene.scene_blender.single_shot.fresh": (SC, Language.SCENE_BLENDER, {"plan": small_scene(Language.SCENE_BLENDER), "broken_assets": frozenset({"Bollard"})},
                                               lambda r: r.run(rounds=1, single_shot=True)),
     "graphics.glsl_shader.agent.fresh": (G, Language.GLSL_SHADER, {}, _two_runs(1, 2)),
     "graphics.glsl_shader.agent.best_of_2": (G, Language.GLSL_SHADER, {}, lambda r: r.run(rounds=0, candidates=2)),
@@ -453,16 +481,11 @@ def run_scenario(name: str, root: Path) -> Result:
         return Result(capture(rig), stage_keys(rig))
 
 
-#: a language whose agent-facing payloads are not blessed yet: scene_blender's tool list is blessed by
-#: the lane that ships its prompts and scenarios (DESIGN phase 3), which deletes this entry
-UNBLESSED_LANGUAGES = frozenset({Language.SCENE_BLENDER})
-
-
 def mcp_tools() -> dict[str, str]:
     """The tool list an MCP session is offered, per (track, language)."""
     return {f"mcp_tools:{t.value}/{lang.value}": _json([{"name": d.name, "cost": d.cost_hint, "description": d.description,
                                                          "schema": d.schema()} for d in list_tools(track=t.value, language=lang.value)])
-            for t, langs in TRACK_LANGUAGES.items() for lang in langs if lang not in UNBLESSED_LANGUAGES}
+            for t, langs in TRACK_LANGUAGES.items() for lang in langs}
 
 
 def capture(rig: Rig) -> dict[str, str]:

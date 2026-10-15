@@ -1,9 +1,9 @@
 # Installing the 3dcodeverse harness
 
 Everything below was executed on this machine (WSL2 Ubuntu, RTX 5090, Python
-3.13.9, node v24.14.0, Blender 5.0.1) on 2026-08-23; the version numbers and the
+3.13.9, node v24.14.0, Blender 5.2.2 LTS — since 2026-10-14, was 5.0.1) on 2026-08-23; the version numbers and the
 `3dcodeverse doctor` output in §9 are real, not illustrative.  Paths are relative
-to the harness root `/home/yipeng/3dcodeverse/harness` unless absolute.
+to the harness root (`harness/` in the 3dcodeverse checkout) unless absolute.
 
 Once installed, read `docs/RUNBOOK.md` (how to run), `docs/ARCHITECTURE.md`
 (what a run does) and `CLAUDE.md` (working rules).
@@ -63,7 +63,7 @@ workflow, so the offline suite and `ruff` are run locally before every push (see
 |---|---|---|---|
 | **python** | **3.13** | `requires-python = ">=3.13"`; ruff `target-version = "py313"`; `PY_FLOOR` in `tests/core/test_portability.py`; `MIN_PY_MINOR` in `setup.sh` | the four places are pinned together by the portability test |
 | **node** | **20.6.0+** (developed on 24 LTS) | `runtime_js/package.json` `engines.node`; `codeverse3d.spatial.node.NODE_MIN` fails every node workload with an actionable message | 20.6 is the `--import` module-hook floor |
-| **Blender** | 4.2+ (developed on 5.0.1) | runtime probe only (`Settings.resolve_blender()`) | `blender` / `urdf_blender` are the only users |
+| **Blender** | **5.2 LTS** only (developed and measured on 5.2.2; D104, 2026-10-14) | `BLENDER_MIN = (5, 2)` in `codeverse3d/config.py`; `3dcode doctor` fails anything older; `Settings.resolve_blender()` | `blender`, `urdf_blender` and `scene_blender` are the users |
 | **OS** | Linux x86_64 (WSL2 Ubuntu here) | — | macOS should work (nothing is Linux-specific except `resource.setrlimit` guards) but is not tested |
 
 The offline suite on this box, 2026-09-23: **1332 passed of the 1332 selected**
@@ -76,11 +76,11 @@ Moving to another Python later is the same four-line change (`requires-python`, 
 
 | what | required? | verified here | how it degrades without it |
 |---|---|---|---|
-| **Python 3.13** | yes | 3.13.9 (`/home/yipeng/miniconda3/bin/python`) | nothing runs; `requires-python = ">=3.13"` (§2.1) |
+| **Python 3.13** | yes | 3.13.9 (`~/miniconda3/bin/python`) | nothing runs; `requires-python = ">=3.13"` (§2.1) |
 | **pip + venv** | yes | pip 25.3, `python -m venv` | `setup.sh` cannot install the package.  A stock Debian/Ubuntu `/usr/bin/python3` ships **without** pip and is PEP 668 `EXTERNALLY-MANAGED`, so `pip install -e harness` refuses even once pip is present: `sudo apt install python3-venv python3-pip`, then use a virtualenv |
 | **git** | yes | 2.53.0 | run workspaces are git repos (one commit per round); `Workspace.create()` and the flywheel pair miners fail |
 | **node ≥ 20.6** | yes, except for the `graphics` track | v24.14.0 (npm 11.9.0) | the `threejs` / `scene_threejs` languages disappear **and no object renders happen at all**: `spatial/render.py` renders *every* GLB (Blender-built and CadQuery-built included) with three.js in headless Chrome. Only `graphics` (moderngl) is node-free |
-| **Blender 4.2+ / 5.x** | optional | 5.0.1 (`~/.local/bin/blender-5.0`) | `blender` and `urdf_blender` languages unavailable → the `static_object` default language and the whole `articulated_object` track cannot build (`BlenderNotFoundError`); scenes lose planner-chosen bpy GLB assets |
+| **Blender 5.2 LTS** | optional | 5.2.2 LTS (`~/.local/bin/blender-5.2`) | `blender`, `urdf_blender` and `scene_blender` languages unavailable → the `static_object` default language and the whole `articulated_object` track cannot build (`BlenderNotFoundError`); scenes lose planner-chosen bpy GLB assets |
 | **EGL-capable GPU stack** | optional | ANGLE / D3D12 / RTX 5090 Laptop | headless Chrome falls back to **SwiftShader** and moderngl to **llvmpipe** — everything still renders, just several times slower; no correctness change |
 | C toolchain | usually no | — | only if pip has to build a wheel from source (`python-fcl`, `manifold3d` ship wheels for cp310–cp313 x86_64) |
 
@@ -222,7 +222,7 @@ cache was cleared or when `PUPPETEER_SKIP_DOWNLOAD` was set:
 
 ```bash
 cd harness/runtime_js && npx puppeteer browsers install chrome
-# chrome@148.0.7778.97 /home/yipeng/.cache/puppeteer/chrome/linux-148.0.7778.97/chrome-linux64/chrome
+# chrome@148.0.7778.97 ~/.cache/puppeteer/chrome/linux-148.0.7778.97/chrome-linux64/chrome
 ```
 
 Re-running it is a no-op that just prints the cached path.  `PUPPETEER_CACHE_DIR`
@@ -253,24 +253,41 @@ something the agent may install into.
 
 ## 6. Blender
 
-Optional, but the `static_object` default language and the entire
-`articulated_object` track need it.  Any headless-capable 4.2+ / 5.x build works.
+Optional, but the `static_object` default language, the entire `articulated_object`
+track and the `scene_blender` scene language need it.  **Blender 5.2 LTS is the one
+supported version** (D104, 2026-10-14: developed and measured on 5.2.2; `doctor` fails
+anything older — 4.2 / 5.0 compatibility was dropped on purpose, the prompts and lints
+state 5.2 API facts).
 
-Option A — distro package (simplest, often older):
+Option A — distro package (only if it ships 5.2 LTS):
 
 ```bash
 sudo apt-get install blender     # or: brew install --cask blender
 ```
 
-Option B — official tarball (what this box uses, no sudo needed); check
-<https://www.blender.org/download/> for the current file name:
+Option B — official tarball (what this box uses, no sudo needed); verify the checksum
+against <https://download.blender.org/release/Blender5.2/blender-5.2.2.sha256>:
 
 ```bash
 mkdir -p ~/tools && cd ~/tools
-curl -LO https://download.blender.org/release/Blender5.0/blender-5.0.1-linux-x64.tar.xz
-tar xf blender-5.0.1-linux-x64.tar.xz
-~/tools/blender-5.0.1-linux-x64/blender --version
+curl -LO https://download.blender.org/release/Blender5.2/blender-5.2.2-linux-x64.tar.xz
+tar xf blender-5.2.2-linux-x64.tar.xz
+~/tools/blender-5.2.2-linux-x64/blender --version      # Blender 5.2.2 LTS
 ```
+
+### The judged-frame fast path (scene_blender, measured on 5.2.2)
+
+`render_bpy_scene.py` owns every render setting.  On this box (RTX 5090, 1024×576, a
+460-object scene) one Cycles frame at 32 spp with GPU OIDN costs 0.64 s; with
+`render.use_persistent_data` the synced scene and BVH survive between the cameras of
+one job, so 8 frames take 2.2 s instead of 5.3 s (0.21 s per frame after the first).
+64 spp 0.69 s, 128 spp 0.86 s, CPU 2.3 s.  EEVEE in background mode is *slower* here
+(5.2 s per frame plus a 12 s shader compile per process) and Workbench is 0.12 s.
+`Settings.render.blender_frame_time_limit_s` (default 20 s, `cycles.time_limit`) caps
+a heavy scene's sampling per frame.  **OptiX is not available under WSL2** (no
+`libnvoptix`, init error 7804) and setting the compute device type to OPTIX and back
+crashes Blender 5.2.2 — the harness only ever enumerates CUDA; `3dcode doctor` times one
+256×144 frame on exactly this path.
 
 ### The `LD_LIBRARY_PATH` wrapper trick
 
@@ -278,16 +295,16 @@ The stock Linux build links `libSM.so.6` / `libICE.so.6` even in `--background`
 mode, and those are not installed system-wide here (no sudo).  They were
 extracted from the Ubuntu debs into `~/.local/xlibs`, and a one-line wrapper on
 `PATH` prepends that directory to the loader path so no caller has to remember —
-`~/.local/bin/blender-5.0`:
+`~/.local/bin/blender-5.2`:
 
 ```bash
 #!/bin/bash
-BLENDER_HOME="${BLENDER_HOME:-/home/yipeng/3dcodeverse_data/tools/blender-5.0.1-linux-x64}"
-export LD_LIBRARY_PATH="/home/yipeng/.local/xlibs/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
+BLENDER_HOME="${BLENDER_HOME:-$HOME/tools/blender-5.2.2-linux-x64}"
+export LD_LIBRARY_PATH="$HOME/.local/xlibs/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
 exec "$BLENDER_HOME/blender" "$@"
 ```
 
-Make it executable (`chmod +x ~/.local/bin/blender-5.0`) and keep the name — it
+Make it executable (`chmod +x ~/.local/bin/blender-5.2`) and keep the name — it
 is the first candidate the harness looks for.  If your distro does have the X11
 libs, point the wrapper at the tarball and drop the `LD_LIBRARY_PATH` line, or
 skip the wrapper entirely.
@@ -300,8 +317,7 @@ skip the wrapper entirely.
    `C3D_BINARIES__BLENDER=/path/to/blender`.  A configured binary is never replaced
    by one from `PATH`: if it is missing or not executable, builds raise
    `BlenderNotFoundError` and `doctor` reports `blender FAIL`;
-2. only when nothing is configured: `blender-5.0`, `blender`, `blender-5.1`,
-   `blender-4.2` on `PATH`, in that order.
+2. only when nothing is configured: `blender-5.2`, then `blender` on `PATH`.
 
 Nothing found → `3dcodeverse doctor` reports `blender FAIL` and builds raise
 `BlenderNotFoundError`.  Blender is always invoked `-b --factory-startup` with
@@ -393,7 +409,7 @@ this box runs on defaults plus env.
 runs_dir: /data/runs
 cache_dir: /data/cache/codeverse3d
 binaries:
-  blender: /home/yipeng/.local/bin/blender-5.0
+  blender: ~/.local/bin/blender-5.2
 render:
   gpu: auto          # auto | on | off
   width: 768
@@ -412,6 +428,7 @@ export C3D_BINARIES__BLENDER=/opt/blender/blender
 export C3D_RENDER__GPU=off
 export C3D_LIMITS__AGENT_TIMEOUT_S=900
 export C3D_DEFAULT_CANDIDATES=2
+export C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}'   # per-model prompt/skill variant by exact generator id (D105); C3D_VARIANT=argon names one for every run
 ```
 
 Every knob the harness reads is a `Settings` field (`codeverse3d/config.py`, one
@@ -438,9 +455,9 @@ Real output on this box (exit code 0; any FAIL row makes it exit 1):
 ┏━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ check         ┃ status ┃ detail                                              ┃
 ┡━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ python        │ OK     │ 3.13.9 (/home/yipeng/miniconda3/bin/python3.13)     │
+│ python        │ OK     │ 3.13.9 (~/miniconda3/bin/python3.13)                │
 │ python deps   │ OK     │ 23/23 importable                                    │
-│ blender       │ OK     │ Blender 5.0.1 @ /home/yipeng/.local/bin/blender-5.0 │
+│ blender       │ OK     │ Blender 5.2.2 LTS @ ~/.local/bin/blender-5.2        │
 │ node          │ OK     │ v24.14.0                                            │
 │ three         │ OK     │ 0.182.0 (…/harness/runtime_js/node_modules)         │
 │ puppeteer     │ OK     │ v24.43.1; chrome cache found (~/.cache/puppeteer)   │
@@ -497,6 +514,8 @@ that the keys work end to end):
 | `skills switch` | WARN | skills are disabled (`C3D_SKILLS=0`) | skills are on by default since 2026-09-22; unset `C3D_SKILLS` unless this is an A/B control arm |
 | `skills library` | WARN / FAIL | no bundles were found, or one or more bundles are invalid | use a full checkout and validate the named bundle under `codeverse3d/skills/<name>/` |
 | `skills routing` | WARN | a routed skill has no installed bundle | restore the missing bundle from the checkout or update the stale route |
+| `skills overlay` | FAIL | one row per shipped variant (`argon: …`): its skills overlay (`codeverse3d/skills/variants/<name>/`) has an invalid bundle or a `routes.toml` that does not type-check | fix the bundle `3dcode skills validate` names as `<variant>/<bundle>`, or the `routes.toml` row it names |
+| `skills variants` | FAIL | a shipped `variant.toml` under `codeverse3d/prompts/variants/` does not parse | fix that file (`[variant] name` = its directory name, an integer `version`); until then no overlay is checked |
 | `skills discovery` | OK | always informational | shows the agent-native directories where bundles are materialised |
 | `claude-code Skill tool` | FAIL | the Claude backend would deny native skill activation | update/reinstall the harness so `Skill` is present in Claude Code's allowed tools |
 
@@ -583,12 +602,12 @@ those by hand (`npm rm -g @anthropic-ai/claude-code @openai/codex`; agy: `rm ~/.
 
 | component | version | where |
 |---|---|---|
-| python | 3.13.9 (the one supported version — §2.1) | `/home/yipeng/miniconda3/bin/python` |
+| python | 3.13.9 (the one supported version — §2.1) | `~/miniconda3/bin/python` |
 | pip packages | pydantic 2.13.2 · trimesh 4.12.2 · python-fcl 0.7.0.11 · moderngl 5.12.0 · shapely 2.1.2 · networkx 3.6.1 · manifold3d 3.5.2 · pyarrow 24.0.0 · mcp 2.0.0 · scipy 1.18.0 · yourdfpy 0.0.60 · cadquery 2.8.0 · google-genai 2.10.0 · pytest 9.1.1 · ruff 0.15.20 | editable install of `harness/` |
-| node / npm | v24.14.0 / 11.9.0 (floor 20.6.0 — §2.1, verified against node 20.19.5) | `/home/yipeng/miniconda3/bin/node` |
+| node / npm | v24.14.0 / 11.9.0 (floor 20.6.0 — §2.1, verified against node 20.19.5) | `~/miniconda3/bin/node` |
 | runtime_js deps | three 0.182.0 · puppeteer 24.43.1 (99 packages, 97 MB) | `harness/runtime_js/node_modules` |
 | Chrome (puppeteer) | 148.0.7778.97 (+ headless-shell) | `~/.cache/puppeteer` |
-| Blender | 5.0.1 (2025-12-16) | `~/.local/bin/blender-5.0` → `~/3dcodeverse_data/tools/blender-5.0.1-linux-x64` |
+| Blender | 5.2.2 LTS (build 2026-09-15; installed 2026-10-14, sha256-verified) | `~/.local/bin/blender-5.2` → `~/tools/blender-5.2.2-linux-x64` (any directory: the wrapper's `BLENDER_HOME`) |
 | git | 2.53.0 | `/usr/bin/git` |
 | agy / claude / codex | 1.3.4 / 2.1.241 / 0.149.0 | `~/.local/bin` / npm global |
 | GPU (Chrome WebGL) | ANGLE · D3D12 · NVIDIA GeForce RTX 5090 Laptop GPU · OpenGL ES 3.1 | via `--use-angle=gl-egl` + Mesa d3d12 |

@@ -9,8 +9,11 @@
  * corners fill the frame (exact per-corner frustum fit with a margin, not a
  * bounding-sphere fit).  Scenes sit on ground, so the rig is ground-aware: eyes
  * never go below ground, low "eye level" views stand just outside the footprint
- * ~1.6 m above ground and look at the content centre.  Azimuth 0 = front (+Z),
- * CCW from above; elevation in degrees above the horizon (conventions.py).
+ * ~1.6 m above ground and look at the content centre, and a CONTACT view (elevation
+ * under 10°, `fitContactCamera`) stands at ~1.2× the content span, 0.4 m above the
+ * ground, aimed at the ground edge of the content box — the angle that shows daylight
+ * under a base.  Azimuth 0 = front (+Z), CCW from above; elevation in degrees above
+ * the horizon (conventions.py).
  */
 
 const DEG = Math.PI / 180;
@@ -130,6 +133,34 @@ export function fitZoneCamera(bbox, { azimuth = 45, floor = null, fov = 50 } = {
   });
 }
 
+const CONTACT_SPAN_FACTOR = 1.2;   // eye distance from the content centre, in content spans
+const CONTACT_EYE_M = 0.4;         // eye height above the ground: a base's daylight is a few cm tall
+
+/**
+ * Ground-level CONTACT camera on the given azimuth side (scene_v2's `overview_low_front`,
+ * 2026-10-14): the eye stands `CONTACT_SPAN_FACTOR` content spans from the centre, 0.4 m
+ * above the ground, and looks at the point where the view line leaves the content box's
+ * footprint AT ground height — so the near edge of the content sits mid-frame with the
+ * ground under it, where a hovering base or a part through a neighbour is visible.  The
+ * overview fits look down at 32°+ and see a base's shadow, not its gap; the judge's
+ * contact crops are cut from this tile (judges/prompt_builder.plan_detail_crops).
+ * @returns {{position:number[], lookAt:number[], fov:number}}
+ */
+export function fitContactCamera(bbox, { azimuth = 20, floor = null, fov = 50 } = {}) {
+  const g = boxGeom(bbox, floor);
+  const [dx, , dz] = orbitDirection(azimuth, 0);
+  const hx = g.size[0] / 2, hz = g.size[2] / 2;
+  const tx = Math.abs(dx) > 1e-6 ? hx / Math.abs(dx) : Infinity;
+  const tz = Math.abs(dz) > 1e-6 ? hz / Math.abs(dz) : Infinity;
+  const edge = Math.min(tx, tz);                       // centre → footprint boundary along the view line
+  const dist = Math.max(edge + 2, CONTACT_SPAN_FACTOR * Math.max(span(bbox), 1));
+  return round3({
+    position: [g.center[0] + dx * dist, g.floor + CONTACT_EYE_M, g.center[2] + dz * dist],
+    lookAt: [g.center[0] + dx * edge, g.floor, g.center[2] + dz * edge],
+    fov,
+  });
+}
+
 /**
  * Overview camera on the given azimuth side, fitted so the bbox's eight
  * corners fill the frame (exact per-corner frustum fit, ground-aware — never
@@ -151,7 +182,9 @@ export function fitOverviewCamera(bbox, { azimuth = 45, elevation = 30, fov = 50
 
 /**
  * Build camera specs for `views` around `bbox` ({min:[..], max:[..]}):
- * fitOverviewCamera above 20°, fitZoneCamera at eye level.
+ * fitOverviewCamera above 20°, fitZoneCamera at eye level (10°–20°), fitContactCamera
+ * under 10°.  Only the overviews drop the fog and lift ceilings (`noFog`): the eye and
+ * contact views are pictures of the place as lit.
  * @returns {Array<{name, position, lookAt, fov, kind:'orbit'}>}
  */
 export function fitOrbitCameras(bbox, views, { fov = 50, aspect = 16 / 9, groundY = null, margin = 1.05 } = {}) {
@@ -159,9 +192,11 @@ export function fitOrbitCameras(bbox, views, { fov = 50, aspect = 16 / 9, ground
   const out = [];
   for (const v of views) {
     const el = Math.max(3, Math.min(89, v.elevation));
-    const fit = el <= 20
-      ? fitZoneCamera(bbox, { azimuth: v.azimuth, floor: groundY, fov })
-      : fitOverviewCamera(bbox, { azimuth: v.azimuth, elevation: el, fov, aspect, groundY, margin });
+    const fit = el < 10
+      ? fitContactCamera(bbox, { azimuth: v.azimuth, floor: groundY, fov })
+      : el <= 20
+        ? fitZoneCamera(bbox, { azimuth: v.azimuth, floor: groundY, fov })
+        : fitOverviewCamera(bbox, { azimuth: v.azimuth, elevation: el, fov, aspect, groundY, margin });
     out.push({ name: v.name, ...fit, kind: 'orbit', noFog: el > 20 });
   }
   return out;

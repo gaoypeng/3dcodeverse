@@ -117,7 +117,7 @@ def make_fake_run(
     rec = RunRecord(spec=spec, workspace=str(ws.root), status=RunStatus.MAX_ROUNDS, rounds=rounds,
                     total_usage=Usage(cost_usd=0.06, input_tokens=2000, output_tokens=1000),
                     steps=[StepTime(step="plan", wall_s=30.0, lost_s=6.0)], finished_at=datetime.now(UTC),
-                    environment={"blender": "Blender 5.0.1"})
+                    environment={"blender": "Blender 5.2.2 LTS"})
     ws.write_json(ws.record_path, rec)
     return ws, rec
 

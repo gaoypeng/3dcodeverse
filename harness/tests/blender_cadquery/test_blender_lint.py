@@ -128,3 +128,25 @@ def test_headless_pitfalls() -> None:
     assert any("selected_objects" in m for m in w)
     assert any("context-dict" in m for m in e)
     assert any("use_auto_smooth" in m for m in e)
+
+
+def test_blender_52_gn_inputs_and_fast_solver_are_errors() -> None:
+    """Blender 5.2.2 (D104): `mod["Socket_2"] = v` raises TypeError (geometry-nodes inputs are RNA
+    properties now) and the boolean solver 'FAST' no longer exists (FLOAT / EXACT / MANIFOLD)."""
+    src = ("import bpy\no = bpy.context.object\nmod = o.modifiers.new('gn', 'NODES')\nmod['Socket_2'] = 5\n"
+           "mod['Input_3_attribute_name'] = 'x'\nb = o.modifiers.new('cut', 'BOOLEAN')\nb.solver = 'FAST'\n")
+    r = lint_blender_source(src)
+    gn = [f for f in r.findings if "geometry-nodes modifier inputs" in f.message]
+    assert [(f.severity, f.data["line"]) for f in gn] == [(Severity.ERROR, 4), (Severity.ERROR, 5)]
+    assert "mod.properties.inputs" in gn[0].fix_hint
+    fast = [f for f in r.findings if "solver 'FAST'" in f.message]
+    assert fast and fast[0].severity == Severity.ERROR and fast[0].data["line"] == 7
+
+
+def test_blender_52_idioms_are_clean() -> None:
+    """The 5.2 idioms, and a 'FAST' string that is not a solver, raise nothing."""
+    src = ("import bpy\no = bpy.context.object\nmod = o.modifiers.new('gn', 'NODES')\n"
+           "getattr(mod.properties.inputs, 'Socket_2').value = 5\nb = o.modifiers.new('cut', 'BOOLEAN')\n"
+           "b.solver = 'MANIFOLD'\nspeed = 'FAST'\n")
+    r = lint_blender_source(src)
+    assert not [f for f in r.findings if "geometry-nodes modifier inputs" in f.message or "solver 'FAST'" in f.message], _msgs(r)

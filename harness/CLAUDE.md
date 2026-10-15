@@ -1,7 +1,7 @@
 # 3dcodeverse — standing context
 
 Backend harness (python package `codeverse3d`, CLI `3dcodeverse` / short alias `3dcode`,
-repo path `/home/yipeng/3dcodeverse/harness`) for LLM-written **raw** 3D code:
+repo path `harness/` under the 3dcodeverse checkout) for LLM-written **raw** 3D code:
 Blender bpy · CadQuery · Three.js · URDF · GLSL / OpenGL, across four tracks
 (`static_object`, `articulated_object`, `scene`, `graphics`), with pluggable
 backends.  **The coding agent is always a VENDOR's** — antigravity (`agy`, Google's
@@ -40,7 +40,7 @@ score-vs-complexity corpus study) before changing anything.
 
 ## Supported versions (what other people can run this on)
 python **3.13** (one fixed version — owner's decision 2026-08-26; no floor, no matrix) ·
-node **20.6+** · Blender 4.2+ · Linux x86_64.  **There is no CI** (removed 2026-08-26 by the
+node **20.6+** · Blender **5.2 LTS** only (D104, 2026-10-14; 4.2 / 5.0 compatibility dropped) · Linux x86_64.  **There is no CI** (removed 2026-08-26 by the
 owner): run `ruff check codeverse3d tests` and the offline suite locally BEFORE every
 push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The version lives in
 `pyproject` `requires-python` + ruff `target-version` + `setup.sh`, and
@@ -48,12 +48,14 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
 `tests/core/test_portability.py`.  Details: `docs/INSTALL.md` §2.1.
 
 ## Environment (this machine)
-- Gemini keys: `~/.config/astra3d/gemini_keys.env` (15 keys, the owner's list of 2026-09-22) → `get_settings().gemini_api_keys`
+- Gemini keys: `~/.config/astra3d/gemini_keys.env` (30 keys, the owner's list of 2026-10-14: Scene1-10, Argon1-10, argon-test-1..10) → `get_settings().gemini_api_keys`
   (or `GEMINI_API_KEYS` / `GEMINI_API_KEY` env).  Settings: `~/.config/3dcodeverse/config.yaml`
   or `./3dcodeverse.yaml`, env prefix `C3D_` (the pre-D78 `CV3D_*` names are still read; the
   grammar and examples: docs/INSTALL.md §8.3).  Every `C3D_*` switch is a `Settings` field read through `get_settings()`
   where it is used — never read the environment by hand.
-- Blender 5.0.1 headless: `~/.local/bin/blender-5.0` (always `--factory-startup`; clear scene).
+- Blender 5.2.2 LTS headless: `~/.local/bin/blender-5.2` (always `--factory-startup`; clear scene).  The judged-frame
+  fast path is Cycles CUDA + GPU OIDN + persistent data (D104; measured 0.21 s/frame at 1024x576 after the first);
+  OptiX is unavailable under WSL2 and probing it crashes Blender — never enumerate it.
 - Node 24 (floor 20.6) + `runtime_js/node_modules` (three@0.182, puppeteer; chrome cached).  Headless
   Chrome WebGL uses the GPU on WSL2 with `--use-angle=gl-egl` + Mesa d3d12 env (see
   `runtime_js/gpu_launch.cjs`; `C3D_RENDER_GPU=on|off|auto`); SwiftShader fallback.
@@ -70,7 +72,8 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
   captioner default to `gemini:gemini-4-argon` too.
   `gemini-3.7-flash` stays the cheap API model (single-shot / economy, flash judge — lenient; needs
   the defect checklist for range).  Judge default `gemini-3.1-pro-preview` (`Settings.default_judge`; tracks use
-  n_samples=1); flash + `--n 3` is the cheap fallback, pro for calibration/eval.
+  n_samples=1); flash + `--n 3` is the cheap fallback, pro for calibration/eval.  The argon loop judges with
+  `gemini:gemini-4-argon` at `judge.thinking=medium` (argon does not think at 'low'; D105) on rubric `scene_v2`.
 - Live runs under `runs/` (`e2e_*`): read-only reference material; never modify.
 - Every model call and vendor session is priced into the run's `telemetry/cost.jsonl` — the ONLY record of
   money: `record.total_usage` is its sum at list price (D84).  A run's minutes are its steps' time minus
@@ -78,19 +81,21 @@ push, with `set -o pipefail` so a `| tail` cannot swallow a red exit.  The versi
 
 ## Commands
 ```
-pip install -e /home/yipeng/3dcodeverse/harness   # once (entry points: 3dcodeverse, 3dcode)
-cd /home/yipeng/3dcodeverse/harness
+pip install -e harness   # once, from the 3dcodeverse checkout (entry points: 3dcodeverse, 3dcode)
+cd harness
 3dcodeverse doctor [--live] [--no-gpu] [--json]
 3dcodeverse make "a mid-century wooden dining chair" --track static_object --language blender
 3dcodeverse make "..." --profile economy|balanced|quality   # one dial: models, judge n, rounds, candidates, texture, ceilings (--profile == C3D_PROFILE)
 3dcodeverse make "..." --track static_object --language threejs --generator agy:gemini-4-argon
 3dcodeverse make "..." --track articulated_object --language urdf_blender
 3dcodeverse make "..." --track scene --language scene_threejs --rounds 2 --max-minutes 60
+3dcodeverse make "..." --track scene --language scene_blender --rounds 2 --max-minutes 90   # bpy scene on Blender 5.2.2 (D105): harness-owned src/lib, Cycles judged frames
+3dcodeverse make "..." --variant argon      # per-model prompt/skill overlay: prompts/variants/<name>/ + skills/variants/<name>/ (D105; C3D_VARIANT, C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}')
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader
 3dcodeverse make "..." --image ref.png --candidates 3 --rounds 2 --dim height=0.45 --must "three legs" --texture --no-run
 3dcodeverse make "..." --no-pick            # a run = baseline + --rounds refine rounds (fixed); make then picks a round → deliverable/ unless --no-pick
 3dcode pick <slug> [--by score|pairwise] [--round N] [--texture] [--judge MODEL]   # hand over a round (codeverse3d/addons/select.py)
-3dcode resume <slug> · 3dcode show <slug> [--section status] (`status` = its STATUS section) · 3dcode render <slug> [--mode wire] · 3dcode judge <slug> [--model ... --n 3]
+3dcode resume <slug> · 3dcode show <slug> [--section status] (`status` = its STATUS section) · 3dcode render <slug> [--mode wire] · 3dcode judge <slug> [--model ... --n 3 --thinking medium]
 3dcode texture pass <slug> [--no-judge] · 3dcode texture scene-pack <slug> · 3dcode texture show <slug>
 3dcode tools list · 3dcode tools measure --workspace runs/<slug> · 3dcode mcp --workspace runs/<slug>
 3dcode cost <slug> · 3dcode cost --runs-dir ../eval/bench/out/<battery> · 3dcode cost cache <slug>
@@ -100,6 +105,7 @@ cd /home/yipeng/3dcodeverse/harness
 3dcode gallery serve [ROOTS...] [--port 8765] [--reload] · 3dcode gallery build --out gallery.html [--embed]
 (cd ../eval && python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator ... --judge gemini:gemini-3.1-pro-preview)   # report: python -m bench.report bench/out/<battery>
 python -m codeverse3d.addons.calibration runs/<slug>... --model gemini:gemini-3.1-pro-preview --n 3 --out out/
+(cd ../eval && python -m bench.loop init --name argon_scene --out bench/out/loop_argon --variant argon --languages scene_threejs,scene_blender --judge gemini:gemini-4-argon --judge-thinking medium --parallel 15 && python -m bench.loop generate --iter 0 && python -m bench.loop run --iter 0 && python -m bench.loop diagnose --iter 0)   # the argon loop (eval/docs/EVAL.md §10): then compare --iter N --against M · judge-calib --iter N · accept|rollback --iter N · status
 python ../eval/bench/complexity_report.py ../eval/bench/out --recursive   # score-vs-complexity + $/complexity point (eval/docs/COMPLEXITY.md)
 python ../eval/bench/compare_backends.py --prompts ../eval/bench/prompts/compare_v1.yaml --arms harness:agy:gemini-3.6-flash,oneshot:claude-code --judge gemini:gemini-3.1-pro-preview --out ../eval/bench/out/compare_v1
 python -m tests.prompts.manifest [--bless | --dump DIR]   # what every model is shown, pinned (RUNBOOK §8): bless only a change a model is MEANT to see

@@ -64,8 +64,8 @@ def test_scene_pairwise_uses_the_same_track_rubric_as_fixed_evaluation(tmp_path,
 
     pairs = cb.run_pairwise(battery, cells, arms, tmp_path, cb.CompareOptions(),
                             cb.CompareDeps(FakeEvaluator(), pairwise_judge=Judge))
-    assert seen == ["scene_v1"]
-    assert pairs[0].rubric == "scene_v1"
+    assert seen == ["scene_v2"]
+    assert pairs[0].rubric == "scene_v2"
 
 OUTAGES = [
     "ModelError: Gemini API error 503: This model is currently experiencing high demand.",

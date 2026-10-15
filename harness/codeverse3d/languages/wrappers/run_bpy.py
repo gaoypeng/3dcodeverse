@@ -128,7 +128,7 @@ def select_exportables(bpy: Any) -> list[Any]:
 
 
 def export_glb(bpy: Any, path: str) -> None:
-    """Kwargs verified on Blender 5.0.1 (io_scene_gltf2)."""
+    """Kwargs verified on Blender 5.2.2 LTS (io_scene_gltf2; the offline suite exercises this call)."""
     bpy.ops.export_scene.gltf(
         filepath=path,
         export_format="GLB",
@@ -151,10 +151,8 @@ def export_glb(bpy: Any, path: str) -> None:
 
 
 def export_stl(bpy: Any, path: str) -> None:
-    if hasattr(bpy.ops.wm, "stl_export"):  # Blender 4.2+ native exporter (Z-up, -Y... forward 'Y' default)
-        bpy.ops.wm.stl_export(filepath=path, export_selected_objects=True, apply_modifiers=True, ascii_format=False, global_scale=1.0)
-    else:  # legacy add-on
-        bpy.ops.export_mesh.stl(filepath=path, use_selection=True, use_mesh_modifiers=True, ascii=False)
+    """The native exporter (forward 'Y' default, Z-up); Blender 5.2 LTS only (D104)."""
+    bpy.ops.wm.stl_export(filepath=path, export_selected_objects=True, apply_modifiers=True, ascii_format=False, global_scale=1.0)
 
 
 # ----------------------------------------------------------------------------- main

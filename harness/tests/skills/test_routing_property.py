@@ -13,7 +13,7 @@ LIBRARY = all_skills()
 
 TRACKS = ("static_object", "articulated_object", "scene", "graphics")
 LANGUAGES = ("blender", "cadquery", "threejs", "urdf_blender", "scene_threejs",
-             "glsl_shader", "opengl_python")
+             "glsl_shader", "opengl_python", "scene_blender")
 KINDS = ("baseline", "part", "refine", "rebuild", "repair", "env", "zone",
          "asset", "asset_fix", "reference")
 #: every plan signal plan_signals() produces — a route requiring any other can never fire

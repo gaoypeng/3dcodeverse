@@ -44,21 +44,26 @@ def list_skills(
     from codeverse3d.skills import iter_skills
     from codeverse3d.skills.registry import ROUTED_SKILLS, ROUTES
 
-    found = list(iter_skills())
+    # the base library, then every shipped variant's overlay (D105): an overlay row is labelled with
+    # its variant, and under --routes it lists the overlay's own [[route]] rows beside the base table
+    roots = _roots()
+    found = [(root, s) for root in roots for s in iter_skills(root.path)]
+    overlay_rows = {root.variant: _overlay_routes(root.variant) for root in roots if root.variant}
     t = Table(title="3dcode skills")
-    for col in ("name", "evidence", "verified", "lines", "~tokens", "refs", "target", "dir",
+    for col in ("name", "variant", "evidence", "verified", "lines", "~tokens", "refs", "target", "dir",
                 *(["routes"] if routes else [])):
         t.add_column(col)
-    for s in found:
+    for root, s in found:
         tg = target_for(s.name)
-        row = [s.name, s.evidence, s.verified, str(s.body_lines), str(s.body_tokens), str(len(s.references)),
-               tg.metric if tg else "[red]none[/]",
+        row = [s.name, root.variant, s.evidence, s.verified, str(s.body_lines), str(s.body_tokens),
+               str(len(s.references)), tg.metric if tg else "[red]none[/]",
                ("" if not tg else tg.direction if tg.measurable else f"{tg.direction} ?")]
         if routes:
-            row.append(",".join(r.rule for r in ROUTES if r.skill == s.name))
+            table = (*ROUTES, *overlay_rows.get(root.variant, ()))
+            row.append(",".join(r.rule for r in table if r.skill == s.name))
         t.add_row(*row)
     console.print(t)
-    missing = [n for n in ROUTED_SKILLS if n not in {s.name for s in found}]
+    missing = [n for n in ROUTED_SKILLS if n not in {s.name for root, s in found if not root.variant}]
     if missing:
         console.print(f"[yellow]{len(missing)} routed skill(s) have no bundle yet:[/] {', '.join(missing)}")
 
@@ -90,29 +95,85 @@ def validate(
     from codeverse3d.skills.model import SkillError, parse_skill
     from codeverse3d.skills.registry import ROUTED_SKILLS
 
-    dirs = bundle_dirs()
-    bad = 0
-    for d in dirs:
-        issues = validate_bundle(d)
-        with contextlib.suppress(SkillError):   # a parse failure is already reported above
-            issues += check_claims(parse_skill(d))
-        if issues:
-            bad += 1
-            console.print(f"[red]FAIL[/] {d.name}")
-            for i in issues:
-                console.print(f"      - {i}")
-        else:
-            console.print(f"[green]ok[/]   {d.name}")
+    # every root a run can route from: the base library, then each shipped variant's overlay (D105) —
+    # an overlay bundle is routed the moment its variant is active, so a malformed one fails HERE,
+    # labelled `<variant>/<bundle>`, instead of being skipped from a session with a logged warning
+    roots = _roots()
+    total = bad = tables_bad = 0
+    base_names: set[str] = set()
+    unshipped: list[str] = []      # overlay rows that route a bundle no root ships
+    for root in roots:
+        dirs = bundle_dirs(root.path)
+        total += len(dirs)
+        for d in dirs:
+            issues = validate_bundle(d)
+            with contextlib.suppress(SkillError):   # a parse failure is already reported above
+                issues += check_claims(parse_skill(d))
+            if issues:
+                bad += 1
+                console.print(f"[red]FAIL[/] {root.label(d.name)}")
+                for i in issues:
+                    console.print(f"      - {i}")
+            else:
+                console.print(f"[green]ok[/]   {root.label(d.name)}")
+        if not root.variant:
+            base_names = {d.name for d in dirs}
+            continue
+        table_bad, orphans = _check_table(root, base_names | {d.name for d in dirs})
+        tables_bad += table_bad
+        if orphans:
+            style = "red" if strict else "yellow"
+            console.print(f"[{style}]{root.variant}/routes.toml: {len(orphans)} row(s) route a bundle "
+                          f"nobody ships:[/] {', '.join(orphans)}")
+            unshipped += orphans
     prompt_issues = check_prompt_claims()   # the prompt corpus's pinned numbers, the same check
     for i in prompt_issues:
         console.print(f"[red]FAIL[/] prompts/_claims.toml - {i}")
-    missing = [n for n in ROUTED_SKILLS if n not in {d.name for d in dirs}]
+    missing = [n for n in ROUTED_SKILLS if n not in base_names]
     if missing:
         style = "red" if strict else "yellow"
         console.print(f"[{style}]{len(missing)} routed skill(s) have no bundle:[/] {', '.join(missing)}")
-    console.print(f"\n{len(dirs) - bad}/{len(dirs)} bundles valid")
-    if bad or prompt_issues or (strict and missing):
+    console.print(f"\n{total - bad}/{total} bundles valid"
+                  + (f", {tables_bad} routes.toml invalid" if tables_bad else ""))
+    if bad or tables_bad or prompt_issues or (strict and (missing or unshipped)):
         raise typer.Exit(code=1)
+
+
+def _roots() -> list:
+    """Every root the library ships (``skills.shipped_roots``); a shipped ``variant.toml`` that does not
+    parse is reported and exits 1 rather than tracing back."""
+    from codeverse3d.skills import shipped_roots
+
+    try:
+        return shipped_roots()
+    except ValueError as e:
+        err_console.print(f"[red]FAIL[/] variants - {e}")
+        raise typer.Exit(code=1) from e
+
+
+def _overlay_routes(variant: str) -> tuple:
+    """A variant's own ``[[route]]`` rows for the ``--routes`` column; a table that does not type-check
+    is said once here and listed as empty (``skills validate`` is where it fails)."""
+    from codeverse3d.skills import variants_table
+
+    try:
+        return variants_table(variant).routes
+    except ValueError as e:
+        err_console.print(f"[yellow]{variant}/routes.toml rejected:[/] {e}")
+        return ()
+
+
+def _check_table(root, available: set[str]) -> tuple[int, list[str]]:
+    """One overlay's ``routes.toml``: ``(1 if it does not type-check else 0, the rows whose skill no root
+    ships as ``RULE -> skill``)``.  The failure is printed here, FAIL-labelled by the variant."""
+    from codeverse3d.skills import variants_table
+
+    try:
+        table = variants_table(root.variant)
+    except ValueError as e:
+        console.print(f"[red]FAIL[/] {root.variant}/routes.toml - {e}")
+        return 1, []
+    return 0, [f"{r.rule} -> {r.skill}" for r in table.routes if r.skill not in available]
 
 
 @skills_app.command("report")

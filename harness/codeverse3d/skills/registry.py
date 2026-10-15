@@ -20,6 +20,7 @@ claim that a skill helps, and that claim needs evidence; most kinds have no row.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -50,6 +51,21 @@ SHADER_PREFLIGHT = "shader_preflight/*"
 MOTION_WRONG_DIRECTION = "motion_direction/wrong_direction"
 LINT = "lint/*"
 LINT_PART_NOT_IMPORTED = f"lint/{LintKind.PART_NOT_IMPORTED.value}"
+#: the scene_placement gate's seating kinds (spatial/scene_placement.py; ``free_exempt`` and
+#: ``cantilevered`` are 2026-10-14's, D105).  Its PLAN kinds (no_fog, no_backdrop, scale, zone_empty, …)
+#: are deliberately not here: they are env / composition findings, not seating.
+SCENE_PLACEMENT_FLOATING = "scene_placement/floating"
+SCENE_PLACEMENT_SUNKEN = "scene_placement/sunken"
+SCENE_PLACEMENT_UNSUPPORTED = "scene_placement/unsupported"
+SCENE_PLACEMENT_INTERPENETRATION = "scene_placement/interpenetration"
+SCENE_PLACEMENT_FREE_EXEMPT = "scene_placement/free_exempt"
+SCENE_PLACEMENT_CANTILEVERED = "scene_placement/cantilevered"
+#: the six seating kinds a placement row answers (a family pattern ``"scene_placement/*"`` would
+#: also attach the placement sheet to a no_fog or stamped_ring finding, which it cannot fix)
+SCENE_PLACEMENT_SEATING: tuple[str, ...] = (
+    SCENE_PLACEMENT_FLOATING, SCENE_PLACEMENT_SUNKEN, SCENE_PLACEMENT_UNSUPPORTED,
+    SCENE_PLACEMENT_INTERPENETRATION, SCENE_PLACEMENT_FREE_EXEMPT, SCENE_PLACEMENT_CANTILEVERED,
+)
 
 
 def finding_kind(finding: Any) -> str | None:
@@ -94,6 +110,9 @@ def _iter_findings(obj: object):
 OBJECT_TRACKS = ("static_object", "articulated_object")
 BLENDER_LANGS = ("blender", "urdf_blender")
 THREEJS_LANGS = ("scene_threejs", "threejs")
+BPY_SCENE_LANGS = ("scene_blender",)
+#: the scene track's session kinds (tracks/scene.py: env, zone, refine, rebuild; asset is quiet)
+BPY_SCENE_KINDS = ("env", "zone", "refine", "rebuild")
 BUILD_KINDS = ("baseline", "part", "refine", "rebuild", "repair")
 #: kinds that attach nothing on their own (design §5.2 law 4): short, narrow sessions the
 #: corpus attaches no defect class to.  A gate-fired row still reaches them.
@@ -214,6 +233,31 @@ ROUTES: tuple[Route, ...] = (
     Route("R28", "c3d-scene-materials", 65, tracks=("scene",), languages=("scene_threejs",),
           kinds=("baseline", "zone", "refine"),
           why="flat albedo and identical twins are the reference audit's most-cited surface defects"),
+    # R29-R34 (2026-10-14, D105): the scene_blender bundles.  Placement rides every build session
+    # because every placed thing is a measured row and the 2026-10-14 thresholds make a hand's
+    # breadth of hover an ERROR; lighting and materials ride the sessions that author light and
+    # surfaces.  R34 is the three.js half of "a gate-fired route on scene_placement for both
+    # languages": composition's first rule is the one height function everything samples.
+    Route("R29", "c3d-bpy-scene-placement", 80, tracks=("scene",), languages=BPY_SCENE_LANGS, kinds=BPY_SCENE_KINDS,
+          why="every placed thing is a measured placement row, and the strict 2026-10-14 thresholds make a "
+              "hand's breadth of hover an ERROR with a score ceiling"),
+    Route("R30", "c3d-bpy-scene-placement", 95, tracks=("scene",), languages=BPY_SCENE_LANGS,
+          findings=SCENE_PLACEMENT_SEATING,
+          why="the previous round's placement gate found a floating, sunken, unsupported, interpenetrating or "
+              "cantilevered asset, or too many free-tagged ones"),
+    Route("R31", "c3d-bpy-scene-lighting", 65, tracks=("scene",), languages=BPY_SCENE_LANGS, kinds=BPY_SCENE_KINDS,
+          why="Cycles under AgX at exposure 0 with no exposure knob: lamp energy, world strength and albedo are "
+              "the only dials, and the frame gate measures both ends"),
+    Route("R32", "c3d-bpy-scene-lighting", 95, tracks=("scene",), languages=BPY_SCENE_LANGS,
+          findings=(SCENE_DARK, SCENE_FLAT, SCENE_BLOWN),
+          why="the frame gate called a Blender render dark, flat or blown out"),
+    Route("R33", "c3d-bpy-scene-materials", 65, tracks=("scene",), languages=BPY_SCENE_LANGS, kinds=BPY_SCENE_KINDS,
+          why="the census reads three Principled sockets and no gate rewards material work, so placeholder and "
+              "flat-ground defects are the judge's alone to penalise"),
+    Route("R34", "c3d-scene-composition", 95, tracks=("scene",), languages=("scene_threejs",),
+          findings=SCENE_PLACEMENT_SEATING,
+          why="the previous round's placement gate fired on a three.js scene: one height function everything "
+              "samples is the bundle's first rule"),
 )
 
 #: every skill the table can attach — the Author phase's contract for which bundles must exist
@@ -277,6 +321,30 @@ def _row_applies(row: Route, track: str, language: str, kind: str, signals: dict
     return not (row.requires_any and not any(signals.get(k) for k in row.requires_any))
 
 
+#: the floor of a gate-fired row (design §5.2 law 2).  ``model.Selection.gate_fired`` reads a priority
+#: >= 90 as "a gate routed this", so a variant boost may neither lift a standing row up to it nor
+#: drop a fired row under it — the table's meaning must survive the overlay
+GATE_FIRED_PRIORITY = 90
+
+
+def effective_priority(row: Route, boosts: Mapping[str, int]) -> int:
+    """``row.priority`` plus the variant's boost for its skill, clamped to the table's law: a standing
+    row stays below :data:`GATE_FIRED_PRIORITY` (a warning says it was clamped — the boost is too
+    big, not wrong), a gate-fired row never drops below it, nothing goes under 0."""
+    delta = int(boosts.get(row.skill, 0))
+    if not delta:
+        return row.priority
+    boosted = row.priority + delta
+    if row.gate_fired:
+        return max(GATE_FIRED_PRIORITY, boosted)
+    if boosted >= GATE_FIRED_PRIORITY:
+        log.warning("variant boost %+d lifts standing route %s (%s, priority %d) to %d: clamped to %d — a "
+                    "standing row never outranks a gate-fired one", delta, row.rule, row.skill, row.priority,
+                    boosted, GATE_FIRED_PRIORITY - 1)
+        return GATE_FIRED_PRIORITY - 1
+    return max(0, boosted)
+
+
 def select(
     track: str,
     language: str,
@@ -287,23 +355,34 @@ def select(
     library: dict[str, Skill] | None = None,
     max_skills: int = 5,
     allow_unverified: bool = False,
+    routes: Sequence[Route] = ROUTES,
+    boosts: Mapping[str, int] | None = None,
+    disabled: frozenset[str] = frozenset(),
 ) -> list[Selection]:
     """The routed bundles for one session, ranked, capped, each with its reason.
 
     ``findings`` may be ``GateFinding``s, ``GateReport``s, or already-classified kind
     strings — the caller usually has the previous ``RoundRecord.gates`` on hand.
+
+    ``routes`` / ``boosts`` / ``disabled`` are a variant's reshaping of the table
+    (``skills.variants_table``): the rows to evaluate, in order (a variant's extra rows come after
+    the base ones, so ties keep the base order), a priority delta per skill
+    (:func:`effective_priority` clamps it) and the rule ids to skip.
     """
     from codeverse3d.skills import all_skills
 
     lib = library if library is not None else all_skills()
     sig = dict(signals or {})
+    boost: Mapping[str, int] = boosts or {}
     kinds = [f for f in findings if isinstance(f, str)] if findings else []
     if findings and not kinds:
         kinds = finding_kinds(findings)
 
     best: dict[str, Selection] = {}
     first_seen: dict[str, int] = {}
-    for order, row in enumerate(ROUTES):
+    for order, row in enumerate(routes):
+        if row.rule in disabled:
+            continue
         hit = row.matches_finding(kinds) if row.gate_fired else None
         if row.gate_fired and hit is None:
             continue
@@ -321,14 +400,16 @@ def select(
         if skill.evidence == EVIDENCE_INHERITED and not allow_unverified:
             log.debug("skill %s is %s and C3D_SKILLS_UNVERIFIED is off; not routed", skill.name, EVIDENCE_INHERITED)
             continue
-        reason = f"{row.rule}: {row.why}" + (f" [{hit}]" if hit else "")
+        priority = effective_priority(row, boost)
+        reason = (f"{row.rule}: {row.why}" + (f" [{hit}]" if hit else "")
+                  + (f" (variant boost {priority - row.priority:+d})" if priority != row.priority else ""))
         first_seen.setdefault(row.skill, order)
         prev = best.get(row.skill)
         if prev is None:
-            best[row.skill] = Selection(skill=skill, priority=row.priority, rules=(row.rule,), reason=reason)
-        elif row.priority > prev.priority:
+            best[row.skill] = Selection(skill=skill, priority=priority, rules=(row.rule,), reason=reason)
+        elif priority > prev.priority:
             # a gate-fired row overrides the standing one, and says so in the reason
-            best[row.skill] = Selection(skill=skill, priority=row.priority, rules=(*prev.rules, row.rule), reason=reason)
+            best[row.skill] = Selection(skill=skill, priority=priority, rules=(*prev.rules, row.rule), reason=reason)
         else:
             best[row.skill] = prev.model_copy(update={"rules": (*prev.rules, row.rule)})
 

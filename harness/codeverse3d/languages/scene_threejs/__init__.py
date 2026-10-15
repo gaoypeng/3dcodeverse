@@ -23,10 +23,13 @@ from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, Z
 from codeverse3d.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
 from codeverse3d.languages._common import line_of, missing_entry, target_file, target_line, ws_rel
 from codeverse3d.languages._js_lint import (
+    ExportsCache,
     ImportKind,
     ImportVerdict,
     SyntaxProblem,
     check_imports,
+    check_named_imports,
+    describe_exports,
     js_sources,
     node_check_syntax,
     strip_js,
@@ -85,7 +88,12 @@ def _syntax_finding(p: SyntaxProblem, rel: str) -> GateFinding:
               hint="fix the syntax error at the quoted line (node --check)", line=p.line, detail=p.stderr_tail)
 
 
-def _check_imports(rel: str, text: str, ws: Workspace, path: Path) -> list[GateFinding]:
+def _check_imports(rel: str, text: str, ws: Workspace, path: Path, export_cache: ExportsCache) -> list[GateFinding]:
+    """The import policy on one agent file: the specifier kinds, then — for a relative target
+    that exists — every imported name against what the target exports.  ``src/lib`` modules
+    are never linted as agent code, but they ARE read here as targets (``export_cache`` holds
+    each one's surface for the whole lint): a name the catalog does not list is a SyntaxError
+    at module link, which drops the whole zone at assembly."""
     def make_finding(v: ImportVerdict, spec: str, line: int) -> GateFinding:
         tgt = f"{rel}:{line}"
         if v.kind is ImportKind.ESCAPES:
@@ -98,7 +106,14 @@ def _check_imports(rel: str, text: str, ws: Workspace, path: Path) -> list[GateF
         return _f(LintKind.BAD_IMPORT, Severity.ERROR, f"import '{spec}' is not allowed (only 'three', 'three/addons/*', relative files)", target=tgt,
                   hint="no CDN / npm packages; write the helper yourself in src/")
 
-    return check_imports(text, path, ws.src, make_finding=make_finding)[0]
+    def missing_name(spec: str, name: str, line: int, names: frozenset[str]) -> GateFinding:
+        return _f(LintKind.BAD_IMPORT, Severity.ERROR,
+                  f"import {{ {name} }} from '{spec}': that module exports no '{name}' ({describe_exports(names)})",
+                  target=f"{rel}:{line}",
+                  hint="import only names the module actually exports (for src/lib modules: the names the effects catalog lists)")
+
+    findings = check_imports(text, path, ws.src, make_finding=make_finding)[0]
+    return findings + check_named_imports(text, path, ws.src, make_finding=missing_name, exports=export_cache)
 
 
 def lint(ws: Workspace) -> GateReport:
@@ -112,6 +127,7 @@ def lint(ws: Workspace) -> GateReport:
                            hint="create src/scene.js exporting createScene({THREE, renderer, loaders})"))
     big: list[str] = []
     syntax = node_check_syntax(files)
+    export_cache: ExportsCache = {}
     for path in files:
         rel = ws_rel(ws, path)
         text = path.read_text(errors="replace")
@@ -120,7 +136,7 @@ def lint(ws: Workspace) -> GateReport:
             continue
         if _is_lib(path, ws):
             continue
-        findings.extend(_check_imports(rel, text, ws, path))
+        findings.extend(_check_imports(rel, text, ws, path, export_cache))
         code = strip_js(text, strings=False)   # a comment quoting the contract is not a call
         for pat, sev, msg, hint, kind in _PATTERNS:
             m = pat.search(code)
@@ -702,6 +718,8 @@ def assemble(ws: Workspace, plan: ScenePlan | None = None, *, cameras: str = "de
 class SceneThreeJsRuntime:
     language = Language.SCENE_THREEJS
     entry_globs: tuple[str, ...] = (ENTRY_FILE[Language.SCENE_THREEJS], "src/zones/*.js", "src/assets/*.js", "src/env.js", "src/shaders/*.js")
+    #: ``SceneRuntime.env_file``: the module the env stage writes (``SCENE_FILES[1]``)
+    env_file: str = SCENE_FILES[1]
 
     zone_file = staticmethod(zone_file)
     asset_file = staticmethod(asset_file)

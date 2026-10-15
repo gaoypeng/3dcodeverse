@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from codeverse3d.config import get_settings
+from codeverse3d.prompts.variants import active_variant
 from codeverse3d.skills.model import Selection, Skill, SkillsMaterialized
 from codeverse3d.skills.prompting import (
     AGENTS_SKILL_ROOT,
@@ -49,7 +50,7 @@ from codeverse3d.skills.prompting import (
     index_tokens,
     inline_body,
 )
-from codeverse3d.skills.registry import plan_signals, select
+from codeverse3d.skills.registry import ROUTES, plan_signals, select
 
 log = logging.getLogger(__name__)
 
@@ -198,14 +199,19 @@ def attach_skills(
         if not library:
             log.warning("C3D_SKILLS_ONLY=%s matches no bundle in the library; this session attaches nothing",
                         ",".join(sorted(picked)))
+    # the active variant (D105): its overlay bundles are already in all_skills() (select's default
+    # library) and its routes.toml reshapes the table — extra rows after the base ones, boosts, disabled ids
+    variant = active_variant()
+    table = _routes_table(variant)
     sel: list[Selection] = select(
         track, language, kind,
         signals=plan_signals(plan), findings=findings, library=library,
         max_skills=cfg.skills_max if max_skills is None else max_skills,
         allow_unverified=cfg.skills_unverified if allow_unverified is None else allow_unverified,
+        routes=(*ROUTES, *table.routes), boosts=table.boost_map, disabled=table.disabled,
     )
     out = SkillsMaterialized(listed=[s.name for s in sel], selections=list(sel),
-                             reasons={s.name: s.reason for s in sel}, attached_at=time.time())
+                             reasons={s.name: s.reason for s in sel}, attached_at=time.time(), variant=variant)
     if not sel or single_shot:
         # an empty selection is a legal desired set: the sweep must still run, or last
         # round's bundles stay live where the native CLIs discover skills by directory
@@ -233,6 +239,18 @@ def attach_skills(
     out.index_tokens = index_tokens(sel)
     write_index(ws_root, index_block(sel))
     return out
+
+
+def _routes_table(variant: str) -> Any:
+    """The variant's ``routes.toml`` as typed rows, or the empty table when it does not type-check: a
+    typo in the overlay costs the overlay (logged, base routing), never the round's skills."""
+    from codeverse3d.skills import VariantRoutes, variants_table
+
+    try:
+        return variants_table(variant)
+    except (ValueError, OSError) as e:
+        log.warning("variant %r: routes.toml rejected (%s); this session routes with the base table", variant, e)
+        return VariantRoutes(variant=variant)
 
 
 __all__ = ["BODY_FILES", "CONTROL_NAME", "MARK_BEGIN", "MARK_END", "SKILL_ROOTS",

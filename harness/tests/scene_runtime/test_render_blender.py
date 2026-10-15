@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageStat
 
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import Severity
@@ -22,7 +22,11 @@ from codeverse3d.spatial import render_blender as rb
 from codeverse3d.spatial.frame_metrics import frame_findings
 from codeverse3d.spatial.render_scene import SceneRenderError, render_scene
 from codeverse3d.workspace import Workspace
-from tests.scene_runtime.blender_scene_fixture import blender_available, build_fixture
+from tests.scene_runtime.blender_scene_fixture import (
+    blender_available,
+    build_fixture,
+    build_room_shell,
+)
 from tests.scene_runtime.conftest import needs_browser
 
 needs_blender = pytest.mark.skipif(not blender_available(), reason="Blender binary required")
@@ -68,9 +72,12 @@ def test_a_fixture_scene_renders_two_cameras_at_two_times(moving):
     for v in rs.views:
         with Image.open(v.path) as im:
             assert im.size == (W, H)
-    # the three overviews get pixels at t0 only; the eye-level rig is measured, never rendered
+    # the four overviews (scene_v2: the contact camera overview_low_front is the fourth) get pixels
+    # at t0 only; the eye-level rig is measured, never rendered
     rig = sorted((v.name, v.time_s) for v in rs.views if v.name.startswith(("overview", "eye")))
-    assert rig == [("overview_back_left", 0.0), ("overview_front_right", 0.0), ("overview_top", 0.0)]
+    assert rig == [("overview_back_left", 0.0), ("overview_front_right", 0.0), ("overview_low_front", 0.0), ("overview_top", 0.0)]
+    low = next(v for v in rs.views if v.name == "overview_low_front")
+    assert 0.2 < low.camera_position[1] < 1.0, "the contact camera stands 0.4 m above the ground (GLB frame, Y-up)"
     checks = {c["name"]: c for c in m["camera_checks"]}
     assert set(checks) >= {"Front", "Side", "overview_top", "eye_front", "eye_right", "eye_back_left"}
     assert set(checks["Front"]) >= STAT_KEYS and not STAT_KEYS & set(checks["eye_front"])
@@ -81,7 +88,7 @@ def test_a_fixture_scene_renders_two_cameras_at_two_times(moving):
     assert front["position"] == pytest.approx([0, 4, 14]) and front["lookAt"] == pytest.approx([0, 1, 0])
     assert front["fov"] == pytest.approx(40.107, abs=0.01)
     assert m["language"] == "scene_blender" and m["blender"]["device"] == "CPU" and m["blender"]["samples"] == 4
-    assert m["blender"]["engine"] == "cycles" and len(m["blender"]["frame_ms"]) == 7
+    assert m["blender"]["engine"] == "cycles" and len(m["blender"]["frame_ms"]) == 2 * 2 + 4
     assert "Blender" in rs.renderer and "cycles" in rs.renderer
     assert rs.console_errors == [] and rs.contact_sheet and Path(rs.contact_sheet).is_file()
     judged = {(v.name, v.time_s) for v in rs.views if v.judge}
@@ -206,6 +213,45 @@ def test_a_held_gpu_slot_sends_a_real_render_to_the_cpu(tmp_path, monkeypatch):
     assert res["device"] == "CPU" and "busy" in res["fallback"] and len(res["frames"]) == 2
     free = rb.render_frames(ws.artifacts / "scene.blend", out, job, timeout_s=120)
     assert free["device"] == "GPU" or free["fallback"] == "no CUDA device"
+
+
+def _centre_rgb(path: Path) -> tuple[float, float, float]:
+    """The mean colour of the middle 10 % of the frame."""
+    with Image.open(path) as im:
+        w, h = im.size
+        r, g, b = ImageStat.Stat(im.convert("RGB").crop((int(w * 0.45), int(h * 0.45), int(w * 0.55), int(h * 0.55)))).mean
+    return r, g, b
+
+
+@pytest.mark.blender
+@needs_blender
+def test_a_no_fog_view_lifts_the_room_shells_lid_and_the_next_view_gets_it_back(tmp_path, monkeypatch):
+    """Review 2026-10-14 finding 8: the rubric tells the judge the high overviews show interiors
+    with the lid off and the bpy prompts promise the author that (``RoomShell…`` / ``Ceiling…``),
+    but only the three.js host lifted it (``scene_host.skyLayersBelow``).  The real starter
+    ``room_shell`` under a top-down camera: the ``no_fog`` view names the lid in ``hidden`` and
+    its centre is the green floor; the same camera WITHOUT ``no_fog``, rendered next, sees the
+    red lid again — the restore in the driver's ``finally``."""
+    _cpu_env(monkeypatch, tmp_path / "cache")
+    blend = build_room_shell(tmp_path / "room")
+    out = tmp_path / "out"
+    out.mkdir()
+    top = {"name": "overview_top", "kind": "orbit", "position": [0.0, 0.0, 14.0], "look_at": [0.0, 0.0, 1.5], "fov": 40.0,
+           "no_fog": True, "times": [0.0]}
+    lid_on = {**top, "name": "lid_on", "no_fog": False}
+    inside = {**top, "name": "inside", "position": [0.0, 0.0, 1.6], "look_at": [0.0, 0.0, 3.0]}   # under the lid, looking up
+    job = {"out": str(out), "result": str(out / rb.RESULT_NAME), "engine": "cycles", "samples": 4, "width": 96,
+           "height": 54, "times": [0.0], "authored": False, "cameras": [top, lid_on, inside]}
+    res = rb.render_frames(blend, out, job, timeout_s=180)
+    assert res["errors"] == [] and [f["name"] for f in res["frames"]] == ["overview_top", "lid_on", "inside"]
+    hidden = {f["name"]: f["hidden"] for f in res["frames"]}
+    assert hidden == {"overview_top": ["Ceiling"], "lid_on": [], "inside": []}, hidden
+    lifted, kept = _centre_rgb(out / "overview_top_t0.png"), _centre_rgb(out / "lid_on_t0.png")
+    # AgX desaturates: the floor's green and the lid's red lead their other channels by a margin, not a ratio
+    assert lifted[1] > max(lifted[0], lifted[2]) + 25, f"the lifted top view must show the green floor, got {lifted}"
+    assert kept[0] > max(kept[1], kept[2]) + 25, f"the lid-on view must show the red lid, got {kept}"
+    assert sum(abs(a - b) for a, b in zip(lifted, kept, strict=True)) > 60, (lifted, kept)
+    assert "hidden" not in rb._glb_view(res["frames"][0]), "views.json keeps the three.js schema"
 
 
 def test_a_missing_blend_is_an_empty_renderset_that_says_why(tmp_path):

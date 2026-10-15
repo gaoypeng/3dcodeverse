@@ -19,14 +19,16 @@ def _rs(times=(0.0, 1.5), authored=AUTHORED, orbit=True) -> RenderSet:
 
 def test_default_selection_is_authored_plus_overviews():
     rs = _rs()
-    assert len(rs.views) == 18
+    assert len(rs.views) == 2 * (3 + 7)
     sel = select_judge_views(rs)
-    assert len(sel.views) == 8 <= JUDGE_MAX_VIEWS == 10
+    # 3 authored + the 4 overview tiles (scene_v2: the contact camera is the fourth) + 2 at t=1.5
+    assert len(sel.views) == 9 <= JUDGE_MAX_VIEWS == 10
     keys = [(v.name, v.time_s) for v in sel.views]
     # authored t=0, the overview rig t=0, first two authored at t=1.5
     for n in AUTHORED:
         assert (n, 0.0) in keys
-    assert ("overview_front_right", 0.0) in keys and ("overview_back_left", 0.0) in keys and ("overview_top", 0.0) in keys
+    for n in ("overview_front_right", "overview_back_left", "overview_top", "overview_low_front"):
+        assert (n, 0.0) in keys, n
     assert ("Establishing", 1.5) in keys and ("BridgeAndPond", 1.5) in keys
     assert ("LanternDetail", 1.5) not in keys
     assert not any(t == 1.5 and n.startswith(("overview", "eye")) for n, t in keys)
@@ -34,7 +36,20 @@ def test_default_selection_is_authored_plus_overviews():
     assert not any(n.startswith("eye_") for n, _ in keys)
     # disk order preserved; original untouched
     assert keys == sorted(keys, key=lambda k: (k[1], rs.views.index(next(v for v in rs.views if (v.name, v.time_s) == k))))
-    assert len(rs.views) == 18 and sel.contact_sheet == rs.contact_sheet
+    assert len(rs.views) == 20 and sel.contact_sheet == rs.contact_sheet
+
+
+def test_the_rig_has_four_judged_overviews_and_the_contact_camera_is_the_fourth():
+    """scene_v2: ``overview_low_front`` (az 20°, el 7°) is in the rig, judged, and fitted as the
+    contact camera (orbit.mjs takes elevation < 10° to fitContactCamera); the eye rig stays diagnostic."""
+    from codeverse3d.spatial.render_scene import MAX_JUDGE_OVERVIEWS
+
+    overviews = [v for v in SCENE_VIEWS if v.name.startswith("overview")]
+    assert [v.name for v in overviews] == ["overview_front_right", "overview_back_left", "overview_top", "overview_low_front"]
+    assert MAX_JUDGE_OVERVIEWS == len(overviews) == 4
+    low = next(v for v in SCENE_VIEWS if v.name == "overview_low_front")
+    assert (low.azimuth_deg, low.elevation_deg) == (20.0, 7.0) and low.elevation_deg < 10
+    assert all(10 <= v.elevation_deg <= 20 for v in SCENE_VIEWS if v.name.startswith("eye_"))
 
 
 def test_small_sets_pass_through():

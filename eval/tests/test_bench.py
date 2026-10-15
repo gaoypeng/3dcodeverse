@@ -27,9 +27,7 @@ def test_all_batteries_are_valid():
         assert len(ids) == len(set(ids)), path.name
         tiers = {p.tier for p in b.prompts}
         assert tiers <= {"easy", "medium", "hard"}, path.name
-        # Head-to-head batteries keep the other side's brief verbatim: no must
-        # items by design (bench/h2h_*.py).
-        assert all(p.must_have for p in b.prompts) or b.name.startswith("h2h_"), path.name
+        assert all(p.must_have for p in b.prompts), path.name
         if b.name in expected:  # Other batteries are owned elsewhere; only their schema is checked here.
             assert len(tiers) == 3, path.name
             assert len(b.prompts) == expected[b.name], path.name
@@ -250,18 +248,99 @@ def test_the_launcher_hands_its_flags_to_run_battery(tmp_path: Path, monkeypatch
     monkeypatch.setattr(rb, "run_battery", fake)
     battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"
     assert rb.main([str(battery), "--out", str(tmp_path), "--generator", "g", "--judge", "j", "--rounds", "2",
-                    "--max-minutes", "120", "--parallel", "3", "--id", "a", "--id", "b", "--tier", "easy",
-                    "--limit", "5", "--redo-status", "infra_failed,error", "--no-report"]) == 0
+                    "--max-minutes", "120", "--parallel", "3", "--stagger", "12", "--id", "a", "--id", "b",
+                    "--tier", "easy", "--limit", "5", "--redo-status", "infra_failed,error", "--no-report"]) == 0
     o = seen["opts"]
-    assert (o.generator, o.judge, o.rounds, o.max_minutes, o.parallel, o.limit) == ("g", "j", 2, 120.0, 3, 5)
+    assert (o.generator, o.judge, o.rounds, o.max_minutes, o.parallel, o.stagger_s, o.limit) == ("g", "j", 2, 120.0, 3, 12.0, 5)
     assert o.ids == ["a", "b"] and o.tiers == ["easy"] and o.redo_status == ["infra_failed", "error"]
     assert seen["out"] == tmp_path and "0 results" in capsys.readouterr().out
-    # no --parallel / --out: BenchOptions' measured knee, and bench/out/<battery name>
+    # no --parallel / --stagger / --out: BenchOptions' measured knee, no stagger, and bench/out/<battery name>
     assert rb.main([str(battery), "--no-report"]) == 0
-    assert seen["opts"].parallel == BenchOptions().parallel
+    assert seen["opts"].parallel == BenchOptions().parallel and seen["opts"].stagger_s == BenchOptions().stagger_s == 0.0
     assert seen["out"] == REPO / "bench" / "out" / "static_objects_v1"
-    with pytest.raises(SystemExit):
-        rb.main([str(battery), "--rounds", "-1"])
+    for bad in (["--rounds", "-1"], ["--parallel", "0"], ["--stagger", "-1"]):
+        with pytest.raises(SystemExit):
+            rb.main([str(battery), *bad])
+
+
+def test_the_first_wave_is_staggered_and_later_cells_are_not(tmp_path: Path, monkeypatch):
+    """``--stagger S`` (2026-10-15): the k-th worker of the FIRST wave sleeps k·S before it touches its
+    workspace — a redone cell too, before its old tree is archived — and a later cell never sleeps: it
+    starts when an earlier one finishes, which is staggered by itself.  The loop's iteration 0 launched
+    30 runs at once and 160 of its 172 key-pool outages fell in the runs' first ten minutes."""
+    import bench.run_bench as rb
+
+    battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"
+    ids = [p.id for p in Battery.load(battery).prompts[:2]]
+    out = tmp_path / "out"
+    naps: list[tuple[float, bool]] = []
+    # the module's own binding, never the global: pytest-xdist's worker threads sleep too
+    monkeypatch.setattr(rb, "sleep", lambda s: naps.append((s, (out / "runs" / f"{ids[1]}.attempt1").exists())))
+    res = run_battery(battery, out, BenchOptions(parallel=3, limit=5, stagger_s=7.0), run_fn=_fake_run_fn({}))
+    assert len(res) == 5 and sorted(s for s, _ in naps) == [7.0, 14.0], "workers 1 and 2 of the wave; cells 3 and 4 never"
+    naps.clear()
+    run_battery(battery, tmp_path / "flat", BenchOptions(parallel=3, limit=5), run_fn=_fake_run_fn({}))
+    assert naps == [], "no --stagger: the whole wave launches at once"
+    # a --redo-status re-run of two recorded cells is a first wave of two: the second staggers, and it
+    # does so BEFORE its workspace is archived (the old tree is still the live one while it sleeps)
+    run_battery(battery, out, BenchOptions(parallel=2, ids=ids, redo_status=[res[0].status], stagger_s=7.0),
+                run_fn=_fake_run_fn({}))
+    assert naps == [(7.0, False)] and (out / "runs" / f"{ids[1]}.attempt1").is_dir()
+
+
+def test_a_variant_is_frozen_on_every_spec_and_active_for_the_battery(tmp_path: Path, monkeypatch):
+    """``--variant NAME`` (D105): ``RunOptions.variant`` on each spec — what the track activates in its
+    worker thread — and ``prompts.variants.activate`` around the battery; a stated name on a tree
+    without the layer is an error, never a silent base run."""
+    import sys
+    import types
+    from contextlib import contextmanager
+
+    import bench.run_bench as rb
+
+    fake = types.ModuleType("codeverse3d.prompts.variants")
+    fake.active = ""
+    fake.seen: list[str] = []
+
+    @contextmanager
+    def activate(name: str):
+        fake.active = name
+        try:
+            yield
+        finally:
+            fake.active = ""
+
+    fake.activate = activate
+    fake.resolve_variant = lambda settings, generator_id: {"agy:gemini-4-argon": "argon"}.get(generator_id, "")
+    monkeypatch.setitem(sys.modules, "codeverse3d.prompts.variants", fake)
+    battery = REPO / "bench" / "prompts" / "static_objects_v1.yaml"
+    inner = _fake_run_fn({})
+
+    def run(spec, ws, resume):
+        fake.seen.append(f"{spec.options.variant}/{fake.active}")
+        return inner(spec, ws, resume)
+
+    run_battery(battery, tmp_path / "a", BenchOptions(parallel=1, limit=2, variant="argon", generator="g"), run_fn=run)
+    assert fake.seen == ["argon/argon"] * 2 and fake.active == "", "frozen on the spec, active for the block, released"
+    spec = json.loads((tmp_path / "a" / "runs" / "furn_easy_stool" / "spec.json").read_text())
+    assert spec["options"]["variant"] == "argon"
+    # no --variant: the settings resolve it for the generator, as `3dcode make` does — frozen, not activated
+    fake.seen.clear()
+    run_battery(battery, tmp_path / "b", BenchOptions(parallel=1, limit=1, generator="agy:gemini-4-argon"), run_fn=run)
+    assert fake.seen == ["argon/"]
+    run_battery(battery, tmp_path / "c", BenchOptions(parallel=1, limit=1, generator="codex:gpt-6.1-sol"), run_fn=run)
+    assert fake.seen[-1] == "/"
+    # the launcher hands the flag over and installs the stop handlers
+    seen: dict = {}
+    monkeypatch.setattr(rb, "run_battery", lambda battery, out, opts, *, on_result=None: seen.update(opts=opts) or [])
+    monkeypatch.setattr(rb, "install_stop_handlers", lambda: seen.update(handlers=True))
+    assert rb.main([str(battery), "--out", str(tmp_path / "d"), "--variant", "argon", "--no-report"]) == 0
+    assert seen["opts"].variant == "argon" and seen["handlers"] is True
+    # a tree without the layer: the base resolves silently, a stated name does not
+    monkeypatch.setitem(sys.modules, "codeverse3d.prompts.variants", None)
+    assert rb.resolve_variant("", "agy:gemini-4-argon") == ""
+    with pytest.raises(RuntimeError, match="prompts.variants"):
+        run_battery(battery, tmp_path / "e", BenchOptions(parallel=1, limit=1, variant="argon"), run_fn=inner)
 
 
 def test_the_report_command_rebuilds_the_report(tmp_path: Path, capsys):

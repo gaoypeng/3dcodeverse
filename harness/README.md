@@ -70,7 +70,7 @@ runtime_js/        node side: three@0.182 + headless-Chrome render/probe hosts
 Design laws, the full package map and what each stage does: `docs/ARCHITECTURE.md`.
 
 **Supported versions:** python **3.13** and node **20.6+** (Linux x86_64; Blender
-4.2+ optional).  Developed and measured on python 3.13 / node 24; there is no CI — the offline suite and
+5.2 LTS optional).  Developed and measured on python 3.13 / node 24; there is no CI — the offline suite and
 `ruff` run locally before every push.  See `docs/INSTALL.md` §2.1.
 
 ```bash

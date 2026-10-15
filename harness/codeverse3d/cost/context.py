@@ -16,8 +16,9 @@ role" for the call that is about to happen.  Precedence:
    *generation* label because the session knows more than a call made inside it
    does: a best-of-N candidate session runs with ``job.kind="candidate"`` while a
    tool it calls bills a model under a plain ``baseline`` label;
-4. what is left of the label (a generation stage, the round tag) — which also
-   survives a thread hop that a ``ContextVar`` does not.
+4. what is left of the label (a generation stage, the round tag) — kept explicit because the
+   ambient context is bound per stage, not per call (``proc.fan_out`` does copy ContextVars into
+   its workers, D105; the label is the finer attribution).
 
 A label that names nothing (:data:`~codeverse3d.cost.types.Stage.OTHER`) states
 nothing and never displaces anything.

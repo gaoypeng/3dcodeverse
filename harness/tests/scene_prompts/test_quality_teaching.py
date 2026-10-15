@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from codeverse3d.judges.rubrics import load_rubric
 from codeverse3d.prompts import load_text
 
@@ -10,12 +12,22 @@ COMPOSITION_DEFECTS = ("flat_ground", "monotonous_vegetation", "empty_midground"
 
 
 def test_scene_rubric_craft_defects_inform_and_cannot_zero_a_scene() -> None:
-    r = load_rubric("scene_v1")
+    r = load_rubric("scene_v2")
     assert set(COMPOSITION_DEFECTS) <= {d.id for d in r.defects}
     for did in COMPOSITION_DEFECTS:
         d = r.defect(did)
         assert 0.0 < d.penalty <= 0.05 and d.cap is None, did
-    assert sum(d.penalty for d in r.defects) <= 0.62
+    # the five craft items together take at most 0.20: they inform, they cannot sink a scene
+    assert sum(r.defect(did).penalty for did in COMPOSITION_DEFECTS) == pytest.approx(0.18)
+    # scene_v2 (2026-10-14): the whole checklist sums to 1.02 (was 0.60 under v1's 0.62 bound).  The
+    # 0.42 that moved is the placement / detail items — floating 0.10, sunken 0.08, interpenetration
+    # 0.08, wrong_scale 0.06, missing_planned_element 0.06, hero_misplaced 0.06, hard-edged particles
+    # 0.04 — the same weights the object rubric gives floating_part / interpenetration, and each of
+    # the four measured ones also caps (0.60-0.75) so the penalty only matters under the cap.  A
+    # scene with EVERY item present is a wrong, unlit, floating, clipping world: zero is its score.
+    total = sum(d.penalty for d in r.defects)
+    assert total == pytest.approx(1.02) and total <= 1.05
+    assert sum(d.penalty for d in load_rubric("scene_v1").defects) <= 0.62  # the frozen replay rubric
 
 
 def test_cookbook_sections_inlines_whole_chapters_and_clips_safely(tmp_path) -> None:

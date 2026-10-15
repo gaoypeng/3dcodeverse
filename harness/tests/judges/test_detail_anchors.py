@@ -34,7 +34,7 @@ def test_physical_plausibility_caps_are_untouched() -> None:
     assert defects["wrong_object"].cap == 0.25
 
 
-@pytest.mark.parametrize("rubric", ["static_object_v1", "articulated_v1"])
+@pytest.mark.parametrize("rubric", ["static_object_v1", "articulated_v1", "scene_v2"])
 def test_acceptance_cap_is_graded_with_the_floor_pinned(rubric: str) -> None:
     """D46 b: the acceptance cap is graded, 0.6 + 0.4·verified/total — the flag and the floor pinned."""
     rule = next(c for c in load_rubric(rubric).caps if c.id == "missing_must_acceptance")

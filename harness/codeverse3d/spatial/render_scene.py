@@ -42,8 +42,10 @@ log = logging.getLogger(__name__)
 #: views the judge sees (contact sheet + individual images are built from these)
 JUDGE_MAX_VIEWS = 10
 #: how many overview-rig tiles the judge gets (layout / grounding X-ray; the eye-level
-#: rig views are diagnostics only and never reach the judge)
-MAX_JUDGE_OVERVIEWS = 3
+#: rig views are diagnostics only and never reach the judge).  4 since scene_v2
+#: (2026-10-14): the three high views plus ``overview_low_front``, the ground-level contact
+#: camera the judge's contact crops are cut from (``conventions.SCENE_VIEWS``).
+MAX_JUDGE_OVERVIEWS = 4
 
 
 class SceneRenderError(RuntimeError):

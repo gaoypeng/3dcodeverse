@@ -136,7 +136,7 @@ This is the difference between a metric and a number that would have read 100% f
 
 ## 2. The library
 
-**Seventeen bundles.** `lines`/`tokens` are the body, against caps of 350 and 2,500.
+**Twenty bundles.** `lines`/`tokens` are the body, against caps of 350 and 2,500.
 
 | skill | track | language | evidence | lines | tokens | routes |
 |---|---|---|---|---|---|---|
@@ -145,7 +145,7 @@ This is the difference between a metric and a number that would have read 100% f
 | `c3d-repeats-and-mirrors` | object tracks | any | measured | 112 | 1,527 | R6, R7 |
 | `c3d-blender-forms` | any | blender, urdf_blender | measured | 97 | 1,811 | R8, R9 |
 | `c3d-urdf-joints` | articulated_object | urdf_blender | measured | 139 | 1,989 | R12, R13 |
-| `c3d-scene-composition` | scene | scene_threejs | mixed | 118 | 1,691 | R14, R15 |
+| `c3d-scene-composition` | scene | scene_threejs | mixed | 118 | 1,691 | R14, R15, R34 |
 | `c3d-scene-lighting` | scene | scene_threejs | mixed | 126 | 1,959 | R16, R17 |
 | `c3d-scene-motion` | scene | scene_threejs | mixed | 178 | 2,223 | R18, R19 |
 | `c3d-threejs-shader-traps` | scene + static | threejs both | mixed | 112 | 1,734 | R20, R21 |
@@ -157,8 +157,11 @@ This is the difference between a metric and a number that would have read 100% f
 | `c3d-scene-water` | scene | scene_threejs | **inherited-unverified** | 71 | 806 | R26 |
 | `c3d-scene-night` | scene | scene_threejs | **inherited-unverified** | 56 | 656 | R27 |
 | `c3d-scene-materials` | scene | scene_threejs | **inherited-unverified** | 78 | 832 | R28 |
+| `c3d-bpy-scene-placement` | scene | scene_blender | mixed | 124 | 2,209 | R29, R30 |
+| `c3d-bpy-scene-lighting` | scene | scene_blender | mixed | 112 | 2,045 | R31, R32 |
+| `c3d-bpy-scene-materials` | scene | scene_blender | mixed | 99 | 1,741 | R33 |
 
-**All seventeen route by default since 2026-09-22** (`C3D_SKILLS` and
+**All twenty route by default since 2026-09-22** (the three `c3d-bpy-scene-*` bundles since 2026-10-14, D105) (`C3D_SKILLS` and
 `C3D_SKILLS_UNVERIFIED` both default on; `C3D_SKILLS=0` turns the system off,
 `C3D_SKILLS_UNVERIFIED=0` drops the six `inherited-unverified` bundles).  The cap of 5 per
 session still holds.  Zero have a measured effect — they route because the owner made skills

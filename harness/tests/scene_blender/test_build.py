@@ -92,6 +92,7 @@ def test_the_skeleton_builds_and_passes(tmp_ws) -> None:
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     rt = _rt()
     rt.skeleton(tmp_ws, plan)
+    assert (tmp_ws.src / "lib" / "terrain.py").is_file()   # the env below is built FROM the library
     assert rt.lint(tmp_ws).passed
     asm = rt.assemble(tmp_ws, plan)
     assert set(asm.zones_included) == {"quay", "water"} and not asm.zones_failed
@@ -101,6 +102,10 @@ def test_the_skeleton_builds_and_passes(tmp_ws) -> None:
     assert c["fog"]["type"] == "VolumeBox" and c["background"] == "sky:MULTIPLE_SCATTERING"
     assert "Atmosphere" in c["bpy"]["glb"]["volumes_skipped"]
     assert {g["name"] for g in c["groups"]} >= {"Quay", "Water", "Ground"}
+    assert c["light_types"] == {"SUN": 1} and c["bpy"]["drivers_invalid"] == []
+    # every planned asset the stubs placed (lib.scatter.instance) is seated on the library's ground
+    placed = [r for r in c["placement"]["assets"] if r["zone"] in ("Quay", "Water") and not r["exempt"]]
+    assert placed and all(r["supported"] and not r["floating"] and r["sunk_m"] <= 0.10 for r in placed), placed
     probe = json.loads((tmp_ws.artifacts / "scene_probe.json").read_text())
     # the plan's cameras, named as scene_threejs's assembler names them
     assert [cam["name"] for cam in probe["boot"]["cameras"]] == [to_snake(c.name) for c in plan.cameras[:6]]

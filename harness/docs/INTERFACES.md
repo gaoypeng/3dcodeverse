@@ -161,6 +161,36 @@ get_settings().apply_profile(name, *, force=False) -> Profile
 from codeverse3d.cli._common import resolve_dial, ResolvedDial   # THE resolver, one per `3dcode make`
 resolve_dial(settings, profile_flag=None, *, rounds=None, candidates=None,
              max_minutes=None, texture=False) -> ResolvedDial
+from codeverse3d.cli._common import resolve_variant, ResolvedVariant, record_variant, replay_variant   # D105
+resolve_variant(settings, generator, flag=None) -> ResolvedVariant{name, version, hash, source, label}
+    # `--variant` > settings.variant (C3D_VARIANT) > settings.variants[<generator>] (as typed, then by the served
+    # model) > "" (base); an unknown name is the typed 'bad configuration' refusal (exit 2) before a run dir exists;
+    # `3dcode make` freezes .name on RunOptions.variant.  record_variant(record) -> the name a stored run used;
+    # replay_variant(record): a context that activates it for `3dcode judge` (a retired name warns → base)
+from codeverse3d.prompts.variants import VARIANTS_DIR, VariantInfo, list_variants, variant_info, resolve_variant, \
+    active_variant, activate, variant_root, variant_hash, variant_block, apply_variant_knobs, served_id
+    # the variant layer (D105): VariantInfo{name, version, generators, description, knobs} from
+    # prompts/variants/<name>/variant.toml; variant_info(name) / activate(name) raise ValueError for an unknown name;
+    # resolve_variant(settings, generator_id) -> "" | name (plain dict lookups, served_id("agy:x-high") == "agy:x");
+    # active_variant() = the ContextVar `activate` sets (BaseTrack.run wraps the whole run; proc.fan_out copies it
+    # into worker threads), else get_settings().variant; variant_hash(name) = sha256[:12] over the prompt AND skills
+    # overlay files (README.md excluded; "" = base); variant_block(name) -> {name, version, hash} for the record;
+    # apply_variant_knobs(settings, info) sets [knobs] (skills_max / skills_only) as DEFAULTS — a stated field wins
+from codeverse3d.prompts import load_text, render, prompt_root   # every name resolves through the active variant
+prompt_root(rel) -> Path   # the file a prompt name reads from: the overlay copy when it exists, else the base
+from codeverse3d.skills import library_roots, all_skills, load_skill, variants_table, parse_routes, VariantRoutes, RouteBoost, variant_dir
+library_roots(variant=None) -> [skills_dir(), <skills_dir>/variants/<v>]   # the second only when it exists
+all_skills() -> base ∪ overlay (same name shadows, new names added); all_skills(root) -> that root alone
+variants_table(name) -> VariantRoutes{variant, routes: (Route…), boosts: (RouteBoost{skill, delta}…), disabled}
+    # <skills_dir>/variants/<name>/routes.toml parsed with tomllib into typed rows (parse_routes(path)): a typing
+    # error is a ValueError naming the row; attach_skills logs it and routes with the base table
+from codeverse3d.skills.registry import select, effective_priority, GATE_FIRED_PRIORITY
+select(track, language, kind, *, signals=None, findings=(), library=None, max_skills=5, allow_unverified=False,
+       routes=ROUTES, boosts=None, disabled=frozenset()) -> [Selection]
+    # routes: the rows to evaluate in order (a variant's extra rows after the base ones — ties keep base order);
+    # boosts: skill -> priority delta, clamped by effective_priority (a standing row stays below 90, a gate-fired
+    # row never drops under it); disabled: rule ids skipped.  SkillsMaterialized.variant, the skills.attached
+    # event and the telemetry/skills.jsonl row name the variant the attach ran under
     # profile/generator/planner/judge/captioner, judge_samples/judge_max_px/judge_montages/
     # judge_detail_crops, agent_max_turns, rounds, candidates, texture, max_minutes.
     # `--profile X` and `C3D_PROFILE=X` resolve to the SAME dial (they used to disagree on
@@ -264,6 +294,8 @@ rt.asset_file(asset: AssetPlan) -> str                 # factory module, or publ
 rt.assemble(ws, plan: ScenePlan) -> BaseModel          # writes the entry; plan cameras, else derived; artifacts/assemble.json
 rt.probe(ws, *, timeout_s=60.0) -> SceneProbeResult    # scene_probe gate + census.json (scene_probe / check_placement tools)
 rt.render_scene(ws, out_dir, *, cameras=None, orbit=True, times=(0.0, 1.5), width=1024, height=576, sheet=True) -> RenderSet
+rt.env_file: str                                      # Δ 2026-10-14 (D105) src/env.js / src/env.py — the env stage's one file,
+    # declared on languages/base.SceneRuntime; tracks.scene.env_file(ctx) reads it (tracks.scene.ENV_FILES is the typed fallback)
 # Δ 2026-09-24 (D102) spatial.probes.run_probe(ws, *, compile=False, timeout_s=None, glb: Path | None = None, facts=None):
 #   glb = an OFFLINE scene's census GLB (probe_scene.mjs --glb → runtime_js/lib/glb_scene.mjs, served at /__census.glb;
 #   host_page.openHost(..., glb=)), facts merged into the census by probes.merge_facts before any finding;
@@ -283,7 +315,7 @@ BuildResult.error_type spellings (languages/_common.py): MISSING_ENTRY = "Missin
 | `ThreeJsRuntime` | `src/object.js`, `src/parts/*.js` | **Δ export as authored** (census `placement_offset`); InstancedMesh baked to `<Name>_<i>` meshes (`instanced_meshes_baked`); exported `selfcheck(THREE, root)` is called (throw → SelfCheckError); NaN geometry errors name mesh/part → routed to `src/parts/<snake>.js` |
 | `UrdfBlenderRuntime` | `src/model.py`, `src/robot.urdf` | object.glb (Y-up, node=link, joint extras), meshes/<link>.glb (raw Z-up link frames); link name `world` is reserved (lint ERROR + UrdfError); robot GLB root gets `__root` suffix on name clash; the build collides the REST pose only (RestPenetration > 5 mm, D17) — every pose is the round's `joint_sweep` gate — and writes no articulation.json / census.articulation (Δ 2026-09-22) |
 | `SceneThreeJsRuntime` | `src/scene.js`, `src/zones/*.js`, `src/assets/*.js`, `src/env.js`, `src/shaders/*.{js,vert,frag,glsl}` | glb_path=None; local shader text loads inside async createScene; ok iff `spatial.probes.run_probe(ws, *, compile=True, timeout_s=None) -> (scene_probe, shader_preflight, census)` (one `probe_scene.mjs --compile` boot; `probe_scene` is the same call without `compile`) passes both; both reports ride `BuildResult.gates`, and the `shader_probe` tool reports the same call |
-| `SceneBlenderRuntime` | `src/scene.py`, `src/zones/*.py`, `src/assets/*.py`, `src/env.py` | **Δ 2026-09-24 (D102)** glb_path=None; `scene.py` is assembled DATA (`ZONES`/`ASSETS`/`HEROES` `{snake: Pascal}`, `CAMERAS` in the Blender frame, vertical fov); build = one Blender process (`wrappers/run_bpy_scene.py`: env, heroes, assets, zones each isolated — a raise is an ERROR on its `file:line` and the zone is dropped) → `artifacts/{census.glb, scene.blend, bpy_build.json, bpy_census.json}` → `run_probe(ws, glb=artifacts/census.glb, facts=bpy_census)` (no settle / camera repair; D2 unique-tri ERROR, no draw gate; D10 python drivers ERROR) → `BuildResult.gates=[scene_probe]`; `probe()` = the same measurement without touching build.json; `render_scene` raises NotImplementedError until DESIGN phase 2; frame clock `scene_blender.FPS`/`frame_of(t) = 1 + round(30 t)` |
+| `SceneBlenderRuntime` | `src/scene.py`, `src/zones/*.py`, `src/assets/*.py`, `src/env.py` | **Δ 2026-09-24 (D102)** glb_path=None; `scene.py` is assembled DATA (`ZONES`/`ASSETS`/`HEROES` `{snake: Pascal}`, `CAMERAS` in the Blender frame, vertical fov); build = one Blender process (`wrappers/run_bpy_scene.py`: env, heroes, assets, zones each isolated — a raise is an ERROR on its `file:line` and the zone is dropped) → `artifacts/{census.glb, scene.blend, bpy_build.json, bpy_census.json}` → `run_probe(ws, glb=artifacts/census.glb, facts=bpy_census)` (no settle / camera repair; D2 unique-tri ERROR, no draw gate; D10 python drivers ERROR) → `BuildResult.gates=[scene_probe]`; `probe()` = the same measurement without touching build.json; `render_scene` = `spatial.render_blender.render_blender_scene` (**Δ D102b**: Blender renders the authored cameras × times + the overviews from `artifacts/scene.blend`, the JS host keeps the camera checks and the metrics schema; **Δ 2026-10-14 (D105)** the track runs end to end — `env_file` = `src/env.py`, the bpy templates, planner schema and asset ladder under orchestrator/ + tracks/ below); frame clock `scene_blender.FPS`/`frame_of(t) = 1 + round(30 t)` |
 | `GlslShaderRuntime` | `src/shader.frag`, `src/common.glsl`, `src/buffer_a.frag` (+ the harness-owned `src/recipes.glsl` when seeded) | harness owns `#version`/uniforms/`out` (wrap.HEADER: u_time/u_resolution/u_mouse/u_frame/u_prev/u_noise + iTime/iChannel* aliases); `wrap.compose(shader, common, recipes_src=…)` pastes header < recipes < common < shader; build renders judge frames via GlHost; compile errors → GlslCompileError at mapped src file:line (recipes.glsl included); lint ERROR `redefines_recipe` when an agent file defines a recipes.glsl name; artifacts frames/, frames_sheet.png, preview.gif, metrics.json |
 | `OpenGLPythonRuntime` | `src/program.py`, `src/*.glsl` | `setup(ctx,w,h)->state` + `render(ctx,state,t,frame,fbo)` run in a moderngl subprocess (`wrappers/run_gl.py`); exceptions map to src/program.py:line, in-string GLSL errors carry both line numbers |
 
@@ -345,7 +377,8 @@ render_blender_scene(ws, out_dir, *, cameras=None, orbit=True, times=(0.0, 1.5),
     # render_scene.mjs --glb through lib/glb_scene.mjs); metrics.json = the three.js schema + {"language": "scene_blender", "blender": {engine, device, samples,
     # fallback, frame_ms, timings_ms}}; Settings.render.blender_{engine,samples,device,gpu_slots,gpu_wait_s}
 from codeverse3d.spatial.render_scene import select_judge_views, JUDGE_MAX_VIEWS, plan_bounds
-select_judge_views(rs, max_n=10) -> RenderSet          # priority: authored@t0, 2 overview@t0, 2 authored@t_last, rest
+select_judge_views(rs, max_n=10) -> RenderSet          # priority: authored@t0, MAX_JUDGE_OVERVIEWS=4 overview@t0 (Δ 2026-10-14,
+    # scene_v2: the fourth is conventions.SCENE_VIEWS' overview_low_front, az 20° el 7°, orbit.mjs fitContactCamera), 2 authored@t_last, rest
 from codeverse3d.spatial.frame_metrics import frame_gate_from_renders, frame_findings, frame_summary_text, FRAME_GATE
 frame_gate_from_renders(renders) -> GateReport         # gate "scene_frames"; data.kind ∈ dark_frame | blown_frame | flat_frame |
     # camera_in_geometry | camera_underground | camera_low | camera_high | content_small; authored cameras → ERROR, orbit rig → WARN
@@ -388,9 +421,14 @@ from codeverse3d.spatial.measure import measure_glb, world_transform, node_name_
     # lands a finding in Measurement.extra["findings"] — trimesh re-parents renamed nodes and the numbers are approximate
 from codeverse3d.spatial.scene_placement import placement_findings, placement_gate, placement_gate_safe, placement_census, placement_table_text
 placement_census(ws, probe, *, force_probe=False, timeout_s=60.0) -> dict   # Δ D101: probe = the language's SceneRuntime.probe
-placement_findings(table, *, indoor=False) -> GateReport   # gate "scene_placement"; data.kind ∈ floating | sunken |
+placement_findings(table, *, indoor=False, language=None, thresholds=None) -> GateReport   # gate "scene_placement"; data.kind ∈ floating | sunken |
     # unsupported | interpenetration | summary | probe_failed; target "Zone/Asset" (routes to src/zones/<zone>.js);
-    # messages carry the scene_v1 floating_part cap words; reads artifacts/census.json["placement"] (host_placement.mjs)
+    # messages carry the scene_v2 cap words (floating / sunken / interpenetration / scale / free_exempt); reads artifacts/census.json["placement"] (host_placement.mjs)
+    # Δ D105 (2026-10-14): thresholds = Settings.placement (config.Placement) read at CALL time, `thresholds=` overrides; the
+    #   summary INFO's data carries `thresholds` (what graded) + `counts` (measured) / `listed` (after the per-kind cap);
+    #   + kinds cantilevered (WARN: rests on ≤ 1 of ≥ 4 foot columns, host_placement rows gap_max_m / columns_resting / tilt_m)
+    #   and free_exempt (one per report: share of assets tagged placement='free' past free_exempt_warn / _error);
+    #   every per-asset / pair finding carries data.bbox = {center, size} (GLB frame) for the judge's contact crops
 placement_gate(ws, census, plan) -> GateReport | None   # THE verdict (Δ 2026-09-22): ScenePipeline.gates and the check_placement
     # tool both return it — placement_gate_safe fed the zone layouts and the unbuilt assets from ws/stages/{layouts,assets}.json
 placement_gate_safe(census, *, plan=None, layouts=None, unavailable=()) -> GateReport | None   # the pure core: None without a table, WARN on failure, never raises; `unavailable` = assets the stage could not build (not "missing planned contents")
@@ -437,10 +475,12 @@ python -m codeverse3d.spatial.mcp_server --workspace <ws> [--track X] [--languag
 from codeverse3d.judges.rubrics import load_rubric, Rubric   # Rubric{…, defects: [DefectItem{id, text, penalty, cap}], caps[{…, when:, kinds}]}
 from codeverse3d.judges.vlm_judge import VlmJudge
 VlmJudge(rubric="static_object_v1", model_id=None (settings.default_judge = gemini-3.1-pro-preview), n_samples=1,
-         temperature=0.2, *, thinking="low", max_attempts=3, max_montages=None, detail_crops=None, max_px=None,
+         temperature=0.2, *, thinking=None, max_attempts=3, max_montages=None, detail_crops=None, max_px=None,
          sample_budget_s=None, fixed_order=False, chat_model=None, cache_dir=None, label="judge")
-    # Δ max_images is GONE → montage budget.  The four None params resolve through Settings.judge
-    # (montages=5 since D47, detail_crops=2, max_px=1024) and SAMPLE_BUDGET_S=900.0
+    # Δ max_images is GONE → montage budget.  The None params resolve through Settings.judge
+    # (montages=5 since D47, detail_crops=2, max_px=1024, thinking="low" — Δ 2026-10-14 D105: thinking=None reads
+    # Settings.judge.thinking / C3D_JUDGE__THINKING, `3dcode judge --thinking` and calibrate(thinking=None) too) and
+    # SAMPLE_BUDGET_S=900.0; TRACK_MONTAGE_CAP = {"scene": 4, "graphics": 3} bounds the dial per track
 VlmJudge.judge(inp) -> Judgment                # clay/normals views travel ONLY as JudgeInput.geometry_views (no kwarg)
 VlmJudge.slice_payload(inp) -> (list[(label, png_path)], provenance_elicitation: bool)   # (D48) ([], False) unless
     # Settings.judge.slices=="on-error" AND spec.track in judges.base.SLICE_TRACKS AND inp.glb_path exists AND the
@@ -459,6 +499,10 @@ plan_summary(plan, language) -> str   # the digest for every track (object: "Ove
     # also the texture gate's (texturing/generate.judge_gate)
 from codeverse3d.judges.prompt_builder import plan_montages, render_montage, Montage    # ≤5 2×2 montages (shaded/geometry/poses) + ≤2 detail
     # crops @≤1024px replace the sheet + the 14-view rig (D47); clay/normals views (RenderView.mode) auto-route to the GEOMETRY montage
+    # Δ 2026-10-14 (scene_v2): plan_montages(…, gates=()) / plan_detail_crops(shaded, *, scene, gates=(), limit) — a scene sends the
+    # centre crop + ≤ limit CONTACT CROPs (plan_contact_crops: a scene_placement finding's data.bbox projected through the judged
+    # overview tile that shows it largest, project_box); gates_section(gates, *, scene=False) has a scene branch (placement →
+    # frames → lint, WARNs grouped by kind, one MEASURED PLACEMENT line: placement_block); the object text is unchanged
 from codeverse3d.judges.prompt_builder import build_judge_messages, connectivity_error_pairs, PROVENANCE_ELICITATION
 build_judge_messages(inp, rubric, *, …, extra_images=None (PREpended: references), extra_text="",
                      slice_images=None, provenance_elicitation=False) -> (system, [ChatMessage])   # (D48) slice_images
@@ -595,8 +639,25 @@ tracks.common.single_shot_agent_id(agent_id, chat_model_id='') -> str · single_
     # asked for a final build + summary (WRAPUP_PROMPT) instead of being killed.
     # EVERY session (attempt 1, <label>.a2 retry, <label>.wrapup) is charged as it ends.
 from codeverse3d.tracks.repair import build_with_repair   # RepairOutcome(.ok/.max_attempts, attempts, usage); build_with_repair(ctx, *, round_index, label, files_hint=None, max_attempts=None, timeout_s=None) — timeout_s clips every repair session (a scene asset's window)
-# scene assets (tracks/scene_assets.py): build_threejs_asset / build_blender_asset climb ONE ladder (_ladder: single-shot → check → one feedback repair → agent session); a hero's parts come from the static planner (hero_plan); SceneThreeJsRuntime.render_asset(ws, name, out_dir) renders a module on the hero's quick rig; the assembled scene.js plays every GLB clone's clips (clone.userData.clipOffset de-phases a copy)
+# scene assets (tracks/scene_assets.py): build_threejs_asset / build_blender_asset / build_bpy_asset (Δ D105) climb ONE ladder (_ladder: single-shot → check → one feedback repair → agent session); a hero's parts come from the static planner (hero_plan); SceneThreeJsRuntime.render_asset(ws, name, out_dir) renders a module on the hero's quick rig; the assembled scene.js plays every GLB clone's clips (clone.userData.clipOffset de-phases a copy)
 # languages/blender.write_blender_skeleton(ws, plan, *, ground_tol_m=0.002) — the self-check's stands-on-z=0 tolerance (a scene hero passes 0.02)
+# Δ 2026-10-14 (D105) scene_blender first class: the scene track reaches a language through typed tables, never a suffix test
+tracks.scene.SCENE_TEMPLATES: dict[Language, SceneTemplates]   # the env / zone / refine / asset templates per scene language
+    # (scene_templates(language) -> KeyError for a language the track does not run); the three.js files are byte-identical,
+    # the bpy twins carry the same context keys with Blender wording and the bpy library's calls
+tracks.scene.ENV_FILES: dict[Language, str]           # src/env.js / src/env.py — the typed fallback of
+tracks.scene.env_file(ctx) -> str                     #   the runtime's SceneRuntime.env_file (a fake, an older runtime)
+tracks.planner.PLAN_TEMPLATES: dict[tuple[Track, Language | None], str]   # (track, None) = the track's default and the
+tracks.planner.plan_template(track, language=None) -> str                 #   fallback; (SCENE, SCENE_BLENDER) = tracks/plan_scene_bpy.j2
+tracks.planner.plan_schema(spec, plan_model) -> dict  # the planner call's response schema: a scene's names ITS language's
+contracts.plan.scene_plan_schema(language) -> dict    #   asset kinds (bpy / blender_glb; scene_threejs's = ScenePlan.model_json_schema())
+tracks.scene_assets.build_bpy_asset(ctx, asset, *, judge) -> AssetResult   # src/assets/<snake>.py (build_<snake>(ctx, variant=0))
+    # on the one ladder; no render_asset, so the scene judge sees the module placed
+tracks.scene_assets.check_bpy_asset(ctx, rel, snake, *, expected_size_m=None, timeout_s=None) -> AssetCheck   # ONE Blender
+    # build of the module alone (<ws>/_assets/<snake>_check): a raise is fatal on its file:line; a runtime without Blender or
+    # a harness fault inside the wrapper (BuildResult.harness_failure: the census-GLB writer) is ran=False, ok=True — never a blocker
+tracks.zone_layout.layout_block(layout, *, language=Language.SCENE_THREEJS) -> str   # the director's placements in the
+    # AUTHORING frame of `language`: the plan's own numbers for three.js, (x, -z) for bpy (a -0.0 folded to 0.0)
 from codeverse3d.tracks.steps import run_round, skip_judge_reason, record_aborted_round
 skip_judge_reason(ctx, *, renders, ignore_budget=False) -> str    # "" = judge it.  ONLY states where the
     # verdict is never bought at all: no judge / no renders / budget already exceeded

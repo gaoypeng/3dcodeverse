@@ -19,6 +19,11 @@
  *                   asset's lowest vertices (lowest, ±x, ±z extremes of the band
  *                   ≤ 5 % of its height above its minimum) — so a table is measured
  *                   at its leg tips, not under its top.
+ *   gap_max_m       the LARGEST column gap (2026-10-14): a crate seated by its lowest
+ *                   corner on a slope has ground_gap_m 0 and gap_max_m the hang of the
+ *                   far corner; the python gate's `cantilevered` reads it
+ *   columns_resting columns within CONTACT_TOL_M of what is under them, or buried
+ *   tilt_m          gap_max_m − ground_gap_m: how unevenly the feet meet the ground
  *   sunk_m          max over columns of how far the foot sits below a surface that
  *                   passes through the asset's own vertical extent at that column,
  *                   or below a ground-like surface (terrain/floor) above it.
@@ -30,8 +35,8 @@
  *   floating        gap > 0.05 m and not sunk (python re-derives with the indoor
  *                   threshold; these booleans are for tools/humans)
  *   touches_nothing gap > 0.02 m, not sunk, attached to nothing
- * Interpenetration: pairs of checked assets whose AABBs overlap by > 20 % of the
- * smaller box, refined by sampling the smaller asset's vertices for containment
+ * Interpenetration: pairs of checked assets whose AABBs overlap by > 10 % of the
+ * smaller box (OVERLAP_MIN_FRAC), refined by sampling the smaller asset's vertices for containment
  * in the larger one's meshes (parity of surfaces above the point per column) —
  * a bench under a tree canopy is NOT an interpenetration, a crate half inside a
  * wall is.  `aabb_overlap` is the box fraction (the reported number), `inside_frac`
@@ -62,7 +67,12 @@ export const TIME_BUDGET_MS = 4000;
 export const CONTACT_TOL_M = 0.02;
 export const FLOATING_M = 0.05;
 export const SUNK_M = 0.10;
-export const OVERLAP_MIN_FRAC = 0.20;
+// Pairs under this box fraction are neither confirmed nor reported; the python gate grades the
+// rest from Settings.placement (WARN past overlap_warn, ERROR past overlap_error) and this floor IS
+// the default overlap_warn — tests/scene_gates/test_placement.py pins the two together.  0.20 →
+// 0.10 on 2026-10-14 (D105, the owner's stricter contact standards): the 10–35 % band was never
+// measured, so the strict WARN level would have had nothing to read.
+export const OVERLAP_MIN_FRAC = 0.10;
 //: named descendants recorded per row, so the plan-contents check can see through one
 //: wrapper group without the table growing without bound
 export const MAX_INNER_NAMES = 24;
@@ -276,6 +286,11 @@ function collectAssets(scene, indices, volumetrics, contentBox) {
       }
       const a = { obj: child, name: child.name || `${child.type}_${total}`, zone: zone === child ? '' : (zone.name || zone.type), meshes, instanced, inner, families, exempt: '' };
       if (isFree(zone) || isFree(child)) a.exempt = 'free';
+      // the env's room shell (walls, lid, sills, lintels, trim under a `RoomShell…` root — the same
+      // name the overview rig lifts) is the enclosure, never a placed asset: its members abut and
+      // overlap each other by construction (2026-10-15: 24 of 41 Blender interpenetration ERRORs
+      // in the loop's iteration 0 were lintel x ceiling / trim x trim pairs of one shell)
+      else if (String(zone.name || '').startsWith('RoomShell')) a.exempt = 'enclosure';
       // instanced first: an asset that is scatter PLUS a haze shell is exempt because its
       // instances cannot be sampled at this budget, which is the more informative reason
       else if (!meshes.length && instanced) a.exempt = 'instanced';
@@ -422,14 +437,17 @@ function survey(scene, opts) {
   return { groundY, notes, indices, assets, total, owner: (mesh) => meshOwner.get(mesh) || nearestName(mesh) };
 }
 
-/** Probe every foot column of `a`: smallest gap (`best`), deepest and shallowest burial (`sunk`,
- *  `minSunk` — 0 once a column is not sunk), whether an unsunk column rests, any foot in water. */
+/** Probe every foot column of `a`: smallest gap (`best`) and largest (`gapMax`), how many columns
+ *  rest (within contact, or buried), deepest and shallowest burial (`sunk`, `minSunk` — 0 once a
+ *  column is not sunk), whether an unsunk column rests, any foot in water. */
 function probeFeet(a, indices, owner, groundY) {
   const cols = footColumns(a);
-  const f = { columns: cols.length, best: null, sunk: null, water: false, minSunk: Infinity, anyRest: false };
+  const f = { columns: cols.length, best: null, gapMax: null, resting: 0, sunk: null, water: false, minSunk: Infinity, anyRest: false };
   for (const col of cols) {
     const r = probeColumn(a, col, indices, owner, groundY);
     if (r.gap !== null && (!f.best || r.gap < f.best.gap)) f.best = r;
+    if (r.gap !== null && (f.gapMax === null || r.gap > f.gapMax)) f.gapMax = r.gap;
+    if (r.sunk > 0 || (r.gap !== null && r.gap <= CONTACT_TOL_M)) f.resting += 1;
     if (r.sunk > 0) {
       if (!f.sunk || r.sunk > f.sunk.sunk) f.sunk = r;
       f.minSunk = Math.min(f.minSunk, r.sunk);
@@ -459,12 +477,15 @@ export function placementTable(scene, THREE, opts = {}) {
       exempt: a.exempt, bbox: a.min ? boxJson(a.min, a.max) : null };
     if (a.exempt) { rows.push(row); continue; }
     if (Date.now() - t0 > TIME_BUDGET_MS) { row.exempt = 'time_budget'; timeCut = true; rows.push(row); continue; }
-    const { columns, best, sunk, water } = probeFeet(a, indices, owner, groundY);
+    const { columns, best, gapMax, resting, sunk, water } = probeFeet(a, indices, owner, groundY);
     a.attached = [];
     a.row = row;
     Object.assign(row, {
       columns,
       ground_gap_m: best ? r3(best.gap) : null,
+      gap_max_m: gapMax === null ? null : r3(gapMax),
+      columns_resting: resting,
+      tilt_m: best && gapMax !== null ? r3(gapMax - best.gap) : null,
       support: best ? best.support : '',
       sunk_m: sunk ? r3(sunk.sunk) : 0,
       sunk_into: sunk ? sunk.into : '',

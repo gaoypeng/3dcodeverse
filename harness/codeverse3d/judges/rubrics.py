@@ -149,6 +149,13 @@ class CapRule(BaseModel):
         default=False,
         description="acceptance rules only: cap + (1 - cap) * verified_must / total_must instead of the flat cap",
     )
+    veto_warn_keys: dict[str, float] = Field(
+        default_factory=dict,
+        description="gate rules only: finding.data key → magnitude at or above which a WARN of the rule's kinds "
+                    "keeps the judge's claim alive (measured_absent); empty = the penetration default, "
+                    "{depth_m: VETO_PENETRATION_DEPTH_M}.  scene_v2 states {gap_m: 0.02} / {sunk_m: 0.10} / "
+                    "{overlap: 0.20}; 0.0 = any WARN of the kind that carries the key",
+    )
     note: str = ""
 
     @model_validator(mode="after")
@@ -568,25 +575,43 @@ VETO_PENETRATION_DEPTH_M = 0.008
 
 
 def _rule_gates_clean(rule: CapRule, gates: list[GateReport]) -> bool:
-    """Every gate ``rule`` watches ran, passed, and has no finding of its ``kinds`` that is
-    an ERROR — or a penetration WARN measured at ``VETO_PENETRATION_DEPTH_M`` or deeper.
-    A report is watched when its name OR one of its findings' ``gate`` matches the rule,
-    the same predicate the cap side (``_finding_matches``) uses."""
+    """Every gate ``rule`` watches ran and reports no finding of its ``kinds`` that is an
+    ERROR — or a WARN whose measured magnitude reaches the rule's veto line
+    (``CapRule.veto_warn_keys``; default: a penetration ``depth_m`` of
+    ``VETO_PENETRATION_DEPTH_M``).  A report is watched when its name OR one of its findings'
+    ``gate`` matches the rule, the same predicate the cap side (``_finding_matches``) uses.
+
+    Scoped to the rule's kinds since scoring version 4 (2026-10-14): a failed report used to
+    cancel the veto whatever it failed on, and on the scene track the placement rows and the
+    plan checks share ONE report — a ``no_fog`` or ``missing_content`` ERROR let every
+    "floating asset" claim stand although the rows had measured none (scene_v2 splits the
+    placement caps per kind for the same reason).  A failed report that names no ERROR finding
+    at all cannot say what failed and still counts as not clean."""
     watched = [g for g in gates if fnmatch(g.gate, rule.gate) or any(fnmatch(f.gate, rule.gate) for f in g.findings)]
     if not watched:
         return False
+    lines = rule.veto_warn_keys or {"depth_m": VETO_PENETRATION_DEPTH_M}
     for g in watched:
-        if not g.passed:
+        if not g.passed and not any(f.severity == Severity.ERROR for f in g.findings):
             return False
         for f in g.findings:
             if not any(k.lower() in _finding_tokens(f) for k in rule.kinds):
                 continue
             if f.severity == Severity.ERROR:
                 return False
-            depth = f.data.get("depth_m") if isinstance(f.data, dict) else None
-            if f.severity == Severity.WARN and isinstance(depth, (int, float)) and depth >= VETO_PENETRATION_DEPTH_M:
+            if f.severity == Severity.WARN and _reaches_veto_line(f, lines):
                 return False
     return True
+
+
+def _reaches_veto_line(f: GateFinding, lines: dict[str, float]) -> bool:
+    """Does a WARN's measured magnitude (any of ``lines``' keys in ``f.data``) reach its line?"""
+    data = f.data if isinstance(f.data, dict) else {}
+    for key, line in lines.items():
+        v = data.get(key)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and float(v) >= line:
+            return True
+    return False
 
 
 def veto_measured_defects(
@@ -691,7 +716,7 @@ def _rule_hit(
 
 
 # ===================================================================== scoring
-SCORING_VERSION = 3
+SCORING_VERSION = 4
 """The arithmetic downstream of the model, stamped into every ``ScoreBreakdown``.
 
 A stored verdict is reproducible from its samples only under the version that wrote
@@ -708,6 +733,12 @@ drift to report, not a fault.
 3 — 2026-09-24: a gate cap rule's ``kinds`` match the finding's typed ``data.kind`` /
     ``data.code``; the message only when it has neither, the target never (N50).  A replay
     of the 1 229 recorded judged rounds moved no cap and no veto.
+4 — 2026-10-14 (scene_v2): the measured-absent veto is scoped to the rule's ``kinds`` — a
+    watched report that failed on an unrelated kind no longer cancels it — and the WARN
+    magnitude that keeps a claim alive is the rule's ``veto_warn_keys`` (the object rubrics
+    keep the ``depth_m`` ≥ 8 mm default, so their verdicts replay unchanged unless the
+    connectivity report failed on a penetration while the judge claimed floating, or the
+    reverse).
 """
 
 

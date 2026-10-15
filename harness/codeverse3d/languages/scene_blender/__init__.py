@@ -83,7 +83,7 @@ def frame_of(t: float) -> int:
 
 # ===================================================================== layout
 #: what a whole-scene session edits: the entry and the environment (zones and assets have their own)
-SCENE_FILES: tuple[str, ...] = (ENTRY_REL, "src/env.py")
+SCENE_FILES: tuple[str, ...] = (ENTRY_REL, "src/env.py")   # == (ENTRY_REL, ENV_FILE); ENV_FILE is defined with the starter tree
 #: refine targets that are the environment's, whatever the plan calls its zones
 ENV_WORDS = frozenset({"env", "environment", "lighting", "sky", "fog", "ground", "water", "light", "world", "sun"})
 
@@ -407,6 +407,51 @@ def lint(ws: Workspace) -> GateReport:
     return GateReport.of(GATE, findings, duration_ms=int((time.monotonic() - t0) * 1000))
 
 
+# ===================================================================== starter tree
+STARTER_DIR = Path(__file__).resolve().parent / "starter" / "src"
+#: the harness-owned bpy library (``src/lib/*.py``, D51 for this language): shipped into EVERY
+#: workspace by both skeleton paths; the model's index of it is prompts/scene_blender/effects_catalog.md
+#: (tests/scene_runtime/test_skeleton.py pins the two to each other)
+LIB_DIR = STARTER_DIR / "lib"
+ENV_FILE = "src/env.py"
+
+
+def lib_files() -> list[Path]:
+    """The library modules shipped into a workspace, sorted (the package's ``__init__.py`` ships
+    too but names no calls, so the catalog does not list it)."""
+    return sorted(p for p in LIB_DIR.glob("*.py") if p.name != "__init__.py")
+
+
+def _put(path: Path, text: str, written: list[Path]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    written.append(path)
+
+
+def _write_lib(ws: Workspace, written: list[Path]) -> None:
+    for src in sorted(LIB_DIR.glob("*.py")):
+        _put(ws.src / "lib" / src.name, src.read_text(), written)
+
+
+def write_example(ws: Workspace) -> list[Path]:
+    """The complete plan-less starter scene (``starter/src/**/*.py``: entry, env, zones, assets
+    and the library) into ``ws.src`` — scene_threejs's ``write_example`` twin.  Raises when the
+    starter tree is missing: an rglob over an absent directory writes nothing and reports
+    success, which is how a wheel without package data once shipped empty scenes
+    (tests/core/test_portability.py)."""
+    if not STARTER_DIR.is_dir():
+        raise FileNotFoundError(
+            f"scene_blender starter tree missing: {STARTER_DIR} — this install has no package data "
+            f"(a non-editable install needs [tool.setuptools.package-data] to ship languages/**/starter/**/*)")
+    written: list[Path] = []
+    for src in sorted(STARTER_DIR.rglob("*.py")):
+        _put(ws.src / src.relative_to(STARTER_DIR), src.read_text(), written)
+    if not written:
+        raise FileNotFoundError(f"scene_blender starter tree at {STARTER_DIR} contains no .py files")
+    (ws.public / "assets").mkdir(parents=True, exist_ok=True)
+    return written
+
+
 # ===================================================================== skeleton
 def _v(v: Sequence[float], *, extents: bool = False) -> tuple[float, float, float]:
     """A plan (GLB-frame) vector in this language's frame (D12: prompts and skeleton convert)."""
@@ -414,11 +459,17 @@ def _v(v: Sequence[float], *, extents: bool = False) -> tuple[float, float, floa
 
 
 def _env_source(plan: ScenePlan) -> str:
+    """``src/env.py`` built FROM the library: the ground function, the sky, the sun, the ground
+    mesh, the fog box and — for an interior — the room shell and its ceiling light."""
     c, e = _v(plan.bounds.center), _v(plan.bounds.extents, extents=True)
     span = max(e[0], e[1], 40.0)
     ground = round(max(120.0, span * 2.5), 1)
+    # level ground wherever the plan put its cameras (z ≈ 0 inside the bounds), gentle hills beyond
+    flat = round(max(45.0, span / 2 + 15.0), 1)
     fog_h = round(max(e[2] * 2.0, 20.0), 1)
     interior = "True" if plan.interior else "False"
+    glazed = bool(getattr(plan, "glazed", False))
+    room_energy = round(40.0 * e[0] * e[1], 1)
     return f'''"""src/env.py — the environment: world (sky), sun, ground, atmosphere{", enclosure" if plan.interior else ""}.
 
 ENV PLAN: {plan.environment.strip()}
@@ -427,130 +478,42 @@ Frame: Z up, -Y front, metres.  BOUNDS below are the plan's, in this frame.
 CONTRACT: height_at(x, y) -> z is THE ground: the terrain mesh and every zone's seat use it.
   build_env(ctx) -> dict builds the world, lamps, ground and atmosphere into ctx.collection and returns
   what zones may share (materials, water level, sun direction ...) — they read it as ctx.env.
-  Rewrite the sky / sun / ground / fog below to match the plan; keep build_env and height_at.
+  Everything below is built from src/lib (lib.terrain / lib.sky / lib.lighting / lib.materials /
+  lib.architecture — see the effects catalog): rewrite the sky / sun / ground / fog to match the
+  plan; keep build_env and height_at.
 """
-import math
-
-import bmesh
-import bpy
-from mathutils import Vector
+from lib import architecture, lighting, materials, sky, terrain
 
 BOUNDS = {{"center": ({fmt3(c)}), "extents": ({fmt3(e)})}}
 INTERIOR = {interior}
+GLAZED = {glazed}          # a glass house: the shell's walls and lid are panes on an iron frame
 GROUND_SIZE = {ground}
-SUN_AZIMUTH_DEG = 45.0     # compass angle of the sun: 0 = +X, 90 = +Y
+FLAT_RADIUS = {flat}       # level ground for the plan's cameras (z = 0); the hills start beyond it
+SUN_AZIMUTH_DEG = 45.0     # compass angle of the sun: 0 = +X, 90 = +Y (the sky and the lamp share it)
 SUN_ELEVATION_DEG = 35.0
+SEED = 0
+_RELIEF = terrain.make_height_at(seed=SEED, relief=0.0 if INTERIOR else 2.5, scale=60.0, flat_radius=FLAT_RADIUS)
 
 
 def height_at(x, y):
-    """z of the ground at (x, y) — flat until you shape it (then the ground mesh follows)."""
-    return 0.0
-
-
-def _material(name, rgb, roughness=0.8, metallic=0.0):
-    mat = bpy.data.materials.new(name)
-    bsdf = mat.node_tree.nodes["Principled BSDF"]
-    bsdf.inputs["Base Color"].default_value = (rgb[0], rgb[1], rgb[2], 1.0)
-    bsdf.inputs["Roughness"].default_value = roughness
-    bsdf.inputs["Metallic"].default_value = metallic
-    return mat
-
-
-def _ground(ctx, material):
-    me = bpy.data.meshes.new("Ground")
-    bm = bmesh.new()
-    bmesh.ops.create_grid(bm, x_segments=96, y_segments=96, size=GROUND_SIZE / 2)
-    for v in bm.verts:
-        v.co.z = height_at(v.co.x, v.co.y)
-    bm.to_mesh(me)
-    bm.free()
-    me.materials.append(material)
-    ob = bpy.data.objects.new("Ground", me)
-    ctx.collection.objects.link(ob)
-    return ob
-
-
-def _sky(ctx):
-    world = bpy.data.worlds.new("Sky")
-    ctx.scene.world = world
-    nodes, links = world.node_tree.nodes, world.node_tree.links
-    sky = nodes.new("ShaderNodeTexSky")
-    sky.sky_type = "MULTIPLE_SCATTERING"
-    sky.sun_elevation = math.radians(SUN_ELEVATION_DEG)
-    sky.sun_rotation = math.radians(SUN_AZIMUTH_DEG)
-    links.new(sky.outputs["Color"], nodes["Background"].inputs["Color"])
-    nodes["Background"].inputs["Strength"].default_value = 0.4
-
-
-def _sun(ctx):
-    az, el = math.radians(SUN_AZIMUTH_DEG), math.radians(SUN_ELEVATION_DEG)
-    towards_sun = Vector((math.cos(el) * math.cos(az), math.cos(el) * math.sin(az), math.sin(el)))
-    lamp = bpy.data.lights.new("Sun", "SUN")
-    lamp.energy = 3.0
-    ob = bpy.data.objects.new("Sun", lamp)
-    ob.rotation_euler = (-towards_sun).to_track_quat("-Z", "Y").to_euler()
-    ctx.collection.objects.link(ob)
-    return towards_sun
-
-
-def _atmosphere(ctx):
-    """A bounded fog volume over the scene (a world volume over a large scene swallows the sun)."""
-    cx, cy, _ = BOUNDS["center"]
-    me = bpy.data.meshes.new("Atmosphere")
-    bm = bmesh.new()
-    bmesh.ops.create_cube(bm, size=1.0)
-    bmesh.ops.scale(bm, vec=(GROUND_SIZE, GROUND_SIZE, {fog_h}), verts=bm.verts)
-    bmesh.ops.translate(bm, vec=(cx, cy, {fog_h / 2}), verts=bm.verts)
-    bm.to_mesh(me)
-    bm.free()
-    mat = bpy.data.materials.new("AtmosphereFog")
-    nodes, links = mat.node_tree.nodes, mat.node_tree.links
-    nodes.remove(nodes["Principled BSDF"])
-    fog = nodes.new("ShaderNodeVolumePrincipled")
-    fog.inputs["Density"].default_value = {0.001 if plan.interior else 0.002}
-    links.new(fog.outputs["Volume"], nodes["Material Output"].inputs["Volume"])
-    me.materials.append(mat)
-    ctx.collection.objects.link(bpy.data.objects.new("Atmosphere", me))
-
-
-def _enclosure(ctx, material):
-    """Floor, walls and ceiling on the bounds' faces (an interior's shell; cut the openings)."""
-    (cx, cy, cz), (ex, ey, ez) = BOUNDS["center"], BOUNDS["extents"]
-    t = 0.2
-    slabs = {{
-        "Floor": ((cx, cy, cz - ez / 2 - t / 2), (ex, ey, t)),
-        "Ceiling": ((cx, cy, cz + ez / 2 + t / 2), (ex, ey, t)),
-        "WallBack": ((cx, cy + ey / 2 + t / 2, cz), (ex, t, ez)),
-        "WallLeft": ((cx - ex / 2 - t / 2, cy, cz), (t, ey, ez)),
-        "WallRight": ((cx + ex / 2 + t / 2, cy, cz), (t, ey, ez)),
-    }}
-    for name, (centre, size) in slabs.items():
-        me = bpy.data.meshes.new(name)
-        bm = bmesh.new()
-        bmesh.ops.create_cube(bm, size=1.0)
-        bmesh.ops.scale(bm, vec=size, verts=bm.verts)
-        bmesh.ops.translate(bm, vec=centre, verts=bm.verts)
-        bm.to_mesh(me)
-        bm.free()
-        me.materials.append(material)
-        ctx.collection.objects.link(bpy.data.objects.new(name, me))
-    lamp = bpy.data.lights.new("CeilingLight", "AREA")
-    lamp.energy = 40.0 * ex * ey
-    lamp.size = max(0.5, min(ex, ey) * 0.5)
-    ob = bpy.data.objects.new("CeilingLight", lamp)
-    ob.location = (cx, cy, cz + ez / 2 - 0.05)
-    ctx.collection.objects.link(ob)
+    """z of the ground at (x, y) — level inside FLAT_RADIUS, rolling beyond (the ground mesh follows)."""
+    return _RELIEF(x, y)
 
 
 def build_env(ctx):
-    _sky(ctx)
-    sun = _sun(ctx)
-    ground_mat = _material("GroundMat", (0.28, 0.33, 0.22))
-    _ground(ctx, ground_mat)
+    sky.sun_world(ctx.scene, elevation_deg=SUN_ELEVATION_DEG, azimuth_deg=SUN_AZIMUTH_DEG, strength=0.4, dust=1.5)
+    _, towards_sun = lighting.sun(ctx.collection, azimuth_deg=SUN_AZIMUTH_DEG, elevation_deg=SUN_ELEVATION_DEG, energy=3.0)
+    ground_mat = materials.material("GroundMat", "4A5A3A", roughness=0.9, noise_scale=6.0)
+    terrain.ground("Ground", ctx.collection, size=GROUND_SIZE, segments=96, height_at=height_at, material=ground_mat)
+    (cx, cy, cz), (ex, ey, ez) = BOUNDS["center"], BOUNDS["extents"]
     if INTERIOR:
-        _enclosure(ctx, _material("WallMat", (0.72, 0.68, 0.6)))
-    _atmosphere(ctx)
-    return {{"ground_material": ground_mat, "sun_direction": tuple(sun)}}
+        # the shell sits 1 cm above the ground so its floor never z-fights the terrain
+        architecture.room_shell(ctx.collection, materials.material("WallMat", "B8AE9A", roughness=0.85),
+                                center=(cx, cy, cz + 0.01), extents=(ex, ey, ez), glazed=GLAZED)
+        lighting.area_light(ctx.collection, "CeilingLight", (cx, cy, cz + ez / 2 - 0.05), "FFF1DC", {room_energy},
+                            size=max(0.5, min(ex, ey) * 0.5), target=(cx, cy, cz - ez / 2))
+    sky.haze(ctx.collection, (cx, cy, {fog_h / 2}), (GROUND_SIZE, GROUND_SIZE, {fog_h}), density={0.001 if plan.interior else 0.002})
+    return {{"ground_material": ground_mat, "sun_direction": tuple(towards_sun)}}
 '''
 
 
@@ -565,26 +528,17 @@ CONTRACT: build_{snake}(ctx, variant=0) -> bpy.types.Collection — link every p
   (named '{pascal}'), built ONCE at the origin with its base on z = 0, front facing -Y.  Zones place
   collection instances of it (ctx.assets['{snake}']); never link it anywhere else.
 """
-import bmesh
-import bpy
+from lib.materials import material
+from lib.mesh import Batch
 
 
 def build_{snake}(ctx, variant=0):
-    mat = bpy.data.materials.new("{pascal}Mat")
-    bsdf = mat.node_tree.nodes["Principled BSDF"]
-    bsdf.inputs["Base Color"].default_value = ({fmt3(rgb)}, 1.0)
-    bsdf.inputs["Roughness"].default_value = {rough}
-    bsdf.inputs["Metallic"].default_value = {metal}
-    # PLACEHOLDER blockout at the planned size — REPLACE with the real construction (several parts).
-    me = bpy.data.meshes.new("{pascal}Body")
-    bm = bmesh.new()
-    bmesh.ops.create_cube(bm, size=1.0)
-    bmesh.ops.scale(bm, vec=({w:g}, {d:g}, {h:g}), verts=bm.verts)
-    bmesh.ops.translate(bm, vec=(0.0, 0.0, {h / 2:g}), verts=bm.verts)
-    bm.to_mesh(me)
-    bm.free()
-    me.materials.append(mat)
-    ctx.collection.objects.link(bpy.data.objects.new("{pascal}Body", me))
+    mat = material("{pascal}Mat", ({fmt3(rgb)}), roughness={rough}, metal={metal})
+    # PLACEHOLDER blockout at the planned size — REPLACE with the real construction: several parts
+    # in a Batch (one mesh per material, lib.mesh), base on z = 0, front facing -Y.
+    b = Batch("{pascal}")
+    b.box(mat, (0.0, 0.0, {h / 2:g}), ({w:g}, {d:g}, {h:g}))
+    b.finish(ctx.collection, parent=False)
     return ctx.collection
 '''
 
@@ -608,27 +562,21 @@ def _zone_source(z: ZonePlan, assets: dict[str, AssetPlan], counters: dict[str, 
     return f'''"""src/zones/{snake}.py — zone "{pascal}": {z.description.strip()}
 
 PLAN bbox (Z up, -Y front, metres): centre ({fmt3(c)}) extents ({fmt3(e)}).  Contents: {", ".join(z.contents) or "-"}
-CONTRACT: build(ctx) -> bpy.types.Collection — ctx.collection is this zone's (named '{pascal}', active,
-  so bpy.ops primitives land in it); every PLACED thing is ONE root object in it, named <Name>_<i>
-  (object names are global in Blender: never reuse one another zone uses).  Seat things on
-  ctx.height_at(x, y); keep them inside the bbox.  Assets: a collection-instance Empty of
-  ctx.assets['<snake>'].  Animation is data: keyframes, or simple drivers on `frame`.
+CONTRACT: build(ctx) -> bpy.types.Collection — ctx.collection is this zone's (named '{pascal}', active);
+  every PLACED thing is ONE root object in it, named <Name>_<i> (object names are global in
+  Blender: never reuse one another zone uses).  Seat things on ctx.height_at(x, y) — lib.scatter
+  instances and lib.place.seat do — and keep them inside the bbox.  Assets: a collection-instance
+  Empty of ctx.assets['<snake>'] (lib.scatter.instance).  Animation is data: lib.motion.
 """
-import bpy
+from lib.scatter import instance
 
 
 def place(ctx, key, name, x, y, rot_z=0.0):
-    """One placed copy of asset `key`: a collection-instance Empty seated on the ground."""
+    """One placed copy of asset `key`: a collection-instance Empty seated on ctx.height_at."""
     source = ctx.assets.get(key)
     if source is None:
         return None
-    ob = bpy.data.objects.new(name, None)
-    ob.instance_type = "COLLECTION"
-    ob.instance_collection = source
-    ob.location = (x, y, ctx.height_at(x, y))
-    ob.rotation_euler[2] = rot_z
-    ctx.collection.objects.link(ob)
-    return ob
+    return instance(ctx.collection, source, name, x, y, height_at=ctx.height_at, rot_z=rot_z)
 
 
 def build(ctx):
@@ -667,30 +615,27 @@ CAMERAS = [
 '''
 
 
-def write_skeleton(ws: Workspace, plan: Plan | None) -> list[Path]:
-    """Starter files for a scene plan (env, one module per zone and per procedural asset, the
-    assembled entry); ``public/assets/`` for the heroes."""
+def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
+    """Starter files for a scene plan (the library, env, one module per zone and per procedural
+    asset, the assembled entry); ``public/assets/`` for the heroes.  Without a plan the complete
+    example scene is the skeleton (``write_example``)."""
+    if plan is None:
+        return write_example(ws)
     if not isinstance(plan, ScenePlan):
         raise TypeError(f"scene_blender needs a ScenePlan, got {type(plan).__name__}")
     written: list[Path] = []
-
-    def put(rel: str, text: str) -> None:
-        path = ws.root / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
-        written.append(path)
-
-    put("src/env.py", _env_source(plan))
+    _write_lib(ws, written)
+    _put(ws.root / ENV_FILE, _env_source(plan), written)
     assets = {to_snake(a.name): a for a in plan.assets}
     for a in plan.assets:
         if a.kind != "blender_glb":
-            put(asset_file(a), _asset_source(a))
+            _put(ws.root / asset_file(a), _asset_source(a), written)
     counters: dict[str, int] = {}
     for z in plan.zones:
-        put(zone_file(z.name), _zone_source(z, assets, counters))
-    put(ENTRY_REL, render_scene_py([to_snake(z.name) for z in plan.zones],
-                                   [to_snake(a.name) for a in plan.assets if a.kind != "blender_glb"], [],
-                                   list(plan.cameras[:6]), title=plan.title, summary=plan.summary))
+        _put(ws.root / zone_file(z.name), _zone_source(z, assets, counters), written)
+    _put(ws.root / ENTRY_REL, render_scene_py([to_snake(z.name) for z in plan.zones],
+                                              [to_snake(a.name) for a in plan.assets if a.kind != "blender_glb"], [],
+                                              list(plan.cameras[:6]), title=plan.title, summary=plan.summary), written)
     (ws.public / "assets").mkdir(parents=True, exist_ok=True)
     return written
 
@@ -738,6 +683,12 @@ class SceneBlenderRuntime:
 
     zone_file = staticmethod(zone_file)
     asset_file = staticmethod(asset_file)
+
+    @property
+    def env_file(self) -> str:
+        """The environment module (``src/env.py``): what an env session edits, the file the
+        scene track hints for the whole-scene stage (``SceneRuntime.env_file``)."""
+        return ENV_FILE
 
     def __init__(self, *, blender: str | None = None, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()

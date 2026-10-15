@@ -275,6 +275,9 @@ class SettingsSnapshot(BaseModel):
     price_table_version: str = Field(default="", description="content hash of codeverse3d.models.pricing.PRICES")
     render: dict[str, Any] = Field(default_factory=dict, description="resolved render settings (size, gpu, sheet)")
     limits: dict[str, Any] = Field(default_factory=dict, description="resolved timeouts / parallelism")
+    variant: str = Field(default="", description="per-model prompt/skill variant the run used ('' = base; D105)")
+    variant_version: int = Field(default=0, description="the variant's version from its variant.toml (0 = base)")
+    variant_hash: str = Field(default="", description="sha256[:12] over the variant overlay's files (name, text), '' = base")
 
 
 class StageCost(BaseModel):

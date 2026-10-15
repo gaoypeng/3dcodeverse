@@ -88,3 +88,15 @@ def test_syntax_error_reported_with_line(stool_ws: Workspace):
     rep = lint_workspace(stool_ws)
     assert not rep.passed
     assert any("seat.js:13" in m and "SyntaxError" in m for m in _msgs(rep, Severity.ERROR))
+
+
+def test_importing_a_name_the_part_does_not_export(stool_ws: Workspace, no_node_syntax):
+    """The file exists, so the import lint passed it; node then fails to link the module."""
+    (stool_ws.src / "object.js").write_text(
+        "import * as THREE from 'three';\nimport { buildSeat, buildCushion } from './parts/seat.js';\n"
+        "export function build(THREE_) { const root = new THREE.Group(); root.add(buildSeat(THREE)); return root; }\n")
+    rep = lint_workspace(stool_ws)
+    assert _msgs(rep, Severity.ERROR) == [
+        "src/object.js:2: import { buildCushion } from './parts/seat.js': that module exports no 'buildCushion' (it exports: buildSeat)"]
+    f = next(f for f in rep.findings if "buildCushion" in f.message)
+    assert f.data["kind"] == "bad_import" and f.target == "src/object.js" and "build<Pascal>" in f.fix_hint

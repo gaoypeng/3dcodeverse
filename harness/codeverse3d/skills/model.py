@@ -98,6 +98,8 @@ class SkillsMaterialized(BaseModel):
     inlined: str = Field(default="", description="single-shot: the one body inlined, '' otherwise")
     attached_at: float = Field(default=0.0, description="epoch seconds of the attach: the read probe credits "
                                "only tool calls a CLI session logged after it (telemetry.probe_reads)")
+    variant: str = Field(default="", description="the prompt/skill variant active at the attach ('' = base; "
+                         "D105) — its overlay bundles and routes.toml shaped `selections`")
 
 
 # ===================================================================== loader

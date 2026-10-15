@@ -1,7 +1,7 @@
 # 3dcodeverse harness — architecture
 
 Package `codeverse3d`, CLI `3dcodeverse` (short alias `3dcode`), repo location
-`/home/yipeng/3dcodeverse/harness`.  Backend only.  Python 3.13 (one fixed version), a small Node
+`harness/` in the 3dcodeverse checkout.  Backend only.  Python 3.13 (one fixed version), a small Node
 runtime (`runtime_js/`) for everything Three.js / headless Chrome, and moderngl
 for the graphics track.  Checked against the code on 2026-09-22; design history and deviations are in
 `docs/DECISIONS.md`, how-to in `docs/RUNBOOK.md`, evaluation protocol in
@@ -131,6 +131,10 @@ codeverse3d/
                       scene_blender render driver (render_bpy_scene) and what they
                       share (_wrapper_common: script run + error mapping + report; _census: the Blender census;
                       _census_glb: scene_blender's census GLB writer, D102)
+                      scene_blender/starter/src/ is its plan-less example (scene.py, env.py, zones/{hamlet,
+                      lakeside, orchard}.py, assets/{crate, lantern_post}.py) and lib/ the harness-owned bpy library
+                      (D51 for this language: noise, mesh, materials, terrain, sky, lighting, water, vegetation,
+                      architecture, scatter, place, figure, motion), indexed by prompts/scene_blender/effects_catalog.md
   spatial/            node.py, render.py, observe.py, tool_common.py (shared tool plumbing),
                       render_scene.py (judge view subset, content-fitted orbit),
                       render_blender.py (scene_blender: Blender pixels under a GPU slot + CPU fallback,
@@ -138,8 +142,9 @@ codeverse3d/
                       frame_metrics.py (scene_frames gate), frame_motion.py (measured inter-frame motion),
                       scene_placement.py (scene_placement gate = the check_placement tool's verdict,
                       placement_gate(ws, census, plan) for both: floating / sunken /
-                      unsupported / interpenetration per placed asset from the probe census's placement
-                      table, runtime_js/lib/host_placement.mjs; added 2026-08-26),
+                      unsupported / interpenetration / cantilevered per placed asset + free_exempt per
+                      report from the probe census's placement table, runtime_js/lib/host_placement.mjs;
+                      thresholds = Settings.placement, D105; added 2026-08-26),
                       gl_render.py (GlHost), frame_stats.py (gl_frames),
                       sheet.py (montage_2x2, crop_region), measure.py, connectivity.py,
                       contract.py (authoring-frame hints), sections.py (the cross_section tool and the
@@ -153,13 +158,16 @@ codeverse3d/
                       Render modes are contracts.artifacts.RENDER_MODES (shaded wire normals silhouette
                       clay — no 'depth'); build error_type spellings are languages/_common.MISSING_ENTRY
                       ("MissingEntryFile") and BUILD_TIMEOUT ("BuildTimeout") for every runtime
-  skills/             registry.py (typed ROUTES + the router that evaluates them),
-                      model.py (Skill/Selection + the SKILL.md loader), prompting.py
-                      (per-backend delivery policy + the index/mandate text),
-                      materialize.py,
-                      telemetry.py (the read probe: the CLIs' own tool calls first, atime as
-                      fallback); its switches are Settings fields (C3D_SKILLS*, ON by default since
-                      2026-09-22)
+  skills/             registry.py (typed ROUTES + the router that evaluates them; select takes a
+                      variant's extra rows / boosts / disabled ids, effective_priority clamps a
+                      boost at the gate-fired floor), model.py (Skill/Selection + the SKILL.md
+                      loader), prompting.py (per-backend delivery policy + the index/mandate text),
+                      materialize.py, telemetry.py (the read probe: the CLIs' own tool calls first,
+                      atime as fallback); its switches are Settings fields (C3D_SKILLS*, ON by
+                      default since 2026-09-22).  variants/<name>/ (D105) is the skills half of a
+                      variant overlay: bundles that shadow base bundles by name (library_roots /
+                      all_skills merge it while the variant is active), their _claims/, and
+                      routes.toml parsed by __init__.variants_table into typed rows (tomllib)
   cost/               types.py (CallCost/Stage/Role) ledger.py (append-only telemetry/cost.jsonl + price provenance)
                       context.py (per-call > ambient attribution) instrument.py (MeteredChatModel /
                       MeteredAgent — one row per ChatModel.generate; one session row only for a backend
@@ -247,6 +255,12 @@ codeverse3d/
                       until 2026-09-22 the contract came through the runtime, the cookbook through
                       tracks/common, the system prompt and the catalog through tracks/prompting).  sections.py splits that
                       markdown into chapters so a STAGE can name the recipes it needs.
+                      variants.py (D105): per-model OVERLAYS — variants/<name>/<rel> shadows <rel> for
+                      load_text / render / language_text while that variant is active (a ContextVar
+                      BaseTrack.run sets around the whole run from RunOptions.variant, else the
+                      C3D_VARIANT / C3D_VARIANTS switch, resolved by exact generator id — never a
+                      regex); variant.toml = name/version/generators/knobs, variant_hash covers the
+                      prompt + skills overlays and lands in the record.  variants/argon/ ships empty.
                       The other half of the split: codeverse3d/skills/ is what an AGENT chooses
                       to read (SKILL.md + references/ + a _claims file pinning its numbers to
                       live constants).  A file that tries to be both is the bug this prevents.
@@ -426,8 +440,9 @@ must-acceptance and
 `PairwiseJudge` (position-swapped, tie on disagreement; only `3dcode pick --by pairwise` asks it); `ReferenceJudge` for
 image-conditioned specs.
 Rubrics (pass threshold 0.70 unless named): `static_object_v1` (0.72), `articulated_v1`
-(requires pose views: the `missing_pose_sheet` cap), `scene_v1` (frame-gate caps
-dark/blown/flat/content_small), `asset_v1`, `reference_v1`, `shader_v2` (graphics, `gl_frames`
+(requires pose views: the `missing_pose_sheet` cap), `scene_v2` (D105: placement caps floating 0.60 / sunken 0.65 /
+interpenetration 0.70 / scale 0.75 / free_exempt 0.75 measured by `scene_placement`, frame-gate caps
+dark/blown/flat/content_small, graded must-acceptance; `scene_v1` is kept frozen for replays), `asset_v1`, `reference_v1`, `shader_v2` (graphics, `gl_frames`
 caps; also the `LikenessJudge` default); `shader_v1` stays for calibration replays only.
 
 **Calibration** (`addons/calibration.py`: re-judges recorded rounds, n samples each) is why the
@@ -569,7 +584,7 @@ the since-deleted in-process `api-agent` and the since-removed pass / plateau st
   `n_samples ≥ 3` for decisions.  Detail crops are position-heuristic (no 2D part
   boxes yet).
 * Scene judging is deliberately narrow: the judge sees the scene's OWN cameras (first,
-  and the detail crop is taken from one of them) plus at most three overview-rig tiles;
+  and the detail crop is taken from one of them) plus at most four overview-rig tiles (the fourth is the low contact camera `overview_low_front`, D105);
   the harness's eye-level rig is a diagnostic only.  A `must` acceptance item the harness
   cannot verify caps a round at 0.60 AND fails its verdict, so on the scene track only the spec's
   `must_have` list keeps that priority (the plan's own checklist is `should`).

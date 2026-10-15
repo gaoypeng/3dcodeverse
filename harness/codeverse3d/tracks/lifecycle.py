@@ -14,7 +14,8 @@ from __future__ import annotations
 import logging
 import platform
 import traceback
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -46,6 +47,14 @@ from codeverse3d.orchestrator import (
 from codeverse3d.proc import EventLog, fan_out, read_json_or_none
 from codeverse3d.prompts import load_text, render
 from codeverse3d.prompts.catalog import language_text
+from codeverse3d.prompts.variants import (
+    activate,
+    active_variant,
+    knobs_applied,
+    resolve_variant,
+    variant_block,
+    variant_info,
+)
 from codeverse3d.record.record import previous_verdict
 from codeverse3d.tracks.candidates import run_best_of_n
 from codeverse3d.tracks.common import RunContext, Services
@@ -90,8 +99,16 @@ def plan_stage_inputs(spec: Spec) -> dict[str, Any]:
 
 def plan_stage_key(spec: Spec, track: Track) -> dict[str, Any]:
     """The plan stage's cache key: a run's, and the one a pinned A/B plan is seeded under
-    (``eval/bench/pin_plan``) — a seed under any other key is a cache MISS and re-plans."""
-    return {"spec": plan_stage_inputs(spec), "track": track.value}
+    (``eval/bench/pin_plan``) — a seed under any other key is a cache MISS and re-plans.
+
+    A variant (the spec's frozen one, else the active one) is part of the key ONLY when set: it may
+    overlay the planner template, so its plan is cached — and a pinned plan seeded — under its name,
+    while the default run's key never moves (``tests/prompts/manifest.py`` STAGE_HINT)."""
+    key: dict[str, Any] = {"spec": plan_stage_inputs(spec), "track": track.value}
+    variant = spec.options.variant or active_variant()
+    if variant:
+        key["variant"] = variant
+    return key
 
 
 def spec_fingerprint(spec: Spec) -> str:
@@ -303,11 +320,16 @@ class BaseTrack:
     # ------------------------------------------------------------------ public API
     def run(self, spec: Spec, ws: Workspace, *, resume: bool = False, force: bool = False) -> RunRecord:
         ws.create()
+        variant = self.variant_for(spec)
         # the run's own ledger even when nobody opened one (a test, a script): the CLI /
         # bench open the same file first and run_ledger nests, restoring theirs on exit.
         # Keep THEIR name when they bound one — a compare_backends cell is "<prompt>:<arm>",
         # and rebinding it to the directory ("run") collapsed every cell into one bucket.
-        with run_ledger(ws.root, run=run_binding().run or ws.root.name):
+        # The variant overlay (D105) wraps the WHOLE run: every prompt file, template and skill
+        # bundle below resolves through it, in the fan-out threads too (proc.fan_out copies the
+        # context); a resume re-activates what the spec froze.  Its knobs hold for exactly as long.
+        with activate(variant), run_ledger(ws.root, run=run_binding().run or ws.root.name), \
+                self._apply_variant(variant) as knobs:
             if not ws.spec_path.is_file() or not resume:
                 ws.write_json(ws.spec_path, spec)
             events = EventLog(ws.events_path)
@@ -320,7 +342,10 @@ class BaseTrack:
             ctx = self.build_context(spec, ws, events, state)
             runner = StageRunner(ws, events, state, frozen=bool(rounds))
             events.emit("run.start", track=self.track.value, language=spec.language.value, resume=resume,
-                        agent=ctx.agent_id, planner=spec.backends.planner, judge=spec.backends.judge)
+                        agent=ctx.agent_id, planner=spec.backends.planner, judge=spec.backends.judge,
+                        variant=variant)
+            if variant:
+                events.emit("variant.active", **variant_block(variant), knobs=knobs)
             stop = RunStatus.FAILED
             error = ""
             try:
@@ -344,6 +369,33 @@ class BaseTrack:
                 self.services.finalize_record(ws, rec)
                 raise
             return self.finalise(ctx, rounds, stop, error=error)
+
+    # ------------------------------------------------------------------ the variant (D105)
+    @staticmethod
+    def variant_for(spec: Spec) -> str:
+        """The variant this run activates: the spec's frozen choice (``3dcode make --variant``,
+        ``run_bench --variant``), else the process switch — ``C3D_VARIANT``, or ``C3D_VARIANTS`` by the
+        generator id — read from ``get_settings()`` like every other switch, so a direct ``track.run``
+        under an A/B arm's environment honours it.  An unknown name raises before anything is paid."""
+        return spec.options.variant or resolve_variant(get_settings(), spec.backends.generator)
+
+    @contextmanager
+    def _apply_variant(self, variant: str) -> Iterator[dict[str, Any]]:
+        """The variant's ``[knobs]`` as defaults on the process settings (where ``attach_skills`` reads
+        ``skills_max`` / ``skills_only``) and on an injected ``Settings`` too, for the RUN ONLY: both
+        objects outlive it (the singleton, a rig's shared Settings), so the prior values and field-sets
+        come back on exit and the next run of this process starts from its own base, never from a knob
+        the last variant left behind (``knobs_applied``).  A user-stated field wins
+        (``apply_variant_knobs``).  Yields what was set, for the ``variant.active`` event."""
+        if not variant:
+            yield {}
+            return
+        info = variant_info(variant)
+        with ExitStack() as stack:
+            applied = stack.enter_context(knobs_applied(get_settings(), info))
+            if self._settings is not None and self._settings is not get_settings():
+                stack.enter_context(knobs_applied(self._settings, info))
+            yield applied
 
     # ------------------------------------------------------------------ resume reconciliation
     def reconcile_resume(self, spec: Spec, ws: Workspace, events: EventLog, state: RunState,
@@ -453,7 +505,8 @@ class BaseTrack:
                          agent_id=spec.backends.generator,
                          # metered like the ones services hand out: an injected agent or model spends
                          # money too, and the ledger is the only record of it
-                         agent=metered_agent(self._agent), model=metered_chat_model(self._model))
+                         agent=metered_agent(self._agent), model=metered_chat_model(self._model),
+                         variant=active_variant())
         ctx.contract_text = language_text(spec.language, "contract.md")
         ctx.cookbook_text = language_text(spec.language, "cookbook.md")
         ctx.tool_cards = self.services.tool_cards(self.track.value, spec.language.value)
@@ -728,6 +781,10 @@ class BaseTrack:
         # the record post-hoc (flywheel captions, texturing/run.record_texturing, prior
         # sessions' aborted_rounds, prompt hashes of stages not re-executed): seed from
         # the prior record — unknown keys preserved, this session's values win.
+        # the variant this session ran under (D105): name/version/hash beside the prompt hashes, so two
+        # runs can be told apart by what their models were shown; the base writes "" / 0 / "" and no hash
+        variant = variant_block(ctx.variant)
+        extra["variant"] = variant
         prior_extra, prior_hashes = self._prior_record_fields(ctx.ws)
         if ctx.extra.get("finalise_rebuild_failed", None) == "":  # rebuilt successfully this session
             prior_extra.pop("finalise_rebuild_failed", None)
@@ -738,12 +795,17 @@ class BaseTrack:
         if isinstance(prior_aborted, list) and ctx.extra.get("aborted_rounds"):
             extra["aborted_rounds"] = prior_aborted + [a for a in ctx.extra["aborted_rounds"]
                                                        if a not in prior_aborted]
+        hashes = {**prior_hashes, **dict(ctx.prompt_hashes)}
+        if ctx.variant and variant["hash"]:
+            hashes["variant"] = variant["hash"]
+        elif not ctx.variant:
+            hashes.pop("variant", None)   # a prior session's overlay is not this session's
         return RunRecord(
             spec=ctx.spec, plan=ctx.plan, workspace=str(ctx.ws.root), status=status, rounds=rounds,
             total_usage=ledger_usage(load_ledger(ctx.ws.root)), steps=list(ctx.state.steps),
             environment={"python": platform.python_version(), "host": platform.node(), "track": self.track.value,
-                         "language": ctx.language.value, "generator": ctx.agent_id},
-            prompt_hashes={**prior_hashes, **dict(ctx.prompt_hashes)}, started_at=ctx.state.started_at,
+                         "language": ctx.language.value, "generator": ctx.agent_id, "variant": ctx.variant},
+            prompt_hashes=hashes, started_at=ctx.state.started_at,
             finished_at=datetime.now(UTC), error=error,
             extra=extra,
         )

@@ -11,8 +11,10 @@ and each layer leaves its own events and artefacts:
 Reports, per battery: how many plans needed a re-ask, what the planner chose for each
 asset (``threejs`` procedural module vs ``blender_glb`` hero built with bpy), how many
 assets needed a repair pass, how many placements each zone produced, which gates failed
-and how often, and what the judge complained about.  The point is the LAYER attribution:
-a defect in the plan or in the assets follows any change to the assembly language.
+and how often — and which KINDS of finding (typed ``data.kind``: ``scene_placement/floating``,
+``scene_frames/dark_frame`` …, never a message match), and what the judge complained about.
+The point is the LAYER attribution: a defect in the plan or in the assets follows any
+change to the assembly language.
 """
 
 from __future__ import annotations
@@ -29,6 +31,13 @@ for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resol
 from bench._jsonl import read_jsonl  # noqa: E402
 from bench._records import records  # noqa: E402
 from codeverse3d.spatial.node import browser_was_lost  # noqa: E402
+
+
+def finding_kind(gate: str, finding: dict) -> str:
+    """``gate/kind`` of a recorded finding from its typed ``data.kind`` (``untyped`` without one)."""
+    data = finding.get("data")
+    kind = data.get("kind") if isinstance(data, dict) else None
+    return f"{gate}/{kind if isinstance(kind, str) and kind else 'untyped'}"
 
 
 def runs(root: Path) -> list[tuple[str, dict, list[dict]]]:
@@ -55,6 +64,8 @@ def layers(rows: list[tuple[str, dict, list[dict]]]) -> dict:
     placements: list[int] = []
     gates = Counter()
     gate_errors = Counter()
+    gate_kinds = Counter()        # gate/kind -> ERROR findings (browser losses excluded)
+    gate_warn_kinds = Counter()   # gate/kind -> WARN findings
     judge = Counter()
     scores: list[float] = []
     for _pid, rec, events in rows:
@@ -102,6 +113,11 @@ def layers(rows: list[tuple[str, dict, list[dict]]]) -> dict:
                 lost = [f for f in errors if browser_was_lost(f.get("message", ""))]
                 real = [f for f in errors if f not in lost]
                 gate_errors[name] += len(real)
+                for f in real:
+                    gate_kinds[finding_kind(name, f)] += 1
+                for f in g.get("findings") or []:
+                    if f.get("severity") == "warn":
+                        gate_warn_kinds[finding_kind(name, f)] += 1
                 if lost:
                     gates[f"{name}:LOST"] += len(lost)
                     round_lost = True
@@ -118,6 +134,7 @@ def layers(rows: list[tuple[str, dict, list[dict]]]) -> dict:
                 judge[f"{issue.get('severity', '?')}/{issue.get('kind', '?')}"] += 1
     return {"plan": plan, "build": build, "assets": assets, "asset_kind": asset_kind, "tris": tris,
             "placements": placements, "gates": gates, "gate_errors": gate_errors,
+            "gate_kinds": gate_kinds, "gate_warn_kinds": gate_warn_kinds,
             "judge": judge, "scores": scores}
 
 
@@ -153,6 +170,11 @@ def report(root: Path) -> str:
     if lost_rounds:
         out.append(f"\n  {lost_rounds} round(s) lost their browser mid-render: those findings are the "
                    f"machine, not the scene, and are counted in the last column only.")
+    kinds = sorted(set(d["gate_kinds"]) | set(d["gate_warn_kinds"]),
+                   key=lambda k: (-d["gate_kinds"][k], -d["gate_warn_kinds"][k], k))
+    if kinds:
+        out += ["", "## gate findings by kind", "| gate/kind | ERROR | WARN |", "|---|--:|--:|"]
+        out += [f"| {k} | {d['gate_kinds'][k]} | {d['gate_warn_kinds'][k]} |" for k in kinds]
     if d["judge"]:
         out += ["", "## judge issues (severity/kind)"]
         out += [f"  {n:3}x {k}" for k, n in d["judge"].most_common(12)]

@@ -23,16 +23,12 @@ def test_prompt_file_contract(rel: str) -> None:
         assert seq not in raw, f"{rel} contains {seq!r} which breaks jinja rendering"
 
 
-#: languages whose prompt files have not landed yet — scene_blender's are DESIGN phase 3 (lane C),
-#: which deletes this entry when prompts/scene_blender/ ships
-PROMPTS_PENDING = frozenset({Language.SCENE_BLENDER})
-
-
 def test_every_language_ships_a_system_prompt_a_contract_and_a_cookbook() -> None:
-    """A missing per-language file silently reads as "" through ``language_text``."""
+    """A missing per-language file silently reads as "" through ``language_text`` — every language,
+    scene_blender included (its prompts landed with the argon scene-tuning program, 2026-10-14)."""
     from codeverse3d.tracks.prompting import language_system_prompt
 
-    for lang in (lang for lang in Language if lang not in PROMPTS_PENDING):
+    for lang in Language:
         text = language_system_prompt(lang)
         assert text.strip(), f"{lang.value}: empty system prompt"
         for name in ("system.md", "contract.md", "cookbook.md"):

@@ -1,6 +1,6 @@
 # Inventory: the `harness/bench` evaluation layer (what is reusable for LLM/VLM eval)
 
-Read-only audit of `/home/yipeng/3dcodeverse/harness/` (2026-09-08). Paths relative to `harness/`.
+Read-only audit of `harness/` (2026-09-08). Paths relative to `harness/`.
 
 ## 1. Prompt batteries (`bench/prompts/*.yaml`)
 

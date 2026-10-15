@@ -14,10 +14,14 @@ from codeverse3d.contracts.plan import Plan, StaticPlan
 from codeverse3d.conventions import to_pascal, to_snake
 from codeverse3d.languages._common import BUILD_TIMEOUT, line_of, missing_entry, ws_rel
 from codeverse3d.languages._js_lint import (
+    ExportsCache,
     ImportKind,
     ImportVerdict,
     check_imports,
+    check_named_imports,
+    describe_exports,
     js_sources,
+    module_exports,
     strip_js,
 )
 from codeverse3d.languages._js_lint import (
@@ -96,9 +100,6 @@ PLACEHOLDER_COLORS = ("0x9aa5b1", "0xb08968", "0x7f8c8d", "0xc0a080", "0x6c7a89"
 # ===================================================================== lint
 GATE = "lint:threejs"
 
-_EXPORT_BUILD_RE = re.compile(r"\bexport\s+(?:async\s+)?function\s+(build[A-Za-z0-9_]*)\s*\(")
-_EXPORT_CONST_BUILD_RE = re.compile(r"\bexport\s+(?:const|let|var)\s+(build[A-Za-z0-9_]*)\s*=")
-_EXPORT_LIST_RE = re.compile(r"\bexport\s*\{([^}]*)\}")
 # token -> (severity, message, fix hint, kind)
 _FORBIDDEN: dict[str, tuple[Severity, str, str, LintKind]] = {
     r"\bfetch\s*\(": (Severity.ERROR, "network access (fetch) is not allowed in object code", "build geometry procedurally; no downloads", LintKind.SANDBOX),
@@ -124,8 +125,9 @@ def _f(kind: LintKind, sev: Severity, target: str, message: str, hint: str) -> G
     return GateFinding(gate=GATE, severity=sev, target=target, message=message, fix_hint=hint, data={"kind": kind.value})
 
 
-def _lint_imports(ws: Workspace, path: Path, src: str, findings: list[GateFinding]) -> set[Path]:
-    """Validate import specifiers; return the set of resolved relative targets."""
+def _lint_imports(ws: Workspace, path: Path, src: str, findings: list[GateFinding], export_cache: ExportsCache) -> set[Path]:
+    """Validate import specifiers and, on a relative target, the imported names (a name the
+    part does not export is a SyntaxError at link); return the set of resolved relative targets."""
     rel = ws_rel(ws, path)
 
     def make_finding(v: ImportVerdict, spec: str, line: int) -> GateFinding:
@@ -140,8 +142,14 @@ def _lint_imports(ws: Workspace, path: Path, src: str, findings: list[GateFindin
         return _f(LintKind.BAD_IMPORT, Severity.ERROR, rel, f"{rel}:{line}: import of {kind} '{spec}' is not allowed",
                   "only 'three', 'three/addons/...' and relative './' imports are available")
 
+    def missing_name(spec: str, name: str, line: int, names: frozenset[str]) -> GateFinding:
+        return _f(LintKind.BAD_IMPORT, Severity.ERROR, rel,
+                  f"{rel}:{line}: import {{ {name} }} from '{spec}': that module exports no '{name}' ({describe_exports(names)})",
+                  "import only names the module actually exports (a part file exports build<Pascal>(THREE))")
+
     new, targets = check_imports(src, path, ws.src, make_finding=make_finding)
     findings.extend(new)
+    findings.extend(check_named_imports(src, path, ws.src, make_finding=missing_name, exports=export_cache))
     return targets
 
 
@@ -155,17 +163,8 @@ def _lint_forbidden(ws: Workspace, path: Path, src: str, findings: list[GateFind
 
 
 def _exports(src: str) -> set[str]:
-    names = {m.group(1) for m in _EXPORT_BUILD_RE.finditer(src)}
-    names |= {m.group(1) for m in _EXPORT_CONST_BUILD_RE.finditer(src)}
-    for m in _EXPORT_LIST_RE.finditer(src):
-        for item in m.group(1).split(","):
-            item = item.strip()
-            if not item:
-                continue
-            alias = item.split(" as ")[-1].strip()
-            if alias.startswith("build"):
-                names.add(alias)
-    return names
+    """The ``build*`` names ``src`` exports (what the entry and every part file must provide)."""
+    return {n for n in module_exports(src) or () if n.startswith("build")}
 
 
 def lint_workspace(ws: Workspace) -> GateReport:
@@ -175,6 +174,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
     entry = ws.src / "object.js"
     sources = js_sources(ws.src)
     syntax = check_syntax(sources)
+    export_cache: ExportsCache = {}
 
     if not entry.is_file():
         findings.append(_f(LintKind.MISSING_FILE, Severity.ERROR, "src/object.js",
@@ -189,7 +189,7 @@ def lint_workspace(ws: Workspace) -> GateReport:
             findings.append(_f(LintKind.SYNTAX, Severity.ERROR, rel, f"{rel}:{syn.line or '?'}: {syn.message}",
                                "fix the syntax error at that line"))
             continue  # other checks are noise on a file that does not parse
-        imported |= _lint_imports(ws, path, src, findings)
+        imported |= _lint_imports(ws, path, src, findings, export_cache)
         _lint_forbidden(ws, path, src, findings)
         exports = _exports(src)
         if path == entry:

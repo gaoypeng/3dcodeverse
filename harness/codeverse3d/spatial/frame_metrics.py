@@ -443,8 +443,12 @@ def _hero_findings(checks: list[dict[str, Any]], census: dict[str, Any]) -> list
         base = url.rsplit("/", 1)[-1]
         best = max(seen.values())
         listing = ", ".join(f"{n} {v:.1%}" for n, v in list(seen.items())[:6])
+        # one instance's extent (scene_host glbUsage; until 2026-10-14 the union of every clone was the
+        # size, and a 2.2 m sofa placed three times read "6.5 m across"); the copy count says why the
+        # frame fraction and the size can disagree
         size = _num(r, "size_m")
-        placed = f" ({size:.1f} m across as placed)" if size else ""
+        copies = int(r.get("instances") or 0)
+        placed = f" ({size:.1f} m across as placed{f', {copies} copies' if copies > 1 else ''})" if size else ""
         if best < HERO_MIN_FRAC:
             out.append(_f(Severity.ERROR, base,
                           f"{base}{placed} is in the scene but fills at most {best:.1%} of any authored frame ({listing}) — "

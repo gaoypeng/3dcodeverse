@@ -1,7 +1,7 @@
 # From bounds to cameras, by arithmetic
 
 Companion to `c3d-scene-composition`. Constants read from
-`codeverse3d/spatial/frame_metrics.py`, `codeverse3d/judges/rubrics/scene_v1.yaml`,
+`codeverse3d/spatial/frame_metrics.py`, `codeverse3d/judges/rubrics/scene_v2.yaml`,
 `runtime_js/lib/backdrop.mjs`, `runtime_js/lib/host_census.mjs` and
 `runtime_js/lib/scene_host.mjs` on 2026-08-25.
 

@@ -408,6 +408,8 @@ def scene_facts(bpy: Any, handlers_before: dict[str, int]) -> dict[str, Any]:
             continue
         if ob.type not in ("MESH", "CURVE", "SURFACE", "FONT", "META") or (inst.is_instance and ob.type != "MESH"):
             continue
+        if inst.is_instance and inst.parent is not None and inst.parent.original.type in ("CURVE", "SURFACE", "FONT", "META"):
+            continue   # a curve / text's own evaluated mesh component (counted from the owner; _census_glb skips it too)
         src = ob if inst.is_instance else ob.original
         if is_volume_only(src):
             if not inst.is_instance:

@@ -70,3 +70,31 @@ console.log(JSON.stringify({{
     assert cam["position"][0] > 40 and cam["position"][1] > 0.5
     assert cam["lookAt"] == [0, 4, 0]
     assert 80 < math.dist(cam["position"], cam["lookAt"]) < 200   # corner-frustum fit, not a loose sphere fit
+
+
+def test_contact_camera_stands_at_ground_level_outside_the_content(tmp_path):
+    """scene_v2's ``overview_low_front`` (elevation < 10°): 1.2× the content span from the centre,
+    0.4 m above the ground, aimed at the ground edge of the content box; fog kept."""
+    body = f"""
+import {{ fitOrbitCameras, fitContactCamera }} from './lib/orbit.mjs';
+const low = {{ name: 'overview_low_front', azimuth: 20, elevation: 7 }};
+console.log(JSON.stringify({{
+  rig: fitOrbitCameras({json.dumps(BBOX)}, [low], {{ groundY: 0.0 }}),
+  raised: fitContactCamera({json.dumps(BBOX)}, {{ azimuth: 20, floor: 3.0 }}),
+  tiny: fitContactCamera({{ min: [-2, 0, -2], max: [2, 1, 2], size: [4, 1, 4] }}, {{ azimuth: 90, floor: 0 }}),
+}}));
+"""
+    out = run_node_json(body)
+    cam = out["rig"][0]
+    assert cam["name"] == "overview_low_front" and cam["kind"] == "orbit" and cam["noFog"] is False
+    # eye: 1.2 × 80 m from the centre on the azimuth-20° side, 0.4 m up
+    assert math.hypot(cam["position"][0], cam["position"][2]) == pytest.approx(96.0, abs=0.01)
+    assert cam["position"][0] == pytest.approx(96 * math.sin(math.radians(20)), abs=0.01) and cam["position"][1] == pytest.approx(0.4)
+    # aim: where the view line leaves the footprint (z = 40 on the +Z side), at ground height
+    assert cam["lookAt"][2] == pytest.approx(40.0, abs=0.01) and cam["lookAt"][1] == pytest.approx(0.0)
+    assert cam["lookAt"][0] == pytest.approx(40 * math.tan(math.radians(20)), abs=0.01)
+    assert cam["fov"] == 50
+    # the floor moves the eye and the aim together
+    assert out["raised"]["position"][1] == pytest.approx(3.4) and out["raised"]["lookAt"][1] == pytest.approx(3.0)
+    # a tiny box: never closer than the footprint edge + 2 m
+    assert out["tiny"]["position"][0] == pytest.approx(4.8) and out["tiny"]["lookAt"] == [2, 0, 0]

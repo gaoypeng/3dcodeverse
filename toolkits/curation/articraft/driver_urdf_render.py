@@ -3,7 +3,7 @@
 import os, subprocess, glob, sys, time
 from concurrent.futures import ThreadPoolExecutor
 
-BL="./tools/blender-5.0.1-linux-x64/blender"
+BL="./tools/blender-5.2.2-linux-x64/blender"
 N=int(sys.argv[1]) if len(sys.argv)>1 else 8
 SCOPE=sys.argv[2] if len(sys.argv)>2 else "all"        # all | geo | tex
 FORCE=len(sys.argv)>3 and sys.argv[3]=="force"          # 重渲已完成的

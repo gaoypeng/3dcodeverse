@@ -32,6 +32,7 @@ from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import OBJECT_VIEWS
 from codeverse3d.judges.base import SLICE_TRACKS, JudgeInput, judged_subset, round_input
+from codeverse3d.proc import read_json_or_none
 from codeverse3d.workspace import Workspace
 
 RUBRIC = "static_object_v1"
@@ -162,7 +163,15 @@ class FixedEvaluator:
                 out.renders = frames_render_set(ws, build, 0)
             elif spec.track is Track.SCENE:
                 from codeverse3d.spatial.frame_metrics import frame_gate_from_renders
+                from codeverse3d.spatial.scene_placement import placement_gate
 
+                # the deterministic placement caps (scene_v2: floating / sunken / interpenetration /
+                # scale, 2026-10-14) fire in every A/B cell as they do in the loop: the gate reads
+                # the build's census and the cell's plan.json (a one-shot arm has none — the
+                # plan-less checks still run); None when the census has no placement table
+                placement = placement_gate(ws, build.census, read_json_or_none(ws.plan_path))
+                if placement is not None:
+                    out.gates.append(placement)
                 out.renders = self.runtime(spec.language).render_scene(ws, ws.renders_dir(0), orbit=True, times=(0.0, 1.5), sheet=True)
                 out.gates.append(frame_gate_from_renders(ws.renders_dir(0)))
             else:

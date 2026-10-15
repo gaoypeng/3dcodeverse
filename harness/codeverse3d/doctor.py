@@ -69,7 +69,7 @@ def check_blender() -> list[Row]:
     b = s.resolve_blender()
     if not b:
         return [("blender", "FAIL", f"C3D_BINARIES__BLENDER={s.binaries.blender} is not an executable"
-                 if s.binaries.blender else "no binary (set C3D_BINARIES__BLENDER or put blender-5.0 on PATH)")]
+                 if s.binaries.blender else "no binary (set C3D_BINARIES__BLENDER or put blender-5.2 on PATH)")]
     okk, v = _ver([b, "--version"], timeout=60)
     m = re.search(r"Blender (\d+)\.(\d+)", v)
     if okk and m and (int(m[1]), int(m[2])) < BLENDER_MIN:
@@ -77,10 +77,13 @@ def check_blender() -> list[Row]:
     return [("blender", "OK" if okk else "FAIL", f"{v} @ {b}")]
 
 
-#: one headless Blender run: the Cycles CUDA device list and (with EEVEE) a 32x18 EEVEE frame whose GL
-#: renderer string says whether the d3d12 env put it on the GPU or it fell to llvmpipe
+#: one headless Blender run: the Cycles CUDA device list, one timed 256x144 32-spp Cycles frame on it
+#: (the judged-frame fast path: GPU OIDN + persistent data, render_bpy_scene.setup_render) and (with
+#: EEVEE) a 32x18 EEVEE frame whose GL renderer string says whether the d3d12 env put it on the GPU
+#: or it fell to llvmpipe.  OptiX is never probed (no libnvoptix under WSL2: init error 7804, and
+#: switching the compute device type back afterwards crashes Blender 5.2.2).
 _BLENDER_RENDER_PROBE = """
-import json, sys
+import json, sys, time
 import bpy
 out = {}
 p = bpy.context.preferences.addons["cycles"].preferences
@@ -90,6 +93,25 @@ try:
     out["cuda"] = [d.name for d in p.devices if d.type == "CUDA"]
 except Exception as e:
     out["cuda"], out["cuda_error"] = [], str(e)[:200]
+if out["cuda"]:
+    try:
+        for d in p.devices:
+            d.use = d.type == "CUDA"
+        sc = bpy.context.scene
+        sc.render.engine = "CYCLES"
+        sc.cycles.device = "GPU"
+        sc.cycles.samples = 32
+        sc.cycles.use_adaptive_sampling = True
+        sc.cycles.use_denoising = True
+        sc.cycles.denoiser = "OPENIMAGEDENOISE"
+        sc.cycles.denoising_use_gpu = True
+        sc.render.use_persistent_data = True
+        sc.render.resolution_x, sc.render.resolution_y = 256, 144
+        t = time.perf_counter()
+        bpy.ops.render.render()
+        out["cycles_ms"] = int((time.perf_counter() - t) * 1000)
+    except Exception as e:
+        out["cycles_error"] = str(e)[:200]
 if "--eevee" in sys.argv:
     try:
         sc = bpy.context.scene
@@ -130,11 +152,14 @@ def check_blender_render(*, eevee: bool = True, timeout_s: int = 120) -> list[Ro
     res = json.loads(line.removeprefix("C3D_DOCTOR "))
     r = s.render
     cuda = res.get("cuda") or []
+    timed = (f", 32 spp 256x144 frame {res['cycles_ms']} ms (GPU OIDN + persistent data)" if res.get("cycles_ms") is not None
+             else f", timed frame failed: {res['cycles_error']}" if res.get("cycles_error") else "")
     rows: list[Row] = [(
-        "blender cycles", "OK" if cuda else "WARN",
-        (f"CUDA: {', '.join(cuda)}" if cuda else f"no CUDA device{' (' + res['cuda_error'] + ')' if res.get('cuda_error') else ''}"
-         " — scene_blender frames render on the CPU (~3.3x slower)")
-        + f"; judged frames: {r.blender_engine} {r.blender_samples} spp, device {r.blender_device}")]
+        "blender cycles", "OK" if cuda and not res.get("cycles_error") else "WARN",
+        (f"CUDA: {', '.join(cuda)}{timed}" if cuda else f"no CUDA device{' (' + res['cuda_error'] + ')' if res.get('cuda_error') else ''}"
+         " — scene_blender frames render on the CPU (~4x slower)")
+        + f"; judged frames: {r.blender_engine} {r.blender_samples} spp, device {r.blender_device}, "
+          f"frame cap {r.blender_frame_time_limit_s:g}s")]
     if eevee:
         gl = str(res.get("gl") or "")
         if res.get("gl_error") or not gl:
@@ -302,7 +327,13 @@ def check_skills() -> list[Row]:
     passes — the failure is invisible except as a read rate of zero a battery later.  So
     the wiring gets a check you can run before spending money."""
     from codeverse3d.agents.backends import ALLOWED_TOOLS
-    from codeverse3d.skills import bundle_dirs, skills_dir, validate_bundle
+    from codeverse3d.skills import (
+        bundle_dirs,
+        shipped_roots,
+        skills_dir,
+        validate_bundle,
+        variants_table,
+    )
     from codeverse3d.skills.materialize import SKILL_ROOTS
     from codeverse3d.skills.registry import ROUTED_SKILLS
 
@@ -321,6 +352,29 @@ def check_skills() -> list[Row]:
     missing = [n for n in ROUTED_SKILLS if n not in {d.name for d in dirs}]
     if missing:
         rows.append(("skills routing", "WARN", f"{len(missing)} routed skill(s) have no bundle: {', '.join(missing[:4])}…"))
+    # every shipped variant's overlay (D105), one `skills overlay` row each with the variant leading
+    # the detail: its bundles are routed the moment the variant is active, so they are checked like
+    # the base — an invalid one named `<variant>/<bundle>` — and so is its routes.toml, which
+    # attach_skills would otherwise reject with a logged warning
+    try:
+        overlays = [r for r in shipped_roots() if r.variant]
+    except ValueError as e:
+        overlays = []
+        rows.append(("skills variants", "FAIL", f"a shipped variant.toml does not parse: {e}"))
+    for root in overlays:
+        odirs = bundle_dirs(root.path)
+        invalid = [root.label(d.name) for d in odirs if validate_bundle(d)]
+        try:
+            table = variants_table(root.variant)
+            table_bad = False
+            table_note = ("routes.toml: no rows" if table.empty else
+                          f"routes.toml: {len(table.routes)} row(s), {len(table.boosts)} boost(s), "
+                          f"{len(table.disabled)} disabled")
+        except ValueError as e:
+            table_bad, table_note = True, f"routes.toml invalid: {e}"
+        rows.append(("skills overlay", "FAIL" if invalid or table_bad else "OK",
+                     f"{root.variant}: {len(odirs)} bundles, {len(invalid)} invalid"
+                     + (f": {', '.join(invalid)}" if invalid else "") + f"; {table_note}"))
     rows.append(("skills discovery", "OK", "materialised into " + " + ".join(SKILL_ROOTS)))
     rows.append(("claude-code Skill tool", "OK" if "Skill" in ALLOWED_TOOLS else "FAIL",
                  "in --allowedTools" if "Skill" in ALLOWED_TOOLS else "missing: claude-code would deny skill activation"))

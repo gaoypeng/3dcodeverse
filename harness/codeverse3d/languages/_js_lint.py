@@ -14,6 +14,13 @@ symlink/``..`` hop out of ``src/`` is reported as an escape, never as "missing".
 Syntax is ``runtime_js/lib/syntax_check.mjs`` (export_glb's checker too) in ONE node
 process per lint, skipping files whose bytes already parsed — it was one ``node --check``
 per file: 51 on a scene, 44 of them unchanged ``src/lib`` modules, ≈ 2.5 s a build call.
+
+:func:`check_named_imports` is the second half of the import policy: ``check_imports`` only
+asks whether the TARGET exists, so ``import { concrete } from '../lib/materials.js'`` passed
+the lint and died at module link ("does not provide an export named 'concrete'") — the
+argon loop's iteration 0 lost two whole zones to it at assembly (run
+``it00_scene_threejs_r1_18``, scored 0.47).  Exports are read from the target's source
+text (:func:`module_exports`), once per file per lint through the caller's cache.
 """
 
 from __future__ import annotations
@@ -169,3 +176,122 @@ def check_imports(
         else:
             findings.append(make_finding(verdict, spec, line))
     return findings, targets
+
+
+# ===================================================================== named imports
+_IDENT = r"[A-Za-z_$][\w$]*"
+_IDENT_RE = re.compile(rf"^{_IDENT}$")
+# ``import { a, b as c } from '…'``, ``import x, { a } from '…'``, braces over several lines;
+# ``import * as m`` and a bare default import have no brace and never match.  Group 1 is the
+# ``import`` keyword (the finding's line), 2 the brace body, 3 the specifier.
+_NAMED_IMPORT_RE = re.compile(
+    rf"""(?:^|\n)\s*(import)(?:\s+{_IDENT}\s*,)?\s*\{{([^}}]*)\}}\s*from\s*['"]([^'"]+)['"]"""
+)
+# ``export [async] function[*] NAME`` / ``export class|const|let|var NAME``
+_EXPORT_DECL_RE = re.compile(
+    rf"\bexport\s+(?:async\s+)?(?:function\s*\*?\s*|(?:class|const|let|var)\s+)({_IDENT})"
+)
+# ``export { a, b as c }`` and ``export { a as b } from '…'``: the exported name is the LAST token
+_EXPORT_LIST_RE = re.compile(r"\bexport\s*\{([^}]*)\}")
+# ``export * as ns from '…'`` exports exactly ``ns``; a bare ``export * from '…'`` exports another
+# module's surface (group 1 empty)
+_EXPORT_STAR_RE = re.compile(rf"\bexport\s*\*\s*(?:as\s+({_IDENT})\s+)?from\b")
+_EXPORT_DEFAULT_RE = re.compile(r"\bexport\s+default\b")
+# ``export const { a, b } = …`` / ``export const [x] = …``: names inside a pattern
+_EXPORT_PATTERN_RE = re.compile(r"\bexport\s+(?:const|let|var)\s*[\[{]")
+
+#: ``{resolved target: its exports}`` — one lint reads each ``src/lib`` module once, not once
+#: per importer (a scene has ~50 files importing the same dozen modules)
+ExportsCache = dict[Path, frozenset[str] | None]
+
+
+@dataclass(frozen=True)
+class NamedImport:
+    """One static ``import { a, b as c } from '<spec>'``: ``names`` are the IMPORTED names
+    (``a`` and ``b`` — what the target module must export, not the local aliases)."""
+
+    spec: str
+    names: tuple[str, ...]
+    line: int
+
+
+def named_import_specs(src: str) -> list[NamedImport]:
+    """Every static named import of ``src`` (comments blanked first, so a commented-out
+    import is not parsed); ``import * as m`` and default-only imports yield nothing."""
+    code = strip_js(src, strings=False)   # the specifier is a string literal: keep strings
+    out: list[NamedImport] = []
+    for m in _NAMED_IMPORT_RE.finditer(code):
+        names = tuple(n for n in (item.split()[0] for item in m.group(2).split(",") if item.strip())
+                      if _IDENT_RE.match(n))
+        if names:
+            out.append(NamedImport(m.group(3), names, line_of(code, m.start(1))))
+    return out
+
+
+def module_exports(src: str) -> frozenset[str] | None:
+    """The names an ES module's source text exports, or ``None`` when its surface cannot be
+    enumerated from the text alone: a bare ``export * from '…'`` (another module's surface —
+    not resolved transitively, so nothing is reported against such a module) or a
+    destructuring ``export const { a } = …`` pattern.  ``export default`` exports ``default``."""
+    code = strip_js(src)
+    if _EXPORT_PATTERN_RE.search(code):
+        return None
+    names = {m.group(1) for m in _EXPORT_DECL_RE.finditer(code)}
+    for m in _EXPORT_LIST_RE.finditer(code):
+        names |= {last for last in (item.split()[-1] for item in m.group(1).split(",") if item.strip())
+                  if _IDENT_RE.match(last)}
+    for m in _EXPORT_STAR_RE.finditer(code):
+        if not m.group(1):
+            return None
+        names.add(m.group(1))
+    if _EXPORT_DEFAULT_RE.search(code):
+        names.add("default")
+    return frozenset(names)
+
+
+def exported_names(path: Path) -> frozenset[str] | None:
+    """:func:`module_exports` of the file at ``path`` (``None`` when it cannot be read)."""
+    try:
+        return module_exports(path.read_text(errors="replace"))
+    except OSError:
+        return None
+
+
+def describe_exports(names: frozenset[str], *, limit: int = 12) -> str:
+    """``it exports: a, b, …`` (sorted, at most ``limit`` named) or ``it exports nothing``."""
+    if not names:
+        return "it exports nothing"
+    shown = sorted(names)[:limit]
+    return "it exports: " + ", ".join(shown) + (", …" if len(names) > limit else "")
+
+
+def check_named_imports(
+    src: str,
+    path: Path,
+    src_root: Path,
+    *,
+    make_finding: Callable[[str, str, int, frozenset[str]], GateFinding],
+    exports: ExportsCache | None = None,
+) -> list[GateFinding]:
+    """A finding per imported name that its target module does not export, for every named
+    import of ``src`` whose specifier resolves to an existing ``.js`` / ``.mjs`` file under
+    ``src_root`` (``'three'`` and the non-allowed kinds are :func:`check_imports`'s business).
+
+    ``make_finding(spec, name, line, exports)`` builds the finding — the caller owns message,
+    severity and hint; ``exports`` is the target's surface, for an "it exports: …" listing.
+    Pass one ``exports`` cache for the whole lint so each target is read once.
+    """
+    cache: ExportsCache = {} if exports is None else exports
+    findings: list[GateFinding] = []
+    for imp in named_import_specs(src):
+        verdict = classify_import(imp.spec, path, src_root)
+        target = verdict.target
+        if verdict.kind is not ImportKind.ALLOWED or target is None or target.suffix not in (".js", ".mjs"):
+            continue
+        if target not in cache:
+            cache[target] = exported_names(target)
+        surface = cache[target]
+        if surface is None:
+            continue
+        findings.extend(make_finding(imp.spec, name, imp.line, surface) for name in imp.names if name not in surface)
+    return findings

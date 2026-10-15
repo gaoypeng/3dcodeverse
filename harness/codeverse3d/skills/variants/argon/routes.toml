@@ -1,0 +1,32 @@
+# The `argon` variant's routing table (D105).  Parsed by codeverse3d/skills/__init__.py::parse_routes
+# with tomllib into typed rows (no regex); a row that does not type-check is rejected at attach time
+# (logged, the base table routes) and refused by the tests.  Three row kinds:
+#
+# [[boost]]            # add `delta` to the priority of every route naming `skill`: a standing
+# skill = "c3d-scene-materials"   # row is clamped below 90, a gate-fired row never drops under 90
+# delta = 20
+#
+# [[disable]]          # skip a base rule by id
+# rule = "R27"
+#
+# [[route]]            # an extra typed row, appended AFTER the base table (ties keep base order);
+# rule = "V1"          # a fresh id (never one the base table uses); priority >= 90 only with `findings`
+# skill = "c3d-scene-materials"
+# priority = 85
+# tracks = ["scene"]
+# languages = ["scene_blender"]
+# kinds = ["env", "zone", "refine"]
+# why = "flat albedo is the audit's most-cited surface defect on argon zones"
+
+# Iteration 1 (2026-10-15): placement is the measured defect that capped the most iteration-0
+# rounds (threejs 7/30 interpenetration + 5/30 sunken; blender 13/30 + 5/30), and the skills that
+# teach it sat behind lighting / materials in the attached list.  The boosts put them FIRST in
+# every standing zone / env / refine session (R14 75 -> 89, R29 80 -> 89; the gate-fired rows
+# R30 / R34 already route at 95).
+[[boost]]
+skill = "c3d-scene-composition"
+delta = 14
+
+[[boost]]
+skill = "c3d-bpy-scene-placement"
+delta = 9

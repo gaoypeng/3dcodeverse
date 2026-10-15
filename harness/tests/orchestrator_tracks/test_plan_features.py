@@ -13,10 +13,11 @@ from codeverse3d.tracks.plan_features import (
 
 def test_every_settings_field_is_a_live_switch_and_anything_else_is_dead():
     live = [f"C3D_{name.upper()}" for name in Settings.model_fields]
-    live += [f"C3D_{section.upper()}__{name.upper()}" for section in ("rate", "render", "limits", "judge")
+    live += [f"C3D_{section.upper()}__{name.upper()}" for section in ("rate", "render", "limits", "judge", "placement")
              for name in Settings.model_fields[section].annotation.model_fields]
     live += [*Settings.FLAT, *NODE_SIDE_ENV, *GENERATION_SIDE_ENV]
     assert dead_env_keys(dict.fromkeys(live, "1")) == []
+    assert {"C3D_VARIANT", "C3D_VARIANTS"} <= set(live), "the variant switches (D105) are Settings fields"
     retired = ["C3D_PLAN_FEATURES", "C3D_FEWER_TURNS", "C3D_DETAIL_ROUNDS", "C3D_RATE__STORM_GATE",
                "C3D_RATE__TPM_PER_KEY", "C3D_MYSTERY_KNOB"]
     assert dead_env_keys({**dict.fromkeys(retired, "1"), "C3D_PLAN_BRIEF": "off"}) == sorted(retired)
@@ -32,3 +33,7 @@ def test_pin_plan_refuses_only_live_switches_not_known_to_act_after_planning():
         "C3D_PLAN_BRIEF is not known to act after planning"]
     assert pin_plan_blockers({"GEMINI_CLI_HOME": "/x"}) == [
         "GEMINI_CLI_HOME is not known to act after planning"]
+    # a variant overlays the planner templates and keys the plan stage (D105): never shared across arms
+    assert pin_plan_blockers({"C3D_VARIANT": "argon"}) == ["C3D_VARIANT is not known to act after planning"]
+    assert pin_plan_blockers({"C3D_VARIANTS": '{"agy:gemini-4-argon": "argon"}'}) == [
+        "C3D_VARIANTS is not known to act after planning"]

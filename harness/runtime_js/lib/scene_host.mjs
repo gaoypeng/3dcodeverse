@@ -197,18 +197,60 @@ function heroForCamera(name) {
   return null;
 }
 
+/** World boxes of the SINGLE instances of one loaded GLB: its meshes in `scene`, grouped by the
+ *  highest ancestor whose subtree draws each of the file's geometries no more often than the file
+ *  itself does — a clone root, or a wrapper holding one clone; two clones under one wrapper split at
+ *  the wrapper.  `.clone()` shares geometry, so a uuid seen twice under a node is two copies. */
+function glbInstanceBoxes(scene, g) {
+  const inFile = new Map();
+  for (const u of g.geometry_uuids) inFile.set(u, (inFile.get(u) || 0) + 1);
+  const meshes = [];
+  scene.traverse((o) => { if ((o.isMesh || o.isInstancedMesh) && o.geometry && inFile.has(o.geometry.uuid)) meshes.push(o); });
+  const below = new Map();   // ancestor -> Map(geometry uuid -> copies drawn under it)
+  for (const m of meshes) {
+    for (let a = m; a; a = a.parent) {
+      if (!below.has(a)) below.set(a, new Map());
+      const c = below.get(a);
+      c.set(m.geometry.uuid, (c.get(m.geometry.uuid) || 0) + 1);
+    }
+  }
+  const single = new Map();   // ancestor -> holds at most one copy of each geometry
+  const isSingle = (a) => {
+    if (!single.has(a)) single.set(a, [...below.get(a)].every(([u, n]) => n <= inFile.get(u)));
+    return single.get(a);
+  };
+  const boxes = new Map();   // instance root -> world box of its GLB meshes
+  for (const m of meshes) {
+    let root = m;
+    while (root.parent && isSingle(root.parent)) root = root.parent;
+    const box = drawableBox(m, THREE);
+    if (!box) continue;
+    if (!boxes.has(root)) boxes.set(root, new THREE.Box3());
+    boxes.get(root).union(box);
+  }
+  return [...boxes.values()].filter((b) => !b.isEmpty());
+}
+
 function glbUsage(scene) {
   let used;
   try { used = geometryBoxes(scene); } catch { return []; }
   return loadedGlbs.map((g) => {
-    const all = new THREE.Box3();
     let n = 0;
-    for (const u of g.geometry_uuids) { const b = used.get(u); if (b) { n += 1; if (!b.isEmpty()) all.union(b); } }
-    // the largest extent of the GLB as placed: "fills 0.3 % of the frame" reads as "microscopic"
-    // without it (loop 23's lighthouse: a 4.4 m lantern room on a 30 m tower, far from every
-    // camera, judged "scaled far too small" for three rounds)
-    const size = all.isEmpty() ? null : +Math.max(...all.getSize(new THREE.Vector3()).toArray()).toFixed(2);
-    return { url: g.url, meshes: g.geometry_uuids.length, meshes_in_scene: n, in_scene: n > 0, size_m: size };
+    for (const u of g.geometry_uuids) if (used.has(u)) n += 1;
+    // the largest extent of ONE placed instance: "fills 0.3 % of the frame" reads as "microscopic"
+    // without a size (loop 23's lighthouse: a 4.4 m lantern room on a 30 m tower, far from every
+    // camera, judged "scaled far too small" for three rounds) — and until 2026-10-14 the union of
+    // every clone was that size (a 2.2 m sofa placed three times across a lounge was "6.5 m across
+    // as placed" to the frames gate and the judge).  `instances` says how many copies stand in the scene.
+    let size = null;
+    let instances = 0;
+    try {
+      const boxes = glbInstanceBoxes(scene, g);
+      instances = boxes.length;
+      for (const b of boxes) size = Math.max(size ?? 0, ...b.getSize(new THREE.Vector3()).toArray());
+    } catch { size = null; }
+    return { url: g.url, meshes: g.geometry_uuids.length, meshes_in_scene: n, in_scene: n > 0,
+      size_m: size === null ? null : +size.toFixed(2), instances };
   });
 }
 

@@ -54,6 +54,18 @@ becomes acceptance items (planner-appended in the loop, fixed-judge checklist in
 comparisons); `dimensions_m` becomes `Spec.constraints.dimensions_m` and a
 deterministic contract check.
 
+**Generated batteries (2026-10-14, §10).**  The argon loop writes its own scene batteries under
+`bench/out/<loop>/iter_NN/battery_<lang>.yaml` (`bench.loop generate`; never checked in): the same
+`Battery` schema, 30 prompts per language per iteration, every `must_have` the scenes_v2 composition
+contract — named zones, asset types with counts, a luminance band, one effect, one animation, a camera
+brief with a no-clip requirement — RENDERED from typed fields the planner model returns
+(`bench/_loop_prompts.py`), so the counts always parse.  Difficulty is a ladder of five rungs with
+objective knobs (rung 1: 3 zones / 6 asset types / ≤ 40 instances / day / no water … rung 5: 6+ zones /
+14 types / 400 / night + water + interior + particles + a moving hero + precise scale constraints); a
+rung's prompts are generated ONCE and cached (`prompts/rung_R_<lang>.yaml`) with ids
+`it{NN}_{lang}_r{R}_{k:02d}` that never change, so iterations pair by id; `--rung R` mixes rungs
+1..R evenly (the remainder to the hardest), which keeps half of the pairs when the mix moves up.
+
 ## 3. Harness battery runs (`python -m bench.run_bench`)
 
 ```bash
@@ -300,6 +312,67 @@ Notes: the earlier criteria-first schema compressed flash to 0.6–0.7 (std 0.01
   on 2026-09-22), and the 0.072 round-to-round spread in the corpus is generation variance,
   not the judge.  Untested: temperature 0.0 (brilliana measured 0.013
   vs 0.035 between 0.0 and 0.2 on 512 calls) — one more $8 battery.
+* **scene_v2 (2026-10-14): the scene judge gets stricter and detail-aware; scene_v1 is frozen
+  for replays.**  Part of the argon scene-tuning program (D105): the owner asked for stricter
+  connectivity / contact standards, and the scene judge was the lenient half of them — the
+  placement gate measured floating / sunken / interpenetration while the rubric had one −0.06
+  "floating or sunken" tick, no interpenetration or scale item at all, a floating cap at 0.70
+  that fired twice (the gate rule plus a `gate: '*'` `floating_part` twin), and a camera cap
+  naming five kinds nothing emitted.  What moved, all of it pinned by `tests/judges/`:
+  * **Checklist** — `floating_or_sunken_asset` splits into `floating_asset` (−0.10, cap 0.60)
+    and `sunken_asset` (−0.08, 0.65); new `interpenetration` (−0.08, 0.70), `wrong_scale`
+    (−0.06, 0.75), `hard_edged_particles` (−0.04), `missing_planned_element` (−0.06),
+    `hero_misplaced` (−0.06) — the object rubric's weights for the same faults.  The five
+    composition items keep ≤ 0.05 and no cap (Σ 0.18); the whole list sums to 1.02 (v1: 0.60).
+    Every claim of floating / sunken / clipping / scale must name its view and its asset.
+  * **Caps** — one `scene_placement` rule per typed kind (`floating`+`unsupported` 0.60,
+    `sunken` 0.65, `interpenetration` 0.70, `scale` 0.75, `free_exempt` 0.75), the `floating_part`
+    twin deleted, `camera_in_geometry` on the kinds `scene_frames` really emits
+    (`camera_in_geometry / camera_underground / camera_blocked`), `missing_must_acceptance` graded
+    like the object tracks.  The frame caps (dark 0.55 / blown 0.60 / flat 0.65 / content_small
+    0.60), the build / shader / console caps and the pass threshold (0.70) are v1's.
+  * **The veto is scoped to the rule's kinds — `SCORING_VERSION` 4** (`rubrics._rule_gates_clean`).
+    A failed report used to cancel `measured_absent` whatever it failed on; on the scene track the
+    placement rows and the plan checks share one report, so a `no_fog` ERROR let every floating
+    claim stand although the rows had measured none.  Now a watched report is clean for a rule
+    when it ran and has no ERROR of the rule's kinds and no WARN of those kinds at or over the
+    rule's `veto_warn_keys` line (scene_v2: `gap_m` 0.02 / `sunk_m` 0.10 / `overlap` 0.20 / any
+    scale factor — a WARN-band hover at 0.08 m keeps the judge's tick, and so does a 3 cm one:
+    the gap line is the INDOOR tolerance = `contact_m`, so a floating / unsupported WARN the gate
+    raised is never vetoed; it was the outdoor 0.05 until 2026-10-15 and vetoed 2-5 cm indoor
+    hovers the gate had flagged).  The object rubrics keep the `depth_m` ≥ 8 mm default; a failed
+    report that names no ERROR finding is still not clean.
+  * **Scale** — six anchors per criterion (1.0 / 0.85 / 0.7 / 0.55 / 0.4 / 0.1) and a CALIBRATION
+    block with fixed points: a bare skeleton ≤ 0.35, a correct-but-plain diorama ≈ 0.55, a
+    photographable place ≥ 0.80, the two at least 0.3 apart.  The 2026-08-30 bins (0.1–0.3 /
+    ~0.5 / 0.8+) left the 0.55–0.75 band where most argon rounds land without an anchor.
+  * **What the judge sees** (`prompt_builder`, scene branch only — the object text is pinned
+    byte-identical): gate reports ordered placement → frames → lint, the WARNs grouped by
+    (gate, kind) as the object ledger branch groups them, one **MEASURED PLACEMENT** line from
+    the gate's own summary (checked / placed / exempt / free-tagged, the count per kind with its
+    worst gap / sink / overlap, the thresholds when the gate recorded them, and a PLACEMENT
+    PASSED sentence on a clean report); the rig text says the high overviews lift room
+    ceilings and drop the fog.  **Contact crops**: for every placement finding that carries
+    `data.bbox` (ERROR first, one per asset, up to `Settings.judge.detail_crops` after the centre
+    crop) the finding's box is projected through the judged overview tile that shows it largest
+    (the elevation-weighted `CONTACT_TILE_WEIGHT`: the contact tile 1.5×, top-down 0.25×) and
+    sent as `CONTACT CROP — <asset> (gate: floating 0.12 m)`, labelled diagnostic — judge the
+    contact, not the composition.  The audit behind it is the 2026-08-30 one: the judge reads
+    the gate's sentences, not the pictures; a crop puts the measured contact in front of it.
+  * **A fourth overview** — `overview_low_front` (az 20°, el 7°; `orbit.mjs fitContactCamera`:
+    1.2× the content span out, 0.4 m up, aimed at the ground edge of the content box, fog
+    kept) joins the rig and the judge subset (`MAX_JUDGE_OVERVIEWS` 3 → 4, both renderers); the
+    scene montage cap moves 3 → 4 (D47's 5 was measured on the object rig only) so the fourth
+    tile is not silently dropped.  `judge_prompt_hash` moves for every rubric (the rig rules
+    are shared), the manifest with it.
+  * **Thinking** — `VlmJudge(thinking=None)` reads `Settings.judge.thinking`
+    (`C3D_JUDGE__THINKING`; argon thinks only from `medium`), `3dcode judge --thinking` and
+    `addons.calibration --thinking` default to it, the record's sampling snapshot carries it.
+  * **The A/B evaluator** (`eval/bench/_fixed_eval.py`) runs `placement_gate` on a scene cell
+    before the judge, so the deterministic caps fire in a compare cell as in the loop.
+  * Not measured yet: the loop's judge-calibration arm (`bench.loop judge-calib`) is the
+    within-sd / between-sd / SNR readout for scene_v2 under argon@medium; until it runs, the
+    numbers above are the rubric's, not a battery's.
 * Never tune rubric text against the battery you report on; bump the rubric version
   (`*_v2`) instead and re-run.
 
@@ -364,6 +437,13 @@ verdict is `bench/stats.decide`, the one paired rule of every report (owner, 202
 > zero below it; else inconclusive.  A prompt counts only when BOTH arms scored.
 > `paired_compare` says better / worse / inconclusive and `ab_view` B wins / loses / Inconclusive
 > by the same rule (without the veto).
+
+**The loop's rule (2026-10-14, `bench.loop compare`, §10)** is the same `decide` on the paired picked
+score — keep / revert / inconclusive — plus a *deterministic-gate veto* in place of the A/B rig's
+per-prompt regression veto: the floating + sunken + interpenetration ERROR count per run (the
+`scene_placement` gate's typed kinds) must not rise by more than one on average over the pairs, or the
+iteration is reverted whatever the judge said.  The contact standards the owner tightened that day
+are measured by the gate, not perceived by the VLM, so the gate gets the last word.
 
 Until 2026-09-24 the A/B rule was a threshold — keep iff mean ≥ +0.02 and no regression; revert
 iff mean ≤ −0.02 or ≥ 2 regressions — and on `[0.25, 0.01, 0.00, 0.02]` it said keep where
@@ -598,6 +678,8 @@ settling before a larger n measures the rubric's preference with more precision.
 ### 8.7 Head-to-head against the previous harnesses (2026-08-26, first pass)
 
 No such comparison existed before today; their scores are their own judges'.  Protocol:
+> **Removed 2026-10-14 (owner: the repo is standalone).** The head-to-head scripts `bench/h2h_glb.py` / `bench/h2h_scene.py` and the `h2h_*` batteries compared this harness with other checkouts (astra3d-brilliana's gallery, the scene_multifile repos, Claude Design outputs) and were deleted together with those dependencies; the paragraphs below are kept as the historical record of what was measured.
+
 `bench/h2h_glb.py` (objects) takes 12 confirmed entries of astra3d-brilliana's gallery (prompt
 verbatim, `must_have` empty), our runs on the same prompts (generator
 **`api-agent:gemini:gemini-3.7-flash`** — the in-process arm, retired two days later by `66175ec`;
@@ -671,6 +753,86 @@ rate, build-fail rate, cost, minutes); pairwise table; number of degraded verdic
 re-run; **cells dropped as `infra_failed` and `budget_exhausted`, per arm** (§7 — an
 omitted drop count is an unreadable table); links to `record.json` / `report.html`
 under `bench/out/`.
+
+## 10. The argon loop (`bench/loop.py`, 2026-10-14)
+
+One iteration = one edit of a per-model prompt/skill **variant** (`codeverse3d/prompts/variants/<v>/`
++ `codeverse3d/skills/variants/<v>/`, D105; `argon` first), measured on ~30 scene prompts per language
+run in parallel on the generator under test (`agy:gemini-4-argon`), judged by ONE fixed judge at ONE
+thinking level (`gemini:gemini-4-argon` @ medium — the level at which argon's within-sd is 0.012, §6).
+`init` freezes every knob in `<out>/loop.json`; nothing else takes a model or a budget flag, so two
+iterations never differ in anything but the variant and (when `--rung` moves) the prompt mix.
+
+```bash
+cd eval
+python -m bench.loop init --name argon_scene --out bench/out/loop_argon --variant argon \
+    --languages scene_threejs,scene_blender --generator agy:gemini-4-argon \
+    --judge gemini:gemini-4-argon --judge-thinking medium --parallel 15 --rounds 2 --max-minutes 90
+python -m bench.loop generate    --out bench/out/loop_argon --iter 0            # batteries (§2: rung mix, cached ids)
+python -m bench.loop run         --out bench/out/loop_argon --iter 0            # 2 children × 15 runs; --resume redoes infra_failed
+python -m bench.loop diagnose    --out bench/out/loop_argon --iter 0            # diagnosis.md / .json
+# … edit the variant overlay (prompts, skills routes) for iteration 1 …
+python -m bench.loop generate    --out bench/out/loop_argon --iter 1            # same rung → the same ids
+python -m bench.loop run         --out bench/out/loop_argon --iter 1
+python -m bench.loop diagnose    --out bench/out/loop_argon --iter 1
+python -m bench.loop compare     --out bench/out/loop_argon --iter 1 --against 0   # keep / revert / inconclusive
+python -m bench.loop judge-calib --out bench/out/loop_argon --iter 1            # the judge arm
+python -m bench.loop accept      --out bench/out/loop_argon --iter 1 --note "placement recipe"   # or rollback
+python -m bench.loop status      --out bench/out/loop_argon
+```
+
+* **generate** renders every battery's `must_have` contract from the planner model's typed fields
+  (`bench/_loop_prompts.contract_lines`), never from prose.  Its camera line changed on 2026-10-15:
+  it now states ONE fixed eye-level viewpoint (where it stands, what it looks along, its height),
+  because both scene languages render the authored cameras as stills at t = 0 and t = 1.5 s and the
+  old "tracks / dollies along …" brief was a must-have no run could satisfy (iteration 0: unverified
+  in 5 of 60 runs, a `missing_must_acceptance` cap on the whole score).  A rung cache written before
+  that date is migrated in place by the next `generate` (`migrate_camera_lines`: the route the model
+  wrote becomes where the camera stands; ids untouched, `camera_lines_migrated` stamped in the file),
+  so iteration 1 vs 0 pairs runs whose briefs differ in that one line.
+* **run** is one `python -m bench.run_bench … --variant <v> --no-report` child per language, side
+  by side, with `C3D_JUDGE__THINKING=<level>`, `C3D_VARIANT=<v>`, `C3D_RENDER__BLENDER_GPU_SLOTS=3`
+  (30 runs share one GPU) and `PYTHONUNBUFFERED=1`; the driver installs the harness's stop handlers
+  and forwards SIGTERM to the children, whose own handlers (`run_bench.main`) kill their agent /
+  Blender / Chrome groups so every run records its stop.  `iter_NN/run.json` carries pids, exit codes
+  and the wall clock.  Launches are staggered (`stagger_s`, `init --stagger`, default 40 s;
+  2026-10-15): each child's first wave of workers starts `stagger_s` apart (`run_bench --stagger`)
+  and the two children half a stagger apart, so the languages' waves interleave — agy holds one
+  session per key machine-wide, there are 30 keys, and 15 + 15 runs plus the harness's own planner /
+  asset / judge calls share a 64-slot pool; iteration 0 launched all 30 at once and 160 of its 172
+  `asset.generate_failed` key-pool outages fell in the runs' first ten minutes.  A later cell starts
+  when an earlier one finishes, which is staggered by itself.
+* **diagnose** reads the run records (`_records.records`, `load_record`): n by status, baseline /
+  picked mean / median / sd, per-criterion means, defect vote rates, caps fired, gate ERROR / WARN
+  counts by TYPED kind (`skills.registry.finding_kind`), library reach (lib modules imported by the
+  agent's files under `deliverable/src`, `src/lib/` itself excluded), cost by stage, minutes, stop
+  reasons, skills listed vs read, the 12 most frequent judge (kind, target-word) pairs — and a
+  RECOMMENDATIONS list from deterministic rules (`bench/_loop_diag.RULES`): floating ERROR rate ≥ 25 %
+  → the placement recipe + skill boost; < 3 lib modules per scene → the effects catalog presentation;
+  dark_frame ≥ 20 % → the lighting recipe; budget stops ≥ 30 % → raise `--max-minutes` / cut the zone
+  prompt; outages ≥ 20 % → `run --resume` first; and so on.  A person reads it before editing the
+  variant; no model does.
+* **compare** pairs iteration N with M by prompt id (common ids only; the dropped ids are listed):
+  paired Δ picked score with its 95 % t-interval, the exact sign test, mean Δ per criterion, Δ gate
+  ERRORs per kind, Δ cost — and the verdict of §8's loop rule: `stats.decide` plus the placement veto
+  (floating + sunken + interpenetration ERRORs per run must not rise by > 1 on average).
+* **judge-calib** re-judges every run's PICKED round n times in fixed montage order
+  (`addons.calibration.calibrate(fixed_order=True)` — the model's own re-judge σ, not its order σ):
+  within-sd (rms of the per-round σ), between-sd (σ of the per-round means), their ratio (SNR),
+  Pearson / Spearman of gate ERRORs against the score, the defect histogram, cost and latency.  The
+  judge is a measuring instrument; this is its calibration certificate per iteration.
+* **accept** first refuses an overlay whose `routes.toml` does not type-check or whose bundles fail
+  `validate_bundle` (the standards of `3dcode skills validate`), then bumps `variant.toml`'s `version`, snapshots both overlay dirs to
+  `<out>/snapshots/<v>_v<N>/`, and appends a row to `bench/data/loop/<name>/ledger.jsonl` (format:
+  `bench/data/loop/README.md`); **rollback** restores the last accepted snapshot (an iteration that
+  was itself the latest accept is un-accepted, version and all); **status** prints the ledger and the
+  version.  Iteration 0 runs the base prompts under the variant plumbing (the `argon` overlay ships
+  empty), so every later verdict is against a measured baseline, not a remembered one.
+
+What the loop cannot do: it never edits the variant itself (the recommendations are levers, the edit
+is a person's), it never compares across rungs (the pairs are by id, so a moved mix compares only the
+ids both iterations ran), and a `keep` over 30 pairs is still one battery's verdict — §8's noise floor
+applies, which is why the gate veto and the judge arm sit beside the score.
 
 ## Judge experiments log
 

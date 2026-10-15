@@ -1082,7 +1082,7 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   as sunken there, as they already did for zone-placed trees.
 
 * **D101 The scene track is language-dispatched through `SceneRuntime` (2026-09-24).**  In preparation for
-  `scene_blender` (`/home/yipeng/3dcodeverse_runs/scene_blender_2026-09-24/DESIGN.md` §11 phase 0):
+  `scene_blender` (`~/3dcodeverse_runs/scene_blender_2026-09-24/DESIGN.md` §11 phase 0):
   `languages/base.py` `SceneRuntime` (a `LanguageRuntime` plus `zone_file`, `asset_file`, `assemble`,
   `probe`, `render_scene`) is the only way the scene stages (`tracks/scene.py`, `tracks/scene_assets.py`),
   `Services.render_scene` / `assemble_scene` (which now take the runtime), the scene tools (`scene_probe`,
@@ -1093,7 +1093,7 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   inside `probe`/`build`, and nothing outside a runtime would read them.  `shader_probe` stays three.js-only.
 
 * **D102 scene_blender phase 1: contracts, the Blender build and the geometry gates on a census GLB (2026-09-24).**
-  DESIGN (`/home/yipeng/3dcodeverse_runs/scene_blender_2026-09-24/DESIGN.md`) §11 phase 1, owner decisions D1–D12.
+  DESIGN (`~/3dcodeverse_runs/scene_blender_2026-09-24/DESIGN.md`) §11 phase 1, owner decisions D1–D12.
   `Language.SCENE_BLENDER` is the scene track's second language (`src/scene.py` entry, Z-up frame in
   `conventions.LANGUAGE_FRAME`, `HARNESS_OWNED_SRC` `src/lib/`), with `SceneBlenderRuntime` (`languages/scene_blender`).
   `src/scene.py` is assembled DATA (`ZONES` / `ASSETS` / `HEROES` / `CAMERAS`, the plan's cameras converted
@@ -1186,6 +1186,121 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   subscription sign-in no longer serves gemini-3.7-flash (only 3.8-flash, claude-sonnet/opus-4-6, gpt-oss).
   The profiles' $ / score expectations were measured on gemini-cli:gemini-3.6-flash and are not re-measured
   on agy:gemini-4-argon ($2.00 / $10.00 per M, ~2.7× 3.6-flash).
+
+* **D104 Blender 5.2.2 LTS is THE supported Blender; the judged-frame fast path is Cycles CUDA + GPU OIDN +
+  persistent data (owner, 2026-10-14).**  The owner replaced 5.0.1 with 5.2.2 LTS and dropped 4.2 / 5.0
+  compatibility ("不需要兼容5.0.1了"): `BLENDER_MIN = (5, 2)`, `resolve_blender()` looks for `blender-5.2`
+  then `blender`, doctor fails anything older.  Verified on 5.2.2 (this box, RTX 5090, driver 610.88): the
+  whole offline suite (1634) passes unchanged; the API facts the lints and prompts state were re-probed —
+  Principled inputs ('Anisotropic' and 'Specular Tint' still exist; 'Thin Wall', 'Thin Film Thickness/IOR'
+  are new), boolean solvers are FLOAT / EXACT / MANIFOLD ('FAST' raises), sky types SINGLE_SCATTERING /
+  MULTIPLE_SCATTERING / PREETHAM / HOSEK_WILKIE, `Material/World/Light.use_nodes` are deprecated (removed in
+  6.0; every new datablock already has a node tree), geometry-nodes modifier inputs moved to
+  `getattr(mod.properties.inputs, 'Socket_2').value = v` (`mod['Socket_2'] = v` raises TypeError — 5.2
+  Python API notes), Blender's python is 3.13 and the user site is no longer loaded (the wrappers are
+  stdlib + bpy + numpy only, as before).  Render measurements (1024x576, 460 objects): Cycles CUDA 32 spp
+  + GPU OIDN 0.64 s/frame; with `render.use_persistent_data` the synced scene + BVH survive between the
+  cameras of one job — 8 frames 5.3 s → 2.2 s, 0.21 s/frame after the first; 64 spp 0.69 s, 128 spp
+  0.86 s; CPU 2.3 s; EEVEE in background 5.2 s/frame + a 12 s shader compile (slower than Cycles GPU here,
+  so Cycles stays the default); Workbench 0.12 s.  OptiX is unavailable under WSL2 (libnvoptix: init error
+  7804) and setting `compute_device_type = 'OPTIX'` then back to CUDA crashes Blender — the harness never
+  probes it (`render_bpy_scene.setup_render`, doctor).  Shipped: persistent data on for every Cycles job,
+  `Settings.render.blender_frame_time_limit_s` (20 s cap per frame via `cycles.time_limit`, 0 = none) in
+  the job and in `metrics.blender`, the doctor times one 256x144 32-spp frame on the fast path, two lint
+  traps shared by both bpy languages (`solver = 'FAST'` → ERROR; `x["Socket_…"] = …` → ERROR with the 5.2
+  idiom), and the cookbook / contract / docs say 5.2 LTS.  Not re-measured on 5.2.2: the skills' "verified
+  on 5.0.1" geometry numbers (subsurf shrink, primitive extents) — properties of the mesh code, not of the
+  renderer; the live gate tests that exercise them pass on 5.2.2.
+
+* **D105 The argon scene-tuning program: per-model variants, scene_blender first-class, scene judge v2 with
+  strict placement standards, and the eval loop with argon as generator AND judge (owner, 2026-10-14/15).**
+  The owner wants the harness specialised per model and looped — "变体按单个模型分", scene_blender "都可以补齐",
+  a judge that "彻底解决 floating、穿模", "连通性…标准…严格一些", ~30 generated prompts per iteration that get
+  harder, both scene languages at once, "argon 用来生成 code … 同时也要用来作为 judge", and a standalone repo.
+  Decisions.  (a) **Variants** (`prompts/variants.py`): an overlay `codeverse3d/prompts/variants/<name>/`
+  shadows prompt files (a jinja ChoiceLoader; the base environment is untouched so base rendering is
+  byte-identical), `codeverse3d/skills/variants/<name>/` shadows bundles and `routes.toml` adds typed
+  boosts / disables / rows (a standing row never reaches the gate-fired floor 90), `variant.toml` names
+  version + generators + knobs ⊂ {skills_max, skills_only}.  Selected EXPLICITLY — `3dcode make --variant`,
+  `Settings.variant`, or `Settings.variants` by the exact generator id then `<kind>:<served model>` — never a
+  regex over the id (L4); frozen on `RunOptions.variant`; recorded in `environment.variant`, `extra.variant`
+  {name, version, hash}, `prompt_hashes.variant` and `SettingsSnapshot.variant*`; the plan stage key names
+  the variant only when set.  One variant per process (knobs are process-wide, the overlays are
+  context-local).  The `argon` variant ships EMPTY (v1) so the loop's iteration 0 measures the base.  The
+  judge is NOT variant-scoped: it is the instrument.  (b) **scene_blender** runs end to end: prompts
+  (system / contract / cookbook / asset / effects_catalog), bpy sibling templates chosen by
+  `tracks.scene.SCENE_TEMPLATES[language]` (the three.js payloads stay byte-identical), a planner template per
+  (track, language) whose schema carries the language's asset kinds (`bpy`, `blender_glb`), a bpy asset ladder
+  checked in Blender, a harness-owned starter library (13 modules under `languages/scene_blender/starter/src/lib/`
+  — D51 extended to scene_blender; the skeleton is built from it), one transport retry per stage session, and
+  three bundles `c3d-bpy-scene-{placement,lighting,materials}` on routes R29–R34 (R34 is the three.js gate-fired
+  twin on the seating kinds).  (c) **scene judge v2** (`scene_v2.yaml`; `scene_v1` frozen for replays):
+  defects floating_asset .10/.60, sunken_asset .08/.65, interpenetration .08/.70, wrong_scale .06/.75,
+  hard_edged_particles, missing_planned_element, hero_misplaced; placement caps per measured kind incl.
+  free_exempt .75; graded must-acceptance; a CALIBRATION block and six anchors per criterion so the judge uses
+  the whole range; overview views are declared to hide ceilings; CONTACT CROPs at the worst placement findings
+  (the gate writes `data.bbox`); a fourth overview `overview_low_front` (el 7°, `fitContactCamera`) and a scene
+  montage cap of 4; the measured-absent veto is scoped to the rule's kinds with `veto_warn_keys` (a WARN-band
+  hover keeps the judge's tick, a `no_fog` ERROR no longer cancels the floating veto) — SCORING_VERSION 4;
+  `Settings.judge.thinking` (argon thinks only from 'medium') + `3dcode judge --thinking`; the fixed evaluator
+  runs the placement gate on scene cells.  `judge_prompt_hash` moved for every rubric (RIG_RULES is shared).
+  (d) **Strict placement standards** (`Settings.placement`, read at call time): floating ERROR 0.08 m or > 2
+  (was 0.15 / > 3), sunk ERROR 0.20 m + 20 % (was 0.30 + 25 %), interpenetration WARN 0.10 / ERROR 0.35 (was
+  0.20 / 0.60; the host's OVERLAP_MIN_FRAC is 0.10); new kinds `free_exempt` (share of 'free'-tagged assets
+  > 25 % WARN / > 50 % ERROR — the tearoom run had tagged 47 %) and `cantilevered` (resting on ≤ 1 of ≥ 4
+  foot columns); the summary carries measured counts and the thresholds; a hero's size is one instance, not
+  the union of its clones; `scene_regate` / `scene_stats` count typed kinds and accept Blender records.
+  Object-track connectivity thresholds are unchanged (follow-up).  (e) **The loop** (`eval/bench/loop.py`,
+  EVAL.md §10): init / generate / run / diagnose / compare / judge-calib / accept / rollback / status.
+  Batteries are generated by the planner model from typed rung rules (five rungs: zones, asset types,
+  instance counts, lighting, interior / water / particles, a moving hero, scale constraints), ids stable per
+  rung so iterations pair; `run` = one child `run_bench --variant` per language with `C3D_JUDGE__THINKING`
+  and stop handlers; the judge of the loop is `gemini:gemini-4-argon` at medium on `scene_v2`; the verdict is
+  `stats.decide` plus a placement-ERROR veto; the ledger is `eval/bench/data/loop/<name>/ledger.jsonl`;
+  `accept` bumps the variant version and snapshots the overlays, `rollback` restores them.  (f) **Standalone**:
+  the head-to-head scripts and batteries that compared this harness with other checkouts were deleted; no
+  path under a home directory remains in the tree.  Consequences: the prompt manifest gained the scene_blender
+  and variant scenarios and was re-blessed (judge payloads + the new `"variant": ""` spec field); ARCHITECTURE
+  §2 names the starter tree; every C3D_VARIANT* switch is plan-side (no `--pin-plan`).  Known limits: agy's
+  MCP config has no tool-timeout key; the materials bundle has no deterministic target (SKILLS_LEDGER §6.1);
+  the loop's first live `generate` / 30-run `run` are iteration 0.  **Amended 2026-10-15 (iteration 0, first
+  wave):** 24 of the 41 Blender `interpenetration` ERRORs were members of ONE room shell (lintel × lid, trim ×
+  trim) — the placement host now exempts every row under a `RoomShell…` root as the enclosure (both scene
+  languages; the same name the overview rig lifts), and `lib.architecture.room_shell` clamps an opening's
+  sill/head into the wall (a 3.2 m door head in a 3 m room had inverted the lintel into a slab above the lid).
+  Runs of iteration 0 that built before the fix were gated by the old rule (noted in the loop ledger).
+  **Amended 2026-10-15 (iteration 0 read, iteration 1 written):** 60 argon scenes (30 per language, rung 1,
+  argon@medium judge): picked mean 0.758 three.js / 0.754 Blender, baseline 0.672 / 0.647 (the refine
+  round is worth +0.09 and the 90-min clock cut it in 55 % / 43 % of the runs).  What the gates and the
+  judge measured, and what changed for it: (a) placement — three.js 7/30 runs with interpenetration
+  ERRORs + 5/30 sunken, Blender 13/30 + 5/30; every agy zone session had called `check_placement` and
+  then edited without re-checking; 11 of the 29 three.js rows were props inside a `…MidProps` Group
+  (measured as one union box), 9 of the 13 Blender runs had scattered small props INTO placed carts /
+  racks / shrubs.  `lib.place.clear_mask` (Blender) + a `keepClear` recipe (three.js) mask placed
+  footprints out of scatter; the cookbooks' placement chapters state "one placed thing = one direct
+  child" and the slope rule; (b) `hard_edged_particles` 27 % / 17 % of runs, and the brief's "soft
+  particle effect" must-item failed with it — Blender had NO soft particle at all (translucent
+  Principled puffs, metaballs, tori): `lib.materials.volume` (a Principled Volume, no surface; 40
+  puffs = +0.7 s per 32-spp frame on 5.2.2) and a "Soft particles" chapter in BOTH cookbooks, inlined
+  into every zone brief (`ZONE_RECIPES`; the inlining budget rose 24 k → 30 k chars because the last
+  chapter was being clipped on scene_blender); the three.js fireflies recipe now carries a radial
+  `softDot` sprite instead of the bare `PointsMaterial` the judge penalises; (c) three.js zones
+  DROPPED at assembly (a run scored 0.0 with three empty zones): `walk(fig)` at build time, `import {
+  concrete }` of a name `lib/materials.js` does not export, `mergeGeometries` → null — the JS lint now
+  verifies every named import against the target module's exports (`_js_lint.check_named_imports`,
+  ERROR), the other two are prompt rules; (d) the brief's camera line "tracks / dollies along … at
+  1.6 m" was a must-have no fixed-camera render can satisfy (unverified in 5/60 runs, a
+  `missing_must_acceptance` cap on the whole score): the loop's brief generator writes a FIXED
+  eye-level viewpoint and migrates the cached rung prompts in place (ids unchanged, so the pairs
+  hold); (e) 172 `asset.generate_failed` outages in the first ten minutes (30 runs planning and
+  single-shotting assets at once against the 64-slot pool; 8 zone stages fell back to single-shot and
+  shipped the crashes in (c)): `run_bench --stagger` (loop default 40 s, the two languages offset by
+  half of it).  The argon overlay (variant v1 → v2 on accept) now shadows `tracks/scene_zone.j2` and
+  `tracks/scene_zone_bpy.j2` with a "Before you return" block stating (a)–(c) with their numbers, and
+  `routes.toml` boosts the two placement skills to the top of the standing list (R14 75 → 89, R29
+  80 → 89).  Not changed on purpose: the judge (frozen for the compare), the run shape (2 rounds, 90
+  min, 15 + 15 parallel), the refine briefs (iteration 2's lever).  Skills deep-read rate stays low
+  (three.js 0.013, Blender 0.175): the chapters now travel inside the brief instead.
 
 ## Rejected / deferred
 

@@ -48,7 +48,8 @@ def test_make_judge_routes_photos_to_the_likeness_judge_and_a_replay_picks_the_s
     from codeverse3d.judges.vlm_judge import LikenessJudge, ReferenceJudge, VlmJudge, judge_for
 
     assert judge_for(Track.GRAPHICS, "shader_v2", references=True) is LikenessJudge
-    assert judge_for(Track.SCENE, "scene_v1", references=True) is LikenessJudge
+    assert judge_for(Track.SCENE, "scene_v2", references=True) is LikenessJudge
+    assert judge_for(Track.SCENE, "scene_v1", references=True) is LikenessJudge  # a replay of a v1 round
     assert judge_for(Track.STATIC_OBJECT, "reference_v1", references=True) is ReferenceJudge
     assert judge_for(Track.STATIC_OBJECT, "reference_v1", references=False) is ReferenceJudge  # measured criteria
     assert judge_for(Track.GRAPHICS, "shader_v2", references=False) is VlmJudge

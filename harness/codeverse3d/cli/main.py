@@ -276,6 +276,15 @@ def make(
             "montage size and the texture pass together)",
         ),
     ] = None,
+    variant: Annotated[
+        str,
+        typer.Option(
+            "--variant",
+            help="per-model prompt/skill variant (an overlay under codeverse3d/prompts/variants/<name>/ "
+            "and codeverse3d/skills/variants/<name>/, frozen on the spec); default: C3D_VARIANT, else "
+            "C3D_VARIANTS[<generator>] by the id as typed and then by its served model, else the base",
+        ),
+    ] = "",
     rounds: Annotated[
         int | None,
         typer.Option(
@@ -393,6 +402,9 @@ def make(
         generator=generator, planner=planner, judge=judge, captioner=captioner
     )
     C.check_backends(backends)
+    # the prompt/skill variant, resolved ONCE here (flag > C3D_VARIANT > C3D_VARIANTS by the generator
+    # id) and frozen on the spec: the track activates what the spec says, on `resume` too
+    chosen = C.resolve_variant(settings, backends.generator, variant)
     # validate the whole Spec BEFORE touching the filesystem: an invalid
     # track/language combination must not leave an orphan run directory behind.
     try:
@@ -412,7 +424,8 @@ def make(
             # options.profile records the dial this run resolved to, whichever way it was
             # named (flag, C3D_PROFILE, config.yaml), so `3dcode resume` re-applies it
             backends=backends,
-            options=RunOptions(candidates=candidates, texture=texture, profile=dial.profile),
+            options=RunOptions(candidates=candidates, texture=texture, profile=dial.profile,
+                               variant=chosen.name),
             seed=seed,
             tags=tag,
         )
@@ -440,6 +453,7 @@ def make(
                     "rounds": rounds,
                     "candidates": candidates,
                     "texture": texture,
+                    "variant": chosen.label,
                 },
             )
         )

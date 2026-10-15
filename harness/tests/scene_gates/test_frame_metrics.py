@@ -107,7 +107,7 @@ def test_content_small_roles():
 
 
 def test_scene_rubric_caps_fire_on_frame_kinds():
-    rubric = load_rubric("scene_v1")
+    rubric = load_rubric("scene_v2")
     rep = frame_findings(_metrics(_chk("Establishing", mean_lum=0.07, dark_frac=0.41, content_frac=0.1)))
     res = apply_caps(rubric, 0.9, [rep], {}, [])
     fired = {c.rule: c.cap for c in res.caps_applied}
@@ -230,3 +230,16 @@ def test_a_slow_blender_frame_set_warns_and_names_the_heaviest_zone():
     # a three.js payload (no blender block) never reads render_ms
     three = {k: v for k, v in payload(60_000).items() if k not in ("blender", "language")}
     assert not [f for f in frame_findings(three).findings if f.data.get("kind") == "slow_frame"]
+
+
+def test_the_hero_size_is_one_instance_and_names_its_copies():
+    """`glb_assets[].size_m` is ONE placed instance (scene_host glbUsage, 2026-10-14; the union of every
+    clone read "6.5 m across" for a 2.2 m sofa placed three times) and the text says how many copies."""
+    url = "/assets/athanor.glb"
+    rows = [{"url": url, "meshes": 9, "meshes_in_scene": 9, "in_scene": True, "size_m": 2.2, "instances": 3}]
+    rep = frame_findings({"census": {"glb_assets": rows}, "camera_checks": [_chk("AthanorDetail", glb_frac={url: 0.0})]})
+    msg = next(f.message for f in rep.findings if f.data["kind"] == "hero_unseen")
+    assert "(2.2 m across as placed, 3 copies)" in msg
+    rows[0]["instances"] = 1
+    rep = frame_findings({"census": {"glb_assets": rows}, "camera_checks": [_chk("AthanorDetail", glb_frac={url: 0.0})]})
+    assert "(2.2 m across as placed)" in next(f.message for f in rep.findings if f.data["kind"] == "hero_unseen")

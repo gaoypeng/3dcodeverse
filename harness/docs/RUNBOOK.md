@@ -1,16 +1,16 @@
 # Runbook — operating the harness
 
-Everything here was exercised on this machine (WSL2, RTX 5090, Blender 5.0.1,
+Everything here was exercised on this machine (WSL2, RTX 5090, Blender 5.2.2 LTS (since 2026-10-14; was 5.0.1),
 node 24, gemini-cli 0.53 (removed in D103), claude 2.1, codex 0.147+, agy 1.1) on 2026-08-23;
 the agy rows re-checked on agy 1.3.4, 2026-10-13.  Paths
-are relative to `/home/yipeng/3dcodeverse/harness` unless absolute.  The CLI is
+are relative to the harness root (`harness/` in the checkout) unless absolute.  The CLI is
 `3dcodeverse` with short alias `3dcode` (used below).
 
 ## 1. Install and check
 
 ```bash
-pip install -e /home/yipeng/3dcodeverse/harness      # once; entry points 3dcodeverse and 3dcode
-cd /home/yipeng/3dcodeverse/harness/runtime_js && npm install   # three@0.182, puppeteer (chrome cached)
+pip install -e harness      # once, from the checkout root; entry points 3dcodeverse and 3dcode
+cd harness/runtime_js && npm install   # three@0.182, puppeteer (chrome cached)
 3dcode doctor            # python deps (incl. python-fcl, moderngl), blender, node/three/puppeteer, chrome WebGL, keys, CLIs, git, mcp
 3dcode doctor --live     # + one tiny Gemini call ("pong", ~$0.00001)
 python -m pytest tests -q                              # offline suite; live tests are opt-in (blender/node/GL run when the binaries exist)
@@ -54,7 +54,12 @@ after the run; see §6), `--no-pick` (package nothing: no `deliverable/`, no `se
 `--must-not`, `--style`, `--tag`, `--seed` (a label: it re-keys the plan and the reference
 images, nothing else is seeded by it), `--slug`, `--runs-dir`, `--force`,
 `--no-run` (workspace + spec.json only — except that `--reference` still runs its
-paid grounding pass first, since the grounded spec is what it writes).
+paid grounding pass first, since the grounded spec is what it writes),
+`--variant NAME` (a per-model prompt/skill overlay — `codeverse3d/prompts/variants/<name>/` +
+`codeverse3d/skills/variants/<name>/`, D105 — frozen on `spec.options.variant` so `resume` and
+`judge` read the same files; default: `C3D_VARIANT`, else `C3D_VARIANTS` keyed by the exact
+generator id — as typed, then by its served model — else the base prompts; an unknown name is
+refused before the run directory exists; the run table prints `variant: argon v1 (<hash>)`).
 
 Expected cost/time with gemini-3.7-flash: object tracks ≈ $0.7–0.9 and 12–36 min for
 baseline + 1 refine; best-of-2 single-shot ≈ $0.25 / 8 min; graphics single-shot
@@ -169,7 +174,7 @@ unless you type `--host` yourself; it never serves a path outside the declared r
                                         # paid verdict per pair, cached); --round N = that round; --texture = the
                                         # texture pass on it first.  `make`/`resume` run `pick --by score` for you
 3dcode render <slug> [--round N] [--mode shaded|wire|normals|clay|silhouette] [--out dir]
-3dcode judge <slug> [--round N] [--rubric static_object_v1] [--model gemini:gemini-3.1-pro-preview] [--n 3]
+3dcode judge <slug> [--round N] [--rubric static_object_v1] [--model gemini:gemini-3.1-pro-preview] [--n 3] [--thinking off|low|medium|high]
                                         # re-judges a round's recorded renders → artifacts/judge/rNN_cli.json
 3dcode texture pass <slug> [--no-judge] [--model …] [--judge-model …] [--image-model …] [--size 1024]
 3dcode texture scene-pack <slug> [--n 10] · 3dcode texture show <slug>
@@ -391,6 +396,20 @@ weather: they leave the provider's errors out (docs/COST.md §31); the ceiling d
   trees).  What it cannot drive is listed in `tests/prompts/manifest.py`.  A new prompt file must
   render through the loader (`tests/prompts/test_files.py`); a new language or track adds its
   scenario to `SCENARIOS`.
+* **A per-model variant** (D105): `codeverse3d/prompts/variants/<name>/variant.toml` (`[variant]`
+  name = the directory name, version, generators, description; optional `[knobs]` — `skills_max`,
+  `skills_only` — applied like a profile, a user-stated field wins) beside the prompt files that
+  shadow the base ones by relative path (a template there may `include` a base file), and
+  `codeverse3d/skills/variants/<name>/` for bundles that shadow base bundles by name, their
+  `_claims/`, and `routes.toml` (`[[boost]]` skill + delta, `[[disable]]` rule, `[[route]]` extra
+  typed rows with fresh ids; parsed with `tomllib`, a typing error is logged and the base table
+  routes).  Nothing else changes: `prompts.load_text` / `render` / `catalog.language_text` and
+  `skills.all_skills` resolve through the active variant, `BaseTrack.run` activates the spec's
+  frozen name (else the process switch), the record carries `extra.variant` {name, version, hash}
+  + `prompt_hashes.variant`, and `plan_stage_key` names the variant only when one is set.  An
+  overlay starts EMPTY (the shipped `argon` is) so its first iteration measures the base; the
+  manifest gets one scenario per variant (`scene.scene_threejs.agent.variant_argon`).  Selection is
+  explicit — `--variant`, `C3D_VARIANT`, `C3D_VARIANTS` — never a pattern over the model id.
 * **New spatial tool**: pydantic args + `@tool("name", Args, "…", tracks=(…),
   languages=(…), cost_hint=…)` in `spatial/tools.py`; available to tracks, MCP and prompt cards at once.
   Update `tests/spatial_tools` EXPECTED_TOOLS.

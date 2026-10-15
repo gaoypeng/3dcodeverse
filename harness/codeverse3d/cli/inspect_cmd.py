@@ -103,6 +103,10 @@ def judge(
     ] = None,
     model: Annotated[str | None, typer.Option("--model", help="judge chat model id")] = None,
     n: Annotated[int, typer.Option("--n", min=1)] = 1,
+    thinking: Annotated[
+        str | None, typer.Option("--thinking", help="off | low | medium | high (default: Settings.judge.thinking, "
+                                                    "C3D_JUDGE__THINKING; gemini-4-argon thinks only from medium)"),
+    ] = None,
     runs_dir: RunsDirOpt = None,
 ) -> None:
     """Re-judge a round with the SAME inputs as the in-run judge (renders + measurement +
@@ -125,17 +129,24 @@ def judge(
     if rnd is None or rnd.renders is None or not rnd.renders.views:
         raise C.CliError(f"round {idx} has no renders (rounds/r{idx:02d}.json / record.json)")
     rubric_name = J.rubric_for(rec, rnd, rubric)
-    inp = J.build_judge_input(ws, rec, rnd)
+    with C.replay_variant(rec):   # the run's prompt/skill overlay (D105): the replay reads what the run read
+        inp = J.build_judge_input(ws, rec, rnd)
     # an archived run keeps its sheet but may have pruned the per-view PNGs: say so, instead of
     # the judge's own FileNotFoundError / JudgeImageError escaping as a traceback
     missing = [v.path for v in inp.renders.views if not Path(v.path).is_file()]
     if missing:
         raise C.CliError(f"round {idx}: {len(missing)} of its {len(inp.renders.views)} judged renders are not on disk "
                          f"(e.g. {missing[0]}): nothing to re-judge it from", code=2)
-    judge_obj = J.make_judge(rec.spec, rubric_name, model or rec.spec.backends.judge, n)
+    # --thinking is a replay knob (D105): the level reaches the judge as its own, else the settings'
+    try:
+        judge_obj = J.make_judge(rec.spec, rubric_name, model or rec.spec.backends.judge, n,
+                                 **({"thinking": thinking} if thinking else {}))
+    except ValueError as e:  # an unknown thinking level
+        raise C.CliError(str(e), code=2) from e
     n_images = J.count_prompt_images(inp, rubric_name, judge_obj)
-    # writes artifacts/judge/rNN_cli.json into the run: one writer per run dir
-    with C.mutating(ws, what=f"3dcode judge {ws.root.name}", action="judge"):
+    # writes artifacts/judge/rNN_cli.json into the run: one writer per run dir; the verdict is built
+    # under the run's variant, like its inputs above
+    with C.mutating(ws, what=f"3dcode judge {ws.root.name}", action="judge"), C.replay_variant(rec):
         try:
             # a re-judge joins the run's ledger (and its record's total) when it has one; otherwise
             # the per-process log (a ledger holding only this verdict would be read as the whole run's cost)
@@ -159,6 +170,7 @@ def judge(
                 "overall": f"{verdict.overall:.3f}",
                 "passed": verdict.passed,
                 "std": verdict.score_std,
+                "thinking": getattr(judge_obj, "thinking", "-"),  # a judge class of its own may carry none
                 "prompt images": n_images if n_images is not None else "?",
                 "stored score": f"{rnd.judgment.overall:.3f}" if rnd.judgment else "-",
                 "summary": verdict.summary,

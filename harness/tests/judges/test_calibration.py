@@ -93,6 +93,37 @@ def test_calibrate_offline(tmp_path):
         calibrate([empty], model_id="fake:fake-1", out_dir=tmp_path / "out", chat_model=model)
 
 
+def test_calibration_takes_the_judges_thinking_from_the_settings(tmp_path, monkeypatch):
+    """``calibrate(thinking=None)`` judges at ``Settings.judge.thinking`` — the level the loop runs
+    (D105: argon thinks only from medium) — and a stated level still wins; the CLI's default is None."""
+    import codeverse3d.addons.calibration as cal
+    from codeverse3d.config import Settings, get_settings
+
+    run = _fake_run(tmp_path, "runA")
+    levels: list[str] = []
+    real = cal.make_judge
+
+    def spy(spec, rubric_name, model_id, n, **options):
+        levels.append(options["thinking"])
+        return real(spec, rubric_name, model_id, n, **options)
+
+    monkeypatch.setattr(cal, "make_judge", spy)
+    s = Settings(judge={"thinking": "medium"})
+    monkeypatch.setattr(cal, "get_settings", lambda: s)
+    model = FakeChatModel(default=lambda req: good_reply(R, ["A1", "A2"], 0.7))
+    calibrate([run], model_id="fake:fake-1", n_samples=1, out_dir=tmp_path / "out", geometry_mode=None, chat_model=model, max_workers=1)
+    calibrate([run], model_id="fake:fake-1", n_samples=1, out_dir=tmp_path / "out", geometry_mode=None, chat_model=model, max_workers=1,
+              thinking="high")
+    assert levels == ["medium"] * 2 + ["high"] * 2  # make_judge once per case (two rounds), per call
+    assert all(r.thinking == "medium" for r in model.requests[:2]) and model.requests[-1].thinking == "high"
+    get_settings.cache_clear()
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--thinking", default=None, choices=("off", "low", "medium", "high"))
+    assert ap.parse_args([]).thinking is None  # the shape cal.main declares: None = the settings' level
+
+
 def test_run_labels_stay_distinct_across_battery_layouts():
     """V9c: bench cells all end in .../run; their labels (and judgment sidecars) must not collide."""
     from codeverse3d.addons.calibration import _run_label

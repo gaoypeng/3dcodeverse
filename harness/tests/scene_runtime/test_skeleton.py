@@ -140,3 +140,20 @@ def test_the_catalog_names_every_library_module_and_no_other():
     named = set(re.findall(r"`lib/([a-z_]+\.js)`", catalog))
     modules = {p.name for p in lib_files()}
     assert named == modules, (sorted(modules - named), sorted(named - modules))
+
+
+def test_the_bpy_catalog_names_every_bpy_library_module_and_no_other():
+    """scene_blender's twin: its catalog (``prompts/scene_blender/effects_catalog.md``, reached
+    through ``language_text`` like the three.js one) indexes exactly ``src/lib/*.py``; the calls
+    it names are checked against the modules' defs in tests/scene_blender/test_library.py."""
+    import re
+
+    from codeverse3d.contracts.common import Language
+    from codeverse3d.languages.scene_blender import lib_files
+    from codeverse3d.prompts.catalog import language_text
+
+    catalog = language_text(Language.SCENE_BLENDER, "effects_catalog.md")
+    assert "| Want | Call |" in catalog and "from lib.materials import material" in catalog
+    named = set(re.findall(r"`lib/([a-z_]+\.py)`", catalog))
+    modules = {p.name for p in lib_files()}
+    assert named == modules, (sorted(modules - named), sorted(named - modules))

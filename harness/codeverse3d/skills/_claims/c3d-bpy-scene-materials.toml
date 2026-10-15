@@ -1,0 +1,5 @@
+# This bundle quotes no number from live code: the socket names and node ids are Blender 5.2.2
+# facts (the languages/blender lint tables hold the rename list as strings, not numeric
+# constants), the recipe arguments are the agent's (`<placeholders>`), and the lib defaults it
+# relies on (glass IOR, foliage variants) are keyword defaults in src/lib/materials.py, which the
+# grammar cannot pin.  Nothing to pin; the file exists so the claims check finds an empty table.

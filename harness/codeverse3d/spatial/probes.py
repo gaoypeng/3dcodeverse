@@ -94,7 +94,7 @@ def run_probe(ws: Workspace, *, compile: bool = False, timeout_s: float | None =
         args += ["--compile", "--shaders-out", str(ws.artifacts / "shader_preflight.json")]
     if glb is not None:
         # D3: nothing moves the JS copy of a scene Blender renders — no settle, no camera repair
-        args += ["--glb", str(glb), "--no-settle"]
+        args += ["--glb", str(Path(glb).resolve()), "--no-settle"]   # node runs in runtime_js/: a relative path would miss
     else:
         # every probe runs under the SAME settle / camera-repair / auto-exposure policy every
         # render uses — ONE parser, render_scene (review-3 S4: the build used to carry none of

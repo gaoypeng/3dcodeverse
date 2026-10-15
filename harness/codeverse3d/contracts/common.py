@@ -63,7 +63,7 @@ class TrackInfo(BaseModel):
 TRACK_INFO: dict[Track, TrackInfo] = {
     Track.STATIC_OBJECT: TrackInfo(rubric="static_object_v1", label="3D Objects"),
     Track.ARTICULATED_OBJECT: TrackInfo(rubric="articulated_v1", label="Articulated Objects"),
-    Track.SCENE: TrackInfo(rubric="scene_v1", label="3D Scenes", best_of_n=False, likeness_refs=True),
+    Track.SCENE: TrackInfo(rubric="scene_v2", label="3D Scenes", best_of_n=False, likeness_refs=True),
     Track.GRAPHICS: TrackInfo(rubric="shader_v2", label="Procedural Graphics", likeness_refs=True),
 }
 

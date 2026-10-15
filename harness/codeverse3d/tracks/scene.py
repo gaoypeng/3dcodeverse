@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from codeverse3d.contracts.artifacts import (
@@ -34,10 +35,10 @@ from codeverse3d.contracts.artifacts import (
     RenderSet,
     Severity,
 )
-from codeverse3d.contracts.common import TRACK_INFO, Track
-from codeverse3d.contracts.plan import Plan, ScenePlan, ZonePlan
+from codeverse3d.contracts.common import ENTRY_FILE, TRACK_INFO, Language, Track
+from codeverse3d.contracts.plan import BBox, CameraPlan, Plan, ScenePlan, ZonePlan
 from codeverse3d.contracts.run import RoundRecord
-from codeverse3d.conventions import to_snake
+from codeverse3d.conventions import fmt3, to_authoring_frame, to_snake
 from codeverse3d.judges.base import judged_subset
 from codeverse3d.models import get_chat_model
 from codeverse3d.orchestrator import BudgetExceeded, TaskGroup, compact_instructions
@@ -51,7 +52,6 @@ from codeverse3d.tracks.generation import GenerationResult, GenerationTask
 from codeverse3d.tracks.lifecycle import CLOCK, MATERIALIZE, SKELETON, BaseTrack, StageNode
 from codeverse3d.tracks.prompting import (
     base_prompt_context,
-    bbox_line,
     cookbook_sections,
     judge_digest,
     reference_images,
@@ -82,13 +82,72 @@ ENV_RECIPES: tuple[str, ...] = (
 ZONE_RECIPES: tuple[str, ...] = (
     "Vegetation that reads real", "Rocks, cliffs and boulders that read organic",
     "Set dressing: how many props a place needs", "Scene layering: foreground, midground, background",
-    "Motion you can SEE between t = 0 and t = 1.5 s",
+    "Motion you can SEE between t = 0 and t = 1.5 s", "Soft particles",
 )
+#: the zone chapters above run to ~25 k chars on scene_blender: the inlining budget must hold them all
+#: (the default 24 k clipped the LAST chapter, which is the one iteration 0 needed — 2026-10-15)
+ZONE_RECIPES_MAX_CHARS = 30_000
 ENV_TIMEOUT_S = 420
 ZONE_TIMEOUT_S = 600
 #: a refine session that runs for half an hour (the desert-canyon round 1 did) spends the
 #: wall clock the NEXT round needed; clip it to what the hard budget still allows
 REFINE_TIMEOUT_S = 900
+
+
+@dataclass(frozen=True)
+class SceneTemplates:
+    """The four prompt templates a scene language's sessions read (``prompts/tracks/``)."""
+
+    env: str
+    zone: str
+    refine: str
+    asset: str
+
+
+#: per language — the three.js templates stay the files they were (byte-identical), the bpy
+#: twins carry the same context keys with Blender wording and the bpy library's calls
+SCENE_TEMPLATES: dict[Language, SceneTemplates] = {
+    Language.SCENE_THREEJS: SceneTemplates("tracks/scene_env.j2", "tracks/scene_zone.j2", "tracks/scene_refine.j2",
+                                           "tracks/scene_asset.j2"),
+    Language.SCENE_BLENDER: SceneTemplates("tracks/scene_env_bpy.j2", "tracks/scene_zone_bpy.j2", "tracks/scene_refine_bpy.j2",
+                                           "tracks/scene_asset_bpy.j2"),
+}
+#: ``SceneRuntime.env_file`` per language, for a runtime that does not state it (a fake, an
+#: older runtime): the typed fallback of :func:`env_file`, never a ``.js`` / ``.py`` test
+ENV_FILES: dict[Language, str] = {Language.SCENE_THREEJS: "src/env.js", Language.SCENE_BLENDER: "src/env.py"}
+
+
+def scene_templates(language: Language) -> SceneTemplates:
+    """The templates of a scene language (``KeyError`` for a language the scene track does not run)."""
+    return SCENE_TEMPLATES[language]
+
+
+def env_file(ctx: RunContext) -> str:
+    """The environment module of this run's scene language: the runtime's word (``env_file``),
+    else the typed per-language table."""
+    return getattr(ctx.runtime, "env_file", None) or ENV_FILES[ctx.language]
+
+
+def plan_vec(v: Sequence[float], language: Language, *, extents: bool = False) -> tuple[float, float, float]:
+    """A plan (GLB-frame, Y-up) vector in ``language``'s authoring frame — the identity for a
+    Y-up language, so the three.js prompts keep their numbers byte for byte; a Z-up author (bpy)
+    reads ``(x, -z, y)`` points and ``(w, d, h)`` sizes (D12: the plan itself never changes frame).
+    ``+ 0.0`` folds the ``-0.0`` a negated zero leaves into ``0.0`` (``fmt3`` would print ``-0.000``)
+    and is the identity on every other finite value."""
+    x, y, z = to_authoring_frame(v, language.value, extents=extents)
+    return (x + 0.0, y + 0.0, z + 0.0)
+
+
+def plan_bbox_line(bbox: BBox, language: Language) -> str:
+    """``prompting.bbox_line`` in the authoring frame of ``language``."""
+    return f"centre ({fmt3(plan_vec(bbox.center, language))}) m, extents ({fmt3(plan_vec(bbox.extents, language, extents=True))}) m"
+
+
+def plan_camera_line(c: CameraPlan, language: Language) -> str:
+    """One authored camera as a prompt line, its points in the authoring frame of ``language``."""
+    p, la = plan_vec(c.position, language), plan_vec(c.look_at, language)
+    return (f"- {c.name}: position ({p[0]:.1f}, {p[1]:.1f}, {p[2]:.1f}) look_at ({la[0]:.1f}, {la[1]:.1f}, {la[2]:.1f}) "
+            f"fov {c.fov:.0f} — {c.purpose}")
 
 
 class ScenePipeline:
@@ -115,7 +174,7 @@ class ScenePipeline:
 
     def post_render_gates(self, ctx: RunContext, round_index: int, renders: RenderSet) -> list[GateReport]:
         errs = [e for e in renders.console_errors if e.strip()]
-        findings = [GateFinding(gate="render_console", severity=Severity.ERROR, target=_guess_target(e, ctx.plan), message=e[:300],
+        findings = [GateFinding(gate="render_console", severity=Severity.ERROR, target=_guess_target(e, ctx), message=e[:300],
                                 data={"kind": "console_error"}, fix_hint="open the named module, fix the thrown error; run the build/probe tool until no console errors")
                     for e in errs[:MAX_CONSOLE_ERRORS]]
         out = [GateReport.of("render_console", findings)]
@@ -216,7 +275,7 @@ class SceneTrack(BaseTrack):
         if alias is None:
             _, alias = select_assets(list(plan.assets), MAX_ASSETS)
         ctx.extra["assets"], ctx.extra["asset_alias"] = assets, alias
-        return asset_api_summary(plan, assets, alias)
+        return asset_api_summary(plan, assets, alias, language=ctx.language)
 
     # ---- degradation ------------------------------------------------------
     def _strategy(self, ctx: RunContext, stage: str) -> RunContext:
@@ -257,7 +316,19 @@ class SceneTrack(BaseTrack):
         task = task_for(gen)
         skills_hook.attach_for_round(gen, index=0, kind=kind)
         try:
-            return generate_for(gen, skills_hook.with_inlined_skill(gen, [task])[0])
+            task = skills_hook.with_inlined_skill(gen, [task])[0]
+            res = generate_for(gen, task)
+            if res.transient and not res.ok and ctx.budget.ok():
+                # ONE transport retry, the round loop's rule (lifecycle: a 503 storm / dropped
+                # socket is not a verdict on the work — the session never really happened):
+                # the same task again under the ``.a2`` label the CLI's own second session
+                # wears, so the ledger and the trajectory dir tell the two apart.  Typed:
+                # ``GenerationResult.transient`` only — a quota wall or a session that merely
+                # timed out is not retried.  Only while the budget still allows; the clock
+                # check inside ``generate`` stops a retry that would overrun it.
+                ctx.events.emit("stage.transport_retry", stage=stage, label=task.label, detail=res.notes[:500])
+                res = generate_for(gen, task.model_copy(update={"label": f"{task.label}.a2"}))
+            return res
         finally:
             skills_hook.record_usage(gen, index=0, kind=kind)
             ctx.ws.commit(stage)
@@ -288,9 +359,9 @@ class SceneTrack(BaseTrack):
         return {"ok": res.ok, "files": [c.path for c in res.files_changed], "notes": res.notes}
 
     def _env_task(self, ctx: RunContext) -> GenerationTask:
-        prompt = render("tracks/scene_env.j2", **self._ctx(ctx, recipes=cookbook_sections(ctx, ENV_RECIPES)))
+        prompt = render(scene_templates(ctx.language).env, **self._ctx(ctx, recipes=cookbook_sections(ctx, ENV_RECIPES)))
         ctx.record_prompt("scene_env", prompt)
-        return GenerationTask(label="env", prompt=prompt, system=self.system_prompt(ctx), files_hint=["src/env.js"], round=0, kind="env",
+        return GenerationTask(label="env", prompt=prompt, system=self.system_prompt(ctx), files_hint=[env_file(ctx)], round=0, kind="env",
                               temperature=0.5, timeout_s=ctx.budget.timeout_s(ENV_TIMEOUT_S, floor_s=120),
                               images=reference_images(ctx))
 
@@ -335,15 +406,16 @@ class SceneTrack(BaseTrack):
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         names = [z.name for z in batch]
         files = [ctx.runtime.zone_file(z.name) for z in batch]
-        recipes = cookbook_sections(ctx, ZONE_RECIPES)
+        recipes = cookbook_sections(ctx, ZONE_RECIPES, max_chars=ZONE_RECIPES_MAX_CHARS)
+        template = scene_templates(ctx.language).zone
         briefs = []
         for i, zone in enumerate(batch):
-            neighbours = [f"{z.name}: {bbox_line(z.bbox)}" for z in plan.zones if z.name != zone.name]
+            neighbours = [f"{z.name}: {plan_bbox_line(z.bbox, ctx.language)}" for z in plan.zones if z.name != zone.name]
             # a batched session reads ONE copy of the recipes (they are identical per zone)
-            briefs.append(render("tracks/scene_zone.j2", **self._ctx(ctx, recipes=recipes if i == 0 else "", zone_name=zone.name, zone_description=zone.description,
-                                                                    zone_bbox=bbox_line(zone.bbox), zone_contents=zone.contents,
-                                                                    zone_file=ctx.runtime.zone_file(zone.name), neighbours=neighbours,
-                                                                    layout=layout_block(ctx.extra.get("layouts", {}).get(zone.name)))))
+            briefs.append(render(template, **self._ctx(ctx, recipes=recipes if i == 0 else "", zone_name=zone.name, zone_description=zone.description,
+                                                       zone_bbox=plan_bbox_line(zone.bbox, ctx.language), zone_contents=zone.contents,
+                                                       zone_file=ctx.runtime.zone_file(zone.name), neighbours=neighbours,
+                                                       layout=layout_block(ctx.extra.get("layouts", {}).get(zone.name), language=ctx.language))))
         if len(batch) == 1:
             prompt, label = briefs[0], f"zone_{to_snake(names[0])}"
         else:
@@ -402,10 +474,10 @@ class SceneTrack(BaseTrack):
     def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
         files = group.files or ctx.runtime.expected_files(ctx.plan)
         lines = compact_instructions(group.tasks, max_lines=ctx.policy.max_instructions_per_task)
-        prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, recipes=refine_recipes(ctx, files), round_index=index, tasks=lines,
-                                                              targets=group.targets, files=files, edit_only_these=parallel,
-                                                              judge_summary=judge_digest(last),
-                                                              current_files=refine_inline_files(ctx, files)))
+        prompt = render(scene_templates(ctx.language).refine, **self._ctx(ctx, recipes=refine_recipes(ctx, files), round_index=index, tasks=lines,
+                                                                          targets=group.targets, files=files, edit_only_these=parallel,
+                                                                          judge_summary=judge_digest(last),
+                                                                          current_files=refine_inline_files(ctx, files)))
         ctx.record_prompt("scene_refine", prompt)
         # parallel groups are file-disjoint by plan_refine_groups: enforce the split they promised
         return GenerationTask(label=f"refine_{group.label}" if parallel else "refine", prompt=prompt, system=self.system_prompt(ctx),
@@ -424,10 +496,10 @@ class SceneTrack(BaseTrack):
             if (ctx.ws.root / rel).is_file():
                 files = [rel]
         files = files or ctx.runtime.expected_files(ctx.plan)
-        prompt = render("tracks/scene_refine.j2", **self._ctx(ctx, recipes="", round_index=index, tasks=[report], targets=["build"],
-                                                             files=files, edit_only_these=False,
-                                                             judge_summary="(no judgment: the scene did not build — fix the errors above first)",
-                                                             current_files=refine_inline_files(ctx, files)))
+        prompt = render(scene_templates(ctx.language).refine, **self._ctx(ctx, recipes="", round_index=index, tasks=[report], targets=["build"],
+                                                                          files=files, edit_only_these=False,
+                                                                          judge_summary="(no judgment: the scene did not build — fix the errors above first)",
+                                                                          current_files=refine_inline_files(ctx, files)))
         ctx.record_prompt("scene_refine", prompt)
         return GenerationTask(label="rebuild", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
                               kind="rebuild", temperature=0.7, thinking="high",
@@ -435,26 +507,34 @@ class SceneTrack(BaseTrack):
 
     # ------------------------------------------------------------------ helpers
     def _ctx(self, ctx: RunContext, **extra: Any) -> dict[str, Any]:
+        """The variables every scene template may use.  Plan numbers are printed in the AUTHORING
+        frame of the run's language (``plan_vec``: the identity for three.js, so those prompts are
+        byte-identical; a bpy author reads Z-up points and (w, d, h) sizes, D12), plus the
+        runtime's file names (``env_file`` / ``entry_file``) so a template never spells a path."""
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
-        zones_table = "\n".join(f"- {z.name}: {z.description} — {bbox_line(z.bbox)}; contents: {', '.join(z.contents) or '-'}" for z in plan.zones)
-        cameras = "\n".join(f"- {c.name}: position ({c.position[0]:.1f}, {c.position[1]:.1f}, {c.position[2]:.1f}) look_at "
-                            f"({c.look_at[0]:.1f}, {c.look_at[1]:.1f}, {c.look_at[2]:.1f}) fov {c.fov:.0f} — {c.purpose}" for c in plan.cameras)
+        lang = ctx.language
+        zones_table = "\n".join(f"- {z.name}: {z.description} — {plan_bbox_line(z.bbox, lang)}; contents: {', '.join(z.contents) or '-'}"
+                                for z in plan.zones)
+        cameras = "\n".join(plan_camera_line(c, lang) for c in plan.cameras)
         effects = "\n".join(f"- {e.name} ({e.kind}, on {e.target or 'scene'}): {e.description}" for e in plan.effects) or "(none)"
         return base_prompt_context(
-            ctx, title=plan.title, setting=plan.setting, mood=plan.mood, bounds=bbox_line(plan.bounds), environment=plan.environment,
+            ctx, title=plan.title, setting=plan.setting, mood=plan.mood, bounds=plan_bbox_line(plan.bounds, lang), environment=plan.environment,
             interior=plan.interior, glazed=plan.glazed,
             zones_table=zones_table, cameras=cameras, effects=effects, animation="; ".join(plan.animation) or "(none)",
             asset_api=ctx.extra.get("asset_api", "(no assets)"),
-            textures=texture_pack_prompt(ctx.extra.get("textures") or {}), **extra)
+            textures=texture_pack_prompt(ctx.extra.get("textures") or {}),
+            env_file=env_file(ctx), entry_file=ENTRY_FILE[lang], **extra)
 
 
 # ----------------------------------------------------------------------------- helpers
 def refine_recipes(ctx: RunContext, files: Sequence[str]) -> str:
-    """The cookbook chapters that match the files this refine task owns (env / zones)."""
+    """The cookbook chapters that match the files this refine task owns (env / zones), told apart
+    by the RUNTIME's file names (``env_file``, ``zone_file``), never by a suffix test."""
+    zone_files = {ctx.runtime.zone_file(z.name) for z in (getattr(ctx.plan, "zones", None) or [])}
     names: list[str] = []
-    if any(f.endswith("env.js") for f in files):
+    if env_file(ctx) in files:
         names += list(ENV_RECIPES)
-    if any("/zones/" in f for f in files) or not names:
+    if any(f in zone_files for f in files) or not names:
         names += list(ZONE_RECIPES)
     return cookbook_sections(ctx, names)
 
@@ -468,14 +548,18 @@ def _touched(path: Any, since: float) -> bool:
         return False
 
 
-def _guess_target(error: str, plan: Any) -> str:
+def _guess_target(error: str, ctx: RunContext) -> str:
+    """The refine target a console error names: a zone or asset by its snake name, the env
+    module or the entry by the RUNTIME's file names (``env_file``, ``ENTRY_FILE``), else overall."""
     low = error.lower()
     for attr in ("zones", "assets"):
-        for item in getattr(plan, attr, None) or []:
+        for item in getattr(ctx.plan, attr, None) or []:
             if to_snake(item.name) in low:
                 return item.name
-    if "env.js" in low:
+    # a browser stack frame names the bare file (`at env.js:12:3`), the wrapper the src/ path
+    env, entry = env_file(ctx).lower(), ENTRY_FILE[ctx.language].lower()
+    if env in low or env.rsplit("/", 1)[-1] in low:
         return "env"
-    if "scene.js" in low:
+    if entry in low or entry.rsplit("/", 1)[-1] in low:
         return "composition"
     return "overall"

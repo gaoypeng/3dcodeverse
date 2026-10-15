@@ -308,6 +308,12 @@ def write_census_glb(bpy: Any, path: str, *, basis: list[list[float]], zones: di
             host = inst.parent.original if inst.parent is not None else None
             if host is None or host.hide_render or is_volume_only(ob):
                 continue
+            if host.type in MEASURABLE_TYPES and host.type != "MESH":
+                # a bevelled curve / a text object: the depsgraph lists the owner's own evaluated
+                # mesh component as an instance OF the owner (Blender 5.2.2, measured 2026-10-14:
+                # is_instance, parent = the curve, original = the curve) — written once, from the
+                # owner, by _write_other_types; a cloud here would be a phantom second copy
+                continue
             ix = w.mesh(ob.data.as_pointer(), ob.data, [s.material for s in ob.material_slots])
             if ix is None:
                 continue

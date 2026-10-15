@@ -4,6 +4,10 @@
   generated **single-shot** (one chat call) + a deterministic node check + ONE
   error-feedback repair; a full agent session is the escalation, not the default
   (agent sessions cost 10× and 10 minutes per file).
+* ``bpy`` assets (a scene_blender plan's modules) → ``src/assets/<snake>.py`` defining
+  ``build_<snake>(ctx, variant=0)`` — the SAME ladder; the deterministic check builds the
+  one module in a throw-away Blender workspace (``check_bpy_asset``) and measures it off
+  the census GLB like a hero.
 * ``blender_glb`` assets are **heroes**: a sub-workspace under ``<ws>/_assets/<snake>``
   runs the Blender runtime and climbs the SAME single-shot ladder (``_ladder``) before
   an agent session; the GLB is copied to ``public/assets/<snake>.glb``.
@@ -31,7 +35,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.artifacts import Judgment
-from codeverse3d.contracts.common import ENTRY_FILE, Language, Track
+from codeverse3d.contracts.common import ENTRY_FILE, TRACK_LANGUAGES, Language, Track
 from codeverse3d.contracts.plan import AssetPlan, BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse3d.contracts.spec import Constraints, Spec
 from codeverse3d.conventions import MAX_TRIS_OBJECT, OBJECT_VIEWS_QUICK, to_pascal, to_snake
@@ -75,6 +79,12 @@ ASSET_AGENT_TIMEOUT_S = 420
 #: round 0 did not start until 18.9 min.
 ASSET_SESSION_SHARE = 0.15
 ASSET_RUBRIC = "asset_v1"
+#: the asset kinds that are a MODULE in the scene workspace (one factory per file, placed by the
+#: zones); ``blender_glb`` is the hero, built as an object and shipped as a GLB
+MODULE_KINDS: frozenset[str] = frozenset({"threejs", "bpy"})
+#: the languages whose asset sessions share the SCENE workspace (a stray write would hit zones /
+#: env, so their tasks are ``edit_only``); a blender hero owns its whole sub-workspace
+SCENE_LANGUAGES: frozenset[Language] = frozenset(TRACK_LANGUAGES[Track.SCENE])
 
 
 def asset_timeout_s(ctx: Any, floor_s: int) -> int:
@@ -101,11 +111,17 @@ class AssetResult(BaseModel):
 
 
 
-def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], alias: dict[str, str] | None = None) -> str:
-    """What zone/composer tasks need to know about each asset (names + sizes + how to get it).
+def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], alias: dict[str, str] | None = None, *,
+                      language: Language = Language.SCENE_THREEJS) -> str:
+    """What zone/composer tasks need to know about each asset (names + sizes + how to get it),
+    in the words of the scene language that places them.
 
-    Merged assets (``alias``) point at the surviving factory and the ``opts.variant``
-    the zone must pass."""
+    three.js: a module is imported and its factory called; a hero is preloaded into
+    ``ctx.assets`` and cloned.  Merged assets (``alias``) point at the surviving factory and
+    the ``opts.variant`` the zone must pass.  bpy: the harness builds EVERY module (a merged
+    twin's shim included) and imports every hero before any zone runs, so each is a Collection
+    at ``ctx.assets['<snake>']`` to place as a collection instance — the zone never imports or
+    calls a factory, and a merged twin needs no variant number."""
     alias = alias or {}
     lines = []
     for a in plan.assets:
@@ -114,7 +130,9 @@ def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], alias: d
         size = (r.size_m if r and r.size_m and not kept else a.approx_size_m)
         s = f"{size[0]:.2f}×{size[1]:.2f}×{size[2]:.2f} m (w×h×d)"
         status = "" if (r and r.ok) else "  [NOT AVAILABLE — do not reference]"
-        if kept:
+        if language is Language.SCENE_BLENDER:
+            lines.append(_bpy_api_line(a, r, kept, s, status))
+        elif kept:
             lines.append(f"- {a.name}: use `build{to_pascal(kept)}(THREE, {{ variant: {variant_index(alias, a.name)} }})` "
                          f"from './assets/{to_snake(kept)}.js' (merged variant), base at y=0, {s}{status}")
         elif a.kind == "threejs":
@@ -123,7 +141,25 @@ def asset_api_summary(plan: ScenePlan, results: dict[str, AssetResult], alias: d
             motion = f", carries {r.clips} motion clip(s) (played automatically; `clone.userData.clipOffset` de-phases copies)" if r and r.clips else ""
             lines.append(f"- {a.name}: preloaded at `ctx.assets['{to_snake(a.name)}']` (clone it; GLB public/assets/{to_snake(a.name)}.glb), "
                          f"base at y=0, {s}{motion}{status}")
+    if lines and language is Language.SCENE_BLENDER:
+        lines.insert(0, "Sizes are width × height × depth in metres, the plan's Y-up order: in your Blender frame x = width, "
+                        "y = depth, z = height.  Every entry is a Collection built at the origin with its base on z = 0 and its "
+                        "front facing -Y; place it with `lib.scatter.instance(ctx.collection, ctx.assets['<snake>'], name, x, y, "
+                        "height_at=ctx.height_at)` (a collection-instance Empty seated on the ground = ONE placement row).")
     return "\n".join(lines) or "(no assets)"
+
+
+def _bpy_api_line(a: AssetPlan, r: AssetResult | None, kept: str | None, size: str, status: str) -> str:
+    """One asset's line of the bpy asset API (see ``asset_api_summary``)."""
+    snake = to_snake(a.name)
+    if kept:
+        return (f"- {a.name}: `ctx.assets['{snake}']` — variant {to_snake(kept)} builds (its module `src/assets/{snake}.py` is a "
+                f"harness shim onto `build_{to_snake(kept)}`), {size}{status}")
+    if a.kind == "blender_glb":
+        motion = f", carries {r.clips} keyframed motion clip(s) (its action plays in every instance)" if r and r.clips else ""
+        return (f"- {a.name}: `ctx.assets['{snake}']` — the hero GLB `public/assets/{snake}.glb` imported by the harness "
+                f"into the Blender frame, {size}{motion}{status}")
+    return f"- {a.name}: `ctx.assets['{snake}']` — built by the harness from `src/assets/{snake}.py` (`build_{snake}(ctx, variant=0)`), {size}{status}"
 
 
 def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, AssetResult]:
@@ -146,10 +182,12 @@ def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, 
     def _one(asset: AssetPlan) -> AssetResult:
         if asset.kind == "blender_glb":
             return build_blender_asset(ctx, asset, judge=judge_assets)
+        if asset.kind == "bpy":
+            return build_bpy_asset(ctx, asset, judge=judge_assets)
         return build_threejs_asset(ctx, asset, judge=judge_assets)
 
     workers = ctx.settings.limits.max_parallel_agents
-    if any(a.kind == "blender_glb" for a in assets):
+    if any(a.kind in ("blender_glb", "bpy") for a in assets):   # both kinds check in a Blender process
         workers = min(workers, ctx.settings.limits.max_parallel_builds)
     results = fan_out(assets, _one, max_workers=workers, label="assets", item_name=lambda a: a.name)
     out: dict[str, AssetResult] = {}
@@ -162,7 +200,7 @@ def run_asset_stage(ctx: RunContext, *, judge_assets: bool = True) -> dict[str, 
             ctx.events.emit("asset.failed", asset=asset.name, error=f"{type(r).__name__}: {r}")
         else:
             out[asset.name] = r
-    shims = write_variant_shims(ctx.ws, alias, {n for n, r in out.items() if r.ok})
+    shims = write_variant_shims(ctx.ws, alias, {n for n, r in out.items() if r.ok}, language=ctx.language)
     _record_spec_hashes(ctx, out, assets)  # the reuse guard's identity registry (rounds/ bookkeeping)
     ctx.ws.commit("assets")
     ctx.events.emit("assets.done", ok=[n for n, r in out.items() if r.ok], failed=[n for n, r in out.items() if not r.ok],
@@ -216,10 +254,40 @@ def build_threejs_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
 
     strategy, chk, notes = _ladder(ctx, asset, rel, language=Language.SCENE_THREEJS, files=[rel], check=check,
                                    timeout_s=asset_timeout_s(ctx, 120))
+    return _module_result(ctx, asset, rel, strategy, chk, notes, check=check, language=Language.SCENE_THREEJS, judge=judge)
+
+
+def build_bpy_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> AssetResult:
+    """A scene_blender plan's procedural module (``src/assets/<snake>.py``, ``build_<snake>(ctx,
+    variant=0)``): the three.js module's ladder exactly — committed-child reuse, single-shot →
+    ``check_bpy_asset`` (one Blender build of this module alone) → ONE repair → the agent session.
+    ``judge``: the quick-sheet judge runs only when the runtime renders a module on its own
+    (``render_asset``); the scene_blender runtime has none, so the scene judge sees the asset
+    placed, like a three.js module before 2026-09-07."""
+    rel, snake = ctx.runtime.asset_file(asset), to_snake(asset.name)
+    if (ctx.ws.root / rel).is_file() and _spec_hash_matches(ctx, asset):
+        chk0 = check_bpy_asset(ctx, rel, snake, expected_size_m=asset.approx_size_m)
+        if chk0.ran and chk0.ok:
+            ctx.events.emit("asset.generated", asset=asset.name, strategy="reused", ok=True, tris=chk0.tris, errors=[])
+            return AssetResult(name=asset.name, kind=asset.kind, ok=True, path=rel, size_m=chk0.size_m,
+                               strategy="reused", notes="committed module reused (Blender build check passed)")
+
+    def check(c: RunContext) -> AssetCheck:
+        return check_bpy_asset(c, rel, snake, expected_size_m=asset.approx_size_m)
+
+    strategy, chk, notes = _ladder(ctx, asset, rel, language=Language.SCENE_BLENDER, files=[rel], check=check,
+                                   timeout_s=asset_timeout_s(ctx, 120))
+    return _module_result(ctx, asset, rel, strategy, chk, notes, check=check, language=Language.SCENE_BLENDER, judge=judge)
+
+
+def _module_result(ctx: RunContext, asset: AssetPlan, rel: str, strategy: str, chk: AssetCheck | None, notes: str, *,
+                   check: Callable[[RunContext], AssetCheck], language: Language, judge: bool) -> AssetResult:
+    """What a MODULE asset's ladder outcome means (both module kinds): a module that will not
+    import / build is NOT AVAILABLE to zones; a merely imperfect one (size off, still a bit
+    plain) stays usable — the ladder already spent a repair on it.  Then the quick-sheet judge
+    + ONE fix pass, when the runtime can render the module alone (``render_asset``)."""
     if strategy == "outage":
         return AssetResult(name=asset.name, kind=asset.kind, ok=False, strategy=strategy, notes=notes)
-    # a module that will not import is NOT AVAILABLE to zones; a merely imperfect one
-    # (size off, still a bit plain) stays usable — we already spent a repair on it
     ok = (ctx.ws.root / rel).is_file() and not (chk is not None and chk.ran and chk.fatal)
     result = AssetResult(name=asset.name, kind=asset.kind, ok=ok, path=rel if ok else "", notes=notes, strategy=strategy,
                          size_m=chk.size_m if chk and chk.size_m else None)
@@ -245,7 +313,7 @@ def build_threejs_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
             return _restore
 
         result = _judge_and_fix(ctx, asset, result, lambda out_dir: render_asset(ctx.ws, asset.name, out_dir), files=[rel],
-                                language=Language.SCENE_THREEJS, after_fix=_after_fix, snapshot=_snapshot)
+                                language=language, after_fix=_after_fix, snapshot=_snapshot)
     return result
 
 
@@ -317,9 +385,9 @@ def _generate_asset(ctx: RunContext, asset: AssetPlan, rel: str, *, language: La
                           system=_asset_system(ctx, language),
                           files_hint=files, round=0, kind="asset", temperature=0.5, timeout_s=timeout_s,
                           images=reference_images(ctx),
-                          # threejs assets share the scene workspace (a stray write would hit
-                          # zones/env); blender heroes own their whole sub-workspace
-                          edit_only=language is Language.SCENE_THREEJS)
+                          # scene-language modules share the scene workspace (a stray write would
+                          # hit zones/env); blender heroes own their whole sub-workspace
+                          edit_only=language in SCENE_LANGUAGES)
     return generate_for(ctx, task)
 
 
@@ -555,8 +623,8 @@ def _judge_wanted(ctx: RunContext, asset: AssetPlan, chk: AssetCheck | None, *, 
 
 
 def _largest_module(ctx: RunContext) -> str:
-    """The name of the plan's biggest ``threejs`` asset by planned volume ('' when none)."""
-    mods = [a for a in (getattr(ctx.plan, "assets", None) or []) if a.kind == "threejs"]
+    """The name of the plan's biggest module asset (``MODULE_KINDS``) by planned volume ('' when none)."""
+    mods = [a for a in (getattr(ctx.plan, "assets", None) or []) if a.kind in MODULE_KINDS]
     if not mods:
         return ""
     return max(mods, key=lambda a: a.approx_size_m[0] * a.approx_size_m[1] * a.approx_size_m[2]).name
@@ -629,13 +697,13 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
     instructions = [f"- {i.target}: {i.instruction}" for i in verdict.improvement_plan[:4]]
     gen = single_shot_ctx(ctx) or ctx
     current = _inline(gen, files) if gen.single_shot else ""
-    prompt = render("tracks/scene_asset.j2", **base_prompt_context(
+    prompt = render(asset_template(language), **base_prompt_context(
         gen, asset_name=asset.name, asset_kind=asset.kind, asset_description=asset.description,
         asset_size=asset.approx_size_m, asset_file=files[0], asset_files=files, asset_language=language.value,
-        fix_instructions=instructions, current_code=current, skeleton_files={}, **_scene_context(ctx)))
+        fix_instructions=instructions, current_code=current, skeleton_files={}, library_rows="", **_scene_context(ctx)))
     task = GenerationTask(label=f"asset_{to_snake(asset.name)}_fix", prompt=prompt, system=_asset_system(gen, language),
                           files_hint=files, round=0, kind="asset_fix", temperature=0.4,
-                          edit_only=language is Language.SCENE_THREEJS, timeout_s=asset_timeout_s(ctx, 120))
+                          edit_only=language in SCENE_LANGUAGES, timeout_s=asset_timeout_s(ctx, 120))
     restore = snapshot() if snapshot is not None else None   # BEFORE the fix rewrites the files
     res = generate_for(gen, task)
     if not res.ok:
@@ -660,6 +728,17 @@ def _judge_and_fix(ctx: RunContext, asset: AssetPlan, result: AssetResult, rende
 
 
 # ----------------------------------------------------------------------------- helpers
+def asset_template(language: Language) -> str:
+    """The asset-session template of a scene language (``tracks/scene.SCENE_TEMPLATES``); a blender
+    hero — not a scene language — reads the three.js table's ``scene_asset.j2``, whose bpy branch
+    it has always used."""
+    from codeverse3d.tracks.scene import (
+        SCENE_TEMPLATES,  # scene imports this module: resolved at call time
+    )
+
+    return SCENE_TEMPLATES.get(language, SCENE_TEMPLATES[Language.SCENE_THREEJS]).asset
+
+
 def _asset_system(ctx: RunContext, language: Language) -> str:
     """The system prompt for one asset generation — same language, DIFFERENT task.
 
@@ -667,10 +746,14 @@ def _asset_system(ctx: RunContext, language: Language) -> str:
     sub-workspace, so it gets the blender language base COMPOSED with the prop-for-a-scene
     role overlay.  A three.js asset module is not a scene build at all — the scene_threejs
     base (lighting, cameras, multi-file) would mislead it — so it gets the dedicated
-    asset-module prompt instead of that base.
+    asset-module prompt instead of that base.  A bpy module likewise gets its own
+    ``scene_blender/asset.md``, with the prop role overlay that tells it what a scene prop is.
     """
     if language is Language.SCENE_THREEJS:
         return language_text(Language.SCENE_THREEJS, "asset.md").strip()
+    if language is Language.SCENE_BLENDER:
+        return (language_text(Language.SCENE_BLENDER, "asset.md").strip() + "\n\n"
+                + render("system/role_asset.j2", language=language.value).strip())
     return language_system_prompt(Language.BLENDER, role="asset", tools=not is_single_shot(ctx.agent_id))
 
 
@@ -685,28 +768,36 @@ def _scene_context(ctx: RunContext) -> dict[str, Any]:
     return {"spec_prompt": brief, "constraints": ctx.extra.get("scene_style") or "(none)"} if brief else {}
 
 
-#: what names a library row: a camelCase factory right after a backtick (``makeTree(``,
-#: ``patchMoss``) — a bare lowercase one (``seat``, ``block``) is an ordinary word in a sheet —
-#: and the module it lives in (``lib/tree.js``)
-_CATALOG_CALL_RE = re.compile(r"`([a-z]+[A-Z]\w*)[(`]")
-_CATALOG_MODULE_RE = re.compile(r"`lib/(\w+\.js)`")
+#: what names a library row, per scene language: the factory right after a backtick and the module
+#: it lives in.  three.js: a camelCase call (``makeTree(``, ``patchMoss``) — a bare lowercase one
+#: (``seat``, ``block``) is an ordinary word in a sheet — and ``lib/tree.js``.  bpy: the library is
+#: snake_case (``tree(``, ``water_surface(``) and ``lib/vegetation.py``; a sheet that says "a stone
+#: water trough" draws the water row too, which costs a line and never misleads.
+_CATALOG_RES: dict[Language, tuple[re.Pattern[str], re.Pattern[str]]] = {
+    Language.SCENE_THREEJS: (re.compile(r"`([a-z]+[A-Z]\w*)[(`]"), re.compile(r"`lib/(\w+\.js)`")),
+    Language.SCENE_BLENDER: (re.compile(r"`([a-z_][a-z0-9_]*)\("), re.compile(r"`lib/(\w+\.py)`")),
+}
 
 
-def library_rows(description: str) -> str:
+def library_rows(description: str, language: Language = Language.SCENE_THREEJS) -> str:
     """The effects-catalog rows of the library factories an asset sheet names, by call or by module
-    (D100): a three.js asset may compose ``src/lib/``, and a single-shot writer cannot open the
-    module to learn the call — the rows carry it.  The whole catalog is a zone-sized prompt."""
+    (D100): a module asset may compose ``src/lib/``, and a single-shot writer cannot open the
+    module to learn the call — the rows carry it.  The whole catalog is a zone-sized prompt.
+    ``""`` for a language without a catalog (a blender hero)."""
+    if language not in _CATALOG_RES:
+        return ""
+    call_re, module_re = _CATALOG_RES[language]
     words = set(re.findall(r"\w+(?:\.\w+)*", description))
-    return "\n".join(line for line in language_text(Language.SCENE_THREEJS, "effects_catalog.md").splitlines()
+    return "\n".join(line for line in language_text(language, "effects_catalog.md").splitlines()
                      if line.startswith("| ")
-                     and words & (set(_CATALOG_CALL_RE.findall(line)) | set(_CATALOG_MODULE_RE.findall(line))))
+                     and words & (set(call_re.findall(line)) | set(module_re.findall(line))))
 
 
 def _asset_prompt(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Language, files: list[str] | None = None) -> str:
     files = list(files or [rel])
-    prompt = render("tracks/scene_asset.j2", **base_prompt_context(
+    prompt = render(asset_template(language), **base_prompt_context(
         ctx, asset_name=asset.name, asset_kind=asset.kind, asset_description=asset.description, asset_size=asset.approx_size_m,
-        library_rows=library_rows(asset.description) if language is Language.SCENE_THREEJS else "",
+        library_rows=library_rows(asset.description, language),
         asset_file=rel, asset_files=files, asset_language=language.value, fix_instructions=[], current_code="",
         # a single-shot hero has to see the multi-file skeleton it is filling in, like a static object
         skeleton_files=skeleton_files(ctx) if (ctx.single_shot and len(files) > 1) else {},
@@ -812,6 +903,102 @@ def check_threejs_asset(ctx: RunContext, rel: str, pascal: str, *, timeout_s: fl
         return AssetCheck(ok=True, ran=False, warnings=[f"checker unavailable: {type(e).__name__}"])
     chk.fatal = not chk.ok  # everything the JS side reports is a hard failure to import/build
     _soft_findings(chk, expected_size_m)   # …the rest is wrong-but-usable: worth a repair, not a veto
+    return chk
+
+
+#: the probe zone of a bpy asset check: ONE collection instance of the module at the origin, so
+#: the census GLB (which excludes the asset sources themselves) carries exactly the asset's
+#: evaluated geometry — measured like a hero's GLB, in the same Y-up frame
+BPY_CHECK_ZONE = "check"
+
+
+def _bpy_check_workspace(ws: Workspace, rel: str, snake: str) -> Workspace:
+    """A throw-away workspace under ``_assets/`` (git-ignored, beside the hero sub-workspaces)
+    holding only what one module's build needs: an entry that lists this asset alone, the
+    module, the harness library it may import, and the probe zone.  Rebuilt from scratch on
+    every check so a module's last attempt never shadows its next."""
+    from codeverse3d.languages.scene_blender import render_scene_py
+
+    scratch = Workspace(ws.root / "_assets" / f"{snake}_check")
+    if scratch.root.exists():
+        shutil.rmtree(scratch.root)
+    for sub in ("assets", "zones", "lib"):
+        (scratch.src / sub).mkdir(parents=True, exist_ok=True)
+    scratch.artifacts.mkdir(parents=True, exist_ok=True)
+    (scratch.root / ENTRY_FILE[Language.SCENE_BLENDER]).write_text(render_scene_py([], [snake], [], []))
+    shutil.copyfile(ws.root / rel, scratch.src / "assets" / f"{snake}.py")
+    lib = ws.src / "lib"
+    for src in sorted(lib.glob("*.py")) if lib.is_dir() else []:
+        shutil.copyfile(src, scratch.src / "lib" / src.name)
+    (scratch.src / "zones" / f"{BPY_CHECK_ZONE}.py").write_text(
+        f'"""The harness\'s probe zone: one instance of {snake}, so the census GLB measures it."""\n'
+        "import bpy\n\n\n"
+        "def build(ctx):\n"
+        f"    ob = bpy.data.objects.new({to_pascal(snake)!r}, None)\n"
+        '    ob.instance_type = "COLLECTION"\n'
+        f"    ob.instance_collection = ctx.assets[{snake!r}]\n"
+        "    ctx.collection.objects.link(ob)\n"
+        "    return ctx.collection\n")
+    return scratch
+
+
+def check_bpy_asset(ctx: RunContext, rel: str, snake: str, *, expected_size_m: tuple[float, float, float] | None = None,
+                    timeout_s: float | None = None) -> AssetCheck:
+    """Build ``src/assets/<snake>.py`` alone in Blender and inspect what it made.
+
+    The scene_blender wrapper (``runtime.run_wrapper``) runs on a throw-away workspace whose
+    entry lists only this asset and whose one zone instances it: a module that raises is FATAL
+    with its ``file:line`` (the wrapper's isolated-stage report), the module's own triangles
+    come from the bpy facts, and the instance's size, ground contact, mesh and material counts
+    come off the census GLB through ``services.measure`` — the hero's measurement, so the
+    soft findings (size vs the plan beyond 2.5×, sunk below z = 0, the triangle budget, a
+    one-box placeholder) are the three.js module's exactly.
+
+    Never raises: a runtime without a Blender build (a fake, no binary) and a harness fault inside
+    the wrapper (``BuildResult.harness_failure``: the census-GLB writer) yield ``ran=False, ok=True``
+    — the scene build will catch it."""
+    path = ctx.ws.root / rel
+    if not path.is_file():
+        return AssetCheck(ok=False, ran=True, fatal=True, errors=[f"{rel} was not written"])
+    run_wrapper = getattr(ctx.runtime, "run_wrapper", None)
+    if not callable(run_wrapper):
+        return AssetCheck(ok=True, ran=False, warnings=["checker unavailable: the runtime builds no module on its own"])
+    try:
+        scratch = _bpy_check_workspace(ctx.ws, rel, snake)
+        run = run_wrapper(scratch, scratch.artifacts, zones={BPY_CHECK_ZONE: to_pascal(BPY_CHECK_ZONE)}, blend=False,
+                          timeout_s=float(timeout_s or ctx.settings.limits.build_timeout_s))
+    except Exception as e:  # noqa: BLE001 — the checker is an optimisation, never a blocker
+        log.warning("bpy asset check could not run for %s: %s", rel, e)
+        return AssetCheck(ok=True, ran=False, warnings=[f"checker unavailable: {type(e).__name__}"])
+    report = run.report or {}
+    for e in report.get("errors") or []:
+        if e.get("stage") == "asset" and e.get("name") == snake:
+            where = f"{e.get('error_file') or rel}:{e.get('error_line')}" if e.get("error_line") else str(e.get("error_file") or rel)
+            return AssetCheck(ok=False, ran=True, fatal=True,
+                              errors=[f"{where}: {e.get('error_type')}: {str(e.get('error_message'))[:300]}"])
+    if run.result.harness_failure:
+        # the wrapper's OWN instrumentation failed after the stages ran (``CensusGlbError``: the
+        # census-GLB writer), not the module — the rule of a runtime without Blender: never a blocker
+        log.warning("bpy asset check could not finish for %s: %s", rel, run.result.error_type)
+        return AssetCheck(ok=True, ran=False, warnings=[f"checker unavailable: {run.result.error_type}"])
+    if not run.result.ok:
+        # the wrapper itself did not finish — a build that never ends or dies (an unbounded loop,
+        # an allocation past the rlimit) is this module's doing: the entry lists nothing else
+        return AssetCheck(ok=False, ran=True, fatal=True,
+                          errors=[f"the module's build did not finish: {run.result.error_type}: {run.result.error_message}"[:300]])
+    if any(e.get("stage") == "zone" for e in report.get("errors") or []):
+        return AssetCheck(ok=False, ran=True, fatal=True,
+                          errors=[f"build_{snake}(ctx) returned no Collection the scene could instance (ctx.assets[{snake!r}] is missing)"])
+    chk = AssetCheck(ok=True, ran=True, tris=int((run.facts or {}).get("unique_tris") or 0))
+    try:
+        m = ctx.services.measure(scratch.artifacts / "census.glb")
+    except Exception as e:  # noqa: BLE001 — a module that built but cannot be measured is still usable
+        chk.warnings.append(f"measure unavailable: {type(e).__name__}")
+        return chk
+    chk.size_m = (round(m.extents[0], 3), round(m.extents[1], 3), round(m.extents[2], 3))
+    chk.min_y, chk.meshes, chk.materials = round(m.bbox_min[1], 3), m.n_meshes, m.materials
+    chk.tris = chk.tris or m.tri_count
+    _soft_findings(chk, expected_size_m)
     return chk
 
 
@@ -943,23 +1130,34 @@ def read_dedupe_note(ws: Workspace) -> dict[str, str] | None:
     return None if data is None else dict(data.get("alias") or {})
 
 
-def write_variant_shims(ws: Workspace, alias: dict[str, str], available: set[str]) -> list[str]:
+def write_variant_shims(ws: Workspace, alias: dict[str, str], available: set[str], *,
+                        language: Language = Language.SCENE_THREEJS) -> list[str]:
     """Replace a merged asset's skeleton stub with a shim onto the surviving factory.
 
-    Zone code is TOLD to call ``build<Kept>(THREE, {variant: n})``, but a zone that
-    imports the old name anyway must get the real prop, not the placeholder blockout
-    box the skeleton left behind."""
+    three.js: zone code is TOLD to call ``build<Kept>(THREE, {variant: n})``, but a zone that
+    imports the old name anyway must get the real prop, not the placeholder blockout box the
+    skeleton left behind.  bpy: the wrapper builds every ``src/assets/*.py`` into
+    ``ctx.assets``, so the shim IS how the merged twin exists — ``build_<dropped>`` builds the
+    survivor's variant into its own Collection and the zones place it by its own name."""
     written: list[str] = []
     for dropped, kept in sorted(alias.items()):
         if kept not in available:
             continue
-        rel = f"src/assets/{to_snake(dropped)}.js"
+        variant = variant_index(alias, dropped)
+        if language is Language.SCENE_BLENDER:
+            rel = f"src/assets/{to_snake(dropped)}.py"
+            text = (f'"""{dropped} is a variant of {kept} (assets were merged into one factory): the harness\'s shim."""\n'
+                    f"from assets.{to_snake(kept)} import build_{to_snake(kept)}\n\n\n"
+                    f"def build_{to_snake(dropped)}(ctx, variant={variant}):\n"
+                    f"    return build_{to_snake(kept)}(ctx, variant=variant)\n")
+        else:
+            rel = f"src/assets/{to_snake(dropped)}.js"
+            text = (f"// {dropped} is a variant of {kept} (assets were merged into one factory).\n"
+                    f"import {{ build{to_pascal(kept)} }} from './{to_snake(kept)}.js';\n\n"
+                    f"export function build{to_pascal(dropped)}(THREE, opts = {{}}) {{\n"
+                    f"  return build{to_pascal(kept)}(THREE, {{ variant: {variant}, ...opts }});\n}}\n")
         path = ws.root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            f"// {dropped} is a variant of {kept} (assets were merged into one factory).\n"
-            f"import {{ build{to_pascal(kept)} }} from './{to_snake(kept)}.js';\n\n"
-            f"export function build{to_pascal(dropped)}(THREE, opts = {{}}) {{\n"
-            f"  return build{to_pascal(kept)}(THREE, {{ variant: {variant_index(alias, dropped)}, ...opts }});\n}}\n")
+        path.write_text(text)
         written.append(rel)
     return written

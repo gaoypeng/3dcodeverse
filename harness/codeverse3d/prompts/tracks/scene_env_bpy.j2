@@ -1,0 +1,111 @@
+# Environment module for `{{ title }}` — write `{{ env_file }}`
+
+Scene: {{ spec_prompt }}
+Setting: {{ setting }}. Mood: {{ mood }}.
+Bounds (Z up, −Y front, metres — already converted from the plan): {{ bounds }}
+
+## Environment plan (realise these numbers; its prose is Y-up: "y up" there is z here, "+z" there is −y here)
+{{ environment }}
+{% if interior and glazed %}
+## This is a GLASS HOUSE — the enclosure is yours
+Build the glass walls and roof on the bounds' faces with `room_shell(ctx.collection, frame_mat,
+center=…, extents=…, thickness=0.2, openings=(…), glazed=True)` from `lib/architecture.py` — an iron
+frame grid with glass panes, named `RoomShell…` / `Ceiling…` so the overview rig can lift the lid
+— cut the plan's doors as openings, and let the SUN do the lighting: it comes through the glass and
+the frame throws its grid of shadows on the floor.  Never put an opaque wall or roof around it.
+{% elif interior %}
+## This is an INTERIOR — the enclosure is yours
+Build the room on the bounds' faces with `room_shell(ctx.collection, wall_mat, center=…, extents=…,
+thickness=0.2, openings=(…))` from `lib/architecture.py` — floor, four walls and a ceiling named
+`RoomShell…` / `Ceiling…` (the overview rig lifts the lid by name).  Cut the plan's windows and doors
+as openings (face, centre along the wall / up from the floor, size, metres), glaze or frame them, and
+LIGHT THE INSIDE: an Area light per window aimed into the room, practicals where the brief has lamps
+(the sun is outside: without openings and lights a closed room reads black).  Measured 2026-09-07
+over six interior runs: with no owner for walls and roof, every one was judged "not enclosed, a
+diorama on a flat plane, tool racks floating at a missing wall" (0.0–0.3).
+{% endif %}
+
+## Contract
+{{ frame_doc }}
+{{ contract }}
+
+### The harness assembles `{{ entry_file }}` and runs YOUR module like this — nothing else runs
+```python
+ctx.collection = scene root                      # build_env links into it
+out = env.build_env(ctx)                         # ONE argument, and it is ctx
+ctx.env = out if isinstance(out, dict) else {}   # what the zones read as ctx.env
+ctx.height_at = env.height_at                    # THE ground every zone seats on
+```
+So `{{ env_file }}` must define exactly:
+- `def height_at(x, y) -> z` — the terrain height (0.0 for flat ground), deterministic and cheap; every
+  zone places things with it, so the PATH, a pond basin and a terrace are carved INTO it (then what
+  stands on the path stands on the path).  Keep it within about ±1.5 m of 0 inside the bounds: the
+  plan's camera heights are absolute.
+- `def build_env(ctx) -> dict` — builds the world (sky), the Sun lamp, the ground mesh (sampled from
+  `height_at`, named `Ground…`), the atmosphere (a bounded fog volume) and the backdrop (a sky-named
+  horizon ring) into `ctx.collection`, and RETURNS the dict zones share: `{"ground_material": …,
+  "sun_direction": (x, y, z), "water_level": …, "palette": …}`.
+- module constants `SUN_AZIMUTH_DEG` (compass: 0 = +X, 90 = +Y) and `SUN_ELEVATION_DEG` — zones and
+  the harness's overview rig read the sun side from them.
+The world (`bpy.data.worlds.new`, `ctx.scene.world =`) is YOURS and nobody else's: a zone that
+builds one fails the lint.  No cameras (the plan's), no `scene.render.*`, no frame changes.
+
+## What this module is graded on
+The chapters behind these rules are printed in full at the end of this brief (**Recipes**) — copy
+their numbers and snippets; the shipped `lib/` does each in one call (the catalog follows).
+
+1. **Ground must not be one flat colour.**  Three or four colours blended by height, slope and
+   noise (a `FLOAT_COLOR` attribute read by an Attribute node, or `lib.terrain.ground` with
+   `lib.materials.mineral_surface`), relief from `lib.terrain.make_height_at`, the path carved into
+   `height_at` in both height and colour — never a single-colour plane, a scored defect
+   (`flat_ground`).
+2. **No world edge.**  The ground reaches ≥ 2.5 × the plan span; the fog box covers all of it in the
+   sky's HORIZON colour (`lib.sky.haze`); a sky-named silhouette ring (`SkyRidge`: hills, rooftops,
+   mesas, a treeline — solid geometry, never flat cut-outs) at ~0.6 × the visible range in its own
+   colour DARKENED 0.6–0.8 × — the fog hazes it, never tint it yourself.
+3. **The floor stays near z = 0** (rule above): a knoll or a pond basin is fine, a 7 m plateau puts
+   every plan camera underground (`camera_underground`, cap 0.50).  Ponds, terraces and gravel beds
+   are CARVED INTO `height_at`, never a hard-edged disc laid on the ground.
+4. **Coloured atmosphere, not monochrome.**  The brief's time of day as the recipes' numbers: a
+   physical sky world (`lib.sky.sun_world`, MULTIPLE_SCATTERING) or a deep flat colour for night,
+   a Sun lamp of 1–5 W/m² (`lib.lighting.sun`; a moon at 0.05–0.3), the world strength 0.1–0.6, the
+   fog 0.003–0.008.  A warm sun under a cool sky is the whole trick; shade must carry sky colour,
+   never black — with the sun under 25° keep the world strength ≥ 0.2 or the frame trips
+   `dark_frame` (cap 0.55).  Exposure is fixed at 0 and the harness owns it.
+5. **Shadows must read.**  The Sun's `angle` 1–3° (soft but defined); never a second Sun to fill — the
+   sky world is the fill.
+6. No {% if not (textures is defined and textures) %}image textures, no {% endif %}file IO, no `bpy.ops` in loops, no unseeded randomness (`ctx.rng(seed)`).
+
+## DON'T
+- No assets or zones here (they come from other modules).  No cameras.  No `scene.*` render / view settings.
+- Do not re-declare the path polyline in a zone: export it (or a `dist_to_path`) from here.
+
+## Effects planned (only the ones targeting the environment)
+{{ effects }}
+{% if tool_cards and not single_shot %}
+
+## Tools
+{{ tool_cards }}
+After editing run `build`, then `scene_views` and LOOK: is the horizon hazy, is the ground
+multi-coloured, is the shade coloured rather than black?  Read the frame table it prints:
+every authored camera must pass the exposure checks.  `scene_probe` says whether the world
+and the atmosphere were found.
+{% endif %}
+{% if effects_catalog is defined and effects_catalog %}
+
+{{ effects_catalog }}
+{% endif %}
+{% if recipes is defined and recipes %}
+
+# Recipes (from the scene cookbook — copy these numbers and snippets)
+{{ recipes }}
+{% endif %}
+{% if textures is defined and textures %}
+
+{{ textures }}
+(These are PNG files under `public/textures/`: load one with `bpy.data.images.load("public/textures/<file>",
+check_existing=True)` into an Image Texture node; the build runs with the workspace root as its working directory.)
+{% endif %}
+
+## Output
+{{ output_format }}

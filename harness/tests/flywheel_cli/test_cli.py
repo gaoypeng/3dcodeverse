@@ -530,6 +530,75 @@ def test_a_judge_unavailable_run_resumes_as_it_is(made_run, stub_track):
     assert entered == [(True, False)]
 
 
+def test_make_freezes_the_variant_on_the_spec_and_refuses_an_unknown_one(tmp_path: Path, monkeypatch):
+    """D105: ``--variant`` is resolved once, validated before a run dir exists and frozen on
+    ``spec.options.variant``; with no flag ``C3D_VARIANTS`` maps the generator by its SERVED model
+    (the effort suffix does not matter) and the default run is the base.  Unknown = exit 2, no orphan."""
+    from codeverse3d.config import get_settings
+
+    runs = tmp_path / "runs"
+    r = runner.invoke(app, ["make", "a clay pot", "--variant", "argon", "--no-run", "--runs-dir", str(runs), "--slug", "v"])
+    assert r.exit_code == 0, r.output
+    assert json.loads((runs / "v" / "spec.json").read_text())["options"]["variant"] == "argon"
+    out = " ".join(r.output.split())
+    assert "variant" in out and "argon v1" in out and "via --variant" in out
+
+    r = runner.invoke(app, ["make", "a clay pot", "--variant", "bogus", "--no-run", "--runs-dir", str(runs), "--slug", "b"])
+    assert r.exit_code == 2 and "unknown variant 'bogus'" in r.output and "argon" in r.output
+    assert "Traceback" not in r.output and not (runs / "b").exists(), "no workspace for a rejected flag"
+
+    r = runner.invoke(app, ["make", "a clay pot", "--no-run", "--runs-dir", str(runs), "--slug", "base"])
+    assert r.exit_code == 0 and json.loads((runs / "base" / "spec.json").read_text())["options"]["variant"] == ""
+    assert "base" in " ".join(r.output.split())
+
+    monkeypatch.setenv("C3D_VARIANTS", '{"agy:gemini-4-argon": "argon"}')
+    get_settings.cache_clear()
+    try:
+        r = runner.invoke(app, ["make", "a clay pot", "--generator", "agy:gemini-4-argon-high", "--no-run",
+                                "--runs-dir", str(runs), "--slug", "served"])
+        assert r.exit_code == 0, r.output
+        assert json.loads((runs / "served" / "spec.json").read_text())["options"]["variant"] == "argon"
+        assert "via settings.variants" in " ".join(r.output.split())
+        r = runner.invoke(app, ["make", "a clay pot", "--generator", "codex:gpt-6.1-sol", "--no-run",
+                                "--runs-dir", str(runs), "--slug", "other"])
+        assert r.exit_code == 0 and json.loads((runs / "other" / "spec.json").read_text())["options"]["variant"] == ""
+    finally:
+        get_settings.cache_clear()
+
+
+def test_a_judge_replay_runs_under_the_records_variant(tmp_path: Path, monkeypatch):
+    """`3dcode judge` reads the prompt files the run read: the record's variant is active while the judge
+    input is built and the verdict made; a variant this tree no longer ships warns and replays on the base."""
+    import codeverse3d.judges.vlm_judge as vj
+    from codeverse3d.prompts.variants import active_variant
+    from tests.flywheel_cli.conftest import _judgment, make_fake_run
+
+    runs = tmp_path / "runs"
+    ws, rec = make_fake_run(runs, "stool_v")
+    rec.spec.options.variant = "argon"
+    ws.write_json(ws.record_path, rec)
+    ws.write_json(ws.spec_path, rec.spec)
+    _write_stool_plan(ws)
+    seen: list[str] = []
+
+    class _Judge:
+        def __init__(self, *, rubric=None, **kw):
+            self.rubric = rubric
+
+        def judge(self, inp):
+            seen.append(active_variant())
+            return _judgment(0.7, False, [])
+
+    monkeypatch.setattr(vj, "VlmJudge", _Judge)
+    assert runner.invoke(app, ["judge", "stool_v", "--runs-dir", str(runs)]).exit_code == 0
+    assert seen == ["argon"]
+    rec.spec.options.variant = "retired"
+    ws.write_json(ws.record_path, rec)
+    r = runner.invoke(app, ["judge", "stool_v", "--runs-dir", str(runs)])
+    assert r.exit_code == 0 and "base prompts" in r.output and "retired" in r.output
+    assert seen == ["argon", ""]
+
+
 def test_a_zero_minute_budget_is_refused(made_run, tmp_path: Path):
     """--max-minutes 0 planned (paid) and stopped at the first clock check with no round."""
     r = runner.invoke(app, ["make", "a cup", "--max-minutes", "0", "--no-run", "--runs-dir", str(tmp_path / "z"), "--slug", "z"])

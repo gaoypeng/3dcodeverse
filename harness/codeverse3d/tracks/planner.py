@@ -35,7 +35,12 @@ from pydantic import BaseModel, ValidationError
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse3d.contracts.common import Language, Track, Usage
-from codeverse3d.contracts.plan import AcceptanceItem, EngineeringBrief
+from codeverse3d.contracts.plan import (
+    AcceptanceItem,
+    EngineeringBrief,
+    ScenePlan,
+    scene_plan_schema,
+)
 from codeverse3d.contracts.spec import Spec
 from codeverse3d.conventions import LANGUAGE_FRAME, frame_doc, to_pascal, to_snake
 from codeverse3d.models import get_chat_model
@@ -460,8 +465,18 @@ def enrich_plan(plan_obj: Any, brief: EngineeringBrief | None) -> Any:
 
 
 # ===================================================================== worked examples
-def plan_example(track: Track) -> dict[str, Any]:
-    """Compact, valid worked example per track (concrete beats abstract)."""
+def plan_example(track: Track, language: Language | None = None) -> dict[str, Any]:
+    """Compact, valid worked example per track (concrete beats abstract) — and, where a language
+    plans differently, per language: a scene_blender plan names ``bpy`` modules where a three.js
+    plan names ``threejs`` ones (``SCENE_ASSET_KINDS``).  Its NUMBERS are the same Y-up GLB-frame
+    numbers (D12: the plan never changes frame; the skeleton and the prompts convert for the
+    author), so the two examples differ in the asset kinds and nothing else."""
+    if track is Track.SCENE and language is Language.SCENE_BLENDER:
+        example = plan_example(Track.SCENE)
+        for asset in example["assets"]:
+            if asset["kind"] == "threejs":
+                asset["kind"] = "bpy"
+        return example
     if track is Track.GRAPHICS:
         return {
             "title": "Neon rain on a window", "summary": "Looking through a rain-streaked window at a neon-lit street at night; "
@@ -739,14 +754,32 @@ def _truncated(exc: Exception) -> bool:
     """Did this model error mean 'the answer did not fit'?"""
     return "MAX_TOKENS" in str(exc)
 
-PLAN_TEMPLATES: dict[Track, str] = {
-    Track.STATIC_OBJECT: "tracks/plan_static.j2",
-    Track.ARTICULATED_OBJECT: "tracks/plan_articulated.j2",
-    Track.SCENE: "tracks/plan_scene.j2",
-    Track.GRAPHICS: "tracks/plan_graphics.j2",   # no 3D frame: passes, uniforms, motion
+#: the planner's system-prompt template per (track, language); ``(track, None)`` is the track's
+#: default and the fallback for every language without a row of its own.  A scene_blender
+#: director reads the bpy twin: the same plan shape and frame (D12), the bpy library and the
+#: ``bpy`` asset kind instead of the three.js effects and ``threejs``.
+PLAN_TEMPLATES: dict[tuple[Track, Language | None], str] = {
+    (Track.STATIC_OBJECT, None): "tracks/plan_static.j2",
+    (Track.ARTICULATED_OBJECT, None): "tracks/plan_articulated.j2",
+    (Track.SCENE, None): "tracks/plan_scene.j2",
+    (Track.SCENE, Language.SCENE_BLENDER): "tracks/plan_scene_bpy.j2",
+    (Track.GRAPHICS, None): "tracks/plan_graphics.j2",   # no 3D frame: passes, uniforms, motion
 }
 #: the output-token floor ``plan_tokens`` grows from; a graphics plan starts at the model's ceiling
 PLAN_OUTPUT_FLOOR = 24_000
+
+
+def plan_template(track: Track, language: Language | None = None) -> str:
+    """The planner template for ``(track, language)``: the language's own row, else the track's."""
+    return PLAN_TEMPLATES.get((track, language)) or PLAN_TEMPLATES[(track, None)]
+
+
+def plan_schema(spec: Spec, plan_model: type[BaseModel]) -> dict[str, Any]:
+    """The response schema the planner call carries: a scene's names the asset kinds of ITS
+    language (``scene_plan_schema``); every other plan is its model's schema as is."""
+    if issubclass(plan_model, ScenePlan):
+        return scene_plan_schema(spec.language)
+    return plan_model.model_json_schema()
 
 
 def plan_temperature(track: Track) -> float:
@@ -820,7 +853,7 @@ def plan[P: BaseModel](spec: Spec, model_id: str, plan_model: type[P], ws: Works
     images = [ImagePart(path=r.path, label=f"{r.role}: {r.note}".strip(": ")) for r in spec.references]
     messages = [ChatMessage.user(user, images=images or None)]
     base_messages = list(messages)
-    schema = plan_model.model_json_schema()
+    schema = plan_schema(spec, plan_model)
     last_error = ""
     invalid = requeried = grown = restarts = 0
     tokens = plan_tokens(budget, PLAN_TOKENS_MAX if spec.track is Track.GRAPHICS else PLAN_OUTPUT_FLOOR)
@@ -929,12 +962,12 @@ def build_system_prompt(spec: Spec, plan_model: type[BaseModel], *, budget: Plan
     lang: Language = spec.language
     budget = budget or plan_budget(spec)
     return render(
-        PLAN_TEMPLATES[spec.track],
+        plan_template(spec.track, lang),
         track=spec.track.value,
         language=lang.value,
         frame_doc=frame_doc(LANGUAGE_FRAME[lang.value]),
         contract=language_text(lang, "contract.md"),
-        example_json=json.dumps(plan_example(spec.track), indent=1),
+        example_json=json.dumps(plan_example(spec.track, lang), indent=1),
         schema_fields=", ".join(plan_model.model_json_schema().get("properties", {}).keys()),
         target_parts=budget.target_parts,
         min_parts=budget.min_parts,
@@ -1055,8 +1088,8 @@ def normalise_names[P: BaseModel](plan_obj: P) -> P:
 
 
 __all__ = ["MAX_PLAN_RESTARTS", "MAX_QUALITY_REASKS", "MAX_VALIDATION_REASKS",
-           "PLAN_TOKENS_MAX", "PlanningError", "add_acceptance_item",
+           "PLAN_TEMPLATES", "PLAN_TOKENS_MAX", "PlanningError", "add_acceptance_item",
            "articulation_acceptance", "build_system_prompt", "build_user_prompt", "plan_event_stats",
            "ensure_acceptance", "missing_link_names", "normalise_names", "plan",
-           "degenerate_plan", "plan_example", "plan_temperature", "plan_tokens", "restart_enabled",
-           "restart_note"]
+           "degenerate_plan", "plan_example", "plan_schema", "plan_template", "plan_temperature", "plan_tokens",
+           "restart_enabled", "restart_note"]

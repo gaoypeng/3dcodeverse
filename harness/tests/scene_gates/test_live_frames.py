@@ -75,9 +75,10 @@ def test_example_scene_passes_frame_gate_and_judge_subset(starter_ws: Workspace)
     assert rs.out_dir == str(out)
     assert all(v.judge is not None for v in rs.views)
     stamped = {(v.name, v.time_s) for v in rs.views if v.judge}
-    # 3 authored at t=0 + the 3 overview-rig tiles + the first two authored at t=1.5;
-    # the harness's eye-level rig is a diagnostic and never reaches the judge
-    assert len(stamped) == 8 <= JUDGE_MAX_VIEWS
+    # 3 authored at t=0 + the 4 overview-rig tiles (scene_v2: the contact camera is the fourth)
+    # + the first two authored at t=1.5; the harness's eye-level rig is a diagnostic and never
+    # reaches the judge
+    assert len(stamped) == 9 <= JUDGE_MAX_VIEWS
     assert not any(n.startswith("eye_") for n, _ in stamped)
     assert stamped == {(v.name, v.time_s) for v in select_judge_views(rs).views}
     # motion is measured from the written frames and persisted for the gate / judge context

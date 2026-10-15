@@ -20,6 +20,15 @@ pip install -e ../harness                     # once; both evaluations import co
 python -m bench.run_bench bench/prompts/static_objects_v1.yaml --generator agy:gemini-4-argon
 python -m bench.report bench/out/static_objects_v1          # rebuild report.md + report.html
 python bench/compare_backends.py --prompts bench/prompts/compare_v1.yaml --arms harness:agy:gemini-4-argon,oneshot:gemini:gemini-3.7-flash --out bench/out/compare_v1
+python -m bench.run_bench bench/prompts/scenes_v2.yaml --variant argon --judge gemini:gemini-4-argon   # a per-model prompt/skill variant (D105) on every run
+python -m bench.loop init --name argon_scene --out bench/out/loop_argon --variant argon --languages scene_threejs,scene_blender \
+    --generator agy:gemini-4-argon --judge gemini:gemini-4-argon --judge-thinking medium --parallel 15 --rounds 2 --max-minutes 90
+python -m bench.loop generate --out bench/out/loop_argon --iter 0 [--n 30] [--rung 1]   # the tuning loop (docs/EVAL.md §10)
+python -m bench.loop run      --out bench/out/loop_argon --iter 0 [--resume]            # one run_bench child per language
+python -m bench.loop diagnose --out bench/out/loop_argon --iter 0                       # diagnosis.md: numbers + recommendations
+python -m bench.loop compare  --out bench/out/loop_argon --iter 1 --against 0           # keep / revert / inconclusive per language
+python -m bench.loop judge-calib --out bench/out/loop_argon --iter 1 [--n 3]            # the judge arm: within / between σ
+python -m bench.loop accept   --out bench/out/loop_argon --iter 1 --note "…"            # or rollback; status prints the ledger
 python -m llm.config                          # doctor for the LLM evaluation: tools and assets it can / cannot find
 python -m pytest                              # the bench tests (offline)
 ruff check .

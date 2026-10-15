@@ -8,8 +8,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from codeverse3d.config import get_settings
 from tests.prompts.conftest import (
     blocks,
     js_prelude,
@@ -239,3 +242,102 @@ def test_scene_cookbook_sky_shader_compiles() -> None:
     )
     code, out = compile_scene(scene, ("environment.js", "sky.js"))
     assert code == 0, f"sky shader failed to compile:\n{out}"
+
+
+# --------------------------------------------------------------------- scene_blender
+#: what the scene_blender cookbook's header promises every zone-body snippet has in scope
+_BPY_PRELUDE = "import math\n\nimport bmesh\nimport bpy\nfrom mathutils import Euler, Matrix, Vector, noise\n"
+#: a block that is module-level ``src/env.py`` code instead (the world is only ever built there)
+BPY_ENV_ROLE = "# role: env"
+
+
+def bpy_snippet_modules(rel: str) -> tuple[str, dict[str, str]]:
+    """``(src/env.py source, {zone snake: zone module source})`` for the python blocks of ``rel``: the
+    ``# role: env`` blocks concatenated in order into ONE env module, every other block the body of its
+    own zone's ``build(ctx)`` under the prelude the cookbook header states."""
+    env_blocks: list[str] = []
+    zones: dict[str, str] = {}
+    for i, body in enumerate(blocks(rel, "python")):
+        if body.lstrip().startswith(BPY_ENV_ROLE):
+            env_blocks.append(body)
+            continue
+        indented = "".join(("    " + line) if line.strip() else line for line in body.splitlines(keepends=True))
+        zones[f"snippet_{i:02d}"] = (f'"""block {i} of {rel}, run as a zone by tests/prompts/test_snippets_run.py."""\n'
+                                     + _BPY_PRELUDE + "\n\ndef build(ctx):\n    rng = ctx.rng(7)\n" + indented
+                                     + ("" if indented.endswith("\n") else "\n") + "    return ctx.collection\n")
+    return "\n\n".join(env_blocks), zones
+
+
+def _bpy_workspace(tmp_path):
+    """The scratch workspace the scene_blender snippets run in: the skeleton of the bpy worked example
+    (its two module assets build first → ``ctx.assets``), through the real runtime."""
+    from codeverse3d.contracts.common import Language, Track
+    from codeverse3d.contracts.plan import ScenePlan
+    from codeverse3d.languages import get_runtime
+    from codeverse3d.tracks.planner import plan_example
+    from codeverse3d.workspace import Workspace
+
+    if not get_settings().resolve_blender():
+        pytest.skip("no Blender binary configured")
+    plan = ScenePlan.model_validate(plan_example(Track.SCENE, Language.SCENE_BLENDER))
+    ws = Workspace(tmp_path / "ws")
+    rt = get_runtime(Language.SCENE_BLENDER)
+    rt.skeleton(ws, plan)
+    return ws, rt, plan
+
+
+@pytest.mark.blender
+def test_scene_blender_cookbook_runs_inside_zones_and_lints_clean(tmp_path) -> None:
+    """The bpy cookbook's promise: every snippet runs in Blender 5.2.2 under the ctx the wrapper hands
+    out (one process for all of them) and passes the scene lint for its role with no WARN."""
+    from codeverse3d.contracts.artifacts import Severity
+    from codeverse3d.conventions import to_pascal
+    from codeverse3d.languages.scene_blender import lint_scene_source
+
+    ws, rt, _ = _bpy_workspace(tmp_path)
+    env_src, zones = bpy_snippet_modules("scene_blender/cookbook.md")
+    assert env_src and len(zones) >= 10
+    (ws.src / "env.py").write_text(env_src)
+    for name, src in zones.items():
+        (ws.src / "zones" / f"{name}.py").write_text(src)
+    bad = {}
+    for rel, src, role in [("src/env.py", env_src, "env"), *((f"src/zones/{n}.py", s, "zone") for n, s in zones.items())]:
+        findings = [f for f in lint_scene_source(src, target=rel, role=role) if f.severity is not Severity.INFO]
+        if findings:
+            bad[rel] = [(f.severity.value, f.message) for f in findings]
+    assert not bad, bad
+    run = rt.run_wrapper(ws, ws.artifacts, zones={n: to_pascal(n) for n in zones}, blend=False, timeout_s=600)
+    errors = [(e.get("stage"), e.get("name"), e.get("error_file"), e.get("error_line"), e.get("error_message")) for e in run.report.get("errors") or []]
+    assert run.result.ok and not errors, (run.result.error_type, run.result.error_message, errors)
+    assert sorted(run.report["zones_ok"]) == sorted(zones)
+    assert not run.report.get("warnings"), run.report.get("warnings")
+
+
+@pytest.mark.blender
+@pytest.mark.node
+def test_scene_blender_contract_examples_build_through_the_runtime(tmp_path) -> None:
+    """The contract's two COMPLETE files (built on the shipped bpy library, D51) lint clean, assemble,
+    build and seat what they place — through the real runtime, gates included."""
+    from codeverse3d.contracts.artifacts import Severity
+    from codeverse3d.languages import scene_blender as sb
+    from tests.scene_runtime.conftest import browser_available
+
+    lib = Path(sb.__file__).resolve().parent / "starter" / "src" / "lib"
+    if not lib.is_dir():
+        pytest.skip("the scene_blender starter library (lane B2) is not in this tree yet")
+    if not browser_available():
+        pytest.skip("puppeteer/chrome required for the census probe")
+    ws, rt, plan = _bpy_workspace(tmp_path)
+    files = labelled_files("scene_blender/contract.md", tag="python")
+    assert set(files) == {"src/env.py", "src/zones/quay.py"}
+    for rel, body in files.items():
+        (ws.root / rel).write_text(body)
+    rep = rt.lint(ws)
+    assert not [f for f in rep.findings if f.severity is not Severity.INFO], [(f.target, f.message) for f in rep.findings]
+    asm = rt.assemble(ws, plan)
+    assert "quay" in asm.zones_included and not asm.zones_failed and asm.env_ok, asm
+    res = rt.build(ws)
+    assert res.ok, res.stdout_tail
+    rows = {r["name"]: r for r in res.census["placement"]["assets"]}
+    assert rows["QuayDeck"]["supported"] and not rows["QuayDeck"]["floating"]
+    assert all(rows[f"Bollard_{i}"]["supported"] for i in range(6)), {k: v for k, v in rows.items() if k.startswith("Bollard")}

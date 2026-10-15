@@ -124,7 +124,7 @@ three.js 40/40 — identical to the report's reference counts.
 
 The harness batteries (`../bench/prompts/*.yaml`, the ten in `config.HARNESS_BATTERIES`) have no ground truth; their quality score is the calibrated
 Gemini VLM judge in `harness/codeverse3d/judges` (14-view rig, rubric `static_object_v1`, σ ≈ 0.03 at n=3).
-`docs/inventory_harness_bench.md` §7 shows the minimal call sequence (`FixedEvaluator`, `h2h_glb.py`) to
+`docs/inventory_harness_bench.md` §7 shows the minimal call sequence (`FixedEvaluator`) to
 judge a GLB produced here without the agentic pipeline.
 
 ## Provenance

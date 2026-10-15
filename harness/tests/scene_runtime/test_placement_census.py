@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from codeverse3d.config import get_settings
+from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.spatial.scene_placement import placement_findings
 from tests.scene_runtime.conftest import needs_node, run_node_json
 
 pytestmark = [pytest.mark.node, needs_node]
@@ -39,6 +42,11 @@ zone.add(box('Bench', 1.6, 0.9, 0.5, 16, 0, 15));
 zone.add(box('Boat', 2, 0.6, 0.8, -20, 0.0, -20));
 const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.6, 1), mat); rock.name = 'Rock'; rock.position.set(8, 0.2, -8); zone.add(rock);
 const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), mat, 50); inst.name = 'Pebbles'; zone.add(inst);
+// the env's room shell: a lid and a lintel whose box runs INTO the lid (a 3.2 m door head in a 3 m room) —
+// one enclosure, never placed assets (2026-10-15: half the Blender interpenetration ERRORs of loop iteration 0)
+const shell = new THREE.Group(); shell.name = 'RoomShell'; scene.add(shell);
+shell.add(box('Ceiling', 8.4, 0.2, 6.4, -30, 3.0, 30));
+shell.add(box('RoomShellWallBack_0Lintel', 1.2, 0.5, 0.2, -30, 2.8, 33.1));
 scene.updateMatrixWorld(true);
 const c = sceneCensus(scene, THREE, { placement: true });
 console.log(JSON.stringify({ ground_y: c.ground_y, placement: c.placement, plain_has_placement: 'placement' in sceneCensus(scene, THREE) }));
@@ -59,12 +67,17 @@ def _row(table, name):
 
 
 def test_counts_exemptions_and_budget(table):
-    assert table["total"] == 17 and table["checked"] == 12 and table["truncated"] is False
-    assert table["exempt"] == {"backdrop": 3, "free": 1, "instanced": 1}
+    assert table["total"] == 19 and table["checked"] == 12 and table["truncated"] is False
+    assert table["exempt"] == {"backdrop": 3, "enclosure": 2, "free": 1, "instanced": 1}
     assert {a["name"] for a in table["assets"] if a["exempt"] == "backdrop"} == {"Ground", "SkyDome", "PondWater"}
     assert _row(table, "Bird")["exempt"] == "free" and _row(table, "Pebbles")["exempt"] == "instanced"
     assert table["duration_ms"] < 2000 and table["notes"] == []
-    assert table["thresholds"] == {"contact_m": 0.02, "floating_m": 0.05, "sunk_m": 0.1, "overlap_min": 0.2}
+    # what the probe MEASURES at = what the gate grades the default scene at (Settings.placement);
+    # the pair floor is the default overlap_warn, or the strict WARN band would be unmeasured
+    p = get_settings().placement
+    assert table["thresholds"] == {"contact_m": p.contact_m, "floating_m": p.floating_outdoor_m, "sunk_m": p.sunk_m,
+                                   "overlap_min": p.overlap_warn}
+    assert table["thresholds"]["overlap_min"] == 0.1
 
 
 def test_supported_floating_and_sunk_boxes(table):
@@ -74,9 +87,23 @@ def test_supported_floating_and_sunk_boxes(table):
     lantern = _row(table, "Lantern")
     assert lantern["ground_gap_m"] == pytest.approx(0.3, abs=1e-3) and lantern["floating"] and lantern["touches_nothing"]
     assert lantern["support"] == "Ground" and lantern["sunk_m"] == 0 and not lantern["supported"]
+    # the column measures (2026-10-14): every foot of the lantern hangs 0.3 m, every foot of the crate rests
+    assert lantern["gap_max_m"] == pytest.approx(0.3, abs=1e-3) and lantern["columns_resting"] == 0 and lantern["tilt_m"] == pytest.approx(0, abs=1e-3)
+    # (a level box yields 3 columns: its lowest vertex coincides with one of the four corner extremes)
+    assert crate["gap_max_m"] == 0 and crate["columns_resting"] == crate["columns"] >= 3 and crate["tilt_m"] == 0
     anvil = _row(table, "Anvil")
     assert anvil["sunk_m"] == pytest.approx(0.5, abs=1e-3) and anvil["sunk_into"] == "Ground" and anvil["ground_gap_m"] == pytest.approx(-0.5, abs=1e-3)
     assert anvil["supported"] and not anvil["floating"]
+
+
+def test_the_room_shells_members_are_the_enclosure_not_placed_assets(table):
+    """Walls, lid, sills and lintels under a `RoomShell…` root abut and overlap each other by
+    construction (a lintel runs into the lid here): they are exempt as the enclosure, so they get
+    no seating row and no interpenetration pair (24 of 41 Blender ERRORs in loop iteration 0)."""
+    for name in ("Ceiling", "RoomShellWallBack_0Lintel"):
+        row = _row(table, name)
+        assert row["zone"] == "RoomShell" and row["exempt"] == "enclosure"
+    assert not [p for p in table["interpenetrations"] if "RoomShell" in (p["zone_a"], p["zone_b"])]
 
 
 def test_interpenetration_is_a_pair_not_a_burial(table):
@@ -159,3 +186,43 @@ def test_settle_leaves_exempt_water_partial_and_mounted_alone(settled):
     assert after["Bird"]["exempt"] == "free"                          # tagged free: untouched
     assert after["Boat"]["supported"]                                 # on water: untouched
     assert after["Rock"]["sunk"] == pytest.approx(0.6, abs=5e-3)      # half-buried rock stays half-buried
+
+
+# ---------------------------------------------------------------------------- a lean on a slope
+#: a 17° hillside (the ground plane rotated about x; its height is -z·tan 0.3) with a crate yawed 45°
+#: and seated by its UPHILL corner — what seating by the lowest vertex produces — and a level crate
+#: seated the same way, which rests on an edge
+SLOPE_JS = """
+import * as THREE from 'three';
+import { sceneCensus } from './lib/host_census.mjs';
+const mat = new THREE.MeshStandardMaterial();
+const scene = new THREE.Scene();
+const env = new THREE.Group(); env.name = 'Environment'; scene.add(env);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60, 64, 64), mat); ground.name = 'Ground';
+ground.rotation.x = -Math.PI / 2 + 0.3; env.add(ground);
+const zone = new THREE.Group(); zone.name = 'Yard'; scene.add(zone);
+const t = Math.tan(0.3);
+const yawed = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat); yawed.name = 'Crate';
+yawed.rotation.y = Math.PI / 4; yawed.position.set(0, Math.SQRT1_2 * t + 0.5, 0); zone.add(yawed);
+const level = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat); level.name = 'LevelCrate';
+level.position.set(6, 0.5 * t + 0.5, 0); zone.add(level);
+scene.updateMatrixWorld(true);
+const c = sceneCensus(scene, THREE, { placement: true });
+console.log(JSON.stringify({ placement: c.placement }));
+"""
+
+
+def test_a_crate_seated_by_one_corner_on_a_slope_is_cantilevered():
+    table = run_node_json(SLOPE_JS)["placement"]
+    yawed = _row(table, "Crate")
+    t = 0.30934   # tan 0.3
+    assert yawed["columns"] == 4 and yawed["columns_resting"] == 1, yawed
+    assert yawed["ground_gap_m"] == pytest.approx(0, abs=5e-3) and yawed["supported"] and not yawed["floating"]
+    assert yawed["gap_max_m"] == pytest.approx(2 * 0.70711 * t, abs=0.01) and yawed["tilt_m"] == pytest.approx(yawed["gap_max_m"], abs=5e-3)
+    level = _row(table, "LevelCrate")
+    assert level["columns_resting"] >= 2 or level["columns"] < 4, level     # an edge rests: not a lean
+    # the gate reads the measure: a WARN that names the hang, and nothing for the level crate
+    rep = placement_findings(table)
+    lean = [f for f in rep.findings if f.data.get("kind") == "cantilevered"]
+    assert [f.target for f in lean] == ["Yard/Crate"] and lean[0].severity == Severity.WARN and rep.passed
+    assert "rests on 1 of its 4 foot columns" in lean[0].message

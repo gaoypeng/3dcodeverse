@@ -209,7 +209,7 @@ Baselines are recomputed 2026-08-25 from every run under `eval/bench/out` that a
 **several bundles act on the first round and the repair loop hides them by the last.**
 
 Graded runs per language (a run is a sample **iff** it has a round carrying a gate report):
-**blender 145, urdf_blender 25, glsl_shader 17, scene_threejs 9, opengl_python 6,
+**blender 145, urdf_blender 25, glsl_shader 17, scene_threejs 9, opengl_python 6, scene_blender 0 (2026-10-14: the loop's iteration 0 is the first sample),
 cadquery 4, threejs 3.** The corpus is live — sibling batteries land runs during a wave —
 so every number below carries the snapshot it was read from.
 
@@ -228,6 +228,9 @@ so every number below carries the snapshot it was read from.
 | **c3d-threejs-shader-traps** | mixed | `shader_preflight_findings` | down | **0.00**, n=9 | 0.00, n=9 | 9 | **NOT INSTRUMENTED** — see §4 | **revised (delivery).** Every listing it has ever had was in a scene session that was never offered the read tool, so it is *unmeasured*, not unread |
 | **c3d-cadquery-forms** | inherited-unverified | `build_failure_rate` | down | 0.00, n=4 (all 4 built) | same | **4** | no variance to move | **routed OFF.** Needs 20 graded cadquery runs; has **4**. Read 2/2 when forced on |
 | **c3d-threejs-forms** | inherited-unverified | `missing_parts` | down | 0.00, n=3 | same | **3** | no variance to move | **routed OFF.** Needs 20 graded threejs runs; has 3. Read 2/2 when forced on |
+| **c3d-bpy-scene-placement** | mixed (gate code read 2026-10-14; no corpus) | `bpy_placement_errors` | down | **n=0** — no gated scene_blender runs (2026-10-14) | — | 0 | not yet measured | **new (D105).** Routed R29 (standing, 80) and R30 (gate-fired, the six seating kinds). The metric is the loop's own accept veto (floating + sunken + interpenetration ERRORs per run), so iteration 0 reads it for free. `unsupported` is WARN-only today and counts zero |
+| **c3d-bpy-scene-lighting** | mixed (gate code read 2026-10-14; bands measured that day on a synthetic scene, not on runs) | `bpy_exposure_findings` | down | **n=0** — no gated scene_blender runs (2026-10-14) | — | 0 | not yet measured | **new (D105).** Routed R31 / R32. Counts the same three `scene_frames` kinds as `c3d-scene-lighting` over `scene_blender` only — a run is one language, so each A/B keeps one owner; `test_no_two_bundles_claim_the_same_quantity` has to key on (kind, language) |
+| **c3d-bpy-scene-materials** | mixed (census code read 2026-10-14; no corpus) | `flat_principled_materials` | down | **UNMEASURABLE** (`measurable=false`) — see §6 | — | 0 | — | **new (D105).** Routed R33 (standing only: no gate sees material work). The census GLB reads three Principled default values and a linked socket exports as its default, so the honest instrument — a per-material linked-socket census — is a harness change, not a skill change (`wrappers/_census_glb.py`) |
 
 **Cut this wave:** `c3d-form-manifest` (text in git history; `docs/skills-attic/` was removed 2026-09-21).
 
@@ -408,3 +411,14 @@ Raising it is not evidence the bundle worked.
 
 Building the honest instrument — mask the plan's animated objects, diff only those pixels —
 is a harness change, not a skill change.
+
+### 6.1 (2026-10-14) a second bundle with no honest proxy
+
+`c3d-bpy-scene-materials` joins `c3d-scene-motion` under `measurable=false`, for the same
+reason in a different instrument: the deterministic side cannot see the claim. The placement
+and frame gates read the census GLB and the PNGs; the GLB writer exports each material as its
+Principled `Base Color` / `Metallic` / `Roughness` default values (`_census_glb._Writer.material`),
+and a LINKED socket — every noise map, every bump — exports as its default. A variance census
+over the sampled texels, or simply "which sockets are linked" per material, is the candidate
+instrument; it is written beside the values the writer already reads, and until then the row is
+a finding about the bundle, not a number to move.

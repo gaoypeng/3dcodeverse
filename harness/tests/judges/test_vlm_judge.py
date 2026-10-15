@@ -168,22 +168,55 @@ def test_a_sample_stops_when_its_budget_is_spent(judge_input, cache_dir, monkeyp
     j = _judge(model, cache_dir=cache_dir).judge(judge_input)
     assert j.passed and [r.max_wait_s for r in model.requests] == [SAMPLE_BUDGET_S, SAMPLE_MIN_WAIT_S]
 
-def test_scene_and_graphics_keep_the_pre_d47_montage_ceiling():
-    """D47's 5 montages were measured on the object rig only; the other tracks keep 3."""
+def test_per_track_montage_ceilings():
+    """D47's 5 montages were measured on the object rig only: graphics keeps 3; the scene rig
+    takes 4 since scene_v2 (the fourth overview is the contact camera the crops are cut from)."""
     from codeverse3d.contracts.artifacts import RenderSet
     from codeverse3d.contracts.common import Language, Track
     from codeverse3d.contracts.spec import Spec
     from codeverse3d.judges.base import JudgeInput
-    from codeverse3d.judges.vlm_judge import VlmJudge
+    from codeverse3d.judges.vlm_judge import TRACK_MONTAGE_CAP, VlmJudge
 
     def inp(track, language):
         spec = Spec(id="t", track=track, language=language, prompt="p")
         return JudgeInput(spec=spec, renders=RenderSet(), gates=[], acceptance=[])
 
-    j = VlmJudge("scene_v1", model_id="fake:fake-1")
-    assert j._montages_for(inp(Track.SCENE, Language.SCENE_THREEJS)) == 3
+    assert TRACK_MONTAGE_CAP == {"scene": 4, "graphics": 3}
+    j = VlmJudge("scene_v2", model_id="fake:fake-1")
+    assert j._montages_for(inp(Track.SCENE, Language.SCENE_THREEJS)) == 4
+    assert j._montages_for(inp(Track.SCENE, Language.SCENE_BLENDER)) == 4
     assert j._montages_for(inp(Track.GRAPHICS, Language.GLSL_SHADER)) == 3
     jo = VlmJudge("static_object_v1", model_id="fake:fake-1")
     assert jo._montages_for(inp(Track.STATIC_OBJECT, Language.BLENDER)) == 5
-    explicit = VlmJudge("scene_v1", model_id="fake:fake-1", max_montages=5)
+    explicit = VlmJudge("scene_v2", model_id="fake:fake-1", max_montages=5)
     assert explicit._montages_for(inp(Track.SCENE, Language.SCENE_THREEJS)) == 5
+
+
+# ----------------------------------------------------------------------------- thinking (D105)
+def test_judge_thinking_comes_from_the_settings_unless_stated(monkeypatch):
+    """``VlmJudge(thinking=None)`` reads ``Settings.judge.thinking`` (C3D_JUDGE__THINKING): the run,
+    `3dcode judge --thinking` and the calibration tool take the level from one place, and the
+    record's sampling snapshot (``BaseTrack.sampling``) carries what was used."""
+    from types import SimpleNamespace
+
+    from codeverse3d.config import Settings, get_settings
+    from codeverse3d.contracts.common import Track
+    from codeverse3d.judges.vlm_judge import VlmJudge
+    from codeverse3d.tracks.lifecycle import BaseTrack
+
+    assert VlmJudge("scene_v2", model_id="fake:fake-1").thinking == Settings().judge.thinking == "low"
+    s = Settings(judge={"thinking": "medium"})
+    monkeypatch.setattr("codeverse3d.judges.vlm_judge.get_settings", lambda: s)
+    j = VlmJudge("scene_v2", model_id="fake:fake-1")
+    assert j.thinking == "medium"
+    assert VlmJudge("scene_v2", model_id="fake:fake-1", thinking="high").thinking == "high"  # a stated level wins
+    with pytest.raises(ValueError, match="judge thinking must be one of"):
+        VlmJudge("scene_v2", model_id="fake:fake-1", thinking="max")
+    assert BaseTrack.sampling(SimpleNamespace(track=Track.SCENE), j)["judge"]["thinking"] == "medium"
+    get_settings.cache_clear()
+
+
+def test_the_judge_sends_its_thinking_level(judge_input, cache_dir):
+    model = FakeChatModel([good_reply(R, IDS, 0.8)])
+    _judge(model, cache_dir=cache_dir, thinking="medium").judge(judge_input)
+    assert model.requests[0].thinking == "medium"

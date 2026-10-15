@@ -19,6 +19,16 @@ height and its name words because the harness's own starter scene buries rocks
 20–50 % of their height, digs a pond basin 1.4 m under the terrain and drives jetty
 posts 0.97 m into the pond bed — a naive "> 0.10 m" rule flagged all of them
 (measured 2026-08-26).  Word matching is a set lookup on ``to_snake`` words.
+
+Thresholds are ``Settings.placement`` (``config.Placement``), read when the gate RUNS: the owner
+asked for stricter contact standards on 2026-10-14 (D105) and the defaults are those — floating
+ERROR at 0.08 m or more than 2 floaters, sunk ERROR 0.20 m + 20 % of the height, interpenetration
+WARN at 10 % / ERROR at 35 % of the smaller box — while a variant or an A/B arm sets its own
+through ``C3D_PLACEMENT__*`` and the summary INFO finding records what a round was judged by.
+Two findings the strict pass added: ``free_exempt`` (the share of assets tagged
+``placement='free'`` — w1_tearoom, 2026-10-13, tagged 17 of 36 and passed) and ``cantilevered``
+(seated on one foot column of four or more while the others hang).  Every per-asset finding
+carries ``data.bbox`` (GLB-frame centre + size) so the judge's contact crops can be aimed at it.
 """
 
 from __future__ import annotations
@@ -30,6 +40,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from codeverse3d.config import Placement, get_settings
 from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
 from codeverse3d.conventions import to_snake
 from codeverse3d.proc import read_json_or_none
@@ -42,13 +53,20 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 GATE = "scene_placement"
-CONTACT_M = 0.02                 # a foot this close to what is under it rests on it
-FLOATING_OUTDOOR_M, FLOATING_INDOOR_M = 0.05, 0.02
-FLOATING_ERROR_M, FLOATING_ERROR_COUNT = 0.15, 3   # this high, or more than this many, → ERROR
-SUNK_M, SUNK_ERROR_M = 0.10, 0.30
-SUNK_ERROR_FRAC = 0.25           # an ERROR burial must also swallow this fraction of the height
-OVERLAP_WARN, OVERLAP_ERROR = 0.20, 0.60
+#: The metres / fractions that grade a row are ``Settings.placement`` (``config.Placement``), taken
+#: at call time — ``placement_findings(thresholds=…)``, default ``get_settings().placement`` — never
+#: at import, so an A/B child's ``C3D_PLACEMENT__FLOATING_ERROR_M`` is what its rounds are judged by.
+#: The JS probe keeps its own measurement constants (host_placement.mjs CONTACT_TOL_M / FLOATING_M /
+#: SUNK_M / OVERLAP_MIN_FRAC): those decide what is MEASURED, these decide severities.
 MAX_FINDINGS_PER_KIND = 8
+#: ``free_exempt`` needs this many ``placement='free'`` rows before their share is a finding: one
+#: hanging lantern among two placed things is 50 % and would cap a correct scene (scene_v2 caps a
+#: free_exempt ERROR at 0.75).  The case it exists for — w1_tearoom, argon, 2026-10-13 — tagged 17.
+FREE_EXEMPT_MIN_ROWS = 2
+#: ``cantilevered`` needs this many foot columns resting on at most this many: a crate seated by its
+#: lowest corner on a slope rests on 1 of 4 (what seating by the lowest vertex produces); a level box
+#: on a planar slope rests on an edge, 2 columns, and is not flagged.
+CANTILEVER_MIN_COLUMNS, CANTILEVER_MAX_RESTING = 4, 1
 
 #: setting / environment words that make a scene "indoors" (tighter floating tolerance)
 INDOOR_WORDS = frozenset({
@@ -104,6 +122,12 @@ class AssetRow(BaseModel):
     sunk_into: str = ""
     on_water: bool = False
     attached: list[str] = Field(default_factory=list)
+    columns: int = Field(default=0, description="foot columns probed (≤ 5: the lowest vertex and the ±x / ±z extremes of the foot band)")
+    gap_max_m: float | None = Field(default=None, description="the LARGEST column gap (ground_gap_m is the smallest); a row "
+                                                              "measured before 2026-10-14 carries none")
+    columns_resting: int | None = Field(default=None, description="columns within contact of their support, or buried; "
+                                                                 "None before 2026-10-14")
+    tilt_m: float | None = Field(default=None, description="gap_max_m - ground_gap_m: how unevenly the feet meet the ground")
     inner: list[str] = Field(
         default_factory=list,
         description="named descendants of this row (host_placement.MAX_INNER_NAMES) — a zone "
@@ -136,6 +160,15 @@ class AssetRow(BaseModel):
         size = _nums((self.bbox or {}).get("size"))
         return size[1] if size else 0.0
 
+    def bbox_data(self) -> dict[str, list[float]] | None:
+        """``{"center", "size"}`` of the row's box in the GLB frame, on every per-asset finding: the
+        judge's contact crops (judges/prompt_builder.plan_detail_crops) are aimed at it."""
+        b = self.bbox or {}
+        lo, hi = _nums(b.get("min")), _nums(b.get("max"))
+        if lo is None or hi is None:
+            return None
+        return {"center": [round((lo[i] + hi[i]) / 2, 3) for i in range(3)], "size": [round(hi[i] - lo[i], 3) for i in range(3)]}
+
 
 class Interpenetration(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -159,6 +192,7 @@ class PlacementTable(BaseModel):
     exempt: dict[str, int] = Field(default_factory=dict)
     ground_y: float | None = None
     notes: list[str] = Field(default_factory=list)
+    thresholds: dict[str, float] = Field(default_factory=dict, description="the probe's own measurement constants")
     error: str = ""
 
 
@@ -197,6 +231,9 @@ LANGUAGE_WORDS: dict[str, dict[str, str]] = {
         "ring": ("vary them — at least 3 silhouettes, scale 0.6-1.6x, radius +-25 %, random yaw, clusters rather than a "
                  "ring — or drop the ring and let the starter's worldShell ridge and makeOutskirts hills close the horizon"),
         "place": "import its builder / clone its GLB",
+        "free_exempt": ("userData.placement = 'free' is for hanging / airborne things only (a bird, a hung lantern, a drone): "
+                        "delete the tag on everything that stands on something and seat it with heightAt(x, z) or on its support"),
+        "cantilever": "seat every foot: follow the ground with heightAt(x, z) at each corner, sink it a few cm, or shorten the overhang",
     },
     "scene_blender": {
         "seat": "seat it with ctx.height_at(x, y) or on the surface it stands on",
@@ -213,6 +250,10 @@ LANGUAGE_WORDS: dict[str, dict[str, str]] = {
         "ring": ("vary them — at least 3 silhouettes, scale 0.6-1.6x, radius +-25 %, random yaw, clusters rather than a "
                  "ring — or drop the ring and close the horizon with terrain ridges and hills"),
         "place": "place a collection-instance Empty of ctx.assets['<snake>']",
+        "free_exempt": ('obj["placement"] = "free" is for hanging / airborne things only (a bird, a hung lantern, a drone): '
+                        "delete the tag on everything that stands on something and seat it with ctx.height_at(x, y) / lib.place.seat"),
+        "cantilever": ("seat every foot: follow the ground with ctx.height_at(x, y) at each corner (lib.place.seat), "
+                       "sink it a few cm, or shorten the overhang"),
     },
 }
 
@@ -231,7 +272,7 @@ def _support_label(row: AssetRow, ground_y: float | None) -> str:
     return f"the ground (census ground_y = {ground_y:.2f} m)" if ground_y is not None else "the ground"
 
 
-def _sunk_severity(row: AssetRow) -> Severity | None:
+def _sunk_severity(row: AssetRow, p: Placement) -> Severity | None:
     """WARN / ERROR / None for a buried foot, honouring height fraction and name words."""
     if row.sunk_m <= 0 or row.on_water:
         return None
@@ -242,68 +283,119 @@ def _sunk_severity(row: AssetRow) -> Severity | None:
     if words & seated.partial_ok:
         if frac <= seated.partial_ok_frac:
             return None
-        return Severity.ERROR if row.sunk_m > SUNK_ERROR_M else Severity.WARN
-    if row.sunk_m > SUNK_ERROR_M and frac > SUNK_ERROR_FRAC:
+        return Severity.ERROR if row.sunk_m > p.sunk_error_m else Severity.WARN
+    if row.sunk_m > p.sunk_error_m and frac > p.sunk_error_frac:
         return Severity.ERROR
-    return Severity.WARN if row.sunk_m > SUNK_M else None
+    return Severity.WARN if row.sunk_m > p.sunk_m else None
 
 
-def _asset_findings(rows: list[AssetRow], *, floating_m: float, ground_y: float | None,
+def _cantilever(row: AssetRow, p: Placement) -> bool:
+    """Seated on at most ``CANTILEVER_MAX_RESTING`` of ≥ ``CANTILEVER_MIN_COLUMNS`` foot columns while
+    another hangs past the outdoor floating tolerance: a crate seated by its lowest corner on a slope,
+    a bench with one leg on a rock.  ``gap_max_m`` / ``columns_resting`` are the column measures
+    host_placement.mjs added on 2026-10-14; a row measured before says nothing.  Slope-following names
+    (stairs, ramps, paths — placement_words.json) meet the ground unevenly by construction."""
+    if row.columns < CANTILEVER_MIN_COLUMNS or row.columns_resting is None or row.gap_max_m is None:
+        return False
+    if row.columns_resting > CANTILEVER_MAX_RESTING or row.gap_max_m <= p.floating_outdoor_m:
+        return False
+    return not (_words(row.name) & _seated_words().slope_ok)
+
+
+def _asset_findings(rows: list[AssetRow], *, p: Placement, floating_m: float, ground_y: float | None,
                     words: dict[str, str]) -> list[GateFinding]:
     out: list[GateFinding] = []
     floating: list[tuple[AssetRow, float]] = []
     for row in rows:
         q = row.qualified
-        sev = _sunk_severity(row)
+        at = {"zone": row.zone, "bbox": row.bbox_data()}
+        sev = _sunk_severity(row, p)
         if sev is not None:
             out.append(_f(sev, f"{q} is sunken {row.sunk_m:.2f} m into {row.sunk_into or 'the ground'}", target=q,
                           hint=f"raise {q} by {row.sunk_m:.2f} m so its lowest point sits on {row.sunk_into or 'the ground'}",
-                          kind="sunken", sunk_m=row.sunk_m, into=row.sunk_into, zone=row.zone))
+                          kind="sunken", sunk_m=row.sunk_m, into=row.sunk_into, **at))
             continue
         gap = row.ground_gap_m
-        if gap is None or row.on_water or row.sunk_m > 0 or gap <= CONTACT_M:
+        if gap is None or row.on_water:
             continue
         if row.attached:   # mounted on what it touches: the settle leaves it, so does the gate
             continue
         support = _support_label(row, ground_y)
+        if row.sunk_m > 0 or gap <= p.contact_m:
+            # seated at its lowest column — on how many of the others?
+            if _cantilever(row, p):
+                out.append(_f(Severity.WARN, f"{q} rests on {row.columns_resting} of its {row.columns} foot columns: the others "
+                                             f"hang up to {row.gap_max_m:.2f} m above {support} (tilt {row.tilt_m or 0:.2f} m)",
+                              target=q, hint=f"{words['cantilever']}; a deliberately airborne thing gets "
+                                             f"{words['free'].format(name=row.name)}",
+                              kind="cantilevered", gap_max_m=row.gap_max_m, tilt_m=row.tilt_m, columns=row.columns,
+                              columns_resting=row.columns_resting, **at))
+            continue
         if gap > floating_m:
             floating.append((row, gap))
         else:
             out.append(_f(Severity.WARN, f"{q} is unsupported: hovers {gap:.2f} m above {support} and touches nothing", target=q,
                           hint=f"lower {q} by {gap:.2f} m onto {support}, or attach it to a neighbour; "
                                f"if it is meant to hang free set {words['free'].format(name=row.name)}",
-                          kind="unsupported", gap_m=gap, zone=row.zone))
-    many = len(floating) > FLOATING_ERROR_COUNT
+                          kind="unsupported", gap_m=gap, **at))
+    many = len(floating) > p.floating_error_count
     for row, gap in floating:
         q = row.qualified
         support = _support_label(row, ground_y)
-        sev = Severity.ERROR if (many or gap > FLOATING_ERROR_M) else Severity.WARN
+        sev = Severity.ERROR if (many or gap > p.floating_error_m) else Severity.WARN
         out.append(_f(sev, f"{q} is floating {gap:.2f} m above {support} (touches nothing)", target=q,
                       hint=f"lower {q} by {gap:.2f} m onto {support} — {words['seat']}; "
                            f"a deliberately airborne thing gets {words['free'].format(name=row.name)}",
-                      kind="floating", gap_m=gap, zone=row.zone))
+                      kind="floating", gap_m=gap, zone=row.zone, bbox=row.bbox_data()))
     return out
 
 
-def _pair_findings(pairs: list[Interpenetration]) -> list[GateFinding]:
+def _pair_findings(pairs: list[Interpenetration], p: Placement, rows: dict[str, AssetRow]) -> list[GateFinding]:
     out: list[GateFinding] = []
     # one finding per PAIR OF NAMES, keeping the worst overlap: a zone that stamps four
     # TerracottaPlanters against one arbour used to yield four identical ERRORs
     # (measured on t36_santorini) and flood the refine prompt with one fact
     best: dict[tuple[str, str], Interpenetration] = {}
-    for p in pairs:
-        key = tuple(sorted((f"{p.zone_a}/{p.a}", f"{p.zone_b}/{p.b}")))
-        if key not in best or p.aabb_overlap > best[key].aabb_overlap:
-            best[key] = p
-    for p in best.values():
-        qa = f"{p.zone_a}/{p.a}" if p.zone_a else p.a
-        qb = f"{p.zone_b}/{p.b}" if p.zone_b else p.b
-        sev = Severity.ERROR if p.aabb_overlap > OVERLAP_ERROR else Severity.WARN
-        out.append(_f(sev, f"interpenetration: {qa} and {qb} overlap ({p.aabb_overlap:.0%} of the smaller box; "
-                           f"{p.inside_frac:.0%} of its vertices inside the other)", target=qa,
-                      hint=f"move {qa} out of {qb} or shrink one of them so their boxes share ≤ {OVERLAP_WARN:.0%}",
-                      kind="interpenetration", overlap=p.aabb_overlap, inside_frac=p.inside_frac, other=qb, zone=p.zone_a))
+    for pr in pairs:
+        # the probe reports every pair past its own floor (host_placement OVERLAP_MIN_FRAC = the
+        # default overlap_warn); an arm that raises overlap_warn filters here
+        if pr.aabb_overlap <= p.overlap_warn:
+            continue
+        key = tuple(sorted((f"{pr.zone_a}/{pr.a}", f"{pr.zone_b}/{pr.b}")))
+        if key not in best or pr.aabb_overlap > best[key].aabb_overlap:
+            best[key] = pr
+    for pr in best.values():
+        qa = f"{pr.zone_a}/{pr.a}" if pr.zone_a else pr.a
+        qb = f"{pr.zone_b}/{pr.b}" if pr.zone_b else pr.b
+        sev = Severity.ERROR if pr.aabb_overlap > p.overlap_error else Severity.WARN
+        row = rows.get(qa)
+        out.append(_f(sev, f"interpenetration: {qa} and {qb} overlap ({pr.aabb_overlap:.0%} of the smaller box; "
+                           f"{pr.inside_frac:.0%} of its vertices inside the other)", target=qa,
+                      hint=f"move {qa} out of {qb} or shrink one of them so their boxes share ≤ {p.overlap_warn:.0%}",
+                      kind="interpenetration", overlap=pr.aabb_overlap, inside_frac=pr.inside_frac, other=qb, zone=pr.zone_a,
+                      bbox=row.bbox_data() if row is not None else None))
     return out
+
+
+def _free_exempt_finding(t: PlacementTable, p: Placement, words: dict[str, str]) -> GateFinding | None:
+    """One finding per report: the share of placed assets tagged ``placement='free'`` — exempt from
+    every check — among the assets that would otherwise have been checked.  The tag is for hanging
+    and airborne things; it is also the one line that silences the gate, and the hint on every
+    floating finding names it.  Measured on w1_tearoom (argon, 2026-10-13): 17 of 36 placed things
+    tagged free, the gate's only finding a sunken shoji screen."""
+    free = [r for r in t.assets if r.exempt == "free"]
+    n = t.checked + len(free)
+    if len(free) < FREE_EXEMPT_MIN_ROWS or n == 0:
+        return None
+    share = len(free) / n
+    if share <= p.free_exempt_warn:
+        return None
+    sev = Severity.ERROR if share > p.free_exempt_error else Severity.WARN
+    names = [r.qualified for r in free[:8]]
+    listed = ", ".join(names) + (f" (+{len(free) - 8} more)" if len(free) > 8 else "")
+    return _f(sev, f"{len(free)} of {n} placed assets are tagged placement='free' ({share:.0%}) and skip every placement "
+                   f"check: {listed}", target="scene", hint=words["free_exempt"],
+              kind="free_exempt", free=len(free), of=n, share=round(share, 3), names=names)
 
 
 def _cap_per_kind(findings: list[GateFinding]) -> list[GateFinding]:
@@ -315,7 +407,8 @@ def _cap_per_kind(findings: list[GateFinding]) -> list[GateFinding]:
         by_kind.setdefault(str(f.data.get("kind")), []).append(f)
     out: list[GateFinding] = []
     for kind, fs in by_kind.items():
-        fs.sort(key=lambda f: (rank[f.severity], -float(f.data.get("gap_m") or f.data.get("sunk_m") or f.data.get("overlap") or 0)))
+        fs.sort(key=lambda f: (rank[f.severity], -float(f.data.get("gap_m") or f.data.get("sunk_m") or f.data.get("overlap")
+                                                        or f.data.get("gap_max_m") or 0)))
         out.extend(fs[:MAX_FINDINGS_PER_KIND])
         if len(fs) > MAX_FINDINGS_PER_KIND:
             out.append(_f(Severity.INFO, f"… and {len(fs) - MAX_FINDINGS_PER_KIND} more {kind} finding(s) not listed", target="scene",
@@ -323,27 +416,49 @@ def _cap_per_kind(findings: list[GateFinding]) -> list[GateFinding]:
     return out
 
 
-def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool = False,
-                       language: str | None = None) -> GateReport:
-    """The ``scene_placement`` GateReport for one census placement table (pure)."""
+#: the per-asset kinds the summary counts (``free_exempt`` is one finding per report, counted apart)
+ASSET_KINDS = ("floating", "sunken", "unsupported", "interpenetration", "cantilevered")
+
+
+def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool = False, language: str | None = None,
+                       thresholds: Placement | None = None) -> GateReport:
+    """The ``scene_placement`` GateReport for one census placement table: pure given ``thresholds``,
+    which default to the process's ``Settings.placement`` (read now, not at import)."""
     t = table if isinstance(table, PlacementTable) else PlacementTable.model_validate(table or {})
     if t.error:
         return GateReport.of(GATE, [
             _f(Severity.WARN, f"placement probe failed: {t.error[:300]}", target="scene", kind="probe_failed",
                hint="harness instrumentation, not your code; the placement check was skipped this round")])
-    floating_m = FLOATING_INDOOR_M if indoor else FLOATING_OUTDOOR_M
+    p = thresholds or get_settings().placement
+    floating_m = p.floating_indoor_m if indoor else p.floating_outdoor_m
+    words = placement_words(language)
     rows = [r for r in t.assets if not r.exempt]
-    findings = _cap_per_kind(_asset_findings(rows, floating_m=floating_m, ground_y=t.ground_y, words=placement_words(language))
-                             + _pair_findings(t.interpenetrations))
-    counts = {k: sum(1 for f in findings if f.data.get("kind") == k and f.severity != Severity.INFO)
-              for k in ("floating", "sunken", "unsupported", "interpenetration")}
+    raw = (_asset_findings(rows, p=p, floating_m=floating_m, ground_y=t.ground_y, words=words)
+           + _pair_findings(t.interpenetrations, p, {r.qualified: r for r in t.assets}))
+    free = _free_exempt_finding(t, p, words)
+    findings = _cap_per_kind(raw) + ([free] if free is not None else [])
+    # `counts` are what was MEASURED, `listed` what survived the per-kind cap: the judge's measured
+    # block and the loop's diagnosis read the first, the refine prompt shows the second
+    counts = {k: sum(1 for f in raw if f.data.get("kind") == k) for k in ASSET_KINDS}
+    listed = {k: sum(1 for f in findings if f.data.get("kind") == k) for k in ASSET_KINDS}
+    n_free = sum(1 for r in t.assets if r.exempt == "free")
+    free_share = n_free / (t.checked + n_free) if t.checked + n_free else 0.0
     n_exempt = sum(t.exempt.values())
-    summary = (f"{t.checked} assets checked ({t.total} placed, {n_exempt} exempt): {counts['floating']} floating, "
-               f"{counts['sunken']} sunken, {counts['unsupported']} unsupported, {counts['interpenetration']} interpenetrating"
-               + (f"; {'indoor' if indoor else 'outdoor'} tolerance {floating_m * 100:.0f} cm")
+
+    def shown(kind: str) -> str:
+        return f"{counts[kind]}" + (f" ({listed[kind]} listed)" if listed[kind] < counts[kind] else "")
+
+    summary = (f"{t.checked} assets checked ({t.total} placed, {n_exempt} exempt): {shown('floating')} floating, "
+               f"{shown('sunken')} sunken, {shown('unsupported')} unsupported, {shown('interpenetration')} interpenetrating"
+               + (f", {shown('cantilevered')} cantilevered" if counts["cantilevered"] else "")
+               + (f", {n_free} tagged free ({free_share:.0%})" if n_free else "")
+               + f"; {'indoor' if indoor else 'outdoor'} tolerance {floating_m * 100:.0f} cm, ERROR past "
+                 f"{p.floating_error_m * 100:.0f} cm or more than {p.floating_error_count} floating"
                + ("; table truncated (first 400 assets / time budget)" if t.truncated else ""))
-    findings.insert(0, _f(Severity.INFO, summary, target="scene", kind="summary", counts=counts, checked=t.checked, total=t.total,
-                          exempt=t.exempt, truncated=t.truncated))
+    findings.insert(0, _f(Severity.INFO, summary, target="scene", kind="summary", counts=counts, listed=listed, checked=t.checked,
+                          total=t.total, exempt=t.exempt, free=n_free, free_share=round(free_share, 3), truncated=t.truncated,
+                          thresholds={**p.model_dump(), "floating_m": floating_m, "indoor": indoor},
+                          probe_thresholds=dict(t.thresholds)))
     return GateReport.of(GATE, findings)
 
 
@@ -608,7 +723,7 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
         else:
             continue
         out.append(_f(sev, f"{what} measures {measured:.2f} m but the plan sized {key} at ~{sizes[key]:.2f} m ({f:.1f}x)",
-                      target=r.qualified, kind="scale", factor=round(f, 2), zone=r.zone, instances=n,
+                      target=r.qualified, kind="scale", factor=round(f, 2), zone=r.zone, instances=n, bbox=r.bbox_data(),
                       hint=f"scale {'each ' + key if n else r.name} so its largest dimension is ~{sizes[key]:.2f} m as planned"))
     # -- content inside the world bounds
     bounds = _plan_bounds(plan)
@@ -624,7 +739,7 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
             if fully_out:
                 out.append(_f(Severity.ERROR, f"{r.qualified} sits entirely outside the plan bounds "
                                               f"(x {bmin[0]:.0f}..{bmax[0]:.0f}, z {bmin[2]:.0f}..{bmax[2]:.0f})",
-                              target=r.qualified, kind="out_of_bounds", zone=r.zone,
+                              target=r.qualified, kind="out_of_bounds", zone=r.zone, bbox=r.bbox_data(),
                               hint="move it inside the plan bounds or into its zone bbox"))
     return out
 

@@ -59,6 +59,20 @@ def test_write_example_refuses_to_write_nothing(tmp_path, monkeypatch) -> None:
     with pytest.raises(FileNotFoundError, match="starter tree missing"):
         skeleton.write_example(Workspace(tmp_path / "ws").create())
 
+
+def test_scene_blender_write_example_refuses_to_write_nothing(tmp_path, monkeypatch) -> None:
+    """The bpy starter tree (its example scene + the library) is package data too."""
+    import codeverse3d.languages.scene_blender as skeleton
+
+    monkeypatch.setattr(skeleton, "STARTER_DIR", tmp_path / "gone" / "src")
+    with pytest.raises(FileNotFoundError, match="starter tree missing"):
+        skeleton.write_example(Workspace(tmp_path / "ws").create())
+    empty = tmp_path / "empty" / "src"
+    empty.mkdir(parents=True)
+    monkeypatch.setattr(skeleton, "STARTER_DIR", empty)
+    with pytest.raises(FileNotFoundError, match="contains no .py files"):
+        skeleton.write_example(Workspace(tmp_path / "ws2").create())
+
 # ------------------------------------------------------------------- the node floor gate
 def test_node_version_parsing_and_gate() -> None:
     for text, expected in (("v24.14.0\n", (24, 14, 0)), ("v22.0.0-nightly20240101", (22, 0, 0)), ("not found", None)):
