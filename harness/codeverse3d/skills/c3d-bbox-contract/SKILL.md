@@ -4,7 +4,7 @@ description: "Use when a session owns part sizes, placement or ground contact, o
 license: Apache-2.0
 metadata:
   evidence: measured
-  verified: "2026-08-25"
+  verified: "2026-10-15"
   corpus: bench/out, 142 graded records with gate artefacts, recomputed 2026-08-25
   target_metric: "contract_findings"
   target_direction: "down"
@@ -50,27 +50,23 @@ ERROR, not a rounding difference.
 
 ## Rules
 
-1. **Type every plan number once.** Each dimension becomes one named constant at the top of
-   the file; everything else is derived from those constants. A number typed twice is a
-   number that will disagree with itself.
-2. **Derive a spanning dimension from its neighbours' bounds, never re-type it.** A shelf
-   that spans two uprights is `inner_span = pitch - upright_thickness + 2 * weld`, computed
-   from the constants the uprights already used. Re-typing "0.58" is how the 1.47x median
-   miss is made.
-3. **Budget for what the modifiers do to the bounding box.** The gate measures the built
+1. **Derive, do not retype** (a strong option, not a layout rule). A dimension computed from
+   the plan numbers it depends on — a neighbour's bounds included — lives in one place; a
+   number typed twice will disagree with itself, which is how the 1.47x median miss is made.
+2. **Budget for what the modifiers do to the bounding box.** The gate measures the built
    AABB, after everything. A bevel, chamfer or fillet *shrinks* the silhouette; a solidify,
    skin or subdivision surface pulls a cage *inward*; an outline offset grows it. If the
    plan says 88 mm and your bevel eats 9 mm, you shipped 79 mm and the gate says so.
-4. **Instanced parts are measured on extents only.** For a part with `instances > 1` the
+3. **Instanced parts are measured on extents only.** For a part with `instances > 1` the
    gate reads the plan box two ways — as the size of ONE copy, and as the union of all
    copies — and keeps whichever fits better, so building either reading is accepted. It
    does **not** check the centre of an instanced part (it cannot know which copy is which).
    A wrong *count* is a separate WARN: name the copies `Name_0 .. Name_N-1`.
-5. **Sit on the ground and centre the footprint.** Lowest point at zero: a gap beyond 1 cm
+4. **Sit on the ground and centre the footprint.** Lowest point at zero: a gap beyond 1 cm
    is a WARN and beyond 3 cm an ERROR, with the exact translation in the hint. The
    footprint centre must be within `max(1 cm, 10 % of the larger horizontal extent)` of the
    up axis — that one is always a WARN and always fixable by one translate.
-6. **Names are the join key.** Parts match by their snake-cased name; the exact name is
+5. **Names are the join key.** Parts match by their snake-cased name; the exact name is
    claimed first and `Name_0..Name_N` afterwards. A plan part with no matching node is an
    ERROR ("missing from the GLB"); an extra node the plan never mentioned is only INFO. So
    a spare helper node is cheap and a misspelt part name is expensive.
@@ -85,5 +81,10 @@ know which finding is the ERROR.
 
 `isolate <PartName>` renders one part alone with its measurement row when a delta does not
 make sense.
+
+**Measure like the gate** when you check a size in your own script (bpy): the gate reads the
+world-space AABB, so take `obj.matrix_world @ Vector(c)` over `obj.bound_box` after
+`bpy.context.view_layer.update()`; `obj.dimensions` ignores rotation and `bound_box` is
+object-space, so either one disagrees with the gate on a rotated part.
 
 Worked example of turning a real fix hint into an edit: `references/reading-a-fix-hint.md`.

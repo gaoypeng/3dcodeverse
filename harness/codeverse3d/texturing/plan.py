@@ -516,20 +516,17 @@ def write_manifest(pack: ScenePack, out_dir: Path) -> Path:
 def texture_pack_prompt(manifest: dict[str, dict[str, Any]], *, url_prefix: str = DEFAULT_URL_PREFIX) -> str:
     """Prompt snippet for zone/env generation: what exists and the exact loading idiom.
 
-    Rendered AFTER the cookbook recipes (``tracks/scene_env.j2`` / ``scene_zone.j2``), and
-    it says outright that the ground blend is what the pack is for.  Measured 2026-09-05:
-    the first two cells of the texture arm generated 8 and 9 textures, carried this block
-    verbatim in their env prompt, and used **zero** of them across `env.js` and six zone
-    modules.  Three things were telling the model to write a procedural colour blend — the
-    plan's own ground sentence ("blends velvet moss, raked gravel, packed earth and slate
-    by height, slope and normal noise"), the cookbook chapter "Ground that reads real
-    (blend, paths, edges — never one flat colour)", and that chapter's position AFTER this
-    block — against one passive list offering an alternative.  A passive offer loses.
+    The only material block in the env / zone briefs (``tracks/scene_env.j2`` / ``scene_zone.j2``,
+    D106): what exists, the loader idiom the renderer needs, and the judge's requirement the pack
+    answers.  Measured 2026-09-05: the first two cells of the texture arm generated 8 and 9
+    textures, carried this block verbatim in their env prompt, and used **zero** of them across
+    `env.js` and six zone modules while the prompt around it taught a procedural colour blend —
+    a passive offer beside a recipe loses, so the block names the defect it is for.
     """
     if not manifest:
         return ""
     ground = [n for n, e in manifest.items() if str(e.get("role", "")).lower() in ("ground", "path")]
-    lines = ["## Available textures (seamless tileable albedo PNGs, generated FOR THIS SCENE — use them)"]
+    lines = ["## Available textures (seamless tileable albedo PNGs generated for this scene)"]
     for name, e in manifest.items():
         lines.append(f"- `{url_prefix}/{e['file']}` — {name} ({e.get('family', 'other')}, {e.get('role', '')}; "
                      f"one tile = {float(e['tile_size_m']):.2f} m; roughness {float(e.get('roughness', 0.8)):.2f})")
@@ -539,21 +536,15 @@ def texture_pack_prompt(manifest: dict[str, dict[str, Any]], *, url_prefix: str 
         f"const tex = loaders.texture.load('{url_prefix}/{next(iter(manifest.values()))['file']}');\n"
         "tex.wrapS = tex.wrapT = THREE.RepeatWrapping;\n"
         "tex.colorSpace = THREE.SRGBColorSpace;\n"
-        "tex.anisotropy = 8;\n"
         "tex.repeat.set(sizeX / TILE_M, sizeZ / TILE_M);   // TILE_M = the tile size listed above, sizeX/Z = the surface's world size in m\n"
-        "const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8, metalness: 0.0 });\n"
         "```\n"
         "Use `texture.clone()` (+ `needsUpdate = true`) when the same image needs a different repeat. "
         "Never invent texture URLs, and keep procedural materials where no texture fits."
     )
     if ground:
         lines.append(
-            "\n**The ground is what this pack is for.** The single most repeated defect on this "
-            "track is a ground that reads as one flat untextured colour. The recipe above "
-            "blends ground COLOURS by height, slope and noise — keep that logic exactly, and "
-            "blend these MAPS instead of (or multiplied by) the flat colours: "
-            + ", ".join(f"`{n}`" for n in ground)
-            + ". Sample each with its own `repeat`, mix them with the same masks the recipe "
-            "builds, and keep the vertex-colour term as a tint rather than the whole albedo."
+            "\nThe judge lists a ground that reads as one flat untextured colour as a defect; these "
+            "ground maps are for it: " + ", ".join(f"`{n}`" for n in ground)
+            + ". How you blend them (height, slope, noise, paths) is yours."
         )
     return "\n".join(lines)

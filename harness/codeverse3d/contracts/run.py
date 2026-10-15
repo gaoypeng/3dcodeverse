@@ -45,7 +45,7 @@ class SkillRead(BaseModel):
 class SkillsUsage(BaseModel):
     """``RoundRecord.skills`` — listed vs read vs what it cost, per round.
 
-    The metric that replaces "0 of 16 read_cookbook calls" is :attr:`deep_read_rate`.
+    The metric that replaces the former ``read_cookbook`` tool's "0 of 16 calls" is :attr:`deep_read_rate`.
     """
 
     listed: list[str] = Field(default_factory=list)
@@ -267,7 +267,7 @@ class SettingsSnapshot(BaseModel):
     seed: int = 0
     rubric: str = ""
     rubric_hash: str = Field(default="", description="content hash of the judge rubric YAML")
-    prompt_hashes: dict[str, str] = Field(default_factory=dict, description="contract / cookbook / generate / refine …")
+    prompt_hashes: dict[str, str] = Field(default_factory=dict, description="contract / generate / refine / repair / skill:<name> / judge …")
     tool_versions: dict[str, str] = Field(default_factory=dict, description="python / blender / node / three / chrome / harness sha")
     harness_version: str = ""
     harness_git_sha: str = ""

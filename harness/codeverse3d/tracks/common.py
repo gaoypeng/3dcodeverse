@@ -114,9 +114,9 @@ class Services:
         return _import("codeverse3d.tracks.articulated_object", "default_joint_sweep")(ws, plan, out_dir)
 
     # ---- agents' workspace materialisation + tool cards
-    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_text: str, spatial_tools: bool) -> None:
+    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, spatial_tools: bool) -> None:
         _import("codeverse3d.agents.materialize", "materialize_workspace")(
-            ws, agent_kind=agent_kind, contract_md=contract_md, cookbook_text=cookbook_text, spatial_tools=spatial_tools)
+            ws, agent_kind=agent_kind, contract_md=contract_md, spatial_tools=spatial_tools)
 
     def tool_cards(self, track: str, language: str) -> str:
         try:
@@ -155,7 +155,6 @@ class RunContext:
     agent: Any | None = None  # CodingAgent instance (agent path)
     model: Any | None = None  # ChatModel (single-shot path)
     contract_text: str = ""
-    cookbook_text: str = ""
     tool_cards: str = ""
     prompt_hashes: dict[str, str] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)

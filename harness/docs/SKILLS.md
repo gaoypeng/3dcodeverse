@@ -4,13 +4,11 @@ A **skill** is a task-scoped rule sheet the harness attaches to a coding session
 automatically — from the track, the language, the round kind, the plan, and **the previous
 round's gate findings**. Nobody writes `skills: [...]`.
 
-It is not a renamed cookbook chapter. Where a language ships a cookbook
-(`codeverse3d/prompts/<lang>/cookbook.md`) it stays the reference manual with the copyable code;
-a skill states rules and numbers and names the cookbook section to fetch. Two libraries of truth
-would be worse than one.  **The scene languages ship no cookbook (D106, 2026-10-15)**: their
-interface facts live in `contract.md` / `system.md`, and a scene skill is a sheet of measured
-requirements with a few SHORT optional practices (library API names, numbers only where a gate or
-the judge measures them, no code block over ~12 lines) — never a chapter to copy, since the 60
+It is not a recipe library.  **No language ships a cookbook (D106 scene track, D107 the rest,
+owner 2026-10-15)**: the interface and language facts live in `contract.md` / `system.md` (each
+contract keeps ONE executable interface example), and a skill is a sheet of measured requirements
+with a few SHORT optional practices (real API names, numbers only where a gate or the judge
+measures them, no code block over ~12 lines) — never a chapter to copy, since the 60
 iteration-0 argon scenes were the inlined chapters executed verbatim.
 
 `SKILL.md` is an open standard (agentskills.io, Dec 2025), which is why the format below is
@@ -153,7 +151,7 @@ This is the difference between a metric and a number that would have read 100% f
 | `c3d-scene-composition` | scene | scene_threejs | mixed | 135 | 2,119 | R14, R15, R34 |
 | `c3d-scene-lighting` | scene | scene_threejs | mixed | 115 | 1,748 | R16, R17 |
 | `c3d-scene-motion` | scene | scene_threejs | mixed | 185 | 2,472 | R18, R19 |
-| `c3d-threejs-shader-traps` | scene + static | threejs both | mixed | 112 | 1,734 | R20, R21 |
+| `c3d-threejs-shader-traps` | scene (+ static on a preflight finding) | threejs both | mixed | 112 | 1,734 | R20, R21 |
 | `c3d-glsl-craft` | graphics | glsl_shader | mixed | 140 | 1,958 | R22, R24-glsl |
 | `c3d-opengl-pipeline` | graphics | opengl_python | mixed | 98 | 1,497 | R23, R24-opengl |
 | `c3d-cadquery-forms` | any | cadquery | **inherited-unverified** | 82 | 1,482 | R10 |
@@ -338,8 +336,8 @@ the `live` cases drive a real CLI.
 |---|---|
 | `test_loader.py` | the spec's field rules, as the loader enforces them |
 | `test_spec_compliance.py` | the same rules re-derived from the raw bytes, **plus the reference validator** (`pip install skills-ref` → the `agentskills` CLI) and a field-by-field agreement check between its `read-properties` and our loader |
-| `test_library.py` | body budget, no 20-line code fences, no restating `conventions.py`, every `_claims` number still matches its live constant, **no two skills point one claim key at different numbers** |
-| `test_freshness.py` | every tool, gate kind, rubric criterion, constant, switch, sibling skill and cookbook section a bundle names still exists |
+| `test_library.py` | body budget, no code fence over 12 lines in SKILL.md or a reference (D107), no restating `conventions.py`, every `_claims` number still matches its live constant, **no two skills point one claim key at different numbers** |
+| `test_freshness.py` | every tool, gate kind, rubric criterion, constant, switch and sibling skill a bundle names still exists, every function it tells the agent to call is defined in the harness's python, and no bundle points at a cookbook |
 | `test_router.py` / `test_routing_property.py` | the four routing laws by row; every corpus finding kind from every session |
 | `test_telemetry.py` | the read probe, **including the control that catches git reading the tree** |
 | `test_packaging.py` | **a built wheel contains all 17 `SKILL.md`, all 17 `references/`, every `_claims` file** |
@@ -647,7 +645,7 @@ chose to go deeper" (§1).
    criterion. Then add its row to `docs/SKILLS_LEDGER.md`.
 6. `3dcode skills validate --strict` and `pytest tests/skills`.
 
-Body rules: ≤ 350 lines and ≤ 2,500 tokens; no code fence over 20 lines; never restate a
+Body rules: ≤ 350 lines and ≤ 2,500 tokens; no code fence over 12 lines (D107); never restate a
 frame, unit or naming rule (`conventions.py` owns those); every corpus percentage carries
 its battery, its n and its date.
 
@@ -711,13 +709,13 @@ so; the rest are live.
 * **Read rate confounds with routed-set size.** Every 1-skill session (glsl, opengl) read its
   bundle 4/4 while 5-skill object sessions averaged ~55%. Any wording A/B must hold the
   routed set size fixed or it measures the cap, not the copy.
-* **The wider prompt corpus still contradicts the connectivity gate on weld overlap.**
-  `contract.md` was fixed for all three languages, but `tracks/generate_static.j2`
-  ("overlap neighbours by ≥ 0.002 m"), `tracks/assemble_static.j2`,
-  `generate_static_part.j2`, `system/harness_contract.md` ("seams overlap by ≥ 2 mm") and
-  three cookbooks still teach 2–5 mm, at or above `PENETRATION_WARN_M`. **This is the single
-  most likely reason `c3d-part-contact` would fail to move the number it targets, and it is
-  a prompt-corpus change with its own measurement. Do it before re-running that A/B.**
+* **The prompt corpus no longer contradicts the connectivity gate on weld overlap (D107).**
+  `tracks/generate_static.j2` ("overlap neighbours by ≥ 0.002 m"), `tracks/assemble_static.j2`,
+  `generate_static_part.j2`, `system/harness_contract.md` ("seams overlap by ≥ 2 mm") and three
+  cookbooks taught 2–5 mm, at or above `PENETRATION_WARN_M`; all of them now state the gate's
+  band (gap ≤ 2 mm, overlap ≤ 2 mm) and the cookbooks are gone.  It was the single most likely
+  reason `c3d-part-contact` failed to move the number it targets: re-run that A/B on a
+  post-D107 tree, and do not pool it with one from before.
 * **`ENV_RECIPES` / `ZONE_RECIPES` inlining in `tracks/scene.py` is GONE (D106, 2026-10-15)** —
   it was up to 6,000 unconditional tokens per env/zone session, never A/B'd against a routed
   skill, and iteration 0 of the argon loop showed what it bought: 60 scenes of one shape.  The

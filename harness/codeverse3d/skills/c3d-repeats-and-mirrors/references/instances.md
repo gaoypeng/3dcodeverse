@@ -2,8 +2,8 @@
 
 Everything here was read out of the live harness on 2026-08-25:
 `codeverse3d/spatial/contract.py`, `codeverse3d/contracts/plan.py`,
-`codeverse3d/conventions.py`, `codeverse3d/tracks/planner.py`,
-`codeverse3d/prompts/blender/cookbook.md`, and 2,121 gate reports under `bench/out`.
+`codeverse3d/conventions.py`, `codeverse3d/tracks/planner.py`, and 2,121 gate reports under
+`bench/out`.
 
 ## 1. Exactly how the gate matches a name to a plan part
 
@@ -111,18 +111,20 @@ def linked_copy(src, name, location):
     o.location = location
     o.rotation_euler = src.rotation_euler
     o.scale = src.scale
-    return link(o)
+    bpy.context.scene.collection.objects.link(o)
+    return o
 ```
 
-* Mirror inside one part: `add_mirror(obj, 'X')` then `apply_modifiers(obj)`. Move the **mesh**
-  off the plane (`obj.data.transform(Matrix.Translation((-dx, 0, 0)))`) so the object origin
-  stays on x = 0 — the modifier mirrors across the origin plane, not across the world.
-* Repeated detail inside one part: ARRAY modifier (`add_array`) for rows,
-  `radial_array(obj, count)` for rings. Both produce ONE object, which is what a single plan
-  part must export as.
+* Mirror inside one part: a MIRROR modifier (`use_clip`, origin on the symmetry plane), then
+  apply. Move the **mesh** off the plane (`obj.data.transform(Matrix.Translation((-dx, 0, 0)))`)
+  so the object origin stays on x = 0 — the modifier mirrors across the origin plane, not
+  across the world.
+* Repeated detail inside one part: an ARRAY modifier with a constant offset for rows, or
+  `use_object_offset` with an Empty rotated 2π/n for rings (apply, then delete the Empty).
+  Both produce ONE object, which is what a single plan part must export as.
 * `bpy.ops.mesh.primitive_cube_add(scale=...)` without `size=1` builds a 2 m cube times the
-  scale — every extent doubles. `lint:blender` flags it. Prefer the cookbook's bmesh
-  `make_box`.
+  scale — every extent doubles. `lint:blender` flags it. `bmesh.ops.create_cube(bm, size=1)`
+  + `bmesh.ops.scale` needs no operator context and gives exact extents.
 * For a URDF pair, each copy is its **own link** with its own joint and pivot. Instancing is a
   Blender convenience; the URDF still needs `left_wheel` and `right_wheel` as separate links.
 
@@ -144,10 +146,11 @@ slivers behind.
 
 ### three.js
 
-`InstancedMesh` is one draw call but also **one node** — good for scenery, wrong for a plan row
-that must be measured per copy. When the plan names `instances: N` and the gate must see N
-nodes, emit N `THREE.Mesh` objects sharing one geometry, named `Name_0..Name_{N-1}`, added at
-the top level of the exported group.
+The exporter bakes an `InstancedMesh` named `Name` into sibling meshes `Name_0 … Name_{N-1}`
+where it stood (instance matrices and colours baked; the contract's Materials section), so the
+gate sees N copies either way: at the top level of the exported group they are the plan row's
+instances; inside a part's Group they are pieces of that part.  N `THREE.Mesh` objects sharing
+one geometry give the same nodes.
 
 ## 6. Jitter that is safe
 
@@ -156,5 +159,4 @@ a 4 cm part is `max(0.01, 0.10 * 0.04) = 0.01 m` — an absolute 10 mm floor, ge
 1 m part it is 0.10 m. Scale jitter of 1-2 % is therefore always safe; position jitter is free
 because the centre is not checked for instanced parts. Rotation jitter can enlarge a copy's
 axis-aligned bbox: a 0.6 degree tilt on a 0.41 m leg adds about 4 mm to the x extent, which is
-inside the 10 mm floor but not inside a 1 % budget on a 5 cm part. Keep tilt under 1 degree on
-parts smaller than 10 cm.
+inside the 10 mm floor.

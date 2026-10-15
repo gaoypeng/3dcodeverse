@@ -207,14 +207,12 @@ Every run is read from its ledger alone (`addons.costreport.audit.read_run` / `r
 ```python
 from codeverse3d.agents import get_coding_agent           # (agent_id) -> CodingAgent  .run(job) .available() .id .kind .model
 from codeverse3d.agents.materialize import materialize_workspace, codex_mcp_overrides
-materialize_workspace(ws, *, agent_kind, contract_md, cookbook_text, spatial_tools, mcp_command=None) -> None
-# cookbook_text = RunContext.cookbook_text, the catalog's text (Δ 2026-09-22: was cookbook_rel, resolved workspace-first,
-# so an agent-written <ws>/<lang>/cookbook.md shadowed the harness cookbook); "" → no "## Cookbook" section, no .3dcode/cookbook.md
-# (a stale one is removed), no warning — the scene languages ship none (D106)
+materialize_workspace(ws, *, agent_kind, contract_md, spatial_tools, mcp_command=None) -> None
+# Δ D107: no cookbook_text — no language ships a cookbook; the body is hard rules + tool cards + the language contract
 # mcp_command defaults to cli_common.default_mcp_command(ws) = [sys.executable, -m codeverse3d.spatial.mcp_server --workspace …]
 # (None/[] = the default — no ValueError); tracks/common.Services.materialize takes no mcp_command
 # writes AGENTS.md + CLAUDE.md (same body; Δ D103 no GEMINI.md — agy reads it AND AGENTS.md, so the body loaded
-# twice), ws/.3dcode/cookbook.md (Δ written in: an agent may not read outside the workspace), .antigravityignore,
+# twice), .antigravityignore (Δ D107: no .3dcode/cookbook.md copy),
 # and NO MCP file in the workspace (it is agent-writable — audit 2026-08-27); MCP wiring is per session:
 #   claude-code → trajectories/<label>_rNN/mcp.json      codex → codex_mcp_overrides(mcp_command) built PER SESSION:
 #     -c mcp_servers.3dcode.command=… -c mcp_servers.3dcode.args=[…] -c mcp_servers.3dcode.default_tools_approval_mode="approve"
@@ -253,7 +251,7 @@ sessions on one workspace are serialised, so there is no sibling filter),
 `edit_only` / `always_writable` (a scoped refine may overwrite only its hinted files +
 the entry file), `read_only: list[str]` (harness-owned files INSIDE the write roots the
 session may read but never write — `contracts.common.HARNESS_OWNED_SRC[language]`, i.e.
-`src/recipes.glsl` for glsl_shader and `src/lib/` for scene_threejs; `tracks/generation.py`
+`src/lib/` for scene_threejs / scene_blender (Δ D107: glsl_shader's seeded `src/recipes.glsl` is gone); `tracks/generation.py`
 sets it on every job of the run and `agents/cli_common._enforce_scope` reverts a
 post-session write to one and fails that session.  **Δ** an entry ending in `/` is a
 DIRECTORY prefix — `contracts.common.is_harness_owned(rel, owned)` is the predicate, and
@@ -304,7 +302,7 @@ rt.env_file: str                                      # Δ 2026-10-14 (D105) src
 from codeverse3d.prompts.catalog import language_prompt, language_text
 language_prompt(language, name) -> str   # "<dir>/<name>" under prompts/ (urdf_blender → urdf/): THE per-language prompt
 language_text(language, name) -> str     # its text, "" for a file the language does not ship (Δ 2026-09-22: replaces
-    # LanguageRuntime.contract_doc / RuntimeDocs, tracks/common.language_contract / cookbook_rel_for / load_prompt_or,
+    # LanguageRuntime.contract_doc / RuntimeDocs, tracks/common.language_contract / load_prompt_or,
     # tracks/prompting.effects_catalog_text; planner.plan / build_system_prompt take no runtime=)
 BuildResult.error_type spellings (languages/_common.py): MISSING_ENTRY = "MissingEntryFile" (every runtime, threejs'
     export_glb.mjs included) · BUILD_TIMEOUT = "BuildTimeout" (compose_build_result, threejs, urdf)
@@ -317,7 +315,7 @@ BuildResult.error_type spellings (languages/_common.py): MISSING_ENTRY = "Missin
 | `UrdfBlenderRuntime` | `src/model.py`, `src/robot.urdf` | object.glb (Y-up, node=link, joint extras), meshes/<link>.glb (raw Z-up link frames); link name `world` is reserved (lint ERROR + UrdfError); robot GLB root gets `__root` suffix on name clash; the build collides the REST pose only (RestPenetration > 5 mm, D17) — every pose is the round's `joint_sweep` gate — and writes no articulation.json / census.articulation (Δ 2026-09-22) |
 | `SceneThreeJsRuntime` | `src/scene.js`, `src/zones/*.js`, `src/assets/*.js`, `src/env.js`, `src/shaders/*.{js,vert,frag,glsl}` | glb_path=None; local shader text loads inside async createScene; ok iff `spatial.probes.run_probe(ws, *, compile=True, timeout_s=None) -> (scene_probe, shader_preflight, census)` (one `probe_scene.mjs --compile` boot; `probe_scene` is the same call without `compile`) passes both; both reports ride `BuildResult.gates`, and the `shader_probe` tool reports the same call |
 | `SceneBlenderRuntime` | `src/scene.py`, `src/zones/*.py`, `src/assets/*.py`, `src/env.py` | **Δ 2026-09-24 (D102)** glb_path=None; `scene.py` is assembled DATA (`ZONES`/`ASSETS`/`HEROES` `{snake: Pascal}`, `CAMERAS` in the Blender frame, vertical fov); build = one Blender process (`wrappers/run_bpy_scene.py`: env, heroes, assets, zones each isolated — a raise is an ERROR on its `file:line` and the zone is dropped) → `artifacts/{census.glb, scene.blend, bpy_build.json, bpy_census.json}` → `run_probe(ws, glb=artifacts/census.glb, facts=bpy_census)` (no settle / camera repair; D2 unique-tri ERROR, no draw gate; D10 python drivers ERROR) → `BuildResult.gates=[scene_probe]`; `probe()` = the same measurement without touching build.json; `render_scene` = `spatial.render_blender.render_blender_scene` (**Δ D102b**: Blender renders the authored cameras × times + the overviews from `artifacts/scene.blend`, the JS host keeps the camera checks and the metrics schema; **Δ 2026-10-14 (D105)** the track runs end to end — `env_file` = `src/env.py`, the bpy templates, planner schema and asset ladder under orchestrator/ + tracks/ below); frame clock `scene_blender.FPS`/`frame_of(t) = 1 + round(30 t)` |
-| `GlslShaderRuntime` | `src/shader.frag`, `src/common.glsl`, `src/buffer_a.frag` (+ the harness-owned `src/recipes.glsl` when seeded) | harness owns `#version`/uniforms/`out` (wrap.HEADER: u_time/u_resolution/u_mouse/u_frame/u_prev/u_noise + iTime/iChannel* aliases); `wrap.compose(shader, common, recipes_src=…)` pastes header < recipes < common < shader; build renders judge frames via GlHost; compile errors → GlslCompileError at mapped src file:line (recipes.glsl included); lint ERROR `redefines_recipe` when an agent file defines a recipes.glsl name; artifacts frames/, frames_sheet.png, preview.gif, metrics.json |
+| `GlslShaderRuntime` | `src/shader.frag`, `src/common.glsl`, `src/buffer_a.frag` | harness owns `#version`/uniforms/`out` (wrap.HEADER: u_time/u_resolution/u_mouse/u_frame/u_prev/u_noise + iTime/iChannel* aliases); `compose(shader, common, *, shader_file, common_file)` pastes header < common < shader (Δ D107: no `recipes_src`, no `redefines_recipe` lint, no harness-owned `src/recipes.glsl`); build renders judge frames via GlHost; compile errors → GlslCompileError at mapped src file:line; artifacts frames/, frames_sheet.png, preview.gif, metrics.json |
 | `OpenGLPythonRuntime` | `src/program.py`, `src/*.glsl` | `setup(ctx,w,h)->state` + `render(ctx,state,t,frame,fbo)` run in a moderngl subprocess (`wrappers/run_gl.py`); exceptions map to src/program.py:line, in-string GLSL errors carry both line numbers |
 
 **Scene effect ownership and shader composition** are stated where they live: `src/lib/lifecycle.js`
@@ -594,19 +592,9 @@ scope_groups(plan, *, files_for, max_groups=6, parts_per_scope=3, min_parts=8) -
     # otherwise attachment-subtree groups whose files are disjoint, so the sessions run in parallel
 interfaces_text(plan, scope) -> str    # the planned boxes of the neighbours this scope must weld to
 from codeverse3d.tracks.prompting import base_prompt_context, reference_images, scope_context, budget_for  # Δ split out of
-from codeverse3d.tracks.prompting import select_cookbook_chapters, is_always_chapter
-    # select_cookbook_chapters(ctx, brief, *, budget=9000, always=COOKBOOK_ALWAYS) -> list[Section]: the header +
-    # always-on chapters + the brief's chapters (whole, cookbook order, inside budget)
-from codeverse3d.tracks.graphics import seed_recipes, graphics_brief, cookbook_functions, EXTRA_KEY, RECIPES_REL
-    # seed_recipes(ctx) -> list[str]: glsl_shader + Settings.limits.seed_recipes only.  Writes the selected chapters'
-    # function definitions (minus always-on chapters and the raymarching template) + the helpers they call to
-    # the HARNESS-OWNED src/recipes.glsl (RECIPES_REL; header "// harness-owned: … READ-ONLY …"; a resume appends
-    # only names the file lacks); returns the names written THIS call; ctx.extra["seeded_recipes"] =
-    # [{name, signature, purpose}] for every seeded recipe on disk (the prompt block); emits recipes.seeded
-    # {file, names, present, chapters, trimmed}.  Never writes src/common.glsl — except the untouched skeleton,
-    # which loses the helpers recipes.glsl now provides (trim_skeleton_common; recipes are pasted first).
-    # GraphicsTrack.stages runs it (the uncached "recipes" stage) after the skeleton and commits "recipes"
-    # when it wrote something.
+    # Δ D107: select_cookbook_chapters / is_always_chapter / COOKBOOK_SYNONYMS and the graphics recipe seeding
+    # (tracks/graphics.seed_recipes, cookbook_functions, the "recipes" stage, Settings.limits.seed_recipes /
+    # C3D_SEED_RECIPES) are deleted with the cookbooks; base_prompt_context carries no cookbook_excerpt
 from codeverse3d.tracks.common import RunContext, Services   # common.py; RunContext.single_shot / .agent_kind
     # (Δ 2026-08-30) Services.connectivity(glb, language="", planned_edges=()) forwards the plan's attach_to pairs;
     #   spatial.contract.planned_joins(plan, measurement) -> [(child, (parent copies…))] spells them in GLB part names via
@@ -798,7 +786,7 @@ from codeverse3d.addons.dataset.index import build_index, query, summary   # sql
 optional normalises it once with `events = proc.NULL_EVENTS if events is None else events` (never `events or …`).
 Event names: `run.start`, `stage.start/done`, `plan.done`, `workspace.materialized`,
 `round.start`, `generate.done`, `build.done`, `gates.done`, `judge.done`,
-`round.done`, `refine.planned`, `recipes.seeded` (graphics: names written this call, present on disk, chapters), `asset.judged`, `assets.done`,
+`round.done`, `refine.planned`, `asset.judged`, `assets.done`,
 `zones.done`, `assemble.done`, `round.no_change`, `candidates.start`,
 `candidate.start/done/failed/retry/selected`, `resume.reconciled` (rounds, dropped, `restored_last_round`; Δ 2026-09-22 no
 `state_was_stale`: run_state.json keeps no copy of the round journal to go stale),
@@ -813,7 +801,7 @@ gone — no reader, and its per-round {stage → $} restated the ledger (`summar
 rNN.json that carries one still loads, the key ignored).  `PairwiseNote` lives in `addons.select`.
 `RunRecord` (record.json): spec, plan, workspace, status, rounds[RoundRecord{…, usage, duration_s, steps}],
 total_usage, environment, steps (run-level StepTime rows; `minutes` = the property over all of them),
-prompt_hashes{contract, cookbook, generate, refine}, error, extra{stop_reason,
+prompt_hashes{contract, generate, refine, …} (Δ D107: no cookbook key), error, extra{stop_reason,
 rubric, budget{elapsed_min, max_minutes} (the clock), aborted_rounds?, candidates? (the
 rounds/candidates.json payload), texturing?, captions?}.  `total_usage` is the sum of telemetry/cost.jsonl at
 list price — every billed row once, aborted rounds, retried sessions and billed-but-discarded round-trips

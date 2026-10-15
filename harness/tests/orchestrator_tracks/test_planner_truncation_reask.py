@@ -22,7 +22,7 @@ def test_truncation_retries_compact_with_low_thinking(tmp_ws):
     model = FakeChatModel(respond)
     events = EventLog(tmp_ws.events_path)
     p = plan(make_spec(), "fake:planner", StaticPlan, tmp_ws, model=model, events=events)
-    assert p.object_name == "DiningChair" and len(model.requests) == 2
+    assert p.object_name == _valid_plan_dict()["object_name"] and len(model.requests) == 2
     first, second = model.requests
     assert first.thinking == "medium" and second.thinking == "off"
     assert second.max_output_tokens > first.max_output_tokens

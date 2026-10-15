@@ -44,7 +44,7 @@ FRAMEWORK_DEFAULTS: tuple[tuple[float, float], ...] = (
     (0.0, 1.0),   # three.js MeshStandardMaterial default
     (0.0, 0.5),   # Blender Principled BSDF default
     (0.0, 0.6),   # languages/wrappers/run_cq.py: every CadQuery part's exported material
-    (0.05, 0.6),  # languages/threejs PART_TEMPLATE: the part stub's placeholder material
+    (0.05, 0.6),  # the three.js part stub's placeholder before D107 (runs recorded before it carry it)
 )
 
 
@@ -53,8 +53,8 @@ class Pbr(BaseModel):
 
     ``ior``/``clearcoat``/``sheen``/``transmission`` have no home in core glTF
     ``pbrMetallicRoughness`` (they are KHR extensions / Blender + three
-    ``MeshPhysicalMaterial`` inputs) — they are carried here because the
-    cookbook and the Blender and three.js authoring paths do use them.
+    ``MeshPhysicalMaterial`` inputs) — they are carried here because the Blender and
+    three.js authoring paths (Principled BSDF / MeshPhysicalMaterial) do use them.
     """
 
     family: str
@@ -86,7 +86,7 @@ def _m(
                roughness_band=rband, metallic_band=mband, note=note)
 
 
-#: family -> factors.  Ordered as the cookbook prints them (metals, woods, polymers, rest).
+#: family -> factors (the texture pass's normaliser bands).  Metals, woods, polymers, rest.
 MATERIALS: dict[str, Pbr] = {
     "painted_metal": _m("painted_metal", 0.0, 0.35, clearcoat=0.35, ccr=0.10, base=(0.30, 0.32, 0.36),
                         rband=(0.08, 0.7), mband=(0.0, 0.35),

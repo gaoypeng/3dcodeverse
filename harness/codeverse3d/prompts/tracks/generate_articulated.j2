@@ -1,7 +1,8 @@
 # Build the articulated `{{ object_name }}`: bpy links + hand-written URDF
 
-You write TWO files: `src/model.py` (raw bpy — one mesh object per LINK, authored in WORLD
-coordinates at the rest pose) and `src/robot.urdf` (native URDF describing the joints). The harness
+You write TWO files: `src/model.py` (raw bpy — per LINK, the object named exactly as the link plus
+anything parented under it, authored in WORLD coordinates at the rest pose) and `src/robot.urdf`
+(native URDF describing the joints). The harness
 exports each link to `meshes/<link>.glb`, lints the URDF, runs forward kinematics, sweeps every joint
 between its limits and checks for penetrations, then renders rest + limit poses for a judge.
 
@@ -16,10 +17,6 @@ Constraints:
 ## The contract (hard rules)
 {{ frame_doc }}
 {{ contract }}
-Copyable snippets live in `.3dcode/cookbook.md`.{% if cookbook_excerpt %}
-Cookbook excerpt:
-{{ cookbook_excerpt }}
-{% endif %}
 
 ## Plan
 {{ plan_summary }}
@@ -33,36 +30,39 @@ Links (one bpy object each; link name = the snake_case of the `part` column, `Do
 Link construction notes:
 {{ part_details }}
 
-Joints (the URDF must realise EXACTLY these; pivots are WORLD points at rest):
+Joints — the brief's requirement, as the harness measures it: the tree must carry these names,
+parents and children (URDF lint), each `motion` word is checked against the direction positive q
+moves the child (`motion_direction`, 60° cone) and the limits are the range the sweep tests; pivots
+are WORLD points at rest:
 {{ joints_table }}
 
 ## Acceptance checklist
 {{ acceptance }}
 
 ## DO
-- Build every link at its WORLD rest pose with the plan's bbox centre/extents; each link is
-  ONE object (join sub-shapes into it) named exactly as the link.
-- Joint origins: every link frame sits at its joint's world pivot (root at the world origin), so the
-  URDF `<joint><origin xyz>` = pivot_child − pivot_parent (plain subtraction of world points; root
-  parent pivot = 0 0 0). The harness exports meshes/<link>.glb in WORLD coordinates, therefore the
-  child's visual AND collision `<origin xyz>` = −P (the NEGATED world pivot; root link: `0 0 0`) —
-  never the mesh-centre offset. Keep the numbers consistent with the bbox centres in the table —
-  write them out explicitly as comments in the URDF before the joint.
-- Use the axis vectors from the table verbatim; limits = lower/upper from the table; `effort`/
-  `velocity` any positive numbers.
-- Keep 1–3 mm of clearance along each joint's motion direction between the child link and the
-  links it moves past (drawer vs cabinet walls, door vs frame); fixed neighbours overlap ≥ 0.002 m.
-- Hinged lids/doors pivot at their EDGE (the hinge line), drawers slide along the cabinet depth.
+- Build every link at its WORLD rest pose to the plan's bbox (`check_contract`: max(10 mm, 10 %) per
+  axis); one object named exactly as the link, with any helper objects parented under it (the
+  wrapper joins them).
+- Use the table's axes and limits (the skeleton already wrote them); if the motion check shows
+  positive q moving the child against the plan's `motion` word, negate that axis — never swap the
+  limits. `effort`/`velocity`: any positive numbers.
+- Clearance is measured, not estimated: no overlap deeper than 2 mm in any sweep pose (a moved-pose
+  overlap is always an ERROR; a rest overlap above 5 mm fails the build); a fixed child within 2 mm
+  of its parent, a moving child within 10 mm.
+- Every pivot lies on the real hinge line or slide axis of the part (the motion check measures the
+  link's centroid displacement; a centred pivot gives none and the part sweeps through its neighbour).
 
 ## DON'T
-- No camera/light/render/export calls in bpy; no imports beyond bpy/bmesh/math/mathutils/random.
-- No links that float (every non-root link touches its parent at rest, or is attached by its joint
-  at a pivot that lies ON the child link's geometry).
+- No camera/light/render/export calls in bpy; imports are the ones the blender lint allows (the
+  contract's Allowed / forbidden section).
+- No floating links: at rest a fixed child's mesh is within 2 mm of its parent's, a hinged or sliding
+  child's within 10 mm (ERROR beyond 30 mm; a prismatic child already inside its parent's bbox is
+  exempt).
 - No joint whose child passes through another link anywhere in [lower, upper].
 - No renaming of links/joints; no extra root links; one tree rooted at `{{ root_link }}` as planned.
 
 {% if skeleton_files %}
-## Current files (skeleton in src/ — keep the structure, fill every stub)
+## Current files (the skeleton in src/: keep the link and joint names and robot.urdf's frames; replace every placeholder box with the real link)
 {% for path, body in skeleton_files.items() %}
 --- {{ path }} ---
 ```

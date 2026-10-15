@@ -1,81 +1,96 @@
 # CadQuery authoring contract — track `static_object`, language `cadquery`
 
 ## Files
-* `src/model.py` — ONE script, `import cadquery as cq` (+ stdlib `math`).  The harness
-  imports it in a subprocess and reads the module-level variable **`result`**.
-  It exports STEP + STL per part and a GLB with one named node per part.  You never
-  export, print to files, or call `show_object`.
+* `src/model.py` is the entry.  The harness runs it in a subprocess (`src/` first on
+  `sys.path`, so a helper module beside it imports) and reads the module-level variable
+  **`result`**.  It exports STEP + STL and a GLB with one named node per part.  You never
+  export, write files, print to files, or call `show_object`.
 
 ## `result`
-* Preferred: `result = cq.Assembly(name="<ObjectName>")` with one `assy.add(solid,
-  name="<PartName>", color=cq.Color(r, g, b), loc=cq.Location(...))` per plan part.
-  Part names PascalCase, unique, exactly as in the plan.
-* Allowed for a single-part object: `result = <cq.Workplane>` (one solid).
+* `result = cq.Assembly(name="<ObjectName>")` with one `.add(solid, name="<PartName>",
+  color=cq.Color(r, g, b), loc=cq.Location(...))` per plan part.  Part names PascalCase,
+  unique (they become the GLB node names), exactly as in the plan; instances
+  `Name_0..Name_N-1`.  `cq.Color` takes 0–1 floats.  Assemblies nest; a child's `loc`
+  composes with its parent's.
+* A bare `result = <cq.Workplane>` builds (one solid, exported as the node `Object`), with a
+  lint WARN and a build warning: the plan's part names are then not in the GLB.
 * `result` must exist at import time (module level, NOT under `if __name__ == "__main__"`).
+* Each part is a solid.  A chain that ends on a selector (`.faces(">Z")`, `.edges("|Z")`)
+  exports the parent solid with a build warning; with no recoverable solid the build
+  errors naming the stack types.  A bare `cq.Face` added to the assembly is flagged
+  "contains no solid".
 
-## Frame, units, placement
-* **Z up, -Y front, +X right, meters** (the harness converts to Y-up GLB).  Author each
-  part in world coordinates (leave `loc` identity) OR author at the origin and place with
-  `loc=cq.Location(cq.Vector(x, y, z))` — pick one style per file.
-* Lowest point at z = 0, footprint centred on Z.  Real-world dimensions.
-* Angles: `.rotate(p0, p1, deg)` and `cq.Location(v, axis, deg)` take **degrees**; `math`
-  functions take radians.
+## Frame, units, placement — measured by `check_contract`
+* **Z up, -Y front, +X right, metres at real-world scale** (the harness converts to Y-up
+  GLB).  A part may be authored in world coordinates (identity `loc`) or at the origin and
+  placed with `loc=cq.Location(cq.Vector(x, y, z))`; the wrapper applies `loc`.
+* Lowest point within 10 mm of z = 0 (WARN; 30 mm is ERROR).  Footprint centre within
+  max(10 mm, 10 % of the footprint extent) of the up axis (WARN).  Each part's bbox and the
+  overall bbox within max(10 mm, 10 % of the plan extent) per axis (WARN; 3× that is ERROR).
+  An exported part the plan does not name is an INFO — the judge still sees it.
+* Angles: `.rotate(p0, p1, deg)`, `cq.Location(v, axis, deg)`, `.revolve(deg)` and
+  `.twistExtrude(h, deg)` take **degrees**; `math` functions take radians.  The lint checks
+  the three-argument `.rotate(...)` only (a `math.pi` expression there is an ERROR).
 
-## Allowed imports
-`cadquery` (as `cq`), `math`, `itertools`, `functools`, `typing`, `dataclasses`.
-No `OCP`/`OCC` direct calls, no numpy, no file I/O, no `cq.exporters`, no
-`cq.importers`, no `import codeverse3d`.
+## Contact — measured by `check_connectivity`
+* Touching parts: a surface gap ≤ 2 mm counts as contact; overlap > 2 mm is WARN
+  "interpenetrate", > 10 mm (with at least 2 % of one part's surface inside) is ERROR (judge
+  cap 0.70).  Parts whose largest extent is under 10 mm are skipped.
+* Every part must be in the ground-touching component: a part the contact graph cannot reach
+  from the parts on z = 0 is a floating ERROR (judge cap 0.60) — two parts touching only each
+  other are both floating.  The finding prints the translation that closes the gap.
+* Islands: a second solid inside a part (a cut that split it, a union that did not meet)
+  smaller than 5 % of that part's largest extent is a stray-island WARN.  Each plan part is
+  its own assembly child — two plan parts unioned into one read as a missing part.
+* Budgets (`detail_budget`, sized from the plan's part × instance count): fewer than 350
+  triangles per built object after tessellation is a WARN (floor clamped to 1 500 – 40 000),
+  more than 20 000 per built object an ERROR (ceiling clamped to 60 000 – 600 000); a build
+  over 3 s per built object (at least 20 s) is a WARN, and the build is killed at
+  `build_timeout_s` (300 s by default).
 
-## Forbidden
-* No `show_object`, `exporters.export`, `open(`, `os`, `sys`, `subprocess`, network.
-* Each part a valid solid (`.val().isValid()`), no empty Workplanes; fillets
-  < 0.45 × thinnest adjacent wall; feature sizes ≥ 0.5 mm.
-* Do not union parts across plan boundaries (keep one solid per part); small intentional
-  overlap of **0.5–2 mm** between touching parts is required — that is how they "weld";
-  deeper than 2 mm and the connectivity gate calls it interpenetration.
+## Imports — the lint's list
+* Allowed: `cadquery` (as `cq`), `math`, `random`, `numpy`, and the stdlib data helpers
+  `itertools`, `functools`, `collections`, `typing`, `dataclasses`, `enum`, `copy`,
+  `statistics`, `operator`.  Anything else is a WARN "may not exist in the build sandbox".
+* Forbidden (lint ERROR): `os`, `sys`, `pathlib`, `subprocess`, `shutil`, `socket`,
+  `urllib`, `requests`, `http`, `ftplib`, `smtplib`, `webbrowser`, `ctypes`, `pickle`,
+  `multiprocessing`, `threading`, `importlib`, `OCP`, `OCC`, `ocp_vscode`, `cq_editor`,
+  `cq_warehouse`, `build123d`.
+* Forbidden calls (lint ERROR): `show_object`, `show`, `open(`, `cq.exporters.*`,
+  `cq.importers.*`, `.save()` / `.export*()` on the assembly, `exit` / `quit`.
 
-## Self-check (put at the end of the file)
-```python
-def _selfcheck(assy) -> None:
-    names = [c.name for c in assy.children]
-    assert names and len(names) == len(set(names)), f"duplicate/missing part names {names}"
-    for c in assy.children:
-        assert c.obj.val().isValid(), f"invalid solid in {c.name}"
-```
+## Kernel facts — what the build reports as an error
+* `cq.Workplane("XY")` has normal +Z (up), `"XZ"` normal -Y (the front elevation), `"YZ"`
+  normal +X.  `.extrude(h)` goes along the plane normal from the workplane; `.hole(d)` cuts
+  in the -normal direction.
+* `.box(x, y, z)` is centred on the workplane unless `centered=(…)` — `centered=False`
+  puts the MIN corner at the origin on all three axes.  `.cylinder(height, radius)` takes
+  height first.
+* `.rotate()`, `.translate()` and `.mirror()` return NEW objects — assign the result.
+* OCC refuses a fillet or chamfer whose radius reaches the adjacent wall, or whose edges
+  conflict: `StdFail_NotDone: BRep_API: command not done`.  Uncaught, it fails the WHOLE build
+  (no GLB) with the wrapper's hint (radius < 0.45 × the thinnest adjacent wall is the hint,
+  not a gate); a cosmetic fillet wrapped in `try/except` that falls back to the unrounded
+  solid is the one allowed exception (harness contract §5).  A selector that matches nothing
+  raises `ValueError`.
+* A revolve profile must stay at r ≥ 0; in `Workplane("XZ")` the axis `(0, 1, 0)` is
+  plane-local (world Z).  `.center()` before a revolve moves the profile onto the axis and
+  the kernel refuses; `.moveTo()` does not.
+* `cq.Solid.makeSphere(r)` without angle arguments builds a hemisphere (lint WARN);
+  `cq.Workplane("XY").sphere(r)` is a full sphere.
+* Features under ~0.5 mm come out invalid at OCC tolerance.
+* `.text()` may raise headless (no fonts).
 
-## COMPLETE minimal example (verified with CadQuery 2.8)
+## Interface example — runs as-is (CadQuery 2.8); the interface, not a model to copy
+Two plan parts, `Body` and `Knob` × 2: a module-level `result`, one named, coloured child per
+part, instances `Name_i`, placement by `loc`.  Sizes and positions are the plan rows' numbers.
 ```python
 import cadquery as cq
-import math
 
-# --- plan numbers (metres) -------------------------------------------------
-TOP_W, TOP_D, TOP_T, TOP_Z = 0.60, 0.40, 0.025, 0.45   # table top, its top face at 0.45
-LEG_S, LEG_INSET = 0.035, 0.04                          # square leg side, inset from edge
-WELD = 0.001                                            # legs poke 1 mm into the top
-
-def build_top() -> cq.Workplane:
-    return (cq.Workplane("XY")
-            .box(TOP_W, TOP_D, TOP_T, centered=(True, True, False))   # z from 0 up
-            .edges("|Z").fillet(0.02)            # round the 4 vertical corners
-            .edges(">Z").chamfer(0.003)          # soften the top rim
-            .translate((0, 0, TOP_Z - TOP_T)))
-
-def build_leg(sx: int, sy: int) -> cq.Workplane:
-    x = sx * (TOP_W / 2 - LEG_INSET - LEG_S / 2)
-    y = sy * (TOP_D / 2 - LEG_INSET - LEG_S / 2)
-    h = TOP_Z - TOP_T + WELD
-    leg = cq.Workplane("XY").rect(LEG_S, LEG_S).extrude(h)          # z 0 → h
-    try:
-        leg = leg.edges("|Z").fillet(0.004)                            # cosmetic: may fail
-    except Exception:
-        pass
-    return leg.translate((x, y, 0))
-
-assy = cq.Assembly(name="SideTable")
-assy.add(build_top(), name="Top", color=cq.Color(0.55, 0.33, 0.16))
-for i, (sx, sy) in enumerate([(1, 1), (-1, 1), (-1, -1), (1, -1)]):
-    assy.add(build_leg(sx, sy), name=f"Leg_{i}", color=cq.Color(0.2, 0.2, 0.22))
-
-_selfcheck(assy)
-result = assy
+body = cq.Workplane("XY").box(0.12, 0.08, 0.05, centered=(True, True, False))   # z 0 → 0.05
+knob = cq.Workplane("XY").circle(0.01).extrude(0.02)                             # z 0 → 0.02
+result = cq.Assembly(name="Object")
+result.add(body, name="Body", color=cq.Color(0.55, 0.57, 0.6))
+for i, x in enumerate((-0.04, 0.04)):   # each copy sits flush on Body's top face: contact
+    result.add(knob, name=f"Knob_{i}", color=cq.Color(0.1, 0.1, 0.1), loc=cq.Location(cq.Vector(x, 0, 0.05)))
 ```

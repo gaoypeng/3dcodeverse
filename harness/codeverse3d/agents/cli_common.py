@@ -426,7 +426,7 @@ def _enforce_scope(s: Session) -> dict[str, str]:
     Post-hoc, because every backend is a vendor CLI and none has a write-time file gate
     (the in-process one that did was deleted 2026-08-28).  Three layers:
     ``job.read_only`` ALWAYS — harness-owned source the agent must call, never rewrite
-    (``src/recipes.glsl``); ``job.write_roots`` ALWAYS — a CLI session used to be able
+    (a scene's ``src/lib/``); ``job.write_roots`` ALWAYS — a CLI session used to be able
     to write and commit a root-level ``conftest.py``; then, for ``edit_only``, the
     narrowing to ``files_hint`` + ``always_writable`` (a pre-existing file outside it is
     out of scope; new files stay allowed).  Only safe because sessions on one workspace

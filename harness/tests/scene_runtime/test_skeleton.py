@@ -99,8 +99,8 @@ def test_both_skeleton_paths_ship_the_effect_library(tmp_path):
 def test_the_library_is_harness_owned_so_an_agent_cannot_rewrite_it():
     """`src/lib/` is starter code the agent CALLS.  Registering it in
     HARNESS_OWNED_SRC is what makes `_enforce_scope` revert a session's write to
-    it — the same protection `src/recipes.glsl` has had since 2026-08-26, when a
-    seeded file the agent COULD rewrite was measured gone by the end of the run."""
+    it — the protection a seeded glsl file got on 2026-08-26, when a seeded file the agent
+    COULD rewrite was measured gone by the end of the run."""
     from codeverse3d.contracts.common import HARNESS_OWNED_SRC, Language, is_harness_owned
 
     owned = HARNESS_OWNED_SRC[Language.SCENE_THREEJS]
@@ -111,9 +111,9 @@ def test_the_library_is_harness_owned_so_an_agent_cannot_rewrite_it():
     for rel in ("src/scene.js", "src/env.js", "src/zones/meadow.js", "src/libx.js"):
         assert not is_harness_owned(rel, owned), rel
     # a plain entry is still an exact match, not a prefix
-    glsl = HARNESS_OWNED_SRC[Language.GLSL_SHADER]
-    assert is_harness_owned("src/recipes.glsl", glsl)
-    assert not is_harness_owned("src/recipes.glsl.bak", glsl)
+    assert is_harness_owned("src/owned.glsl", ("src/owned.glsl",))
+    assert not is_harness_owned("src/owned.glsl.bak", ("src/owned.glsl",))
+    assert Language.GLSL_SHADER not in HARNESS_OWNED_SRC, "the seeded recipes.glsl went with D107"
 
 
 def test_the_lint_does_not_judge_the_library_as_agent_code(tmp_path):

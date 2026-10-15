@@ -85,14 +85,14 @@ def test_a_replayed_round_reads_the_payload_the_in_run_judge_read(tmp_path, sett
     from codeverse3d.record.record import load_record
 
     ws = Workspace(tmp_path / "runs" / "replay")
-    judge = FakeJudge(scores=(0.55, 0.72), targets=("RainDrops",))
+    judge = FakeJudge(scores=(0.55, 0.72), targets=("SurfaceRipples",))
     track = GraphicsTrack(services=_services(), judge=judge, agent=FakeAgent(_writer),
                           planner_model=FakeChatModel(lambda req: plan_example()), settings=settings, runtime=FakeGlRuntime())
     rec = track.run(make_spec(max_rounds=1), ws)
     replay = build_judge_input(ws, load_record(ws), rec.rounds[-1])
     for field in ("plan_summary", "extra_context", "acceptance", "round_index"):
         assert getattr(replay, field) == getattr(judge.calls[-1], field), field
-    assert "Passes: CityBokeh (fullscreen)" in replay.plan_summary and "Motion: drops slide down" in replay.plan_summary
+    assert "Passes: PoolFloor (fullscreen)" in replay.plan_summary and "Motion: new drops land" in replay.plan_summary
 
 
 def test_planner_reask_and_acceptance(tmp_ws):
@@ -107,7 +107,7 @@ def test_planner_reask_and_acceptance(tmp_ws):
 
     model = FakeChatModel(responder)
     plan = _plan(spec, tmp_ws, model)
-    assert attempts["n"] == 2 and plan.title == "Neon rain on a window" and tmp_ws.plan_path.is_file()
+    assert attempts["n"] == 2 and plan.title == "Tide pool ripples" and tmp_ws.plan_path.is_file()
     assert "Fix EXACTLY these problems" in model.requests[1].messages[-1].text
     ids = [a.id for a in plan.acceptance]
     assert "must1" in ids and "a3" in ids  # spec must_have appended, motion item already present in the example
@@ -118,5 +118,5 @@ def test_planner_reask_and_acceptance(tmp_ws):
     with pytest.raises(PlanningError):
         _plan(spec, tmp_ws, always_bad)
     sys_prompt = planner.build_system_prompt(spec, GraphicsPlan)
-    assert "ART-DIRECTOR" in sys_prompt and "NeonRainWindow" in sys_prompt
+    assert "ART-DIRECTOR" in sys_prompt and "TidePoolRipples" in sys_prompt
     assert model.requests[0].temperature == 0.5 and model.requests[0].max_output_tokens == planner.PLAN_TOKENS_MAX

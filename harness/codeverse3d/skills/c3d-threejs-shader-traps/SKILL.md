@@ -1,12 +1,12 @@
 ---
 name: c3d-threejs-shader-traps
-description: "Use when a threejs or scene_threejs session writes a ShaderMaterial or an onBeforeCompile patch, or when shader_preflight reported an error. Write custom GLSL that survives this harness's shader gate on the first build. Says which mistakes the harness detects statically, which it detects at runtime, which it cannot see at all, and corrects three widely repeated three.js warnings that do not apply to this renderer."
+description: "Use when a scene_threejs session writes a ShaderMaterial or an onBeforeCompile patch, or when shader_preflight reported an error (on the static threejs track a ShaderMaterial is dropped at GLB export — see that contract). Write custom GLSL that survives this harness's shader gate on the first build. Says which mistakes the harness detects statically, which it detects at runtime, which it cannot see at all, and corrects three widely repeated three.js warnings that do not apply to this renderer."
 license: Apache-2.0
 compatibility: three@0.182.0, headless WebGL via puppeteer. Rules read from runtime_js/lib/glsl_audit.mjs, runtime_js/lib/host_compile.mjs, runtime_js/lib/shader_report.mjs and runtime_js/lib/browser/renderer.js.
 metadata:
   evidence: mixed
   evidence_note: "Every rule is read from the live runtime_js source and cross-checked against the shader_report merge path. Incidence is NOT measured: bench/out holds 4 scene_threejs runs, and all 4 shader_preflight reports are clean INFO (10, 9, 14 and 11 programs compiled; 1-12 custom materials). The corpus therefore supports the detection map, not a defect rate."
-  verified: "2026-08-25"
+  verified: "2026-10-15"
   owns: "shader_preflight"
   target_metric: "shader_preflight_findings"
   target_direction: "down"
@@ -20,8 +20,8 @@ metadata:
 **When:** your scene builds a `THREE.ShaderMaterial` / `RawShaderMaterial`, or patches a built-in
 material through `onBeforeCompile`, or `shader_preflight` said something.
 
-In a scene workspace the GLSL boilerplate is `makeShaderMaterial(opts)` in `src/lib/shader.js` —
-start from it. What follows is the part it does not say:
+In a scene workspace `makeShaderMaterial(opts)` in `src/lib/shader.js` already satisfies every rule
+below; it is the option that costs nothing. What follows is the part it does not say:
 **which pitfalls a gate will catch, at what severity, and which ones nothing catches.**
 
 ## The detection map
@@ -59,8 +59,7 @@ Plus GPU compile: every program is force-compiled, and a compiler error is mappe
 
 Both audits are hard-coded to the identifier `uTime` (`/\buTime\b/`). Call it `time`, `u_time`
 or `iTime` and you get **no** protection from either check — the shader compiles, the uniform
-never updates, and the scene is silently frozen. `animation_life` is **0.431, the lowest
-criterion in the whole corpus** (8 rounds over 4 scene runs), and the judge's words for it are
+never updates, and the scene is silently frozen. The judge's own words for a frozen shader are
 *"No animation is visible; the scene is completely static"* and *"MONTAGE 2/3 (t=0s) and
 MONTAGE 3/3 (t=1.5s) shows identical frames"*. Naming the uniform `uTime` is the cheapest
 insurance in this file.
@@ -125,5 +124,5 @@ program cache key, an effect placed outside every camera's frustum. Look at the 
 yourself: `scene_views` (or `render_views`) at two different times, and check that the thing
 you wrote changed something.
 
-Full audit source lines, the fix-hint texts, and a minimal citizen shader:
+Full audit source lines, the fix-hint texts, and what a shader that passes every rule carries:
 `references/shader-gate.md`.

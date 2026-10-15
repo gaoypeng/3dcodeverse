@@ -1348,11 +1348,152 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   cookbook section / file for a language that ships none; `prompts/_claims.toml` rows re-pointed at the
   contracts; `tests/prompts/manifest.json` re-blessed for every scene scenario; the judge's calibration
   (`bench.loop judge-calib`) must be re-run before the next `accept`, since what the judge is asked
-  changed.  NEXT: the other six cookbooks (blender, cadquery, threejs, urdf_blender, glsl_shader,
-  opengl_python) follow the same rule — the graphics `seed_recipes` path and `select_cookbook_chapters`
-  stay until then.  Open: `content_small` still grades `cameras[0]` as ≥ 20 % content excluding ground
+  changed.  NEXT (done, D107): the other six cookbooks (blender, cadquery, threejs, urdf_blender,
+  glsl_shader, opengl_python) follow the same rule — the graphics `seed_recipes` path and
+  `select_cookbook_chapters` stay until then.  Open: `content_small` still grades `cameras[0]` as ≥ 20 % content excluding ground
   and water (a beach / moor / lake viewpoint fails by nature); planner temperature 0.4 unmeasured for
   plan diversity.
+
+* **D107 Every track states REQUIREMENTS, never templates — no language ships a cookbook (owner,
+  2026-10-15).**  D106's rule applied to the six remaining languages.  DELETED: `prompts/{blender,
+  cadquery,threejs,urdf,glsl_shader,opengl_python}/cookbook.md` (999 / 413 / 523 / 434 / 293 / 166
+  lines) and `glsl_shader/examples/aurora_ridge.frag`; their INTERFACE and LANGUAGE facts (what the
+  wrapper calls, frames / units / naming, API traps that are build or lint errors, what the census /
+  renderer measures) moved into `contract.md` / `system.md` as short statements, their CRAFT into a few
+  short optional practices in the track's skills; recipe libraries, snippet collections and
+  prescriptive numbers are gone.  KEPT exactly: the object tracks' bbox / dims / connectivity / joint /
+  part-naming contracts, sandbox rules, triangle budgets — and ONE executable interface example per
+  `contract.md`, which `tests/prompts/test_snippets_run.py` (blender / cadquery / threejs / urdf /
+  glsl_shader) and `tests/graphics/test_gl_runtime.py` (opengl_python) run through the real runtime,
+  pinning the interface (builds, exports, on the ground, moves), never a shape, a part name or a count.
+  The PLUMBING went in the same change, so a cookbook is not a concept any more rather than a tolerated
+  absence: `RunContext.cookbook_text` and every reader; `materialize_workspace(cookbook_text=…)`, the
+  `.3dcode/cookbook.md` copy and the "## Cookbook" body section; `format_error_report`'s cookbook
+  argument and `repair.relevant_cookbook_section` (the repair prompt now carries the error report, the
+  lint findings' fix hints and the routed skills' pointers — nothing language-specific beyond that);
+  `prompting.select_cookbook_chapters` / `is_always_chapter` / `COOKBOOK_SYNONYMS` / `COOKBOOK_ALWAYS`
+  and the `cookbook_excerpt` template variable (generate_static / generate_articulated /
+  generate_graphics / generate_static_part / repair lose their "copyable snippets live in
+  .3dcode/cookbook.md" lines); `prompts/sections.py` whole (`find_section` and the splitter
+  nothing called); the graphics recipe SEEDING
+  (`tracks/graphics.seed_recipes` and its helpers, the uncached "recipes" stage, the harness-owned
+  `src/recipes.glsl`, `compose(recipes_src=…)`, the `redefines_recipe` lint, `Settings.limits.seed_recipes`
+  / `C3D_SEED_RECIPES`, the `recipes.seeded` event); `record.prompt_hashes["cookbook"]` (no new
+  session records it; a pre-D107 run resumed after it carries its earlier sessions' hash
+  forward, which is correct for those rounds).  PLANNER (the same rule, applied to the plan
+  budget): the PLAN BUDGET block states a floor and a detail minimum ONLY when the request is
+  evidence of them (a brief, or ≥ `EVIDENCE_MIN_CHECKLIST` checklist items) — the only case
+  `plan_quality_complaint` re-asks on them; without evidence it states the ceiling and "nothing
+  here sets a count" (the "boxes at different sizes" complaint rides along as soft, so "a stool"
+  may be four boxes); the `target_leaves` line and every "(2 or more)" / "3-6 elements" count are
+  gone; the graphics pass floor is 1 (`GRAPHICS_MIN` 3 → 1, `min_assemblies` 0) and the
+  "pass count correlates +0.40" sentence, the three-dust-layer example and "numbers everywhere"
+  left `plan_graphics.j2` (the graphics twin of D106's three-depth-layer rule); the graphics
+  plan example is a tide pool with two passes (it was the CLAUDE.md demo brief, with a
+  "Grade: vignette, aberration, tonemap + gamma" pass that every skeleton then carried as a TODO);
+  `plan_static.j2` lost "do NOT nest a leg / prefer nesting" and the mandated dimension /
+  ground acceptance items (the harness adds those itself); the brief's and the plan schema's
+  "3-8 / 6-12 / 8-16" ranges are now the validators' real maxima ("up to N").  JUDGES
+  (non-scene) softened where a criterion rewarded a construction rather than the object: the static
+  0.9 calibration point ("every part crisp with bevels/chamfers/tapers/profiles") → "the edge
+  treatment, profile and hardware the real object has"; `primitive_only` / `detail_below_part_count`
+  (static, articulated, asset, reference) fire only where the real object has the shaping that is
+  missing; articulated's geometry-detail anchors count the hardware the real mechanism SHOWS
+  (concealed hardware is not expected); shader_v2's depth criterion credits the scales the subject
+  has (a flat style the brief allows is not docked for depth) and `candy_saturation` excuses a palette
+  the brief asked for; the judge's improvement-plan example no longer prescribes tapering legs from
+  45 to 30 mm; the static proportion anchor states the contract gate's real tolerance
+  (max(10 mm, 10 % of the extent) per axis) instead of an unmeasured ±5 %.  Every measured cap,
+  floor and penalty is unchanged.  SKILLS: no code fence over 12 lines in SKILL.md or a reference
+  (`tests/skills/test_library.py`, was 20 in the body only); `test_freshness` no longer treats prompt
+  markdown as a source of callable names and fails any bundle that mentions a cookbook.
+  CONSEQUENCES, read as known changes, not bugs: (0) a run made before D107 still rebuilds and
+  resumes: the glsl build composes its `src/recipes.glsl` when the file exists
+  (`glsl_shader.LEGACY_RECIPES`, never a stray file), and `ensure_materialized` re-materialises a
+  workspace that still holds `.3dcode/cookbook.md` (`agents.materialize.needs_rematerialize`),
+  which also deletes the file; (1) the glsl baseline loses the seeded recipes
+  (measured 2026-08-26, refs_v2_graphics aurora brief, flash: seeding was the lever against the
+  comb-of-bars aurora) — the next graphics battery is the measurement; (2) a single-shot repair prompt
+  has no language-specific excerpt any more, so a lint ERROR's `fix_hint` is the whole guidance;
+  (3) `tests/prompts/manifest.json` must be re-blessed once, after every lane's prompt / skill /
+  skeleton change, for every non-scene scenario (and the scene ones whose judge text moved); (4) the
+  judge calibration (`bench.loop judge-calib` / `addons.calibration`) is re-run before comparing an
+  object-track battery with one judged before this change.
+  PER TRACK, what replaced each cookbook: **blender** — contract.md states every measured rule with its
+  number and gate (size tolerance, ground / footprint, the 2 mm contact band and 10 mm interpenetration
+  ERROR, the 5 % island rule, triangle and time budget, export as authored), an "API traps the lint
+  reports" list and a Materials section; four facts re-measured on 5.2.2 (a curve with
+  `bevel_depth = 0` exports no node at all, `primitive_cube_add(scale=…)` without `size=1` doubles every
+  extent, a level-2 subsurfed cube loses 16 % per extent, a hidden boolean cutter stays out of the GLB);
+  the craft went to c3d-blender-forms / c3d-repeats-and-mirrors / c3d-part-contact / c3d-bbox-contract
+  as options; the plan example is an object nobody asks for (`HerbDryingRack`), the articulated one
+  carries its own summary, size and acceptance (it inherited the chair's).  **cadquery** — contract.md
+  "Kernel facts" (workplane normals, `.box` centring, revolve r ≥ 0, the hemisphere trap, OCC
+  refusals) and the measured thresholds; the import list now matches the lint, so `numpy`, `random`
+  and the stdlib data helpers are stated as ALLOWED (a widening of what the prompt permits, not of
+  the sandbox), and the INFO the lint raised on every `.fillet()` / `.chamfer()` is gone (the
+  build's OCC refusal is the signal: uncaught it fails the whole build, which the contract now
+  says; the floating-part ERROR is stated too); the interface example is an abstract Body + Knob
+  × 2 like the other two languages'.  **threejs** — contract.md gains the geometry-axis facts, GLB
+  naming, the export-material facts and a "What is measured" section; the part stub is a plain
+  `BoxGeometry` with no recipe block or preset material.  **urdf_blender** — contract.md states the
+  1 mm FK tolerance, the real limit / axis severities, and the clearance thresholds per pose; the
+  harness's axis fix hint (`articulated_object.axis_fix_hint`, `joints_sweep`) no longer offers
+  "or swap lower/upper".  **glsl_shader** — the recipe seeding is gone (above); contract.md states the
+  frame-gate caps as `frame_stats.py` computes them; c3d-glsl-craft is short practices with no
+  `references/` (telemetry reports its depth as unmeasurable); the skeleton's `src/common.glsl`
+  is a comment and PI / TAU (it seeded hash / noise / fbm / the cosine palette / a gamma tonemap
+  into every workspace — the recipe library in miniature).  **opengl_python** — the 195-line
+  example became a 20-line full-screen pass and a "moderngl facts that decide whether the build runs"
+  list; the skeleton is a stub.  SHARED: `prompts/system/harness_contract.md` (every agent workspace)
+  no longer says "overlap by ≥ 2 mm" (the WARN line), "≥ 15 mm clearance", wall thicknesses, sample
+  heights, "constants on top, one function per part" or a mandated tool order — it states what the
+  gates measure (the floating rule as the gate measures it — the ground-touching component, not
+  "touches another part"; scene bounds as the detailed area, not a cage; the build timeout and,
+  on the static track, the triangle / build-time budget that every object contract now states
+  with the `detail_budget` constants, pinned in `prompts/_claims.toml`); skills route R20 (c3d-threejs-shader-traps on a planned custom shader) is scene-only,
+  since a ShaderMaterial does not survive the static track's GLB export; `examples/graphics_lab`'s
+  recipe studies (`build_recipes.py`, `glsl_cases/`) went with the seeding.  THE RUNNABLE-EXAMPLE
+  RULE: each `contract.md` keeps exactly one example that a test executes through the real runtime
+  and that pins the interface only; the ~12-line fence cap holds everywhere except three executable
+  interface examples the owner should confirm as exemptions — urdf's frame arithmetic (17 xml
+  lines: the origins the wrapper verifies; its python block is 10), opengl_python's full-screen
+  pass (19 lines: a moderngl program cannot be shorter and still build) and D106's two
+  scene_blender modules.  REVIEW PASS (same day, three reviewers): the contact "weld" band
+  (0.5-1.5 mm, "aim ~1 mm") is gone everywhere — flush is contact; the blender skeleton's
+  self-check fails only past the ground gate's ERROR line and the layout text no longer says
+  "glue only"; wrong facts corrected against the code (the wrappers SEED `random` / numpy /
+  `mathutils.noise` and three.js `Math.random`; `mat.blend_method` exists on 5.2.2; the removed
+  APIs the lint does not catch are listed as such; URDF `<axis>` is in the joint frame, world-aligned
+  when every rpy is 0); the snippet collections in c3d-threejs-forms / c3d-blender-forms
+  references became prose under the API names with only their trap lines.
+
+* **D108 A stage that waits must not starve the next one: single-shot calls are bounded by their task,
+  the zone window comes from the hard budget, unwritten zones are recovered (2026-10-15).**  Iteration 2
+  of the argon loop shipped two Blender scenes with three EMPTY zones (0.18 each, both rounds).  The
+  chain, measured: one single-shot asset call streamed 1 087 chunks for ~20 minutes before the retry
+  layer gave up (31 of 2 697 asset calls ran past their 420 s task timeout, all the way to the 1 800 s
+  retry ceiling; p50 96 s, p95 260 s) — `generate_files` bounded the call by the RUN's remaining
+  clock, never by the task's own `timeout_s`; the asset stage took 47-49 min instead of ~4; the zone
+  stage started 0.4 min before the scene track's 0.55 soft cap, so it was neither degraded to
+  single-shot nor given a real window — an agent session clipped to the 180 s floor that read 24-27
+  files and was killed before writing a zone; `zones.done` listed all three as failed and nothing acted;
+  the refine round, whose targets named the three empty zones, spent its 15 minutes on asset files.
+  Fixes: (a) `generation.single_shot_wait_s` — a single-shot call waits at most its task's
+  `timeout_s`, never below `SINGLE_SHOT_MIN_WAIT_S` = 420 s (a stage degraded by a spent soft budget
+  carries the budget's 120-180 s floor, shorter than a legitimate call) and never past the retry
+  ceiling; tasks without a timeout (the object tracks) are unchanged; (b) `scene.zone_window_s` — the
+  zone session's window is `ZONE_TIMEOUT_S` per zone clipped to the HARD budget minus `ROUND0_RESERVE_S`
+  (600 s: assemble, build, render, gates, judge), floor `ZONE_MIN_S` (300 s); the zones are the scene,
+  refine gets what they leave; past the soft cap the stage still degrades to single-shot;
+  (c) `SceneTrack._recover_zones` — every zone the batched session left unwritten gets ONE single-shot
+  generation of its own brief, side by side (`zones.recover` / `zones.recovered` events, a `.recover`
+  label), before assembly; a recovery that fails leaves the stub as before.  Also measured, fixed in the
+  same change: the judge's fog-free Blender views only unlinked the WORLD volume while `lib.sky.haze`
+  builds a volume-only BOX (30/30 and 14/15 envs), so the placement views were rendered through the
+  haze — `render_bpy_scene.hide_fog_boxes` hides volume-only meshes ≥ 8 m in `no_fog` views (soft
+  particles stay; `fog_hidden` in the frame record).  Pinned: `tests/orchestrator_tracks/test_zone_starvation.py`,
+  `tests/scene_runtime/test_render_blender.py::…fog_box…` (real Blender).
 
 ## Rejected / deferred
 

@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Object tracks only (static_object, articulated_object). Needs the connectivity gate, i.e. an exported object.glb; scene and graphics tracks have no part graph.
 metadata:
   evidence: measured
-  verified: "2026-08-25"
+  verified: "2026-10-15"
   corpus: "142 graded runs with gate artefacts (102 blender, 23 urdf_blender), mined 2026-08-25"
   target_metric: "interpenetrating_pairs"
   target_direction: "down"
@@ -54,22 +54,20 @@ So: fewer pairs in contact, and each contact within the band below.
 | a part too small to check | `MIN_PART_SIZE_M` | largest extent < **10 mm** | skipped for contact, penetration and islands (INFO only) |
 | a crumb inside one part | `TINY_ISLAND_FRACTION` | island extent < **5%** of the part's largest extent | WARN "stray geometry" |
 
-**The whole legal window for a joint is 2 mm of gap to 2 mm of overlap.** Aim for
-**0.5-1.5 mm of overlap** and you are inside it with margin on both sides. Two traps follow
-directly:
+**The whole legal window for a joint is 2 mm of gap to 2 mm of overlap**, flush (a gap of 0)
+included — no overlap is required. Two traps follow directly:
 
 * Do not "fix" an interpenetration WARN by pulling the parts apart. Past 2 mm of gap the
   contact edge disappears and the part can drop out of the support component — a WARN
   becomes an ERROR that caps the run at 0.60.
-* Do not use a fat weld. Measured by running the gate's own `penetration_depth` on the
-  stool geometry the blender contract's example builds — a rod driven into a seat disc:
+* An overlap of exactly 2 mm already reads WARN. Measured with the gate's own
+  `penetration_depth` on a rod driven into a disc:
 
-  | weld overlap | reported depth | fraction inside | gate |
+  | overlap | reported depth | fraction inside | gate |
   |---|---|---|---|
   | 4.0 mm | 4.00 mm | 2.8% | **WARN** |
   | 2.0 mm | 2.00 mm | 2.7% | **WARN** (right on the line) |
   | 1.0 mm | 1.00 mm | 2.5% | clean |
-  | 0.5 mm | 0.50 mm | 2.3% | clean |
 
 ## Floating parts: never guess the fix
 
@@ -86,27 +84,26 @@ The vector is converted into **your** authoring frame before it is printed, and 
 alternative ("extend it by N mm") is usually the better one: translating a leg leaves a gap
 at its other end. Apply one of the two literally. Do not eyeball a new position.
 
-## Plan the contacts before you write code
+## Know the contacts before you write code
 
-For every part with `attach_to` set, write one line first:
-
-    <part>  meets  <neighbour>  on <which face/axis>, at <coordinate>, overlap 1 mm
-
-Then derive the part's span **from the neighbour's plan bbox**, never from a re-typed
-number: a leg's top is `seat.bbox.min.z + 0.001`, not `0.451`. Any hand-typed span is a
-future contract finding as soon as the neighbour moves. (`c3d-bbox-contract` owns the
-tolerance arithmetic; this skill only says where the number comes from.)
+A strong option: before coding, note for each part with `attach_to` set which face meets
+which neighbour, and at what coordinate, and compute that coordinate from the neighbour's
+plan bbox rather than retyping it — a computed end follows the neighbour when it moves in a
+later round. (`c3d-bbox-contract` owns the tolerance arithmetic.)
 
 ## Detail belongs INSIDE a part, not as more parts
 
 N top-level parts create N(N-1)/2 candidate contact pairs, and the count of penetrating
-pairs is what predicts the score. Sub-shapes inside one part create **none**.
+pairs is what predicts the score. Sub-shapes inside one part create **none**. Measured over
+183 judged rounds on this harness: ρ(triangles per part, `geometry_detail`) ≈ +0.08 while
+ρ(number of plan parts, `assembly_fit`) = −0.48 — triangles inside a part are free, extra
+top-level parts are not.
 
 `PartPlan.children` is exactly this device — the docstring says sub-parts of an assembly
 part are "still ONE named object in the export" — and `spatial/measure.py::part_meshes`
 backs it up: a part is an effective top-level node and *its whole subtree is merged* into
-one mesh before any pairwise test runs. Verified on Blender 5.0.1: three disjoint sub-shapes built
-into one mesh named `Housing` export as a single part.
+one mesh before any pairwise test runs. Measured on Blender 5.2.2 through the wrapper: three
+disjoint sub-shapes built into one mesh named `Housing` export as a single node.
 
 **But fusing is not optional.** Islands are split by *face connectivity*, not by overlap —
 verified against the gate: a rivet placed so it geometrically overlaps a panel, without shared
@@ -119,12 +116,13 @@ topology, is still a separate island. So a sub-shape must be either
 
 ## Where crumbs actually come from
 
-* **A cutter object left in the scene.** Verified on Blender 5.0.1: the exporter selects every
+* **A cutter object left in the scene.** Measured on Blender 5.2.2: the exporter selects every
   visible mesh, so an un-hidden boolean cutter exports as its own part — with its own
   interpenetration and its own floating ERROR. Apply the boolean and delete the cutter, or
   set `hide_render` / `hide_viewport` / `hide_set(True)` on it; all three keep it out of the
   export and the boolean still evaluates.
-* Boolean leftovers and slivers — use the EXACT or MANIFOLD solver, never FLOAT/FAST.
+* Boolean leftovers and slivers — check the result with `check_connectivity`. The solvers on
+  5.2.2 are `EXACT`, `MANIFOLD` (closed inputs) and `FLOAT`; `'FAST'` is a lint ERROR.
 * A mirrored half that was never merged, and zero-thickness or coincident faces.
 
 ## Verify with the gate, do not re-implement it

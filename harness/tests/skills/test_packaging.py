@@ -40,8 +40,14 @@ def test_a_built_wheel_actually_contains_the_bundles(tmp_path: Path):
             assert f"codeverse3d/skills/{name}/SKILL.md" in names, (
                 f"{name} is in the source tree and NOT in the wheel: "
                 f"{sorted(n for n in names if 'skills' in n)[:20]}")
-            refs = [n for n in names if n.startswith(f"codeverse3d/skills/{name}/references/")]
-            assert refs, f"{name}: references/ must ship too — it is the depth probe"
+            # references/ is optional (c3d-glsl-craft has none since D107: telemetry then reports its
+            # depth as unmeasurable), but every reference file the source tree has must ship — it is
+            # the depth probe
+            src_refs = (HARNESS / "codeverse3d" / "skills" / name / "references")
+            want_refs = ([f"codeverse3d/skills/{name}/references/{f.name}" for f in sorted(src_refs.glob("*.md"))]
+                         if src_refs.is_dir() else [])
+            missing = [r for r in want_refs if r not in names]
+            assert not missing, f"{name}: references/ must ship too — it is the depth probe: {missing}"
         if not made_probe:
             # every claims file too: `3dcode skills validate` runs against an installed wheel
             claims = sorted((HARNESS / "codeverse3d" / "skills" / "_claims").glob("*.toml"))

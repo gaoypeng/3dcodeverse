@@ -46,6 +46,7 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bpy  # noqa: E402
+from _census_glb import is_volume_only  # noqa: E402  (sibling: the census's own fog test)
 from _wrapper_common import (  # noqa: E402  (sibling, Blender-executed)
     _write_json_atomic,
     exit_after,
@@ -222,6 +223,37 @@ def relink(scene: Any, links: list[tuple[Any, Any]]) -> None:
         scene.world.node_tree.links.new(a, b)
 
 
+# --------------------------------------------------------------------------- fog boxes
+#: a volume-only mesh at least this wide (largest evaluated bbox side, m) is a fog box, hidden from the
+#: fog-free views; anything smaller is a puff of steam, smoke or dust and stays in every view
+FOG_BOX_MIN_M = 8.0
+
+
+def hide_fog_boxes(scene: Any) -> list[Any]:
+    """Render-hide every bounded fog volume and return those objects (restore with ``hide_render = False``).
+
+    WHY.  The ``no_fog`` views are the judge's placement views: ``unlink_world_volume`` takes the world's
+    Volume out, but ``lib.sky.haze`` — what 30/30 iteration-0 and 14/15 iteration-2 Blender envs used —
+    builds the fog as a volume-only BOX, which those views kept, so the judge read floating / sunken /
+    interpenetration through 0.003-0.008 /m of haze over a few hundred metres (2026-10-15: the
+    iteration-2 overview tiles came out milky).  A fog box is a mesh every material of which is
+    volume-only (``_census_glb.is_volume_only``, the census's own test) and whose largest evaluated
+    bbox side is >= ``FOG_BOX_MIN_M``; a soft particle (``lib.materials.volume`` on a small Batch) is
+    smaller and stays.  Linked library data and already hidden objects are left alone."""
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    boxes = []
+    for ob in scene.objects:
+        if ob.type != "MESH" or ob.hide_render or ob.library is not None or not is_volume_only(ob):
+            continue
+        ev = ob.evaluated_get(depsgraph)
+        corners = [ev.matrix_world @ Vector(c) for c in ev.bound_box]
+        if max(max(getattr(c, a) for c in corners) - min(getattr(c, a) for c in corners) for a in "xyz") >= FOG_BOX_MIN_M:
+            boxes.append(ob)
+    for ob in boxes:
+        ob.hide_render = True
+    return boxes
+
+
 # --------------------------------------------------------------------------- room shells
 ROOM_SHELL_PREFIX, LID_PREFIX = "RoomShell", "Ceiling"
 
@@ -305,6 +337,7 @@ def main() -> int:
             scene.render.filepath = os.path.join(out, path)
             fog = unlink_world_volume(scene) if s.get("no_fog") else []
             lids = lift_lids(scene, s["object"]) if s.get("no_fog") else []
+            hazes = hide_fog_boxes(scene) if s.get("no_fog") else []
             t0 = time.perf_counter()
             try:
                 bpy.ops.render.render(write_still=True)
@@ -314,7 +347,7 @@ def main() -> int:
             finally:
                 if fog:
                     relink(scene, fog)
-                for ob in lids:
+                for ob in (*lids, *hazes):
                     ob.hide_render = False
             ms = int((time.perf_counter() - t0) * 1000)
             if not os.path.isfile(os.path.join(out, path)):
@@ -323,7 +356,8 @@ def main() -> int:
             result["frames"].append({
                 "name": s["name"], "kind": s["kind"], "path": path, "time_s": t, "frame": frame,
                 "position": s["position"], "look_at": s["look_at"], "fov": s["fov"],
-                "no_fog": bool(s.get("no_fog")), "hidden": sorted(ob.name for ob in lids), "render_ms": ms,
+                "no_fog": bool(s.get("no_fog")), "hidden": sorted(ob.name for ob in lids),
+                "fog_hidden": sorted(ob.name for ob in hazes), "render_ms": ms,
             })
     if result["engine"] in ("eevee", "workbench"):
         result["gl_renderer"] = gl_renderer()

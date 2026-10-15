@@ -6,7 +6,7 @@ docs/RUN_LAYOUT.md):
 
 * ``settings.json`` — how the run was configured: model id per role, thinking
   level / temperature / judge samples, rounds + budget, rubric and its content
-  hash, prompt & cookbook hashes, tool versions, harness git sha, key-pool size,
+  hash, prompt and skill hashes, tool versions, harness git sha, key-pool size,
   price-table hash, render + limit settings.
 * ``cost.json`` — the run-layout summary of the ledger rows: totals, per stage, per
   role, per model, per round, the run's minutes against ``max_minutes``.

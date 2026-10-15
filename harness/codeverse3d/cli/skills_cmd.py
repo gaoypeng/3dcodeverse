@@ -1,7 +1,7 @@
 """``3dcode skills`` — look at the library, validate it, and read the read-rate.
 
 ``report`` is the command that matters.  The whole system exists because a tool that
-exists is not a tool that gets used (``read_cookbook``: 0 of 16 zone sessions), so the
+exists is not a tool that gets used (the former ``read_cookbook`` tool: 0 of 16 zone sessions), so the
 first question about any battery is not "did the score move" but "did anyone open the
 file".  Everything else here is plumbing for that answer.
 """

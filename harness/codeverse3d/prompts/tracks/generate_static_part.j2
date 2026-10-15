@@ -19,7 +19,6 @@ Style: {{ style_notes }}
 {% for f in files %}- `{{ f }}`
 {% endfor %}
 The entry file and every other part file belong to other sessions. Touching them loses their work.
-Copyable snippets live in `.3dcode/cookbook.md` — read the density chapter before you write.
 ## YOUR parts (build every row; object names must match EXACTLY — they become GLB node names)
 {{ parts_table }}
 
@@ -30,27 +29,26 @@ Construction notes:
 {{ interfaces }}
 
 Those neighbour boxes are the truth another session is building to. Where your part attaches to
-one, overlap it by 2–5 mm (never leave a gap, never float); where a neighbour attaches to yours,
-leave a real surface for it at the stated box — no recess it cannot reach, no shape that would
-make it interpenetrate.
+one, overlap it by at most 2 mm and leave no gap over 2 mm (flush counts) — the connectivity gate's
+contact band; where a neighbour attaches to yours, leave a real surface for it at the stated box —
+no recess it cannot reach, no shape that would make it interpenetrate.
 
 ## Detail
 {{ detail_advice }}
 
 ## DO
 - Place each part so its bounding box CENTRE and EXTENTS equal the plan row.
-- Build the described geometry, not a box with the right size: profiles, tapers, chamfers 2–6 mm,
-  grooves, fasteners, seams, the counted features the description names (spokes, slats, dentils…).
-  A part that is a scaled cube where the plan says "fluted cylindrical body with 6 flutes" fails.
-- Use loops/arrays for repeated features rather than hand-placing them; parameterise from the
-  constants at the top of your file so the numbers stay honest.
+- Build what the description says at its numbers and counts: the judge's checklist marks a
+  named feature that is not there (a scaled cube where the plan says "fluted cylindrical body with
+  6 flutes").
 - Material per part with the stated colour, roughness and metalness.
-- Instances (`{{ '{' }}Name{{ '}' }}_0 … _N-1`) are looped inside YOUR file, each TOP-LEVEL.
+- Instances (`{{ '{' }}Name{{ '}' }}_0 … _N-1`) are built inside YOUR file, each TOP-LEVEL.
 
 ## DON'T
 - Do not build, rename, move or "fix" a part that is not in your table — even if it looks wrong.
 - Do not write the entry file, a README, notes or tests.
-- No placeholders ("TODO", "simplified"), no unit-cube stand-ins, no part outside its plan bbox.
+- No placeholders ("TODO", "simplified"), no unit-cube stand-ins, no part off its plan bbox by more
+  than the contract tolerance (max(1 cm, 10 %) per axis).
 - No environment sniffing, no DOM/texture loading/network/file IO, no camera/light/render/export.
 
 {% if tool_cards and not single_shot %}

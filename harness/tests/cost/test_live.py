@@ -24,7 +24,10 @@ def _stable_text() -> str:
     return "\n".join([
         build_system_prompt(load_rubric("static_object_v1")),
         (REPO / "codeverse3d/prompts/blender/contract.md").read_text(),
-        (REPO / "codeverse3d/prompts/blender/cookbook.md").read_text(),
+        (REPO / "codeverse3d/prompts/blender/system.md").read_text(),
+        (REPO / "codeverse3d/prompts/system/harness_contract.md").read_text(),
+        *((REPO / "codeverse3d/skills" / name / "SKILL.md").read_text()
+          for name in ("c3d-part-contact", "c3d-blender-forms")),
     ])
 
 

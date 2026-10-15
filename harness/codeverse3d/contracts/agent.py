@@ -71,7 +71,7 @@ class AgentJob(BaseModel):
     read_only: list[str] = Field(
         default_factory=list,
         description="harness-owned files inside write_roots the agent may read but never write "
-        "(src/recipes.glsl for glsl_shader: contracts.common.HARNESS_OWNED_SRC); enforced "
+        "(src/lib/ for the scene languages: contracts.common.HARNESS_OWNED_SRC); enforced "
         "post-session: a write to one is reverted and the session failed",
     )
     mcp_command: list[str] | None = Field(

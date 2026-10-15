@@ -10,7 +10,7 @@ import pytest
 
 from tests.prompts.conftest import blocks, read_prompt
 
-XML_FILES = ["urdf/contract.md", "urdf/cookbook.md"]
+XML_FILES = ["urdf/contract.md"]
 
 
 def _is_template(body: str) -> bool:
@@ -23,7 +23,7 @@ _NUM = re.compile(r"^-?\d+(\.\d+)?([eE]-?\d+)?$")
 
 @pytest.mark.parametrize("rel", XML_FILES)
 def test_xml_examples_follow_the_enforced_frame_recipe(rel: str, tmp_path) -> None:
-    """Every worked URDF passes the lint and the build's FK rule: visual origin = −(link frame world)."""
+    """The contract's URDF example passes the lint and the build's FK rule: visual origin = −(link frame world)."""
     from codeverse3d.languages.urdf import lint_urdf_text
     from codeverse3d.spatial.joints_model import fk, load_urdf
 

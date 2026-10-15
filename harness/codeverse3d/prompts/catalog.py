@@ -1,13 +1,13 @@
 """What prompt material exists, and how each piece reaches the model.
 
-ONE answer to a question that had six.  `<lang>/cookbook.md` was once resolved in
-`languages/_docs.py`, `tracks/common.py`, `spatial/cookbook_tool.py`, `agents/materialize.py`
-and `tracks/scene_assets.py`, each with its own path arithmetic — and the
-``urdf_blender`` → ``prompts/urdf/`` mapping was written out three times and missing in a
-fourth, which is why the articulated agent received no cookbook at all for weeks.  Until
-2026-09-22 the contract still came through the runtime (``contract_doc``), the cookbook
-through ``tracks/common``, the system prompt and the effects catalog through
-``tracks/prompting``: every per-language prompt file is now found by :func:`language_prompt`.
+ONE answer to a question that had six.  A per-language prompt file was once resolved in
+`languages/_docs.py`, `tracks/common.py`, `agents/materialize.py` and `tracks/scene_assets.py`,
+each with its own path arithmetic — and the ``urdf_blender`` → ``prompts/urdf/`` mapping was
+written out three times and missing in a fourth, which is why the articulated agent received
+part of its prompt material late for weeks.  Until 2026-09-22 the contract still came through
+the runtime (``contract_doc``), the system prompt and the effects catalog through
+``tracks/prompting``: every per-language prompt file (``contract.md`` first) is now found by
+:func:`language_prompt`.
 
 The split this file encodes (owner, 2026-08-28):
 
@@ -33,17 +33,16 @@ PROMPT_DIRS: dict[Language, str] = {Language.URDF_BLENDER: "urdf"}
 
 
 def language_prompt(language: Language, name: str) -> str:
-    """``<dir>/<name>`` under ``prompts/`` — THE path of a language's ``contract.md``,
-    ``cookbook.md`` and ``system.md`` (and scene_threejs's ``effects_catalog.md`` / ``asset.md``)."""
+    """``<dir>/<name>`` under ``prompts/`` — THE path of a language's ``contract.md`` and
+    ``system.md`` (and the scene languages' ``effects_catalog.md`` / ``asset.md``)."""
     return f"{PROMPT_DIRS.get(language, language.value)}/{name}"
 
 
 def language_text(language: Language, name: str) -> str:
-    """The text of :func:`language_prompt`, or ``""`` for a file the language does not ship:
-    only the two scene languages ship an effects catalog, and they ship NO ``cookbook.md``
-    (owner, 2026-10-15: its interface facts went into contract.md / system.md, its craft into
-    the skills) — ``RunContext.cookbook_text`` is ``""`` for them, so no prompt, workspace
-    note or error report carries a cookbook on the scene track."""
+    """The text of :func:`language_prompt`, or ``""`` for a file the language does not ship
+    (only the two scene languages ship an effects catalog / ``asset.md``).  No language ships
+    a cookbook (D107, owner 2026-10-15): interface and language facts are in ``contract.md`` /
+    ``system.md``, the craft in the skills as short optional practices."""
     try:
         return load_text(language_prompt(language, name))
     except FileNotFoundError:

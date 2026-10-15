@@ -1,7 +1,7 @@
 # Contact recipes and the finding-to-fix table
 
 Companion to `c3d-part-contact`. Everything here was checked against
-`codeverse3d/spatial/connectivity.py`, `codeverse3d/spatial/measure.py`, the Blender 5.0.1
+`codeverse3d/spatial/connectivity.py`, `codeverse3d/spatial/measure.py`, the Blender 5.2.2
 wrapper in `codeverse3d/languages/wrappers/run_bpy.py`, and the recorded gate
 findings under `bench/out/**/artifacts/gates/**` (mined 2026-08-25).
 
@@ -9,7 +9,7 @@ findings under `bench/out/**/artifacts/gates/**` (mined 2026-08-25).
 
 | finding (verbatim shape) | severity | what it means | do this |
 |---|---|---|---|
-| `'A' and 'B' interpenetrate by ~N mm (F% of surface samples inside)` | WARN below 10 mm, ERROR above | the deepest sampled point of one part is N mm inside the other, and at least 2% of one part's surface samples are inside | shorten or move the *smaller* part so the overlap is 0.5-1.5 mm; if N is large the two parts are modelling the same volume twice, so delete one |
+| `'A' and 'B' interpenetrate by ~N mm (F% of surface samples inside)` | WARN below 10 mm, ERROR above | the deepest sampled point of one part is N mm inside the other, and at least 2% of one part's surface samples are inside | shorten or move the *smaller* part so the overlap is at most 2 mm (flush is contact too); if N is large the two parts are modelling the same volume twice, so delete one |
 | `part 'X' is floating: nearest supported part is 'Y' at N mm` | always ERROR (cap 0.60) | X is not in the ground-touching component | apply the printed translation, or extend X by N mm toward Y; prefer extending |
 | `part 'X' is floating: touches nothing` | ERROR | X shares no AABB neighbourhood with anything | it is in the wrong place by more than its own size — recompute its origin from its neighbour's plan bbox |
 | `no part touches the ground (z=0)` | WARN | the whole model is off the floor | move the assembly, not one part |
@@ -20,20 +20,15 @@ Recorded example depths, all real (`bench/out`, mined 2026-08-25): the median re
 interpenetration is **5.0 mm** over 1,088 findings, and **86%** of them are under the 10 mm
 ERROR line — i.e. the typical failure is a WARN that nobody fixed, not a catastrophe.
 
-## 2. bpy: derive the span, weld 1 mm
+## 2. Derive a span from the neighbour's plan bbox (an option)
 
-```python
-SEAT_Z, SEAT_T = 0.45, 0.04          # from plan.parts["Seat"].bbox
-WELD = 0.001                          # 1 mm: inside CONTACT_GAP_M, under PENETRATION_WARN_M
-LEG_H = SEAT_Z - SEAT_T + WELD        # reaches 1 mm into the seat -- NOT a re-typed 0.411
-```
-
-The point is `SEAT_Z - SEAT_T`: when the seat moves in a later round the leg follows. A
-literal `0.411` is a `contract/part_bbox` finding waiting to happen.
+A coordinate computed from the neighbour's plan numbers (its `min` / `max` on the shared
+axis) follows the neighbour when it moves in a later round; a retyped literal is a
+`contract/part_bbox` finding waiting to happen.  Any end inside the band above is contact.
 
 ## 3. bpy: three sub-shapes, ONE part
 
-Verified on Blender 5.0.1: this exports as a single node `Housing`, so no pair-wise
+Measured on Blender 5.2.2 through the wrapper: this exports as a single node `Housing`, so no pair-wise
 penetration test can ever run inside it.
 
 ```python
@@ -76,22 +71,22 @@ cutter.hide_render = True          # any of hide_render / hide_viewport / hide_s
 cutter.hide_viewport = True        # keeps it out of the export; the boolean still evaluates
 ```
 
-Verified on Blender 5.0.1 with the harness's exact export call: with no flag set, the GLB
-came back with two parts (`Base`, `Cutter`); with any one flag set it came back with one,
-and the notch was still cut.
+Measured on Blender 5.2.2 through the wrapper's export call: with no flag set, the GLB
+came back with the cutter as its own node (`Base`, `Cutter`); with `hide_render` set it came
+back without it, and the notch was still cut.
 
 ## 5. CadQuery
 
 Not corpus-backed — this language has **zero graded bench runs**; the rules below are read
-off `codeverse3d/prompts/cadquery/cookbook.md` and the same gate constants.
+off the same gate constants.
 
-* One `Workplane` result per plan part, and `len(result.solids().vals()) == 1` after every
-  cut: a cut that splits a part into two solids is exactly the stray-island WARN in advance.
+* Each plan part is its own Assembly child; `len(result.solids().vals())` after a cut tells you
+  early when it split a part into two solids — the stray-island WARN in advance.
 * Weld with `.union(other).clean()` — `clean()` merges the coplanar faces so the result is
   one solid, not two touching ones.
-* Cutters must overshoot the face they pierce (the cookbook says >= 0.1 mm; coplanar faces
-  make the boolean fail silently), but the *part-to-part* overlap still has to land in the
-  0.5-1.5 mm band.
+* Overshooting a cutter past the face it pierces is a cheap habit (a coplanar cut passed in
+  `c3d-cadquery-forms`' kernel probe, so it is not a measured need); the *part-to-part* overlap is
+  what the gate measures: at most 2 mm before the WARN.
 
 ## 6. URDF (articulated_object)
 

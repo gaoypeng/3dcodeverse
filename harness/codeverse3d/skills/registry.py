@@ -201,7 +201,7 @@ ROUTES: tuple[Route, ...] = (
     Route("R19", "c3d-scene-motion", 90, tracks=("scene",), languages=("scene_threejs",),
           findings=(SCENE_NO_MOTION,),
           why="the frame-difference gate saw nothing move on an authored camera"),
-    Route("R20", "c3d-threejs-shader-traps", 60, tracks=("scene", "static_object"), languages=THREEJS_LANGS,
+    Route("R20", "c3d-threejs-shader-traps", 60, tracks=("scene",), languages=("scene_threejs",),
           requires_all=("has_custom_shader",),
           why="the plan names a custom shader/material effect"),
     Route("R21", "c3d-threejs-shader-traps", 95, languages=THREEJS_LANGS, findings=(SHADER_PREFLIGHT,),

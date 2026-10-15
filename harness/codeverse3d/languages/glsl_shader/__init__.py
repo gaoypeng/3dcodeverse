@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -113,15 +112,15 @@ def _piece(text: str) -> str:
     return text if text.endswith("\n") else text + "\n"
 
 
-def compose(shader_src: str, common_src: str | None = None, *, recipes_src: str | None = None,
+def compose(shader_src: str, common_src: str | None = None, *,
             shader_file: str = "src/shader.frag", common_file: str = "src/common.glsl",
-            recipes_file: str = "src/recipes.glsl") -> Composed:
-    """Header + recipes (harness-owned, first: self-contained, nothing in common.glsl can shadow it)
-    + common + shader (+ trailer) with a line map back to the agent files."""
+            legacy_src: str | None = None) -> Composed:
+    """Header (+ a pre-D107 run's :data:`LEGACY_RECIPES`) + common + shader (+ trailer) with a line
+    map back to the agent files."""
     convention = detect_convention(shader_src)
     pieces: list[tuple[str, str]] = [("harness", HEADER)]
-    if recipes_src and recipes_src.strip():
-        pieces.append((recipes_file, _piece(recipes_src)))
+    if legacy_src and legacy_src.strip():
+        pieces.append((LEGACY_RECIPES, _piece(legacy_src)))
     if common_src and common_src.strip():
         pieces.append((common_file, _piece(common_src)))
     pieces.append((shader_file, _piece(shader_src)))
@@ -136,7 +135,7 @@ def compose(shader_src: str, common_src: str | None = None, *, recipes_src: str 
         cursor += n
         out.append(text)
     src = "".join(out)
-    code = strip_comments(shader_src) + "\n" + strip_comments(common_src or "") + "\n" + strip_comments(recipes_src or "")
+    code = strip_comments(shader_src) + "\n" + strip_comments(common_src or "")
     uses_feedback = "u_prev" in code or "iChannel0" in code
     return Composed(source=src, line_map=LineMap(segments), convention=convention, uses_feedback=uses_feedback)
 
@@ -156,10 +155,10 @@ GATE = "lint:glsl_shader"
 SHADER = ENTRY_FILE[Language.GLSL_SHADER]
 COMMON = "src/common.glsl"
 BUFFER_A = "src/buffer_a.frag"
-#: harness-owned (``contracts.common.HARNESS_OWNED_SRC``): seeded cookbook recipes, pasted above common.glsl
-RECIPES = "src/recipes.glsl"
-#: a top-level GLSL function definition, ``group(1)`` = its name (match per line)
-FUNC_DEF = re.compile(r"^[ \t]*(?:float|int|bool|void|[bi]?vec[234]|mat[234])\s+(\w+)\s*\(")
+#: runs made BEFORE D107 had the harness seed this file and their shaders call its functions, so
+#: it is still composed (after the header, before common.glsl) when it exists — the only reason
+#: `resume` / `render` / `pick` on such a run still builds.  No new run is given one.
+LEGACY_RECIPES = "src/recipes.glsl"
 SAMPLERS = {"u_prev", "u_noise", "u_buffer_a", "iChannel0", "iChannel1"}
 MAX_CHARS = 60_000
 
@@ -177,16 +176,9 @@ _LEGACY = {
 }
 _FLOAT_LITERAL_MOD = re.compile(r"(\d\.\d*|\.\d+)\s*%|%\s*(\d\.\d*|\.\d+)")
 _PRECISION = re.compile(r"^[ \t]*precision\s+(lowp|mediump|highp)\s+\w+\s*;", re.M)
-def defined_functions(text: str) -> dict[str, int]:
-    """``{name: line}`` of every top-level function definition in a GLSL text (comments blanked)."""
-    out: dict[str, int] = {}
-    for i, line in enumerate(strip_comments(text).splitlines(), 1):
-        if (m := FUNC_DEF.match(line)) and m.group(1) not in out:
-            out[m.group(1)] = i
-    return out
 
 
-def _check_file(rel: str, text: str, *, role: str, recipe_names: Collection[str] = ()) -> list[GateFinding]:
+def _check_file(rel: str, text: str, *, role: str) -> list[GateFinding]:
     out: list[GateFinding] = []
     raw_len = len(text)
     text = strip_comments(text)
@@ -220,7 +212,7 @@ def _check_file(rel: str, text: str, *, role: str, recipe_names: Collection[str]
         if name not in SAMPLERS:
             add(Severity.ERROR, "undeclared_sampler", f"texture() reads sampler `{name}` which does not exist",
                 "only u_prev (previous frame), u_noise (256² RGBA noise) and u_buffer_a (buffer pass) can be sampled; "
-                "generate patterns procedurally (hash/noise/fbm from the cookbook)", line_of(text, m.start()))
+                "generate patterns procedurally (hash / noise / the u_noise texture)", line_of(text, m.start()))
     for m in _MISSING_INPUTS.finditer(text):
         add(Severity.ERROR, "missing_input", f"`{m.group(1)}` is not available in this harness",
             "available: u_time/iTime, u_resolution/iResolution, u_frame/iFrame, u_mouse (always 0), u_prev/iChannel0, u_noise/iChannel1",
@@ -231,10 +223,6 @@ def _check_file(rel: str, text: str, *, role: str, recipe_names: Collection[str]
             add(Severity.ERROR, "legacy_glsl", f"uses `{needle.strip()}` (GLSL 1.x)", hint, line_of(text, pos))
     for m in _FLOAT_LITERAL_MOD.finditer(text):
         add(Severity.ERROR, "float_modulo", "`%` on a float literal — GLSL `%` is integer-only", "use mod(x, y)", line_of(text, m.start()))
-    for name, line in defined_functions(text).items():
-        if name in recipe_names:
-            add(Severity.ERROR, "redefines_recipe", f"`{name}` is already provided by {RECIPES} — call it instead of redefining it",
-                f"delete this `{name}` definition; {RECIPES} is harness-owned and pasted above your code, so its `{name}` is in scope", line)
     if role in ("shader", "buffer_a"):
         if not _MAIN_IMAGE.search(text) and not _PLAIN_MAIN.search(text):
             add(Severity.ERROR, "no_entry", "neither `void mainImage(out vec4 fragColor, in vec2 fragCoord)` nor `void main()` found",
@@ -254,91 +242,55 @@ def _check_file(rel: str, text: str, *, role: str, recipe_names: Collection[str]
     return out
 
 
-def recipe_names(ws: Workspace) -> frozenset[str]:
-    """The names the harness-owned ``src/recipes.glsl`` provides (empty when nothing was seeded)."""
-    p = ws.root / RECIPES
-    return frozenset(defined_functions(p.read_text(errors="replace"))) if p.is_file() else frozenset()
-
-
 def lint_workspace(ws: Workspace) -> GateReport:
     findings: list[GateFinding] = []
-    reserved = recipe_names(ws)
     shader = ws.root / SHADER
     if not shader.is_file():
         findings.append(GateFinding(gate=GATE, severity=Severity.ERROR, target=SHADER, message=f"{SHADER} is missing",
                                     fix_hint="create src/shader.frag with a mainImage(out vec4 fragColor, in vec2 fragCoord) function",
                                     data={"kind": "missing_entry", "file": SHADER}))
     else:
-        findings.extend(_check_file(SHADER, shader.read_text(errors="replace"), role="shader", recipe_names=reserved))
+        findings.extend(_check_file(SHADER, shader.read_text(errors="replace"), role="shader"))
     for rel, role in ((COMMON, "common"), (BUFFER_A, "buffer_a")):
         p = ws.root / rel
         if p.is_file():
-            findings.extend(_check_file(rel, p.read_text(errors="replace"), role=role, recipe_names=reserved))
+            findings.extend(_check_file(rel, p.read_text(errors="replace"), role=role))
     stray = [ws_rel(ws, p) for p in ws.src.rglob("*") if p.is_file()
-             and ws_rel(ws, p) not in (SHADER, COMMON, BUFFER_A, RECIPES) and p.suffix in (".frag", ".glsl", ".vert", ".py", ".js")]
+             and ws_rel(ws, p) not in (SHADER, COMMON, BUFFER_A, LEGACY_RECIPES)
+             and p.suffix in (".frag", ".glsl", ".vert", ".py", ".js")]
     for rel in stray:
         findings.append(GateFinding(gate=GATE, severity=Severity.WARN, target=rel, message=f"{rel} is not part of the shader contract and is ignored",
                                     fix_hint="keep code in src/shader.frag (+ src/common.glsl, src/buffer_a.frag)", data={"kind": "stray_file", "file": rel}))
     return GateReport.of(GATE, findings)
 
 
-def lint_text(shader_src: str, common_src: str | None = None, buffer_a_src: str | None = None, *,
-              recipes_src: str | None = None) -> list[GateFinding]:
-    """Lint in-memory sources (tests; the c3d-glsl-craft skill cites it); ``recipes_src`` is the harness-owned recipe file whose
-    names the agent files may not redefine (it is not linted itself)."""
-    reserved = frozenset(defined_functions(recipes_src)) if recipes_src else frozenset()
-    out = _check_file(SHADER, shader_src, role="shader", recipe_names=reserved)
+def lint_text(shader_src: str, common_src: str | None = None, buffer_a_src: str | None = None) -> list[GateFinding]:
+    """Lint in-memory sources (tests; the c3d-glsl-craft skill cites it)."""
+    out = _check_file(SHADER, shader_src, role="shader")
     if common_src is not None:
-        out += _check_file(COMMON, common_src, role="common", recipe_names=reserved)
+        out += _check_file(COMMON, common_src, role="common")
     if buffer_a_src is not None:
-        out += _check_file(BUFFER_A, buffer_a_src, role="buffer_a", recipe_names=reserved)
+        out += _check_file(BUFFER_A, buffer_a_src, role="buffer_a")
     return out
 
 
 # ===================================================================== skeleton
-COMMON_GLSL = """// src/common.glsl — helpers pasted above shader.frag by the harness (no #include needed).
-// Keep ONLY functions / constants here; no main(), no uniforms, no #version.
+COMMON_GLSL = """// src/common.glsl — pasted above shader.frag (and buffer_a.frag) by the harness; no #include.
+// Functions and constants only: no main(), no uniforms, no #version.  What goes here is yours.
 #define PI 3.14159265359
 #define TAU 6.28318530718
-
-float hash11(float p) { p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p); }
-float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
-vec2  hash22(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
-
-// value noise 2D (smooth, 0..1)
-float noise(vec2 p) {
-    vec2 i = floor(p), f = fract(p);
-    vec2 u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash12(i), hash12(i + vec2(1, 0)), u.x),
-               mix(hash12(i + vec2(0, 1)), hash12(i + vec2(1, 1)), u.x), u.y);
-}
-
-// fractal brownian motion, 5 octaves (constant loop bound)
-float fbm(vec2 p) {
-    float v = 0.0, a = 0.5;
-    mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
-    for (int i = 0; i < 5; i++) { v += a * noise(p); p = rot * p * 2.02; a *= 0.5; }
-    return v;
-}
-
-mat2 rot2(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
-
-// cosine palette (IQ): t in 0..1
-vec3 palette(float t, vec3 a, vec3 b, vec3 c, vec3 d) { return a + b * cos(TAU * (c * t + d)); }
-
-// filmic-ish tonemap + gamma
-vec3 tonemap(vec3 c) { c = c / (1.0 + c); return pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2)); }
 """
 
 _SHADER_TEMPLATE = """// src/shader.frag — {title}
-// CONTRACT (the harness prepends `#version 330 core` + these uniforms + `out vec4 fragColor`; DO NOT redeclare them):
-//   uniform float u_time;  uniform vec2 u_resolution;  uniform vec2 u_mouse;  uniform int u_frame;
-//   uniform sampler2D u_prev;  (previous frame of this pass)   uniform sampler2D u_noise;  (256x256 RGBA noise, repeat)
-//   uniform sampler2D u_buffer_a;  (output of src/buffer_a.frag when that file exists)
-//   iTime / iResolution / iFrame / iMouse / iChannel0(=u_prev) / iChannel1(=u_noise) are #defined for Shadertoy ports.
+// CONTRACT: the harness prepends `#version 330 core`, the uniforms (u_time u_resolution u_mouse u_frame
+//   u_prev u_noise u_buffer_a; iTime / iResolution / iFrame / iMouse / iChannel0 / iChannel1 for Shadertoy ports)
+//   and `out vec4 fragColor` — do not redeclare them.
 // Entry: void mainImage(out vec4 fragColor, in vec2 fragCoord) — fragCoord in pixels, origin BOTTOM-LEFT.
-// Helpers available from src/common.glsl: hash11 hash12 hash22 noise fbm rot2 palette tonemap PI TAU.
-// Duration {duration:g}s; judged frames at t = 0, 1, 2.5, 4, 6 s.  Everything must MOVE with u_time.
+// src/common.glsl is pasted above this file (it starts with PI and TAU only); what goes in it is yours.
+// MEASURED on the frames at t = 0, 1, 2.5, 4, 6 s (loop {duration:g} s): no NaN / Inf pixel (score cap 0);
+//   no frame essentially black or blown out (cap 0.5); when motion is planned, consecutive frames must differ
+//   (mean |delta| >= 0.002, else `static`, cap 0.5) and never jump (> 0.35 is `flicker`, cap 0.7); any lint
+//   ERROR caps the score at 0.6.  What the frames show is the plan's business, not this file's.
 //
 // PLAN — {summary}
 // Style: {style}
@@ -347,18 +299,10 @@ _SHADER_TEMPLATE = """// src/shader.frag — {title}
 // Motion: {motion}
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {{
-    vec2 uv = fragCoord / u_resolution.xy;                 // 0..1
-    vec2 p  = (fragCoord - 0.5 * u_resolution.xy) / u_resolution.y;  // aspect-correct, centred
-    float t = u_time;
-
-    // TODO replace this placeholder look with the plan's passes above
-    vec3 sky = mix(vec3(0.95, 0.55, 0.25), vec3(0.10, 0.20, 0.45), smoothstep(-0.2, 0.6, p.y));
-    vec2 sunPos = vec2(0.35 * cos(t * 0.3), 0.15 + 0.1 * sin(t * 0.3));
-    float sun = exp(-40.0 * length(p - sunPos));
-    float haze = fbm(p * 3.0 + vec2(t * 0.15, 0.0));
-    vec3 col = sky + vec3(1.0, 0.8, 0.5) * sun + 0.25 * haze * vec3(0.9, 0.7, 0.6);
-    col *= 1.0 - 0.35 * length(p);                        // vignette
-    fragColor = vec4(tonemap(col), 1.0);
+    vec2 uv = fragCoord / u_resolution.xy;                            // 0..1: the coordinate u_prev / u_buffer_a are sampled at
+    vec2 p  = (fragCoord - 0.5 * u_resolution.xy) / u_resolution.y;   // centred, aspect-correct, y up
+    // PLACEHOLDER — a flat grey the static gate rejects: replace this write with the plan's passes
+    fragColor = vec4(vec3(0.5), 1.0);
 }}
 """
 
@@ -417,11 +361,11 @@ class GlslShaderRuntime(RuntimeLayout):
         shader = (ws.root / SHADER).read_text(errors="replace")
         common_p = ws.root / COMMON
         common = common_p.read_text(errors="replace") if common_p.is_file() else None
-        recipes_p = ws.root / RECIPES
-        recipes = recipes_p.read_text(errors="replace") if recipes_p.is_file() else None
-        image = compose(shader, common, recipes_src=recipes)
+        legacy_p = ws.root / LEGACY_RECIPES
+        legacy = legacy_p.read_text(errors="replace") if legacy_p.is_file() else None
+        image = compose(shader, common, legacy_src=legacy)
         buf_p = ws.root / BUFFER_A
-        buffer_a = (compose(buf_p.read_text(errors="replace"), common, recipes_src=recipes, shader_file=BUFFER_A)
+        buffer_a = (compose(buf_p.read_text(errors="replace"), common, shader_file=BUFFER_A, legacy_src=legacy)
                     if buf_p.is_file() else None)
         return image, buffer_a
 
@@ -444,7 +388,7 @@ class GlslShaderRuntime(RuntimeLayout):
             extra_times=gif_times(duration or 8.0) if preview else (),
         )
         census = {"convention": image.convention, "has_common": (ws.root / COMMON).is_file(), "has_buffer_a": buffer_a is not None,
-                  "has_recipes": (ws.root / RECIPES).is_file(), "resolution": [w, h]}
+                  "resolution": [w, h]}
         err_file, err_line, err_msg = "", None, None
         if not res.ok and res.stage in ("compile", "compile_buffer_a"):
             comp = buffer_a if res.stage == "compile_buffer_a" and buffer_a else image

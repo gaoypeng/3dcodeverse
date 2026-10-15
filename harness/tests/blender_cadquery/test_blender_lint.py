@@ -108,7 +108,7 @@ def test_camera_light_and_render_settings_warn() -> None:
 
 
 def test_a_join_after_setting_the_active_object_is_not_warned() -> None:
-    """The urdf cookbook's `join_as` sets the active object first — what the join warning asks for."""
+    """A join that sets the active object first (one joined object per urdf link) — what the join warning asks for."""
     src = ("import bpy\nobjs = [o for o in bpy.data.objects]\nfor o in objs: o.select_set(True)\n"
            "bpy.context.view_layer.objects.active = objs[0]\nbpy.ops.object.join()\n")
     assert not any("join" in m for m in _msgs(lint_blender_source(src), Severity.WARN))

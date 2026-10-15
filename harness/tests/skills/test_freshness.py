@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from codeverse3d.skills import bundle_dirs, iter_skills, skills_dir
-from codeverse3d.skills.registry import ROUTED_SKILLS, ROUTES
+from codeverse3d.skills.registry import ROUTED_SKILLS
 from codeverse3d.spatial.registry import list_tools
 
 BUNDLES = bundle_dirs()
@@ -34,8 +34,6 @@ _GATE_SLUG = re.compile(
 #: a snake_case token in backticks is CLAIMED to be a name in this harness.  Which live
 #: vocabulary it belongs to does not matter — that it belongs to one of them does.
 _HARNESS_SHAPED = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$")
-#: both spellings: the historical tool call and today's prose pointer
-_COOKBOOK_SECTION = re.compile(r'(?:read_cookbook\(\s*section\s*=\s*"|cookbook sections? ")([^"]+)"')
 
 #: ALL_CAPS tokens that are NOT ours, with the namespace that owns them.  Extend
 #: deliberately: an author who adds a name here is asserting it is somebody else's.
@@ -115,16 +113,15 @@ FOREIGN_CALLS = {
     "transform_apply", "primitive_cube_add", "ensure_lookup_table", "hide_set", "update",
     "len", "setup", "range", "print", "float", "int",
     "clean",  # cadquery/trimesh mesh op quoted while teaching welding
+    # bpy API names (bmesh.ops.remove_doubles, ScrewModifier.screw_offset, Curve.bevel_object,
+    # ArrayModifier.use_object_offset, MirrorModifier.use_clip) — the vocabulary scan found them in
+    # the blender cookbook until D107 deleted it; they are Blender's
+    "remove_doubles", "screw_offset", "bevel_object", "use_object_offset", "use_clip",
     # illustrative names inside a bundle's own worked example
     "left_wheel", "right_wheel",
     # batteries whose results are cited as evidence but whose output dir is gitignored
     "graphics_v1_flash", "graphics_v2_flash", "scenes_v1_flash",
 }
-
-
-def _squash(text: str) -> str:
-    """One-line, lowercase — a section name wrapped across two markdown lines is one name."""
-    return " ".join(text.lower().split())
 
 
 def _prose(text: str) -> str:
@@ -136,13 +133,13 @@ _DEF_RE = re.compile(r"^\s*(?:def|function)\s+([a-z_][a-z0-9_]*)\s*\(", re.M)
 
 
 def _defined_callables() -> set[str]:
-    """Every function the harness itself defines — python source plus the cookbooks'
-    fenced snippets (a bundle may tell the agent to call ``radial_array`` by name)."""
+    """Every function the harness itself defines in python source.  Prompt markdown is not a
+    source: no language ships a library of helpers to call by name any more (D107), so a bundle
+    that tells the agent to call a function the harness does not define points at nothing."""
     out: set[str] = set()
-    for root, pattern in ((HARNESS / "codeverse3d", "*.py"), (HARNESS / "codeverse3d" / "prompts", "*.md")):
-        for p in root.rglob(pattern):
-            if "__pycache__" not in p.parts:
-                out |= set(_DEF_RE.findall(p.read_text(errors="ignore")))
+    for p in (HARNESS / "codeverse3d").rglob("*.py"):
+        if "__pycache__" not in p.parts:
+            out |= set(_DEF_RE.findall(p.read_text(errors="ignore")))
     return out
 
 
@@ -198,62 +195,14 @@ def test_every_bundle_document_only_cites_live_vocabulary():
         pytest.skip(f"no eval/bench beside the harness to tell battery ids from stale names: {unverifiable}")
 
 
-def _languages_of(skill_name: str) -> set[str]:
-    out: set[str] = set()
-    for r in ROUTES:
-        if r.skill == skill_name:
-            out |= set(r.languages)
-    return out
-
-
-def _cookbook_sections_named_by(s) -> tuple[str, ...]:
-    text = "\n".join([s.body] + [p.read_text() for p in sorted(s.dir.rglob("references/*.md"))])
-    return tuple(sorted(set(_COOKBOOK_SECTION.findall(text))))
-
-
-def test_every_named_cookbook_section_exists():
-    """T4's other half: a skill may point at the cookbook, never invent a heading."""
-    from codeverse3d.prompts import load_text
-    from codeverse3d.prompts.catalog import PROMPT_DIRS
-    from codeverse3d.prompts.sections import split_sections
-
-    _PROMPT_DIR = {k.value: v for k, v in PROMPT_DIRS.items()}
-
+def test_no_bundle_points_at_a_cookbook():
+    """No language ships a cookbook (D106 for the scene track, D107 for the rest, owner 2026-10-15):
+    a bundle that still sends the agent to a cookbook chapter — or to ``.3dcode/cookbook.md`` —
+    points at nothing.  Every bundle, every reference."""
     for s in SKILLS:
-        wanted = _cookbook_sections_named_by(s)
-        if not wanted:
-            continue
-        langs = _languages_of(s.name) or {"blender"}
-        titles: set[str] = set()
-        for lang in langs:
-            d = _PROMPT_DIR.get(lang, lang)
-            try:
-                md = load_text(f"{d}/cookbook.md")
-            except (FileNotFoundError, OSError):
-                continue
-            titles |= {sec.title.lower() for sec in split_sections(md)}
-        for want in map(_squash, wanted):
-            assert any(want in _squash(title) for title in titles), (
-                f"{s.name} names cookbook section {want!r}, absent from {sorted(langs)}"
-            )
-
-
-#: the cookbook was ELIMINATED for the scene track (owner, 2026-10-15): its interface facts went
-#: into contract.md / system.md and its craft into the skills as short optional practices, so a
-#: scene bundle that still points the agent at a cookbook chapter points at nothing.
-SCENE_LANGS = frozenset({"scene_threejs", "scene_blender"})
-
-
-def test_scene_bundles_name_no_cookbook_chapter():
-    for s in SKILLS:
-        langs = _languages_of(s.name)
-        if not langs or not langs <= SCENE_LANGS:
-            continue
-        text = "\n".join([s.body] + [p.read_text() for p in sorted(s.dir.rglob("references/*.md"))])
-        assert not _cookbook_sections_named_by(s), (
-            f"{s.name} names cookbook sections {_cookbook_sections_named_by(s)}; the scene cookbooks are gone")
-        assert not re.search(r"\bcookbook\b", text, re.I), (
-            f"{s.name} still mentions a cookbook; the scene track has none")
+        for doc in [s.dir / "SKILL.md", *sorted(s.dir.rglob("references/*.md"))]:
+            hit = re.search(r"[^\n]{0,60}\bcookbook\b[^\n]{0,60}", doc.read_text(), re.I)
+            assert not hit, f"{doc.relative_to(skills_dir())} still mentions a cookbook: {hit.group(0)!r}"
 
 
 def test_every_live_constant_named_by_a_skill_has_a_claim():

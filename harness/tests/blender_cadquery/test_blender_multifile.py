@@ -1,12 +1,11 @@
 """Multi-file blender models on the real binary: a hand-written 2-part model's errors map to
-the failing PART file + line; the prompt examples (contract.md example A, cookbook "File
-layout") build and export.  (The multi-file skeleton build is test_blender_runtime's.)"""
+the failing PART file + line; the contract's one executable interface example builds and exports.
+(The multi-file skeleton build is test_blender_runtime's.)"""
 
 from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 
 import pytest
 
@@ -111,7 +110,7 @@ def test_live_multifile_errors_map_to_part_file_and_line(tmp_ws, blender_bin) ->
 def test_live_contract_multifile_example_builds(tmp_ws, blender_bin) -> None:
     trimesh = pytest.importorskip("trimesh")
     files = labelled_py_files("blender/contract.md")
-    assert set(files) == {"src/parts/seat.py", "src/parts/leg.py", "src/model.py"}
+    assert set(files) == {"src/parts/body.py", "src/parts/knob.py", "src/model.py"}
     _write_files(tmp_ws, files)
     rt = BlenderRuntime(blender=blender_bin)
     lint = rt.lint(tmp_ws)
@@ -119,19 +118,7 @@ def test_live_contract_multifile_example_builds(tmp_ws, blender_bin) -> None:
     r = rt.build(tmp_ws, timeout_s=120)
     assert r.ok, (r.error_type, r.error_message, r.error_file, r.error_line)
     scene = trimesh.load(r.glb_path)
-    assert set(scene.graph.nodes_geometry) == {"Seat", "Leg_0", "Leg_1", "Leg_2"}
+    assert set(scene.graph.nodes_geometry) == {"Body", "Knob_0", "Knob_1"}  # one node per part / instance
     lo, hi = scene.bounds
-    assert abs(lo[1]) < 1e-3 and abs(hi[1] - 0.45) < 1e-3  # Y-up GLB, on the ground, seat top at 0.45
+    assert abs(lo[1]) < 1e-3 and hi[1] > 0.01  # Y-up GLB, lowest point on the ground
 
-
-@pytest.mark.blender
-def test_live_cookbook_layout_example_builds(tmp_ws, blender_bin) -> None:
-    files = labelled_py_files("blender/cookbook.md")
-    assert set(files) == {"src/parts/mug_body.py", "src/model.py"}
-    _write_files(tmp_ws, files)
-    rt = BlenderRuntime(blender=blender_bin)
-    assert rt.lint(tmp_ws).passed
-    r = rt.build(tmp_ws, timeout_s=120)
-    assert r.ok, (r.error_type, r.error_message, r.error_file, r.error_line)
-    assert {o["name"] for o in r.census["objects"] if o["type"] == "MESH"} == {"MugBody"}
-    assert Path(r.glb_path).stat().st_size > 500

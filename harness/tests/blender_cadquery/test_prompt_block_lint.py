@@ -27,13 +27,13 @@ def blocks(rel: str) -> list[tuple[int, str]]:
 
 
 def test_prompt_blocks_lint_clean() -> None:
-    for rel in ("blender/cookbook.md", "blender/contract.md"):
+    for rel in ("blender/contract.md",):  # the blender cookbook is gone (D106 rule, every track)
         for line, code in blocks(rel):
             src = code if "import bpy" in code else BLENDER_HEADER + code
             r = lint_blender_source(src, expect_names=False)
             errs = [(f.data.get("line"), f.message) for f in r.findings if f.severity.value == "error"]
             assert not errs, f"{rel} block at line {line}: {errs}"
-    for rel in ("cadquery/cookbook.md", "cadquery/contract.md"):
+    for rel in ("cadquery/contract.md",):  # the cadquery cookbook is gone (D106 rule, every track)
         for line, code in blocks(rel):
             src = code if "import cadquery" in code else CADQUERY_HEADER + code
             if not re.search(r"^result\s*=", src, re.M):

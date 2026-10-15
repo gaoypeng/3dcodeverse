@@ -1,8 +1,8 @@
 """Shared helpers for the prompt-pack tests.
 
-The cookbooks promise that their fenced snippets RUN.  These helpers extract the
-fenced blocks per language and execute them the way the cookbook headers say they
-are executed (concatenated in order, with the documented prelude in scope).
+Each language's contract.md keeps ONE executable interface example (D107); these helpers
+extract the fenced blocks of a prompt file and execute them concatenated in order, with the
+documented prelude in scope.
 """
 
 from __future__ import annotations
@@ -34,6 +34,12 @@ def is_template(rel: str) -> bool:
 
 
 _FENCE = re.compile(r"```(\w[\w-]*)\n(.*?)```", re.DOTALL)
+#: fence-tag spellings that mean the same language
+_TAG_ALIASES = {"py": "python", "javascript": "js", "mjs": "js"}
+
+
+def _tag(raw: str) -> str:
+    return _TAG_ALIASES.get(raw, raw)
 
 
 def read_prompt(rel: str) -> str:
@@ -42,7 +48,7 @@ def read_prompt(rel: str) -> str:
 
 def blocks(rel: str, lang: str) -> list[str]:
     """All fenced blocks tagged ``lang`` in prompt file ``rel``, in order."""
-    return [body for tag, body in _FENCE.findall(read_prompt(rel)) if tag == lang]
+    return [body for tag, body in _FENCE.findall(read_prompt(rel)) if _tag(tag) == lang]
 
 
 def strip_imports_exports(js: str) -> str:
@@ -53,9 +59,10 @@ def strip_imports_exports(js: str) -> str:
 def labelled_files(rel: str, tag: str = "js") -> dict[str, str]:
     """Blocks preceded by a `src/...` label line → {path: content} (contract examples)."""
     out: dict[str, str] = {}
-    pattern = re.compile(r"`((?:src|public)/[^`]+)`\n```" + tag + r"\n(.*?)```", re.DOTALL)
-    for path, body in pattern.findall(read_prompt(rel)):
-        out[path] = body
+    pattern = re.compile(r"`((?:src|public)/[^`]+)`\n```(\w[\w-]*)\n(.*?)```", re.DOTALL)
+    for path, raw_tag, body in pattern.findall(read_prompt(rel)):
+        if _tag(raw_tag) == tag:
+            out[path] = body
     return out
 
 

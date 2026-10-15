@@ -11,14 +11,14 @@ from codeverse3d.config import Settings
 
 def test_every_switch_speaks_one_grammar(monkeypatch, caplog):
     """on/off, 1/0, true/false, yes/no in any case and padding; empty is unset; else warn (D44 c)."""
-    env, default = "C3D_SEED_RECIPES", True   # a nested field under its flat spelling
+    env, default = "C3D_PLAN_BRIEF", True   # a top-level Flag (the flat spellings left are an int and a str, D107)
     def read(raw: str | None) -> bool:
         if raw is None:
             monkeypatch.delenv(env, raising=False)
         else:
             monkeypatch.setenv(env, raw)
         s = Settings()
-        return s.limits.seed_recipes
+        return s.plan_brief
 
     assert read(None) is default and read("") is default
     for word in ("off", "0", "false", "no", "OFF", " Off "):

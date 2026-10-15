@@ -35,15 +35,11 @@ Key visuals:
 ## Contract reminders
 - Harness uniforms only ({{ uniforms }}); no #version / uniform / out redeclarations in a shader; no window,
   context or clock in a program.
-- Motion is judged by comparing frames at t = {{ judge_times }}: a "static" gate warning caps the score at 0.5.
+- Motion is measured on the frames at t = {{ judge_times }}: `static` caps the score at 0.5, `flicker` at 0.7.
 - NaN/Inf pixels cap the score at 0: guard divisions, sqrt/pow/log, normalize, acos/asin.
-- Keep brightness readable (neither near-black nor blown out), aspect-correct coordinates, tonemap + gamma last.
-- A "colour/light" change = palette constants / exposure / grade only; a "motion" change = the time terms only;
+- No black / blown frame (cap 0.5); circles round (judge defect `stretched_aspect`).
+- A "colour/light" change = palette / exposure / grade only; a "motion" change = the time terms only;
   do not rewrite unrelated layers.
-{% if seeded_recipes %}- The harness-owned, read-only `src/recipes.glsl` (pasted above your code at build time) carries VERIFIED
-  helpers ({% for r in seeded_recipes %}`{{ r.name }}`{% if not loop.last %}, {% endif %}{% endfor %}): call these for the light / sky / rain / bokeh layers
-  instead of re-deriving them; do not redefine them, do not copy them into common.glsl.
-{% endif %}
 {% if current_files %}
 
 ## Current file contents (edit these; return each edited file COMPLETE)

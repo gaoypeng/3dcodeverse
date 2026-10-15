@@ -62,55 +62,18 @@ The fix hints differ by pose and are worth reading rather than guessing:
 * in a moved pose — "Moving joint(s) [...] drives 'a' into 'b'. Either move the pivot/axis in
   robot.urdf so the part swings/slides clear, shrink the limits, or carve the clearance in
   model.py." Three genuinely different repairs; pick the one the mechanism justifies. Shrinking
-  a limit is legitimate when the plan's range was optimistic (a drawer at 0.8 x depth), and wrong
-  when the range is the point of the object.
+  a limit is legitimate when the plan's range was optimistic, and wrong when the range is the
+  point of the object.
 
-## 4. Corpus (bench/out, mined 2026-08-25)
+## 4. What the judge penalises (corpus, 2026-08-25)
 
-Denominator: 26 `urdf_blender` run records; 50 judged rounds.
-
-| observation | value |
-|---|---|
-| runs where `joint_sweep` fired | 10 of 26 (38 %) |
-| of those, runs with an ERROR | 9 |
-| runs where `motion_direction` fired | 9 of 26 (35 %) |
-| of those, runs with an ERROR | 8 |
-| total sweep WARN/ERROR findings | 691 (687 penetration, 4 unattached) |
-| findings at the `rest` pose | 34 (4.9 %), **all WARN** |
-| findings at a single-joint limit or mid pose | 358 |
-| findings in a random multi-joint combination | 295 |
-| distinct (run, link-pair) collisions | 48 |
-| pairs that never collide at rest | 29 of 48 |
-| pairs seen **only** in a random combination | 7 of 48 |
-| median overlap depth | 4.0 mm |
-| max overlap depth | 20.0 mm |
-| findings with depth 5 mm or less | 510 of 687 |
-| findings marked `[approx: non-watertight mesh]` | 159 of 687 |
-
-Judge `articulation` issues in `urdf_blender`: **34** — 11 critical, 19 major, 4 minor.
-`articulation_plausibility` (0.732) and `joint_placement_and_range` (0.736) are the 2nd and 3rd
-lowest of the eight urdf criteria over 50 rounds; only `geometry_detail` (0.699) is lower.
-
-Corpus-verbatim, grouped by root cause:
-
-**Direction (about 13 of 34).**
-"Leg frames fold outward and upward into the air instead of inward under the table." (critical)
-"The door swings in the wrong direction (inward instead of outward), causing massive clipping
-with the frame." (critical)
-"The inner tray slides forward out of the chest body instead of sideways." (critical)
-"The joint axis is flipped; the lower limit points the arm up instead of folding it down." (major)
-"The steering joint rotates the fork assembly around the Z-axis (roll) instead of the Y-axis
-(yaw), causing the wheel to tilt sideways." (critical)
-
-**Pivot placement.**
-"The hasp rotates about its center rather than its top edge, causing it to clip into the lid."
-"Because the front leg frame is detached, it pivots around a point in empty space rather than a
-physical crossbar."
-
-**Sweep clearance.**
-"The right rear spreader collides with the front frame during the folding sweep."
-"The moving jaw heavily interpenetrates the fixed jaw body at its upper travel limit."
-"Seat overlaps with the main frame by 6.0 mm when fully raised."
+Three root causes, one verbatim judge quote each: the **direction** ("The door swings in the
+wrong direction (inward instead of outward), causing massive clipping with the frame."), a
+**pivot off the hinge line** ("The hasp rotates about its center rather than its top edge,
+causing it to clip into the lid.") and **sweep clearance** ("Seat overlaps with the main frame by
+6.0 mm when fully raised."). `articulation_plausibility` and `joint_placement_and_range` are the
+two lowest-scoring urdf criteria after `geometry_detail`. Most sweep findings sit in a moved
+pose, never at rest, and some pairs collide only in a random multi-joint combination.
 
 ## 5. The motion phrase table, verbatim from the code
 
@@ -153,17 +116,17 @@ asks for a *translation* along +Y from a joint that rotates about +Y — unsatis
 the way the first word says, which may read backwards in prose; the judge scored one of these
 `minor` and noted "the visual sideways motion fulfills the brief's intent".
 
-## 6. Clearance numbers that pass the sweep
+## 6. What the sweep measures, pair by pair
 
-| pair | rest gap | why |
+| pair | what passes | what is reported |
 |---|---|---|
-| moving part vs its housing (drawer in cabinet, door in frame) | 1-3 mm all round | must stay positive over the whole range, including combinations |
-| a closed door / lid against the carcass face | 0-1 mm, flush | must not sink in; 2-5 mm is a rest WARN, over 5 mm fails the build |
+| moving part vs anything it passes | clear by more than 2 mm in every sampled pose | over 2 mm in a moved pose is an ERROR at any depth |
+| a closed door / lid against the carcass face | overlap up to 2 mm (touching) | 2-5 mm is a rest WARN, over 5 mm fails the build |
 | `fixed` hardware (handle, knob, foot) on its parent | touching, or sunk up to 2 mm | rigid pairs are judged once with the rest policy, so this never becomes a moved-pose ERROR |
 | hinge barrel / drawer runner to its partner | touching (2 mm) | otherwise the attachment check calls the child unattached |
 | revolute or prismatic child to its parent at rest | 10 mm or less | over 10 mm is a WARN, over 30 mm an ERROR |
 
-Sanity procedure that costs nothing: for every moving link, take its bounding box at `lower`,
-`mid` and `upper`, plus the corners of the combinations you expect, and check the swept envelope
-against each neighbour. If two joints can move a pair towards each other, test them together —
-7 of 48 collisions in the corpus were visible in no other pose.
+Sanity procedure that costs nothing: for every moving link take its bounding box at `lower`,
+`mid` and `upper`, plus the combinations you expect, and check the swept envelope against each
+neighbour. If two joints can move a pair towards each other, test them together — some
+collisions appear in no single-joint pose.

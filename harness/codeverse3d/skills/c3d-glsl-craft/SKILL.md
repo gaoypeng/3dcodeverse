@@ -1,12 +1,12 @@
 ---
 name: c3d-glsl-craft
-description: "Use when writing, refining or repairing a glsl_shader fragment shader, or when gl_frames reports static, flicker or low detail. Craft rules for the shaders this harness judges: what the five sampled frames measure and where the real operating band is, how to build multi-scale structure that does not alias, how to make motion come from the mechanism instead of a uv scroll, and why an added radial falloff reads as a uniform glow instead of light shafts."
+description: "Use when writing, refining or repairing a glsl_shader fragment shader, or when gl_frames reports static, flicker or low detail. What the five sampled frames measure and where the real operating band is, what the shader_v2 judge names and charges for, and a short list of strong optional practices behind its recorded complaints: structure that does not alias, motion from the mechanism instead of a uv scroll, light as a path through a volume, exposure before colour."
 license: Apache-2.0
 compatibility: GLSL 330 core via moderngl, headless. One image pass (src/shader.frag), an optional src/common.glsl and one feedback pass (src/buffer_a.frag). The harness declares the uniforms; the contract lists them.
 metadata:
   evidence: mixed
-  evidence_note: "Gate checks and rubric weights are read from live code (spatial/frame_stats.py, judges/rubrics/shader_v1.yaml). The corpus is thin: 9 graded glsl_shader runs, so every count below names its n and no rate is generalised."
-  verified: "2026-08-25"
+  evidence_note: "Gate thresholds, caps and rubric weights are read from live code (spatial/frame_stats.py, judges/rubrics/shader_v2.yaml) and pinned in _claims. The corpus is thin: 9 graded glsl_shader runs mined 2026-08-25 under the previous rubric, so every count below names its n and no rate is generalised."
+  verified: "2026-10-15"
   corpus: "9 graded glsl_shader runs (18 judged rounds) + 5 opengl_python runs, mined 2026-08-25"
   target_metric: "mean_edge_density"
   target_direction: "up"
@@ -17,140 +17,108 @@ metadata:
 
 # What separates a graded shader from a demo
 
-**Read this if** you are writing `src/shader.frag`. The contract already tells you which
-uniforms exist and how to keep the maths NaN-free. This is the layer above that: what the
-measurement can and cannot see, and the four craft rules that the judge's complaints in this
-corpus actually name.
+**Read this if** you are writing `src/shader.frag`. The contract states the interface and
+what the harness measures; this sheet is the layer above it: what the measurement can and
+cannot see, and a few strong options that answer the judge's recorded complaints. None of
+them is a recipe — the brief decides what is on screen and how it is built.
 
 ## The gate is a floor, not the bar
 
 `spatial/frame_stats.py` renders five frames — t = 0, 1, 2.5, 4, 6 s — and measures them:
 
-| what | fires when |
-|---|---|
-| static | consecutive frames barely differ |
-| flicker | a consecutive pair jumps by a large share of the image |
-| duplicate frames | two frames are identical (INFO) |
-| near-flat image | almost no pixel sits on a visible luminance edge |
-| black / blown | nearly every pixel is black (or white) in every frame; ERROR |
+* `static` — the largest mean |Δ| between consecutive frames is under 0.002 (WARN, score cap 0.5 when motion is planned)
+* `flicker` — a consecutive pair differs by more than 0.35 of the image (WARN, cap 0.7)
+* `black` / `blown` — in every frame over 97 % of the pixels sit under luminance 0.03, or over 0.98 (ERROR, cap 0.5)
+* `low_detail` — almost no pixel sits on a visible luminance edge (WARN)
+* `nan` — any NaN / Inf pixel (ERROR, cap 0)
 
-Measured over the 9 graded glsl runs (mined 2026-08-25), **the gate fired zero findings**:
-mean frame-to-frame difference ranged 0.013 to 0.182 (median 0.082) and edge density 0.031
-to 0.464 (median 0.186). The three flicker warnings and one low-detail warning in the whole
-graphics corpus came from `opengl_python`, not from shaders. So clearing the gate proves
-nothing. What is actually low is the judge: over 18 judged rounds the weakest criteria are
-`technical_cleanliness` 0.597, `originality` 0.600, `colour_light` 0.606 and
-`visual_richness` 0.619 — and `visual_richness` carries the largest weight of the four
-(0.18) in `shader_v1`.
+Over the 9 graded glsl runs mined 2026-08-25 the gate fired nothing while the judge sat at
+0.55-0.65: clearing it proves nothing. The judge is `shader_v2`: likeness 0.26,
+depth_and_detail 0.16, light_and_tone 0.16, motion_quality 0.14, composition 0.10,
+technical_cleanliness 0.10, craft 0.08, plus the defect list the system prompt carries.
+One hint, and only a hint at n = 9: the harness's colourfulness metric (`gl_frames` prints
+it) ranked with the final score at +0.75, edge density at +0.40 and frame-to-frame motion at
++0.20 — the palette is worth more attention than another octave.
 
-One more measured hint, and it is only a hint at this n: across those 9 runs the rank
-correlation between the harness's **colourfulness** metric and the final score is **+0.75**,
-while edge density manages only +0.40 and frame-to-frame motion +0.20. With n = 9 that is
-not a law, but it says the palette is worth more attention than another fbm octave. The
-best-scoring run (0.92) is also the most colourful and the most detailed; the worst (0.30)
-is the flattest and greyest of the nine.
+## Strong options (none required; each answers a recorded complaint)
 
-The four rules below are aimed at exactly those four criteria.
+**Scales.** One octave at one frequency is both flat (`flat_fill`) and shimmery
+(`banding_or_aliasing`): a recorded major issue reads "uniform high-frequency noise rather
+than multi-scale fractal relief, causing severe aliasing". Fine octaves smaller than a pixel
+alias — fade them with the distance or the footprint the pixel represents.
 
-## 1. Structure at several scales, or it aliases
+**Edges.** A `step` aliases; a transition about one pixel wide (from `fwidth` or the
+resolution) does not. A staircase edge is the `banding_or_aliasing` defect.
 
-`visual_richness` asks for "structure at several scales", and `technical_cleanliness`
-penalises aliasing and banding. In this corpus those are the *same* mistake seen twice — a
-recorded major issue reads: *the wall displacement is uniform high-frequency noise rather
-than multi-scale fractal relief, causing severe aliasing.* One octave at one frequency is
-both flat (no scales) and shimmery (nothing filters it).
+**Banding.** A long two-stop gradient bands on 8-bit output (3 of 6 fancy-battery runs,
+2026-08-31). A sub-LSB dither on the final colour — one hash per pixel, added after the
+tone-map and gamma — removes it.
 
-* Build relief as fbm and let the amplitude fall with the distance the pixel represents:
-  drop octaves as `1/(1 + k*t)` where `t` is the ray distance or the screen-space scale.
-* Anti-alias every edge with a width, not a step: `smoothstep(-w, w, d)` with
-  `w = 1.5 / u_resolution.y`, scaled by the local derivative if the feature is in
-  perspective.
-* Raymarchers: grow the hit tolerance with distance (`eps = max(4e-4, 1.5e-3 * t)`) and take
-  the normal with the same epsilon. The lowest-scoring run of the nine (0.30) was graded with
-  a *critical* bug for "bright cyan/white pixels along the edges of all geometry at grazing
-  angles" — that is a tangential overshoot feeding a central-difference normal.
-* Grade with a palette function, not a `mix` of two constants, and dither the last step
-  (`col += (hash12(fragCoord) - 0.5) / 255.0`) — banding in a large gradient is a named
-  `technical_cleanliness` deduction and one line removes it.
+**Tone.** Additive light sums (glow, bokeh, scattering) pass 1.0 quickly: one tone-map at
+the very end keeps them under the `blown` threshold; gamma applied twice washes the frame
+(`white_wash`).
 
-## 2. Structure runs across the flow, not along it
+**Exposure first.** Hue and palette work is invisible on dark, low-chroma pixels. Read the
+mean luminance `gl_frames` prints and compare it with what the brief's place would show
+before grading colour.
 
-Water, wood, marble, cloth and stone all read wrong when the pattern is stretched *along*
-the direction of movement, because that is what a scrolling texture looks like. Warp the
-domain perpendicular to the flow and advect only the phase:
+**Night subjects.** The judge's `no_dark_range` and `white_wash` defects: a night, space or
+dusk frame needs near-black pixels somewhere, and haze and bloom belong on the light, not on
+the frame. `gl_frames` prints the mean luminance and the black-pixel fraction — read them.
 
-```glsl
-vec2 flow = normalize(vec2(1.0, 0.35));
-vec2 across = vec2(-flow.y, flow.x);
-float band = fbm(p * vec2(2.0, 9.0) * mat2(across, flow) - flow * u_time * 0.6);
-```
+**Across the flow.** Water, wood, marble, cloth and stone read as a sliding texture when the
+pattern is stretched along the direction of movement (the judge's "texture scrolling under a
+fixed shape" is 0.5 on motion). Put the fine axis of the pattern across the flow and advect
+only the phase.
 
-The high-frequency axis is the one across the flow. This is the difference between "a
-surface moving" and "a texture sliding", and it costs nothing.
+**Motion from the mechanism.** The frames compared are 1-2 s apart; a single scroll of the
+uv by `u_time` gives the same delta everywhere and reads as a conveyor belt. Drive each
+element from its own quantity — a drop falls with the square of its time, a flame's tips lag
+its base, a spark has a hash-seeded lifetime — and give every instance a phase from its id so
+t = 0 is not a symmetric frame.
 
-## 3. Motion comes from the mechanism
+**Continuity.** `fract` and `mod` of `u_time` are cuts; wrap through a smooth function,
+cross-fade the wrap, or hide it under a fade that reaches zero at the wrap. A visible cut
+between two sampled times is the `flicker` warning.
 
-`motion_quality` grades "the way the brief says … continuous, paced and plausible", and the
-frames it compares are 1 to 2 seconds apart. A single `uv + u_time * k` scroll gives the
-same delta everywhere and reads as a conveyor belt.
+**Domain warp.** Feeding fbm with fbm (IQ's domain warping) gives billowing edges to clouds,
+smoke and marble; it costs octaves, so budget them.
 
-* Drive each element from its own quantity: a drop falls with `t*t`, a flame's tips lag its
-  base, a pendulum is `sin`, a spark is a hash-seeded lifetime.
-* Give every instance a phase from its id, `hash12(id) * 6.2831`, or the whole field pulses
-  in lockstep and t = 0 is a suspiciously symmetric frame.
-* Keep it continuous. `fract()` and `mod()` of `u_time` are cuts; wrap through a smooth
-  function or cross-fade the wrap. A cut between two sampled times is the `flicker` warning
-  and a `technical_cleanliness` deduction.
-* Nothing may depend on `u_frame` alone: the sampled times are not evenly spaced.
+**Volumes.** A shaft or a lit cloud is scattering integrated along the view ray: march front
+to back, attenuate by Beer-Lambert transmittance, weight each step by a phase function
+normalised over the sphere (Henyey-Greenstein, +1 forward, in light-travel directions — PBRT's
+convention differs) and by a short march toward the light for self-shadow. A radial falloff
+around a point has neither direction nor occluder: the sharpest recorded complaint, "a
+diffuse, uniform spherical glow rather than directional rays", is that term. A cloud is
+brighter where its shell is thin toward the light — sample the density a short step toward
+the sun and light the difference.
 
-## 4. Light is a path through a volume, not a falloff around a point
+**Surfaces.** A dielectric (glass, water) is a Fresnel-weighted reflection plus a tinted
+transmission; a metallic tint reads as metal, not glass. GGX with Smith visibility and Schlick Fresnel on linear
+inputs gives a microfacet response; roughness changes the highlight's shape, a shiny colour
+cannot.
 
-The sharpest recorded effect complaint in this corpus is: *distinct volumetric light shafts
-are missing; the lighting appears as a diffuse, uniform spherical glow rather than
-directional rays.* That is exactly what `col += A * exp(-k * dist)` produces — a radially
-symmetric blob, because the term has no direction and no occluder in it.
-
-A shaft is the integral of scattering along the view ray, so march the ray and, at each
-step, weight by the phase angle to the light and by whether that point is shadowed:
-
-```glsl
-float shaft = 0.0, t = 0.0;
-for (int i = 0; i < 48; i++) {
-    vec3 pos = ro + rd * t;
-    float vis = step(0.0, sdScene(pos + lightDir * 0.35));   // cheap occlusion probe
-    float phase = 0.6 + 0.4 * pow(max(dot(rd, lightDir), 0.0), 8.0);
-    shaft += vis * phase * exp(-0.08 * t);
-    t += 0.12;
-}
-col += lightCol * shaft * 0.02;
-```
-
-The same principle covers the other "reads as the thing" cases: a lit cloud is brighter
-where the shell is *thin toward the light* (sample the density a short step toward the sun
-and take the difference), and a glass or water surface is a dielectric — a Fresnel-weighted
-reflection plus a tinted transmission, never a metallic tint.
+**Raymarchers.** A hit tolerance that grows with distance, the same epsilon for the normal,
+and a relaxed step. The critical bug of the lowest-scoring run (0.30) — "bright cyan/white
+pixels along the edges of all geometry at grazing angles" — was a tangential overshoot
+feeding a central-difference normal.
 
 ## The three uniforms worth designing around
 
-The contract declares them; what they are *for* is the craft:
-
-* `u_noise` — a 256x256 repeating RGBA noise texture with linear filtering. One `texture()`
-  fetch replaces a hash and interpolation, so an fbm built on it is several times cheaper
-  and lets you afford more octaves. Scale the uv, do not scale the result.
-* `u_prev` — this pass's previous frame. Trails, motion blur and accumulation, always with
-  a decay under 1.0 and preferably a sub-pixel drift, or it saturates by t = 6 s.
-* `u_buffer_a` — a whole extra pass. Use it when the effect *is* a simulation (advection,
-  reaction-diffusion, a height field): simulate in `buffer_a.frag`, shade in `shader.frag`.
-  **No graded glsl run in this corpus used it (0 of 9)**, while **all five** critical effect
-  failures recorded in the sibling opengl_python runs are simulations with nowhere to keep
-  their state.
+* `u_noise` — one `texture` fetch is a bilinear-interpolated hash, several times cheaper
+  than a hash plus interpolation, so an fbm built on it affords more octaves. Scale the uv,
+  not the result.
+* `u_prev` — this pass's previous frame: trails, motion blur, accumulation. The contract
+  states when it saturates.
+* `u_buffer_a` — a whole extra pass. When the effect *is* a simulation (advection,
+  reaction-diffusion, a height field), simulate in `buffer_a.frag` and shade in
+  `shader.frag`. No graded glsl run in this corpus used it (0 of 9), while all five
+  critical effect failures recorded in the sibling opengl_python runs are simulations with
+  nowhere to keep their state.
 
 ## Before you finish
 
 `gl_probe` compiles and shows frame 0; `gl_frames` renders all five judged times and prints
 mean luminance, colourfulness, edge density and the per-pair deltas. Look at the contact
-sheet, then read the numbers: a mean delta near the bottom of the 0.013-0.182 band with a
-brief that promised motion means the motion is there but invisible.
-
-Worked snippets — fbm with distance-faded octaves, the flow-aligned warp, hash-phased
-instances and the dither — are in `references/shader-recipes.md`.
+sheet, then read the numbers: a largest delta just above the static threshold with a brief
+that promised motion means the motion is there but invisible.

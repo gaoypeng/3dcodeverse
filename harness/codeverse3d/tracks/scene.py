@@ -72,12 +72,17 @@ log = logging.getLogger(__name__)
 
 SCENE_TIMES: tuple[float, float] = (0.0, 1.5)
 MAX_CONSOLE_ERRORS = 8
-# No cookbook on this track (owner, 2026-10-15): the same four ENV and six ZONE chapters used to be
-# inlined into every session whatever the brief, and the 60 iteration-0 scenes executed them
-# verbatim.  Interface facts live in contract.md / system.md, the craft in the skills as short
-# optional practices; the prompts state requirements and what measures them.
+# No cookbook (D106 / D107): the four ENV and six ZONE chapters once inlined into every session were
+# executed verbatim by the 60 iteration-0 scenes.  Interface facts live in contract.md / system.md,
+# the craft in the skills as short optional practices; the prompts state requirements and what measures them.
 ENV_TIMEOUT_S = 420
 ZONE_TIMEOUT_S = 600
+#: what round 0 still needs once the zones are written — assemble, build, render, gates and the judge
+#: (4-8 min measured in iteration 2) — and what the zone window therefore never eats into
+ROUND0_RESERVE_S = 600.0
+#: the shortest zone window worth opening: an agent session spends its first minutes reading the
+#: briefs, the skills and the asset files (24-27 reads in the two sessions killed at 180 s)
+ZONE_MIN_S = 300.0
 #: a refine session that runs for half an hour (the desert-canyon round 1 did) spends the
 #: wall clock the NEXT round needed; clip it to what the hard budget still allows
 REFINE_TIMEOUT_S = 900
@@ -384,8 +389,47 @@ class SceneTrack(BaseTrack):
                 # must have been reported as changed or actually rewritten in this stage
                 ok = r.ok and (len(zones) == 1 or rel in written or _touched(ctx.ws.root / rel, t0))
                 out[zone.name] = {"ok": ok, "files": [rel] if ok else [], "notes": r.notes}
+        failed = [z for z in zones if not out[z.name]["ok"]]
+        if failed and ctx.budget.ok():
+            out.update(self._recover_zones(ctx, failed))
         ctx.events.emit("zones.done", ok=[k for k, v in out.items() if v["ok"]], failed=[k for k, v in out.items() if not v["ok"]])
         return out
+
+    def _recover_zones(self, ctx: RunContext, failed: list[ZonePlan]) -> dict[str, dict[str, Any]]:
+        """One single-shot generation per zone the batched session left unwritten, side by side.
+
+        WHY.  ``zones.done`` already listed such zones as failed and nothing acted on it: the
+        skeleton's stub (``build`` returns the empty collection) went to assembly, every planned
+        content was ``zone_empty`` and ``missing_must_acceptance`` capped the run at ~0.18 — and the
+        refine round, handed "three empty zones" among its targets, spent its 15 minutes on asset
+        files (iteration 2, r1_11 / r1_15, 2026-10-15).  An unwritten zone is the stage's job, not
+        refine's: each gets its own brief again, single-shot (fast, and it cannot spend its window
+        reading), bounded by the zone window.  A recovery that also fails leaves the stub, as before."""
+        from codeverse3d.proc import fan_out
+
+        gen = ctx if ctx.single_shot else (single_shot_ctx(ctx) or ctx)
+        ctx.events.emit("zones.recover", zones=[z.name for z in failed])
+        t0 = time.time()
+
+        def one(zone: ZonePlan) -> tuple[str, dict[str, Any]]:
+            rel = ctx.runtime.zone_file(zone.name)
+            task = self._zone_task(gen, [zone])
+            task = task.model_copy(update={"label": f"{task.label}.recover", "timeout_s": zone_window_s(ctx, 1)})
+            try:
+                res = generate_for(gen, task)
+            except Exception as e:  # noqa: BLE001 — one zone's recovery must not cost the others
+                return zone.name, {"ok": False, "files": [], "notes": f"recover: {type(e).__name__}: {e}"[:500]}
+            ok = res.ok and (rel in {c.path for c in res.files_changed} or _touched(ctx.ws.root / rel, t0))
+            return zone.name, {"ok": ok, "files": [rel] if ok else [], "notes": f"recovered single-shot: {res.notes}"[:500]}
+
+        # fan_out returns each item's value or the exception it raised; ``one`` catches its own,
+        # so anything else (a task that could not even be built) leaves that zone as it was
+        results = dict(r for r in fan_out(failed, one, max_workers=len(failed), label="zones.recover",
+                                          item_name=lambda z: z.name) if isinstance(r, tuple))
+        ctx.ws.commit("zones.recover")
+        ctx.events.emit("zones.recovered", ok=[k for k, v in results.items() if v["ok"]],
+                        failed=[k for k, v in results.items() if not v["ok"]])
+        return results
 
     def _zone_task(self, ctx: RunContext, batch: list[ZonePlan]) -> GenerationTask:
         """One task for one zone, or for every zone of the scene in one session (D70).
@@ -431,7 +475,7 @@ class SceneTrack(BaseTrack):
         # the window grows with the batch: one author writing four zones is four zones of work
         return GenerationTask(label=label, prompt=prompt, system=self.system_prompt(ctx), files_hint=files,
                               round=0, kind="zone", temperature=0.5, edit_only=True,
-                              timeout_s=ctx.budget.timeout_s(ZONE_TIMEOUT_S * max(1, len(batch)), floor_s=180))
+                              timeout_s=zone_window_s(ctx, len(batch)))
 
     def _assemble_stage(self, ctx: RunContext) -> dict[str, Any]:
         result = ctx.services.assemble_scene(ctx.runtime, ctx.ws, ctx.plan)
@@ -483,8 +527,7 @@ class SceneTrack(BaseTrack):
         and the preflight's findings are the build's log tail), targeted at the failing
         module when the build names one."""
         lint = next((g for g in last.gates if g.gate.startswith("lint")), GateReport(gate="lint", passed=True))
-        # no cookbook section in the report: the scene languages ship none (the "" is explicit, not a lookup)
-        report = format_error_report(last.build, lint, "") if last.build else "build did not run"
+        report = format_error_report(last.build, lint) if last.build else "build did not run"
         files: list[str] = []
         if last.build is not None and last.build.error_file:
             rel = last.build.error_file.removeprefix(str(ctx.ws.root)).lstrip("/")
@@ -534,6 +577,20 @@ def _touched(path: Any, since: float) -> bool:
         return path.is_file() and path.stat().st_mtime > since
     except OSError:
         return False
+
+
+def zone_window_s(ctx: RunContext, n_zones: int) -> int:
+    """The zone session's window: ``ZONE_TIMEOUT_S`` per zone, clipped to the HARD budget minus
+    :data:`ROUND0_RESERVE_S` — never to the scene track's soft cap.
+
+    WHY.  The soft cap (0.55 of the run) protects the refine round's time, but a scene whose zones
+    are empty has nothing to refine: two iteration-2 runs reached the zone stage 0.4 min before the
+    cap (a runaway asset call had held the asset stage for 47 min), so the session was clipped to
+    the 180 s floor, read 24-27 files and was killed before writing a zone (2026-10-15).  The zones
+    are the scene; refine gets whatever they leave.  Past the soft cap the stage still degrades to
+    single-shot (``_strategy``); this only sizes the window it runs in."""
+    left = (ctx.budget.hard_minutes - ctx.budget.elapsed_minutes()) * 60.0 - ROUND0_RESERVE_S
+    return int(max(ZONE_MIN_S, min(float(ZONE_TIMEOUT_S * max(1, n_zones)), left)))
 
 
 def _guess_target(error: str, ctx: RunContext) -> str:

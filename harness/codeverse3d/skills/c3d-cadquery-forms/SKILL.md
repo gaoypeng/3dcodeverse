@@ -1,6 +1,6 @@
 ---
 name: c3d-cadquery-forms
-description: "Use when writing CadQuery src/model.py - baseline, part, detail, refine, rebuild or repair: build the planned forms and get past the OCC kernel. Gives the form-to-technique decision table, the fillet / revolve / boolean rules that decide whether the script builds at all, and the four traps our own lint and runtime wrapper are written to catch."
+description: "Use when writing CadQuery src/model.py - baseline, part, detail, refine, rebuild or repair: build the planned forms and get past the OCC kernel. Gives the kernel's native makers per form as an optional toolbox, the probed kernel rules that decide whether the script builds at all, a few strong optional practices, and the four traps our own lint and runtime wrapper are written to catch."
 license: Apache-2.0
 compatibility: CadQuery 2.8 on OCP; one module src/model.py exporting a module-level `result`.
 metadata:
@@ -17,59 +17,77 @@ metadata:
 # CadQuery: forms, and the kernel rules that gate them
 
 **Evidence warning, read it once:** we have no graded CadQuery runs. The API rules below are
-verified against the installed kernel; the *priority order* is inferred, not measured.
+verified against the installed kernel; nothing here is ranked by measured defect frequency.
 
-## Form to technique
+## Form to technique — an optional toolbox
 
-Plans and judge feedback name language-neutral forms. Build each one as its own kind of
-solid — a revolved profile faked from stacked boxes reads as a blocky toy.
+The plan names language-neutral forms; the kernel has a native maker for most of them. These
+are options under their real API names, not a mapping to follow.
 
-| form | build it as |
+| form | a native option |
 |---|---|
 | slab / block / panel | `.box(x, y, z)`, `centered=(True, True, False)` to stand on zero |
 | shaft / disc / cylinder | `.circle(r).extrude(h)`; `.cylinder(h, r)` takes height FIRST |
 | revolved profile — vase, finial, baluster, dome, barrel | closed half-profile on `"XZ"` (`.polyline`/`.spline` + `.close()`) then `.revolve(360, (0,0,0), (0,1,0))`; keep the profile at radius >= 0 |
-| ring / band / torus | `.moveTo(R, 0).circle(r).revolve(angle, ...)` — see the revolve trap below |
-| extruded outline with softened edges | outline `.polyline().close().extrude(t)`, then `.edges("|Z").fillet(r)` |
+| ring / band / torus | `.moveTo(R, 0).circle(r).revolve(angle, ...)` — see kernel rule 1 |
+| extruded outline with softened edges | outline `.polyline().close().extrude(t)`, then `.edges("|Z").fillet(r)`; `cq.Sketch().rect().vertices().fillet()` for a rounded rectangle |
 | tube swept along a path | `.circle(r).sweep(path)`; the profile plane must be perpendicular to the path start |
 | tapered solid — horn, spout, mast | `.circle(r1).workplane(offset=h).circle(r2).loft()`, or `.extrude(h, taper=deg)` |
 | lofted transition between sections | `.loft()` between profiles with matching vertex counts (circle to circle, rect to rect) |
-| shell with wall thickness | `.faces(">Z").shell(-t)` from ONE open face; never on a lofted round body — subtract a shrunken inner loft instead |
-| carved cavity / slot / bore | `.cut(cutter)`, `.hole(d)`, `.cutBlind(-depth)` |
+| shell with wall thickness | `.faces(">Z").shell(-t)` from ONE open face; the kernel refuses it on a lofted round body — subtract a shrunken inner loft instead |
+| carved cavity / slot / bore | `.cut(cutter)`, `.hole(d)`, `.cutBlind(-depth)`, `.slot2D(length, width)` |
 | faceted solid — die, gem | `.polygon(n, d).extrude(h)`, facets via `taper=` or a loft between polygons |
-| radial array of N | `.polarArray(radius, start, angle, count)` before the feature; loops of `.union` only up to ~12 items |
+| repeated feature — grid, ring of N, point list | `.rarray(dx, dy, nx, ny)`, `.polarArray(radius, start, angle, count)` or `.pushPoints([...])` before the feature |
 | mirror pair | `.mirror("XZ")` on the piece, then place both in the Assembly |
+| where a feature goes | string selectors `"|Z"`, `">Z"`, `"<Y"`, `"%CIRCLE"`, `"#Z"`; `cq.selectors.BoxSelector(p0, p1)` or `NearestToPointSelector(p)` when a rotated feature is invisible to the string form; `.faces(">Z").workplane()` / `.workplane(offset=h)` to build on a face |
+| embossed label | `.text(txt, size, depth)` — may raise headless (no fonts), so `try/except` it |
 
-## Kernel rules — probed against CadQuery 2.8.0 in this repo, 2026-08-25
+## Kernel rules — probed against CadQuery 2.8.0 in this repo
 
 1. **`.center()` before a revolve is fatal; use `.moveTo()`.** `Workplane("XZ").center(R, 0)
    .circle(r).revolve(360, ...)` raises `StdFail_NotDone: BRep_API: command not done`. The
    identical chain with `.moveTo(R, 0)` builds a valid torus. `.center()` moves the
    workplane origin, so the profile ends up sitting on the axis. Passing an explicit axis
    does not rescue it — both forms fail.
-2. **Fillet failure is not monotone in the radius, so stay well under the budget.** On a
-   3 mm slab a top-rim fillet succeeded at 2.9 mm and failed at 3.0 mm; on a 3 mm shelled
-   wall it succeeded at 1.4 mm, failed at 1.5 mm, succeeded again at 2.0 mm and failed at
-   3.0 mm. "Try a slightly bigger radius" is therefore not a strategy. Keep radii below
-   **0.45 x the thinnest adjacent wall** — the budget the language contract states and the
-   exact hint the runtime appends to every OCC refusal — fillet before booleans that would
-   split the edge, biggest radii first, and wrap purely cosmetic fillets in `try/except`.
-   (The common claim that the limit is half the shortest adjacent *edge* is false here: a
-   10 mm radius on a 10 mm vertical edge builds fine.)
-3. **A union that does not overlap fails silently.** Two spheres placed exactly tangent
+2. **A union that does not overlap fails silently.** Two spheres placed exactly tangent
    union into **2 solids** and still report `isValid() == True`; the same pair with 0.5 mm
-   of overlap gives 1 solid. `.isValid()` will not catch this and neither will a render.
-   Assert `len(wp.solids().vals()) == 1` after every union and every cut — a through cut
-   that splits a part also leaves 2 valid solids.
-4. **`.cut()` is for removing material only.** Do not union across plan boundaries; each
-   plan part stays its own solid in the Assembly. Overshoot cutters by >= 0.1 mm.
-5. **Touching parts weld by overlapping 0.5-2 mm.** The CadQuery authoring contract's
-   own figure, and the overlap its worked example uses; 2 mm is a ceiling, not a target,
-   because the connectivity gate calls a deeper overlap interpenetration. Its contact and
-   penetration thresholds are stated once, in `c3d-part-contact`, and not repeated here.
-6. **Keep solids closed.** Export runs through STL as well as GLB; `.shell()` keeps a solid
+   of overlap gives 1 solid. `.isValid()` will not catch this and neither will a render —
+   `check_connectivity` reports the second solid as a stray island. `len(wp.solids().vals())`
+   after a union or a cut catches it before a build; a through cut that splits a part also
+   leaves 2 valid solids.
+3. **Each plan part is its own Assembly child.** A pair unioned across a plan boundary reads
+   as a missing part in `check_contract`. Touching parts: a gap ≤ 2 mm is contact, overlap
+   > 2 mm is WARN, > 10 mm is ERROR (`check_connectivity`; the table is in `c3d-part-contact`).
+4. **Keep solids closed.** Export runs through STL as well as GLB; `.shell()` keeps a solid
    watertight, hand-assembled faces do not.
-7. Feature sizes >= 0.5 mm (OCC's tolerance eats smaller).
+5. Features under ~0.5 mm come out invalid at OCC tolerance.
+
+## Strong options — optional practices
+
+**Fillets the kernel accepts.** Refusal is not monotone in the radius: on a 3 mm shelled
+wall a rim fillet passed at 1.4 mm, failed at 1.5 mm, passed again at 2.0 mm and failed at
+3.0 mm, so "try a slightly bigger radius" is not a strategy. A conservative budget (the
+hint the runtime prints after a refusal says 0.45 x the thinnest adjacent wall), few edges
+per `.fillet()` call, and `try/except` around fillets that are only cosmetic is the strong
+option. Whether a fillet goes before or after a boolean that touches its edge is not a rule
+either way — only the build result counts. Where `.fillet()` is refused on a thin wall, a
+`.cut()` with a rounded tool softens the same edge. (The claim that the limit is half the
+shortest adjacent *edge* is false here: a 10 mm radius on a 10 mm vertical edge builds.)
+
+**Mating faces.** A mating coordinate computed from the plan numbers of the face it meets
+lands inside the gate's contact band (flush counts) without nudging. A cutter that overshoots the face it exits avoids
+coplanar-face boolean failures; the coplanar case passed in this probe, so the overshoot is
+a habit, not a measured need.
+
+**Selectors after booleans.** Edge indices reshuffle after a boolean; re-select by geometry
+(`">Z"`, `BoxSelector`) rather than by a cached index, and print `len(wp.edges(sel).vals())`
+when a selector might match nothing — an empty selection raises `ValueError`.
+
+**Measure before you render.** Print per part what the gates read — `BoundingBox()` extents
+and `zmin`, `len(solids().vals())`, `Volume()`, `isValid()` — then the track loop: `build`
+-> `check_contract` -> `check_connectivity` -> `render_views`. `Volume()` catches
+hollow-when-it-should-be-solid, the solid count catches a split, `zmin` catches a floater,
+all before a render is spent.
 
 ## The four traps our own tooling is written to catch
 
@@ -85,13 +103,5 @@ solid — a revolved profile faked from stacked boxes reads as a blocky toy.
   `.revolve(deg)` and `twistExtrude(h, deg)` all take degrees. A `math.pi` expression in that
   slot is a lint ERROR. Also `cq.Solid.makeSphere(r)` without angle arguments builds a
   hemisphere (measured: z extent half of x and y); use `cq.Workplane("XY").sphere(r)`.
-
-## Before you finish
-
-Print the facts the harness will measure while you build — extents, `zmin`,
-`len(solids().vals())`, `Volume()`, `isValid()` per part — then `build` -> `render_sheet` ->
-`check_connectivity` -> `check_contract`. Code to copy: cookbook `cadquery` sections
-*Extrude, revolve, loft, sweep*, *Shell, fillet, chamfer — robustly*, *Booleans*,
-*Measure while you build*, *Pitfalls*.
 
 More probe results and the failing/passing chains: `references/kernel-probes.md`.

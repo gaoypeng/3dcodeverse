@@ -58,3 +58,27 @@ def test_rotate_angle_expression_table() -> None:
     for expr in radians:
         r = lint_cadquery_source(_rotate_src(expr))
         assert not r.passed and any("DEGREES" in m for m in _msgs(r, Severity.ERROR)), (expr, _msgs(r))
+
+
+def test_fillet_and_chamfer_calls_are_not_findings() -> None:
+    """The build reports an OCC refusal where it happens; the lint no longer emits a per-call INFO
+    carrying fillet practices (D106 rule: the lint states facts the build measures, never a template)."""
+    r = lint_cadquery_source("import cadquery as cq\nw = cq.Workplane().box(1, 1, 1).edges('|Z').fillet(0.1).edges('>Z').chamfer(0.01)\n"
+                             "result = cq.Assembly()\nresult.add(w, name='Part', color=cq.Color(0.5, 0.5, 0.5))\n")
+    assert r.passed and not r.findings, [f.message for f in r.findings]
+
+
+def test_contract_import_list_matches_the_lint() -> None:
+    """One rule, one text: the contract's Imports section names every module the lint allows and every
+    module it forbids — neither list may drift from ``ALLOWED_IMPORTS`` / ``FORBIDDEN_IMPORTS``."""
+    import re
+    from pathlib import Path
+
+    from codeverse3d.languages.cadquery import ALLOWED_IMPORTS, FORBIDDEN_IMPORTS
+
+    text = Path(__file__).resolve().parents[2] / "codeverse3d" / "prompts" / "cadquery" / "contract.md"
+    section = text.read_text().split("## Imports", 1)[1].split("\n## ", 1)[0]
+    allowed_para, forbidden_para = section.split("* Forbidden (lint ERROR):", 1)
+    named = lambda s: set(re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)`", s))  # noqa: E731
+    assert named(allowed_para) >= ALLOWED_IMPORTS - {"cq", "np", "__future__"}, sorted(ALLOWED_IMPORTS - named(allowed_para))
+    assert named(forbidden_para.split("* Forbidden calls", 1)[0]) == set(FORBIDDEN_IMPORTS)

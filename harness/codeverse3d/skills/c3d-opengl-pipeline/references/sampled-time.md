@@ -12,40 +12,23 @@ loop duration, always at least 3 samples). The preview GIF adds about a dozen mo
 
 * the number of calls is not fixed, and `frame == 2` is not "the third judged frame";
 * the gaps between judged frames are 1.0, 1.5, 1.5 and 2.0 seconds;
-* nothing guarantees the calls are the only ones, or that they will not be repeated.
+* nothing guarantees the calls are the only ones, or that they will not be repeated — the
+  `gl_probe` and `gl_frames` tools re-render single times in any order.
 
 The only safe contract is the one the language contract already states: **the same `t` must
 produce the same image.**
 
-## The shape of a correct feedback loop
+## The shape of a correct feedback loop (one option, described, not prescribed)
 
-```python
-DT = 1.0 / 120.0          # simulation step
-MAX_STEPS = 4000          # bounded work per call
-
-def _reset(state):
-    state["read"].write(state["seed_bytes"])
-    state["t_sim"] = 0.0
-
-def _advance(ctx, state, t):
-    if t < state["t_sim"] - 1e-6:
-        _reset(state)
-    n = min(MAX_STEPS, int(round((t - state["t_sim"]) / DT)))
-    for _ in range(n):
-        state["write_fbo"].use()
-        state["read"].use(location=0)
-        state["sim_vao"].render(mode=moderngl.TRIANGLE_STRIP)
-        state["read"], state["write"] = state["write"], state["read"]
-        state["read_fbo"], state["write_fbo"] = state["write_fbo"], state["read_fbo"]
-    state["t_sim"] += n * DT
-```
-
-`render()` then calls `_advance(ctx, state, t)`, binds `fbo`, resets the viewport and draws
-the display pass from `state["read"]`. Note what this buys: t = 0 gets the seed, t = 6 gets
-720 steps instead of 5, and re-rendering an earlier time still produces the earlier image.
+Store the simulated time next to the state texture in `state`. On each call, if `t` is earlier
+than that time, reset the state to its seed; then step from the stored time to `t` with a fixed
+step and a bounded step count, each step drawing the read texture into the write framebuffer
+and swapping the pair. Finally bind `fbo`, reset the viewport and draw the display pass from
+the read texture. What this buys: the earliest sample shows the seed, the last sample the
+fully integrated state, and re-rendering an earlier time gives the earlier image.
 
 Sources (ink injections, seeds, disturbances) belong inside the step loop as a function of
-the simulated time, not in a `if frame == 0:` branch — the judge explicitly marked one of
+the simulated time, not in a `frame == 0` branch — the judge explicitly marked one of
 our runs down for *"ink is only injected at t=0s"*.
 
 ## State texture settings that matter
@@ -59,17 +42,18 @@ our runs down for *"ink is only injected at t=0s"*.
 
 ## The frame metrics the gate reads
 
-`codeverse3d/spatial/frame_stats.py`:
+`codeverse3d/spatial/frame_stats.py`, on the judged frames; the cap is the highest score the
+round can then get:
 
-| metric | fires when | finding |
-|---|---|---|
-| mean abs frame-to-frame delta | frames barely differ | static (WARN) |
-| mean abs frame-to-frame delta | a pair jumps by a large share of the image | flicker (WARN) |
-| consecutive frames identical | two frames are the same | duplicate (INFO) |
-| mean edge density | almost no visible edges | near-flat gradient (WARN) |
-| mean luminance | near-black in all frames | black (ERROR) |
-| mean luminance | near-white in all frames | blown (ERROR) |
-| any NaN / Inf pixel | any | ERROR |
+| metric | threshold | finding | cap |
+|---|---|---|---|
+| largest mean abs delta between consecutive frames | < 0.002 (motion planned) | static (WARN) | 0.5 |
+| largest mean abs delta between consecutive frames | > 0.35 | flicker (WARN) | 0.7 |
+| a consecutive pair's mean abs delta | < 1e-4 | duplicate (INFO) | — |
+| mean edge density | < 0.002 | near-flat gradient (`low_detail`, WARN) | — |
+| pixels under luminance 0.03 | over 97 % in every frame | black (ERROR) | 0.5 |
+| pixels over luminance 0.98 | over 97 % in every frame | blown (ERROR) | 0.5 |
+| any NaN / Inf pixel | ≥ 1 | nan (ERROR) | 0 |
 
 ## Measured deltas from our own runs
 

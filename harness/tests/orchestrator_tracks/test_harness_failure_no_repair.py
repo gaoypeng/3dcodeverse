@@ -20,7 +20,6 @@ def _ctx(**over):
         spec=SimpleNamespace(budget=SimpleNamespace(max_repair_attempts=3)),
         events=SimpleNamespace(emit=lambda *a, **k: None),
         ws=None, agent_id="x", agent=None, model=None, settings=None, budget=None,
-        cookbook_text="",
     )
     base.__dict__.update(over)
     return base

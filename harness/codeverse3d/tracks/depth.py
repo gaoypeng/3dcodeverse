@@ -23,8 +23,9 @@ on eight objective axes — is ``codeverse3d/spatial/complexity.py`` + ``eval/do
 This module is the *target* side: what THIS plan should be allowed and asked to spend.
 
 Hence: :func:`depth_budget` (how many triangles / how much build time this *plan*
-deserves, checked by :func:`budget_gate`; no generate / refine prompt states it — they
-get the numberless :data:`DETAIL_ADVICE`; how many PARTS a prompt deserves is
+deserves, checked by :func:`budget_gate`; the generate / refine briefs get the numberless
+:data:`DETAIL_ADVICE`, and each object language's ``contract.md`` states the gate's per-object
+constants as a measured requirement (D107, pinned in ``prompts/_claims.toml``); how many PARTS a prompt deserves is
 ``tracks.planner.plan_budget``, which also owns the thin-plan re-ask), and :func:`scope_groups` (how to split one plan into sessions small
 enough that each part gets real attention) with :func:`interfaces_text` handing
 each session the exact numbers of the parts it must touch but may not edit.
@@ -68,13 +69,13 @@ class DepthBudget:
     max_build_s: int
 
 
-#: What the generate / refine prompts say about detail.  No numbers: the triangle and build-time
-#: budget below is enforced by :func:`budget_gate`, whose findings state a number only when it is
-#: missed (owner, 2026-09-22).
+#: What the generate / refine briefs say about detail.  No numbers: the triangle and build-time
+#: budget below is enforced by :func:`budget_gate`, whose findings state this object's numbers
+#: (owner, 2026-09-22); the per-built-object rule itself is in each object ``contract.md`` (D107).
 DETAIL_ADVICE = (
-    "- Spend detail INSIDE the parts the plan already names — bevels, chamfers, profile sweeps, "
-    "fasteners, panel seams, arrays — not on new parts the plan does not list.  Measured on this harness: "
-    "detail inside a part is neutral-to-positive for the score, extra un-planned parts are strongly negative."
+    "- Spend detail INSIDE the parts the plan already names — the edges, profiles, seams and repeats the "
+    "real object carries — not on new parts the plan does not list.  Measured on this harness: detail "
+    "inside a part is neutral-to-positive for the score, extra un-planned parts are strongly negative."
 )
 
 
@@ -306,17 +307,17 @@ def budget_gate(measurement: Any, build: Any, budget: DepthBudget) -> Any:
             gate=BUDGET_GATE, severity=Severity.ERROR, target="overall",
             message=f"{tris:,} triangles exceeds this object's ceiling of {budget.max_tris:,} "
                     f"({budget.n_units} built objects × {TRIS_PER_UNIT_MAX:,})",
-            fix_hint="lower the segment counts and subdivision levels on the heaviest parts; "
-                     "detail with bevels and arrays instead of dense meshes",
+            fix_hint=f"over this object's ceiling of {budget.max_tris:,}: reduce the segment / subdivision "
+                     f"counts on the heaviest parts",
             data={"kind": "over_tri_budget", "tris": tris, "max": budget.max_tris}))
     elif tris < budget.min_tris:
         findings.append(GateFinding(
             gate=BUDGET_GATE, severity=Severity.WARN, target="overall",
             message=f"{tris:,} triangles ({per_unit:.0f} per built object) is below this object's detail floor "
                     f"of {budget.min_tris:,} — it is a stack of primitives, not a modelled object",
-            fix_hint=f"aim for {budget.target_tris:,} triangles: bevel every hard edge, add the panel seams, "
-                     f"fasteners and counted features the plan describes INSIDE the existing parts "
-                     f"(see the cookbook's Density chapter)",
+            fix_hint=f"{tris:,} triangles is under this object's floor of {budget.min_tris:,} (target "
+                     f"{budget.target_tris:,}): add the detail the real object carries INSIDE the parts the "
+                     f"plan names, not as new parts",
             data={"kind": "under_tri_budget", "tris": tris, "floor": budget.min_tris,
                   "target": budget.target_tris, "per_unit": round(per_unit, 1)}))
     ms = int(getattr(build, "duration_ms", 0) or 0)

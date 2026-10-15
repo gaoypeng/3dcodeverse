@@ -171,3 +171,52 @@ def build_room_shell(root: Path) -> Path:
 def blender_available() -> bool:
     b = get_settings().resolve_blender()
     return bool(b) and Path(b).exists()
+
+
+#: a red cube under a 20 m volume-only fog box (density 0.5 /m: opaque) and a 1 m volume puff beside it
+FOG_BOX_BPY = """
+import sys
+import bpy
+blend = sys.argv[sys.argv.index("--") + 1]
+bpy.ops.wm.read_factory_settings(use_empty=True)
+scene = bpy.context.scene
+def volume_mat(name, density):
+    m = bpy.data.materials.new(name)
+    nodes, links = m.node_tree.nodes, m.node_tree.links
+    for n in [n for n in nodes if n.bl_idname == "ShaderNodeBsdfPrincipled"]:
+        nodes.remove(n)
+    v = nodes.new("ShaderNodeVolumePrincipled")
+    v.inputs["Density"].default_value = density
+    links.new(v.outputs["Volume"], nodes["Material Output"].inputs["Volume"])
+    return m
+def cube(name, size, loc, mat):
+    bpy.ops.mesh.primitive_cube_add(size=size, location=loc)
+    ob = bpy.context.object
+    ob.name = name
+    ob.data.materials.append(mat)
+    return ob
+red = bpy.data.materials.new("Red")
+red.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.8, 0.05, 0.05, 1.0)
+cube("Crate", 2.0, (0.0, 0.0, 1.0), red)
+cube("SiteHaze", 20.0, (0.0, 0.0, 0.0), volume_mat("HazeFog", 0.5))
+cube("SteamPuff", 1.0, (3.0, 0.0, 1.0), volume_mat("SteamVol", 0.5))
+w = bpy.data.worlds.new("W")
+scene.world = w
+w.node_tree.nodes["Background"].inputs[1].default_value = 1.0
+bpy.ops.object.light_add(type="SUN", location=(0.0, 0.0, 30.0))
+bpy.context.object.data.energy = 3.0
+bpy.ops.wm.save_as_mainfile(filepath=blend)
+"""
+
+
+def build_fog_box(root: Path) -> Path:
+    """Write ``root/scene.blend``: a red crate inside an opaque 20 m fog box, a 1 m volume puff beside it."""
+    root.mkdir(parents=True, exist_ok=True)
+    script = root / "build_fog_box.py"
+    script.write_text(FOG_BOX_BPY)
+    blend = root / "scene.blend"
+    blender = get_settings().resolve_blender()
+    proc = run_subprocess([blender, "-b", "--factory-startup", "--python", str(script), "--", str(blend)],
+                          cwd=root, env=blender_env(), timeout_s=120)
+    assert proc.returncode == 0 and blend.is_file(), proc.stderr[-2000:]
+    return blend

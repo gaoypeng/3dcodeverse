@@ -1,10 +1,13 @@
-"""The cookbooks' and contracts' promise: every snippet RUNS.
+"""The contracts' promise: each language's ONE interface example RUNS (D107 — no language ships a
+cookbook; the example in contract.md is the whole of a language's runnable prompt material).
 
 * cadquery blocks run in-process (cadquery is a plain library).
 * bpy blocks run in real headless Blender (marker: blender).
 * js blocks run in real node against runtime_js/node_modules (marker: node).
-* the scene languages ship no cookbook (owner, 2026-10-15): their contracts' COMPLETE examples
-  run through the real runtimes below, and that is the whole of their runnable prompt material.
+
+The tests pin the INTERFACE the example demonstrates (it builds through the real runtime, exports
+what the wrapper reads, sits on the ground), never its shape, part names or counts — the example is
+a stub, not a worked object.
 """
 
 from __future__ import annotations
@@ -16,11 +19,9 @@ import pytest
 from codeverse3d.config import get_settings
 from tests.prompts.conftest import (
     blocks,
-    js_prelude,
     labelled_files,
     run_blender_script,
     run_node_module,
-    strip_imports_exports,
 )
 
 
@@ -28,7 +29,9 @@ from tests.prompts.conftest import (
 def _exec_python_blocks(rel: str) -> dict:
     pytest.importorskip("cadquery")
     ns: dict = {}
-    for i, body in enumerate(blocks(rel, "python")):
+    bodies = blocks(rel, "python")
+    assert bodies, f"{rel} carries no python block: a language keeps ONE executable interface example"
+    for i, body in enumerate(bodies):
         try:
             exec(compile(body, f"{rel}:block{i}", "exec"), ns)  # noqa: S102 - our own docs
         except Exception as e:  # pragma: no cover - failure path
@@ -36,53 +39,48 @@ def _exec_python_blocks(rel: str) -> dict:
     return ns
 
 
-def test_cadquery_cookbook_runs() -> None:
-    ns = _exec_python_blocks("cadquery/cookbook.md")
-    assert "selfcheck" in ns and "result" in ns
-
-
 def test_cadquery_contract_example_runs() -> None:
+    """The example defines ``result`` (what the wrapper exports), an Assembly with at least one
+    named child, lowest point on the ground."""
     pytest.importorskip("cadquery")  # the [cad] extra — absent on a [dev]-only install (CI)
 
     ns = _exec_python_blocks("cadquery/contract.md")
     result = ns["result"]
+    assert result.children, "the example must add at least one named part"
+    assert all(c.name for c in result.children)
     bb = result.toCompound().BoundingBox()
-    assert abs(bb.zmin) < 1e-6 and abs(bb.zmax - 0.45) < 1e-3
-    assert [c.name for c in result.children] == ["Top", "Leg_0", "Leg_1", "Leg_2", "Leg_3"]
+    assert abs(bb.zmin) < 1e-6, f"not on the ground: zmin {bb.zmin}"
+    assert bb.zmax > 0.01
 
 
 # --------------------------------------------------------------------- blender
 @pytest.mark.blender
-def test_blender_cookbook_runs(tmp_path) -> None:
-    code = "\n".join(blocks("blender/cookbook.md", "python"))
-    out = run_blender_script(tmp_path, code)
-    assert "mesh objects" in out
-
-
-@pytest.mark.blender
 def test_blender_contract_example_builds_and_exports(tmp_path) -> None:
-    code = "\n".join(blocks("blender/contract.md", "python"))
+    """The example's labelled files (``src/model.py`` + any ``src/parts/*.py``) run in headless Blender
+    the way the wrapper runs them (``src/`` on ``sys.path``, ``model.py`` executed) and leave at least
+    one named mesh object that exports to a GLB with its lowest point on the ground (Y-up after export)."""
+    files = labelled_files("blender/contract.md", tag="python")
+    assert "src/model.py" in files, f"blender/contract.md keeps ONE executable interface example: {sorted(files)}"
+    for rel, body in files.items():
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body)
     glb = tmp_path / "object.glb"
+    code = f"import sys\nsys.path.insert(0, {str(tmp_path / 'src')!r})\n" + files["src/model.py"]
     code += (
-        "\n_selfcheck()\nimport bpy\n"
+        "\nimport bpy\n"
         f"bpy.ops.export_scene.gltf(filepath={str(glb)!r}, export_format='GLB', "
         "export_yup=True, export_apply=True)\n"
-        "print('PARTS', sorted(o.name for o in bpy.data.objects))\n"
+        "print('PARTS', sorted(o.name for o in bpy.data.objects if o.type == 'MESH'))\n"
     )
     out = run_blender_script(tmp_path, code)
-    assert "PARTS ['Leg_0', 'Leg_1', 'Leg_2', 'Seat']" in out
-    assert glb.stat().st_size > 1000
+    parts_line = next(line for line in out.splitlines() if line.startswith("PARTS "))
+    assert parts_line != "PARTS []", "the example must leave at least one mesh object"
+    assert glb.stat().st_size > 200
     trimesh = pytest.importorskip("trimesh")
     scene = trimesh.load(str(glb))
     lo, hi = scene.bounds
-    assert abs(lo[1]) < 1e-3 and abs(hi[1] - 0.45) < 1e-3  # Y-up GLB, on the ground
-
-
-@pytest.mark.blender
-def test_urdf_cookbook_runs(tmp_path) -> None:
-    code = "\n".join(blocks("urdf/cookbook.md", "python"))
-    out = run_blender_script(tmp_path, code)
-    assert "[selfcheck] links" in out
+    assert abs(lo[1]) < 1e-3 and hi[1] > 0.01, (lo, hi)  # Y-up GLB, on the ground
 
 
 def _build_urdf_example(tmp_path, tag: str, model_py: str, urdf: str):
@@ -108,43 +106,34 @@ def _build_urdf_example(tmp_path, tag: str, model_py: str, urdf: str):
 
 
 @pytest.mark.blender
-def test_urdf_contract_example_builds_and_lid_opens_upward(tmp_path) -> None:
-    """The contract's COMPLETE example must pass the harness build exactly as written
-    (FK consistency, no lint warnings, clean sweep) and the lid must open upward."""
+def test_urdf_contract_example_builds_and_its_joint_moves_the_child(tmp_path) -> None:
+    """The contract's example (one python block + one URDF) must pass the harness build exactly as
+    written — FK consistency, no lint warnings, clean sweep — and its first movable joint must
+    move its child link between the limits (a lid hinged on an edge opens upward)."""
+    import numpy as np
+
     from codeverse3d.spatial.joints_model import link_world_meshes, load_urdf
 
-    ws, _ = _build_urdf_example(tmp_path, "pedalbin", "\n".join(blocks("urdf/contract.md", "python")),
-                                blocks("urdf/contract.md", "xml")[0])
+    py, xml = blocks("urdf/contract.md", "python"), blocks("urdf/contract.md", "xml")
+    assert py and xml, "urdf/contract.md keeps ONE python + ONE numeric xml example (the FK rule's executable proof)"
+    ws, _ = _build_urdf_example(tmp_path, "example", "\n".join(py), xml[0])
     r = load_urdf(ws.artifacts / "robot.urdf", ws.artifacts / "meshes")
-    tops = {q: link_world_meshes(r, {"body_to_lid": q})["lid"].bounds[1][2] for q in (0.0, 0.75, 1.5)}
-    assert tops[1.5] > tops[0.75] > tops[0.0] + 0.05, f"lid does not open upward: {tops}"
-
-
-@pytest.mark.blender
-@pytest.mark.parametrize("index,tag", [(0, "cabinet"), (1, "laptop"), (2, "cart")])
-def test_urdf_cookbook_worked_examples_build(tmp_path, index: int, tag: str) -> None:
-    """Each worked example (prelude + helpers + example block, paired with its URDF) must
-    pass the harness build: world meshes + visual/collision origin = −pivot."""
-    py = blocks("urdf/cookbook.md", "python")
-    xml = blocks("urdf/cookbook.md", "xml")
-    _build_urdf_example(tmp_path, tag, "\n".join(py[:2]) + "\n" + py[2 + index], xml[index])
+    joint = next(j for j in r.joints.values() if j.movable and j.lower is not None and j.upper is not None)
+    at = {q: link_world_meshes(r, {joint.name: q})[joint.child].bounds for q in (joint.lower, joint.upper)}
+    assert not np.allclose(at[joint.lower], at[joint.upper]), f"{joint.name} does not move {joint.child}"
+    if joint.name == "body_to_lid":   # the pedal-bin example: the lid's top rises through the sweep
+        tops = {q: link_world_meshes(r, {joint.name: q})["lid"].bounds[1][2] for q in (0.0, 0.75, 1.5)}
+        assert tops[1.5] > tops[0.75] > tops[0.0] + 0.05, f"lid does not open upward: {tops}"
 
 
 # ------------------------------------------------------------------------ node
 @pytest.mark.node
-def test_threejs_cookbook_runs(tmp_path) -> None:
-    body = "".join(
-        f"\nconsole.log('--- block {i} ---');\n" + strip_imports_exports(b)
-        for i, b in enumerate(blocks("threejs/cookbook.md", "js"))
-    )
-    out = run_node_module(tmp_path, js_prelude() + body + "\nconsole.log('JS_BLOCKS_OK');\n")
-    assert "JS_BLOCKS_OK" in out and "[selfcheck]" in out
-
-
-@pytest.mark.node
 def test_threejs_contract_example_builds_glb(tmp_path) -> None:
+    """The labelled files of the example are the entry ``src/object.js`` (+ any ``src/parts/*``);
+    ``build(THREE)`` returns an Object3D holding at least one mesh, on the ground, that exports."""
     files = labelled_files("threejs/contract.md")
-    assert set(files) == {"src/parts/seat.js", "src/parts/legs.js", "src/object.js"}
+    assert "src/object.js" in files, sorted(files)
+    assert all(rel.startswith("src/") for rel in files), sorted(files)
     for rel, body in files.items():
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -158,17 +147,17 @@ globalThis.FileReader = class {
   readAsArrayBuffer(b) { b.arrayBuffer().then((x) => { this.result = x; this.onloadend && this.onloadend(); }); }
 };
 const root = build(THREE);
-let verts = 0; root.traverse((o) => { if (o.isMesh) verts += o.geometry.attributes.position.count; });
+let meshes = 0; root.traverse((o) => { if (o.isMesh) meshes += 1; });
 const box = new THREE.Box3().setFromObject(root);
-if (verts < 100) throw new Error('too few vertices: ' + verts);
+if (meshes < 1) throw new Error('no mesh in the built object');
 if (Math.abs(box.min.y) > 1e-3) throw new Error('not on ground: ' + box.min.y);
 const buf = await new GLTFExporter().parseAsync(root, { binary: true });
 writeFileSync('object.glb', Buffer.from(buf));
-console.log('GLB_OK', verts, buf.byteLength);
+console.log('GLB_OK', meshes, buf.byteLength);
 """
     out = run_node_module(tmp_path, runner)
     assert "GLB_OK" in out
-    assert (tmp_path / "object.glb").stat().st_size > 1000
+    assert (tmp_path / "object.glb").stat().st_size > 200
 
 
 @pytest.mark.node
@@ -267,3 +256,36 @@ def test_scene_blender_contract_examples_build_through_the_runtime(tmp_path) -> 
     rows = {r["name"]: r for r in res.census["placement"]["assets"]}
     assert rows["QuayDeck"]["supported"] and not rows["QuayDeck"]["floating"]
     assert all(rows[f"Bollard_{i}"]["supported"] for i in range(6)), {k: v for k, v in rows.items() if k.startswith("Bollard")}
+
+
+# --------------------------------------------------------------------- glsl_shader
+def test_glsl_shader_contract_example_builds_and_moves(tmp_ws) -> None:
+    """The contract's ONE complete ``mainImage`` (the block that defines it) is ``src/shader.frag``
+    as written: lint clean, the judged frames render through the real moderngl host, not static, no
+    NaN — before D107 nothing executed this language's prompt material except the cookbook's helpers."""
+    pytest.importorskip("moderngl")
+    import json
+
+    from codeverse3d.contracts.artifacts import Severity
+    from codeverse3d.contracts.plan import GraphicsPlan, PassPlan
+    from codeverse3d.languages.glsl_shader import GlslShaderRuntime
+    from codeverse3d.spatial.gl_render import GlHost, GlHostError
+
+    complete = [b for b in blocks("glsl_shader/contract.md", "glsl") if "void mainImage(" in b and "..." not in b]
+    assert len(complete) == 1, "glsl_shader/contract.md keeps exactly ONE complete mainImage example"
+    plan = GraphicsPlan(title="Example", summary="s", style="any", passes=[PassPlan(name="Image", description="d")],
+                        motion="m", key_visuals=["k"], duration_s=6.0, resolution=(256, 144))
+    tmp_ws.write_json(tmp_ws.plan_path, plan)
+    tmp_ws.src.mkdir(parents=True, exist_ok=True)
+    (tmp_ws.src / "shader.frag").write_text(complete[0])
+    host = GlHost(timeout_s=120)
+    rt = GlslShaderRuntime(host=host)
+    rep = rt.lint(tmp_ws)
+    assert rep.passed and not [f for f in rep.findings if f.severity is not Severity.INFO], [f.message for f in rep.findings]
+    try:
+        br = rt.build(tmp_ws, width=256, height=144, preview=False)
+    except GlHostError as e:  # pragma: no cover - machine without GL
+        pytest.skip(f"no OpenGL context: {e}")
+    assert br.ok, br.error_message
+    stats = json.loads((tmp_ws.artifacts / "metrics.json").read_text())["stats"]
+    assert not stats["static"] and not stats["any_nan"], stats

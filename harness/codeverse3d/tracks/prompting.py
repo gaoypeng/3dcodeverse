@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from codeverse3d.contracts.chat import ImagePart
 from codeverse3d.contracts.common import (
@@ -33,9 +33,6 @@ from codeverse3d.tracks.depth import (
     depth_budget,
     interfaces_text,
 )
-
-if TYPE_CHECKING:
-    from codeverse3d.prompts.sections import Section
 
 log = logging.getLogger(__name__)
 
@@ -133,93 +130,6 @@ def constraints_text(spec: Any) -> str:
     return "\n".join(lines) or "(none)"
 
 
-#: brief words → cookbook chapter titles (case-insensitive substrings of a ``## `` heading) they call for
-COOKBOOK_SYNONYMS: dict[str, tuple[str, ...]] = {
-    "aurora": ("Light phenomena",), "curtain": ("Light phenomena",), "curtains": ("Light phenomena",),
-    "northern": ("Light phenomena",), "glow": ("Light phenomena",),
-    "star": ("Gradient sky", "Light phenomena"), "stars": ("Gradient sky", "Light phenomena"),
-    "night": ("Gradient sky", "Light phenomena"), "space": ("Gradient sky", "Light phenomena"),
-    "galaxy": ("Gradient sky", "Light phenomena"), "nebula": ("Gradient sky", "Light phenomena"),
-    "bokeh": ("Bokeh",), "city": ("Bokeh",), "neon": ("Bokeh",), "lights": ("Bokeh",),
-    "rain": ("Rain",), "drops": ("Rain",), "glass": ("Rain",),
-    "cloud": ("Domain warping", "Volume lighting"), "clouds": ("Domain warping", "Volume lighting"),
-    "smoke": ("Domain warping", "Volume lighting"), "fog": ("Volume lighting",),
-    "volumetric": ("Volume lighting",), "metal": ("Physical surface lighting",),
-    "metallic": ("Physical surface lighting",), "roughness": ("Physical surface lighting",),
-    "pbr": ("Physical surface lighting",), "dielectric": ("Physical surface lighting",),
-    "marble": ("Domain warping",),
-    "tunnel": ("Raymarching",), "temple": ("Raymarching",), "corridor": ("Raymarching",), "3d": ("Raymarching",),
-    "trail": ("Feedback",), "trails": ("Feedback",), "feedback": ("Feedback",),
-}
-COOKBOOK_ALWAYS: tuple[str, ...] = ("Hash / noise / fbm", "Palettes, tonemapping, grading", "PITFALLS")
-_STOP = frozenset(("the", "and", "with", "for", "from", "into", "over", "that", "this", "are", "its", "one", "two",
-                   "not", "but", "then", "than", "out", "each", "all", "any", "per", "via", "use", "like", "look",
-                   "looks", "very", "some", "more", "most"))
-
-
-def _words(text: str) -> set[str]:
-    import re
-
-    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if (len(w) >= 3 or w in COOKBOOK_SYNONYMS) and w not in _STOP}
-
-
-def is_always_chapter(title: str, always: Sequence[str] = COOKBOOK_ALWAYS) -> bool:
-    """Is ``title`` one of the chapters every graphics prompt carries (helpers / grading / pitfalls)?"""
-    low = title.lower()
-    return any(name.lower() in low for name in always)
-
-
-def select_cookbook_chapters(ctx: RunContext, brief: str, *, budget: int = 9500,
-                             always: Sequence[str] = COOKBOOK_ALWAYS) -> list[Section]:
-    """The cookbook chapters (cookbook order) a brief calls for.
-
-    Measured 2026-08-26: the graphics prompt carried ``cookbook_text[:7000]`` of an 11,298-char
-    cookbook, so everything after the raymarching template (sky / stars, rain, bokeh, feedback,
-    PITFALLS) never reached the agent unless it called ``read_cookbook`` — and flash draws
-    what it was handed (an aurora as a comb of bars, twenty sparkles for a star field).
-    Here the header + ``always`` chapters go in first (4.4 k chars), then chapters ranked by
-    keyword overlap between the brief (+ plan key visuals) and the chapter heading / body, with
-    ``COOKBOOK_SYNONYMS`` as the strong signal, until ``budget`` is spent.  A chapter is added
-    whole or not at all; the output keeps cookbook order.  The default budget is the measured
-    need of a night-sky brief: always-set 4.4 k + Light phenomena 3.2 k + Gradient sky 1.3 k.
-    ``tracks/graphics.py:seed_recipes`` seeds the SAME selection's code into the harness-owned ``src/recipes.glsl``.
-    """
-    from codeverse3d.prompts.sections import Section, find_section, split_sections
-
-    md = ctx.cookbook_text or ""
-    if not md.strip():
-        return []
-    chapters: list[Section] = []
-    for s in split_sections(md):        # fold ### sub-headings into their ## chapter
-        if s.level >= 3 and chapters:
-            chapters[-1] = Section(chapters[-1].level, chapters[-1].title, chapters[-1].body + s.body)
-        else:
-            chapters.append(s)
-    chosen: set[int] = {i for i, s in enumerate(chapters) if s.level < 2}    # title / conventions header
-    for name in always:
-        sec = find_section(chapters, name)
-        if sec is not None:
-            chosen.add(chapters.index(sec))
-    brief_words = _words(brief)
-    wanted = {t.lower() for w in brief_words for t in COOKBOOK_SYNONYMS.get(w, ())}
-    scored: list[tuple[int, int]] = []
-    for i, s in enumerate(chapters):
-        if i in chosen:
-            continue
-        title = s.title.lower()
-        score = 4 * sum(1 for t in wanted if t in title)
-        score += 3 * len(brief_words & _words(s.title)) + len(brief_words & _words(s.body))
-        if score > 0:
-            scored.append((-score, i))
-    used = sum(len(chapters[i].body.rstrip()) + 2 for i in chosen)
-    for _, i in sorted(scored):
-        size = len(chapters[i].body.rstrip()) + 2
-        if used + size <= budget:
-            chosen.add(i)
-            used += size
-    return [chapters[i] for i in sorted(chosen)]
-
-
 def language_system_prompt(language: Language, *, role: str = "", tools: bool = True, **vars: Any) -> str:
     """The generator's system prompt: ``prompts/<dir>/system.md``, or a role template.
 
@@ -262,12 +172,6 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         # contract's ctx table, imports, lint policy, API facts and render budgets, not the
         # assembler, the cameras or the worked env / zone modules it must not write
         "asset_contract": contract_sections(ctx.contract_text, ASSET_CONTRACT_SECTIONS),
-        # the whole cookbook.  It used to be ctx.cookbook_text[:6000] — a blind byte
-        # prefix that delivered 13 % of blender's and 10 % of scene_threejs's, cutting
-        # mid-snippet, and the read_cookbook tool that was supposed to fetch the rest
-        # went uncalled in all 20 measured sessions.  Prompt material the harness wrote
-        # for the model is not summarised by byte offset.
-        "cookbook_excerpt": ctx.cookbook_text,
         "tool_cards": ctx.tool_cards,
         "single_shot": ctx.single_shot,
         "output_format": SINGLE_SHOT_OUTPUT if ctx.single_shot else AGENT_OUTPUT_RULES,
@@ -429,9 +333,9 @@ def current_files(
     ctx: RunContext, rels: Sequence[str], max_chars: int = MAX_SKELETON_CHARS
 ) -> dict[str, str]:
     """``{rel: text}`` for the files that exist, trimmed to ``max_chars`` in total.  The
-    language's harness-owned files (``src/recipes.glsl``) are never inlined: the
-    single-shot prompt showed one as an editable skeleton file while every write to it
-    is refused (``generate_graphics.j2`` pastes its signatures separately)."""
+    language's harness-owned files (``HARNESS_OWNED_SRC``, e.g. a scene's ``src/lib/``) are
+    never inlined: the single-shot prompt once showed one as an editable skeleton file while
+    every write to it is refused."""
     owned = set(HARNESS_OWNED_SRC.get(ctx.language, ()))
     out: dict[str, str] = {}
     total = 0

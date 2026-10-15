@@ -114,14 +114,16 @@ def _cq_export_factors() -> tuple[float, float]:
 
 def test_the_harness_writers_own_defaults_count_as_never_authored():
     """N54: CadQuery's (0, 0.6) and the three.js stub's (0.05, 0.6) read as authored, so CadQuery
-    steel was clamped to half-metallic and CadQuery wood was never normalised."""
+    steel was clamped to half-metallic and CadQuery wood was never normalised.  Since D107 the
+    three.js stub sets neither factor, so it exports three's own default (0, 1); the pre-D107 stub's
+    pair stays listed for the runs recorded before it."""
     import re
 
     from codeverse3d.languages.threejs import PART_TEMPLATE
     from codeverse3d.texturing.materials import is_framework_default
 
-    stub = re.search(r"roughness: ([\d.]+), metalness: ([\d.]+)", PART_TEMPLATE)
-    assert stub and is_framework_default(float(stub[2]), float(stub[1]))
+    assert "MeshStandardMaterial" in PART_TEMPLATE and not re.search(r"\b(roughness|metalness)\s*:", PART_TEMPLATE)
+    assert is_framework_default(0.0, 1.0) and is_framework_default(0.05, 0.6)
     cq = _cq_export_factors()
     assert is_framework_default(*cq)
     steel = classify("SteelFrame", "SteelFrameMat", "", *cq)

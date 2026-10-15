@@ -61,14 +61,15 @@ translate everything by (-0.019, +0.006, +0.000) m to centre the footprint
 object floats 130.0 mm above the ground
 ```
 
-Both hints hand you the vector. Apply it to the top-level container, once, at the end of
-construction — not per part, or the parts drift relative to each other and the contact
-graph changes.
+Both hints hand you the vector. Apply the same vector to every part — three.js: the root
+Group; cadquery: each child's `loc`; blender: every top-level object (there is no container,
+a parent Empty would merge the parts) — so the parts keep their places relative to each
+other and the contact graph does not change.
 
 ## Order of work on a repair round
 
 1. `check_contract`, and sort the findings by the "worst Nx tolerance" number in the message.
 2. Fix ERRORs (ratio above 3x) first; they are the only ones that fail the gate.
-3. Change constants, never the built geometry, wherever a constant exists.
+3. Where a constant drives the dimension, changing the constant fixes every place that uses it.
 4. `build` -> `check_contract` again. A fix that moves a second part into failure means the
    two shared a derived number and one of them was re-typed.

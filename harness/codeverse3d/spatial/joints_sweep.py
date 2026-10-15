@@ -440,4 +440,4 @@ def motion_direction_check(robot: Robot, joint: str, expected: str, *, probe: fl
                        cos=round(cos, 4), suggested_axis=suggested,
                        message=((f"{joint} (driven by {drive})" if driven_by is not None else f"{joint}")
                                 + f": child '{j.child}' moves {tuple(round(float(v),3) for v in d)} for q={probe:+.3g}; "
-                                f"expected {expected} ({'ok' if ok else 'WRONG — flip the axis sign or swap limits'})"))
+                                f"expected {expected} ({'ok' if ok else 'WRONG — negate the axis; keep the limits'})"))

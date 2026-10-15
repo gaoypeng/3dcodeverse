@@ -1,4 +1,4 @@
-# The judged frame times this bundle quotes, pinned to the tuple the graphics track renders.
+# The judged frame times and the gl_frames thresholds this bundle quotes, pinned to the live constants.
 
 [[claim]]
 key     = "judge_times"
@@ -6,3 +6,27 @@ text    = "0, 1, 2.5, 4, 6"
 python  = "codeverse3d.languages._gl_common:JUDGE_TIMES"
 sep     = ", "
 context = "renders five frames"
+
+[[claim]]
+key     = "static_diff"
+text    = "0.002"
+python  = "codeverse3d.spatial.frame_stats:STATIC_DIFF"
+context = "static"
+
+[[claim]]
+key     = "flicker_diff"
+text    = "0.35"
+python  = "codeverse3d.spatial.frame_stats:FLICKER_DIFF"
+context = "flicker"
+
+[[claim]]
+key     = "black_lum"
+text    = "0.03"
+python  = "codeverse3d.spatial.frame_stats:BLACK_LUM"
+context = "blown"
+
+[[claim]]
+key     = "blown_lum"
+text    = "0.98"
+python  = "codeverse3d.spatial.frame_stats:BLOWN_LUM"
+context = "blown"

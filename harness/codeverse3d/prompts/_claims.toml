@@ -238,3 +238,131 @@ text    = "35%"
 python  = "codeverse3d.config:Placement"
 format  = "{0.model_fields[overlap_error].default:.0%}"
 context = "ERROR at"
+
+# ---- D107: the per-built-object budget each object contract states (tracks/depth.py), the build
+# timeout (config.Limits), and the gl_frames thresholds generate_graphics.j2 states (frame_stats).
+
+[[claim]]
+key     = "tris_per_unit_floor"
+file    = "blender/contract.md"
+text    = "350"
+python  = "codeverse3d.tracks.depth:TRIS_PER_UNIT_FLOOR"
+context = "fewer than"
+
+[[claim]]
+key     = "build_s_per_unit"
+file    = "blender/contract.md"
+text    = "3 s"
+python  = "codeverse3d.tracks.depth:BUILD_S_PER_UNIT"
+format  = "{:.0f} s"
+context = "per built object"
+
+[[claim]]
+key     = "min_build_s"
+file    = "blender/contract.md"
+text    = "20 s"
+python  = "codeverse3d.tracks.depth:MIN_BUILD_S"
+format  = "{:.0f} s"
+context = "at least"
+
+[[claim]]
+key     = "tris_per_unit_floor"
+file    = "cadquery/contract.md"
+text    = "350"
+python  = "codeverse3d.tracks.depth:TRIS_PER_UNIT_FLOOR"
+context = "fewer than"
+
+[[claim]]
+key     = "build_s_per_unit"
+file    = "cadquery/contract.md"
+text    = "3 s"
+python  = "codeverse3d.tracks.depth:BUILD_S_PER_UNIT"
+format  = "{:.0f} s"
+context = "per built object"
+
+[[claim]]
+key     = "min_build_s"
+file    = "cadquery/contract.md"
+text    = "20 s"
+python  = "codeverse3d.tracks.depth:MIN_BUILD_S"
+format  = "{:.0f} s"
+context = "at least"
+
+[[claim]]
+key     = "tris_per_unit_floor"
+file    = "threejs/contract.md"
+text    = "350"
+python  = "codeverse3d.tracks.depth:TRIS_PER_UNIT_FLOOR"
+context = "triangles per built object"
+
+[[claim]]
+key     = "build_s_per_unit"
+file    = "threejs/contract.md"
+text    = "3 s"
+python  = "codeverse3d.tracks.depth:BUILD_S_PER_UNIT"
+format  = "{:.0f} s"
+context = "per built object"
+
+[[claim]]
+key     = "min_build_s"
+file    = "threejs/contract.md"
+text    = "20 s"
+python  = "codeverse3d.tracks.depth:MIN_BUILD_S"
+format  = "{:.0f} s"
+context = "at least"
+
+[[claim]]
+key     = "build_timeout_s"
+file    = "blender/contract.md"
+text    = "300 s"
+python  = "codeverse3d.config:Limits"
+format  = "{0.model_fields[build_timeout_s].default} s"
+context = "build_timeout_s"
+
+[[claim]]
+key     = "build_timeout_s"
+file    = "cadquery/contract.md"
+text    = "300 s"
+python  = "codeverse3d.config:Limits"
+format  = "{0.model_fields[build_timeout_s].default} s"
+context = "build_timeout_s"
+
+[[claim]]
+key     = "build_timeout_s"
+file    = "threejs/contract.md"
+text    = "300 s"
+python  = "codeverse3d.config:Limits"
+format  = "{0.model_fields[build_timeout_s].default} s"
+context = "build_timeout_s"
+
+[[claim]]
+key     = "build_timeout_s"
+file    = "urdf/contract.md"
+text    = "300 s"
+python  = "codeverse3d.config:Limits"
+format  = "{0.model_fields[build_timeout_s].default} s"
+context = "build_timeout_s"
+
+[[claim]]
+key     = "build_timeout_s"
+file    = "system/harness_contract.md"
+text    = "300 s"
+python  = "codeverse3d.config:Limits"
+format  = "{0.model_fields[build_timeout_s].default} s"
+context = "build_timeout_s"
+
+[[claim]]
+key     = "static_diff"
+file    = "tracks/generate_graphics.j2"
+text    = "0.002"
+python  = "codeverse3d.spatial.frame_stats:STATIC_DIFF"
+format  = "{:g}"
+context = "must reach"
+
+[[claim]]
+key     = "flicker_diff"
+file    = "tracks/generate_graphics.j2"
+text    = "0.35"
+python  = "codeverse3d.spatial.frame_stats:FLICKER_DIFF"
+format  = "{:g}"
+context = "no consecutive pair"

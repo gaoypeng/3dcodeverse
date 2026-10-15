@@ -48,12 +48,13 @@ criteria:
     weight: 0.16
     title: Depth and detail
     description: >
-      Is there structure at several scales — near / mid / far layers with real depth cues
-      (parallax, fog, size and brightness falloff), fbm or particle detail inside the large shapes,
-      highlights and shadows — rather than one texture or gradient filling the frame?  Credit only
-      what is visible in the frames.
+      Is there structure at more than one scale, as the subject has it — depth cues where the subject
+      has depth (overlap, parallax, atmospheric or size falloff), fine detail inside the large shapes
+      where the real thing has it, highlights and shadows — rather than one texture or gradient filling
+      the frame?  A flat style the brief allows is judged on its own detail, not on depth it does not
+      claim.  Credit only what is visible in the frames.
     anchors:
-      "1.0": Several layers at different depths, each with its own detail; the image rewards a closer look.
+      "1.0": Detail at every scale the subject offers, each scale with its own structure; the image rewards a closer look.
       "0.7": Two or three distinct layers; some areas plain.
       "0.4": One dominant element on a flat background; little detail.
       "0.1": A single gradient, blob, or field of uniform noise fills the frame.
@@ -199,7 +200,7 @@ defects:
     text: Haze, bloom or fog lifts a large region toward white (a milky frame, or a blown patch that is not a light source).
     penalty: 0.08
   - id: candy_saturation
-    text: Colours are uniformly candy-saturated or pastel with no neutral or dark counterweight.
+    text: Colours are uniformly candy-saturated or pastel with no neutral or dark counterweight, and the brief did not ask for that palette.
     penalty: 0.06
   - id: black_or_blown
     text: At least one sampled frame is essentially solid black or blown-out white.

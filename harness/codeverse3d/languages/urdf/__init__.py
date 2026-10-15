@@ -612,7 +612,7 @@ from mathutils import Vector  # noqa: F401
 
 
 def box(name, center, size):
-    """Axis-aligned box helper: center/size in world meters; returns the object."""
+    """Placeholder box so the skeleton builds (center/size in world metres) — not a helper to build the object with."""
     bpy.ops.mesh.primitive_cube_add(size=1.0, location=center)
     ob = bpy.context.active_object
     ob.name = name

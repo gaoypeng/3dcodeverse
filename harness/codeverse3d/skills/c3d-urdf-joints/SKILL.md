@@ -21,17 +21,18 @@ metadata:
 **When:** any `articulated_object` round that writes or fixes `src/robot.urdf` (and the rest pose
 in `src/model.py`), or that received a `joint_sweep` / `motion_direction` finding.
 
-The frame recipe, the pivot rule and the visual/collision `origin = -pivot` line are in
-`codeverse3d/prompts/urdf/contract.md` and its cookbook — follow them literally. This skill is the
-part the contract does not tell you: **what the gates measure, and how to satisfy them before the
-first build.**
+The frame rule (link frame at the pivot, joint origin = pivot of the child minus the frame of
+the parent, visual and collision origin = minus the pivot) is in
+`codeverse3d/prompts/urdf/contract.md`. This skill is what the gates measure, and how to
+satisfy them before the first build.
 
 ## Two things fail the BUILD, not just a gate
 
 * **FK check**, tolerance **1 mm** (`FK_TOL_M = 0.001` m). If FK at q=0 does not put every mesh back where
   `model.py` authored it, the build stops with `FkInconsistent` and prints the corrected
   `origin`. Cause is almost always a link's visual/collision `origin` left at `0 0 0` instead of
-  `-pivot`, or a joint with `rpy` other than `0 0 0`.
+  `-pivot`, or a joint with a rotated origin (`rpy` not `0 0 0`) whose visual/collision origin
+  was not inverted to match.
 * **Rest penetration** over **5 mm** (`REST_PENETRATION_MAX_M = 0.005` m): the build stops with
   `RestPenetration`.
 
@@ -54,17 +55,15 @@ Severity, from `sweep_findings`:
 
 So a 2.1 mm graze that only happens at one limit is scored exactly as badly as a 20 mm gouge.
 
-**Measured** (26 urdf runs, 691 sweep findings, 2026-08-25): only **34 findings (4.9 %) were at
-rest**, and every one of those was a WARN. **653 were in a moved pose** — 358 at a single joint's
-limit, **295 in a random multi-joint combination**. Of 48 distinct link pairs that collided,
-**29 never touch at rest** and **7 appear only in a combination**, so posing your joints one at a
-time in your head is not enough: two arms that each clear the body can still meet each other.
-Median depth 4.0 mm, max 20.0 mm; 510 of 687 were 5 mm or less.
+Measured on the corpus: almost every finding is in a moved pose, a third of the colliding pairs
+never touch at rest and some appear only in a random combination — posing joints one at a time
+in your head is not enough: two arms that each clear the body can still meet each other.
 
-Design rule: **1-3 mm of clearance all round, held over the whole envelope**, and think about the
-worst *combination*, not the worst single joint. Fixed hardware is different and cheap — a
-handle welded to a door may sink up to 2 mm with no finding at all, because pairs joined only by
-`fixed` joints are measured once with the rest policy and never re-judged as they move.
+Strong option: give every moving link more than the 2 mm the sweep tolerates, everywhere in its
+envelope, and check the worst *combination* of joints, not the worst single joint. Fixed hardware
+is different and cheap — a handle welded to a door may sink up to 2 mm with no finding at all,
+because pairs joined only by `fixed` joints are measured once with the rest policy and never
+re-judged as they move.
 
 **Attachment** is checked at rest only: a `fixed` child must be within `CONTACT_GAP_M = 0.002` of
 its parent (ERROR otherwise, always); a revolute / continuous / prismatic child must be within
@@ -72,8 +71,29 @@ its parent (ERROR otherwise, always); a revolute / continuous / prismatic child 
 'fixed_jaw_body' (prismatic joint) but the meshes are 42.5 mm apart at rest`. A prismatic child
 already inside the parent's bounding box (a drawer in its cavity) is exempt.
 
-**159 of 687 findings carried `[approx: non-watertight mesh]`.** Depth is then an estimate. Make
-each link one closed solid so the number you are given is the number you can trust.
+A finding tagged `[approx: non-watertight mesh]` is an estimate: the depth is exact only on a
+watertight link mesh.
+
+## Strong options before the first build
+
+**Keep the pivots in model.py and print the two origins.** Record each link's world pivot (the
+point you chose on its hinge line or slide axis) in a dict while building; for every joint print
+the child's pivot minus the parent's (the joint origin) and the negated child pivot (the visual
+and collision origin), then copy both into `src/robot.urdf`. The FK check confirms them within
+1 mm, so a wrong line is caught by the build, not by the judge.
+
+```python
+PIVOT = {"base": Vector((0, 0, 0))}        # world pivot = link frame, recorded as each link is built
+PIVOT["door"] = Vector((-0.2, -0.25, 0.4))  # a point ON the hinge line
+PIVOT["handle"] = Vector((0.15, -0.27, 0.45))
+for child, parent in (("door", "base"), ("handle", "door")):
+    print(child, "joint origin", tuple(PIVOT[child] - PIVOT[parent]), "visual/collision", tuple(-PIVOT[child]))
+```
+
+**Hardware is geometry, not joints.** A hinge barrel, a runner or a bracket lives in one of the
+two links it connects; it is what lets the attachment check see the child within 10 mm of its
+parent. A knob on a door is part of the door's mesh or a fixed child of the door — attached to
+the base it stays behind when the door swings, and the sweep reports the overlap.
 
 ## Predict the direction before you write the axis
 
@@ -89,7 +109,7 @@ import numpy as np
 def child_moves(axis, pivot, centroid):        # revolute: d ~ axis x (centroid - pivot)
     d = np.cross(axis, np.subtract(centroid, pivot))
     return d / np.linalg.norm(d)               # prismatic: the direction IS the axis
-# pedal-bin lid: pivot on the back top edge, lid centroid just above the rim
+# a lid hinged on its back top edge, centroid just above the rim
 print(child_moves((-1, 0, 0), (0, 0.125, 0.351), (0, 0, 0.356)))
 # [0.  0.03996804  0.99920096]  -> almost pure +Z: the lid lifts UP
 ```
@@ -100,8 +120,7 @@ Verified against `motion_direction_check` on 2026-08-25: it reported `up` for ax
 Two independent ways to get this wrong, and the corpus has both:
 
 1. **Axis sign.** Fix it by negating `axis`. The contract is explicit — *never* compensate by
-   swapping `lower` and `upper`; q=0 must stay the plan's rest pose. (The gate's own fix hint
-   offers both; take only the first half.)
+   swapping `lower` and `upper`; q=0 must stay the plan's rest pose.
 2. **Pivot off the axis line.** *"The hasp rotates about its center rather than its top edge,
    causing it to clip into the lid."* Put the pivot at the part's centre and `centroid - pivot`
    goes to zero: the centroid barely translates, the measured direction is noise, and the part
@@ -124,17 +143,11 @@ precedence, and the gate is unforgiving about it:
   no finding either way;
 * two different axes in one sentence with no dominant one is skipped.
 
-So make **positive q move the child the way the plan's first direction word says**, even when the
-prose is loose. Verified corpus consequences worth knowing before you argue with a finding:
-
-* `"tray slides sideways from left side to right side"` yields `left` (first word wins), and the
-  build that slid it rightward was flagged. The judge agreed the motion "fulfils the brief's
-  intent" and scored it `minor` — but it is still an ERROR-severity gate finding.
-* `"rear-right leg hinges..."` yields `right`, from the part name.
-* `"rotates clockwise (+Y axis)"` yields `+y` as a **translation** direction. A revolute joint
-  about +Y can never move its child along +Y, so no axis satisfies it. Confirm with the
-  `joint_sweep` pose renders that the part moves the way the prose describes, then leave it.
-  **Do not flip a correct axis to chase an unsatisfiable finding.**
+Make positive q go the way the plan's FIRST direction word says, even when the prose reads
+loosely ("from left to right" yields `left`). A `motion` like "rotates clockwise (+Y axis)" asks
+for a translation along +Y that no revolute joint about +Y can give: confirm with the
+`joint_sweep` pose renders that the part moves as the prose describes, then leave the axis alone.
+**Do not flip a correct axis to chase an unsatisfiable finding.**
 
 ## Scope
 
@@ -151,9 +164,8 @@ names no joint, names itself, or closes a loop is a lint ERROR.
 
 ## Finish
 
-`build` (runs the FK check and the rest-pose check) then `joint_sweep` (the round's own gate)
-and look at the lower/mid/upper renders for every joint, then `check_connectivity`, then
-`check_contract`.
+A finish that catches everything: `build` (the FK check and the rest-pose check), `joint_sweep`
+with a look at every joint's lower/mid/upper renders, `check_connectivity`, `check_contract`.
 
-Worked repairs, the full finding catalogue with real messages, and clearance numbers per
-mechanism: `references/sweep-and-motion.md`.
+Worked repairs, the finding catalogue with real messages and the measured thresholds:
+`references/sweep-and-motion.md`.

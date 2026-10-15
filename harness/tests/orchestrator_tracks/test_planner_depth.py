@@ -108,8 +108,14 @@ def test_plan_budget_contracts():
     assert b.target_parts == 7 and b.min_assemblies == 3 and "sub-assemblies" in b.reason
 
     b = B.plan_budget(_spec(must=6, track=Track.GRAPHICS, language=Language.GLSL_SHADER))
-    assert b.cap_parts == B.GRAPHICS_CAP and b.target_parts == 5 and b.evidence
-    assert "passes" in B.budget_block(b, unit="passes") and "`elements`" in B.budget_block(b, unit="passes")
+    assert b.cap_parts == B.GRAPHICS_CAP and b.target_parts == 3 and b.evidence and b.min_assemblies == 0
+    block = B.budget_block(b, unit="passes")
+    assert "passes" in block and "`elements`" not in block and "at least 2" in block
+    # no checklist: one pass is a plan, and the block states a ceiling and nothing that sets a count
+    b = B.plan_budget(_spec(must=0, track=Track.GRAPHICS, language=Language.GLSL_SHADER))
+    assert b.min_parts == 1 and not b.evidence
+    assert "at least" not in B.budget_block(b, unit="passes")
+    assert "at least" not in B.budget_block(B.plan_budget(_spec(must=2)))
 
     text = build_user_prompt(_spec(must=10), budget=B.plan_budget(_spec(must=10)))
     assert "PLAN BUDGET" in text and "10 checklist items" in text
@@ -119,7 +125,7 @@ def test_plan_budget_contracts():
 def test_plan_quality_gate_contracts():
     budget = B.plan_budget(_spec(must=12))
     complaint = B.plan_quality_complaint(_plan([_part(f"P{i}", desc=_detailed(i)) for i in range(4)]), budget)
-    assert "Only 4 parts" in complaint and "about 12" in complaint
+    assert "Only 4 parts" in complaint and "at least 10" in complaint
 
     budget = B.plan_budget(_spec(must=8))
     complaint = B.plan_quality_complaint(_plan([_part(f"P{i}") for i in range(8)]), budget)
@@ -133,6 +139,9 @@ def test_plan_quality_gate_contracts():
     thin = [_part(f"P{i}", material="wrought iron") for i in range(8)]
     both = B.plan_quality_complaint(_plan(thin), budget)
     assert "boxes at different sizes" in both and "same material" in both
+
+    # without evidence (a short checklist, no brief) a plan of plain parts is never re-asked
+    assert B.plan_quality_complaint(_plan([_part(f"P{i}") for i in range(4)]), B.plan_budget(_spec(must=2))) == ""
 
     kids = [SubPartPlan(name="K", description="knurled collar", bbox=_bbox(ex=0.2, ey=0.2, ez=0.2))]
     parts = [_part(f"P{i}", material=f"m{i}", children=kids) for i in range(8)]

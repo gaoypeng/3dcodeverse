@@ -442,7 +442,6 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     sub_ws.write_json(sub_ws.spec_path, sub_spec)
     sub = replace(ctx, spec=sub_spec, ws=sub_ws, runtime=runtime, plan=None, track=Track.STATIC_OBJECT,
                   contract_text=language_text(Language.BLENDER, "contract.md"),
-                  cookbook_text=language_text(Language.BLENDER, "cookbook.md"),
                   tool_cards=ctx.services.tool_cards(Track.STATIC_OBJECT.value, Language.BLENDER.value),
                   extra={"scene_brief": ctx.spec.prompt, "scene_style": constraints_text(ctx.spec)})
     sub.plan = hero_plan(sub, asset)
@@ -458,8 +457,7 @@ def build_blender_asset(ctx: RunContext, asset: AssetPlan, *, judge: bool) -> As
     if not ctx.single_shot:
         # the language contract alone, no harness_contract.md (intended, review 2 C4): the context file's hard rules
         # bound paths/imports, and its standalone-object acceptance (±1 cm bbox) contradicts the prop sheet's ±5 %
-        ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=sub.contract_text, cookbook_text=sub.cookbook_text,
-                                 spatial_tools=True)
+        ctx.services.materialize(sub_ws, agent_kind=ctx.agent_kind, contract_md=sub.contract_text, spatial_tools=True)
     files = sub.runtime.expected_files(sub.plan)
     timeout_s = asset_timeout_s(ctx, 180)
     label = f"asset_{snake}"

@@ -225,8 +225,8 @@ def axis_fix_hint(joint_name: str, axis: Sequence[float] | None, expected: str) 
     if axis is not None and len(axis) == 3:
         neg = tuple(-float(a) for a in axis)
         return (f"in src/robot.urdf set joint '{joint_name}' <axis xyz=\"{neg[0]:g} {neg[1]:g} {neg[2]:g}\"/> "
-                f"(negate the axis) — or swap lower/upper so positive motion goes {expected}")
-    return f"negate the <axis> of joint '{joint_name}' in src/robot.urdf (or swap lower/upper) so motion goes {expected}"
+                f"(negate the axis; keep lower/upper as they are, q=0 stays the rest pose) so positive motion goes {expected}")
+    return f"negate the <axis> of joint '{joint_name}' in src/robot.urdf (keep lower/upper as they are) so motion goes {expected}"
 
 
 def _set_axis_in_urdf_text(text: str, urdf_joint: str, axis: tuple[float, float, float]) -> str | None:

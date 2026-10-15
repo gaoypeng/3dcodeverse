@@ -162,10 +162,10 @@ def frame_gate(seq: SequenceStats, *, motion_expected: bool = True, gate: str = 
     if seq.all_black:
         add(Severity.ERROR, "black", f"frames are essentially black (mean luminance {seq.mean_lum:.3f})",
             "something must be visible: check the final fragColor assignment, the raymarch hit test, camera direction and "
-            "that colours are not multiplied to zero; aim for mean luminance 0.2-0.6")
+            "that colours are not multiplied to zero (the gate flags frames where 97 % of pixels are under 0.03)")
     elif seq.all_blown:
         add(Severity.ERROR, "blown", f"frames are blown out white (mean luminance {seq.mean_lum:.3f})",
-            "tone-map and clamp: col = col / (1.0 + col); keep accumulated glow sums bounded")
+            "tone-map the result into 0..1 and keep accumulated glow sums bounded (the gate flags frames where 97 % of pixels are over 0.98)")
     if seq.static and motion_expected:
         add(Severity.WARN, "static", f"frames do not change over time (largest |Δ| between any two sampled frames {seq.max_diff:.4f}); the shader looks static",
             "use u_time for motion: move what is in the scene, rotate, animate noise offsets, move lights — the judge compares frames at t=0..6s")
@@ -177,5 +177,5 @@ def frame_gate(seq: SequenceStats, *, motion_expected: bool = True, gate: str = 
             "avoid discontinuous functions of u_time (fract/mod jumps, random per-frame seeds); motion should be continuous")
     if seq.mean_edge_density < LOW_DETAIL_EDGE and not seq.all_black and not seq.all_blown:
         add(Severity.WARN, "low_detail", f"very low visual detail (edge density {seq.mean_edge_density:.4f}); the image is a near-flat gradient",
-            "add structure: fbm layers, shapes (sdf), stars/particles, lines — the rubric rewards visual richness")
+            "the frame is a near-flat gradient: give the subject the structure the brief describes (edges, shapes, texture at the scales it has)")
     return GateReport.of(gate, f)

@@ -1,6 +1,6 @@
 # The shader gate, in full
 
-Read out of the live runtime on 2026-08-25: `runtime_js/lib/glsl_audit.mjs`,
+Read out of the live runtime on 2026-08-25 (section 4 rewritten 2026-10-15): `runtime_js/lib/glsl_audit.mjs`,
 `runtime_js/lib/host_compile.mjs`, `runtime_js/lib/shader_report.mjs`,
 `runtime_js/lib/scene_host.mjs`, `runtime_js/lib/browser/renderer.js`,
 `runtime_js/check_shaders.mjs`, `runtime_js/package.json`, and
@@ -77,53 +77,29 @@ without `uTime`, or a material cloned from a patched one. Conversely it only ins
 `isShaderMaterial`, so an `onBeforeCompile` patch on a `MeshStandardMaterial` is invisible to it
 and only the static `chunk_dropped` rule protects you.
 
-## 4. A minimal citizen shader
+## 4. A citizen shader, in prose
 
-Full boilerplate: `makeShaderMaterial(opts)` in `src/lib/shader.js` (scene workspaces). The
-smallest thing that passes every rule above:
+Full boilerplate: `makeShaderMaterial(opts)` in `src/lib/shader.js` (scene workspaces). What
+passes every rule above, whatever the shader draws: every `#include` alone on its line; no
+`#version` and no `precision` of your own in a `ShaderMaterial`; `uTime` both declared in GLSL
+(`uniform float uTime;`) and bound in JS; the vertex shader carrying `<common>`,
+`<fog_pars_vertex>` and `<fog_vertex>`; the fragment shader carrying `<common>` and
+`<fog_pars_fragment>` and ending `main` with `<tonemapping_fragment>`, `<colorspace_fragment>`
+and `<fog_fragment>` in that order, fog last. The constructor side:
 
 ```js
-const VS = `
-#include <common>
-#include <fog_pars_vertex>
-varying vec2 vUv;
-void main() {
-  vUv = uv;
-  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-  gl_Position = projectionMatrix * mvPosition;
-  #include <fog_vertex>
-}`;
-
-const FS = `
-#include <common>
-#include <fog_pars_fragment>
-uniform float uTime;
-uniform vec3 uTint;
-varying vec2 vUv;
-void main() {
-  float w = 0.5 + 0.5 * sin(vUv.x * 12.0 + uTime * 1.3);
-  gl_FragColor = vec4(uTint * (0.6 + 0.4 * w), 1.0);
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
-  #include <fog_fragment>
-}`;
-
-export function makeRipple(THREE, tint = 0x3a6ea5) {
-  const mat = new THREE.ShaderMaterial({
-    uniforms: THREE.UniformsUtils.merge([
-      THREE.UniformsLib.fog, { uTime: { value: 0 }, uTint: { value: new THREE.Color(tint) } }]),
-    vertexShader: VS, fragmentShader: FS, fog: true,
-  });
-  mat.name = 'Ripple';
-  mat.userData.update = (t) => { mat.uniforms.uTime.value = t; };
-  return mat;
-}
+const mat = new THREE.ShaderMaterial({
+  uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 } }]),
+  vertexShader: VS, fragmentShader: FS, fog: true,
+});
+mat.name = 'Ripple';
+mat.userData.update = (t) => { mat.uniforms.uTime.value = t; };
 ```
 
-Every include is alone on its line; no `#version`, no `precision`; `uTime` is both declared in
-GLSL and bound in JS; the fog chunks are present and `fog_fragment` is last. Collect the
-materials once at build time and call `m.userData.update(t)` from `update(t, dt)` — never
-traverse the scene inside `update`, and never read the clock from `Date.now()`.
+Collect the materials once at build time and call `m.userData.update(t)` from `update(t, dt)`.
+`update(t, dt)` receives the harness's sampled time (the judged frames are taken at t = 0 and
+t = 1.5 s): a shader clocked from `Date.now()` is not at the t the judged frames are taken, and a
+scene traversal inside `update` is paid on every frame.
 
 ## 5. Corpus, and why this bundle is `mixed` rather than `measured`
 

@@ -49,13 +49,6 @@ The external shader study loads [a vertex shader](shaders/external_shader.vert),
 module-relative URLs and `ShaderMaterial` + `THREE.GLSL3` — the loading pattern the
 scene contract (`prompts/scene_threejs/contract.md`) teaches.
 
-## GLSL recipe studies
-
-`build_recipes.py [--video] [--case rain_window]` renders the three fragment
-shaders in `glsl_cases/` through the production GL host (`GlHost`), seeding each
-with the cookbook recipes it calls exactly as the `graphics` track does.  Output
-goes to `output/recipes/` with an `index.html` of stills or 144-frame films.
-
 All example UI, code and documentation stay in English.
 
 ## Library regression checks

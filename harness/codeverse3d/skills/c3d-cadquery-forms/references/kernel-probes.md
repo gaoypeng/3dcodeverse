@@ -40,10 +40,10 @@ Cylinder shelled to a 3 mm wall, then a rim fillet:
 | result | ok | ok | ok | **fail** | ok | **fail** |
 
 The failures are **not monotone** — 1.5 mm fails while 2.0 mm succeeds. That is the whole
-argument for a conservative fixed budget (0.45 x the thinnest adjacent wall, which is the
-number the contract states and the number the runtime prints when OCC refuses) plus
-`try/except` around fillets that are only cosmetic. Incrementally nudging the radius after a
-failure can appear to work and then break on a neighbouring part.
+argument for a conservative fixed budget (0.45 x the thinnest adjacent wall is the number the
+runtime prints when OCC refuses — a hint, not a gate) plus `try/except` around fillets that
+are only cosmetic. Incrementally nudging the radius after a failure can appear to work and
+then break on a neighbouring part.
 
 ## Booleans: the silent failures
 
@@ -57,8 +57,8 @@ failure can appear to work and then break on a neighbouring part.
 `len(wp.solids().vals()) == 1` on anything that is supposed to be one part.
 
 An exactly-coplanar cutter (top face flush with the block's face) succeeded in this probe
-and produced the same face count as an overshooting cutter — but the cookbook records the
-failing case, so keep the >= 0.1 mm overshoot as a habit rather than relying on luck.
+and produced the same face count as an overshooting cutter. No failing case was reproduced;
+an overshoot past the exit face is a habit, not a measured need.
 
 ## Sphere helper
 

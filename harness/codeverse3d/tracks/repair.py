@@ -3,8 +3,8 @@
 ``build_with_repair`` runs ``runtime.lint`` + ``runtime.build``; while the
 build fails (or lint reports ERRORs) and attempts remain, it dispatches ONE
 repair task carrying a structured error report (file:line, message, traceback
-tail, lint findings with fix hints, the cookbook section matching the error
-keywords).  Identical consecutive error signatures escalate (higher
+tail, lint findings with fix hints, the attached skills that answer the
+findings).  Identical consecutive error signatures escalate (higher
 temperature/thinking for single-shot; an explicit "same error again" notice
 for agents) — the tell that the previous edit did not touch the cause.
 """
@@ -12,14 +12,12 @@ for agents) — the tell that the previous edit did not touch the cause.
 from __future__ import annotations
 
 import logging
-import re
 
 from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.artifacts import BuildResult, GateReport
 from codeverse3d.contracts.common import Usage
 from codeverse3d.prompts import render
-from codeverse3d.prompts.sections import split_sections
 from codeverse3d.tracks import skills_hook
 from codeverse3d.tracks.common import RunContext, generate_for
 from codeverse3d.tracks.generation import GenerationResult, GenerationTask
@@ -57,7 +55,7 @@ def error_signature(build: BuildResult, lint: GateReport) -> str:
     return "lint|" + "|".join(sorted(f"{f.target}:{f.message[:80]}" for f in lint.errors))
 
 
-def format_error_report(build: BuildResult, lint: GateReport, cookbook: str = "", skills: str = "") -> str:
+def format_error_report(build: BuildResult, lint: GateReport, skills: str = "") -> str:
     """Compact, structured error report for the fixer (the ONLY thing it must fix).
 
     ``skills`` is the gate→skill pointer block: the bundles already in the workspace that
@@ -80,30 +78,7 @@ def format_error_report(build: BuildResult, lint: GateReport, cookbook: str = ""
         lines.extend(f"- {f.as_line(with_target=True)}" for f in lint.errors)
     if skills.strip():
         lines.append("\n" + skills.strip())
-    section = relevant_cookbook_section(cookbook, " ".join([build.error_type, build.error_message, build.stderr_tail[-2000:]]))
-    if section:
-        lines.append("\nRelevant cookbook section:\n" + section)
     return "\n".join(lines)
-
-
-_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
-
-
-def relevant_cookbook_section(cookbook: str, error_text: str, *, max_chars: int = 12000) -> str:
-    """Pick the cookbook ``##`` section sharing the most identifiers with the error."""
-    if not cookbook or not error_text:
-        return ""
-    err_words = {w.lower() for w in _WORD.findall(error_text)}
-    err_words -= {"error", "line", "file", "traceback", "most", "recent", "call", "last", "module"}
-    best, best_score = "", 0
-    for body in (s.body for s in split_sections(cookbook) if s.level >= 2):
-        words = {w.lower() for w in _WORD.findall(body)}
-        score = len(words & err_words)
-        if score > best_score:
-            best, best_score = body, score
-    if best_score < 2:
-        return ""
-    return best[:max_chars].rstrip()
 
 
 def files_for_repair(ctx: RunContext, build: BuildResult, lint: GateReport, files_hint: list[str]) -> dict[str, str]:
@@ -209,7 +184,7 @@ def build_with_repair(ctx: RunContext, *, round_index: int, label: str, files_hi
 def make_repair_task(ctx: RunContext, build: BuildResult, lint: GateReport, *, round_index: int, attempt: int,
                      repeats: int, label: str, files_hint: list[str], timeout_s: int | None = None) -> GenerationTask:
     """Render prompts/tracks/repair.j2 for the current strategy."""
-    report = format_error_report(build, lint, ctx.cookbook_text, skills_hook.repair_pointers(ctx, build, lint))
+    report = format_error_report(build, lint, skills=skills_hook.repair_pointers(ctx, build, lint))
     files = files_for_repair(ctx, build, lint, files_hint) if ctx.single_shot else {}
     prompt = render("tracks/repair.j2", **base_prompt_context(
         ctx, error_report=report, files=files, repeats=repeats, attempt=attempt,

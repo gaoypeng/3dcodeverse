@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import numpy as np
 import pytest
@@ -11,6 +12,7 @@ from PIL import Image
 from codeverse3d.contracts.plan import GraphicsPlan, PassPlan
 from codeverse3d.languages.glsl_shader import GlslShaderRuntime
 from codeverse3d.languages.opengl_python import OpenGLPythonRuntime
+from codeverse3d.prompts import load_text
 from codeverse3d.spatial import gl_render
 from codeverse3d.spatial.gl_render import GlHost, GlHostError
 from codeverse3d.spatial.registry import ToolContext, get_tool
@@ -42,11 +44,17 @@ def _ws_with_plan(tmp_ws):
 
 
 def test_shader_skeleton_builds_and_writes_artifacts(tmp_ws, host):
+    """The glsl_shader stub (D107): the entry point, the plan as comments and ONE flat grey write —
+    no sky, sun or vignette to "keep the structure" of.  It lints clean and builds the judged frames,
+    and the gate convicts it as `static` until the plan's passes replace the write."""
     ws = _ws_with_plan(tmp_ws)
     rt = GlslShaderRuntime(host=host)
     paths = rt.skeleton(ws, PLAN)
     assert {p.name for p in paths} == {"common.glsl", "shader.frag"}
-    assert "TODO pass 1: Sky" in (ws.src / "shader.frag").read_text()
+    src = (ws.src / "shader.frag").read_text()
+    assert "TODO pass 1: Sky" in src
+    for template in ("sunPos", "vignette", "haze", "mix(vec3"):
+        assert template not in src, template
     assert rt.lint(ws).passed
     br = rt.build(ws, **SMALL)
     assert br.ok, br.error_message
@@ -56,9 +64,31 @@ def test_shader_skeleton_builds_and_writes_artifacts(tmp_ws, host):
     frames = sorted((ws.artifacts / "frames").glob("f*_t*.png"))
     assert len(frames) == 5  # t = 0, 1, 2.5, 4, 6 (duration 6)
     metrics = json.loads((ws.artifacts / "metrics.json").read_text())
-    assert metrics["stats"]["mean_lum"] > 0.1 and not metrics["stats"]["any_nan"] and not metrics["stats"]["static"]
+    assert metrics["stats"]["mean_lum"] > 0.1 and not metrics["stats"]["any_nan"] and metrics["stats"]["static"]
+    assert any(f["data"]["kind"] == "static" for f in metrics["gate"]["findings"])
     assert br.census["convention"] == "mainImage" and br.census["feedback"] is False
     assert (ws.artifacts / "build.json").is_file()
+
+
+def test_glsl_contract_example_builds(tmp_ws, host):
+    """The ONE executable interface example in glsl_shader/contract.md runs as src/shader.frag: lint
+    clean, five judged frames, no NaN, not static, no flicker — the only runnable prompt material the
+    language ships now that its cookbook and the seeded recipes are gone (D107)."""
+    text = load_text("glsl_shader/contract.md")
+    blocks = [b for b in re.findall(r"```glsl\n(.*?)```", text, re.S) if b.lstrip().startswith("void mainImage") and "..." not in b]
+    assert len(blocks) == 1, "the contract ships exactly one complete example"
+    assert len(blocks[0].strip().splitlines()) <= 12
+    ws = _ws_with_plan(tmp_ws)
+    ws.src.mkdir(parents=True, exist_ok=True)
+    (ws.src / "shader.frag").write_text(blocks[0])
+    rt = GlslShaderRuntime(host=host)
+    assert rt.lint(ws).passed
+    br = rt.build(ws, **SMALL)
+    assert br.ok, br.error_message
+    metrics = json.loads((ws.artifacts / "metrics.json").read_text())
+    assert len(list((ws.artifacts / "frames").glob("f*_t*.png"))) == 5
+    assert not metrics["stats"]["static"] and not metrics["stats"]["flicker"] and not metrics["stats"]["any_nan"]
+    assert metrics["gate"]["passed"]
 
 
 def test_feedback_and_nan_detection(tmp_ws, host):
@@ -126,20 +156,44 @@ void main() {
 
 
 def test_program_skeleton_builds_and_errors_map(tmp_ws, host):
+    """The opengl_python stub (D107): one t-dependent full-screen pass, no subject, camera or palette —
+    it lints clean, builds the judged frames, is neither static nor flickering, and a runtime error in
+    render() maps back to src/program.py:LINE."""
     ws = _ws_with_plan(tmp_ws)
     rt = OpenGLPythonRuntime(host=host)
     rt.skeleton(ws, PLAN)
     assert rt.lint(ws).passed
+    src = (ws.src / "program.py").read_text()
+    for template in ("_cube", "_perspective", "_look_at", "u_mvp", "vec3 top", "0.25 + 0.75"):
+        assert template not in src, template     # no placeholder look to "keep the structure" of
     br = rt.build(ws, **SMALL)
     assert br.ok, br.error_message
     assert len(list((ws.artifacts / "frames").glob("*.png"))) == 5 and (ws.artifacts / "frames_sheet.png").is_file()
     metrics = json.loads((ws.artifacts / "metrics.json").read_text())
-    assert not metrics["stats"]["static"] and metrics["stats"]["mean_lum"] > 0.1
-    src = (ws.src / "program.py").read_text()
+    assert not metrics["stats"]["static"] and not metrics["stats"]["flicker"] and metrics["stats"]["mean_lum"] > 0.1
     (ws.src / "program.py").write_text(src.replace("fbo.use()\n    ctx.disable", "fbo.use()\n    raise ValueError('boom')\n    ctx.disable"))
     br = rt.build(ws, **SMALL)
     assert not br.ok and br.error_type == "ValueError" and br.error_file == "src/program.py" and br.error_line
     assert "boom" in br.error_message
+
+
+def test_opengl_contract_example_builds(tmp_ws, host):
+    """The ONE executable interface example in opengl_python/contract.md runs as src/program.py: lint
+    clean, five judged frames, not static — the only runnable prompt material the language ships now
+    that its cookbook is gone (D107)."""
+    text = load_text("opengl_python/contract.md")
+    blocks = [b for b in re.findall(r"```python\n(.*?)```", text, re.S) if "def setup(" in b and "import moderngl" in b]
+    assert len(blocks) == 1, "the contract ships exactly one complete example"
+    ws = _ws_with_plan(tmp_ws)
+    ws.src.mkdir(parents=True, exist_ok=True)
+    (ws.src / "program.py").write_text(blocks[0])
+    rt = OpenGLPythonRuntime(host=host)
+    assert rt.lint(ws).passed
+    br = rt.build(ws, **SMALL)
+    assert br.ok, br.error_message
+    metrics = json.loads((ws.artifacts / "metrics.json").read_text())
+    assert len(list((ws.artifacts / "frames").glob("*.png"))) == 5
+    assert not metrics["stats"]["static"] and not metrics["stats"]["flicker"] and not metrics["stats"]["any_nan"]
 
 
 def test_gl_tools_probe_and_frames(tmp_ws, host, monkeypatch):
@@ -150,7 +204,7 @@ def test_gl_tools_probe_and_frames(tmp_ws, host, monkeypatch):
     obs = get_tool("gl_probe").call(ctx, {"t": 1.5})
     assert obs.ok and "PROBE OK" in obs.text and len(obs.images) == 1 and obs.numbers["n_frames"] == 1
     obs = get_tool("gl_frames").call(ctx, {"times": [0.0, 2.0], "width": 256, "height": 144})
-    assert obs.ok and "FRAMES OK" in obs.text and obs.images and obs.numbers["n_frames"] == 2 and not obs.numbers["static"]
+    assert obs.ok and "FRAMES OK" in obs.text and obs.images and obs.numbers["n_frames"] == 2 and obs.numbers["static"]  # the stub is flat by design
     (ws.src / "shader.frag").write_text("#version 330 core\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(1.0); }\n")
     obs = get_tool("gl_probe").call(ctx, {})
     assert not obs.ok and "LINT FAILED" in obs.text and "#version" in obs.text

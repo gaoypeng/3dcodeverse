@@ -57,7 +57,7 @@ from codeverse3d.cost.types import stage_for_label
 from codeverse3d.models import get_chat_model
 from codeverse3d.orchestrator import BudgetExceeded
 from codeverse3d.proc import NULL_EVENTS, read_json_or_none
-from codeverse3d.workspace import Workspace
+from codeverse3d.workspace import C3D_DIR, Workspace
 
 log = logging.getLogger(__name__)
 
@@ -66,8 +66,8 @@ log = logging.getLogger(__name__)
 # (merged back from codeverse3d/tracks/envelope.py, 2026-08-28 — the split existed only
 #  to hold a re-export shim; this module was its one importer)
 ALLOWED_ROOTS: tuple[str, ...] = ("src/", "public/")
-#: where an out-of-workspace task image is copied so a vendor CLI can read it (D9, like the cookbook)
-IMAGES_DIR = ".3dcode/images"
+#: where an out-of-workspace task image is copied so a vendor CLI can read it (D9: a CLI reads only inside its workspace)
+IMAGES_DIR = f"{C3D_DIR}/images"
 
 
 class GenerationError(RuntimeError):
@@ -185,7 +185,7 @@ def write_files(
 
     ``only`` (an ``edit_only`` task's file scope, entry included when owned) skips a
     path that ALREADY EXISTS and is not listed — new files stay allowed; ``frozen``
-    (the language's harness-owned files and directories, ``src/recipes.glsl``, ``src/lib/``) is
+    (the language's harness-owned files and directories, e.g. a scene's ``src/lib/``) is
     skipped outright (``is_harness_owned``, the CLI side's rule).
     The single-shot envelope has no write-time gate, so this is where a scoped task is
     stopped from rewriting a sibling's file — the mirror of the CLI backends' post-hoc
@@ -374,6 +374,24 @@ def single_shot_model_id(agent_id: str) -> str:
     return agent_id[len(SINGLE_SHOT_PREFIX) :]
 
 
+#: the floor of a single-shot call's own deadline.  A task's ``timeout_s`` caps its model call:
+#: an asset task (420 s) once held a runaway stream for ~20 minutes — 1 087 chunks before the
+#: retry layer gave up — and the stage that waited for it left the zones a 180 s session that
+#: wrote nothing (iteration 2 of the argon loop, 2026-10-15: 31 of 2 697 single-shot asset calls
+#: ran past 420 s, all the way to the retry ceiling).  But a stage degraded to single-shot by a
+#: spent soft budget carries the budget's FLOOR as its timeout (120-180 s), shorter than a
+#: legitimate call (asset calls p50 96 s, p95 260 s) — the floor keeps those whole.
+SINGLE_SHOT_MIN_WAIT_S = 420.0
+
+
+def single_shot_wait_s(timeout_s: float | None, retry_deadline_s: float) -> float:
+    """The longest one single-shot generation may wait: the retry ceiling, capped by the task's own
+    timeout when it has one (never below :data:`SINGLE_SHOT_MIN_WAIT_S`)."""
+    if timeout_s is None:
+        return retry_deadline_s
+    return min(retry_deadline_s, max(float(timeout_s), SINGLE_SHOT_MIN_WAIT_S))
+
+
 def generate_files(
     ws: Workspace,
     *,
@@ -395,9 +413,9 @@ def generate_files(
         temperature=task.temperature,
         thinking=task.thinking,  # type: ignore[arg-type]
         max_output_tokens=task.max_output_tokens,
-        # the RUN's remaining wall clock, not the models' 1800 s default — and past
-        # the hard ceiling this refuses to buy the call at all (agent-path symmetry)
-        max_wait_s=_deadline_preflight(budget, RETRY_DEADLINE_S),
+        # the RUN's remaining wall clock AND the task's own window, not the models' 1800 s
+        # default — and past the hard ceiling this refuses to buy the call at all
+        max_wait_s=_deadline_preflight(budget, single_shot_wait_s(task.timeout_s, RETRY_DEADLINE_S)),
         label=f"{task.label}:r{task.round:02d}",
     )
 
@@ -425,7 +443,7 @@ def generate_files(
             # the retry is a second full-price call: preflight the clock again and
             # hand it only what is left of the run (BudgetExceeded past the ceiling)
             req = req.model_copy(update={"max_output_tokens": grown,
-                                         "max_wait_s": _deadline_preflight(budget, RETRY_DEADLINE_S)})
+                                         "max_wait_s": _deadline_preflight(budget, single_shot_wait_s(task.timeout_s, RETRY_DEADLINE_S))})
             resp = ask(req)
             usage = usage + resp.usage
     traj = ws.trajectory_dir(task.label.replace("/", "_"), task.round)
@@ -672,7 +690,7 @@ def _images_block(images: list[ImagePart], ws: Workspace) -> str:
     which no backend read, so the contact sheet the judge scored reached no CLI session
     (that field is gone since 2026-08-30 — this block IS the delivery).
 
-    Every image is copied into ``.3dcode/images/`` first, exactly as the cookbook is (D9),
+    Every image is copied into ``.3dcode/images/`` first (D9),
     and listed workspace-relative: a CLI reads only INSIDE its workspace (``--image
     ref.png`` stores the host's absolute path), and the judged contact sheet sits under
     ``artifacts/renders/``, which ``.antigravityignore`` hides from agy."""
@@ -730,7 +748,7 @@ def _envelope_scope(ws: Workspace, task: GenerationTask) -> tuple[set[str] | Non
 
 
 def _read_only(language: str) -> list[str]:
-    """The harness-owned files of the language (``src/recipes.glsl`` for glsl_shader): every session
+    """The harness-owned files of the language (``src/lib/`` for the scene languages): every session
     of the run — baseline, refine, repair — may read them, none may write them."""
     try:
         return list(HARNESS_OWNED_SRC.get(Language(language), ()))

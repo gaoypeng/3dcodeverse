@@ -56,7 +56,7 @@ def test_the_validation_reask_names_a_thin_plans_missing_parts_and_a_schema_echo
     echo["joints"][0]["axis"] = [0, 0, 0]
     answers = [thin, _good(), echo, _good()]
     model = FakeChatModel(lambda req: answers.pop(0))
-    for n, needles, absent in ((2, ("failed validation", "lists only 1 part(s)", "needs about"), None),
+    for n, needles, absent in ((2, ("failed validation", "lists only 1 part(s)", "needs at least"), None),
                                (4, ("echoes the schema", "joints[0].name"), "zero axis")):
         p = plan(_spec(), "fake:planner", ArticulatedPlan, tmp_ws, model=model)
         assert isinstance(p, ArticulatedPlan) and len(model.requests) == n

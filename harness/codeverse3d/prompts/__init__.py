@@ -71,7 +71,7 @@ def _load(variant: str, rel_path: str) -> str:
 
 
 def load_text(rel_path: str) -> str:
-    """Raw prompt text, e.g. ``load_text("blender/cookbook.md")`` — the active variant's copy first."""
+    """Raw prompt text, e.g. ``load_text("blender/contract.md")`` — the active variant's copy first."""
     return _load(active_variant(), rel_path)
 
 

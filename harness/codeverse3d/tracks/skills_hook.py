@@ -86,9 +86,9 @@ def repair_pointers(ctx: RunContext, build: BuildResult, lint: GateReport) -> st
     reports (``BuildResult.gates`` — a scene's shader_preflight), the same reports a refine
     round routes on.
 
-    ``tracks/repair.py`` already picks a cookbook section by keyword; this is the same
-    idea one level up, and it only names skills that are already in the workspace, so it
-    adds pointers rather than text.
+    The repair prompt's only pointer to material (D107): the attached bundles whose routes
+    match the build / lint finding kinds.  It only names skills that are already in the
+    workspace, so it adds pointers rather than text.
     """
     got = ctx.extra.get(CTX_KEY)
     if not got or not getattr(got, "selections", None):

@@ -42,8 +42,8 @@ OBJECT_HEADER = """\
 //   Y up, +Z front, meters; object stands on y=0, footprint centred on the Y axis.
 //   Parts live in ./parts/<snake>.js, each `export function build<Pascal>(THREE)`
 //   returning a Group already at its WORLD pose.  object.js only assembles.
-//   Optional idle animation: root.userData.tick = (t, dt) => {{ ... }}
-//   Allowed imports: 'three', 'three/addons/...', relative './'.  No network, no DOM.
+//   root.userData.tick is recorded by the census but never called or exported on this track.
+//   Imports that resolve: 'three', 'three/addons/...', relative './' under src/.  No network, no DOM.
 import * as THREE from 'three';
 {imports}
 
@@ -60,31 +60,22 @@ PART_TEMPLATE = """\
 // {description}
 // Plan bbox (world, meters): centre {center}  extents {extents}{material_line}
 // Contract: export function build{pascal}(THREE) -> THREE.Group named '{pascal}', at WORLD pose.
-// Y up, +Z front.  Use real sizes in meters.  Name every mesh.  No lights/cameras/renderers.
+// Y up, +Z front, metres.  The Group's name '{pascal}' is how the gates find this part; a mesh
+// with no name is a build warning.  Lights / cameras / renderers are lint findings.
+// Measured on this part: bbox centre + extents within max(10 mm, 10 % of the plan extent) per
+// axis; one connected shell (tiny islands are stray geometry); contact (surface gap <= 2 mm) with
+// its planned neighbours; penetration <= 2 mm; the whole object's lowest point within 10 mm of y = 0.
 import * as THREE from 'three';
-import {{ RoundedBoxGeometry }} from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 export function build{pascal}(THREE_) {{
   const group = new THREE.Group();
   group.name = '{pascal}';
 
-  // ---- PLACEHOLDER (replace with real construction; keep the group name) ----
-  // A rounded box filling the planned bbox.  Copyable recipes:
-  //   box:        new THREE.BoxGeometry(w, h, d)
-  //   bevelled:   new RoundedBoxGeometry(w, h, d, 4, Math.min(w, h, d) * 0.08)
-  //   cylinder:   new THREE.CylinderGeometry(rTop, rBottom, h, 32)
-  //   lathe:      new THREE.LatheGeometry(points /* Vector2[] (x=radius, y=height) */, 48)
-  //   extrude w/ bevel:
-  //     const shape = new THREE.Shape(); shape.moveTo(-w/2, -d/2); shape.lineTo(w/2, -d/2);
-  //     shape.lineTo(w/2, d/2); shape.lineTo(-w/2, d/2); shape.closePath();
-  //     const geo = new THREE.ExtrudeGeometry(shape, {{ depth: h, bevelEnabled: true,
-  //       bevelThickness: 0.004, bevelSize: 0.004, bevelSegments: 3 }});
-  //     geo.rotateX(-Math.PI / 2);            // extrude along +Y instead of +Z
-  //   merge many: import {{ mergeGeometries }} from 'three/addons/utils/BufferGeometryUtils.js';
+  // ---- PLACEHOLDER: a plain box at the plan bbox so the first build passes.  Replace it with the
+  // part the brief describes (keep the group name); what it is made of is yours to decide. ----
   const size = [{ex}, {ey}, {ez}];
-  const geometry = new RoundedBoxGeometry(size[0], size[1], size[2], 3, Math.min(...size) * 0.08);
-  const material = new THREE.MeshStandardMaterial({{ color: {color}, roughness: 0.6, metalness: 0.05 }});
-  const mesh = new THREE.Mesh(geometry, material);
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(size[0], size[1], size[2]),
+                              new THREE.MeshStandardMaterial({{ color: {color} }}));
   mesh.name = '{pascal}Body';
   mesh.position.set({cx}, {cy}, {cz});   // world pose (bbox centre)
   group.add(mesh);
@@ -113,7 +104,7 @@ _FORBIDDEN: dict[str, tuple[Severity, str, str, LintKind]] = {
     r"\bprocess\.": (Severity.ERROR, "node process access is not allowed in object code", "remove it", LintKind.SANDBOX),
     r"\beval\s*\(": (Severity.ERROR, "eval is not allowed", "remove it", LintKind.SANDBOX),
     r"\bWebGLRenderer\b": (Severity.ERROR, "do not create renderers: the harness renders", "return the Group from build(THREE); delete renderer code", LintKind.HARNESS_OWNED),
-    r"\brequestAnimationFrame\b": (Severity.ERROR, "no render loops: put idle motion in root.userData.tick = (t, dt) => {}", "move per-frame logic into userData.tick", LintKind.HARNESS_OWNED),
+    r"\brequestAnimationFrame\b": (Severity.ERROR, "no render loops: the harness renders the still object build(THREE) returns", "delete the loop; return the Group from build(THREE)", LintKind.HARNESS_OWNED),
     r"\bTextureLoader\b|\bImageLoader\b|\bFileLoader\b": (Severity.ERROR, "loaders/textures cannot be exported from node", "use MeshStandardMaterial colour/roughness/metalness instead", LintKind.SANDBOX),
     r"\bnew\s+THREE\.(?:Perspective|Orthographic)Camera\b": (Severity.WARN, "cameras in object code are ignored (harness owns the camera)", "delete it", LintKind.HARNESS_OWNED),
     r"\bnew\s+THREE\.[A-Za-z]*Light\s*\(": (Severity.WARN, "lights in object code are exported as extras and ignored by the harness lighting", "delete them", LintKind.HARNESS_OWNED),

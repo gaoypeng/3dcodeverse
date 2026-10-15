@@ -561,7 +561,7 @@ def test_accept_bumps_snapshots_and_rollback_restores(cfg: loop.LoopConfig, over
     (it1 / "compare_scene_threejs.json").write_text(json.dumps({"decision": "keep"}))
     # the iteration-1 edit of the overlay
     (overlay.prompts_root / "scene_threejs").mkdir()
-    (overlay.prompts_root / "scene_threejs" / "cookbook.md").write_text("# seat everything\n")
+    (overlay.prompts_root / "scene_threejs" / "system.md").write_text("# seat everything\n")
     (overlay.skills_root / "routes.toml").write_text('[[boost]]\nskill = "c3d-scene-placement"\ndelta = 20\n')
     before = overlay.overlay_hash()
     row = loop.accept(cfg, 1, note="placement recipe", paths=overlay, data_dir=data_dir)
@@ -573,20 +573,20 @@ def test_accept_bumps_snapshots_and_rollback_restores(cfg: loop.LoopConfig, over
     toml = overlay.toml.read_text()
     assert "# the loop bumps it on accept" in toml and "version = 2" in toml and "[knobs]" in toml
     snap2 = cfg.out / "snapshots" / "argon_v2"
-    assert (snap2 / "prompts" / "scene_threejs" / "cookbook.md").is_file() and "delta = 20" in (snap2 / "skills" / "routes.toml").read_text()
+    assert (snap2 / "prompts" / "scene_threejs" / "system.md").is_file() and "delta = 20" in (snap2 / "skills" / "routes.toml").read_text()
     assert json.loads((snap2 / "snapshot.json").read_text())["hash"] == row.variant_hash, "one number for the snapshot and the row"
     ledger = loop.ledger_path(cfg, data_dir)
     assert ledger == data_dir / "t_loop" / "ledger.jsonl" and len(loop.ledger_rows(ledger)) == 1
     # iteration 2 edits, then a rollback: the edits go, version 2 stays
-    (overlay.prompts_root / "scene_threejs" / "cookbook.md").write_text("# a worse idea\n")
+    (overlay.prompts_root / "scene_threejs" / "system.md").write_text("# a worse idea\n")
     (overlay.prompts_root / "scene_threejs" / "extra.md").write_text("x\n")
     it2 = cfg.iter_dir(2)
     it2.mkdir()
     row2 = loop.rollback(cfg, 2, note="worse", paths=overlay, data_dir=data_dir)
     assert (row2.decision, row2.version_from, row2.version_to) == ("rollback", 2, 2)
-    assert (overlay.prompts_root / "scene_threejs" / "cookbook.md").read_text() == "# seat everything\n"
+    assert (overlay.prompts_root / "scene_threejs" / "system.md").read_text() == "# seat everything\n"
     assert not (overlay.prompts_root / "scene_threejs" / "extra.md").exists() and overlay.version() == 2
-    # rolling back the accepted iteration itself un-accepts it: v1 comes back, cookbook and boost gone
+    # rolling back the accepted iteration itself un-accepts it: v1 comes back, the system.md overlay and boost gone
     row3 = loop.rollback(cfg, 1, paths=overlay, data_dir=data_dir)
     assert (row3.version_from, row3.version_to) == (2, 1) and overlay.version() == 1
     assert not (overlay.prompts_root / "scene_threejs").exists() and (overlay.skills_root / "routes.toml").read_text() == "# no rows yet\n"

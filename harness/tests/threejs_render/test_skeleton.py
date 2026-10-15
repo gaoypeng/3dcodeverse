@@ -33,8 +33,15 @@ def test_skeleton_files_and_contents(tmp_path: Path):
     seat = (ws.src / "parts" / "seat_cushion.js").read_text()
     assert "export function buildSeatCushion(THREE_)" in seat
     assert "group.name = 'SeatCushion';" in seat
-    assert "RoundedBoxGeometry" in seat and "ExtrudeGeometry" in seat
+    # the stub is a plain box at the plan bbox plus the measured requirements — no recipe to copy
+    # (D106's rule for every track, 2026-10-15): nothing in it says what the part should be made of
+    assert "new THREE.BoxGeometry(size[0], size[1], size[2])" in seat
+    assert "mesh.position.set(0, 0.68, 0);" in seat
+    for recipe in ("RoundedBoxGeometry", "ExtrudeGeometry", "LatheGeometry", "Copyable", "roughness", "tick"):
+        assert recipe not in seat, recipe
+    assert "max(10 mm, 10 % of the plan extent)" in seat and "gap <= 2 mm" in seat
     assert "Material: leather" in seat
+    assert "userData.tick is recorded by the census but never called" in obj
     assert '"type": "module"' in (ws.src / "package.json").read_text()
     # never overwrites
     (ws.src / "parts" / "seat_cushion.js").write_text("// mine\n")

@@ -58,8 +58,9 @@ criteria:
   floor: 0.3
   title: Articulation plausibility
   description: 'In the pose sheet, does each joint move the way the real mechanism moves — the right TYPE of motion
-    (swing vs slide), the right direction, and a believable amount?  A drawer must slide out along its depth; a
-    door must swing about its hinge edge; a lid must open upward; an arm link must rotate about its pivot.
+    (swing vs slide), the right direction, and a believable amount?  Each joint must move the way the real
+    mechanism moves and the plan''s joint table states (a drawer slides along its depth, a door swings about its
+    hinge edge, a lid about the edge it is hinged on, an arm link about its pivot).
 
     '
   anchors:
@@ -90,19 +91,19 @@ criteria:
   weight: 0.12
   title: Geometry detail
   description: 'How much SHAPE was actually modelled, mechanism included?  Count REFINEMENT KINDS (the list is in
-    the rubric notes) and how many of the links carry at least one, and count the mechanism parts that exist as
-    geometry rather than as an implied joint: hinge leaves and knuckles, rails and runners, handles and knobs,
-    catches, hinges'' screw plates, panel insets, edge thickness.  Geometry only — colour and material variety
-    never raise this criterion.
+    the rubric notes) and how many of the links carry at least one, and count the mechanism parts the real
+    object shows that exist here as geometry rather than as an implied joint: visible hinge leaves and knuckles,
+    exposed rails, handles and knobs, catches, panel insets, edge thickness; concealed hardware the real object
+    hides is not expected.  Geometry only — colour and material variety never raise this criterion.
 
     '
   anchors:
-    '1.0': Five or more refinement kinds visible AND the mechanism itself is modelled (hinge leaves, drawer runners,
-      catches, handles) on at least two thirds of the links; finest features at real hardware scale.
+    '1.0': Five or more refinement kinds visible AND every piece of hardware the real mechanism shows is modelled,
+      on at least two thirds of the links; finest features at real hardware scale.
     '0.85': Three or four refinement kinds on at least half the links, and at least one mechanism part modelled
       rather than implied.
     '0.7': Exactly two refinement kinds, or more but concentrated on one hero link; the joint is a bare abutment
-      with no visible hardware.
+      although the real object shows hardware there.
     '0.55': One refinement kind on a couple of links, the rest unmodified primitives.
     '0.4': Primitive stack, at most one token detail on one link.
     '0.25': Every link is an unmodified primitive; only size, position and colour vary.
@@ -273,12 +274,12 @@ defects:
   cap: 0.6
 - id: detail_below_part_count
   text: The object has EIGHT or more links but fewer than THREE distinct refinement kinds (the numbered list in the
-    rubric notes) are visible across all of them together, and the joints are bare abutments with no modelled
-    hardware. Count kinds, not instances; do not count colour.
+    rubric notes) are visible across all of them together, and hardware the real mechanism shows is absent at the
+    joints. Count kinds, not instances; do not count colour.
   penalty: 0.05
 - id: primitive_only
-  text: Every part is an unmodified box / cylinder with sharp 90° edges — no handles, bevels, insets, rails or thickness
-    anywhere.
+  text: Every part is an unmodified box / cylinder with sharp 90° edges although the real object has handles, shaped
+    edges, insets, rails or visible thickness — none of them anywhere.
   penalty: 0.08
 - id: untextured_flat
   text: Default grey / magenta placeholder materials are visible, or surfaces are unlit flat fills with no shading response. A uniform but sensible colour (an all-walnut chair, an all-oak cabinet) is NOT this defect.

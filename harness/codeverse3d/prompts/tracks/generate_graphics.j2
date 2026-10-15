@@ -17,22 +17,6 @@ Constraints:
 {{ contract }}
 
 Files you must produce: {% for f in expected_files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}.
-Copyable snippets live in `.3dcode/cookbook.md` (read it before writing if you can).{% if cookbook_excerpt %}
-Cookbook excerpt:
-{{ cookbook_excerpt }}
-{% endif %}
-{% if seeded_recipes %}
-
-## Verified helpers in the harness-owned, read-only `src/recipes.glsl` — call them, do not redefine them
-`src/recipes.glsl` is harness-owned and READ-ONLY (a session that writes it is failed and the file restored); the harness pastes it above
-`src/common.glsl` and `src/shader.frag` at build time, so these VERIFIED helpers are in scope everywhere with
-no include.  Call them and build on them: do not rewrite an aurora curtain / star field / bokeh / rain layer
-from scratch (the from-scratch versions are the comb of bars, the twenty sparkles and the opaque discs the
-judge caps), do not define a function with one of these names yourself (the lint rejects the redefinition),
-and do not copy them into `src/common.glsl` — `common.glsl` is yours for helpers that are NOT in this list.
-{% for r in seeded_recipes %}- `{{ r.signature }}` — {{ r.purpose }}
-{% endfor %}
-{% endif %}
 
 ## Plan
 {{ plan_summary }}
@@ -50,17 +34,17 @@ Motion: {{ motion }}
 ## Acceptance checklist (the judge verifies each item; build so every item is visibly true)
 {{ acceptance }}
 
-## DO
-- Animate with time: every sampled frame (t = {{ judge_times }}) must differ visibly; continuous motion,
+## What is measured
+- Motion: the largest mean |Δ| between consecutive sampled frames (t = {{ judge_times }}) must reach 0.002
+  (else `static`, cap 0.5) and no consecutive pair may exceed 0.35 (`flicker`, cap 0.7): continuous motion,
   no hard cuts, no per-frame random seeds.
-- Aspect-correct coordinates: `p = (fragCoord - 0.5*u_resolution) / u_resolution.y` (circles stay round).
-- Layer the passes from the table: background → midground → foreground → grade (vignette, tonemap, gamma).
-- Use the style's palette literally (write the colour constants at the top); keep mean brightness in a
-  readable range (neither near-black nor blown-out); tonemap `c/(1+c)` then gamma.
-- Detail at several scales (fbm octaves, hash-placed elements, highlights) — the judge scores richness.
-- Guard the maths: `x / max(d, 1e-4)`, `sqrt(max(x, 0.0))`, `normalize` only non-zero vectors,
-  `clamp` acos/asin inputs — one NaN pixel caps the score at 0.
-- Constant loop bounds; keep per-pixel cost sane.
+- Circles must stay round at {{ resolution }} (judge defect `stretched_aspect`, −0.06).
+- The style's palette is what the judge's light_and_tone criterion grades against; no sampled frame may be
+  essentially black or blown out (cap 0.5).
+- Structure at the scales the subject has: one field filling the frame is the `flat_fill` defect (−0.08)
+  and the 0.1 anchor of depth_and_detail (0.16).
+- One NaN / Inf pixel caps the score at 0 (the NaN sources are listed in the contract).
+- Loop bounds are compile-time constants; a frame that does not finish inside the render timeout fails the build.
 
 ## DON'T
 - No `#version` line, no `uniform`/`out` declarations of the harness names (shader); no window,
@@ -69,7 +53,7 @@ Motion: {{ motion }}
 - No textures other than the harness ones; no network; no imports outside the contract's allow-list.
 
 {% if skeleton_files %}
-## Current files (skeleton already in src/ — keep the structure, replace the placeholder look)
+## Current files (the harness skeleton: the file names and the entry point are the interface; everything inside is yours to replace)
 {% for path, body in skeleton_files.items() %}
 --- {{ path }} ---
 ```

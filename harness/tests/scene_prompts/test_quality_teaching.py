@@ -43,7 +43,8 @@ def test_no_scene_stage_inlines_cookbook_recipes() -> None:
 
     for gone in ("ENV_RECIPES", "ZONE_RECIPES", "ZONE_RECIPES_MAX_CHARS", "refine_recipes"):
         assert not hasattr(scene, gone), gone
-    assert not hasattr(prompting, "cookbook_sections")
+    for gone in ("cookbook_sections", "select_cookbook_chapters", "COOKBOOK_SYNONYMS", "COOKBOOK_ALWAYS", "is_always_chapter"):
+        assert not hasattr(prompting, gone), gone   # D106, then D107: no chapter picker on any track
     assert "recipes=" not in inspect.getsource(scene)
 
 

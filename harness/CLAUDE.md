@@ -90,8 +90,9 @@ cd harness
 3dcodeverse make "..." --track articulated_object --language urdf_blender
 3dcodeverse make "..." --track scene --language scene_threejs --rounds 2 --max-minutes 60
 3dcodeverse make "..." --track scene --language scene_blender --rounds 2 --max-minutes 90   # bpy scene on Blender 5.2.2 (D105): harness-owned src/lib, Cycles judged frames
-# The scene track states REQUIREMENTS, never templates (D106, 2026-10-15): no scene cookbook, no inlined recipes, placeholder
-# skeletons; a scene prompt / skill keeps only interface, sandbox rules and measured thresholds (+ the lib as an optional toolbox).
+# Every track states REQUIREMENTS, never templates (D106 scene, D107 the rest, 2026-10-15): no language ships a cookbook, no inlined
+# recipes, placeholder skeletons; a prompt / skill keeps only interface, sandbox rules and measured thresholds, each contract.md ONE
+# executable interface example (tests/prompts/test_snippets_run.py), the craft as short optional practices in the skills (fences ≤ ~12 lines).
 3dcodeverse make "..." --variant argon      # per-model prompt/skill overlay: prompts/variants/<name>/ + skills/variants/<name>/ (D105; C3D_VARIANT, C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}')
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader
 3dcodeverse make "..." --image ref.png --candidates 3 --rounds 2 --dim height=0.45 --must "three legs" --texture --no-run

@@ -58,7 +58,7 @@ def test_live_skeleton_builds_and_exports_canonical_glb(tmp_ws, table_plan, blen
     assert abs(lo[1]) < 1e-4 and abs(hi[1] - 0.6) < 1e-3  # Y-up, ground contact, height 0.6
     assert abs(lo[0] + 0.25) < 1e-3 and abs(hi[2] - 0.25) < 1e-3
     leg0 = scene.geometry[scene.graph["Leg_0"][1]]
-    assert len(leg0.faces) > 12  # bevel modifier applied on export
+    assert len(leg0.faces) == 12  # a plain placeholder box: the skeleton chooses no edge treatment
     assert leg0.visual.material.baseColorFactor[0] > leg0.visual.material.baseColorFactor[2]  # oak-ish
     c = r.census
     assert c["tri_count"] == sum(o["tri_count"] for o in c["objects"] if o["type"] == "MESH")

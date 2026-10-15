@@ -51,7 +51,7 @@ def _no_process_variant(monkeypatch):
 
 @pytest.fixture
 def overlay(tmp_path: Path, monkeypatch) -> Path:
-    """A tmp ``VARIANTS_DIR`` holding ``tv``: a cookbook that shadows blender's, a template only the
+    """A tmp ``VARIANTS_DIR`` holding ``tv``: a system.md that shadows blender's, a template only the
     variant ships, and a role template that includes a BASE file (the ChoiceLoader fall-through)."""
     root = tmp_path / "variants"
     shutil.copytree(VARIANTS_DIR / "argon", root / "argon")   # the shipped one stays known beside tv
@@ -60,7 +60,7 @@ def overlay(tmp_path: Path, monkeypatch) -> Path:
         (tv / d).mkdir(parents=True)
     (tv / "variant.toml").write_text(TV_TOML)
     (tv / "README.md").write_text("docs only\n")
-    (tv / "blender" / "cookbook.md").write_text("# OVERLAY COOKBOOK\n")
+    (tv / "blender" / "system.md").write_text("# OVERLAY SYSTEM\n")
     (tv / "tracks" / "only_in_variant.j2").write_text("overlay {{ x }}\n")
     (tv / "system" / "role_repair.j2").write_text("OVERLAY ROLE {{ contract }}\n{% include 'system/singleshot_format.md' %}")
     monkeypatch.setattr(V, "VARIANTS_DIR", root)
@@ -119,12 +119,12 @@ def test_variant_toml_is_type_checked(overlay, toml, problem):
 
 # --------------------------------------------------------------------------- the prompt overlay
 def test_an_overlay_file_shadows_the_base_and_a_missing_one_falls_back(overlay):
-    base_cookbook = (PROMPTS_DIR / "blender" / "cookbook.md").read_text()
+    base_system = (PROMPTS_DIR / "blender" / "system.md").read_text()
     base_contract = (PROMPTS_DIR / "blender" / "contract.md").read_text()
     with activate("tv"):
-        assert prompts.load_text("blender/cookbook.md") == "# OVERLAY COOKBOOK\n"
+        assert prompts.load_text("blender/system.md") == "# OVERLAY SYSTEM\n"
         assert prompts.load_text("blender/contract.md") == base_contract, "no overlay copy: the base file"
-        assert prompts.prompt_root("blender/cookbook.md") == overlay / "tv" / "blender" / "cookbook.md"
+        assert prompts.prompt_root("blender/system.md") == overlay / "tv" / "blender" / "system.md"
         assert prompts.prompt_root("blender/contract.md") == PROMPTS_DIR / "blender" / "contract.md"
         assert prompts.render("tracks/only_in_variant.j2", x=1) == "overlay 1\n"
         rendered = prompts.render("system/role_repair.j2", contract="C")
@@ -133,11 +133,11 @@ def test_an_overlay_file_shadows_the_base_and_a_missing_one_falls_back(overlay):
         # the catalog resolves through the same loader: callers do not change
         from codeverse3d.prompts.catalog import language_text
 
-        assert language_text(Language.BLENDER, "cookbook.md") == "# OVERLAY COOKBOOK\n"
+        assert language_text(Language.BLENDER, "system.md") == "# OVERLAY SYSTEM\n"
         assert language_text(Language.BLENDER, "contract.md") == base_contract
         with pytest.raises(FileNotFoundError):
             prompts.load_text("blender/nowhere.md")
-    assert prompts.load_text("blender/cookbook.md") == base_cookbook
+    assert prompts.load_text("blender/system.md") == base_system
     with pytest.raises(TemplateNotFound):
         prompts.render("tracks/only_in_variant.j2", x=1)
 
@@ -158,16 +158,16 @@ def test_base_rendering_is_untouched_and_byte_identical_under_an_empty_overlay()
 
 
 def test_caches_are_isolated_per_variant_in_process(overlay):
-    base = prompts.load_text("blender/cookbook.md")
-    assert base != "# OVERLAY COOKBOOK\n"
+    base = prompts.load_text("blender/system.md")
+    assert base != "# OVERLAY SYSTEM\n"
     with activate("tv"):
-        assert prompts.load_text("blender/cookbook.md") == "# OVERLAY COOKBOOK\n"
+        assert prompts.load_text("blender/system.md") == "# OVERLAY SYSTEM\n"
         strict, lenient = prompts._env_for("tv")
         assert strict is not prompts._env and lenient is not prompts._lenient_env
         assert prompts._env_for("tv") == (strict, lenient), "one environment per variant"
-    assert prompts.load_text("blender/cookbook.md") == base
+    assert prompts.load_text("blender/system.md") == base
     with activate("tv"):
-        assert prompts.load_text("blender/cookbook.md") == "# OVERLAY COOKBOOK\n"
+        assert prompts.load_text("blender/system.md") == "# OVERLAY SYSTEM\n"
 
 
 def test_activate_nests_and_falls_back_to_the_process_switch(overlay, monkeypatch):
@@ -209,7 +209,7 @@ def test_variant_hash_covers_both_overlays_and_ignores_readmes(overlay, tmp_path
     assert len(h0) == 12 and int(h0, 16) >= 0
     (overlay / "tv" / "README.md").write_text("edited docs\n")
     assert variant_hash("tv") == h0, "README.md is documentation, not prompt material"
-    (overlay / "tv" / "blender" / "cookbook.md").write_text("# OVERLAY COOKBOOK v2\n")
+    (overlay / "tv" / "blender" / "system.md").write_text("# OVERLAY SYSTEM v2\n")
     h1 = variant_hash("tv")
     assert h1 != h0
     (skills / "variants" / "tv" / "routes.toml").write_text('[[boost]]\nskill = "c3d-part-contact"\ndelta = 5\n')

@@ -141,7 +141,8 @@ time the harness samples (t = 0 and t = 1.5 s; the judge diffs the two frames an
 `nothing_moves` when it sees no change). Motion is data: keyframes on `ctx.frame(t)` or a simple
 driver of `frame` (`lib.motion.keyframe_path`, `drift`, `sway`, `spin`, `scroll`, `shape_key_sweep`
 are these in one call; a driver that needs Python evaluates to 0 and the lint rejects it). A tree
-with its origin at its base sways about its feet; a boat drifting ON a water-named plane is
-`on_water`; a bird, a steam plume or a spark cloud built as one object is a `free` row.
+with its origin at its base sways about its feet (a keyed rotation turns about the origin: put
+it at the hinge or hub). A boat drifting ON a water-named plane is `on_water`; a bird, a steam
+plume or a spark cloud built as one object is a `free` row.
 
 Worked zone, row provenance and the finding-to-fix table: `references/finding-to-fix.md`.

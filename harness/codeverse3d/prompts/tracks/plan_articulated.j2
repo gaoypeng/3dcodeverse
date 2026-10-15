@@ -8,35 +8,38 @@ LANGUAGE CONTRACT THE BUILDER WILL FOLLOW:
 {{ contract }}
 
 WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
-1. `object_name` PascalCase; `summary` two sentences incl. overall size in meters and what moves.
+1. `object_name` PascalCase; `summary`: overall size in metres and what moves.
 2. `overall_bbox` — real-world dimensions in meters, authored at the REST pose; bottom at up=0.
-3. `parts` = LINKS, about {{ target_parts }} (floor {{ min_parts }}, ceiling {{ cap_parts }}; the PLAN BUDGET block in the
-   request says where that number came from).  One part per rigid body that MOVES AS A UNIT — a
+3. `parts` = LINKS, within the PLAN BUDGET block in the request (it states the ceiling, and a floor
+   only when the request is evidence of one).  One part per rigid body that MOVES AS A UNIT — a
    drawer is ONE link even though it has a front, a box, runners and a handle.  Each part:
    PascalCase `name`, `role`, `description` with construction numbers, `bbox` (centre + extents, meters,
    rest pose, WORLD coordinates), `attach_to` = the parent link, `material` with colour.
-   Moving links must NOT penetrate their neighbours at rest: leave ≥ 0.003 m clearance in the motion
-   direction (drawer vs cabinet opening, door vs frame); fixed neighbours overlap ≥ 0.002 m.
-   * `children` — 3 to 6 SUB-PARTS: this is where an articulated plan gets its detail.  A link is
-     rarely one box.  The drawer's `children` are DrawerFront (18 mm, rebated, with a 6 mm shadow
-     gap), DrawerBox (12 mm sides, 8 mm base, rebated corners), Handle (turned knob, 32 mm dia) and
-     Runners (2 × 10 × 10 mm strips).  Each child needs `name`, `description` in numbers, a `bbox`
-     INSIDE the link's bbox (same frame, rest pose) and `material` when it differs.
+   At rest no two links overlap by more than 2 mm (the build fails above 5 mm); a fixed child touches
+   its parent or sinks at most 2 mm into it; a hinged or sliding child's mesh is within 10 mm of its
+   parent's.  Over each joint's range the moving link must clear every other link by more than 2 mm in
+   every pose (the sweep samples lower/mid/upper and random combinations).
+   * `children` — the sub-parts of a link, each with its own bbox inside the link's (up to 8): this is
+     where an articulated plan carries the brief's detail.  Each child needs `name`, `description` in
+     numbers, a `bbox` INSIDE the link's bbox (same frame, rest pose) and `material` when it differs.
      Sub-parts are NOT extra links: they carry no joint, they add no collision pair, and the builder
      exports the whole link as ONE object named after the LINK.  Add depth here, not by splitting a
      rigid body into more links — every extra link costs a joint and a collision-sweep pair.
      Leave `children` empty for a link that really is one shape (a rod, a plate, a wheel).
-   * `detail_hint` — one line on the 3-4 links that carry the object's identity: what makes THAT
-     link read as real.
+   * `detail_hint` — one line, on the links that carry the object's identity: what makes THAT link
+     read as real.
 4. `root_link` — the grounded/base link (cabinet, base, chassis).
 5. `joints` — one per moving link, forming a single tree from `root_link`:
    * `type` revolute (hinges, lids, doors; radians) · prismatic (drawers, slides; meters) ·
      continuous (wheels, fans) · fixed (rigid attachments you still want as separate links).
    * `axis` unit vector in the frame above; `pivot` a WORLD point on the axis at rest (the hinge line,
      the slide direction through the drawer centre).
-   * `lower`/`upper` realistic limits (door 0..1.57 rad, lid 0..1.9 rad, drawer 0..0.8 × depth m);
-     `rest` within the limits (usually 0 = closed).
-   * `motion` one line: "lid opens upward about its back edge".
+   * `lower`/`upper` — the real travel of the mechanism (a revolute range stays within 2π; the sweep
+     tests both ends); `rest` within the limits (0 when the authored pose is the closed/home state).
+   * `motion` one line naming the direction positive travel moves the link — front/back/up/down/left/
+     right or an explicit ±x/±y/±z (Z up, −Y front): the harness measures the link's centroid
+     displacement against that word (60° cone).  The first direction word wins, so put it first; a
+     sentence that names two axes, a negation, or only a rotation ("spins around") is not checked.
    * Count the moving parts the brief names (doors, drawers, lids, arms, wheels): that is the number of
      non-fixed joints, give or take one. Do not add joints to reach a part count — a rigid feature is a
      sub-part, not a link.
@@ -48,22 +51,24 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
    * `parent` / `child` name top-level `parts` (links) — NEVER a sub-part: anything a joint moves must be
      its own link (the harness promotes a referenced sub-part to a link, but plan it as a link yourself).
      A `revolute` range stays within 2π; a part that turns freely (swivel, wheel) is `continuous`.
-6. `acceptance` — 6 to 12 items: dimensions (`measure`), ground contact, each key feature
-   (`visual`), and ONE `articulation` item per joint ("drawer slides out 0.35 m without touching the
-   cabinet", "door swings 90° about the left edge, no penetration through the range").
+6. `acceptance` — the brief's own checks: its dimensions (`measure`), ground contact, each named
+   feature (`visual`), and ONE `articulation` item per joint stating the travel and that nothing is
+   penetrated through it ("drawer slides out 0.35 m without touching the cabinet").
 
 RULES
 - When the request carries an ENGINEERING BRIEF, its dimensions, sub-assemblies and signature
   features are ground truth: every signature feature must be findable as a link, a sub-part or a
   named detail in some `description`.  Sub-assemblies that do not move become `children`, not links.
-- A plan of boxes at different sizes is a FAILED plan and will be sent back.  Every link's
-  `description` (or its `children`) must say something a plain primitive cannot: a profile, a
-  counted repeat, an edge treatment, a rebate, a fillet radius.
-- Sweep-safe design: imagine each joint at lower, mid and upper — no link passes through another.
-  Hinged lids pivot at their back edge, NOT their centre; drawers slide along the cabinet depth.
+- A link's `description` (or its `children`) says what the real link has that a plain primitive
+  does not — its profile, counted repeats, how its edges and joins are made.  When the PLAN BUDGET
+  block states a detail minimum, the quality gate re-asks a plan below it.
+- Sweep-safe: the harness poses each joint at lower, mid and upper and 8 random combinations; no link
+  may pass through another in any of them.  Every pivot is a point ON the physical hinge line or slide
+  axis — a pivot at a part's centre makes it sweep through its neighbour and the motion check cannot
+  measure it.
 - Pivot and axis are the contract the URDF will be checked against; choose them to 3 decimals.
 - Every link except `root_link` is the child of exactly one joint; parent/child names are part names.
 - No prose outside the JSON.
 
-WORKED EXAMPLE (shape only — do not copy its values):
+SCHEMA EXAMPLE (the fields and their types; its object, numbers and sub-parts are not yours):
 {{ example_json }}

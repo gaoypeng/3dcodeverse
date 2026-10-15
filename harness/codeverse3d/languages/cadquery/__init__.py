@@ -168,9 +168,6 @@ def _rules(c: BpyCollector, tree: ast.Module, source: str) -> list[GateFinding]:
         if name.endswith(".rotate") and len(call.args) == 3 and looks_like_radians(call.args[2]):
             out.append(_f(E, ".rotate(...) takes DEGREES; this argument looks like radians (math.pi expression)", call.lineno,
                           "pass degrees: `.rotate((0,0,0), (0,0,1), 90)` or `math.degrees(angle_rad)`"))
-        if name.endswith(".fillet") or name.endswith(".chamfer"):
-            out.append(_f(I, f"{last}: OCC fails ('BRep_API: command not done') when radius >= wall thickness or edges conflict", call.lineno,
-                          "keep radius < 0.45 x min thickness; select few edges (`.edges('|Z')`); wrap cosmetic fillets in try/except"))
     if c.add_calls:
         unnamed = [a.lineno for a in c.add_calls if not any(k.arg == "name" for k in a.keywords)]
         if unnamed:
@@ -225,11 +222,12 @@ def _part_function(p: PartPlan) -> str:
         f"      x in [{mn[0]:.3f}, {mx[0]:.3f}]  y in [{mn[1]:.3f}, {mx[1]:.3f}]  z in [{mn[2]:.3f}, {mx[2]:.3f}]",
     ]
     if p.attach_to:
-        lines.append(f"    Attaches to: {to_pascal(p.attach_to)} (faces must touch; small overlaps are fine)")
+        lines.append(f"    Attaches to: {to_pascal(p.attach_to)} — surface gap <= 2 mm, overlap <= 2 mm (check_connectivity)")
     if p.instances > 1:
-        lines.append(f"    Instances: {p.instances} ({p.symmetry}); build ONE centred at the origin, main() places each copy.")
+        lines.append(f"    Instances: {p.instances} ({p.symmetry}) — exported as {pascal}_0..{pascal}_{p.instances - 1}; the placeholder builds")
+        lines.append("      one at the origin and places each copy with `loc` below (authoring each in world coordinates is fine too).")
         lines.append('    """')
-        lines.append("    # TODO: replace the placeholder box (keep it centred on the origin; placement happens in main())")
+        lines.append("    # TODO: replace the placeholder box (keep the name + bbox)")
         lines.append(f"    return cq.Workplane(\"XY\").box({ex:.3f}, {ey:.3f}, {ez:.3f})")
     else:
         lines.append('    """')
@@ -270,14 +268,16 @@ def cadquery_skeleton_source(plan: StaticPlan) -> str:
 Style: {plan.style_notes or "n/a"}
 
 CONTRACT (the harness imports this file and exports `result` to GLB/STEP/STL itself):
-  * Z is up, -Y is the FRONT, units are METERS. Object stands on z=0, footprint centred on Z.
+  * Z is up, -Y is the FRONT, units are METERS. Lowest point at z=0, footprint centred on Z (check_contract).
   * Overall bbox: center ({fmt3(ob.center)}) extents ({fmt3(ob.extents)})
     -> x in [{ob.min[0]:.3f}, {ob.max[0]:.3f}]  y in [{ob.min[1]:.3f}, {ob.max[1]:.3f}]  z in [{ob.min[2]:.3f}, {ob.max[2]:.3f}]
   * `result` = cq.Assembly; one `.add(shape, name="PascalName", color=cq.Color(r, g, b))` per part,
     instances Name_0..Name_N-1 (a shape built at the origin + `loc=cq.Location(cq.Vector(x, y, z))`).
-  * Only `import cadquery as cq` (+ math / random). No file IO, no export, no show_object.
+  * Imports: cadquery, math, random, numpy and the stdlib data helpers (the lint's list). No file IO,
+    no export, no show_object.
   * `.box(x, y, z)` is centred; `.cylinder(height, radius)`; `.rotate(p1, p2, DEGREES)`;
-    `.translate()/.rotate()` return NEW objects (reassign). Keep fillet radius < 0.45 x wall thickness.
+    `.translate()/.rotate()` return NEW objects (reassign). OCC refuses a fillet whose radius reaches
+    the adjacent wall (the build's hint says < 0.45 x).
 
 PARTS:
 {parts_doc}

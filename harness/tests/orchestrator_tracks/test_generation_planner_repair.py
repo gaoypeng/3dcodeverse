@@ -125,7 +125,7 @@ def test_planner_validates_retries_and_writes(tmp_ws):
     budget = BudgetGuard(spec.budget)
     with run_ledger(tmp_ws.root):
         p = plan(spec, "fake:planner", StaticPlan, tmp_ws, model=model, events=events, budget=budget)
-    assert isinstance(p, StaticPlan) and p.object_name == "DiningChair" and tmp_ws.plan_path.is_file()
+    assert isinstance(p, StaticPlan) and p.object_name == _valid_plan_dict()["object_name"] and tmp_ws.plan_path.is_file()
     assert len(model.requests) == 2 and "failed validation" in model.requests[1].messages[-1].text
     assert model.requests[0].response_schema is not None and "PascalCase" in model.requests[0].system
     from codeverse3d.tracks.planner import PLAN_MAX_WAIT_S, plan_wait_s
@@ -164,12 +164,12 @@ def test_ensure_acceptance_is_idempotent_and_only_the_scene_spec_must_haves_gate
 
 
 # ----------------------------------------------------------------------------- repair
-def _ctx(tmp_ws, settings, agent_id: str, agent=None, model=None, cookbook: str = "") -> RunContext:
+def _ctx(tmp_ws, settings, agent_id: str, agent=None, model=None) -> RunContext:
     spec = make_spec(generator=agent_id)
     rt = FakeRuntime(Language.THREEJS)
     return RunContext(spec=spec, ws=tmp_ws, events=EventLog(tmp_ws.events_path), settings=settings, budget=BudgetGuard(spec.budget),
                       runtime=rt, services=FakeServices(), state=RunState(), policy=RoundPolicy(), track=Track.STATIC_OBJECT,
-                      rubric="r", agent_id=agent_id, agent=agent, model=model, cookbook_text=cookbook,
+                      rubric="r", agent_id=agent_id, agent=agent, model=model,
                       contract_text="CONTRACT")
 
 

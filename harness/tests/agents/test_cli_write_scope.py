@@ -135,11 +135,11 @@ def test_entry_file_writes_need_ownership(scoped_ws: Workspace):
 
 
 def test_a_harness_owned_file_is_restored_when_the_agent_rewrites_it(tmp_ws, monkeypatch):
-    """A read_only harness file (src/recipes.glsl) is restored and the session fails."""
-    owned = "src/recipes.glsl"
+    """A read_only harness file (an exact-file entry) is restored and the session fails."""
+    owned = "src/owned.glsl"
     (tmp_ws.root / owned).parent.mkdir(parents=True, exist_ok=True)
     (tmp_ws.root / owned).write_text("float aurora(vec2 p){return 0.0;}\n")
-    tmp_ws.commit("harness recipes")
+    tmp_ws.commit("harness-owned file")
     job = AgentJob(workspace=str(tmp_ws.root), prompt="p", label="gfx",
                    write_roots=["src/"], read_only=[owned])
     s = begin_session(job, "codex")

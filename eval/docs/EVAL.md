@@ -33,7 +33,7 @@ fooling ourselves.  Tools: `bench/run_bench.py`, `bench/compare_backends.py`,
    confidence.
 6. **Cost and time are part of the result.**  Every cell records `Usage` (USD, tokens)
    and wall time; compare at equal budget where possible.
-7. **Reproducibility.**  `record.prompt_hashes` (contract/cookbook/generate/refine),
+7. **Reproducibility.**  `record.prompt_hashes` (contract/generate/refine; `cookbook` before D107),
    rubric content hash (`ScoreBreakdown.rubric_hash`), `record.environment` (python,
    codeverse3d, blender, node, three, host) are stored per run; keep seeds fixed
    (`--seed`).

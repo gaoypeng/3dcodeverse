@@ -433,8 +433,8 @@ export C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}'   # per-model prompt/skill
 
 Every knob the harness reads is a `Settings` field (`codeverse3d/config.py`, one
 description each): `C3D_<FIELD>` at the top level, `C3D_<SECTION>__<FIELD>` nested, plus
-four flat spellings of nested knobs — `C3D_MAX_IN_FLIGHT`, `C3D_RENDER_GPU`,
-`C3D_SEED_RECIPES`, `C3D_AGENT_MAX_TURNS`.  An on/off switch (`C3D_SKILLS`, `C3D_STREAM`,
+three flat spellings of nested knobs — `C3D_MAX_IN_FLIGHT`, `C3D_RENDER_GPU`,
+`C3D_AGENT_MAX_TURNS` (`C3D_SEED_RECIPES` went with the graphics recipe seeding, D107).  An on/off switch (`C3D_SKILLS`, `C3D_STREAM`,
 `C3D_PLAN_BRIEF`, … — every `Flag` field) takes on/off, 1/0, true/false or yes/no in any
 case; a typo warns and keeps the default, and an empty value is unset.  The node side also
 reads `C3D_RENDER_GPU` and `C3D_CACHE_DIR` itself, and one variable only it reads:

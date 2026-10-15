@@ -40,7 +40,7 @@ Schema (`bench/run_bench.py:49-71`): `Battery{name, track, language, description
 ## 3. One-shot path (`bench/_oneshot.py`)
 - `oneshot_prompt(spec)` = `"Model this object in raw bpy: <prompt>"` + dimensions + MUST HAVE/NOT + minimal contract (Blender 5.x, emptied scene, Z-up, −Y front, metres, on z=0, PascalCase names, material per mesh, no render/export/import/network, <500k tris, <120 s, call `main()`) + "reply with the COMPLETE file as ONE ```python block".
 - Backends: `claude-code[:model]`, `codex[:model]`, `gemini:|anthropic:|openai:<model>` (ApiOneShot: temperature 0.5, thinking medium, max_output 32000). **Local open model works** via `openai:<model>` + `C3D_OPENAI_BASE_URL=http://host:8000/v1` (vLLM OpenAI server).
-- Contracts per language to reuse verbatim: `codeverse3d/prompts/{blender,cadquery,threejs,glsl_shader,opengl_python,scene_threejs,urdf}/{system.md,contract.md,cookbook.md}`.
+- Contracts per language to reuse verbatim: `codeverse3d/prompts/{blender,cadquery,threejs,glsl_shader,opengl_python,scene_threejs,scene_blender,urdf}/{system.md,contract.md}` (no language ships a cookbook since D106 / D107).
 - Evaluate a workspace: `bench/_fixed_eval.FixedEvaluator(judge_model, n_samples, track, language).evaluate(ws, spec) -> EvalOutcome` (build → gates → 14-view render → judge).
 
 ## 4. Renderers / executors (`codeverse3d/languages/<lang>`)

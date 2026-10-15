@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: static_object and articulated_object tracks; blender, urdf_blender, cadquery and threejs. Numbers are from codeverse3d/spatial/contract.py and conventions.py.
 metadata:
   evidence: measured
-  verified: "2026-08-25"
+  verified: "2026-10-15"
   corpus: "217 run records / 2,121 gate reports under bench/out, mined 2026-08-25"
   owns: "contract/instance_bbox, contract/instance_count"
   target_metric: "contract_instance_findings"
@@ -20,8 +20,8 @@ metadata:
 **When:** a plan row says `instances > 1`, or `symmetry` is `mirror_x` / `mirror_y` / `radial`,
 or the brief asks for a ring / row / pair of the same thing. Skip if every part is unique.
 
-**The one move:** build the shape ONCE, then place N copies from a loop whose numbers come out
-of the plan row. A hand-typed second copy is how the pair stops matching.
+**A strong option:** build the shape once and place the copies from a loop whose numbers come
+out of the plan row — a hand-typed second copy is how a pair stops matching.
 
 ## What the gate actually measures
 
@@ -38,8 +38,8 @@ of the plan row. A hand-typed second copy is how the pair stops matching.
   * `(each instance)` — the *worst single copy's* extents against the plan extents;
   * `(all instances)` — the *union* bbox of all copies against the plan extents.
   Satisfying either one clears the finding. The plan's bbox for an instanced row describes
-  **one copy** at a representative location (see `tracks/plan_examples.py`: `Leg`,
-  `instances: 2`, extents `0.035 x 0.035 x 0.41`), so build each copy at those extents and the
+  **one copy** at a representative location (see `tracks/planner.py::plan_example`: `Upright`,
+  `instances: 4`, the extents of one bar), so build each copy at those extents and the
   `(each instance)` reading goes to zero.
 * **Tolerance.** Per axis `tol = max(0.01 m, 0.10 x plan extent)`; beyond `3.0 x tol` the WARN
   becomes an ERROR. Same constants as `c3d-bbox-contract` (`BBOX_TOLERANCE_M`, `REL_TOL`,
@@ -62,30 +62,32 @@ bug, N findings in a different gate.
 ## Placement: derive from the plan, not from the keyboard
 
 ```python
-# plan row: Leg - extents (0.035, 0.035, 0.410) m, centre (0.170, -0.160, 0.205), instances 4
-EX = (0.035, 0.035, 0.410)
-X, Y, Z = 0.170, 0.160, 0.205                      # |x|, |y| and z read off the plan centre
-leg0 = make_box("Leg_0", EX, (X, -Y, Z))           # ONE build call ...
-for i, (sx, sy) in enumerate(((-1, -1), (-1, 1), (1, 1)), start=1):
-    linked_copy(leg0, f"Leg_{i}", (sx * X, sy * Y, Z))     # ... N placements
+# plan row: Name - extents EX, instances N; CENTRES = the N copy centres the row's symmetry gives
+first = build_mesh("Name_0", EX, CENTRES[0])          # ONE build of the mesh data ...
+for i, c in enumerate(CENTRES[1:], start=1):
+    copy = bpy.data.objects.new(f"Name_{i}", first.data)  # ... N objects sharing it
+    copy.location = c
+    bpy.context.scene.collection.objects.link(copy)
 ```
 
-Every copy inherits the extents, so `(each instance)` cannot drift. If a copy must differ,
+Shared mesh data means every copy has the same extents by construction, so `(each instance)`
+cannot drift. If a copy must differ,
 that is a different plan part, not an instance.
 
 ## Radial arrays: the angle comes from the count
 
 ```python
-n = 6                                              # never a typed list of angles
+n = 6                                              # the count drives the angles
 for i in range(n):
     a = 2.0 * math.pi * i / n
-    make_box(f"Spoke_{i}", EXT, (R * math.cos(a), R * math.sin(a), Z))
+    place(f"Spoke_{i}", (R * math.cos(a), R * math.sin(a), Z), yaw=a)
 ```
 
 A typed list silently drops or duplicates a step when the count changes, and the gate then
 reports a count mismatch it took you a round to see. For repeated *detail inside one part*
-(flutes, dentils, cage wires) use the cookbook's `radial_array` ARRAY modifier instead: that
-stays ONE export node, which is what the plan asked for.
+(flutes, dentils, cage wires) an ARRAY modifier with `use_object_offset` and an Empty
+rotated 2π/n is the option (apply it and delete the Empty — only meshes reach the export):
+one export node, which is what the plan asked for.
 
 ## Mirrors
 
@@ -114,10 +116,10 @@ The judge penalises both ends, so read the brief before looping:
   distinct smaller thumb loop and larger multi-finger loop"* — 3 findings, `major`, urdf. When
   the brief distinguishes the members, they are **separate plan parts**, not instances.
 * Too same: *"Cliff walls are composed of identical, rigidly stacked blocks arranged in perfectly
-  straight lines, lacking any organic shape"* — `critical`. For natural repeats, seed a small
-  per-copy jitter (the cookbook's `varied_copies`: 1-2 % scale, sub-millimetre offset, under a
-  degree of tilt). Keep the jitter well inside `0.10 x extent` so it cannot cost you a
-  contract finding.
+  straight lines, lacking any organic shape"* — `critical`. For natural repeats, give copies a
+  seeded per-copy variation in scale and rotation small enough to stay inside the contract
+  tolerance (`max(0.01 m, 0.10 x extent)` per axis) so it cannot cost you a contract finding
+  — see references §6.
 
 ## Finish
 

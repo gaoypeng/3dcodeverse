@@ -106,9 +106,9 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 * Workspace files: `AGENTS.md` + `CLAUDE.md` (no `GEMINI.md`: agy reads both it and AGENTS.md)
   and `.antigravityignore`, which hides only noise (renders/judge output, the whole
   `trajectories/`); build/census/measurement JSON stay readable.
-* Cookbook copied to `ws/.3dcode/cookbook.md` (an agent may not read outside the ws) — for a
-  language that ships one; the scene languages ship none (D106), so their workspaces get no file
-  and no "## Cookbook" section.
+* No cookbook: no language ships one (D106 scene, D107 the rest), so no workspace gets a
+  `.3dcode/cookbook.md` or a "## Cookbook" section — the body is the hard rules, the tool cards
+  and the language contract; the craft reaches the session as routed skills.
 * MCP server argv is `[sys.executable, -m, codeverse3d.spatial.mcp_server, --workspace, ws]`;
   server name `3dcode` → tools appear as `mcp__3dcode__<name>` (claude).  `3dcode mcp --workspace runs/<slug>` execs the same server;
   `python -m codeverse3d.spatial.mcp_server --workspace ws --list` prints the tools.
@@ -384,12 +384,12 @@ weather: they leave the provider's errors out (docs/COST.md §31); the ceiling d
   tracks never restate it.  A python-executed build wrapper goes beside the others in
   `languages/wrappers/` (import `_wrapper_common`; run it with `_common.run_wrapper_build`, or
   read its report with `_common.compose_build_result`, which publishes the final `build.json`); branch in
-  `languages/base.py::get_runtime`; `prompts/<lang>/{system,contract,cookbook}.md` (found by
-  `prompts/catalog.language_prompt`; every cookbook snippet must run — `tests/prompts`
-  executes them; a scene language has no cookbook and its prompts state requirements, never
-  templates — D106: no code block over ~12 lines, numbers only where a gate or the judge
-  measures them).
-* **Changing what a model is shown** (a prompt file or template variable, a cookbook, a skill,
+  `languages/base.py::get_runtime`; `prompts/<lang>/{system,contract}.md` (found by
+  `prompts/catalog.language_prompt`; no cookbook — the prompts state requirements, never
+  templates (D106 / D107): no code block over ~12 lines, numbers only where a gate or the judge
+  measures them, and contract.md carries ONE executable interface example that
+  `tests/prompts/test_snippets_run.py` runs through the real runtime).
+* **Changing what a model is shown** (a prompt file or template variable, a contract, a skill,
   a rubric's text, a tool description, anything a session or a judge reads):
   `tests/prompts/test_manifest.py` pins every payload of offline scenarios across the four tracks
   and seven languages — agent sessions, chat calls (planner, single-shot), each judge's input and

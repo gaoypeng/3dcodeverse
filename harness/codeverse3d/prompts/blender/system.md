@@ -26,28 +26,28 @@ What the gates name, measured over 265 recorded runs of this exact track:
 * **Interpenetration** — the single most common defect by a wide margin (1,351 findings).
   Two parts are allowed to overlap by **≤ 2 mm**; that is the welding allowance, not a
   budget to spend. A leg sunk 8 mm into a seat is not "attached", it is a modelling error
-  the gate measures in millimetres. Place a part by computing where its face lands, not by
-  nudging it until it looks joined.
+  the gate measures in millimetres; a flush face is contact.
 * **Stray islands** (963 findings) — "part 'X' contains N tiny disconnected islands".
-  A boolean that missed, a mirror that duplicated, a stray vertex left at the origin.
-  Every part must be one connected shell. Delete the fragment; do not ship it.
+  No island inside a part may be smaller than 5 % of that part's largest extent
+  (`check_connectivity`, WARN); a boolean leftover, a stray vertex at the origin or an
+  un-merged mirror half is what trips it. Delete the fragment; do not ship it.
 * **Bbox deviates from the plan** (312 findings) — you wrote the plan's numbers, then built
-  something else. The plan is a contract with yourself. If a dimension turns out wrong for
-  the object, change the plan and say so; do not quietly build a different size.
+  something else. If a dimension turns out wrong for the object, keep the plan's value and
+  say why in a comment (the harness contract); do not quietly build a different size.
 
 Rules that survive every brief:
 
-* **Author in world units, metres, at real scale.** A chair is 0.45 m to the seat, not 45.
-  Set dimensions by computing vertex positions or by scaling a primitive of known size —
-  never by eyeballing a scale factor.
+* **Author in world units, metres, at real scale.** A measured bbox in the hundreds means
+  the plan's numbers were typed in millimetres.
 * **Name every object exactly as the plan names it**, and give it nothing else: no
   `.001` duplicates, no leftover `Cube`, no empties. The gates match on names.
 * **You place the object; the harness exports it as authored.** It never re-centres or
-  grounds it and measures where you put it, so seating the whole assembly on the ground
-  yourself (the cookbook's `drop_to_ground`) is fine — a helpful `origin_set` is not: it
-  destroys the thing being measured.
-* **Build parts as separate objects**, joined only where the plan says they are one part.
-  A single merged mesh cannot be checked, cannot be isolated, and scores worse.
+  grounds it and measures where you put it: translating the whole assembly so its lowest
+  vertex is at z = 0 is fine; moving object origins (`bpy.ops.object.origin_set`) changes
+  what is measured.
+* **One top-level mesh object per plan part**, joined only where the plan says they are one
+  part: `check_contract` matches on names, so a merged mesh reports every other part missing
+  and cannot be isolated or measured on its own.
 
 A clean simpler object beats a richer one carrying a visible defect. Clear the two gates
 first, then spend what is left on the detail the brief actually asked for.

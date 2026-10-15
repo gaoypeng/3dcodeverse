@@ -1,8 +1,8 @@
 """Materialise per-workspace agent instructions + ignore file.
 
 One shared body is written to ``AGENTS.md`` (codex / agy) and ``CLAUDE.md`` (claude-code):
-task-agnostic rules, how to call the ``3dcode`` spatial tools, where the cookbook is, and the
-language contract.  (agy reads ``GEMINI.md`` as well as ``AGENTS.md``; a third copy would be
+task-agnostic rules, how to call the ``3dcode`` spatial tools, and the language contract.
+(agy reads ``GEMINI.md`` as well as ``AGENTS.md``; a third copy would be
 loaded twice.)  MCP wiring — never a file in the workspace, which is agent-writable:
 
 * claude-code → per-session ``trajectories/<label>_rNN/mcp.json`` (``agents/backends.py``)
@@ -30,11 +30,14 @@ import logging
 from codeverse3d.agents.cli_common import default_mcp_command
 from codeverse3d.proc import read_json_or_none
 from codeverse3d.skills.materialize import BODY_FILES
-from codeverse3d.workspace import Workspace
+from codeverse3d.workspace import C3D_DIR, Workspace
 
 log = logging.getLogger(__name__)
 
-C3D_DIR = ".3dcode"  # harness-owned read-only docs inside the workspace
+#: a run made BEFORE D107 was handed its language's cookbook here (and a "## Cookbook" section in
+#: the body files).  Materialising removes it, and its presence makes a resumed run re-materialise
+#: (``needs_rematerialize``) so the agent of a later round never reads a cookbook.
+LEGACY_COOKBOOK = f"{C3D_DIR}/cookbook.md"
 MCP_SERVER_NAME = "3dcode"
 MCP_TOOL_TIMEOUT_MS = 600_000
 #: ``.antigravityignore`` — agy's own ignore file.  The agent-facing artefacts must stay readable:
@@ -90,7 +93,7 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str], 
     )
 
 
-def _body(agent_kind: str, contract_md: str, cookbook_section: str, spatial_tools: bool, mcp_command: list[str],
+def _body(agent_kind: str, contract_md: str, spatial_tools: bool, mcp_command: list[str],
           ws: Workspace | None = None) -> str:
     return (
         "# 3dcode workspace — rules for the coding agent\n\n"
@@ -108,7 +111,6 @@ def _body(agent_kind: str, contract_md: str, cookbook_section: str, spatial_tool
         "5. When you are done, reply with a SHORT summary of what you changed and what you verified. "
         "Do not ask questions — there is no human in the loop; make a reasonable decision and proceed.\n\n"
         f"{_tool_section(agent_kind, spatial_tools, mcp_command, ws)}\n"
-        f"{cookbook_section}"
         f"## Language contract\n\n{contract_md.strip()}\n"
     )
 
@@ -144,7 +146,6 @@ def materialize_workspace(
     *,
     agent_kind: str,
     contract_md: str,
-    cookbook_text: str,
     spatial_tools: bool,
     mcp_command: list[str] | None = None,
 ) -> None:
@@ -155,37 +156,23 @@ def materialize_workspace(
     here, which the body text and codex's ``-c`` overrides then quoted verbatim.
 
     Returns nothing: the ``Materialized`` DTO this used to build (body/ignore paths, the
-    cookbook path, the argv, a warnings list) was discarded by every production caller —
+    argv, a warnings list) was discarded by every production caller —
     ``tracks/common.Services.materialize`` is typed ``-> None``.
 
-    ``cookbook_text`` is what the catalog loaded (``RunContext.cookbook_text``): until
-    2026-09-22 this took a path and resolved it itself, workspace first — so a
-    ``<ws>/blender/cookbook.md`` the agent wrote shadowed the harness cookbook.  A language
-    that ships no cookbook (the two scene languages, owner 2026-10-15) passes ``""`` and the
-    body carries no "## Cookbook" section at all: the contract and the skills are what there
-    is, and a note saying a file is missing would only send the agent looking for one.  (A
-    stale ``.3dcode/cookbook.md`` from an earlier materialisation is removed for the same
-    reason.)"""
+    The body is the hard rules, the tool cards and the language contract — nothing else is
+    written for the agent to read (D107, owner 2026-10-15: no language ships a cookbook; the
+    interface facts are in the contract, the craft in the routed skills)."""
     mcp_command = list(mcp_command) if mcp_command else default_mcp_command(ws)
-
-    # cookbook: copy into the harness-owned .3dcode/ dir so every CLI can read it in-workspace
-    dest = ws.root / C3D_DIR / "cookbook.md"
-    if cookbook_text:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(cookbook_text, encoding="utf-8")
-        cookbook_section = (
-            "## Cookbook\n\n"
-            f"The cookbook for this language — copyable, verified snippets and skeletons — is at "
-            f"`{C3D_DIR}/cookbook.md` (relative to the workspace root). Read the relevant sections "
-            "before writing code and copy its patterns exactly.\n\n"
-        )
-    else:
-        dest.unlink(missing_ok=True)
-        cookbook_section = ""
-
-    body = _body(agent_kind, contract_md, cookbook_section, spatial_tools, mcp_command, ws)
+    body = _body(agent_kind, contract_md, spatial_tools, mcp_command, ws)
     for name in BODY_FILES:
         (ws.root / name).write_text(body)
+    (ws.root / LEGACY_COOKBOOK).unlink(missing_ok=True)
     # No MCP server is written into the workspace: every CLI gets 3dcode from a harness-owned
     # per-session file, so an agent-planted server cannot reach the next round (audit 2026-08-27).
     (ws.root / IGNORE_FILE).write_text("\n".join(IGNORE_LINES) + "\n")
+
+
+def needs_rematerialize(ws: Workspace) -> bool:
+    """A workspace materialised before D107 (it still holds :data:`LEGACY_COOKBOOK`) — its body
+    files carry the old "## Cookbook" section, so a resumed run writes them again."""
+    return (ws.root / LEGACY_COOKBOOK).is_file()

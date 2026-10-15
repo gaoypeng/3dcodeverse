@@ -17,10 +17,6 @@ Constraints:
 {{ contract }}
 
 Files you must produce: {% for f in expected_files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}.
-Copyable snippets live in `.3dcode/cookbook.md` (read it before writing if you can).{% if cookbook_excerpt %}
-Cookbook excerpt:
-{{ cookbook_excerpt }}
-{% endif %}
 
 ## Plan
 {{ plan_summary }}
@@ -39,13 +35,13 @@ Construction notes per part:
 ## DO
 - Place each part so its bounding box CENTRE and EXTENTS equal the plan row. Compute
   positions from the numbers in the table; do not re-invent the layout.
-- Weld touching parts: overlap neighbours by ≥ 0.002 m (push a leg 2-5 mm into the seat). Never
-  bridge gaps with thin rods; no part may float.
+- Touching parts: surface gap ≤ 0.002 m (flush counts), overlap ≤ 0.002 m (`check_connectivity`
+  reports deeper overlap as interpenetration). Every part must be in the ground-touching component
+  (a floating part is an ERROR). Add no connector geometry the plan does not list.
 - Use `instances` + `symmetry` from the table: mirror pairs at ±x, radial sets around the up axis.
-- Put real detail where the plan says: chamfers/bevels 2-6 mm, tapers, grooves, slats, bolts —
-  with the stated radii and counts. Primitives alone are not enough; combine and shape them.
-- Materials per part with the stated colour (sRGB hex or 0-1 floats); roughness/metalness sensible.
-- Segments 24-48 for round things.
+- Build the features each plan description names, at its numbers and counts (the judge's
+  checklist verifies them).
+- A material per part with the plan's colour.
 - Name parts EXACTLY as in the table (PascalCase). One named node/object per part; the
   instances of a part are top-level nodes `Name_0`, `Name_1`, ….
 
@@ -56,12 +52,13 @@ Construction notes per part:
 - No environment sniffing, no `typeof window`, no headless branches — one code path.
 - No DOM, canvas textures, image/texture loading, network, file IO, camera/light/render/export calls.
 - No helper SDKs or imports beyond the contract's allow-list.
-- No placeholders ("TODO", "simplified"); no part smaller than 50% of its planned extents; no
-  unit-cube stand-ins; no parts outside the overall bbox.
+- No placeholders ("TODO", "simplified"); no part off its planned extents by more than the
+  contract tolerance (max(1 cm, 10 %) per axis; 3 × that is an ERROR); no unit-cube stand-ins; no
+  parts outside the overall bbox.
 - Do not change part names, counts or the overall size to "simplify".
 
 {% if skeleton_files %}
-## Current files (skeleton already in src/ — keep its structure, fill in every stub)
+## Current files (skeleton in src/: keep the file names and entry names your contract states; replace the placeholder geometry and helpers freely)
 {% for path, body in skeleton_files.items() %}
 --- {{ path }} ---
 ```

@@ -1,4 +1,4 @@
-"""materialize_workspace: bodies, ignore file, cookbook, codex overrides."""
+"""materialize_workspace: bodies, ignore file, codex overrides."""
 
 from __future__ import annotations
 
@@ -9,15 +9,20 @@ import sys
 import tomllib
 
 from codeverse3d.agents.cli_common import default_mcp_command
-from codeverse3d.agents.materialize import codex_mcp_overrides, materialize_workspace
+from codeverse3d.agents.materialize import (
+    LEGACY_COOKBOOK,
+    codex_mcp_overrides,
+    materialize_workspace,
+    needs_rematerialize,
+)
 from codeverse3d.workspace import Workspace
 
 CONTRACT = "## blender contract\nWrite pure bpy into src/model.py."
 
 
-def _mat(ws: Workspace, kind: str = "agy", spatial: bool = True, cookbook: str = ""):
-    return materialize_workspace(ws, agent_kind=kind, contract_md=CONTRACT, cookbook_text=cookbook,
-                                 spatial_tools=spatial, mcp_command=default_mcp_command(ws))
+def _mat(ws: Workspace, kind: str = "agy", spatial: bool = True):
+    return materialize_workspace(ws, agent_kind=kind, contract_md=CONTRACT, spatial_tools=spatial,
+                                 mcp_command=default_mcp_command(ws))
 
 
 def test_bodies_document_only_this_tracks_tools(tmp_ws: Workspace):
@@ -50,20 +55,31 @@ def test_no_mcp_config_and_no_gemini_body_is_written_into_the_workspace(tmp_ws: 
     assert {p.name for p in tmp_ws.root.glob("*.md")} >= {"AGENTS.md", "CLAUDE.md"}
 
 
-def test_a_language_without_a_cookbook_gets_no_section_and_no_file(tmp_ws: Workspace):
-    """The scene languages ship no cookbook (owner, 2026-10-15): the body carries no "## Cookbook"
-    section — not a note saying one is missing, which only sends the agent looking — and no
-    ``.3dcode/cookbook.md`` is written (a stale one from an earlier materialisation goes).  A
-    language that ships one still gets the section and the file."""
-    tmp_ws.spec_path.write_text(json.dumps({"id": "t", "track": "scene", "language": "scene_threejs", "prompt": "p"}))
-    _mat(tmp_ws, cookbook="# a cookbook\n\nsnippets\n")
+def test_the_body_is_rules_tools_and_contract_and_never_mentions_a_cookbook(tmp_ws: Workspace):
+    """No language ships a cookbook (D107, owner 2026-10-15): the body is Hard rules → Spatial tools →
+    Language contract, says nothing about a cookbook (a note that one is missing only sends the agent
+    looking), and writes nothing under ``.3dcode/`` for the agent to read."""
+    tmp_ws.spec_path.write_text(json.dumps({"id": "t", "track": "static_object", "language": "blender", "prompt": "p"}))
+    _mat(tmp_ws)
     body = (tmp_ws.root / "AGENTS.md").read_text()
-    assert "## Cookbook" in body and (tmp_ws.root / ".3dcode" / "cookbook.md").read_text() == "# a cookbook\n\nsnippets\n"
-    _mat(tmp_ws, cookbook="")
-    body = (tmp_ws.root / "AGENTS.md").read_text()
-    assert "## Cookbook" not in body and "cookbook" not in body.lower()
-    assert not (tmp_ws.root / ".3dcode" / "cookbook.md").exists()
-    assert body.index("## Spatial tools") < body.index("## Language contract")   # the sections around it stay in order
+    assert "cookbook" not in body.lower()
+    assert body.index("## Hard rules") < body.index("## Spatial tools") < body.index("## Language contract")
+    assert not (tmp_ws.root / ".3dcode").exists() or not any((tmp_ws.root / ".3dcode").iterdir())
+
+
+def test_a_workspace_materialised_before_d107_is_rematerialised_and_loses_its_cookbook(tmp_ws: Workspace):
+    """A resumed pre-D107 run still holds ``.3dcode/cookbook.md`` and a "## Cookbook" body section:
+    ``needs_rematerialize`` says so (``ensure_materialized`` then writes the body again), and
+    materialising removes the file."""
+    tmp_ws.spec_path.write_text(json.dumps({"id": "t", "track": "static_object", "language": "blender", "prompt": "p"}))
+    legacy = tmp_ws.root / LEGACY_COOKBOOK
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text("# Cookbook\n")
+    (tmp_ws.root / "AGENTS.md").write_text("## Cookbook\ncopy its patterns exactly\n")
+    assert needs_rematerialize(tmp_ws)
+    _mat(tmp_ws)
+    assert not legacy.exists() and not needs_rematerialize(tmp_ws)
+    assert "cookbook" not in (tmp_ws.root / "AGENTS.md").read_text().lower()
 
 
 def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
@@ -89,7 +105,7 @@ def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
         assert "artifacts/" not in lines and "trajectories/" in lines
         for readable in ("artifacts/census.json", "artifacts/build.json", "artifacts/measurement.json",
                          "artifacts/gates/r00/contract_tool.json", "artifacts/tool_renders/r00_ab/sheet.png",
-                         "src/model.py", ".3dcode/cookbook.md"):
+                         "src/model.py", ".3dcode/images/ref.png"):
             assert not ignored(readable, lines), readable
         for hidden in ("artifacts/renders/r00/sheet.png", "trajectories/baseline_r00/stdout.json",
                        "trajectories/baseline_r00/prompt.md", "trajectories/baseline_r00/agy.log",

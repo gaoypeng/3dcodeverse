@@ -82,14 +82,14 @@ ENTRY_FILE: dict[Language, str] = {
 
 #: source files the HARNESS writes under ``src/`` and owns: the agent reads them and calls what
 #: they define, never writes them (``AgentJob.read_only`` — the agent's write scope excludes them).
-#: Measured 2026-08-26 (eval/bench/out/seed_v1, aurora brief, gemini-3.7-flash api-agent): recipes
-#: seeded into the agent's own ``src/common.glsl`` were gone by the end of the run — it rewrote
-#: the file with its own helpers — so a seeded file has to be one the agent cannot rewrite.
-#: An entry ending in ``/`` is a DIRECTORY prefix: every file under it is owned.  That is
-#: how the 52-module effect library is named without listing 52 paths — and the list is
-#: the library's contents, so an entry per file would go stale the day one is added.
+#: Measured 2026-08-26 (eval/bench/out/seed_v1, aurora brief): helpers seeded into the agent's own
+#: ``src/common.glsl`` were gone by the end of the run — it rewrote the file — so a seeded file has
+#: to be one the agent cannot rewrite.  (glsl_shader's seeded ``src/recipes.glsl`` went with the
+#: recipe seeding, D107.)  An entry ending in ``/`` is a DIRECTORY prefix: every file under it is
+#: owned — the effect library is named without listing every path; an entry without one is an
+#: exact file (no language ships one since D107; the rule stays for the next seeded file, and
+#: ``tests`` exercise it on a synthetic entry).
 HARNESS_OWNED_SRC: dict[Language, tuple[str, ...]] = {
-    Language.GLSL_SHADER: ("src/recipes.glsl",),
     # the effect library (D51): the agent imports and calls it, never rewrites it.
     Language.SCENE_THREEJS: ("src/lib/",),
     # the small bpy library (DESIGN phase 4, D51 extended): same rule, same directory

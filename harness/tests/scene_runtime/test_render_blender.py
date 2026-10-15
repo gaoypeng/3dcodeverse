@@ -25,6 +25,7 @@ from codeverse3d.workspace import Workspace
 from tests.scene_runtime.blender_scene_fixture import (
     blender_available,
     build_fixture,
+    build_fog_box,
     build_room_shell,
 )
 from tests.scene_runtime.conftest import needs_browser
@@ -252,6 +253,31 @@ def test_a_no_fog_view_lifts_the_room_shells_lid_and_the_next_view_gets_it_back(
     assert kept[0] > max(kept[1], kept[2]) + 25, f"the lid-on view must show the red lid, got {kept}"
     assert sum(abs(a - b) for a, b in zip(lifted, kept, strict=True)) > 60, (lifted, kept)
     assert "hidden" not in rb._glb_view(res["frames"][0]), "views.json keeps the three.js schema"
+
+
+@pytest.mark.blender
+@needs_blender
+def test_a_no_fog_view_hides_a_fog_box_but_not_a_steam_puff_and_the_next_view_gets_it_back(tmp_path, monkeypatch):
+    """2026-10-15: the judge's fog-free views only unlinked the WORLD volume, while ``lib.sky.haze`` builds
+    the fog as a volume-only box — so the placement views were rendered through the haze (iteration 2's
+    milky overviews).  A red crate inside an opaque 20 m fog box: the ``no_fog`` view names the box in
+    ``fog_hidden`` (never the 1 m steam puff) and its centre is the red crate; the same camera without
+    ``no_fog``, rendered next, sees the fog again — the restore in the driver's ``finally``."""
+    _cpu_env(monkeypatch, tmp_path / "cache")
+    blend = build_fog_box(tmp_path / "fog")
+    out = tmp_path / "out"
+    out.mkdir()
+    top = {"name": "overview_top", "kind": "orbit", "position": [0.0, 0.0, 6.0], "look_at": [0.0, 0.0, 1.0], "fov": 40.0,
+           "no_fog": True, "times": [0.0]}
+    fogged = {**top, "name": "fogged", "no_fog": False}
+    job = {"out": str(out), "result": str(out / rb.RESULT_NAME), "engine": "cycles", "samples": 4, "width": 96,
+           "height": 54, "times": [0.0], "authored": False, "cameras": [top, fogged]}
+    res = rb.render_frames(blend, out, job, timeout_s=180)
+    assert res["errors"] == [] and [f["name"] for f in res["frames"]] == ["overview_top", "fogged"]
+    assert {f["name"]: f["fog_hidden"] for f in res["frames"]} == {"overview_top": ["SiteHaze"], "fogged": []}
+    clear, hazy = _centre_rgb(out / "overview_top_t0.png"), _centre_rgb(out / "fogged_t0.png")
+    assert clear[0] > max(clear[1], clear[2]) + 25, f"the fog-free view must show the red crate, got {clear}"
+    assert not hazy[0] > max(hazy[1], hazy[2]) + 25, f"the fogged view must not see the crate clearly, got {hazy}"
 
 
 def test_a_missing_blend_is_an_empty_renderset_that_says_why(tmp_path):

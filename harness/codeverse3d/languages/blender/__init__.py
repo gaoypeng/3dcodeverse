@@ -235,8 +235,8 @@ def call_traps(c: BpyCollector, name: str, call: ast.Call) -> list[GateFinding]:
     if name.endswith("modifier_apply") and not c.has_temp_override:
         out.append(_f(LintKind.API_TRAP, W, "bpy.ops.object.modifier_apply needs the object active+selected in OBJECT mode", call.lineno,
                       "either leave modifiers unapplied (the exporter applies them) or wrap: `with bpy.context.temp_override(object=obj): bpy.ops.object.modifier_apply(modifier=mod.name)`"))
-    # the rule's own precondition: a script that sets the active object before joining (the urdf
-    # cookbook's `join_as`, one joined object per link) has done what the warning asks
+    # the rule's own precondition: a script that sets the active object before joining (as a
+    # urdf_blender model does to get one joined object per link) has done what the warning asks
     if (name.endswith("bpy.ops.object.join") or name == "bpy.ops.object.join") and not any(
             t.endswith("view_layer.objects.active") for t, _ in c.attr_stores):
         out.append(_f(LintKind.API_TRAP, W, "bpy.ops.object.join needs all parts selected + an active object; the result inherits the ACTIVE object's transform", call.lineno,
@@ -529,10 +529,6 @@ def instance_centers(bbox: BBox, n: int, symmetry: str) -> list[tuple[float, flo
     return [(cx, cy, cz) for _ in range(n)]
 
 
-def _bevel(bbox: BBox) -> float:
-    return max(0.0, min(0.01, 0.08 * min(bbox.extents)))
-
-
 # ----------------------------------------------------------------------------- shared text blocks
 IMPORTS = '''import math
 import random
@@ -556,27 +552,22 @@ def make_material(name, rgb, roughness=0.5, metallic=0.0):
     return mat
 
 
-def add_box(name, center, extents, material=None, bevel=0.0):
-    """Axis-aligned box: size=1 cube scaled to `extents`, scale baked into the mesh."""
+def add_box(name, center, extents, material=None):
+    """PLACEHOLDER helper (replace freely): an axis-aligned box of exactly `extents`, scale baked."""
     bpy.ops.mesh.primitive_cube_add(size=1, location=center, scale=extents)
     obj = bpy.context.object
     obj.name = name
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     if material is not None:
         obj.data.materials.append(material)
-    if bevel > 0:
-        mod = obj.modifiers.new("Bevel", "BEVEL")
-        mod.width = bevel
-        mod.segments = 3
-        mod.limit_method = "ANGLE"
     return obj
 
 '''
 
 SELFCHECK = '''
 def _selfcheck():
-    """What the harness checks first: meshes exist, no auto-suffixed names, stands on z=0 —
-    over the meshes that export (a hidden boolean cutter does not)."""
+    """Optional: meshes exist, no auto-suffixed names, lowest point — over the meshes that
+    export (a hidden boolean cutter does not).  Fails only past the ground gate's ERROR line."""
     bpy.context.view_layer.update()
     shown = set(bpy.context.view_layer.objects.keys())
     meshes = [o for o in bpy.data.objects if o.type == "MESH" and o.name in shown
@@ -585,7 +576,7 @@ def _selfcheck():
     for o in meshes:
         assert "." not in o.name, f"auto-suffixed name {o.name!r}: give every instance its own name"
     z_min = min((o.matrix_world @ Vector(c)).z for o in meshes for c in o.bound_box)
-    assert abs(z_min) < __GROUND_TOL__, f"lowest point z={z_min:.4f}: the object must stand on z=0"
+    assert abs(z_min) < 3 * __GROUND_TOL__, f"lowest point z={z_min:.4f}: check_contract reports this as an ERROR"
     print(f"[selfcheck] {len(meshes)} mesh objects, z_min={z_min:.4f}")
 
 '''
@@ -595,7 +586,8 @@ def _constants(p: PartPlan) -> str:
     mn, mx = p.bbox.min, p.bbox.max
     pre = to_snake(p.name).upper()
     return (
-        f"# ---- plan numbers (metres) for {to_pascal(p.name)} — keep the finished part inside this bbox\n"
+        f"# ---- plan bbox (metres) for {to_pascal(p.name)}: the built AABB must match it within max(1 cm, 10 %) "
+        f"per axis (check_contract)\n"
         f"{pre}_CENTER = ({fmt3(p.bbox.center)})\n"
         f"{pre}_EXTENTS = ({fmt3(p.bbox.extents)})\n"
         f"{pre}_MIN = ({fmt3(mn)})\n"
@@ -619,7 +611,7 @@ def _part_function(p: PartPlan) -> str:
         f"      x in [{mn[0]:.3f}, {mx[0]:.3f}]  y in [{mn[1]:.3f}, {mx[1]:.3f}]  z in [{mn[2]:.3f}, {mx[2]:.3f}]",
     ]
     if p.attach_to:
-        lines.append(f"    Attaches to: {to_pascal(p.attach_to)} (surfaces must touch, no gap)")
+        lines.append(f"    Attaches to: {to_pascal(p.attach_to)} (surface gap <= 2 mm, overlap <= 2 mm: check_connectivity)")
     if p.instances > 1:
         lines.append(f"    Instances: {p.instances} ({p.symmetry}) -> named {pascal}_0..{pascal}_{p.instances - 1}, "
                      f"each TOP-LEVEL (no parent Empty — it would merge them into one measured part); returns the list")
@@ -628,7 +620,7 @@ def _part_function(p: PartPlan) -> str:
     if p.instances == 1:
         lines += [
             "    # TODO: replace this placeholder box with the real geometry (keep the name + bbox)",
-            f"    return add_box(\"{pascal}\", {pre}_CENTER, {pre}_EXTENTS, mat, bevel={_bevel(p.bbox):.4f})",
+            f"    return add_box(\"{pascal}\", {pre}_CENTER, {pre}_EXTENTS, mat)",
         ]
     else:
         centers = [tuple(round(x, 4) for x in c) for c in instance_centers(p.bbox, p.instances, p.symmetry)]
@@ -636,7 +628,7 @@ def _part_function(p: PartPlan) -> str:
             "    objs = []",
             f"    for i, c in enumerate({centers}):  # TODO: exact placement",
             "        # TODO: replace this placeholder box with the real geometry (keep the names + bbox)",
-            f"        objs.append(add_box(f\"{pascal}_{{i}}\", c, {pre}_EXTENTS, mat, bevel={_bevel(p.bbox):.4f}))",
+            f"        objs.append(add_box(f\"{pascal}_{{i}}\", c, {pre}_EXTENTS, mat))",
             "    return objs",
         ]
     return "\n".join(lines) + "\n"
@@ -652,8 +644,8 @@ def _plan_header(plan: StaticPlan) -> str:
     accept = "\n".join(f"  - [{a.id}] {a.text}" for a in plan.acceptance) or "  (none listed)"
     layout = (
         f"  * LAYOUT: this file is the ENTRY. Each part lives in src/{PARTS_DIR}/<snake>.py and exports\n"
-        f"    build_<snake>() -> bpy.types.Object; main() below imports and calls them in order.\n"
-        "    Edit geometry in the part files; keep this file to imports + calls + self-check.\n"
+        f"    build_<snake>() -> bpy.types.Object; main() below imports and calls each once.\n"
+        "    The lint checks that every part file is imported here; the rest of this file is yours.\n"
     )
     return f'''"""{plan.object_name} — Blender (bpy) model.
 
@@ -668,9 +660,12 @@ CONTRACT (the harness runs this file in an EMPTY scene with `blender -b --factor
     each TOP-LEVEL (never parented under an Empty — that merges them into ONE measured part).
 {layout}  * Materials: Principled BSDF (Base Color / Roughness / Metallic). GLB keeps flat PBR + image
     textures only (procedural node textures are NOT exported) — rely on geometry + flat PBR.
+  * Each part's built AABB matches its row within max(1 cm, 10 %) per axis (3x that is an ERROR);
+    touching parts: surface gap <= 2 mm, overlap <= 2 mm; every part reaches the ground through
+    its neighbours (check_contract, check_connectivity).
   * Modifiers may stay unapplied (the exporter applies them).
   * NEVER: cameras, lights, world, render settings, export/import, file IO, bpy.ops.wm.*.
-  * Only bpy / bmesh / mathutils / math / random (seeded). No other imports.
+  * Imports: the contract's allow-list (bpy, bmesh, mathutils, math, random, numpy, ...); seed random.
 
 PARTS:
 {parts_doc}
@@ -690,11 +685,11 @@ def part_file_source(p: PartPlan) -> str:
         f"{p.description}\n"
         f"Material: {p.material or 'n/a'}.  Instances: {p.instances}"
         + (f" ({p.symmetry})" if p.instances > 1 else "")
-        + (f".  Attaches to: {to_pascal(p.attach_to)} (must touch, no gap)" if p.attach_to else "")
+        + (f".  Attaches to: {to_pascal(p.attach_to)} (gap <= 2 mm, overlap <= 2 mm)" if p.attach_to else "")
         + f".\n\nExports `{fn}() -> bpy.types.Object`: builds the part at its WORLD pose (Z up, -Y front,\n"
         "metres) with the exact object name(s) and returns it (list of TOP-LEVEL objects when\n"
         "instanced — never parent instances under an Empty).  Do NOT call it here — model.py does.\n"
-        "Keep this file self-contained (its own helpers); only bpy/bmesh/mathutils/math/random.\n"
+        "Shared helpers may live in src/parts/_<name>.py (not a part); imports per the contract's allow-list.\n"
         '"""\n'
     )
     return doc + IMPORTS + "\n" + _constants(p) + HELPERS + "\n# ----------------------------------------------------------------------------- part\n" + _part_function(p)

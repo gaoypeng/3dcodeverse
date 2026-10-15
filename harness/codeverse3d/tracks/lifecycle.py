@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from codeverse3d.agents.materialize import needs_rematerialize
 from codeverse3d.config import Settings, get_settings
 from codeverse3d.contracts.artifacts import GateReport
 from codeverse3d.contracts.common import TRACK_INFO, Track
@@ -188,7 +189,7 @@ def _skeleton(track: BaseTrack, ctx: RunContext) -> list[str]:
 
 #: the buildable placeholder of every file the plan names
 SKELETON = StageNode("skeleton", _skeleton, key=lambda c: {"plan": c.plan, "language": c.language.value}, seeds_src=True)
-#: the vendor CLI's workspace files (AGENTS.md, MCP config, the cookbook copy): once per agent kind
+#: the vendor CLI's workspace files (AGENTS.md / CLAUDE.md, the ignore file): once per agent kind
 MATERIALIZE = StageNode("materialize", lambda t, c: t.ensure_materialized(c))
 #: a stage boundary: the run stops here when the hard budget is spent
 CLOCK = StageNode("clock", lambda t, c: c.budget.check())
@@ -311,7 +312,7 @@ class BaseTrack:
         """Regenerate after a failed build: the generate prompt + the error report."""
         files = ctx.runtime.expected_files(ctx.plan)
         lint = next((g for g in last.gates if g.gate.startswith("lint")), GateReport(gate="lint", passed=True))
-        report = format_error_report(last.build, lint, ctx.cookbook_text) if last.build else "build did not run"
+        report = format_error_report(last.build, lint) if last.build else "build did not run"
         prompt = render(self.generate_template, **self.generate_context(
             ctx, skeleton_files=refine_inline_files(ctx, files), previous_error=report))
         return GenerationTask(label="rebuild", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
@@ -508,11 +509,8 @@ class BaseTrack:
                          agent=metered_agent(self._agent), model=metered_chat_model(self._model),
                          variant=active_variant())
         ctx.contract_text = language_text(spec.language, "contract.md")
-        ctx.cookbook_text = language_text(spec.language, "cookbook.md")
         ctx.tool_cards = self.services.tool_cards(self.track.value, spec.language.value)
-        for name, text in (("contract", ctx.contract_text), ("cookbook", ctx.cookbook_text)):
-            if text:   # a language without a cookbook (the scene languages) records no hash for one
-                ctx.record_prompt(name, text)
+        ctx.record_prompt("contract", ctx.contract_text)
         return ctx
 
     def _resolve_candidates(self, spec: Spec, settings: Settings) -> int:
@@ -574,10 +572,9 @@ class BaseTrack:
         if ctx.single_shot:
             return
         kind = ctx.agent_kind
-        if ctx.state.materialized_for == kind:
+        if ctx.state.materialized_for == kind and not needs_rematerialize(ctx.ws):
             return
-        self.services.materialize(ctx.ws, agent_kind=kind, contract_md=self.agent_contract_md(ctx), cookbook_text=ctx.cookbook_text,
-                                  spatial_tools=True)
+        self.services.materialize(ctx.ws, agent_kind=kind, contract_md=self.agent_contract_md(ctx), spatial_tools=True)
         ctx.state.materialized_for = kind
         ctx.state.save(ctx.ws)
         ctx.events.emit("workspace.materialized", agent_kind=kind)

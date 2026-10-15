@@ -20,7 +20,7 @@ from codeverse3d.config import Settings
 #: planner templates included, and its name is part of the plan stage key
 #: (``lifecycle.plan_stage_key``) — two arms that differ by variant must each plan.
 GENERATION_SIDE_ENV: frozenset[str] = frozenset({"C3D_SKILLS", "C3D_SKILLS_MAX", "C3D_SKILLS_UNVERIFIED",
-                                                 "C3D_SKILLS_ONLY", "C3D_REFERENCE_DIFF", "C3D_SEED_RECIPES"})
+                                                 "C3D_SKILLS_ONLY", "C3D_REFERENCE_DIFF"})
 #: the two the node side reads itself (runtime_js: gpu_launch.cjs, browser_daemon.cjs)
 NODE_SIDE_ENV: frozenset[str] = frozenset({"C3D_BROWSER_REUSE", "C3D_PAGE_TTL_MS"})
 

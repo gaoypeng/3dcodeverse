@@ -15,8 +15,9 @@ extra_instructions: >
   detail, and the GEOMETRY-ONLY montage (when present) for holes, inverted faces and
   intersections.  Hidden connectors (a bracket inside a shade, a dowel inside a joint)
   are NOT defects when the parts visibly meet.  CALIBRATION — use these fixed points:
-  0.9+ = every part crisp with bevels/chamfers/tapers/profiles, correct proportions,
-  clean joins, sensible materials (a product photo); 0.7 = correct and complete but
+  0.9+ = every part carries the edge treatment, profile and hardware the real object has, at
+  its scale, with correct proportions, clean joins and sensible materials (a product photo);
+  0.7 = correct and complete but
   plain; 0.5 = recognisable but a stack of primitives, or one major defect (a gap, a
   floating part, a wrong proportion); 0.2 = wrong object, flat blobs, parts exploded
   or lying on its back.  A primitive box-stack and a crafted product must be ≥ 0.4
@@ -98,7 +99,7 @@ criteria:
       (use the measurement table and any stated dimensions)?  Seat height, leg
       thickness, wheel diameter, handle size must read as real-world correct.
     anchors:
-      "1.0": Overall size and every part ratio are believable against the measurement table; stated dimensions are met within tolerance (±5%).
+      "1.0": Overall size and every part ratio are believable against the measurement table; stated dimensions are met within the contract gate's tolerance (max(10 mm, 10 % of the extent) per axis — the contract gate reports any excess; trust it over your eye).
       "0.7": One part is somewhat thick/thin/short/long (legs 30% heavier than typical) but the object still reads correctly at the stated size.
       "0.4": A clearly wrong proportion (legs twice as thick as they should be, a tiny seat on a huge frame, a 1.2 m tall dining chair) or the size is off by more than ~20%.
       "0.1": Proportions are absurd (seat thicker than it is wide) or the object is the wrong order of magnitude.
@@ -212,10 +213,10 @@ defects:
     penalty: 0.10
     cap: 0.50
   - id: primitive_only
-    text: Two thirds or more of the nameable parts are unmodified boxes / cylinders / spheres with sharp 90° edges, and at most one part carries any bevel, taper, profile, curve or cut-out. Different colours on stock shapes do NOT count as refinement.
+    text: Two thirds or more of the nameable parts are unmodified boxes / cylinders / spheres with sharp 90° edges where the real object has shaped edges, profiles, curves or cut-outs (the plan digest names them); at most one part carries any. Different colours on stock shapes do NOT count as refinement.
     penalty: 0.08
   - id: detail_below_part_count
-    text: The object has TEN or more nameable parts but fewer than THREE distinct refinement kinds (the numbered list in the rubric notes) are visible across all of them together — many primitives, little shape. Count kinds, not instances; do not count colour.
+    text: The object has TEN or more nameable parts but fewer than THREE distinct refinement kinds (the numbered list in the rubric notes) are visible across all of them together although the real object carries more — many primitives, little shape. Count kinds, not instances; do not count colour.
     penalty: 0.05
   - id: untextured_flat
     text: Default grey / magenta placeholder materials are visible (the untinted "nothing was

@@ -290,7 +290,7 @@ def plan_detail_crops(shaded: list[RenderView], *, scene: bool, gates: Sequence[
         return []
     centre = Montage("detail", (shaded[0],), f"DETAIL CROP — centre of {shaded[0].name} at 2×",
                      crop=(0.25, 0.25, 0.75, 0.75),
-                     hint="look for bevels, seams, gaps and surface artefacts; judge detail at this scale")
+                     hint="look for edge treatment, seams, gaps and surface artefacts at this scale; judge detail here")
     if scene:
         return [centre, *plan_contact_crops(shaded, gates)[:limit]]
     out = [centre]
@@ -611,7 +611,7 @@ SCORING RULES
 - DEFECT CHECKLIST: answer EVERY item with present=true/false. true ONLY when the defect is visible in an image, or a gate finding of severity ERROR / a measurement states it; gate WARNINGS (e.g. a few-mm weld overlap) are informational and never make a defect present. Cite where. These answers drive penalties and caps computed by the harness, so be literal: do not mark a defect to "be safe", and do not hide one to be kind.
 - Do NOT compute an overall or decide pass/fail; the harness computes the weighted overall, subtracts defect penalties, applies floors and caps.
 - Issues: observable defects, most severe first, with target = the part / zone / joint / asset name from the plan digest (or "overall"), a kind, a severity and evidence.
-- Improvement plan: at most 6 concrete, imperative instructions for the builder ("taper the four legs from 45 mm at the seat to 30 mm at the foot and extend them to touch y=0"), priority 1 first, each with a target name from the plan digest and an expected_gain estimate. Give items even for passing work if a named change would raise the score; leave empty only when nothing would.
+- Improvement plan: at most 6 concrete, imperative instructions for the builder ("rear_leg_left: ends 3 cm above y=0 in the ground-contact crop — extend it to touch the ground"; "seat: measured 62 mm thick against the brief's 25 mm — thin it to the stated size"), priority 1 first, each with a target name from the plan digest and an expected_gain estimate. Give items even for passing work if a named change would raise the score; leave empty only when nothing would.
 - Acceptance items: answer verified=true ONLY when the renders or measurements prove the item; otherwise false with what is missing.
 - Reply with ONE JSON object matching the requested schema; no prose outside it."""
 

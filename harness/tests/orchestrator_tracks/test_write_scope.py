@@ -27,22 +27,22 @@ from .fakes import FakeAgent, FakeRuntime, FakeServices
 
 
 def test_write_files_normalises_a_path_before_the_owned_and_scope_checks(tmp_ws: Workspace):
-    """B1: `src//lib/x.js`, `src/./lib/x.js` and `src//recipes.glsl` ARE the harness-owned files —
+    """B1: `src//lib/x.js`, `src/./lib/x.js` and `src//owned.glsl` ARE the harness-owned files —
     un-normalised they slipped past `is_harness_owned` and the edit_only scope and were written."""
     (tmp_ws.src / "lib").mkdir(parents=True, exist_ok=True)
     (tmp_ws.src / "lib" / "x.js").write_text("// owned\n")
-    (tmp_ws.src / "recipes.glsl").write_text("// owned\n")
+    (tmp_ws.src / "owned.glsl").write_text("// owned\n")
     (tmp_ws.src / "zones").mkdir(parents=True, exist_ok=True)
     (tmp_ws.src / "zones" / "q.js").write_text("// old q\n")
     skipped: list[str] = []
-    files = {"src//lib/x.js": "// pwned", "src/./lib/x.js": "// pwned", "src//recipes.glsl": "// pwned",
+    files = {"src//lib/x.js": "// pwned", "src/./lib/x.js": "// pwned", "src//owned.glsl": "// pwned",
              "src//zones/q.js": "// out of scope", "src/./parts/a.js": "// mine"}
-    changes = write_files(tmp_ws, files, only={"src/parts/a.js"}, frozen=("src/lib/", "src/recipes.glsl"),
+    changes = write_files(tmp_ws, files, only={"src/parts/a.js"}, frozen=("src/lib/", "src/owned.glsl"),
                           on_skip=lambda p, r: skipped.append(p))
     assert [c.path for c in changes] == ["src/parts/a.js"]
     assert sorted(skipped) == sorted(set(files) - {"src/./parts/a.js"})
     assert (tmp_ws.src / "lib" / "x.js").read_text() == "// owned\n"
-    assert (tmp_ws.src / "recipes.glsl").read_text() == "// owned\n"
+    assert (tmp_ws.src / "owned.glsl").read_text() == "// owned\n"
     assert (tmp_ws.src / "zones" / "q.js").read_text() == "// old q\n"
 
 

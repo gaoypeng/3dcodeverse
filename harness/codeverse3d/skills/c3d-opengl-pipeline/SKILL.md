@@ -1,12 +1,12 @@
 ---
 name: c3d-opengl-pipeline
-description: "Use when writing an opengl_python / moderngl program, or when the gl_frames gate reported flicker, no motion or a near-flat image. Covers baseline, refine, repair and rebuild sessions: the setup / render contract, the sampled-time trap that breaks every feedback simulation, VAO and uniform mechanics, ping-pong FBOs, and the three richness rules the judge scores this language worst on."
+description: "Use when writing an opengl_python / moderngl program, or when the gl_frames gate reported flicker, no motion or a near-flat image. Covers baseline, refine, repair and rebuild sessions: the sampled-time trap that breaks every feedback simulation, what the frame gate and the judge measure on this language (edge density, motion delta, the acceptance items), and a few optional practices — full-screen passes, instancing, textures, your own framebuffers, linear light, GL state."
 license: Apache-2.0
 compatibility: OpenGL 3.3 core through moderngl, headless EGL; one module src/program.py, GLSL 330 core inline or in src/*.glsl.
 metadata:
   evidence: mixed
   evidence_note: 'Thin but real, and labelled so in the body. 5 graded opengl_python runs across graphics_v1_flash and graphics_v2_flash, 10 judged rounds, recomputed 2026-08-25. The API facts come from the runtime wrapper and the lint, not from the corpus.'
-  verified: "2026-08-25"
+  verified: "2026-10-15"
   target_metric: "gl_frame_findings"
   target_direction: "down"
   target_unit: "findings per run"
@@ -16,13 +16,9 @@ metadata:
 
 # The moderngl pipeline, and the two things that actually sink these runs
 
-## The contract in four lines
-
-`setup(ctx, width, height) -> state` is called **once**. `render(ctx, state, t, frame, fbo)`
-is called once per sampled time; `fbo` arrives already bound, cleared to black with depth 1,
-and with the viewport set. If you render into your own framebuffers you must call
-`fbo.use()` and reset `ctx.viewport` before the **final** pass — the harness reads that
-framebuffer and nothing else. Never create a context and never touch `ctx.screen`.
+Interface, sandbox, the moderngl build facts and the gate thresholds are in the language
+contract (`setup` / `render`, the harness `fbo`, the lint lists, the caps); this skill is the
+craft on top of it, and nothing below is a required shape.
 
 ## Trap 1: `render()` is sampled, not ticked
 
@@ -38,68 +34,83 @@ the seeds dies out"*, *"only expanding rings rather than labyrinthine patterns"*
 only injected at t=0s"* and *"the ink dissipates far too quickly"*. Those are all the same
 defect: five iterations of a solver that needed hundreds.
 
-The fix is to make the frame a pure function of `t`, and get the iterations inside
-`render()`:
-
-* pick a fixed simulation step, e.g. `DT = 1/120`, and run `n = round(t / DT)` steps;
-* keep the state and the time it represents in `state`; each call advances from
-  `state["t_sim"]` to `t`, and **resets to the seed whenever `t < state["t_sim"]`** so an
-  out-of-order or repeated sample still gives the same image;
-* bound the work per call (a fixed maximum number of steps);
-* inject sources as a function of `t`, not once at `frame == 0`.
+The requirement: the frame at `t` must not depend on which `t`s were rendered before (the
+tools re-render single times, and the build renders a sorted schedule). One strong way to
+meet it with a simulation: keep the state and the simulated time it represents in `state`;
+each call integrates from that time to `t` with a fixed step and a bounded step count, and
+resets to the seed whenever `t` is earlier than the state; inject sources as a function of
+the simulated time, not in a `frame == 0` branch. A worked description: `references/sampled-time.md`.
 
 ## Trap 2: motion has to be continuous *and* visible
 
-`gl_frames` measures the mean absolute difference between consecutive frames. Below
-**0.002** it calls the program static; above **0.35** it calls it flicker. Only one of our
-five opengl_python runs ever tripped this gate, but it tripped it in three separate rounds
-(max deltas 0.373, 0.392, 0.416, `ogl_hard_voxel_city`, final score 0.342), and the judge
-read the same frames as *"the camera motion is discontinuous or clips into a building,
-resulting in a hard cut"*. Since the samples are 1 to 2 s apart, a camera or a phase that
-is fine at 60 fps can still jump between samples. Drive every animated quantity
-from a smooth function of `t`, and check the amplitude *between the sampled times*, not per
-frame: `fract()`/`mod()` wraps and per-call randomness are the usual culprits.
+`gl_frames` takes the mean |Δ| of each consecutive pair of sampled frames: if the largest is
+below **0.002** the program is static (cap 0.5); if it exceeds **0.35** it is flicker (cap 0.7).
+Only one of our five opengl_python runs ever tripped this gate, but it tripped it in three
+separate rounds (max deltas 0.373, 0.392, 0.416, `ogl_hard_voxel_city`, final score 0.342),
+and the judge read the same frames as *"the camera motion is discontinuous or clips into a
+building, resulting in a hard cut"*. Since the samples are 1 to 2 s apart, a camera or a
+phase that is fine at 60 fps can still jump between samples. Check the change between the
+sampled times, not per frame: periodic wraps and per-call randomness are what has tripped
+the threshold.
 
-## API mechanics that cost a build
-
-* **Attribute names must match the shader's `in` names**, and the format string must match
-  the byte layout: `[(vbo, "3f 3f", "in_pos", "in_normal"), (ibo, "3f 3f 1f/i", ...)]`. A
-  wrong float count does not raise — it silently shuffles your data into garbage.
-* **numpy is row-major, GLSL is column-major**: `prog["u_mvp"].write(M.T.astype("f4").tobytes())`.
-  Never `.value = m.tolist()`.
-* **`KeyError: 'u_x'`** means the compiler removed an unused uniform. Delete the assignment
-  or guard with `if "u_x" in prog`.
-* **Your own FBOs need their own depth attachment and their own `.clear()`** — `ctx.clear()`
-  clears whatever is bound. Disable `DEPTH_TEST` for full-screen passes.
-* **Ping-pong needs two textures**; never sample the one you are writing. Give a simulation
-  state texture `NEAREST` filtering and clamped wrap — `LINEAR` diffuses the state a little
-  every step and `repeat` wraps the domain — and store it as `f4`, not `f2` (half float
-  clips near 65504 and quantises visibly in a feedback loop).
-* Textures need `.use(location=k)` **every frame** as well as `prog["u_tex"].value = k`.
-* `#version 330 core` on the first line of every shader string, `out vec4 fragColor;`, no
-  `gl_FragColor`, no `attribute`/`varying`. Wide lines and `GL_QUADS` do not exist in core.
-* Seed with `np.random.default_rng(SEED)` in `setup`; no wall clock, no extra python module
-  (the harness ignores anything but `src/program.py`, and the lint warns).
-
-## Make the image worth judging
+## What the gate and the judge measure on the image
 
 Over 5 runs and 10 judged rounds (`graphics_v1_flash` + `graphics_v2_flash`, recomputed
-2026-08-25) this language's three weakest criteria are **originality 0.330**,
+2026-08-25) this language's three weakest criteria were **originality 0.330**,
 **visual_richness 0.375** and **brief_fidelity 0.420** — the lowest three numbers anywhere
-in our corpus. The gate agrees from the other side: edge density below **0.002** is
-reported as *"a near-flat gradient"*.
+in our corpus. What is measured behind them:
 
-Three rules that answer exactly those readings:
+* mean edge density over the judged frames — below **0.002** the gate reports *"a near-flat
+  gradient"* (`low_detail`, no cap; the judge sees the same frames) — and the frame-to-frame
+  delta above. Structure at more than one scale supplies both: silhouettes, instanced or
+  particle detail, texture inside surfaces. Parallax between elements at different depths is
+  one way to get the delta, not a required composition.
+* the acceptance items and key visuals of the plan — the judge checks each one against the
+  frames, and an unmet `must` item caps the score at 0.7. Build the named things so each is
+  findable in the judged frames; an abstraction that gestures at the brief scores as generic.
 
-1. **Layer at least three depths.** Background, subject, foreground. One full-screen
-   gradient with a shape on it is the flat-gradient finding waiting to happen; parallax
-   between layers also supplies the frame-to-frame delta.
-2. **No single primitive carrying the frame.** Edge density comes from silhouettes and
-   high-frequency shading — instanced geometry, particles, structure inside surfaces — not
-   from a smooth ramp.
-3. **Spend the brief's own nouns.** `brief_fidelity` 0.420 says the frames were generic.
-   Every named element in the brief should be findable in the image; build the named thing
-   rather than an abstraction that gestures at it.
+## Practices (strong options, none required)
+
+**A full-screen pass.** Four clip-space vertices in a `ctx.buffer`, a `ctx.vertex_array` bound
+with `"2f"` to the vertex shader's `in vec2`, drawn as a triangle strip; the vertex shader
+derives uv from the clip position. A purely 2D brief can be one such pass driven by uniforms
+you set from `render` — a legitimate option, not the expected shape. Full-screen passes with
+DEPTH_TEST on draw nothing behind the previous depth: disable it for them.
+
+**Instancing.** A second buffer bound with `/i` formats and `vao.render(instances=n)` draws
+many copies in one call. A per-instance phase attribute lets the vertex shader animate each
+copy from `u_time` with no per-frame upload, which keeps the cost of a call flat under the
+build timeout; CPU-side updates go through `buffer.write(...)` at the same byte size
+(`buffer.orphan()` before a full rewrite).
+
+**Textures.** Procedural data from a seeded `np.random.default_rng(seed)` goes into
+`ctx.texture((w, h), components, data, dtype="f4")` or `ctx.texture3d(...)`; set `.filter` and
+`.repeat_x` / `.repeat_y` explicitly, and bind with `.use(location=k)` on every call before the
+draw that samples it.
+
+**Your own framebuffers.** `ctx.framebuffer(color_attachments=[tex], depth_attachment=...)`
+with a `ctx.depth_renderbuffer` when the pass needs occlusion. Ping-pong needs two textures —
+never sample the one you are writing. Give a simulation state texture `NEAREST` filtering and
+clamped wrap (`LINEAR` diffuses the state a little every step and `repeat` wraps the domain)
+and store it as `f4`, not `f2` (half float clips near 65504 and quantises visibly in a
+feedback loop). Several outputs from one pass are fragment-shader out variables with a
+layout location each, one colour attachment per location.
+
+**Light in linear, tonemap once.** Keep lighting and accumulation in linear HDR targets
+(`f2` / `f4`) and apply one tonemap plus gamma in the final pass into `fbo`; that is also what
+keeps the `blown` gate quiet when glow sums grow. With non-uniform scale, transform normals
+by the inverse-transpose of the model matrix. For a physically based surface a GGX / Schlick
+direct term in linear light is the usual choice — `c3d-glsl-craft` describes it; nothing is
+seeded into this language's workspace.
+
+**GL state.** The enables and blend modes you are likely to reach for:
+```python
+ctx.enable(moderngl.DEPTH_TEST); ctx.disable(moderngl.DEPTH_TEST)
+ctx.enable(moderngl.BLEND); ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+ctx.blend_func = moderngl.ONE, moderngl.ONE            # additive glow
+ctx.enable(moderngl.CULL_FACE); ctx.front_face = "ccw"
+ctx.enable(moderngl.PROGRAM_POINT_SIZE)                # gl_PointSize in the vertex shader, mode=moderngl.POINTS
+```
 
 ## Prove it
 
@@ -107,7 +118,4 @@ Three rules that answer exactly those readings:
 `gl_frames` before finishing — it renders the judged times, returns the per-frame
 luminance / colour / detail / motion table and runs the gate. **Look at the contact sheet.**
 
-Code to copy: cookbook `opengl_python` sections *VBO / VAO with interleaved attributes*,
-*Instancing*, *Uniforms and matrices*, *FBOs*, *PITFALLS*.
-
-A worked sampled-time feedback loop and the frame-metric table: `references/sampled-time.md`.
+How the schedule is built and what the gate measures: `references/sampled-time.md`.

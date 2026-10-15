@@ -113,8 +113,7 @@ def material_slot_warnings(meshes: list[dict[str, Any]]) -> list[str]:
         warnings.append(
             f"mesh(es) {_named(unused)} carry material slots no polygon uses — those colours never reach "
             "the export; assign per face (for f in bm.faces: f.material_index = k, BEFORE bm.to_mesh, or "
-            "poly.material_index on the built mesh — see the cookbook's material_index recipe) or drop the "
-            "unused slots"
+            "poly.material_index on the built mesh) or drop the unused slots"
         )
     if clamped:
         warnings.append(

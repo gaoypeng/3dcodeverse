@@ -153,18 +153,6 @@ class Limits(BaseModel):
         "own A/B — docs/COST.md §17 — so no profile sets one; name it here or as "
         "C3D_AGENT_MAX_TURNS if you want one).",
     )
-    seed_recipes: Flag = Field(
-        default=True,
-        description="graphics / glsl_shader: paste the cookbook recipes the brief calls for "
-        "(curtain / aurora / stars / bokehSoft / dropsLayer + the hash / noise / fbm helpers "
-        "they use) into the harness-owned, read-only src/recipes.glsl BEFORE the baseline session "
-        "(tracks/graphics.py:seed_recipes; pasted above src/common.glsl at build time).  "
-        "ON by default: measured 2026-08-26 (refs_v2_graphics, aurora brief, gemini-3.7-flash) "
-        "the prompt carried the verified curtain() recipe five times and the agent used it zero "
-        "times — round 0 was again a comb of bars (comb_artefact, 0.33); and (eval/bench/out/seed_v1) "
-        "recipes seeded into the agent's own common.glsl were overwritten before the end of the run.  "
-        "`C3D_SEED_RECIPES=0` is the control arm.",
-    )
 
 
 class Rate(BaseModel):
@@ -259,7 +247,6 @@ class Settings(BaseSettings):
     FLAT: ClassVar[dict[str, tuple[str, str]]] = {
         "C3D_MAX_IN_FLIGHT": ("rate", "max_in_flight"),
         "C3D_RENDER_GPU": ("render", "gpu"),
-        "C3D_SEED_RECIPES": ("limits", "seed_recipes"),
         "C3D_AGENT_MAX_TURNS": ("limits", "agent_max_turns"),
     }
 

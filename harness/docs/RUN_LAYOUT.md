@@ -51,7 +51,7 @@ runs/<slug>/
   _cand/c<k>/                                (--candidates N) best-of-N sub-workspaces (gitignored, kept for the flywheel):
                                              each is a round of kind "candidate" — its own events.jsonl, rounds/r00.json,
                                              gates/, judge/r00.json (one-sample judge on quick_render views)
-  AGENTS.md GEMINI.md CLAUDE.md .gemini/settings.json .3dcode/cookbook.md .geminiignore .aiexclude
+  AGENTS.md CLAUDE.md .antigravityignore                (vendor-CLI context; no .3dcode/cookbook.md since D107)
 ```
 
 ## Why the aliases point that way
@@ -143,7 +143,7 @@ produces no diff.
 
 * **`settings.json`** (`SettingsSnapshot`) — model id, thinking level,
   temperature and judge sample count per role; rounds + budget; candidates;
-  seed; texture flag; rubric name **and its content hash**; prompt / cookbook
+  seed; texture flag; rubric name **and its content hash**; prompt / skill
   hashes; tool versions (python, blender, node, three, chrome, puppeteer);
   harness version + git sha; key-pool size; **price-table hash**; resolved
   render and limit settings.  Sampling values are what the track stamped as it ran,

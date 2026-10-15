@@ -754,14 +754,14 @@ class EngineeringBrief(BaseModel):
     reference: str = Field(description="the real-world reference instance the numbers come from")
     one_line: str = Field(description="what it is, one sentence")
     dimensions_m: list[RefDimension] = Field(
-        max_length=12, description="4-10 real-world reference dimensions in METERS, the small ones included")
-    sub_assemblies: list[SubAssembly] = Field(max_length=10, description="3-8 assemblies a fitter would name")
+        max_length=12, description="up to 12 real-world reference dimensions in METERS, the small ones included")
+    sub_assemblies: list[SubAssembly] = Field(max_length=10, description="up to 10 assemblies a fitter would name")
     mechanism: str = Field(description="how it works / how force or material moves through it")
     visible_from_outside: list[str] = Field(
-        max_length=16, description="8-16 things a viewer actually sees from outside — the only things worth modelling")
+        max_length=16, description="up to 16 things a viewer actually sees from outside — the only things worth modelling")
     signature_features: list[str] = Field(
-        max_length=6, description="3-6 features a viewer uses to recognise it — absence makes it the wrong object")
-    materials: list[str] = Field(max_length=12, description="'<part>: <material, colour, finish>' lines, 6-12 of them")
+        max_length=6, description="up to 6 features a viewer uses to recognise it — absence makes it the wrong object")
+    materials: list[str] = Field(max_length=12, description="'<part>: <material, colour, finish>' lines, up to 12")
     hidden_inside: list[str] = Field(default_factory=list, max_length=10,
                                      description="real parts that are NOT visible and must not be modelled")
     not_present: list[str] = Field(default_factory=list, max_length=10,
@@ -780,8 +780,7 @@ class PassPlan(BaseModel):
     description: str = Field(description="what this pass draws / computes, concrete")
     elements: list[str] = Field(
         default_factory=list, max_length=8,
-        description="named things this pass draws, each with its numbers "
-                    "(e.g. '7 gear wheels, 12-24 teeth, radii 0.06-0.22 screen units')")
+        description="optional: up to 8 named things this pass draws, each with its numbers")
     detail_hint: str = Field(default="", description="one line: what makes THIS pass read as real")
 
 
@@ -796,7 +795,7 @@ class GraphicsPlan(BaseModel):
     passes: list[PassPlan] = Field(min_length=1)
     uniforms: list[str] = Field(default_factory=list, description="uniform names the program exposes (u_time, u_resolution, ...)")
     motion: str = Field(default="", description="what animates over time and how")
-    key_visuals: list[str] = Field(default_factory=list, description="3-8 visible elements a viewer must recognise")
+    key_visuals: list[str] = Field(default_factory=list, description="visible elements a viewer must recognise")
     acceptance: list[AcceptanceItem] = Field(default_factory=list)
 
 

@@ -145,7 +145,7 @@ defects:
     penalty: 0.08
     cap: 0.65
   - id: primitive_only
-    text: Every part is an unmodified box / cylinder / sphere with sharp edges — no bevel, taper, profile or cut-out.
+    text: Every part is an unmodified box / cylinder / sphere with sharp edges although the reference shows shaped edges, profiles or cut-outs.
     penalty: 0.08
   - id: untextured_flat
     text: Default grey / magenta placeholder materials are visible, or surfaces are unlit flat fills with no shading response. A uniform but sensible colour (an all-walnut chair, an all-oak cabinet) is NOT this defect.

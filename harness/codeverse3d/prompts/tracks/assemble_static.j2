@@ -1,7 +1,7 @@
 # Assemble `{{ object_name }}` — you own placement, not geometry
 
 {{ n_parts }} part{{ 's' if n_parts > 1 else '' }} were written in parallel, one session per group, each into its own file.
-You own the ENTRY file: it imports every part builder, calls them in plan order and self-checks.
+You own the ENTRY file the wrapper runs: it imports every part builder and calls each once.
 You are the only session that sees the whole object, so **assembly is your responsibility**:
 every part present, nothing floating, nothing interpenetrating, the whole thing standing on the ground.
 
@@ -27,7 +27,8 @@ Overall bbox: {{ overall_bbox }}
    IS yours to fix — make the smallest change that makes it build.
 3. Run `measure`. Compare each measured part box with the table above.
 4. Run `check_connectivity` and `check_contract`. Every ERROR must be gone before you finish:
-   - a **floating** part → move it (or its neighbour) so the surfaces overlap by 2–5 mm;
+   - a **floating** part → apply the finding's translation, or extend it by the printed mm, so the
+     surfaces touch (gap ≤ 2 mm, overlap ≤ 2 mm);
    - an **interpenetrating** pair → pull one back to its plan box;
    - a **missing** part → the builder was not called, or it built under a parent Empty
      (instances must be TOP-LEVEL objects), or its name does not match the table exactly;

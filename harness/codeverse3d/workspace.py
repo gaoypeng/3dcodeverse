@@ -28,6 +28,8 @@ from codeverse3d.proc import write_json_atomic
 DELIVERABLE_DIR = "deliverable"   # (a) what the user asked for
 EVIDENCE_DIR = "evidence"         # (b) why we believe it is good  (alias of artifacts/)
 TELEMETRY_DIR = "telemetry"       # (c) what it cost and how it was configured
+#: harness-owned read-only files inside the workspace (task images: ``tracks/generation.IMAGES_DIR``)
+C3D_DIR = ".3dcode"
 
 #: physical directories every run owns.  ``artifacts/`` is the physical home of the
 #: evidence (six packages and ~50 recorded runs write paths into it); ``evidence/``

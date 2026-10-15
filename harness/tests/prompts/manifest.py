@@ -13,7 +13,7 @@ are dropped) and stored in ``manifest.json`` as ``kind → {sha256, bytes}``:
   ``JudgeInput`` the in-run judge reads (``FakeJudge.calls``) and the request the real
   ``VlmJudge`` builds from it;
 * ``context:<workspace>/files`` — what a session reads in its workspace, as materialised
-  (AGENTS/CLAUDE.md, the cookbook copy, the ignore file);
+  (AGENTS/CLAUDE.md, the ignore file);
 * ``skills:<workspace>:<kind>@rNN/routed`` — the skill bundles routed to a round;
 * ``mcp_tools:<track>/<language>`` — the MCP tool list a session is offered;
 
@@ -103,7 +103,7 @@ BRIEF = {"object_name": "DiningChair", "reference": "a Danish oak dining chair",
          "sub_assemblies": [{"name": "frame", "purpose": "carries the load", "parts": ["legs", "rails"], "material": "oak"}],
          "mechanism": "the legs carry the seat", "visible_from_outside": ["seat", "legs", "backrest"],
          "signature_features": ["tapered legs", "curved backrest"], "materials": ["seat: oiled oak"]}
-CONTEXT_FILES = ("AGENTS.md", "CLAUDE.md", ".3dcode/cookbook.md", ".antigravityignore")
+CONTEXT_FILES = ("AGENTS.md", "CLAUDE.md", ".antigravityignore")
 VOLATILE = frozenset({"duration_ms", "duration_s", "latency_ms", "max_wait_s", "timeout_s", "hard_deadline_s", "workspace", "data_b64"})
 SHADER = ("void mainImage(out vec4 fragColor, in vec2 fragCoord) {{\n  vec2 uv = fragCoord / u_resolution.xy;\n"
           "  // {tag}\n  fragColor = vec4(uv, 0.5 + 0.5 * sin(u_time), 1.0);\n}}\n")
@@ -216,9 +216,8 @@ class ManifestServices(FakeServices):
     def tool_cards(self, track: str, language: str) -> str:
         return Services.tool_cards(self, track, language)
 
-    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, cookbook_text: str, spatial_tools: bool) -> None:
-        Services.materialize(self, ws, agent_kind=agent_kind, contract_md=contract_md, cookbook_text=cookbook_text,
-                             spatial_tools=spatial_tools)
+    def materialize(self, ws: Workspace, *, agent_kind: str, contract_md: str, spatial_tools: bool) -> None:
+        Services.materialize(self, ws, agent_kind=agent_kind, contract_md=contract_md, spatial_tools=spatial_tools)
         self.materialized.append(agent_kind)
         self.contexts.append((ws.root, {n: (ws.root / n).read_text() for n in CONTEXT_FILES if (ws.root / n).is_file()}))
 
@@ -456,7 +455,7 @@ SCENARIOS: dict[str, tuple[Track, Language, dict[str, Any], Callable[[Rig], None
     "graphics.glsl_shader.single_shot.fresh": (G, Language.GLSL_SHADER, {}, lambda r: r.run(rounds=1, single_shot=True)),
     "graphics.opengl_python.agent.fresh": (G, Language.OPENGL_PYTHON, {}, lambda r: r.run(rounds=1)),
 }
-DEFAULT_TARGETS = {S: ("Seat", "FrontLeg", "Backrest"), SC: ("Quay", "Water"), G: ("RainDrops", "CityBokeh")}
+DEFAULT_TARGETS = {S: ("Base", "Upright", "TopFrame"), SC: ("Quay", "Water"), G: ("SurfaceRipples", "PoolFloor")}
 
 
 # ============================================================================ capture → normalise → hash

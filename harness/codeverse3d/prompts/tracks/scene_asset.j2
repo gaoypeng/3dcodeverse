@@ -27,9 +27,12 @@ Scene: {{ spec_prompt }}
 {{ detail_advice }}
 - No camera/light/render/export calls.
 - MOTION (only when the description names a moving part — a swinging lamp, a turning wheel, a lid
-  that rocks): keyframe that object's OWN rotation/location over frames 1-48 (24 fps = a 2 s loop,
-  ends where it starts; put the object's origin at its pivot; no Empties). The harness exports the
-  clip and the scene loops it. Amplitude must read at scene distance (>= 0.15 rad or >= 0.05 m).
+  that rocks): keyframe that object's OWN rotation/location; the harness exports the action as a
+  glTF clip and the scene loops it (a loop that ends where it starts has no seam).  A keyed rotation
+  turns about the object's origin, so the origin sits at the pivot; an Empty is not a part (the
+  census counts it as junk).  Timing as exported: the factory scene runs at 24 fps and a key on
+  frame f lands at t = f / 24 s in the clip (frame 36 is t = 1.5 s).  The scene samples t = 0 and
+  t = 1.5 s: the pose must differ visibly at scene distance (>= 0.15 rad or >= 0.05 m).
 {% if asset_files is defined and asset_files|length > 1 %}
 - Files you must produce: {% for f in asset_files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}
   (the skeleton's layout: `src/model.py` is the entry, one part per `src/parts/*.py`).

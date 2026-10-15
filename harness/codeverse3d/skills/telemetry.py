@@ -1,8 +1,8 @@
 """Did anyone actually READ it?  Measured from the CLI's own record where there is one.
 
-The fact this whole system has to answer: ``read_cookbook`` was called by **0 of 16**
-zone sessions and 1 of 4 env sessions on ``scenes_v1_flash``, although the prompt named
-five chapters by title.  A tool that exists is not a tool that gets used, and shipping a
+The fact this whole system has to answer: the former ``read_cookbook`` tool was called by
+**0 of 16** zone sessions and 1 of 4 env sessions on ``scenes_v1_flash``, although the
+prompt of the day named five chapters by title.  A tool that exists is not a tool that gets used, and shipping a
 nicer file format without measuring reads would repeat that at a new price.
 
 **Ground truth first (2026-09-22).**  Every CLI backend now folds its session's tool

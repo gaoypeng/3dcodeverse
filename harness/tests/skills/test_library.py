@@ -22,7 +22,9 @@ BUNDLES = bundle_dirs()
 SKILLS = list(iter_skills()) if BUNDLES else []
 pytestmark = pytest.mark.skipif(not BUNDLES, reason=f"no bundles in {skills_dir()} yet (the Author phase writes them)")
 
-MAX_FENCE_LINES = 20
+#: the owner's rule (D107, 2026-10-15): a skill's practice may show the API names in use, never a
+#: recipe to paste — no fence over ~12 lines, in SKILL.md or in a reference
+MAX_FENCE_LINES = 12
 #: law 2 of the contract: `conventions.py` is the only place a frame/unit rule is stated.
 #: A skill that restates one gives the agent two truths to choose between.
 CONTRACT_RESTATEMENTS = (
@@ -46,11 +48,13 @@ def test_every_bundle_is_valid_and_its_claims_are_current():
         assert not errors, f"{bundle.name}: {errors}"
 
     for skill in SKILLS:
-        for fence in re.findall(r"^```.*?^```", skill.body, re.S | re.M):
-            lines = len(fence.splitlines()) - 2
-            assert lines <= MAX_FENCE_LINES, (
-                f"{skill.name}: a {lines}-line code fence belongs in the cookbook"
-            )
+        for doc, text in [("SKILL.md", skill.body), *((str(p.relative_to(skill.dir)), p.read_text())
+                                                      for p in sorted(skill.dir.rglob("references/*.md")))]:
+            for fence in re.findall(r"^```.*?^```", text, re.S | re.M):
+                lines = len(fence.splitlines()) - 2
+                assert lines <= MAX_FENCE_LINES, (
+                    f"{skill.name}/{doc}: a {lines}-line code fence is a recipe, not a practice (D107)"
+                )
         for pattern in CONTRACT_RESTATEMENTS:
             assert not re.search(pattern, skill.body, re.I), (
                 f"{skill.name}: {pattern!r} belongs in conventions.py only"

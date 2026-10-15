@@ -88,7 +88,7 @@ def test_parse_envelope_variants():
 
 def test_the_mcp_config_is_the_typed_jobs_never_the_workspace_file(tmp_ws: Workspace):
     cmd = ["python", "-m", "codeverse3d.spatial.mcp_server", "--workspace", str(tmp_ws.root)]
-    materialize_workspace(tmp_ws, agent_kind="claude-code", contract_md="c", cookbook_text="", spatial_tools=True,
+    materialize_workspace(tmp_ws, agent_kind="claude-code", contract_md="c", spatial_tools=True,
                           mcp_command=cmd)
     a = ClaudeCodeAgent("sonnet", binary="claude")
     s = begin_session(AgentJob(workspace=str(tmp_ws.root), prompt="p", mcp_command=cmd), "claude-code")

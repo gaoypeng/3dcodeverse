@@ -44,11 +44,14 @@ round and runs the optional **texture pass** on it.  The record (plus git histor
    keeps its own built files under `artifacts/rNN/`, so any round can be handed over
    without a rebuild; the workspace ends at the last round.  Textures are a *derived asset pack*
    (`object_textured.glb` + `artifacts/textures/`); `object.glb` is never touched.
-2. **Concrete beats abstract.**  Contracts are delivered as skeleton code, exact
-   numbers and copyable snippets (cookbooks), never as clauses.  **Except on the scene track
-   (D106, 2026-10-15)**: there the harness states requirements — interface, sandbox, measured
-   thresholds — and never a template; the two scene cookbooks are gone, the skeletons are
-   placeholders, and a code block in a scene prompt or skill is at most ~12 lines (60 argon
+2. **Requirements, never templates (D106 scene track, D107 every track, owner 2026-10-15).**
+   The harness states what must be true, where, and how it is measured — interface (the files and
+   functions the wrapper calls, frames / units / naming), sandbox rules, and measured requirements
+   with their thresholds (bbox / dims / connectivity / joint / part-naming contracts, triangle
+   budgets) — and never a mandated shape, count, construction, layout or code structure the brief
+   did not ask for.  No language ships a cookbook; each `contract.md` keeps ONE executable interface
+   example (`tests/prompts/test_snippets_run.py` runs it), the craft is a few short optional
+   practices in the skills, and no code block in a prompt or skill is over ~12 lines (60 argon
    scenes of one shape were the inlined chapters executed verbatim).
 3. **Code answers when code can answer.**  Deterministic gates / measurements run
    by the harness; the VLM is used only for perception and judgement, and its
@@ -66,7 +69,7 @@ round and runs the optional **texture pass** on it.  The record (plus git histor
 9. **Money is measured, time is bounded.**  The wall clock is the hard per-run ceiling
    (`BudgetGuard`), key pools have per-key limiters, and every call is one row of the
    run's ledger, `telemetry/cost.jsonl` — the only record of money.
-10. **Reproducible.**  Prompt/rubric/cookbook hashes and tool versions are
+10. **Reproducible.**  Prompt/rubric/skill hashes and tool versions are
     recorded on every run (`record.prompt_hashes`, `record.environment`).
 11. **Export as authored.**  No wrapper re-centres, rescales or grounds the
     object; builds warn, `check_contract`/`check_connectivity` gate, the agent
@@ -212,10 +215,9 @@ codeverse3d/
                       gates), articulated_object.py (+ the planned-motion gate),
                       scene.py, scene_assets.py (+ cheap single-shot asset generation),
                       zone_layout.py (L2 zone director: per-zone structured layout calls + deterministic validator),
-                      graphics.py (the whole graphics track: prompt context, frame
-                      RenderSet, and recipe seeding into the harness-owned, read-only
-                      src/recipes.glsl — measured: flash calls a recipe on disk, not one it is
-                      shown; AgentJob.read_only, C3D_SEED_RECIPES),
+                      graphics.py (the whole graphics track: prompt context and the frame
+                      RenderSet; the recipe seeding into src/recipes.glsl went with the
+                      cookbooks, D107),
                       planner.py (the ONE planner loop + the cached EngineeringBrief
                       (C3D_PLAN_BRIEF), plan budgets and the worked examples — and the ONE owner of
                       what differs per track when planning: template, example, temperature, output
@@ -249,18 +251,17 @@ codeverse3d/
                       server.py (stdlib http.server, loopback-only; page.py also renders the
                       static single-file form), theme.py (CSS + the index-page JS)
   prompts/            EVERY piece of prompt material the harness writes, and the only place it
-                      lives: <lang>/{system,contract,cookbook}.md (incl. glsl_shader/,
-                      opengl_python/; the scene languages ship NO cookbook, D106 — contract.md
-                      and system.md carry their interface facts), system/* (harness contract, single-shot envelope,
+                      lives: <lang>/{system,contract}.md (incl. glsl_shader/,
+                      opengl_python/; NO language ships a cookbook, D106 / D107 — contract.md
+                      and system.md carry the interface facts), system/* (harness contract, single-shot envelope,
                       role_{scope,asset,repair}.j2), texturing/*.md, tracks/*.j2.
                       catalog.py answers "what exists and how does each piece reach the model"
                       — including the ONE per-language lookup, language_prompt(language, name) /
-                      language_text: contract.md, cookbook.md, system.md, effects_catalog.md, asset.md
+                      language_text: contract.md, system.md, effects_catalog.md, asset.md
                       (the prompts/<dir> mapping used to be copied four times and missing in a fifth;
-                      until 2026-09-22 the contract came through the runtime, the cookbook through
-                      tracks/common, the system prompt and the catalog through tracks/prompting).  sections.py splits that
-                      markdown into chapters so a STAGE can name the recipes it needs (graphics
-                      only since D106; the scene track inlines nothing).
+                      until 2026-09-22 the contract came through the runtime, the system prompt
+                      and the catalog through tracks/prompting).  sections.py (the `## ` heading
+                      splitter) was deleted in D107 — no stage picks chapters any more.
                       variants.py (D105): per-model OVERLAYS — variants/<name>/<rel> shadows <rel> for
                       load_text / render / language_text while that variant is active (a ContextVar
                       BaseTrack.run sets around the whole run from RunOptions.variant, else the
@@ -322,7 +323,7 @@ back-compatibility rules are in `docs/RUN_LAYOUT.md`, its one home.
 
 ## 4. Per-language authoring contracts (raw code; the harness owns export)
 
-Authoritative text lives in `codeverse3d/prompts/<lang>/contract.md` (+ cookbook);
+Authoritative text lives in `codeverse3d/prompts/<lang>/contract.md` (+ `system.md`; no cookbook, D107);
 summary:
 
 * **blender** (multi-file): `src/model.py` entry + `src/parts/<snake>.py` each
@@ -370,8 +371,7 @@ summary:
   ceiling, not the per-asset budget, and seats a factory by its origin.  `src/lib/` is committed
   with `src/`, so the deliverable and the dataset sample carry it.
 * **glsl_shader**: `src/shader.frag` (+ optional `src/common.glsl`,
-  `src/buffer_a.frag` for feedback; the harness-owned, read-only `src/recipes.glsl`
-  is pasted above them when the track seeded recipes) — the agent never writes
+  `src/buffer_a.frag` for feedback) — the agent never writes
   `#version`, uniform declarations or `out vec4`; the harness header provides
   `u_time/u_resolution/u_mouse/u_frame/u_prev/u_noise/u_buffer_a` (+ Shadertoy
   `iTime/iResolution/iChannel*` aliases).  Feedback shaders are simulated at 30 fps.
@@ -468,7 +468,7 @@ fails when it drifts, printing the block to paste):
 static_object       plan → skeleton → materialize* → round 0
 articulated_object  plan → skeleton → materialize* → round 0
 scene               plan → skeleton → materialize* → textures? → (assets ∥ env ∥ layouts?) → asset_api* → zones → clock* → assemble → round 0
-graphics            plan → skeleton → recipes* → materialize* → round 0
+graphics            plan → skeleton → materialize* → round 0
 ```
 
 `→` in order; `(a ∥ b)` siblings side by side, each its own cached stage, timed as ONE step of the

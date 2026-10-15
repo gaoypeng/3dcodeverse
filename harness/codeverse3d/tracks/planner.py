@@ -278,12 +278,13 @@ class PlanBudget:
                 "min_assemblies": self.min_assemblies, "budget_evidence": self.evidence, "reason": self.reason}
 
 
-#: the graphics track counts PASSES, not parts: a fragment shader is a stack of layers and
-#: more than ~6 stops being a plan and starts being a wish-list.  Recorded mean was 3.1 on
-#: graphics_v2 (0.530 / 12% pass) and pass count is the ONE complexity metric that
-#: correlates positively with the judge there (visual_richness +0.40).
+#: the graphics track counts PASSES, not parts: more than ~6 stops being a plan and starts
+#: being a wish-list.  The floor is 1 (D107): pass count correlated with the judge on
+#: graphics_v2 (visual_richness +0.40, mean 3.1 passes), but a correlation is not a requirement,
+#: and a mandated layer stack was the graphics twin of D106's three-depth-layer rule.  Only a
+#: checklist long enough to be evidence (``EVIDENCE_MIN_CHECKLIST``) raises a floor.
 GRAPHICS_CAP = 6
-GRAPHICS_MIN = 3
+GRAPHICS_MIN = 1
 
 
 def plan_budget(spec: Spec, brief: EngineeringBrief | None = None) -> PlanBudget:
@@ -297,7 +298,7 @@ def plan_budget(spec: Spec, brief: EngineeringBrief | None = None) -> PlanBudget
     cap = PART_CAP.get(spec.language.value, DEFAULT_PART_CAP)
     n_must = len(spec.constraints.must_have)
     reasons = []
-    want = MIN_PARTS
+    want = 0
     if n_must:
         # one part (or sub-part) per checklist item is PARITY, not padding: the measured
         # ratio on the hard battery was 0.91 parts per checklist item, and the runs with the
@@ -313,7 +314,10 @@ def plan_budget(spec: Spec, brief: EngineeringBrief | None = None) -> PlanBudget
         # externally visible features drive the LEAF budget, not the top-level part count:
         # "six vertical flutes on the body" is a sub-part of the body, not a part of its own.
         n_visible = len(brief.visible_from_outside)
+    # ``target`` sizes the answer (plan_tokens) and never drops below MIN_PARTS; the FLOOR is the
+    # request's own count, so a 4-item checklist is never told it needs 6 parts (D107)
     target = max(MIN_PARTS, min(cap, int(want)))
+    floor = max(2, int(round(0.85 * min(cap, int(want)))))
     min_assemblies = 0
     if brief is not None:
         min_assemblies = min(3, sum(1 for s in brief.sub_assemblies if len(s.parts) >= 3))
@@ -321,12 +325,12 @@ def plan_budget(spec: Spec, brief: EngineeringBrief | None = None) -> PlanBudget
         min_assemblies = 1
     return PlanBudget(
         target_parts=target,
-        min_parts=max(MIN_PARTS, int(round(0.85 * target))),
+        min_parts=floor,
         cap_parts=cap,
         target_leaves=max(target + 4, int(round(1.8 * target)), n_visible + 2 * min_assemblies),
-        min_detail_parts=max(2, int(round(0.35 * target))),
+        min_detail_parts=min(floor, max(2, int(round(0.35 * target)))),
         min_assemblies=min_assemblies,
-        reason="; ".join(reasons) or "no checklist — default floor",
+        reason="; ".join(reasons) or "no checklist",
         evidence=n_must >= EVIDENCE_MIN_CHECKLIST or brief is not None,
     )
 
@@ -337,27 +341,32 @@ def _graphics_budget(spec: Spec) -> PlanBudget:
     target = max(GRAPHICS_MIN, min(GRAPHICS_CAP, GRAPHICS_MIN + (n_must + 1) // 3))
     return PlanBudget(
         target_parts=target, min_parts=max(GRAPHICS_MIN, target - 1), cap_parts=GRAPHICS_CAP,
-        target_leaves=4 * target, min_detail_parts=max(2, target - 1), min_assemblies=max(2, target - 2),
-        reason=f"{n_must} checklist items" if n_must else "no checklist — default floor",
+        target_leaves=4 * target, min_detail_parts=max(1, target - 1), min_assemblies=0,
+        reason=f"{n_must} checklist items" if n_must else "no checklist",
         evidence=n_must >= EVIDENCE_MIN_CHECKLIST)
 
 
 def budget_block(budget: PlanBudget, *, unit: str = "parts") -> str:
-    """The budget as a prompt block for the planner's user message."""
-    return "\n".join([
-        f"PLAN BUDGET (derived from this request: {budget.reason}):",
-        f"- aim for {budget.target_parts} top-level {unit} (hard floor {budget.min_parts}, hard ceiling "
-        f"{budget.cap_parts}); a plan under the floor will be rejected and re-asked.",
-        f"- at least {budget.min_detail_parts} of them must carry detail a plain primitive cannot express "
-        + ("(named elements with their own counts, sizes and speeds)." if unit == "passes" else
-           "(a taper, a bevel radius, a groove, a counted repeat: '7 slats', '24 spokes')."),
-        (f"- at least {budget.min_assemblies} of them must use "
-         + ("`elements` (3-6 named things the pass draws)." if unit == "passes"
-            else "`children` (3-6 sub-parts) because they are ASSEMBLIES, not shapes.")
-         if budget.min_assemblies else
-         "- use `children` for any part a fitter would call an assembly rather than a shape."),
-        f"- total named shapes across {unit} and their sub-parts should reach about {budget.target_leaves}.",
-    ])
+    """The budget as a prompt block for the planner's user message.
+
+    A floor and a detail minimum are stated only when the request is EVIDENCE of them (a brief,
+    or a checklist of :data:`EVIDENCE_MIN_CHECKLIST` items) — the only case the quality gate
+    enforces them; otherwise the block states the ceiling and nothing that sets a count (D107)."""
+    lines = [f"PLAN BUDGET (derived from this request: {budget.reason}):"]
+    if budget.evidence:
+        lines.append(f"- plan at least {budget.min_parts} top-level {unit} (ceiling {budget.cap_parts}); "
+                     "a plan under that is re-asked.")
+        lines.append(f"- at least {budget.min_detail_parts} of them say what a plain "
+                     + ("fill cannot: the technique by name, or the pass's own quantities." if unit == "passes" else
+                        "primitive cannot, where the real object has it: a profile, an edge radius, a counted "
+                        "repeat, or the sub-shapes it is made of.")
+                     + " A plan with fewer is re-asked.")
+    else:
+        lines.append(f"- as many top-level {unit} as the " + ("effect" if unit == "passes" else "object")
+                     + f" really has (ceiling {budget.cap_parts}); nothing here sets a count.")
+    if unit != "passes":
+        lines.append("- `children` for a part a fitter would call an assembly rather than a shape.")
+    return "\n".join(lines)
 
 
 # ----------------------------------------------------------------------------- quality gate
@@ -381,7 +390,7 @@ def plan_quality_complaint(plan_obj: Any, budget: PlanBudget, *, unit: str = "pa
     soft: list[str] = []
     if budget.evidence and len(parts) < budget.min_parts:
         hard.append(
-            f"Only {len(parts)} {unit} for a request that needs about {budget.target_parts} "
+            f"Only {len(parts)} {unit} for a request that needs at least {budget.min_parts} "
             f"({budget.reason}). Split the ones that are really assemblies and add the features you skipped — "
             f"do NOT pad with duplicates.")
     detector = has_pass_detail if unit == "passes" else has_real_detail
@@ -389,17 +398,19 @@ def plan_quality_complaint(plan_obj: Any, budget: PlanBudget, *, unit: str = "pa
                 or getattr(p, "children", None) or getattr(p, "elements", None)]
     if len(detailed) < budget.min_detail_parts:
         plain = [p.name for p in parts if p not in detailed][:8]
-        hard.append(
+        # enforced only on EVIDENCE (a brief, or a long checklist): without it the request never
+        # said the object has shaping a primitive cannot express — "a stool" may be four boxes
+        (hard if budget.evidence else soft).append(
             f"This plan is boxes at different sizes: only {len(detailed)} of {len(parts)} {unit} describe anything a "
-            f"plain primitive cannot express, and at least {budget.min_detail_parts} must. Rewrite "
-            f"{', '.join(plain)} with real construction: profile (tapered / fluted / bevelled r=…), counted repeats "
-            f"('7 slats at 12 mm pitch'), edge treatment, and the sub-shapes each one is actually made of.")
+            f"plain primitive cannot express, and this request needs at least {budget.min_detail_parts}. Rewrite "
+            f"{', '.join(plain)} where the real thing has it: a profile, a stated radius or edge "
+            f"treatment, a counted repeat, or the sub-shapes it is actually made of.")
     if budget.min_assemblies:
-        n_nested = sum(1 for p in parts if len(getattr(p, nest, None) or []) >= 2)
+        n_nested = sum(1 for p in parts if getattr(p, nest, None))
         if n_nested < budget.min_assemblies:
             soft.append(
                 f"{n_nested} of the {unit} use `{nest}`, but this request has at least {budget.min_assemblies} real "
-                f"sub-assemblies. Give each of them 3-6 `{nest}`" +
+                f"sub-assemblies. Give each of them its `{nest}`" +
                 ("" if unit == "passes" else " with their own bboxes (inside the parent's) and materials") +
                 f"; leave the simple {unit} alone.")
     materials = {(getattr(p, "material", "") or "").strip().lower() for p in parts} - {""}
@@ -478,22 +489,27 @@ def plan_example(track: Track, language: Language | None = None) -> dict[str, An
                 asset["kind"] = "bpy"
         return example
     if track is Track.GRAPHICS:
+        # the SCHEMA on an effect nobody asked for (no battery prompt is a tide pool) — two passes
+        # because this effect has two, never a pass list, a layering or a post chain to copy
         return {
-            "title": "Neon rain on a window", "summary": "Looking through a rain-streaked window at a neon-lit street at night; "
-            "drops run down the glass, city lights turn into coloured bokeh discs that pulse.",
-            "style": "cyberpunk night: deep indigo/black base, magenta + cyan neon accents, warm sodium highlights; soft, filmic",
+            "title": "Tide pool ripples", "summary": "Looking straight down into a shallow tide pool: pebbles and weed on "
+            "the floor, rings spreading from drops that fall at irregular intervals; light shifts over the pebbles.",
+            "style": "naturalistic: wet slate greys and ochre pebbles, olive weed, cold sky-blue reflections; soft, glossy",
             "resolution": [1280, 720], "duration_s": 8.0,
             "passes": [
-                {"name": "CityBokeh", "kind": "fullscreen", "description": "background: 40-60 blurred bokeh discs (hash-placed, 3 depth layers, cyan/magenta/amber), slow horizontal parallax, pulsing brightness"},
-                {"name": "RainDrops", "kind": "fullscreen", "description": "grid-cell drops with hash offsets, running trails (fract(t) per cell), refraction offset applied when sampling the background"},
-                {"name": "Grade", "kind": "postprocess", "description": "vignette, slight chromatic aberration, tonemap + gamma"},
+                {"name": "PoolFloor", "kind": "fullscreen", "description": "rounded pebbles 0.03-0.08 of screen height packed "
+                 "over sand, a few olive weed strands, seen through the water and displaced by the surface's slope"},
+                {"name": "SurfaceRipples", "kind": "fullscreen", "description": "rings expanding from drop points at about 0.15 "
+                 "screen heights per second and fading over 3 s; their slope bends the floor and carries the sky's reflection",
+                 "elements": ["drop rings, 1-3 alive at a time"],
+                 "detail_hint": "two rings that cross interfere instead of one overwriting the other"},
             ],
             "uniforms": ["u_time", "u_resolution"],
-            "motion": "drops slide down with gravity and wobble; bokeh drifts left 0.02/s and pulses at 0.5-1 Hz; no hard cuts",
-            "key_visuals": ["rain drops with trails on glass", "blurred neon bokeh discs", "dark night street behind", "magenta/cyan palette"],
+            "motion": "new drops land at irregular intervals and their rings spread and fade; the weed sways slowly; no hard cuts",
+            "key_visuals": ["pebbles under shallow water", "expanding ripple rings", "light shifting over the floor"],
             "acceptance": [
-                {"id": "a1", "text": "Raindrops with trails visibly run down the glass (compare t=0 and t=1)", "how": "visual", "priority": "must"},
-                {"id": "a2", "text": "Blurred coloured bokeh lights are visible in the background", "how": "visual", "priority": "must"},
+                {"id": "a1", "text": "Ripple rings visibly expand between t=0 and t=1", "how": "visual", "priority": "must"},
+                {"id": "a2", "text": "Pebbles are visible through the water and bend where a ring passes", "how": "visual", "priority": "must"},
                 {"id": "a3", "text": "Frames change over time (no static image)", "how": "probe", "priority": "must"},
             ],
         }
@@ -535,35 +551,46 @@ def plan_example(track: Track, language: Language | None = None) -> dict[str, An
             "acceptance": [{"id": "a1", "text": "Two boats float on the water inside the basin", "how": "visual", "priority": "must"},
                            {"id": "a2", "text": "Quay top at y≈1.2 m, boats' waterline at y≈0", "how": "probe", "priority": "must"}],
         }
+    # The SCHEMA on an object nobody asks for (a profile, a counted repeat, a nested assembly,
+    # an instanced row) — never a part list, a layout or numbers to copy.  Upright's one-copy
+    # bbox is what c3d-repeats-and-mirrors points at.
     parts = [
-        {"name": "Seat", "role": "horizontal seat board", "description": "solid oak board, 40 mm thick, rounded front edge (r=10 mm)",
-         "bbox": {"center": [0, 0, 0.43], "extents": [0.42, 0.40, 0.04]}, "material": "oiled oak", "attach_to": None, "symmetry": "mirror_x", "instances": 1,
-         "children": [], "detail_hint": "the eye lands here first — keep the 10 mm bullnose and the 3 mm chamfer under the front edge"},
-        {"name": "FrontLeg", "role": "front leg", "description": "tapered round leg 35→25 mm, splayed 6° outward",
-         "bbox": {"center": [0.17, -0.16, 0.205], "extents": [0.035, 0.035, 0.41]}, "material": "oiled oak", "attach_to": "Seat", "symmetry": "mirror_x", "instances": 2,
-         "children": [], "detail_hint": ""},
-        {"name": "Backrest", "role": "slatted back assembly", "description": "three vertical slats in a curved top rail and a lower rail",
-         "bbox": {"center": [0, 0.19, 0.66], "extents": [0.40, 0.03, 0.42]}, "material": "oiled oak", "attach_to": "Seat", "symmetry": "none", "instances": 1,
-         "detail_hint": "an assembly, not a panel: the gaps between the slats must be visible from the front and the side",
+        {"name": "Base", "role": "weighted foot", "description": "disc 400 mm dia, 30 mm thick, top edge rounded r=8 mm, "
+         "four 20 mm square sockets for the uprights",
+         "bbox": {"center": [0, 0, 0.015], "extents": [0.40, 0.40, 0.03]}, "material": "cast iron, satin black", "attach_to": None,
+         "symmetry": "none", "instances": 1, "children": [], "detail_hint": "the rounded edge and the four sockets are what reads at floor level"},
+        {"name": "Upright", "role": "vertical bar", "description": "square bar 20 mm, upper 100 mm tapered to 14 mm, foot seated in a base socket",
+         "bbox": {"center": [0.16, 0, 0.455], "extents": [0.02, 0.02, 0.85]}, "material": "oiled ash, pale", "attach_to": "Base",
+         "symmetry": "radial", "instances": 4, "children": [], "detail_hint": ""},
+        {"name": "TopFrame", "role": "pegged ring the bunches hang from", "description": "flat ring on the upright tops, crossed by "
+         "two bars, pegs round the rim and a finial at the crossing",
+         "bbox": {"center": [0, 0, 0.905], "extents": [0.42, 0.42, 0.05]}, "material": "oiled ash, pale", "attach_to": "Upright",
+         "symmetry": "radial", "instances": 1, "detail_hint": "an assembly, not a disc: the gaps between ring, bars and pegs show from every side",
          "children": [
-             {"name": "TopRail", "role": "curved crest rail", "description": "60 mm deep rail bowed 18 mm back on a 0.9 m radius, ends rounded r=8 mm",
-              "bbox": {"center": [0, 0.19, 0.85], "extents": [0.40, 0.03, 0.06]}, "material": "oiled oak", "instances": 1},
-             {"name": "Slat", "role": "vertical back slat", "description": "12 mm thick slat, 55 mm wide, 4 mm chamfer both faces, 30 mm gap to its neighbour",
-              "bbox": {"center": [0, 0.19, 0.66], "extents": [0.055, 0.012, 0.34]}, "material": "oiled oak", "instances": 3},
-             {"name": "LowerRail", "role": "rail the slats seat into", "description": "40 mm rail with three 12 × 55 mm mortises on 85 mm centres",
-              "bbox": {"center": [0, 0.19, 0.48], "extents": [0.40, 0.03, 0.04]}, "material": "oiled oak", "instances": 1},
+             {"name": "Ring", "role": "flat ring", "description": "outer dia 340 mm, 20 mm wide, 12 mm thick, edges rounded r=3 mm",
+              "bbox": {"center": [0, 0, 0.886], "extents": [0.34, 0.34, 0.012]}, "instances": 1},
+             {"name": "CrossBar", "role": "bar across the ring", "description": "20 × 12 mm bar, ends halved into the ring",
+              "bbox": {"center": [0, 0, 0.886], "extents": [0.34, 0.02, 0.012]}, "instances": 2},
+             {"name": "Peg", "role": "hanging peg", "description": "12 turned pegs 10 mm dia, 40 mm proud of the rim, ends domed",
+              "bbox": {"center": [0.19, 0, 0.886], "extents": [0.04, 0.01, 0.01]}, "instances": 12},
+             {"name": "Finial", "role": "knob at the crossing", "description": "turned knob 40 mm dia on a 10 mm neck",
+              "bbox": {"center": [0, 0, 0.911], "extents": [0.04, 0.04, 0.038]}, "instances": 1},
          ]},
     ]
     base: dict[str, Any] = {
-        "object_name": "DiningChair", "summary": "Mid-century oak dining chair, 0.45 × 0.50 × 0.82 m.",
-        "overall_bbox": {"center": [0, 0, 0.41], "extents": [0.45, 0.50, 0.82]},
-        "style_notes": "Danish mid-century: tapered legs, thin spindles, warm oak, no ornament.",
+        "object_name": "HerbDryingRack",
+        "summary": "Free-standing herb drying rack: a round iron foot, four tapered uprights and a pegged top ring, 0.42 × 0.42 × 0.93 m.",
+        "overall_bbox": {"center": [0, 0, 0.465], "extents": [0.42, 0.42, 0.93]},
+        "style_notes": "Scandinavian kitchen craft: pale oiled ash on a black iron foot, rounded edges, no ornament.",
         "parts": parts,
-        "acceptance": [{"id": "a1", "text": "Seat top at 0.45 m ± 0.02 m above the ground", "how": "measure", "priority": "must"},
-                       {"id": "a2", "text": "Four legs, all touching the ground, splayed outward", "how": "visual", "priority": "must"}],
+        "acceptance": [{"id": "a1", "text": "Overall height 0.93 m ± 0.02 m", "how": "measure", "priority": "must"},
+                       {"id": "a2", "text": "Four uprights stand in the foot, which rests flat on the ground", "how": "visual", "priority": "must"}],
     }
     if track is Track.ARTICULATED_OBJECT:
         base["object_name"] = "DeskDrawerUnit"
+        base["summary"] = "Painted desk drawer unit, 0.40 × 0.50 × 0.60 m: one drawer on side runners."
+        base["overall_bbox"] = {"center": [0, 0, 0.3], "extents": [0.4, 0.5, 0.6]}
+        base["style_notes"] = "Plain painted carcass, a shadow gap round the drawer, one metal pull."
         base["parts"] = [
             {"name": "Cabinet", "role": "fixed carcass", "description": "18 mm carcass, 6 mm rebated back, 3 mm shadow gap round the drawer opening",
              "bbox": {"center": [0, 0, 0.3], "extents": [0.4, 0.5, 0.6]}, "material": "painted MDF", "attach_to": None, "symmetry": "none", "instances": 1,
@@ -585,7 +612,10 @@ def plan_example(track: Track, language: Language | None = None) -> dict[str, An
         base["root_link"] = "Cabinet"
         base["joints"] = [{"name": "DrawerSlide", "type": "prismatic", "parent": "Cabinet", "child": "Drawer", "axis": [0, -1, 0],
                            "pivot": [0, -0.02, 0.45], "lower": 0.0, "upper": 0.35, "rest": 0.0, "motion": "drawer pulls out towards -Y"}]
-        base["acceptance"].append({"id": "j1", "text": "Drawer slides out 0.35 m along -Y without penetrating the cabinet", "how": "articulation", "priority": "must"})
+        # its own checks, not the chair's: the base's seat-height / four-legs items describe another object
+        base["acceptance"] = [{"id": "a1", "text": "Cabinet top at 0.60 m ± 0.02 m above the ground", "how": "measure", "priority": "must"},
+                              {"id": "a2", "text": "Cabinet stands on the ground at rest", "how": "visual", "priority": "must"},
+                              {"id": "j1", "text": "Drawer slides out 0.35 m along -Y without penetrating the cabinet", "how": "articulation", "priority": "must"}]
     return base
 
 
@@ -711,7 +741,7 @@ def restart_note(raw: Any, missing: list[str], budget: PlanBudget) -> str:
         f"{n_parts} top-level part(s) and then referenced links it never defined: "
         f"{', '.join(missing[:10])}. Start again from this request. Rules that answer is missing:\n"
         f"- `parts` must contain EVERY link a joint names, each with its own name, bbox and material "
-        f"(about {budget.target_parts} parts for this request).\n"
+        f"(at least {budget.min_parts} parts for this request).\n"
         "- `joints[].parent` and `joints[].child` must be spelled exactly like those part names.\n"
         "- Nothing that a joint moves may live in `children`; sub-parts are rigid detail only."
     )
@@ -762,7 +792,7 @@ def _thin_plan_note(raw: Any, budget: PlanBudget) -> str:
     if not degenerate_plan(raw, budget):
         return ""
     parts = raw.get("parts")
-    return (f"\nAlso: this plan lists only {len(parts)} part(s) but the request needs about {budget.target_parts} "
+    return (f"\nAlso: this plan lists only {len(parts)} part(s) but the request needs at least {budget.min_parts} "
             f"({budget.reason}). Put EVERY link a joint references under `parts` with its own bbox.")
 
 
