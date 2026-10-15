@@ -43,6 +43,12 @@ class LintKind(StrEnum):
     CENSUS = "census"                        # INFO: what the lint saw
 
 
+#: ``GateFinding.data["kind"]`` of a plan part that is still the skeleton's placeholder box
+#: (``spatial.contract``, D110) — the one gate ERROR the next refine round puts ahead of every
+#: other (``orchestrator.build_refine_instructions``): nothing else about a part matters until it exists
+PLACEHOLDER_PART = "placeholder_part"
+
+
 class GateFinding(BaseModel):
     gate: str
     severity: Severity

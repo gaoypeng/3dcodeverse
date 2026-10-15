@@ -172,7 +172,8 @@ def test_a_session_runs_on_a_pool_key_in_a_home_of_its_own(tmp_ws: Workspace, fa
     assert res.usage.model == "gemini-4-argon" and res.usage.cost_usd > 0
     # a bare id runs at the API's own default effort; no model at all is argon
     assert AntigravityAgent("").model == DEFAULT_AGY_MODEL == "gemini-4-argon"
-    assert AntigravityAgent("gemini-4-argon").model_args() == ["--model", "gemini-api://gemini-4-argon", "--effort", "high"]
+    bare = AgentJob(workspace=str(tmp_ws.root), prompt="p")
+    assert AntigravityAgent("gemini-4-argon").model_args(bare) == ["--model", "gemini-api://gemini-4-argon", "--effort", "high"]
     # a 429 cools the key in the shared pool
     monkeypatch.setenv("FAKE_MODE", "429")
     res2 = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="api429", timeout_s=30, spatial_tools=False))
@@ -189,3 +190,40 @@ def test_without_keys_agy_is_unavailable_and_never_starts(tmp_ws: Workspace, fak
     assert not ok and "API keys" in why
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="nokey", timeout_s=30))
     assert not res.ok and res.exit_reason == "error" and not (tmp_ws.src / "hello.txt").exists()
+
+
+def _effort_job(tmp_ws: Workspace, **kw) -> AgentJob:
+    return AgentJob(workspace=str(tmp_ws.root), prompt="hello", timeout_s=30, spatial_tools=False, **kw)
+
+
+@pytest.mark.parametrize("model, asked, runs_at", [
+    ("gemini-4-argon", None, "high"),             # every track today: no ask → AGY_API_EFFORT (owner, 2026-10-15)
+    ("gemini-4-argon", "medium", "medium"),       # an explicit ask reaches --effort
+    ("gemini-4-argon-low", "medium", "low"),      # the model id's suffix still wins
+    ("gemini-4-argon-high", None, "high"),
+])
+def test_effort_reaches_the_argv_the_invoke_line_and_the_result(tmp_ws: Workspace, fake_bin, model, asked, runs_at):
+    a = AntigravityAgent(model, binary=fake_bin("agy", FAKE_AGY_API))
+    res = a.run(_effort_job(tmp_ws, label=f"e_{asked}", effort=asked))
+    assert res.ok, res.errors
+    assert json.loads((tmp_ws.src / "seen.json").read_text())["effort"] == runs_at
+    assert res.effort == runs_at
+    tdir = Path(res.transcript_path).parent
+    invoke = next(json.loads(ln) for ln in (tdir / "transcript.jsonl").read_text().splitlines()
+                  if json.loads(ln)["kind"] == "invoke")
+    assert invoke["effort"] == runs_at and invoke["argv"][invoke["argv"].index("--effort") + 1] == runs_at
+    assert json.loads((tdir / "result.json").read_text())["effort"] == runs_at
+
+
+def test_object_and_scene_tasks_run_argon_at_high(tmp_ws: Workspace, fake_bin):
+    """The object tracks' draft / refine and the scene's zone task ask for no effort, so a bare
+    ``agy:gemini-4-argon`` session runs at high on every track (owner, 2026-10-15)."""
+    from codeverse3d.tracks.generation import GenerationTask, session_effort
+
+    a = AntigravityAgent("gemini-4-argon", binary=fake_bin("agy", FAKE_AGY_API))
+    for task in (GenerationTask(label="baseline", prompt="p", kind="baseline"),
+                 GenerationTask(label="refine", prompt="p", kind="refine", temperature=0.4),
+                 GenerationTask(label="zone_quay", prompt="p", kind="zone")):
+        assert session_effort(task) is None
+        res = a.run(_effort_job(tmp_ws, label=task.label, effort=session_effort(task)))
+        assert res.ok and json.loads((tmp_ws.src / "seen.json").read_text())["effort"] == "high"

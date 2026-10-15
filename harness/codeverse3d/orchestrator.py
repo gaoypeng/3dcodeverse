@@ -22,7 +22,7 @@ from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, Field, ValidationError
 
-from codeverse3d.contracts.artifacts import GateReport, Judgment
+from codeverse3d.contracts.artifacts import PLACEHOLDER_PART, GateReport, Judgment
 from codeverse3d.contracts.common import Budget
 from codeverse3d.contracts.plan import AcceptanceItem, Plan
 from codeverse3d.contracts.run import RoundRecord, RunStatus, StepTime
@@ -259,7 +259,8 @@ def build_refine_instructions(
     max_tasks: int = 6,
     extra: Sequence[RefineTask] = (),
 ) -> list[RefineTask]:
-    """Gate ERRORS first (with fix hints), then ``extra`` harness-derived tasks
+    """Gate ERRORS first (with fix hints) — a part still the skeleton's placeholder
+    (``PLACEHOLDER_PART``) ahead of every other gate ERROR —, then ``extra`` harness-derived tasks
     (e.g. reference-silhouette mismatch), then failed *must* acceptance items,
     then the judge's improvement plan; de-duplicated by (target, kind), capped.
     Gate/acceptance/extra tasks are never dropped by the cap unless they alone exceed it."""
@@ -277,10 +278,11 @@ def build_refine_instructions(
             t.files = list(file_for_target(t.target))
         tasks.append(t)
 
-    for g in gates:
-        for f in g.errors:
-            _add(RefineTask(target=f.target or "overall", kind=f"gate:{g.gate}", instruction=f.as_line(),
-                            priority=0, source="gate"))
+    errors = [(g, f) for g in gates for f in g.errors]
+    errors.sort(key=lambda gf: gf[1].data.get("kind") != PLACEHOLDER_PART)   # stable: placeholders first
+    for g, f in errors:
+        _add(RefineTask(target=f.target or "overall", kind=f"gate:{g.gate}", instruction=f.as_line(),
+                        priority=0, source="gate"))
     for t in extra:
         _add(t.model_copy())
     for a in acceptance_failures:

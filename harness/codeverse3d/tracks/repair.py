@@ -191,7 +191,7 @@ def make_repair_task(ctx: RunContext, build: BuildResult, lint: GateReport, *, r
         failing_files=sorted(files) if files else [build.error_file] if build.error_file else files_hint))
     ctx.record_prompt("repair", prompt)
     temperature = min(1.0, 0.3 + 0.25 * repeats)
-    thinking = ("medium", "high", "high")[min(repeats, 2)]
+    thinking = ("", "high", "high")[min(repeats, 2)]   # "": the single-shot default (medium), agy its own (high)
     return GenerationTask(label=label, prompt=prompt, system=_repair_system(ctx), files_hint=sorted(files) or files_hint,
                           round=round_index, kind="repair", temperature=temperature, thinking=thinking, timeout_s=timeout_s)
 

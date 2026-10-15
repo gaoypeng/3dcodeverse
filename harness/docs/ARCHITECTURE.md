@@ -497,11 +497,11 @@ Best-of-N, refine planning and the asset ladder are sized at run time; they stay
 
 ```
 round 0 "baseline": generate → build_with_repair → measure → gates → render → post-render gates → judge
-   (object tracks, ≥ 8 plan parts, a language with one file per part, an agent backend: the baseline FANS OUT
-    per part — phase 0 = one scoped session per attachment subtree (its parts + the planned boxes of the
-    neighbours it must weld to + the shared detail advice, its own files only), phase 1 = ONE "assemble"
-    session that owns the entry file, placement and the connectivity/contract gates.  $C3D_SCOPED_PARTS=off
-    restores the single whole-object session; single-shot always uses it.)
+   (object tracks, every language — D110 baseline-first: ONE session drafts the WHOLE object, every part
+    file + the entry (BaseTrack.baseline_tasks over generate_static.j2 / generate_articulated.j2), the brief
+    requiring every planned part at its box and joined before any detail, each file written once and then
+    edited; a part still the skeleton's box is a `placeholder_part` contract ERROR.  The per-part scoped
+    baseline — 3-5 scope sessions + an "assemble" session, serial behind the workspace lock — is deleted.)
    (--candidates N: N parallel baselines in <ws>/_cand/c<k>, quick 4-view judge, crashed candidate retried once,
     selection build_ok → quick score → fewer gate errors → the earlier candidate; winner copied back, normal r00 follows)
 then max_rounds refine rounds, EACH built on the round before it — FIXED rounds (owner, 2026-09-22): no pass,
@@ -509,7 +509,13 @@ plateau, regression or diminishing-returns stop, no rewrite or surface-detail ro
    refine tasks = the previous round's gate ERRORS (fix hints, authoring-frame numbers) ∪ failed must-acceptance
    ∪ its judge improvement plan
    (≤ 6 tasks, ≤ 6 compacted instruction lines each; reference runs add an IoU task when silhouette IoU < 0.6)
-   fan out when ≥ 2 file-disjoint groups AND every task maps to files (threejs/blender parts, scene zones/assets/env)
+   (a placeholder part's ERROR first of all — orchestrator.build_refine_instructions)
+   fan out when the track allows it (scene: zones/assets/env) AND ≥ 2 file-disjoint groups AND every task maps to
+   files; the object tracks never fan out (allow_refine_fanout = False, D110): ONE session edits the whole
+   object in place, told to make targeted edits, never whole-file rewrites — its window ends
+   OBJECT_ROUND_RESERVE_S (3 min) + the watchdog's grace before the run's hard ceiling, so the round is still
+   built and judged (static_object.object_session_window_s); a single-shot refine is fenced (edit_only) to
+   the files its tasks name, the only ones it is shown; graphics is one program
    generate (no HARNESS turn cap by default — claude-code runs under AgentJob.max_turns=60 (+6-turn wrap-up),
              the other vendor CLIs have no turn cap at all; 28 was A/B'd and rejected, +$0.02/−0.21 score, docs/COST.md §17;
              a cap the machine sets (C3D_AGENT_MAX_TURNS / limits.agent_max_turns; no profile sets one) still buys a wrap-up session

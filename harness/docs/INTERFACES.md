@@ -249,7 +249,9 @@ session grace. Process termination and final packaging can finish after the dead
 expected to touch — used to attribute `files_changed`; harness-owned paths are dropped;
 sessions on one workspace are serialised, so there is no sibling filter),
 `edit_only` / `always_writable` (a scoped refine may overwrite only its hinted files +
-the entry file), `read_only: list[str]` (harness-owned files INSIDE the write roots the
+the entry file), **Δ D110** `effort: AgentEffort | None` (`Literal["low","medium","high"]`; filled from
+`GenerationTask.thinking` only when the caller asked — `tracks.generation.session_effort`; None = the
+backend's default; agy alone reads it, claude-code / codex keep their `Settings.agents` effort), `read_only: list[str]` (harness-owned files INSIDE the write roots the
 session may read but never write — `contracts.common.HARNESS_OWNED_SRC[language]`, i.e.
 `src/lib/` for scene_threejs / scene_blender (Δ D107: glsl_shader's seeded `src/recipes.glsl` is gone); `tracks/generation.py`
 sets it on every job of the run and `agents/cli_common._enforce_scope` reverts a
@@ -267,7 +269,10 @@ live session per key machine-wide while keys last), outcome reported back
 `<cache_dir>/agy_homes/` holds `.gemini/antigravity-cli/settings.json` = `{"modelProvider": "gemini"}` (without
 it agy ignores `GEMINI_API_KEY` and asks for a login) + the MCP config, and is deleted after the session (the
 tool trace is read from its conversation db first); argv `--model gemini-api://<bare id> --effort <e>`, effort
-from a `-low/-medium/-high` suffix, default `high`; usage priced at Gemini list price with
+(**Δ D110**, `backends.api_model_effort(model, job.effort)`): the id's `-low/-medium/-high` suffix, else
+`AgentJob.effort`, else `AGY_API_EFFORT` = `high` — no track asks for less, so every argon session runs at high
+(owner, 2026-10-15); the effort used is on the `invoke` transcript line, in `result.json` / `AgentResult.effort`
+and on the session's `cost.jsonl` row (`effort`, an extra column; claude-code / codex record theirs too); usage priced at Gemini list price with
 output = output − thinking, thoughts = thinking (agy's output already includes thinking).  KeyPoolExhausted never escapes
 `run()` (→ `exit_reason=budget`).  No retry loop in the backend: agy retries its own calls; a transient
 death goes to the round loop's one retry, which takes a fresh key.
@@ -415,6 +420,11 @@ from codeverse3d.spatial.contract import check_contract           # frame of fix
     # (Δ 2026-08-30) check_contract adds ONE orientation finding on a StaticPlan (data.kind="orientation", pose lying|stood → ERROR,
     #   turned → WARN; planned_up_m, measured_up_m, best_axis): an extents-permutation test in the plan frame, 0 flags over
     #   629 corpus measurements, fires on brilliana's c-clamp / gate-valve.
+    # (Δ D110) check_contract ERROR data.kind="placeholder_part" (contracts.artifacts.PLACEHOLDER_PART; tri_count, instances)
+    #   when spatial.contract.is_placeholder(rows, plan_box_glb): every measured row ≤ PLACEHOLDER_MAX_TRIS (12) triangles,
+    #   watertight with volume_m3 ≥ PLACEHOLDER_MIN_FILL (0.999) × its own box (open / unmeasured never fires),
+    #   extents within PLACEHOLDER_TOL_M (1 mm) of the plan's, a single instance also at the plan centre — the skeleton's box
+    #   in every object language, measured, never grepped.  build_refine_instructions routes it ahead of every gate ERROR.
 from codeverse3d.spatial.measure import measure_glb, world_transform, node_name_findings   # (Δ 2026-08-30) world frames are composed
     # by walking the graph's edge matrices (trimesh's get() dropped a root pivot's rotation); a GLB with duplicate / unnamed nodes
     # lands a finding in Measurement.extra["findings"] — trimesh re-parents renamed nodes and the numbers are approximate
@@ -581,17 +591,13 @@ from codeverse3d.tracks.candidates import run_best_of_n, quick_render   # N para
 # candidates[])
 from codeverse3d.tracks.articulated_object import default_motion_checks, expected_direction   # gate "motion_direction"
 from codeverse3d.tracks.static_object import silhouette_gate, reference_refine_tasks  # gate "reference_silhouette" (IoU<0.6 → WARN + refine task)
-from codeverse3d.tracks.depth import depth_budget, DepthBudget, DETAIL_ADVICE, scope_groups, PartScope, \
-    interfaces_text, scoped_generation_enabled         # complexity-aware budgets + per-part scoped generation
+from codeverse3d.tracks.depth import depth_budget, DepthBudget, DETAIL_ADVICE   # complexity-aware budgets
+    # (Δ D110: scope_groups / PartScope / interfaces_text / scoped_generation_enabled deleted with the scoped baseline)
 depth_budget(plan, *, build_timeout_s=300) -> DepthBudget   # min/target/max triangles + max_build_s sized from
     # the plan's LEAF count (parts × instances × children); only budget_gate reads it — no prompt states it.
     # DETAIL_ADVICE: the numberless "spend detail inside the planned parts" bullet the generate/refine
     # templates show as {{ detail_advice }}
-scope_groups(plan, *, files_for, max_groups=6, parts_per_scope=3, min_parts=8) -> [PartScope]
-    # [] = one session owns the object (small plan, no per-part file ownership, or $C3D_SCOPED_PARTS=off);
-    # otherwise attachment-subtree groups whose files are disjoint, so the sessions run in parallel
-interfaces_text(plan, scope) -> str    # the planned boxes of the neighbours this scope must weld to
-from codeverse3d.tracks.prompting import base_prompt_context, reference_images, scope_context, budget_for  # Δ split out of
+from codeverse3d.tracks.prompting import base_prompt_context, reference_images, budget_for  # Δ split out of
     # Δ D107: select_cookbook_chapters / is_always_chapter / COOKBOOK_SYNONYMS and the graphics recipe seeding
     # (tracks/graphics.seed_recipes, cookbook_functions, the "recipes" stage, Settings.limits.seed_recipes /
     # C3D_SEED_RECIPES) are deleted with the cookbooks; base_prompt_context carries no cookbook_excerpt
@@ -608,10 +614,10 @@ from codeverse3d.tracks.generation import write_files        # (ws, files, *, al
 from codeverse3d.agents.cli_common import find_json_object, default_mcp_command   # THE one JSON-envelope finder behind
     # parse_claude_json / parse_agy_json; default_mcp_command(ws, *, language, track, round_index)
 from codeverse3d.tracks.generation import generate, run_agent_task, parse_multifile, is_single_shot
-GenerationTask.phase: int = 0   # tasks run in parallel WITHIN a phase, phases in ascending order
-    # (tracks.steps.run_generation_tasks).  Only user: the scoped baseline — phase 0 = one session per
-    # part group (`baseline_<parts>`, own files only), phase 1 = ONE `assemble` session that owns the
-    # entry file and the placement gates.  Every other caller is phase 0, i.e. unchanged.
+GenerationTask.thinking: Literal["", "off", "low", "medium", "high"] = ""   # Δ D110: '' = nobody asked —
+    # a single-shot call thinks at SINGLE_SHOT_THINKING ("medium"), an agent session at its backend's default;
+    # anything else is explicit and also becomes AgentJob.effort (session_effort).  GenerationTask.phase is
+    # deleted with its one user (the scoped baseline): run_generation_tasks runs one side-by-side batch.
 generate(ws, *, agent_id, task, ..., budget=BudgetGuard) -> GenerationResult
     # Δ 2026-09-22 GenerationResult.transient / .quota carry the backend's typed class; a call that RAISED is
     #   GenerationResult.from_error(label, e) — transient = tracks.generation.is_model_outage(e) (ModelError

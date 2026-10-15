@@ -100,3 +100,26 @@ def test_empty_usage_cannot_bypass_the_clock_and_start_a_retry(tmp_ws: Workspace
     with pytest.raises(BudgetExceeded):
         run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="baseline", prompt="p"), budget=guard)
     assert len(agent.jobs) == 1
+
+
+@pytest.mark.parametrize("thinking, effort", [("", None), ("off", None), ("low", "low"), ("medium", "medium"),
+                                              ("high", "high")])
+def test_the_task_effort_reaches_the_job_only_when_asked(tmp_ws: Workspace, thinking, effort):
+    """``GenerationTask.thinking`` '' (the default) leaves the backend's own effort — agy: high."""
+    agent = StubAgent()
+    run_agent_task(tmp_ws, agent=agent, task=GenerationTask(label="t", prompt="p", thinking=thinking))
+    assert agent.jobs[0].effort == effort
+
+
+def test_the_session_ledger_row_carries_the_effort_the_cli_ran_at(tmp_ws: Workspace):
+    from codeverse3d.cost.instrument import metered_agent, run_ledger
+    from codeverse3d.cost.ledger import load_ledger
+
+    class Ran(StubAgent):
+        def run(self, job):
+            return super().run(job).model_copy(update={"effort": "high"})
+
+    with run_ledger(tmp_ws.root, run="r"):
+        metered_agent(Ran()).run(AgentJob(workspace=str(tmp_ws.root), prompt="p", label="baseline"))
+    (row,) = load_ledger(tmp_ws.root)
+    assert row.model_extra.get("effort") == "high"

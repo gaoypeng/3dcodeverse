@@ -39,6 +39,20 @@ are WORLD points at rest:
 ## Acceptance checklist
 {{ acceptance }}
 
+## The whole object first
+Every link exists at its planned box and the URDF names every planned joint before any link gets
+detail: a session can be stopped at its window, and what it leaves must still be the whole object.
+Measured: a link still the skeleton's box (≤ 12 triangles, a closed solid filling its
+box, within 1 mm of the plan box) is a `placeholder_part` ERROR in `check_contract`; a link that does
+not meet its parent is an ERROR (the gaps are stated under DON'T below).
+{% if not single_shot %}
+
+Both files already exist (the skeleton).  Replace a placeholder in one write, then change a file only
+with targeted edits — never rewrite a whole file to change a few lines.  Measured on this harness:
+a dining chair whose files were rewritten whole (8 rewrites over 9 files) wrote ~136k characters,
+drafted with each file written once ~49k, and a session's time follows the tokens it generates.
+{% endif %}
+
 ## DO
 - Build every link at its WORLD rest pose to the plan's bbox (`check_contract`: max(10 mm, 10 %) per
   axis); one object named exactly as the link, with any helper objects parented under it (the

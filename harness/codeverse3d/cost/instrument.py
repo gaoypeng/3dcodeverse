@@ -239,7 +239,9 @@ class MeteredAgent(_Proxy):
                         outcome="ok" if result.ok else (result.exit_reason or "error"),
                         latency_ms=usage.latency_ms or ms,
                         n_calls=max(1, int(result.tool_calls or 1)),
-                        source="estimate" if result.usage_estimated else "session")
+                        source="estimate" if result.usage_estimated else "session",
+                        # the effort the CLI was given (agy --effort): a loop splits by it (D110)
+                        **({"effort": result.effort} if result.effort else {}))
         except Exception as e:  # pragma: no cover
             log.debug("cost: could not record agent session %s: %s", job.label, e)
 

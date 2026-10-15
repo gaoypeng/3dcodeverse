@@ -10,6 +10,11 @@ prompts that speak the language's frame.
 
 Severity policy (``tol = max(tol_m, REL_TOL × plan extent)`` per axis):
 * plan part missing in the GLB → ERROR
+* plan part still the skeleton's placeholder box (:func:`is_placeholder`: every measured row at
+  most ``PLACEHOLDER_MAX_TRIS`` triangles, a closed solid filling its box, and within
+  ``PLACEHOLDER_TOL_M`` of the plan box) → ERROR
+  ``data["kind"] == "placeholder_part"`` (D110): it passes every box check by construction, so
+  without this a session cut off mid-draft shipped stand-ins the gates called perfect
 * bbox centre / extents off by > tol → WARN (exact delta in the hint);
   > ``ERROR_FACTOR × tol`` → ERROR
 * overall bbox vs ``overall_bbox`` → same policy
@@ -20,7 +25,7 @@ Severity policy (``tol = max(tol_m, REL_TOL × plan extent)`` per axis):
   footprint off-centre → WARN
 * GLB parts the plan never mentioned → INFO
 
-Every WARN/ERROR carries ``data["kind"]`` (missing_part · instance_count · part_bbox ·
+Every WARN/ERROR carries ``data["kind"]`` (missing_part · placeholder_part · instance_count · part_bbox ·
 instance_bbox · overall_bbox · orientation · ground_gap · footprint_offset): the rubric
 caps and the skill router key on it, never on the message.
 """
@@ -33,6 +38,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from codeverse3d.contracts.artifacts import (
+    PLACEHOLDER_PART,
     GateFinding,
     GateReport,
     Measurement,
@@ -85,6 +91,19 @@ ORIENT_STOOD = float(np.log(2.0))
 ORIENT_THIRD = float(np.log(1.5))
 ORIENT_ANISO = 1.5
 ORIENT_OVER = 1.4
+
+#: The skeleton's stand-in for a part is ONE axis-aligned box at the plan box — blender
+#: ``add_box`` / urdf ``box`` (``primitive_cube_add``, scale applied), three.js ``BoxGeometry``,
+#: cadquery ``Workplane.box`` — which every exporter writes as 12 triangles.  A part whose every
+#: measured row is that small, that exactly placed and a closed solid FILLING its box is the
+#: placeholder, whatever its name says (no source grep, Law 4).  1 mm is a tenth of the contract
+#: tolerance (max(10 mm, 10 %)).  The fill test keeps real 12-triangle hexahedra built to plan
+#: (a tapered cadquery fretboard, fill 0.879; wedges; open panes) out: over 942 measured part rows
+#: of loop_argon iter_00/01, the 68 true placeholders were all watertight at fill 1.000.  A real
+#: part is taken for one only when it is itself a bare box built to the plan's millimetre.
+PLACEHOLDER_MAX_TRIS = 12
+PLACEHOLDER_TOL_M = 0.001
+PLACEHOLDER_MIN_FILL = 1.0 - 1e-3
 
 
 # --------------------------------------------------------------------------- frames
@@ -139,6 +158,31 @@ def match_parts(plan_parts: list[PartPlan], measured: list[PartMeasure]) -> tupl
             remaining.pop(m.name, None)
         matched[pp.name].extend(hits)
     return matched, list(remaining.values())
+
+
+def is_placeholder(rows: list[PartMeasure], plan_box: BBox) -> bool:
+    """Is this plan part (its measured rows, one per instance) still the skeleton's box?
+
+    ``plan_box`` is in the GLB frame (:func:`plan_bbox_to_glb`).  Every row must carry at most
+    ``PLACEHOLDER_MAX_TRIS`` triangles (0 = not measured: never a placeholder), be watertight
+    with a volume of at least ``PLACEHOLDER_MIN_FILL`` of its own box (not measured / open: never
+    a placeholder) and have the plan's extents within ``PLACEHOLDER_TOL_M`` per axis; a single
+    instance must also sit at the plan centre — the skeleton places instance copies by the
+    symmetry hint, so only their size is the plan's."""
+    if not rows:
+        return False
+    ext, ctr = np.asarray(plan_box.extents, dtype=float), np.asarray(plan_box.center, dtype=float)
+    for r in rows:
+        if not 0 < r.tri_count <= PLACEHOLDER_MAX_TRIS or not r.watertight or r.volume_m3 is None:
+            return False
+        lo, hi = np.asarray(r.bbox_min, dtype=float), np.asarray(r.bbox_max, dtype=float)
+        if np.any(np.abs((hi - lo) - ext) > PLACEHOLDER_TOL_M):
+            return False
+        if abs(r.volume_m3) < PLACEHOLDER_MIN_FILL * float(np.prod(hi - lo)):
+            return False
+        if len(rows) == 1 and np.any(np.abs((hi + lo) / 2 - ctr) > PLACEHOLDER_TOL_M):
+            return False
+    return True
 
 
 def planned_joins(plan: Plan | None, measurement: Measurement | None) -> list[tuple[str, tuple[str, ...]]]:
@@ -324,6 +368,17 @@ def _check_object_plan(m: Measurement, plan: StaticPlan, language: str, tol_m: f
             ))
             continue
         box = plan_bbox_to_glb(pp.bbox, language)
+        if is_placeholder(rows, box):
+            joined = f", joined to {pp.attach_to}" if pp.attach_to else ""
+            findings.append(GateFinding(
+                gate=GATE, severity=Severity.ERROR, target=target,
+                message=f"plan part '{pp.name}' is still the skeleton's placeholder box "
+                        f"({max(r.tri_count for r in rows)} triangles at its plan box)",
+                fix_hint=f"build the real '{pp.name}' ({pp.role}) in place of the box, at its planned size "
+                         f"{fmt_extent_cm(pp.bbox.extents)} cm{joined}",
+                data={"kind": PLACEHOLDER_PART, "tri_count": sum(r.tri_count for r in rows), "instances": len(rows)},
+            ))
+            continue
         if pp.instances > 1 and len(rows) != pp.instances:
             findings.append(GateFinding(
                 gate=GATE, severity=Severity.WARN, target=target,

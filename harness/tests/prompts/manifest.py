@@ -366,7 +366,8 @@ class Rig:
 
 # ============================================================================ the scenarios
 def machine() -> StaticPlan:
-    """An 11-part object: past the scoped-baseline threshold, with a real attachment tree."""
+    """An 11-part object with a real attachment tree: still ONE draft session and ONE refine session (D110 —
+    the deleted scoped baseline split it into four sessions)."""
     parts = [PartPlan(name="Body", role="main mass", description="the shell", bbox=BBox(center=(0, 0.5, 0), extents=(0.6, 1.0, 0.4)))]
     parts += [PartPlan(name=f"Fitting{i}", role=f"fitting {i}", description="a fitting with a bevel", attach_to="Body",
                        bbox=BBox(center=(0.05 * i, 0.2 + 0.05 * i, 0.1), extents=(0.05, 0.05, 0.05))) for i in range(10)]
@@ -420,8 +421,8 @@ SCENARIOS: dict[str, tuple[Track, Language, dict[str, Any], Callable[[Rig], None
     "static_object.threejs.agent.fresh": (S, Language.THREEJS, {"services_kw": {"contract_errors": 1}},
                                           lambda r: r.run(rounds=2)),
     "static_object.threejs.agent.resume": (S, Language.THREEJS, {}, _two_runs(0, 1)),
-    "static_object.threejs.agent.scoped": (S, Language.THREEJS, {"plan": machine(), "targets": ("Body", "Fitting0", "Fitting5")},
-                                           lambda r: r.run(rounds=1)),
+    "static_object.threejs.agent.many_parts": (S, Language.THREEJS, {"plan": machine(), "targets": ("Body", "Fitting0", "Fitting5")},
+                                               lambda r: r.run(rounds=1)),
     "static_object.blender.agent.best_of_2": (S, Language.BLENDER, {}, lambda r: r.run(rounds=1, candidates=2)),
     "static_object.cadquery.agent.rebuild": (S, Language.CADQUERY, {"fail": REBUILD, "services_kw": {"contract_errors": 2}},
                                              lambda r: r.run(rounds=2)),

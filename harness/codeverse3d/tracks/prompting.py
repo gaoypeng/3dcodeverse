@@ -26,13 +26,7 @@ from codeverse3d.conventions import LANGUAGE_FRAME, fmt3, frame_doc, to_authorin
 from codeverse3d.prompts import render
 from codeverse3d.prompts.catalog import contract_sections, language_prompt, language_text
 from codeverse3d.tracks.common import RunContext
-from codeverse3d.tracks.depth import (
-    DETAIL_ADVICE,
-    DepthBudget,
-    PartScope,
-    depth_budget,
-    interfaces_text,
-)
+from codeverse3d.tracks.depth import DETAIL_ADVICE, DepthBudget, depth_budget
 
 log = logging.getLogger(__name__)
 
@@ -41,11 +35,7 @@ MAX_SKELETON_CHARS = 14_000
 
 def parts_table(plan: Plan) -> str:
     """Markdown table of parts with exact bboxes (meters, 3 decimals)."""
-    return parts_table_for(getattr(plan, "parts", None) or ())
-
-
-def parts_table_for(parts: Sequence[Any]) -> str:
-    """``parts_table`` for an explicit part subset (one scoped session's parts)."""
+    parts = getattr(plan, "parts", None) or ()
     if not parts:
         return "(no parts)"
     rows = [
@@ -60,17 +50,13 @@ def parts_table_for(parts: Sequence[Any]) -> str:
 
 
 def part_details(plan: Plan) -> str:
-    return part_details_for(getattr(plan, "parts", None) or [])
-
-
-def part_details_for(parts: Sequence[Any]) -> str:
     """Per-part construction notes, including the sub-parts an ASSEMBLY part is made of.
 
     Sub-parts (``PartPlan.children``) are a planning device — the parent is still ONE
     named export node — but they are where the depth lives, so the builder must see
     them with their own boxes, not just a sentence."""
     out: list[str] = []
-    for p in parts:
+    for p in getattr(plan, "parts", None) or ():
         sym = p.symmetry if getattr(p, "symmetry", "none") != "none" else "no symmetry"
         line = f"- **{p.name}** ({sym}): {p.description}"
         hint = getattr(p, "detail_hint", "") or ""
@@ -199,7 +185,7 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
     return d
 
 
-# ----------------------------------------------------------------------------- depth / scoping
+# ----------------------------------------------------------------------------- depth
 def budget_for(ctx: RunContext) -> DepthBudget:
     """This run's complexity-aware triangle + build-time budget (cached on ctx.extra)."""
     got = ctx.extra.get("depth_budget")
@@ -209,24 +195,6 @@ def budget_for(ctx: RunContext) -> DepthBudget:
     b = depth_budget(ctx.plan, build_timeout_s=timeout)
     ctx.extra["depth_budget"] = b
     return b
-
-
-def scope_context(ctx: RunContext, scope: PartScope, **extra: Any) -> dict[str, Any]:
-    """Template context for ONE scoped part session: only its parts, plus the exact
-    numbers of the neighbours it must weld to but may not write."""
-    d = base_prompt_context(ctx, **extra)
-    d.update(
-        {
-            "scope_label": scope.label,
-            "scope_names": ", ".join(scope.names),
-            "parts_table": parts_table_for(scope.parts),
-            "part_details": part_details_for(scope.parts),
-            "interfaces": interfaces_text(ctx.plan, scope),
-            "n_scope_parts": len(scope.parts),
-        }
-    )
-    d.update(extra)
-    return d
 
 
 def reference_images(ctx: RunContext, limit: int = 3) -> list[ImagePart]:

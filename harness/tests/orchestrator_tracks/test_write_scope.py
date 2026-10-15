@@ -1,4 +1,4 @@
-"""Write-scope enforcement at the task layer: envelope scope, harness-owned paths, scoped constructors."""
+"""Write-scope enforcement at the task layer: envelope scope, harness-owned paths, the constructors' scopes."""
 
 from __future__ import annotations
 
@@ -134,20 +134,19 @@ def _round(i: int, score: float) -> RoundRecord:
                        build=BuildResult(ok=True, language="threejs"))
 
 
-def test_scoped_static_constructors_enforce_their_file_sets(tmp_path, settings):
+def test_static_constructors_own_the_whole_object(tmp_path, settings):
+    """D110: round 0 is ONE draft session over every part file + the entry, and the refine round's
+    one session edits the whole object in place — nothing is fenced to a part subset."""
     track, ctx = _static_ctx(tmp_path, settings)
-    tasks = track.baseline_tasks(ctx)
-    parts, assemble = tasks[:-1], tasks[-1]
-    assert len(parts) >= 2
-    assert all(t.edit_only and not t.owns_entry for t in parts), "part sessions are scoped"
-    assert assemble.owns_entry and not assemble.edit_only, "assemble owns the entry"
+    (draft,) = track.baseline_tasks(ctx)
+    assert draft.owns_entry and not draft.edit_only
+    assert draft.files_hint == ctx.runtime.expected_files(ctx.plan)
     last = _round(2, 0.62)
-    # refine keeps entry access: the prompt promises it ("edit the entry file to import a new part")
     group = TaskGroup(tasks=[RefineTask(target="Body", kind="geometry", instruction="thicken",
                                         priority=2, files=["src/parts/body.js"])],
                       files=["src/parts/body.js"])
-    rt = track._refine_task(ctx, group, last, 2, parallel=True)
-    assert rt.edit_only and rt.owns_entry
+    rt = track._refine_task(ctx, group, last, 2, parallel=False)
+    assert rt.owns_entry and not rt.edit_only and rt.files_hint == ctx.runtime.expected_files(ctx.plan)
 
 
 def test_scene_constructors_enforce_their_file_sets(tmp_path, settings, monkeypatch):

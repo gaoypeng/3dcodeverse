@@ -8,12 +8,17 @@ runtimes, ``agents/cli_common.hardened_env`` for the coding-agent CLIs).
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from codeverse3d.contracts.common import Usage
 
 #: one agent session's wall clock — ``Settings.limits.agent_timeout_s`` defaults to it
 AGENT_TIMEOUT_S = 1800
+
+#: the thinking effort a caller may ask an agent session for (``AgentJob.effort``)
+AgentEffort = Literal["low", "medium", "high"]
 
 
 class FileChange(BaseModel):
@@ -34,6 +39,13 @@ class AgentJob(BaseModel):
         description="absolute time.monotonic() deadline on this host, derived from the run's "
         "remaining hard clock before queuing. Shared by retries; recomputed on resume. "
         "None preserves the standalone CLI's session grace",
+    )
+    effort: AgentEffort | None = Field(
+        default=None,
+        description="the thinking effort a caller explicitly asked for (GenerationTask.thinking); None = the "
+        "backend's own default.  Read by agy only (``--effort``; a ``-low/-medium/-high`` model suffix still "
+        "wins, and with neither the session runs at AGY_API_EFFORT = high — owner, 2026-10-15).  claude-code "
+        "and codex take their effort from Settings.agents (claude_effort / codex_reasoning_effort) and ignore it",
     )
     #: consumed only by claude-code (``--max-turns``); codex / agy have no
     #: turn flag and run unbounded except by ``timeout_s`` and the run's wall clock
@@ -101,6 +113,9 @@ class AgentResult(BaseModel):
         "killed before its turn completed reports none (backends.CodexEvents.estimated_usage); its ledger "
         "row says source=\"estimate\"",
     )
+    effort: str = Field(
+        default="", description="the effort the backend actually passed its CLI (agy ``--effort``, claude-code "
+        "``--effort``, codex ``model_reasoning_effort``); '' = none passed, the CLI's own default")
     tool_calls: int = 0
     turns: int = Field(
         default=0, description="model turns as the backend counts them (claude-code num_turns, codex "

@@ -117,51 +117,17 @@ def load_round_journal(ws: Workspace) -> list[RoundRecord]:
 
 def run_generation_tasks(ctx: RunContext, tasks: Sequence[GenerationTask], *,
                          steps: list[StepTime] | None = None) -> list[GenerationResult]:
-    """Run tasks (parallel when > 1).  Raises ``RoundFailed`` when none succeeded.
-
-    ``GenerationTask.phase`` sequences the round: tasks run in parallel WITHIN a
-    phase, phases in ascending order.  Every task is phase 0 unless a track says
-    otherwise, so this is a no-op for every existing caller; per-part scoped
-    generation uses it so the assembly session sees the part files first.  Each
-    phase is one ``generate`` step in ``steps``.
-    """
+    """Run tasks side by side — one ``generate`` step: its sessions share one clock.  Raises
+    ``RoundFailed`` when none succeeded."""
     if not tasks:
         return []
-    phases = sorted({t.phase for t in tasks})
-    if len(phases) > 1:
-        out: dict[int, GenerationResult] = {}
-        ok_any = False
-        for ph in phases:
-            picked = [(i, t) for i, t in enumerate(tasks) if t.phase == ph]
-            try:
-                got = _run_phase(ctx, [t for _, t in picked], steps)
-            except RoundFailed as e:
-                # a phase in which nothing succeeded is not automatically a dead round:
-                # the earlier phases may have written the parts.  Record the failures
-                # (and why they failed) and let the final check below decide.
-                got = [GenerationResult(ok=False, notes="phase produced no change", label=t.label,
-                                        transient=e.transient, quota=e.quota) for _, t in picked]
-            for (i, _), r in zip(picked, got, strict=True):
-                out[i] = r
-            ok_any = ok_any or any(r.ok for r in got)
-        results_seq = [out[i] for i in range(len(tasks))]
-        if not ok_any:
-            raise RoundFailed.of(results_seq, "no generation task succeeded")
-        return results_seq
-    return _run_phase(ctx, list(tasks), steps)
-
-
-def _run_phase(ctx: RunContext, tasks: Sequence[GenerationTask],
-               steps: list[StepTime] | None = None) -> list[GenerationResult]:
-    """One parallel batch of generation tasks — one ``generate`` step: its sessions run side
-    by side, so they share one clock."""
 
     def _one(task: GenerationTask) -> GenerationResult:
         return generate_for(ctx, task)
 
     # fan_out also for ONE task: a crashing generator (503 storm, parse error) becomes a failed
     # result → RoundFailed (a refine round then stops the run as no_change) instead of killing it.
-    with timed("generate", [] if steps is None else steps, round_index=tasks[0].round if tasks else None):
+    with timed("generate", [] if steps is None else steps, round_index=tasks[0].round):
         results = fan_out(list(tasks), _one, max_workers=ctx.settings.limits.max_parallel_agents,
                           label="generate", item_name=lambda t: t.label)
     out: list[GenerationResult] = []
@@ -176,9 +142,9 @@ def _run_phase(ctx: RunContext, tasks: Sequence[GenerationTask],
             out.append(r)
     if not any(r.ok for r in out):
         if budget_stop is not None:
-            raise budget_stop  # nothing usable survived the phase
+            raise budget_stop  # nothing usable survived the batch
         raise RoundFailed.of(out, "no generation task succeeded")
-    ctx.budget.check()  # phase boundary: single-shot money is booked non-enforcing upstream
+    ctx.budget.check()  # step boundary: single-shot money is booked non-enforcing upstream
     return out
 
 

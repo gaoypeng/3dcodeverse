@@ -329,7 +329,7 @@ class ClaudeCodeAgent(_CliAgent):
                 s, ok=end.exit_reason == "completed", exit_reason=end.exit_reason, text=text, usage=usage,
                 tool_calls=n_calls, turns=turns, errors=errors, transient=end.transient, quota=end.quota,
                 provider_wait_s=provider_wait([(t, b) for t, b, _ in stream.retries], ended, stream.progress),
-                rc=proc.rc, killed_reason=proc.killed_reason, num_turns=turns,
+                rc=proc.rc, killed_reason=proc.killed_reason, num_turns=turns, effort=get_settings().agents.claude_effort,
                 session_id=(env or {}).get("session_id", ""), subtype=(env or {}).get("subtype", ""),
                 model_usage=(env or {}).get("modelUsage", {}),
                 usage_from="envelope" if env else "stream messages" if stream.messages else "none",
@@ -533,7 +533,7 @@ class CodexAgent(_CliAgent):
             return finish_session(
                 s, ok=ok, exit_reason=end.exit_reason, text=text, usage=usage, tool_calls=events.tool_calls,
                 turns=events.turns_completed, errors=errors, transient=end.transient, quota=end.quota,
-                rc=proc.rc, killed_reason=proc.killed_reason, thread_id=events.thread_id,
+                rc=proc.rc, killed_reason=proc.killed_reason, thread_id=events.thread_id, effort=self.reasoning_effort,
                 turns_completed=events.turns_completed, usage_raw=events.usage_raw, usage_estimated=estimated,
             )
         finally:
@@ -542,12 +542,14 @@ class CodexAgent(_CliAgent):
 
 # ===================================================================== antigravity
 
-def api_model_effort(model: str) -> tuple[str, str]:
-    """``gemini-4-argon-low`` → ``('gemini-4-argon', 'low')``; a bare id runs at ``AGY_API_EFFORT``."""
+def api_model_effort(model: str, asked: str | None = None) -> tuple[str, str]:
+    """``gemini-4-argon-low`` → ``('gemini-4-argon', 'low')``.  Precedence: the model id's
+    ``-low/-medium/-high`` suffix, then ``asked`` (``AgentJob.effort`` — a caller's explicit ask),
+    then ``AGY_API_EFFORT``.  No caller asks today, so a bare id runs at high (owner, 2026-10-15)."""
     for effort in EFFORTS:
         if model.endswith(f"-{effort}"):
             return model[: -len(effort) - 1], effort
-    return model, AGY_API_EFFORT
+    return model, asked or AGY_API_EFFORT
 
 
 def parse_agy_json(stdout: str) -> dict[str, Any] | None:
@@ -575,8 +577,9 @@ AGY_API_SETTINGS = {"modelProvider": "gemini"}
 #: key serves, listed by ``agy models`` or not (gemini-4-argon) — and ``--effort`` sets its
 #: thinking level (low → 1, high → 3 in the CLI log, 2026-10-13)
 AGY_API_SCHEME = "gemini-api://"
-#: the effort an API-mode id without a ``-low/-medium/-high`` suffix runs at: the Gemini API's
-#: own default thinking level
+#: the effort an API-mode id without a ``-low/-medium/-high`` suffix runs at when the job asks for
+#: none (``AgentJob.effort`` is None): the Gemini API's own default thinking level.  Every track's
+#: argon sessions run here — owner, 2026-10-15: "argon 强度就直接设置high" (D110)
 AGY_API_EFFORT = "high"
 #: the model an ``agy`` generator with no model runs (owner, 2026-10-13)
 DEFAULT_AGY_MODEL = "gemini-4-argon"
@@ -765,9 +768,12 @@ class AntigravityAgent(_CliAgent):
         """The API model id the session is booked under (the effort suffix stripped)."""
         return api_model_effort(self.model)[0]
 
-    def model_args(self) -> list[str]:
-        name, effort = api_model_effort(self.model)
-        return ["--model", f"{AGY_API_SCHEME}{name}", "--effort", effort]
+    def effort_for(self, job: AgentJob) -> str:
+        """The ``--effort`` this job's session runs at (:func:`api_model_effort`)."""
+        return api_model_effort(self.model, job.effort)[1]
+
+    def model_args(self, job: AgentJob) -> list[str]:
+        return ["--model", f"{AGY_API_SCHEME}{self.served_model()}", "--effort", self.effort_for(job)]
 
     def build_argv(self, s: Session) -> list[str]:
         """No ``--print``: agy reads the prompt from a piped stdin, byte for byte, and still
@@ -780,7 +786,7 @@ class AntigravityAgent(_CliAgent):
         return [self.binary, "--dangerously-skip-permissions",
                 "--print-timeout", f"{minutes}m", "--output-format", "json",
                 "--add-dir", str(s.ws.root), "--disable-slash-commands", "--log-file", str(s.traj.dir / AGY_LOG),
-                *self.model_args()]
+                *self.model_args(s.job)]
 
     def build_home(self, s: Session) -> Path:
         """A fresh HOME for one session: the API-mode settings and, when the job has
@@ -836,8 +842,9 @@ class AntigravityAgent(_CliAgent):
             except KeyPoolExhausted as e:  # every key throttled for the whole wait budget
                 return failed(s, "budget", f"Gemini key pool exhausted: {e}")
             home = self.build_home(s)
+            effort = self.effort_for(job)
             proc = invoke(s, self.build_argv(s), self.build_env(s, key=key, home=home), prompt=_compose_prompt_agy(s),
-                          model=self.model, key_tail=key[-4:])
+                          model=self.model, effort=effort, key_tail=key[-4:])
             ended = time.time()
             env = parse_agy_json(proc.stdout)
             n_calls = self._record_trace(s, home, str((env or {}).get("conversation_id") or ""))
@@ -872,7 +879,7 @@ class AntigravityAgent(_CliAgent):
                 s, ok=ok, exit_reason=end.exit_reason, text=text, usage=usage, tool_calls=n_calls,
                 turns=int((env or {}).get("num_turns") or 0), errors=errors, transient=end.transient, quota=end.quota,
                 provider_wait_s=provider_wait([(t, b) for t, b, _ in retries], ended),
-                rc=proc.rc, killed_reason=proc.killed_reason, agy_error=died,
+                rc=proc.rc, killed_reason=proc.killed_reason, agy_error=died, effort=effort,
                 conversation_id=(env or {}).get("conversation_id", ""), num_turns=(env or {}).get("num_turns", 0),
             )
         finally:

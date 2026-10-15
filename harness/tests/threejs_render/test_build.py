@@ -111,7 +111,7 @@ def test_build_bakes_instanced_meshes_for_trimesh(stool_ws: Workspace, bare_root
     from codeverse3d.spatial.contract import check_contract
 
     posts = ("  const mat = new THREE.MeshStandardMaterial({ color: 0x885533 });\n"
-             "  const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.05, 1, 0.05), mat, 10); posts.name = 'Posts';\n"
+             "  const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.05, 1, 0.05, 1, 2, 1), mat, 10); posts.name = 'Posts';\n"
              "  const m = new THREE.Matrix4();\n"
              "  for (let i = 0; i < 10; i++) { m.makeTranslation(-2.25 + i * 0.5, 0.5, 0); posts.setMatrixAt(i, m); posts.setColorAt(i, new THREE.Color(i % 2 ? 0xff0000 : 0x00ff00)); }\n"
              "  posts.instanceMatrix.needsUpdate = true;\n")
@@ -119,7 +119,7 @@ def test_build_bakes_instanced_meshes_for_trimesh(stool_ws: Workspace, bare_root
         body = posts + "  return posts; }\n"
     else:
         body = ("  const g = new THREE.Group(); g.name = 'Fence';\n" + posts + "  g.add(posts);\n"
-                "  const rail = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.05, 0.03), mat); rail.name = 'Rail'; rail.position.set(0, 1.025, 0); g.add(rail);\n"
+                "  const rail = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.05, 0.03, 2, 1, 1), mat); rail.name = 'Rail'; rail.position.set(0, 1.025, 0); g.add(rail);\n"
                 "  return g; }\n")
     (stool_ws.src / "object.js").write_text("import * as THREE from 'three';\nexport function build(T) {\n" + body)
     res = ThreeJsRuntime().build(stool_ws)
@@ -131,7 +131,7 @@ def test_build_bakes_instanced_meshes_for_trimesh(stool_ws: Workspace, bare_root
     names = [f"Posts_{i}" for i in range(10)] + ([] if bare_root else ["Rail"])
     m = measure_glb(res.glb_path)
     assert sorted(p.name for p in m.parts) == sorted(names)
-    assert m.tri_count == 12 * len(names) and abs(m.ground_gap_m) < 1e-3
+    assert m.tri_count == 20 * len(names) and abs(m.ground_gap_m) < 1e-3  # 2-segment boxes: 20 triangles each
     p9 = next(p for p in m.parts if p.name == "Posts_9")
     assert np.allclose(p9.bbox_min, [2.225, 0.0, -0.025], atol=1e-3)
     assert np.allclose(p9.bbox_max, [2.275, 1.0, 0.025], atol=1e-3)
@@ -142,6 +142,8 @@ def test_build_bakes_instanced_meshes_for_trimesh(stool_ws: Workspace, bare_root
                               bbox=BBox(center=(0, 1.025, 0), extents=(4.6, 0.05, 0.03))))
     plan = StaticPlan(object_name="Fence", summary="s", overall_bbox=BBox(center=(0, 0.525, 0), extents=(4.6, 1.05, 0.05)),
                       parts=parts)
+    # the boxes are segmented (20 triangles), so they are not the skeleton's 12-triangle placeholder
+    # (D110; a bare box exactly at its plan box is pinned in test_placeholder_gate)
     assert [f.message for f in check_contract(m, plan, language="threejs").findings
             if f.severity.value != "info"] == []
     if not bare_root:

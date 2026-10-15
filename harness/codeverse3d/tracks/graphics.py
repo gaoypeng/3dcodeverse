@@ -169,5 +169,5 @@ class GraphicsTrack(BaseTrack):
             current_files=refine_inline_files(ctx, files)))
         ctx.record_prompt("refine", prompt)
         return GenerationTask(label="refine", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=index,
-                              kind="refine", temperature=0.5, thinking="medium", owns_entry=True,
+                              kind="refine", temperature=0.5, owns_entry=True,
                               images=reference_images(ctx) + judged_sheet(last))

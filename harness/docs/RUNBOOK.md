@@ -92,8 +92,11 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
   after the session; the tool trace is read from its conversation db first.  `PUPPETEER_CACHE_DIR`
   points the agent's shell at the real Chrome cache.
 * argv `--model gemini-api://<bare id> --effort <low|medium|high>`: the id goes to the API
-  verbatim (any model the key serves); effort from an agy-style `-low/-medium/-high` suffix,
-  default `high` (the Gemini API's own default).
+  verbatim (any model the key serves); effort from an agy-style `-low/-medium/-high` suffix, else
+  `AgentJob.effort` (a task that explicitly asks — none does today), else `high` (the Gemini API's own
+  default; owner, 2026-10-15: argon runs at high on every track, D110).  The effort used is on the
+  transcript's `invoke` line, in `result.json` and on the session's `cost.jsonl` row.  An effort A/B is
+  the id suffix: `--generator agy:gemini-4-argon-medium`.
 * Cost: priced at Gemini list price; agy's `output_tokens` already include `thinking_tokens`, so
   output = output − thinking, thoughts = thinking (billed once).
 * `--print-timeout` = `timeout_s` + the watchdog's `HARD_GRACE_S` (5 min) + 1 min, so the watchdog

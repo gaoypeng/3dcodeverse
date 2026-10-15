@@ -38,12 +38,12 @@ import shutil
 import time
 from collections.abc import Callable, Collection
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field
 
 from codeverse3d.config import get_settings
-from codeverse3d.contracts.agent import AgentJob, AgentResult, FileChange
+from codeverse3d.contracts.agent import AgentEffort, AgentJob, AgentResult, FileChange
 from codeverse3d.contracts.chat import ChatMessage, ChatRequest, ImagePart
 from codeverse3d.contracts.common import (
     ENTRY_FILE,
@@ -270,6 +270,16 @@ def turn_capped(res: Any) -> bool:
     return any("max_turns" in str(e) for e in (getattr(res, "errors", None) or []))
 
 
+#: what a single-shot call thinks at when its task asks for nothing (``GenerationTask.thinking`` '')
+SINGLE_SHOT_THINKING = "medium"
+
+
+def session_effort(task: GenerationTask) -> AgentEffort | None:
+    """``AgentJob.effort`` for ``task``: its ``thinking`` when the caller explicitly asked for an
+    agent effort, else None — the backend's default (agy: ``AGY_API_EFFORT`` = high)."""
+    return task.thinking if task.thinking in get_args(AgentEffort) else None  # type: ignore[return-value]
+
+
 class GenerationTask(BaseModel):
     """One unit of code-writing work (baseline, refine group, asset, zone, repair)."""
 
@@ -285,7 +295,13 @@ class GenerationTask(BaseModel):
     kind: str = "generate"
     images: list[ImagePart] = Field(default_factory=list)
     temperature: float = 0.6
-    thinking: str = "medium"
+    thinking: Literal["", "off", "low", "medium", "high"] = Field(
+        default="",
+        description="'' = the caller asks for nothing: a single-shot call thinks at SINGLE_SHOT_THINKING, an "
+        "agent session runs at its backend's default (agy: high, owner 2026-10-15).  Anything else is an "
+        "explicit ask — the single-shot call uses it, and an agent session gets it as AgentJob.effort "
+        "(``off`` reaches no agent).  No track asks for less than high today (D110)",
+    )
     max_output_tokens: int = 65_536   # the model's declared ceiling; unused tokens cost nothing
     timeout_s: int | None = None
     write_roots: list[str] = Field(default_factory=lambda: ["src", "public"])
@@ -299,16 +315,6 @@ class GenerationTask(BaseModel):
         "whole-object / single-file tasks, and scoped refines whose prompt promises entry access). "
         "A task whose files_hint names the entry owns it implicitly; part / zone / detail / asset "
         "tasks default to False so parallel scoped sessions cannot race on the entry file",
-    )
-    phase: int = Field(
-        default=0,
-        ge=0,
-        description=(
-            "execution phase inside ONE round: tasks run in parallel WITHIN a phase and phases run "
-            "in ascending order.  Everything is phase 0 unless a track says otherwise — the only "
-            "current user is per-part scoped generation, where the assembly session (phase 1) must "
-            "see the part files the scoped sessions (phase 0) wrote."
-        ),
     )
 
 
@@ -411,7 +417,7 @@ def generate_files(
         messages=[ChatMessage.user(task.prompt, images=task.images or None)],
         system=system,
         temperature=task.temperature,
-        thinking=task.thinking,  # type: ignore[arg-type]
+        thinking=task.thinking or SINGLE_SHOT_THINKING,
         max_output_tokens=task.max_output_tokens,
         # the RUN's remaining wall clock AND the task's own window, not the models' 1800 s
         # default — and past the hard ceiling this refuses to buy the call at all
@@ -428,8 +434,8 @@ def generate_files(
     resp = ask(req)
     usage = resp.usage
     # the clock is not enforced here: the response is already paid for, and raising would
-    # discard it before transcript/parse/write_files — the round's phase boundary does
-    # (steps._run_phase)
+    # discard it before transcript/parse/write_files — the round's generate step does
+    # (steps.run_generation_tasks)
     retry = False
     if _is_truncated(resp):
         # cut off by max_output_tokens: the envelope is unterminated — one retry with a
@@ -558,6 +564,7 @@ def run_agent_task(
         track=track,
         files_hint=list(task.files_hint),
         edit_only=task.edit_only,
+        effort=session_effort(task),
         always_writable=_always_writable(language, task),
         read_only=_read_only(language),
         **({"max_turns": turns_cap} if turns_cap > 0 else {}),

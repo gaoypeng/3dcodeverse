@@ -38,5 +38,5 @@ def test_every_language_ships_a_system_prompt_and_a_contract_and_no_cookbook() -
         assert not (PROMPTS_DIR / language_prompt(lang, "cookbook.md")).is_file(), (lang.value, "ships a cookbook")
         assert language_text(lang, "cookbook.md") == ""
     assert language_prompt(Language.URDF_BLENDER, "contract.md") == "urdf/contract.md"
-    for role in ("scope", "repair"):
+    for role in ("asset", "repair"):
         assert (PROMPTS_DIR / "system" / f"role_{role}.j2").is_file(), role

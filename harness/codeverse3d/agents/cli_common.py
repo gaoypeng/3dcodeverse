@@ -486,13 +486,15 @@ def finish_session(
     quota: bool = False,
     provider_wait_s: float = 0.0,
     usage_estimated: bool = False,
+    effort: str = "",
     **extra: Any,
 ) -> AgentResult:
     """Commit the agent's work, compute ``files_changed`` via git (attributed to this
     session — see :func:`attribute_changes`), write result.json.  ``turns`` is the
     backend's own count (``AgentResult.turns``); ``transient`` / ``quota`` its typed
     failure class and ``provider_wait_s`` the time its CLI lost to provider errors
-    (:func:`provider_wait`); ``extra`` lands in result.json only.
+    (:func:`provider_wait`); ``effort`` what the backend passed its CLI (``AgentResult.effort``);
+    ``extra`` lands in result.json only.
 
     Write scope is enforced here for the CLI backends (they have no write-time gate):
     writes outside ``write_roots`` (and, for ``edit_only``, outside ``files_hint``) are
@@ -517,7 +519,7 @@ def finish_session(
             transcript_path=str(s.traj.transcript_path if s.traj.transcript_path.exists() else s.traj.dir),
             usage=usage, duration_s=duration, provider_wait_s=round(min(max(provider_wait_s, 0.0), duration), 3),
             tool_calls=tool_calls, turns=turns, errors=errors, transient=transient and not quota, quota=quota,
-            usage_estimated=usage_estimated,
+            usage_estimated=usage_estimated, effort=effort,
         )
         s.traj.write_result(res, kind=s.kind, label=s.label, round=s.round_index, attempt=s.attempt, job_label=s.job.label,
                             head_before=s.head_before, head_after=s.ws.head(), notes=s.notes, **extra)
@@ -575,7 +577,7 @@ def invoke(
     the transcript.  ``stdout_name`` sets the capture's name (codex streams JSONL →
     ``stdout.jsonl``); ``on_stdout`` / ``on_stderr`` also receive each line as it arrives (the
     backends fold their event streams live).  The ``invoke`` line records the prompt's size,
-    plus ``invoke_extra`` (agy in API mode adds ``model`` and ``key_tail``).
+    plus ``invoke_extra`` (agy in API mode adds ``model``, the ``effort`` it passed and ``key_tail``).
     """
     soft = float(s.job.timeout_s)
     hard = soft + HARD_GRACE_S

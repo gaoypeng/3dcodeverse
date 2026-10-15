@@ -1,4 +1,4 @@
-"""Generation depth: complexity budgets and per-part scoped generation.
+"""Generation depth: complexity budgets.
 
 Measured on the recorded corpus (183 judged rounds / 81 runs, see the wave's
 ``complexity_baseline.md``), three facts shape this module:
@@ -26,22 +26,17 @@ Hence: :func:`depth_budget` (how many triangles / how much build time this *plan
 deserves, checked by :func:`budget_gate`; the generate / refine briefs get the numberless
 :data:`DETAIL_ADVICE`, and each object language's ``contract.md`` states the gate's per-object
 constants as a measured requirement (D107, pinned in ``prompts/_claims.toml``); how many PARTS a prompt deserves is
-``tracks.planner.plan_budget``, which also owns the thin-plan re-ask), and :func:`scope_groups` (how to split one plan into sessions small
-enough that each part gets real attention) with :func:`interfaces_text` handing
-each session the exact numbers of the parts it must touch but may not edit.
+``tracks.planner.plan_budget``, which also owns the thin-plan re-ask).  The per-part scoped
+baseline that lived here (``scope_groups`` / ``interfaces_text``) was deleted by D110: one session
+drafts the whole object.
 """
 
 from __future__ import annotations
 
-import logging
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from codeverse3d.config import get_settings
-from codeverse3d.conventions import MAX_TRIS_OBJECT, fmt3, to_pascal, to_snake
-
-log = logging.getLogger(__name__)
+from codeverse3d.conventions import MAX_TRIS_OBJECT
 
 # --------------------------------------------------------------------------- triangle / time budget
 #: triangles a well-detailed single part is worth.  Corpus: median tri/part ≈ 430, and the
@@ -97,191 +92,6 @@ def depth_budget(plan: Any, *, build_timeout_s: int = 300) -> DepthBudget:
 
 def _clamp(v: float, lo: float, hi: float) -> int:
     return int(max(lo, min(hi, v)))
-
-
-# --------------------------------------------------------------------------- scoped generation
-#: below this many plan parts one session handles the whole object fine (and fan-out only
-#: adds coordination cost): the corpus shows the ceiling biting from ~8 parts up
-MIN_PARTS_FOR_SCOPED = 8
-#: parts one scoped session owns.  Small enough that every part gets real attention,
-#: large enough that a part and the neighbour it must weld to usually land together.
-DEFAULT_PARTS_PER_SCOPE = 3
-
-
-def scoped_generation_enabled() -> bool:
-    """``C3D_SCOPED_PARTS=off`` turns per-part scoped baselines off (A/B, debugging)."""
-    return get_settings().scoped_parts
-
-
-@dataclass(frozen=True)
-class PartScope:
-    """One scoped generation session: a few plan parts and the files that hold them."""
-
-    parts: tuple[Any, ...]
-    files: tuple[str, ...]
-
-    @property
-    def names(self) -> list[str]:
-        return [str(p.name) for p in self.parts]
-
-    @property
-    def label(self) -> str:
-        return "+".join(to_snake(n) for n in self.names[:3]) or "parts"
-
-
-def scope_groups(
-    plan: Any,
-    *,
-    files_for: Any,
-    max_groups: int = 6,
-    parts_per_scope: int = DEFAULT_PARTS_PER_SCOPE,
-    min_parts: int = MIN_PARTS_FOR_SCOPED,
-) -> list[PartScope]:
-    """Split a plan into per-part scoped sessions, or ``[]`` when one session suffices.
-
-    Parts are partitioned along the ``attach_to`` tree, so a part and the parts it
-    carries land in the SAME session wherever possible — that is where the
-    assembly-fit penalty for extra parts comes from, and a contact both sides of
-    which are written by one session is a contact that gets welded.  Subtrees are
-    then packed into at most ``max_groups`` groups of ``parts_per_scope``.
-    """
-    parts = list(getattr(plan, "parts", None) or [])
-    if len(parts) < max(2, min_parts) or max_groups < 2:
-        return []
-    units = _attachment_units(parts, parts_per_scope)
-    groups = _pack(units, max_groups=max_groups, parts_per_scope=parts_per_scope)
-    if len(groups) < 2:
-        return []
-    out: list[PartScope] = []
-    for g in groups:
-        files: list[str] = []
-        for p in g:
-            for f in _files_for(files_for, p.name):
-                if f not in files:
-                    files.append(f)
-        if not files:  # a language with no per-part file ownership cannot be scoped
-            return []
-        out.append(PartScope(parts=tuple(g), files=tuple(files)))
-    return out
-
-
-def _files_for(files_for: Any, name: str) -> list[str]:
-    if not callable(files_for):
-        return []
-    try:
-        got = files_for(name)
-    except Exception as e:  # noqa: BLE001 — a mapper failure must not kill generation
-        log.warning("file_for_target failed for %s: %s", name, e)
-        return []
-    if not got:
-        return []
-    return [str(got)] if isinstance(got, str) else [str(x) for x in got]
-
-
-def _attachment_units(parts: Sequence[Any], parts_per_scope: int) -> list[list[Any]]:
-    """Attachment subtrees, each split down to ``parts_per_scope`` at most."""
-    by_key = {to_snake(str(p.name)): p for p in parts}
-    children: dict[str, list[str]] = {k: [] for k in by_key}
-    roots: list[str] = []
-    for p in parts:
-        key = to_snake(str(p.name))
-        parent = to_snake(str(getattr(p, "attach_to", None) or ""))
-        if parent and parent in by_key and parent != key:
-            children[parent].append(key)
-        else:
-            roots.append(key)
-    seen: set[str] = set()
-    units: list[list[Any]] = []
-
-    def subtree(key: str) -> list[Any]:
-        out, stack = [], [key]
-        while stack:
-            k = stack.pop()
-            if k in seen:
-                continue
-            seen.add(k)
-            out.append(by_key[k])
-            stack.extend(children.get(k, ()))
-        return out
-
-    for r in roots:
-        if r in seen:
-            continue
-        seen.add(r)
-        units.append([by_key[r]])  # the root itself is its own unit (it is the datum)
-        for c in children.get(r, ()):
-            got = subtree(c)
-            if got:
-                units.append(got)
-    for k, p in by_key.items():  # cycles / unreachable parts
-        if k not in seen:
-            seen.add(k)
-            units.append([p])
-    out: list[list[Any]] = []
-    for u in units:
-        for i in range(0, len(u), parts_per_scope):
-            out.append(u[i:i + parts_per_scope])
-    return out
-
-
-def _pack(units: list[list[Any]], *, max_groups: int, parts_per_scope: int) -> list[list[Any]]:
-    """First-fit-decreasing pack of subtrees into ≤ ``max_groups`` groups."""
-    if not units:
-        return []
-    cap = max(parts_per_scope, -(-sum(len(u) for u in units) // max_groups))
-    groups: list[list[Any]] = []
-    for u in sorted(units, key=len, reverse=True):
-        target = next((g for g in groups if len(g) + len(u) <= cap), None)
-        if target is None and len(groups) < max_groups:
-            groups.append(list(u))
-        elif target is None:
-            min(groups, key=len).extend(u)
-        else:
-            target.extend(u)
-    return [g for g in groups if g]
-
-
-# --------------------------------------------------------------------------- scoped prompt text
-def interfaces_text(plan: Any, scope: PartScope) -> str:
-    """The exact numbers of every part OUTSIDE this scope that touches a part inside it.
-
-    This is the whole point of scoping: the session never sees the other 20 parts,
-    but it must weld to the ones it borders, so it gets their planned box and the
-    2 mm overlap rule for each contact — deterministically, from the plan.
-    """
-    parts = list(getattr(plan, "parts", None) or [])
-    by_key = {to_snake(str(p.name)): p for p in parts}
-    inside = {to_snake(n) for n in scope.names}
-    rows: list[str] = []
-    seen: set[tuple[str, str]] = set()
-
-    def _row(mine: Any, other: Any, direction: str) -> None:
-        key = (to_snake(str(mine.name)), to_snake(str(other.name)))
-        if key in seen:
-            return
-        seen.add(key)
-        rows.append(f"| {to_pascal(str(mine.name))} | {direction} | {to_pascal(str(other.name))} | "
-                    f"({fmt3(other.bbox.center)}) | ({fmt3(other.bbox.extents)}) | "
-                    f"x [{other.bbox.min[0]:.3f}, {other.bbox.max[0]:.3f}] "
-                    f"y [{other.bbox.min[1]:.3f}, {other.bbox.max[1]:.3f}] "
-                    f"z [{other.bbox.min[2]:.3f}, {other.bbox.max[2]:.3f}] |")
-
-    for p in scope.parts:
-        parent = by_key.get(to_snake(str(getattr(p, "attach_to", None) or "")))
-        if parent is not None and to_snake(str(parent.name)) not in inside:
-            _row(p, parent, "attaches TO")
-    for other in parts:
-        if to_snake(str(other.name)) in inside:
-            continue
-        parent_key = to_snake(str(getattr(other, "attach_to", None) or ""))
-        if parent_key in inside:
-            _row(by_key[parent_key], other, "carries")
-    if not rows:
-        return "(no parts outside this scope touch yours — build to the plan boxes and the ground plane)"
-    head = ("| your part | relation | neighbour (owned by another session — DO NOT create or edit it) | "
-            "neighbour centre (m) | neighbour extents (m) | neighbour box |\n|---|---|---|---|---|---|")
-    return head + "\n" + "\n".join(rows)
-
 
 
 # --------------------------------------------------------------------------- the budget gate

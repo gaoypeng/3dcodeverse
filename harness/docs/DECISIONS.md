@@ -1495,6 +1495,94 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   particles stay; `fog_hidden` in the frame record).  Pinned: `tests/orchestrator_tracks/test_zone_starvation.py`,
   `tests/scene_runtime/test_render_blender.py::…fog_box…` (real Blender).
 
+* **D110 Objects are baseline-first: ONE session drafts the whole object, ONE session refines it in place per
+  round; agy's argon stays at effort high; a typed `placeholder_part` gate (owner, 2026-10-15).**  Every
+  object language — static_object blender / threejs / cadquery and articulated_object urdf_blender — takes
+  the draft-then-improve shape (the concept from astra3d-brilliana's Blender path, reimplemented; nothing
+  copied): round 0 is `BaseTrack.baseline_tasks`, one agent session that writes every part file and the
+  entry (`generate_static.j2` / `generate_articulated.j2`); the round is built, measured, gated, rendered and
+  judged; every refine round is ONE session over the whole object (`StaticObjectTrack.allow_refine_fanout =
+  False`, articulated inherits it) carrying the gate ERRORs — a placeholder part first of all — then failed
+  must-acceptance items, then the judge's plan (≤ `max_refine_tasks`, compacted to
+  `max_instructions_per_task` lines), with `measurement_vs_plan` kept.  EVIDENCE (argon loop iteration 0,
+  15 runs per language, `--rounds 2 --max-minutes 60`): the scoped baseline (`d104409e`, 2026-08-24, motivated
+  by correlations only — no A/B, no DECISIONS entry) was built for the parallel in-process api-agent and has
+  run SERIALLY since `50734755` / `66175ec1` (the per-workspace session lock, api-agent deleted): 3-5 scope
+  sessions × median 18.2 min + an assemble session against a 58-minute generation window, so blender /
+  threejs reached the end of round 0 at the budget (61.0 min median), 0 of 30 runs finished a refine round,
+  13 and 14 of 15 shipped placeholder or missing parts (33 % / 21 % of part files still the skeleton box)
+  and scored 0.509 / 0.588 mean.  The single-session languages in the same iteration: cadquery judged round
+  0 at 26.8 min, 0.934 median, refine beat it in 13 of 15 runs (picked 0.966); urdf_blender 29.6 min, 0.923
+  → 0.969.  The two blender runs whose scopes all finished scored 0.907 / 0.932.  Session time follows
+  generated tokens (ρ 0.94-0.96, ~72 tok/s); output tokens were 4.3-6.4 × the final files' tokens, and 85 % of
+  the characters blender / threejs sessions wrote went through whole-file writes.  A parallel-sandbox trial (scopes side by side against placeholder
+  neighbours) cut round 0 to 46 min and dropped the dining chair from 0.907 to 0.404 (floating parts) — no
+  parallel work before a real draft exists.  THE DRAFT BRIEF states requirements with their measurements
+  (D106/D107): every planned part at its box and joined before any detail — a session stopped at its window
+  must still leave the whole object (`check_contract` / `check_connectivity` measure it); each skeleton file
+  replaced in one write and then changed only with targeted edits.  The refine brief (`refine_object.j2`)
+  says edit in place, never rewrite a whole file to change a few lines.  The measurement the briefs cite is
+  the chair pair (iteration 0's dining chair rewrote files whole — 8 rewrites over 9 files, ~136k characters
+  written; the baseline-first smoke's chair wrote each file once, ~49k), not the 4.3-6.4 × ratio: the smoke's
+  rewrite-free draft still generated ~4.2 × its final code in output tokens, so that ratio is not a rewrite
+  cost.  No agent refine is fenced to a part subset; a SINGLE-SHOT refine still is (`edit_only`, the
+  `edit_only_these` branch kept for it alone) — it sees only the files inlined for it and could otherwise
+  rewrite one it was never shown (review 2026-10-15).  REFINE WINDOW: an object refine session gets
+  `static_object.object_session_window_s` — the agent default clipped to end `OBJECT_ROUND_RESERVE_S` (180 s;
+  build + gates + renders + judge measured 0.7 min) plus the watchdog's `HARD_GRACE_S` before the run's hard
+  ceiling.  Without it a busy session ran to the run clock: the smoke's blender refine (started at 25.8 of
+  60 min, 30-min window + 5-min grace) was killed at 60.0 min after $4.63 and the round dropped unbuilt and
+  unjudged, as were all three refines of iteration 0's chair.  PLACEHOLDER GATE:
+  `check_contract` emits an ERROR `data.kind = "placeholder_part"` (`contracts.artifacts.PLACEHOLDER_PART`)
+  when `spatial.contract.is_placeholder` holds — every measured row of the part ≤ 12 triangles
+  (`PLACEHOLDER_MAX_TRIS`, what blender / urdf `primitive_cube_add`, three.js `BoxGeometry` and cadquery
+  `Workplane.box` export), watertight with a volume ≥ 0.999 of its own box (`PLACEHOLDER_MIN_FILL` — a real
+  12-triangle hexahedron does not fill it: review 2026-10-15 found a tapered cadquery fretboard at its plan box,
+  fill 0.879, flagged; over 942 loop part rows the 68 true placeholders were all watertight at fill 1.000) and
+  its extents within 1 mm (`PLACEHOLDER_TOL_M`) of the plan box, a single
+  instance also at the plan centre (copies are placed by the symmetry hint, so only their size is compared);
+  0 triangles (not measured) never fires.  KNOWN LIMIT, pinned: a real bare 12-triangle box built to the
+  plan's millimetre fires too — measurement cannot tell it from the skeleton's, and the corpus held none
+  (every hit was a part file byte-identical to the `skeleton` commit); keying on that git fact instead was
+  not taken, the gate sees only the measurement.  Computed from `Measurement.parts`, no grep of names or sources
+  (Law 4); the box checks for that part are skipped (it would pass them by construction).
+  `orchestrator.build_refine_instructions` sorts it ahead of every other gate ERROR.  CONSEQUENCE, a known
+  change: a contract ERROR fires the `contract_violation` cap (0.75), so a run that ships placeholder parts
+  now scores ≤ 0.75 where the gates used to call those parts perfect.  EFFORT (owner, 2026-10-15, final:
+  "argon 强度就直接设置high"): agy with gemini-4-argon runs at `--effort high` on every track — no default
+  was lowered.  Plumbing only: `AgentJob.effort: AgentEffort | None` is filled from
+  `GenerationTask.thinking` by `tracks.generation.session_effort` ONLY when a caller explicitly asks
+  (`thinking` is now `Literal["", "off", "low", "medium", "high"]`, default "" = nobody asked; a single-shot
+  call then thinks at `SINGLE_SHOT_THINKING` = medium, unchanged); agy's precedence is the id's
+  `-low/-medium/-high` suffix, then `job.effort`, then `AGY_API_EFFORT` = high.  The misleading
+  `thinking="medium"` on the object draft / refine, the graphics refine and the first repair attempt —
+  which agy never honoured — are removed, so code and behaviour agree; the rebuild / later repair tasks ask
+  for "high", which is agy's default anyway.  No caller asks for less than high today.  The effort used is on
+  the session's `invoke` transcript line, in `result.json` (`AgentResult.effort`) and on its `cost.jsonl`
+  row (`effort`).  claude-code takes `--effort` from `Settings.agents.claude_effort` (default xhigh) and
+  codex `-c model_reasoning_effort=` from `codex_reasoning_effort` / an `@<effort>` id (default high); both
+  ignore `job.effort` (behaviour unchanged) and now record what they passed.  RECORDED MEASUREMENT, NOT
+  ACTED ON: the graphics loop's iteration 1 ran agy at medium (`agy:gemini-4-argon-medium`,
+  `eval/bench/out/loop_argon_graphics/iter_01`) against iteration 0 at high: glsl_shader (n = 9) picked
+  0.837 → 0.909, minutes 55.7 → 48.3, $40.50 → $37.51; opengl_python (n = 5) 0.932 → 0.939, 59.6 → 45.6
+  min, $22.55 → $18.17 — unpaired, n ≤ 9, inside judge noise on opengl; argon stays at high.  DELETED (a
+  deletion, not a move): `StaticObjectTrack.baseline_tasks` / `scopes` / `scoped_baseline_tasks` /
+  `scope_system_prompt` / `part_template` / `assemble_template`; `tracks/depth.py` `PartScope`,
+  `scope_groups`, `_files_for`, `_attachment_units`, `_pack`, `interfaces_text`, `scoped_generation_enabled`,
+  `MIN_PARTS_FOR_SCOPED`; `prompting.scope_context`, `parts_table_for`, `part_details_for`;
+  `prompts/tracks/generate_static_part.j2`, `assemble_static.j2`, `system/role_scope.j2`;
+  `Settings.scoped_parts` (`C3D_SCOPED_PARTS` is now a dead key an A/B rig refuses, `plan_features`);
+  `GenerationTask.phase` and the phase loop in `steps.run_generation_tasks` (its one user); the
+  `generate.scoped` event; the scoped tests (`test_generation_depth.py`).  Kept exactly: the planner, part
+  naming and one-file-per-part layout, the skeleton, the contract and connectivity gates, `detail_budget`,
+  the picker.  Pinned: `tests/orchestrator_tracks/test_baseline_first.py` (one draft task owning every file,
+  one refine task with the placeholder ERROR first, the single-shot fence, the refine window, articulated
+  end to end with fakes),
+  `tests/spatial_tools/test_placeholder_gate.py` (the rule; each language's REAL skeleton fires and a rebuilt
+  part does not: blender, cadquery, threejs; a tapered cadquery extrude at its plan box does not; a bare box
+  exactly at it does), `tests/agents/test_antigravity.py::test_effort_reaches…` /
+  `…object_and_scene_tasks_run_argon_at_high`, `tests/agents/test_agent_job_wiring.py`.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

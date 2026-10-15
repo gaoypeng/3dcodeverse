@@ -206,7 +206,8 @@ class BaseTrack:
     stages: Stages = (SKELETON, MATERIALIZE)
     generate_template: str = ""
     refine_template: str = ""
-    #: refine fan-out (graphics is always ONE whole-program task)
+    #: refine fan-out — the scene's zones / assets / env only: graphics is ONE whole-program task and the
+    #: object tracks ONE whole-object session (D110)
     allow_refine_fanout: bool = True
     #: share of the run budget the BASELINE may use (1.0 = no soft cap).  The scene
     #: track lowers it so the refine rounds always inherit money and minutes.
@@ -248,7 +249,7 @@ class BaseTrack:
             ctx, skeleton_files=skeleton_files(ctx) if ctx.single_shot else {}, previous_error=""))
         ctx.record_prompt("generate", prompt)
         return [GenerationTask(label="baseline", prompt=prompt, system=self.system_prompt(ctx), files_hint=files, round=0,
-                               kind="baseline", temperature=self.baseline_temperature, thinking="medium", owns_entry=True,
+                               kind="baseline", temperature=self.baseline_temperature, owns_entry=True,
                                images=reference_images(ctx))]
 
     def system_prompt(self, ctx: RunContext) -> str:

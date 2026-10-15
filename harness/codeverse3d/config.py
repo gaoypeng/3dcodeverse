@@ -334,8 +334,6 @@ class Settings(BaseSettings):
                              "(object tracks)")
     plan_restart: Flag = Field(default=True, description="re-sample a degenerate plan from the original "
                                "prompt instead of editing it in context (docs/COST.md §30)")
-    scoped_parts: Flag = Field(default=True, description="per-part scoped baseline sessions for an object "
-                               "of 8+ parts")
     reference_diff: Flag = Field(default=True, description="the judge's reference-image mismatch pass")
     zone_layouts: Flag = Field(default=True, description="scene track: the L2 zone-layout planner calls")
     scene_textures: Flag = Field(default=False, description="scene track: generate a texture pack before "

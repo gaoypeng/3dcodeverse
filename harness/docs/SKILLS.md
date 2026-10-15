@@ -711,7 +711,7 @@ so; the rest are live.
   routed set size fixed or it measures the cap, not the copy.
 * **The prompt corpus no longer contradicts the connectivity gate on weld overlap (D107).**
   `tracks/generate_static.j2` ("overlap neighbours by ≥ 0.002 m"), `tracks/assemble_static.j2`,
-  `generate_static_part.j2`, `system/harness_contract.md` ("seams overlap by ≥ 2 mm") and three
+  `generate_static_part.j2` (both deleted by D110), `system/harness_contract.md` ("seams overlap by ≥ 2 mm") and three
   cookbooks taught 2–5 mm, at or above `PENETRATION_WARN_M`; all of them now state the gate's
   band (gap ≤ 2 mm, overlap ≤ 2 mm) and the cookbooks are gone.  It was the single most likely
   reason `c3d-part-contact` failed to move the number it targets: re-run that A/B on a

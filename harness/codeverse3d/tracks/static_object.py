@@ -1,8 +1,12 @@
-"""StaticObjectTrack: plan → skeleton → baseline → refine rounds → finalise.
+"""StaticObjectTrack: plan → skeleton → draft → refine rounds → finalise (D110, baseline-first).
 
-Languages: blender (bpy) · cadquery · threejs.  Per-part parallel refinement
-is used when the language owns one file per part (threejs, blender) and ≥ 2
-file-disjoint task groups exist; otherwise one whole-object refine task.
+Languages: blender (bpy) · cadquery · threejs (articulated_object subclasses it for urdf_blender).
+Round 0 is ONE agent session that drafts the WHOLE object — every part file and the entry
+(``BaseTrack.baseline_tasks`` over ``generate_static.j2``); every refine round is ONE session that
+edits the whole object in place (``allow_refine_fanout = False``), driven by the gate ERRORs
+(placeholder parts first), the failed must-acceptance items and the judge's improvement plan.
+No per-part scoped baseline and no parallel part sessions: they ran serially behind the
+per-workspace session lock since 2026-08-28 and left 13-14 of 15 argon runs with placeholder parts.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ import logging
 from collections.abc import Sequence
 from pathlib import Path
 
+from codeverse3d.agents.cli_common import HARD_GRACE_S
 from codeverse3d.contracts.artifacts import (
     BuildResult,
     GateFinding,
@@ -32,12 +37,7 @@ from codeverse3d.prompts import render
 from codeverse3d.spatial.contract import planned_joins
 from codeverse3d.spatial.silhouette import measure_reference
 from codeverse3d.tracks.common import RunContext
-from codeverse3d.tracks.depth import (
-    PartScope,
-    budget_gate,
-    scope_groups,
-    scoped_generation_enabled,
-)
+from codeverse3d.tracks.depth import budget_gate
 from codeverse3d.tracks.generation import GenerationTask
 from codeverse3d.tracks.lifecycle import BaseTrack
 from codeverse3d.tracks.prompting import (
@@ -45,11 +45,9 @@ from codeverse3d.tracks.prompting import (
     budget_for,
     judge_digest,
     judged_sheet,
-    language_system_prompt,
     measurement_vs_plan,
     reference_images,
     refine_inline_files,
-    scope_context,
 )
 from codeverse3d.workspace import Workspace
 
@@ -148,106 +146,12 @@ class StaticObjectTrack(BaseTrack):
     plan_model = StaticPlan
     generate_template = "tracks/generate_static.j2"
     refine_template = "tracks/refine_object.j2"
-    part_template = "tracks/generate_static_part.j2"
-    assemble_template = "tracks/assemble_static.j2"
+    #: ONE whole-object refine session per round (D110): the part files interlock, and a split
+    #: round ran its sessions one after another behind the workspace lock anyway
+    allow_refine_fanout = False
 
     def make_pipeline(self) -> ObjectPipeline:
         return ObjectPipeline()
-
-    # ------------------------------------------------------------------ baseline
-    def baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
-        return self.scoped_baseline_tasks(ctx) or super().baseline_tasks(ctx)
-
-    # ------------------------------------------------------------------ scoped baseline
-    def scopes(self, ctx: RunContext) -> list[PartScope]:
-        """Per-part generation scopes, or ``[]`` when one session should own the object.
-
-        Requires a language that owns one file per part (blender / threejs) and an
-        agent session per scope — a single-shot envelope has no session to split.
-        """
-        if ctx.single_shot or not scoped_generation_enabled():
-            return []
-        cached = ctx.extra.get("scopes")
-        if isinstance(cached, list):
-            return cached
-        got = scope_groups(
-            ctx.plan,
-            files_for=self.refine_file_for_target(ctx),
-            max_groups=max(2, int(getattr(ctx.settings.limits, "max_parallel_agents", 6) or 6)),
-        )
-        ctx.extra["scopes"] = got
-        return got
-
-    def scoped_baseline_tasks(self, ctx: RunContext) -> list[GenerationTask]:
-        """Fan the baseline out: one session per few parts (phase 0), then ONE assembly
-        session that owns the entry file and the placement gates (phase 1).
-
-        Measured motivation (wave "generation-depth"): within a fixed difficulty tier
-        more built parts buy detail (ρ(n_built, geometry_detail) = +0.34 on static_v2
-        r00) but also buy gate errors (+0.45), and a single session over 10+ parts
-        spends its attention on the plan, not on the parts.  Each scoped session sees
-        only its own parts plus the deterministic interface boxes of the neighbours it
-        must weld to; the assembly session is the only one that sees the whole object.
-        """
-        scopes = self.scopes(ctx)
-        if not scopes:
-            return []
-        images = reference_images(ctx)
-        tasks: list[GenerationTask] = []
-        for scope in scopes:
-            files = list(scope.files)
-            prompt = render(
-                self.part_template, **scope_context(ctx, scope, files=files, expected_files=files)
-            )
-            ctx.record_prompt("generate", prompt)
-            tasks.append(
-                GenerationTask(
-                    label=f"baseline_{scope.label}",
-                    prompt=prompt,
-                    system=self.scope_system_prompt(ctx, scope),
-                    files_hint=files,
-                    round=0,
-                    kind="baseline",
-                    phase=0,
-                    temperature=0.5,
-                    thinking="medium",
-                    images=images,
-                    # scope.files is this session's whole world; the entry belongs to assemble
-                    edit_only=True,
-                )
-            )
-        entry = ctx.runtime.expected_files(ctx.plan)[:1]  # the assembly session's files: the entry, nothing else
-        assemble = render(
-            self.assemble_template, **base_prompt_context(ctx, files=entry, expected_files=entry)
-        )
-        ctx.record_prompt("assemble", assemble)
-        tasks.append(
-            GenerationTask(
-                label="assemble",
-                prompt=assemble,
-                system=self.system_prompt(ctx),
-                files_hint=entry,
-                round=0,
-                kind="baseline",
-                phase=1,
-                temperature=0.3,
-                thinking="high",
-                images=images,
-                owns_entry=True,  # the assembly session is the entry file's one owner
-            )
-        )
-        ctx.events.emit(
-            "generate.scoped",
-            round=0,
-            n_scopes=len(scopes),
-            n_parts=sum(len(s.parts) for s in scopes),
-            scopes=[{"label": s.label, "parts": s.names, "files": list(s.files)} for s in scopes],
-        )
-        return tasks
-
-    def scope_system_prompt(self, ctx: RunContext, scope: PartScope) -> str:
-        return language_system_prompt(ctx.language, role="scope",
-                                      n_parts=len(scope.parts), names=", ".join(scope.names))
 
     # ------------------------------------------------------------------ refine (scaffold hooks)
     def extra_refine_tasks(self, ctx: RunContext, last: RoundRecord) -> Sequence[RefineTask]:
@@ -259,10 +163,15 @@ class StaticObjectTrack(BaseTrack):
     def _refine_task(
         self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool
     ) -> GenerationTask:
-        # scope is real whenever the judge's targets resolved to files — parallel or not.
-        # A group whose targets did not resolve (target "overall") keeps the whole tree.
-        scoped = parallel or bool(group.files)
-        files = group.files if scoped else ctx.runtime.expected_files(ctx.plan)
+        """The round's ONE whole-object session: every file in scope, edited in place; each
+        instruction line names the files its target owns.  ``group`` is the round's single group
+        (no fan-out), its tasks already ordered gate ERRORs → acceptance → judge plan.
+
+        A single-shot call has no read tool: it sees only the files inlined for it, so when the
+        tasks name files it is fenced to them (``edit_only``, the entry still writable) — a model
+        told "the whole object" once could rewrite a part file it was never shown."""
+        fenced = ctx.single_shot and bool(group.files)
+        files = list(group.files) if fenced else ctx.runtime.expected_files(ctx.plan)
         lines = compact_instructions(group.tasks, max_lines=ctx.policy.max_instructions_per_task)
         prompt = render(
             self.refine_template,
@@ -272,26 +181,49 @@ class StaticObjectTrack(BaseTrack):
                 tasks=lines,
                 targets=group.targets,
                 files=files,
-                edit_only_these=scoped,
+                edit_only_these=fenced,
                 judge_summary=judge_digest(last),
                 measurement_notes=measurement_vs_plan(last, ctx.plan, ctx.language),
-                current_files=refine_inline_files(ctx, files),   # single-shot only
+                # single-shot only: the files the tasks name (all of them for an "overall" task)
+                current_files=refine_inline_files(ctx, files),
             ),
         )
         ctx.record_prompt("refine", prompt)
         return GenerationTask(
-            label=f"refine_{group.label}" if parallel else "refine",
+            label="refine",
             prompt=prompt,
             system=self.system_prompt(ctx),
             files_hint=files,
             round=index,
             kind="refine",
             temperature=0.4,
-            thinking="medium",
             images=reference_images(ctx) + judged_sheet(last),
-            edit_only=scoped,
-            owns_entry=True,  # refine_object.j2 promises entry-file access even when scoped
+            edit_only=fenced,
+            owns_entry=True,
+            timeout_s=None if ctx.single_shot else object_session_window_s(ctx),
         )
+
+
+#: what an object round still needs once its session ends — build, gates, renders, the judge.
+#: Measured 0.7 min in both baseline-first smoke runs (2026-10-15, machine load ~23); 3 min
+#: leaves room for a slow render or one quick repair build.
+OBJECT_ROUND_RESERVE_S = 180.0
+#: the shortest refine window opened: below it the hard run clock decides anyway
+REFINE_MIN_WINDOW_S = 120.0
+
+
+def object_session_window_s(ctx: RunContext) -> int:
+    """A refine session's window: the agent default, clipped so that the session — which the
+    watchdog lets run ``HARD_GRACE_S`` past its window while it is still working — ends
+    :data:`OBJECT_ROUND_RESERVE_S` before the run's HARD ceiling.
+
+    WHY.  With no window of its own the session ran to the run's deadline: the baseline-first
+    smoke's blender refine (started at 25.8 min, 36 min allowed) was killed by the run clock at
+    60.0 min after $4.63 of work, and the round was dropped unbuilt and unjudged — as were all
+    three refines of iteration 0's dining chair.  Ended earlier, its edits are built and judged
+    and the picker chooses between the rounds."""
+    left = (ctx.budget.hard_minutes - ctx.budget.elapsed_minutes()) * 60.0 - OBJECT_ROUND_RESERVE_S - HARD_GRACE_S
+    return int(max(REFINE_MIN_WINDOW_S, min(float(ctx.settings.limits.agent_timeout_s), left)))
 
 
 # ===================================================================== reference images
