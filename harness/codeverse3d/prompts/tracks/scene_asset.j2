@@ -19,9 +19,11 @@ Scene: {{ spec_prompt }}
 {{ frame_doc }}
 {{ contract }}
 - Build the asset standing on the ground (lowest point at z=0), footprint centred on the origin,
-  total size as stated (±5%). One Blender object per plan part, named exactly as the plan says.
-- Materials with colours (Principled BSDF base colour), roughness 0.4-0.8 for wood/stone; one
-  material per material class (wood / iron / cloth …), never one vertex-painted mesh.
+  total size as stated (the check errors beyond 2.5 × or under 0.4 × on any axis). One Blender
+  object per plan part, named exactly as the plan says.
+- Every surface carries a material with a real base colour and a roughness that matches what it
+  is (a grey default reads as `placeholder_material`); one material per material class (wood /
+  iron / cloth …) is the usual organisation.
 {{ detail_advice }}
 - No camera/light/render/export calls.
 - MOTION (only when the description names a moving part — a swinging lamp, a turning wheel, a lid
@@ -45,37 +47,42 @@ Scene: {{ spec_prompt }}
 {% else %}
 ## Contract (raw three.js ESM module)
 {{ frame_doc }}
-{{ contract }}
 - `{{ asset_file }}` must `export function build{{ asset_name }}(THREE, opts = {}) { ... return group; }`
   where `group` is a `THREE.Group` whose lowest point is at y=0 and whose footprint is centred on
-  the origin, sized as stated (±5%). `opts.seed` (number) and `opts.variant` (0..n) may vary
-  details deterministically (use a tiny mulberry32 PRNG inside the file — never Math.random).
-- Build from primitives (Box/Cylinder/Cone/Sphere/Lathe/Extrude/Tube) with MeshStandardMaterial
-  colours in hex.
+  the origin, sized as stated (the check errors beyond 2.5 × or under 0.4 × the stated size on any
+  axis; the zones place it at scale 1, so the stated size is the target). `opts.seed` (number) and
+  `opts.variant` (0..n) may vary details deterministically (`mulberry32(seed)` from `../lib/noise.js`
+  or a tiny PRNG inside the file — never Math.random).
+- Imports: `three`, `three/addons/*`, `../lib/*.js` and your own relative files — no CDN, no other
+  package.  Forbidden: `document.*` / `window.*`, fetch or XHR, `Math.random()`, `Date.now()` /
+  `performance.now()`, `requestAnimationFrame`, creating a renderer.  The module is imported and
+  built in node (no DOM, no WebGL) the moment it is written: anything that needs a browser throws
+  there and the asset is reported broken.
+- Procedural geometry built in code (any THREE geometry, including a BufferGeometry you fill
+  yourself); no loaded files. Every surface carries a material with a real colour.
 - Set `group.userData.size = [w, h, d]` to the measured size.  Optional animation hook:
   `group.userData.update = (t, dt) => {...}` (the zone that places you caches it and calls it;
   `userData.tick` is never called by anything).  Amplitudes must be visible after 1.5 s:
   >= 0.10 rad of rotation or >= 0.05 m of travel — not sub-centimetre jitter.
-- Segments 12-24.
+- Triangle budget: at most 15 000 triangles for one instance (measured when the module is
+  imported and built); segment counts are yours within it.
 {% if library_rows %}
-- The sheet names shipped effect-library factories. `src/lib/` ships with the scene: import them
-  (`import { makeTree } from '../lib/tree.js'`) and compose what they return into your group
-  instead of rebuilding them. Each returned object stands on its own origin; place it by that
-  origin, and pass the lighter options its row names when the asset is repeated.
+- The sheet lists shipped effect-library factories that may fit. `src/lib/` ships with the scene
+  and is optional: import one (`import { makeTree } from '../lib/tree.js'`) and compose what it
+  returns into your group, or build your own. Each returned object stands on its own origin;
+  place it by that origin, and pass the lighter options its row names when the asset is repeated.
 {{ library_rows }}
 {% endif %}
 {% endif %}
 
 ## DO / DON'T
 - DO use the exact size numbers above; the zone builders rely on them.
-- DO give it the 3-4 recognisable features a person would name (a stone lantern: base, post, light
-  box with 4 windows, curved roof, finial) — plus 2-3 pieces of wear or incident that make it look
-  used: a chipped corner, a leaning post, moss at the base, a rope, a hanging tool.
-- DO make `opts.variant` (0..n) change the SILHOUETTE, not just the scale: at least 3 visibly
-  different versions (a different crown shape, a different roof pitch, a broken vs whole rail).
-  Zones rely on this for variety, so a plain `variant` that only scales is a wasted asset.
-- DO give any repeated natural asset per-instance hue room: expose `opts.hue`/`opts.tint` (or
-  accept `opts.seed` and vary the colour from it) so 20 copies are not one colour.
+- DO make it recognisable as the named thing at scene distance; the description decides which
+  features that takes and whether it looks new or used.
+- DO make `opts.variant` (0..n) change the silhouette, not just the scale, when the plan places
+  several copies: the judge reads identical copies; how many variants is the plan's count.
+- DO give a repeated natural asset colour room across copies (`opts.hue` / `opts.tint`, or a
+  colour varied from `opts.seed`) so twenty copies are not one colour.
 - DON'T model a flat plane with a colour where the thing has real thickness (a fence is stalks and
   rails, not a textured quad) — closeups are judged.
 - DON'T leave floating pieces: every sub-shape overlaps a neighbour by ≥ 2 mm.

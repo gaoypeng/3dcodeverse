@@ -89,8 +89,10 @@ function restingY(ys, y) {
  * @param {THREE.Object3D} obj Already positioned in x/z.
  * @param {THREE.Object3D|THREE.Object3D[]} surfaces Ground, terrain,
  *   decks, roofs — anything that can be stood on.
- * @param {object} [opts] `bite` metres to sink (default 0.03),
- *   `maxDrop` how far down to look (default 500).
+ * @param {object} [opts] `bite` metres to sink so no seam shows
+ *   (default 0.03, inside the placement gate's contact tolerance — the
+ *   gate measures contact, not this number), `maxDrop` how far down to
+ *   look (default 500).
  * @returns {THREE.Object3D} obj, or obj unchanged when nothing is below.
  */
 export function seat(obj, surfaces, opts = {}) {
@@ -185,10 +187,14 @@ function clearNeeded(dist) {
 
 /**
  * Build a CAMERAS entry whose geometry is verified, not guessed.
- * Two checks: (1) a down-ray over `surfaces` lifts the eye to at
- * least 1.6 m above the first hit — never lowers it; (2) a ray toward
- * `lookAt` must not hit anything closer than max(2 m, 5% of target
- * distance), else the camera slides back and up until the frame clears.
+ * What is measured (the frame gate's `camera_underground` and "camera
+ * blocked" findings): the eye is above the surface under it and
+ * nothing fills the frame from closer than max(2 m, 5% of target
+ * distance).  Two checks: (1) a down-ray over `surfaces` lifts the eye
+ * to at least 1.6 m (a standing eye) above the floor it finds — only
+ * ever lifts, so a deliberately low or aerial eye stays where it is
+ * put; (2) a ray toward `lookAt` that hits something closer than the
+ * clearance slides the camera back and up until the frame clears.
  *
  * @param {string} name Camera name for the CAMERAS array.
  * @param {THREE.Vector3|number[]} position Requested eye point.
@@ -235,18 +241,17 @@ export function shot(name, position, lookAt, fov, surfaces) {
   };
 }
 
-// Widest a view direction may sit from the sun before the low-sun mie
-// lobe washes the frame. 55 deg still bleached a third of it, 25 deg
-// blew the whole image, 120 deg rendered clean (theme-park run).
+// Measured: a low-sun mie lobe within ~90 deg of the view direction
+// washed the frame — 55 deg still bleached a third of it, 25 deg blew
+// the whole image, 120 deg rendered clean (theme-park run).  The
+// requirement is only that the judged frame stays in the luminance band.
 const SUN_CLEAR_DEG = 90;
 
 /**
- * Push a camera azimuth out of the sun's glare lobe.
- *
- * The rule has been in the composer prompt since the theme-park run and
- * was violated by three of the next three low-sun establishing shots,
- * so it is arithmetic now rather than advice. A camera at azimuth A
- * LOOKS toward A, so the sun at S is in frame when |A - S| is small.
+ * Push a camera azimuth out of the sun's glare lobe — opt-in: it acts
+ * only when `sunAzDeg` is given.  Omit it for a deliberate contre-jour
+ * composition and handle the exposure another way.  A camera at azimuth
+ * A LOOKS toward A, so the sun at S is in frame when |A - S| is small.
  *
  * @param {number} azDeg Requested camera azimuth in degrees.
  * @param {number} [sunAzDeg] Sun azimuth, same convention; when absent
@@ -265,21 +270,27 @@ export function awayFromSun(azDeg, sunAzDeg) {
 }
 
 /**
- * Frame a hero object whole — the bbox-fitted establishing CAMERAS
- * entry, derived instead of eyeballed: project the 8 world-bbox
- * corners, dolly until the widest NDC extent hits `coverage`, seat the
- * eye with the same down-ray as `shot()`, and — when something stands
- * between the eye and the hero — slide along the fit sphere (up first,
- * then around) until the hero is actually visible, rather than shipping
- * a frame full of ridge.
+ * One establishing composition (optional): a hero object whole,
+ * centred, filling `coverage` of the frame — derived instead of
+ * eyeballed: project the 8 world-bbox corners, dolly until the widest
+ * NDC extent hits `coverage`, seat the eye with the same down-ray as
+ * `shot()`, and — when something stands between the eye and the hero —
+ * slide along the fit sphere (up first, then around) until the hero is
+ * actually visible.  What is measured for ANY establishing camera: the
+ * brief's subject is visible and unblocked in the judged frame (frame
+ * gate "camera blocked") and the eye is above the surface under it
+ * (`camera_underground`).  A street receding, a view through a doorway
+ * or a low wide are establishing shots too — compose those with
+ * `shot()` or by hand.
  *
  * @param {string} name Camera name for the CAMERAS array.
  * @param {THREE.Object3D} heroObj The subject to fit whole.
- * @param {object} [opts] `azDeg` view azimuth (default 35), `elDeg`
- *   elevation (default 22), `fov` (default 45), `coverage` how much of
- *   the frame the hero spans, 0.5-0.9 (default 0.7), `surfaces` to
- *   keep the eye at least 1.6 m above the ground, `sunAzDeg` to have
- *   the azimuth pushed clear of the sun's glare lobe automatically.
+ * @param {object} [opts] the defaults of this composition: `azDeg`
+ *   view azimuth (default 35), `elDeg` elevation (default 22), `fov`
+ *   (default 45), `coverage` how much of the frame the hero spans,
+ *   0.5-0.9 (default 0.7), `surfaces` to keep the eye at least `eyeMin`
+ *   m above the ground (default 1.6, a standing eye), `sunAzDeg` to
+ *   have the azimuth pushed clear of the sun's glare lobe.
  * @returns {{name: string, position: number[], lookAt: number[],
  *   fov: number}} A ready CAMERAS entry.
  */
@@ -293,6 +304,7 @@ export function establishingShot(name, heroObj, opts = {}) {
   const elDeg = opts.elDeg === undefined ? 22 : opts.elDeg;
   const fov = opts.fov === undefined ? 45 : opts.fov;
   const coverage = opts.coverage === undefined ? 0.7 : opts.coverage;
+  const eyeMin = opts.eyeMin === undefined ? 1.6 : opts.eyeMin;
   const targets = surfaceList(opts.surfaces);
   heroObj.updateWorldMatrix(true, true);
   _box.setFromObject(heroObj);
@@ -343,7 +355,7 @@ export function establishingShot(name, heroObj, opts = {}) {
         : awayFromSun(azDeg + dAz + 180, opts.sunAzDeg) - 180;
     const dir = sunVector(a, Math.min(70, elDeg + dEl));
     const p = center.clone().addScaledVector(dir, fit(dir));
-    liftAbove(p, targets, 1.6);
+    liftAbove(p, targets, eyeMin);
     const v = probeView(p, center, targets);
     if (v.hit >= clearNeeded(v.dist)) { pos = p; break; }
     // Nothing clears: keep whichever candidate sees furthest into the

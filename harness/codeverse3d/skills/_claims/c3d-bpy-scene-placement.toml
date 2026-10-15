@@ -14,6 +14,38 @@ js      = "runtime_js/lib/host_placement.mjs:MAX_COLUMNS"
 format  = "{:.0f}"
 context = "foot columns"
 
+# the outdoor world_edge check: standing geometry reaches past the bounds
+
+[[claim]]
+key     = "world_edge_reach_factor"
+text    = "1.25"
+python  = "codeverse3d.spatial.scene_placement:WORLD_EDGE_REACH_FACTOR"
+format  = "{:.2f}"
+context = "half-extent"
+
+[[claim]]
+key     = "world_edge_min_height"
+text    = "2 m"
+python  = "codeverse3d.spatial.scene_placement:WORLD_EDGE_MIN_HEIGHT_M"
+format  = "{:.0f} m"
+context = "tall"
+
+[[claim]]
+key     = "world_edge_reach_factor"
+file    = "references/finding-to-fix.md"
+text    = "1.25"
+python  = "codeverse3d.spatial.scene_placement:WORLD_EDGE_REACH_FACTOR"
+format  = "{:.2f}"
+context = "half-extent"
+
+[[claim]]
+key     = "world_edge_min_height"
+file    = "references/finding-to-fix.md"
+text    = "2 m"
+python  = "codeverse3d.spatial.scene_placement:WORLD_EDGE_MIN_HEIGHT_M"
+format  = "{:.0f} m"
+context = "tall"
+
 # references/finding-to-fix.md
 
 [[claim]]

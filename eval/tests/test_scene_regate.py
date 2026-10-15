@@ -21,6 +21,8 @@ from bench.scene_regate import (
 )
 from codeverse3d.contracts.artifacts import GateFinding, GateReport
 from codeverse3d.contracts.common import Language
+from codeverse3d.spatial.scene_placement import placement_gate
+from codeverse3d.workspace import Workspace
 
 
 def _run(root: Path, name: str, *, track: str = "scene", with_src: bool = True, language: str | None = "scene_threejs",
@@ -56,8 +58,13 @@ def test_regate_reads_the_stage_records_the_round_gate_reads(tmp_path: Path, mon
                                         "support": "Ground"}], "pairs": []}}
     monkeypatch.setattr(sr, "probe", lambda ws, timeout_s, language: census)
     after = regate(run, timeout_s=1.0)["after"]
-    assert any("holds ~179 instances but its layout budgeted 443" in m for m in after), after
     assert not any("BronzeCenser" in m for m in after), after
+    # the density finding is an INFO note since D106 (a count is not a requirement), so it is not
+    # among the ERRORs regate lists; the round's own gate, which regate calls, still reads it
+    report = placement_gate(Workspace(run), census, plan)
+    notes = [f.message for f in report.findings if f.data.get("kind") == "density_note"]
+    assert any("holds ~179 instances" in m and "443" in m for m in notes), [f.message for f in report.findings]
+    assert not any("179" in m for m in after), after
 
 
 def test_only_scene_runs_with_their_entry_file_are_re_gated(tmp_path: Path) -> None:

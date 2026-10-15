@@ -1,12 +1,12 @@
 ---
 name: c3d-scene-atmosphere
-description: "Use when a scene_threejs env, baseline or refine session builds the sky, the environment map, clouds or fog. The sky is not a backdrop: it is the light source every PBR material reflects. Gives the sky-dome shader, the equirect bake that turns it into scene.environment (with the one-line orientation bug that blackens water), the cloud recipes that read in a still frame, and the fog numbers that add depth instead of eating the scene."
+description: "Use when a scene_threejs env, baseline or refine session builds the sky, the environment map, clouds or fog. The sky is not a backdrop: it is the light source every PBR material reflects. States what has to be true (scene.environment set before the first frame and agreeing with the visible sky; clouds that read as volumes; haze that leaves the midground readable) and how it is read, with the library's sky, cloud and fog modules as the strong options and the one-line equirect orientation bug that blackens water."
 license: Apache-2.0
 compatibility: three r0.182, headless WebGL; renderer fixed at ACES Filmic tone mapping, exposure 1.0, sRGB output.
 metadata:
   evidence: inherited-unverified
-  evidence_note: 'Recipes ported 2026-09-01 from the scene_multifile_graphics reference harness, where they carry measured origins: its audit found the equirect bake INVERTED in 4 of 9 delivered scenes (a Venice canal at patch RGB 35,27,18 went to 100,87,43 by flipping one line), and its PMREM note is from three.js source (cube size = width/4). Not yet A/B-validated on this harness; the sceneloop battery attaches our own numbers.'
-  verified: "2026-09-01"
+  evidence_note: 'Recipes ported 2026-09-01 from the scene_multifile_graphics reference harness, where they carry measured origins: its audit found the equirect bake INVERTED in 4 of 9 delivered scenes (a Venice canal at patch RGB 35,27,18 went to 100,87,43 by flipping one line), and its PMREM note is from three.js source (cube size = width/4). Not yet A/B-validated on this harness; the sceneloop battery attaches our own numbers. Condensed to requirements + options 2026-10-15.'
+  verified: "2026-10-15"
   target_metric: "env_bake_orientation_flags"
   target_direction: "down"
   target_unit: "inverted bakes per run (prospective census)"
@@ -14,35 +14,34 @@ metadata:
   target_baseline: "n=0 — no measured runs yet (2026-09-01); the sceneloop A/B battery sets it"
 ---
 
-# Sky, environment and air — the frame's light source comes first
+# Sky, environment and air — the frame's light source
 
-Build the sky BEFORE any PBR material exists. `scene.environment` is what makes
-metal, glass, water and wet ground live; a scene assembled first and skied later
-has every reflective surface already born dead.
+Requirement: if any material reflects (metal, glass, water, wet ground), `scene.environment`
+is set before the first frame renders and agrees with the sky the camera sees. The order
+you write things in is yours; a reflective surface born before its environment exists
+simply mirrors black until it is set.
 
-## The sky dome
+## The sky
 
-A big sphere, `side: THREE.BackSide`, `depthWrite: false`, named `Sky`, with a
-ShaderMaterial over the view direction `d = normalize(vWorldPos)`:
+Interface: a drawable is classified **sky** when its name matches sky / skydome / skybox /
+stars / clouds / sun / moon / atmosphere and spans more than 50 m (or by size alone past
+2000 m) — then it inflates neither `content_frac` nor the overview fit. Whether the brief's
+place has a visible sky at all is the brief's (an interior, a cave, deep space).
 
-```glsl
-vec3 col = mix(horizonColor, zenithColor, pow(clamp(d.y, 0., 1.), 0.6));
-float sunAmt = max(dot(d, sunDir), 0.0);
-col += hazeColor * pow(sunAmt, 8.0) * 0.25;               // mie halo
-col += sunColor * smoothstep(0.9993, 0.9998, sunAmt);     // sun disk
-col = mix(col, horizonColor, pow(1.0 - clamp(d.y, 0., 1.), 8.0)); // haze band
-```
-
-* Sunset: sun low (`sunDir.y` around 0.1), horizon orange/rose, widen the halo
-  (`pow(sunAmt, 4.0) * 0.6`).
-* Night: zenith around #050a18, horizon #0d1626; stars by hashing the direction
-  (`vec3 c = floor(d*300.); step(0.9985, hash(c.xy + c.z))`, vary brightness);
-  a moon disk shaded with fbm and ONE slate-blue DirectionalLight.
+Strong options: `makeSky(scene, { rig })` from `lib/sky.js` is the shipped dome, lit from the
+same `sunRig` as the scene (`scene.background` stays null). One of your own is a `BackSide`
+sphere (`fog: false`, `depthWrite: false`, built with `makeShaderMaterial` from `lib/shader.js`
+so the tonemap chunks stay) whose fragment colour is a function of the view direction: a
+horizon-to-zenith gradient, a sun term around `sunDir` (a halo and, if the brief's weather
+shows it, a disk), and a haze band that pulls the lowest degrees toward the horizon colour.
+The curve shapes and the colours are the brief's sky: a low sun widens the halo and warms the
+horizon, an overcast sky is one flat gradient, a night sky hashes the direction for stars
+(`makeStars`, `makeAurora` in `lib/celestial.js` do it for you) and shades a moon.
 
 ## Bake the SAME sky into `scene.environment`
 
-Mirror the sky function in JS and bake it into an equirect `DataTexture`, then
-`scene.environment = tex`. Rules that are bugs when broken:
+`sunRig` returns `envTex` baked from its own sky — assign it and the requirement is met.
+If you bake your own equirect `DataTexture`, these are bugs when broken:
 
 * **256x128 or larger.** three derives its PMREM cube size as `width / 4`; a
   64x32 bake gives 16-pixel cube faces — technically valid, visually useless.
@@ -59,35 +58,29 @@ Mirror the sky function in JS and bake it into an equirect `DataTexture`, then
 * Keep dome and bake the same function, and paint the cloud shapes faintly into
   the bake too, so reflections agree with the sky the camera sees.
 
-## Clouds that read in a still frame
+## Clouds
 
-Billboard sprite puffs beat everything else per token:
+Requirement: if the brief's sky has clouds, they read as soft volumes at the authored
+cameras, not as hard-edged cards (judged: `hard_edged_particles`, `materials_shaders_effects`).
+Strong options: `makeClouds` / `makeCirrus` from `lib/clouds.js` (one ray-marched deck,
+scene-lit); `makeCloudVolume` from `lib/cloudvolume.js` when a cumulus is close enough to
+need internal light; or sprite puffs from one shared radial-gradient canvas in a flattened
+cluster, bottoms tinted darker, `depthWrite: false`. Volumetrics cost frame time; the brief
+decides whether a cloud earns it.
 
-* ONE shared CanvasTexture: 4-8 overlapping white radial gradients on 128 px.
-* Per cloud: 6-15 `THREE.Sprite`s in a flattened ellipsoid (x-spread 2-3x the
-  y), scales 8-25 m, opacity 0.35-0.7, bottoms tinted darker,
-  `depthWrite: false`.
-* Overcast / cirrus: 1-3 huge planes at altitude with
-  `alpha = smoothstep(.5, .75, fbm(uv * k + t * dir))`, kept well above every
-  camera.
-* Raymarched volumetrics only when clouds ARE the subject of the brief.
+## Haze
 
-## Fog adds depth or eats the scene — nothing in between
-
-`FogExp2` density 0.002-0.01 outdoors, always in the sky's hue family. Fog that
-softens the far hills sells the depth; fog that hides the mid-ground kills the
-frame, and the frame gate reads it as washed out. The shader-trap skill covers
-the fog uniforms custom shaders must honour; this one only sets the numbers.
-
-## Order of operations
-
-1. Sky dome + sun direction.  2. JS mirror -> equirect bake ->
-`scene.environment`.  3. Lights (see c3d-scene-lighting).  4. Only THEN
-materials, water, assets — they are all downstream of the environment.
+If the brief's weather has haze or fog: keep it in the sky's hue family and thin enough that
+the midground stays readable — the frame gate reads a washed frame as `flat_frame` (one
+luminance band holding > 92 % of an authored frame is an ERROR) and the judge reads no
+falloff at all as `thin_atmosphere`. `makeHeightFog` and `patchAerialPerspective` from
+`lib/atmosphere.js` do ground fog and distance haze; `scene.fog` alone does the simplest
+version. A clear dry day may have almost none. The shader-trap skill covers the fog uniforms
+custom shaders must honour.
 
 ## Verify before you finish
 
 Render one frame and look at a reflective surface: water or glass mirroring a
 BRIGHT sky half means the bake is upright; mirroring darkness at midday means
 row 0 went to the zenith. `references/exotic-space.md` holds the validated
-black-hole / nebula / planet recipes for space briefs.
+black-hole / nebula / planet notes for space briefs.

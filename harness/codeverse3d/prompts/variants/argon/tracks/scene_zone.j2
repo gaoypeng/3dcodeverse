@@ -3,38 +3,47 @@
 Scene: {{ spec_prompt }} · Setting: {{ setting }} · Mood: {{ mood }}
 
 ## This zone
-- Description (density counts and depth role are binding): {{ zone_description }}
-- Bbox: {{ zone_bbox }} — place EVERYTHING inside it (x/z), on the ground via `heightAt`.
-{% if interior %}- INTERIOR: the enclosure (walls, ceiling, roof) is `env.js`'s `roomShell` on the scene bounds' faces —
-  never build walls or a roof here.  Fixtures on a wall sit flush against the inner face of the bounds;
-  a window or door is an OPENING env cut, so glazing and door leaves go in the opening, not through the wall.
+- Description (the brief's facts in it are binding; its counts are the layout's intent, checked against the census): {{ zone_description }}
+- Bbox: {{ zone_bbox }} — the planned contents are measured against it and the plan bounds (a planned
+  content entirely outside the bounds + max(5 m, 10 % of the span) is `out_of_bounds`, a WARN; scenery
+  may continue past it as the place implies), and every placed root object is seated on the surface
+  it stands on — terrain via `heightAt`, or a structure (a shelf, a roof, a deck).  Deliberately
+  airborne things carry `userData.placement = 'free'`.
+{% if interior %}- INTERIOR: the enclosure (walls, ceiling, roof) is `env.js`'s — do not build walls or a roof here.
+  Fixtures on a wall sit flush against its inner face; a window or door is an OPENING env cuts, so
+  glazing and door leaves go in the opening, not through the wall.
 {% endif %}- Contents (asset names to place): {{ zone_contents | join(', ') if zone_contents else '(none — build local detail from primitives)' }}
-- Every builder returns its asset AT THE SIZE the asset API states; place it at scale 1 (per-instance jitter
-  within +/-30 %, never a re-size to "fit").  The placement gate measures every placed thing against the
-  plan's size, and a mismatch is a finding the judge repeats (measured 2026-09-08, round 0: a 1.15 m stove
-  placed at 3.60 m, 0.48 m oil lamps at 0.03 m — both cost the round).  The same gate measures a placed
-  asset as ONE object, parts included: never stretch or re-scale a part of a placed clone (a stove whose
-  flue you pulled up to the roof reads as a 4.8 m stove — three runs lost their round to it); a chimney,
-  pipe or cable that must reach further is a SEPARATE object you add beside it.
+- Every builder returns its asset AT THE SIZE the asset API states; place it at scale 1.  The
+  placement gate measures every placed thing as ONE object, parts included, against the plan's
+  `approx_size_m`: a WARN beyond 2.5 × (or under 1 / 2.5), an ERROR beyond 4 × (`scale`), and the
+  judge's `wrong_scale` on top (measured 2026-09-08, round 0: a 1.15 m stove placed at 3.60 m,
+  0.48 m oil lamps at 0.03 m — both cost the round; a stove whose flue was pulled up to the roof
+  read as a 4.8 m stove — three runs lost their round to it).  Never re-scale to "fit", never
+  stretch a part of a placed clone; a chimney, pipe or cable that must reach further is a
+  SEPARATE object you add beside it.
 
-{% if layout is defined and layout %}## Zone director's layout (realise EXACTLY these placements; positions are world meters)
+{% if layout is defined and layout %}## Zone director's layout (the contents it names are measured as present; its positions and counts are the director's proposal in world metres — keep them unless the place reads better otherwise)
 {{ layout }}
 
-{% endif %}Neighbouring zones (do not build into them):
+{% endif %}Neighbouring zones (their builders place there; a thing of yours running into a thing of theirs
+is an `interpenetration` row like any other):
 {% for n in neighbours %}- {{ n }}
 {% endfor %}
-
-Authored cameras that will photograph this scene (keep their first metres clear, and give the
-ones that look at this zone a foreground element):
+{% if shared is not defined or shared %}
+Authored cameras that will photograph this scene — nothing this zone builds may sit inside or
+right against one (`scene_views` reports `camera_in_geometry`, the eye's clearance from every
+surface — ≥ 0.5 m — and `camera_blocked`: 6 of the 9 sight rays ending within 1.5 m); what, if
+anything, frames a shot is this zone's choice:
 {{ cameras }}
 
 ## Assets available (sizes are measured, meters w×h×d)
 {{ asset_api }}
 
 Those paths are written relative to `src/`; **from `src/zones/` prefix them with `../`**
-(`import { buildStoneLantern } from '../assets/stone_lantern.js';`).  Shared materials and the
-terrain come from the environment: `import { MATS, heightAt } from '../env.js';` (or use
-`ctx.heightAt`).  A GLB asset is already loaded for you at `ctx.assets['<snake_name>']` — add
+(`import { buildStoneLantern } from '../assets/stone_lantern.js';`).  The terrain comes from the
+environment (`ctx.heightAt`, or `import { heightAt } from '../env.js'`), and so does whatever else
+`env.js` chose to export (shared materials, a water level, a route — its names, read
+`src/env.js`).  A GLB asset is already loaded for you at `ctx.assets['<snake_name>']` — add
 `.clone()` of it, never `loaders.gltf` again.  A clone that carries clips (a keyframed Blender part) plays
 them by itself; set `clone.userData.clipOffset = <seconds>` to de-phase copies.  There is no `ctx.rand` and no `ctx.MATS`.
 
@@ -54,36 +63,46 @@ So `{{ zone_file }}` exports `export function build(ctx) → THREE.Group` named 
 `userData.update`, cache it at build time and call it from the zone's `userData.update`.
 `ctx` also gives you `ctx.env` (whatever `buildEnv` returned) and `ctx.heightAt`.
 
-## What this zone is graded on
-The recipes for all five points below are printed in full at the end of this brief
-(**Recipes**) — copy their numbers and snippets; do not invent your own.
-
-1. **Hit the density counts in the description.**  A zone with 5 objects in it reads as a token
-   gesture; the counts are the difference between 0.5 and 0.8.  Props go **against** things
-   (path edges, wall bases, under benches, in corners), never in a grid or a perfect ring, with
-   >= 20 % positional jitter and full yaw jitter.
-2. **Variation, not clones.**  Any repeated natural element needs >= 3 distinct silhouettes
-   (different geometry, not just scale), per-instance scale jitter +/-30 %, hue jitter +/-0.03
-   via `setColorAt`, full yaw jitter and a few degrees of lean.  Clustered placement (cluster
-   seeds + members around them), never uniform scatter and never a ring of identical cones.
-3. **Blend into the ground.**  Anything that meets the terrain sinks 3-5 cm into it and gets
-   6-15 dressing pieces along the seam (tufts, pebbles, leaves).  A raised bed gets a chamfered
-   kerb, not a naked box on grass.  NEVER lay a hard-edged disc or square (a pond, a gravel
-   bed, a terrace, a lawn patch) flat on top of the ground: use the depression `heightAt`
-   already carves for it and ring the seam with a kerb + dressing, or its outline shows from
-   every overview camera (`flat_ground` / `floating_or_sunken_asset`).  Add the zone's share of
-   ground cover (300-800 instanced tufts for a planted zone) unless the description says bare.
-4. **Serve the cameras.**  Skip any SCATTER instance inside a ~4 m disc around an authored camera
-   (write a zero-scale matrix, keep the index; `cameraMask` in the cookbook) — a tree 1 m in front
-   of the establishing camera ruins the shot.  Then, by hand (not scatter, so the mask does not
-   remove it), place ONE element 2.5-4 m from a camera that looks across this zone, off to one
-   side, as its foreground frame.
-5. **Motion that shows.**  Amplitudes from the Recipes table (foliage +/-0.10-0.20 rad, particles
-   >= 0.6 m per 1.5 s).  The harness DIFFERENCES the t=0 and t=1.5 frames pixel by pixel and
-   reports the number: too small a change counts as `nothing_moves` (-0.05 and the animation
-   criterion).  Sub-centimetre sway is invisible at 1024x576.  Give this
-   zone at least one motion big enough to see across the frame, and everything a pure function of `t`.
-6. Use `InstancedMesh` for anything repeated > 5x.
+## What is measured on this zone
+1. **The description's contents are present.**  `check_placement` compares what is placed against
+   the plan: a planned asset not placed is `missing_content`, an empty group is `zone_empty`, a zone
+   under half the instances its layout counted gets an INFO `density_note`; the judge
+   compares the frame against the description (`missing_planned_element`, `empty_zone`).  Where
+   the description gives no count, dress to what this setting would contain — the judge flags
+   `undressed_scene` by perception, not by number.  Place props where the setting puts them;
+   regular arrangements only where the brief or setting implies them (a formal parterre, a row of
+   parked scooters, a colonnade), otherwise expect the judge to read an unmotivated grid or ring
+   as identical copies (`monotonous_vegetation`, `diorama_look`).
+2. **Repeated things read as individuals** where the setting has natural variety (judge:
+   `monotonous_vegetation`, "identical copies", "primitive stacks"); the brief decides whether they
+   grow in clusters, rows, an orchard or a canopy.  The assets' `variant` / `seed` / `hue` options
+   exist for this; several geometries plus scale / hue / yaw variation is one way.
+3. **Everything is seated.**  `check_placement` reports a foot > 0.05 m above its surface
+   (0.02 m indoors) as `floating` (ERROR at 0.08 m) and > 0.10 m below as `sunken` (ERROR at
+   0.20 m); two boxes sharing > 10 % of the smaller one as `interpenetration` (ERROR at 35 %).
+   One placed thing = one direct child of the zone group: a Group holding several props is
+   measured as ONE box, their union, and every prop inside it reads as interpenetrating it; a
+   prop built from parts is one Group; many of one thing is one `InstancedMesh`.  A scattered
+   instance inside a placed thing is an interpenetration at 100 % of the smaller box — scatter
+   clear of what you placed.  A wide flat thing on a slope is measured at its lowest vertices
+   against the ground under THEM: conform each piece to `heightAt` or split it.  How a seam reads
+   is the setting's call; the judge flags a visibly hovering base as `floating_asset` / `sunken_asset`
+   and a ground feature that reads as a plate lying on the ground as `flat_ground`.
+4. **The cameras stay clear.**  No authored camera may be inside or blocked by what this zone
+   builds (`camera_in_geometry`, `camera_blocked`; both cap the run at 0.50); how you keep the
+   near field clear is yours.
+5. **Motion that shows.**  The harness differences the t = 0 and t = 1.5 s frames of every camera
+   and reports the number: a camera moves when ≥ 0.4 % of its pixels change by more than 8/255
+   (or ≥ 0.08 % by more than 60/255); no authored camera moving is `no_motion` (ERROR) and the
+   judge's `nothing_moves` (−0.05 and the animation criterion).  Sub-centimetre sway is invisible
+   at 1024×576.  What moves is the brief's; give this zone at least one motion big enough to see
+   across the frame, everything a pure function of `t`, driven from `userData.update`.  Particles
+   must be soft-edged (judge `hard_edged_particles`: bare `PointsMaterial` squares, a chain of
+   spheres for a steam jet, polygon sparks all fire it, and with it the brief's "soft particle
+   effect" must-item) — the library's volumes or a radial-alpha sprite both pass.
+6. **Budget.**  Stay inside the draw-call / triangle budget `scene_probe` reports (WARN above 5 000
+   draws, ERROR above 15 000; 3 000 000 unique triangles); `InstancedMesh` / `mergeStatic` are the cheap
+   ways to repeat.
 
 ## Before you return — what the argon scenes of iteration 0 lost their points to
 Thirty argon three.js scenes were measured on 2026-10-15 (mean 0.76).  Every point below is one
@@ -91,20 +110,22 @@ tool call away and cost whole rounds:
 1. **Your LAST `check_placement` of this session shows 0 ERROR rows for this zone.**  Every
    session ran the check; the rounds that still shipped 29 interpenetration + 9 sunken ERRORs
    edited again afterwards and never re-checked.  Edit → `build` → `check_placement` → fix EVERY
-   row it names (move the smaller thing 0.3 m clear; lower / raise by the stated metres) → `build`
-   → `check_placement` again until clean → only then `scene_views`.
+   row it names (move the smaller thing until no pair shares more than the gate's 10 %; lower /
+   raise by the stated metres) → `build` → `check_placement` again until clean → only then
+   `scene_views`.
 2. **One placed thing = one direct child of the zone group.**  A `…MidProps` / `…Dressing` /
    `SeamDressing` Group holding several props is measured as ONE asset whose box is their union,
    so every prop inside it reads as interpenetration (11 of 29 rows).  Add each prop to the zone
    group itself; a prop built from parts is one Group; hundreds of one thing are one InstancedMesh.
-3. **Scatter clear of what you placed** (`keepClear` / `isClear` in the Zones chapter of the
-   cookbook): a scattered rock, fern or crate inside a placed table, rockery or tower is an
-   interpenetration at 100 % of the smaller box.  A wide flat thing on a slope (a talus field, a
-   stockpile conveyor) is `sunken` at its uphill end unless each piece follows `heightAt`.
-4. **Particles are soft or absent**: `makeSmoke` / `makeSteam` / `makeMotes` / `makeFire`, or
-   `softDot` sprites (the "Soft particles" chapter below).  A bare `PointsMaterial`, a chain of
-   spheres for a steam jet or polygon sparks is `hard_edged_particles` AND fails the brief's "soft
-   particle effect" must-item — both fired together in 5 of 30 scenes.
+3. **Scatter clear of what you placed**: a scattered rock, fern or crate inside a placed table,
+   rockery or tower is an interpenetration at 100 % of the smaller box — keep the boxes of the
+   hand-placed things and skip the scatter points that fall inside them.  A wide flat thing on a
+   slope (a talus field, a stockpile conveyor) is `sunken` at its uphill end unless each piece
+   follows `heightAt`.
+4. **Particles are soft or absent**: the library's volumes (`makeSmoke` / `makeSteam` /
+   `makeMotes` / `makeFire`) or a radial-alpha sprite on every point.  A bare `PointsMaterial`, a
+   chain of spheres for a steam jet or polygon sparks is `hard_edged_particles` AND fails the
+   brief's "soft particle effect" must-item — both fired together in 5 of 30 scenes.
 5. **A zone that throws at build time is DROPPED and scores nothing** — three runs lost 2-3
    zones each: `walk(fig, t)` runs ONLY inside `userData.update(t)` (a build-time `walk(fig)`
    throws `time must be finite`); import only names the effects catalog prints for a module
@@ -113,28 +134,26 @@ tool call away and cost whole rounds:
    your last edit and read its zone list.
 
 ## DON'T
-- No lights except small point lights for lanterns; no cameras; no sky/ground here.
+- Sun, sky, ground and cameras are the env's.  This zone may add the practical lights its setting
+  contains (a lantern, a neon sign, a forge, a campfire), within the exposure band and the perf
+  budget — a shadow-casting light per practical is the usual budget blow-out.
 - No DOM, {% if not (textures is defined and textures) %}no textures, {% endif %}no fetch, no Math.random (`mulberry32(seed)` from `lib/noise.js`).
 - Do not import assets marked NOT AVAILABLE; do not edit other files.
+
 {% if tool_cards and not single_shot %}
 
 ## Tools
 {{ tool_cards }}
 After editing run `build` → `check_placement` (it names every asset that floats, is sunken,
 touches nothing or interpenetrates another, with the exact "lower X by 0.23 m onto Terrain"
-fix; a deliberately airborne thing gets `obj.userData.placement = 'free'`) → fix → `build`
-again, then `scene_views` and LOOK at the frames: count the silhouettes, look
-for a flat colour under your props, and read the MEASURED MOTION line it prints — if it reports your
-zone's cameras as STATIC, double the amplitude and render again.
+fix; a deliberately airborne thing gets `obj.userData.placement = 'free'`) → fix every row →
+`build` again, then `scene_views`: check that each authored frame shows what the description
+says, and read the MEASURED MOTION line it prints — if it reports your zone's cameras as
+STATIC, double the amplitude and render again.
 {% endif %}
 {% if effects_catalog is defined and effects_catalog %}
 
 {{ effects_catalog }}
-{% endif %}
-{% if recipes is defined and recipes %}
-
-# Recipes (from the scene cookbook — copy these numbers and snippets)
-{{ recipes }}
 {% endif %}
 {% if textures is defined and textures %}
 
@@ -143,3 +162,4 @@ zone's cameras as STATIC, double the amplitude and render again.
 
 ## Output
 {{ output_format }}
+{% endif %}

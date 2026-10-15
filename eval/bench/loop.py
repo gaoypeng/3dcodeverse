@@ -4,7 +4,7 @@
     python -m bench.loop init --name argon_scene --out bench/out/loop_argon --variant argon \\
         --languages scene_threejs,scene_blender --generator agy:gemini-4-argon \\
         --judge gemini:gemini-4-argon --judge-thinking medium --parallel 15 --rounds 2 --max-minutes 90
-    python -m bench.loop generate    --out bench/out/loop_argon --iter 0 [--n 30] [--rung 1]
+    python -m bench.loop generate    --out bench/out/loop_argon --iter 0 [--n 15] [--rung 1]
     python -m bench.loop run         --out bench/out/loop_argon --iter 0 [--languages scene_threejs] [--resume]
     python -m bench.loop diagnose    --out bench/out/loop_argon --iter 0
     python -m bench.loop compare     --out bench/out/loop_argon --iter 1 --against 0
@@ -14,7 +14,7 @@
     python -m bench.loop status      --out bench/out/loop_argon
 
 One iteration = one edit of a per-model prompt/skill VARIANT (``codeverse3d/prompts/variants/<v>/`` +
-``codeverse3d/skills/variants/<v>/``, D105) measured on ~30 scene prompts per language, run in
+``codeverse3d/skills/variants/<v>/``, D105) measured on ~15 scene prompts per language, run in
 parallel on the generator under test, judged by ONE fixed judge at ONE thinking level.  ``init``
 freezes every knob in ``<out>/loop.json``; everything else reads it, so two iterations never differ
 in anything but the variant and (when ``--rung`` moves) the prompt mix.
@@ -99,8 +99,9 @@ LOOP_JSON = "loop.json"
 VARIANT_TOML = "variant.toml"
 #: the machine-wide Cycles slots the children share: 30 parallel runs render on ONE GPU, and
 #: `Render.blender_gpu_slots` defaults to 2 for an interactive box (D104 measured 0.21-0.64 s/frame
-#: on the GPU vs 2.3 s on the CPU, so a third slot is worth more than a third CPU render)
-BLENDER_GPU_SLOTS = "3"
+#: on the GPU vs 2.3 s on the CPU, so a third slot is worth more than a third CPU render; five slots fit the
+#: memory the renders measured)
+BLENDER_GPU_SLOTS = "5"   # 3 → 5 on 2026-10-15: 24 GB of GPU memory sat at 2.7 GB with 30 runs; the owner asked for more parallelism
 #: how long a stopped driver waits for a child to record its stop before SIGKILL: the child's own
 #: stop handler (`run_bench.main` installs it) unwinds within `proc.STOP_GRACE_S` = 30 s
 CHILD_STOP_GRACE_S = 45.0
@@ -131,7 +132,7 @@ class LoopConfig(BaseModel):
                                          "(run_bench --stagger); the children themselves launch stagger_s/2 apart")
     rounds: int = Field(default=2, ge=0)
     max_minutes: float = Field(default=90.0, gt=0)
-    n: int = Field(default=30, ge=1, description="prompts per battery")
+    n: int = Field(default=15, ge=1, description="prompts per battery")   # 30 → 15 (owner, 2026-10-15)
     track: Track = Track.SCENE
     created_at: str = ""
 
@@ -887,7 +888,7 @@ def build_parser() -> argparse.ArgumentParser:
                         "half that apart (0 = everything at once)")
     s.add_argument("--rounds", type=int, default=2)
     s.add_argument("--max-minutes", type=float, default=90.0)
-    s.add_argument("--n", type=int, default=30, help="prompts per battery")
+    s.add_argument("--n", type=int, default=15, help="prompts per battery")
 
     s = sub.add_parser("generate", help="write the iteration's batteries (a mix of cached rungs)")
     _add_out(s)

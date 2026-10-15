@@ -2,27 +2,34 @@
 
 Scene: {{ spec_prompt }}
 Setting: {{ setting }}. Mood: {{ mood }}.
-Bounds: {{ bounds }}
+Bounds: {{ bounds }} — the region the cameras and the census cover; the world you build extends
+past it as far as this setting needs.
 
-## Environment plan (realise these numbers)
+## Environment plan (the brief's intent, with target numbers)
 {{ environment }}
+The numbers are targets the frame table and the gates check; the form of the world is the brief's.
 {% if interior and glazed %}
-## This is a GLASS HOUSE — the enclosure is yours
-The skeleton already builds it: `export const INTERIOR = { center, extents, openings, glazed: true }`
-feeds `roomShell()` from `lib/environment.js` — floor (the ground), glass walls and a glass roof on
-the bounds' faces, on an iron frame grid (`frameColor`, `bay`), with the land outside built beyond
-it.  Keep it.  Your job: cut the plan's doors as `openings`, tune the frame, and let the SUN do the
-lighting — it comes through the glass and the frame throws its grid of shadows on the floor.  Never
-put an opaque wall or roof around it.
+## This is a GLASS HOUSE
+It must read as enclosed in glass from every authored camera (judged: enclosed, not a diorama on
+a flat plane), with the sun coming through the glazing and the frame throwing its shadows inside.
+Name the roof / lid meshes `Ceiling…` / `RoomShell…` so the overview rig can lift them.
+`roomShell({ glazed: true, frameColor, bay, openings })` from `lib/environment.js` builds a glazed
+box on the room box you give it (the starter's `export const INTERIOR = { center, extents,
+openings, glazed: true }` feeds it) — one option; a lean-to, a dome or a vault is yours to build.
+Cut the plan's doors as `openings`.  What is seen through the glass must be something the brief
+implies, never a void or a flat colour.
 {% elif interior %}
-## This is an INTERIOR — the enclosure is yours
-The skeleton already builds the room: `export const INTERIOR = { center, extents, openings }` feeds
-`roomShell()` from `lib/environment.js` — floor (the ground), four walls and a ceiling on the bounds'
-faces.  Keep it.  Your job: cut the plan's windows and doors as `openings` (face, centre along the
-wall / up from the floor, size, metres), glaze or frame them, and LIGHT THE INSIDE (the sun rig is
-outside: without openings and practicals a closed room reads black).  Measured 2026-09-07 over six
-interior runs: with no owner for walls and roof, every one was judged "not enclosed, a diorama on
-a flat plane, tool racks floating at a missing wall" (0.0–0.3).
+## This is an INTERIOR
+It must be enclosed — walls and a ceiling exist from every authored camera.  Measured 2026-09-07
+over six interior runs: with no owner for walls and roof, every one was judged "not enclosed, a
+diorama on a flat plane, tool racks floating at a missing wall" (0.0–0.3).  Name the lid meshes
+`Ceiling…` / `RoomShell…` so the overview rig can lift them.  `roomShell({ center, extents,
+openings })` from `lib/environment.js` is one way (a box on the room box you give it; the starter's
+`export const INTERIOR = { center, extents, openings }` feeds it); a vault, a tent, a cave or an
+irregular room is yours.  Cut the plan's windows and doors as openings (face, centre along the
+wall / up from the floor, size, metres) and light the inside from the sources the brief names — a
+sun rig stays outside, and a closed room with no openings and no practicals renders black and
+fails the exposure gate.
 {% endif %}
 
 ## Contract
@@ -35,68 +42,66 @@ const ctx = { THREE, scene, renderer, loaders, heightAt, assets };
 const env = (await buildEnv(ctx)) || {};          // ONE argument, and it is ctx (not THREE, not scene)
 function update(t, dt) { if (env.update) env.update(t, dt); /* then every zone */ }
 ```
-So `src/env.js` must export exactly:
-- `export function buildEnv(ctx)` — reads `ctx.scene` / `ctx.THREE`, adds sky, lights, ground,
-  backdrop and water to `ctx.scene`, and **returns an object carrying `update(t, dt)`**:
-  `{ sun, hemi, sky, ground, water, heightAt, update(t, dt) {} }`.  A separate `tickEnv` export is
-  NEVER called — animated sky/water/fog uniforms must be driven from the returned `update`.
-- `export function heightAt(x, z)` — terrain height (0 for flat ground), deterministic and cheap;
-  every zone places things with it.  The PATH is part of this function (flatten it there) so props
-  on the path sit on the path.
-- `export const BOUNDS = { min: [x, y, z], max: [x, y, z] }` from the plan bounds.
+So the interface of `src/env.js` is three exports:
+- `export function buildEnv(ctx)` — reads `ctx.scene` / `ctx.THREE`, adds whatever this brief's
+  environment is (its sky or ceiling, its light, its ground or floor, its atmosphere; water or a
+  backdrop only if the brief's world has them) to `ctx.scene`, and **returns an object carrying
+  `update(t, dt)`** — the only env hook the assembler calls.  A separate `tickEnv` export is
+  NEVER called; animated sky / water / fog uniforms are driven from the returned `update`.
+- `export function heightAt(x, z)` — the surface height every zone seats on (deterministic, cheap;
+  `0` for a flat floor).  Any walkable surface the brief has (a path, a road, a terrace, a deck) is
+  part of it so what stands on it seats on it: the placement gate measures against it, so it has
+  to agree with the ground mesh.  A route the zones must agree with (a lane, a towpath) is part of
+  `heightAt`, or exported from here as the one ground authority — the name is yours.
 - `export const SUN_AZIMUTH_DEG = <number>` — read by the harness (regex) to put the overview
   cameras on the sun side.  Omit it and the overview rig shoots into the sun.
-- `export const MATS = { ... }` — shared `MeshStandardMaterial`s (stone, wood, leaf, water, metal)
-  with hex colours so zones look coherent.
+Anything else you export (shared materials, a water level, the route) is a convention between you
+and the zones, read by nothing in the harness.
 
-## What this module is graded on
-The chapters behind these rules are printed in full at the end of this brief
-(**Recipes**) — copy their numbers and snippets; do not invent your own.
-
-1. **Ground must not be one flat colour.**  The skeleton already ships the library's ground
-   (`ground()` from `lib/terrain.js`: textured, displaced, level inside `CONTENT_RADIUS` and
-   rolling beyond, and `heightAt` IS its height function): tune its material, relief, scale and
-   `flat` areas and carve the path in both height and colour — never replace it with a
-   single-colour `MeshStandardMaterial` plane, a scored defect (`flat_ground`).
-2. **No world edge.**  The skeleton already closes the world: `worldShell()` (sky gradient, the
-   horizon's silhouette ring, fog the colour of the horizon — `scene.fog` and `scene.background` are its)
-   and `makeOutskirts()` (relief, fields and copses between the content and the ridge).  Set
-   `MOOD`, the shell's `zenith` / `horizon` and the outskirts' `colors` to the brief; replace
-   the ridge only with something of the brief's own (rooftops, mesas, a treeline) and keep
-   fog == horizon == background, the land reaching past fog far.  Scale fog to THIS scene, not
-   to a 100 m default.
-   Two rules decide whether that ring reads as a hazy horizon or as cardboard:
-   - Build it from SOLID geometry (cones, boxes, mesas).  Flat `PlaneGeometry` cut-outs are
-     instantly readable as cardboard from every oblique and overview camera.
-   - Do NOT lerp its colour toward the fog colour.  `scene.fog` already hazes it by distance;
-     tinting as well double-applies and, against a light golden/overcast horizon, makes the
-     backdrop BRIGHTER than the ground — measured, and scored as `placeholder_material`.
-     Use its natural colour darkened (`base.multiplyScalar(0.6-0.8)`) and let fog do the rest.
-3. **The floor stays near y = 0.**  The plan's camera heights are absolute metres above y = 0
-   and were written before your terrain existed: keep `heightAt` within about +/-1.5 m of 0
-   inside the bounds (a knoll or a pond basin is fine, a 7 m plateau is not), or the harness
-   reports "camera N m below ground level" and caps the score at 0.50.
-   Ponds, terraces, lawns and gravel beds are CARVED INTO `heightAt` (a radial depression, a
-   shallow shelf) — never a hard-edged disc or square laid on top of the ground, which always
-   shows its outline from the overview cameras.
-4. **Coloured atmosphere, not monochrome.**  Warm key + cool fill (or the reverse) with >= 60
-   degrees of hue between them (`sunColor` vs `fillSky` on the rig); shade must carry sky
-   colour, never black — with the sun below 25 degrees elevation keep the rig's `fill` >= 1.0
-   or the shadows render pitch black and trip the `unlit_or_blown` defect (cap 0.60).  Add 3-4 haze bands
-   (`depthWrite:false`, opacity 0.04-0.10, fog colour) for aerial perspective, and light shafts
-   if the brief mentions sun through something.
-4b. **Keep `scene.environment`.**  The skeleton lights the scene with `sunRig()` from
-   `lib/environment.js` and assigns its `envTex` to `scene.environment`; metals and glass read
-   from that map and render near black without it.  Change the mood/azimuth through the rig's
-   options, not by replacing it with bare lights.
-5. **Shadows must not be jagged.**  `sunRig` fits the shadow camera, map size and bias to its
-   `bounds`: pass the content radius (the plan bounds, not the whole ground) and never set
-   `sun.shadow.*` by hand.
+## What is measured on this module
+1. **The ground reads as this setting's surface.**  The judge flags `flat_ground` where the
+   setting would show variation (material blending, wear along routes, undressed seams) and the
+   ground is one flat colour; a paved yard, a snowfield or a concrete floor is legitimately
+   uniform.  The landform is the brief's — a street is flat and paved, a hillside slopes through
+   the content, a quarry steps down — with one measured constraint: every plan camera's height is
+   absolute, so at each camera position `heightAt` stays below the eye (the gate reports
+   "camera N m below ground level" and caps the score at 0.50; `src/scene.js` is assembled with
+   the plan's numbers, so the land under the camera is this module's only lever).
+2. **The world does not end in frame.**  From no authored camera may the ground end against the
+   sky or a void (judge defect `world_edge_visible`; the frame census reports "terrain ends N m
+   ahead").  Measured on exteriors: standing geometry ≥ 2 m tall out to ≥ 1.25 × the bounds
+   half-extent (`world_edge`), fog far ≥ 2 × the plan span (`fog_short`), `scene.fog` and
+   `scene.background` set (`no_fog` / `no_background`), and ≥ 8 same-size copies evenly round the
+   edge is a `stamped_ring`.  What continues the world is the setting's: a street's next block,
+   more forest, open sea, a wall, a skyline on one side, a range in one direction, haze that
+   closes.  Whatever stands at a distance must not read as cardboard (judge
+   `placeholder_material`): flat billboards do; volumes, or far ground that simply continues
+   under fog, do not.  Measured A/B: distant forms hand-lerped toward a light fog colour render
+   BRIGHTER than the terrain; natural colour, darkened, left to the fog, reads as receding haze.
+3. **Surface features meet the ground.**  Where a pond, terrace, bed or lawn meets the terrain
+   its edge must not read as an outline lying on the ground from the overview cameras (judge:
+   `flat_ground`, `floating_asset` / `sunken_asset`); carving it into `heightAt`, edging it, or a
+   setting that justifies a flat slab (a paved terrace) are all ways.  Inside a shoreline the
+   terrain lies below the water level or the shore z-fights.
+4. **Light that passes the exposure band and matches the brief.**  Every authored camera must
+   pass the frame gate (mean luminance ≥ 0.12, or low-key with luminance std ≥ 0.12; blown
+   ≤ 20 %; no single band > 85 %).  Shade must carry colour, not crush to black (`dark_frac`),
+   and the light must not read as monochrome (judged) — a key / fill hue split is one way
+   when the brief's weather allows it; an overcast or sodium-lit scene is legitimately
+   low-contrast.  `scene.environment` must be an environment texture (metals and glass render
+   near black without one).  `sunRig()` from `lib/environment.js` gives a fitted key, hemisphere
+   fill, env map, disc and shadows for a sunlit exterior in one call — one option; any light set
+   that passes the gate and matches the brief's sources is as good.
+   Aerial perspective is judged (`thin_atmosphere`: "horizon with no atmospheric falloff"): fog
+   does most of it; `makeHeightFog` / `patchAerialPerspective` in `lib/atmosphere.js` are optional
+   extras, kept subtle or the frame reads milky (`blown_frac`).
+5. **Shadows are not jagged** (judged): a shadow texel ≤ ~0.05 m over the content.
+   `sunRig({ bounds })` fits frustum, map size and bias to the radius it is given — pass the
+   content radius, not the ground size; a hand-set `sun.shadow.*` must meet the same texel size.
 6. No {% if not (textures is defined and textures) %}textures, no {% endif %}DOM, no fetch, no Math.random.
 
 ## DON'T
 - No assets/zones here (they come from other modules). No cameras. No `scene.background` image loads.
-- Do not re-declare the path polyline in a zone: export it (or `distToPath`) from here.
 
 ## Effects planned (only the ones targeting the environment)
 {{ effects }}
@@ -104,18 +109,13 @@ The chapters behind these rules are printed in full at the end of this brief
 
 ## Tools
 {{ tool_cards }}
-After editing run `build`, then `scene_views` and LOOK: is the horizon hazy, is the ground
-multi-coloured, is the shade coloured rather than black?  Read the frame table it prints:
-every authored camera must pass the exposure checks.
+After editing run `build`, then `scene_views` and LOOK: does the world end anywhere in view, is
+the ground one flat colour where the setting would vary, is the shade black?  Then read the frame
+table it prints: every authored camera must pass the exposure checks.
 {% endif %}
 {% if effects_catalog is defined and effects_catalog %}
 
 {{ effects_catalog }}
-{% endif %}
-{% if recipes is defined and recipes %}
-
-# Recipes (from the scene cookbook — copy these numbers and snippets)
-{{ recipes }}
 {% endif %}
 {% if textures is defined and textures %}
 

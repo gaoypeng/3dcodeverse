@@ -39,9 +39,8 @@ Animation: {{ animation }}
 
 ## Reminders
 {{ frame_doc }}
-- A lighting/mood/ground/horizon change lives in `{{ env_file }}` (the world, `SUN_AZIMUTH_DEG` /
-  `SUN_ELEVATION_DEG` and the Sun's energy, the fog box's density and colour, the ground's blend,
-  the sky-named backdrop ring).
+- A lighting / atmosphere / terrain / horizon change lives in `{{ env_file }}` (the world, the sun or
+  moon lamp, the atmosphere volume, the ground and `height_at`, whatever continues the world).
 - A composition/camera change is the plan's: `{{ entry_file }}` is harness data — move the SUBJECT
   (a zone's placement) rather than the camera.
 - A zone change lives in its `src/zones/<zone>.py` (`def build(ctx)`, motion as keyframes on
@@ -49,31 +48,30 @@ Animation: {{ animation }}
   (`build_<asset>(ctx, variant=0)`).
 - A dropped zone / asset (`zone_error`, `asset_error`): fix the named line; never wrap the whole
   builder in try/except to hide it.
-- Everything rests on `ctx.height_at(x, y)` or on its support (`lib.place.seat`); nothing floats,
-  sinks or runs through a neighbour (`lib.place.clear_of`); repeats are collection instances.
+- Everything rests on `ctx.height_at(x, y)` or on its support (`lib.place.seat` or your own seating);
+  nothing floats, sinks or runs through a neighbour (`lib.place.clear_of`).
 - No world or cameras outside `{{ env_file }}`, no file IO, no `random.*`, no Python drivers.
 
-## The recurring defects on this track and the cookbook chapter that fixes each
-Do not re-explain the problem back — apply the recipe (the named chapters are printed in full
-under **Recipes** at the end of this brief) and change the numbers.  If the judge repeated an issue
-from the previous round, the earlier fix was too timid: double the amplitude / the count / the
-contrast this time.
+## The recurring findings on this track — what each measures, and where the requirement is stated
+Do not re-explain the problem back — change what the finding measures.  If a measured finding repeats,
+change what it measures until its number passes; a repeated judge note needs a visible change in the
+named view.  The skills named below are in your session's skill list; the contract is above.
 
-| what the judge wrote | fix it with |
-|---|---|
-| flat / one-colour ground, no paths, hard raised-bed edges | `"Ground that reads real"` — the colour-attribute blend, carve the path into `height_at`, dress the seams |
-| a hard world edge against the sky, missing horizon | `"Horizon: the world must not end"` — ground ≥ 2.5 × the span, fog = the sky's horizon colour, a `SkyRidge` at 0.6 × the visible range |
-| the backdrop looks like flat / beige / untextured cut-outs | same chapter, rules 4–5 — solid geometry, darken the base colour, never tint it toward the fog |
-| a pond / terrace is a hard-edged plane sitting on the ground | carve it into `height_at` in `{{ env_file }}` and dress the seam (`"Ground that reads real"`); water is `"Water"` |
-| `floating` / `sunken` / `interpenetration` / `unsupported` (the placement gate's metres) | `"Placement self-check"` — `lib.place.seat` / `rest_on`, `clear_of`; a rock may sit a third in, a crate may not |
-| "camera is N m below ground level" / `camera_in_geometry` | the terrain lifted the floor: flatten `height_at` toward z = 0 inside the bounds, or move the thing in front of the lens |
-| identical cones / stacked blocks / primitive repetition | `"Vegetation that reads real"`, `"Rocks, cliffs and boulders that read organic"` — 3+ silhouettes, clustered, scale / hue jitter, no axis-aligned stacks |
-| sparse, token, "a diorama on a plane", empty midground | `"Set dressing"` + `"Scene layering"` — hit the per-zone prop counts, add a foreground element 2–4 m from each camera |
-| flat / dark / monochrome light, black shade, `dark_frame` | `"Atmosphere: time-of-day triads with numbers"`, `"Dusk / night lighting recipe"`, `"Lighting for Cycles + AgX"` — the table's sun / world / fog numbers, practicals with a radius |
-| frames at t=0 and t=1.5 identical, "nothing moves", `nothing_moves` | `"Motion you can SEE between t = 0 and t = 1.5 s"` — LINEAR keyframes on `ctx.frame(0.0)` / `ctx.frame(1.5)`, amplitudes from the table; `python_driver` = a driver that needs Python, rewrite it as `frame * k` |
-| `hard_edged_particles`, "sharp-edged quads / spheres / discs for steam, dust, sparks", the brief's "soft particle effect" must-item unverified | `"Soft particles"` — `lib.materials.volume` on a `Batch` of subdivision-3 spheres, tagged free, drifting ≥ 0.6 m; never a translucent Principled puff, metaball, torus or disc |
-| "plastic", "one grey material", `placeholder_material` | `"Materials: Principled recipes and the lib palette"` — a colour and a roughness on every surface, a noise bump, wood grain, the lib palette |
-| `zone_error` / `asset_error` (a dropped module) | the named `file:line` — fix the raise; Blender 5.2 facts in `"Traps"` (no `use_nodes`, `Factor` not `Fac`, `ShaderNodeMix`, `Action.fcurves` is gone, GN inputs via `mod.properties.inputs`) |
+| what the judge / gate wrote | the requirement (and how it is measured) | stated in |
+|---|---|---|
+| flat / one-colour ground, hard raised-bed edges | the surface needs visible variation that matches the brief's material, and its seams dressed (judge `flat_ground`) | the env brief § 1; skill `c3d-bpy-scene-materials` |
+| a hard world edge against the sky, missing horizon | from no camera may the ground end against the sky (`world_edge_visible`; gates `world_edge` / `fog_short`); what continues the world is the brief's — street, sea, cliff, forest, wall, fog | contract § What else the gates measure; skill `c3d-scene-atmosphere` |
+| the backdrop looks like flat / beige / untextured cut-outs | a distant backdrop needs volume and lighting consistent with the sky; aerial perspective is the fog's job, never a pre-tint (`placeholder_material`) | skill `c3d-scene-atmosphere` |
+| a pond / terrace is a hard-edged plane sitting on the ground | water and terraces meet the ground without a visible seam: carving into `height_at` (`{{ env_file }}`) or dressing the seam (the zone) are options; water is named `…Water` | skill `c3d-scene-water`; skill `c3d-bpy-scene-placement` |
+| `floating` / `sunken` / `interpenetration` / `unsupported` (the placement gate's metres) | `lib.place.seat` / `rest_on`, `clear_of` — or your own seating through the same foot columns; a rock may sit a third in, a crate may not | contract § Placement; skill `c3d-bpy-scene-placement` |
+| "camera is N m below ground level" / `camera_in_geometry` | the eye must be above the ground under it and ≥ 0.5 m from any surface: move the subject or the zone's placement; the landform is the brief's | contract § What else the gates measure |
+| identical cones / stacked blocks / primitive repetition | identical copies and primitive stacks are what the judge reads (`monotonous_vegetation`); vary where the brief has natural variety, regular things stay regular | the zone brief § 2 |
+| sparse, token, "a diorama on a plane", empty midground | the brief's stated counts are requirements (the census compares them); empty regions the brief would fill get what it implies (`undressed_scene`, `empty_midground`) | the zone brief § 1; skill `c3d-scene-composition` |
+| flat / dark / monochrome light, black shade, `dark_frame` | measured per camera (`mean_lum` / `dark_frac` / `blown_frac`); the brief's time of day and light sources decide; the lighting skill lists starting values that have passed | skill `c3d-bpy-scene-lighting`; skill `c3d-scene-night` |
+| frames at t=0 and t=1.5 identical, "nothing moves", `nothing_moves` | the frame difference is measured per camera: LINEAR keyframes on `ctx.frame(0.0)` / `ctx.frame(1.5)` or `frame * k`; `python_driver` = a driver that needs Python, rewrite it | contract § Motion; skill `c3d-scene-motion` |
+| `hard_edged_particles`, "sharp-edged quads / spheres / discs for steam, dust, sparks", the brief's "soft particle effect" must-item unverified | the finding measures sharp-edged particle geometry: in Cycles only a volume renders edgeless (`lib.materials.volume` on a `Batch` is one way), one root tagged free, moving ≥ 0.6 m | contract § What the renderer does |
+| "plastic", "one grey material", `placeholder_material` | flags a surface with no authored colour / roughness; every surface needs a material that matches what it is (the lib palette is one source) | skill `c3d-bpy-scene-materials` |
+| `zone_error` / `asset_error` (a dropped module) | the named `file:line` — fix the raise; Blender 5.2 facts (no `use_nodes`, `Factor` not `Fac`, `ShaderNodeMix`, `Action.fcurves` is gone, GN inputs via `mod.properties.inputs`) | contract § Blender 5.2 API facts |
 {% if current_files %}
 
 ## Current file contents (edit and return each COMPLETE)
@@ -92,16 +90,6 @@ Run `build` → `check_placement` → fix → `build` after editing (and `scene_
 finish only when both are clean.  `check_placement` measures floating / sunken / unsupported /
 interpenetrating assets deterministically — its numbers, not your impression.  `scene_views` prints the
 frame table and the MEASURED MOTION per camera — use those numbers, not your impression.
-{% endif %}
-{% if recipes is defined and recipes %}
-
-# Recipes (from the scene cookbook — the chapters for the files you own; copy their numbers)
-{{ recipes }}
-{% endif %}
-
-{% if effects_catalog is defined and effects_catalog %}
-
-{{ effects_catalog }}
 {% endif %}
 
 ## Output

@@ -3,29 +3,33 @@
 Scene: {{ spec_prompt }} · Setting: {{ setting }} · Mood: {{ mood }}
 
 ## This zone
-- Description (density counts and depth role are binding): {{ zone_description }}
-- Bbox (Z up, −Y front, metres — already converted from the plan): {{ zone_bbox }} — place EVERYTHING
-  inside it (x/y), on the ground via `ctx.height_at(x, y)` or on the surface it stands on.
-{% if interior %}- INTERIOR: the enclosure (walls, ceiling, roof) is `env.py`'s `room_shell` on the scene bounds' faces —
-  never build walls or a roof here.  Fixtures on a wall sit flush against the inner face of the bounds;
-  a window or door is an OPENING env cut, so glazing and door leaves go in the opening, not through the wall.
+- Description (the brief's facts in it are binding; its counts are the layout's intent, checked against the placement census): {{ zone_description }}
+- Bbox (Z up, −Y front, metres — already converted from the plan): {{ zone_bbox }} — placed assets are
+  measured against it and the plan bounds (a planned content entirely outside the bounds + max(5 m, 10 % of the
+  span) is `out_of_bounds`, a WARN; scenery may continue past them as the place implies); seat each on
+  the ground via `ctx.height_at(x, y)` or on the surface it stands on.
+{% if interior %}- INTERIOR: the shell (floor, walls, lid) is `env.py`'s; a partition, counter or alcove this zone needs
+  is yours, seated and clear of the shell (placement gate).  A window or door is an OPENING env cut:
+  glazing and door leaves go in the opening, not through the wall.
 {% endif %}- Contents (asset names to place): {{ zone_contents | join(', ') if zone_contents else '(none — build local detail from bmesh)' }}
-- Every asset in `ctx.assets` is a Collection AT THE SIZE the asset API states; place it at scale 1
-  (per-instance jitter within ±30 %, never a re-size to "fit").  The placement gate measures every
-  placed thing against the plan's size, and a mismatch is a finding the judge repeats (measured
-  2026-09-08, round 0: a 1.15 m stove placed at 3.60 m, 0.48 m oil lamps at 0.03 m — both cost the
-  round).  The same gate measures a placed asset as ONE object: never stretch a part of an instance; a
-  chimney, pipe or cable that must reach further is a SEPARATE object you add beside it.
+- Every asset in `ctx.assets` is a Collection AT THE SIZE the asset API states and is measured as ONE
+  object against the plan's `approx_size_m`: a WARN beyond 2.5 × (or under 1 / 2.5), an ERROR beyond 4 ×
+  (`scale`), and the judge's `wrong_scale` on top (measured 2026-09-08, round 0: a 1.15 m stove placed at
+  3.60 m, 0.48 m oil lamps at 0.03 m — both cost the round).  Never re-scale to fit or stretch a part of
+  an instance; a chimney, pipe or cable that must reach further is a SEPARATE object you add beside it.
 
-{% if layout is defined and layout %}## Zone director's layout (realise EXACTLY these placements; positions are world metres (x, y) in THIS frame)
+{% if layout is defined and layout %}## Zone director's layout (the contents it names are measured as present; its positions and counts are the director's proposal, world metres (x, y) in THIS frame — keep them unless the place reads better otherwise)
 {{ layout }}
 
-{% endif %}Neighbouring zones (do not build into them):
+{% endif %}Neighbouring zones (their builders place there; a thing of yours running into a thing of theirs is an
+`interpenetration` row like any other):
 {% for n in neighbours %}- {{ n }}
 {% endfor %}
-
-Authored cameras that will photograph this scene (Z up, metres; keep their first metres clear, and
-give the ones that look at this zone a foreground element):
+{% if shared is not defined or shared %}
+Authored cameras that will photograph this scene (Z up, metres; nothing may sit inside or within
+0.5 m of a lens — `scene_views` camera_checks, `camera_in_geometry` cap 0.50 — and no more than 5 of a
+camera's 9 sight rays may end within 1.5 m, `camera_blocked`, the same cap; the framing is this zone's
+choice):
 {{ cameras }}
 
 ## Assets available (sizes are measured, metres)
@@ -33,10 +37,11 @@ give the ones that look at this zone a foreground element):
 
 Place one with `instance(ctx.collection, ctx.assets['<snake>'], unique_name('Name', i), x, y,
 height_at=ctx.height_at, rot_z=…)` from `lib/scatter.py` + `lib/place.py` (a collection-instance
-Empty seated on the ground = ONE placement row), or scatter many with `scatter(...)`.  Shared materials
-and the terrain come from the environment: `ctx.env['ground_material']`, `ctx.env['sun_direction']`,
-`ctx.height_at`; zones may also `from env import SUN_AZIMUTH_DEG`.  A hero GLB is already imported for
-you as `ctx.assets['<snake>']` — instance it, never import a file.  There is no `ctx.rand` and no
+Empty seated on the ground = ONE placement row), or scatter many with `scatter(...)`, or build your
+own collection-instance Empties.  Shared materials and the terrain come from the environment:
+`ctx.env[...]` (the keys `build_env` returned), `ctx.height_at`; zones may also `from env import …`
+whatever `env.py` defines at module level.  A hero GLB is already imported for you as
+`ctx.assets['<snake>']` — instance it, never import a file.  There is no `ctx.rand` and no
 `ctx.materials`; randomness is `rng = ctx.rng(<seed>)`.
 
 ## Contract
@@ -54,43 +59,50 @@ So `{{ zone_file }}` defines `def build(ctx) -> bpy.types.Collection` that links
 Animation is DATA: keyframes on `ctx.frame(0.0)` / `ctx.frame(1.5)` and simple drivers of `frame`
 (`lib/motion.py`); there is no per-frame hook.
 
-## What this zone is graded on
-The recipes for the points below are printed in full at the end of this brief (**Recipes**) — copy
-their numbers and snippets; the `lib/` catalog does each in one call.
-
-1. **Hit the density counts in the description.**  A zone with 5 objects in it reads as a token
-   gesture; the counts are the difference between 0.5 and 0.8.  Props go **against** things (path
-   edges, wall bases, under benches, in corners), never in a grid or a perfect ring, with ≥ 20 %
-   positional jitter and full yaw jitter (`lib.scatter.scatter`, `along_path`, `poisson`).
-2. **Variation, not clones.**  Any repeated natural element needs ≥ 3 distinct silhouettes
-   (`lib.vegetation.tree` kinds, `shrub`, `fern`; `lib.terrain.boulder` seeds), per-instance scale
-   jitter ±30 %, hue jitter (`lib.materials.tint` or `ob.color` through an Object Info node), full yaw
-   jitter and a few degrees of lean.  Clustered placement, never uniform scatter, never a ring of
-   identical cones.
-3. **Seated, and clear of each other — measured.**  Every placed root object: its feet on
-   `ctx.height_at` or on what it stands on (`lib.place.seat`, `rest_on`; gap ≤ 0.02 m), sunk 3–5 cm
-   where it meets soil, with 6–15 dressing pieces along the seam.  Run `lib.place.clear_of(objs)` before
-   you finish: two boxes sharing > 10% of the smaller one are `interpenetration` (ERROR at 35%), a
-   foot 0.05 m up is `floating` (ERROR at 0.08 m), a foot 0.10 m under is `sunken` (ERROR at 0.20 m).
+## What this zone is graded on (the requirement, and how it is measured)
+1. **What the description names is here.**  Counts the plan states are compared with the placement
+   census (`missing_planned_element`, `empty_zone`), and a place that reads as sparse for what the brief
+   describes is judged `undressed_scene`.  Place props where the setting puts them; regular arrangements
+   only where the brief implies them.  `lib.scatter` offers `scatter`, `along_path`, `poisson`, `grid`
+   if you want them.
+2. **Repeated natural elements read as individuals** from the cameras (judge `monotonous_vegetation`:
+   one shape stamped many times, in a ring or a grid).  The lib's `tree` kinds, `shrub`, `fern`,
+   `boulder` seeds, `materials.tint` and per-instance rotation / scale are one way; regular things (a
+   colonnade, a row of bollards) stay regular.
+3. **Seated, and clear of each other — measured.**  Every placed root object rests on the surface it
+   stands on (`lib.place.seat` / `rest_on`, or your own seating — the gate samples the foot columns):
+   a foot 0.05 m up is `floating` (ERROR at 0.08 m), 0.10 m under is `sunken` (ERROR at 0.20 m), two
+   boxes sharing > 10 % of the smaller one are `interpenetration` (ERROR at 35 %).  Run
+   `lib.place.clear_of(objs)` over your roots AND the neighbours' placed things before you finish.
    `obj["placement"] = "free"` only for things that hang in the air; the share of tagged things is
-   reported.  NEVER lay a hard-edged disc (a pond, a gravel bed, a terrace) flat on the ground: use the
-   depression `height_at` already carves for it and ring the seam with a kerb + dressing.
-4. **Serve the cameras.**  Skip any SCATTER point inside a ~4 m disc around an authored camera (the
-   `camera_mask` recipe) — a tree 1 m in front of the establishing camera ruins the shot.  Then, by
-   hand, place ONE element 2.5–4 m from a camera that looks across this zone, off to one side, as its
-   foreground frame.
-5. **Motion that shows.**  Amplitudes from the Recipes table (foliage ±0.10–0.20 rad, a mover ≥ 0.6 m
-   per 1.5 s), as keyframes on `ctx.frame(0.0)` / `ctx.frame(1.5)` (LINEAR) or a simple driver of
-   `frame`.  The harness DIFFERENCES the t=0 and t=1.5 frames pixel by pixel and reports the number:
-   too small a change counts as `nothing_moves`.  Give this zone at least one motion big enough to see
-   across the frame.
-6. **One object = one thing; names unique.**  A multi-part prop is one mesh or one parent Empty with
-   children; repeats are collection instances; the hundreds (blades, pebbles, litter) are a
-   geometry-nodes cloud (`lib.vegetation.grass_patch`, `lib.scatter.gn_scatter`).  Every placed copy
-   `unique_name(base, i)`; never `bpy.ops` in a loop.
+   reported.  A built thing on soil must not read as pasted on (judge `flat_ground`: undressed seams):
+   a few centimetres of sink (the gate allows up to 0.10 m) or dressing along the seam are options; a
+   ground feature (a pond, a bed, a terrace) must not read as a plate on the terrain from the overview
+   cameras — carving in `height_at` (the env's) or a built edge both work.
+4. **The cameras stay clear.**  No authored camera may be inside or blocked by what this zone builds
+   (`scene_views` camera_checks: nothing within 0.5 m of a lens, `camera_in_geometry`; 6 of 9 sight
+   rays within 1.5 m, `camera_blocked` — each an ERROR capped at 0.50).  `lib.place.clear_mask` / a
+   poisson `mask` keeps scatter out of any region you choose.  Framing is yours.
+5. **Motion that shows.**  The harness DIFFERENCES the t=0 and t=1.5 frames per camera and reports the
+   number: a camera moves when ≥ 0.4 % of its pixels change by more than 8/255 (or ≥ 0.08 % by more
+   than 60/255); no authored camera moving is `no_motion` (ERROR), the judge's `nothing_moves`.
+   Keyframes on `ctx.frame(0.0)` / `ctx.frame(1.5)` (LINEAR) or a simple driver of `frame`; what moves
+   is the brief's (amplitudes that have registered at 1024 × 576: ≥ 0.10 rad, ≥ 0.05 m, a particle /
+   leaf / boat ≥ 0.6 m per 1.5 s).
+6. **One root = one thing; names unique.**  `check_placement` measures each root object in
+   `ctx.collection` as one placed thing: a multi-part prop has one root (a mesh, a parent Empty, a
+   collection instance) and every root a unique name (`unique_name(base, i)`).  Stay inside the triangle
+   budget `scene_probe` reports; collection instances and geometry-nodes clouds
+   (`lib.vegetation.grass_patch`, `lib.scatter.gn_scatter`) are the cheap ways to repeat, and the lint
+   warns on `bpy.ops.mesh.primitive_*` inside a loop.
+7. **A soft particle has no silhouette.**  In Cycles only a volume renders without an edge
+   (`lib.materials.volume`); a translucent surface puff, metaball, torus or disc is graded
+   `hard_edged_particles` and fails the brief's must-item.  It is one root tagged free, and it moves
+   ≥ 0.6 m between the two frames.
 
 ## DON'T
-- No world, no sun, no cameras, no ground here (the env's); lights only as practicals and the odd window.
+- No world, no sun, no cameras, no ground here (the env's; the lint rejects a world in a zone); the local
+  lights the brief's place has are yours.
 - No file IO, {% if not (textures is defined and textures) %}no image textures, {% endif %}no `random.*` (`ctx.rng(seed)`), no Python drivers, no `scene.*` settings.
 - Do not place assets marked NOT AVAILABLE; do not edit other files.
 {% if tool_cards and not single_shot %}
@@ -100,18 +112,12 @@ their numbers and snippets; the `lib/` catalog does each in one call.
 After editing run `build` → `check_placement` (it names every asset that floats, is sunken, touches
 nothing or interpenetrates another, with the exact "lower X by 0.23 m onto Ground" fix; a
 deliberately airborne thing gets `obj["placement"] = "free"`) → fix → `build` again, then
-`scene_views` and LOOK at the frames: count the silhouettes, look for a flat colour under your
-props, and read the MEASURED MOTION line it prints — if it reports your zone's cameras as STATIC,
-double the amplitude and render again.
+`scene_views` and LOOK at the frames against the brief, and read the MEASURED MOTION line it prints —
+STATIC means this zone's motion is below the threshold.
 {% endif %}
 {% if effects_catalog is defined and effects_catalog %}
 
 {{ effects_catalog }}
-{% endif %}
-{% if recipes is defined and recipes %}
-
-# Recipes (from the scene cookbook — copy these numbers and snippets)
-{{ recipes }}
 {% endif %}
 {% if textures is defined and textures %}
 
@@ -122,3 +128,4 @@ check_existing=True)` into an Image Texture node; the build runs with the worksp
 
 ## Output
 {{ output_format }}
+{% endif %}

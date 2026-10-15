@@ -33,6 +33,7 @@ pixels in the frame).
 
 ## Step 3 — where the headroom is
 
+| frame value | linear scene luminance |
 |---|---|
 | 0.12 | 0.029 |
 | 0.15 | 0.037 |
@@ -47,8 +48,8 @@ the number a lot; that is the cheapest place to fix a dark scene.
 
 ## Step 4 — sanity numbers for the coloured-darkness rows
 
-Relative luminance of the cookbook's dusk and night palette entries, so you can see that
-"dark" there means roughly 0.03 and not 0.00:
+Relative luminance of a few dusk and night swatches (the starter rig's moods use colours in
+this range), so you can see that "dark" there means roughly 0.03 and not 0.00:
 
 | swatch | linear luminance |
 |---|---|

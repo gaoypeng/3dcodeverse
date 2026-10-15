@@ -1,12 +1,10 @@
 """lib/architecture.py — buildings, bridges, roofs, paving, room shells and signs.
 
-Batch recipes stand on the ground z you pass (``center`` = (x, y, ground z), pass
-``height_at(x, y)``); the ridge / long axis runs along +X unless a ``direction`` says
-otherwise (compass degrees: 0 = +X, 90 = +Y, for a window's outward normal).  Paving is 2 cm
-thick so a prop seated on ``height_at`` still reads as resting on it (the gate's contact
-tolerance).  ``room_shell`` is for ``src/env.py``: it names the lid ``Ceiling`` under a
-``RoomShell`` root so the overview rig can lift it; ``glazed=True`` makes it a glass house (glass
-panes on an iron-frame grid, the sun coming through).
+Batch recipes stand on the ground z you pass (``center`` = (x, y, ground z), pass ``height_at(x, y)``);
+the ridge / long axis runs along +X unless a ``direction`` says otherwise (compass degrees: 0 = +X,
+90 = +Y, for a window's outward normal).  Paving is 2 cm thick so a prop seated on ``height_at`` still
+reads as resting on it (the gate's contact tolerance).  ``room_shell`` (one enclosure, for ``src/env.py``)
+names the lid ``Ceiling`` under a ``RoomShell`` root so the overview rig can lift it.
 """
 
 from __future__ import annotations
@@ -24,7 +22,7 @@ from lib.noise import hash01
 
 Vec3 = tuple[float, float, float]
 _WALLS = ("front", "back", "left", "right")
-_BAY, _BAR, _PANE = (1.6, 1.6, 2.4), 0.08, 0.02   # a glazed shell's frame spacing per world axis, bar section, glass (m)
+_BAY, _BAR, _PANE = (1.6, 1.6, 2.4), 0.08, 0.02   # a glazed room_shell's default frame rhythm per world axis, bar section, glass (m)
 
 
 def _yaw(direction_deg: float) -> Matrix:
@@ -278,7 +276,7 @@ def arched_footbridge(batch: Any, wood: Any, stone: Any, *, start: Sequence[floa
                       height_at: Any = None) -> None:
     """A wooden footbridge arching ``rise`` m from ``start`` to ``end`` (x, y, ground z): planks,
     rails on posts, stone abutments standing on the two ground points (their corners follow
-    ``height_at`` when given — a bank is never level).  ~1.5 k triangles."""
+    ``height_at`` when given — banks are rarely level).  ~1.5 k triangles."""
     a, b = Vector(tuple(float(v) for v in start)), Vector(tuple(float(v) for v in end))
     d = b - a
     L = max(0.5, d.length)
@@ -368,16 +366,18 @@ def _slab(name: str, collection: Any, mat: Any, loc: Sequence[float], size: Sequ
 
 def room_shell(collection: Any, mat: Any, *, center: Sequence[float], extents: Sequence[float], thickness: float = 0.2,
                openings: Sequence[Sequence[Any]] = (), glazed: bool = False) -> list[Any]:
-    """An interior's floor, four walls and ceiling OUTSIDE the box ``center`` / ``extents``
-    (inner faces = the box faces), under a root Empty ``RoomShell`` with the lid named
-    ``Ceiling`` (the overview rig lifts it).  ``openings`` = ``(wall, offset, width, sill, head)``
-    rows — ``wall`` front/back/left/right (front = -Y), ``offset`` along the wall from its
-    centre, ``sill``/``head`` heights above the floor — cut as panels, no booleans.  ``glazed``
-    makes a glass house (a conservatory, a greenhouse, a glass atrium): every wall panel and the
-    lid become a ``materials.glass`` pane that casts no shadow on an iron-frame grid of ``mat``
-    bars (the sun comes through, the frame's grid shadows the floor); the floor stays an opaque
-    slab of ``mat`` and the names stay, a pane being its panel's name + ``Glass``.  Returns
-    ``[root, floor, ceiling, walls…]`` (glazed: each panel's frame then its pane); for ``src/env.py``."""
+    """One enclosure: a rectangular room whose inner faces are the box ``center`` / ``extents`` (floor,
+    four walls and lid built OUTSIDE it) under a root Empty ``RoomShell``, the lid named ``Ceiling`` (the
+    overview rig lifts it) — for ``src/env.py``.  Measured for ANY interior: it reads enclosed in the judged
+    frames (the finding is "not enclosed, a diorama on a flat plane"), nothing seats inside a wall
+    (placement gate), the lid is ``Ceiling`` under ``RoomShell``; a nave, a vault or an L-shaped loft is
+    built by hand to the same names.  ``openings`` = ``(wall, offset, width, sill, head)`` rows — ``wall``
+    front/back/left/right (front = -Y), ``offset`` along the wall from its centre, ``sill``/``head`` above
+    the floor — cut as panels, no booleans.  ``glazed`` makes a glass house: every wall panel and the lid
+    become a ``materials.glass`` pane casting no shadow on an iron-frame grid of ``mat`` bars (``_BAY`` /
+    ``_BAR`` rhythm; the sun comes through, the grid shadows the floor); the floor stays opaque ``mat``, a
+    pane is its panel's name + ``Glass``.  Returns ``[root, floor, ceiling, walls…]`` (glazed: each panel's
+    frame then its pane)."""
     cx, cy, cz = (float(v) for v in center)
     ex, ey, ez = (float(v) for v in extents)
     t = float(thickness)

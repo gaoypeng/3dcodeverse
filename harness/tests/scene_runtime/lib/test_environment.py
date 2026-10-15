@@ -1,6 +1,7 @@
 """environment.js (91 recorded scenes import it through the starter's env.js): worldShell,
 makeOutskirts and the sunRig package, measured under node.  A set sun (elevation < 0) is
-night with a moon opposite the sun."""
+night with a moon opposite the sun.  The silhouette ridge and the outskirts' copses are
+opt-in (2026-10-15: library defaults no longer pre-decide the backdrop)."""
 from __future__ import annotations
 
 import math
@@ -79,7 +80,7 @@ _SHELL = """
 import * as THREE from 'three';
 import { worldShell } from './lib/environment.js';
 const rand = (() => { let s = 9; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
-const env = worldShell({ rand, mood: 'day' });
+const env = worldShell({ rand, mood: 'day', ridge: true });
 env.group.updateMatrixWorld(true);
 const hitsFor = (dir) => new THREE.Raycaster(new THREE.Vector3(0, 1.7, 0), dir.normalize()).intersectObject(env.group, true).map((h) => h.object.name);
 const outward = [];
@@ -91,12 +92,24 @@ for (let i = 0; i < pos.count; i++) { if (pos.getY(i) > 3990) zenithB = cols.get
 let tris = 0;
 env.group.traverse((o) => { if (o.isMesh) tris += o.geometry.attributes.position.count / 3; });
 const noRidge = worldShell({ rand, mood: 'day', ridge: false });
+const bare = worldShell({ rand, mood: 'day' });
 const T = (rho, d) => Math.exp(-((rho * d) ** 2));
 const mk = () => () => 0.5;
+// a directional crest: nothing to the east (0-90 deg), a full crest to the west
+const shaped = worldShell({ rand, mood: 'day', ridge: true, ridgeHeight: 0.1,
+  ridgeProfile: (az) => (az < 90 ? 0 : 1) }).group.getObjectByName('HorizonRidge');
+const sp = shaped.geometry.attributes.position;
+let eastTop = -1e9, westTop = -1e9;
+for (let i = 0; i < sp.count; i++) {
+  const az = (Math.atan2(sp.getZ(i), sp.getX(i)) * 180 / Math.PI + 360) % 360;
+  if (az > 5 && az < 85) eastTop = Math.max(eastTop, sp.getY(i));
+  if (az > 185 && az < 265) westTop = Math.max(westTop, sp.getY(i));
+}
 const big = worldShell({ rand: mk(), mood: 'day', bounds: 1200 });
 const over = worldShell({ rand: mk(), mood: 'overcast', bounds: 1200 });
 console.log(JSON.stringify({ outward, fogHex: env.fog.color.getHexString(), zenithB, horizonB, tris: Math.round(tris),
-  ridgeOptional: !noRidge.group.getObjectByName('HorizonRidge'), fogIsExp2: env.fog.isFogExp2 === true,
+  ridgeOptional: !noRidge.group.getObjectByName('HorizonRidge'), ridgeOffByDefault: !bare.group.getObjectByName('HorizonRidge'),
+  bareOutward: hitsFor(new THREE.Vector3(1, 0, 0)), eastTop, westTop, fogIsExp2: env.fog.isFogExp2 === true,
   smallD: worldShell({ rand: mk(), mood: 'day', bounds: 150 }).fog.density, bareD: worldShell({ rand: mk(), mood: 'day' }).fog.density,
   bigFarT: T(big.fog.density, 2400), overFarT: T(over.fog.density, 2400), unclampedFarT: T(env.fog.density, 2400),
   explicitWins: worldShell({ rand: mk(), mood: 'day', bounds: 1200, fogDensity: 0.01 }).fog.density === 0.01 }));
@@ -111,6 +124,7 @@ def shell() -> dict:
 def test_no_outward_ray_escapes_into_void(shell):
     for hits in shell["outward"]:
         assert "HorizonRidge" in hits and "SkyGradient" in hits, shell["outward"]
+    assert "SkyGradient" in shell["bareOutward"], shell["bareOutward"]   # the dome alone closes the sky
 
 
 def test_the_fog_matches_the_horizon_tint(shell):
@@ -123,6 +137,14 @@ def test_the_sky_is_a_gradient_not_a_flat_colour(shell):
 
 def test_the_shell_is_nearly_free_and_the_ridge_optional(shell):
     assert shell["tris"] < 2000 and shell["ridgeOptional"]
+
+
+def test_the_ridge_is_opt_in_and_can_be_shaped_by_sector(shell):
+    """A library default no longer rings every exterior with the same 360-degree crest: the
+    ridge is off unless asked, and `ridgeProfile` makes it directional or partial."""
+    assert shell["ridgeOffByDefault"]
+    assert shell["eastTop"] <= 1e-6 < shell["westTop"], (shell["eastTop"], shell["westTop"])
+    assert shell["westTop"] == pytest.approx(4000 * 0.1, rel=1e-6)
 
 
 def test_fog_scales_with_the_world_it_wraps(shell):
@@ -305,7 +327,7 @@ def test_outskirts_meets_the_scene_ground_at_its_seam():
     out = _measure("""
 import { makeOutskirts } from './lib/environment.js';
 const ground = (x, z) => 2.0 + 0.01 * x;
-const g = makeOutskirts({ inner: 150, baseY: 0, heightAt: ground, relief: 30, seed: 9 });
+const g = makeOutskirts({ inner: 150, baseY: 0, heightAt: ground, relief: 30, seed: 9, clumps: 140 });
 const land = g.children.find((o) => o.name === 'OutskirtsLand');
 const pos = land.geometry.attributes.position;
 let seamWorst = 0, maxR = 0, maxY = -1e9, farLift = 0, nFar = 0;
@@ -323,8 +345,11 @@ let same = true, differ = false;
 for (let i = 0; i < a.count * 3; i++) { if (a.array[i] !== b.array[i]) same = false; if (a.array[i] !== c.array[i]) differ = true; }
 const reach = (o) => { const p = o.children[0].geometry.attributes.position; let r = 0;
   for (let i = 0; i < p.count; i++) r = Math.max(r, Math.hypot(p.getX(i), p.getZ(i))); return r; };
+const bare = makeOutskirts({ inner: 100, seed: 4 });
+const plain = makeOutskirts({ inner: 100, seed: 4, fields: false });
 console.log(JSON.stringify({ seamWorst, maxR, maxY, meanFarY: farLift / nFar, meshes: g.children.length,
   copseCount: copses ? copses.count : 0, patched: !!land.material.userData.astraShader, same, differ,
+  bareMeshes: bare.children.length, plainPatched: !!plain.children[0].material.userData.astraShader,
   small: reach(makeOutskirts({ inner: 120, shellRadius: 1200, seed: 2 })), big: reach(makeOutskirts({ inner: 300, shellRadius: 9000, seed: 2 })),
   clamped: reach(makeOutskirts({ inner: 120, shellRadius: 1200, outer: 5000, seed: 2 })),
   shorter: reach(makeOutskirts({ inner: 120, shellRadius: 1200, outer: 600, seed: 2 })) }));
@@ -332,6 +357,8 @@ console.log(JSON.stringify({ seamWorst, maxR, maxY, meanFarY: farLift / nFar, me
     assert out["seamWorst"] < 0.05, out
     assert 3279 <= out["maxR"] <= 3281 and out["maxY"] < 80 and out["meanFarY"] > 1.0, out
     assert out["meshes"] == 2 and out["copseCount"] > 50 and out["patched"], out
+    assert out["bareMeshes"] == 1, "copses are opt-in (a temperate cue, not a default)"
+    assert out["plainPatched"], "`fields: false` still patches the land shader (one tone, mottled)"
     assert out["same"] and out["differ"]
     assert abs(out["small"] - 984) < 1.5 and abs(out["big"] - 7380) < 2.0
     assert abs(out["clamped"] - 984) < 1.5 and abs(out["shorter"] - 600) < 1.5

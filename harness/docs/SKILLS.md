@@ -4,9 +4,14 @@ A **skill** is a task-scoped rule sheet the harness attaches to a coding session
 automatically — from the track, the language, the round kind, the plan, and **the previous
 round's gate findings**. Nobody writes `skills: [...]`.
 
-It is not a renamed cookbook chapter. The cookbook (`codeverse3d/prompts/<lang>/cookbook.md`)
-stays the reference manual with the copyable code; a skill states rules and numbers and
-names the cookbook section to fetch. Two libraries of truth would be worse than one.
+It is not a renamed cookbook chapter. Where a language ships a cookbook
+(`codeverse3d/prompts/<lang>/cookbook.md`) it stays the reference manual with the copyable code;
+a skill states rules and numbers and names the cookbook section to fetch. Two libraries of truth
+would be worse than one.  **The scene languages ship no cookbook (D106, 2026-10-15)**: their
+interface facts live in `contract.md` / `system.md`, and a scene skill is a sheet of measured
+requirements with a few SHORT optional practices (library API names, numbers only where a gate or
+the judge measures them, no code block over ~12 lines) — never a chapter to copy, since the 60
+iteration-0 argon scenes were the inlined chapters executed verbatim.
 
 `SKILL.md` is an open standard (agentskills.io, Dec 2025), which is why the format below is
 not ours to bend: **claude-code, codex and agy discover these bundles
@@ -145,21 +150,21 @@ This is the difference between a metric and a number that would have read 100% f
 | `c3d-repeats-and-mirrors` | object tracks | any | measured | 112 | 1,527 | R6, R7 |
 | `c3d-blender-forms` | any | blender, urdf_blender | measured | 97 | 1,811 | R8, R9 |
 | `c3d-urdf-joints` | articulated_object | urdf_blender | measured | 139 | 1,989 | R12, R13 |
-| `c3d-scene-composition` | scene | scene_threejs | mixed | 118 | 1,691 | R14, R15, R34 |
-| `c3d-scene-lighting` | scene | scene_threejs | mixed | 126 | 1,959 | R16, R17 |
-| `c3d-scene-motion` | scene | scene_threejs | mixed | 178 | 2,223 | R18, R19 |
+| `c3d-scene-composition` | scene | scene_threejs | mixed | 135 | 2,119 | R14, R15, R34 |
+| `c3d-scene-lighting` | scene | scene_threejs | mixed | 115 | 1,748 | R16, R17 |
+| `c3d-scene-motion` | scene | scene_threejs | mixed | 185 | 2,472 | R18, R19 |
 | `c3d-threejs-shader-traps` | scene + static | threejs both | mixed | 112 | 1,734 | R20, R21 |
 | `c3d-glsl-craft` | graphics | glsl_shader | mixed | 140 | 1,958 | R22, R24-glsl |
 | `c3d-opengl-pipeline` | graphics | opengl_python | mixed | 98 | 1,497 | R23, R24-opengl |
 | `c3d-cadquery-forms` | any | cadquery | **inherited-unverified** | 82 | 1,482 | R10 |
 | `c3d-threejs-forms` | static_object | threejs | **inherited-unverified** | 120 | 1,929 | R11 |
-| `c3d-scene-atmosphere` | scene | scene_threejs | **inherited-unverified** | 78 | 936 | R25 |
-| `c3d-scene-water` | scene | scene_threejs | **inherited-unverified** | 71 | 806 | R26 |
-| `c3d-scene-night` | scene | scene_threejs | **inherited-unverified** | 56 | 656 | R27 |
-| `c3d-scene-materials` | scene | scene_threejs | **inherited-unverified** | 78 | 832 | R28 |
-| `c3d-bpy-scene-placement` | scene | scene_blender | mixed | 124 | 2,209 | R29, R30 |
-| `c3d-bpy-scene-lighting` | scene | scene_blender | mixed | 112 | 2,045 | R31, R32 |
-| `c3d-bpy-scene-materials` | scene | scene_blender | mixed | 99 | 1,741 | R33 |
+| `c3d-scene-atmosphere` | scene | scene_threejs | **inherited-unverified** | 76 | 1,030 | R25 |
+| `c3d-scene-water` | scene | scene_threejs | **inherited-unverified** | 84 | 1,144 | R26 |
+| `c3d-scene-night` | scene | scene_threejs | **inherited-unverified** | 60 | 787 | R27 |
+| `c3d-scene-materials` | scene | scene_threejs | **inherited-unverified** | 99 | 1,434 | R28 |
+| `c3d-bpy-scene-placement` | scene | scene_blender | mixed | 133 | 2,496 | R29, R30 |
+| `c3d-bpy-scene-lighting` | scene | scene_blender | mixed | 124 | 2,356 | R31, R32 |
+| `c3d-bpy-scene-materials` | scene | scene_blender | mixed | 113 | 2,075 | R33 |
 
 **All twenty route by default since 2026-09-22** (the three `c3d-bpy-scene-*` bundles since 2026-10-14, D105) (`C3D_SKILLS` and
 `C3D_SKILLS_UNVERIFIED` both default on; `C3D_SKILLS=0` turns the system off,
@@ -713,9 +718,10 @@ so; the rest are live.
   three cookbooks still teach 2–5 mm, at or above `PENETRATION_WARN_M`. **This is the single
   most likely reason `c3d-part-contact` would fail to move the number it targets, and it is
   a prompt-corpus change with its own measurement. Do it before re-running that A/B.**
-* **`ENV_RECIPES` / `ZONE_RECIPES` inlining in `tracks/scene.py` is untouched** — up to 6,000
-  unconditional tokens per env/zone session, never A/B'd against a routed skill. Now that the
-  scene stages deliver skills, this is the obvious comparison.
+* **`ENV_RECIPES` / `ZONE_RECIPES` inlining in `tracks/scene.py` is GONE (D106, 2026-10-15)** —
+  it was up to 6,000 unconditional tokens per env/zone session, never A/B'd against a routed
+  skill, and iteration 0 of the argon loop showed what it bought: 60 scenes of one shape.  The
+  scene skills are now the only craft a scene session is offered, as short optional practices.
 * **Corpus percentages are checked for provenance, not recomputed.** A body's "47 graded
   blender runs" is a *slice*; without each claim declaring its query, a tight recomputation
   compares two different populations. Enforced today: a claim may not exceed what `eval/bench/out`

@@ -42,10 +42,10 @@ def test_cameras_from_specs_sun_side_and_order():
     assert [c.name for c in cams] == ["overview", "harbour_view", "market_view"]
     ov = cams[0]
     assert ov.position == (55.0, 22.0, 0.0) and ov.look_at == (10.0, 3.0, 0.0)
-    assert "sun side" in ov.purpose
+    assert ov.purpose.startswith("fallback:")   # a fitted camera is a fallback the plan did not name (D106)
     hv = cams[1]
     assert hv.position[0] > 10 and math.dist(hv.position, hv.look_at) > 10
-    assert cams[2].purpose == "zone Market from the sun side"
+    assert cams[2].purpose.startswith("fallback: zone Market")
 
 
 def test_cameras_from_specs_fallback_without_zones_or_specs():

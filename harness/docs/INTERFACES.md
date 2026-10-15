@@ -209,7 +209,8 @@ from codeverse3d.agents import get_coding_agent           # (agent_id) -> Coding
 from codeverse3d.agents.materialize import materialize_workspace, codex_mcp_overrides
 materialize_workspace(ws, *, agent_kind, contract_md, cookbook_text, spatial_tools, mcp_command=None) -> None
 # cookbook_text = RunContext.cookbook_text, the catalog's text (Δ 2026-09-22: was cookbook_rel, resolved workspace-first,
-# so an agent-written <ws>/<lang>/cookbook.md shadowed the harness cookbook); "" → "No cookbook is available" + a warning
+# so an agent-written <ws>/<lang>/cookbook.md shadowed the harness cookbook); "" → no "## Cookbook" section, no .3dcode/cookbook.md
+# (a stale one is removed), no warning — the scene languages ship none (D106)
 # mcp_command defaults to cli_common.default_mcp_command(ws) = [sys.executable, -m codeverse3d.spatial.mcp_server --workspace …]
 # (None/[] = the default — no ValueError); tracks/common.Services.materialize takes no mcp_command
 # writes AGENTS.md + CLAUDE.md (same body; Δ D103 no GEMINI.md — agy reads it AND AGENTS.md, so the body loaded
@@ -423,6 +424,10 @@ from codeverse3d.spatial.scene_placement import placement_findings, placement_ga
 placement_census(ws, probe, *, force_probe=False, timeout_s=60.0) -> dict   # Δ D101: probe = the language's SceneRuntime.probe
 placement_findings(table, *, indoor=False, language=None, thresholds=None) -> GateReport   # gate "scene_placement"; data.kind ∈ floating | sunken |
     # unsupported | interpenetration | summary | probe_failed; target "Zone/Asset" (routes to src/zones/<zone>.js);
+    # Δ D106 (2026-10-15) the PLAN kinds placement_gate adds: zone_empty | missing_content | scale | stamped_ring (WARN) | no_fog |
+    #   fog_short | world_edge (WARN; was no_backdrop ERROR: standing geometry ≥ WORLD_EDGE_MIN_HEIGHT_M past WORLD_EDGE_REACH_FACTOR ×
+    #   the half-extent) | density_note (INFO; was underdressed ERROR) | out_of_bounds (WARN on rows carrying a PLANNED content's name
+    #   only, margin max(BOUNDS_MARGIN_MIN_M 5, BOUNDS_MARGIN_FRAC 10 % of span); unplanned geometry past the bounds is never reported)
     # messages carry the scene_v2 cap words (floating / sunken / interpenetration / scale / free_exempt); reads artifacts/census.json["placement"] (host_placement.mjs)
     # Δ D105 (2026-10-14): thresholds = Settings.placement (config.Placement) read at CALL time, `thresholds=` overrides; the
     #   summary INFO's data carries `thresholds` (what graded) + `counts` (measured) / `listed` (after the per-kind cap);

@@ -2,7 +2,7 @@
 
 This directory is a **variant** (D105, 2026-10-14): an overlay on `codeverse3d/prompts/`.
 A file placed here shadows the base file of the same relative path for every run that
-activates the variant — `scene_threejs/cookbook.md` here replaces the base cookbook,
+activates the variant — `scene_threejs/system.md` here replaces the base system prompt,
 `tracks/scene_zone.j2` the zone template — and a file that is not here is read from the base.
 A template here may `include` or `extends` a base file (the variant's loader falls through to
 the base directory).

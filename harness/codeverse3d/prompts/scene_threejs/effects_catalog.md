@@ -1,4 +1,4 @@
-# The shipped effect library — call these before writing your own
+# The shipped effect library — an optional toolbox
 
 `src/lib/` is in your workspace already: the shipped modules are compiled
 and rendered on THIS renderer.  They carry the depth and fog chunks a
@@ -6,9 +6,9 @@ hand-written shader silently loses, and they are not an outside package — they
 are harness code shipped into the workspace, so importing them is allowed where
 "never import a helper SDK" still forbids everything else.
 
-Reach for one FIRST.  Write your own only for something no entry here covers,
-and then build it with `makeShaderMaterial` / `patchStandard` from
-`lib/shader.js`.
+Each entry lists what it does and its API.  Use one when it fits the brief, or write
+your own; `makeShaderMaterial` / `patchStandard` from `lib/shader.js` keep Three's fog
+and depth chunks in a shader of your own if you want them.
 
 Import with a relative path from the file you are writing — `src/zones/x.js`
 and `src/assets/x.js` say `import { makeGrass } from '../lib/grass.js';`,
@@ -19,7 +19,7 @@ and `src/assets/x.js` say `import { makeGrass } from '../lib/grass.js';`,
 | a small flame or wax candle | `makeFire({ radius, height, seed, quality: 'high' })` · `makeCandle({ radius, height, seed, lit: true })` — `lib/fire.js`; volumetric flame, moving illumination, wick and wax. Returns a Group with `userData.update(t, dt)`; use metres (candle radius about 0.025, height 0.15). Fire is transparent: avoid intersecting glass volumes. |
 | a campfire, large fuel bed or flames through a building | `makeFireField({ emitters: [{ position: [0,0,0], radius: 0.3, height: 1, strength: 1 }], wind: [0.15,0], smoke: {height: 3, density: 0.65}, occluders: [fuel, walls], quality: 'balanced', seed })` — `lib/firefield.js`; all sources share one flame/soot integration. Wind is local metres/second. Optional borrowed opaque occluders truncate rays, including instancing/alpha cuts; custom deformation needs customDepthMaterial. No glass interleaving, skinned occluders or log-depth capture. Layout/wind are baked: rebuild to change them. Group provides update/dispose, bounds, sampleField(x,y,z,t), sampleEmber(index,t) and cost. Start with one field: each field adds a ray march over 3D textures, plus a depth pass when occluders are given. |
 | rising smoke, steam from a cup or vent | `makeSmoke({ height: 3, radius: 0.14, wind: [0.06, 0], riseSpeed: 0.7, seed, quality: 'balanced' })` · `makeSteam({ height: 0.5, radius: 0.03 })` — `lib/smoke.js`; bounded 3D density with upward advection, widening, dilution and internal light attenuation. Mesh origin is the emitter at local y=0. `userData.update(t)`, `userData.sampleDensity(x,y,z,t)` and `userData.dispose()`. Directional/point/ambient scene lights illuminate it. Keep opaque geometry outside its `userData.bounds`; intersections and overlapping transparent volumes are not depth-resolved. |
-| the OCEAN, a lake or any sizeable water body | `makeOceanSurface({ width, depth, waveHeight, wavelength, windDirection: [1, 0.2], seed })` — `lib/ocean.js`, the ocean: dispersive Gerstner waves on real displaced geometry, reflected scene, crest foam; Group with `userData.update(t, dt)` and `userData.sampleHeight(x, z, t)`. Its flat option, for calm or distant water where no wave shape reads (a pond, a far lake): `makeOcean(w, d, { sunDir })` — `lib/water.js`, a normal-mapped mirror plane. ONE reflective water body per scene. |
+| the OCEAN, a lake or any sizeable water body | `makeOceanSurface({ width, depth, waveHeight, wavelength, windDirection: [1, 0.2], seed })` — `lib/ocean.js`, the ocean: dispersive Gerstner waves on real displaced geometry, reflected scene, crest foam; Group with `userData.update(t, dt)` and `userData.sampleHeight(x, z, t)`. Its flat option, for calm or distant water where no wave shape reads (a pond, a far lake): `makeOcean(w, d, { sunDir })` — `lib/water.js`, a normal-mapped mirror plane. Each planar reflector re-renders the scene once per frame: keep the total inside the fps / draw budget `scene_probe` reports (one is the safe default). |
 | a curved shallow STREAM | `makeStream({ points: [[0, 0.6, -8], [2, 0.3, 0], [0, 0, 8]], width: 2, depth: 0.3, speed: 1, seed })` — `lib/stream.js`; points run upstream → downstream, decreasing Y. Refracts the opaque bed/scene through depth-varying water; flowing ripples, stone wakes and approximate caustics. `waterColor: 0x80b6a6, attenuationDistance: 3` controls volume absorption over a distance in metres. Optional `reflectionSize: 512` captures the banks; default 0, and at most ONE planar reflector per scene. Group with `userData.update(t, dt)`, `userData.sample(u, lateral, t)`. Keep terrain BELOW the bed inside the channel. |
 | a falling sheet of water over a weir | `makeWaterfall({ width: 2, height: 3, speed: 1, thickness: 0.045, foam: 0.65, seed })` — `lib/waterfall.js`; gravity accelerates and thins the sheet, with advected ripples, local aeration and impact spray. Origin is impact water level, lip is `[0,height,0]`, flow is +Z. Supply the upstream water, cliff and pool. `userData.sample(u,lateral,t)` uses u=0..1 and lateral=-0.5..0.5; `userData.impact` gives the receiving point. No collision/fluid solver; opaque-scene refraction only. |
 | thick broken ice with actual open fissures | `makeFracturedIce({ size: [8,6], thickness: 0.28, crackDensity: 0.65, frost: 0.35, seed })` — `lib/ice.js`; closed floes, bevels, internal air and local optical thickness. Nominal top is y=0. `userData.sampleHeight(x,z)` returns local top height or null in a gap. Supply an opaque lakebed/water backing: transparent volumes are not recursively refracted. |
@@ -28,7 +28,7 @@ and `src/assets/x.js` say `import { makeGrass } from '../lib/grass.js';`,
 | close-view grass with folded blades and flowing wind | `makeMeadow({ size: [8, 8], height: 0.3, density: 900, heightAt, mask, seed, wind: { dir: [1, 0.3], strength: 1.2, speed: 1 } })` — `lib/meadow.js`; every effect's wind option (wind; the veils' direction and drift; the ocean's and sand's windDirection) is read by ONE reader, `readWind` in `lib/shader.js` — a number, `[x, z]`, a vector or this object — so one wind object moves meadow, grass, trees, fire, smoke and rain alike; mask(x,z) is 0..1 coverage; Group with `userData.update(t, dt)`. Set `ground: false` over an existing terrain. Fit the sun shadow frustum tightly; blades need millimetre-scale shadow texels. |
 | a grassy surface | `makeGrass({ extent, density, height, heightAt, patchy })` — `lib/grass.js` |
 | a complete near/middle-distance tree or shrub | `makeTree({ species: 'oak', height: 6, crownRadius: 2.5, leafDensity: 1, seed, wind: { dir: [1,0.3], strength: 0.5, speed: 1 } })` · `makeShrub` — `lib/tree.js`; oak/birch/willow, connected branches, individual leaves and matching moving shadows. Root at y=0, actual envelope in `userData.bounds`. A default tree is heavy geometry. `leafSegments: 4` reduces per-leaf geometry while preserving crown density; species defaults are 10–16 for close views. Also lower `opts.maxLeaves`/`opts.leafDensity`, or use distant imposters when leaves are unresolved. |
-| A CROWN OF LEAVES — every broadleaf tree, hedge and bush | `makeCanopy({ crowns: [{position, radius, height}] — or [{position, size:[x,y,z]}] for a mass that is not a ball, which is how a HEDGE is built — color, hue, wind })` — `lib/canopy.js`.  NEVER a displaced sphere: see the rule at the end. |
+| a crown of leaves for a broadleaf tree, a hedge or a bush | `makeCanopy({ crowns: [{position, radius, height}] — or [{position, size:[x,y,z]}] for a mass that is not a ball, which is how a hedge is built — color, hue, wind })` — `lib/canopy.js`; thousands of leaf cards as one draw call.  Foliage is judged on whether it reads as leaves (silhouette break-up, light through it, hue spread): this is one construction that does — see the measurement at the end. |
 | trees, bushes, leaves | `patchLeafSSS` · `patchWind` · `patchRootContact` — `lib/foliage_shade.js` |
 | bark, and a forest at distance | `patchBark` · `makeImposters` — `lib/woodland.js` |
 | light through a canopy | `patchDappledLight` · `patchCanopyShade` — `lib/dapple.js`; goes on the surface being LIT, not on the tree |
@@ -42,13 +42,13 @@ and `src/assets/x.js` say `import { makeGrass } from '../lib/grass.js';`,
 | moss, damp near water, dried mud | `patchMoss` · `patchMoisture` · `patchCrackedMud` — `lib/damp.js` |
 | a polished or wet floor | `makeMirrorFloor(w, d)` — `lib/wetground.js`; re-renders the scene like the water bodies — use one or the other |
 | rock, cliff, ground | `patchTriplanar` · `patchSlopeSplat` — `lib/terrain_shade.js` |
-| ground and cliff geometry | `ground({ size, rand: mulberry32(seed), relief, flat })` returns `{ mesh, height }` — seat every asset at height(x, z); with no seeded rand the ground is flat · `cliff({ length, height, rand })` — `lib/terrain.js` |
+| ground and cliff geometry | `ground({ size, rand: mulberry32(seed), relief, flat })` returns `{ mesh, height }` — one terrain option (a displaced plane with a seeded heightfield and an optional flat mask; with no seeded rand it is flat); whatever the env's heightAt(x, z) returns must be its real height · `cliff({ length, height, rand })` — `lib/terrain.js`.  The brief decides the landform; a floor, terraces or a canyon are not this call. |
 | placing a camera or a prop by intent | `seat` · `establishingShot` · `faceToward` · `alongPath` · `crowdOn` — `lib/place.js` |
 | a cliff that reads as rock | `patchRockStrata` · `patchErosionStreaks` — `lib/strata.js`; bedding by world altitude, so every cliff in a scene shares one bedding plane |
-| the land between the content and the horizon | `makeOutskirts({ inner, baseY, heightAt, shellRadius, colors, seed })` — `lib/environment.js`; seam-matched relief, field patchwork and wooded clusters.  A bare oversized ground plane measured as "a diorama on a vast, empty flat plane" |
+| countryside continuing beyond the content | `makeOutskirts({ inner, baseY, heightAt, shellRadius, colors, seed })` — `lib/environment.js`; seam-matched relief, field patchwork and wooded clusters — one option for a rural setting.  The requirement is that no camera sees the ground end against the sky (`world_edge_visible`) or a diorama on an empty plane (judged); how the world continues — a street that keeps going, a sea, a canyon wall, a city, fog that closes — is the brief's. |
 | a Blender hero's own keyframed motion (the GLB carries a clip) | nothing to call — the assembled scene plays every clone's clips; `clone.userData.clipOffset = 0.7` de-phases a copy |
 | the sun, the fill and the baked environment | `sunRig({ azimuth, elevation })` — `lib/environment.js`; returns `{ sun, fill, sunDisc, envTex, sunDir }`.  Add the lights, assign `scene.environment = rig.envTex` |
-| an interior's walls, ceiling and window/door openings | `roomShell({ center, extents, openings, thickness, wallColor, ceilingColor, glazed, frameColor, bay })` — `lib/environment.js`; walls outward of the bounds' faces (inner face = bounds face), openings cut as span / sill / lintel panels; glazed: true makes every wall and the roof glass on an iron frame grid (a conservatory, greenhouse, glass atrium).  The skeleton's env.js builds it from its INTERIOR constant for an interior plan; six runs measured "not enclosed, a diorama on a flat plane" without one |
+| a rectangular interior's walls, ceiling and window/door openings | `roomShell({ center, extents, openings, thickness, wallColor, ceilingColor, glazed, frameColor, bay })` — `lib/environment.js`; walls sit outward of the box you pass (inner face = that box's face, which need not be the plan bounds), openings cut as span / sill / lintel panels; glazed: true makes every wall and the roof glass on an iron frame grid (a conservatory, greenhouse, glass atrium).  One option for a box-shaped room; the requirement for any interior is that it reads as enclosed from every camera (six runs measured "not enclosed, a diorama on a flat plane" with no walls or roof) |
 | the sky itself | `makeSky(scene, { rig })` — `lib/sky.js`; the dome IS the backdrop, so `scene.background` stays null |
 | cloud, cirrus | `makeClouds({ preset, sunDir, quality: 'balanced' })` · `makeCirrus()` — one ray-marched cloud deck with scene-lit self-shadowing; `lib/clouds.js` |
 | volumetric cumulus with internal sunlight attenuation | `makeCloudVolume({ size: [600,180,360], coverage: 0.55, density: 0.028, wind: [2.5,0.4], seed, quality: 'balanced' })` — `lib/cloudvolume.js`; Mesh centred on its local origin. Move it to cloud altitude. Wind advects density/erosion inside a bounded billow scaffold; translate the Mesh to move the whole cloud. `userData.sampleDensity(x,y,z,t)` mirrors the GPU field. Use one bounded sky volume and inspect its screen cost. No terrain shadows or opaque-depth intersections. |
@@ -150,23 +150,22 @@ round has to read.
 * Grading is per scene: set `scene.userData.grade = { exposure, contrast,
   saturation, warmth, tint, … }`.  Leave it unset for identity.
 * Tone mapping is ACES at exposure **1.0** and output is sRGB.  Non-emissive
-  albedos belong in **0.02–0.8** linear; a pure black or a pure white albedo is
-  always wrong.
+  albedos belong in **0.02–0.8** linear: a pure black albedo renders as void and a
+  pure white one blows out (the `dark_frame` / `blown` gates read both).
 * `logarithmicDepthBuffer` is OFF by default, so the library's log-depth chunks
   compile to nothing here.  They cost nothing and `--log-depth` is a host
   option, so leave them alone.
 * Everything reads `scene.environment` and the sun direction.  Do not hardcode a
   light colour inside an effect; pass `sunDir` / the rig.
 
-## A crown is leaves, not a lumpy ball
+## What a crown that reads as leaves measures
 
-The single most common way a scene reads as plastic is a tree whose foliage is
-displaced Icosahedra.  It is not for want of effort — a measured avenue stacked
-32 of them per tree with four octaves of noise and still shipped what the
-renderer flagged as "a single flat untextured material, an unreadable slab".  A
-closed surface has no silhouette to read, lets no light through, and carries ONE
-hue however carefully that hue is picked.  `makeCanopy` places a few thousand
-separate leaf cards as one draw call instead: on the same tree the hue spread
-across the crown went from 3.6° to 9.4° and the 5–95 range from 10 to 22 — a
-photograph carries 25–45.  Use it for every broadleaf crown, hedge and bush near
-enough for a camera to resolve; `makeImposters` still owns the far treeline.
+A closed displaced surface (an icosahedron with noise, however many octaves) has no
+silhouette to read, lets no light through, and carries ONE hue: a measured avenue
+stacked 32 of them per tree and shipped what the renderer flagged as "a single flat
+untextured material, an unreadable slab" (judged `asset_quality_detail`).  Measured on
+the same tree: hue spread across the crown went from 3.6° to 9.4° and the 5–95 range
+from 10 to 22 when the crown became separate leaf cards — a photograph carries 25–45.
+Any construction that gets there is fine; `makeCanopy` (near crowns, hedges, bushes)
+and `makeImposters` (a far treeline) are two shipped options, and a stylised brief
+(low-poly, paper-craft) may legitimately want something else.

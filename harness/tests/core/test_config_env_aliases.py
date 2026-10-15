@@ -47,7 +47,7 @@ def test_the_in_flight_cap_spellings_empty_zero_and_garbage(monkeypatch):
     assert Settings().render.gpu == "on"
     monkeypatch.delenv("C3D_RATE__MAX_IN_FLIGHT", raising=False)
     monkeypatch.setenv("C3D_MAX_IN_FLIGHT", "")
-    assert Settings().rate.max_in_flight == 64
+    assert Settings().rate.max_in_flight == 96
     assert Rate(max_in_flight=0).max_in_flight == 0, "0 stays legal: it means unlimited"
     monkeypatch.setenv("C3D_MAX_IN_FLIGHT", "sixteen")
     with pytest.raises(ValueError, match="max_in_flight"):

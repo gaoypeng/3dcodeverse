@@ -28,10 +28,11 @@ def _render(name: str, **extra):
 
 
 @pytest.mark.parametrize("template", ["scene_env.j2", "scene_zone.j2"])
-def test_the_pack_has_the_last_word_over_the_recipes(template: str):
-    """The cookbook's ground chapter is long and specific; whichever comes last wins."""
+def test_the_pack_renders_and_no_recipe_block_competes_with_it(template: str):
+    """The inlined cookbook chapters that used to sit above the pack are gone (D106): the pack
+    is the only material block, and a stray ``recipes`` variable renders nothing."""
     out = _render(template, textures="TEXTURE_BLOCK_MARKER", recipes="RECIPE_MARKER")
-    assert out.index("RECIPE_MARKER") < out.index("TEXTURE_BLOCK_MARKER")
+    assert "TEXTURE_BLOCK_MARKER" in out and "RECIPE_MARKER" not in out and "# Recipes" not in out
 
 
 @pytest.mark.parametrize("template", ["scene_env.j2", "scene_zone.j2"])

@@ -1,12 +1,12 @@
 ---
 name: c3d-scene-lighting
-description: "Use when lighting a scene_threejs baseline, env or refine session, or when scene_frames called a frame too dark, blown out or flat. Light the scene so the frame gate passes and the mood still reads. Gives what the frame gate measures, the key / fill / practical recipe with numbers, and the one thing hex colours hide - how dark an albedo really is once the renderer works in linear light."
+description: "Use when lighting a scene_threejs baseline, env or refine session, or when scene_frames called a frame too dark, blown out or flat. Light the scene so the frame gate passes and the mood still reads. Gives what the frame gate measures (the exposure band every authored camera has to sit in), the one thing hex colours hide - how dark an albedo really is once the renderer works in linear light - and the sky-lit / practical-lit cases with the starter sunRig as one toolbox."
 license: Apache-2.0
 compatibility: three r0.182, headless WebGL; renderer fixed at ACES Filmic tone mapping, exposure 1.0, sRGB output.
 metadata:
   evidence: mixed
   evidence_note: 'The checks and renderer settings are read from live code, namely spatial/frame_metrics.py and runtime_js/lib/browser/renderer.js, and the luminance figures are computed from those settings. The corpus half is thin and labelled as such, being 4 scene_threejs runs in scenes_v1_flash mined 2026-08-25, so it is quoted as examples and never as a rate.'
-  verified: "2026-08-25"
+  verified: "2026-10-15"
   target_metric: "dark_or_flat_frames"
   target_direction: "down"
   target_unit: "findings per run"
@@ -22,9 +22,9 @@ The harness renders every camera and scores the pixels (`spatial/frame_metrics.p
 
 | finding | fires when | severity |
 |---|---|---|
-| too dark | dim on average *or* mostly near-black pixels | ERROR on an authored camera, WARN on a harness rig view |
-| blown out | a large share of pixels pure white | same |
-| flat frame | one luminance band dominates the frame (an ERROR on an authored camera when it holds nearly all of it) | WARN / ERROR |
+| too dark | mean luminance under 0.12 *or* more than 35 % of pixels near-black | ERROR on an authored camera (cap 0.55), WARN on a harness rig view |
+| blown out | more than 20 % of pixels pure white | same (cap 0.60) |
+| flat frame | one luminance band dominates the frame (an ERROR, cap 0.65, when it holds more than 92 %) | WARN / ERROR |
 
 Two consequences people get wrong:
 
@@ -54,78 +54,66 @@ everything else equal:
 
 A scene made of dark foliage stays dim **even when it is fully lit**, and doubling
 the key only moves it to 0.27. Neither more light nor more exposure changes the ratio — only
-a lighter albedo does. So: lift the albedos of the large surfaces first, then light. Ground
-albedo below about 0.25 is a scene that cannot pass without heroic lighting.
+a lighter albedo does. The band (mean luminance >= 0.12, under 35 % near-black on every
+authored camera) is the requirement; under this renderer a ground albedo under about 0.25
+needs the frame's brightness to come from elsewhere — sky, lit walls, water, practicals —
+so plan for that if the brief's ground is dark (wet asphalt, a coal yard, a night street).
 
 The same arithmetic says where the headroom is: the tone curve is steep at the dark end —
 going from linear 0.02 to 0.05 moves the frame from 0.08 to 0.20. Small increases pay near
 the floor.
 
-## The recipe
+## Lit from the sky: day, overcast, dusk
 
-* **Tint, do not dim** — for DUSK, and for a night lit from the sky. Dusk is coloured
-  darkness, so change the key's hue and the hemisphere's rather than turning the key down.
-  Take the whole row from the cookbook's time-of-day table rather than inventing a triad.
-* **But a PRACTICAL-lit night really is dim, and fill will ruin it.** When the brief says
-  the light comes from lanterns, lamps, fire, neon or windows, the picture is supposed to
-  be dark between them: that contrast IS the subject. Adding AmbientLight or a
-  HemisphereLight to lift the average is the single most destructive thing you can do to
-  such a scene — measured 2026-08-25 on a lantern-lit temple courtyard, the added fill
-  washed dark granite paving to near-white, flattened the whole frame to "snow at dawn",
-  and drowned a KoiWater ShaderMaterial that was running correctly the entire time. Light
-  it from its own practicals instead: emissive on the lamp, a PointLight at each one, a
-  low but non-zero base colour on dark materials so they read as material and not as void,
-  and shadows left dark. The gate now tells these two cases apart — a dim frame WITH
-  real contrast is reported as "dim but lit" and is only a WARN.
-* **The sun is white at noon and warm only near the horizon.** A warm sun at high elevation
-  reads as an error, not as mood.
-* **The fill is the opposite hue from the key.** Hemisphere light is sky colour above,
-  ground bounce below; keep its colour at least 60 degrees of hue from the sun's. Warm key
-  plus warm fill is the monochrome-orange soup that gets marked down.
-* **Emissive is a material, not a light.** An emissive surface glows in the image (the
-  default post chain blooms it) and illuminates nothing. Pair every lantern, window or fire
-  with a small PointLight.
-* **Fog colour is the sky's horizon colour**, never white or grey unless the brief says
-  overcast, and never a black background.
+* **Tint, do not dim.** Dusk is coloured darkness: change the key's hue and the
+  hemisphere's rather than turning the key down, so the frame stays in the band. The
+  starter `sunRig` moods (`day | golden | night | overcast`; a set sun is the night rig)
+  are tested starting points, not the only triads.
+* **The sun agrees with the sky the brief describes** (judged: `unlit_or_blown` "lit from
+  a direction that contradicts the sky", `lighting_atmosphere`). On a clear Earth day that
+  means white at noon and warm only near the horizon; a dust storm, smoke or another planet
+  say otherwise.
+* **Shade carries the ambient colour the sky gives it.** Under a blue sky the fill is
+  cooler than the sun — a hue gap of around 60° is a range that reads — while an overcast
+  day, fog or a single-source night is legitimately close to one hue. The judge's
+  `thin_atmosphere` names "the key and fill share one hue" on a day that should not.
+* **If there is fog, its colour matches the sky it fades into**, otherwise the ground edge
+  reads as a line (`world_edge_visible`); the background is whatever the brief's sky is.
 
-Working numbers for a scene lit from the SKY (day, overcast, dusk), straight from the
-gate's fix hint: the starter's `sunRig({ mood, intensity, fill, sunColor, fillSky, fillGround })`
-— pick the mood (`day | golden | night | overcast`; a set sun is the night rig), raise
-`intensity` / `fill` (the rig clamps requests below its floors UP, so under-lighting is not
-reachable through it), never a second DirectionalLight on top — plus the practicals of
-cookbook section "Dusk / night lighting recipe" (an emissive and its own small PointLight,
-numbers from `PRACTICAL` in `lib/environment.js`). If the frame is blown instead: `intensity`
-at the floor, `fill` <= 1.2, sky below 0.9 white, large emissive surfaces back at the
-practical level.
+The starter `sunRig({ mood, intensity, fill, sunColor, fillSky, fillGround })` is one
+toolbox: its floors clamp requests UP, so under-lighting is not reachable through it, and
+its shadow camera is fitted to the `bounds` you pass. Any lighting that keeps every
+authored camera in the band passes; a second directional light doubles every shadow, which
+the judge reads as light from two suns. If the frame is blown instead: `intensity` at the
+floor, `fill` low, sky below white, large emissive surfaces back at the practical level.
 
-For a scene lit from its PRACTICALS the target is contrast, not average — but it is a
-BAND, not a floor you can fall through. Aim at real contrast with a dim-but-lit mean and
-little pure black on every authored camera. Keep the starter's night rig as it is — its
-moon key and hemisphere fill (clamped up to a measured readability floor) are what "dark but
-lit" was measured with — and add no AmbientLight, no second HemisphereLight and no second
-DirectionalLight on top of it.
+## Lit from its practicals: lanterns, lamps, fire, neon, windows
 
-Both ends of that band are measured failures, one week apart in the same wave:
-* Over the top: chasing a sky-lit average in a lantern-lit courtyard produced a
-  flat grey wash whose granite paving read as snow and whose working water shader was
-  invisible.
+When the brief says the light comes from practicals, the picture is supposed to be dark
+between them: that contrast IS the subject. The target is a BAND, not a floor you can fall
+through — real contrast with a dim-but-lit mean and little pure black on every authored
+camera; the gate reports a dim frame WITH contrast as "dim but lit", a WARN. Both ends of
+the band are measured failures, one week apart in the same wave:
+
+* Over the top: adding an AmbientLight or a HemisphereLight to lift a lantern-lit temple
+  courtyard's average (2026-08-25) washed dark granite paving to near-white, flattened the
+  frame to "snow at dawn", and drowned a KoiWater ShaderMaterial that was running
+  correctly the entire time.
 * Through the floor: "remove the AmbientLight and the HemisphereLight" applied on its own
-  to a neon alley produced mean luminance **0.001-0.022** and an 89 % black frame. The
-  reason is the rule three bullets up — **emissive illuminates nothing**. A glowing sign
-  with no PointLight beside it lights the frame exactly as much as an unlit one does.
+  to a neon alley produced mean luminance **0.001-0.022** and an 89 % black frame, because
+  **emissive illuminates nothing** — a glowing sign with no light beside it lights the
+  frame exactly as much as an unlit one does.
 
-One run managed both ends at once, which is the clearest sign that "darker" is not the
-instruction: in the same temple scene, the CenserDetail frame was a near-black silhouette
-where only the censer's glowing interior was legible, while the overview cameras looked
-across a pale washed-out ground plane. Under-lit where it was art-directed, over-lit where
-it was not. Check the band on EVERY camera, including the harness rig views nobody wrote
-a shot for — that is where a scene quietly keeps the failure you thought you had fixed.
+So every lantern, lamp, sign, window or fire near a camera gets its OWN `PointLight` next
+to its emissive surface (the starter's `PRACTICAL` numbers in `lib/environment.js` are
+one measured setting; `makeNeonTube` + `patchNeonSpill` in `lib/neon.js` do a sign and the
+light it throws), a low but non-zero base colour on dark materials so they read as material
+and not as void, and shadows left dark. The starter night rig was measured to sit in the
+band; added fills push the frame out of it, as the courtyard showed.
 
-So removing fill is only half the instruction and is destructive alone. Every lantern,
-lamp, sign, window or fire near the camera needs its OWN `PointLight` next to its emissive
-surface — the cookbook recipe's `PRACTICAL` — so that the lit pools overlap into a readable
-picture. The practicals are the lighting rig; the emissive is only what the fixture looks
-like.
+One run managed both ends at once: in the same temple scene, the CenserDetail frame was a
+near-black silhouette while the overview cameras looked across a pale washed-out ground.
+Check the band on EVERY camera, including the harness rig views nobody wrote a shot for.
 
 For a flat frame, add contrast rather than light: a shadow-casting key, materials with
 genuinely different albedos, and a camera aimed at content rather than at sky.
@@ -137,9 +125,6 @@ genuinely different albedos, and a camera aimed at content rather than at sky.
 there is no reason to guess. A dark harness rig view is only a WARN, but the code that
 writes these findings records a measured case where exactly that cost a battery a 0.60 cap
 three rounds running — fix it anyway.
-
-Code and the full palette table: cookbook `scene_threejs` sections *Dusk / night lighting
-recipe*, *Atmosphere: time-of-day triads with numbers*.
 
 Worked numbers, the linear-luminance arithmetic and a per-time-of-day check:
 `references/exposure-math.md`.

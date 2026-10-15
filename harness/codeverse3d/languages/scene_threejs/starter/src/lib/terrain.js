@@ -1,8 +1,9 @@
 /**
- * The ground, textured and seatable, in one call (the model takes CODE
- * and ignores prose, so the ground ships as a function). `ground()`
- * samples the actual mesh triangles — place
- * every asset at `h(x, z)`; floating assets are the most-flagged defect.
+ * A textured, seatable ground and its height function — one optional
+ * recipe.  INTERFACE: whatever builds the ground exposes a height
+ * function (x, z) => y that samples the actual mesh, and every seated
+ * asset rests on it (the placement gate measures contact; floating
+ * assets are the most-flagged defect).
  */
 
 import * as THREE from 'three';
@@ -48,17 +49,24 @@ function latticeSampler(rand) {
 
 /**
  * Build a displaced, textured ground plane and its height function.
+ * The defaults make a 400 m square of gentle fbm hills — one landform;
+ * extent, relief and feature size are the brief's.  What is measured:
+ * no authored camera sees a hard world edge, a terrain cliff or a
+ * missing horizon (rubric `world_edge_visible`), and the grid stays in
+ * the triangle budget (`segments` is capped at 128).
  *
  * @param {object} opts
  *   `size` metres across (default 400), `segments` grid resolution
  *   (default 128), `rand` a seeded PRNG
  *   (REQUIRED — no Math.random), `material` a THREE material (defaults
  *   to `MAT.soil()`), `relief` peak-to-trough metres (default 6),
- *   `scale` feature size in metres (default 90), `flat` a function
- *   (x, z) => 0..1 that damps relief to 0 where the scene needs level
- *   ground (a plaza, a quay, a street grid), `name` (default 'Ground').
+ *   `scale` feature size in metres (default 90), `flat` an optional
+ *   (x, z) => 0..1 mask that damps relief where the brief needs level
+ *   ground — a plaza, a quay, a road, a terrace — of whatever
+ *   footprint the brief implies (a radial pad around the origin is
+ *   only one mask), `name` (default 'Ground').
  * @returns {{mesh: THREE.Mesh, height: (x: number, z: number) => number}}
- *   The mesh to add, and the height function EVERY placement must use.
+ *   The mesh to add, and the height function placements seat on.
  */
 export function ground(opts = {}) {
   const size = opts.size || 400;
@@ -128,9 +136,11 @@ export function ground(opts = {}) {
 }
 
 /*
- * A cliff face is ONE connected ribbon, never a pile of slabs (slab
- * piles read as buildings). Strata are VERTEX-COLOUR bands sampled on
- * the displaced surface so a band cannot detach; the same field backs
+ * What is measured: a cliff reads as rock in the judged frames and
+ * seats props on its measured face (`faceAt`).  One connected displaced
+ * ribbon is a construction that does; stacked slabs have been judged
+ * as buildings.  Strata are VERTEX-COLOUR bands sampled on the
+ * displaced surface so a band cannot detach; the same field backs
  * `faceAt(s, y)` so props seat ON the measured rock.
  */
 

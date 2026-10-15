@@ -26,26 +26,51 @@ def make_plan() -> ScenePlan:
 
 
 @needs_node
-def test_plan_skeleton_writes_zone_and_asset_stubs_and_lints(ws):
+def test_plan_skeleton_writes_interface_stubs_and_lints(ws):
+    """The skeleton is the interface plus the plan's data: no landform, no positions, no example
+    files.  It used to be a finished landscape (a level disc of the bounds' radius with hills
+    and a ridge beyond, kept byte for byte by 29 of 30 iteration-0 scenes), zone contents tiled
+    on a grid inside each bbox under "keep everything inside the plan bbox", and a pine tree, a
+    windmill and a pond shader copied in whatever the brief (owner, 2026-10-15)."""
     plan = make_plan()
     paths = write_skeleton(ws, plan)
     rel = {p.relative_to(ws.src).as_posix() for p in paths}
-    assert {"scene.js", "env.js", "zones/pier.js", "zones/fish_market.js", "assets/crate.js", "shaders/water.js"} <= rel
+    assert {"scene.js", "env.js", "zones/pier.js", "zones/fish_market.js", "assets/crate.js", "lib/grass.js"} <= rel
     assert "assets/crane.js" not in rel  # blender_glb assets are loaded, not stubbed
+    assert not {r for r in rel if r.startswith("shaders/") or r in ("assets/pine_tree.js", "assets/windmill.js")}, rel
     scene = (ws.src / "scene.js").read_text()
     assert "export async function createScene" in scene
     assert "'/assets/crane.glb'" in scene
     assert "addZone(buildPier, 'Pier')" in scene and "addZone(buildFishMarket, 'FishMarket')" in scene
     assert "name: 'pier_low'" in scene
     pier = (ws.src / "zones" / "pier.js").read_text()
-    assert "zone.name = 'Pier'" in pier and "buildCrate" in pier and "ctx.assets.crane" in pier
+    assert "zone.name = 'Pier'" in pier and "import { buildCrate } from '../assets/crate.js';" in pier and "ctx.assets.crane" in pier
+    # a TODO naming the plan's contents, no positions, no bbox wall
+    assert "TODO" in pier and "- Crate:" in pier and "- Crane:" in pier and "place(" not in pier and "position.set" not in pier
+    assert "inside the plan bbox" not in pier and "continue past the bbox" in pier and "scene_placement" in pier
     crate = (ws.src / "assets" / "crate.js").read_text()
-    assert "export function buildCrate" in crate
+    assert "export function buildCrate" in crate and "PLACEHOLDER" in crate and "pine_tree" not in crate and "windmill" not in crate
     env = (ws.src / "env.js").read_text()
-    assert "GROUND_SIZE = 200" in env  # 80 m span * 2.5
+    assert "GROUND_SIZE = 240" in env and "SHADOW_RADIUS" not in env   # 80 m span × 3; no light rig to size a frustum for
+    code = "\n".join(ln for ln in env.splitlines() if not ln.lstrip().startswith("//"))   # the comments may NAME the lib's options
+    for landform in ("CONTENT_RADIUS", "worldShell(", "makeOutskirts(", "roomShell(", "FLAT_RADIUS", "flat:",
+                     "sunRig(", "MOOD", "scene.fog =", "scene.environment ="):   # no light, sky or fog decided either
+        assert landform not in code, landform
+    for mandate in ("TUNE these", "do not replace"):
+        assert mandate not in env, mandate
+    assert "export function heightAt" in env and "export function buildEnv" in env and "export const SUN_AZIMUTH_DEG" in env
+    assert "ENV PLAN: calm sea" in env and "not the edge of the world" in env and "PLACEHOLDER" in env and "fog_short" in env
+    assert "export const INTERIOR = null;" in env
     assert (ws.public / "assets").is_dir()
     rep = lint(ws)
     assert not rep.errors, [(f.target, f.message) for f in rep.errors]
+    # an interior plan hands the room box over as DATA; the enclosure is the env author's
+    inside = Workspace(ws.root.parent / "inside")
+    write_skeleton(inside, plan.model_copy(update={"interior": True, "glazed": True}))
+    env = (inside.src / "env.js").read_text()
+    assert "export const INTERIOR = { center: [0.0, 5.0, 0.0], extents: [80.0, 20.0, 60.0], openings: [], glazed: true };" in env
+    code = "\n".join(ln for ln in env.splitlines() if not ln.lstrip().startswith("//"))
+    assert "roomShell(" not in code   # not instantiated: one optional way, named in the comment
 
 
 # ------------------------------------------------------- the effect library (D51)
@@ -53,7 +78,7 @@ def test_plan_skeleton_writes_zone_and_asset_stubs_and_lints(ws):
 
 def test_both_skeleton_paths_ship_the_effect_library(tmp_path):
     """The library is only usable if it is IN the workspace, and plan mode is the
-    PRODUCTION path.  It shipped `PATTERN_FILES` only, so a planned run would have
+    PRODUCTION path.  It once shipped the example's pattern files only, so a planned run
     carried the effects catalog in its prompt with no `src/lib/` to import from —
     every `from './lib/grass.js'` an agent wrote would have been a build error."""
     from codeverse3d.languages.scene_threejs import lib_files
@@ -122,10 +147,12 @@ def test_the_effects_catalog_reaches_the_scene_prompts_and_only_those():
     assert language_text(Language.GLSL_SHADER, "effects_catalog.md") == ""
 
     tpl = PROMPTS_DIR / "tracks"
-    for name in ("scene_env.j2", "scene_zone.j2", "scene_refine.j2"):
+    for name in ("scene_env.j2", "scene_zone.j2"):
         assert "effects_catalog" in (tpl / name).read_text(), name
-    # the asset session authors BLENDER bpy, so it must NOT carry the table
-    assert "effects_catalog" not in (tpl / "scene_asset.j2").read_text()
+    # the asset session authors BLENDER bpy, so it must NOT carry the table; a refine session edits
+    # one file with src/lib in its workspace and the skills routed, so it carries none either (2026-10-15)
+    for name in ("scene_asset.j2", "scene_refine.j2"):
+        assert "effects_catalog" not in (tpl / name).read_text(), name
 
 
 def test_the_catalog_names_every_library_module_and_no_other():

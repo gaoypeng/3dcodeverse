@@ -42,9 +42,11 @@ def _fresh_world(scene: Any, name: str) -> tuple[Any, Any, Any, Any]:
 def sun_world(scene: Any, *, elevation_deg: float = 12.0, azimuth_deg: float = 125.0, strength: float = 0.2,
               dust: float = 2.0) -> Any:
     """A physical sky (MULTIPLE_SCATTERING) lit from compass ``azimuth_deg`` (0 = +X, 90 = +Y —
-    pass the same numbers to ``lighting.sun``) at ``elevation_deg``; ``strength`` is the world's
-    Background strength (0.2-0.5 by day: the sky is bright), ``dust`` the aerosol density
-    (1 = clear, 2-4 hazy, warm low sun).  The sun disc is off: the Sun lamp casts the shadows."""
+    the same numbers as ``lighting.sun``, so the sky's bright side and the shadows agree) at
+    ``elevation_deg``; ``strength`` is the world's Background strength, ``dust`` the aerosol
+    density (1 clear, 2-4 hazy).  The defaults are a hazy low afternoon — pass the brief's time
+    of day and weather; strength and dust together decide where a day frame lands in the judged
+    luminance band.  The sun disc is off: the Sun lamp casts the shadows."""
     world, nodes, links, bg = _fresh_world(scene, "Sky")
     sky = nodes.new("ShaderNodeTexSky")
     sky.sky_type = "MULTIPLE_SCATTERING"
@@ -58,7 +60,9 @@ def sun_world(scene: Any, *, elevation_deg: float = 12.0, azimuth_deg: float = 1
 
 
 def night_world(scene: Any, color: str | Sequence[float] = "17273F", strength: float = 0.3) -> Any:
-    """A flat night sky in ``color`` (a deep blue, never black: AgX needs something to lift)."""
+    """A flat night world in ``color``.  A black world fails the judged luminance floor (AgX has
+    nothing to lift); give it the brief's colour with some value — deep blue, sodium amber,
+    moonlit grey."""
     world, _, _, bg = _fresh_world(scene, "NightSky")
     bg.inputs["Color"].default_value = _rgb(color)
     bg.inputs["Strength"].default_value = float(strength)
@@ -111,10 +115,12 @@ def gradient_world(scene: Any, stops: Sequence[tuple[float, str | Sequence[float
 
 def haze(collection: Any, loc: Sequence[float], size: float | Sequence[float], density: float = 0.003,
          color: str | Sequence[float] = "ADC9E1", name: str = "Atmosphere") -> Any:
-    """A bounded fog volume: a box centred at ``loc`` of ``size`` m whose only material is a
-    Principled Volume (``density`` per metre: 0.002 clear valley air, 0.01 morning mist, 0.03
-    a dense fog bank).  Volume-only, so the census reports it as fog, not matter; a world
-    volume over a large scene swallows the sun — this stays over the play area."""
+    """A bounded fog volume: a box centred at ``loc`` of ``size`` m (a number, or (x, y, z))
+    whose only material is a Principled Volume (``density`` per metre: 0.002 clear valley air,
+    0.01 morning mist, 0.03 a dense fog bank).  Volume-only, so the census reports it as fog,
+    not matter.  A box rather than a world volume because a world volume over a large scene
+    swallows the sun (whether the sun still reaches the frame shows in the luminance band);
+    size and place it for the brief — a valley floor, a riverbank, the whole site."""
     sx, sy, sz = (size, size, size) if isinstance(size, (int, float)) else size
     hx, hy, hz = sx / 2, sy / 2, sz / 2
     cx, cy, cz = (float(v) for v in loc)

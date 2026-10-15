@@ -45,7 +45,11 @@ round and runs the optional **texture pass** on it.  The record (plus git histor
    without a rebuild; the workspace ends at the last round.  Textures are a *derived asset pack*
    (`object_textured.glb` + `artifacts/textures/`); `object.glb` is never touched.
 2. **Concrete beats abstract.**  Contracts are delivered as skeleton code, exact
-   numbers and copyable snippets (cookbooks), never as clauses.
+   numbers and copyable snippets (cookbooks), never as clauses.  **Except on the scene track
+   (D106, 2026-10-15)**: there the harness states requirements — interface, sandbox, measured
+   thresholds — and never a template; the two scene cookbooks are gone, the skeletons are
+   placeholders, and a code block in a scene prompt or skill is at most ~12 lines (60 argon
+   scenes of one shape were the inlined chapters executed verbatim).
 3. **Code answers when code can answer.**  Deterministic gates / measurements run
    by the harness; the VLM is used only for perception and judgement, and its
    score is computed in code from rubric weights.
@@ -246,7 +250,8 @@ codeverse3d/
                       static single-file form), theme.py (CSS + the index-page JS)
   prompts/            EVERY piece of prompt material the harness writes, and the only place it
                       lives: <lang>/{system,contract,cookbook}.md (incl. glsl_shader/,
-                      opengl_python/), system/* (harness contract, single-shot envelope,
+                      opengl_python/; the scene languages ship NO cookbook, D106 — contract.md
+                      and system.md carry their interface facts), system/* (harness contract, single-shot envelope,
                       role_{scope,asset,repair}.j2), texturing/*.md, tracks/*.j2.
                       catalog.py answers "what exists and how does each piece reach the model"
                       — including the ONE per-language lookup, language_prompt(language, name) /
@@ -254,7 +259,8 @@ codeverse3d/
                       (the prompts/<dir> mapping used to be copied four times and missing in a fifth;
                       until 2026-09-22 the contract came through the runtime, the cookbook through
                       tracks/common, the system prompt and the catalog through tracks/prompting).  sections.py splits that
-                      markdown into chapters so a STAGE can name the recipes it needs.
+                      markdown into chapters so a STAGE can name the recipes it needs (graphics
+                      only since D106; the scene track inlines nothing).
                       variants.py (D105): per-model OVERLAYS — variants/<name>/<rel> shadows <rel> for
                       load_text / render / language_text while that variant is active (a ContextVar
                       BaseTrack.run sets around the whole run from RunOptions.variant, else the

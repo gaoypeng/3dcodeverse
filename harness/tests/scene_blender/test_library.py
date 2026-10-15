@@ -191,11 +191,11 @@ def _prose_spans(text: str):
                 yield n, span
 
 
-def test_the_cookbook_and_the_bpy_skills_never_print_a_keyword_only_parameter_positionally() -> None:
-    """The weaker rule for prose the catalog does not own (the cookbook's snippets RUN in Blender —
-    tests/prompts/test_snippets_run.py — so only its printed signatures can mislead): a keyword-only
-    parameter is never printed bare, a printed ``*`` sits where the lib's is, every name exists.
-    Lib names are unique across the modules, so a bare name finds its def."""
+def test_the_bpy_skills_never_print_a_keyword_only_parameter_positionally() -> None:
+    """The weaker rule for prose the catalog does not own (the skills; the cookbook that once joined
+    them is gone, 2026-10-15): a keyword-only parameter is never printed bare, a printed ``*`` sits
+    where the lib's is, every name exists.  Lib names are unique across the modules, so a bare name
+    finds its def."""
     funcs: dict[str, ast.FunctionDef] = {}
     methods: dict[str, ast.FunctionDef] = {}
     for stem in MODULES:
@@ -206,9 +206,8 @@ def test_the_cookbook_and_the_bpy_skills_never_print_a_keyword_only_parameter_po
         for cls, ms in classes.items():
             funcs[cls] = ms.get("__init__", funcs.get(cls))
             methods.update(ms)
-    texts = {"scene_blender/cookbook.md": language_text(Language.SCENE_BLENDER, "cookbook.md")}
-    texts |= {str(md.relative_to(skills_dir().parent)): md.read_text() for md in sorted(skills_dir().glob("c3d-bpy-scene-*/**/*.md"))}
-    assert len(texts) >= 4, sorted(texts)    # the cookbook and three SKILL.md at least
+    texts = {str(md.relative_to(skills_dir().parent)): md.read_text() for md in sorted(skills_dir().glob("c3d-bpy-scene-*/**/*.md"))}
+    assert len(texts) >= 3, sorted(texts)    # three SKILL.md at least
     faults: list[str] = []
     for where, text in texts.items():
         for n, span in _prose_spans(text):
@@ -219,7 +218,7 @@ def test_the_cookbook_and_the_bpy_skills_never_print_a_keyword_only_parameter_po
     assert not faults, "\n".join(faults)
 
 
-# --------------------------------------------------------------------------- the signatures the cookbook cites
+# --------------------------------------------------------------------------- the signatures the catalog and the skills cite
 SIGNATURES = [
     ("noise", "fbm2", ["x", "y", "*", "octaves", "lacunarity", "gain", "seed"]),
     ("noise", "mountain_height", ["x", "y", "*", "seed", "amplitude", "frequency"]),
@@ -249,7 +248,7 @@ SIGNATURES = [
 
 
 @pytest.mark.parametrize(("stem", "name", "params"), SIGNATURES, ids=[f"{s}.{n}" for s, n, _ in SIGNATURES])
-def test_the_signatures_the_catalog_and_cookbook_cite(stem: str, name: str, params: list[str]) -> None:
+def test_the_signatures_the_catalog_and_skills_cite(stem: str, name: str, params: list[str]) -> None:
     """Names AND the keyword-only boundary (``"*"``): the prompts cite these by position."""
     funcs, classes = _defs(stem)
     fn = classes[name.split(".")[0]][name.split(".")[1]] if "." in name else funcs[name]

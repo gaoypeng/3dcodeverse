@@ -164,7 +164,8 @@ def _one_layout(zone: ZonePlan, plan: ScenePlan, model: Any, budget: Any, events
     system = render(LAYOUT_TEMPLATE, title=plan.title, setting=plan.setting, mood=plan.mood,
                     environment=plan.environment[:600], zone=zone, neighbours=neighbours, assets=assets,
                     cameras=cameras, schema_fields=", ".join(ZoneLayout.model_fields))
-    user = f"Lay out zone {zone.name}. Description (binding): {zone.description}\nContents to place: {', '.join(zone.contents) or '(none)'}"
+    user = (f"Lay out zone {zone.name}. Description (the brief's facts in it are binding; its counts are intent): "
+            f"{zone.description}\nContents to place: {', '.join(zone.contents) or '(none)'}")
     complaint = ""
     for attempt in (0, 1):
         # the run clock outranks the layout (review-3 S3): past the hard ceiling the

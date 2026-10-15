@@ -38,33 +38,34 @@ Animation: {{ animation }}
 
 ## Reminders
 {{ frame_doc }}
-- A lighting/mood/ground/horizon change lives in `src/env.js` (sun colour/intensity/azimuth, fog
-  colour + near/far, sky hex, ground vertex colours, backdrop ring).
+- A lighting / atmosphere / terrain / horizon change lives in `src/env.js`.
 - A composition/camera change lives in `src/scene.js` (camera position/lookAt/fov numbers only).
 - A zone change lives in its `src/zones/<zone>.js` (`export function build(ctx)`, animation on
   `group.userData.update`); an asset change in `src/assets/<asset>.js`.
 - Console/shader errors: fix the named module; never wrap in try/catch to hide them.
-- Everything rests on `heightAt(x, z)`; nothing floats or sinks; InstancedMesh for repeats.
-- No DOM, no textures, no fetch, no Math.random, no CDN imports.
+- Everything is seated on `heightAt(x, z)` or the structure it stands on; nothing floats or sinks;
+  stay inside the draw / triangle budget `scene_probe` reports.
+- No DOM, no fetch, no Math.random, no CDN imports; textures only via `loaders.texture` for files
+  in the workspace or procedural DataTextures.
 
-## The recurring defects on this track and the cookbook chapter that fixes each
-Do not re-explain the problem back — apply the recipe (the named chapters are printed in full
-under **Recipes** at the end of this brief) and change the numbers.  If the judge repeated an issue from the previous round, the earlier fix was too
-timid: double the amplitude / the count / the contrast this time.
+## The recurring findings on this track, and what each one measures
+Do not re-explain the problem back — change the thing the finding measures.  If a measured
+finding repeats from the previous round, re-read its number and change what it measures until
+the number passes; a judge note that repeats needs a visible change in the named view.
 
-| what the judge wrote | fix it with |
+| what the judge or gate wrote | the requirement behind it |
 |---|---|
-| flat / one-colour ground, no paths, hard raised-bed edges | `"Ground that reads real"` — vertex-colour blend, carve the path into `heightAt`, dress the seams |
-| a hard world edge against the sky, missing horizon | `"Horizon: the world must not end"` — ground ≥ 2.4 × fog far, fog = sky horizon colour, silhouette ring at 0.6 × fog far |
-| the backdrop looks like flat / beige / untextured cut-outs | same chapter, rules 4-5 — solid geometry, darken the base colour, never lerp it toward the fog colour |
-| a pond / terrace is a hard-edged plane sitting on the ground | carve it into `heightAt` in `src/env.js` and dress the seam (`"Ground that reads real"`) |
-| "camera is N m below ground level" | the terrain lifted the floor: flatten `heightAt` toward y = 0 inside the bounds, or add `heightAt(x, z)` to that camera's y in `src/scene.js` |
-| identical cones / stacked blocks / primitive repetition | `"Vegetation that reads real"`, `"Rocks, cliffs and boulders that read organic"` — 3+ silhouettes, clustered, scale/hue jitter, no axis-aligned stacks |
-| sparse, token, "a diorama on a plane", empty midground | `"Set dressing"` + `"Scene layering"` — hit the per-zone prop counts, add a foreground element 2-4 m from each camera |
-| flat / dark / monochrome light, black shade, jagged shadows | `"Atmosphere: time-of-day triads with numbers"` — warm key vs cool fill ≥ 60° apart, shadow texel ≤ 0.05 m |
-| frames at t=0 and t=1.5 identical, "nothing moves" | `"Motion you can SEE between t = 0 and t = 1.5 s"` — the hook is `userData.update` (never `tick`), amplitudes from the table |
-| `hard_edged_particles`, "sharp-edged quads / spheres / discs for steam, dust, sparks", the brief's "soft particle effect" must-item unverified | `"Soft particles"` — `makeSmoke` / `makeSteam` / `makeMotes` / `makeFire`, or a `softDot` sprite on every point; never a bare `PointsMaterial` or a chain of spheres |
-| camera inside geometry / shows only sky or a wall | move the camera in `src/scene.js` and mask scatter within ~4 m of it (`cameraMask`) |
+| flat / one-colour ground, no paths, hard raised-bed edges | the surface needs visible variation that matches the brief (material, relief, wear) where the setting would show it (judge `flat_ground`) |
+| a hard world edge against the sky, missing horizon | from no camera may the ground end against the sky (`world_edge_visible`; the gate reads standing geometry to 1.25 × the bounds half-extent, fog far ≥ 2 × the plan span); what continues the world is the brief's — the street keeps going, the sea, a cliff, a forest, a city, a wall, or fog that closes |
+| the backdrop looks like flat / beige / untextured cut-outs | distant forms need volume and shading consistent with the sky's light (judge `placeholder_material`); aerial perspective comes from the fog, not from pre-tinting the material toward it |
+| a pond / terrace is a hard-edged plane sitting on the ground | a water body or terrace must meet the ground without a visible hard seam (judge); carving the terrain or dressing the edge are two options |
+| "camera is N m below ground level" | the eye must be ≥ 0.3 m above the ground under it: compute the camera's y from `heightAt(x, z)` (or the floor it stands on) in `src/scene.js` |
+| identical cones / stacked blocks / primitive repetition | the judge reads identical copies and primitive stacks; vary silhouette, scale and colour where the brief has natural variety (a planted avenue or a container stack IS regular — the brief decides) |
+| sparse, token, "a diorama on a plane", empty midground | the description's contents are requirements (the census compares them: `missing_content`, `zone_empty`; a count under half the layout's is an INFO `density_note`); "sparse / diorama" means the frame has empty regions the brief would fill — fill them with what the brief implies |
+| flat / dark / monochrome light, black shade, jagged shadows | flat / dark frames are measured (mean lum, std, flat band); jagged shadows mean shadow texels larger than ~0.05 m over the content — tighten the frustum (`sunRig({ bounds })` with the content radius); the light's colours are the brief's time of day and sources |
+| frames at t=0 and t=1.5 identical, "nothing moves", `no_motion` | a camera moves when ≥ 0.4 % of its pixels change by more than 8/255 (or ≥ 0.08 % by more than 60/255); none moving is the gate's `no_motion` ERROR and the judge's `nothing_moves`; the hook is `userData.update` (never `tick`), and the amplitude has to show at 1024×576 (foliage ±0.10–0.20 rad, particles ≥ 0.6 m per 1.5 s, water ≥ 3 cm or a scrolling normal are amplitudes that have passed) |
+| `hard_edged_particles`, "sharp-edged quads / spheres / discs for steam, dust, sparks", the brief's "soft particle effect" must-item unverified | the finding measures sharp-edged particle sprites; any soft-edged construction passes (the library's `makeSmoke` / `makeSteam` / `makeMotes` / `makeFire` volumes, or a radial-alpha sprite on every point) |
+| camera inside geometry / shows only sky or a wall | the eye must be ≥ 0.5 m from every surface and the frame ≥ 10 % content (20 % for the establishing view): move the camera in `src/scene.js` or what blocks it |
 {% if current_files %}
 
 ## Current file contents (edit and return each COMPLETE)
@@ -84,16 +85,5 @@ finish only when both are clean.  `check_placement` measures floating / sunken /
 interpenetrating assets deterministically — its numbers, not your impression.  `scene_views` prints the
 frame table and the MEASURED MOTION per camera — use those numbers, not your impression.
 {% endif %}
-{% if recipes is defined and recipes %}
-
-# Recipes (from the scene cookbook — the chapters for the files you own; copy their numbers)
-{{ recipes }}
-{% endif %}
-
-{% if effects_catalog is defined and effects_catalog %}
-
-{{ effects_catalog }}
-{% endif %}
-
 ## Output
 {{ output_format }}

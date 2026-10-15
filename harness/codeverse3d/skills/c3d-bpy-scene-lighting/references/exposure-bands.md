@@ -91,12 +91,11 @@ mean barely moves until the fixture is a white blob, which the judge grades as b
 ```python
 from lib import lighting, materials, sky
 
-def build_env(ctx):                       # a lantern-lit night
+def build_env(ctx):                       # a lantern-lit night, one way
     sky.night_world(ctx.scene, color=<deep blue hex>, strength=<low>)
     lighting.sun(ctx.collection, azimuth_deg=<behind the hero>, elevation_deg=<low>, color=<cool hex>,
                  energy=<a fraction of one>, name="Moon")
     sky.haze(ctx.collection, <centre>, <size>, density=<thin>, color=<the sky colour>)
-    ...
 
 # in a zone: each fixture is a look (emissive) AND a light (practical)
 mat = materials.emissive("LanternGlow", <warm hex>, <modest strength>)

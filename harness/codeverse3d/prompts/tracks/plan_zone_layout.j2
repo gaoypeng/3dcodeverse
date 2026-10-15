@@ -1,24 +1,27 @@
 You are the ZONE DIRECTOR for one zone of `{{ title }}`.  The scene director already fixed the
-world ({{ setting }} — mood: {{ mood }}); a builder model will realise YOUR layout verbatim, so
-answer with exact numbers, all in WORLD meters, and nothing outside the JSON.
+world ({{ setting }} — mood: {{ mood }}); a builder model reads YOUR layout as its proposal — the
+contents it names are measured as present, its positions and counts kept unless the place reads
+better otherwise — so answer with exact numbers, all in WORLD meters, and nothing outside the JSON.
 
 Environment (for light/path context only — do not restate it):
 {{ environment }}
 
 ## The zone
 - Name: {{ zone.name }}
-- Bbox: x {{ '%.1f'|format(zone.bbox.min[0]) }}..{{ '%.1f'|format(zone.bbox.max[0]) }}, z {{ '%.1f'|format(zone.bbox.min[2]) }}..{{ '%.1f'|format(zone.bbox.max[2]) }} — every cluster centre stays INSIDE it.
-- Description (binding, including its density counts): {{ zone.description }}
+- Bbox: x {{ '%.1f'|format(zone.bbox.min[0]) }}..{{ '%.1f'|format(zone.bbox.max[0]) }}, z {{ '%.1f'|format(zone.bbox.min[2]) }}..{{ '%.1f'|format(zone.bbox.max[2]) }} — every cluster centre is validated against it (1 m of slack).
+- Description: {{ zone.description }}
+  (what the brief fixes in it is binding; its dressing counts are the director's intent and may
+  be adjusted to the space, the activity and the triangle budget.)
 
-Neighbouring zones (do not place into them):
+Neighbouring zones (their bboxes, where their own builders place):
 {% for n in neighbours %}- {{ n }}
 {% endfor %}
 
-## Authored cameras (the shots this scene is graded on — their first metres MUST stay clear)
+## Authored cameras (the shots this scene is graded on)
 {% for c in cameras %}- {{ c }}
-{% endfor %}No cluster centre may sit within ~2 m + half the asset's footprint of any camera position —
-a counter placed at a camera puts the lens INSIDE the geometry and caps the whole run.
-Foreground framing near a camera is the zone builder's hand-placed job, never a cluster.
+{% endfor %}A cluster whose footprint reaches a camera position puts the lens INSIDE the geometry and caps
+the whole run (measured: half the asset's footprint + half the spread + 0.4 m, at least 0.8 m);
+anything meant to stand close to a camera is placed by hand in the zone module, not as a cluster.
 
 ## Assets to place (measured sizes)
 {% for a in assets %}- {{ a }}
@@ -28,10 +31,11 @@ WHAT TO PRODUCE (JSON, fields: {{ schema_fields }}):
 - `placements` — one row per contents asset (split an asset into 2-3 rows when it appears in
   distinct spots): `count`, `cluster` (x, z), `spread_m`, `faces` (what they look at — a path,
   a doorway, an azimuth), `support` (`ground`, or the asset they stand ON, e.g. bottles on a
-  counter).  Compose PICTURES, not scatter: things line paths and edges, face what they serve,
-  stand in clusters with breathing room for the cameras.  Respect each asset's footprint — two
-  clusters closer than the assets are wide will interpenetrate.
+  counter).  Put things where the place's activity puts them (stalls line the lane and face it;
+  boats lie along the quay edge; a well stands alone) and respect each asset's footprint — two
+  clusters closer than the assets are wide will interpenetrate (measured).
 - `path_points` — the walkway through this zone as 2-4 (x, z) points, if the description has one.
-- `mid_props`, `small_props`, `ground_cover` — the dressing counts the description demands
-  beyond the placements (the builder invents WHAT they are; you fix HOW MANY).
-- `notes` — one line of intent the builder must keep, e.g. "stalls face the lane, gap at the gate".
+- `mid_props`, `small_props`, `ground_cover` — how much loose dressing this zone carries beyond
+  the placements (the builder invents WHAT they are; you fix HOW MANY; 0 is right for a bare
+  place).  The census measures the built zone against these numbers.
+- `notes` — one line of intent the builder keeps, e.g. "stalls face the lane, gap at the gate".

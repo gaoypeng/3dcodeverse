@@ -511,7 +511,8 @@ class BaseTrack:
         ctx.cookbook_text = language_text(spec.language, "cookbook.md")
         ctx.tool_cards = self.services.tool_cards(self.track.value, spec.language.value)
         for name, text in (("contract", ctx.contract_text), ("cookbook", ctx.cookbook_text)):
-            ctx.record_prompt(name, text)
+            if text:   # a language without a cookbook (the scene languages) records no hash for one
+                ctx.record_prompt(name, text)
         return ctx
 
     def _resolve_candidates(self, spec: Spec, settings: Settings) -> int:

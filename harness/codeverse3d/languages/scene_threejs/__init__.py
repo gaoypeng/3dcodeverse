@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import time
 from collections.abc import Sequence
@@ -157,18 +158,18 @@ def lint(ws: Workspace) -> GateReport:
                                hint="export function buildLamp(THREE) { ... return group; }"))
     for b in big:
         findings.append(_f(LintKind.LAYOUT, Severity.WARN, f"large file {b} > {MAX_LINES} lines", target=b.split(" ")[0],
-                           hint="split into zones/assets/shaders modules"))
+                           hint="a file over 800 lines is reported; how (or whether) to split it is yours"))
     return GateReport.of(GATE, findings, duration_ms=int((time.time() - t0) * 1000))
 
 
 # ===================================================================== skeleton
 STARTER_DIR = Path(__file__).resolve().parent / "starter" / "src"
-#: pattern files copied verbatim in plan mode (shown as reusable examples)
-PATTERN_FILES = ("shaders/water.js", "assets/pine_tree.js", "assets/windmill.js")
-#: the harness-owned effect library (``src/lib/*.js``), shipped into EVERY workspace.
-#: Plan mode copied only PATTERN_FILES, so a planned run got the effects catalog in its
-#: prompt and no ``src/lib/`` to import from — every ``from './lib/grass.js'`` a 2026-09-01
-#: agent wrote would have been a build error.  Both skeleton paths write it now.
+#: the harness-owned effect library (``src/lib/*.js``), shipped into EVERY workspace by both
+#: skeleton paths (a planned run once got the effects catalog in its prompt and no ``src/lib/``
+#: to import from — every ``from './lib/grass.js'`` a 2026-09-01 agent wrote was a build error).
+#: The example scene's own files (``zones/``, ``assets/``, ``shaders/``) ship ONLY without a plan:
+#: a planned workspace used to carry a pine tree, a windmill and a pond shader whatever the brief,
+#: and its stubs cited them as the pattern (the de-templating of 2026-10-15).
 LIB_DIR = STARTER_DIR / "lib"
 
 
@@ -209,27 +210,113 @@ def write_example(ws: Workspace) -> list[Path]:
     return written
 
 
+#: the stub plate's side as a multiple of the plan span: its edge then sits 1.5 spans from the
+#: centre — past the 2 × span the ``fog_short`` gate measures once the author's fog is in — so no
+#: authored camera reads a plate edge before the land is built.  Derived from the plan alone: no
+#: minimum world size.
+PLACEHOLDER_GROUND_SPANS = 3.0
+
+_AZIMUTH_RE = re.compile(r"azimuth[^0-9\-]{0,12}(-?\d+(?:\.\d+)?)", re.I)
+_ELEVATION_RE = re.compile(r"elevation[^0-9\-]{0,12}(-?\d+(?:\.\d+)?)", re.I)
+#: the overview rig's own guess when a scene states no sun azimuth (``sun_azimuth`` below)
+SUN_AZIMUTH_GUESS_DEG = 45.0
+
+
+def sun_from_plan(plan: ScenePlan) -> tuple[float | None, float | None]:
+    """The sun azimuth and elevation (degrees) the plan's ``environment`` paragraph states
+    ("sun azimuth 250° elevation 8°"), ``None`` for each it does not: the skeleton carries the
+    PLAN's light into the env stub rather than a light of its own (the de-templating of
+    2026-10-15: a hardcoded azimuth 60 / elevation 38 / mood 'day' shipped in every env)."""
+    text = plan.environment
+    az = _AZIMUTH_RE.search(text)
+    el = _ELEVATION_RE.search(text)
+    return (float(az.group(1)) if az else None, float(el.group(1)) if el else None)
+
+
+_ENV_STUB = """// src/env.js — the environment: the ground every zone seats on, the light, the sky / backdrop, the atmosphere.
+//   export function heightAt(x, z) → ground height (m): the ONE function every zone seats on.
+//   export function buildEnv(ctx) → {{ update?(t, dt), ...whatever zones may share as ctx.env (sunDir, materials, a water level …) }}
+//   export const SUN_AZIMUTH_DEG → where the light comes from (0 = +X, 90 = +Z); the assembler reads it (regex) to fit cameras on the lit side.
+//
+// PLACEHOLDER: nothing below decides the brief's world.  It ships ONE thing — a level plate named Ground reaching past
+// the plan span, so the census has a surface to seat on and to measure the fog against — and NO light, NO sky and NO
+// atmosphere: as written this module FAILS the gates (no_fog / no_background on the census, dark_frame on every frame)
+// until buildEnv builds the brief's.  What is measured:
+//   • every zone seats on heightAt, so the ground mesh and heightAt must agree (scene_placement: floating > 0.05 m
+//     outdoors / 0.02 m indoors, sunken > 0.10 m); the plan's cameras expect the ground near their look_at at the
+//     height the plan states, and each eye above heightAt at its own (x, z) (camera_underground, cap 0.50).
+//   • scene.fog and scene.background set (no_fog / no_background, ERROR); fog far ≥ 2 × the plan span or
+//     1/density ≥ span / 1.5 (fog_short); the land reaches past the fog from every authored camera; no world edge
+//     in any authored frame (judged world_edge_visible; the census: standing geometry past 1.25 × the half-extent).
+//   • scene.environment is an environment texture (PBR metals and glass render near black without one).
+//   • the judged frames sit in the exposure band (scene_frames: dark_frame / blown_frame / flat_frame).
+//   • the ground mesh is named 'Ground…' / 'Terrain…' (the census classifies the ground by name; the placement gate
+//     seats on it); backdrop geometry is named 'Sky…' (it then never inflates the content bounds).
+// Raw three.js is the baseline.  src/lib is an OPTIONAL toolbox the effects catalog lists: lib/terrain.js ground()
+// displaces and textures a ground from a height field, lib/sky.js makeSky, lib/environment.js sunRig / roomShell,
+// lib/atmosphere.js makeHeightFog — use a call when it fits the brief, write your own when it does not.
+import * as THREE from 'three';
+
+export const SUN_AZIMUTH_DEG = {azimuth};    // 0 = +X, 90 = +Z — {azimuth_note}
+export const SUN_ELEVATION_DEG = {elevation};  // {elevation_note}
+export const GROUND_SIZE = {ground};       // the placeholder plate's side (m): 3 × the plan span, past the 2 × the fog gate measures
+// An INTERIOR plan (filled from the plan): the room box the plan gives, {{ center, extents, openings, glazed? }}.  The
+// enclosure the brief describes — walls, openings, ceiling, materials as named — is yours; lib/environment.js
+// roomShell(INTERIOR) is one way to build it.  An interior reads black without openings or practical lights (dark_frame).
+export const INTERIOR = {interior};
+
+/** Ground height at (x, z) — every placement seats on this.  PLACEHOLDER: level; the brief's landform is yours. */
+export function heightAt(x, z) {{
+  return 0;
+}}
+
+export function buildEnv(ctx) {{
+  const {{ scene }} = ctx;
+  // PLACEHOLDER ground: a level plate following heightAt — REPLACE with the brief's land (named Ground… / Terrain…)
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, 1, 1),
+                                new THREE.MeshStandardMaterial({{ color: 0x6f6a60, roughness: 0.95 }}));
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  ground.name = 'Ground';
+  scene.add(ground);
+  // NO light, sky, fog or scene.environment here: the brief's go in this function (see the header for what is measured)
+  return {{ ground, update(t, dt) {{}} }};
+}}
+"""
+
+
 def _env_for_plan(plan: ScenePlan) -> str:
-    text = (STARTER_DIR / "env.js").read_text()
+    """``src/env.js`` as an interface stub under the plan's data: the plate side from the span, the
+    sun azimuth / elevation the plan states, the room box for an interior — and no light, sky or
+    atmosphere.  The starter's finished landscape (a level disc inside the bounds' radius with
+    hills and a ridge beyond) was kept byte for byte by 29 of 30 iteration-0 scenes, and the
+    passing placeholder that replaced it (a day sun rig at azimuth 60, a grey fog) built and
+    passed for any brief, so it was kept too: a placeholder that passes is a template by another
+    name (the de-templating of 2026-10-15)."""
     ex = plan.bounds.extents
-    span = max(ex[0], ex[2], 40.0)
-    ground = int(max(120, span * 2.5))
-    text = re.sub(r"export const GROUND_SIZE = \d+;", f"export const GROUND_SIZE = {ground};", text)
-    # level ground inside the plan's radius (its cameras were written for y ≈ 0), rolling beyond
-    text = re.sub(r"export const CONTENT_RADIUS = \d+;", f"export const CONTENT_RADIUS = {int(max(20, span / 2))};", text)
+    span = max(ex[0], ex[2], 1.0)
+    az, el = sun_from_plan(plan)
+    interior = "null"
     if plan.interior:
         c = [round(float(v), 2) for v in plan.bounds.center]
         e = [round(float(v), 2) for v in ex]
         glazed = ", glazed: true" if plan.glazed else ""
-        text = re.sub(r"export const INTERIOR = null;",
-                      f"export const INTERIOR = {{ center: {c}, extents: {e}, openings: []{glazed} }};", text)
+        interior = f"{{ center: {c}, extents: {e}, openings: []{glazed} }}"
     header = (
         f"// ENV PLAN: {plan.environment.strip()}\n"
         f"// setting: {plan.setting.strip()}  mood: {plan.mood.strip()}\n"
-        f"// bounds: centre {tuple(round(c, 1) for c in plan.bounds.center)} extents {tuple(round(e, 1) for e in ex)} m\n"
-        "// Rewrite the ground/sky/fog/sun below to match the plan; keep buildEnv/heightAt exports.\n"
+        f"// bounds: centre {tuple(round(c, 1) for c in plan.bounds.center)} extents {tuple(round(e, 1) for e in ex)} m — the extent\n"
+        "//   of the PLANNED content and the cameras' subject, not the edge of the world: land, backdrop and scenery\n"
+        "//   continue beyond it as the brief implies.\n"
+        "// Keep the buildEnv(ctx), heightAt(x, z) and SUN_AZIMUTH_DEG exports; everything else is yours to write for the plan above.\n"
     )
-    return header + text
+    body = _ENV_STUB.format(
+        azimuth=f"{az:g}" if az is not None else f"{SUN_AZIMUTH_GUESS_DEG:g}",
+        azimuth_note="the plan's light" if az is not None else "the plan states none: this is only the rig's guess — set the brief's",
+        elevation=f"{el:g}" if el is not None else "null",
+        elevation_note="the plan's" if el is not None else "the plan states none: set the brief's (a number)",
+        ground=int(span * PLACEHOLDER_GROUND_SPANS), interior=interior)
+    return header + body
 
 
 # ===================================================================== layout
@@ -282,14 +369,16 @@ def _asset_stub(a: AssetPlan) -> str:
     return f'''// src/assets/{snake}.js — asset "{pascal}": {a.description.strip()}
 // approx size {w:g} x {h:g} x {d:g} m (w x h x d); expected instances: ~{a.instances_hint}
 // CONTRACT: export function build{pascal}(THREE) → THREE.Group, origin at the base (y = 0), +Y up, +Z front, meters.
-//   Build it from several parts with distinct materials (see assets/pine_tree.js, assets/windmill.js);
-//   for many instances also export {snake}Parts(THREE) → [{{ geometry, material, castShadow }}].
+//   It must read as the plan describes it at the judge's camera distance (judged) and measure about the size
+//   above (scene_placement: scale).  Parts, materials and construction are yours.
+//   OPTIONAL: export {snake}Parts(THREE) → [{{ geometry, material, castShadow }}] if a zone wants to instance
+//   repeats of it (the triangle budget is measured on the census; THREE.InstancedMesh is one way to afford them).
 import * as THREE from 'three';
 
 export function build{pascal}(T = THREE) {{
   const g = new T.Group();
   g.name = '{pascal}';
-  // PLACEHOLDER blockout at the planned size — REPLACE with real construction.
+  // PLACEHOLDER blockout at the planned size — REPLACE with the real thing (a single box fails the asset check).
   const box = new T.Mesh(new T.BoxGeometry({w:g}, {h:g}, {d:g}), new T.MeshStandardMaterial({{ color: 0x9a9a9a, roughness: 0.8 }}));
   box.position.y = {h / 2:g};
   box.castShadow = box.receiveShadow = true;
@@ -300,43 +389,42 @@ export function build{pascal}(T = THREE) {{
 
 
 def _zone_stub(z: ZonePlan, assets: dict[str, AssetPlan]) -> str:
+    """The zone's interface and a TODO naming the plan's contents — no positions.  The stub used
+    to tile the contents on a quarter-extent grid inside the bbox and say "keep everything inside
+    the plan bbox": the seed of the blocks-in-a-rectangle look (the de-templating of 2026-10-15)."""
     snake, pascal = to_snake(z.name), to_pascal(z.name)
     c, e = z.bbox.center, z.bbox.extents
-    imports, places = [], []
-    for i, name in enumerate(z.contents):
+    imports, todo = [], []
+    for name in z.contents:
         a = assets.get(to_snake(name))
         if a is None:
-            continue
-        asn, asp = to_snake(a.name), to_pascal(a.name)
-        ox = (-e[0] / 4 + (i % 3) * e[0] / 4) if len(z.contents) > 1 else 0.0
-        oz = (-e[2] / 4 + (i // 3) * e[2] / 4) if len(z.contents) > 3 else 0.0
-        x, zz = round(c[0] + ox, 2), round(c[2] + oz, 2)
-        if a.kind == "threejs":
+            todo.append(f"//   - {name}: not an asset of the plan — built here")
+        elif a.kind == "threejs":
+            asn, asp = to_snake(a.name), to_pascal(a.name)
             imports.append(f"import {{ build{asp} }} from '../assets/{asn}.js';")
-            places.append(f"  place(build{asp}(THREE), {x}, {zz});")
+            todo.append(f"//   - {a.name}: build{asp}(THREE) → a Group with its origin at the base; ~{a.instances_hint} planned")
         else:
-            places.append(
-                f"  if (ctx.assets && ctx.assets.{asn}) place(ctx.assets.{asn}.clone(), {x}, {zz});"
-                f"  // GLB built in Blender → public/assets/{asn}.glb (preloaded by scene.js)"
-            )
-    imp = "\n".join(imports)
-    body = "\n".join(places) if places else "  // TODO: build this zone's content here (use ctx.heightAt to seat objects)."
+            asn = to_snake(a.name)
+            todo.append(f"//   - {a.name}: ctx.assets.{asn} — the hero GLB public/assets/{asn}.glb preloaded by scene.js; place .clone()s")
+    imp = ("\n".join(imports) + "\n") if imports else ""
+    todo_block = "\n".join(todo) if todo else "//   (the plan lists no contents)"
     return f'''// src/zones/{snake}.js — zone "{pascal}": {z.description.strip()}
-// PLAN bbox: centre ({c[0]:g}, {c[1]:g}, {c[2]:g}) extents ({e[0]:g} x {e[1]:g} x {e[2]:g}) m. Contents: {", ".join(z.contents) or "-"}
+// PLAN bbox: centre ({c[0]:g}, {c[1]:g}, {c[2]:g}) extents ({e[0]:g} x {e[1]:g} x {e[2]:g}) m.
 // CONTRACT: export function build(ctx) → THREE.Group named '{pascal}'.  ctx = {{ THREE, scene, renderer, loaders, env, heightAt, assets }}
-//   • seat objects on the ground with ctx.heightAt(x, z); keep everything inside the plan bbox
-//   • repeats → THREE.InstancedMesh (see the pattern in assets/pine_tree.js: <asset>Parts(THREE))
-//   • animation → zone.userData.update = (t, dt) => {{ ... }}  (scene.js fans update() out to every zone)
+//   • seat things on ctx.heightAt(x, z) (measured: scene_placement floating > 0.05 m outdoors / 0.02 m indoors, sunken > 0.10 m)
+//   • the planned contents are measured against the plan bounds and this bbox (scene_placement: present, at the plan's
+//     size, not outside the bounds); scenery may continue past the bbox as the brief implies
+//   • animation → zone.userData.update = (t, dt) => {{ ... }} (scene.js fans update() out; motion between t = 0 and 1.5 s is measured)
+//   • the triangle budget is measured on the census; THREE.InstancedMesh is one way to afford repeats
+// TODO — this zone's planned contents, none placed yet:
+{todo_block}
 import * as THREE from 'three';
 {imp}
-
 export function build(ctx) {{
-  const {{ heightAt }} = ctx;
   const zone = new THREE.Group();
   zone.name = '{pascal}';
-  const place = (obj, x, z, ry = 0) => {{ obj.position.set(x, heightAt(x, z), z); obj.rotation.y = ry; zone.add(obj); return obj; }};
-{body}
-  zone.userData.update = (t, dt) => {{ /* animate zone elements here */ }};
+  // TODO: build the contents listed above (seat everything with ctx.heightAt)
+  zone.userData.update = (t, dt) => {{}};   // the animation hook; delete it if the zone is still
   return zone;
 }}
 '''
@@ -359,8 +447,6 @@ def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
     if plan is None or not isinstance(plan, ScenePlan):
         return write_example(ws)
     written: list[Path] = []
-    for rel in PATTERN_FILES:
-        _write(ws.src / rel, (STARTER_DIR / rel).read_text(), written)
     _write_lib(ws, written)
     _write(ws.src / "env.js", _env_for_plan(plan), written)
     assets = {to_snake(a.name): a for a in plan.assets}
@@ -575,8 +661,18 @@ def probe_zone_modules(ws: Workspace, *, timeout_s: float = 90.0, sun_azimuth_de
 
 
 # --------------------------------------------------------------------------- cameras
-_FALLBACK_CAMERA = CameraPlan(name="overview", position=(30.0, 18.0, 30.0), look_at=(0.0, 1.0, 0.0), fov=50.0,
-                              purpose="fallback: no measurable zones")
+def fallback_camera(plan: ScenePlan | None, azimuth_deg: float = SUN_AZIMUTH_GUESS_DEG) -> CameraPlan:
+    """An overview when nothing was measurable: on the lit side (``azimuth_deg`` is the scene's
+    ``SUN_AZIMUTH_DEG``, 0 = +X, 90 = +Z), at the bounds' span from their centre, looking at it —
+    derived, not the fixed +X+Z corner shot every example once showed."""
+    if plan is None:
+        c, r = (0.0, 0.0, 0.0), 30.0
+    else:
+        c = tuple(float(v) for v in plan.bounds.center)
+        r = max(float(plan.bounds.extents[0]), float(plan.bounds.extents[2]), 10.0)
+    a = math.radians(azimuth_deg)
+    return CameraPlan(name="overview", position=(c[0] + 0.9 * r * math.cos(a), c[1] + 0.45 * r, c[2] + 0.9 * r * math.sin(a)),
+                      look_at=(c[0], c[1] + 1.0, c[2]), fov=50.0, purpose="fallback: no measurable zones")
 
 
 def _plan_from_spec(spec: dict[str, Any], *, name: str, purpose: str) -> CameraPlan:
@@ -584,7 +680,8 @@ def _plan_from_spec(spec: dict[str, Any], *, name: str, purpose: str) -> CameraP
                       fov=float(spec.get("fov", 50.0)), purpose=purpose)
 
 
-def cameras_from_specs(specs: dict[str, Any], probes: dict[str, ZoneProbe], *, max_cameras: int = 6) -> list[CameraPlan]:
+def cameras_from_specs(specs: dict[str, Any], probes: dict[str, ZoneProbe], *, max_cameras: int = 6,
+                       plan: ScenePlan | None = None, azimuth_deg: float = SUN_AZIMUTH_GUESS_DEG) -> list[CameraPlan]:
     """Convert driver-fitted camera specs (``probe_scene.mjs --sun-azimuth``;
     math owned by ``runtime_js/lib/orbit.mjs``) into CameraPlans: overview
     first, then per-zone cameras, largest footprints first.  Falls back to a
@@ -592,14 +689,15 @@ def cameras_from_specs(specs: dict[str, Any], probes: dict[str, ZoneProbe], *, m
     healthy = [p for p in probes.values() if p.ok and p.bbox]
     overview = (specs or {}).get("overview")
     if not healthy or not overview:
-        return [_FALLBACK_CAMERA.model_copy()]
-    cams = [_plan_from_spec(overview, name="overview", purpose="overview fitted to measured content bounds, sun side")]
+        return [fallback_camera(plan, azimuth_deg)]
+    cams = [_plan_from_spec(overview, name="overview", purpose="fallback: fitted to the measured content (the plan named no camera)")]
     by_zone = {str(z.get("group", "")).removeprefix("__zone__"): z for z in (specs or {}).get("zones", [])}
     by_area = sorted(healthy, key=lambda p: -(p.bbox["size"][0] * p.bbox["size"][2]))
     for p in by_area[: max_cameras - 1]:
         spec = by_zone.get(p.name)
         if spec:
-            cams.append(_plan_from_spec(spec, name=f"{to_snake(p.name)}_view", purpose=f"zone {to_pascal(p.name)} from the sun side"))
+            cams.append(_plan_from_spec(spec, name=f"{to_snake(p.name)}_view",
+                                        purpose=f"fallback: zone {to_pascal(p.name)} fitted to its measured bbox (the plan named no camera)"))
     return cams
 
 
@@ -701,7 +799,7 @@ def assemble(ws: Workspace, plan: ScenePlan | None = None, *, cameras: str = "de
     if cameras == "plan" and plan is not None and plan.cameras:
         cams = list(plan.cameras[:6])
     else:
-        cams = cameras_from_specs(camera_specs, probes)
+        cams = cameras_from_specs(camera_specs, probes, plan=plan, azimuth_deg=sun_azimuth(ws))
     text = render_scene_js(healthy, cams, glb_assets(ws), env_ok=env_ok)
     out = ws.src / "scene.js"
     out.parent.mkdir(parents=True, exist_ok=True)

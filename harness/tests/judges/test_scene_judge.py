@@ -316,9 +316,22 @@ def test_scene_v2_numbers_are_pinned():
     defects = {d.id: (d.penalty, d.cap) for d in S.defects}
     assert "floating_or_sunken_asset" not in defects
     assert {k: defects[k] for k in ("floating_asset", "sunken_asset", "interpenetration", "wrong_scale", "hard_edged_particles",
-                                    "missing_planned_element", "hero_misplaced")} == {
+                                    "missing_planned_element", "hero_misplaced", "diorama_look")} == {
         "floating_asset": (0.10, 0.60), "sunken_asset": (0.08, 0.65), "interpenetration": (0.08, 0.70), "wrong_scale": (0.06, 0.75),
-        "hard_edged_particles": (0.04, None), "missing_planned_element": (0.06, None), "hero_misplaced": (0.06, None)}
+        "hard_edged_particles": (0.04, None), "missing_planned_element": (0.06, None), "hero_misplaced": (0.06, None),
+        "diorama_look": (0.05, None)}
+    # 2026-10-15 (owner's rule): the craft criteria and defects judge against the BRIEF's place, not one recipe;
+    # `diorama_look` names the template (a block on a plate ringed by a uniform backdrop, nothing beyond) and
+    # asks for the view; nothing in the rubric prescribes blended ground + paths, clusters, a foreground frame
+    # within a few metres, or fog + a two-hue key/fill for every scene
+    diorama = S.defect("diorama_look").text
+    assert "flat plate" in diorama and "uniform backdrop" in diorama and "nothing" in diorama and "Cite the view" in diorama
+    whole = (S.extra_instructions + " " + " ".join(d.text for d in S.defects) + " " + " ".join(
+        c.description + " " + " ".join(c.anchors.values()) for c in S.criteria)).lower()
+    for recipe in ("blended materials with paths", "in clusters", "rather than clusters", "within a few metres",
+                   "warm key against a cooler fill", "fog/haze", "litter", "no haze", "boxes-and-cones"):
+        assert recipe not in whole, recipe
+    assert "brief's weather" in whole and "arranged as the place would arrange them" in whole
     # six anchors on every criterion; the weights are v1's
     for c in S.criteria:
         assert sorted(c.anchors, key=float) == ["0.1", "0.4", "0.55", "0.7", "0.85", "1.0"], c.id

@@ -1,9 +1,10 @@
-"""The cookbooks' promise: every snippet RUNS.
+"""The cookbooks' and contracts' promise: every snippet RUNS.
 
 * cadquery blocks run in-process (cadquery is a plain library).
 * bpy blocks run in real headless Blender (marker: blender).
 * js blocks run in real node against runtime_js/node_modules (marker: node).
-* GLSL factories compile in real headless-Chrome WebGL (marker: node).
+* the scene languages ship no cookbook (owner, 2026-10-15): their contracts' COMPLETE examples
+  run through the real runtimes below, and that is the whole of their runnable prompt material.
 """
 
 from __future__ import annotations
@@ -21,7 +22,6 @@ from tests.prompts.conftest import (
     run_node_module,
     strip_imports_exports,
 )
-from tests.scene_runtime.lib._probe import compile_scene
 
 
 # --------------------------------------------------------------------- cadquery
@@ -171,103 +171,36 @@ console.log('GLB_OK', verts, buf.byteLength);
     assert (tmp_path / "object.glb").stat().st_size > 1000
 
 
-# the lib calls the scene cookbook's snippets make (their `import` lines are stripped)
-_SCENE_LIB_IMPORTS = (
-    "import { mulberry32 } from './lib/noise.js';\n"
-    "import { makeShaderMaterial } from './lib/shader.js';\n"
-    "import { makeCanopy } from './lib/canopy.js';\n"
-    "import { PRACTICAL } from './lib/environment.js';\n"
-)
-
-
 @pytest.mark.node
-def test_scene_cookbook_runs(tmp_path) -> None:
-    stub = (
-        _SCENE_LIB_IMPORTS +
-        "function collectAnimatedMaterials(scene){const mats=[];scene.traverse(o=>{"
-        "const l=Array.isArray(o.material)?o.material:(o.material?[o.material]:[]);"
-        "for(const m of l) if(m.userData&&typeof m.userData.update==='function'&&!mats.includes(m))"
-        "mats.push(m);});return mats;}\n"
-    )
-    body = "".join(
-        f"\nconsole.log('--- block {i} ---');\n" + strip_imports_exports(b)
-        for i, b in enumerate(blocks("scene_threejs/cookbook.md", "js"))
-    )
-    out = run_node_module(tmp_path, js_prelude(stub) + body + "\nconsole.log('JS_BLOCKS_OK');\n")
-    assert "JS_BLOCKS_OK" in out and "[selfcheck]" in out
-
-
-@pytest.mark.node
-def test_scene_contract_example_shape(tmp_path) -> None:
+def test_scene_contract_env_example_is_the_interface_and_nothing_else(tmp_path) -> None:
+    """The contract's one labelled file is ``src/env.js`` with the three exports the assembler reads and
+    no scene inside it (the complete day scene it used to carry — a sun rig, a grove of cones, the
+    +X+Z corner camera — was the most pasteable passage of the prompt corpus, 2026-10-15)."""
     files = labelled_files("scene_threejs/contract.md")
-    assert set(files) == {"src/env.js", "src/zones/grove.js", "src/scene.js"}
-    for rel, body in files.items():
-        p = tmp_path / rel
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(body)
+    assert set(files) == {"src/env.js"}
+    body = files["src/env.js"]
+    assert len(body.strip().splitlines()) <= 12
+    for word in ("sunRig", "Fog(", "PlaneGeometry", "position: [", "Cone"):
+        assert word not in body, word
+    p = tmp_path / "src" / "env.js"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(body)
     runner = """
 import * as THREE from 'three';
-import { createScene } from './src/scene.js';
-const r = await createScene({ THREE, renderer: null, loaders: {} });
-if (!r.scene || !r.scene.isScene) throw new Error('no scene');
-if (!r.scene.fog) throw new Error('no fog');
-if (!Array.isArray(r.cameras) || r.cameras.length < 2) throw new Error('cameras');
-for (const c of r.cameras) {
-  if (typeof c.name !== 'string' || !Array.isArray(c.position) || !Array.isArray(c.lookAt))
-    throw new Error('camera shape: ' + JSON.stringify(c));
-}
-r.update(0, 0); r.update(1.5, 0.016);
-console.log('SCENE_OK', r.cameras.map((c) => c.name).join(','));
+import * as env from './src/env.js';
+if (typeof env.heightAt !== 'function' || typeof env.heightAt(3, 4) !== 'number') throw new Error('heightAt');
+if (typeof env.SUN_AZIMUTH_DEG !== 'number') throw new Error('SUN_AZIMUTH_DEG');
+const scene = new THREE.Scene();
+const out = env.buildEnv({ THREE, scene });
+if (!out || typeof out.update !== 'function') throw new Error('buildEnv must return { update }');
+out.update(0, 0); out.update(1.5, 0.016);
+console.log('ENV_OK');
 """
     out = run_node_module(tmp_path, runner)
-    assert "SCENE_OK" in out
-
-
-@pytest.mark.node
-def test_scene_cookbook_sky_shader_compiles() -> None:
-    """The sky dome the scene cookbook builds with makeShaderMaterial must also compile — as a Mesh
-    (the dome) and as an InstancedMesh, through the production host (``check_shaders.mjs``)."""
-    body = "".join("\n" + strip_imports_exports(b) for b in blocks("scene_threejs/cookbook.md", "js")[:2])
-    scene = (
-        "import * as THREE from 'three';\nimport { sunRig } from './lib/environment.js';\n"
-        "import { mulberry32 } from './lib/noise.js';\nimport { makeShaderMaterial } from './lib/shader.js';\n"
-        + body
-        + "\nexport function createScene() {\n"
-        "  const scene = new THREE.Scene();\n"
-        "  const env = buildEnv({ THREE, scene });\n"
-        "  const sky = scene.getObjectByName('SkyDome');\n"
-        "  scene.add(new THREE.InstancedMesh(new THREE.PlaneGeometry(2, 2), sky.material, 4));\n"
-        "  return { scene, cameras: [{ name: 'a', position: [3, 3, 5], lookAt: [0, 0, 0] }], update: env.update };\n"
-        "}\n"
-    )
-    code, out = compile_scene(scene, ("environment.js", "sky.js"))
-    assert code == 0, f"sky shader failed to compile:\n{out}"
+    assert "ENV_OK" in out
 
 
 # --------------------------------------------------------------------- scene_blender
-#: what the scene_blender cookbook's header promises every zone-body snippet has in scope
-_BPY_PRELUDE = "import math\n\nimport bmesh\nimport bpy\nfrom mathutils import Euler, Matrix, Vector, noise\n"
-#: a block that is module-level ``src/env.py`` code instead (the world is only ever built there)
-BPY_ENV_ROLE = "# role: env"
-
-
-def bpy_snippet_modules(rel: str) -> tuple[str, dict[str, str]]:
-    """``(src/env.py source, {zone snake: zone module source})`` for the python blocks of ``rel``: the
-    ``# role: env`` blocks concatenated in order into ONE env module, every other block the body of its
-    own zone's ``build(ctx)`` under the prelude the cookbook header states."""
-    env_blocks: list[str] = []
-    zones: dict[str, str] = {}
-    for i, body in enumerate(blocks(rel, "python")):
-        if body.lstrip().startswith(BPY_ENV_ROLE):
-            env_blocks.append(body)
-            continue
-        indented = "".join(("    " + line) if line.strip() else line for line in body.splitlines(keepends=True))
-        zones[f"snippet_{i:02d}"] = (f'"""block {i} of {rel}, run as a zone by tests/prompts/test_snippets_run.py."""\n'
-                                     + _BPY_PRELUDE + "\n\ndef build(ctx):\n    rng = ctx.rng(7)\n" + indented
-                                     + ("" if indented.endswith("\n") else "\n") + "    return ctx.collection\n")
-    return "\n\n".join(env_blocks), zones
-
-
 def _bpy_workspace(tmp_path):
     """The scratch workspace the scene_blender snippets run in: the skeleton of the bpy worked example
     (its two module assets build first → ``ctx.assets``), through the real runtime."""
@@ -287,37 +220,30 @@ def _bpy_workspace(tmp_path):
 
 
 @pytest.mark.blender
-def test_scene_blender_cookbook_runs_inside_zones_and_lints_clean(tmp_path) -> None:
-    """The bpy cookbook's promise: every snippet runs in Blender 5.2.2 under the ctx the wrapper hands
-    out (one process for all of them) and passes the scene lint for its role with no WARN."""
-    from codeverse3d.contracts.artifacts import Severity
+def test_the_bpy_plan_skeleton_builds_in_blender_as_written(tmp_path) -> None:
+    """The fresh skeleton (a stub env — a level plate and nothing that passes: no world, lamp or
+    atmosphere — and a TODO stub per zone) builds in Blender 5.2.2 before an author touches it: every
+    zone ok, no env error, a ground in the census and no fog or light until the author writes the
+    brief's (2026-10-15)."""
     from codeverse3d.conventions import to_pascal
-    from codeverse3d.languages.scene_blender import lint_scene_source
 
-    ws, rt, _ = _bpy_workspace(tmp_path)
-    env_src, zones = bpy_snippet_modules("scene_blender/cookbook.md")
-    assert env_src and len(zones) >= 10
-    (ws.src / "env.py").write_text(env_src)
-    for name, src in zones.items():
-        (ws.src / "zones" / f"{name}.py").write_text(src)
-    bad = {}
-    for rel, src, role in [("src/env.py", env_src, "env"), *((f"src/zones/{n}.py", s, "zone") for n, s in zones.items())]:
-        findings = [f for f in lint_scene_source(src, target=rel, role=role) if f.severity is not Severity.INFO]
-        if findings:
-            bad[rel] = [(f.severity.value, f.message) for f in findings]
-    assert not bad, bad
+    ws, rt, plan = _bpy_workspace(tmp_path)
+    zones = {rt.zone_file(z.name).rsplit("/", 1)[-1][:-3] for z in plan.zones}
     run = rt.run_wrapper(ws, ws.artifacts, zones={n: to_pascal(n) for n in zones}, blend=False, timeout_s=600)
-    errors = [(e.get("stage"), e.get("name"), e.get("error_file"), e.get("error_line"), e.get("error_message")) for e in run.report.get("errors") or []]
+    errors = [(e.get("stage"), e.get("name"), e.get("error_file"), e.get("error_line"), e.get("error_message"))
+              for e in run.report.get("errors") or []]
     assert run.result.ok and not errors, (run.result.error_type, run.result.error_message, errors)
     assert sorted(run.report["zones_ok"]) == sorted(zones)
-    assert not run.report.get("warnings"), run.report.get("warnings")
+    assert run.facts.get("fog") is None and not run.facts.get("lights"), {k: run.facts.get(k) for k in ("fog", "lights")}
 
 
 @pytest.mark.blender
 @pytest.mark.node
 def test_scene_blender_contract_examples_build_through_the_runtime(tmp_path) -> None:
     """The contract's two COMPLETE files (built on the shipped bpy library, D51) lint clean, assemble,
-    build and seat what they place — through the real runtime, gates included."""
+    build and seat what they place — through the real runtime, gates included.  The contract's python
+    blocks are exactly these two labelled files: nothing else of the bpy prompt material is code."""
+    assert len(blocks("scene_blender/contract.md", "python")) == len(labelled_files("scene_blender/contract.md", tag="python"))
     from codeverse3d.contracts.artifacts import Severity
     from codeverse3d.languages import scene_blender as sb
     from tests.scene_runtime.conftest import browser_available

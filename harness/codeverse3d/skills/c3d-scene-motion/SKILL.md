@@ -1,12 +1,12 @@
 ---
 name: c3d-scene-motion
-description: "Use when a scene_threejs session authors or refines animation, or when scene_frames reported no motion or the judge said nothing_moves. Make the scene visibly move between the two frames the harness photographs, and survive the four mechanisms that silently freeze it. Applies to baseline, zone, refine and compose sessions. Covers how motion is measured, the single update hook the harness actually calls, the amplitudes that read at 1024 x 576, and why clearing the motion gate is not the same as scoring animation_life - that is judged per item against the plan animation list."
+description: "Use when a scene_threejs session authors or refines animation, or when scene_frames reported no motion or the judge said nothing_moves. Make the scene visibly move between the two frames the harness photographs, and survive the four mechanisms that silently freeze it. Applies to baseline, zone, refine and compose sessions. Covers how motion is measured, the single update hook the harness actually calls, the amplitudes measured to read at 1024 x 576, and why clearing the motion gate is not the same as scoring animation_life - that is judged per item against the plan animation list."
 license: Apache-2.0
 compatibility: "scene track, language scene_threejs. three r182 in headless Chrome; the harness photographs each camera at t = 0 s and t = 1.5 s and diffs the pair."
 metadata:
   evidence: mixed
   evidence_note: "The mechanism and hook are read from live code (spatial/frame_motion.py, spatial/frame_metrics.py, runtime_js/lib/scene_host.mjs) and are exact. The corpus behind them is thin: 3 graded scene runs / 8 judged rounds on scenes_v1_flash, 2026-08-23. Where a number is from that battery it says so."
-  verified: "2026-08-25"
+  verified: "2026-10-15"
   pairs_with: "c3d-scene-composition, c3d-scene-lighting, c3d-threejs-shader-traps"
   target_metric: "min_authored_changed_frac"
   target_direction: "up"
@@ -39,7 +39,7 @@ camera and hands the judge the number:
   "nothing moves: the largest change on an authored camera is N% of pixels …
   (measured, not perceived)", and the judge is told to treat it as fact
 
-So the target is concrete: **at least one authored camera visibly changes between
+So the requirement is concrete: **at least one authored camera visibly changes between
 t = 0 and t = 1.5 s.** A few centimetres of sway on a scene tens of metres wide
 does not do it.
 
@@ -48,8 +48,7 @@ does not do it.
 Re-measuring the stored frames of all 8 recorded rounds with today's code
 (2026-08-25) gives an uncomfortable result: **every one of them cleared the bar.**
 The best authored camera changed 2.1 %–4.7 % of its pixels in every round, and
-`animation_life` still came out between 0.1
-and 0.8, averaging 0.431.
+`animation_life` still came out between 0.1 and 0.8, averaging 0.431.
 
 The reason is in the judge's own words on three of those rounds: "the planned
 animations for water and falling leaves are completely static", "the planned
@@ -60,8 +59,8 @@ moved; the things the plan promised did not.
 `animation` list verbatim, item by item, alongside the measured motion table. So
 the criterion is scored per item, not globally:
 
-* **Every named item in the plan's animation list must be visibly moving on an
-  authored camera.** One hero mover clears the gate; it does not discharge a
+* **Every named item in the plan's animation list is visibly moving on an
+  authored camera.** One mover clears the gate; it does not discharge a
   four-item animation plan.
 * **The amplitude written in the plan is intent, not a spec.** That rooftop
   scene's plan asked for "sway with sine displacement amplitude 0.035 m" and
@@ -96,30 +95,28 @@ planned animation was absent while the code for it sat in `src/`.
    `update_ok: false` with the message — check it before you conclude the
    amplitude was too small.
 4. **The motion is off camera.** Only authored cameras decide it. A drifting boat
-   behind the establishing camera is worth nothing; put the hero motion in the
-   frame the first camera looks at.
+   behind the establishing camera is worth nothing; put the motion in the
+   frames the authored cameras look at.
 
-## The shape that works
+## The one hook
+
+Interface: `createScene({ THREE, renderer, loaders })` returns `{ scene, cameras,
+update(t, dt) }`; the host calls that one `update` and nothing else, so it has to reach
+every mover you create. How you structure modules is yours; one way is a list walked
+in `update`:
 
 ```js
-export async function createScene({ THREE, renderer, loaders }) {
-  const scene = new THREE.Scene();
-  const ctx = { THREE, scene, renderer, loaders }, env = buildEnv(ctx);
-  const zones = [buildGrove(ctx), buildHarbour(ctx)];
-  scene.add(...zones);
-  const movers = [env, ...zones].filter(Boolean);
-  return {
-    scene, cameras,
-    update(t, dt) {
-      for (const m of movers) (m.userData?.update ?? m.update)?.(t, dt);
-    },
-  };
-}
+const movers = [env, ...zones].filter(Boolean);          // built once, at scene build
+return { scene, cameras, update(t, dt) {
+  for (const m of movers) (m.userData?.update ?? m.update)?.(t, dt);
+} };
 ```
 
-One list, built once, walked by the single hook the harness calls. Add a mover to
-the list in the same edit that creates it — a zone whose `userData.update` nobody
-walks is failure mode 2 wearing a disguise.
+Add a mover to the list in the same edit that creates it — a zone whose
+`userData.update` nobody walks is failure mode 2 wearing a disguise. Library effects
+(`makeFire`, `makeSmoke`, `makeOceanSurface`, `makeFlag` …) carry their own
+`userData.update(t, dt)`; call each once from the zone that owns it, and anything built
+with `patchStandard` is driven by one `tickShaders(scene, t)` in `scene.js`.
 
 ## Pose from absolute `t`
 
@@ -130,47 +127,40 @@ on how many steps ran, which is exactly the thing a refine round changes by
 accident. Write the pose, do not integrate it:
 
 ```js
-// yes
-pivot.rotation.z = Math.sin(t / PERIOD * 6.283 + phase) * AMP;
-leaf.position.y  = home.y - ((t * FALL_SPEED + phase) % CYCLE);
-// no
-pivot.rotation.z += dt * SPEED;
+pivot.rotation.z = Math.sin(t / PERIOD * 6.283 + phase) * AMP;      // yes
+leaf.position.y  = home.y - ((t * FALL_SPEED + phase) % CYCLE);     // yes
+pivot.rotation.z += dt * SPEED;                                      // no
 ```
 
-Two more rules that follow from the pair of frames:
+Two things that have made the difference register in the pair of frames:
 
-* **Start mid-phase.** `Math.sin(0) = 0`, so a pure sine puts every sway at rest
+* **Starting mid-phase.** `Math.sin(0) = 0`, so a pure sine puts every sway at rest
   in the t = 0 photograph and the scene reads dead in the very frame the judge
-  looks at first. Give each element a phase offset, or drive it with
-  `Math.sin(t / P * 6.283 + 1.0)`.
-* **Seed the phase per instance.** `phase = rand() * 6.283` from your seeded
-  `mulberry32`. A hundred trees sharing one phase is one big object nodding, which both
-  looks wrong and cancels itself out in the pixel diff when half the crowd moves
-  into the space the other half left.
+  looks at first; a phase offset per element avoids that.
+* **A phase per instance** from your seeded `mulberry32`. A hundred trees sharing one
+  phase is one big object nodding, which both looks wrong and cancels itself out in the
+  pixel diff when half the crowd moves into the space the other half left.
 
-Never use `Math.random()`, `Date.now()` or `performance.now()` — the contract
-forbids all three, and a non-deterministic scene makes the two frames
-incomparable.
+`Math.random()`, `Date.now()` and `performance.now()` are forbidden by the contract — a
+non-deterministic scene makes the two frames incomparable.
 
 ## Amplitudes that read
 
-Give the scene **one unmistakable hero motion** — a turning wheel, a drifting
-boat, falling leaves, a rotating beam, a flock — and then give every remaining
-item on the plan's animation list an amplitude from this table. The hero clears
-the gate; the rest of the list is what the criterion is scored against.
+What moves is the plan's animation list. These ranges have been measured to read at
+1024 x 576 between the two photographs; below them an item is scored as absent:
 
 | what moves | amplitude over 1.5 s | period |
 |---|---|---|
 | foliage / banner sway | 0.10–0.20 rad (6–11 degrees) at the pivot | 1.6–3 s |
 | grass, reeds | 0.15 rad, phase-offset per instance | 1.2–2 s |
 | water | wave height at least 0.04 m **and** a scrolling uv/normal at 0.15 m/s | 2–4 s |
-| falling leaves, petals, snow, dust | at least 0.6 m of travel, 60–250 particles | recycle over 6–12 s |
+| falling leaves, petals, snow, dust | at least 0.6 m of travel | recycle over 6–12 s |
 | flame / lantern flicker | intensity x0.75 to x1.3, plus `emissiveIntensity` | 0.1–0.3 s |
 | vehicles, boats, birds | at least 1.5 m of travel | loop |
 
-Pivot placement matters as much as amplitude: rotate a group whose origin is at
-the **base** of the trunk or the **top** of the flagpole, so the far end swings.
-Rotating the mesh about its own centre moves half as many pixels for the same
+Where the pivot sits changes what the measure sees: a group whose origin is at the
+base of the trunk or the top of the flagpole swings its far end through the frame,
+while a mesh rotated about its own centre moves half as many pixels for the same
 angle.
 
 ## Prove it before you finish
@@ -185,26 +175,26 @@ move the mover into frame. Do not ship on the strength of having written the
 code — and if nothing at all moved, run `scene_probe` first: a frozen scene is
 more often a thrown `update` than a small amplitude.
 
-## People, vehicles, weather
+## People, vehicles, weather, fire
 
-* **A walking figure**: hierarchy person -> hips -> legs, torso -> arms,
-  pivots AT the joints, posed from t: `ph = t*3.2 + seed*6.283;
-  legL.rotation.x = sin(ph)*0.6; legR = -legL;` arms opposite-phase at 0.4x;
-  bob hips by `abs(cos(ph))*0.04`. Per-person seed on phase and speed
-  (+-20%) prevents lockstep; frozen mid-stride reads perfectly.
-* **Paths**: people and vehicles ride a `CatmullRomCurve3` —
-  `getPointAt((t*speed/len + u0) % 1)`, face the tangent; distinct `u0`
-  offsets space the traffic; wheels spin `t*speed/wheelR`.
-* **Rain is streaks, not dots**: `LineSegments` pairs `[p, p+vec3(.1,-1.4,0)]`
-  at opacity 0.3-0.5 — elongation IS the motion cue. Snow: soft-sprite
-  `Points` with per-flake sine sway. Every particle gets a random phase so a
-  frozen frame is mid-motion, never at a synchronized extreme.
-* **Fire additive, smoke normal** — never swap: fire is crossed planes
-  scrolling fbm through a flame mask (`AdditiveBlending`) plus a flickering
-  orange PointLight; smoke is gray soft sprites, NORMAL blending.
+Requirement: weather and fire read as the phenomenon at the authored cameras and not as
+hard-edged quads or discs (judged: `hard_edged_particles`); a particle cloud moves or it
+is a decal. Options that read:
+
+* **A walking figure**: `figure` + `walk` from `lib/figure.js`; or your own hierarchy
+  with pivots AT the joints, legs opposite-phase from `t`, a per-person seed on phase and
+  speed so a crowd is not in lockstep — frozen mid-stride reads perfectly.
+* **Paths**: `alongPath` / `route` / `crowdOn` in `lib/place.js`, or a `CatmullRomCurve3`
+  sampled at `(t * speed / len + u0) % 1`, facing the tangent; distinct `u0` offsets space
+  the traffic.
+* **Rain** as elongated streaks (`makeRain`, `makeRainVeil` at distance) — elongation is
+  the motion cue; **snow** as soft sprites with per-flake sway (`makeSnowfall`); **motes**
+  and pollen from `makeMotes`; every particle gets its own phase so a frozen frame is
+  mid-motion, never at a synchronized extreme.
+* **Fire additive, smoke normal**: `makeFire` / `makeFireField` with a flickering light,
+  `makeSmoke` / `makeSteam` as a bounded density — a chain of spheres is not steam.
 
 ## Depth
 
-`references/motion_recipes.md` — the sway pivot, the recycling particle field,
-the scrolling-water uniform and the mover-registration pattern, each as code you
-can paste and adapt.
+`references/motion_recipes.md` — the sway pivot, a recycling particle field, the
+scrolling-water uniform and the mover-registration pattern, short enough to adapt.

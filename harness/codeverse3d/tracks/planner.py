@@ -47,7 +47,7 @@ from codeverse3d.models import get_chat_model
 from codeverse3d.models.schema_utils import ask_structured, parse_json_lenient
 from codeverse3d.proc import NULL_EVENTS, sha256_file, write_text_atomic
 from codeverse3d.prompts import load_text, prompt_hash, render
-from codeverse3d.prompts.catalog import language_text
+from codeverse3d.prompts.catalog import contract_sections, language_text
 from codeverse3d.tracks.prompting import constraints_text
 from codeverse3d.workspace import Workspace
 
@@ -498,14 +498,27 @@ def plan_example(track: Track, language: Language | None = None) -> dict[str, An
             ],
         }
     if track is Track.SCENE:
+        # ONE place's plan, shaped like that place (an L of quay on the west, open water east and
+        # running OUT of the bounds, the mole and the village street running out too, open quay-head
+        # ground the zones do not cover) — never a layout to copy.  Its bounds centre, Quay bbox and
+        # Overview position are pinned by tests/scene_blender/test_prompts.
         return {
-            "title": "Harbour at dusk", "summary": "Small fishing harbour: quay, two boats, lighthouse, calm water.",
+            "title": "Harbour at dusk", "summary": "Small fishing harbour: an L of granite quay on the west side, two boats "
+            "moored against it, the basin opening east to the sea; the mole runs out of the bounds to the north-east.",
             "setting": "Breton coast, 1960s, clear dusk", "mood": "calm, warm low sun",
-            "bounds": {"center": [0, 5, 0], "extents": [120, 30, 120]},
-            "environment": "Sky gradient orange→indigo, sun at azimuth 250° elevation 8°, light fog density 0.004, flat sea plane y=0, stone quay at y=1.2.",
+            "bounds": {"center": [0, 5, 0], "extents": [100, 30, 70]},
+            "environment": "Sky zenith 0x2b3f6e to horizon 0xf0a060, sun azimuth 250° elevation 8°; fog 0xe8a070 near 60 m far "
+            "320 m; sea plane y=0 colour 0x2f4a55 to the east horizon; the quay deck is flat at y=1.2 along x -40..0 and "
+            "the village street climbs 3 m out of the bounds to the west; the mole continues 60 m past the bounds to the "
+            "north-east with the lighthouse at its end; low headland 300 m off to the south.",
             "zones": [
-                {"name": "Quay", "description": "L-shaped granite quay with bollards and crates", "bbox": {"center": [-20, 1.2, 0], "extents": [40, 3, 60]}, "contents": ["Bollard", "Crate"]},
-                {"name": "Water", "description": "calm harbour basin with two moored boats", "bbox": {"center": [20, 0, 0], "extents": [60, 1, 80]}, "contents": ["FishingBoat"]},
+                {"name": "Quay", "description": "L-shaped granite quay deck at y=1.2 along the west and north edges; bollards every "
+                 "6 m on the edge, crates stacked by the net shed; seen by Overview and QuayEye",
+                 "bbox": {"center": [-20, 1.2, 0], "extents": [40, 3, 60]}, "contents": ["Bollard", "Crate"]},
+                {"name": "Water", "description": "the basin: two boats moored bow-in against the quay edge 12 m apart, open water "
+                 "east of them past the bounds to the sea (the zone runs out of the bounds on the east; the quay head "
+                 "north of z=-30 is open ground no zone covers)", "bbox": {"center": [30, 0, 5], "extents": [60, 1, 60]},
+                 "contents": ["FishingBoat"]},
             ],
             "assets": [
                 {"name": "FishingBoat", "kind": "threejs", "description": "8 m wooden boat, wheelhouse aft, red hull", "approx_size_m": [8, 3.5, 3], "instances_hint": 2},
@@ -514,8 +527,11 @@ def plan_example(track: Track, language: Language | None = None) -> dict[str, An
             ],
             "effects": [{"name": "WaterRipple", "kind": "glsl_material", "description": "animated normal ripples on the sea plane", "target": "Water"}],
             "animation": ["boats bob ±0.05 m at 0.3 Hz", "water ripples scroll"],
-            "cameras": [{"name": "Overview", "position": [45, 18, 55], "look_at": [0, 1, 0], "fov": 50, "purpose": "establishing shot"},
-                        {"name": "QuayEye", "position": [-5, 2.8, 25], "look_at": [15, 1, -10], "fov": 60, "purpose": "eye level along the quay"}],
+            "cameras": [{"name": "Overview", "position": [38, 4, -30], "look_at": [-12, 1.5, 6], "fov": 48,
+                         "purpose": "establishing: low over the basin from the mole to the north-east, looking back along the quay "
+                                    "at the two moored boats; the village street climbs out of frame behind them, open water right"},
+                        {"name": "QuayEye", "position": [-5, 2.8, 25], "look_at": [8, 1, -8], "fov": 60,
+                         "purpose": "eye level on the quay deck, looking along the edge at the nearer boat"}],
             "acceptance": [{"id": "a1", "text": "Two boats float on the water inside the basin", "how": "visual", "priority": "must"},
                            {"id": "a2", "text": "Quay top at y≈1.2 m, boats' waterline at y≈0", "how": "probe", "priority": "must"}],
         }
@@ -958,6 +974,24 @@ def _echo(raw: Any, text: str) -> ChatMessage:
 
 
 # ----------------------------------------------------------------------------- prompts
+#: the ``## `` headings of a scene contract the PLANNER acts on: it writes JSON, so it reads the
+#: files the builders will own and what is measured on them — not the assembler wiring, the shader
+#: loading or the worked modules (the copyability review of 2026-10-15: +38 % on the planner brief)
+PLANNER_CONTRACT_SECTIONS: dict[Language, tuple[str, ...]] = {
+    Language.SCENE_THREEJS: ("Files", "createScene return value", "What is measured", "Naming"),
+    Language.SCENE_BLENDER: ("Files", "Frame and units", "What the renderer does", "Motion", "Naming", "Placement",
+                             "What else the gates measure", "Interiors"),
+}
+
+
+def planner_contract(lang: Language) -> str:
+    """The contract text a planner of ``lang`` reads: the scene languages' measured sections only,
+    every other language's contract whole."""
+    text = language_text(lang, "contract.md")
+    headings = PLANNER_CONTRACT_SECTIONS.get(lang)
+    return contract_sections(text, headings) if headings else text
+
+
 def build_system_prompt(spec: Spec, plan_model: type[BaseModel], *, budget: PlanBudget | None = None) -> str:
     lang: Language = spec.language
     budget = budget or plan_budget(spec)
@@ -966,7 +1000,7 @@ def build_system_prompt(spec: Spec, plan_model: type[BaseModel], *, budget: Plan
         track=spec.track.value,
         language=lang.value,
         frame_doc=frame_doc(LANGUAGE_FRAME[lang.value]),
-        contract=language_text(lang, "contract.md"),
+        contract=planner_contract(lang),
         example_json=json.dumps(plan_example(spec.track, lang), indent=1),
         schema_fields=", ".join(plan_model.model_json_schema().get("properties", {}).keys()),
         target_parts=budget.target_parts,
@@ -1010,8 +1044,8 @@ def ensure_acceptance[P: BaseModel](plan_obj: P, spec: Spec) -> P:
     A *must* item that the judge cannot verify caps the score (``missing_must_acceptance``)
     AND fails the run outright, so only the items the harness can hold the builder to may
     carry that priority.  On the SCENE track the planner writes its own checklist before
-    the scene exists ("the parapet is 1.05 m high", "the establishing camera frames 70 % of
-    the gorge") and there is no measurement pass to settle them — a flash planner's private
+    the scene exists ("the parapet is 1.05 m high", "the gorge reads 200 m
+    deep") and there is no measurement pass to settle them — a flash planner's private
     wishes were capping finished scenes at 0.60.  The spec's ``must_have`` list is the
     contract with the user, so on that track the plan's own items stay on the checklist as
     ``should`` (the judge still answers them, the refine loop still reads them) and only the

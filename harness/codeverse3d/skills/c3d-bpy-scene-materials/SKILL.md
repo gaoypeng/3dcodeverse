@@ -1,17 +1,17 @@
 ---
 name: c3d-bpy-scene-materials
-description: "Use in every scene_blender env, zone, asset or refine session that authors a surface — ground, walls, props, foliage, water, glass, a glowing sign. Cycles renders every node you wire, but the harness's census reads only three Principled sockets, so no gate rewards material work and the judge penalises the lack of it. Gives the Blender 5.2 node facts (no use_nodes, the 4.x socket names, ShaderNodeMix), the lib.materials recipes, variation across copies without identical twins, ground layering and the seam under props, water, glass and emissive done as dielectrics and fixtures, and what to zoom on before you finish."
+description: "Use in every scene_blender env, zone, asset or refine session that authors a surface — ground, walls, props, foliage, water, glass, a glowing sign, steam. Cycles renders every node you wire, but the harness's census reads only three Principled sockets, so no gate rewards material work and the judge penalises the lack of it. Gives the Blender 5.2 node facts (no use_nodes, the 4.x socket names, ShaderNodeMix), what the judge names and what it measures, lib.materials as an optional palette, variation across copies without identical twins, ground that varies where the brief's surface does, water, glass and emissive done as dielectrics and fixtures, soft particles as volumes, and what to zoom on before you finish."
 license: Apache-2.0
 compatibility: Blender 5.2.2 LTS headless, scene_blender runtime; Cycles 32 samples + OIDN under AgX (the harness's render settings), Principled BSDF 4.x socket names.
 metadata:
   evidence: mixed
-  evidence_note: 'The census facts are read from live code on 2026-10-14 (wrappers/_census_glb.py, wrappers/_census.py, the languages/blender lint tables verified against Blender 5.2.2 LTS) and the defect wording from the scene judge rubric; the recipes restate the scene_blender starter library. The corpus half is empty: zero graded scene_blender runs exist on 2026-10-14; the first loop iteration attaches numbers.'
-  verified: "2026-10-14"
+  evidence_note: 'The census facts are read from live code on 2026-10-14 (wrappers/_census_glb.py, wrappers/_census.py, the languages/blender lint tables verified against Blender 5.2.2 LTS) and the defect wording from the scene judge rubric; the recipes restate the scene_blender starter library. The corpus half is the argon loop iteration 0 of 2026-10-15 (30 scene_blender runs): 8 scenes built hard-edged particles from surface shaders.'
+  verified: "2026-10-15"
   target_metric: "flat_principled_materials"
   target_direction: "down"
   target_unit: "materials whose Base Color, Roughness and Metallic are all unlinked constants (prospective census)"
   target_measurable: "false"
-  target_baseline: "n=0 — no graded scene_blender runs yet (2026-10-14); the first loop iteration attaches numbers once the census records the count"
+  target_baseline: "n=0 — the census does not yet record the count; the argon loop iteration 0 (2026-10-15) is the first sample once it does"
 ---
 
 # Surfaces that read as a place — Principled recipes the census cannot see
@@ -21,9 +21,10 @@ metadata:
 The judge sees Cycles pixels: every noise texture, bump and vertex colour you wire is in the
 picture, and the rubric names the failures directly — `placeholder_material` (default-grey or
 untextured flat surfaces, with a score ceiling of its own), `flat_ground` (one flat colour with
-a hard undressed seam where objects meet it) and `monotonous_vegetation` (one shape stamped many
-times with no variation in hue or size) — under its `materials_shaders_effects` criterion. The
-deterministic side sees almost nothing: the census GLB the gates read carries each material's Principled `Base Color`,
+a hard undressed seam where objects meet it), `monotonous_vegetation` (one shape stamped many
+times with no variation in hue or size) and `hard_edged_particles` (steam, smoke or sparks with a
+silhouette) — under its `materials_shaders_effects` criterion. The deterministic side sees almost
+nothing: the census GLB the gates read carries each material's Principled `Base Color`,
 `Metallic` and `Roughness` default values only, and a LINKED socket exports as its default. So
 no gate measures material work; this sheet is about the judge's picture, plus the one census
 fact that does bite — a mesh with no material at all is warned as exporting grey.
@@ -35,25 +36,26 @@ fact that does bite — a mesh with no material at all is warned as exporting gr
   reports it as deprecated.
 * Socket names are the 4.x ones — `Base Color`, `Roughness`, `Metallic`, `IOR`, `Alpha`,
   `Normal`, `Emission Color` plus `Emission Strength`, `Transmission Weight`, `Coat Weight`,
-  `Sheen Weight`, `Subsurface Weight`, `Specular IOR Level`. Never write the old `Specular`,
-  `Transmission`, `Emission`, `Subsurface` or `Clearcoat` keys: they raise, and the lint names the
-  renamed ones for you. `Specular Tint` is a colour, so assign a 4-tuple.
+  `Sheen Weight`, `Subsurface Weight`, `Specular IOR Level`. The old `Specular`, `Transmission`,
+  `Emission`, `Subsurface` and `Clearcoat` keys raise, and the lint names the renamed ones for
+  you. `Specular Tint` is a colour, so assign a 4-tuple.
 * Mixing colours is `ShaderNodeMix` with its data type set to RGBA (`Factor`, `A`, `B` in,
-  `Result` out), not `ShaderNodeMixRGB`, which is gone.
+  `Result` out); `ShaderNodeMixRGB` is gone.
 * Per-face materials: set `material_index` on the bmesh faces BEFORE `bm.to_mesh`. Every new
   polygon starts on slot 0, and the census warns about slots no polygon uses — the part was
   authored in four colours and exports in one.
 
-## The recipes — `lib.materials` first
+## The palette — `lib.materials`, one option
 
 Every call takes a name and returns a material; colours are sRGB hex strings (`rgba` decodes
 them to linear). Procedural detail reads OBJECT coordinates, so `noise_scale` is features per
 metre whatever the object's size, and the lib's own band for a non-emissive albedo is 0.02-0.8
-linear: pure black reads as a hole, pure white as a blown surface.
+linear: pure black reads as a hole, pure white as a blown surface. Nodes you wire yourself do the
+same job (`references/principled-recipes.md` has the snippets).
 
 | want | call |
 |---|---|
-| any surface with value variance | `material(name, color, roughness=..., metal=..., noise_scale=..., bump=..., emission=...)` — a `noise_scale` above zero is the low-contrast map every large surface needs |
+| a surface with value variance | `material(name, color, roughness=..., metal=..., noise_scale=..., bump=..., emission=...)` — `noise_scale` above zero adds the low-contrast variation that stops a large surface reading as a flat placeholder (judged); where the brief's material has it |
 | stone, brick, plaster | `masonry(name, color, mortar=..., scale=...)`, `limestone(name, color, scale=...)`, `ashlar(name, color)`, `mineral_surface(name, color, stone=...)` |
 | wood | `woodgrain(mat, dark=..., light=..., direction=...)` on an existing material |
 | worn paint, used metal | `chipped_paint(mat, paint, substrate, scale=...)`, `worn_alloy(name, color, seed=..., metal=...)` |
@@ -61,6 +63,7 @@ linear: pure black reads as a hole, pure white as a blown surface.
 | water | `water(name, color=..., roughness=..., scale=..., flow=..., ctx=ctx)` for a tinted, moving surface; `clear_water(name)` for shallow, almost colourless water (a basin, a bowl, a stream) |
 | glass | `glass(name, color=..., roughness=..., ior=...)` |
 | a glowing fixture | `emissive(name, color, strength)` — the look only; the light is a `practical` lamp (c3d-bpy-scene-lighting) |
+| steam, smoke, dust, mist | `volume(name, color, density=..., anisotropy=..., noise_scale=..., emission=...)` — volume-only, no silhouette |
 | a copy that is not a twin | `tint(mat, variant)` — a copy with its Base Color shifted, one per VARIANT and shared by that variant's copies; it leaves a LINKED Base Color alone, so a noise-mapped material gets its variant from `material` called with another colour |
 
 ## Variation without twins
@@ -73,28 +76,39 @@ over many copies, an Object Info node's `Random` output driving a hue shift, whi
 evaluates per instance. The `stamped_ring` plan check measures rings of identical copies at one
 radius, and the judge calls the result monotonous vegetation.
 
-## Ground: layers, not a colour
+## Ground: what `flat_ground` means
 
-`lib.terrain.ground` takes ONE material; make it earn its area. `mineral_surface` or
-`material(..., noise_scale=...)` as the base, a second colour mixed in by slope (the Geometry
-node's `Normal`, its Z through a ColorRamp into the mix factor) and by height (object Z from
-Texture Coordinate) — grass to earth to rock — plus a worn band as a noise-masked third colour
-where the plan's paths run. The seam under a building is `flat_ground`'s own wording: a darker,
-rougher band of ground tint under big structures, and ground cover (`gn_scatter`, `grass_patch`)
-along their feet. A colour attribute on the ground mesh read by a Color Attribute node does the
-same job when the bands are easier to paint per vertex than to compute per pixel.
+Requirement (judged): the ground does not read as one flat untextured colour where the brief's
+surface would vary, and the seam where structures meet it does not read as a hard undressed line.
+`lib.terrain.ground` takes ONE material, so the variation lives inside it or in the mesh's own
+attributes. Options, by what the brief's place has: a slope mix (the Geometry node's `Normal`,
+its Z through a ColorRamp into the mix factor) and a height mix (object Z from Texture
+Coordinate) for natural ground; a worn band as a noise-masked colour along the routes people
+take; a darker or rougher apron, or ground cover (`gn_scatter`, `grass_patch`), at the feet of
+big structures; a colour attribute on the ground mesh read by a Color Attribute node when the
+bands are easier to paint per vertex than to compute per pixel; paving (`lib.architecture.paving`,
+`paving_grid`) where the ground is built, not grown. A polished floor or a plaza that IS one
+material is not a defect when its material reads as that material.
 
 ## Water, glass, fog — dielectrics and volumes
 
 * Water is a dielectric: `water` and `clear_water` set transmission, a low roughness and
-  `Metallic` at zero — never a metallic mirror plane. Moving water scrolls its mapping node on
-  `ctx.frame(t)` through `lib.motion.scroll`, which is why `water(..., ctx=ctx)` wants the context.
+  `Metallic` at zero; a metallic mirror plane reads as chrome, not water. Moving water scrolls its
+  mapping node on `ctx.frame(t)` through `lib.motion.scroll`, which is why `water(..., ctx=ctx)`
+  wants the context.
 * Glass is `glass`: full `Transmission Weight`, low roughness, the lib's default IOR. The bounce
   budget is the harness's, so a stack of transmissive layers along one sight line goes dark —
-  keep it to one or two.
-* Fog is a VOLUME-ONLY material on a box (`lib.sky.haze`): only the Material Output's Volume
-  socket linked. A box with a surface shader as well is matter to the census — a huge placed
-  asset enclosing everything — and the `no_fog` check does not count it as atmosphere.
+  one or two read.
+* Fog is a VOLUME-ONLY material on any mesh (`lib.sky.haze` makes a box): only the Material
+  Output's Volume socket linked. A mesh with a surface shader as well is matter to the census — a
+  huge placed asset enclosing everything — and the `no_fog` check does not count it as atmosphere.
+* Soft particles are volumes too. A surface shader always has a silhouette; 8 of the 30 argon
+  Blender scenes of 2026-10-15 built steam from translucent ico-spheres, metaballs, stacked tori,
+  discs or polygon sparks and were graded `hard_edged_particles`. `lib.materials.volume` on a
+  cloud of spheres (one `Batch`, one object, tagged `placement = "free"`, moved with
+  `lib.motion.drift` or `sway` so the two judged frames differ) rendered with no edge, and 40
+  such puffs added 0.7 s to a 32-sample GPU frame; motes and sparks read as tiny `emissive`
+  spheres. Under a dim world a volume with zero `emission` comes out grey.
 
 ## Emissive and metal under AgX
 
@@ -106,9 +120,9 @@ under a black world is a black shape.
 ## Verify before you finish
 
 `scene_views(cameras="authored", times=[0.0])` and zoom one frame: a wall or a ground that is one
-flat value needs `noise_scale`; two copies you cannot tell apart need variants; a grey default is
-a mesh that never got a material (the build output warns about it by name). Then `scene_probe`
-for triangle counts — materials are free, geometry is not.
+flat value where the brief's would not be needs variation; two copies you cannot tell apart
+need variants; a grey default is a mesh that never got a material (the build output warns about
+it by name). Then `scene_probe` for triangle counts — materials are free, geometry is not.
 
 Node snippets — noise to bump, the slope mix, the Object Info tint, per-face slots, the
-volume-only box, the socket rename table — in `references/principled-recipes.md`.
+volume-only material, the socket rename table — in `references/principled-recipes.md`.

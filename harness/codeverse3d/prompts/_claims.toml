@@ -45,7 +45,7 @@ context = "sampled-time trap"
 
 [[claim]]
 key     = "scene_times"
-file    = "scene_threejs/cookbook.md"
+file    = "scene_threejs/contract.md"
 text    = "0 and t = 1.5"
 python  = "codeverse3d.tracks.scene:SCENE_TIMES"
 sep     = " and t = "
@@ -53,7 +53,7 @@ context = "renders every camera at t ="
 
 [[claim]]
 key     = "scene_times"
-file    = "scene_threejs/cookbook.md"
+file    = "scene_threejs/contract.md"
 text    = "0, 1.5"
 python  = "codeverse3d.tracks.scene:SCENE_TIMES"
 sep     = ", "
@@ -66,7 +66,7 @@ context = "scene_views(times=["
 
 [[claim]]
 key     = "scene_times"
-file    = "scene_blender/cookbook.md"
+file    = "scene_blender/contract.md"
 text    = "0 and t = 1.5"
 python  = "codeverse3d.tracks.scene:SCENE_TIMES"
 sep     = " and t = "
@@ -81,17 +81,19 @@ context = "fps="
 
 [[claim]]
 key     = "asset_max_tris"
-file    = "scene_blender/cookbook.md"
-text    = "15000"
+file    = "scene_blender/contract.md"
+text    = "15,000"
 python  = "codeverse3d.tracks.scene_assets:ASSET_MAX_TRIS"
+format  = "{:,}"
 context = "per asset"
 
 [[claim]]
 key     = "hero_max_tris"
-file    = "scene_blender/cookbook.md"
-text    = "40000"
+file    = "scene_blender/contract.md"
+text    = "40,000"
 python  = "codeverse3d.tracks.scene_assets:HERO_MAX_TRIS"
-context = "for a hero"
+format  = "{:,}"
+context = "per hero"
 
 [[claim]]
 key     = "scene_max_tris"
@@ -215,7 +217,7 @@ context = "ERRORS at"
 
 [[claim]]
 key     = "placement_floating_error_m"
-file    = "scene_blender/cookbook.md"
+file    = "scene_blender/contract.md"
 text    = "0.08"
 python  = "codeverse3d.config:Placement"
 format  = "{0.model_fields[floating_error_m].default:.2f}"
@@ -223,7 +225,7 @@ context = "ERROR at"
 
 [[claim]]
 key     = "placement_sunk_error_m"
-file    = "scene_blender/cookbook.md"
+file    = "scene_blender/contract.md"
 text    = "0.20"
 python  = "codeverse3d.config:Placement"
 format  = "{0.model_fields[sunk_error_m].default:.2f}"
@@ -231,7 +233,7 @@ context = "ERROR at"
 
 [[claim]]
 key     = "placement_overlap_error"
-file    = "scene_blender/cookbook.md"
+file    = "scene_blender/contract.md"
 text    = "35%"
 python  = "codeverse3d.config:Placement"
 format  = "{0.model_fields[overlap_error].default:.0%}"

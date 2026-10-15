@@ -1,13 +1,13 @@
 ---
 name: c3d-scene-composition
-description: "Use when a scene_threejs session owns the environment, a zone's placement or the camera list, or when scene_frames reported a camera problem. Lay out the scene so the harness's deterministic instruments agree with the picture - one height function everything samples, a world that does not end in shot, and cameras computed from measured bounds instead of guessed. Includes the sky/ground/content classifier that silently decides two gate findings, and the camera-placement rules and score caps scene_frames checks."
+description: "Use when a scene_threejs session owns the environment, a zone's placement or the camera list, or when scene_frames reported a camera problem. States what the harness's deterministic instruments require of a composition - one height function everything samples, a world that does not end in shot, cameras whose eye, clearance and coverage are measured - and how each is measured, so the brief's own place can satisfy them in its own way. Includes the sky/ground/content classifier that silently decides two gate findings, the camera score caps, and a menu of horizon treatments."
 license: Apache-2.0
 compatibility: track scene, language scene_threejs (three r182, headless Chrome, the harness builds the cameras from your plain camera objects).
 metadata:
   evidence: mixed
   evidence_note: "Camera checks, score caps and the backdrop classifier are read from live code (spatial/frame_metrics.py, judges/rubrics/scene_v2.yaml, runtime_js/lib/backdrop.mjs, runtime_js/lib/scene_host.mjs). The corpus behind them is thin: only 3 graded scene runs exist, so every count below names its n."
-  verified: "2026-08-25"
-  corpus: "3 graded scene_threejs runs with gate artefacts, mined 2026-08-25"
+  verified: "2026-10-15"
+  corpus: "3 graded scene_threejs runs with gate artefacts, mined 2026-08-25; 60 argon iteration-0 scenes re-read 2026-10-15 for the sameness audit"
   target_metric: "camera_placement_findings"
   target_direction: "down"
   target_unit: "findings per run"
@@ -18,19 +18,27 @@ metadata:
 # Composing a scene the instruments can read
 
 **Read this if** you are writing `env.js`, placing a zone, or returning the `cameras`
-array. Two of the three graded scene runs in this corpus carry a composition issue and it is
-the same one in both — a visible world edge — and one of those two also placed three
-authored cameras below the ground. Both failures are arithmetic, not taste.
+array. The harness measures a composition in a handful of numbers; this sheet says which
+numbers, where they come from, and leaves the picture to the brief. Nothing here is a
+layout: the 60 argon iteration-0 scenes (2026-10-15) all came out as one block on a flat
+plate ringed by hills because every session built the same recipe, and that is what the
+judge marks as a toy.
 
-## Build in this order
+## What has to be true, in whatever order you build it
 
-1. **Bounds** — read `BOUNDS` from the plan. Everything below is derived from its
-   horizontal diagonal `diag`.
-2. **One height function.** `heightAt(x, z)` in `env.js` is the only terrain authority.
-   The ground mesh samples it, every zone samples it, every camera samples it. A zone that
-   invents its own ground level is how props end up buried and cameras end up underground.
-3. **Ground**, then **horizon**, then zones, then cameras. Cameras last, because they are
-   computed from what exists.
+* **The plan's bounds** are the content box: the harness clamps its own overview rig to them
+  and the placement gate measures planned assets against them (`out_of_bounds`, a WARN past
+  max(5 m, 10 % of the span)). Nothing in `env.js` restates them for the harness — it reads
+  only `heightAt`, `buildEnv` and the sun-azimuth export (the contract) from that file. They are where the content
+  lives, not where the world stops: the world the authored cameras see continues past them.
+* **One height function.** `heightAt(x, z)` in `env.js` is the only ground authority: the
+  ground mesh samples it, every zone seats on it, every camera's eye is set from it. A zone
+  that invents its own ground level is how props end up buried and cameras underground.
+* **The world does not end in shot.** From every authored camera nothing shows the ground
+  ending or an empty horizon line (judged: `world_edge_visible`); the placement report
+  measures outdoor standing geometry reaching past the bounds (`world_edge`, a WARN) and fog
+  reaching past the content (`fog_short`, `no_fog`). See the horizon menu below.
+* **Cameras are derived from measured content**, not guessed (the table below).
 
 ## The classifier nobody tells you about
 
@@ -47,7 +55,7 @@ coverage gate) and `ground_y` (the camera-height gate). The rules, in order:
 | span > 40 m and height < 2% of span (any name) | ground |
 | everything else | content |
 
-Three consequences you must design around:
+Three consequences to design around:
 
 * **A wide flat slab is ground whatever you call it.** A 50 m plaza deck or a big pond is
   classified ground, so it stops counting as content, and its *top* raises `ground_y`.
@@ -55,9 +63,9 @@ Three consequences you must design around:
   the floor that camera heights are checked against. In this corpus a garden reported
   `ground_y = 6.21 m` and three authored cameras placed at absolute eye height came back as
   `camera is 1.0 / 4.6 / 4.8 m below the ground level` — three ERRORs in one run.
-* **Instanced scatter always counts as content.** The cheapest way to lift a thin
-  establishing shot is more instanced planting and props, not a
-  bigger ground plane (which counts against you).
+* **`content_frac` counts drawables classified content.** A bigger ground plane does not
+  raise it; what raises it in a thin shot is whatever the brief's place has in that view
+  (buildings, trees, people, boats, instanced cover — the brief decides which).
 
 ## Cameras are measured, and the numbers are hard
 
@@ -69,20 +77,23 @@ turns those ERRORs into score ceilings:
 |---|---|---|---|
 | nearest surface < 0.5 m, or the camera is inside a mesh box | `NEAR_HIT_M` | `camera inside / touching geometry` | **0.50** |
 | eye below ground and the frame corroborates it (dark, empty or one-colour) | — | `camera_underground` | **0.50** |
-| establishing shot that is mostly sky/ground | — | `establishing shot shows too little content` | **0.60** |
+| the first camera (measured as the establishing shot) shows < 20 % content | — | `establishing shot shows too little content` | **0.60** |
 | any authored shot that is almost all sky/ground | — | `shot shows little content` | WARN |
 | eye less than 0.3 m above ground | `EYE_MIN_ABOVE_GROUND_M` | `ant's-eye view` | WARN |
 | eye more than 80 m above ground | `EYE_MAX_ABOVE_GROUND_M` | `satellite view, not a shot` | WARN |
 | one luminance band dominates the frame | — | `flat frame` | WARN; ERROR and **0.65** when it holds nearly all of it |
 
-So compute, never guess:
+So compute the eye from the terrain and aim each camera at the subject the brief gives it:
 
 ```js
-const y = heightAt(x, z) + 1.6;                     // human shot: terrain FIRST, then eye height
-const d = Math.max(size.x, size.z);                 // measured content span, sky dome excluded
-const establishing = { name: 'Establishing', fov: 42,
-  position: [c.x + d * 0.55, size.y * 1.1 + 6, c.z + d * 0.6], lookAt: [c.x, 2, c.z] };
+const y = heightAt(x, z) + EYE;   // terrain FIRST, then the eye height the brief's shot has
 ```
+
+Where a camera stands, how many there are and what each frames is the brief's. A strong
+option for the establishing shot is `establishingShot` from `lib/place.js`, which takes the
+hero object and derives distance and height from its measured box; `seat` and `shot` in
+the same module place a camera or a prop on the surfaces you pass. Whatever you use, the
+first camera in the array is the one measured as establishing.
 
 Two notes that save a wasted repair round:
 
@@ -91,36 +102,42 @@ Two notes that save a wasted repair round:
   camera standing in the open, not a buried camera. Check the frame before you move it.
 * Do **not** set `near` or `far`. `runtime_js/lib/scene_host.mjs` computes
   `far = max(1000, farthest scene-bbox corner * 1.25 + 10)` from the *whole* scene, so a
-  distant horizon ring or sky dome is never clipped.
+  distant backdrop or sky dome is never clipped.
 
-## The world must not end in shot
+## The world must not end in shot — a menu, not a recipe
 
-This is the most repeated judge complaint on the track and **no gate catches it** — all 4
-composition issues recorded across the 3 graded scene runs (2 major, 2 minor, mined
-2026-08-25) are the same sentence: *a hard world edge is visible where the ground plane ends
-and meets the sky*. The arithmetic that kills it, all derived from `diag`:
+The requirement: from every authored camera, nothing shows the ground ending or an empty
+horizon line (`world_edge_visible`, judged; all 4 composition issues across the 3 graded
+runs mined 2026-08-25 were that sentence). Any ground mesh extends past the fog's far
+distance along every authored view, or something stands between the camera and its edge.
+How the world continues is the brief's place. Strong options, each on its own enough:
 
-```
-fogScale   = clamp(diag / 100, 0.3, 2.5)          // the cookbook's fog table is for 100 m
-fogFar     = fogScale * (the time-of-day row's far)
-groundSize >= 2.4 * fogFar                        // ground reaches past the fog
-ringRadius  = max(0.6 * fogFar, 2 * (diag / 2))   // silhouette ring, 24-40 solid shapes
-skyRadius   > ringRadius                          // the dome has to contain the ring
-fog colour == the sky's horizon colour            // or the ground ends AT the sky, not IN it
-```
+* **Terrain that keeps going** — `makeOutskirts` from `lib/environment.js` carries the
+  land from the content out to the fog with seam-matched relief, fields and wooded
+  clusters; `ground` from `lib/terrain.js` with its `relief` option is the simpler version.
+* **A ridge or mesa on ONE side**, with the opposite side falling away to fog or water.
+* **A treeline** (`makeImposters` from `lib/woodland.js` at distance) or an orchard edge.
+* **A far skyline** — `cityFabric` from `lib/building.js`, a harbour wall, a viaduct.
+* **A shoreline**: `makeOceanSurface` or `makeOcean` to the horizon on one or more sides.
+* **Fog only**, when the brief's weather is thick enough that the ground fades before it
+  ends (`makeHeightFog`, `patchAerialPerspective` from `lib/atmosphere.js`).
+* **Walls, cliffs, or an interior** with no horizon at all (`roomShell`, `cliff`).
 
-Solid shapes, never plane billboards, and never hand-tint the ring toward the fog colour —
-`scene.fog` already does that by distance, and doing it twice produces the pale cardboard
-the judge grades as a placeholder material. Code: the cookbook section "Horizon: the world
-must not end" and the cookbook section "Atmosphere: time-of-day triads with numbers"
-for the fog row.
+A ring of near-identical copies stamped evenly round the world is measured
+(`stamped_ring`, the placement report) and judged `monotonous_vegetation`; whatever closes
+the horizon has to read as that place's far distance at the authored cameras' range, not as
+a placeholder or a flat card (`placeholder_material`, judged). If you use fog, a fog colour
+that matches the horizon it fades into keeps the ground edge from reading as a line;
+`scene.fog` already blends distant materials toward it, so pre-tinting a backdrop toward
+the fog colour doubles the haze and renders as pale cardboard.
 
-## What you have already been given, and what you have not
+## Depth that reads
 
-`env` sessions receive the *Ground that reads real*, *Horizon*, *Atmosphere* and *Dusk /
-night lighting* chapters inlined in the prompt. **Zone, compose and refine sessions do
-not** — if you own a zone or the camera list, this skill plus the cookbook is the whole
-of your guidance on the horizon and on camera placement.
+`empty_midground` (judged) is an authored frame with empty regions the brief's place would
+fill; what fills them — and at which distances — is the brief's. Two measured limits on the
+near field: the gate needs `nearest_hit_m` >= 0.5 m, and no more than 5 of the 9 sight rays
+may end within 1.5 m (`camera_blocked`). Scatter is blind, so keep each authored camera's
+first metres clear of it — a conifer planted on the lens turns the money shot into bark.
 
 ## Verify before you finish
 
@@ -130,5 +147,5 @@ those six numbers against the table above rather than judging the thumbnails by 
 `scene_probe` for triangles, draw calls and fps. A camera that fails the table fails it
 deterministically; there is nothing to argue with.
 
-Worked derivations — bounds to fog to ring to the three cameras, and the coverage-repair
-checklist — are in `references/measured-cameras.md`.
+`references/measured-cameras.md` holds the finding-to-fix table and the naming rules the
+classifier reads.

@@ -25,8 +25,7 @@ Prefer the `lib.materials` call that does the same thing; write nodes only for w
 
 ```python
 noise = nodes.new("ShaderNodeTexNoise")
-noise.inputs["Scale"].default_value = <texels per metre: 2-5 cm at walking distance>
-noise.inputs["Detail"].default_value = 6.0
+noise.inputs["Scale"].default_value = <features per metre: 2-5 cm at walking distance>
 mix = nodes.new("ShaderNodeMix")
 mix.data_type = "RGBA"
 mix.inputs["A"].default_value = (<r>, <g>, <b>, 1.0)        # the base colour
@@ -49,8 +48,7 @@ geo = nodes.new("ShaderNodeNewGeometry")
 sep = nodes.new("ShaderNodeSeparateXYZ")
 links.new(geo.outputs["Normal"], sep.inputs["Vector"])
 ramp = nodes.new("ShaderNodeValToRGB")                          # a ColorRamp: slope -> 0..1
-ramp.color_ramp.elements[0].position = <cos of the rock angle, e.g. 0.65>
-ramp.color_ramp.elements[1].position = <a few hundredths higher: a soft edge>
+ramp.color_ramp.elements[0].position = <cos of the rock angle>   # element 1 a few hundredths higher: a soft edge
 links.new(sep.outputs["Z"], ramp.inputs["Fac"])
 mix = nodes.new("ShaderNodeMix")
 mix.data_type = "RGBA"
@@ -61,7 +59,8 @@ links.new(mix.outputs["Result"], bsdf.inputs["Base Color"])
 ```
 
 Height bands use the Object output of a Texture Coordinate node, Z through a second ramp.
-A worn path is a third colour masked by a low-frequency noise sampled along the path's polyline.
+A worn route is a further colour masked by a low-frequency noise along its polyline. These are
+options for natural ground; built ground (paving, a floor) carries its own material instead.
 
 ## 4. One material, many copies: the Object Info tint
 
@@ -102,8 +101,9 @@ vol.inputs["Density"].default_value = <0.002-0.02>
 links.new(vol.outputs["Volume"], nodes["Material Output"].inputs["Volume"])
 ```
 
-`lib.sky.haze(collection, loc, size, density=..., color=...)` builds this on a box sized to the
-play area. Leave the Surface socket unlinked: a box with both is a placed asset to the gate.
+`lib.sky.haze(collection, loc, size, density=..., color=...)` builds this on a box; any mesh whose
+only linked output is Volume is fog to the census. With the Surface socket linked as well it is a
+placed asset to the gate. `lib.materials.volume` is the same shader with noise, for steam and mist.
 
 ## 7. Water and glass, as the lib sets them
 

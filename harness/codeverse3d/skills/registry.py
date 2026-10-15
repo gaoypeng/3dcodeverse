@@ -52,7 +52,7 @@ MOTION_WRONG_DIRECTION = "motion_direction/wrong_direction"
 LINT = "lint/*"
 LINT_PART_NOT_IMPORTED = f"lint/{LintKind.PART_NOT_IMPORTED.value}"
 #: the scene_placement gate's seating kinds (spatial/scene_placement.py; ``free_exempt`` and
-#: ``cantilevered`` are 2026-10-14's, D105).  Its PLAN kinds (no_fog, no_backdrop, scale, zone_empty, …)
+#: ``cantilevered`` are 2026-10-14's, D105).  Its PLAN kinds (no_fog, world_edge, scale, zone_empty, …)
 #: are deliberately not here: they are env / composition findings, not seating.
 SCENE_PLACEMENT_FLOATING = "scene_placement/floating"
 SCENE_PLACEMENT_SUNKEN = "scene_placement/sunken"

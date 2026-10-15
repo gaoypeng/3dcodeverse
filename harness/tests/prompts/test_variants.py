@@ -224,7 +224,8 @@ def test_variant_hash_covers_both_overlays_and_ignores_readmes(overlay, tmp_path
 
 def test_the_argon_variant_ships_the_iteration_1_overlays():
     """Iteration 0 of the loop measured the base prompts under the plumbing (an empty overlay);
-    iteration 1 (2026-10-15) shadows the two zone briefs and boosts the two placement skills — the
+    iteration 1 (2026-10-15) shadows the two zone briefs and boosts the Blender placement skill (the
+    three.js composition boost was withdrawn under D106: that bundle carried the template) — the
     whole overlay is these files, nothing else, and the hash covers them."""
     from codeverse3d.skills import variant_dir, variants_table
 
@@ -240,7 +241,7 @@ def test_the_argon_variant_ships_the_iteration_1_overlays():
     assert sorted(p.name for p in variant_dir("argon").iterdir()) == ["README.md", "routes.toml"]
     table = variants_table("argon")
     assert not table.empty and table.variant == "argon" and not table.routes and not table.disabled
-    assert {(b.skill, b.delta) for b in table.boosts} == {("c3d-scene-composition", 14), ("c3d-bpy-scene-placement", 9)}
+    assert {(b.skill, b.delta) for b in table.boosts} == {("c3d-bpy-scene-placement", 9)}   # the composition boost was withdrawn (D106)
     assert len(variant_hash("argon")) == 12
 
 

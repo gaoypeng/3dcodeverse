@@ -100,7 +100,8 @@ def test_frame_gate_reports_motion_as_info_and_freeze_as_error(tmp_path: Path) -
     rep2 = frame_findings(frozen)
     f = next(f for f in rep2.findings if f.data["kind"] == "no_motion")
     assert f.severity is Severity.ERROR and not rep2.passed
-    assert "amplitude" in f.fix_hint and "0.10" in f.fix_hint
+    # the hint states the measure and the hook, not a list of required motions (D106)
+    assert "0.4 %" in f.fix_hint and "userData.update(t, dt)" in f.fix_hint and "must" not in f.fix_hint
 
 
 def test_stored_motion_ignores_junk() -> None:

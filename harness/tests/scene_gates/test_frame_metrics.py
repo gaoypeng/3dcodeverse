@@ -5,6 +5,7 @@ from __future__ import annotations
 from codeverse3d.contracts.artifacts import Severity
 from codeverse3d.judges.rubrics import apply_caps, load_rubric
 from codeverse3d.spatial.frame_metrics import (
+    HINTS,
     frame_findings,
     frame_summary_text,
 )
@@ -104,6 +105,34 @@ def test_content_small_roles():
                    ("content_small", Severity.WARN, "overview_top")]
     assert "12%" in rep.findings[0].message and "sky 50%" in rep.findings[0].message
     assert rep.findings[0].data["role"] == "establishing" and not rep.passed
+
+
+def test_no_hint_prescribes_one_camera_or_light_construction():
+    """2026-10-15 (owner's rule): a fix hint states the measured requirement and leaves the construction
+    open.  The old hints were the diorama shot — stand at 1.2x the content span, 6-20 m up, lookAt the
+    bounds centre, fill the bounds — and the library's rig as THE light; every refine round read them."""
+    rep = frame_findings(_metrics(
+        _chk("Establishing", content_frac=0.12, sky_frac=0.5, ground_frac=0.38),
+        _chk("Ant", eye_height_m=3.2, ground_below_m=0.06, ground_below_name="SnowTerrain"),
+        _chk("Drone", eye_height_m=98.0, ground_below_m=95.0, ground_below_name="Ground"),
+        _chk("Flat", modal_frac=0.95), _chk("Dark", mean_lum=0.05, dark_frac=0.6), _chk("Blown", blown_frac=0.3),
+        _chk("overview_top", "orbit", content_frac=0.03)))
+    hints = {(f.data["kind"], f.target): f.fix_hint for f in rep.findings}
+    text = " ".join(hints.values())
+    for recipe in ("1.2 ×", "1.2 x", "6–20 m", "6-20 m", "fill the bounds", "zone centre", "content centre", "looking down 15",
+                   "densify", "+ 1.6 (eye level)", "do not add a second sun"):
+        assert recipe not in text, recipe
+    # what each hint states instead: the measurement, and the brief's viewpoint as the construction's owner
+    assert "what the brief says this viewpoint looks at" in hints[("content_small", "Establishing")]
+    assert ">= 0.3 m above the surface beneath it" in hints[("camera_low", "Ant")] and "balcony" in hints[("camera_low", "Ant")]
+    assert "below 80 m" in hints[("camera_high", "Drone")] and "tower top" in hints[("camera_high", "Drone")]
+    assert "mean luminance >= 0.12" in hints[("dark_frame", "Dark")] and "one way" in hints[("dark_frame", "Dark")]
+    assert "20 % pure-white" in hints[("blown_frame", "Blown")] and "typically" in hints[("blown_frame", "Blown")]
+    assert "aim the camera at its subject" in hints[("flat_frame", "Flat")]
+    assert "zone_empty / missing_content" in hints[("content_small", "overview_top")]
+    # both languages carry the same set of hints, worded for their API
+    assert set(HINTS["scene_blender"]) == set(HINTS["scene_threejs"]) and "high" in HINTS["scene_threejs"]
+    assert "ctx.height_at" in HINTS["scene_blender"]["low"] and "80 m" in HINTS["scene_blender"]["high"]
 
 
 def test_scene_rubric_caps_fire_on_frame_kinds():

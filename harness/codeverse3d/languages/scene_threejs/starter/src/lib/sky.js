@@ -142,7 +142,8 @@ export function skyRadiance(dir, sunDir, opts = {}) {
  * @param {object} [opts]
  *   `rig` a `sunRig()` result to slave to; `sunDir` explicit sun
  *   vector; `elevationDeg` (default 15) / `azimuthDeg` (default 135)
- *   sun angles; `turbidity` (default 4.5), `rayleigh` (default 1.6),
+ *   sun angles — defaults are a low afternoon sun, pass the brief's
+ *   hour; `turbidity` (default 4.5), `rayleigh` (default 1.6),
  *   `mieCoefficient` (default 0.0035), `mieDirectionalG` (default
  *   0.8) — the battery-graded atmosphere; `exposure` dome gain
  *   (default 0.36, graded for exposure 1.0 — the old ungraded dome is

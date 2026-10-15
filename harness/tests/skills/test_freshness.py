@@ -238,6 +238,24 @@ def test_every_named_cookbook_section_exists():
             )
 
 
+#: the cookbook was ELIMINATED for the scene track (owner, 2026-10-15): its interface facts went
+#: into contract.md / system.md and its craft into the skills as short optional practices, so a
+#: scene bundle that still points the agent at a cookbook chapter points at nothing.
+SCENE_LANGS = frozenset({"scene_threejs", "scene_blender"})
+
+
+def test_scene_bundles_name_no_cookbook_chapter():
+    for s in SKILLS:
+        langs = _languages_of(s.name)
+        if not langs or not langs <= SCENE_LANGS:
+            continue
+        text = "\n".join([s.body] + [p.read_text() for p in sorted(s.dir.rglob("references/*.md"))])
+        assert not _cookbook_sections_named_by(s), (
+            f"{s.name} names cookbook sections {_cookbook_sections_named_by(s)}; the scene cookbooks are gone")
+        assert not re.search(r"\bcookbook\b", text, re.I), (
+            f"{s.name} still mentions a cookbook; the scene track has none")
+
+
 def test_every_live_constant_named_by_a_skill_has_a_claim():
     from codeverse3d.addons.skill_targets import load_claims
 

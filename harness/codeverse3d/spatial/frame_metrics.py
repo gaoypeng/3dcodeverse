@@ -49,14 +49,16 @@ TARGET_BLOCKED_FRAC = 0.5      # the line of sight to lookAt is cut before this 
 BLOCKED_RAYS_MIN = 6           # of the 3 x 3 sight rays, within near_limit_m (host BLOCKED_M)
 EYE_MAX_ABOVE_GROUND_M = 80.0
 
-#: for a frame that is dark AND flat -- nothing is lit, so adding light is right
+#: for a frame that is dark AND flat -- nothing is lit, so adding light is right.  The hints
+#: state the measurement and leave the construction open (owner's rule, 2026-10-15): a library
+#: call or a number is an example, never the fix.
 _DARK_HINT = (
-    "raise the light through the rig env.js already builds — `sunRig({ mood: 'day'|'golden'|'night'|'overcast', "
-    "intensity, fill, … })`: pick the brief's mood (a set sun, elevation < 0, is the night rig), raise `intensity` (key, "
-    "the rig clamps requests below its floor UP) and `fill` (the hemisphere) — do not add a second sun on top; "
-    "add emissive lights where the brief has them (lantern glow: the cookbook's practical-light recipe, `PRACTICAL` "
-    "from lib/environment.js — an emissive face plus one PointLight per lantern); scene.fog colour must match the sky "
-    "colour; dusk/night is orange/purple/deep blue, NOT black (check with scene_views: camera_checks.mean_lum)"
+    "the frame is too dark (the gate wants mean luminance >= 0.12, or real contrast with <= 35 % near-black pixels): "
+    "raise the key and the fill until the authored frames measure over the line without flattening them (scene_views: "
+    "camera_checks.mean_lum) — a stronger sun / hemisphere, or emissive practicals where the brief has lamps (an emissive "
+    "face plus a PointLight each; `PRACTICAL` in lib/environment.js is one); the library's `sunRig({ mood, intensity, "
+    "fill })` is one way to a balanced rig, and a set sun (elevation < 0) is its night rig; a fog colour that matches "
+    "the sky keeps the distance readable; dusk and night are colour, not black"
 )
 #: for a frame that is dark but CONTRASTY -- something IS lit, so adding fill is the
 #: wrong move and actively destroys the picture.  Measured 2026-08-25: temple_night was
@@ -65,71 +67,87 @@ _DARK_HINT = (
 #: drowned a working KoiWater ShaderMaterial -- the effect was running the whole time.
 #: The judge then scored the washed-out version 0.7287 and passed it.
 _LOWKEY_HINT = (
-    "this frame is DIM BUT LIT — it has real contrast, so do NOT add AmbientLight or HemisphereLight and do NOT "
-    "raise a DirectionalLight to fix it: flat fill is what turns a night scene into a grey wash, washes dark "
-    "materials out to near-white and drowns emissive/shader effects. Instead lift the picture where the light "
-    "actually comes from: raise emissiveIntensity on the lamps/lanterns themselves, add or brighten a PointLight "
-    "at each practical light, give dark materials a low but non-zero base colour so they read as material and not "
-    "as void, and let the shadowed areas stay dark. Only if the frame is ALSO flat (no contrast) does it need key/fill."
+    "this frame is DIM BUT LIT — it has real contrast, so flat fill (an AmbientLight / HemisphereLight, a stronger "
+    "DirectionalLight) is the wrong move: it turns a night scene into a grey wash, washes dark materials out to "
+    "near-white and drowns emissive/shader effects. Lift the picture where the light actually comes from: raise "
+    "emissiveIntensity on the lamps/lanterns themselves, add or brighten a PointLight at each practical light, give dark "
+    "materials a low but non-zero base colour so they read as material and not as void, and let the shadowed areas "
+    "stay dark. Only a frame that is ALSO flat (no contrast) needs key/fill."
 )
 _BLOWN_HINT = (
-    "lower exposure: DirectionalLight ≤ 3, HemisphereLight ≤ 1.0, no MeshBasicMaterial white planes; "
-    "sky colour below 0.9 white; emissiveIntensity ≤ 4 on large surfaces"
+    "the frame is blown out (the limit is 20 % pure-white pixels): lower the exposure until it measures under — "
+    "typically a key light <= 3, hemisphere <= 1, no flat-white unlit planes, sky below 0.9 white, emissive <= 4 on "
+    "large surfaces"
 )
 _FLAT_HINT = (
-    "one colour dominates the frame: aim the camera at content (lookAt the zone centre), add contrast with a shadow-casting "
-    "DirectionalLight, vary materials, and make sure the sky gradient / fog is not a single flat tint"
+    "one luminance band dominates the frame: aim the camera at its subject (not at a wall, the sky or bare ground) and "
+    "give the frame contrast — a shadow-casting key light, varied materials, a sky / fog gradient rather than one flat tint"
 )
-_NEAR_HINT = "move the camera ≥ 0.5 m away from every surface (raise it above ground/terrain, pull it out of walls and trees) and keep lookAt on the content"
+_NEAR_HINT = ("move the camera >= 0.5 m away from every surface (raise it above ground/terrain, pull it out of walls and "
+              "trees) and keep lookAt on its subject")
 _STATIC_HINT = (
-    "nothing moved between the animation times: give the planned motion a visible amplitude — foliage/banner sway "
-    "±0.10–0.20 rad, water surface ≥ 3 cm vertical or a scrolling normal/uv, particles ≥ 0.6 m of travel per 1.5 s, "
-    "rotating parts ≥ 20°/s — and drive it from the ONE hook the harness calls: the object returned by createScene "
-    "(update(t, dt)) → env.update → each zone's group.userData.update(t, dt).  Everything must be a pure function of t"
+    "nothing moved between the animation times (measured: under 0.4 % of an authored frame's pixels changed by more than "
+    "8/255, and under 0.08 % by more than 60): the planned motion has to be visible from an authored camera at t = 0 and "
+    "t = 1.5 s — for example sway of ±0.1-0.2 rad, >= 3 cm of water displacement or a scrolling normal/uv, >= 0.6 m of "
+    "particle travel, >= 20°/s of rotation — and driven from the one hook the harness calls: the object createScene "
+    "returns (update(t, dt)) → env.update → each zone group's userData.update(t, dt), as a pure function of t"
 )
 _SMALL_HINT = (
-    "the shot shows mostly sky/ground: move the camera closer to the content (distance ≈ 1.2 × the content's widest span), "
-    "lower it toward eye level, point lookAt at the content centre, or fill the bounds with more zones/assets"
+    "the frame is mostly sky / bare ground: aim this camera at what the brief says this viewpoint looks at, and make "
+    "sure that subject is built and in the line of sight (a camera_target_blocked finding names what cuts it); the "
+    "gate counts built geometry other than ground and water as content — check with scene_views"
 )
 
 
-_EYE_HINT = "set position[1] = heightAt(x, z) + 1.6 (eye level) — never below the terrain"
-_LOW_HINT = "human shots: position[1] = heightAt(x, z) + 1.6; establishing: 6–20 m above ground looking down 15–30°"
+_EYE_HINT = ("stand the camera on the surface under it: position[1] = heightAt(x, z) at its standpoint plus the height "
+             "the brief gives this viewpoint (eye level ~1.6 m, a balcony, a tower) — never below the terrain")
+_LOW_HINT = ("the eye has to be >= 0.3 m above the surface beneath it (measured: ground_below_m): set position[1] = "
+             "heightAt(x, z) + the height the brief describes for this viewpoint — eye level (~1.6 m), a balcony, a "
+             "tower — and look at the subject")
+_HIGH_HINT = ("bring the camera below 80 m above the surface it stands over (measured: ground_below_m), to a height the "
+              "brief's viewpoint justifies — a tower top, a ridge, a rooftop, eye level — still aimed at its subject")
 
 #: scene_blender's words for the same fixes (D1, lane B): bpy lamps / world nodes / keyframes, the
 #: Blender frame (z up), ``ctx.height_at``.  The thresholds are the same; only the advice differs.
 _BPY_HINTS: dict[str, str] = {
     "dark": (
-        "raise the light in build_env (src/env.py): the Sun lamp's strength (`sun.data.energy` 3–5 for day, 1–2 at golden "
-        "hour; a sun below the horizon is the night rig) and the world Background / Sky Texture Strength (the fill) — do not "
-        "add a second sun; add practical lights where the brief has them (a Point lamp of 20–200 W at each lantern plus an "
-        "Emission shader on the lamp mesh); keep a world Volume thin (density ≤ 0.02) or it swallows the light; dusk/night is "
-        "orange/purple/deep blue, NOT black (check with scene_views: camera_checks.mean_lum)"),
+        "the frame is too dark (the gate wants mean luminance >= 0.12, or real contrast with <= 35 % near-black pixels): "
+        "raise the light in build_env (src/env.py) until the authored frames measure over the line without flattening them "
+        "(scene_views: camera_checks.mean_lum) — the Sun lamp's strength (`sun.data.energy`, typically 3-5 by day, 1-2 at "
+        "golden hour; a sun below the horizon is a night rig) and the world Background / Sky Texture strength (the fill), "
+        "practical lights where the brief has lamps (a Point lamp of 20-200 W plus an Emission shader on the lamp mesh); "
+        "a world Volume thicker than ~0.02 swallows the light; dusk and night are colour, not black"),
     "lowkey": (
-        "this frame is DIM BUT LIT — it has real contrast, so do NOT raise the world Background strength or add a big "
-        "area/sun lamp to fix it: flat fill turns a night scene into a grey wash, washes dark materials out and drowns "
-        "emissive effects. Lift the picture where the light actually comes from: raise the Emission Strength of the "
-        "lamps/lanterns, add or brighten a Point lamp at each practical light, give dark materials a low but non-zero Base "
-        "Color so they read as material and not as void, and let the shadowed areas stay dark. Only if the frame is ALSO "
-        "flat (no contrast) does it need key/fill."),
+        "this frame is DIM BUT LIT — it has real contrast, so flat fill (a stronger world Background, a big area / sun "
+        "lamp) is the wrong move: it turns a night scene into a grey wash, washes dark materials out and drowns emissive "
+        "effects. Lift the picture where the light actually comes from: raise the Emission Strength of the lamps/lanterns, "
+        "add or brighten a Point lamp at each practical light, give dark materials a low but non-zero Base Color so they "
+        "read as material and not as void, and let the shadowed areas stay dark. Only a frame that is ALSO flat (no "
+        "contrast) needs key/fill."),
     "blown": (
-        "lower exposure: Sun lamp strength ≤ 5, world Background / Sky Texture strength ≤ 1.5, no white Emission planes, "
-        "Emission Strength ≤ 5 on large surfaces — the harness renders AgX at exposure 0 and owns the view settings"),
+        "the frame is blown out (the limit is 20 % pure-white pixels): lower the exposure until it measures under — "
+        "typically a Sun lamp strength <= 5, world Background / Sky Texture strength <= 1.5, no white Emission planes, "
+        "Emission Strength <= 5 on large surfaces; the harness renders AgX at exposure 0 and owns the view settings"),
     "flat": (
-        "one colour dominates the frame: aim the camera at content (look_at the zone centre), add contrast with a Sun lamp "
-        "that casts shadows, vary materials, and make sure the world (Sky Texture / Background) and any Volume are not one "
-        "flat tint"),
-    "near": ("move the camera ≥ 0.5 m away from every surface (raise it above ground/terrain: z = ctx.height_at(x, y) + 1.6, "
-             "pull it out of walls and trees) and keep look_at on the content"),
+        "one luminance band dominates the frame: aim the camera at its subject (not at a wall, the sky or bare ground) and "
+        "give the frame contrast — a Sun lamp that casts shadows, varied materials, a world (Sky Texture / Background) and "
+        "Volume that are not one flat tint"),
+    "near": ("move the camera >= 0.5 m away from every surface (raise it above ground/terrain: z = ctx.height_at(x, y) + its "
+             "height, pull it out of walls and trees) and keep look_at on its subject"),
     "static": (
-        "nothing moved between the animation times: give the planned motion a visible amplitude — foliage/banner sway "
-        "±0.10–0.20 rad, water surface ≥ 3 cm vertical, particles ≥ 0.6 m of travel per 1.5 s, rotating parts ≥ 20°/s — "
-        "as DATA the .blend plays by itself: keyframes (object location/rotation, node inputs, shape keys), a "
-        "simple-expression driver on `frame` (e.g. `sin(frame*0.2)*0.15`; python-function drivers never run here) or the "
+        "nothing moved between the animation times (measured: under 0.4 % of an authored frame's pixels changed by more "
+        "than 8/255, and under 0.08 % by more than 60): the planned motion has to be visible from an authored camera at "
+        "t = 0 and t = 1.5 s — for example sway of ±0.1-0.2 rad, >= 3 cm of water displacement, >= 0.6 m of particle "
+        "travel, >= 20°/s of rotation — as DATA the .blend plays by itself: keyframes (object location/rotation, node "
+        "inputs, shape keys), a simple-expression driver on `frame` (python-function drivers never run here) or the "
         "geometry-nodes Scene Time node.  The harness renders t = 0 s and t = 1.5 s as frames 1 and 46 (30 fps)"),
     "small": _SMALL_HINT.replace("lookAt", "look_at"),
-    "eye": "set the camera's z = ctx.height_at(x, y) + 1.6 (eye level) — never below the terrain",
-    "low": "human shots: z = ctx.height_at(x, y) + 1.6; establishing: 6–20 m above ground looking down 15–30°",
+    "eye": ("stand the camera on the surface under it: z = ctx.height_at(x, y) at its standpoint plus the height the brief "
+            "gives this viewpoint (eye level ~1.6 m, a balcony, a tower) — never below the terrain"),
+    "low": ("the eye has to be >= 0.3 m above the surface beneath it (measured: ground_below_m): set z = ctx.height_at(x, y) "
+            "+ the height the brief describes for this viewpoint — eye level (~1.6 m), a balcony, a tower — and look at "
+            "the subject"),
+    "high": _HIGH_HINT,
     "unused_glb": (
         "the hero GLB is imported into ctx.assets['<key>'] and nothing places it — add a collection-instance Empty of "
         "ctx.assets['<key>'] inside the zone the plan puts it in.  If a refine round replaced the hero with a procedural "
@@ -140,7 +158,8 @@ _BPY_HINTS: dict[str, str] = {
 #: every recorded round is)
 HINTS: dict[str, dict[str, str]] = {
     "scene_threejs": {"dark": _DARK_HINT, "lowkey": _LOWKEY_HINT, "blown": _BLOWN_HINT, "flat": _FLAT_HINT,
-                      "near": _NEAR_HINT, "static": _STATIC_HINT, "small": _SMALL_HINT, "eye": _EYE_HINT, "low": _LOW_HINT},
+                      "near": _NEAR_HINT, "static": _STATIC_HINT, "small": _SMALL_HINT, "eye": _EYE_HINT, "low": _LOW_HINT,
+                      "high": _HIGH_HINT},
     "scene_blender": _BPY_HINTS,
 }
 
@@ -269,7 +288,7 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
                           kind="camera_low", view=name, eye_height_m=eye, ground_below_m=below))
         elif below > EYE_MAX_ABOVE_GROUND_M:
             out.append(_f(Severity.WARN, name, f"camera {below:.0f} m above {under} — satellite view, not a shot",
-                          "bring the camera down: establishing 6–20 m above ground at ~1.2 × the content span",
+                          hints["high"],
                           kind="camera_high", view=name, eye_height_m=eye, ground_below_m=below))
     elif authored and eye is not None and ground_y is not None:
         # Nothing beneath the lens (under the terrain, off the ground's edge) or an older
@@ -277,7 +296,7 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
         above = eye - ground_y
         if above < -0.2:
             # ``ground_y`` is the TOP of every ground-classified mesh in the scene (census),
-            # so a hill, a terrace or a raised backdrop ring puts it metres above a camera
+            # so a hill, a terrace or a raised backdrop puts it metres above a camera
             # that is standing in the open.  Only call the camera buried when the frame
             # agrees: a buried camera renders dark, empty or from inside geometry.
             buried = _frame_looks_buried(chk)
@@ -294,7 +313,7 @@ def _geometry_findings(chk: dict[str, Any], *, authored: bool, ground_y: float |
                           kind="camera_low", view=name, eye_height_m=eye, ground_y=ground_y))
         elif above > EYE_MAX_ABOVE_GROUND_M:
             out.append(_f(Severity.WARN, name, f"camera {above:.0f} m above ground — satellite view, not a shot",
-                          "bring the camera down: establishing 6–20 m above ground at ~1.2 × the content span",
+                          hints["high"],
                           kind="camera_high", view=name, eye_height_m=eye, ground_y=ground_y))
     return out
 
@@ -320,15 +339,17 @@ def _coverage_finding(chk: dict[str, Any], *, role: str, hints: dict[str, str]) 
     sky, ground = _num(chk, "sky_frac"), _num(chk, "ground_frac")
     detail = f"content {content:.0%} of the frame (sky {sky or 0:.0%}, ground {ground or 0:.0%})"
     if role == "establishing" and content < CONTENT_MIN_ESTABLISHING:
-        return _f(Severity.ERROR, name, f"establishing shot shows too little content: {detail}", hints["small"],
+        return _f(Severity.ERROR, name, f"establishing shot (the first authored camera) shows too little content: {detail}",
+                  hints["small"],
                   kind="content_small", view=name, content_frac=content, sky_frac=sky, ground_frac=ground, role=role)
     if role == "authored" and content < CONTENT_MIN_AUTHORED:
         return _f(Severity.WARN, name, f"shot shows little content: {detail}", hints["small"],
                   kind="content_small", view=name, content_frac=content, sky_frac=sky, ground_frac=ground, role=role)
     if role == "overview" and content < CONTENT_MIN_OVERVIEW:
         return _f(Severity.WARN, name, f"overview rig sees sparse content: {detail}",
-                  "the plan bounds are mostly empty ground: add the planned zones/assets, or densify (instanced scatter, props) "
-                  "so the content fills the bounds", kind="content_small", view=name, content_frac=content, role=role)
+                  "the overview rig sees little built geometry inside the plan bounds: check that the planned zones and "
+                  "assets exist where the plan puts them (zone_empty / missing_content name what is absent), or that the "
+                  "bounds describe the area actually built", kind="content_small", view=name, content_frac=content, role=role)
     return None
 
 
@@ -462,8 +483,8 @@ def _hero_findings(checks: list[dict[str, Any]], census: dict[str, Any]) -> list
             if url in named.get(cam, ()) and v < HERO_DETAIL_MIN_FRAC:
                 out.append(_f(Severity.WARN, cam,
                               f"{cam} is named for {base} but shows it at {v:.1%} of the frame (its best view is {best:.1%})",
-                              "a detail shot fills 10-40% of the frame with its subject: move the camera closer along "
-                              "the sightline or clear what stands between",
+                              "the camera named for a hero shows it plainly (the floor is 2 % of the frame): move closer "
+                              "along the sightline or clear what stands between, until the hero is the subject of that shot",
                               kind="hero_small_in_its_camera", url=url, frac=v, best_frac=best))
     return out
 

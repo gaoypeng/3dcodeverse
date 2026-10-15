@@ -215,14 +215,21 @@ def _contract_plan() -> ScenePlan:
 
 
 def test_contract_checks_fire_on_atmosphere_contents_scale_and_bounds():
-    far = _row("FarCrate")
+    far = _row("FarLantern")                                   # a PLANNED content, 100 m out: measured against the bounds
     far["bbox"] = {"min": [100, 0, 100], "max": [101, 1, 101], "size": [1, 1, 1]}
+    outlier = _row("OutlyingBarn")                             # not in the plan: the place continuing — never reported
+    outlier["bbox"] = {"min": [100, 0, -100], "max": [108, 6, -92], "size": [8, 6, 8]}
     census = {"fog": None, "background": None,
-              "placement": _table(_row("Lantern", h=3.0), far)}   # lantern 5x the planned 0.6 m
+              "placement": _table(_row("Lantern", h=3.0), far, outlier)}   # lantern 5x the planned 0.6 m
     rep = placement_gate_safe(census, plan=_contract_plan())
     kinds = {f.data.get("kind") for f in rep.findings}
     assert {"no_fog", "no_background", "missing_content", "zone_empty", "scale", "out_of_bounds"} <= kinds
     assert not rep.passed
+    # out_of_bounds (2026-10-15): a WARN on planned contents only, past a generous margin (max(5 m, 10 % of the
+    # span)); scenery past the bounds is what the world_edge check asks for and is free
+    oob = [f for f in rep.findings if f.data.get("kind") == "out_of_bounds"]
+    assert [(f.target, f.severity, f.data["planned"], f.data["margin_m"]) for f in oob] == [("Yard/FarLantern", Severity.WARN, "lantern", 5.0)]
+    assert "planned content 'lantern'" in oob[0].message and "scenery that continues the place past the bounds is free" in oob[0].fix_hint
     missing = next(f for f in rep.findings if f.data.get("kind") == "missing_content")
     assert missing.target == "Yard" and "Bench" in missing.message
     empty = next(f for f in rep.findings if f.data.get("kind") == "zone_empty")
@@ -304,41 +311,56 @@ def test_interpenetration_bands_are_the_strict_ones():
     assert {f.target: f.severity for f in _by_kind(lenient, "interpenetration")} == {"Yard/Bench": Severity.WARN}
 
 
-def test_density_gate_fires_on_a_zone_far_under_its_layout_budget():
+def test_the_layout_budget_is_a_note_not_a_gate():
+    """2026-10-15 (owner's rule): the L2 layout's prop / ground-cover counts were never the brief's, so a
+    zone under them is an INFO line (``density_note``), never the ``underdressed`` ERROR that enforced the
+    planner's dressing bands as a requirement.  The counts a brief states are acceptance items."""
     layouts = {"Yard": {"placements": [{"asset": "Lantern", "count": 6}],
                         "mid_props": 20, "small_props": 40, "ground_cover": 400},
-               "House": {"placements": [], "mid_props": 2}}   # budget 2 < threshold: ignored
+               "House": {"placements": [], "mid_props": 2}}
     census = {"fog": {"type": "Fog"}, "background": "#aabbcc",
               "groups": [{"name": "Yard", "instances": 30}, {"name": "House", "instances": 1}],
-              "placement": _table(_row("Lantern", h=0.6))}
-    rep = placement_gate_safe(census, plan=_contract_plan(), layouts=layouts)
-    under = [f for f in rep.findings if f.data.get("kind") == "underdressed"]
-    assert len(under) == 1 and under[0].target == "Yard"
-    assert "466" in under[0].message and "~30" in under[0].message
-    # the same zone with the budget met is quiet
-    census["groups"][0]["instances"] = 240   # >= half of 466
+              "placement": _table(_row("Lantern", h=0.6), _row("Bench", h=0.9), _row("BenchB", zone="House", h=0.9))}
     rep = placement_gate_safe(census, plan=_contract_plan(), layouts=layouts)
     assert not [f for f in rep.findings if f.data.get("kind") == "underdressed"]
+    notes = {f.target: f for f in rep.findings if f.data.get("kind") == "density_note"}
+    assert set(notes) == {"Yard", "House"} and all(f.severity == Severity.INFO for f in notes.values())
+    assert "466" in notes["Yard"].message and "~30" in notes["Yard"].message and "not a requirement" in notes["Yard"].message
+    assert rep.passed, "a note never fails the gate"
+    # a zone at or over its layout count says nothing
+    census["groups"][0]["instances"] = 466
+    rep = placement_gate_safe(census, plan=_contract_plan(), layouts=layouts)
+    assert [f.target for f in rep.findings if f.data.get("kind") == "density_note"] == ["House"]
 
 
-def test_no_backdrop_fires_outdoors_and_stays_quiet_with_a_ring_or_indoors():
+def test_world_edge_is_a_warn_note_outdoors_and_quiet_when_the_place_continues_or_indoors():
+    """Until 2026-10-15 this was the ``no_backdrop`` ERROR whose hint prescribed a silhouette ring of
+    24-40 pieces.  The measurement stands (something >= 2 m tall past 1.25x the half-extent); the finding
+    is a WARN that states the requirement, and neither its name nor its hint names a ring."""
     base = {"fog": {"type": "Fog"}, "background": "#aabbcc",
             "placement": _table(_row("Lantern_3", h=0.6), _row("Bench", h=0.9),
                                 _row("BenchB", zone="House", h=0.9))}
     near_only = dict(base, groups=[
         {"name": "Yard", "kind": "content", "bbox": {"min": [-10, 0, -10], "max": [10, 4, 10]}}])
     rep = placement_gate_safe(near_only, plan=_contract_plan(), layouts=None)
-    hits = [f for f in rep.findings if f.data.get("kind") == "no_backdrop"]
-    assert len(hits) == 1 and hits[0].target == "env" and "25 m" in hits[0].message
-    # a silhouette ring past 1.25x the half-extent quiets it
-    ringed = dict(base, groups=near_only["groups"] + [
-        {"name": "BackdropHills", "kind": "content", "bbox": {"min": [-40, 0, -40], "max": [40, 5, 40]}}])
-    rep = placement_gate_safe(ringed, plan=_contract_plan(), layouts=None)
+    hits = [f for f in rep.findings if f.data.get("kind") == "world_edge"]
+    assert len(hits) == 1 and hits[0].target == "env" and hits[0].severity == Severity.WARN
+    assert "25 m" in hits[0].message and hits[0].data == {"kind": "world_edge", "reach_m": 10.0, "need_m": 25.0}
     assert not [f for f in rep.findings if f.data.get("kind") == "no_backdrop"]
+    assert rep.passed, "a WARN-level note; the ERROR that routed a ring into refine is gone"
+    text = (hits[0].message + " " + hits[0].fix_hint).lower()
+    assert "ring" not in text.replace("stamped_ring", "") and "24" not in text and "silhouette" not in text
+    for option in ("more of the same terrain", "rest of the street", "treeline", "water to the horizon", "a wall", "25 m"):
+        assert option in hits[0].fix_hint, option
+    # the place continuing past 1.25x the half-extent — in ANY form (farmland here) — quiets it
+    continued = dict(base, groups=near_only["groups"] + [
+        {"name": "FarFields", "kind": "content", "bbox": {"min": [-40, 0, -40], "max": [40, 5, 40]}}])
+    rep = placement_gate_safe(continued, plan=_contract_plan(), layouts=None)
+    assert not [f for f in rep.findings if f.data.get("kind") == "world_edge"]
     # an interior never asks for one
     indoor = _contract_plan().model_copy(update={"setting": "a candlelit library interior"})
     rep = placement_gate_safe(near_only, plan=indoor, layouts=None)
-    assert not [f for f in rep.findings if f.data.get("kind") == "no_backdrop"]
+    assert not [f for f in rep.findings if f.data.get("kind") == "world_edge"]
 
 
 def test_a_group_or_row_with_a_null_box_is_skipped_not_a_crash():
@@ -350,7 +372,7 @@ def test_a_group_or_row_with_a_null_box_is_skipped_not_a_crash():
                          {"name": "Yard", "kind": "content", "bbox": {"min": [-10, 0, -10], "max": [10, 4, 10]}}]}
     rep = placement_gate_safe(census, plan=_contract_plan())
     kinds = {f.data.get("kind") for f in rep.findings}
-    assert {"no_fog", "scale", "no_backdrop"} <= kinds   # every check still ran around the null box
+    assert {"no_fog", "scale", "world_edge"} <= kinds   # every check still ran around the null box
     assert not [f for f in rep.findings if "failed" in f.message.lower()]
 
 
@@ -364,6 +386,9 @@ def test_a_ring_of_identical_copies_round_the_world_is_warned_but_not_a_rotunda(
     hits = [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "stamped_ring"]
     assert len(hits) == 1 and hits[0].severity == Severity.WARN and "FarShore/FarPeaks: 16 near-identical copies" in hits[0].message
     assert "36 m ring" in hits[0].message and "silhouettes" in hits[0].fix_hint
+    # the hint states the measurement and leaves the closure open: no library landform, no ring to vary
+    assert ">= 8 copies have radius spread <= 8%" in hits[0].fix_hint and "open water" in hits[0].fix_hint
+    assert "worldShell" not in hits[0].fix_hint and "makeOutskirts" not in hits[0].fix_hint and "vary them" not in hits[0].fix_hint
     census["groups"][0]["stamps"] = [dict(ring, size_cv=0.15)]                            # loop 24: a 15 % size jitter is still a stamp
     assert [f for f in placement_gate_safe(census, plan=plan).findings if f.data.get("kind") == "stamped_ring"]
     census["groups"][0]["stamps"] = [dict(ring, size_cv=0.3, radius_cv=0.2)]              # varied: a real skyline
@@ -445,7 +470,7 @@ def test_cantilevered_rests_on_one_of_four_columns():
 
 def test_every_asset_and_pair_finding_carries_its_box():
     """``data.bbox`` = GLB-frame centre + size from the row: the judge's contact crops aim at it."""
-    far = _row("FarCrate")
+    far = _row("FarLantern")                                   # planned content (Lantern), 100 m out
     far["bbox"] = {"min": [100, 0, 100], "max": [101, 1, 101], "size": [1, 1, 1]}
     census = {"fog": {"type": "Fog"}, "background": "#aabbcc", "placement": _table(
         _row("Lantern", gap=0.3, h=3.0), _row("Cup", gap=0.03, support="Table"), _row("Bench", sunk=0.25, into="Terrain"),

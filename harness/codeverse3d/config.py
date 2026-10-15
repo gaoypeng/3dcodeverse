@@ -181,7 +181,7 @@ class Rate(BaseModel):
     """
 
     max_in_flight: int = Field(
-        default=64,
+        default=96,
         ge=0,  # NEGATIVE is not "unlimited" here: 0 is.  Without this bound -5 survived config,
                # was reported as FITTING the pool budget by `3dcode doctor`, poisoned the shared
                # in-flight accounting, and finally died as a bare ValueError from
@@ -190,7 +190,10 @@ class Rate(BaseModel):
         description="machine-wide cap on concurrent model calls (0 = off): every process draws "
         "from the same N slot files, so the machine never exceeds the largest N any process runs "
         "with.  Measured knee: a 128-call burst of 12k-token prompts ran 29.6 calls/min at 16 "
-        "in-flight, 43.9 at 32, 72.9 at 64 and fell back to 47.2 at 128 (docs/COST.md Part III).")
+        "in-flight, 43.9 at 32, 72.9 at 64 and fell back to 47.2 at 128 (docs/COST.md Part III) — with 22 "
+        "keys; raised 64 → 96 on 2026-10-15 for the 30-key pool after iteration 0 of the argon loop hit the "
+        "64 cap 172 times at launch while the keys themselves showed no 429 pressure (12 concurrent calls on "
+        "one key: 0 × 429; re-measure the knee when the loops run two tracks at once).")
     hedge: int = Field(
         default=2, ge=1,
         description="keys a retry is raced on once a call has met its first 503 (1 = off).  Measured "

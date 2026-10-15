@@ -35,11 +35,11 @@ def _darken(ws: Workspace) -> None:
     # the env map, which lights metals and glass on its own
     text = text.replace("  scene.environment = rig.envTex;",
                         "  scene.environment = null; sun.intensity = 0.05; hemi.intensity = 0.02; hemi.color.set(0x101018); hemi.groundColor.set(0x000000);")
-    # the world shell's sky is unlit (D71): black it out too, or half the frame stays bright sky
-    text = text.replace("worldShell({ rand: mulberry32(SEED + 1), mood: MOOD,",
-                        "worldShell({ rand: mulberry32(SEED + 1), mood: 'night', zenith: 0x000000, horizon: 0x000000, ridgeColor: 0x000000,")
-    text = text.replace("scene.background = new THREE.Color(shell.fog.color)", "scene.background = new THREE.Color(0x000000)")
-    assert "0.05" in text and text.count("0x000000") >= 4
+    # the placeholder starter's sky is its fog colour (D106: no world shell): black both out, or
+    # half the frame stays bright sky
+    text = text.replace("scene.fog = new THREE.Fog(0xbfc6cc,", "scene.fog = new THREE.Fog(0x000000,")
+    text = text.replace("scene.background = new THREE.Color(scene.fog.color)", "scene.background = new THREE.Color(0x000000)")
+    assert "0.05" in text and text.count("0x000000") >= 3
     env.write_text(text)
 
 
@@ -114,6 +114,6 @@ def test_dark_variant_raises_dark_frame_errors(starter_ws: Workspace):
     assert not gate.passed
     dark = [f for f in gate.findings if f.data.get("kind") == "dark_frame"]
     assert dark and all(f.severity == "error" for f in dark)
-    assert dark[0].target == "overview" and "sunRig(" in dark[0].fix_hint and "NOT black" in dark[0].fix_hint
+    assert dark[0].target == "overview" and "0.12" in dark[0].fix_hint and "35 %" in dark[0].fix_hint   # the measure, not a rig recipe (D106)
     assert dark[0].data["mean_lum"] < 0.12 or dark[0].data["dark_frac"] > 0.35
 

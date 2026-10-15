@@ -19,32 +19,32 @@ def test_scene_rubric_craft_defects_inform_and_cannot_zero_a_scene() -> None:
         assert 0.0 < d.penalty <= 0.05 and d.cap is None, did
     # the five craft items together take at most 0.20: they inform, they cannot sink a scene
     assert sum(r.defect(did).penalty for did in COMPOSITION_DEFECTS) == pytest.approx(0.18)
-    # scene_v2 (2026-10-14): the whole checklist sums to 1.02 (was 0.60 under v1's 0.62 bound).  The
-    # 0.42 that moved is the placement / detail items — floating 0.10, sunken 0.08, interpenetration
+    # scene_v2 (2026-10-14): the whole checklist sums past 1.0 (was 0.60 under v1's 0.62 bound).  The
+    # weight that moved is the placement / detail items — floating 0.10, sunken 0.08, interpenetration
     # 0.08, wrong_scale 0.06, missing_planned_element 0.06, hero_misplaced 0.06, hard-edged particles
     # 0.04 — the same weights the object rubric gives floating_part / interpenetration, and each of
     # the four measured ones also caps (0.60-0.75) so the penalty only matters under the cap.  A
     # scene with EVERY item present is a wrong, unlit, floating, clipping world: zero is its score.
+    # The exact figure is tests/judges/test_scene_judge.py's (the judge lane adds items such as
+    # diorama_look, 2026-10-15); this test keeps the invariant.
     total = sum(d.penalty for d in r.defects)
-    assert total == pytest.approx(1.02) and total <= 1.05
+    assert 1.0 <= total <= 1.10, total
     assert sum(d.penalty for d in load_rubric("scene_v1").defects) <= 0.62  # the frozen replay rubric
 
 
-def test_cookbook_sections_inlines_whole_chapters_and_clips_safely(tmp_path) -> None:
-    from types import SimpleNamespace
+def test_no_scene_stage_inlines_cookbook_recipes() -> None:
+    """Owner, 2026-10-15: the same four ENV and six ZONE cookbook chapters used to be inlined into
+    every env / zone / refine session whatever the brief ("copy these numbers and snippets"), and
+    the 60 iteration-0 scenes executed them verbatim.  The track has no recipe tables, no recipe
+    inliner and passes no ``recipes`` variable; the scene templates render without one."""
+    import inspect
 
-    from codeverse3d.tracks.prompting import cookbook_sections
-    from codeverse3d.tracks.scene import ZONE_RECIPES
+    from codeverse3d.tracks import prompting, scene
 
-    ctx = SimpleNamespace(cookbook_text=load_text("scene_threejs/cookbook.md"))
-    text = cookbook_sections(ctx, ZONE_RECIPES)
-    assert all(f"## {t.split(':')[0]}" in text or t.split(":")[0] in text for t in ZONE_RECIPES)
-    for token in ("setColorAt", "cameraMask", "foreground frame", "±0.10–0.20 rad"):
-        assert token in text, token
-    assert len(text) > 12_000
-    assert cookbook_sections(ctx, ZONE_RECIPES, max_chars=500).rstrip().endswith("cookbook.md]")
-    assert cookbook_sections(SimpleNamespace(cookbook_text=""), ZONE_RECIPES) == ""
-    assert cookbook_sections(ctx, ["zzz qqq"]) == ""                  # no match → nothing, never junk
+    for gone in ("ENV_RECIPES", "ZONE_RECIPES", "ZONE_RECIPES_MAX_CHARS", "refine_recipes"):
+        assert not hasattr(scene, gone), gone
+    assert not hasattr(prompting, "cookbook_sections")
+    assert "recipes=" not in inspect.getsource(scene)
 
 
 def test_the_env_and_zone_briefs_hand_the_enclosure_to_env_for_an_interior() -> None:
@@ -52,24 +52,26 @@ def test_the_env_and_zone_briefs_hand_the_enclosure_to_env_for_an_interior() -> 
     from codeverse3d.prompts import render
 
     base = dict(title="t", spec_prompt="p", setting="s", mood="m", bounds="b", environment="e", frame_doc="", contract="",
-                zones_table="", cameras="", effects="", animation="", asset_api="", textures="", recipes="", constraints_text="",
+                zones_table="", cameras="", effects="", animation="", asset_api="", textures="", constraints_text="",
                 references="", skills="", tool_cards="", zone_name="Z", zone_description="d", zone_bbox="bb", zone_contents=[],
                 zone_file="src/zones/z.js", neighbours=[], layout="")
-    env_in = render("tracks/scene_env.j2", **base, interior=True)
-    env_out = render("tracks/scene_env.j2", **base, interior=False)
-    assert "the enclosure is yours" in env_in and "roomShell" in env_in and "openings" in env_in
-    assert "enclosure is yours" not in env_out
+    env_in = render("tracks/scene_env.j2", **base, interior=True, glazed=False)
+    env_out = render("tracks/scene_env.j2", **base, interior=False, glazed=False)
+    assert "This is an INTERIOR" in env_in and "roomShell" in env_in and "openings" in env_in
+    assert "INTERIOR" not in env_out
+    # the zone brief names env.js as the enclosure's owner only for an interior (the wording is the prompt's;
+    # the ownership is the contract: createScene builds env first, zones return their own group)
     zone_in = render("tracks/scene_zone.j2", **base, interior=True)
     zone_out = render("tracks/scene_zone.j2", **base, interior=False)
-    assert "never build walls or a roof" in zone_in and "flush against the inner face" in zone_in
-    assert "never build walls" not in zone_out
+    assert "INTERIOR" in zone_in and "`env.js`'s" in zone_in
+    assert "INTERIOR" not in zone_out
 
 
-def test_the_practical_light_numbers_are_stated_once_and_are_the_libs() -> None:
+def test_the_practical_light_numbers_live_in_the_lib_and_no_prompt_restates_them() -> None:
     """Audit N41: one scene session read PointLight 0.5–2 (system prompt, skill) and 6–14 with
     10–16 lights (same skill), emissive 1.5–4 / ≤ 3 / 2–6, and a night rig of "moon ≤ 0.2, no
-    HemisphereLight" that sunRig never builds.  `PRACTICAL` in environment.js owns the numbers;
-    the cookbook's dusk/night recipe states them once and every other text points there."""
+    HemisphereLight" that sunRig never builds.  `PRACTICAL` in environment.js owns the numbers
+    (the cookbook that once restated them is gone, 2026-10-15); every text points there."""
     import re
 
     from codeverse3d.languages.scene_threejs import lib_files
@@ -79,11 +81,7 @@ def test_the_practical_light_numbers_are_stated_once_and_are_the_libs() -> None:
     body = re.search(r"export const PRACTICAL = Object\.freeze\(\{([^}]*)\}\)", env)
     assert body, "environment.js no longer exports PRACTICAL"
     practical = {k: float(v) for k, v in re.findall(r"(\w+): ([\d.]+)", body.group(1))}
-    cookbook = load_text("scene_threejs/cookbook.md")
-    stated = re.search(r"`emissiveIntensity` ([\d.]+), a PointLight of ([\d.]+) reaching ([\d.]+) m, decay ([\d.]+)",
-                       cookbook)
-    assert stated and tuple(map(float, stated.groups())) == (
-        practical["emissiveIntensity"], practical["intensity"], practical["distance"], practical["decay"])
+    assert {"emissiveIntensity", "intensity", "distance", "decay"} <= set(practical)
     others = {"system": load_text("scene_threejs/system.md"), "contract": load_text("scene_threejs/contract.md"),
               "lighting": (skills_dir() / "c3d-scene-lighting" / "SKILL.md").read_text(encoding="utf-8"),
               "materials": (skills_dir() / "c3d-scene-materials" / "SKILL.md").read_text(encoding="utf-8")}

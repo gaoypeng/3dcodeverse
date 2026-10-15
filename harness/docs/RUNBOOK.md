@@ -106,7 +106,9 @@ round, then ≈ $0.36 / ~7 min per refine (give scenes `--max-minutes 60`).
 * Workspace files: `AGENTS.md` + `CLAUDE.md` (no `GEMINI.md`: agy reads both it and AGENTS.md)
   and `.antigravityignore`, which hides only noise (renders/judge output, the whole
   `trajectories/`); build/census/measurement JSON stay readable.
-* Cookbook copied to `ws/.3dcode/cookbook.md` (an agent may not read outside the ws).
+* Cookbook copied to `ws/.3dcode/cookbook.md` (an agent may not read outside the ws) — for a
+  language that ships one; the scene languages ship none (D106), so their workspaces get no file
+  and no "## Cookbook" section.
 * MCP server argv is `[sys.executable, -m, codeverse3d.spatial.mcp_server, --workspace, ws]`;
   server name `3dcode` → tools appear as `mcp__3dcode__<name>` (claude).  `3dcode mcp --workspace runs/<slug>` execs the same server;
   `python -m codeverse3d.spatial.mcp_server --workspace ws --list` prints the tools.
@@ -384,7 +386,9 @@ weather: they leave the provider's errors out (docs/COST.md §31); the ceiling d
   read its report with `_common.compose_build_result`, which publishes the final `build.json`); branch in
   `languages/base.py::get_runtime`; `prompts/<lang>/{system,contract,cookbook}.md` (found by
   `prompts/catalog.language_prompt`; every cookbook snippet must run — `tests/prompts`
-  executes them).
+  executes them; a scene language has no cookbook and its prompts state requirements, never
+  templates — D106: no code block over ~12 lines, numbers only where a gate or the judge
+  measures them).
 * **Changing what a model is shown** (a prompt file or template variable, a cookbook, a skill,
   a rubric's text, a tool description, anything a session or a judge reads):
   `tests/prompts/test_manifest.py` pins every payload of offline scenarios across the four tracks

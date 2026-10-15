@@ -90,7 +90,7 @@ def _tool_section(agent_kind: str, spatial_tools: bool, mcp_command: list[str], 
     )
 
 
-def _body(agent_kind: str, contract_md: str, cookbook_note: str, spatial_tools: bool, mcp_command: list[str],
+def _body(agent_kind: str, contract_md: str, cookbook_section: str, spatial_tools: bool, mcp_command: list[str],
           ws: Workspace | None = None) -> str:
     return (
         "# 3dcode workspace — rules for the coding agent\n\n"
@@ -108,7 +108,7 @@ def _body(agent_kind: str, contract_md: str, cookbook_note: str, spatial_tools: 
         "5. When you are done, reply with a SHORT summary of what you changed and what you verified. "
         "Do not ask questions — there is no human in the loop; make a reasonable decision and proceed.\n\n"
         f"{_tool_section(agent_kind, spatial_tools, mcp_command, ws)}\n"
-        f"## Cookbook\n\n{cookbook_note}\n\n"
+        f"{cookbook_section}"
         f"## Language contract\n\n{contract_md.strip()}\n"
     )
 
@@ -156,33 +156,34 @@ def materialize_workspace(
 
     Returns nothing: the ``Materialized`` DTO this used to build (body/ignore paths, the
     cookbook path, the argv, a warnings list) was discarded by every production caller —
-    ``tracks/common.Services.materialize`` is typed ``-> None`` — so its one real signal,
-    a cookbook that did not resolve, was written and read by nobody.  That is the exact
-    failure the cookbook path lookup (``cookbook_rel_for``, gone since 2026-09-22) was fixed
-    for on 2026-08-29 (an articulated run told the agent "No cookbook is available" while its
-    24 kB cookbook sat on disk);
-    it is a log line now, where someone reading the run can see it (2026-08-30).
+    ``tracks/common.Services.materialize`` is typed ``-> None``.
 
     ``cookbook_text`` is what the catalog loaded (``RunContext.cookbook_text``): until
     2026-09-22 this took a path and resolved it itself, workspace first — so a
-    ``<ws>/blender/cookbook.md`` the agent wrote shadowed the harness cookbook."""
+    ``<ws>/blender/cookbook.md`` the agent wrote shadowed the harness cookbook.  A language
+    that ships no cookbook (the two scene languages, owner 2026-10-15) passes ``""`` and the
+    body carries no "## Cookbook" section at all: the contract and the skills are what there
+    is, and a note saying a file is missing would only send the agent looking for one.  (A
+    stale ``.3dcode/cookbook.md`` from an earlier materialisation is removed for the same
+    reason.)"""
     mcp_command = list(mcp_command) if mcp_command else default_mcp_command(ws)
 
     # cookbook: copy into the harness-owned .3dcode/ dir so every CLI can read it in-workspace
+    dest = ws.root / C3D_DIR / "cookbook.md"
     if cookbook_text:
-        dest = ws.root / C3D_DIR / "cookbook.md"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(cookbook_text, encoding="utf-8")
-        cookbook_note = (
+        cookbook_section = (
+            "## Cookbook\n\n"
             f"The cookbook for this language — copyable, verified snippets and skeletons — is at "
             f"`{C3D_DIR}/cookbook.md` (relative to the workspace root). Read the relevant sections "
-            "before writing code and copy its patterns exactly."
+            "before writing code and copy its patterns exactly.\n\n"
         )
     else:
-        log.warning("cookbook not found — the %s session gets the contract only", agent_kind)
-        cookbook_note = "No cookbook is available in this session; rely on the contract below."
+        dest.unlink(missing_ok=True)
+        cookbook_section = ""
 
-    body = _body(agent_kind, contract_md, cookbook_note, spatial_tools, mcp_command, ws)
+    body = _body(agent_kind, contract_md, cookbook_section, spatial_tools, mcp_command, ws)
     for name in BODY_FILES:
         (ws.root / name).write_text(body)
     # No MCP server is written into the workspace: every CLI gets 3dcode from a harness-owned

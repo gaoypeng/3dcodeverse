@@ -548,8 +548,10 @@ class ArticulatedPlan(StaticPlan):
 
 class ZonePlan(BaseModel):
     name: str = Field(description="PascalCase zone name, e.g. Harbour")
-    description: str
-    bbox: BBox
+    description: str = Field(description="what the place is, what happens there, its layout as numbers and "
+                             "how much dressing it carries — one builder realises it")
+    bbox: BBox = Field(description="where this zone's builder may place; any size or shape, laid out as the "
+                       "place is (its layout is validated against this box)")
     contents: list[str] = Field(default_factory=list, description="asset names placed in this zone")
 
 
@@ -579,9 +581,9 @@ class AssetPlan(BaseModel):
         # planner swaps in its own enum (``scene_plan_schema``)
         json_schema_extra={"enum": list(SCENE_ASSET_KINDS["scene_threejs"])},
     )
-    description: str
-    approx_size_m: Vec3
-    instances_hint: int = 1
+    description: str = Field(description="construction in numbers and colours; the builder realises it")
+    approx_size_m: Vec3 = Field(description="width x height x depth in meters; the built asset is measured against it")
+    instances_hint: int = Field(default=1, description="how many appear in the whole scene")
 
 
 class EffectPlan(BaseModel):
@@ -604,7 +606,7 @@ class CameraPlan(BaseModel):
     position: Vec3
     look_at: Vec3
     fov: float = Field(default=50.0, ge=5.0, le=150.0)
-    purpose: str = ""
+    purpose: str = Field(default="", description="what the shot is of and what the judge should see in it")
 
     @field_validator("name")
     @classmethod
@@ -628,13 +630,16 @@ class ScenePlan(BaseModel):
     summary: str
     setting: str = Field(description="place, era, weather, time of day")
     mood: str = ""
-    bounds: BBox
-    environment: str = Field(description="sky, sun/moon, fog, ground, water — one paragraph")
+    bounds: BBox = Field(description="the DETAILED area the harness measures against (layouts, placements, camera "
+                         "clearance); the world continues past it as the place does")
+    environment: str = Field(description="lighting, atmosphere, landform and ground surface, water, and how the world "
+                             "continues beyond the bounds — one paragraph of numbers")
     interior: bool = Field(
         default=False,
         description="the view is from INSIDE a built space (workshop, room, cabin, hall, shop): the "
-        "environment module owns the enclosure — floor, walls and ceiling on the bounds' faces with "
-        "openings where the windows and doors are — and the zones dress the inside; false outdoors",
+        "environment module owns the enclosure — floor, walls, ceiling and the openings `environment` "
+        "describes (the skeleton starts it on the bounds' faces; the builder may reshape it) — and the "
+        "zones dress the inside; false outdoors",
     )
     glazed: bool = Field(
         default=False,
@@ -708,9 +713,9 @@ class ZoneLayout(BaseModel):
     placements: list[ZonePlacement] = Field(default_factory=list)
     path_points: list[tuple[float, float]] = Field(
         default_factory=list, description="(x, z) polyline of the walkway through this zone, if any")
-    mid_props: int = Field(default=0, ge=0, description="loose mid props (0.3-1.5 m) beyond the placements")
-    small_props: int = Field(default=0, ge=0, description="small props (< 0.3 m)")
-    ground_cover: int = Field(default=0, ge=0, description="instanced tufts / pebbles")
+    mid_props: int = Field(default=0, ge=0, description="loose mid props (0.3-1.5 m) beyond the placements; 0 for a bare place")
+    small_props: int = Field(default=0, ge=0, description="small props (< 0.3 m); 0 for a bare place")
+    ground_cover: int = Field(default=0, ge=0, description="instanced tufts / pebbles; 0 where the ground is bare")
     notes: str = Field(default="", description="one line of layout intent, e.g. 'stalls face the lane'")
 
 

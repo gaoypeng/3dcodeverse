@@ -1,6 +1,6 @@
 # The `argon` variant: gemini-4-argon on the scene track (threejs + blender).  D105, 2026-10-14.
 #
-# This directory mirrors codeverse3d/prompts/: a file placed here (scene_threejs/cookbook.md,
+# This directory mirrors codeverse3d/prompts/: a file placed here (scene_threejs/system.md,
 # tracks/scene_zone.j2, ...) shadows the base file of the same relative path for every run that
 # activates the variant; a file not placed here is read from the base.  The overlay ships EMPTY
 # so iteration 0 of eval/bench/loop.py measures the base prompts under the variant plumbing;
@@ -9,8 +9,9 @@
 # Iteration 1 (2026-10-15): tracks/scene_zone.j2 and tracks/scene_zone_bpy.j2 shadow the base zone
 # briefs with a "Before you return" block — the last check_placement must be clean, one placed thing
 # per zone child, scatter clear of placed roots (lib.place.clear_mask), volumes for particles, and
-# the three build-time crashes that dropped zones; skills/variants/argon/routes.toml boosts the two
-# placement skills to the top of the standing list.
+# the three build-time crashes that dropped zones; skills/variants/argon/routes.toml boosts the Blender
+# placement skill to the top of the standing list (the three.js composition boost was withdrawn under
+# D106, 2026-10-15: that bundle carried the template every iteration-0 scene reproduced).
 #
 # Selection is explicit, never a regex over the model id: `3dcode make --variant argon`,
 # C3D_VARIANT=argon, or C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}' (by the served model, so

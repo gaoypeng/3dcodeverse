@@ -1,9 +1,13 @@
 /**
- * The world beyond the scene, in one call — kills the void-background
- * defect family. Three cheap layers far outside the playable area:
- * a vertex-coloured gradient sky dome, a seeded ridge SILHOUETTE ring
- * so the ground plane never meets bare sky, and fog whose colour
- * equals the horizon tint so the far field dissolves instead of ending.
+ * The world beyond the scene — optional closures for one measured
+ * requirement: from every authored camera the far field does not end
+ * in bare sky at the ground line and the sky is not a void (rubric
+ * `world_edge_visible`: a hard world edge, a terrain cliff or a missing
+ * horizon).  `worldShell` is one way to meet it — a graded sky dome,
+ * fog the colour of the horizon and, only when asked, a generic
+ * silhouette line.  A sea horizon, a city skyline, a forest wall, a
+ * canyon side or one distant peak close a scene just as well: build
+ * what the brief describes.
  */
 
 import * as THREE from 'three';
@@ -13,6 +17,11 @@ import { patchStandard, sunVector } from './shader.js';
 import { skyRadiance } from './sky.js';
 import { snapshotResources, attachDisposal } from './lifecycle.js';
 
+/**
+ * Four example palettes.  Any sky is just `zenith` / `horizon` /
+ * `ridgeColor` / `fogDensity` numbers — pass the brief's (a dusk, a
+ * storm, a blizzard, an alien sky); `mood` only picks the defaults.
+ */
 export const MOODS = {
   day: { zenith: 0x5d8fd6, horizon: 0xdbe3ea, ridge: 0x9fb2c4,
          fogDensity: 0.0018 },
@@ -25,19 +34,21 @@ export const MOODS = {
 };
 
 /**
- * The enclosure of an INTERIOR scene, in one call: four walls and a
- * ceiling on the faces of the plan bounds, with rectangular openings
- * (windows, doors) cut where the plan puts them — so nothing the zones
- * place inside the bounds can be in a wall, and the roof exists before
- * anyone dresses the room.  Measured 2026-09-07 over six interior runs:
- * with no owner for walls and roof, every one was judged "not enclosed,
- * a diorama on a flat plane, tool racks floating at a missing wall"
- * (0.0–0.3) until a refine round built them; a bare one-file scene of
- * the same brief built the room first and scored 0.82.
+ * One enclosure for an interior: a rectangular room on a given box,
+ * with rectangular openings (windows, doors) cut where you put them.
+ * What is measured for ANY interior: it reads enclosed from the
+ * authored cameras (walls and a lid where the brief implies them —
+ * six interior runs without them were judged "not enclosed, a diorama
+ * on a flat plane, tool racks floating at a missing wall", 0.0–0.3,
+ * 2026-09-07), no placed object intersects a wall (placement gate),
+ * and the lid is named `Ceiling` under a `RoomShell` group so the
+ * overview rig can lift it.  A nave, a vault, an L-shape or an
+ * open-sided shed is hand-built to the same names.
  *
  * @param {object} opts
- *   `center` [x, y, z] and `extents` [w, h, d] of the plan bounds (the
- *   room's inner box: floor at center.y - h/2, ceiling at center.y + h/2);
+ *   `center` [x, y, z] and `extents` [w, h, d] of the room's inner box
+ *   (often, not necessarily, the plan bounds; floor at center.y - h/2,
+ *   ceiling at center.y + h/2);
  *   `thickness` wall thickness in metres (default 0.3, built OUTWARD so
  *   the inner face is exactly the bounds face); `openings` list of
  *   `{ face: 'west'|'east'|'north'|'south', center: [along, up],
@@ -180,17 +191,24 @@ export function roomShell(opts = {}) {
 }
 
 /**
- * Build the sky dome + horizon ridge + matched fog.
+ * A graded sky dome + fog the colour of its horizon, and an opt-in
+ * silhouette line.
  *
  * @param {object} [opts]
- *   `rand` seeded PRNG (REQUIRED for the ridge silhouette);
- *   `mood` one of `day | golden | night | overcast` (default `day`);
- *   `radius` metres to the sky (default 4000 — far outside any scene);
- *   `bounds` content radius in metres (the same number `sunRig` takes)
- *   — clamps fog so the far edge of the content stays visible on
- *   km-scale worlds; `ridge` false to skip the silhouette ring (open
- *   ocean, deep space); `zenith`/`horizon`/`ridgeColor` hex overrides;
- *   `fogDensity` override (wins over the clamp).
+ *   `rand` seeded PRNG (REQUIRED when `ridge` is on — no Math.random);
+ *   `mood` one of `day | golden | night | overcast` (default `day`;
+ *   see MOODS); `radius` metres to the sky (default 4000 — far outside
+ *   any scene); `bounds` content radius in metres (the same number
+ *   `sunRig` takes) — clamps fog so the far edge of the content stays
+ *   visible on km-scale worlds; `ridge` true adds a generic seeded
+ *   silhouette line at 82 % of the radius (default off: a brief whose
+ *   horizon is something — a sea, a plain, a skyline, a forest edge,
+ *   one named mountain — builds that horizon instead); `ridgeHeight`
+ *   its crest as a fraction of the radius (default 0.055);
+ *   `ridgeProfile(azimuthDeg) => 0..1` shapes the crest by compass
+ *   sector (0 = no crest there; default a seeded random walk), so it
+ *   can be directional or partial; `zenith`/`horizon`/`ridgeColor` hex
+ *   overrides; `fogDensity` override (wins over the clamp).
  * @returns {{group: THREE.Group, fog: THREE.FogExp2, radius: number}}
  *   Add `group` to the scene and assign `fog` to `scene.fog`.
  */
@@ -227,19 +245,24 @@ export function worldShell(opts = {}) {
   skyMesh.renderOrder = -2;
   group.add(skyMesh);
 
-  // HORIZON RIDGE: seeded silhouette ring at 82% of the sky radius so
-  // the ground line meets hills, never void. Featureless on purpose —
-  // a backdrop, not terrain.
-  if (opts.ridge !== false) {
+  // HORIZON RIDGE (opt-in): a generic silhouette line at 82% of the sky
+  // radius — one way to keep the ground line off bare sky.  A brief that
+  // gives its horizon a character builds that instead, or shapes this
+  // one through `ridgeHeight` / `ridgeProfile`.
+  if (opts.ridge === true) {
     const rr = radius * 0.82;
     const seg = 160;
-    const ridgeH = radius * 0.055;
+    const ridgeH = radius
+        * (opts.ridgeHeight === undefined ? 0.055 : opts.ridgeHeight);
+    const profile = typeof opts.ridgeProfile === 'function'
+        ? opts.ridgeProfile : null;
     const shape = [];
     let h = 0.5;
     for (let i = 0; i <= seg; i++) {
       h = Math.max(0.12, Math.min(1,
           h + (rand() - 0.5) * 0.35));
-      shape.push(h);
+      shape.push(profile
+          ? Math.max(0, Math.min(1, profile((i / seg) * 360))) : h);
     }
     shape[seg] = shape[0];              // close the loop seamlessly
     const geo = new THREE.BufferGeometry();
@@ -284,37 +307,44 @@ export function worldShell(opts = {}) {
 }
 
 /**
- * The middle distance: land between the content and the horizon.
+ * The middle distance, one optional filler: an annulus of rolling land
+ * that blends into `heightAt` at its inner seam and rises into fbm
+ * hills outward, painted as a field patchwork, with an instanced layer
+ * of distant copses when asked.  Two draw calls, fogged like any land,
+ * deterministic in `seed`.
  *
- * `worldShell` closes the SKYLINE, but between the content's edge and
- * its ridge the judge still sees "a diorama on a vast, empty flat
- * plane" — measured on a scene that had a 6 km textured ground. This
- * is that plane given relief, a field patchwork and tree clumps: an
- * annulus that MATCHES the scene's ground at its inner seam and rises
- * into fbm hills outward, plus one instanced layer of distant copses.
- * Two draw calls, fogged like any land, deterministic in `seed`.
+ * What is measured: the middle distance reads as the world continuing
+ * in the brief's terms (the judge's finding is "a diorama on a vast,
+ * empty flat plane" — seen even over a 6 km textured ground), and
+ * whatever you build reaches the backdrop (a land edge short of it is
+ * a visible cliff: rubric `world_edge_visible`).  A desert, a sea, a
+ * city, a marsh or a forest needs its own continuation; the defaults
+ * here sketch temperate farmland.
  *
  * @param {object} [opts]
- *   `inner` metres where the annulus starts — the content's radius
- *   (default 160); `shellRadius` the sky radius `worldShell` used
- *   (default 4000 — pass `shell.radius` when you overrode it);
- *   `outer` metres where it ends (default the shell's RIDGE line,
- *   `0.82 * shellRadius`, and clamped there: land must reach the
- *   backdrop or its edge is a visible cliff — measured, a 2 km
- *   annulus under a 3.28 km ridge left a 1.2 km pale void and the
- *   census flagged every camera with "terrain ends Nm ahead"; past
- *   the ridge it would instead paint over that silhouette);
- *   `baseY` ground level at the seam (default 0); `heightAt` (x, z) =>
- *   y, the scene's ground truth — the seam band blends from it into
- *   the relief so the joint cannot step; `relief` hill amplitude in
- *   metres at full distance (default 26); `rise` metres of gentle
- *   climb per metre of distance (default 0.004 — receding land reads
- *   flat without it); `colors` [a, b, c] hex field tones (default a
- *   muted scrub/field/dust trio); `clumps` distant-copse count
- *   (default 140, 0 disables); `clumpColor` hex (default dark
- *   grey-green); `seed` (default 7); `name` group name.
- * @returns {THREE.Group} Named `Outskirts`; add it at the world origin
- *   the content is centred on.
+ *   `inner` metres from the origin where this filler begins — where
+ *   your own ground stops (default 160; the content need not be
+ *   centred or circular, pass what fits your ground); `shellRadius`
+ *   the sky radius `worldShell` used (default 4000 — pass
+ *   `shell.radius` when you overrode it); `outer` metres where it ends
+ *   (default `0.82 * shellRadius`, the shell's ridge line, and clamped
+ *   there: a 2 km annulus under a 3.28 km ridge left a 1.2 km pale
+ *   void flagged from every camera; past the ridge it would paint over
+ *   that silhouette); `baseY` ground level at the seam (default 0);
+ *   `heightAt` (x, z) => y, the scene's ground truth — the seam band
+ *   blends from it into the relief so the joint cannot step; `relief`
+ *   hill amplitude in metres at full distance (default 26; 0 for a
+ *   plain or a sea); `rise` metres of gentle climb per metre of
+ *   distance (default 0.004 — receding land reads flat without it);
+ *   `colors` [a, b, c] hex land tones (default a muted
+ *   scrub/field/dust trio — pass the brief's soil or vegetation);
+ *   `fields` false paints one tone instead of the patchwork (sand,
+ *   snow, scrub); `clumps` distant-copse count (default 0 — a
+ *   temperate cue: pass a count only where the brief has woodland);
+ *   `clumpColor` hex (default dark grey-green); `seed` (default 7);
+ *   `name` group name.
+ * @returns {THREE.Group} Named `Outskirts`, in world space about the
+ *   origin.
  */
 export function makeOutskirts(opts = {}) {
   const inner = opts.inner === undefined ? 160 : opts.inner;
@@ -392,14 +422,16 @@ export function makeOutskirts(opts = {}) {
       new THREE.BufferAttribute(new Float32Array(verts), 3));
   geo.computeVertexNormals();
 
-  // FIELDS in the fragment, not the lattice: a patchwork of worked
-  // land at km scale is what says "the world continues" — one fbm
-  // picks the field, a second lightens or tires it.
+  // LAND COVER in the fragment, not the lattice: by default a patchwork
+  // of worked land at km scale (one fbm picks the field, a second
+  // lightens or tires it) — one "the world continues" cue among many;
+  // `fields: false` keeps the mottle and drops the patchwork.
+  const patchwork = opts.fields !== false;
   const mat = new THREE.MeshStandardMaterial({
     color: 0xffffff, roughness: 0.96, metalness: 0, name: 'OutskirtsLand',
   });
   patchStandard(mat, {
-    name: 'outskirts:fields',
+    name: patchwork ? 'outskirts:fields' : 'outskirts:plain',   // the program cache key
     uniforms: {
       uOutA: { value: tones[0] },
       uOutB: { value: tones[1] || tones[0] },
@@ -416,9 +448,11 @@ export function makeOutskirts(opts = {}) {
     ].join('\n'),
     fragmentBody: [
       '  float ofPick = astraFbm2(vOutW * 0.0016, 3);',
-      '  vec3 ofCol = mix(uOutA, uOutB,',
-      '      smoothstep(0.35, 0.5, ofPick));',
-      '  ofCol = mix(ofCol, uOutC, smoothstep(0.58, 0.72, ofPick));',
+      ...(patchwork ? [
+        '  vec3 ofCol = mix(uOutA, uOutB,',
+        '      smoothstep(0.35, 0.5, ofPick));',
+        '  ofCol = mix(ofCol, uOutC, smoothstep(0.58, 0.72, ofPick));',
+      ] : ['  vec3 ofCol = uOutA;']),
       '  ofCol *= 0.9 + 0.2 * astraFbm2(vOutW * 0.012 + 37.0, 2);',
       '  diffuseColor.rgb = ofCol;',
     ].join('\n'),
@@ -428,12 +462,13 @@ export function makeOutskirts(opts = {}) {
   land.receiveShadow = false;
   group.add(land);
 
-  // WOODS: one instanced layer of squashed dark blobs, CLUSTERED —
-  // 2-6 blobs strung along a heading make a copse or a hedgerow, and a
-  // lone pancake reads as debris. Placement is biased toward the seam
-  // (rand^1.8): that is the band a camera actually resolves, and 140
-  // singles spread over 28 km2 measured out to an empty plain.
-  const clumps = opts.clumps === undefined ? 220 : opts.clumps;
+  // WOODS (opt-in, `clumps` > 0): one instanced layer of squashed dark
+  // blobs, CLUSTERED — 2-6 blobs strung along a heading make a copse or
+  // a hedgerow, and a lone pancake reads as debris. Placement is biased
+  // toward the seam (rand^1.8): that is the band a camera actually
+  // resolves, and 140 singles spread over 28 km2 measured out to an
+  // empty plain.
+  const clumps = opts.clumps === undefined ? 0 : opts.clumps;
   if (clumps > 0) {
     const blob = new THREE.SphereGeometry(1, 6, 4);
     blob.scale(1, 0.55, 1);
@@ -541,8 +576,8 @@ const RIGS = {
  * A PRACTICAL — a lantern, lamp, sign, window or fire: an emissive surface
  * (it glows, and the post chain blooms it, but it lights nothing) plus its
  * own small PointLight beside it, which is what lights the ground around
- * it.  These are the numbers the cookbook's dusk/night recipe builds one
- * with; flicker scales `intensity`.
+ * it.  Starting numbers for one, measured on this renderer; flicker
+ * scales `intensity`.
  */
 export const PRACTICAL = Object.freeze({ emissiveIntensity: 3.0, intensity: 1.5, distance: 9, decay: 2 });
 
@@ -559,12 +594,16 @@ export const PRACTICAL = Object.freeze({ emissiveIntensity: 3.0, intensity: 1.5,
  * `glowCore`) so it reads as a highlight — bloom-friendly, never a
  * clipped white band.  Overcast keeps the flat gradient bake.
  *
- * A SET SUN IS NIGHT: `elevation` below 0 (any mood) switches to the
- * night rig — the key light becomes a moon opposite the sun's azimuth
- * (elevation 30-55), the fill and env take the night mood, the disc is
- * the moon.  `sunDir` still reports the authored (below-horizon) sun so
- * `makeSky()` paints twilight/night on it; `lightDir` is the vector the
- * shadow light actually uses (equal to `sunDir` by day).
+ * A below-horizon `elevation` (any mood) lights nothing, so the rig
+ * supplies another key to meet the luminance floor: it switches to the
+ * night rig — by default a moon opposite the sun's azimuth, 30-55 deg
+ * up (`moonAzimuth` / `moonElevation` put it where the brief's dusk
+ * wants its glow; keep an above-horizon `elevation` with
+ * `mood: 'golden'` for a sun still up) — the fill and env take the
+ * night mood, the disc is the moon.  `sunDir` still reports the
+ * authored (below-horizon) sun so `makeSky()` paints twilight/night on
+ * it; `lightDir` is the vector the shadow light actually uses (equal
+ * to `sunDir` by day).
  * An explicit night mood with an above-horizon direction uses that
  * direction for the moon; `skySunDir` supplies the set sun to both
  * the environment bake and `makeSky()`.
@@ -572,8 +611,10 @@ export const PRACTICAL = Object.freeze({ emissiveIntensity: 3.0, intensity: 1.5,
  * @param {object} [opts]
  *   `mood` one of `day | golden | night | overcast` (default `day`;
  *   `night` is a moon rig); `bounds` radius in metres of the content
- *   the shadow frustum must cover (default 150); `azimuth`/`elevation`
+ *   the shadow frustum covers (default 150); `azimuth`/`elevation`
  *   sun direction in degrees (per-mood defaults; golden sits low);
+ *   `moonAzimuth`/`moonElevation` where the moon stands when the sun
+ *   is set (default opposite the sun, 30-55 deg up);
  *   `sunColor`/`intensity` sun overrides; `fill` hemisphere intensity,
  *   clamped UP to the mood's readability floor (its `fillFloor` in RIGS);
  *   `fillSky`/`fillGround` hex overrides of the hemisphere's colours (the
@@ -616,7 +657,10 @@ export function sunRig(opts = {}) {
   // A set sun lights nothing from under the ground: the moon rises
   // opposite it, 30-55 deg up (deeper sun, higher moon).
   const moonDir = belowHorizon
-      ? sunVector(azDeg + 180, Math.max(30, Math.min(55, 25 - elDeg)))
+      ? sunVector(
+          opts.moonAzimuth === undefined ? azDeg + 180 : opts.moonAzimuth,
+          opts.moonElevation === undefined
+              ? Math.max(30, Math.min(55, 25 - elDeg)) : opts.moonElevation)
       : (night ? dir.clone() : null);
   const lightDir = belowHorizon ? moonDir.clone() : dir.clone();
 
@@ -664,9 +708,9 @@ export function sunRig(opts = {}) {
   // The darkest tenth of a frame is not shade the fill reaches — it is
   // albedo the libraries have already multiplied toward zero at contact
   // points, and no light colour rescues a black albedo.
-  // Colours are the mood's unless the scene tints them: the cookbook's
-  // time-of-day rows carry a cool sky over a warm ground for every hour,
-  // and the env bake's ground half below follows the same override.
+  // Colours are the mood's unless the scene tints them (a cool sky over
+  // a warm ground is the usual daylight pair), and the env bake's ground
+  // half below follows the same override.
   const fillSky = opts.fillSky === undefined ? rig.fillSky : opts.fillSky;
   const fillGround = opts.fillGround === undefined ? rig.fillGround : opts.fillGround;
   const fill = new THREE.HemisphereLight(
@@ -736,8 +780,8 @@ export function sunRig(opts = {}) {
   envTex.needsUpdate = true;
 
   // SUN DISC (moon at night): on the SAME normalized light vector, at
-  // 90% of the sky radius so worldShell's horizon ridge (82%) occludes
-  // it at the skyline the way hills occlude a low sun.
+  // 90% of the sky radius so a worldShell ridge (82%), when there is
+  // one, occludes it at the skyline the way hills occlude a low sun.
   let sunDisc = null;
   if (opts.disc === undefined ? rig.disc : opts.disc) {
     // The moon subtends about half a degree, independent of sky radius.

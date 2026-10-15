@@ -52,7 +52,6 @@ from codeverse3d.tracks.generation import GenerationResult, GenerationTask
 from codeverse3d.tracks.lifecycle import CLOCK, MATERIALIZE, SKELETON, BaseTrack, StageNode
 from codeverse3d.tracks.prompting import (
     base_prompt_context,
-    cookbook_sections,
     judge_digest,
     reference_images,
     refine_inline_files,
@@ -73,20 +72,10 @@ log = logging.getLogger(__name__)
 
 SCENE_TIMES: tuple[float, float] = (0.0, 1.5)
 MAX_CONSOLE_ERRORS = 8
-#: cookbook chapters inlined into the env / zone prompts (the sessions never call
-#: read_cookbook on their own — measured on scenes_v1: 0 of 20 sessions did)
-ENV_RECIPES: tuple[str, ...] = (
-    "Ground that reads real", "Horizon: the world must not end", "Atmosphere: time-of-day triads with numbers",
-    "Dusk / night lighting recipe",
-)
-ZONE_RECIPES: tuple[str, ...] = (
-    "Vegetation that reads real", "Rocks, cliffs and boulders that read organic",
-    "Set dressing: how many props a place needs", "Scene layering: foreground, midground, background",
-    "Motion you can SEE between t = 0 and t = 1.5 s", "Soft particles",
-)
-#: the zone chapters above run to ~25 k chars on scene_blender: the inlining budget must hold them all
-#: (the default 24 k clipped the LAST chapter, which is the one iteration 0 needed — 2026-10-15)
-ZONE_RECIPES_MAX_CHARS = 30_000
+# No cookbook on this track (owner, 2026-10-15): the same four ENV and six ZONE chapters used to be
+# inlined into every session whatever the brief, and the 60 iteration-0 scenes executed them
+# verbatim.  Interface facts live in contract.md / system.md, the craft in the skills as short
+# optional practices; the prompts state requirements and what measures them.
 ENV_TIMEOUT_S = 420
 ZONE_TIMEOUT_S = 600
 #: a refine session that runs for half an hour (the desert-canyon round 1 did) spends the
@@ -359,7 +348,7 @@ class SceneTrack(BaseTrack):
         return {"ok": res.ok, "files": [c.path for c in res.files_changed], "notes": res.notes}
 
     def _env_task(self, ctx: RunContext) -> GenerationTask:
-        prompt = render(scene_templates(ctx.language).env, **self._ctx(ctx, recipes=cookbook_sections(ctx, ENV_RECIPES)))
+        prompt = render(scene_templates(ctx.language).env, **self._ctx(ctx))
         ctx.record_prompt("scene_env", prompt)
         return GenerationTask(label="env", prompt=prompt, system=self.system_prompt(ctx), files_hint=[env_file(ctx)], round=0, kind="env",
                               temperature=0.5, timeout_s=ctx.budget.timeout_s(ENV_TIMEOUT_S, floor_s=120),
@@ -406,30 +395,35 @@ class SceneTrack(BaseTrack):
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         names = [z.name for z in batch]
         files = [ctx.runtime.zone_file(z.name) for z in batch]
-        recipes = cookbook_sections(ctx, ZONE_RECIPES, max_chars=ZONE_RECIPES_MAX_CHARS)
         template = scene_templates(ctx.language).zone
         briefs = []
         for i, zone in enumerate(batch):
             neighbours = [f"{z.name}: {plan_bbox_line(z.bbox, ctx.language)}" for z in plan.zones if z.name != zone.name]
-            # a batched session reads ONE copy of the recipes (they are identical per zone)
-            briefs.append(render(template, **self._ctx(ctx, recipes=recipes if i == 0 else "", zone_name=zone.name, zone_description=zone.description,
+            # the brief's per-zone head for every zone; the shared tail (cameras, assets, the
+            # contract, the measured list, tools, the catalog, the output rules) ONCE, after the
+            # last head — a two-zone session used to read the contract and the 25k catalog twice
+            # with "HOW TO FINISH" landing between zone 1 and zone 2 (2026-10-15)
+            briefs.append(render(template, **self._ctx(ctx, zone_name=zone.name, zone_description=zone.description,
                                                        zone_bbox=plan_bbox_line(zone.bbox, ctx.language), zone_contents=zone.contents,
                                                        zone_file=ctx.runtime.zone_file(zone.name), neighbours=neighbours,
-                                                       layout=layout_block(ctx.extra.get("layouts", {}).get(zone.name), language=ctx.language))))
+                                                       layout=layout_block(ctx.extra.get("layouts", {}).get(zone.name), language=ctx.language),
+                                                       shared=(i == len(batch) - 1))))
         if len(batch) == 1:
             prompt, label = briefs[0], f"zone_{to_snake(names[0])}"
         else:
             header = (f"# {len(batch)} zone modules in ONE session — write ALL of: {', '.join(files)}\n\n"
                       f"You own exactly these files and nothing else. {len(batch)} complete zone briefs follow, "
-                      "separated by a horizontal rule; implement each one in its own file exactly as its brief says. "
+                      "separated by a horizontal rule; implement each one in its own file as its brief says. "
                       + "These are EVERY zone of the scene and you are its one author: keep scale, materials and "
-                        "placement coherent across them — nothing floats, nothing interpenetrates a neighbour, every "
-                        "content at the plan's size, and the zones meet at their shared edges as one place. "
-                        f"This session covers {len(batch)} zones: build EACH zone to "
-                        "its brief's full density counts and dressing before you finish — one author measured "
-                        "2026-09-08 finished four zones in 5 minutes as a block-out (\"missing stove\", \"shelves "
-                        "missing\", \"primitive tools\") and scored 0.32 where the brief-by-brief fan-out reached 0.60. "
-                      + "The recipes printed in the first brief apply to every zone in this session.\n")
+                        "placement coherent across them — nothing floats, nothing interpenetrates a neighbour "
+                        "(measured: scene_placement), every planned content at the plan's size (measured), and the "
+                        "zones read as ONE continuous place (judged): where the plan puts them side by side, nothing "
+                        "may stop dead at a zone edge. "
+                        f"This session covers {len(batch)} zones: finish EACH zone — every content its brief lists "
+                        "present and seated (measured: scene_placement) and the zone reading as the brief describes, "
+                        "not as a block-out (judged) — before you stop; one author measured 2026-09-08 finished four "
+                        "zones in 5 minutes as a block-out (\"missing stove\", \"shelves missing\", \"primitive tools\") "
+                        "and scored 0.32 where the brief-by-brief fan-out reached 0.60.\n")
             prompt = header + "\n\n---\n\n".join(briefs)
             label = "zones_" + "_".join(to_snake(n) for n in names)
         ctx.record_prompt("scene_zone", prompt)   # the whole prompt the session read, not its first brief
@@ -474,7 +468,7 @@ class SceneTrack(BaseTrack):
     def _refine_task(self, ctx: RunContext, group: TaskGroup, last: RoundRecord, index: int, *, parallel: bool) -> GenerationTask:
         files = group.files or ctx.runtime.expected_files(ctx.plan)
         lines = compact_instructions(group.tasks, max_lines=ctx.policy.max_instructions_per_task)
-        prompt = render(scene_templates(ctx.language).refine, **self._ctx(ctx, recipes=refine_recipes(ctx, files), round_index=index, tasks=lines,
+        prompt = render(scene_templates(ctx.language).refine, **self._ctx(ctx, round_index=index, tasks=lines,
                                                                           targets=group.targets, files=files, edit_only_these=parallel,
                                                                           judge_summary=judge_digest(last),
                                                                           current_files=refine_inline_files(ctx, files)))
@@ -489,14 +483,15 @@ class SceneTrack(BaseTrack):
         and the preflight's findings are the build's log tail), targeted at the failing
         module when the build names one."""
         lint = next((g for g in last.gates if g.gate.startswith("lint")), GateReport(gate="lint", passed=True))
-        report = format_error_report(last.build, lint, ctx.cookbook_text) if last.build else "build did not run"
+        # no cookbook section in the report: the scene languages ship none (the "" is explicit, not a lookup)
+        report = format_error_report(last.build, lint, "") if last.build else "build did not run"
         files: list[str] = []
         if last.build is not None and last.build.error_file:
             rel = last.build.error_file.removeprefix(str(ctx.ws.root)).lstrip("/")
             if (ctx.ws.root / rel).is_file():
                 files = [rel]
         files = files or ctx.runtime.expected_files(ctx.plan)
-        prompt = render(scene_templates(ctx.language).refine, **self._ctx(ctx, recipes="", round_index=index, tasks=[report], targets=["build"],
+        prompt = render(scene_templates(ctx.language).refine, **self._ctx(ctx, round_index=index, tasks=[report], targets=["build"],
                                                                           files=files, edit_only_these=False,
                                                                           judge_summary="(no judgment: the scene did not build — fix the errors above first)",
                                                                           current_files=refine_inline_files(ctx, files)))
@@ -510,7 +505,12 @@ class SceneTrack(BaseTrack):
         """The variables every scene template may use.  Plan numbers are printed in the AUTHORING
         frame of the run's language (``plan_vec``: the identity for three.js, so those prompts are
         byte-identical; a bpy author reads Z-up points and (w, d, h) sizes, D12), plus the
-        runtime's file names (``env_file`` / ``entry_file``) so a template never spells a path."""
+        runtime's file names (``env_file`` / ``entry_file``) so a template never spells a path.
+
+        ``bounds`` is the extent of the PLANNED content and the cameras' subject — what the
+        placement gate measures placed assets against — not the edge of the world: terrain,
+        backdrop and scenery continue beyond it as the brief implies, and a template that
+        reads it must say so (owner, 2026-10-15)."""
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]
         lang = ctx.language
         zones_table = "\n".join(f"- {z.name}: {z.description} — {plan_bbox_line(z.bbox, lang)}; contents: {', '.join(z.contents) or '-'}"
@@ -527,18 +527,6 @@ class SceneTrack(BaseTrack):
 
 
 # ----------------------------------------------------------------------------- helpers
-def refine_recipes(ctx: RunContext, files: Sequence[str]) -> str:
-    """The cookbook chapters that match the files this refine task owns (env / zones), told apart
-    by the RUNTIME's file names (``env_file``, ``zone_file``), never by a suffix test."""
-    zone_files = {ctx.runtime.zone_file(z.name) for z in (getattr(ctx.plan, "zones", None) or [])}
-    names: list[str] = []
-    if env_file(ctx) in files:
-        names += list(ENV_RECIPES)
-    if any(f in zone_files for f in files) or not names:
-        names += list(ZONE_RECIPES)
-    return cookbook_sections(ctx, names)
-
-
 def _touched(path: Any, since: float) -> bool:
     """Was ``path`` (re)written after ``since``?  (mtime beats existence: every zone
     path already holds a skeleton stub.)"""

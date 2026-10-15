@@ -10,7 +10,7 @@ from codeverse3d.languages.wrappers import run_bpy_scene
 from codeverse3d.prompts import PROMPTS_DIR, load_text, render
 
 BASE = dict(title="t", spec_prompt="p", setting="s", mood="m", bounds="b", environment="e", frame_doc="", contract="",
-            zones_table="", cameras="", effects="", animation="", asset_api="", textures="", recipes="", constraints_text="",
+            zones_table="", cameras="", effects="", animation="", asset_api="", textures="", constraints_text="",
             references="", skills="", tool_cards="", zone_name="Z", zone_description="d", zone_bbox="bb", zone_contents=[],
             zone_file="src/zones/z.py", neighbours=[], layout="", env_file="src/env.py", entry_file="src/scene.py",
             single_shot=False, output_format="OUT", effects_catalog="")
@@ -31,14 +31,16 @@ def test_the_bpy_templates_teach_the_hooks_the_wrapper_calls() -> None:
         assert "userData.update" not in text and "createScene" not in text and "THREE" not in text
 
 
-def test_the_catalog_reaches_env_zone_and_refine_but_not_the_asset_sheet() -> None:
-    """A bpy asset session gets the rows its sheet names (``library_rows``), never the whole catalog —
-    exactly the three.js split (tests/scene_runtime/test_skeleton.py)."""
+def test_the_catalog_reaches_env_and_zone_but_not_the_asset_sheet_or_the_refine() -> None:
+    """A bpy asset session gets the rows its sheet names (``library_rows``), never the whole catalog;
+    a refine session edits one file with src/lib in the workspace and the skills routed, so it carries
+    none either — exactly the three.js split (tests/scene_runtime/test_skeleton.py)."""
     tpl = PROMPTS_DIR / "tracks"
-    for name in ("scene_env_bpy.j2", "scene_zone_bpy.j2", "scene_refine_bpy.j2"):
+    for name in ("scene_env_bpy.j2", "scene_zone_bpy.j2"):
         assert "effects_catalog" in (tpl / name).read_text(), name
+    assert "effects_catalog" not in (tpl / "scene_refine_bpy.j2").read_text()
     asset = (tpl / "scene_asset_bpy.j2").read_text()
-    assert "effects_catalog" not in asset and "library_rows" in asset
+    assert "effects_catalog" not in asset and "library_rows" in asset and "asset_contract" in asset
 
 
 def test_the_bpy_env_and_zone_briefs_hand_the_enclosure_to_env_for_an_interior() -> None:
@@ -46,24 +48,12 @@ def test_the_bpy_env_and_zone_briefs_hand_the_enclosure_to_env_for_an_interior()
     env_in = render("tracks/scene_env_bpy.j2", **BASE, interior=True, glazed=False)
     env_glass = render("tracks/scene_env_bpy.j2", **BASE, interior=True, glazed=True)
     env_out = render("tracks/scene_env_bpy.j2", **BASE, interior=False, glazed=False)
-    assert "the enclosure is yours" in env_in and "room_shell" in env_in and "openings" in env_in
+    assert "This is an INTERIOR" in env_in and "room_shell" in env_in and "openings" in env_in
     assert "GLASS HOUSE" in env_glass and "glazed=True" in env_glass
-    assert "enclosure is yours" not in env_out
+    assert "INTERIOR" not in env_out and "GLASS HOUSE" not in env_out
+    # the zone brief names env.py as the enclosure's owner only for an interior (the wording is the prompt's;
+    # the ownership is the contract: the wrapper builds env first, zones link into their own collection)
     zone_in = render("tracks/scene_zone_bpy.j2", **BASE, interior=True)
     zone_out = render("tracks/scene_zone_bpy.j2", **BASE, interior=False)
-    assert "never build walls or a roof" in zone_in and "flush against the inner face" in zone_in
-    assert "never build walls" not in zone_out
-
-
-def test_the_bpy_refine_brief_names_the_cookbook_chapters_the_stages_inline() -> None:
-    """The defect → chapter table must point at chapters that exist (``cookbook_sections`` finds them
-    by title), or a refine session is sent to a recipe that is not in its prompt."""
-    from codeverse3d.prompts.sections import find_section, split_sections
-    from codeverse3d.tracks.scene import ENV_RECIPES, ZONE_RECIPES
-
-    sections = split_sections(load_text("scene_blender/cookbook.md"))
-    refine = load_text("tracks/scene_refine_bpy.j2")
-    for title in (*ENV_RECIPES, *ZONE_RECIPES, "Placement self-check", "Materials: Principled recipes", "Water", "Traps"):
-        assert f'"{title.split(":")[0]}' in refine, title          # quoted as the chapter's name (its head before any colon)
-        found = find_section(sections, title)
-        assert found is not None and title.lower() in found.title.lower(), (title, found and found.title)
+    assert "INTERIOR" in zone_in and "`env.py`'s" in zone_in
+    assert "INTERIOR" not in zone_out

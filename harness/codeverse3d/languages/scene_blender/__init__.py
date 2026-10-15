@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import ast
 import json
+import math
+import re
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -361,7 +363,8 @@ def _exports(tree: ast.Module, *, target: str, role: str) -> list[GateFinding]:
     stem = Path(target).stem
     need = {"zone": ("build", "build(ctx) -> bpy.types.Collection: link everything into ctx.collection and return it"),
             "asset": (f"build_{stem}", f"build_{stem}(ctx, variant=0) -> bpy.types.Collection, built at the origin, base on z = 0"),
-            "env": ("build_env", "build_env(ctx) -> dict: world, sun, ground, atmosphere")}.get(role)
+            "env": ("build_env", "build_env(ctx) -> dict: the environment the plan describes (world / lighting / ground or "
+                                 "floor / atmosphere as the brief needs); zones read the returned dict as ctx.env")}.get(role)
     out = []
     if need and need[0] not in defs:
         out.append(_f(LintKind.LAYOUT, Severity.ERROR, f"{target} defines no `{need[0]}`", None, f"define {need[1]}", target))
@@ -458,62 +461,84 @@ def _v(v: Sequence[float], *, extents: bool = False) -> tuple[float, float, floa
     return tuple(round(c, 3) for c in to_authoring_frame(v, LANGUAGE.value, extents=extents))  # type: ignore[return-value]
 
 
+#: the placeholder plate's side as a multiple of the plan span (the three.js skeleton's
+#: ``PLACEHOLDER_GROUND_SPANS``): past the 2 × span the ``fog_short`` gate measures once the author's
+#: atmosphere is in, so no authored camera reads a plate edge before the land is built.  No
+#: minimum world size.
+PLACEHOLDER_GROUND_SPANS = 3.0
+
+
 def _env_source(plan: ScenePlan) -> str:
-    """``src/env.py`` built FROM the library: the ground function, the sky, the sun, the ground
-    mesh, the fog box and — for an interior — the room shell and its ceiling light."""
+    """``src/env.py`` as an interface stub: the plan's data (bounds, interior, glazed, the sun the
+    plan states), the two exports the wrapper calls, and a PLACEHOLDER body that builds ONE thing —
+    a level plate named Ground past the plan span — and no world, no lamp, no atmosphere: as
+    written the stub FAILS the probe (no world / no atmosphere) and the frame gate (black frames)
+    until the author writes the brief's.  It used to be a finished landscape (a level pad of the
+    bounds' half-span + 15 m, fbm hills beyond, a mossy ground, a fog box, a room shell with one
+    ceiling light): 30 of 30 iteration-0 scenes kept its shape; then a passing placeholder (a
+    neutral sun at 45° / 35°, a haze) that any brief could keep for the same reason (the
+    de-templating of 2026-10-15)."""
+    from codeverse3d.languages.scene_threejs import sun_from_plan
+
     c, e = _v(plan.bounds.center), _v(plan.bounds.extents, extents=True)
-    span = max(e[0], e[1], 40.0)
-    ground = round(max(120.0, span * 2.5), 1)
-    # level ground wherever the plan put its cameras (z ≈ 0 inside the bounds), gentle hills beyond
-    flat = round(max(45.0, span / 2 + 15.0), 1)
-    fog_h = round(max(e[2] * 2.0, 20.0), 1)
+    span = max(e[0], e[1], 1.0)
+    ground = round(span * PLACEHOLDER_GROUND_SPANS, 1)
     interior = "True" if plan.interior else "False"
     glazed = bool(getattr(plan, "glazed", False))
-    room_energy = round(40.0 * e[0] * e[1], 1)
-    return f'''"""src/env.py — the environment: world (sky), sun, ground, atmosphere{", enclosure" if plan.interior else ""}.
+    az, el = sun_from_plan(plan)
+    az_line = (f"SUN_AZIMUTH_DEG = {az:g}      # the plan's light: compass 0 = +X, 90 = +Y (the sky and the lamp share it; zones may import it)"
+               if az is not None else
+               "SUN_AZIMUTH_DEG = None     # the plan states no azimuth: set the brief's (compass 0 = +X, 90 = +Y; zones may import it)")
+    el_line = (f"SUN_ELEVATION_DEG = {el:g}" if el is not None else "SUN_ELEVATION_DEG = None   # the plan states none: set the brief's")
+    return f'''"""src/env.py — the environment: the ground every zone seats on, the light, the sky / backdrop, the
+atmosphere{" and the enclosure" if plan.interior else ""}.
 
 ENV PLAN: {plan.environment.strip()}
 setting: {plan.setting.strip()}   mood: {plan.mood.strip()}
-Frame: Z up, -Y front, metres.  BOUNDS below are the plan's, in this frame.
-CONTRACT: height_at(x, y) -> z is THE ground: the terrain mesh and every zone's seat use it.
-  build_env(ctx) -> dict builds the world, lamps, ground and atmosphere into ctx.collection and returns
-  what zones may share (materials, water level, sun direction ...) — they read it as ctx.env.
-  Everything below is built from src/lib (lib.terrain / lib.sky / lib.lighting / lib.materials /
-  lib.architecture — see the effects catalog): rewrite the sky / sun / ground / fog to match the
-  plan; keep build_env and height_at.
+Frame: Z up, -Y front, metres.  BOUNDS below are the plan's, in this frame: the extent of the PLANNED
+content and the cameras' subject, not the edge of the world — land, backdrop and scenery continue beyond
+it as the brief implies.
+CONTRACT (the wrapper calls exactly these two):
+  height_at(x, y) -> z: the ONE ground function — the ground mesh samples it and every zone seats on it
+    (measured: scene_placement floating > 0.05 m outdoors / 0.02 m indoors, sunken > 0.10 m); the plan's
+    cameras expect the ground near their look_at at the height the plan states, and each eye above it
+    (camera_underground, cap 0.50).
+  build_env(ctx) -> dict: builds the world, the lamps, the ground and the atmosphere the plan describes into
+    ctx.collection and returns what zones may share (materials, water level, sun direction ...) — ctx.env to them.
+MEASURED: a world exists and an atmosphere exists — a world Volume or a bounded fog volume (no_fog, ERROR) —
+  with 1 / density >= the plan span / 1.5 (fog_short); the judged frames sit in the exposure band
+  (scene_frames: dark_frame / blown_frame / flat_frame); whatever the zones seat on is named Ground... /
+  Terrain... (the census finds the ground by name and shape); backdrop geometry is named Sky...; no world
+  edge in any authored frame (judged; the census: standing geometry past 1.25 x the bounds' half-extent).
+PLACEHOLDER below: ONE level plate named Ground past the plan span, so the census has a surface — and NO
+  world, NO lamp, NO atmosphere: as written this module fails the probe and renders black until build_env
+  builds the brief's.  The landform, the sky, the light and the atmosphere are yours.  Raw bpy / bmesh is the
+  baseline; src/lib (terrain / sky / lighting / materials / architecture / water ... — the effects catalog) is
+  an OPTIONAL toolbox.  Keep build_env and height_at.
 """
-from lib import architecture, lighting, materials, sky, terrain
+from lib import materials, terrain   # the optional toolbox (the placeholder uses two of its calls)
 
 BOUNDS = {{"center": ({fmt3(c)}), "extents": ({fmt3(e)})}}
-INTERIOR = {interior}
-GLAZED = {glazed}          # a glass house: the shell's walls and lid are panes on an iron frame
-GROUND_SIZE = {ground}
-FLAT_RADIUS = {flat}       # level ground for the plan's cameras (z = 0); the hills start beyond it
-SUN_AZIMUTH_DEG = 45.0     # compass angle of the sun: 0 = +X, 90 = +Y (the sky and the lamp share it)
-SUN_ELEVATION_DEG = 35.0
+INTERIOR = {interior}      # the plan's: an interior needs the enclosure the brief describes (openings, materials as
+                           # named; it reads black without openings or practical lights); lib.architecture.room_shell is one way
+GLAZED = {glazed}          # the plan says the enclosure is glazed; its construction is the brief's
+GROUND_SIZE = {ground}     # the placeholder plate's side (m): 3 x the plan span, past the reach the fog gate measures
+{az_line}
+{el_line}
 SEED = 0
-_RELIEF = terrain.make_height_at(seed=SEED, relief=0.0 if INTERIOR else 2.5, scale=60.0, flat_radius=FLAT_RADIUS)
 
 
 def height_at(x, y):
-    """z of the ground at (x, y) — level inside FLAT_RADIUS, rolling beyond (the ground mesh follows)."""
-    return _RELIEF(x, y)
+    """z of the ground at (x, y): the one function every zone seats on and the ground mesh follows.  PLACEHOLDER: level."""
+    return 0.0
 
 
 def build_env(ctx):
-    sky.sun_world(ctx.scene, elevation_deg=SUN_ELEVATION_DEG, azimuth_deg=SUN_AZIMUTH_DEG, strength=0.4, dust=1.5)
-    _, towards_sun = lighting.sun(ctx.collection, azimuth_deg=SUN_AZIMUTH_DEG, elevation_deg=SUN_ELEVATION_DEG, energy=3.0)
-    ground_mat = materials.material("GroundMat", "4A5A3A", roughness=0.9, noise_scale=6.0)
-    terrain.ground("Ground", ctx.collection, size=GROUND_SIZE, segments=96, height_at=height_at, material=ground_mat)
-    (cx, cy, cz), (ex, ey, ez) = BOUNDS["center"], BOUNDS["extents"]
-    if INTERIOR:
-        # the shell sits 1 cm above the ground so its floor never z-fights the terrain
-        architecture.room_shell(ctx.collection, materials.material("WallMat", "B8AE9A", roughness=0.85),
-                                center=(cx, cy, cz + 0.01), extents=(ex, ey, ez), glazed=GLAZED)
-        lighting.area_light(ctx.collection, "CeilingLight", (cx, cy, cz + ez / 2 - 0.05), "FFF1DC", {room_energy},
-                            size=max(0.5, min(ex, ey) * 0.5), target=(cx, cy, cz - ez / 2))
-    sky.haze(ctx.collection, (cx, cy, {fog_h / 2}), (GROUND_SIZE, GROUND_SIZE, {fog_h}), density={0.001 if plan.interior else 0.002})
-    return {{"ground_material": ground_mat, "sun_direction": tuple(towards_sun)}}
+    # PLACEHOLDER ground: a level plate following height_at — REPLACE with the brief's land (named Ground... / Terrain...)
+    ground_mat = materials.material("GroundMat", "6F6A60", roughness=0.95)
+    terrain.ground("Ground", ctx.collection, size=GROUND_SIZE, segments=32, height_at=height_at, material=ground_mat)
+    # NO world, lamp or atmosphere here: the brief's go in this function (the docstring says what is measured)
+    return {{"ground_material": ground_mat}}
 '''
 
 
@@ -526,16 +551,18 @@ def _asset_source(a: AssetPlan) -> str:
 approx size {w:g} x {d:g} x {h:g} m (x = width, y = depth, z = height); expected instances: ~{a.instances_hint}
 CONTRACT: build_{snake}(ctx, variant=0) -> bpy.types.Collection — link every part into ctx.collection
   (named '{pascal}'), built ONCE at the origin with its base on z = 0, front facing -Y.  Zones place
-  collection instances of it (ctx.assets['{snake}']); never link it anywhere else.
+  collection instances of it (ctx.assets['{snake}']); link it nowhere else.  It must read as the plan
+  describes it at the judge's camera distance (judged) and measure about the size above (the asset check);
+  parts, materials and construction are yours.
 """
-from lib.materials import material
-from lib.mesh import Batch
+from lib.materials import material   # optional toolbox: the placeholder uses it
+from lib.mesh import Batch           # optional: one way to build multi-material parts (raw bmesh is equally fine)
 
 
 def build_{snake}(ctx, variant=0):
     mat = material("{pascal}Mat", ({fmt3(rgb)}), roughness={rough}, metal={metal})
-    # PLACEHOLDER blockout at the planned size — REPLACE with the real construction: several parts
-    # in a Batch (one mesh per material, lib.mesh), base on z = 0, front facing -Y.
+    # PLACEHOLDER blockout at the planned size — REPLACE with the real thing (a single box fails the asset check);
+    # base on z = 0, front facing -Y.
     b = Batch("{pascal}")
     b.box(mat, (0.0, 0.0, {h / 2:g}), ({w:g}, {d:g}, {h:g}))
     b.finish(ctx.collection, parent=False)
@@ -543,44 +570,41 @@ def build_{snake}(ctx, variant=0):
 '''
 
 
-def _zone_source(z: ZonePlan, assets: dict[str, AssetPlan], counters: dict[str, int]) -> str:
-    """A zone stub placing each planned asset once; ``counters`` numbers the placed copies across
-    zones, because a Blender object name is global (a second ``Lantern_0`` would be ``Lantern_0.001``)."""
+def _zone_source(z: ZonePlan, assets: dict[str, AssetPlan]) -> str:
+    """The zone's interface and a TODO naming the plan's contents — no positions.  The stub used to
+    tile the contents on a quarter-extent grid inside the bbox and say "keep them inside the bbox":
+    the seed of the blocks-in-a-rectangle look (the de-templating of 2026-10-15)."""
     snake, pascal = to_snake(z.name), to_pascal(z.name)
     c, e = _v(z.bbox.center), _v(z.bbox.extents, extents=True)
-    places = []
-    for i, name in enumerate(z.contents):
+    todo = []
+    for name in z.contents:
         a = assets.get(to_snake(name))
         if a is None:
-            continue
-        ox = (-e[0] / 4 + (i % 3) * e[0] / 4) if len(z.contents) > 1 else 0.0
-        oy = (-e[1] / 4 + (i // 3) * e[1] / 4) if len(z.contents) > 3 else 0.0
-        n = counters.get(to_snake(a.name), 0)
-        counters[to_snake(a.name)] = n + 1
-        places.append(f'    place(ctx, "{to_snake(a.name)}", "{to_pascal(a.name)}_{n}", {round(c[0] + ox, 2)}, {round(c[1] + oy, 2)})')
-    body = "\n".join(places) or "    pass  # TODO: build this zone's content (seat everything with ctx.height_at(x, y))"
+            todo.append(f"  - {name}: not an asset of the plan — built here")
+        elif a.kind == "blender_glb":
+            todo.append(f"  - {a.name}: ctx.assets['{to_snake(a.name)}'] — the hero GLB public/assets/{to_snake(a.name)}.glb imported by the harness")
+        else:
+            todo.append(f"  - {a.name}: ctx.assets['{to_snake(a.name)}'] — built by src/assets/{to_snake(a.name)}.py; ~{a.instances_hint} planned")
+    todo_block = "\n".join(todo) if todo else "  (the plan lists no contents)"
     return f'''"""src/zones/{snake}.py — zone "{pascal}": {z.description.strip()}
 
-PLAN bbox (Z up, -Y front, metres): centre ({fmt3(c)}) extents ({fmt3(e)}).  Contents: {", ".join(z.contents) or "-"}
-CONTRACT: build(ctx) -> bpy.types.Collection — ctx.collection is this zone's (named '{pascal}', active);
-  every PLACED thing is ONE root object in it, named <Name>_<i> (object names are global in
-  Blender: never reuse one another zone uses).  Seat things on ctx.height_at(x, y) — lib.scatter
-  instances and lib.place.seat do — and keep them inside the bbox.  Assets: a collection-instance
-  Empty of ctx.assets['<snake>'] (lib.scatter.instance).  Animation is data: lib.motion.
+PLAN bbox (Z up, -Y front, metres): centre ({fmt3(c)}) extents ({fmt3(e)}).
+CONTRACT: build(ctx) -> bpy.types.Collection — ctx.collection is this zone's (named '{pascal}', active): link
+  everything into it and return it.  Every PLACED thing is ONE root object in it, named <Name>_<i> (object
+  names are global in Blender: never reuse one another zone uses).  Seat things on ctx.height_at(x, y)
+  (measured: scene_placement floating > 0.05 m outdoors / 0.02 m indoors, sunken > 0.10 m).  The planned
+  contents are measured against the plan bounds and this bbox (scene_placement: present, at the plan's size,
+  not outside the bounds); scenery may continue past the bbox as the brief implies.
+  Assets: ctx.assets['<snake>'] is a Collection — place collection-instance Empties of it (lib.scatter.instance
+  seats one on ctx.height_at; one way among others).  Animation: keyframes or simple drivers (the build samples
+  frames 1 and 46 = t 0 / 1.5 s; motion between them is measured); lib.motion is an optional helper.
+TODO — this zone's planned contents, none placed yet:
+{todo_block}
 """
-from lib.scatter import instance
-
-
-def place(ctx, key, name, x, y, rot_z=0.0):
-    """One placed copy of asset `key`: a collection-instance Empty seated on ctx.height_at."""
-    source = ctx.assets.get(key)
-    if source is None:
-        return None
-    return instance(ctx.collection, source, name, x, y, height_at=ctx.height_at, rot_z=rot_z)
 
 
 def build(ctx):
-{body}
+    # TODO: build the contents listed above (seat everything with ctx.height_at)
     return ctx.collection
 '''
 
@@ -630,9 +654,8 @@ def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
     for a in plan.assets:
         if a.kind != "blender_glb":
             _put(ws.root / asset_file(a), _asset_source(a), written)
-    counters: dict[str, int] = {}
     for z in plan.zones:
-        _put(ws.root / zone_file(z.name), _zone_source(z, assets, counters), written)
+        _put(ws.root / zone_file(z.name), _zone_source(z, assets), written)
     _put(ws.root / ENTRY_REL, render_scene_py([to_snake(z.name) for z in plan.zones],
                                               [to_snake(a.name) for a in plan.assets if a.kind != "blender_glb"], [],
                                               list(plan.cameras[:6]), title=plan.title, summary=plan.summary), written)
@@ -656,13 +679,30 @@ class WrapperRun(BaseModel):
     facts: dict[str, Any] = Field(default_factory=dict)
 
 
-def _fallback_camera(plan: ScenePlan | None) -> CameraPlan:
+_SUN_RE = re.compile(r"^SUN_AZIMUTH_DEG\s*=\s*(-?\d+(?:\.\d+)?)", re.M)
+
+
+def _fallback_camera(plan: ScenePlan | None, ws: Workspace | None = None) -> CameraPlan:
+    """An overview when the plan names no camera (the schema requires one, so this is the plan-less
+    path): in the PLAN frame (Y up), on the lit side — the env's ``SUN_AZIMUTH_DEG`` (compass 0 = +X,
+    90 = +Y in this language's Z-up frame, i.e. -Z in the plan's), the rig's 45° guess without one —
+    at the bounds' span from their centre; derived, never a fixed corner."""
+    from codeverse3d.languages.scene_threejs import SUN_AZIMUTH_GUESS_DEG
+
+    azimuth = SUN_AZIMUTH_GUESS_DEG
+    env = (ws.src / "env.py") if ws is not None else None
+    if env is not None and env.is_file():
+        m = _SUN_RE.search(env.read_text(errors="replace"))
+        if m:
+            azimuth = float(m.group(1))
     if plan is None:
-        return CameraPlan(name="overview", position=(30.0, 18.0, 30.0), look_at=(0.0, 1.0, 0.0), fov=50.0)
-    c, e = plan.bounds.center, plan.bounds.extents
-    r = max(e[0], e[2], 10.0)
-    return CameraPlan(name="overview", position=(c[0] + 0.8 * r, c[1] + 0.5 * r, c[2] + 0.8 * r), look_at=c, fov=50.0,
-                      purpose="fallback: the plan names no camera")
+        c, r = (0.0, 0.0, 0.0), 30.0
+    else:
+        c = tuple(float(v) for v in plan.bounds.center)
+        r = max(float(plan.bounds.extents[0]), float(plan.bounds.extents[2]), 10.0)
+    a = math.radians(azimuth)
+    return CameraPlan(name="overview", position=(c[0] + 0.9 * r * math.cos(a), c[1] + 0.45 * r, c[2] - 0.9 * r * math.sin(a)),
+                      look_at=(c[0], c[1] + 1.0, c[2]), fov=50.0, purpose="fallback: the plan names no camera")
 
 
 class AssembleResult(BaseModel):
@@ -867,7 +907,7 @@ def assemble(runtime: SceneBlenderRuntime, ws: Workspace, plan: ScenePlan | None
         raise FileNotFoundError(f"no zone modules under {ws.src / 'zones'}")
     assets = [p.stem for p in module_files(ws, "assets")]
     heroes = [p.stem for p in hero_files(ws)]
-    cams = list(plan.cameras[:6]) if plan is not None and plan.cameras else [_fallback_camera(plan)]
+    cams = list(plan.cameras[:6]) if plan is not None and plan.cameras else [_fallback_camera(plan, ws)]
     warnings: list[str] = []
     env_ok = (ws.src / "env.py").is_file()
     if not env_ok:

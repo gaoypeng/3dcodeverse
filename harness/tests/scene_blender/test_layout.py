@@ -98,17 +98,21 @@ def test_the_skeleton_writes_the_layout(tmp_ws) -> None:
     assert want <= paths
     for p in paths:
         compile((tmp_ws.root / p).read_text(), p, "exec")
-    # a Blender object name is global: two zones never place the same <Name>_<i>
-    names = [n for z in ("quay", "water")
-             for n in re.findall(r'place\(ctx, "\w+", "(\w+)"', (tmp_ws.src / "zones" / f"{z}.py").read_text())]
-    assert names
-    assert len(names) == len(set(names))
+    # the zone stub names its planned contents (the census measures them as present) and decides
+    # no position: the grid of place() calls inside the bbox was the seed of the block-on-a-plate
+    # look (D106)
+    for z, contents in (("quay", ("Bollard", "Crate")), ("water", ("FishingBoat",))):
+        text = (tmp_ws.src / "zones" / f"{z}.py").read_text()
+        assert all(f"- {c}: ctx.assets['" in text for c in contents), text
+        assert "place(ctx" not in text and "keep them inside" not in text and "ctx.height_at" in text
     # the library ships with the plan skeleton (D51: a catalog with no src/lib/ to import from
     # made every library import a build error on the three.js side), and the env / stubs USE it
     lib = {p.rsplit("/", 1)[1] for p in paths if p.startswith("src/lib/")}
     assert lib == {p.name for p in lib_files()} | {"__init__.py"} and len(lib) == 14
-    assert "from lib import architecture, lighting, materials, sky, terrain" in (tmp_ws.src / "env.py").read_text()
-    assert "from lib.scatter import instance" in (tmp_ws.src / "zones" / "quay.py").read_text()
+    env = (tmp_ws.src / "env.py").read_text()
+    assert "from lib import materials, terrain" in env   # the placeholder plate uses the toolbox
+    assert "sky.sun_world(" not in env and "sky.haze(" not in env and "lighting.sun(" not in env   # no light or atmosphere decided (2026-10-15)
+    assert "lib.scatter.instance" in (tmp_ws.src / "zones" / "quay.py").read_text()   # named as one way
     assert "from lib.mesh import Batch" in (tmp_ws.src / "assets" / "bollard.py").read_text()
 
 

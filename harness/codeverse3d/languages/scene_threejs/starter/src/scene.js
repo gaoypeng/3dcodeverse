@@ -4,14 +4,15 @@
 //   export function createScene({ THREE, renderer, loaders })
 //     → { scene, cameras: [{ name, position: [x,y,z], lookAt: [x,y,z], fov }], update(t, dt) }
 //   • Y is up, +Z is front, units are meters.  The scene owns its lights, sky/env and fog.
-//   • cameras: 3–4 authored shots (eye above the ground, clear of every surface).
+//   • cameras: the plan's authored shots, 1–6; each is measured (eye above the ground, nothing within 0.5 m of the lens,
+//     the first one as the establishing shot: ≥ 20 % of its frame is content).
 //   • update(t, dt): t = seconds since start, dt = step; animate here (no requestAnimationFrame).
 //   • loaders.gltf is a GLTFLoader: loaders.gltf.loadAsync('/assets/<name>.glb') for Blender-built assets.
 //   • Imports allowed: 'three', 'three/addons/*', relative files.  No CDN, no network, no DOM access.
 //   • Raw three.js + GLSL only: never import a helper SDK or any npm package.
 //     ./lib/ is the ONE exception and is not an SDK: harness-owned effect modules
 //     shipped INTO this workspace, already compiled and rendered on this renderer.
-//     Import and call them (`import { makeGrass } from './lib/grass.js'`); do not
+//     Import and call them (`import { makeGrass } from './lib/grass.js'`) when they help; do not
 //     rewrite them — writes to src/lib/ are reverted.  Table: prompts effects_catalog.
 import * as THREE from 'three';
 import { buildEnv, heightAt, SUN_AZIMUTH_DEG } from './env.js';
@@ -22,7 +23,7 @@ export function createScene({ THREE: T = THREE, renderer, loaders }) {
   const scene = new THREE.Scene();
   const ctx = { THREE, scene, renderer, loaders, heightAt, sunAzimuthDeg: SUN_AZIMUTH_DEG };
 
-  const env = buildEnv(ctx);            // ground, sky, sun, hemi light, fog
+  const env = buildEnv(ctx);            // whatever env.js shares with the zones
   ctx.env = env;
 
   // Each zone returns ONE named THREE.Group (PascalCase = zone name in the census/judge).

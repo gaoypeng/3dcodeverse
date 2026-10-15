@@ -95,7 +95,7 @@ def test_scene_templates_render_and_asset_stage_with_blender(tmp_ws, settings):
     from codeverse3d.tracks.scene_assets import _asset_prompt
 
     shrine = plan.assets[0].model_copy(update={"description": "a wayside shrine with a birch (makeTree) beside it"})
-    lead = "The sheet names shipped effect-library factories"
+    lead = "The sheet lists shipped effect-library factories"   # the optional-toolbox wording (2026-10-15)
     with_lib = _asset_prompt(ctx, shrine, "src/assets/shrine.js", language=Language.SCENE_THREEJS)
     assert lead in with_lib and "leafSegments" in with_lib and "`lib/rock.js`" not in with_lib
     assert lead not in _asset_prompt(ctx, plan.assets[0], "src/assets/x.js", language=Language.SCENE_THREEJS)

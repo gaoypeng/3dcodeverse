@@ -1,10 +1,11 @@
 """lib/terrain.py — the ground and the rock that sits on it.
 
-``make_height_at`` is THE ground function: the env's ``height_at`` returns it, the ground mesh
-samples it, every zone seats on it (``place.seat`` / ``scatter.instance``).  Level inside
-``flat_radius`` (the plan's cameras were written for z ≈ 0 there), rolling beyond, so nothing
-in the play area tilts.  Batch recipes (``boulder``, ``talus``, ``basalt_column`` …) stand
-their lowest vertex ON the ``center`` z you pass — pass ``height_at(x, y)``.
+INTERFACE: ``src/env.py`` exports ``height_at(x, y) -> z``, the one ground truth the zones,
+``place.seat`` / ``scatter.instance`` and the placement gate sample.  Any function with that
+signature qualifies — a slope, a terrace, a valley floor, a riverbed, whatever land the brief
+describes; ``make_height_at`` below is one optional landform, not the ground.  Batch recipes
+(``boulder``, ``talus``, ``basalt_column`` …) stand their lowest vertex ON the ``center`` z you
+pass — pass ``height_at(x, y)``.
 """
 
 from __future__ import annotations
@@ -24,29 +25,39 @@ def _smoothstep(e0: float, e1: float, x: float) -> float:
     return t * t * (3.0 - 2.0 * t)
 
 
-def make_height_at(*, seed: int = 0, relief: float = 3.0, scale: float = 60.0, flat_radius: float = 45.0,
+def make_height_at(*, seed: int = 0, relief: float = 3.0, scale: float = 60.0, flat_radius: float = 0.0,
                    base: float = 0.0) -> HeightFn:
-    """A ground function: ``base`` within ``flat_radius`` m of the origin, hills of up to
-    ``relief`` m with features ``scale`` m wide beyond it (blended in over ``scale`` m, so the
-    rim slopes under 5 % at the defaults)."""
+    """One landform among many: rolling fbm hills of up to ``relief`` m above ``base`` with
+    features ``scale`` m wide, and — only when asked — a level pad within ``flat_radius`` m of
+    the origin (0 = no pad; the hills blend in over ``scale`` m beyond it).  Whether a pad
+    exists, where it sits and what the land does beyond it is the brief's: for a slope, a
+    terrace, a ridge, a riverbed, write your own ``height_at`` — only the signature is the
+    contract.  What is measured: every seated object rests on ``height_at`` within the placement
+    gate's contact tolerance, and a camera's eye stays above the ground under it (the frame
+    gate's ``camera_underground``) — lift the camera, not the land."""
     blend = max(1.0, scale)
+    pad = max(0.0, float(flat_radius))
 
     def height_at(x: float, y: float) -> float:
-        r = math.hypot(x, y)
-        if r <= flat_radius:
-            return base
-        t = _smoothstep(flat_radius, flat_radius + blend, r)
         n = 0.5 + 0.5 * fbm2(x / scale, y / scale, octaves=4, seed=seed)
-        return base + t * relief * n
+        if pad <= 0.0:
+            return base + relief * n
+        r = math.hypot(x, y)
+        if r <= pad:
+            return base
+        return base + _smoothstep(pad, pad + blend, r) * relief * n
 
     return height_at
 
 
 def ground(name: str, collection: Any, *, size: float | Sequence[float], segments: int, height_at: HeightFn,
            material: Any, center: Sequence[float] = (0.0, 0.0), smooth: bool = True) -> Any:
-    """The terrain mesh: a ``size`` m grid of ``segments`` cells (96 for a 120-200 m ground)
-    following ``height_at``.  Name it ``Ground…`` / ``Terrain…``: the census classifies the
-    ground by name and shape, and the placement gate seats on it."""
+    """The terrain mesh: a ``size`` m grid (a number, or (x, y)) of ``segments`` cells around
+    ``center`` following ``height_at``.  Extent, shape and resolution are the brief's, within
+    the triangle budget (2 x ``segments`` ** 2); what is measured is that no authored camera sees
+    a hard world edge, a terrain cliff or a missing horizon (rubric ``world_edge_visible``), so
+    the ground reaches whatever closes the view.  Name it ``Ground…`` / ``Terrain…``: the census
+    classifies the ground by name and shape, and the placement gate seats on it."""
     sx, sy = (float(size), float(size)) if isinstance(size, (int, float)) else (float(size[0]), float(size[1]))
     n = max(1, int(segments))
     cx, cy = float(center[0]), float(center[1])

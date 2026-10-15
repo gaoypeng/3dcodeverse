@@ -24,7 +24,7 @@ from codeverse3d.contracts.plan import Plan, StaticPlan
 from codeverse3d.contracts.run import RoundRecord
 from codeverse3d.conventions import LANGUAGE_FRAME, fmt3, frame_doc, to_authoring_frame, to_snake
 from codeverse3d.prompts import render
-from codeverse3d.prompts.catalog import language_prompt, language_text
+from codeverse3d.prompts.catalog import contract_sections, language_prompt, language_text
 from codeverse3d.tracks.common import RunContext
 from codeverse3d.tracks.depth import (
     DETAIL_ADVICE,
@@ -131,37 +131,6 @@ def constraints_text(spec: Any) -> str:
     for m in c.must_not:
         lines.append(f"MUST NOT: {m}")
     return "\n".join(lines) or "(none)"
-
-
-def cookbook_sections(ctx: RunContext, names: Sequence[str], *, max_chars: int = 24_000) -> str:
-    """The named cookbook chapters, inlined verbatim, for a prompt to carry.
-
-    Measured on the scenes_v1 battery: every zone and env session was told to call
-    ``read_cookbook(section=...)`` for its chapters and NOT ONE of the 20 sessions did —
-    flash writes the file immediately.  A chapter the model never reads teaches nothing,
-    so the chapters that decide the score (ground, horizon, vegetation, rocks, dressing,
-    layering, motion) travel inside the prompt instead; the tool stays for everything else.
-    """
-    from codeverse3d.prompts.sections import find_section, split_sections
-
-    md = ctx.cookbook_text or ""
-    if not md.strip():
-        return ""
-    sections = split_sections(md)
-    out: list[str] = []
-    seen: set[str] = set()
-    for name in names:
-        sec = find_section(sections, name)
-        if sec is None or sec.title in seen:
-            continue
-        seen.add(sec.title)
-        out.append(sec.body.rstrip())
-    text = "\n\n".join(out)
-    if len(text) > max_chars:
-        text = (
-            text[:max_chars].rstrip() + "\n\n…[clipped — the whole cookbook is at .3dcode/cookbook.md]"
-        )
-    return text
 
 
 #: brief words → cookbook chapter titles (case-insensitive substrings of a ``## `` heading) they call for
@@ -275,6 +244,11 @@ def language_system_prompt(language: Language, *, role: str = "", tools: bool = 
     return base + "\n\n" + render(f"system/role_{role}.j2", language=language.value, **vars).strip()
 
 
+#: the ``## `` headings of a scene contract an ASSET session acts on (``contract_sections``)
+ASSET_CONTRACT_SECTIONS: tuple[str, ...] = ("Files", "The `ctx`", "Allowed imports", "FORBIDDEN", "Blender 5.2 API facts",
+                                            "What the renderer does", "Naming")
+
+
 def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
     """Variables every tracks/*.j2 template may use (StrictUndefined → all present)."""
     plan = ctx.plan
@@ -284,6 +258,10 @@ def base_prompt_context(ctx: RunContext, **extra: Any) -> dict[str, Any]:
         "language": ctx.language.value,
         "frame_doc": frame_doc(LANGUAGE_FRAME[ctx.language.value]),
         "contract": ctx.contract_text,
+        # a scene_blender asset session writes ONE module the zones instance: it is handed the
+        # contract's ctx table, imports, lint policy, API facts and render budgets, not the
+        # assembler, the cameras or the worked env / zone modules it must not write
+        "asset_contract": contract_sections(ctx.contract_text, ASSET_CONTRACT_SECTIONS),
         # the whole cookbook.  It used to be ctx.cookbook_text[:6000] — a blind byte
         # prefix that delivered 13 % of blender's and 10 % of scene_threejs's, cutting
         # mid-snippet, and the read_cookbook tool that was supposed to fetch the rest

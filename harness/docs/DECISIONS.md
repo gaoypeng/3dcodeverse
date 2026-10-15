@@ -1302,6 +1302,58 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   min, 15 + 15 parallel), the refine briefs (iteration 2's lever).  Skills deep-read rate stays low
   (three.js 0.013, Blender 0.175): the chapters now travel inside the brief instead.
 
+* **D106 The scene track states REQUIREMENTS, never templates (owner, 2026-10-15).**  Iteration 0 of the
+  argon loop produced 60 scenes of one shape — a block in the middle of a flat plate, ringed 360° by
+  identical hills, three zones tiled in a ~40 m square, nothing beyond the bounds — and the owner ruled
+  that copying must be impossible to reproduce it: the harness states what must be true, where, and how it
+  is measured, and mandates no shape, count, construction, layout, camera formula or code structure the
+  brief did not ask for.  Kept, and only these: (1) INTERFACE — file / function names the wrapper calls,
+  ctx fields, frames / units / naming from `conventions.py`, what the harness hands in; (2) sandbox rules;
+  (3) MEASURED requirements with their thresholds, phrased as requirement + measurement (never as the one
+  construction that satisfies them), plus the library as an OPTIONAL toolbox under its real API names.
+  "always / never / must" wording outside those three classes is gone.  DELETED: both scene cookbooks
+  (`prompts/scene_threejs/cookbook.md` 1 015 lines, `prompts/scene_blender/cookbook.md` 1 365 lines —
+  interface and language facts moved into `contract.md` / `system.md`, the craft condensed into SHORT
+  optional practices in the skills: no code block over ~12 lines in any prompt or skill, prose + the
+  library's API names, numbers only where a gate or the judge measures them); `ENV_RECIPES` /
+  `ZONE_RECIPES` / `ZONE_RECIPES_MAX_CHARS` / `refine_recipes` / `cookbook_sections` and every
+  `recipes=` kwarg in `tracks/scene.py` and `tracks/prompting.py` (the same four ENV + six ZONE chapters
+  inlined into every session, "copy their numbers and snippets"); the plate-and-ring env SKELETONS
+  (three.js `starter/src/env.js` CONTENT_RADIUS + radial flat mask + `worldShell` ridge +
+  `makeOutskirts` under "TUNE these; do not replace", kept byte for byte by 29 of 30 scenes;
+  scene_blender's `flat = span/2 + 15` feeding `terrain.make_height_at`, 21 of 30) — both are now
+  placeholders: the interface exports, a level plate named Ground sized from the plan, one light rig, a
+  fog, `INTERIOR` as data, and a comment listing the measured requirements; the zone / asset stubs no
+  longer grid contents inside the bbox or say "keep everything inside it"; the RING GATE (`no_backdrop`
+  ERROR whose hint prescribed "24-40 SOLID pieces at 0.6 × fog far", written by 57 of 59 plans) is now
+  `world_edge`, a WARN stating the measure (standing geometry ≥ 2 m past 1.25 × the half-extent) with
+  open closures; the `underdressed` ERROR with its 12-25 / 25-60 / 300-800 per-zone counts is an INFO
+  `density_note` (the counts the brief states are its acceptance items); `out_of_bounds` is a WARN on
+  PLANNED contents only, margin max(5 m, 10 % of the span) — unplanned scenery past the bounds is never
+  reported; the three-depth-layer COMPOSITION rule (planner brief, both cookbooks, `scene_v2.yaml`,
+  `prompt_builder`, `c3d-scene-composition`'s "Build in this order" + bounds-centre camera formula +
+  ring arithmetic) and the camera recipe (D = 1.5 r / tan(fov/2), 3-4 cameras, "sees 2+ zones / ≥ 70 %
+  of the bounds", frame-gate hints "distance ≈ 1.2 × span, fill the bounds"); "bounds = the playable
+  area, as small as the brief allows" + "3-6 zones tile the bounds" + "terrain within ±1.5 m of y = 0"
+  (`lib/terrain` `flat_radius` default 45 → 0); the argon `c3d-scene-composition +14` boost.  REPLACED
+  BY: planner briefs that state the measurements (`cameras[0]` content ≥ 20 %, lens ≥ 0.5 m clear, no
+  world edge from any authored camera, seat thresholds, exposure band, motion visible at t = 0..1.5 s,
+  `stamped_ring` ≥ 8 same-size copies on a circle, unmet `must` caps 0.60) and define `bounds` as the
+  DETAILED area the harness measures against, not a cage — the world continues past it; zone / env / asset
+  / refine briefs and the ten scene skills rewritten as requirement + measurement + a few strong optional
+  practices; the brief's `beyond` field (what continues past the detailed area, a must item); `scene_v2`
+  anchors and defects rewritten to "what the BRIEF's place would have" plus a `diorama_look` defect
+  (penalty 0.05, no cap); the loop's brief generator writes ONE fixed viewpoint at a height the place
+  justifies and 15 prompts per language (was 30).  Consequences: `materialize_workspace` writes no
+  cookbook section / file for a language that ships none; `prompts/_claims.toml` rows re-pointed at the
+  contracts; `tests/prompts/manifest.json` re-blessed for every scene scenario; the judge's calibration
+  (`bench.loop judge-calib`) must be re-run before the next `accept`, since what the judge is asked
+  changed.  NEXT: the other six cookbooks (blender, cadquery, threejs, urdf_blender, glsl_shader,
+  opengl_python) follow the same rule — the graphics `seed_recipes` path and `select_cookbook_chapters`
+  stay until then.  Open: `content_small` still grades `cameras[0]` as ≥ 20 % content excluding ground
+  and water (a beach / moor / lake viewpoint fails by nature); planner temperature 0.4 unmeasured for
+  plan diversity.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

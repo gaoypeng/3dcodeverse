@@ -19,7 +19,6 @@ from codeverse3d.languages.scene_blender import LIB_DIR
 from codeverse3d.proc import EventLog
 from codeverse3d.prompts import PROMPTS_DIR, render
 from codeverse3d.prompts.catalog import language_text
-from codeverse3d.prompts.sections import find_section, split_sections
 from codeverse3d.skills import skills_dir
 from codeverse3d.tracks import scene_assets as SA
 from codeverse3d.tracks.planner import (
@@ -29,17 +28,14 @@ from codeverse3d.tracks.planner import (
     plan_schema,
     plan_template,
 )
-from codeverse3d.tracks.prompting import cookbook_sections, language_system_prompt
+from codeverse3d.tracks.prompting import language_system_prompt
 from codeverse3d.tracks.scene import (
     ENV_FILES,
-    ENV_RECIPES,
     SCENE_TEMPLATES,
-    ZONE_RECIPES,
     SceneTrack,
     _guess_target,
     env_file,
     plan_bbox_line,
-    refine_recipes,
     scene_templates,
 )
 from codeverse3d.tracks.scene_assets import (
@@ -74,32 +70,18 @@ def settings(tmp_path):
 
 
 # --------------------------------------------------------------------------- the files
-def test_the_language_ships_its_four_prompt_files_and_the_system_prompt_knows_about_tools() -> None:
-    for name in ("system.md", "contract.md", "cookbook.md", "asset.md"):
+def test_the_language_ships_its_three_prompt_files_and_the_system_prompt_knows_about_tools() -> None:
+    """system / contract / asset — and no cookbook (owner, 2026-10-15; tests/prompts/test_files.py pins
+    its absence): the Blender 5.2 facts (D104) that lived in it are the contract's."""
+    for name in ("system.md", "contract.md", "asset.md"):
         assert language_text(BPY, name).strip(), name
     with_tools, without = language_system_prompt(BPY, tools=True), language_system_prompt(BPY, tools=False)
     assert "check_placement" in with_tools and "single-shot" not in with_tools
     assert "single-shot" in without and "`build` →" not in without
     assert "Blender 5.2" in with_tools
-    for text in (language_text(BPY, "contract.md"), language_text(BPY, "cookbook.md")):
-        assert "use_nodes" in text and "MULTIPLE_SCATTERING" in text   # Blender 5.2 facts (D104), not 4.x ones
-        assert "Action.fcurves" in text and "mod.properties.inputs" in text
-
-
-def test_the_cookbook_has_every_chapter_the_stages_inline() -> None:
-    """``cookbook_sections`` finds a chapter by title (exact, then substring): every ENV / ZONE recipe
-    must resolve to ITS chapter, not to the word-overlap fallback."""
-    md = language_text(BPY, "cookbook.md")
-    sections = split_sections(md)
-    for title in (*ENV_RECIPES, *ZONE_RECIPES):
-        found = find_section(sections, title)
-        assert found is not None and title.lower() in found.title.lower(), (title, found and found.title)
-    ctx = SimpleNamespace(cookbook_text=md)
-    env_text, zone_text = cookbook_sections(ctx, ENV_RECIPES), cookbook_sections(ctx, ZONE_RECIPES)
-    assert "# role: env" in env_text and "MULTIPLE_SCATTERING" in env_text and "TIME_OF_DAY" in env_text
-    for token in ("tree_mesh", "clustered_points", "camera_mask", "keyframe_linear", "along_seam", "rock_geometry"):
-        assert token in zone_text, token
-    assert len(zone_text) > 12_000 and "# role: env" not in zone_text
+    text = language_text(BPY, "contract.md")
+    assert "use_nodes" in text and "MULTIPLE_SCATTERING" in text   # Blender 5.2 facts (D104), not 4.x ones
+    assert "Action.fcurves" in text and "mod.properties.inputs" in text
 
 
 def _clear_of_loops(text: str) -> list[ast.For]:
@@ -108,9 +90,13 @@ def _clear_of_loops(text: str) -> list[ast.For]:
     for line in text.splitlines():
         head = line.strip()
         if head.startswith("for ") and "clear_of(" in head:
-            try:
-                node = ast.parse(head + "\n    pass").body[0]
-            except SyntaxError:
+            for attempt in (head + "\n    pass", head):   # a bare header (maybe with a trailing comment), or a one-liner with its body
+                try:
+                    node = ast.parse(attempt).body[0]
+                    break
+                except SyntaxError:
+                    continue
+            else:
                 pytest.fail(f"{head!r} is not a python loop header")
             assert isinstance(node, ast.For), head
             loops.append(node)
@@ -143,35 +129,87 @@ def _bpy_ctx(tmp_ws, settings, *, agent=None, agent_id="fake:x", services=None):
     plan_obj = small_scene(BPY)
     spec = make_spec(Track.SCENE, BPY)
     ctx = _ctx(tmp_ws, settings, spec, plan_obj, agent_id=agent_id, services=services, agent=agent)
-    ctx.cookbook_text = language_text(BPY, "cookbook.md")
     ctx.extra["asset_api"] = asset_api_summary(plan_obj, {}, language=BPY)
     return ctx, plan_obj
+
+
+def test_the_bpy_skeleton_is_an_interface_stub_without_a_landform(tmp_ws, settings) -> None:
+    """The env stub hands the plan over as data and a PLACEHOLDER that builds; the landform is the
+    author's (the stub used to be a level pad of the bounds' half-span + 15 m with fbm hills beyond,
+    a mossy ground, a fog box and — for an interior — a room shell with one ceiling light: 30/30
+    iteration-0 scenes kept its shape).  A zone stub is the interface and a TODO naming the plan's
+    contents — no grid of positions, no "keep them inside the bbox" (owner, 2026-10-15)."""
+    from codeverse3d.languages.scene_blender import lint, write_skeleton
+
+    ctx, plan_obj = _bpy_ctx(tmp_ws, settings)
+    write_skeleton(tmp_ws, plan_obj)
+    env = (tmp_ws.src / "env.py").read_text()
+    for landform in ("FLAT_RADIUS", "make_height_at", "room_shell(", "area_light(", "4A5A3A", "noise_scale", "40.0)"):
+        assert landform not in env, landform
+    assert "def height_at(x, y):" in env and "def build_env(ctx):" in env and "PLACEHOLDER" in env
+    assert "not the edge of the world" in env and "OPTIONAL toolbox" in env and "no_fog" in env
+    span = max(plan_obj.bounds.extents[0], plan_obj.bounds.extents[2])
+    assert f"GROUND_SIZE = {span * 3.0:.1f}" in env and "INTERIOR = False" in env
+    quay = (tmp_ws.src / "zones" / "quay.py").read_text()
+    assert "def build(ctx):" in quay and "return ctx.collection" in quay and "TODO" in quay
+    assert "place(" not in quay and "from lib" not in quay and "inside the bbox" not in quay
+    assert "continue past the bbox" in quay and "scene_placement" in quay
+    for content in plan_obj.zones[0].contents:
+        assert f"- {content}:" in quay, content
+    bollard = (tmp_ws.src / "assets" / "bollard.py").read_text()
+    assert "def build_bollard(ctx, variant=0):" in bollard and "PLACEHOLDER" in bollard and "optional" in bollard
+    assert "one mesh per material" not in bollard
+    rep = lint(tmp_ws)
+    assert rep.passed and not [f for f in rep.findings if f.severity.value != "info"], [(f.target, f.message) for f in rep.findings]
+    # an interior plan: the room box is DATA; nothing instantiates an enclosure or a ceiling light
+    inside = Workspace(tmp_ws.root.parent / "inside")
+    write_skeleton(inside, plan_obj.model_copy(update={"interior": True, "glazed": True}))
+    env = (inside.src / "env.py").read_text()
+    assert "INTERIOR = True" in env and "GLAZED = True" in env and "room_shell(" not in env and "CeilingLight" not in env
 
 
 def test_the_bpy_templates_render_with_the_plan_in_the_z_up_frame(tmp_ws, settings) -> None:
     """The plan stays Y-up (D12); every number the bpy author reads is converted: the harbour's
     bounds centre (0, 5, 0) prints as (0, 0, 5), the Quay zone (-20, 1.2, 0) / 40 × 3 × 60 as
-    (-20, 0, 1.2) / 40 × 60 × 3, a camera at (45, 18, 55) as (45, -55, 18)."""
+    (-20, 0, 1.2) / 40 × 60 × 3, a camera at (38, 4, -30) as (38, 30, 4)."""
     ctx, plan_obj = _bpy_ctx(tmp_ws, settings)
     st = SceneTrack(services=ctx.services)
     t = scene_templates(BPY)
     quay = plan_obj.zones[0]
-    env = render(t.env, **st._ctx(ctx, recipes=cookbook_sections(ctx, ENV_RECIPES)))
+    env = render(t.env, **st._ctx(ctx))
     assert "write `src/env.py`" in env and "centre (0.000, 0.000, 5.000) m" in env and "build_env(ctx)" in env
-    assert "# role: env" in env   # the recipes travel inside the brief
-    zone = render(t.zone, **st._ctx(ctx, recipes="", zone_name=quay.name, zone_description=quay.description,
+    assert "# role: env" not in env and "copy these numbers" not in env   # no recipes travel in the brief (2026-10-15)
+    zone = render(t.zone, **st._ctx(ctx, zone_name=quay.name, zone_description=quay.description,
                                     zone_bbox=plan_bbox_line(quay.bbox, BPY), zone_contents=quay.contents, zone_file="src/zones/quay.py",
                                     neighbours=[], layout=layout_block({"zone": "Quay", "placements": [
                                         {"asset": "Bollard", "count": 2, "cluster": [3.0, -4.0], "spread_m": 0.5}]}, language=BPY)))
     assert "centre (-20.000, 0.000, 1.200) m, extents (40.000, 60.000, 3.000) m" in zone
-    assert "position (45.0, -55.0, 18.0)" in zone and "2x Bollard around (3.0, 4.0)" in zone
+    assert "position (38.0, 30.0, 4.0)" in zone and "2x Bollard around (3.0, 4.0)" in zone
     assert "ctx.assets['bollard']" in zone and "def build(ctx)" in zone and "import {" not in zone
-    refine = render(t.refine, **st._ctx(ctx, recipes=refine_recipes(ctx, ["src/env.py"]), round_index=1, tasks=["t"], targets=["Quay"],
+    refine = render(t.refine, **st._ctx(ctx, round_index=1, tasks=["t"], targets=["Quay"],
                                         files=["src/env.py"], edit_only_these=False, judge_summary="j", current_files={}))
-    assert "src/env.py" in refine and "src/scene.py" in refine and "Horizon: the world must not end" in refine
+    assert "src/env.py" in refine and "src/scene.py" in refine and "# role: env" not in refine
     # the three.js templates still print the plan's own numbers (the identity conversion): byte-identical prompts
     assert "centre (0.000, 5.000, 0.000) m" in plan_bbox_line(plan_obj.bounds, Language.SCENE_THREEJS)
     assert SCENE_TEMPLATES[Language.SCENE_THREEJS].env == "tracks/scene_env.j2"
+
+
+def test_a_multi_zone_session_reads_the_shared_tail_once(tmp_ws, settings) -> None:
+    """Two zones in one session: a per-zone head for each (bbox, contents, layout, neighbours) and the
+    shared tail — cameras, assets, the contract, the measured list, the output rules — ONCE, after the
+    last head.  A two-zone prompt used to carry the contract and the catalog twice, with "HOW TO
+    FINISH" landing between zone 1 and zone 2 (the copyability review of 2026-10-15)."""
+    ctx, plan_obj = _bpy_ctx(tmp_ws, settings)
+    st = SceneTrack(services=ctx.services)
+    task = st._zone_task(ctx, list(plan_obj.zones))
+    prompt = task.prompt
+    for z in plan_obj.zones:
+        assert f"# Zone `{z.name}` of" in prompt and f"write `src/zones/{z.name.lower()}.py`" in prompt
+    assert prompt.count("## Contract") == 1 and prompt.count("## Output") == 1 and prompt.count("## Assets available") == 1
+    assert prompt.index("# Zone `Water` of") < prompt.index("## Contract")   # every head before the one tail
+    assert prompt.rstrip().endswith("OUT") or "## Output" in prompt[-2000:]
+    single = st._zone_task(ctx, [plan_obj.zones[0]]).prompt
+    assert single.count("## Contract") == 1 and "## Output" in single
 
 
 def test_layout_block_prints_ground_points_in_the_authoring_frame() -> None:
@@ -341,7 +379,7 @@ def test_variant_shims_and_catalog_rows_per_language(tmp_ws, monkeypatch) -> Non
 
 
 # --------------------------------------------------------------------------- track plumbing
-def test_env_file_recipes_and_console_targets_follow_the_runtime(tmp_ws, settings) -> None:
+def test_env_file_and_console_targets_follow_the_runtime(tmp_ws, settings) -> None:
     ctx, plan_obj = _bpy_ctx(tmp_ws, settings)
     assert env_file(ctx) == ENV_FILES[BPY] == "src/env.py" and ctx.runtime.env_file == "src/env.py"
     ctx.runtime = SimpleNamespace(zone_file=ctx.runtime.zone_file)   # a runtime without the attribute: the typed table
@@ -349,11 +387,6 @@ def test_env_file_recipes_and_console_targets_follow_the_runtime(tmp_ws, setting
     assert _guess_target("Traceback: src/env.py:12 ValueError", ctx) == "env"
     assert _guess_target("KeyError in src/scene.py", ctx) == "composition"
     assert _guess_target("zone quay raised KeyError", ctx) == "Quay" and _guess_target("nothing named", ctx) == "overall"
-    env_only = refine_recipes(ctx, ["src/env.py"])
-    zones_only = refine_recipes(ctx, ["src/zones/quay.py"])
-    assert "# role: env" in env_only and "tree_mesh" not in env_only
-    assert "tree_mesh" in zones_only and "# role: env" not in zones_only
-    assert refine_recipes(ctx, ["src/assets/bollard.py"]) == zones_only   # neither env nor a zone: the zone chapters
 
 
 class _TransientOnceAgent(FakeAgent):

@@ -4,25 +4,26 @@ Scene: {{ spec_prompt }}
 Setting: {{ setting }}. Mood: {{ mood }}.
 Bounds (Z up, −Y front, metres — already converted from the plan): {{ bounds }}
 
-## Environment plan (realise these numbers; its prose is Y-up: "y up" there is z here, "+z" there is −y here)
+## Environment plan (the brief's intent with its target numbers — checked by the frame table and the gates; its prose is Y-up: "y up" there is z here, "+z" there is −y here)
 {{ environment }}
 {% if interior and glazed %}
 ## This is a GLASS HOUSE — the enclosure is yours
-Build the glass walls and roof on the bounds' faces with `room_shell(ctx.collection, frame_mat,
-center=…, extents=…, thickness=0.2, openings=(…), glazed=True)` from `lib/architecture.py` — an iron
-frame grid with glass panes, named `RoomShell…` / `Ceiling…` so the overview rig can lift the lid
-— cut the plan's doors as openings, and let the SUN do the lighting: it comes through the glass and
-the frame throws its grid of shadows on the floor.  Never put an opaque wall or roof around it.
+The place must read enclosed in glass from every authored camera and be lit by what comes through it
+(the frame gate's luminance band).  Name the shell and lid meshes `RoomShell…` / `Ceiling…` so the
+overview rig can lift the lid, and cut the plan's doors as openings.  `room_shell(ctx.collection,
+frame_mat, center=…, extents=…, thickness=0.2, openings=(…), glazed=True)` from `lib/architecture.py`
+builds an iron-frame box with glass panes on the bounds' faces if that is the brief's shape; other
+shapes are yours to build.
 {% elif interior %}
 ## This is an INTERIOR — the enclosure is yours
-Build the room on the bounds' faces with `room_shell(ctx.collection, wall_mat, center=…, extents=…,
-thickness=0.2, openings=(…))` from `lib/architecture.py` — floor, four walls and a ceiling named
-`RoomShell…` / `Ceiling…` (the overview rig lifts the lid by name).  Cut the plan's windows and doors
-as openings (face, centre along the wall / up from the floor, size, metres), glaze or frame them, and
-LIGHT THE INSIDE: an Area light per window aimed into the room, practicals where the brief has lamps
-(the sun is outside: without openings and lights a closed room reads black).  Measured 2026-09-07
-over six interior runs: with no owner for walls and roof, every one was judged "not enclosed, a
-diorama on a flat plane, tool racks floating at a missing wall" (0.0–0.3).
+An interior must read enclosed from every authored camera (measured 2026-09-07 over six interior runs
+with no owner for walls and roof: every one was judged "not enclosed, a diorama on a flat plane",
+0.0–0.3) and be LIT INSIDE (the frame gate's luminance band; the sun is outside, so a closed room
+without openings and lights reads black).  Name the lid meshes `RoomShell…` / `Ceiling…` (the overview
+rig lifts the lid by name); windows and doors are openings the zones glaze or frame.
+`room_shell(ctx.collection, wall_mat, center=…, extents=…, thickness=0.2, openings=(…))` from
+`lib/architecture.py` is the box option (an opening = face, centre along the wall / up from the floor,
+size, metres); the room's shape and extent are the brief's.
 {% endif %}
 
 ## Contract
@@ -37,48 +38,51 @@ ctx.env = out if isinstance(out, dict) else {}   # what the zones read as ctx.en
 ctx.height_at = env.height_at                    # THE ground every zone seats on
 ```
 So `{{ env_file }}` must define exactly:
-- `def height_at(x, y) -> z` — the terrain height (0.0 for flat ground), deterministic and cheap; every
-  zone places things with it, so the PATH, a pond basin and a terrace are carved INTO it (then what
-  stands on the path stands on the path).  Keep it within about ±1.5 m of 0 inside the bounds: the
-  plan's camera heights are absolute.
-- `def build_env(ctx) -> dict` — builds the world (sky), the Sun lamp, the ground mesh (sampled from
-  `height_at`, named `Ground…`), the atmosphere (a bounded fog volume) and the backdrop (a sky-named
-  horizon ring) into `ctx.collection`, and RETURNS the dict zones share: `{"ground_material": …,
-  "sun_direction": (x, y, z), "water_level": …, "palette": …}`.
-- module constants `SUN_AZIMUTH_DEG` (compass: 0 = +X, 90 = +Y) and `SUN_ELEVATION_DEG` — zones and
-  the harness's overview rig read the sun side from them.
-The world (`bpy.data.worlds.new`, `ctx.scene.world =`) is YOURS and nobody else's: a zone that
-builds one fails the lint.  No cameras (the plan's), no `scene.render.*`, no frame changes.
+- `def height_at(x, y) -> z` — the ground every zone seats on, deterministic and cheap; any walkable
+  surface the brief's place has (a path, a terrace, a pond basin, a floor) is part of it, so what stands
+  there stands on it.  Under every plan camera position the ground stays below the camera (gate
+  `camera_underground`, cap 0.50); otherwise the landform is the brief's — a floor, a slope, a basin, a
+  street, a cliff are all valid.
+- `def build_env(ctx) -> dict` — builds the world (sky), the scene's sun or moon lamp if the brief has
+  one, the ground mesh (sampled from `height_at`, named `Ground…`), the atmosphere the probe requires (a
+  volume) and whatever continues the world past the content (far geometry named `Sky…` so the census files
+  it as backdrop) into `ctx.collection`, and RETURNS the dict zones read as `ctx.env` — e.g.
+  `{"ground_material": …, "sun_direction": (x, y, z), "water_level": …}`; the keys are yours to name.
+- Module-level names zones may `from env import …` (the skeleton's `SUN_AZIMUTH_DEG` / `SUN_ELEVATION_DEG`,
+  compass 0 = +X / 90 = +Y, are one example).
+The world (`bpy.data.worlds.new`, `ctx.scene.world =`) is YOURS and nobody else's: a zone that builds one
+fails the lint.  No cameras (the plan's), no `scene.render.*`, no frame changes.
 
-## What this module is graded on
-The chapters behind these rules are printed in full at the end of this brief (**Recipes**) — copy
-their numbers and snippets; the shipped `lib/` does each in one call (the catalog follows).
-
-1. **Ground must not be one flat colour.**  Three or four colours blended by height, slope and
-   noise (a `FLOAT_COLOR` attribute read by an Attribute node, or `lib.terrain.ground` with
-   `lib.materials.mineral_surface`), relief from `lib.terrain.make_height_at`, the path carved into
-   `height_at` in both height and colour — never a single-colour plane, a scored defect
-   (`flat_ground`).
-2. **No world edge.**  The ground reaches ≥ 2.5 × the plan span; the fog box covers all of it in the
-   sky's HORIZON colour (`lib.sky.haze`); a sky-named silhouette ring (`SkyRidge`: hills, rooftops,
-   mesas, a treeline — solid geometry, never flat cut-outs) at ~0.6 × the visible range in its own
-   colour DARKENED 0.6–0.8 × — the fog hazes it, never tint it yourself.
-3. **The floor stays near z = 0** (rule above): a knoll or a pond basin is fine, a 7 m plateau puts
-   every plan camera underground (`camera_underground`, cap 0.50).  Ponds, terraces and gravel beds
-   are CARVED INTO `height_at`, never a hard-edged disc laid on the ground.
-4. **Coloured atmosphere, not monochrome.**  The brief's time of day as the recipes' numbers: a
-   physical sky world (`lib.sky.sun_world`, MULTIPLE_SCATTERING) or a deep flat colour for night,
-   a Sun lamp of 1–5 W/m² (`lib.lighting.sun`; a moon at 0.05–0.3), the world strength 0.1–0.6, the
-   fog 0.003–0.008.  A warm sun under a cool sky is the whole trick; shade must carry sky colour,
-   never black — with the sun under 25° keep the world strength ≥ 0.2 or the frame trips
-   `dark_frame` (cap 0.55).  Exposure is fixed at 0 and the harness owns it.
-5. **Shadows must read.**  The Sun's `angle` 1–3° (soft but defined); never a second Sun to fill — the
-   sky world is the fill.
-6. No {% if not (textures is defined and textures) %}image textures, no {% endif %}file IO, no `bpy.ops` in loops, no unseeded randomness (`ctx.rng(seed)`).
+## What this module is graded on (the requirement, and how it is measured)
+1. **The ground reads as the brief's material**, not one flat untextured colour (judge `flat_ground`: no
+   blending, no wear, undressed seams).  Paving, snow, sand, decking, mud, a tiled floor all count; a
+   height / slope / noise colour blend (`lib.terrain.ground` + `lib.materials.mineral_surface`) is one tool
+   among others.
+2. **The world does not end in view.**  From no authored camera may the ground stop against the sky or a
+   backdrop float (judge `world_edge_visible`; the frame census reports "terrain ends N m ahead").  Two
+   gates measure it outdoors: `world_edge` (standing geometry must reach past 1.25 × the bounds'
+   half-extent) and `fog_short` (the census reads the volume's density: 1 / density has to stay ≥ span / 1.5).  What
+   continues the world is the brief's place — a street, a sea, a cliff, a forest, walls, hills on one side
+   and open sky on another; far geometry is named `Sky…`, standing geometry is seated, and nothing is
+   pre-tinted toward the fog (it reads as cardboard: judge `placeholder_material`).
+3. **No plan camera below the ground** (`camera_underground`, cap 0.50): `height_at` under every camera
+   position stays below its z.  A ground feature must not read as a plate laid on the terrain from the
+   overview cameras (judge `flat_ground`): carving it into `height_at` or giving it a built edge both work.
+4. **Every authored frame lands in the exposure band** at the brief's time of day (`dark_frame`: mean
+   luminance < 0.12 or > 35 % near-black, cap 0.55; blown frames likewise) and the light is not monochrome
+   (judged).  Cycles is physical.  Starting values that have passed on a mid-albedo ground: a Sun of
+   1–5 W/m² (a moon 0.05–0.3), a world (`lib.sky.sun_world`, or a deep colour for night) at strength
+   0.1–0.6, fog density 0.003–0.008 (`lib.sky.haze`); a brief lit by fire, neon, storm or nothing sets
+   its own and reads `camera_checks.mean_lum`.  Exposure is fixed at 0.
+5. **Shadows read and shade carries colour** (judge `unlit_or_blown`, `lighting_atmosphere`: "flat
+   shadows", "black shade"; the gate's `dark_frac`): a Sun `angle` of 1–3° with the sky world as fill is one
+   way; any fill lamp you add is yours to justify by the frame table.
+6. No {% if not (textures is defined and textures) %}image textures, no {% endif %}file IO, no unseeded randomness (`ctx.rng(seed)`); the lint warns on `bpy.ops.mesh.primitive_*` in a loop.
 
 ## DON'T
 - No assets or zones here (they come from other modules).  No cameras.  No `scene.*` render / view settings.
-- Do not re-declare the path polyline in a zone: export it (or a `dist_to_path`) from here.
+- A route the zones must agree with (a lane, a towpath) is part of `height_at`, or a module-level name
+  here that zones import — the one ground authority; the name is yours.
 
 ## Effects planned (only the ones targeting the environment)
 {{ effects }}
@@ -86,19 +90,14 @@ their numbers and snippets; the shipped `lib/` does each in one call (the catalo
 
 ## Tools
 {{ tool_cards }}
-After editing run `build`, then `scene_views` and LOOK: is the horizon hazy, is the ground
-multi-coloured, is the shade coloured rather than black?  Read the frame table it prints:
-every authored camera must pass the exposure checks.  `scene_probe` says whether the world
+After editing run `build`, then `scene_views` and LOOK at every frame against the brief: does the
+world end anywhere in view, is the ground one flat colour, is the shade black?  Read the frame table
+it prints: every authored camera must pass the exposure checks.  `scene_probe` says whether the world
 and the atmosphere were found.
 {% endif %}
 {% if effects_catalog is defined and effects_catalog %}
 
 {{ effects_catalog }}
-{% endif %}
-{% if recipes is defined and recipes %}
-
-# Recipes (from the scene cookbook — copy these numbers and snippets)
-{{ recipes }}
 {% endif %}
 {% if textures is defined and textures %}
 

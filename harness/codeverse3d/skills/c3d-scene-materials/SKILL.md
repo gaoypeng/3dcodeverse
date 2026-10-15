@@ -1,12 +1,12 @@
 ---
 name: c3d-scene-materials
-description: "Use in every scene_threejs build or refine session that authors surfaces - terrain, buildings, props, vegetation. The strongest 'plastic toy' tell is a flat albedo; the second is identical twins. Gives the photographic checklist: procedural variance on every large surface, per-instance jitter, roughness as the realism dial, bevels near the camera, the tight shadow camera, domain-warped terrain with banded colour, and scatter that is intentional instead of uniform."
+description: "Use in every scene_threejs build or refine session that authors surfaces - terrain, buildings, props, vegetation. The strongest 'plastic toy' tell is a flat albedo; the second is identical twins. States what the judge reads at crop scale (placeholder_material, flat_ground, monotonous_vegetation, undressed_scene, asset_quality_detail) and what the placement gate measures, then offers short optional practices with the shipped library's real API: surface variance, per-copy variation, roughness, edges near the lens, terrain that reads as a landform, vegetation variety, dressing and seating."
 license: Apache-2.0
 compatibility: three r0.182, headless WebGL; ACES tone mapping, GTAO + soft bloom supplied by the renderer.
 metadata:
   evidence: inherited-unverified
-  evidence_note: 'Ported 2026-09-01 from the scene_multifile_graphics reference ledger (its 18-reviewer audit of 137 scenes; flat walls and duplicated assets are among its most-cited defects, and trees/rocks its two weakest measured classes). Not yet A/B-validated here; the sceneloop battery attaches our numbers.'
-  verified: "2026-09-01"
+  evidence_note: 'Ported 2026-09-01 from the scene_multifile_graphics reference ledger (its 18-reviewer audit of 137 scenes; flat walls and duplicated assets are among its most-cited defects, and trees/rocks its two weakest measured classes). Not yet A/B-validated here; the sceneloop battery attaches our numbers. Condensed to requirements + optional practices 2026-10-15 after 60 argon scenes copied one recipe.'
+  verified: "2026-10-15"
   target_metric: "flat_albedo_surfaces"
   target_direction: "down"
   target_unit: "large surfaces with zero value variance (prospective census)"
@@ -16,78 +16,102 @@ metadata:
 
 # Surfaces that read as a place, not a render
 
-The renderer supplies ambient occlusion, soft bloom and ACES tone mapping.
-What still separates a photograph from a toy is AUTHORED: material variance
-and light contrast.
+The renderer supplies ambient occlusion, soft bloom and ACES tone mapping. What still
+separates a photograph from a toy is AUTHORED: material variance and light contrast. Each
+heading below is a requirement the judge or a gate reads, followed by a strong option or
+two. The option is one way; the brief's material decides.
 
-## Never ship a flat albedo
+## No large surface reads as one flat value
 
-One constant `color` per large surface is the strongest plastic tell. Give
-every large surface a subtle procedural map: a CanvasTexture of low-contrast
-fbm (use the shared noise block from c3d-scene-water) as `map` multiplied
-into the tint, or as `roughnessMap`; `repeat` scaled so one texel is 2-5 cm at
-walking distance. Stone, plaster, soil and wood all read instantly better with
-5-15% value noise.
+Requirement: at crop scale no large surface reads as a single untextured value unless the
+brief's material really is flat — new paint, a lacquered floor (judged: `placeholder_material`,
+`flat_ground`). A strong option: the shipped procedural materials in `lib/materials.js`
+(`plaster`, `brick`, `granite`, `cobble`, `asphalt`, `weatheredWood`, `soil`, `foliage` and
+the rest) already carry low-contrast variance; `patchMicroBreakup` and `patchEdgeWear` from
+`lib/surface_wear.js` chain onto any material you made yourself. A `noiseTexture` from the
+same module as `roughnessMap` breaks a highlight into something other than a perfect oval.
 
-## Vary per instance
+## Copies do not read as twins
 
-Copies of one asset get +-6% hue and +-10% lightness jitter — clone the
-material once per VARIANT, not per instance — plus scale 0.7-1.3, random
-Y-rotation and a tiny tilt. Identical twins read as duplicated geometry;
-slight variance reads as a place.
+Requirement: copies of one asset do not read as identical at the authored cameras'
+distance (judged: `monotonous_vegetation`, `asset_quality_detail`). Vary what the thing
+really varies — a tree in scale, yaw and hue; a lamp post in nothing but yaw; a crate in
+yaw and wear. `tint` from `lib/materials.js` makes a hue/lightness variant of a material
+(clone per VARIANT, not per instance); `instanceAsset` from `lib/instancing.js` takes
+per-placement scale and rotation.
 
 ## Roughness is the realism dial
 
-Real surfaces are rarely uniform. Working numbers: wet stone 0.25, dry stone
-0.85, painted wood 0.6, weathered wood 0.9, glass 0.05 with `envMapIntensity`
-1.5, brushed metal 0.35 with metalness 0.8, foliage 0.75 with slight sheen.
-Push a `roughnessMap` (same noise) so highlights break up instead of forming
-perfect ovals.
+The judge reads a surface with no authored roughness or colour as `placeholder_material`
+("plastic", "one grey material") and a scene whose surfaces all share one finish under
+`materials_shaders_effects`. Real surfaces are rarely uniform: wet stone is far glossier
+than dry, weathered wood duller than painted, glass near-mirror with the environment map
+doing the work. The value is what the brief's weather and age imply; a roughness map lets
+it vary across the surface.
 
-## Bevel what the camera approaches
+## Edges near the lens
 
-Razor 90-degree edges catch light unnaturally and read as CAD. Anything within
-a few metres of a camera gets `ExtrudeGeometry` with `bevelEnabled` or an
-equivalent chamfer. Background boxes can stay sharp.
+Near an authored camera a razor 90° edge catches light like CAD (judged:
+`asset_quality_detail`). A chamfer (`ExtrudeGeometry` with `bevelEnabled`), a bevelled
+`makePaving` for cobbles, or smoothed normals is one way out; background boxes can stay
+sharp.
 
-## Terrain that is landscape, not noise blob
+## Terrain that reads as a landform
 
-Heightfield: `PlaneGeometry(W, D, N, N)` displaced by 5-octave fbm with DOMAIN
-WARP and a power curve — that pair is what separates hills from static:
+Requirement: the ground is the brief's landform, sampled by the one `heightAt`; a flat
+plate that ends in shot and a noise blob both fail (`world_edge_visible`, `flat_ground`,
+judged). A landform has a reason — a valley floor between two slopes, a bluff over water, a
+terrace cut into a hillside, a plaza that is deliberately flat because it is paved. Strong
+options when the place has relief: `ground` from `lib/terrain.js` with `relief` and a
+seeded `rand`, returning the mesh and the height function in one; or your own heightfield
+from domain-warped `fbm2` (`lib/noise.js`) with a power curve so lowlands stay flat and
+ridges steepen, normals recomputed after displacement. Colour by slope and height with the
+materials the place has — `patchSlopeSplat` and `patchTriplanar` from `lib/terrain_shade.js`
+do that in the shader; a worn path or a wheel rut carved into `heightAt` itself lands
+everything placed on it at the right height. The alpine sand/grass/rock/snow ramp is one
+palette, right for an alpine brief.
 
-```js
-const y = Math.pow(fbm(x + 30 * fbm2(x * .008, z * .008), z), 1.6);
-```
+## Vegetation variety
 
-Recompute vertex normals AFTER displacing. Colour by slope and height bands
-via vertexColors: rock where `normal.y < 0.65`, else sand -> grass -> rock ->
-snow with smoothstep blends and +-5% hue jitter — never one flat green.
+The judge's `monotonous_vegetation` is "one shape stamped many times — no variation in
+silhouette, size or hue, and placed in a ring or a grid rather than clusters". So: more
+than one species where the place has more than one (`makeTree` / `makeShrub` from
+`lib/tree.js` for near trees, `makeCanopy` for every broadleaf crown and hedge,
+`makeImposters` for a forest at distance), clusters with clearings rather than a lattice
+(`scatterGrid` with jitter times a clump mask from `fbm2` is one option), and a ground
+cover layer (`makeGrass`, `makeMeadow`) so plants grow out of the ground instead of standing
+on it.
 
-## Scatter intentionally
+## Dressing
 
-Uniform random scatter reads as noise. Jittered grid (spacing = the mean
-distance you want, +-40% jitter), times a clump mask so groves and clearings
-form (threshold the shared low-frequency noise at 0.5), times slope/height
-rejection. Every instance: y from the SHARED height function, sunk 0.1 m so nothing
-hovers on a blade of grass — the placement gate measures floaters.
+The judge's `undressed_scene` is "no small props or clutter — a showroom of a few large
+objects". A place has the small things its use leaves behind: tools by the bench, cups on
+the table, litter at the kerb, pebbles at the water, cables on the wall. Props against
+something (a wall base, a path edge, under a bench) read as belonging; props alone on open
+ground read as scatter. `patchSeamBand` and `patchTracks` (`lib/roadway.js`) dress where a
+structure meets the ground, so the seam is not a hard undressed line (`flat_ground`).
 
-## The tight shadow camera
+## Seating is measured
 
-The key and the fill are the starter's `sunRig` (its numbers: cookbook section
-"Dusk / night lighting recipe"), and no third light without a reason. Its shadow camera
-is fitted to `bounds`, so pass the radius the cameras can actually see, not the
-world's: a shadow map stretched over two kilometres has metre-wide pixels and every
-shadow is mush.
+Requirement: every placed copy's feet are within the placement gate's tolerance of what is
+under them — the gate reports `floating` and `sunken` with the gap it measured, and
+`interpenetration` where boxes overlap; instanced clouds are exempt and are never supports.
+Seat on the shared `heightAt` (`seat` from `lib/place.js` seats an object on the surfaces
+you pass); sink only what the thing really sinks (a rock, a post, a tree root) and by less
+than the gate's `sunk_m`, or the WARN names it.
 
-## Ground the frame
+## Shadows resolve
 
-A low, wide gradient patch of darker ground colour under big structures, plus
-the slight darkening where verticals meet the ground, anchors everything the
-AO pass does not reach.
+Requirement: shadow edges resolve at the authored cameras (judged: `lighting_atmosphere`).
+Whatever casts the shadows, fit its shadow camera to the span the authored cameras see,
+not the whole world — a shadow map stretched over two kilometres has metre-wide pixels and
+every shadow is mush. The starter `sunRig` fits its shadow camera to the `bounds` you pass.
 
 ## Verify before you finish
 
-Zoom one frame to a large wall or the terrain: if the surface is one flat
-value, it needs the noise map. Find two copies of the same asset: if you
-cannot tell them apart, jitter is missing. Look at one shadow edge: mush means
-the shadow camera is too wide.
+Zoom one frame to a large wall or the terrain: if the surface is one flat value, it needs
+variance. Find two copies of the same asset: if you cannot tell them apart, variation is
+missing. Look at one shadow edge: mush means the shadow camera is too wide. Read the
+placement report for `floating` / `sunken` rows before the gate does.
+
+`references/terrain-and-scatter.md` holds the domain-warp and scatter-mask notes.

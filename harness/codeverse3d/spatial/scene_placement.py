@@ -224,12 +224,9 @@ LANGUAGE_WORDS: dict[str, dict[str, str]] = {
         "no_fog": "in buildEnv set scene.fog = new THREE.Fog(<sky horizon hex>, near, far) with the plan's numbers",
         "no_background_msg": "scene.background is not set (renders on the raw clear colour)",
         "no_background": "in buildEnv set scene.background to the sky colour or sky texture the plan names",
-        "fog_far": ("fog far >= {need:.0f} m ({spans:g} x the plan span; the starter's shell fog is scaled to it: keep "
-                    "`scene.fog = shell.fog`, or lengthen yours) and let the horizon ridge / outskirts close the world"),
-        "underdressed": ("the layout's dressing counts are binding: add the missing props and the instanced ground cover "
-                         "(tufts/pebbles count via InstancedMesh.count)"),
-        "ring": ("vary them — at least 3 silhouettes, scale 0.6-1.6x, radius +-25 %, random yaw, clusters rather than a "
-                 "ring — or drop the ring and let the starter's worldShell ridge and makeOutskirts hills close the horizon"),
+        "fog_far": ("fog far must reach >= {need:.0f} m ({spans:g} x the plan span; measured from scene.fog) so whatever "
+                    "lies past the bounds fades with distance instead of cutting off — the terrain, buildings, trees or "
+                    "water out there then read as aerial perspective"),
         "place": "import its builder / clone its GLB",
         "free_exempt": ("userData.placement = 'free' is for hanging / airborne things only (a bird, a hung lantern, a drone): "
                         "delete the tag on everything that stands on something and seat it with heightAt(x, z) or on its support"),
@@ -243,12 +240,9 @@ LANGUAGE_WORDS: dict[str, dict[str, str]] = {
                    "0.002-0.02, tinted like the sky horizon) or place a bounded fog volume over the play area"),
         "no_background_msg": "the world has no sky: no Sky Texture or Background colour on the world output",
         "no_background": "in build_env give scene.world a Sky Texture (or the plan's sky colour on its Background node)",
-        "fog_far": ("thin the fog so 1/density >= {need:.0f} m ({spans:g} x the plan span) and let the horizon ridge / "
-                    "outskirts close the world"),
-        "underdressed": ("the layout's dressing counts are binding: add the missing props and the instanced ground cover "
-                         "(every collection instance / geometry-nodes instance counts)"),
-        "ring": ("vary them — at least 3 silhouettes, scale 0.6-1.6x, radius +-25 %, random yaw, clusters rather than a "
-                 "ring — or drop the ring and close the horizon with terrain ridges and hills"),
+        "fog_far": ("thin the fog so 1/density >= {need:.0f} m ({spans:g} x the plan span; measured from the world volume) "
+                    "so whatever lies past the bounds fades with distance instead of cutting off — the terrain, buildings, "
+                    "trees or water out there then read as aerial perspective"),
         "place": "place a collection-instance Empty of ctx.assets['<snake>']",
         "free_exempt": ('obj["placement"] = "free" is for hanging / airborne things only (a bird, a hung lantern, a drone): '
                         "delete the tag on everything that stands on something and seat it with ctx.height_at(x, y) / lib.place.seat"),
@@ -472,20 +466,20 @@ SCALE_WARN, SCALE_ERROR = 2.5, 4.0
 #: linear fog must reach past the plan's far side (fog far >= this many plan spans); exp fog
 #: must not dissolve it (1/density >= span / this)
 FOG_FAR_MIN_SPANS, FOG_DENSITY_MAX_PER_SPAN = 2.0, 1.5
-BOUNDS_MARGIN_MIN_M = 2.0
-#: a zone whose census instance count is under this fraction of its L2 layout budget is
-#: underdressed.  Measured on scene_final_v1 (n=19): flat_ground 12 / undressed 11 /
-#: monotonous 10 were the top standing defects while every zone had a layout with binding
-#: mid/small/ground-cover counts nobody enforced.  Half is deliberately generous — the
-#: budget mixes props with instanced tufts, and only a gross shortfall should gate.
-DENSITY_FRACTION = 0.5
-DENSITY_MIN_BUDGET = 20
-#: an outdoor scene with no geometry reaching past this multiple of the bounds
-#: half-extent has no backdrop ring — the world edge shows from every overview camera.
-#: world_edge_visible stood in 11/19 scene_final_v1 verdicts and 3/6 of the density
-#: arm while the plan's env contract demands a silhouette ring at ~0.6 x fog-far
-#: (well beyond bounds); 1.25x the half-extent is a deliberately lenient floor.
-BACKDROP_REACH_FACTOR = 1.25
+#: the tolerance on a PLANNED asset's position against the plan bounds: ``max(this, 10 % of the
+#: span)``.  Generous on purpose (owner, 2026-10-15): the bounds are where the plan's named
+#: contents are measured, not a wall the place stops at — scenery past them is the world
+#: continuing, which ``world_edge`` below asks for.
+BOUNDS_MARGIN_MIN_M = 5.0
+BOUNDS_MARGIN_FRAC = 0.10
+#: the world continues past the bounds: outdoors, something standing (``WORLD_EDGE_MIN_HEIGHT_M``
+#: or taller — terrain, buildings, trees, walls, cliffs, whatever the place has) reaches past this
+#: multiple of the bounds half-extent, or the edge of the built world is in view from every camera
+#: that looks outward (world_edge_visible stood in 11/19 scene_final_v1 verdicts).  1.25x the
+#: half-extent is a deliberately lenient floor; WHAT continues the place is the brief's choice,
+#: and the fog gate covers the far distance.
+WORLD_EDGE_REACH_FACTOR = 1.25
+WORLD_EDGE_MIN_HEIGHT_M = 2.0
 #: stamped ring (host_census `stamps`): copies, where the ring sits relative to the plan's
 #: half-extent, and how even / alike it must be before it is called stamped
 RING_MIN_COPIES = 8
@@ -493,7 +487,14 @@ RING_BACKDROP_FRAC = 0.6
 RING_RADIUS_CV_MAX = 0.08
 RING_GAP_CV_MAX = 0.25
 RING_SIZE_CV_MAX = 0.25         # loop 24's ski station: 32 peaks, radius spread 0.8 %, SIZE spread 15 % — still "identical pyramids stamped in a ring" to the judge
-BACKDROP_MIN_HEIGHT_M = 2.0
+#: the two hints that name no language API — the same words for both scene languages
+RING_HINT = ("break the pattern — uneven spacing, mixed sizes and silhouettes, clusters and gaps — or close the distance "
+             "some other way the place suggests (a ridge line, a treeline, buildings, open water); the check calls a ring "
+             "when >= {min_n} copies have radius spread <= {rcv:.0%}, spacing spread <= {gcv:.0%} and size spread <= {scv:.0%}")
+WORLD_EDGE_HINT = ("continue the place past the bounds in whatever form the brief implies — more of the same terrain, the "
+                   "rest of the street, a treeline, water to the horizon, a wall — with something >= {min_h:.0f} m tall "
+                   "reaching past ~{need:.0f} m from the bounds centre, and the fog closing the distance (fog_short measures "
+                   "its reach); vary any repeated element out there (stamped_ring measures radius / spacing / size spread)")
 
 
 def _plan_zones(plan: Any) -> list[tuple[str, list[str]]]:
@@ -564,9 +565,10 @@ def _row_names(row: AssetRow) -> str:
 
 def contract_findings(census: dict[str, Any] | None, plan: Any,
                       layouts: dict[str, Any] | None = None, unavailable: Sequence[str] = ()) -> list[GateFinding]:
-    """Deterministic plan-vs-census checks: env atmosphere present, every zone dressed
-    with its planned contents, plausible scale, content inside the world bounds — and,
-    when the zone has an L2 layout, its density budget actually met.
+    """Deterministic plan-vs-census checks: env atmosphere present, the world continuing
+    past the bounds, every zone dressed with its planned contents, plausible scale, planned
+    contents inside the world bounds — and, when a zone has an L2 layout, an INFO line with
+    its census count against that layout's own budget.
 
     ``unavailable`` = assets the asset stage could not build (the zones were told
     "NOT AVAILABLE — do not reference"): a zone is not missing what it was told not to
@@ -577,23 +579,25 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
         return []
     words = placement_words(census.get("language"))
     out: list[GateFinding] = []
-    # -- density: the layout's counts are binding, and the census counts every instance
+    # -- density, as a NOTE: the census count against the L2 layout's own budget.  Until
+    # 2026-10-15 a zone under half its budget was an ERROR ("underdressed"), which made the
+    # layout's prop / ground-cover bands a requirement the brief never stated (owner's rule:
+    # the harness states requirements, not templates).  The counts a brief DOES state are
+    # its acceptance items, verified by name by the judge; this line only informs.
     groups = {to_snake(g.get("name", "")): g for g in (census.get("groups") or [])
               if isinstance(g, dict)}
     for zone_name, layout in (layouts or {}).items():
         budget = _layout_budget(layout)
-        if budget < DENSITY_MIN_BUDGET:
-            continue
         g = groups.get(to_snake(zone_name))
-        if g is None:
+        if g is None or budget <= 0:
             continue   # zone_empty below covers a missing group
         have = int(g.get("instances") or 0)
-        if have < DENSITY_FRACTION * budget:
-            out.append(_f(Severity.ERROR,
-                          f"zone {zone_name} holds ~{have} instances but its layout budgeted {budget} "
-                          f"(placements + mid/small props + ground cover)",
-                          target=zone_name, kind="underdressed", have=have, budget=budget,
-                          hint=words["underdressed"]))
+        if have < budget:
+            out.append(_f(Severity.INFO,
+                          f"zone {zone_name} holds ~{have} instances; its layout planned {budget} "
+                          f"(placements + props + ground cover) — a note, not a requirement: the counts the brief "
+                          "states are its acceptance items",
+                          target=zone_name, kind="density_note", have=have, budget=budget))
     # -- atmosphere: the two env facts the census measures on every boot
     if "fog" in census and census.get("fog") is None:
         out.append(_f(Severity.ERROR, words["no_fog_msg"], target="env", kind="no_fog", hint=words["no_fog"]))
@@ -642,32 +646,36 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
                                   f"(radius spread {rcv:.0%}, spacing spread {gcv:.0%}, size spread {scv:.0%}) — a toy backdrop",
                                   target=str(g.get("name", "overall")), kind="stamped_ring", n=n, radius_m=r,
                                   radius_cv=rcv, gap_cv=gcv, size_cv=scv,
-                                  hint=words["ring"]))
-    # -- backdrop ring: outdoor worlds must have geometry past the play area
+                                  hint=RING_HINT.format(min_n=RING_MIN_COPIES, rcv=RING_RADIUS_CV_MAX, gcv=RING_GAP_CV_MAX,
+                                                        scv=RING_SIZE_CV_MAX)))
+    # -- the world continues past the bounds (outdoors): a WARN-level note when nothing standing
+    # reaches past WORLD_EDGE_REACH_FACTOR x the half-extent.  Until 2026-10-15 this was the
+    # "no_backdrop" ERROR whose hint prescribed a silhouette ring of 24-40 pieces — the one
+    # construction 57 of 59 iteration-0 plans then built.  The measurement is unchanged; what
+    # continues the place is the brief's.
     groups = census.get("groups")
     if bounds and isinstance(groups, list) and not is_interior(plan):
         lo, hi = bounds
         cx, cz = (lo[0] + hi[0]) / 2, (lo[2] + hi[2]) / 2
         half = max(hi[0] - lo[0], hi[2] - lo[2]) / 2
-        need = BACKDROP_REACH_FACTOR * half
+        need = WORLD_EDGE_REACH_FACTOR * half
         reach = 0.0
         for g in groups:
             b = g.get("bbox") if isinstance(g, dict) else None
             bmin, bmax = (_nums(b.get("min")), _nums(b.get("max"))) if isinstance(b, dict) else (None, None)
             if bmin is None or bmax is None or g.get("kind") not in ("content", "ground"):
                 continue
-            if (bmax[1] - bmin[1]) < BACKDROP_MIN_HEIGHT_M:
+            if (bmax[1] - bmin[1]) < WORLD_EDGE_MIN_HEIGHT_M:
                 continue
             r = max(abs(bmin[0] - cx), abs(bmax[0] - cx), abs(bmin[2] - cz), abs(bmax[2] - cz))
             reach = max(reach, r)
         if 0 < reach < need:
-            out.append(_f(Severity.ERROR,
-                          f"no backdrop ring: the farthest standing geometry reaches {reach:.0f} m from centre "
-                          f"but the world edge hides only past ~{need:.0f} m",
-                          target="env", kind="no_backdrop", reach_m=round(reach, 1), need_m=round(need, 1),
-                          hint="build the env plan's silhouette ring (24-40 SOLID pieces — hills / treeline / "
-                               "rooftops — at ~0.6 x fog-far radius, 3-8 m tall, darkened): the fog supplies the "
-                               "haze, the ring hides the edge"))
+            out.append(_f(Severity.WARN,
+                          f"the world ends at its bounds: the farthest standing geometry (>= {WORLD_EDGE_MIN_HEIGHT_M:.0f} m "
+                          f"tall) reaches {reach:.0f} m from the bounds centre and nothing stands past ~{need:.0f} m — "
+                          "the edge of the built world is in view from every camera that looks outward",
+                          target="env", kind="world_edge", reach_m=round(reach, 1), need_m=round(need, 1),
+                          hint=WORLD_EDGE_HINT.format(min_h=WORLD_EDGE_MIN_HEIGHT_M, need=need)))
     table = census.get("placement") if isinstance(census.get("placement"), dict) else None
     rows = [AssetRow.model_validate(r) for r in (table.get("assets") or [])] if table else []
     if not rows:
@@ -725,22 +733,34 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
         out.append(_f(sev, f"{what} measures {measured:.2f} m but the plan sized {key} at ~{sizes[key]:.2f} m ({f:.1f}x)",
                       target=r.qualified, kind="scale", factor=round(f, 2), zone=r.zone, instances=n, bbox=r.bbox_data(),
                       hint=f"scale {'each ' + key if n else r.name} so its largest dimension is ~{sizes[key]:.2f} m as planned"))
-    # -- content inside the world bounds
+    # -- PLANNED contents inside the world bounds: a row carrying a planned asset's name (matched
+    # the way missing_content matches it) is measured against the bounds + a generous margin,
+    # as a WARN.  Anything else past the bounds — the rest of the street, outlying trees, the far
+    # shore — is the place continuing, which the world_edge check asks for, and is not reported.
+    # Until 2026-10-15 every placed row outside bounds + max(2 m, 5 %) was an ERROR: with the
+    # world-edge check that left a ring round the centre as the only legal way to continue.
     bounds = _plan_bounds(plan)
     if bounds:
         lo, hi = bounds
-        margin = max(BOUNDS_MARGIN_MIN_M, 0.05 * max(hi[0] - lo[0], hi[2] - lo[2]))
+        margin = max(BOUNDS_MARGIN_MIN_M, BOUNDS_MARGIN_FRAC * max(hi[0] - lo[0], hi[2] - lo[2]))
+        planned = {to_snake(c) for _, contents in _plan_zones(plan) for c in contents}
         for r in rows:
             bmin, bmax = _nums((r.bbox or {}).get("min")), _nums((r.bbox or {}).get("max"))
             if r.exempt or bmin is None or bmax is None:
                 continue
+            names = _row_names(r)
+            key = next((c for c in sorted(planned) if c in names), "")
+            if not key:
+                continue
             fully_out = (bmin[0] > hi[0] + margin or bmax[0] < lo[0] - margin
                          or bmin[2] > hi[2] + margin or bmax[2] < lo[2] - margin)
             if fully_out:
-                out.append(_f(Severity.ERROR, f"{r.qualified} sits entirely outside the plan bounds "
-                                              f"(x {bmin[0]:.0f}..{bmax[0]:.0f}, z {bmin[2]:.0f}..{bmax[2]:.0f})",
-                              target=r.qualified, kind="out_of_bounds", zone=r.zone, bbox=r.bbox_data(),
-                              hint="move it inside the plan bounds or into its zone bbox"))
+                out.append(_f(Severity.WARN, f"{r.qualified} (planned content '{key}') sits entirely outside the plan "
+                                             f"bounds + {margin:.0f} m (x {bmin[0]:.0f}..{bmax[0]:.0f}, z {bmin[2]:.0f}..{bmax[2]:.0f})",
+                              target=r.qualified, kind="out_of_bounds", zone=r.zone, bbox=r.bbox_data(), planned=key,
+                              margin_m=round(margin, 1),
+                              hint="a planned asset is measured where the plan puts it (inside its zone bbox / the plan "
+                                   "bounds); scenery that continues the place past the bounds is free and is not this"))
     return out
 
 
@@ -774,8 +794,8 @@ def placement_gate(ws: Workspace, census: dict[str, Any] | None, plan: Any) -> G
     ``check_placement`` tool both return it, on the same inputs — the census, the plan and
     what the run's stages recorded in the workspace (the L2 zone layouts, the assets the
     asset stage could not build).  Until 2026-09-22 the tool reported
-    :func:`placement_findings` alone, so it never showed the plan checks (fog, backdrop,
-    zone contents, scale, bounds, density) the round then failed on."""
+    :func:`placement_findings` alone, so it never showed the plan checks (fog, world edge,
+    zone contents, scale, bounds) the round then failed on."""
     assets = _stage_result(ws, "assets")
     unavailable = [name for name, r in assets.items() if isinstance(r, dict) and not r.get("ok", True)]
     return placement_gate_safe(census, plan=plan, layouts=_stage_result(ws, "layouts"), unavailable=unavailable)

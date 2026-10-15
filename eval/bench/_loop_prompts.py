@@ -1,8 +1,9 @@
 """The rung ladder and the planner-model request behind ``bench.loop generate`` (private).
 
-A loop iteration runs ~30 scene prompts per language, and the prompts have to be two things
-at once: HARD enough to move (an iteration that scores 0.8 on every prompt has nothing to
-learn), and PAIRABLE across iterations (``bench.loop compare`` pairs by prompt id).  So the
+A loop iteration runs ~15 scene prompts per language (owner, 2026-10-15; was 30 — enough to
+pair across iterations, small enough to turn an iteration in hours), and the prompts have to be
+two things at once: HARD enough to move (an iteration that scores 0.8 on every prompt has nothing
+to learn), and PAIRABLE across iterations (``bench.loop compare`` pairs by prompt id).  So the
 difficulty lives in a ladder of five rungs, each a set of OBJECTIVE knobs the owner fixed
 (zones / asset types / instance cap / lighting / effects), a rung's prompts are generated
 ONCE and cached, and an iteration's battery is a mix of the cached rungs up to ``--rung``.
@@ -12,6 +13,11 @@ types with counts, a luminance band, one effect, one animation, a camera brief, 
 loop renders the scenes_v2 composition contract from them (:func:`contract_lines`) — so the
 counts always parse, the band is always a band, and the rung rules are checked on typed
 fields (:func:`check_prompt`), never by reading numbers back out of prose.
+
+The brief describes a PLACE, never a layout (owner's rule, 2026-10-15): how its zones sit relative
+to each other, how high its viewpoint stands and what continues past the detailed area
+(``beyond``) are the brief's own choices, and the contract states them as requirements the judge
+verifies — not as a shape the builder copies.
 """
 
 from __future__ import annotations
@@ -92,7 +98,12 @@ class GeneratedPrompt(BaseModel):
     title: str = Field(description="3-6 words")
     category: Category
     prompt: str = Field(description="the brief: 2-4 sentences naming the place, its zones, the time of day and one activity")
-    zones: list[str] = Field(description="named zones in walking order, short lowercase phrases")
+    zones: list[str] = Field(description="named zones, short lowercase phrases; how they relate in space (side by side, "
+                                         "nested, stacked, across water, along a road that leaves the frame) is the "
+                                         "prompt text's choice")
+    beyond: str = Field(description="what continues past the detailed area, one clause — the rest of the street, open "
+                                    "water to the horizon, more forest, a skyline, farmland, a wall; the place does not "
+                                    "stop where its zones stop")
     asset_types: list[AssetCount]
     lighting: Lighting
     features: list[Extra] = Field(default_factory=list)
@@ -101,9 +112,10 @@ class GeneratedPrompt(BaseModel):
     luminance_high: float = Field(ge=0.0, le=1.0, description="mean frame luminance band, high edge")
     effect: str = Field(description="ONE water / weather / particle / shader effect, concrete and visible")
     animation: str = Field(description="ONE thing that visibly moves between the sampled times")
-    camera: str = Field(description="ONE eye-level viewpoint — where it stands, what it looks along and its height, "
-                                    "e.g. 'at the quay's landward end looking along it at 1.6 m'; a still camera, "
-                                    "never a path")
+    camera: str = Field(description="ONE fixed viewpoint — where it stands, what it looks along and its height above "
+                                    "the surface it stands on (eye level, 1.6 m, is the usual choice; a balcony, tower, "
+                                    "ridge or quay crane is fine when the place has one), e.g. 'at the quay's landward "
+                                    "end looking along it at 1.6 m'; a still camera, never a path")
     hero: str = Field(default="", description="rungs 4-5: the one hero asset")
     hero_motion: str = Field(default="", description="rungs 4-5: how the hero moves")
     scale_constraints: list[str] = Field(default_factory=list, description="rung 5: 'the lighthouse is 18 m tall'")
@@ -157,7 +169,7 @@ def check_prompt(gp: GeneratedPrompt, rung: Rung) -> list[str]:
         problems.append(f"{gp.title!r}: rung {rung.level} needs a hero and its motion")
     if rung.scale and len(gp.scale_constraints) < 2:
         problems.append(f"{gp.title!r}: rung {rung.level} needs at least 2 scale constraints")
-    for field in ("effect", "animation", "camera", "mood", "prompt"):
+    for field in ("effect", "animation", "camera", "mood", "prompt", "beyond"):
         if not getattr(gp, field).strip():
             problems.append(f"{gp.title!r}: empty {field}")
     return problems
@@ -168,11 +180,18 @@ def check_prompt(gp: GeneratedPrompt, rung: Rung) -> list[str]:
 #: brief that asked for a tracking camera was a must-have no run could satisfy: the harness planner turns
 #: every must_have line into a ``must`` acceptance item, and the judge marked it unverified in 5 of
 #: iteration 0's 60 runs ("remains stationary between t=0s and t=1.5s"), which caps the whole score
-#: (``missing_must_acceptance``).  Every camera line starts with the prefix — :func:`migrate_camera_lines`
-#: recognises the form by it — and ends with the suffix.
-CAMERA_PREFIX = "camera: a FIXED eye-level camera"
+#: (``missing_must_acceptance``).  Every camera line starts with a fixed-form prefix — :func:`migrate_camera_lines`
+#: recognises the form by it — and ends with the suffix.  ``CAMERA_PREFIX`` is the form written since
+#: 2026-10-15: FIXED is interface (stills only), the height is the brief's own (a tower, a balcony, eye level —
+#: the harness measures the eye >= 0.3 m above what it stands on and >= 0.5 m from every surface), so the
+#: "eye-level" of the first fixed form is no longer baked into an acceptance item the judge verifies.
+#: ``LEGACY_CAMERA_PREFIX`` is that first form: the migrated lines of the cached rungs keep it verbatim (they
+#: pair iterations), and the migration recognises both forms as already fixed.
+CAMERA_PREFIX = "camera: a FIXED camera"
+LEGACY_CAMERA_PREFIX = "camera: a FIXED eye-level camera"
 CAMERA_SUFFIX = ("; the harness renders still cameras only (nothing dollies or tracks); it never intersects any "
                  "geometry (no clipping, nothing cut by the near plane)")
+FIXED_CAMERA_PREFIXES: tuple[str, ...] = (CAMERA_PREFIX, LEGACY_CAMERA_PREFIX)
 
 
 def camera_line(camera: str) -> str:
@@ -189,10 +208,10 @@ def migrate_camera_lines(prompts: Sequence[BenchPrompt]) -> int:
     n = 0
     for p in prompts:
         for i, line in enumerate(p.must_have):
-            if not line.startswith("camera: ") or line.startswith(CAMERA_PREFIX):
+            if not line.startswith("camera: ") or line.startswith(FIXED_CAMERA_PREFIXES):
                 continue
             route = line.removeprefix("camera: ").split(";", 1)[0].strip()
-            p.must_have[i] = (f'{CAMERA_PREFIX} standing where this route begins and looking along it — "{route}"'
+            p.must_have[i] = (f'{LEGACY_CAMERA_PREFIX} standing where this route begins and looking along it — "{route}"'
                               f"{CAMERA_SUFFIX}")
             n += 1
     return n
@@ -200,7 +219,8 @@ def migrate_camera_lines(prompts: Sequence[BenchPrompt]) -> int:
 
 def contract_lines(gp: GeneratedPrompt) -> list[str]:
     """The scenes_v2 composition contract rendered from the typed fields (the ``must_have`` list)."""
-    lines = [f"{len(gp.zones)} zones: {', '.join(z.strip() for z in gp.zones)}"]
+    lines = [f"{len(gp.zones)} zones: {', '.join(z.strip() for z in gp.zones)}",
+             f"beyond: {gp.beyond.strip()} — the place continues past the detailed zones, visibly, from the authored camera"]
     for a in gp.asset_types:
         line = f"at least {a.count} {a.name.strip()}"
         if a.designs > 1:
@@ -225,17 +245,23 @@ def instance_total(gp: GeneratedPrompt) -> int:
 # --------------------------------------------------------------------------- the request
 SYSTEM = (
     "You write evaluation prompts for a procedural 3D scene generator: each prompt describes ONE place "
-    "that a coding agent must build as a multi-file scene (zones, instanced assets, lighting, one effect, "
-    "one animation, authored cameras).  Prompts must be concrete, varied across categories and settings, "
-    "and buildable from primitives and a small effects library — no licensed characters, no text-heavy "
-    "signage, no real people.  Answer ONLY with the JSON the schema describes."
+    "that a coding agent builds as a procedural 3D scene (named zones, repeated assets with counts, lighting, "
+    "one effect, one animation, authored cameras).  Prompts are concrete, varied across categories and "
+    "settings, and buildable procedurally in code (no external models or textures) — no licensed characters, "
+    "no text-heavy signage, no real people.  Describe the place, not a layout: where its zones sit relative to "
+    "each other, how high its viewpoint stands and what continues past the detailed area are each prompt's own "
+    "choices, and they should differ from prompt to prompt.  Answer ONLY with the JSON the schema describes."
 )
 
 
 def rung_text(rung: Rung) -> str:
     lines = [
         f"Rung {rung.level} ({rung.tier}): {rung.brief}.",
-        f"- at least {rung.zones} named zones, laid out so a walk-through camera passes them in order",
+        f"- at least {rung.zones} named zones, each a distinct part of the place the prompt describes; the prompt text "
+        "says how they sit relative to each other (side by side, nested, stacked, across water, along a road that "
+        "leaves the frame — the place's own arrangement)",
+        "- beyond: what continues past the detailed zones (the rest of the street, open water, hills, a skyline, "
+        "farmland, a wall) — the place does not end where its zones end",
         f"- at least {rung.asset_types} distinct asset types, each with an explicit instance count; the counts "
         f"must sum to at most {rung.instances} instances in the whole scene",
         "- lighting is one of day / dusk / night; extra features are any of interior / water / particles",
@@ -243,9 +269,9 @@ def rung_text(rung: Rung) -> str:
         f"(day ≈ 0.35-0.65, dusk ≈ 0.20-0.45, night ≈ {LUMINANCE_FLOOR:.2f}-0.35)",
         "- exactly one effect (water surface, rain, snow, steam, dust, sparks, fog volume, a custom shader material)",
         "- exactly one animation (a thing that visibly moves between two sampled times)",
-        "- a camera brief: ONE fixed eye-level viewpoint — where it stands, what it looks along and its height; "
-        "the scenes are rendered from still cameras only (nothing dollies or tracks), and the camera must never "
-        "intersect geometry",
+        "- a camera brief: ONE fixed viewpoint — where it stands, what it looks along and how high it is (eye level "
+        "is one option; a tower, balcony, ridge or deck is another when the place has it); the scenes are rendered "
+        "from still cameras only (nothing dollies or tracks), and the camera never intersects geometry",
     ]
     if rung.require_all:
         lines.append(f"- REQUIRED features: {', '.join(rung.require_all)}")
@@ -319,6 +345,6 @@ def mix_counts(top: int, n: int) -> dict[int, int]:
     return {r: base + (1 if r > top - rem else 0) for r in range(1, top + 1)}
 
 
-__all__ = ["FEATURE_POOL", "RUNGS", "AssetCount", "GeneratedBattery", "GeneratedPrompt", "Rung",
-           "build_request", "camera_line", "check_battery", "check_prompt", "contract_lines", "instance_total",
-           "migrate_camera_lines", "mix_counts", "parse_battery", "rung_text"]
+__all__ = ["CAMERA_PREFIX", "FEATURE_POOL", "LEGACY_CAMERA_PREFIX", "RUNGS", "AssetCount", "GeneratedBattery",
+           "GeneratedPrompt", "Rung", "build_request", "camera_line", "check_battery", "check_prompt", "contract_lines",
+           "instance_total", "migrate_camera_lines", "mix_counts", "parse_battery", "rung_text"]

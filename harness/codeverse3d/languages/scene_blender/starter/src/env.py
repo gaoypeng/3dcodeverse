@@ -1,5 +1,5 @@
-"""src/env.py — the environment of the example scene: a low warm sun, rolling meadow beyond a
-level play area, a lake basin, haze.
+"""src/env.py — the environment of the EXAMPLE scene (a lakeside hamlet): a low warm sun, rolling
+meadow beyond a level pad, a lake basin, haze.  The landform is this example's, not a rule.
 
 Frame: Z up, -Y front, metres.
 CONTRACT: height_at(x, y) -> z is THE ground: the terrain mesh and every zone's seat use it.
@@ -13,7 +13,7 @@ import math
 from lib import lighting, materials, sky, terrain
 
 GROUND_SIZE = 160.0
-FLAT_RADIUS = 48.0          # level ground under the cameras (z = 0); gentle hills beyond
+FLAT_RADIUS = 48.0          # THIS example's landform: level under its hamlet, hills beyond — one landform among many; yours is the brief's
 SUN_AZIMUTH_DEG = 215.0     # compass angle of the sun: 0 = +X, 90 = +Y (the sky and the lamp share it)
 SUN_ELEVATION_DEG = 22.0
 BASIN = (-24.0, 2.0, 15.0, 1.2)   # the lake's (x, y, radius, depth): zones/lakeside.py fills it to WATER_LEVEL

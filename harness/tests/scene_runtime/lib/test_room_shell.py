@@ -39,7 +39,11 @@ def test_the_shell_is_walls_and_ceiling_on_the_bounds_faces_with_openings_cut():
     assert got["placement"] == "free", got
 
 
-def test_the_skeleton_env_carries_the_shell_only_for_an_interior_plan():
+def test_the_skeleton_env_carries_the_room_box_only_for_an_interior_plan():
+    """``INTERIOR`` is DATA the skeleton fills from the plan — the room box ``roomShell`` takes.
+    The enclosure itself is the author's: the starter builds no shell and no outskirts (D106; it
+    used to add ``roomShell(INTERIOR)`` and ``makeOutskirts`` itself, so every interior was a
+    bounds-sized box)."""
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     assert plan.interior is False
     outdoor = _env_for_plan(plan)
@@ -47,10 +51,10 @@ def test_the_skeleton_env_carries_the_shell_only_for_an_interior_plan():
     inside = _env_for_plan(plan.model_copy(update={"interior": True}))
     c, e = plan.bounds.center, plan.bounds.extents
     assert f"export const INTERIOR = {{ center: [{c[0]}, {c[1]}, {c[2]}], extents: [{e[0]}, {e[1]}, {e[2]}], openings: [] }};" in inside
-    assert "if (INTERIOR) group.add(roomShell(INTERIOR));" in inside
+    assert "roomShell(INTERIOR)" in inside and "group.add(roomShell(" not in inside   # named as one way, not built
     glass = _env_for_plan(plan.model_copy(update={"interior": True, "glazed": True}))
     assert "openings: [], glazed: true };" in glass
-    assert "if (!INTERIOR || INTERIOR.glazed) group.add(makeOutskirts(" in glass   # the land outside is built
+    assert "makeOutskirts(" not in glass
 
 
 _GLASS = """

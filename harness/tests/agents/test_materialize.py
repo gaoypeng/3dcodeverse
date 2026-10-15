@@ -50,7 +50,23 @@ def test_no_mcp_config_and_no_gemini_body_is_written_into_the_workspace(tmp_ws: 
     assert {p.name for p in tmp_ws.root.glob("*.md")} >= {"AGENTS.md", "CLAUDE.md"}
 
 
-def test_ignore_files_keep_agent_facing_paths_readable_and_a_missing_cookbook_is_said(tmp_ws: Workspace):
+def test_a_language_without_a_cookbook_gets_no_section_and_no_file(tmp_ws: Workspace):
+    """The scene languages ship no cookbook (owner, 2026-10-15): the body carries no "## Cookbook"
+    section — not a note saying one is missing, which only sends the agent looking — and no
+    ``.3dcode/cookbook.md`` is written (a stale one from an earlier materialisation goes).  A
+    language that ships one still gets the section and the file."""
+    tmp_ws.spec_path.write_text(json.dumps({"id": "t", "track": "scene", "language": "scene_threejs", "prompt": "p"}))
+    _mat(tmp_ws, cookbook="# a cookbook\n\nsnippets\n")
+    body = (tmp_ws.root / "AGENTS.md").read_text()
+    assert "## Cookbook" in body and (tmp_ws.root / ".3dcode" / "cookbook.md").read_text() == "# a cookbook\n\nsnippets\n"
+    _mat(tmp_ws, cookbook="")
+    body = (tmp_ws.root / "AGENTS.md").read_text()
+    assert "## Cookbook" not in body and "cookbook" not in body.lower()
+    assert not (tmp_ws.root / ".3dcode" / "cookbook.md").exists()
+    assert body.index("## Spatial tools") < body.index("## Language contract")   # the sections around it stay in order
+
+
+def test_ignore_files_keep_agent_facing_paths_readable(tmp_ws: Workspace):
     """Ignored paths are hidden from the agent: census and tool renders stay readable."""
     import fnmatch
 
@@ -79,8 +95,6 @@ def test_ignore_files_keep_agent_facing_paths_readable_and_a_missing_cookbook_is
                        "trajectories/baseline_r00/prompt.md", "trajectories/baseline_r00/agy.log",
                        "trajectories/baseline_r00/stderr.log", "node_modules/three/x.js", ".git/HEAD"):
             assert ignored(hidden, lines), hidden
-    # no cookbook resolved (the default here): the body says so rather than naming a missing file
-    assert "No cookbook is available" in (tmp_ws.root / "AGENTS.md").read_text()
 
 
 def test_kind_specific_tool_hint_and_spatial_disabled_documents_absence(tmp_ws: Workspace):

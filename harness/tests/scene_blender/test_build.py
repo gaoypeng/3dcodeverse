@@ -99,13 +99,16 @@ def test_the_skeleton_builds_and_passes(tmp_ws) -> None:
     res = rt.build(tmp_ws)
     assert res.ok, res.stdout_tail
     c = res.census
-    assert c["fog"]["type"] == "VolumeBox" and c["background"] == "sky:MULTIPLE_SCATTERING"
-    assert "Atmosphere" in c["bpy"]["glb"]["volumes_skipped"]
+    # the stub env ships a plate and nothing that passes: no world, no atmosphere, no lamp until the author
+    # writes the brief's (a placeholder that passed was kept by every author, 2026-10-15)
+    assert c["fog"] is None and c["background"] is None and not c["bpy"]["glb"]["volumes_skipped"]
     assert {g["name"] for g in c["groups"]} >= {"Quay", "Water", "Ground"}
-    assert c["light_types"] == {"SUN": 1} and c["bpy"]["drivers_invalid"] == []
-    # every planned asset the stubs placed (lib.scatter.instance) is seated on the library's ground
+    assert c["light_types"] == {} and c["bpy"]["drivers_invalid"] == []
+    # the zone stubs place NOTHING (D106: they name the plan's contents and decide no position — the
+    # grid of placeholders inside the bbox was the seed of the block-on-a-plate look), so the fresh
+    # skeleton's placement table is empty and anything an author then places is measured on its own
     placed = [r for r in c["placement"]["assets"] if r["zone"] in ("Quay", "Water") and not r["exempt"]]
-    assert placed and all(r["supported"] and not r["floating"] and r["sunk_m"] <= 0.10 for r in placed), placed
+    assert placed == [], placed
     probe = json.loads((tmp_ws.artifacts / "scene_probe.json").read_text())
     # the plan's cameras, named as scene_threejs's assembler names them
     assert [cam["name"] for cam in probe["boot"]["cameras"]] == [to_snake(c.name) for c in plan.cameras[:6]]

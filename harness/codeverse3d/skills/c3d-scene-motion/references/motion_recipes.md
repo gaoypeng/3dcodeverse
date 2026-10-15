@@ -1,110 +1,60 @@
-# Motion recipes
+# Motion — what the measure needs, and the library's movers
 
-Executed against the harness's own `three@0.182` in node on 2026-08-25; the
-printed values are quoted under each block.
+The measure: each authored camera is rendered at t = 0 and t = 1.5 s and the two frames are
+differenced; a camera MOVES when ≥ 0.4 % of its pixels change by more than 8/255 (or ≥ 0.08 %
+by more than 60/255). None moving is the gate's `no_motion` ERROR and the judge's
+`nothing_moves`. Everything below is one way to clear it; the library's own movers
+(`makeFalling` in `lib/flowers.js`, `makeSnowfall` / `makeMotes` in `lib/veils.js`,
+`makeFlock` in `lib/flock.js`, `makeFlag` in `lib/cloth.js`, `patchWind` in `lib/foliage_shade.js`)
+cover the common cases without any code of
+yours, and each carries `userData.update(t, dt)` for the zone to call.
 
-## The seeded hash you need first
+## Seeded randomness
 
 `Math.random()` is forbidden (a non-deterministic scene makes the two photographs
-incomparable, and the lint warns on it).
+incomparable, and the lint warns on it). `mulberry32` from `lib/noise.js` is the shipped
+generator (`lehmer` is the lighter one); one call per instance at build time gives each its
+phase.
 
-```js
-const rand = (i) => { const s = Math.sin(i * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); };
-```
+## A sway that registers
 
-## Sway pivot — base-anchored, phase-seeded, mid-phase at t = 0
+What has measured as visible (`three@0.182` in node, 2026-08-25): a pivot group whose origin
+is at the BASE of what sways (the child translated up into it, not centred on it), a rotation
+written as a pure function of `t` — a sine over the period the plan gives, with a per-instance
+phase from the seeded generator so the t = 0 photograph catches the element already leaning —
+and a second axis at an incommensurate period so the motion never reads as a metronome. At
+0.14 rad amplitude a trunk swung 0.209 rad between the two frames and sat 0.069 rad off
+upright in the first one; the plan's amplitude table says what reads for each kind of mover.
+A hundred trees on one phase is one large object nodding, and symmetrical crowds partly
+cancel in the pixel diff.
 
-```js
-function swayPivot(THREE, child, { name = 'Sway', amp = 0.14, period = 2.2, seed = 0 } = {}) {
-  const pivot = new THREE.Group(); pivot.name = name; pivot.add(child);
-  const phase = rand(seed) * 6.2832 + 0.8;      // + 0.8 so t = 0 is NOT the rest pose
-  pivot.userData.update = (t) => {
-    pivot.rotation.z = Math.sin(t / period * 6.2832 + phase) * amp;
-    pivot.rotation.x = Math.sin(t / (period * 1.37) * 6.2832 + phase * 1.7) * amp * 0.55;
-  };
-  return pivot;
-}
-// seed 3, amp 0.14: rotation.z moves 0.209 rad between t = 0 and t = 1.5, and
-// sits at -0.069 rad in the t = 0 frame rather than dead upright.
-```
+## Falling particles — recycled, a pure function of t
 
-Three things are load-bearing and all three are cheap:
-
-* the pivot Group's origin is at the **base** of what sways, so the far end
-  travels; the child geometry is translated up into it, not centred on it
-* the two axes use incommensurate periods (`period` and `period * 1.37`) so the
-  motion never repeats exactly and never looks like a metronome
-* `+ 0.8` in the phase means the t = 0 photograph catches the element already
-  leaning. A pure `Math.sin(t * k)` is exactly zero at t = 0, which is the frame
-  the judge sees first.
-
-Wrap each instance with its own `seed` (its index in the scatter loop). A hundred
-trees on one phase is one large object nodding — and worse for the pixel diff,
-symmetrical crowds partly cancel: half the copies move into the pixels the other
-half vacated.
-
-## Falling particles — recycled, pure function of t
-
-```js
-function fallingField(THREE, n, area, { fall = 0.9, cycle = 8, seed = 0 } = {}) {
-  const pos = new Float32Array(n * 3), base = new Float32Array(n * 3), ph = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    base[i*3]   = area.x + (rand(i + seed) - 0.5) * area.w;
-    base[i*3+1] = area.top;
-    base[i*3+2] = area.z + (rand(i + seed + 600) - 0.5) * area.d;
-    ph[i] = rand(i + seed + 900) * cycle;          // stagger, or they fall as one sheet
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.05 }));
-  pts.name = 'Leaves';
-  pts.userData.update = (t) => {
-    const p = geo.attributes.position.array;
-    for (let i = 0; i < n; i++) {
-      const u = ((t + ph[i]) % cycle) / cycle;     // wraps; no state accumulates
-      p[i*3]   = base[i*3]   + Math.sin((t + ph[i]) * 0.8) * 0.35;
-      p[i*3+1] = base[i*3+1] - u * fall * cycle;
-      p[i*3+2] = base[i*3+2] + Math.cos((t + ph[i]) * 0.6) * 0.35;
-    }
-    geo.attributes.position.needsUpdate = true;     // without this nothing moves at all
-  };
-  return pts;
-}
-// 160 particles, fall 0.9 m/s: a leaf travels 1.35 m between t = 0 and t = 1.5,
-// and calling update(1.5) twice returns the identical value.
-```
-
-The modulo is what makes recycling stateless: no counter to drift, no reset to
-miss, and `update(1.5)` gives the same frame however many times it is called.
-Allocate `pos`, `base` and `ph` once at build time — the contract forbids
-per-frame allocation and `traverse` in `update`.
+Allocate the position, home and phase arrays once at build time (the contract forbids
+per-frame allocation and `traverse` in `update`); each frame then sets every particle's
+position from `t` alone — the fall is `(t + phase) mod cycle` scaled by the speed, with a
+small lateral drift from the same clock — and sets `geometry.attributes.position.needsUpdate
+= true` (without it nothing moves at all). The modulo is what makes recycling stateless: no
+counter to drift, no reset to miss. 160 particles at 0.9 m/s travelled 1.35 m between the
+frames, and calling `update(1.5)` twice returned the identical value. The `PointsMaterial`
+needs a radial-alpha sprite `map` with `transparent: true` and `depthWrite: false`, or every
+particle is a square (`hard_edged_particles`, judged).
 
 ## Registering movers
 
-```js
-// in each zone / asset builder
-zone.userData.update = (t, dt) => { /* ... */ };
-
-// in src/scene.js — ONE list, built once, walked by the one hook the harness calls
-const movers = [env, ...zones, ...assets].filter(Boolean);
-return { scene, cameras, update(t, dt) { for (const m of movers) (m.userData?.update ?? m.update)?.(t, dt); } };
-```
-
-Add to `movers` in the same edit that creates the mover. The harness calls
-nothing else: not `userData.tick`, not `animate`, not a `requestAnimationFrame`
-callback (that function is a stub here that returns 0 and never fires).
+A zone's `group.userData.update = (t, dt) => { ... }` is the only zone hook the assembled
+`src/scene.js` calls, and it calls it once per frame; an asset's own `userData.update` runs
+only if its zone caches it at build time and calls it from there. The harness calls nothing
+else: not `userData.tick`, not `animate`, not a `requestAnimationFrame` callback (that
+function is a stub here that returns 0 and never fires). Register a mover in the same edit
+that creates it.
 
 ## Scrolling a shader without a clock of its own
 
-A `ShaderMaterial` animates by having its `uTime` uniform written from the same
-`update`, never by reading a clock inside itself (`Date.now` and
-`performance.now` are forbidden, and the render happens at a simulated time, not
-a wall-clock one).
-
-```js
-const water = makeWaterMaterial(THREE, { /* ... */ });   // uniforms: { uTime: { value: 0 }, ... }
-group.userData.update = (t) => { water.uniforms.uTime.value = t; };
-```
+A `ShaderMaterial` animates by having its `uTime` uniform written from the same `update`,
+never by reading a clock inside itself (`Date.now` and `performance.now` are forbidden, and
+the render happens at a simulated time, not a wall-clock one): `mat.uniforms.uTime.value = t`
+from the zone's hook.
 
 Two failure shapes to avoid: a uniform declared in the shader but missing from
 `uniforms` (`runtime_js/lib/host_compile.mjs` reports that as an `unbound_uniform`

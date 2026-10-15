@@ -23,6 +23,8 @@ from bench._loop_diag import (
     py_lib_modules,
 )
 from bench._loop_prompts import (
+    CAMERA_PREFIX,
+    LEGACY_CAMERA_PREFIX,
     LUMINANCE_CEILING,
     LUMINANCE_FLOOR,
     RUNGS,
@@ -91,6 +93,7 @@ def good_prompt(rung: int, k: int) -> GeneratedPrompt:
         title=f"place {rung}-{k}", category=CATEGORIES[k % len(CATEGORIES)],
         prompt=f"a place number {k} at rung {rung} with zone 0 and zone 1 and a walk-through",
         zones=[f"zone {i}" for i in range(r.zones)],
+        beyond="the lane runs on downhill past the last zone into orchards that fade into the haze",
         asset_types=[AssetCount(name=f"things {i}", count=count, designs=2 if i == 0 else 1) for i in range(r.asset_types)],
         lighting=lighting, features=features, mood="warm low sun" if lighting != "night" else "lantern glow",
         luminance_low=NIGHT_LOW if lighting == "night" else 0.3, luminance_high=0.35 if lighting == "night" else 0.6,
@@ -199,8 +202,17 @@ def test_the_rung_ladder_is_the_owners_table_and_the_mix_splits_evenly():
     assert any("scale" in p for p in check_prompt(good_prompt(4, 0), RUNGS[5]))
     few = good_prompt(2, 0).model_copy(update={"zones": ["a", "b"]})
     assert any("needs at least 4" in p for p in check_prompt(few, RUNGS[2]))
+    # `beyond` (2026-10-15): what continues past the detailed area is a required field and a contract line,
+    # so "nothing past the bounds" fails an acceptance item instead of being the default shape
+    nowhere = good_prompt(1, 0).model_copy(update={"beyond": "  "})
+    assert any("empty beyond" in p for p in check_prompt(nowhere, RUNGS[1]))
     lines = contract_lines(good_prompt(4, 1))
     assert lines[0].startswith("6 zones: ") and "at least 20 things 0 using at least 2 distinct designs" in lines
+    assert lines[1].startswith("beyond: the lane runs on downhill") and "continues past the detailed zones" in lines[1]
+    # the rung text asks for the field and never dictates a layout (no walk-through order, no eye-level default)
+    for level in RUNGS:
+        text = rung_text(RUNGS[level])
+        assert "beyond:" in text and "walk-through" not in text and "in order" not in text and "eye-level" not in text, level
     assert any(ln.startswith("night mood:") and f"mean luminance roughly {NIGHT_LOW:.2f}-0.35" in ln for ln in lines)
     assert any(ln.startswith("water:") for ln in lines) and any(ln.startswith("hero: the hero wheel") for ln in lines)
     assert any("never intersects any geometry" in ln for ln in lines)
@@ -209,12 +221,15 @@ def test_the_rung_ladder_is_the_owners_table_and_the_mix_splits_evenly():
 def test_the_camera_line_is_a_still_viewpoint_and_old_lines_migrate_once():
     """Both scene languages render the authored cameras as STILLS at t = 0 and t = 1.5 s, so a brief that
     asked for a dolly was a must-have no run could satisfy (iteration 0: unverified in 5 of 60 runs, a
-    `missing_must_acceptance` cap on the whole score).  The line now states a fixed eye-level viewpoint;
-    a cached line of the old form is rewritten around the route the model wrote, once."""
+    `missing_must_acceptance` cap on the whole score).  The line now states a fixed viewpoint whose height is
+    the brief's own (2026-10-15: "eye-level" left the prefix — a tower or balcony viewpoint is not an unverified
+    must item); a cached line of the old moving form is rewritten around the route the model wrote, once, in
+    the first fixed form, which stays verbatim because the cached rungs pair iterations."""
     assert camera_line(" at the quay's landward end looking along it at 1.6 m ") == (
-        "camera: a FIXED eye-level camera, at the quay's landward end looking along it at 1.6 m; the harness renders "
+        "camera: a FIXED camera, at the quay's landward end looking along it at 1.6 m; the harness renders "
         "still cameras only (nothing dollies or tracks); it never intersects any geometry (no clipping, nothing cut by "
         "the near plane)")
+    assert CAMERA_PREFIX == "camera: a FIXED camera" and LEGACY_CAMERA_PREFIX == "camera: a FIXED eye-level camera"
     lines = contract_lines(good_prompt(1, 0))
     assert [ln for ln in lines if ln.startswith("camera: ")] == [camera_line("at the lane's near end looking along it at 1.6 m")]
     assert "still cameras only (nothing dollies or tracks)" in rung_text(RUNGS[1]) and "path" not in rung_text(RUNGS[1])
@@ -233,6 +248,11 @@ def test_the_camera_line_is_a_still_viewpoint_and_old_lines_migrate_once():
         "effect: steam rising from a grate"]
     assert fresh.must_have == [camera_line("at the gate looking in at 1.6 m"), "animation: the awning extends"]
     assert migrate_camera_lines([old, fresh]) == 0, "idempotent: the fixed form is recognised, nothing moves twice"
+    # a cache in the FIRST fixed form (iteration 1's) is recognised too — never wrapped a second time
+    legacy = BenchPrompt(id="it01_scene_threejs_r1_02", prompt="p", tier="medium",
+                         must_have=[f"{LEGACY_CAMERA_PREFIX}, at the gate looking in at 1.6 m; the harness renders still cameras only"])
+    before = list(legacy.must_have)
+    assert migrate_camera_lines([legacy]) == 0 and legacy.must_have == before
 
 
 def test_the_luminance_floor_is_the_frame_gates_dark_threshold():
@@ -366,7 +386,7 @@ def test_run_builds_the_child_argv_and_env_and_records_exit_codes(cfg: loop.Loop
     assert "--no-report" in argv and "--redo-status" not in argv and "--planner" not in argv
     env = call["env"]
     assert (env["C3D_JUDGE__THINKING"], env["C3D_VARIANT"], env["C3D_RENDER__BLENDER_GPU_SLOTS"], env["PYTHONUNBUFFERED"]) == \
-        ("medium", "argon", "3", "1")
+        ("medium", "argon", "5", "1")
     assert call["cwd"] == str(loop.REPO) and call["start_new_session"] is True
     run = json.loads((cfg.iter_dir(0) / "run.json").read_text())
     assert run["children"]["scene_threejs"]["pid"] == 4242 and run["children"]["scene_blender"]["returncode"] == 0

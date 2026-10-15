@@ -12,6 +12,11 @@ description: >
   particles / missing planned elements / hero placement join the checklist, the caps follow
   the scene_placement gate's typed kinds, and every criterion is anchored at six levels so the
   judge uses the whole scale.  scene_v1 stays frozen for replays of the rounds it scored.
+  2026-10-15 (owner's rule — the harness states requirements, never templates): the craft
+  criteria and defects judge each place against what ITS brief implies instead of one recipe
+  (blended ground + paths, clustered scatter, foreground-frame / midground / horizon, fog and
+  a two-hue key/fill everywhere), and `diorama_look` names the template itself — a block on a
+  plate ringed by a uniform backdrop with nothing beyond — as a defect.
 
 extra_instructions: >
   Views named overview_* are HARNESS cameras fitted to the scene bounds — nobody framed
@@ -49,28 +54,42 @@ extra_instructions: >
   CALIBRATION — fixed points on the overall scale (the harness computes the overall from
   your criterion scores; these say where the criteria must land): a bare skeleton — ground
   plane, a few primitives, the starter sky — scores at most 0.35 overall; a correct but plain
-  diorama (every planned zone present, boxes-and-cones assets, flat ground, no dressing, no
-  haze) sits around 0.55; a photographable place — layered detail, varied assets, dressed
-  ground, aerial perspective, no visible defect — scores 0.80 or more.  A diorama and a
-  photographable place must land at least 0.3 apart: if you cannot tell which of two scenes a
-  person would screenshot, you have compressed the scale.  Each criterion carries six anchors
-  (1.0 / 0.85 / 0.7 / 0.55 / 0.4 / 0.1); interpolate between them and use the whole range.
+  diorama (every planned zone present, primitive assets, surfaces without variation or wear,
+  nothing of the brief's place beyond its named elements) sits around 0.55; a photographable
+  place — detail layered at every scale the authored cameras see, varied assets, surfaces that
+  read as the brief's materials, depth readable in the shots that have distance, no visible
+  defect — scores 0.80 or more.  A diorama and a photographable place must land at least 0.3
+  apart: if you cannot tell which of two scenes a person would screenshot, you have compressed
+  the scale.  Each criterion carries six anchors (1.0 / 0.85 / 0.7 / 0.55 / 0.4 / 0.1);
+  interpolate between them and use the whole range.
 
 
   Craft on this track is mostly about five things, so look for each of them explicitly
-  before scoring: (1) the GROUND — is it several blended materials with paths, wear and
-  dressed edges, or one flat colour with a hard bbox line; (2) VEGETATION / repeated
-  natural elements — several silhouettes with size and hue variation in clusters, or one
-  shape stamped in a ring; (3) DEPTH — is there something in the near foreground framing
-  the shot, a subject in the midground and a horizon above, or is it a small diorama alone
-  on a big empty plane; (4) DRESSING — the small props (pebbles, leaves, tools, cups,
-  cables, litter) that make a place look used; (5) ATMOSPHERE — fog/haze giving aerial
-  perspective, coloured (sky-lit) shade, and a key light whose hue differs from the fill.
-  A scene can be entirely correct against the brief and still sit at 0.55 because it fails
-  all five; say so in the issues rather than inventing a fidelity complaint.  And a scene
-  that passes all five can still lose on DETAIL: look at every asset at crop scale for a
-  floating base, a part through another part, a mismatched scale and hard-edged particles
-  before you score.
+  before scoring — and judge each against what the BRIEF's place would have, never against a
+  fixed recipe (a quay, a gym and a snowfield are flat by nature; an overcast noon has no warm
+  key; a lab is clean): (1) the GROUND — does it read as the surface the brief's place would
+  have (variation, wear, how things meet it), or as one flat untextured colour ending in a
+  hard bbox line; (2) REPEATED ELEMENTS (trees, rocks, figures, fixtures) — several
+  silhouettes with per-copy size and hue variation, arranged as the place would arrange them
+  (an orchard is a grid, a stone circle is a ring), or one shape stamped identically; (3) DEPTH
+  — does each authored shot have readable depth for what it frames (near / far relationships,
+  overlap, scale cues, a horizon where the place has one), or is it a small diorama alone on a
+  big empty plane; (4) DRESSING — the secondary detail the brief's place implies (what people
+  left there, wear, fixtures, growth) that makes it look used, or a showroom of a few large
+  objects; (5) ATMOSPHERE — do the light and the air match the brief's hour and weather
+  (distance readable where the scene has distance, shade carrying the sky's colour rather than
+  black), or is the frame airless for no reason the brief gives.  A scene can be entirely
+  correct against the brief and still sit at 0.55 because it fails all five; say so in the
+  issues rather than inventing a fidelity complaint.  And a scene that passes all five can
+  still lose on DETAIL: look at every asset at crop scale for a floating base, a part through
+  another part, a mismatched scale and hard-edged particles before you score.
+
+
+  One shape of scene is a defect whatever its polish: a compact block of content in the middle
+  of a flat plate, ringed all round by one uniform backdrop (identical hills, trees or
+  silhouettes at one radius) with nothing continuing beyond it — a model on a table, not a
+  place that goes on.  That is `diorama_look`: cite the view that shows the plate's edge or
+  the ring.
 
 criteria:
   - id: brief_fidelity
@@ -94,14 +113,16 @@ criteria:
     floor: 0.25
     title: Composition and camera
     description: >
-      Do the authored cameras make readable, well-framed pictures — a focal subject,
-      foreground/midground/background, horizon placed deliberately, nothing clipped by
-      the near plane, no camera inside geometry, no shot that shows only sky or ground?
+      Do the authored cameras make readable, well-framed pictures — a focal subject the
+      camera is aimed at, depth readable for what the shot frames, nothing clipped by the
+      near plane, no camera inside geometry, no shot that shows only sky or ground?  The
+      brief decides what each viewpoint looks at and from how high; a corridor, a lake
+      crossing, a tower seen from below or a top-down map shot can each be a composed shot.
     anchors:
-      "1.0": Every authored camera is a composed shot — a foreground element within a few metres frames the edge, the subject fills the middle distance, a horizon band sits above, and the subject is what the camera is aimed at.
-      "0.85": Every shot is composed and aimed; one lacks a foreground frame or sits a little too high / too central.
-      "0.7": Shots are readable and aimed at the subject, but one layer is missing (no foreground, or a bare horizon) or one shot is flat / off-centre.
-      "0.55": The scene reads as a diorama photographed from outside — subject centred on a large empty plane, no foreground, nothing on the horizon.
+      "1.0": Every authored camera is a composed shot of what the brief says that viewpoint looks at — the subject is clearly what the camera is aimed at, the frame has depth where the place offers it (something near, something far, overlap, a horizon where the place has one), and nothing is clipped or empty.
+      "0.85": Every shot is composed and aimed; one has less depth than its place offers, or sits a little too high / too central.
+      "0.7": Shots are readable and aimed at the subject, but one is flat where the place had depth to give, or off-centre, or oddly cropped.
+      "0.55": The scene reads as a diorama photographed from outside — subject centred on a large empty plane with nothing between it and the camera and nothing beyond it.
       "0.4": One authored camera shows nothing useful (sky, ground, the inside of a wall), or the establishing shot is aimed at the bounds centre rather than the subject, or a shot is badly clipped.
       "0.1": Most shots are unusable or the camera is inside geometry.
 
@@ -110,15 +131,17 @@ criteria:
     floor: 0.25
     title: Lighting and atmosphere
     description: >
-      Is the lighting readable and atmospheric — a consistent sun/moon direction,
-      present soft shadows, sky that matches the mood, aerial perspective / fog giving
-      depth, exposure neither blown nor crushed, coloured (sky-lit) shade rather than
-      black?
+      Is the lighting readable and right for the brief — a consistent light direction,
+      shadows where the light would cast them, a sky that matches the brief's hour and
+      weather, depth readable where the place has distance, exposure neither blown nor
+      crushed, shade that carries ambient colour rather than black?  An overcast, a
+      sodium-lit night, a clear dry noon or an interior is legitimately near-monochrome
+      or haze-free when the brief says so.
     anchors:
-      "1.0": Clear mood executed consistently; warm key against a cooler fill (or the reverse); soft accurate shadows with smooth edges; fog/haze gives visible aerial perspective with distance; shade carries sky colour.
-      "0.85": The mood is clear and the key / fill / haze are all present; one of them is a notch off (shadows a little hard, haze a little thin, the sky a little flat).
-      "0.7": Good lighting with one weakness (slightly flat shadows, slightly heavy fog, or a horizon with no atmospheric falloff).
-      "0.55": Lit but airless — no haze or depth cue, key and fill share one hue so the frame is monochrome, or shadow edges are visibly stair-stepped.
+      "1.0": Clear mood executed consistently — light colour, direction and contrast agree with the brief's hour and weather; shadows soft and accurate; distance reads where the shot has it; shade is coloured, never black.
+      "0.85": The mood is clear and consistent; one element is a notch off (shadows a little hard, distance a little too crisp or too milky for the weather, the sky a little flat).
+      "0.7": Good lighting with one weakness (slightly flat shadows, air heavier or thinner than the brief's weather, or a far distance with no falloff where the weather would give some).
+      "0.55": Lit but airless — no depth cue in shots that have distance, or a monochrome frame the brief's weather does not explain, or shadow edges visibly stair-stepped.
       "0.4": Flat shadowless light, or noticeably under/over-exposed, or sky contradicting the light, or black (unfilled) shadows.
       "0.1": Near-black, blown white, or unlit.
 
@@ -131,10 +154,10 @@ criteria:
       furniture where the place calls for them — without copy-paste monotony?  Judge
       them at crop scale, not only from the overviews.
     anchors:
-      "1.0": Assets are crafted and varied — several silhouettes per family, per-instance size and hue variation, wear and small props everywhere; the crops hold up.
+      "1.0": Assets are crafted and varied — several silhouettes per family, per-copy size and hue variation, and the wear and small props the brief's place would carry; the crops hold up.
       "0.85": Assets are crafted and varied; one family is plainer than the rest or repeats a silhouette, and the crops show a seam or two.
       "0.7": Assets are decent with some repetition, a few plain ones, or thin set dressing.
-      "0.55": Hero assets are fine but everything around them is one repeated primitive and the place is undressed — no small props, no litter, no ground cover.
+      "0.55": Hero assets are fine but everything around them is one repeated primitive and the place lacks the secondary detail its brief implies.
       "0.4": Mostly plain boxes / cones, or one shape stamped everywhere, or a solid object faked as a flat coloured plane.
       "0.1": Primitive blobs or an empty world.
 
@@ -287,19 +310,26 @@ defects:
     text: A hard world edge / terrain cliff / missing horizon is visible from an authored camera.
     penalty: 0.04
   - id: flat_ground
-    text: The ground is one flat untextured colour — no material blending, no paths or worn areas, and where objects meet it the seam is a hard undressed line.
+    text: The ground reads as one flat untextured colour where the brief's surface would show variation or wear, and where objects meet it the seam is a hard undressed line.
     penalty: 0.04
   - id: monotonous_vegetation
-    text: A repeated natural element (trees, rocks, plants, crowd) is one shape stamped many times — no variation in silhouette, size or hue, and placed in a ring or a grid rather than clusters.
+    text: A repeated natural element (trees, rocks, plants, crowd) is one shape stamped many times — no variation in silhouette, size or hue — in a mechanical pattern (a ring, a grid, an even row) the place itself would not have.
     penalty: 0.04
   - id: empty_midground
-    text: An authored camera has no depth layering — nothing in the near foreground and/or nothing on the horizon, so the subject sits alone on a large empty plane.
+    text: An authored shot that frames the place at distance has the subject alone on a large undressed plane — the space between the camera and the subject, and beyond it, is empty of anything the place would have there.
     penalty: 0.04
+  - id: diorama_look
+    text: >
+      The scene is a compact block of content in the middle of a flat plate, ringed all round by
+      one uniform backdrop (identical hills / trees / silhouettes at one radius) with nothing
+      continuing beyond — a model on a table rather than a place that goes on.  Cite the view
+      that shows the plate's edge or the ring.
+    penalty: 0.05
   - id: undressed_scene
-    text: The place has no small props or clutter (pebbles, leaves, tools, cups, cables, litter, ground cover) — it looks like a showroom of a few large objects.
+    text: The place lacks the secondary detail its brief implies and reads as a showroom of a few large objects.
     penalty: 0.03
   - id: thin_atmosphere
-    text: No visible aerial perspective — distant things are as saturated and contrasty as near things, there is no haze/fog falloff, and the key and fill light share one hue.
+    text: In a shot with real distance, far things are as saturated and contrasty as near things although the brief's weather would soften them.
     penalty: 0.03
 
 # The scene_placement gate (spatial/scene_placement.py) measures every placed asset's foot
