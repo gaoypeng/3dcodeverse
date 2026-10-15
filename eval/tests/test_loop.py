@@ -1,4 +1,4 @@
-"""``bench/loop.py``: the argon scene-tuning loop, driven offline with fakes (no model, no child process)."""
+"""``bench/loop.py``: the argon tuning loop (scene, objects, graphics), driven offline with fakes (no model, no child process)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 import logging
 import sys
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace as NS
 from typing import Any
@@ -718,3 +719,371 @@ def test_the_cli_dispatches_and_refuses_without_a_loop(tmp_path: Path, capsys, m
     assert loop.main(["init", "--name", "t", "--out", str(out), "--variant", "argon"]) == 2, "one loop per --out"
     assert loop.main(["status", "--out", str(out)]) == 0
     assert "loop t: variant argon" in capsys.readouterr().out
+
+
+# =========================================================================== the scene path, pinned
+#: sha256[:16] of the scene batteries `generate` wrote BEFORE the loop learned the other tracks
+#: (main 9a8333e0, FakePlanner, the `cfg` fixture's knobs): iteration 0 at rung 1, iteration 2 at rung 2.
+#: The multi-track change must leave the scene path byte-identical — same ids, same caches, same files.
+SCENE_GOLDEN = {
+    "iter_00/battery_scene_blender.yaml": "e86879fc2fee3a52",
+    "iter_00/battery_scene_threejs.yaml": "bb12ccfa9863484f",
+    "iter_02/battery_scene_blender.yaml": "311ce859a978527d",
+    "iter_02/battery_scene_threejs.yaml": "f1c5102f944ff60d",
+}
+
+
+def test_the_scene_generate_path_is_byte_identical_to_before_the_other_tracks(cfg: loop.LoopConfig):
+    import hashlib
+
+    fake = FakePlanner()
+    loop.generate_iteration(cfg, 0, rung=1, chat_model=fake)
+    loop.generate_iteration(cfg, 2, rung=2, chat_model=fake)
+    got = {rel: hashlib.sha256((cfg.out / rel).read_bytes()).hexdigest()[:16] for rel in SCENE_GOLDEN}
+    assert got == SCENE_GOLDEN
+    meta = json.loads((cfg.iter_dir(2) / "generate.json").read_text())
+    assert sorted(meta) == ["batteries", "generated_at", "ids", "iteration", "languages", "mix", "n", "rung"], \
+        "the scene generate.json keeps its keys: no track / tiers / sources"
+    assert sorted(p.name for p in (cfg.out / "prompts").iterdir()) == [
+        "rung_1_scene_blender.yaml", "rung_1_scene_threejs.yaml", "rung_2_scene_blender.yaml", "rung_2_scene_threejs.yaml"]
+
+
+# =========================================================================== the other tracks
+BLENDER_OBJ, THREEJS_OBJ, CADQUERY = Language.BLENDER, Language.THREEJS, Language.CADQUERY
+
+
+def _battery_file(path: Path, track: str, language: str, prompts: list[dict[str, Any]]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump({"name": path.stem, "track": track, "language": language, "prompts": prompts}))
+    return path
+
+
+def _p(pid: str, tier: str, text: str, *, must: int = 2, **kw: Any) -> dict[str, Any]:
+    return {"id": pid, "tier": tier, "category": "furniture", "prompt": text,
+            "must_have": [f"item {i}" for i in range(must)], **kw}
+
+
+@pytest.fixture
+def sources(tmp_path: Path) -> list[Path]:
+    """Two small static_object batteries: a duplicate by text (b_med_1 = a_med_1, case and spaces
+    aside), an id collision (b's a_hard_1 is another prompt), one three.js-only prompt, an easy one,
+    a relative reference, and one medium with more acceptance items than the rest (the hardest)."""
+    (tmp_path / "src" / "refs").mkdir(parents=True)
+    (tmp_path / "src" / "refs" / "stool.png").write_bytes(b"png")
+    a = _battery_file(tmp_path / "src" / "a.yaml", "static_object", "blender", [
+        _p("a_easy_1", "easy", "a plain cube"),
+        _p("a_med_1", "medium", "a wooden stool with three legs", references=["refs/stool.png"]),
+        _p("a_med_2", "medium", "a ceramic teapot"),
+        _p("a_hard_1", "hard", "a rolltop desk with pigeonholes"),
+        _p("a_hard_2", "hard", "a penny-farthing bicycle"),
+        _p("a_hard_3", "hard", "a lattice dome pavilion", language="threejs"),
+    ])
+    b = _battery_file(tmp_path / "src" / "b.yaml", "static_object", "blender", [
+        _p("b_med_1", "medium", "  A wooden stool   with three LEGS "),
+        _p("a_hard_1", "hard", "a completely different prompt under a taken id"),
+        _p("b_hard_1", "hard", "a drill press on a cast base"),
+        _p("b_med_3", "medium", "a brass desk lamp", must=5),
+    ])
+    return [a, b]
+
+
+@pytest.fixture
+def ocfg(tmp_path: Path, sources: list[Path]) -> loop.LoopConfig:
+    c = loop.LoopConfig(name="t_static", out=tmp_path / "loop_static", variant="argon", track="static_object",
+                        languages=[BLENDER_OBJ, THREEJS_OBJ], source=[str(p) for p in sources],
+                        generator="agy:gemini-4-argon", judge="gemini:gemini-4-argon", parallel=2, rounds=1,
+                        max_minutes=10.0, n=4)
+    c.save()
+    return c
+
+
+def test_init_validates_the_languages_by_track_and_needs_sources_off_the_scene_track(
+        tmp_path: Path, sources: list[Path], capsys, monkeypatch):
+    src = [str(p) for p in sources]
+    ok = loop.LoopConfig(name="s", out=tmp_path, variant="argon", track="static_object", languages=[BLENDER_OBJ],
+                         source=src, generator="g", judge="j")
+    assert ok.track is loop.Track.STATIC_OBJECT
+    for bad in ({"track": "static_object", "languages": [BLENDER], "source": src},        # scene_blender: not static
+                {"track": "static_object", "languages": [BLENDER_OBJ]},                  # no source
+                {"track": "scene", "languages": [THREEJS], "source": src},               # scene generates its own
+                {"track": "graphics", "languages": [Language.URDF_BLENDER], "source": src}):
+        with pytest.raises(ValueError):
+            loop.LoopConfig(name="s", out=tmp_path, variant="argon", generator="g", judge="j", **bad)
+    # the running scene loop's loop.json (written before `source` and `stagger_s` existed) loads as a scene loop
+    old = tmp_path / "old_scene"
+    old.mkdir()
+    (old / loop.LOOP_JSON).write_text(json.dumps({
+        "schema_version": 1, "name": "argon_scene", "out": str(old), "variant": "argon",
+        "languages": ["scene_threejs", "scene_blender"], "generator": "agy:gemini-4-argon",
+        "judge": "gemini:gemini-4-argon", "judge_thinking": "medium", "planner": "", "parallel": 15, "rounds": 1,
+        "max_minutes": 90.0, "n": 15, "track": "scene", "created_at": "2026-10-15T09:14:55.651617+00:00"}))
+    sc = loop.LoopConfig.load(old)
+    assert sc.track is loop.Track.SCENE and sc.source == [] and sc.languages == [THREEJS, BLENDER]
+    # --source: a bare name resolves under bench/prompts/ and is stored relative to eval/; a file
+    # outside eval/ stays absolute; a missing one is refused
+    assert loop.parse_sources("compare_v4.yaml, bench/prompts/graphics_v1.yaml") == [
+        "bench/prompts/compare_v4.yaml", "bench/prompts/graphics_v1.yaml"]
+    assert loop.parse_sources(f"{sources[0]},{sources[0]}") == [str(sources[0].resolve())]
+    with pytest.raises(loop.LoopError, match="no such battery"):
+        loop.parse_sources("nope_v9.yaml")
+    # the CLI: --track decides the default languages; a scene language on an object track is exit 2
+    monkeypatch.setattr(loop, "_variants_api_or_none", lambda: None)
+    out = tmp_path / "cli"
+    assert loop.main(["init", "--name", "s", "--out", str(out), "--variant", "argon", "--track", "static_object",
+                      "--source", ",".join(src)]) == 0
+    c = loop.LoopConfig.load(out)
+    assert c.languages == [BLENDER_OBJ, CADQUERY, THREEJS_OBJ] and c.source == [str(p.resolve()) for p in sources]
+    assert loop.main(["init", "--name", "s", "--out", str(tmp_path / "cli2"), "--variant", "argon",
+                      "--track", "static_object", "--languages", "scene_blender", "--source", src[0]]) == 2
+    assert loop.main(["init", "--name", "s", "--out", str(tmp_path / "cli3"), "--variant", "argon",
+                      "--track", "articulated_object"]) == 2
+    assert "--source is required" in capsys.readouterr().err
+    assert not (tmp_path / "cli2").exists() and not (tmp_path / "cli3").exists()
+    assert loop.main(["status", "--out", str(out)]) == 0
+    assert "track static_object" in capsys.readouterr().out
+
+
+def test_generate_from_sources_dedupes_routes_and_selects_by_rung(ocfg: loop.LoopConfig, sources: list[Path], caplog):
+    from bench._loop_sources import SOURCE_RUNGS, stable_rank
+
+    def by_hash(ids: list[str]) -> list[str]:
+        return sorted(ids, key=lambda i: stable_rank(ocfg.name, i))
+
+    paths = loop.generate_iteration(ocfg, 0, rung=1)
+    blender, threejs = Battery.load(paths[BLENDER_OBJ]), Battery.load(paths[THREEJS_OBJ])
+    assert (blender.track.value, blender.language, threejs.language) == ("static_object", BLENDER_OBJ, THREEJS_OBJ)
+    assert blender.name == "t_static_it00_blender"
+    medium = by_hash(["a_med_1", "a_med_2", "b_med_3"])
+    # rung 1: every medium first (hash order), then the hash-first hard of what the language may run
+    assert [p.id for p in blender.prompts] == medium + by_hash(["a_hard_1", "a_hard_2", "b_hard_1"])[:1]
+    assert [p.id for p in threejs.prompts] == medium + by_hash(["a_hard_1", "a_hard_2", "a_hard_3", "b_hard_1"])[:1]
+    pooled = {p.id: p for b in (blender, threejs) for p in b.prompts}
+    assert "b_med_1" not in pooled and "a_easy_1" not in pooled, "the duplicate by text and the easy tier never run"
+    stool = next(p for p in blender.prompts if p.id == "a_med_1")
+    assert stool.references == [str((sources[0].parent / "refs" / "stool.png").resolve())], "made absolute"
+    meta = json.loads((ocfg.iter_dir(0) / "generate.json").read_text())
+    assert meta["track"] == "static_object" and meta["rung"] == 1 and meta["n"] == 4
+    assert meta["sources"] == ocfg.source and meta["tiers"] == [["medium", "hash"], ["hard", "hash"]]
+    assert meta["pool"] == {"size": 8, "duplicates": ["b_med_1"], "id_collisions": ["a_hard_1"]}
+    assert meta["tier_counts"]["blender"] == {"medium": 3, "hard": 1} and meta["short"] == {}
+    assert meta["ids"]["blender"] == [p.id for p in blender.prompts]
+    # the next iteration at the same rung: the same ids (the pairs), and the rung carries over
+    assert loop.default_rung(ocfg, 1) == 1
+    loop.generate_iteration(ocfg, 1)
+    again = Battery.load(ocfg.iter_dir(1) / "battery_blender.yaml")
+    assert [p.model_dump() for p in again.prompts] == [p.model_dump() for p in blender.prompts], "same ids, same prompts"
+    # rung 2: hard first, then the HARDEST medium (b_med_3: five acceptance items); three.js has four hard
+    loop.generate_iteration(ocfg, 2, rung=2)
+    b2 = [p.id for p in Battery.load(ocfg.iter_dir(2) / "battery_blender.yaml").prompts]
+    t2 = Battery.load(ocfg.iter_dir(2) / "battery_threejs.yaml").prompts
+    assert b2 == by_hash(["a_hard_1", "a_hard_2", "b_hard_1"]) + ["b_med_3"]
+    assert {p.tier for p in t2} == {"hard"} and len(t2) == 4
+    assert next(p for p in t2 if p.id == "a_hard_3").language is THREEJS_OBJ, "the per-prompt language rides along"
+    assert next(p for p in t2 if p.id == "a_hard_1").prompt == "a rolltop desk with pigeonholes", "the first id wins"
+    # rung 3 and above: hard only — blender holds three, n is four: a shorter battery, said out loud
+    with caplog.at_level(logging.WARNING):
+        loop.generate_iteration(ocfg, 3, rung=5)
+    meta3 = json.loads((ocfg.iter_dir(3) / "generate.json").read_text())
+    assert meta3["short"] == {"blender": {"wanted": 4, "got": 3}} and "the battery runs 3" in caplog.text
+    assert meta3["tiers"] == [["hard", "hash"]] and SOURCE_RUNGS[3] == SOURCE_RUNGS[max(SOURCE_RUNGS)]
+    assert [p.id for p in Battery.load(ocfg.iter_dir(3) / "battery_blender.yaml").prompts] == b2[:3]
+    assert not (ocfg.out / "prompts").exists(), "no planner, no rung cache: the batteries are the cache"
+    with pytest.raises(loop.LoopError):
+        loop.generate_iteration(ocfg, 4, rung=9)
+    # a source battery of another track is refused
+    wrong = _battery_file(sources[0].parent / "scene.yaml", "scene", "scene_threejs", [_p("s1", "hard", "a quay")])
+    bad = ocfg.model_copy(update={"source": [*ocfg.source, str(wrong)]})
+    with pytest.raises(loop.LoopError, match="scene battery"):
+        loop.generate_iteration(bad, 5, rung=1)
+
+
+def test_graphics_sources_route_an_unmarked_prompt_to_its_batterys_language(tmp_path: Path):
+    """graphics_v1/v2: "per-prompt `language: opengl_python` marks the raw-OpenGL prompts (battery
+    default is glsl_shader)" — an unmarked shader brief never lands in the opengl_python battery."""
+    glsl = _battery_file(tmp_path / "g.yaml", "graphics", "glsl_shader", [
+        _p("glsl_rain", "medium", "neon rain on a window"),
+        _p("glsl_sea", "hard", "a raymarched sea at dusk"),
+        _p("ogl_cubes", "hard", "instanced spinning cubes", language="opengl_python"),
+    ])
+    cfg = loop.LoopConfig(name="t_gfx", out=tmp_path / "loop_gfx", variant="argon", track="graphics",
+                          languages=[Language.GLSL_SHADER, Language.OPENGL_PYTHON], source=[str(glsl)],
+                          generator="g", judge="j", n=4)
+    paths = loop.generate_iteration(cfg, 0, rung=1)
+    by_lang = {lang: [p.id for p in Battery.load(path).prompts] for lang, path in paths.items()}
+    assert sorted(by_lang[Language.GLSL_SHADER]) == ["glsl_rain", "glsl_sea"]
+    assert by_lang[Language.OPENGL_PYTHON] == ["ogl_cubes"]
+    assert {p.language for p in Battery.load(paths[Language.GLSL_SHADER]).prompts} == {Language.GLSL_SHADER}
+
+
+def _object_run(out_lang: Path, pid: str, scores: tuple[float, float], findings: Sequence[tuple[str, str, str]] = (),
+                *, language: Language = BLENDER_OBJ, ran: Sequence[str] = ("connectivity", "contract")) -> BenchItemResult:
+    """An object run under ``out_lang/runs/<pid>``: make_fake_run's record + typed gate findings
+    ``(gate, severity, data.kind)`` on the picked round (round 1), and its bench row.  The gates in
+    ``ran`` report (passed when no finding names them), as a build that produced a mesh does."""
+    ws, _ = make_fake_run(out_lang / "runs", pid, language=language, generator="agy:gemini-4-argon", scores=scores)
+    data = json.loads(ws.record_path.read_text())
+    by_gate: dict[str, list[dict[str, Any]]] = {g: [] for g in ran}
+    for gate, sev, kind in findings:
+        by_gate.setdefault(gate, []).append({"gate": gate, "severity": sev, "target": "Leg_1", "message": f"{kind} here",
+                                             "data": {"kind": kind}})
+    data["rounds"][1]["gates"] += [{"gate": g, "passed": not fs, "findings": fs} for g, fs in by_gate.items()]
+    data["extra"] = {"stop_reason": "max_rounds"}
+    ws.record_path.write_text(json.dumps(data))
+    return BenchItemResult(id=pid, tier="hard", category="furniture", score_baseline=scores[0], score_picked=scores[1],
+                           picked_round=1, rounds=2, cost_usd=1.0, minutes=10.0, status="max_rounds",
+                           workspace=str(ws.root), generator="agy:gemini-4-argon", judge="gemini:gemini-4-argon")
+
+
+def test_diagnose_reads_the_object_gates_by_typed_kind(ocfg: loop.LoopConfig):
+    out_lang = ocfg.iter_dir(0) / "blender"
+    _write_rows(out_lang, [
+        _object_run(out_lang, "o1", (0.5, 0.7), [("connectivity", "error", "floating"), ("connectivity", "error", "floating"),
+                                                 ("contract", "error", "overall_bbox")]),
+        _object_run(out_lang, "o2", (0.5, 0.6), [("connectivity", "error", "penetration"),
+                                                 ("connectivity", "warn", "stray_islands")]),
+        _object_run(out_lang, "o3", (0.4, 0.5), [("contract", "error", "ground_gap"), ("lint:blender", "error", "api_trap"),
+                                                 ("contract", "warn", "footprint_offset")]),
+        _object_run(out_lang, "o4", (0.6, 0.8)),
+        # every build failed: the fallback round ran lint only — out of the connectivity / contract denominators
+        _object_run(out_lang, "o5", (0.2, 0.2), ran=()),
+    ])
+    # a scene run that strayed into the directory (no row) is another track's: never read
+    make_fake_run(out_lang / "runs", "stray_scene", language=THREEJS, scores=(0.1, 0.1))
+    d = diagnose_dir("blender", out_lang, track=loop.Track.STATIC_OBJECT)
+    assert d.track == "static_object" and d.n == 5 and d.n_scored == 5
+    assert d.runs[0].gates_run == ["connectivity", "contract", "lint"] and d.runs[4].gates_run == ["lint"]
+    m = d.metrics
+    assert (m["conn_floating_error_rate"], m["conn_penetration_error_rate"], m["conn_islands_rate"]) == (0.25, 0.25, 0.25)
+    assert (m["connectivity_error_rate"], m["contract_error_rate"]) == (0.5, 0.5)
+    assert (m["contract_bbox_error_rate"], m["contract_ground_error_rate"], m["contract_missing_error_rate"]) == (0.25, 0.25, 0.0)
+    assert m["lint_error_rate"] == 0.2 and m["budget_stop_rate"] == 0.0 and m["infra_failed_rate"] == 0.0
+    assert "floating_error_rate" not in m and "lib_modules_mean" not in m and "joint_sweep_error_rate" not in m
+    assert d.gate_error_total["connectivity/floating"] == 2 and d.gate_warn_total["contract/footprint_offset"] == 1
+    fired = {r.rule for r in d.recommendations}
+    assert fired == {"connectivity", "penetration", "islands", "bbox", "ground", "lint"}, fired
+    # a WARN-only contract kind (footprint_offset, instance_count) never counts as an ERROR rate
+    assert not any("instance" in r.text for r in d.recommendations)
+    # the command: the track named in the markdown, no scene-only library section
+    loop.diagnose_iteration(ocfg, 0)
+    md = (ocfg.iter_dir(0) / "diagnosis.md").read_text()
+    assert md.startswith("# t_static — iteration 0 diagnosis (static_object track)") and "track `static_object`" in md
+    assert "### library" not in md and "connectivity: contact band" in md and "bbox: dims" in md
+    assert json.loads((ocfg.iter_dir(0) / "diagnosis.json").read_text())["blender"]["track"] == "static_object"
+
+
+def test_the_articulated_and_graphics_rates_and_rules():
+    from bench._loop_diag import RunDigest, diagnose_digests
+
+    def run(pid: str, errors: dict[str, int], warns: dict[str, int] | None = None,
+            ran: Sequence[str] = ("lint", "connectivity", "contract", "joint_sweep", "motion_direction", "gl_frames")) -> RunDigest:
+        return RunDigest(id=pid, status="max_rounds", score_picked=0.5, picked_round=1, gate_errors=errors,
+                         gate_warns=warns or {}, gates_run=list(ran))
+
+    art = diagnose_digests("urdf_blender", Path("x"), [
+        run("a1", {"joint_sweep/penetration": 2, "lint/urdf_joint": 1}),
+        run("a2", {"motion_direction/wrong_direction": 1, "connectivity/floating": 1}),
+        run("a3", {}), run("a4", {})], track=loop.Track.ARTICULATED_OBJECT)
+    assert art.metrics["joint_sweep_error_rate"] == 0.25 and art.metrics["joint_axis_error_rate"] == 0.5
+    assert {"joints", "connectivity"} <= {r.rule for r in art.recommendations} and "sweep" not in {r.rule for r in art.recommendations}
+    gfx = diagnose_digests("glsl_shader", Path("x"), [
+        run("g1", {"gl_frames/black": 1}), run("g2", {}, {"gl_frames/static": 1}),
+        run("g3", {"gl_frames/nan": 1, "lint/syntax": 1}), run("g4", {}),
+        run("g5", {}, ran=("lint",))], track=loop.Track.GRAPHICS)   # a render with no frames: no gl_frames report
+    assert (gfx.metrics["frame_black_rate"], gfx.metrics["frame_no_motion_rate"], gfx.metrics["frame_broken_rate"]) == (0.25, 0.25, 0.25)
+    assert gfx.metrics["lint_error_rate"] == 0.2
+    assert {"black", "no_motion", "broken", "lint"} <= {r.rule for r in gfx.recommendations}
+    assert "conn_floating_error_rate" not in gfx.metrics and "blown" not in {r.rule for r in gfx.recommendations}
+
+
+def test_compare_on_an_object_track_vetoes_a_connectivity_contract_rise(ocfg: loop.LoopConfig):
+    from bench._loop_diag import compare_digests
+
+    ids = ["a_med_1", "a_med_2", "b_med_3", "b_hard_1"]
+    b = ocfg.iter_dir(0) / "blender"
+    _write_rows(b, [_object_run(b, pid, (0.4, 0.6)) for pid in ids])
+    a = ocfg.iter_dir(1) / "blender"
+    _write_rows(a, [_object_run(a, pid, (0.4, 0.7)) for pid in ids])
+    c = compare_dirs("blender", a, b, track=loop.Track.STATIC_OBJECT)
+    assert c.paired.n == 4 and c.decision == "keep" and c.placement_rise == 0.0 and c.track == "static_object"
+    # the same scores, but every candidate run gains a floating part and a bbox ERROR: the gate wins
+    a2 = ocfg.iter_dir(2) / "blender"
+    _write_rows(a2, [_object_run(a2, pid, (0.4, 0.7), [("connectivity", "error", "floating"),
+                                                         ("contract", "error", "part_bbox")]) for pid in ids])
+    c2 = compare_dirs("blender", a2, b, track=loop.Track.STATIC_OBJECT)
+    assert c2.placement_rise == 2.0 and c2.decision == "revert"
+    assert c2.reason.startswith("gate veto: connectivity+contract ERRORs rose by +2.00 per run")
+    assert c2.gate_error_delta == {"connectivity/floating": 4, "contract/part_bbox": 4}
+    res = loop.compare_iteration(ocfg, 2, 0, languages=[BLENDER_OBJ])
+    md = (ocfg.iter_dir(2) / "compare_blender.md").read_text()
+    assert res["blender"].decision == "revert" and "connectivity+contract ERRORs Δ +2.00 per run (veto above +1)" in md
+    # scene placement kinds mean nothing on an object track, and graphics has no veto at all
+    da = {"p": _digest("p", {"scene_placement/floating": 5})}
+    db = {"p": _digest("p", {})}
+    st = _stats({"p": 0.1})
+    assert compare_digests("blender", "a", "b", st, da, db, track=loop.Track.STATIC_OBJECT).placement_rise == 0.0
+    g = compare_digests("glsl_shader", "a", "b", st, {"p": _digest("p", {"gl_frames/black": 3})}, db,
+                        track=loop.Track.GRAPHICS)
+    assert g.placement_rise is None and "gate veto" not in g.reason
+    # one noisy object (0 → 14 penetrations, one per part pair) counts OBJECT_VETO_CAP, not 14: no veto alone
+    from bench._loop_diag import OBJECT_VETO_CAP
+    st15 = _stats({f"p{i}": 0.0 for i in range(15)})
+    da15 = {f"p{i}": _digest(f"p{i}", {"connectivity/penetration": 14} if i == 0 else {}) for i in range(15)}
+    db15 = {f"p{i}": _digest(f"p{i}", {}) for i in range(15)}
+    noisy = compare_digests("blender", "a", "b", st15, da15, db15, track=loop.Track.STATIC_OBJECT)
+    assert noisy.placement_rise == round(OBJECT_VETO_CAP / 15, 4) and "gate veto" not in noisy.reason
+    # articulated: the pose sweep and a wrong-way joint are in the veto (the judge caps them too)
+    art = compare_digests("urdf_blender", "a", "b", st, {"p": _digest("p", {"joint_sweep/penetration": 2,
+                                                                            "motion_direction/wrong_direction": 1})},
+                          db, track=loop.Track.ARTICULATED_OBJECT)
+    assert art.placement_rise == 3.0 and art.reason.startswith("gate veto: connectivity+contract+joint ERRORs")
+    assert compare_digests("blender", "a", "b", st, {"p": _digest("p", {"joint_sweep/penetration": 2})}, db,
+                           track=loop.Track.STATIC_OBJECT).placement_rise == 0.0
+    from bench._loop_diag import render_comparison
+    assert "no gate veto on the graphics track" in render_comparison(g)
+
+
+def _digest(pid: str, errors: dict[str, int]) -> Any:
+    from bench._loop_diag import RunDigest
+
+    return RunDigest(id=pid, status="max_rounds", score_picked=0.5, picked_round=1, gate_errors=errors)
+
+
+def test_a_static_object_loop_end_to_end(ocfg: loop.LoopConfig, overlay: loop.VariantPaths, tmp_path: Path, monkeypatch):
+    """init → generate → run → diagnose → compare → judge-calib → accept → status on static_object,
+    with fakes for the children (FakePopen), the runs (make_fake_run records) and the re-judge."""
+    data_dir = tmp_path / "data"
+    (ocfg.out / loop.LOOP_JSON).unlink()
+    loop.init(ocfg, paths=overlay)
+    assert loop.LoopConfig.load(ocfg.out).source == ocfg.source
+    for it in (0, 1):
+        loop.generate_iteration(ocfg, it, rung=1 if it == 0 else None)
+    monkeypatch.setattr(loop, "install_stop_handlers", lambda: None)
+    monkeypatch.setattr(loop, "time", NS(sleep=lambda s: None, monotonic=time.monotonic))
+    FakePopen.calls = []
+    loop.run_iteration(ocfg, 1, popen=FakePopen)
+    assert [c["argv"][3] for c in FakePopen.calls] == [str(ocfg.iter_dir(1) / f"battery_{x}.yaml") for x in ("blender", "threejs")]
+    # the children's output, faked: iteration 1 scores higher on every pair with no new gate ERRORs
+    for it, up in ((0, 0.0), (1, 0.15)):
+        for lang in (BLENDER_OBJ, THREEJS_OBJ):
+            ids = json.loads((ocfg.iter_dir(it) / "generate.json").read_text())["ids"][lang.value]
+            d = ocfg.iter_dir(it) / lang.value
+            _write_rows(d, [_object_run(d, pid, (0.4, 0.6 + up + 0.01 * k), language=lang) for k, pid in enumerate(ids)])
+    diag = loop.diagnose_iteration(ocfg, 1)
+    assert set(diag) == {"blender", "threejs"} and diag["blender"].n == 4 and diag["blender"].track == "static_object"
+    cmp = loop.compare_iteration(ocfg, 1, 0)
+    assert {k: v.paired.n for k, v in cmp.items()} == {"blender": 4, "threejs": 4}
+    assert {v.decision for v in cmp.values()} == {"keep"}
+
+    def fake_calibrate(run_dirs, **kw):
+        pid = Path(run_dirs[0]).name
+        row = CalibrationRow(run=pid, round=kw["rounds"][0], kind="refine", gate_errors=0, gate_warnings=0,
+                             stored_overall=0.7, mean=0.7, std=0.01, uncapped=0.7, defect_penalty=0.0, defects_present=[],
+                             caps=[], passed=True, n_used=3, cost_usd=0.01, duration_s=5.0)
+        return CalibrationTable(model_id=kw["model_id"], n_samples=kw["n_samples"], fixed_order=True, rows=[row])
+
+    calib = loop.judge_calib(ocfg, 1, calibrate_fn=fake_calibrate, workers=1)
+    assert calib["blender"].rounds == 4, "the object records are read: every picked round re-judged"
+    row = loop.accept(ocfg, 1, note="contact band", paths=overlay, data_dir=data_dir)
+    assert row.verdicts == {"blender": "keep", "threejs": "keep"} and row.languages == ["blender", "threejs"]
+    text = loop.status_text(ocfg, paths=overlay, data_dir=data_dir)
+    assert "track static_object" in text and "| 1 | 1 | 2 |" in text and "blender=keep" in text

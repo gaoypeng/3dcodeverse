@@ -834,6 +834,77 @@ is a person's), it never compares across rungs (the pairs are by id, so a moved 
 ids both iterations ran), and a `keep` over 30 pairs is still one battery's verdict — §8's noise floor
 applies, which is why the gate veto and the judge arm sit beside the score.
 
+### 10.1 Other tracks (2026-10-15)
+
+The same loop runs `static_object`, `articulated_object` and `graphics`.  `init --track` decides the
+languages allowed (`TRACK_LANGUAGES`; `--languages` defaults to all of the track's) and every track
+but scene names its prompts with `--source` — battery files under `bench/prompts/` (a bare name, or a
+path relative to `eval/`; stored in `loop.json` relative to `eval/`).  A scene `loop.json` without
+`source` (every one written before this) loads as before, and the scene path is unchanged: the same
+generator, rung caches, ids and battery bytes (pinned by `test_the_scene_generate_path_is_byte_identical…`).
+
+```bash
+cd eval
+python -m bench.loop init --name argon_static --out bench/out/loop_argon_static --variant argon \
+    --track static_object --languages blender,threejs,cadquery --source compare_v4.yaml \
+    --judge gemini:gemini-4-argon --judge-thinking medium --parallel 8
+python -m bench.loop init --name argon_articulated --out bench/out/loop_argon_articulated --variant argon \
+    --track articulated_object --languages urdf_blender \
+    --source articulated_v2.yaml,coupled_v1.yaml,articulated_v1.yaml \
+    --judge gemini:gemini-4-argon --judge-thinking medium --parallel 8
+python -m bench.loop init --name argon_graphics --out bench/out/loop_argon_graphics --variant argon \
+    --track graphics --languages glsl_shader,opengl_python --source graphics_v2.yaml,graphics_v1.yaml \
+    --judge gemini:gemini-4-argon --judge-thinking medium --parallel 8
+# then generate / run / diagnose / compare / judge-calib / accept / rollback / status exactly as above
+```
+
+* **generate** does not call a model: it pools the source batteries (deduped by normalised prompt
+  text, the first id wins; an id that names two different prompts keeps the first), keeps every id
+  VERBATIM (an iteration's cell is the recorded battery's cell, `bench/refs/<id>/` included), routes
+  a prompt that names a `language` to that language's battery only, and selects `n` per language by the rung's tier mix
+  (`bench/_loop_sources.SOURCE_RUNGS`).  A prompt that names no language runs in every language of
+  the loop on the object tracks (compare_v4 is a `language: blender` battery of prompts that are
+  blender, three.js and CadQuery prompts alike) but takes its battery's `language` on graphics
+  (`INHERIT_BATTERY_LANGUAGE`: graphics_v1/v2 mark the raw-OpenGL prompts and default the rest to
+  glsl_shader — a raymarch brief is not an OpenGL prompt).  The order inside a tier is sha256(loop name, prompt id), so
+  the same rung gives the same ids every iteration.  `iter_NN/generate.json` records the rung, the
+  tier counts per language, the sources, the pool (size, duplicates, id collisions) and the ids;
+  a pool too small for `n` gives a shorter battery, logged and listed under `short`.
+
+  | rung | tiers, in fill order |
+  |---|---|
+  | 1 | medium (hash order), then hard (hash order) |
+  | 2 | hard (hash order), then the hardest medium (most `must_have` + `dimensions_m` items first) |
+  | 3+ | hard only (hash order) |
+
+  `easy` prompts are never drawn.  At `n` = 15: static (compare_v4: 8 medium / 24 hard) runs 8 + 7 at
+  rung 1 and 15 hard from rung 2 on; articulated (36 prompts, 12 medium / 20 hard) 12 + 3, then 15
+  hard; graphics is SHORT — graphics_v2 + graphics_v1 hold 9 medium/hard glsl_shader prompts (5 + 4)
+  and 5 opengl_python ones (1 + 4), so rungs 1–2 run 9 / 5 and rung 3+ 4 / 4.  Use `--n 9`; the
+  opengl_python arm is a smoke arm (5 pairs cannot carry a paired verdict) until more raw-OpenGL
+  prompts are written — the other graphics batteries (teaser_v1, refs_v1/v2) add one.
+* **diagnose** reads the picked round's typed gate findings on the loop's track (`records(track=…)`):
+  objects — the connectivity ERROR rate split floating / penetration / stray islands (islands are a
+  WARN in the gate and counted at WARN), the contract ERROR rate split bbox (part / instance /
+  overall bbox, orientation) / ground gap / missing parts; articulated adds `joint_sweep` ERRORs and
+  joint axis / limit ERRORs (`lint/urdf_joint`, `lint/mimic`, `motion_direction/wrong_direction`);
+  graphics — `gl_frames` black, blown, no motion (`static`, a WARN) and broken (NaN; a render with
+  no frames has no `gl_frames` report and shows in `unscored_rate`); each gate rate is over the runs
+  whose picked round RAN that gate (a run whose every build failed is not a clean run);
+  every track — lint ERRORs, budget stops, outages, unscored, the must-have cap, skills deep-read,
+  cost, minutes, scores, judge issues.  The rules are one table (`_loop_diag.RULES`, each naming its
+  tracks; the rates in `GATE_METRICS`): e.g. floating ≥ 25 % → "connectivity: contact band", bbox ≥
+  25 % → "bbox: dims", joint axis ≥ 20 % → "joints: axis/limits", black / blown ≥ 15 % and no motion
+  ≥ 20 % on graphics.  The markdown names the track; the scene-only library section is left out.
+* **compare**'s veto is per track (`_loop_diag.VETOES`): scene — floating + sunken + interpenetration
+  ERRORs; objects — connectivity + contract ERRORs, articulated adding `joint_sweep` and
+  `motion_direction/wrong_direction`, each run counted at most 3 (`OBJECT_VETO_CAP`: connectivity
+  reports one penetration per part pair, and one noisy prompt must not revert an iteration alone);
+  the same limit (a mean rise > 1 per run reverts).  The field stays `placement_rise` on every track.
+  Graphics has none: its ERRORs are image-level (at most ~2 per run) and the shader rubric caps them.
+* **judge-calib** re-judges with each run's own rubric (`addons.calibration` → `rubric_for`); accept,
+  rollback and status are track-agnostic (status prints the track and the sources).
+
 ## Judge experiments log
 
 **2026-08-29 — profiles and the detail round.**  `RoundPolicy.detail_rounds` is tri-state

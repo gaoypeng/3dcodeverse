@@ -1,4 +1,4 @@
-"""The argon scene-tuning loop: generate → run → diagnose → compare → judge-calib → accept / rollback.
+"""The argon tuning loop: generate → run → diagnose → compare → judge-calib → accept / rollback.
 
     cd eval
     python -m bench.loop init --name argon_scene --out bench/out/loop_argon --variant argon \\
@@ -13,16 +13,26 @@
     python -m bench.loop rollback    --out bench/out/loop_argon --iter 1
     python -m bench.loop status      --out bench/out/loop_argon
 
+    # any other track: --track + --source (battery files under bench/prompts/), the rest is the same
+    python -m bench.loop init --name argon_static --out bench/out/loop_argon_static --variant argon \\
+        --track static_object --languages blender,threejs,cadquery --source compare_v4.yaml \\
+        --judge gemini:gemini-4-argon --judge-thinking medium --parallel 8
+
 One iteration = one edit of a per-model prompt/skill VARIANT (``codeverse3d/prompts/variants/<v>/`` +
-``codeverse3d/skills/variants/<v>/``, D105) measured on ~15 scene prompts per language, run in
+``codeverse3d/skills/variants/<v>/``, D105) measured on ~15 prompts per language, run in
 parallel on the generator under test, judged by ONE fixed judge at ONE thinking level.  ``init``
 freezes every knob in ``<out>/loop.json``; everything else reads it, so two iterations never differ
 in anything but the variant and (when ``--rung`` moves) the prompt mix.
 
+The track decides where the prompts come from: the scene track GENERATES its briefs (a planner
+model on a rung ladder, ``_loop_prompts``); every other track SELECTS from its hand-written
+batteries (``--source``, ids verbatim, the rung picks the tier mix: ``_loop_sources``).  Diagnose
+and compare read the track's own gates (``_loop_diag``); the rest of the loop does not care.
+
 Layout of ``<out>``::
 
     loop.json                     the fixed configuration (init)
-    prompts/rung_R_<lang>.yaml    a rung's prompts, generated ONCE and reused (stable ids → pairs)
+    prompts/rung_R_<lang>.yaml    a rung's prompts, generated ONCE and reused (stable ids → pairs; scene only)
     snapshots/<v>_v<N>/           the overlay dirs as accepted at version N (init writes v<current>)
     iter_NN/battery_<lang>.yaml   the iteration's battery (a rung mix), generate.json its composition
     iter_NN/<lang>/               one ``bench.run_bench`` output per language (runs/, results.jsonl)
@@ -56,7 +66,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, model_validator
 
 for _p in (Path(__file__).resolve().parents[2] / "harness", Path(__file__).resolve().parents[1]):
     if str(_p) not in sys.path:  # this tree's codeverse3d (harness/) + the `bench` package (eval/)
@@ -85,6 +95,13 @@ from bench._loop_prompts import (  # noqa: E402
     mix_counts,
     parse_battery,
 )
+from bench._loop_sources import (  # noqa: E402
+    pool_sources,
+    route,
+    rung_steps,
+    rung_table_text,
+    select,
+)
 from bench.run_bench import Battery, BenchPrompt  # noqa: E402
 from codeverse3d.config import get_settings  # noqa: E402
 from codeverse3d.contracts.common import TRACK_LANGUAGES, Language, Track  # noqa: E402
@@ -95,6 +112,7 @@ log = logging.getLogger(__name__)
 REPO = Path(__file__).resolve().parents[1]           # eval/ — the children run `python -m bench.run_bench` here
 HARNESS = REPO.parent / "harness"                     # the tree whose variant the loop edits
 DATA_DIR = REPO / "bench" / "data" / "loop"           # the ledgers (in git)
+PROMPTS_DIR = REPO / "bench" / "prompts"              # where --source names resolve
 LOOP_JSON = "loop.json"
 VARIANT_TOML = "variant.toml"
 #: the machine-wide Cycles slots the children share: 30 parallel runs render on ONE GPU, and
@@ -134,18 +152,28 @@ class LoopConfig(BaseModel):
     max_minutes: float = Field(default=90.0, gt=0)
     n: int = Field(default=15, ge=1, description="prompts per battery")   # 30 → 15 (owner, 2026-10-15)
     track: Track = Track.SCENE
+    source: list[str] = Field(default_factory=list,
+                              description="the battery files a non-scene track selects from (relative to eval/, "
+                                          "absolute only outside it); the scene track generates its own and takes none")
     created_at: str = ""
 
-    @field_validator("languages")
-    @classmethod
-    def _scene_languages(cls, v: list[Language]) -> list[Language]:
-        allowed = TRACK_LANGUAGES[Track.SCENE]
+    @model_validator(mode="after")
+    def _track_languages(self) -> LoopConfig:
+        """``--track`` decides: the languages must be that track's, and every track but scene names
+        its source batteries (a loop.json written before ``source`` existed is a scene loop and loads)."""
+        allowed = TRACK_LANGUAGES[self.track]
+        v = self.languages
         bad = [x.value for x in v if x not in allowed]
         if not v or bad:
-            raise ValueError(f"languages must be non-empty scene languages {[a.value for a in allowed]}, got {bad or v}")
+            raise ValueError(f"languages must be non-empty {self.track.value} languages {[a.value for a in allowed]}, "
+                             f"got {bad or v}")
         if len(set(v)) != len(v):
             raise ValueError(f"duplicate languages: {[x.value for x in v]}")
-        return v
+        if self.track is Track.SCENE and self.source:
+            raise ValueError("the scene track generates its own briefs: --source is for the other tracks")
+        if self.track is not Track.SCENE and not self.source:
+            raise ValueError(f"a {self.track.value} loop selects from battery files: --source is required")
+        return self
 
     def iter_dir(self, iteration: int) -> Path:
         return self.out / f"iter_{iteration:02d}"
@@ -168,6 +196,32 @@ def parse_languages(text: str) -> list[Language]:
         return [Language(x.strip()) for x in text.split(",") if x.strip()]
     except ValueError as e:
         raise LoopError(f"unknown language in {text!r}: {e}") from e
+
+
+def source_path(entry: str) -> Path:
+    """A ``LoopConfig.source`` entry on disk (relative entries are relative to eval/)."""
+    p = Path(entry)
+    return p if p.is_absolute() else REPO / p
+
+
+def parse_sources(text: str) -> list[str]:
+    """``--source a.yaml,bench/prompts/b.yaml,/abs/c.yaml`` → the entries ``LoopConfig.source`` keeps:
+    a bare name resolves under ``bench/prompts/``, a relative path under eval/; a file under eval/ is
+    stored relative to it (loop.json stays portable), anything else absolute.  A missing file is a
+    configuration error here, before init writes anything."""
+    out: list[str] = []
+    for raw in (x.strip() for x in text.split(",")):
+        if not raw:
+            continue
+        given = Path(raw).expanduser()
+        candidates = [given] if given.is_absolute() else [REPO / given, PROMPTS_DIR / given]
+        hit = next((c.resolve() for c in candidates if c.is_file()), None)
+        if hit is None:
+            raise LoopError(f"--source {raw!r}: no such battery file (looked at {[str(c) for c in candidates]})")
+        entry = hit.relative_to(REPO.resolve()).as_posix() if hit.is_relative_to(REPO.resolve()) else str(hit)
+        if entry not in out:
+            out.append(entry)
+    return out
 
 
 # --------------------------------------------------------------------------- the variant overlay
@@ -356,6 +410,9 @@ def init(cfg: LoopConfig, *, paths: VariantPaths | None = None) -> Path:
     is written."""
     if (cfg.out / LOOP_JSON).is_file():
         raise LoopError(f"{cfg.out / LOOP_JSON} exists: one loop per --out (status / iterations read it)")
+    missing = [s for s in cfg.source if not source_path(s).is_file()]
+    if missing:
+        raise LoopError(f"source batteries not found: {missing}")
     _check_variant_name(cfg.variant)  # before any money is spent
     vp = paths or VariantPaths.default(cfg.variant)
     vp.preflight()
@@ -449,13 +506,22 @@ def _bench_prompts(battery: GeneratedBattery, lang: Language, rung: int, *, iter
             for k, gp in enumerate(battery.prompts[:n], 1)]
 
 
+def _write_battery(path: Path, battery: Battery) -> None:
+    data = battery.model_dump(mode="json")
+    Battery.model_validate(data)  # what the file will load as, not what we built
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=120))
+
+
 def generate_iteration(cfg: LoopConfig, iteration: int, *, rung: int | None = None, n: int | None = None,
                        chat_model: Any = None) -> dict[Language, Path]:
-    """Write ``iter_NN/battery_<lang>.yaml`` per language: a mix of the cached rungs up to ``rung``
-    (:func:`bench._loop_prompts.mix_counts`), validated through ``Battery`` before it is written."""
+    """Write ``iter_NN/battery_<lang>.yaml`` per language.  Scene: a mix of the cached rungs up to
+    ``rung`` (:func:`bench._loop_prompts.mix_counts`); any other track: a selection from its source
+    batteries (:func:`generate_from_sources`).  Validated through ``Battery`` before it is written."""
     rung = default_rung(cfg, iteration) if rung is None else rung
     if rung not in RUNGS:
         raise LoopError(f"--rung must be one of {sorted(RUNGS)}, got {rung}")
+    if cfg.track is not Track.SCENE:
+        return generate_from_sources(cfg, iteration, rung=rung, n=n)
     size = n or cfg.n
     counts = mix_counts(rung, size)
     iter_dir = cfg.iter_dir(iteration)
@@ -473,16 +539,66 @@ def generate_iteration(cfg: LoopConfig, iteration: int, *, rung: int | None = No
                           description=f"loop {cfg.name} iteration {iteration}: {size} scene prompts, rungs "
                                       + ", ".join(f"{lvl}×{c}" for lvl, c in counts.items()),
                           prompts=prompts)
-        data = battery.model_dump(mode="json")
-        Battery.model_validate(data)  # what the file will load as, not what we built
         path = iter_dir / f"battery_{lang.value}.yaml"
-        path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=120))
+        _write_battery(path, battery)
         out[lang] = path
         ids[lang.value] = [p.id for p in prompts]
     write_json_atomic(iter_dir / "generate.json", {
         "iteration": iteration, "rung": rung, "n": size, "mix": {str(k): v for k, v in counts.items()},
         "languages": [x.value for x in cfg.languages], "batteries": {k.value: str(v) for k, v in out.items()},
         "ids": ids, "generated_at": datetime.now(UTC).isoformat()})
+    return out
+
+
+def generate_from_sources(cfg: LoopConfig, iteration: int, *, rung: int, n: int | None = None) -> dict[Language, Path]:
+    """A non-scene iteration's batteries: the source batteries pooled (deduped by prompt text, ids
+    verbatim), routed per language (a prompt naming a language goes to that language only) and
+    selected by the rung's tier mix (``_loop_sources.SOURCE_RUNGS``, stable-hash order — the same
+    rung gives the same ids every iteration).  A pool too small for ``n`` gives a shorter battery,
+    logged and written to generate.json (``short``), never silently capped."""
+    size = n or cfg.n
+    paths = [source_path(s) for s in cfg.source]
+    missing = [str(p) for p in paths if not p.is_file()]
+    if missing:
+        raise LoopError(f"source batteries not found: {missing}")
+    try:
+        pool = pool_sources(paths, cfg.track)
+    except (OSError, ValueError) as e:  # a pydantic ValidationError is a ValueError
+        raise LoopError(f"cannot pool the source batteries: {e}") from e
+    if pool.duplicates:
+        log.info("%d prompt(s) repeat an earlier prompt's text and are dropped: %s", len(pool.duplicates), pool.duplicates)
+    iter_dir = cfg.iter_dir(iteration)
+    iter_dir.mkdir(parents=True, exist_ok=True)
+    tiers = [s.tier for s in rung_steps(rung)]
+    out: dict[Language, Path] = {}
+    ids: dict[str, list[str]] = {}
+    tier_counts: dict[str, dict[str, int]] = {}
+    short: dict[str, dict[str, int]] = {}
+    for lang in cfg.languages:
+        sel = select(route(pool.prompts, lang), rung=rung, n=size, loop_name=cfg.name)
+        if not sel.prompts:
+            raise LoopError(f"no {'/'.join(tiers)} prompt of {cfg.source} runs in {lang.value} (rung {rung})")
+        if len(sel.prompts) < size:
+            log.warning("%s: the sources hold %d %s prompt(s) for rung %d, n is %d — the battery runs %d",
+                        lang.value, sel.available, "/".join(tiers), rung, size, len(sel.prompts))
+            short[lang.value] = {"wanted": size, "got": len(sel.prompts)}
+        battery = Battery(name=f"{cfg.name}_it{iteration:02d}_{lang.value}", track=cfg.track, language=lang,
+                          description=f"loop {cfg.name} iteration {iteration}: {len(sel.prompts)} {cfg.track.value} "
+                                      f"prompts selected from {', '.join(cfg.source)}, rung {rung} ("
+                                      + ", ".join(f"{t}×{c}" for t, c in sel.tier_counts.items()) + ")",
+                          prompts=sel.prompts)
+        path = iter_dir / f"battery_{lang.value}.yaml"
+        _write_battery(path, battery)
+        out[lang] = path
+        ids[lang.value] = [p.id for p in sel.prompts]
+        tier_counts[lang.value] = sel.tier_counts
+    write_json_atomic(iter_dir / "generate.json", {
+        "iteration": iteration, "track": cfg.track.value, "rung": rung, "n": size,
+        "tiers": [[s.tier, s.order] for s in rung_steps(rung)], "rung_table": rung_table_text(),
+        "sources": list(cfg.source),
+        "pool": {"size": len(pool.prompts), "duplicates": pool.duplicates, "id_collisions": pool.id_collisions},
+        "languages": [x.value for x in cfg.languages], "batteries": {k.value: str(v) for k, v in out.items()},
+        "tier_counts": tier_counts, "short": short, "ids": ids, "generated_at": datetime.now(UTC).isoformat()})
     return out
 
 
@@ -604,11 +720,12 @@ def _present(cfg: LoopConfig, iteration: int, languages: Sequence[Language] = ()
 def diagnose_iteration(cfg: LoopConfig, iteration: int, *, languages: Sequence[Language] = ()) -> dict[str, Diagnosis]:
     out: dict[str, Diagnosis] = {}
     for lang, d in _present(cfg, iteration, languages):
-        out[lang.value] = diagnose_dir(lang.value, d)
+        out[lang.value] = diagnose_dir(lang.value, d, track=cfg.track)
     iter_dir = cfg.iter_dir(iteration)
     write_json_atomic(iter_dir / "diagnosis.json", {k: v.model_dump(mode="json") for k, v in out.items()})
-    md = [f"# {cfg.name} — iteration {iteration} diagnosis", "",
-          f"variant `{cfg.variant}`, generator `{cfg.generator}`, judge `{cfg.judge}` @ {cfg.judge_thinking}", ""]
+    md = [f"# {cfg.name} — iteration {iteration} diagnosis ({cfg.track.value} track)", "",
+          f"track `{cfg.track.value}`, variant `{cfg.variant}`, generator `{cfg.generator}`, judge `{cfg.judge}` "
+          f"@ {cfg.judge_thinking}", ""]
     md += [render_diagnosis(v) for v in out.values()]
     (iter_dir / "diagnosis.md").write_text("\n".join(md))
     return out
@@ -624,7 +741,7 @@ def compare_iteration(cfg: LoopConfig, iteration: int, against: int, *,
         if not ref.is_dir():
             log.warning("iteration %d has no %s output to compare against", against, lang.value)
             continue
-        c = compare_dirs(lang.value, d, ref)
+        c = compare_dirs(lang.value, d, ref, track=cfg.track)
         out[lang.value] = c
         iter_dir = cfg.iter_dir(iteration)
         (iter_dir / f"compare_{lang.value}.md").write_text(
@@ -647,7 +764,7 @@ def judge_calib(cfg: LoopConfig, iteration: int, *, model_id: str = "", thinking
     out: dict[str, CalibSummary] = {}
     iter_dir = cfg.iter_dir(iteration)
     for lang, d in _present(cfg, iteration, languages):
-        digests = digests_for(d)
+        digests = digests_for(d, track=cfg.track)
         jobs = [(pid, dg.picked_round) for pid, dg in sorted(digests.items()) if dg.picked_round is not None]
 
         def one(job: tuple[str, int], *, root: Path = d, lang_name: str = lang.value) -> Any | None:
@@ -834,7 +951,9 @@ def status_text(cfg: LoopConfig, *, paths: VariantPaths | None = None, data_dir:
         version = f"v{vp.version()} ({vp.ledger_hash()})"
     except LoopError as e:
         version = f"unknown ({e})"
-    lines = [f"loop {cfg.name}: variant {cfg.variant} {version}; languages {', '.join(x.value for x in cfg.languages)}; "
+    lines = [f"loop {cfg.name}: variant {cfg.variant} {version}; track {cfg.track.value}; "
+             f"languages {', '.join(x.value for x in cfg.languages)}; "
+             + (f"source {', '.join(cfg.source)}; " if cfg.source else "") +
              f"generator {cfg.generator}; judge {cfg.judge} @ {cfg.judge_thinking}; parallel {cfg.parallel} per language "
              f"(stagger {cfg.stagger_s:g} s), rounds {cfg.rounds}, max-minutes {cfg.max_minutes:g}; out {cfg.out}", "",
              "| iter | rung | batteries | exit codes | results | diagnosis | compare | judge-calib |",
@@ -877,7 +996,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--name", required=True)
     _add_out(s)
     s.add_argument("--variant", required=True, help="the prompt/skill variant under test (codeverse3d/prompts/variants/<name>)")
-    s.add_argument("--languages", default="scene_threejs,scene_blender")
+    s.add_argument("--track", default=Track.SCENE.value, choices=[t.value for t in Track],
+                   help="the track the loop tunes (decides the languages allowed and where the prompts come from)")
+    s.add_argument("--languages", default="", help="comma list of the track's languages (default: all of them)")
+    s.add_argument("--source", default="",
+                   help="comma list of battery files under bench/prompts/ (a bare name or a path relative to eval/) "
+                        "the loop selects from; required for every track but scene")
     s.add_argument("--generator", default="agy:gemini-4-argon")
     s.add_argument("--judge", default="gemini:gemini-4-argon")
     s.add_argument("--judge-thinking", default="medium", choices=("off", "low", "medium", "high"))
@@ -890,7 +1014,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--max-minutes", type=float, default=90.0)
     s.add_argument("--n", type=int, default=15, help="prompts per battery")
 
-    s = sub.add_parser("generate", help="write the iteration's batteries (a mix of cached rungs)")
+    s = sub.add_parser("generate", help="write the iteration's batteries (scene: a mix of cached rungs; "
+                                        "other tracks: a tier selection from the source batteries)")
     _add_out(s)
     _add_iter(s)
     s.add_argument("--n", type=int, default=None, help="prompts per battery (default: loop.json)")
@@ -947,9 +1072,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _dispatch(ns: argparse.Namespace) -> int:
     if ns.cmd == "init":
-        cfg = LoopConfig(name=ns.name, out=ns.out.resolve(), variant=ns.variant, languages=parse_languages(ns.languages),
-                         generator=ns.generator, judge=ns.judge, judge_thinking=ns.judge_thinking, planner=ns.planner,
-                         parallel=ns.parallel, stagger_s=ns.stagger, rounds=ns.rounds, max_minutes=ns.max_minutes, n=ns.n)
+        track = Track(ns.track)
+        languages = parse_languages(ns.languages) if ns.languages.strip() else list(TRACK_LANGUAGES[track])
+        try:
+            cfg = LoopConfig(name=ns.name, out=ns.out.resolve(), variant=ns.variant, languages=languages, track=track,
+                             source=parse_sources(ns.source), generator=ns.generator, judge=ns.judge,
+                             judge_thinking=ns.judge_thinking, planner=ns.planner, parallel=ns.parallel,
+                             stagger_s=ns.stagger, rounds=ns.rounds, max_minutes=ns.max_minutes, n=ns.n)
+        except ValueError as e:  # the track/languages/source rules: a configuration error, not a traceback
+            raise LoopError(str(e)) from e
         print(f"wrote {init(cfg)}")
         return 0
     cfg = LoopConfig.load(ns.out)

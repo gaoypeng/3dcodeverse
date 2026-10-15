@@ -6,18 +6,23 @@ picked round's gates / verdict / skills, and the deliverable's source — and th
 battery of them:
 
 * :func:`diagnose_dir` — the numbers and a RECOMMENDATIONS list produced by deterministic rules
-  (:data:`RULES`): a rate crosses its threshold → one named lever.  No model reads the diagnosis;
-  a person does, before editing the variant.
+  (:data:`RULES`, one table, each rule naming the tracks it reads): a rate crosses its threshold →
+  one named lever.  No model reads the diagnosis; a person does, before editing the variant.
 * :func:`compare_dirs` — iteration N against M, paired by prompt id: ``bench.stats.decide`` on the
-  picked score (the one paired rule every report uses, EVAL.md §8) PLUS the deterministic-gate veto —
-  the floating + sunken + interpenetration ERROR count per run must not rise by more than
+  picked score (the one paired rule every report uses, EVAL.md §8) PLUS the deterministic-gate veto
+  (:data:`VETOES`) — on the scene track the floating + sunken + interpenetration ERROR count per run,
+  on the object tracks the connectivity + contract ERROR count (+ the joint sweep and wrong-direction
+  joints on articulated; capped per run, :data:`OBJECT_VETO_CAP`), must not rise by more than
   :data:`VETO_RISE` on average, whatever the judge says (the owner's stricter contact standards,
   2026-10-14, are measured by the gate, not perceived by the VLM).
 * :func:`calib_summary` — the judge arm: within-run σ (the re-judge noise), between-run σ (the
   spread the judge is asked to resolve), their ratio, and the gate-score correlations.
 
 Gate findings are counted by their TYPED kind (``skills.registry.finding_kind`` →
-``"scene_placement/floating"``), never by message text (Law 4).
+``"scene_placement/floating"``), never by message text (Law 4).  The scene track's metrics are
+its own (placement, frames, library reach); the object tracks read ``contract`` / ``connectivity``
+(+ ``joint_sweep`` / ``motion_direction`` / the URDF lint on articulated), graphics ``gl_frames``
+(:data:`GATE_METRICS`); lint, budget, outages, verdicts, skills and the must-have cap are shared.
 """
 
 from __future__ import annotations
@@ -42,10 +47,17 @@ from bench.run_bench import BenchItemResult
 from bench.stats import correlation, decide
 from codeverse3d.addons.calibration import CalibrationRow, CalibrationTable
 from codeverse3d.addons.select import summarise
-from codeverse3d.contracts.artifacts import Severity
+from codeverse3d.contracts.artifacts import LintKind, Severity
+from codeverse3d.contracts.common import Track
 from codeverse3d.contracts.run import RoundRecord, RunRecord
+from codeverse3d.conventions import CONTACT_GAP_M
 from codeverse3d.record.record import RecordError, load_record, stop_reason
-from codeverse3d.skills.registry import finding_kind
+from codeverse3d.skills.registry import finding_kind, gate_family, kind_matches
+from codeverse3d.spatial.connectivity import GATE as CONNECTIVITY
+from codeverse3d.spatial.contract import GATE as CONTRACT
+from codeverse3d.spatial.frame_stats import GATE as GL_FRAMES
+from codeverse3d.spatial.joints_sweep import SWEEP_GATE
+from codeverse3d.tracks.articulated_object import MOTION_GATE, MOTION_WRONG
 
 #: the gate kinds the owner's contact standards are about (spatial/scene_placement.py data.kind)
 PLACEMENT_KINDS: tuple[str, ...] = ("scene_placement/floating", "scene_placement/sunken",
@@ -54,6 +66,50 @@ PLACEMENT_KINDS: tuple[str, ...] = ("scene_placement/floating", "scene_placement
 #: reverted whatever its score — one more floater per run is inside the gate's own run-to-run swing
 #: (the same prompt re-run moves 0-1 findings), two is a change in behaviour
 VETO_RISE = 1.0
+
+OBJECT_TRACKS: tuple[Track, ...] = (Track.STATIC_OBJECT, Track.ARTICULATED_OBJECT)
+ALL_TRACKS: tuple[Track, ...] = tuple(Track)
+NON_SCENE: tuple[Track, ...] = tuple(t for t in Track if t is not Track.SCENE)
+SCENE: tuple[Track, ...] = (Track.SCENE,)
+
+
+#: the object vetoes count at most this many ERRORs per run: connectivity reports one penetration per
+#: PART PAIR (a real bicycle run: 14 in one round), so one noisy prompt going 0 → 14 would add 0.93 per
+#: run at n = 15 and revert the iteration on its own; capped, it adds 0.2 and the veto needs several
+#: prompts to move.  The scene veto is uncapped (the scene gate already caps its findings per scene).
+OBJECT_VETO_CAP = 3
+
+
+@dataclass(frozen=True)
+class Veto:
+    """The deterministic channel ``compare`` holds beside the score: the ERROR findings of ``kinds``
+    (``skills.registry.kind_matches`` patterns) per run — at most ``per_run_cap`` of them — must not
+    rise by more than :data:`VETO_RISE`."""
+
+    label: str                # what the verdict's reason names
+    short: str                # what the comparison table names
+    kinds: tuple[str, ...]
+    per_run_cap: int | None = None
+
+    def count(self, d: RunDigest) -> int:
+        n = d.errors_of(self.kinds)
+        return n if self.per_run_cap is None else min(n, self.per_run_cap)
+
+
+_OBJECT_VETO_KINDS = (f"{CONNECTIVITY}/*", f"{CONTRACT}/*")
+
+#: the veto per track.  Graphics has none: its ERRORs are image-level verdicts (black / blown / NaN —
+#: at most two per run), so a mean rise above one per run is unreachable, and the shader_v2 rubric
+#: caps those runs' score already.  Articulated adds the pose sweep (capped per pair by the gate,
+#: ``MAX_PAIR_FINDINGS``) and a joint that moves the wrong way — the judge caps both
+#: (``joint_collision``), the veto must see them too.
+VETOES: dict[Track, Veto] = {
+    Track.SCENE: Veto("floating+sunken+interpenetration", "placement", PLACEMENT_KINDS),
+    Track.STATIC_OBJECT: Veto("connectivity+contract", "connectivity+contract", _OBJECT_VETO_KINDS, OBJECT_VETO_CAP),
+    Track.ARTICULATED_OBJECT: Veto("connectivity+contract+joint", "connectivity+contract+joint",
+                                   (*_OBJECT_VETO_KINDS, f"{SWEEP_GATE}/*", f"{MOTION_GATE}/{MOTION_WRONG}"),
+                                   OBJECT_VETO_CAP),
+}
 
 #: `from '../lib/<x>.js'` / `from './lib/<x>.js'` in an agent-written three.js file.  A regex over
 #: SOURCE TEXT (the import specifier), the way B1's `library_rows` reads the catalog — not over an id.
@@ -88,11 +144,13 @@ class RunDigest(BaseModel):
     skills_surfaced: int = 0
     skills_deep: int = 0
     deep_read_rate: float | None = Field(default=None, description="mean over the rounds that could measure it")
+    gates_run: list[str] = Field(default_factory=list, description="the gates the picked round ran "
+                                 "(``gate_family`` names, the kinds' prefix): a rate's denominator")
     errors: str = ""
 
-    @property
-    def placement_errors(self) -> int:
-        return sum(self.gate_errors.get(k, 0) for k in PLACEMENT_KINDS)
+    def errors_of(self, kinds: tuple[str, ...]) -> int:
+        """ERROR findings whose typed kind matches ``kinds`` (exact, or ``family/*``)."""
+        return sum(n for k, n in self.gate_errors.items() if kind_matches(k, kinds))
 
 
 def _picked(run_dir: Path, rec: RunRecord) -> RoundRecord | None:
@@ -176,6 +234,7 @@ def digest_run(run_dir: Path, row: BenchItemResult | None = None) -> RunDigest:
     picked = _picked(run_dir, rec)
     if picked is not None:
         d.picked_round = picked.index
+        d.gates_run = sorted({gate_family(g.gate) for g in picked.gates})
         for g in picked.gates:
             for f in g.findings:
                 kind = finding_kind(f)
@@ -218,9 +277,9 @@ def _raw(text: str) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
-def digests_for(out_lang: Path) -> dict[str, RunDigest]:
+def digests_for(out_lang: Path, *, track: Track = Track.SCENE) -> dict[str, RunDigest]:
     """prompt id → digest for one ``bench.run_bench`` output directory (its rows + its run dirs,
-    each run once — ``_records.records``)."""
+    each run once — ``_records.records``, the loop's ``track`` only)."""
     rows: dict[str, BenchItemResult] = {}
     jl = out_lang / "results.jsonl"
     if jl.is_file():
@@ -228,7 +287,7 @@ def digests_for(out_lang: Path) -> dict[str, RunDigest]:
     out: dict[str, RunDigest] = {}
     runs_root = out_lang / "runs"
     if runs_root.is_dir():
-        for rec_path, data in records(runs_root, track="scene"):
+        for rec_path, data in records(runs_root, track=track.value):
             run_dir = rec_path.parent
             pid = str((data.get("spec") or {}).get("id", run_dir.name)).split("/")[-1]
             # the live run is `runs/<id>`; a redo archives the old tree beside it as `<id>.attemptN`
@@ -244,13 +303,15 @@ def digests_for(out_lang: Path) -> dict[str, RunDigest]:
 # --------------------------------------------------------------------------- diagnosis
 @dataclass(frozen=True)
 class Rule:
-    """A deterministic lever: when ``metric`` crosses ``threshold`` (``above`` or below), say ``text``."""
+    """A deterministic lever: when ``metric`` crosses ``threshold`` (``above`` or below), say ``text`` —
+    on the ``tracks`` whose diagnosis computes the metric."""
 
     name: str
     metric: str
     threshold: float
     text: str
     above: bool = True
+    tracks: tuple[Track, ...] = ALL_TRACKS
 
     def fires(self, value: float | None) -> bool:
         if value is None:
@@ -261,18 +322,21 @@ class Rule:
 RULES: tuple[Rule, ...] = (
     Rule("floating", "floating_error_rate", 0.25,
          "placement recipe + boost the placement skill: seat every placed thing on height_at / its support "
-         "(lib.place.seat); the gate ERRORs at 0.08 m or > 2 floaters per scene"),
+         "(lib.place.seat); the gate ERRORs at 0.08 m or > 2 floaters per scene", tracks=SCENE),
     Rule("sunken", "sunken_error_rate", 0.25,
          "seating recipe: assets are buried, not hovering — seat by the evaluated bbox, never by the origin "
-         "(sunk ERROR at 0.20 m and 20 % of the height)"),
+         "(sunk ERROR at 0.20 m and 20 % of the height)", tracks=SCENE),
     Rule("interpenetration", "interpenetration_error_rate", 0.25,
-         "clear_of self-check in the zone recipe + spacing in the layout prompt (overlap ERROR at 35 % of the smaller box)"),
+         "clear_of self-check in the zone recipe + spacing in the layout prompt (overlap ERROR at 35 % of the smaller box)",
+         tracks=SCENE),
     Rule("library", "lib_modules_mean", 3.0,
-         "effects catalog presentation: the agent reaches fewer than three library modules per scene", above=False),
+         "effects catalog presentation: the agent reaches fewer than three library modules per scene", above=False,
+         tracks=SCENE),
     Rule("lighting", "dark_frame_rate", 0.20,
-         "lighting recipe: key/fill/exposure numbers per mood + boost the lighting skill (dark_frame caps at 0.55)"),
+         "lighting recipe: key/fill/exposure numbers per mood + boost the lighting skill (dark_frame caps at 0.55)",
+         tracks=SCENE),
     Rule("budget", "budget_stop_rate", 0.30,
-         "raise --max-minutes or cut the zone prompt: the clock stops the run before its rounds"),
+         "raise --max-minutes or cut the zone prompt: the clock stops the run before its rounds", tracks=SCENE),
     Rule("weather", "infra_failed_rate", 0.20,
          "provider weather, not the variant: `bench.loop run --resume` the iteration before reading it"),
     Rule("unscored", "unscored_rate", 0.20,
@@ -282,9 +346,101 @@ RULES: tuple[Rule, ...] = (
     Rule("must", "missing_must_rate", 0.25,
          "must-have wording: the contract lines fail the plan's acceptance items — the planner is not carrying them"),
     Rule("camera", "camera_error_rate", 0.20,
-         "camera brief recipe: fit every authored camera to the content box, never inside geometry"),
+         "camera brief recipe: fit every authored camera to the content box, never inside geometry", tracks=SCENE),
     Rule("free_exempt", "free_exempt_rate", 0.20,
-         "assets tagged placement='free' to dodge the gate: say in the contract that 'free' is for hanging / airborne things only"),
+         "assets tagged placement='free' to dodge the gate: say in the contract that 'free' is for hanging / airborne things only",
+         tracks=SCENE),
+    # ---- the other tracks (metrics: GATE_METRICS + the shared ones)
+    Rule("budget", "budget_stop_rate", 0.30,
+         "raise --max-minutes or trim the refine instructions: the clock stops the run before its rounds", tracks=NON_SCENE),
+    Rule("lint", "lint_error_rate", 0.20,
+         "lint: the agent's code trips the language lint (sandbox, removed API, harness-owned call) — name the rule "
+         "it breaks in the variant's system prompt", tracks=NON_SCENE),
+    Rule("connectivity", "conn_floating_error_rate", 0.25,
+         f"connectivity: contact band — parts stop short of their support; every part must touch the part it attaches "
+         f"to within {CONTACT_GAP_M * 1000:g} mm (measure the gap before refining; boost the connectivity skill)",
+         tracks=OBJECT_TRACKS),
+    Rule("penetration", "conn_penetration_error_rate", 0.25,
+         "connectivity: contact band — parts sink deep into each other; seat them surface to surface (a hairline "
+         "overlap is fine), notch or shorten a member that passes through", tracks=OBJECT_TRACKS),
+    Rule("islands", "conn_islands_rate", 0.25,
+         "connectivity: islands — stray disconnected pieces inside a part; one part is one solid piece "
+         "(join or delete the strays)", tracks=OBJECT_TRACKS),
+    Rule("bbox", "contract_bbox_error_rate", 0.25,
+         "bbox: dims — the built size / centre / orientation is off the plan's box; measure before refining and "
+         "keep the planned dimensions (the contract ERRORs past 2× the tolerance)", tracks=OBJECT_TRACKS),
+    Rule("ground", "contract_ground_error_rate", 0.20,
+         "bbox: ground — the lowest point is off up = 0; author the object standing on the ground (no wrapper "
+         "grounds it, Law 7)", tracks=OBJECT_TRACKS),
+    Rule("parts", "contract_missing_error_rate", 0.20,
+         "contract: a planned part is missing — name every planned part's object after the plan",
+         tracks=OBJECT_TRACKS),
+    Rule("joints", "joint_axis_error_rate", 0.20,
+         "joints: axis/limits — a joint moves the wrong way or its URDF axis / limits / mimic do not type-check; "
+         "state the axis-from-pivot rule and the limit units in the variant prompt", tracks=(Track.ARTICULATED_OBJECT,)),
+    Rule("sweep", "joint_sweep_error_rate", 0.30,
+         "joints: the pose sweep finds links colliding, buried or detached across the joint range — clearances at "
+         "the limits, not only at rest", tracks=(Track.ARTICULATED_OBJECT,)),
+    Rule("black", "frame_black_rate", 0.15,
+         "black: the frames are black — the final colour assignment, the raymarch hit test and the camera direction",
+         tracks=(Track.GRAPHICS,)),
+    Rule("blown", "frame_blown_rate", 0.15,
+         "blown: the frames are blown out — tone-map into 0..1 and bound accumulated glow", tracks=(Track.GRAPHICS,)),
+    Rule("no_motion", "frame_no_motion_rate", 0.20,
+         "no_motion: the frames do not change over time — drive the brief's animation from the time uniform",
+         tracks=(Track.GRAPHICS,)),
+    Rule("broken", "frame_broken_rate", 0.10,
+         "broken: NaN pixels — guard divisions, sqrt/pow/log arguments and normalize() of zero",
+         tracks=(Track.GRAPHICS,)),
+)
+
+
+
+@dataclass(frozen=True)
+class GateMetric:
+    """A non-scene rate: the share of the runs whose picked round RAN the kinds' gate(s) that have an
+    ERROR of ``kinds`` (or a WARN too, ``warn=True``, for a kind the gate never raises to ERROR).  A
+    run whose every build failed falls back to a round without connectivity / contract / gl_frames
+    reports: it is out of those rates' denominators, not a clean run (it shows in ``unscored_rate``)."""
+
+    metric: str
+    kinds: tuple[str, ...]
+    tracks: tuple[Track, ...]
+    warn: bool = False
+
+    @property
+    def gates(self) -> frozenset[str]:
+        """The gate families ``kinds`` belong to (each pattern is ``"<gate>/<kind>"``, our own constants)."""
+        return frozenset(k.partition("/")[0] for k in self.kinds)
+
+
+#: the kinds each non-scene rate counts (``finding_kind`` = "<gate>/<data.kind>", lint gates folded to
+#: "lint/<LintKind>").  The kind words are the gates' own (spatial/connectivity.py, spatial/contract.py,
+#: spatial/joints_sweep.py, spatial/frame_stats.py, tracks/articulated_object.py).  Not counted, on
+#: purpose: ``contract/footprint_offset`` and ``contract/instance_count`` (the contract gate only ever
+#: WARNs them — an ERROR rate would read 0 forever) and ``gl_frames/no_frames`` (``frame_gate`` runs
+#: only on a build that produced judged frames, ``_gl_common.finish_build``: a render with none has no
+#: gl_frames report at all and shows in ``unscored_rate``).
+GATE_METRICS: tuple[GateMetric, ...] = (
+    GateMetric("lint_error_rate", ("lint/*",), NON_SCENE),
+    GateMetric("connectivity_error_rate", (f"{CONNECTIVITY}/*",), OBJECT_TRACKS),
+    GateMetric("conn_floating_error_rate", (f"{CONNECTIVITY}/floating",), OBJECT_TRACKS),
+    GateMetric("conn_penetration_error_rate", (f"{CONNECTIVITY}/penetration",), OBJECT_TRACKS),
+    # stray islands are a WARN in the gate (``_island_findings``): counted at WARN, or nothing would ever count
+    GateMetric("conn_islands_rate", (f"{CONNECTIVITY}/stray_islands",), OBJECT_TRACKS, warn=True),
+    GateMetric("contract_error_rate", (f"{CONTRACT}/*",), OBJECT_TRACKS),
+    GateMetric("contract_bbox_error_rate", tuple(f"{CONTRACT}/{k}" for k in ("part_bbox", "instance_bbox", "overall_bbox",
+                                                                              "orientation")), OBJECT_TRACKS),
+    GateMetric("contract_ground_error_rate", (f"{CONTRACT}/ground_gap",), OBJECT_TRACKS),
+    GateMetric("contract_missing_error_rate", (f"{CONTRACT}/missing_part",), OBJECT_TRACKS),
+    GateMetric("joint_sweep_error_rate", (f"{SWEEP_GATE}/*",), (Track.ARTICULATED_OBJECT,)),
+    GateMetric("joint_axis_error_rate", (f"lint/{LintKind.URDF_JOINT.value}", f"lint/{LintKind.MIMIC.value}",
+                                         f"{MOTION_GATE}/{MOTION_WRONG}"), (Track.ARTICULATED_OBJECT,)),
+    GateMetric("frame_black_rate", (f"{GL_FRAMES}/black",), (Track.GRAPHICS,)),
+    GateMetric("frame_blown_rate", (f"{GL_FRAMES}/blown",), (Track.GRAPHICS,)),
+    # a static sequence is a WARN in the gate (``frame_gate``): counted at WARN
+    GateMetric("frame_no_motion_rate", (f"{GL_FRAMES}/static",), (Track.GRAPHICS,), warn=True),
+    GateMetric("frame_broken_rate", (f"{GL_FRAMES}/nan",), (Track.GRAPHICS,)),
 )
 
 
@@ -301,6 +457,7 @@ class Diagnosis(BaseModel):
 
     language: str
     out_dir: str
+    track: str = Track.SCENE.value
     n: int = 0
     by_status: dict[str, int] = Field(default_factory=dict)
     n_scored: int = 0
@@ -337,9 +494,19 @@ def _rate(hits: int, n: int) -> float | None:
     return round(hits / n, 4) if n else None
 
 
-def diagnose_digests(language: str, out_dir: Path, digests: Iterable[RunDigest]) -> Diagnosis:
+def _gate_rate(gated: Sequence[RunDigest], gm: GateMetric) -> float | None:
+    def hit(d: RunDigest) -> bool:
+        kinds = [*d.gate_errors, *d.gate_warns] if gm.warn else list(d.gate_errors)
+        return any(kind_matches(k, gm.kinds) for k in kinds)
+
+    ran = [d for d in gated if gm.gates & set(d.gates_run)]
+    return _rate(sum(1 for d in ran if hit(d)), len(ran))
+
+
+def diagnose_digests(language: str, out_dir: Path, digests: Iterable[RunDigest], *,
+                     track: Track = Track.SCENE) -> Diagnosis:
     runs = sorted(digests, key=lambda d: d.id)
-    diag = Diagnosis(language=language, out_dir=str(out_dir), n=len(runs), runs=runs)
+    diag = Diagnosis(language=language, out_dir=str(out_dir), track=track.value, n=len(runs), runs=runs)
     diag.by_status = dict(Counter(d.status or "(none)" for d in runs))
     evaluated = [d for d in runs if d.status != "infra_failed"]
     scored = [d for d in evaluated if d.score_picked is not None]
@@ -355,7 +522,7 @@ def diagnose_digests(language: str, out_dir: Path, digests: Iterable[RunDigest])
         for k, v in d.criteria.items():
             crit.setdefault(k, []).append(v)
         defects.update(k for k, on in d.defects.items() if on)
-        caps.update(set(d.caps))
+        caps.update(dict.fromkeys(d.caps).keys())  # distinct, in verdict order (a set's order is per-process)
         issues.update(d.issues)
     diag.criteria_mean = {k: round(statistics.fmean(v), 4) for k, v in sorted(crit.items())}
     diag.defect_rates = {k: _rate(n, len(scored)) or 0.0 for k, n in defects.most_common()}
@@ -386,16 +553,11 @@ def diagnose_digests(language: str, out_dir: Path, digests: Iterable[RunDigest])
     diag.skills = {"listed": sum(d.skills_listed for d in runs), "surfaced": sum(d.skills_surfaced for d in runs),
                    "deep": sum(d.skills_deep for d in runs),
                    "deep_read_rate_mean": round(statistics.fmean(rates), 4) if rates else None}
-    n_eval, n_gated = len(evaluated), len(gated)
+    n_eval = len(evaluated)
+    own = (_scene_metrics(diag, gated, err_runs) if track is Track.SCENE
+           else {gm.metric: _gate_rate(gated, gm) for gm in GATE_METRICS if track in gm.tracks})
     diag.metrics = {
-        "floating_error_rate": _rate(err_runs["scene_placement/floating"], n_gated),
-        "sunken_error_rate": _rate(err_runs["scene_placement/sunken"], n_gated),
-        "interpenetration_error_rate": _rate(err_runs["scene_placement/interpenetration"], n_gated),
-        "free_exempt_rate": _rate(sum(1 for d in gated if "scene_placement/free_exempt" in d.gate_errors
-                                      or "scene_placement/free_exempt" in d.gate_warns), n_gated),
-        "dark_frame_rate": _rate(err_runs["scene_frames/dark_frame"], n_gated),
-        "camera_error_rate": _rate(sum(1 for d in gated if any(k.startswith("scene_frames/camera_") for k in d.gate_errors)), n_gated),
-        "lib_modules_mean": diag.lib_modules_mean,
+        **own,
         "budget_stop_rate": _rate(sum(1 for d in evaluated if d.stop_reason == "budget"), n_eval),
         "infra_failed_rate": _rate(len(runs) - n_eval, len(runs)),
         "unscored_rate": _rate(n_eval - len(scored), n_eval),
@@ -404,14 +566,29 @@ def diagnose_digests(language: str, out_dir: Path, digests: Iterable[RunDigest])
     }
     diag.recommendations = [
         Recommendation(rule=r.name, metric=r.metric, value=v, threshold=r.threshold, text=r.text)
-        for r in RULES if (v := diag.metrics.get(r.metric)) is not None and r.fires(v)
+        for r in RULES if track in r.tracks and (v := diag.metrics.get(r.metric)) is not None and r.fires(v)
     ]
     return diag
 
 
-def diagnose_dir(language: str, out_lang: Path) -> Diagnosis:
-    """The diagnosis of one ``bench.run_bench`` output directory."""
-    return diagnose_digests(language, out_lang, digests_for(out_lang).values())
+def _scene_metrics(diag: Diagnosis, gated: Sequence[RunDigest], err_runs: Counter[str]) -> dict[str, float | None]:
+    """The scene track's own rates (placement, frames, library), in the order its diagnosis has always printed."""
+    n_gated = len(gated)
+    return {
+        "floating_error_rate": _rate(err_runs["scene_placement/floating"], n_gated),
+        "sunken_error_rate": _rate(err_runs["scene_placement/sunken"], n_gated),
+        "interpenetration_error_rate": _rate(err_runs["scene_placement/interpenetration"], n_gated),
+        "free_exempt_rate": _rate(sum(1 for d in gated if "scene_placement/free_exempt" in d.gate_errors
+                                      or "scene_placement/free_exempt" in d.gate_warns), n_gated),
+        "dark_frame_rate": _rate(err_runs["scene_frames/dark_frame"], n_gated),
+        "camera_error_rate": _rate(sum(1 for d in gated if any(k.startswith("scene_frames/camera_") for k in d.gate_errors)), n_gated),
+        "lib_modules_mean": diag.lib_modules_mean,
+    }
+
+
+def diagnose_dir(language: str, out_lang: Path, *, track: Track = Track.SCENE) -> Diagnosis:
+    """The diagnosis of one ``bench.run_bench`` output directory (the runs of ``track``)."""
+    return diagnose_digests(language, out_lang, digests_for(out_lang, track=track).values(), track=track)
 
 
 def _f(x: float | None, fmt: str = ".3f") -> str:
@@ -437,8 +614,9 @@ def render_diagnosis(d: Diagnosis) -> str:
     lines += ["### gates (picked round, typed kind)", "", "| kind | runs with ERROR | ERROR findings | WARN findings |", "|---|---|---|---|"]
     kinds = sorted(set(d.gate_error_total) | set(d.gate_warn_total))
     lines += [f"| {k} | {d.gate_error_runs.get(k, 0)} | {d.gate_error_total.get(k, 0)} | {d.gate_warn_total.get(k, 0)} |" for k in kinds]
-    lines += ["", f"### library: {_f(d.lib_modules_mean, '.2f')} modules per scene", ""]
-    lines += [f"- {m}: {n}" for m, n in list(d.lib_module_hist.items())[:20]] or ["- (no lib imports found)"]
+    if d.track == Track.SCENE.value:
+        lines += ["", f"### library: {_f(d.lib_modules_mean, '.2f')} modules per scene", ""]
+        lines += [f"- {m}: {n}" for m, n in list(d.lib_module_hist.items())[:20]] or ["- (no lib imports found)"]
     lines += ["", f"### cost ${d.cost_total:.2f} total; minutes mean {_f(d.minutes_mean, '.1f')}, total {d.minutes_total:.0f}", ""]
     lines += [f"- {k}: ${v:.2f}" for k, v in d.cost_by_stage.items()]
     s = d.skills
@@ -461,31 +639,37 @@ class Comparison(BaseModel):
     language: str
     name_a: str
     name_b: str
+    track: str = Track.SCENE.value
     paired: PairedStats
     dropped_ids: list[str] = Field(default_factory=list, description="ids on one side only")
     criteria_delta: dict[str, float] = Field(default_factory=dict, description="mean a − b per criterion")
     gate_error_delta: dict[str, int] = Field(default_factory=dict, description="kind → Σ(a − b) ERROR findings over the pairs")
-    placement_rise: float | None = Field(default=None, description="mean a − b of the floating+sunken+interpenetration ERRORs per run")
+    placement_rise: float | None = Field(default=None, description="mean a − b of the track's veto ERRORs per run "
+                                         "(VETOES: scene floating+sunken+interpenetration, objects connectivity+contract "
+                                         "(+ joint sweep / wrong direction on articulated), capped per run; None on a "
+                                         "track without a veto).  Named for the scene veto it was first: the name keeps "
+                                         "every compare_*.json already written loading")
     cost_delta: float | None = Field(default=None, description="mean a − b, USD per run")
     decision: str = Field(default="", description="keep | revert | inconclusive")
     reason: str = ""
 
 
-def loop_verdict(st: PairedStats, placement_rise: float | None) -> tuple[str, str]:
-    """``(decision, reason)``: ``stats.decide`` on the paired picked scores, then the gate veto."""
+def loop_verdict(st: PairedStats, placement_rise: float | None, veto: Veto | None = VETOES[Track.SCENE]) -> tuple[str, str]:
+    """``(decision, reason)``: ``stats.decide`` on the paired picked scores, then the track's gate veto."""
     d = decide(st.deltas)
     decision = {"better": "keep", "worse": "revert"}.get(d.outcome, "inconclusive")
     reason = d.reason
-    if placement_rise is not None and placement_rise > VETO_RISE:
+    if veto is not None and placement_rise is not None and placement_rise > VETO_RISE:
         decision = "revert"
-        reason = (f"gate veto: floating+sunken+interpenetration ERRORs rose by {placement_rise:+.2f} per run "
+        reason = (f"gate veto: {veto.label} ERRORs rose by {placement_rise:+.2f} per run "
                   f"(limit {VETO_RISE:+.0f}); score said {d.outcome} — {d.reason}")
     return decision, reason
 
 
 def compare_digests(language: str, name_a: str, name_b: str, st: PairedStats,
-                    da: dict[str, RunDigest], db: dict[str, RunDigest]) -> Comparison:
-    cmp = Comparison(language=language, name_a=name_a, name_b=name_b, paired=st,
+                    da: dict[str, RunDigest], db: dict[str, RunDigest], *, track: Track = Track.SCENE) -> Comparison:
+    veto = VETOES.get(track)
+    cmp = Comparison(language=language, name_a=name_a, name_b=name_b, track=track.value, paired=st,
                      dropped_ids=sorted(set(da) ^ set(db)))
     ids = [i for i in st.deltas if i in da and i in db]
     crit: dict[str, list[float]] = {}
@@ -498,33 +682,37 @@ def compare_digests(language: str, name_a: str, name_b: str, st: PairedStats,
             crit.setdefault(k, []).append(a.criteria[k] - b.criteria[k])
         for k in set(a.gate_errors) | set(b.gate_errors):
             gates[k] += a.gate_errors.get(k, 0) - b.gate_errors.get(k, 0)
-        rises.append(a.placement_errors - b.placement_errors)
+        if veto is not None:
+            rises.append(veto.count(a) - veto.count(b))
         costs.append(a.cost_usd - b.cost_usd)
     cmp.criteria_delta = {k: round(statistics.fmean(v), 4) for k, v in sorted(crit.items())}
     cmp.gate_error_delta = {k: v for k, v in sorted(gates.items()) if v}
     cmp.placement_rise = round(statistics.fmean(rises), 4) if rises else None
     cmp.cost_delta = round(statistics.fmean(costs), 4) if costs else None
-    cmp.decision, cmp.reason = loop_verdict(st, cmp.placement_rise)
+    cmp.decision, cmp.reason = loop_verdict(st, cmp.placement_rise, veto)
     return cmp
 
 
-def compare_dirs(language: str, dir_a: Path, dir_b: Path) -> Comparison:
+def compare_dirs(language: str, dir_a: Path, dir_b: Path, *, track: Track = Track.SCENE) -> Comparison:
     """Iteration directory ``dir_a`` (the candidate) against ``dir_b`` (the reference), one language."""
     cells, name_a, name_b = paired_rows(dir_a, dir_b)
     st = paired(cells, name_a, name_b)
-    return compare_digests(language, name_a, name_b, st, digests_for(dir_a), digests_for(dir_b))
+    return compare_digests(language, name_a, name_b, st, digests_for(dir_a, track=track), digests_for(dir_b, track=track),
+                           track=track)
 
 
 def render_comparison(c: Comparison) -> str:
     st = c.paired
     ci = f"[{_f(st.ci95_low, '+.3f')}, {_f(st.ci95_high, '+.3f')}]" if st.ci95_low is not None else "—"
+    veto = VETOES.get(Track(c.track))
+    veto_text = (f"{veto.short} ERRORs Δ {_f(c.placement_rise, '+.2f')} per run (veto above {VETO_RISE:+.0f})"
+                 if veto is not None else f"no gate veto on the {c.track} track")
     lines = [f"## {c.language}: {c.name_a} − {c.name_b}", "",
              f"**{c.decision}** — {c.reason}", "",
              f"pairs {st.n} (dropped: outage {st.dropped_infra}, unscored {st.dropped_unscored}, "
              f"one side only {len(c.dropped_ids)}); mean picked {_f(st.mean_harness)} vs {_f(st.mean_oneshot)}; "
              f"Δ {_f(st.mean_delta, '+.3f')} 95 % t-interval {ci}; W/L/T {st.wins}/{st.losses}/{st.ties}, "
-             f"sign p {_f(st.sign_p)}; cost Δ {_f(c.cost_delta, '+.2f')} $/run; "
-             f"placement ERRORs Δ {_f(c.placement_rise, '+.2f')} per run (veto above {VETO_RISE:+.0f})", ""]
+             f"sign p {_f(st.sign_p)}; cost Δ {_f(c.cost_delta, '+.2f')} $/run; {veto_text}", ""]
     if c.dropped_ids:
         lines += ["dropped ids: " + ", ".join(c.dropped_ids), ""]
     lines += _kv_table("Δ per criterion (mean a − b)", ((k, _f(v, "+.3f")) for k, v in c.criteria_delta.items()), ("criterion", "Δ"))
@@ -600,7 +788,7 @@ def render_calib(s: CalibSummary) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["PLACEMENT_KINDS", "RULES", "VETO_RISE", "CalibSummary", "Comparison", "Diagnosis", "Recommendation",
-           "Rule", "RunDigest", "calib_summary", "compare_digests", "compare_dirs", "diagnose_digests",
+__all__ = ["GATE_METRICS", "OBJECT_VETO_CAP", "PLACEMENT_KINDS", "RULES", "VETOES", "VETO_RISE", "CalibSummary", "Comparison", "Diagnosis",
+           "GateMetric", "Recommendation", "Rule", "RunDigest", "Veto", "calib_summary", "compare_digests", "compare_dirs", "diagnose_digests",
            "diagnose_dir", "digest_run", "digests_for", "js_lib_modules", "lib_usage", "loop_verdict",
            "py_lib_modules", "render_calib", "render_comparison", "render_diagnosis"]

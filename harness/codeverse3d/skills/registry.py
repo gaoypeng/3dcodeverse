@@ -68,6 +68,12 @@ SCENE_PLACEMENT_SEATING: tuple[str, ...] = (
 )
 
 
+def gate_family(gate: str) -> str:
+    """A gate's name as its findings' kinds carry it: every ``lint:<language>`` gate folds to ``lint``."""
+    gate = gate.strip().lower()
+    return "lint" if gate.startswith("lint") else gate
+
+
 def finding_kind(finding: Any) -> str | None:
     """A ``GateFinding`` → ``"<gate>/<data.kind>"``, or ``None`` for census/INFO lines.
 
@@ -75,8 +81,7 @@ def finding_kind(finding: Any) -> str | None:
     and routing a skill off it would attach the penetration sheet to a run with none."""
     if str(getattr(finding, "severity", "warn")).lower() == "info":
         return None
-    gate = str(getattr(finding, "gate", "") or "").strip().lower()
-    family = "lint" if gate.startswith("lint") else gate
+    family = gate_family(str(getattr(finding, "gate", "") or ""))
     data = getattr(finding, "data", None)
     kind = data.get("kind") if isinstance(data, dict) else None
     return f"{family}/{kind if isinstance(kind, str) and kind else UNTYPED}"
