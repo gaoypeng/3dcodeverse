@@ -337,8 +337,11 @@ def _ladder(ctx: RunContext, asset: AssetPlan, rel: str, *, language: Language, 
             # again, not a "repair" of the skeleton stub against a 503 it cannot fix
             feedback = repair_feedback(chk, rel) if chk is not None and not outage else ""
             try:
+                # the ladder's window bounds the single-shot call too (D108): without it the call ran on the
+                # retry ceiling — one hung hero waited 1 800 s twice and held the asset stage to 66 min
+                # (iteration 3, r1_13, 2026-10-15)
                 res = _generate_asset(sub, asset, rel, language=language, attempt=attempt, files=files,
-                                      feedback=feedback)
+                                      feedback=feedback, timeout_s=timeout_s)
             except Exception as e:  # noqa: BLE001 — a bad answer escalates; a dead model does not
                 if isinstance(e, BudgetExceeded):
                     raise

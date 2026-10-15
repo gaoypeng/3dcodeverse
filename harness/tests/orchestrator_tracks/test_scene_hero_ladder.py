@@ -207,3 +207,20 @@ def test_a_threejs_fix_with_only_soft_findings_is_kept_and_judged_again(tmp_ws, 
     res = SA.build_threejs_asset(ctx, asset, judge=True)
     assert res.ok and res.fixed and (res.score_before, res.score) == (0.5, 0.7)
     assert (tmp_ws.root / boat).read_text() == "// asset_fishing_boat_fix\n", "the fix that imports is kept"
+
+
+def test_the_ladders_single_shot_call_waits_no_longer_than_the_asset_window(tmp_ws, settings):
+    """D108 capped a single-shot call at its task's window, but the ladder's single-shot step never passed
+    the window on: every asset and hero call ran on the 1 800 s retry ceiling — iteration 3's r1_13 waited
+    1 800 s, then 1 641 s, on one hung hero and held the asset stage to 66 minutes (2026-10-15)."""
+    from codeverse3d.models.retry import RETRY_DEADLINE_S
+    from codeverse3d.tracks.generation import single_shot_wait_s
+
+    services = SingleShotServices()
+    ctx, hero = _scene(tmp_ws, settings, services=services, agent=FakeAgent(_writer(GOOD_MODEL)))
+    SA.build_blender_asset(ctx, hero, judge=False)
+    asks = [r for r in services.chat.requests if r.response_schema is None]
+    assert asks, "the ladder made no single-shot call"
+    window = single_shot_wait_s(SA.asset_timeout_s(ctx, 180), RETRY_DEADLINE_S)
+    assert all(r.max_wait_s is not None and r.max_wait_s <= window < RETRY_DEADLINE_S for r in asks), \
+        [(r.label, r.max_wait_s) for r in asks]
