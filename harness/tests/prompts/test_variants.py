@@ -222,26 +222,21 @@ def test_variant_hash_covers_both_overlays_and_ignores_readmes(overlay, tmp_path
     assert V.variant_block("gone") == {"name": "gone", "version": 0, "hash": ""}
 
 
-def test_the_argon_variant_ships_the_iteration_1_overlays():
-    """Iteration 0 of the loop measured the base prompts under the plumbing (an empty overlay);
-    iteration 1 (2026-10-15) shadows the two zone briefs and boosts the Blender placement skill (the
-    three.js composition boost was withdrawn under D106: that bundle carried the template) — the
-    whole overlay is these files, nothing else, and the hash covers them."""
+def test_the_argon_variant_ships_an_empty_overlay_at_version_2():
+    """Iteration 1 (2026-10-15) shadowed the two zone briefs and boosted the Blender placement skill;
+    D106 withdrew both (the briefs carried a template; the boost amplified it) and iterations 2-4 ran
+    on the EMPTY overlay — iteration 4 was accepted as v2 (2026-10-16, ledger argon_scene): the gain
+    was harness code (D106-D108), so the overlay ships only its README and variant.toml."""
     from codeverse3d.skills import variant_dir, variants_table
 
     info = variant_info("argon")
-    assert info.name == "argon" and info.version == 1 and info.generators == ("agy:gemini-4-argon",) and info.knobs == {}
+    assert info.name == "argon" and info.version == 2 and info.generators == ("agy:gemini-4-argon",) and info.knobs == {}
     assert info.description.startswith("gemini-4-argon on the scene track (threejs + blender)")
     assert "argon" in list_variants()
-    assert sorted(p.name for p in (VARIANTS_DIR / "argon").iterdir()) == ["README.md", "tracks", "variant.toml"]
-    assert sorted(p.name for p in (VARIANTS_DIR / "argon" / "tracks").iterdir()) == ["scene_zone.j2", "scene_zone_bpy.j2"]
-    for name in ("scene_zone.j2", "scene_zone_bpy.j2"):
-        text = (VARIANTS_DIR / "argon" / "tracks" / name).read_text(encoding="utf-8")
-        assert "## Before you return" in text and text.index("## Before you return") < text.index("## DON'T")
+    assert sorted(p.name for p in (VARIANTS_DIR / "argon").iterdir()) == ["README.md", "variant.toml"]
     assert sorted(p.name for p in variant_dir("argon").iterdir()) == ["README.md", "routes.toml"]
     table = variants_table("argon")
-    assert not table.empty and table.variant == "argon" and not table.routes and not table.disabled
-    assert {(b.skill, b.delta) for b in table.boosts} == {("c3d-bpy-scene-placement", 9)}   # the composition boost was withdrawn (D106)
+    assert table.variant == "argon" and not table.routes and not table.disabled and not table.boosts
     assert len(variant_hash("argon")) == 12
 
 
@@ -371,14 +366,14 @@ def test_a_run_records_the_variant_it_activated(tmp_path, monkeypatch):
     rec, ws, _ = _run(tmp_path, monkeypatch, options=RunOptions(variant="argon"))
     h = variant_hash("argon")
     assert rec.environment["variant"] == "argon"
-    assert rec.extra["variant"] == {"name": "argon", "version": 1, "hash": h}
+    assert rec.extra["variant"] == {"name": "argon", "version": 2, "hash": h}
     assert rec.prompt_hashes["variant"] == h and "generate" in rec.prompt_hashes
     snap = settings_snapshot(rec)
-    assert (snap.variant, snap.variant_version, snap.variant_hash) == ("argon", 1, h)
+    assert (snap.variant, snap.variant_version, snap.variant_hash) == ("argon", 2, h)
     events = _events(ws)
     assert next(e for e in events if e["event"] == "run.start")["variant"] == "argon"
     active = next(e for e in events if e["event"] == "variant.active")
-    assert (active["name"], active["version"], active["hash"], active["knobs"]) == ("argon", 1, h, {})
+    assert (active["name"], active["version"], active["hash"], active["knobs"]) == ("argon", 2, h, {})
     attached = [e for e in events if e["event"] == "skills.attached"]
     assert attached and {e["variant"] for e in attached} == {"argon"}
     rows = read_jsonl_lenient(ws.root / "telemetry" / "skills.jsonl")

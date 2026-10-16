@@ -541,7 +541,7 @@ def test_make_freezes_the_variant_on_the_spec_and_refuses_an_unknown_one(tmp_pat
     assert r.exit_code == 0, r.output
     assert json.loads((runs / "v" / "spec.json").read_text())["options"]["variant"] == "argon"
     out = " ".join(r.output.split())
-    assert "variant" in out and "argon v1" in out and "via --variant" in out
+    assert "variant" in out and "argon v2" in out and "via --variant" in out
 
     r = runner.invoke(app, ["make", "a clay pot", "--variant", "bogus", "--no-run", "--runs-dir", str(runs), "--slug", "b"])
     assert r.exit_code == 2 and "unknown variant 'bogus'" in r.output and "argon" in r.output

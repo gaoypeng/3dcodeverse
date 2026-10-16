@@ -690,7 +690,7 @@
     "job:refine_water@r01/prompt": {"bytes": 9907, "sha256": "bf639a7ddcf597c472d159abd815e8d6d9722c92682f9987e32394428d06f89f"},
     "job:refine_water@r01/scope": {"bytes": 331, "sha256": "40c76221a729d15823847ae3a6555f9d93faf803e393618e2f1b9334e3d06246"},
     "job:refine_water@r01/system": {"bytes": 5614, "sha256": "b23b5fa6365b226f94f9cf4e9f3f7235628d22c1bee3ca22c6f44406ce518cdb"},
-    "job:zones_quay_water@r00/prompt": {"bytes": 55853, "sha256": "943b41d907c05abb0175f693c5b3cc24df1e1bbba950fabb78f7410a25b0383d"},
+    "job:zones_quay_water@r00/prompt": {"bytes": 53445, "sha256": "e8e1c0e4792aa70bb5070f5d3d2fb5f5c4a514e0926f9a39f9a75f2a6269cfe0"},
     "job:zones_quay_water@r00/scope": {"bytes": 356, "sha256": "2d6318ca62de3ce3cd50944a499bae9741a3201507624c8c1599cc625d845f26"},
     "job:zones_quay_water@r00/system": {"bytes": 5614, "sha256": "b23b5fa6365b226f94f9cf4e9f3f7235628d22c1bee3ca22c6f44406ce518cdb"},
     "judge:scene_v2:runs/run/artifacts/renders/r00/input": {"bytes": 3755, "sha256": "7fa5ae748295e277f0edb9fc51a241ac20ccf6c64a88431cb95bf08313fb661a"},

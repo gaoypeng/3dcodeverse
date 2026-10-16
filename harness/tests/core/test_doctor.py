@@ -128,4 +128,4 @@ def test_doctor_skills_reports_the_shipped_argon_overlay(monkeypatch):
         get_settings.cache_clear()
     assert rows["skills library"][0] == "OK"
     status, detail = rows["skills overlay"]
-    assert status == "OK" and detail.startswith("argon: 0 bundles, 0 invalid") and "1 boost(s)" in detail
+    assert status == "OK" and detail.startswith("argon: 0 bundles, 0 invalid")

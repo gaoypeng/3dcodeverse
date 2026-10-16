@@ -1,5 +1,6 @@
-# The `argon` variant's routing table (D105).  Parsed by codeverse3d/skills/__init__.py::parse_routes
-# with tomllib into typed rows (no regex); a row that does not type-check is rejected at attach time
+# The `argon` variant's routing table (D105, 2026-10-14) — EMPTY: iteration 0 of the loop
+# measures the base table.  Parsed by codeverse3d/skills/__init__.py::parse_routes with tomllib
+# into typed rows (no regex); a row that does not type-check is rejected at attach time
 # (logged, the base table routes) and refused by the tests.  Three row kinds:
 #
 # [[boost]]            # add `delta` to the priority of every route naming `skill`: a standing
@@ -17,18 +18,3 @@
 # languages = ["scene_blender"]
 # kinds = ["env", "zone", "refine"]
 # why = "flat albedo is the audit's most-cited surface defect on argon zones"
-
-# Iteration 1 (2026-10-15): placement is the measured defect that capped the most iteration-0
-# rounds (threejs 7/30 interpenetration + 5/30 sunken; blender 13/30 + 5/30), and the Blender
-# skill that teaches it sat behind lighting / materials in the attached list.  The boost puts it
-# FIRST in every standing zone / env / refine session (R29 80 -> 89; the gate-fired rows R30 / R34
-# already route at 95).
-#
-# The matching three.js boost (c3d-scene-composition +14) was withdrawn the same day: that bundle
-# carried the build order, the bounds-centre establishing formula and the ring arithmetic that all
-# 60 iteration-0 scenes reproduced, and putting it first in every session amplified the template.
-# It is now a sheet of measured requirements and routes at its base priority (R14 75); the
-# three.js placement findings reach the agent through the gate's own fix hints (R34 at 95).
-[[boost]]
-skill = "c3d-bpy-scene-placement"
-delta = 9
