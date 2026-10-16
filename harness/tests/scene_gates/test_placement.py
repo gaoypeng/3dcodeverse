@@ -499,3 +499,37 @@ def test_the_summary_records_the_thresholds_and_the_probe_s():
     assert s.data["thresholds"]["sunk_error_frac"] == 0.2 and s.data["probe_thresholds"]["overlap_min"] == 0.1
     assert s.data["free"] == 1 and s.data["free_share"] == 0.5 and s.data["counts"]["cantilevered"] == 0
     assert "1 tagged free (50%)" in s.message and "indoor tolerance 2 cm" in s.message
+
+
+def test_a_zone_past_a_truncated_tables_cut_is_unmeasured_not_empty():
+    """D111: argon loop iteration 4, r1_01 — an envelope of 337 meshes filled the 400-row table and the
+    last zone in the scene, built and visibly present, read "placed nothing".  A table cut by its ROW CAP
+    with the zone's built group in the census gives an INFO note and no ``zone_empty`` ERROR; the zone AT
+    the cut (the last row's) gets an INFO for what may lie past it, not ``missing_content``."""
+    table = _table(_row("Lantern"), _row("Bench"), total=9, truncated=True)
+    census = {"groups": [{"name": "Yard", "kind": "content"}, {"name": "House", "kind": "content"}], "placement": table}
+    kinds = {(f.data.get("kind"), f.target, f.severity) for f in placement_gate_safe(census, plan=_contract_plan()).findings}
+    assert ("zone_unmeasured", "House", Severity.INFO) in kinds
+    assert not {k for k, t, _ in kinds if t == "House" and k in ("zone_empty", "missing_content")}, kinds
+    # not truncated; cut by the TIME budget (a row per asset, so no row = nothing placed); the group absent
+    # from the census; or present but EMPTY: still an ERROR
+    for c in ({**census, "placement": _table(_row("Lantern"), _row("Bench"))},
+              {**census, "placement": {**table, "total": 2}},
+              {**census, "groups": [{"name": "Yard", "kind": "content"}]},
+              {**census, "groups": [{"name": "Yard", "kind": "content"}, {"name": "House", "kind": "empty"}]}):
+        kinds = {(f.data.get("kind"), f.target) for f in placement_gate_safe(c, plan=_contract_plan()).findings}
+        assert ("zone_empty", "House") in kinds, (c, kinds)
+
+
+def test_the_zone_at_a_truncated_tables_cut_is_partly_measured():
+    table = _table(_row("Lantern"), total=9, truncated=True)        # Yard's Bench lies past the cut
+    census = {"groups": [{"name": "Yard", "kind": "content"}, {"name": "House", "kind": "content"}], "placement": table}
+    found = {(f.data.get("kind"), f.target): f for f in placement_gate_safe(census, plan=_contract_plan()).findings}
+    assert ("missing_content", "Yard") not in found
+    assert found[("zone_unmeasured", "Yard")].severity == Severity.INFO and found[("zone_unmeasured", "Yard")].data["missing"] == ["Bench"]
+    # uncut, the same rows are a real missing_content ERROR
+    census["placement"] = _table(_row("Lantern"))
+    found = {(f.data.get("kind"), f.target): f for f in placement_gate_safe(census, plan=_contract_plan()).findings}
+    assert found[("missing_content", "Yard")].severity == Severity.ERROR
+    # D111 measures the zone group's children only: the hint says so (a stray scene.add is not the zone's)
+    assert "direct child of the group the zone's build returns" in found[("missing_content", "Yard")].fix_hint

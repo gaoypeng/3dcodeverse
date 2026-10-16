@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from codeverse3d.config import get_settings
 from codeverse3d.contracts.artifacts import GateFinding, GateReport, Severity
+from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.conventions import DRAWS_WARN_SCENE, MAX_DRAWS_SCENE, MAX_TRIS_SCENE
 from codeverse3d.spatial.render_scene import SceneRenderError, probe_env_args, run_scene_script
 from codeverse3d.workspace import Workspace
@@ -85,8 +86,12 @@ def run_probe(ws: Workspace, *, compile: bool = False, timeout_s: float | None =
     ``compile`` also runs the shader preflight on the same page; without it — or when the
     scene never boots — the preflight is a failed-empty gate.  ``timeout_s`` defaults to
     the build timeout, capped at 120 s.  A driver that cannot run is a ``harness_failure``
-    finding, never a raise.  ``glb`` probes an offline scene's census GLB instead of
-    ``src/scene.js`` (module docstring), ``facts`` its bpy census."""
+    finding, never a raise — except a driver whose own watchdog fired twice inside the scene's
+    own code (``SceneRenderError.scene_timed_out``): that is the scene's construction cost and an
+    ERROR against the code (:func:`timeout_finding`, D111).  ``glb`` probes an offline scene's
+    census GLB instead of ``src/scene.js`` (module docstring), ``facts`` its bpy census; the GLB
+    is the harness's own export of a scene Blender already built, so a boot of it that never
+    finishes stays the harness's, like every other failure to boot it (:func:`offline_report`)."""
     t0 = time.time()
     timeout_s = min(float(timeout_s or get_settings().limits.build_timeout_s), 120.0)
     args = ["--ws", str(ws.root), "--out", str(ws.artifacts / "scene_probe.json"), "--timeout-ms", str(int(timeout_s * 1000))]
@@ -104,8 +109,11 @@ def run_probe(ws: Workspace, *, compile: bool = False, timeout_s: float | None =
     try:
         res = run_scene_script("probe_scene.mjs", args, timeout_s=timeout_s + 20)
     except SceneRenderError as e:
-        finding = _f(PROBE_GATE, Severity.ERROR, f"scene probe could not run: {e}"[:1500], target="src/scene.js",
-                     hint="this is a harness/driver failure, not your code; retry or report", harness_failure=True)
+        if e.scene_timed_out and glb is None:
+            finding = timeout_finding(timeout_s, phase=e.phase)   # after run_scene_script's one retry
+        else:
+            finding = _f(PROBE_GATE, Severity.ERROR, f"scene probe could not run: {e}"[:1500], target="src/scene.js",
+                         hint="this is a harness/driver failure, not your code; retry or report", harness_failure=True)
         return GateReport.of(PROBE_GATE, [finding], duration_ms=int((time.time() - t0) * 1000)), no_preflight, {}
     if glb is not None:
         probe, census = offline_report(res.summary, facts or {}, duration_ms=int((time.time() - t0) * 1000))
@@ -117,8 +125,33 @@ def run_probe(ws: Workspace, *, compile: bool = False, timeout_s: float | None =
     return probe, shader_report(rep, duration_ms=int(rep.get("duration_ms") or 0)), census
 
 
-def probe_scene(ws: Workspace, *, timeout_s: float = 60.0) -> SceneProbeResult:
-    """Import-only probe: module loads, shape valid, cameras valid, update runs, census."""
+def timeout_finding(timeout_s: float, *, phase: str) -> GateFinding:
+    """A probe whose watchdog fired inside the scene's own code (``render_scene.SCENE_PHASES``) —
+    after the driver's one retry, on a browser of its own — is an ERROR against the CODE.
+
+    WHY (D111).  Argon loop iteration 4, r1_08 (2026-10-15): the refine's new 37 k-vertex terrain met
+    the zones' per-vertex raycast seating and the scene no longer booted inside 120 s.  The probe filed
+    it as a harness failure with "not your code; retry or report": the agent, told so by its own build
+    tool, went quiet until the watchdog killed it, and the round then spent 3 x 240 s rebuilding the
+    same code (``repair.MAX_HARNESS_REBUILDS``) and was never scored.  The previous round of the same
+    workspace booted in 8 s: what changed is the code.  Not ``harness_failure``, so the round's repair
+    session receives it (``tracks/repair.build_with_repair``) and the build tool reports it as a finding.
+    scene_threejs only: an offline scene's census GLB is the harness's export (:func:`run_probe`)."""
+    entry = ENTRY_FILE[Language.SCENE_THREEJS]
+    what = {"scene": f"importing {entry} and createScene()", "census": "the census of what createScene() built",
+            "update": "update(t, dt)"}.get(phase, "the scene's boot")
+    return _f(PROBE_GATE, Severity.ERROR,
+              f"scene construction exceeded the {timeout_s:.0f} s probe budget: {what} did not finish",
+              target=entry, kind="probe_timeout", timed_out=True, phase=phase,
+              hint=f"the scene must boot inside {timeout_s:.0f} s; the time is the scene's own construction work "
+                   "(module-level code, createScene, update) — find what grows with the scene's size and bound it")
+
+
+def probe_scene(ws: Workspace, *, timeout_s: float | None = None) -> SceneProbeResult:
+    """Import-only probe: module loads, shape valid, cameras valid, update runs, census.  The
+    budget defaults to the BUILD's (:func:`run_probe`): the ``scene_probe`` tool used to probe at
+    60 s while the build allowed 120 s, so since D111 made a timeout the code's, the agent's own
+    tool would have condemned a scene the build accepts."""
     report, _, census = run_probe(ws, timeout_s=timeout_s)
     if census:
         ws.write_json(ws.artifacts / "census.json", census)

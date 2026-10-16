@@ -6,9 +6,14 @@
  * assets were left to the VLM (defect −0.06), while the scene_v1 `floating_part`
  * cap could never fire because no gate emitted those words.
  *
- * A "placed asset" is each direct child of a top-level scene child (the zone
- * groups the census already calls `groups`) that has Mesh descendants; a
- * top-level Mesh is an asset of its own.  Assets are named by Object3D name.
+ * A "placed asset" is each direct child of a ZONE ROOT that has Mesh descendants.
+ * The zone roots are the objects the harness's own assembler marks with
+ * `userData[ZONE_ROOT_KEY]` (conventions.ZONE_ROOT_KEY; scene_blender: the census GLB's zone
+ * node extras) — D111, 2026-10-16.  Every other root (env scenery, a zone's stray
+ * `scene.add`) is SCENERY: no rows, never paired, never in the free share — but its meshes
+ * still support and bury the zone assets.  A scene the harness did not assemble carries no
+ * mark: there every top-level child is a zone root and a top-level Mesh an asset of its
+ * own, as before.  Assets are named by Object3D name.
  *
  * Per asset (all in world space, metres):
  *   bbox            exact AABB of its (non-instanced) mesh vertices
@@ -62,6 +67,10 @@
 import { classifyBackdrop, GROUND_NAME_RE, nonSolid, nameText, nameWords, splitInstance } from './backdrop.mjs';
 import { geometryTriangles } from './census.mjs';
 
+//: the harness's zone-root mark (python twin: conventions.ZONE_ROOT_KEY; tests/scene_runtime/test_zone_roots.py pins them)
+export const ZONE_ROOT_KEY = 'c3d_zone';
+//: scenery root names recorded in the table (the count is exact)
+export const MAX_SCENERY_NAMES = 24;
 export const MAX_ASSETS = 400;
 export const TIME_BUDGET_MS = 4000;
 export const CONTACT_TOL_M = 0.02;
@@ -227,89 +236,134 @@ function indexMeshes(scene, notes) {
 
 function isFree(obj) { return !!(obj && obj.userData && obj.userData.placement === 'free'); }
 
-/** The placed assets: direct children of each top-level scene child (or a top-level mesh itself). */
+function isZoneRoot(obj) { return !!(obj && obj.userData && obj.userData[ZONE_ROOT_KEY]); }
+
+/**
+ * The roots whose direct children are the placed assets, and the scenery roots beside them.
+ * Marked zone roots are found anywhere in the tree (the assembler's own probe nests each in a
+ * wrapper), a marked root's subtree is not searched further.  Why (D111, argon loop iteration 4,
+ * 2026-10-15): every top-level child used to be a "zone", so an env-built wall merged per material
+ * became a body row, a flashing row and a pier row that overlap by construction; a two-mesh bollard
+ * was a cap "interpenetrating" its post; a zone's envelope added straight to the scene filled 337 of
+ * the 400 rows.  A replay of four of its runs put 3-15 placement ERRORs each on roots outside the
+ * zones; in two of them every final ERROR was of that kind (scenery-vs-scenery is never paired now;
+ * zone-vs-scenery still is, collectAssets).
+ */
+function zoneRoots(scene) {
+  const marked = [];
+  const walk = (o) => { for (const c of o.children) { if (isZoneRoot(c)) marked.push(c); else walk(c); } };
+  walk(scene);
+  if (!marked.length) return { roots: scene.children, scenery: [] };
+  const holdsZone = (o) => { let found = false; o.traverse((d) => { if (!found && isZoneRoot(d)) found = true; }); return found; };
+  const scenery = scene.children.filter((c) => c.visible && !c.isLight && !c.isCamera && !holdsZone(c));
+  return { roots: marked, scenery };
+}
+
+/** One root's measurable pieces: its direct children (or the root itself when it is a mesh). */
+function piecesOf(root) {
+  if (!root.visible || root.isLight || root.isCamera) return [];
+  return (root.isMesh || root.isInstancedMesh ? [root] : root.children).filter((c) => c.visible && !c.isLight && !c.isCamera);
+}
+
+/** The placed assets: direct children of each zone root (or a zone root that is a mesh itself) —
+ * and, measured the same way but never rows, the SCENERY PIECES (the children of every root outside
+ * the zones).  A zone asset still touches and clips them: a sconce flush on an env facade is mounted
+ * on it (`attached`, and the settle leaves it), a storefront pushed through an env wall is an
+ * interpenetration; only scenery-vs-scenery is never paired (D111). */
 function collectAssets(scene, indices, volumetrics, contentBox) {
   const assets = [];
+  const sceneryPieces = [];
   let total = 0;
   const seen = new Set();
-  for (const zone of scene.children) {
-    if (!zone.visible || zone.isLight || zone.isCamera) continue;
-    const children = zone.isMesh || zone.isInstancedMesh ? [zone] : zone.children;
-    for (const child of children) {
-      if (!child.visible || child.isLight || child.isCamera || seen.has(child)) continue;
+  const { roots, scenery } = zoneRoots(scene);
+  for (const zone of roots) {
+    for (const child of piecesOf(zone)) {
+      if (seen.has(child)) continue;
       seen.add(child);
-      const meshes = [];
-      let instanced = 0;
-      let volumetric = 0;
-      // Named descendants, not just this row's own name: a zone often wraps its content in
-      // one group ("IslandAssembly"), and the plan-contents check reads names off these
-      // rows.  Measured 2026-09-05 (scene_fixed/floating_islands): Windmill, FloatingRock
-      // and SkyPine were built and named correctly, added to `IslandAssembly`, and three
-      // zones were reported as "missing planned contents".
-      const inner = [];
-      // Per named FAMILY below this row, the world AABB of each member (a member = one named
-      // descendant, its meshes pooled).  A zone wraps a scatter in one group ('PicketFences' =
-      // twelve 'PicketFence' builder outputs along a path, 'GorseBushClusters' = eight bushes
-      // over 12 m), and the plan sized the INSTANCE: measured 2026-09-07 (loop 9 lighthouse),
-      // the scale check read the wrapper's 14.7 m against the plan's 2.4 m fence, the judge
-      // repeated "6.1x too large", and the repair shrank the whole run to microscopic dots.
-      const members = new Map(); // family -> Map(member object -> [min, max])
-      child.traverse((o) => {
-        if (!o.visible) return;
-        // one slot per FAMILY (Planter_3 / Planter.003 → Planter): the by-name check matches on
-        // the plan's word, and 30 numbered props must not push the hero behind them past the cap
-        const family = o.name ? splitInstance(o.name)[0] : '';
-        if (o !== child && family && inner.length < MAX_INNER_NAMES && !inner.includes(family)) inner.push(family);
-        if (o.isInstancedMesh) instanced += 1;
-        else if (indices.has(o)) {
-          const ci = indices.get(o);
-          meshes.push(ci);
-          for (let m = o; m && m !== child; m = m.parent) {
-            if (!m.name) continue;
-            const fam = splitInstance(m.name)[0];
-            if (!members.has(fam)) members.set(fam, new Map());
-            const box = members.get(fam).get(m) || [[Infinity, Infinity, Infinity], [-Infinity, -Infinity, -Infinity]];
-            for (let k = 0; k < 3; k++) { box[0][k] = Math.min(box[0][k], ci.min[k]); box[1][k] = Math.max(box[1][k], ci.max[k]); }
-            members.get(fam).set(m, box);
-          }
-        }
-        else if (volumetrics.has(o)) volumetric += 1;
-      });
-      if (!meshes.length && !instanced && !volumetric) continue;
+      const a = measurePiece(zone, child, indices, volumetrics, contentBox, total);
+      if (!a) continue;
       total += 1;
-      if (assets.length >= MAX_ASSETS) continue;
-      const families = {};
-      for (const [fam, byMember] of members) {
-        if (byMember.size < 2) continue;
-        const sizes = [...byMember.values()].map(([lo, hi]) => Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2])).sort((x, y) => x - y);
-        families[fam] = { n: sizes.length, size_m: r3(sizes[Math.floor(sizes.length / 2)]) };
-      }
-      const a = { obj: child, name: child.name || `${child.type}_${total}`, zone: zone === child ? '' : (zone.name || zone.type), meshes, instanced, inner, families, exempt: '' };
-      if (isFree(zone) || isFree(child)) a.exempt = 'free';
-      // the env's room shell (walls, lid, sills, lintels, trim under a `RoomShell…` root — the same
-      // name the overview rig lifts) is the enclosure, never a placed asset: its members abut and
-      // overlap each other by construction (2026-10-15: 24 of 41 Blender interpenetration ERRORs
-      // in the loop's iteration 0 were lintel x ceiling / trim x trim pairs of one shell)
-      else if (String(zone.name || '').startsWith('RoomShell')) a.exempt = 'enclosure';
-      // instanced first: an asset that is scatter PLUS a haze shell is exempt because its
-      // instances cannot be sampled at this budget, which is the more informative reason
-      else if (!meshes.length && instanced) a.exempt = 'instanced';
-      else if (!meshes.length && volumetric) a.exempt = 'volumetric';
-      else {
-        a.min = [Infinity, Infinity, Infinity]; a.max = [-Infinity, -Infinity, -Infinity];
-        let backdrop = 0;
-        for (const ci of meshes) {
-          for (let k = 0; k < 3; k++) { a.min[k] = Math.min(a.min[k], ci.min[k]); a.max[k] = Math.max(a.max[k], ci.max[k]); }
-          // a ground / floor / water surface is what things sit ON, whatever its size
-          if (ci.kind !== 'content' || ci.groundLike || ci.water) backdrop += 1;
-        }
-        if (backdrop === meshes.length || GROUND_NAME_RE.test(nameText(a.name)) || WATER_RE.test(nameText(a.name))) a.exempt = 'backdrop';
-        else if (contentBox && enclosesContent(a, contentBox)) a.exempt = 'enclosure';
-      }
-      assets.push(a);
+      if (assets.length < MAX_ASSETS) assets.push(a);
     }
   }
-  return { assets, total };
+  for (const root of scenery) {
+    for (const child of piecesOf(root)) {
+      const a = measurePiece(root, child, indices, volumetrics, contentBox, sceneryPieces.length);
+      // only a solid, non-exempt piece can hold or clip a zone asset — the rule the zone assets
+      // themselves follow (a ground / water / enclosing shell is a backdrop: things stand ON it)
+      if (a && !a.exempt) { a.scenery = true; sceneryPieces.push(a); }
+    }
+  }
+  return { assets, total, scenery, sceneryPieces };
+}
+
+/** Measure one piece (`child` of `zone`): its meshes, named inner families, AABB and exemption;
+ * null when it holds nothing measurable at all. */
+function measurePiece(zone, child, indices, volumetrics, contentBox, ordinal) {
+  const meshes = [];
+  let instanced = 0;
+  let volumetric = 0;
+  // Named descendants, not just this row's own name: a zone often wraps its content in
+  // one group ("IslandAssembly"), and the plan-contents check reads names off these
+  // rows.  Measured 2026-09-05 (scene_fixed/floating_islands): Windmill, FloatingRock
+  // and SkyPine were built and named correctly, added to `IslandAssembly`, and three
+  // zones were reported as "missing planned contents".
+  const inner = [];
+  // Per named FAMILY below this row, the world AABB of each member (a member = one named
+  // descendant, its meshes pooled).  A zone wraps a scatter in one group ('PicketFences' =
+  // twelve 'PicketFence' builder outputs along a path, 'GorseBushClusters' = eight bushes
+  // over 12 m), and the plan sized the INSTANCE: measured 2026-09-07 (loop 9 lighthouse),
+  // the scale check read the wrapper's 14.7 m against the plan's 2.4 m fence, the judge
+  // repeated "6.1x too large", and the repair shrank the whole run to microscopic dots.
+  const members = new Map(); // family -> Map(member object -> [min, max])
+  child.traverse((o) => {
+    if (!o.visible) return;
+    // one slot per FAMILY (Planter_3 / Planter.003 → Planter): the by-name check matches on
+    // the plan's word, and 30 numbered props must not push the hero behind them past the cap
+    const family = o.name ? splitInstance(o.name)[0] : '';
+    if (o !== child && family && inner.length < MAX_INNER_NAMES && !inner.includes(family)) inner.push(family);
+    if (o.isInstancedMesh) instanced += 1;
+    else if (indices.has(o)) {
+      const ci = indices.get(o);
+      meshes.push(ci);
+      for (let m = o; m && m !== child; m = m.parent) {
+        if (!m.name) continue;
+        const fam = splitInstance(m.name)[0];
+        if (!members.has(fam)) members.set(fam, new Map());
+        const box = members.get(fam).get(m) || [[Infinity, Infinity, Infinity], [-Infinity, -Infinity, -Infinity]];
+        for (let k = 0; k < 3; k++) { box[0][k] = Math.min(box[0][k], ci.min[k]); box[1][k] = Math.max(box[1][k], ci.max[k]); }
+        members.get(fam).set(m, box);
+      }
+    }
+    else if (volumetrics.has(o)) volumetric += 1;
+  });
+  if (!meshes.length && !instanced && !volumetric) return null;
+  const families = {};
+  for (const [fam, byMember] of members) {
+    if (byMember.size < 2) continue;
+    const sizes = [...byMember.values()].map(([lo, hi]) => Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2])).sort((x, y) => x - y);
+    families[fam] = { n: sizes.length, size_m: r3(sizes[Math.floor(sizes.length / 2)]) };
+  }
+  const a = { obj: child, name: child.name || `${child.type}_${ordinal}`, zone: zone === child ? '' : (zone.name || zone.type), meshes, instanced, inner, families, exempt: '' };
+  if (isFree(zone) || isFree(child)) a.exempt = 'free';
+  // (the `RoomShell…` name exemption of 2026-10-15 is gone, D111: the env's room shell is a
+  // scenery root of a marked scene, so its walls, lid and lintels are never rows at all)
+  // instanced first: an asset that is scatter PLUS a haze shell is exempt because its
+  // instances cannot be sampled at this budget, which is the more informative reason
+  else if (!meshes.length && instanced) a.exempt = 'instanced';
+  else if (!meshes.length && volumetric) a.exempt = 'volumetric';
+  else {
+    a.min = [Infinity, Infinity, Infinity]; a.max = [-Infinity, -Infinity, -Infinity];
+    let backdrop = 0;
+    for (const ci of meshes) {
+      for (let k = 0; k < 3; k++) { a.min[k] = Math.min(a.min[k], ci.min[k]); a.max[k] = Math.max(a.max[k], ci.max[k]); }
+      // a ground / floor / water surface is what things sit ON, whatever its size
+      if (ci.kind !== 'content' || ci.groundLike || ci.water) backdrop += 1;
+    }
+    if (backdrop === meshes.length || GROUND_NAME_RE.test(nameText(a.name)) || WATER_RE.test(nameText(a.name))) a.exempt = 'backdrop';
+    else if (contentBox && enclosesContent(a, contentBox)) a.exempt = 'enclosure';
+  }
+  return a;
 }
 
 function enclosesContent(a, cb) {
@@ -407,20 +461,28 @@ function containment(small, large) {
   return { frac: sampled ? inside / sampled : 0, sampled };
 }
 
-function pairs(checked) {
+/** Every touching pair of checked zone assets, and of a checked zone asset with a scenery piece
+ * (never two scenery pieces, D111): both sides of a touch are `attached`, an overlap past the floor
+ * whose vertices confirm it is an interpenetration.  A zone-vs-scenery pair names the zone asset
+ * `a` whichever is smaller: the finding targets `a`, and the zone author is the one who can move it. */
+function pairs(checked, sceneryPieces = []) {
   const out = [];
+  const vol = (o) => [0, 1, 2].reduce((v, k) => v * Math.max(0.01, o.max[k] - o.min[k]), 1);
+  const test = (a, b) => {
+    if (!touches(a, b, CONTACT_TOL_M)) return;
+    a.attached.push(b.name);
+    if (!b.scenery) b.attached.push(a.name);
+    const aabb = boxOverlapFrac(a, b);
+    if (aabb <= OVERLAP_MIN_FRAC) return;
+    const [small, large] = vol(a) <= vol(b) ? [a, b] : [b, a];
+    const c = containment(small, large);
+    if (c.frac <= OVERLAP_MIN_FRAC) return;
+    const [x, y] = b.scenery ? [a, b] : [small, large];
+    out.push({ a: x.name, b: y.name, zone_a: x.zone, zone_b: y.zone, aabb_overlap: r3(aabb), inside_frac: r3(c.frac), samples: c.sampled });
+  };
   for (let i = 0; i < checked.length; i++) {
-    for (let j = i + 1; j < checked.length; j++) {
-      const a = checked[i], b = checked[j];
-      if (!touches(a, b, CONTACT_TOL_M)) continue;
-      a.attached.push(b.name); b.attached.push(a.name);
-      const aabb = boxOverlapFrac(a, b);
-      if (aabb <= OVERLAP_MIN_FRAC) continue;
-      const vol = (o) => [0, 1, 2].reduce((v, k) => v * Math.max(0.01, o.max[k] - o.min[k]), 1);
-      const [small, large] = vol(a) <= vol(b) ? [a, b] : [b, a];
-      const c = containment(small, large);
-      if (c.frac > OVERLAP_MIN_FRAC) out.push({ a: small.name, b: large.name, zone_a: small.zone, zone_b: large.zone, aabb_overlap: r3(aabb), inside_frac: r3(c.frac), samples: c.sampled });
-    }
+    for (let j = i + 1; j < checked.length; j++) test(checked[i], checked[j]);
+    for (const s of sceneryPieces) test(checked[i], s);
   }
   return out.sort((x, y) => y.aabb_overlap - x.aabb_overlap).slice(0, 40);
 }
@@ -430,11 +492,11 @@ function survey(scene, opts) {
   const notes = [];
   scene.updateMatrixWorld(true);
   const { map: indices, volumetric } = indexMeshes(scene, notes);
-  const { assets, total } = collectAssets(scene, indices, volumetric, opts.contentBox || null);
+  const { assets, total, scenery, sceneryPieces } = collectAssets(scene, indices, volumetric, opts.contentBox || null);
   const meshOwner = new Map();
   for (const a of assets) { a.meshSet = new Set(a.meshes); for (const ci of a.meshes) meshOwner.set(ci.mesh, a.name); }
   const groundY = Number.isFinite(opts.groundY) ? opts.groundY : null;
-  return { groundY, notes, indices, assets, total, owner: (mesh) => meshOwner.get(mesh) || nearestName(mesh) };
+  return { groundY, notes, indices, assets, total, scenery, sceneryPieces, owner: (mesh) => meshOwner.get(mesh) || nearestName(mesh) };
 }
 
 /** Probe every foot column of `a`: smallest gap (`best`) and largest (`gapMax`), how many columns
@@ -468,7 +530,7 @@ function probeFeet(a, indices, owner, groundY) {
  */
 export function placementTable(scene, THREE, opts = {}) {
   const t0 = Date.now();
-  const { groundY, notes, indices, assets, total, owner } = survey(scene, opts);
+  const { groundY, notes, indices, assets, total, scenery, sceneryPieces, owner } = survey(scene, opts);
   const checked = [];
   let timeCut = false;
   const rows = [];
@@ -494,7 +556,7 @@ export function placementTable(scene, THREE, opts = {}) {
     checked.push(a);
     rows.push(row);
   }
-  const inter = pairs(checked);
+  const inter = pairs(checked, sceneryPieces);
   for (const a of checked) {
     const row = a.row;
     row.attached = a.attached.slice(0, 8);
@@ -508,6 +570,8 @@ export function placementTable(scene, THREE, opts = {}) {
   return {
     version: 1, assets: rows, interpenetrations: inter, total, checked: checked.length,
     truncated: total > assets.length || timeCut, truncated_by_time: timeCut, exempt,
+    // the roots outside every marked zone (D111): measured as nothing, listed so nothing is silent
+    scenery: { n: scenery.length, names: scenery.slice(0, MAX_SCENERY_NAMES).map((o) => o.name || o.type) },
     thresholds: { contact_m: CONTACT_TOL_M, floating_m: FLOATING_M, sunk_m: SUNK_M, overlap_min: OVERLAP_MIN_FRAC },
     ground_y: groundY, notes, duration_ms: Date.now() - t0,
   };
@@ -549,8 +613,11 @@ export function settleScene(scene, THREE, opts = {}) {
   if (!opts.words) throw new Error('settleScene needs opts.words (runtime_js/lib/placement_words.json)');
   const buriedOk = new Set(opts.words.buried_ok), slopeOk = new Set(opts.words.slope_ok);
   const partialOk = new Set(opts.words.partial_ok), partialFrac = opts.words.partial_ok_frac;
-  const { groundY, indices, assets, owner } = survey(scene, opts);
+  const { groundY, indices, assets, sceneryPieces, owner } = survey(scene, opts);
   const checked = assets.filter((a) => !a.exempt);
+  // what a floating asset may be mounted on: another zone asset or a scenery piece (an env facade
+  // holding a sign or a sconce, D111) — the gate's `attached` rule, pairs() above
+  const neighbours = [...checked, ...sceneryPieces];
   const moves = [];
   const t0 = Date.now();
   for (const a of checked) {
@@ -579,7 +646,7 @@ export function settleScene(scene, THREE, opts = {}) {
       } else { continue; }
     } else if (best && best.gap !== null && best.gap > FLOATING_M) {
       // mounted on a neighbour?  touching anything → leave it alone
-      if (checked.some((b) => b !== a && touches(a, b, CONTACT_TOL_M))) continue;
+      if (neighbours.some((b) => b !== a && touches(a, b, CONTACT_TOL_M))) continue;
       dy = -(best.gap - SETTLE_SEAT_EPS_M);               // drop onto the support
       why = 'floating';
     } else { continue; }

@@ -262,14 +262,19 @@ def build_refine_instructions(
     """Gate ERRORS first (with fix hints) — a part still the skeleton's placeholder
     (``PLACEHOLDER_PART``) ahead of every other gate ERROR —, then ``extra`` harness-derived tasks
     (e.g. reference-silhouette mismatch), then failed *must* acceptance items,
-    then the judge's improvement plan; de-duplicated by (target, kind), capped.
-    Gate/acceptance/extra tasks are never dropped by the cap unless they alone exceed it."""
+    then the judge's improvement plan; de-duplicated by (target, kind, finding kind), capped.
+    Gate/acceptance/extra tasks are never dropped by the cap unless they alone exceed it.
+
+    The finding kind (``GateFinding.data["kind"]``) is part of a gate task's key (D111): with
+    (target, ``gate:<gate>``) alone every env ERROR of ``scene_placement`` collapsed into the
+    first, so ``no_fog`` hid ``no_background`` from the refine prompt (argon loop iteration 4,
+    r1_08 / r1_10).  Two findings of one kind on one target are still one task."""
     known = _known_targets(plan)
     tasks: list[RefineTask] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
 
-    def _add(t: RefineTask) -> None:
-        key = (to_snake(t.target), t.kind)
+    def _add(t: RefineTask, finding_kind: str = "") -> None:
+        key = (to_snake(t.target), t.kind, finding_kind)
         if key in seen:
             return
         seen.add(key)
@@ -282,7 +287,7 @@ def build_refine_instructions(
     errors.sort(key=lambda gf: gf[1].data.get("kind") != PLACEHOLDER_PART)   # stable: placeholders first
     for g, f in errors:
         _add(RefineTask(target=f.target or "overall", kind=f"gate:{g.gate}", instruction=f.as_line(),
-                        priority=0, source="gate"))
+                        priority=0, source="gate"), str(f.data.get("kind") or ""))
     for t in extra:
         _add(t.model_copy())
     for a in acceptance_failures:

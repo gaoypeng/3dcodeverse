@@ -7,6 +7,7 @@ classification, and the tool-call trace.  (``cli/`` is the harness's own ``3dcod
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -135,8 +136,14 @@ class ActivityTracker:
 
 
 def _latest_mtime(dirs: Iterable[Path]) -> float:
+    """Newest mtime under ``dirs`` — a directory is walked, a FILE is its own mtime (a
+    ``shared_tree`` session watches only its own files, D111)."""
     latest = 0.0
     for d in dirs:
+        if d.is_file():
+            with contextlib.suppress(OSError):
+                latest = max(latest, d.stat().st_mtime)
+            continue
         if not d.is_dir():
             continue
         for root, subdirs, files in os.walk(d):
@@ -166,8 +173,8 @@ def run_with_watchdog(
     """Run ``cmd`` streaming output; kill the process group on idle/hard timeout.
 
     ``on_line(stream, line)`` is called for every line (stream is ``"stdout"``
-    or ``"stderr"``).  ``activity_dirs`` (default ``cwd/src``) are polled for
-    mtime changes (every ``scan_s``) that also count as activity.
+    or ``"stderr"``).  ``activity_dirs`` (default ``cwd/src``; a file is watched as itself)
+    are polled for mtime changes (every ``scan_s``) that also count as activity.
 
     Since 2026-08-27 the process lifecycle lives in
     :class:`codeverse3d.proc.ManagedProcess`; this function keeps only the clocks.
@@ -304,20 +311,30 @@ def _hinted(path: str, hints: frozenset[str]) -> bool:
     return any(path == h or path.startswith(h.rstrip("/") + "/") for h in hints)
 
 
-def attribute_changes(files: list[FileChange], *, write_roots: list[str]) -> list[FileChange]:
+def attribute_changes(files: list[FileChange], *, write_roots: list[str],
+                      only: Iterable[str] | None = None) -> list[FileChange]:
     """The subset of a whole-worktree git diff that belongs to ONE session: inside its
-    ``write_roots`` and not harness-owned.  (Sessions on one workspace are serialised —
-    :data:`EXCLUSIVE_KINDS` — so there is no sibling to attribute against.  An ``own_hints``
-    parameter sat in this signature unread until 2026-08-30: the edit_only scope is enforced
-    by :func:`_enforce_scope`, which REVERTS an out-of-scope write rather than hiding it from
-    ``files_changed``, so narrowing here would only have lied about what the session did.)"""
+    ``write_roots`` and not harness-owned.  (Agent sessions on one workspace are serialised —
+    :data:`EXCLUSIVE_KINDS` — so there is no sibling SESSION to attribute against; the
+    edit_only scope is enforced by :func:`_enforce_scope`, which REVERTS an out-of-scope write
+    rather than hiding it from ``files_changed``.)
+
+    ``only`` — a ``shared_tree`` job's ``files_hint`` (D111): harness writers that take no
+    session lock (the scene asset single-shots) change the same tree while the session runs,
+    and the diff cannot tell their files from the session's.  The env session of iteration 4
+    (argon loop, 2026-10-15) wrote nothing in 12 of 15 runs and was credited with the asset
+    files every time, so its stage read ``ok``.  Under ``only`` a path outside it is not the
+    session's."""
     roots = tuple(r.strip("/") for r in write_roots if r.strip("/"))
+    own = _clean(only) if only is not None else None
     out: list[FileChange] = []
     for f in files:
         parts = Path(f.path).parts
         if not parts or parts[0] in HARNESS_OWNED_DIRS or f.path in HARNESS_OWNED_FILES:
             continue
         if roots and not any(f.path == r or f.path.startswith(r + "/") for r in roots):
+            continue
+        if own is not None and not _hinted(f.path, own):
             continue
         out.append(f)
     return out
@@ -490,7 +507,8 @@ def finish_session(
     **extra: Any,
 ) -> AgentResult:
     """Commit the agent's work, compute ``files_changed`` via git (attributed to this
-    session — see :func:`attribute_changes`), write result.json.  ``turns`` is the
+    session — see :func:`attribute_changes`; a ``shared_tree`` job is credited with its
+    ``files_hint`` only), write result.json.  ``turns`` is the
     backend's own count (``AgentResult.turns``); ``transient`` / ``quota`` its typed
     failure class and ``provider_wait_s`` the time its CLI lost to provider errors
     (:func:`provider_wait`); ``effort`` what the backend passed its CLI (``AgentResult.effort``);
@@ -512,7 +530,8 @@ def finish_session(
             errors.append(msg)
             s.notes.append(msg)
         s.ws.commit(f"agent:{s.label}")
-        files = attribute_changes(s.ws.changed_files(s.head_before), write_roots=s.job.write_roots)
+        files = attribute_changes(s.ws.changed_files(s.head_before), write_roots=s.job.write_roots,
+                                  only=s.files_hint if s.job.shared_tree else None)
         duration = round(time.monotonic() - s.t0, 3)
         res = AgentResult(
             ok=ok, exit_reason=exit_reason, text=text, files_changed=files,
@@ -573,7 +592,8 @@ def invoke(
 
     One block every backend shares: the ``invoke`` transcript line, ``run_with_watchdog``
     (workspace cwd, the job's soft timeout, ``IDLE_GRACE_S``, every output line into the
-    transcript, ``src/`` + ``public/`` as activity dirs) and the stdout/stderr captures next to
+    transcript, ``src/`` + ``public/`` as activity dirs — a ``shared_tree`` job's own files only,
+    :func:`activity_paths`) and the stdout/stderr captures next to
     the transcript.  ``stdout_name`` sets the capture's name (codex streams JSONL →
     ``stdout.jsonl``); ``on_stdout`` / ``on_stderr`` also receive each line as it arrives (the
     backends fold their event streams live).  The ``invoke`` line records the prompt's size,
@@ -601,11 +621,22 @@ def invoke(
         proc = run_with_watchdog(
             argv, cwd=s.ws.root, env=env, soft_timeout_s=soft, hard_timeout_s=hard,
             idle_grace_s=IDLE_GRACE_S, poll_s=POLL_S,
-            on_line=on_line, stdin=prompt, activity_dirs=[s.ws.src, s.ws.public],
+            on_line=on_line, stdin=prompt, activity_dirs=activity_paths(s),
         )
     s.traj.write_text(stdout_name, proc.stdout)
     s.traj.write_text("stderr.log", proc.stderr)
     return proc
+
+
+def activity_paths(s: Session) -> list[Path]:
+    """What the watchdog polls as this session's activity: ``src/`` + ``public/``, or — a
+    ``shared_tree`` job (D111) — its ``files_hint`` paths alone.  The asset single-shots
+    writing ``src/assets/`` beside the env session kept it "alive" until ~300 s after their
+    last write, so its kill time followed the asset stage (421-616 s on a 420 s window in the
+    12 iteration-4 runs whose session wrote nothing) instead of its own work."""
+    if s.job.shared_tree:
+        return [s.ws.root / h for h in sorted(s.files_hint)]
+    return [s.ws.src, s.ws.public]
 
 
 def watchdog_error(proc: CompletedProc) -> str:

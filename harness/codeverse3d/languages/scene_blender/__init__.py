@@ -37,7 +37,14 @@ from codeverse3d.contracts.artifacts import (
 )
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, ZonePlan
-from codeverse3d.conventions import fmt3, glb_basis, to_authoring_frame, to_pascal, to_snake
+from codeverse3d.conventions import (
+    ZONE_ROOT_KEY,
+    fmt3,
+    glb_basis,
+    to_authoring_frame,
+    to_pascal,
+    to_snake,
+)
 from codeverse3d.languages._ast_lint import (
     BASE_FORBIDDEN_IMPORTS,
     check_imports,
@@ -761,7 +768,7 @@ class SceneBlenderRuntime:
         out_dir.mkdir(parents=True, exist_ok=True)
         basis = ",".join(f"{v:g}" for row in glb_basis(LANGUAGE.value) for v in row)
         cmd = [self.blender_binary(), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
-               "--scene", str(ws.root / ENTRY_REL), "--out", str(out_dir), "--basis", basis,
+               "--scene", str(ws.root / ENTRY_REL), "--out", str(out_dir), "--basis", basis, "--zone-key", ZONE_ROOT_KEY,
                "--fps", str(FPS), "--frames", f"{frame_of(TIMES[0])},{frame_of(TIMES[-1])}",
                "--rlimit-gb", str(self._settings.limits.bpy_rlimit_gb), "--seed", "0"]
         if zones is not None:
@@ -834,7 +841,7 @@ class SceneBlenderRuntime:
         ws.write_json(ws.artifacts / "build.json", res)
         return res
 
-    def probe(self, ws: Workspace, *, timeout_s: float = 60.0) -> SceneProbeResult:
+    def probe(self, ws: Workspace, *, timeout_s: float | None = None) -> SceneProbeResult:
         """The build's own measurement (Blender run + census-GLB probe), without touching
         ``build.json``: an offline scene has no cheaper way to load."""
         from codeverse3d.spatial.probes import PROBE_GATE, probe_result
@@ -843,7 +850,7 @@ class SceneBlenderRuntime:
             gate = GateReport.of(PROBE_GATE, [GateFinding(gate=PROBE_GATE, severity=Severity.ERROR, target=ENTRY_REL,
                                                           message=f"{ENTRY_REL} does not exist", fix_hint="re-run the assemble step")])
             return probe_result(gate, {})
-        run, gate, census = self._measure(ws, timeout_s=max(timeout_s, float(self._settings.limits.build_timeout_s)),
+        run, gate, census = self._measure(ws, timeout_s=max(timeout_s or 0.0, float(self._settings.limits.build_timeout_s)),
                                           keep=("build.json",))
         if gate is None:
             r = run.result

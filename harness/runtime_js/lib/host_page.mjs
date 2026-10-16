@@ -49,10 +49,11 @@ export function requestFailureLine(url, base, hasResponse, errorText) {
 }
 
 /**
- * Open the host for workspace `wsRoot`.
+ * Open the host for workspace `wsRoot`.  `onBoot()` is called once the page is ready, right before
+ * the scene module is imported and createScene() runs (probe_scene.mjs: the watchdog's phase, D111).
  * @returns {Promise<{page, browser, base, gpu, renderer, errors, boot, close}>}
  */
-export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto', logDepth = false, sceneRel = 'src/scene.js', createSceneTimeoutMs = 0, settle = true, cameraRepair = false, autoExposure = false, post = true, postOptions = null, glb = null } = {}) {
+export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto', logDepth = false, sceneRel = 'src/scene.js', createSceneTimeoutMs = 0, settle = true, cameraRepair = false, autoExposure = false, post = true, postOptions = null, glb = null, onBoot = null } = {}) {
   wsRoot = path.resolve(wsRoot);
   // an offline scene (`glb`: its census GLB) boots the harness adapter, never a workspace module
   const sceneFile = glb || path.join(wsRoot, sceneRel);
@@ -99,6 +100,7 @@ export async function openHost(wsRoot, { width = 1024, height = 576, gpu = 'auto
     });
     await page.goto(`${srv.base}/__host.html`, { waitUntil: 'load', timeout: 60000 });
     await page.waitForFunction('window.__c3v_ready === true', { timeout: 60000 });
+    if (onBoot) onBoot();
     const boot = await page.evaluate(
       (o) => window.__c3v.boot(o),
       { sceneUrl, width, height, logDepth, createSceneTimeoutMs, settle, cameraRepair, autoExposure, post, postOptions },

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from codeverse3d.contracts.common import Usage
 
@@ -86,9 +86,23 @@ class AgentJob(BaseModel):
         "(src/lib/ for the scene languages: contracts.common.HARNESS_OWNED_SRC); enforced "
         "post-session: a write to one is reverted and the session failed",
     )
+    shared_tree: bool = Field(
+        default=False,
+        description="other harness writers change this workspace WHILE the session runs (the scene env stage "
+        "beside the asset single-shots, which take no session lock — D111): ``files_changed`` counts only "
+        "``files_hint`` and only a write to a ``files_hint`` path is watchdog activity.  Needs a ``files_hint``; "
+        "never with ``edit_only`` (a sibling's write cannot be told from an out-of-scope one, so the scope "
+        "revert would undo the sibling's work)",
+    )
     mcp_command: list[str] | None = Field(
         default=None, description="override for the 3dcode MCP server command"
     )
+
+    @model_validator(mode="after")
+    def _shared_tree_scope(self) -> AgentJob:
+        if self.shared_tree and (self.edit_only or not any(str(h).strip() for h in self.files_hint)):
+            raise ValueError("shared_tree needs a files_hint and excludes edit_only")
+        return self
 
 
 class AgentResult(BaseModel):

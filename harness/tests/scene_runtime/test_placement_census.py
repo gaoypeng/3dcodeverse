@@ -42,11 +42,6 @@ zone.add(box('Bench', 1.6, 0.9, 0.5, 16, 0, 15));
 zone.add(box('Boat', 2, 0.6, 0.8, -20, 0.0, -20));
 const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.6, 1), mat); rock.name = 'Rock'; rock.position.set(8, 0.2, -8); zone.add(rock);
 const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), mat, 50); inst.name = 'Pebbles'; zone.add(inst);
-// the env's room shell: a lid and a lintel whose box runs INTO the lid (a 3.2 m door head in a 3 m room) —
-// one enclosure, never placed assets (2026-10-15: half the Blender interpenetration ERRORs of loop iteration 0)
-const shell = new THREE.Group(); shell.name = 'RoomShell'; scene.add(shell);
-shell.add(box('Ceiling', 8.4, 0.2, 6.4, -30, 3.0, 30));
-shell.add(box('RoomShellWallBack_0Lintel', 1.2, 0.5, 0.2, -30, 2.8, 33.1));
 scene.updateMatrixWorld(true);
 const c = sceneCensus(scene, THREE, { placement: true });
 console.log(JSON.stringify({ ground_y: c.ground_y, placement: c.placement, plain_has_placement: 'placement' in sceneCensus(scene, THREE) }));
@@ -67,8 +62,10 @@ def _row(table, name):
 
 
 def test_counts_exemptions_and_budget(table):
-    assert table["total"] == 19 and table["checked"] == 12 and table["truncated"] is False
-    assert table["exempt"] == {"backdrop": 3, "enclosure": 2, "free": 1, "instanced": 1}
+    # an unmarked scene (no ZONE_ROOT_KEY, D111): every top-level child is a zone root, as before;
+    # the room shell's own case lives in test_zone_roots.py (a marked scene: scenery, no rows)
+    assert table["total"] == 17 and table["checked"] == 12 and table["truncated"] is False
+    assert table["exempt"] == {"backdrop": 3, "free": 1, "instanced": 1} and table["scenery"] == {"n": 0, "names": []}
     assert {a["name"] for a in table["assets"] if a["exempt"] == "backdrop"} == {"Ground", "SkyDome", "PondWater"}
     assert _row(table, "Bird")["exempt"] == "free" and _row(table, "Pebbles")["exempt"] == "instanced"
     assert table["duration_ms"] < 2000 and table["notes"] == []
@@ -94,16 +91,6 @@ def test_supported_floating_and_sunk_boxes(table):
     anvil = _row(table, "Anvil")
     assert anvil["sunk_m"] == pytest.approx(0.5, abs=1e-3) and anvil["sunk_into"] == "Ground" and anvil["ground_gap_m"] == pytest.approx(-0.5, abs=1e-3)
     assert anvil["supported"] and not anvil["floating"]
-
-
-def test_the_room_shells_members_are_the_enclosure_not_placed_assets(table):
-    """Walls, lid, sills and lintels under a `RoomShell…` root abut and overlap each other by
-    construction (a lintel runs into the lid here): they are exempt as the enclosure, so they get
-    no seating row and no interpenetration pair (24 of 41 Blender ERRORs in loop iteration 0)."""
-    for name in ("Ceiling", "RoomShellWallBack_0Lintel"):
-        row = _row(table, name)
-        assert row["zone"] == "RoomShell" and row["exempt"] == "enclosure"
-    assert not [p for p in table["interpenetrations"] if "RoomShell" in (p["zone_a"], p["zone_b"])]
 
 
 def test_interpenetration_is_a_pair_not_a_burial(table):

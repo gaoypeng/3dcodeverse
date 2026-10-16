@@ -309,6 +309,12 @@ class GenerationTask(BaseModel):
         default=False,
         description="enforce files_hint as the only existing files this session may overwrite",
     )
+    shared_tree: bool = Field(
+        default=False,
+        description="other harness writers change the workspace while this task's session runs: it is "
+        "credited with its files_hint only (AgentJob.shared_tree, D111 — the scene env stage beside the "
+        "asset single-shots)",
+    )
     owns_entry: bool = Field(
         default=False,
         description="this task may write the language entry file even under edit_only (assembly / "
@@ -564,6 +570,7 @@ def run_agent_task(
         track=track,
         files_hint=list(task.files_hint),
         edit_only=task.edit_only,
+        shared_tree=task.shared_tree,
         effort=session_effort(task),
         always_writable=_always_writable(language, task),
         read_only=_read_only(language),
@@ -768,13 +775,16 @@ def _attributed_fallback(ws: Workspace, task: GenerationTask, before: str) -> li
 
     A whole-worktree diff claims sibling tasks' files under fan_out (a task that
     wrote nothing looked ok because its neighbours wrote files); attribute the diff
-    to this task instead: inside its write roots, never harness-owned paths."""
+    to this task instead: inside its write roots, never harness-owned paths, and —
+    ``shared_tree`` — inside its ``files_hint`` (the session's own attribution came back
+    empty, and this fallback used to hand the env task the asset files right back, D111)."""
     raw = ws.changed_files(before)  # Workspace serialises + retries the git index itself
     try:
         from codeverse3d.agents.cli_common import attribute_changes
     except ImportError:  # pragma: no cover — agents package always ships with tracks
         return raw
-    return attribute_changes(raw, write_roots=list(task.write_roots))
+    return attribute_changes(raw, write_roots=list(task.write_roots),
+                             only=task.files_hint if task.shared_tree else None)
 
 
 def generate(

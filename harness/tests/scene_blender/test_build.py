@@ -76,6 +76,15 @@ def test_placement_rows_for_sunk_floating_and_free(built) -> None:
     assert [r["name"] for r in rows.values() if r["name"].startswith("GrassPatch")] == ["GrassPatch"]
 
 
+def test_the_zone_mark_survives_the_census_glb(built) -> None:
+    """D111: the census GLB's zone nodes carry ``extras[ZONE_ROOT_KEY]`` → three.js ``userData``, so only
+    the zones' children are rows; the env's roots (``Ground``) are scenery, measured as nothing."""
+    _, res = built
+    table = res.census["placement"]
+    assert table["assets"] and {r["zone"] for r in table["assets"]} <= {"Yard", "Meadow"}
+    assert "Ground" in table["scenery"]["names"]
+
+
 def test_bpy_facts_reach_the_census(built) -> None:
     ws, res = built
     c = res.census

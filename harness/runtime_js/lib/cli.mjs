@@ -72,12 +72,15 @@ export function safeName(name, label = 'name') {
   return s;
 }
 
-/** Wall-clock guard: kills the process if the driver exceeds its budget. */
+/** Wall-clock guard: kills the process if the driver exceeds its budget.  `onFire()` may
+ *  return extra summary fields (probe_scene.mjs: the `phase` the driver was in, D111). */
 export function armWatchdog(ms, onFire) {
   const t = setTimeout(() => {
-    try { onFire && onFire(); } catch (e) { /* ignore */ }
+    let extra = null;
+    try { extra = onFire ? onFire() : null; } catch (e) { /* ignore */ }
     process.stderr.write(`error: driver exceeded ${ms} ms budget\n`);
-    finish({ ok: false, error: `timeout after ${ms} ms` }, 3);   // flushes; see finish()
+    // `timed_out` (+ `phase`) are the typed words the python side reads (render_scene.SceneRenderError, D111)
+    finish({ ok: false, error: `timeout after ${ms} ms`, timed_out: true, ...(extra || {}) }, 3);   // flushes; see finish()
   }, ms);
   t.unref();
   return t;

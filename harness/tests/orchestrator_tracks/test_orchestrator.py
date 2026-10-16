@@ -125,3 +125,17 @@ def test_build_refine_instructions_merges_groups_and_the_cap_protects_gate_tasks
         ImprovementItem(target=f"J{i}", kind="geometry", instruction="x", priority=1) for i in range(5)])
     tasks = build_refine_instructions(judgment, gates, [], chair_plan, max_tasks=6)
     assert len(tasks) == 8 and all(t.source == "gate" for t in tasks)
+
+
+def test_two_env_errors_of_one_gate_are_two_refine_tasks(chair_plan):
+    """D111: the dedup key carries the finding's kind — ``no_fog`` no longer hides ``no_background``
+    (argon loop iteration 4: both ERRORs on target ``env`` of ``scene_placement``, one task in the prompt)."""
+    env = [GateFinding(gate="scene_placement", severity=Severity.ERROR, target="env", message="scene.fog is not set",
+                       data={"kind": "no_fog"}),
+           GateFinding(gate="scene_placement", severity=Severity.ERROR, target="env", message="scene.background is not set",
+                       data={"kind": "no_background"}),
+           GateFinding(gate="scene_placement", severity=Severity.ERROR, target="env", message="scene.fog is not set (again)",
+                       data={"kind": "no_fog"})]
+    tasks = build_refine_instructions(None, [GateReport(gate="scene_placement", passed=False, findings=env)], [], chair_plan)
+    lines = [t.instruction for t in tasks]
+    assert len(tasks) == 2 and any("fog" in x for x in lines) and any("background" in x for x in lines), lines

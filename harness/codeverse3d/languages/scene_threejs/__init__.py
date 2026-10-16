@@ -21,7 +21,7 @@ from codeverse3d.contracts.artifacts import (
 )
 from codeverse3d.contracts.common import ENTRY_FILE, Language
 from codeverse3d.contracts.plan import AssetPlan, CameraPlan, Plan, ScenePlan, ZonePlan
-from codeverse3d.conventions import OBJECT_VIEWS_QUICK, to_pascal, to_snake
+from codeverse3d.conventions import OBJECT_VIEWS_QUICK, ZONE_ROOT_KEY, to_pascal, to_snake
 from codeverse3d.languages._common import line_of, missing_entry, target_file, target_line, ws_rel
 from codeverse3d.languages._js_lint import (
     ExportsCache,
@@ -586,6 +586,7 @@ export async function createScene({{ renderer, loaders }}) {{
       if (!g || !g.isObject3D) throw new Error('build(ctx) did not return a THREE.Object3D');
       const wrap = new THREE.Group();
       wrap.name = '__zone__' + name;
+      g.userData['{ZONE_ROOT_KEY}'] = name;   // as createScene marks it: the settle at boot moves zone assets only
       wrap.add(g);
       scene.add(wrap);
       wraps.push(wrap);
@@ -737,6 +738,7 @@ export async function createScene({{ renderer, loaders }}) {{
     const g = await build(ctx);
     if (!g || !g.isObject3D) throw new Error(`zone ${{name}}: build(ctx) must return a THREE.Group`);
     if (!g.name) g.name = name;
+    g.userData['{ZONE_ROOT_KEY}'] = name;   // the harness's zone mark: the placement table measures its children
     scene.add(g);
     zones.push(g);
   }};
@@ -828,7 +830,7 @@ class SceneThreeJsRuntime:
     def assemble(self, ws: Workspace, plan: ScenePlan) -> AssembleResult:
         return assemble(ws, plan, cameras="plan" if getattr(plan, "cameras", None) else "derive")
 
-    def probe(self, ws: Workspace, *, timeout_s: float = 60.0) -> SceneProbeResult:
+    def probe(self, ws: Workspace, *, timeout_s: float | None = None) -> SceneProbeResult:
         from codeverse3d.spatial.probes import probe_scene
 
         return probe_scene(ws, timeout_s=timeout_s)

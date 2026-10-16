@@ -263,6 +263,16 @@ def split_instance(name: str) -> tuple[str, str]:
 #: (``spatial/joints_export``); ``spatial/measure`` merges them back into the link's part.
 LINK_PIECE_SEP = "__"
 
+#: the harness's own mark on a scene's ZONE roots (D111): ``userData[ZONE_ROOT_KEY] = <zone name>`` in
+#: three.js, set by the assembler (``render_scene_js``'s ``addZone``), and the census GLB's zone node
+#: ``extras`` for scene_blender (``wrappers/_census_glb.py``, handed the key on argv — it cannot import
+#: this module), which GLTFLoader turns into the same ``userData``.  The placement table reads it
+#: (``runtime_js/lib/host_placement.mjs`` ``ZONE_ROOT_KEY``; ``tests/scene_runtime/test_zone_roots.py``
+#: pins the two): only children of a marked root are placed assets — every other root (env scenery, a
+#: zone's stray ``scene.add``) is scenery, never a row.  A key, never a name test: a zone may name its
+#: group anything, and an env group may be called anything too.
+ZONE_ROOT_KEY = "c3d_zone"
+
 
 def part_key(node: str, plan_keys: Collection[str]) -> str | None:
     """The plan part (a snake key in ``plan_keys``) a GLB node belongs to, or None: the

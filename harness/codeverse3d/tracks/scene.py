@@ -349,15 +349,52 @@ class SceneTrack(BaseTrack):
         return manifest
 
     def _env_stage(self, ctx: RunContext) -> dict[str, Any]:
+        """The env session, honest (D111): ``ok`` only when the env module ITSELF was written in this
+        stage — the session's ``files_changed`` (its ``files_hint`` alone: ``shared_tree``) or the
+        file's mtime, the test the zone stage uses.  Iteration 4 of the argon loop (scene_threejs,
+        2026-10-15): the session read for 7-10 minutes and wrote nothing in 12 of 15 runs, was
+        credited with the asset files the single-shots wrote beside it, and the stage read ``ok``;
+        round 0 was unlit and the one refine round wrote the whole environment from the skeleton.
+        A failed stage gets ONE recovery before the zones are written (:meth:`_recover_env`)."""
+        rel, t0 = env_file(ctx), time.time()
         res = self._stage_session(ctx, "env", "env", self._env_task)
-        return {"ok": res.ok, "files": [c.path for c in res.files_changed], "notes": res.notes}
+        written = {c.path for c in res.files_changed}
+        ok = res.ok and (rel in written or _touched(ctx.ws.root / rel, t0))
+        out = {"ok": ok, "files": sorted(written) if ok else [], "notes": res.notes}
+        if not ok and ctx.budget.ok():
+            out = self._recover_env(ctx, out)
+        return out
+
+    def _recover_env(self, ctx: RunContext, failed: dict[str, Any]) -> dict[str, Any]:
+        """One single-shot generation of the env module the session left unwritten — the
+        :meth:`_recover_zones` rule for the env stage (D111): a fresh brief, single-shot (it cannot
+        spend its window reading), bounded by the env window the budget still allows.  It runs
+        before the zone stage starts, so no zone is authored against the skeleton's placeholder
+        (iteration 4, r1_01: a zone author built its own replacement world inside its zone file).
+        A recovery that also fails leaves the placeholder, and the stage reports it failed."""
+        gen = ctx if ctx.single_shot else (single_shot_ctx(ctx) or ctx)
+        rel = env_file(ctx)
+        ctx.events.emit("env.recover", file=rel, notes=str(failed.get("notes", ""))[:300])
+        t0 = time.time()
+        try:
+            task = self._env_task(gen)
+            res = generate_for(gen, task.model_copy(update={"label": f"{task.label}.recover"}))
+        except Exception as e:  # noqa: BLE001 — BudgetExceeded included: the boundary check after the stage stops the run
+            out = {"ok": False, "files": [], "notes": f"recover: {type(e).__name__}: {e}"[:500]}
+        else:
+            ok = res.ok and (rel in {c.path for c in res.files_changed} or _touched(ctx.ws.root / rel, t0))
+            out = {"ok": ok, "files": [rel] if ok else [], "notes": f"recovered single-shot: {res.notes}"[:500]}
+        ctx.ws.commit("env.recover")
+        ctx.events.emit("env.recovered", ok=out["ok"], file=rel)
+        return out
 
     def _env_task(self, ctx: RunContext) -> GenerationTask:
         prompt = render(scene_templates(ctx.language).env, **self._ctx(ctx))
         ctx.record_prompt("scene_env", prompt)
+        # shared_tree: the asset single-shots write src/ side by side with this session (D111)
         return GenerationTask(label="env", prompt=prompt, system=self.system_prompt(ctx), files_hint=[env_file(ctx)], round=0, kind="env",
                               temperature=0.5, timeout_s=ctx.budget.timeout_s(ENV_TIMEOUT_S, floor_s=120),
-                              images=reference_images(ctx))
+                              images=reference_images(ctx), shared_tree=True)
 
     def _zones_stage(self, ctx: RunContext) -> dict[str, Any]:
         plan: ScenePlan = ctx.plan  # type: ignore[assignment]

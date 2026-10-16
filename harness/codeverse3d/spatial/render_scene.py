@@ -48,8 +48,32 @@ JUDGE_MAX_VIEWS = 10
 MAX_JUDGE_OVERVIEWS = 4
 
 
+#: The ``probe_scene.mjs`` watchdog phases that are the scene's own construction work (D111): the
+#: module import + createScene() + the boot settle (``scene``), the census + placement table over
+#: what it built (``census``) and ``update``.  Every other phase — ``host`` (browser launch, page
+#: ready), ``report``, ``compile`` (the shader preflight), ``close`` — and a driver killed by the
+#: process clock (node itself starved: its own watchdog never got to run) are the box's.
+SCENE_PHASES = frozenset({"scene", "census", "update"})
+
+
 class SceneRenderError(RuntimeError):
-    """The node driver could not run (missing node/deps, timeout, crash)."""
+    """The node driver could not run (missing node/deps, timeout, crash).
+
+    ``timed_out`` (typed, D111): the driver ran out of its budget — its own watchdog's summary
+    (``lib/cli.armWatchdog``: ``timed_out: true``, exit 3) or the process clock above it — after
+    the one retry :func:`run_scene_script` grants.  ``phase`` is the watchdog's word for where the
+    driver was (empty from the process clock or a driver that names none); :attr:`scene_timed_out`
+    is the one case that is a verdict on the code (``probes.run_probe``), not the box."""
+
+    def __init__(self, message: str, *, timed_out: bool = False, phase: str = ""):
+        super().__init__(message)
+        self.timed_out = timed_out
+        self.phase = phase
+
+    @property
+    def scene_timed_out(self) -> bool:
+        """The driver's own watchdog fired while the scene's code was running (:data:`SCENE_PHASES`)."""
+        return self.timed_out and self.phase in SCENE_PHASES
 
 
 def _driver_failed(r: NodeResult) -> bool:
@@ -64,8 +88,9 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
     on timeout).  The driver prints a JSON summary as its LAST stdout line; a
     timeout or exit code 2/3 means the driver itself failed → ``SceneRenderError``.
 
-    A driver that lost its BROWSER (``node.BROWSER_LOST_MARKERS``) is retried once on
-    a browser of its own.  That failure is the box, not the workspace, and without the
+    A driver that lost its BROWSER (``node.BROWSER_LOST_MARKERS``) — or whose own watchdog
+    fired (``timed_out``: a wedged shared browser times out the same way, D111) — is retried
+    once on a browser of its own.  That failure is the box, not the workspace, and without the
     retry it costs the round every render and therefore its judge — the object path
     has retried it since 2026-08-28 (``spatial/render.py``), the scene path did not.
     """
@@ -84,16 +109,21 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
             return run_node(path, argv, cwd=cwd or rt, timeout_s=timeout_s, env_extra=env, check=False)
         except NodeError as e:
             if e.result is not None and e.result.timed_out:
-                raise SceneRenderError(f"{script} timed out after {timeout_s:.0f}s\n{e.result.stderr_tail}") from e
+                # the PROCESS clock: node's own watchdog (timeout_s - 20 s) never ran — the box, no phase
+                raise SceneRenderError(f"{script} timed out after {timeout_s:.0f}s\n{e.result.stderr_tail}",
+                                       timed_out=True) from e
             raise SceneRenderError(f"{script} could not run: {e}") from e
 
     r = attempt(env_extra)
     err = str(r.summary.get("error", "")) if r.summary else r.stderr_tail
     lost_browser = _driver_failed(r) and browser_was_lost(err)
+    # the driver's own watchdog fired: retried on an OWNED browser, so a wedged shared one cannot
+    # time out both attempts and have the second read as the scene's construction cost (D111)
+    timed_out = not lost_browser and _driver_failed(r) and bool(r.summary.get("timed_out"))
     # the rest of the transient vocabulary (`node.TRANSIENT_MARKERS`): a host that timed out
     # waiting for the page under contention ("Waiting failed: 60000ms exceeded") — the object
     # path retried it, this one did not, and a battery cell lost every render to it
-    transient = not lost_browser and _driver_failed(r) and transient_failure(err)
+    transient = not lost_browser and not timed_out and _driver_failed(r) and transient_failure(err)
     # Every scene driver ends with a JSON summary line (`lib/cli.finish` / `fail`), so a run
     # that produced none had its stdout tail dropped — `proc._ABANDONED`, which a loaded box
     # makes routine.  That is transient and worth one more attempt; without it the empty
@@ -101,12 +131,13 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
     # boot" and spend the round's repair budget on a defect that was never there
     # (desert_canyon, bench/out/scene_baseline, 2026-09-05).
     lost_output = not lost_browser and not r.summary
-    if lost_browser or lost_output or transient:
+    if lost_browser or lost_output or transient or timed_out:
         log.warning(
             "%s %s; retrying once%s",
             script,
             f"lost its browser ({err[:200]})" if lost_browser
             else f"exited {r.rc} with no summary line (output lost)" if lost_output
+            else f"ran out of its budget in phase {r.summary.get('phase') or '?'}" if timed_out
             else f"failed transiently ({err[:200]})",
             "" if transient else " on an owned browser",
         )
@@ -115,7 +146,8 @@ def run_scene_script(script: str, args: Sequence[str], *, timeout_s: float, cwd:
     if _driver_failed(r):
         raise SceneRenderError(
             f"{script} failed (exit {r.rc}): {summary.get('error') if summary else ''}\n"
-            f"stderr tail: {r.stderr_tail}\nstdout tail: {r.stdout[-1000:]}"
+            f"stderr tail: {r.stderr_tail}\nstdout tail: {r.stdout[-1000:]}",
+            timed_out=bool(summary.get("timed_out")), phase=str(summary.get("phase") or ""),
         )
     return r
 

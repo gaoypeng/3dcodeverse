@@ -1266,7 +1266,8 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   the loop's first live `generate` / 30-run `run` are iteration 0.  **Amended 2026-10-15 (iteration 0, first
   wave):** 24 of the 41 Blender `interpenetration` ERRORs were members of ONE room shell (lintel × lid, trim ×
   trim) — the placement host now exempts every row under a `RoomShell…` root as the enclosure (both scene
-  languages; the same name the overview rig lifts), and `lib.architecture.room_shell` clamps an opening's
+  languages; the same name the overview rig lifts; superseded by D111: a room shell is a scenery root of a
+  marked scene and the name rule is deleted), and `lib.architecture.room_shell` clamps an opening's
   sill/head into the wall (a 3.2 m door head in a 3 m room had inverted the lintel into a slab above the lid).
   Runs of iteration 0 that built before the fix were gated by the old rule (noted in the loop ledger).
   **Amended 2026-10-15 (iteration 0 read, iteration 1 written):** 60 argon scenes (30 per language, rung 1,
@@ -1582,6 +1583,91 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   part does not: blender, cadquery, threejs; a tapered cadquery extrude at its plan box does not; a bare box
   exactly at it does), `tests/agents/test_antigravity.py::test_effort_reaches…` /
   `…object_and_scene_tasks_run_argon_at_high`, `tests/agents/test_agent_job_wiring.py`.
+
+* **D111 Stage honesty and measured scenery: the env stage counts only its own file, placement rows come
+  from the plan's zone roots, a probe timeout is the code's (2026-10-16).**  Evidence: argon loop iteration 4,
+  scene_threejs (`eval/bench/out/loop_argon/iter_04/scene_threejs`, 15 runs, read-only investigation of
+  r1_01 / r1_02 / r1_08 / r1_10).  (1) The env session wrote `src/env.js` in 3 of 15 runs; in the other 12 it
+  read for 7-10 min, was killed idle, and was credited with the `src/assets/*` files the asset single-shots
+  wrote beside it (whole-tree diff, `attribute_changes`), so `stages/env.json` read `ok:true`; the same asset
+  writes kept its idle clock alive (the 12 ended at 421-616 s on a 420 s window; the 3 that wrote ran into the 720 s hard cap).  Round 0 was unlit (dark_frame,
+  no_fog, no_background; round-0 mean 0.394) and the single refine round wrote the whole environment from the
+  skeleton; in r1_01 a zone author built a replacement world inside its zone file.  (2) `host_placement.
+  collectAssets` made every direct child of every top-level root a placed asset, so a wall merged per material
+  became overlapping body / flashing rows and a two-mesh bollard a cap "interpenetrating" its post.  Replayed
+  with the stored scenes (probe unmarked vs marked): 9 / 10 / 3 / 15 placement ERRORs on roots outside the plan's
+  zones in r1_01 / r1_02 / r1_03 / r1_10, and r1_02's and r1_10's final ERRORs were all of that kind.  r1_01 is
+  mixed: its final round's 10 ERRORs were 5 real clips of the zone asset `BakeryStoop/BakeryStorefrontFacade`
+  into `AlleyFallbackEnvelope` (337 meshes that a ZONE added straight to the scene, `scene.add`, not the env),
+  the `zone_empty` the envelope caused by filling the 400-row table before `ScooterParkingNook`, and scenery
+  pairs.  (3) r1_08's refine terrain made the zones' per-vertex raycast
+  seating exceed the 120 s probe; the probe said "harness/driver failure, not your code", and the round spent
+  3 x 240 s rebuilding identical code and was never scored.  (4) `build_refine_instructions` deduplicated on
+  (target, `gate:<gate>`), so `no_fog` hid `no_background`.  CHANGED: `AgentJob` / `GenerationTask`
+  `shared_tree` (typed; needs a `files_hint`, excludes `edit_only`): such a session's `files_changed` is its
+  `files_hint` only (`cli_common.attribute_changes(only=)`, also `generation._attributed_fallback`) and the
+  watchdog polls only those files (`cli_common.activity_paths`; `_latest_mtime` takes a file).  The scene env
+  task sets it; `SceneTrack._env_stage` is ok only when `env_file(ctx)` is in `files_changed` or rewritten
+  since the stage began (`_touched`, the zone stage's test) and otherwise runs ONE single-shot
+  `_recover_env` before the zones (events `env.recover` / `env.recovered`; the env window the budget still
+  allows) — both scene languages, through `env_file`.  Plain sessions keep the whole diff: a refine that also
+  fixed a file outside its hint must not turn into `ok=False` and a RoundFailed.  The assembler marks every
+  zone root `userData[conventions.ZONE_ROOT_KEY]` (`render_scene_js` `addZone`, the assembler's own probe), the
+  scene_blender census GLB writes the same key into each zone node's `extras` (`--zone-key` argv →
+  `_census_glb.write_census_glb(zone_key=)`; GLTFLoader turns it into `userData`); `host_placement` measures
+  only the children of marked roots as rows — every other root is scenery: no rows, not in the free share, never
+  paired with other scenery, listed in the table's `scenery` {n, names} and the summary.  Its children are still
+  measured as SCENERY PIECES (`measurePiece`, the zone assets' own exemptions: a ground / water / enclosing piece
+  is a backdrop): a support and something to sink into, something a zone asset is mounted on (`attached`, so
+  neither the gate nor the boot settle calls a sconce on an env facade floating) and something a zone asset can
+  clip (a zone-vs-scenery interpenetration names the zone asset `a`, the one its author can move — r1_01's five
+  storefront clips stay measured).  A scene with no mark at all (one the harness did not assemble) keeps the old
+  rule.  A table cut by its ROW CAP (`total` > rows; a time-budget cut still writes a row per asset) gives an INFO
+  `zone_unmeasured` instead of `zone_empty` for a zone whose census group is built (`content` / `ground`, not
+  `empty`), and instead of `missing_content` for the zone at the cut (the last row's).  The `missing_content`
+  hint says where a row comes from: a direct child of the zone's group (scene_blender: a root object linked into
+  the zone's collection).  A probe timeout is typed: `SceneRenderError.timed_out` + `phase`, the phase
+  `probe_scene.mjs`'s watchdog reports (`armWatchdog`'s `onFire` returns it; `host_page.openHost(onBoot=)` marks
+  the import); `run_scene_script` retries a watchdog timeout once on a browser of its own (a wedged shared browser
+  times out the same way), and only `SceneRenderError.scene_timed_out` — the phase is `scene` (import,
+  createScene, the boot settle), `census` or `update` (`render_scene.SCENE_PHASES`) — makes `probes.run_probe`
+  file an ERROR `probe_timeout` on the entry file with no "not your code" hint, so `build_with_repair` sends it to
+  a repair session instead of `MAX_HARNESS_REBUILDS` rebuilds.  The box keeps every other timeout: `host`
+  (browser launch, page ready), `report`, `compile` (the shader preflight), `close`, the process clock (node
+  itself starved) — and every census-GLB boot (scene_blender: Blender already ran the author's code; the GLB is
+  the harness's export).  The `scene_probe` tool probes under the build's budget (`probe(timeout_s=None)`; it was
+  60 s against the build's 120 s, so a timeout now the code's would have condemned a scene the build accepts).
+  The refine dedup key carries the finding's `data["kind"]`.  BEHAVIOUR that changes with the mark: env scenery
+  is no longer moved by the boot settle — it renders as authored (r1_03 replay: the settle had lifted the env's
+  `PerimeterPromenadeDecks` 1.42 m, and the zone's landing deck now clips it, a new zone-vs-scenery finding); a
+  floating env prop is no longer measured at all; planned content a zone adds with `scene.add` is not that zone's
+  (`missing_content`).  Accepted, not fixed: a pre-D111 three.js run resumed or replayed keeps its unmarked
+  `scene.js` (the assemble stage is keyed on the plan) and is measured by the old rule WITHOUT the RoomShell
+  exemption (Law 4: no name rule comes back for old runs); an env session writes nothing to its own file
+  inside its 420 s window → the same idle kill every agy session gets (agy prints nothing until it exits, so
+  its only activity is its own writes), then `_recover_env`; an env session that COMPLETES without writing gets
+  the generic silent-bail rerun before `_recover_env`, as the zones stage does (0 of 15 in iteration 4: all
+  ended `timeout`).  DELETED: the `RoomShell…` name-prefix enclosure exemption in `host_placement`
+  (D105 follow-up of 2026-10-15) — a room shell is a scenery root of a marked scene.  NOT changed: no prompt
+  text, no template, no default env (requirement-only prompts untouched; argon effort stays high); the idle
+  watchdog for read-only refine sessions; `probeColumn`'s ground-like burial rule (no zone-asset repro).
+  `tests/prompts/manifest.json` re-blessed for the job `scope` payloads only (the new `shared_tree` field in
+  every `AgentJob` dump, true on the scene env jobs) — no prompt, system, context or judge payload changed.
+  Model-visible outside the manifest: the assembled `src/scene.js` (a file refine sessions read) gains the one
+  harness-owned mark line per zone, and the `missing_content` / `probe_timeout` finding texts.
+  Measure next: env-stage write rate (3/15 → ≥ 13/15 from `git log -- src/env.js`), round-0 mean, share of
+  round-1 diffs that are 300+-line env rewrites, `build.harness_retry` events, placement ERRORs on non-zone
+  roots (0).  Pinned: `tests/agents/test_shared_tree.py`, `tests/orchestrator_tracks/test_env_stage_honest.py`,
+  `tests/scene_runtime/test_zone_roots.py` (env parapet merged by material + two-mesh bollards + room shell →
+  no rows, the zone's sunken / interpenetration findings identical to a zone-only scene; sconces and a sign flush
+  on an env facade attached and left by the settle, a kiosk pushed into it an interpenetration on the kiosk; the
+  unmarked control),
+  `tests/scene_blender/test_build.py::test_the_zone_mark_survives_the_census_glb`,
+  `tests/scene_runtime/test_probe_timeout.py` (phases; the owned-browser retry; the process clock; the census
+  GLB; one budget for the tool and the build; a real driver whose createScene blocks reports `phase: scene`),
+  `tests/orchestrator_tracks/test_orchestrator.py::test_two_env_errors_of_one_gate_are_two_refine_tasks`,
+  `tests/scene_gates/test_placement.py::test_a_zone_past_a_truncated_tables_cut_is_unmeasured_not_empty` /
+  `::test_the_zone_at_a_truncated_tables_cut_is_partly_measured`.
 
 ## Rejected / deferred
 

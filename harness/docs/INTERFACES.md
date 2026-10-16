@@ -247,7 +247,12 @@ An expired job never launches a CLI. Recomputed on resume; `None` keeps standalo
 session grace. Process termination and final packaging can finish after the deadline),
 `mcp_command` (override), `files_hint` (workspace-relative files/dirs the task is
 expected to touch — used to attribute `files_changed`; harness-owned paths are dropped;
-sessions on one workspace are serialised, so there is no sibling filter),
+agent sessions on one workspace are serialised, so there is no sibling filter), **Δ D111**
+`shared_tree: bool` (harness writers that take no session lock — the scene asset single-shots — write
+the tree while the session runs: `files_changed` is the `files_hint` paths only
+(`cli_common.attribute_changes(files, write_roots=, only=)`, also `generation._attributed_fallback`) and the
+watchdog polls only those files (`cli_common.activity_paths(s)`); needs a `files_hint`, never with
+`edit_only` — a validator; `GenerationTask.shared_tree` carries it; the scene env task sets it),
 `edit_only` / `always_writable` (a scoped refine may overwrite only its hinted files +
 the entry file), **Δ D110** `effort: AgentEffort | None` (`Literal["low","medium","high"]`; filled from
 `GenerationTask.thinking` only when the caller asked — `tracks.generation.session_effort`; None = the
@@ -304,6 +309,22 @@ rt.env_file: str                                      # Δ 2026-10-14 (D105) src
 #   glb = an OFFLINE scene's census GLB (probe_scene.mjs --glb → runtime_js/lib/glb_scene.mjs, served at /__census.glb;
 #   host_page.openHost(..., glb=)), facts merged into the census by probes.merge_facts before any finding;
 #   probes.probe_result (was _result); conventions.glb_basis(language) (3×3, language frame → GLB frame)
+# Δ 2026-10-16 (D111) render_scene.SceneRenderError(message, *, timed_out=False, phase=""): timed_out = the driver
+#   ran out of its budget (its watchdog's summary `timed_out: true` + `phase`, exit 3 — retried once on an OWNED
+#   browser — or the process clock, phase ""); .scene_timed_out = timed_out and phase in render_scene.SCENE_PHASES
+#   {"scene", "census", "update"} (probe_scene.mjs sets the phase; lib/cli.armWatchdog(ms, onFire) merges onFire()'s
+#   return into the summary; host_page.openHost(..., onBoot=) is called before the import).  Only then, and never
+#   for a census GLB (glb=), run_probe returns probes.timeout_finding(timeout_s, *, phase) — an ERROR kind
+#   "probe_timeout" on the entry file, NOT harness_failure (build_with_repair hands it to a repair session).
+#   probes.probe_scene / rt.probe(ws, *, timeout_s: float | None = None): None = the build's budget.
+# Δ (D111) conventions.ZONE_ROOT_KEY = "c3d_zone": the assembler sets userData[ZONE_ROOT_KEY] = <zone> on every zone
+#   root (render_scene_js addZone; scene_blender: write_census_glb(..., zone_key=) ← run_bpy_scene.py --zone-key);
+#   host_placement.mjs (ZONE_ROOT_KEY, pinned) rows = children of marked roots only; the other roots' children are
+#   scenery pieces — supports, `attached` targets (gate + settle), interpenetration partners of zone assets only
+#   (the zone asset is `a`); the table gains scenery {n, names} (scene_placement.PlacementTable.scenery:
+#   SceneryRoots); an unmarked scene keeps the old rule.  contract_findings: a table cut by its row cap
+#   (total > rows) → INFO "zone_unmeasured" instead of zone_empty (the zone's census group content/ground) and
+#   instead of missing_content for the last row's zone.
 from codeverse3d.prompts.catalog import language_prompt, language_text
 language_prompt(language, name) -> str   # "<dir>/<name>" under prompts/ (urdf_blender → urdf/): THE per-language prompt
 language_text(language, name) -> str     # its text, "" for a file the language does not ship (Δ 2026-09-22: replaces
@@ -562,6 +583,8 @@ StageNode(name, run: (track, ctx) -> Any, key: (ctx) -> dict | None = None, when
 run_stages(track, ctx, runner, stages) -> None;  plan_stage_key(spec, track) -> dict   # the plan's key (eval pin_plan too)
 StageRunner(ws, events, state=None, *, frozen=False)   # frozen (rounds exist): a recorded stage is served whatever its key
 from codeverse3d.orchestrator import RoundPolicy, build_refine_instructions, compact_instructions, gate_error_count
+# Δ 2026-10-16 (D111) build_refine_instructions de-duplicates a gate task on (target, "gate:<gate>", finding
+#   data["kind"]): two env ERRORs of scene_placement (no_fog, no_background) are two tasks
 RoundPolicy(max_rounds=4, max_refine_tasks=6, max_instructions_per_task=6, parallel_min_tasks=2,
             n_candidates=1, judge_samples=1)   # lifecycle.build_context: judge_samples = Settings.judge.samples (N74), n_candidates by ONE dataclasses.replace
     # Δ 2026-09-22 FIXED rounds: a run is the baseline + max_rounds refine rounds, EACH built on the round before

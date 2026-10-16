@@ -68,7 +68,12 @@ function fitCameras(census, azimuth, bounds) {
 async function main() {
   if (!args.ws) throw new Error('--ws is required');
   const timeoutMs = parseInt(args['timeout-ms'], 10);
-  const watchdog = armWatchdog(timeoutMs);
+  // The phase the watchdog reports when the budget runs out (D111; python: render_scene.SCENE_PHASES).
+  // `scene` (import, createScene, the boot settle), `census` (census + placement table) and `update`
+  // are the scene's own construction work, a verdict on the code; `host` (browser launch, page ready),
+  // `report`, `compile` (the shader preflight) and `close` are the box's.
+  let phase = 'host';
+  const watchdog = armWatchdog(timeoutMs, () => ({ phase }));
   const t0 = Date.now();
   let host;
   try {
@@ -80,6 +85,7 @@ async function main() {
       cameraRepair: !!args['camera-repair'],
       autoExposure: !!args['auto-exposure'],
       post: false,
+      onBoot: () => { phase = 'scene'; },
     });
   } catch (e) {
     return fail(`host failed: ${e.message}`);
@@ -88,6 +94,7 @@ async function main() {
   const result = { ok: false, renderer: boot.renderer || host.renderer, gpu: host.gpu, boot, census: null, update_ok: null, update_error: '', shader_errors: [] };
   try {
     if (boot.ok) {
+      phase = 'census';
       result.census = await page.evaluate(() => window.__c3v.census());
       // placement table (floating / sunken / unsupported / interpenetration per asset);
       // a failure here must never fail the probe — the python gate reports it as a WARN
@@ -97,6 +104,7 @@ async function main() {
         result.census.placement = { error: String((e && e.message) || e).slice(0, 400) };
       }
       // exercise update() for a few fixed steps and one tiny render (lazy programs compile)
+      phase = 'update';
       const upd = await page.evaluate((n) => {
         try {
           const animation_hooks = window.__c3v.probeUpdateHooks(n / 30);
@@ -125,6 +133,7 @@ async function main() {
       const bounds = args.bounds !== 'none' ? readJsonArg(args.bounds, 'bounds') : null;
       if (Number.isFinite(sunAz)) result.fitted_cameras = fitCameras(result.census, sunAz, bounds);
     }
+    phase = 'report';
     // Probe truth is snapshotted BEFORE any forced compile: the probe gate sees
     // exactly what a standalone probe would; the preflight below sees everything.
     result.shader_errors = (await page.evaluate(() => window.__c3v.shaderErrors())).map(({ _key, ...e }) => e);
@@ -132,6 +141,7 @@ async function main() {
     result.ok = boot.ok && result.update_ok === true && result.console_errors.length === 0 && result.shader_errors.length === 0;
 
     if (args.compile) {
+      phase = 'compile';
       const ts = Date.now();
       if (boot.ok) {
         const { report, files } = staticShaderReport(path.resolve(args.ws), null);
@@ -146,6 +156,7 @@ async function main() {
     }
 
     result.duration_ms = Date.now() - t0;
+    phase = 'close';
     clearTimeout(watchdog);
     await host.close();
     if (args.out) writeJson(path.resolve(args.out), result);

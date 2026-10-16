@@ -79,8 +79,9 @@ class SceneRuntime(LanguageRuntime, Protocol):
         the result lands in ``artifacts/assemble.json``."""
         ...
 
-    def probe(self, ws: Workspace, *, timeout_s: float = 60.0) -> SceneProbeResult:
-        """Load the built scene headlessly: the ``scene_probe`` gate + the census (``census.json``)."""
+    def probe(self, ws: Workspace, *, timeout_s: float | None = None) -> SceneProbeResult:
+        """Load the built scene headlessly: the ``scene_probe`` gate + the census (``census.json``),
+        under the build's own budget by default (D111)."""
         ...
 
     def render_scene(self, ws: Workspace, out_dir: Path, *, cameras: list[CameraPlan] | None = None, orbit: bool = True,

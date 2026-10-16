@@ -125,7 +125,8 @@ codeverse3d/
                       (claude-code / codex / antigravity: argv, env, each CLI's own record read
                       back — envelope, stream, conversation db, retry reports; agy's API-mode
                       HOME + pool key), cli_common.py (sessions, the watchdog clocks, the prompt
-                      on stdin, the transcript, files_changed attribution, THE failure vocabulary,
+                      on stdin, the transcript, files_changed attribution — a `shared_tree` job's to
+                      its files_hint, D111 —, THE failure vocabulary,
                       provider_wait), materialize.py
   languages/          LanguageRuntime + RuntimeLayout (base.py: every runtime states its file layout —
                       expected_files / files_for — and the tracks ask it); one merged module per language since 2026-08-28 —
@@ -483,7 +484,10 @@ starts again at round 0 with no stage frozen.  The plan itself is `run()`'s, bef
 scene stages do: `assets` — both kinds climb one ladder (single-shot → check → one repair → agent;
 blender_glb heroes get a sub-workspace with the static planner's parts + asset_v1 judge + one
 re-judged fix pass, undone when worse; a degraded asset verdict leaves score None / judged False,
-emits asset.judge_degraded and skips the fix pass); `env` — `src/env.js`; `layouts` — L2 zone
+emits asset.judge_degraded and skips the fix pass); `env` — `env_file` (`src/env.js` / `src/env.py`): its
+session shares the tree with the asset single-shots, so it is a `shared_tree` job (credited with its own file
+only, watched for activity on it alone) and the stage is ok only when that file itself was written; else ONE
+single-shot `_recover_env` runs before the zones (`env.recover` / `env.recovered`, **D111**); `layouts` — L2 zone
 layouts (planner calls, never fatal); `asset_api` — what the zones are told about the assets;
 `zones` — ONE session owns every zone file (D70; a session whose charge crossed the ceiling after
 it finished records the zones it wrote as written, the `BudgetExceeded` as their note); `clock` — the
@@ -542,7 +546,10 @@ after the run (`3dcode make`, unless --no-pick): addons/select.pick(by="score") 
 Track-specific gates: static `connectivity` + `contract` (+ `reference_silhouette`),
 articulated + `joint_sweep` + `motion_direction` (URDF axis vs plan motion text),
 scene `scene_placement` (`spatial/scene_placement.py`, the one gate `ScenePipeline.gates` adds: per placed
-asset, foot-column gap to the surface beneath, burial depth,
+asset — a direct child of a ZONE root, the roots the assembler marks `userData[conventions.ZONE_ROOT_KEY]`
+(scene_blender: the census GLB's zone-node extras); every other root is scenery, never a row and never paired
+with other scenery, but its pieces still support, bury, hold (`attached`) and clip the zone assets, **D111** —
+foot-column gap to the surface beneath, burial depth,
 water, contacts and 3-D interpenetration pairs from `runtime_js/lib/host_placement.mjs` — the
 first deterministic placement check on the track; before 2026-08-26 the scene_v1
 `floating_part` cap could never fire and floating/sunken was left to the VLM) +

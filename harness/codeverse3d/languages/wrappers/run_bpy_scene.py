@@ -1,7 +1,7 @@
 """Blender SCENE build wrapper (scene_blender) — executed BY Blender, never imported by the harness.
 
     blender -b --factory-startup --python run_bpy_scene.py -- \
-        --scene /abs/src/scene.py --out /abs/artifacts --basis 1,0,0,0,0,1,0,-1,0 \
+        --scene /abs/src/scene.py --out /abs/artifacts --basis 1,0,0,0,0,1,0,-1,0 --zone-key c3d_zone \
         [--fps 30] [--frames 1,46] [--rlimit-gb 12] [--seed 0] [--zones '{"a": "A"}'] [--no-blend]
 
 What it does (in order), DESIGN §3.3:
@@ -75,6 +75,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--rlimit-gb", type=float, default=12.0)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--zones", default=None, help='JSON {"snake": "Pascal"} that overrides ZONES')
+    p.add_argument("--zone-key", required=True, help="conventions.ZONE_ROOT_KEY: the census GLB's zone-node mark")
     p.add_argument("--no-blend", action="store_true")
     return p.parse_args(argv)
 
@@ -503,7 +504,8 @@ def main() -> int:
     basis = [[float(v) for v in args.basis.split(",")[i * 3:i * 3 + 3]] for i in range(3)]
     try:
         facts["glb"] = write_census_glb(bpy, os.path.join(out_dir, GLB_NAME), basis=basis,
-                                        zones={name: name for name in built.values()}, cameras=list(g.get("CAMERAS") or []))
+                                        zones={name: name for name in built.values()}, cameras=list(g.get("CAMERAS") or []),
+                                        zone_key=args.zone_key)
         report["exported"]["glb"] = os.path.join(out_dir, GLB_NAME)
     except Exception as e:  # noqa: BLE001 — a writer failure is the harness's, reported as such
         import traceback  # noqa: PLC0415

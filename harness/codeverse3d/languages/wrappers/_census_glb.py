@@ -11,7 +11,8 @@ Layout (what the census and the placement table read):
 
 * root nodes = env objects (whatever is not in a zone collection), by object name — ``backdrop.mjs``
   classifies ``Ground`` / ``Terrain`` / ``Water`` / ``Sky…`` by name, so names are carried verbatim;
-* one root node per ZONE collection, named for it; its children = the zone's root objects, their
+* one root node per ZONE collection, named for it and marked ``extras[zone_key]`` (D111: the
+  placement table's zone roots; env roots are scenery); its children = the zone's root objects, their
   parent chains as child nodes (group nodes carry no transform: every mesh node holds its world
   matrix, so an Empty's rotation can never be applied twice);
 * a collection-instance Empty = a node whose children are one mesh node per instanced object, all
@@ -261,11 +262,13 @@ def _chain(obj: Any) -> list[Any]:
 
 
 def write_census_glb(bpy: Any, path: str, *, basis: list[list[float]], zones: dict[str, str],
-                     cameras: list[dict[str, Any]]) -> dict[str, Any]:
+                     cameras: list[dict[str, Any]], zone_key: str) -> dict[str, Any]:
     """Write the census GLB of the current (t = 0) state to ``path``; return its stats.
 
     ``zones`` maps a zone COLLECTION name to itself for every zone the wrapper built (the node
-    name); every object in one of them (recursively) hangs under that zone's node."""
+    name); every object in one of them (recursively) hangs under that zone's node, and that node's
+    ``extras`` carry ``{zone_key: <zone>}`` (``conventions.ZONE_ROOT_KEY``, D111) — the mark the
+    placement table measures the zone's children by; every other root is scenery."""
     t0 = time.perf_counter()
     w = _Writer(np.array(basis, np.float64))
     zone_of: dict[str, str] = {}
@@ -296,7 +299,8 @@ def write_census_glb(bpy: Any, path: str, *, basis: list[list[float]], zones: di
     dg = bpy.context.evaluated_depsgraph_get()
     clouds: dict[tuple[tuple[str, ...], Any], tuple[int | None, str, list[np.ndarray]]] = {}
     for zone in zones:   # an empty zone is still a group the census can see
-        w.group((zone,), extras_of(bpy.data.collections[zone]) if zone in bpy.data.collections else None)
+        own = extras_of(bpy.data.collections[zone]) if zone in bpy.data.collections else {}
+        w.group((zone,), {**own, zone_key: zone})
     # an object that hosts an instance cloud is its own group (its mesh + the cloud = one row)
     hosts = {inst.parent.original.name for inst in dg.object_instances
              if inst.is_instance and inst.parent is not None and inst.parent.original.instance_type != "COLLECTION"}

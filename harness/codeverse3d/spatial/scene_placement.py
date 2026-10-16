@@ -181,6 +181,17 @@ class Interpenetration(BaseModel):
     inside_frac: float = 0.0    # vertices of the smaller inside the larger (the confirmation)
 
 
+class SceneryRoots(BaseModel):
+    """The roots outside every marked zone (D111): env scenery, a zone's stray ``scene.add`` — never
+    rows and never paired with each other; their pieces support, bury, hold (``attached``) and clip
+    the zone assets, but are not measured as placed things themselves."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    n: int = 0
+    names: list[str] = Field(default_factory=list)
+
+
 class PlacementTable(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -190,6 +201,8 @@ class PlacementTable(BaseModel):
     checked: int = 0
     truncated: bool = False
     exempt: dict[str, int] = Field(default_factory=dict)
+    scenery: SceneryRoots = Field(default_factory=SceneryRoots,
+                                  description="roots outside the marked zones (none in a table measured before D111)")
     ground_y: float | None = None
     notes: list[str] = Field(default_factory=list)
     thresholds: dict[str, float] = Field(default_factory=dict, description="the probe's own measurement constants")
@@ -228,6 +241,7 @@ LANGUAGE_WORDS: dict[str, dict[str, str]] = {
                     "lies past the bounds fades with distance instead of cutting off — the terrain, buildings, trees or "
                     "water out there then read as aerial perspective"),
         "place": "import its builder / clone its GLB",
+        "in_zone": "as a direct child of the group the zone's build returns (what is added straight to the scene is not the zone's)",
         "free_exempt": ("userData.placement = 'free' is for hanging / airborne things only (a bird, a hung lantern, a drone): "
                         "delete the tag on everything that stands on something and seat it with heightAt(x, z) or on its support"),
         "cantilever": "seat every foot: follow the ground with heightAt(x, z) at each corner, sink it a few cm, or shorten the overhang",
@@ -244,6 +258,7 @@ LANGUAGE_WORDS: dict[str, dict[str, str]] = {
                     "so whatever lies past the bounds fades with distance instead of cutting off — the terrain, buildings, "
                     "trees or water out there then read as aerial perspective"),
         "place": "place a collection-instance Empty of ctx.assets['<snake>']",
+        "in_zone": "as a root object linked into the zone's collection",
         "free_exempt": ('obj["placement"] = "free" is for hanging / airborne things only (a bird, a hung lantern, a drone): '
                         "delete the tag on everything that stands on something and seat it with ctx.height_at(x, y) / lib.place.seat"),
         "cantilever": ("seat every foot: follow the ground with ctx.height_at(x, y) at each corner (lib.place.seat), "
@@ -446,11 +461,13 @@ def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool =
                f"{shown('sunken')} sunken, {shown('unsupported')} unsupported, {shown('interpenetration')} interpenetrating"
                + (f", {shown('cantilevered')} cantilevered" if counts["cantilevered"] else "")
                + (f", {n_free} tagged free ({free_share:.0%})" if n_free else "")
+               + (f"; {t.scenery.n} scenery roots outside the zones not measured" if t.scenery.n else "")
                + f"; {'indoor' if indoor else 'outdoor'} tolerance {floating_m * 100:.0f} cm, ERROR past "
                  f"{p.floating_error_m * 100:.0f} cm or more than {p.floating_error_count} floating"
                + ("; table truncated (first 400 assets / time budget)" if t.truncated else ""))
     findings.insert(0, _f(Severity.INFO, summary, target="scene", kind="summary", counts=counts, listed=listed, checked=t.checked,
                           total=t.total, exempt=t.exempt, free=n_free, free_share=round(free_share, 3), truncated=t.truncated,
+                          scenery=t.scenery.n,
                           thresholds={**p.model_dump(), "floating_m": floating_m, "indoor": indoor},
                           probe_thresholds=dict(t.thresholds)))
     return GateReport.of(GATE, findings)
@@ -686,12 +703,26 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
         by_zone.setdefault(to_snake(r.zone), []).append(r)
     all_names = " ".join(_row_names(r) for r in rows)
     gone = {to_snake(u) for u in unavailable}
+    # a table cut by its row cap (host_placement MAX_ASSETS: rows are written zone by zone, in scene
+    # order) stops wherever it stops: a zone past the cut has no rows although the census holds its
+    # built group, and the zone AT the cut (the last row's) has only its first rows (iteration 4,
+    # r1_01: an envelope of 337 meshes filled the table and ScooterParkingNook, built and visibly
+    # present, was "zone_empty").  A table cut by its time budget still writes a row per asset
+    # (exempt "time_budget"), so a zone with no row there really placed nothing.
+    cut = bool(table.get("truncated")) and int(table.get("total") or 0) > len(rows)
+    at_cut = to_snake(rows[-1].zone) if cut else None
+    built = {to_snake(str(g.get("name", ""))) for g in census.get("groups") or []
+             if isinstance(g, dict) and g.get("kind") in ("content", "ground")}   # an EMPTY group placed nothing
     for zone_name, contents in _plan_zones(plan):
         zk = to_snake(zone_name)
         placed = by_zone.get(zk, [])
         # what the zone was allowed to place: an asset the asset stage never built was
         # announced "NOT AVAILABLE" to it, for zone_empty exactly as for missing_content
         expected = [c for c in contents if to_snake(c) not in gone]
+        if not placed and expected and cut and zk in built:
+            out.append(_f(Severity.INFO, f"zone {zone_name} was not measured: the placement table was truncated before "
+                                         "its rows (its group is in the census)", target=zone_name, kind="zone_unmeasured"))
+            continue
         if not placed and expected:
             out.append(_f(Severity.ERROR, f"zone {zone_name} placed nothing (plan lists: {', '.join(expected[:6])})",
                           target=zone_name, kind="zone_empty",
@@ -699,13 +730,17 @@ def contract_findings(census: dict[str, Any] | None, plan: Any,
             continue
         zone_names = " ".join(_row_names(r) for r in placed)
         missing = [c for c in expected if to_snake(c) not in zone_names and to_snake(c) not in all_names]
-        if missing:
+        if missing and zk == at_cut:
+            out.append(_f(Severity.INFO, f"zone {zone_name} was only partly measured: the placement table was truncated "
+                                         f"inside it, so {', '.join(missing[:5])} may lie past the cut",
+                          target=zone_name, kind="zone_unmeasured", missing=missing[:8]))
+        elif missing:
             out.append(_f(Severity.ERROR,
                           f"zone {zone_name} is missing planned contents: {', '.join(missing[:5])}"
                           + (f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""),
                           target=zone_name, kind="missing_content", missing=missing[:8],
                           hint=f"place each listed asset ({words['place']}) inside this "
-                               "zone's bbox AND give the object the plan's name for it — every gate and the "
+                               f"zone's bbox, {words['in_zone']}, AND give the object the plan's name for it — every gate and the "
                                "judge find it by that name, so a lantern called 'LanternPost1' reads as absent"))
     # -- plausible scale vs the plan's approx_size_m
     sizes = _plan_asset_sizes(plan)
@@ -833,6 +868,7 @@ def placement_table_text(table: dict[str, Any] | PlacementTable, *, max_rows: in
     if t.error:
         return f"placement table unavailable: {t.error}"
     lines = [f"placement: {t.checked} checked of {t.total} placed; exempt {t.exempt or '{}'}; ground_y {t.ground_y}"
+             + (f"; scenery (not measured): {', '.join(t.scenery.names[:8])}" if t.scenery.n else "")
              + ("; TRUNCATED" if t.truncated else "")]
     lines.append("asset | gap to support (m) | support | sunk (m) | into | water | attached")
     for r in [r for r in t.assets if not r.exempt][:max_rows]:
