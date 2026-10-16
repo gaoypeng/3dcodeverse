@@ -41,6 +41,7 @@ import * as THREE from 'three';
 export function createScene() {
  const scene=new THREE.Scene(),zone=new THREE.Group(),wing=new THREE.Group();
  zone.name='CentralPad';wing.name='Shuttle';scene.add(zone);zone.add(wing);
+ scene.background=new THREE.Color(0x8899aa);   // lit enough for the probe (an unlit scene is an ERROR, D112)
  wing.add(new THREE.Mesh(new THREE.BoxGeometry(),new THREE.MeshBasicMaterial()));
  wing.userData.update=t=>{wing.rotation.y=t;};
  zone.userData.update=t=>{FORWARD};

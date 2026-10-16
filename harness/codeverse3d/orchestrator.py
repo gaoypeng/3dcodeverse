@@ -451,6 +451,23 @@ class RoundPolicy:
     parallel_min_tasks: int = 2  # fan out only when >= this many file-disjoint groups
     n_candidates: int = 1  # best-of-N baseline (candidates generated in parallel, best kept)
     judge_samples: int = 1  # VLM judge samples per round (flash: std ≈ 0.001 between samples → 1 is enough)
+    #: seconds of the hard clock a refine / rebuild session leaves for its round's build, gates, render
+    #: and judge (D112: 201 s measured for iteration 5 r1_09 — build 11 s, render 24 s, judge 166 s)
+    judge_reserve_s: float = 240.0
+    #: the shortest AGENT session window worth opening; with ``judge_reserve_s`` it is what a refine
+    #: round, a transport / stall retry or a stage retry needs left on the clock before it is launched
+    #: (D112).  A single-shot call has no session window: it needs the judge reserve only.
+    min_session_s: float = 180.0
+
+    def need_s(self, *, single_shot: bool = False) -> float:
+        """What :meth:`can_open` asks of the clock: the judge reserve, plus the minimum session window
+        when the generation is an agent session."""
+        return self.judge_reserve_s + (0.0 if single_shot else self.min_session_s)
+
+    def can_open(self, budget: BudgetGuard, *, single_shot: bool = False) -> bool:
+        """Does the hard clock still hold :meth:`need_s` — a minimum session window (agent sessions
+        only) plus the judge reserve?"""
+        return budget.left_s() >= self.need_s(single_shot=single_shot)
 
 
 def gate_error_count(r: RoundRecord) -> int:
@@ -568,6 +585,10 @@ class BudgetGuard:
         after the ceiling had already been crossed."""
         left = max(0.0, (self.soft_minutes() if soft else self.hard_minutes) - self.elapsed_minutes()) * 60.0
         return int(max(floor_s, min(float(want_s), left) if left > 0 else floor_s))
+
+    def left_s(self, *, soft: bool = False) -> float:
+        """Seconds left before the hard ceiling (the soft one with ``soft``), never negative."""
+        return max(0.0, (self.soft_minutes() if soft else self.hard_minutes) - self.elapsed_minutes()) * 60.0
 
     def summary(self) -> dict[str, float]:
         """``record.extra["budget"]``: the clock at the end, beside its ceiling."""

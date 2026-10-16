@@ -90,7 +90,7 @@ class AgentJob(BaseModel):
         default=False,
         description="other harness writers change this workspace WHILE the session runs (the scene env stage "
         "beside the asset single-shots, which take no session lock — D111): ``files_changed`` counts only "
-        "``files_hint`` and only a write to a ``files_hint`` path is watchdog activity.  Needs a ``files_hint``; "
+        "``files_hint`` and only a write to a ``files_hint`` path (or a step the CLI records, D112) is watchdog activity.  Needs a ``files_hint``; "
         "never with ``edit_only`` (a sibling's write cannot be told from an out-of-scope one, so the scope "
         "revert would undo the sibling's work)",
     )
@@ -141,6 +141,12 @@ class AgentResult(BaseModel):
         description="the session died of a provider failure a retry may get through — 5xx / UNAVAILABLE / "
         "overloaded / a 429 rate limit / a dropped connection, as the CLI itself reported it — not of "
         "the task: the round loop re-runs such a round once",
+    )
+    stalled: bool = Field(
+        default=False,
+        description="the watchdog killed the session as IDLE (no output, no workspace write, no recorded "
+        "step for the idle grace past its window) and it produced nothing: a hang, not the task's pace — "
+        "one more session when the clock allows a minimum window (D112; cli_common.classify_end)",
     )
     quota: bool = Field(
         default=False,

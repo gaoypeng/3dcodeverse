@@ -79,6 +79,18 @@ class SceneRuntime(LanguageRuntime, Protocol):
         the result lands in ``artifacts/assemble.json``."""
         ...
 
+    def lib_interface(self, ws: Workspace) -> str:
+        """The harness-owned ``src/lib/`` as facts, one line per module: the names it exports and
+        their parameter lists, read off the files (D112: the env recovery's single-shot cannot open
+        them, and invented ``gravel`` / ``pavingPatch`` / a ``roughness=`` keyword)."""
+        ...
+
+    def check_env(self, ws: Workspace) -> str:
+        """The env module alone: ``""`` when it lints clean, builds with nothing beside it and
+        lights what it builds; else the failure, quoted for a repair prompt (D112).  A check the
+        harness cannot run returns ``""`` — never a verdict on the module."""
+        ...
+
     def probe(self, ws: Workspace, *, timeout_s: float | None = None) -> SceneProbeResult:
         """Load the built scene headlessly: the ``scene_probe`` gate + the census (``census.json``),
         under the build's own budget by default (D111)."""

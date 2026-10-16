@@ -95,9 +95,17 @@ def test_bpy_facts_reach_the_census(built) -> None:
     assert [g.gate for g in res.gates] == ["scene_probe"]
 
 
+def _only_unlit(res) -> None:
+    """The skeleton's build: everything built, and the one ERROR is the placeholder env's ``unlit``."""
+    errors = [f for g in res.gates for f in g.errors]
+    assert not res.ok and [(f.data.get("kind"), f.target) for f in errors] == [("unlit", "src/env.py")], res.stdout_tail
+    assert res.error_file == "src/env.py"
+
+
 def test_the_skeleton_builds_and_passes(tmp_ws) -> None:
-    """plan → skeleton → assemble → build: the starter scene passes its own gates, the fog volume
-    is a fact (not matter), the sky a background, the plan's cameras reach the host."""
+    """plan → skeleton → assemble → build: the starter scene fails ONE gate — the placeholder env lights
+    nothing (`unlit`, an ERROR since D112, so round 0's repair is handed the env) — and passes the rest;
+    the plan's cameras reach the host."""
     plan = ScenePlan.model_validate(plan_example(Track.SCENE))
     rt = _rt()
     rt.skeleton(tmp_ws, plan)
@@ -106,7 +114,7 @@ def test_the_skeleton_builds_and_passes(tmp_ws) -> None:
     asm = rt.assemble(tmp_ws, plan)
     assert set(asm.zones_included) == {"quay", "water"} and not asm.zones_failed
     res = rt.build(tmp_ws)
-    assert res.ok, res.stdout_tail
+    _only_unlit(res)
     c = res.census
     # the stub env ships a plate and nothing that passes: no world, no atmosphere, no lamp until the author
     # writes the brief's (a placeholder that passed was kept by every author, 2026-10-15)
@@ -132,7 +140,7 @@ def test_the_skeleton_renders_through_the_runtime(tmp_ws, switch) -> None:
     rt = _rt()
     rt.skeleton(tmp_ws, plan)
     rt.assemble(tmp_ws, plan)
-    assert rt.build(tmp_ws).ok
+    _only_unlit(rt.build(tmp_ws))   # the placeholder env is unlit (D112); the scene still built and renders
     rs = rt.render_scene(tmp_ws, tmp_ws.root / "renders", times=(0.0, 1.5), width=96, height=54, sheet=False)
     names = [to_snake(c.name) for c in plan.cameras[:6]]
     authored = {(v.name, v.time_s) for v in rs.views if v.name in names}

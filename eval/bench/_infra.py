@@ -68,14 +68,15 @@ def _has_marker(text: str) -> bool:
 def _looks_infra(exc: BaseException) -> bool:
     """The outage rules, applied to ONE exception.  Typed first: the harness's own verdict
     (``RoundFailed`` / ``GenerationResult`` ``.transient`` — a provider storm, a dropped socket
-    — and ``.quota`` — the vendor's usage limit, "not ours") decided from the CLI's own record,
-    which the bench must not re-guess from the message (N76: a gemini-cli (pre-D103) 503 storm that killed a
+    — ``.quota`` — the vendor's usage limit, "not ours" — and ``.stalled`` — a session the
+    watchdog found hung with nothing produced, which D112 no longer files as transient) decided
+    from the CLI's own record, which the bench must not re-guess from the message (N76: a gemini-cli (pre-D103) 503 storm that killed a
     baseline twice matched no marker and was scored as an error).  Then the HTTP status, from the
     harness's one table (``models.parts.retryable_status``: 408/409/429/5xx), and a spent key
     pool.  The string markers are the fallback, for exceptions nobody typed and for the error
     TEXT of old records.  ONE copy: this ran as two hand-kept copies (head vs each wrapped
     cause) until 2026-08-28, which is how a rule reaches one path and not the other."""
-    if getattr(exc, "transient", False) is True or getattr(exc, "quota", False) is True:
+    if any(getattr(exc, flag, False) is True for flag in ("transient", "quota", "stalled")):
         return True
     if type(exc).__name__ == "KeyPoolExhausted" or isinstance(exc, TimeoutError):
         return True

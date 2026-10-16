@@ -315,6 +315,12 @@ class GenerationTask(BaseModel):
         "credited with its files_hint only (AgentJob.shared_tree, D111 — the scene env stage beside the "
         "asset single-shots)",
     )
+    reserve_s: float = Field(
+        default=0.0,
+        description="seconds of the run's HARD clock this task's session leaves untouched for the round's "
+        "build, gates, render and judge (a refine / rebuild: RoundPolicy.judge_reserve_s, D112) — its "
+        "deadline ends that much before the budget does",
+    )
     owns_entry: bool = Field(
         default=False,
         description="this task may write the language entry file even under edit_only (assembly / "
@@ -352,6 +358,11 @@ class GenerationResult(BaseModel):
         default=False,
         description="the last session met the vendor's usage limit (AgentResult.quota): no retry gets "
         "through until it resets",
+    )
+    stalled: bool = Field(
+        default=False,
+        description="the last session hung — killed as idle with nothing produced (AgentResult.stalled, "
+        "D112): one more session when the clock still holds a minimum window",
     )
 
     @classmethod
@@ -549,7 +560,9 @@ def run_agent_task(
     # wait, retry attempts and the CLI's activity grace inside the run's hard clock.
     hard_deadline = None
     if budget is not None and hasattr(budget, "timeout_s"):
-        hard_deadline = time.monotonic() + budget.timeout_s(float("inf"), floor_s=0, soft=False)
+        # ``reserve_s`` (D112): a refine session cut by the run's own edge left its edits unbuilt and
+        # unjudged (iteration 5, r1_09: the retry's camera fix was committed, never scored)
+        hard_deadline = time.monotonic() + max(0.0, budget.timeout_s(float("inf"), floor_s=0, soft=False) - task.reserve_s)
     turns_cap = agent_max_turns()  # 0 = leave AgentJob's own default
     # typed job context honoured by every CodingAgent: round → trajectory dir + ToolContext,
     # language/track → spatial tool filtering, files_hint → the edit_only scope.
@@ -645,6 +658,7 @@ def run_agent_task(
         turn_capped=acc.wrapped,
         transient=bool(res.transient),
         quota=bool(res.quota),
+        stalled=bool(res.stalled) and not changes,
     )
 
 

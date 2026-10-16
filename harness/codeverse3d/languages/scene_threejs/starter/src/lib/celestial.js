@@ -335,8 +335,9 @@ function shimmerMaterial(strength, speed, cells, aspect, height, phase) {
  * Combine with a dome, never instead of one: `worldShell({mood:
  * 'night'})` (lib/environment.js) draws the gradient this sits in
  * front of, or `makeSky(scene, { rig })` with a night `sunRig()` for
- * a graded physical dome. Both leave `scene.background` null and
- * neither writes depth, so the stars paint over either one.
+ * a graded physical dome. Neither writes depth (`scene.background`
+ * is only the clear colour behind them), so the stars paint over
+ * either one.
  *
  * @param {object} [opts]
  *   `count` stars (default 1400); `radius` metres to the star sphere

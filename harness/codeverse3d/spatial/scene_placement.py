@@ -221,9 +221,18 @@ def infer_indoor(text: str) -> bool:
 
 
 def is_interior(plan: Any) -> bool:
-    """The plan's typed ``interior`` flag (D69) when it says so, else the setting text."""
+    """The plan's typed ``interior`` flag (D69) whenever it has one, True OR False; the setting
+    text only for a plan without it (absent or None — a plan.json older than the field).
+
+    It used to be ``bool(flag) or infer_indoor(...)``, so ``interior: False`` lost to the word
+    list: a zone named ``GiantTrunkCorridor`` snake-splits to "corridor", and "hold the frame
+    luminance inside 0.42-0.62" says "inside".  6 of 26 outdoor plans of argon loop iteration 5
+    were measured at the 2 cm indoor tolerance — three 4-5 cm gaps in a redwood forest became
+    ``floating`` ERRORs and a 0.60 gate cap (D112)."""
     flag = plan.get("interior") if isinstance(plan, dict) else getattr(plan, "interior", None)
-    return bool(flag) or infer_indoor(setting_text(plan))
+    if isinstance(flag, bool):
+        return flag
+    return infer_indoor(setting_text(plan))
 
 
 #: the fix hints / messages that name a language's API, per scene language (``census["language"]``;
@@ -312,8 +321,13 @@ def _cantilever(row: AssetRow, p: Placement) -> bool:
 
 
 def _asset_findings(rows: list[AssetRow], *, p: Placement, floating_m: float, ground_y: float | None,
-                    words: dict[str, str]) -> list[GateFinding]:
+                    words: dict[str, str], indoor: bool = False) -> list[GateFinding]:
+    """A floating / unsupported row states its gap to the millimetre and the tolerance it was
+    measured against (D112): "floating 0.05 m" for a 0.048 m gap in a forest the prompt calls
+    outdoors (0.05 m tolerance) read as a contradiction, and the refine session of iteration 5
+    r1_07 spent its whole window paging a 3 772-line probe dump to resolve it."""
     out: list[GateFinding] = []
+    tolerance = f"{'indoor' if indoor else 'outdoor'} tolerance {floating_m:.2f} m"
     floating: list[tuple[AssetRow, float]] = []
     for row in rows:
         q = row.qualified
@@ -343,8 +357,9 @@ def _asset_findings(rows: list[AssetRow], *, p: Placement, floating_m: float, gr
         if gap > floating_m:
             floating.append((row, gap))
         else:
-            out.append(_f(Severity.WARN, f"{q} is unsupported: hovers {gap:.2f} m above {support} and touches nothing", target=q,
-                          hint=f"lower {q} by {gap:.2f} m onto {support}, or attach it to a neighbour; "
+            out.append(_f(Severity.WARN, f"{q} is unsupported: hovers {gap:.3f} m above {support} and touches nothing "
+                                         f"(within the {tolerance})", target=q,
+                          hint=f"lower {q} by {gap:.3f} m onto {support}, or attach it to a neighbour; "
                                f"if it is meant to hang free set {words['free'].format(name=row.name)}",
                           kind="unsupported", gap_m=gap, **at))
     many = len(floating) > p.floating_error_count
@@ -352,8 +367,10 @@ def _asset_findings(rows: list[AssetRow], *, p: Placement, floating_m: float, gr
         q = row.qualified
         support = _support_label(row, ground_y)
         sev = Severity.ERROR if (many or gap > p.floating_error_m) else Severity.WARN
-        out.append(_f(sev, f"{q} is floating {gap:.2f} m above {support} (touches nothing)", target=q,
-                      hint=f"lower {q} by {gap:.2f} m onto {support} — {words['seat']}; "
+        why = (f"; ERROR past {p.floating_error_m:.2f} m" if gap > p.floating_error_m
+               else f"; ERROR because {len(floating)} rows float, more than {p.floating_error_count}" if many else "")
+        out.append(_f(sev, f"{q} is floating {gap:.3f} m above {support} (touches nothing; {tolerance}{why})", target=q,
+                      hint=f"lower {q} by {gap:.3f} m onto {support} — {words['seat']}; "
                            f"a deliberately airborne thing gets {words['free'].format(name=row.name)}",
                       kind="floating", gap_m=gap, zone=row.zone, bbox=row.bbox_data()))
     return out
@@ -442,7 +459,7 @@ def placement_findings(table: dict[str, Any] | PlacementTable, *, indoor: bool =
     floating_m = p.floating_indoor_m if indoor else p.floating_outdoor_m
     words = placement_words(language)
     rows = [r for r in t.assets if not r.exempt]
-    raw = (_asset_findings(rows, p=p, floating_m=floating_m, ground_y=t.ground_y, words=words)
+    raw = (_asset_findings(rows, p=p, floating_m=floating_m, ground_y=t.ground_y, words=words, indoor=indoor)
            + _pair_findings(t.interpenetrations, p, {r.qualified: r for r in t.assets}))
     free = _free_exempt_finding(t, p, words)
     findings = _cap_per_kind(raw) + ([free] if free is not None else [])

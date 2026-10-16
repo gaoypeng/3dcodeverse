@@ -105,6 +105,23 @@ and the atmosphere were found.
 (These are PNG files under `public/textures/`: load one with `bpy.data.images.load("public/textures/<file>",
 check_existing=True)` into an Image Texture node; the build runs with the workspace root as its working directory.)
 {% endif %}
+{% if lib_interface is defined and lib_interface %}
+
+## What `src/lib/` exports (read from the files in this workspace)
+{{ lib_interface }}
+An import from `src/lib/` can bind only these names; a call passes only these parameters.
+{% endif %}
+{% if env_check_error is defined and env_check_error %}
+
+## The previous single-shot of `{{ env_file }}` failed the harness's env check
+```
+{{ env_check_error }}
+```
+That file, as written (return it COMPLETE, with the failure fixed):
+```
+{{ env_previous }}
+```
+{% endif %}
 
 ## Output
 {{ output_format }}

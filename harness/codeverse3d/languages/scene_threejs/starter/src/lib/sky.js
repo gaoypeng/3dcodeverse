@@ -2,7 +2,10 @@
  * The physical atmosphere dome — a graded Preetham sky in one call.
  * Contract: the dome only GLOWS — pair it with a key light on the
  * SAME sun vector (`sunRig()` from ./environment.js) — and it owns
- * the backdrop: `scene.background` stays null, never a second dome.
+ * the backdrop: never a second dome.  `scene.background` is the clear
+ * colour behind it: a background the caller set is kept, an unset one
+ * becomes the dome's own horizon colour (the census reads it — the
+ * `no_background` gate — and it is what shows past the dome's far clip).
  *
  * Graded for THIS renderer (ACES filmic, exposure 1.0, no post chain,
  * measured 2026-09-01): three's Sky shader gamma-encodes its radiance
@@ -130,15 +133,16 @@ export function skyRadiance(dir, sunDir, opts = {}) {
 }
 
 /**
- * Build the atmosphere dome, add it to the scene, null the
- * background, and return the normalized sun vector for the key light.
+ * Build the atmosphere dome, add it to the scene, give an unset
+ * background the dome's horizon colour, and return the normalized sun
+ * vector for the key light.
  * Sun precedence: `rig` (uses the rig's baked skySunDir; hides its flat
  * disc — the Preetham shader draws its own; a NIGHT rig's disc is the
  * moon and stays) > `sunDir` (normalized copy, input untouched) >
  * `elevationDeg`/`azimuthDeg` (same convention as `sunRig()`).
  *
- * @param {THREE.Scene} scene The dome is added to it and its
- *   `background` is set to null (the dome IS the backdrop).
+ * @param {THREE.Scene} scene The dome is added to it; a `background`
+ *   the caller set stays, an unset one becomes the dome's horizon colour.
  * @param {object} [opts]
  *   `rig` a `sunRig()` result to slave to; `sunDir` explicit sun
  *   vector; `elevationDeg` (default 15) / `azimuthDeg` (default 135)
@@ -246,7 +250,20 @@ export function makeSky(scene, opts = {}) {
   sky.material.needsUpdate = true;
 
   scene.add(sky);
-  scene.background = null;   // the dome IS the backdrop (measured req)
+  // The dome is the backdrop; the background is only the clear colour behind it.  It used to
+  // be nulled here, which wiped a background the caller had set and failed the harness's own
+  // `no_background` gate (D112: three of iteration 5's scenes).  Keep the caller's, else the
+  // dome's graded horizon on the side away from the sun.
+  if (!scene.background) {
+    _tmp.set(-sunDir.x, 0, -sunDir.z);
+    if (_tmp.lengthSq() < 1e-12) _tmp.set(1, 0, 0);
+    _tmp.normalize().setY(0.02).normalize();
+    const [r, g, b] = skyRadiance(_tmp.clone(), sunDir, {
+      turbidity: u.turbidity.value, rayleigh: u.rayleigh.value, mieCoefficient: u.mieCoefficient.value,
+      mieDirectionalG: u.mieDirectionalG.value, gain: u.uSkyGain.value, gamma: u.uSkyGamma.value,
+    });
+    scene.background = new THREE.Color().setRGB(r, g, b);   // linear: the working colour space
+  }
   attachDisposal(sky, snapshotResources(sky));
   // Update every dependent twilight uniform together. This controls the dome;
   // callers still update their scene lights and rebake environment lighting.

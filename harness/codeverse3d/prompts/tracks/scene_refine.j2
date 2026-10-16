@@ -81,7 +81,9 @@ the number passes; a judge note that repeats needs a visible change in the named
 ## Tools
 {{ tool_cards }}
 Run `build` → `check_placement` → fix → `build` after editing (and `scene_probe` for the census);
-finish only when both are clean.  `check_placement` measures floating / sunken / unsupported /
+finish only when both are clean.  `artifacts/scene_probe.json` is the probe driver's raw dump (thousands of
+lines); `check_placement` returns the placement rows, each with its gap and the tolerance it was measured
+against.  `check_placement` measures floating / sunken / unsupported /
 interpenetrating assets deterministically — its numbers, not your impression.  `scene_views` prints the
 frame table and the MEASURED MOTION per camera — use those numbers, not your impression.
 {% endif %}

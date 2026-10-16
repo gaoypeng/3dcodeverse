@@ -176,6 +176,22 @@ def test_offline_lamp_check_counts_the_world() -> None:
     assert [f for f in dark if "lamps" in f.message][0].target == "src/env.py"
 
 
+def test_an_unlit_scene_fails_the_build_in_both_languages() -> None:
+    """D112 (argon loop iteration 5, scene_blender r1_10): the placeholder env — no lamp, no world —
+    passed the build as a WARN and every round-0 frame was black after the full render and judge spend.
+    An ERROR fails the build, so the round's repair is handed the env first.  The three.js twin: no
+    light, no background and no environment map."""
+    dark = [f for f in _census_findings(_census(lights=0, background=None), offline=True) if f.data.get("kind") == "unlit"]
+    assert len(dark) == 1 and dark[0].severity is Severity.ERROR and dark[0].target == "src/env.py"
+    three = {"totals": {"meshes": 3, "lights": 0, "draws": 3}, "groups": [], "background": None, "environment": False}
+    dark = [f for f in _census_findings(three) if f.data.get("kind") == "unlit"]
+    assert len(dark) == 1 and dark[0].severity is Severity.ERROR and dark[0].target == "src/env.js"
+    for lit in ({"background": "#88aacc"}, {"environment": True}, {"totals": {"meshes": 3, "lights": 2, "draws": 3}}):
+        assert not [f for f in _census_findings({**three, **lit}) if f.severity is Severity.ERROR], lit
+    # a sky but no light keeps its WARN (MeshStandardMaterial still renders black)
+    assert [f.severity for f in _census_findings({**three, "background": "#88aacc"}) if "no lights" in f.message] == [Severity.WARN]
+
+
 def test_each_scene_language_plans_its_own_asset_kinds() -> None:
     """D5: ``bpy`` joins the kinds a plan may hold; the schema a planner is handed stays
     scene_threejs's (its prompts are byte-identical), a scene_blender planner swaps its own in."""

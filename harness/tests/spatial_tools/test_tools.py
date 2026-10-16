@@ -370,3 +370,45 @@ def _stool_plan_with_missing_backrest() -> StaticPlan:
                       parts=[PartPlan(name="Seat", role="r", description="d", bbox=BBox(center=(0, 0, 0.43), extents=(0.4, 0.4, 0.04))),
                              PartPlan(name="Leg", role="r", description="d", bbox=BBox(center=(0, 0, 0.205), extents=(0.04, 0.04, 0.41)), instances=4),
                              PartPlan(name="Backrest", role="r", description="d", bbox=BBox(center=(0, 0.18, 0.6), extents=(0.4, 0.03, 0.3)))])
+
+
+class _SceneRuntime:
+    """A scene build whose probe raised ``errors`` (the census was taken: only the verdict differs)."""
+
+    def __init__(self, errors: list[GateFinding]) -> None:
+        self.errors = errors
+
+    def lint(self, ws):
+        return GateReport(gate="lint:scene_blender", passed=True, findings=[])
+
+    def build(self, ws, *, timeout_s=None):
+        first = self.errors[0]
+        res = BuildResult(ok=False, language="scene_blender", error_type=first.data.get("kind") or first.gate,
+                          error_message=first.message, error_file=first.target or "", census={"lights": 0, "meshes": 12},
+                          gates=[GateReport.of("scene_probe", self.errors)])
+        ws.write_json(ws.artifacts / "build.json", res)
+        return res
+
+
+@pytest.mark.parametrize("language", ["scene_blender", "scene_threejs"])
+def test_a_session_build_reports_an_unlit_env_above_build_ok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                              language: str) -> None:
+    """D112 review: ``unlit`` is an ERROR so the ROUND's build fails and its repair gets the env — but an
+    asset or zone session building while the env is still the placeholder cannot write the env module, and
+    a BUILD FAILED it cannot clear would spend its window.  Its own ``build`` states the error above BUILD
+    OK; any other ERROR beside it is still a BUILD FAILED."""
+    ctx = ToolContext(workspace=Workspace(tmp_path / "ws").create(), language=language, track="scene")
+    unlit = GateFinding(gate="scene_probe", severity=Severity.ERROR, target="src/env.py", data={"kind": "unlit"},
+                        message="scene has no lamps and no world: it renders black")
+    _patch_runtime(monkeypatch, _SceneRuntime([unlit]))
+    obs = get_tool("build").call(ctx, {})
+    first, second = obs.text.splitlines()[:2]
+    assert obs.ok and not obs.failed and obs.numbers["env_unlit"] is True
+    assert first.startswith("SCENE UNLIT") and "src/env.py" in first and "renders black" in first
+    assert second.startswith("BUILD OK")
+
+    zone = GateFinding(gate="scene_probe", severity=Severity.ERROR, target="src/zones/quay.py:12",
+                       message="zone quay raised NameError: name 'x' is not defined", data={"kind": "zone"})
+    _patch_runtime(monkeypatch, _SceneRuntime([zone, unlit]))
+    obs = get_tool("build").call(ctx, {})
+    assert not obs.ok and obs.text.startswith("BUILD FAILED") and "SCENE UNLIT" not in obs.text

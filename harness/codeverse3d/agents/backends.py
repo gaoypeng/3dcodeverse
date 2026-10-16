@@ -35,7 +35,6 @@ from codeverse3d.agents.cli_common import (
     finish_session,
     hardened_env,
     invoke,
-    is_transient_failure,
     mcp_command_for,
     provider_wait,
     record_tool_calls,
@@ -246,7 +245,7 @@ def claude_end(proc: CompletedProc, env: dict[str, Any] | None, stream: ClaudeSt
     ``api_retry`` events, its result envelope) — the harness session and the bench one-shot alike."""
     sub = str((env or {}).get("subtype", ""))
     if proc.timed_out:
-        return classify_end(proc, ok=False, text=text, provider_retried=bool(stream.retries))
+        return classify_end(proc, ok=False, text=text)
     if env is None or proc.rc != 0:
         # a 529 / overloaded exit is the provider's, not the task's (AgentResult.transient)
         return classify_end(proc, ok=False, text=text, said=(proc.stderr, proc.stdout))
@@ -327,7 +326,7 @@ class ClaudeCodeAgent(_CliAgent):
                 errors.append(f"claude reported {sub or 'is_error'}: {text[-800:]}")
             return finish_session(
                 s, ok=end.exit_reason == "completed", exit_reason=end.exit_reason, text=text, usage=usage,
-                tool_calls=n_calls, turns=turns, errors=errors, transient=end.transient, quota=end.quota,
+                tool_calls=n_calls, turns=turns, errors=errors, transient=end.transient, quota=end.quota, stalled=end.stalled,
                 provider_wait_s=provider_wait([(t, b) for t, b, _ in stream.retries], ended, stream.progress),
                 rc=proc.rc, killed_reason=proc.killed_reason, num_turns=turns, effort=get_settings().agents.claude_effort,
                 session_id=(env or {}).get("session_id", ""), subtype=(env or {}).get("subtype", ""),
@@ -473,8 +472,7 @@ def codex_end(proc: CompletedProc, events: CodexEvents, text: str) -> SessionEnd
     its own error events — a dropped stream, a 5xx it gave up on) — the harness session and the
     bench one-shot alike."""
     ok = not proc.timed_out and proc.rc == 0 and events.n_events > 0 and not (events.errors and events.turns_completed == 0)
-    return classify_end(proc, ok=ok, text=text, said=(*events.errors, proc.stderr),
-                        provider_retried=is_transient_failure(*events.errors))
+    return classify_end(proc, ok=ok, text=text, said=(*events.errors, proc.stderr))
 
 
 class CodexAgent(_CliAgent):
@@ -532,7 +530,7 @@ class CodexAgent(_CliAgent):
             ok = end.exit_reason == "completed"
             return finish_session(
                 s, ok=ok, exit_reason=end.exit_reason, text=text, usage=usage, tool_calls=events.tool_calls,
-                turns=events.turns_completed, errors=errors, transient=end.transient, quota=end.quota,
+                turns=events.turns_completed, errors=errors, transient=end.transient, quota=end.quota, stalled=end.stalled,
                 rc=proc.rc, killed_reason=proc.killed_reason, thread_id=events.thread_id, effort=self.reasoning_effort,
                 turns_completed=events.turns_completed, usage_raw=events.usage_raw, usage_estimated=estimated,
             )
@@ -566,6 +564,13 @@ AGY_LOG = "agy.log"
 #: where agy keeps each conversation under its HOME: one SQLite file named by the envelope's
 #: ``conversation_id``, a ``steps`` table whose ``step_payload`` is protobuf
 AGY_CONVERSATIONS = Path(".gemini") / "antigravity-cli" / "conversations"
+#: where agy records each step as it takes it, under the session's HOME: ``brain/<id>/`` (step
+#: outputs, its own transcript) and the conversation database — the session's activity for the
+#: watchdog (:func:`~codeverse3d.agents.cli_common.activity_paths`; D112).  agy prints nothing
+#: until it exits, so without them a session that reads before it writes is "idle" from second 0.
+#: Passed by name: the watchdog's walk skips ``.gemini``, and the rest of the dir (presence lock,
+#: updater, caches) is touched at start-up, not per step.
+AGY_STEP_DIRS = (Path(".gemini") / "antigravity-cli" / "brain", AGY_CONVERSATIONS)
 #: agy's Gemini-API mode (1.2+, checked live on 1.3.4, 2026-10-13): ``modelProvider: "gemini"``
 #: in its settings plus ``GEMINI_API_KEY`` in the env — no sign-in, billed to the key, and the
 #: catalogue is the API's.  Without the setting the key alone is ignored and the CLI asks for a
@@ -844,7 +849,7 @@ class AntigravityAgent(_CliAgent):
             home = self.build_home(s)
             effort = self.effort_for(job)
             proc = invoke(s, self.build_argv(s), self.build_env(s, key=key, home=home), prompt=_compose_prompt_agy(s),
-                          model=self.model, effort=effort, key_tail=key[-4:])
+                          activity=[home / d for d in AGY_STEP_DIRS], model=self.model, effort=effort, key_tail=key[-4:])
             ended = time.time()
             env = parse_agy_json(proc.stdout)
             n_calls = self._record_trace(s, home, str((env or {}).get("conversation_id") or ""))
@@ -871,13 +876,12 @@ class AntigravityAgent(_CliAgent):
                 errors.append("empty response")
             else:
                 ok = True
-            end = classify_end(proc, ok=ok, text=text, said=said, provider_retried=bool(retries) or bool(died.get("retryable")),
-                               provider_failed=bool(died.get("retryable")))
+            end = classify_end(proc, ok=ok, text=text, said=said, provider_failed=bool(died.get("retryable")))
             pool.report(key, _pool_outcome(end, ok, died))
             usage.tool_calls = n_calls
             return finish_session(
                 s, ok=ok, exit_reason=end.exit_reason, text=text, usage=usage, tool_calls=n_calls,
-                turns=int((env or {}).get("num_turns") or 0), errors=errors, transient=end.transient, quota=end.quota,
+                turns=int((env or {}).get("num_turns") or 0), errors=errors, transient=end.transient, quota=end.quota, stalled=end.stalled,
                 provider_wait_s=provider_wait([(t, b) for t, b, _ in retries], ended),
                 rc=proc.rc, killed_reason=proc.killed_reason, agy_error=died, effort=effort,
                 conversation_id=(env or {}).get("conversation_id", ""), num_turns=(env or {}).get("num_turns", 0),

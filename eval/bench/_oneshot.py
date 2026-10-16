@@ -463,7 +463,7 @@ class ClaudeOneShot:
         end = claude_end(proc, env, stream, text)
         (out_dir / "response.md").write_text(text)
         return OneShotResult(ok=ok, text=text, usage=usage, tool_calls=usage.tool_calls, notes=notes,
-                             infra_failed=not ok and (end.transient or end.quota),
+                             infra_failed=not ok and (end.transient or end.quota or end.stalled),
                              duration_s=round(proc.duration_s, 2), transcript_dir=str(out_dir))
 
 
@@ -523,7 +523,7 @@ class CodexOneShot:
         end = codex_end(proc, events, text)   # the provider's failure, read as the harness reads it (N76)
         (out_dir / "response.md").write_text(text)
         return OneShotResult(ok=ok, text=text, usage=usage, tool_calls=events.tool_calls, notes=notes,
-                             infra_failed=not ok and (end.transient or end.quota),
+                             infra_failed=not ok and (end.transient or end.quota or end.stalled),
                              duration_s=round(proc.duration_s, 2), transcript_dir=str(out_dir))
 
 

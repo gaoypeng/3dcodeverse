@@ -376,7 +376,9 @@ def _run_bare_agent(arm: Arm, spec: Spec, cell: Path, eval_ws: Workspace, opts: 
         res.error_is_infra = True
     if not (eval_ws.root / entry_of(spec)).is_file():
         res.error = f"bare agent delivered no {entry_of(spec)} ({result.exit_reason}: {'; '.join(result.errors)[:300]})"
-        res.error_is_infra = bool(result.transient)
+        # no file and a provider death or a hung session (D112 ``stalled``, which a watchdog kill no
+        # longer reports as transient): the session never happened, as in the one-shot arm
+        res.error_is_infra = bool(result.transient or result.stalled)
 
 
 def _new_cell(item: BenchPrompt, arm: Arm, out: Path, opts: CompareOptions) -> tuple[Path, CellResult]:

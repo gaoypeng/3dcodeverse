@@ -125,17 +125,18 @@ def test_refine_session_ends_before_the_run_clock_so_the_round_is_judged(tmp_pat
     watchdog let the busy session run its 5-min grace on top, the run clock killed it at 60.0 min and
     the round was dropped unbuilt and unjudged ($4.63).  The window now ends reserve + grace early."""
     from codeverse3d.agents.cli_common import HARD_GRACE_S
-    from codeverse3d.tracks.static_object import OBJECT_ROUND_RESERVE_S, REFINE_MIN_WINDOW_S
+    from codeverse3d.tracks.static_object import REFINE_MIN_WINDOW_S
 
     track, ctx = _ctx(tmp_path, settings, Language.BLENDER, _big_plan(8))
+    reserve = ctx.policy.judge_reserve_s                 # one reserve for every track (D112; was 180 s here)
     hard_s = ctx.budget.hard_minutes * 60.0
     (early,), _ = track.refine_tasks(ctx, _last(ctx.plan))
-    assert early.timeout_s == min(ctx.settings.limits.agent_timeout_s,
-                                  int(hard_s - OBJECT_ROUND_RESERVE_S - HARD_GRACE_S))
+    assert early.timeout_s == max(REFINE_MIN_WINDOW_S, min(ctx.settings.limits.agent_timeout_s,
+                                                           int(hard_s - reserve - HARD_GRACE_S)))
     ctx.budget._active_s = hard_s - 34.2 * 60          # 34.2 min left, as in the smoke
     (late,), _ = track.refine_tasks(ctx, _last(ctx.plan))
     left = ctx.budget.hard_minutes * 60.0 - ctx.budget.elapsed_minutes() * 60.0
-    assert late.timeout_s + HARD_GRACE_S <= left - OBJECT_ROUND_RESERVE_S + 1
+    assert late.timeout_s + HARD_GRACE_S <= left - reserve + 1
     assert late.timeout_s > 20 * 60                      # still a real session
     ctx.budget._active_s = hard_s - 60                   # one minute left: the floor, the run clock decides
     (last_minute,), _ = track.refine_tasks(ctx, _last(ctx.plan))

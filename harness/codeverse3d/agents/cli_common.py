@@ -15,7 +15,7 @@ import re
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -381,6 +381,23 @@ def _session_lock(ws: Workspace) -> threading.RLock:
         return _WS_SESSION_LOCKS.setdefault(str(ws.root), threading.RLock())
 
 
+@contextlib.contextmanager
+def exclusive_workspace(ws: Workspace) -> Iterator[None]:
+    """Hold ``ws``'s session lock for a HARNESS writer that commits while agent sessions may run on
+    the same workspace (the scene env recovery beside an escalated asset session, D112).
+
+    WHY the lock and not "restore an out-of-scope path to HEAD instead of ``head_before``": every
+    commit is ``git add -A``, so a harness commit made mid-session also absorbs the session's own
+    in-flight writes — restoring to HEAD would keep exactly the out-of-scope writes the revert
+    exists to undo, on every track.  Holding the lock keeps every harness commit out of every
+    session's window, so ``head_before`` stays the whole truth :func:`_enforce_scope` relies on.
+    Argon loop iteration 5, scene_blender r1_10: the asset session's revert restored env.py to its
+    ``head_before`` and erased the harness's recovered env (+391 lines) — round 0 rendered black."""
+    lock = _session_lock(ws)
+    with lock:
+        yield
+
+
 def release_session(s: Session) -> None:
     """Release ``s``'s workspace lock (idempotent).  ``finish_session`` always calls it;
     the CLI backends also call it in a ``finally`` so a session that crashes between
@@ -447,8 +464,9 @@ def _enforce_scope(s: Session) -> dict[str, str]:
     to write and commit a root-level ``conftest.py``; then, for ``edit_only``, the
     narrowing to ``files_hint`` + ``always_writable`` (a pre-existing file outside it is
     out of scope; new files stay allowed).  Only safe because sessions on one workspace
-    are serialised (:data:`EXCLUSIVE_KINDS`): ``head_before`` holds no sibling's
-    in-flight work."""
+    are serialised (:data:`EXCLUSIVE_KINDS`) and a harness writer that commits mid-run takes the
+    same lock (:func:`exclusive_workspace`): ``head_before`` holds no sibling's in-flight work and
+    no harness commit lands inside the session's window."""
     roots = tuple(r.strip("/") for r in s.job.write_roots if r.strip("/"))
     frozen = _clean(s.job.read_only)
     narrow = (s.files_hint | _clean(s.job.always_writable)
@@ -501,6 +519,7 @@ def finish_session(
     errors: list[str] | None = None,
     transient: bool = False,
     quota: bool = False,
+    stalled: bool = False,
     provider_wait_s: float = 0.0,
     usage_estimated: bool = False,
     effort: str = "",
@@ -509,8 +528,8 @@ def finish_session(
     """Commit the agent's work, compute ``files_changed`` via git (attributed to this
     session — see :func:`attribute_changes`; a ``shared_tree`` job is credited with its
     ``files_hint`` only), write result.json.  ``turns`` is the
-    backend's own count (``AgentResult.turns``); ``transient`` / ``quota`` its typed
-    failure class and ``provider_wait_s`` the time its CLI lost to provider errors
+    backend's own count (``AgentResult.turns``); ``transient`` / ``quota`` / ``stalled`` its typed
+    failure class (:class:`SessionEnd`) and ``provider_wait_s`` the time its CLI lost to provider errors
     (:func:`provider_wait`); ``effort`` what the backend passed its CLI (``AgentResult.effort``);
     ``extra`` lands in result.json only.
 
@@ -538,6 +557,7 @@ def finish_session(
             transcript_path=str(s.traj.transcript_path if s.traj.transcript_path.exists() else s.traj.dir),
             usage=usage, duration_s=duration, provider_wait_s=round(min(max(provider_wait_s, 0.0), duration), 3),
             tool_calls=tool_calls, turns=turns, errors=errors, transient=transient and not quota, quota=quota,
+            stalled=stalled and not files,
             usage_estimated=usage_estimated, effort=effort,
         )
         s.traj.write_result(res, kind=s.kind, label=s.label, round=s.round_index, attempt=s.attempt, job_label=s.job.label,
@@ -561,6 +581,10 @@ IDLE_GRACE_S = 300.0
 #: a clock of its own must be set past it (agy ``--print-timeout``), or that clock decides.
 HARD_GRACE_S = 300.0
 
+#: how often the watchdog re-reads the activity paths' mtimes; read at call time like
+#: :data:`POLL_S` so a test can turn it down.
+SCAN_S = 5.0
+
 #: watchdog poll period.  A real vendor CLI runs for minutes, so 1 s of latency on
 #: noticing it exited is free — but a FAKE cli in a test exits in milliseconds and then
 #: waits out the poll, which was ~1 s on every agent.run() in the suite.  Same shape as
@@ -577,6 +601,7 @@ def invoke(
     stdout_name: str = "stdout.json",
     on_stdout: Callable[[str], None] | None = None,
     on_stderr: Callable[[str], None] | None = None,
+    activity: Sequence[Path] = (),
     **invoke_extra: Any,
 ) -> CompletedProc:
     """Run one CLI agent process under the watchdog and record it in the trajectory.
@@ -592,8 +617,9 @@ def invoke(
 
     One block every backend shares: the ``invoke`` transcript line, ``run_with_watchdog``
     (workspace cwd, the job's soft timeout, ``IDLE_GRACE_S``, every output line into the
-    transcript, ``src/`` + ``public/`` as activity dirs — a ``shared_tree`` job's own files only,
-    :func:`activity_paths`) and the stdout/stderr captures next to
+    transcript, ``src/`` + ``public/`` as activity dirs — a ``shared_tree`` job's own files only —
+    plus ``activity``, the backend's own record of the session's steps, :func:`activity_paths`)
+    and the stdout/stderr captures next to
     the transcript.  ``stdout_name`` sets the capture's name (codex streams JSONL →
     ``stdout.jsonl``); ``on_stdout`` / ``on_stderr`` also receive each line as it arrives (the
     backends fold their event streams live).  The ``invoke`` line records the prompt's size,
@@ -620,23 +646,31 @@ def invoke(
     else:
         proc = run_with_watchdog(
             argv, cwd=s.ws.root, env=env, soft_timeout_s=soft, hard_timeout_s=hard,
-            idle_grace_s=IDLE_GRACE_S, poll_s=POLL_S,
-            on_line=on_line, stdin=prompt, activity_dirs=activity_paths(s),
+            idle_grace_s=IDLE_GRACE_S, poll_s=POLL_S, scan_s=SCAN_S,
+            on_line=on_line, stdin=prompt, activity_dirs=activity_paths(s, activity),
         )
     s.traj.write_text(stdout_name, proc.stdout)
     s.traj.write_text("stderr.log", proc.stderr)
     return proc
 
 
-def activity_paths(s: Session) -> list[Path]:
+def activity_paths(s: Session, steps: Sequence[Path] = ()) -> list[Path]:
     """What the watchdog polls as this session's activity: ``src/`` + ``public/``, or — a
-    ``shared_tree`` job (D111) — its ``files_hint`` paths alone.  The asset single-shots
-    writing ``src/assets/`` beside the env session kept it "alive" until ~300 s after their
-    last write, so its kill time followed the asset stage (421-616 s on a 420 s window in the
-    12 iteration-4 runs whose session wrote nothing) instead of its own work."""
-    if s.job.shared_tree:
-        return [s.ws.root / h for h in sorted(s.files_hint)]
-    return [s.ws.src, s.ws.public]
+    ``shared_tree`` job (D111) — its ``files_hint`` paths alone; plus ``steps``, where the
+    CLI itself records each step it takes (agy: its per-session HOME's ``brain/`` and
+    ``conversations/``, :data:`~codeverse3d.agents.backends.AGY_STEP_DIRS`).
+
+    The asset single-shots writing ``src/assets/`` beside the env session kept it "alive" until
+    ~300 s after their last write, so its kill time followed the asset stage (421-616 s on a
+    420 s window in the 12 iteration-4 runs whose session wrote nothing) instead of its own
+    work.  Narrowed to its own file, though, a session that is READING was idle from second 0:
+    agy prints nothing until it exits, so its soft window was a hard kill — 22 of 26 env
+    sessions and 4 of 21 refines of iteration 5 died at exactly the window with nothing written,
+    mid-read (D112).  A step the CLI records is activity; a session that takes none for
+    ``IDLE_GRACE_S`` past its window is still killed there, and every session stops at its
+    hard limit."""
+    own = [s.ws.root / h for h in sorted(s.files_hint)] if s.job.shared_tree else [s.ws.src, s.ws.public]
+    return own + list(steps)
 
 
 def watchdog_error(proc: CompletedProc) -> str:
@@ -758,26 +792,30 @@ class SessionEnd:
     transient: bool = False
     quota: bool = False
     rate_limited: bool = False
+    stalled: bool = False
 
 
 def classify_end(proc: CompletedProc, *, ok: bool, text: str, said: Sequence[str] = (),
-                 provider_retried: bool = False, provider_failed: bool = False,
-                 rate_limited: bool | None = None) -> SessionEnd:
+                 provider_failed: bool = False, rate_limited: bool | None = None) -> SessionEnd:
     """THE end rule for every CLI backend (N71; D83) — each backend brings only its vendor's
-    evidence: ``said`` (what the CLI printed about the call that ended it), ``provider_retried``
-    (the CLI's OWN record of retried provider calls: claude's
-    ``api_retry`` events, codex's error events, agy's log) and ``provider_failed`` (a typed
-    vendor verdict: agy's ``AGY_ERROR.retryable``).
+    evidence: ``said`` (what the CLI printed about the call that ended it) and ``provider_failed``
+    (a typed vendor verdict: agy's ``AGY_ERROR.retryable``).
 
-    A watchdog kill is ``timeout``, and transient only when nothing was produced AND the CLI
-    recorded provider retries: a kill with no provider evidence is the task's (a retry buys
-    another full window for the same outcome), whatever its stderr says.  Any other failure is
-    ``quota`` / ``transient`` by the vocabulary above, and ``budget`` when the usage limit is
-    spent or the call was rate limited, for every vendor."""
+    A watchdog kill is ``timeout`` and never ``transient`` (the key it ran on is not at fault).  It
+    is ``stalled`` when the watchdog found the session IDLE — no output, no workspace write and no
+    step the CLI recorded for ``IDLE_GRACE_S`` past its window — and it answered nothing: a hang
+    (iteration 5, r1_09: "connection reset by peer", then 10.8 minutes of silence), which the round
+    loop and the stage retry give ONE more session when the clock still holds a minimum window
+    (D112).  A kill at the hard limit is the task's own pace: a retry buys the same window for the
+    same outcome.  Until D112 a kill was transient whenever the CLI's log held ANY provider retry —
+    one 4 s 503 at t=0 — so the same 901 s / zero-file kill was retried in r1_05 and r1_09 and
+    ended r1_07 and r1_08 as no_change.  Any other failure is ``quota`` / ``transient`` by the
+    vocabulary above, and ``budget`` when the usage limit is spent or the call was rate limited,
+    for every vendor."""
     if ok:
         return SessionEnd("completed")
     if proc.timed_out:
-        return SessionEnd("timeout", transient=provider_retried and not text.strip())
+        return SessionEnd("timeout", stalled=proc.killed_reason == "idle" and not text.strip())
     quota = is_quota_failure(*said)
     limited = is_rate_limited(*said) if rate_limited is None else rate_limited
     return SessionEnd("budget" if quota or limited else "error",

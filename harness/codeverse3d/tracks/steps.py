@@ -82,16 +82,22 @@ class RoundFailed(RuntimeError):
     substring-matched the joined notes, with a vocabulary that had drifted from the backends'
     (a codex usage limit reached the loop only because the loop's list said "usage limit")."""
 
-    def __init__(self, message: str, *, transient: bool = False, quota: bool = False) -> None:
+    def __init__(self, message: str, *, transient: bool = False, quota: bool = False, stalled: bool = False) -> None:
         super().__init__(message)
         self.transient = transient
         self.quota = quota
+        #: a session hung (``GenerationResult.stalled``, D112): retried like a transport death
+        self.stalled = stalled
 
     @classmethod
     def of(cls, results: Sequence[GenerationResult], default: str) -> RoundFailed:
-        """The round's failure: every task's notes, and the typed flags of any of them."""
+        """The round's failure: every task's notes, and the typed flags of any of them — except
+        ``stalled``, which needs EVERY session to have hung or died of transport (D112): a split
+        round whose other session worked to its hard limit and wrote nothing is that session's
+        verdict, and the round loop retries a round whole."""
         return cls("; ".join(f"{r.label}: {r.notes}" for r in results) or default,
-                   transient=any(r.transient for r in results), quota=any(r.quota for r in results))
+                   transient=any(r.transient for r in results), quota=any(r.quota for r in results),
+                   stalled=any(r.stalled for r in results) and all(r.stalled or r.transient for r in results))
 
 
 def round_record_path(ctx: RunContext, index: int) -> Path:

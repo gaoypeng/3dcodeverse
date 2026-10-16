@@ -486,8 +486,18 @@ blender_glb heroes get a sub-workspace with the static planner's parts + asset_v
 re-judged fix pass, undone when worse; a degraded asset verdict leaves score None / judged False,
 emits asset.judge_degraded and skips the fix pass); `env` — `env_file` (`src/env.js` / `src/env.py`): its
 session shares the tree with the asset single-shots, so it is a `shared_tree` job (credited with its own file
-only, watched for activity on it alone) and the stage is ok only when that file itself was written; else ONE
-single-shot `_recover_env` runs before the zones (`env.recover` / `env.recovered`, **D111**); `layouts` — L2 zone
+only, watched for activity on its own file and — **D112** — on the steps agy records under its session HOME) and
+the stage is ok only when that file itself was written; else ONE single-shot `_recover_env` runs before the zones
+(`env.recover` / `env.recovered`, **D111**), CHECKED (**D112**): it counts only once `SceneRuntime.check_env` passes
+(the env module alone lints, builds and lights what it builds), a failure gets ONE repair single-shot with the
+check's words and the file fed back, both prompts carry `SceneRuntime.lib_interface` (src/lib names + parameter
+lists; a const-bound arrow function counts as a function), a module that still fails is replaced by the
+placeholder it overwrote, and the whole recovery holds the
+workspace session lock (`cli_common.exclusive_workspace`) so it never commits inside an escalated asset session's
+window (whose scope check would revert it).  An env that lights nothing (`probes.unlit`: no lamp and no world /
+no light, background or environment map) is a `scene_probe` ERROR, so the ROUND's build fails and its repair is
+handed the env; a session's own MCP `build` states it on a `SCENE UNLIT` line above BUILD OK when it is the only
+error (an asset or zone session building beside the placeholder env cannot write the env module); `layouts` — L2 zone
 layouts (planner calls, never fatal); `asset_api` — what the zones are told about the assets;
 `zones` — ONE session owns every zone file (D70; a session whose charge crossed the ceiling after
 it finished records the zones it wrote as written, the `BudgetExceeded` as their note); `clock` — the
@@ -517,7 +527,7 @@ plateau, regression or diminishing-returns stop, no rewrite or surface-detail ro
    fan out when the track allows it (scene: zones/assets/env) AND ≥ 2 file-disjoint groups AND every task maps to
    files; the object tracks never fan out (allow_refine_fanout = False, D110): ONE session edits the whole
    object in place, told to make targeted edits, never whole-file rewrites — its window ends
-   OBJECT_ROUND_RESERVE_S (3 min) + the watchdog's grace before the run's hard ceiling, so the round is still
+   RoundPolicy.judge_reserve_s (4 min; D112, was 3 min) + the watchdog's grace before the run's hard ceiling, so the round is still
    built and judged (static_object.object_session_window_s); a single-shot refine is fenced (edit_only) to
    the files its tasks name, the only ones it is shown; graphics is one program
    generate (no HARNESS turn cap by default — claude-code runs under AgentJob.max_turns=60 (+6-turn wrap-up),
@@ -533,8 +543,16 @@ plateau, regression or diminishing-returns stop, no rewrite or surface-detail ro
    that raises mid-way still reports what it burned (rounds/aborted_rNN.json + record.extra["aborted_rounds"])
    a round whose every task failed raises RoundFailed, TYPED (2026-09-22 — the loop never reads its message):
    .quota (a backend saw the vendor's usage limit) → agent_quota; .transient (a session died of a provider
-   failure — AgentResult.transient, or a ModelError outage) → the SAME round re-runs once, baseline included;
-   neither → no_change (a refine round) / the run fails (the baseline)
+   failure — AgentResult.transient, or a ModelError outage) or .stalled (D112: the watchdog found a session hung —
+   idle past its window, nothing produced — whatever the vendor's log says; a split round only when EVERY session
+   hung or died of transport, and best-of-N candidates carry it too) → the SAME round re-runs once,
+   baseline included; neither → no_change (a refine round) / the run fails (the baseline)
+   D112: a refine round (and its retry) launches only while RoundPolicy.can_open — judge_reserve_s, plus
+   min_session_s for an agent session (a single-shot call needs the reserve only), left on the hard clock (else
+   round.skipped_budget → budget; round 0's retry is not gated); refine / rebuild sessions end judge_reserve_s before
+   the budget (GenerationTask.reserve_s); a budget stop after refine sessions changed src/ / public/ gets ONE bounded
+   grace and a no-generation round that builds, renders and judges those edits (BaseTrack._salvage, like the
+   baseline salvage before round 0)
 stop reasons: max_rounds | budget (the wall clock — BudgetGuard / max_minutes) | agent_quota | no_change (a refine
               round's sessions changed nothing) | no_refine_tasks | judge_unavailable | failed
               (a record from before 2026-09-22 may say passed / plateau: it loads as `stopped`)

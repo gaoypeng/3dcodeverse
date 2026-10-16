@@ -204,10 +204,6 @@ class StaticObjectTrack(BaseTrack):
         )
 
 
-#: what an object round still needs once its session ends — build, gates, renders, the judge.
-#: Measured 0.7 min in both baseline-first smoke runs (2026-10-15, machine load ~23); 3 min
-#: leaves room for a slow render or one quick repair build.
-OBJECT_ROUND_RESERVE_S = 180.0
 #: the shortest refine window opened: below it the hard run clock decides anyway
 REFINE_MIN_WINDOW_S = 120.0
 
@@ -215,14 +211,16 @@ REFINE_MIN_WINDOW_S = 120.0
 def object_session_window_s(ctx: RunContext) -> int:
     """A refine session's window: the agent default, clipped so that the session — which the
     watchdog lets run ``HARD_GRACE_S`` past its window while it is still working — ends
-    :data:`OBJECT_ROUND_RESERVE_S` before the run's HARD ceiling.
+    ``RoundPolicy.judge_reserve_s`` before the run's HARD ceiling (the round's build, gates, renders and
+    judge: 0.7 min measured for an object, 2026-10-15; one reserve for every track since D112 — it was
+    ``OBJECT_ROUND_RESERVE_S``, 180 s, beside the refine task's own ``GenerationTask.reserve_s``).
 
     WHY.  With no window of its own the session ran to the run's deadline: the baseline-first
     smoke's blender refine (started at 25.8 min, 36 min allowed) was killed by the run clock at
     60.0 min after $4.63 of work, and the round was dropped unbuilt and unjudged — as were all
     three refines of iteration 0's dining chair.  Ended earlier, its edits are built and judged
     and the picker chooses between the rounds."""
-    left = (ctx.budget.hard_minutes - ctx.budget.elapsed_minutes()) * 60.0 - OBJECT_ROUND_RESERVE_S - HARD_GRACE_S
+    left = ctx.budget.left_s() - ctx.policy.judge_reserve_s - HARD_GRACE_S
     return int(max(REFINE_MIN_WINDOW_S, min(float(ctx.settings.limits.agent_timeout_s), left)))
 
 

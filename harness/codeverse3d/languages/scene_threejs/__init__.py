@@ -661,6 +661,64 @@ def probe_zone_modules(ws: Workspace, *, timeout_s: float = 90.0, sun_azimuth_de
     return ZoneProbeReport(probes=probes, census=census, other_errors=other, camera_specs=s.get("fitted_cameras") or {})
 
 
+# --------------------------------------------------------------------------- the env module alone
+#: the env check's probe entry (deleted after use; the leading ``_`` keeps it out of every listing)
+ENV_PROBE_REL = "src/_c3v_env_probe.js"
+
+
+def lib_interface(ws: Workspace) -> str:
+    """The workspace's ``src/lib/`` surface, one line per module: every exported name, a function
+    with its parameter list as written (:func:`~codeverse3d.languages._js_lint.export_signatures`).
+    Facts read off the files — what a single-shot writer, which cannot open them, may import (D112)."""
+    from codeverse3d.languages._js_lint import export_signatures
+
+    lib = ws.src / "lib"
+    rows = [f"lib/{p.name}: " + ", ".join(sigs) for p in sorted(lib.glob("*.js"))
+            if (sigs := export_signatures(p.read_text(errors="replace")))] if lib.is_dir() else []
+    return "\n".join(rows)
+
+
+def check_env(ws: Workspace, *, timeout_s: float = 90.0) -> str:
+    """``""`` when ``src/env.js`` passes the lint (its own findings), loads and runs ``buildEnv`` in the
+    browser host with no zone beside it, and lights what it builds (``probes.unlit``); else the first
+    failure, quoted.  A probe that cannot run is the harness's, not the module's: ``""`` (logged).
+    What the scene track asks of a recovered env before it counts as written (D112): 5 of 21
+    recovered env modules of argon loop iteration 5 failed only later, at assembly."""
+    import logging
+
+    from codeverse3d.spatial.probes import unlit
+    from codeverse3d.spatial.render_scene import SceneRenderError, probe_env_args, run_scene_script
+
+    rel = SCENE_FILES[1]
+    if not (ws.root / rel).is_file():
+        return f"{rel} does not exist"
+    own = [f for f in lint(ws).errors if (f.target or "").split(":")[0] == rel]
+    if own:
+        return "\n".join(f"{f.target}: {f.message}" + (f" ({f.fix_hint})" if f.fix_hint else "") for f in own[:6])
+    probe_path = ws.root / ENV_PROBE_REL
+    probe_path.write_text(_probe_module([], []))
+    args = ["--ws", str(ws.root), "--scene", ENV_PROBE_REL, "--timeout-ms", str(int(timeout_s * 1000)), *probe_env_args()]
+    try:
+        res = run_scene_script("probe_scene.mjs", args, timeout_s=timeout_s + 20)
+    except SceneRenderError as e:
+        if e.scene_timed_out:
+            return f"{rel}: buildEnv did not finish inside the {timeout_s:.0f} s probe budget"
+        logging.getLogger(__name__).warning("env check could not run: %s", e)
+        return ""
+    finally:
+        probe_path.unlink(missing_ok=True)
+    s = res.summary
+    # nothing but the env module (and the library it imports) runs in this probe: every console error is its
+    errors = [e for e in s.get("console_errors", []) if not e.startswith("boot[")]
+    boot = s.get("boot") or {}
+    if not boot.get("ok"):
+        errors.insert(0, f"the env probe did not boot [{boot.get('stage')}]: {boot.get('error', '')}")
+    if errors:
+        return "\n".join(e[:900] for e in errors[:3])
+    dark = unlit(s.get("census") or {}, offline=False)
+    return f"{rel}: {dark.message}" if dark is not None else ""
+
+
 # --------------------------------------------------------------------------- cameras
 def fallback_camera(plan: ScenePlan | None, azimuth_deg: float = SUN_AZIMUTH_GUESS_DEG) -> CameraPlan:
     """An overview when nothing was measurable: on the lit side (``azimuth_deg`` is the scene's
@@ -850,6 +908,12 @@ class SceneThreeJsRuntime:
 
     def lint(self, ws: Workspace) -> GateReport:
         return lint(ws)  # the module-level gates function (class ns is not in method scope)
+
+    def lib_interface(self, ws: Workspace) -> str:
+        return lib_interface(ws)
+
+    def check_env(self, ws: Workspace) -> str:
+        return check_env(ws)
 
     def render_asset(self, ws: Workspace, name: str, out_dir: Path, *, timeout_s: float = 180.0) -> RenderSet:
         """Quick sheet of ONE procedural asset module, on the rig a Blender hero's GLB gets.

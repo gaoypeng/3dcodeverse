@@ -227,6 +227,9 @@ res.turns                # claude-code num_turns · codex turn.completed count �
 res.files_changed (git-derived, attributed per session), res.usage, res.transcript_path, res.tool_calls, res.errors
 res.transient            # a provider failure a retry may get through (5xx / overloaded / 429 / dropped connection)
 res.quota                # Δ 2026-09-22 the vendor's usage limit is spent — never also transient
+res.stalled              # Δ D112 the watchdog killed it IDLE (no output / write / recorded step for IDLE_GRACE_S past
+                         #   its window) and it answered nothing: a hang — never transient; retried by the clock
+                         #   (RoundPolicy.can_open), never by the vendor's log (classify_end has no provider_retried)
 res.provider_wait_s      # Δ seconds of duration_s lost to provider errors (cli_common.provider_wait; codex: 0.0)
 # Δ 2026-09-22 the prompt reaches EVERY CLI on stdin (cli_common.invoke; no -p / --print / positional text,
 #   codex "-"), byte for byte; the >100 kB task_prompt.md stub is gone.  The transcript's invoke row keeps
@@ -251,7 +254,9 @@ agent sessions on one workspace are serialised, so there is no sibling filter), 
 `shared_tree: bool` (harness writers that take no session lock — the scene asset single-shots — write
 the tree while the session runs: `files_changed` is the `files_hint` paths only
 (`cli_common.attribute_changes(files, write_roots=, only=)`, also `generation._attributed_fallback`) and the
-watchdog polls only those files (`cli_common.activity_paths(s)`); needs a `files_hint`, never with
+watchdog polls only those files (`cli_common.activity_paths(s, steps=())`; **Δ D112** plus `steps`, where the CLI
+records each step it takes — agy passes its session HOME's `backends.AGY_STEP_DIRS` (brain/, conversations/) through
+`invoke(..., activity=)` for every agy session, shared_tree or not); needs a `files_hint`, never with
 `edit_only` — a validator; `GenerationTask.shared_tree` carries it; the scene env task sets it),
 `edit_only` / `always_writable` (a scoped refine may overwrite only its hinted files +
 the entry file), **Δ D110** `effort: AgentEffort | None` (`Literal["low","medium","high"]`; filled from
@@ -305,6 +310,14 @@ rt.probe(ws, *, timeout_s=60.0) -> SceneProbeResult    # scene_probe gate + cens
 rt.render_scene(ws, out_dir, *, cameras=None, orbit=True, times=(0.0, 1.5), width=1024, height=576, sheet=True) -> RenderSet
 rt.env_file: str                                      # Δ 2026-10-14 (D105) src/env.js / src/env.py — the env stage's one file,
     # declared on languages/base.SceneRuntime; tracks.scene.env_file(ctx) reads it (tracks.scene.ENV_FILES is the typed fallback)
+rt.lib_interface(ws) -> str                            # Δ D112 src/lib/ as facts: one line per module, exported names +
+    # parameter lists read off the files (_js_lint.export_signatures: `export function` and a const bound to an
+    # arrow / function expression; ast for bpy) — the env recovery's single-shot prompt
+rt.check_env(ws) -> str                                # Δ D112 "" = the env module alone lints clean, builds with nothing
+    # beside it (scene_threejs: src/_c3v_env_probe.js in probe_scene.mjs; scene_blender: run_wrapper(entry=
+    # ENV_CHECK_REL, zones={})) and lights what it builds (spatial.probes.unlit); else the failure, quoted (bpy: a
+    # raise inside a src/lib helper leads with the env's own calling line, scene_blender.env_frame).  A check the
+    # harness cannot run returns "" (never a verdict on the module)
 # Δ 2026-09-24 (D102) spatial.probes.run_probe(ws, *, compile=False, timeout_s=None, glb: Path | None = None, facts=None):
 #   glb = an OFFLINE scene's census GLB (probe_scene.mjs --glb → runtime_js/lib/glb_scene.mjs, served at /__census.glb;
 #   host_page.openHost(..., glb=)), facts merged into the census by probes.merge_facts before any finding;
@@ -586,7 +599,12 @@ from codeverse3d.orchestrator import RoundPolicy, build_refine_instructions, com
 # Δ 2026-10-16 (D111) build_refine_instructions de-duplicates a gate task on (target, "gate:<gate>", finding
 #   data["kind"]): two env ERRORs of scene_placement (no_fog, no_background) are two tasks
 RoundPolicy(max_rounds=4, max_refine_tasks=6, max_instructions_per_task=6, parallel_min_tasks=2,
-            n_candidates=1, judge_samples=1)   # lifecycle.build_context: judge_samples = Settings.judge.samples (N74), n_candidates by ONE dataclasses.replace
+            n_candidates=1, judge_samples=1, judge_reserve_s=240.0, min_session_s=180.0)
+    # Δ D112 .can_open(budget, *, single_shot=False) = budget.left_s() >= .need_s(single_shot=...) (judge_reserve_s,
+    #   + min_session_s unless the generation is single-shot): no refine round, a refine round's transport / stall
+    #   retry or a stage retry launches without it (round.skipped_budget → BUDGET; round 0's retry is not gated —
+    #   it has no round to fall back on); refine / rebuild tasks carry
+    #   GenerationTask.reserve_s = judge_reserve_s (their session's hard deadline ends that much before the budget)   # lifecycle.build_context: judge_samples = Settings.judge.samples (N74), n_candidates by ONE dataclasses.replace
     # Δ 2026-09-22 FIXED rounds: a run is the baseline + max_rounds refine rounds, EACH built on the round before
     # it; only the clock (BudgetGuard) or a hard failure ends it early.  Gone with the judgement stops: StopPolicy /
     # StopDecision, pick_best_round, judge_sigma, best_score, last_gain, REWRITE_KIND / DETAIL_KIND /
@@ -594,7 +612,7 @@ RoundPolicy(max_rounds=4, max_refine_tasks=6, max_instructions_per_task=6, paral
     # min_delta, target, pairwise_*, judge_model, regression_sigma, marginal_*, detail_*.
 from codeverse3d.orchestrator import BudgetGuard, BudgetSnapshot
 BudgetGuard(budget, start_time=None, *, soft_fraction=1.0)            # THE CLOCK, nothing else (Δ 2026-09-22)
-    .check() / .ok() / .elapsed_minutes() / .timeout_s(want_s, *, floor_s, soft) / .soft_exceeded()
+    .check() / .ok() / .elapsed_minutes() / .timeout_s(want_s, *, floor_s, soft) / .soft_exceeded() / .left_s(*, soft=False)
     .grant_grace(minutes=) / .snapshot() -> BudgetSnapshot{active_s} / .restore(snap) / .summary() -> {elapsed_min,
     max_minutes}
     # Δ 2026-09-22: charge / add / mark / stage_summary / spent / billed_usd / by_stage and usage_delta are gone —
@@ -645,9 +663,14 @@ generate(ws, *, agent_id, task, ..., budget=BudgetGuard) -> GenerationResult
     # Δ 2026-09-22 GenerationResult.transient / .quota carry the backend's typed class; a call that RAISED is
     #   GenerationResult.from_error(label, e) — transient = tracks.generation.is_model_outage(e) (ModelError
     #   retryable or 429/5xx; moved from scene_assets, the one exception classifier)
-from codeverse3d.tracks.steps import RoundFailed   # RoundFailed(message, *, transient=False, quota=False);
-    # RoundFailed.of(results, default) — the round loop reads .quota (→ agent_quota) and .transient (→ re-run
-    # the round once), never the message (looks_transport / looks_quota deleted)
+from codeverse3d.tracks.steps import RoundFailed   # RoundFailed(message, *, transient=False, quota=False, stalled=False);
+    # RoundFailed.of(results, default) — the round loop reads .quota (→ agent_quota) and .transient / Δ D112 .stalled
+    # (.of: stalled only when EVERY result hung or died of transport; run_best_of_n's failure carries it too)
+    # (→ re-run the round once, when RoundPolicy.can_open), never the message (looks_transport / looks_quota deleted)
+    # Δ D112 GenerationResult.stalled (AgentResult.stalled, nothing changed); GenerationTask.reserve_s.
+    # BaseTrack._salvage(ctx, rounds) (was _salvage_baseline): on a budget stop, ONE grace (max(5, 15 % of the
+    #   budget) min) and a no-generation round — the baseline before round 0, or (Δ D112) the refine edits the clock
+    #   stopped (src/ / public/ changed since the last round's commit)
 tracks.common.generate_for(ctx: RunContext, task: GenerationTask) -> GenerationResult
     # THE call every stage makes (env, zones, rounds, repairs, asset ladder, judged fix): generate()
     # with everything ctx knows; Δ D103 no storm fallback (D68's single-shot retry, GenerationResult.storm and

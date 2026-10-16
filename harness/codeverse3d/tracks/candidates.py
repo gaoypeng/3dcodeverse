@@ -111,7 +111,9 @@ def run_best_of_n(track: Any, ctx: RunContext, tasks: Sequence[GenerationTask], 
         died = [r for r in results if isinstance(r, Exception)]
         raise RoundFailed("; ".join(f"{r.label}: {r.notes}" for r in records) or "every candidate failed",
                           transient=any(e.transient if isinstance(e, RoundFailed) else is_model_outage(e) for e in died),
-                          quota=any(isinstance(e, RoundFailed) and e.quota for e in died))
+                          quota=any(isinstance(e, RoundFailed) and e.quota for e in died),
+                          # D112: a hung candidate is retried by the round loop like a hung single session
+                          stalled=any(isinstance(e, RoundFailed) and e.stalled for e in died))
     best = rank_candidates(records)[0]
     records[best].selected = True
     usage = sum((r.usage for r in records), Usage())

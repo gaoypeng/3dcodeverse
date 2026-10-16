@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import math
 import re
 import time
@@ -60,6 +61,7 @@ from codeverse3d.languages._common import (
     target_line,
     ws_rel,
 )
+from codeverse3d.languages._js_lint import SIGNATURE_CHARS
 from codeverse3d.languages.blender import (
     BlenderNotFoundError,
     BpyCollector,
@@ -77,6 +79,7 @@ if TYPE_CHECKING:
     from codeverse3d.spatial.probes import SceneProbeResult
 
 LANGUAGE = Language.SCENE_BLENDER
+log = logging.getLogger(__name__)
 ENTRY_REL = ENTRY_FILE[LANGUAGE]   # "src/scene.py"
 GATE = "lint:scene_blender"
 #: the harness's frame clock: ``frame(t) = 1 + round(t * FPS)`` — the wrapper sets it, the render
@@ -426,10 +429,60 @@ LIB_DIR = STARTER_DIR / "lib"
 ENV_FILE = "src/env.py"
 
 
+#: the env check's data entry (deleted after use): no zone, asset or hero, so only build_env runs
+ENV_CHECK_REL = "src/_c3d_env_check.py"
+
+
+_TB_FRAME_RE = re.compile(r'File "(?P<file>[^"]+)", line (?P<line>\d+)')
+
+
+def env_frame(traceback_text: str) -> str:
+    """``src/env.py:N`` — the deepest frame of a Python traceback that is the env module's own, with its
+    source line when the traceback quotes it — or ``""`` when no frame is.  ``check_env`` leads with it
+    when the raise surfaced inside a ``src/lib`` helper (D112 review: iteration 5 blender r1_04's
+    recovered env was reported as ``src/lib/mesh.py:69`` while its own bad call was ``env.py:287``)."""
+    lines = traceback_text.splitlines()
+    found = ""
+    for i, text in enumerate(lines):
+        m = _TB_FRAME_RE.search(text)
+        if m is None or not m.group("file").replace("\\", "/").endswith("/" + ENV_FILE):
+            continue
+        code = lines[i + 1].strip() if i + 1 < len(lines) and not _TB_FRAME_RE.search(lines[i + 1]) else ""
+        found = f"{ENV_FILE}:{m.group('line')}" + (f" `{code[:160]}`" if code else "")
+    return found
+
+
 def lib_files() -> list[Path]:
     """The library modules shipped into a workspace, sorted (the package's ``__init__.py`` ships
     too but names no calls, so the catalog does not list it)."""
     return sorted(p for p in LIB_DIR.glob("*.py") if p.name != "__init__.py")
+
+
+def lib_interface(ws: Workspace) -> str:
+    """The workspace's ``src/lib/`` surface, one line per module: every public top-level function
+    with its parameters as written, every public class and UPPER_CASE constant.  Facts read off the
+    files — what a single-shot writer, which cannot open them, may call (D112)."""
+    rows: list[str] = []
+    lib = ws.src / "lib"
+    for p in sorted(lib.glob("*.py")) if lib.is_dir() else []:
+        if p.name == "__init__.py":
+            continue
+        try:
+            tree = ast.parse(p.read_text(errors="replace"))
+        except SyntaxError:
+            continue
+        names: list[str] = []
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and not node.name.startswith("_"):
+                sig = f"{node.name}({ast.unparse(node.args)})"
+                names.append(sig if len(sig) <= SIGNATURE_CHARS else sig[:SIGNATURE_CHARS - 2] + "…)")
+            elif isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
+                names.append(node.name)
+            elif isinstance(node, ast.Assign):
+                names += [t.id for t in node.targets if isinstance(t, ast.Name) and t.id.isupper() and not t.id.startswith("_")]
+        if names:
+            rows.append(f"lib/{p.name} (lib.{p.stem}): " + ", ".join(names))
+    return "\n".join(rows)
 
 
 def _put(path: Path, text: str, written: list[Path]) -> None:
@@ -754,6 +807,52 @@ class SceneBlenderRuntime:
     def lint(self, ws: Workspace) -> GateReport:
         return lint(ws)
 
+    def lib_interface(self, ws: Workspace) -> str:
+        return lib_interface(ws)
+
+    def check_env(self, ws: Workspace) -> str:
+        """``""`` when ``src/env.py`` lints clean, runs ``build_env`` in Blender with nothing beside
+        it, and lights what it builds (``probes.unlit``); else the first failure, quoted.  A Blender
+        that cannot run is the harness's: ``""``.  What the scene track asks of a recovered env (D112):
+        in argon loop iteration 5, three recovered env.py modules failed at assembly (a ``curb_ mats``
+        SyntaxError, an AttributeError, an unknown ``roughness=`` keyword) and two more that a scope
+        revert kept from assembly were broken too (``noise_ centered = ...`` did not parse; a tuple
+        rotation raised inside ``lib/mesh.py``)."""
+        from codeverse3d.spatial.probes import unlit
+
+        env = ws.root / ENV_FILE
+        if not env.is_file():
+            return f"{ENV_FILE} does not exist"
+        own = [f for f in lint_scene_source(env.read_text(errors="replace"), target=ENV_FILE, role="env")
+               if f.severity == Severity.ERROR]
+        if own:
+            return "\n".join(f"{f.target}: {f.message}" + (f" ({f.fix_hint})" if f.fix_hint else "") for f in own[:6])
+        entry = ws.root / ENV_CHECK_REL
+        entry.write_text(render_scene_py([], [], [], []))
+        try:
+            run = self.run_wrapper(ws, ws.artifacts / "env_check", zones={}, blend=False, entry=ENV_CHECK_REL)
+        except BlenderNotFoundError as e:
+            log.warning("env check could not run: %s", e)
+            return ""
+        finally:
+            entry.unlink(missing_ok=True)
+        raised = [e for e in run.report.get("errors") or [] if e.get("stage") == "env"]
+        if raised:
+            e = raised[0]
+            at = f"{e.get('error_file') or ENV_FILE}:{e.get('error_line')}" if e.get("error_line") else ENV_FILE
+            if (e.get("error_file") or ENV_FILE) != ENV_FILE and (own_at := env_frame(str(e.get("traceback") or ""))):
+                # the raise is inside a src/lib helper: the repair writes env.py, so the env's own
+                # call line leads and the helper's line stays as where it surfaced
+                at = f"{own_at} (raised in {at})"
+            return f"{at}: build_env raised {e.get('error_type')}: {str(e.get('error_message'))[:600]}"
+        if not run.result.ok:
+            if run.result.harness_failure:
+                return ""
+            return f"{ENV_FILE}: the env-only build failed: {run.result.error_type}: {run.result.error_message}"[:900]
+        facts = run.facts
+        dark = unlit({"totals": {"lights": int(facts.get("lights") or 0)}, "background": facts.get("background")}, offline=True)
+        return f"{ENV_FILE}: {dark.message}" if dark is not None else ""
+
     # ------------------------------------------------------------------ the Blender process
     def blender_binary(self) -> str:
         b = self._blender or self._settings.resolve_blender()
@@ -762,13 +861,14 @@ class SceneBlenderRuntime:
         return b
 
     def run_wrapper(self, ws: Workspace, out_dir: Path, *, zones: dict[str, str] | None = None, blend: bool = True,
-                    timeout_s: float | None = None) -> WrapperRun:
+                    timeout_s: float | None = None, entry: str = ENTRY_REL) -> WrapperRun:
         """Build the workspace in Blender, outputs into ``out_dir`` (``bpy_build.json``,
-        ``bpy_census.json``, ``census.glb``, ``scene.blend``); ``zones`` overrides the entry's ZONES."""
+        ``bpy_census.json``, ``census.glb``, ``scene.blend``); ``zones`` overrides the entry's ZONES;
+        ``entry`` is another data entry under ``src/`` (the env check's, :func:`check_env`)."""
         out_dir.mkdir(parents=True, exist_ok=True)
         basis = ",".join(f"{v:g}" for row in glb_basis(LANGUAGE.value) for v in row)
         cmd = [self.blender_binary(), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
-               "--scene", str(ws.root / ENTRY_REL), "--out", str(out_dir), "--basis", basis, "--zone-key", ZONE_ROOT_KEY,
+               "--scene", str(ws.root / entry), "--out", str(out_dir), "--basis", basis, "--zone-key", ZONE_ROOT_KEY,
                "--fps", str(FPS), "--frames", f"{frame_of(TIMES[0])},{frame_of(TIMES[-1])}",
                "--rlimit-gb", str(self._settings.limits.bpy_rlimit_gb), "--seed", "0"]
         if zones is not None:

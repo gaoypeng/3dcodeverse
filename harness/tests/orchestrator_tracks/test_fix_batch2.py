@@ -10,7 +10,7 @@ from codeverse3d.contracts.artifacts import BuildResult, GateReport, Judgment
 from codeverse3d.contracts.common import Language, Track
 from codeverse3d.contracts.plan import BBox, PartPlan, ScenePlan, StaticPlan
 from codeverse3d.contracts.run import RoundRecord, RunStatus
-from codeverse3d.orchestrator import RunState
+from codeverse3d.orchestrator import RoundPolicy, RunState
 from codeverse3d.proc import EventLog
 from codeverse3d.tracks.planner import plan_example
 from codeverse3d.tracks.scene import SceneTrack
@@ -59,14 +59,19 @@ class ScriptedJudge(FakeJudge):
 
 # --------------------------------------------------------------------- finding: finalise with a dirty tree at the last commit
 def test_finalise_restores_the_last_round_when_an_aborted_round_dirtied_src(tmp_path, chair_plan, settings):
-    """A refine round that died after writing files leaves src/ back on the last judged round."""
+    """A refine round that died after writing files leaves src/ back on the last judged round.
+
+    finalise's own guarantee, so D112's two budget levers are off here: the launch window (4 min are
+    left, under min_session_s + judge_reserve_s) and the refine salvage (which would JUDGE these
+    edits — tests/orchestrator_tracks/test_transport_retry.py pins that path)."""
     spec = make_spec(max_rounds=3)
     ws = Workspace(tmp_path / "runs" / "r")
     # the baseline session's 6 minutes fit the 10-minute clock; the refine session's 6 more
     # cross it AFTER its files hit the disk.
     track = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.55, 0.7), targets=("Seat",)), agent=FakeAgent(_writer, minutes=6.0),
                               planner_model=_planner(chair_plan.model_dump(mode="json")), settings=settings,
-                              runtime=FakeRuntime(Language.THREEJS))
+                              runtime=FakeRuntime(Language.THREEJS), policy=_NO_RESERVE)
+    track._salvage = lambda ctx, rounds: None   # type: ignore[method-assign]
     with fake_clock():
         rec = track.run(spec, ws)
     assert rec.status is RunStatus.BUDGET and len(rec.rounds) == 1
@@ -77,6 +82,10 @@ def test_finalise_restores_the_last_round_when_an_aborted_round_dirtied_src(tmp_
     # ledger (planner 0.002 + baseline agent 0.01 + judge 0.003 + the aborted refine agent 0.01)
     assert rec.total_usage.cost_usd == pytest.approx(0.025, abs=1e-6)
     assert rec.extra["aborted_rounds"][0]["cost_usd"] == pytest.approx(0.01, abs=1e-6)
+
+
+#: D112's launch window off: these tests drive a refine round past the clock on purpose
+_NO_RESERVE = RoundPolicy(max_rounds=3, judge_reserve_s=0.0, min_session_s=0.0)
 
 
 class _RebuildFails(FakeRuntime):
@@ -229,9 +238,12 @@ def test_a_successful_re_finalise_clears_the_stale_rebuild_failed_flag(tmp_path,
     runtime = _RebuildFails(Language.THREEJS, fails=1)
 
     def track():
-        return StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.7,), targets=("Seat",)),
-                                 agent=FakeAgent(_writer, minutes=6.0), planner_model=_planner(chair_plan.model_dump(mode="json")),
-                                 settings=settings, runtime=runtime)
+        # finalise's own path: D112's launch window and refine salvage are off (see the test above)
+        t = StaticObjectTrack(services=FakeServices(), judge=FakeJudge(scores=(0.7,), targets=("Seat",)),
+                              agent=FakeAgent(_writer, minutes=6.0), planner_model=_planner(chair_plan.model_dump(mode="json")),
+                              settings=settings, runtime=runtime, policy=_NO_RESERVE)
+        t._salvage = lambda ctx, rounds: None   # type: ignore[method-assign]
+        return t
 
     with fake_clock():
         rec1 = track().run(spec, ws)

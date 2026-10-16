@@ -87,3 +87,19 @@ def test_a_storm_killed_session_is_not_cached_so_a_redo_runs_it(tmp_path, monkey
     run_bare_agent(_spec(), "agy:gemini-3.8-flash", tmp_path, eval_ws, minutes=10)
     run_bare_agent(_spec(), "agy:gemini-3.8-flash", tmp_path, eval_ws, minutes=10)
     assert len(calls) == 2 and not (tmp_path / "agent" / ".bare_done.json").exists()
+
+
+def test_a_hung_session_is_not_cached_so_a_redo_runs_it(tmp_path, monkeypatch):
+    """D112: a watchdog kill is ``stalled``, not ``transient`` — a hung session is not finished either."""
+    calls: list[int] = []
+
+    class Hung:
+        def run(self, job: AgentJob) -> AgentResult:
+            calls.append(1)
+            return AgentResult(ok=False, exit_reason="timeout", stalled=True)
+
+    monkeypatch.setattr("bench._bare_agent.get_coding_agent", lambda target: Hung())
+    eval_ws = Workspace(tmp_path / "eval").create()
+    run_bare_agent(_spec(), "agy:gemini-3.8-flash", tmp_path, eval_ws, minutes=10)
+    run_bare_agent(_spec(), "agy:gemini-3.8-flash", tmp_path, eval_ws, minutes=10)
+    assert len(calls) == 2 and not (tmp_path / "agent" / ".bare_done.json").exists()

@@ -154,6 +154,23 @@ def _build_failed(ctx: ToolContext, br: BuildResult, warns: list[str]) -> Observ
                                      "error_file": error_file_display(br.error_file, ws.root), "error_line": br.error_line})
 
 
+def _env_unlit_only(br: BuildResult) -> str:
+    """The headline line for a scene build whose ONLY errors are ``probes.unlit`` (nothing lights the
+    scene), else ``""``.  The round's build fails on that ERROR so its repair is handed the env module
+    (D112); a session's own ``build`` reports it above a BUILD OK instead — most sessions that build
+    while the env is still the placeholder (an asset session beside the env stage, a zone session
+    after a failed env stage) cannot write the env module, and a BUILD FAILED they cannot clear would
+    cost them their window."""
+    if br.ok or br.harness_failure:
+        return ""
+    errors = [f for g in br.gates for f in g.errors]
+    if not errors or any(f.data.get("kind") != "unlit" for f in errors):
+        return ""
+    f = errors[0]
+    return (f"SCENE UNLIT — scene_probe ERROR on {f.target}: {f.message}.  The round's build fails on it until "
+            f"{f.target} lights the scene; everything else built.")
+
+
 @tool("build", NoArgs, "Lint + build the code in src/ with the language runtime, export artifacts/object.glb and measure it. Call after every edit.", cost_hint="slow")
 def build(ctx: ToolContext, args: NoArgs) -> Observation:
     # ToolDef.call stamps Observation.duration_ms for every tool — no timing here
@@ -166,9 +183,12 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
     if refused is not None:
         return refused
     br: BuildResult = rt.build(ws, timeout_s=get_settings().limits.build_timeout_s)
-    if not br.ok:
+    unlit_line = _env_unlit_only(br) if language in SCENE_LANGUAGES else ""
+    if not br.ok and not unlit_line:
         return _build_failed(ctx, br, lint_warns)
     numbers: dict[str, Any] = {"stage": "build", "ok": br.ok, "duration_ms": br.duration_ms}
+    if unlit_line:
+        numbers["env_unlit"] = True
     broken = False
     if not br.glb_path and language in SCENE_LANGUAGES + GRAPHICS_LANGS:
         # languages without a GLB deliverable: report the language's own artifacts
@@ -194,6 +214,8 @@ def build(ctx: ToolContext, args: NoArgs) -> Observation:
                         "footprint_offset_m": m.footprint_offset_m, "parts": [p.name for p in m.parts]})
         if m.extra.get("findings"):
             numbers["findings"] = m.extra["findings"]
+    if unlit_line:
+        lines.insert(0, unlit_line)
     if lint_warns:
         lines.append("lint warnings:\n" + "\n".join(lint_warns[:_LINT_WARNS_SHOWN]))
     census_warn = br.census.get("warnings") if isinstance(br.census, dict) else None

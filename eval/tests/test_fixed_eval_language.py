@@ -152,7 +152,7 @@ def test_scene_cells_run_the_placement_gate_before_the_judge(monkeypatch, tmp_pa
     placement = gates[1]
     assert not placement.passed and [f.data["kind"] for f in placement.errors] == ["floating"]
     assert placement.errors[0].target == "Quay/Crate" and placement.errors[0].data["gap_m"] == 0.31
-    assert "Quay/Crate is floating 0.31 m" in placement.errors[0].message
+    assert "Quay/Crate is floating 0.310 m" in placement.errors[0].message   # to the millimetre since D112
 
 
 def test_the_fixed_judge_reads_the_in_run_payload_for_the_same_round(monkeypatch, tmp_path):

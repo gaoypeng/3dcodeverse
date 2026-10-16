@@ -183,7 +183,8 @@ def test_a_killed_session_is_booked_from_its_messages_and_its_retries_are_provid
     monkeypatch.setattr("codeverse3d.agents.cli_common.IDLE_GRACE_S", 1.0)
     a = ClaudeCodeAgent("sonnet", binary=fake_bin("claude", FAKE_KILLED_CLAUDE))
     res = a.run(AgentJob(workspace=str(tmp_ws.root), prompt="hello", label="k", timeout_s=1, spatial_tools=False))
-    assert not res.ok and res.exit_reason == "timeout" and res.transient and not res.quota
+    # D112: a hung session is ``stalled`` (retried by the clock), never ``transient`` because of its retries
+    assert not res.ok and res.exit_reason == "timeout" and res.stalled and not res.transient and not res.quota
     u = res.usage
     assert (u.input_tokens, u.cached_tokens, u.output_tokens, u.model) == (2 + 19190 + 20354, 20354, 5, "claude-sonnet-5-5")
     assert u.cost_usd == pytest.approx(estimate_cost("anthropic", "claude-sonnet-5-5", u)

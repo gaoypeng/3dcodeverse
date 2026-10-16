@@ -129,6 +129,17 @@ class FakeRuntime:
                 out.append(u)
         return out
 
+    #: what the fake env check finds in an env module, and what it reports (D112)
+    ENV_BROKEN = "ENV_BROKEN"
+
+    def lib_interface(self, ws: Workspace) -> str:
+        return "lib/fake.js: makeFake(opts = {})"
+
+    def check_env(self, ws: Workspace) -> str:
+        env = ws.root / self.env_file
+        text = env.read_text() if env.is_file() else ""
+        return f"{self.env_file}: {self.ENV_BROKEN} found" if self.ENV_BROKEN in text else ""
+
     def _src_text(self, ws: Workspace) -> str:
         return "\n".join(p.read_text() for p in sorted(ws.src.rglob("*")) if p.is_file())
 

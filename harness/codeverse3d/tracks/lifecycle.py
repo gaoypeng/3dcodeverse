@@ -295,7 +295,8 @@ class BaseTrack:
         refine-from-best, no whole-artifact rewrite after a regression)."""
         index = last.index + 1
         if last.build is None or not last.build.ok:
-            return [self._rebuild_task(ctx, last, index)], ["rebuild: previous round did not build"]
+            rebuild = self._rebuild_task(ctx, last, index).model_copy(update={"reserve_s": ctx.policy.judge_reserve_s})
+            return [rebuild], ["rebuild: previous round did not build"]
         tasks = build_refine_instructions(last.judgment, last.gates, failed_acceptance(ctx, last.judgment), ctx.plan,
                                           file_for_target=self.refine_file_for_target(ctx),
                                           max_tasks=ctx.policy.max_refine_tasks,
@@ -304,7 +305,8 @@ class BaseTrack:
             return [], []
         groups, parallel = plan_refine_groups(tasks, allow_fanout=self.allow_refine_fanout,
                                               parallel_min_tasks=ctx.policy.parallel_min_tasks)
-        gen_tasks = [self._refine_task(ctx, g, last, index, parallel=parallel) for g in groups]
+        gen_tasks = [self._refine_task(ctx, g, last, index, parallel=parallel).model_copy(
+            update={"reserve_s": ctx.policy.judge_reserve_s}) for g in groups]
         ctx.events.emit("refine.planned", round=index, n_tasks=len(tasks), n_groups=len(groups), parallel=parallel,
                         targets=[g.targets for g in groups])
         return gen_tasks, [t.line() for t in tasks]
@@ -360,7 +362,7 @@ class BaseTrack:
             except BudgetExceeded as e:
                 events.emit("budget.exceeded", reason=e.reason)
                 stop, error = RunStatus.BUDGET, e.reason
-                self._salvage_baseline(ctx, rounds)
+                self._salvage(ctx, rounds)
             except Exception as e:  # noqa: BLE001 — persist a FAILED record, then fail loud
                 error = f"{type(e).__name__}: {e}"
                 events.emit("run.failed", error=error, traceback=traceback.format_exc()[-3000:])
@@ -634,6 +636,13 @@ class BaseTrack:
                     # no gate error, no failed must-item, no judge plan: nothing to ask for.  When
                     # that is only because the judge never scored the round, say so.
                     return _stop(RunStatus.JUDGE_UNAVAILABLE if _unjudged(last) else RunStatus.NO_REFINE_TASKS)
+            if last is not None and not ctx.policy.can_open(ctx.budget, single_shot=ctx.single_shot):
+                # D112: a refine round (or its transport / stall retry) that cannot also be built and
+                # judged before the clock stops is money for edits nobody scores (iteration 5, r1_09:
+                # the retry launched with 15 min left, was cut at the budget edge, never judged)
+                ctx.events.emit("round.skipped_budget", round=index, left_s=round(ctx.budget.left_s(), 1),
+                                need_s=ctx.policy.need_s(single_shot=ctx.single_shot))
+                return _stop(RunStatus.BUDGET)
             ctx.state.save(ctx.ws)
             try:
                 if index == 0 and tasks and ctx.policy.n_candidates > 1:
@@ -653,7 +662,7 @@ class BaseTrack:
                     if index == 0:
                         raise
                     return _stop(RunStatus.AGENT_QUOTA)
-                if index not in transport_retried and e.transient:
+                if index not in transport_retried and (e.transient or e.stalled):
                     # A 503 storm / dropped socket / overloaded provider is not an agent
                     # verdict — the session never really happened.  Re-run the SAME
                     # round once, baseline included (rc=247 alone killed three whole
@@ -661,9 +670,13 @@ class BaseTrack:
                     # ``continue`` re-enters through the loop head, so the budget and
                     # round ceilings still guard the retry.  Typed since 2026-09-22
                     # (RoundFailed.transient): a session that merely timed out on its own
-                    # work, or a CLI that crashed with no provider error, is not retried.
+                    # work, or a CLI that crashed with no provider error, is not retried.  A session
+                    # the watchdog found HUNG (``stalled``: idle, nothing produced) is retried by the
+                    # same rule, whatever the vendor's log says (D112); the window check at the loop
+                    # head keeps the retry from launching when it could not also be judged.
                     transport_retried.add(index)
-                    ctx.events.emit("round.transport_retry", round=index, detail=str(e)[:500])
+                    ctx.events.emit("round.transport_retry", round=index, stalled=e.stalled and not e.transient,
+                                    detail=str(e)[:500])
                     continue
                 if index == 0:
                     raise
@@ -674,28 +687,45 @@ class BaseTrack:
             rounds.append(rec)
             self._save_budget(ctx)
 
-    def _salvage_baseline(self, ctx: RunContext, rounds: list[RoundRecord]) -> None:
-        """A stage tripped the budget BEFORE round 0 ever ran (the greenhouse scene:
-        the zone fan-out crossed the ceiling, so the run finished with no build, no
-        render, no judge and no score at all).
+    def _salvage(self, ctx: RunContext, rounds: list[RoundRecord]) -> None:
+        """The budget stopped the run with work nobody has judged: give ONE bounded grace and run
+        a no-generation round (build → gates → render → judge) on what is in the workspace.
 
-        The workspace still holds buildable code, and build → render → judge is a
-        fraction of a generation session, so grant an explicit one-off grace and
-        deliver ONE no-generation round.  Any failure here is swallowed: the run is
-        already stopping on budget."""
-        if rounds or ctx.plan is None:
-            return  # nothing was built yet (the PLAN itself blew the budget) → nothing to salvage
+        * Before round 0 (the greenhouse scene: the zone fan-out crossed the ceiling, so the run
+          finished with no build, no render, no judge and no score at all): the baseline.
+        * After it (D112): a refine round whose sessions changed files before the clock stopped
+          them — a session cut at the budget edge, or a round stopped after its generate step.
+          Iteration 5, r1_09: the transport retry's edits (the camera that capped the run at 0.60)
+          were committed and thrown away; finalise rebuilt round 0.  A refine killed by its OWN
+          hard limit was always built and judged (iteration 4, the same run: 0.817).
+
+        Any failure here is swallowed: the run is already stopping on budget."""
+        if ctx.plan is None:
+            return  # the PLAN itself blew the budget → nothing to salvage
+        last = rounds[-1] if rounds else None
+        edits: list[str] = []
+        if last is not None:
+            if not last.commit:
+                return
+            edits = [f.path for f in ctx.ws.changed_files(last.commit) if f.path.split("/", 1)[0] in ("src", "public")]
+            if not edits:
+                return   # the stop came before anything changed: the last round IS the work
         grace_min = max(5.0, ctx.spec.budget.max_minutes * 0.15)
         ctx.budget.grant_grace(minutes=grace_min)
-        ctx.events.emit("budget.salvage", reason="no round completed before the clock stop",
-                        grace_minutes=round(grace_min, 1))
+        reason = ("no round completed before the clock stop" if last is None
+                  else f"the clock stopped a refine round after it changed {len(edits)} file(s)")
+        ctx.events.emit("budget.salvage", reason=reason, grace_minutes=round(grace_min, 1), files=edits[:20])
+        index = len(rounds)
         try:
-            if not self.prepare_salvage(ctx):
+            if last is None and not self.prepare_salvage(ctx):
                 ctx.events.emit("budget.salvage_skipped", reason="nothing buildable to salvage")
                 return
-            rec = run_round(ctx, index=0, kind="baseline", tasks=[], pipeline=self.make_pipeline(), instructions=[],
-                            previous=None, files_hint=ctx.runtime.expected_files(ctx.plan),
-                            extra_notes=["salvaged: the budget stopped the run before round 0", *self.round_extra_notes(ctx)])
+            note = ("salvaged: the budget stopped the run before round 0" if last is None
+                    else "salvaged: the budget stopped this round's sessions; their edits are judged as they stand")
+            rec = run_round(ctx, index=index, kind="baseline" if last is None else "refine", tasks=[],
+                            pipeline=self.make_pipeline(), instructions=[], previous=previous_verdict(rounds, index),
+                            findings=last.gates if last is not None else (), files_hint=ctx.runtime.expected_files(ctx.plan),
+                            extra_notes=[note, *self.round_extra_notes(ctx)])
         except Exception as e:  # noqa: BLE001 — the run is already stopping; never mask the budget stop
             log.warning("salvage round failed: %s", e)
             ctx.events.emit("budget.salvage_failed", error=f"{type(e).__name__}: {e}")

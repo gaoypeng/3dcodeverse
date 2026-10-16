@@ -312,15 +312,16 @@ class SceneTrack(BaseTrack):
         try:
             task = skills_hook.with_inlined_skill(gen, [task])[0]
             res = generate_for(gen, task)
-            if res.transient and not res.ok and ctx.budget.ok():
+            if (res.transient or res.stalled) and not res.ok and ctx.policy.can_open(ctx.budget, single_shot=gen.single_shot):
                 # ONE transport retry, the round loop's rule (lifecycle: a 503 storm / dropped
-                # socket is not a verdict on the work — the session never really happened):
-                # the same task again under the ``.a2`` label the CLI's own second session
-                # wears, so the ledger and the trajectory dir tell the two apart.  Typed:
-                # ``GenerationResult.transient`` only — a quota wall or a session that merely
-                # timed out is not retried.  Only while the budget still allows; the clock
-                # check inside ``generate`` stops a retry that would overrun it.
-                ctx.events.emit("stage.transport_retry", stage=stage, label=task.label, detail=res.notes[:500])
+                # socket / a session that HUNG is not a verdict on the work — the session never
+                # really happened): the same task again under the ``.a2`` label the CLI's own second
+                # session wears, so the ledger and the trajectory dir tell the two apart.  Typed:
+                # ``GenerationResult.transient`` / ``.stalled`` only — a quota wall or a session that
+                # worked to its hard limit is not retried — and only when the clock still holds a
+                # minimum window plus the judge reserve (``RoundPolicy.can_open``, D112).
+                ctx.events.emit("stage.transport_retry", stage=stage, label=task.label, stalled=res.stalled and not res.transient,
+                                detail=res.notes[:500])
                 res = generate_for(gen, task.model_copy(update={"label": f"{task.label}.a2"}))
             return res
         finally:
@@ -371,25 +372,62 @@ class SceneTrack(BaseTrack):
         spend its window reading), bounded by the env window the budget still allows.  It runs
         before the zone stage starts, so no zone is authored against the skeleton's placeholder
         (iteration 4, r1_01: a zone author built its own replacement world inside its zone file).
-        A recovery that also fails leaves the placeholder, and the stage reports it failed."""
+
+        CHECKED (D112): the written module counts only once the runtime's env check passes
+        (``SceneRuntime.check_env``: its lint, a build with nothing beside it, something that lights
+        it); a failure gets ONE repair single-shot with the check's words and the file fed back (the
+        asset ladder's single-shot + repair).  Both prompts carry the ``src/lib/`` interface
+        (``SceneRuntime.lib_interface``) — names and parameter lists, read off the files.  Iteration 5
+        (2026-10-16): 7 of 21 unchecked recoveries were broken or unlit (a SyntaxError, a non-existent
+        ``gravel`` export, a ``roughness=`` keyword no function takes) and reached round 0 as an
+        assembly without env.  A module that still fails is replaced by what was there before (the
+        placeholder: zones import its interface), and the stage reports it failed.
+
+        Under :func:`~codeverse3d.agents.cli_common.exclusive_workspace` (D112): an escalated asset
+        session may hold the workspace while this runs, and a harness commit inside its window was
+        reverted by its scope check (iteration 5, scene_blender r1_10: the recovered env erased)."""
+        from codeverse3d.agents.cli_common import exclusive_workspace
+
         gen = ctx if ctx.single_shot else (single_shot_ctx(ctx) or ctx)
         rel = env_file(ctx)
+        path = ctx.ws.root / rel
         ctx.events.emit("env.recover", file=rel, notes=str(failed.get("notes", ""))[:300])
-        t0 = time.time()
-        try:
-            task = self._env_task(gen)
-            res = generate_for(gen, task.model_copy(update={"label": f"{task.label}.recover"}))
-        except Exception as e:  # noqa: BLE001 — BudgetExceeded included: the boundary check after the stage stops the run
-            out = {"ok": False, "files": [], "notes": f"recover: {type(e).__name__}: {e}"[:500]}
-        else:
-            ok = res.ok and (rel in {c.path for c in res.files_changed} or _touched(ctx.ws.root / rel, t0))
-            out = {"ok": ok, "files": [rel] if ok else [], "notes": f"recovered single-shot: {res.notes}"[:500]}
-        ctx.ws.commit("env.recover")
-        ctx.events.emit("env.recovered", ok=out["ok"], file=rel)
+        with exclusive_workspace(ctx.ws):
+            before = path.read_text(errors="replace") if path.is_file() else None
+            lib = ctx.runtime.lib_interface(ctx.ws)
+            ok, error, previous, notes = False, "", "", ""
+            for attempt in (1, 2):   # the single-shot, then ONE repair with the check's words fed back
+                t0 = time.time()
+                try:
+                    task = self._env_task(gen, lib_interface=lib, env_check_error=error, env_previous=previous)
+                    label = f"{task.label}.recover" + (".repair" if attempt > 1 else "")
+                    res = generate_for(gen, task.model_copy(update={"label": label}))
+                except Exception as e:  # noqa: BLE001 — BudgetExceeded included: the boundary check after the stage stops the run
+                    notes = f"recover: {type(e).__name__}: {e}"
+                    break
+                if not (res.ok and (rel in {c.path for c in res.files_changed} or _touched(path, t0))):
+                    notes = f"recovered single-shot wrote nothing: {res.notes}"
+                    break
+                error = ctx.runtime.check_env(ctx.ws)
+                ctx.events.emit("env.checked", attempt=attempt, ok=not error, error=error[:500])
+                if not error:
+                    ok, notes = True, f"recovered single-shot{' + repair' if attempt > 1 else ''}: {res.notes}"
+                    break
+                notes = f"recovered env failed its check: {error}"
+                previous = path.read_text(errors="replace") if path.is_file() else ""
+                if not ctx.budget.ok():
+                    break
+            if not ok and before is not None and path.is_file() and path.read_text(errors="replace") != before:
+                path.write_text(before)   # a broken env breaks every zone that imports it; the placeholder does not
+            ctx.ws.commit("env.recover")
+        out = {"ok": ok, "files": [rel] if ok else [], "notes": notes[:500]}
+        ctx.events.emit("env.recovered", ok=ok, file=rel)
         return out
 
-    def _env_task(self, ctx: RunContext) -> GenerationTask:
-        prompt = render(scene_templates(ctx.language).env, **self._ctx(ctx))
+    def _env_task(self, ctx: RunContext, **recovery: str) -> GenerationTask:
+        """``recovery``: the recovery's extra facts (``lib_interface``, ``env_check_error``,
+        ``env_previous`` — :meth:`_recover_env`); the session's own brief has none."""
+        prompt = render(scene_templates(ctx.language).env, **self._ctx(ctx, **recovery))
         ctx.record_prompt("scene_env", prompt)
         # shared_tree: the asset single-shots write src/ side by side with this session (D111)
         return GenerationTask(label="env", prompt=prompt, system=self.system_prompt(ctx), files_hint=[env_file(ctx)], round=0, kind="env",

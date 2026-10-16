@@ -362,3 +362,26 @@ console.log(JSON.stringify({ seamWorst, maxR, maxY, meanFarY: farLift / nFar, me
     assert out["same"] and out["differ"]
     assert abs(out["small"] - 984) < 1.5 and abs(out["big"] - 7380) < 2.0
     assert abs(out["clamped"] - 984) < 1.5 and abs(out["shorter"] - 600) < 1.5
+
+
+def test_the_sky_dome_keeps_or_sets_the_background_the_gate_reads():
+    """D112: makeSky nulled scene.background ("the dome IS the backdrop") and the harness's own
+    no_background gate then failed three iteration-5 scenes that had set one before calling it."""
+    out = _measure("""
+import * as THREE from 'three';
+import { makeSky } from './lib/sky.js';
+const set = new THREE.Scene();
+const mine = new THREE.Color(0x336699);
+set.background = mine;
+makeSky(set, { elevationDeg: 20 });
+const unset = new THREE.Scene();
+makeSky(unset, { elevationDeg: 20 });
+const night = new THREE.Scene();
+makeSky(night, { elevationDeg: -15 });
+const hsl = (c) => c.getHSL({});
+console.log(JSON.stringify({ kept: set.background === mine, unsetIsColor: !!(unset.background && unset.background.isColor),
+  day: unset.background.toArray(), dayL: hsl(unset.background).l, nightL: hsl(night.background).l }));
+""")
+    assert out["kept"], "a background the caller set survives"
+    assert out["unsetIsColor"], "an unset background becomes a colour the census reports"
+    assert all(0.0 <= v <= 1.0 for v in out["day"]) and out["nightL"] < out["dayL"]

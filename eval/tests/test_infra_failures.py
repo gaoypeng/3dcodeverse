@@ -449,3 +449,30 @@ def test_the_scene_scaffold_leaves_no_example_entry_to_score(tmp_path):
     ws = Workspace(tmp_path / "eval").create()
     _render_scaffold(CompareDeps(Evaluator()), spec, ws)
     assert not (ws.root / "src" / "scene.js").exists() and (ws.root / "src" / "lib" / "env.js").is_file()
+
+
+def test_a_hung_harness_round_is_infra_as_a_transport_death_was():
+    """D112: a watchdog kill is never ``transient`` any more; a session found hung with nothing produced
+    is ``stalled``.  A harness run whose round 0 hung twice is the provider's, not the arm's — before D112
+    the same hang was transient whenever the CLI had logged one provider retry."""
+    from codeverse3d.tracks.steps import RoundFailed
+
+    assert is_infra_failure(RoundFailed("r00: killed by watchdog (idle)", stalled=True)) is True
+    assert is_infra_failure(RoundFailed("r00: the agents ran and changed nothing")) is False
+
+
+def test_a_hung_bare_agent_that_delivered_nothing_is_infra(tmp_path, monkeypatch):
+    """The bare arm reads the same flag: no file + a hung session is dropped, not scored 0 (D112)."""
+    from bench.compare_backends import CompareDeps, CompareOptions, parse_arm, run_cell
+    from bench.run_bench import Battery
+    from codeverse3d.contracts.agent import AgentResult
+    from tests.conftest import BATTERY, FakeEvaluator
+
+    def hung(spec, target, cell, eval_ws, *, minutes):
+        return AgentResult(ok=False, exit_reason="timeout", stalled=True, errors=["killed by watchdog (idle) after 600s"])
+
+    monkeypatch.setattr("bench._bare_agent.run_bare_agent", hung)
+    battery = Battery.load(BATTERY)
+    result = run_cell(battery, battery.prompts[0], parse_arm("agent:agy:gemini-3.8-flash"), tmp_path,
+                      CompareOptions(judge="gemini:x", loop_judge="gemini:x"), CompareDeps(FakeEvaluator()))
+    assert (result.status, result.score, result.error_is_infra) == ("infra_failed", None, True)

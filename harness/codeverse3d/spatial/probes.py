@@ -301,16 +301,15 @@ def _census_findings(c: dict[str, Any], *, offline: bool = False) -> list[GateFi
             kind="unobserved_animation_hook", hook_path=hook.get("path"),
         ))
     tot = c.get("totals", {})
+    if (dark := unlit(c, offline=offline)) is not None:
+        out.append(dark)
     if offline:
-        if tot.get("lights", 0) == 0 and not c.get("background"):
-            out.append(_f(gate, Severity.WARN, "scene has no lamps and no world: it renders black", target="src/env.py",
-                          hint="in build_env create a world (Sky Texture) and a Sun lamp"))
         if tot.get("meshes", 0) == 0:
             out.append(_f(gate, Severity.ERROR, "scene has no meshes", target="src/scene.py",
                           hint="every zone's build(ctx) links its objects into ctx.collection"))
         out.extend(_offline_findings(c))
     else:
-        if tot.get("lights", 0) == 0:
+        if tot.get("lights", 0) == 0 and dark is None:
             out.append(_f(gate, Severity.WARN, "scene has no lights (MeshStandardMaterial renders black)", target="src/env.js",
                           hint="add new THREE.DirectionalLight (castShadow) + new THREE.HemisphereLight in buildEnv"))
         if tot.get("meshes", 0) == 0:
@@ -328,6 +327,29 @@ def _census_findings(c: dict[str, Any], *, offline: bool = False) -> list[GateFi
             out.append(_f(gate, Severity.INFO, f"zones {o['a']} and {o['b']} footprints overlap {o['footprint_overlap']:.0%}",
                           target=o["a"], hint="fine if intended (nested zones); otherwise move one"))
     return out
+
+
+def unlit(census: Mapping[str, Any], *, offline: bool) -> GateFinding | None:
+    """The ERROR for a scene that nothing lights: no lamp and no world (bpy), or no light, no
+    background and no environment map (three.js) — every frame renders black.
+
+    An ERROR since D112 (was a WARN): argon loop iteration 5, scene_blender r1_10 built round 0 on
+    the skeleton's placeholder env (lights 0, background null); the build passed with
+    "0 errors", the round-0 repair fixed an asset and left the env, and every frame was 96-99 %
+    black — judged 0.109 after the full render and judge spend.  An ERROR fails the build, so the
+    repair session is handed the env module before anything is rendered.  The same rule checks
+    an env module alone (``SceneRuntime.check_env``)."""
+    lights = int((census.get("totals") or {}).get("lights", 0) or 0)
+    if lights or census.get("background"):
+        return None
+    if offline:
+        return _f(PROBE_GATE, Severity.ERROR, "scene has no lamps and no world: it renders black", target="src/env.py",
+                  kind="unlit", hint="build_env must light the scene: a world (sky or background colour) and/or lamps")
+    if census.get("environment"):
+        return None
+    return _f(PROBE_GATE, Severity.ERROR, "scene has no lights, no scene.background and no scene.environment: it renders black",
+              target="src/env.js", kind="unlit",
+              hint="buildEnv must light the scene: lights, and the sky as scene.background / scene.environment")
 
 
 def _draw_findings(c: dict[str, Any]) -> list[GateFinding]:

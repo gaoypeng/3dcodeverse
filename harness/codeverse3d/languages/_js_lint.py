@@ -249,6 +249,53 @@ def module_exports(src: str) -> frozenset[str] | None:
     return frozenset(names)
 
 
+_EXPORT_FN_RE = re.compile(r"\bexport\s+(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*\(")
+# ``export const name = (params) => …`` / ``= async (…) =>`` / ``= function (…) {`` — the ``(`` opens the
+# parameter list only when ``=>`` follows its close (or the value is a ``function``); checked below
+_EXPORT_CONST_FN_RE = re.compile(r"\bexport\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?"
+                                 r"(function\b\s*\*?\s*[\w$]*\s*)?\(")
+# ``export const name = x => …``: one bare parameter
+_EXPORT_CONST_ARROW1_RE = re.compile(r"\bexport\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?"
+                                     r"([A-Za-z_$][\w$]*)\s*=>")
+#: one signature line's ceiling: a destructured options object can run to a screenful
+SIGNATURE_CHARS = 240
+
+
+def export_signatures(src: str) -> list[str]:
+    """Every name the module exports, an exported function — a declaration, or a ``const`` bound to
+    an arrow / function expression — as ``name(params)`` (its parameter list as written, whitespace
+    collapsed, capped at :data:`SIGNATURE_CHARS`), sorted; ``[]`` when the surface cannot be
+    enumerated (:func:`module_exports`).  Facts read off the text —
+    the index a single-shot writer gets of a library it cannot open (D112)."""
+    names = module_exports(src)
+    if not names:
+        return []
+    code = strip_js(src, strings=False)
+    sigs: dict[str, str] = {}
+
+    def _add(name: str, params: str) -> None:
+        sig = f"{name}({' '.join(params.split())})"
+        sigs[name] = sig if len(sig) <= SIGNATURE_CHARS else sig[:SIGNATURE_CHARS - 2] + "…)"
+
+    def _close(start: int) -> int:
+        """The index just past the ``)`` matching the ``(`` before ``start``."""
+        depth, i = 1, start
+        while i < len(code) and depth:
+            depth += {"(": 1, ")": -1}.get(code[i], 0)
+            i += 1
+        return i
+
+    for m in _EXPORT_FN_RE.finditer(code):
+        _add(m.group(1), code[m.end():_close(m.end()) - 1])
+    for m in _EXPORT_CONST_FN_RE.finditer(code):
+        end = _close(m.end())
+        if m.group(2) or code[end:].lstrip().startswith("=>"):   # a function, not a parenthesised value
+            _add(m.group(1), code[m.end():end - 1])
+    for m in _EXPORT_CONST_ARROW1_RE.finditer(code):
+        _add(m.group(1), m.group(2))
+    return [sigs.get(n, n) for n in sorted(names - {"default"})]
+
+
 def exported_names(path: Path) -> frozenset[str] | None:
     """:func:`module_exports` of the file at ``path`` (``None`` when it cannot be read)."""
     try:

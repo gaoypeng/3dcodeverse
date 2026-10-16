@@ -29,7 +29,7 @@ stars / clouds / sun / moon / atmosphere and spans more than 50 m (or by size al
 place has a visible sky at all is the brief's (an interior, a cave, deep space).
 
 Strong options: `makeSky(scene, { rig })` from `lib/sky.js` is the shipped dome, lit from the
-same `sunRig` as the scene (`scene.background` stays null). One of your own is a `BackSide`
+same `sunRig` as the scene (it keeps a `scene.background` already set, else sets its horizon colour). One of your own is a `BackSide`
 sphere (`fog: false`, `depthWrite: false`, built with `makeShaderMaterial` from `lib/shader.js`
 so the tonemap chunks stay) whose fragment colour is a function of the view direction: a
 horizon-to-zenith gradient, a sun term around `sunDir` (a halo and, if the brief's weather

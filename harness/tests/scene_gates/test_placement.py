@@ -54,7 +54,7 @@ def test_floating_severity_by_gap_then_by_count():
     fl = _by_kind(r, "floating")
     assert {f.target: f.severity for f in fl} == {"Yard/Lantern": Severity.ERROR, "Yard/Cup": Severity.WARN}
     lantern = next(f for f in fl if f.target == "Yard/Lantern")
-    assert "floating 0.30 m above Ground" in lantern.message and "lower Yard/Lantern by 0.30 m" in lantern.fix_hint
+    assert "floating 0.300 m above Ground" in lantern.message and "lower Yard/Lantern by 0.300 m" in lantern.fix_hint
     assert "userData.placement = 'free'" in lantern.fix_hint
     assert not r.passed
     # a 9 cm hover is past the strict line (a WARN under the 2026-09 0.15 m)
@@ -194,7 +194,7 @@ def test_check_placement_returns_the_round_gates_verdict(tmp_path):
     # Bench was never built: House (its only content) is neither missing it nor empty
     assert {"floating", "no_fog"} <= kinds and not {"missing_content", "zone_empty"} & kinds
     # an interior plan: the tighter tolerance is named, and the table text is what the agent reads
-    ws.plan_path.write_text(plan.model_copy(update={"setting": "a cabin interior"}).model_dump_json())
+    ws.plan_path.write_text(plan.model_copy(update={"setting": "a cabin interior", "interior": True}).model_dump_json())
     obs = get_tool("check_placement").call(ToolContext(workspace=ws, language=Language.SCENE_THREEJS.value), {})
     assert not obs.ok and "indoor tolerance 2 cm" in obs.text
     text = placement_table_text(census["placement"])
@@ -270,6 +270,29 @@ def test_the_typed_interior_flag_wins_over_the_setting_words():
     assert not is_interior({"setting": "a mountain meadow at dawn", "interior": False})
     assert is_interior({"setting": "a cosy cabin interior at dusk"})          # no flag: the words decide
     assert is_interior(_contract_plan().model_copy(update={"interior": True}))
+    assert is_interior({"setting": "a cosy cabin interior at dusk", "interior": None})   # None = no flag
+
+
+def test_an_outdoor_flag_is_not_overruled_by_indoor_sounding_words():
+    """D112, argon loop iteration 5: a zone named GiantTrunkCorridor and a luminance band "inside
+    0.42-0.62" put two outdoor plans on the 2 cm indoor tolerance."""
+    from codeverse3d.spatial.scene_placement import infer_indoor, is_interior
+
+    redwoods = {"setting": "coastal redwood forest at dawn", "interior": False,
+                "environment": "fog drifts down the GiantTrunkCorridor between the trunks"}
+    canyon = {"setting": "desert slot canyon at noon", "interior": False,
+              "environment": "warm bounce light; hold frame mean luminance inside 0.42-0.62"}
+    assert infer_indoor(redwoods["environment"]) and infer_indoor(canyon["environment"])   # the words alone say indoors
+    assert not is_interior(redwoods) and not is_interior(canyon)
+    plan = _contract_plan().model_copy(update={"interior": False, "environment": canyon["environment"]})
+    assert not is_interior(plan)
+    census = {"background": "#aabbcc", "placement": _table(_row("Boulder", h=1.0, gap=0.045),
+                                                           _row("BoulderB", h=1.0, gap=0.046),
+                                                           _row("BoulderC", h=1.0, gap=0.048))}
+    rep = placement_gate_safe(census, plan=plan)
+    assert _by_kind(rep, "summary")[0].data["thresholds"]["indoor"] is False
+    assert not [f for f in rep.findings if f.severity == Severity.ERROR and "floating" in f.message], \
+        [f.message for f in rep.findings]
 
 
 def test_fog_that_ends_inside_the_plan_is_warned_for_exteriors_only():
@@ -357,8 +380,8 @@ def test_world_edge_is_a_warn_note_outdoors_and_quiet_when_the_place_continues_o
         {"name": "FarFields", "kind": "content", "bbox": {"min": [-40, 0, -40], "max": [40, 5, 40]}}])
     rep = placement_gate_safe(continued, plan=_contract_plan(), layouts=None)
     assert not [f for f in rep.findings if f.data.get("kind") == "world_edge"]
-    # an interior never asks for one
-    indoor = _contract_plan().model_copy(update={"setting": "a candlelit library interior"})
+    # an interior never asks for one (the typed flag says so: a ScenePlan always carries one, D112)
+    indoor = _contract_plan().model_copy(update={"setting": "a candlelit library interior", "interior": True})
     rep = placement_gate_safe(near_only, plan=indoor, layouts=None)
     assert not [f for f in rep.findings if f.data.get("kind") == "world_edge"]
 
@@ -533,3 +556,22 @@ def test_the_zone_at_a_truncated_tables_cut_is_partly_measured():
     assert found[("missing_content", "Yard")].severity == Severity.ERROR
     # D111 measures the zone group's children only: the hint says so (a stray scene.add is not the zone's)
     assert "direct child of the group the zone's build returns" in found[("missing_content", "Yard")].fix_hint
+
+
+def test_a_floating_row_states_its_gap_to_the_millimetre_and_the_tolerance_applied():
+    """D112, iteration 5 r1_07: "floating 0.05 m" for a 0.048 m gap in a scene the prompt calls
+    outdoors (tolerance 0.05 m) read as a contradiction; the refine session paged the raw probe dump
+    for 15 minutes to resolve it and was killed before writing."""
+    rows = [_row(f"Boulder{i}", gap=g) for i, g in enumerate((0.048, 0.046, 0.041))]
+    indoor = _by_kind(placement_findings(_table(*rows), indoor=True), "floating")
+    assert [f.severity for f in indoor] == [Severity.ERROR] * 3
+    first = next(f for f in indoor if f.target == "Yard/Boulder0")
+    assert "floating 0.048 m above Ground" in first.message and "indoor tolerance 0.02 m" in first.message
+    assert "ERROR because 3 rows float, more than 2" in first.message
+    outdoor = placement_findings(_table(*rows), indoor=False)
+    assert not _by_kind(outdoor, "floating")
+    hover = _by_kind(outdoor, "unsupported")
+    assert len(hover) == 3 and all("within the outdoor tolerance 0.05 m" in f.message for f in hover)
+    assert "hovers 0.048 m" in next(f.message for f in hover if f.target == "Yard/Boulder0")
+    far = _by_kind(placement_findings(_table(_row("Kite", gap=0.3))), "floating")[0]
+    assert "outdoor tolerance 0.05 m; ERROR past 0.08 m" in far.message

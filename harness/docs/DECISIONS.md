@@ -1669,6 +1669,139 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   `tests/scene_gates/test_placement.py::test_a_zone_past_a_truncated_tables_cut_is_unmeasured_not_empty` /
   `::test_the_zone_at_a_truncated_tables_cut_is_partly_measured`.
 
+* **D112 A session that takes steps is never idle-killed; the env recovery is checked; the clock leaves room to
+  judge (2026-10-16).**  Evidence: argon loop iteration 5, both scene languages (the first iteration on D111;
+  `eval/bench/out/loop_argon/iter_05/{scene_threejs,scene_blender}`, read-only investigation of 26 env stages and
+  r1_07 / r1_08 / r1_09 threejs, r1_10 blender).  Round 0 rose (threejs mean 0.325 → 0.623, blender 0.584 → 0.675)
+  only because D111's honest env stage handed the env to `_recover_env`; what was left lost on seven defects:
+  (S1) agy prints nothing until it exits and D111 watched a `shared_tree` session's own file only, so a session
+  READING was idle from second 0 and its soft window was a hard kill — 22 of 26 env sessions died at 420-423 s
+  with nothing written (every iteration-4 session that lived ≥ 646 s wrote: 13 / 13), 4 of 21 refines at 901 s;
+  (S2) `_recover_env` was `ok` when the file was touched: 5 of 21 recovered modules failed the assembly probe
+  (blender r1_02's `SyntaxError` at `curb_ mats = …`, `materials.js does not export 'gravel'`, `pavingPatch is not
+  defined`, `mineral_surface() got an unexpected keyword argument 'roughness'`, a `list` with no `.name`), and the
+  two that never reached assembly were broken too (blender r1_10's `noise_ centered = …` did not parse, r1_04's
+  passed a tuple rotation — a `TypeError`): S4 had put the placeholder back in both, which is why those two
+  rounds 0 showed no sky;
+  (S3) `is_interior` was `bool(flag) or infer_indoor(text)`, so `interior: False` lost to the word list
+  (`GiantTrunkCorridor` → "corridor", "luminance inside 0.42-0.62" → "inside"): 6 of 26 outdoor plans measured at
+  the 2 cm indoor tolerance — r1_07's three 4-5 cm boulder gaps became floating ERRORs and a 0.60 cap; (S4) in
+  two blender runs an escalated asset session held the workspace while `env.recover` committed — r1_10's burlap
+  session (+391 lines, `24282df`) and r1_04's woven olive basket (+482, `a336df6`) — and its scope check restored
+  `src/env.py` to its own `head_before` (the 49-line placeholder); (S7) the placeholder's
+  "no lamps and no world" was a WARN, so round 0 built, the repair fixed an asset, and every frame was 96-99 %
+  black (0.109); (S6) the harness's own `lib/sky.js` set `scene.background = null` and its own gate raised
+  `no_background` (threejs r1_03 / r1_09 / r1_10 — the first refine target each time); (S5) a watchdog kill was
+  transient whenever agy's log held any provider retry — the same 901 s / zero-file kill was retried in r1_05 /
+  r1_09 (one 4 s 503) and ended r1_07 / r1_08 as no_change; and r1_09's transport retry, launched with 15 min left
+  and cut at the budget edge, committed the camera fix that capped the run and was never built or judged.
+  CHANGED, in the investigation's order:
+  (1) `cli_common.activity_paths(s, steps)` / `invoke(..., activity=)`: what the CLI records per step is activity;
+  `AntigravityAgent.run` passes its session HOME's `AGY_STEP_DIRS` (`.gemini/antigravity-cli/brain`,
+  `…/conversations` — by name: the watchdog's walk skips `.gemini`; the presence lock / updater / caches are
+  start-up writes, not steps) for EVERY agy session, `shared_tree` or not.  A session that takes steps now runs to
+  its hard limit (window + `HARD_GRACE_S` 300 s, still min'd with the run's deadline); one that records nothing for
+  `IDLE_GRACE_S` past its window is still killed there.  Object / articulated / graphics agy sessions: the same —
+  a reading refine was killed at its window (when nothing under `src/` / `public/` moved), now it may use the
+  grace; every hard limit is unchanged (`timeout_s + HARD_GRACE_S`, the job's `hard_deadline_s`, agy's own
+  `--print-timeout` a minute past it), so the worst case per session is the one it always had.  `SCAN_S` (the
+  mtime poll, 5 s) is now a module constant tests turn down.  (2) `scene_placement.is_interior`: a bool flag —
+  `ScenePlan.interior` or a dict's `interior` — wins either way; the words only when it is absent / None.  (3)
+  `SceneRuntime.check_env(ws) -> str` (new, both languages): the env module alone — its own lint findings
+  (scene_threejs: `lint` filtered to `src/env.js`, which includes the import-vs-export check; scene_blender:
+  `lint_scene_source(role="env")`), then a build with nothing beside it (`probe_scene.mjs` on a deleted-after-use
+  `src/_c3v_env_probe.js`; `run_wrapper(entry=src/_c3d_env_check.py, zones={})`), then `probes.unlit`; a check the
+  harness cannot run is `""`.  `SceneRuntime.lib_interface(ws) -> str` (new): every `src/lib` module's exported
+  names with their parameter lists as written (`_js_lint.export_signatures`; `ast` for bpy) — 6.9 k / 12.2 k chars,
+  facts, no call examples.  `SceneTrack._recover_env`: single-shot → `check_env` → on failure ONE repair
+  single-shot (`env.recover.repair`) whose prompt carries the check's words and the file as written; both carry
+  the lib interface (`scene_env*.j2` blocks rendered only when the recovery passes them — the session's prompt is
+  unchanged); a module still failing is replaced by what it overwrote (zones import the env's interface; a broken
+  env breaks every one) and the stage reports failed; `env.checked` events.  (4) S4: `_recover_env` runs inside
+  `cli_common.exclusive_workspace(ws)` — the session lock.  Chosen over "restore out-of-scope paths to HEAD":
+  every commit is `git add -A`, so a harness commit inside a session's window also absorbs that session's
+  in-flight writes, and restoring to HEAD would keep exactly the out-of-scope writes the revert exists to undo,
+  on every track; with the lock no harness commit lands inside a window and `head_before` stays the whole truth
+  (cost: an escalated asset session and the recovery wait for each other — they were serialised against the env
+  session anyway).  S7: `probes.unlit` — no lamp and no world (bpy), or no light, no `scene.background` and no
+  `scene.environment` (three.js: the analogue; a sky with no light keeps its WARN) — is an ERROR `unlit` on the
+  env file: the build fails and the round's repair is handed the env before anything is rendered or judged (so the bare skeleton's build now fails on exactly that one ERROR — by design; a test fixture scene that lit nothing got a background).
+  (5) S6: `makeSky` keeps a `scene.background` the caller set and gives an unset one the dome's own graded
+  horizon colour (`skyRadiance` on the side away from the sun) — the gate is unchanged (it is right: an unset
+  background renders the raw clear colour wherever the dome does not cover); `celestial.js`, the
+  `effects_catalog.md` row and the `c3d-scene-atmosphere` skill say so.  (6) A floating row states its gap to the
+  millimetre, the tolerance applied (`indoor/outdoor tolerance 0.0N m`) and why it is an ERROR (`past 0.08 m` /
+  `N rows float, more than 2`); an unsupported row its gap and "within the … tolerance" — so the refine prompt's
+  task lines (`GateFinding.as_line`) carry them; both refine templates state that `artifacts/scene_probe.json` is
+  the probe driver's raw dump and `check_placement` returns the rows.  (7) `RoundPolicy.judge_reserve_s` (240 s:
+  201 s measured in r1_09) and `min_session_s` (180 s); `RoundPolicy.can_open(budget)` gates every refine round,
+  a refine round's transport / stall retry (`round.skipped_budget` → BUDGET) and the scene stage retry — round 0's
+  retry is not gated (it has no round to fall back on); refine / rebuild tasks
+  carry `GenerationTask.reserve_s` (their session's hard deadline ends that much before the budget);
+  `BaseTrack._salvage` (was `_salvage_baseline`) also salvages a refine round: a budget stop after its sessions
+  changed `src/` / `public/` since the last round's commit gets the same ONE bounded grace (max(5 min, 15 %)) and a
+  no-generation round that builds, gates, renders and judges those edits.  The object tracks' own
+  `OBJECT_ROUND_RESERVE_S` (180 s) is deleted: `object_session_window_s` uses `judge_reserve_s` (one reserve) —
+  an object refine window now ends 60 s earlier, and no object refine round launches with < 7 min left.
+  (8) `classify_end` has no `provider_retried`: a watchdog kill is never `transient` (the key is not cooled); it is
+  `stalled` (`SessionEnd` / `AgentResult` / `GenerationResult` / `RoundFailed.stalled`) when the watchdog found it
+  IDLE and it answered nothing, and a stalled round / stage session gets the transport retry's ONE more session
+  when `can_open` holds; a kill at the hard limit (worked its window, wrote nothing) is not retried.  eval's
+  one-shot drops a stalled cell as infra (`_oneshot.py`, beside transient / quota).  NOT changed: argon effort
+  (high everywhere); `ENV_TIMEOUT_S` / `REFINE_TIMEOUT_S` (the investigation: widening a window buys nothing
+  until the first write); the session-written env is not run through `check_env` (1 of 17 failed in iteration 4);
+  the `run_state.json` control-file revert during `shared_tree` sessions (19 of 25 env sessions; no score effect
+  measured); deferred, single cases: an establishing-camera FOV check at plan time (r1_09 content_small) and a
+  ground-mesh-vs-`height_at` env check (blender r1_10 round 1).  Known, not fixed: an asset single-shot rewriting
+  its skeleton stub while ANOTHER asset's escalated (edit_only) session runs is outside that session's files and is
+  reverted by its scope check — the same lock-free-writer class as S4, which the single-shots (minutes of model
+  call, many in parallel) cannot take the session lock for without serialising the asset stage.  Model-visible:
+  `tests/prompts/manifest.json` re-blessed for the refine templates' scene_probe.json / check_placement sentence (13
+  refine prompts) and the `makeSky` catalog row (12 prompts); outside the manifest: the recovery prompts' lib
+  interface and check blocks, the placement finding texts, the `unlit` finding, the atmosphere skill sentence.
+  Measure next (iteration 6): env files written by the session (4/26 → ≥ 20/26), recovered envs failing assembly
+  (5 → ≤ 1), round-0 lighting mean (0.71 → ≥ 0.82), zero-file refines (4/21 → ≤ 1), no_change stops (5 → ≤ 2),
+  `thresholds.indoor == plan.interior` (100 %), round-0 dark_frame from an unlit census (0), `no_background` on
+  `makeSky` scenes (0), refine calls before the first write (median 23-30 today), `budget.salvage` rounds judged.
+  Pinned: `tests/agents/test_agy_activity.py` (a fake agy recording steps under its HOME survives past its window
+  to the hard limit, shared_tree and not; one recording nothing dies at the window; a hang ends the same with or
+  without a logged 503), `tests/scene_gates/test_placement.py::test_an_outdoor_flag_is_not_overruled_by_indoor_sounding_words`
+  / `::test_a_floating_row_states_its_gap_to_the_millimetre_and_the_tolerance_applied`,
+  `tests/orchestrator_tracks/test_env_stage_honest.py` (check + one repair with the error and the lib index; twice
+  failed → placeholder back; the recovery waits for a session holding the workspace),
+  `tests/scene_runtime/test_env_check.py` / `tests/scene_blender/test_env_check.py` (real Chrome / Blender:
+  a missing export, a ReferenceError, a SyntaxError, a NameError, unlit), `tests/scene_blender/test_layout.py::
+  test_an_unlit_scene_fails_the_build_in_both_languages`, `tests/scene_runtime/lib/test_environment.py::
+  test_the_sky_dome_keeps_or_sets_the_background_the_gate_reads`, `tests/orchestrator_tracks/test_refine_evidence.py`,
+  `tests/orchestrator_tracks/test_transport_retry.py` (a hung refine retried once; a hard-limit kill not; no refine
+  launched under the reserve; the refine deadline leaves the reserve; stopped refine edits judged; nothing to
+  salvage when nothing changed).
+  Review fixes (two reviews of the change, same day): (a) the `unlit` ERROR failed EVERY build while the env was
+  the placeholder, mid-session too — an escalated asset session beside the env stage, a zone session after a
+  failed env stage — and those sessions cannot write the env module (their scope check reverts it); the round's
+  build still fails on it (its repair gets the env), but the MCP `build` tool reports an unlit-only failure as a
+  `SCENE UNLIT — …` line above BUILD OK (`spatial.tools._env_unlit_only`; any other ERROR beside it is still BUILD
+  FAILED); (b) `run_best_of_n`'s every-candidate-failed `RoundFailed` dropped `stalled` (a hung `--candidates 2`
+  round 0 failed the run where one candidate got the retry) — carried now; (c) `RoundFailed.of` sets `stalled` only
+  when EVERY result hung or died of transport: the loop retries a round whole, and a sibling that worked to its
+  hard limit is not to be re-run; (d) `RoundPolicy.can_open(budget, *, single_shot=)` / `need_s`: a single-shot
+  generation (the economy profile) needs the judge reserve only, not the agent session minimum (it would have
+  stopped as BUDGET with 4-7 min left for a one-minute call); (e) bpy `check_env` quoted the innermost `src/`
+  frame — `src/lib/mesh.py:69` for r1_04, a file the repair single-shot never sees — and now leads with the env's
+  own calling line from the traceback (`scene_blender.env_frame`: "src/env.py:287 `sky_batch.box(` (raised in
+  src/lib/mesh.py:69)"); (f) `_js_lint.export_signatures` listed `export const asphalt = (o = {}) => …` as a bare
+  name (25 of 208 lib exports, all 18 material factories) — a const bound to an arrow / function expression is
+  listed with its parameters (7 bare names left, all constants); (g) eval: `stalled` is infra wherever `transient`
+  was (`_infra._looks_infra` — a harness run whose round 0 hung twice; compare_backends' bare arm with no file;
+  `_bare_agent` does not cache a hung session as done), as the one-shot already did — before D112 the same hang
+  was transient whenever the CLI had logged a provider retry.  Pinned:
+  `tests/orchestrator_tracks/test_transport_retry.py::test_a_split_round_is_stalled_only_when_every_session_hung` /
+  `::test_hung_best_of_n_candidates_get_the_round_loops_retry` / `::test_a_single_shot_refine_needs_only_the_judge_reserve`,
+  `tests/spatial_tools/test_tools.py::test_a_session_build_reports_an_unlit_env_above_build_ok`,
+  `tests/scene_blender/test_env_check.py::test_check_env_leads_with_the_env_line_when_a_lib_helper_raised`,
+  `tests/scene_runtime/test_env_check.py::test_an_arrow_function_export_is_listed_with_its_parameters`, eval's
+  `test_infra_failures.py::test_a_hung_*` and `test_bare_agent.py::test_a_hung_session_is_not_cached_so_a_redo_runs_it`.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven
