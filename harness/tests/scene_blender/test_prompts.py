@@ -321,6 +321,13 @@ def test_check_bpy_asset_without_a_blender_runtime_and_its_throw_away_workspace(
     ctx.runtime = _Runtime({"errors": []}, ok=False)
     killed = SA.check_bpy_asset(ctx, "src/assets/bollard.py", "bollard")
     assert killed.fatal and "did not finish" in killed.errors[0] and "Timeout" in killed.errors[0]
+    # a NaN the census refused (D114): the build FINISHED — the module's error as reported, file first, not cut at 300
+    nan_msg = "2 object(s) carry non-finite (NaN/inf) values " + "x" * 400
+    ctx.runtime = _Runtime({"errors": [], "error_type": "NonFiniteGeometry", "error_message": nan_msg,
+                            "error_file": "src/assets/bollard.py", "nonfinite": [{"object": "Bollard", "kind": "vertices"}]},
+                           ok=False, error_type="NonFiniteGeometry")
+    nan = SA.check_bpy_asset(ctx, "src/assets/bollard.py", "bollard")
+    assert nan.fatal and nan.errors == [f"src/assets/bollard.py: NonFiniteGeometry: {nan_msg}"]
     # the harness's own census-GLB writer failed AFTER the module built (run_bpy_scene's CensusGlbError →
     # BuildResult.harness_failure): not the module's doing, so the ladder spends no repair rung on it
     ctx.runtime = _Runtime({"errors": [], "error_type": "CensusGlbError"}, ok=False, error_type="CensusGlbError", harness_failure=True)

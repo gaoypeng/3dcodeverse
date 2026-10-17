@@ -13,8 +13,11 @@ What it does (in order):
      exception to ``<file under src/>:<line>`` (model.py or a part file);
   5. collects a census (``_census.py``: evaluated tri counts, world bboxes, materials, parents);
   6. warns on leftovers (cameras, lights, touched render settings, visible cutters);
-  7. exports ``object.glb`` (Y-up, +Z front) and optionally ``object.stl`` (Z-up);
-  8. writes ``build.json`` + ``census.json`` atomically and exits 0.
+  7. refuses a NaN / inf world matrix or evaluated vertex in what it would export (``_finite``,
+     D114: the glTF exporter drops a NaN translation silently) as the script's error;
+  8. exports ``object.glb`` (Y-up, +Z front), optionally ``object.stl`` (Z-up) and ``object.blend``
+     (in-memory images packed first: :func:`save_blend`);
+  9. writes ``build.json`` + ``census.json`` atomically and exits 0.
 
 Exit codes: 0 = reported (even if the script failed); 2 = wrapper bug (no report).
 Standalone: Blender's python cannot import ``codeverse3d``; the sibling modules
@@ -33,6 +36,7 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from _census import collect_census, is_hidden  # noqa: E402  (siblings, Blender-executed)
+from _finite import Offenders, scan_objects  # noqa: E402
 from _wrapper_common import (  # noqa: E402
     PARTS_PKG,
     exit_after,
@@ -155,6 +159,30 @@ def export_stl(bpy: Any, path: str) -> None:
     bpy.ops.wm.stl_export(filepath=path, export_selected_objects=True, apply_modifiers=True, ascii_format=False, global_scale=1.0)
 
 
+def pack_images(bpy: Any) -> list[str]:
+    """Pack every image the script made or changed IN MEMORY (``bpy.data.images.new`` + ``pixels``:
+    ``is_dirty``) into the .blend — 8-bit as PNG, float as OpenEXR — and return their names.  Unpacked,
+    the reopened file regenerates such an image blank: every material using it renders black (D114;
+    an untouched generated image regenerates itself and is left alone)."""
+    packed = []
+    for img in bpy.data.images:
+        if img.source != "VIEWER" and img.is_dirty:   # a generated image's type is UV_TEST, not IMAGE
+            img.pack()
+            packed.append(img.name)
+    return packed
+
+
+def save_blend(bpy: Any, path: str, *, compress: bool = False) -> list[str]:
+    """``pack_images`` + ``save_as_mainfile(copy=True)``; returns the warnings (a failed pack)."""
+    warnings = []
+    try:
+        pack_images(bpy)
+    except RuntimeError as e:
+        warnings.append(f"in-memory images could not be packed into {os.path.basename(path)} (they reopen blank): {e}")
+    bpy.ops.wm.save_as_mainfile(filepath=path, compress=compress, copy=True)
+    return warnings
+
+
 # ----------------------------------------------------------------------------- main
 def main() -> int:
     args = parse_args(wrapper_argv())
@@ -193,6 +221,11 @@ def main() -> int:
     report["warnings"] = census["warnings"]
 
     chosen = select_exportables(bpy)
+    if chosen and not report["error_type"]:
+        bad = scan_objects(chosen, bpy.context.evaluated_depsgraph_get(), Offenders())
+        if bad:
+            report.update(bad.report())
+            chosen = []   # nothing exported: a NaN would ship as an object at the origin
     if chosen:
         glb = os.path.join(out_dir, GLB_NAME)
         try:
@@ -213,7 +246,7 @@ def main() -> int:
         if args.blend:
             blend = os.path.join(out_dir, BLEND_NAME)
             try:
-                bpy.ops.wm.save_as_mainfile(filepath=blend, copy=True)
+                report["warnings"].extend(save_blend(bpy, blend))
                 report["exported"]["blend"] = blend
             except Exception as e:  # noqa: BLE001
                 report["warnings"].append(f".blend save failed: {e}")

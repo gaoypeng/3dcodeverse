@@ -1005,6 +1005,11 @@ def check_bpy_asset(ctx: RunContext, rel: str, snake: str, *, expected_size_m: t
         # census-GLB writer), not the module — the rule of a runtime without Blender: never a blocker
         log.warning("bpy asset check could not finish for %s: %s", rel, run.result.error_type)
         return AssetCheck(ok=True, ran=False, warnings=[f"checker unavailable: {run.result.error_type}"])
+    if report.get("nonfinite"):
+        # the build finished but left a NaN / inf the census refused (D114): the module's error as reported
+        return AssetCheck(ok=False, ran=True, fatal=True,
+                          errors=[f"{report.get('error_file') or rel}: {report.get('error_type')}: "
+                                  f"{str(report.get('error_message'))[:600]}"])
     if not run.result.ok:
         # the wrapper itself did not finish — a build that never ends or dies (an unbounded loop,
         # an allocation past the rlimit) is this module's doing: the entry lists nothing else

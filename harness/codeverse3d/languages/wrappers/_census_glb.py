@@ -25,7 +25,10 @@ Layout (what the census and the placement table read):
 * custom properties of str/int/float/bool value → node ``extras`` → three.js ``userData`` (so
   ``obj["placement"] = "free"`` exempts a deliberately airborne thing, as ``userData.placement`` does);
 * the scene's ``extras.c3d_cameras`` carries the harness cameras in the GLB frame — the adapter
-  (``runtime_js/lib/glb_scene.mjs``) hands them to the host.
+  (``runtime_js/lib/glb_scene.mjs``) hands them to the host;
+* a non-finite matrix or vertex is never written (``JSON.parse`` rejects ``NaN``): the writer collects
+  every one (``_finite.Offenders``) and raises ``NonFiniteError`` before writing — the model's build
+  error, naming the object, the channel and the file that built it (D114).
 
 Frame: ``basis`` (3×3 rows, from ``conventions.glb_basis`` via the wrapper's argv) takes a Blender
 vector into the GLB frame (Y-up, +Z front); nothing here restates it.
@@ -36,9 +39,11 @@ from __future__ import annotations
 import json
 import struct
 import time
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
+from _finite import NonFiniteError, Offenders, bad_rows, finite  # sibling, Blender-executed
 
 MEASURABLE_TYPES = ("MESH", "CURVE", "SURFACE", "FONT", "META")
 _FLOAT, _UINT = 5126, 5125
@@ -130,7 +135,8 @@ def _trs(mats: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 # ----------------------------------------------------------------------------- writer
 class _Writer:
-    def __init__(self, basis: np.ndarray) -> None:
+    def __init__(self, basis: np.ndarray, bad: Offenders | None = None) -> None:
+        self.bad = bad if bad is not None else Offenders()
         self.b3 = basis
         self.b4 = np.eye(4)
         self.b4[:3, :3] = basis
@@ -176,8 +182,9 @@ class _Writer:
             self.materials.append({"name": key, "pbrMetallicRoughness": pbr})
         return self.mat_ix[key]
 
-    def mesh(self, key: Any, me: Any, slots: list[Any]) -> int | None:
-        """One glTF mesh per source mesh datablock (``key``); ``None`` for an empty one."""
+    def mesh(self, key: Any, me: Any, slots: list[Any], owner: Any) -> int | None:
+        """One glTF mesh per source mesh datablock (``key``); ``None`` for an empty one, and for one
+        with a non-finite vertex (recorded against ``owner``, the object that shows it)."""
         if key in self.mesh_ix:
             return self.mesh_ix[key]
         me.calc_loop_triangles()
@@ -187,6 +194,10 @@ class _Writer:
             return None
         co = np.empty(nv * 3, np.float32)
         me.vertices.foreach_get("co", co)
+        if bad := bad_rows(co.reshape(-1, 3)):
+            self.bad.vertices(owner, bad, nv)
+            self.mesh_ix[key] = None
+            return None
         co = (co.reshape(-1, 3).astype(np.float64) @ self.b3.T).astype(np.float32)
         tri = np.empty(nt * 3, np.uint32)
         me.loop_triangles.foreach_get("vertices", tri)
@@ -208,6 +219,15 @@ class _Writer:
     # -- nodes
     def glb_matrix(self, mw: Any) -> np.ndarray:
         return self.b4 @ np.array(mw, np.float64) @ self.b4.T
+
+    def node_matrix(self, mw: Any, *blame: Any, via: str = "") -> list[float] | None:
+        """``mw`` in the GLB frame as a glTF column-major list; ``None`` (recorded against ``blame``)
+        when it holds a non-finite value."""
+        m = self.glb_matrix(mw)
+        if not finite(m):
+            self.bad.transform(*blame, via=via)
+            return None
+        return m.T.reshape(-1).tolist()
 
     def node(self, node: dict[str, Any], path: tuple[str, ...]) -> int:
         """Append ``node`` under the group node of ``path`` (a root when ``path`` is empty)."""
@@ -236,7 +256,7 @@ class _Writer:
         }
         if any("extensions" in n for n in self.nodes):
             g["extensionsUsed"] = ["EXT_mesh_gpu_instancing"]
-        js = json.dumps(g, separators=(",", ":")).encode()
+        js = json.dumps(g, separators=(",", ":"), allow_nan=False).encode()   # NaN is not JSON (D114)
         js += b" " * (-len(js) % 4)
         head = struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(js) + 8 + len(self.buf))
         return (head + struct.pack("<II", len(js), 0x4E4F534A) + js
@@ -244,10 +264,13 @@ class _Writer:
 
 
 def extras_of(obj: Any) -> dict[str, Any]:
-    """Custom properties a gate can read (``placement = 'free'``); IDProperty groups / arrays dropped."""
+    """Custom properties a gate can read (``placement = 'free'``); IDProperty groups / arrays and
+    non-finite floats (not JSON) dropped."""
     out: dict[str, Any] = {}
     for k in obj.keys():  # noqa: SIM118 — a bpy ID is not iterable over its custom properties
         v = obj[k]
+        if isinstance(v, float) and not finite([v]):
+            continue
         if isinstance(v, (str, int, float, bool)) and not k.startswith("_"):
             out[k] = v
     return out
@@ -262,15 +285,19 @@ def _chain(obj: Any) -> list[Any]:
 
 
 def write_census_glb(bpy: Any, path: str, *, basis: list[list[float]], zones: dict[str, str],
-                     cameras: list[dict[str, Any]], zone_key: str) -> dict[str, Any]:
+                     cameras: list[dict[str, Any]], zone_key: str,
+                     origin: Callable[[Any], str] | None = None) -> dict[str, Any]:
     """Write the census GLB of the current (t = 0) state to ``path``; return its stats.
 
     ``zones`` maps a zone COLLECTION name to itself for every zone the wrapper built (the node
     name); every object in one of them (recursively) hangs under that zone's node, and that node's
     ``extras`` carry ``{zone_key: <zone>}`` (``conventions.ZONE_ROOT_KEY``, D111) — the mark the
-    placement table measures the zone's children by; every other root is scenery."""
+    placement table measures the zone's children by; every other root is scenery.
+
+    Raises ``NonFiniteError`` (nothing written) when a matrix or vertex it would write is NaN / inf;
+    ``origin(obj)`` names the file that built an original object, for that report."""
     t0 = time.perf_counter()
-    w = _Writer(np.array(basis, np.float64))
+    w = _Writer(np.array(basis, np.float64), Offenders(origin))
     zone_of: dict[str, str] = {}
     for cname in zones:
         coll = bpy.data.collections.get(cname)
@@ -297,7 +324,7 @@ def write_census_glb(bpy: Any, path: str, *, basis: list[list[float]], zones: di
     stats: dict[str, Any] = {"unique_tris": 0, "instanced_tris": 0, "nodes": 0, "meshes": 0, "instances": 0,
                              "clouds": 0, "volumes_skipped": []}
     dg = bpy.context.evaluated_depsgraph_get()
-    clouds: dict[tuple[tuple[str, ...], Any], tuple[int | None, str, list[np.ndarray]]] = {}
+    clouds: dict[tuple[tuple[str, ...], Any], tuple[int | None, str, list[np.ndarray], Any, str]] = {}
     for zone in zones:   # an empty zone is still a group the census can see
         own = extras_of(bpy.data.collections[zone]) if zone in bpy.data.collections else {}
         w.group((zone,), {**own, zone_key: zone})
@@ -318,36 +345,45 @@ def write_census_glb(bpy: Any, path: str, *, basis: list[list[float]], zones: di
                 # is_instance, parent = the curve, original = the curve) — written once, from the
                 # owner, by _write_other_types; a cloud here would be a phantom second copy
                 continue
-            ix = w.mesh(ob.data.as_pointer(), ob.data, [s.material for s in ob.material_slots])
-            if ix is None:
-                continue
+            # the geometry and the placement are both checked before either skips: two independent
+            # NaNs are one report, not two repair attempts
+            ix = w.mesh(ob.data.as_pointer(), ob.data, [s.material for s in ob.material_slots], ob.original)
             if host.instance_type == "COLLECTION":   # a placed asset: one clone node per instanced mesh
-                m = w.glb_matrix(inst.matrix_world)
-                w.node({"name": ob.name, "mesh": ix, "matrix": m.T.reshape(-1).tolist()}, ensure_groups(host, own=True))
+                m = w.node_matrix(inst.matrix_world, host, ob.original, via=f"(instanced by {host.name!r})")
+                if ix is None or m is None:
+                    continue
+                w.node({"name": ob.name, "mesh": ix, "matrix": m}, ensure_groups(host, own=True))
                 stats["instanced_tris"] += w.mesh_tris[ix]
                 continue
             key = (path_of(host), ob.data.as_pointer())   # Blender-frame matrices, converted in one batch below
-            clouds.setdefault(key, (ix, ob.name, []))[2].append(np.array(inst.matrix_world, np.float32))
+            # a geometry-nodes instance is listed AS its host (object name = the host's): the mesh names it
+            source = f"mesh {ob.data.name!r}" if ob.name == host.name else repr(ob.name)
+            clouds.setdefault(key, (ix, ob.name, [], host, source))[2].append(np.array(inst.matrix_world, np.float32))
             continue
         orig = ob.original
         if orig.hide_render or is_volume_only(orig):
             if is_volume_only(orig):
                 stats["volumes_skipped"].append(orig.name)
             continue
-        ix = w.mesh(("obj", orig.name), ob.data, [s.material for s in ob.material_slots])
-        if ix is None:
+        ix = w.mesh(("obj", orig.name), ob.data, [s.material for s in ob.material_slots], orig)
+        m = w.node_matrix(ob.matrix_world, orig)
+        if ix is None or m is None:
             continue
         # a mesh with children is its own group (one placement row), its geometry a node inside it
         under = ensure_groups(orig, own=bool(orig.children) or orig.name in hosts)
-        node = {"name": orig.name, "mesh": ix, "matrix": w.glb_matrix(ob.matrix_world).T.reshape(-1).tolist()}
+        node = {"name": orig.name, "mesh": ix, "matrix": m}
         if ex := extras_of(orig):
             node["extras"] = ex
         w.node(node, under)
         stats["instanced_tris"] += w.mesh_tris[ix]
-    for (host_path, _), (ix, oname, mats) in clouds.items():
+    for (host_path, _), (ix, oname, mats, host, source) in clouds.items():
+        stack = np.stack(mats).astype(np.float64)
+        if nbad := bad_rows(stack):
+            w.bad.instances(host, source, nbad, len(mats))
+            continue
         if ix is None:
             continue
-        t, q, s = _trs(w.b4 @ np.stack(mats).astype(np.float64) @ w.b4.T)
+        t, q, s = _trs(w.b4 @ stack @ w.b4.T)
         ext = {"TRANSLATION": w.add(t.astype(np.float32)), "ROTATION": w.add(q.astype(np.float32), typ="VEC4"),
                "SCALE": w.add(s.astype(np.float32))}
         w.group(host_path)
@@ -357,6 +393,8 @@ def write_census_glb(bpy: Any, path: str, *, basis: list[list[float]], zones: di
         stats["clouds"] += 1
         stats["instanced_tris"] += w.mesh_tris[ix] * len(mats)
     _write_other_types(dg, w, stats, ensure_groups)
+    if w.bad:
+        raise NonFiniteError(w.bad)
     stats["unique_tris"] = sum(w.mesh_tris.values())
     stats["nodes"], stats["meshes"] = len(w.nodes), len(w.meshes)
     data = w.glb({"c3d_cameras": [_glb_camera(c, w.b3) for c in cameras]})
@@ -381,12 +419,13 @@ def _write_other_types(dg: Any, w: _Writer, stats: dict[str, Any], ensure_groups
         except RuntimeError:
             continue
         try:
-            ix = w.mesh(("obj", orig.name), me, [s.material for s in ob.material_slots])
+            ix = w.mesh(("obj", orig.name), me, [s.material for s in ob.material_slots], orig)
         finally:
             ob.to_mesh_clear()
-        if ix is None:
+        m = w.node_matrix(ob.matrix_world, orig)
+        if ix is None or m is None:
             continue
-        node = {"name": orig.name, "mesh": ix, "matrix": w.glb_matrix(ob.matrix_world).T.reshape(-1).tolist()}
+        node = {"name": orig.name, "mesh": ix, "matrix": m}
         w.node(node, ensure_groups(orig, own=bool(orig.children)))
         stats["instanced_tris"] += w.mesh_tris[ix]
 

@@ -135,3 +135,28 @@ def test_a_hidden_boolean_cutter_is_not_link_geometry(tmp_path, parented):
     assert build["ok"], build
     link = _json.loads((out / "census.json").read_text())["links"]["base"]
     assert link["objects"] == ["base"] and link["bbox_max"][2] == pytest.approx(1.0, abs=1e-4)
+
+
+@needs_blender
+def test_a_nan_in_a_link_is_the_scripts_error(tmp_path):
+    """D114: a NaN world matrix is never baked into ``meshes/<link>.glb``: the build fails naming the
+    object and the channel (the glTF exporter would drop the NaN translation and ship it at the origin)."""
+    import json as _json
+    import subprocess
+
+    from codeverse3d.languages.urdf import WRAPPER
+
+    (tmp_path / "robot.urdf").write_text('<robot name="r"><link name="base"/></robot>')
+    (tmp_path / "model.py").write_text(
+        "import bpy\n"
+        "bpy.ops.mesh.primitive_cube_add(size=1, location=(0, 0, 0.5)); base = bpy.context.active_object; base.name = 'base'\n"
+        "base.scale.x = float('nan')\n")
+    out = tmp_path / "art"
+    subprocess.run(
+        [get_settings().resolve_blender(), "-b", "--factory-startup", "--python", str(WRAPPER), "--",
+         "--script", str(tmp_path / "model.py"), "--urdf", str(tmp_path / "robot.urdf"), "--out", str(out)],
+        capture_output=True, text=True, timeout=180, check=False)
+    build = _json.loads((out / "build.json").read_text())
+    assert not build["ok"] and build["error_type"] == "NonFiniteTransform", build
+    assert build["error_message"].startswith("link base: 1 object(s)") and "'base': scale=(nan, 1, 1)" in build["error_message"]
+    assert not (out / "meshes" / "base.glb").exists()

@@ -6,6 +6,7 @@
 1. empties the scene, seeds, executes ``model.py`` (``_wrapper_common``: errors mapped to
    their ``src/`` file and line, ``sys.exit(0)`` is not a failure — as for the blender language),
 2. takes the blender language's census of the scene (``_census.collect_census``),
+   and fails a link whose world matrix or evaluated vertices hold a NaN / inf (``_finite``, D114),
 3. matches URDF link names to objects (an object named exactly ``<link>`` plus
    anything parented under it forms that link's mesh),
 4. exports ``<out>/meshes/<link>.glb`` per link with the geometry baked in WORLD
@@ -35,6 +36,7 @@ from _census import (  # noqa: E402  (siblings, Blender-executed)
     is_hidden,
     world_bbox,
 )
+from _finite import Offenders, scan_objects  # noqa: E402
 from _wrapper_common import (  # noqa: E402
     exit_after,
     map_exception,
@@ -169,6 +171,9 @@ def main() -> int:
             census["hints"][link] = f"object '{link}' has no visible mesh geometry (type {ob.type})"
             continue
         claimed.update(o.name for o in group)
+        if bad := scan_objects(group, depsgraph, Offenders()):   # D114: never a NaN baked into a link mesh
+            err = bad.report()
+            return fail(err["error_type"], f"link {link}: {err['error_message']}")
         try:
             census["links"][link] = _export_link(link, group, out / "meshes" / f"{link}.glb", depsgraph)
         except Exception as e:  # export failure is a build failure

@@ -138,7 +138,8 @@ codeverse3d/
                       holds the python build wrappers (run_bpy, run_bpy_links, run_cq, run_bpy_scene), the
                       scene_blender render driver (render_bpy_scene) and what they
                       share (_wrapper_common: script run + error mapping + report; _census: the Blender census;
-                      _census_glb: scene_blender's census GLB writer, D102)
+                      _census_glb: scene_blender's census GLB writer, D102; _finite: the NaN / inf check every
+                      Blender wrapper runs on what it writes — the model's build error, D114)
                       scene_blender/starter/src/ is its plan-less example (scene.py, env.py, zones/{hamlet,
                       lakeside, orchard}.py, assets/{crate, lantern_post}.py) and lib/ the harness-owned bpy library
                       (D51 for this language: noise, mesh, materials, terrain, sky, lighting, water, vegetation,

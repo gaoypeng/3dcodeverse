@@ -1852,6 +1852,56 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   `tests/prompts/test_snippets_run.py::test_the_argon_raw_contract_examples_build_through_the_runtime_in_raw_mode`,
   `tests/core/test_doctor.py::test_doctor_skills_reports_every_shipped_overlay` (two shipped variants, one row each).
 
+* **D114 A NaN in the model's bpy scene is the MODEL's build error; a `.blend` keeps the images made in memory
+  (2026-10-17).**  WHY: (1) a live scene_blender run (`world_demo/scenes_v1`, `w6_sky_island_ruins` round 2):
+  `src/assets/mossy_arch.py` left NaN vertices (`MossyArchStone_v0`, ~455 of 3 900 evaluated), the zone
+  (`middle_cascade_zone.py`) placed its arches at a `z` computed from those vertices — NaN locations; rebuilt
+  from the round's commit, the old writer put the NaN into the GLB's JSON (accessor `min`/`max`, and
+  `"matrix":[NaN,…]` from the placement), the probe host's
+  `JSON.parse` failed, `offline_report` marks any host load failure `harness_failure`, so `build_with_repair`
+  re-ran the identical build twice (`build.harness_retry` ×2) and gave up — the model never got a repair task
+  naming the object and the round scored None (~$2.8, 20 min).  The static and URDF paths had the quieter twin:
+  the official glTF exporter DROPS a NaN translation (the part exports at the origin, measured on 5.2.2) and
+  writes NaN vertices into the buffer.  (2) `run_bpy.py --blend` and `run_bpy_scene.py`'s `scene.blend` were saved
+  with `save_as_mainfile(copy=True)` and nothing packed: an image the script made in memory (`images.new` +
+  `pixels`; a character's 32 generated textures) reopens as a blank generated image — black.  `scene.blend` is
+  what `render_bpy_scene.py` opens for EVERY judged frame, so on scene_blender this was a judged-frames bug: any
+  procedural texture baked through `pixels` was judged black, while the census GLB (no images) and the gates
+  never saw it.  WHAT: (1) `wrappers/_finite.py` (numpy + duck-typed bpy, unit-testable): `own_channels`
+  (location / the rotation channel the object's `rotation_mode` uses / scale / the deltas /
+  `matrix_parent_inverse`), `transform_culprit` (walks up the parent chain: the Empty whose rotation is NaN is
+  named, "makes 'Arch' non-finite"; nothing on the way → `matrix_world`, a constraint or driver), `Offenders`
+  (one row per object × kind — transform / vertices / instances of a scatter cloud — with the FILE that built the
+  object) whose `report()` is the build error: `error_type` `NonFiniteTransform` (`NonFiniteGeometry` when only
+  vertices), a message naming each object, its file and channel values plus the usual causes, `error_file` the
+  first known file, the rows under `nonfinite`.  `_census_glb` checks every node matrix, every mesh's vertices
+  and every cloud's instance matrices as it goes — an instanced mesh's NaN vertices never hide a NaN in what
+  places it (one report, not two repair attempts; a geometry-nodes cloud is named by the mesh it scatters) —
+  skips the offender and raises `NonFiniteError` before writing anything; `run_bpy_scene` reports it as the build's error (not `CensusGlbError`, which stays the harness's), so
+  `run_wrapper` → `build` returns a failed, NOT `harness_failure` result and the repair loop hands it to the model
+  like any script error (the env check quotes it; the bpy asset check reports it file-first, not as "did not finish").  The file: `Stages` maps
+  every object a builder that returned created (`as_pointer`) to its file — `src/zones/<z>.py`,
+  `src/assets/<a>.py`, `src/env.py`, the entry's own top-level `src/scene.py`.  `json.dumps(allow_nan=False)`
+  is the last line (a writer bug, then, is a `CensusGlbError`, never a NaN on disk); a non-finite float custom
+  property is dropped from `extras`.  `run_bpy.py` scans what it would export (`scan_objects`: world matrix +
+  evaluated vertices) and exports nothing on a hit; `run_bpy_links.py` scans each link's group before baking it.
+  Measured: an `inf` written to a transform channel is clamped by RNA to FLT_MAX (finite), so NaN is the case
+  that reaches a writer; the w6 round-2 source rebuilt with this change fails as `NonFiniteTransform` at
+  `src/assets/mossy_arch.py`, 9 objects named (the arch's vertices + each NaN-placed arch with its zone file),
+  `harness_failure` false.  (2) `run_bpy.save_blend` packs every non-viewer image that `is_dirty` (8-bit → PNG,
+  float → OpenEXR, measured to reopen with the same pixels; an untouched generated image regenerates and is left
+  alone — note a generated image's `type` is `UV_TEST`, not `IMAGE`) before `save_as_mainfile(copy=True)`; both
+  `object.blend` and `scene.blend` save through it.  Model-visible: only the new error text on a NaN build; no
+  prompt payload moved.  Pinned: `tests/scene_blender/test_nonfinite.py` (the detector, the report, the writer
+  refusing a NaN matrix / custom property / JSON; in Blender a zone with a NaN location and a NaN-rotated parent
+  failing with both objects and `src/zones/ruins.py` named, no `census.glb`, and `build_with_repair` dispatching
+  a repair — no `build.harness_retry` — whose report leads with the file; `scene.blend` reopening a generated
+  texture with its pixels; an instanced NaN-vertex mesh AND its NaN placement both reported, a geometry-nodes
+  scatter named by its mesh), `tests/scene_blender/test_prompts.py` (the asset check's NaN error),
+  `tests/blender_cadquery/test_blender_nonfinite.py` (NaN location / NaN vertex fail
+  the static build, `object.blend` keeps an 8-bit and a float generated image),
+  `tests/urdf_joints/test_live_blender.py::test_a_nan_in_a_link_is_the_scripts_error`.
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

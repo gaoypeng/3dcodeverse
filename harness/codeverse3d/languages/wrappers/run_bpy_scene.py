@@ -18,8 +18,10 @@ What it does (in order), DESIGN §3.3:
   4. hides the asset sources (they render through their collection instances), creates the
      harness cameras (plan fov is VERTICAL, as in three.js), sets frame 1 (t = 0);
   5. writes the bpy facts the GLB cannot carry (``bpy_census.json``: lights, fog, background,
-     drivers that will not run, unique vs instanced triangles), the census GLB (``_census_glb``)
-     and the compressed ``scene.blend`` the render driver opens;
+     drivers that will not run, unique vs instanced triangles), the census GLB (``_census_glb``;
+     a NaN / inf matrix or vertex fails the build as ``NonFiniteTransform`` / ``NonFiniteGeometry``
+     naming the object and the file that built it — the model's error, D114) and the compressed
+     ``scene.blend`` the render driver opens (in-memory images packed: ``run_bpy.save_blend``);
   6. writes ``bpy_build.json`` and exits 0.
 
 ``--zones`` overrides ``ZONES`` (the assembler's probe: every zone module on disk).  Exit codes: 0 =
@@ -46,6 +48,7 @@ from _census_glb import (  # noqa: E402  (siblings)
     is_volume_only,
     write_census_glb,
 )
+from _finite import NonFiniteError  # noqa: E402
 from _wrapper_common import (  # noqa: E402
     exit_after,
     map_exception,
@@ -55,7 +58,7 @@ from _wrapper_common import (  # noqa: E402
     wrapper_argv,
     write_report,
 )
-from run_bpy import MEMORY_HINT, clear_scene, render_fingerprint  # noqa: E402
+from run_bpy import MEMORY_HINT, clear_scene, render_fingerprint, save_blend  # noqa: E402
 
 REPORT_NAME, FACTS_NAME = "bpy_build.json", "bpy_census.json"
 GLB_NAME, BLEND_NAME = "census.glb", "scene.blend"
@@ -153,17 +156,30 @@ def activate(bpy: Any, coll: Any) -> None:
 
 class Stages:
     """Runs one builder at a time; a raise is recorded with its ``src/`` file:line and everything
-    the builder created is removed again (objects and collections)."""
+    the builder created is removed again (objects and collections).  ``origin`` maps every object a
+    builder that returned created (``as_pointer()``) to its file — a census report names it (D114)."""
 
     def __init__(self, bpy: Any, script: str, report: dict[str, Any]) -> None:
         self.bpy, self.script, self.report = bpy, script, report
+        self.origin: dict[int, str] = {}
+
+    def claim(self, file: str, before: set[int]) -> None:
+        """Every object not in ``before`` (pointers) was made by ``file``."""
+        for o in self.bpy.data.objects:
+            if (p := o.as_pointer()) not in before:
+                self.origin.setdefault(p, file)
+
+    def origin_of(self, obj: Any) -> str:
+        return self.origin.get(obj.as_pointer(), "")
 
     def run(self, stage: str, name: str, default_file: str, fn: Any) -> tuple[Any, bool]:
         bpy = self.bpy
         objs = {o.as_pointer() for o in bpy.data.objects}
         colls = {c.as_pointer() for c in bpy.data.collections}
         try:
-            return fn(), True
+            out = fn()
+            self.claim(default_file, objs)
+            return out, True
         except BaseException as e:  # noqa: BLE001 — a builder's failure is a finding, never the wrapper's
             if isinstance(e, KeyboardInterrupt):
                 raise
@@ -479,6 +495,7 @@ def main() -> int:
         zones = {str(k): str(v) for k, v in json.loads(args.zones).items()}
     ctx = SceneContext(bpy.context.scene, args.fps, tuple(float(t) for t in g.get("TIMES", (0.0, 1.5))))
     stages = Stages(bpy, script, report)
+    stages.claim("src/scene.py", set())   # what the entry's own top-level code made
     build_env(bpy, ctx, stages, src)
     assets_root = build_assets(bpy, ctx, stages, ws, dict(g.get("HEROES") or {}), dict(g.get("ASSETS") or {}), report)
     if callable(g.get("create_scene")):   # single-file mode: one scene.py builds everything
@@ -505,8 +522,10 @@ def main() -> int:
     try:
         facts["glb"] = write_census_glb(bpy, os.path.join(out_dir, GLB_NAME), basis=basis,
                                         zones={name: name for name in built.values()}, cameras=list(g.get("CAMERAS") or []),
-                                        zone_key=args.zone_key)
+                                        zone_key=args.zone_key, origin=stages.origin_of)
         report["exported"]["glb"] = os.path.join(out_dir, GLB_NAME)
+    except NonFiniteError as e:   # the scene's NaN / inf, not the writer's: the model's build error (D114)
+        report.update(e.offenders.report())
     except Exception as e:  # noqa: BLE001 — a writer failure is the harness's, reported as such
         import traceback  # noqa: PLC0415
 
@@ -515,7 +534,7 @@ def main() -> int:
     if not args.no_blend:
         blend = os.path.join(out_dir, BLEND_NAME)
         try:
-            bpy.ops.wm.save_as_mainfile(filepath=blend, compress=True, copy=True)
+            report["warnings"].extend(save_blend(bpy, blend, compress=True))   # the judged frames render it
             report["exported"]["blend"] = blend
         except Exception as e:  # noqa: BLE001
             report["warnings"].append(f".blend save failed: {e}")
