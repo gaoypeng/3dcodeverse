@@ -450,6 +450,10 @@ SCENARIOS: dict[str, tuple[Track, Language, dict[str, Any], Callable[[Rig], None
                                         _two_runs(1, 2)),
     "scene.scene_blender.single_shot.fresh": (SC, Language.SCENE_BLENDER, {"plan": small_scene(Language.SCENE_BLENDER), "broken_assets": frozenset({"Bollard"})},
                                               lambda r: r.run(rounds=1, single_shot=True)),
+    # raw mode (D113): the argon_raw overlay and its `scene_lib = false` knob — every bpy brief, planner and
+    # skill bundle a session reads without one word of the harness library
+    "scene.scene_blender.agent.variant_argon_raw": (SC, Language.SCENE_BLENDER, {"plan": small_scene(Language.SCENE_BLENDER)},
+                                                    _switched("C3D_VARIANT", "argon_raw", 1)),
     "graphics.glsl_shader.agent.fresh": (G, Language.GLSL_SHADER, {}, _two_runs(1, 2)),
     "graphics.glsl_shader.agent.best_of_2": (G, Language.GLSL_SHADER, {}, lambda r: r.run(rounds=0, candidates=2)),
     "graphics.glsl_shader.agent.rebuild": (G, Language.GLSL_SHADER, {"fail": REBUILD}, lambda r: r.run(rounds=1)),

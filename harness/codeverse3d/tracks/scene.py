@@ -64,6 +64,7 @@ from codeverse3d.tracks.scene_assets import (
     read_dedupe_note,
     run_asset_stage,
     select_assets,
+    ships_lib,
 )
 from codeverse3d.tracks.zone_layout import layout_block, layout_zones
 from codeverse3d.workspace import Workspace
@@ -269,7 +270,7 @@ class SceneTrack(BaseTrack):
         if alias is None:
             _, alias = select_assets(list(plan.assets), MAX_ASSETS)
         ctx.extra["assets"], ctx.extra["asset_alias"] = assets, alias
-        return asset_api_summary(plan, assets, alias, language=ctx.language)
+        return asset_api_summary(plan, assets, alias, language=ctx.language, lib=ships_lib(ctx))
 
     # ---- degradation ------------------------------------------------------
     def _strategy(self, ctx: RunContext, stage: str) -> RunContext:

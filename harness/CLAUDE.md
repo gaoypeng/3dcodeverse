@@ -94,6 +94,7 @@ cd harness
 # recipes, placeholder skeletons; a prompt / skill keeps only interface, sandbox rules and measured thresholds, each contract.md ONE
 # executable interface example (tests/prompts/test_snippets_run.py), the craft as short optional practices in the skills (fences ≤ ~12 lines).
 3dcodeverse make "..." --variant argon      # per-model prompt/skill overlay: prompts/variants/<name>/ + skills/variants/<name>/ (D105; C3D_VARIANT, C3D_VARIANTS='{"agy:gemini-4-argon": "argon"}')
+3dcodeverse make "..." --track scene --language scene_blender --variant argon_raw   # RAW mode (D113): no src/lib ships, argon writes every line of bpy ([knobs] scene_lib = false; C3D_SCENE_LIB)
 3dcodeverse make "neon rain on a window" --track graphics --language glsl_shader
 3dcodeverse make "..." --image ref.png --candidates 3 --rounds 2 --dim height=0.45 --must "three legs" --texture --no-run
 3dcodeverse make "..." --no-pick            # a run = baseline + --rounds refine rounds (fixed); make then picks a round → deliverable/ unless --no-pick

@@ -1,0 +1,20 @@
+# The `argon_raw` variant: gemini-4-argon writes EVERY line of a scene_blender scene.  D113, 2026-10-17.
+#
+# Raw mode: no harness bpy library ships into the workspace (Settings.scene_lib off, the knob
+# below), so every mesh, material, light, world and motion of the scene is the model's raw
+# bpy / bmesh.  The files beside this one shadow the scene_blender prompts (system, contract,
+# asset, effects catalog), the four bpy stage templates and the bpy planner with copies that name
+# no library; codeverse3d/skills/variants/argon_raw/ shadows the three bpy skill bundles likewise.
+#
+# Selection is explicit, never a regex over the model id:
+#   3dcode make "..." --track scene --language scene_blender --variant argon_raw
+# or C3D_VARIANT=argon_raw.  `generators` below is informative.
+
+[variant]
+name = "argon_raw"
+version = 1
+generators = ["agy:gemini-4-argon"]
+description = "gemini-4-argon on scene_blender in raw mode: no harness library, every line of bpy is the model's"
+
+[knobs]              # applied like a profile: a field the user stated (config.yaml / C3D_*) wins
+scene_lib = false    # no harness library in the skeleton; a `lib` import is a lint ERROR (D113)

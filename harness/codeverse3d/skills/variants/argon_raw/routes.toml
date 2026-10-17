@@ -1,0 +1,3 @@
+# The `argon_raw` variant's routing table (D113, 2026-10-17) — EMPTY: the base table routes the
+# three shadowed c3d-bpy-scene-* bundles by name.  Row kinds and their typing: see
+# codeverse3d/skills/variants/argon/routes.toml and codeverse3d/skills/__init__.py::parse_routes.

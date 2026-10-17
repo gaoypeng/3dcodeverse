@@ -63,6 +63,30 @@ def build_context(workspace: Path, *, track: str = "", language: str = "", round
     return ctx
 
 
+def apply_run_knobs(ctx: ToolContext) -> dict[str, Any]:
+    """The workspace run's variant ``[knobs]`` on this process's settings, for the server's lifetime.
+
+    WHY: the run applies a variant's knobs in ITS process only (``tracks.lifecycle._apply_variant``),
+    and this server is a separate process serving that one workspace — so ``argon_raw``'s
+    ``scene_lib = false`` (D113) never reached the session's own ``build`` lint, which then passed a
+    ``lib`` import the round's lint fails.  The variant is the run's: the spec's frozen
+    ``options.variant``, else the process switch resolved by the spec's generator
+    (``BaseTrack.variant_for``).  A user-stated field still wins (``apply_variant_knobs``); an unknown
+    or unreadable variant applies nothing."""
+    from codeverse3d.config import get_settings
+    from codeverse3d.prompts.variants import apply_variant_knobs, resolve_variant, variant_info
+
+    spec = spec_dict(ctx)
+    settings = get_settings()
+    try:
+        name = str((spec.get("options") or {}).get("variant") or "").strip() or resolve_variant(
+            settings, str((spec.get("backends") or {}).get("generator") or ""))
+        return apply_variant_knobs(settings, variant_info(name)) if name else {}
+    except ValueError as e:
+        print(f"variant knobs not applied: {e}", file=sys.stderr)
+        return {}
+
+
 def encode_image(path: str, max_side: int = MAX_IMAGE_SIDE) -> str | None:
     """PNG → base64 (downscaled so the long side is ≤ ``max_side``); None if unreadable."""
     try:
@@ -219,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"workspace not found: {ws}", file=sys.stderr)
         return 2
     ctx = build_context(ws, track=ns.track, language=ns.language, round_index=ns.round_index)
+    apply_run_knobs(ctx)
     if ns.list:
         print(json.dumps([{"name": t.name, "description": t.description, "schema": t.schema()} for t in list_tools(track=ctx.track, language=ctx.language)], indent=1))
         return 0

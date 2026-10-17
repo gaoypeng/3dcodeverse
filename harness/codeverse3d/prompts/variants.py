@@ -44,10 +44,16 @@ log = logging.getLogger(__name__)
 VARIANTS_DIR: Path = Path(__file__).resolve().parent / "variants"
 #: the one file every variant must ship (its name, version, generators and knobs)
 VARIANT_FILE = "variant.toml"
-#: ``[knobs]`` may set ONLY these ``Settings`` fields — the skills dials a variant tunes.  Applied
-#: like a profile (``Settings.apply_profile``): a field the user stated themselves wins.
-KNOB_FIELDS: frozenset[str] = frozenset({"skills_max", "skills_only"})
-_KNOB_TYPES: dict[str, type] = {"skills_max": int, "skills_only": str}
+#: ``[knobs]`` may set ONLY these ``Settings`` fields — the skills dials a variant tunes, and
+#: ``scene_lib`` (D113: the scene_blender library off = raw mode).  Applied like a profile
+#: (``Settings.apply_profile``): a field the user stated themselves wins.
+KNOB_FIELDS: frozenset[str] = frozenset({"skills_max", "skills_only", "scene_lib"})
+_KNOB_TYPES: dict[str, type] = {"skills_max": int, "skills_only": str, "scene_lib": bool}
+#: knobs decided PER RUN by :func:`run_knob` from the active variant (the ``ContextVar``), never written
+#: onto a shared ``Settings`` by :func:`knobs_applied`: ``scene_lib`` changes which files ship and what
+#: the lint passes, and the bench runs ``--parallel N`` runs as threads of one process sharing the
+#: singleton — a write there flipped a sibling run between raw and library mode mid-run (D113 review)
+RUN_KNOBS: frozenset[str] = frozenset({"scene_lib"})
 #: files under an overlay that are documentation, never material a model sees: left out of the hash
 HASH_EXCLUDED: frozenset[str] = frozenset({"README.md"})
 
@@ -132,7 +138,7 @@ def _parse(path: Path, dir_name: str) -> VariantInfo:
         if key not in KNOB_FIELDS:
             raise ValueError(f"{path}: [knobs] {key!r} is not a variant knob (allowed: {sorted(KNOB_FIELDS)})")
         want = _KNOB_TYPES[key]
-        if isinstance(value, bool) or not isinstance(value, want) or (want is int and value < 0):
+        if (isinstance(value, bool) is not (want is bool)) or not isinstance(value, want) or (want is int and value < 0):
             raise ValueError(f"{path}: [knobs] {key} must be a {want.__name__}"
                              f"{' >= 0' if want is int else ''}, got {value!r}")
     return VariantInfo(name=name, version=version, generators=tuple(generators), description=description,
@@ -241,15 +247,34 @@ def variant_block(name: str) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- knobs
-def apply_variant_knobs(settings: Settings, info: VariantInfo) -> dict[str, Any]:
-    """Set ``info.knobs`` on ``settings`` as DEFAULTS, the way a profile is applied: a field the user
-    stated (config file / ``C3D_*`` / an explicit constructor kwarg — ``model_fields_set``) is never
-    touched, and the field-set is restored afterwards so a knob is not later mistaken for a statement
-    (``Settings.apply_profile.put_section`` keeps the same invariant).  Returns what was set."""
+def run_knob(field_name: str, settings: Settings | None = None) -> Any:
+    """A :data:`RUN_KNOBS` field's value for the code running NOW: the user's statement on ``settings``
+    (default the process's) wins; inside a run (:func:`activate` set the ``ContextVar``, per thread and
+    copied into fan-out) the active variant's ``[knobs]`` value, else the field's default — never the
+    shared attribute, which another thread's run may hold; outside any run, ``settings`` as it stands
+    (a tool-server process that applied its run's knobs, ``spatial.mcp_server.apply_run_knobs``)."""
+    if field_name not in RUN_KNOBS:
+        raise ValueError(f"{field_name!r} is not a per-run knob (RUN_KNOBS: {sorted(RUN_KNOBS)})")
+    s = settings if settings is not None else get_settings()
+    name = _ACTIVE.get()
+    if field_name in s.model_fields_set or name is None:
+        return getattr(s, field_name)
+    if name:
+        knobs = variant_info(name).knobs
+        if field_name in knobs:
+            return knobs[field_name]
+    return Settings.model_fields[field_name].default
+
+
+def apply_variant_knobs(settings: Settings, info: VariantInfo, *, fields: frozenset[str] = KNOB_FIELDS) -> dict[str, Any]:
+    """Set ``info.knobs`` (those in ``fields``) on ``settings`` as DEFAULTS, the way a profile is applied:
+    a field the user stated (config file / ``C3D_*`` / an explicit constructor kwarg — ``model_fields_set``)
+    is never touched, and the field-set is restored afterwards so a knob is not later mistaken for a
+    statement (``Settings.apply_profile.put_section`` keeps the same invariant).  Returns what was set."""
     stated = set(settings.model_fields_set)
     applied: dict[str, Any] = {}
     for field_name, value in info.knobs.items():
-        if field_name not in KNOB_FIELDS or field_name in stated:
+        if field_name not in fields or field_name in stated:
             continue
         setattr(settings, field_name, value)
         applied[field_name] = value
@@ -268,18 +293,23 @@ def knobs_applied(settings: Settings, info: VariantInfo | None) -> Iterator[dict
     calling ``track.run`` twice), and since ``apply_variant_knobs`` keeps the field-set, the leaked
     value was indistinguishable from the default.  On exit — whatever the block raised — every knob
     field goes back to its prior value and its prior field-set membership; a statement the block made
-    to any OTHER field is kept.  Yields what was set, for the ``variant.active`` event."""
-    prior = {field_name: getattr(settings, field_name) for field_name in KNOB_FIELDS}
-    stated = set(settings.model_fields_set) & KNOB_FIELDS
-    applied = apply_variant_knobs(settings, info) if info is not None else {}
+    to any OTHER field is kept.  A :data:`RUN_KNOBS` field is never written (:func:`run_knob` reads it from
+    the active variant) but is yielded when it applies.  Yields what was set, for the ``variant.active`` event."""
+    written = KNOB_FIELDS - RUN_KNOBS
+    prior = {field_name: getattr(settings, field_name) for field_name in written}
+    stated = set(settings.model_fields_set) & written
+    applied = apply_variant_knobs(settings, info, fields=written) if info is not None else {}
+    applied |= {k: v for k, v in (info.knobs.items() if info is not None else ())
+                if k in RUN_KNOBS and k not in settings.model_fields_set}
     try:
         yield applied
     finally:
         for field_name, value in prior.items():
             setattr(settings, field_name, value)      # pydantic marks each as set: undone next line
-        settings.__pydantic_fields_set__ = (set(settings.model_fields_set) - KNOB_FIELDS) | stated
+        settings.__pydantic_fields_set__ = (set(settings.model_fields_set) - written) | stated
 
 
-__all__ = ["HASH_EXCLUDED", "KNOB_FIELDS", "VARIANTS_DIR", "VARIANT_FILE", "VariantInfo", "activate",
-           "active_variant", "apply_variant_knobs", "knobs_applied", "list_variants", "resolve_variant", "served_id",
+__all__ = ["HASH_EXCLUDED", "KNOB_FIELDS", "RUN_KNOBS", "VARIANTS_DIR", "VARIANT_FILE", "VariantInfo", "activate",
+           "active_variant", "apply_variant_knobs", "knobs_applied", "list_variants", "resolve_variant", "run_knob",
+           "served_id",
            "variant_block", "variant_hash", "variant_info", "variant_root"]

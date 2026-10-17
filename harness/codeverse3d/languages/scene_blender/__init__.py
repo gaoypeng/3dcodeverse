@@ -20,6 +20,7 @@ import json
 import logging
 import math
 import re
+import shutil
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -152,6 +153,10 @@ ALLOWED_IMPORTS = frozenset({
     "dataclasses", "colorsys", "statistics", "operator", "enum", "copy", "__future__", "bpy_extras",
     "env", "zones", "assets", "lib",   # the workspace's own packages (src/ is on sys.path)
 })
+#: the package the harness library is imported as: allowed only while ``Settings.scene_lib`` ships it
+LIB_PACKAGE = "lib"
+#: raw mode (D113, ``scene_lib`` off): no ``src/lib`` ships, so ``lib`` is not a workspace package
+RAW_ALLOWED_IMPORTS = ALLOWED_IMPORTS - {LIB_PACKAGE}
 #: the object track's floor + everything that reads a clock or the file system: a scene is
 #: deterministic by construction and the harness owns every file
 FORBIDDEN_IMPORTS = frozenset(BASE_FORBIDDEN_IMPORTS | {"os", "sys", "pathlib", "time", "datetime", "tempfile",
@@ -291,18 +296,24 @@ def _regate(findings: list[GateFinding], target: str) -> list[GateFinding]:
     return out
 
 
-def _policy(c: BpyCollector, facts: _SceneFacts, *, target: str, role: str) -> list[GateFinding]:
+def _policy(c: BpyCollector, facts: _SceneFacts, *, target: str, role: str, lib: bool = True) -> list[GateFinding]:
     out: list[GateFinding] = []
     E, W = Severity.ERROR, Severity.WARN
 
     def _import_finding(kind: str, mod: str, line: int) -> GateFinding:
+        if mod == LIB_PACKAGE and not lib:
+            return _f(LintKind.BAD_IMPORT, E, f"`{mod}`: no harness library ships in raw mode (scene_lib off) — "
+                      "the import fails in the build", line,
+                      "write it in raw bpy / bmesh / mathutils; code several zones share goes in src/env.py "
+                      "(`from env import ...`); an asset module is self-contained", target)
         if kind == "forbidden":
             return _f(LintKind.FORBIDDEN_IMPORT, E, f"forbidden import `{mod}`", line,
                       "a scene uses bpy / bmesh / mathutils / math / numpy and ctx.rng(seed); no clock, no files", target)
         return _f(LintKind.BAD_IMPORT, W, f"unexpected import `{mod}` (not available in the build)", line,
                   "use bpy, bmesh, mathutils, math, numpy and your own src/ modules", target)
 
-    out.extend(check_imports(c.imports, forbidden=FORBIDDEN_IMPORTS, allowed=ALLOWED_IMPORTS, make_finding=_import_finding))
+    out.extend(check_imports(c.imports, forbidden=FORBIDDEN_IMPORTS, allowed=ALLOWED_IMPORTS if lib else RAW_ALLOWED_IMPORTS,
+                             make_finding=_import_finding))
     for name, call in c.calls:
         for prefix, sev, kind, msg, hint in CALL_POLICY:
             if name.startswith(prefix):
@@ -352,8 +363,9 @@ def _policy(c: BpyCollector, facts: _SceneFacts, *, target: str, role: str) -> l
     return out
 
 
-def lint_scene_source(source: str, *, target: str, role: str) -> list[GateFinding]:
-    """Lint one scene module; ``role`` is ``entry`` / ``env`` / ``zone`` / ``asset`` / ``helper``."""
+def lint_scene_source(source: str, *, target: str, role: str, lib: bool = True) -> list[GateFinding]:
+    """Lint one scene module; ``role`` is ``entry`` / ``env`` / ``zone`` / ``asset`` / ``helper``; ``lib``
+    False is raw mode (D113): an import of the harness library is an ERROR."""
     tree, exc = safe_parse(source, target)
     if tree is None:
         msg, hint, line = describe_parse_failure(exc)  # type: ignore[arg-type]
@@ -362,7 +374,7 @@ def lint_scene_source(source: str, *, target: str, role: str) -> list[GateFindin
     c.visit(tree)
     facts = _SceneFacts()
     facts.visit(tree)
-    out = _policy(c, facts, target=target, role=role)
+    out = _policy(c, facts, target=target, role=role, lib=lib)
     out.extend(_regate(source_traps(c, source), target))
     out.extend(_exports(tree, target=target, role=role))
     return out
@@ -396,8 +408,10 @@ def _role(ws: Workspace, p: Path) -> str:
     return "helper"
 
 
-def lint(ws: Workspace) -> GateReport:
-    """Every ``src/**.py`` except the harness's own library (``src/lib/``, syntax only); passed iff no ERROR."""
+def lint(ws: Workspace, *, lib: bool = True) -> GateReport:
+    """Every ``src/**.py`` except the harness's own library (``src/lib/``, syntax only); passed iff no ERROR.
+    ``lib`` False is raw mode (D113): ``lib`` is no workspace package (a write under ``src/lib/`` is still
+    reverted, ``HARNESS_OWNED_SRC``)."""
     t0 = time.monotonic()
     findings: list[GateFinding] = []
     if not (ws.root / ENTRY_REL).is_file():
@@ -416,7 +430,7 @@ def lint(ws: Workspace) -> GateReport:
         if role in ("zone", "asset") and p.stem != to_snake(p.stem):
             findings.append(_f(LintKind.NAMING, Severity.ERROR, f"module name '{p.name}' is not snake_case", None,
                                f"rename it to {to_snake(p.stem)}.py", rel))
-        findings.extend(lint_scene_source(source, target=rel, role=role))
+        findings.extend(lint_scene_source(source, target=rel, role=role, lib=lib))
     return GateReport.of(GATE, findings, duration_ms=int((time.monotonic() - t0) * 1000))
 
 
@@ -496,12 +510,16 @@ def _write_lib(ws: Workspace, written: list[Path]) -> None:
         _put(ws.src / "lib" / src.name, src.read_text(), written)
 
 
-def write_example(ws: Workspace) -> list[Path]:
+def write_example(ws: Workspace, *, lib: bool = True) -> list[Path]:
     """The complete plan-less starter scene (``starter/src/**/*.py``: entry, env, zones, assets
     and the library) into ``ws.src`` — scene_threejs's ``write_example`` twin.  Raises when the
     starter tree is missing: an rglob over an absent directory writes nothing and reports
     success, which is how a wheel without package data once shipped empty scenes
-    (tests/core/test_portability.py)."""
+    (tests/core/test_portability.py).  Raises in raw mode (``lib`` False, D113) too: the example
+    is built on the library, and a raw run starts from a plan's stubs."""
+    if not lib:
+        raise ValueError("scene_blender raw mode (scene_lib off) needs a plan: the plan-less example scene is "
+                         "built on the harness library (src/lib), which raw mode does not ship")
     if not STARTER_DIR.is_dir():
         raise FileNotFoundError(
             f"scene_blender starter tree missing: {STARTER_DIR} — this install has no package data "
@@ -528,7 +546,37 @@ def _v(v: Sequence[float], *, extents: bool = False) -> tuple[float, float, floa
 PLACEHOLDER_GROUND_SPANS = 3.0
 
 
-def _env_source(plan: ScenePlan) -> str:
+#: what the env placeholder says of the toolbox, imports, and builds its plate with: (library, raw — D113).
+#: Raw: the same plate in plain bpy / bmesh (GroundMat at the library's "6F6A60", linear), no library named.
+_ENV_TOOLBOX = (
+    """  builds the brief's.  The landform, the sky, the light and the atmosphere are yours.  Raw bpy / bmesh is the
+  baseline; src/lib (terrain / sky / lighting / materials / architecture / water ... — the effects catalog) is
+  an OPTIONAL toolbox.  Keep build_env and height_at.""",
+    """  builds the brief's.  The landform, the sky, the light and the atmosphere are yours, in raw bpy / bmesh:
+  no harness library ships in this workspace.  Keep build_env and height_at.""")
+_ENV_IMPORTS = ("from lib import materials, terrain   # the optional toolbox (the placeholder uses two of its calls)",
+                "import bmesh\nimport bpy")
+_ENV_ROOM_NOTE = ("# named; it reads black without openings or practical lights); lib.architecture.room_shell is one way",
+                  "# named; it reads black without openings or practical lights)")
+_ENV_PLATE = (
+    """    ground_mat = materials.material("GroundMat", "6F6A60", roughness=0.95)
+    terrain.ground("Ground", ctx.collection, size=GROUND_SIZE, segments=32, height_at=height_at, material=ground_mat)""",
+    """    ground_mat = bpy.data.materials.new("GroundMat")
+    bsdf = ground_mat.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Base Color"].default_value = (0.159, 0.144, 0.117, 1.0)
+    bsdf.inputs["Roughness"].default_value = 0.95
+    bm = bmesh.new()
+    bmesh.ops.create_grid(bm, x_segments=32, y_segments=32, size=GROUND_SIZE / 2)
+    for v in bm.verts:
+        v.co.z = height_at(v.co.x, v.co.y)
+    me = bpy.data.meshes.new("Ground")
+    bm.to_mesh(me)
+    bm.free()
+    me.materials.append(ground_mat)
+    ctx.collection.objects.link(bpy.data.objects.new("Ground", me))""")
+
+
+def _env_source(plan: ScenePlan, *, lib: bool = True) -> str:
     """``src/env.py`` as an interface stub: the plan's data (bounds, interior, glazed, the sun the
     plan states), the two exports the wrapper calls, and a PLACEHOLDER body that builds ONE thing —
     a level plate named Ground past the plan span — and no world, no lamp, no atmosphere: as
@@ -537,8 +585,11 @@ def _env_source(plan: ScenePlan) -> str:
     bounds' half-span + 15 m, fbm hills beyond, a mossy ground, a fog box, a room shell with one
     ceiling light): 30 of 30 iteration-0 scenes kept its shape; then a passing placeholder (a
     neutral sun at 45° / 35°, a haze) that any brief could keep for the same reason (the
-    de-templating of 2026-10-15)."""
+    de-templating of 2026-10-15).  ``lib`` False (raw mode, D113): the same plate in raw bpy / bmesh and
+    no word of the library."""
     from codeverse3d.languages.scene_threejs import sun_from_plan
+
+    k = 0 if lib else 1
 
     c, e = _v(plan.bounds.center), _v(plan.bounds.extents, extents=True)
     span = max(e[0], e[1], 1.0)
@@ -572,15 +623,13 @@ MEASURED: a world exists and an atmosphere exists — a world Volume or a bounde
   edge in any authored frame (judged; the census: standing geometry past 1.25 x the bounds' half-extent).
 PLACEHOLDER below: ONE level plate named Ground past the plan span, so the census has a surface — and NO
   world, NO lamp, NO atmosphere: as written this module fails the probe and renders black until build_env
-  builds the brief's.  The landform, the sky, the light and the atmosphere are yours.  Raw bpy / bmesh is the
-  baseline; src/lib (terrain / sky / lighting / materials / architecture / water ... — the effects catalog) is
-  an OPTIONAL toolbox.  Keep build_env and height_at.
+{_ENV_TOOLBOX[k]}
 """
-from lib import materials, terrain   # the optional toolbox (the placeholder uses two of its calls)
+{_ENV_IMPORTS[k]}
 
 BOUNDS = {{"center": ({fmt3(c)}), "extents": ({fmt3(e)})}}
 INTERIOR = {interior}      # the plan's: an interior needs the enclosure the brief describes (openings, materials as
-                           # named; it reads black without openings or practical lights); lib.architecture.room_shell is one way
+                           {_ENV_ROOM_NOTE[k]}
 GLAZED = {glazed}          # the plan says the enclosure is glazed; its construction is the brief's
 GROUND_SIZE = {ground}     # the placeholder plate's side (m): 3 x the plan span, past the reach the fog gate measures
 {az_line}
@@ -595,14 +644,53 @@ def height_at(x, y):
 
 def build_env(ctx):
     # PLACEHOLDER ground: a level plate following height_at — REPLACE with the brief's land (named Ground... / Terrain...)
-    ground_mat = materials.material("GroundMat", "6F6A60", roughness=0.95)
-    terrain.ground("Ground", ctx.collection, size=GROUND_SIZE, segments=32, height_at=height_at, material=ground_mat)
+{_ENV_PLATE[k]}
     # NO world, lamp or atmosphere here: the brief's go in this function (the docstring says what is measured)
     return {{"ground_material": ground_mat}}
 '''
 
 
-def _asset_source(a: AssetPlan) -> str:
+#: the asset placeholder's imports and blockout: (library, raw — D113); ``str.format`` fields
+_ASSET_BODY = (
+    """from lib.materials import material   # optional toolbox: the placeholder uses it
+from lib.mesh import Batch           # optional: one way to build multi-material parts (raw bmesh is equally fine)
+
+
+def build_{snake}(ctx, variant=0):
+    mat = material("{pascal}Mat", ({rgb}), roughness={rough}, metal={metal})
+    # PLACEHOLDER blockout at the planned size — REPLACE with the real thing (a single box fails the asset check);
+    # base on z = 0, front facing -Y.
+    b = Batch("{pascal}")
+    b.box(mat, (0.0, 0.0, {h2}), ({w}, {d}, {h}))
+    b.finish(ctx.collection, parent=False)
+    return ctx.collection
+""",
+    """import bmesh
+import bpy
+
+
+def build_{snake}(ctx, variant=0):
+    mat = bpy.data.materials.new("{pascal}Mat")
+    bsdf = mat.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Base Color"].default_value = ({rgb}, 1.0)
+    bsdf.inputs["Roughness"].default_value = {rough}
+    bsdf.inputs["Metallic"].default_value = {metal}
+    # PLACEHOLDER blockout at the planned size — REPLACE with the real thing (a single box fails the asset check);
+    # base on z = 0, front facing -Y.
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1.0)
+    bmesh.ops.scale(bm, vec=({w}, {d}, {h}), verts=bm.verts)
+    bmesh.ops.translate(bm, vec=(0.0, 0.0, {h2}), verts=bm.verts)
+    me = bpy.data.meshes.new("{pascal}")
+    bm.to_mesh(me)
+    bm.free()
+    me.materials.append(mat)
+    ctx.collection.objects.link(bpy.data.objects.new("{pascal}", me))
+    return ctx.collection
+""")
+
+
+def _asset_source(a: AssetPlan, *, lib: bool = True) -> str:
     snake, pascal = to_snake(a.name), to_pascal(a.name)
     w, h, d = (max(0.05, float(v)) for v in a.approx_size_m)   # plan order: width, height, depth
     rgb, rough, metal = finish_for(a.description)
@@ -615,22 +703,21 @@ CONTRACT: build_{snake}(ctx, variant=0) -> bpy.types.Collection — link every p
   describes it at the judge's camera distance (judged) and measure about the size above (the asset check);
   parts, materials and construction are yours.
 """
-from lib.materials import material   # optional toolbox: the placeholder uses it
-from lib.mesh import Batch           # optional: one way to build multi-material parts (raw bmesh is equally fine)
+{_ASSET_BODY[0 if lib else 1].format(snake=snake, pascal=pascal, rgb=fmt3(rgb), rough=rough, metal=metal,
+                                     w=f"{w:g}", d=f"{d:g}", h=f"{h:g}", h2=f"{h / 2:g}")}'''
 
 
-def build_{snake}(ctx, variant=0):
-    mat = material("{pascal}Mat", ({fmt3(rgb)}), roughness={rough}, metal={metal})
-    # PLACEHOLDER blockout at the planned size — REPLACE with the real thing (a single box fails the asset check);
-    # base on z = 0, front facing -Y.
-    b = Batch("{pascal}")
-    b.box(mat, (0.0, 0.0, {h / 2:g}), ({w:g}, {d:g}, {h:g}))
-    b.finish(ctx.collection, parent=False)
-    return ctx.collection
-'''
+#: the zone stub's line on assets and motion: (library, raw — D113)
+_ZONE_TOOLS = (
+    """  Assets: ctx.assets['<snake>'] is a Collection — place collection-instance Empties of it (lib.scatter.instance
+  seats one on ctx.height_at; one way among others).  Animation: keyframes or simple drivers (the build samples
+  frames 1 and 46 = t 0 / 1.5 s; motion between them is measured); lib.motion is an optional helper.""",
+    """  Assets: ctx.assets['<snake>'] is a Collection — place collection-instance Empties of it (instance_type
+  'COLLECTION', seated on ctx.height_at).  Animation: keyframes or simple drivers (the build samples frames 1 and
+  46 = t 0 / 1.5 s; motion between them is measured).""")
 
 
-def _zone_source(z: ZonePlan, assets: dict[str, AssetPlan]) -> str:
+def _zone_source(z: ZonePlan, assets: dict[str, AssetPlan], *, lib: bool = True) -> str:
     """The zone's interface and a TODO naming the plan's contents — no positions.  The stub used to
     tile the contents on a quarter-extent grid inside the bbox and say "keep them inside the bbox":
     the seed of the blocks-in-a-rectangle look (the de-templating of 2026-10-15)."""
@@ -655,9 +742,7 @@ CONTRACT: build(ctx) -> bpy.types.Collection — ctx.collection is this zone's (
   (measured: scene_placement floating > 0.05 m outdoors / 0.02 m indoors, sunken > 0.10 m).  The planned
   contents are measured against the plan bounds and this bbox (scene_placement: present, at the plan's size,
   not outside the bounds); scenery may continue past the bbox as the brief implies.
-  Assets: ctx.assets['<snake>'] is a Collection — place collection-instance Empties of it (lib.scatter.instance
-  seats one on ctx.height_at; one way among others).  Animation: keyframes or simple drivers (the build samples
-  frames 1 and 46 = t 0 / 1.5 s; motion between them is measured); lib.motion is an optional helper.
+{_ZONE_TOOLS[0 if lib else 1]}
 TODO — this zone's planned contents, none placed yet:
 {todo_block}
 """
@@ -699,23 +784,27 @@ CAMERAS = [
 '''
 
 
-def write_skeleton(ws: Workspace, plan: Plan | None = None) -> list[Path]:
+def write_skeleton(ws: Workspace, plan: Plan | None = None, *, lib: bool = True) -> list[Path]:
     """Starter files for a scene plan (the library, env, one module per zone and per procedural
     asset, the assembled entry); ``public/assets/`` for the heroes.  Without a plan the complete
-    example scene is the skeleton (``write_example``)."""
+    example scene is the skeleton (``write_example``).  ``lib`` False is raw mode (D113): no
+    ``src/lib/``, and stubs that import and name nothing of it."""
     if plan is None:
-        return write_example(ws)
+        return write_example(ws, lib=lib)
     if not isinstance(plan, ScenePlan):
         raise TypeError(f"scene_blender needs a ScenePlan, got {type(plan).__name__}")
     written: list[Path] = []
-    _write_lib(ws, written)
-    _put(ws.root / ENV_FILE, _env_source(plan), written)
+    if lib:
+        _write_lib(ws, written)
+    else:   # a skeleton re-run after the mode changed (the stage key holds it): no library left behind
+        shutil.rmtree(ws.src / "lib", ignore_errors=True)
+    _put(ws.root / ENV_FILE, _env_source(plan, lib=lib), written)
     assets = {to_snake(a.name): a for a in plan.assets}
     for a in plan.assets:
         if a.kind != "blender_glb":
-            _put(ws.root / asset_file(a), _asset_source(a), written)
+            _put(ws.root / asset_file(a), _asset_source(a, lib=lib), written)
     for z in plan.zones:
-        _put(ws.root / zone_file(z.name), _zone_source(z, assets), written)
+        _put(ws.root / zone_file(z.name), _zone_source(z, assets, lib=lib), written)
     _put(ws.root / ENTRY_REL, render_scene_py([to_snake(z.name) for z in plan.zones],
                                               [to_snake(a.name) for a in plan.assets if a.kind != "blender_glb"], [],
                                               list(plan.cameras[:6]), title=plan.title, summary=plan.summary), written)
@@ -794,6 +883,17 @@ class SceneBlenderRuntime:
         self._settings = settings or get_settings()
         self._blender = blender
 
+    @property
+    def ships_lib(self) -> bool:
+        """``Settings.scene_lib`` of the run calling now (``prompts.variants.run_knob``: the user's statement,
+        else the active variant's knob — per thread, so parallel runs of one process never flip each
+        other): ``False`` is raw mode (D113) — no ``src/lib/`` in the skeleton, ``lib`` imports are lint
+        ERRORs, no library interface in any prompt.  The scene track asks this runtime too
+        (``tracks.scene_assets.ships_lib``), so a run's skeleton, lint and prompts share one answer."""
+        from codeverse3d.prompts.variants import run_knob
+
+        return bool(run_knob("scene_lib", self._settings))
+
     # ------------------------------------------------------------------ layout
     def expected_files(self, plan: Plan | None) -> list[str]:
         return list(SCENE_FILES)
@@ -802,13 +902,13 @@ class SceneBlenderRuntime:
         return scene_files_for(plan, target, alias=alias)
 
     def skeleton(self, ws: Workspace, plan: Plan | None) -> list[Path]:
-        return write_skeleton(ws, plan)
+        return write_skeleton(ws, plan, lib=self.ships_lib)
 
     def lint(self, ws: Workspace) -> GateReport:
-        return lint(ws)
+        return lint(ws, lib=self.ships_lib)
 
     def lib_interface(self, ws: Workspace) -> str:
-        return lib_interface(ws)
+        return lib_interface(ws) if self.ships_lib else ""
 
     def check_env(self, ws: Workspace) -> str:
         """``""`` when ``src/env.py`` lints clean, runs ``build_env`` in Blender with nothing beside
@@ -823,7 +923,7 @@ class SceneBlenderRuntime:
         env = ws.root / ENV_FILE
         if not env.is_file():
             return f"{ENV_FILE} does not exist"
-        own = [f for f in lint_scene_source(env.read_text(errors="replace"), target=ENV_FILE, role="env")
+        own = [f for f in lint_scene_source(env.read_text(errors="replace"), target=ENV_FILE, role="env", lib=self.ships_lib)
                if f.severity == Severity.ERROR]
         if own:
             return "\n".join(f"{f.target}: {f.message}" + (f" ({f.fix_hint})" if f.fix_hint else "") for f in own[:6])

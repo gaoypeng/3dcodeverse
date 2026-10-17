@@ -276,8 +276,29 @@ LANGUAGE_WORDS: dict[str, dict[str, str]] = {
 }
 
 
+#: scene_blender in raw mode (D113, ``Settings.scene_lib`` off): the hints that name ``lib.place.seat``
+#: say what it does instead — no harness library ships, and an import of it is a lint ERROR
+RAW_BPY_WORDS: dict[str, str] = {
+    "free_exempt": ('obj["placement"] = "free" is for hanging / airborne things only (a bird, a hung lantern, a drone): '
+                    "delete the tag on everything that stands on something and seat it with ctx.height_at(x, y) at its "
+                    "lowest evaluated vertices"),
+    "cantilever": ("seat every foot: follow the ground with ctx.height_at(x, y) at each corner (its lowest evaluated "
+                   "vertex on the lowest ground under it), sink it a few cm, or shorten the overhang"),
+}
+
+
+def _ships_lib() -> bool:
+    """The process's run's ``scene_lib`` (``prompts.variants.run_knob``, the rule the runtime follows)."""
+    from codeverse3d.prompts.variants import run_knob
+
+    return bool(run_knob("scene_lib"))
+
+
 def placement_words(language: str | None) -> dict[str, str]:
-    return LANGUAGE_WORDS.get(str(language or "scene_threejs"), LANGUAGE_WORDS["scene_threejs"])
+    words = LANGUAGE_WORDS.get(str(language or "scene_threejs"), LANGUAGE_WORDS["scene_threejs"])
+    if str(language) == "scene_blender" and not _ships_lib():
+        return {**words, **RAW_BPY_WORDS}
+    return words
 
 
 def _f(sev: Severity, msg: str, *, target: str, hint: str = "", kind: str, **data: Any) -> GateFinding:

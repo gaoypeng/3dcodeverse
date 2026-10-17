@@ -1802,6 +1802,56 @@ Pointers: EVAL, PAPER_WRITING = `eval/docs/*.md`; COST, RUNBOOK, ARCHITECTURE, I
   `tests/scene_runtime/test_env_check.py::test_an_arrow_function_export_is_listed_with_its_parameters`, eval's
   `test_infra_failures.py::test_a_hung_*` and `test_bare_agent.py::test_a_hung_session_is_not_cached_so_a_redo_runs_it`.
 
+* **D113 Raw mode for scene_blender: an opt-in run where no harness library ships and the model writes every
+  line of bpy — the `argon_raw` variant (2026-10-17).**  WHY: the owner's game-world demo must have ALL scene
+  modeling code written by `agy:gemini-4-argon`; every scene_blender workspace shipped the ~3 000-line harness bpy
+  library (`src/lib/*.py`: `vegetation.tree`, `architecture.timber_house`, `terrain.boulder`, `figure`, the material
+  recipes, the sky worlds …), so part of every scene's geometry was harness code.  WHAT: `Settings.scene_lib`
+  (`C3D_SCENE_LIB`, default **on** — every existing run and the manifest's base and `argon` payloads are
+  byte-identical) and, OFF, raw mode: (1) `write_skeleton(..., lib=False)` writes no `src/lib/`, and the env /
+  asset / zone stubs are raw bpy / bmesh that import and name nothing of it (the env placeholder still builds ONE
+  level plate named Ground and nothing else); the plan-less example is refused (`ValueError`: it is built on the
+  library); (2) the lint drops `lib` from the workspace packages — an import of it is a `bad_import` ERROR saying
+  no library ships, shared code goes in `src/env.py` (zones `from env import`; an asset module is self-contained:
+  its check builds it without `env`); a write under `src/lib/` is still reverted (`HARNESS_OWNED_SRC`);
+  (3) ONE decision, per run: `prompts.variants.run_knob("scene_lib", settings)` — a stated value wins; inside a run
+  (the `activate` ContextVar, per thread and copied into fan-out) the ACTIVE variant's `[knobs]` value, else the
+  default; outside any run the settings object as it stands.  `SceneBlenderRuntime.ships_lib` asks it at CALL time
+  (`lib_interface` → `""`), `scene_assets.ships_lib(ctx)` asks the run's real runtime (a stand-in runtime: the
+  same rule over `ctx.settings`) and gates the catalog rows (`library_rows` → `""`) and the asset API's placing
+  line (a collection-instance Empty, not `lib.scatter.instance`), and the two placement hints that named
+  `lib.place.seat` say what it does (`scene_placement.RAW_BPY_WORDS`); the skeleton stage's cache key carries
+  `scene_lib: False` in raw mode only (a pre-round resume that changed the mode rewrites the skeleton, and a raw
+  skeleton removes a library one's `src/lib/`; library-mode keys are unchanged); (4) `scene_lib` is a variant knob
+  (`prompts/variants.KNOB_FIELDS`, bool) of a new kind, `RUN_KNOBS`: `knobs_applied` reports it but never writes it
+  onto a shared `Settings` — the bench runs `--parallel N` runs as threads of ONE process sharing the singleton, and
+  a written knob, put back by whichever run ended first, flipped its siblings between raw and library mode mid-run
+  (the review's two-thread race; `skills_max` / `skills_only` keep the old write-and-restore) — and it is applied
+  by the MCP server at start (`mcp_server.apply_run_knobs`: the spec's frozen variant,
+  else the process switch by the spec's generator), because the server is its own process and its `build` lint
+  would otherwise pass a `lib` import the round's lint fails; (5) the variant `argon_raw` (v1, generators
+  `agy:gemini-4-argon`, `[knobs] scene_lib = false`) shadows, for scene_blender, `scene_blender/{system,contract,
+  asset,effects_catalog}.md`, `tracks/scene_{env,zone,asset,refine}_bpy.j2`, `tracks/plan_scene_bpy.j2` and
+  `system/harness_contract.md` with copies that replace every library reference by what the gate measures and the
+  raw bpy that meets it (seating from the root's lowest world-space vertices, boxes kept apart, soft particles as
+  volume-only materials, motion on the slotted action's channelbag f-curves or simple `frame` drivers), plus the
+  owner's realism REQUIREMENTS stated as what is judged / measured (multi-scale procedural surfaces, organic
+  silhouettes, a world that continues past the content); the contract keeps ONE executable example per module
+  type (env + one zone) in raw bpy / bmesh; the effects catalog is a statement that no library ships plus the
+  generic Blender 5.2 / renderer facts; the skills overlay shadows `c3d-bpy-scene-{placement,lighting,materials}`
+  with lib-free copies that keep every claimed sentence (their `_claims` are the base's), `routes.toml` with no
+  rows.  HOW: `3dcode make "..." --track scene --language scene_blender --variant argon_raw` (or
+  `C3D_VARIANT=argon_raw`; `C3D_SCENE_LIB=0` alone gives raw mode under the BASE prompts, which still describe the
+  library — not a supported combination).  Model-visible: a new manifest scenario
+  `scene.scene_blender.agent.variant_argon_raw` (43 payloads, blessed); no existing payload moved.  Pinned:
+  `tests/scene_blender/test_raw_mode.py` (raw skeleton, refused example, the knob at call time, two overlapping
+  runs in threads keeping their own mode, the real runtime deciding for the track and the skeleton key, the lint in both
+  modes, the knob's typing and precedence, no overlay file names the library, every overlaid template renders
+  with the scene track's context, the whole run offline, the MCP server applying the run's knobs, and in Blender
+  the raw placeholder env + an empty zone),
+  `tests/prompts/test_snippets_run.py::test_the_argon_raw_contract_examples_build_through_the_runtime_in_raw_mode`,
+  `tests/core/test_doctor.py::test_doctor_skills_reports_every_shipped_overlay` (two shipped variants, one row each).
+
 ## Rejected / deferred
 
 * A versioned `Spec`/`RunRecord`/`RunState` load-normaliser (rejected 2026-08-30: of the seven

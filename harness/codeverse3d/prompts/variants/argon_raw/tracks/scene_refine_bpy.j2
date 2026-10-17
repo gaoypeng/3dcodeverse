@@ -1,0 +1,100 @@
+# Refine `{{ title }}` — round {{ round_index }}
+
+The scene builds and was rendered from the authored cameras at t=0 and t=1.5 s, then judged. Make
+exactly the changes below, keep everything else, keep the build clean (no zone dropped, no Python
+driver, nothing floating or sunken).
+
+## Changes to make (priority order; `[gate/...]` items are hard failures — fix them first)
+{% for t in tasks %}
+{{ loop.index }}. {{ t }}
+{% endfor %}
+
+Targets: {{ targets | join(', ') }}
+{% if edit_only_these %}
+EDIT ONLY THESE FILES (other tasks edit other files in parallel):
+{% for f in files %}- `{{ f }}`
+{% endfor %}
+{% else %}
+Files in scope: {% for f in files %}`{{ f }}`{% if not loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+
+## What the judge saw
+{{ judge_summary }}
+
+## Plan (unchanged truth; numbers below are in YOUR frame — Z up, −Y front, metres)
+Bounds: {{ bounds }} · Setting: {{ setting }} · Mood: {{ mood }}
+Environment (its prose is Y-up: "y" there is z here): {{ environment }}
+Zones:
+{{ zones_table }}
+Cameras:
+{{ cameras }}
+Assets:
+{{ asset_api }}
+Effects:
+{{ effects }}
+Animation: {{ animation }}
+
+## Acceptance checklist
+{{ acceptance }}
+
+## Reminders
+{{ frame_doc }}
+- A lighting / atmosphere / terrain / horizon change lives in `{{ env_file }}` (the world, the sun or
+  moon lamp, the atmosphere volume, the ground and `height_at`, whatever continues the world).
+- A composition/camera change is the plan's: `{{ entry_file }}` is harness data — move the SUBJECT
+  (a zone's placement) rather than the camera.
+- A zone change lives in its `src/zones/<zone>.py` (`def build(ctx)`, motion as keyframes on
+  `ctx.frame(0.0)` / `ctx.frame(1.5)`); an asset change in `src/assets/<asset>.py`
+  (`build_<asset>(ctx, variant=0)`).
+- A dropped zone / asset (`zone_error`, `asset_error`): fix the named line; never wrap the whole
+  builder in try/except to hide it.
+- Everything rests on `ctx.height_at(x, y)` or on its support (move the root by the smallest
+  `ctx.height_at(x, y) - z` over its foot band: the world-space vertices within max(0.02 m, 5 % of its height) of its lowest); nothing floats, sinks or runs through a
+  neighbour (compare world bounding boxes).  No harness library ships: everything is raw `bpy` / `bmesh`
+  (an import of `lib` is a lint ERROR); code zones share lives in `{{ env_file }}`.
+- No world or cameras outside `{{ env_file }}`, no file IO, no `random.*`, no Python drivers.
+
+## The recurring findings on this track — what each measures, and where the requirement is stated
+Do not re-explain the problem back — change what the finding measures.  If a measured finding repeats,
+change what it measures until its number passes; a repeated judge note needs a visible change in the
+named view.  The skills named below are in your session's skill list; the contract is above.
+
+| what the judge / gate wrote | the requirement (and how it is measured) | stated in |
+|---|---|---|
+| flat / one-colour ground, hard raised-bed edges | the surface needs visible variation that matches the brief's material, and its seams dressed (judge `flat_ground`) | the env brief § 1; skill `c3d-bpy-scene-materials` |
+| a hard world edge against the sky, missing horizon | from no camera may the ground end against the sky (`world_edge_visible`; gates `world_edge` / `fog_short`); what continues the world is the brief's — street, sea, cliff, forest, wall, fog | contract § What else the gates measure; skill `c3d-scene-atmosphere` |
+| the backdrop looks like flat / beige / untextured cut-outs | a distant backdrop needs volume and lighting consistent with the sky; aerial perspective is the fog's job, never a pre-tint (`placeholder_material`) | skill `c3d-scene-atmosphere` |
+| a pond / terrace is a hard-edged plane sitting on the ground | water and terraces meet the ground without a visible seam: carving into `height_at` (`{{ env_file }}`) or dressing the seam (the zone) are options; water is named `…Water` | skill `c3d-scene-water`; skill `c3d-bpy-scene-placement` |
+| `floating` / `sunken` / `interpenetration` / `unsupported` (the placement gate's metres) | move the root by the printed metres: its lowest evaluated vertices onto `ctx.height_at` or its support, boxes apart; a rock may sit a third in, a crate may not | contract § Placement; skill `c3d-bpy-scene-placement` |
+| "camera is N m below ground level" / `camera_in_geometry` | the eye must be above the ground under it and ≥ 0.5 m from any surface: move the subject or the zone's placement; the landform is the brief's | contract § What else the gates measure |
+| identical cones / stacked blocks / primitive repetition | identical copies and primitive stacks are what the judge reads (`monotonous_vegetation`); a tree branches into limbs carrying leaf or needle cards, a rock is irregular (`asset_quality_detail`); vary where the brief has natural variety, regular things stay regular | the zone brief § 2 |
+| sparse, token, "a diorama on a plane", empty midground | the brief's stated counts are requirements (the census compares them); empty regions the brief would fill get what it implies (`undressed_scene`, `empty_midground`) | the zone brief § 1; skill `c3d-scene-composition` |
+| flat / dark / monochrome light, black shade, `dark_frame` | measured per camera (`mean_lum` / `dark_frac` / `blown_frac`); the brief's time of day and light sources decide; the lighting skill lists starting values that have passed | skill `c3d-bpy-scene-lighting`; skill `c3d-scene-night` |
+| frames at t=0 and t=1.5 identical, "nothing moves", `nothing_moves` | the frame difference is measured per camera: LINEAR keyframes on `ctx.frame(0.0)` / `ctx.frame(1.5)` or `frame * k`; `python_driver` = a driver that needs Python, rewrite it | contract § Motion; skill `c3d-scene-motion` |
+| `hard_edged_particles`, "sharp-edged quads / spheres / discs for steam, dust, sparks", the brief's "soft particle effect" must-item unverified | the finding measures sharp-edged particle geometry: in Cycles only a volume renders edgeless (a `ShaderNodeVolumePrincipled` into the Material Output's `Volume`, no surface shader), one root tagged free, moving ≥ 0.6 m | contract § What the renderer does |
+| "plastic", "one grey material", `placeholder_material` | flags a surface with no authored colour / roughness; every surface needs a material that matches what it is, varied at more than one scale (broad tone and wear plus fine grain or bump) | skill `c3d-bpy-scene-materials` |
+| `zone_error` / `asset_error` (a dropped module) | the named `file:line` — fix the raise; Blender 5.2 facts (no `use_nodes`, `Factor` not `Fac`, `ShaderNodeMix`, `Action.fcurves` is gone, GN inputs via `mod.properties.inputs`) | contract § Blender 5.2 API facts |
+{% if current_files %}
+
+## Current file contents (edit and return each COMPLETE)
+{% for path, body in current_files.items() %}
+--- {{ path }} ---
+```
+{{ body }}
+```
+{% endfor %}
+{% endif %}
+{% if tool_cards and not single_shot %}
+
+## Tools
+{{ tool_cards }}
+Run `build` → `check_placement` → fix → `build` after editing (and `scene_probe` for the census);
+finish only when both are clean.  `artifacts/scene_probe.json` is the probe driver's raw dump (thousands of
+lines); `check_placement` returns the placement rows, each with its gap and the tolerance it was measured
+against.  `check_placement` measures floating / sunken / unsupported /
+interpenetrating assets deterministically — its numbers, not your impression.  `scene_views` prints the
+frame table and the MEASURED MOTION per camera — use those numbers, not your impression.
+{% endif %}
+
+## Output
+{{ output_format }}

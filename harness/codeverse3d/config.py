@@ -336,6 +336,11 @@ class Settings(BaseSettings):
                                "prompt instead of editing it in context (docs/COST.md §30)")
     reference_diff: Flag = Field(default=True, description="the judge's reference-image mismatch pass")
     zone_layouts: Flag = Field(default=True, description="scene track: the L2 zone-layout planner calls")
+    scene_lib: Flag = Field(default=True, description="scene_blender: ship the harness-owned bpy library "
+                            "(src/lib/*.py) into every workspace and let modules import it.  OFF is RAW mode "
+                            "(D113): no library ships, `lib.*` imports are lint ERRORs and the model writes "
+                            "every mesh, material, light, world and motion in raw bpy / bmesh (variant "
+                            "argon_raw sets it through its [knobs])")
     scene_textures: Flag = Field(default=False, description="scene track: generate a texture pack before "
                                  "env/zones and describe it in both prompts.  OFF: an image-model call per "
                                  "run, unmeasured — though 4 of 5 scored cells of scene_baseline "

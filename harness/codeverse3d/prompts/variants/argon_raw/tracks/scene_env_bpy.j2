@@ -1,0 +1,133 @@
+# Environment module for `{{ title }}` — write `{{ env_file }}`
+
+Scene: {{ spec_prompt }}
+Setting: {{ setting }}. Mood: {{ mood }}.
+Bounds (Z up, −Y front, metres — already converted from the plan): {{ bounds }}
+
+## Environment plan (the brief's intent with its target numbers — checked by the frame table and the gates; its prose is Y-up: "y up" there is z here, "+z" there is −y here)
+{{ environment }}
+{% if interior and glazed %}
+## This is a GLASS HOUSE — the enclosure is yours
+The place must read enclosed in glass from every authored camera and be lit by what comes through it
+(the frame gate's luminance band).  Name the shell and lid meshes `RoomShell…` / `Ceiling…` so the
+overview rig can lift the lid, and cut the plan's doors as openings.  The frame, the panes (a thin
+transmissive Principled material: `Transmission Weight` 1, low `Roughness`) and the house's shape
+are yours to build here, in raw bpy / bmesh.
+{% elif interior %}
+## This is an INTERIOR — the enclosure is yours
+An interior must read enclosed from every authored camera (measured 2026-09-07 over six interior runs
+with no owner for walls and roof: every one was judged "not enclosed, a diorama on a flat plane",
+0.0–0.3) and be LIT INSIDE (the frame gate's luminance band; the sun is outside, so a closed room
+without openings and lights reads black).  Name the lid meshes `RoomShell…` / `Ceiling…` (the overview
+rig lifts the lid by name); windows and doors are openings the zones glaze or frame.  The room's
+shape, its openings and its extent are the brief's, built here in raw bpy / bmesh.
+{% endif %}
+
+## Contract
+{{ frame_doc }}
+{{ contract }}
+No harness library ships in this workspace: the world, the lamps, the ground mesh, the atmosphere and
+every material are raw `bpy` / `bmesh` / `mathutils` you write in this module (an import of `lib` is a
+lint ERROR).  Helpers the zones should reuse (a material builder, a mesh-linking or seating function)
+are module-level functions here; zones `from env import` them.
+
+### The harness assembles `{{ entry_file }}` and runs YOUR module like this — nothing else runs
+```python
+ctx.collection = scene root                      # build_env links into it
+out = env.build_env(ctx)                         # ONE argument, and it is ctx
+ctx.env = out if isinstance(out, dict) else {}   # what the zones read as ctx.env
+ctx.height_at = env.height_at                    # THE ground every zone seats on
+```
+So `{{ env_file }}` must define exactly:
+- `def height_at(x, y) -> z` — the ground every zone seats on, deterministic and cheap; any walkable
+  surface the brief's place has (a path, a terrace, a pond basin, a floor) is part of it, so what stands
+  there stands on it.  Under every plan camera position the ground stays below the camera (gate
+  `camera_underground`, cap 0.50); otherwise the landform is the brief's — a floor, a slope, a basin, a
+  street, a cliff are all valid.
+- `def build_env(ctx) -> dict` — builds the world (sky), the scene's sun or moon lamp if the brief has
+  one, the ground mesh (sampled from `height_at`, named `Ground…`), the atmosphere the probe requires (a
+  volume) and whatever continues the world past the content (far geometry named `Sky…` so the census files
+  it as backdrop) into `ctx.collection`, and RETURNS the dict zones read as `ctx.env` — e.g.
+  `{"ground_material": …, "sun_direction": (x, y, z), "water_level": …}`; the keys are yours to name.
+- Module-level names zones may `from env import …` (the skeleton's `SUN_AZIMUTH_DEG` / `SUN_ELEVATION_DEG`,
+  compass 0 = +X / 90 = +Y, are one example).
+The world (`bpy.data.worlds.new`, `ctx.scene.world =`) is YOURS and nobody else's: a zone that builds one
+fails the lint.  No cameras (the plan's), no `scene.render.*`, no frame changes.
+
+## What this module is graded on (the requirement, and how it is measured)
+1. **The ground reads as the brief's material**, not one flat untextured colour (judge `flat_ground`: no
+   blending, no wear, undressed seams).  Paving, snow, sand, decking, mud, a tiled floor all count, and the
+   surface varies at more than one scale — broad tone, wear and slope / height bands over metres AND fine
+   grain or bump over centimetres — in a node tree you wire on the ground's material.
+2. **The world does not end in view.**  From no authored camera may the ground stop against the sky or a
+   backdrop float (judge `world_edge_visible`; the frame census reports "terrain ends N m ahead").  Two
+   gates measure it outdoors: `world_edge` (standing geometry must reach past 1.25 × the bounds'
+   half-extent) and `fog_short` (the census reads the volume's density: 1 / density has to stay ≥ span / 1.5).  What
+   continues the world is the brief's place — a street, a sea, a cliff, a forest, walls, hills on one side
+   and open sky on another; far geometry is named `Sky…`, standing geometry is seated, and nothing is
+   pre-tinted toward the fog (it reads as cardboard: judge `placeholder_material`).
+3. **No plan camera below the ground** (`camera_underground`, cap 0.50): `height_at` under every camera
+   position stays below its z.  A ground feature must not read as a plate laid on the terrain from the
+   overview cameras (judge `flat_ground`): carving it into `height_at` or giving it a built edge both work.
+4. **Every authored frame lands in the exposure band** at the brief's time of day (`dark_frame`: mean
+   luminance < 0.12 or > 35 % near-black, cap 0.55; blown frames likewise) and the light is not monochrome
+   (judged).  Cycles is physical.  Starting values that have passed on a mid-albedo ground: a Sun of
+   1–5 W/m² (a moon 0.05–0.3), a world (a Sky Texture with its sun disc off beside the Sun lamp, or a deep
+   colour for night) at strength 0.1–0.6, fog density 0.003–0.008 (a volume-only box over the play area);
+   a brief lit by fire, neon, storm or nothing sets its own and reads `camera_checks.mean_lum`.  Exposure is
+   fixed at 0.
+5. **Shadows read and shade carries colour** (judge `unlit_or_blown`, `lighting_atmosphere`: "flat
+   shadows", "black shade"; the gate's `dark_frac`): a Sun `angle` of 1–3° with the sky world as fill is one
+   way; any fill lamp you add is yours to justify by the frame table.
+6. **What continues the world reads as real** (judged): far trees are trunks branching into limbs that carry
+   leaf or needle cards, far rocks and hills are irregular masses — never cones, balls on sticks or cubes
+   standing in for them (`asset_quality_detail`), and never one shape stamped in a ring (`stamped_ring`,
+   `monotonous_vegetation`).
+7. No {% if not (textures is defined and textures) %}image textures, no {% endif %}file IO, no unseeded randomness (`ctx.rng(seed)`); the lint warns on `bpy.ops.mesh.primitive_*` in a loop.
+
+## DON'T
+- No assets or zones here (they come from other modules).  No cameras.  No `scene.*` render / view settings.
+- A route the zones must agree with (a lane, a towpath) is part of `height_at`, or a module-level name
+  here that zones import — the one ground authority; the name is yours.
+
+## Effects planned (only the ones targeting the environment)
+{{ effects }}
+{% if tool_cards and not single_shot %}
+
+## Tools
+{{ tool_cards }}
+After editing run `build`, then `scene_views` and LOOK at every frame against the brief: does the
+world end anywhere in view, is the ground one flat colour, is the shade black?  Read the frame table
+it prints: every authored camera must pass the exposure checks.  `scene_probe` says whether the world
+and the atmosphere were found.
+{% endif %}
+{% if effects_catalog is defined and effects_catalog %}
+
+{{ effects_catalog }}
+{% endif %}
+{% if textures is defined and textures %}
+
+{{ textures }}
+(These are PNG files under `public/textures/`: load one with `bpy.data.images.load("public/textures/<file>",
+check_existing=True)` into an Image Texture node; the build runs with the workspace root as its working directory.)
+{% endif %}
+{% if lib_interface is defined and lib_interface %}
+
+## What the workspace's harness modules export (read from the files in this workspace)
+{{ lib_interface }}
+An import from them can bind only these names; a call passes only these parameters.
+{% endif %}
+{% if env_check_error is defined and env_check_error %}
+
+## The previous single-shot of `{{ env_file }}` failed the harness's env check
+```
+{{ env_check_error }}
+```
+That file, as written (return it COMPLETE, with the failure fixed):
+```
+{{ env_previous }}
+```
+{% endif %}
+
+## Output
+{{ output_format }}

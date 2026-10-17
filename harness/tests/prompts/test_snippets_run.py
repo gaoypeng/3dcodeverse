@@ -190,12 +190,15 @@ console.log('ENV_OK');
 
 
 # --------------------------------------------------------------------- scene_blender
-def _bpy_workspace(tmp_path):
+def _bpy_workspace(tmp_path, *, lib: bool = True):
     """The scratch workspace the scene_blender snippets run in: the skeleton of the bpy worked example
-    (its two module assets build first → ``ctx.assets``), through the real runtime."""
+    (its two module assets build first → ``ctx.assets``), through the real runtime — in raw mode
+    (D113, ``lib`` False) a runtime whose settings ship no library."""
+    from codeverse3d.config import Settings
     from codeverse3d.contracts.common import Language, Track
     from codeverse3d.contracts.plan import ScenePlan
     from codeverse3d.languages import get_runtime
+    from codeverse3d.languages.scene_blender import SceneBlenderRuntime
     from codeverse3d.tracks.planner import plan_example
     from codeverse3d.workspace import Workspace
 
@@ -203,7 +206,7 @@ def _bpy_workspace(tmp_path):
         pytest.skip("no Blender binary configured")
     plan = ScenePlan.model_validate(plan_example(Track.SCENE, Language.SCENE_BLENDER))
     ws = Workspace(tmp_path / "ws")
-    rt = get_runtime(Language.SCENE_BLENDER)
+    rt = get_runtime(Language.SCENE_BLENDER) if lib else SceneBlenderRuntime(settings=Settings(scene_lib=False))
     rt.skeleton(ws, plan)
     return ws, rt, plan
 
@@ -247,6 +250,38 @@ def test_scene_blender_contract_examples_build_through_the_runtime(tmp_path) -> 
     assert set(files) == {"src/env.py", "src/zones/quay.py"}
     for rel, body in files.items():
         (ws.root / rel).write_text(body)
+    rep = rt.lint(ws)
+    assert not [f for f in rep.findings if f.severity is not Severity.INFO], [(f.target, f.message) for f in rep.findings]
+    asm = rt.assemble(ws, plan)
+    assert "quay" in asm.zones_included and not asm.zones_failed and asm.env_ok, asm
+    res = rt.build(ws)
+    assert res.ok, res.stdout_tail
+    rows = {r["name"]: r for r in res.census["placement"]["assets"]}
+    assert rows["QuayDeck"]["supported"] and not rows["QuayDeck"]["floating"]
+    assert all(rows[f"Bollard_{i}"]["supported"] for i in range(6)), {k: v for k, v in rows.items() if k.startswith("Bollard")}
+
+
+@pytest.mark.blender
+@pytest.mark.node
+def test_the_argon_raw_contract_examples_build_through_the_runtime_in_raw_mode(tmp_path) -> None:
+    """The ``argon_raw`` overlay's contract (D113) keeps the same two labelled files rewritten in raw bpy
+    / bmesh: in a raw workspace (no ``src/lib``) they lint clean under the raw lint, assemble, build with
+    the probe passing (a world, a lamp, a ground, an atmosphere) and seat what they place — the same
+    checks as the library-mode examples above."""
+    from codeverse3d.contracts.artifacts import Severity
+    from tests.scene_runtime.conftest import browser_available
+
+    rel = "variants/argon_raw/scene_blender/contract.md"
+    assert len(blocks(rel, "python")) == len(labelled_files(rel, tag="python"))
+    if not browser_available():
+        pytest.skip("puppeteer/chrome required for the census probe")
+    ws, rt, plan = _bpy_workspace(tmp_path, lib=False)
+    assert not (ws.src / "lib").exists()
+    files = labelled_files(rel, tag="python")
+    assert set(files) == {"src/env.py", "src/zones/quay.py"}
+    for path, body in files.items():
+        assert "lib." not in body and "from lib" not in body, path
+        (ws.root / path).write_text(body)
     rep = rt.lint(ws)
     assert not [f for f in rep.findings if f.severity is not Severity.INFO], [(f.target, f.message) for f in rep.findings]
     asm = rt.assemble(ws, plan)

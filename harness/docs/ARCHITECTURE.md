@@ -142,7 +142,9 @@ codeverse3d/
                       scene_blender/starter/src/ is its plan-less example (scene.py, env.py, zones/{hamlet,
                       lakeside, orchard}.py, assets/{crate, lantern_post}.py) and lib/ the harness-owned bpy library
                       (D51 for this language: noise, mesh, materials, terrain, sky, lighting, water, vegetation,
-                      architecture, scatter, place, figure, motion), indexed by prompts/scene_blender/effects_catalog.md
+                      architecture, scatter, place, figure, motion), indexed by prompts/scene_blender/effects_catalog.md;
+                      Settings.scene_lib off is RAW mode (D113, the argon_raw variant): no lib/ ships, a `lib` import
+                      is a lint ERROR, the stubs and prompts are raw bpy / bmesh
   spatial/            node.py, render.py, observe.py, tool_common.py (shared tool plumbing),
                       render_scene.py (judge view subset, content-fitted orbit),
                       render_blender.py (scene_blender: Blender pixels under a GPU slot + CPU fallback,
@@ -268,7 +270,8 @@ codeverse3d/
                       BaseTrack.run sets around the whole run from RunOptions.variant, else the
                       C3D_VARIANT / C3D_VARIANTS switch, resolved by exact generator id — never a
                       regex); variant.toml = name/version/generators/knobs, variant_hash covers the
-                      prompt + skills overlays and lands in the record.  variants/argon/ ships empty.
+                      prompt + skills overlays and lands in the record.  variants/argon/ ships empty;
+                      variants/argon_raw/ (D113) is scene_blender raw mode ([knobs] scene_lib = false).
                       The other half of the split: codeverse3d/skills/ is what an AGENT chooses
                       to read (SKILL.md + references/ + a _claims file pinning its numbers to
                       live constants).  A file that tries to be both is the bug this prevents.

@@ -60,6 +60,8 @@ paid grounding pass first, since the grounded spec is what it writes),
 `judge` read the same files; default: `C3D_VARIANT`, else `C3D_VARIANTS` keyed by the exact
 generator id — as typed, then by its served model — else the base prompts; an unknown name is
 refused before the run directory exists; the run table prints `variant: argon v1 (<hash>)`).
+`--variant argon_raw` on `--language scene_blender` is RAW mode (D113): no harness bpy library
+ships into the workspace and the model writes every mesh, material, light, world and motion.
 
 Expected cost/time with gemini-3.7-flash: object tracks ≈ $0.7–0.9 and 12–36 min for
 baseline + 1 refine; best-of-2 single-shot ≈ $0.25 / 8 min; graphics single-shot
@@ -405,7 +407,7 @@ weather: they leave the provider's errors out (docs/COST.md §31); the ceiling d
   scenario to `SCENARIOS`.
 * **A per-model variant** (D105): `codeverse3d/prompts/variants/<name>/variant.toml` (`[variant]`
   name = the directory name, version, generators, description; optional `[knobs]` — `skills_max`,
-  `skills_only` — applied like a profile, a user-stated field wins) beside the prompt files that
+  `skills_only`, `scene_lib` (D113) — applied like a profile, a user-stated field wins) beside the prompt files that
   shadow the base ones by relative path (a template there may `include` a base file), and
   `codeverse3d/skills/variants/<name>/` for bundles that shadow base bundles by name, their
   `_claims/`, and `routes.toml` (`[[boost]]` skill + delta, `[[disable]]` rule, `[[route]]` extra

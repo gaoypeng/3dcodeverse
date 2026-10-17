@@ -115,7 +115,10 @@ def test_doctor_skills_walks_every_shipped_overlay_and_labels_an_invalid_bundle_
         get_settings.cache_clear()
 
 
-def test_doctor_skills_reports_the_shipped_argon_overlay(monkeypatch):
+def test_doctor_skills_reports_every_shipped_overlay(monkeypatch):
+    """One ``skills overlay`` row per shipped variant, in name order: ``argon`` (empty) and ``argon_raw``
+    (D113: the three lib-free ``c3d-bpy-scene-*`` shadows, no routes) — a dict keyed by the row name
+    would keep only the last, so the rows are read as a list."""
     from codeverse3d.config import get_settings
     from codeverse3d.doctor import check_skills
 
@@ -123,9 +126,11 @@ def test_doctor_skills_reports_the_shipped_argon_overlay(monkeypatch):
     monkeypatch.delenv("C3D_VARIANT", raising=False)
     get_settings.cache_clear()
     try:
-        rows = {name: (status, detail) for name, status, detail in check_skills()}
+        rows = check_skills()
     finally:
         get_settings.cache_clear()
-    assert rows["skills library"][0] == "OK"
-    status, detail = rows["skills overlay"]
-    assert status == "OK" and detail.startswith("argon: 0 bundles, 0 invalid")
+    assert next(status for name, status, _ in rows if name == "skills library") == "OK"
+    overlays = [(status, detail) for name, status, detail in rows if name == "skills overlay"]
+    assert [status for status, _ in overlays] == ["OK", "OK"], overlays
+    assert overlays[0][1].startswith("argon: 0 bundles, 0 invalid")
+    assert overlays[1][1].startswith("argon_raw: 3 bundles, 0 invalid") and "routes.toml: no rows" in overlays[1][1]

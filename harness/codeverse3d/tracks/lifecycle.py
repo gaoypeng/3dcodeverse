@@ -187,8 +187,17 @@ def _skeleton(track: BaseTrack, ctx: RunContext) -> list[str]:
     return [str(Path(p).relative_to(ctx.ws.root)) if Path(p).is_absolute() else str(p) for p in paths]
 
 
+def _skeleton_key(ctx: RunContext) -> dict[str, Any]:
+    """The plan and language — and, in scene_blender raw mode only (D113), ``scene_lib: False``: a resume
+    that changed the mode writes the skeleton again instead of keeping the other mode's ``src/lib``.
+    Library mode adds nothing, so every existing cache key stands."""
+    from codeverse3d.tracks.scene_assets import ships_lib
+
+    return {"plan": ctx.plan, "language": ctx.language.value, **({} if ships_lib(ctx) else {"scene_lib": False})}
+
+
 #: the buildable placeholder of every file the plan names
-SKELETON = StageNode("skeleton", _skeleton, key=lambda c: {"plan": c.plan, "language": c.language.value}, seeds_src=True)
+SKELETON = StageNode("skeleton", _skeleton, key=_skeleton_key, seeds_src=True)
 #: the vendor CLI's workspace files (AGENTS.md / CLAUDE.md, the ignore file): once per agent kind
 MATERIALIZE = StageNode("materialize", lambda t, c: t.ensure_materialized(c))
 #: a stage boundary: the run stops here when the hard budget is spent
