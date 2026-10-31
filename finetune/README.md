@@ -76,6 +76,14 @@ The stop-DPO recipes are in `configs/lf/dpo_*.yaml`; their workstation orchestra
 generation entrypoint, output schema, and prepared training prompts. Adapting them to `eval/llm/`
 is separate work; the folder reorganization does not make that historical pipeline portable.
 
+## Released weights
+
+LoRA adapters for Qwen3.6-27B and Qwen3.8-27B are public on the Hub:
+[`ilabai/3dcodeverse-qwen3.6-27b-lora`](https://huggingface.co/ilabai/3dcodeverse-qwen3.6-27b-lora) and
+[`ilabai/3dcodeverse-qwen3.8-27b-lora`](https://huggingface.co/ilabai/3dcodeverse-qwen3.8-27b-lora), collected with the
+paper and dataset in the [3DCodeVerse collection](https://huggingface.co/collections/ilabai/3dcodeverse-6ae554e2cf043729e3074b94).
+[`docs/RELEASE.md`](docs/RELEASE.md) records which runs were chosen and why, and how to load, merge, and evaluate them.
+
 ## Experiment records
 
 [`llm_finetune_exps.md`](llm_finetune_exps.md) and [`docs/REPORT.md`](docs/REPORT.md) document the
