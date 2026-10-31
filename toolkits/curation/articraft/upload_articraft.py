@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Upload the finished folders to HF ilabai/3dcodeverse under articraft/.
+"""Upload the finished folders to HF 3dcodeverse/3dcodeverse-2m under articraft/.
   data/articraft_urdf_geo_only -> articraft/urdf_geo_only
   data/articraft_urdf_tex      -> articraft/urdf_tex
   data/articraft_with_mesh     -> articraft/with_mesh   (verifier_pass samples only)
@@ -13,7 +13,7 @@ import os, sys, math, time, json
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
 from huggingface_hub import HfApi, CommitOperationAdd
 
-REPO = "ilabai/3dcodeverse"
+REPO = "3dcodeverse/3dcodeverse-2m"
 _HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("ARTICRAFT_ROOT", os.path.dirname(os.path.dirname(os.path.dirname(_HERE))))
 TOK = open(os.path.expanduser("~/.hf_token")).read().strip()

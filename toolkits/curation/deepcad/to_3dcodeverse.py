@@ -1,7 +1,7 @@
 """
 to_3dcodeverse.py
 Emit the official 3DCodeVerse directory layout, aligned to the REAL reference
-dataset ilabai/3dcodeverse (3dcodebench/factories_geo/<sample>/):
+dataset 3dcodeverse/3dcodeverse-2m (3dcodebench/factories_geo/<sample>/):
 
   deepcad/<sub>/<name>/
       code.py

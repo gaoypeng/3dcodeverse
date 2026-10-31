@@ -60,7 +60,7 @@ the largest single confound in the paper.
   that fail often (survivor bias, survey §2a). The `*_all` / penalized numbers are the headline.
 - Contamination: the 212 test factories and all their seed instances are excluded from every 3DCodeVerse
   training mix (`build_multidialect.py`, `build_md_max.py` rules); the held-out parquets were built with
-  `random.seed(7)` splits before training. A model trained on the open `ilabai/3dcodeverse` corpus **has
+  `random.seed(7)` splits before training. A model trained on the open `3dcodeverse/3dcodeverse-2m` corpus **has
   seen** DeepCAD / Shadertoy / Thingiverse neighbours of the held-out prompts (same sources, different items) —
   say so when reporting.
 

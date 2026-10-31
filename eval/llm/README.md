@@ -9,7 +9,7 @@ path resolved from the environment (`config.py`) instead of `/wekafs/...`.
 ```
 llm/
   config.py            paths + tool discovery (C3D_EVAL_DATA, C3D_TOOLS, C3D_BLENDER, …); `python -m llm.config` = doctor
-  download.py          pull the assets from the Hub (needs a token with access to ilabai/*)
+  download.py          pull the assets from the Hub (needs a token with access to 3dcodeverse/*)
   build_prompts.py     Hub assets → data/prompts/<suite>.jsonl   (one schema for every suite)
   build_refs.py        execute the reference programs → $C3D_EVAL_DATA/refs/<suite>/<id>/ref.{glb,stl}
   suites.py            suite registry: dialect, decoding defaults, which metrics apply, tags
@@ -58,7 +58,7 @@ bash llm/setup.sh
 export C3D_EVAL_DATA=~/3dcodeverse_data/3dcodeverse_eval C3D_TOOLS=~/3dcodeverse_data/tools   # defaults
 python -m llm.config                     # doctor: every tool and asset it can / cannot find
 
-# 1. assets (token with access to ilabai/*: `hf auth login`)
+# 1. assets (token with access to 3dcodeverse/*: `hf auth login`)
 python -m llm.download --core --views --logs      # ~1 GB; --gt-tar adds the canonical GLBs (2.1 GB)
 python -m llm.build_prompts
 SEED=0 python -m llm.build_refs                    # executes every reference program (~20 min)
@@ -98,7 +98,7 @@ exec_results.jsonl, metrics.jsonl, summary.json}` and `$C3D_EVAL_OUT/report.md`.
  "messages": [{"role": "system", "content": "…"}, {"role": "user", "content": "…"}],
  "images": ["hub/3DCode/3DCodeBench_ModelLogs/inputs/AgaveMonocot_seed0/images/Image_005.png", …],   // VLM suites
  "reference": {"code": "…", "mesh": "refs/3dcodebench/AgaveMonocot_seed0/ref.glb", "renders": ["…Image_005.png", …]},
- "meta": {"factory": "AgaveMonocot", "caption_type": "instruction", "source": "YipengGao/3DCode/3DCodeBench"}}
+ "meta": {"factory": "AgaveMonocot", "caption_type": "instruction", "source": "YipengGao/3DCodeBench/3DCodeBench"}}
 ```
 Paths are relative to `$C3D_EVAL_DATA`. Adding a suite = adding a JSONL in this schema (+ one line in
 `suites.SUITES` for decoding defaults / metrics).

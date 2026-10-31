@@ -1,6 +1,6 @@
 """Re-score the official 3DCodeBench frontier-model logs with this package's executor and metrics.
 
-`YipengGao/3DCode/3DCodeBench_ModelLogs/data/{text_to_3D,image_to_3D}.parquet` hold every generated script of
+`YipengGao/3DCodeBench/3DCodeBench_ModelLogs/data/{text_to_3D,image_to_3D}.parquet` hold every generated script of
 the paper's 12 models (one row per trial, `code` column).  Writing them into the gen-dir layout lets
 `run_eval --stages exec render score` produce exec / Chamfer / SigLIP-2 / DINOv3 numbers for the frontier
 models on *this* machine — the calibration that tells whether a local 8B number is comparable to the paper.

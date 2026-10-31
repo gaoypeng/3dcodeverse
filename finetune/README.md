@@ -35,7 +35,7 @@ python llamafactory/sample_mix.py --src /path/to/md_max --out /path/to/mix \
 ```
 
 The study's ShareGPT data is published as
-**[`ilabai/3dcodeverse-llamafactory`](https://huggingface.co/datasets/ilabai/3dcodeverse-llamafactory)**
+**[`3dcodeverse/3dcodeverse-llamafactory`](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-llamafactory)**
 (private; see the dataset card for its non-commercial terms). `llamafactory/build_hf_dataset.py`
 packages the corpus, historical preference sets, held-out tests, and mix descriptions from prepared
 local inputs. The published pair datasets are also used by the Hub recipe in `configs/lf/`.
@@ -79,9 +79,9 @@ is separate work; the folder reorganization does not make that historical pipeli
 ## Released weights
 
 LoRA adapters for Qwen3.6-27B and Qwen3.8-27B are public on the Hub:
-[`ilabai/3dcodeverse-qwen3.6-27b-lora`](https://huggingface.co/ilabai/3dcodeverse-qwen3.6-27b-lora) and
-[`ilabai/3dcodeverse-qwen3.8-27b-lora`](https://huggingface.co/ilabai/3dcodeverse-qwen3.8-27b-lora), collected with the
-paper and dataset in the [3DCodeVerse collection](https://huggingface.co/collections/ilabai/3dcodeverse-6ae554e2cf043729e3074b94).
+[`3dcodeverse/3dcodeverse-qwen3.6-27b-lora`](https://huggingface.co/3dcodeverse/3dcodeverse-qwen3.6-27b-lora) and
+[`3dcodeverse/3dcodeverse-qwen3.8-27b-lora`](https://huggingface.co/3dcodeverse/3dcodeverse-qwen3.8-27b-lora), collected with the
+paper and dataset in the [3DCodeVerse collection](https://huggingface.co/collections/3dcodeverse/3dcodeverse).
 [`docs/RELEASE.md`](docs/RELEASE.md) records which runs were chosen and why, and how to load, merge, and evaluate them.
 
 ## Experiment records

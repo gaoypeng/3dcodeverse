@@ -6,7 +6,7 @@ Uses upload_large_folder (resumable, multi-threaded) -- required for the
 
 Usage:
   python upload_to_hf.py --folder /data/.../corpus_3dcv \
-      --repo ilabai/3dcodeverse --token_file /data/.../.hf_token_write
+      --repo 3dcodeverse/3dcodeverse-2m --token_file /data/.../.hf_token_write
 """
 import argparse
 from pathlib import Path
@@ -16,7 +16,7 @@ from huggingface_hub import HfApi
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--folder", required=True, help="local folder whose contents map to repo root (contains deepcad/)")
-    ap.add_argument("--repo", required=True, help="e.g. ilabai/3dcodeverse or adonis126/deepcad-3dcodeverse")
+    ap.add_argument("--repo", required=True, help="e.g. 3dcodeverse/3dcodeverse-2m or adonis126/deepcad-3dcodeverse")
     ap.add_argument("--token_file", required=True)
     ap.add_argument("--repo_type", default="dataset")
     ap.add_argument("--create", action="store_true", help="create the repo if it doesn't exist")

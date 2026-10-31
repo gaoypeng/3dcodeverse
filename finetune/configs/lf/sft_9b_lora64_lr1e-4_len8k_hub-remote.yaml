@@ -13,7 +13,7 @@ lora_dropout: 0.05
 lora_target: all
 freeze_vision_tower: true
 freeze_multi_modal_projector: true
-dataset_dir: REMOTE:ilabai/3dcodeverse
+dataset_dir: REMOTE:3dcodeverse/3dcodeverse-2m
 dataset: 3dcv_3dcodebench__factories_geo_imgtext,3dcv_3dcodebench__factories_tex_imgtext,3dcv_3dcodebench__instances_geo_full_imgtext,3dcv_3dcodebench__instances_geo_imgtext,3dcv_3dcodebench__instances_tex_full_imgtext,3dcv_3dcodebench__instances_tex_imgtext,3dcv_bioinspired3d__bpy_structures_geo_imgtext,3dcv_bioinspired3d__bpy_structures_tex_imgtext
 media_dir: /wekafs/ict/hx_624/data/pair_media_root
 template: qwen3_5

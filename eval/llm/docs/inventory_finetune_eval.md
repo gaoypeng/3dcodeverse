@@ -11,7 +11,7 @@ Read-only audit of `finetune/` (2026-09-08). This is the reference for what
 - Task id for held-out sets: `r["id"].replace("/", "__")`, messages truncated to `[:2]` (system + user; the assistant reference is dropped) — `eval/eval_all.sh:47-50`, `eval/run_dialect_eval.sh:11-13`, `scripts/threejs_check.sh:19-21`.
 - Every held-out set row in `data/multidialect/<dialect>/test.jsonl` is `{"messages":[system,user,assistant("```<fence>\n<code>\n```")], "dialect", "subset", "id"}` (`scripts/build_multidialect.py:66-70`).
 - Reference code is recovered from the assistant turn with the **legacy** longest-fenced-block rule (`eval/dialect_eval.py:13-14`, `eval/blender_dialect_eval.py:9-10`).
-- `scripts/build_hf_dataset.py:119-129` exports every `test.jsonl` to `test/<dialect>.parquet` with columns `id, system, prompt, reference_code` — 593 rows total (103+200+50+200+40). This is the cleanest portable source of the five held-out sets (now on the Hub: `ilabai/3dcodeverse-llamafactory/test/*.parquet`).
+- `scripts/build_hf_dataset.py:119-129` exports every `test.jsonl` to `test/<dialect>.parquet` with columns `id, system, prompt, reference_code` — 593 rows total (103+200+50+200+40). This is the cleanest portable source of the five held-out sets (now on the Hub: `3dcodeverse/3dcodeverse-llamafactory/test/*.parquet`).
 
 ### 1.2 3DCodeBench (212 tasks, text → Blender-Python)
 

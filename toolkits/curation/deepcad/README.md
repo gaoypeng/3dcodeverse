@@ -1,6 +1,6 @@
 # DeepCAD → CadQuery curation tools
 
-Tools used to curate the **DeepCAD** subset of [`ilabai/3dcodeverse`](https://huggingface.co/datasets/ilabai/3dcodeverse) (under `deepcad/v1/`).
+Tools used to curate the **DeepCAD** subset of [`3dcodeverse/3dcodeverse-2m`](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-2m) (under `deepcad/v1/`).
 
 [DeepCAD](https://github.com/ChrisWu1997/DeepCAD) (MIT) is a dataset of ~178k CAD
 construction sequences (sketch + extrude, stored as quantized command vectors). We
@@ -105,7 +105,7 @@ python assemble_corpus.py ... | python mark_dedup.py ... | python finalize.py ..
 python dedup_vec.py      --vec_dir cad_vec --ids ids.txt --out dups.json
 python to_3dcodeverse.py --jsonl final.jsonl --canonical_only --out_root corpus
 python pack_tar_parquet.py --corpus corpus/deepcad --out packed --subfolder v1
-python upload_to_hf.py   --folder packed --repo ilabai/3dcodeverse --token_file ~/.hf_token
+python upload_to_hf.py   --folder packed --repo 3dcodeverse/3dcodeverse-2m --token_file ~/.hf_token
 ```
 
 ## Gotchas learned (baked into the tools)

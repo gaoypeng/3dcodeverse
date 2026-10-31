@@ -75,5 +75,5 @@ if [ ! -x "$TOOLS/glslang/bin/glslang" ]; then
 fi
 "$TOOLS/glslang/bin/glslang" --version | head -1
 
-log "done. Next: hf auth login (token with ilabai/* access), then"
+log "done. Next: hf auth login (token with 3dcodeverse/* access), then"
 echo "  $PY -m llm.config && $PY -m llm.download --core --views --logs && $PY -m llm.build_prompts && SEED=0 $PY -m llm.build_refs"

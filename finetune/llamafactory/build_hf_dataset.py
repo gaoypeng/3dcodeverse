@@ -12,7 +12,7 @@ regenerates any of them from a one-line budget spec).
   mixes.json                        the exact budget spec of every mix used in the report
   README.md                         dataset card
 
-usage: python llamafactory/build_hf_dataset.py [--out /wekafs/ict/hx_624/hf_ds] [--push ilabai/3dcodeverse-llamafactory] [--private]
+usage: python llamafactory/build_hf_dataset.py [--out /wekafs/ict/hx_624/hf_ds] [--push 3dcodeverse/3dcodeverse-llamafactory] [--private]
 """
 import argparse
 import collections
@@ -66,7 +66,7 @@ def write_parquet(rows, path_prefix, cols=None):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="/wekafs/ict/hx_624/hf_ds")
-    ap.add_argument("--push", default=None, help="repo id, e.g. ilabai/3dcodeverse-llamafactory")
+    ap.add_argument("--push", default=None, help="repo id, e.g. 3dcodeverse/3dcodeverse-llamafactory")
     ap.add_argument("--private", action="store_true")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -156,7 +156,7 @@ size_categories:
 # 3DCodeVerse — LLaMA-Factory edition
 
 Text→3D-code training data in **LLaMA-Factory ShareGPT format**, derived from
-[`ilabai/3dcodeverse`](https://huggingface.co/datasets/ilabai/3dcodeverse). Same license and non-commercial
+[`3dcodeverse/3dcodeverse-2m`](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-2m). Same license and non-commercial
 research terms as the parent dataset; the per-source licenses (Infinigen/BSD-3, Bioinspired3D/MIT, Shadertoy/CC BY-NC-SA,
 Thingiverse, DeepCAD/MIT) still apply.
 
@@ -183,7 +183,7 @@ Total SFT pairs: **{total:,}** (one row per prompt variant; each source sample h
 ## How to use with LLaMA-Factory
 
 ```bash
-huggingface-cli download ilabai/3dcodeverse-llamafactory --repo-type dataset --local-dir data/3dcv
+huggingface-cli download 3dcodeverse/3dcodeverse-llamafactory --repo-type dataset --local-dir data/3dcv
 cp data/3dcv/dataset_info.json data/3dcv/   # already there; point dataset_dir at data/3dcv
 llamafactory-cli train your_config.yaml     # with: dataset_dir: data/3dcv, dataset: 3dcv_blender,3dcv_cadquery,...
 ```

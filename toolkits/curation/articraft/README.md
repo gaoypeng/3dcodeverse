@@ -1,6 +1,6 @@
 # Articraft → CadQuery curation tools
 
-Tools used to curate the **Articraft** subset of [`ilabai/3dcodeverse`](https://huggingface.co/datasets/ilabai/3dcodeverse).
+Tools used to curate the **Articraft** subset of [`3dcodeverse/3dcodeverse-2m`](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-2m).
 
 [Articraft](https://github.com/mattzh72/articraft) (Apache-2.0) is a **mesh-based**
 SDK: its models build triangle meshes. We convert each model into a

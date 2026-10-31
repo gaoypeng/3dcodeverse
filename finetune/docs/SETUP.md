@@ -56,7 +56,7 @@ pip uninstall -y torchaudio                        # a mismatched torchaudio bre
 | glslangValidator | conda-forge `glslang` (in `llmft`) | `GLSLANG` in `eval/dialect_runners.py` |
 | Chromium (Playwright) | see `llmft` above | `PLAYWRIGHT_BROWSERS_PATH` |
 | Models | `hf download Qwen/Qwen3.5-9B --local-dir $WORKSPACE/models/Qwen3.5-9B` (also used: Qwen3.5-4B, Qwen3-8B, Qwen2.5-Coder-7B-Instruct) | `model_name_or_path` in `configs/lf/*.yaml` |
-| Data | only `metadata.parquet` of each 3DCodeVerse subset (`ilabai/3dcodeverse` on the HF Hub) + the 3DCodeBench tarball; `scripts/fetch_hf_files.py` is more robust than `hf download` for many small files on a network FS | `scripts/prep_data.py`, `scripts/build_multidialect.py` |
+| Data | only `metadata.parquet` of each 3DCodeVerse subset (`3dcodeverse/3dcodeverse-2m` on the HF Hub) + the 3DCodeBench tarball; `scripts/fetch_hf_files.py` is more robust than `hf download` for many small files on a network FS | `scripts/prep_data.py`, `scripts/build_multidialect.py` |
 
 Secrets: `env.sh` sources `$WORKSPACE/.secrets/hf.env` (`export HF_TOKEN=...`, chmod 600). Never put tokens in configs or scripts.
 

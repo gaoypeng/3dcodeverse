@@ -19,7 +19,7 @@
 
 <a href="https://arxiv.org/pdf/2610.22341"><img src="https://img.shields.io/badge/arXiv-2610.22341-B31B1B?logo=arxiv&logoColor=white" alt="arXiv"></a>
 <a href="https://3dcodeverse.com"><img src="assets/badges/project_page.svg" alt="Project Page"></a>
-<a href="https://huggingface.co/datasets/ilabai/3dcodeverse"><img src="assets/badges/hugging_face.svg" alt="Hugging Face"></a>
+<a href="https://huggingface.co/datasets/3dcodeverse/3dcodeverse-2m"><img src="assets/badges/hugging_face.svg" alt="Hugging Face"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/Code%20License-Apache%202.0-4C9A2A" alt="Code License: Apache 2.0"></a>
 
 </div>

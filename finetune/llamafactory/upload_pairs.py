@@ -14,7 +14,7 @@ import os
 
 from huggingface_hub import HfApi, CommitOperationAdd, CommitOperationDelete, hf_hub_download
 
-REPO = "ilabai/3dcodeverse"
+REPO = "3dcodeverse/3dcodeverse-2m"
 ROOTS = ("/wekafs/ict/hx_624/hf_pairs_shadertoy", "/wekafs/ict/hx_624/hf_pairs", "/wekafs/ict/hx_624/hf_pairs_other")
 # the two sources the user renamed after these were built
 RENAME = {"blender_distill": "blender_coding_agent", "threejs_distill": "threejs_coding_agent"}

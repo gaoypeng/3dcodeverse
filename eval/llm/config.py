@@ -32,15 +32,15 @@ HARNESS_BATTERIES = ("articulated_v2", "compare_v4", "complexity_v3", "fancy_v1_
                      "fancy_v1_threejs", "graphics_v2", "static_objects_v1", "static_objects_v2", "teaser_v1_static")
 
 DATA_DIR = Path(os.environ.get("C3D_EVAL_DATA", "~/3dcodeverse_data/3dcodeverse_eval")).expanduser()
-HUB_DIR = DATA_DIR / "hub"                     # snapshot_download targets (ilabai/*, YipengGao/3DCode)
+HUB_DIR = DATA_DIR / "hub"                     # snapshot_download targets (3dcodeverse/*, YipengGao/3DCodeBench)
 REFS_DIR = DATA_DIR / "refs"                   # reference meshes / renders per suite
 OUT_DIR = Path(os.environ.get("C3D_EVAL_OUT", DATA_DIR / "out")).expanduser()
 TOOLS_DIR = Path(os.environ.get("C3D_TOOLS", "~/3dcodeverse_data/tools")).expanduser()
 XLIBS = Path(os.environ.get("C3D_XLIBS", "~/.local/xlibs/usr/lib/x86_64-linux-gnu")).expanduser()
 
 BENCH_TASKS_DIR = HUB_DIR / "3DCode" / "3DCodeBench"                 # 212 <task>/{<task>.py, prompt_*.txt}
-C3D_HUB = HUB_DIR / "3dcodeverse"                                   # ilabai/3dcodeverse partial snapshot
-LF_HUB = HUB_DIR / "3dcodeverse-llamafactory"                        # ilabai/3dcodeverse-llamafactory (test/*.parquet)
+C3D_HUB = HUB_DIR / "3dcodeverse"                                   # 3dcodeverse/3dcodeverse-2m partial snapshot
+LF_HUB = HUB_DIR / "3dcodeverse-llamafactory"                        # 3dcodeverse/3dcodeverse-llamafactory (test/*.parquet)
 
 
 def _first_existing(*cands: str | Path | None) -> Path | None:

@@ -6,7 +6,7 @@ a source of its own. They now live at <source>/<subdir>_llamafactory_{text,img,i
 """
 import os, json
 from huggingface_hub import HfApi, hf_hub_download, CommitOperationDelete
-tok = os.environ["HF_TOKEN"]; REPO = "ilabai/3dcodeverse"; api = HfApi(token=tok)
+tok = os.environ["HF_TOKEN"]; REPO = "3dcodeverse/3dcodeverse-2m"; api = HfApi(token=tok)
 agg = json.load(open(hf_hub_download(REPO, "dataset_info.json", repo_type="dataset", token=tok)))
 still = [k for k, v in agg.items() if str(v.get("folder", "")).startswith(("pairs/", "pair_images/"))]
 if still:

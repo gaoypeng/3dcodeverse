@@ -25,7 +25,7 @@ for SUB in instances_tex instances_geo_full instances_tex_full; do
 import os, sys, shutil
 from huggingface_hub import hf_hub_download
 sub = sys.argv[1]
-p = hf_hub_download("ilabai/3dcodeverse", f"3dcodebench/{sub}/metadata.parquet", repo_type="dataset", token=os.environ["HF_TOKEN"])
+p = hf_hub_download("3dcodeverse/3dcodeverse-2m", f"3dcodebench/{sub}/metadata.parquet", repo_type="dataset", token=os.environ["HF_TOKEN"])
 d = f"/wekafs/ict/hx_624/data/3dcodeverse_meta/3dcodebench/{sub}"
 os.makedirs(d, exist_ok=True); shutil.copy(p, f"{d}/metadata.parquet")
 PY

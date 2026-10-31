@@ -1,7 +1,7 @@
 # 3D-code LLM finetune 调研报告（dgx03 / 4×H100，2026-08-21 → 08-22）
 
 > 目标：在前 4 张 H100 上跑通「文本 → Blender Python 3D 代码」的 LLM 微调流程，评估 3DCodeVerse 数据是否适合训练，为后续 large-scale finetune 给出配置与结论。
-> 工程目录：`/wekafs/ict/hx_624/llm-ft`（README 有命令）。**所有数字见第 5 / 7 / 8 节；最近更新 2026-08-28 12:00（新增 §12：全量数据清洗与编译/渲染验证、URDF 恢复、泄漏探针、图像条件生成）；上一版 2026-08-25 20:30（§11 完成：评估方法论、md_max 审计、27B 零样本/v1/v2/v3/DPO、scipy 修正、caption 增强对照；**27B v2 = 3DCodeBench 93.4% + 最佳几何**，9B+执行反馈 DPO = 96.2%；完整实验清单见 `llm_finetune_exps.md`，数据已发布到 HF `ilabai/3dcodeverse-llamafactory`）。**
+> 工程目录：`/wekafs/ict/hx_624/llm-ft`（README 有命令）。**所有数字见第 5 / 7 / 8 节；最近更新 2026-08-28 12:00（新增 §12：全量数据清洗与编译/渲染验证、URDF 恢复、泄漏探针、图像条件生成）；上一版 2026-08-25 20:30（§11 完成：评估方法论、md_max 审计、27B 零样本/v1/v2/v3/DPO、scipy 修正、caption 增强对照；**27B v2 = 3DCodeBench 93.4% + 最佳几何**，9B+执行反馈 DPO = 96.2%；完整实验清单见 `llm_finetune_exps.md`，数据已发布到 HF `3dcodeverse/3dcodeverse-llamafactory`）。**
 
 ## 1. 环境（已 setup，可直接复用）
 | 项 | 内容 |
@@ -35,10 +35,10 @@
 
 ## 3. 数据：3DCodeVerse 及相关数据集
 ### 3.1 格式结论
-* `ilabai/3dcodeverse` 每个子集都是 **`metadata.parquet`（含 `code`、`captions{detailed,instruction,factory}`、`meta_json`）+ `samples-*.tar`（渲染图/GLB）**。**做 LLM 文本训练只需要 parquet（全部 173 个文件 <1 GB）**，无需下载 285 GB 的 tar。→ `data/3dcodeverse_meta/`
+* `3dcodeverse/3dcodeverse-2m` 每个子集都是 **`metadata.parquet`（含 `code`、`captions{detailed,instruction,factory}`、`meta_json`）+ `samples-*.tar`（渲染图/GLB）**。**做 LLM 文本训练只需要 parquet（全部 173 个文件 <1 GB）**，无需下载 285 GB 的 tar。→ `data/3dcodeverse_meta/`
 * captions 三种字段全都齐（≥99.8%）：`instruction`（任务式指令，最适合做 user prompt）、`detailed`（外观描述）、`factory`（代码做了什么的描述）。
 * 例外：`articraft/urdf_*` 的 `code` 列为空（多文件 URDF 工程，需从 tar 取）；`shadertoy` 是多文件（`shader_json` 列 + `code.glsl`）。
-* `ilabai/thingiverse-openscad-blender-5-0`（1193）与 `...-5-1-2-parametric`（6919）是**按样本目录存放**（code.py / prompt.txt / captions.json / openscad/*.scad）→ 需要自己抓小文件拼 pair。parametric 版的 `code.py` 每个 ~3000 行，其中 ~2500 行是 OpenSCAD→bpy 的 shim 样板，**不适合直接当 SFT 目标**；它的 `prompt.txt → *.scad` 倒是干净的 OpenSCAD 指令对。5-0 版里 166 个是 `reference_mesh.json` 回退（读 json 重建 mesh），要过滤掉。
+* `3dcodeverse/thingiverse-openscad-blender-5-0`（1193）与 `...-5-1-2-parametric`（6919）是**按样本目录存放**（code.py / prompt.txt / captions.json / openscad/*.scad）→ 需要自己抓小文件拼 pair。parametric 版的 `code.py` 每个 ~3000 行，其中 ~2500 行是 OpenSCAD→bpy 的 shim 样板，**不适合直接当 SFT 目标**；它的 `prompt.txt → *.scad` 倒是干净的 OpenSCAD 指令对。5-0 版里 166 个是 `reference_mesh.json` 回退（读 json 重建 mesh），要过滤掉。
 * `3dcodebench/3dcodebench`（212 任务）= 3dcodeverse `3dcodebench/factories_*` 的子集（243 个 factory 里 212 个同名）→ **训练里必须剔除这 212 个 factory，否则测试集泄漏**。
 
 ### 3.2 规模（代码 token 用 Qwen3.5 tokenizer 抽样估计）

@@ -24,7 +24,7 @@ import pyarrow.parquet as pq
 import requests
 
 META = "/wekafs/ict/hx_624/data/3dcodeverse_meta"
-REPO = "ilabai/3dcodeverse"
+REPO = "3dcodeverse/3dcodeverse-2m"
 SYS = {
     "web": "You are an expert creative web developer. Write a complete, standalone HTML page (inline CSS/JS, no local assets) that reproduces the requested animation. Output ONLY the code in one ```html block.",
     "threejs": "You are an expert three.js developer. Write a complete, standalone HTML page that renders the requested scene with three.js. Output ONLY the code in one ```html block.",

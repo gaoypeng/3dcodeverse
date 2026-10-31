@@ -1,12 +1,12 @@
 # Released weights
 
 Two LoRA adapters trained with this component are public on the Hugging Face Hub, grouped with the paper and
-dataset in the [3DCodeVerse collection](https://huggingface.co/collections/ilabai/3dcodeverse-6ae554e2cf043729e3074b94).
+dataset in the [3DCodeVerse collection](https://huggingface.co/collections/3dcodeverse/3dcodeverse).
 
 | repo | base model | training run | size |
 |---|---|---|---|
-| [`ilabai/3dcodeverse-qwen3.6-27b-lora`](https://huggingface.co/ilabai/3dcodeverse-qwen3.6-27b-lora) | [Qwen/Qwen3.6-27B](https://huggingface.co/Qwen/Qwen3.6-27B) | `qwen3.6-27b_lora_3dcv_text_A`: `3dcv_text_all` mix, 5,515 steps, global batch 48, eval loss 0.252 | 467 MB |
-| [`ilabai/3dcodeverse-qwen3.8-27b-lora`](https://huggingface.co/ilabai/3dcodeverse-qwen3.8-27b-lora) | [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) | `qwen3.8-27b_lora_3dcv_text_A`: 4,322 steps, final train loss ≈ 0.25 | 467 MB |
+| [`3dcodeverse/3dcodeverse-qwen3.6-27b-lora`](https://huggingface.co/3dcodeverse/3dcodeverse-qwen3.6-27b-lora) | [Qwen/Qwen3.6-27B](https://huggingface.co/Qwen/Qwen3.6-27B) | `qwen3.6-27b_lora_3dcv_text_A`: `3dcv_text_all` mix, 5,515 steps, global batch 48, eval loss 0.252 | 467 MB |
+| [`3dcodeverse/3dcodeverse-qwen3.8-27b-lora`](https://huggingface.co/3dcodeverse/3dcodeverse-qwen3.8-27b-lora) | [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) | `qwen3.8-27b_lora_3dcv_text_A`: 4,322 steps, final train loss ≈ 0.25 | 467 MB |
 
 Both adapters use LoRA rank 16, alpha 32, dropout 0, on every attention, linear-attention
 (`in_proj_qkv`, `in_proj_a/b/z`, `out_proj`), and MLP projection; peak LR 1e-4, cosine schedule, 3% warmup,
@@ -14,7 +14,7 @@ Both adapters use LoRA rank 16, alpha 32, dropout 0, on every attention, linear-
 from Qwen's repositories.
 
 The weights are released under CC BY-NC-SA 4.0, matching the
-[`ilabai/3dcodeverse`](https://huggingface.co/datasets/ilabai/3dcodeverse) data license. The base models are
+[`3dcodeverse/3dcodeverse-2m`](https://huggingface.co/datasets/3dcodeverse/3dcodeverse-2m) data license. The base models are
 Apache 2.0.
 
 ## Which runs were released
@@ -44,11 +44,11 @@ Load with PEFT on top of the base checkpoint (`Qwen3_5ForConditionalGeneration`;
 from transformers import AutoModelForImageTextToText
 from peft import PeftModel
 base = AutoModelForImageTextToText.from_pretrained("Qwen/Qwen3.6-27B", torch_dtype="bfloat16", device_map="auto")
-model = PeftModel.from_pretrained(base, "ilabai/3dcodeverse-qwen3.6-27b-lora")
+model = PeftModel.from_pretrained(base, "3dcodeverse/3dcodeverse-qwen3.6-27b-lora")
 ```
 
 For evaluation or serving, merge first. `configs/lf/export_lora_template.yaml` works with Hub ids in place of
-local paths (`model_name_or_path: Qwen/Qwen3.6-27B`, `adapter_name_or_path: ilabai/3dcodeverse-qwen3.6-27b-lora`);
+local paths (`model_name_or_path: Qwen/Qwen3.6-27B`, `adapter_name_or_path: 3dcodeverse/3dcodeverse-qwen3.6-27b-lora`);
 then evaluate the merged directory with `python -m llm.run_eval --backend vllm --model <merged>` from `eval/`.
 Lower vLLM `max_num_seqs` if the engine fails to allocate Mamba cache blocks (see REPORT.md §6).
 

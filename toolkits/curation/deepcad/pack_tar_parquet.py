@@ -1,5 +1,5 @@
 """
-pack_tar_parquet.py  (v2 — spec-conformant, matches ilabai/3dcodeverse Storage Rules)
+pack_tar_parquet.py  (v2 — spec-conformant, matches 3dcodeverse/3dcodeverse-2m Storage Rules)
 
 Emits the official chunked tar+parquet layout:
 

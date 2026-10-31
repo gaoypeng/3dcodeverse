@@ -152,11 +152,11 @@ OpenSCAD 和 three.js 的问题不是训练方法，是**语料里只有一千�
 
 ---
 
-## 7. 数据集：`ilabai/3dcodeverse`
+## 7. 数据集：`3dcodeverse/3dcodeverse-2m`
 
 九个来源、**290,480 段不同的可执行代码**、**1,932,722 条训练配对**（文本→代码 / 图像→代码 / 图像+文本→代码 × 全部 caption 变体）、545,397 张训练分辨率渲染图。
 
-根目录的 `dataset_info.json` 注册了 **609 个子集**，配合 `dataset_dir: REMOTE:ilabai/3dcodeverse` 可直接按名训练，无需预先下载或转换。格式经 LLaMA-Factory 实跑训练验证。
+根目录的 `dataset_info.json` 注册了 **609 个子集**，配合 `dataset_dir: REMOTE:3dcodeverse/3dcodeverse-2m` 可直接按名训练，无需预先下载或转换。格式经 LLaMA-Factory 实跑训练验证。
 
 ### 构建过程中修掉的五个"静默失败"
 
@@ -179,7 +179,7 @@ OpenSCAD 和 three.js 的问题不是训练方法，是**语料里只有一千�
 **纯文本可以直接从 Hub 训**，什么都不用下载：
 
 ```yaml
-dataset_dir: REMOTE:ilabai/3dcodeverse
+dataset_dir: REMOTE:3dcodeverse/3dcodeverse-2m
 dataset: 3dcv_shadertoy__33_text
 ```
 

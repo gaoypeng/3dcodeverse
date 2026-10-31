@@ -6,7 +6,7 @@
 # 2026-era / cross-cutting entries (collected by lead agent)
 
 ## 3DCodeBench (Gao et al., arXiv 2606.01057, May 31 2026)
-- Paper https://arxiv.org/abs/2606.01057 ; HTML https://arxiv.org/html/2606.01057 ; site https://www.3dcodebench.com/ ; code https://github.com/gaoypeng/3dcodebench ; data HF `YipengGao/3DCode`
+- Paper https://arxiv.org/abs/2606.01057 ; HTML https://arxiv.org/html/2606.01057 ; site https://www.3dcodebench.com/ ; code https://github.com/gaoypeng/3dcodebench ; data HF `YipengGao/3DCodeBench`
 - Task: text (object description / procedural instruction / factory-level spec) or 4 canonical multi-view reference images (45/135/225/315 deg azimuth) -> standalone Blender 5.0 Python script
 - Data: 212 Infinigen-derived object categories; 26K prompt/code/mesh triplets; 12,963 fine-tune instances (site says 12,720 factory instances); 212-instance eval set; median script 387 lines, mean 531. GT = Infinigen factories migrated by a VLM agent into standalone bpy + baked GLB. Dedup via "Class Deduplication" in Experience Library. No explicit difficulty tiers.
 - Env: Blender 5.0, 240 s wall-clock timeout, fresh subprocess per run, Cycles renders from 4 canonical views.
@@ -537,7 +537,7 @@ Compiled 2026-09-08 from primary sources (arXiv HTML/abs, GitHub, HF). Every num
 - **Role**: fully procedural Blender generator (plants, animals, terrain, indoor objects) whose factory scripts are the ground truth for 3DCodeBench, MeshCoder (Infinigen Indoors), Code2Worlds and 3D-GPT. License BSD-3-Clause (https://arxiv.org/abs/2306.09310 search summary; repo). No LLM eval numbers itself.
 
 ### A8. 3DCodeBench / 3DCodeData / 3DCodeArena — May/Jun 2026, arXiv
-- **URLs**: https://arxiv.org/abs/2606.01057 (HTML https://arxiv.org/html/2606.01057v1); code https://github.com/gaoypeng/3dcodebench; data https://huggingface.co/datasets/YipengGao/3DCode; site 3dcodebench.com (per paper).
+- **URLs**: https://arxiv.org/abs/2606.01057 (HTML https://arxiv.org/html/2606.01057v1); code https://github.com/gaoypeng/3dcodebench; data https://huggingface.co/datasets/YipengGao/3DCodeBench; site 3dcodebench.com (per paper).
 - **Task**: text (three caption styles: object description / procedural instruction / factory-level spec) or 1–4 reference renders → standalone Blender 5.0 Python that procedurally builds one object; settings: single-shot, multi-turn error feedback, coding-agent harness (Claude Code / Codex CLI / Gemini CLI, 600–900 s budget).
 - **Dataset**: 212 Infinigen categories (one eval instance each, seed-addressable); ground-truth factory scripts median 387 / mean 531 lines; 3DCodeData corpus 212×60 seeds = 12,720 instances (paper says 12,963 for fine-tuning; README says 12,720) with 2 captions, 4 renders, textured + white GLB; captions validated by Gemini 3.1 Pro and humans. Released logs: 81,605 generated scripts / 82,042 trials + 2,767 agent transcripts.
 - **Execution env**: Blender 5.0 Cycles, sandboxed headless subprocess, 240 s timeout, 4 canonical views (azimuth 45/135/225/315°). Multi-turn: up to two stateless retries, each a fresh call with truncated stderr (head-70%/tail-30%, 33K-char cap per HTML; the paper's summary elsewhere says 3K).

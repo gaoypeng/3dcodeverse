@@ -5,7 +5,7 @@ build_prompts so the prompt rows point at the meshes.  Executing the reference t
 as the model outputs is also the executor's self-test: the report's sanity figure for 3DCodeBench is
 Chamfer ≈ 0.016 / F@0.05 ≈ 1.0 between a re-executed reference and the shipped GT.
 
-For 3DCodeBench the canonical GT is `renders/object.glb` inside `ilabai/3dcodeverse/3dcodebench/factories_geo/
+For 3DCodeBench the canonical GT is `renders/object.glb` inside `3dcodeverse/3dcodeverse-2m/3dcodebench/factories_geo/
 samples-000.tar`; when that tar is present (`download.py --gt-tar`) the canonical mesh is stored as
 `ref_canonical.glb` and `ref.glb` is the re-executed one — `score.py --ref canonical` switches between them.
 """
